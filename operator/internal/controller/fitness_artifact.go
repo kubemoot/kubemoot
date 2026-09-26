@@ -1104,7 +1104,7 @@ func writeOverviewSheet(f *excelize.File, suite *kubemootv1alpha1.CrewFitnessSui
 // tick labels — the scenario names live on the Scenarios sheet).
 func chartXAxis() excelize.ChartAxis {
 	return excelize.ChartAxis{
-		Title: []excelize.RichTextRun{{Text: "Fitness Tests"}},
+		Title: excelize.ChartTitle{Paragraph: []excelize.RichTextRun{{Text: "Fitness Tests"}}},
 		Font:  excelize.Font{Color: "000000"}, // black tick labels (default is light grey)
 	}
 }
@@ -1122,9 +1122,9 @@ func writePassRateChartSheet(f *excelize.File, numScenarios int) error {
 				Name:   "Scenarios!$I$1",
 				Values: fmt.Sprintf("Scenarios!$I$2:$I$%d", last),
 			}},
-			Title:     []excelize.RichTextRun{{Text: "Pass rate by fitness test"}},
+			Title:     excelize.ChartTitle{Paragraph: []excelize.RichTextRun{{Text: "Pass rate by fitness test"}}},
 			XAxis:     chartXAxis(),
-			YAxis:     excelize.ChartAxis{Title: []excelize.RichTextRun{{Text: labelPassRate}}, Minimum: &zero, Maximum: &one, Font: excelize.Font{Color: "000000"}},
+			YAxis:     excelize.ChartAxis{Title: excelize.ChartTitle{Paragraph: []excelize.RichTextRun{{Text: labelPassRate}}}, Minimum: &zero, Maximum: &one, Font: excelize.Font{Color: "000000"}},
 			Legend:    excelize.ChartLegend{Position: "none"},
 			Dimension: excelize.ChartDimension{Width: 1000, Height: 400},
 		}); err != nil {
@@ -1153,9 +1153,9 @@ func writeDurationChartSheet(f *excelize.File, numScenarios int) error {
 				{Name: "Scenarios!$G$1", Values: fmt.Sprintf("Scenarios!$G$2:$G$%d", last)},
 				{Name: "Scenarios!$H$1", Values: fmt.Sprintf("Scenarios!$H$2:$H$%d", last)},
 			},
-			Title:     []excelize.RichTextRun{{Text: "Duration by fitness test"}},
+			Title:     excelize.ChartTitle{Paragraph: []excelize.RichTextRun{{Text: "Duration by fitness test"}}},
 			XAxis:     chartXAxis(),
-			YAxis:     excelize.ChartAxis{Title: []excelize.RichTextRun{{Text: "Duration (ms)"}}, Font: excelize.Font{Color: "000000"}},
+			YAxis:     excelize.ChartAxis{Title: excelize.ChartTitle{Paragraph: []excelize.RichTextRun{{Text: "Duration (ms)"}}}, Font: excelize.Font{Color: "000000"}},
 			Legend:    excelize.ChartLegend{Position: "bottom"},
 			Dimension: excelize.ChartDimension{Width: 1000, Height: 400},
 		}); err != nil {
@@ -1186,9 +1186,9 @@ func writeQualityChartSheet(f *excelize.File, numScenarios int) error {
 				{Name: "Scenarios!$O$1", Values: fmt.Sprintf("Scenarios!$O$2:$O$%d", last)},
 				{Name: "Scenarios!$P$1", Values: fmt.Sprintf("Scenarios!$P$2:$P$%d", last)},
 			},
-			Title:     []excelize.RichTextRun{{Text: "Quality (judgment) by fitness test"}},
+			Title:     excelize.ChartTitle{Paragraph: []excelize.RichTextRun{{Text: "Quality (judgment) by fitness test"}}},
 			XAxis:     chartXAxis(),
-			YAxis:     excelize.ChartAxis{Title: []excelize.RichTextRun{{Text: "Score (0-100)"}}, Minimum: &zero, Maximum: &hundred, Font: excelize.Font{Color: "000000"}},
+			YAxis:     excelize.ChartAxis{Title: excelize.ChartTitle{Paragraph: []excelize.RichTextRun{{Text: "Score (0-100)"}}}, Minimum: &zero, Maximum: &hundred, Font: excelize.Font{Color: "000000"}},
 			Legend:    excelize.ChartLegend{Position: "bottom"},
 			Dimension: excelize.ChartDimension{Width: 1000, Height: 400},
 		}); err != nil {
