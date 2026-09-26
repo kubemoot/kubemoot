@@ -120,16 +120,6 @@ ADL form and a prose form and measures the difference with fitness functions rat
 asserting it. The structural benefits above, scannable and diffable and deployable and
 testable, hold regardless of that result.
 
-## The other ADL: the Agent Definition Language specification
-
-A separate specification, also abbreviated ADL, exists at
-[adl-spec.org](https://www.adl-spec.org/): the **Agent Definition Language**, a JSON
-manifest format (currently version 0.3.0) that describes who an agent is, its identity,
-tools, permissions, and lifecycle, positioned above transport protocols like MCP and
-A2A. Kubemoot is looking at this specification as a possible way to describe its agents
-and crews to other systems. Adoption isn't decided: it waits on a deep assessment of
-whether the two line up, and this page will update if that changes.
-
 ## Next
 
 - [ADL Reference](../reference/adl-reference/) - the complete keyword and assertion vocabulary.
