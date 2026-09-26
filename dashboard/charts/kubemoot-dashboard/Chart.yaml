@@ -14,9 +14,9 @@ keywords:
   - ai
   - gpu
 
-home: https://github.com/javajon-homelab/kubemoot
+home: https://github.com/kubemoot/kubemoot
 sources:
-  - https://github.com/javajon-homelab/kubemoot
+  - https://github.com/kubemoot/kubemoot
 
 maintainers:
   - name: Kubemoot maintainers

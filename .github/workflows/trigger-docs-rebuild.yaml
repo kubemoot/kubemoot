@@ -28,7 +28,7 @@ jobs:
           GH_TOKEN: ${{ secrets.DOCS_DISPATCH_TOKEN }}
         run: |
           set -euo pipefail
-          git clone --depth 1 "https://x-access-token:${GH_TOKEN}@github.com/javajon-homelab/kubemoot-docs.git" /tmp/kdocs
+          git clone --depth 1 "https://x-access-token:${GH_TOKEN}@github.com/kubemoot/kubemoot-docs.git" /tmp/kdocs
           cd /tmp/kdocs
           # component-sync.md is a root, NON-dotfile .md, so it reliably matches the
           # release paths filter (**.md). A root DOTFILE may not match - the filter's

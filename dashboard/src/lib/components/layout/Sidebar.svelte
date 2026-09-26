@@ -3,7 +3,7 @@
 	import { base } from '$app/paths';
 	import SystemInfoPopover from '$lib/components/common/SystemInfoPopover.svelte';
 
-	const githubUrl = 'https://github.com/javajon-homelab/kubemoot';
+	const githubUrl = 'https://github.com/kubemoot/kubemoot';
 
 	interface SidebarProps {
 		version?: string;
