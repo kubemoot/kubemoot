@@ -1,0 +1,68 @@
+# Tier 3 dogfood e2e - drives Kubemoot through kmctl against the LIVE cluster.
+# Manual only (workflow_dispatch): it needs the cluster + operator and runs the
+# real CLI. NOT on push/PR. Self-cleaning + idempotent (see test/e2e/kmctl-dogfood.sh).
+#
+# One-time setup:
+#   1. kubectl apply -f kubemoot/test/e2e/rbac.yaml
+#   2. kubectl create token kmctl-dogfood -n kubemoot --duration=8760h
+#        -> store as repo secret KMCTL_DOGFOOD_TOKEN
+#   (KUBEMOOT_READ_TOKEN already exists; used to fetch the private kmctl release.)
+name: E2E kmctl Dogfood
+
+on:
+  workflow_dispatch:
+    inputs:
+      e2e_crew:
+        description: "Existing crew used for the inference steps"
+        default: "homelab-pilot"
+      e2e_crew_ns:
+        description: "Namespace of that crew"
+        default: "crew-homelab-pilot"
+
+jobs:
+  dogfood:
+    runs-on: homelab-runners
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Install kubectl
+        run: |
+          curl -sLO "https://dl.k8s.io/release/$(curl -sL https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+          chmod +x kubectl && sudo mv kubectl /usr/local/bin/kubectl
+
+      - name: Install kmctl (latest release)
+        env:
+          GH_TOKEN: ${{ secrets.KUBEMOOT_READ_TOKEN }}
+        run: |
+          gh release download -R javajon-homelab/kmctl --pattern 'kmctl_*_linux_amd64.tar.gz' --dir /tmp/k --clobber
+          tar -xzf /tmp/k/kmctl_*_linux_amd64.tar.gz -C /tmp/k kmctl
+          sudo install -m 0755 /tmp/k/kmctl /usr/local/bin/kmctl
+          kmctl version
+
+      - name: Kubeconfig from the dogfood ServiceAccount token (in-cluster)
+        run: |
+          mkdir -p "$HOME/.kube"
+          cat > "$HOME/.kube/config" <<EOF
+          apiVersion: v1
+          kind: Config
+          clusters:
+            - name: in-cluster
+              cluster:
+                server: https://kubernetes.default.svc
+                certificate-authority: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+          users:
+            - name: dogfood
+              user:
+                token: ${{ secrets.KMCTL_DOGFOOD_TOKEN }}
+          contexts:
+            - name: ctx
+              context: { cluster: in-cluster, user: dogfood }
+          current-context: ctx
+          EOF
+
+      - name: Run dogfood
+        env:
+          E2E_CREW: ${{ inputs.e2e_crew }}
+          E2E_CREW_NS: ${{ inputs.e2e_crew_ns }}
+        run: bash kubemoot/test/e2e/kmctl-dogfood.sh

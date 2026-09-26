@@ -1,0 +1,132 @@
+# POLICY: Unit tests and image builds ONLY. No integration tests.
+# Integration tests require a running cluster and must run AFTER Flux
+# reconciliation — not during the CI/CD build pipeline.
+name: CI Agent Runtime
+
+on:
+  workflow_call:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'agent-runtime/**'
+  workflow_dispatch:
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  REGISTRY: harbor-homelab.dijure.com
+  IMAGE_NAME: kubemoot/agent-runtime
+
+jobs:
+  test:
+    runs-on: homelab-runners
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Set up JDK 25
+        uses: actions/setup-java@v5
+        with:
+          java-version: '25'
+          distribution: 'temurin'
+          cache: 'gradle'
+
+      - name: Grant execute permission for gradlew
+        working-directory: agent-runtime
+        run: chmod +x gradlew
+
+      - name: Build and test
+        working-directory: agent-runtime
+        run: ./gradlew build
+
+  build-image:
+    # Runs in parallel with test — pushes SHA-tagged image only.
+    # The release job gates on ALL CI jobs passing before creating
+    # the version tag that Flux deploys. A failed test means the
+    # SHA-tagged image sits unused in Harbor.
+    runs-on: homelab-runners
+    if: github.event_name != 'pull_request'
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Set up GraalVM 25
+        uses: graalvm/setup-graalvm@v1
+        with:
+          java-version: '25'
+          distribution: 'graalvm'
+          cache: 'gradle'
+          native-image-job-reports: 'false'
+
+      - name: Install native toolchain
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq gcc zlib1g-dev
+
+      - name: Grant execute permission for gradlew
+        working-directory: agent-runtime
+        run: chmod +x gradlew
+
+      - name: Install kubectl
+        run: |
+          curl -sLO "https://dl.k8s.io/release/$(curl -sL https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+          chmod +x kubectl && sudo mv kubectl /usr/local/bin/
+
+      - name: Ensure Harbor project exists
+        run: |
+          curl -s -X POST "http://${{ env.REGISTRY }}/api/v2.0/projects" \
+            -H "Content-Type: application/json" \
+            -u "${{ secrets.HARBOR_USERNAME }}:${{ secrets.HARBOR_PASSWORD }}" \
+            -d '{"project_name": "kubemoot", "public": false}' \
+            --fail-with-body || true
+
+      - name: Build native binary
+        working-directory: agent-runtime
+        run: |
+          ./gradlew quarkusBuild \
+            -Dquarkus.native.enabled=true \
+            -Dquarkus.native.container-build=false \
+            -Dquarkus.package.jar.enabled=false
+
+      - name: Build and push with Kaniko
+        working-directory: agent-runtime
+        run: |
+          SHA="${{ github.sha }}"
+          JOB_NAME="kaniko-ar-$(echo ${SHA} | cut -c1-8)-${GITHUB_RUN_NUMBER}"
+
+          # Create build context with native binary and Dockerfile
+          mkdir -p /tmp/kaniko-context/build
+          cp build/*-runner /tmp/kaniko-context/build/
+          cp src/main/docker/Dockerfile.native /tmp/kaniko-context/Dockerfile
+          tar -czf /tmp/context.tar.gz -C /tmp/kaniko-context .
+
+          kubectl run ${JOB_NAME} \
+            --rm -i \
+            --restart=Never \
+            --namespace=arc-runners \
+            --image=gcr.io/kaniko-project/executor:latest \
+            --overrides='{
+              "spec": {
+                "hostAliases": [{"ip": "192.168.50.210", "hostnames": ["harbor-homelab.dijure.com"]}],
+                "containers": [{
+                  "name": "kaniko",
+                  "image": "gcr.io/kaniko-project/executor:latest",
+                  "stdin": true,
+                  "stdinOnce": true,
+                  "args": [
+                    "--context=tar://stdin",
+                    "--dockerfile=Dockerfile",
+                    "--label=org.opencontainers.image.source=https://github.com/kubemoot/kubemoot",
+                    "--label=org.opencontainers.image.licenses=Apache-2.0",
+                    "--label=org.opencontainers.image.revision='"${SHA}"'",
+                    "--destination=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:'"${SHA}"'",
+                    "--destination=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest",
+                    "--insecure",
+                    "--skip-tls-verify",
+                    "--cache=true"
+                  ],
+                  "volumeMounts": [{"name": "docker-config", "mountPath": "/kaniko/.docker"}]
+                }],
+                "volumes": [{"name": "docker-config", "secret": {"secretName": "kaniko-docker-config", "items": [{"key": "config.json", "path": "config.json"}]}}]
+              }
+            }' < /tmp/context.tar.gz

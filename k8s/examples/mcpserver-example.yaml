@@ -1,0 +1,46 @@
+# Example MCPServer deployment
+# Deploys a simple MCP echo server for testing
+#
+# Usage:
+#   kubectl apply -f mcpserver-example.yaml
+#   kubectl get mcp -n kubemoot
+#   kubectl describe mcp test-mcp-server -n kubemoot
+#
+---
+apiVersion: kubemoot.ai/v1alpha1
+kind: MCPServer
+metadata:
+  name: test-mcp-server
+  namespace: kubemoot
+spec:
+  # Simple echo server image for testing
+  # In production, use your actual MCP server image
+  image: hashicorp/http-echo:latest
+  args:
+    - "-listen=:3000"
+    - "-text=MCP Server Ready"
+
+  # HTTP transport for network-accessible MCP
+  transport: http
+  port: 3000
+
+  # Two replicas for high availability
+  replicas: 2
+
+  # QoS resource requirements
+  resources:
+    requests:
+      cpu: "50m"
+      memory: "64Mi"
+    limits:
+      cpu: "200m"
+      memory: "128Mi"
+
+  # Health check paths
+  healthPath: /
+  readinessPath: /
+
+  # Capabilities this MCP server provides
+  capabilities:
+    - echo
+    - test

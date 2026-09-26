@@ -1,0 +1,159 @@
+{{- if .Values.liaison.enabled }}
+{{- $name := printf "%s-liaison" (include "kubemoot-operator.fullname" .) }}
+{{- $secret := .Values.liaison.auth.existingSecret | default (printf "%s-auth" $name) }}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ $name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "kubemoot-operator.labels" . | nindent 4 }}
+---
+# The liaison only reads Crew resources, cluster-wide, to know whom it may front.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "kubemoot-operator.labels" . | nindent 4 }}
+rules:
+  - apiGroups: ["kubemoot.ai"]
+    resources: ["crews"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "kubemoot-operator.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ $name }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ $name }}
+    namespace: {{ .Release.Namespace }}
+{{- if and (not .Values.liaison.auth.existingSecret) .Values.liaison.auth.token }}
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ $secret }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "kubemoot-operator.labels" . | nindent 4 }}
+type: Opaque
+stringData:
+  {{ .Values.liaison.auth.key }}: {{ .Values.liaison.auth.token | quote }}
+{{- end }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "kubemoot-operator.labels" . | nindent 4 }}
+    app.kubernetes.io/component: crew-liaison
+spec:
+  replicas: {{ .Values.liaison.replicas }}
+  selector:
+    matchLabels:
+      {{- include "kubemoot-operator.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: crew-liaison
+  template:
+    metadata:
+      labels:
+        {{- include "kubemoot-operator.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: crew-liaison
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ $name }}
+      securityContext:
+        runAsNonRoot: true
+      containers:
+        - name: crew-liaison
+          image: {{ include "kubemoot-operator.image" (dict "root" . "image" .Values.liaison.image) | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          env:
+            - name: PORT
+              value: "8080"
+            - name: LIAISON_MAX_INFLIGHT
+              value: {{ .Values.liaison.maxInflight | quote }}
+            - name: LIAISON_TICKET_TTL_MINUTES
+              value: {{ .Values.liaison.ticketTTLMinutes | quote }}
+            {{- if or .Values.liaison.auth.existingSecret .Values.liaison.auth.token }}
+            - name: LIAISON_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $secret }}
+                  key: {{ .Values.liaison.auth.key }}
+            {{- end }}
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: http
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            {{- toYaml .Values.liaison.resources | nindent 12 }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "kubemoot-operator.labels" . | nindent 4 }}
+    app.kubernetes.io/component: crew-liaison
+spec:
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+      protocol: TCP
+  selector:
+    {{- include "kubemoot-operator.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: crew-liaison
+{{- if and .Values.liaison.expose.enabled .Values.gateway.enabled }}
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: {{ $name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "kubemoot-operator.labels" . | nindent 4 }}
+spec:
+  parentRefs:
+    - name: {{ .Values.gateway.name }}
+      namespace: {{ .Values.gateway.namespace }}
+  hostnames:
+    - {{ .Values.liaison.expose.hostname | default .Values.gateway.hostname | quote }}
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /mcp
+      backendRefs:
+        - name: {{ $name }}
+          port: 80
+{{- end }}
+{{- end }}

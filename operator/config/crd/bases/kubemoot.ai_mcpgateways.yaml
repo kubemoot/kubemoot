@@ -1,0 +1,694 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.21.0
+  name: mcpgateways.kubemoot.ai
+spec:
+  group: kubemoot.ai
+  names:
+    kind: MCPGateway
+    listKind: MCPGatewayList
+    plural: mcpgateways
+    shortNames:
+    - mcpgw
+    singular: mcpgateway
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .spec.implementation
+      name: Implementation
+      type: string
+    - jsonPath: .status.ready
+      name: Ready
+      type: boolean
+    - jsonPath: .status.registeredServers
+      name: Servers
+      type: integer
+    - jsonPath: .status.endpoint
+      name: Endpoint
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: |-
+          MCPGateway is the Schema for the mcpgateways API
+          MCPGateway deploys and manages an MCP gateway that routes requests to MCPServers
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: MCPGatewaySpec defines the desired state of MCPGateway
+            properties:
+              adminUI:
+                default: true
+                description: AdminUI enables the gateway admin interface
+                type: boolean
+              auth:
+                description: Auth configures authentication for the gateway
+                properties:
+                  basicAuth:
+                    description: BasicAuth configures basic authentication
+                    properties:
+                      password:
+                        description: Password for basic auth (alternative to secretRef,
+                          not recommended)
+                        type: string
+                      secretRef:
+                        description: |-
+                          SecretRef references a secret containing username and password
+                          The secret should have keys "username" and "password"
+                        type: string
+                      username:
+                        description: Username for basic auth (alternative to secretRef)
+                        type: string
+                    type: object
+                  enabled:
+                    default: false
+                    description: Enabled requires authentication for gateway access
+                    type: boolean
+                  jwtSecretRef:
+                    description: |-
+                      JWTSecretRef references a secret containing the JWT signing key
+                      The secret should have a key named "jwt-secret"
+                    type: string
+                  type:
+                    default: none
+                    description: Type is the authentication type (jwt, basic, none)
+                    enum:
+                    - jwt
+                    - basic
+                    - none
+                    type: string
+                type: object
+              catalogRefs:
+                description: |-
+                  CatalogRefs references MCPCatalog resources for server discovery
+                  Catalogs are synced periodically and discovered servers are evaluated against QualityPolicyRef
+                items:
+                  type: string
+                type: array
+              contextForge:
+                description: ContextForge contains ContextForge-specific configuration
+                properties:
+                  adminAPISecretRef:
+                    description: |-
+                      AdminAPISecretRef references a secret containing the bearer token for Admin API
+                      The secret should have a key "bearer-token"
+                      Required for registering/unregistering MCPServers via Admin API
+                    type: string
+                  databaseURL:
+                    description: |-
+                      DatabaseURL is the database connection string
+                      Default uses SQLite in-container
+                    type: string
+                  enableFederation:
+                    description: EnableFederation allows multiple gateways to share
+                      state
+                    type: boolean
+                  image:
+                    default: ghcr.io/ibm/mcp-context-forge:1.0.0-BETA-1
+                    description: Image overrides the default ContextForge image
+                    type: string
+                  redisURL:
+                    description: RedisURL enables Redis for caching and federation
+                    type: string
+                  tlsEnabled:
+                    description: TLSEnabled enables HTTPS for the gateway
+                    type: boolean
+                  tlsSecretRef:
+                    description: TLSSecretRef references a secret containing TLS cert/key
+                    type: string
+                type: object
+              credentialPolicies:
+                description: |-
+                  CredentialPolicies define credentials for dynamically discovered MCPs
+                  First matching policy wins. Explicit MCPServer CRs always take priority.
+                items:
+                  description: |-
+                    CredentialPolicy defines credentials for a category of MCP servers
+                    When MCPGateway provisions a dynamic MCP server, it matches categories
+                    and applies the first matching policy
+                  properties:
+                    categories:
+                      description: |-
+                        Categories this policy applies to (e.g., ["kubernetes", "k8s"])
+                        Use ["*"] as catch-all default
+                      items:
+                        type: string
+                      minItems: 1
+                      type: array
+                    emptyDirVolumes:
+                      description: EmptyDirVolumes to mount (for clearing baked-in
+                        configs)
+                      items:
+                        description: EmptyDirVolume defines an emptyDir volume to
+                          mount (used to override baked-in configs)
+                        properties:
+                          mountPath:
+                            description: |-
+                              MountPath is the path where the empty directory will be mounted
+                              Use this to override/clear baked-in config files in MCP server images
+                            type: string
+                          sizeLimit:
+                            description: SizeLimit is the maximum size of the emptyDir
+                              volume
+                            type: string
+                        required:
+                        - mountPath
+                        type: object
+                      type: array
+                    secretRef:
+                      description: SecretRef references a Secret for environment variables
+                      type: string
+                    secretVolumes:
+                      description: SecretVolumes to mount as files (for file-based
+                        credentials)
+                      items:
+                        description: SecretVolume defines a secret to mount as a volume
+                        properties:
+                          mountPath:
+                            description: MountPath is the path where the secret will
+                              be mounted in the container
+                            type: string
+                          name:
+                            description: Name is the name of the Kubernetes secret
+                              to mount
+                            type: string
+                          readOnly:
+                            default: true
+                            description: ReadOnly specifies whether the volume should
+                              be mounted read-only
+                            type: boolean
+                          subPath:
+                            description: |-
+                              SubPath optionally specifies a single key from the secret to mount as a file
+                              If not specified, all keys in the secret are mounted as files
+                            type: string
+                        required:
+                        - mountPath
+                        - name
+                        type: object
+                      type: array
+                    serviceAccountName:
+                      description: ServiceAccountName for RBAC-based authentication
+                      type: string
+                    transport:
+                      description: |-
+                        Transport overrides the MCP transport protocol for matched servers
+                        Use this when the registry doesn't provide transport info or you need to override it
+                        Most npm/pip MCP servers use stdio; docker images may use http/sse
+                      enum:
+                      - http
+                      - sse
+                      - stdio
+                      type: string
+                  required:
+                  - categories
+                  type: object
+                type: array
+              imagePullSecrets:
+                description: ImagePullSecrets for pulling the gateway image
+                items:
+                  description: |-
+                    LocalObjectReference contains enough information to let you locate the
+                    referenced object inside the same namespace.
+                  properties:
+                    name:
+                      default: ""
+                      description: |-
+                        Name of the referent.
+                        This field is effectively required, but due to backwards compatibility is
+                        allowed to be empty. Instances of this type with an empty value here are
+                        almost certainly wrong.
+                        More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                      type: string
+                  type: object
+                  x-kubernetes-map-type: atomic
+                type: array
+              implementation:
+                default: kubemoot
+                description: Implementation selects which gateway to deploy
+                enum:
+                - kubemoot
+                - contextforge
+                - microsoft
+                - docker
+                type: string
+              mcpServerSelector:
+                description: |-
+                  MCPServerSelector selects which MCPServers to register with the gateway
+                  If empty, all MCPServers in the namespace are registered
+                properties:
+                  matchExpressions:
+                    description: matchExpressions is a list of label selector requirements.
+                      The requirements are ANDed.
+                    items:
+                      description: |-
+                        A label selector requirement is a selector that contains values, a key, and an operator that
+                        relates the key and values.
+                      properties:
+                        key:
+                          description: key is the label key that the selector applies
+                            to.
+                          type: string
+                        operator:
+                          description: |-
+                            operator represents a key's relationship to a set of values.
+                            Valid operators are In, NotIn, Exists and DoesNotExist.
+                          type: string
+                        values:
+                          description: |-
+                            values is an array of string values. If the operator is In or NotIn,
+                            the values array must be non-empty. If the operator is Exists or DoesNotExist,
+                            the values array must be empty. This array is replaced during a strategic
+                            merge patch.
+                          items:
+                            type: string
+                          type: array
+                          x-kubernetes-list-type: atomic
+                      required:
+                      - key
+                      - operator
+                      type: object
+                    type: array
+                    x-kubernetes-list-type: atomic
+                  matchLabels:
+                    additionalProperties:
+                      type: string
+                    description: |-
+                      matchLabels is a map of {key,value} pairs. A single {key,value} in the matchLabels
+                      map is equivalent to an element of matchExpressions, whose key field is "key", the
+                      operator is "In", and the values array contains only "value". The requirements are ANDed.
+                    type: object
+                type: object
+                x-kubernetes-map-type: atomic
+              metaTools:
+                description: MetaTools configures discovery mode meta-tools (search_tools,
+                  load_tools)
+                properties:
+                  discovery:
+                    description: Discovery configures on-demand tool discovery via
+                      mcp-catalog-discovery agent
+                    properties:
+                      agentEndpoint:
+                        description: AgentEndpoint is the URL of the mcp-catalog-discovery
+                          agent
+                        type: string
+                      enabled:
+                        default: false
+                        description: Enabled enables triggering discovery when no
+                          tools match search query
+                        type: boolean
+                    required:
+                    - enabled
+                    type: object
+                  enabled:
+                    default: false
+                    description: Enabled enables meta-tools for agents (search_tools,
+                      load_tools)
+                    type: boolean
+                  maxResultsPerSearch:
+                    default: 10
+                    description: MaxResultsPerSearch limits results from search_tools
+                    type: integer
+                required:
+                - enabled
+                type: object
+              port:
+                default: 8080
+                description: Port is the port for the gateway service
+                format: int32
+                type: integer
+              qualityPolicyRef:
+                description: QualityPolicyRef references an MCPQualityPolicy for filtering
+                  dynamically discovered MCPs
+                type: string
+              registries:
+                description: Registries configures external MCP registry sources for
+                  tool discovery
+                properties:
+                  indexerImage:
+                    description: |-
+                      IndexerImage is the container image for the catalog indexer
+                      Defaults to kubemoot/indexer-spring:latest
+                    type: string
+                  sources:
+                    description: Sources lists the MCP registries to sync from
+                    items:
+                      description: MCPRegistrySource defines an external MCP registry
+                      properties:
+                        authSecretRef:
+                          description: AuthSecretRef references a secret for registry
+                            authentication
+                          type: string
+                        filter:
+                          description: Filter limits which tools to sync from this
+                            registry
+                          properties:
+                            categories:
+                              description: Categories limits to specific tool categories
+                              items:
+                                type: string
+                              type: array
+                            minRating:
+                              description: MinRating filters by minimum tool rating
+                                (as string, e.g., "4.0")
+                              type: string
+                          type: object
+                        name:
+                          description: Name is a unique identifier for this registry
+                          type: string
+                        type:
+                          default: mcp-run
+                          description: Type is the registry protocol type (mcp-run,
+                            smithery, custom)
+                          enum:
+                          - mcp-run
+                          - smithery
+                          - custom
+                          type: string
+                        url:
+                          description: URL is the registry API endpoint
+                          type: string
+                      required:
+                      - name
+                      - url
+                      type: object
+                    type: array
+                  syncInterval:
+                    default: 1h
+                    description: SyncInterval is how often to sync registries (e.g.,
+                      "1h", "30m")
+                    type: string
+                type: object
+              replicas:
+                default: 1
+                description: Replicas is the number of gateway instances
+                format: int32
+                minimum: 1
+                type: integer
+              resources:
+                description: Resources defines resource requirements for the gateway
+                properties:
+                  claims:
+                    description: |-
+                      Claims lists the names of resources, defined in spec.resourceClaims,
+                      that are used by this container.
+
+                      This is an alpha field and requires enabling the
+                      DynamicResourceAllocation feature gate.
+
+                      This field is immutable. It can only be set for containers.
+                    items:
+                      description: ResourceClaim references one entry in PodSpec.ResourceClaims.
+                      properties:
+                        name:
+                          description: |-
+                            Name must match the name of one entry in pod.spec.resourceClaims of
+                            the Pod where this field is used. It makes that resource available
+                            inside a container.
+                          type: string
+                        request:
+                          description: |-
+                            Request is the name chosen for a request in the referenced claim.
+                            If empty, everything from the claim is made available, otherwise
+                            only the result of this request.
+                          type: string
+                      required:
+                      - name
+                      type: object
+                    type: array
+                    x-kubernetes-list-map-keys:
+                    - name
+                    x-kubernetes-list-type: map
+                  limits:
+                    additionalProperties:
+                      anyOf:
+                      - type: integer
+                      - type: string
+                      pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                      x-kubernetes-int-or-string: true
+                    description: |-
+                      Limits describes the maximum amount of compute resources allowed.
+                      More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
+                    type: object
+                  requests:
+                    additionalProperties:
+                      anyOf:
+                      - type: integer
+                      - type: string
+                      pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                      x-kubernetes-int-or-string: true
+                    description: |-
+                      Requests describes the minimum amount of compute resources required.
+                      If Requests is omitted for a container, it defaults to Limits if that is explicitly specified,
+                      otherwise to an implementation-defined value. Requests cannot exceed Limits.
+                      More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
+                    type: object
+                type: object
+              toolIndex:
+                description: ToolIndex configures the vector store for semantic tool
+                  search
+                properties:
+                  collection:
+                    default: mcp_tools
+                    description: Collection is the name of the vector store collection/table
+                    type: string
+                  embeddingModel:
+                    description: EmbeddingModel configures the model for generating
+                      embeddings
+                    properties:
+                      dimensions:
+                        default: 768
+                        description: Dimensions is the embedding vector size
+                        type: integer
+                      endpoint:
+                        description: Endpoint is the embedding API endpoint
+                        type: string
+                      model:
+                        default: nomic-embed-text
+                        description: Model is the embedding model name
+                        type: string
+                      provider:
+                        default: ollama
+                        description: Provider is the embedding provider (ollama, openai)
+                        enum:
+                        - ollama
+                        - openai
+                        type: string
+                    required:
+                    - endpoint
+                    type: object
+                  vectorStore:
+                    description: VectorStore configures the vector database backend
+                    properties:
+                      database:
+                        description: Database is the database name
+                        type: string
+                      host:
+                        description: Host is the database host
+                        type: string
+                      port:
+                        default: 5432
+                        description: Port is the database port
+                        format: int32
+                        type: integer
+                      secretRef:
+                        description: SecretRef references credentials for the database
+                        type: string
+                      type:
+                        default: pgvector
+                        description: Type is the vector store backend (pgvector, qdrant,
+                          milvus)
+                        enum:
+                        - pgvector
+                        - qdrant
+                        - milvus
+                        type: string
+                    required:
+                    - database
+                    - host
+                    - secretRef
+                    type: object
+                required:
+                - embeddingModel
+                - vectorStore
+                type: object
+            type: object
+          status:
+            description: MCPGatewayStatus defines the observed state of MCPGateway
+            properties:
+              adminEndpoint:
+                description: AdminEndpoint is the admin UI endpoint (if enabled)
+                type: string
+              availableReplicas:
+                description: AvailableReplicas is the number of ready gateway replicas
+                format: int32
+                type: integer
+              catalogSync:
+                description: CatalogSync tracks the status of MCP catalog indexing
+                properties:
+                  jobName:
+                    description: JobName is the name of the current/last indexer Job
+                    type: string
+                  jobStatus:
+                    description: JobStatus is the status of the indexer Job (Running,
+                      Succeeded, Failed)
+                    type: string
+                  lastSync:
+                    description: LastSync is the timestamp of the last successful
+                      sync
+                    format: date-time
+                    type: string
+                  registrySyncStatus:
+                    description: RegistrySyncStatus tracks per-registry sync status
+                    items:
+                      description: RegistrySyncStatus tracks sync status for a single
+                        registry
+                      properties:
+                        checksum:
+                          description: Checksum is the content hash for change detection
+                          type: string
+                        lastSync:
+                          description: LastSync is when this registry was last synced
+                          format: date-time
+                          type: string
+                        name:
+                          description: Name is the registry name
+                          type: string
+                        status:
+                          description: Status is the sync status (Synced, Error, Pending)
+                          type: string
+                        toolCount:
+                          description: ToolCount is the number of tools indexed from
+                            this registry
+                          type: integer
+                      required:
+                      - name
+                      type: object
+                    type: array
+                type: object
+              conditions:
+                description: Conditions represent the latest available observations
+                items:
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: |-
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                type: array
+              endpoint:
+                description: Endpoint is the gateway service endpoint
+                type: string
+              mcpServers:
+                description: MCPServers lists the names of registered MCPServers
+                items:
+                  type: string
+                type: array
+              message:
+                description: Message provides additional status information
+                type: string
+              phase:
+                description: Phase is the current lifecycle phase (Pending, Deploying,
+                  Indexing, Ready, Error)
+                type: string
+              ready:
+                description: Ready indicates if the gateway is ready to accept connections
+                type: boolean
+              registeredServers:
+                description: RegisteredServers is the count of MCPServers registered
+                  with the gateway
+                type: integer
+              toolIndex:
+                description: ToolIndex tracks the tool index status
+                properties:
+                  indexedAt:
+                    description: IndexedAt is when the index was last updated
+                    format: date-time
+                    type: string
+                  ready:
+                    description: Ready indicates if the tool index is ready for queries
+                    type: boolean
+                  totalTools:
+                    description: TotalTools is the total number of indexed tools
+                    type: integer
+                type: object
+              toolIndexEndpoint:
+                description: |-
+                  ToolIndexEndpoint is the URL of the RAGSource query service for semantic tool search
+                  This endpoint is used by the gateway to search for tools matching user intent
+                type: string
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

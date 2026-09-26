@@ -1,0 +1,344 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.21.0
+  name: notificationsinks.kubemoot.ai
+spec:
+  group: kubemoot.ai
+  names:
+    kind: NotificationSink
+    listKind: NotificationSinkList
+    plural: notificationsinks
+    shortNames:
+    - ns
+    - notif
+    singular: notificationsink
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .spec.webhook.url
+      name: URL
+      type: string
+    - jsonPath: .status.ready
+      name: Ready
+      type: boolean
+    - jsonPath: .status.totalDispatched
+      name: Dispatched
+      type: integer
+    - jsonPath: .status.totalFailed
+      name: Failed
+      type: integer
+    - jsonPath: .status.lastFiredAt
+      name: LastFired
+      type: date
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: |-
+          NotificationSink is a namespace-scoped resource that dispatches a webhook
+          whenever an agent in the same namespace publishes a `concern` signal.
+          First release intentionally hardcodes the concern filter — block, advisory,
+          and synthesis signals are out of scope until the team builds confidence
+          in the dispatch path. Multiple sinks in one namespace are allowed; each
+          is evaluated independently.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: |-
+              NotificationSinkSpec configures a webhook target that fires whenever an
+              agent in the same namespace publishes a `concern` signal on a discussion
+              thread. First release scope is intentionally narrow: only the `concern`
+              messageType triggers, only one webhook per sink, no templating beyond a
+              simple title string. The payload always carries the concern text, the
+              agent name, the crew, the channel, and the threadId — enough for the
+              recipient notification to stand on its own if the source thread is
+              later deleted.
+
+              Filtering (Channels, Agents) is optional. Empty filters match anything
+              in the sink's namespace.
+            properties:
+              agents:
+                description: |-
+                  Agents filters which agent names trigger this sink. Empty means
+                  any agent's concern fires the sink.
+                items:
+                  type: string
+                type: array
+              channels:
+                description: |-
+                  Channels filters which discussion channels trigger this sink. Empty
+                  means all channels in the sink's namespace.
+                items:
+                  type: string
+                type: array
+              priority:
+                default: default
+                description: |-
+                  Priority is a passthrough hint for ntfy-compatible receivers
+                  (one of: min, low, default, high, urgent). Sent as the
+                  `X-Priority` header when set.
+                enum:
+                - min
+                - low
+                - default
+                - high
+                - urgent
+                type: string
+              title:
+                description: |-
+                  Title overrides the default notification title. Empty resolves to
+                  "Kubemoot · <agent> raised a concern".
+                type: string
+              webhook:
+                description: Webhook is the HTTP target to POST/PUT notification payloads
+                  to.
+                properties:
+                  headers:
+                    description: |-
+                      Headers attached to every dispatch. Use ValueFrom for bearer tokens or
+                      other credentials sourced from secrets — never inline them.
+                    items:
+                      description: |-
+                        HeaderEntry attaches a single HTTP header to webhook dispatches. Exactly
+                        one of Value or ValueFrom must be set.
+                      properties:
+                        name:
+                          description: Name of the header.
+                          type: string
+                        value:
+                          description: Value is the literal header value. Mutually
+                            exclusive with ValueFrom.
+                          type: string
+                        valueFrom:
+                          description: |-
+                            ValueFrom sources the value from a secret or configmap. Mutually
+                            exclusive with Value.
+                          properties:
+                            configMapKeyRef:
+                              description: Selects a key of a ConfigMap.
+                              properties:
+                                key:
+                                  description: The key to select.
+                                  type: string
+                                name:
+                                  default: ""
+                                  description: |-
+                                    Name of the referent.
+                                    This field is effectively required, but due to backwards compatibility is
+                                    allowed to be empty. Instances of this type with an empty value here are
+                                    almost certainly wrong.
+                                    More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                                  type: string
+                                optional:
+                                  description: Specify whether the ConfigMap or its
+                                    key must be defined
+                                  type: boolean
+                              required:
+                              - key
+                              type: object
+                              x-kubernetes-map-type: atomic
+                            fieldRef:
+                              description: |-
+                                Selects a field of the pod: supports metadata.name, metadata.namespace, `metadata.labels['<KEY>']`, `metadata.annotations['<KEY>']`,
+                                spec.nodeName, spec.serviceAccountName, status.hostIP, status.podIP, status.podIPs.
+                              properties:
+                                apiVersion:
+                                  description: Version of the schema the FieldPath
+                                    is written in terms of, defaults to "v1".
+                                  type: string
+                                fieldPath:
+                                  description: Path of the field to select in the
+                                    specified API version.
+                                  type: string
+                              required:
+                              - fieldPath
+                              type: object
+                              x-kubernetes-map-type: atomic
+                            resourceFieldRef:
+                              description: |-
+                                Selects a resource of the container: only resources limits and requests
+                                (limits.cpu, limits.memory, limits.ephemeral-storage, requests.cpu, requests.memory and requests.ephemeral-storage) are currently supported.
+                              properties:
+                                containerName:
+                                  description: 'Container name: required for volumes,
+                                    optional for env vars'
+                                  type: string
+                                divisor:
+                                  anyOf:
+                                  - type: integer
+                                  - type: string
+                                  description: Specifies the output format of the
+                                    exposed resources, defaults to "1"
+                                  pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                                  x-kubernetes-int-or-string: true
+                                resource:
+                                  description: 'Required: resource to select'
+                                  type: string
+                              required:
+                              - resource
+                              type: object
+                              x-kubernetes-map-type: atomic
+                            secretKeyRef:
+                              description: Selects a key of a secret in the pod's
+                                namespace
+                              properties:
+                                key:
+                                  description: The key of the secret to select from.  Must
+                                    be a valid secret key.
+                                  type: string
+                                name:
+                                  default: ""
+                                  description: |-
+                                    Name of the referent.
+                                    This field is effectively required, but due to backwards compatibility is
+                                    allowed to be empty. Instances of this type with an empty value here are
+                                    almost certainly wrong.
+                                    More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                                  type: string
+                                optional:
+                                  description: Specify whether the Secret or its key
+                                    must be defined
+                                  type: boolean
+                              required:
+                              - key
+                              type: object
+                              x-kubernetes-map-type: atomic
+                          type: object
+                      required:
+                      - name
+                      type: object
+                    type: array
+                  method:
+                    default: POST
+                    description: Method is the HTTP method. POST works for ntfy and
+                      generic JSON sinks.
+                    enum:
+                    - POST
+                    - PUT
+                    type: string
+                  url:
+                    description: 'URL is the full target URL. For ntfy: https://ntfy.example.com/<topic>.'
+                    type: string
+                required:
+                - url
+                type: object
+            required:
+            - webhook
+            type: object
+          status:
+            description: NotificationSinkStatus reports observed state.
+            properties:
+              conditions:
+                description: Conditions represent the latest observations about the
+                  sink.
+                items:
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: |-
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                type: array
+              lastError:
+                description: LastError captures the most recent failure message, if
+                  any.
+                type: string
+              lastFiredAgent:
+                description: |-
+                  LastFiredAgent is the agent name from the most recent dispatch — a
+                  quick way to see what's actively raising concerns through this sink.
+                type: string
+              lastFiredAt:
+                description: LastFiredAt is the timestamp of the most recent successful
+                  dispatch.
+                format: date-time
+                type: string
+              ready:
+                description: |-
+                  Ready indicates the sink config is valid and the operator is
+                  dispatching to it. False values surface the reason via Conditions.
+                type: boolean
+              totalDispatched:
+                description: TotalDispatched is the lifetime count of successful POST/PUTs.
+                format: int64
+                type: integer
+              totalFailed:
+                description: |-
+                  TotalFailed is the lifetime count of failed dispatches (non-2xx,
+                  timeout, DNS, etc).
+                format: int64
+                type: integer
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

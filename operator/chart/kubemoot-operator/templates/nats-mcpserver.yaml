@@ -1,0 +1,40 @@
+{{- if and .Values.nats.enabled .Values.nats.mcpServer.enabled }}
+apiVersion: kubemoot.ai/v1alpha1
+kind: MCPServer
+metadata:
+  name: nats-mcp
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "kubemoot-operator.labels" . | nindent 4 }}
+    kubemoot.ai/internal: "true"
+spec:
+  image: cnadb/mcp-nats:latest
+  transport: stdio
+  command: ["/app/mcp-nats"]
+  env:
+    - name: NATS_URL
+      value: {{ .Values.nats.url | default "nats://nats.nats.svc.cluster.local:4222" | quote }}
+    - name: NATS_NO_AUTHENTICATION
+      value: "true"
+  port: 3000
+  replicas: 1
+  securityMode: strict
+  capabilities:
+    - messaging
+    - pubsub
+    - kv-store
+    - stream-management
+  registry:
+    enabled: true
+    categories:
+      - messaging
+      - nats
+      - pubsub
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi
+{{- end }}

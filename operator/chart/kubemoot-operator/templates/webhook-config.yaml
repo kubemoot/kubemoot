@@ -1,0 +1,83 @@
+{{- if .Values.webhook.enabled }}
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingWebhookConfiguration
+metadata:
+  name: {{ include "kubemoot-operator.fullname" . }}
+  labels:
+    {{- include "kubemoot-operator.labels" . | nindent 4 }}
+  {{- if .Values.webhook.certManager.enabled }}
+  annotations:
+    cert-manager.io/inject-ca-from: {{ .Release.Namespace }}/{{ include "kubemoot-operator.fullname" . }}-webhook
+  {{- end }}
+webhooks:
+  - name: vagent.kubemoot.ai
+    clientConfig:
+      service:
+        name: {{ include "kubemoot-operator.fullname" . }}-webhook
+        namespace: {{ .Release.Namespace }}
+        path: /validate-kubemoot-ai-v1alpha1-agent
+    rules:
+      - apiGroups: ["kubemoot.ai"]
+        apiVersions: ["v1alpha1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["agents"]
+    failurePolicy: {{ .Values.webhook.failurePolicy }}
+    sideEffects: None
+    admissionReviewVersions: ["v1"]
+  - name: vmcpserver.kubemoot.ai
+    clientConfig:
+      service:
+        name: {{ include "kubemoot-operator.fullname" . }}-webhook
+        namespace: {{ .Release.Namespace }}
+        path: /validate-kubemoot-ai-v1alpha1-mcpserver
+    rules:
+      - apiGroups: ["kubemoot.ai"]
+        apiVersions: ["v1alpha1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["mcpservers"]
+    failurePolicy: {{ .Values.webhook.failurePolicy }}
+    sideEffects: None
+    admissionReviewVersions: ["v1"]
+  - name: vcrewfitness.kubemoot.ai
+    clientConfig:
+      service:
+        name: {{ include "kubemoot-operator.fullname" . }}-webhook
+        namespace: {{ .Release.Namespace }}
+        path: /validate-kubemoot-ai-v1alpha1-crewfitness
+    rules:
+      - apiGroups: ["kubemoot.ai"]
+        apiVersions: ["v1alpha1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["crewfitnesses"]
+    failurePolicy: {{ .Values.webhook.failurePolicy }}
+    sideEffects: None
+    admissionReviewVersions: ["v1"]
+  - name: vcrew.kubemoot.ai
+    clientConfig:
+      service:
+        name: {{ include "kubemoot-operator.fullname" . }}-webhook
+        namespace: {{ .Release.Namespace }}
+        path: /validate-kubemoot-ai-v1alpha1-crew
+    rules:
+      - apiGroups: ["kubemoot.ai"]
+        apiVersions: ["v1alpha1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["crews"]
+    failurePolicy: {{ .Values.webhook.failurePolicy }}
+    sideEffects: None
+    admissionReviewVersions: ["v1"]
+  - name: vragsource.kubemoot.ai
+    clientConfig:
+      service:
+        name: {{ include "kubemoot-operator.fullname" . }}-webhook
+        namespace: {{ .Release.Namespace }}
+        path: /validate-kubemoot-ai-v1alpha1-ragsource
+    rules:
+      - apiGroups: ["kubemoot.ai"]
+        apiVersions: ["v1alpha1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["ragsources"]
+    failurePolicy: {{ .Values.webhook.failurePolicy }}
+    sideEffects: None
+    admissionReviewVersions: ["v1"]
+{{- end }}

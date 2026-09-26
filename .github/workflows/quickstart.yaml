@@ -1,0 +1,137 @@
+# Quickstart: the README's first five minutes, run by CI so it cannot break unnoticed.
+# A GitHub-hosted runner, an empty kind cluster, nothing from the homelab: no Harbor, no
+# ARC runner, no cluster secrets.
+#
+# The images are the released ones. The release workflows build each component once on
+# ARC, publish it to the release registry, and pin the new version in the chart; this
+# job runs when one of them completes, so it tests the exact bytes a stranger pulls. A
+# push that touches only the quickstart runs it against the chart's current pins.
+# Release mode (workflow_dispatch with chart_version) installs a published chart from
+# the registry instead of the checkout.
+name: Quickstart
+
+on:
+  workflow_run:
+    workflows: [Release, Release Agent Runtime, Release Discussion Gateway]
+    types: [completed]
+    branches: [main]
+  push:
+    branches: [main]
+    paths:
+      - 'quickstart/**'
+      - '.github/workflows/quickstart.yaml'
+  workflow_dispatch:
+    inputs:
+      chart_version:
+        description: 'Published chart version to test (release mode). Empty installs the chart from the checkout.'
+        required: false
+        default: ''
+        type: string
+
+concurrency:
+  group: quickstart-main
+  cancel-in-progress: true
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  RELEASE_REGISTRY: ghcr.io/kubemoot
+  # Credentials are needed only while the packages are private; empty after the flip.
+  GHCR_USERNAME: ${{ secrets.GHCR_USERNAME }}
+  GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
+
+jobs:
+  quickstart:
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Lint the quickstart script
+        run: shellcheck quickstart/quickstart.sh
+
+      - name: Choose the chart
+        id: chart
+        run: |
+          if [ -n "${{ inputs.chart_version }}" ]; then
+            echo "ref=oci://${RELEASE_REGISTRY}/charts/kubemoot-operator" >> "$GITHUB_OUTPUT"
+            echo "version=${{ inputs.chart_version }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "ref=operator/chart/kubemoot-operator" >> "$GITHUB_OUTPUT"
+            echo "version=" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Log in to the release registry
+        if: env.GHCR_TOKEN != ''
+        run: |
+          echo "$GHCR_TOKEN" | docker login "${RELEASE_REGISTRY%%/*}" -u "$GHCR_USERNAME" --password-stdin
+          echo "$GHCR_TOKEN" | helm registry login "${RELEASE_REGISTRY%%/*}" -u "$GHCR_USERNAME" --password-stdin
+
+      - name: Create kind cluster
+        uses: helm/kind-action@v1
+        with:
+          cluster_name: kubemoot
+
+      - name: Pull the released images the chart pins and load them into kind
+        # The chart names every component image; the quickstart runs four of them. kind
+        # nodes cannot pull private packages, so the runner pulls and loads them.
+        run: |
+          version_args=()
+          [ -n "${{ steps.chart.outputs.version }}" ] && version_args=(--version "${{ steps.chart.outputs.version }}")
+          helm template q "${{ steps.chart.outputs.ref }}" "${version_args[@]}" \
+              --values quickstart/operator-values.yaml \
+            | grep -oE "${RELEASE_REGISTRY}/(kubemoot-operator|agent-runtime|discussion-gateway|crew-liaison):[A-Za-z0-9._-]+" \
+            | sort -u | tee images.txt
+          [ "$(wc -l < images.txt)" -eq 4 ] || { echo "expected 4 images, got:"; cat images.txt; exit 1; }
+          while read -r image; do
+            docker pull "$image"
+            kind load docker-image "$image" --name kubemoot
+          done < images.txt
+
+      - name: Run the quickstart
+        # Explicit bash: the default shell has no pipefail, and the tee would hide a failure.
+        shell: bash
+        env:
+          KUBEMOOT_CHART: ${{ steps.chart.outputs.ref }}
+          KUBEMOOT_CHART_VERSION: ${{ steps.chart.outputs.version }}
+        run: quickstart/quickstart.sh | tee quickstart.log
+
+      - name: Answer to the job summary
+        if: success()
+        run: |
+          {
+            echo '### Quickstart answer'
+            echo
+            echo '```'
+            cat images.txt
+            echo '```'
+            sed -n '/^--- answer ---$/,/^--------------$/p' quickstart.log | sed '1d;$d'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Collect diagnostics
+        if: failure()
+        run: |
+          mkdir -p diag
+          kubectl describe nodes > diag/nodes.txt 2>&1 || true
+          kubectl get all -A > diag/all.txt 2>&1 || true
+          kubectl get modelproviders,models,agents,crews,promptmodules -A -o yaml > diag/kubemoot-crs.yaml 2>&1 || true
+          kubectl get events -A --sort-by=.lastTimestamp > diag/events.txt 2>&1 || true
+          kubectl logs -n kubemoot deployment/kubemoot-operator --tail=-1 > diag/operator.log 2>&1 || true
+          kubectl logs -n hello -l kubemoot.ai/crew=hello --all-containers --tail=-1 --prefix > diag/crew.log 2>&1 || true
+          kubectl logs -n hello deployment/hello-discussion --tail=-1 > diag/discussion-gateway.log 2>&1 || true
+          kubectl logs -n ollama deployment/ollama --tail=-1 > diag/ollama.log 2>&1 || true
+          kubectl logs -n kubemoot job/kubemoot-operator-nats-bootstrap > diag/nats-bootstrap.log 2>&1 || true
+          kubectl describe pods -A > diag/describe-pods.txt 2>&1 || true
+
+      - name: Upload diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: quickstart-diagnostics
+          path: |
+            diag/
+            quickstart.log
+          if-no-files-found: ignore

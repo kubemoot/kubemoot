@@ -1,0 +1,23 @@
+apiVersion: v2
+name: kubemoot-dashboard
+description: Kubernetes Dashboard-like observability for Kubemoot CRDs and GPU resources
+type: application
+
+# This version is set by CI/CD from git tags - DO NOT hardcode
+version: 0.330.29
+appVersion: 0.330.29
+
+keywords:
+  - kubemoot
+  - kubernetes
+  - dashboard
+  - ai
+  - gpu
+
+home: https://github.com/javajon-homelab/kubemoot
+sources:
+  - https://github.com/javajon-homelab/kubemoot
+
+maintainers:
+  - name: Kubemoot maintainers
+    email: moot@kubemoot.org

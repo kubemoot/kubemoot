@@ -1,0 +1,9 @@
+apiVersion: ai.kubemoot.ai/v1alpha1
+kind: Model
+metadata:
+  labels:
+    app.kubernetes.io/name: operator
+    app.kubernetes.io/managed-by: kustomize
+  name: model-sample
+spec:
+  # TODO(user): Add fields here

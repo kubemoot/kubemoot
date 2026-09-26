@@ -1,0 +1,53 @@
+# Two agents. The coordinator delegates (KUBEMOOT_DISCUSS_ANSWER_DIRECTLY=false) so the
+# quickstart exercises a full discussion rather than a one-agent reply. Timeouts are
+# raised because a 1.5B model on a few CPU cores answers in tens of seconds, not
+# tenths; they are safety nets, the discussion itself settles on signals.
+apiVersion: kubemoot.ai/v1alpha1
+kind: Agent
+metadata:
+  name: hello-coordinator
+  labels:
+    kubemoot.ai/crew: hello
+    kubemoot.ai/role: coordinator
+spec:
+  type: chat
+  description: "Coordinator for the hello crew - facilitates the discussion."
+  discussRole: coordinator
+  capabilities: [tool-calling, reasoning]
+  discussChannels: [general, topic-1]
+  promptRefs: [advisory-prompt, coordinator-decision-logic, synthesis-prompt]
+  temperature: "0.1"
+  maxTokens: 1024
+  deployment:
+    replicas: 1
+    port: 8080
+    env:
+      - name: KUBEMOOT_DISCUSS_ANSWER_DIRECTLY
+        value: "false"
+      - name: QUARKUS_LANGCHAIN4J_OLLAMA_TIMEOUT
+        value: "10m"
+      - name: KUBEMOOT_DISCUSS_SYNTHESIS_TIMEOUT_SECONDS
+        value: "600"
+---
+apiVersion: kubemoot.ai/v1alpha1
+kind: Agent
+metadata:
+  name: hello-facts
+  labels:
+    kubemoot.ai/crew: hello
+    kubemoot.ai/role: tooler
+spec:
+  type: chat
+  description: "General-knowledge specialist: answers factual questions from its own knowledge."
+  discussRole: tooler
+  capabilities: [tool-calling]
+  discussChannels: [topic-1]
+  promptRefs: [discussion-protocol, response-style, hello-facts-system]
+  temperature: "0.3"
+  maxTokens: 1024
+  deployment:
+    replicas: 1
+    port: 8080
+    env:
+      - name: QUARKUS_LANGCHAIN4J_OLLAMA_TIMEOUT
+        value: "10m"

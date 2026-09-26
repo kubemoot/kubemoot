@@ -1,0 +1,69 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: homelab-pilot-fitness-tests
+  namespace: kubemoot
+data:
+  discussion-health.adl: |
+    DESCRIPTION Verify homelab-pilot discussion system is healthy end-to-end
+    REQUIRES deployed crew with discussion.enabled
+
+    DEFINE CONST QUESTION AS "What namespaces exist in the Kubernetes cluster?"
+    DEFINE CONST MAX_DURATION AS 600 seconds
+
+    # Gateway is reachable
+    ASSERT(POST to discussion endpoint returns 200 with conversationId)
+
+    # SSE stream connects and finds the thread
+    ASSERT(SSE stream emits "connected" event)
+    ASSERT(SSE stream emits "thread_found" event within 30 seconds)
+
+    # Discussion lifecycle completes
+    ASSERT(discussion completes with "done" event within MAX_DURATION)
+
+    # Coordinator produces a response
+    ASSERT(coordinator produces synthesis)
+    ASSERT(synthesis is non-empty)
+
+  domain-routing.adl: |
+    DESCRIPTION Verify triage routes GPU questions to the correct specialist
+    REQUIRES deployed crew with discussion.enabled
+
+    DEFINE CONST QUESTION AS "What NVIDIA GPUs are installed and what is their current utilization?"
+    DEFINE CONST MAX_DURATION AS 600 seconds
+
+    ASSERT(POST to discussion endpoint returns 200 with conversationId)
+    ASSERT(discussion completes with "done" event within MAX_DURATION)
+
+    # Triage should select the nvidia-gpu specialist
+    ASSERT(at least 1 specialist contributes with signal=agree)
+    ASSERT(coordinator produces synthesis)
+    ASSERT(synthesis CONTAINS "GPU")
+
+  general-knowledge.adl: |
+    DESCRIPTION Verify coordinator handles general knowledge without specialists
+    REQUIRES deployed crew with discussion.enabled
+
+    DEFINE CONST QUESTION AS "What is the difference between a Deployment and a StatefulSet in Kubernetes?"
+    DEFINE CONST MAX_DURATION AS 600 seconds
+
+    ASSERT(POST to discussion endpoint returns 200 with conversationId)
+    ASSERT(discussion completes with "done" event within MAX_DURATION)
+    ASSERT(coordinator produces synthesis)
+    ASSERT(synthesis is non-empty)
+    ASSERT(synthesis CONTAINS "StatefulSet")
+
+  cross-layer.adl: |
+    DESCRIPTION Verify cross-layer questions engage multiple specialists
+    REQUIRES deployed crew with discussion.enabled
+
+    DEFINE CONST QUESTION AS "List the physical Proxmox nodes and the Kubernetes nodes running on each"
+    DEFINE CONST MAX_DURATION AS 600 seconds
+
+    ASSERT(POST to discussion endpoint returns 200 with conversationId)
+    ASSERT(discussion completes with "done" event within MAX_DURATION)
+
+    # Cross-layer question should engage multiple specialists
+    ASSERT(at least 2 specialists contribute with signal=agree)
+    ASSERT(coordinator produces synthesis)
+    ASSERT(synthesis is non-empty)

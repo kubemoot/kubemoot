@@ -1,0 +1,145 @@
+{{- if .Values.nats.enabled }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "kubemoot-operator.fullname" . }}-nats-bootstrap
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "kubemoot-operator.labels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "10"
+    "helm.sh/hook-delete-policy": before-hook-creation
+spec:
+  backoffLimit: 5
+  activeDeadlineSeconds: 120
+  template:
+    metadata:
+      labels:
+        {{- include "kubemoot-operator.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: nats-bootstrap
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: nats-bootstrap
+          image: natsio/nats-box:0.14.5
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -e
+              NATS_URL="{{ .Values.nats.url }}"
+
+              echo "Waiting for NATS to be ready..."
+              until nats server check connection -s "$NATS_URL" 2>/dev/null; do
+                echo "NATS not ready, retrying in 5s..."
+                sleep 5
+              done
+              echo "NATS is ready."
+
+              # Create JetStream streams
+              echo "Creating JetStream streams..."
+
+              nats stream add KUBEMOOT_CHRONICLE \
+                --subjects="kubemoot.chronicle.>" \
+                --retention=limits --max-age=720h --max-msgs=10000 \
+                --storage=file --replicas=1 --discard=old \
+                --defaults -s "$NATS_URL" 2>/dev/null || \
+              nats stream update KUBEMOOT_CHRONICLE \
+                --subjects="kubemoot.chronicle.>" \
+                --max-age=720h --max-msgs=10000 \
+                --force -s "$NATS_URL" 2>/dev/null || true
+
+              nats stream add KUBEMOOT_QUALITY \
+                --subjects="kubemoot.quality.>" \
+                --retention=limits --max-age=720h --max-msgs=10000 \
+                --storage=file --replicas=1 --discard=old \
+                --defaults -s "$NATS_URL" 2>/dev/null || \
+              nats stream update KUBEMOOT_QUALITY \
+                --subjects="kubemoot.quality.>" \
+                --max-age=720h --max-msgs=10000 \
+                --force -s "$NATS_URL" 2>/dev/null || true
+
+              nats stream add KUBEMOOT_CHAT \
+                --subjects="kubemoot.chat.>" \
+                --retention=limits --max-age=168h --max-msgs=5000 \
+                --storage=file --replicas=1 --discard=old \
+                --defaults -s "$NATS_URL" 2>/dev/null || \
+              nats stream update KUBEMOOT_CHAT \
+                --subjects="kubemoot.chat.>" \
+                --max-age=168h --max-msgs=5000 \
+                --force -s "$NATS_URL" 2>/dev/null || true
+
+              nats stream add KUBEMOOT_OPERATOR \
+                --subjects="kubemoot.operator.>" \
+                --retention=limits --max-age=168h --max-msgs=10000 \
+                --storage=file --replicas=1 --discard=old \
+                --defaults -s "$NATS_URL" 2>/dev/null || \
+              nats stream update KUBEMOOT_OPERATOR \
+                --subjects="kubemoot.operator.>" \
+                --max-age=168h --max-msgs=10000 \
+                --force -s "$NATS_URL" 2>/dev/null || true
+
+              nats stream add KUBEMOOT_DISCUSS \
+                --subjects="kubemoot.discuss.>" \
+                --retention=limits --max-age=24h --max-msgs=5000 \
+                --storage=file --replicas=1 --discard=old \
+                --defaults -s "$NATS_URL" 2>/dev/null || \
+              nats stream update KUBEMOOT_DISCUSS \
+                --subjects="kubemoot.discuss.>" \
+                --max-age=24h --max-msgs=5000 \
+                --force -s "$NATS_URL" 2>/dev/null || true
+
+              nats stream add KUBEMOOT_REQUEST \
+                --subjects="kubemoot.request.>" \
+                --retention=work --max-age=24h --max-msgs=1000 \
+                --storage=file --replicas=1 --discard=old \
+                --defaults -s "$NATS_URL" 2>/dev/null || \
+              nats stream update KUBEMOOT_REQUEST \
+                --subjects="kubemoot.request.>" \
+                --max-age=24h --max-msgs=1000 \
+                --force -s "$NATS_URL" 2>/dev/null || true
+
+              # Create KV buckets
+              echo "Creating KV buckets..."
+              nats kv add kubemoot_agent_state --ttl=300s -s "$NATS_URL" 2>/dev/null || true
+              nats kv add kubemoot_latency --history=1 --max-bucket-size=1048576 -s "$NATS_URL" 2>/dev/null || true
+              nats kv add kubemoot_config -s "$NATS_URL" 2>/dev/null || true
+              nats kv add kubemoot_conversations --ttl=24h --history=1 --max-value-size=65536 -s "$NATS_URL" 2>/dev/null || true
+              # Crew working memory: per-cluster facts the crew learns at runtime
+              # (e.g. discovered label/topology mappings). Keys crew-scoped
+              # (<crew>.<topic>.<key>). GC is layered: (1) the agent-runtime
+              # CrewMemoryClient enforces a per-crew LRU cap on every write
+              # (primary, works on any bucket); (2) touch-on-read refreshes
+              # usedAt so abandoned facts age out; (3) this 30-day bucket TTL is
+              # a backstop — a fact not used/refreshed in 30d expires (used
+              # facts get touched, so they survive). NOTE: TTL applies only on
+              # bucket CREATION; an existing bucket keeps its original setting
+              # (the LRU cap still bounds it). See [[Crew Working Memory]].
+              nats kv add kubemoot_crew_memory --ttl=720h --history=5 --max-bucket-size=10485760 --max-value-size=65536 -s "$NATS_URL" 2>/dev/null || true
+
+              # kubemoot_provider_tickets — per-call VRAM-footprint reservations
+              # for the v2 JIT-scheduling model. Each in-flight inference holds
+              # one ticket here; agents subtract these from preTicketHeadroom
+              # when computing per-call budget. See kubemoot/docs/scheduler.md
+              # "JIT GPU Scheduling → Update (2026-05-28): VRAM-headroom tickets".
+              #
+              # TTL = 10 minutes: the safety-net release if the ticket holder
+              # crashes/disappears (callTimeout is 5m for mulling; doubling that
+              # is the unconditional reclaim ceiling). The fast path is still
+              # the agent's try/finally delete; TTL is layer two.
+              # history=1: each ticket is a single immutable record between
+              # create and delete; no need to retain old values.
+              # max-value-size kept small — a Ticket JSON is well under 256 bytes.
+              nats kv add kubemoot_provider_tickets --ttl=10m --history=1 --max-value-size=4096 -s "$NATS_URL" 2>/dev/null || true
+
+              echo "NATS JetStream bootstrap complete."
+              nats stream ls -s "$NATS_URL"
+              nats kv ls -s "$NATS_URL"
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+{{- end }}

@@ -1,0 +1,42 @@
+{{/*
+Default MCPQualityPolicy CR for evaluating MCP server trustworthiness.
+Gated by quality evaluator enablement since it references the evaluator agent.
+*/}}
+{{- if and .Values.internalAgents.enabled .Values.internalAgents.qualityEvaluator.enabled }}
+---
+apiVersion: kubemoot.ai/v1alpha1
+kind: MCPQualityPolicy
+metadata:
+  name: default-quality-policy
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "kubemoot-operator.labels" . | nindent 4 }}
+    kubemoot.ai/internal: "true"
+spec:
+  # Trusted sources — auto-allow servers from these organizations
+  allowList:
+    organizations:
+      - modelcontextprotocol
+      - anthropics
+      - github
+      - kubernetes-sigs
+      - cncf
+  # Blocked patterns — reject servers matching these globs
+  blockList:
+    nameGlobs:
+      - "*crypto*"
+      - "*mining*"
+      - "*hack*"
+      - "*crack*"
+      - "*keygen*"
+  # Tested tier — servers with trial history
+  testedTier:
+    enabled: true
+    minSuccessRate: 0.8
+    blockBroken: true
+  # Considering tier — new/unknown servers evaluated by AI agent
+  consideringTier:
+    agentRef: mcp-quality-evaluator
+    confidenceThreshold: 0.7
+    fallbackAction: deny
+{{- end }}

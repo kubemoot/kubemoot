@@ -1,0 +1,144 @@
+# Default values for kubemoot-dashboard
+# This is a YAML-formatted file.
+# Declare variables to be passed into your templates.
+
+# Application image configuration
+image:
+  # Public releases are published to GHCR; a private mirror overrides registry
+  # (e.g. harbor.example.com) and adds its pull secret below.
+  registry: ghcr.io
+  repository: kubemoot/dashboard
+  # The tag is set by CI/CD from git tags - DO NOT override manually
+  tag: ""  # defaults to .Chart.AppVersion
+  pullPolicy: IfNotPresent
+
+# Pull secrets for image.registry. Empty for the public registry.
+imagePullSecrets: []
+
+# Number of replicas
+replicaCount: 1
+
+# Service account configuration
+serviceAccount:
+  create: true
+  name: kubemoot-dashboard
+  annotations: {}
+
+# RBAC configuration
+rbac:
+  create: true
+  # ClusterRole for reading Kubemoot CRDs and K8s resources
+  clusterRole:
+    name: kubemoot-dashboard-reader
+    rules:
+      # Core K8s resources
+      - apiGroups: [""]
+        resources: ["nodes", "namespaces", "pods"]
+        verbs: ["get", "list", "watch"]
+      # Pod logs - needed for verify job log streaming
+      - apiGroups: [""]
+        resources: ["pods/log"]
+        verbs: ["get"]
+      # ConfigMaps - needed to read agent <name>-policy bundles
+      # (assembled system.txt, generated application.properties) for the
+      # Agent detail page's Prompt section
+      - apiGroups: [""]
+        resources: ["configmaps"]
+        verbs: ["get", "list"]
+      # Deployments - needed by the SystemInfoPopover to read the
+      # kubemoot-operator's app.kubernetes.io/version label.
+      - apiGroups: ["apps"]
+        resources: ["deployments"]
+        verbs: ["get", "list", "watch"]
+      # Kubemoot CRDs - read all
+      - apiGroups: ["kubemoot.ai"]
+        resources: ["*"]
+        verbs: ["get", "list", "watch"]
+      # Delete fitness suite runs from the Fitness page "remove run" action.
+      # Scoped to crewfitnesssuites only; owned children (CrewFitness CRs)
+      # cascade via owner refs, so no separate delete grant is needed for them.
+      - apiGroups: ["kubemoot.ai"]
+        resources: ["crewfitnesssuites"]
+        verbs: ["delete"]
+
+# Service configuration
+service:
+  type: ClusterIP
+  port: 80
+  targetPort: 3000
+  annotations: {}
+
+# Ingress configuration (disabled — replaced by Gateway API)
+ingress:
+  enabled: false
+  className: nginx
+  annotations: {}
+  hosts: []
+  tls: []
+
+# Gateway API configuration (replaces Ingress)
+gateway:
+  enabled: true
+  name: gateway
+  namespace: default
+  hostnames:
+    - kubemoot.example.com
+  pathPrefix: /dashboard
+
+# Application environment variables
+env:
+  nodeEnv: production
+
+# Resource limits and requests
+resources:
+  requests:
+    cpu: 50m
+    memory: 64Mi
+  limits:
+    cpu: 200m
+    memory: 128Mi
+
+# Security context for the pod
+podSecurityContext:
+  seccompProfile:
+    type: RuntimeDefault
+
+# Security context for the container
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  runAsNonRoot: true
+  runAsUser: 1001
+  capabilities:
+    drop:
+      - ALL
+
+# Liveness and readiness probes
+livenessProbe:
+  httpGet:
+    path: /dashboard/api/health
+    port: http
+  initialDelaySeconds: 10
+  periodSeconds: 30
+
+readinessProbe:
+  httpGet:
+    path: /dashboard/api/health
+    port: http
+  initialDelaySeconds: 5
+  periodSeconds: 10
+
+# Verify feature configuration
+verify:
+  # Test runner image for verification jobs (synced from operator chart by CI/CD).
+  # Full reference; a private mirror overrides it alongside image.registry.
+  image: ghcr.io/kubemoot/test-runner:0.46.2
+
+# Node selector
+nodeSelector: {}
+
+# Tolerations
+tolerations: []
+
+# Affinity rules
+affinity: {}

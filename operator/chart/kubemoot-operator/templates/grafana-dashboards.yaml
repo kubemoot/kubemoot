@@ -1,0 +1,30 @@
+{{- if .Values.grafana.dashboards.enabled }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "kubemoot-operator.fullname" . }}-dashboard-overview
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "kubemoot-operator.labels" . | nindent 4 }}
+    grafana_dashboard: "1"
+  annotations:
+    grafana_folder: "Kubemoot"
+data:
+  kubemoot-overview.json: |-
+{{ .Files.Get "dashboards/kubemoot-overview.json" | indent 4 }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "kubemoot-operator.fullname" . }}-dashboard-discussions
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "kubemoot-operator.labels" . | nindent 4 }}
+    grafana_dashboard: "1"
+  annotations:
+    grafana_folder: "Kubemoot"
+data:
+  kubemoot-discussions.json: |-
+{{ .Files.Get "dashboards/kubemoot-discussions.json" | indent 4 }}
+{{- end }}

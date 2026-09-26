@@ -1,0 +1,24 @@
+# Example: External MCP Server (no deployment)
+# Use this when connecting to a pre-existing MCP server running elsewhere.
+# The operator will register the endpoint but won't deploy any pods.
+#
+# Usage:
+#   kubectl apply -f kubemoot_v1alpha1_mcpserver_external.yaml
+---
+apiVersion: kubemoot.ai/v1alpha1
+kind: MCPServer
+metadata:
+  name: external-mcp-example
+  namespace: kubemoot-system
+  labels:
+    app.kubernetes.io/name: external-mcp
+    app.kubernetes.io/part-of: kubemoot
+spec:
+  # External endpoint - no pods deployed
+  # Replace with your actual MCP server URL
+  externalEndpoint: http://your-mcp-server.internal:3000
+
+  # User-defined capability labels for routing
+  capabilities:
+    - external
+    - custom

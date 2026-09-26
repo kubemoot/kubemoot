@@ -1,0 +1,199 @@
+{{/*
+MCP Tool Servers for Internal Agents
+These MCP servers provide tools for the discovery and quality evaluator agents.
+*/}}
+{{- if .Values.internalAgents.enabled }}
+{{- if .Values.internalAgents.mcpServers.enabled }}
+---
+# ServiceAccount for kubernetes-mcp to create MCPServer CRs
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: kubemoot-kubernetes-mcp
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "kubemoot-operator.labels" . | nindent 4 }}
+    app.kubernetes.io/component: agent-tools
+---
+# ClusterRole for kubernetes-mcp to manage MCPServer CRs
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: kubemoot-mcpserver-creator
+  labels:
+    {{- include "kubemoot-operator.labels" . | nindent 4 }}
+rules:
+  # MCPServer CRUD for discovery and onboarding agents
+  - apiGroups: ["kubemoot.ai"]
+    resources: ["mcpservers"]
+    verbs: ["create", "get", "list", "watch", "update", "patch"]
+  - apiGroups: ["kubemoot.ai"]
+    resources: ["mcpservers/status"]
+    verbs: ["get"]
+  # RAGSource CRUD for RTFM agent to create documentation sources
+  - apiGroups: ["kubemoot.ai"]
+    resources: ["ragsources"]
+    verbs: ["create", "get", "list", "watch", "update", "patch"]
+  - apiGroups: ["kubemoot.ai"]
+    resources: ["ragsources/status"]
+    verbs: ["get"]
+  # Agent and AgentPolicy CRUD for onboarding agent (future auto-creation)
+  - apiGroups: ["kubemoot.ai"]
+    resources: ["agents", "agentpolicies"]
+    verbs: ["create", "get", "list", "watch", "update", "patch"]
+  # Pod/namespace listing for kubernetes operations
+  - apiGroups: [""]
+    resources: ["pods", "namespaces", "services", "configmaps", "secrets"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["apps"]
+    resources: ["deployments", "statefulsets", "daemonsets", "replicasets"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["batch"]
+    resources: ["jobs", "cronjobs"]
+    verbs: ["get", "list", "watch"]
+---
+# ClusterRoleBinding for kubernetes-mcp
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: kubemoot-kubernetes-mcp-binding
+  labels:
+    {{- include "kubemoot-operator.labels" . | nindent 4 }}
+subjects:
+  - kind: ServiceAccount
+    name: kubemoot-kubernetes-mcp
+    namespace: {{ .Release.Namespace }}
+roleRef:
+  kind: ClusterRole
+  name: kubemoot-mcpserver-creator
+  apiGroup: rbac.authorization.k8s.io
+{{- if .Values.internalAgents.mcpServers.kubernetes.enabled }}
+---
+# Kubernetes MCP Server
+# Provides kubernetes CRUD tools for agents (pods, deployments, namespaces, etc.)
+# Uses manusa/Kubernetes-MCP-Server - native Go implementation with in-cluster auth
+apiVersion: kubemoot.ai/v1alpha1
+kind: MCPServer
+metadata:
+  name: kubernetes-mcp
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "kubemoot-operator.labels" . | nindent 4 }}
+    app.kubernetes.io/component: agent-tools
+    kubemoot.ai/internal: "true"
+    kubemoot.ai/purpose: agent-tooling
+spec:
+  image: {{ .Values.internalAgents.mcpServers.kubernetes.image }}
+  transport: stdio
+  securityMode: {{ .Values.internalAgents.mcpServers.kubernetes.securityMode | default "relaxed" }}
+  command:
+    {{- toYaml .Values.internalAgents.mcpServers.kubernetes.command | nindent 4 }}
+  # proxyInjection automatically enabled for stdio transport
+  # Bridge binary injected via init container — works with any image
+  replicas: {{ .Values.internalAgents.mcpServers.kubernetes.replicas }}
+  serviceAccountName: kubemoot-kubernetes-mcp
+  capabilities:
+    - kubernetes
+    - pods
+    - deployments
+    - namespaces
+    - services
+    - configmaps
+    - helm
+  registry:
+    enabled: true
+    categories:
+      - kubernetes
+      - infrastructure
+      - devops
+  resources:
+    {{- toYaml .Values.internalAgents.mcpServers.kubernetes.resources | nindent 4 }}
+{{- end }}
+{{- if .Values.internalAgents.mcpServers.fetch.enabled }}
+---
+# Fetch MCP Server
+# Provides HTTP/web fetching tools for agents to scrape catalogs and registries
+# Uses modelcontextprotocol/servers fetch implementation
+apiVersion: kubemoot.ai/v1alpha1
+kind: MCPServer
+metadata:
+  name: fetch-mcp
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "kubemoot-operator.labels" . | nindent 4 }}
+    app.kubernetes.io/component: agent-tools
+    kubemoot.ai/internal: "true"
+    kubemoot.ai/purpose: agent-tooling
+spec:
+  image: {{ .Values.internalAgents.mcpServers.fetch.image }}
+  transport: stdio
+  securityMode: {{ .Values.internalAgents.mcpServers.fetch.securityMode | default "relaxed" }}
+  command:
+    {{- toYaml .Values.internalAgents.mcpServers.fetch.command | nindent 4 }}
+  # proxyInjection automatically enabled for stdio transport
+  # Bridge binary injected via init container — works with any image
+  replicas: {{ .Values.internalAgents.mcpServers.fetch.replicas }}
+  capabilities:
+    - http
+    - fetch
+    - web
+    - scraping
+  registry:
+    enabled: true
+    categories:
+      - http
+      - web
+      - fetch
+  resources:
+    {{- toYaml .Values.internalAgents.mcpServers.fetch.resources | nindent 4 }}
+{{- end }}
+{{- if .Values.internalAgents.mcpServers.github.enabled }}
+---
+# GitHub MCP Server
+# Provides GitHub API tools for agents to check repo metrics (stars, commits, activity)
+# Uses GitHub's official MCP server (Go binary — works with mcp-bridge injection)
+apiVersion: kubemoot.ai/v1alpha1
+kind: MCPServer
+metadata:
+  name: github-mcp
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "kubemoot-operator.labels" . | nindent 4 }}
+    app.kubernetes.io/component: agent-tools
+    kubemoot.ai/internal: "true"
+    kubemoot.ai/purpose: agent-tooling
+spec:
+  image: {{ .Values.internalAgents.mcpServers.github.image }}
+  transport: stdio
+  securityMode: {{ .Values.internalAgents.mcpServers.github.securityMode | default "relaxed" }}
+  command:
+    {{- toYaml .Values.internalAgents.mcpServers.github.command | nindent 4 }}
+  # proxyInjection automatically enabled for stdio transport
+  # Bridge binary injected via init container — works with any image
+  replicas: {{ .Values.internalAgents.mcpServers.github.replicas }}
+  {{- if .Values.internalAgents.mcpServers.github.secretRef }}
+  env:
+    - name: GITHUB_PERSONAL_ACCESS_TOKEN
+      valueFrom:
+        secretKeyRef:
+          name: {{ .Values.internalAgents.mcpServers.github.secretRef }}
+          key: {{ .Values.internalAgents.mcpServers.github.secretKey | default "password" }}
+  {{- end }}
+  capabilities:
+    - github
+    - repositories
+    - issues
+    - pull-requests
+    - commits
+    - stars
+  registry:
+    enabled: true
+    categories:
+      - github
+      - vcs
+      - code-hosting
+  resources:
+    {{- toYaml .Values.internalAgents.mcpServers.github.resources | nindent 4 }}
+{{- end }}
+{{- end }}
+{{- end }}

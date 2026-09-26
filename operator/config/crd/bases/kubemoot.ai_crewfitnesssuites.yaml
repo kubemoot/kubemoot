@@ -1,0 +1,306 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.21.0
+  name: crewfitnesssuites.kubemoot.ai
+spec:
+  group: kubemoot.ai
+  names:
+    kind: CrewFitnessSuite
+    listKind: CrewFitnessSuiteList
+    plural: crewfitnesssuites
+    shortNames:
+    - cfs
+    singular: crewfitnesssuite
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .status.phase
+      name: Phase
+      type: string
+    - jsonPath: .spec.crewRef
+      name: Crew
+      type: string
+    - jsonPath: .status.iterationsCompleted
+      name: Progress
+      type: string
+    - jsonPath: .status.iterationsTotal
+      name: Total
+      type: integer
+    - jsonPath: .status.passed
+      name: Passed
+      type: integer
+    - jsonPath: .status.failed
+      name: Failed
+      type: integer
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: |-
+          CrewFitnessSuite drives an N-iteration sweep of a fitness script set
+          against a crew, aggregates per-iteration results, and persists an
+          XLSX artifact to the NATS Object Store. The artifact is downloaded
+          from the kubemoot dashboard.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: |-
+              CrewFitnessSuiteSpec defines a fitness suite — a set of scripts to run
+              N times against a crew. The reconciler creates one CrewFitness CR per
+              (script × iteration) pair serially (or up to spec.concurrency in
+              parallel), harvests their results, and aggregates into an XLSX artifact
+              written to the NATS Object Store bucket {@code kubemoot_fitness_artifacts}.
+            properties:
+              artifactRetention:
+                default: 168h
+                description: |-
+                  ArtifactRetention is the NATS Object Store TTL for the produced
+                  XLSX. After this duration the artifact is auto-deleted from the
+                  bucket. The CrewFitnessSuite CR's status.artifactRef will still
+                  reference the (now-missing) object; downloads will 404 cleanly.
+                  Default 168h (7 days).
+                type: string
+              concurrency:
+                default: 1
+                description: |-
+                  Concurrency is the max number of CrewFitness CRs the reconciler
+                  runs in parallel. Default 1 (strictly serial). Keep at 1 for
+                  baseline measurements — concurrent runs share the same crew and
+                  the same Ollama providers, so parallel iterations measure
+                  contention more than scenario behaviour.
+                format: int32
+                minimum: 1
+                type: integer
+              crewRef:
+                description: |-
+                  CrewRef references the Crew CR in the same namespace that the
+                  suite runs against. Required.
+                type: string
+              description:
+                description: |-
+                  Description is a human-readable statement of the suite's purpose
+                  and scope (e.g. "26-scenario READ-query baseline across all four
+                  homelab layers"). Surfaced on the dashboard suite row/detail and
+                  as a header line in the XLSX Overview tab. Optional.
+                type: string
+              iterations:
+                description: |-
+                  Iterations is how many times each script is executed. Total
+                  CrewFitness CRs created is len(Scripts) × Iterations. Required.
+                format: int32
+                minimum: 1
+                type: integer
+              perIterationTimeout:
+                default: 10m
+                description: |-
+                  PerIterationTimeout caps the wall-clock for a single iteration's
+                  CrewFitness CR. If an iteration doesn't reach a terminal phase
+                  within this duration the reconciler records an error result for
+                  that iteration and continues. Default 10m.
+                type: string
+              purgeMemory:
+                default: true
+                description: |-
+                  PurgeMemory clears the target crew's working memory once before the run so
+                  the suite starts from a clean state (results aren't biased by facts the crew
+                  learned in earlier runs). Defaults to true.
+                type: boolean
+              scripts:
+                description: |-
+                  Scripts is the ordered list of fitness scripts to execute.
+                  Each entry mirrors the CrewFitness spec's testRef/testContent/
+                  configMapRef triad — exactly one source must be set per entry.
+                items:
+                  description: |-
+                    SuiteScript is one entry in a suite — mirrors the CrewFitness spec's
+                    test source fields. Exactly one of TestContent or ConfigMapRef must be
+                    set; TestRef is the friendly name used as a column value and as part
+                    of the per-iteration CrewFitness CR's name.
+                  properties:
+                    configMapRef:
+                      description: |-
+                        ConfigMapRef references an existing ConfigMap whose data key
+                        {@code <TestRef>.adl} (or matching key) holds the script. Mutually
+                        exclusive with TestContent.
+                      type: string
+                    testContent:
+                      description: |-
+                        TestContent is the raw ADL script. When set, the per-iteration
+                        CrewFitness CR is created with this content inline. Mutually
+                        exclusive with ConfigMapRef.
+                      type: string
+                    testRef:
+                      description: |-
+                        TestRef is the script's friendly name (e.g. "gpu-utilization-live").
+                        Used as a column value in the XLSX and as part of the per-iteration
+                        CrewFitness CR's name.
+                      type: string
+                  required:
+                  - testRef
+                  type: object
+                minItems: 1
+                type: array
+            required:
+            - crewRef
+            - iterations
+            - scripts
+            type: object
+          status:
+            description: CrewFitnessSuiteStatus reflects the observed state of a suite
+              run.
+            properties:
+              artifactRef:
+                description: |-
+                  ArtifactRef is set when the XLSX has been written to the NATS
+                  Object Store. Populated only on terminal phase
+                  (Completed/Failed).
+                properties:
+                  bucket:
+                    description: |-
+                      Bucket is the NATS Object Store bucket. Always
+                      {@code kubemoot_fitness_artifacts} in v1.
+                    type: string
+                  objectKey:
+                    description: |-
+                      ObjectKey is the bucket-relative key:
+                      {@code <namespace>/<suite-name>/<runId>.xlsx}.
+                    type: string
+                  sizeBytes:
+                    description: |-
+                      SizeBytes of the XLSX object. Reported by the operator for
+                      dashboard pre-fetch sizing; not load-bearing.
+                    format: int64
+                    type: integer
+                required:
+                - bucket
+                - objectKey
+                type: object
+              completedAt:
+                description: |-
+                  CompletedAt records when the last iteration reached a terminal
+                  phase (Passed/Failed/Error/Timeout).
+                format: date-time
+                type: string
+              conditions:
+                description: Conditions represent the latest available observations.
+                items:
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: |-
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                type: array
+              error:
+                description: Error provides details when Phase is Error.
+                type: string
+              errored:
+                format: int32
+                type: integer
+              failed:
+                format: int32
+                type: integer
+              iterationsCompleted:
+                description: |-
+                  IterationsCompleted is the number of per-iteration CrewFitness
+                  CRs that have reached a terminal phase (any outcome). Increments
+                  monotonically up to IterationsTotal.
+                format: int32
+                type: integer
+              iterationsTotal:
+                description: IterationsTotal is len(spec.scripts) × spec.iterations.
+                format: int32
+                type: integer
+              passed:
+                description: |-
+                  Passed / Failed / Errored break down IterationsCompleted by
+                  outcome.
+                format: int32
+                type: integer
+              phase:
+                description: Phase is the lifecycle phase.
+                type: string
+              runId:
+                description: |-
+                  RunID identifies this suite execution; set on transition to
+                  Running. Used as the trailing path segment of the artifact key.
+                type: string
+              startedAt:
+                description: StartedAt records when the reconciler began iteration
+                  scheduling.
+                format: date-time
+                type: string
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

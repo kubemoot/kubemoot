@@ -1,0 +1,15 @@
+# Operator chart values for the quickstart: a minimal install on an empty cluster.
+# Everything that needs another add-on (cert-manager, KEDA, Grafana, a GPU) is off.
+webhook:
+  enabled: false          # admission webhooks need cert-manager; not part of the quickstart
+internalAgents:
+  enabled: false          # the kubernetes/fetch MCP servers are for the full platform
+nats:
+  enabled: true           # discussions run over NATS JetStream (installed by the script)
+  mcpServer:
+    enabled: false        # agents do not need to inspect NATS here
+grafana:
+  dashboards:
+    enabled: false
+verify:
+  enabled: false

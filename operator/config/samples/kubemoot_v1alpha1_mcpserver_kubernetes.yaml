@@ -1,0 +1,70 @@
+# Example: Deploy Kubernetes MCP Server (feiskyer/mcp-kubernetes-server)
+# This deploys a public MCP server that provides Kubernetes tools for AI agents.
+#
+# Before applying, create the RBAC resources:
+#   kubectl apply -f kubemoot_v1alpha1_mcpserver_kubernetes_rbac.yaml
+#
+# Usage:
+#   kubectl apply -f kubemoot_v1alpha1_mcpserver_kubernetes.yaml
+#   kubectl wait --for=condition=Ready mcpserver/kubernetes-mcp -n kubemoot-system --timeout=5m
+#
+# Test:
+#   kubectl port-forward -n kubemoot-system svc/kubernetes-mcp 8000:8000
+#   curl http://localhost:8000/sse
+---
+apiVersion: kubemoot.ai/v1alpha1
+kind: MCPServer
+metadata:
+  name: kubernetes-mcp
+  namespace: kubemoot-system
+  labels:
+    app.kubernetes.io/name: kubernetes-mcp
+    app.kubernetes.io/part-of: kubemoot
+spec:
+  # feiskyer/mcp-kubernetes-server - Python-based Kubernetes MCP server
+  # See: https://pypi.org/project/mcp-kubernetes-server/
+  # Docker image: ghcr.io/feiskyer/mcp-kubernetes-server
+  # Supports HTTP/SSE transport modes
+  image: ghcr.io/feiskyer/mcp-kubernetes-server:latest
+
+  # Run in streamable-http transport mode
+  # This provides a standard HTTP endpoint at /mcp
+  args:
+    - "--transport"
+    - "streamable-http"
+    - "--host"
+    - "0.0.0.0"
+    - "--port"
+    - "8000"
+
+  # HTTP transport (streamable HTTP uses /mcp endpoint)
+  transport: http
+  port: 8000
+
+  # Single replica for homelab (adjust for production)
+  replicas: 1
+
+  # ServiceAccount with read-only cluster access
+  # Must be created separately (see kubernetes_rbac.yaml)
+  serviceAccountName: kubernetes-mcp-sa
+
+  # Resource limits
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+  # Note: MCP streaming endpoints don't work well with HTTP GET probes
+  # The controller uses TCP probes for SSE transport, but for HTTP with
+  # streaming endpoints, consider setting healthPath to a non-streaming endpoint
+  # or relying on TCP-based probes
+
+  # User-defined capability labels for routing
+  capabilities:
+    - kubernetes
+    - cluster-inspection
+    - kubectl
+    - helm

@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "kubemoot-operator.fullname" . }}-report
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "kubemoot-operator.labels" . | nindent 4 }}
+spec:
+  ports:
+    - name: report
+      port: 8082
+      targetPort: report
+      protocol: TCP
+  selector:
+    {{- include "kubemoot-operator.selectorLabels" . | nindent 4 }}
+    control-plane: controller-manager

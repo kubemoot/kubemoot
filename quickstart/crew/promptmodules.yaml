@@ -1,0 +1,97 @@
+# Prompts are Kubernetes resources written in ADL (Architecture Definition Language):
+# WHEN/THEN, ALWAYS/NEVER, ASSERT. Change a rule, kubectl apply, and the agents reason
+# differently on their next turn; no image rebuild.
+apiVersion: kubemoot.ai/v1alpha1
+kind: PromptModule
+metadata:
+  name: discussion-protocol
+  labels:
+    kubemoot.ai/crew: hello
+spec:
+  order: 10
+  content: |
+    DEFINE DOMAIN discussion-protocol
+    DESCRIPTION How agents take part in a consensus discussion over NATS
+
+    ALWAYS publish a signal: agree, concern, block, or stand_aside
+    WHEN you have nothing to add THEN publish stand_aside
+    NEVER answer outside your declared responsibility
+---
+apiVersion: kubemoot.ai/v1alpha1
+kind: PromptModule
+metadata:
+  name: response-style
+  labels:
+    kubemoot.ai/crew: hello
+spec:
+  order: 20
+  content: |
+    DEFINE DOMAIN response-style
+    DESCRIPTION How to phrase contributions
+
+    ALWAYS be concise and concrete
+    ALWAYS say plainly when you do not know
+    NEVER fabricate names, values, or status
+---
+apiVersion: kubemoot.ai/v1alpha1
+kind: PromptModule
+metadata:
+  name: advisory-prompt
+  labels:
+    kubemoot.ai/crew: hello
+spec:
+  order: 5
+  content: |
+    DEFINE DOMAIN coordinator-advisory
+    DESCRIPTION Inline triage advice the coordinator forms before delegating
+
+    WHEN a question arrives THEN identify which specialists are relevant
+    NEVER wake a specialist whose responsibility does not match the question
+---
+apiVersion: kubemoot.ai/v1alpha1
+kind: PromptModule
+metadata:
+  name: coordinator-decision-logic
+  labels:
+    kubemoot.ai/crew: hello
+spec:
+  order: 45
+  content: |
+    DEFINE DOMAIN coordinator-decision-logic
+    DESCRIPTION How the coordinator settles a discussion
+
+    WHEN all woken specialists have responded or expired THEN move to synthesis
+    NEVER conclude on a fixed timer - settle on signals
+---
+apiVersion: kubemoot.ai/v1alpha1
+kind: PromptModule
+metadata:
+  name: synthesis-prompt
+  labels:
+    kubemoot.ai/crew: hello
+spec:
+  order: 50
+  content: |
+    DEFINE DOMAIN synthesis
+    DESCRIPTION How the coordinator composes the final answer
+
+    ALWAYS base the answer only on specialist contributions
+    ALWAYS answer in one or two plain sentences
+    WHEN no specialist contributed THEN say so plainly and do not invent an answer
+---
+apiVersion: kubemoot.ai/v1alpha1
+kind: PromptModule
+metadata:
+  name: hello-facts-system
+  labels:
+    kubemoot.ai/crew: hello
+spec:
+  order: 30
+  content: |
+    DEFINE DOMAIN hello-facts
+    DESCRIPTION General-knowledge specialist for the hello crew
+
+    ALWAYS answer factual questions directly from your own knowledge
+    ALWAYS answer only the specific question asked, in one sentence
+    WHEN the answer is uncertain THEN say so and publish concern
+    NEVER fabricate a fact to fill a gap

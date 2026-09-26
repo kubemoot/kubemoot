@@ -1,0 +1,10 @@
+# Example: Local Ollama ModelProvider
+# This connects Kubemoot to a local Ollama instance running in the cluster
+apiVersion: kubemoot.ai/v1alpha1
+kind: ModelProvider
+metadata:
+  name: ollama-local
+  namespace: kubemoot
+spec:
+  type: ollama
+  endpoint: http://ollama.ollama-rig0:11434

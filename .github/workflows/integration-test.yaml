@@ -1,0 +1,82 @@
+name: Integration Test
+
+on:
+  repository_dispatch:
+    types: [flux-reconciliation]
+  workflow_dispatch:
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+concurrency:
+  group: integration-test
+  cancel-in-progress: false
+
+jobs:
+  smoke-test:
+    runs-on: homelab-runners
+    timeout-minutes: 10
+
+    steps:
+      - name: Log trigger context
+        run: |
+          echo "Event: ${{ github.event_name }}"
+          echo "Trigger: ${{ toJSON(github.event.client_payload) }}"
+
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Install kubectl
+        run: |
+          curl -sLO "https://dl.k8s.io/release/$(curl -sL https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+          chmod +x kubectl && sudo mv kubectl /usr/local/bin/
+
+      - name: Configure kubectl
+        run: |
+          # Self-hosted runner: prefer local kubeconfig if it exists and works.
+          # Talos uses self-signed certs so --insecure-skip-tls-verify is needed
+          # when the runner's trust store doesn't include the cluster CA.
+          if [ -f "$HOME/.kube/config" ] && kubectl cluster-info --insecure-skip-tls-verify >/dev/null 2>&1; then
+            kubectl config set-cluster "$(kubectl config current-context)" --insecure-skip-tls-verify=true 2>/dev/null || true
+            echo "Using runner's local kubeconfig"
+          elif [ -n "${{ secrets.KUBECONFIG_DATA }}" ]; then
+            mkdir -p ~/.kube
+            echo "${{ secrets.KUBECONFIG_DATA }}" > ~/.kube/config
+            chmod 600 ~/.kube/config
+            # Skip TLS verify for self-signed Talos cluster CA
+            kubectl config set-cluster "$(kubectl config view -o jsonpath='{.clusters[0].name}')" --insecure-skip-tls-verify=true
+            echo "Using KUBECONFIG_DATA secret"
+          else
+            echo "No kubeconfig available" && exit 1
+          fi
+
+      - name: Wait for operator rollout
+        run: |
+          kubectl rollout status deployment/kubemoot-operator -n kubemoot --timeout=120s
+
+      - name: Delete previous smoke test job
+        run: |
+          kubectl delete job kubemoot-test-smoke -n kubemoot --ignore-not-found
+
+      - name: Run smoke test
+        run: |
+          kubectl create -f k8s/tests/job/job-smoke.yaml
+
+      - name: Wait for smoke test completion
+        run: |
+          kubectl wait --for=condition=complete job/kubemoot-test-smoke -n kubemoot --timeout=300s
+
+      - name: Collect test logs
+        if: always()
+        run: |
+          echo "=== Smoke Test Logs ==="
+          kubectl logs job/kubemoot-test-smoke -n kubemoot || echo "No logs available"
+
+      - name: Check for failure
+        if: always()
+        run: |
+          FAILED=$(kubectl get job kubemoot-test-smoke -n kubemoot -o jsonpath='{.status.failed}' 2>/dev/null || echo "0")
+          if [ "$FAILED" != "" ] && [ "$FAILED" != "0" ]; then
+            echo "::error::Smoke test job failed"
+            exit 1
+          fi

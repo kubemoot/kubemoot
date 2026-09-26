@@ -1,0 +1,19 @@
+# The hello crew: a coordinator and one specialist, no tools, no RAG. Enough to hold
+# a real consensus discussion and show every moving part. Started from
+# `kmctl create hello --members 1`, then trimmed for a CPU-only cluster. The scaffold
+# templates live in the kmctl repo (internal/scaffold/templates.go); when they change,
+# re-diff these manifests against a fresh `kmctl create` so the two do not drift apart.
+#
+# The namespace is created by quickstart.sh, not by the operator, and the Crew
+# carries no kubemoot.ai/manage-namespace annotation: deleting this crew must never
+# delete the namespace it was applied into.
+apiVersion: kubemoot.ai/v1alpha1
+kind: Crew
+metadata:
+  name: hello
+  labels:
+    kubemoot.ai/crew: hello
+spec:
+  description: "Quickstart crew: a coordinator and one general-knowledge specialist."
+  discussion:
+    enabled: true

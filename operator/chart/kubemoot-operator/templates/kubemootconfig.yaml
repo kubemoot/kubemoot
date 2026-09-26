@@ -1,0 +1,38 @@
+{{- if .Values.kubemootConfig.create -}}
+apiVersion: kubemoot.ai/v1alpha1
+kind: KubemootConfig
+metadata:
+  name: default
+  labels:
+    {{- include "kubemoot-operator.labels" . | nindent 4 }}
+spec:
+  images:
+    indexer: {{ include "kubemoot-operator.image" (dict "root" $ "image" .Values.kubemootConfig.images.indexer) | quote }}
+    queryService: {{ include "kubemoot-operator.image" (dict "root" $ "image" .Values.kubemootConfig.images.queryService) | quote }}
+    agentRuntime: {{ include "kubemoot-operator.image" (dict "root" $ "image" .Values.kubemootConfig.images.agentRuntime) | quote }}
+    mcpGateway: {{ include "kubemoot-operator.image" (dict "root" $ "image" .Values.kubemootConfig.images.mcpGateway) | quote }}
+    mcpBridge: {{ include "kubemoot-operator.image" (dict "root" $ "image" .Values.kubemootConfig.images.mcpBridge) | quote }}
+    discussionGateway: {{ include "kubemoot-operator.image" (dict "root" $ "image" .Values.kubemootConfig.images.discussionGateway) | quote }}
+    fitnessRunner: {{ include "kubemoot-operator.image" (dict "root" $ "image" .Values.kubemootConfig.images.fitnessRunner) | quote }}
+    doclingServe: {{ include "kubemoot-operator.image" (dict "root" $ "image" .Values.kubemootConfig.images.doclingServe) | quote }}
+  defaults:
+    {{- with .Values.imagePullSecrets }}
+    imagePullSecrets:
+      {{- toYaml . | nindent 6 }}
+    {{- end }}
+    vectorStoreType: {{ .Values.kubemootConfig.defaults.vectorStoreType | quote }}
+    embeddingModel: {{ .Values.kubemootConfig.defaults.embeddingModel | quote }}
+    {{- if .Values.kubemootConfig.defaults.scheduler }}
+    scheduler:
+      enabled: {{ .Values.kubemootConfig.defaults.scheduler.enabled | default false }}
+      strategy: {{ .Values.kubemootConfig.defaults.scheduler.strategy | default "spread" | quote }}
+      probeIntervalSeconds: {{ .Values.kubemootConfig.defaults.scheduler.probeIntervalSeconds | default 30 }}
+      {{- if .Values.kubemootConfig.defaults.scheduler.prometheusEndpoint }}
+      prometheusEndpoint: {{ .Values.kubemootConfig.defaults.scheduler.prometheusEndpoint | quote }}
+      {{- end }}
+      {{- if .Values.kubemootConfig.defaults.scheduler.modelEquivalence }}
+      modelEquivalence:
+        {{- toYaml .Values.kubemootConfig.defaults.scheduler.modelEquivalence | nindent 8 }}
+      {{- end }}
+    {{- end }}
+{{- end }}

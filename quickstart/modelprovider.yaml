@@ -1,0 +1,16 @@
+# The inference endpoint the operator schedules onto. Lives in the operator's
+# namespace so every crew can use it. The operator marks it Ready once
+# GET {endpoint}/api/version answers.
+apiVersion: kubemoot.ai/v1alpha1
+kind: ModelProvider
+metadata:
+  name: ollama-local
+  namespace: kubemoot
+spec:
+  type: ollama
+  endpoint: http://ollama.ollama:11434
+  scheduling:
+    # The memory the fit gate may spend on models here. On a GPU host the operator
+    # discovers VRAM from DCGM; a CPU Ollama has no VRAM, so declare the host RAM
+    # it may use (matches the Deployment's request in ollama.yaml with headroom).
+    memoryMiB: 6144

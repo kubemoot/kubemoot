@@ -1,0 +1,56 @@
+{{/*
+Default MootArchetypes shipped with the operator. These declare the phase
+vocabulary that CrewSchedulingPolicy rules can reference.
+
+`consent-3` is the default — sociocracy 3.0 consent decision making, the
+archetype kubemoot has shipped since the discussion system was introduced.
+
+To add a new archetype (Robert's Rules, debate, expert panel, etc.) without
+modifying the operator: kubectl apply a new MootArchetype CR with the
+desired phases. The archetype is cluster-scoped.
+*/}}
+---
+apiVersion: kubemoot.ai/v1alpha1
+kind: MootArchetype
+metadata:
+  name: consent-3
+  labels:
+    {{- include "kubemoot-operator.labels" . | nindent 4 }}
+    kubemoot.ai/builtin: "true"
+spec:
+  description: "Sociocracy 3.0 consent decision-making. Coordinator runs triaging → evaluating → synthesis."
+  phases:
+    - name: triaging
+      role: gatekeeping
+      description: "Coordinator probes which agents should join the thread."
+    - name: mulling
+      role: deliberation
+      description: "Agents reason about the question with their full mulling model."
+    - name: triage
+      role: deliberation
+      description: "Agents triage with a lighter model — quick 'should I contribute?' assessment."
+    - name: evaluating
+      role: deliberation
+      description: "Active deliberation phase — agents emit agree / concern / stand_aside / block signals."
+    - name: synthesis
+      role: closure
+      description: "Coordinator synthesizes the deliberation into a response."
+  signals:
+    - triaging
+    - evaluating
+    - agree
+    - concern
+    - stand_aside
+    - block
+    - advisory
+    - proposal
+    - consent
+  stateMachine:
+    initial: triaging
+    transitions:
+      - from: triaging
+        to: evaluating
+        "on": all-triaged
+      - from: evaluating
+        to: synthesis
+        "on": settled

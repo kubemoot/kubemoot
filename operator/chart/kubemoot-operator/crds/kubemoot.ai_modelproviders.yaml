@@ -1,0 +1,294 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.21.0
+  name: modelproviders.kubemoot.ai
+spec:
+  group: kubemoot.ai
+  names:
+    kind: ModelProvider
+    listKind: ModelProviderList
+    plural: modelproviders
+    shortNames:
+    - mdlp
+    singular: modelprovider
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .spec.type
+      name: Type
+      type: string
+    - jsonPath: .spec.endpoint
+      name: Endpoint
+      type: string
+    - jsonPath: .status.ready
+      name: Ready
+      type: boolean
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: ModelProvider is the Schema for the modelproviders API.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: ModelProviderSpec defines the desired state of ModelProvider.
+            properties:
+              endpoint:
+                description: Endpoint is the API endpoint (required for ollama, optional
+                  for cloud providers)
+                type: string
+              scheduling:
+                description: Scheduling contains optional scheduling preferences for
+                  this provider
+                properties:
+                  memoryMiB:
+                    description: |-
+                      MemoryMiB is the memory budget for model residency that the fit gate may
+                      spend on this provider: VRAM on a GPU host, the host RAM the server may use
+                      on a CPU host. It applies when the operator cannot discover the budget (no
+                      DCGM metrics, scheduler disabled, or a CPU provider); a discovered value wins.
+                      Unset leaves the budget unknown, and agents refuse cold loads on this provider.
+                    format: int64
+                    minimum: 0
+                    type: integer
+                  weight:
+                    default: 100
+                    description: |-
+                      Weight is a scheduling preference (higher = preferred). Default 100.
+                      Use to prefer one provider over another for non-capacity reasons.
+                    type: integer
+                type: object
+              secretRef:
+                description: SecretRef references a secret containing the API key
+                  (for cloud providers)
+                type: string
+              type:
+                description: Type specifies the provider type (ollama, openai, anthropic)
+                enum:
+                - ollama
+                - openai
+                - anthropic
+                type: string
+            required:
+            - type
+            type: object
+          status:
+            description: ModelProviderStatus defines the observed state of ModelProvider.
+            properties:
+              capacity:
+                description: Capacity contains discovered capacity information for
+                  scheduling
+                properties:
+                  agentCount:
+                    description: |-
+                      AgentCount is the total number of agent-phase bindings on this provider
+                      (mulling + triage summed). Kept for backwards compatibility with status
+                      readers; the scheduler uses the per-phase fields below for bin-packing.
+                    type: integer
+                  availableModels:
+                    description: |-
+                      AvailableModels lists models downloaded on the provider (from /api/tags)
+                      with their on-disk sizes. The JIT scheduler uses SizeBytes as a cold-load
+                      footprint proxy when no loaded-model observation exists yet.
+                    items:
+                      description: |-
+                        AvailableModel represents a model downloaded on a provider (from /api/tags).
+                        Carries the on-disk size so the JIT scheduler can compute a cold-load
+                        footprint estimate before the model is ever loaded into VRAM.
+                      properties:
+                        name:
+                          description: Name is the model identifier (e.g. "qwen3:32b")
+                          type: string
+                        sizeBytes:
+                          description: |-
+                            SizeBytes is the on-disk model size in bytes (from /api/tags .size).
+                            Used as a proxy for VRAM cold-load footprint when no provider has yet
+                            loaded the model and no /api/ps size_vram observation exists.
+                          format: int64
+                          type: integer
+                      required:
+                      - name
+                      type: object
+                    type: array
+                  gpuModel:
+                    description: GPUModel discovered from DCGM metrics (e.g., "NVIDIA
+                      GeForce RTX 5090")
+                    type: string
+                  lastProbed:
+                    description: LastProbed is when capacity was last discovered
+                    format: date-time
+                    type: string
+                  loadedModels:
+                    description: LoadedModels from /api/ps with VRAM details
+                    items:
+                      description: LoadedModel represents a model currently loaded
+                        in the provider
+                      properties:
+                        name:
+                          description: Name is the model identifier
+                          type: string
+                        size:
+                          description: Size is the total model size in bytes
+                          format: int64
+                          type: integer
+                        sizeVram:
+                          description: SizeVRAM is the VRAM used by this model in
+                            bytes (from /api/ps)
+                          format: int64
+                          type: integer
+                      required:
+                      - name
+                      type: object
+                    type: array
+                  maxParallel:
+                    description: MaxParallel discovered from OLLAMA_NUM_PARALLEL env
+                      var on the Ollama pod
+                    type: integer
+                  mullingAgentCount:
+                    description: |-
+                      MullingAgentCount is the number of agents whose mulling phase binds to
+                      this provider (kubemoot.ai/mulling-provider label on the Agent's
+                      Deployment matches this provider's name). Used by scoreCandidate when
+                      choosing a mulling-phase model to spread sustained tool-calling work
+                      across providers.
+                    type: integer
+                  nodeName:
+                    description: NodeName is the Kubernetes node hosting the Ollama
+                      pod
+                    type: string
+                  triageAgentCount:
+                    description: |-
+                      TriageAgentCount is the number of agents whose triage phase binds to
+                      this provider (kubemoot.ai/triage-provider label). Used by
+                      scoreCandidate when choosing a triage-phase model.
+                    type: integer
+                  vramTotalMiB:
+                    description: VRAMTotalMiB discovered from DCGM_FI_DEV_FB_TOTAL
+                      via Prometheus
+                    format: int64
+                    type: integer
+                  vramUsedMiB:
+                    description: VRAMUsedMiB from sum of loaded model size_vram via
+                      /api/ps
+                    format: int64
+                    type: integer
+                type: object
+              conditions:
+                description: Conditions represent the latest available observations
+                items:
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: |-
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                type: array
+              message:
+                description: Message provides additional status information
+                type: string
+              phase:
+                description: Phase is the current phase (Pending, Ready, Failed)
+                type: string
+              providerInfo:
+                description: ProviderInfo contains metadata discovered after connecting
+                properties:
+                  lastChecked:
+                    description: LastChecked is when the provider was last verified
+                    type: string
+                  rateLimits:
+                    description: RateLimits shows current rate limit info (for cloud
+                      providers)
+                    properties:
+                      requestsPerMinute:
+                        description: RequestsPerMinute is the allowed requests per
+                          minute
+                        type: integer
+                      requestsRemaining:
+                        description: RequestsRemaining is remaining requests in current
+                          window
+                        type: integer
+                      tokensPerMinute:
+                        description: TokensPerMinute is the allowed tokens per minute
+                        type: integer
+                    type: object
+                  version:
+                    description: Version is the provider API version
+                    type: string
+                type: object
+              ready:
+                description: Ready indicates if the provider is ready
+                type: boolean
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

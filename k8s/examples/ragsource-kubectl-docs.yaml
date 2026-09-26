@@ -1,0 +1,59 @@
+# RAGSource example - Kubernetes documentation
+# Indexes kubectl documentation into pgvector for RAG queries
+#
+# Prerequisites:
+#   - ModelProvider (ollama-local)
+#   - EmbeddingModel (nomic-embed)
+#   - PostgreSQL with pgvector extension
+#   - Indexer container image
+#
+# Usage:
+#   kubectl apply -f ragsource-kubectl-docs.yaml
+#   kubectl get rag -n kubemoot
+#
+---
+apiVersion: kubemoot.ai/v1alpha1
+kind: RAGSource
+metadata:
+  name: kubectl-docs
+  namespace: kubemoot
+spec:
+  # Source: Kubernetes documentation from GitHub
+  source:
+    type: git
+    git:
+      url: https://github.com/kubernetes/website.git
+      branch: main
+      paths:
+        - "content/en/docs/reference/kubectl/**/*.md"
+        - "content/en/docs/tasks/**/*.md"
+
+  # Vector store: PostgreSQL with pgvector
+  vectorStore:
+    type: pgvector
+    endpoint: postgres://vectordb.databases:5432/vectors
+    secretRef: vectordb-credentials  # Secret with 'password' key
+    collection: kubectl_docs
+    dimensions: 768
+    distanceMetric: cosine
+
+  # Embedding model to use
+  embeddingModelRef: nomic-embed
+
+  # Chunking configuration
+  chunking:
+    chunkSize: 512
+    chunkOverlap: 50
+
+  # Indexer configuration
+  indexer:
+    # Your custom indexer image that reads env vars and indexes docs
+    image: ghcr.io/javajon/dr-cluster-indexer:latest
+    schedule: "0 5 * * *"  # Daily at 5am UTC
+    resources:
+      requests:
+        cpu: "200m"
+        memory: "512Mi"
+      limits:
+        cpu: "1"
+        memory: "2Gi"

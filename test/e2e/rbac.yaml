@@ -1,0 +1,56 @@
+# Least-privilege RBAC for the kmctl dogfood e2e (Tier 3).
+#
+# The ARC runners share a no-permission ServiceAccount, so we do NOT bind to it
+# (that would grant every CI job crew CRUD). Instead: a dedicated ServiceAccount
+# the dogfood workflow authenticates as via a scoped token.
+#
+# Apply once:   kubectl apply -f kubemoot/test/e2e/rbac.yaml
+# Mint a token: kubectl create token kmctl-dogfood -n kubemoot --duration=8760h
+#   -> store it as the repo secret KMCTL_DOGFOOD_TOKEN (used by e2e-dogfood.yaml).
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: kmctl-dogfood
+  namespace: kubemoot
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: kmctl-dogfood
+rules:
+  # Scaffold lifecycle: create/inspect/delete Kubemoot CRs.
+  - apiGroups: ["kubemoot.ai"]
+    resources:
+      - crews
+      - agents
+      - promptmodules
+      - crewschedulingpolicies
+      - crewfitnesssuites
+      - crewfitnesses
+    verbs: ["get", "list", "create", "delete"]
+  # Per-run namespace.
+  - apiGroups: [""]
+    resources: ["namespaces"]
+    verbs: ["get", "list", "create", "delete"]
+  # Readiness checks.
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list"]
+  # conversation ask/watch + fitness download go through the API server service proxy.
+  - apiGroups: [""]
+    resources: ["services/proxy"]
+    verbs: ["get", "create"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: kmctl-dogfood
+subjects:
+  - kind: ServiceAccount
+    name: kmctl-dogfood
+    namespace: kubemoot
+roleRef:
+  kind: ClusterRole
+  name: kmctl-dogfood
+  apiGroup: rbac.authorization.k8s.io

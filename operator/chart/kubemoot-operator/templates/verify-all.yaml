@@ -1,0 +1,54 @@
+{{- if and .Values.verify.enabled .Values.verify.deployJobs -}}
+# Full Verification Job
+# Comprehensive tests (~10 min) - run on-demand or nightly
+# This template creates a static verify job. For dynamic job creation, use the dashboard API.
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: kubemoot-verify-all
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "kubemoot-operator.labels" . | nindent 4 }}
+    app.kubernetes.io/name: kubemoot-verify
+    app.kubernetes.io/component: verify-all
+    kubemoot.ai/verify-type: all
+spec:
+  ttlSecondsAfterFinished: 259200  # Keep logs for 3 days
+  backoffLimit: 0  # Don't retry on failure
+  activeDeadlineSeconds: 900  # 15 min timeout
+  template:
+    spec:
+      serviceAccountName: kubemoot-verify-runner
+      restartPolicy: Never
+      containers:
+        - name: verify
+          image: {{ include "kubemoot-operator.image" (dict "root" $ "image" .Values.verify.image) | quote }}
+          imagePullPolicy: IfNotPresent
+          command: ["/bin/bash", "-c"]
+          args:
+            - |
+              set -e
+              echo "=========================================="
+              echo "  Full Verification Suite"
+              echo "=========================================="
+              echo ""
+
+              /tests/test-all.sh --no-cleanup
+
+              echo ""
+              echo "=========================================="
+              echo "  Full Verification Suite Complete"
+              echo "=========================================="
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}

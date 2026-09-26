@@ -1,0 +1,48 @@
+# Trivy accepted findings — each is justified below. Real, fixable findings are
+# NOT listed here (the OTel/grpc CVEs were fixed by dependency bumps, and the
+# operator deployment was hardened with a full securityContext). What remains are
+# findings that are either inherent to a Kubernetes operator's function or are
+# handled by Kubernetes-native controls rather than the image/manifest itself.
+# Multiple ID forms per finding are listed so the match works regardless of the
+# Trivy ID convention; non-matching lines are harmless.
+
+# --- Operator RBAC (inherent to the operator's function) ---
+# The Kubemoot operator manages CRD-owned workloads/pods, generates per-agent
+# ConfigMaps, replicates secrets into crew namespaces (namespace-lifecycle), and
+# programs the gateway. These permissions ARE the operator; removing them breaks
+# reconciliation. Runtime blast radius is constrained by the pod securityContext
+# (runAsNonRoot, drop ALL caps, seccomp RuntimeDefault, readonly rootfs).
+KSV0041
+KSV-0041
+AVD-KSV-0041
+KSV0048
+KSV-0048
+AVD-KSV-0048
+KSV0049
+KSV-0049
+AVD-KSV-0049
+KSV0056
+KSV-0056
+AVD-KSV-0056
+
+# --- Trusted registry ---
+# harbor-homelab.dijure.com is the cluster's own in-cluster registry and the only
+# place images are pushed/pulled (in-cluster only, by design). It is trusted.
+KSV0125
+KSV-0125
+AVD-KSV-0125
+
+# --- Docker HEALTHCHECK not applicable in Kubernetes ---
+# Liveness/readiness are declared as Kubernetes probes in the deployment manifests;
+# a Dockerfile HEALTHCHECK is ignored by the kubelet, so it adds nothing here.
+DS0026
+DS-0026
+AVD-DS-0026
+
+# --- Image USER: runtime user is enforced by pod securityContext ---
+# Every workload the operator creates (and the operator itself) runs with
+# runAsNonRoot + runAsUser 65532 via the pod securityContext, which is the
+# Kubernetes-native control. The image-level USER is redundant in this deployment.
+DS0002
+DS-0002
+AVD-DS-0002

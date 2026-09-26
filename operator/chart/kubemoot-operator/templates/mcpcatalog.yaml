@@ -1,0 +1,22 @@
+{{/*
+Default MCPCatalog CR for discovering MCP servers from the official registry.
+Gated by onboarding agent enablement since catalog discovery feeds the onboarding pipeline.
+*/}}
+{{- if and .Values.internalAgents.enabled .Values.internalAgents.onboardingAgent.enabled }}
+---
+apiVersion: kubemoot.ai/v1alpha1
+kind: MCPCatalog
+metadata:
+  name: official-mcp-registry
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "kubemoot-operator.labels" . | nindent 4 }}
+    kubemoot.ai/internal: "true"
+spec:
+  # Official MCP Registry (maintained by Anthropic/ModelContextProtocol)
+  type: official-registry
+  url: "https://registry.modelcontextprotocol.io/v0/servers"
+  syncInterval: "24h"
+  maxServers: 200
+  qualityPolicyRef: default-quality-policy
+{{- end }}

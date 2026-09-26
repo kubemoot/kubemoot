@@ -1,0 +1,160 @@
+# Independent quality pipeline — runs in parallel with CI/CD, never blocks builds.
+# Reports to self-hosted SonarQube for centralized code quality analysis.
+name: Quality
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    types: [opened, synchronize, reopened]
+  workflow_dispatch:
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  sonarqube:
+    runs-on: homelab-runners
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0  # Full history for SonarQube new code detection
+
+      # ── Go services ──────────────────────────────────────────────────
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: '1.26'
+          cache-dependency-path: |
+            operator/go.sum
+            mcp-bridge/go.sum
+            fitness-runner/go.sum
+            discussion-gateway/go.sum
+            artifact-access/go.sum
+
+      - name: Install build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y make
+
+      - name: Operator tests with coverage
+        working-directory: operator
+        run: make test
+
+      - name: MCP Bridge tests with coverage
+        working-directory: mcp-bridge
+        run: go test -coverprofile=cover.out ./...
+        continue-on-error: true
+
+      - name: Fitness Runner tests with coverage
+        working-directory: fitness-runner
+        run: go test -coverprofile=cover.out ./...
+        continue-on-error: true
+
+      - name: Discussion Gateway tests with coverage
+        working-directory: discussion-gateway
+        run: go test -coverprofile=cover.out ./...
+        continue-on-error: true
+
+      - name: Artifact Access tests with coverage
+        working-directory: artifact-access
+        run: go test -coverprofile=cover.out ./...
+        continue-on-error: true
+
+      # ── Java services ────────────────────────────────────────────────
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '25'
+
+      - name: Agent Runtime tests with coverage
+        working-directory: agent-runtime
+        run: ./gradlew test jacocoTestReport
+        continue-on-error: true
+
+      - name: MCP Gateway tests with coverage
+        working-directory: mcp-gateway
+        run: ./gradlew test jacocoTestReport
+        continue-on-error: true
+
+      - name: Indexer tests with coverage
+        working-directory: indexer
+        run: ./gradlew test jacocoTestReport
+        continue-on-error: true
+
+      # Ensure Java class directories exist (even if tests were skipped/failed)
+      - name: Create Java binaries dirs
+        run: |
+          mkdir -p agent-runtime/build/classes/java/main
+          mkdir -p mcp-gateway/build/classes/java/main
+          mkdir -p indexer/build/classes/java/main
+
+      # ── Trivy security scan ────────────────────────────────────────────
+      - name: Trivy scan
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'fs'
+          scan-ref: '.'
+          format: 'json'
+          output: 'trivy-report.json'
+          scanners: 'vuln,misconfig,secret'
+        continue-on-error: true
+
+      - name: Convert Trivy to SonarQube format
+        run: |
+          pip install trivy-plugin-sonarqube 2>/dev/null || true
+          if [ -f trivy-report.json ]; then
+            python3 -c "
+          import json, sys
+          trivy = json.load(open('trivy-report.json'))
+          issues = []
+          for result in trivy.get('Results', []):
+              target = result.get('Target', 'unknown')
+              for vuln in result.get('Vulnerabilities', []):
+                  sev = {'CRITICAL':'CRITICAL','HIGH':'MAJOR','MEDIUM':'MINOR','LOW':'INFO'}.get(vuln.get('Severity',''),'INFO')
+                  issues.append({
+                      'engineId': 'trivy',
+                      'ruleId': vuln.get('VulnerabilityID','unknown'),
+                      'severity': sev,
+                      'type': 'VULNERABILITY',
+                      'primaryLocation': {
+                          'message': f'{vuln.get(\"VulnerabilityID\",\"\")} - {vuln.get(\"Title\",vuln.get(\"Description\",\"\"))[:200]}',
+                          'filePath': target,
+                          'textRange': {'startLine': 1}
+                      }
+                  })
+              for misconfig in result.get('Misconfigurations', []):
+                  sev = {'CRITICAL':'CRITICAL','HIGH':'MAJOR','MEDIUM':'MINOR','LOW':'INFO'}.get(misconfig.get('Severity',''),'INFO')
+                  issues.append({
+                      'engineId': 'trivy',
+                      'ruleId': misconfig.get('ID','unknown'),
+                      'severity': sev,
+                      'type': 'VULNERABILITY',
+                      'primaryLocation': {
+                          'message': f'{misconfig.get(\"ID\",\"\")} - {misconfig.get(\"Title\",\"\")}',
+                          'filePath': target,
+                          'textRange': {'startLine': 1}
+                      }
+                  })
+          json.dump({'issues': issues}, open('trivy-sonarqube.json','w'))
+          print(f'Converted {len(issues)} Trivy findings to SonarQube format')
+          "
+          fi
+          # The scan step reads this file unconditionally; when Trivy produced nothing
+          # (a database download timeout, for instance) an empty report keeps the
+          # quality scan running instead of failing on a missing file.
+          [ -s trivy-sonarqube.json ] || echo '{"issues":[]}' > trivy-sonarqube.json
+        continue-on-error: true
+
+      # ── SonarQube scan ───────────────────────────────────────────────
+      - name: SonarQube Scan
+        uses: SonarSource/sonarqube-scan-action@v6
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+        with:
+          args: >
+            -Dsonar.externalIssuesReportPaths=trivy-sonarqube.json

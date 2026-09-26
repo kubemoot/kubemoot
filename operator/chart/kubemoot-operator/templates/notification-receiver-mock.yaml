@@ -1,0 +1,110 @@
+{{- if .Values.notifications.receiverMock.enabled }}
+---
+# Mock receiver for NotificationSink dispatches. Logs every POST so you
+# can verify the dispatcher fires correctly without standing up an
+# external webhook receiver. Disabled by default — turn on via
+# `notifications.receiverMock.enabled: true`.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "kubemoot-operator.fullname" . }}-notification-receiver-mock
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "kubemoot-operator.labels" . | nindent 4 }}
+data:
+  server.py: |
+    from http.server import BaseHTTPRequestHandler, HTTPServer
+    import sys
+
+    class H(BaseHTTPRequestHandler):
+        def do_POST(self):
+            n = int(self.headers.get('Content-Length', '0'))
+            body = self.rfile.read(n).decode('utf-8') if n else ''
+            print(f"--- POST {self.path} ---", flush=True)
+            for k in ('X-Title', 'X-Priority', 'Content-Type', 'Authorization'):
+                v = self.headers.get(k, '')
+                if v:
+                    print(f"  {k}: {v}", flush=True)
+            print(f"  body: {body}", flush=True)
+            self.send_response(200)
+            self.end_headers()
+
+        def do_GET(self):
+            # Health endpoint for readiness probe.
+            self.send_response(200)
+            self.end_headers()
+
+        def log_message(self, *args, **kwargs):
+            pass
+
+    print("notification-receiver-mock listening on :8080", flush=True)
+    HTTPServer(('0.0.0.0', 8080), H).serve_forever()
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "kubemoot-operator.fullname" . }}-notification-receiver-mock
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "kubemoot-operator.labels" . | nindent 4 }}
+    app.kubernetes.io/component: notification-receiver-mock
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "kubemoot-operator.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: notification-receiver-mock
+  template:
+    metadata:
+      labels:
+        {{- include "kubemoot-operator.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: notification-receiver-mock
+    spec:
+      containers:
+        - name: receiver
+          image: {{ .Values.notifications.receiverMock.image | quote }}
+          command: ["python3", "/script/server.py"]
+          ports:
+            - name: http
+              containerPort: 8080
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 2
+            periodSeconds: 5
+          volumeMounts:
+            - name: script
+              mountPath: /script
+          resources:
+            {{- toYaml .Values.notifications.receiverMock.resources | nindent 12 }}
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            seccompProfile:
+              type: RuntimeDefault
+      volumes:
+        - name: script
+          configMap:
+            name: {{ include "kubemoot-operator.fullname" . }}-notification-receiver-mock
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "kubemoot-operator.fullname" . }}-notification-receiver-mock
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "kubemoot-operator.labels" . | nindent 4 }}
+    app.kubernetes.io/component: notification-receiver-mock
+spec:
+  selector:
+    {{- include "kubemoot-operator.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: notification-receiver-mock
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+{{- end }}

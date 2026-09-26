@@ -1,0 +1,25 @@
+# EmbeddingModel example using nomic-embed-text
+# Requires: ModelProvider pointing to Ollama
+#
+# Usage:
+#   kubectl apply -f embeddingmodel-nomic.yaml
+#   kubectl get emb -n kubemoot
+#
+---
+apiVersion: kubemoot.ai/v1alpha1
+kind: EmbeddingModel
+metadata:
+  name: nomic-embed
+  namespace: kubemoot
+spec:
+  # Reference to ModelProvider for Ollama
+  providerRef: ollama-local
+
+  # Embedding model name
+  model: nomic-embed-text
+
+  # Vector dimensions (nomic-embed-text produces 768-dim vectors)
+  dimensions: 768
+
+  # Batch size for embedding requests
+  batchSize: 32

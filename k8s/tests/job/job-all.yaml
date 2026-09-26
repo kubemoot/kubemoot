@@ -1,0 +1,49 @@
+# Kubemoot Full Test Suite Job
+# Comprehensive tests (~10 min) - run on-demand or nightly
+# Usage: kubectl create -f job-all.yaml
+#        kubectl logs -f job/kubemoot-test-all -n kubemoot
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: kubemoot-test-all
+  namespace: kubemoot
+  labels:
+    app.kubernetes.io/name: kubemoot-test
+    app.kubernetes.io/component: full-test
+spec:
+  ttlSecondsAfterFinished: 259200  # Keep logs for 3 days
+  backoffLimit: 0  # Don't retry on failure
+  activeDeadlineSeconds: 900  # 15 min timeout
+  template:
+    spec:
+      serviceAccountName: kubemoot-verify-runner
+      imagePullSecrets:
+        - name: harbor-pull-secret
+      restartPolicy: Never
+      containers:
+        - name: test
+          image: harbor-homelab.dijure.com/kubemoot/test-runner:0.326.0
+          command: ["/bin/bash", "-c"]
+          args:
+            - |
+              set -e
+              echo "=========================================="
+              echo "  Kubemoot Full Test Suite"
+              echo "=========================================="
+              echo ""
+
+              # Run full test suite
+              /tests/test-all.sh --no-cleanup
+
+              echo ""
+              echo "=========================================="
+              echo "  Full Test Suite Complete"
+              echo "=========================================="
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi

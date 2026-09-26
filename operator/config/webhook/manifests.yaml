@@ -1,0 +1,106 @@
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingWebhookConfiguration
+metadata:
+  name: validating-webhook-configuration
+webhooks:
+- admissionReviewVersions:
+  - v1
+  clientConfig:
+    service:
+      name: webhook-service
+      namespace: system
+      path: /validate-kubemoot-ai-v1alpha1-agent
+  failurePolicy: Fail
+  name: vagent.kubemoot.ai
+  rules:
+  - apiGroups:
+    - kubemoot.ai
+    apiVersions:
+    - v1alpha1
+    operations:
+    - CREATE
+    - UPDATE
+    resources:
+    - agents
+  sideEffects: None
+- admissionReviewVersions:
+  - v1
+  clientConfig:
+    service:
+      name: webhook-service
+      namespace: system
+      path: /validate-kubemoot-ai-v1alpha1-crew
+  failurePolicy: Fail
+  name: vcrew.kubemoot.ai
+  rules:
+  - apiGroups:
+    - kubemoot.ai
+    apiVersions:
+    - v1alpha1
+    operations:
+    - CREATE
+    - UPDATE
+    resources:
+    - crews
+  sideEffects: None
+- admissionReviewVersions:
+  - v1
+  clientConfig:
+    service:
+      name: webhook-service
+      namespace: system
+      path: /validate-kubemoot-ai-v1alpha1-crewfitness
+  failurePolicy: Fail
+  name: vcrewfitness.kubemoot.ai
+  rules:
+  - apiGroups:
+    - kubemoot.ai
+    apiVersions:
+    - v1alpha1
+    operations:
+    - CREATE
+    - UPDATE
+    resources:
+    - crewfitnesses
+  sideEffects: None
+- admissionReviewVersions:
+  - v1
+  clientConfig:
+    service:
+      name: webhook-service
+      namespace: system
+      path: /validate-kubemoot-ai-v1alpha1-mcpserver
+  failurePolicy: Fail
+  name: vmcpserver.kubemoot.ai
+  rules:
+  - apiGroups:
+    - kubemoot.ai
+    apiVersions:
+    - v1alpha1
+    operations:
+    - CREATE
+    - UPDATE
+    resources:
+    - mcpservers
+  sideEffects: None
+- admissionReviewVersions:
+  - v1
+  clientConfig:
+    service:
+      name: webhook-service
+      namespace: system
+      path: /validate-kubemoot-ai-v1alpha1-ragsource
+  failurePolicy: Fail
+  name: vragsource.kubemoot.ai
+  rules:
+  - apiGroups:
+    - kubemoot.ai
+    apiVersions:
+    - v1alpha1
+    operations:
+    - CREATE
+    - UPDATE
+    resources:
+    - ragsources
+  sideEffects: None

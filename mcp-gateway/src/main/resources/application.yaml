@@ -1,0 +1,52 @@
+spring:
+  application:
+    name: mcp-gateway
+
+  # Jackson configuration
+  jackson:
+    default-property-inclusion: non_null
+
+server:
+  port: ${SERVER_PORT:8080}
+  shutdown: graceful
+
+# MCP Gateway configuration
+mcp:
+  gateway:
+    port: ${SERVER_PORT:8080}
+    # Pre-configured backend MCP servers (optional)
+    # Add servers here or register dynamically via REST API
+    servers: []
+    # Example:
+    # servers:
+    #   - name: kubectl
+    #     url: http://kubectl-mcp:8080
+    #     transport: sse
+    #   - name: filesystem
+    #     url: http://filesystem-mcp:8080
+    #     transport: http
+
+# Actuator endpoints for Kubernetes probes
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      show-details: always
+      probes:
+        enabled: true
+  health:
+    livenessState:
+      enabled: true
+    readinessState:
+      enabled: true
+
+# Logging
+logging:
+  level:
+    root: INFO
+    kubemoot.ai.mcpgateway: DEBUG
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"

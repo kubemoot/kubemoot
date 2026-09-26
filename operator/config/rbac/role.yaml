@@ -1,0 +1,198 @@
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: manager-role
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - configmaps
+  - serviceaccounts
+  - services
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - ""
+  resources:
+  - namespaces
+  verbs:
+  - delete
+  - get
+  - list
+  - update
+  - watch
+- apiGroups:
+  - ""
+  resources:
+  - pods
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - ""
+  resources:
+  - secrets
+  verbs:
+  - create
+  - get
+  - list
+  - watch
+- apiGroups:
+  - apps
+  resources:
+  - deployments
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - batch
+  resources:
+  - jobs
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - discovery.k8s.io
+  resources:
+  - endpointslices
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - kubemoot.ai
+  resources:
+  - agents
+  - crewfitnesssuites
+  - crews
+  - crewschedulingpolicies
+  - embeddingmodels
+  - kubemootconfigs
+  - mcpcatalogs
+  - mcpgateways
+  - mcpserverreports
+  - mcpservers
+  - modelproviders
+  - models
+  - mootarchetypes
+  - notificationsinks
+  - ragsources
+  - skills
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - kubemoot.ai
+  resources:
+  - agents/finalizers
+  - crewfitnesses/finalizers
+  - crewfitnesssuites/finalizers
+  - crews/finalizers
+  - embeddingmodels/finalizers
+  - kubemootconfigs/finalizers
+  - mcpcatalogs/finalizers
+  - mcpgateways/finalizers
+  - mcpserverreports/finalizers
+  - mcpservers/finalizers
+  - modelproviders/finalizers
+  - models/finalizers
+  - notificationsinks/finalizers
+  - ragsources/finalizers
+  - skills/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - kubemoot.ai
+  resources:
+  - agents/status
+  - crewfitnesses/status
+  - crewfitnesssuites/status
+  - crews/status
+  - crewschedulingpolicies/status
+  - embeddingmodels/status
+  - kubemootconfigs/status
+  - mcpcatalogs/status
+  - mcpgateways/status
+  - mcpqualitypolicies/status
+  - mcpserverreports/status
+  - mcpservers/status
+  - modelproviders/status
+  - models/status
+  - mootarchetypes/status
+  - notificationsinks/status
+  - ragsources/status
+  - skills/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - kubemoot.ai
+  resources:
+  - crewfitnesses
+  verbs:
+  - create
+  - delete
+  - deletecollection
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - kubemoot.ai
+  resources:
+  - mcpqualitypolicies
+  - promptmodules
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - rbac.authorization.k8s.io
+  resources:
+  - clusterrolebindings
+  - clusterroles
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - rbac.authorization.k8s.io
+  resources:
+  - rolebindings
+  - roles
+  verbs:
+  - create
+  - get
+  - list
+  - patch
+  - update
+  - watch

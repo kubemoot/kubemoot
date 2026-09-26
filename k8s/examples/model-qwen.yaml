@@ -1,0 +1,10 @@
+# Example: Small Qwen2 model for testing
+# This model is ~350MB and pulls quickly for testing purposes
+apiVersion: kubemoot.ai/v1alpha1
+kind: Model
+metadata:
+  name: qwen2-small
+  namespace: kubemoot
+spec:
+  providerRef: ollama-local
+  model: qwen2:0.5b

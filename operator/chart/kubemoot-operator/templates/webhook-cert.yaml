@@ -1,0 +1,27 @@
+{{- if and .Values.webhook.enabled .Values.webhook.certManager.enabled }}
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: {{ include "kubemoot-operator.fullname" . }}-selfsigned
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "kubemoot-operator.labels" . | nindent 4 }}
+spec:
+  selfSigned: {}
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ include "kubemoot-operator.fullname" . }}-webhook
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "kubemoot-operator.labels" . | nindent 4 }}
+spec:
+  secretName: {{ include "kubemoot-operator.fullname" . }}-webhook-cert
+  issuerRef:
+    name: {{ include "kubemoot-operator.fullname" . }}-selfsigned
+    kind: Issuer
+  dnsNames:
+    - {{ include "kubemoot-operator.fullname" . }}-webhook.{{ .Release.Namespace }}.svc
+    - {{ include "kubemoot-operator.fullname" . }}-webhook.{{ .Release.Namespace }}.svc.cluster.local
+{{- end }}

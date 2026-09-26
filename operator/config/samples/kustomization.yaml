@@ -1,0 +1,8 @@
+## Append samples of your project ##
+resources:
+- ai_v1alpha1_modelprovider.yaml
+- ai_v1alpha1_model.yaml
+- kubemoot_v1alpha1_mcpserver_kubernetes_rbac.yaml
+- kubemoot_v1alpha1_mcpserver_kubernetes.yaml
+- kubemoot_v1alpha1_mcpserver_external.yaml
+# +kubebuilder:scaffold:manifestskustomizesamples

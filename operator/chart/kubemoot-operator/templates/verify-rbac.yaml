@@ -1,0 +1,58 @@
+{{- if .Values.verify.enabled -}}
+# RBAC for Verify Runner Jobs
+# Grants permissions to create/delete Kubemoot CRDs and read cluster state
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: kubemoot-verify-runner
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "kubemoot-operator.labels" . | nindent 4 }}
+    app.kubernetes.io/component: verify
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: kubemoot-verify-runner
+  labels:
+    {{- include "kubemoot-operator.labels" . | nindent 4 }}
+    app.kubernetes.io/component: verify
+rules:
+  # CRD definitions - read access for pre-flight checks
+  - apiGroups: ["apiextensions.k8s.io"]
+    resources: ["customresourcedefinitions"]
+    verbs: ["get", "list"]
+  # Kubemoot CRDs - full access for verification testing
+  - apiGroups: ["kubemoot.ai"]
+    resources: ["agents", "agents/status", "agentpolicies", "crews", "crews/status", "crewfitnesses", "crewfitnesses/status", "embeddingmodels", "kubemootconfigs", "kubemootconfigs/status", "mcpcatalogs", "mcpgateways", "mcpgateways/status", "mcpqualitypolicies", "mcpservers", "mcpservers/status", "mcpserverreports", "mcpserverreports/status", "models", "modelgroups", "modelproviders", "modelproviders/status", "promptmodules", "ragsources", "ragsources/status"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # Core resources - read for verification
+  - apiGroups: [""]
+    resources: ["pods", "pods/log", "services", "configmaps", "secrets", "namespaces"]
+    verbs: ["get", "list", "watch"]
+  # Deployments - read for verification
+  - apiGroups: ["apps"]
+    resources: ["deployments", "replicasets"]
+    verbs: ["get", "list", "watch"]
+  # Jobs - for verify job management
+  - apiGroups: ["batch"]
+    resources: ["jobs"]
+    verbs: ["get", "list", "watch", "create", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: kubemoot-verify-runner
+  labels:
+    {{- include "kubemoot-operator.labels" . | nindent 4 }}
+    app.kubernetes.io/component: verify
+subjects:
+  - kind: ServiceAccount
+    name: kubemoot-verify-runner
+    namespace: {{ .Release.Namespace }}
+roleRef:
+  kind: ClusterRole
+  name: kubemoot-verify-runner
+  apiGroup: rbac.authorization.k8s.io
+{{- end }}

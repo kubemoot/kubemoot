@@ -1,0 +1,4 @@
+fitness-runner/fitness-runner
+
+# compiled binary (built by CI Dockerfile, not committed)
+/fitness-runner

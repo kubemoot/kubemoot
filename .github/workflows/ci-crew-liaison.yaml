@@ -1,0 +1,98 @@
+name: CI Crew Liaison
+
+on:
+  workflow_call:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'crew-liaison/**'
+  workflow_dispatch:
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  REGISTRY: harbor-homelab.dijure.com
+  IMAGE_NAME: kubemoot/crew-liaison
+
+jobs:
+  test:
+    runs-on: homelab-runners
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: '1.26'
+          cache-dependency-path: crew-liaison/go.sum
+
+      - name: Build
+        working-directory: crew-liaison
+        run: CGO_ENABLED=0 go build -ldflags="-s -w" -o crew-liaison .
+
+      - name: Run tests
+        working-directory: crew-liaison
+        run: go test ./...
+
+  build-image:
+    needs: test
+    runs-on: homelab-runners
+    if: github.event_name != 'pull_request'
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Install kubectl
+        run: |
+          curl -sLO "https://dl.k8s.io/release/$(curl -sL https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+          chmod +x kubectl && sudo mv kubectl /usr/local/bin/
+
+      - name: Ensure Harbor project exists
+        run: |
+          curl -s -X POST "http://${{ env.REGISTRY }}/api/v2.0/projects" \
+            -H "Content-Type: application/json" \
+            -u "${{ secrets.HARBOR_USERNAME }}:${{ secrets.HARBOR_PASSWORD }}" \
+            -d '{"project_name": "kubemoot", "public": false}' \
+            --fail-with-body || true
+
+      - name: Build and push with Kaniko
+        run: |
+          SHA="${{ github.sha }}"
+          JOB_NAME="kaniko-liaison-$(echo ${SHA} | cut -c1-8)-${GITHUB_RUN_NUMBER}"
+
+          # Kaniko needs the liaison and the operator API (its Crew types) as context
+          tar -czf /tmp/context.tar.gz crew-liaison/ operator/api/ operator/pkg/ operator/go.mod operator/go.sum
+
+          kubectl run ${JOB_NAME} \
+            --rm -i \
+            --restart=Never \
+            --namespace=arc-runners \
+            --image=gcr.io/kaniko-project/executor:latest \
+            --overrides='{
+              "spec": {
+                "hostAliases": [{"ip": "192.168.50.210", "hostnames": ["harbor-homelab.dijure.com"]}],
+                "containers": [{
+                  "name": "kaniko",
+                  "image": "gcr.io/kaniko-project/executor:latest",
+                  "stdin": true,
+                  "stdinOnce": true,
+                  "args": [
+                    "--context=tar://stdin",
+                    "--dockerfile=crew-liaison/Dockerfile",
+                    "--build-arg=VERSION='"${SHA:0:8}"'",
+                    "--label=org.opencontainers.image.source=https://github.com/kubemoot/kubemoot",
+                    "--label=org.opencontainers.image.licenses=Apache-2.0",
+                    "--label=org.opencontainers.image.revision='"${SHA}"'",
+                    "--destination=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:'"${SHA}"'",
+                    "--destination=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest",
+                    "--insecure",
+                    "--skip-tls-verify",
+                    "--cache=false"
+                  ],
+                  "volumeMounts": [{"name": "docker-config", "mountPath": "/kaniko/.docker"}]
+                }],
+                "volumes": [{"name": "docker-config", "secret": {"secretName": "kaniko-docker-config", "items": [{"key": "config.json", "path": "config.json"}]}}]
+              }
+            }' < /tmp/context.tar.gz

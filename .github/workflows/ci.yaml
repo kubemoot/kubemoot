@@ -1,0 +1,170 @@
+# POLICY: Unit tests and image builds ONLY. No integration tests.
+# Integration tests require a running cluster and must run AFTER Flux
+# reconciliation — not during the CI/CD build pipeline.
+name: CI
+
+on:
+  workflow_call:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'operator/**'
+  workflow_dispatch:
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  REGISTRY: harbor-homelab.dijure.com
+  IMAGE_NAME: kubemoot/kubemoot-operator
+
+jobs:
+  test:
+    runs-on: homelab-runners
+    permissions:
+      contents: write   # needed by the regen auto-commit step below
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Install build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y make
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: '1.26'
+          cache-dependency-path: operator/go.sum
+
+      - name: Run tests
+        working-directory: operator
+        run: make test
+
+      # `make test` ran `manifests` and `generate` as part of its dependency
+      # chain (see operator/Makefile:112). That regenerates
+      # config/crd/bases/*.yaml and zz_generated.deepcopy.go in the runner's
+      # working tree. The CRDs also need to live in chart/kubemoot-operator/crds/ for Helm to
+      # install them; sync that here so the chart packaged by release.yaml
+      # always carries the latest CRDs.
+      - name: Sync regenerated CRDs into chart/kubemoot-operator/crds/
+        working-directory: operator
+        run: |
+          mkdir -p chart/kubemoot-operator/crds
+          cp -f config/crd/bases/*.yaml chart/kubemoot-operator/crds/
+
+      # On PRs we can't push back from a fork — just fail the build if the PR
+      # didn't include the regenerated files. Forces the author to run
+      # `make manifests generate && cp -f config/crd/bases/*.yaml chart/kubemoot-operator/crds/`
+      # before merge, so generated artifacts always reflect the API types.
+      - name: Verify regenerated artifacts are committed (PR only)
+        if: github.event_name == 'pull_request'
+        run: |
+          if git diff --quiet -- operator/config/crd/bases/ operator/chart/kubemoot-operator/crds/ operator/api/v1alpha1/zz_generated.deepcopy.go; then
+            echo "Regenerated artifacts are in sync — OK"
+            exit 0
+          fi
+          echo "::error::Generated CRDs or deepcopy are out of sync with operator/api/v1alpha1/."
+          echo "Run the following locally and commit before merging:"
+          echo "  cd operator && make manifests generate && cp -f config/crd/bases/*.yaml chart/kubemoot-operator/crds/"
+          echo ""
+          git diff --stat -- operator/config/crd/bases/ operator/chart/kubemoot-operator/crds/ operator/api/v1alpha1/zz_generated.deepcopy.go
+          exit 1
+
+      # On push to main (via release.yaml's workflow_call) or workflow_dispatch,
+      # auto-commit any drift in regenerated artifacts. Mirrors the chart-bump
+      # commit pattern in release.yaml. [skip ci] prevents a recursive trigger.
+      - name: Auto-commit regenerated artifacts (push/workflow_call only)
+        if: github.event_name != 'pull_request'
+        run: |
+          if git diff --quiet -- operator/config/crd/bases/ operator/chart/kubemoot-operator/crds/ operator/api/v1alpha1/zz_generated.deepcopy.go; then
+            echo "No regenerated-artifact drift to commit"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add operator/config/crd/bases/ operator/chart/kubemoot-operator/crds/ operator/api/v1alpha1/zz_generated.deepcopy.go
+          git commit -m "chore: regenerate CRDs and deepcopy [skip ci]"
+          # --autostash handles any leftover unstaged changes from `make test`
+          # (test output, transient build artifacts) without losing the commit
+          git pull --rebase --autostash origin main
+          git push origin main
+
+  build-image:
+    needs: test
+    runs-on: homelab-runners
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+        with:
+          # The test job may have auto-committed regenerated CRDs and deepcopy
+          # to main. Checkout HEAD of main so build-image sees those changes
+          # rather than the original workflow trigger SHA — without this,
+          # build-image compiles types whose DeepCopy methods don't exist yet.
+          ref: main
+
+      - name: Install kubectl
+        run: |
+          curl -sLO "https://dl.k8s.io/release/$(curl -sL https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+          chmod +x kubectl && sudo mv kubectl /usr/local/bin/
+
+      - name: Ensure Harbor project exists
+        if: github.event_name != 'pull_request'
+        run: |
+          curl -s -X POST "http://${{ env.REGISTRY }}/api/v2.0/projects" \
+            -H "Content-Type: application/json" \
+            -u "${{ secrets.HARBOR_USERNAME }}:${{ secrets.HARBOR_PASSWORD }}" \
+            -d '{"project_name": "kubemoot", "public": false}' \
+            --fail-with-body || true
+
+      - name: Determine image tag
+        id: tag
+        run: |
+          if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
+            VERSION="${{ github.ref_name }}"
+            VERSION="${VERSION#v}"
+          else
+            VERSION="${{ github.sha }}"
+          fi
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+
+      - name: Build and push with Kaniko
+        if: github.event_name != 'pull_request'
+        run: |
+          SHA="${{ github.sha }}"
+          VERSION="${{ steps.tag.outputs.version }}"
+          JOB_NAME="kaniko-$(echo ${SHA} | cut -c1-8)-${GITHUB_RUN_NUMBER}"
+
+          tar -C operator -czf /tmp/context.tar.gz .
+
+          kubectl run ${JOB_NAME} \
+            --rm -i \
+            --restart=Never \
+            --namespace=arc-runners \
+            --image=gcr.io/kaniko-project/executor:latest \
+            --overrides='{
+              "spec": {
+                "hostAliases": [{"ip": "192.168.50.210", "hostnames": ["harbor-homelab.dijure.com"]}],
+                "containers": [{
+                  "name": "kaniko",
+                  "image": "gcr.io/kaniko-project/executor:latest",
+                  "stdin": true,
+                  "stdinOnce": true,
+                  "args": [
+                    "--context=tar://stdin",
+                    "--dockerfile=Dockerfile",
+                    "--label=org.opencontainers.image.source=https://github.com/kubemoot/kubemoot",
+                    "--label=org.opencontainers.image.licenses=Apache-2.0",
+                    "--label=org.opencontainers.image.revision='"${SHA}"'",
+                    "--destination=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:'"${VERSION}"'",
+                    "--destination=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest",
+                    "--insecure",
+                    "--skip-tls-verify",
+                    "--cache=false"
+                  ],
+                  "volumeMounts": [{"name": "docker-config", "mountPath": "/kaniko/.docker"}]
+                }],
+                "volumes": [{"name": "docker-config", "secret": {"secretName": "kaniko-docker-config", "items": [{"key": "config.json", "path": "config.json"}]}}]
+              }
+            }' < /tmp/context.tar.gz

@@ -1,0 +1,48 @@
+# Kubemoot Smoke Test Job
+# Quick tests (~2 min) - run after deployments
+# Usage: kubectl create -f job-smoke.yaml
+#        kubectl logs -f job/kubemoot-test-smoke -n kubemoot
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: kubemoot-test-smoke
+  namespace: kubemoot
+  labels:
+    app.kubernetes.io/name: kubemoot-test
+    app.kubernetes.io/component: smoke-test
+spec:
+  ttlSecondsAfterFinished: 86400  # Keep logs for 24 hours
+  backoffLimit: 0  # Don't retry on failure
+  template:
+    spec:
+      serviceAccountName: kubemoot-verify-runner
+      imagePullSecrets:
+        - name: harbor-pull-secret
+      restartPolicy: Never
+      containers:
+        - name: test
+          image: harbor-homelab.dijure.com/kubemoot/test-runner:0.326.0
+          command: ["/bin/bash", "-c"]
+          args:
+            - |
+              set -e
+              echo "=========================================="
+              echo "  Kubemoot Smoke Test"
+              echo "=========================================="
+              echo ""
+
+              # Run smoke test
+              /tests/test-smoke.sh
+
+              echo ""
+              echo "=========================================="
+              echo "  Smoke Test Complete"
+              echo "=========================================="
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi

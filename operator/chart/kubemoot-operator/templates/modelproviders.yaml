@@ -1,0 +1,17 @@
+{{- range .Values.modelProviders }}
+---
+apiVersion: kubemoot.ai/v1alpha1
+kind: ModelProvider
+metadata:
+  name: {{ .name }}
+  namespace: {{ .namespace | default $.Release.Namespace }}
+  labels:
+    {{- include "kubemoot-operator.labels" $ | nindent 4 }}
+spec:
+  type: {{ .type }}
+  endpoint: {{ .endpoint }}
+  {{- if .schedulingWeight }}
+  scheduling:
+    weight: {{ .schedulingWeight }}
+  {{- end }}
+{{- end }}

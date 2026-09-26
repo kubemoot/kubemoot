@@ -1,0 +1,27 @@
+{{/*
+Crew CRs — define named agent crews with optional discussion gateways.
+Each crew groups agents by the kubemoot.ai/crew label and optionally
+deploys a discussion gateway as the crew's HTTP entry point.
+*/}}
+{{- range .Values.crews }}
+---
+apiVersion: kubemoot.ai/v1alpha1
+kind: Crew
+metadata:
+  name: {{ .name }}
+  namespace: {{ $.Release.Namespace }}
+  labels:
+    {{- include "kubemoot-operator.labels" $ | nindent 4 }}
+spec:
+  {{- with .description }}
+  description: {{ . | quote }}
+  {{- end }}
+  {{- with .discussion }}
+  discussion:
+    enabled: {{ .enabled | default true }}
+    {{- with .resources }}
+    resources:
+      {{- toYaml . | nindent 6 }}
+    {{- end }}
+  {{- end }}
+{{- end }}

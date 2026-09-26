@@ -1,0 +1,12 @@
+# Upstream nats chart (https://nats-io.github.io/k8s/helm/charts/) values for the
+# quickstart. JetStream on, one replica, a small file store on the cluster's default
+# storage class. Release name and namespace must both be "nats": that is the address
+# the operator chart's nats.url points at.
+config:
+  jetstream:
+    enabled: true
+    fileStore:
+      pvc:
+        size: 2Gi
+natsBox:
+  enabled: false

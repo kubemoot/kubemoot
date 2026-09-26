@@ -1,0 +1,350 @@
+# Kubemoot Operator Helm Chart Values
+
+replicaCount: 1
+
+global:
+  # Registry and namespace prefixed to every Kubemoot image below (operator,
+  # components, test runner). Public releases are published to GHCR. A private
+  # mirror sets this to its own registry, e.g. harbor.example.com/kubemoot, and
+  # adds its pull secret under imagePullSecrets. An image value that already
+  # contains a "/" is used as-is (third-party images such as doclingServe).
+  imageRegistry: ghcr.io/kubemoot
+
+image:
+  repository: kubemoot-operator
+  tag: ""  # Defaults to Chart.appVersion if empty
+  pullPolicy: IfNotPresent
+
+# Pull secrets for global.imageRegistry. Empty for the public registry.
+imagePullSecrets: []
+
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  name: ""
+
+rbac:
+  create: true
+
+resources:
+  limits:
+    cpu: 500m
+    memory: 256Mi
+    ephemeral-storage: 1Gi
+  requests:
+    cpu: 10m
+    memory: 128Mi
+    ephemeral-storage: 256Mi
+
+nodeSelector: {}
+
+tolerations: []
+
+affinity: {}
+
+# MCP Bridge Injection defaults
+# Used for stdio transport MCP servers to bridge HTTP/SSE ↔ stdio
+# Uses kubemoot-mcp-bridge static binary injected via init container (works with any image)
+proxyInjection:
+  # Default port for the HTTP/SSE bridge
+  port: 8080
+
+# Gateway API configuration for crew discussion HTTPRoutes
+gateway:
+  enabled: false
+  name: gateway
+  namespace: default
+  hostname: kubemoot.example.com
+
+# Leader election for HA
+leaderElection:
+  enabled: true
+  # Lease tuning — controller-runtime defaults are 15s/10s/2s which is too
+  # aggressive for clusters where the K8s API ClusterIP can briefly time
+  # out (homelabs, k8s control-plane under load). 60s/50s/10s tolerates
+  # blips up to about 50 seconds without unseating the leader. Trade-off:
+  # slower failover when a leader genuinely dies (~60s). Fine for a
+  # 1-replica deployment where the "failover" is just the new pod
+  # starting up after restart.
+  leaseDuration: 60s
+  renewDeadline: 50s
+  retryPeriod: 10s
+
+# Metrics configuration
+metrics:
+  enabled: true
+  port: 8080
+
+# Health probes
+health:
+  port: 8081
+
+# Internal control plane agents (deployed to same namespace as operator)
+# These agents handle MCP quality evaluation and catalog discovery
+internalAgents:
+  enabled: true
+  # Shared model provider for internal agents
+  modelProvider:
+    name: ollama-gpu
+    endpoint: http://ollama.ollama-rig0:11434
+  # Shared model for inference
+  model:
+    name: qwen3:8b
+  # MCP Quality Evaluator Agent
+  qualityEvaluator:
+    enabled: true
+    replicas: 1
+    resources:
+      requests:
+        cpu: "100m"
+        memory: "512Mi"
+      limits:
+        cpu: "1000m"
+        memory: "1Gi"
+  # MCP Chronicler Agent (persistent learning memory)
+  # Records deployment/connection/tool-call results and advises on best configurations
+  chronicler:
+    enabled: true
+    replicas: 1
+    resources:
+      requests:
+        cpu: "100m"
+        memory: "512Mi"
+      limits:
+        cpu: "1000m"
+        memory: "1Gi"
+  # MCP Catalog Discovery Agent (for non-standard registries)
+  catalogDiscovery:
+    enabled: true
+    replicas: 1
+    resources:
+      requests:
+        cpu: "100m"
+        memory: "512Mi"
+      limits:
+        cpu: "1000m"
+        memory: "1Gi"
+  # Onboarding Agent (detects capability gaps, proposes new MCP tools)
+  onboardingAgent:
+    enabled: false
+    replicas: 1
+    resources:
+      requests:
+        cpu: "100m"
+        memory: "512Mi"
+      limits:
+        cpu: "1000m"
+        memory: "1Gi"
+  # RTFM Agent (finds documentation for onboarded tools, creates RAGSources)
+  rtfmAgent:
+    enabled: false
+    replicas: 1
+    resources:
+      requests:
+        cpu: "100m"
+        memory: "512Mi"
+      limits:
+        cpu: "1000m"
+        memory: "1Gi"
+  # MCP Tool Servers for internal agents
+  # These provide tools for discovery and evaluation
+  mcpServers:
+    enabled: true
+    # Kubernetes MCP - provides k8s CRUD tools
+    # Using mcp/kubernetes from Docker Hub (official MCP server image)
+    kubernetes:
+      enabled: true
+      image: mcp/kubernetes:latest
+      command: ["node", "dist/index.js"]
+      securityMode: strict  # Node.js image, no root access needed
+      # replicas: 2 — stdio MCP servers exit cleanly when the bridge gateway
+      # closes its connection (normal occurrence on long discussions or under
+      # SIGTERM during routine restarts). Two replicas ensure the Service
+      # always has at least one Ready pod even when one is restarting.
+      # Same pattern as prometheus-mcp (homelab-pilot crew) and the
+      # [[Prometheus MCP Connection Cycling]] kanban card.
+      replicas: 2
+      resources:
+        requests:
+          cpu: "50m"
+          memory: "128Mi"
+        limits:
+          cpu: "500m"
+          memory: "512Mi"
+    # Fetch MCP - provides HTTP/web fetching tools
+    fetch:
+      enabled: true
+      image: mcp/fetch:latest
+      command: ["/app/.venv/bin/mcp-server-fetch"]
+      securityMode: relaxed  # Python/uv image, interpreter under /root/ (mode 700)
+      # replicas: 2 — fetch-mcp was observed restarting every 2 minutes
+      # (163 restarts in 11h, Exit 0 / Reason: Completed — stdio
+      # MCP-server-exits-when-bridge-disconnects pattern). Each restart
+      # triggered MCPServer status reconcile → enqueued MCPGateway
+      # reconcile → all 6 MCPServers re-registered with the gateway
+      # (~10 reconciles/min noise). Stabilising fetch-mcp with a second
+      # replica eliminates the amplifier; the gateway-side predicate
+      # filter is separately tracked in [[MCPGateway Reconcile Loop]].
+      replicas: 2
+      resources:
+        requests:
+          cpu: "50m"
+          memory: "128Mi"
+        limits:
+          cpu: "500m"
+          memory: "256Mi"
+    # GitHub MCP - provides GitHub API tools
+    # Requires GITHUB_PERSONAL_ACCESS_TOKEN — server exits without it
+    # Uses exec mode (no shell required) for distroless/scratch images
+    github:
+      enabled: false  # Enable after creating github-token secret
+      image: ghcr.io/github/github-mcp-server:latest
+      command: ["/server/github-mcp-server", "stdio"]
+      securityMode: strict  # Go binary on distroless, no root access needed
+      replicas: 1
+      # Optional: Reference to secret containing GitHub token
+      # Maps secret key to GITHUB_PERSONAL_ACCESS_TOKEN env var
+      secretRef: ""
+      secretKey: "password"  # Key in the secret containing the token
+      resources:
+        requests:
+          cpu: "50m"
+          memory: "128Mi"
+        limits:
+          cpu: "500m"
+          memory: "256Mi"
+
+# NATS JetStream carries every discussion, so a Kubemoot install needs a NATS server
+# with JetStream enabled (the quickstart installs the upstream nats chart as release
+# "nats" in namespace "nats"). The chart bootstraps the streams and KV buckets with a
+# post-install Job.
+nats:
+  enabled: true
+  url: "nats://nats.nats.svc.cluster.local:4222"
+  # MCPServer that lets agents inspect NATS (cnadb/mcp-nats via mcp-bridge). Off for a
+  # minimal install; the operator needs only the server above.
+  mcpServer:
+    enabled: false   # an MCPServer that lets agents inspect NATS; opt in per cluster
+
+# Scale-to-zero configuration for KEDA-based agent autoscaling
+scaleToZero:
+  enabled: false  # Enable when KEDA is deployed
+  cooldownPeriod: 300
+  natsMonitoringEndpoint: "nats-headless.nats.svc.cluster.local:8222"
+
+# Verification feature - allows triggering verification jobs via dashboard
+verify:
+  enabled: true
+  # Test runner image for verification jobs
+  # Version is automatically updated by CI/CD when test-runner is released
+  image: test-runner:0.46.2
+  # Deploy static verify jobs with the chart (optional - API creates jobs dynamically)
+  deployJobs: false
+
+# KubemootConfig - centralized default images for all components
+# Image versions are updated by CI/CD when components are released
+# Crew liaison: every crew as one MCP agent for external clients (Claude Code and any
+# other MCP client). Installed with the operator; cluster-internal until a route is
+# enabled. See crew-liaison/README.md.
+liaison:
+  enabled: true
+  image: crew-liaison:0.330.2
+  replicas: 1
+  maxInflight: 4            # discussions at once; each spends GPU time
+  ticketTTLMinutes: 60
+  # Bearer token for /mcp. Empty means no token: only do that behind an edge that
+  # authenticates (for example Cloudflare Access). existingSecret wins over token.
+  auth:
+    token: ""
+    existingSecret: ""
+    key: token
+  # Public route through the Gateway API listener configured under `gateway` above.
+  # Path /mcp on the hostname; the hostname defaults to gateway.hostname.
+  expose:
+    enabled: false
+    hostname: ""
+  resources:
+    limits:
+      cpu: 500m
+      memory: 128Mi
+    requests:
+      cpu: 10m
+      memory: 32Mi
+
+kubemootConfig:
+  # Whether to create the default KubemootConfig singleton
+  create: true
+  # Default container images for Kubemoot components
+  # These versions are automatically updated by component release workflows
+  # DO NOT use :latest - always use explicit versions for reproducibility
+  # Kubemoot images are "name:version" and get global.imageRegistry prefixed at render
+  images:
+    indexer: indexer:0.279.0
+    queryService: query-service:0.326.0
+    agentRuntime: agent-runtime:0.326.0
+    mcpGateway: mcp-gateway:0.326.0
+    mcpBridge: mcp-bridge:0.326.0
+    discussionGateway: discussion-gateway:0.326.0
+    fitnessRunner: fitness-runner:0.326.0
+    doclingServe: quay.io/docling-project/docling-serve-cpu:latest
+  # Default configurations
+  defaults:
+    vectorStoreType: pgvector
+    embeddingModel: nomic-embed
+
+# Crews — named agent teams with optional discussion gateways
+# Each crew groups agents via the kubemoot.ai/crew label and deploys
+# a discussion gateway as the crew's HTTP entry point for external clients.
+crews: []
+# Example:
+#   - name: homelab-pilot
+#     description: "Homelab infrastructure conversation crew"
+#     discussion:
+#       enabled: true
+
+# Admission webhooks for domain-logic validation
+webhook:
+  enabled: true
+  port: 9443
+  failurePolicy: Fail
+  certManager:
+    enabled: true
+
+# ModelProviders define GPU/inference backends available for scheduling.
+# These are infrastructure resources — agents reference equivalence groups,
+# not providers directly. The scheduler distributes agents across providers.
+modelProviders: []
+
+# Grafana dashboard provisioning via sidecar ConfigMap discovery
+grafana:
+  dashboards:
+    enabled: true
+
+# NotificationSink mock receiver — a small Python HTTP server that logs
+# every POST it receives. Ships disabled by default; flip on for smoke
+# tests of the NotificationSink dispatcher without standing up an
+# external webhook.site or ntfy endpoint. The pod runs in the operator's
+# namespace; point a NotificationSink at
+# http://<service-name>.<operator-namespace>:80/ to capture dispatches.
+notifications:
+  receiverMock:
+    enabled: false
+    image: python:3.12-alpine
+    resources:
+      limits:
+        cpu: 50m
+        memory: 64Mi
+      requests:
+        cpu: 5m
+        memory: 32Mi
+# Example:
+#   - name: ollama-gpu
+#     type: ollama
+#     endpoint: http://ollama.ollama-rig0:11434
+#     schedulingWeight: 100
+#   - name: ollama-rig1
+#     type: ollama
+#     endpoint: http://ollama.ollama-rig1:11434
+#     schedulingWeight: 25

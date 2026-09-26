@@ -1,0 +1,120 @@
+# Kubemoot MCP Bridge
+
+A static Go binary that bridges stdio-based MCP servers to HTTP/SSE endpoints.
+Runs as a Kubernetes **native sidecar** alongside the MCP server container,
+communicating via named pipes (FIFOs) in a shared emptyDir volume.
+
+## Why
+
+Most MCP servers use **stdio** transport (read JSON-RPC from stdin, write to stdout).
+Kubernetes services need HTTP endpoints for routing, health checks, and gateway integration.
+The bridge solves this without modifying the MCP server image or injecting code into its container.
+
+## Architecture
+
+```
+┌─────────────────────────────────────────────────────┐
+│  Pod                                                │
+│                                                     │
+│  mcp-bridge (native sidecar)    mcp-server          │
+│  ┌───────────────────────┐      ┌────────────────┐  │
+│  │ Creates FIFOs         │      │ Original image │  │
+│  │ HTTP/SSE on :8080     │◄────►│ stdin/stdout   │  │
+│  │ /message -> stdin     │ pipes│ via /pipes/    │  │
+│  │ stdout -> /sse        │      │                │  │
+│  └───────────────────────┘      └────────────────┘  │
+│           ▲                                         │
+│      Port 8080                                      │
+└─────────────────────────────────────────────────────┘
+```
+
+## Modes
+
+### Sidecar Mode (default)
+
+Runs as a Kubernetes native sidecar (`initContainer` with `restartPolicy: Always`).
+Creates FIFOs at `/pipes/stdin` and `/pipes/stdout`, starts an HTTP server, and
+waits for the MCP server to connect.
+
+```
+kubemoot-mcp-bridge --port 8080 --healthz /healthz --pipe-dir /pipes
+```
+
+On startup, the bridge copies itself to the pipe directory (`/pipes/kubemoot-mcp-bridge`)
+so the main container can use exec mode.
+
+### Exec Mode
+
+Replaces `sh -c "exec <cmd> < /pipes/stdin > /pipes/stdout"` for images that have no
+shell (scratch, distroless). Uses `dup2` to redirect stdin/stdout to the named pipes,
+then `syscall.Exec` to replace the process with the MCP server binary.
+
+```
+/pipes/kubemoot-mcp-bridge exec --pipe-dir /pipes -- /server/github-mcp-server stdio
+```
+
+The operator sets this as the main container's command. The bridge binary is available
+at `/pipes/` because the sidecar copied it there on startup.
+
+## HTTP Endpoints
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/sse` | GET | SSE stream of MCP server responses (stdout) |
+| `/message` | POST | Send JSON-RPC request to MCP server (stdin) |
+| `/healthz` | GET | `200` when MCP server connected, `503` when waiting |
+
+## Probes
+
+The operator configures three probes on the sidecar:
+
+- **Startup**: TCP on bridge port. Gates main container start (binary copied, FIFOs ready).
+- **Readiness**: HTTP GET `/healthz`. Returns 200 only when MCP server has connected to pipes.
+- **Liveness**: TCP on bridge port. Ensures HTTP server is responsive.
+
+## Reconnection
+
+If the MCP server container restarts (crash, OOM, upgrade), the sidecar:
+1. Detects EOF on the stdout pipe
+2. Sets readiness to 503 (disconnected)
+3. Waits for the new MCP server process to open the pipes
+4. Resumes bridging (readiness returns to 200)
+
+No sidecar restart required. The bridge survives MCP server restarts.
+
+## Building
+
+The image is built by CI/CD on push to `main` (see `.github/workflows/ci-mcp-bridge.yaml`).
+
+```dockerfile
+FROM golang:1.26-alpine AS builder
+RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o kubemoot-mcp-bridge ./cmd/bridge/
+FROM scratch
+COPY --from=builder /build/kubemoot-mcp-bridge /kubemoot-mcp-bridge
+ENTRYPOINT ["/kubemoot-mcp-bridge"]
+```
+
+Final image: ~2.4 MB (static binary on scratch).
+
+## Configuration
+
+The bridge image version is centrally managed via **KubemootConfig**:
+
+```yaml
+apiVersion: kubemoot.ai/v1alpha1
+kind: KubemootConfig
+metadata:
+  name: default
+spec:
+  images:
+    mcpBridge: ghcr.io/kubemoot/mcp-bridge:0.55.0
+```
+
+Individual MCPServer resources can override the image:
+
+```yaml
+spec:
+  proxyInjection:
+    image: custom/bridge:1.0
+    port: 9090
+```

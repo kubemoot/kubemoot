@@ -1,0 +1,106 @@
+# RBAC for Kubernetes MCP Server
+# This creates read-only cluster access for the MCP server to inspect resources.
+#
+# Apply BEFORE deploying the MCPServer:
+#   kubectl apply -f kubemoot_v1alpha1_mcpserver_kubernetes_rbac.yaml
+#
+# Security: This grants READ-ONLY access. No create/update/delete permissions.
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: kubernetes-mcp-sa
+  namespace: kubemoot-system
+  labels:
+    app.kubernetes.io/name: kubernetes-mcp
+    app.kubernetes.io/part-of: kubemoot
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: kubernetes-mcp-readonly
+  labels:
+    app.kubernetes.io/name: kubernetes-mcp
+    app.kubernetes.io/part-of: kubemoot
+rules:
+  # Core resources - read only
+  - apiGroups: [""]
+    resources:
+      - pods
+      - services
+      - endpoints
+      - configmaps
+      - nodes
+      - namespaces
+      - persistentvolumeclaims
+      - persistentvolumes
+      - events
+      - replicationcontrollers
+    verbs: ["get", "list", "watch"]
+
+  # Pod logs - read only
+  - apiGroups: [""]
+    resources:
+      - pods/log
+    verbs: ["get"]
+
+  # Apps resources - read only
+  - apiGroups: ["apps"]
+    resources:
+      - deployments
+      - daemonsets
+      - replicasets
+      - statefulsets
+    verbs: ["get", "list", "watch"]
+
+  # Batch resources - read only
+  - apiGroups: ["batch"]
+    resources:
+      - jobs
+      - cronjobs
+    verbs: ["get", "list", "watch"]
+
+  # Networking - read only
+  - apiGroups: ["networking.k8s.io"]
+    resources:
+      - ingresses
+      - networkpolicies
+    verbs: ["get", "list", "watch"]
+
+  # Metrics (for resource usage tools)
+  - apiGroups: ["metrics.k8s.io"]
+    resources:
+      - pods
+      - nodes
+    verbs: ["get", "list"]
+
+  # Storage - read only
+  - apiGroups: ["storage.k8s.io"]
+    resources:
+      - storageclasses
+    verbs: ["get", "list", "watch"]
+
+  # RBAC - read only (for viewing permissions)
+  - apiGroups: ["rbac.authorization.k8s.io"]
+    resources:
+      - roles
+      - rolebindings
+      - clusterroles
+      - clusterrolebindings
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: kubernetes-mcp-readonly-binding
+  labels:
+    app.kubernetes.io/name: kubernetes-mcp
+    app.kubernetes.io/part-of: kubemoot
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: kubernetes-mcp-readonly
+subjects:
+  - kind: ServiceAccount
+    name: kubernetes-mcp-sa
+    namespace: kubemoot-system
