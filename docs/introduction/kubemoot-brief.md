@@ -37,7 +37,7 @@ one - portable across clusters and runnable on commodity or local GPUs.
 |----------|------------|
 | **Crew** | A group of agents that deliberate together. |
 | **Agent** | One participant: a `coordinator`, a `Tooler`, or an `Analyst`, with declared capabilities and tools. |
-| **PromptModule** | An agent's behavior, written in the Agent Definition Language (ADL); composed by reference. |
+| **PromptModule** | An agent's behavior, written in ADL (the Architecture Definition Language); composed by reference. |
 | **Model** / **ModelProvider** | A model (by capability, not a hardcoded name) and the GPU-backed endpoint that serves it. |
 | **RAGSource** | A knowledge source that's indexed and made queryable for agents. |
 | **MCPServer** / **MCPGateway** | Tools an agent can call, discovered through a gateway (Model Context Protocol). |

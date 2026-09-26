@@ -41,8 +41,8 @@ A few project rules a reviewer will look for:
   `fix:` (patch), `feat!:` / `fix!:` / `BREAKING CHANGE` (major), and
   `chore:` / `docs:` / `refactor:` (patch). Versions come from git tags via the
   pipeline - never hand-edit a version in a manifest.
-- **Prompts in ADL.** All agent prompt text lives in `PromptModule` CRs written in the
-  Agent Definition Language, never inline in an Agent spec. See
+- **Prompts in ADL.** All agent prompt text lives in `PromptModule` CRs written in
+  ADL (the Architecture Definition Language), never inline in an Agent spec. See
   [Write Agents & ADL](../../user-guides/write-agents-and-adl/).
 - **Code quality gates.** Keep functions under cyclomatic complexity 10; refactor
   rather than adding a case to an already-complex function.

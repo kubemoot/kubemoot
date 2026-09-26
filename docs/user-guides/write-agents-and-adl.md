@@ -1,12 +1,13 @@
 ---
 title: "Write Agents & ADL"
 weight: 20
-description: "Define agent behavior with the Agent Definition Language."
+description: "Define agent behavior with ADL, the Architecture Definition Language."
 ---
 
-An agent's behavior is its prompt, and in Kubemoot every prompt is written in the
-**Agent Definition Language (ADL)** and stored in `PromptModule` CRs - never as inline
-prose in an Agent spec. This guide covers how to write ADL and how modules compose.
+An agent's behavior is its prompt, and in Kubemoot every prompt is written in
+**ADL (the Architecture Definition Language)** and stored in `PromptModule` CRs - never
+as inline prose in an Agent spec. This guide covers how to write ADL and how modules
+compose.
 
 ## Why ADL
 

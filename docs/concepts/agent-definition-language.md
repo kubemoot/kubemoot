@@ -1,7 +1,7 @@
 ---
-title: "Agent Definition Language"
+title: "ADL, the Architecture Definition Language, for agents"
 weight: 25
-description: "What ADL is, and why Kubemoot defines agent behavior as structured rules instead of prose."
+description: "What ADL is, where it comes from, and why Kubemoot writes agent behavior in it."
 ---
 
 Kubemoot defines what an agent does in **ADL**, a small, structured language of
@@ -9,30 +9,32 @@ behavioral rules. Every agent prompt is ADL stored in a `PromptModule` resource,
 free prose in an Agent spec, and the same language expresses a crew's executable fitness
 checks. ADL is the surface where a crew's behavior is authored, reviewed, and versioned.
 
-The name is borrowed on purpose: ADL began as the **Architecture Definition Language**,
-and Kubemoot adapts it into an **Agent Definition Language**.
+## What ADL is, and where it comes from
 
-## From architecture to agents
+ADL is the **Architecture Definition Language**, a pseudo-code introduced by Mark
+Richards for describing and governing the structure of a software system, and paired
+with the fitness-function idea from Richards and Neal Ford's evolutionary-architecture
+work (see their book *Architecture as Code*, and Richards' ADL reference at
+developertoarchitect.com). In its original form ADL defines a system's parts (`DEFINE
+SYSTEM`, `DEFINE DOMAIN`, `DEFINE COMPONENT`) and asserts the rules between them
+(`ASSERT`, `FOREACH ... CONTAINED WITHIN`), making architecture a machine-readable
+artifact and enforcing it with executable checks that fail when an implementation
+drifts from its intended design. Kubemoot applies that same language, unchanged in
+form, to a different subject: instead of governing how a system's components may
+depend on each other, its rules govern how an agent behaves. This is a partnership with
+ADL's authors and their notation, not a fork or a renaming.
 
-ADL is originally the **Architecture Definition Language**, a pseudo-code introduced by
-Mark Richards for describing and governing the structure of a software system. In that
-original form it defines a system's parts (`DEFINE SYSTEM`, `DEFINE DOMAIN`,
-`DEFINE COMPONENT`) and asserts the rules between them (`ASSERT`, `FOREACH ... CONTAINED
-WITHIN`). It pairs with the **fitness functions** of evolutionary architecture (Neal
-Ford and Mark Richards): the point is *architecture as code*, making the architecture a
-machine-readable artifact and enforcing it with executable checks that fail when the
-implementation drifts from the intended design. David Shergilashvili's guide extends the
-same notation toward an executable, AI-assisted form. (See Mark Richards' ADL reference
-at developertoarchitect.com.)
+## Why ADL suits agent prompts
 
-Kubemoot keeps that notation and that philosophy and changes the target. The same
-keywords that once governed how a system's parts may depend on each other now govern how
-an agent behaves: `DEFINE COMPONENT`, `ASSERT`, `WHEN ... THEN`, `ALWAYS` / `NEVER`,
-`FOREACH ... CONTAINED WITHIN`. And the architecture-fitness-function idea, an executable
-check that fails when reality drifts from intent, becomes Kubemoot's
-[crew fitness functions](../fitness/kubemoot-crew-fitness-functions/). "Agent Definition
-Language" is the same tool pointed at a new domain: defining an agent's behavior instead
-of a system's structure.
+The rule forms ADL already has, `DEFINE COMPONENT`, `ASSERT`, `WHEN ... THEN`, `ALWAYS`
+/ `NEVER`, `FOREACH ... CONTAINED WITHIN`, map directly onto what an agent's system
+prompt actually needs to say: named scopes for related behavior, conditions with
+actions, and unconditional obligations or prohibitions. An architectural fitness
+function, an executable check that fails when reality drifts from intent, becomes
+Kubemoot's [crew fitness functions](../fitness/kubemoot-crew-fitness-functions/) applied
+to a crew's discussion behavior instead of a codebase's structure. The same reasons ADL
+disciplines an architecture decision record disciplines an agent prompt: declarative
+rules instead of a paragraph of prose, one behavior per line, reviewable in a diff.
 
 ## Behavior as rules, not prose
 
@@ -117,6 +119,16 @@ an empirical question, not an assumption. Kubemoot ships its reference crew in b
 ADL form and a prose form and measures the difference with fitness functions rather than
 asserting it. The structural benefits above, scannable and diffable and deployable and
 testable, hold regardless of that result.
+
+## The other ADL: the Agent Definition Language specification
+
+A separate specification, also abbreviated ADL, exists at
+[adl-spec.org](https://www.adl-spec.org/): the **Agent Definition Language**, a JSON
+manifest format (currently version 0.3.0) that describes who an agent is, its identity,
+tools, permissions, and lifecycle, positioned above transport protocols like MCP and
+A2A. Kubemoot is looking at this specification as a possible way to describe its agents
+and crews to other systems. Adoption isn't decided: it waits on a deep assessment of
+whether the two line up, and this page will update if that changes.
 
 ## Next
 

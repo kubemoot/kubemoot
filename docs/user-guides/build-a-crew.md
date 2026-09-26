@@ -55,7 +55,7 @@ declares *capabilities*, not a model: the scheduler binds the model. See
 ### 3. Write the prompts in ADL
 
 An agent's behavior lives in `PromptModule` CRs referenced by `spec.promptRefs`, never
-inline. Write them in the Agent Definition Language. See
+inline. Write them in ADL (the Architecture Definition Language). See
 [Write Agents & ADL](../write-agents-and-adl/).
 
 ### 4. Wire up tools and knowledge

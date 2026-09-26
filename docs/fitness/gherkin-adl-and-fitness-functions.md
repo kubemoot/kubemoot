@@ -5,7 +5,7 @@ weight: 2
 
 ## Purpose
 
-Kubemoot uses two structured languages: **ADL** (the Agent Definition Language) to compose agent prompts, and a **fitness-function** format to specify executable acceptance checks for a crew. A natural question - especially for anyone arriving from a Behavior-Driven Development (BDD) background - is: *why not use Gherkin (Cucumber's Given/When/Then) for either of these?*
+Kubemoot uses two structured languages: **ADL** (the Architecture Definition Language, applied to agents) to compose agent prompts, and a **fitness-function** format to specify executable acceptance checks for a crew. A natural question - especially for anyone arriving from a Behavior-Driven Development (BDD) background - is: *why not use Gherkin (Cucumber's Given/When/Then) for either of these?*
 
 This document answers that. It is a general compare-and-contrast, not a proposal. It explains where Gherkin **overlaps** with what Kubemoot already does, where it **diverges**, and why Kubemoot settled on ADL plus a purpose-built fitness format. Gherkin remains a credible alternative substrate for one of the two surfaces; the reasoning below makes clear which, and why.
 

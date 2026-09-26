@@ -44,7 +44,7 @@ own phases without changing the scheduler.
 |----------|------------|
 | `Crew` | A group of agents that deliberate together, plus the discussion gateway clients talk to. |
 | `Agent` | One participant: a coordinator, a Tooler, or an Analyst, with declared capabilities and tools - never a hardcoded model name. |
-| `PromptModule` | An agent's behavior, written in the Agent Definition Language (ADL) and composed by reference. |
+| `PromptModule` | An agent's behavior, written in ADL (the Architecture Definition Language) and composed by reference. |
 | `MootArchetype` / `CrewSchedulingPolicy` | How a discussion is run: its phases, and the rules that decide who speaks in each. |
 | `Model` / `ModelProvider` | A model, addressed by capability, and the GPU-backed endpoint that serves it. |
 | `RAGSource` | A knowledge source that's indexed and made queryable for agents. |
