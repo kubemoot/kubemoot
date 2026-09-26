@@ -99,8 +99,7 @@ own cluster with a GPU-backed model provider, see
 ## Ecosystem
 
 Kubemoot is the operator at the center of a small ecosystem: [Homelab
-Pilot](docs/ecosystem/pilot.md) is the reference crew, [CrewForge](docs/ecosystem/crewforge.md)
-is a desktop editor for crew CRDs, [`kmctl`](docs/ecosystem/kmctl.md) is the CLI, and
+Pilot](docs/ecosystem/pilot.md) is the reference crew, [`kmctl`](docs/ecosystem/kmctl.md) is the CLI, and
 [crews](docs/ecosystem/crews.md) covers other packaged crews. See
 [docs/ecosystem/](docs/ecosystem/) for the full picture.
 

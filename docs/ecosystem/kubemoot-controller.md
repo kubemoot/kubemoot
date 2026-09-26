@@ -35,8 +35,8 @@ The rest of this ecosystem sits on top:
 
 - **[Crews](../crews/)** are what you run on the controller.
 - **[Pilot](../pilot/)** is one reference crew that demonstrates it.
-- **[CrewForge](../crewforge/)** and **[kmctl](../kmctl/)** are tools for authoring and
-  operating crews.
+- **[kmctl](../kmctl/)** is the tool for authoring and operating crews from the
+  terminal; [CrewForge](../crewforge/) describes the authoring experience.
 
 For the operator's design and the consensus model it implements, see
 [Concepts](../../concepts/consensus-model/) and the

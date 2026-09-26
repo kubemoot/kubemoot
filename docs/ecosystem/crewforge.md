@@ -1,33 +1,35 @@
 ---
 title: "CrewForge"
 weight: 40
-description: "The crew-authoring IDE (desktop today; a VS Code plugin is envisioned)."
+description: "Authoring crews: your editor and kmctl today; a VS Code extension is the planned surface."
 ---
 
-**CrewForge** is an integrated environment for **authoring crews**. Building a crew
-means writing a set of related Kubernetes resources - a `Crew`, its `Agent`s, their
-`PromptModule`s, and the models, tools, and knowledge they use - and CrewForge is the
-tool that makes editing that set coherent rather than hand-managing a folder of YAML.
+**CrewForge** is the name for the crew-authoring experience: building a crew means
+writing a set of related Kubernetes resources, a `Crew`, its `Agent`s, their
+`PromptModule`s, and the models, tools, and knowledge they use, and keeping that set
+coherent as it grows.
 
-## What it is
+## Authoring today
 
-CrewForge is a desktop application today (built with Tauri and Svelte). A **VS Code
-plugin** is envisioned, to bring the same authoring experience into an editor many
-developers already live in.
+A crew is a folder of YAML, and the best tool for a folder of YAML is the editor you
+already use. VS Code with the Kubernetes and YAML extensions gives you completion,
+validation against the CRD schemas, and diffs; [kmctl](../kmctl/) scaffolds, applies,
+and runs fitness from the terminal. The [crews](../crews/) repository holds packaged
+examples to copy from. See [Build a Crew](../../user-guides/build-a-crew/) for the
+resources themselves.
 
-## What it does - and what it doesn't
+## The planned surface
 
-CrewForge is a **CRD editor**: it creates, reads, updates, and deletes Kubemoot crew
-manifests. It deliberately does **not** own lifecycle. Deleting, garbage-collecting,
-namespace management, and cascading cleanup all belong to the
-[controller](../kubemoot-controller/), which handles them through finalizers and owner
-references. CrewForge stays a lightweight authoring surface; the operator stays the
-single source of lifecycle truth. That boundary is intentional - it keeps the IDE
-simple and avoids two systems disagreeing about what should be cleaned up.
+An earlier standalone desktop application (Tauri and Svelte) proved the shape: a
+CRD-aware editor with templates, a deploy action, and a fitness runner. Its future is a
+**VS Code extension** with the same goal, so the authoring experience lives where the
+editing already happens rather than duplicating an editor. Until then, nothing in
+Kubemoot depends on it.
 
-## Where it fits
+## The boundary that stays
 
-CrewForge sits at the start of a crew's life - authoring - and hands its output to the
-controller to run. For the manual path the same resources can be written by hand and
-applied with `kubectl`; CrewForge is the assisted way to do it. To understand what
-you're authoring, see [Build a Crew](../../user-guides/build-a-crew/).
+Whatever the surface, CrewForge is a **CRD editor**: it creates, reads, updates, and
+deletes crew manifests and deliberately does not own lifecycle. Deleting,
+garbage-collecting, namespace management, and cascading cleanup belong to the
+[controller](../kubemoot-controller/), through finalizers and owner references. The
+authoring tool stays light; the operator stays the single source of lifecycle truth.

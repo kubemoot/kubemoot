@@ -7,9 +7,8 @@ aliases:
 ---
 
 **kmctl** ("kubemoot control") is the command-line tool for working with crews and
-Kubemoot. It is the scriptable, terminal-native counterpart to the
-[CrewForge](../crewforge/) IDE. Where CrewForge is a visual authoring environment,
-`kmctl` is for the terminal and automation.
+Kubemoot. It is the scriptable, terminal-native way to scaffold, apply, and exercise crews;
+your editor of choice is the visual half (see [CrewForge](../crewforge/)).
 
 ## Status
 
