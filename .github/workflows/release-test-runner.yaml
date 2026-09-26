@@ -140,8 +140,8 @@ jobs:
           FULL_IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${VERSION}"
 
           # Update job yamls with new image version
-          sed -i "s|image: harbor-homelab.dijure.com/kubemoot/test-runner:.*|image: ${FULL_IMAGE}|" k8s/tests/job/job-smoke.yaml
-          sed -i "s|image: harbor-homelab.dijure.com/kubemoot/test-runner:.*|image: ${FULL_IMAGE}|" k8s/tests/job/job-all.yaml
+          sed -i "s|image: .*/kubemoot/test-runner:.*|image: ghcr.io/kubemoot/test-runner:${VERSION}|" k8s/tests/job/job-smoke.yaml
+          sed -i "s|image: .*/kubemoot/test-runner:.*|image: ghcr.io/kubemoot/test-runner:${VERSION}|" k8s/tests/job/job-all.yaml
 
           # Commit changes
           git config user.name "github-actions[bot]"

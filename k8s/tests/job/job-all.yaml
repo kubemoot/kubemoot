@@ -18,12 +18,10 @@ spec:
   template:
     spec:
       serviceAccountName: kubemoot-verify-runner
-      imagePullSecrets:
-        - name: harbor-pull-secret
       restartPolicy: Never
       containers:
         - name: test
-          image: harbor-homelab.dijure.com/kubemoot/test-runner:0.326.0
+          image: ghcr.io/kubemoot/test-runner:0.326.0
           command: ["/bin/bash", "-c"]
           args:
             - |
