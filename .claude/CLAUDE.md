@@ -1,7 +1,7 @@
 DEFINE DOMAIN kubemoot
 DESCRIPTION Kubernetes operator for multi-agent AI consensus discussions. Inherits ecosystem rules from parent .claude/CLAUDE.md.
 
-# Agent Definition Language (ADL)
+# ADL (the Architecture Definition Language), applied to agents
 
 DEFINE COMPONENT adl-policy
 DESCRIPTION All agent prompts use ADL - no plain English prose in system prompts
