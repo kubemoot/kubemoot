@@ -26,6 +26,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicLong;
 
 @Service
 public class McpClientManager {
@@ -66,6 +67,8 @@ public class McpClientManager {
     private final Map<String, Sinks.Many<McpMessage>> responseSinks = new ConcurrentHashMap<>();
     // Feedback log: server ID → list of feedback entries (consumed and cleared by operator)
     private final Map<String, List<FeedbackEntry>> feedbackLog = new ConcurrentHashMap<>();
+    // Upstream JSON-RPC ids; starts above the fixed ids the handshake uses (1, 2).
+    private final AtomicLong upstreamIds = new AtomicLong(1_000);
 
     public McpClientManager(McpGatewayProperties properties, WebClient.Builder webClientBuilder,
                            ObjectMapper objectMapper) {
@@ -618,8 +621,20 @@ public class McpClientManager {
         }
     }
 
+    /**
+     * Forward a request to a backend server. Every upstream request gets an id unique
+     * across the gateway, and the reply carries the caller's id again: callers choose
+     * ids independently (a timestamp, or a client's own counter starting at 1), and a
+     * backend that sees two in-flight requests with one id on a session answers only
+     * one of them.
+     */
     public Mono<McpMessage> forwardRequest(String serverId, McpMessage request) {
-        return forwardRequestInternal(serverId, request, true);
+        Object callerId = request.id();
+        if (callerId == null) {
+            return forwardRequestInternal(serverId, request, true);
+        }
+        return forwardRequestInternal(serverId, request.withId(upstreamIds.incrementAndGet()), true)
+            .map(reply -> reply.withId(callerId));
     }
 
     /**

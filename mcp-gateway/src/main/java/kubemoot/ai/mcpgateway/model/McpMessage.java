@@ -31,5 +31,10 @@ public record McpMessage(
         return new McpMessage(JSON_RPC_VERSION, id, null, null, null, new McpError(code, message, null));
     }
 
+    /** The same message with a different JSON-RPC id. */
+    public McpMessage withId(Object newId) {
+        return new McpMessage(jsonrpc, newId, method, params, result, error);
+    }
+
     public record McpError(int code, String message, Object data) {}
 }
