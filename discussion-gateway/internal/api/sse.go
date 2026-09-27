@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/javajon/kubemoot/discussion-gateway/internal/crewscope"
 	"github.com/nats-io/nats.go/jetstream"
 )
 
@@ -47,8 +48,8 @@ type natsMessage struct {
 // conversationID is used to find the matching thread via thread_start metadata.
 // notBefore, when set, is the earliest a thread for this turn can have started; earlier
 // threads of the same conversation are earlier turns.
-func streamDiscussion(ctx context.Context, js jetstream.JetStream, crew, conversationID string, notBefore time.Time, emit func(SSEEvent)) error {
-	consumer, err := createDiscussConsumer(ctx, js, crew, emit)
+func streamDiscussion(ctx context.Context, js jetstream.JetStream, scope crewscope.Scope, conversationID string, notBefore time.Time, emit func(SSEEvent)) error {
+	consumer, err := createDiscussConsumer(ctx, js, scope, emit)
 	if err != nil {
 		return err
 	}
@@ -68,7 +69,7 @@ func streamDiscussion(ctx context.Context, js jetstream.JetStream, crew, convers
 
 // createDiscussConsumer verifies the NATS stream exists and creates an ephemeral
 // consumer starting 30s in the past to catch thread_start messages.
-func createDiscussConsumer(ctx context.Context, js jetstream.JetStream, crew string, emit func(SSEEvent)) (jetstream.Consumer, error) {
+func createDiscussConsumer(ctx context.Context, js jetstream.JetStream, scope crewscope.Scope, emit func(SSEEvent)) (jetstream.Consumer, error) {
 	_, err := js.Stream(ctx, streamName)
 	if err != nil {
 		emit(SSEEvent{Type: "error", Error: "Discussion stream not available"})
@@ -80,7 +81,7 @@ func createDiscussConsumer(ctx context.Context, js jetstream.JetStream, crew str
 		AckPolicy:         jetstream.AckNonePolicy,
 		DeliverPolicy:     jetstream.DeliverByStartTimePolicy,
 		OptStartTime:      &startTime,
-		FilterSubject:     fmt.Sprintf("kubemoot.discuss.%s.>", crew),
+		FilterSubject:     scope.DiscussFilter(),
 		InactiveThreshold: inactiveThreshold,
 	})
 	if err != nil {
@@ -207,7 +208,7 @@ func processMessages(ctx context.Context, msgCh <-chan jetstream.Msg, conversati
 	// the broadcast subject AND the channel subject so every agent — whether it
 	// subscribes to broadcast or to its own channel — sees them. Both copies
 	// carry the same messageId (the payload is marshalled once). Our consumer's
-	// wildcard filter (kubemoot.discuss.<crew>.>) matches both, so without
+	// wildcard filter (kubemoot.discuss.<ns>.<crew>.>) matches both, so without
 	// dedup the SSE stream would emit the synthesis (and any other dual-published
 	// message) twice. Dedup by messageId; the deduper lives for one discussion.
 	dedup := newMessageDeduper()

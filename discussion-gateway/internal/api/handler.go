@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/javajon/kubemoot/discussion-gateway/internal/crewscope"
 	natsclient "github.com/javajon/kubemoot/discussion-gateway/internal/nats"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 )
@@ -18,22 +19,37 @@ const (
 	mimeJSON             = "application/json"
 	errNATSNotConfigured = "NATS not configured"
 	agentNameGateway     = "discussion-gateway"
+	// errorChannel is the channel token of the synthetic error thread.
+	errorChannel = "broadcast"
 )
 
 var handlerLog = logf.Log.WithName("api-handler")
 
-// Handler serves the Discussion API endpoints.
+// Handler serves the Discussion API endpoints for crews in one namespace.
 type Handler struct {
 	natsClient *natsclient.Client
 	requests   *requestLog
+	namespace  string
 }
 
-// NewHandler creates a new API handler.
-func NewHandler(natsClient *natsclient.Client) *Handler {
+// NewHandler creates a new API handler whose NATS subjects are scoped to namespace.
+func NewHandler(natsClient *natsclient.Client, namespace string) *Handler {
 	return &Handler{
 		natsClient: natsClient,
 		requests:   newRequestLog(time.Hour),
+		namespace:  namespace,
 	}
+}
+
+// scopeFor returns the crew's scope in this gateway's namespace, writing a 400
+// and returning false when the crew name is not a valid subject token.
+func (h *Handler) scopeFor(w http.ResponseWriter, crew string) (crewscope.Scope, bool) {
+	scope, err := crewscope.New(h.namespace, crew)
+	if err != nil {
+		httpError(w, http.StatusBadRequest, err.Error())
+		return crewscope.Scope{}, false
+	}
+	return scope, true
 }
 
 // RegisterRoutes registers all API routes on the given mux.
@@ -75,11 +91,11 @@ func (h *Handler) readyHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) postDiscussion(w http.ResponseWriter, r *http.Request) {
-	crew := r.PathValue("crew")
-	if crew == "" {
-		httpError(w, http.StatusBadRequest, "crew is required")
+	scope, ok := h.scopeFor(w, r.PathValue("crew"))
+	if !ok {
 		return
 	}
+	crew := scope.Crew
 
 	var req postDiscussionRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -103,10 +119,11 @@ func (h *Handler) postDiscussion(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Publish to KUBEMOOT_REQUEST stream — coordinator pulls and processes FIFO
-	subject := fmt.Sprintf("kubemoot.request.%s", crew)
+	subject := scope.RequestSubject()
 	reqBody, _ := json.Marshal(map[string]interface{}{
 		"message":        req.Message,
 		"conversationId": conversationID,
+		"namespace":      scope.Namespace,
 		"crew":           crew,
 		"timestamp":      time.Now().UTC().Format(time.RFC3339),
 		"use_rag":        true,
@@ -118,7 +135,7 @@ func (h *Handler) postDiscussion(w http.ResponseWriter, r *http.Request) {
 
 	if err := h.natsClient.Publish(ctx, subject, reqBody); err != nil {
 		handlerLog.Error(err, "Failed to queue request to NATS", "crew", crew, "subject", subject)
-		h.publishCoordinatorError(crew, conversationID, fmt.Sprintf("failed to queue request: %v", err))
+		h.publishCoordinatorError(scope, conversationID, fmt.Sprintf("failed to queue request: %v", err))
 		httpError(w, http.StatusServiceUnavailable, "failed to queue discussion request")
 		return
 	}
@@ -134,12 +151,16 @@ func (h *Handler) postDiscussion(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) streamDiscussion(w http.ResponseWriter, r *http.Request) {
-	crew := r.PathValue("crew")
 	conversationID := r.PathValue("conversationId")
-	if crew == "" || conversationID == "" {
-		httpError(w, http.StatusBadRequest, "crew and conversationId are required")
+	if conversationID == "" {
+		httpError(w, http.StatusBadRequest, "conversationId is required")
 		return
 	}
+	scope, ok := h.scopeFor(w, r.PathValue("crew"))
+	if !ok {
+		return
+	}
+	crew := scope.Crew
 
 	if !h.natsClient.IsConfigured() {
 		httpError(w, http.StatusServiceUnavailable, errNATSNotConfigured)
@@ -187,7 +208,7 @@ func (h *Handler) streamDiscussion(w http.ResponseWriter, r *http.Request) {
 	// Stream blocks until thread_close or context cancellation.
 	// Uses conversationId to find the matching thread via thread_start metadata.
 	notBefore := h.requests.notBefore(conversationID)
-	if err := streamDiscussion(ctx, js, crew, conversationID, notBefore, emit); err != nil && err != context.Canceled {
+	if err := streamDiscussion(ctx, js, scope, conversationID, notBefore, emit); err != nil && err != context.Canceled {
 		handlerLog.V(1).Info("Stream ended", "crew", crew, "conversationId", conversationID, "error", err)
 	}
 }
@@ -195,12 +216,12 @@ func (h *Handler) streamDiscussion(w http.ResponseWriter, r *http.Request) {
 // publishCoordinatorError publishes synthetic thread_start + thread_close messages
 // to NATS so the SSE stream terminates immediately with an error instead of hanging.
 // Best-effort: logs errors but does not propagate them.
-func (h *Handler) publishCoordinatorError(crew, conversationID, errMsg string) {
+func (h *Handler) publishCoordinatorError(scope crewscope.Scope, conversationID, errMsg string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
 	threadID := "gateway-error-" + uuid.New().String()[:8]
-	subject := fmt.Sprintf("kubemoot.discuss.%s.%s", crew, threadID)
+	subject := scope.DiscussSubject(errorChannel, threadID)
 
 	// Publish thread_start so SSE consumer can find the thread by conversationId
 	threadStart, _ := json.Marshal(map[string]interface{}{
@@ -234,7 +255,7 @@ func (h *Handler) publishCoordinatorError(crew, conversationID, errMsg string) {
 	h.natsClient.Publish(ctx, subject, threadClose)
 
 	handlerLog.Info("Published coordinator error to NATS",
-		"crew", crew, "conversationId", conversationID, "threadId", threadID, "error", errMsg)
+		"namespace", scope.Namespace, "crew", scope.Crew, "conversationId", conversationID, "threadId", threadID, "error", errMsg)
 }
 
 func httpError(w http.ResponseWriter, code int, message string) {
