@@ -1407,6 +1407,7 @@ class ChatServiceToolLoopTest {
         when(ragClient.queryForContext(anyString())).thenReturn("");
         var memory = mock(ai.kubemoot.agent.memory.CrewMemoryClient.class);
         when(memory.recallForContext(anyString())).thenReturn("");
+        when(memory.persistFromResponse(anyString(), anyString())).thenAnswer(inv -> inv.getArgument(0));
 
         var service = new ChatService(chatModel, ragClient, mcpClient, discussionOrchestrator,
                 stubProperties(3, "tooler", false, false), heartbeatService, objectMapper,
