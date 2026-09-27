@@ -7,7 +7,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.time.Duration;
-import java.time.Instant;
 import java.util.Optional;
 import java.util.function.Supplier;
 
@@ -65,9 +64,10 @@ public class GpuCapacityWaiter {
             throw NoFitException.gpuBusy(model, "no GPU has room and the capacity watch is unavailable");
         }
         wait.wakeOnEnd(signal::nudge);
-        Instant deadline = Instant.now().plus(limit);
+        long deadline = System.nanoTime() + limit.toNanos();
         boolean announced = false;
-        while (true) {
+        boolean changed = true;
+        while (changed) {
             long seen = signal.version();
             Optional<T> result = attempt.get();
             if (result.isPresent()) {
@@ -82,8 +82,18 @@ public class GpuCapacityWaiter {
                 wait.onWaiting(model);
                 announced = true;
             }
-            blockUntilChange(model, seen, deadline);
+            changed = blockUntilChange(model, seen, deadline);
         }
+        return lastAttempt(model, attempt, wait);
+    }
+
+    /** One more try once the limit has passed without a change; gpu-busy when it still finds no room. */
+    private <T> T lastAttempt(String model, Supplier<Optional<T>> attempt, CapacityWait wait) {
+        Optional<T> result = attempt.get();
+        if (result.isPresent()) {
+            return finish(model, wait, true, result.get());
+        }
+        throw NoFitException.gpuBusy(model, "every GPU stayed busy for the " + limit.toSeconds() + "s wait limit");
     }
 
     private <T> T finish(String model, CapacityWait wait, boolean announced, T value) {
@@ -94,13 +104,17 @@ public class GpuCapacityWaiter {
         return value;
     }
 
-    private void blockUntilChange(String model, long seen, Instant deadline) {
-        Duration remaining = Duration.between(Instant.now(), deadline);
-        if (remaining.isNegative() || remaining.isZero()) {
-            throw NoFitException.gpuBusy(model, "every GPU stayed busy for the " + limit.toSeconds() + "s wait limit");
+    /**
+     * Blocks until capacity state changes or the deadline passes. Returns false when
+     * the deadline passed without a change; the signal's answer is the one clock.
+     */
+    private boolean blockUntilChange(String model, long seen, long deadline) {
+        long remainingNanos = deadline - System.nanoTime();
+        if (remainingNanos <= 0) {
+            return false;
         }
         try {
-            signal.awaitChange(seen, remaining);
+            return signal.awaitChange(seen, Duration.ofNanos(remainingNanos));
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw NoFitException.gpuBusy(model, "interrupted while waiting for a GPU");
