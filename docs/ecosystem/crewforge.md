@@ -27,7 +27,11 @@ in VS Code, **Extensions: Install from VSIX...**, or
    ready.
 2. Click a crew to open a chat beside the view. Type a question and press Enter.
 3. While a turn runs, each agent has a card: queued, analyzing (with the GPU it landed
-   on), then its finding or that it stood aside. The crew's answer follows, rendered as
+   on), then its finding or that it stood aside. When every GPU is busy, an agent's card
+   says it is waiting for a GPU with room for its model, and it carries on once one
+   frees up. An agent that could not get a GPU in time says so ("every GPU was busy"),
+   which is the cluster's capacity, not the crew's design; see
+   [Models and scheduling](../../concepts/models-and-scheduling/#when-every-gpu-is-busy). The crew's answer follows, rendered as
    Markdown. Ask again in the same panel and the crew keeps the conversation's context.
 
 CrewForge reads the kubeconfig from the `crewforge.kubeconfig` setting, else every file
