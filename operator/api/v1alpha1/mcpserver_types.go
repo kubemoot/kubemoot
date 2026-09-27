@@ -156,6 +156,12 @@ type MCPServerSpec struct {
 	// +optional
 	SecurityMode MCPSecurityMode `json:"securityMode,omitempty"`
 
+	// SecurityContext overrides fields of the MCP server container's security
+	// context, on top of what securityMode sets (for example readOnlyRootFilesystem).
+	// Fields left unset keep the securityMode values.
+	// +optional
+	SecurityContext *corev1.SecurityContext `json:"securityContext,omitempty"`
+
 	// ProxyInjection configures automatic mcp-proxy injection for stdio servers
 	// When transport is stdio, the operator injects an mcp-proxy sidecar that
 	// bridges HTTP/SSE ↔ stdio, allowing stdio-based MCP servers to work in Kubernetes

@@ -20,6 +20,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -266,6 +267,7 @@ func (r *MCPServerReconciler) buildDeployment(mcpServer *kubemootv1alpha1.MCPSer
 	container := buildMCPServerContainer(mcpServer, port)
 	strictSecurity := mcpServer.Spec.SecurityMode == kubemootv1alpha1.SecurityModeStrict
 	seccompProfile := applyMCPServerSecurityContext(&container, strictSecurity)
+	container.SecurityContext = overlaySecurityContext(container.SecurityContext, mcpServer.Spec.SecurityContext)
 
 	volumes, volumeMounts := buildMCPServerVolumes(mcpServer)
 	container.VolumeMounts = volumeMounts
@@ -510,6 +512,37 @@ func applyMCPServerSecurityContext(container *corev1.Container, strictSecurity b
 		}
 	}
 	return seccompProfile
+}
+
+// overlaySecurityContext returns base with every field override sets replaced by
+// override's value; fields override leaves unset keep base's value.
+func overlaySecurityContext(base, override *corev1.SecurityContext) *corev1.SecurityContext {
+	if override == nil {
+		return base
+	}
+	merged := map[string]json.RawMessage{}
+	for _, sc := range []*corev1.SecurityContext{base, override} {
+		raw, err := json.Marshal(sc)
+		if err != nil {
+			return base
+		}
+		fields := map[string]json.RawMessage{}
+		if err := json.Unmarshal(raw, &fields); err != nil {
+			return base
+		}
+		for k, v := range fields {
+			merged[k] = v
+		}
+	}
+	raw, err := json.Marshal(merged)
+	if err != nil {
+		return base
+	}
+	out := &corev1.SecurityContext{}
+	if err := json.Unmarshal(raw, out); err != nil {
+		return base
+	}
+	return out
 }
 
 // buildMCPServerVolumes creates secret and emptyDir volumes from MCPServer spec.

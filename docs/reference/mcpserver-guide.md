@@ -201,6 +201,7 @@ spec:
 | `args` | []string | | Arguments to the MCP server |
 | `transport` | enum | `http` | Transport protocol: `http`, `sse`, `stdio` |
 | `securityMode` | enum | `relaxed` | Pod security: `relaxed` or `strict` |
+| `securityContext` | SecurityContext | none | Fields that override the MCP server container's security context set by `securityMode`, for example `readOnlyRootFilesystem: true`; fields left out keep the mode's values |
 | `proxyInjection` | object | | Override mcp-bridge injection settings |
 | `port` | int32 | 3000 | Port the server listens on |
 | `replicas` | int32 | 2 | Number of pod replicas |
