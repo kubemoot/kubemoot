@@ -6,6 +6,7 @@ import io.nats.client.Connection;
 import io.nats.client.ObjectStore;
 import io.nats.client.ObjectStoreManagement;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 
 import java.util.HashMap;
 import java.util.List;
@@ -279,5 +280,107 @@ class DiscussionSubscriberHelpersTest {
                 @Override public Optional<String> endpoint() { return Optional.empty(); }
             }; }
         };
+    }
+
+    // --- GPU capacity: stand-aside reasons, waiting signal, thread-end wake ---
+
+    @Test
+    void noFit_gpuBusy_contentAndMetadataNameTheReasonAndModel() {
+        var nfe = ai.kubemoot.agent.provider.NoFitException.gpuBusy("qwen3:14b", "wait limit");
+        assertEquals("Could not get a GPU: every GPU that can hold qwen3:14b was busy",
+                DiscussionSubscriber.noFitContent(nfe));
+        var meta = DiscussionSubscriber.noFitMetadata(nfe);
+        assertEquals("gpu-busy", meta.get("reason"));
+        assertEquals("qwen3:14b", meta.get("model"));
+        assertEquals("wait limit", meta.get("predictorReason"));
+    }
+
+    @Test
+    void noFit_modelTooLarge_contentAndMetadataNameTheReasonAndModel() {
+        var nfe = ai.kubemoot.agent.provider.NoFitException.modelTooLarge("qwen3:235b", "too big");
+        assertEquals("No GPU in this cluster can hold the model qwen3:235b", DiscussionSubscriber.noFitContent(nfe));
+        assertEquals("model-too-large", DiscussionSubscriber.noFitMetadata(nfe).get("reason"));
+    }
+
+    @Test
+    void providerAttribution_carriesTheModelTheCallRanOn() {
+        var result = new ChatService.ChatResult("c", "answer", "qwen3:14b", null, 1, 1, "ollama-a", "warm");
+        var meta = DiscussionSubscriber.providerAttribution(result);
+        assertEquals("ollama-a", meta.get("provider"));
+        assertEquals("qwen3:14b", meta.get("model"));
+        assertEquals("warm", meta.get("pickReason"));
+        assertNull(DiscussionSubscriber.providerAttribution(
+                new ChatService.ChatResult("c", "answer", "qwen3:14b", null, 1, 1, "", "")),
+                "the static fallback has no JIT attribution");
+    }
+
+    @Test
+    void capacityWait_publishesWaitingWithModelAndReason() throws Exception {
+        var conn = mock(Connection.class);
+        var sub = createSubscriberWithConnection(conn);
+        var wait = sub.new ThreadCapacityWait("kubemoot.discuss.ns-a.nocrew.general.t1", "t1", "5090");
+
+        wait.onWaiting("qwen3:14b");
+
+        var payload = ArgumentCaptor.forClass(byte[].class);
+        verify(conn).publish(anyString(), payload.capture());
+        var msg = new com.fasterxml.jackson.databind.ObjectMapper().readTree(payload.getValue());
+        assertEquals("waiting", msg.path("messageType").asText());
+        assertEquals("qwen3:14b", msg.path("metadata").path("model").asText());
+        assertEquals("gpu-busy", msg.path("metadata").path("reason").asText());
+    }
+
+    @Test
+    void capacityWait_publishesEvaluatingWhenCapacityArrives() throws Exception {
+        var conn = mock(Connection.class);
+        var sub = createSubscriberWithConnection(conn);
+        var wait = sub.new ThreadCapacityWait("kubemoot.discuss.ns-a.nocrew.general.t1", "t1", "5090");
+
+        wait.onCapacity("qwen3:14b");
+
+        var payload = ArgumentCaptor.forClass(byte[].class);
+        verify(conn).publish(anyString(), payload.capture());
+        var msg = new com.fasterxml.jackson.databind.ObjectMapper().readTree(payload.getValue());
+        assertEquals("evaluating", msg.path("messageType").asText());
+        assertEquals("qwen3:14b", msg.path("metadata").path("model").asText());
+    }
+
+    @Test
+    void capacityWait_endsAndWakesWhenTheThreadSynthesizes() {
+        var sub = createSubscriber("test-agent");
+        var wait = sub.new ThreadCapacityWait("kubemoot.discuss.ns-a.nocrew.general.t1", "t1", "5090");
+        var woken = new java.util.concurrent.atomic.AtomicInteger();
+        wait.wakeOnEnd(woken::incrementAndGet);
+        assertFalse(wait.threadEnded());
+
+        sub.handleMessageForTest("kubemoot.discuss.ns-a.nocrew.general.t1", """
+                {"messageId": "m-1", "threadId": "t1", "agentName": "coordinator",
+                 "messageType": "synthesis", "content": "done"}""");
+
+        assertTrue(wait.threadEnded());
+        assertEquals(1, woken.get(), "the waiter is woken once when the thread ends");
+    }
+
+    @Test
+    void capacityWait_registeredAfterTheThreadEnded_wakesAtOnce() {
+        var sub = createSubscriber("test-agent");
+        sub.handleMessageForTest("kubemoot.discuss.ns-a.nocrew.general.t2", """
+                {"messageId": "m-2", "threadId": "t2", "agentName": "coordinator",
+                 "messageType": "thread_close", "content": ""}""");
+        var wait = sub.new ThreadCapacityWait("kubemoot.discuss.ns-a.nocrew.general.t2", "t2", "5090");
+        var woken = new java.util.concurrent.atomic.AtomicInteger();
+
+        wait.wakeOnEnd(woken::incrementAndGet);
+
+        assertEquals(1, woken.get());
+    }
+
+    private DiscussionSubscriber createSubscriberWithConnection(Connection conn) {
+        var natsProvider = mock(NatsConnectionProvider.class);
+        when(natsProvider.scope()).thenReturn(CrewScope.of("ns-a", null));
+        when(natsProvider.getConnection()).thenReturn(conn);
+        var metrics = new DiscussionMetrics(new io.micrometer.core.instrument.simple.SimpleMeterRegistry());
+        return new DiscussionSubscriber(natsProvider, mock(ChatService.class), metrics,
+                stubProperties("test-agent", "kubernetes", null, false), "http://localhost:11434");
     }
 }

@@ -54,4 +54,16 @@ class ChatModelPoolTest {
         assertSame(a, b, "identical params (incl. think) must reuse the cached model");
         assertEquals(1, pool.sizeForTest());
     }
+
+    @Test
+    void sameEndpointDifferentModel_buildsDistinctInstances() {
+        // A per-call candidate pick can send a different model to an endpoint the
+        // pool already serves; the cached model for the first must not be reused.
+        var pool = new ChatModelPool();
+        pool.clearForTest();
+        ChatModel big = pool.forEndpoint(EP, "qwen3:32b", 0.3, 4096, T, null);
+        ChatModel mid = pool.forEndpoint(EP, "qwen3:14b", 0.3, 4096, T, null);
+        assertNotSame(big, mid);
+        assertEquals(2, pool.sizeForTest());
+    }
 }

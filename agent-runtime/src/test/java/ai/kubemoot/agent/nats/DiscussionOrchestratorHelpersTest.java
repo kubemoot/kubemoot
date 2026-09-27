@@ -471,4 +471,100 @@ class DiscussionOrchestratorHelpersTest {
             }; }
         };
     }
+
+    // --- GPU capacity: waiting and stand-aside reasons reach the answer ---
+
+    private static com.fasterxml.jackson.databind.JsonNode signal(String reason, String model) {
+        var mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+        var msg = mapper.createObjectNode();
+        var meta = msg.putObject("metadata");
+        if (reason != null) meta.put("reason", reason);
+        if (model != null) meta.put("model", model);
+        return msg;
+    }
+
+    @Test
+    void gpuBusyStandAside_withNoContribution_answersWithTheCapacityMessage() {
+        var state = new DiscussionOrchestrator.ThreadState("t1");
+        orchestrator.handleAgentSignal(state, "rules-keeper", "stand_aside", "", signal("gpu-busy", "qwen3:14b"));
+
+        assertEquals(DiscussionOrchestrator.GPU_BUSY_MESSAGE, DiscussionOrchestrator.capacityMessage(state));
+        String fallback = orchestrator.buildFallbackResponse(state);
+        assertTrue(fallback.startsWith("The crew's agents could not get a GPU"));
+        assertTrue(fallback.contains("not the crew's design"));
+        assertFalse(fallback.contains("No agent contributed"));
+    }
+
+    @Test
+    void modelTooLargeStandAside_namesTheModel() {
+        var state = new DiscussionOrchestrator.ThreadState("t1");
+        orchestrator.handleAgentSignal(state, "big-agent", "stand_aside", "", signal("model-too-large", "qwen3:235b"));
+
+        assertEquals("No GPU in this cluster can hold the model qwen3:235b the agents need; "
+                + "add a smaller Model or a larger GPU.", DiscussionOrchestrator.capacityMessage(state));
+    }
+
+    @Test
+    void bothReasons_reportBoth_tooLargeFirst() {
+        var state = new DiscussionOrchestrator.ThreadState("t1");
+        orchestrator.handleAgentSignal(state, "a", "stand_aside", "", signal("model-too-large", "qwen3:235b"));
+        orchestrator.handleAgentSignal(state, "b", "stand_aside", "", signal("gpu-busy", "qwen3:14b"));
+
+        String msg = DiscussionOrchestrator.capacityMessage(state);
+        assertTrue(msg.startsWith("No GPU in this cluster can hold the model qwen3:235b"));
+        assertTrue(msg.endsWith(DiscussionOrchestrator.GPU_BUSY_MESSAGE));
+    }
+
+    @Test
+    void agentStillWaitingAtSettle_countsAsGpuBusy() {
+        var state = new DiscussionOrchestrator.ThreadState("t1");
+        orchestrator.handleAgentSignal(state, "rules-keeper", "waiting", "", signal("gpu-busy", "qwen3:14b"));
+
+        assertEquals("qwen3:14b", state.waitingAgents.get("rules-keeper"));
+        assertEquals(DiscussionOrchestrator.GPU_BUSY_MESSAGE, DiscussionOrchestrator.capacityMessage(state));
+    }
+
+    @Test
+    void waitingAgentThatThenAnswers_isNoLongerWaiting_andTheAnswerWins() {
+        var state = new DiscussionOrchestrator.ThreadState("t1");
+        orchestrator.handleAgentSignal(state, "rules-keeper", "waiting", "", signal("gpu-busy", "qwen3:14b"));
+        orchestrator.handleAgentSignal(state, "rules-keeper", "agree", "Rule 7 applies", signal(null, null));
+
+        assertTrue(state.waitingAgents.isEmpty());
+        assertNull(DiscussionOrchestrator.capacityMessage(state));
+        assertTrue(orchestrator.buildFallbackResponse(state).contains("Rule 7 applies"));
+    }
+
+    @Test
+    void ordinaryStandAside_keepsTheExistingNoContributionText() {
+        var state = new DiscussionOrchestrator.ThreadState("t1");
+        orchestrator.handleAgentSignal(state, "k8s-agent", "stand_aside", "", signal(null, null));
+        orchestrator.handleAgentSignal(state, "helm-agent", "stand_aside", "", signal("no-fit", null));
+
+        assertNull(DiscussionOrchestrator.capacityMessage(state));
+        assertTrue(state.capacityStandAsides.isEmpty());
+        assertTrue(orchestrator.buildFallbackResponse(state).startsWith("No agent contributed an answer"));
+    }
+
+    @Test
+    void capacityReasonWithAContribution_doesNotReplaceTheAnswer() {
+        var state = new DiscussionOrchestrator.ThreadState("t1");
+        orchestrator.handleAgentSignal(state, "a", "stand_aside", "", signal("gpu-busy", "qwen3:14b"));
+        orchestrator.handleAgentSignal(state, "b", "concern", "TOOL_GAP: need a GPU metrics tool", signal(null, null));
+
+        assertNull(DiscussionOrchestrator.capacityMessage(state), "a concern is a contribution");
+    }
+
+    @Test
+    void recordCapacityReason_toleratesMissingMetadata() {
+        var state = new DiscussionOrchestrator.ThreadState("t1");
+        DiscussionOrchestrator.recordCapacityReason(state, "a", null);
+        DiscussionOrchestrator.recordCapacityReason(state, "b", new com.fasterxml.jackson.databind.ObjectMapper().createObjectNode());
+        DiscussionOrchestrator.recordCapacityReason(state, "c", signal("model-too-large", null));
+
+        assertEquals(java.util.Map.of("c", "model-too-large"), java.util.Map.copyOf(state.capacityStandAsides));
+        assertTrue(state.tooLargeModels.isEmpty());
+        assertEquals("No GPU in this cluster can hold the model the agents need; add a smaller Model or a larger GPU.",
+                DiscussionOrchestrator.capacityMessage(state));
+    }
 }

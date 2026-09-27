@@ -1049,4 +1049,42 @@ class ProviderSelectorTest {
         assertEquals(1, ranked5090.size(), "5090 must be admitted for 32B via inflated on-disk footprint");
         assertEquals("ollama-gpu", ranked5090.get(0).provider().name());
     }
+
+    // --- capacity classification: busy (wait) versus too large (never fits) ---
+
+    @Test
+    void canEverHold_trueWhenSomeCardIsBigEnoughEvenIfFullNow() {
+        // 24 GiB card fully occupied by another model: busy, not too small.
+        var busy = v2State("ollama-a", "http://a", true, 24_576, java.util.Map.of("qwen3:32b", 21_000L));
+        assertTrue(ProviderSelector.canEverHold(List.of(busy), 12_224));
+    }
+
+    @Test
+    void canEverHold_falseWhenEveryKnownCardIsTooSmall() {
+        var small = v2State("ollama-a", "http://a", true, 16_384, java.util.Map.of());
+        var smaller = v2State("ollama-b", "http://b", true, 12_288, java.util.Map.of());
+        assertFalse(ProviderSelector.canEverHold(List.of(small, smaller), 40_000));
+    }
+
+    @Test
+    void canEverHold_unknownVramNeverProvesTooLarge() {
+        var unknown = v2State("ollama-a", "http://a", true, 0, java.util.Map.of());
+        assertTrue(ProviderSelector.canEverHold(List.of(unknown), 40_000));
+        assertTrue(ProviderSelector.canEverHold(List.of(), 40_000));
+        assertTrue(ProviderSelector.canEverHold(null, 40_000));
+        var small = v2State("ollama-b", "http://b", true, 16_384, java.util.Map.of());
+        assertFalse(ProviderSelector.canEverHold(List.of(unknown, small), 40_000),
+                "one known too-small card and one unknown: the known card decides");
+    }
+
+    @Test
+    void warmWithFreeSlot_requiresWarmAndAFreeSlot() {
+        var p = v2StateWithSlots("ollama-a", "http://a", 2, 32_768, java.util.Map.of("qwen3:14b", 10_000L));
+        var yes = FitScore.yes(0L, "warm");
+        assertTrue(ProviderSelector.warmWithFreeSlot(new ProviderSelector.Candidate(p, true, 1, 0.0, yes)));
+        assertFalse(ProviderSelector.warmWithFreeSlot(new ProviderSelector.Candidate(p, true, 2, 0.0, yes)),
+                "both slots busy: warm but no room");
+        assertFalse(ProviderSelector.warmWithFreeSlot(new ProviderSelector.Candidate(p, false, 0, 0.0, yes)),
+                "cold: a claim here would load the model");
+    }
 }

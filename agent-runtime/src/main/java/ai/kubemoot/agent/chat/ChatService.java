@@ -80,6 +80,14 @@ public class ChatService {
     private final OllamaDirectProber directProber;
     /** v2 JIT-scheduling: atomic VRAM-footprint claim/release per call. See docs/scheduler.md. */
     private final ai.kubemoot.agent.provider.TicketManager ticketManager;
+    /**
+     * Waits for GPU capacity when every GPU that could hold the model is busy.
+     * Null in unit tests that do not exercise waiting: a busy cluster then stands
+     * aside at once with reason gpu-busy.
+     */
+    private final ai.kubemoot.agent.provider.GpuCapacityWaiter capacityWaiter;
+    /** Other models a mulling call may use when one is warm with room. Null: bound model only. */
+    private final ai.kubemoot.agent.provider.CandidatePolicy candidatePolicy;
 
     /**
      * Crew working memory. Recalled facts are auto-injected into the system
@@ -107,6 +115,7 @@ public class ChatService {
     private volatile boolean loadDurationProbed = false;
 
     @Inject
+    @SuppressWarnings("java:S107") // CDI constructor: one parameter per collaborator
     public ChatService(
             ChatModel chatModel,
             RagClient ragClient,
@@ -119,7 +128,9 @@ public class ChatService {
             ChatModelPool chatModelPool,
             ai.kubemoot.agent.memory.CrewMemoryClient crewMemory,
             ai.kubemoot.agent.provider.TicketManager ticketManager,
-            OllamaDirectProber directProber
+            OllamaDirectProber directProber,
+            ai.kubemoot.agent.provider.GpuCapacityWaiter capacityWaiter,
+            ai.kubemoot.agent.provider.CandidatePolicy candidatePolicy
     ) {
         this.chatModel = chatModel;
         this.ragClient = ragClient;
@@ -132,6 +143,8 @@ public class ChatService {
         this.crewMemory = crewMemory;
         this.ticketManager = ticketManager;
         this.directProber = directProber;
+        this.capacityWaiter = capacityWaiter;
+        this.candidatePolicy = candidatePolicy;
 
         // Triage model: use dedicated endpoint/model if configured, else fall back to primary
         var triage = properties.triageModel();
@@ -197,8 +210,18 @@ public class ChatService {
      * a downstream board participant will consume it.
      */
     public ChatResult directChat(ChatRequest request, boolean skipRag) {
+        return directChat(request, skipRag, ai.kubemoot.agent.provider.CapacityWait.NONE);
+    }
+
+    /**
+     * The discussion contribution path with a capacity wait: when every GPU that
+     * could hold the model is busy, the call waits for capacity (announcing it
+     * through {@code wait}) instead of standing aside at once.
+     */
+    public ChatResult directChat(ChatRequest request, boolean skipRag,
+                                 ai.kubemoot.agent.provider.CapacityWait wait) {
         boolean toolerRawOutput = "tooler".equals(properties.discuss().role());
-        return directLlmCall(request, skipRag, toolerRawOutput);
+        return directLlmCall(request, skipRag, toolerRawOutput, wait);
     }
 
     private ChatResult directAnswer(ChatRequest request, String threadId) {
@@ -211,6 +234,11 @@ public class ChatService {
     }
 
     private ChatResult directLlmCall(ChatRequest request, boolean skipRag, boolean toolerRawOutput) {
+        return directLlmCall(request, skipRag, toolerRawOutput, ai.kubemoot.agent.provider.CapacityWait.NONE);
+    }
+
+    private ChatResult directLlmCall(ChatRequest request, boolean skipRag, boolean toolerRawOutput,
+                                     ai.kubemoot.agent.provider.CapacityWait wait) {
         var conversation = conversations.computeIfAbsent(request.conversationId(), Conversation::new);
 
         // Query RAG for context (skip in discussion path where thread provides context)
@@ -241,7 +269,7 @@ public class ChatService {
         // KV pressure. Crude chars/4 with a safety pad; tighter accuracy
         // via real tokenizer comes in Phase D2 (operator /api/show probe).
         int promptCharCount = estimatePromptCharCount(messages);
-        MullingPick pick = pickMullingChatModel(promptCharCount);
+        MullingPick pick = pickMullingChatModel(promptCharCount, wait);
         String providerName = pick.providerName();
         // Outbound wire trace: the exact model + endpoint this call will send to
         // Ollama. Pair with OLLAMA_DEBUG on the provider to confirm the wire model
@@ -279,7 +307,7 @@ public class ChatService {
                 : loopResult.text();
 
         conversation.addMessage(new AiMessage(text));
-        return new ChatResult(request.conversationId(), text, properties.model().model(), null,
+        return new ChatResult(request.conversationId(), text, pick.modelName(), null,
                 loopResult.inputTokens(), loopResult.outputTokens(),
                 loopResult.providerName(), loopResult.pickReason());
     }
@@ -1076,67 +1104,133 @@ public class ChatService {
     }
 
     /**
-     * Pick the ChatModel to use for THIS mulling call via JIT provider
-     * selection. v2 (VRAM-headroom + ticket claim): asks
-     * {@link #providerSelector#pickAndClaim} for the provider with the
-     * most live free headroom and atomically claims a footprint ticket.
-     * Falls back to the static Quarkus-injected {@link #chatModel} when:
-     * <ul>
-     *   <li>selector/pool not injected (unit tests pass null)</li>
-     *   <li>model footprint unknown — no provider has loaded this model
-     *       yet so the operator hasn't published its size. v1 behavior
-     *       (static endpoint) until the first load makes it observable.</li>
-     *   <li>{@code pickAndClaim} returns empty — no candidate has enough
-     *       headroom, or every claim lost the race to a concurrent claim.</li>
-     * </ul>
+     * Pick the ChatModel for THIS mulling call via JIT provider selection and
+     * claim a VRAM ticket on the chosen provider. Falls back to the static
+     * Quarkus-injected {@link #chatModel} when the scheduler cannot be consulted
+     * (selector/pool/ticket manager unwired, or the model footprint is unknown).
      *
-     * This is the JIT decision boundary. Each mulling call picks AND
-     * claims independently. Concurrent toolers in the same discussion
-     * naturally spread across providers — emergent bin-packing — because
-     * the second caller sees the first's ticket in the headroom calc.
+     * <p>Model choice per call: the bound model when it is warm with a free slot;
+     * otherwise a candidate model within the quality tolerance that is warm with a
+     * free slot (no load, no eviction); otherwise the bound model's normal cost
+     * ranking (queue at a warm copy, cold-load onto free room). See
+     * {@link #placeCall}.</p>
      *
-     * Ticket release is the caller's responsibility (try/finally around
-     * the call). See {@code TicketManager} javadoc for the two-layer
-     * release guarantee.
+     * <p>When nothing has room: a model no GPU can ever hold stands aside with
+     * reason model-too-large; a busy cluster waits for capacity through
+     * {@code wait} and stands aside with reason gpu-busy only when the thread ends
+     * or the wait's safety limit passes.</p>
+     *
+     * <p>Ticket release is the caller's responsibility (try/finally around the
+     * call). See {@code TicketManager} for the two-layer release guarantee.</p>
      */
     private MullingPick pickMullingChatModel(int promptCharCount) {
+        return pickMullingChatModel(promptCharCount, ai.kubemoot.agent.provider.CapacityWait.NONE);
+    }
+
+    private MullingPick pickMullingChatModel(int promptCharCount, ai.kubemoot.agent.provider.CapacityWait wait) {
         var staticModel = properties.model().model();
         var staticEndpoint = properties.model().endpoint();
-        var modelName = properties.model().model();
 
         // Static-fallback guards (selector/pool unwired, ticket manager unwired,
         // or footprint unknown/unestimable). Resolution order for the footprint
         // is documented on resolveOccupancyMiB; zero means we cannot gate it.
         var states = (providerSelector != null) ? providerSelector.readState() : null;
-        long coldLoadFootprintMiB = (states != null) ? resolveOccupancyMiB(states, modelName) : 0L;
-        var fallback = staticFallbackPick(staticModel, staticEndpoint, modelName, coldLoadFootprintMiB);
+        long coldLoadFootprintMiB = (states != null) ? resolveOccupancyMiB(states, staticModel) : 0L;
+        var fallback = staticFallbackPick(staticModel, staticEndpoint, staticModel, coldLoadFootprintMiB);
         if (fallback.isPresent()) {
             return fallback.get();
         }
-
-        // Phase D: estimate this call's KV-cache need so the predictor's gate
-        // factors in real in-flight context-size pressure. Conservative
-        // (overestimate) so we fail-safe rather than OOM Ollama.
-        long promptTokens = ai.kubemoot.agent.provider.KvCacheEstimator
-                .estimateTokensFromChars(promptCharCount);
-        long thisCallKvCacheMiB = ai.kubemoot.agent.provider.KvCacheEstimator
-                .estimateMiB(modelName, promptTokens, properties.model().maxTokens());
-
-        // Invariant: a null providerSelector forces staticFallbackPick to return
-        // present above (it guards providerSelector == null), so we never reach
-        // here with a null selector. The explicit guard makes that local and
-        // proves the deref is safe rather than relying on the cross-method check.
+        // staticFallbackPick returns present whenever providerSelector is null;
+        // the explicit guard keeps the dereferences below locally provable.
         if (providerSelector == null) {
             return new MullingPick(chatModel, "", java.util.Optional.empty(),
                     STATIC_FALLBACK, staticModel, staticEndpoint, 0L);
         }
-        var pick = providerSelector.pickAndClaim(modelName, coldLoadFootprintMiB,
-                thisCallKvCacheMiB);
-        if (pick.isEmpty()) {
-            return degradedMullingPick(states, modelName, staticModel, staticEndpoint,
-                    coldLoadFootprintMiB, thisCallKvCacheMiB);
+        var placed = placeCall(states, promptCharCount);
+        if (placed.isPresent()) {
+            return placed.get();
         }
-        return buildScheduledMullingPick(pick.get(), modelName, coldLoadFootprintMiB);
+        return waitForCapacity(staticModel, coldLoadFootprintMiB, promptCharCount, wait);
+    }
+
+    /**
+     * Nothing has room for the bound model now. Stand aside with reason
+     * model-too-large when no known GPU can ever hold it; otherwise wait for a
+     * capacity change and retry {@link #placeCall} on each one.
+     */
+    private MullingPick waitForCapacity(String model, long footprintMiB, int promptCharCount,
+                                        ai.kubemoot.agent.provider.CapacityWait wait) {
+        if (!ProviderSelector.canEverHold(providerSelector.readState(), footprintMiB)) {
+            log.info("No GPU can hold {} (coldLoad {}MiB) - stand-aside", model, footprintMiB);
+            throw ai.kubemoot.agent.provider.NoFitException.modelTooLarge(model,
+                    "model=" + model + " coldLoad=" + footprintMiB + "MiB exceeds every GPU's usable VRAM");
+        }
+        String busy = "model=" + model + " coldLoad=" + footprintMiB + "MiB: every GPU that can hold it is busy";
+        if (capacityWaiter == null) {
+            throw ai.kubemoot.agent.provider.NoFitException.gpuBusy(model, busy);
+        }
+        return capacityWaiter.await(model, () -> {
+            providerSelector.invalidateCache();
+            return placeCall(providerSelector.readState(), promptCharCount);
+        }, wait);
+    }
+
+    /**
+     * One placement attempt against the given provider state. Empty when no
+     * provider has room right now.
+     * <ol>
+     *   <li>The bound model, warm with a free slot.</li>
+     *   <li>A candidate within the quality tolerance, warm with a free slot,
+     *       highest score first: preferred over cold-loading the bound model.</li>
+     *   <li>The bound model under the normal cost ranking.</li>
+     * </ol>
+     * With no provider state (NATS degraded), the direct-probe path decides.
+     */
+    private java.util.Optional<MullingPick> placeCall(java.util.List<ProviderState> states, int promptCharCount) {
+        String preferred = properties.model().model();
+        if (states.isEmpty()) {
+            return degradedMullingPick(preferred, properties.model().endpoint(),
+                    resolveOccupancyMiB(states, preferred));
+        }
+        var warm = claimFor(states, preferred, resolveOccupancyMiB(states, preferred), promptCharCount, true);
+        if (warm.isPresent()) {
+            return warm;
+        }
+        for (String alternative : mullingAlternatives(preferred)) {
+            var alt = claimFor(states, alternative, observedFootprintMiB(states, alternative), promptCharCount, true);
+            if (alt.isPresent()) {
+                log.info("Using warm candidate {} instead of loading {}", alternative, preferred);
+                return alt;
+            }
+        }
+        return claimFor(states, preferred, resolveOccupancyMiB(states, preferred), promptCharCount, false);
+    }
+
+    private java.util.List<String> mullingAlternatives(String preferred) {
+        return candidatePolicy == null ? java.util.List.of() : candidatePolicy.mullingAlternatives(preferred);
+    }
+
+    /** A model's KV-published footprint; zero when no provider reports it. */
+    private static long observedFootprintMiB(java.util.List<ProviderState> states, String model) {
+        return states.stream().mapToLong(p -> p.coldLoadFootprintMiB(model)).max().orElse(0L);
+    }
+
+    /** Claim a provider for {@code model}; warmOnly restricts to warm providers with a free slot. */
+    private java.util.Optional<MullingPick> claimFor(java.util.List<ProviderState> states, String model,
+                                                     long footprintMiB, int promptCharCount, boolean warmOnly) {
+        if (footprintMiB <= 0 || states.isEmpty()) {
+            return java.util.Optional.empty();
+        }
+        // Phase D: this call's KV-cache need, so the predictor's gate factors in
+        // in-flight context-size pressure. Conservative (overestimate) so the
+        // gate fails safe rather than OOMing Ollama.
+        long promptTokens = ai.kubemoot.agent.provider.KvCacheEstimator.estimateTokensFromChars(promptCharCount);
+        long kvMiB = ai.kubemoot.agent.provider.KvCacheEstimator.estimateMiB(
+                model, promptTokens, properties.model().maxTokens());
+        var pick = warmOnly
+                ? providerSelector.pickAndClaimWarm(model, footprintMiB, kvMiB)
+                : providerSelector.pickAndClaim(model, footprintMiB, kvMiB);
+        return pick.map(p -> buildScheduledMullingPick(p, model, footprintMiB));
     }
 
     /**
@@ -1170,65 +1264,39 @@ public class ChatService {
     }
 
     /**
-     * Resolve a MullingPick when {@code pickAndClaim} returned empty. Two cases:
-     * <ul>
-     *   <li>NATS healthy (states non-empty): the FitPredictor authoritatively
-     *       refused all candidates - throw NoFitException so the caller stands
-     *       aside rather than re-entering the failure mode the gate just refused
-     *       (Phase E).</li>
-     *   <li>NATS degraded (states empty): self-probe each endpoint for one that
-     *       passes the VRAM fit gate; use it if found, else refuse (NoFit) so an
-     *       oversized model never spills to CPU. With no directProber, last-resort
-     *       static endpoint. See [[JIT Fit-Gate Degraded Mode Can Spill]].</li>
-     * </ul>
+     * Placement with no provider state in NATS (degraded window). The direct
+     * prober checks each endpoint for one that passes the VRAM fit gate; it is
+     * used when found. Empty when none fits: without provider VRAM data the
+     * runtime cannot tell a busy cluster from a model that never fits, so the
+     * caller treats it as busy and waits for provider state to return. With no
+     * prober, the static endpoint is the last resort. See [[JIT Fit-Gate Degraded
+     * Mode Can Spill]].
      */
-    private MullingPick degradedMullingPick(java.util.List<ProviderState> states,
-                                            String modelName, String staticModel,
-                                            String staticEndpoint, long coldLoadFootprintMiB,
-                                            long thisCallKvCacheMiB) {
-        if (!states.isEmpty()) {
-            log.info("FitPredictor refused all candidates for {} (coldLoad {} MiB, this-call KV {} MiB) — stand-aside",
-                    modelName, coldLoadFootprintMiB, thisCallKvCacheMiB);
-            throw new ai.kubemoot.agent.provider.NoFitException(
-                    "model=" + modelName +
-                    " coldLoad=" + coldLoadFootprintMiB + "MiB" +
-                    " thisCallKv=" + thisCallKvCacheMiB + "MiB" +
-                    " (no candidate passed warm-slot or cold-VRAM gate)");
+    private java.util.Optional<MullingPick> degradedMullingPick(String modelName, String staticEndpoint,
+                                                                long coldLoadFootprintMiB) {
+        if (directProber == null) {
+            log.debug("No NATS provider state and no directProber - last-resort static endpoint");
+            return java.util.Optional.of(new MullingPick(chatModel, "", java.util.Optional.empty(),
+                    STATIC_FALLBACK + " (nats degraded)", modelName, staticEndpoint, 0L));
         }
-        // NATS-degraded fallback: we have a footprint estimate but no provider
-        // state to gate against. Gate the static endpoint via a direct probe so a
-        // non-fitting provider (e.g. 32B on a 4090-usable=21616 MiB) is refused
-        // rather than causing a CPU spill. directProber.pickFittingEndpoint probes
-        // /api/ps and /api/tags on each known endpoint; when states is empty it
-        // probes staticEndpoint directly. See [[JIT Fit-Gate Degraded Mode Can
-        // Spill]] and [[Cold Fit Gate Ignores Resident Models]].
-        if (directProber != null) {
-            String fittingEndpoint = directProber.pickFittingEndpoint(
-                    states, staticEndpoint, modelName, coldLoadFootprintMiB);
-            if (fittingEndpoint != null) {
-                log.info("NATS-degraded fit pick: endpoint={} model={} coldLoad={}MiB (direct probe)",
-                        fittingEndpoint, modelName, coldLoadFootprintMiB);
-                ChatModel degradedModel = chatModelPool.forEndpoint(
-                        fittingEndpoint,
-                        staticModel,
-                        properties.model().temperature(),
-                        properties.model().maxTokens(),
-                        java.time.Duration.ofMinutes(5),
-                        properties.model().think().orElse(null));
-                return new MullingPick(degradedModel, "", java.util.Optional.empty(),
-                        STATIC_FALLBACK + " (nats degraded, fit-gated)", staticModel, fittingEndpoint, coldLoadFootprintMiB);
-            }
-            // directProber found no fitting endpoint - refuse rather than spill.
-            log.info("NATS-degraded: directProber found no fitting endpoint for {} (coldLoad {}MiB) — stand-aside",
+        String fittingEndpoint = directProber.pickFittingEndpoint(
+                java.util.List.of(), staticEndpoint, modelName, coldLoadFootprintMiB);
+        if (fittingEndpoint == null) {
+            log.info("NATS-degraded: directProber found no fitting endpoint for {} (coldLoad {}MiB) - waiting for capacity",
                     modelName, coldLoadFootprintMiB);
-            throw new ai.kubemoot.agent.provider.NoFitException(
-                    "model=" + modelName +
-                    " coldLoad=" + coldLoadFootprintMiB + "MiB" +
-                    " (NATS degraded, directProbe found no fitting endpoint)");
+            return java.util.Optional.empty();
         }
-        log.debug("pickAndClaim returned empty AND NATS state empty AND no directProber — last-resort static endpoint");
-        return new MullingPick(chatModel, "", java.util.Optional.empty(),
-                STATIC_FALLBACK + " (nats degraded)", staticModel, staticEndpoint, 0L);
+        log.info("NATS-degraded fit pick: endpoint={} model={} coldLoad={}MiB (direct probe)",
+                fittingEndpoint, modelName, coldLoadFootprintMiB);
+        ChatModel degradedModel = chatModelPool.forEndpoint(
+                fittingEndpoint,
+                modelName,
+                properties.model().temperature(),
+                properties.model().maxTokens(),
+                java.time.Duration.ofMinutes(5),
+                properties.model().think().orElse(null));
+        return java.util.Optional.of(new MullingPick(degradedModel, "", java.util.Optional.empty(),
+                STATIC_FALLBACK + " (nats degraded, fit-gated)", modelName, fittingEndpoint, coldLoadFootprintMiB));
     }
 
     /** Build the MullingPick for a provider the scheduler chose and a ticket it claimed. */
@@ -1377,7 +1445,7 @@ public class ChatService {
             }
             // FitPredictor v2 learning: feed the per-(provider, model) EMA so the
             // selector's ranking weighs historical reliability.
-            providerSelector.recordOutcome(providerName, properties.model().model(),
+            providerSelector.recordOutcome(providerName, pick.modelName(),
                     callDurationMs, !callFailed);
             // Residency overlay (anti-thrash): on success the model just ran on
             // this provider, so it is resident now. Record it immediately so other

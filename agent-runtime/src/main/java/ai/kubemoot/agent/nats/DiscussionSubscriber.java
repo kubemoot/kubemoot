@@ -51,6 +51,9 @@ public class DiscussionSubscriber {
     private static final String NOTHING_TO_ADD = "NOTHING_TO_ADD";
     private static final String SIGNAL_AGREE = "agree";
     private static final String SIGNAL_STAND_ASIDE = "stand_aside";
+    /** Published once when an agent starts waiting for GPU capacity. */
+    private static final String SIGNAL_WAITING = "waiting";
+    private static final String SIGNAL_EVALUATING = "evaluating";
     /**
      * First-class consensus signal for "agent tried to evaluate but couldn't
      * complete due to infrastructure failure" (MCP tool timeout, model OOM,
@@ -151,6 +154,8 @@ public class DiscussionSubscriber {
     private final ConcurrentHashMap<String, List<String>> threadSelectedSkills = new ConcurrentHashMap<>();
     private final Set<String> processedMessages = ConcurrentHashMap.newKeySet();
     private final Set<String> closedThreads = ConcurrentHashMap.newKeySet();
+    /** Wake-ups for agents waiting for GPU capacity, run when their thread ends. */
+    private final ConcurrentHashMap<String, List<Runnable>> threadEndWakers = new ConcurrentHashMap<>();
     // Ensure the artifact Object Store bucket once per process (idempotent create).
     private volatile boolean artifactBucketEnsured = false;
 
@@ -441,6 +446,7 @@ public class DiscussionSubscriber {
     private void trackThreadState(String threadId, String agentName, String messageType, String content) {
         if ("synthesis".equals(messageType) || "thread_close".equals(messageType)) {
             closedThreads.add(threadId);
+            wakeThreadEnd(threadId);
         }
         if (MSG_REPLY.equals(messageType) && "human".equals(agentName)) {
             closedThreads.remove(threadId);
@@ -647,7 +653,7 @@ public class DiscussionSubscriber {
         // the full tool-calling evaluation on the primary GPU.
         String mullingGpuLabel = GpuLabels.fromEndpoint(ollamaBaseUrl);
 
-        publishSignal(subject, threadId, "evaluating", "Running tool-calling evaluation",
+        publishSignal(subject, threadId, SIGNAL_EVALUATING, "Running tool-calling evaluation",
                 triageMs, triageStartMs, 0, 0, mullingGpuLabel);
         log.info("Agent {} passed triage ({}ms), running full evaluation for thread {} (gpu={})",
                 properties.agentName(), triageMs, threadId, mullingGpuLabel);
@@ -657,7 +663,8 @@ public class DiscussionSubscriber {
         long mullingStartMs = System.currentTimeMillis();
         ChatService.ChatResult result;
         try {
-            result = runMullingInference(conversation, threadId);
+            result = runMullingInference(conversation, threadId,
+                    new ThreadCapacityWait(subject, threadId, mullingGpuLabel));
         } catch (ToolCallFailure tcf) {
             handleToolCallFailure(subject, threadId, tcf, triageMs, triageStartMs, mullingStartMs, mullingGpuLabel);
             return;
@@ -696,30 +703,89 @@ public class DiscussionSubscriber {
     }
 
     /**
-     * Phase E: FitPredictor authoritatively refused every candidate
-     * provider AND NATS is healthy (so the empty selection is real,
-     * not an infrastructure outage). The agent IS willing to
-     * participate (relevance passed triage) but cannot serve this
-     * call right now — every provider is over-VRAM or saturated.
-     * Publish stand_aside with reason="no-fit" so the coordinator
-     * settles fast WITHOUT the agent attempting the call against a
-     * static endpoint the predictor just refused — which would
-     * re-enter the exact failure mode Phase D's gate prevented.
-     * Distinct from a triage-time stand-aside (low relevance) and
-     * distinct from a failure (something broke); the dashboard
-     * reads metadata.reason to render this differently.
+     * No GPU could run this call. Publish stand_aside carrying
+     * {@code metadata.reason} ({@code gpu-busy}: every GPU that could hold the
+     * model stayed busy until the thread ended or the capacity wait reached its
+     * safety limit; {@code model-too-large}: no GPU can ever hold it) and
+     * {@code metadata.model}, so the coordinator and the dashboard can say the
+     * cluster, not the crew design, kept this agent out. Distinct from a
+     * triage-time stand-aside (nothing to add) and from a failure (something
+     * broke during the call).
      */
     private void handleNoFit(String subject, String threadId, ai.kubemoot.agent.provider.NoFitException nfe,
                              long triageMs, long triageStartMs, long mullingStartMs, String mullingGpuLabel) {
         long mullingMs = System.currentTimeMillis() - mullingStartMs;
         long totalMs = triageMs + mullingMs;
-        log.info("Agent {} stand-aside (no-fit) on thread {}: {}",
-                properties.agentName(), threadId, nfe.predictorReason());
-        publishSignal(subject, threadId, SIGNAL_STAND_ASIDE,
-                "no provider currently fits this call",
-                totalMs, triageStartMs, 0, 0, mullingGpuLabel,
-                Map.of("reason", "no-fit",
-                       "predictorReason", nfe.predictorReason() == null ? "" : nfe.predictorReason()));
+        log.info("Agent {} stand-aside ({}) on thread {}: {}",
+                properties.agentName(), nfe.reason(), threadId, nfe.predictorReason());
+        publishSignal(subject, threadId, SIGNAL_STAND_ASIDE, noFitContent(nfe),
+                totalMs, triageStartMs, 0, 0, mullingGpuLabel, noFitMetadata(nfe));
+    }
+
+    // Visible for testing
+    static String noFitContent(ai.kubemoot.agent.provider.NoFitException nfe) {
+        if (ai.kubemoot.agent.provider.NoFitException.REASON_MODEL_TOO_LARGE.equals(nfe.reason())) {
+            return "No GPU in this cluster can hold the model " + nfe.model();
+        }
+        return "Could not get a GPU: every GPU that can hold " + nfe.model() + " was busy";
+    }
+
+    // Visible for testing
+    static Map<String, Object> noFitMetadata(ai.kubemoot.agent.provider.NoFitException nfe) {
+        return Map.of("reason", nfe.reason(),
+                "model", nfe.model(),
+                "predictorReason", nfe.predictorReason() == null ? "" : nfe.predictorReason());
+    }
+
+    /** Runs and forgets every capacity-wait wake-up registered for the thread. */
+    private void wakeThreadEnd(String threadId) {
+        List<Runnable> wakers = threadEndWakers.remove(threadId);
+        if (wakers != null) {
+            wakers.forEach(Runnable::run);
+        }
+    }
+
+    /**
+     * The subscriber's side of a GPU capacity wait for one thread: the wait ends
+     * with the thread, {@code waiting} is published when it starts, and
+     * {@code evaluating} is published again when capacity arrives.
+     */
+    final class ThreadCapacityWait implements ai.kubemoot.agent.provider.CapacityWait {
+        private final String subject;
+        private final String threadId;
+        private final String gpuLabel;
+
+        ThreadCapacityWait(String subject, String threadId, String gpuLabel) {
+            this.subject = subject;
+            this.threadId = threadId;
+            this.gpuLabel = gpuLabel;
+        }
+
+        @Override
+        public boolean threadEnded() {
+            return closedThreads.contains(threadId);
+        }
+
+        @Override
+        public void onWaiting(String model) {
+            publishSignal(subject, threadId, SIGNAL_WAITING, "Waiting for a GPU with room for " + model,
+                    0, System.currentTimeMillis(), 0, 0, gpuLabel,
+                    Map.of("model", model, "reason", ai.kubemoot.agent.provider.NoFitException.REASON_GPU_BUSY));
+        }
+
+        @Override
+        public void onCapacity(String model) {
+            publishSignal(subject, threadId, SIGNAL_EVALUATING, "Running tool-calling evaluation",
+                    0, System.currentTimeMillis(), 0, 0, gpuLabel, Map.of("model", model));
+        }
+
+        @Override
+        public void wakeOnEnd(Runnable wake) {
+            threadEndWakers.computeIfAbsent(threadId, k -> new CopyOnWriteArrayList<>()).add(wake);
+            if (closedThreads.contains(threadId)) {
+                wakeThreadEnd(threadId);
+            }
+        }
     }
 
     /**
@@ -753,21 +819,24 @@ public class DiscussionSubscriber {
      * per-call GPU usage instead of the static reconcile-time label.
      * Empty result skips the field entirely (omitempty-equivalent).
      */
-    private Map<String, Object> providerAttribution(ChatService.ChatResult result) {
+    // Visible for testing
+    static Map<String, Object> providerAttribution(ChatService.ChatResult result) {
         if (result == null || result.providerName() == null || result.providerName().isEmpty()) {
             return null;
         }
-        // FitPredictor v2: pickReason carries the predictor's reasoning
-        // (e.g. "warm, slot 1/2 | SR=0.92 over 23 samples, EMA latency
-        // 4200ms"). Surfaces in the dashboard's agent timeline so an
-        // operator can see WHY the selector picked this provider, not
-        // just WHICH. Empty pickReason means the static fallback was
-        // used (no JIT decision was made).
-        if (result.pickReason() == null || result.pickReason().isEmpty()) {
-            return Map.of("provider", result.providerName());
+        // pickReason carries the predictor's reasoning (e.g. "warm, slot 1/2 |
+        // SR=0.92 over 23 samples, EMA latency 4200ms") so the dashboard shows WHY
+        // the selector picked this provider; model is the model the call ran on,
+        // which differs from the bound model when a warm candidate was used.
+        var meta = new HashMap<String, Object>();
+        meta.put("provider", result.providerName());
+        if (result.model() != null && !result.model().isEmpty()) {
+            meta.put("model", result.model());
         }
-        return Map.of("provider", result.providerName(),
-                      "pickReason", result.pickReason());
+        if (result.pickReason() != null && !result.pickReason().isEmpty()) {
+            meta.put("pickReason", result.pickReason());
+        }
+        return meta;
     }
 
     /**
@@ -858,7 +927,8 @@ public class DiscussionSubscriber {
         return heartbeatRef.get();
     }
 
-    private ChatService.ChatResult runMullingInference(String conversation, String threadId) {
+    private ChatService.ChatResult runMullingInference(String conversation, String threadId,
+                                                       ai.kubemoot.agent.provider.CapacityWait wait) {
         // Pass threadId as discussionThreadId so the LLM sees the discussion
         // context in its system prompt — used by scheduler-advisor (and any
         // future MCP) to thread conversational continuity through tool calls.
@@ -871,7 +941,7 @@ public class DiscussionSubscriber {
         String skillContext = skillBodyLoader.load(threadSelectedSkills.get(threadId));
         String message = skillContext.isEmpty() ? conversation : skillContext + conversation;
         var request = new ChatService.ChatRequest(threadId, message, null, threadId, retrievalQueryFor(threadId));
-        return chatService.directChat(request, false);
+        return chatService.directChat(request, false, wait);
     }
 
     /**
@@ -1280,6 +1350,7 @@ public class DiscussionSubscriber {
             threadConversationContext.clear();
             threadSelectedSkills.clear();
             threadQuestions.clear();
+            threadEndWakers.clear();
         }
     }
 
@@ -1311,7 +1382,7 @@ public class DiscussionSubscriber {
      */
     // Visible for testing
     ChatService.ChatResult runMullingInferenceForTest(String conversation, String threadId) {
-        return runMullingInference(conversation, threadId);
+        return runMullingInference(conversation, threadId, ai.kubemoot.agent.provider.CapacityWait.NONE);
     }
 
     private record ThreadMessage(String agentName, String messageType, String content, Instant timestamp) {}

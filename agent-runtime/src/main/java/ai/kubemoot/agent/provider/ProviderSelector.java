@@ -279,6 +279,51 @@ public class ProviderSelector {
      */
     public Optional<Pick> pickAndClaim(String modelName, long coldLoadFootprintMiB,
                                         long thisCallKvCacheMiB) {
+        return pickAndClaim(modelName, coldLoadFootprintMiB, thisCallKvCacheMiB, false);
+    }
+
+    /**
+     * Like {@link #pickAndClaim(String, long, long)}, restricted to providers where
+     * the model is already warm (resident or loading) and a slot is free: a claim
+     * here costs no load and no eviction. Empty when no provider has the model warm
+     * with room.
+     */
+    public Optional<Pick> pickAndClaimWarm(String modelName, long coldLoadFootprintMiB,
+                                           long thisCallKvCacheMiB) {
+        return pickAndClaim(modelName, coldLoadFootprintMiB, thisCallKvCacheMiB, true);
+    }
+
+    /**
+     * True when at least one known provider has enough usable VRAM to hold a model
+     * of {@code footprintMiB}, ignoring what is resident or in flight now. False
+     * means no GPU can ever hold it (the model is too large), as opposed to every
+     * GPU being busy. Providers that have not published their VRAM total are
+     * unknown and never prove the model too large, so an all-unknown list is true.
+     */
+    public static boolean canEverHold(List<ProviderState> states, long footprintMiB) {
+        if (states == null || states.isEmpty() || footprintMiB <= 0) return true;
+        boolean anyKnown = false;
+        for (ProviderState p : states) {
+            long usable = StaticFitPredictor.usableVramMiB(p.totalVramMiB());
+            if (usable <= 0) continue;
+            anyKnown = true;
+            if (usable >= footprintMiB) return true;
+        }
+        return !anyKnown;
+    }
+
+    /** Warm (resident or loading) with fewer in-flight calls than the provider's slots. */
+    static boolean warmWithFreeSlot(Candidate c) {
+        return c.warm() && c.activeCount() < Math.max(1, c.provider().maxParallel());
+    }
+
+    /** Drops the cached provider-state snapshot so the next read is fresh. */
+    public void invalidateCache() {
+        cache.set(null);
+    }
+
+    private Optional<Pick> pickAndClaim(String modelName, long coldLoadFootprintMiB,
+                                        long thisCallKvCacheMiB, boolean warmOnly) {
         if (coldLoadFootprintMiB <= 0) return Optional.empty();
         if (thisCallKvCacheMiB < 0) thisCallKvCacheMiB = 0L;
         final long kvForThisCall = thisCallKvCacheMiB;
@@ -298,6 +343,9 @@ public class ProviderSelector {
                     kvForThisCall,
                     p -> ticketManager.activeModelsOn(p.name()),       // cold-start convergence
                     p -> ticketManager.residentFootprintsFor(p.name())); // residency overlay (anti-thrash)
+            if (warmOnly) {
+                ranked = ranked.stream().filter(ProviderSelector::warmWithFreeSlot).toList();
+            }
 
             if (ranked.isEmpty()) {
                 log.debug("No candidate fits for model {} (attempt {}): saturated or no headroom incl. KV {} MiB",

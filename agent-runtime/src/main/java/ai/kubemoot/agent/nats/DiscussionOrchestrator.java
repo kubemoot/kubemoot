@@ -68,6 +68,12 @@ public class DiscussionOrchestrator {
      * distinguish missing-tooler gaps from broken-infrastructure gaps.
      */
     private static final String MSG_FAILURE = "failure";
+    /** An agent started waiting for GPU capacity. */
+    private static final String MSG_WAITING = "waiting";
+    /** Stand-aside reason: every GPU that could hold the model stayed busy. */
+    static final String REASON_GPU_BUSY = "gpu-busy";
+    /** Stand-aside reason: no GPU can ever hold the model. */
+    static final String REASON_MODEL_TOO_LARGE = "model-too-large";
     private static final String MSG_THREAD_START = "thread_start";
     private static final String MSG_ADVISORY_READY = "advisory_ready";
     private static final String MSG_REVIEW_READY = "review_ready";
@@ -675,12 +681,14 @@ public class DiscussionOrchestrator {
      * Dispatch an agent signal to the appropriate handler: triaging, evaluating,
      * heartbeat, agree/contribution, concern, stand_aside/decline, or block.
      */
-    private void handleAgentSignal(ThreadState state, String agentName, String messageType,
-                                    String content, JsonNode msg) {
+    // Visible for testing
+    void handleAgentSignal(ThreadState state, String agentName, String messageType,
+                           String content, JsonNode msg) {
         switch (messageType) {
             case "triaging" -> handleTriagingSignal(state, agentName, msg);
             case "evaluating" -> handleEvaluatingSignal(state, agentName, msg);
             case "heartbeat" -> handleHeartbeatSignal(state, agentName, msg);
+            case MSG_WAITING -> handleWaitingSignal(state, agentName, msg);
             case "agree", "contribution" -> handleAgreeSignal(state, agentName, content, msg);
             case "concern" -> handleConcernSignal(state, agentName, content, msg);
             case MSG_STAND_ASIDE, "decline" -> handleStandAsideSignal(state, agentName, msg);
@@ -708,6 +716,7 @@ public class DiscussionOrchestrator {
             recordLatencyFromSignal(agentName, msg, deadline);
         }
         metrics.setPendingEvaluations(state.pendingEvaluations.size());
+        state.waitingAgents.remove(agentName);
         state.failureSignals.put(agentName, content);
         state.lastSignalReceived = Instant.now();
         log.info("Thread {} — agent {} reported failure: {}",
@@ -750,6 +759,7 @@ public class DiscussionOrchestrator {
         int expectedSeconds = latencyTracker.getExpectedSeconds(agentName, provider);
         long deadline = System.currentTimeMillis() + deadlineWindowMs(expectedSeconds, evalGraceMs);
         state.pendingEvaluations.put(agentName, deadline);
+        state.waitingAgents.remove(agentName);
         metrics.evaluatingSignalReceived();
         metrics.setPendingEvaluations(state.pendingEvaluations.size());
         log.info("Agent {} is evaluating on {}, expected deadline in {}s (P90 from history)",
@@ -779,6 +789,7 @@ public class DiscussionOrchestrator {
                 && ROLE_RESEARCHER.equals(msg.get(FIELD_METADATA).get(FIELD_ROLE).asText())) {
             state.researcherAgents.add(agentName);
         }
+        state.waitingAgents.remove(agentName);
         state.agreeSignals.put(agentName, content);
         state.lastSignalReceived = Instant.now();
     }
@@ -787,6 +798,7 @@ public class DiscussionOrchestrator {
         Long deadline = state.pendingEvaluations.remove(agentName);
         recordLatencyFromSignal(agentName, msg, deadline);
         metrics.setPendingEvaluations(state.pendingEvaluations.size());
+        state.waitingAgents.remove(agentName);
         state.concernSignals.put(agentName, content);
         state.lastSignalReceived = Instant.now();
     }
@@ -800,14 +812,48 @@ public class DiscussionOrchestrator {
             recordLatencyFromSignal(agentName, msg, deadline);
         }
         metrics.setPendingEvaluations(state.pendingEvaluations.size());
+        state.waitingAgents.remove(agentName);
         state.standAsideSignals.add(agentName);
+        recordCapacityReason(state, agentName, msg);
         state.lastSignalReceived = Instant.now();
+    }
+
+    /**
+     * An agent is waiting for GPU capacity. Remember the model it waits for (so a
+     * synthesis that finds no contribution can say the GPUs were busy) and keep
+     * its deadline alive like a heartbeat.
+     */
+    private void handleWaitingSignal(ThreadState state, String agentName, JsonNode msg) {
+        String model = msg.path(FIELD_METADATA).path("model").asText("");
+        state.waitingAgents.put(agentName, model);
+        handleHeartbeatSignal(state, agentName, msg);
+        log.info("Thread {} - agent {} is waiting for a GPU for {}", state.threadId, agentName, model);
+    }
+
+    /**
+     * Record a stand-aside's capacity reason ({@code gpu-busy} or
+     * {@code model-too-large}) and, for model-too-large, the model no GPU can hold.
+     * Stand-asides without one of these reasons are ordinary and record nothing.
+     */
+    // Visible for testing
+    static void recordCapacityReason(ThreadState state, String agentName, JsonNode msg) {
+        JsonNode meta = msg == null ? null : msg.path(FIELD_METADATA);
+        String reason = meta == null ? "" : meta.path("reason").asText("");
+        if (!REASON_GPU_BUSY.equals(reason) && !REASON_MODEL_TOO_LARGE.equals(reason)) {
+            return;
+        }
+        state.capacityStandAsides.put(agentName, reason);
+        String model = meta.path("model").asText("");
+        if (REASON_MODEL_TOO_LARGE.equals(reason) && !model.isEmpty()) {
+            state.tooLargeModels.add(model);
+        }
     }
 
     private void handleBlockSignal(ThreadState state, String agentName, String content, JsonNode msg) {
         Long deadline = state.pendingEvaluations.remove(agentName);
         recordLatencyFromSignal(agentName, msg, deadline);
         metrics.setPendingEvaluations(state.pendingEvaluations.size());
+        state.waitingAgents.remove(agentName);
         state.blockSignals.put(agentName, content);
         state.lastSignalReceived = Instant.now();
     }
@@ -828,6 +874,7 @@ public class DiscussionOrchestrator {
         state.standAsideSignals.clear();
         state.blockSignals.clear();
         state.failureSignals.clear();
+        state.clearCapacitySignals();
         state.researcherAgents.clear();
         state.pendingEvaluations.clear();
         log.info("Thread {} reopened by human reply → EVALUATING", threadId);
@@ -1232,6 +1279,7 @@ public class DiscussionOrchestrator {
         state.standAsideSignals.clear();
         state.blockSignals.clear();
         state.failureSignals.clear();
+        state.clearCapacitySignals();
         state.researcherAgents.clear();
         state.pendingEvaluations.clear();
         state.advisoryPending.set(false);
@@ -1773,6 +1821,9 @@ public class DiscussionOrchestrator {
         log.info("Thread {} → SYNTHESIZING ({} agrees, {} concerns, {} stand-asides)",
                 state.threadId, state.agreeSignals.size(), state.concernSignals.size(),
                 state.standAsideSignals.size());
+        if (closeForCapacity(state, synthesisStart)) {
+            return;
+        }
 
         llmExecutor.submit(() -> {
             try {
@@ -2263,10 +2314,61 @@ public class DiscussionOrchestrator {
             }
             return fb.toString();
         }
+        String capacity = capacityMessage(state);
+        if (capacity != null) {
+            return capacity;
+        }
         return "No agent contributed an answer and the coordinator could not "
                 + "synthesize a response. The crew's agents may not cover this "
                 + "topic, or may lack the tools to answer it. Try rephrasing, or add an "
                 + "agent or tool for this area.";
+    }
+
+    static final String GPU_BUSY_MESSAGE = "The crew's agents could not get a GPU: every GPU was busy "
+            + "with other work, so none of them could answer in time. This is the cluster's capacity, "
+            + "not the crew's design; ask again in a moment.";
+
+    /**
+     * The answer when no agent contributed because of GPU capacity: at least one
+     * agent stood aside with reason gpu-busy or model-too-large, or was still
+     * waiting for a GPU when the discussion settled. Null when an agent
+     * contributed (agree or concern) or no capacity reason was reported, so the
+     * ordinary synthesis and fallback text apply.
+     */
+    // Visible for testing
+    static String capacityMessage(ThreadState state) {
+        if (!state.agreeSignals.isEmpty() || !state.concernSignals.isEmpty()) {
+            return null;
+        }
+        var parts = new ArrayList<String>();
+        if (state.capacityStandAsides.containsValue(REASON_MODEL_TOO_LARGE)) {
+            parts.add(tooLargeMessage(state.tooLargeModels));
+        }
+        if (state.capacityStandAsides.containsValue(REASON_GPU_BUSY) || !state.waitingAgents.isEmpty()) {
+            parts.add(GPU_BUSY_MESSAGE);
+        }
+        return parts.isEmpty() ? null : String.join(" ", parts);
+    }
+
+    private static String tooLargeMessage(Set<String> models) {
+        String named = models.isEmpty() ? "the model" : "the model " + String.join(", ", new java.util.TreeSet<>(models));
+        return "No GPU in this cluster can hold " + named + " the agents need; add a smaller Model or a larger GPU.";
+    }
+
+    /**
+     * Close the thread with the capacity answer instead of running the synthesis
+     * LLM when no agent contributed because of GPU capacity. Returns true when it
+     * closed the thread.
+     */
+    private boolean closeForCapacity(ThreadState state, Instant synthesisStart) {
+        String capacity = capacityMessage(state);
+        if (capacity == null) {
+            return false;
+        }
+        log.info("Thread {} - no contribution and agents could not get a GPU; answering with the capacity message",
+                state.threadId);
+        completeSynthesisPhase(state, resolveChannel(state), capacity, synthesisStart);
+        return true;
     }
 
     /**
@@ -3569,6 +3671,18 @@ public class DiscussionOrchestrator {
          * MCP servers or model providers need attention, not new toolers).
          */
         final ConcurrentHashMap<String, String> failureSignals = new ConcurrentHashMap<>();
+        /** Agents that stood aside for GPU capacity: agent name to gpu-busy or model-too-large. */
+        final ConcurrentHashMap<String, String> capacityStandAsides = new ConcurrentHashMap<>();
+        /** Models a model-too-large stand-aside named. */
+        final Set<String> tooLargeModels = ConcurrentHashMap.newKeySet();
+        /** Agents currently waiting for GPU capacity: agent name to the model they wait for. */
+        final ConcurrentHashMap<String, String> waitingAgents = new ConcurrentHashMap<>();
+
+        void clearCapacitySignals() {
+            capacityStandAsides.clear();
+            tooLargeModels.clear();
+            waitingAgents.clear();
+        }
         // Agents with role=researcher (e.g., internet search) — excluded from
         // settle triggers, single-agree skip, and gap detection so toolers get full
         // evaluation time and gaps still fire when only researchers answer.

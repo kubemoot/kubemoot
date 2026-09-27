@@ -49,7 +49,7 @@ class DiscussionSubscriberSkillsTest {
 
         var capturedMessage = new String[1];
         var chatService = mock(ChatService.class);
-        when(chatService.directChat(any(ChatService.ChatRequest.class), anyBoolean()))
+        when(chatService.directChat(any(ChatService.ChatRequest.class), anyBoolean(), any()))
                 .thenAnswer(inv -> {
                     capturedMessage[0] = ((ChatService.ChatRequest) inv.getArgument(0)).message();
                     return new ChatService.ChatResult("conv", "tool output", "model", null);
@@ -93,7 +93,7 @@ class DiscussionSubscriberSkillsTest {
 
         var capturedMessage = new String[1];
         var chatService = mock(ChatService.class);
-        when(chatService.directChat(any(ChatService.ChatRequest.class), anyBoolean()))
+        when(chatService.directChat(any(ChatService.ChatRequest.class), anyBoolean(), any()))
                 .thenAnswer(inv -> {
                     capturedMessage[0] = ((ChatService.ChatRequest) inv.getArgument(0)).message();
                     return new ChatService.ChatResult("conv", "ok", "model", null);
@@ -127,7 +127,7 @@ class DiscussionSubscriberSkillsTest {
 
         var capturedMessage = new String[1];
         var chatService = mock(ChatService.class);
-        when(chatService.directChat(any(ChatService.ChatRequest.class), anyBoolean()))
+        when(chatService.directChat(any(ChatService.ChatRequest.class), anyBoolean(), any()))
                 .thenAnswer(inv -> {
                     capturedMessage[0] = ((ChatService.ChatRequest) inv.getArgument(0)).message();
                     return new ChatService.ChatResult("conv", "ok", "model", null);
@@ -156,7 +156,7 @@ class DiscussionSubscriberSkillsTest {
     void absentSelectedSkillsKeyLeavesMessageUnchanged(@TempDir Path skillsDir) {
         var capturedMessage = new String[1];
         var chatService = mock(ChatService.class);
-        when(chatService.directChat(any(ChatService.ChatRequest.class), anyBoolean()))
+        when(chatService.directChat(any(ChatService.ChatRequest.class), anyBoolean(), any()))
                 .thenAnswer(inv -> {
                     capturedMessage[0] = ((ChatService.ChatRequest) inv.getArgument(0)).message();
                     return new ChatService.ChatResult("conv", "ok", "model", null);
@@ -182,7 +182,7 @@ class DiscussionSubscriberSkillsTest {
     void mullingRetrievalQueryIsTheThreadQuestion() {
         var captured = new ChatService.ChatRequest[1];
         var chatService = mock(ChatService.class);
-        when(chatService.directChat(any(ChatService.ChatRequest.class), anyBoolean()))
+        when(chatService.directChat(any(ChatService.ChatRequest.class), anyBoolean(), any()))
                 .thenAnswer(inv -> {
                     captured[0] = inv.getArgument(0);
                     return new ChatService.ChatResult("conv", "answer", "model", null);
