@@ -132,6 +132,14 @@ spec:
               # max-value-size kept small — a Ticket JSON is well under 256 bytes.
               nats kv add kubemoot_provider_tickets --ttl=10m --history=1 --max-value-size=4096 -s "$NATS_URL" 2>/dev/null || true
 
+              # kubemoot_model_demand - the shared view of what every crew's agents
+              # are waiting for, about to request (intents at selection), and have
+              # used recently, keyed per model and agent. The scheduler reads it to
+              # choose which idle models to unload. Entries carry their own
+              # expiresAt (intents 3m, waits 10m); the bucket TTL removes anything
+              # not refreshed within 6h (recent-use and selection history).
+              nats kv add kubemoot_model_demand --ttl=6h --history=1 --max-value-size=4096 -s "$NATS_URL" 2>/dev/null || true
+
               echo "NATS JetStream bootstrap complete."
               nats stream ls -s "$NATS_URL"
               nats kv ls -s "$NATS_URL"

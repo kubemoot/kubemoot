@@ -724,51 +724,6 @@ func availableFootprints(loaded map[string]int64, available []aiv1alpha1.Availab
 	return avail
 }
 
-// ollamaGenerateRequest is the request body for Ollama /api/generate used for model eviction
-type ollamaGenerateRequest struct {
-	Model     string `json:"model"`
-	KeepAlive int    `json:"keep_alive"`
-}
-
-// EvictModel tells Ollama to unload a model by setting keep_alive to 0.
-// Best-effort: logs errors but callers should proceed regardless.
-func EvictModel(ctx context.Context, httpClient *http.Client, endpoint, modelName string) error {
-	log := logf.FromContext(ctx)
-
-	reqBody := ollamaGenerateRequest{
-		Model:     modelName,
-		KeepAlive: 0,
-	}
-	body, err := json.Marshal(reqBody)
-	if err != nil {
-		log.Error(err, "Failed to marshal eviction request")
-		return err
-	}
-
-	evictURL := fmt.Sprintf("%s/api/generate", endpoint)
-	req, err := http.NewRequestWithContext(ctx, "POST", evictURL, strings.NewReader(string(body)))
-	if err != nil {
-		log.Error(err, "Failed to create eviction request")
-		return err
-	}
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := httpClient.Do(req)
-	if err != nil {
-		log.Error(err, "Eviction request failed", "endpoint", endpoint, "model", modelName)
-		return err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		log.Info("Eviction returned non-200 status", "status", resp.StatusCode, "model", modelName, "endpoint", endpoint)
-	} else {
-		log.Info("Evicted idle model from provider", "model", modelName, "endpoint", endpoint)
-	}
-
-	return nil
-}
-
 // SetupWithManager sets up the controller with the Manager.
 func (r *ModelProviderReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
