@@ -686,6 +686,7 @@ export interface DiscussionMessage {
 		| 'gap_detected'
 		| 'waking'
 		| 'ready'
+		| 'waiting'
 		// Legacy types (backwards compatible)
 		| 'contribution'
 		| 'decline';

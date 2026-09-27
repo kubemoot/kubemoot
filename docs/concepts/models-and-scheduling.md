@@ -157,7 +157,8 @@ ask a question at the same moment.
    copy instead of loading a second copy.
 3. Crew B's researcher prefers `qwen3:32b` with a strong quality bias (0.9), so
    `qwen3:14b` (20 points below) is out of tolerance. `qwen3:32b` is not loaded, GPU 1
-   has no free memory beside `qwen3:14b`, and GPU 2 is too small. The researcher
+   has no free memory beside `qwen3:14b`, and GPU 2 has no free memory beside the busy
+   `qwen3:8b`. The researcher
    publishes `waiting`. Its wait ends when GPU 1 reports enough free memory for
    `qwen3:32b`, which happens once the provider unloads the idle `qwen3:14b`; the retry
    then loads `qwen3:32b` onto GPU 1.
