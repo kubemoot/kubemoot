@@ -40,8 +40,8 @@ const (
 	labelCrew           = "kubemoot.ai/crew"
 	// crewVersionLabel carries the crew Helm chart version, stamped by the crew
 	// chart's labels helper. Provenance: which crew VERSION produced a thread/run.
-	crewVersionLabel    = "kubemoot.ai/crew-version"
-	labelRAGSource      = "kubemoot.ai/ragsource"
+	crewVersionLabel = "kubemoot.ai/crew-version"
+	labelRAGSource   = "kubemoot.ai/ragsource"
 	// labelFitnessHarness marks the operator's own ephemeral fitness-runner
 	// (cf-run-*) Job pods so crews can exclude the test harness from
 	// "what is failing in the cluster" assessments. Value is always "true".
@@ -66,6 +66,7 @@ const (
 	componentAgent         = "agent"
 	componentQueryService  = "query-service"
 	componentFitnessRunner = "fitness-runner"
+	componentRAGIndexer    = "rag-indexer"
 	componentMCPGateway    = "mcp-gateway"
 	componentMCPServer     = "mcp-server"
 )

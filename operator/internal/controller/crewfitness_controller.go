@@ -25,7 +25,6 @@ import (
 
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
-	rbacv1 "k8s.io/api/rbac/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -106,7 +105,7 @@ func (r *CrewFitnessReconciler) startTest(ctx context.Context, cf *kubemootv1alp
 		return r.setError(ctx, cf, err.Error())
 	}
 
-	if err := r.ensureJobRBAC(ctx, cf); err != nil {
+	if err := ensureJobRBAC(ctx, r.Client, cf.Namespace, componentFitnessRunner, fitnessRunnerJobVerbs); err != nil {
 		return r.setError(ctx, cf, fmt.Sprintf("failed to ensure RBAC: %v", err))
 	}
 
@@ -504,76 +503,6 @@ func (r *CrewFitnessReconciler) buildJob(cf *kubemootv1alpha1.CrewFitness, jobNa
 			},
 		},
 	}
-}
-
-func (r *CrewFitnessReconciler) ensureJobRBAC(ctx context.Context, cf *kubemootv1alpha1.CrewFitness) error {
-	ns := cf.Namespace
-
-	// ServiceAccount
-	sa := &corev1.ServiceAccount{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      componentFitnessRunner,
-			Namespace: ns,
-			Labels: map[string]string{
-				labelManagedBy: managedByValue,
-				labelComponent: componentFitnessRunner,
-			},
-		},
-	}
-	if err := r.Create(ctx, sa); err != nil && !errors.IsAlreadyExists(err) {
-		return fmt.Errorf("create ServiceAccount: %w", err)
-	}
-
-	// Role — allow patching Jobs in this namespace
-	role := &rbacv1.Role{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      componentFitnessRunner,
-			Namespace: ns,
-			Labels: map[string]string{
-				labelManagedBy: managedByValue,
-				labelComponent: componentFitnessRunner,
-			},
-		},
-		Rules: []rbacv1.PolicyRule{
-			{
-				APIGroups: []string{"batch"},
-				Resources: []string{"jobs"},
-				Verbs:     []string{"get", "patch"},
-			},
-		},
-	}
-	if err := r.Create(ctx, role); err != nil && !errors.IsAlreadyExists(err) {
-		return fmt.Errorf("create Role: %w", err)
-	}
-
-	// RoleBinding
-	rb := &rbacv1.RoleBinding{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      componentFitnessRunner,
-			Namespace: ns,
-			Labels: map[string]string{
-				labelManagedBy: managedByValue,
-				labelComponent: componentFitnessRunner,
-			},
-		},
-		Subjects: []rbacv1.Subject{
-			{
-				Kind:      "ServiceAccount",
-				Name:      componentFitnessRunner,
-				Namespace: ns,
-			},
-		},
-		RoleRef: rbacv1.RoleRef{
-			APIGroup: "rbac.authorization.k8s.io",
-			Kind:     "Role",
-			Name:     componentFitnessRunner,
-		},
-	}
-	if err := r.Create(ctx, rb); err != nil && !errors.IsAlreadyExists(err) {
-		return fmt.Errorf("create RoleBinding: %w", err)
-	}
-
-	return nil
 }
 
 func (r *CrewFitnessReconciler) SetupWithManager(mgr ctrl.Manager) error {

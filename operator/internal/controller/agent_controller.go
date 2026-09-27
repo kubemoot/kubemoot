@@ -49,6 +49,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
@@ -269,6 +270,7 @@ const (
 // +kubebuilder:rbac:groups=kubemoot.ai,resources=crewschedulingpolicies,verbs=get;list;watch
 // +kubebuilder:rbac:groups=kubemoot.ai,resources=mootarchetypes,verbs=get;list;watch
 // +kubebuilder:rbac:groups=kubemoot.ai,resources=promptmodules,verbs=get;list;watch
+// +kubebuilder:rbac:groups=kubemoot.ai,resources=ragsources,verbs=get;list;watch
 // +kubebuilder:rbac:groups=kubemoot.ai,resources=mcpgateways,verbs=get;list;watch
 // +kubebuilder:rbac:groups=apps,resources=deployments,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=core,resources=services,verbs=get;list;watch;create;update;patch;delete
@@ -897,6 +899,7 @@ func (r *AgentReconciler) buildEnvVars(ctx context.Context, agent *kubemootv1alp
 	env = append(env, agentDiscussRelevanceEnvVars(agent)...)
 	env = append(env, r.agentDiscussRoleEnvVars(ctx, agent, crew)...)
 	env = append(env, r.agentGatewayEnvVars(ctx, agent)...)
+	env = append(env, r.ragSourceEnvVars(ctx, agent)...)
 	// Crew agents get the skills dir env so the agent-runtime read path
 	// matches the mount without the path being hardcoded in the Java code.
 	if crew != "" {
@@ -1248,6 +1251,14 @@ func (r *AgentReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Watches(
 			&kubemootv1alpha1.PromptModule{},
 			enqueueAgentsOnPromptModuleChange(mgr.GetClient()),
+		).
+		// Re-reconcile an Agent when a RAGSource it references reports a new query
+		// endpoint or changes its query service, so the agent's RAG env follows.
+		// See ragsource_propagation.go.
+		Watches(
+			&kubemootv1alpha1.RAGSource{},
+			enqueueAgentsOnRAGSourceChange(mgr.GetClient()),
+			builder.WithPredicates(ragSourceEndpointChanged()),
 		).
 		Complete(r)
 }

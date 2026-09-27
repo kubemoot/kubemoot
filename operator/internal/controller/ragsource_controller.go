@@ -62,6 +62,8 @@ type RAGSourceReconciler struct {
 // +kubebuilder:rbac:groups=kubemoot.ai,resources=ragsources/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=kubemoot.ai,resources=ragsources/finalizers,verbs=update
 // +kubebuilder:rbac:groups=batch,resources=jobs,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups="",resources=serviceaccounts,verbs=get;list;watch;create;update;patch
+// +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=roles;rolebindings,verbs=get;list;watch;create;update;patch
 // +kubebuilder:rbac:groups=apps,resources=deployments,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=core,resources=services,verbs=get;list;watch;create;update;patch;delete
 
@@ -110,7 +112,7 @@ func (r *RAGSourceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	}
 
 	// Ensure query service is deployed (if enabled)
-	if r.isQueryServiceEnabled(ragSource) {
+	if queryServiceEnabled(ragSource) {
 		if err := r.ensureQueryService(ctx, ragSource, embeddingModel); err != nil {
 			log.Error(err, "Failed to ensure query service")
 			// Don't fail reconciliation for query service issues
@@ -410,6 +412,14 @@ func (r *RAGSourceReconciler) runIndexingJob(ctx context.Context, ragSource *kub
 	// Generate job name
 	jobName := fmt.Sprintf("%s-indexer-%d", ragSource.Name, time.Now().Unix())
 
+	// The indexer annotates its own Job with its results; the default ServiceAccount
+	// may not, so it runs as one allowed to.
+	if !hasIndexerServiceAccount(ragSource) {
+		if err := ensureJobRBAC(ctx, r.Client, ragSource.Namespace, componentRAGIndexer, ragIndexerJobVerbs); err != nil {
+			return r.updateStatus(ctx, ragSource, "Error", false, fmt.Sprintf("Failed to prepare the indexer's ServiceAccount: %v", err))
+		}
+	}
+
 	// Build the job
 	job := r.buildIndexingJob(ragSource, embeddingModel, jobName)
 
@@ -466,14 +476,19 @@ func findActiveJob(jobList *batchv1.JobList) *batchv1.Job {
 	return nil
 }
 
+// hasIndexerServiceAccount reports whether the RAGSource names its own indexer ServiceAccount.
+func hasIndexerServiceAccount(ragSource *kubemootv1alpha1.RAGSource) bool {
+	return ragSource.Spec.Indexer != nil && ragSource.Spec.Indexer.ServiceAccountName != ""
+}
+
 // buildIndexingJob creates the Job spec for indexing
 func (r *RAGSourceReconciler) buildIndexingJob(ragSource *kubemootv1alpha1.RAGSource, embeddingModel *kubemootv1alpha1.EmbeddingModel, jobName string) *batchv1.Job {
 	labels := map[string]string{
-		labelName:       ragSource.Name,
-		labelInstance:   jobName,
+		labelName:      ragSource.Name,
+		labelInstance:  jobName,
 		labelManagedBy: managedByValue,
-		labelComponent:  "indexer",
-		labelRAGSource:        ragSource.Name,
+		labelComponent: "indexer",
+		labelRAGSource: ragSource.Name,
 	}
 
 	// Build environment variables for the indexer
@@ -613,8 +628,8 @@ func (r *RAGSourceReconciler) buildIndexingJob(ragSource *kubemootv1alpha1.RAGSo
 		},
 	}
 
-	// Add service account if specified
-	if ragSource.Spec.Indexer != nil && ragSource.Spec.Indexer.ServiceAccountName != "" {
+	job.Spec.Template.Spec.ServiceAccountName = componentRAGIndexer
+	if hasIndexerServiceAccount(ragSource) {
 		job.Spec.Template.Spec.ServiceAccountName = ragSource.Spec.Indexer.ServiceAccountName
 	}
 
@@ -1256,18 +1271,6 @@ func (r *RAGSourceReconciler) SetupWithManager(mgr ctrl.Manager) error {
 // Query Service Management
 // ============================================================================
 
-// isQueryServiceEnabled returns true if query service should be deployed
-func (r *RAGSourceReconciler) isQueryServiceEnabled(ragSource *kubemootv1alpha1.RAGSource) bool {
-	// Default to enabled if not specified
-	if ragSource.Spec.QueryService == nil {
-		return true
-	}
-	if ragSource.Spec.QueryService.Enabled == nil {
-		return true
-	}
-	return *ragSource.Spec.QueryService.Enabled
-}
-
 // ensureQueryService creates or updates the query service Deployment and Service
 func (r *RAGSourceReconciler) ensureQueryService(ctx context.Context, ragSource *kubemootv1alpha1.RAGSource, embeddingModel *kubemootv1alpha1.EmbeddingModel) error {
 	log := logf.FromContext(ctx)
@@ -1286,8 +1289,7 @@ func (r *RAGSourceReconciler) ensureQueryService(ctx context.Context, ragSource 
 	}
 
 	// Update status with query endpoint
-	port := r.getQueryServicePort(ragSource)
-	endpoint := fmt.Sprintf("http://%s.%s:%d", queryServiceName, ragSource.Namespace, port)
+	endpoint := ragQueryEndpoint(ragSource.Name, ragSource.Namespace, queryServicePort(ragSource))
 	if ragSource.Status.QueryEndpoint != endpoint {
 		ragSource.Status.QueryEndpoint = endpoint
 		log.Info("Updated query endpoint", "endpoint", endpoint)
@@ -1354,15 +1356,15 @@ func (r *RAGSourceReconciler) ensureQueryServiceDeployment(ctx context.Context, 
 // buildQueryServiceDeployment creates the Deployment spec for the query service
 func (r *RAGSourceReconciler) buildQueryServiceDeployment(ragSource *kubemootv1alpha1.RAGSource, embeddingModel *kubemootv1alpha1.EmbeddingModel, name string) *appsv1.Deployment {
 	labels := map[string]string{
-		labelName:       name,
-		labelInstance:   name,
+		labelName:      name,
+		labelInstance:  name,
 		labelManagedBy: managedByValue,
-		labelComponent:  componentQueryService,
-		labelRAGSource:        ragSource.Name,
+		labelComponent: componentQueryService,
+		labelRAGSource: ragSource.Name,
 	}
 
 	replicas := r.getQueryServiceReplicas(ragSource)
-	port := r.getQueryServicePort(ragSource)
+	port := queryServicePort(ragSource)
 	image := r.getQueryServiceImage(ragSource)
 	topK := r.getQueryServiceTopK(ragSource)
 
@@ -1516,22 +1518,22 @@ func (r *RAGSourceReconciler) ensureQueryServiceService(ctx context.Context, rag
 		return err
 	}
 
-	port := r.getQueryServicePort(ragSource)
+	port := queryServicePort(ragSource)
 
 	desiredService := &corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
 			Namespace: ragSource.Namespace,
 			Labels: map[string]string{
-				labelName:       name,
+				labelName:      name,
 				labelManagedBy: managedByValue,
-				labelComponent:  componentQueryService,
-				labelRAGSource:        ragSource.Name,
+				labelComponent: componentQueryService,
+				labelRAGSource: ragSource.Name,
 			},
 		},
 		Spec: corev1.ServiceSpec{
 			Selector: map[string]string{
-				labelRAGSource:       ragSource.Name,
+				labelRAGSource: ragSource.Name,
 				labelComponent: componentQueryService,
 			},
 			Ports: []corev1.ServicePort{
@@ -1573,13 +1575,6 @@ func (r *RAGSourceReconciler) getQueryServiceReplicas(ragSource *kubemootv1alpha
 		return ragSource.Spec.QueryService.Replicas
 	}
 	return 1
-}
-
-func (r *RAGSourceReconciler) getQueryServicePort(ragSource *kubemootv1alpha1.RAGSource) int32 {
-	if ragSource.Spec.QueryService != nil && ragSource.Spec.QueryService.Port > 0 {
-		return ragSource.Spec.QueryService.Port
-	}
-	return 8000
 }
 
 func (r *RAGSourceReconciler) getQueryServiceTopK(ragSource *kubemootv1alpha1.RAGSource) int32 {
