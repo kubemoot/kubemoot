@@ -1110,7 +1110,7 @@ public class ChatService {
             String staticEp = properties.model().endpoint();
             long direct = directProber.resolveFootprintMiB(states, staticEp, modelName);
             if (direct > 0) {
-                log.info("Self-fetch footprint for model {}: {}MiB (KV absent - NATS degraded path)", modelName, direct);
+                log.info("Self-fetch footprint for model {}: {}MiB ({})", modelName, direct, noStateReason());
                 return direct;
             }
         }
@@ -1326,6 +1326,16 @@ public class ChatService {
      * prober, the static endpoint is the last resort. See [[JIT Fit-Gate Degraded
      * Mode Can Spill]].
      */
+    /**
+     * Why there is no provider state: the NATS read failed (with its error), or the
+     * bucket had no current entries.
+     */
+    private String noStateReason() {
+        return providerSelector == null ? "no scheduler"
+                : providerSelector.lastReadError().map(e -> "provider state read failed: " + e)
+                        .orElse("no provider state published");
+    }
+
     private java.util.Optional<MullingPick> degradedMullingPick(String modelName, String staticEndpoint,
                                                                 long coldLoadFootprintMiB) {
         if (directProber == null) {
@@ -1336,12 +1346,12 @@ public class ChatService {
         String fittingEndpoint = directProber.pickFittingEndpoint(
                 java.util.List.of(), staticEndpoint, modelName, coldLoadFootprintMiB);
         if (fittingEndpoint == null) {
-            log.info("NATS-degraded: directProber found no fitting endpoint for {} (coldLoad {}MiB) - waiting for capacity",
-                    modelName, coldLoadFootprintMiB);
+            log.info("No provider state ({}): directProber found no fitting endpoint for {} (coldLoad {}MiB) - waiting for capacity",
+                    noStateReason(), modelName, coldLoadFootprintMiB);
             return java.util.Optional.empty();
         }
-        log.info("NATS-degraded fit pick: endpoint={} model={} coldLoad={}MiB (direct probe)",
-                fittingEndpoint, modelName, coldLoadFootprintMiB);
+        log.info("No provider state ({}): fit pick endpoint={} model={} coldLoad={}MiB (direct probe)",
+                noStateReason(), fittingEndpoint, modelName, coldLoadFootprintMiB);
         ChatModel degradedModel = chatModelPool.forEndpoint(
                 fittingEndpoint,
                 modelName,

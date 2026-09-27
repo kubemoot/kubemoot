@@ -298,14 +298,14 @@ public class CrewMemoryClient {
         String prefix = natsProvider.scope().memoryPrefix();
         long now = System.currentTimeMillis();
         try {
-            for (String k : kv.keys()) {
+            for (String k : ai.kubemoot.agent.nats.KvKeys.list(natsProvider.getConnection(), MEMORY_BUCKET)) {
                 if (k.startsWith(prefix)) {
                     Fact f = readFact(kv, prefix, k, now);
                     if (f != null) facts.add(f);
                 }
             }
         } catch (Exception e) {
-            log.debug("Failed to read crew-memory bucket: {}", e.getMessage());
+            ai.kubemoot.agent.nats.KvKeys.warnReadFailure(log, MEMORY_BUCKET, "crew memory", e);
         }
         return facts;
     }

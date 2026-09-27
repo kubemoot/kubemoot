@@ -1088,4 +1088,34 @@ class ProviderSelectorTest {
         assertFalse(selector.warmWithFreeSlot(new ProviderSelector.Candidate(p, false, 0, 0.0, yes)),
                 "cold: a claim here would load the model");
     }
+
+    @Test
+    void readStateFailure_isReportedAndKeptApartFromAnEmptyBucket() throws Exception {
+        var conn = org.mockito.Mockito.mock(io.nats.client.Connection.class);
+        var jsm = org.mockito.Mockito.mock(io.nats.client.JetStreamManagement.class);
+        var nats = org.mockito.Mockito.mock(ai.kubemoot.agent.nats.NatsConnectionProvider.class);
+        org.mockito.Mockito.when(nats.isAvailable()).thenReturn(true);
+        org.mockito.Mockito.when(nats.getConnection()).thenReturn(conn);
+        org.mockito.Mockito.when(conn.jetStreamManagement()).thenReturn(jsm);
+        org.mockito.Mockito.when(jsm.getStreamInfo(org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.any()))
+                .thenThrow(new java.io.IOException("deliver policy can not be updated [10012]"));
+        var sel = new ProviderSelector(nats, new com.fasterxml.jackson.databind.ObjectMapper(), null, null, null);
+
+        assertTrue(sel.readState().isEmpty());
+        assertTrue(sel.lastReadError().orElseThrow().contains("10012"));
+
+        var bucket = new InMemoryKv();
+        var empty = new ProviderSelector(bucket.provider(ProviderSelector.STATE_BUCKET),
+                new com.fasterxml.jackson.databind.ObjectMapper(), null, null, null);
+        assertTrue(empty.readState().isEmpty());
+        assertTrue(empty.lastReadError().isEmpty(), "an empty bucket is not an error");
+    }
+
+    @Test
+    void readStateWithNatsDown_saysSo_ratherThanReportingAStaleError() {
+        var nats = org.mockito.Mockito.mock(ai.kubemoot.agent.nats.NatsConnectionProvider.class);
+        var sel = new ProviderSelector(nats, new com.fasterxml.jackson.databind.ObjectMapper(), null, null, null);
+        assertTrue(sel.readState().isEmpty());
+        assertEquals("NATS unavailable", sel.lastReadError().orElseThrow());
+    }
 }

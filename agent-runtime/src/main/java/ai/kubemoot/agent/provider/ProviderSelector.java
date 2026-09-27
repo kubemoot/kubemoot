@@ -99,6 +99,17 @@ public class ProviderSelector {
      */
     static final FitPredictor DEFAULT_PREDICTOR = new LearningFitPredictor();
 
+    /** The error from the last failed provider-state read; null after a successful read. */
+    private volatile String lastReadError;
+
+    /**
+     * Why the last {@link #readState} returned nothing, when it was a read error
+     * rather than an empty bucket; empty when the last read succeeded.
+     */
+    public Optional<String> lastReadError() {
+        return Optional.ofNullable(lastReadError);
+    }
+
     /** Cached snapshot of all provider states; refreshed on TTL expiry. */
     private final AtomicReference<CachedSnapshot> cache = new AtomicReference<>();
 
@@ -1026,25 +1037,26 @@ public class ProviderSelector {
         if (cached != null && cached.isFresh()) {
             return cached.states();
         }
-        if (!natsProvider.isAvailable()) {
+        Connection conn = natsProvider.isAvailable() ? natsProvider.getConnection() : null;
+        if (conn == null) {
+            lastReadError = "NATS unavailable";
             return List.of();
         }
-        Connection conn = natsProvider.getConnection();
-        if (conn == null) return List.of();
 
         try {
             KeyValue kv = conn.keyValue(STATE_BUCKET);
             List<ProviderState> states = new ArrayList<>();
-            for (String key : kv.keys()) {
+            for (String key : ai.kubemoot.agent.nats.KvKeys.list(conn, STATE_BUCKET)) {
                 parseStateInto(kv, key, states);
             }
+            lastReadError = null;
             cache.set(new CachedSnapshot(states, Instant.now()));
             return states;
         } catch (Exception e) {
-            // Bucket missing, NATS hiccup, etc. — return empty so callers
-            // fall back to their static endpoint instead of failing the
-            // inference call.
-            log.debug("Failed to read provider state bucket {}: {}", STATE_BUCKET, e.getMessage());
+            // NATS answered with an error: callers get no state (and fall back),
+            // but the failure is reported and kept apart from an empty bucket.
+            lastReadError = e.toString();
+            ai.kubemoot.agent.nats.KvKeys.warnReadFailure(log, STATE_BUCKET, "provider state", e);
             return List.of();
         }
     }

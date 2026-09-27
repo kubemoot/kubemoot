@@ -1,6 +1,7 @@
 package ai.kubemoot.agent.provider;
 
 import ai.kubemoot.agent.config.AgentProperties;
+import ai.kubemoot.agent.nats.KvKeys;
 import ai.kubemoot.agent.nats.NatsConnectionProvider;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -286,14 +287,14 @@ public class DemandBoard {
             return out;
         }
         try {
-            for (String key : kv.keys()) {
+            for (String key : KvKeys.list(natsProvider.getConnection(), BUCKET)) {
                 JsonNode n = get(kv, key);
                 if (n != null) {
                     out.add(n);
                 }
             }
         } catch (Exception e) {
-            log.debug("Reading demand bucket failed: {}", e.getMessage());
+            KvKeys.warnReadFailure(log, BUCKET, "model demand", e);
         }
         return out;
     }

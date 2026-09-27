@@ -112,11 +112,24 @@ public class NatsCapacityWatch implements CapacitySignal {
         }
     }
 
+    /**
+     * Consumer name prefix for this process's watches, random per process at startup,
+     * so a watch consumer can never share a name with another process's consumer even
+     * if jnats's generated names repeat across processes (a second guard beside the
+     * native build initializing NUID at run time).
+     */
+    private final String consumerPrefix = "kubemoot-capacity-" + java.util.UUID.randomUUID().toString().substring(0, 8);
+
     /** Advances the version on every KV update the watch delivers. */
     private final class BumpOnChange implements KeyValueWatcher {
         @Override
         public void watch(KeyValueEntry entry) {
             nudge();
+        }
+
+        @Override
+        public String getConsumerNamePrefix() {
+            return consumerPrefix;
         }
 
         @Override

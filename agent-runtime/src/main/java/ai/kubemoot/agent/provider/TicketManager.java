@@ -1,16 +1,19 @@
 package ai.kubemoot.agent.provider;
 
+import ai.kubemoot.agent.nats.KvKeys;
 import ai.kubemoot.agent.nats.NatsConnectionProvider;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import io.nats.client.Connection;
+import io.nats.client.JetStreamApiException;
 import io.nats.client.KeyValue;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.IOException;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
@@ -186,6 +189,13 @@ public class TicketManager {
         log.debug("Claimed ticket {} on {} for {} MiB (evicting {})",
                 ticket.ticketId(), provider, footprintMiB, evictions.keySet());
         return Optional.of(ticket);
+    }
+
+    /** The tickets bucket's keys from its subject index (no consumer; see {@link KvKeys}). */
+    private List<String> listKeys() throws IOException, JetStreamApiException {
+        Connection conn = natsProvider.getConnection();
+        if (conn == null) throw new IOException("no NATS connection");
+        return KvKeys.list(conn, TICKETS_BUCKET);
     }
 
     /** The tickets bucket, or null when NATS or the bucket is unavailable. */
@@ -443,7 +453,7 @@ public class TicketManager {
                                java.util.function.Consumer<JsonNode> consumer) {
         String prefix = keyPrefixFor(provider);
         try {
-            for (String key : kv.keys()) {
+            for (String key : listKeys()) {
                 if (key.startsWith(prefix)) {
                     JsonNode node = readTicketNode(kv, key, context);
                     if (node != null) {
@@ -452,7 +462,7 @@ public class TicketManager {
                 }
             }
         } catch (Exception e) {
-            log.debug("Listing tickets for {} ({}) failed: {}", provider, context, e.getMessage());
+            KvKeys.warnReadFailure(log, TICKETS_BUCKET, "tickets on " + provider, e);
         }
     }
 
@@ -539,13 +549,13 @@ public class TicketManager {
         java.util.Map<String, Long> out = new java.util.HashMap<>();
         try {
             KeyValue kv = conn.keyValue(TICKETS_BUCKET);
-            for (String key : kv.keys()) {
+            for (String key : listKeys()) {
                 if (key.startsWith(prefix)) {
                     collectResidency(kv, key, out);
                 }
             }
         } catch (Exception e) {
-            log.debug("residentFootprintsFor({}) failed: {}", provider, e.getMessage());
+            KvKeys.warnReadFailure(log, TICKETS_BUCKET, "residency on " + provider, e);
         }
         return out;
     }
@@ -602,7 +612,7 @@ public class TicketManager {
         String prefix = keyPrefixFor(provider);
         int count = 0;
         try {
-            for (String key : kv.keys()) {
+            for (String key : listKeys()) {
                 if (key.startsWith(prefix)) {
                     var entry = kv.get(key);
                     if (entry != null && entry.getValue() != null) {
@@ -611,7 +621,7 @@ public class TicketManager {
                 }
             }
         } catch (Exception e) {
-            log.debug("Counting tickets for {} failed: {}", provider, e.getMessage());
+            KvKeys.warnReadFailure(log, TICKETS_BUCKET, "ticket count on " + provider, e);
         }
         return count;
     }
