@@ -161,24 +161,22 @@ class DiscussionOrchestratorTest {
                 List.of("Kubernetes", "Helm")));
     }
 
-    // --- subscriptionSubject tests ---
+    // --- subscription subject tests ---
 
     @Test
-    void subscriptionSubject_withCrew_includesCrewId() {
-        assertEquals("kubemoot.discuss.my-crew.>",
-                DiscussionOrchestrator.subscriptionSubject("my-crew"));
+    void subscriptionSubject_withCrew_includesNamespaceAndCrew() {
+        assertEquals("kubemoot.discuss.ns-a.my-crew.>",
+                CrewScope.of("ns-a", "my-crew").discussWildcard());
     }
 
     @Test
-    void subscriptionSubject_nullCrew_globalWildcard() {
-        assertEquals("kubemoot.discuss.>",
-                DiscussionOrchestrator.subscriptionSubject(null));
+    void subscriptionSubject_nullCrew_namespaceWildcard() {
+        assertEquals("kubemoot.discuss.ns-a.>", CrewScope.of("ns-a", null).discussWildcard());
     }
 
     @Test
-    void subscriptionSubject_emptyCrew_globalWildcard() {
-        assertEquals("kubemoot.discuss.>",
-                DiscussionOrchestrator.subscriptionSubject(""));
+    void subscriptionSubject_emptyCrew_namespaceWildcard() {
+        assertEquals("kubemoot.discuss.ns-a.>", CrewScope.of("ns-a", "").discussWildcard());
     }
 
     // --- formatConversationContext tests ---
@@ -309,6 +307,7 @@ class DiscussionOrchestratorTest {
                 @Override public int maxTokens() { return 2048; }
                 @Override public int timeoutSeconds() { return 120; }
             }; }
+            @Override public Optional<String> namespace() { return Optional.of("ns-test"); }
             @Override public Optional<String> crew() { return Optional.empty(); }
             @Override public Optional<String> crewVersion() { return Optional.empty(); }
             @Override public ResumeSearch resumeSearch() { return new ResumeSearch() {

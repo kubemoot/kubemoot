@@ -17,7 +17,7 @@ import java.util.List;
  * (kubemoot_latency bucket, no TTL). Used by DiscussionOrchestrator to set realistic
  * deadlines when an evaluating signal arrives — rather than using fixed heuristics.
  *
- * Key format: latency.<agentName>.<provider>
+ * Key format: latency.<namespace>.<agentName>.<provider> (see {@link CrewScope#latencyKey}).
  *
  * Cold start: when fewer than 3 observations exist, returns KUBEMOOT_EVAL_DEFAULT_SECONDS
  * (default 90s) — generous on purpose to avoid cutting off agents early.
@@ -30,7 +30,6 @@ public class LatencyTracker {
 
     private static final Logger log = LoggerFactory.getLogger(LatencyTracker.class);
     private static final ObjectMapper mapper = new ObjectMapper();
-    static final String KEY_PREFIX = "latency.";
     static final int MIN_SAMPLES_FOR_P90 = 3;
 
     private final NatsConnectionProvider natsProvider;
@@ -61,9 +60,8 @@ public class LatencyTracker {
     public void recordLatency(String agentName, String provider, long durationMs) {
         if (agentName == null || agentName.isEmpty()) return;
         String effectiveProvider = provider != null && !provider.isEmpty() ? provider : "unknown";
-        String key = KEY_PREFIX + agentName + "." + sanitizeKey(effectiveProvider);
-
         try {
+            String key = natsProvider.scope().latencyKey(agentName, effectiveProvider);
             AgentLatency latency = loadOrCreate(key);
             latency.add(durationMs, windowSize);
             persist(key, latency);
@@ -85,9 +83,8 @@ public class LatencyTracker {
     public int getExpectedSeconds(String agentName, String provider) {
         if (agentName == null || agentName.isEmpty()) return defaultSeconds;
         String effectiveProvider = provider != null && !provider.isEmpty() ? provider : "unknown";
-        String key = KEY_PREFIX + agentName + "." + sanitizeKey(effectiveProvider);
-
         try {
+            String key = natsProvider.scope().latencyKey(agentName, effectiveProvider);
             AgentLatency latency = load(key);
             if (latency == null || latency.sampleCount() < MIN_SAMPLES_FOR_P90) {
                 log.debug("Cold start for {}/{} (samples={}) — using default {}s",
@@ -138,11 +135,6 @@ public class LatencyTracker {
         } catch (Exception e) {
             log.warn("Failed to persist latency entry {}: {}", key, e.getMessage());
         }
-    }
-
-    /** Replace characters that are invalid in NATS KV keys. */
-    static String sanitizeKey(String value) {
-        return value.replace(" ", "_").replace("/", "_").replace(".", "_");
     }
 
     // --- Data model ---

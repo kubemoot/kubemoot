@@ -1373,6 +1373,7 @@ class ChatServiceToolLoopTest {
                 @Override public int maxTokens() { return 2048; }
                 @Override public int timeoutSeconds() { return 120; }
             }; }
+            @Override public Optional<String> namespace() { return Optional.of("ns-test"); }
             @Override public Optional<String> crew() { return Optional.empty(); }
             @Override public Optional<String> crewVersion() { return Optional.empty(); }
             @Override public ResumeSearch resumeSearch() { return new ResumeSearch() {

@@ -37,7 +37,7 @@ public class ChatEventPublisher {
             var conn = natsProvider.getConnection();
             if (conn == null) return;
 
-            String subject = "kubemoot.chat." + natsProvider.getAgentName().replace("-", "_");
+            String subject = natsProvider.scope().chatSubject(natsProvider.getAgentName());
             var event = Map.ofEntries(
                     Map.entry("agent", natsProvider.getAgentName()),
                     Map.entry("conversationId", conversationId),

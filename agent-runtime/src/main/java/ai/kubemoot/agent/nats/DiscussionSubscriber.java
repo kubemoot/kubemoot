@@ -77,7 +77,6 @@ public class DiscussionSubscriber {
     // Store). The artifact-access sidecar materializes it for the no-network
     // sandbox; network-capable consumers read the structured metadata.artifact.
     private static final int ARTIFACT_SPILL_THRESHOLD = 4096;
-    private static final String ARTIFACT_SUBJECT_PREFIX = "kubemoot.artifacts.";
     // Inline content cap for a contribution that does NOT spill (<= threshold) and
     // for the fallback when a spill FAILS (no artifact, so keep what we can inline).
     // A successfully-spilled contribution posts ONLY the marker, never a preview.
@@ -122,9 +121,6 @@ public class DiscussionSubscriber {
     // Conversation context field constants
     private static final String FIELD_QUERY = "query";
     private static final String FIELD_RESPONSE = "response";
-
-    // NATS subject prefix
-    private static final String DISCUSS_PREFIX = "kubemoot.discuss.";
 
     private final NatsConnectionProvider natsProvider;
     private final ChatService chatService;
@@ -279,8 +275,7 @@ public class DiscussionSubscriber {
                     .durable(jetstreamConsumer)
                     .build();
 
-            String crew = properties.crew().orElse(null);
-            js.subscribe(DiscussionOrchestrator.subscriptionSubject(crew), conn.createDispatcher(), msg -> {
+            js.subscribe(natsProvider.scope().discussWildcard(), conn.createDispatcher(), msg -> {
                 try {
                     handleJetStreamMessage(msg);
                 } catch (Exception e) {
@@ -317,10 +312,8 @@ public class DiscussionSubscriber {
     private boolean tryDispatcherSubscribe(Connection conn) {
         Dispatcher dispatcher = conn.createDispatcher();
 
-        String crew = properties.crew().orElse(null);
-        String broadcastSubject = crew != null && !crew.isEmpty()
-                ? DISCUSS_PREFIX + crew + ".broadcast.>"
-                : DISCUSS_PREFIX + "broadcast.>";
+        CrewScope scope = natsProvider.scope();
+        String broadcastSubject = scope.channelWildcard("broadcast");
         dispatcher.subscribe(broadcastSubject, msg -> {
             try {
                 handleMessage(msg.getSubject(), new String(msg.getData()));
@@ -331,9 +324,7 @@ public class DiscussionSubscriber {
         log.info("Subscribed to broadcast: {}", broadcastSubject);
 
         for (String channel : channels) {
-            String subject = crew != null && !crew.isEmpty()
-                    ? DISCUSS_PREFIX + crew + "." + channel.trim() + ".>"
-                    : DISCUSS_PREFIX + channel.trim() + ".>";
+            String subject = scope.channelWildcard(channel);
             dispatcher.subscribe(subject, msg -> {
                 try {
                     handleMessage(msg.getSubject(), new String(msg.getData()));
@@ -1037,8 +1028,8 @@ public class DiscussionSubscriber {
             var conn = natsProvider.getConnection();
             if (conn == null) return;
 
-            String[] parts = originalSubject.split("\\.");
-            String channel = parts.length > 2 ? parts[2] : "general";
+            CrewScope scope = natsProvider.scope();
+            String channel = scope.channelOf(originalSubject, "general");
 
             var metadata = new HashMap<String, Object>();
             metadata.put("signal", signal);
@@ -1072,10 +1063,7 @@ public class DiscussionSubscriber {
                     FIELD_METADATA, metadata
             );
 
-            String crew = properties.crew().filter(c -> !c.isEmpty()).orElse(null);
-            String publishSubject = (crew != null)
-                    ? DISCUSS_PREFIX + crew + "." + channel + "." + threadId
-                    : DISCUSS_PREFIX + channel + "." + threadId;
+            String publishSubject = scope.discussSubject(channel, threadId);
             conn.publish(publishSubject, mapper.writeValueAsBytes(message));
             log.info("Published {} signal to {} for thread {}", signal, publishSubject, threadId);
 
@@ -1133,8 +1121,8 @@ public class DiscussionSubscriber {
     private Map<String, Object> spillArtifact(Connection conn, String threadId, String signal, String content) {
         try {
             byte[] bytes = content.getBytes(StandardCharsets.UTF_8);
-            String crew = crewOrDefault();
-            String key = DiscussionArtifacts.key(crew, threadId, properties.agentName(), signal,
+            CrewScope scope = natsProvider.scope();
+            String key = DiscussionArtifacts.key(scope, threadId, properties.agentName(), signal,
                     UUID.randomUUID().toString());
 
             ensureArtifactBucket(conn);
@@ -1154,7 +1142,7 @@ public class DiscussionSubscriber {
             ref.put("createdAt", Instant.now().toString());
             ref.put("preview", truncate(content, ARTIFACT_PREVIEW_CHARS));
 
-            conn.publish(ARTIFACT_SUBJECT_PREFIX + crew + "." + threadId,
+            conn.publish(scope.artifactSubject(threadId),
                     mapper.writeValueAsBytes(Map.of("artifact", ref)));
             log.info("Spilled {} contribution ({} bytes) to artifact {}", signal, bytes.length, key);
             return ref;
@@ -1185,10 +1173,6 @@ public class DiscussionSubscriber {
             }
         }
         artifactBucketEnsured = true;
-    }
-
-    private String crewOrDefault() {
-        return DiscussionArtifacts.crewOrDefault(properties.crew());
     }
 
     /**

@@ -20,7 +20,18 @@ public interface AgentProperties {
     @WithDefault("")
     String agentDescription();
 
-    /** Crew this agent belongs to (e.g., "homelab-pilot"). Scopes NATS discussion subjects. */
+    /**
+     * Kubernetes namespace of this agent, from KUBEMOOT_NAMESPACE (the operator sets it
+     * from the downward API). When absent, the service-account namespace file is used;
+     * see {@link ai.kubemoot.agent.nats.CrewScope#fromProperties}. Every NATS subject and
+     * key carries it first, so the same crew name runs in many namespaces without crosstalk.
+     */
+    Optional<String> namespace();
+
+    /**
+     * Crew this agent belongs to (e.g., "homelab-pilot"). Scopes NATS subjects and keys
+     * within the agent's namespace; see {@link ai.kubemoot.agent.nats.CrewScope}.
+     */
     Optional<String> crew();
 
     /**

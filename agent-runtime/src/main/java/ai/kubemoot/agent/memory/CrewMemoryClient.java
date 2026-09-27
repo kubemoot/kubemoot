@@ -23,8 +23,9 @@ import java.util.regex.Pattern;
  * recalls later, so it stops re-discovering what it already figured out.
  *
  * <p>Backed by the NATS KV bucket {@code kubemoot_crew_memory} (provisioned by
- * the operator's nats-streams-job). Keys are crew-scoped:
- * {@code <crew>.<topic>.<key>}. Values are JSON {@code {value, learnedBy,
+ * the operator's nats-streams-job). Keys are namespace- and crew-scoped:
+ * {@code <namespace>.<crew>.<topic>.<key>} (see
+ * {@link ai.kubemoot.agent.nats.CrewScope#memoryKey}). Values are JSON {@code {value, learnedBy,
  * learnedAt}}. NATS KV is the existing persistent-state backbone (provider
  * state, agent state) — it survives pod restarts and needs no PVC, unlike a
  * file-backed memory server. See tasks/notes/Crew Working Memory.md.
@@ -80,7 +81,6 @@ public class CrewMemoryClient {
 
     private final NatsConnectionProvider natsProvider;
     private final ObjectMapper objectMapper;
-    private final String crew;
     // Declarative GC/injection policy from Crew.spec.memory (operator → env).
     private final boolean enabled;
     private final int maxFacts;
@@ -93,7 +93,6 @@ public class CrewMemoryClient {
                             AgentProperties properties) {
         this.natsProvider = natsProvider;
         this.objectMapper = objectMapper;
-        this.crew = properties.crew().filter(s -> !s.isEmpty()).orElse("default");
         var mem = properties.memory();
         this.enabled = mem.enabled();
         this.maxFacts = mem.maxFacts();
@@ -296,7 +295,7 @@ public class CrewMemoryClient {
     private List<Fact> readFacts(KeyValue kv) {
         List<Fact> facts = new ArrayList<>();
         if (kv == null) return facts;
-        String prefix = sanitize(crew) + ".";
+        String prefix = natsProvider.scope().memoryPrefix();
         long now = System.currentTimeMillis();
         try {
             for (String k : kv.keys()) {
@@ -374,14 +373,9 @@ public class CrewMemoryClient {
         }
     }
 
-    /** NATS KV keys allow [A-Za-z0-9-_/=.] — build a safe crew-scoped key. */
+    /** The namespace- and crew-scoped KV key for one fact. */
     String natsKey(String topic, String key) {
-        return sanitize(crew) + "." + sanitize(topic) + "." + sanitize(key);
-    }
-
-    static String sanitize(String s) {
-        if (s == null || s.isEmpty()) return "_";
-        return s.strip().replaceAll("[^A-Za-z0-9_=-]", "_");
+        return natsProvider.scope().memoryKey(topic, key);
     }
 
     private record Fact(String natsKey, String topic, String key, String value,

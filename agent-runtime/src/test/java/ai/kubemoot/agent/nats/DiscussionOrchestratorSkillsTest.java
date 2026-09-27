@@ -179,7 +179,7 @@ class DiscussionOrchestratorSkillsTest {
             return null;
         }).when(os).get(anyString(), any(java.io.OutputStream.class));
 
-        String key = "homelab-pilot/t1/k8s-config/agree-abc";
+        String key = "ns-a/homelab-pilot/t1/k8s-config/agree-abc";
         String input = "k8s-config agree: [ARTIFACT key=" + key
                 + " bytes=64 - the FULL data is in the file /artifacts/" + key + "]";
         String out = orchestrator.inlineArtifactContent(input);

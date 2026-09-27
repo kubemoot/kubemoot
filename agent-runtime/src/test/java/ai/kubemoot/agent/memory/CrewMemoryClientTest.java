@@ -1,6 +1,7 @@
 package ai.kubemoot.agent.memory;
 
 import ai.kubemoot.agent.config.AgentProperties;
+import ai.kubemoot.agent.nats.CrewScope;
 import ai.kubemoot.agent.nats.NatsConnectionProvider;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
@@ -21,8 +22,13 @@ import static org.mockito.Mockito.when;
 class CrewMemoryClientTest {
 
     private static CrewMemoryClient clientWithoutNats() {
+        return clientWithoutNats(CrewScope.of("ns-a", "homelab-pilot"));
+    }
+
+    private static CrewMemoryClient clientWithoutNats(CrewScope scope) {
         var nats = mock(NatsConnectionProvider.class);
         when(nats.isAvailable()).thenReturn(false); // memory ops become no-ops
+        when(nats.scope()).thenReturn(scope);
         var props = mock(AgentProperties.class);
         when(props.crew()).thenReturn(Optional.of("homelab-pilot"));
         var mem = mock(AgentProperties.Memory.class);
@@ -80,17 +86,31 @@ class CrewMemoryClientTest {
     @Test
     void sanitize_keepsSafeKeyChars_replacesRest() {
         // NATS KV keys allow [A-Za-z0-9-_/=.]; we keep [A-Za-z0-9_=-], replace others.
-        assertEquals("ollama-rig0", CrewMemoryClient.sanitize("ollama-rig0"));
-        assertEquals("gpu_topology", CrewMemoryClient.sanitize("gpu topology"));
-        assertEquals("a_b_c", CrewMemoryClient.sanitize("a/b.c"));
-        assertEquals("_", CrewMemoryClient.sanitize(""));
-        assertEquals("_", CrewMemoryClient.sanitize(null));
+        assertEquals("ollama-rig0", CrewScope.kvToken("ollama-rig0"));
+        assertEquals("gpu_topology", CrewScope.kvToken("gpu topology"));
+        assertEquals("a_b_c", CrewScope.kvToken("a/b.c"));
+        assertEquals("_", CrewScope.kvToken(""));
+        assertEquals("_", CrewScope.kvToken(null));
     }
 
     @Test
-    void natsKey_isCrewScopedAndDotSeparated() {
+    void natsKey_isNamespaceAndCrewScopedAndDotSeparated() {
         var c = clientWithoutNats();
-        assertEquals("homelab-pilot.gpu-topology.rig0", c.natsKey("gpu-topology", "rig0"));
+        assertEquals("ns-a.homelab-pilot.gpu-topology.rig0", c.natsKey("gpu-topology", "rig0"));
+    }
+
+    @Test
+    void natsKey_sameCrewInTwoNamespaces_differs() {
+        var a = clientWithoutNats(CrewScope.of("ns-a", "homelab-pilot"));
+        var b = clientWithoutNats(CrewScope.of("ns-b", "homelab-pilot"));
+        assertNotEquals(a.natsKey("gpu-topology", "rig0"), b.natsKey("gpu-topology", "rig0"));
+        assertEquals("ns-b.homelab-pilot.gpu-topology.rig0", b.natsKey("gpu-topology", "rig0"));
+    }
+
+    @Test
+    void natsKey_crewlessAgent_usesDefaultCrewSegment() {
+        var c = clientWithoutNats(CrewScope.of("ns-a", null));
+        assertEquals("ns-a.default.t.k", c.natsKey("t", "k"));
     }
 
     @Test

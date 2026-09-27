@@ -26,6 +26,7 @@ public class NatsConnectionProvider {
 
     private final String natsUrl;
     private final String agentName;
+    private final CrewScope scope;
     private Connection connection;
     private Instant lastFailedAttempt;
 
@@ -33,10 +34,26 @@ public class NatsConnectionProvider {
         this.natsUrl = properties.nats().url().orElse("");
         this.agentName = properties.agentName();
         if (natsUrl.isEmpty()) {
+            this.scope = null;
             log.info("NATS URL not configured — NATS features disabled");
         } else {
-            log.info("NATS connection provider initialized: {}", natsUrl);
+            // Fails startup when the namespace is unknown: an unscoped subject or key
+            // would cross into every other namespace running the same crew name.
+            this.scope = CrewScope.fromProperties(properties);
+            log.info("NATS connection provider initialized: {} (scope {})", natsUrl, scope);
         }
+    }
+
+    /**
+     * The namespace and crew scoping every subject and key this agent uses.
+     *
+     * @throws IllegalStateException when NATS is not configured (there is no scope to use)
+     */
+    public CrewScope scope() {
+        if (scope == null) {
+            throw new IllegalStateException("NATS not configured; no crew scope");
+        }
+        return scope;
     }
 
     public boolean isConfigured() {

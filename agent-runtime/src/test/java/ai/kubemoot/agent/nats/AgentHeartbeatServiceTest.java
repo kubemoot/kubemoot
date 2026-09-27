@@ -26,6 +26,7 @@ class AgentHeartbeatServiceTest {
     @BeforeEach
     void setUp() {
         natsProvider = mock(NatsConnectionProvider.class);
+        when(natsProvider.scope()).thenReturn(CrewScope.of("ns-a", null));
         warmupService = mock(ModelWarmupService.class);
         properties = stubProperties("test-agent", true, 60, "kubemoot_agent_state");
         service = new AgentHeartbeatService(natsProvider, warmupService, properties);
@@ -43,7 +44,7 @@ class AgentHeartbeatServiceTest {
 
         service.publishHeartbeat();
 
-        verify(kv).put(eq("test-agent"), any(byte[].class));
+        verify(kv).put(eq("ns-a.test-agent"), any(byte[].class));
     }
 
     @Test
@@ -103,7 +104,7 @@ class AgentHeartbeatServiceTest {
         service.publishHeartbeat();
 
         var captor = ArgumentCaptor.forClass(byte[].class);
-        verify(kv).put(eq("test-agent"), captor.capture());
+        verify(kv).put(eq("ns-a.test-agent"), captor.capture());
         String json = new String(captor.getValue());
         assertTrue(json.contains("\"lastInference\":"));
     }
@@ -196,6 +197,7 @@ class AgentHeartbeatServiceTest {
                 @Override public int maxTokens() { return 2048; }
                 @Override public int timeoutSeconds() { return 120; }
             }; }
+            @Override public Optional<String> namespace() { return Optional.of("ns-test"); }
             @Override public Optional<String> crew() { return Optional.empty(); }
             @Override public Optional<String> crewVersion() { return Optional.empty(); }
             @Override public ResumeSearch resumeSearch() { return new ResumeSearch() {

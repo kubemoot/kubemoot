@@ -25,8 +25,8 @@ import java.util.UUID;
  * 2. Poll until model warmup completes, then publish {@code ready} — tells the coordinator
  *    "I'm fully initialized, resume normal timing."
  *
- * Both signals are published to the crew-scoped broadcast subject so the coordinator's
- * existing subscription picks them up without additional wiring.
+ * Both signals are published to the namespace- and crew-scoped lifecycle subject
+ * ({@link CrewScope#lifecycleSubject}), which the coordinator subscribes to.
  */
 @ApplicationScoped
 public class WakeUpSignalService {
@@ -100,7 +100,6 @@ public class WakeUpSignalService {
             var conn = natsProvider.getConnection();
             if (conn == null) return;
 
-            String crew = properties.crew().orElse(null);
             String agentName = properties.agentName();
 
             var message = Map.of(
@@ -118,9 +117,7 @@ public class WakeUpSignalService {
             // Using kubemoot.discuss.> would cause waking signals to appear as consumer lag
             // in every agent's JetStream consumer, triggering a bootstrap storm where agents
             // wake each other up in a feedback loop via KEDA.
-            String subject = (crew != null && !crew.isEmpty())
-                    ? "kubemoot.lifecycle." + crew + "." + signal + "." + agentName
-                    : "kubemoot.lifecycle." + signal + "." + agentName;
+            String subject = natsProvider.scope().lifecycleSubject(signal, agentName);
 
             conn.publish(subject, mapper.writeValueAsBytes(message));
             log.info("Published {} signal to {} for agent {}", signal, subject, agentName);

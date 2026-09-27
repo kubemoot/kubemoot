@@ -40,6 +40,7 @@ class LatencyTrackerTest {
         conn = mock(Connection.class);
         kv = mock(KeyValue.class);
         when(natsProvider.getConnection()).thenReturn(conn);
+        when(natsProvider.scope()).thenReturn(CrewScope.of("ns-a", "homelab-pilot"));
         when(conn.keyValue(BUCKET)).thenReturn(kv);
 
         tracker = new LatencyTracker(natsProvider, DEFAULT_SECONDS, WINDOW_SIZE, BUCKET);
@@ -128,7 +129,7 @@ class LatencyTrackerTest {
         latency.add(20000L, WINDOW_SIZE);
 
         var entry = mockKvEntry(latency);
-        when(kv.get("latency.k8sgpt.RTX_5090")).thenReturn(entry);
+        when(kv.get("latency.ns-a.k8sgpt.RTX_5090")).thenReturn(entry);
 
         int result = tracker.getExpectedSeconds("k8sgpt", "RTX 5090");
         assertEquals(DEFAULT_SECONDS, result);
@@ -145,7 +146,7 @@ class LatencyTrackerTest {
         latency.add(25_000L, WINDOW_SIZE);
 
         var entry = mockKvEntry(latency);
-        when(kv.get("latency.k8sgpt.RTX_5090")).thenReturn(entry);
+        when(kv.get("latency.ns-a.k8sgpt.RTX_5090")).thenReturn(entry);
 
         int result = tracker.getExpectedSeconds("k8sgpt", "RTX 5090");
         // P90 of {5000,10000,15000,20000,25000}: ceil(0.9*5)-1 = 5-1=4 → sorted[4]=25000ms → 25s
@@ -180,7 +181,7 @@ class LatencyTrackerTest {
 
         tracker.recordLatency("k8sgpt", "RTX 5090", 30_000L);
 
-        verify(kv).put(eq("latency.k8sgpt.RTX_5090"), any(byte[].class));
+        verify(kv).put(eq("latency.ns-a.k8sgpt.RTX_5090"), any(byte[].class));
     }
 
     @Test
@@ -205,16 +206,27 @@ class LatencyTrackerTest {
         tracker.recordLatency("k8sgpt", "RTX 5090", 20_000L);
         tracker.recordLatency("k8sgpt", "RTX 4090", 60_000L);
 
-        verify(kv).put(eq("latency.k8sgpt.RTX_5090"), any(byte[].class));
-        verify(kv).put(eq("latency.k8sgpt.RTX_4090"), any(byte[].class));
+        verify(kv).put(eq("latency.ns-a.k8sgpt.RTX_5090"), any(byte[].class));
+        verify(kv).put(eq("latency.ns-a.k8sgpt.RTX_4090"), any(byte[].class));
     }
 
     @Test
-    void sanitizeKey_replacesSpacesAndSlashes() {
-        assertEquals("RTX_5090", LatencyTracker.sanitizeKey("RTX 5090"));
-        assertEquals("RTX_4090", LatencyTracker.sanitizeKey("RTX 4090"));
-        assertEquals("some_path_key", LatencyTracker.sanitizeKey("some/path/key"));
-        assertEquals("a_b_c", LatencyTracker.sanitizeKey("a.b.c"));
+    void latencyToken_replacesSpacesSlashesAndDots() {
+        assertEquals("RTX_5090", CrewScope.latencyToken("RTX 5090"));
+        assertEquals("RTX_4090", CrewScope.latencyToken("RTX 4090"));
+        assertEquals("some_path_key", CrewScope.latencyToken("some/path/key"));
+        assertEquals("a_b_c", CrewScope.latencyToken("a.b.c"));
+    }
+
+    @Test
+    void recordLatency_sameAgentInAnotherNamespace_writesItsOwnKey() throws Exception {
+        when(kv.get(anyString())).thenReturn(null);
+        when(natsProvider.scope()).thenReturn(CrewScope.of("ns-b", "homelab-pilot"));
+
+        tracker.recordLatency("k8sgpt", "RTX 5090", 20_000L);
+
+        verify(kv).put(eq("latency.ns-b.k8sgpt.RTX_5090"), any(byte[].class));
+        verify(kv, never()).put(eq("latency.ns-a.k8sgpt.RTX_5090"), any(byte[].class));
     }
 
     // --- Round-trip: record then query ---

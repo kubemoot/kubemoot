@@ -14,7 +14,8 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
 /**
- * Publishes periodic heartbeats to NATS KV bucket for agent liveness tracking.
+ * Publishes periodic heartbeats to NATS KV bucket for agent liveness tracking, keyed
+ * {@code <namespace>.<agent>} (see {@link CrewScope#agentStateKey}).
  * Graceful no-op when NATS is unavailable (matches existing pattern).
  */
 @ApplicationScoped
@@ -77,7 +78,7 @@ public class AgentHeartbeatService {
             String json = buildHeartbeatJson(agentName, now, natsConnected, ollamaReachable, model, inference);
 
             var kv = conn.keyValue(properties.heartbeat().kvBucket());
-            kv.put(agentName, json.getBytes());
+            kv.put(natsConnectionProvider.scope().agentStateKey(agentName), json.getBytes());
         } catch (Exception e) {
             log.warn("Failed to publish heartbeat: {}", e.getMessage());
         }

@@ -43,6 +43,7 @@ class DiscussionSubscriberTest {
         var dispatcher = mock(Dispatcher.class);
 
         when(natsProvider.getConnection()).thenReturn(conn);
+        when(natsProvider.scope()).thenReturn(CrewScope.of("ns-a", "crew-x"));
         when(conn.createDispatcher()).thenReturn(dispatcher);
         var subscription = mock(Subscription.class);
         when(dispatcher.subscribe(anyString(), any(MessageHandler.class))).thenReturn(subscription);
@@ -51,8 +52,9 @@ class DiscussionSubscriberTest {
         boolean result = subscriber.trySubscribe();
 
         assertTrue(result);
-        // Dispatcher mode: subscribes to broadcast + each channel
-        verify(dispatcher, atLeast(2)).subscribe(anyString(), any(MessageHandler.class));
+        // Dispatcher mode: subscribes to broadcast + each channel, namespace-scoped
+        verify(dispatcher).subscribe(eq("kubemoot.discuss.ns-a.crew-x.broadcast.>"), any(MessageHandler.class));
+        verify(dispatcher).subscribe(eq("kubemoot.discuss.ns-a.crew-x.kubernetes.>"), any(MessageHandler.class));
     }
 
     @Test
@@ -64,6 +66,7 @@ class DiscussionSubscriberTest {
         var subscription = mock(JetStreamSubscription.class);
 
         when(natsProvider.getConnection()).thenReturn(conn);
+        when(natsProvider.scope()).thenReturn(CrewScope.of("ns-a", "crew-x"));
         when(conn.createDispatcher()).thenReturn(dispatcher);
         when(conn.jetStream()).thenReturn(jetStream);
         when(jetStream.subscribe(anyString(), any(Dispatcher.class),
@@ -74,7 +77,7 @@ class DiscussionSubscriberTest {
 
         assertTrue(result);
         // JetStream mode: single subscribe call with durable consumer
-        verify(jetStream).subscribe(anyString(), any(Dispatcher.class),
+        verify(jetStream).subscribe(eq("kubemoot.discuss.ns-a.crew-x.>"), any(Dispatcher.class),
                 any(MessageHandler.class), eq(false), any(PushSubscribeOptions.class));
     }
 
@@ -193,6 +196,7 @@ class DiscussionSubscriberTest {
                 @Override public int maxTokens() { return 2048; }
                 @Override public int timeoutSeconds() { return 120; }
             }; }
+            @Override public Optional<String> namespace() { return Optional.of("ns-test"); }
             @Override public Optional<String> crew() { return Optional.empty(); }
             @Override public Optional<String> crewVersion() { return Optional.empty(); }
             @Override public ResumeSearch resumeSearch() { return new ResumeSearch() {

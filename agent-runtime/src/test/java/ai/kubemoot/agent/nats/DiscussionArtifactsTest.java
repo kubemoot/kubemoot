@@ -7,7 +7,6 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.List;
-import java.util.Optional;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -21,33 +20,55 @@ import static org.mockito.Mockito.*;
  */
 class DiscussionArtifactsTest {
 
+    private static final CrewScope SCOPE = CrewScope.of("ns-a", "homelab-pilot");
+    private static final String PREFIX = SCOPE.artifactKeyPrefix();
+
     @Test
     void key_format() {
-        assertEquals("homelab-pilot/t1/k8s-config/agree-uuid123",
-                DiscussionArtifacts.key("homelab-pilot", "t1", "k8s-config", "agree", "uuid123"));
+        assertEquals("ns-a/homelab-pilot/t1/k8s-config/agree-uuid123",
+                DiscussionArtifacts.key(SCOPE, "t1", "k8s-config", "agree", "uuid123"));
     }
 
     @Test
     void threadPrefix_isKeyPrefix() {
-        String prefix = DiscussionArtifacts.threadPrefix("homelab-pilot", "t1");
-        assertEquals("homelab-pilot/t1/", prefix);
+        String prefix = DiscussionArtifacts.threadPrefix(SCOPE, "t1");
+        assertEquals("ns-a/homelab-pilot/t1/", prefix);
         // The spill key for the same crew+thread must start with the delete prefix,
         // otherwise GC would never match the objects it is meant to reap.
-        assertTrue(DiscussionArtifacts.key("homelab-pilot", "t1", "k8s-config", "agree", "u")
+        assertTrue(DiscussionArtifacts.key(SCOPE, "t1", "k8s-config", "agree", "u")
                 .startsWith(prefix));
     }
 
     @Test
-    void crewOrDefault_fallsBackOnEmptyOrMissing() {
-        assertEquals("homelab-pilot", DiscussionArtifacts.crewOrDefault(Optional.of("homelab-pilot")));
-        assertEquals("nocrew", DiscussionArtifacts.crewOrDefault(Optional.of("")));
-        assertEquals("nocrew", DiscussionArtifacts.crewOrDefault(Optional.empty()));
+    void key_crewlessScope_usesNocrewSegment() {
+        assertEquals("ns-a/nocrew/t1/agent/agree-u",
+                DiscussionArtifacts.key(CrewScope.of("ns-a", ""), "t1", "agent", "agree", "u"));
+    }
+
+    @Test
+    void key_sameCrewInTwoNamespaces_differs() {
+        String a = DiscussionArtifacts.key(SCOPE, "t1", "agent", "agree", "u");
+        String b = DiscussionArtifacts.key(CrewScope.of("ns-b", "homelab-pilot"), "t1", "agent", "agree", "u");
+        assertNotEquals(a, b);
+        assertEquals("ns-b/homelab-pilot/t1/agent/agree-u", b);
+    }
+
+    @Test
+    void reapOrphans_neverTouchesSameCrewInAnotherNamespace() throws Exception {
+        var conn = mock(Connection.class);
+        var store = mock(ObjectStore.class);
+        var otherNs = objectInfo("ns-b/homelab-pilot/dead/agent/agree-a", false, NOW.minus(Duration.ofHours(3)));
+        when(conn.objectStore(DiscussionArtifacts.BUCKET)).thenReturn(store);
+        when(store.getList()).thenReturn(List.of(otherNs));
+
+        assertEquals(0, DiscussionArtifacts.reapOrphans(conn, SCOPE, t -> false, GRACE, NOW));
+        verify(store, never()).delete(anyString());
     }
 
     @Test
     void deleteThreadArtifacts_emptyInput_noStoreAccess() throws Exception {
         var conn = mock(Connection.class);
-        assertEquals(0, DiscussionArtifacts.deleteThreadArtifacts(conn, "homelab-pilot", List.of()));
+        assertEquals(0, DiscussionArtifacts.deleteThreadArtifacts(conn, SCOPE, List.of()));
         verifyNoInteractions(conn);
     }
 
@@ -55,7 +76,7 @@ class DiscussionArtifactsTest {
     void deleteThreadArtifacts_nullConn_returnsZeroWithoutNpe() {
         // The scheduler can fire before NATS is connected; a null connection must be
         // a clean no-op, not an NPE that the catch block swallows into a misleading log.
-        assertEquals(0, DiscussionArtifacts.deleteThreadArtifacts(null, "homelab-pilot", List.of("t1")));
+        assertEquals(0, DiscussionArtifacts.deleteThreadArtifacts(null, SCOPE, List.of("t1")));
     }
 
     @Test
@@ -64,39 +85,39 @@ class DiscussionArtifactsTest {
         var store = mock(ObjectStore.class);
         // Build the ObjectInfo mocks before the getList() stub: each does its own
         // stubbing, which would otherwise nest inside an unfinished when(getList()).
-        var match1 = objectInfo("homelab-pilot/t1/k8s-config/agree-a", false);
-        var match2 = objectInfo("homelab-pilot/t1/net/agree-b", false);       // other agent, same thread
-        var otherThread = objectInfo("homelab-pilot/t2/k8s-config/agree-c", false);
-        var alreadyDeleted = objectInfo("homelab-pilot/t1/gone/agree-d", true); // matches prefix but deleted
+        var match1 = objectInfo("ns-a/homelab-pilot/t1/k8s-config/agree-a", false);
+        var match2 = objectInfo("ns-a/homelab-pilot/t1/net/agree-b", false);       // other agent, same thread
+        var otherThread = objectInfo("ns-a/homelab-pilot/t2/k8s-config/agree-c", false);
+        var alreadyDeleted = objectInfo("ns-a/homelab-pilot/t1/gone/agree-d", true); // matches prefix but deleted
         when(conn.objectStore(DiscussionArtifacts.BUCKET)).thenReturn(store);
         when(store.getList()).thenReturn(List.of(match1, match2, otherThread, alreadyDeleted));
 
-        int deleted = DiscussionArtifacts.deleteThreadArtifacts(conn, "homelab-pilot", List.of("t1"));
+        int deleted = DiscussionArtifacts.deleteThreadArtifacts(conn, SCOPE, List.of("t1"));
 
         assertEquals(2, deleted);
-        verify(store).delete("homelab-pilot/t1/k8s-config/agree-a");
-        verify(store).delete("homelab-pilot/t1/net/agree-b");
-        verify(store, never()).delete("homelab-pilot/t2/k8s-config/agree-c");
-        verify(store, never()).delete("homelab-pilot/t1/gone/agree-d");
+        verify(store).delete("ns-a/homelab-pilot/t1/k8s-config/agree-a");
+        verify(store).delete("ns-a/homelab-pilot/t1/net/agree-b");
+        verify(store, never()).delete("ns-a/homelab-pilot/t2/k8s-config/agree-c");
+        verify(store, never()).delete("ns-a/homelab-pilot/t1/gone/agree-d");
     }
 
     @Test
     void deleteThreadArtifacts_multipleThreadsListedOnce() throws Exception {
         var conn = mock(Connection.class);
         var store = mock(ObjectStore.class);
-        var o1 = objectInfo("homelab-pilot/t1/a/agree-1", false);
-        var o2 = objectInfo("homelab-pilot/t2/a/agree-2", false);
-        var o3 = objectInfo("homelab-pilot/t3/a/agree-3", false);
+        var o1 = objectInfo("ns-a/homelab-pilot/t1/a/agree-1", false);
+        var o2 = objectInfo("ns-a/homelab-pilot/t2/a/agree-2", false);
+        var o3 = objectInfo("ns-a/homelab-pilot/t3/a/agree-3", false);
         when(conn.objectStore(DiscussionArtifacts.BUCKET)).thenReturn(store);
         when(store.getList()).thenReturn(List.of(o1, o2, o3));
 
-        int deleted = DiscussionArtifacts.deleteThreadArtifacts(conn, "homelab-pilot", List.of("t1", "t2"));
+        int deleted = DiscussionArtifacts.deleteThreadArtifacts(conn, SCOPE, List.of("t1", "t2"));
 
         assertEquals(2, deleted);
         verify(store, times(1)).getList(); // one list per batch, not per thread
-        verify(store).delete("homelab-pilot/t1/a/agree-1");
-        verify(store).delete("homelab-pilot/t2/a/agree-2");
-        verify(store, never()).delete("homelab-pilot/t3/a/agree-3");
+        verify(store).delete("ns-a/homelab-pilot/t1/a/agree-1");
+        verify(store).delete("ns-a/homelab-pilot/t2/a/agree-2");
+        verify(store, never()).delete("ns-a/homelab-pilot/t3/a/agree-3");
     }
 
     @Test
@@ -106,7 +127,7 @@ class DiscussionArtifactsTest {
         when(conn.objectStore(DiscussionArtifacts.BUCKET)).thenReturn(store);
         when(store.getList()).thenThrow(new RuntimeException("nats down"));
         // GC must never break the lifecycle path; failure returns 0, no exception.
-        assertEquals(0, DiscussionArtifacts.deleteThreadArtifacts(conn, "homelab-pilot", List.of("t1")));
+        assertEquals(0, DiscussionArtifacts.deleteThreadArtifacts(conn, SCOPE, List.of("t1")));
     }
 
     // --- orphan reaper (GC Layer 3) ---
@@ -116,10 +137,10 @@ class DiscussionArtifactsTest {
 
     @Test
     void threadIdOf_parsesThreadSegment() {
-        assertEquals("t1", DiscussionArtifacts.threadIdOf("homelab-pilot/t1/agent/agree-u", "homelab-pilot"));
-        assertNull(DiscussionArtifacts.threadIdOf("other-crew/t1/agent/agree-u", "homelab-pilot"),
+        assertEquals("t1", DiscussionArtifacts.threadIdOf("ns-a/homelab-pilot/t1/agent/agree-u", PREFIX));
+        assertNull(DiscussionArtifacts.threadIdOf("ns-a/other-crew/t1/agent/agree-u", PREFIX),
                 "a different crew's key must not parse under our crew");
-        assertNull(DiscussionArtifacts.threadIdOf("homelab-pilot/no-more-slashes", "homelab-pilot"),
+        assertNull(DiscussionArtifacts.threadIdOf("ns-a/homelab-pilot/no-more-slashes", PREFIX),
                 "a key with no thread-terminating slash is malformed");
     }
 
@@ -127,27 +148,27 @@ class DiscussionArtifactsTest {
     void reapOrphans_reapsDeadThreadPastGrace() throws Exception {
         var conn = mock(Connection.class);
         var store = mock(ObjectStore.class);
-        var orphan = objectInfo("homelab-pilot/dead/agent/agree-a", false, NOW.minus(Duration.ofHours(3)));
+        var orphan = objectInfo("ns-a/homelab-pilot/dead/agent/agree-a", false, NOW.minus(Duration.ofHours(3)));
         when(conn.objectStore(DiscussionArtifacts.BUCKET)).thenReturn(store);
         when(store.getList()).thenReturn(List.of(orphan));
 
-        int reaped = DiscussionArtifacts.reapOrphans(conn, "homelab-pilot", t -> false, GRACE, NOW);
+        int reaped = DiscussionArtifacts.reapOrphans(conn, SCOPE, t -> false, GRACE, NOW);
 
         assertEquals(1, reaped);
-        verify(store).delete("homelab-pilot/dead/agent/agree-a");
+        verify(store).delete("ns-a/homelab-pilot/dead/agent/agree-a");
     }
 
     @Test
     void reapOrphans_keepsLiveThreadEvenPastGrace() throws Exception {
         var conn = mock(Connection.class);
         var store = mock(ObjectStore.class);
-        var live = objectInfo("homelab-pilot/t-live/agent/agree-a", false, NOW.minus(Duration.ofHours(5)));
+        var live = objectInfo("ns-a/homelab-pilot/t-live/agent/agree-a", false, NOW.minus(Duration.ofHours(5)));
         when(conn.objectStore(DiscussionArtifacts.BUCKET)).thenReturn(store);
         when(store.getList()).thenReturn(List.of(live));
 
         // A live thread's artifacts are never reaped, no matter how old - this is the
         // guard that makes the reaper safe to run during a measurement.
-        int reaped = DiscussionArtifacts.reapOrphans(conn, "homelab-pilot", "t-live"::equals, GRACE, NOW);
+        int reaped = DiscussionArtifacts.reapOrphans(conn, SCOPE, "t-live"::equals, GRACE, NOW);
 
         assertEquals(0, reaped);
         verify(store, never()).delete(anyString());
@@ -157,11 +178,11 @@ class DiscussionArtifactsTest {
     void reapOrphans_keepsRecentOrphanWithinGrace() throws Exception {
         var conn = mock(Connection.class);
         var store = mock(ObjectStore.class);
-        var recent = objectInfo("homelab-pilot/dead/agent/agree-a", false, NOW.minus(Duration.ofMinutes(30)));
+        var recent = objectInfo("ns-a/homelab-pilot/dead/agent/agree-a", false, NOW.minus(Duration.ofMinutes(30)));
         when(conn.objectStore(DiscussionArtifacts.BUCKET)).thenReturn(store);
         when(store.getList()).thenReturn(List.of(recent));
 
-        int reaped = DiscussionArtifacts.reapOrphans(conn, "homelab-pilot", t -> false, GRACE, NOW);
+        int reaped = DiscussionArtifacts.reapOrphans(conn, SCOPE, t -> false, GRACE, NOW);
 
         assertEquals(0, reaped, "within the grace window even a dead-thread object is left alone");
         verify(store, never()).delete(anyString());
@@ -171,13 +192,13 @@ class DiscussionArtifactsTest {
     void reapOrphans_ignoresOtherCrewDeletedAndUnknownAge() throws Exception {
         var conn = mock(Connection.class);
         var store = mock(ObjectStore.class);
-        var otherCrew = objectInfo("other/dead/agent/agree-a", false, NOW.minus(Duration.ofHours(3)));
-        var alreadyDeleted = objectInfo("homelab-pilot/dead/agent/agree-b", true, NOW.minus(Duration.ofHours(3)));
-        var unknownAge = objectInfo("homelab-pilot/dead/agent/agree-c", false, null);
+        var otherCrew = objectInfo("ns-a/other/dead/agent/agree-a", false, NOW.minus(Duration.ofHours(3)));
+        var alreadyDeleted = objectInfo("ns-a/homelab-pilot/dead/agent/agree-b", true, NOW.minus(Duration.ofHours(3)));
+        var unknownAge = objectInfo("ns-a/homelab-pilot/dead/agent/agree-c", false, null);
         when(conn.objectStore(DiscussionArtifacts.BUCKET)).thenReturn(store);
         when(store.getList()).thenReturn(List.of(otherCrew, alreadyDeleted, unknownAge));
 
-        int reaped = DiscussionArtifacts.reapOrphans(conn, "homelab-pilot", t -> false, GRACE, NOW);
+        int reaped = DiscussionArtifacts.reapOrphans(conn, SCOPE, t -> false, GRACE, NOW);
 
         assertEquals(0, reaped);
         verify(store, never()).delete(anyString());
@@ -185,24 +206,24 @@ class DiscussionArtifactsTest {
 
     @Test
     void reapOrphans_nullConn_returnsZero() {
-        assertEquals(0, DiscussionArtifacts.reapOrphans(null, "homelab-pilot", t -> false, GRACE, NOW));
+        assertEquals(0, DiscussionArtifacts.reapOrphans(null, SCOPE, t -> false, GRACE, NOW));
     }
 
     @Test
     void reapOrphans_perObjectDeleteFailure_continuesToNext() throws Exception {
         var conn = mock(Connection.class);
         var store = mock(ObjectStore.class);
-        var bad = objectInfo("homelab-pilot/dead/agent/agree-bad", false, NOW.minus(Duration.ofHours(3)));
-        var good = objectInfo("homelab-pilot/dead/agent/agree-good", false, NOW.minus(Duration.ofHours(3)));
+        var bad = objectInfo("ns-a/homelab-pilot/dead/agent/agree-bad", false, NOW.minus(Duration.ofHours(3)));
+        var good = objectInfo("ns-a/homelab-pilot/dead/agent/agree-good", false, NOW.minus(Duration.ofHours(3)));
         when(conn.objectStore(DiscussionArtifacts.BUCKET)).thenReturn(store);
         when(store.getList()).thenReturn(List.of(bad, good));
-        when(store.delete("homelab-pilot/dead/agent/agree-bad")).thenThrow(new RuntimeException("locked"));
+        when(store.delete("ns-a/homelab-pilot/dead/agent/agree-bad")).thenThrow(new RuntimeException("locked"));
 
         // One failing delete must not abort the rest of the pass (best-effort per object).
-        int reaped = DiscussionArtifacts.reapOrphans(conn, "homelab-pilot", t -> false, GRACE, NOW);
+        int reaped = DiscussionArtifacts.reapOrphans(conn, SCOPE, t -> false, GRACE, NOW);
 
         assertEquals(1, reaped);
-        verify(store).delete("homelab-pilot/dead/agent/agree-good");
+        verify(store).delete("ns-a/homelab-pilot/dead/agent/agree-good");
     }
 
     @Test
@@ -211,7 +232,7 @@ class DiscussionArtifactsTest {
         var store = mock(ObjectStore.class);
         when(conn.objectStore(DiscussionArtifacts.BUCKET)).thenReturn(store);
         when(store.getList()).thenThrow(new RuntimeException("nats down"));
-        assertEquals(0, DiscussionArtifacts.reapOrphans(conn, "homelab-pilot", t -> false, GRACE, NOW));
+        assertEquals(0, DiscussionArtifacts.reapOrphans(conn, SCOPE, t -> false, GRACE, NOW));
     }
 
     private static ObjectInfo objectInfo(String name, boolean deleted) {

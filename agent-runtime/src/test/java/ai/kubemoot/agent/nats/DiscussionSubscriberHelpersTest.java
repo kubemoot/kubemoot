@@ -163,15 +163,17 @@ class DiscussionSubscriberHelpersTest {
         var ref = (Map<String, Object>) meta.get("artifact");
         assertEquals("kubemoot_discussion_artifacts", ref.get("bucket"));
         assertEquals(5000, ((Number) ref.get("bytes")).intValue(), "bytes is the full byte[] length");
-        assertTrue(((String) ref.get("key")).contains("/t1/"), "key is thread-scoped");
+        assertTrue(((String) ref.get("key")).startsWith("ns-a/nocrew/t1/compute-agent/agree-"),
+                "key is namespace-, crew-, and thread-scoped");
         verify(os).put(anyString(), any(byte[].class));
-        verify(conn).publish(anyString(), any(byte[].class));
+        verify(conn).publish(eq("kubemoot.artifacts.ns-a.nocrew.t1"), any(byte[].class));
     }
 
     // --- Helper methods ---
 
     private DiscussionSubscriber createSubscriber(String agentName) {
         var natsProvider = mock(NatsConnectionProvider.class);
+        when(natsProvider.scope()).thenReturn(CrewScope.of("ns-a", null));
         var chatService = mock(ChatService.class);
         var props = stubProperties(agentName, "kubernetes", null, false);
         var metrics = new DiscussionMetrics(new io.micrometer.core.instrument.simple.SimpleMeterRegistry());
@@ -270,6 +272,7 @@ class DiscussionSubscriberHelpersTest {
                 @Override public int maxTokens() { return 2048; }
                 @Override public int timeoutSeconds() { return 120; }
             }; }
+            @Override public Optional<String> namespace() { return Optional.of("ns-test"); }
             @Override public Optional<String> crew() { return Optional.empty(); }
             @Override public Optional<String> crewVersion() { return Optional.empty(); }
             @Override public ResumeSearch resumeSearch() { return new ResumeSearch() {

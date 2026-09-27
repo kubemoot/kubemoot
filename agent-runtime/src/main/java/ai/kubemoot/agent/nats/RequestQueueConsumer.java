@@ -28,8 +28,10 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * Pulls one request at a time from the KUBEMOOT_REQUEST stream, processes it
  * via the DiscussionOrchestrator, acks on completion, then pulls the next.
  *
- * Different crews have separate consumers (request-{crew}), so crews on
- * different GPUs process in parallel while requests within a crew are serialized.
+ * Different crews have separate consumers (request-{namespace}-{crew}, see
+ * {@link CrewScope#requestConsumer()}), so crews on different GPUs, and the same crew
+ * name in different namespaces, process in parallel while requests within one crew
+ * are serialized.
  */
 @ApplicationScoped
 public class RequestQueueConsumer {
@@ -86,10 +88,11 @@ public class RequestQueueConsumer {
             return;
         }
 
+        CrewScope scope = natsProvider.scope();
         consumerThread = new Thread(this::consumeLoop, "request-queue-" + crew);
         consumerThread.setDaemon(true);
         consumerThread.start();
-        log.info("Request queue consumer starting: crew={}, consumer=request-{}", crew, crew);
+        log.info("Request queue consumer starting: crew={}, consumer={}", crew, scope.requestConsumer());
     }
 
     void onShutdown(@Observes ShutdownEvent event) {
@@ -141,8 +144,9 @@ public class RequestQueueConsumer {
         Connection conn = natsProvider.getConnection();
         if (conn == null) return null;
 
-        String consumerName = consumerName(crew);
-        String filterSubject = filterSubject(crew);
+        CrewScope scope = natsProvider.scope();
+        String consumerName = scope.requestConsumer();
+        String filterSubject = scope.requestSubject();
 
         try {
             // Reset any pre-existing durable consumer left over from a previous pod
@@ -303,16 +307,6 @@ public class RequestQueueConsumer {
                 node.path("use_rag").asBoolean(true),
                 node.path("use_tools").asBoolean(true)
         );
-    }
-
-    // Visible for testing
-    static String consumerName(String crew) {
-        return "request-" + crew;
-    }
-
-    // Visible for testing
-    static String filterSubject(String crew) {
-        return "kubemoot.request." + crew;
     }
 
     record RequestMessage(

@@ -192,7 +192,6 @@ public class DiscussionOrchestrator {
     private static final String SKILLS_CATALOG_HEADER = "Skills available:";
 
     // NATS subject prefix
-    private static final String DISCUSS_PREFIX = "kubemoot.discuss.";
 
     // Configurable timing constants for phase transitions.
     // Defaults tuned for mixed GPU cluster: RTX 5090 (~20s tool-calling) + RTX 4090 (~60s tool-calling).
@@ -353,9 +352,9 @@ public class DiscussionOrchestrator {
 
         Dispatcher dispatcher = conn.createDispatcher();
 
-        // Subscribe to crew-scoped discussion subjects (falls back to all if no crew)
-        String crewId = properties.crew().orElse(null);
-        String sub = subscriptionSubject(crewId);
+        // Subscribe to this namespace's crew-scoped discussion subjects
+        CrewScope scope = natsProvider.scope();
+        String sub = scope.discussWildcard();
         dispatcher.subscribe(sub, msg -> {
             try {
                 handleMessage(new String(msg.getData()));
@@ -367,9 +366,7 @@ public class DiscussionOrchestrator {
         // Subscribe to lifecycle signals (waking/ready) on a separate subject tree.
         // These are published outside KUBEMOOT_DISCUSS JetStream to prevent bootstrap
         // storms where waking signals create consumer lag that wakes more agents.
-        String lifecycleSub = crewId != null && !crewId.isEmpty()
-                ? "kubemoot.lifecycle." + crewId + ".>"
-                : "kubemoot.lifecycle.>";
+        String lifecycleSub = scope.lifecycleWildcard();
         dispatcher.subscribe(lifecycleSub, msg -> {
             try {
                 handleMessage(new String(msg.getData()));
@@ -3095,7 +3092,7 @@ public class DiscussionOrchestrator {
             log.warn("Failed to read crew resumes file {}: {}", crewResumesPath, e.getMessage());
         }
 
-        // 2. NATS KV capability catalog (operator-maintained), key = crew name.
+        // 2. NATS KV capability catalog (operator-maintained), key = <namespace>.<crew>.
         // This is the grounding source for reasoning-based selection when no file
         // is mounted (the common case). Returns the RAW full catalog; the reasoning
         // path compacts it via compactCatalog().
@@ -3107,7 +3104,7 @@ public class DiscussionOrchestrator {
         try {
             var conn = natsProvider.getConnection();
             if (conn != null) {
-                var entry = conn.keyValue(CREW_RESUMES_KV_BUCKET).get(crew);
+                var entry = conn.keyValue(CREW_RESUMES_KV_BUCKET).get(natsProvider.scope().resumesKey());
                 if (entry != null && entry.getValue() != null) {
                     String raw = new String(entry.getValue(), java.nio.charset.StandardCharsets.UTF_8);
                     extractAgentNamesFromResumes(raw);
@@ -3418,8 +3415,7 @@ public class DiscussionOrchestrator {
         // null-guards defensively.
         var conn = natsProvider.getConnection();
         if (!evicted.isEmpty() && conn != null) {
-            DiscussionArtifacts.deleteThreadArtifacts(conn,
-                    DiscussionArtifacts.crewOrDefault(properties.crew()), evicted);
+            DiscussionArtifacts.deleteThreadArtifacts(conn, natsProvider.scope(), evicted);
         }
 
         // Clean stale conversation cache entries (KV TTL handles durability eviction)
@@ -3484,7 +3480,7 @@ public class DiscussionOrchestrator {
         if (conn == null) {
             return;
         }
-        DiscussionArtifacts.reapOrphans(conn, DiscussionArtifacts.crewOrDefault(properties.crew()),
+        DiscussionArtifacts.reapOrphans(conn, natsProvider.scope(),
                 threads::containsKey, ORPHAN_GRACE, Instant.now());
     }
 
@@ -3508,36 +3504,19 @@ public class DiscussionOrchestrator {
                                   String channel, Instant timestamp) {}
 
     /**
-     * Build a crew-scoped broadcast subject: kubemoot.discuss.{crew}.broadcast.{threadId}
-     * Falls back to kubemoot.discuss.broadcast.{threadId} when crew is null/empty.
+     * Broadcast subject for a thread of {@code crew} in this agent's namespace:
+     * kubemoot.discuss.{ns}.{crew}.broadcast.{threadId} (crew token omitted when null/empty).
      */
-    private static String broadcastSubject(String crew, String threadId) {
-        if (crew != null && !crew.isEmpty()) {
-            return DISCUSS_PREFIX + crew + ".broadcast." + threadId;
-        }
-        return DISCUSS_PREFIX + "broadcast." + threadId;
+    private String broadcastSubject(String crew, String threadId) {
+        return natsProvider.scope().forCrew(crew).broadcastSubject(threadId);
     }
 
     /**
-     * Build a crew-scoped channel subject: kubemoot.discuss.{crew}.{channel}.{threadId}
-     * Falls back to kubemoot.discuss.{channel}.{threadId} when crew is null/empty.
+     * Channel subject for a thread of {@code crew} in this agent's namespace:
+     * kubemoot.discuss.{ns}.{crew}.{channel}.{threadId} (crew token omitted when null/empty).
      */
-    private static String channelSubject(String crew, String channel, String threadId) {
-        if (crew != null && !crew.isEmpty()) {
-            return DISCUSS_PREFIX + crew + "." + channel + "." + threadId;
-        }
-        return DISCUSS_PREFIX + channel + "." + threadId;
-    }
-
-    /**
-     * Build a crew-scoped wildcard subscription: kubemoot.discuss.{crew}.>
-     * Falls back to kubemoot.discuss.> when crew is null/empty.
-     */
-    static String subscriptionSubject(String crew) {
-        if (crew != null && !crew.isEmpty()) {
-            return DISCUSS_PREFIX + crew + ".>";
-        }
-        return DISCUSS_PREFIX + ">";
+    private String channelSubject(String crew, String channel, String threadId) {
+        return natsProvider.scope().forCrew(crew).discussSubject(channel, threadId);
     }
 
     // Visible for testing

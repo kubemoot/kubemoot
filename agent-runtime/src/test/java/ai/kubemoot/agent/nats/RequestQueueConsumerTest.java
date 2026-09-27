@@ -58,15 +58,15 @@ class RequestQueueConsumerTest {
     }
 
     @Test
-    void consumerNameIncludesCrew() {
-        assertEquals("request-homelab-pilot", RequestQueueConsumer.consumerName("homelab-pilot"));
-        assertEquals("request-hello", RequestQueueConsumer.consumerName("hello"));
+    void consumerNameIncludesNamespaceAndCrew() {
+        assertEquals("request-ns-a-homelab-pilot", CrewScope.of("ns-a", "homelab-pilot").requestConsumer());
+        assertEquals("request-ns-b-hello", CrewScope.of("ns-b", "hello").requestConsumer());
     }
 
     @Test
-    void filterSubjectIncludesCrew() {
-        assertEquals("kubemoot.request.homelab-pilot", RequestQueueConsumer.filterSubject("homelab-pilot"));
-        assertEquals("kubemoot.request.hello", RequestQueueConsumer.filterSubject("hello"));
+    void filterSubjectIncludesNamespaceAndCrew() {
+        assertEquals("kubemoot.request.ns-a.homelab-pilot", CrewScope.of("ns-a", "homelab-pilot").requestSubject());
+        assertEquals("kubemoot.request.ns-b.hello", CrewScope.of("ns-b", "hello").requestSubject());
     }
 
     @Test

@@ -28,6 +28,8 @@ import static org.mockito.Mockito.*;
  */
 class DiscussionSubscriberSkillsTest {
 
+    private static final CrewScope SCOPE = CrewScope.of("ns-test", "crew-x");
+
     // -------------------------------------------------------------------------
     // Skill body injection into the mulling turn
     // -------------------------------------------------------------------------
@@ -248,6 +250,7 @@ class DiscussionSubscriberSkillsTest {
         var props = stubProperties(agentName);
         var natsProvider = mock(NatsConnectionProvider.class);
         when(natsProvider.getConnection()).thenReturn(mock(Connection.class));
+        when(natsProvider.scope()).thenReturn(SCOPE);
         var metrics = new DiscussionMetrics(
                 new io.micrometer.core.instrument.simple.SimpleMeterRegistry());
         var loader = new SkillBodyLoader(skillsDir);
@@ -264,7 +267,7 @@ class DiscussionSubscriberSkillsTest {
     }
 
     private static String advisoryReadySubject(String threadId) {
-        return "kubemoot.discuss.crew-x.broadcast." + threadId;
+        return SCOPE.broadcastSubject(threadId);
     }
 
     private static String advisoryReadyJson(String threadId, String... skillNames) {
@@ -394,6 +397,7 @@ class DiscussionSubscriberSkillsTest {
                 @Override public int maxTokens() { return 2048; }
                 @Override public int timeoutSeconds() { return 120; }
             }; }
+            @Override public Optional<String> namespace() { return Optional.of("ns-test"); }
             @Override public Optional<String> crew() { return Optional.of("crew-x"); }
             @Override public Optional<String> crewVersion() { return Optional.empty(); }
             @Override public ResumeSearch resumeSearch() { return new ResumeSearch() {

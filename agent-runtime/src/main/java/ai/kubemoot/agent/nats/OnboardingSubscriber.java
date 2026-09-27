@@ -34,7 +34,6 @@ public class OnboardingSubscriber {
 
     private static final Logger log = LoggerFactory.getLogger(OnboardingSubscriber.class);
     private static final ObjectMapper mapper = new ObjectMapper();
-    private static final String DISCUSS_PREFIX = "kubemoot.discuss.";
 
     // JSON field name constants (used in NATS message construction/parsing)
     private static final String FIELD_MESSAGE_ID = "messageId";
@@ -103,10 +102,10 @@ public class OnboardingSubscriber {
         }
 
         Dispatcher dispatcher = conn.createDispatcher();
-        String crew = properties.crew().orElse(null);
+        CrewScope scope = natsProvider.scope();
 
-        subscribeBroadcast(dispatcher, crew);
-        subscribeChannels(dispatcher, crew);
+        subscribeBroadcast(dispatcher, scope);
+        subscribeChannels(dispatcher, scope);
 
         scheduler.scheduleAtFixedRate(() -> {
             gapDetector.cleanup();
@@ -132,12 +131,8 @@ public class OnboardingSubscriber {
         return true;
     }
 
-    private String crewSubjectPrefix(String crew) {
-        return (crew != null && !crew.isEmpty()) ? DISCUSS_PREFIX + crew + "." : DISCUSS_PREFIX;
-    }
-
-    private void subscribeBroadcast(Dispatcher dispatcher, String crew) {
-        String broadcastSubject = crewSubjectPrefix(crew) + "broadcast.>";
+    private void subscribeBroadcast(Dispatcher dispatcher, CrewScope scope) {
+        String broadcastSubject = scope.channelWildcard("broadcast");
         dispatcher.subscribe(broadcastSubject, msg -> {
             try {
                 handleMessage(msg.getSubject(), new String(msg.getData()));
@@ -147,10 +142,9 @@ public class OnboardingSubscriber {
         });
     }
 
-    private void subscribeChannels(Dispatcher dispatcher, String crew) {
-        String prefix = crewSubjectPrefix(crew);
+    private void subscribeChannels(Dispatcher dispatcher, CrewScope scope) {
         for (String channel : channels) {
-            String subject = prefix + channel.trim() + ".>";
+            String subject = scope.channelWildcard(channel);
             dispatcher.subscribe(subject, msg -> {
                 try {
                     handleMessage(msg.getSubject(), new String(msg.getData()));
@@ -371,8 +365,8 @@ public class OnboardingSubscriber {
             var conn = natsProvider.getConnection();
             if (conn == null) return;
 
-            String[] parts = originalSubject.split("\\.");
-            String channel = parts.length > 2 ? parts[2] : CHANNEL_GENERAL;
+            CrewScope scope = natsProvider.scope();
+            String channel = scope.channelOf(originalSubject, CHANNEL_GENERAL);
 
             var proposal = Map.of(
                     FIELD_MESSAGE_ID, UUID.randomUUID().toString(),
@@ -388,10 +382,7 @@ public class OnboardingSubscriber {
                     )
             );
 
-            String crewId = properties.crew().orElse(null);
-            String publishSubject = (crewId != null && !crewId.isEmpty())
-                    ? DISCUSS_PREFIX + crewId + "." + channel + "." + threadId
-                    : DISCUSS_PREFIX + channel + "." + threadId;
+            String publishSubject = scope.discussSubject(channel, threadId);
             conn.publish(publishSubject, mapper.writeValueAsBytes(proposal));
             log.info("Published onboarding proposal to {} for thread {}", publishSubject, threadId);
 
@@ -405,8 +396,8 @@ public class OnboardingSubscriber {
             var conn = natsProvider.getConnection();
             if (conn == null) return;
 
-            String[] parts = originalSubject.split("\\.");
-            String channel = parts.length > 2 ? parts[2] : CHANNEL_GENERAL;
+            CrewScope scope = natsProvider.scope();
+            String channel = scope.channelOf(originalSubject, CHANNEL_GENERAL);
 
             var message = Map.of(
                     FIELD_MESSAGE_ID, UUID.randomUUID().toString(),
@@ -419,10 +410,7 @@ public class OnboardingSubscriber {
                     FIELD_METADATA, Map.of("onboarding", true, "consentAck", true)
             );
 
-            String crewId = properties.crew().orElse(null);
-            String publishSubject = (crewId != null && !crewId.isEmpty())
-                    ? DISCUSS_PREFIX + crewId + "." + channel + "." + threadId
-                    : DISCUSS_PREFIX + channel + "." + threadId;
+            String publishSubject = scope.discussSubject(channel, threadId);
             conn.publish(publishSubject, mapper.writeValueAsBytes(message));
             log.info("Published onboarding agree signal to {} for thread {}", publishSubject, threadId);
         } catch (Exception e) {
