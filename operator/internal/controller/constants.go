@@ -48,6 +48,22 @@ const (
 	labelFitnessHarness = "kubemoot.ai/fitness-harness"
 )
 
+// Deployment provenance a CrewForge deploy stamps on the Crew CR.
+const (
+	annoCrewForgeSource     = "crewforge.kubemoot.ai/source"
+	annoCrewForgeOwner      = "crewforge.kubemoot.ai/owner"
+	annoCrewForgeRevision   = "crewforge.kubemoot.ai/revision"
+	annoCrewForgeChannel    = "crewforge.kubemoot.ai/channel"
+	annoCrewForgeDeployedAt = "crewforge.kubemoot.ai/deployed-at"
+
+	// annoNamespaceCrews is the namespace annotation holding the deployment
+	// provenance of every Crew in the namespace, as a JSON object keyed by crew name.
+	annoNamespaceCrews = "kubemoot.ai/crews"
+
+	// maxCrewRevisions caps Crew.Status.Revisions.
+	maxCrewRevisions = 10
+)
+
 // ConfigMap key names used across controllers
 const (
 	keySystemTxt       = "system.txt"

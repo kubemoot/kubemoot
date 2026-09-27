@@ -72,7 +72,7 @@ type CrewReconciler struct {
 // +kubebuilder:rbac:groups=apps,resources=deployments,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=core,resources=services,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=core,resources=serviceaccounts,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=core,resources=namespaces,verbs=get;update;delete
+// +kubebuilder:rbac:groups=core,resources=namespaces,verbs=get;update;patch;delete
 // +kubebuilder:rbac:groups=core,resources=secrets,verbs=get;create
 // +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=clusterroles,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=clusterrolebindings,verbs=get;list;watch;create;update;patch;delete
@@ -105,6 +105,9 @@ func (r *CrewReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 	}
 
 	r.reconcileNamespaceLabel(ctx, crew)
+	provenance := crewProvenance(crew)
+	r.reconcileNamespaceCrews(ctx, crew, provenance)
+	recordCrewRevision(crew, provenance, metav1.Now())
 	r.replicateImagePullSecrets(ctx, crew)
 
 	agents, coordinatorName, err := r.discoverAgents(ctx, crew)
@@ -228,6 +231,7 @@ func (r *CrewReconciler) setDiscussionEndpoint(crew *kubemootv1alpha1.Crew) {
 
 func (r *CrewReconciler) handleDeletion(ctx context.Context, crew *kubemootv1alpha1.Crew) (ctrl.Result, error) {
 	r.deleteClusterRBAC(ctx, crew)
+	r.removeNamespaceCrew(ctx, crew)
 	r.deleteManagedNamespace(ctx, crew)
 	r.purgeCrewMemory(ctx, crew)
 

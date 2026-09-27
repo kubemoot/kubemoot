@@ -120,6 +120,46 @@ type CrewStatus struct {
 	// Conditions represent the latest available observations
 	// +optional
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
+
+	// Revisions records the crew's deployments, newest first, capped at 10.
+	// The operator appends an entry when the Crew's revision annotation,
+	// deployed-at annotation, or crew-version label changes.
+	// +optional
+	// +kubebuilder:validation:MaxItems=10
+	Revisions []CrewRevision `json:"revisions,omitempty"`
+}
+
+// CrewRevision is one observed deployment of a Crew. Revision, Source, Owner,
+// Channel and DeployedAt come from the crewforge.kubemoot.ai/* annotations a
+// CrewForge deploy stamps; CrewVersion comes from the kubemoot.ai/crew-version
+// label a chart deploy stamps.
+type CrewRevision struct {
+	// Revision is the git short hash of the crew source, optionally suffixed "-dirty"
+	// +optional
+	Revision string `json:"revision,omitempty"`
+
+	// Source is the crew source location as repo//path
+	// +optional
+	Source string `json:"source,omitempty"`
+
+	// Owner is the email of the developer who deployed the crew
+	// +optional
+	Owner string `json:"owner,omitempty"`
+
+	// Channel is how the crew was deployed (helm, bundle, flux)
+	// +optional
+	Channel string `json:"channel,omitempty"`
+
+	// CrewVersion is the crew chart version from the kubemoot.ai/crew-version label
+	// +optional
+	CrewVersion string `json:"crewVersion,omitempty"`
+
+	// DeployedAt is the RFC3339 deploy time the deployer stamped
+	// +optional
+	DeployedAt string `json:"deployedAt,omitempty"`
+
+	// ObservedAt is when the operator first observed this revision
+	ObservedAt metav1.Time `json:"observedAt"`
 }
 
 // +kubebuilder:object:root=true

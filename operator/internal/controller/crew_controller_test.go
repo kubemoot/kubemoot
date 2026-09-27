@@ -18,6 +18,7 @@ package controller
 
 import (
 	"context"
+	"encoding/json"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -357,6 +358,71 @@ var _ = Describe("Crew Controller", func() {
 			crewObj.Finalizers = nil
 			Expect(k8sClient.Update(ctx, crewObj)).To(Succeed())
 			Expect(k8sClient.Delete(ctx, crewObj)).To(Succeed())
+		})
+	})
+
+	Context("Revision record", func() {
+		It("records a status revision, mirrors it on the namespace, and removes it on deletion", func() {
+			const nsName = "crew-revisions-ns"
+			const revCrew = "crew-rev-test"
+			Expect(k8sClient.Create(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: nsName}})).To(Succeed())
+
+			crew := &aiv1alpha1.Crew{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:        revCrew,
+					Namespace:   nsName,
+					Annotations: crewForgeAnnotations(),
+					Labels:      map[string]string{crewVersionLabel: revTestVersion},
+				},
+				Spec: aiv1alpha1.CrewSpec{Description: "crew for revision record test"},
+			}
+			Expect(k8sClient.Create(ctx, crew)).To(Succeed())
+
+			key := types.NamespacedName{Name: revCrew, Namespace: nsName}
+			reconciler := newReconciler()
+			for range 2 {
+				_, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: key})
+				Expect(err).NotTo(HaveOccurred())
+			}
+
+			updated := &aiv1alpha1.Crew{}
+			Expect(k8sClient.Get(ctx, key, updated)).To(Succeed())
+			Expect(updated.Status.Revisions).To(HaveLen(1))
+			rev := updated.Status.Revisions[0]
+			Expect(rev.Revision).To(Equal(revTestHash))
+			Expect(rev.Source).To(Equal(revTestSource))
+			Expect(rev.Owner).To(Equal(revTestOwner))
+			Expect(rev.Channel).To(Equal("bundle"))
+			Expect(rev.CrewVersion).To(Equal(revTestVersion))
+			Expect(rev.DeployedAt).To(Equal(revTestDeployedAt))
+			Expect(rev.ObservedAt.IsZero()).To(BeFalse())
+
+			ns := &corev1.Namespace{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: nsName}, ns)).To(Succeed())
+			var crews map[string]map[string]string
+			Expect(json.Unmarshal([]byte(ns.Annotations[annoNamespaceCrews]), &crews)).To(Succeed())
+			Expect(crews).To(HaveKeyWithValue(revCrew, map[string]string{
+				"source": revTestSource, "owner": revTestOwner, "revision": revTestHash,
+				"channel": "bundle", "crewVersion": revTestVersion, "deployedAt": revTestDeployedAt,
+			}))
+
+			// A redeploy with a new revision prepends a second entry.
+			updated.Annotations[annoCrewForgeRevision] = "b1c2d3e-dirty"
+			Expect(k8sClient.Update(ctx, updated)).To(Succeed())
+			_, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: key})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(k8sClient.Get(ctx, key, updated)).To(Succeed())
+			Expect(updated.Status.Revisions).To(HaveLen(2))
+			Expect(updated.Status.Revisions[0].Revision).To(Equal("b1c2d3e-dirty"))
+
+			Expect(k8sClient.Delete(ctx, updated)).To(Succeed())
+			_, err = reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: key})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(errors.IsNotFound(k8sClient.Get(ctx, key, &aiv1alpha1.Crew{}))).To(BeTrue())
+
+			ns = &corev1.Namespace{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: nsName}, ns)).To(Succeed())
+			Expect(ns.Annotations).NotTo(HaveKey(annoNamespaceCrews))
 		})
 	})
 })

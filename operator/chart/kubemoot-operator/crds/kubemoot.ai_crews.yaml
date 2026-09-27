@@ -269,6 +269,51 @@ spec:
                 description: Ready indicates if the crew is operational and can accept
                   questions
                 type: boolean
+              revisions:
+                description: |-
+                  Revisions records the crew's deployments, newest first, capped at 10.
+                  The operator appends an entry when the Crew's revision annotation,
+                  deployed-at annotation, or crew-version label changes.
+                items:
+                  description: |-
+                    CrewRevision is one observed deployment of a Crew. Revision, Source, Owner,
+                    Channel and DeployedAt come from the crewforge.kubemoot.ai/* annotations a
+                    CrewForge deploy stamps; CrewVersion comes from the kubemoot.ai/crew-version
+                    label a chart deploy stamps.
+                  properties:
+                    channel:
+                      description: Channel is how the crew was deployed (helm, bundle,
+                        flux)
+                      type: string
+                    crewVersion:
+                      description: CrewVersion is the crew chart version from the
+                        kubemoot.ai/crew-version label
+                      type: string
+                    deployedAt:
+                      description: DeployedAt is the RFC3339 deploy time the deployer
+                        stamped
+                      type: string
+                    observedAt:
+                      description: ObservedAt is when the operator first observed
+                        this revision
+                      format: date-time
+                      type: string
+                    owner:
+                      description: Owner is the email of the developer who deployed
+                        the crew
+                      type: string
+                    revision:
+                      description: Revision is the git short hash of the crew source,
+                        optionally suffixed "-dirty"
+                      type: string
+                    source:
+                      description: Source is the crew source location as repo//path
+                      type: string
+                  required:
+                  - observedAt
+                  type: object
+                maxItems: 10
+                type: array
             type: object
         type: object
     served: true
