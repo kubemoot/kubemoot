@@ -32,7 +32,7 @@ Kubemoot's provider selection works the same way. Each inference call is the equ
 The operator's job is to publish state and candidates, not to pick the call's provider:
 
 - The **`ModelProvider` reconciler** probes each provider (Ollama `/api/ps`, DCGM) and publishes per-provider `{totalVramMiB, loadedModelFootprints, ready, lastProbedAt}` to NATS KV bucket `kubemoot_provider_state`. The agent runtime reads this on every inference call.
-- The **Agent reconciler** computes the candidate `(Model, Provider)` matches via the filter and score machinery described above and records them on the Agent; the per-call winner among those candidates is chosen at the inference boundary.
+- The **Agent reconciler** computes the candidate `(Model, Provider)` matches via the filter and score machinery described above, binds the best as the agent's preferred model (`KUBEMOOT_MODEL_MODEL`), and publishes each phase's ranked candidate models as `KUBEMOOT_MODEL_CANDIDATES_MULLING` and `KUBEMOOT_MODEL_CANDIDATES_TRIAGE`. The per-call model and provider are chosen at the inference boundary (see [Candidate models per call](#candidate-models-per-call)).
 
 The agent-runtime grows two new classes:
 
@@ -40,7 +40,7 @@ The agent-runtime grows two new classes:
 
 `agent-runtime/src/main/java/ai/kubemoot/agent/provider/ProviderSelector.java`
 
-On every call, `ProviderSelector.pickAndClaim(modelName, occupancy)` reads all candidate states from the `kubemoot_provider_state` KV bucket (a 200ms in-memory cache absorbs Tooler fan-out bursts), then runs the feasibility filter and weighted cost below and claims a VRAM ticket against the winner. It returns empty only when no provider is feasible or NATS is unavailable, in which case the caller falls back to its static Quarkus-injected ChatModel.
+On every call, `ProviderSelector.pickAndClaim(modelName, occupancy)` reads all candidate states from the `kubemoot_provider_state` KV bucket (a 200ms in-memory cache absorbs Tooler fan-out bursts), then runs the feasibility filter and weighted cost below and claims a VRAM ticket against the winner. `pickAndClaimWarm` does the same restricted to providers where the model is already warm (resident or loading) with a free slot, which is how the runtime tries a candidate model without loading it. Both return empty when no provider has room; the mulling path then waits for capacity (see [Waiting for GPU capacity](#waiting-for-gpu-capacity)). When NATS has no provider state at all, the runtime probes the providers directly and falls back to its static endpoint only when no prober is available.
 
 #### Model occupancy (counted once, KV-inclusive)
 
@@ -48,7 +48,7 @@ A model's VRAM occupancy is fixed when it loads: weights plus the context KV sla
 
 #### The one hard filter
 
-A provider is feasible for model M iff it is ready, its circuit is closed, and `usable(P) ≥ occupancy(M)`, where `usable(P) = totalVram(P) − reserve` (the reserve covers CUDA context, fragmentation, and runtime overhead). This asks only whether M can physically fit the card at all, after any eviction Ollama would perform. A model larger than every card's usable VRAM yields no feasible provider, and the runtime surfaces that rather than spilling silently. Whether a load would evict a resident model is not a feasibility question; it is an eviction cost in the score.
+A provider where M is warm (resident, or being loaded by an in-flight call) is always feasible when it is ready and its circuit is closed: the call shares the loaded copy and queues for a slot. For a cold load, a provider is feasible iff it is ready, its circuit is closed, `usable(P) ≥ occupancy(M)`, and M fits beside the models already resident (`occupancy(M) + resident(P) ≤ usable(P)`), where `usable(P) = totalVram(P) − reserve` (the reserve covers CUDA context, fragmentation, and runtime overhead). A model larger than every card's usable VRAM yields no feasible provider, and the runtime reports it as `model-too-large` rather than spilling silently. A card that could hold M but is full of other resident models is busy, not too small: the runtime waits for it.
 
 #### The weighted cost (lowest wins)
 
@@ -72,11 +72,60 @@ where `free(P) = usable(P) − Σ resident footprints`. `CrewSchedulingPolicy` r
 - A cold load lands on a card with free room; evicting a resident model is far costlier, and evicting one with live work is effectively forbidden, so distinct models partition across cards while the same model concentrates on its home.
 - The aggregate distribution is emergent, like `kube-scheduler` bin-packing Nodes: no anti-affinity rules, no sticky bindings, no rebalancer.
 
+#### Candidate models per call
+
+The operator publishes each phase's candidate models as a JSON list, preferred model first:
+
+```json
+[{"model":"qwen3:32b","score":70},{"model":"qwen3:14b","score":60},{"model":"qwen3:8b","score":30}]
+```
+
+The list holds every Ready `Model` the phase rule's `require` selector admits, one entry per model identifier. `score` is the model's **quality score**: the sum of the rule's matching `prefer` weights, or the `qualityBias` / `latencyClass` contribution when the rule has no `prefer` block. Locality, provider weight, and load penalties are left out, so the score compares models rather than placements. After the preferred model, entries follow by score, then name. Provider readiness and VRAM are not filtered here; the per-call pick reads them live, and the list (and so the Deployment) stays stable while providers come and go.
+
+At each mulling call the runtime tries, in order:
+
+1. `pickAndClaimWarm` for the preferred model.
+2. `pickAndClaimWarm` for each other candidate whose score is at least `preferredScore − tolerance`, highest score first. A warm candidate with a free slot costs no load and no eviction, so it wins over cold-loading the preferred model.
+3. `pickAndClaim` for the preferred model: the full weighted cost (queue at a warm copy, cold load onto free room).
+
+The tolerance is `KUBEMOOT_MODEL_CANDIDATE_TOLERANCE`, default 10 points. Under `qualityBias`, one `latencyClass` tier is `|bias − 0.5| × 100` points from its neighbour at the extremes (the `medium` tent peaks at bias 0.5), so a balanced crew may use a warm neighbouring tier while a crew with a strong bias keeps its tier. Explicit `prefer` weights usually sit further apart than the tolerance. A crew keeps an agent on one model size by narrowing `require`, widening the `prefer` gap, or setting the tolerance to 0. The runtime reads the mulling list; the triage list is published alongside it, and the triage path places only its bound model.
+
+The ChatModel for the call is built for the model actually picked, and the signal records it as `metadata.model`.
+
+#### Waiting for GPU capacity
+
+When all three steps come back empty, the runtime classifies the refusal:
+
+- **Too large:** no known provider has `usable(P) ≥ occupancy(M)` for the preferred model. The agent stands aside at once with `metadata.reason = "model-too-large"` and `metadata.model`. Providers that have not published their VRAM total never prove a model too large.
+- **Busy:** some provider could hold the model. The agent waits.
+
+The wait is state-driven. `NatsCapacityWatch` holds KV watches on `kubemoot_provider_state` and `kubemoot_provider_tickets` (updates only, metadata only). Every probe publish, ticket claim, and ticket release advances a change counter; the waiter records the counter, retries the three-step pick against fresh state, and blocks until the counter moves. It publishes `waiting` (metadata `model`, `reason: "gpu-busy"`) once, before its first block, and `evaluating` again when a retry claims a GPU. The agent's discussion heartbeat keeps running, so the coordinator keeps its deadline alive.
+
+Two exits give up with `stand_aside` and `metadata.reason = "gpu-busy"`:
+
+- the discussion ends (synthesis or thread close), which wakes the waiter at once; or
+- the safety limit passes: `KUBEMOOT_DISCUSS_GPU_WAIT_LIMIT_SECONDS`, defaulting to the discussion synthesis timeout (`KUBEMOOT_DISCUSS_SYNTHESIS_TIMEOUT_SECONDS`, 90 seconds).
+
+The limit is a safety net for a lost wake-up, not the normal exit. If the KV watch cannot be established, the agent stands aside with `gpu-busy` at once rather than wait without a wake source. Calls that cannot wait do not: a coordinator's advisory and synthesis calls fall back to the static endpoint, and triage calls use the static triage endpoint.
+
+With no provider state in NATS, the direct prober checks each endpoint; when none fits, the runtime cannot tell busy from too large, so it waits, and the provider-state watch wakes it when state returns.
+
+A cold load needs room beside the models already resident, and a model stays resident for the provider's keep-alive after its last call. A wait for memory on a card full of idle models therefore ends when the provider unloads one; a keep-alive longer than the wait limit makes `gpu-busy` the likely outcome of such a wait.
+
+#### The crew's answer when agents could not get a GPU
+
+The coordinator records each `waiting` signal and each `stand_aside` carrying `gpu-busy` or `model-too-large`. When the discussion settles with no `agree` and no `concern`, and at least one agent stood aside for capacity or is still waiting, the coordinator skips the synthesis call and answers:
+
+- `gpu-busy` or still waiting: "The crew's agents could not get a GPU: every GPU was busy with other work, so none of them could answer in time. This is the cluster's capacity, not the crew's design; ask again in a moment."
+- `model-too-large`: "No GPU in this cluster can hold the model `<model>` the agents need; add a smaller Model or a larger GPU."
+
+Both sentences appear when both reasons occurred. Otherwise the ordinary synthesis and no-contribution text apply.
+
 #### ChatModelPool
 
 `agent-runtime/src/main/java/ai/kubemoot/agent/provider/ChatModelPool.java`
 
-The Quarkus-injected `ChatModel` is fixed to one base-url at startup - wrong shape for JIT selection. `ChatModelPool` is a `Map<endpoint, OllamaChatModel>` built lazily on first use. Each ChatModel reuses its underlying HttpClient. New endpoints get a new instance; existing endpoints reuse. Built with `.maxRetries(1)` - see [Bounded retries](#bounded-retries-and-failure-attribution) below.
+The Quarkus-injected `ChatModel` is fixed to one base-url at startup - wrong shape for JIT selection. `ChatModelPool` caches `OllamaChatModel` instances keyed by endpoint, model, and call settings (temperature, max tokens, timeout, think), built lazily on first use. A call that picks a candidate model on an endpoint the pool already serves gets its own instance for that model. Built with `.maxRetries(1)` - see [Bounded retries](#bounded-retries-and-failure-attribution) below.
 
 ### Bounded retries and failure attribution
 
@@ -89,7 +138,7 @@ When these protections trip, the agent publishes a **first-class `failure` conse
 
 ### Per-call attribution
 
-Each `agree` / `concern` / `failure` signal carries `metadata.provider = <provider-name>` - the ModelProvider the call actually ran against. The dashboard's Agent Summary GPU column shows this real per-call attribution instead of the reconcile-time static label. Confirms emergent bin-packing visually: two co-triaged agents in the same discussion show as `ollama-a` and `ollama-b` when both have capacity, not both pointing at whatever the operator labeled them.
+Each `agree` / `concern` signal from a scheduled call carries `metadata.provider = <provider-name>` (the ModelProvider the call actually ran against) and `metadata.model` (the model it ran, which differs from the preferred model when a warm candidate was used). The dashboard's Agent Summary GPU column shows this real per-call attribution instead of the reconcile-time static label. Confirms emergent bin-packing visually: two co-triaged agents in the same discussion show as `ollama-a` and `ollama-b` when both have capacity, not both pointing at whatever the operator labeled them.
 
 ### Ticket claim and crash-safe release
 
@@ -356,7 +405,7 @@ If `topologySpread` is configured, distribute bindings so that no single `topolo
 
 ### 4. Bind
 
-Write the chosen `(model, provider, endpoint)` into `Agent.status.scheduling` and template the agent's Deployment env vars (`KUBEMOOT_MODEL_MODEL`, `KUBEMOOT_MODEL_ENDPOINT`, `KUBEMOOT_TRIAGE_MODEL_MODEL_ID`, `KUBEMOOT_TRIAGE_MODEL_ENDPOINT`).
+Write the chosen `(model, provider, endpoint)` into `Agent.status.scheduling` and template the agent's Deployment env vars (`KUBEMOOT_MODEL_MODEL`, `KUBEMOOT_MODEL_ENDPOINT`, `KUBEMOOT_TRIAGE_MODEL_MODEL_ID`, `KUBEMOOT_TRIAGE_MODEL_ENDPOINT`), plus the ranked candidate lists `KUBEMOOT_MODEL_CANDIDATES_MULLING` and `KUBEMOOT_MODEL_CANDIDATES_TRIAGE` described in [Candidate models per call](#candidate-models-per-call).
 
 ## Helm-Parameterized Model Bundle
 

@@ -106,7 +106,7 @@ deciding who should look at the question.
 
 Every contribution to a discussion carries a signal from a small vocabulary - `agree`,
 `concern`, `stand_aside`, `block`, `failure`, plus the facilitation signals `triaging`,
-`evaluating`, `advisory`, and `proposal`. The full vocabulary and what each means to the
+`evaluating`, `waiting`, `advisory`, and `proposal`. The full vocabulary and what each means to the
 coordinator's synthesis is documented once, in
 [Signals & Protocol](../../concepts/signals-and-protocol/); this page assumes it.
 
@@ -123,6 +123,7 @@ The distinction matters because the two mean different things:
 |---|---|---|
 | `stand_aside` | "I looked, and this isn't my domain." | A participation decision. Working as designed. |
 | `failure` | "I tried and could not complete." | An infrastructure problem: a tool timed out, the model errored, a dependency was unreachable. |
+| `stand_aside` with reason `gpu-busy` or `model-too-large` | "I was ready, but no GPU could run me." | Cluster capacity: every GPU that can hold the model stayed busy, or none can hold it. |
 
 Collapsing both into `stand_aside` would corrupt every downstream reader of that
 signal: gap detection would propose onboarding a new specialist when the real problem

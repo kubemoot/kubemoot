@@ -289,7 +289,7 @@ Each agent declares its channels via `Agent.spec.discussChannels`. Coordinators 
 3. Only the selected Toolers are woken; the rest are silently excluded (no keyword self-selection)
 4. Each selected Tooler runs a per-agent LLM triage (CONTRIBUTE / NOTHING_TO_ADD) for this specific question
 5. Contributing Toolers call `directChat()` to generate a contribution (with tool calling); Analysts self-select in the REVIEW phase and reason over the gathered data
-6. Agents publish signals (`triaging`, `evaluating`, `agree`, `concern`, `stand_aside`, `failure`, `block`) back to the thread
+6. Agents publish signals (`triaging`, `evaluating`, `waiting`, `agree`, `concern`, `stand_aside`, `failure`, `block`) back to the thread
 7. Coordinator settles the discussion based on signals (not a fixed timeout) and synthesizes a response
 
 ### Bounded Tool Retries and Failure Signals
@@ -310,6 +310,10 @@ The consensus-protocol semantics of `failure` vs `stand_aside` and the three-tie
 
 The agent runtime does not use a single, static endpoint frozen into env vars at reconcile time. Each mulling inference call picks the freest provider at the call boundary from live provider state (read from a shared NATS KV bucket), and falls back to the static reconcile-time endpoint only when that live state is unavailable. The picked provider's name flows through to the agent's signal metadata as `metadata.provider`, surfacing in the dashboard's Agent Summary GPU column as the call's real placement. See [scheduler.md](../architecture/scheduler.md#jit-per-call-provider-selection) for the architectural rationale and the `kube-scheduler` analogy.
 
+The call's model is chosen per call too. The operator publishes the phase's ranked candidate models (`KUBEMOOT_MODEL_CANDIDATES_MULLING`); the runtime uses the preferred model when it is loaded with a free slot, otherwise a loaded candidate within the quality tolerance, otherwise the preferred model under the normal cost ranking. The model the call ran is recorded as `metadata.model`.
+
+When no GPU has room, the agent publishes `waiting` once and retries on every provider-state or ticket change until a GPU frees up. It stands aside with `metadata.reason = "gpu-busy"` if the discussion ends or the wait's safety limit passes first, and with `"model-too-large"` at once when no GPU can ever hold the model. See [Models & Scheduling](../concepts/models-and-scheduling.md#when-every-gpu-is-busy).
+
 ### Rate Limiting
 
 - Max 1 contribution per thread per agent, plus a sliding-window per-minute cap
@@ -325,6 +329,10 @@ The agent runtime does not use a single, static endpoint frozen into env vars at
 | `KUBEMOOT_DISCUSS_COORDINATOR` | Coordinators | Set `true` when `discussRole=coordinator` |
 | `KUBEMOOT_DISCUSS_TOOLER` | All agents | `false` for coordinators and researcher-role agents |
 | `KUBEMOOT_DISCUSS_TIMEOUT_SECONDS` | Coordinator | Optional override via `spec.deployment.env` |
+| `KUBEMOOT_MODEL_CANDIDATES_MULLING` | All agents | Ranked candidate models for the mulling phase, JSON `[{"model", "score"}]`, preferred model first |
+| `KUBEMOOT_MODEL_CANDIDATES_TRIAGE` | All agents | Ranked candidate models for the triage phase, same shape |
+| `KUBEMOOT_MODEL_CANDIDATE_TOLERANCE` | All agents | Optional override via `spec.deployment.env`; quality-score points a warm candidate may trail the preferred model (default 10) |
+| `KUBEMOOT_DISCUSS_GPU_WAIT_LIMIT_SECONDS` | All agents | Optional override via `spec.deployment.env`; safety limit on one GPU capacity wait (default: the synthesis timeout, 90 seconds) |
 
 ---
 
