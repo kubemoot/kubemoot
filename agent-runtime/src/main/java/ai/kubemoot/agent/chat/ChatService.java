@@ -572,7 +572,7 @@ public class ChatService {
                     properties.agentName(), state.emptyNoToolsRetries, EMPTY_NO_TOOLS_MAX_RETRIES);
             return java.util.Optional.empty();
         }
-        if (isInstructionEcho(text)) {
+        if (isInstructionEcho(text, loadSystemPrompt())) {
             log.info("agent {} echoed an instruction instead of answering - dropping to stand_aside",
                     properties.agentName());
             text = "";
@@ -964,27 +964,36 @@ public class ChatService {
     }
 
     /**
-     * True when an agent's tool-free answer is just an echo of an instruction
-     * prompt (the recovery prompt of old, or the agent's own ADL system prompt)
-     * rather than a real answer. Small models sometimes parrot instructions
-     * instead of answering; publishing that as a contribution corrupts the
-     * discussion and the fitness judge. A genuine user-facing answer never
-     * contains these meta markers. Used as a guard on the no-tools answer path.
+     * True when an agent's tool-free answer is an echo of its instructions rather than a
+     * real answer: it repeats a fixed instruction phrase, or half or more of its lines
+     * are lines of the agent's own system prompt. Small models sometimes parrot their
+     * prompt instead of answering, and publishing that corrupts the discussion. An answer
+     * that quotes another document, such as the lines of a specification it reviews, is
+     * not an echo even when those lines are written in ADL.
      */
-    static boolean isInstructionEcho(String text) {
+    static boolean isInstructionEcho(String text, String ownPrompt) {
         if (text == null || text.isBlank()) return false;
         String t = text.toLowerCase();
-        return t.contains("define component")
-                || t.contains("write the final answer to the user")
+        return t.contains("write the final answer to the user")
                 || t.contains("using only the tool results shown above")
-                || isAdlRuleEcho(t);
+                || mostlyCopiedFrom(text, ownPrompt);
     }
 
-    /** True when lower-cased text reads like an echoed ADL rule (WHEN/THEN/ASSERT). */
-    private static boolean isAdlRuleEcho(String lowerText) {
-        return lowerText.contains("when ")
-                && lowerText.contains(" then ")
-                && lowerText.contains("assert");
+    /** Lines shorter than this are too generic to count as copied. */
+    private static final int MIN_COPIED_LINE_CHARS = 12;
+
+    /** True when at least half of the text's substantial lines appear verbatim in the source. */
+    static boolean mostlyCopiedFrom(String text, String source) {
+        if (source == null || source.isBlank()) return false;
+        java.util.Set<String> sourceLines = normalizedLines(source).collect(java.util.stream.Collectors.toSet());
+        List<String> lines = normalizedLines(text).filter(l -> l.length() >= MIN_COPIED_LINE_CHARS).toList();
+        if (lines.isEmpty()) return false;
+        long copied = lines.stream().filter(sourceLines::contains).count();
+        return copied * 2 >= lines.size();
+    }
+
+    private static java.util.stream.Stream<String> normalizedLines(String s) {
+        return s.lines().map(l -> l.strip().toLowerCase()).filter(l -> !l.isEmpty());
     }
 
     /**
@@ -1680,9 +1689,7 @@ public class ChatService {
         var promptFile = properties.systemPromptFile().orElse("");
         if (!promptFile.isEmpty()) {
             try {
-                var content = Files.readString(Path.of(promptFile));
-                log.info("Loaded system prompt from file: {}", promptFile);
-                return content;
+                return Files.readString(Path.of(promptFile));
             } catch (IOException e) {
                 log.warn("Failed to read system prompt file {}: {}", promptFile, e.getMessage());
             }
