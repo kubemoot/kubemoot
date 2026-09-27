@@ -1,6 +1,9 @@
 package ai.kubemoot.indexer.service;
 
-import io.fabric8.kubernetes.api.model.batch.v1.Job;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import io.fabric8.kubernetes.client.dsl.base.PatchContext;
+import io.fabric8.kubernetes.client.dsl.base.PatchType;
 import io.fabric8.kubernetes.client.KubernetesClient;
 import io.fabric8.kubernetes.client.KubernetesClientBuilder;
 import org.slf4j.Logger;
@@ -28,6 +31,8 @@ public class KubernetesService {
     private static final String ANNOTATION_DOCUMENT_COUNT = "kubemoot.ai/document-count";
     private static final String ANNOTATION_CHUNK_COUNT = "kubemoot.ai/chunk-count";
     private static final String ANNOTATION_TOPICS = "kubemoot.ai/topics";
+
+    private static final ObjectMapper PATCH_JSON = new ObjectMapper();
 
     private final KubernetesClient client;
     private final String namespace;
@@ -86,7 +91,9 @@ public class KubernetesService {
     }
 
     /**
-     * Annotate the current Job with the given annotations.
+     * Annotate the current Job with the given annotations. A JSON merge patch sets
+     * these keys and leaves every other annotation in place, so the Job is never read
+     * or re-serialized here.
      */
     private void annotateJob(Map<String, String> annotations) {
         if (jobName == null || namespace == null) {
@@ -97,37 +104,23 @@ public class KubernetesService {
         }
 
         try {
-            Job job = client.batch().v1().jobs()
-                .inNamespace(namespace)
-                .withName(jobName)
-                .get();
-
-            if (job == null) {
-                logger.warn("Job not found: {}/{}", namespace, jobName);
-                return;
-            }
-
-            // Merge new annotations with existing ones
-            final Map<String, String> mergedAnnotations = new HashMap<>();
-            Map<String, String> existingAnnotations = job.getMetadata().getAnnotations();
-            if (existingAnnotations != null) {
-                mergedAnnotations.putAll(existingAnnotations);
-            }
-            mergedAnnotations.putAll(annotations);
-
             client.batch().v1().jobs()
                 .inNamespace(namespace)
                 .withName(jobName)
-                .edit(j -> {
-                    j.getMetadata().setAnnotations(mergedAnnotations);
-                    return j;
-                });
+                .patch(PatchContext.of(PatchType.JSON_MERGE), annotationPatch(annotations));
 
             logger.info("Annotated Job {}/{} with: {}", namespace, jobName, annotations);
 
         } catch (Exception e) {
             logger.error("Failed to annotate Job {}/{}", namespace, jobName, e);
         }
+    }
+
+    /**
+     * The JSON merge patch body that sets the given annotations on an object.
+     */
+    static String annotationPatch(Map<String, String> annotations) throws JsonProcessingException {
+        return PATCH_JSON.writeValueAsString(Map.of("metadata", Map.of("annotations", annotations)));
     }
 
     /**
