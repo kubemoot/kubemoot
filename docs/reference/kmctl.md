@@ -127,6 +127,27 @@ Output is written to `<output-dir>/<name>/` and includes:
 - A starter `CrewFitnessSuite` with a health-check scenario
 - A `README.md` with next-step instructions
 
+With `--chart`, the same manifests are laid out as a Helm chart instead of loose YAML:
+
+```
+demo/
+  Chart.yaml
+  values.yaml
+  templates/
+    crew.yaml
+    agents.yaml
+    promptmodules.yaml
+    models.yaml
+  fitness/
+    fitness.yaml
+  README.md
+```
+
+The fitness suite is kept in `fitness/`, outside `templates/`, so `helm install` never
+starts a run on its own; apply it yourself when you want one. This is the layout
+[CrewForge](../../ecosystem/crewforge/) scaffolds when you use its **Create Crew**
+command, and the layout its Crew Sources view expects a chart source to have.
+
 | Flag | Short | Description |
 |---|---|---|
 | `--members N` | | Number of specialist agents (default: prompted interactively) |
@@ -134,6 +155,7 @@ Output is written to `<output-dir>/<name>/` and includes:
 | `--model-family` | | Model family hint, e.g. `qwen` |
 | `--no-input` | | Disable interactive prompts; all required inputs must come from flags |
 | `--output-dir DIR` | `-o` | Directory to write scaffold output (default: `.`) |
+| `--chart` | | Lay the crew out as a Helm chart (`Chart.yaml`, `templates/`, `fitness/`) instead of loose manifests |
 
 **Example (interactive):**
 
@@ -156,6 +178,23 @@ kmctl create demo \
   --no-input \
   -o /tmp/crews
 # Wrote /tmp/crews/demo/
+```
+
+**Example (as a Helm chart):**
+
+```bash
+kmctl create demo --chart --members 2 --model-family qwen --no-input
+# Scaffolded crew "demo" (2 tooler(s)) in ./demo:
+#   demo/Chart.yaml
+#   demo/values.yaml
+#   demo/templates/crew.yaml
+#   demo/templates/agents.yaml
+#   demo/templates/promptmodules.yaml
+#   demo/templates/models.yaml
+#   demo/fitness/fitness.yaml
+#   demo/README.md
+#
+# Next: helm upgrade --install demo demo --namespace demo --create-namespace
 ```
 
 ---
@@ -653,3 +692,4 @@ is also planned.
 - [kmctl - the CLI](../../ecosystem/kmctl/) - overview and role in the ecosystem
 - [kmctl User Guide](../../user-guides/kmctl/) - install, quickstart, and shell completion
 - [Build a Crew](../../user-guides/build-a-crew/) - the resource-level workflow `kmctl` streamlines
+- [CrewForge](../../ecosystem/crewforge/) - the VS Code extension that runs `kmctl create --chart` for its Create Crew command
