@@ -31,14 +31,20 @@ type KV interface {
 
 // Set is the registry of tool specifications and their dispatch.
 type Set struct {
-	KV   KV
-	Crew string // the crew this MCP serves; carried on every record
-	Now  func() time.Time
+	KV        KV
+	Namespace string // the namespace of the crew this MCP serves; carried on every record
+	Crew      string // the crew this MCP serves; carried on every record
+	Now       func() time.Time
 }
 
 // New constructs a Set with sane defaults.
-func New(kv KV, crew string) *Set {
-	return &Set{KV: kv, Crew: crew, Now: time.Now}
+func New(kv KV, namespace, crew string) *Set {
+	return &Set{KV: kv, Namespace: namespace, Crew: crew, Now: time.Now}
+}
+
+// owns reports whether the record belongs to this Set's namespace and crew.
+func (s *Set) owns(r *record.Record) bool {
+	return r.Namespace == s.Namespace && r.Crew == s.Crew
 }
 
 // ─── Tool surfaces (MCP-shaped specifications) ──────────────────────────
@@ -184,6 +190,7 @@ func (s *Set) setReminder(ctx context.Context, raw json.RawMessage) (string, err
 		Kind:           record.KindReminder,
 		TriggerAt:      trigger,
 		ScheduledBy:    "scheduler-advisor",
+		Namespace:      s.Namespace,
 		Crew:           s.Crew,
 		Channel:        "general",
 		Message:        strings.TrimSpace(a.Message),
@@ -224,6 +231,7 @@ func (s *Set) scheduleFollowup(ctx context.Context, raw json.RawMessage) (string
 		Kind:           record.KindFollowup,
 		TriggerAt:      trigger,
 		ScheduledBy:    "scheduler-advisor",
+		Namespace:      s.Namespace,
 		Crew:           s.Crew,
 		Channel:        "general",
 		Query:          strings.TrimSpace(a.Query),
@@ -243,7 +251,7 @@ func (s *Set) scheduleFollowup(ctx context.Context, raw json.RawMessage) (string
 type listedItem struct {
 	ScheduleID     string `json:"scheduleId"`
 	Kind           string `json:"kind"`
-	When           string `json:"when"`     // RFC 3339, model can compare to current time
+	When           string `json:"when"`       // RFC 3339, model can compare to current time
 	Descriptor     string `json:"descriptor"` // the message or query, for natural-language matching
 	SourceThreadID string `json:"sourceThreadId,omitempty"`
 	Reason         string `json:"reason,omitempty"`
@@ -264,7 +272,7 @@ func (s *Set) listScheduled(ctx context.Context) (string, error) {
 		if json.Unmarshal(raw, &r) != nil {
 			continue
 		}
-		if r.Crew != s.Crew {
+		if !s.owns(&r) {
 			continue
 		}
 		items = append(items, listedItem{
@@ -319,7 +327,7 @@ func (s *Set) cancelScheduled(ctx context.Context, raw json.RawMessage) (string,
 	if err := json.Unmarshal(existing, &r); err != nil {
 		return "", fmt.Errorf("read decode: %w", err)
 	}
-	if r.Crew != s.Crew {
+	if !s.owns(&r) {
 		return "", fmt.Errorf("no schedule with id %s found for this crew", a.ScheduleID)
 	}
 	if err := s.KV.Delete(ctx, a.ScheduleID); err != nil {

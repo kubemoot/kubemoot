@@ -5,7 +5,9 @@
 // Configuration via env vars:
 //
 //	NATS_URL       — NATS server (default nats://nats.nats.svc.cluster.local:4222)
-//	KUBEMOOT_CREW  — the crew this MCP serves (required)
+//	KUBEMOOT_CREW       — the crew this MCP serves (required)
+//	KUBEMOOT_NAMESPACE  — the crew's namespace; falls back to the
+//	                      service-account namespace file (one is required)
 //
 // Reads JSON-RPC messages line-by-line on stdin, writes responses on
 // stdout. See internal/server for the protocol, internal/handlers for
@@ -25,6 +27,7 @@ import (
 	"github.com/nats-io/nats.go"
 
 	"github.com/javajon/kubemoot/scheduling-mcp/internal/handlers"
+	"github.com/javajon/kubemoot/scheduling-mcp/internal/scope"
 	"github.com/javajon/kubemoot/scheduling-mcp/internal/server"
 	"github.com/javajon/kubemoot/scheduling-mcp/pkg/record"
 )
@@ -42,10 +45,15 @@ func main() {
 		fmt.Fprintln(os.Stderr, "KUBEMOOT_CREW is required")
 		os.Exit(2)
 	}
+	namespace, err := scope.NamespaceFromEnvironment()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(2)
+	}
 
 	// Log to stderr; stdout is reserved for the MCP wire protocol.
 	log.SetOutput(os.Stderr)
-	log.Printf("scheduling-mcp starting: crew=%s nats=%s", crew, natsURL)
+	log.Printf("scheduling-mcp starting: namespace=%s crew=%s nats=%s", namespace, crew, natsURL)
 
 	nc, err := nats.Connect(natsURL,
 		nats.MaxReconnects(-1),
@@ -63,7 +71,7 @@ func main() {
 	}
 
 	kv := &natsKV{js: js}
-	set := handlers.New(kv, crew)
+	set := handlers.New(kv, namespace, crew)
 
 	srv := &server.Server{
 		Handlers:        set,

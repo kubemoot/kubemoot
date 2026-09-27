@@ -56,8 +56,22 @@ func (k *memKV) Keys(_ context.Context) ([]string, error) {
 // fixedNow makes tool confirmations deterministic.
 var fixedNow = time.Date(2026, 5, 16, 14, 30, 0, 0, time.UTC)
 
+const testNamespace = "team-a"
+
 func newSet() *Set {
-	return &Set{KV: newKV(), Crew: "homelab-pilot", Now: func() time.Time { return fixedNow }}
+	return &Set{KV: newKV(), Namespace: testNamespace, Crew: "homelab-pilot", Now: func() time.Time { return fixedNow }}
+}
+
+// putForeign writes a record for another namespace or crew straight into KV.
+func putForeign(t *testing.T, s *Set, namespace, crew string) {
+	t.Helper()
+	foreign := record.Record{
+		ScheduleID: "other-1", Kind: record.KindReminder,
+		TriggerAt: fixedNow.Add(time.Hour), Namespace: namespace, Crew: crew,
+		Channel: "general", Message: "not yours",
+	}
+	b, _ := json.Marshal(foreign)
+	_ = s.KV.Put(t.Context(), foreign.ScheduleID, b)
 }
 
 func mustJSON(t *testing.T, v any) json.RawMessage {
@@ -109,8 +123,14 @@ func TestSetReminder_WritesRecordAndConfirms(t *testing.T) {
 	if !r.TriggerAt.Equal(wantTrigger) {
 		t.Errorf("triggerAt: got %v, want %v", r.TriggerAt, wantTrigger)
 	}
-	if r.Crew != "homelab-pilot" {
-		t.Errorf("crew: got %q", r.Crew)
+	assertScopedToSet(t, s, &r)
+}
+
+// assertScopedToSet fails unless the record carries the Set's namespace and crew.
+func assertScopedToSet(t *testing.T, s *Set, r *record.Record) {
+	t.Helper()
+	if r.Namespace != s.Namespace || r.Crew != s.Crew {
+		t.Errorf("record scoped to %s/%s, want %s/%s", r.Namespace, r.Crew, s.Namespace, s.Crew)
 	}
 }
 
@@ -164,6 +184,7 @@ func TestScheduleFollowup_WritesRecordAndConfirms(t *testing.T) {
 	if r.Query == "" {
 		t.Error("query should be set")
 	}
+	assertScopedToSet(t, s, &r)
 }
 
 // ─── list_scheduled ────────────────────────────────────────────────────
@@ -175,13 +196,7 @@ func TestListScheduled_FiltersByCrew(t *testing.T) {
 		"when": "in 1h", "message": "ours",
 	}))
 	// And one for a different crew directly into KV.
-	foreign := record.Record{
-		ScheduleID: "other-1", Kind: record.KindReminder,
-		TriggerAt: fixedNow.Add(time.Hour), Crew: "other-crew",
-		Channel: "general", Message: "not yours",
-	}
-	b, _ := json.Marshal(foreign)
-	_ = s.KV.Put(t.Context(), foreign.ScheduleID, b)
+	putForeign(t, s, testNamespace, "other-crew")
 
 	out, err := s.Call(t.Context(), "list_scheduled", json.RawMessage(`{}`))
 	if err != nil {
@@ -226,13 +241,7 @@ func TestCancelScheduled_DeletesOwnCrewRecord(t *testing.T) {
 
 func TestCancelScheduled_RefusesForeignCrew(t *testing.T) {
 	s := newSet()
-	foreign := record.Record{
-		ScheduleID: "other-1", Kind: record.KindReminder,
-		TriggerAt: fixedNow.Add(time.Hour), Crew: "other-crew",
-		Channel: "general", Message: "not yours",
-	}
-	b, _ := json.Marshal(foreign)
-	_ = s.KV.Put(t.Context(), foreign.ScheduleID, b)
+	putForeign(t, s, testNamespace, "other-crew")
 
 	_, err := s.Call(t.Context(), "cancel_scheduled", mustJSON(t, map[string]any{"scheduleId": "other-1"}))
 	if err == nil {
@@ -240,6 +249,27 @@ func TestCancelScheduled_RefusesForeignCrew(t *testing.T) {
 	}
 	keys, _ := s.KV.Keys(t.Context())
 	if len(keys) != 1 {
+		t.Errorf("foreign record should still exist; %d remain", len(keys))
+	}
+}
+
+// TestSameCrewNameInAnotherNamespaceIsForeign: a crew of the same name in another
+// namespace neither sees nor cancels this crew's schedules.
+func TestSameCrewNameInAnotherNamespaceIsForeign(t *testing.T) {
+	s := newSet()
+	putForeign(t, s, "team-b", s.Crew)
+
+	out, err := s.Call(t.Context(), "list_scheduled", json.RawMessage(`{}`))
+	if err != nil {
+		t.Fatalf("list_scheduled: %v", err)
+	}
+	if out != "[]" {
+		t.Errorf("another namespace's record listed: %s", out)
+	}
+	if _, err := s.Call(t.Context(), "cancel_scheduled", mustJSON(t, map[string]any{"scheduleId": "other-1"})); err == nil {
+		t.Error("cross-namespace cancel should fail")
+	}
+	if keys, _ := s.KV.Keys(t.Context()); len(keys) != 1 {
 		t.Errorf("foreign record should still exist; %d remain", len(keys))
 	}
 }

@@ -35,6 +35,7 @@ func TestRecord_RoundTrip(t *testing.T) {
 		Kind:           KindReminder,
 		TriggerAt:      time.Date(2026, 5, 16, 9, 0, 0, 0, time.UTC),
 		ScheduledBy:    "scheduler-advisor",
+		Namespace:      "team-a",
 		Crew:           "homelab-pilot",
 		Channel:        "general",
 		Message:        "Water the plants",
@@ -71,5 +72,15 @@ func TestRecord_OmitemptyFields(t *testing.T) {
 		if strings.Contains(s, omitted) {
 			t.Errorf("expected %q to be omitted when empty, got: %s", omitted, s)
 		}
+	}
+}
+
+func TestRecord_NamespaceIsAlwaysSerialized(t *testing.T) {
+	raw, err := json.Marshal(Record{ScheduleID: "id", Namespace: "team-a", Crew: "pilot"})
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if !strings.Contains(string(raw), `"namespace":"team-a"`) {
+		t.Errorf("namespace missing from %s", raw)
 	}
 }

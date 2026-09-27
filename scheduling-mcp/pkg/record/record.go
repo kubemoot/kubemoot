@@ -44,9 +44,16 @@ type Record struct {
 	// the record. Carried into the fired message's metadata for trace.
 	ScheduledBy string `json:"scheduledBy,omitempty"`
 
-	// Crew is the target crew name. Used to derive the NATS subject
-	// for the published message. Also used by scheduling-mcp's
-	// cancel_scheduled to scope deletes to the calling crew's records.
+	// Namespace is the target crew's namespace. Together with Crew it
+	// derives the NATS subject kubemoot.discuss.<ns>.<crew>.<channel>.<thread>
+	// for the published message, and scopes scheduling-mcp's list and
+	// cancel to the calling crew's records. The poller drops a record
+	// without one.
+	Namespace string `json:"namespace"`
+
+	// Crew is the target crew name. Used with Namespace to derive the
+	// NATS subject for the published message and to scope list and
+	// cancel to the calling crew's records.
 	Crew string `json:"crew"`
 
 	// Channel is the discussion channel ("general" by default). For
