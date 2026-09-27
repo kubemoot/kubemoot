@@ -37,23 +37,17 @@ func newScheme(t *testing.T) *runtime.Scheme {
 	return s
 }
 
-func TestParseCrewFromSubject(t *testing.T) {
-	cases := []struct {
-		subject string
-		want    string
-		ok      bool
-	}{
-		{"kubemoot.discuss.homelab-pilot.general.abc-123", "homelab-pilot", true},
-		{"kubemoot.discuss.crew.channel.thread.extra", "crew", true},
-		{"kubemoot.discuss.crew.channel", "", false},
-		{"other.subject.path.here.x", "", false},
-		{"kubemoot.discuss..channel.thread", "", false}, // empty crew rejected
-		{"", "", false},
-	}
-	for _, tc := range cases {
-		got, ok := parseCrewFromSubject(tc.subject)
-		if got != tc.want || ok != tc.ok {
-			t.Errorf("parseCrewFromSubject(%q): got (%q, %v); want (%q, %v)", tc.subject, got, ok, tc.want, tc.ok)
+func TestProcessMessage_RejectsUnscopedSubject(t *testing.T) {
+	d := &Dispatcher{}
+	body, _ := json.Marshal(DiscussionMessage{MessageType: ConcernMessageType, AgentName: "x", Content: "y", ThreadID: "t"})
+	for _, subject := range []string{
+		"kubemoot.discuss.crew.channel",
+		"kubemoot.discuss..crew.channel.thread",
+		"other.subject.path.here.x.y",
+		"",
+	} {
+		if err := d.ProcessMessage(context.Background(), subject, body); err == nil {
+			t.Errorf("subject %q: expected a parse error", subject)
 		}
 	}
 }
@@ -97,23 +91,23 @@ func TestProcessMessage_SkipsNonConcernSignals(t *testing.T) {
 	d := &Dispatcher{} // no client/HTTP needed for the skip path
 	for _, mt := range []string{"agree", "stand_aside", "synthesis", "advisory", "evaluating"} {
 		body, _ := json.Marshal(DiscussionMessage{MessageType: mt, AgentName: "x", Content: "y", ThreadID: "t"})
-		if err := d.ProcessMessage(context.Background(), "kubemoot.discuss.c.general.t", body); err != nil {
+		if err := d.ProcessMessage(context.Background(), "kubemoot.discuss.ns.c.general.t", body); err != nil {
 			t.Errorf("messageType=%q: expected nil error; got %v", mt, err)
 		}
 	}
 }
 
 // TestProcessMessage_DispatchesConcernToWebhook is the happy-path:
-// a concern message hits a sink whose namespace is labeled for the crew,
+// a concern message hits a sink in the namespace the subject names,
 // the webhook captures the payload, and the sink status is updated.
 func TestProcessMessage_DispatchesConcernToWebhook(t *testing.T) {
 	scheme := newScheme(t)
 
 	// Capture webhook calls.
 	var (
-		mu        sync.Mutex
-		captured  [][]byte
-		headers   []http.Header
+		mu       sync.Mutex
+		captured [][]byte
+		headers  []http.Header
 	)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
@@ -125,12 +119,6 @@ func TestProcessMessage_DispatchesConcernToWebhook(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	ns := &corev1.Namespace{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:   "crew-homelab-pilot",
-			Labels: map[string]string{CrewNamespaceLabel: "homelab-pilot"},
-		},
-	}
 	sink := &kubemootv1alpha1.NotificationSink{
 		ObjectMeta: metav1.ObjectMeta{Name: "ntfy", Namespace: "crew-homelab-pilot"},
 		Spec: kubemootv1alpha1.NotificationSinkSpec{
@@ -142,7 +130,7 @@ func TestProcessMessage_DispatchesConcernToWebhook(t *testing.T) {
 
 	cli := fake.NewClientBuilder().
 		WithScheme(scheme).
-		WithObjects(ns, sink).
+		WithObjects(sink).
 		WithStatusSubresource(sink).
 		Build()
 
@@ -157,7 +145,7 @@ func TestProcessMessage_DispatchesConcernToWebhook(t *testing.T) {
 		Timestamp:   "2026-05-17T04:00:00Z",
 	}
 	body, _ := json.Marshal(msg)
-	if err := d.ProcessMessage(context.Background(), "kubemoot.discuss.homelab-pilot.general.thread-1", body); err != nil {
+	if err := d.ProcessMessage(context.Background(), "kubemoot.discuss.crew-homelab-pilot.homelab-pilot.general.thread-1", body); err != nil {
 		t.Fatalf("ProcessMessage: %v", err)
 	}
 
@@ -165,6 +153,9 @@ func TestProcessMessage_DispatchesConcernToWebhook(t *testing.T) {
 	defer mu.Unlock()
 	if len(captured) != 1 {
 		t.Fatalf("expected 1 webhook hit; got %d", len(captured))
+	}
+	if !strings.Contains(string(captured[0]), `"namespace":"crew-homelab-pilot"`) {
+		t.Errorf("payload should name the namespace; got %s", captured[0])
 	}
 	if !strings.Contains(string(captured[0]), "Partition /var") {
 		t.Errorf("payload should contain the concern; got %s", captured[0])
@@ -180,16 +171,16 @@ func TestProcessMessage_DispatchesConcernToWebhook(t *testing.T) {
 	}
 }
 
-// TestProcessMessage_SkipsWhenNamespaceMissing — no crew namespace label →
-// no sinks dispatched, no error returned (silent skip).
-func TestProcessMessage_SkipsWhenNamespaceMissing(t *testing.T) {
+// TestProcessMessage_SkipsWhenNamespaceHasNoSinks — no sinks in the subject's
+// namespace → nothing dispatched, no error returned (silent skip).
+func TestProcessMessage_SkipsWhenNamespaceHasNoSinks(t *testing.T) {
 	scheme := newScheme(t)
 	cli := fake.NewClientBuilder().WithScheme(scheme).Build()
 	d := &Dispatcher{Client: cli}
 	body, _ := json.Marshal(DiscussionMessage{
 		MessageType: ConcernMessageType, AgentName: "x", Content: "y", ThreadID: "t", Channel: "general",
 	})
-	if err := d.ProcessMessage(context.Background(), "kubemoot.discuss.ghost-crew.general.t", body); err != nil {
+	if err := d.ProcessMessage(context.Background(), "kubemoot.discuss.ghost-ns.ghost-crew.general.t", body); err != nil {
 		t.Errorf("expected silent skip; got error %v", err)
 	}
 }
@@ -205,23 +196,57 @@ func TestProcessMessage_SkipsUnreadySinks(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	ns := &corev1.Namespace{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:   "crew-x", Labels: map[string]string{CrewNamespaceLabel: "x"},
-		},
-	}
 	sink := &kubemootv1alpha1.NotificationSink{
 		ObjectMeta: metav1.ObjectMeta{Name: "bad", Namespace: "crew-x"},
 		Spec:       kubemootv1alpha1.NotificationSinkSpec{Webhook: kubemootv1alpha1.WebhookTarget{URL: srv.URL}},
 		Status:     kubemootv1alpha1.NotificationSinkStatus{Ready: false},
 	}
-	cli := fake.NewClientBuilder().WithScheme(scheme).WithObjects(ns, sink).Build()
+	cli := fake.NewClientBuilder().WithScheme(scheme).WithObjects(sink).Build()
 	d := &Dispatcher{Client: cli, HTTPClient: srv.Client()}
 	body, _ := json.Marshal(DiscussionMessage{
 		MessageType: ConcernMessageType, AgentName: "a", Content: "c", ThreadID: "t",
 	})
-	_ = d.ProcessMessage(context.Background(), "kubemoot.discuss.x.general.t", body)
+	_ = d.ProcessMessage(context.Background(), "kubemoot.discuss.crew-x.x.general.t", body)
 	if hit {
 		t.Error("non-ready sink should not have been dispatched")
+	}
+}
+
+// TestProcessMessage_SameCrewNameInTwoNamespaces — a concern from pilot in
+// team-a fires only team-a's sink, never the sink of pilot in team-b.
+func TestProcessMessage_SameCrewNameInTwoNamespaces(t *testing.T) {
+	scheme := newScheme(t)
+	var (
+		mu   sync.Mutex
+		hits []string
+	)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		hits = append(hits, r.URL.Path)
+		mu.Unlock()
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	mkSink := func(ns string) *kubemootv1alpha1.NotificationSink {
+		return &kubemootv1alpha1.NotificationSink{
+			ObjectMeta: metav1.ObjectMeta{Name: "ntfy", Namespace: ns},
+			Spec:       kubemootv1alpha1.NotificationSinkSpec{Webhook: kubemootv1alpha1.WebhookTarget{URL: srv.URL + "/" + ns}},
+			Status:     kubemootv1alpha1.NotificationSinkStatus{Ready: true},
+		}
+	}
+	a, b := mkSink("team-a"), mkSink("team-b")
+	cli := fake.NewClientBuilder().WithScheme(scheme).WithObjects(a, b).WithStatusSubresource(a, b).Build()
+	d := &Dispatcher{Client: cli, HTTPClient: srv.Client()}
+	body, _ := json.Marshal(DiscussionMessage{
+		MessageType: ConcernMessageType, AgentName: "a", Content: "c", ThreadID: "t", Channel: "general",
+	})
+	if err := d.ProcessMessage(context.Background(), "kubemoot.discuss.team-a.pilot.general.t", body); err != nil {
+		t.Fatalf("ProcessMessage: %v", err)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(hits) != 1 || hits[0] != "/team-a" {
+		t.Fatalf("want exactly team-a's sink hit, got %v", hits)
 	}
 }

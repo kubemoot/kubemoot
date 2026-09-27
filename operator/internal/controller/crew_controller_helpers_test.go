@@ -45,10 +45,19 @@ func TestCrewGatewayName(t *testing.T) {
 func TestCrewRbacName(t *testing.T) {
 	r := newTestCrewReconciler()
 	crew := &kubemootv1alpha1.Crew{
-		ObjectMeta: metav1.ObjectMeta{Name: "test"},
+		ObjectMeta: metav1.ObjectMeta{Name: testCrewPilot, Namespace: testNamespaceA},
 	}
-	if got := r.rbacName(crew); got != "crew-test-discussion" {
-		t.Errorf("expected crew-test-discussion, got %s", got)
+	if got := r.rbacName(crew); got != "crew-team-a-pilot-discussion" {
+		t.Errorf("expected crew-team-a-pilot-discussion, got %s", got)
+	}
+}
+
+func TestCrewRbacName_SameCrewInTwoNamespacesDiffers(t *testing.T) {
+	r := newTestCrewReconciler()
+	a := &kubemootv1alpha1.Crew{ObjectMeta: metav1.ObjectMeta{Name: testCrewPilot, Namespace: testNamespaceA}}
+	b := &kubemootv1alpha1.Crew{ObjectMeta: metav1.ObjectMeta{Name: testCrewPilot, Namespace: testNamespaceB}}
+	if r.rbacName(a) == r.rbacName(b) {
+		t.Errorf("cluster RBAC names collide: %s", r.rbacName(a))
 	}
 }
 

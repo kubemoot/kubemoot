@@ -104,28 +104,13 @@ var _ = Describe("Crew Controller", func() {
 			})
 			Expect(err).NotTo(HaveOccurred())
 
-			// Create cluster-scoped RBAC resources that handleDeletion should clean up
-			rbacName := "crew-crew-rbac-test-discussion"
-			cr := &rbacv1.ClusterRole{
-				ObjectMeta: metav1.ObjectMeta{Name: rbacName},
-				Rules: []rbacv1.PolicyRule{
-					{APIGroups: []string{"kubemoot.ai"}, Resources: []string{"agents"}, Verbs: []string{"get"}},
-				},
+			// Create cluster-scoped RBAC resources that handleDeletion should clean up:
+			// the namespaced name and the unscoped legacy name it replaces.
+			rbacName := "crew-" + namespace + "-crew-rbac-test-discussion"
+			legacyName := "crew-crew-rbac-test-discussion"
+			for _, name := range []string{rbacName, legacyName} {
+				createGatewayClusterRBAC(ctx, name, "crew-rbac-test-discussion", namespace)
 			}
-			Expect(k8sClient.Create(ctx, cr)).To(Succeed())
-
-			crb := &rbacv1.ClusterRoleBinding{
-				ObjectMeta: metav1.ObjectMeta{Name: rbacName},
-				RoleRef: rbacv1.RoleRef{
-					APIGroup: "rbac.authorization.k8s.io",
-					Kind:     "ClusterRole",
-					Name:     rbacName,
-				},
-				Subjects: []rbacv1.Subject{
-					{Kind: "ServiceAccount", Name: "crew-rbac-test-discussion", Namespace: namespace},
-				},
-			}
-			Expect(k8sClient.Create(ctx, crb)).To(Succeed())
 
 			// Mark the crew for deletion
 			updated := &aiv1alpha1.Crew{}
@@ -145,6 +130,38 @@ var _ = Describe("Crew Controller", func() {
 			// Verify ClusterRoleBinding was deleted
 			err = k8sClient.Get(ctx, types.NamespacedName{Name: rbacName}, &rbacv1.ClusterRoleBinding{})
 			Expect(errors.IsNotFound(err)).To(BeTrue(), "ClusterRoleBinding should be deleted")
+
+			// The legacy RBAC bound this crew's service account, so it goes too
+			err = k8sClient.Get(ctx, types.NamespacedName{Name: legacyName}, &rbacv1.ClusterRoleBinding{})
+			Expect(errors.IsNotFound(err)).To(BeTrue(), "legacy ClusterRoleBinding should be deleted")
+		})
+
+		It("should keep a legacy ClusterRoleBinding that binds another namespace's gateway", func() {
+			crew := &aiv1alpha1.Crew{
+				ObjectMeta: metav1.ObjectMeta{Name: "crew-rbac-foreign", Namespace: namespace},
+				Spec:       aiv1alpha1.CrewSpec{Description: "crew whose legacy name is taken elsewhere"},
+			}
+			Expect(k8sClient.Create(ctx, crew)).To(Succeed())
+			key := types.NamespacedName{Name: "crew-rbac-foreign", Namespace: namespace}
+			reconciler := newReconciler()
+			_, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: key})
+			Expect(err).NotTo(HaveOccurred())
+
+			legacyName := "crew-crew-rbac-foreign-discussion"
+			createGatewayClusterRBAC(ctx, legacyName, "crew-rbac-foreign-discussion", "some-other-namespace")
+
+			updated := &aiv1alpha1.Crew{}
+			Expect(k8sClient.Get(ctx, key, updated)).To(Succeed())
+			Expect(k8sClient.Delete(ctx, updated)).To(Succeed())
+			_, err = reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: key})
+			Expect(err).NotTo(HaveOccurred())
+
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: legacyName}, &rbacv1.ClusterRoleBinding{})).To(Succeed(),
+				"another namespace's legacy binding must survive")
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: legacyName}, &rbacv1.ClusterRole{})).To(Succeed(),
+				"another namespace's legacy role must survive")
+			Expect(k8sClient.Delete(ctx, &rbacv1.ClusterRoleBinding{ObjectMeta: metav1.ObjectMeta{Name: legacyName}})).To(Succeed())
+			Expect(k8sClient.Delete(ctx, &rbacv1.ClusterRole{ObjectMeta: metav1.ObjectMeta{Name: legacyName}})).To(Succeed())
 		})
 
 		It("should NOT delete namespace when crew label is absent", func() {
@@ -343,3 +360,21 @@ var _ = Describe("Crew Controller", func() {
 		})
 	})
 })
+
+// createGatewayClusterRBAC creates a discussion-gateway ClusterRole and a
+// ClusterRoleBinding of one name, binding the service account saName in saNamespace.
+func createGatewayClusterRBAC(ctx context.Context, name, saName, saNamespace string) {
+	cr := &rbacv1.ClusterRole{
+		ObjectMeta: metav1.ObjectMeta{Name: name},
+		Rules: []rbacv1.PolicyRule{
+			{APIGroups: []string{"kubemoot.ai"}, Resources: []string{"agents"}, Verbs: []string{"get"}},
+		},
+	}
+	Expect(k8sClient.Create(ctx, cr)).To(Succeed())
+	crb := &rbacv1.ClusterRoleBinding{
+		ObjectMeta: metav1.ObjectMeta{Name: name},
+		RoleRef:    rbacv1.RoleRef{APIGroup: "rbac.authorization.k8s.io", Kind: "ClusterRole", Name: name},
+		Subjects:   []rbacv1.Subject{{Kind: "ServiceAccount", Name: saName, Namespace: saNamespace}},
+	}
+	Expect(k8sClient.Create(ctx, crb)).To(Succeed())
+}

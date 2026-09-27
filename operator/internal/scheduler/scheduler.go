@@ -62,6 +62,7 @@ import (
 
 	"github.com/go-logr/logr"
 	"github.com/google/uuid"
+	"github.com/javajon/kubemoot/operator/internal/crewscope"
 	kubemootnats "github.com/javajon/kubemoot/operator/internal/nats"
 	"github.com/javajon/kubemoot/operator/internal/scheduler/record"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
@@ -128,7 +129,6 @@ func (p *Poller) Start(ctx context.Context) error {
 
 // tick scans the KV bucket and fires due records.
 func (p *Poller) tick(ctx context.Context) error {
-	log := logf.FromContext(ctx).WithName("scheduler")
 	if p.Publisher == nil {
 		return nil
 	}
@@ -137,41 +137,59 @@ func (p *Poller) tick(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("list KV keys: %w", err)
 	}
-	if len(keys) == 0 {
-		return nil
-	}
 
 	now := p.Now()
 	for _, key := range keys {
-		raw, err := p.Publisher.GetKVValue(Bucket, key)
-		if err != nil || raw == nil {
-			continue
-		}
-		var rec record.Record
-		if err := json.Unmarshal(raw, &rec); err != nil {
-			log.Info("dropping malformed schedule record", "key", key, "err", err)
-			_ = p.Publisher.DeleteKVKey(Bucket, key)
-			continue
-		}
-		if rec.TriggerAt.After(now) {
-			continue
-		}
-		if err := p.fire(ctx, &rec); err != nil {
-			log.Info("failed to fire schedule", "scheduleId", rec.ScheduleID, "err", err)
-			// Leave the entry in the bucket so the next tick retries.
-			continue
-		}
-		_ = p.Publisher.DeleteKVKey(Bucket, key)
+		p.processKey(ctx, key, now)
 	}
 	return nil
+}
+
+// processKey fires the record at key when it is due and deletes it once fired.
+// A record that cannot be decoded or cannot be scoped to a crew is dropped; a
+// failed publish leaves the record for the next tick to retry.
+func (p *Poller) processKey(ctx context.Context, key string, now time.Time) {
+	log := logf.FromContext(ctx).WithName("scheduler")
+	raw, err := p.Publisher.GetKVValue(Bucket, key)
+	if err != nil || raw == nil {
+		return
+	}
+	var rec record.Record
+	if err := json.Unmarshal(raw, &rec); err != nil {
+		log.Info("dropping malformed schedule record", "key", key, "err", err)
+		_ = p.Publisher.DeleteKVKey(Bucket, key)
+		return
+	}
+	if _, err := recordScope(&rec); err != nil {
+		log.Info("dropping unscoped schedule record", "key", key, "err", err)
+		_ = p.Publisher.DeleteKVKey(Bucket, key)
+		return
+	}
+	if rec.TriggerAt.After(now) {
+		return
+	}
+	if err := p.fire(ctx, &rec); err != nil {
+		log.Info("failed to fire schedule", "scheduleId", rec.ScheduleID, "err", err)
+		return
+	}
+	_ = p.Publisher.DeleteKVKey(Bucket, key)
+}
+
+// recordScope is the namespace and crew a record fires into.
+func recordScope(rec *record.Record) (crewscope.Scope, error) {
+	scope, err := crewscope.New(rec.Namespace, rec.Crew)
+	if err != nil {
+		return crewscope.Scope{}, fmt.Errorf("invalid record: %w", err)
+	}
+	return scope, nil
 }
 
 // fire dispatches to the right publish path based on Kind + SourceThreadID.
 // Returns nil iff the publish(es) succeeded. The caller is responsible for
 // deleting the KV entry on success.
 func (p *Poller) fire(ctx context.Context, rec *record.Record) error {
-	if rec.Crew == "" {
-		return fmt.Errorf("invalid record: crew is required")
+	if _, err := recordScope(rec); err != nil {
+		return err
 	}
 	channel := rec.Channel
 	if channel == "" {
@@ -196,19 +214,19 @@ func (p *Poller) fireFollowup(log logr.Logger, rec *record.Record, channel strin
 		return fmt.Errorf("invalid followup record: query is required")
 	}
 	if rec.HasSource() {
-		if !p.sourceExists(rec.Crew, channel, rec.SourceThreadID) {
+		if !p.sourceExists(rec, channel, rec.SourceThreadID) {
 			log.Info("source thread missing — degrading followup to new-thread",
-				"scheduleId", rec.ScheduleID, "crew", rec.Crew,
+				"scheduleId", rec.ScheduleID, "namespace", rec.Namespace, "crew", rec.Crew,
 				"originalSourceThreadId", rec.SourceThreadID)
 			return p.fireNewThreadFollowup(rec, channel)
 		}
 		log.Info("firing inline followup (reopen)",
-			"scheduleId", rec.ScheduleID, "crew", rec.Crew,
+			"scheduleId", rec.ScheduleID, "namespace", rec.Namespace, "crew", rec.Crew,
 			"sourceThreadId", rec.SourceThreadID)
 		return p.fireInlineFollowup(rec, channel)
 	}
 	log.Info("firing new-thread followup",
-		"scheduleId", rec.ScheduleID, "crew", rec.Crew)
+		"scheduleId", rec.ScheduleID, "namespace", rec.Namespace, "crew", rec.Crew)
 	return p.fireNewThreadFollowup(rec, channel)
 }
 
@@ -219,19 +237,19 @@ func (p *Poller) fireReminder(log logr.Logger, rec *record.Record, channel strin
 		return fmt.Errorf("invalid reminder record: message is required")
 	}
 	if rec.HasSource() {
-		if !p.sourceExists(rec.Crew, channel, rec.SourceThreadID) {
+		if !p.sourceExists(rec, channel, rec.SourceThreadID) {
 			log.Info("source thread missing — degrading reminder to new-thread",
-				"scheduleId", rec.ScheduleID, "crew", rec.Crew,
+				"scheduleId", rec.ScheduleID, "namespace", rec.Namespace, "crew", rec.Crew,
 				"originalSourceThreadId", rec.SourceThreadID)
 			return p.fireNewThreadReminder(rec, channel)
 		}
 		log.Info("firing inline reminder",
-			"scheduleId", rec.ScheduleID, "crew", rec.Crew,
+			"scheduleId", rec.ScheduleID, "namespace", rec.Namespace, "crew", rec.Crew,
 			"sourceThreadId", rec.SourceThreadID)
 		return p.fireInlineReminder(rec, channel)
 	}
 	log.Info("firing new-thread reminder",
-		"scheduleId", rec.ScheduleID, "crew", rec.Crew)
+		"scheduleId", rec.ScheduleID, "namespace", rec.Namespace, "crew", rec.Crew)
 	return p.fireNewThreadReminder(rec, channel)
 }
 
@@ -239,7 +257,7 @@ func (p *Poller) fireReminder(log logr.Logger, rec *record.Record, channel strin
 // human reply. handleThreadReopen in DiscussionOrchestrator looks for
 // agentName=="human" + messageType=="reply" on a CLOSED thread.
 func (p *Poller) fireInlineFollowup(rec *record.Record, channel string) error {
-	subject := threadSubject(rec.Crew, channel, rec.SourceThreadID)
+	subject := threadSubject(rec, channel, rec.SourceThreadID)
 	msg := map[string]any{
 		"messageId":   uuid.NewString(),
 		"threadId":    rec.SourceThreadID,
@@ -257,7 +275,7 @@ func (p *Poller) fireInlineFollowup(rec *record.Record, channel string) error {
 // for a fresh discussion that re-asks the query.
 func (p *Poller) fireNewThreadFollowup(rec *record.Record, channel string) error {
 	threadID := uuid.NewString()
-	subject := threadSubject(rec.Crew, channel, threadID)
+	subject := threadSubject(rec, channel, threadID)
 	msg := map[string]any{
 		"messageId":   uuid.NewString(),
 		"threadId":    threadID,
@@ -275,7 +293,7 @@ func (p *Poller) fireNewThreadFollowup(rec *record.Record, channel string) error
 // reopening it. agentName="scheduler" intentionally does not match
 // handleThreadReopen's "human" guard.
 func (p *Poller) fireInlineReminder(rec *record.Record, channel string) error {
-	subject := threadSubject(rec.Crew, channel, rec.SourceThreadID)
+	subject := threadSubject(rec, channel, rec.SourceThreadID)
 	msg := map[string]any{
 		"messageId":   uuid.NewString(),
 		"threadId":    rec.SourceThreadID,
@@ -294,7 +312,7 @@ func (p *Poller) fireInlineReminder(rec *record.Record, channel string) error {
 // activity expected on this thread.
 func (p *Poller) fireNewThreadReminder(rec *record.Record, channel string) error {
 	threadID := uuid.NewString()
-	subject := threadSubject(rec.Crew, channel, threadID)
+	subject := threadSubject(rec, channel, threadID)
 	now := p.Now().UTC().Format(time.RFC3339)
 	meta := fireMetadata(rec, true)
 
@@ -337,8 +355,10 @@ func (p *Poller) fireNewThreadReminder(rec *record.Record, channel string) error
 	return p.publish(subject, close)
 }
 
-func threadSubject(crew, channel, threadID string) string {
-	return fmt.Sprintf("kubemoot.discuss.%s.%s.%s", crew, channel, threadID)
+// threadSubject is the record's discussion subject,
+// kubemoot.discuss.<ns>.<crew>.<channel>.<thread>. fire validates the scope first.
+func threadSubject(rec *record.Record, channel, threadID string) string {
+	return crewscope.Scope{Namespace: rec.Namespace, Crew: rec.Crew}.DiscussSubject(channel, threadID)
 }
 
 // publish wraps Publisher.Publish with a nil-Publisher guard so tests
@@ -399,9 +419,9 @@ func New(pub *kubemootnats.Publisher) *Poller {
 // still has messages in the discuss stream. When no checker is configured
 // (e.g. NATS unset, or in tests without injection), the scheduler is
 // optimistic and treats the source as present.
-func (p *Poller) sourceExists(crew, channel, threadID string) bool {
+func (p *Poller) sourceExists(rec *record.Record, channel, threadID string) bool {
 	if p.SubjectHasMessages == nil {
 		return true
 	}
-	return p.SubjectHasMessages(DiscussStreamName, threadSubject(crew, channel, threadID))
+	return p.SubjectHasMessages(DiscussStreamName, threadSubject(rec, channel, threadID))
 }

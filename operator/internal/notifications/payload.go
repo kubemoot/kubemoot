@@ -15,12 +15,14 @@ You may obtain a copy of the License at
 //
 // The payload carries enough information that the notification stands on
 // its own even if the discussion thread is later deleted — content, agent,
-// crew, channel, threadId, timestamp, and an optional dashboard deep-link.
+// namespace, crew, channel, threadId, timestamp, and an optional dashboard deep-link.
 package notifications
 
 import (
 	"encoding/json"
 	"fmt"
+
+	"github.com/javajon/kubemoot/operator/internal/crewscope"
 )
 
 // PayloadSchemaVersion is bumped only on incompatible payload changes.
@@ -35,6 +37,7 @@ const ConcernMessageType = "concern"
 type Payload struct {
 	SchemaVersion int    `json:"schemaVersion"`
 	Agent         string `json:"agent"`
+	Namespace     string `json:"namespace"`
 	Crew          string `json:"crew"`
 	Channel       string `json:"channel,omitempty"`
 	ThreadID      string `json:"threadId,omitempty"`
@@ -58,11 +61,12 @@ type DiscussionMessage struct {
 // BuildPayload constructs the Payload for a concern dispatch. dashboardBase
 // is optional ("" to omit the deepLink). When provided, the link points at
 // the dashboard's threads view with a query param the dashboard parses.
-func BuildPayload(msg *DiscussionMessage, crew, dashboardBase string) Payload {
+func BuildPayload(msg *DiscussionMessage, scope crewscope.Scope, dashboardBase string) Payload {
 	p := Payload{
 		SchemaVersion: PayloadSchemaVersion,
 		Agent:         msg.AgentName,
-		Crew:          crew,
+		Namespace:     scope.Namespace,
+		Crew:          scope.Crew,
 		Channel:       msg.Channel,
 		ThreadID:      msg.ThreadID,
 		Concern:       msg.Content,

@@ -16,6 +16,7 @@ import (
 	"time"
 
 	kubemootv1alpha1 "github.com/javajon/kubemoot/operator/api/v1alpha1"
+	"github.com/javajon/kubemoot/operator/internal/crewscope"
 	"github.com/xuri/excelize/v2"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -79,14 +80,14 @@ func TestBuildResumeRAGSourceSpec(t *testing.T) {
 		Endpoint:   "http://qdrant:6333",
 		Dimensions: 768,
 	}
-	spec := buildResumeRAGSourceSpec("crew-a", "hash123", vs, "coll", "embed-model")
+	spec := buildResumeRAGSourceSpec(crewscope.Scope{Namespace: testNamespaceA, Crew: testCrewPilot}, "hash123", vs, "embed-model")
 	if spec.Source.Type != kubemootv1alpha1.RAGSourceTypeNatsKV {
 		t.Errorf("source type = %q, want NatsKV", spec.Source.Type)
 	}
-	if spec.Source.NatsKV == nil || spec.Source.NatsKV.Key != "crew-a" || spec.Source.NatsKV.ContentHash != "hash123" {
+	if spec.Source.NatsKV == nil || spec.Source.NatsKV.Key != "team-a.pilot" || spec.Source.NatsKV.ContentHash != "hash123" {
 		t.Errorf("NatsKV source not wired: %+v", spec.Source.NatsKV)
 	}
-	if spec.VectorStore.Collection != "coll" || spec.VectorStore.Endpoint != "http://qdrant:6333" {
+	if spec.VectorStore.Collection != "crew_team_a_pilot_resumes" || spec.VectorStore.Endpoint != "http://qdrant:6333" {
 		t.Errorf("vector store not carried through: %+v", spec.VectorStore)
 	}
 	if spec.EmbeddingModelRef != "embed-model" {

@@ -14,7 +14,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/nats-io/nats.go"
@@ -25,11 +24,12 @@ import (
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
 	kubemootv1alpha1 "github.com/javajon/kubemoot/operator/api/v1alpha1"
+	"github.com/javajon/kubemoot/operator/internal/crewscope"
 	kubemootnats "github.com/javajon/kubemoot/operator/internal/nats"
 )
 
 // DiscussionSubjectWildcard is the NATS subject the dispatcher subscribes
-// to. Discussion subjects follow `kubemoot.discuss.<crew>.<channel>.<thread>`.
+// to. Discussion subjects follow `kubemoot.discuss.<ns>.<crew>.<channel>.<thread>`.
 const DiscussionSubjectWildcard = "kubemoot.discuss.>"
 
 // DiscussStreamName is the JetStream stream holding discussion messages.
@@ -41,12 +41,9 @@ const DiscussStreamName = "KUBEMOOT_DISCUSS"
 // resumes; renaming it strands the existing consumer + loses position.
 const DispatcherDurableName = "kubemoot-notification-dispatcher"
 
-// CrewNamespaceLabel is the label that maps a Kubernetes namespace to a
-// crew. Existing convention across the operator (see Crew controller).
-const CrewNamespaceLabel = "kubemoot.ai/crew"
-
 // Dispatcher is a leader-elected runnable that drives the
-// NotificationSink → webhook path. Lookups are namespace-scoped; HTTP
+// NotificationSink → webhook path. Sinks are looked up in the namespace the
+// discussion subject names; HTTP
 // client is injectable for tests.
 type Dispatcher struct {
 	Client        client.Client
@@ -140,23 +137,16 @@ func (d *Dispatcher) ProcessMessage(ctx context.Context, subject string, body []
 	if msg.MessageType != ConcernMessageType {
 		return nil
 	}
-	crew, ok := parseCrewFromSubject(subject)
-	if !ok {
-		return fmt.Errorf("could not parse crew from subject %q", subject)
-	}
-	namespace, ok, err := d.findCrewNamespace(ctx, crew)
+	discussion, err := crewscope.ParseDiscussSubject(subject)
 	if err != nil {
-		return fmt.Errorf("lookup crew namespace: %w", err)
-	}
-	if !ok {
-		return nil // no namespace labeled for this crew → nobody listening
+		return fmt.Errorf("could not parse namespace and crew: %w", err)
 	}
 
 	sinks := &kubemootv1alpha1.NotificationSinkList{}
-	if err := d.Client.List(ctx, sinks, client.InNamespace(namespace)); err != nil {
+	if err := d.Client.List(ctx, sinks, client.InNamespace(discussion.Namespace)); err != nil {
 		return fmt.Errorf("list sinks: %w", err)
 	}
-	payload := BuildPayload(&msg, crew, d.DashboardBase)
+	payload := BuildPayload(&msg, discussion.Scope, d.DashboardBase)
 	body2, err := MarshalPayload(&payload)
 	if err != nil {
 		return fmt.Errorf("marshal payload: %w", err)
@@ -198,31 +188,6 @@ func contains(haystack []string, needle string) bool {
 		}
 	}
 	return false
-}
-
-// parseCrewFromSubject extracts <crew> from kubemoot.discuss.<crew>.<channel>.<thread>.
-func parseCrewFromSubject(subject string) (string, bool) {
-	parts := strings.Split(subject, ".")
-	if len(parts) < 5 || parts[0] != "kubemoot" || parts[1] != "discuss" {
-		return "", false
-	}
-	if parts[2] == "" {
-		return "", false
-	}
-	return parts[2], true
-}
-
-// findCrewNamespace returns the namespace labeled with kubemoot.ai/crew=<crew>.
-// First match wins (the convention is one-namespace-per-crew).
-func (d *Dispatcher) findCrewNamespace(ctx context.Context, crew string) (string, bool, error) {
-	nsList := &corev1.NamespaceList{}
-	if err := d.Client.List(ctx, nsList, client.MatchingLabels{CrewNamespaceLabel: crew}); err != nil {
-		return "", false, err
-	}
-	if len(nsList.Items) == 0 {
-		return "", false, nil
-	}
-	return nsList.Items[0].Name, true, nil
 }
 
 // dispatch performs the HTTP request. Returns a non-nil error on transport

@@ -17,6 +17,13 @@ import (
 	"github.com/javajon/kubemoot/operator/internal/scheduler/record"
 )
 
+const (
+	testNamespace  = "team-a"
+	otherNamespace = "team-b"
+	pilotCrew      = "homelab-pilot"
+	shortCrew      = "pilot"
+)
+
 func TestNew_AppliesDefaults(t *testing.T) {
 	p := New(nil)
 	if p.Interval != DefaultInterval {
@@ -29,15 +36,23 @@ func TestNew_AppliesDefaults(t *testing.T) {
 
 func TestFire_RequiresCrew(t *testing.T) {
 	p := New(nil)
-	err := p.fire(t.Context(), &record.Record{Kind: record.KindReminder, Message: "hi"})
+	err := p.fire(t.Context(), &record.Record{Namespace: testNamespace, Kind: record.KindReminder, Message: "hi"})
 	if err == nil {
 		t.Error("expected error when crew is empty")
 	}
 }
 
+func TestFire_RequiresNamespace(t *testing.T) {
+	p := New(nil)
+	err := p.fire(t.Context(), &record.Record{Crew: "x", Kind: record.KindReminder, Message: "hi"})
+	if err == nil {
+		t.Error("expected error when namespace is empty")
+	}
+}
+
 func TestFire_FollowupRequiresQuery(t *testing.T) {
 	p := New(nil)
-	err := p.fire(t.Context(), &record.Record{Crew: "x", Kind: record.KindFollowup})
+	err := p.fire(t.Context(), &record.Record{Namespace: testNamespace, Crew: "x", Kind: record.KindFollowup})
 	if err == nil {
 		t.Error("expected error when followup has no query")
 	}
@@ -45,7 +60,7 @@ func TestFire_FollowupRequiresQuery(t *testing.T) {
 
 func TestFire_ReminderRequiresMessage(t *testing.T) {
 	p := New(nil)
-	err := p.fire(t.Context(), &record.Record{Crew: "x", Kind: record.KindReminder})
+	err := p.fire(t.Context(), &record.Record{Namespace: testNamespace, Crew: "x", Kind: record.KindReminder})
 	if err == nil {
 		t.Error("expected error when reminder has no message")
 	}
@@ -53,17 +68,40 @@ func TestFire_ReminderRequiresMessage(t *testing.T) {
 
 func TestFire_UnknownKindRejected(t *testing.T) {
 	p := New(nil)
-	err := p.fire(t.Context(), &record.Record{Crew: "x", Kind: "bogus", Query: "q", Message: "m"})
+	err := p.fire(t.Context(), &record.Record{Namespace: testNamespace, Crew: "x", Kind: "bogus", Query: "q", Message: "m"})
 	if err == nil {
 		t.Error("expected error on unknown kind")
 	}
 }
 
 func TestThreadSubject(t *testing.T) {
-	got := threadSubject("homelab-pilot", "general", "thread-7")
-	want := "kubemoot.discuss.homelab-pilot.general.thread-7"
+	got := threadSubject(&record.Record{Namespace: testNamespace, Crew: pilotCrew}, "general", "thread-7")
+	want := "kubemoot.discuss.team-a.homelab-pilot.general.thread-7"
 	if got != want {
 		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
+func TestThreadSubject_SameCrewInTwoNamespacesDiffers(t *testing.T) {
+	a := threadSubject(&record.Record{Namespace: testNamespace, Crew: shortCrew}, "general", "t")
+	b := threadSubject(&record.Record{Namespace: otherNamespace, Crew: shortCrew}, "general", "t")
+	if a == b {
+		t.Errorf("subjects collide: %q", a)
+	}
+}
+
+func TestRecordScope_RejectsUnscopedRecords(t *testing.T) {
+	for _, rec := range []record.Record{
+		{Crew: shortCrew},
+		{Namespace: testNamespace},
+		{Namespace: "team.a", Crew: shortCrew},
+	} {
+		if _, err := recordScope(&rec); err == nil {
+			t.Errorf("recordScope(%+v) accepted an unscoped record", rec)
+		}
+	}
+	if s, err := recordScope(&record.Record{Namespace: testNamespace, Crew: shortCrew}); err != nil || s.Namespace != testNamespace || s.Crew != shortCrew {
+		t.Errorf("recordScope = %+v, %v", s, err)
 	}
 }
 
@@ -154,7 +192,8 @@ func TestFire_DegradesToNewThreadWhenSourceMissing(t *testing.T) {
 			name: "followup with missing source",
 			rec: record.Record{
 				ScheduleID:     "abc",
-				Crew:           "homelab-pilot",
+				Namespace:      testNamespace,
+				Crew:           pilotCrew,
 				Channel:        "general",
 				Kind:           record.KindFollowup,
 				Query:          "re-check disk",
@@ -165,7 +204,8 @@ func TestFire_DegradesToNewThreadWhenSourceMissing(t *testing.T) {
 			name: "reminder with missing source",
 			rec: record.Record{
 				ScheduleID:     "abc",
-				Crew:           "homelab-pilot",
+				Namespace:      testNamespace,
+				Crew:           pilotCrew,
 				Channel:        "general",
 				Kind:           record.KindReminder,
 				Message:        "ping me",
@@ -192,7 +232,7 @@ func TestFire_DegradesToNewThreadWhenSourceMissing(t *testing.T) {
 			if checkedStream != DiscussStreamName {
 				t.Errorf("stream: got %q, want %q", checkedStream, DiscussStreamName)
 			}
-			wantSubject := "kubemoot.discuss.homelab-pilot.general.thread-gone"
+			wantSubject := "kubemoot.discuss.team-a.homelab-pilot.general.thread-gone"
 			if checkedSubject != wantSubject {
 				t.Errorf("subject: got %q, want %q", checkedSubject, wantSubject)
 			}
@@ -211,7 +251,8 @@ func TestFire_DoesNotCheckWhenNoSource(t *testing.T) {
 	}
 	rec := &record.Record{
 		ScheduleID: "abc",
-		Crew:       "homelab-pilot",
+		Namespace:  testNamespace,
+		Crew:       pilotCrew,
 		Channel:    "general",
 		Kind:       record.KindFollowup,
 		Query:      "x",
@@ -229,7 +270,7 @@ func TestFire_DoesNotCheckWhenNoSource(t *testing.T) {
 // existence; the publish path will no-op anyway.
 func TestSourceExists_NoCheckerReturnsTrue(t *testing.T) {
 	p := New(nil)
-	if !p.sourceExists("crew", "general", "thread-x") {
+	if !p.sourceExists(&record.Record{Namespace: testNamespace, Crew: "crew"}, "general", "thread-x") {
 		t.Error("expected sourceExists to be optimistic when no checker is wired")
 	}
 }

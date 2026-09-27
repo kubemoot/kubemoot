@@ -39,6 +39,7 @@ import (
 	"time"
 
 	kubemootv1alpha1 "github.com/javajon/kubemoot/operator/api/v1alpha1"
+	"github.com/javajon/kubemoot/operator/internal/crewscope"
 	kubemootnats "github.com/javajon/kubemoot/operator/internal/nats"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -930,6 +931,20 @@ func agentNATSURL() string {
 	return defaultNATSURL
 }
 
+// fieldPathNamespace is the downward-API field holding a pod's namespace.
+const fieldPathNamespace = "metadata.namespace"
+
+// namespaceEnvVar sets KUBEMOOT_NAMESPACE from the downward API, the namespace
+// every Kubemoot subject and key a workload builds is scoped to.
+func namespaceEnvVar() corev1.EnvVar {
+	return corev1.EnvVar{
+		Name: crewscope.NamespaceEnv,
+		ValueFrom: &corev1.EnvVarSource{
+			FieldRef: &corev1.ObjectFieldSelector{FieldPath: fieldPathNamespace},
+		},
+	}
+}
+
 // baseAgentEnvVars returns the always-present KUBEMOOT_* env plus the crew-version
 // provenance var (when the crew chart stamped it).
 func baseAgentEnvVars(agent *kubemootv1alpha1.Agent, crew string, mulling, triage *modelPick, port int32) []corev1.EnvVar {
@@ -938,6 +953,7 @@ func baseAgentEnvVars(agent *kubemootv1alpha1.Agent, crew string, mulling, triag
 		{Name: "KUBEMOOT_AGENT_TYPE", Value: stringOrDefault(string(agent.Spec.Type), "chat")},
 		{Name: "KUBEMOOT_AGENT_DESCRIPTION", Value: agent.Spec.Description},
 		{Name: "KUBEMOOT_CREW", Value: crew},
+		namespaceEnvVar(),
 		{Name: "KUBEMOOT_SYSTEM_PROMPT_FILE", Value: "/etc/kubemoot/policy/system.txt"},
 		{Name: "KUBEMOOT_MODEL_MODEL", Value: mulling.ModelID},
 		{Name: "KUBEMOOT_MODEL_ENDPOINT", Value: mulling.Endpoint},
@@ -1025,7 +1041,7 @@ func (r *AgentReconciler) agentDiscussRoleEnvVars(ctx context.Context, agent *ku
 		if crewName == "" {
 			crewName = agent.Namespace
 		}
-		resumeQuerySvc := fmt.Sprintf("crew-%s-resumes-query", crewName)
+		resumeQuerySvc := resumeRAGSourceName(crewName) + "-query"
 		env = append(env, corev1.EnvVar{
 			Name:  "KUBEMOOT_RESUME_SEARCH_ENDPOINT",
 			Value: fmt.Sprintf("http://%s.%s:%d", resumeQuerySvc, agent.Namespace, resumeQueryPort),

@@ -20,9 +20,10 @@ You may obtain a copy of the License at
 //
 //	coordinator Agent reconcile
 //	  → compile a resume per crew tooler (from the Agent specs)
-//	  → write the resume set to NATS KV bucket kubemoot_crew_resumes, key=<crew>
-//	  → create/update a per-crew RAGSource crew-<crew>-resumes
-//	      (collection crew_<crew>_resumes), copying the cluster's existing
+//	  → write the resume set to NATS KV bucket kubemoot_crew_resumes, key=<ns>.<crew>
+//	      (and delete the unscoped key <crew> it replaces)
+//	  → create/update a per-crew RAGSource crew-<crew>-resumes in the crew namespace
+//	      (collection crew_<ns>_<crew>_resumes), copying the cluster's existing
 //	      vectorStore + embeddingModel config; the RAGSource controller runs the
 //	      indexer (embeds) and stands up the query service automatically
 //	  → buildEnvVars injects KUBEMOOT_RESUME_SEARCH_ENDPOINT on the coordinator
@@ -39,7 +40,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
-	"strings"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -49,6 +49,7 @@ import (
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
 	kubemootv1alpha1 "github.com/javajon/kubemoot/operator/api/v1alpha1"
+	"github.com/javajon/kubemoot/operator/internal/crewscope"
 )
 
 const (
@@ -70,10 +71,12 @@ func (r *AgentReconciler) syncCrewResumes(ctx context.Context, coordinator *kube
 	if coordinator.Spec.DiscussRole != roleCoordinator {
 		return
 	}
-	crewName := coordinator.Labels[crewLabelKey]
-	if crewName == "" {
-		crewName = coordinator.Namespace
+	scope, err := coordinatorScope(coordinator)
+	if err != nil {
+		log.Info("Crew resumes not synced: the crew cannot be scoped", "error", err.Error())
+		return
 	}
+	crewName := scope.Crew
 
 	resumes := r.compileCrewResumes(ctx, coordinator, crewName)
 	if len(resumes) == 0 {
@@ -82,48 +85,82 @@ func (r *AgentReconciler) syncCrewResumes(ctx context.Context, coordinator *kube
 	skills := r.listCrewSkills(ctx, coordinator, crewName)
 	newHash := CombinedResumeHash(resumes, skills)
 
-	ragSourceName := fmt.Sprintf("crew-%s-resumes", crewName)
-	existing := &kubemootv1alpha1.RAGSource{}
-	getErr := r.Get(ctx, types.NamespacedName{Name: ragSourceName, Namespace: coordinator.Namespace}, existing)
-	if getErr == nil && existing.Spec.Source.NatsKV != nil && existing.Spec.Source.NatsKV.ContentHash == newHash {
+	ragSourceName := resumeRAGSourceName(crewName)
+	if r.resumesUnchanged(ctx, coordinator.Namespace, ragSourceName, newHash) {
 		log.V(1).Info("Crew resumes unchanged, skipping re-embed", "crew", crewName)
 		return
 	}
 
-	if !r.writeResumesToNATS(ctx, crewName, resumes, skills) {
+	if !r.writeResumesToNATS(ctx, scope, resumes, skills) {
 		return
 	}
 
+	vectorStore, embeddingModelRef, ok := r.resumeVectorStore(ctx, coordinator, crewName)
+	if !ok {
+		return
+	}
+	desiredSpec := buildResumeRAGSourceSpec(scope, newHash, vectorStore, embeddingModelRef)
+	if r.createOrUpdateResumeRAGSource(ctx, coordinator, ragSourceName, crewName, desiredSpec) {
+		log.Info("Resume RAGSource synced", "crew", crewName, "agents", len(resumes), "hash", newHash[:12])
+	}
+}
+
+// coordinatorScope is the coordinator's namespace and crew: the crew label, or
+// the namespace when the label is absent.
+func coordinatorScope(coordinator *kubemootv1alpha1.Agent) (crewscope.Scope, error) {
+	crewName := coordinator.Labels[crewLabelKey]
+	if crewName == "" {
+		crewName = coordinator.Namespace
+	}
+	return crewscope.New(coordinator.Namespace, crewName)
+}
+
+// resumeRAGSourceName names the crew's resume RAGSource, a namespaced object
+// in the crew namespace (its query service is <name>-query).
+func resumeRAGSourceName(crewName string) string {
+	return fmt.Sprintf("crew-%s-resumes", crewName)
+}
+
+// resumesUnchanged reports whether the resume RAGSource already carries hash.
+func (r *AgentReconciler) resumesUnchanged(ctx context.Context, namespace, ragSourceName, hash string) bool {
+	existing := &kubemootv1alpha1.RAGSource{}
+	if err := r.Get(ctx, types.NamespacedName{Name: ragSourceName, Namespace: namespace}, existing); err != nil {
+		return false
+	}
+	return existing.Spec.Source.NatsKV != nil && existing.Spec.Source.NatsKV.ContentHash == hash
+}
+
+// resumeVectorStore finds the vectorStore and embedding model the resume
+// RAGSource copies and makes sure the vectorStore secret is present in the crew
+// namespace. It reports false when the RAGSource cannot be created yet.
+func (r *AgentReconciler) resumeVectorStore(ctx context.Context, coordinator *kubemootv1alpha1.Agent, crewName string) (*kubemootv1alpha1.VectorStoreConfig, string, bool) {
+	log := logf.FromContext(ctx)
 	vectorStore, embeddingModelRef, sourceNamespace := r.discoverRAGSourceDefaults(ctx, coordinator.Namespace)
 	if vectorStore == nil {
 		// Surfaced at Info (not debug): the resume pipeline cannot engage without a
 		// vectorStore to copy, so this is an actionable "feature off" signal, not noise.
 		log.Info("Resume RAGSource not created: no existing RAGSource found to copy vectorStore/embeddingModel config from", "crew", crewName)
-		return
+		return nil, "", false
 	}
-	if vectorStore.SecretRef != "" {
-		// Replicate the vectorStore secret into the crew namespace from the source
-		// RAGSource's namespace if it isn't already here.
-		if sourceNamespace != coordinator.Namespace && !secretExists(ctx, r.Client, vectorStore.SecretRef, coordinator.Namespace) {
-			replicateSecretFrom(ctx, r.Client, vectorStore.SecretRef, sourceNamespace, coordinator.Namespace)
-		}
-		// Gate RAGSource creation on the secret actually being present. Otherwise the
-		// resume indexer/query pods come up into CreateContainerConfigError and the
-		// resume collection never indexes (selection silently falls back to broadcast).
-		// A later reconcile — or the namespace controller's own secret replication —
-		// lands the secret; we create the RAGSource on that retry.
-		if !secretExists(ctx, r.Client, vectorStore.SecretRef, coordinator.Namespace) {
-			log.Info("Resume RAGSource deferred: vectorStore secret not yet present in crew namespace; will retry",
-				"crew", crewName, "secret", vectorStore.SecretRef, "namespace", coordinator.Namespace)
-			return
-		}
+	if vectorStore.SecretRef == "" {
+		return vectorStore, embeddingModelRef, true
 	}
-
-	collection := fmt.Sprintf("crew_%s_resumes", strings.ReplaceAll(crewName, "-", "_"))
-	desiredSpec := buildResumeRAGSourceSpec(crewName, newHash, vectorStore, collection, embeddingModelRef)
-	if r.createOrUpdateResumeRAGSource(ctx, coordinator, ragSourceName, crewName, desiredSpec) {
-		log.Info("Resume RAGSource synced", "crew", crewName, "agents", len(resumes), "hash", newHash[:12])
+	// Replicate the vectorStore secret into the crew namespace from the source
+	// RAGSource's namespace if it isn't already here.
+	if sourceNamespace != coordinator.Namespace && !secretExists(ctx, r.Client, vectorStore.SecretRef, coordinator.Namespace) {
+		replicateSecretFrom(ctx, r.Client, vectorStore.SecretRef, sourceNamespace, coordinator.Namespace)
 	}
+	// Gate RAGSource creation on the secret actually being present. Otherwise the
+	// resume indexer/query pods come up into CreateContainerConfigError and the
+	// resume collection never indexes (selection silently falls back to broadcast).
+	// A later reconcile — or the namespace controller's own secret replication —
+	// lands the secret; we create the RAGSource on that retry.
+	if !secretExists(ctx, r.Client, vectorStore.SecretRef, coordinator.Namespace) {
+		log.Info("Resume RAGSource deferred: vectorStore secret not yet present in crew namespace; will retry",
+			"crew", crewName, "secret", vectorStore.SecretRef, "namespace", coordinator.Namespace)
+		return nil, "", false
+	}
+	return vectorStore, embeddingModelRef, true
 }
 
 // compileCrewResumes lists the crew's tooler agents and builds one resume
@@ -189,10 +226,11 @@ func (r *AgentReconciler) buildAgentResume(ctx context.Context, agent *kubemootv
 }
 
 // writeResumesToNATS stores the resume set as JSON in the shared NATS KV bucket,
-// keyed by crew. The indexer reads from here (RAGSource source type nats-kv).
+// keyed <ns>.<crew>, and deletes the unscoped <crew> key it replaces. The indexer
+// reads from here (RAGSource source type nats-kv).
 // Returns true when written (or when NATS is not configured - a no-op build).
 // When skills is empty the payload is byte-identical to the previous agent-only format.
-func (r *AgentReconciler) writeResumesToNATS(ctx context.Context, crewName string, resumes []AgentResume, skills []SkillResume) bool {
+func (r *AgentReconciler) writeResumesToNATS(ctx context.Context, scope crewscope.Scope, resumes []AgentResume, skills []SkillResume) bool {
 	log := logf.FromContext(ctx)
 	if r.NATSPublisher == nil {
 		return true
@@ -202,11 +240,13 @@ func (r *AgentReconciler) writeResumesToNATS(ctx context.Context, crewName strin
 		log.Error(err, "Failed to marshal resumes for NATS KV")
 		return false
 	}
-	if err := r.NATSPublisher.PutKVValue(resumeKVBucket, crewName, resumeJSON); err != nil {
-		log.Error(err, "Failed to write resumes to NATS KV", "crew", crewName)
+	if err := r.NATSPublisher.PutKVValue(resumeKVBucket, scope.ResumeKey(), resumeJSON); err != nil {
+		log.Error(err, "Failed to write resumes to NATS KV", "namespace", scope.Namespace, "crew", scope.Crew)
 		return false
 	}
-	log.Info("Wrote crew resumes to NATS KV", "crew", crewName, "agents", len(resumes), "skills", len(skills))
+	_ = r.NATSPublisher.DeleteKVKey(resumeKVBucket, crewscope.LegacyResumeKey(scope.Crew))
+	log.Info("Wrote crew resumes to NATS KV", "namespace", scope.Namespace, "crew", scope.Crew,
+		"agents", len(resumes), "skills", len(skills))
 	return true
 }
 
@@ -303,15 +343,15 @@ func (r *AgentReconciler) discoverRAGSourceDefaults(ctx context.Context, namespa
 
 // buildResumeRAGSourceSpec builds the per-crew resume RAGSource spec: a nats-kv
 // source (the bucket/key written above, carrying the content hash) feeding the
-// per-crew pgvector collection via the discovered vectorStore + embeddingModel.
-func buildResumeRAGSourceSpec(crewName, contentHash string, vectorStore *kubemootv1alpha1.VectorStoreConfig,
-	collection, embeddingModelRef string) kubemootv1alpha1.RAGSourceSpec {
+// crew's namespaced collection via the discovered vectorStore + embeddingModel.
+func buildResumeRAGSourceSpec(scope crewscope.Scope, contentHash string, vectorStore *kubemootv1alpha1.VectorStoreConfig,
+	embeddingModelRef string) kubemootv1alpha1.RAGSourceSpec {
 	return kubemootv1alpha1.RAGSourceSpec{
 		Source: kubemootv1alpha1.SourceConfig{
 			Type: kubemootv1alpha1.RAGSourceTypeNatsKV,
 			NatsKV: &kubemootv1alpha1.NatsKVSource{
 				Bucket:      resumeKVBucket,
-				Key:         crewName,
+				Key:         scope.ResumeKey(),
 				ContentHash: contentHash,
 			},
 		},
@@ -319,7 +359,7 @@ func buildResumeRAGSourceSpec(crewName, contentHash string, vectorStore *kubemoo
 			Type:       vectorStore.Type,
 			Endpoint:   vectorStore.Endpoint,
 			SecretRef:  vectorStore.SecretRef,
-			Collection: collection,
+			Collection: scope.ResumeCollection(),
 			Dimensions: vectorStore.Dimensions,
 		},
 		EmbeddingModelRef: embeddingModelRef,

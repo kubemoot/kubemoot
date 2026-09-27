@@ -39,13 +39,15 @@ import (
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
 	kubemootv1alpha1 "github.com/javajon/kubemoot/operator/api/v1alpha1"
+	"github.com/javajon/kubemoot/operator/internal/crewmemory"
+	"github.com/javajon/kubemoot/operator/internal/crewscope"
 	kubemootnats "github.com/javajon/kubemoot/operator/internal/nats"
 )
 
 // crewMemoryBucket is the NATS KV bucket holding crew working memory; keys are
-// <crew>.<topic>.<key>. Must match the agent-runtime CrewMemoryClient and the
+// <ns>.<crew>.<topic>.<key>. Must match the agent-runtime CrewMemoryClient and the
 // operator nats-streams-job. Purged per-crew on Crew deletion.
-const crewMemoryBucket = "kubemoot_crew_memory"
+const crewMemoryBucket = crewmemory.Bucket
 
 const (
 	crewFinalizer       = "kubemoot.ai/crew-finalizer"
@@ -97,6 +99,10 @@ func (r *CrewReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 	}
 
 	log.Info("Reconciling Crew", "name", crew.Name)
+
+	if _, err := crewscope.New(crew.Namespace, crew.Name); err != nil {
+		return r.updateStatus(ctx, crew, "Error", false, fmt.Sprintf("Crew name cannot scope NATS subjects: %v", err))
+	}
 
 	r.reconcileNamespaceLabel(ctx, crew)
 	r.replicateImagePullSecrets(ctx, crew)
@@ -154,7 +160,7 @@ func (r *CrewReconciler) replicateImagePullSecrets(ctx context.Context, crew *ku
 // discoverAgents lists agents belonging to this crew and identifies the coordinator.
 func (r *CrewReconciler) discoverAgents(ctx context.Context, crew *kubemootv1alpha1.Crew) (kubemootv1alpha1.AgentList, string, error) {
 	var agents kubemootv1alpha1.AgentList
-	if err := r.List(ctx, &agents, client.MatchingLabels{crewLabelKey: crew.Name}); err != nil {
+	if err := r.List(ctx, &agents, client.InNamespace(crew.Namespace), client.MatchingLabels{crewLabelKey: crew.Name}); err != nil {
 		return agents, "", err
 	}
 
@@ -208,12 +214,12 @@ func (r *CrewReconciler) reconcileDiscussion(ctx context.Context, crew *kubemoot
 	return ctrl.Result{}, nil, false
 }
 
-// setDiscussionEndpoint sets the external endpoint (via Gateway) or falls back
-// to the in-cluster service address.
+// setDiscussionEndpoint sets the external endpoint (the crew's namespaced path on
+// the shared Gateway) or falls back to the in-cluster service address.
 func (r *CrewReconciler) setDiscussionEndpoint(crew *kubemootv1alpha1.Crew) {
 	gatewayHostname := os.Getenv("GATEWAY_HOSTNAME")
 	if gatewayHostname != "" {
-		crew.Status.DiscussionEndpoint = fmt.Sprintf("https://%s/api/v1/discussions/%s", gatewayHostname, crew.Name)
+		crew.Status.DiscussionEndpoint = "https://" + gatewayHostname + scopeOf(crew).RoutePathPrefix()
 	} else {
 		gwName := r.gatewayName(crew)
 		crew.Status.DiscussionEndpoint = fmt.Sprintf("http://%s.%s.svc.cluster.local", gwName, crew.Namespace)
@@ -232,14 +238,47 @@ func (r *CrewReconciler) handleDeletion(ctx context.Context, crew *kubemootv1alp
 // deleteClusterRBAC removes the cluster-scoped RBAC resources for a crew; these
 // are not garbage-collected by owner refs since they live outside any namespace.
 func (r *CrewReconciler) deleteClusterRBAC(ctx context.Context, crew *kubemootv1alpha1.Crew) {
+	r.deleteClusterRBACNamed(ctx, r.rbacName(crew))
+	r.deleteLegacyClusterRBAC(ctx, crew)
+}
+
+// deleteClusterRBACNamed deletes the ClusterRoleBinding and ClusterRole of one name.
+func (r *CrewReconciler) deleteClusterRBACNamed(ctx context.Context, name string) {
 	log := logf.FromContext(ctx)
-	crName := r.rbacName(crew)
-	if err := r.Delete(ctx, &rbacv1.ClusterRoleBinding{ObjectMeta: metav1.ObjectMeta{Name: crName}}); err != nil && !errors.IsNotFound(err) {
-		log.Error(err, "Failed to delete ClusterRoleBinding")
+	if err := r.Delete(ctx, &rbacv1.ClusterRoleBinding{ObjectMeta: metav1.ObjectMeta{Name: name}}); err != nil && !errors.IsNotFound(err) {
+		log.Error(err, "Failed to delete ClusterRoleBinding", "name", name)
 	}
-	if err := r.Delete(ctx, &rbacv1.ClusterRole{ObjectMeta: metav1.ObjectMeta{Name: crName}}); err != nil && !errors.IsNotFound(err) {
-		log.Error(err, "Failed to delete ClusterRole")
+	if err := r.Delete(ctx, &rbacv1.ClusterRole{ObjectMeta: metav1.ObjectMeta{Name: name}}); err != nil && !errors.IsNotFound(err) {
+		log.Error(err, "Failed to delete ClusterRole", "name", name)
 	}
+}
+
+// deleteLegacyClusterRBAC deletes the unscoped crew-<crew>-discussion RBAC when
+// its binding grants this crew's gateway service account, so a crew of the same
+// name in another namespace keeps its own.
+func (r *CrewReconciler) deleteLegacyClusterRBAC(ctx context.Context, crew *kubemootv1alpha1.Crew) {
+	name := crewscope.LegacyClusterRBACName(crew.Name)
+	crb := &rbacv1.ClusterRoleBinding{}
+	if err := r.Get(ctx, types.NamespacedName{Name: name}, crb); err != nil {
+		if !errors.IsNotFound(err) {
+			logf.FromContext(ctx).V(1).Info("Legacy ClusterRoleBinding not read", "name", name, "error", err.Error())
+		}
+		return
+	}
+	if !bindsServiceAccount(crb, r.gatewayName(crew), crew.Namespace) {
+		return
+	}
+	r.deleteClusterRBACNamed(ctx, name)
+}
+
+// bindsServiceAccount reports whether the binding names the service account.
+func bindsServiceAccount(crb *rbacv1.ClusterRoleBinding, name, namespace string) bool {
+	for _, s := range crb.Subjects {
+		if s.Kind == rbacv1.ServiceAccountKind && s.Name == name && s.Namespace == namespace {
+			return true
+		}
+	}
+	return false
 }
 
 // deleteManagedNamespace deletes operator-managed namespaces (labeled during
@@ -267,14 +306,14 @@ func (r *CrewReconciler) isManagedNamespace(ns *corev1.Namespace, crew *kubemoot
 }
 
 // purgeCrewMemory removes this crew's working memory — facts are crew-scoped
-// (<crew>.*) in a shared bucket, so they would otherwise orphan when the crew is
+// (<ns>.<crew>.*) in a shared bucket, so they would otherwise orphan when the crew is
 // deleted. Crew UPDATE keeps memory; only DELETE purges. See [[Crew Working Memory]].
 func (r *CrewReconciler) purgeCrewMemory(ctx context.Context, crew *kubemootv1alpha1.Crew) {
 	if r.NATSPublisher == nil {
 		return
 	}
 	log := logf.FromContext(ctx)
-	if n, err := r.NATSPublisher.PurgeKVPrefix(crewMemoryBucket, crew.Name+"."); err != nil {
+	if n, err := r.NATSPublisher.PurgeKVPrefix(crewMemoryBucket, scopeOf(crew).MemoryPrefix()); err != nil {
 		log.Error(err, "Failed to purge crew working memory", "crew", crew.Name)
 	} else if n > 0 {
 		log.Info("Purged crew working memory on deletion", "crew", crew.Name, "facts", n)
@@ -286,9 +325,15 @@ func (r *CrewReconciler) gatewayName(crew *kubemootv1alpha1.Crew) string {
 	return crew.Name + "-discussion"
 }
 
-// rbacName returns the RBAC resource name (cluster-scoped, must be unique)
+// rbacName returns the RBAC resource name (cluster-scoped, unique per namespace and crew)
 func (r *CrewReconciler) rbacName(crew *kubemootv1alpha1.Crew) string {
-	return fmt.Sprintf("crew-%s-discussion", crew.Name)
+	return scopeOf(crew).ClusterRBACName()
+}
+
+// scopeOf returns the crew's namespace and name as a crewscope.Scope. Reconcile
+// rejects a crew whose name is not a single NATS token before any name is built.
+func scopeOf(crew *kubemootv1alpha1.Crew) crewscope.Scope {
+	return crewscope.Scope{Namespace: crew.Namespace, Crew: crew.Name}
 }
 
 func (r *CrewReconciler) reconcileServiceAccount(ctx context.Context, crew *kubemootv1alpha1.Crew) error {
@@ -350,7 +395,11 @@ func (r *CrewReconciler) reconcileRBAC(ctx context.Context, crew *kubemootv1alph
 		}
 		return nil
 	})
-	return err
+	if err != nil {
+		return err
+	}
+	r.deleteLegacyClusterRBAC(ctx, crew)
+	return nil
 }
 
 func (r *CrewReconciler) reconcileDeployment(ctx context.Context, crew *kubemootv1alpha1.Crew) (*appsv1.Deployment, error) {
@@ -448,6 +497,7 @@ func (r *CrewReconciler) buildDeployment(crew *kubemootv1alpha1.Crew) *appsv1.De
 								{Name: "PORT", Value: fmt.Sprintf("%d", crewGatewayPort)},
 								{Name: "NATS_URL", Value: natsURL},
 								{Name: "COORDINATOR_CACHE_TTL", Value: "30s"},
+								namespaceEnvVar(),
 							},
 							SecurityContext: &corev1.SecurityContext{
 								AllowPrivilegeEscalation: &noEscalation,
@@ -529,7 +579,8 @@ func (r *CrewReconciler) reconcileHTTPRoute(ctx context.Context, crew *kubemootv
 	}
 
 	name := r.gatewayName(crew)
-	pathPrefix := fmt.Sprintf("/api/v1/discussions/%s", crew.Name)
+	scope := scopeOf(crew)
+	pathPrefix := scope.RoutePathPrefix()
 
 	route := &unstructured.Unstructured{}
 	route.SetGroupVersionKind(schema.GroupVersionKind{
@@ -557,6 +608,19 @@ func (r *CrewReconciler) reconcileHTTPRoute(ctx context.Context, crew *kubemootv
 							"path": map[string]interface{}{
 								"type":  "PathPrefix",
 								"value": pathPrefix,
+							},
+						},
+					},
+					// The gateway serves /api/v1/discussions/<crew>; the shared
+					// route's namespaced prefix is rewritten to it.
+					"filters": []interface{}{
+						map[string]interface{}{
+							"type": "URLRewrite",
+							"urlRewrite": map[string]interface{}{
+								"path": map[string]interface{}{
+									"type":               "ReplacePrefixMatch",
+									"replacePrefixMatch": scope.GatewayAPIPath(),
+								},
 							},
 						},
 					},

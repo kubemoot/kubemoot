@@ -501,7 +501,7 @@ func (r *RAGSourceReconciler) buildIndexingJob(ragSource *kubemootv1alpha1.RAGSo
 			Name: "POD_NAMESPACE",
 			ValueFrom: &corev1.EnvVarSource{
 				FieldRef: &corev1.ObjectFieldSelector{
-					FieldPath: "metadata.namespace",
+					FieldPath: fieldPathNamespace,
 				},
 			},
 		},

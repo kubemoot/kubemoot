@@ -39,6 +39,7 @@ import (
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
 	kubemootv1alpha1 "github.com/javajon/kubemoot/operator/api/v1alpha1"
+	"github.com/javajon/kubemoot/operator/internal/crewscope"
 	kubemootnats "github.com/javajon/kubemoot/operator/internal/nats"
 )
 
@@ -340,9 +341,24 @@ func buildUserSidecars(mcpServer *kubemootv1alpha1.MCPServer) []corev1.Container
 		sc := *mcpServer.Spec.Sidecars[i].DeepCopy()
 		sc.RestartPolicy = &restartAlways
 		sc.VolumeMounts = append(sc.VolumeMounts, emptyDirMounts...)
+		sc.Env = withNamespaceEnv(sc.Env)
 		sidecars = append(sidecars, sc)
 	}
 	return sidecars
+}
+
+// withNamespaceEnv returns a copy of env with KUBEMOOT_NAMESPACE from the
+// downward API appended, unless env already sets it. MCP servers that build
+// namespaced subjects or keys (scheduling-mcp, artifact-access) read it.
+func withNamespaceEnv(env []corev1.EnvVar) []corev1.EnvVar {
+	for _, e := range env {
+		if e.Name == crewscope.NamespaceEnv {
+			return env
+		}
+	}
+	out := make([]corev1.EnvVar, 0, len(env)+1)
+	out = append(out, env...)
+	return append(out, namespaceEnvVar())
 }
 
 // buildMCPServerContainer creates the main container spec for an MCP server.
@@ -358,7 +374,7 @@ func buildMCPServerContainer(mcpServer *kubemootv1alpha1.MCPServer, port int32) 
 				Protocol:      corev1.ProtocolTCP,
 			},
 		},
-		Env: mcpServer.Spec.Env,
+		Env: withNamespaceEnv(mcpServer.Spec.Env),
 	}
 
 	if len(mcpServer.Spec.Command) > 0 {

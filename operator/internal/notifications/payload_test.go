@@ -11,6 +11,8 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+
+	"github.com/javajon/kubemoot/operator/internal/crewscope"
 )
 
 func TestBuildPayload_PopulatesCoreFields(t *testing.T) {
@@ -22,7 +24,7 @@ func TestBuildPayload_PopulatesCoreFields(t *testing.T) {
 		Channel:     "general",
 		Timestamp:   "2026-05-17T04:00:00Z",
 	}
-	p := BuildPayload(msg, "homelab-pilot", "https://dashboard.example.com")
+	p := BuildPayload(msg, crewscope.Scope{Namespace: "team-a", Crew: "homelab-pilot"}, "https://dashboard.example.com")
 	if p.SchemaVersion != PayloadSchemaVersion {
 		t.Errorf("schemaVersion: got %d, want %d", p.SchemaVersion, PayloadSchemaVersion)
 	}
@@ -31,6 +33,9 @@ func TestBuildPayload_PopulatesCoreFields(t *testing.T) {
 	}
 	if p.Crew != "homelab-pilot" {
 		t.Errorf("crew: got %q", p.Crew)
+	}
+	if p.Namespace != "team-a" {
+		t.Errorf("namespace: got %q", p.Namespace)
 	}
 	if p.Concern != msg.Content {
 		t.Errorf("concern not propagated; got %q", p.Concern)
@@ -45,7 +50,7 @@ func TestBuildPayload_PopulatesCoreFields(t *testing.T) {
 
 func TestBuildPayload_OmitsDashboardURLWhenBaseEmpty(t *testing.T) {
 	msg := &DiscussionMessage{AgentName: "x", Content: "y", ThreadID: "t1"}
-	p := BuildPayload(msg, "c", "")
+	p := BuildPayload(msg, crewscope.Scope{Namespace: "ns", Crew: "c"}, "")
 	if p.DashboardURL != "" {
 		t.Errorf("dashboardUrl should be empty; got %q", p.DashboardURL)
 	}
@@ -53,7 +58,7 @@ func TestBuildPayload_OmitsDashboardURLWhenBaseEmpty(t *testing.T) {
 
 func TestBuildPayload_OmitsDashboardURLWhenThreadMissing(t *testing.T) {
 	msg := &DiscussionMessage{AgentName: "x", Content: "y"} // no ThreadID
-	p := BuildPayload(msg, "c", "https://dash.example.com")
+	p := BuildPayload(msg, crewscope.Scope{Namespace: "ns", Crew: "c"}, "https://dash.example.com")
 	if p.DashboardURL != "" {
 		t.Errorf("dashboardUrl should be empty without threadId; got %q", p.DashboardURL)
 	}

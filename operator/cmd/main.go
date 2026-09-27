@@ -36,6 +36,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/certwatcher"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
+	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/metrics/filters"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
@@ -43,6 +44,7 @@ import (
 
 	aiv1alpha1 "github.com/javajon/kubemoot/operator/api/v1alpha1"
 	"github.com/javajon/kubemoot/operator/internal/controller"
+	"github.com/javajon/kubemoot/operator/internal/crewmemory"
 	kubemootnats "github.com/javajon/kubemoot/operator/internal/nats"
 	"github.com/javajon/kubemoot/operator/internal/notifications"
 	kubemootscheduler "github.com/javajon/kubemoot/operator/internal/scheduler"
@@ -74,6 +76,47 @@ func mustSetupControllers(mgr ctrl.Manager, controllers []controllerSetup) {
 	for _, c := range controllers {
 		if err := c.setupFn(mgr); err != nil {
 			setupLog.Error(err, "unable to create controller", "controller", c.name)
+			os.Exit(1)
+		}
+	}
+}
+
+// runnableSetup pairs a runnable's description with the runnable.
+type runnableSetup struct {
+	name     string
+	runnable manager.Runnable
+}
+
+// mustAddRunnables registers the operator's non-controller runnables, logging
+// and exiting on any failure.
+func mustAddRunnables(mgr ctrl.Manager, natsPublisher *kubemootnats.Publisher) {
+	runnables := []runnableSetup{
+		// Agent self-scheduling poller. Reads the kubemoot_scheduled KV bucket
+		// every 30s and publishes thread_start for any due records.
+		{"scheduler poller", kubemootscheduler.New(natsPublisher)},
+		// One-time crew-memory key migration: <crew>.<topic>.<key> becomes
+		// <ns>.<crew>.<topic>.<key> when exactly one namespace has a Crew of that name.
+		{"crew memory migration", &crewmemory.Migrator{Reader: mgr.GetAPIReader(), KV: natsPublisher}},
+		// NotificationSink dispatcher. Subscribes to kubemoot.discuss.> and
+		// fires per-crew webhooks on concern signals. Leader-elected so only
+		// one operator pod dispatches at a time.
+		{"notifications dispatcher", &notifications.Dispatcher{
+			Client:        mgr.GetClient(),
+			Publisher:     natsPublisher,
+			DashboardBase: os.Getenv("KUBEMOOT_DASHBOARD_BASE"),
+		}},
+		// On-demand fitness report server: generates the XLSX fresh from transcripts
+		// on each download (no pre-baked artifact), so every report reflects the
+		// currently deployed generator. The dashboard's download endpoint proxies here.
+		{"fitness report server", &controller.ReportServer{
+			Client:    mgr.GetClient(),
+			Publisher: natsPublisher,
+			Addr:      ":8082",
+		}},
+	}
+	for _, r := range runnables {
+		if err := mgr.Add(r.runnable); err != nil {
+			setupLog.Error(err, "unable to register runnable", "runnable", r.name)
 			os.Exit(1)
 		}
 	}
@@ -324,36 +367,7 @@ func main() {
 	})
 	// +kubebuilder:scaffold:builder
 
-	// Agent self-scheduling poller. Reads the kubemoot_scheduled KV bucket
-	// every 30s and publishes thread_start for any due records.
-	if err := mgr.Add(kubemootscheduler.New(natsPublisher)); err != nil {
-		setupLog.Error(err, "unable to register scheduler poller")
-		os.Exit(1)
-	}
-
-	// NotificationSink dispatcher. Subscribes to kubemoot.discuss.> and
-	// fires per-crew webhooks on concern signals. Leader-elected so only
-	// one operator pod dispatches at a time.
-	if err := mgr.Add(&notifications.Dispatcher{
-		Client:        mgr.GetClient(),
-		Publisher:     natsPublisher,
-		DashboardBase: os.Getenv("KUBEMOOT_DASHBOARD_BASE"),
-	}); err != nil {
-		setupLog.Error(err, "unable to register notifications dispatcher")
-		os.Exit(1)
-	}
-
-	// On-demand fitness report server: generates the XLSX fresh from transcripts
-	// on each download (no pre-baked artifact), so every report reflects the
-	// currently deployed generator. The dashboard's download endpoint proxies here.
-	if err := mgr.Add(&controller.ReportServer{
-		Client:    mgr.GetClient(),
-		Publisher: natsPublisher,
-		Addr:      ":8082",
-	}); err != nil {
-		setupLog.Error(err, "unable to register fitness report server")
-		os.Exit(1)
-	}
+	mustAddRunnables(mgr, natsPublisher)
 
 	// Register validating webhooks
 	if len(f.webhookCertPath) > 0 {

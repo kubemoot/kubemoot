@@ -384,7 +384,7 @@ func buildRunnerEnv(cf *kubemootv1alpha1.CrewFitness, endpoint, testKey, jobName
 		{
 			Name: "POD_NAMESPACE",
 			ValueFrom: &corev1.EnvVarSource{
-				FieldRef: &corev1.ObjectFieldSelector{FieldPath: "metadata.namespace"},
+				FieldRef: &corev1.ObjectFieldSelector{FieldPath: fieldPathNamespace},
 			},
 		},
 	}

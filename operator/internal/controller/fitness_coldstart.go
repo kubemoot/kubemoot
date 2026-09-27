@@ -20,6 +20,7 @@ import (
 	"context"
 
 	kubemootv1alpha1 "github.com/javajon/kubemoot/operator/api/v1alpha1"
+	"github.com/javajon/kubemoot/operator/internal/crewscope"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 )
 
@@ -41,7 +42,7 @@ func (r *CrewFitnessSuiteReconciler) coldStart(ctx context.Context, suite *kubem
 	if boolPtrDefaultTrue(suite.Spec.PurgeMemory) {
 		if r.NATSPublisher == nil {
 			log.Info("cold-start: purgeMemory requested but NATS publisher unavailable; skipping")
-		} else if n, err := r.NATSPublisher.PurgeKVPrefix(crewMemoryBucket, suite.Spec.CrewRef+"."); err != nil {
+		} else if n, err := r.NATSPublisher.PurgeKVPrefix(crewMemoryBucket, crewscope.Scope{Namespace: suite.Namespace, Crew: suite.Spec.CrewRef}.MemoryPrefix()); err != nil {
 			log.Info("cold-start: purge crew memory failed", "crew", suite.Spec.CrewRef, "error", err)
 		} else {
 			log.Info("cold-start: purged crew memory", "crew", suite.Spec.CrewRef, "deleted", n)

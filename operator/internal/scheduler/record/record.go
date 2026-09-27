@@ -26,6 +26,7 @@ type Record struct {
 	Kind           string    `json:"kind,omitempty"`
 	TriggerAt      time.Time `json:"triggerAt"`
 	ScheduledBy    string    `json:"scheduledBy,omitempty"`
+	Namespace      string    `json:"namespace"`
 	Crew           string    `json:"crew"`
 	Channel        string    `json:"channel,omitempty"`
 	Query          string    `json:"query,omitempty"`
