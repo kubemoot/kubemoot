@@ -36,7 +36,8 @@ The rest of this ecosystem sits on top:
 - **[Crews](../crews/)** are what you run on the controller.
 - **[Pilot](../pilot/)** is one reference crew that demonstrates it.
 - **[kmctl](../kmctl/)** is the tool for authoring and operating crews from the
-  terminal; [CrewForge](../crewforge/) describes the authoring experience.
+  terminal; [CrewForge](../crewforge/) is the VS Code extension for browsing crews and
+  talking to them from the editor.
 
 For the operator's design and the consensus model it implements, see
 [Concepts](../../concepts/consensus-model/) and the

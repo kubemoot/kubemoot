@@ -3,7 +3,7 @@ title: "Kubemoot Scheduler"
 weight: 5
 ---
 
-> **Audience:** operator and agent-runtime developers; CrewForge authors; open-source consumers.
+> **Audience:** operator and agent-runtime developers; developers of the ecosystem tools (CrewForge, kmctl); open-source consumers.
 
 ## One-Paragraph Summary
 

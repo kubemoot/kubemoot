@@ -284,20 +284,18 @@ done
 
 From a crew designer's perspective, running fitness tests looks like this:
 
-1. **Open crew in CrewForge** → click the **Verify** tab in the crew editor header
-2. **See fitness test cards** - each `.yaml` file from the crew's `fitness/` directory appears as a card with its description and assertion count
-3. **Click Run** on a single test (or **Run All** to execute the full suite)
-4. **CrewForge syncs** the fitness files to a ConfigMap (`{crew-name}-fitness-tests`) in the crew's namespace
-5. **CrewForge creates a CrewFitness CR** - the card shows a "Pending" badge
-6. **Operator reconciles** - validates the Crew has a discussion endpoint, creates a Job with the fitness-runner image, mounts the ConfigMap
-7. **Badge turns "Running"** - the fitness-runner Job POSTs a question to the discussion API, opens an SSE stream, and collects signals in real time
-8. **Agents respond** - Toolers triage and evaluate with their MCP tools, Analysts reason and agree or stand aside; the coordinator synthesizes
-9. **Runner evaluates** - each ASSERT line is checked against the collected signals (HTTP status, event presence, synthesis content, timing)
-10. **Results patch back** - the runner writes per-assertion JSON to the Job annotation; the controller reads it and updates the CR status
-11. **Badge turns "Passed" or "Failed"** - CrewForge polls the CR every 2 seconds and displays per-assertion pass/fail with messages and total duration
-12. **Auto-cleanup** - the CrewFitness CR deletes itself after the TTL (default 1 hour)
+1. **Author** ADL or prose fitness files in the crew's `fitness/` directory, alongside its other manifests
+2. **Bundle** them into a ConfigMap (`{crew-name}-fitness-tests`), with `kmctl` or a plain `kubectl create configmap --from-file=fitness/`
+3. **Apply** a `CrewFitness` CR that references the ConfigMap and a test key
+4. **Operator reconciles** - validates the Crew has a discussion endpoint, creates a Job with the fitness-runner image, mounts the ConfigMap
+5. **Fitness runner runs** - the Job POSTs a question to the discussion API, opens an SSE stream, and collects signals in real time
+6. **Agents respond** - Toolers triage and evaluate with their MCP tools, Analysts reason and agree or stand aside; the coordinator synthesizes
+7. **Runner evaluates** - each ASSERT line is checked against the collected signals (HTTP status, event presence, synthesis content, timing)
+8. **Results patch back** - the runner writes per-assertion JSON to the Job annotation; the controller reads it and updates the CR status
+9. **Watch** with `kubectl get crewfitness -w`, or `kubectl describe` for per-assertion detail
+10. **Auto-cleanup** - the CrewFitness CR deletes itself after the TTL (default 1 hour)
 
-The same flow works headlessly via `kubectl` - no CrewForge required. CI/CD pipelines can create CrewFitness CRs as post-deploy verification steps.
+CI/CD pipelines create `CrewFitness` CRs the same way, as a post-deploy verification step.
 
 ## Architecture
 
@@ -327,13 +325,10 @@ The runner needs minimal resources (50m CPU, 64Mi RAM) - it's an HTTP client, no
 
 ## Relationship to CrewForge
 
-CrewForge - the desktop crew design tool - stores fitness tests in the `fitness/` directory alongside other crew manifests. During deploy, CrewForge:
-
-1. Bundles `fitness/*.yaml` files into a ConfigMap (instead of `kubectl apply`ing them as CRDs)
-2. The Verify page creates `CrewFitness` CRs and watches their status - it's a thin UI client, not a test runner
-3. Results are displayed per-assertion with pass/fail indicators
-
-This separation keeps CrewForge lightweight while making fitness tests executable from any Kubernetes client - `kubectl`, CI/CD pipelines, or CrewForge.
+[CrewForge](../ecosystem/crewforge/) lists crews and lets you talk to them from the
+editor; it does not create, edit, or run `CrewFitness` resources. Fitness tests are
+Kubernetes resources like everything else Kubemoot manages, so they stay reachable from
+any Kubernetes client, `kubectl`, `kmctl`, or CI/CD, whatever authors them.
 
 ## Connection to Richards and Ford
 
