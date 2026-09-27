@@ -309,6 +309,9 @@ class DiscussionSubscriberHelpersTest {
         assertEquals("ollama-a", meta.get("provider"));
         assertEquals("qwen3:14b", meta.get("model"));
         assertEquals("warm", meta.get("pickReason"));
+        var evicting = new ChatService.ChatResult("c", "answer", "qwen3:32b", null, 1, 1, "ollama-a", "cold",
+                List.of("qwen3:8b"));
+        assertEquals(List.of("qwen3:8b"), DiscussionSubscriber.providerAttribution(evicting).get("evicted"));
         assertNull(DiscussionSubscriber.providerAttribution(
                 new ChatService.ChatResult("c", "answer", "qwen3:14b", null, 1, 1, "", "")),
                 "the static fallback has no JIT attribution");

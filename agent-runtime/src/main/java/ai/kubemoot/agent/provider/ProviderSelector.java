@@ -90,6 +90,8 @@ public class ProviderSelector {
     private final ObjectMapper objectMapper;
     private final TicketManager ticketManager;
     private final FitPredictor fitPredictor;
+    /** The model server's lifecycle driver: concurrency and model-switch costs. */
+    private final EngineDriver driver;
     /**
      * Default predictor for the static rankCandidates path when no predictor
      * is supplied. v2 uses the learning impl; v1 baseline is reachable by
@@ -171,11 +173,13 @@ public class ProviderSelector {
     public ProviderSelector(NatsConnectionProvider natsProvider,
                             ObjectMapper objectMapper,
                             TicketManager ticketManager,
-                            FitPredictor fitPredictor) {
+                            FitPredictor fitPredictor,
+                            EngineDriver driver) {
         this.natsProvider = natsProvider;
         this.objectMapper = objectMapper;
         this.ticketManager = ticketManager;
         this.fitPredictor = fitPredictor;
+        this.driver = driver != null ? driver : new OllamaDriver(null);
     }
 
     /**
@@ -279,7 +283,7 @@ public class ProviderSelector {
      */
     public Optional<Pick> pickAndClaim(String modelName, long coldLoadFootprintMiB,
                                         long thisCallKvCacheMiB) {
-        return pickAndClaim(modelName, coldLoadFootprintMiB, thisCallKvCacheMiB, false);
+        return pickAndClaim(modelName, coldLoadFootprintMiB, thisCallKvCacheMiB, Mode.ANY);
     }
 
     /**
@@ -290,7 +294,35 @@ public class ProviderSelector {
      */
     public Optional<Pick> pickAndClaimWarm(String modelName, long coldLoadFootprintMiB,
                                            long thisCallKvCacheMiB) {
-        return pickAndClaim(modelName, coldLoadFootprintMiB, thisCallKvCacheMiB, true);
+        return pickAndClaim(modelName, coldLoadFootprintMiB, thisCallKvCacheMiB, Mode.WARM_FREE_SLOT);
+    }
+
+    /**
+     * Like {@link #pickAndClaim(String, long, long)}, restricted to providers where an
+     * in-flight call is loading the model right now: the caller converges on that
+     * loading copy and queues there instead of loading a second copy elsewhere.
+     */
+    public Optional<Pick> pickAndClaimLoading(String modelName, long coldLoadFootprintMiB,
+                                              long thisCallKvCacheMiB) {
+        return pickAndClaim(modelName, coldLoadFootprintMiB, thisCallKvCacheMiB, Mode.LOADING);
+    }
+
+    /** Which ranked candidates a claim may use. */
+    enum Mode {
+        /** Every feasible candidate, by the weighted cost. */
+        ANY,
+        /** Warm (resident or loading) with a free slot. */
+        WARM_FREE_SLOT,
+        /** Being loaded by an in-flight call, not yet resident. */
+        LOADING;
+
+        boolean admits(Candidate c, String model, EngineDriver driver) {
+            return switch (this) {
+                case ANY -> true;
+                case WARM_FREE_SLOT -> c.warm() && driver.hasFreeCapacity(c.provider(), c.activeCount());
+                case LOADING -> c.warm() && !c.provider().hasModelLoaded(model);
+            };
+        }
     }
 
     /**
@@ -312,9 +344,111 @@ public class ProviderSelector {
         return !anyKnown;
     }
 
-    /** Warm (resident or loading) with fewer in-flight calls than the provider's slots. */
-    static boolean warmWithFreeSlot(Candidate c) {
-        return c.warm() && c.activeCount() < Math.max(1, c.provider().maxParallel());
+    /** Warm (resident or loading) and the provider can start another call now. */
+    boolean warmWithFreeSlot(Candidate c) {
+        return Mode.WARM_FREE_SLOT.admits(c, c.provider().name(), driver);
+    }
+
+    /** A warm candidate whose copy another call plans to unload is not warm for this call. */
+    private boolean plannedForEviction(Candidate c, String model) {
+        return c.warm() && ticketManager.plannedEvictionsOn(c.provider().name()).containsKey(model);
+    }
+
+    // ---- when no provider has room: queue on a loaded copy, or unload idle models ----
+
+    /**
+     * The shortest expected wait for a slot on a loaded (or loading) copy of any of
+     * {@code models}, from the in-flight calls on each provider and its recent call
+     * latency ({@link PlacementCostModel#expectedWaitSeconds}). Empty when no ready
+     * provider has any of them.
+     */
+    public Optional<PlacementCostModel.QueueOption> queueOption(List<String> models, List<ProviderState> states) {
+        long now = System.currentTimeMillis();
+        PlacementCostModel.QueueOption best = null;
+        for (ProviderState p : states) {
+            if (!p.ready() || isCircuitOpen(p.name())) continue;
+            for (String m : models) {
+                if (!p.hasModelLoaded(m) && !ticketManager.activeModelsOn(p.name()).contains(m)) continue;
+                double wait = driver.expectedWaitSeconds(p, elapsedSeconds(p, now), callSeconds(p));
+                if (best == null || wait < best.waitSeconds()) {
+                    best = new PlacementCostModel.QueueOption(m, p.name(), wait);
+                }
+            }
+        }
+        return Optional.ofNullable(best);
+    }
+
+    private List<Double> elapsedSeconds(ProviderState p, long nowMs) {
+        return ticketManager.inFlightStartsFor(p.name()).stream()
+                .map(t -> Math.max(0L, nowMs - t.toEpochMilli()) / 1000.0)
+                .toList();
+    }
+
+    /** Recent observed call latency on the provider, or the default when none was observed. */
+    double callSeconds(ProviderState p) {
+        double ms = recentLatency.getOrDefault(p.endpoint(), 0.0);
+        return ms > 0 ? ms / 1000.0 : PlacementCostModel.DEFAULT_CALL_SECONDS;
+    }
+
+    /**
+     * The cheapest plan to unload idle resident models so {@code model} (of
+     * {@code footprintMiB}) fits, across ready providers whose usable VRAM can hold
+     * it. Models with in-flight work, or already planned for unloading by another
+     * call, are never chosen. Empty when no provider can make room.
+     */
+    public Optional<PlacementCostModel.EvictionPlan> planEviction(String model, long footprintMiB,
+                                                                 List<ProviderState> states,
+                                                                 java.util.Map<String, ModelDemand> demand) {
+        PlacementCostModel.EvictionPlan best = null;
+        for (ProviderState p : states) {
+            PlacementCostModel.EvictionPlan plan = planOn(p, model, footprintMiB, demand);
+            if (plan != null && (best == null || plan.costSeconds() < best.costSeconds())) {
+                best = plan;
+            }
+        }
+        return Optional.ofNullable(best);
+    }
+
+    private PlacementCostModel.EvictionPlan planOn(ProviderState p, String model, long footprintMiB,
+                                                    java.util.Map<String, ModelDemand> demand) {
+        long usable = StaticFitPredictor.usableVramMiB(p.totalVramMiB());
+        if (!p.ready() || isCircuitOpen(p.name()) || usable < footprintMiB) return null;
+        java.util.Map<String, Long> residents = new java.util.HashMap<>(
+                p.loadedModelFootprintsMiB() == null ? java.util.Map.of() : p.loadedModelFootprintsMiB());
+        ticketManager.residentFootprintsFor(p.name()).forEach((m, fp) -> residents.merge(m, fp, Math::max));
+        java.util.Set<String> unavailable = new java.util.HashSet<>(ticketManager.activeModelsOn(p.name()));
+        unavailable.addAll(ticketManager.plannedEvictionsOn(p.name()).keySet());
+        unavailable.add(model);
+        long free = usable - residents.values().stream().mapToLong(Long::longValue).sum()
+                - ticketManager.activeFootprintFor(p.name());
+        SwitchCostProfile profile = driver.costProfile();
+        var victims = EvictionPlanner.chooseVictims(residents, unavailable, demand, free, footprintMiB);
+        if (victims.isEmpty() || victims.get().isEmpty()) return null;
+        return new PlacementCostModel.EvictionPlan(p.name(), victims.get(),
+                PlacementCostModel.evictionCostSeconds(profile, footprintMiB, victims.get()));
+    }
+
+    /**
+     * Claim the provider in {@code plan} for a cold load of {@code model}, with the
+     * planned evictions counted in the ticket budget (see
+     * {@link TicketManager#claimWithEvictions}). The caller unloads the victims
+     * after a successful claim, then makes the call.
+     */
+    public Optional<Pick> claimWithEvictions(String model, long footprintMiB, long kvMiB,
+                                             PlacementCostModel.EvictionPlan plan, List<ProviderState> states) {
+        Optional<ProviderState> provider = states.stream().filter(p -> p.name().equals(plan.provider())).findFirst();
+        if (provider.isEmpty()) return Optional.empty();
+        java.util.Map<String, Long> evictions = new java.util.HashMap<>();
+        plan.victims().forEach(v -> evictions.put(v.model(), v.footprintMiB()));
+        ProviderState p = provider.get();
+        return ticketManager.claimWithEvictions(p.name(), footprintMiB, kvMiB, p.preTicketHeadroomMiB(), model,
+                        evictions, p.loadedModels() == null ? java.util.Set.of() : new java.util.HashSet<>(p.loadedModels()))
+                .map(t -> new Pick(p, t, FitScore.yes(0L, "cold load after unloading " + plan.victimModels())));
+    }
+
+    /** The lifecycle driver that loads and releases models on providers. */
+    public EngineDriver driver() {
+        return driver;
     }
 
     /** Drops the cached provider-state snapshot so the next read is fresh. */
@@ -323,7 +457,7 @@ public class ProviderSelector {
     }
 
     private Optional<Pick> pickAndClaim(String modelName, long coldLoadFootprintMiB,
-                                        long thisCallKvCacheMiB, boolean warmOnly) {
+                                        long thisCallKvCacheMiB, Mode mode) {
         if (coldLoadFootprintMiB <= 0) return Optional.empty();
         if (thisCallKvCacheMiB < 0) thisCallKvCacheMiB = 0L;
         final long kvForThisCall = thisCallKvCacheMiB;
@@ -343,9 +477,9 @@ public class ProviderSelector {
                     kvForThisCall,
                     p -> ticketManager.activeModelsOn(p.name()),       // cold-start convergence
                     p -> ticketManager.residentFootprintsFor(p.name())); // residency overlay (anti-thrash)
-            if (warmOnly) {
-                ranked = ranked.stream().filter(ProviderSelector::warmWithFreeSlot).toList();
-            }
+            ranked = ranked.stream()
+                    .filter(c -> mode.admits(c, modelName, driver) && !plannedForEviction(c, modelName))
+                    .toList();
 
             if (ranked.isEmpty()) {
                 log.debug("No candidate fits for model {} (attempt {}): saturated or no headroom incl. KV {} MiB",

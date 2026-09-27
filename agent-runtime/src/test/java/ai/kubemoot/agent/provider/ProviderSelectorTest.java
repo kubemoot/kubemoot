@@ -120,7 +120,7 @@ class ProviderSelectorTest {
         // Construct selector with null NATS dependencies — scoreForRanking
         // + recordObservedLatency don't touch NATS, only the in-memory
         // latency map and the supplied ProviderState's getters.
-        var sel = new ProviderSelector(null, new com.fasterxml.jackson.databind.ObjectMapper(), null, null);
+        var sel = new ProviderSelector(null, new com.fasterxml.jackson.databind.ObjectMapper(), null, null, null);
 
         // No recorded latency → pure saturation determines score
         var fresh = state("a", "http://a", 1, 0, true, java.util.List.of("m"));
@@ -138,7 +138,7 @@ class ProviderSelectorTest {
 
     @Test
     void recordObservedLatency_emaSmoothing() {
-        var sel = new ProviderSelector(null, new com.fasterxml.jackson.databind.ObjectMapper(), null, null);
+        var sel = new ProviderSelector(null, new com.fasterxml.jackson.databind.ObjectMapper(), null, null, null);
         // First observation seeds at full weight
         sel.recordObservedLatency("http://x", 30_000);
         assertEquals(30_000.0, sel.latencyMapForTest().get("http://x"), 0.001,
@@ -152,7 +152,7 @@ class ProviderSelectorTest {
 
     @Test
     void recordObservedLatency_ignoresInvalidInputs() {
-        var sel = new ProviderSelector(null, new com.fasterxml.jackson.databind.ObjectMapper(), null, null);
+        var sel = new ProviderSelector(null, new com.fasterxml.jackson.databind.ObjectMapper(), null, null, null);
         sel.recordObservedLatency(null, 1000);
         sel.recordObservedLatency("", 1000);
         sel.recordObservedLatency("http://x", 0);
@@ -684,7 +684,7 @@ class ProviderSelectorTest {
     private static ProviderSelector freshSelector() {
         // Plain constructor; nats provider is null (tests don't read KV state),
         // ObjectMapper is unused for the failure-tracking paths.
-        return new ProviderSelector(null, new com.fasterxml.jackson.databind.ObjectMapper(), null, null);
+        return new ProviderSelector(null, new com.fasterxml.jackson.databind.ObjectMapper(), null, null, null);
     }
 
     @Test
@@ -1081,10 +1081,11 @@ class ProviderSelectorTest {
     void warmWithFreeSlot_requiresWarmAndAFreeSlot() {
         var p = v2StateWithSlots("ollama-a", "http://a", 2, 32_768, java.util.Map.of("qwen3:14b", 10_000L));
         var yes = FitScore.yes(0L, "warm");
-        assertTrue(ProviderSelector.warmWithFreeSlot(new ProviderSelector.Candidate(p, true, 1, 0.0, yes)));
-        assertFalse(ProviderSelector.warmWithFreeSlot(new ProviderSelector.Candidate(p, true, 2, 0.0, yes)),
+        var selector = new ProviderSelector(null, new com.fasterxml.jackson.databind.ObjectMapper(), null, null, null);
+        assertTrue(selector.warmWithFreeSlot(new ProviderSelector.Candidate(p, true, 1, 0.0, yes)));
+        assertFalse(selector.warmWithFreeSlot(new ProviderSelector.Candidate(p, true, 2, 0.0, yes)),
                 "both slots busy: warm but no room");
-        assertFalse(ProviderSelector.warmWithFreeSlot(new ProviderSelector.Candidate(p, false, 0, 0.0, yes)),
+        assertFalse(selector.warmWithFreeSlot(new ProviderSelector.Candidate(p, false, 0, 0.0, yes)),
                 "cold: a claim here would load the model");
     }
 }

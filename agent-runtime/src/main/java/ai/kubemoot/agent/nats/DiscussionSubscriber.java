@@ -160,6 +160,15 @@ public class DiscussionSubscriber {
     private volatile boolean artifactBucketEnsured = false;
 
     private final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(2);
+    /**
+     * Plans first calls at selection on its own thread, so a plan never queues behind
+     * a long-running evaluation and a needed load still overlaps triage.
+     */
+    private final java.util.concurrent.ExecutorService planner = Executors.newSingleThreadExecutor(r -> {
+        Thread t = new Thread(r, "discussion-call-planner");
+        t.setDaemon(true);
+        return t;
+    });
 
     // Caller/tooler agents act in the EVALUATING phase (advisory_ready) and
     // multi-round turns (follow_up, reply). They do NOT trigger on review_ready:
@@ -586,12 +595,39 @@ public class DiscussionSubscriber {
     private void evaluateAndRespond(String subject, String threadId, String conversation,
                                     boolean explicitlySelected) {
         try {
+            evaluateSelected(subject, threadId, conversation, explicitlySelected);
+        } finally {
+            // Whatever the outcome (answered, stood aside, failed), a plan made at
+            // selection that the first call did not use is released here.
+            chatService.releasePlan(threadId);
+        }
+    }
+
+    /**
+     * The coordinator selected this agent: plan its first mulling call now so a
+     * needed model load overlaps triage and prompt building.
+     */
+    private void commitToThread(String threadId) {
+        long selectedAtMs = System.currentTimeMillis();
+        planner.submit(() -> {
+            try {
+                chatService.commitToThread(threadId, selectedAtMs);
+            } catch (Exception e) {
+                log.warn("Planning the first call for thread {} failed: {}", threadId, e.getMessage());
+            }
+        });
+    }
+
+    private void evaluateSelected(String subject, String threadId, String conversation,
+                                  boolean explicitlySelected) {
+        try {
             if (closedThreads.contains(threadId)) {
                 log.debug("Thread {} closed before evaluation — {} standing aside", threadId, properties.agentName());
                 publishSignal(subject, threadId, SIGNAL_STAND_ASIDE, "", 0, 0, 0, 0, "none");
                 return;
             }
 
+            commitToThread(threadId);
             String triageGpuLabel = GpuLabels.fromEndpoint(chatService.getTriageEndpoint());
             publishSignal(subject, threadId, "triaging", "Queued for triage assessment",
                     0, System.currentTimeMillis(), 0, 0, triageGpuLabel);
@@ -739,6 +775,7 @@ public class DiscussionSubscriber {
 
     /** Runs and forgets every capacity-wait wake-up registered for the thread. */
     private void wakeThreadEnd(String threadId) {
+        chatService.releasePlan(threadId);
         List<Runnable> wakers = threadEndWakers.remove(threadId);
         if (wakers != null) {
             wakers.forEach(Runnable::run);
@@ -835,6 +872,9 @@ public class DiscussionSubscriber {
         }
         if (result.pickReason() != null && !result.pickReason().isEmpty()) {
             meta.put("pickReason", result.pickReason());
+        }
+        if (result.evicted() != null && !result.evicted().isEmpty()) {
+            meta.put("evicted", result.evicted());
         }
         return meta;
     }

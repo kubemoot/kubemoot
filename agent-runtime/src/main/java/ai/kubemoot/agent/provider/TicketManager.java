@@ -71,6 +71,8 @@ public class TicketManager {
     /** JSON field names on the stored ticket/residency document. */
     private static final String FIELD_MODEL_NAME = "modelName";
     private static final String FIELD_MODEL_FOOTPRINT = "modelFootprintMiB";
+    /** Planned evictions on a cold-load ticket: {model: footprintMiB}. */
+    private static final String FIELD_EVICTS = "evicts";
 
     /** Hex chars of a random UUID used as the holder-id suffix when HOSTNAME is unset. */
     private static final int HOLDER_ID_SUFFIX_CHARS = 8;
@@ -138,65 +140,174 @@ public class TicketManager {
     public Optional<Ticket> claim(String provider, long footprintMiB,
                                    long kvCacheFootprintMiB, long availableHeadroomMiB,
                                    String modelName) {
-        if (provider == null || provider.isEmpty()) return Optional.empty();
-        if (footprintMiB <= 0 || availableHeadroomMiB <= 0) return Optional.empty();
-        if (kvCacheFootprintMiB < 0) kvCacheFootprintMiB = 0L;  // defensive
-        if (!natsProvider.isAvailable()) return Optional.empty();
+        return claimWithEvictions(provider, footprintMiB, kvCacheFootprintMiB, availableHeadroomMiB,
+                modelName, java.util.Map.of(), java.util.Set.of());
+    }
 
-        Connection conn = natsProvider.getConnection();
-        if (conn == null) return Optional.empty();
-
-        KeyValue kv;
-        try {
-            kv = conn.keyValue(TICKETS_BUCKET);
-        } catch (Exception e) {
-            log.debug("Tickets bucket {} not available: {}", TICKETS_BUCKET, e.getMessage());
+    /**
+     * Claim a ticket for a cold load that unloads {@code evictions} (model to
+     * footprint MiB) first. The planned evictions ride on the ticket, and the budget
+     * counts every distinct victim planned by any active ticket on the provider once
+     * (only victims still in {@code residentModels}; a victim already gone is in the
+     * headroom). Two planners that pick the same victim therefore cannot both spend
+     * its memory: the second one's post-claim check sees both loads against one
+     * victim's credit and releases. The claim is also released when a victim picked
+     * up in-flight work in the meantime.
+     *
+     * @param availableHeadroomMiB total VRAM minus loaded-model footprints
+     * @param residentModels       models the provider currently reports loaded
+     */
+    public Optional<Ticket> claimWithEvictions(String provider, long footprintMiB, long kvCacheFootprintMiB,
+                                               long availableHeadroomMiB, String modelName,
+                                               java.util.Map<String, Long> evictions,
+                                               java.util.Set<String> residentModels) {
+        if (provider == null || provider.isEmpty() || footprintMiB <= 0) return Optional.empty();
+        KeyValue kv = openBucket();
+        if (kv == null) return Optional.empty();
+        Budget budget = new Budget(provider, footprintMiB, availableHeadroomMiB, residentModels);
+        // Pre-flight: cheap check before writing; planned victims (including ours) count once.
+        if (!budget.fits(kv, evictions, 0L)) {
             return Optional.empty();
         }
-
-        // Pre-flight: list active tickets for this provider, sum footprints,
-        // confirm there's room before bothering to write. Cheap fast-path.
-        long activeBefore = sumFootprintsFor(kv, provider);
-        if (activeBefore + footprintMiB > availableHeadroomMiB) {
-            log.debug("Cannot claim {} MiB on {}: active={}, headroom={}",
-                    footprintMiB, provider, activeBefore, availableHeadroomMiB);
-            return Optional.empty();
-        }
-
-        // Create with a unique UUID — key collisions are not possible, so
-        // create() always succeeds at the key level. The race window we DO
-        // care about is the gap between "list active before" and "create".
-        Ticket ticket = new Ticket(
-                UUID.randomUUID().toString(),
-                provider,
-                footprintMiB,
-                holderId,
-                Instant.now().toString(),
-                kvCacheFootprintMiB,
-                modelName
-        );
-
+        Ticket ticket = new Ticket(UUID.randomUUID().toString(), provider, footprintMiB, holderId,
+                Instant.now().toString(), Math.max(0L, kvCacheFootprintMiB), modelName);
         try {
-            kv.create(ticket.keyName(), encode(ticket));
+            kv.create(ticket.keyName(), encode(ticket, evictions));
         } catch (Exception e) {
             log.debug("Ticket create failed for {}: {}", ticket.keyName(), e.getMessage());
             return Optional.empty();
         }
-
-        // Post-claim verification: re-sum including ours. If concurrent
-        // claims pushed us over budget, release immediately and report empty
-        // so the caller can recompute fresh headroom and retry (or fall back).
-        long activeAfter = sumFootprintsFor(kv, provider);
-        if (activeAfter > availableHeadroomMiB) {
-            log.debug("Released over-budget ticket on {}: post-create active={}, headroom={}",
-                    provider, activeAfter, availableHeadroomMiB);
+        // Post-claim verification: our ticket is now in the scan, so re-check without adding it again.
+        if (!budget.fits(kv, java.util.Map.of(), -footprintMiB) || victimsBusy(kv, provider, evictions.keySet())) {
+            log.debug("Released ticket {} on {}: over budget or a planned victim is busy", ticket.ticketId(), provider);
             release(ticket);
             return Optional.empty();
         }
-
-        log.debug("Claimed ticket {} on {} for {} MiB (post-claim active={}, headroom={})",
-                ticket.ticketId(), provider, footprintMiB, activeAfter, availableHeadroomMiB);
+        log.debug("Claimed ticket {} on {} for {} MiB (evicting {})",
+                ticket.ticketId(), provider, footprintMiB, evictions.keySet());
         return Optional.of(ticket);
+    }
+
+    /** The tickets bucket, or null when NATS or the bucket is unavailable. */
+    private KeyValue openBucket() {
+        if (!natsProvider.isAvailable()) return null;
+        Connection conn = natsProvider.getConnection();
+        if (conn == null) return null;
+        try {
+            return conn.keyValue(TICKETS_BUCKET);
+        } catch (Exception e) {
+            log.debug("Tickets bucket {} not available: {}", TICKETS_BUCKET, e.getMessage());
+            return null;
+        }
+    }
+
+    /** True when any model in {@code victims} is held by an active ticket on the provider. */
+    private boolean victimsBusy(KeyValue kv, String provider, java.util.Set<String> victims) {
+        if (victims.isEmpty()) return false;
+        java.util.Set<String> busy = collectModelsFor(kv, provider);
+        return victims.stream().anyMatch(busy::contains);
+    }
+
+    /** The budget for one claim: active footprints plus this claim within headroom plus eviction credit. */
+    private final class Budget {
+        private final String provider;
+        private final long footprintMiB;
+        private final long headroomMiB;
+        private final java.util.Set<String> resident;
+
+        Budget(String provider, long footprintMiB, long headroomMiB, java.util.Set<String> resident) {
+            this.provider = provider;
+            this.footprintMiB = footprintMiB;
+            this.headroomMiB = headroomMiB;
+            this.resident = resident == null ? java.util.Set.of() : resident;
+        }
+
+        /** {@code adjustMiB} corrects for our own ticket already being in the scan (post-claim). */
+        boolean fits(KeyValue kv, java.util.Map<String, Long> ownEvictions, long adjustMiB) {
+            List<java.util.Map<String, Long>> planned = new ArrayList<>(plannedEvictionMaps(kv, provider));
+            planned.add(ownEvictions);
+            long credit = evictionCreditMiB(planned, resident);
+            long active = sumFootprintsFor(kv, provider) + adjustMiB;
+            return withinBudget(active, footprintMiB, headroomMiB, credit);
+        }
+    }
+
+    /**
+     * Pure budget rule: active ticket footprints plus this claim must fit the
+     * headroom plus the eviction credit. Non-positive footprint never fits; with
+     * no credit, a non-positive headroom never fits.
+     */
+    static boolean withinBudget(long activeMiB, long footprintMiB, long headroomMiB, long creditMiB) {
+        if (footprintMiB <= 0 || headroomMiB + creditMiB <= 0) return false;
+        return activeMiB + footprintMiB <= headroomMiB + creditMiB;
+    }
+
+    /**
+     * Memory planned evictions will free: each distinct victim counted once, and
+     * only while it is still resident (after it unloads, its memory is part of the
+     * headroom already). Pure, for testing.
+     */
+    static long evictionCreditMiB(List<java.util.Map<String, Long>> planned, java.util.Set<String> resident) {
+        java.util.Map<String, Long> distinct = new java.util.HashMap<>();
+        for (java.util.Map<String, Long> m : planned) {
+            m.forEach((model, fp) -> {
+                if (resident.contains(model)) distinct.merge(model, fp, Math::max);
+            });
+        }
+        return distinct.values().stream().mapToLong(Long::longValue).sum();
+    }
+
+    /** Victims planned by the active tickets on {@code provider}, one map per ticket. */
+    private List<java.util.Map<String, Long>> plannedEvictionMaps(KeyValue kv, String provider) {
+        List<java.util.Map<String, Long>> out = new ArrayList<>();
+        forEachTicket(kv, provider, "planned evictions", node -> {
+            JsonNode ev = node.path(FIELD_EVICTS);
+            if (ev.isObject()) {
+                java.util.Map<String, Long> m = new java.util.HashMap<>();
+                ev.fields().forEachRemaining(e -> m.put(e.getKey(), e.getValue().asLong(0L)));
+                out.add(m);
+            }
+        });
+        return out;
+    }
+
+    /** Models that active tickets on {@code provider} plan to unload, with their footprints. */
+    public java.util.Map<String, Long> plannedEvictionsOn(String provider) {
+        KeyValue kv = provider == null ? null : openBucket();
+        java.util.Map<String, Long> out = new java.util.HashMap<>();
+        if (kv != null) {
+            plannedEvictionMaps(kv, provider).forEach(out::putAll);
+        }
+        return out;
+    }
+
+    /** Start times of the active tickets on {@code provider}; the in-flight calls holding its slots. */
+    public List<Instant> inFlightStartsFor(String provider) {
+        KeyValue kv = provider == null ? null : openBucket();
+        List<Instant> out = new ArrayList<>();
+        if (kv != null) {
+            forEachTicket(kv, provider, "in-flight starts", node -> parseInstant(node.path("claimedAt").asText(""), out));
+        }
+        return out;
+    }
+
+    private static void parseInstant(String text, List<Instant> out) {
+        try {
+            out.add(Instant.parse(text));
+        } catch (Exception e) {
+            // a ticket without a readable start time contributes no wait estimate
+        }
+    }
+
+    /** Drops the residency overlay entry for a model that was unloaded. Best-effort. */
+    public void clearResidency(String provider, String model) {
+        KeyValue kv = openBucket();
+        if (kv == null || provider == null || model == null) return;
+        try {
+            kv.delete(residencyKey(provider, model));
+        } catch (Exception e) {
+            log.debug("clearResidency({},{}) failed (TTL cleans up): {}", provider, model, e.getMessage());
+        }
     }
 
     /**
@@ -518,8 +629,8 @@ public class TicketManager {
         return total[0];
     }
 
-    /** Encode a Ticket to JSON bytes via manual ObjectNode (native-safe). */
-    private byte[] encode(Ticket ticket) {
+    /** Encode a Ticket and its planned evictions to JSON bytes via manual ObjectNode (native-safe). */
+    private byte[] encode(Ticket ticket, java.util.Map<String, Long> evictions) {
         ObjectNode node = objectMapper.createObjectNode();
         node.put("ticketId", ticket.ticketId());
         node.put("provider", ticket.provider());
@@ -529,6 +640,10 @@ public class TicketManager {
         node.put("claimedAt", ticket.claimedAt());
         if (ticket.modelName() != null) {
             node.put(FIELD_MODEL_NAME, ticket.modelName());
+        }
+        if (!evictions.isEmpty()) {
+            ObjectNode ev = node.putObject(FIELD_EVICTS);
+            evictions.forEach(ev::put);
         }
         try {
             return objectMapper.writeValueAsBytes(node);

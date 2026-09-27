@@ -1283,7 +1283,7 @@ class ChatServiceToolLoopTest {
                 // back to static chatModel anyway, ticket release is no-op).
                 // null OllamaDirectProber = NATS-independent self-fetch skipped
                 // in tests (providerSelector is null so the JIT path never runs).
-                null, null, null, null, null, null, null
+                null, null, null, null, null, null, null, null
         );
     }
 
@@ -1412,7 +1412,7 @@ class ChatServiceToolLoopTest {
 
         var service = new ChatService(chatModel, ragClient, mcpClient, discussionOrchestrator,
                 stubProperties(3, "tooler", false, false), heartbeatService, objectMapper,
-                null, null, memory, null, null, null, null);
+                null, null, memory, null, null, null, null, null);
         service.directChat(new ChatService.ChatRequest("conv-mem", "You are in a discussion... [User Question] Which nodes have a GPU? [Response (x)] ...",
                 null, "thread-mem", "Which nodes have a GPU?"), false);
 

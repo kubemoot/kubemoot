@@ -67,6 +67,7 @@ class ChatServiceCapacityTest {
         selector = mock(ProviderSelector.class);
         pool = mock(ChatModelPool.class);
         tickets = mock(TicketManager.class);
+        when(selector.driver()).thenReturn(new ai.kubemoot.agent.provider.OllamaDriver(null));
     }
 
     /** A provider with the given VRAM, the candidate model resident, the preferred model on disk. */
@@ -98,7 +99,7 @@ class ChatServiceCapacityTest {
         return new ChatService(staticModel, mock(RagClient.class), mcpClient, mock(DiscussionOrchestrator.class),
                 ChatServiceToolLoopTest.stubProperties(3, "tooler", false, false),
                 mock(AgentHeartbeatService.class), MAPPER, selector, pool, null, tickets, null,
-                waiter, policy);
+                waiter, policy, null);
     }
 
     private static ChatService.ChatRequest request() {
@@ -219,5 +220,37 @@ class ChatServiceCapacityTest {
                 .directChat(request(), true));
 
         assertEquals(NoFitException.REASON_GPU_BUSY, nfe.reason());
+    }
+
+    @Test
+    void planMadeAtSelection_isUsedByTheFirstCall() {
+        var rig = provider(32_768);
+        when(selector.readState()).thenReturn(List.of(rig));
+        when(selector.pickAndClaimWarm(anyString(), anyLong(), anyLong())).thenReturn(Optional.empty());
+        when(selector.pickAndClaimLoading(anyString(), anyLong(), anyLong())).thenReturn(Optional.empty());
+        when(selector.pickAndClaim(eq(PREFERRED), anyLong(), anyLong())).thenReturn(Optional.of(pickOn(rig)));
+        poolServes(PREFERRED, answering("planned answer"));
+        var service = service(null, null);
+
+        service.commitToThread("t-plan", System.currentTimeMillis());
+        var result = service.directChat(new ChatService.ChatRequest("conv", "q", null, "t-plan", "q"),
+                true, CapacityWait.NONE);
+
+        assertEquals("planned answer", result.response());
+        verify(selector, times(1)).pickAndClaim(eq(PREFERRED), anyLong(), anyLong());
+        verify(tickets).release(any());
+    }
+
+    @Test
+    void releasePlan_releasesAnUnusedPlan() {
+        var rig = provider(32_768);
+        when(selector.readState()).thenReturn(List.of(rig));
+        when(selector.pickAndClaimWarm(eq(PREFERRED), anyLong(), anyLong())).thenReturn(Optional.of(pickOn(rig)));
+        var service = service(null, null);
+
+        service.commitToThread("t-gone", System.currentTimeMillis());
+        service.releasePlan("t-gone");
+
+        verify(tickets, times(1)).release(any());
     }
 }

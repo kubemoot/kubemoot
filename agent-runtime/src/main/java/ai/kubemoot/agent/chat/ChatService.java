@@ -6,6 +6,7 @@ import ai.kubemoot.agent.nats.AgentHeartbeatService;
 import ai.kubemoot.agent.nats.DiscussionOrchestrator;
 import ai.kubemoot.agent.provider.ChatModelPool;
 import ai.kubemoot.agent.provider.OllamaDirectProber;
+import ai.kubemoot.agent.provider.CallPlanner;
 import ai.kubemoot.agent.provider.ProviderSelector;
 import ai.kubemoot.agent.provider.ProviderState;
 import ai.kubemoot.agent.rag.RagClient;
@@ -88,6 +89,8 @@ public class ChatService {
     private final ai.kubemoot.agent.provider.GpuCapacityWaiter capacityWaiter;
     /** Other models a mulling call may use when one is warm with room. Null: bound model only. */
     private final ai.kubemoot.agent.provider.CandidatePolicy candidatePolicy;
+    /** Places mulling calls and plans an agent's first call at selection. */
+    private final CallPlanner callPlanner;
 
     /**
      * Crew working memory. Recalled facts are auto-injected into the system
@@ -130,7 +133,8 @@ public class ChatService {
             ai.kubemoot.agent.provider.TicketManager ticketManager,
             OllamaDirectProber directProber,
             ai.kubemoot.agent.provider.GpuCapacityWaiter capacityWaiter,
-            ai.kubemoot.agent.provider.CandidatePolicy candidatePolicy
+            ai.kubemoot.agent.provider.CandidatePolicy candidatePolicy,
+            CallPlanner callPlanner
     ) {
         this.chatModel = chatModel;
         this.ragClient = ragClient;
@@ -145,6 +149,8 @@ public class ChatService {
         this.directProber = directProber;
         this.capacityWaiter = capacityWaiter;
         this.candidatePolicy = candidatePolicy;
+        this.callPlanner = callPlanner != null ? callPlanner
+                : new CallPlanner(providerSelector, ticketManager, null);
 
         // Triage model: use dedicated endpoint/model if configured, else fall back to primary
         var triage = properties.triageModel();
@@ -269,7 +275,7 @@ public class ChatService {
         // KV pressure. Crude chars/4 with a safety pad; tighter accuracy
         // via real tokenizer comes in Phase D2 (operator /api/show probe).
         int promptCharCount = estimatePromptCharCount(messages);
-        MullingPick pick = pickMullingChatModel(promptCharCount, wait);
+        MullingPick pick = pickMullingChatModel(promptCharCount, wait, request.discussionThreadId());
         String providerName = pick.providerName();
         // Outbound wire trace: the exact model + endpoint this call will send to
         // Ollama. Pair with OLLAMA_DEBUG on the provider to confirm the wire model
@@ -309,7 +315,7 @@ public class ChatService {
         conversation.addMessage(new AiMessage(text));
         return new ChatResult(request.conversationId(), text, pick.modelName(), null,
                 loopResult.inputTokens(), loopResult.outputTokens(),
-                loopResult.providerName(), loopResult.pickReason());
+                loopResult.providerName(), loopResult.pickReason(), pick.evicted());
     }
 
     /**
@@ -1054,7 +1060,17 @@ public class ChatService {
     private record MullingPick(ChatModel model, String providerName,
                                 java.util.Optional<ai.kubemoot.agent.provider.Ticket> ticket,
                                 String pickReason, String modelName, String endpoint,
-                                long occupancyMiB) {}
+                                long occupancyMiB, java.util.List<String> evicted) {
+        MullingPick(ChatModel model, String providerName,
+                    java.util.Optional<ai.kubemoot.agent.provider.Ticket> ticket,
+                    String pickReason, String modelName, String endpoint, long occupancyMiB) {
+            this(model, providerName, ticket, pickReason, modelName, endpoint, occupancyMiB, java.util.List.of());
+        }
+
+        MullingPick withEvicted(java.util.List<String> models) {
+            return new MullingPick(model, providerName, ticket, pickReason, modelName, endpoint, occupancyMiB, models);
+        }
+    }
 
     /**
      * Resolve a model's cold-load occupancy (MiB) for JIT placement.
@@ -1124,10 +1140,11 @@ public class ChatService {
      * call). See {@code TicketManager} for the two-layer release guarantee.</p>
      */
     private MullingPick pickMullingChatModel(int promptCharCount) {
-        return pickMullingChatModel(promptCharCount, ai.kubemoot.agent.provider.CapacityWait.NONE);
+        return pickMullingChatModel(promptCharCount, ai.kubemoot.agent.provider.CapacityWait.NONE, null);
     }
 
-    private MullingPick pickMullingChatModel(int promptCharCount, ai.kubemoot.agent.provider.CapacityWait wait) {
+    private MullingPick pickMullingChatModel(int promptCharCount, ai.kubemoot.agent.provider.CapacityWait wait,
+                                             String threadId) {
         var staticModel = properties.model().model();
         var staticEndpoint = properties.model().endpoint();
 
@@ -1146,17 +1163,38 @@ public class ChatService {
             return new MullingPick(chatModel, "", java.util.Optional.empty(),
                     STATIC_FALLBACK, staticModel, staticEndpoint, 0L);
         }
-        var placed = placeCall(states, promptCharCount);
-        if (placed.isPresent()) {
-            return placed.get();
+        var placed = heldPlacement(threadId, states).or(() -> placeCall(states, promptCharCount));
+        MullingPick pick = placed.isPresent() ? placed.get()
+                : waitForCapacity(staticModel, coldLoadFootprintMiB, promptCharCount, wait);
+        callPlanner.callStarted(threadId, pick.modelName());
+        return pick;
+    }
+
+    /**
+     * The placement planned for this thread when the coordinator selected the
+     * agent, when its provider is still ready; otherwise its claim is released and
+     * the call plans afresh.
+     */
+    private java.util.Optional<MullingPick> heldPlacement(String threadId, java.util.List<ProviderState> states) {
+        var held = callPlanner.takeHeld(threadId);
+        if (held.isEmpty()) {
+            return java.util.Optional.empty();
         }
-        return waitForCapacity(staticModel, coldLoadFootprintMiB, promptCharCount, wait);
+        String provider = held.get().pick().provider().name();
+        boolean ready = states.stream().anyMatch(p -> p.name().equals(provider) && p.ready());
+        if (!ready) {
+            ticketManager.release(held.get().pick().ticket());
+            return java.util.Optional.empty();
+        }
+        log.info("Using the placement planned at selection: {} on {}", held.get().model(), provider);
+        return java.util.Optional.of(fromPlacement(held.get()));
     }
 
     /**
      * Nothing has room for the bound model now. Stand aside with reason
      * model-too-large when no known GPU can ever hold it; otherwise wait for a
-     * capacity change and retry {@link #placeCall} on each one.
+     * capacity change and retry {@link #placeCall} on each one. The wait is
+     * published to the shared demand view while it lasts.
      */
     private MullingPick waitForCapacity(String model, long footprintMiB, int promptCharCount,
                                         ai.kubemoot.agent.provider.CapacityWait wait) {
@@ -1166,25 +1204,24 @@ public class ChatService {
                     "model=" + model + " coldLoad=" + footprintMiB + "MiB exceeds every GPU's usable VRAM");
         }
         String busy = "model=" + model + " coldLoad=" + footprintMiB + "MiB: every GPU that can hold it is busy";
-        if (capacityWaiter == null) {
+        if (capacityWaiter == null || wait.threadEnded()) {
             throw ai.kubemoot.agent.provider.NoFitException.gpuBusy(model, busy);
         }
-        return capacityWaiter.await(model, () -> {
-            providerSelector.invalidateCache();
-            return placeCall(providerSelector.readState(), promptCharCount);
-        }, wait);
+        callPlanner.waitStarted(model);
+        try {
+            return capacityWaiter.await(model, () -> {
+                providerSelector.invalidateCache();
+                return placeCall(providerSelector.readState(), promptCharCount);
+            }, wait);
+        } finally {
+            callPlanner.waitEnded(model);
+        }
     }
 
     /**
-     * One placement attempt against the given provider state. Empty when no
-     * provider has room right now.
-     * <ol>
-     *   <li>The bound model, warm with a free slot.</li>
-     *   <li>A candidate within the quality tolerance, warm with a free slot,
-     *       highest score first: preferred over cold-loading the bound model.</li>
-     *   <li>The bound model under the normal cost ranking.</li>
-     * </ol>
-     * With no provider state (NATS degraded), the direct-probe path decides.
+     * One placement attempt against the given provider state; empty when no
+     * provider has room right now. {@link CallPlanner#place} decides; with no
+     * provider state (NATS degraded), the direct-probe path decides.
      */
     private java.util.Optional<MullingPick> placeCall(java.util.List<ProviderState> states, int promptCharCount) {
         String preferred = properties.model().model();
@@ -1192,18 +1229,22 @@ public class ChatService {
             return degradedMullingPick(preferred, properties.model().endpoint(),
                     resolveOccupancyMiB(states, preferred));
         }
-        var warm = claimFor(states, preferred, resolveOccupancyMiB(states, preferred), promptCharCount, true);
-        if (warm.isPresent()) {
-            return warm;
-        }
-        for (String alternative : mullingAlternatives(preferred)) {
-            var alt = claimFor(states, alternative, observedFootprintMiB(states, alternative), promptCharCount, true);
-            if (alt.isPresent()) {
-                log.info("Using warm candidate {} instead of loading {}", alternative, preferred);
-                return alt;
-            }
-        }
-        return claimFor(states, preferred, resolveOccupancyMiB(states, preferred), promptCharCount, false);
+        return callPlanner.place(placementRequest(states, promptCharCount)).map(this::fromPlacement);
+    }
+
+    private CallPlanner.PlacementRequest placementRequest(java.util.List<ProviderState> states, int promptCharCount) {
+        String preferred = properties.model().model();
+        // Phase D: each model's KV-cache need for this call, so the predictor's gate
+        // factors in in-flight context-size pressure. Conservative (overestimate).
+        long promptTokens = ai.kubemoot.agent.provider.KvCacheEstimator.estimateTokensFromChars(promptCharCount);
+        return new CallPlanner.PlacementRequest(preferred, mullingAlternatives(preferred), states,
+                m -> m.equals(preferred) ? resolveOccupancyMiB(states, m) : observedFootprintMiB(states, m),
+                m -> ai.kubemoot.agent.provider.KvCacheEstimator.estimateMiB(m, promptTokens, properties.model().maxTokens()));
+    }
+
+    private MullingPick fromPlacement(CallPlanner.Placement p) {
+        MullingPick pick = buildScheduledMullingPick(p.pick(), p.model(), p.footprintMiB());
+        return p.evicted().isEmpty() ? pick : pick.withEvicted(p.evicted());
     }
 
     private java.util.List<String> mullingAlternatives(String preferred) {
@@ -1215,22 +1256,35 @@ public class ChatService {
         return states.stream().mapToLong(p -> p.coldLoadFootprintMiB(model)).max().orElse(0L);
     }
 
-    /** Claim a provider for {@code model}; warmOnly restricts to warm providers with a free slot. */
-    private java.util.Optional<MullingPick> claimFor(java.util.List<ProviderState> states, String model,
-                                                     long footprintMiB, int promptCharCount, boolean warmOnly) {
-        if (footprintMiB <= 0 || states.isEmpty()) {
-            return java.util.Optional.empty();
+    /** Prompt size assumed when planning a first call before its prompt exists. */
+    private static final int PLAN_PROMPT_CHARS = 16_000;
+
+    /**
+     * The coordinator selected this agent for {@code threadId}: publish its intent
+     * for its candidate models and plan its first mulling call now, claiming the
+     * capacity and starting a needed load so it overlaps triage. Runs on the
+     * caller's thread; the discussion subscriber calls it from a worker.
+     */
+    public void commitToThread(String threadId, long selectedAtMs) {
+        if (providerSelector == null || ticketManager == null || chatModelPool == null) {
+            return;
         }
-        // Phase D: this call's KV-cache need, so the predictor's gate factors in
-        // in-flight context-size pressure. Conservative (overestimate) so the
-        // gate fails safe rather than OOMing Ollama.
-        long promptTokens = ai.kubemoot.agent.provider.KvCacheEstimator.estimateTokensFromChars(promptCharCount);
-        long kvMiB = ai.kubemoot.agent.provider.KvCacheEstimator.estimateMiB(
-                model, promptTokens, properties.model().maxTokens());
-        var pick = warmOnly
-                ? providerSelector.pickAndClaimWarm(model, footprintMiB, kvMiB)
-                : providerSelector.pickAndClaim(model, footprintMiB, kvMiB);
-        return pick.map(p -> buildScheduledMullingPick(p, model, footprintMiB));
+        String preferred = properties.model().model();
+        java.util.List<String> candidates = new ArrayList<>();
+        candidates.add(preferred);
+        candidates.addAll(mullingAlternatives(preferred));
+        callPlanner.commit(threadId, selectedAtMs, candidates, () -> {
+            var states = providerSelector.readState();
+            return states.isEmpty() ? java.util.Optional.empty()
+                    : callPlanner.place(placementRequest(states, PLAN_PROMPT_CHARS));
+        });
+    }
+
+    /** The agent stood aside or the thread ended: release the plan made at selection. */
+    public void releasePlan(String threadId) {
+        if (callPlanner != null) {
+            callPlanner.release(threadId);
+        }
     }
 
     /**
@@ -1811,7 +1865,13 @@ public class ChatService {
 
     public record ChatResult(String conversationId, String response, String model, String threadId,
                               long inputTokens, long outputTokens,
-                              String providerName, String pickReason) {
+                              String providerName, String pickReason, List<String> evicted) {
+        /** Without evictions: the call needed no model unloaded. */
+        public ChatResult(String conversationId, String response, String model, String threadId,
+                          long inputTokens, long outputTokens, String providerName, String pickReason) {
+            this(conversationId, response, model, threadId, inputTokens, outputTokens, providerName, pickReason,
+                    List.of());
+        }
         /** Convenience constructor without token counts or provider attribution. */
         public ChatResult(String conversationId, String response, String model, String threadId) {
             this(conversationId, response, model, threadId, 0, 0, "", "");
