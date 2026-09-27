@@ -139,6 +139,9 @@ func (r *RAGSourceReconciler) reconcileIndexingState(ctx context.Context, ragSou
 	}
 
 	if r.needsIndexing(ragSource) {
+		if ragSource.Generation != ragSource.Status.ObservedGeneration {
+			forceFullIndex(ragSource)
+		}
 		return r.runIndexingJob(ctx, ragSource, embeddingModel)
 	}
 
@@ -147,6 +150,7 @@ func (r *RAGSourceReconciler) reconcileIndexingState(ctx context.Context, ragSou
 	}
 
 	if ragSource.Status.QueryEndpoint != "" && r.verifyVectorStore(ctx, ragSource) {
+		forceFullIndex(ragSource)
 		return r.runIndexingJob(ctx, ragSource, embeddingModel)
 	}
 
@@ -193,6 +197,14 @@ func (r *RAGSourceReconciler) findEmbeddingModelClusterWide(name string) *kubemo
 		}
 	}
 	return nil
+}
+
+// forceFullIndex makes the next indexing job index everything instead of
+// skipping on an unchanged source checksum. A changed spec (a new collection or
+// key) or a vector store that lost its data needs the documents written again
+// even when the source content is the same.
+func forceFullIndex(ragSource *kubemootv1alpha1.RAGSource) {
+	ragSource.Status.LastIndexedChecksum = ""
 }
 
 // needsIndexing determines if indexing should run
