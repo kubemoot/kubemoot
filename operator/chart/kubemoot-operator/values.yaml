@@ -250,7 +250,7 @@ verify:
 # enabled. See crew-liaison/README.md.
 liaison:
   enabled: true
-  image: crew-liaison:0.330.2
+  image: crew-liaison:0.343.6
   replicas: 1
   maxInflight: 4            # discussions at once; each spends GPU time
   ticketTTLMinutes: 60
