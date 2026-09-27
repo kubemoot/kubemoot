@@ -31,7 +31,7 @@ Single-model systems scale **vertically**: a bigger model does more, and breadth
 This is the cleanest distributed-systems distinction:
 
 - **Single-model: shared memory.** The model's context window *is* the coordination medium. Tool results, sub-agent returns, retrieved documents, and instructions all funnel into one context. Keeping that context coherent (and summarizing it as it grows) is the central engineering concern.
-- **Kubemoot: message-passing.** There is no shared brainspace. Each agent has its own small context and coordinates by publishing signals over NATS JetStream (`kubemoot.discuss.<crew>.<channel>.<thread>`). The coordinator assembles a conclusion from the messages; Toolers and Analysts never share a window.
+- **Kubemoot: message-passing.** There is no shared brainspace. Each agent has its own small context and coordinates by publishing signals over NATS JetStream (`kubemoot.discuss.<namespace>.<crew>.<channel>.<thread>`). The coordinator assembles a conclusion from the messages; Toolers and Analysts never share a window.
 
 Shared-memory versus message-passing is the same dichotomy as threads versus actors. The single-model approach keeps everything coherent in one place but is bounded by one context window; Kubemoot's approach scales across many nodes but must carry meaning explicitly in messages.
 

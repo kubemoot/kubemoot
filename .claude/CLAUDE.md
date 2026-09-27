@@ -27,7 +27,7 @@ DEFINE COMPONENT discussion-protocol
 DESCRIPTION Consensus-based multi-agent discussions via NATS JetStream
 
 ASSERT agents never communicate directly - all messages flow through NATS subjects
-ASSERT subject pattern: kubemoot.discuss.<crew>.<channel>.<threadId>
+ASSERT subject pattern: kubemoot.discuss.<namespace>.<crew>.<channel>.<threadId>
 ASSERT discussions close when all agents have responded, not after N seconds
 ASSERT coordinator determines conclusion via signal-based settling, not quorum or timeout
 WHEN an agent publishes triaging THEN coordinator sets generous deadline (~120s)

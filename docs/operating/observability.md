@@ -9,7 +9,7 @@ How to observe what a Kubemoot crew is doing: the data it exposes, the surfaces 
 
 | Domain | Signals | Where it comes from |
 |--------|---------|---------------------|
-| **Discussions / consensus** | Thread lifecycle, per-agent signals (`triaging`, `evaluating`, `agree`, `concern`, `stand_aside`, `failure`, `block`, `advisory`, `synthesis`), settle decisions, synthesis text | Coordinator + agents publish to NATS `kubemoot.discuss.<crew>.*` |
+| **Discussions / consensus** | Thread lifecycle, per-agent signals (`triaging`, `evaluating`, `agree`, `concern`, `stand_aside`, `failure`, `block`, `advisory`, `synthesis`), settle decisions, synthesis text | Coordinator + agents publish to NATS `kubemoot.discuss.<namespace>.<crew>.*` |
 | **Agent activity** | Heartbeats while GPU-queued, triage vs evaluation phases, per-call provider attribution (which model/provider/GPU served each call) | Agent runtime signals + metadata |
 | **GPU & scheduling** | Loaded-model footprints, in-flight tickets, provider readiness, total/used VRAM, scheduling decisions | Operator-published provider state (NATS KV) + DCGM |
 | **Quality** | MCP tool quality verdicts (hot/failing/out-of-norm) | MCP quality pipeline → `kubemoot.quality.*` |

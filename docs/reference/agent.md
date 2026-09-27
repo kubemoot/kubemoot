@@ -285,7 +285,7 @@ Each agent declares its channels via `Agent.spec.discussChannels`. Coordinators 
 ### Discussion Flow
 
 1. User sends query to coordinator agent
-2. Coordinator queries the crew's **resume model** to select the subcommittee, then publishes `thread_start` (with that `innerCircle`) to `kubemoot.discuss.<crew>.<channel>.<threadId>`
+2. Coordinator queries the crew's **resume model** to select the subcommittee, then publishes `thread_start` (with that `innerCircle`) to `kubemoot.discuss.<namespace>.<crew>.<channel>.<threadId>`
 3. Only the selected Toolers are woken; the rest are silently excluded (no keyword self-selection)
 4. Each selected Tooler runs a per-agent LLM triage (CONTRIBUTE / NOTHING_TO_ADD) for this specific question
 5. Contributing Toolers call `directChat()` to generate a contribution (with tool calling); Analysts self-select in the REVIEW phase and reason over the gathered data
@@ -525,7 +525,7 @@ Agents publish and subscribe to NATS subjects for real-time event streaming.
 
 ### Chat Events
 
-Each agent publishes to `kubemoot.chat.<agent_name>` on every chat response:
+Each agent publishes to `kubemoot.chat.<namespace>.<agent_name>` on every chat response:
 
 ```json
 {
@@ -542,7 +542,7 @@ The dashboard subscribes to `kubemoot.chat.>` for real-time topology node pulsin
 
 ### Discussion Events
 
-Each agent subscribes to `kubemoot.discuss.<crew>.<channel>.>` for inter-agent collaboration (see [agentic-consensus.md](../architecture/agentic-consensus.md)).
+Each agent subscribes to `kubemoot.discuss.<namespace>.<crew>.<channel>.>` for inter-agent collaboration (see [agentic-consensus.md](../architecture/agentic-consensus.md)).
 
 ### Connection Management
 

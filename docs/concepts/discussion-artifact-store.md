@@ -21,7 +21,7 @@ JetStream Object Store bucket named `kubemoot_discussion_artifacts`. The object 
 keyed as:
 
 ```
-{crew}/{threadId}/{agent}/{tool}-{seq}
+{namespace}/{crew}/{threadId}/{agent}/{tool}-{seq}
 ```
 
 The tooler then publishes its discussion message carrying only a **reference
@@ -36,7 +36,7 @@ before opening the object:
 | Field | Purpose |
 |-------|---------|
 | `bucket` | Object store bucket name. |
-| `key` | Full object key (crew/thread/agent/tool-seq). |
+| `key` | Full object key (namespace/crew/thread/agent/tool-seq). |
 | `contentType` | MIME type of the stored object (e.g. `application/json`, `text/csv`). |
 | `bytes` | Total object size in bytes. |
 | `rows` | Row count for tabular data; 0 for unstructured. |
@@ -99,7 +99,7 @@ no blobs survive their discussion.
 
 **Layer 1: lifecycle-tied deletion.** When a discussion thread closes and leaves
 the coordinator's in-memory state, the coordinator issues a prefix-delete for that
-thread's artifact key prefix (`{crew}/{threadId}/`). All objects for the thread are
+thread's artifact key prefix (`{namespace}/{crew}/{threadId}/`). All objects for the thread are
 removed immediately.
 
 **Layer 2: bucket TTL.** The `kubemoot_discussion_artifacts` bucket carries a

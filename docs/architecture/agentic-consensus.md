@@ -44,7 +44,7 @@ and the ability to run many small models instead of depending on one large one.
 ## The discussion table
 
 Every discussion happens on NATS JetStream subjects,
-`kubemoot.discuss.<crew>.<channel>.<threadId>`. A question doesn't get routed to one
+`kubemoot.discuss.<namespace>.<crew>.<channel>.<threadId>`. A question doesn't get routed to one
 channel and hope the right agents are subscribed there; the coordinator selects a
 **subcommittee** first, then broadcasts `thread_start` to every channel with that
 subcommittee (the `innerCircle`) attached. Only the selected agents evaluate the
@@ -68,8 +68,10 @@ question. The rest see the broadcast go by and take no action.
 
 Selection is driven by each agent's **resume** - its description, keywords, tools,
 role, and discussion channels. At crew-reconcile time the operator compiles a resume
-for every agent, writes the set to a NATS KV bucket keyed by crew, and provisions a
-per-crew `RAGSource` that embeds each resume into its own vector collection. This
+for every agent, writes the set to a NATS KV bucket keyed by namespace and crew, and
+provisions a per-crew `RAGSource` that embeds each resume into its own vector
+collection, itself keyed by namespace and crew so the same crew name in two
+namespaces never shares a subcommittee index. This
 happens at deploy time and is hash-gated: resumes are re-embedded only when one
 changes, so the index is ready before the first question is ever asked.
 

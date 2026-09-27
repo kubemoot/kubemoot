@@ -23,7 +23,7 @@ Labels are the Kubernetes-native grouping primitive: queryable via selectors, ad
 
 ## Decision
 
-We will apply `kubemoot.ai/crew: <crew-name>` as a standard Kubernetes label to Agent, CrewSchedulingPolicy, MCPServer, MCPGateway, RAGSource, and PromptModule CRs. All resources for all crews live in a shared namespace (e.g., `kubemoot`). We will scope discussion broadcasts by prefixing the NATS subject with the crew (`kubemoot.discuss.<crew>.<channel>.<threadId>`). We will not use one namespace per crew.
+We will apply `kubemoot.ai/crew: <crew-name>` as a standard Kubernetes label to Agent, CrewSchedulingPolicy, MCPServer, MCPGateway, RAGSource, and PromptModule CRs. All resources for all crews live in a shared namespace (e.g., `kubemoot`). We will scope discussion broadcasts by prefixing the NATS subject with the crew (`kubemoot.discuss.<crew>.<channel>.<threadId>`, later widened to `kubemoot.discuss.<namespace>.<crew>.<channel>.<threadId>` when namespaces became the isolation boundary). We will not use one namespace per crew.
 
 ## Consequences
 

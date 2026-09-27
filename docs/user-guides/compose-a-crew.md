@@ -91,7 +91,7 @@ The coordinator cannot reason well about an agent it cannot read clearly.
 ### Fallback path
 
 If the reasoning call fails or returns nothing, the coordinator falls back to semantic
-similarity over the per-crew resume index (`crew_<crew>_resumes`) and selects the
+similarity over the per-crew resume index (`crew_<namespace>_<crew>_resumes`) and selects the
 agents whose resumes score highest. If that also fails, it broadcasts to all
 specialists. `spec.discussKeywords` feeds the similarity fallback, not the primary
 reasoning call. Treat it as optional supplemental vocabulary that improves fallback
@@ -262,7 +262,7 @@ deserve deeper scrutiny and which data sources Analysts should check. Give the c
 3. **The crew capability catalog.** This is published automatically by the operator at
    deploy time to a NATS KV store - you do not configure it manually. It contains each
    agent's name, description, and tools in a compact form the coordinator can reason
-   over. The operator also maintains a per-crew vector index (`crew_<crew>_resumes`)
+   over. The operator also maintains a per-crew vector index (`crew_<namespace>_<crew>_resumes`)
    used as a fallback if the primary reasoning call returns nothing.
 
 4. **A well-grounded advisory PromptModule.** The `advisory-prompt` module (order 5)

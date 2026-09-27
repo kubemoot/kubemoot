@@ -24,7 +24,7 @@ Options considered:
 
 ## Decision
 
-We will use KEDA for event-driven autoscaling of MCPServer, MCPGateway, and Agent workloads. The operator will create `ScaledObject` CRs alongside Deployments when `autoscaling.enabled: true`. Tool servers will scale on Prometheus metrics (request rate); agents will scale `0↔1` on NATS JetStream consumer lag for `kubemoot.discuss.*` subjects.
+We will use KEDA for event-driven autoscaling of MCPServer, MCPGateway, and Agent workloads. The operator will create `ScaledObject` CRs alongside Deployments when `autoscaling.enabled: true`. Tool servers will scale on Prometheus metrics (request rate); agents will scale `0↔1` on NATS JetStream consumer lag for their crew's `kubemoot.discuss.<namespace>.<crew>.>` subjects.
 
 ## Consequences
 

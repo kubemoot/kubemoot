@@ -25,6 +25,12 @@ spec:
     verifyOnAdd: true
 ```
 
+The namespace is Kubemoot's isolation boundary. The same crew name can run in many
+namespaces side by side with no crosstalk: every NATS subject, KV key, object key, and
+vector collection a crew's discussion touches carries its namespace first, then the
+crew name, so two crews named `homelab-pilot` in two different namespaces never see
+each other's messages, memory, or resumes.
+
 ## Domain-Agnostic by Design
 
 Kubemoot is the orchestration substrate; the **domain** comes from the crew, not from Kubemoot. A crew declares its own Toolers (live data via MCP) and Analysts (reasoning via RAG) in its Helm chart, points them at the operator, and gets a panel of experts with consensus collaboration. The same machinery serves any domain:
@@ -105,7 +111,7 @@ Facts are kept alive by use and aged out when abandoned:
 
 ## Storage
 
-Working memory lives in the NATS KV bucket `kubemoot_crew_memory` (provisioned by the operator's nats-streams-job). Keys are crew-scoped: `<crew>.<topic>.<key>`; values carry `value`, `learnedBy`, `learnedAt`, `usedAt`. The agent-runtime reads/writes it directly (`CrewMemoryClient`), native-safe via `readTree`, degrading to a no-op when NATS is unavailable.
+Working memory lives in the NATS KV bucket `kubemoot_crew_memory` (provisioned by the operator's nats-streams-job). Keys are namespace-and-crew-scoped: `<namespace>.<crew>.<topic>.<key>`; values carry `value`, `learnedBy`, `learnedAt`, `usedAt`. The agent-runtime reads/writes it directly (`CrewMemoryClient`), native-safe via `readTree`, degrading to a no-op when NATS is unavailable.
 
 ## Related
 

@@ -35,7 +35,7 @@ We will use NATS JetStream as the event backbone for all real-time communication
 
 - One broker, one Helm chart, one set of credentials to manage; operational footprint is light.
 - Persistent streams give the dashboard historical replay on page load and let agents recover from crashes mid-discussion.
-- Wildcard subscriptions (`kubemoot.discuss.*.<threadId>`) let the coordinator collect signals from all channels with a single subscription.
+- Wildcard subscriptions (`kubemoot.discuss.*.*.*.<threadId>`) let the coordinator collect signals from all namespaces, crews, and channels with a single subscription.
 - WebSocket transport (port 8080) means the browser can subscribe directly to NATS subjects via `nats.ws`; the dashboard's SSE proxy is a thin server-side bridge.
 - A `GOMEMLIMIT` is mandatory: without one, the Go runtime allocator can drive the broker pod into OOMKill under bursty load.
 - JetStream storage on a durable CSI class is intentional: file-based, durable, no SQL backend to manage. A small PVC (a couple of GiB) suffices for a single-cluster deployment; retention windows (24h on `KUBEMOOT_DISCUSS`, count limits elsewhere) prevent unbounded growth.

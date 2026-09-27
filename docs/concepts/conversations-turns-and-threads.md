@@ -50,7 +50,7 @@ happen *inside* one turn's discussion and are not turns themselves.
 
 Each turn runs on its own **thread**, identified by a fresh `threadId` (a new UUID per
 question). The thread is the channel the deliberation runs on: agents exchange
-messages on NATS subjects of the form `kubemoot.discuss.<crew>.<channel>.<threadId>`,
+messages on NATS subjects of the form `kubemoot.discuss.<namespace>.<crew>.<channel>.<threadId>`,
 bracketed by a `thread_start` and a `thread_close`.
 
 Because a thread is created per question, `conversationId` and `threadId` are always

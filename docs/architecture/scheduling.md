@@ -97,7 +97,8 @@ type Record struct {
     Kind           string    `json:"kind,omitempty"`            // "reminder" or "followup"; empty defaults to followup
     TriggerAt      time.Time `json:"triggerAt"`                 // when the poller should fire
     ScheduledBy    string    `json:"scheduledBy,omitempty"`     // agent name or "cron-..." - trace only
-    Crew           string    `json:"crew"`                      // crew name; scopes reads/deletes
+    Namespace      string    `json:"namespace"`                 // crew's namespace; with Crew, derives the discuss subject and scopes reads/deletes
+    Crew           string    `json:"crew"`                      // crew name; scopes reads/deletes with Namespace
     Channel        string    `json:"channel,omitempty"`         // "general" if empty
     Query          string    `json:"query,omitempty"`           // required for kind=followup
     Message        string    `json:"message,omitempty"`         // required for kind=reminder
@@ -137,6 +138,7 @@ spec:
                     "kind":        "followup",
                     "triggerAt":   "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
                     "scheduledBy": "cron-weekly-health",
+                    "namespace":   "crew-homelab-pilot",
                     "crew":        "homelab-pilot",
                     "channel":     "general",
                     "query":       "Run the weekly infrastructure health summary."
@@ -165,7 +167,7 @@ Codified in the `scheduler-advisor-system` PromptModule:
 - **Operator down at fire time**: record waits in the bucket; the next operator pod's poller fires it (late, but fires). Bounded by NATS JetStream retention.
 - **Operator dies mid-fire**: at-least-once semantics - if publish succeeded but KV delete didn't, the record fires again on the next tick. Acceptable for this use case; the discussion system tolerates duplicates because the resulting discussion converges on the same answer.
 - **Schedule never fires**: only if leader election fails OR the bucket gets out of sync. Inspect: `nats kv get kubemoot_scheduled <id>`. Manual fire is a `nats kv del <id>` (cancel) + re-create with current timestamp.
-- **Cross-crew safety**: every read/delete via the MCP is filtered by the calling agent's crew. A scheduler-advisor in crew A cannot see or cancel records owned by crew B; cross-crew cancel attempts return "not found" without revealing existence.
+- **Cross-crew safety**: every read/delete via the MCP is filtered by the calling agent's namespace and crew together. A scheduler-advisor in one namespace's crew cannot see or cancel records owned by the same-named crew in another namespace, or by a different crew; cross-crew cancel attempts return "not found" without revealing existence.
 
 ## Ops commands
 
