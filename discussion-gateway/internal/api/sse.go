@@ -11,25 +11,25 @@ import (
 )
 
 const (
-	streamName         = "KUBEMOOT_DISCUSS"
-	heartbeatInterval  = 30 * time.Second
-	inactiveThreshold  = 2 * time.Minute
-	startTimeOffset    = 30 * time.Second
+	streamName          = "KUBEMOOT_DISCUSS"
+	heartbeatInterval   = 30 * time.Second
+	inactiveThreshold   = 2 * time.Minute
+	startTimeOffset     = 30 * time.Second
 	maxBufferedMessages = 500
 )
 
 // SSEEvent is an event sent to the client over SSE.
 type SSEEvent struct {
-	Type      string `json:"type"`
-	Agent     string `json:"agent,omitempty"`
-	Status    string `json:"status,omitempty"`
-	GPU       string `json:"gpu,omitempty"`
-	Signal    string `json:"signal,omitempty"`
-	Summary   string `json:"summary,omitempty"`
-	Content   string `json:"content,omitempty"`
-	ThreadID  string `json:"threadId,omitempty"`
-	StoodAside bool  `json:"stood_aside,omitempty"`
-	Error     string `json:"error,omitempty"`
+	Type       string `json:"type"`
+	Agent      string `json:"agent,omitempty"`
+	Status     string `json:"status,omitempty"`
+	GPU        string `json:"gpu,omitempty"`
+	Signal     string `json:"signal,omitempty"`
+	Summary    string `json:"summary,omitempty"`
+	Content    string `json:"content,omitempty"`
+	ThreadID   string `json:"threadId,omitempty"`
+	StoodAside bool   `json:"stood_aside,omitempty"`
+	Error      string `json:"error,omitempty"`
 }
 
 // natsMessage is the minimal structure of a NATS discussion message.
@@ -45,7 +45,9 @@ type natsMessage struct {
 // streamDiscussion subscribes to NATS JetStream and writes SSE events to the
 // provided emit function. It blocks until the thread closes or ctx is cancelled.
 // conversationID is used to find the matching thread via thread_start metadata.
-func streamDiscussion(ctx context.Context, js jetstream.JetStream, crew, conversationID string, emit func(SSEEvent)) error {
+// notBefore, when set, is the earliest a thread for this turn can have started; earlier
+// threads of the same conversation are earlier turns.
+func streamDiscussion(ctx context.Context, js jetstream.JetStream, crew, conversationID string, notBefore time.Time, emit func(SSEEvent)) error {
 	consumer, err := createDiscussConsumer(ctx, js, crew, emit)
 	if err != nil {
 		return err
@@ -61,7 +63,7 @@ func streamDiscussion(ctx context.Context, js jetstream.JetStream, crew, convers
 	defer iter.Stop()
 
 	msgCh := startMessagePump(ctx, iter)
-	return processMessages(ctx, msgCh, conversationID, emit)
+	return processMessages(ctx, msgCh, conversationID, notBefore, emit)
 }
 
 // createDiscussConsumer verifies the NATS stream exists and creates an ephemeral
@@ -112,9 +114,11 @@ func startMessagePump(ctx context.Context, iter jetstream.MessagesContext) <-cha
 }
 
 // threadFinder tracks buffered messages until a thread_start matching the
-// conversationID is found, then replays buffered messages for that thread.
+// conversationID is found, then replays buffered messages for that thread. A
+// thread_start published before notBefore belongs to an earlier turn and is skipped.
 type threadFinder struct {
 	conversationID string
+	notBefore      time.Time
 	threadID       string
 	found          bool
 	buf            []natsMessage
@@ -122,14 +126,14 @@ type threadFinder struct {
 
 // process handles a message during the thread-finding phase. Returns true if
 // the thread has been found (either already known or just discovered).
-func (tf *threadFinder) process(data natsMessage, emit func(SSEEvent)) bool {
+func (tf *threadFinder) process(data natsMessage, published time.Time, emit func(SSEEvent)) bool {
 	if tf.found {
 		return true
 	}
 
 	if data.MessageType == "thread_start" {
 		metaConvID, _ := data.Metadata["conversationId"].(string)
-		if metaConvID == tf.conversationID {
+		if metaConvID == tf.conversationID && tf.isThisTurn(published) {
 			tf.found = true
 			tf.threadID = data.ThreadID
 			emit(SSEEvent{Type: "thread_found", ThreadID: tf.threadID})
@@ -176,13 +180,28 @@ func (d *messageDeduper) firstSight(id string) bool {
 	return true
 }
 
+// isThisTurn reports whether a thread that started at published can belong to the turn
+// being streamed. Unknown times are accepted.
+func (tf *threadFinder) isThisTurn(published time.Time) bool {
+	return tf.notBefore.IsZero() || published.IsZero() || !published.Before(tf.notBefore)
+}
+
+// publishedAt is when NATS stored a message, or the zero time when unknown.
+func publishedAt(msg jetstream.Msg) time.Time {
+	md, err := msg.Metadata()
+	if err != nil || md == nil {
+		return time.Time{}
+	}
+	return md.Timestamp
+}
+
 // processMessages is the main event loop that dispatches heartbeats and incoming
 // NATS messages to the SSE emitter.
-func processMessages(ctx context.Context, msgCh <-chan jetstream.Msg, conversationID string, emit func(SSEEvent)) error {
+func processMessages(ctx context.Context, msgCh <-chan jetstream.Msg, conversationID string, notBefore time.Time, emit func(SSEEvent)) error {
 	heartbeat := time.NewTicker(heartbeatInterval)
 	defer heartbeat.Stop()
 
-	tf := &threadFinder{conversationID: conversationID}
+	tf := &threadFinder{conversationID: conversationID, notBefore: notBefore}
 
 	// The coordinator dual-publishes some messages (notably synthesis) to both
 	// the broadcast subject AND the channel subject so every agent — whether it
@@ -215,7 +234,7 @@ func processMessages(ctx context.Context, msgCh <-chan jetstream.Msg, conversati
 				continue // already emitted this logical message (dual-publish)
 			}
 
-			if !tf.process(data, emit) {
+			if !tf.process(data, publishedAt(msg), emit) {
 				continue
 			}
 

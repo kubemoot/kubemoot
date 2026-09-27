@@ -25,12 +25,14 @@ var handlerLog = logf.Log.WithName("api-handler")
 // Handler serves the Discussion API endpoints.
 type Handler struct {
 	natsClient *natsclient.Client
+	requests   *requestLog
 }
 
 // NewHandler creates a new API handler.
 func NewHandler(natsClient *natsclient.Client) *Handler {
 	return &Handler{
 		natsClient: natsClient,
+		requests:   newRequestLog(time.Hour),
 	}
 }
 
@@ -121,6 +123,7 @@ func (h *Handler) postDiscussion(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	h.requests.record(conversationID)
 	handlerLog.Info("Queued discussion request", "crew", crew, "conversationId", conversationID, "subject", subject)
 
 	// Return immediately with conversationId — client opens SSE stream to follow progress
@@ -183,7 +186,8 @@ func (h *Handler) streamDiscussion(w http.ResponseWriter, r *http.Request) {
 
 	// Stream blocks until thread_close or context cancellation.
 	// Uses conversationId to find the matching thread via thread_start metadata.
-	if err := streamDiscussion(ctx, js, crew, conversationID, emit); err != nil && err != context.Canceled {
+	notBefore := h.requests.notBefore(conversationID)
+	if err := streamDiscussion(ctx, js, crew, conversationID, notBefore, emit); err != nil && err != context.Canceled {
 		handlerLog.V(1).Info("Stream ended", "crew", crew, "conversationId", conversationID, "error", err)
 	}
 }
