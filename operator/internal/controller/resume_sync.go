@@ -68,7 +68,7 @@ const (
 // self-selection when the resume search is unavailable.
 func (r *AgentReconciler) syncCrewResumes(ctx context.Context, coordinator *kubemootv1alpha1.Agent) {
 	log := logf.FromContext(ctx)
-	if coordinator.Spec.DiscussRole != roleCoordinator {
+	if !isCoordinator(coordinator) {
 		return
 	}
 	scope, err := coordinatorScope(coordinator)
@@ -194,7 +194,7 @@ func (r *AgentReconciler) compileCrewResumes(ctx context.Context, coordinator *k
 	var resumes []AgentResume
 	for i := range agentList.Items {
 		a := &agentList.Items[i]
-		if a.Name == coordinator.Name || a.Spec.DiscussRole == roleCoordinator {
+		if a.Name == coordinator.Name || isCoordinator(a) {
 			continue
 		}
 		resumes = append(resumes, r.buildAgentResume(ctx, a))

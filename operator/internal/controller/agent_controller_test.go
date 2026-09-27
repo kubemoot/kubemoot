@@ -281,7 +281,7 @@ func TestShouldBinPackByRole(t *testing.T) {
 	mkAgent := func(role string) *kubemootv1alpha1.Agent {
 		a := &kubemootv1alpha1.Agent{}
 		if role != "" {
-			a.Labels = map[string]string{agentRoleLabel: role}
+			a.Labels = map[string]string{annoRole: role}
 		}
 		return a
 	}

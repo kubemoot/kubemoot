@@ -219,22 +219,24 @@ func loadPenalty(phase string, prov *kubemootv1alpha1.ModelProvider) (int64, boo
 	return int64(phaseCount) * agentLoadPenaltyPerAgent / int64(parallel), true
 }
 
-// agentRoleLabel is the Crew-chart-emitted label distinguishing
-// coordinators (single critical-path agent per crew) from toolers
-// (parallel workers awoken by triage). Coordinator scheduling skips the
-// load penalty; tooler scheduling applies it.
-const agentRoleLabel = "kubemoot.ai/role"
+// isCoordinator reports whether an agent is its crew's coordinator: declared
+// with discussRole coordinator, or with the kubemoot.ai/role=coordinator label
+// that crews created before discussRole existed still carry. Every controller
+// that needs the coordinator uses this one rule.
+func isCoordinator(agent *kubemootv1alpha1.Agent) bool {
+	return agent.Spec.DiscussRole == roleCoordinator || agent.Labels[annoRole] == roleCoordinator
+}
 
 // shouldBinPack returns true when the agent's pickModel run should apply
-// the load-aware bin-pack penalty. Coordinators (role=coordinator) skip
-// it because their work is sequential and there's no parallel load to
-// balance; latency dominates and they should always pick the heaviest
-// provider. Any other role (tooler, or no role label at all) bin-packs.
+// the load-aware bin-pack penalty. Coordinators skip it because their work
+// is sequential and there's no parallel load to balance; latency dominates
+// and they should always pick the heaviest provider. Every other agent
+// bin-packs.
 func shouldBinPack(agent *kubemootv1alpha1.Agent) bool {
 	if agent == nil {
 		return true
 	}
-	return agent.Labels[agentRoleLabel] != "coordinator"
+	return !isCoordinator(agent)
 }
 
 // providerScore returns the phase-aware contribution from a ModelProvider's

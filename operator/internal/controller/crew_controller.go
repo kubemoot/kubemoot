@@ -53,7 +53,6 @@ const (
 	crewFinalizer       = "kubemoot.ai/crew-finalizer"
 	crewGatewayPort     = int32(8080)
 	crewLabelKey        = labelCrew
-	coordinatorRole     = annoRole
 	manageNamespaceAnno = "kubemoot.ai/manage-namespace"
 )
 
@@ -168,9 +167,9 @@ func (r *CrewReconciler) discoverAgents(ctx context.Context, crew *kubemootv1alp
 	}
 
 	var coordinatorName string
-	for _, agent := range agents.Items {
-		if agent.Labels[coordinatorRole] == "coordinator" {
-			coordinatorName = agent.Name
+	for i := range agents.Items {
+		if isCoordinator(&agents.Items[i]) {
+			coordinatorName = agents.Items[i].Name
 			break
 		}
 	}
