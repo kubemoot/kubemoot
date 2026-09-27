@@ -2,8 +2,8 @@
 // component. It has two modes, selected by ARTIFACT_MODE (one binary, two
 // deployments):
 //
-//   - materializer (default): the no-network sandbox's sidecar. It subscribes to a
-//     crew's artifact subject and streams each referenced NATS Object Store blob to
+//   - materializer (default): the no-network sandbox's sidecar. It subscribes to
+//     its namespace's artifact subject and streams each referenced NATS Object Store blob to
 //     a local directory the sandbox reads, so bulk data never crosses the discussion
 //     bus or enters an LLM context.
 //   - mcp: a shared read-ops MCP stdio service. Network-capable agents call its tools
@@ -29,6 +29,7 @@ import (
 	"github.com/javajon/kubemoot/artifact-access/internal/materializer"
 	"github.com/javajon/kubemoot/artifact-access/internal/mcpserver"
 	"github.com/javajon/kubemoot/artifact-access/internal/natsstore"
+	"github.com/javajon/kubemoot/artifact-access/internal/scope"
 )
 
 func env(key, def string) string {
@@ -68,6 +69,14 @@ func runMaterializer(ctx context.Context, natsURL string, store *natsstore.Store
 	ctx, stop := signal.NotifyContext(ctx, syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
+	// Producers publish a reference envelope per crew on
+	// kubemoot.artifacts.<ns>.<crew>.<thread>; the default follows every crew
+	// and thread of this pod's namespace and no other namespace.
+	subject, err := scope.MaterializerSubjectFromEnvironment()
+	if err != nil {
+		log.Fatalf("artifact subject: %v", err)
+	}
+
 	nc, err := nats.Connect(natsURL,
 		nats.Name("artifact-access-sub"),
 		nats.MaxReconnects(-1),
@@ -79,8 +88,6 @@ func runMaterializer(ctx context.Context, natsURL string, store *natsstore.Store
 	defer func() { _ = nc.Drain() }()
 
 	dir := env("ARTIFACT_DIR", "/artifacts")
-	// Producers publish a reference envelope per crew; ">" catches all threads.
-	subject := env("ARTIFACT_SUBJECT", "kubemoot.artifacts.>")
 
 	// 0o755 so the non-root sandbox container sharing this volume can traverse it.
 	if err := os.MkdirAll(dir, 0o755); err != nil {

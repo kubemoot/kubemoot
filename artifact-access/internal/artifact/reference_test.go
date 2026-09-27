@@ -14,8 +14,8 @@ func TestParseMessage(t *testing.T) {
 	}{
 		{
 			name:    "valid reference",
-			content: `{"artifact":{"bucket":"kubemoot_discussion_artifacts","key":"pilot/conv1/thread1/k8s-config/resources_list-0","rows":247}}`,
-			wantKey: "pilot/conv1/thread1/k8s-config/resources_list-0",
+			content: `{"artifact":{"bucket":"kubemoot_discussion_artifacts","key":"team-a/pilot/conv1/thread1/k8s-config/resources_list-0","rows":247}}`,
+			wantKey: "team-a/pilot/conv1/thread1/k8s-config/resources_list-0",
 		},
 		{name: "ordinary inline content", content: "default: 3 ConfigMaps", wantErr: true},
 		{name: "empty artifact object", content: `{"artifact":{}}`, wantErr: true},

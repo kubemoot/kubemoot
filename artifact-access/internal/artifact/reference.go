@@ -65,7 +65,7 @@ func Marshal(ref Reference) (string, error) {
 
 // LocalPath maps an object key to a path under baseDir, rejecting any key that
 // would traverse outside it. Keys are of the form
-// {crew}/{conversationId}/{threadId}/{agent}/{tool}-{seq} and never contain
+// {namespace}/{crew}/{conversationId}/{threadId}/{agent}/{tool}-{seq} and never contain
 // ".." or a leading "/"; such keys are rejected outright rather than silently
 // rewritten, so a malformed/hostile key can never collide or escape.
 func LocalPath(baseDir, key string) (string, error) {
