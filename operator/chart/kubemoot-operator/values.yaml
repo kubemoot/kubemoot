@@ -284,7 +284,7 @@ kubemootConfig:
     indexer: indexer:0.279.19
     queryService: query-service:0.326.0
     agentRuntime: agent-runtime:0.326.0
-    mcpGateway: mcp-gateway:0.326.0
+    mcpGateway: mcp-gateway:0.326.22
     mcpBridge: mcp-bridge:0.326.0
     discussionGateway: discussion-gateway:0.326.0
     fitnessRunner: fitness-runner:0.326.0
