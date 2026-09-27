@@ -2,8 +2,8 @@ apiVersion: v2
 name: kubemoot-operator
 description: Kubernetes Operator for AI workflow orchestration
 type: application
-version: 0.92.545
-appVersion: "0.335.1"
+version: 0.92.546
+appVersion: "0.336.0"
 keywords:
   - ai
   - ml
