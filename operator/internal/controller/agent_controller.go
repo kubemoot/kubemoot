@@ -352,6 +352,9 @@ type modelPick struct {
 	Reason   string
 	Model    *kubemootv1alpha1.Model
 	Provider *kubemootv1alpha1.ModelProvider
+	// Candidates is the phase's ranked candidate list (ModelID first), handed to
+	// the runtime so its per-call pick can use a warm in-tolerance model.
+	Candidates []modelCandidate
 }
 
 // currentProviderPicks returns the mulling/triage provider names recorded
@@ -416,7 +419,8 @@ func (r *AgentReconciler) pickModel(ctx context.Context, agent *kubemootv1alpha1
 		return nil, fmt.Errorf("listing Models: %w", err)
 	}
 
-	feasible, err := r.feasibleCandidates(ctx, agent, phase, policy, rule, models)
+	bias, haveBias := phaseQualityBias(agent, policy, rule)
+	feasible, err := r.feasibleCandidates(ctx, agent, phase, rule, models, bias, haveBias)
 	if err != nil {
 		return nil, err
 	}
@@ -441,30 +445,20 @@ func (r *AgentReconciler) pickModel(ctx context.Context, agent *kubemootv1alpha1
 		reason = fmt.Sprintf("first feasible Model for phase=%s", phase)
 	}
 	return &modelPick{
-		ModelID:  pick.model.Spec.Model,
-		Endpoint: pick.provider.Spec.Endpoint,
-		Reason:   reason,
-		Model:    pick.model,
-		Provider: pick.provider,
+		ModelID:    pick.model.Spec.Model,
+		Endpoint:   pick.provider.Spec.Endpoint,
+		Reason:     reason,
+		Model:      pick.model,
+		Provider:   pick.provider,
+		Candidates: rankedCandidates(pick.model.Spec.Model, rule, models.Items, bias, haveBias),
 	}, nil
 }
 
 // feasibleCandidates filters the Models against the phase's require selector and
 // VRAM capacity, resolves each Model's provider, and scores the survivors. It
-// returns the scored candidate set (unsorted) for pickModel to rank.
-func (r *AgentReconciler) feasibleCandidates(ctx context.Context, agent *kubemootv1alpha1.Agent, phase string, policy *kubemootv1alpha1.CrewSchedulingPolicy, rule *kubemootv1alpha1.SchedulingRule, models *kubemootv1alpha1.ModelList) ([]scheduleCandidate, error) {
-	// Auto-derive a per-agent quality bias only when the rule has no explicit
-	// Prefer block — explicit Prefer always wins, letting an author override
-	// the auto-derivation for an edge case. Skipped entirely when the policy
-	// has no QualityBias map or none of the agent's capabilities resolve.
-	autoDeriveBias := rule != nil && len(rule.Prefer) == 0 &&
-		policy != nil && len(policy.Spec.QualityBias) > 0
-	var effBias float64
-	var haveBias bool
-	if autoDeriveBias {
-		effBias, haveBias = effectiveQualityBias(agent.Spec.Capabilities, policy.Spec.QualityBias)
-	}
-
+// returns the scored candidate set (unsorted) for pickModel to rank. effBias
+// and haveBias come from phaseQualityBias.
+func (r *AgentReconciler) feasibleCandidates(ctx context.Context, agent *kubemootv1alpha1.Agent, phase string, rule *kubemootv1alpha1.SchedulingRule, models *kubemootv1alpha1.ModelList, effBias float64, haveBias bool) ([]scheduleCandidate, error) {
 	var feasible []scheduleCandidate
 	for i := range models.Items {
 		m := &models.Items[i]
@@ -896,6 +890,7 @@ const skillsMountPath = "/app/config/skills"
 func (r *AgentReconciler) buildEnvVars(ctx context.Context, agent *kubemootv1alpha1.Agent, mulling, triage *modelPick, port int32) []corev1.EnvVar {
 	crew := agent.Labels[labelCrew]
 	env := baseAgentEnvVars(agent, crew, mulling, triage, port)
+	env = append(env, candidateEnvVars(mulling, triage)...)
 	env = append(env, agentModelEnvVars(agent)...)
 	env = append(env, agentDiscussRelevanceEnvVars(agent)...)
 	env = append(env, r.agentDiscussRoleEnvVars(ctx, agent, crew)...)
