@@ -141,6 +141,14 @@ jobs:
           echo "${HARBOR_PASSWORD}" | helm registry login --plain-http "${REGISTRY}" -u "${HARBOR_USERNAME}" --password-stdin
           bash .github/scripts/bump-operator-chart.sh
 
+      - name: Read framework versions
+        id: framework
+        if: steps.check.outputs.release_created == 'true'
+        run: |
+          QUARKUS=$(sed -nE 's/^quarkusPlatformVersion=(.+)$/\1/p' agent-runtime/gradle.properties)
+          test -n "${QUARKUS}"
+          echo "quarkus=${QUARKUS}" >> "$GITHUB_OUTPUT"
+
       - name: Create GitHub Release
         if: steps.check.outputs.release_created == 'true'
         uses: softprops/action-gh-release@v2
@@ -151,8 +159,8 @@ jobs:
             Kubemoot Agent Runtime v${{ steps.version.outputs.version }}
 
             GraalVM native image built on:
-            - Quarkus 3.36.2 (native mode via Mandrel)
-            - LangChain4j 1.7.0 (via Quarkus LangChain4j extension)
+            - Quarkus ${{ steps.framework.outputs.quarkus }} (GraalVM native image)
+            - LangChain4j through the quarkus-langchain4j BOM of the same Quarkus platform release
 
             Container image: `${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.version.outputs.version }}`
 

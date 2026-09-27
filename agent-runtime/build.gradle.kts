@@ -1,7 +1,7 @@
 plugins {
     java
     jacoco
-    id("io.quarkus") version "3.36.2"
+    id("io.quarkus")
 }
 
 group = "ai.kubemoot"
@@ -20,11 +20,14 @@ repositories {
 
 val quarkusPlatformGroupId = "io.quarkus.platform"
 val quarkusPlatformArtifactId = "quarkus-bom"
-val quarkusPlatformVersion = "3.36.2"
+val quarkusPlatformVersion: String by project
 
 dependencies {
     // Quarkus BOM
     implementation(enforcedPlatform("${quarkusPlatformGroupId}:${quarkusPlatformArtifactId}:${quarkusPlatformVersion}"))
+    // quarkus-langchain4j BOM from the same Quarkus platform release, so the
+    // extension and the langchain4j core it resolves match the Quarkus version
+    implementation(enforcedPlatform("${quarkusPlatformGroupId}:quarkus-langchain4j-bom:${quarkusPlatformVersion}"))
 
     // Quarkus core
     implementation("io.quarkus:quarkus-arc")
@@ -36,7 +39,7 @@ dependencies {
     implementation("com.fasterxml.jackson.datatype:jackson-datatype-jsr310")
 
     // LangChain4j via Quarkus extension
-    implementation("io.quarkiverse.langchain4j:quarkus-langchain4j-ollama:1.7.0")
+    implementation("io.quarkiverse.langchain4j:quarkus-langchain4j-ollama")
     // JDK HTTP client for LangChain4j models built MANUALLY (ChatModelPool's
     // per-endpoint JIT models). quarkus-langchain4j-ollama EXCLUDES
     // langchain4j-http-client-jdk and wires its own JAX-RS client for the
@@ -46,7 +49,7 @@ dependencies {
     // explicit JdkHttpClientBuilder (java.net.http — native-safe, the same
     // client the triage path already uses). Keeps LangChain4j as the
     // provider abstraction so other backends (vLLM, …) stay possible.
-    implementation("dev.langchain4j:langchain4j-http-client-jdk:1.7.1")
+    implementation("dev.langchain4j:langchain4j-http-client-jdk")
 
     // MCP protocol client (framework-agnostic, used for direct MCP server connections)
     implementation("io.modelcontextprotocol.sdk:mcp:0.10.0")
@@ -73,7 +76,7 @@ dependencies {
     // Testing
     testImplementation("io.quarkus:quarkus-junit5")
     testImplementation("io.rest-assured:rest-assured")
-    testImplementation("org.mockito:mockito-core:5.14.2")
+    testImplementation("org.mockito:mockito-core")
 }
 
 tasks.withType<Test> {
