@@ -86,7 +86,7 @@ func (r *AgentReconciler) syncCrewResumes(ctx context.Context, coordinator *kube
 	newHash := CombinedResumeHash(resumes, skills)
 
 	ragSourceName := resumeRAGSourceName(crewName)
-	if r.resumesUnchanged(ctx, coordinator.Namespace, ragSourceName, newHash) {
+	if r.resumesUnchanged(ctx, coordinator.Namespace, ragSourceName, newHash, scope) {
 		log.V(1).Info("Crew resumes unchanged, skipping re-embed", "crew", crewName)
 		return
 	}
@@ -101,6 +101,9 @@ func (r *AgentReconciler) syncCrewResumes(ctx context.Context, coordinator *kube
 	}
 	desiredSpec := buildResumeRAGSourceSpec(scope, newHash, vectorStore, embeddingModelRef)
 	if r.createOrUpdateResumeRAGSource(ctx, coordinator, ragSourceName, crewName, desiredSpec) {
+		// The unscoped key goes only once the RAGSource reads the scoped one, so an
+		// indexer is never left pointing at a key that no longer exists.
+		_ = r.NATSPublisher.DeleteKVKey(resumeKVBucket, crewscope.LegacyResumeKey(scope.Crew))
 		log.Info("Resume RAGSource synced", "crew", crewName, "agents", len(resumes), "hash", newHash[:12])
 	}
 }
@@ -121,13 +124,23 @@ func resumeRAGSourceName(crewName string) string {
 	return fmt.Sprintf("crew-%s-resumes", crewName)
 }
 
-// resumesUnchanged reports whether the resume RAGSource already carries hash.
-func (r *AgentReconciler) resumesUnchanged(ctx context.Context, namespace, ragSourceName, hash string) bool {
+// resumesUnchanged reports whether the resume RAGSource already carries hash and
+// reads the crew's scoped key into its scoped collection. A RAGSource with the
+// same content under an old key or collection still needs its spec rewritten.
+func (r *AgentReconciler) resumesUnchanged(ctx context.Context, namespace, ragSourceName, hash string, scope crewscope.Scope) bool {
 	existing := &kubemootv1alpha1.RAGSource{}
 	if err := r.Get(ctx, types.NamespacedName{Name: ragSourceName, Namespace: namespace}, existing); err != nil {
 		return false
 	}
-	return existing.Spec.Source.NatsKV != nil && existing.Spec.Source.NatsKV.ContentHash == hash
+	return resumeSpecCurrent(existing.Spec, hash, scope)
+}
+
+// resumeSpecCurrent reports whether a resume RAGSource spec already matches the
+// content hash, the scoped KV key, and the scoped collection.
+func resumeSpecCurrent(spec kubemootv1alpha1.RAGSourceSpec, hash string, scope crewscope.Scope) bool {
+	kv := spec.Source.NatsKV
+	return kv != nil && kv.ContentHash == hash && kv.Key == scope.ResumeKey() &&
+		spec.VectorStore.Collection == scope.ResumeCollection()
 }
 
 // resumeVectorStore finds the vectorStore and embedding model the resume
@@ -244,7 +257,6 @@ func (r *AgentReconciler) writeResumesToNATS(ctx context.Context, scope crewscop
 		log.Error(err, "Failed to write resumes to NATS KV", "namespace", scope.Namespace, "crew", scope.Crew)
 		return false
 	}
-	_ = r.NATSPublisher.DeleteKVKey(resumeKVBucket, crewscope.LegacyResumeKey(scope.Crew))
 	log.Info("Wrote crew resumes to NATS KV", "namespace", scope.Namespace, "crew", scope.Crew,
 		"agents", len(resumes), "skills", len(skills))
 	return true
