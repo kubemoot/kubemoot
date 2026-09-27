@@ -1,5 +1,6 @@
 package ai.kubemoot.indexer.service;
 
+import ai.kubemoot.indexer.source.Downloads;
 import ai.kubemoot.indexer.config.IndexerConfig;
 import org.eclipse.jgit.api.Git;
 import org.eclipse.jgit.api.LsRemoteCommand;
@@ -39,7 +40,7 @@ public class ChecksumService {
 
     public ChecksumService(IndexerConfig config, WebClient.Builder webClientBuilder) {
         this.config = config;
-        this.webClient = webClientBuilder.build();
+        this.webClient = Downloads.client(webClientBuilder);
     }
 
     /**

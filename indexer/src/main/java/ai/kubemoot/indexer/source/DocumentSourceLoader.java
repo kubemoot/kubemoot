@@ -30,7 +30,7 @@ public class DocumentSourceLoader implements SourceLoader {
 
     public DocumentSourceLoader(IndexerConfig config, WebClient.Builder webClientBuilder) {
         this.config = config;
-        this.webClient = webClientBuilder.build();
+        this.webClient = Downloads.client(webClientBuilder);
     }
 
     @Override

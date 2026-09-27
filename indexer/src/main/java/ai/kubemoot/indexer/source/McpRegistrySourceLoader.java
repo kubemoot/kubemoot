@@ -44,7 +44,7 @@ public class McpRegistrySourceLoader implements SourceLoader {
 
     public McpRegistrySourceLoader(IndexerConfig config, WebClient.Builder webClientBuilder) {
         this.config = config;
-        this.webClient = webClientBuilder.build();
+        this.webClient = Downloads.client(webClientBuilder);
         this.objectMapper = new ObjectMapper();
     }
 
