@@ -82,11 +82,15 @@ The operator publishes each phase's candidate models as a JSON list, preferred m
 
 The list holds every Ready `Model` the phase rule's `require` selector admits, one entry per model identifier. `score` is the model's **quality score**: the sum of the rule's matching `prefer` weights, or the `qualityBias` / `latencyClass` contribution when the rule has no `prefer` block. Locality, provider weight, and load penalties are left out, so the score compares models rather than placements. After the preferred model, entries follow by score, then name. Provider readiness and VRAM are not filtered here; the per-call pick reads them live, and the list (and so the Deployment) stays stable while providers come and go.
 
-At each mulling call the runtime tries, in order:
+`CallPlanner.place` makes each placement. It tries, in order:
 
 1. `pickAndClaimWarm` for the preferred model.
 2. `pickAndClaimWarm` for each other candidate whose score is at least `preferredScore − tolerance`, highest score first. A warm candidate with a free slot costs no load and no eviction, so it wins over cold-loading the preferred model.
-3. `pickAndClaim` for the preferred model: the full weighted cost (queue at a warm copy, cold load onto free room).
+3. `pickAndClaimLoading` for each in-tolerance candidate: a provider where another call's ticket is loading that model right now. The call converges on that copy instead of loading a second model.
+4. `pickAndClaim` for the preferred model: the full weighted cost (queue at a warm copy, cold load onto free room).
+5. When all of these are empty, the queue-or-unload decision below.
+
+A warm copy another call plans to unload (see below) does not count as warm.
 
 The tolerance is `KUBEMOOT_MODEL_CANDIDATE_TOLERANCE`, default 10 points. Under `qualityBias`, one `latencyClass` tier is `|bias − 0.5| × 100` points from its neighbour at the extremes (the `medium` tent peaks at bias 0.5), so a balanced crew may use a warm neighbouring tier while a crew with a strong bias keeps its tier. Explicit `prefer` weights usually sit further apart than the tolerance. A crew keeps an agent on one model size by narrowing `require`, widening the `prefer` gap, or setting the tolerance to 0. The runtime reads the mulling list; the triage list is published alongside it, and the triage path places only its bound model.
 
@@ -94,12 +98,48 @@ The ChatModel for the call is built for the model actually picked, and the signa
 
 #### Waiting for GPU capacity
 
-When all three steps come back empty, the runtime classifies the refusal:
+#### Queue or unload
+
+When steps 1 to 4 find no room, `PlacementCostModel.decide` compares two options, in seconds of expected delay:
+
+- **Queue** (`ProviderSelector.queueOption`): for each ready provider with the preferred model or an in-tolerance candidate resident or loading, the runtime estimates when a new call could start there: the soonest in-flight call's remaining time (from the start times of the provider's in-flight tickets and its recent call latency, the selector's per-endpoint EMA, 30 seconds when none was observed) plus one call latency per call already queued beyond the provider's parallel slots, spread across the slots. The cheapest copy is the queue option.
+- **Unload** (`ProviderSelector.planEviction`): on each ready provider whose usable VRAM can hold the model, `EvictionPlanner` chooses idle residents to release (below). The cost is the requested model's load time plus, per victim, the time to unload it and the time to load it again multiplied by its expected near-future requests (`waiters + intents + 0.5 × (recent use + prediction)`). On Ollama a model loads at about 1 GiB per second, an unloaded model reloads from disk at the same speed, and an unload takes about a second. The cheapest provider's plan is the unload option.
+
+Queue wins when its wait is no longer than the unload cost; unload wins when it is cheaper or the only option; with neither, the call waits for memory. Queue and wait-for-memory both return empty, so the call waits for capacity and retries on the next change. Example: a `qwen3:32b` (27 GiB) warm on the 5090 with a recent-use rate of 1 costs about 26 seconds to unload for a `qwen3:14b`, while the 4090's `qwen3:14b` copy with one call 5 seconds into a typical 20-second call frees in 15 seconds, so the call queues. Five calls queued there (95 seconds) against an idle, unwanted `qwen3:8b` (13 seconds) unloads the `qwen3:8b`.
+
+#### Choosing victims
+
+`EvictionPlanner.chooseVictims` only considers idle residents: models with no in-flight ticket on the provider and not already planned for release by another ticket. It returns the fewest victims that make room; among equally few, the least needed by `ModelDemand.LEAST_NEEDED_FIRST`: fewer waiting agents, then fewer intents, then lower recent use plus prediction, then least recently used. It first searches without models that have waiting agents and includes them only when no other choice makes room.
+
+#### Claim first, then release
+
+`TicketManager.claimWithEvictions` claims the ticket before anything is released. The ticket carries the planned victims (`"evicts": {model: footprintMiB}`), and the budget is `active ticket footprints + this load ≤ headroom + credit`, where the credit counts each distinct victim planned by any active ticket on the provider once, and only while the provider still reports it resident. Two planners that pick the same victim therefore cannot both spend its memory: the second one's check sees both loads against one victim's credit and releases its ticket. The claim is also released when a victim picked up an in-flight ticket in the meantime. After a successful claim the planner unloads each victim (`POST /api/generate {"model": victim, "keep_alive": 0}`), drops the victim's residency entry, and makes the call. The victims are logged and recorded on the call's signal as `metadata.evicted`. Other waiters wake on the ticket and provider-state changes as usual.
+
+#### The demand view
+
+`DemandBoard` keeps the shared demand in the NATS KV bucket `kubemoot_model_demand` (created by the operator's streams job, TTL 6h). Model and agent names are encoded into KV-safe tokens; model keys carry no namespace because models are shared across crews, and agent ids are `<namespace>/<agent>`.
+
+| Key | Written | Cleared |
+|---|---|---|
+| `wait.<model>.<agent>` | when a capacity wait starts | when it ends; entry expires after 10 minutes |
+| `intent.<model>.<agent>` | when the agent is selected for a thread, one per candidate model | on the agent's first call or when the thread ends; entry expires after 3 minutes |
+| `use.<model>` | on every scheduled call start: a decaying count (half-life 10 minutes) and the last-use time, last writer wins | bucket TTL |
+| `sel.<crew>.<agent>` | when the crew selects the agent: a decaying selection frequency and the agent's candidate models | bucket TTL |
+
+Every value carries `expiresAt`, and readers ignore expired entries. One key per model and agent keeps writes free of compare-and-set. The `sel` entries are the forecast: a model's predicted demand is the sum of the selection frequencies of agents that name it. The forecast only orders victims and weights their cost; it never causes a load.
+
+#### Planning at selection
+
+When the coordinator selects an agent for a live thread, the agent's discussion subscriber calls `ChatService.commitToThread`, which publishes the agent's intents, records the selection, and runs `CallPlanner.place` for the first mulling call right away (with an assumed prompt size). A plan that claims a ticket is held for that thread; if the model is not resident on the planned provider, the runtime starts loading it (`POST /api/generate {"model": m}`), so the load overlaps triage and prompt building. The first mulling call takes the held plan when its provider is still ready, and otherwise releases it and places afresh. A held plan is released when the agent's evaluation ends without using it (it stood aside or failed), when the thread closes, or after three minutes as a safety net. Plans made for agents selected together, in one thread or across crews, see each other's tickets and intents, so agents with overlapping candidates converge on one warm or loading copy. Nothing is loaded without a selected agent behind it.
+
+#### Waiting for GPU capacity
+
+When placement comes back empty, the runtime classifies the refusal:
 
 - **Too large:** no known provider has `usable(P) ≥ occupancy(M)` for the preferred model. The agent stands aside at once with `metadata.reason = "model-too-large"` and `metadata.model`. Providers that have not published their VRAM total never prove a model too large.
 - **Busy:** some provider could hold the model. The agent waits.
 
-The wait is state-driven. `NatsCapacityWatch` holds KV watches on `kubemoot_provider_state` and `kubemoot_provider_tickets` (updates only, metadata only). Every probe publish, ticket claim, and ticket release advances a change counter; the waiter records the counter, retries the three-step pick against fresh state, and blocks until the counter moves. It publishes `waiting` (metadata `model`, `reason: "gpu-busy"`) once, before its first block, and `evaluating` again when a retry claims a GPU. The agent's discussion heartbeat keeps running, so the coordinator keeps its deadline alive.
+The wait is state-driven. `NatsCapacityWatch` holds KV watches on `kubemoot_provider_state` and `kubemoot_provider_tickets` (updates only, metadata only). Every probe publish, ticket claim, and ticket release advances a change counter; the waiter records the counter, retries the placement against fresh state, and blocks until the counter moves. While it waits, its `wait.<model>.<agent>` entry tells other agents' planners not to unload that model. It publishes `waiting` (metadata `model`, `reason: "gpu-busy"`) once, before its first block, and `evaluating` again when a retry claims a GPU. The agent's discussion heartbeat keeps running, so the coordinator keeps its deadline alive.
 
 Two exits give up with `stand_aside` and `metadata.reason = "gpu-busy"`:
 
@@ -110,7 +150,7 @@ The limit is a safety net for a lost wake-up, not the normal exit. If the KV wat
 
 With no provider state in NATS, the direct prober checks each endpoint; when none fits, the runtime cannot tell busy from too large, so it waits, and the provider-state watch wakes it when state returns.
 
-A cold load needs room beside the models already resident, and a model stays resident for the provider's keep-alive after its last call. A wait for memory on a card full of idle models therefore ends when the provider unloads one; a keep-alive longer than the wait limit makes `gpu-busy` the likely outcome of such a wait.
+A cold load onto free memory needs room beside the models already resident. When idle residents stand in the way, the queue-or-unload decision releases them on demand, so a wait no longer depends on the provider's keep-alive.
 
 #### The crew's answer when agents could not get a GPU
 
@@ -138,7 +178,7 @@ When these protections trip, the agent publishes a **first-class `failure` conse
 
 ### Per-call attribution
 
-Each `agree` / `concern` signal from a scheduled call carries `metadata.provider = <provider-name>` (the ModelProvider the call actually ran against) and `metadata.model` (the model it ran, which differs from the preferred model when a warm candidate was used). The dashboard's Agent Summary GPU column shows this real per-call attribution instead of the reconcile-time static label. Confirms emergent bin-packing visually: two co-triaged agents in the same discussion show as `ollama-a` and `ollama-b` when both have capacity, not both pointing at whatever the operator labeled them.
+Each `agree` / `concern` signal from a scheduled call carries `metadata.provider = <provider-name>` (the ModelProvider the call actually ran against) and `metadata.model` (the model it ran, which differs from the preferred model when a warm candidate was used). When the call unloaded models to make room, `metadata.evicted` lists them. The dashboard's Agent Summary GPU column shows this real per-call attribution instead of the reconcile-time static label. Confirms emergent bin-packing visually: two co-triaged agents in the same discussion show as `ollama-a` and `ollama-b` when both have capacity, not both pointing at whatever the operator labeled them.
 
 ### Ticket claim and crash-safe release
 

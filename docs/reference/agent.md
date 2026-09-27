@@ -312,7 +312,7 @@ The agent runtime does not use a single, static endpoint frozen into env vars at
 
 The call's model is chosen per call too. The operator publishes the phase's ranked candidate models (`KUBEMOOT_MODEL_CANDIDATES_MULLING`); the runtime uses the preferred model when it is loaded with a free slot, otherwise a loaded candidate within the quality tolerance, otherwise the preferred model under the normal cost ranking. The model the call ran is recorded as `metadata.model`.
 
-When no GPU has room, the agent publishes `waiting` once and retries on every provider-state or ticket change until a GPU frees up. It stands aside with `metadata.reason = "gpu-busy"` if the discussion ends or the wait's safety limit passes first, and with `"model-too-large"` at once when no GPU can ever hold the model. See [Models & Scheduling](../concepts/models-and-scheduling.md#when-every-gpu-is-busy).
+When no GPU has room, the agent publishes `waiting` once and retries on every provider-state or ticket change until a GPU frees up. It stands aside with `metadata.reason = "gpu-busy"` if the discussion ends or the wait's safety limit passes first, and with `"model-too-large"` at once when no GPU can ever hold the model. When no GPU has room, the scheduler compares waiting for a loaded copy with unloading idle models that no crew is using or about to use; a call that unloaded models records them as `metadata.evicted`. An agent's first call is planned when the coordinator selects it, so a needed load overlaps triage. See [Models & Scheduling](../concepts/models-and-scheduling.md#when-every-gpu-is-busy).
 
 ### Rate Limiting
 
