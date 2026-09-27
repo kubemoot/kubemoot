@@ -30,6 +30,8 @@ type SSEEvent struct {
 	Content    string `json:"content,omitempty"`
 	ThreadID   string `json:"threadId,omitempty"`
 	StoodAside bool   `json:"stood_aside,omitempty"`
+	Model      string `json:"model,omitempty"`
+	Reason     string `json:"reason,omitempty"`
 	Error      string `json:"error,omitempty"`
 }
 
@@ -255,55 +257,69 @@ func processMessages(ctx context.Context, msgCh <-chan jetstream.Msg, conversati
 
 // translateAndEmit converts a NATS discussion message to an SSE event.
 func translateAndEmit(data natsMessage, emit func(SSEEvent)) {
-	// Skip noise messages
 	switch data.MessageType {
 	case "thread_start", "advisory_ready", "review_ready", "advisory", "heartbeat":
 		return
-	}
-
-	gpuLabel := ""
-	if data.Metadata != nil {
-		if v, ok := data.Metadata["gpuLabel"]; ok {
-			gpuLabel = fmt.Sprintf("%v", v)
-		}
-	}
-
-	switch data.MessageType {
-	case "waking":
-		emit(SSEEvent{Type: "phase", Agent: data.AgentName, Status: "waking"})
-	case "ready":
-		emit(SSEEvent{Type: "phase", Agent: data.AgentName, Status: "ready"})
-	case "triaging":
-		emit(SSEEvent{Type: "phase", Agent: data.AgentName, Status: "triaging", GPU: gpuLabel})
-	case "evaluating":
-		emit(SSEEvent{Type: "phase", Agent: data.AgentName, Status: "evaluating", GPU: gpuLabel})
-	case "stand_aside":
-		// Carry the explicit signal alongside the done/stood-aside phase so the
-		// fitness transcript can count stand-aside depth uniformly with the other
-		// signals, while the dashboard still sees it as a completed phase.
-		emit(SSEEvent{Type: "phase", Agent: data.AgentName, Status: "done", StoodAside: true, Signal: "stand_aside"})
-	case "agree":
-		// Summary is the compact first-line for live display; Content carries the
-		// FULL specialist contribution so it is captured into the fitness transcript
-		// as verifiable evidence. Without Content the deferred judge sees only the
-		// truncated summary (e.g. "CronJobs:") and flags real, tool-derived claims as
-		// unsupported. See [[Fitness Judge Calibration]].
-		emit(SSEEvent{Type: "finding", Agent: data.AgentName, Signal: "agree", Summary: extractSummary(data.Content), Content: data.Content})
-	case "concern":
-		emit(SSEEvent{Type: "finding", Agent: data.AgentName, Signal: "concern", Summary: data.Content})
-	case "block":
-		// A block is a first-class consensus verdict; persist it as a finding so
-		// fitness can measure block rate. See [[Persist Consensus Signals in Transcripts]].
-		emit(SSEEvent{Type: "finding", Agent: data.AgentName, Signal: "block", Summary: extractSummary(data.Content), Content: data.Content})
-	case "failure":
-		// A declared agent failure is well-formed signal (embrace-failure), not
-		// noise to drop: persist it so fitness can measure failure rate.
-		emit(SSEEvent{Type: "finding", Agent: data.AgentName, Signal: "failure", Summary: extractSummary(data.Content), Content: data.Content})
 	case "synthesis":
 		emit(SSEEvent{Type: "synthesis", Content: data.Content})
 	case "thread_close":
 		emit(SSEEvent{Type: "done"})
+	default:
+		if e, ok := phaseEvent(data); ok {
+			emit(e)
+		} else if e, ok := findingEvent(data); ok {
+			emit(e)
+		}
 	}
+}
+
+// phaseEvent maps an agent's progress signals to a phase event: waking, ready,
+// triaging and evaluating (with the GPU it landed on), waiting for GPU capacity
+// (with the model it waits for), and stood aside (with the reason, when the agent
+// gave one, such as gpu-busy).
+func phaseEvent(data natsMessage) (SSEEvent, bool) {
+	e := SSEEvent{Type: "phase", Agent: data.AgentName}
+	switch data.MessageType {
+	case "waking", "ready":
+		e.Status = data.MessageType
+	case "triaging", "evaluating":
+		e.Status, e.GPU = data.MessageType, metaString(data, "gpuLabel")
+	case "waiting":
+		e.Status, e.Model, e.Reason = "waiting", metaString(data, "model"), metaString(data, "reason")
+	case "stand_aside":
+		// Carry the explicit signal alongside the done/stood-aside phase so the
+		// fitness transcript can count stand-aside depth uniformly with the other
+		// signals, while the dashboard still sees it as a completed phase.
+		e.Status, e.StoodAside, e.Signal, e.Reason = "done", true, "stand_aside", metaString(data, "reason")
+	default:
+		return SSEEvent{}, false
+	}
+	return e, true
+}
+
+// findingEvent maps consensus verdicts to finding events. Summary is the compact
+// first line for live display; Content carries the full contribution so the
+// fitness transcript keeps it as verifiable evidence. A block and a declared
+// failure are first-class verdicts, persisted so fitness can measure their rates.
+func findingEvent(data natsMessage) (SSEEvent, bool) {
+	e := SSEEvent{Type: "finding", Agent: data.AgentName, Signal: data.MessageType}
+	switch data.MessageType {
+	case "agree", "block", "failure":
+		e.Summary, e.Content = extractSummary(data.Content), data.Content
+	case "concern":
+		e.Summary = data.Content
+	default:
+		return SSEEvent{}, false
+	}
+	return e, true
+}
+
+// metaString is a metadata value as text, or empty when absent.
+func metaString(data natsMessage, key string) string {
+	if v, ok := data.Metadata[key]; ok && v != nil {
+		return fmt.Sprintf("%v", v)
+	}
+	return ""
 }
 
 // extractSummary returns the first paragraph or first 200 chars.

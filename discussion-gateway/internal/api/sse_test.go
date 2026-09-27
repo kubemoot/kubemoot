@@ -124,3 +124,48 @@ func TestThreadFinderWithoutARequestTimeTakesTheFirstMatch(t *testing.T) {
 		t.Fatal("with no request time the first matching thread is taken")
 	}
 }
+
+// Waiting for GPU capacity is a phase of its own, naming the model the agent waits
+// for, and a stand-aside carries the agent's reason, so a client can tell "the GPUs
+// were busy" from "the agent had nothing to add".
+func TestTranslateAndEmit_WaitingAndStandAsideReasons(t *testing.T) {
+	emitOne := func(m natsMessage) SSEEvent {
+		var got []SSEEvent
+		translateAndEmit(m, func(e SSEEvent) { got = append(got, e) })
+		if len(got) != 1 {
+			t.Fatalf("%s: emitted %d events, want 1", m.MessageType, len(got))
+		}
+		return got[0]
+	}
+	w := emitOne(natsMessage{MessageType: "waiting", AgentName: "rules", Metadata: map[string]interface{}{"model": "qwen3:14b", "reason": "gpu-busy"}})
+	if w.Type != "phase" || w.Status != "waiting" || w.Model != "qwen3:14b" || w.Reason != "gpu-busy" || w.Agent != "rules" {
+		t.Errorf("waiting: got %+v", w)
+	}
+	s := emitOne(natsMessage{MessageType: "stand_aside", AgentName: "rules", Metadata: map[string]interface{}{"reason": "gpu-busy"}})
+	if s.Status != "done" || !s.StoodAside || s.Reason != "gpu-busy" {
+		t.Errorf("stand_aside with reason: got %+v", s)
+	}
+	plain := emitOne(natsMessage{MessageType: "stand_aside", AgentName: "rules"})
+	if plain.Reason != "" {
+		t.Errorf("stand_aside without reason: got %q", plain.Reason)
+	}
+	e := emitOne(natsMessage{MessageType: "evaluating", AgentName: "rules", Metadata: map[string]interface{}{"gpuLabel": "ollama-rig1"}})
+	if e.GPU != "ollama-rig1" || e.Status != "evaluating" {
+		t.Errorf("evaluating: got %+v", e)
+	}
+	r := emitOne(natsMessage{MessageType: "ready", AgentName: "rules"})
+	if r.Status != "ready" || r.GPU != "" {
+		t.Errorf("ready: got %+v", r)
+	}
+}
+
+func TestTranslateAndEmit_IgnoresNoiseAndUnknown(t *testing.T) {
+	for _, mt := range []string{"heartbeat", "advisory_ready", "something-new"} {
+		translateAndEmit(natsMessage{MessageType: mt}, func(e SSEEvent) { t.Errorf("%s emitted %+v", mt, e) })
+	}
+	var got []SSEEvent
+	translateAndEmit(natsMessage{MessageType: "concern", Content: "careful"}, func(e SSEEvent) { got = append(got, e) })
+	if len(got) != 1 || got[0].Summary != "careful" || got[0].Content != "" {
+		t.Errorf("concern: got %+v", got)
+	}
+}
