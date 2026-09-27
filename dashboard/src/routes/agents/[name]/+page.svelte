@@ -6,6 +6,7 @@
 	import { DetailPanel } from '$components/layout';
 	import { Section, InfoRow, StatusBadge } from '$components/common';
 	import type { Agent, AgentHeartbeat, MCPServer, MCPTool } from '$types/kubemoot.js';
+	import { agentStateFor } from '$lib/crewScope';
 
 	let agent = $state<Agent | null>(null);
 	let heartbeat = $state<AgentHeartbeat | null>(null);
@@ -34,7 +35,7 @@
 
 			if (hbRes?.ok && name) {
 				const hbData = await hbRes.json();
-				heartbeat = hbData.agents?.[name] ?? null;
+				heartbeat = agentStateFor<AgentHeartbeat>(hbData.agents, agent?.metadata.namespace ?? ns, name) ?? null;
 			}
 
 			// Fetch tools for each referenced MCP server

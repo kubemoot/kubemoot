@@ -3,8 +3,9 @@
 	import { base } from '$app/paths';
 	import { marked } from 'marked';
 	import type { DiscussionMessage } from '$types/kubemoot.js';
-	import { threads, sortedThreads, discussionsConnected, historyLoaded, initDiscussions, addDiscussionMessage, removeThread, pinnedThreadIds, loadPinnedThreads, pinThread, unpinThread, showStandAsides, namespace } from '$lib/stores';
+	import { threads, sortedThreads, discussionsConnected, historyLoaded, initDiscussions, addDiscussionMessage, removeThread, pinnedThreadIds, loadPinnedThreads, pinThread, unpinThread, showStandAsides, namespace, threadScope } from '$lib/stores';
 	import type { Thread } from '$lib/stores';
+	import { discussSubject, tryCrewScope, type CrewScope } from '$lib/crewScope';
 	import { DiscussionSpanGraph } from '$lib/components/discussions';
 	import { SYNTHESIS_COLLAPSE_CHARS, artifactKey, artifactHref } from '$lib/discussion-artifacts';
 
@@ -20,15 +21,19 @@
 	let selectedThreadId = $state<string | null>(null);
 
 	// Crews (namespace+crew pairs) for the global top-bar "Crew:" selector. The
-	// `namespace` store holds the selected crew NAMESPACE ('' = All crews); threads
-	// carry a crew NAME, so we map namespace -> crew name to filter the list.
+	// `namespace` store holds the selected crew NAMESPACE ('' = All crews). Threads
+	// carry the namespace from their subject, so the list filters by namespace and
+	// same-named crews in other namespaces stay out of view.
 	interface CrewNamespace { namespace: string; crew: string; }
 	let crews = $state<CrewNamespace[]>([]);
-	const selectedCrew = $derived(
-		$namespace === '' ? null : (crews.find((c) => c.namespace === $namespace)?.crew ?? null)
+	const selectedScope = $derived<CrewScope | null>(
+		$namespace === ''
+			? null
+			: tryCrewScope($namespace, crews.find((c) => c.namespace === $namespace)?.crew)
 	);
+	const selectedCrew = $derived(selectedScope?.crew ?? null);
 	const visibleThreads = $derived(
-		selectedCrew === null ? $sortedThreads : $sortedThreads.filter((t) => t.crew === selectedCrew)
+		$namespace === '' ? $sortedThreads : $sortedThreads.filter((t) => t.namespace === $namespace)
 	);
 
 	// New discussion form state
@@ -120,6 +125,15 @@
 		return crypto.randomUUID();
 	}
 
+	// The subject for a message on an existing thread: the thread's own namespace
+	// and crew, falling back to the selected crew for a thread whose scope is not
+	// yet known. Throws when neither is available rather than publishing unscoped.
+	function threadSubject(thread: Thread, threadId: string = thread.threadId): string {
+		const scope = threadScope(thread) ?? selectedScope;
+		if (!scope) throw new Error(`discussion ${thread.threadId} has no namespace and crew; select a crew first`);
+		return discussSubject(scope, thread.channel, threadId);
+	}
+
 	async function publishMessage(subject: string, data: object) {
 		const res = await fetch(`${base}/api/nats/publish`, {
 			method: 'POST',
@@ -130,11 +144,11 @@
 	}
 
 	async function startNewDiscussion() {
-		if (!newQuery.trim() || sending) return;
+		if (!newQuery.trim() || sending || !selectedScope) return;
 		sending = true;
 		try {
 			const threadId = generateId();
-			const subject = `kubemoot.discuss.${newChannel}.${threadId}`;
+			const subject = discussSubject(selectedScope, newChannel, threadId);
 			const msg: DiscussionMessage = {
 				messageId: generateId(),
 				threadId,
@@ -146,7 +160,7 @@
 				metadata: { userQuery: newQuery.trim() }
 			};
 			// Optimistic: show message immediately
-			addDiscussionMessage(msg);
+			addDiscussionMessage(msg, subject);
 			selectedThreadId = threadId;
 			await publishMessage(subject, msg);
 			newQuery = '';
@@ -162,7 +176,7 @@
 		if (!replyText.trim() || !selectedThread || sending) return;
 		sending = true;
 		try {
-			const subject = `kubemoot.discuss.${selectedThread.channel}.${selectedThread.threadId}`;
+			const subject = threadSubject(selectedThread);
 			const msg: DiscussionMessage = {
 				messageId: generateId(),
 				threadId: selectedThread.threadId,
@@ -173,7 +187,7 @@
 				timestamp: new Date().toISOString()
 			};
 			// Optimistic: show message immediately
-			addDiscussionMessage(msg);
+			addDiscussionMessage(msg, subject);
 			await publishMessage(subject, msg);
 			replyText = '';
 		} catch (e) {
@@ -231,6 +245,7 @@
 		let text = `# ${thread.userQuery}\n`;
 		text += `**Discussion**: ${thread.threadId}\n`;
 		text += `**Kubemoot Dashboard**: v${version}\n`;
+		if (thread.namespace) text += `**Namespace**: ${thread.namespace}\n`;
 		if (thread.crew) text += `**Crew**: ${thread.crew}\n`;
 		if (thread.crewVersion) text += `**Crew version**: ${thread.crewVersion}\n`;
 		text += `Channel: ${thread.channel} | Status: ${thread.status} | Started: ${thread.startedAt}\n\n`;
@@ -348,7 +363,7 @@
 	async function publishPauseSignal(thread: Thread, paused: boolean) {
 		sending = true;
 		try {
-			const subject = `kubemoot.discuss.${thread.channel}.${thread.threadId}`;
+			const subject = threadSubject(thread);
 			const msg: DiscussionMessage = {
 				messageId: generateId(),
 				threadId: thread.threadId,
@@ -359,7 +374,7 @@
 				timestamp: new Date().toISOString(),
 				metadata: {}
 			};
-			addDiscussionMessage(msg);
+			addDiscussionMessage(msg, subject);
 			await publishMessage(subject, msg);
 		} catch (e) {
 			console.error('Failed to publish pause signal:', e);
@@ -399,7 +414,7 @@
 		}
 		sending = true;
 		try {
-			const subject = `kubemoot.discuss.${selectedThread.channel}.${selectedThread.threadId}`;
+			const subject = threadSubject(selectedThread);
 			const msg: DiscussionMessage = {
 				messageId: generateId(),
 				threadId: selectedThread.threadId,
@@ -410,7 +425,7 @@
 				timestamp: new Date().toISOString(),
 				metadata: { reason: 'manual_stop' }
 			};
-			addDiscussionMessage(msg);
+			addDiscussionMessage(msg, subject);
 			await publishMessage(subject, msg);
 		} catch (e) {
 			console.error('Failed to stop discussion:', e);
@@ -425,7 +440,7 @@
 		try {
 			const original = selectedThread;
 			const threadId = generateId();
-			const subject = `kubemoot.discuss.${original.channel}.${threadId}`;
+			const subject = threadSubject(original, threadId);
 			const msg: DiscussionMessage = {
 				messageId: generateId(),
 				threadId,
@@ -439,7 +454,7 @@
 					replayOf: original.threadId
 				}
 			};
-			addDiscussionMessage(msg);
+			addDiscussionMessage(msg, subject);
 			selectedThreadId = threadId;
 			await publishMessage(subject, msg);
 		} catch (e) {
@@ -640,9 +655,12 @@
 				onkeydown={handleNewKeydown}
 				disabled={sending}
 			/>
-			<button class="send-btn" onclick={startNewDiscussion} disabled={sending || !newQuery.trim()}>
+			<button class="send-btn" onclick={startNewDiscussion} disabled={sending || !newQuery.trim() || !selectedScope}>
 				{sending ? 'Sending...' : 'Send'}
 			</button>
+			{#if !selectedScope}
+				<span class="scope-hint">Pick a crew in the top bar to start a discussion.</span>
+			{/if}
 		</div>
 	{/if}
 
@@ -668,7 +686,7 @@
 					>
 						<div class="thread-header">
 							{#if thread.crew}
-								<span class="crew-badge">{thread.crew}</span>
+								<span class="crew-badge" title={thread.namespace ? `namespace ${thread.namespace}` : undefined}>{$namespace === '' && thread.namespace ? `${thread.namespace}/` : ''}{thread.crew}</span>
 							{/if}
 							<span
 								class="channel-badge"
@@ -957,6 +975,12 @@
 
 	.connection-status.connected .status-dot {
 		background-color: #10b981;
+	}
+
+	.scope-hint {
+		align-self: center;
+		font-size: 0.8rem;
+		color: var(--text-muted, #9ca3af);
 	}
 
 	.new-discussion-form {

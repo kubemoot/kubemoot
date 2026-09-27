@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { get } from 'svelte/store';
-import { handleMessage, sortedThreads } from './discussions';
+import { handleMessage, sortedThreads, threadScope } from './discussions';
 import type { DiscussionMessage } from '$types/kubemoot';
 
 // Covers the refactored handleMessage dispatch (applyThreadStart / dedup /
@@ -63,5 +63,47 @@ describe('discussions handleMessage', () => {
 		const t = thread('tu1');
 		expect(t).toBeTruthy();
 		expect(t?.crew).toBe('homelab-pilot-prose');
+	});
+
+	it('scopes a thread by the namespace and crew in its subject', () => {
+		handleMessage(
+			msg({ threadId: 'ns1', messageType: 'thread_start' }),
+			'kubemoot.discuss.team-alpha.homelab-pilot.general.ns1'
+		);
+		expect(thread('ns1')?.namespace).toBe('team-alpha');
+		expect(thread('ns1')?.crew).toBe('homelab-pilot');
+		expect(threadScope(thread('ns1')!)).toEqual({ namespace: 'team-alpha', crew: 'homelab-pilot' });
+	});
+
+	it('keeps same-named crews in two namespaces apart', () => {
+		handleMessage(
+			msg({ threadId: 'nsA', messageType: 'agree' }),
+			'kubemoot.discuss.team-alpha.homelab-pilot.general.nsA'
+		);
+		handleMessage(
+			msg({ threadId: 'nsB', messageType: 'agree' }),
+			'kubemoot.discuss.team-beta.homelab-pilot.general.nsB'
+		);
+		expect(thread('nsA')?.namespace).toBe('team-alpha');
+		expect(thread('nsB')?.namespace).toBe('team-beta');
+	});
+
+	it('fills the scope from a later message when the first had no subject', () => {
+		handleMessage(msg({ threadId: 'nsF', messageType: 'thread_start' }));
+		expect(threadScope(thread('nsF')!)).toBeNull();
+		handleMessage(
+			msg({ threadId: 'nsF', messageType: 'agree' }),
+			'kubemoot.discuss.team-beta.homelab-pilot.general.nsF'
+		);
+		expect(threadScope(thread('nsF')!)).toEqual({ namespace: 'team-beta', crew: 'homelab-pilot' });
+	});
+
+	it('ignores a pre-namespace subject for scoping', () => {
+		handleMessage(
+			msg({ threadId: 'nsOld', messageType: 'thread_start' }),
+			'kubemoot.discuss.homelab-pilot.general.nsOld'
+		);
+		expect(thread('nsOld')).toBeTruthy();
+		expect(thread('nsOld')?.namespace).toBeUndefined();
 	});
 });

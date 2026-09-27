@@ -2,6 +2,14 @@ import { writable, derived } from 'svelte/store';
 import { browser } from '$app/environment';
 import { base } from '$app/paths';
 import type { DiscussionMessage } from '$types/kubemoot.js';
+import {
+	DISCUSS_ALL,
+	discussThreadFilter,
+	parseDiscussSubject,
+	tryCrewScope,
+	type CrewScope,
+	type DiscussSubject
+} from '$lib/crewScope.js';
 
 export interface Thread {
 	threadId: string;
@@ -17,6 +25,10 @@ export interface Thread {
 	standAsideCount: number;
 	advisoryCount: number;
 	proposalCount: number;
+	// Namespace and crew come from the message subject
+	// (kubemoot.discuss.<ns>.<crew>.<channel>.<thread>); crew falls back to the
+	// message metadata when the subject is unknown.
+	namespace?: string;
 	crew?: string;
 	crewVersion?: string;
 	// Legacy aliases
@@ -88,12 +100,34 @@ function emptyThreadCounts() {
 	};
 }
 
-function applyThreadStart(threads: Map<string, Thread>, existing: Thread | undefined, msg: DiscussionMessage) {
+/** The namespace+crew a thread belongs to, or null when either is unknown. */
+export function threadScope(thread: Pick<Thread, 'namespace' | 'crew'>): CrewScope | null {
+	return tryCrewScope(thread.namespace, thread.crew);
+}
+
+function scopeFields(msg: DiscussionMessage, subject: DiscussSubject | null) {
+	return { namespace: subject?.namespace, crew: msg.metadata?.crew ?? subject?.crew };
+}
+
+// Fills a thread's namespace and crew from a later message when the thread was
+// created from one that did not carry them.
+function fillScope(thread: Thread, subject: DiscussSubject | null) {
+	if (!subject) return;
+	thread.namespace ??= subject.namespace;
+	thread.crew ??= subject.crew;
+}
+
+function applyThreadStart(
+	threads: Map<string, Thread>,
+	existing: Thread | undefined,
+	msg: DiscussionMessage,
+	subject: DiscussSubject | null
+) {
 	if (!existing) {
 		threads.set(msg.threadId, {
 			threadId: msg.threadId,
 			channel: msg.channel,
-			crew: msg.metadata?.crew,
+			...scopeFields(msg, subject),
 			crewVersion: msg.metadata?.crewVersion,
 			userQuery: msg.metadata?.userQuery || msg.content,
 			startedBy: msg.agentName,
@@ -116,17 +150,22 @@ function applyThreadStart(threads: Map<string, Thread>, existing: Thread | undef
 	if (!existing.messages.some((m) => m.messageType === 'thread_start')) {
 		existing.messages.unshift(msg);
 	}
+	fillScope(existing, subject);
 	threads.set(msg.threadId, { ...existing });
 }
 
-function applyUnknownThreadMessage(threads: Map<string, Thread>, msg: DiscussionMessage) {
+function applyUnknownThreadMessage(
+	threads: Map<string, Thread>,
+	msg: DiscussionMessage,
+	subject: DiscussSubject | null
+) {
 	const thread: Thread = {
 		threadId: msg.threadId,
 		channel: msg.channel && msg.channel !== 'broadcast' ? msg.channel : 'general',
 		userQuery: msg.content || '',
 		startedBy: msg.agentName,
 		startedAt: msg.timestamp,
-		crew: msg.metadata?.crew,
+		...scopeFields(msg, subject),
 		crewVersion: msg.metadata?.crewVersion,
 		messages: [msg],
 		status: 'open',
@@ -136,8 +175,14 @@ function applyUnknownThreadMessage(threads: Map<string, Thread>, msg: Discussion
 	threads.set(msg.threadId, thread);
 }
 
-export function handleMessage(msg: DiscussionMessage) {
+/**
+ * Folds one discussion message into the thread map. `subject` is the NATS subject
+ * the message arrived on (or was published to); its namespace and crew scope the
+ * thread.
+ */
+export function handleMessage(msg: DiscussionMessage, subject?: string) {
 	if (deletedThreadIds.has(msg.threadId)) return;
+	const parsed = parseDiscussSubject(subject);
 
 	threadsMap.update((threads) => {
 		const existing = threads.get(msg.threadId);
@@ -150,14 +195,15 @@ export function handleMessage(msg: DiscussionMessage) {
 		}
 
 		if (msg.messageType === 'thread_start') {
-			applyThreadStart(threads, existing, msg);
+			applyThreadStart(threads, existing, msg, parsed);
 		} else if (existing) {
 			const updated = { ...existing, messages: [...existing.messages, msg] };
+			fillScope(updated, parsed);
 			updateThreadCounts(updated, msg);
 			threads.set(msg.threadId, updated);
 		} else {
 			// Message arrived for unknown thread (rare with ordered delivery)
-			applyUnknownThreadMessage(threads, msg);
+			applyUnknownThreadMessage(threads, msg, parsed);
 		}
 
 		return new Map(threads);
@@ -176,7 +222,7 @@ function startStream() {
 	// history load (loadRecent sets lastSeq). On a from_seq at/near the tip this
 	// replays ~nothing and goes live — it does NOT re-replay the whole stream, which
 	// is what froze the page once suite runs filled it with thousands of threads.
-	const streamUrl = `${base}/api/nats/stream?stream=KUBEMOOT_DISCUSS&subject=kubemoot.discuss.>&from_seq=${lastSeq}`;
+	const streamUrl = `${base}/api/nats/stream?stream=KUBEMOOT_DISCUSS&subject=${encodeURIComponent(DISCUSS_ALL)}&from_seq=${lastSeq}`;
 	eventSource = new EventSource(streamUrl);
 
 	eventSource.onopen = () => {
@@ -201,7 +247,7 @@ function startStream() {
 
 			const data = typeof envelope.data === 'string' ? JSON.parse(envelope.data) : envelope.data;
 			if (!data.threadId || !data.messageType) return;
-			handleMessage(data as DiscussionMessage);
+			handleMessage(data as DiscussionMessage, envelope.subject);
 		} catch {
 			// Ignore parse errors
 		}
@@ -219,11 +265,11 @@ function startStream() {
 // "load older" can page back); the namespace selector still narrows the view.
 const RECENT_LIMIT = 1000;
 
-function processHistoryMessage(m: { seq?: unknown; data?: unknown }) {
+function processHistoryMessage(m: { seq?: unknown; data?: unknown; subject?: string }) {
 	if (typeof m.seq === 'number' && m.seq > lastSeq) lastSeq = m.seq;
 	try {
 		const d = typeof m.data === 'string' ? JSON.parse(m.data) : m.data;
-		if (d && d.threadId && d.messageType) handleMessage(d as DiscussionMessage);
+		if (d && d.threadId && d.messageType) handleMessage(d as DiscussionMessage, m.subject);
 	} catch {
 		/* skip malformed */
 	}
@@ -235,7 +281,7 @@ function processHistoryMessage(m: { seq?: unknown; data?: unknown }) {
 // page load.
 async function loadRecent() {
 	try {
-		const subject = encodeURIComponent('kubemoot.discuss.>');
+		const subject = encodeURIComponent(DISCUSS_ALL);
 		const res = await fetch(
 			`${base}/api/nats/history?stream=KUBEMOOT_DISCUSS&subject=${subject}&limit=${RECENT_LIMIT}`
 		);
@@ -263,7 +309,10 @@ export function initDiscussions() {
 
 export async function removeThread(threadId: string) {
 	deletedThreadIds.add(threadId);
+	let scope: CrewScope | null = null;
 	threadsMap.update((threads) => {
+		const existing = threads.get(threadId);
+		if (existing) scope = threadScope(existing);
 		threads.delete(threadId);
 		return new Map(threads);
 	});
@@ -275,7 +324,7 @@ export async function removeThread(threadId: string) {
 			headers: { 'Content-Type': 'application/json' },
 			body: JSON.stringify({
 				stream: 'KUBEMOOT_DISCUSS',
-				filter: `kubemoot.discuss.*.*.${threadId}`
+				filter: discussThreadFilter(threadId, scope)
 			})
 		});
 	} catch (e) {

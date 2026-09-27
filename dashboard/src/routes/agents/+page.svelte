@@ -6,9 +6,11 @@
 	import { HelpTooltip } from '$components/common';
 	import type { Agent, AgentHeartbeat } from '$types/kubemoot.js';
 	import { LiveList } from '$lib/client/liveList.svelte';
+	import { agentStateFor } from '$lib/crewScope';
 
 	// Agent list is push-based (watch→SSE). Heartbeats are decorative NATS-KV
-	// liveness and stay on the (15s) global poll — they're global, not namespaced.
+	// liveness and stay on the (15s) global poll. The bucket is global; its keys are
+	// `<namespace>.<agent>`, so each card looks up its own namespace and name.
 	const live = new LiveList<Agent>('agents');
 	let heartbeats = $state<Record<string, AgentHeartbeat>>({});
 
@@ -134,7 +136,7 @@
 					</div>
 					<div class="grid">
 						{#each section.agents as agent (agent.metadata.namespace + '/' + agent.metadata.name)}
-							<AgentCard {agent} showNamespace={$namespace === ''} heartbeat={heartbeats[agent.metadata.name]} />
+							<AgentCard {agent} showNamespace={$namespace === ''} heartbeat={agentStateFor(heartbeats, agent.metadata.namespace, agent.metadata.name)} />
 						{/each}
 					</div>
 				</div>

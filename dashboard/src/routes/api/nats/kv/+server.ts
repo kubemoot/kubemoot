@@ -4,7 +4,8 @@ import { getNatsConnection, sc } from '$lib/server/nats-client';
 
 /**
  * Reads all entries from a NATS KV bucket.
- * Default bucket: kubemoot_agent_state (agent heartbeats with 300s TTL).
+ * Default bucket: kubemoot_agent_state (agent heartbeats with 300s TTL, keyed
+ * `<namespace>.<agent>`). Entries are returned under their raw keys.
  *
  * Uses kv.watch() with initializedFn to reliably read all current values.
  * The keys()+get() approach missed entries due to async iterator timing.

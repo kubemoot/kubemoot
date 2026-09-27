@@ -7,7 +7,7 @@ import { getNatsConnection } from '$lib/server/nats-client';
  * Used to permanently delete discussion threads from the stream.
  *
  * Usage: POST /api/nats/purge
- * Body: { "stream": "KUBEMOOT_DISCUSS", "filter": "kubemoot.discuss.*.threadId" }
+ * Body: { "stream": "KUBEMOOT_DISCUSS", "filter": "kubemoot.discuss.<ns>.<crew>.*.<threadId>" }
  */
 export const POST: RequestHandler = async ({ request }) => {
 	try {

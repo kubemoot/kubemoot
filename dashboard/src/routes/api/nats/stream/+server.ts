@@ -1,6 +1,7 @@
 import type { RequestHandler } from './$types';
 import { getNatsConnection, sc } from '$lib/server/nats-client';
 import { AckPolicy, DeliverPolicy } from 'nats';
+import { DISCUSS_ALL } from '$lib/crewScope';
 
 /**
  * Unified SSE endpoint backed by a JetStream ordered consumer.
@@ -16,7 +17,7 @@ import { AckPolicy, DeliverPolicy } from 'nats';
  */
 export const GET: RequestHandler = async ({ url }) => {
 	const streamName = url.searchParams.get('stream') || 'KUBEMOOT_DISCUSS';
-	const subject = url.searchParams.get('subject') || 'kubemoot.discuss.>';
+	const subject = url.searchParams.get('subject') || DISCUSS_ALL;
 	const fromSeq = parseInt(url.searchParams.get('from_seq') || '0');
 
 	const stream = new ReadableStream({

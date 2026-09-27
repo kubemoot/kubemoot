@@ -4,6 +4,7 @@
 	import { goto } from '$app/navigation';
 	import type { TopologyNode, TopologyEdge } from '$types/kubemoot.js';
 	import type cytoscape from 'cytoscape';
+	import { CHAT_ALL, agentNodeId, parseChatSubject } from '$lib/crewScope';
 
 	let { nodes = [], edges = [] }: { nodes: TopologyNode[]; edges: TopologyEdge[] } = $props();
 
@@ -28,10 +29,14 @@
 		// Load saved positions from sessionStorage
 		const savedPositions = getSavedPositions();
 
+		// Node ids carry the namespace so same-named agents in two namespaces are
+		// distinct nodes; `name` keeps the bare agent name.
 		const cyNodes = nodes.map((n) => {
+			const id = agentNodeId(n.namespace, n.id);
 			const nodeData: any = {
 				data: {
-					id: n.id,
+					id,
+					name: n.id,
 					label: n.id.replace('homelab-', ''),
 					role: n.role,
 					status: n.status,
@@ -46,8 +51,8 @@
 			};
 
 			// Apply saved position if available
-			if (savedPositions[n.id]) {
-				nodeData.position = savedPositions[n.id];
+			if (savedPositions[id]) {
+				nodeData.position = savedPositions[id];
 			}
 
 			return nodeData;
@@ -56,8 +61,8 @@
 		const cyEdges = edges.map((e) => ({
 			data: {
 				id: e.id,
-				source: e.source,
-				target: e.target
+				source: agentNodeId(e.namespace, e.source),
+				target: agentNodeId(e.namespace, e.target)
 			}
 		}));
 
@@ -182,7 +187,7 @@
 		// Click node to navigate to agent detail
 		cy.on('tap', 'node', (evt) => {
 			const node = evt.target;
-			const name = node.id();
+			const name = node.data('name');
 			const ns = node.data('namespace');
 			goto(`${base}/agents/${name}?namespace=${ns}`);
 		});
@@ -209,20 +214,18 @@
 	}
 
 	function subscribeToEvents() {
-		eventSource = new EventSource(`${base}/api/nats/subscribe?subject=kubemoot.chat.>`);
+		eventSource = new EventSource(`${base}/api/nats/subscribe?subject=${encodeURIComponent(CHAT_ALL)}`);
 
 		eventSource.onmessage = (event) => {
 			try {
 				const msg = JSON.parse(event.data);
 				if (msg.type !== 'message' || !msg.data) return;
 
-				const data = typeof msg.data === 'string' ? JSON.parse(msg.data) : msg.data;
-				const agentName = data.agent;
-				if (!agentName || !cy) return;
-
-				// Find the node — NATS uses underscores, node IDs use hyphens
-				const nodeId = agentName.replace(/_/g, '-');
-				const node = cy.getElementById(nodeId);
+				// kubemoot.chat.<namespace>.<agent>: pulse the agent of that
+				// namespace only. NATS agent tokens use underscores, node ids hyphens.
+				const chat = parseChatSubject(msg.subject);
+				if (!chat || !cy) return;
+				const node = cy.getElementById(agentNodeId(chat.namespace, chat.agent.replace(/_/g, '-')));
 				if (node.length === 0) return;
 
 				// Pulse animation

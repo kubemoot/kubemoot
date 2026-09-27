@@ -647,6 +647,8 @@ export interface TopologyNode {
 
 export interface TopologyEdge {
 	id: string;
+	// Edges connect agents of one namespace; source and target are agent names in it.
+	namespace: string;
 	source: string;
 	target: string;
 }
@@ -761,7 +763,7 @@ export interface DiscussionMessage {
 	};
 }
 
-// Agent heartbeat types (from NATS KV bucket kubemoot_agent_state)
+// Agent heartbeat types (from NATS KV bucket kubemoot_agent_state, key `<namespace>.<agent>`)
 export interface AgentHeartbeat {
 	agent: string;
 	timestamp: string;

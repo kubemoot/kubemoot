@@ -6,7 +6,7 @@ import { getNatsConnection, sc } from '$lib/server/nats-client';
  * Publishes a message to a NATS subject via the server-side connection.
  *
  * Usage: POST /api/nats/publish
- * Body: { "subject": "kubemoot.chat.admin.general", "data": "..." }
+ * Body: { "subject": "kubemoot.chat.<namespace>.admin", "data": "..." }
  */
 export const POST: RequestHandler = async ({ request }) => {
 	try {

@@ -2,6 +2,7 @@ import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { getNatsConnection, sc } from '$lib/server/nats-client';
 import { AckPolicy, DeliverPolicy } from 'nats';
+import { DISCUSS_ALL } from '$lib/crewScope';
 
 /**
  * REST endpoint that fetches historical messages from a NATS JetStream stream.
@@ -12,7 +13,7 @@ import { AckPolicy, DeliverPolicy } from 'nats';
  */
 export const GET: RequestHandler = async ({ url }) => {
 	const stream = url.searchParams.get('stream') || 'KUBEMOOT_DISCUSS';
-	const subject = url.searchParams.get('subject') || 'kubemoot.discuss.>';
+	const subject = url.searchParams.get('subject') || DISCUSS_ALL;
 	const limit = Math.min(parseInt(url.searchParams.get('limit') || '500'), 2000);
 
 	try {

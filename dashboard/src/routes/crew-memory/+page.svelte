@@ -1,8 +1,12 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { base } from '$app/paths';
+	import { get } from 'svelte/store';
+	import { namespace } from '$lib/stores';
 
 	interface Fact {
+		namespace: string;
+		crew: string;
 		topic: string;
 		key: string;
 		value: string;
@@ -11,6 +15,10 @@
 		usedAt: string;
 	}
 
+	// Memory keys are <namespace>.<crew>.<topic>.<key>. The namespace field starts
+	// at the crew selected in the top bar; left empty, the list shows the crew name
+	// in every namespace, and writes need a namespace.
+	let ns = $state(get(namespace));
 	let crew = $state('homelab-pilot');
 	let facts = $state<Fact[]>([]);
 	let loading = $state(false);
@@ -25,7 +33,9 @@
 		loading = true;
 		error = null;
 		try {
-			const res = await fetch(`${base}/api/kubemoot/crew-memory?crew=${encodeURIComponent(crew)}`);
+			const q = new URLSearchParams({ crew });
+			if (ns) q.set('namespace', ns);
+			const res = await fetch(`${base}/api/kubemoot/crew-memory?${q}`);
 			const data = await res.json();
 			if (data.error) throw new Error(data.error);
 			facts = (data.facts || []).sort((a: Fact, b: Fact) => b.usedAt.localeCompare(a.usedAt));
@@ -37,12 +47,12 @@
 	}
 
 	async function save() {
-		if (!formTopic || !formKey || !formValue) return;
+		if (!formTopic || !formKey || !formValue || !ns) return;
 		try {
 			const res = await fetch(`${base}/api/kubemoot/crew-memory`, {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ crew, topic: formTopic, key: formKey, value: formValue })
+				body: JSON.stringify({ namespace: ns, crew, topic: formTopic, key: formKey, value: formValue })
 			});
 			const data = await res.json();
 			if (data.error) throw new Error(data.error);
@@ -54,15 +64,16 @@
 	}
 
 	function edit(f: Fact) {
+		ns = f.namespace;
 		formTopic = f.topic;
 		formKey = f.key;
 		formValue = f.value;
 	}
 
 	async function remove(f: Fact) {
-		if (!confirm(`Delete crew-memory fact?\n\n[${f.topic}] ${f.key} = ${f.value}`)) return;
+		if (!confirm(`Delete crew-memory fact?\n\n${f.namespace}: [${f.topic}] ${f.key} = ${f.value}`)) return;
 		try {
-			const q = `crew=${encodeURIComponent(crew)}&topic=${encodeURIComponent(f.topic)}&key=${encodeURIComponent(f.key)}`;
+			const q = new URLSearchParams({ namespace: f.namespace, crew: f.crew, topic: f.topic, key: f.key });
 			const res = await fetch(`${base}/api/kubemoot/crew-memory?${q}`, { method: 'DELETE' });
 			const data = await res.json();
 			if (data.error) throw new Error(data.error);
@@ -73,9 +84,11 @@
 	}
 
 	async function clearAll() {
-		if (!confirm(`Clear ALL working memory for crew "${crew}"?\n\nThis deletes ${facts.length} fact(s) and cannot be undone.`)) return;
+		if (!ns) return;
+		if (!confirm(`Clear ALL working memory for crew "${crew}" in namespace "${ns}"?\n\nThis deletes its fact(s) and cannot be undone.`)) return;
 		try {
-			const res = await fetch(`${base}/api/kubemoot/crew-memory?crew=${encodeURIComponent(crew)}`, {
+			const q = new URLSearchParams({ namespace: ns, crew });
+			const res = await fetch(`${base}/api/kubemoot/crew-memory?${q}`, {
 				method: 'DELETE'
 			});
 			const data = await res.json();
@@ -91,23 +104,25 @@
 
 <div class="page">
 	<h1>Crew Working Memory</h1>
-	<p class="sub">Facts the crew learned on this cluster (NATS KV: <code>kubemoot_crew_memory</code>). Crew-scoped, GC'd by LRU + TTL.</p>
+	<p class="sub">Facts the crew learned on this cluster (NATS KV: <code>kubemoot_crew_memory</code>). Scoped by namespace and crew, GC'd by LRU + TTL.</p>
 
 	<div class="bar">
+		<label>Namespace <input bind:value={ns} placeholder="all namespaces" onkeydown={(e) => e.key === 'Enter' && load()} /></label>
 		<label>Crew <input bind:value={crew} onkeydown={(e) => e.key === 'Enter' && load()} /></label>
 		<button onclick={load} disabled={loading}>{loading ? 'Loading…' : 'Load'}</button>
-		<button class="danger" onclick={clearAll} disabled={loading || facts.length === 0}>Clear all ({facts.length})</button>
+		<button class="danger" onclick={clearAll} disabled={loading || facts.length === 0 || !ns} title={ns ? undefined : 'Set a namespace to clear one crew'}>Clear all ({facts.length})</button>
 	</div>
 
 	{#if error}<p class="error">{error}</p>{/if}
 
 	<table>
 		<thead>
-			<tr><th>Topic</th><th>Key</th><th>Value</th><th>Learned by</th><th>Used</th><th></th></tr>
+			<tr><th>Namespace</th><th>Topic</th><th>Key</th><th>Value</th><th>Learned by</th><th>Used</th><th></th></tr>
 		</thead>
 		<tbody>
-			{#each facts as f (f.topic + '.' + f.key)}
+			{#each facts as f (f.namespace + '.' + f.topic + '.' + f.key)}
 				<tr>
+					<td>{f.namespace}</td>
 					<td>{f.topic}</td>
 					<td>{f.key}</td>
 					<td class="val">{f.value}</td>
@@ -120,7 +135,7 @@
 				</tr>
 			{/each}
 			{#if facts.length === 0 && !loading}
-				<tr><td colspan="6" class="empty">No facts learned yet for this crew.</td></tr>
+				<tr><td colspan="7" class="empty">No facts learned yet for this crew.</td></tr>
 			{/if}
 		</tbody>
 	</table>
@@ -130,9 +145,9 @@
 		<input placeholder="topic (e.g. gpu-topology)" bind:value={formTopic} />
 		<input placeholder="key (e.g. rig0)" bind:value={formKey} />
 		<input placeholder="value" bind:value={formValue} />
-		<button onclick={save} disabled={!formTopic || !formKey || !formValue}>Save</button>
+		<button onclick={save} disabled={!formTopic || !formKey || !formValue || !ns}>Save</button>
 	</div>
-	<p class="hint">Saving an existing topic+key updates it (the crew's own discoveries overwrite the same key).</p>
+	<p class="hint">Saving writes to the namespace above (required). Saving an existing topic+key updates it (the crew's own discoveries overwrite the same key).</p>
 </div>
 
 <style>
