@@ -31,7 +31,11 @@ public class RagClient {
     public RagClient(AgentProperties properties, ObjectMapper mapper) {
         this.sources = properties.ragSources().orElse(List.of());
         this.mapper = mapper;
+        // HTTP/1.1, as ResumeSearchClient does: the default HTTP/2 client sends an h2c
+        // upgrade the Python query service does not accept, and it answers 422
+        // without the request body.
         this.httpClient = HttpClient.newBuilder()
+                .version(HttpClient.Version.HTTP_1_1)
                 .connectTimeout(Duration.ofSeconds(10))
                 .build();
         log.info("Initialized RAG client with {} sources", sources.size());
@@ -65,6 +69,11 @@ public class RagClient {
                     .build();
 
             var response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+            if (response.statusCode() < 200 || response.statusCode() >= 300) {
+                log.warn("RAG source {} answered HTTP {}: {}", source.name(), response.statusCode(),
+                        response.body().length() > 200 ? response.body().substring(0, 200) : response.body());
+                return List.of();
+            }
             var queryResponse = mapper.readValue(response.body(), QueryResponse.class);
 
             if (queryResponse.results() == null) return List.of();

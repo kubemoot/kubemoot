@@ -2,8 +2,13 @@ package ai.kubemoot.agent.rag;
 
 import ai.kubemoot.agent.config.AgentProperties;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.sun.net.httpserver.HttpServer;
 import org.junit.jupiter.api.Test;
 
+import java.io.IOException;
+import java.io.OutputStream;
+import java.net.InetSocketAddress;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -222,4 +227,51 @@ class RagClientTest {
             }; }
         };
     }
+
+    /**
+     * A query service that behaves like the Python one: a request carrying an
+     * HTTP/2 upgrade gets 422 without its body, a plain HTTP/1.1 request gets results.
+     */
+    private static HttpServer queryService(int plainStatus) throws IOException {
+        var server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/query", exchange -> {
+            boolean upgrade = exchange.getRequestHeaders().containsKey("Upgrade");
+            int status = upgrade ? 422 : plainStatus;
+            String body = status == 200
+                    ? "{\"results\":[{\"content\":\"Degraded means the coordinator cannot be scheduled.\",\"score\":0.6,\"metadata\":{}}]}"
+                    : "{\"detail\":\"unprocessable\"}";
+            byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
+            exchange.sendResponseHeaders(status, bytes.length);
+            try (OutputStream out = exchange.getResponseBody()) {
+                out.write(bytes);
+            }
+        });
+        server.start();
+        return server;
+    }
+
+    @Test
+    void queryGetsResultsFromAServiceThatRejectsHttp2Upgrades() throws IOException {
+        var server = queryService(200);
+        try {
+            var source = stubRagSource("docs", "http://127.0.0.1:" + server.getAddress().getPort(), 3);
+            var results = new RagClient(stubProperties(List.of(source)), mapper).query("What does Degraded mean?");
+            assertEquals(1, results.size());
+            assertTrue(results.get(0).content().contains("Degraded means"));
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
+    void anErrorStatusYieldsNoResults() throws IOException {
+        var server = queryService(500);
+        try {
+            var source = stubRagSource("docs", "http://127.0.0.1:" + server.getAddress().getPort(), 3);
+            assertTrue(new RagClient(stubProperties(List.of(source)), mapper).query("q").isEmpty());
+        } finally {
+            server.stop(0);
+        }
+    }
+
 }
