@@ -166,8 +166,8 @@ func (r *AgentReconciler) buildAgentResume(ctx context.Context, agent *kubemootv
 	if role == "" {
 		role = roleToolerResume
 	}
-	summary := ""
-	if agent.Annotations != nil {
+	summary := agent.Spec.TriageSummary
+	if summary == "" && agent.Annotations != nil {
 		summary = agent.Annotations[triageSummaryAnno]
 	}
 	prompt, err := r.assembleSystemPrompt(ctx, agent)

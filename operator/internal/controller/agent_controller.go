@@ -1252,6 +1252,14 @@ func (r *AgentReconciler) SetupWithManager(mgr ctrl.Manager) error {
 			&kubemootv1alpha1.PromptModule{},
 			enqueueAgentsOnPromptModuleChange(mgr.GetClient()),
 		).
+		// Re-reconcile a crew's coordinator when one of its specialists is added,
+		// changed, or removed, so the crew's resumes (and so selection) include it.
+		// See agent_resume_propagation.go.
+		Watches(
+			&kubemootv1alpha1.Agent{},
+			enqueueCoordinatorOnSpecialistChange(mgr.GetClient()),
+			builder.WithPredicates(specialistResumeChanged()),
+		).
 		// Re-reconcile an Agent when a RAGSource it references reports a new query
 		// endpoint or changes its query service, so the agent's RAG env follows.
 		// See ragsource_propagation.go.

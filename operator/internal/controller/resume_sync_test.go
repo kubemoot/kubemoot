@@ -97,6 +97,24 @@ func TestBuildAgentResume(t *testing.T) {
 	}
 }
 
+// TestBuildAgentResumeSummaryFromSpec: spec.triageSummary, the field crew authors
+// write, is the resume summary; the annotation is used only when the spec is empty.
+func TestBuildAgentResumeSummaryFromSpec(t *testing.T) {
+	both := mkResumeAgent("crew-x", "docs-reader", "platform-ops", "analyst", func(a *kubemootv1alpha1.Agent) {
+		a.Spec.TriageSummary = "explains what a crew status means"
+		a.Annotations = map[string]string{triageSummaryAnno: "older annotation"}
+	})
+	cli := fake.NewClientBuilder().WithScheme(resumeScheme(t)).WithObjects(both).Build()
+	rec := &AgentReconciler{Client: cli}
+	if got := rec.buildAgentResume(context.Background(), both).Summary; got != "explains what a crew status means" {
+		t.Errorf("summary = %q, want spec.triageSummary", got)
+	}
+	both.Spec.TriageSummary = ""
+	if got := rec.buildAgentResume(context.Background(), both).Summary; got != "older annotation" {
+		t.Errorf("summary = %q, want the annotation when the spec is empty", got)
+	}
+}
+
 // TestCompileCrewResumes lists only the crew's toolers — the coordinator
 // (the selector, not a candidate) and other crews are excluded — sorted by name.
 func TestCompileCrewResumes(t *testing.T) {
