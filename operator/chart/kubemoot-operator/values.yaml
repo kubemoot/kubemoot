@@ -286,7 +286,7 @@ kubemootConfig:
     agentRuntime: agent-runtime:0.326.31
     mcpGateway: mcp-gateway:0.326.22
     mcpBridge: mcp-bridge:0.326.0
-    discussionGateway: discussion-gateway:0.326.0
+    discussionGateway: discussion-gateway:0.326.34
     fitnessRunner: fitness-runner:0.326.0
     doclingServe: quay.io/docling-project/docling-serve-cpu:latest
   # Default configurations
