@@ -281,7 +281,7 @@ kubemootConfig:
   # DO NOT use :latest - always use explicit versions for reproducibility
   # Kubemoot images are "name:version" and get global.imageRegistry prefixed at render
   images:
-    indexer: indexer:0.279.0
+    indexer: indexer:0.279.19
     queryService: query-service:0.326.0
     agentRuntime: agent-runtime:0.326.0
     mcpGateway: mcp-gateway:0.326.0
