@@ -105,10 +105,10 @@ public record IndexerConfig(
             return List.of(
                 "*.md", "*.yaml", "*.yml", "*.json",
                 "*.py", "*.go", "*.java", "*.js", "*.ts",
-                "*.tf", "*.adoc", "*.asciidoc", "*.rst", "*.txt",
+                "*.tf", "*.adoc", "*.asciidoc", "*.rst", "*.txt", "*.adl",
                 "**/*.md", "**/*.yaml", "**/*.yml", "**/*.json",
                 "**/*.py", "**/*.go", "**/*.java", "**/*.js", "**/*.ts",
-                "**/*.tf", "**/*.adoc", "**/*.asciidoc", "**/*.rst", "**/*.txt"
+                "**/*.tf", "**/*.adoc", "**/*.asciidoc", "**/*.rst", "**/*.txt", "**/*.adl"
             );
         }
         return includePatterns;
