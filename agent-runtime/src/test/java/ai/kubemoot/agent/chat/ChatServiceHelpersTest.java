@@ -44,6 +44,19 @@ class ChatServiceHelpersTest {
     }
 
     @Test
+    void chatRequest_retrievalText_isTheRetrievalQueryWhenGiven() {
+        var request = new ChatService.ChatRequest("id", "[User Question] ... [Response (x)] ...", null, "t", "What does Degraded mean?");
+        assertEquals("What does Degraded mean?", request.retrievalText());
+    }
+
+    @Test
+    void chatRequest_retrievalText_fallsBackToTheMessage() {
+        assertEquals("msg", new ChatService.ChatRequest("id", "msg").retrievalText());
+        assertEquals("msg", new ChatService.ChatRequest("id", "msg", null, "t", "  ").retrievalText());
+        assertNull(new ChatService.ChatRequest("id", "msg", null, "t").retrievalQuery());
+    }
+
+    @Test
     void chatRequest_threeArgConstructor_preservesCrew() {
         var request = new ChatService.ChatRequest("id", "msg", "homelab-pilot");
         assertEquals("homelab-pilot", request.crew());

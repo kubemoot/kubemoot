@@ -173,6 +173,73 @@ class DiscussionSubscriberSkillsTest {
     }
 
     // -------------------------------------------------------------------------
+    // Knowledge retrieval searches with the user's question, not the whole thread
+    // -------------------------------------------------------------------------
+
+    @Test
+    void mullingRetrievalQueryIsTheThreadQuestion() {
+        var captured = new ChatService.ChatRequest[1];
+        var chatService = mock(ChatService.class);
+        when(chatService.directChat(any(ChatService.ChatRequest.class), anyBoolean()))
+                .thenAnswer(inv -> {
+                    captured[0] = inv.getArgument(0);
+                    return new ChatService.ChatResult("conv", "answer", "model", null);
+                });
+        var subscriber = createSubscriber("docs-reader", chatService, "/nonexistent");
+        String threadId = "thread-rag-01";
+        subscriber.handleMessageForTest(advisoryReadySubject(threadId),
+                threadMessageJson(threadId, "thread_start", "coordinator", "What does it mean when a crew shows Degraded?"));
+        subscriber.handleMessageForTest(advisoryReadySubject(threadId),
+                threadMessageJson(threadId, "agree", "node-watcher", "27 KB of pod listings"));
+
+        subscriber.runMullingInferenceForTest("[User Question] ... [Response (node-watcher)] 27 KB ...", threadId);
+
+        assertNotNull(captured[0]);
+        assertEquals("What does it mean when a crew shows Degraded?", captured[0].retrievalQuery());
+        assertTrue(captured[0].message().contains("27 KB"), "the thread itself still goes to the model");
+    }
+
+    @Test
+    void retrievalQueryAddsTheLatestHumanReply() {
+        var subscriber = createSubscriber("docs-reader", mock(ChatService.class), "/nonexistent");
+        String threadId = "thread-rag-02";
+        subscriber.handleMessageForTest(advisoryReadySubject(threadId),
+                threadMessageJson(threadId, "thread_start", "coordinator", "Which nodes have a GPU?"));
+        subscriber.handleMessageForTest(advisoryReadySubject(threadId),
+                threadMessageJson(threadId, "reply", "human", "And what runs on them?"));
+
+        assertEquals("Which nodes have a GPU?\nAnd what runs on them?", subscriber.retrievalQueryFor(threadId));
+    }
+
+    @Test
+    void retrievalQueryIsTheReplyWhenTheQuestionWasNotSeen() {
+        var subscriber = createSubscriber("docs-reader", mock(ChatService.class), "/nonexistent");
+        String threadId = "thread-rag-03";
+        subscriber.handleMessageForTest(advisoryReadySubject(threadId),
+                threadMessageJson(threadId, "reply", "human", "And what runs on them?"));
+
+        assertEquals("And what runs on them?", subscriber.retrievalQueryFor(threadId));
+    }
+
+    @Test
+    void retrievalQueryPrefersTheQuestionInMetadata() {
+        var subscriber = createSubscriber("docs-reader", mock(ChatService.class), "/nonexistent");
+        String threadId = "thread-rag-04";
+        String start = "{\"messageType\":\"thread_start\",\"threadId\":\"" + threadId
+                + "\",\"agentName\":\"coordinator\",\"content\":\"formatted start\","
+                + "\"metadata\":{\"userQuery\":\"What is a crew?\"},\"messageId\":\"m-4\"}";
+        subscriber.handleMessageForTest(advisoryReadySubject(threadId), start);
+
+        assertEquals("What is a crew?", subscriber.retrievalQueryFor(threadId));
+    }
+
+    @Test
+    void retrievalQueryIsNullForAnUnknownThread() {
+        var subscriber = createSubscriber("docs-reader", mock(ChatService.class), "/nonexistent");
+        assertNull(subscriber.retrievalQueryFor("never-seen"));
+    }
+
+    // -------------------------------------------------------------------------
     // Helpers
     // -------------------------------------------------------------------------
 
@@ -188,6 +255,12 @@ class DiscussionSubscriberSkillsTest {
                 "http://localhost:11434");
         subscriber.setSkillBodyLoaderForTest(loader);
         return subscriber;
+    }
+
+    private static String threadMessageJson(String threadId, String messageType, String agentName, String content) {
+        return "{\"messageType\":\"" + messageType + "\",\"threadId\":\"" + threadId
+                + "\",\"agentName\":\"" + agentName + "\",\"content\":\"" + content
+                + "\",\"messageId\":\"" + java.util.UUID.randomUUID() + "\"}";
     }
 
     private static String advisoryReadySubject(String threadId) {

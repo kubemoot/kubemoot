@@ -214,11 +214,11 @@ public class ChatService {
         var conversation = conversations.computeIfAbsent(request.conversationId(), Conversation::new);
 
         // Query RAG for context (skip in discussion path where thread provides context)
-        String ragContext = skipRag ? null : ragClient.queryForContext(request.message());
+        String ragContext = skipRag ? null : ragClient.queryForContext(request.retrievalText());
 
         // Build message list
         List<ChatMessage> messages = new ArrayList<>();
-        String systemPromptText = buildSystemMessage(ragContext, request.discussionThreadId(), request.message());
+        String systemPromptText = buildSystemMessage(ragContext, request.discussionThreadId(), request.retrievalText());
         if (!systemPromptText.isEmpty()) {
             messages.add(new SystemMessage(systemPromptText));
         }
@@ -1705,17 +1705,32 @@ public class ChatService {
     }
 
     // Request/Response records (framework-agnostic)
-    public record ChatRequest(String conversationId, String message, String crew, String discussionThreadId) {
+    /**
+     * A chat turn. retrievalQuery, when set, is what knowledge retrieval and crew memory
+     * search with instead of the whole message: inside a discussion the message is the
+     * formatted thread (brief, other agents' responses), while the user's question is
+     * what the documents should match.
+     */
+    public record ChatRequest(String conversationId, String message, String crew, String discussionThreadId,
+                              String retrievalQuery) {
+        public ChatRequest(String conversationId, String message, String crew, String discussionThreadId) {
+            this(conversationId, message, crew, discussionThreadId, null);
+        }
         public ChatRequest(String conversationId, String message, String crew) {
-            this(conversationId, message, crew, null);
+            this(conversationId, message, crew, null, null);
         }
         public ChatRequest(String conversationId, String message) {
-            this(conversationId, message, null, null);
+            this(conversationId, message, null, null, null);
         }
         public ChatRequest {
             if (conversationId == null || conversationId.isEmpty()) {
                 conversationId = java.util.UUID.randomUUID().toString();
             }
+        }
+
+        /** The text retrieval searches with: retrievalQuery when given, else the message. */
+        public String retrievalText() {
+            return retrievalQuery != null && !retrievalQuery.isBlank() ? retrievalQuery : message;
         }
     }
 

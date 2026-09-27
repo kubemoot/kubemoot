@@ -1380,4 +1380,41 @@ class ChatServiceToolLoopTest {
             }; }
         };
     }
+
+    @Test
+    void knowledgeRetrievalSearchesWithTheRetrievalQuery() throws Exception {
+        when(mcpClient.getToolSpecifications()).thenReturn(Map.of());
+        var response = mock(ChatResponse.class);
+        when(response.aiMessage()).thenReturn(new AiMessage("Degraded means the coordinator cannot be scheduled."));
+        when(response.tokenUsage()).thenReturn(new TokenUsage(10, 5));
+        when(chatModel.chat(any(ChatRequest.class))).thenReturn(response);
+        when(ragClient.queryForContext(anyString())).thenReturn("");
+
+        var service = createService(3);
+        service.directChat(new ChatService.ChatRequest("conv-rag", "You are in a discussion... [User Question] What does Degraded mean? [Response (node-watcher)] 27 KB of pods",
+                null, "thread-rag", "What does Degraded mean?"), false);
+
+        verify(ragClient).queryForContext("What does Degraded mean?");
+    }
+
+    @Test
+    void crewMemoryRecallSearchesWithTheRetrievalQuery() throws Exception {
+        when(mcpClient.getToolSpecifications()).thenReturn(Map.of());
+        var response = mock(ChatResponse.class);
+        when(response.aiMessage()).thenReturn(new AiMessage("answer"));
+        when(response.tokenUsage()).thenReturn(new TokenUsage(10, 5));
+        when(chatModel.chat(any(ChatRequest.class))).thenReturn(response);
+        when(ragClient.queryForContext(anyString())).thenReturn("");
+        var memory = mock(ai.kubemoot.agent.memory.CrewMemoryClient.class);
+        when(memory.recallForContext(anyString())).thenReturn("");
+
+        var service = new ChatService(chatModel, ragClient, mcpClient, discussionOrchestrator,
+                stubProperties(3, "tooler", false, false), heartbeatService, objectMapper,
+                null, null, memory, null, null);
+        service.directChat(new ChatService.ChatRequest("conv-mem", "You are in a discussion... [User Question] Which nodes have a GPU? [Response (x)] ...",
+                null, "thread-mem", "Which nodes have a GPU?"), false);
+
+        verify(memory).recallForContext("Which nodes have a GPU?");
+    }
+
 }

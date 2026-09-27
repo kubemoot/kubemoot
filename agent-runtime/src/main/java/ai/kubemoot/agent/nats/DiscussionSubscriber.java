@@ -149,6 +149,8 @@ public class DiscussionSubscriber {
     private final ConcurrentHashMap<String, List<ThreadMessage>> threadContext = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, List<String>> threadTechnologies = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, List<?>> threadConversationContext = new ConcurrentHashMap<>();
+    // The user's question per thread, from its thread_start, for knowledge retrieval.
+    private final ConcurrentHashMap<String, String> threadQuestions = new ConcurrentHashMap<>();
     /** Selected skill names broadcast by the coordinator in advisory_ready, keyed by threadId. */
     private final ConcurrentHashMap<String, List<String>> threadSelectedSkills = new ConcurrentHashMap<>();
     private final Set<String> processedMessages = ConcurrentHashMap.newKeySet();
@@ -467,6 +469,9 @@ public class DiscussionSubscriber {
         }
         try {
             var msgNode = mapper.readTree(data);
+            if (MSG_THREAD_START.equals(messageType)) {
+                recordQuestion(threadId, DiscussionOrchestrator.extractUserQuery(msgNode));
+            }
             if (!msgNode.has(FIELD_METADATA)) {
                 return;
             }
@@ -874,8 +879,46 @@ public class DiscussionSubscriber {
         // to what it was before skills were introduced.
         String skillContext = skillBodyLoader.load(threadSelectedSkills.get(threadId));
         String message = skillContext.isEmpty() ? conversation : skillContext + conversation;
-        var request = new ChatService.ChatRequest(threadId, message, null, threadId);
+        var request = new ChatService.ChatRequest(threadId, message, null, threadId, retrievalQueryFor(threadId));
         return chatService.directChat(request, false);
+    }
+
+    /**
+     * The user's own words in a thread, for knowledge retrieval: the question that
+     * opened it, followed by the latest human reply when there is one. Null when the
+     * thread's question has not been seen, so retrieval falls back to the message.
+     */
+    // Visible for testing
+    String retrievalQueryFor(String threadId) {
+        String question = threadQuestions.get(threadId);
+        String latestReply = latestHumanReply(threadId);
+        if (question == null) {
+            return latestReply;
+        }
+        return latestReply == null ? question : question + "\n" + latestReply;
+    }
+
+    private void recordQuestion(String threadId, String question) {
+        if (question != null && !question.isBlank()) {
+            threadQuestions.putIfAbsent(threadId, question);
+        }
+    }
+
+    private String latestHumanReply(String threadId) {
+        var messages = threadContext.get(threadId);
+        String latest = null;
+        if (messages != null) {
+            for (var msg : messages) {
+                if (isHumanReply(msg)) {
+                    latest = msg.content;
+                }
+            }
+        }
+        return latest;
+    }
+
+    private static boolean isHumanReply(ThreadMessage msg) {
+        return MSG_REPLY.equals(msg.messageType) && "human".equals(msg.agentName) && !msg.content.isBlank();
     }
 
     private void classifyAndPublishResult(String subject, String threadId, ChatService.ChatResult result,
@@ -1252,6 +1295,7 @@ public class DiscussionSubscriber {
             threadTechnologies.clear();
             threadConversationContext.clear();
             threadSelectedSkills.clear();
+            threadQuestions.clear();
         }
     }
 

@@ -3380,7 +3380,8 @@ public class DiscussionOrchestrator {
         return CHANNEL_GENERAL;
     }
 
-    private String extractUserQuery(JsonNode msg) {
+    /** The user's question a thread_start message carries: metadata.userQuery, else its content. */
+    static String extractUserQuery(JsonNode msg) {
         if (msg.has(FIELD_METADATA) && msg.get(FIELD_METADATA).has(FIELD_USER_QUERY)) {
             return msg.get(FIELD_METADATA).get(FIELD_USER_QUERY).asText();
         }
