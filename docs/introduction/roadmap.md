@@ -13,6 +13,15 @@ nothing below is mistaken for something already shipped.
 Ideas become work in the open: propose or argue for one in
 [Discussions](https://github.com/orgs/kubemoot/discussions).
 
+## Next: assessing model servers beyond Ollama
+
+**Today:** Ollama is the only self-hosted model server Kubemoot drives.
+
+**Direction:** we will soon assess other model servers and inference serving platforms,
+such as vLLM, llama.cpp, and llm-d, in the interest of giving crews the best GPU and
+model resources in the shortest time. Agents never name a model server, so a crew does
+not change when the server beneath it does.
+
 ## The table and the harnesses
 
 A harness is everything around the model: the guides that steer an agent before it
@@ -54,17 +63,6 @@ test before anything is claimed:
   contributions and a synthesis. The levers on that floor are the models and the
   serving engine, and convening fewer agents. An external harness at the table makes a
   first answer slower and better, not faster.
-
-## Model servers beyond Ollama
-
-**Today:** Ollama is the only self-hosted model server Kubemoot drives. The `openai`
-and `anthropic` provider types exist on the `ModelProvider` CRD but are stubs.
-
-**Direction:** vLLM as a second server behind the same `ModelProvider` boundary, then
-llama.cpp and others. Agents never name a runtime, so a crew does not change when the
-server does. Two implementations are what turn today's switch on `spec.type` into a
-real abstraction, and vLLM's batching is the expected win when many agents contend
-for one GPU.
 
 ## Cloud and frontier models at the table
 
