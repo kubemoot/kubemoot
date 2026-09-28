@@ -10,8 +10,11 @@ RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o code-sandbox ./cmd/cod
 # The programs agents write run on this image: Python 3.12 with the standard
 # library only, and bash. Nothing else is installed.
 FROM python:3.12-slim
+# tini reaps processes a killed program leaves behind; without it they stay as
+# zombies under the server for the life of the pod.
+RUN apt-get update && apt-get install -y --no-install-recommends tini && rm -rf /var/lib/apt/lists/*
 COPY --from=builder /build/code-sandbox /usr/local/bin/code-sandbox
 # uid:gid 1000:1000 matches the artifact-access materializer that writes /artifacts.
 USER 1000:1000
 WORKDIR /tmp
-ENTRYPOINT ["/usr/local/bin/code-sandbox"]
+ENTRYPOINT ["/usr/bin/tini", "-s", "--", "/usr/local/bin/code-sandbox"]

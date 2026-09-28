@@ -28,8 +28,10 @@ a program reads under `/artifacts`.
 - A program that fails is a normal result with its exit code; only an unknown
   language or a program that cannot start is a tool error.
 
-The image is `python:3.12-slim` plus this binary: Python with the standard
-library only, and bash.
+The image is `python:3.12-slim` plus this binary and `tini`: Python with the
+standard library only, and bash. The server runs under `tini -s`, which reaps
+the processes a killed program leaves behind; start it the same way when you
+give it an explicit command (`/usr/bin/tini -s -- /usr/local/bin/code-sandbox`).
 
 ## Config (env)
 
