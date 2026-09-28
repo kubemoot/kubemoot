@@ -113,7 +113,11 @@ jobs:
             crane copy --insecure "${FULL_IMAGE}:latest" "${FULL_IMAGE}:${VERSION}"
           fi
 
+      # A release-registry (GHCR) outage must not block the homelab deploy that the
+      # chart bump below triggers; a failure here still fails the run at the end.
       - name: Publish image to the release registry
+        id: publish
+        continue-on-error: true
         if: steps.check.outputs.release_created == 'true' && vars.RELEASE_REGISTRY != ''
         env:
           RELEASE_REGISTRY: ${{ vars.RELEASE_REGISTRY }}
@@ -178,6 +182,12 @@ jobs:
           generate_release_notes: true
           draft: false
           prerelease: false
+
+      - name: Fail when the release registry publish failed
+        if: steps.publish.outcome == 'failure'
+        run: |
+          echo "::error::Publishing the image to the release registry failed; the homelab deploy went ahead. Re-run this job to publish."
+          exit 1
 
   # ==========================================================================
   # Integration tests run AFTER Flux reconciliation, not during the build.
@@ -251,3 +261,4 @@ jobs:
         uses: peter-evans/repository-dispatch@v3
         with:
           event-type: flux-reconciliation
+
