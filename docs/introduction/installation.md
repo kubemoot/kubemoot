@@ -1,29 +1,46 @@
 ---
-title: "Installation"
+title: "Install the Operator"
 weight: 40
-description: "Prerequisites and install methods (Helm, operator)."
+description: "Prerequisites and the Helm install of the Kubemoot operator; other components install separately."
 ---
 
-This page covers what a cluster needs before Kubemoot runs, and how to install the
-operator on your own cluster - the GPU-backed deployment Kubemoot is built for. If you
-want to try the protocol first without a GPU, the [Quickstart](../quickstart/) runs
-a smaller CPU-only trial with its own script and its own limits, described below.
+This page installs the **Kubemoot operator**: what a cluster needs before it runs, and
+how to install it on your own cluster - the GPU-backed deployment Kubemoot is built
+for. If you want to try the protocol first without a GPU, the
+[Quickstart](../quickstart/) runs a smaller CPU-only trial with its own script and its
+own limits, described below.
+
+The operator is one part of the ecosystem. The others install separately, each from
+its own page:
+
+- **kmctl**, the command-line tool: [kmctl User Guide](../../user-guides/kmctl/).
+- **Crews**, packaged as Helm charts, including the reference crew:
+  [Crews](../../ecosystem/crews/) and [Pilot](../../ecosystem/pilot/).
+- **CrewForge**, the VS Code extension: [CrewForge](../../ecosystem/crewforge/).
+- **Integrations** that reach a crew from elsewhere, such as Claude Code:
+  [Integrations](../../integrations/).
 
 ## Prerequisites
 
 - **A Kubernetes cluster** (v1.30+) and `kubectl` configured against it. Cluster-admin
   is required for the initial install, since Kubemoot installs CRDs and cluster-scoped
   RBAC.
+- **Helm** (v3.8+, for OCI charts). The operator ships only as a Helm chart.
 - **A model provider** - at least one GPU-backed inference endpoint that serves the
   models your crew will use. Kubemoot is built for Ollama today; one or more GPUs are
   the intended target. A crew composes capability from several small models, so a
-  single modest GPU is enough to start.
+  single modest GPU is enough to start. The GPU must be visible to the worker node,
+  on bare metal or passed through to a VM; running a model server on it is covered in
+  [Put a model server on your GPU nodes](#put-a-model-server-on-your-gpu-nodes) below.
+  [Ollama](https://ollama.com/) can be installed in-cluster with the community
+  [Ollama Helm chart](https://github.com/otwld/ollama-helm).
 - **NATS JetStream** - the message bus crews deliberate over. It can run in-cluster;
-  the operator publishes discussion and event traffic to it.
+  the operator publishes discussion and event traffic to it. Install it with the
+  official [NATS Helm chart](https://docs.nats.io/running-a-nats-service/nats-kubernetes)
+  with JetStream enabled.
 - **A vector store (pgvector)** - only if a crew uses RAG knowledge sources. Not
-  required for a discussion-only crew.
-
-`helm` (v3.8+, for OCI charts) is needed if you install with Helm.
+  required for a discussion-only crew. See [pgvector](https://github.com/pgvector/pgvector)
+  for PostgreSQL with vector search.
 
 ## CPU trial vs. GPU deployment
 
@@ -68,8 +85,9 @@ helm upgrade --install kubemoot-operator \
 The published chart is `oci://ghcr.io/kubemoot/charts/kubemoot-operator`; pass it as
 the chart reference with `--version` for a specific release.
 
-### GitOps (Flux)
+### Optional: GitOps with Flux
 
+If you already manage your cluster with GitOps, you can skip the `helm` command above.
 In a GitOps setup the operator is reconciled from the chart by a Flux `HelmRelease`
 pointed at an `OCIRepository`, rather than installed imperatively. Set
 `install.crds: Create` and `upgrade.crds: CreateReplace` so CRDs are managed with the

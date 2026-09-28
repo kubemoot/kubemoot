@@ -15,7 +15,9 @@ governed as code, and agents that run where your platform already runs, under it
 RBAC, quotas, and lifecycle. It is not either-or: Claude Code can use a crew as one
 agent through the [crew liaison](../../integrations/crew-liaison/), the frontier model
 at the edge and the private crew on the domain work. We do not claim that a crew of
-small models out-reasons a frontier model; that is not what it is for.
+small models out-reasons a frontier model; that is not what it is for. What a crew
+does give you is the choice of where the compute is spent: tokens billed by a
+provider, or watts on hardware you run.
 
 ## Why Kubernetes, and why an operator rather than a library?
 
@@ -43,17 +45,17 @@ agent on the same models is a hypothesis we measure with
 ## What is ADL, and does it make agents better?
 
 Architecture Definition Language: WHEN/THEN, ASSERT, and NEVER rules from
-*Architecture as Code* (Richards and Ford), applied to agents as `PromptModule`
-resources. The value we claim today is governance: rules you can read, review, diff,
+[*Architecture as Code*](https://www.dijure.com/books/architecture-as-code/) (Richards,
+Ford, and Johnson), applied to agents as `PromptModule` resources. The value we claim today is governance: rules you can read, review, diff,
 and change with `kubectl apply`. Quality gains are under measurement; the interim
 result is a tie with prose on quality and a lead on speed, on a small sample. See
 [Write Agents and ADL](../../user-guides/write-agents-and-adl/).
 
 ## Isn't it slow?
 
-A crew deliberates, and deliberation takes minutes on a homelab's GPUs; the
-[integrations](../../integrations/claude-code/) page shows a real three-minute
-answer. The time is spent in the models and the serving engine, both of which are
+A crew deliberates, and consensus takes minutes on smaller systems with GPUs you can
+count on one hand; the [integrations](../../integrations/claude-code/) page shows a
+real three-minute answer. The time is spent in the models and the serving engine, both of which are
 replaceable behind the `ModelProvider` boundary ([Roadmap](../roadmap/)). The ticket
 contract exists because crews take time, and the crew's answer carries its own
 caveats, which is worth the wait more often than a fast confident guess.
@@ -80,19 +82,30 @@ as a platform to evaluate and shape, and say so where you deploy it.
 
 ## Can agents change things, or only answer?
 
-Only answer, today. Every shipped crew is read-only: tools query, findings and
-syntheses are the output. Generative crews and crews that change state under consent
-and audit are on the [Roadmap](../roadmap/), and the consent mechanics they need are
-the ones the protocol already has.
+They answer and they generate; they do not change systems yet. A crew's output can be
+new material as well as findings: a quiz written from a course's reading, a game
+invented and played in chat, a report. What no crew does today is change the state of
+anything outside the discussion. Nothing technical prevents it: an MCP server whose
+tools write plugs into the same gateway as one whose tools read. What is missing is
+testing and guardrails, consent before a change, an audit trail after it, and
+permissions scoped to the one change allowed, and those come before any crew that
+acts. See [Crews that act](../roadmap/#crews-that-act) on the Roadmap.
 
 ## How much of this was written with AI?
 
 A great deal, in the open. Kubemoot is built with AI assistance and held to the same
 gates as any contribution: tests with every change, a cyclomatic-complexity limit,
-a SonarQube quality gate, and code review. The gates, not the author, are what the
+a SonarQube quality gate, and code review. The gates, not the authors, are what the
 code answers to.
 
 ## What does "moot" mean?
 
 An assembly that meets to discuss and decide. A Kubemoot crew does the same: every
 voice, one answer. See [About the Name](../about-the-name/).
+
+## Have a question that is not here?
+
+Ask it in [Discussions](https://github.com/orgs/kubemoot/discussions), open an
+[issue](https://github.com/kubemoot/kubemoot/issues) if something is wrong or missing,
+or write to **moot@kubemoot.org**. Questions that come up more than once end up on
+this page.

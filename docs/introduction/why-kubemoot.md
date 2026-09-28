@@ -9,6 +9,20 @@ deliberate to consensus** - on your own Kubernetes cluster, declared as Kubernet
 resources, and measured by executable fitness functions. This page is about *where
 that fits*, *what it solves*, and *how it differs*.
 
+## Where it started, and where it can go
+
+Kubemoot began as a small agent system to help with observability, security, and
+administration on one homelab cluster, and grew into a general way to run crews of
+agents on Kubernetes. Today it works well on local clusters with a couple of GPUs or
+more, running open models you serve yourself.
+
+The core does not change as it grows: agents around a table, each bringing its own
+expertise and tools, deliberating until the crew settles on an answer. What can
+change is who sits at the table and what powers them. The [Roadmap](../roadmap/)
+describes directions such as rented cloud GPUs for capacity a cluster does not own,
+and hosted frontier models joining local agents as voices in the same discussion.
+Those are directions, not features; this page describes what Kubemoot is today.
+
 ## Who it's for
 
 - **Platform and infrastructure teams** who want agentic AI to live where the rest
@@ -54,6 +68,10 @@ be **operable infrastructure**.
   scheduling, tool discovery, cleanup - are built into the operator.
 - **vs. hosted agent platforms** - it runs on **your** infrastructure and GPUs, stays
   portable across clusters, and keeps your data and models in your control.
+- **vs. agent harnesses such as Claude Code** - not a competitor but a table they can
+  use. A harness can ask a whole crew a question as one of its tools through the
+  [crew liaison](../../integrations/crew-liaison/), and a crew is itself a harness made
+  of harnesses; see [The Table and the Harnesses](../../concepts/the-table-and-the-harnesses/).
 
 ## What it is not
 

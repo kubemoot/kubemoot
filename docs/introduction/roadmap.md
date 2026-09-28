@@ -13,14 +13,16 @@ nothing below is mistaken for something already shipped.
 Ideas become work in the open: propose or argue for one in
 [Discussions](https://github.com/orgs/kubemoot/discussions).
 
-## Next: assessing model servers beyond Ollama
+## Assessing model servers beyond Ollama
 
 **Today:** Ollama is the only self-hosted model server Kubemoot drives.
 
 **Direction:** we will soon assess other model servers and inference serving platforms,
 such as vLLM, llama.cpp, and llm-d, in the interest of giving crews the best GPU and
-model resources in the shortest time. Agents never name a model server, so a crew does
-not change when the server beneath it does.
+model resources in the shortest time. Beyond the cluster, rented cloud GPUs reached as
+model providers, so a crew can borrow capacity it does not own. Agents never name a
+model server or where it runs, so a crew does not change when the server beneath it
+does.
 
 ## Model choices for the reference crews
 
@@ -45,37 +47,25 @@ comparison runs for permissively licensed alternatives:
 If an alternative does better on the suite than the current reference, the reference
 crews switch to it, and the results will be published.
 
-## The table and the harnesses
+## Harness capabilities at the table
 
-A harness is everything around the model: the guides that steer an agent before it
-acts and the sensors that let it correct itself afterwards, in the sense of Martin
-Fowler's [Harness Engineering](https://martinfowler.com/articles/harness-engineering.html).
-A crew is a harness made of harnesses: each agent has its own loop (prompt, tools,
-retries, memory), and the moot is the harness one level up, whose guides (ADL rules,
-the archetype, skills) and sensors (signals, gap detection, fitness functions) act
-between agents. That shapes what Kubemoot builds and what it does not.
+**Today:** a crew is a harness made of harnesses (see
+[The Table and the Harnesses](../../concepts/the-table-and-the-harnesses/)). Its guides
+are ADL rules, the consent archetype, and skills; its sensors are signals, gap
+detection, and fitness functions. A compute agent runs code it writes in a sandbox for
+counting, sorting, and filtering. In the other direction, an agent harness such as
+Claude Code can already use a whole crew as one tool through the
+[crew liaison](../../integrations/crew-liaison/).
 
-- **Native to the table:** what only a crew can do, or what a moot needs across all its
-  agents. Declared archetypes with a planning phase, budgets and cost accounting across
-  a moot, approval gates for actions, durable crew memory, an evidence and audit trail,
-  and evaluation. These are ours to build.
-- **Native to the runtime, adopted:** the open conventions small local models need to
-  be useful, in the spirit of the tools people already use: skills, memory, and code as
-  action in a sandbox. Adopted as conventions, never as a dependency on a product.
-- **Convened, not built:** everything else in the per-agent harness race. The moot
-  talks to an agent through a thin contract (the question and the role in; a signal,
-  a rationale, and evidence out), so an external harness such as Claude Code, Codex,
-  or OpenHands can sit at the table as one voice, with the crew's own tools, under the
-  user's own license. Kubemoot does not compete with those harnesses; it gives them a
-  table.
-
-What these capabilities should change, stated as hypotheses the fitness harness will
-test before anything is claimed:
+**Direction:** the rest of what a moot needs across its agents: a planning phase for
+multi-step questions, budgets and cost accounting across a discussion, approval gates
+for actions, and an evidence and audit trail. And external harnesses convened as
+voices at the table, not only as clients of it. What these should change, stated as
+hypotheses the fitness harness will test before anything is claimed:
 
 - **Quality.** A planning phase stops multi-step questions being answered from the
   first tool call; an external harness at the table raises the ceiling on hard
-  questions while local agents keep it grounded; code as action moves counting,
-  sorting, and filtering out of a small model's head. Expect fewer "could not be
+  questions while local agents keep it grounded. Expect fewer "could not be
   determined" answers and fewer confident wrong ones.
 - **Speed on subsequent questions.** Durable crew memory skips rediscovery the second
   time a topic comes up; result reuse with a freshness policy turns a repeated question
@@ -130,6 +120,18 @@ an agent's context.
 an index loaded cheaply and detail fetched on relevance, so a crew improves with use
 without its prompts growing.
 
+## Generated work that outlives the discussion
+
+**Today:** artifacts a crew passes between its agents live in the
+[discussion artifact store](../../concepts/discussion-artifact-store/) and are deleted
+with their discussion. What a crew generates for you, a quiz, a report, a design,
+arrives in its answer, and keeping it is up to the client that asked.
+
+**Direction:** generated work retained as a first-class result: stored with its
+provenance (the question, the agents that contributed, the sources they used),
+versioned when a crew revises it, kept under a retention policy set per crew, and
+retrievable later through the liaison, kmctl, or CrewForge.
+
 ## Crews talking to crews
 
 **Today:** crews are isolated by namespace and do not exchange messages; the message
@@ -140,21 +142,30 @@ questions through the same liaison contract a human client uses, and decline
 questions they are not allowed to answer. Per-crew message-bus accounts are the
 security foundation this rests on.
 
+From there, crews compose: a crew delegating a sub-question to another crew, crews
+working the parts of a question in parallel, crews arranged in a hierarchy, and a
+table of crews deliberating as a moot of their own, one more
+[consensus archetype](#consensus-archetypes-declared-not-coded).
+
 ## Crews that act
 
-**Today:** every example crew is read-only. Its tools query systems and documents, and
-its output is a finding or a synthesis; nothing a crew does changes the state of
-anything outside the discussion.
+**Today:** crews answer and generate, but they do not change systems. Their tools
+query systems and documents, and their output is a finding, a synthesis, or new
+material such as a quiz written from a course's reading or a game invented and played
+in chat. Nothing a crew does changes the state of anything outside the discussion.
+That is not a technical limit: an MCP server whose tools write plugs into the same
+gateway as one whose tools read. It is a matter of testing and guardrails, which have
+to come first.
 
-**Direction:** two steps beyond answering. Generative crews, whose deliberation ends
-in an artifact rather than a verdict: a document, a set of exam questions, a design, a
-change proposal, produced and reviewed by the crew and handed back through the same
-doors. And crews that change state: applying a manifest, running a remediation,
-opening a change, with the consent mechanics the protocol already has (concern, block,
-stand aside) extended to actions, an approval gate a human or a policy holds, an audit
-trail of what was done and why, and the fitness harness scoring outcomes rather than
-answers. Similarity-gated auto-remediation, where a crew may act only on a situation
-it has seen resolved before, is the first cautious slice.
+**Direction:** crews that change state: applying a manifest, running a remediation,
+opening a change. The consent mechanics the protocol already has (concern, block,
+stand aside) extend to actions, with an approval gate a human or a policy holds, an
+audit trail of what was done and why, permissions scoped to the change allowed, and
+the fitness harness scoring outcomes rather than answers. Similarity-gated
+auto-remediation, where a crew may act only on a situation it has seen resolved
+before, is the first cautious slice. Generation grows alongside: deliberation that
+ends in a reviewed artifact, a document, a design, or a change proposal, handed back
+through the same doors.
 
 ## Crew skills
 
@@ -162,11 +173,13 @@ it has seen resolved before, is the first cautious slice.
 instructions that the coordinator selects on demand and injects just in time, beside
 the agent's PromptModules and MCP tools.
 
+Code as action exists in its first form too: a compute agent writes short programs and
+runs them in the crew's code sandbox for deterministic work over shared artifacts.
+
 **Direction:** the rest of the convention, in the spirit of Claude Code skills: bundled
-files a skill carries, and a bundled script a skill may run in a sandbox. That last part is the door to code as action: agents that write and
-execute code in a sandbox as a tool, rather than being limited to predefined read-only
-functions. A sandboxed compute member for deterministic work over shared artifacts is
-the first slice.
+files a skill carries, and a bundled script a skill may run in the sandbox, so any
+agent can reach for code as a tool rather than being limited to predefined read-only
+functions.
 
 ## The liaison for every agent harness
 
@@ -204,3 +217,10 @@ backend, and centrally aggregated logs correlated to those traces.
 
 **Direction:** multi-architecture images, so the quickstart and the operator run on
 Apple silicon and arm64 nodes without emulation.
+
+## Suggest a direction
+
+Something missing, or a direction you would take differently? Argue for it in
+[Discussions](https://github.com/orgs/kubemoot/discussions), open an
+[issue](https://github.com/kubemoot/kubemoot/issues), or write to
+**moot@kubemoot.org**. Items on this page move when someone makes the case.

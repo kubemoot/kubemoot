@@ -5,11 +5,11 @@ weight: 1
 
 Kubemoot implements architectural fitness functions as first-class Kubernetes resources. The `CrewFitness` CRD allows operators and crew designers to define, execute, and observe fitness tests against deployed agent crews - declaratively, headlessly, and with automatic cleanup.
 
-This document describes how Kubemoot adapts the fitness function concept from Richards and Ford's *Architecture as Code* to the domain of AI agent crew orchestration.
+This document describes how Kubemoot adapts the fitness function concept from [*Architecture as Code*](https://www.dijure.com/books/architecture-as-code/) (Richards, Ford, and Johnson) to the domain of AI agent crew orchestration.
 
 ## From ADL to Kubernetes
 
-Richards and Ford define an architectural fitness function as "any mechanism that provides an objective integrity check on some architectural characteristic." In Kubemoot, the architectural characteristic under test is the **crew's discussion behavior** - does the crew answer questions correctly, does it stand aside on irrelevant input, does the coordinator synthesize Tooler and Analyst contributions?
+An architectural fitness function is "any mechanism that provides an objective integrity check on some architectural characteristic," as defined in *Building Evolutionary Architectures* (Ford, Parsons, and Kua); *Architecture as Code* (Richards, Ford, and Johnson) builds on the idea. In Kubemoot, the architectural characteristic under test is the **crew's discussion behavior** - does the crew answer questions correctly, does it stand aside on irrelevant input, does the coordinator synthesize Tooler and Analyst contributions?
 
 ADL (Architecture Definition Language) provides the pseudo-code format. Kubemoot makes it executable by:
 
@@ -330,11 +330,11 @@ editor; it does not create, edit, or run `CrewFitness` resources. Fitness tests 
 Kubernetes resources like everything else Kubemoot manages, so they stay reachable from
 any Kubernetes client, `kubectl`, `kmctl`, or CI/CD, whatever authors them.
 
-## Connection to Richards and Ford
+## Connection to the source books
 
-Kubemoot's crew fitness functions are **holistic** fitness functions in the Richards/Ford taxonomy - they test the combined behavior of coordinator, Toolers, Analysts, discussion gateway, NATS messaging, and LLM inference as a single system. They are also **triggered** (run on demand via CR creation) rather than continuous, though nothing prevents scheduling them via a CronJob that creates CrewFitness CRs on a cadence.
+Kubemoot's crew fitness functions are **holistic** fitness functions in the taxonomy of *Building Evolutionary Architectures* (Ford, Parsons, and Kua), which *Architecture as Code* (Richards, Ford, and Johnson) carries forward - they test the combined behavior of coordinator, Toolers, Analysts, discussion gateway, NATS messaging, and LLM inference as a single system. They are also **triggered** (run on demand via CR creation) rather than continuous, though nothing prevents scheduling them via a CronJob that creates CrewFitness CRs on a cadence.
 
-The ADL format is intentionally human-readable and LLM-interpretable. As Richards and Ford note, the pseudo-code declaration is the "source of truth about the architecture" - the fitness runner translates it into concrete HTTP assertions. The same ADL test file could be translated by an LLM into a different test framework if needed, maintaining the cross-platform portability that ADL was designed for.
+The ADL format is intentionally human-readable and LLM-interpretable. As *Architecture as Code* notes, the pseudo-code declaration is the "source of truth about the architecture" - the fitness runner translates it into concrete HTTP assertions. The same ADL test file could be translated by an LLM into a different test framework if needed, maintaining the cross-platform portability that ADL was designed for.
 
 > "Placing a governance rule that specifies intent avoids the need for documentation that no one will read with active code that reveals intent and known limitations."
 > - *Architecture as Code*, Chapter 1
