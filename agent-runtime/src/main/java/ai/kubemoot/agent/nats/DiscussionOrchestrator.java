@@ -265,6 +265,10 @@ public class DiscussionOrchestrator {
     // mounted - the grounding source for reasoning-based subcommittee selection.
     private static final String CREW_RESUMES_KV_BUCKET = "kubemoot_crew_resumes";
     private volatile String crewResumesCache;
+    // Where the cached catalog came from: a mounted file is read once; a KV catalog is
+    // re-checked by revision at each discussion so an added agent or skill is seen.
+    private volatile boolean crewResumesFromFile;
+    private volatile long crewResumesRevision = -1;
     private List<String> knownAgentNames = new CopyOnWriteArrayList<>();
     private List<String> knownSkillNames = new CopyOnWriteArrayList<>();
 
@@ -3178,50 +3182,69 @@ public class DiscussionOrchestrator {
      * Load crew resumes from ConfigMap-mounted file.
      * Cached after first successful read. Also extracts known agent names for validation.
      */
-    private String loadCrewResumes() {
-        if (crewResumesCache != null) return crewResumesCache;
+    String loadCrewResumes() {
+        if (crewResumesCache != null && crewResumesFromFile) return crewResumesCache;
+        if (crewResumesCache == null) {
+            String fromFile = readCrewResumesFile();
+            if (fromFile != null) {
+                extractAgentNamesFromResumes(fromFile);
+                crewResumesFromFile = true;
+                crewResumesCache = fromFile;
+                return crewResumesCache;
+            }
+        }
+        return loadCrewResumesFromKv();
+    }
 
-        // 1. Mounted file, if present (legacy/optional).
+    /** The mounted crew resumes file (legacy/optional), or null when absent. */
+    private String readCrewResumesFile() {
         try {
             var path = Path.of(crewResumesPath);
             if (Files.exists(path)) {
-                String raw = Files.readString(path);
-                extractAgentNamesFromResumes(raw);
-                crewResumesCache = raw;
-                return crewResumesCache;
+                return Files.readString(path);
             }
         } catch (IOException e) {
             log.warn("Failed to read crew resumes file {}: {}", crewResumesPath, e.getMessage());
         }
+        return null;
+    }
 
-        // 2. NATS KV capability catalog (operator-maintained), key = <namespace>.<crew>.
-        // This is the grounding source for reasoning-based selection when no file
-        // is mounted (the common case). Returns the RAW full catalog; the reasoning
-        // path compacts it via compactCatalog().
+    /**
+     * The NATS KV capability catalog (operator-maintained), key = <namespace>.<crew>:
+     * the grounding source for reasoning-based selection when no file is mounted (the
+     * common case). Returns the RAW full catalog; the reasoning path compacts it via
+     * compactCatalog(). The entry's revision is checked on every call and the catalog
+     * reloaded only when it changed; a failed or empty read keeps the last known one.
+     */
+    private String loadCrewResumesFromKv() {
         String crew = properties.crew().orElse(null);
         if (crew == null || crew.isEmpty()) {
             log.debug("No crew configured; cannot load capability catalog from KV");
-            return null;
+            return crewResumesCache;
         }
         try {
             var conn = natsProvider.getConnection();
-            if (conn != null) {
-                var entry = conn.keyValue(CREW_RESUMES_KV_BUCKET).get(natsProvider.scope().resumesKey());
-                if (entry != null && entry.getValue() != null) {
-                    String raw = new String(entry.getValue(), java.nio.charset.StandardCharsets.UTF_8);
-                    extractAgentNamesFromResumes(raw);
-                    crewResumesCache = raw;
-                    log.info("Loaded crew capability catalog for '{}' from NATS KV ({} agents)",
-                            crew, knownAgentNames.size());
-                    return crewResumesCache;
-                }
-                log.info("Crew capability catalog for '{}' not found in KV bucket {}",
-                        crew, CREW_RESUMES_KV_BUCKET);
+            if (conn == null) return crewResumesCache;
+            var entry = conn.keyValue(CREW_RESUMES_KV_BUCKET).get(natsProvider.scope().resumesKey());
+            if (entry == null || entry.getValue() == null) {
+                log.info("Crew capability catalog for '{}' not found in KV bucket {}", crew, CREW_RESUMES_KV_BUCKET);
+                return crewResumesCache;
             }
+            if (crewResumesCache != null && entry.getRevision() == crewResumesRevision) {
+                return crewResumesCache;
+            }
+            String raw = new String(entry.getValue(), java.nio.charset.StandardCharsets.UTF_8);
+            extractAgentNamesFromResumes(raw);
+            boolean reload = crewResumesCache != null;
+            crewResumesCache = raw;
+            crewResumesRevision = entry.getRevision();
+            log.info("{} crew capability catalog for '{}' from NATS KV ({} agents, revision {})",
+                    reload ? "Reloaded" : "Loaded", crew, knownAgentNames.size(), crewResumesRevision);
+            return crewResumesCache;
         } catch (Exception e) {
             log.warn("Failed to load crew capability catalog for '{}' from KV: {}", crew, e.getMessage());
+            return crewResumesCache;
         }
-        return null;
     }
 
     /**
