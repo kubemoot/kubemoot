@@ -24,6 +24,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"regexp"
 	"strings"
 	"time"
@@ -300,6 +301,9 @@ func RunFitnessTest(ctx context.Context, ft FitnessTest, endpoint string, maxDur
 	// Step 3: Evaluate assertions
 	synthesis := findSynthesis(events)
 	results := evaluateAssertions(ft.Assertions, postOK, events, synthesis, timedOut)
+	if os.Getenv("TRANSCRIPT_KEY") == "" {
+		labelUnjudged(ft.Assertions, results)
+	}
 
 	// A run is "answered" when the discussion both started (postOK) and reached a
 	// clean conclusion: a 'done' event. 'done' is the unambiguous completion
@@ -391,6 +395,18 @@ func evaluateAssertions(assertions []Assertion, postOK bool, events []SignalEven
 	return results
 }
 
+// labelUnjudged rewrites the message of each deferred assertion in a run that is
+// not part of a CrewFitnessSuite. Only a suite runs the judge, so a standalone run's
+// quality is never scored, and the message says so instead of reading as a pass.
+func labelUnjudged(assertions []Assertion, results []AssertionResult) {
+	for i := range results {
+		if i < len(assertions) && assertions[i].Kind == KindDeferred {
+			results[i].Message = fmt.Sprintf("DEFER %s - not scored: quality is judged only when "+
+				"this scenario runs in a CrewFitnessSuite", assertions[i].Keyword)
+		}
+	}
+}
+
 func evaluateAssertion(a Assertion, postOK bool, events []SignalEvent, synthesis string, timedOut bool) AssertionResult {
 	switch a.Kind {
 	case KindPostReturns200:
@@ -420,7 +436,7 @@ func evaluateAssertion(a Assertion, postOK bool, events []SignalEvent, synthesis
 		return AssertionResult{
 			Raw:     a.Raw,
 			Passed:  true,
-			Message: fmt.Sprintf("DEFER %s — deferred to post-suite judge crew", a.Keyword),
+			Message: fmt.Sprintf("DEFER %s - deferred to post-suite judge crew", a.Keyword),
 		}
 	default:
 		return AssertionResult{
