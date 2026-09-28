@@ -33,10 +33,10 @@ var dns1123Label = regexp.MustCompile(`^[a-z0-9]([-a-z0-9]*[a-z0-9])?$`)
 
 func TestBoundedName(t *testing.T) {
 	// The real crew names that triggered the bug: ADL fits, prose does not.
-	adlK8s := "crew-homelab-pilot-homelab-pilot-crew-kubernetes-mcp"             // 52
-	adlLegacy := "crew-homelab-pilot-homelab-pilot-crew-kubernetes-legacy-mcp"   // 59
-	proseK8s := "crew-homelab-pilot-prose-homelab-pilot-crew-prose-kubernetes-mcp"            // 64
-	proseLegacy := "crew-homelab-pilot-prose-homelab-pilot-crew-prose-kubernetes-legacy-mcp"  // 71
+	adlK8s := "crew-homelab-pilot-homelab-pilot-crew-kubernetes-mcp"                         // 52
+	adlLegacy := "crew-homelab-pilot-homelab-pilot-crew-kubernetes-legacy-mcp"               // 59
+	proseK8s := "crew-homelab-pilot-prose-homelab-pilot-crew-prose-kubernetes-mcp"           // 64
+	proseLegacy := "crew-homelab-pilot-prose-homelab-pilot-crew-prose-kubernetes-legacy-mcp" // 71
 
 	// Names within the limit pass through unchanged (no disruption to existing deployments).
 	for _, n := range []string{"", "short", "k8sgpt-mcp", adlK8s, adlLegacy} {
@@ -519,4 +519,3 @@ func TestBuildUserSidecars_SharesEmptyDir(t *testing.T) {
 		t.Fatalf("expected empty-vol-0 at /artifacts, got %+v", vm)
 	}
 }
-

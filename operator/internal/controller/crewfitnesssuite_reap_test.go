@@ -47,7 +47,7 @@ func TestReapChildrenDeletesOnlyOwnedChildren(t *testing.T) {
 	scheme := reapScheme(t)
 	ours1 := childCR("run-abc-s0-i1", "baseline")
 	ours2 := childCR("run-abc-s0-i2", "baseline")
-	other := childCR("run-xyz-s0-i1", "other-suite")    // different suite
+	other := childCR("run-xyz-s0-i1", "other-suite")                     // different suite
 	bare := &kubemootv1alpha1.CrewFitness{ObjectMeta: metav1.ObjectMeta{ // no suite label
 		Name: "standalone", Namespace: "crew-test"}}
 

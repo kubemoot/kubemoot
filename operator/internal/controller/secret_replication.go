@@ -48,8 +48,8 @@ func replicateSecretFrom(ctx context.Context, c client.Client, secretName, sourc
 			Name:      secretName,
 			Namespace: targetNamespace,
 			Labels: map[string]string{
-				labelManagedBy: managedByValue,
-				"kubemoot.ai/replicated-from":  sourceNamespace,
+				labelManagedBy:                managedByValue,
+				"kubemoot.ai/replicated-from": sourceNamespace,
 			},
 		},
 		Type: source.Type,

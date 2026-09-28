@@ -107,10 +107,10 @@ func TestTallyPanel_Majority(t *testing.T) {
 		votes []pairwiseVote
 		want  pairwiseVote
 	}{
-		{[]pairwiseVote{voteA, voteA, voteA}, voteA},   // 3-0
-		{[]pairwiseVote{voteA, voteA, voteB}, voteA},   // 2-1
-		{[]pairwiseVote{voteB, voteB, voteTie}, voteB}, // 2-1 with a tie vote
-		{[]pairwiseVote{voteA, voteB, voteTie}, voteTie}, // 1-1-1 -> no majority
+		{[]pairwiseVote{voteA, voteA, voteA}, voteA},       // 3-0
+		{[]pairwiseVote{voteA, voteA, voteB}, voteA},       // 2-1
+		{[]pairwiseVote{voteB, voteB, voteTie}, voteB},     // 2-1 with a tie vote
+		{[]pairwiseVote{voteA, voteB, voteTie}, voteTie},   // 1-1-1 -> no majority
 		{[]pairwiseVote{voteTie, voteTie, voteA}, voteTie}, // tie plurality -> tie
 		{[]pairwiseVote{voteA, voteB}, voteTie},            // 1-1 even split
 	}
