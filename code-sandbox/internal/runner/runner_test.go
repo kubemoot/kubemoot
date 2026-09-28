@@ -173,3 +173,19 @@ func TestCappedBufferUnlimited(t *testing.T) {
 		t.Fatalf("got %d %q %v", n, b.String(), b.truncated)
 	}
 }
+
+func TestEnvironmentPassesOnlyWhatProgramsNeed(t *testing.T) {
+	t.Setenv("LD_LIBRARY_PATH", "/opt/python/lib")
+	t.Setenv("SECRET_TOKEN", "do-not-leak")
+	env := strings.Join(environment("/tmp/run"), "\n")
+	if !strings.Contains(env, "LD_LIBRARY_PATH=/opt/python/lib") || !strings.Contains(env, "HOME=/tmp/run") {
+		t.Fatalf("missing expected variables:\n%s", env)
+	}
+	if strings.Contains(env, "SECRET_TOKEN") {
+		t.Fatalf("an unrelated variable leaked into the program environment:\n%s", env)
+	}
+	t.Setenv("LD_LIBRARY_PATH", "")
+	if strings.Contains(strings.Join(environment("/tmp/run"), "\n"), "LD_LIBRARY_PATH") {
+		t.Fatal("an empty LD_LIBRARY_PATH should not be passed")
+	}
+}

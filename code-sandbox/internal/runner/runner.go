@@ -160,13 +160,18 @@ func environment(home string) []string {
 	if path == "" {
 		path = "/usr/local/bin:/usr/bin:/bin"
 	}
-	return []string{
+	env := []string{
 		"PATH=" + path,
 		"HOME=" + home,
 		"LANG=C.UTF-8",
 		"PYTHONDONTWRITEBYTECODE=1",
 		"PYTHONUNBUFFERED=1",
 	}
+	// An interpreter built as a shared library finds libpython through this.
+	if libs := os.Getenv("LD_LIBRARY_PATH"); libs != "" {
+		env = append(env, "LD_LIBRARY_PATH="+libs)
+	}
+	return env
 }
 
 // cappedBuffer keeps the first max bytes written and notes that more arrived.
