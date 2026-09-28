@@ -76,10 +76,11 @@ type Bridge struct {
 	pipeMu sync.Mutex
 	stdin  io.WriteCloser
 
-	// SSE clients
+	// SSE clients by session id, and the routing of replies back to them
 	clientMu sync.Mutex
-	clients  map[chan []byte]struct{}
+	clients  map[string]chan []byte
 	msgID    atomic.Int64
+	router   *router
 }
 
 // New creates a new Bridge instance.
@@ -88,34 +89,19 @@ func New(pipeDir string, port int, healthPath string) *Bridge {
 		pipeDir:    pipeDir,
 		port:       port,
 		healthPath: healthPath,
-		clients:    make(map[chan []byte]struct{}),
+		clients:    make(map[string]chan []byte),
+		router:     newRouter(),
 	}
 }
 
 // Run copies the bridge binary to the pipe dir (for exec mode), creates FIFOs,
 // starts the HTTP server, and loops reconnecting to pipes. Blocks until context is cancelled.
 func (b *Bridge) Run(ctx context.Context) error {
-	// Copy bridge binary to pipe dir so the main container can use exec mode
-	// This eliminates the need for `sh` in the MCP server image
-	if selfPath, err := os.Executable(); err == nil {
-		dst := filepath.Join(b.pipeDir, filepath.Base(selfPath))
-		if err := installFile(selfPath, dst); err != nil {
-			return fmt.Errorf("copy bridge binary to pipe dir: %w", err)
-		}
-		log.Printf("Copied bridge binary to %s", dst)
+	if err := b.installSelf(); err != nil {
+		return err
 	}
-
-	stdinPath := filepath.Join(b.pipeDir, "stdin")
-	stdoutPath := filepath.Join(b.pipeDir, "stdout")
-
-	// Create FIFOs with world read/write permissions (ignore EEXIST on sidecar restart)
-	for _, p := range []string{stdinPath, stdoutPath} {
-		if err := syscall.Mkfifo(p, 0666); err != nil && !os.IsExist(err) {
-			return fmt.Errorf("mkfifo %s: %w", p, err)
-		}
-		if err := os.Chmod(p, 0666); err != nil {
-			return fmt.Errorf("chmod %s: %w", p, err)
-		}
+	if err := b.makePipes(); err != nil {
+		return err
 	}
 
 	// Start HTTP server
@@ -162,6 +148,36 @@ func (b *Bridge) Run(ctx context.Context) error {
 		}
 		b.connected.Store(false)
 	}
+}
+
+// installSelf copies the bridge binary into the pipe dir so the main container can
+// run it in exec mode, which removes the need for `sh` in the MCP server image.
+func (b *Bridge) installSelf() error {
+	selfPath, err := os.Executable()
+	if err != nil {
+		return nil
+	}
+	dst := filepath.Join(b.pipeDir, filepath.Base(selfPath))
+	if err := installFile(selfPath, dst); err != nil {
+		return fmt.Errorf("copy bridge binary to pipe dir: %w", err)
+	}
+	log.Printf("Copied bridge binary to %s", dst)
+	return nil
+}
+
+// makePipes creates the stdin and stdout FIFOs with world read/write permissions,
+// accepting ones left by a previous start of the sidecar.
+func (b *Bridge) makePipes() error {
+	for _, name := range []string{"stdin", "stdout"} {
+		p := filepath.Join(b.pipeDir, name)
+		if err := syscall.Mkfifo(p, 0666); err != nil && !os.IsExist(err) {
+			return fmt.Errorf("mkfifo %s: %w", p, err)
+		}
+		if err := os.Chmod(p, 0666); err != nil {
+			return fmt.Errorf("chmod %s: %w", p, err)
+		}
+	}
+	return nil
 }
 
 // pipeSession opens the FIFOs (blocking until the MCP server connects),
@@ -284,9 +300,8 @@ func (b *Bridge) readStdoutPipe(r io.Reader, maxBytes int) error {
 		// Best-effort: parse failures fall through to broadcast normally.
 		b.maybeMarkInitialized(line)
 
-		data := make([]byte, len(line))
-		copy(data, line)
-		b.broadcast(data)
+		session, data := b.router.inbound(line)
+		b.deliver(session, append([]byte(nil), data...))
 	}
 
 	if err := scanner.Err(); err != nil {
@@ -302,16 +317,28 @@ func (b *Bridge) readStdoutPipe(r io.Reader, maxBytes int) error {
 	return nil
 }
 
-func (b *Bridge) broadcast(data []byte) {
+// deliver sends a message to one session, or to every session when session is
+// empty. A reply whose session has disconnected is dropped.
+func (b *Bridge) deliver(session string, data []byte) {
 	b.clientMu.Lock()
 	defer b.clientMu.Unlock()
 
-	for ch := range b.clients {
-		select {
-		case ch <- data:
-		default:
-			log.Printf("Dropping message for slow SSE client")
+	if session != "" {
+		if ch, ok := b.clients[session]; ok {
+			send(ch, data)
 		}
+		return
+	}
+	for _, ch := range b.clients {
+		send(ch, data)
+	}
+}
+
+func send(ch chan []byte, data []byte) {
+	select {
+	case ch <- data:
+	default:
+		log.Printf("Dropping message for slow SSE client")
 	}
 }
 
@@ -340,13 +367,14 @@ func (b *Bridge) handleSSE(w http.ResponseWriter, r *http.Request) {
 
 	ch := make(chan []byte, 64)
 	b.clientMu.Lock()
-	b.clients[ch] = struct{}{}
+	b.clients[sessionID] = ch
 	b.clientMu.Unlock()
 
 	defer func() {
 		b.clientMu.Lock()
-		delete(b.clients, ch)
+		delete(b.clients, sessionID)
 		b.clientMu.Unlock()
+		b.router.forget(sessionID)
 	}()
 
 	ctx := r.Context()
@@ -393,9 +421,10 @@ func (b *Bridge) handleMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Track outgoing `initialize` requests so the response handler in
-	// readStdoutPipe can match them and flip `initialized`. Best-effort;
-	// parse failures fall through to normal forwarding.
+	// Give a request an id unique across sessions so its reply returns to this
+	// session only; then track outgoing `initialize` requests (by that id) so
+	// readStdoutPipe can match the response and flip `initialized`.
+	body = b.router.outbound(r.URL.Query().Get("sessionId"), body)
 	b.trackOutgoingInitialize(body)
 
 	b.pipeMu.Lock()

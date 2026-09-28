@@ -41,7 +41,18 @@ kubemoot-mcp-bridge --port 8080 --healthz /healthz --pipe-dir /pipes
 ```
 
 On startup, the bridge copies itself to the pipe directory (`/pipes/kubemoot-mcp-bridge`)
-so the main container can use exec mode.
+so the main container can use exec mode. The copy is written to a temporary file and
+renamed into place, so a restarted sidecar can replace it while the main container is
+executing the previous copy.
+
+### Several sessions, one server
+
+Every SSE client gets its own `sessionId`, and several clients (for example the
+gateways of several crews) can share one stdio server. The bridge gives each request
+it forwards an id unique within the bridge and sends the server's reply only to the
+session that asked, with the client's own id restored, so two sessions that both send
+id 1 each receive their own answer. Notifications and requests from the server go to
+every session.
 
 ### Exec Mode
 

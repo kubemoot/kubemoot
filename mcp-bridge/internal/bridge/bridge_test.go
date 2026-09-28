@@ -94,7 +94,7 @@ func TestReadStdoutPipe_NormalMessages(t *testing.T) {
 
 	ch := make(chan []byte, 64)
 	b.clientMu.Lock()
-	b.clients[ch] = struct{}{}
+	b.clients["test"] = ch
 	b.clientMu.Unlock()
 
 	input := `{"jsonrpc":"2.0","id":1,"result":"ok"}` + "\n" +
@@ -123,7 +123,7 @@ func TestReadStdoutPipe_SkipsEmptyAndNonJSON(t *testing.T) {
 
 	ch := make(chan []byte, 64)
 	b.clientMu.Lock()
-	b.clients[ch] = struct{}{}
+	b.clients["test"] = ch
 	b.clientMu.Unlock()
 
 	input := "\n" + "not json\n" + `{"id":1}` + "\n"
@@ -149,7 +149,7 @@ func TestReadStdoutPipe_OversizedMessageRecovery(t *testing.T) {
 
 	ch := make(chan []byte, 64)
 	b.clientMu.Lock()
-	b.clients[ch] = struct{}{}
+	b.clients["test"] = ch
 	b.clientMu.Unlock()
 
 	// readStdoutPipe initialises bufio.Scanner with `Buffer(make([]byte, 64*1024), maxBytes)`.
