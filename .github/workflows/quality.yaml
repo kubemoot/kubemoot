@@ -33,6 +33,7 @@ jobs:
             fitness-runner/go.sum
             discussion-gateway/go.sum
             artifact-access/go.sum
+            code-sandbox/go.sum
 
       - name: Install build tools
         run: |
@@ -60,6 +61,16 @@ jobs:
 
       - name: Artifact Access tests with coverage
         working-directory: artifact-access
+        run: go test -coverprofile=cover.out ./...
+        continue-on-error: true
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Code Sandbox tests with coverage
+        working-directory: code-sandbox
         run: go test -coverprofile=cover.out ./...
         continue-on-error: true
 
