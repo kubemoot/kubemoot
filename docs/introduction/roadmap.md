@@ -22,6 +22,29 @@ such as vLLM, llama.cpp, and llm-d, in the interest of giving crews the best GPU
 model resources in the shortest time. Agents never name a model server, so a crew does
 not change when the server beneath it does.
 
+## Model choices for the reference crews
+
+**Today:** the reference crews run open-weight Qwen3 models served by Ollama: an
+8B-class model for specialists and triage on a 24 GB GPU, and a 32B model for
+coordination and synthesis on a 32 GB GPU. Kubemoot itself is model-agnostic: an agent
+declares a capability, and the scheduler matches it to a Model resource, so no agent
+spec names a model, and changing models is a change to Model resources, not to crews.
+Any model Ollama serves with tool calling can be used. Qwen was chosen for the
+reference crews for strong tool calling at sizes that fit 24 GB and 32 GB consumer
+GPUs, and its Apache 2.0 license.
+
+**Direction:** the reference crews are moving to newer Qwen generations: Qwen3.5 9B for
+specialists, Qwen3.8 27B for coordination. Each candidate is compared on the crews' own
+fitness suite against the current reference, not chosen from leaderboards. The same
+comparison runs for permissively licensed alternatives:
+
+- Gemma 4 (Google, Apache 2.0)
+- Muse Glimmer 30B (Meta, Apache 2.0)
+- GLM-4.7-Flash (Z.ai, MIT)
+
+If an alternative does better on the suite than the current reference, the reference
+crews switch to it, and the results will be published.
+
 ## The table and the harnesses
 
 A harness is everything around the model: the guides that steer an agent before it
