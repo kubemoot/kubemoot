@@ -1049,10 +1049,11 @@ func (r *AgentReconciler) agentDiscussRoleEnvVars(ctx context.Context, agent *ku
 		if r.crewHasAnalysts(ctx, agent.Namespace) {
 			env = append(env, corev1.EnvVar{Name: "KUBEMOOT_DISCUSS_HAS_ANALYSTS", Value: "true"})
 		}
-	} else if agent.Spec.DiscussRole == "researcher" {
-		// Researchers contribute advisory inputs but are excluded from settle triggers.
-		env = append(env, corev1.EnvVar{Name: "KUBEMOOT_DISCUSS_TOOLER", Value: "false"})
 	}
+	// A researcher keeps its discussion subscriber, like a tooler: when the
+	// coordinator convenes it, it answers, and its signals carry role=researcher,
+	// which the coordinator folds into the synthesis without counting them toward
+	// settling. Disabling the subscriber left a convened researcher silent.
 	// DiscussChannels feeds the orchestrator/subscriber's NATS subscription set.
 	if len(agent.Spec.DiscussChannels) > 0 {
 		env = append(env, corev1.EnvVar{Name: "KUBEMOOT_DISCUSS_CHANNELS", Value: strings.Join(agent.Spec.DiscussChannels, ",")})
