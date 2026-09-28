@@ -390,6 +390,11 @@ func buildRunnerEnv(cf *kubemootv1alpha1.CrewFitness, endpoint, testKey, jobName
 	}
 	suite := cf.Labels[suiteOwnerLabel]
 	runID := cf.Labels[suiteRunIDLabel]
+	if suite != "" {
+		// Tells the runner its deferred assertions will be judged after the suite,
+		// independent of whether a transcript can be captured.
+		env = append(env, corev1.EnvVar{Name: "CREWFITNESS_SUITE", Value: suite})
+	}
 	natsURL := os.Getenv("NATS_URL")
 	if suite != "" && runID != "" && natsURL != "" {
 		key := fmt.Sprintf("%s/%s/%s/s%s-i%s.json",

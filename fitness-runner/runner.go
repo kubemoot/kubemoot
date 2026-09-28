@@ -301,7 +301,7 @@ func RunFitnessTest(ctx context.Context, ft FitnessTest, endpoint string, maxDur
 	// Step 3: Evaluate assertions
 	synthesis := findSynthesis(events)
 	results := evaluateAssertions(ft.Assertions, postOK, events, synthesis, timedOut)
-	if os.Getenv("TRANSCRIPT_KEY") == "" {
+	if os.Getenv("CREWFITNESS_SUITE") == "" {
 		labelUnjudged(ft.Assertions, results)
 	}
 

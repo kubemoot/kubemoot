@@ -72,6 +72,9 @@ func TestBuildRunnerEnv_StandaloneSkipsTranscript(t *testing.T) {
 	if _, ok := m["TRANSCRIPT_KEY"]; ok {
 		t.Errorf("standalone CrewFitness should NOT get TRANSCRIPT_KEY: %+v", m)
 	}
+	if _, ok := m["CREWFITNESS_SUITE"]; ok {
+		t.Errorf("standalone CrewFitness is not in a suite: %+v", m)
+	}
 }
 
 func TestBuildRunnerEnv_NoNatsUrlSkipsTranscript(t *testing.T) {
@@ -85,5 +88,8 @@ func TestBuildRunnerEnv_NoNatsUrlSkipsTranscript(t *testing.T) {
 	m := toMap(buildRunnerEnv(suiteChild, "http://gw", "t.adl", "j"))
 	if _, ok := m["TRANSCRIPT_KEY"]; ok {
 		t.Errorf("no NATS_URL → no transcript coords: %+v", m)
+	}
+	if m["CREWFITNESS_SUITE"] != "s" {
+		t.Errorf("a suite child is marked as one even without NATS: %+v", m)
 	}
 }
