@@ -49,5 +49,15 @@ echo "${HARBOR_PASSWORD}" | crane auth login --insecure "${source_host}" -u "${H
 echo "${GHCR_TOKEN}" | crane auth login "${registry_host}" -u "${GHCR_USERNAME}" --password-stdin
 
 # --insecure lets crane read the plain-HTTP Harbor source; the release target is HTTPS.
-crane copy --insecure "${source_ref}" "${target}"
-echo "Published ${target}"
+# GHCR's token endpoint fails transiently now and then ("stopped after 10 redirects");
+# a few spaced attempts ride that out instead of failing the release.
+for attempt in 1 2 3; do
+  if crane copy --insecure "${source_ref}" "${target}"; then
+    echo "Published ${target}"
+    exit 0
+  fi
+  echo "Publish attempt ${attempt} failed; retrying" >&2
+  sleep $((attempt * 20))
+done
+echo "Publishing ${target} failed after 3 attempts" >&2
+exit 1
