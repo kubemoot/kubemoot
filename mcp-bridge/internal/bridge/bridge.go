@@ -37,11 +37,11 @@ func generateSessionID() string {
 // The bridge exposes three HTTP probes that gate Kubernetes lifecycle:
 //
 //   - /healthz       — bridge process alive AND pipes connected to MCP
-//                      (liveness probe target — restart on failure)
+//     (liveness probe target — restart on failure)
 //   - /readyz        — MCP server has completed its initialize handshake
-//                      and is accepting tool calls (readiness probe target —
-//                      gates Service routing) + startupProbe target for the
-//                      long cold-start init window
+//     and is accepting tool calls (readiness probe target —
+//     gates Service routing) + startupProbe target for the
+//     long cold-start init window
 //
 // The init-handshake gate matters because stdio MCP servers (e.g. FastMCP)
 // open their stdin/stdout pipes EARLY in startup — well before they've
@@ -99,7 +99,7 @@ func (b *Bridge) Run(ctx context.Context) error {
 	// This eliminates the need for `sh` in the MCP server image
 	if selfPath, err := os.Executable(); err == nil {
 		dst := filepath.Join(b.pipeDir, filepath.Base(selfPath))
-		if err := copyFile(selfPath, dst); err != nil {
+		if err := installFile(selfPath, dst); err != nil {
 			return fmt.Errorf("copy bridge binary to pipe dir: %w", err)
 		}
 		log.Printf("Copied bridge binary to %s", dst)
@@ -138,7 +138,7 @@ func (b *Bridge) Run(ctx context.Context) error {
 
 	go func() {
 		<-ctx.Done()
-		server.Close()
+		_ = server.Close()
 	}()
 
 	go func() {
@@ -208,8 +208,8 @@ func (b *Bridge) pipeSession(ctx context.Context) error {
 		}
 	}
 
-	defer stdoutFile.Close()
-	defer stdinFile.Close()
+	defer func() { _ = stdoutFile.Close() }()
+	defer func() { _ = stdinFile.Close() }()
 
 	b.pipeMu.Lock()
 	b.stdin = stdinFile
@@ -335,7 +335,7 @@ func (b *Bridge) handleSSE(w http.ResponseWriter, r *http.Request) {
 
 	// Send endpoint event with session ID so MCP clients know where to POST messages
 	sessionID := generateSessionID()
-	fmt.Fprintf(w, "event: endpoint\ndata: /message?sessionId=%s\n\n", sessionID)
+	_, _ = fmt.Fprintf(w, "event: endpoint\ndata: /message?sessionId=%s\n\n", sessionID)
 	flusher.Flush()
 
 	ch := make(chan []byte, 64)
@@ -356,7 +356,7 @@ func (b *Bridge) handleSSE(w http.ResponseWriter, r *http.Request) {
 			return
 		case data := <-ch:
 			id := b.msgID.Add(1)
-			fmt.Fprintf(w, "id: %d\nevent: message\ndata: %s\n\n", id, data)
+			_, _ = fmt.Fprintf(w, "id: %d\nevent: message\ndata: %s\n\n", id, data)
 			flusher.Flush()
 		}
 	}
@@ -426,10 +426,10 @@ func (b *Bridge) handleHealth(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set(headerContentType, "application/json")
 	if b.connected.Load() {
 		w.WriteHeader(http.StatusOK)
-		fmt.Fprintf(w, `{"status":"ok"}`)
+		_, _ = fmt.Fprint(w, `{"status":"ok"}`)
 	} else {
 		w.WriteHeader(http.StatusServiceUnavailable)
-		fmt.Fprintf(w, `{"status":"waiting for MCP server"}`)
+		_, _ = fmt.Fprintf(w, `{"status":"waiting for MCP server"}`)
 	}
 }
 
@@ -447,14 +447,14 @@ func (b *Bridge) handleReady(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set(headerContentType, "application/json")
 	if b.connected.Load() && b.initialized.Load() {
 		w.WriteHeader(http.StatusOK)
-		fmt.Fprintf(w, `{"status":"ready"}`)
+		_, _ = fmt.Fprintf(w, `{"status":"ready"}`)
 		return
 	}
 	w.WriteHeader(http.StatusServiceUnavailable)
 	if !b.connected.Load() {
-		fmt.Fprintf(w, `{"status":"waiting for MCP server"}`)
+		_, _ = fmt.Fprintf(w, `{"status":"waiting for MCP server"}`)
 	} else {
-		fmt.Fprintf(w, `{"status":"waiting for MCP initialize handshake"}`)
+		_, _ = fmt.Fprintf(w, `{"status":"waiting for MCP initialize handshake"}`)
 	}
 }
 
@@ -577,19 +577,33 @@ func (b *Bridge) sendBridgeInitializedNotification() {
 	log.Printf("Bridge handshake complete (sent notifications/initialized)")
 }
 
-func copyFile(src, dst string) error {
+// installFile puts a copy of src at dst by writing a temporary file in dst's
+// directory and renaming it over dst. The rename replaces the directory entry,
+// so it succeeds even while another process is executing the old dst: after a
+// sidecar restart the main container is running the binary installed by the
+// previous start, and writing into that file in place fails with ETXTBSY.
+func installFile(src, dst string) error {
 	in, err := os.Open(src)
 	if err != nil {
 		return err
 	}
-	defer in.Close()
+	defer func() { _ = in.Close() }()
 
-	out, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0755)
+	tmp, err := os.CreateTemp(filepath.Dir(dst), "."+filepath.Base(dst)+".tmp-")
 	if err != nil {
 		return err
 	}
-	defer out.Close()
+	defer func() { _ = os.Remove(tmp.Name()) }() // no-op once the rename has succeeded
 
-	_, err = io.Copy(out, in)
-	return err
+	if _, err := io.Copy(tmp, in); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	if err := os.Chmod(tmp.Name(), 0755); err != nil {
+		return err
+	}
+	return os.Rename(tmp.Name(), dst)
 }
