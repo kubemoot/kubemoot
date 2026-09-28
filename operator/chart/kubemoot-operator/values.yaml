@@ -223,10 +223,13 @@ internalAgents:
 nats:
   enabled: true
   url: "nats://nats.nats.svc.cluster.local:4222"
-  # MCPServer that lets agents inspect NATS (cnadb/mcp-nats via mcp-bridge). Off for a
-  # minimal install; the operator needs only the server above.
+  # MCPServer that lets agents inspect NATS (sinadarbouy/mcp-nats, Apache-2.0, via
+  # mcp-bridge). Off for a minimal install; the operator needs only the server above.
+  # A crew's gateway selects servers in its own namespace, so a crew that should use
+  # it needs its own MCPServer; this one serves agents in the operator's namespace.
   mcpServer:
     enabled: false   # an MCPServer that lets agents inspect NATS; opt in per cluster
+    image: ghcr.io/sinadarbouy/mcp-nats:0.1.4
 
 # Scale-to-zero configuration for KEDA-based agent autoscaling
 scaleToZero:

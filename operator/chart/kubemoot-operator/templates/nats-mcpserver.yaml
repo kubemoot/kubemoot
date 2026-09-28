@@ -8,9 +8,10 @@ metadata:
     {{- include "kubemoot-operator.labels" . | nindent 4 }}
     kubemoot.ai/internal: "true"
 spec:
-  image: cnadb/mcp-nats:latest
+  image: {{ .Values.nats.mcpServer.image | quote }}
   transport: stdio
-  command: ["/app/mcp-nats"]
+  # The image's entrypoint serves SSE; the bridge speaks stdio to it.
+  command: ["/app/mcp-nats", "--transport", "stdio"]
   env:
     - name: NATS_URL
       value: {{ .Values.nats.url | default "nats://nats.nats.svc.cluster.local:4222" | quote }}
