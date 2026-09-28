@@ -52,7 +52,7 @@ func TestModelBindingChangedPredicate(t *testing.T) {
 	if change(func(*kubemootv1alpha1.Model) {}) {
 		t.Error("an update that changes nothing relevant must not enqueue")
 	}
-	if !change(func(m *kubemootv1alpha1.Model) { m.Status.Ready = true; m.Status.State = "Available" }) {
+	if !change(func(m *kubemootv1alpha1.Model) { m.Status.Ready = true }) {
 		t.Error("a model becoming usable must enqueue")
 	}
 	if !change(func(m *kubemootv1alpha1.Model) { m.Labels["latencyClass"] = "high" }) {
@@ -66,6 +66,14 @@ func TestModelBindingChangedPredicate(t *testing.T) {
 	}
 	if change(func(m *kubemootv1alpha1.Model) { m.Status.Endpoint = "http://x" }) {
 		t.Error("status noise must not enqueue")
+	}
+	loaded := base.DeepCopy()
+	loaded.Status.Ready, loaded.Status.State = true, "Loaded"
+	available := loaded.DeepCopy()
+	available.Status.State = "Available"
+	if p.Update(event.UpdateEvent{ObjectOld: loaded, ObjectNew: available}) ||
+		p.Update(event.UpdateEvent{ObjectOld: available, ObjectNew: loaded}) {
+		t.Error("a model loading or unloading must not enqueue: it would roll agents mid-discussion")
 	}
 	if p.Update(event.UpdateEvent{ObjectOld: mkAgent("a", "ns", "c"), ObjectNew: mkAgent("a", "ns", "c")}) {
 		t.Error("non-Model objects must not enqueue")
