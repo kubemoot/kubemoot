@@ -20,7 +20,7 @@ func runExec(args []string) {
 		fmt.Fprintf(os.Stderr, "Redirects stdin/stdout to named pipes and execs the command.\n\n")
 		fs.PrintDefaults()
 	}
-	fs.Parse(args)
+	_ = fs.Parse(args) // ExitOnError: a bad flag exits before this returns
 
 	cmdArgs := fs.Args()
 	if len(cmdArgs) == 0 {
@@ -55,8 +55,8 @@ func runExec(args []string) {
 		os.Exit(1)
 	}
 
-	stdinFile.Close()
-	stdoutFile.Close()
+	_ = stdinFile.Close()
+	_ = stdoutFile.Close()
 
 	// Resolve binary path (absolute paths pass through, relative use PATH)
 	binary, err := exec.LookPath(cmdArgs[0])

@@ -36,21 +36,21 @@ func generateSessionID() string {
 //
 // The bridge exposes three HTTP probes that gate Kubernetes lifecycle:
 //
-//   - /healthz       — bridge process alive AND pipes connected to MCP
-//     (liveness probe target — restart on failure)
-//   - /readyz        — MCP server has completed its initialize handshake
-//     and is accepting tool calls (readiness probe target —
+//   - /healthz       - bridge process alive AND pipes connected to MCP
+//     (liveness probe target - restart on failure)
+//   - /readyz        - MCP server has completed its initialize handshake
+//     and is accepting tool calls (readiness probe target -
 //     gates Service routing) + startupProbe target for the
 //     long cold-start init window
 //
 // The init-handshake gate matters because stdio MCP servers (e.g. FastMCP)
-// open their stdin/stdout pipes EARLY in startup — well before they've
+// open their stdin/stdout pipes EARLY in startup - well before they've
 // finished registering tools and processing the MCP `initialize` request.
 // Without /readyz, the Kubernetes Service would route tool calls to a pod
 // whose pipes are connected but whose MCP server is still initialising,
 // producing `Failed to validate request: Received request before
 // initialization was complete` errors. /readyz tracks the actual MCP
-// initialize-request → response cycle observed in the bridge.
+// initialize-request -> response cycle observed in the bridge.
 type Bridge struct {
 	pipeDir    string
 	port       int
@@ -66,11 +66,11 @@ type Bridge struct {
 	// readinessProbe + startupProbe target /readyz.
 	initialized atomic.Bool
 
-	// Outstanding `initialize` request IDs — populated when the bridge
+	// Outstanding `initialize` request IDs - populated when the bridge
 	// observes an outgoing initialize request, consulted when a response
 	// comes back so we can mark `initialized` only after the actual
 	// MCP handshake completes (not on any random pass-through response).
-	pendingInits sync.Map // string|float64 (JSON-RPC ID) → struct{}
+	pendingInits sync.Map // string|float64 (JSON-RPC ID) -> struct{}
 
 	// Current stdin pipe writer (protected by pipeMu)
 	pipeMu sync.Mutex
@@ -111,7 +111,7 @@ func (b *Bridge) Run(ctx context.Context) error {
 	mux.HandleFunc(b.healthPath, b.handleHealth)
 	// /readyz: MCP server has completed its initialize handshake and is
 	// accepting tool calls. Distinct from /healthz which only tracks
-	// pipe connection — the MCP server can be connected but not yet
+	// pipe connection - the MCP server can be connected but not yet
 	// initialized for ~30-60s during cold start (FastMCP, etc.). The
 	// kubemoot operator wires this as readinessProbe + startupProbe on
 	// the bridge container of every MCPServer pod.
@@ -186,7 +186,7 @@ func (b *Bridge) pipeSession(ctx context.Context) error {
 	stdinPath := filepath.Join(b.pipeDir, "stdin")
 	stdoutPath := filepath.Join(b.pipeDir, "stdout")
 
-	// Open both pipes concurrently — each blocks until the MCP server opens its end
+	// Open both pipes concurrently - each blocks until the MCP server opens its end
 	type openResult struct {
 		file *os.File
 		err  error
@@ -242,7 +242,7 @@ func (b *Bridge) pipeSession(ctx context.Context) error {
 		return true
 	})
 
-	// Bridge-driven initialize handshake — closes the chicken-and-egg
+	// Bridge-driven initialize handshake - closes the chicken-and-egg
 	// deadlock with /readyz-based readiness probes. The first /readyz =>
 	// 200 must happen BEFORE any external client connects, because
 	// Kubernetes Services only route to ready pods and external clients
@@ -277,7 +277,7 @@ func (b *Bridge) pipeSession(ctx context.Context) error {
 
 // readStdoutPipe reads newline-delimited JSON-RPC messages from the stdout pipe
 // and broadcasts them to SSE clients. It handles bufio.ErrTooLong as a recoverable
-// error — oversized messages are logged and skipped without ending the session.
+// error - oversized messages are logged and skipped without ending the session.
 func (b *Bridge) readStdoutPipe(r io.Reader, maxBytes int) error {
 	scanner := bufio.NewScanner(r)
 	scanner.Buffer(make([]byte, 64*1024), maxBytes)
@@ -447,7 +447,7 @@ func (b *Bridge) handleMessage(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleHealth returns 200 if MCP server is connected, 503 otherwise.
-// Liveness-style probe — bridge process is alive AND its stdio pipes are
+// Liveness-style probe - bridge process is alive AND its stdio pipes are
 // connected. Does NOT track initialize-handshake completion (use /readyz
 // for that). Intended target for Kubernetes livenessProbe.
 func (b *Bridge) handleHealth(w http.ResponseWriter, r *http.Request) {
@@ -458,7 +458,7 @@ func (b *Bridge) handleHealth(w http.ResponseWriter, r *http.Request) {
 		_, _ = fmt.Fprint(w, `{"status":"ok"}`)
 	} else {
 		w.WriteHeader(http.StatusServiceUnavailable)
-		_, _ = fmt.Fprintf(w, `{"status":"waiting for MCP server"}`)
+		_, _ = fmt.Fprint(w, `{"status":"waiting for MCP server"}`)
 	}
 }
 
@@ -468,7 +468,7 @@ func (b *Bridge) handleHealth(w http.ResponseWriter, r *http.Request) {
 // 30-60s of cold-start work before it can answer tool calls. During
 // that window, /healthz returns 200 (pipes are connected) but /readyz
 // returns 503 (no initialize response observed yet). Intended target
-// for Kubernetes readinessProbe AND startupProbe — the former gates
+// for Kubernetes readinessProbe AND startupProbe - the former gates
 // Service routing, the latter gives generous time for the initial
 // handshake without tripping liveness.
 func (b *Bridge) handleReady(w http.ResponseWriter, r *http.Request) {
@@ -476,20 +476,20 @@ func (b *Bridge) handleReady(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set(headerContentType, "application/json")
 	if b.connected.Load() && b.initialized.Load() {
 		w.WriteHeader(http.StatusOK)
-		_, _ = fmt.Fprintf(w, `{"status":"ready"}`)
+		_, _ = fmt.Fprint(w, `{"status":"ready"}`)
 		return
 	}
 	w.WriteHeader(http.StatusServiceUnavailable)
 	if !b.connected.Load() {
-		_, _ = fmt.Fprintf(w, `{"status":"waiting for MCP server"}`)
+		_, _ = fmt.Fprint(w, `{"status":"waiting for MCP server"}`)
 	} else {
-		_, _ = fmt.Fprintf(w, `{"status":"waiting for MCP initialize handshake"}`)
+		_, _ = fmt.Fprint(w, `{"status":"waiting for MCP initialize handshake"}`)
 	}
 }
 
 // trackOutgoingInitialize records the JSON-RPC ID of an outgoing
 // `initialize` request so the response can later be matched and
-// `initialized` flipped. Best-effort — silently no-ops on parse
+// `initialized` flipped. Best-effort - silently no-ops on parse
 // failure or when the message isn't an initialize.
 //
 // JSON-RPC ID can be a string or number per spec; we store the raw
@@ -512,12 +512,12 @@ func (b *Bridge) trackOutgoingInitialize(body []byte) {
 // MCP server; if its ID matches a tracked outgoing `initialize`
 // request AND it carries a non-error result, the MCP server has
 // completed its handshake and is ready to serve tool calls. Flips
-// `initialized` to true. Idempotent — subsequent matches are no-ops.
+// `initialized` to true. Idempotent - subsequent matches are no-ops.
 //
 // When the matched response was the bridge's own initialize (id
 // {@link #bridgeInitID}), also sends the protocol-required
 // `notifications/initialized` to complete the handshake. Real-client
-// initializes won't trigger that follow-up — they send their own
+// initializes won't trigger that follow-up - they send their own
 // notifications/initialized as part of their MCP protocol flow.
 func (b *Bridge) maybeMarkInitialized(line []byte) {
 	if b.initialized.Load() {
@@ -539,7 +539,7 @@ func (b *Bridge) maybeMarkInitialized(line []byte) {
 		return
 	}
 	b.initialized.Store(true)
-	log.Printf("MCP server initialize handshake complete — /readyz now returns 200")
+	log.Printf("MCP server initialize handshake complete - /readyz now returns 200")
 	// Complete the protocol handshake when the response was OURS.
 	// Real clients send their own notifications/initialized via the SSE
 	// handler; only the bridge's own initialize needs this follow-up.
@@ -556,19 +556,20 @@ const bridgeInitID = "kubemoot-bridge-init"
 
 // sendBridgeInitialize writes the bridge's own MCP `initialize` JSON-RPC
 // request to the MCP server's stdin pipe. Called when pipes connect so
-// /readyz becomes reachable BEFORE any external client connects —
+// /readyz becomes reachable BEFORE any external client connects -
 // breaking the chicken-and-egg deadlock that otherwise prevents
 // readiness-probe-gated pods from ever entering Service rotation.
 //
 // Declares broad client capabilities so any subsequent real-client
 // initialize is a no-op or refinement, not a new handshake the server
-// must restart. Errors are logged but never fail the bridge — the
+// must restart. Errors are logged but never fail the bridge - the
 // handshake will simply not complete, /readyz will stay 503, and the
 // Kubernetes liveness probe will eventually restart the pod via
 // /healthz failure if the bridge can't write to the pipe at all.
 func (b *Bridge) sendBridgeInitialize() {
-	request := fmt.Sprintf(
-		`{"jsonrpc":"2.0","id":%q,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{"tools":{},"resources":{}},"clientInfo":{"name":"kubemoot-mcp-bridge","version":"1.0"}}}`,
+	request := fmt.Sprintf(`{"jsonrpc":"2.0","id":%q,"method":"initialize","params":`+
+		`{"protocolVersion":"2024-11-05","capabilities":{"tools":{},"resources":{}},`+
+		`"clientInfo":{"name":"kubemoot-mcp-bridge","version":"1.0"}}}`,
 		bridgeInitID)
 	b.pendingInits.Store("\""+bridgeInitID+"\"", struct{}{})
 	b.pipeMu.Lock()
