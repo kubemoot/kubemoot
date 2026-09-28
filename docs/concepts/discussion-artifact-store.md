@@ -82,12 +82,21 @@ tight enough for reliable reasoning.
 
 ### Compute sandbox agents (materialised to disk)
 
-The compute sandbox is a deliberately no-network environment: it runs isolated
-container processes that must not reach NATS or external services. A
-**materializer sidecar** (the same `artifact-access` binary in its default mode)
-fetches referenced objects from the store and writes them into a shared local
-volume. The sandbox reads the materialised file and computes over it locally, then
-publishes its result through the normal discussion signal path.
+The compute sandbox is
+[`code-sandbox`](https://github.com/kubemoot/kubemoot/blob/main/code-sandbox/README.md),
+an MCP stdio server that exposes `execute_code` and `validate_code` for Python
+(standard library only) or bash. The pod is the sandbox: it holds no credentials
+and its egress is limited by the crew's network policy, so it must not reach NATS
+or external services directly. A **materializer sidecar** (the same
+`artifact-access` binary in its default mode) fetches referenced objects from the
+store and writes them into a shared local volume under `/artifacts`. The sandbox
+reads the materialised file and computes over it locally, then publishes its
+result through the normal discussion signal path.
+
+Each run happens in a fresh temporary directory that is removed afterwards, with
+no stdin: data goes in the code itself or in a file under `/artifacts`, never
+piped in. A time limit kills the program's whole process group, and stdout and
+stderr are each capped.
 
 The materializer runs as an init step per discussion turn, so the sandbox always
 sees files that match the current turn's reference envelopes.
