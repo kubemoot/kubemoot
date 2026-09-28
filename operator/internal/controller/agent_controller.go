@@ -1266,6 +1266,14 @@ func (r *AgentReconciler) SetupWithManager(mgr ctrl.Manager) error {
 			&kubemootv1alpha1.PromptModule{},
 			enqueueAgentsOnPromptModuleChange(mgr.GetClient()),
 		).
+		// Re-reconcile the Agents in a namespace when its Models are added, removed,
+		// relabeled, or become usable, so each binding and candidate list follows
+		// the Models that exist. See model_propagation.go.
+		Watches(
+			&kubemootv1alpha1.Model{},
+			enqueueAgentsOnModelChange(mgr.GetClient()),
+			builder.WithPredicates(modelBindingChanged()),
+		).
 		// Re-reconcile a crew's coordinator when one of its specialists is added,
 		// changed, or removed, so the crew's resumes (and so selection) include it.
 		// See agent_resume_propagation.go.
