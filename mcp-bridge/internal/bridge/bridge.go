@@ -2,6 +2,7 @@ package bridge
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
@@ -300,7 +301,11 @@ func (b *Bridge) readStdoutPipe(r io.Reader, maxBytes int) error {
 		// Best-effort: parse failures fall through to broadcast normally.
 		b.maybeMarkInitialized(line)
 
-		session, data := b.router.inbound(line)
+		session, data, drop := b.router.inbound(line)
+		if drop {
+			log.Printf("Dropping a reply for a session that has disconnected")
+			continue
+		}
 		b.deliver(session, append([]byte(nil), data...))
 	}
 
@@ -418,6 +423,13 @@ func (b *Bridge) handleMessage(w http.ResponseWriter, r *http.Request) {
 
 	if !json.Valid(body) {
 		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		return
+	}
+
+	// A batch cannot be routed back to one session, so its replies would reach
+	// every session sharing this server. MCP clients send one message per POST.
+	if bytes.HasPrefix(bytes.TrimSpace(body), []byte("[")) {
+		http.Error(w, "JSON-RPC batch requests are not supported", http.StatusBadRequest)
 		return
 	}
 
