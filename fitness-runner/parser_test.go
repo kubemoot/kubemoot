@@ -342,7 +342,7 @@ func TestEvaluateAssertion_Custom(t *testing.T) {
 	if !result.Passed {
 		t.Error("custom assertions should pass with manual review advisory")
 	}
-	if result.Message != "Custom assertion — manual review recommended" {
+	if result.Message != "Custom assertion - manual review recommended" {
 		t.Errorf("unexpected message: %q", result.Message)
 	}
 }

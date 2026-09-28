@@ -407,43 +407,44 @@ func labelUnjudged(assertions []Assertion, results []AssertionResult) {
 	}
 }
 
+// runState is what a finished run offers the assertions to check against.
+type runState struct {
+	postOK    bool
+	events    []SignalEvent
+	synthesis string
+	timedOut  bool
+}
+
+// evaluators maps each assertion kind to its check.
+var evaluators = map[AssertionKind]func(Assertion, runState) AssertionResult{
+	KindPostReturns200:         func(a Assertion, s runState) AssertionResult { return evalPostReturns200(a, s.postOK) },
+	KindSseEmits:               func(a Assertion, s runState) AssertionResult { return evalSseEmits(a, s.events) },
+	KindSseEmitsWithin:         func(a Assertion, s runState) AssertionResult { return evalSseEmitsWithin(a, s.events) },
+	KindCompletesWithin:        func(a Assertion, s runState) AssertionResult { return evalCompletesWithin(a, s.events, s.timedOut) },
+	KindMinSpecialistAgrees:    func(a Assertion, s runState) AssertionResult { return evalMinSpecialistAgrees(a, s.events) },
+	KindCoordinatorSynthesizes: func(a Assertion, s runState) AssertionResult { return evalCoordinatorSynthesizes(a, s.synthesis) },
+	KindSynthesisNonEmpty:      func(a Assertion, s runState) AssertionResult { return evalSynthesisNonEmpty(a, s.synthesis) },
+	KindSynthesisContains:      func(a Assertion, s runState) AssertionResult { return evalSynthesisContains(a, s.synthesis) },
+	KindSynthesisNotContains:   func(a Assertion, s runState) AssertionResult { return evalSynthesisNotContains(a, s.synthesis) },
+	KindSynthesisMatchCount:    func(a Assertion, s runState) AssertionResult { return evalSynthesisMatchCount(a, s.synthesis) },
+	KindDeferred:               func(a Assertion, _ runState) AssertionResult { return evalDeferred(a) },
+}
+
 func evaluateAssertion(a Assertion, postOK bool, events []SignalEvent, synthesis string, timedOut bool) AssertionResult {
-	switch a.Kind {
-	case KindPostReturns200:
-		return evalPostReturns200(a, postOK)
-	case KindSseEmits:
-		return evalSseEmits(a, events)
-	case KindSseEmitsWithin:
-		return evalSseEmitsWithin(a, events)
-	case KindCompletesWithin:
-		return evalCompletesWithin(a, events, timedOut)
-	case KindMinSpecialistAgrees:
-		return evalMinSpecialistAgrees(a, events)
-	case KindCoordinatorSynthesizes:
-		return evalCoordinatorSynthesizes(a, synthesis)
-	case KindSynthesisNonEmpty:
-		return evalSynthesisNonEmpty(a, synthesis)
-	case KindSynthesisContains:
-		return evalSynthesisContains(a, synthesis)
-	case KindSynthesisNotContains:
-		return evalSynthesisNotContains(a, synthesis)
-	case KindSynthesisMatchCount:
-		return evalSynthesisMatchCount(a, synthesis)
-	case KindDeferred:
-		// Deferred: not evaluated inline (a judge call would compete with the crew
-		// for GPU and perturb the run). The post-suite engine resolves the keyword
-		// to its crew and overwrites this with the 0.0-1.0 reference-grounded score.
-		return AssertionResult{
-			Raw:     a.Raw,
-			Passed:  true,
-			Message: fmt.Sprintf("DEFER %s - deferred to post-suite judge crew", a.Keyword),
-		}
-	default:
-		return AssertionResult{
-			Raw:     a.Raw,
-			Passed:  true,
-			Message: "Custom assertion — manual review recommended",
-		}
+	if eval, ok := evaluators[a.Kind]; ok {
+		return eval(a, runState{postOK: postOK, events: events, synthesis: synthesis, timedOut: timedOut})
+	}
+	return AssertionResult{Raw: a.Raw, Passed: true, Message: "Custom assertion - manual review recommended"}
+}
+
+// evalDeferred does not evaluate inline (a judge call would compete with the crew
+// for GPU and perturb the run). The post-suite engine resolves the keyword to its
+// crew and overwrites this with the 0.0-1.0 reference-grounded score.
+func evalDeferred(a Assertion) AssertionResult {
+	return AssertionResult{
+		Raw:     a.Raw,
+		Passed:  true,
+		Message: fmt.Sprintf("DEFER %s - deferred to post-suite judge crew", a.Keyword),
 	}
 }
 
