@@ -106,8 +106,16 @@ public class ChatService {
     private final HttpClient triageHttpClient;
 
     // Tool specs + executors cached after init
-    private Map<ToolSpecification, ToolExecutor> toolSpecs;
-    private List<ToolSpecification> toolSpecList;
+    private final McpClientService mcpClient;
+    /** The agent's MCP tools, swapped as one value so readers never see a half-updated set. */
+    private volatile ToolSet tools;
+
+    /** Tool specifications in the order offered to the model, and the executor for each. */
+    record ToolSet(List<ToolSpecification> specs, Map<ToolSpecification, ToolExecutor> executors) {
+        static ToolSet of(Map<ToolSpecification, ToolExecutor> executors) {
+            return new ToolSet(List.copyOf(executors.keySet()), Map.copyOf(executors));
+        }
+    }
 
     // Most recent Ollama `load_duration` from a simpleLlmCall, in milliseconds.
     // 0 when the model was already loaded (warm path) or when LangChain4j
@@ -164,12 +172,12 @@ public class ChatService {
         // Register MCP tools. Tools are discovered via the MCPGateway/McpClientService
         // and exposed uniformly to the agent — scheduling, kubernetes, proxmox, etc.
         // all use the same MCP path. No built-in tools live in agent-runtime.
-        this.toolSpecs = mcpClient.getToolSpecifications();
-        this.toolSpecList = new ArrayList<>(toolSpecs.keySet());
+        this.mcpClient = mcpClient;
+        this.tools = ToolSet.of(mcpClient.getToolSpecifications());
 
         boolean discussionEnabled = discussionOrchestrator != null && discussionOrchestrator.isEnabled();
         log.info("Chat service initialized: {} MCP tools, discussion={} for agent: {}",
-                toolSpecs.size(), discussionEnabled, properties.agentName());
+                tools.specs().size(), discussionEnabled, properties.agentName());
     }
 
     public ChatResult chat(ChatRequest request) {
@@ -466,6 +474,7 @@ public class ChatService {
                                      String providerName,
                                      String pickReason,
                                      boolean toolerRawOutput) {
+        refreshTools();
         ToolLoopState state = new ToolLoopState(messages);
         int maxIterations = properties.model().maxToolIterations();
 
@@ -520,6 +529,7 @@ public class ChatService {
      */
     private AiMessage invokeModelForLoop(ChatModel modelForThisCall, ToolLoopState state) {
         ChatResponse response;
+        var toolSpecList = tools.specs();
         if (toolSpecList.isEmpty()) {
             response = modelForThisCall.chat(dev.langchain4j.model.chat.request.ChatRequest.builder()
                     .messages(state.allMessages)
@@ -689,7 +699,7 @@ public class ChatService {
      *  in this agent's tool set, so it CAN resolve a wrong metric name. A query-only
      *  specialist without one is exempt from the drill contract. */
     private boolean discoveryToolAvailable() {
-        for (var spec : toolSpecList) {
+        for (var spec : tools.specs()) {
             if (METRIC_DISCOVERY_TOOLS.contains(spec.name())) {
                 return true;
             }
@@ -1393,7 +1403,7 @@ public class ChatService {
     }
 
     private ToolExecutor findExecutor(String toolName) {
-        for (var entry : toolSpecs.entrySet()) {
+        for (var entry : tools.executors().entrySet()) {
             if (entry.getKey().name().equals(toolName)) {
                 return entry.getValue();
             }
@@ -1834,9 +1844,22 @@ public class ChatService {
         return triageEndpoint;
     }
 
+    /**
+     * Pick up tools the gateway gained or lost since this agent last looked, so a tool
+     * server registered after the agent started is used without restarting the pod.
+     */
+    void refreshTools() {
+        if (mcpClient == null || !mcpClient.refreshGatewayToolsIfStale()) {
+            return;
+        }
+        this.tools = ToolSet.of(mcpClient.getToolSpecifications());
+        log.info("Tools refreshed for agent {}: {} MCP tools", properties.agentName(), tools.specs().size());
+    }
+
     /** Returns the list of available tool names (for triage prompt context). */
     public List<String> getToolNames() {
-        return toolSpecList.stream().map(dev.langchain4j.agent.tool.ToolSpecification::name).toList();
+        refreshTools();
+        return tools.specs().stream().map(dev.langchain4j.agent.tool.ToolSpecification::name).toList();
     }
 
     public void clearConversation(String conversationId) {

@@ -1419,4 +1419,63 @@ class ChatServiceToolLoopTest {
         verify(memory).recallForContext("Which nodes have a GPU?");
     }
 
+
+    @Test
+    void aToolRegisteredAfterStartReachesTheModel() {
+        var late = ToolSpecification.builder().name("fetch").description("Fetch a URL").build();
+        var executor = mock(ToolExecutor.class);
+        when(mcpClient.getToolSpecifications()).thenReturn(Map.of(), Map.of(late, executor));
+        when(mcpClient.refreshGatewayToolsIfStale()).thenReturn(true, false);
+
+        var response = mock(ChatResponse.class);
+        when(response.aiMessage()).thenReturn(new AiMessage("done"));
+        when(response.tokenUsage()).thenReturn(new TokenUsage(1, 1));
+        var sent = org.mockito.ArgumentCaptor.forClass(ChatRequest.class);
+        when(chatModel.chat(sent.capture())).thenReturn(response);
+        when(ragClient.queryForContext(anyString())).thenReturn("");
+
+        var service = createService(3);
+        assertEquals(List.of("fetch"), service.getToolNames());
+        service.directChat(new ChatService.ChatRequest("conv-late", "fetch it"));
+
+        var offered = sent.getValue().toolSpecifications().stream().map(ToolSpecification::name).toList();
+        assertEquals(List.of("fetch"), offered);
+    }
+
+    @Test
+    void noChangeMeansNoRebuild() {
+        when(mcpClient.getToolSpecifications()).thenReturn(Map.of());
+        when(mcpClient.refreshGatewayToolsIfStale()).thenReturn(false);
+
+        var service = createService(3);
+        assertEquals(List.of(), service.getToolNames());
+        service.refreshTools();
+        verify(mcpClient, times(1)).getToolSpecifications();
+    }
+
+    @Test
+    void aRefreshSwapsSpecsAndExecutorsTogether() {
+        var old = ToolSpecification.builder().name("search").description("Search").build();
+        var neu = ToolSpecification.builder().name("pods_list").description("List pods").build();
+        var oldExec = mock(ToolExecutor.class);
+        var newExec = mock(ToolExecutor.class);
+        when(mcpClient.getToolSpecifications()).thenReturn(Map.of(old, oldExec), Map.of(neu, newExec));
+        when(mcpClient.refreshGatewayToolsIfStale()).thenReturn(true);
+
+        var service = createService(3);
+        service.refreshTools();
+        assertEquals(List.of("pods_list"), service.getToolNames());
+    }
+
+    @Test
+    void toolSetCopiesItsInputs() {
+        var spec = ToolSpecification.builder().name("a").description("A").build();
+        var input = new LinkedHashMap<ToolSpecification, ToolExecutor>();
+        input.put(spec, mock(ToolExecutor.class));
+        var set = ChatService.ToolSet.of(input);
+        input.clear();
+        assertEquals(1, set.specs().size());
+        assertEquals(1, set.executors().size());
+        assertThrows(UnsupportedOperationException.class, () -> set.specs().add(spec));
+    }
 }

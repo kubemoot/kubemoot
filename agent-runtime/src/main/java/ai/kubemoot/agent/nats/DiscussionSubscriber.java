@@ -540,14 +540,16 @@ public class DiscussionSubscriber {
                 threadId, contextList.size());
     }
 
-    private String triagePromptBase; // built once at first use: template from config + agent identity + tools
+    // Template from config + agent identity + tools, rebuilt when the tool list changes
+    private String triagePromptBase;
+    private String triagePromptTools;
 
     private String buildTriagePrompt(String threadId) {
-        if (triagePromptBase == null) {
+        var toolNames = chatService.getToolNames();
+        String toolList = toolNames.isEmpty() ? "(none)" : String.join(", ", toolNames);
+        if (triagePromptBase == null || !toolList.equals(triagePromptTools)) {
+            triagePromptTools = toolList;
             String template = properties.discuss().triagePrompt().orElse(DEFAULT_TRIAGE_TEMPLATE);
-
-            var toolNames = chatService.getToolNames();
-            String toolList = toolNames.isEmpty() ? "(none)" : String.join(", ", toolNames);
 
             String description = properties.agentDescription();
             if (description == null || description.isEmpty()) {

@@ -18,10 +18,12 @@ import jakarta.annotation.PreDestroy;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.stream.Collectors;
 
 /**
  * MCP client service for tool integration using LangChain4j's ToolSpecification/ToolExecutor.
@@ -44,6 +46,12 @@ public class McpClientService {
     // Gateway tools stored separately (from REST API, not MCP protocol)
     private final Map<String, GatewayClient.ToolInfo> gatewayTools = new ConcurrentHashMap<>();
     private boolean gatewayMode = false;
+
+    /** How long a loaded gateway tool list is trusted before an evaluation reads it again. */
+    static final Duration TOOL_LIST_TTL = Duration.ofSeconds(60);
+    /** How soon an empty tool list is read again: a server may be registering right now. */
+    static final Duration EMPTY_TOOL_LIST_RETRY = Duration.ofSeconds(10);
+    private volatile Instant gatewayToolsLoadedAt = Instant.EPOCH;
 
     @Inject
     GatewayClient gatewayClient;
@@ -89,6 +97,7 @@ public class McpClientService {
 
         try {
             var toolsList = gatewayClient.listTools();
+            gatewayToolsLoadedAt = Instant.now();
             if (toolsList != null) {
                 for (var tool : toolsList) {
                     gatewayTools.put(tool.name(), tool);
@@ -101,6 +110,46 @@ public class McpClientService {
         } catch (Exception e) {
             log.error("Failed to load tools from gateway: {}", e.getMessage(), e);
         }
+    }
+
+    /**
+     * Re-read the gateway's tool list when it is older than {@link #TOOL_LIST_TTL}, or than
+     * {@link #EMPTY_TOOL_LIST_RETRY} while it is empty,
+     * so a tool server registered after this agent started is used without a restart.
+     * Returns true when the set of tool names changed. An empty or failed read keeps the
+     * tools already known: the gateway client answers an error with an empty list.
+     */
+    public boolean refreshGatewayToolsIfStale() {
+        return refreshGatewayToolsIfStale(Instant.now());
+    }
+
+    boolean refreshGatewayToolsIfStale(Instant now) {
+        if (!gatewayMode || gatewayClient == null || !gatewayClient.isConfigured()) {
+            return false;
+        }
+        var trustedFor = gatewayTools.isEmpty() ? EMPTY_TOOL_LIST_RETRY : TOOL_LIST_TTL;
+        if (now.isBefore(gatewayToolsLoadedAt.plus(trustedFor))) {
+            return false;
+        }
+        List<GatewayClient.ToolInfo> fresh;
+        try {
+            fresh = gatewayClient.listTools();
+        } catch (RuntimeException e) {
+            log.warn("Gateway tool list refresh failed: {}", e.getMessage());
+            return false;
+        }
+        gatewayToolsLoadedAt = now;
+        if (fresh == null || fresh.isEmpty()) {
+            return false;
+        }
+        var names = fresh.stream().map(GatewayClient.ToolInfo::name).collect(Collectors.toSet());
+        if (names.equals(gatewayTools.keySet())) {
+            return false;
+        }
+        gatewayTools.keySet().retainAll(names);
+        fresh.forEach(tool -> gatewayTools.put(tool.name(), tool));
+        log.info("Gateway tool list changed: now {} tools", gatewayTools.size());
+        return true;
     }
 
     private String getGatewayEndpoint() {
