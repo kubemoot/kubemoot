@@ -9,6 +9,29 @@ The pod is the sandbox. It holds no credentials, the crew's network policy
 limits its egress, and the artifact-access materializer sidecar stages the data
 a program reads under `/artifacts`.
 
+## Why a sandbox
+
+Language models are unreliable at counting, summing, sorting, and filtering,
+especially small local models reading long lists. Asked how many pods are
+running in each namespace over a long listing, a model gives a confident,
+plausible, often wrong number.
+
+In a crew, that work goes to the compute agent. Another agent gathers the raw
+data into the crew's artifact store; the compute agent writes a short Python or
+bash program that reads it from `/artifacts` and computes the answer; the
+sandbox runs it and returns the exact output; the compute agent reports that
+result, and the coordinator uses it. The runtime enforces the contract: the
+compute agent may not state a number that did not come from running code.
+
+Because it runs model-written code, the sandbox is locked down: no credentials
+and no Kubernetes access, since it only computes over data already handed to
+it, and no network beyond what the crew's network policy allows its
+artifact-staging sidecar. See "How a program runs" below for how each run is
+kept short-lived and contained. The pod itself is the sandbox, so a bad program
+can at worst waste that pod's CPU until the time limit ends it.
+
+The models decide what to compute; the sandbox makes the numbers real.
+
 ## Tools
 
 | tool | input | result |

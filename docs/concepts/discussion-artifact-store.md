@@ -82,6 +82,16 @@ tight enough for reliable reasoning.
 
 ### Compute sandbox agents (materialised to disk)
 
+Counting, summing, sorting, and filtering are unreliable when a model performs
+them by reading a long listing, particularly for small local models; asked how
+many pods are running in each namespace, a model can return a confident,
+plausible, and wrong number. Kubemoot routes that work to a compute agent
+instead: another agent gathers the raw data into the artifact store described
+above, the compute agent writes a short Python or bash program that reads it
+back, and the sandbox described below runs the program and returns the number
+the compute agent reports. The runtime enforces the contract: a compute agent
+may not state a number that did not come from running code.
+
 The compute sandbox is
 [`code-sandbox`](https://github.com/kubemoot/kubemoot/blob/main/code-sandbox/README.md),
 an MCP stdio server that exposes `execute_code` and `validate_code` for Python
