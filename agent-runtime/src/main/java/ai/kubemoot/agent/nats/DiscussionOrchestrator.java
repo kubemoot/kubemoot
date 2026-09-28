@@ -269,8 +269,11 @@ public class DiscussionOrchestrator {
     // re-checked by revision at each discussion so an added agent or skill is seen.
     private volatile boolean crewResumesFromFile;
     private volatile long crewResumesRevision = -1;
-    private List<String> knownAgentNames = new CopyOnWriteArrayList<>();
-    private List<String> knownSkillNames = new CopyOnWriteArrayList<>();
+    // One reload at a time: the catalog, its revision, and the known agent and skill
+    // names change together, so concurrent discussions never pair one with another's.
+    private final Object crewResumesLock = new Object();
+    private volatile List<String> knownAgentNames = new CopyOnWriteArrayList<>();
+    private volatile List<String> knownSkillNames = new CopyOnWriteArrayList<>();
 
     /** Package-private: inject known agent names for unit tests without file I/O. */
     void loadKnownAgentNamesForTest(List<String> names) {
@@ -3183,6 +3186,12 @@ public class DiscussionOrchestrator {
      * Cached after first successful read. Also extracts known agent names for validation.
      */
     String loadCrewResumes() {
+        synchronized (crewResumesLock) {
+            return loadCrewResumesLocked();
+        }
+    }
+
+    private String loadCrewResumesLocked() {
         if (crewResumesCache != null && crewResumesFromFile) return crewResumesCache;
         if (crewResumesCache == null) {
             String fromFile = readCrewResumesFile();
