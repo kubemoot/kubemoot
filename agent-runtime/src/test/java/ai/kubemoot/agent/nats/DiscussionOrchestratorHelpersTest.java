@@ -11,7 +11,11 @@ import java.util.Map;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 /**
  * Tests for DiscussionOrchestrator helper methods extracted during CC refactoring.
@@ -364,19 +368,59 @@ class DiscussionOrchestratorHelpersTest {
                 "researcher agrees don't reach the 2-tooler threshold");
     }
 
+    // --- synthesis completeness retry ---
+
+    private static final String NAMESPACES = "[resources_list]\n"
+            + "APIVERSION   KIND        NAME          STATUS   AGE\n"
+            + "v1           Namespace   alpha         Active   1d\n"
+            + "v1           Namespace   bravo         Active   1d\n"
+            + "v1           Namespace   charlie       Active   1d\n"
+            + "v1           Namespace   delta         Active   1d\n"
+            + "v1           Namespace   echo          Active   1d\n"
+            + "v1           Namespace   foxtrot       Active   1d\n";
+
+    @Test
+    void completenessRetryTooLargeForEveryContext_keepsTheFirstSynthesis() {
+        var chat = mock(ChatService.class);
+        var first = new ChatService.SimpleLlmResult("alpha, bravo, charlie, delta, echo", 10, 5);
+        when(chat.simpleLlmCallWithTokens(anyString(), anyString()))
+                .thenReturn(first)
+                .thenThrow(ai.kubemoot.agent.provider.NoFitException.promptTooLarge("m", "retry too large"));
+
+        var result = createOrchestrator("", chat, 2).synthesizeWithCompleteness("sys", NAMESPACES, "t-c");
+
+        assertSame(first, result);
+        verify(chat, times(2)).simpleLlmCallWithTokens(anyString(), anyString());
+    }
+
+    @Test
+    void completenessRetryFailingForAnotherReason_stillFails() {
+        var chat = mock(ChatService.class);
+        when(chat.simpleLlmCallWithTokens(anyString(), anyString()))
+                .thenReturn(new ChatService.SimpleLlmResult("alpha, bravo, charlie, delta, echo", 10, 5))
+                .thenThrow(ai.kubemoot.agent.provider.NoFitException.gpuBusy("m", "busy"));
+
+        var orchestrator = createOrchestrator("", chat, 2);
+        assertThrows(ai.kubemoot.agent.provider.NoFitException.class,
+                () -> orchestrator.synthesizeWithCompleteness("sys", NAMESPACES, "t-c"));
+    }
+
     // --- Helper ---
 
     private DiscussionOrchestrator createOrchestrator(String channels) {
+        return createOrchestrator(channels, mock(ChatService.class), 0);
+    }
+
+    private DiscussionOrchestrator createOrchestrator(String channels, ChatService chatService, int completenessRetries) {
         var natsProvider = mock(NatsConnectionProvider.class);
-        var chatService = mock(ChatService.class);
         var metrics = mock(DiscussionMetrics.class);
         var latencyTracker = mock(LatencyTracker.class);
         var resumeSearchClient = mock(ResumeSearchClient.class);
-        var properties = stubProperties(channels);
+        var properties = stubProperties(channels, completenessRetries);
         return new DiscussionOrchestrator(natsProvider, properties, chatService, metrics, latencyTracker, resumeSearchClient);
     }
 
-    private static AgentProperties stubProperties(String channels) {
+    private static AgentProperties stubProperties(String channels, int completenessRetries) {
         return new AgentProperties() {
             @Override public Memory memory() { return ai.kubemoot.agent.TestStubs.memory(); }
             @Override public String agentName() { return "test-coordinator"; }
@@ -422,7 +466,7 @@ class DiscussionOrchestratorHelpersTest {
                 @Override public boolean computeContract() { return false; }
                 @Override public boolean metricsDrillContract() { return false; }
                 @Override public Optional<String> alwaysCandidateAgents() { return Optional.empty(); }
-                @Override public int synthesisCompletenessRetries() { return 0; }
+                @Override public int synthesisCompletenessRetries() { return completenessRetries; }
                 @Override public boolean answerDirectly() { return true; }
                 @Override public boolean hasAnalysts() { return false; }
                 @Override public int advisoryTimeoutSeconds() { return 10; }

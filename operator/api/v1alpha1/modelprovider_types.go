@@ -147,6 +147,13 @@ type DiscoveredCapacity struct {
 	// +optional
 	MaxParallel int `json:"maxParallel,omitempty"`
 
+	// ContextLength is the context window, in tokens, the engine gives each
+	// request, discovered from OLLAMA_CONTEXT_LENGTH on the Ollama pod. Zero
+	// when the engine chooses its own default; the context each loaded model
+	// actually runs with is on LoadedModels.
+	// +optional
+	ContextLength int `json:"contextLength,omitempty"`
+
 	// VRAMTotalMiB discovered from DCGM_FI_DEV_FB_TOTAL via Prometheus
 	// +optional
 	VRAMTotalMiB int64 `json:"vramTotalMiB,omitempty"`
@@ -210,6 +217,12 @@ type LoadedModel struct {
 	// Size is the total model size in bytes
 	// +optional
 	Size int64 `json:"size,omitempty"`
+
+	// ContextLength is the context window, in tokens, each request to this
+	// loaded model gets (from /api/ps context_length). A prompt larger than
+	// this is cut by the engine, not rejected.
+	// +optional
+	ContextLength int `json:"contextLength,omitempty"`
 }
 
 // ProviderInfo contains metadata about a connected provider

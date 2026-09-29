@@ -744,7 +744,8 @@ public class DiscussionSubscriber {
      * No GPU could run this call. Publish stand_aside carrying
      * {@code metadata.reason} ({@code gpu-busy}: every GPU that could hold the
      * model stayed busy until the thread ended or the capacity wait reached its
-     * safety limit; {@code model-too-large}: no GPU can ever hold it) and
+     * safety limit; {@code model-too-large}: no GPU can ever hold it;
+     * {@code prompt-too-large}: the prompt exceeds every provider's context) and
      * {@code metadata.model}, so the coordinator and the dashboard can say the
      * cluster, not the crew design, kept this agent out. Distinct from a
      * triage-time stand-aside (nothing to add) and from a failure (something
@@ -764,6 +765,9 @@ public class DiscussionSubscriber {
     static String noFitContent(ai.kubemoot.agent.provider.NoFitException nfe) {
         if (ai.kubemoot.agent.provider.NoFitException.REASON_MODEL_TOO_LARGE.equals(nfe.reason())) {
             return "No GPU in this cluster can hold the model " + nfe.model();
+        }
+        if (ai.kubemoot.agent.provider.NoFitException.REASON_PROMPT_TOO_LARGE.equals(nfe.reason())) {
+            return "The prompt is larger than the context window any GPU gives " + nfe.model();
         }
         return "Could not get a GPU: every GPU that can hold " + nfe.model() + " was busy";
     }

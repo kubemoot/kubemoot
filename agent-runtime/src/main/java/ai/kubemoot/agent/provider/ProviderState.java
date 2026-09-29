@@ -42,6 +42,14 @@ import java.util.Map;
  * before it loads. Null or absent when the operator pre-dates this field
  * (graceful degradation to the old behavior).
  *
+ * <h3>Context fields</h3>
+ * {@link #contextLength} is the context window, in tokens, a request to a model
+ * not loaded yet can expect on this provider; {@link #loadedModelContextLengths}
+ * holds the context each loaded model runs with (from {@code /api/ps}). The
+ * engine cuts a prompt larger than the context without an error, so the
+ * selector never places a call whose prompt does not fit ({@link ContextFit}).
+ * Zero or absent means unknown, and an unknown context never refuses a call.
+ *
  * {@code @JsonIgnoreProperties(ignoreUnknown=true)} so adding fields on
  * the operator side never breaks deserialisation on the agent side; the
  * inverse case (operator hasn't published a new field yet) is handled by
@@ -60,8 +68,34 @@ public record ProviderState(
         String lastProbedAt,
         long totalVramMiB,
         Map<String, Long> loadedModelFootprintsMiB,
-        Map<String, Long> availableModelFootprintsMiB
+        Map<String, Long> availableModelFootprintsMiB,
+        long contextLength,
+        Map<String, Long> loadedModelContextLengths
 ) {
+    /** A state with no context information: every context is unknown. */
+    public ProviderState(String name, String endpoint, int maxParallel,
+                         int activeCount, int queueDepth, List<String> loadedModels,
+                         boolean ready, String lastProbedAt, long totalVramMiB,
+                         Map<String, Long> loadedModelFootprintsMiB,
+                         Map<String, Long> availableModelFootprintsMiB) {
+        this(name, endpoint, maxParallel, activeCount, queueDepth, loadedModels,
+                ready, lastProbedAt, totalVramMiB, loadedModelFootprintsMiB,
+                availableModelFootprintsMiB, 0L, Map.of());
+    }
+
+    /**
+     * The context window, in tokens, a request to {@code modelName} gets here: the
+     * context the loaded model runs with, else the provider's context for a model
+     * it has yet to load. Zero when unknown.
+     */
+    public long contextLengthFor(String modelName) {
+        if (modelName != null && loadedModelContextLengths != null) {
+            Long loaded = loadedModelContextLengths.get(modelName);
+            if (loaded != null && loaded > 0) return loaded;
+        }
+        return Math.max(contextLength, 0L);
+    }
+
     /**
      * Backward-compat constructor for callers that pre-date the
      * {@code availableModelFootprintsMiB} field (v3). Passes an empty map so

@@ -81,6 +81,16 @@ type ProviderState struct {
 	// the actual VRAM usage (from /api/ps) replaces this once the model loads.
 	// Allows the JIT fit-gate to reject an oversized model BEFORE loading it.
 	AvailableModelFootprintsMiB map[string]int64 `json:"availableModelFootprintsMiB,omitempty"`
+	// ContextLength is the engine's configured per-request context window, in
+	// tokens, which a request to a model that is not loaded yet can expect. Zero
+	// when the engine chooses its own default (Ollama picks one by VRAM size and
+	// caps it at each model's trained context), because that value is only known
+	// per model once it loads. Agents skip a provider whose context cannot hold a
+	// call's prompt, because the engine cuts an oversized prompt without error.
+	ContextLength int `json:"contextLength,omitempty"`
+	// LoadedModelContextLengths maps loaded model name to the context window, in
+	// tokens, each request to it gets (from Ollama /api/ps context_length).
+	LoadedModelContextLengths map[string]int `json:"loadedModelContextLengths,omitempty"`
 }
 
 // ModelProviderReconciler reconciles a ModelProvider object
@@ -254,7 +264,7 @@ func (r *ModelProviderReconciler) discoverPodCapacity(ctx context.Context, provi
 	}
 
 	provider.Status.Capacity.NodeName = pod.Spec.NodeName
-	r.applyNumParallelFromPod(ctx, pod, provider)
+	r.applyEngineEnvFromPod(ctx, pod, provider)
 
 	// 4. Query Prometheus for DCGM metrics if configured
 	schedulerConfig := r.ConfigCache.GetSchedulerConfig()
@@ -263,18 +273,26 @@ func (r *ModelProviderReconciler) discoverPodCapacity(ctx context.Context, provi
 	}
 }
 
-// applyNumParallelFromPod scans the pod's container env vars for
-// OLLAMA_NUM_PARALLEL and records it as Capacity.MaxParallel when present.
-func (r *ModelProviderReconciler) applyNumParallelFromPod(ctx context.Context, pod *corev1.Pod, provider *aiv1alpha1.ModelProvider) {
+// engineEnvCapacity maps the Ollama pod env vars the scheduler reads to the
+// capacity field each one sets.
+var engineEnvCapacity = map[string]func(*aiv1alpha1.DiscoveredCapacity, int){
+	"OLLAMA_NUM_PARALLEL":   func(c *aiv1alpha1.DiscoveredCapacity, v int) { c.MaxParallel = v },
+	"OLLAMA_CONTEXT_LENGTH": func(c *aiv1alpha1.DiscoveredCapacity, v int) { c.ContextLength = v },
+}
+
+// applyEngineEnvFromPod scans the pod's container env vars for the engine
+// settings in engineEnvCapacity and records each positive integer value.
+func (r *ModelProviderReconciler) applyEngineEnvFromPod(ctx context.Context, pod *corev1.Pod, provider *aiv1alpha1.ModelProvider) {
 	log := logf.FromContext(ctx)
 	for _, container := range pod.Spec.Containers {
 		for _, env := range container.Env {
-			if env.Name != "OLLAMA_NUM_PARALLEL" {
+			set, known := engineEnvCapacity[env.Name]
+			if !known {
 				continue
 			}
-			if val, err := strconv.Atoi(env.Value); err == nil {
-				provider.Status.Capacity.MaxParallel = val
-				log.V(1).Info("Discovered OLLAMA_NUM_PARALLEL", "value", val)
+			if val, err := strconv.Atoi(env.Value); err == nil && val > 0 {
+				set(provider.Status.Capacity, val)
+				log.V(1).Info("Discovered engine setting", "name", env.Name, "value", val)
 			}
 		}
 	}
@@ -480,9 +498,10 @@ func (r *ModelProviderReconciler) discoverLoadedModels(ctx context.Context, prov
 	var totalVRAMUsed int64
 	for _, m := range psResp.Models {
 		loadedModels = append(loadedModels, aiv1alpha1.LoadedModel{
-			Name:     m.Name,
-			SizeVRAM: m.SizeVRAM,
-			Size:     m.Size,
+			Name:          m.Name,
+			SizeVRAM:      m.SizeVRAM,
+			Size:          m.Size,
+			ContextLength: m.ContextLength,
 		})
 		totalVRAMUsed += m.SizeVRAM
 	}
@@ -701,6 +720,24 @@ func applyCapacityToState(state *ProviderState, cap *aiv1alpha1.DiscoveredCapaci
 	if avail := availableFootprints(state.LoadedModelFootprintsMiB, cap.AvailableModels); len(avail) > 0 {
 		state.AvailableModelFootprintsMiB = avail
 	}
+	state.ContextLength = cap.ContextLength
+	state.LoadedModelContextLengths = loadedContextLengths(cap.LoadedModels)
+}
+
+// loadedContextLengths maps each loaded model that reports a per-request
+// context to that context; nil when none does.
+func loadedContextLengths(models []aiv1alpha1.LoadedModel) map[string]int {
+	var loaded map[string]int
+	for _, m := range models {
+		if m.ContextLength <= 0 {
+			continue
+		}
+		if loaded == nil {
+			loaded = make(map[string]int, len(models))
+		}
+		loaded[m.Name] = m.ContextLength
+	}
+	return loaded
 }
 
 // availableFootprints builds the cold-load footprint proxy map from /api/tags

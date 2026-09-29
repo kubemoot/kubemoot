@@ -109,6 +109,8 @@ public class ChatService {
     private final McpClientService mcpClient;
     /** The agent's MCP tools, swapped as one value so readers never see a half-updated set. */
     private volatile ToolSet tools;
+    /** This agent's characters per prompt token, learned from the engine's reported prompt sizes. */
+    private final CharsPerToken charsPerToken = new CharsPerToken();
 
     /** Tool specifications in the order offered to the model, and the executor for each. */
     record ToolSet(List<ToolSpecification> specs, Map<ToolSpecification, ToolExecutor> executors) {
@@ -282,7 +284,7 @@ public class ChatService {
         // char count so the predictor can gate against in-flight + this-call
         // KV pressure. Crude chars/4 with a safety pad; tighter accuracy
         // via real tokenizer comes in Phase D2 (operator /api/show probe).
-        int promptCharCount = estimatePromptCharCount(messages);
+        int promptCharCount = PromptSize.chars(messages, tools.specs());
         MullingPick pick = pickMullingChatModel(promptCharCount, wait, request.discussionThreadId());
         String providerName = pick.providerName();
         // Outbound wire trace: the exact model + endpoint this call will send to
@@ -296,7 +298,8 @@ public class ChatService {
         ToolLoopResult loopResult;
         boolean callFailed = false;
         try {
-            loopResult = callWithToolLoop(messages, pick.model(), providerName, pick.pickReason(), toolerRawOutput);
+            loopResult = callWithToolLoop(messages, pick.model(), providerName, pick.pickReason(), toolerRawOutput,
+                    contextLengthOf(pick));
         } catch (RuntimeException | Error e) {
             // Mark for circuit-breaker on any exception escaping the loop —
             // timeouts, 5xx, ToolCallFailure with infrastructure cause, etc.
@@ -433,17 +436,12 @@ public class ChatService {
      * still get JIT selection via this overload.
      */
     ToolLoopResult callWithToolLoop(List<ChatMessage> messages) {
-        // Legacy/test entry; rough KV estimate based on raw chars across messages.
-        int promptChars = 0;
-        for (var m : messages) {
-            if (m instanceof dev.langchain4j.data.message.UserMessage um) promptChars += um.singleText().length();
-            else if (m instanceof dev.langchain4j.data.message.SystemMessage sm) promptChars += sm.text().length();
-        }
-        MullingPick pick = pickMullingChatModel(promptChars);
+        MullingPick pick = pickMullingChatModel(PromptSize.chars(messages, tools.specs()));
         try {
             // Legacy/test entry defaults to reasoning behavior (no raw output);
             // the tooler raw-output contract is opt-in via the 5-arg overload.
-            return callWithToolLoop(messages, pick.model(), pick.providerName(), pick.pickReason(), false);
+            return callWithToolLoop(messages, pick.model(), pick.providerName(), pick.pickReason(), false,
+                    contextLengthOf(pick));
         } finally {
             // v2 release safety: this overload is the test/legacy entry
             // point (the primary directLlmCall hoists pickMullingChatModel
@@ -474,6 +472,21 @@ public class ChatService {
                                      String providerName,
                                      String pickReason,
                                      boolean toolerRawOutput) {
+        return callWithToolLoop(messages, modelForThisCall, providerName, pickReason, toolerRawOutput, 0L);
+    }
+
+    /**
+     * {@link #callWithToolLoop(List, ChatModel, String, String, boolean)} against a
+     * provider that gives the model {@code contextLength} tokens per request (zero
+     * when unknown). Each turn fails with CONTEXT_EXCEEDED instead of sending a
+     * prompt the engine would cut.
+     */
+    ToolLoopResult callWithToolLoop(List<ChatMessage> messages,
+                                     ChatModel modelForThisCall,
+                                     String providerName,
+                                     String pickReason,
+                                     boolean toolerRawOutput,
+                                     long contextLength) {
         refreshTools();
         ToolLoopState state = new ToolLoopState(messages);
         int maxIterations = properties.model().maxToolIterations();
@@ -489,6 +502,7 @@ public class ChatService {
             // The check is BEFORE the LLM call so we never start a fresh
             // 120s-timeout call that would push past the deadline.
             checkLoopDeadline(loopStartMs, loopDeadlineMs, i);
+            checkPromptFitsContext(state, contextLength, i);
 
             var aiMessage = invokeModelForLoop(modelForThisCall, state);
 
@@ -523,6 +537,39 @@ public class ChatService {
     }
 
     /**
+     * Throw CONTEXT_EXCEEDED when the next prompt would not fit the provider's
+     * context. The engine cuts an oversized prompt without an error, dropping the
+     * oldest messages (the question among them), so the turn fails visibly instead.
+     */
+    private void checkPromptFitsContext(ToolLoopState state, long contextLength, int iteration) {
+        if (contextLength <= 0) {
+            return;
+        }
+        long next = PromptSize.nextPromptTokens(state.allMessages, tools.specs(),
+                state.lastPromptTokens, state.lastReplyTokens, state.messagesAtLastCall, charsPerToken);
+        if (next > contextLength) {
+            throw new ToolCallFailure(ToolCallFailure.FailureType.CONTEXT_EXCEEDED,
+                    null, null, iteration,
+                    "The next prompt (~" + next + " tokens) exceeds the " + contextLength
+                            + "-token context window of the chosen provider at iteration " + iteration);
+        }
+    }
+
+    /**
+     * The context window, in tokens, the picked provider gives the picked model;
+     * zero when the pick is static or the provider publishes no context.
+     */
+    private long contextLengthOf(MullingPick pick) {
+        if (providerSelector == null || pick.providerName().isEmpty()) {
+            return 0L;
+        }
+        return providerSelector.readState().stream()
+                .filter(p -> p.name().equals(pick.providerName()))
+                .mapToLong(p -> p.contextLengthFor(pick.modelName()))
+                .findFirst().orElse(0L);
+    }
+
+    /**
      * Run one model turn: send the accumulated messages (with tool specs when
      * any exist), accumulate token usage, append the reply to the message list,
      * and return it.
@@ -530,6 +577,7 @@ public class ChatService {
     private AiMessage invokeModelForLoop(ChatModel modelForThisCall, ToolLoopState state) {
         ChatResponse response;
         var toolSpecList = tools.specs();
+        int sentChars = PromptSize.chars(state.allMessages, toolSpecList);
         if (toolSpecList.isEmpty()) {
             response = modelForThisCall.chat(dev.langchain4j.model.chat.request.ChatRequest.builder()
                     .messages(state.allMessages)
@@ -540,12 +588,15 @@ public class ChatService {
                     .toolSpecifications(toolSpecList)
                     .build());
         }
-        if (response.tokenUsage() != null) {
-            state.totalInput += response.tokenUsage().inputTokenCount();
-            state.totalOutput += response.tokenUsage().outputTokenCount();
+        var usage = response.tokenUsage();
+        if (usage != null) {
+            state.totalInput += usage.inputTokenCount() == null ? 0 : usage.inputTokenCount();
+            state.totalOutput += usage.outputTokenCount() == null ? 0 : usage.outputTokenCount();
+            charsPerToken.observe(sentChars, usage.inputTokenCount() == null ? 0 : usage.inputTokenCount());
         }
         var aiMessage = response.aiMessage();
         state.allMessages.add(aiMessage);
+        state.recordTurn(usage);
         return aiMessage;
     }
 
@@ -986,8 +1037,21 @@ public class ChatService {
         boolean discoveredMetrics = false;
         int metricsDrillRetries = 0;
 
+        // The engine's reported prompt and reply sizes for the last turn, and the
+        // message count right after its reply, so the next prompt's size can be
+        // estimated from them plus the tool results added since.
+        long lastPromptTokens = 0;
+        long lastReplyTokens = 0;
+        int messagesAtLastCall = 0;
+
         ToolLoopState(List<ChatMessage> messages) {
             this.allMessages = new ArrayList<>(messages);
+        }
+
+        void recordTurn(dev.langchain4j.model.output.TokenUsage usage) {
+            lastPromptTokens = usage == null || usage.inputTokenCount() == null ? 0 : usage.inputTokenCount();
+            lastReplyTokens = usage == null || usage.outputTokenCount() == null ? 0 : usage.outputTokenCount();
+            messagesAtLastCall = allMessages.size();
         }
     }
 
@@ -1173,7 +1237,8 @@ public class ChatService {
             return new MullingPick(chatModel, "", java.util.Optional.empty(),
                     STATIC_FALLBACK, staticModel, staticEndpoint, 0L);
         }
-        var placed = heldPlacement(threadId, states).or(() -> placeCall(states, promptCharCount));
+        var placed = heldPlacement(threadId, states, promptTokens(promptCharCount))
+                .or(() -> placeCall(states, promptCharCount));
         MullingPick pick = placed.isPresent() ? placed.get()
                 : waitForCapacity(staticModel, coldLoadFootprintMiB, promptCharCount, wait);
         callPlanner.callStarted(threadId, pick.modelName());
@@ -1182,17 +1247,21 @@ public class ChatService {
 
     /**
      * The placement planned for this thread when the coordinator selected the
-     * agent, when its provider is still ready; otherwise its claim is released and
-     * the call plans afresh.
+     * agent, when its provider is still ready and its context holds the prompt
+     * (the plan was made before the prompt existed); otherwise its claim is
+     * released and the call plans afresh.
      */
-    private java.util.Optional<MullingPick> heldPlacement(String threadId, java.util.List<ProviderState> states) {
+    private java.util.Optional<MullingPick> heldPlacement(String threadId, java.util.List<ProviderState> states,
+                                                          long promptTokens) {
         var held = callPlanner.takeHeld(threadId);
         if (held.isEmpty()) {
             return java.util.Optional.empty();
         }
         String provider = held.get().pick().provider().name();
-        boolean ready = states.stream().anyMatch(p -> p.name().equals(provider) && p.ready());
-        if (!ready) {
+        String model = held.get().model();
+        boolean usable = states.stream().anyMatch(p -> p.name().equals(provider) && p.ready()
+                && ai.kubemoot.agent.provider.ContextFit.holds(p, model, promptTokens));
+        if (!usable) {
             ticketManager.release(held.get().pick().ticket());
             return java.util.Optional.empty();
         }
@@ -1213,6 +1282,7 @@ public class ChatService {
             throw ai.kubemoot.agent.provider.NoFitException.modelTooLarge(model,
                     "model=" + model + " coldLoad=" + footprintMiB + "MiB exceeds every GPU's usable VRAM");
         }
+        requireSomeContextHolds(model, promptTokens(promptCharCount));
         String busy = "model=" + model + " coldLoad=" + footprintMiB + "MiB: every GPU that can hold it is busy";
         if (capacityWaiter == null || wait.threadEnded()) {
             throw ai.kubemoot.agent.provider.NoFitException.gpuBusy(model, busy);
@@ -1226,6 +1296,39 @@ public class ChatService {
         } finally {
             callPlanner.waitEnded(model);
         }
+    }
+
+    /**
+     * Stand aside with reason prompt-too-large when no provider can ever run an
+     * acceptable model with a context that holds the prompt (VRAM and context
+     * judged for the same provider and model): no capacity change can place it,
+     * and sending it anyway lets the engine drop the question.
+     */
+    private void requireSomeContextHolds(String model, long promptTokens) {
+        var states = providerSelector.readState();
+        java.util.List<String> models = new ArrayList<>();
+        models.add(model);
+        models.addAll(mullingAlternatives(model));
+        java.util.function.ToLongFunction<String> footprint =
+                m -> m.equals(model) ? resolveOccupancyMiB(states, m) : observedFootprintMiB(states, m);
+        if (!ai.kubemoot.agent.provider.ContextFit.anyCanRun(states, models, promptTokens, footprint)) {
+            long largest = ai.kubemoot.agent.provider.ContextFit.largestContext(states, models);
+            log.info("Prompt of ~{} tokens exceeds every context window for {} (largest {}) - stand-aside",
+                    promptTokens, models, largest);
+            throw ai.kubemoot.agent.provider.NoFitException.promptTooLarge(model,
+                    "prompt ~" + promptTokens + " tokens exceeds the largest context window (" + largest
+                            + " tokens) any provider gives " + models);
+        }
+    }
+
+    /**
+     * The estimated prompt size, in tokens, of a prompt of {@code promptCharCount}
+     * characters, from this agent's learned characters per token. Unpadded: it
+     * decides whether a prompt fits a context, where over-estimating refuses calls
+     * that fit. The padded {@code KvCacheEstimator} estimate sizes VRAM instead.
+     */
+    private long promptTokens(int promptCharCount) {
+        return charsPerToken.tokens(promptCharCount);
     }
 
     /**
@@ -1246,10 +1349,11 @@ public class ChatService {
         String preferred = properties.model().model();
         // Phase D: each model's KV-cache need for this call, so the predictor's gate
         // factors in in-flight context-size pressure. Conservative (overestimate).
-        long promptTokens = ai.kubemoot.agent.provider.KvCacheEstimator.estimateTokensFromChars(promptCharCount);
+        long kvTokens = ai.kubemoot.agent.provider.KvCacheEstimator.estimateTokensFromChars(promptCharCount);
         return new CallPlanner.PlacementRequest(preferred, mullingAlternatives(preferred), states,
                 m -> m.equals(preferred) ? resolveOccupancyMiB(states, m) : observedFootprintMiB(states, m),
-                m -> ai.kubemoot.agent.provider.KvCacheEstimator.estimateMiB(m, promptTokens, properties.model().maxTokens()));
+                m -> ai.kubemoot.agent.provider.KvCacheEstimator.estimateMiB(m, kvTokens, properties.model().maxTokens()),
+                promptTokens(promptCharCount));
     }
 
     private MullingPick fromPlacement(CallPlanner.Placement p) {
@@ -1462,15 +1566,20 @@ public class ChatService {
     }
 
     /**
-     * JIT-pick a provider for a no-tool coordinator call. On NoFitException the
-     * coordinator MUST still complete its synthesis/advisory (it cannot stand
-     * aside), so it falls back to the static endpoint the operator assigned. This
-     * is the one sanctioned static use: a last resort, never a routine bypass.
+     * JIT-pick a provider for a no-tool coordinator call. When every GPU is busy or
+     * none can hold the model, the coordinator MUST still complete its
+     * synthesis/advisory, so it falls back to the static endpoint the operator
+     * assigned: a last resort, never a routine bypass. A prompt larger than every
+     * context is rethrown instead, because the static endpoint would cut it without
+     * an error; every caller handles a failed call visibly.
      */
     private MullingPick pickForSimpleCall(int promptChars) {
         try {
             return pickMullingChatModel(promptChars);
         } catch (ai.kubemoot.agent.provider.NoFitException nfe) {
+            if (ai.kubemoot.agent.provider.NoFitException.REASON_PROMPT_TOO_LARGE.equals(nfe.reason())) {
+                throw nfe;
+            }
             log.info("simpleLlmCall: no provider fit ({}) - falling back to static endpoint", nfe.predictorReason());
             return new MullingPick(chatModel, "", java.util.Optional.empty(),
                     STATIC_FALLBACK + " (no-fit)", properties.model().model(), properties.model().endpoint(), 0L);
@@ -1535,21 +1644,6 @@ public class ChatService {
         if (ticketManager != null) {
             pick.ticket().ifPresent(ticketManager::release);
         }
-    }
-
-    /**
-     * Estimate the total character count across a message list for KV-cache
-     * sizing. SystemMessage/UserMessage/AiMessage carry text; anything else
-     * (e.g. ToolExecutionResultMessage) contributes nothing here. Crude
-     * chars-based proxy; the real tokenizer estimate happens downstream.
-     */
-    private static int estimatePromptCharCount(List<ChatMessage> messages) {
-        int promptCharCount = 0;
-        for (var m : messages) {
-            String t = messageText(m);
-            if (t != null) promptCharCount += t.length();
-        }
-        return promptCharCount;
     }
 
     /** Extract the text payload of a chat message, or null when it carries none. */
@@ -1738,12 +1832,19 @@ public class ChatService {
         if (occupancy <= 0) {
             return new TriagePlacement(triageEndpoint, "", 0L, java.util.Optional.empty());
         }
-        long promptTokens = ai.kubemoot.agent.provider.KvCacheEstimator.estimateTokensFromChars(
-                (systemPrompt == null ? 0 : systemPrompt.length())
-                        + (conversation == null ? 0 : conversation.length()));
-        long kv = ai.kubemoot.agent.provider.KvCacheEstimator.estimateMiB(triageModelId, promptTokens, 2048);
+        int promptChars = (systemPrompt == null ? 0 : systemPrompt.length())
+                + (conversation == null ? 0 : conversation.length());
+        long kv = ai.kubemoot.agent.provider.KvCacheEstimator.estimateMiB(triageModelId,
+                ai.kubemoot.agent.provider.KvCacheEstimator.estimateTokensFromChars(promptChars), 2048);
+        long promptTokens = promptTokens(promptChars);
+        if (!ai.kubemoot.agent.provider.ContextFit.anyCanHold(states, List.of(triageModelId), promptTokens)) {
+            throw ai.kubemoot.agent.provider.NoFitException.promptTooLarge(triageModelId,
+                    "triage prompt ~" + promptTokens + " tokens exceeds the largest context window ("
+                            + ai.kubemoot.agent.provider.ContextFit.largestContext(states, List.of(triageModelId))
+                            + " tokens) any provider gives " + triageModelId);
+        }
         try {
-            var pick = providerSelector.pickAndClaim(triageModelId, occupancy, kv);
+            var pick = providerSelector.pickAndClaim(triageModelId, occupancy, kv, promptTokens);
             if (pick.isPresent()) {
                 String endpoint = pick.get().provider().endpoint();
                 String pickedProvider = pick.get().provider().name();

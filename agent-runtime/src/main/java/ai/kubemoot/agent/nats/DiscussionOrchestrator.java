@@ -1887,7 +1887,7 @@ public class DiscussionOrchestrator {
      * answer, the workloads table, and prose garbage are all left alone. See B2 in
      * [[Crew Evasion - Answer From Available Data]].
      */
-    private ChatService.SimpleLlmResult synthesizeWithCompleteness(String systemPrompt,
+    ChatService.SimpleLlmResult synthesizeWithCompleteness(String systemPrompt,
             String conversation, String threadId) {
         var result = chatService.simpleLlmCallWithTokens(systemPrompt, conversation);
         int maxRetries = properties.discuss().synthesisCompletenessRetries();
@@ -1904,8 +1904,10 @@ public class DiscussionOrchestrator {
             var missing = missingNames(expected, best.text());
             log.info("Thread {} - synthesis omitted {} of {} entries, re-prompting: {}",
                     threadId, missing.size(), expected.size(), missing);
-            var retry = chatService.simpleLlmCallWithTokens(systemPrompt,
-                    completenessReprompt(conversation, best.text(), missing));
+            var retry = completenessRetry(systemPrompt, conversation, best.text(), missing, threadId);
+            if (retry == null) {
+                break;
+            }
             int retryMissing = missingNames(expected, retry.text()).size();
             if (retryMissing < bestMissing) {
                 best = retry;
@@ -1913,6 +1915,26 @@ public class DiscussionOrchestrator {
             }
         }
         return best;
+    }
+
+    /**
+     * One completeness re-prompt, or null when its prompt (the conversation plus the
+     * draft plus the missing names) is larger than every provider's context window:
+     * the draft already in hand is kept rather than lost to a refused retry.
+     */
+    private ChatService.SimpleLlmResult completenessRetry(String systemPrompt, String conversation,
+            String draft, List<String> missing, String threadId) {
+        try {
+            return chatService.simpleLlmCallWithTokens(systemPrompt,
+                    completenessReprompt(conversation, draft, missing));
+        } catch (ai.kubemoot.agent.provider.NoFitException nfe) {
+            if (!ai.kubemoot.agent.provider.NoFitException.REASON_PROMPT_TOO_LARGE.equals(nfe.reason())) {
+                throw nfe;
+            }
+            log.info("Thread {} - completeness re-prompt does not fit any context window, keeping the draft: {}",
+                    threadId, nfe.predictorReason());
+            return null;
+        }
     }
 
     /**

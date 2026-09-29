@@ -58,7 +58,11 @@ func TestDiscoverCapacity_FromPod(t *testing.T) {
 			NodeName: "gpu-node-1",
 			Containers: []corev1.Container{{
 				Name: "ollama",
-				Env:  []corev1.EnvVar{{Name: "OLLAMA_NUM_PARALLEL", Value: "4"}},
+				Env: []corev1.EnvVar{
+					{Name: "OLLAMA_NUM_PARALLEL", Value: "4"},
+					{Name: "OLLAMA_CONTEXT_LENGTH", Value: "16384"},
+					{Name: "OLLAMA_KEEP_ALIVE", Value: "1h"},
+				},
 			}},
 		},
 	}
@@ -79,6 +83,9 @@ func TestDiscoverCapacity_FromPod(t *testing.T) {
 	}
 	if provider.Status.Capacity.MaxParallel != 4 {
 		t.Errorf("MaxParallel = %d, want 4 (from OLLAMA_NUM_PARALLEL)", provider.Status.Capacity.MaxParallel)
+	}
+	if provider.Status.Capacity.ContextLength != 16384 {
+		t.Errorf("ContextLength = %d, want 16384 (from OLLAMA_CONTEXT_LENGTH)", provider.Status.Capacity.ContextLength)
 	}
 	if provider.Status.Capacity.LastProbed == nil {
 		t.Error("discoverCapacity should stamp LastProbed")
@@ -132,5 +139,58 @@ func TestAvailableFootprints(t *testing.T) {
 	got := availableFootprints(loaded, mix)
 	if len(got) != 1 || got["b"] != 3 {
 		t.Errorf("availableFootprints = %v, want {b:3}", got)
+	}
+}
+
+// An engine env value that is not a positive integer leaves the capacity field
+// unset rather than publishing a zero or negative context.
+func TestApplyEngineEnvIgnoresInvalidValues(t *testing.T) {
+	pod := &corev1.Pod{Spec: corev1.PodSpec{Containers: []corev1.Container{{
+		Env: []corev1.EnvVar{
+			{Name: "OLLAMA_CONTEXT_LENGTH", Value: "big"},
+			{Name: "OLLAMA_NUM_PARALLEL", Value: "0"},
+		},
+	}}}}
+	provider := &aiv1alpha1.ModelProvider{Status: aiv1alpha1.ModelProviderStatus{
+		Capacity: &aiv1alpha1.DiscoveredCapacity{MaxParallel: 2},
+	}}
+	r := &ModelProviderReconciler{}
+	r.applyEngineEnvFromPod(logf.IntoContext(context.Background(), logr.Discard()), pod, provider)
+	if provider.Status.Capacity.ContextLength != 0 || provider.Status.Capacity.MaxParallel != 2 {
+		t.Errorf("invalid values changed capacity: %+v", provider.Status.Capacity)
+	}
+}
+
+func TestLoadedContextLengths(t *testing.T) {
+	if got := loadedContextLengths(nil); got != nil {
+		t.Errorf("no loaded models should yield nil, got %v", got)
+	}
+	if got := loadedContextLengths([]aiv1alpha1.LoadedModel{{Name: "old-engine"}}); got != nil {
+		t.Errorf("models without a reported context should yield nil, got %v", got)
+	}
+	got := loadedContextLengths([]aiv1alpha1.LoadedModel{
+		{Name: "chat:32b", ContextLength: 32768},
+		{Name: "embed", ContextLength: 2048},
+		{Name: "old-engine"},
+	})
+	if len(got) != 2 || got["chat:32b"] != 32768 || got["embed"] != 2048 {
+		t.Errorf("loadedContextLengths = %v, want chat:32b=32768 embed=2048", got)
+	}
+}
+
+// The provider context is only the engine's configured value: when the engine
+// picks its own default, it is unknown for a model that has not loaded yet, and
+// no loaded model's context stands in for it.
+func TestApplyCapacityToStateContext(t *testing.T) {
+	loaded := []aiv1alpha1.LoadedModel{{Name: "chat:8b", ContextLength: 40960}}
+	configured := &ProviderState{}
+	applyCapacityToState(configured, &aiv1alpha1.DiscoveredCapacity{ContextLength: 8192, LoadedModels: loaded})
+	if configured.ContextLength != 8192 || configured.LoadedModelContextLengths["chat:8b"] != 40960 {
+		t.Errorf("configured: %+v", configured)
+	}
+	engineDefault := &ProviderState{}
+	applyCapacityToState(engineDefault, &aiv1alpha1.DiscoveredCapacity{LoadedModels: loaded})
+	if engineDefault.ContextLength != 0 || engineDefault.LoadedModelContextLengths["chat:8b"] != 40960 {
+		t.Errorf("engine default: %+v", engineDefault)
 	}
 }

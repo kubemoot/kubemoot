@@ -59,9 +59,20 @@ public class CallPlanner {
         return t;
     });
 
-    /** What a call needs placed. {@code footprint} and {@code kv} give MiB per model name. */
+    /**
+     * What a call needs placed. {@code footprint} and {@code kv} give MiB per model
+     * name; {@code promptTokens} is the prompt's estimated size, which the chosen
+     * provider's context must hold (zero when unknown).
+     */
     public record PlacementRequest(String preferred, List<String> alternatives, List<ProviderState> states,
-                                   ToLongFunction<String> footprint, ToLongFunction<String> kv) {
+                                   ToLongFunction<String> footprint, ToLongFunction<String> kv,
+                                   long promptTokens) {
+        /** A request whose prompt size is unknown. */
+        public PlacementRequest(String preferred, List<String> alternatives, List<ProviderState> states,
+                                ToLongFunction<String> footprint, ToLongFunction<String> kv) {
+            this(preferred, alternatives, states, footprint, kv, 0L);
+        }
+
         List<String> acceptable() {
             List<String> all = new ArrayList<>();
             all.add(preferred);
@@ -111,9 +122,9 @@ public class CallPlanner {
         }
         long kv = r.kv().applyAsLong(model);
         Optional<Pick> pick = switch (mode) {
-            case WARM_FREE_SLOT -> selector.pickAndClaimWarm(model, fp, kv);
-            case LOADING -> selector.pickAndClaimLoading(model, fp, kv);
-            case ANY -> selector.pickAndClaim(model, fp, kv);
+            case WARM_FREE_SLOT -> selector.pickAndClaimWarm(model, fp, kv, r.promptTokens());
+            case LOADING -> selector.pickAndClaimLoading(model, fp, kv, r.promptTokens());
+            case ANY -> selector.pickAndClaim(model, fp, kv, r.promptTokens());
         };
         return pick.map(p -> new Placement(p, model, fp, List.of()));
     }
@@ -126,8 +137,8 @@ public class CallPlanner {
         }
         Map<String, ModelDemand> now = demand == null ? Map.of() : demand.snapshot();
         var decision = PlacementCostModel.decide(
-                selector.queueOption(r.acceptable(), r.states()),
-                selector.planEviction(r.preferred(), fp, r.states(), now));
+                selector.queueOption(r.acceptable(), r.states(), r.promptTokens()),
+                selector.planEviction(r.preferred(), fp, r.states(), now, r.promptTokens()));
         log.info("No GPU has room for {}: {} (queue={}, eviction={})", r.preferred(), decision.action(),
                 decision.queue().map(q -> q.model() + "@" + q.provider() + " " + Math.round(q.waitSeconds()) + "s").orElse("none"),
                 decision.eviction().map(e -> e.victimModels() + "@" + e.provider() + " " + Math.round(e.costSeconds()) + "s").orElse("none"));

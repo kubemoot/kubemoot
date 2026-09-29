@@ -58,7 +58,14 @@ public class ToolCallFailure extends RuntimeException {
          * as a first-class failure signal so the coordinator never synthesizes over
          * laundered error text.
          */
-        GATHER_FAILED
+        GATHER_FAILED,
+        /**
+         * The next prompt of the tool loop would not fit the context window the
+         * chosen provider gives the model. The engine would cut it without an
+         * error, dropping the oldest messages (the question among them), so the
+         * loop fails visibly instead.
+         */
+        CONTEXT_EXCEEDED
     }
 
     private final FailureType failureType;

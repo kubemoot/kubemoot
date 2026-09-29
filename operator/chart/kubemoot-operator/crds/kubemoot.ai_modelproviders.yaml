@@ -131,6 +131,13 @@ spec:
                       - name
                       type: object
                     type: array
+                  contextLength:
+                    description: |-
+                      ContextLength is the context window, in tokens, the engine gives each
+                      request, discovered from OLLAMA_CONTEXT_LENGTH on the Ollama pod. Zero
+                      when the engine chooses its own default; the context each loaded model
+                      actually runs with is on LoadedModels.
+                    type: integer
                   gpuModel:
                     description: GPUModel discovered from DCGM metrics (e.g., "NVIDIA
                       GeForce RTX 5090")
@@ -145,6 +152,12 @@ spec:
                       description: LoadedModel represents a model currently loaded
                         in the provider
                       properties:
+                        contextLength:
+                          description: |-
+                            ContextLength is the context window, in tokens, each request to this
+                            loaded model gets (from /api/ps context_length). A prompt larger than
+                            this is cut by the engine, not rejected.
+                          type: integer
                         name:
                           description: Name is the model identifier
                           type: string

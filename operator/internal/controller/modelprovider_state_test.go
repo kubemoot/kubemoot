@@ -11,8 +11,15 @@ You may obtain a copy of the License at
 package controller
 
 import (
+	"context"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
+
+	"github.com/go-logr/logr"
+	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
 	aiv1alpha1 "github.com/javajon/kubemoot/operator/api/v1alpha1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -495,5 +502,54 @@ func TestBuildProviderStateMemoryBudget(t *testing.T) {
 	}
 	if got := buildProviderState(discovered).MaxParallel; got != 1 {
 		t.Errorf("MaxParallel defaults to 1, got %d", got)
+	}
+}
+
+// The agent runtime reads the context fields by these exact names.
+func TestProviderStateContextFieldsJSONContract(t *testing.T) {
+	state := buildProviderState(&aiv1alpha1.ModelProvider{
+		ObjectMeta: metav1.ObjectMeta{Name: "gpu-a"},
+		Status: aiv1alpha1.ModelProviderStatus{Capacity: &aiv1alpha1.DiscoveredCapacity{
+			ContextLength: 16384,
+			LoadedModels:  []aiv1alpha1.LoadedModel{{Name: "m:14b", SizeVRAM: 1 << 30, ContextLength: 16384}},
+		}},
+	})
+	raw, err := json.Marshal(state)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	var got map[string]interface{}
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if got["contextLength"] != float64(16384) {
+		t.Errorf("contextLength = %v, want 16384", got["contextLength"])
+	}
+	loaded, ok := got["loadedModelContextLengths"].(map[string]interface{})
+	if !ok || loaded["m:14b"] != float64(16384) {
+		t.Errorf("loadedModelContextLengths = %v, want {m:14b: 16384}", got["loadedModelContextLengths"])
+	}
+
+	empty, _ := json.Marshal(buildProviderState(&aiv1alpha1.ModelProvider{ObjectMeta: metav1.ObjectMeta{Name: "b"}}))
+	if strings.Contains(string(empty), "contextLength") || strings.Contains(string(empty), "loadedModelContextLengths") {
+		t.Errorf("unknown context must be omitted, got %s", empty)
+	}
+}
+
+// /api/ps reports each loaded model's per-request context as context_length.
+func TestDiscoverLoadedModelsReadsContextLength(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"models":[{"name":"m:32b","size_vram":1048576,"size":1048576,"context_length":8192},{"name":"old"}]}`))
+	}))
+	defer srv.Close()
+	provider := &aiv1alpha1.ModelProvider{
+		Spec:   aiv1alpha1.ModelProviderSpec{Endpoint: srv.URL},
+		Status: aiv1alpha1.ModelProviderStatus{Capacity: &aiv1alpha1.DiscoveredCapacity{}},
+	}
+	r := &ModelProviderReconciler{}
+	r.discoverLoadedModels(logf.IntoContext(context.Background(), logr.Discard()), provider, srv.Client())
+	models := provider.Status.Capacity.LoadedModels
+	if len(models) != 2 || models[0].ContextLength != 8192 || models[1].ContextLength != 0 {
+		t.Errorf("LoadedModels = %+v, want contexts 8192 and 0", models)
 	}
 }

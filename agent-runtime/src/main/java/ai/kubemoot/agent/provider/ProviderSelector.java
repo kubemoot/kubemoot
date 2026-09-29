@@ -294,7 +294,16 @@ public class ProviderSelector {
      */
     public Optional<Pick> pickAndClaim(String modelName, long coldLoadFootprintMiB,
                                         long thisCallKvCacheMiB) {
-        return pickAndClaim(modelName, coldLoadFootprintMiB, thisCallKvCacheMiB, Mode.ANY);
+        return pickAndClaim(modelName, coldLoadFootprintMiB, thisCallKvCacheMiB, 0L, Mode.ANY);
+    }
+
+    /**
+     * Like {@link #pickAndClaim(String, long, long)}, restricted to providers whose
+     * context for the model holds {@code promptTokens} ({@link ContextFit}).
+     */
+    public Optional<Pick> pickAndClaim(String modelName, long coldLoadFootprintMiB,
+                                        long thisCallKvCacheMiB, long promptTokens) {
+        return pickAndClaim(modelName, coldLoadFootprintMiB, thisCallKvCacheMiB, promptTokens, Mode.ANY);
     }
 
     /**
@@ -305,7 +314,13 @@ public class ProviderSelector {
      */
     public Optional<Pick> pickAndClaimWarm(String modelName, long coldLoadFootprintMiB,
                                            long thisCallKvCacheMiB) {
-        return pickAndClaim(modelName, coldLoadFootprintMiB, thisCallKvCacheMiB, Mode.WARM_FREE_SLOT);
+        return pickAndClaimWarm(modelName, coldLoadFootprintMiB, thisCallKvCacheMiB, 0L);
+    }
+
+    /** {@link #pickAndClaimWarm(String, long, long)} for a prompt of {@code promptTokens}. */
+    public Optional<Pick> pickAndClaimWarm(String modelName, long coldLoadFootprintMiB,
+                                           long thisCallKvCacheMiB, long promptTokens) {
+        return pickAndClaim(modelName, coldLoadFootprintMiB, thisCallKvCacheMiB, promptTokens, Mode.WARM_FREE_SLOT);
     }
 
     /**
@@ -315,7 +330,13 @@ public class ProviderSelector {
      */
     public Optional<Pick> pickAndClaimLoading(String modelName, long coldLoadFootprintMiB,
                                               long thisCallKvCacheMiB) {
-        return pickAndClaim(modelName, coldLoadFootprintMiB, thisCallKvCacheMiB, Mode.LOADING);
+        return pickAndClaimLoading(modelName, coldLoadFootprintMiB, thisCallKvCacheMiB, 0L);
+    }
+
+    /** {@link #pickAndClaimLoading(String, long, long)} for a prompt of {@code promptTokens}. */
+    public Optional<Pick> pickAndClaimLoading(String modelName, long coldLoadFootprintMiB,
+                                              long thisCallKvCacheMiB, long promptTokens) {
+        return pickAndClaim(modelName, coldLoadFootprintMiB, thisCallKvCacheMiB, promptTokens, Mode.LOADING);
     }
 
     /** Which ranked candidates a claim may use. */
@@ -374,11 +395,18 @@ public class ProviderSelector {
      * provider has any of them.
      */
     public Optional<PlacementCostModel.QueueOption> queueOption(List<String> models, List<ProviderState> states) {
+        return queueOption(models, states, 0L);
+    }
+
+    /** {@link #queueOption(List, List)} over copies whose context holds {@code promptTokens}. */
+    public Optional<PlacementCostModel.QueueOption> queueOption(List<String> models, List<ProviderState> states,
+                                                               long promptTokens) {
         long now = System.currentTimeMillis();
         PlacementCostModel.QueueOption best = null;
         for (ProviderState p : states) {
             if (!p.ready() || isCircuitOpen(p.name())) continue;
             for (String m : models) {
+                if (!ContextFit.holds(p, m, promptTokens)) continue;
                 if (!p.hasModelLoaded(m) && !ticketManager.activeModelsOn(p.name()).contains(m)) continue;
                 double wait = driver.expectedWaitSeconds(p, elapsedSeconds(p, now), callSeconds(p));
                 if (best == null || wait < best.waitSeconds()) {
@@ -410,8 +438,17 @@ public class ProviderSelector {
     public Optional<PlacementCostModel.EvictionPlan> planEviction(String model, long footprintMiB,
                                                                  List<ProviderState> states,
                                                                  java.util.Map<String, ModelDemand> demand) {
+        return planEviction(model, footprintMiB, states, demand, 0L);
+    }
+
+    /** {@link #planEviction(String, long, List, java.util.Map)} on providers whose context holds {@code promptTokens}. */
+    public Optional<PlacementCostModel.EvictionPlan> planEviction(String model, long footprintMiB,
+                                                                 List<ProviderState> states,
+                                                                 java.util.Map<String, ModelDemand> demand,
+                                                                 long promptTokens) {
         PlacementCostModel.EvictionPlan best = null;
         for (ProviderState p : states) {
+            if (!ContextFit.holds(p, model, promptTokens)) continue;
             PlacementCostModel.EvictionPlan plan = planOn(p, model, footprintMiB, demand);
             if (plan != null && (best == null || plan.costSeconds() < best.costSeconds())) {
                 best = plan;
@@ -468,7 +505,7 @@ public class ProviderSelector {
     }
 
     private Optional<Pick> pickAndClaim(String modelName, long coldLoadFootprintMiB,
-                                        long thisCallKvCacheMiB, Mode mode) {
+                                        long thisCallKvCacheMiB, long promptTokens, Mode mode) {
         if (coldLoadFootprintMiB <= 0) return Optional.empty();
         if (thisCallKvCacheMiB < 0) thisCallKvCacheMiB = 0L;
         final long kvForThisCall = thisCallKvCacheMiB;
@@ -489,7 +526,8 @@ public class ProviderSelector {
                     p -> ticketManager.activeModelsOn(p.name()),       // cold-start convergence
                     p -> ticketManager.residentFootprintsFor(p.name())); // residency overlay (anti-thrash)
             ranked = ranked.stream()
-                    .filter(c -> mode.admits(c, modelName, driver) && !plannedForEviction(c, modelName))
+                    .filter(c -> mode.admits(c, modelName, driver) && !plannedForEviction(c, modelName)
+                            && ContextFit.holds(c.provider(), modelName, promptTokens))
                     .toList();
 
             if (ranked.isEmpty()) {
@@ -1129,7 +1167,9 @@ public class ProviderSelector {
                 n.path("lastProbedAt").asText(""),
                 n.path("totalVramMiB").asLong(0L),
                 footprints,
-                availFootprints
+                availFootprints,
+                n.path("contextLength").asLong(0L),
+                longMapField(n, "loadedModelContextLengths")
         );
     }
 

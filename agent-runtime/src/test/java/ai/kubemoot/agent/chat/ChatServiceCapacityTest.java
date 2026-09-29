@@ -115,8 +115,8 @@ class ChatServiceCapacityTest {
     void warmCandidateWithinTolerance_beatsColdLoadingThePreferredModel() {
         var rig = provider(32_768);
         when(selector.readState()).thenReturn(List.of(rig));
-        when(selector.pickAndClaimWarm(eq(PREFERRED), anyLong(), anyLong())).thenReturn(Optional.empty());
-        when(selector.pickAndClaimWarm(eq(WARM_CANDIDATE), anyLong(), anyLong())).thenReturn(Optional.of(pickOn(rig)));
+        when(selector.pickAndClaimWarm(eq(PREFERRED), anyLong(), anyLong(), anyLong())).thenReturn(Optional.empty());
+        when(selector.pickAndClaimWarm(eq(WARM_CANDIDATE), anyLong(), anyLong(), anyLong())).thenReturn(Optional.of(pickOn(rig)));
         var warmChat = answering("warm answer");
         poolServes(WARM_CANDIDATE, warmChat);
 
@@ -125,7 +125,7 @@ class ChatServiceCapacityTest {
         assertEquals("warm answer", result.response());
         assertEquals(WARM_CANDIDATE, result.model(), "the result reports the model the call ran on");
         verify(pool).forEndpoint(eq(EP), eq(WARM_CANDIDATE), anyDouble(), anyInt(), any(), any());
-        verify(selector, never()).pickAndClaim(anyString(), anyLong(), anyLong());
+        verify(selector, never()).pickAndClaim(anyString(), anyLong(), anyLong(), anyLong());
         verify(tickets).recordResidency("ollama-a", WARM_CANDIDATE, 10_000L);
         verifyNoInteractions(staticModel);
     }
@@ -134,15 +134,15 @@ class ChatServiceCapacityTest {
     void warmCandidateOutOfTolerance_keepsThePreferredModel() {
         var rig = provider(32_768);
         when(selector.readState()).thenReturn(List.of(rig));
-        when(selector.pickAndClaimWarm(anyString(), anyLong(), anyLong())).thenReturn(Optional.empty());
-        when(selector.pickAndClaim(eq(PREFERRED), anyLong(), anyLong())).thenReturn(Optional.of(pickOn(rig)));
+        when(selector.pickAndClaimWarm(anyString(), anyLong(), anyLong(), anyLong())).thenReturn(Optional.empty());
+        when(selector.pickAndClaim(eq(PREFERRED), anyLong(), anyLong(), anyLong())).thenReturn(Optional.of(pickOn(rig)));
         poolServes(PREFERRED, answering("quality answer"));
 
         var result = service(null, candidates(70, 30)).directChat(request(), true, CapacityWait.NONE);
 
         assertEquals("quality answer", result.response());
         assertEquals(PREFERRED, result.model());
-        verify(selector, never()).pickAndClaimWarm(eq(WARM_CANDIDATE), anyLong(), anyLong());
+        verify(selector, never()).pickAndClaimWarm(eq(WARM_CANDIDATE), anyLong(), anyLong(), anyLong());
         verify(pool).forEndpoint(eq(EP), eq(PREFERRED), anyDouble(), anyInt(), any(), any());
     }
 
@@ -150,20 +150,20 @@ class ChatServiceCapacityTest {
     void preferredModelWarmWithRoom_isUsedEvenWhenACandidateIsAlsoWarm() {
         var rig = provider(32_768);
         when(selector.readState()).thenReturn(List.of(rig));
-        when(selector.pickAndClaimWarm(eq(PREFERRED), anyLong(), anyLong())).thenReturn(Optional.of(pickOn(rig)));
+        when(selector.pickAndClaimWarm(eq(PREFERRED), anyLong(), anyLong(), anyLong())).thenReturn(Optional.of(pickOn(rig)));
         poolServes(PREFERRED, answering("preferred answer"));
 
         var result = service(null, candidates(70, 70)).directChat(request(), true, CapacityWait.NONE);
 
         assertEquals(PREFERRED, result.model());
-        verify(selector, never()).pickAndClaimWarm(eq(WARM_CANDIDATE), anyLong(), anyLong());
+        verify(selector, never()).pickAndClaimWarm(eq(WARM_CANDIDATE), anyLong(), anyLong(), anyLong());
     }
 
     @Test
     void modelNoGpuCanHold_standsAsideAsModelTooLarge_withoutWaiting() {
         when(selector.readState()).thenReturn(List.of(provider(16_384)));
-        when(selector.pickAndClaimWarm(anyString(), anyLong(), anyLong())).thenReturn(Optional.empty());
-        when(selector.pickAndClaim(anyString(), anyLong(), anyLong())).thenReturn(Optional.empty());
+        when(selector.pickAndClaimWarm(anyString(), anyLong(), anyLong(), anyLong())).thenReturn(Optional.empty());
+        when(selector.pickAndClaim(anyString(), anyLong(), anyLong(), anyLong())).thenReturn(Optional.empty());
         var signal = new FakeCapacitySignal();
         var wait = new RecordingCapacityWait();
 
@@ -181,8 +181,8 @@ class ChatServiceCapacityTest {
     void saturatedCluster_waitsThenRunsWhenCapacityArrives() {
         var rig = provider(32_768);
         when(selector.readState()).thenReturn(List.of(rig));
-        when(selector.pickAndClaimWarm(anyString(), anyLong(), anyLong())).thenReturn(Optional.empty());
-        when(selector.pickAndClaim(eq(PREFERRED), anyLong(), anyLong()))
+        when(selector.pickAndClaimWarm(anyString(), anyLong(), anyLong(), anyLong())).thenReturn(Optional.empty());
+        when(selector.pickAndClaim(eq(PREFERRED), anyLong(), anyLong(), anyLong()))
                 .thenReturn(Optional.empty(), Optional.empty(), Optional.of(pickOn(rig)));
         poolServes(PREFERRED, answering("after the wait"));
         var signal = new FakeCapacitySignal();
@@ -200,8 +200,8 @@ class ChatServiceCapacityTest {
     @Test
     void saturatedCluster_withoutWaiter_standsAsideGpuBusyAtOnce() {
         when(selector.readState()).thenReturn(List.of(provider(32_768)));
-        when(selector.pickAndClaimWarm(anyString(), anyLong(), anyLong())).thenReturn(Optional.empty());
-        when(selector.pickAndClaim(anyString(), anyLong(), anyLong())).thenReturn(Optional.empty());
+        when(selector.pickAndClaimWarm(anyString(), anyLong(), anyLong(), anyLong())).thenReturn(Optional.empty());
+        when(selector.pickAndClaim(anyString(), anyLong(), anyLong(), anyLong())).thenReturn(Optional.empty());
 
         var nfe = assertThrows(NoFitException.class, () -> service(null, null)
                 .directChat(request(), true, new RecordingCapacityWait()));
@@ -213,8 +213,8 @@ class ChatServiceCapacityTest {
     @Test
     void callThatCannotWait_standsAsideGpuBusy_evenWithAWaiter() {
         when(selector.readState()).thenReturn(List.of(provider(32_768)));
-        when(selector.pickAndClaimWarm(anyString(), anyLong(), anyLong())).thenReturn(Optional.empty());
-        when(selector.pickAndClaim(anyString(), anyLong(), anyLong())).thenReturn(Optional.empty());
+        when(selector.pickAndClaimWarm(anyString(), anyLong(), anyLong(), anyLong())).thenReturn(Optional.empty());
+        when(selector.pickAndClaim(anyString(), anyLong(), anyLong(), anyLong())).thenReturn(Optional.empty());
 
         var nfe = assertThrows(NoFitException.class, () -> service(new GpuCapacityWaiter(new FakeCapacitySignal(), 60, 90), null)
                 .directChat(request(), true));
@@ -226,9 +226,9 @@ class ChatServiceCapacityTest {
     void planMadeAtSelection_isUsedByTheFirstCall() {
         var rig = provider(32_768);
         when(selector.readState()).thenReturn(List.of(rig));
-        when(selector.pickAndClaimWarm(anyString(), anyLong(), anyLong())).thenReturn(Optional.empty());
-        when(selector.pickAndClaimLoading(anyString(), anyLong(), anyLong())).thenReturn(Optional.empty());
-        when(selector.pickAndClaim(eq(PREFERRED), anyLong(), anyLong())).thenReturn(Optional.of(pickOn(rig)));
+        when(selector.pickAndClaimWarm(anyString(), anyLong(), anyLong(), anyLong())).thenReturn(Optional.empty());
+        when(selector.pickAndClaimLoading(anyString(), anyLong(), anyLong(), anyLong())).thenReturn(Optional.empty());
+        when(selector.pickAndClaim(eq(PREFERRED), anyLong(), anyLong(), anyLong())).thenReturn(Optional.of(pickOn(rig)));
         poolServes(PREFERRED, answering("planned answer"));
         var service = service(null, null);
 
@@ -237,7 +237,7 @@ class ChatServiceCapacityTest {
                 true, CapacityWait.NONE);
 
         assertEquals("planned answer", result.response());
-        verify(selector, times(1)).pickAndClaim(eq(PREFERRED), anyLong(), anyLong());
+        verify(selector, times(1)).pickAndClaim(eq(PREFERRED), anyLong(), anyLong(), anyLong());
         verify(tickets).release(any());
     }
 
@@ -245,12 +245,97 @@ class ChatServiceCapacityTest {
     void releasePlan_releasesAnUnusedPlan() {
         var rig = provider(32_768);
         when(selector.readState()).thenReturn(List.of(rig));
-        when(selector.pickAndClaimWarm(eq(PREFERRED), anyLong(), anyLong())).thenReturn(Optional.of(pickOn(rig)));
+        when(selector.pickAndClaimWarm(eq(PREFERRED), anyLong(), anyLong(), anyLong())).thenReturn(Optional.of(pickOn(rig)));
         var service = service(null, null);
 
         service.commitToThread("t-gone", System.currentTimeMillis());
         service.releasePlan("t-gone");
 
         verify(tickets, times(1)).release(any());
+    }
+
+    /** A provider like {@link #provider} whose models get {@code contextTokens} per request. */
+    private static ProviderState providerWithContext(long totalVramMiB, long contextTokens) {
+        return new ProviderState("ollama-a", EP, 1, 0, 0, List.of(WARM_CANDIDATE), true,
+                "2026-09-27T00:00:00Z", totalVramMiB, Map.of(WARM_CANDIDATE, 10_000L),
+                Map.of(PREFERRED, 20_000L), contextTokens, Map.of());
+    }
+
+    @Test
+    void promptLargerThanEveryContext_standsAsidePromptTooLarge_withoutWaiting() {
+        when(selector.readState()).thenReturn(List.of(providerWithContext(32_768, 1_024)));
+        var signal = new FakeCapacitySignal();
+        var wait = new RecordingCapacityWait();
+
+        var nfe = assertThrows(NoFitException.class, () -> service(new GpuCapacityWaiter(signal, 60, 90), null)
+                .directChat(new ChatService.ChatRequest("conv", "q".repeat(20_000)), true, wait));
+
+        assertEquals(NoFitException.REASON_PROMPT_TOO_LARGE, nfe.reason());
+        assertTrue(nfe.predictorReason().contains("1024 tokens"), nfe.predictorReason());
+        assertTrue(wait.waiting.isEmpty(), "a prompt that fits no context does not wait");
+        assertEquals(0, signal.awaits.get());
+    }
+
+    @Test
+    void planMadeAtSelection_whoseContextCannotHoldTheRealPrompt_isReleased() {
+        // The plan is made for an assumed prompt (~5K tokens) that fits the 8K
+        // context; the real prompt (~12K tokens) does not, so the plan is dropped.
+        var rig = providerWithContext(32_768, 8_192);
+        when(selector.readState()).thenReturn(List.of(rig));
+        when(selector.pickAndClaim(eq(PREFERRED), anyLong(), anyLong(), anyLong()))
+                .thenReturn(Optional.of(pickOn(rig)), Optional.empty());
+        var service = service(null, null);
+
+        service.commitToThread("t-big", System.currentTimeMillis());
+        var nfe = assertThrows(NoFitException.class, () -> service.directChat(
+                new ChatService.ChatRequest("conv", "q".repeat(40_000), null, "t-big", "q"), true, CapacityWait.NONE));
+
+        assertEquals(NoFitException.REASON_PROMPT_TOO_LARGE, nfe.reason());
+        verify(tickets, times(1)).release(any());
+        verify(pool, never()).forEndpoint(anyString(), anyString(), anyDouble(), anyInt(), any(), any());
+    }
+
+    @Test
+    void coordinatorCall_promptLargerThanEveryContext_isRefused_notSentToTheStaticEndpoint() {
+        when(selector.readState()).thenReturn(List.of(providerWithContext(32_768, 1_024)));
+
+        var nfe = assertThrows(NoFitException.class,
+                () -> service(null, null).simpleLlmCallWithTokens("system", "q".repeat(20_000)));
+
+        assertEquals(NoFitException.REASON_PROMPT_TOO_LARGE, nfe.reason());
+        verifyNoInteractions(staticModel);
+    }
+
+    @Test
+    void coordinatorCall_everyGpuBusy_stillFallsBackToTheStaticEndpoint() {
+        when(selector.readState()).thenReturn(List.of(providerWithContext(32_768, 32_768)));
+        var response = mock(ChatResponse.class);
+        when(response.aiMessage()).thenReturn(new AiMessage("synthesis"));
+        when(response.tokenUsage()).thenReturn(new TokenUsage(10, 5));
+        when(staticModel.chat(any(ChatRequest.class))).thenReturn(response);
+
+        assertEquals("synthesis", service(null, null).simpleLlmCallWithTokens("system", "short").text());
+    }
+
+    @Test
+    void triage_promptLargerThanEveryContext_isRefused() {
+        when(selector.readState()).thenReturn(List.of(providerWithContext(32_768, 1_024)));
+
+        var nfe = assertThrows(NoFitException.class,
+                () -> service(null, null).triageChat("system", "c".repeat(20_000)));
+
+        assertEquals(NoFitException.REASON_PROMPT_TOO_LARGE, nfe.reason());
+        verify(selector, never()).pickAndClaim(anyString(), anyLong(), anyLong(), anyLong());
+    }
+
+    @Test
+    void triage_passesThePromptSizeToThePlacement() {
+        when(selector.readState()).thenReturn(List.of(providerWithContext(32_768, 32_768)));
+        when(selector.pickAndClaim(anyString(), anyLong(), anyLong(), anyLong())).thenReturn(Optional.empty());
+
+        // The static triage endpoint is unreachable in a unit test; only the placement matters here.
+        assertThrows(RuntimeException.class, () -> service(null, null).triageChat("system", "c".repeat(7_000)));
+
+        verify(selector).pickAndClaim(eq(PREFERRED), anyLong(), anyLong(), eq(2_002L));
     }
 }

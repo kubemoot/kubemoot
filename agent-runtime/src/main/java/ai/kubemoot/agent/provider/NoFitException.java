@@ -11,6 +11,9 @@ package ai.kubemoot.agent.provider;
  *       capacity wait reached its safety limit.</li>
  *   <li>{@link #REASON_MODEL_TOO_LARGE}: no GPU in the cluster has enough usable
  *       VRAM to ever hold the model.</li>
+ *   <li>{@link #REASON_PROMPT_TOO_LARGE}: the prompt is larger than the context
+ *       window every provider gives the model, so the engine would drop part of
+ *       it (the question among it) instead of answering it.</li>
  * </ul>
  *
  * <h3>Behavior</h3>
@@ -32,6 +35,9 @@ public class NoFitException extends RuntimeException {
 
     /** Stand-aside reason: no GPU in the cluster can ever hold the model. */
     public static final String REASON_MODEL_TOO_LARGE = "model-too-large";
+
+    /** Stand-aside reason: the prompt is larger than every provider's context for the model. */
+    public static final String REASON_PROMPT_TOO_LARGE = "prompt-too-large";
 
     private final String predictorReason;
     private final String reason;
@@ -59,12 +65,17 @@ public class NoFitException extends RuntimeException {
         return new NoFitException(REASON_MODEL_TOO_LARGE, model, detail);
     }
 
+    /** The prompt is larger than every provider's context window for {@code model}. */
+    public static NoFitException promptTooLarge(String model, String detail) {
+        return new NoFitException(REASON_PROMPT_TOO_LARGE, model, detail);
+    }
+
     /** The scheduler's reasoning for the refusal, for logs and signal metadata. */
     public String predictorReason() {
         return predictorReason;
     }
 
-    /** {@link #REASON_GPU_BUSY} or {@link #REASON_MODEL_TOO_LARGE}. */
+    /** {@link #REASON_GPU_BUSY}, {@link #REASON_MODEL_TOO_LARGE}, or {@link #REASON_PROMPT_TOO_LARGE}. */
     public String reason() {
         return reason;
     }

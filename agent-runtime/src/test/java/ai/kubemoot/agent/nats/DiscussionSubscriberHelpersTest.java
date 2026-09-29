@@ -296,6 +296,15 @@ class DiscussionSubscriberHelpersTest {
     }
 
     @Test
+    void noFit_promptTooLarge_contentAndMetadataNameTheReasonAndModel() {
+        var nfe = ai.kubemoot.agent.provider.NoFitException.promptTooLarge("m:14b", "prompt ~20000 tokens");
+        assertEquals("The prompt is larger than the context window any GPU gives m:14b",
+                DiscussionSubscriber.noFitContent(nfe));
+        assertEquals("prompt-too-large", DiscussionSubscriber.noFitMetadata(nfe).get("reason"));
+        assertEquals("prompt ~20000 tokens", DiscussionSubscriber.noFitMetadata(nfe).get("predictorReason"));
+    }
+
+    @Test
     void noFit_modelTooLarge_contentAndMetadataNameTheReasonAndModel() {
         var nfe = ai.kubemoot.agent.provider.NoFitException.modelTooLarge("qwen3:235b", "too big");
         assertEquals("No GPU in this cluster can hold the model qwen3:235b", DiscussionSubscriber.noFitContent(nfe));

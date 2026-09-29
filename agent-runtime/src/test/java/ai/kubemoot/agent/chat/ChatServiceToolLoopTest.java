@@ -1254,6 +1254,80 @@ class ChatServiceToolLoopTest {
         return resp;
     }
 
+    // ---- the prompt must fit the provider's context window ----
+
+    @Test
+    void toolLoop_promptLargerThanTheContext_failsWithoutCallingTheModel() {
+        when(mcpClient.getToolSpecifications()).thenReturn(Map.of());
+        var service = createService(3);
+        var messages = new java.util.ArrayList<dev.langchain4j.data.message.ChatMessage>(List.of(
+                dev.langchain4j.data.message.SystemMessage.from("system"),
+                dev.langchain4j.data.message.UserMessage.from("q".repeat(40_000))));
+
+        var failure = assertThrows(ToolCallFailure.class,
+                () -> service.callWithToolLoop(messages, chatModel, "gpu-a", "test", false, 8_192));
+
+        assertEquals(ToolCallFailure.FailureType.CONTEXT_EXCEEDED, failure.failureType());
+        assertTrue(failure.getMessage().contains("8192-token context window"), failure.getMessage());
+        verifyNoInteractions(chatModel);
+    }
+
+    @Test
+    void toolLoop_toolResultsThatOutgrowTheContext_failBeforeTheNextTurn() {
+        var toolSpec = ToolSpecification.builder().name("get_pods").description("List pods").build();
+        var toolExecutor = mock(ToolExecutor.class);
+        when(toolExecutor.execute(any(), any())).thenReturn("p".repeat(40_000));
+        when(mcpClient.getToolSpecifications()).thenReturn(Map.of(toolSpec, toolExecutor));
+        var call = ToolExecutionRequest.builder().id("c1").name("get_pods").arguments("{}").build();
+        var first = mock(ChatResponse.class);
+        when(first.aiMessage()).thenReturn(AiMessage.from(List.of(call)));
+        when(first.tokenUsage()).thenReturn(new TokenUsage(500, 20));
+        when(chatModel.chat(any(ChatRequest.class))).thenReturn(first);
+        var service = createService(5);
+        var messages = new java.util.ArrayList<dev.langchain4j.data.message.ChatMessage>(List.of(
+                dev.langchain4j.data.message.UserMessage.from("list pods")));
+
+        var failure = assertThrows(ToolCallFailure.class,
+                () -> service.callWithToolLoop(messages, chatModel, "gpu-a", "test", false, 8_192));
+
+        assertEquals(ToolCallFailure.FailureType.CONTEXT_EXCEEDED, failure.failureType());
+        verify(chatModel, times(1)).chat(any(ChatRequest.class));
+    }
+
+    @Test
+    void toolLoop_promptThatFits_isNotRefusedByAPaddedEstimate() {
+        // ~30,000 characters of prose is about 8,600 tokens at 3.5 characters per
+        // token, inside a 9,000-token context; the 25%-padded VRAM estimate (~9,400)
+        // would have refused it.
+        when(mcpClient.getToolSpecifications()).thenReturn(Map.of());
+        var response = mock(ChatResponse.class);
+        when(response.aiMessage()).thenReturn(new AiMessage("answer"));
+        when(response.tokenUsage()).thenReturn(new TokenUsage(8_000, 5));
+        when(chatModel.chat(any(ChatRequest.class))).thenReturn(response);
+        var service = createService(3);
+
+        service.callWithToolLoop(List.of(dev.langchain4j.data.message.UserMessage.from("w".repeat(30_000))),
+                chatModel, "gpu-a", "test", false, 9_000);
+
+        verify(chatModel, times(1)).chat(any(ChatRequest.class));
+    }
+
+    @Test
+    void toolLoop_unknownOrAmpleContext_runsAsBefore() {
+        when(mcpClient.getToolSpecifications()).thenReturn(Map.of());
+        var response = mock(ChatResponse.class);
+        when(response.aiMessage()).thenReturn(new AiMessage("answer"));
+        when(response.tokenUsage()).thenReturn(new TokenUsage(10, 5));
+        when(chatModel.chat(any(ChatRequest.class))).thenReturn(response);
+        var service = createService(3);
+        List<dev.langchain4j.data.message.ChatMessage> messages = List.of(
+                dev.langchain4j.data.message.UserMessage.from("q".repeat(40_000)));
+
+        service.callWithToolLoop(messages, chatModel, "gpu-a", "test", false, 0);
+        service.callWithToolLoop(messages, chatModel, "gpu-a", "test", false, 32_768);
+        verify(chatModel, times(2)).chat(any(ChatRequest.class));
+    }
+
     private ChatService createService(int maxToolIterations) {
         return createService(maxToolIterations, "tooler");
     }

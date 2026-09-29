@@ -94,9 +94,10 @@ type OllamaRunningModelsResponse struct {
 
 // OllamaRunningModel represents a running model from /api/ps
 type OllamaRunningModel struct {
-	Name     string `json:"name"`
-	SizeVRAM int64  `json:"size_vram"`
-	Size     int64  `json:"size"`
+	Name          string `json:"name"`
+	SizeVRAM      int64  `json:"size_vram"`
+	Size          int64  `json:"size"`
+	ContextLength int    `json:"context_length"`
 }
 
 // +kubebuilder:rbac:groups=kubemoot.ai,resources=models,verbs=get;list;watch;create;update;patch;delete

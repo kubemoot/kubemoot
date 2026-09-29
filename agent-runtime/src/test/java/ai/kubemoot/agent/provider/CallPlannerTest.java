@@ -38,11 +38,11 @@ class CallPlannerTest {
         tickets = mock(TicketManager.class);
         driver = new FakeEngineDriver(OllamaDriver.PROFILE);
         when(selector.driver()).thenReturn(driver);
-        when(selector.pickAndClaimWarm(anyString(), anyLong(), anyLong())).thenReturn(Optional.empty());
-        when(selector.pickAndClaimLoading(anyString(), anyLong(), anyLong())).thenReturn(Optional.empty());
-        when(selector.pickAndClaim(anyString(), anyLong(), anyLong())).thenReturn(Optional.empty());
-        when(selector.queueOption(anyList(), anyList())).thenReturn(Optional.empty());
-        when(selector.planEviction(anyString(), anyLong(), anyList(), anyMap())).thenReturn(Optional.empty());
+        when(selector.pickAndClaimWarm(anyString(), anyLong(), anyLong(), anyLong())).thenReturn(Optional.empty());
+        when(selector.pickAndClaimLoading(anyString(), anyLong(), anyLong(), anyLong())).thenReturn(Optional.empty());
+        when(selector.pickAndClaim(anyString(), anyLong(), anyLong(), anyLong())).thenReturn(Optional.empty());
+        when(selector.queueOption(anyList(), anyList(), anyLong())).thenReturn(Optional.empty());
+        when(selector.planEviction(anyString(), anyLong(), anyList(), anyMap(), anyLong())).thenReturn(Optional.empty());
     }
 
     private static ProviderState gpu(String name, long vram, Map<String, Long> loaded) {
@@ -73,14 +73,14 @@ class CallPlannerTest {
         // pick queues on the warm 14b copy, so no eviction is even considered.
         var big = gpu(BIG, 32_768, Map.of("qwen3:32b", 27_000L));
         var small = gpu(SMALL, 24_564, Map.of("qwen3:14b", 12_224L));
-        when(selector.pickAndClaim(eq("qwen3:14b"), anyLong(), anyLong())).thenReturn(Optional.of(pickOn(small, "q")));
+        when(selector.pickAndClaim(eq("qwen3:14b"), anyLong(), anyLong(), anyLong())).thenReturn(Optional.of(pickOn(small, "q")));
         var planner = new CallPlanner(selector, tickets, null);
 
         var placement = planner.place(request("qwen3:14b", List.of(), List.of(big, small))).orElseThrow();
 
         assertEquals(SMALL, placement.pick().provider().name());
         assertTrue(placement.evicted().isEmpty());
-        verify(selector, never()).planEviction(anyString(), anyLong(), anyList(), anyMap());
+        verify(selector, never()).planEviction(anyString(), anyLong(), anyList(), anyMap(), anyLong());
         assertTrue(driver.released.isEmpty());
     }
 
@@ -88,9 +88,9 @@ class CallPlannerTest {
     void noRoomAndAShortWaitElsewhere_queues_insteadOfUnloading() {
         var big = gpu(BIG, 32_768, Map.of("qwen3:32b", 27_000L));
         var victim = new PlacementCostModel.Victim("qwen3:32b", 27_000, new ModelDemand(0, 0, 1.0, 0.0, 1L));
-        when(selector.queueOption(anyList(), anyList()))
+        when(selector.queueOption(anyList(), anyList(), anyLong()))
                 .thenReturn(Optional.of(new PlacementCostModel.QueueOption("qwen3:14b", SMALL, 15.0)));
-        when(selector.planEviction(anyString(), anyLong(), anyList(), anyMap())).thenReturn(Optional.of(
+        when(selector.planEviction(anyString(), anyLong(), anyList(), anyMap(), anyLong())).thenReturn(Optional.of(
                 new PlacementCostModel.EvictionPlan(BIG, List.of(victim),
                         PlacementCostModel.evictionCostSeconds(OllamaDriver.PROFILE, 12_224, List.of(victim)))));
         var planner = new CallPlanner(selector, tickets, null);
@@ -105,7 +105,7 @@ class CallPlannerTest {
         var big = gpu(BIG, 32_768, Map.of("qwen3:8b", 6_000L));
         var plan = new PlacementCostModel.EvictionPlan(BIG,
                 List.of(new PlacementCostModel.Victim("qwen3:8b", 6_000, ModelDemand.NONE)), 13.0);
-        when(selector.planEviction(anyString(), anyLong(), anyList(), anyMap())).thenReturn(Optional.of(plan));
+        when(selector.planEviction(anyString(), anyLong(), anyList(), anyMap(), anyLong())).thenReturn(Optional.of(plan));
         when(selector.claimWithEvictions(eq("qwen3:32b"), anyLong(), anyLong(), eq(plan), anyList()))
                 .thenReturn(Optional.of(pickOn(big, "e")));
         var planner = new CallPlanner(selector, tickets, null);
@@ -124,7 +124,7 @@ class CallPlannerTest {
     void lostEvictionClaim_releasesNothing() {
         var plan = new PlacementCostModel.EvictionPlan(BIG,
                 List.of(new PlacementCostModel.Victim("qwen3:8b", 6_000, ModelDemand.NONE)), 13.0);
-        when(selector.planEviction(anyString(), anyLong(), anyList(), anyMap())).thenReturn(Optional.of(plan));
+        when(selector.planEviction(anyString(), anyLong(), anyList(), anyMap(), anyLong())).thenReturn(Optional.of(plan));
         var planner = new CallPlanner(selector, tickets, null);
 
         assertTrue(planner.place(request("qwen3:32b", List.of(), List.of(gpu(BIG, 32_768, Map.of())))).isEmpty());
@@ -134,13 +134,13 @@ class CallPlannerTest {
     @Test
     void agentsWithTheSameCandidate_convergeOnTheCopyBeingLoaded() {
         var big = gpu(BIG, 32_768, Map.of());
-        when(selector.pickAndClaimLoading(eq("qwen3:32b"), anyLong(), anyLong())).thenReturn(Optional.of(pickOn(big, "c")));
+        when(selector.pickAndClaimLoading(eq("qwen3:32b"), anyLong(), anyLong(), anyLong())).thenReturn(Optional.of(pickOn(big, "c")));
         var planner = new CallPlanner(selector, tickets, null);
 
         var placement = planner.place(request("qwen3:14b", List.of("qwen3:32b"), List.of(big))).orElseThrow();
 
         assertEquals("qwen3:32b", placement.model());
-        verify(selector, never()).pickAndClaim(eq("qwen3:14b"), anyLong(), anyLong());
+        verify(selector, never()).pickAndClaim(eq("qwen3:14b"), anyLong(), anyLong(), anyLong());
     }
 
     @Test
@@ -148,7 +148,7 @@ class CallPlannerTest {
         var big = gpu(BIG, 32_768, Map.of());
         var bucket = new InMemoryKv();
         var planner = new CallPlanner(selector, tickets, demandOn(bucket, "analyst"));
-        when(selector.pickAndClaim(eq("qwen3:32b"), anyLong(), anyLong())).thenReturn(Optional.of(pickOn(big, "p")));
+        when(selector.pickAndClaim(eq("qwen3:32b"), anyLong(), anyLong(), anyLong())).thenReturn(Optional.of(pickOn(big, "p")));
 
         planner.commit("t1", List.of("qwen3:32b"), () -> planner.place(request("qwen3:32b", List.of(), List.of(big))));
 
@@ -168,7 +168,7 @@ class CallPlannerTest {
         var demand = demandOn(bucket, "analyst");
         var planner = new CallPlanner(selector, tickets, demand);
         var pick = pickOn(big, "held");
-        when(selector.pickAndClaimWarm(eq("qwen3:32b"), anyLong(), anyLong())).thenReturn(Optional.of(pick));
+        when(selector.pickAndClaimWarm(eq("qwen3:32b"), anyLong(), anyLong(), anyLong())).thenReturn(Optional.of(pick));
         planner.commit("t1", List.of("qwen3:32b"), () -> planner.place(request("qwen3:32b", List.of(), List.of(big))));
         assertTrue(driver.warmed.isEmpty(), "a warm plan needs no load");
 
@@ -184,7 +184,7 @@ class CallPlannerTest {
         var bucket = new InMemoryKv();
         var demand = demandOn(bucket, "analyst");
         var cold = gpu(BIG, 32_768, Map.of());
-        when(selector.pickAndClaim(anyString(), anyLong(), anyLong())).thenReturn(Optional.of(pickOn(cold, "x")));
+        when(selector.pickAndClaim(anyString(), anyLong(), anyLong(), anyLong())).thenReturn(Optional.of(pickOn(cold, "x")));
         var planner = new CallPlanner(selector, tickets, demand);
 
         for (int i = 0; i < 5; i++) {
@@ -218,12 +218,12 @@ class CallPlannerTest {
         // Agent B waits for room for qwen3:14b.
         var selectorB = mock(ProviderSelector.class);
         when(selectorB.driver()).thenReturn(driver);
-        when(selectorB.pickAndClaimWarm(anyString(), anyLong(), anyLong())).thenReturn(Optional.empty());
-        when(selectorB.pickAndClaimLoading(anyString(), anyLong(), anyLong())).thenReturn(Optional.empty());
-        when(selectorB.pickAndClaim(eq("qwen3:14b"), anyLong(), anyLong()))
+        when(selectorB.pickAndClaimWarm(anyString(), anyLong(), anyLong(), anyLong())).thenReturn(Optional.empty());
+        when(selectorB.pickAndClaimLoading(anyString(), anyLong(), anyLong(), anyLong())).thenReturn(Optional.empty());
+        when(selectorB.pickAndClaim(eq("qwen3:14b"), anyLong(), anyLong(), anyLong()))
                 .thenAnswer(inv -> freed.get() ? Optional.of(pickOn(big, "b")) : Optional.empty());
-        when(selectorB.queueOption(anyList(), anyList())).thenReturn(Optional.empty());
-        when(selectorB.planEviction(anyString(), anyLong(), anyList(), anyMap())).thenReturn(Optional.empty());
+        when(selectorB.queueOption(anyList(), anyList(), anyLong())).thenReturn(Optional.empty());
+        when(selectorB.planEviction(anyString(), anyLong(), anyList(), anyMap(), anyLong())).thenReturn(Optional.empty());
         var plannerB = new CallPlanner(selectorB, tickets, null);
         var waiter = new GpuCapacityWaiter(signal, 60, 90);
         var wait = new RecordingCapacityWait();
@@ -236,7 +236,7 @@ class CallPlannerTest {
         // Agent A unloads the idle qwen3:8b for its own load.
         var plan = new PlacementCostModel.EvictionPlan(BIG,
                 List.of(new PlacementCostModel.Victim("qwen3:8b", 6_000, ModelDemand.NONE)), 13.0);
-        when(selector.planEviction(anyString(), anyLong(), anyList(), anyMap())).thenReturn(Optional.of(plan));
+        when(selector.planEviction(anyString(), anyLong(), anyList(), anyMap(), anyLong())).thenReturn(Optional.of(plan));
         when(selector.claimWithEvictions(anyString(), anyLong(), anyLong(), any(), anyList()))
                 .thenReturn(Optional.of(pickOn(big, "a")));
         new CallPlanner(selector, tickets, null).place(request("qwen3:4b", List.of(), List.of(big)));
@@ -249,7 +249,7 @@ class CallPlannerTest {
     void planThatFinishesAfterTheFirstCallStarted_isDroppedAtOnce() {
         var big = gpu(BIG, 32_768, Map.of("qwen3:32b", 27_000L));
         var pick = pickOn(big, "late");
-        when(selector.pickAndClaimWarm(eq("qwen3:32b"), anyLong(), anyLong())).thenReturn(Optional.of(pick));
+        when(selector.pickAndClaimWarm(eq("qwen3:32b"), anyLong(), anyLong(), anyLong())).thenReturn(Optional.of(pick));
         var planner = new CallPlanner(selector, tickets, null);
 
         planner.commit("t1", List.of("qwen3:32b"), () -> {
@@ -264,7 +264,7 @@ class CallPlannerTest {
     @Test
     void standAsideBeforeThePlanStarted_meansNoPlan_butAnEarlierRoundDoesNot() {
         var big = gpu(BIG, 32_768, Map.of("qwen3:32b", 27_000L));
-        when(selector.pickAndClaimWarm(eq("qwen3:32b"), anyLong(), anyLong())).thenReturn(Optional.of(pickOn(big, "p")));
+        when(selector.pickAndClaimWarm(eq("qwen3:32b"), anyLong(), anyLong(), anyLong())).thenReturn(Optional.of(pickOn(big, "p")));
         var planner = new CallPlanner(selector, tickets, null);
         long selectedAt = System.currentTimeMillis();
 
@@ -272,7 +272,7 @@ class CallPlannerTest {
         planner.commit("t1", selectedAt, List.of("qwen3:32b"),
                 () -> planner.place(request("qwen3:32b", List.of(), List.of(big))));
         assertFalse(planner.holds("t1"));
-        verify(selector, never()).pickAndClaimWarm(anyString(), anyLong(), anyLong());
+        verify(selector, never()).pickAndClaimWarm(anyString(), anyLong(), anyLong(), anyLong());
 
         planner.commit("t1", System.currentTimeMillis() + 1, List.of("qwen3:32b"),
                 () -> planner.place(request("qwen3:32b", List.of(), List.of(big))));
