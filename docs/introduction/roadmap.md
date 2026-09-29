@@ -24,6 +24,21 @@ model providers, so a crew can borrow capacity it does not own. Agents never nam
 model server or where it runs, so a crew does not change when the server beneath it
 does.
 
+A spike is planned soon on an engine-state contract for the scheduler. Instead of
+probing Ollama directly, the scheduler will read each model server's live state through
+one contract: requests running and queued, KV cache use, loaded models with their
+context and parallel capacity, and load and unload events. The contract aligns with the
+Kubernetes Gateway API Inference Extension
+[Model Server Protocol](https://github.com/kubernetes-sigs/gateway-api-inference-extension/blob/main/docs/proposals/003-model-server-protocol/README.md),
+an established standard that vLLM implements natively. Each model server gets an adapter
+that fills the contract, Ollama's first.
+
+The spike also tries vLLM as a substitute for Ollama on the tool-calling roles, where
+many agents call the same model at once and vLLM's continuous batching should help. It
+is measured against Ollama before any default changes. The payoff: scheduler decisions
+improve as it sees more state, and changing the model server under a crew becomes a new
+adapter, not a rework.
+
 ## Model choices for the reference crews
 
 **Today:** the reference crews run open-weight Qwen3 models served by Ollama: an
