@@ -71,9 +71,14 @@ public class DiscussionOrchestrator {
     /** An agent started waiting for GPU capacity. */
     private static final String MSG_WAITING = "waiting";
     /** Stand-aside reason: every GPU that could hold the model stayed busy. */
-    static final String REASON_GPU_BUSY = "gpu-busy";
+    static final String REASON_GPU_BUSY = ai.kubemoot.agent.provider.NoFitException.REASON_GPU_BUSY;
     /** Stand-aside reason: no GPU can ever hold the model. */
-    static final String REASON_MODEL_TOO_LARGE = "model-too-large";
+    static final String REASON_MODEL_TOO_LARGE = ai.kubemoot.agent.provider.NoFitException.REASON_MODEL_TOO_LARGE;
+    /** Stand-aside reason: the prompt is larger than every GPU's context window for the model. */
+    static final String REASON_PROMPT_TOO_LARGE = ai.kubemoot.agent.provider.NoFitException.REASON_PROMPT_TOO_LARGE;
+    /** The stand-aside reasons that mean the cluster, not the crew, kept an agent out. */
+    private static final Set<String> CAPACITY_REASONS =
+            Set.of(REASON_GPU_BUSY, REASON_MODEL_TOO_LARGE, REASON_PROMPT_TOO_LARGE);
     private static final String MSG_THREAD_START = "thread_start";
     private static final String MSG_ADVISORY_READY = "advisory_ready";
     private static final String MSG_REVIEW_READY = "review_ready";
@@ -838,15 +843,15 @@ public class DiscussionOrchestrator {
     }
 
     /**
-     * Record a stand-aside's capacity reason ({@code gpu-busy} or
-     * {@code model-too-large}) and, for model-too-large, the model no GPU can hold.
+     * Record a stand-aside's capacity reason ({@code gpu-busy}, {@code model-too-large}
+     * or {@code prompt-too-large}) and, for model-too-large, the model no GPU can hold.
      * Stand-asides without one of these reasons are ordinary and record nothing.
      */
     // Visible for testing
     static void recordCapacityReason(ThreadState state, String agentName, JsonNode msg) {
         JsonNode meta = msg == null ? null : msg.path(FIELD_METADATA);
         String reason = meta == null ? "" : meta.path("reason").asText("");
-        if (!REASON_GPU_BUSY.equals(reason) && !REASON_MODEL_TOO_LARGE.equals(reason)) {
+        if (!CAPACITY_REASONS.contains(reason)) {
             return;
         }
         state.capacityStandAsides.put(agentName, reason);
@@ -2353,13 +2358,18 @@ public class DiscussionOrchestrator {
                 + "agent or tool for this area.";
     }
 
+    static final String PROMPT_TOO_LARGE_MESSAGE = "The question and the evidence gathered for it are larger "
+            + "than the context window any GPU in this cluster gives the agents' models, so they could not "
+            + "answer without losing part of it. Ask a narrower question, or give the Ollama server a larger "
+            + "per-request context (OLLAMA_CONTEXT_LENGTH).";
+
     static final String GPU_BUSY_MESSAGE = "The crew's agents could not get a GPU: every GPU was busy "
             + "with other work, so none of them could answer in time. This is the cluster's capacity, "
             + "not the crew's design; ask again in a moment.";
 
     /**
      * The answer when no agent contributed because of GPU capacity: at least one
-     * agent stood aside with reason gpu-busy or model-too-large, or was still
+     * agent stood aside with reason gpu-busy, model-too-large or prompt-too-large, or was still
      * waiting for a GPU when the discussion settled. Null when an agent
      * contributed (agree or concern) or no capacity reason was reported, so the
      * ordinary synthesis and fallback text apply.
@@ -2372,6 +2382,9 @@ public class DiscussionOrchestrator {
         var parts = new ArrayList<String>();
         if (state.capacityStandAsides.containsValue(REASON_MODEL_TOO_LARGE)) {
             parts.add(tooLargeMessage(state.tooLargeModels));
+        }
+        if (state.capacityStandAsides.containsValue(REASON_PROMPT_TOO_LARGE)) {
+            parts.add(PROMPT_TOO_LARGE_MESSAGE);
         }
         if (state.capacityStandAsides.containsValue(REASON_GPU_BUSY) || !state.waitingAgents.isEmpty()) {
             parts.add(GPU_BUSY_MESSAGE);

@@ -560,6 +560,36 @@ class DiscussionOrchestratorHelpersTest {
     }
 
     @Test
+    void promptTooLargeStandAside_answersWithTheContextWindowMessage() {
+        var state = new DiscussionOrchestrator.ThreadState("t1");
+        orchestrator.handleAgentSignal(state, "k8s-advisor", "stand_aside", "", signal("prompt-too-large", "m:14b"));
+
+        assertEquals("prompt-too-large", state.capacityStandAsides.get("k8s-advisor"));
+        assertEquals(DiscussionOrchestrator.PROMPT_TOO_LARGE_MESSAGE, DiscussionOrchestrator.capacityMessage(state));
+        assertTrue(state.tooLargeModels.isEmpty(), "the model fits; only the prompt did not");
+    }
+
+    @Test
+    void promptTooLargeAndGpuBusy_reportBoth() {
+        var state = new DiscussionOrchestrator.ThreadState("t1");
+        orchestrator.handleAgentSignal(state, "a", "stand_aside", "", signal("prompt-too-large", "m:14b"));
+        orchestrator.handleAgentSignal(state, "b", "stand_aside", "", signal("gpu-busy", "m:8b"));
+
+        String msg = DiscussionOrchestrator.capacityMessage(state);
+        assertTrue(msg.startsWith(DiscussionOrchestrator.PROMPT_TOO_LARGE_MESSAGE));
+        assertTrue(msg.endsWith(DiscussionOrchestrator.GPU_BUSY_MESSAGE));
+    }
+
+    @Test
+    void unknownStandAsideReason_recordsNothing() {
+        var state = new DiscussionOrchestrator.ThreadState("t1");
+        orchestrator.handleAgentSignal(state, "a", "stand_aside", "", signal("nothing-to-add", "m:14b"));
+
+        assertTrue(state.capacityStandAsides.isEmpty());
+        assertNull(DiscussionOrchestrator.capacityMessage(state));
+    }
+
+    @Test
     void agentStillWaitingAtSettle_countsAsGpuBusy() {
         var state = new DiscussionOrchestrator.ThreadState("t1");
         orchestrator.handleAgentSignal(state, "rules-keeper", "waiting", "", signal("gpu-busy", "qwen3:14b"));
