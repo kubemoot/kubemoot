@@ -256,7 +256,7 @@ When a rule has no explicit `prefer` block and the policy has a non-empty `quali
 | `low` | `round((1 - bias) × 100)` |
 | (no `latencyClass` label) | `0` (no contribution) |
 
-So `bias = 0.7` ranks `high (70) > medium (50) > low (30)`; `bias = 0.3` flips it to `low (70) > medium (50) > high (30)`. Existing tie-break (smallest model name) still applies.
+So `bias = 0.7` ranks `high (70) > medium (50) > low (30)`; `bias = 0.3` flips it to `low (70) > medium (50) > high (30)`. On equal scores the Model with the smaller declared `vramMib` wins (a Model that declares none comes after those that do), then the Model name, so a tie never depends on how Models are spelled.
 
 ### Override semantics
 

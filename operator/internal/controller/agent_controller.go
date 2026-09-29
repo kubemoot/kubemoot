@@ -383,6 +383,26 @@ type scheduleCandidate struct {
 	reason   string
 }
 
+// candidateBefore orders feasible candidates: the higher score first; on a tie the
+// Model with the smaller declared VRAM footprint (faster, and it leaves the GPU more
+// room), a Model that declares none after those that do; then the Model name, so
+// the order is deterministic. Without the footprint step a tie was settled by name,
+// so whether a tooler landed on the small or the large Model depended on how the
+// Models happened to be spelled.
+func candidateBefore(a, b scheduleCandidate) bool {
+	if a.score != b.score {
+		return a.score > b.score
+	}
+	av, bv := a.model.Spec.VRAMMib, b.model.Spec.VRAMMib
+	if av != bv {
+		if av == 0 || bv == 0 {
+			return bv == 0
+		}
+		return av < bv
+	}
+	return a.model.Name < b.model.Name
+}
+
 // applySticky implements anti-oscillation: when the best-scoring candidate
 // uses a DIFFERENT provider than the agent's current binding, keep the
 // current binding unless the alternative beats it by more than
@@ -434,12 +454,7 @@ func (r *AgentReconciler) pickModel(ctx context.Context, agent *kubemootv1alpha1
 		return nil, fmt.Errorf("no Ready Model with a Ready ModelProvider in namespace %s", agent.Namespace)
 	}
 
-	sort.SliceStable(feasible, func(i, j int) bool {
-		if feasible[i].score != feasible[j].score {
-			return feasible[i].score > feasible[j].score
-		}
-		return feasible[i].model.Name < feasible[j].model.Name
-	})
+	sort.SliceStable(feasible, func(i, j int) bool { return candidateBefore(feasible[i], feasible[j]) })
 	pick := applySticky(feasible[0], feasible, currentProviderName, stickyHysteresis)
 
 	reason := pick.reason
