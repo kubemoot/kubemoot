@@ -1,6 +1,7 @@
 package readops
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -29,10 +30,10 @@ func TestTail(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got != "delta\necho\n" {
+	if got != "delta\necho\n[lines 3-4 of 5]\n" {
 		t.Fatalf("got %q", got)
 	}
-	if got, _ := Tail(strings.NewReader(sample), 100, big); got != sample {
+	if got, _ := Tail(strings.NewReader(sample), 100, big); got != sample+"[lines 0-4 of 5]\n" {
 		t.Fatalf("n>len got %q", got)
 	}
 	if got, _ := Tail(strings.NewReader(sample), 0, big); got != "" {
@@ -208,5 +209,66 @@ func TestSelectCSVBoundedByMaxBytes(t *testing.T) {
 	}
 	if len(got) > 100+8 {
 		t.Fatalf("select output not bounded: %d bytes", len(got))
+	}
+}
+
+// linesAndRange returns how many content lines a page holds and the range its
+// position line claims.
+func linesAndRange(t *testing.T, page string) (int, int, int) {
+	t.Helper()
+	i := strings.LastIndex(strings.TrimSuffix(page, "\n"), "\n")
+	footer := page[i+1:]
+	var a, b, total int
+	if _, err := fmt.Sscanf(footer, "[lines %d-%d of %d]", &a, &b, &total); err != nil {
+		t.Fatalf("no range in %q", footer)
+	}
+	return strings.Count(page[:i+1], "\n"), a, b
+}
+
+func TestPositionMatchesWhatACappedPageReturns(t *testing.T) {
+	in := strings.Repeat("0123456789\n", 1000)
+	for _, maxBytes := range []int{150, 200, 1000} {
+		page, err := Rows(strings.NewReader(in), 10, 500, maxBytes)
+		if err != nil {
+			t.Fatal(err)
+		}
+		n, a, b := linesAndRange(t, page)
+		if n != b-a+1 || a != 10 {
+			t.Fatalf("maxBytes %d: returned %d lines but claims %d-%d", maxBytes, n, a, b)
+		}
+		if len(page) > maxBytes {
+			t.Fatalf("maxBytes %d: page with position is %d bytes", maxBytes, len(page))
+		}
+	}
+}
+
+func TestPositionEdges(t *testing.T) {
+	if got, _ := Rows(strings.NewReader(""), 0, 10, big); got != "[no lines from line 0; the artifact has 0 lines]\n" {
+		t.Fatalf("empty artifact got %q", got)
+	}
+	if got, _ := Rows(strings.NewReader(sample), 5, 10, big); got != "[no lines from line 5; the artifact has 5 lines]\n" {
+		t.Fatalf("start == total got %q", got)
+	}
+	if got, _ := Head(strings.NewReader(sample), 1, big); got != "alpha\n[lines 0-0 of 5]\n" {
+		t.Fatalf("head got %q", got)
+	}
+}
+
+func TestALongLinePastThePageDoesNotFailIt(t *testing.T) {
+	in := "a\nb\n" + strings.Repeat("x", maxLineBytes+10) + "\nc\n"
+	got, err := Rows(strings.NewReader(in), 0, 2, big)
+	if err != nil {
+		t.Fatalf("a long line after the page must not fail it: %v", err)
+	}
+	if got != "a\nb\n[lines 0-1 of at least 2]\n" {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestFirstLineAlwaysReturned(t *testing.T) {
+	long := strings.Repeat("y", 500)
+	got, _ := Rows(strings.NewReader(long+"\nshort\n"), 0, 5, 200)
+	if !strings.HasPrefix(got, long+"\n[lines 0-0 of 2]") {
+		t.Fatalf("a first line over the budget still comes back, got %q", got[:40])
 	}
 }

@@ -18,6 +18,7 @@ import (
 	"bufio"
 	"encoding/csv"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"regexp"
@@ -50,18 +51,20 @@ func newLimitedBuilder(maxBytes int) *limitedBuilder {
 	return &limitedBuilder{max: maxBytes}
 }
 
-// line appends s + "\n" and reports whether the builder still has room. Once the
-// budget is reached the builder is full and further lines are dropped.
+// line appends s + "\n" when it fits in the budget and reports whether it was
+// written. The first line is always written, so a single long line still comes back;
+// after that a line that would pass the budget is dropped and the builder is full.
 func (l *limitedBuilder) line(s string) bool {
 	if l.full {
 		return false
 	}
+	if l.max > 0 && l.b.Len() > 0 && l.b.Len()+len(s)+1 > l.max {
+		l.full = true
+		return false
+	}
 	l.b.WriteString(s)
 	l.b.WriteByte('\n')
-	if l.max > 0 && l.b.Len() >= l.max {
-		l.full = true
-	}
-	return !l.full
+	return true
 }
 
 func (l *limitedBuilder) String() string { return l.b.String() }
@@ -78,14 +81,20 @@ func Head(r io.Reader, n, maxBytes int) (string, error) {
 
 // position describes a page of lines: which lines it holds and how many the
 // artifact has in all.
-func position(start, emitted, total int) string {
-	if emitted == 0 {
-		return fmt.Sprintf("[no lines from line %d; the artifact has %d lines]\n", start, total)
+// exact is false when a line too long to read stopped the count early.
+func position(start, emitted, total int, exact bool) string {
+	of := fmt.Sprintf("%d", total)
+	if !exact {
+		of = fmt.Sprintf("at least %d", total)
 	}
-	return fmt.Sprintf("[lines %d-%d of %d]\n", start, start+emitted-1, total)
+	if emitted == 0 {
+		return fmt.Sprintf("[no lines from line %d; the artifact has %s lines]\n", start, of)
+	}
+	return fmt.Sprintf("[lines %d-%d of %s]\n", start, start+emitted-1, of)
 }
 
-// Tail returns the last n lines. Memory is bounded to n lines via a ring buffer, and
+// Tail returns the last n lines, then a position line giving where they sit.
+// Memory is bounded to n lines via a ring buffer, and
 // the rendered output is bounded by maxBytes.
 func Tail(r io.Reader, n, maxBytes int) (string, error) {
 	if n <= 0 {
@@ -105,13 +114,19 @@ func Tail(r io.Reader, n, maxBytes int) (string, error) {
 	if count < n {
 		size = count
 	}
-	out := newLimitedBuilder(maxBytes)
+	budget := maxBytes
+	if maxBytes > positionReserve {
+		budget = maxBytes - positionReserve
+	}
+	out := newLimitedBuilder(budget)
+	emitted := 0
 	for i := 0; i < size; i++ {
 		if !out.line(ring[(count-size+i)%n]) {
 			break
 		}
+		emitted++
 	}
-	return out.String(), nil
+	return out.String() + position(count-size, emitted, count, true), nil
 }
 
 // Grep returns up to max lines matching the RE2 pattern, bounded by maxBytes.
@@ -214,28 +229,37 @@ func isUpperToken(s string) bool {
 	return hasLetter
 }
 
+// positionReserve is the room Rows keeps under maxBytes for its position line, so a
+// caller capping the result at maxBytes never cuts the position off.
+const positionReserve = 96
+
 // Rows returns the lines in [start, start+limit) (0-based), bounded by maxBytes,
-// then a position line such as "[lines 0-99 of 412]". limit <= 0 means to EOF
-// (still bounded by maxBytes). The whole artifact is scanned to count its lines.
+// then a position line such as "[lines 0-99 of 412]" that describes exactly the lines
+// returned. limit <= 0 means to EOF (still bounded by maxBytes). The whole artifact
+// is scanned to count its lines; a line past the scanner's limit ends the count, and
+// the position then says "of at least N".
 func Rows(r io.Reader, start, limit, maxBytes int) (string, error) {
 	if start < 0 {
 		start = 0
 	}
+	budget := maxBytes
+	if maxBytes > positionReserve {
+		budget = maxBytes - positionReserve
+	}
 	sc := newScanner(r)
-	out := newLimitedBuilder(maxBytes)
-	idx, emitted, full := 0, 0, false
+	out := newLimitedBuilder(budget)
+	idx, emitted := 0, 0
 	for sc.Scan() {
-		inPage := idx >= start && !full && (limit <= 0 || emitted < limit)
-		if inPage {
-			if out.line(sc.Text()) {
-				emitted++
-			} else {
-				full = true
-			}
+		if idx >= start && (limit <= 0 || emitted < limit) && out.line(sc.Text()) {
+			emitted++
 		}
 		idx++
 	}
-	return out.String() + position(start, emitted, idx), sc.Err()
+	err := sc.Err()
+	if errors.Is(err, bufio.ErrTooLong) {
+		return out.String() + position(start, emitted, idx, false), nil
+	}
+	return out.String() + position(start, emitted, idx, true), err
 }
 
 // SelectCSV projects the named columns from CSV input that has a header row,

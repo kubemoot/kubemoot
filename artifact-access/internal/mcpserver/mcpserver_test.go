@@ -50,7 +50,7 @@ func TestTailHandler(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if out.Output != "c\nd\n" {
+	if out.Output != "c\nd\n[lines 2-3 of 4]\n" {
 		t.Fatalf("got %q", out.Output)
 	}
 	if _, _, err := s.tail(context.Background(), nil, tailIn{Key: ""}); err == nil {
@@ -180,4 +180,27 @@ func text(res *mcp.CallToolResult) string {
 		return tc.Text
 	}
 	return ""
+}
+
+// A page larger than the output cap keeps its position line, and the range still
+// matches the lines returned.
+func TestLargePageKeepsItsPosition(t *testing.T) {
+	body := strings.Repeat("0123456789012345678901234567890123456789\n", 5000) // about 205 KB
+	s := newServer(map[string]string{"k": body})
+	_, out, err := s.rows(context.Background(), nil, rowsIn{Key: "k", Start: 0, Limit: 5000})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(out.Output, "[truncated at") {
+		t.Fatal("the output cap cut the page; the position line must fit within it")
+	}
+	lines := strings.Split(strings.TrimSuffix(out.Output, "\n"), "\n")
+	last := lines[len(lines)-1]
+	var a, b, total int
+	if _, err := fmt.Sscanf(last, "[lines %d-%d of %d]", &a, &b, &total); err != nil {
+		t.Fatalf("no position line at the end: %q", last)
+	}
+	if len(lines)-1 != b-a+1 || total != 5000 {
+		t.Fatalf("returned %d lines, position says %d-%d of %d", len(lines)-1, a, b, total)
+	}
 }
