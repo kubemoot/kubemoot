@@ -327,6 +327,56 @@ class DiscussionSubscriberHelpersTest {
     }
 
     @Test
+    void triageThatCannotBePlaced_standsAsideWithTheReason() throws Exception {
+        var conn = mock(Connection.class);
+        var chat = mock(ChatService.class);
+        when(chat.getToolNames()).thenReturn(List.of());
+        when(chat.triageChat(anyString(), anyString())).thenThrow(
+                ai.kubemoot.agent.provider.NoFitException.promptTooLarge("m:8b", "triage prompt ~9000 tokens"));
+        var sub = createSubscriberWithConnection(conn, chat);
+
+        assertNull(sub.runTriage("kubemoot.discuss.ns-a.nocrew.general.t1", "t1", "conversation", "4090",
+                System.currentTimeMillis()));
+
+        var payload = ArgumentCaptor.forClass(byte[].class);
+        verify(conn).publish(anyString(), payload.capture());
+        var msg = new com.fasterxml.jackson.databind.ObjectMapper().readTree(payload.getValue());
+        assertEquals("stand_aside", msg.path("messageType").asText());
+        assertEquals("prompt-too-large", msg.path("metadata").path("reason").asText());
+        assertEquals("m:8b", msg.path("metadata").path("model").asText());
+    }
+
+    @Test
+    void triageThatFailsOtherwise_standsAsideWithoutAReason() throws Exception {
+        var conn = mock(Connection.class);
+        var chat = mock(ChatService.class);
+        when(chat.getToolNames()).thenReturn(List.of());
+        when(chat.triageChat(anyString(), anyString())).thenThrow(new IllegalStateException("connection refused"));
+        var sub = createSubscriberWithConnection(conn, chat);
+
+        assertNull(sub.runTriage("kubemoot.discuss.ns-a.nocrew.general.t1", "t1", "conversation", "4090",
+                System.currentTimeMillis()));
+
+        var payload = ArgumentCaptor.forClass(byte[].class);
+        verify(conn).publish(anyString(), payload.capture());
+        var msg = new com.fasterxml.jackson.databind.ObjectMapper().readTree(payload.getValue());
+        assertEquals("stand_aside", msg.path("messageType").asText());
+        assertTrue(msg.path("metadata").path("reason").isMissingNode(), msg.toString());
+    }
+
+    @Test
+    void selection_plansTheFirstCallWithTheThreadsConversation() {
+        var chat = mock(ChatService.class);
+        var sub = createSubscriberWithConnection(mock(Connection.class), chat);
+
+        sub.commitToThread("t1", "the thread's conversation");
+
+        verify(chat, org.mockito.Mockito.timeout(2_000))
+                .commitToThread(org.mockito.ArgumentMatchers.eq("t1"), org.mockito.ArgumentMatchers.anyLong(),
+                        org.mockito.ArgumentMatchers.eq("the thread's conversation"));
+    }
+
+    @Test
     void capacityWait_publishesWaitingWithModelAndReason() throws Exception {
         var conn = mock(Connection.class);
         var sub = createSubscriberWithConnection(conn);
@@ -388,11 +438,15 @@ class DiscussionSubscriberHelpersTest {
     }
 
     private DiscussionSubscriber createSubscriberWithConnection(Connection conn) {
+        return createSubscriberWithConnection(conn, mock(ChatService.class));
+    }
+
+    private DiscussionSubscriber createSubscriberWithConnection(Connection conn, ChatService chat) {
         var natsProvider = mock(NatsConnectionProvider.class);
         when(natsProvider.scope()).thenReturn(CrewScope.of("ns-a", null));
         when(natsProvider.getConnection()).thenReturn(conn);
         var metrics = new DiscussionMetrics(new io.micrometer.core.instrument.simple.SimpleMeterRegistry());
-        return new DiscussionSubscriber(natsProvider, mock(ChatService.class), metrics,
+        return new DiscussionSubscriber(natsProvider, chat, metrics,
                 stubProperties("test-agent", "kubernetes", null, false), "http://localhost:11434");
     }
 }

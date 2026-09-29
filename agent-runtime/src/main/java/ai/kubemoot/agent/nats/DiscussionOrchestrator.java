@@ -1829,6 +1829,7 @@ public class DiscussionOrchestrator {
      */
     private void transitionToSynthesis(ThreadState state) {
         state.phase = Phase.SYNTHESIZING;
+        state.synthesisPromptTooLarge = false;
         Instant synthesisStart = Instant.now();
         log.info("Thread {} → SYNTHESIZING ({} agrees, {} concerns, {} stand-asides)",
                 state.threadId, state.agreeSignals.size(), state.concernSignals.size(),
@@ -1876,7 +1877,7 @@ public class DiscussionOrchestrator {
 
             } catch (Exception e) {
                 log.warn("Synthesis failed for thread {}: {}", state.threadId, e.getMessage());
-                closeWithFallback(state);
+                closeThread(state, resolveChannel(state), fallbackAfterSynthesisFailure(state, e));
             }
         });
     }
@@ -2339,9 +2340,19 @@ public class DiscussionOrchestrator {
      * Build a fallback response from tooler agrees, or a generic error message.
      */
     // Visible for testing
+    /**
+     * The answer when the synthesis call failed: the fallback, naming a synthesis
+     * prompt larger than every GPU's context window when that was the cause.
+     */
+    String fallbackAfterSynthesisFailure(ThreadState state, Exception failure) {
+        state.synthesisPromptTooLarge = isPromptTooLarge(failure);
+        return buildFallbackResponse(state);
+    }
+
     String buildFallbackResponse(ThreadState state) {
         if (!state.agreeSignals.isEmpty()) {
-            var fb = new StringBuilder("Here's what the toolers found:\n\n");
+            var fb = new StringBuilder(state.synthesisPromptTooLarge ? SYNTHESIS_TOO_LARGE_PREFIX : "");
+            fb.append("Here's what the toolers found:\n\n");
             for (var agree : state.agreeSignals.entrySet()) {
                 fb.append("**").append(agree.getKey()).append("**: ")
                         .append(truncate(agree.getValue(), FALLBACK_SNIPPET_CHARS)).append("\n\n");
@@ -2352,10 +2363,24 @@ public class DiscussionOrchestrator {
         if (capacity != null) {
             return capacity;
         }
+        if (state.synthesisPromptTooLarge) {
+            return PROMPT_TOO_LARGE_MESSAGE;
+        }
         return "No agent contributed an answer and the coordinator could not "
                 + "synthesize a response. The crew's agents may not cover this "
                 + "topic, or may lack the tools to answer it. Try rephrasing, or add an "
                 + "agent or tool for this area.";
+    }
+
+    /** Leads the toolers' raw findings when the synthesis prompt fit no GPU's context window. */
+    static final String SYNTHESIS_TOO_LARGE_PREFIX = "The findings below are too large together for the "
+            + "context window any GPU in this cluster gives the coordinator's model, so they are shown "
+            + "without a combined answer.\n\n";
+
+    /** True when {@code e} is a refusal because the prompt fits no provider's context window. */
+    static boolean isPromptTooLarge(Throwable e) {
+        return e instanceof ai.kubemoot.agent.provider.NoFitException nfe
+                && REASON_PROMPT_TOO_LARGE.equals(nfe.reason());
     }
 
     static final String PROMPT_TOO_LARGE_MESSAGE = "The question and the evidence gathered for it are larger "
@@ -2411,13 +2436,6 @@ public class DiscussionOrchestrator {
                 state.threadId);
         completeSynthesisPhase(state, resolveChannel(state), capacity, synthesisStart);
         return true;
-    }
-
-    /**
-     * Close thread with fallback response after synthesis failure.
-     */
-    private void closeWithFallback(ThreadState state) {
-        closeThread(state, resolveChannel(state), buildFallbackResponse(state));
     }
 
     /**
@@ -3742,6 +3760,8 @@ public class DiscussionOrchestrator {
         final ConcurrentHashMap<String, String> capacityStandAsides = new ConcurrentHashMap<>();
         /** Models a model-too-large stand-aside named. */
         final Set<String> tooLargeModels = ConcurrentHashMap.newKeySet();
+        /** The coordinator's own synthesis prompt was larger than every GPU's context window. */
+        volatile boolean synthesisPromptTooLarge;
         /** Agents currently waiting for GPU capacity: agent name to the model they wait for. */
         final ConcurrentHashMap<String, String> waitingAgents = new ConcurrentHashMap<>();
 

@@ -609,11 +609,12 @@ public class DiscussionSubscriber {
      * The coordinator selected this agent: plan its first mulling call now so a
      * needed model load overlaps triage and prompt building.
      */
-    private void commitToThread(String threadId) {
+    // Visible for testing
+    void commitToThread(String threadId, String conversation) {
         long selectedAtMs = System.currentTimeMillis();
         planner.submit(() -> {
             try {
-                chatService.commitToThread(threadId, selectedAtMs);
+                chatService.commitToThread(threadId, selectedAtMs, conversation);
             } catch (Exception e) {
                 log.warn("Planning the first call for thread {} failed: {}", threadId, e.getMessage());
             }
@@ -629,7 +630,7 @@ public class DiscussionSubscriber {
                 return;
             }
 
-            commitToThread(threadId);
+            commitToThread(threadId, conversation);
             String triageGpuLabel = GpuLabels.fromEndpoint(chatService.getTriageEndpoint());
             publishSignal(subject, threadId, "triaging", "Queued for triage assessment",
                     0, System.currentTimeMillis(), 0, 0, triageGpuLabel);
@@ -662,14 +663,20 @@ public class DiscussionSubscriber {
         }
     }
 
-    private String runTriage(String subject, String threadId, String conversation,
+    // Visible for testing
+    String runTriage(String subject, String threadId, String conversation,
                              String triageGpuLabel, long triageStartMs) {
         try {
             String triagePrompt = buildTriagePrompt(threadId);
             return chatService.triageChat(triagePrompt, conversation);
+        } catch (ai.kubemoot.agent.provider.NoFitException nfe) {
+            // The triage call could not be placed: the same capacity stand-aside as a
+            // mulling call, with its reason, so the coordinator can name the cluster.
+            handleNoFit(subject, threadId, nfe, 0L, triageStartMs, triageStartMs, triageGpuLabel);
+            return null;
         } catch (Exception e) {
             long triageMs = System.currentTimeMillis() - triageStartMs;
-            log.info("Triage failed for {} on thread {} ({}ms) — standing aside: {}",
+            log.info("Triage failed for {} on thread {} ({}ms) - standing aside: {}",
                     properties.agentName(), threadId, triageMs, e.getMessage());
             publishSignal(subject, threadId, SIGNAL_STAND_ASIDE, "", triageMs, triageStartMs, 0, 0, triageGpuLabel);
             return null;

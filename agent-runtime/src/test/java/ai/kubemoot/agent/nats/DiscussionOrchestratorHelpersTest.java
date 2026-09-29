@@ -368,6 +368,57 @@ class DiscussionOrchestratorHelpersTest {
                 "researcher agrees don't reach the 2-tooler threshold");
     }
 
+    // --- the coordinator's own synthesis prompt fits no context ---
+
+    @Test
+    void synthesisPromptTooLarge_leadsTheToolerFindingsWithTheReason() {
+        var state = new DiscussionOrchestrator.ThreadState("t1");
+        orchestrator.handleAgentSignal(state, "k8s-nodes", "agree", "3 nodes Ready", signal(null, null));
+        state.synthesisPromptTooLarge = true;
+
+        String fb = orchestrator.buildFallbackResponse(state);
+        assertTrue(fb.startsWith(DiscussionOrchestrator.SYNTHESIS_TOO_LARGE_PREFIX), fb);
+        assertTrue(fb.contains("3 nodes Ready"));
+    }
+
+    @Test
+    void synthesisPromptTooLarge_withNoFindings_saysSo() {
+        var state = new DiscussionOrchestrator.ThreadState("t1");
+        state.synthesisPromptTooLarge = true;
+        assertEquals(DiscussionOrchestrator.PROMPT_TOO_LARGE_MESSAGE, orchestrator.buildFallbackResponse(state));
+    }
+
+    @Test
+    void ordinarySynthesisFailure_keepsThePlainFallback() {
+        var state = new DiscussionOrchestrator.ThreadState("t1");
+        orchestrator.handleAgentSignal(state, "k8s-nodes", "agree", "3 nodes Ready", signal(null, null));
+        assertTrue(orchestrator.buildFallbackResponse(state).startsWith("Here's what the toolers found"));
+    }
+
+    @Test
+    void synthesisFailure_promptTooLarge_namesIt_andALaterOrdinaryFailureDoesNot() {
+        var state = new DiscussionOrchestrator.ThreadState("t1");
+        orchestrator.handleAgentSignal(state, "k8s-nodes", "agree", "3 nodes Ready", signal(null, null));
+
+        String tooLarge = orchestrator.fallbackAfterSynthesisFailure(state,
+                ai.kubemoot.agent.provider.NoFitException.promptTooLarge("m:32b", "synthesis ~40000 tokens"));
+        assertTrue(tooLarge.startsWith(DiscussionOrchestrator.SYNTHESIS_TOO_LARGE_PREFIX), tooLarge);
+
+        String ordinary = orchestrator.fallbackAfterSynthesisFailure(state, new IllegalStateException("timeout"));
+        assertTrue(ordinary.startsWith("Here's what the toolers found"), ordinary);
+        assertFalse(state.synthesisPromptTooLarge);
+    }
+
+    @Test
+    void isPromptTooLarge_onlyForThatRefusal() {
+        assertTrue(DiscussionOrchestrator.isPromptTooLarge(
+                ai.kubemoot.agent.provider.NoFitException.promptTooLarge("m", "d")));
+        assertFalse(DiscussionOrchestrator.isPromptTooLarge(
+                ai.kubemoot.agent.provider.NoFitException.gpuBusy("m", "d")));
+        assertFalse(DiscussionOrchestrator.isPromptTooLarge(new IllegalStateException("x")));
+        assertFalse(DiscussionOrchestrator.isPromptTooLarge(null));
+    }
+
     // --- synthesis completeness retry ---
 
     private static final String NAMESPACES = "[resources_list]\n"

@@ -1370,16 +1370,27 @@ public class ChatService {
         return states.stream().mapToLong(p -> p.coldLoadFootprintMiB(model)).max().orElse(0L);
     }
 
-    /** Prompt size assumed when planning a first call before its prompt exists. */
+    /** Prompt size assumed when planning a first call whose conversation is not known. */
     private static final int PLAN_PROMPT_CHARS = 16_000;
+
+    /**
+     * {@link #commitToThread(String, long, String)} when the conversation is not
+     * known: the plan assumes a prompt of {@link #PLAN_PROMPT_CHARS}.
+     */
+    public void commitToThread(String threadId, long selectedAtMs) {
+        commitToThread(threadId, selectedAtMs, null);
+    }
 
     /**
      * The coordinator selected this agent for {@code threadId}: publish its intent
      * for its candidate models and plan its first mulling call now, claiming the
-     * capacity and starting a needed load so it overlaps triage. Runs on the
+     * capacity and starting a needed load so it overlaps triage. The plan is sized
+     * from what is known at selection (the system prompt, the tool specs and the
+     * conversation), so it lands on a provider whose context holds the first call
+     * instead of starting a load the real prompt then abandons. Runs on the
      * caller's thread; the discussion subscriber calls it from a worker.
      */
-    public void commitToThread(String threadId, long selectedAtMs) {
+    public void commitToThread(String threadId, long selectedAtMs, String conversation) {
         if (providerSelector == null || ticketManager == null || chatModelPool == null) {
             return;
         }
@@ -1387,11 +1398,27 @@ public class ChatService {
         java.util.List<String> candidates = new ArrayList<>();
         candidates.add(preferred);
         candidates.addAll(mullingAlternatives(preferred));
+        int planChars = planPromptChars(conversation);
         callPlanner.commit(threadId, selectedAtMs, candidates, () -> {
             var states = providerSelector.readState();
             return states.isEmpty() ? java.util.Optional.empty()
-                    : callPlanner.place(placementRequest(states, PLAN_PROMPT_CHARS));
+                    : callPlanner.place(placementRequest(states, planChars));
         });
+    }
+
+    /**
+     * Characters the first mulling prompt will hold, from what is known at
+     * selection. A lower bound: messages that arrive on the thread after selection
+     * are not counted, and the tool loop's results come later still.
+     */
+    private int planPromptChars(String conversation) {
+        if (conversation == null) {
+            return PLAN_PROMPT_CHARS;
+        }
+        String system = loadSystemPrompt();
+        long chars = (system == null ? 0 : system.length()) + PromptSize.chars(List.of(), tools.specs())
+                + (long) conversation.length();
+        return (int) Math.min(chars, Integer.MAX_VALUE);
     }
 
     /** The agent stood aside or the thread ended: release the plan made at selection. */
