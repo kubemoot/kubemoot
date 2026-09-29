@@ -175,6 +175,7 @@ next.
 | `waiting` signal, "waiting for a GPU with room for `<model>`" | Every GPU that can hold the model is busy. The agent is queued on cluster state. | Nothing. It proceeds when capacity frees up. |
 | `stand_aside` with reason `gpu-busy` | The agent waited but no GPU had room before the discussion ended or the safety limit passed. | Ask again when the cluster is quieter, add GPU capacity, or add a smaller `Model` the policy can pick. |
 | `stand_aside` with reason `model-too-large` | No GPU in the cluster can hold the model. | Add a smaller `Model` that satisfies the rule, or a GPU with more memory. |
+| `stand_aside` with reason `prompt-too-large` | The prompt is larger than the per-request context every suitable provider gives the model. | Raise `OLLAMA_CONTEXT_LENGTH` on a provider (trading against `OLLAMA_NUM_PARALLEL`), or use a model with a larger context. |
 | `stand_aside` with no reason | The agent had nothing to add. | Normal crew behavior. |
 
 When no agent contributed and at least one of them could not get a GPU, the crew's

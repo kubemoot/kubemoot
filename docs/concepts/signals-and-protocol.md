@@ -15,7 +15,7 @@ is no central controller issuing commands.
 |--------|---------|
 | `agree` | This contribution supports the emerging answer. |
 | `concern` | A reservation that should be weighed before the crew settles. |
-| `stand_aside` | No relevant contribution; abstain without blocking. With `metadata.reason` set to `gpu-busy` or `model-too-large`, the agent was willing but could not get a GPU (see below). |
+| `stand_aside` | No relevant contribution; abstain without blocking. With `metadata.reason` set to `gpu-busy`, `model-too-large`, or `prompt-too-large`, the agent was willing but could not get a GPU (see below). |
 | `block` | A strong objection that should stop the answer as it stands. |
 | `failure` | The agent tried and could not complete - surfaced as a first-class signal, not hidden behind silence. |
 
@@ -32,13 +32,14 @@ how strongly each counts, depends on its consensus archetype (see
 
 ## Stand-asides for GPU capacity
 
-A stand-aside usually means the agent had nothing to add. Two reasons mark a different
+A stand-aside usually means the agent had nothing to add. Three reasons mark a different
 case, where the agent was selected and willing but the cluster could not run it:
 
 | `metadata.reason` | Meaning |
 |---|---|
 | `gpu-busy` | Every GPU that can hold the model stayed busy until the discussion ended or the agent's capacity wait reached its safety limit. |
 | `model-too-large` | No GPU in the cluster can ever hold the model (`metadata.model`). |
+| `prompt-too-large` | No provider gives an acceptable model a context window that holds the prompt. The engine would drop the oldest messages, so the agent stands aside instead. |
 
 When no agent contributed and at least one stood aside for one of these reasons (or was
 still waiting), the crew's answer says the GPUs were the limit, not the crew's design.

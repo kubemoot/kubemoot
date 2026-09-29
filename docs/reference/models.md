@@ -40,11 +40,19 @@ Declares an inference endpoint. The operator discovers GPU capacity (VRAM, loade
 | `capacity.vramUsedMiB` | Ollama `/api/ps` | VRAM consumed by loaded models |
 | `capacity.gpuModel` | DCGM metrics | e.g., "NVIDIA GeForce RTX 5090" |
 | `capacity.maxParallel` | Pod env `OLLAMA_NUM_PARALLEL` | Concurrent request slots |
+| `capacity.contextLength` | Pod env `OLLAMA_CONTEXT_LENGTH` | Per-request context (tokens) each slot gives a model; unknown when the engine chooses its own default |
+| `capacity.loadedModels[].contextLength` | Ollama `/api/ps` | Context the loaded model actually runs with; takes precedence over `capacity.contextLength` |
 | `capacity.agentCount` | Operator | Agents currently bound to this provider |
 | `capacity.loadedModels` | Ollama `/api/ps` | Models currently resident |
 | `capacity.availableModels` | Ollama `/api/tags` | Models downloaded on this provider |
 | `capacity.nodeName` | Kubernetes | Node hosting the Ollama pod |
 | `capacity.lastProbed` | Operator | When capacity was last discovered |
+
+The scheduler refuses to place a call whose prompt exceeds a provider's context for the
+model, because the engine would silently drop the oldest messages instead of rejecting it
+(see [Scheduler](../architecture/scheduler.md#the-context-window-is-a-hard-constraint)).
+On Ollama the total KV cache scales with `OLLAMA_NUM_PARALLEL` times
+`OLLAMA_CONTEXT_LENGTH`, so a GPU trades parallel slots against per-request context.
 
 Discovery needs the scheduler enabled and, for VRAM, DCGM metrics in Prometheus. A
 provider the operator cannot measure (a CPU Ollama, or a GPU host without DCGM)

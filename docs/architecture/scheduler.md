@@ -50,6 +50,26 @@ A model's VRAM occupancy is fixed when it loads: weights plus the context KV sla
 
 A provider where M is warm (resident, or being loaded by an in-flight call) is always feasible when it is ready and its circuit is closed: the call shares the loaded copy and queues for a slot. For a cold load, a provider is feasible iff it is ready, its circuit is closed, `usable(P) ≥ occupancy(M)`, and M fits beside the models already resident (`occupancy(M) + resident(P) ≤ usable(P)`), where `usable(P) = totalVram(P) − reserve` (the reserve covers CUDA context, fragmentation, and runtime overhead). A model larger than every card's usable VRAM yields no feasible provider, and the runtime reports it as `model-too-large` rather than spilling silently. A card that could hold M but is full of other resident models is busy, not too small: the runtime waits for it.
 
+#### The context window is a hard constraint
+
+VRAM is not the only limit on where a call can run. An inference engine does not reject a prompt larger than its per-request context. It drops the oldest messages, the question among them, and the model answers without it. Nothing reports the loss. The scheduler therefore treats the context window as a second hard filter, judged for the same provider and model as the VRAM fit: a provider whose context for that model cannot hold the call's prompt is never chosen.
+
+The context for a (provider, model) pair comes from, in order:
+
+1. The model's observed context once it is loaded (`status.capacity.loadedModels[].contextLength`, read from Ollama `/api/ps`).
+2. The engine's configured per-request context (`status.capacity.contextLength`, read from `OLLAMA_CONTEXT_LENGTH`).
+
+An unknown context never refuses a call. An engine that picks its own default context reports nothing until a model loads, and a provider with no published context is treated as able to hold the prompt. The check covers the prompt only, not the reply: a reply that runs past the context is bounded by the call's output cap and ends early without losing the question.
+
+Every placement path applies the filter: claiming a provider, queueing on a loaded copy, unloading idle models to make room, triage, and a plan held from selection. When no provider can run an acceptable model with a context that holds the prompt, waiting cannot help, so the refusal is not treated as busy:
+
+- A specialist stands aside at once with `metadata.reason = "prompt-too-large"` (and `metadata.model`).
+- A coordinator call fails visibly. It does not fall back to a static endpoint that would cut the prompt.
+
+The tool loop applies the same rule before every turn. It takes the prompt size the engine reported for the previous turn, adds the tool results appended since, and compares the total with the context of the provider the call runs on. When the next prompt would not fit, the loop stops with a `failure` signal whose `failureType` is `CONTEXT_EXCEEDED` instead of sending a prompt the engine would cut. Prompt size counts messages, tool results, tool-call arguments, and tool specifications. Before the engine has reported a size, the runtime estimates tokens from characters using a ratio learned from the engine's reports (an exponentially weighted average, starting at 3.5 characters per token, since prose runs near 4 and JSON or code nearer 3).
+
+On Ollama, `OLLAMA_CONTEXT_LENGTH` is the per-request context of each parallel slot, and the total KV cache scales with `OLLAMA_NUM_PARALLEL` times that value. A GPU's memory therefore buys either more parallel slots or a larger per-request context. Operators choose the balance for each provider: more slots serve more concurrent calls, a larger context admits longer prompts. Mixed providers can make different choices, and the scheduler routes each call to one whose context holds it.
+
 #### The weighted cost (lowest wins)
 
 For each feasible provider the runtime sums these weights and picks the minimum:
@@ -137,6 +157,7 @@ When the coordinator selects an agent for a live thread, the agent's discussion 
 When placement comes back empty, the runtime classifies the refusal:
 
 - **Too large:** no known provider has `usable(P) ≥ occupancy(M)` for the preferred model. The agent stands aside at once with `metadata.reason = "model-too-large"` and `metadata.model`. Providers that have not published their VRAM total never prove a model too large.
+- **Prompt too large:** some provider could hold the model in VRAM, but none gives it a context that holds the prompt (see [The context window is a hard constraint](#the-context-window-is-a-hard-constraint)). The agent stands aside at once with `metadata.reason = "prompt-too-large"`.
 - **Busy:** some provider could hold the model. The agent waits.
 
 The wait is state-driven. `NatsCapacityWatch` holds KV watches on `kubemoot_provider_state` and `kubemoot_provider_tickets` (updates only, metadata only). Every probe publish, ticket claim, and ticket release advances a change counter; the waiter records the counter, retries the placement against fresh state, and blocks until the counter moves. While it waits, its `wait.<model>.<agent>` entry tells other agents' planners not to unload that model. It publishes `waiting` (metadata `model`, `reason: "gpu-busy"`) once, before its first block, and `evaluating` again when a retry claims a GPU. The agent's discussion heartbeat keeps running, so the coordinator keeps its deadline alive.
@@ -158,6 +179,7 @@ The coordinator records each `waiting` signal and each `stand_aside` carrying `g
 
 - `gpu-busy` or still waiting: "The crew's agents could not get a GPU: every GPU was busy with other work, so none of them could answer in time. This is the cluster's capacity, not the crew's design; ask again in a moment."
 - `model-too-large`: "No GPU in this cluster can hold the model `<model>` the agents need; add a smaller Model or a larger GPU."
+- `prompt-too-large` is a distinct reason: no provider gives an acceptable model a context that holds the prompt. Raise the per-request context on a provider (`OLLAMA_CONTEXT_LENGTH`) or shorten what the crew sends.
 
 Both sentences appear when both reasons occurred. Otherwise the ordinary synthesis and no-contribution text apply.
 
