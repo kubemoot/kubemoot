@@ -13,13 +13,13 @@ func TestHead(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got != "alpha\nbravo\n" {
+	if got != "alpha\nbravo\n[lines 0-1 of 5]\n" {
 		t.Fatalf("got %q", got)
 	}
 	if got, _ := Head(strings.NewReader(sample), 0, big); got != "" {
 		t.Fatalf("n=0 must be empty, got %q", got)
 	}
-	if got, _ := Head(strings.NewReader(sample), 100, big); got != sample {
+	if got, _ := Head(strings.NewReader(sample), 100, big); got != sample+"[lines 0-4 of 5]\n" {
 		t.Fatalf("n>len got %q", got)
 	}
 }
@@ -103,14 +103,17 @@ func TestRows(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got != "bravo\ncharlie\n" {
+	if got != "bravo\ncharlie\n[lines 1-2 of 5]\n" {
 		t.Fatalf("got %q", got)
 	}
-	if got, _ := Rows(strings.NewReader(sample), 3, 0, big); got != "delta\necho\n" {
+	if got, _ := Rows(strings.NewReader(sample), 3, 0, big); got != "delta\necho\n[lines 3-4 of 5]\n" {
 		t.Fatalf("limit=0 got %q", got)
 	}
-	if got, _ := Rows(strings.NewReader(sample), 99, 5, big); got != "" {
+	if got, _ := Rows(strings.NewReader(sample), 99, 5, big); got != "[no lines from line 99; the artifact has 5 lines]\n" {
 		t.Fatalf("start>len got %q", got)
+	}
+	if got, _ := Rows(strings.NewReader(sample), -3, 1, big); got != "alpha\n[lines 0-0 of 5]\n" {
+		t.Fatalf("negative start got %q", got)
 	}
 }
 
@@ -161,8 +164,12 @@ func TestHeadBoundedByMaxBytes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(got) > 50+len("0123456789\n") {
+	footer := "[lines 0-3 of 1000]\n"
+	if len(got) > 50+len("0123456789\n")+len(footer) {
 		t.Fatalf("output not bounded: %d bytes", len(got))
+	}
+	if !strings.HasSuffix(got, " of 1000]\n") {
+		t.Fatalf("a capped page still reports the artifact's total, got %q", got[len(got)-30:])
 	}
 }
 

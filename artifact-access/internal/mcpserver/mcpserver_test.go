@@ -36,10 +36,10 @@ func TestHeadHandler(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if out.Output != "a\nb\n" {
+	if out.Output != "a\nb\n[lines 0-1 of 4]\n" {
 		t.Fatalf("structured out %q", out.Output)
 	}
-	if got := text(res); got != "a\nb\n" {
+	if got := text(res); got != "a\nb\n[lines 0-1 of 4]\n" {
 		t.Fatalf("content %q", got)
 	}
 }
@@ -78,7 +78,7 @@ func TestRowsHandler(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if out.Output != "r1\nr2\n" {
+	if out.Output != "r1\nr2\n[lines 1-2 of 4]\n" {
 		t.Fatalf("got %q", out.Output)
 	}
 	if _, _, err := s.rows(context.Background(), nil, rowsIn{Key: "missing", Start: 0, Limit: 1}); err == nil {

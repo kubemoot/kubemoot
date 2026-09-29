@@ -56,7 +56,8 @@ type Out struct {
 func (s *Server) MCP() *mcp.Server {
 	srv := mcp.NewServer(&mcp.Implementation{Name: "artifact-access", Version: "v1"}, nil)
 	mcp.AddTool(srv, &mcp.Tool{Name: "artifact_head",
-		Description: "First N lines of an artifact, by object key."}, s.head)
+		Description: "First N lines of an artifact, by object key, ending with a " +
+			"position line that gives the artifact's total line count."}, s.head)
 	mcp.AddTool(srv, &mcp.Tool{Name: "artifact_tail",
 		Description: "Last N lines of an artifact, by object key."}, s.tail)
 	mcp.AddTool(srv, &mcp.Tool{Name: "artifact_grep",
@@ -67,7 +68,10 @@ func (s *Server) MCP() *mcp.Server {
 			"the result is the entity count (how many namespaces/pods/rows), not the " +
 			"raw line count."}, s.count)
 	mcp.AddTool(srv, &mcp.Tool{Name: "artifact_rows",
-		Description: "Lines [start, start+limit) of an artifact (0-based)."}, s.rows)
+		Description: "Lines [start, start+limit) of an artifact (0-based), ending " +
+			"with a position line such as [lines 0-99 of 412]. limit defaults to 100; " +
+			"pass a larger limit, or 0 for the rest of the artifact, to read more in " +
+			"one call (output is capped at 64 KB)."}, s.rows)
 	mcp.AddTool(srv, &mcp.Tool{Name: "artifact_select",
 		Description: "Project named columns from a CSV artifact with a header row."}, s.selectCSV)
 	mcp.AddTool(srv, &mcp.Tool{Name: "artifact_jq",

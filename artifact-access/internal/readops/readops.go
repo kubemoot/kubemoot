@@ -66,19 +66,23 @@ func (l *limitedBuilder) line(s string) bool {
 
 func (l *limitedBuilder) String() string { return l.b.String() }
 
-// Head returns the first n lines (newline-terminated). n <= 0 yields "".
+// Head returns the first n lines (newline-terminated), then a position line giving
+// the artifact's total line count, so a reader knows how much remains. n <= 0
+// yields "".
 func Head(r io.Reader, n, maxBytes int) (string, error) {
 	if n <= 0 {
 		return "", nil
 	}
-	sc := newScanner(r)
-	out := newLimitedBuilder(maxBytes)
-	for i := 0; i < n && sc.Scan(); i++ {
-		if !out.line(sc.Text()) {
-			break
-		}
+	return Rows(r, 0, n, maxBytes)
+}
+
+// position describes a page of lines: which lines it holds and how many the
+// artifact has in all.
+func position(start, emitted, total int) string {
+	if emitted == 0 {
+		return fmt.Sprintf("[no lines from line %d; the artifact has %d lines]\n", start, total)
 	}
-	return out.String(), sc.Err()
+	return fmt.Sprintf("[lines %d-%d of %d]\n", start, start+emitted-1, total)
 }
 
 // Tail returns the last n lines. Memory is bounded to n lines via a ring buffer, and
@@ -210,28 +214,28 @@ func isUpperToken(s string) bool {
 	return hasLetter
 }
 
-// Rows returns the lines in [start, start+limit) (0-based), bounded by maxBytes.
-// limit <= 0 means to EOF (still bounded by maxBytes).
+// Rows returns the lines in [start, start+limit) (0-based), bounded by maxBytes,
+// then a position line such as "[lines 0-99 of 412]". limit <= 0 means to EOF
+// (still bounded by maxBytes). The whole artifact is scanned to count its lines.
 func Rows(r io.Reader, start, limit, maxBytes int) (string, error) {
 	if start < 0 {
 		start = 0
 	}
 	sc := newScanner(r)
 	out := newLimitedBuilder(maxBytes)
-	idx, emitted := 0, 0
+	idx, emitted, full := 0, 0, false
 	for sc.Scan() {
-		if idx >= start {
-			if limit > 0 && emitted >= limit {
-				break
+		inPage := idx >= start && !full && (limit <= 0 || emitted < limit)
+		if inPage {
+			if out.line(sc.Text()) {
+				emitted++
+			} else {
+				full = true
 			}
-			if !out.line(sc.Text()) {
-				break
-			}
-			emitted++
 		}
 		idx++
 	}
-	return out.String(), sc.Err()
+	return out.String() + position(start, emitted, idx), sc.Err()
 }
 
 // SelectCSV projects the named columns from CSV input that has a header row,
