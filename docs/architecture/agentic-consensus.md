@@ -123,7 +123,7 @@ The distinction matters because the two mean different things:
 |---|---|---|
 | `stand_aside` | "I looked, and this isn't my domain." | A participation decision. Working as designed. |
 | `failure` | "I tried and could not complete." | An infrastructure problem: a tool timed out, the model errored, a dependency was unreachable. |
-| `stand_aside` with reason `gpu-busy` or `model-too-large` | "I was ready, but no GPU could run me." | Cluster capacity: every GPU that can hold the model stayed busy, or none can hold it. |
+| `stand_aside` with reason `gpu-busy`, `model-too-large`, or `prompt-too-large` | "I was ready, but no GPU could run me." | Cluster capacity: every GPU that can hold the model stayed busy, none can hold it, or none gives it a context window that holds the prompt. |
 
 Collapsing both into `stand_aside` would corrupt every downstream reader of that
 signal: gap detection would propose onboarding a new specialist when the real problem

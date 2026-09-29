@@ -175,7 +175,7 @@ A cold load onto free memory needs room beside the models already resident. When
 
 #### The crew's answer when agents could not get a GPU
 
-The coordinator records each `waiting` signal and each `stand_aside` carrying `gpu-busy` or `model-too-large`. When the discussion settles with no `agree` and no `concern`, and at least one agent stood aside for capacity or is still waiting, the coordinator skips the synthesis call and answers:
+The coordinator records each `waiting` signal and each `stand_aside` carrying `gpu-busy`, `model-too-large`, or `prompt-too-large`. When the discussion settles with no `agree` and no `concern`, and at least one agent stood aside for capacity or is still waiting, the coordinator skips the synthesis call and answers:
 
 - `gpu-busy` or still waiting: "The crew's agents could not get a GPU: every GPU was busy with other work, so none of them could answer in time. This is the cluster's capacity, not the crew's design; ask again in a moment."
 - `model-too-large`: "No GPU in this cluster can hold the model `<model>` the agents need; add a smaller Model or a larger GPU."

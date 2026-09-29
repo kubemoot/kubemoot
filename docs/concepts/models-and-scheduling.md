@@ -145,6 +145,12 @@ When neither way forward helps right away, or waiting is the cheaper one, the ag
 If no GPU in the cluster has enough memory to ever hold the model, waiting cannot help.
 The agent stands aside at once with the reason `model-too-large`.
 
+The context window is a second limit of the same kind. An engine does not reject a prompt
+larger than its per-request context; it drops the oldest messages, the question among them.
+When no GPU gives a suitable model a context that holds the prompt, the agent stands aside
+at once with the reason `prompt-too-large`. See
+[Scheduler](../architecture/scheduler.md#the-context-window-is-a-hard-constraint).
+
 ## Planning when an agent is selected
 
 Kubemoot plans an agent's model the moment the coordinator selects it for a
