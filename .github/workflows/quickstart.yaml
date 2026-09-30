@@ -88,7 +88,7 @@ jobs:
         run: helm dependency build operator/chart/kubemoot-operator
 
       - name: Pull the released images the chart pins and load them into kind
-        # The chart names every component image; the quickstart runs five of them. kind
+        # The chart names every component image; the quickstart runs up to five of them. kind
         # nodes cannot pull private packages, so the runner pulls and loads them.
         run: |
           version_args=()
@@ -97,7 +97,12 @@ jobs:
               --values quickstart/operator-values.yaml \
             | grep -oE "${RELEASE_REGISTRY}/(kubemoot-operator|agent-runtime|discussion-gateway|crew-liaison|dashboard):[A-Za-z0-9._-]+" \
             | sort -u | tee images.txt
-          [ "$(wc -l < images.txt)" -eq 5 ] || { echo "expected 5 images, got:"; cat images.txt; exit 1; }
+          # The core three must be pinned; the dashboard and liaison are pulled when the
+          # chart being tested pins them (a chart released before the dashboard subchart
+          # has no dashboard image).
+          for core in kubemoot-operator agent-runtime discussion-gateway; do
+            grep -q "/${core}:" images.txt || { echo "the chart pins no ${core} image:"; cat images.txt; exit 1; }
+          done
           while read -r image; do
             docker pull "$image"
             kind load docker-image "$image" --name kubemoot
