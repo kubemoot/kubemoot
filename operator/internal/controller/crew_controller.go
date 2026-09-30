@@ -73,6 +73,7 @@ type CrewReconciler struct {
 // +kubebuilder:rbac:groups=core,resources=serviceaccounts,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=core,resources=namespaces,verbs=get;update;patch;delete
 // +kubebuilder:rbac:groups=core,resources=secrets,verbs=get;create
+// +kubebuilder:rbac:groups=gateway.networking.k8s.io,resources=httproutes,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=clusterroles,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=clusterrolebindings,verbs=get;list;watch;create;update;patch;delete
 
@@ -125,11 +126,14 @@ func (r *CrewReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 	return r.updateStatus(ctx, crew, a.phase, a.ready, a.message)
 }
 
-// reconcileNamespaceLabel labels the namespace when the Crew CR opts in via
-// kubemoot.ai/manage-namespace annotation. Crews in shared namespaces (e.g.,
+// reconcileNamespaceLabel records the Crew on its namespace when the Crew CR
+// requests namespace management via the kubemoot.ai/manage-namespace annotation.
+// The label is bookkeeping: deletion also requires the namespace to carry
+// kubemoot.ai/managed-namespace=true, which only a Namespace-level author can set.
+// Protected namespaces are never labeled. Crews in shared namespaces (e.g.,
 // kubemoot) omit this annotation and are unaffected.
 func (r *CrewReconciler) reconcileNamespaceLabel(ctx context.Context, crew *kubemootv1alpha1.Crew) {
-	if crew.Annotations[manageNamespaceAnno] != "true" {
+	if !crewRequestsNamespaceManagement(crew) || isProtectedNamespace(crew.Namespace) {
 		return
 	}
 
@@ -284,9 +288,10 @@ func bindsServiceAccount(crb *rbacv1.ClusterRoleBinding, name, namespace string)
 	return false
 }
 
-// deleteManagedNamespace deletes operator-managed namespaces (labeled during
-// reconciliation when kubemoot.ai/manage-namespace=true). Shared namespaces are
-// never labeled and therefore never deleted.
+// deleteManagedNamespace deletes the Crew's namespace only when the Crew asked
+// for it (kubemoot.ai/manage-namespace annotation) and the namespace itself opted
+// in (kubemoot.ai/managed-namespace=true). Protected and shared namespaces are
+// never deleted.
 func (r *CrewReconciler) deleteManagedNamespace(ctx context.Context, crew *kubemootv1alpha1.Crew) {
 	ns := &corev1.Namespace{}
 	if err := r.Get(ctx, types.NamespacedName{Name: crew.Namespace}, ns); err != nil {
@@ -302,10 +307,11 @@ func (r *CrewReconciler) deleteManagedNamespace(ctx context.Context, crew *kubem
 	}
 }
 
-// isManagedNamespace reports whether the namespace was labeled for this crew and
-// is not already being deleted.
+// isManagedNamespace reports whether the operator may delete the namespace on
+// behalf of the crew: the Crew requested it by annotation and the namespace
+// consents through its own label (see namespaceDeletableForCrew).
 func (r *CrewReconciler) isManagedNamespace(ns *corev1.Namespace, crew *kubemootv1alpha1.Crew) bool {
-	return ns.Labels != nil && ns.Labels[crewLabelKey] == crew.Name && ns.DeletionTimestamp.IsZero()
+	return crewRequestsNamespaceManagement(crew) && namespaceDeletableForCrew(ns, crew.Name)
 }
 
 // purgeCrewMemory removes this crew's working memory — facts are crew-scoped

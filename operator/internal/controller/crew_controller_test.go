@@ -203,6 +203,50 @@ var _ = Describe("Crew Controller", func() {
 			Expect(ns.DeletionTimestamp.IsZero()).To(BeTrue(), "namespace without crew label must not be deleted")
 		})
 
+		It("should NOT delete a namespace that carries the crew label but not the opt-in label", func() {
+			const crewName = "crew-no-optin"
+			nsName := "crew-no-optin-ns-test"
+			Expect(k8sClient.Create(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{
+				Name:   nsName,
+				Labels: map[string]string{crewLabelKey: crewName, "app.kubernetes.io/managed-by": "kubemoot-operator"},
+			}})).To(Succeed())
+			crew := &aiv1alpha1.Crew{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: crewName, Namespace: nsName,
+					Annotations: map[string]string{manageNamespaceAnno: manageNamespaceRequested},
+				},
+				Spec: aiv1alpha1.CrewSpec{Description: "annotated crew in a namespace that did not opt in"},
+			}
+			Expect(k8sClient.Create(ctx, crew)).To(Succeed())
+
+			reconciler := newReconciler()
+			key := types.NamespacedName{Name: crewName, Namespace: nsName}
+			_, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: key})
+			Expect(err).NotTo(HaveOccurred())
+			updated := &aiv1alpha1.Crew{}
+			Expect(k8sClient.Get(ctx, key, updated)).To(Succeed())
+			Expect(k8sClient.Delete(ctx, updated)).To(Succeed())
+			_, err = reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: key})
+			Expect(err).NotTo(HaveOccurred())
+
+			got := &corev1.Namespace{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: nsName}, got)).To(Succeed())
+			Expect(got.DeletionTimestamp.IsZero()).To(BeTrue(), "the operator's own label is not consent to delete")
+		})
+
+		It("should NOT label a protected namespace", func() {
+			crew := &aiv1alpha1.Crew{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "crew-in-kube-system", Namespace: "kube-system",
+					Annotations: map[string]string{manageNamespaceAnno: manageNamespaceRequested},
+				},
+			}
+			newReconciler().reconcileNamespaceLabel(ctx, crew)
+			got := &corev1.Namespace{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "kube-system"}, got)).To(Succeed())
+			Expect(got.Labels).NotTo(HaveKey(crewLabelKey))
+		})
+
 		It("should delete namespace when kubemoot.ai/crew label is present", func() {
 			// Create a dedicated namespace with the crew label
 			nsName := "crew-managed-ns-test"
@@ -211,6 +255,7 @@ var _ = Describe("Crew Controller", func() {
 					Name: nsName,
 					Labels: map[string]string{
 						crewLabelKey:                   "crew-managed-delete",
+						managedNamespaceLabel:          managedNamespaceOptIn,
 						"app.kubernetes.io/managed-by": "kubemoot-operator",
 					},
 				},

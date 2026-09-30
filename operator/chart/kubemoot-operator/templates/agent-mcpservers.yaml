@@ -43,7 +43,7 @@ rules:
     verbs: ["create", "get", "list", "watch", "update", "patch"]
   # Pod/namespace listing for kubernetes operations
   - apiGroups: [""]
-    resources: ["pods", "namespaces", "services", "configmaps", "secrets"]
+    resources: ["pods", "namespaces", "services", "configmaps"]
     verbs: ["get", "list", "watch"]
   - apiGroups: ["apps"]
     resources: ["deployments", "statefulsets", "daemonsets", "replicasets"]

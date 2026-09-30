@@ -58,8 +58,10 @@ DESCRIPTION Namespace management for crew deployments
 
 ASSERT namespace lifecycle is opt-in via kubemoot.ai/manage-namespace annotation
 WHEN namespace has kubemoot.ai/crew label THEN operator replicates secrets into it
-WHEN Crew CR has manage-namespace annotation THEN operator labels and deletes namespace on CR removal
-NEVER delete shared namespaces (e.g., kubemoot) - only labeled crew namespaces
+WHEN Crew CR has manage-namespace annotation THEN operator records the crew on the namespace; it deletes the namespace on CR removal ONLY if the namespace itself carries kubemoot.ai/managed-namespace=true (set by a Namespace-level author, never by the operator)
+NEVER delete kube-system, kube-public, kube-node-lease, default, or the operator's own namespace, whatever the labels say
+NEVER treat the operator's own kubemoot.ai/crew label as consent to delete
+WHEN copying Secrets into crew namespaces THEN sources are the operator namespace plus chart value secretReplication.allowedSourceNamespaces only
 
 # Agent Runtime
 

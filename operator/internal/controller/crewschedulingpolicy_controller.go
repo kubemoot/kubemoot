@@ -36,6 +36,7 @@ const defaultArchetypeName = "consent-3"
 
 // +kubebuilder:rbac:groups=kubemoot.ai,resources=crewschedulingpolicies,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=kubemoot.ai,resources=crewschedulingpolicies/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=kubemoot.ai,resources=crewschedulingpolicies/finalizers,verbs=update
 // +kubebuilder:rbac:groups=kubemoot.ai,resources=mootarchetypes,verbs=get;list;watch
 
 func (r *CrewSchedulingPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
