@@ -8,7 +8,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/javajon/kubemoot/code-sandbox/internal/runner"
+	"github.com/kubemoot/kubemoot/code-sandbox/internal/runner"
 )
 
 // codeArgs builds execute_code and validate_code arguments.

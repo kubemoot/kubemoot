@@ -6,7 +6,7 @@ import (
 	"sync"
 	"time"
 
-	kubemootv1alpha1 "github.com/javajon/kubemoot/operator/api/v1alpha1"
+	kubemootv1alpha1 "github.com/kubemoot/kubemoot/operator/api/v1alpha1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 )

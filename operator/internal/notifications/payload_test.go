@@ -12,7 +12,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/javajon/kubemoot/operator/internal/crewscope"
+	"github.com/kubemoot/kubemoot/operator/internal/crewscope"
 )
 
 func TestBuildPayload_PopulatesCoreFields(t *testing.T) {

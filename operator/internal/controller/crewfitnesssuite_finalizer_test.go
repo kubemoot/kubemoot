@@ -24,7 +24,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
-	kubemootv1alpha1 "github.com/javajon/kubemoot/operator/api/v1alpha1"
+	kubemootv1alpha1 "github.com/kubemoot/kubemoot/operator/api/v1alpha1"
 )
 
 // remainingKeys returns the sorted keys still present in a fakeStore (objectStore

@@ -3,8 +3,8 @@ package controller
 import (
 	"testing"
 
-	kubemootv1alpha1 "github.com/javajon/kubemoot/operator/api/v1alpha1"
-	"github.com/javajon/kubemoot/operator/internal/crewscope"
+	kubemootv1alpha1 "github.com/kubemoot/kubemoot/operator/api/v1alpha1"
+	"github.com/kubemoot/kubemoot/operator/internal/crewscope"
 )
 
 // A resume RAGSource is current only when its content hash, KV key, and

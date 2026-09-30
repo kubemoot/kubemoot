@@ -28,7 +28,7 @@ import (
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	kubemootv1alpha1 "github.com/javajon/kubemoot/operator/api/v1alpha1"
+	kubemootv1alpha1 "github.com/kubemoot/kubemoot/operator/api/v1alpha1"
 )
 
 // enqueueAgentsOnPromptModuleChange returns an event handler that enqueues every

@@ -1,10 +1,10 @@
-module github.com/javajon/kubemoot/crew-liaison
+module github.com/kubemoot/kubemoot/crew-liaison
 
 go 1.27.1
 
 require (
 	github.com/google/uuid v1.6.0
-	github.com/javajon/kubemoot/operator v0.0.0
+	github.com/kubemoot/kubemoot/operator v0.0.0
 	github.com/modelcontextprotocol/go-sdk v1.8.0
 	k8s.io/apimachinery v0.33.0
 	sigs.k8s.io/controller-runtime v0.21.0
@@ -70,4 +70,4 @@ require (
 	sigs.k8s.io/yaml v1.4.0 // indirect
 )
 
-replace github.com/javajon/kubemoot/operator => ../operator
+replace github.com/kubemoot/kubemoot/operator => ../operator

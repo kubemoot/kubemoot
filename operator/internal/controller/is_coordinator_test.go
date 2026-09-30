@@ -5,7 +5,7 @@ import (
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	kubemootv1alpha1 "github.com/javajon/kubemoot/operator/api/v1alpha1"
+	kubemootv1alpha1 "github.com/kubemoot/kubemoot/operator/api/v1alpha1"
 )
 
 // A coordinator is recognized by discussRole or by the older role label, so the

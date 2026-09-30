@@ -23,7 +23,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
-	aiv1alpha1 "github.com/javajon/kubemoot/operator/api/v1alpha1"
+	aiv1alpha1 "github.com/kubemoot/kubemoot/operator/api/v1alpha1"
 )
 
 const errExpectedCrewFitness = "expected CrewFitness, got %T"

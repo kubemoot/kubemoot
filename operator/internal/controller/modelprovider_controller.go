@@ -39,8 +39,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
-	aiv1alpha1 "github.com/javajon/kubemoot/operator/api/v1alpha1"
-	kubemootnats "github.com/javajon/kubemoot/operator/internal/nats"
+	aiv1alpha1 "github.com/kubemoot/kubemoot/operator/api/v1alpha1"
+	kubemootnats "github.com/kubemoot/kubemoot/operator/internal/nats"
 )
 
 // ProviderStateBucket is the NATS KV bucket where per-provider live capacity

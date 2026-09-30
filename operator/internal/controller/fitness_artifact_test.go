@@ -10,7 +10,7 @@ import (
 	"github.com/xuri/excelize/v2"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	kubemootv1alpha1 "github.com/javajon/kubemoot/operator/api/v1alpha1"
+	kubemootv1alpha1 "github.com/kubemoot/kubemoot/operator/api/v1alpha1"
 )
 
 // TestPercentileNearestRank pins the percentile math the Overview sheet

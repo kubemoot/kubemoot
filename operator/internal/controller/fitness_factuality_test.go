@@ -11,7 +11,7 @@ import (
 	"math"
 	"testing"
 
-	kubemootv1alpha1 "github.com/javajon/kubemoot/operator/api/v1alpha1"
+	kubemootv1alpha1 "github.com/kubemoot/kubemoot/operator/api/v1alpha1"
 )
 
 func ar(raw string, passed bool) kubemootv1alpha1.AssertionResult {

@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/javajon/kubemoot/scheduling-mcp/pkg/record"
+	"github.com/kubemoot/kubemoot/scheduling-mcp/pkg/record"
 )
 
 // memKV is a goroutine-safe in-memory KV used by handler tests.

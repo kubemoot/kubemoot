@@ -9,8 +9,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/javajon/kubemoot/discussion-gateway/internal/crewscope"
-	natsclient "github.com/javajon/kubemoot/discussion-gateway/internal/nats"
+	"github.com/kubemoot/kubemoot/discussion-gateway/internal/crewscope"
+	natsclient "github.com/kubemoot/kubemoot/discussion-gateway/internal/nats"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 )
 

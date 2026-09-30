@@ -11,7 +11,7 @@ import (
 	"github.com/google/jsonschema-go/jsonschema"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/javajon/kubemoot/code-sandbox/internal/runner"
+	"github.com/kubemoot/kubemoot/code-sandbox/internal/runner"
 )
 
 // Server holds the runner the tools use.

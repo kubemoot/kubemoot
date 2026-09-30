@@ -9,7 +9,7 @@ import (
 	"github.com/xuri/excelize/v2"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	kubemootv1alpha1 "github.com/javajon/kubemoot/operator/api/v1alpha1"
+	kubemootv1alpha1 "github.com/kubemoot/kubemoot/operator/api/v1alpha1"
 )
 
 func approx(a, b float64) bool { return math.Abs(a-b) < 0.01 }

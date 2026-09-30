@@ -28,7 +28,7 @@ import (
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
-	aiv1alpha1 "github.com/javajon/kubemoot/operator/api/v1alpha1"
+	aiv1alpha1 "github.com/kubemoot/kubemoot/operator/api/v1alpha1"
 )
 
 func modelTestScheme(t *testing.T) *runtime.Scheme {

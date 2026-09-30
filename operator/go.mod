@@ -1,4 +1,4 @@
-module github.com/javajon/kubemoot/operator
+module github.com/kubemoot/kubemoot/operator
 
 go 1.27.1
 

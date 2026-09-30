@@ -38,9 +38,9 @@ import (
 	"strings"
 	"time"
 
-	kubemootv1alpha1 "github.com/javajon/kubemoot/operator/api/v1alpha1"
-	"github.com/javajon/kubemoot/operator/internal/crewscope"
-	kubemootnats "github.com/javajon/kubemoot/operator/internal/nats"
+	kubemootv1alpha1 "github.com/kubemoot/kubemoot/operator/api/v1alpha1"
+	"github.com/kubemoot/kubemoot/operator/internal/crewscope"
+	kubemootnats "github.com/kubemoot/kubemoot/operator/internal/nats"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"

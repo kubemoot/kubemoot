@@ -50,7 +50,7 @@ import (
 
 	"github.com/xuri/excelize/v2"
 
-	kubemootv1alpha1 "github.com/javajon/kubemoot/operator/api/v1alpha1"
+	kubemootv1alpha1 "github.com/kubemoot/kubemoot/operator/api/v1alpha1"
 )
 
 // Sheet names, hoisted so the repeated references stay in sync (a typo in one

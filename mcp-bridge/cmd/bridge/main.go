@@ -9,7 +9,7 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/javajon/kubemoot/mcp-bridge/internal/bridge"
+	"github.com/kubemoot/kubemoot/mcp-bridge/internal/bridge"
 )
 
 func main() {

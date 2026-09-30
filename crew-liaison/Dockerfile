@@ -12,7 +12,7 @@ RUN go mod download 2>/dev/null || true
 COPY crew-liaison/ /build/
 
 ARG VERSION=dev
-RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w -X github.com/javajon/kubemoot/crew-liaison/internal/liaison.Version=${VERSION}" -o crew-liaison .
+RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w -X github.com/kubemoot/kubemoot/crew-liaison/internal/liaison.Version=${VERSION}" -o crew-liaison .
 
 FROM gcr.io/distroless/static-debian12:nonroot
 COPY --from=builder /build/crew-liaison /crew-liaison

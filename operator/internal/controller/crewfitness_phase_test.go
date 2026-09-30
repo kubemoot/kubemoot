@@ -13,7 +13,7 @@ package controller
 import (
 	"testing"
 
-	kubemootv1alpha1 "github.com/javajon/kubemoot/operator/api/v1alpha1"
+	kubemootv1alpha1 "github.com/kubemoot/kubemoot/operator/api/v1alpha1"
 	batchv1 "k8s.io/api/batch/v1"
 )
 

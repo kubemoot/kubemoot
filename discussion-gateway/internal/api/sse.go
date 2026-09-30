@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/javajon/kubemoot/discussion-gateway/internal/crewscope"
+	"github.com/kubemoot/kubemoot/discussion-gateway/internal/crewscope"
 	"github.com/nats-io/nats.go/jetstream"
 )
 

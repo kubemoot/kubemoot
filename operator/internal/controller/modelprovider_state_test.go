@@ -21,7 +21,7 @@ import (
 	"github.com/go-logr/logr"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
-	aiv1alpha1 "github.com/javajon/kubemoot/operator/api/v1alpha1"
+	aiv1alpha1 "github.com/kubemoot/kubemoot/operator/api/v1alpha1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 

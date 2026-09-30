@@ -38,10 +38,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
-	kubemootv1alpha1 "github.com/javajon/kubemoot/operator/api/v1alpha1"
-	"github.com/javajon/kubemoot/operator/internal/crewmemory"
-	"github.com/javajon/kubemoot/operator/internal/crewscope"
-	kubemootnats "github.com/javajon/kubemoot/operator/internal/nats"
+	kubemootv1alpha1 "github.com/kubemoot/kubemoot/operator/api/v1alpha1"
+	"github.com/kubemoot/kubemoot/operator/internal/crewmemory"
+	"github.com/kubemoot/kubemoot/operator/internal/crewscope"
+	kubemootnats "github.com/kubemoot/kubemoot/operator/internal/nats"
 )
 
 // crewMemoryBucket is the NATS KV bucket holding crew working memory; keys are

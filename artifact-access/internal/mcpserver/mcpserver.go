@@ -17,8 +17,8 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/javajon/kubemoot/artifact-access/internal/readops"
-	"github.com/javajon/kubemoot/artifact-access/internal/store"
+	"github.com/kubemoot/kubemoot/artifact-access/internal/readops"
+	"github.com/kubemoot/kubemoot/artifact-access/internal/store"
 )
 
 const (

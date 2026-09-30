@@ -11,13 +11,13 @@ import (
 	"syscall"
 	"time"
 
-	kubemootv1alpha1 "github.com/javajon/kubemoot/operator/api/v1alpha1"
+	kubemootv1alpha1 "github.com/kubemoot/kubemoot/operator/api/v1alpha1"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
-	"github.com/javajon/kubemoot/crew-liaison/internal/liaison"
+	"github.com/kubemoot/kubemoot/crew-liaison/internal/liaison"
 )
 
 func main() {

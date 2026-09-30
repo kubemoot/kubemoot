@@ -1,4 +1,4 @@
-module github.com/javajon/kubemoot/scheduling-mcp
+module github.com/kubemoot/kubemoot/scheduling-mcp
 
 go 1.27.1
 

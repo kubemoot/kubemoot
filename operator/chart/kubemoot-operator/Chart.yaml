@@ -1,6 +1,6 @@
 apiVersion: v2
 name: kubemoot-operator
-description: Kubernetes Operator for AI workflow orchestration
+description: Kubernetes operator and runtime for multi-agent AI consensus
 type: application
 version: 0.92.575
 appVersion: "0.343.16"
@@ -10,9 +10,9 @@ keywords:
   - operator
   - llm
   - kubernetes
-home: https://github.com/javajon/kubemoot
+home: https://github.com/kubemoot/kubemoot
 sources:
-  - https://github.com/javajon/kubemoot
+  - https://github.com/kubemoot/kubemoot
 maintainers:
   - name: Kubemoot maintainers
     email: moot@kubemoot.org

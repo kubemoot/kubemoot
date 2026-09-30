@@ -30,7 +30,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	aiv1alpha1 "github.com/javajon/kubemoot/operator/api/v1alpha1"
+	aiv1alpha1 "github.com/kubemoot/kubemoot/operator/api/v1alpha1"
 )
 
 var _ = Describe("Crew Controller", func() {
