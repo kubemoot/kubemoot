@@ -187,6 +187,27 @@ public interface AgentProperties {
         boolean hasAnalysts();
 
         /**
+         * Whether the crew declares the review decision
+         * (KUBEMOOT_DISCUSS_REVIEW_DECISION). When true, the coordinator makes one
+         * model call after EVALUATING that chooses how the gathered results are
+         * checked: concur (one analyst is asked whether it concurs), full (the review
+         * with the selected analysts), or none. The policy for that choice lives in
+         * the crew's coordinator PromptModule; the runtime escalates to a full review
+         * whenever a tooler failed or a concern or objection is on the board. Off:
+         * the full review runs, as for any crew that does not declare it.
+         */
+        @WithDefault("false")
+        boolean reviewDecision();
+
+        /**
+         * The model tier of the review decision call
+         * (KUBEMOOT_DISCUSS_REVIEW_DECISION_TIER): "fast" uses the triage model,
+         * "reasoning" the coordinator's main model. Any other value is the fast tier.
+         */
+        @WithDefault("fast")
+        String reviewDecisionTier();
+
+        /**
          * Max re-prompts the synthesis makes when its draft under-enumerates an
          * inventory answer (lists fewer entities than the gathered data contains).
          * The completeness contract names the omitted entries and asks for the full

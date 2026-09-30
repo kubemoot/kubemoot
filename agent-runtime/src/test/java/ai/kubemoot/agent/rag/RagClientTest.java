@@ -175,6 +175,8 @@ class RagClientTest {
                 @Override public int synthesisCompletenessRetries() { return 0; }
                 @Override public boolean answerDirectly() { return true; }
                 @Override public boolean hasAnalysts() { return false; }
+                @Override public boolean reviewDecision() { return false; }
+                @Override public String reviewDecisionTier() { return "fast"; }
                 @Override public int advisoryTimeoutSeconds() { return 10; }
                 @Override public int evaluationTimeoutSeconds() { return 300; }
                 @Override public int reviewTimeoutSeconds() { return 15; }

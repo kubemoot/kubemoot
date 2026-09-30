@@ -84,6 +84,10 @@ public class DiscussionOrchestrator {
     private static final String MSG_THREAD_START = "thread_start";
     private static final String MSG_ADVISORY_READY = "advisory_ready";
     private static final String MSG_REVIEW_READY = "review_ready";
+    private static final String MSG_REVIEW_DECISION = "review_decision";
+    private static final String FIELD_REVIEW_MODE = "reviewMode";
+    private static final String TIER_REASONING = "reasoning";
+    private static final String TIER_FAST = "fast";
     private static final String MSG_SYNTHESIS = "synthesis";
     private static final String MSG_THREAD_CLOSE = "thread_close";
     private static final String MSG_STOP_REQUESTED = "stop_requested";
@@ -231,6 +235,11 @@ public class DiscussionOrchestrator {
     // Off for single-specialist crews (the fitness judge) so the coordinator always
     // delegates to its specialist. Set via KUBEMOOT_DISCUSS_ANSWER_DIRECTLY.
     private final boolean answerDirectlyEnabled;
+    // Whether the crew declares the review decision (KUBEMOOT_DISCUSS_REVIEW_DECISION):
+    // one coordinator call after EVALUATING that chooses the shape of the review.
+    private final boolean reviewDecisionEnabled;
+    // The model tier of that call: "fast" (the triage model) or "reasoning" (the main model).
+    private final String reviewDecisionTier;
     private final int advisoryTimeoutSeconds;
     private final int evaluationTimeoutSeconds;
     private final int reviewTimeoutSeconds;
@@ -293,6 +302,15 @@ public class DiscussionOrchestrator {
         knownSkillNames.set(List.copyOf(names));
     }
 
+    /** Package-private: install a crew capability catalog for unit tests without a file or NATS. */
+    void loadCrewResumesForTest(String rawResumes) {
+        synchronized (crewResumesLock) {
+            crewResumesCache = rawResumes;
+            crewResumesFromFile = true;
+            extractAgentNamesFromResumes(rawResumes);
+        }
+    }
+
     /** Package-private: register a pending result future so a unit test can observe completion. */
     CompletableFuture<String> registerPendingForTest(String threadId) {
         return pendingResults.computeIfAbsent(threadId, k -> new CompletableFuture<>());
@@ -316,6 +334,8 @@ public class DiscussionOrchestrator {
         this.coordinator = properties.discuss().coordinator();
         this.hasAnalysts = properties.discuss().hasAnalysts();
         this.answerDirectlyEnabled = properties.discuss().answerDirectly();
+        this.reviewDecisionEnabled = properties.discuss().reviewDecision();
+        this.reviewDecisionTier = properties.discuss().reviewDecisionTier();
         var discuss = properties.discuss();
         this.advisoryTimeoutSeconds = PhaseBudgetDefaults.orDefault(discuss.advisoryTimeoutSeconds(),
                 PhaseBudgetDefaults.ADVISORY_SECONDS);
@@ -589,11 +609,14 @@ public class DiscussionOrchestrator {
         }
     }
 
-    /** True for our own thread_close / advisory_ready / review_ready echoes (we publish these). */
-    private boolean isOwnControlEcho(String agentName, String messageType) {
-        return properties.agentName().equals(agentName)
-                && (MSG_THREAD_CLOSE.equals(messageType) || MSG_ADVISORY_READY.equals(messageType)
-                        || MSG_REVIEW_READY.equals(messageType));
+    /** The control messages the coordinator publishes and ignores when they echo back. */
+    private static final Set<String> OWN_CONTROL_MESSAGES =
+            Set.of(MSG_THREAD_CLOSE, MSG_ADVISORY_READY, MSG_REVIEW_READY, MSG_REVIEW_DECISION);
+
+    /** True for an echo of a control message this coordinator published. */
+    // Visible for testing
+    boolean isOwnControlEcho(String agentName, String messageType) {
+        return properties.agentName().equals(agentName) && OWN_CONTROL_MESSAGES.contains(messageType);
     }
 
     /** Dedup by messageId; an already-seen id is a redelivery to drop. */
@@ -635,9 +658,14 @@ public class DiscussionOrchestrator {
         return phase != Phase.SYNTHESIZING && phase != Phase.CLOSED;
     }
 
-    /** A pause is honored only from a live phase (not already paused/closed/synthesizing). */
+    /**
+     * A pause is honored only from a live phase: not already paused, closed, or
+     * synthesizing, and not while the review decision call is running (it lasts
+     * seconds and advances on its own completion, not on the phase checker).
+     */
     static boolean canPause(Phase phase) {
-        return phase != Phase.PAUSED && phase != Phase.CLOSED && phase != Phase.SYNTHESIZING;
+        return phase != Phase.PAUSED && phase != Phase.CLOSED && phase != Phase.SYNTHESIZING
+                && phase != Phase.DECIDING;
     }
 
     /**
@@ -650,11 +678,15 @@ public class DiscussionOrchestrator {
     }
 
     /** Dashboard "Stop": force synthesis on accumulated signals, unless already past it. */
-    private void handleStopRequest(ThreadState state, String threadId, String agentName) {
-        if (canForceSynthesis(state.phase)) {
-            log.info("Thread {} stop requested by {} — forcing synthesis from phase {}",
-                    threadId, agentName, state.phase);
-            transitionToSynthesis(state);
+    // Visible for testing
+    void handleStopRequest(ThreadState state, String threadId, String agentName) {
+        // Under the thread's lock, so a stop and the end of DECIDING cannot both move the phase.
+        synchronized (state) {
+            if (canForceSynthesis(state.phase)) {
+                log.info("Thread {} stop requested by {} - forcing synthesis from phase {}",
+                        threadId, agentName, state.phase);
+                transitionToSynthesis(state);
+            }
         }
     }
 
@@ -878,8 +910,9 @@ public class DiscussionOrchestrator {
      * Handle human reply on a closed thread — reopen to EVALUATING phase
      * and clear all previous signals.
      */
-    private void handleThreadReopen(ThreadState state, String threadId,
-                                     String messageType, String agentName) {
+    // Visible for testing
+    void handleThreadReopen(ThreadState state, String threadId,
+                            String messageType, String agentName) {
         if (state.phase != Phase.CLOSED || !"reply".equals(messageType) || !"human".equals(agentName)) {
             return;
         }
@@ -893,6 +926,9 @@ public class DiscussionOrchestrator {
         state.clearCapacitySignals();
         state.researcherAgents.clear();
         state.pendingEvaluations.clear();
+        state.phaseRoster = Set.of();
+        state.resumeRanking = null;
+        state.concurrer = null;
         log.info("Thread {} reopened by human reply → EVALUATING", threadId);
     }
 
@@ -999,7 +1035,10 @@ public class DiscussionOrchestrator {
      * <pre>
      *   SUBMITTED    --thread_start (event)----------> ADVISORY
      *   ADVISORY     --auto------------------------->  EVALUATING   (advisory generated inline)
-     *   EVALUATING   --auto: settle---------------->   REVIEW       (roster settled OR fast-path)
+     *   EVALUATING   --auto: settle---------------->   DECIDING     (roster settled OR fast-path)
+     *   EVALUATING   --auto: settle---------------->   SYNTHESIZING (single agree, crew has no analysts)
+     *   DECIDING     --review decision (event)----->   CONCURRING | REVIEW | SYNTHESIZING
+     *   CONCURRING   --auto: settle---------------->   REVIEW (concern or failure) | SYNTHESIZING
      *   REVIEW       --auto: settle---------------->   SYNTHESIZING (roster settled; no fast-path)
      *   SYNTHESIZING --completeSynthesis (event)--->   CLOSED
      *   any\{SYNTHESIZING,CLOSED} --thread_pause (event)--> PAUSED
@@ -1024,6 +1063,11 @@ public class DiscussionOrchestrator {
         table.put(Phase.REVIEW, (state, now, elapsed) -> settlePhase(state, now, elapsed,
                 new PhaseSettle(minReviewSeconds, 0, false, false,
                         () -> transitionToSynthesis(state))));
+        // CONCURRING: the same roster-gated settle over the one analyst asked to
+        // concur; a concern (or a failure) escalates to REVIEW, otherwise synthesis.
+        table.put(Phase.CONCURRING, (state, now, elapsed) -> settlePhase(state, now, elapsed,
+                new PhaseSettle(minReviewSeconds, 0, false, false,
+                        () -> afterConcurrence(state))));
         return table;
     }
 
@@ -1067,6 +1111,17 @@ public class DiscussionOrchestrator {
         // ONLY per-agent timeout; heartbeats keep a deadline refreshed.
         checkEvaluationTimeouts(state);
 
+        // State first: once every participant the phase is waiting for has
+        // signalled, it advances without waiting out the floor or a quiet period.
+        // The floor below is only a safety net for a phase whose roster is unknown
+        // or still has signals pending.
+        if (rosterSignalled(state)) {
+            log.info("Thread {} every participant of {} has signalled after {}s - transitioning",
+                    state.threadId, state.phase, elapsed);
+            cfg.advance().run();
+            return;
+        }
+
         if (elapsed < cfg.floorSeconds()) return;
 
         // Fast settle: enough substantive agrees + quiet, without waiting out a
@@ -1097,6 +1152,30 @@ public class DiscussionOrchestrator {
         if (isColdStartWaiting(state, elapsed, cfg)) return;    // 0 signals, agents scaling from zero
         log.info("Thread {} no pending participants after {}s - transitioning", state.threadId, elapsed);
         cfg.advance().run();
+    }
+
+    /**
+     * True when the phase's roster is known and every member has reached a
+     * terminal signal (agree, concern, block, stand aside, or failure) and none is
+     * still pending. An unknown (empty) roster is never complete.
+     */
+    // Visible for testing
+    static boolean rosterSignalled(ThreadState state) {
+        var roster = state.phaseRoster;
+        if (roster == null || roster.isEmpty()) return false;
+        for (String member : roster) {
+            if (state.pendingEvaluations.containsKey(member) || !hasTerminalSignal(state, member)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /** True when {@code agent} has published a terminal signal on this thread. */
+    static boolean hasTerminalSignal(ThreadState state, String agent) {
+        boolean spoke = state.agreeSignals.containsKey(agent) || state.concernSignals.containsKey(agent)
+                || state.blockSignals.containsKey(agent);
+        return spoke || state.failureSignals.containsKey(agent) || state.standAsideSignals.contains(agent);
     }
 
     /** Quiet = terminal-signal silence (heartbeats don't count) for settleSeconds. */
@@ -1298,7 +1377,19 @@ public class DiscussionOrchestrator {
         state.clearCapacitySignals();
         state.researcherAgents.clear();
         state.pendingEvaluations.clear();
+        state.phaseRoster = evaluationRoster(state.innerCircle, analystNamesFromResumes());
         state.advisoryPending.set(false);
+    }
+
+    /**
+     * The agents EVALUATING waits for: the selected agents minus the analysts,
+     * which act only in review. Empty (unknown) when no inner circle was selected.
+     */
+    static Set<String> evaluationRoster(Set<String> innerCircle, Set<String> analysts) {
+        if (innerCircle == null || innerCircle.isEmpty()) return Set.of();
+        var roster = new HashSet<>(innerCircle);
+        roster.removeAll(analysts);
+        return Set.copyOf(roster);
     }
 
     /** The advisory inputs the EVALUATING tail needs, regardless of which path produced them. */
@@ -1720,12 +1811,12 @@ public class DiscussionOrchestrator {
     }
 
     /**
-     * EVALUATING → REVIEW (or direct to SYNTHESIS for single-agree).
-     *
-     * Single-agree: when exactly 1 tooler agrees with 0 concerns/blocks
-     * and the crew has no analysts, skip review (no cross-checking needed) but
-     * still run synthesis to clean up internal discussion formatting for end
-     * users.
+     * EVALUATING has settled. A crew with no analysts and a single clean tooler
+     * agree goes straight to synthesis. Otherwise the thread enters DECIDING and
+     * the review is shaped off the phase-checker thread (the review decision call
+     * and the analysts' resume ranking both do I/O): a crew that declares the
+     * review decision gets one coordinator call that chooses concur, full, or
+     * none; any other crew runs the full review.
      */
     private void transitionToReview(ThreadState state) {
         metrics.evaluationCompleted(Duration.between(state.phaseStarted, Instant.now()));
@@ -1735,49 +1826,228 @@ public class DiscussionOrchestrator {
                 state.threadId, state.agreeSignals.size(), state.standAsideSignals.size(),
                 state.concernSignals.size(), state.failureSignals.size());
 
-        // Always run synthesis — tooler responses include internal discussion
-        // formatting (tool call narration, agent role descriptions) that must be
-        // cleaned up by the synthesis LLM before showing to end users.
-        // Skip review phase for single-agree (no cross-checking needed) but still
-        // synthesize for clean user-facing output.
-        long toolerAgrees = state.agreeSignals.keySet().stream()
-                .filter(name -> !state.researcherAgents.contains(name)).count();
-
+        long toolerAgrees = toolerAgreeCount(state);
         if (shouldSkipReview(toolerAgrees, state.concernSignals.size(),
                 state.blockSignals.size(), hasAnalysts)) {
-            // Single agree, no dissent, no analysts — skip review but go through
-            // synthesis for clean output.
-            log.info("Thread {} — single tooler agree, skipping review → synthesis",
+            log.info("Thread {} - single tooler agree and no analysts in the crew, skipping review -> synthesis",
                     state.threadId);
             transitionToSynthesis(state);
             return;
         }
-
-        // The analysts review_ready wakes: the selected analysts, or every analyst
-        // when none was selected (review_ready then carries no inner circle).
-        var analysts = analystNamesFromResumes();
-        var analystCircle = analystCircleFrom(state.innerCircle, analysts);
-        Collection<String> reviewers = analystCircle.isEmpty() ? analysts : analystCircle;
-        state.phase = Phase.REVIEW;
+        state.phase = Phase.DECIDING;
         state.phaseStarted = Instant.now();
+        llmExecutor.submit(() -> decideReviewOrSynthesize(state, toolerAgrees));
+    }
+
+    /** {@link #decideReview}, synthesizing what the thread has when shaping the review fails. */
+    // Visible for testing
+    void decideReviewOrSynthesize(ThreadState state, long toolerAgrees) {
+        try {
+            decideReview(state, toolerAgrees);
+        } catch (Exception e) {
+            log.warn("Thread {} could not start its review, synthesizing: {}", state.threadId, e.getMessage());
+            synchronized (state) {
+                if (state.phase == Phase.DECIDING) {
+                    transitionToSynthesis(state);
+                }
+            }
+        }
+    }
+
+    /**
+     * The phase the review starts in and the analysts it wakes. SYNTHESIZING with no
+     * reviewers when there is no review to run.
+     */
+    record ReviewPlan(Phase phase, List<String> reviewers) {
+        static final ReviewPlan SYNTHESIS = new ReviewPlan(Phase.SYNTHESIZING, List.of());
+
+        static ReviewPlan of(Phase phase, List<String> reviewers) {
+            return reviewers.isEmpty() ? SYNTHESIS : new ReviewPlan(phase, reviewers);
+        }
+    }
+
+    /**
+     * Shape the review and start it. The decision and the reviewers are worked out
+     * first (both may do I/O); the phase then moves under the thread's lock, and a
+     * thread that left DECIDING meanwhile (the dashboard's Stop) is left as it is.
+     * Without the crew's review decision this is the full review. A decision call
+     * that hangs is bounded by the discussion's hard ceiling.
+     */
+    // Visible for testing
+    void decideReview(ThreadState state, long toolerAgrees) {
+        var decision = reviewDecisionEnabled
+                ? reviewDecisionFor(state, toolerAgrees)
+                : new ReviewDecision.Decision(ReviewDecision.Shape.FULL, "no review decision declared", true);
+        var plan = planReview(state, decision.shape());
+        synchronized (state) {
+            if (state.phase != Phase.DECIDING) {
+                log.info("Thread {} left DECIDING ({}) before the review started", state.threadId, state.phase);
+                return;
+            }
+            if (reviewDecisionEnabled) {
+                log.info("Thread {} review decision: {} ({}{})", state.threadId, decision.shape().wireName(),
+                        decision.reason(), decision.forced() ? ", runtime guard" : "");
+                publishReviewDecision(state, decision);
+            }
+            startPlannedReview(state, plan);
+        }
+    }
+
+    /** The plan for a decided shape: the concurrer, the full review's analysts, or synthesis. */
+    private ReviewPlan planReview(ThreadState state, ReviewDecision.Shape shape) {
+        return switch (shape) {
+            case NONE -> ReviewPlan.SYNTHESIS;
+            case CONCUR -> ReviewPlan.of(Phase.CONCURRING, ReviewRoster.concurrer(selectedAnalysts(state),
+                    analystNamesFromResumes(), analystRanking(state), Set.of()));
+            case FULL -> ReviewPlan.of(Phase.REVIEW, fullReviewers(state, Set.of()));
+        };
+    }
+
+    /** Enter the planned phase and wake its analysts; with none to wake, synthesize. */
+    private void startPlannedReview(ThreadState state, ReviewPlan plan) {
+        if (plan.phase() == Phase.SYNTHESIZING) {
+            log.info("Thread {} - no review to run, synthesizing", state.threadId);
+            transitionToSynthesis(state);
+            return;
+        }
+        boolean concurrence = plan.phase() == Phase.CONCURRING;
+        state.concurrer = concurrence ? plan.reviewers().get(0) : state.concurrer;
+        enterReviewPhase(state, plan.phase(), plan.reviewers());
+        publishReviewReady(state, plan.reviewers(), concurrence);
+    }
+
+    /**
+     * The review decision: a runtime guard's shape when one applies (a failure,
+     * a concern, a block, or no tooler agreement always escalates), otherwise the
+     * crew's policy through one model call. A failed call is a full review.
+     */
+    // Visible for testing
+    ReviewDecision.Decision reviewDecisionFor(ThreadState state, long toolerAgrees) {
+        var evidence = new ReviewDecision.Evidence(toolerAgrees, state.failureSignals.size(),
+                state.concernSignals.size(), state.blockSignals.size());
+        var forced = ReviewDecision.forced(evidence);
+        if (forced.isPresent()) {
+            return forced.get();
+        }
+        try {
+            String prompt = ReviewDecision.prompt(state.userQuery, buildSignalContext(state, toolerAgrees),
+                    selectedAnalysts(state), reviewSummary(state));
+            return ReviewDecision.parse(callReviewDecisionModel(prompt).text());
+        } catch (Exception e) {
+            log.warn("Thread {} review decision call failed, running the full review: {}",
+                    state.threadId, e.getMessage());
+            return new ReviewDecision.Decision(ReviewDecision.Shape.FULL, "the review decision call failed", true);
+        }
+    }
+
+    /** The fast tier (the triage model) unless the crew declares the reasoning tier. */
+    private ChatService.SimpleLlmResult callReviewDecisionModel(String prompt) {
+        String system = loadSystemPrompt();
+        if (!TIER_REASONING.equals(reviewDecisionTier) && chatService.hasDistinctTriageModel()) {
+            return chatService.triageChatWithTokens(system, prompt);
+        }
+        return chatService.simpleLlmCallWithTokens(system, prompt);
+    }
+
+    /**
+     * CONCURRING has settled. A concern, an objection, or a failure from the
+     * analyst escalates to the full review, with its view on the board and without
+     * waking it again; agreement or a stand aside goes to synthesis.
+     */
+    // Visible for testing
+    void afterConcurrence(ThreadState state) {
+        boolean dissented = concurrerDissented(state);
+        var plan = dissented
+                ? ReviewPlan.of(Phase.REVIEW, fullReviewers(state, Set.of(state.concurrer)))
+                : ReviewPlan.SYNTHESIS;
+        synchronized (state) {
+            if (state.phase != Phase.CONCURRING) {
+                log.info("Thread {} left CONCURRING ({}) before it settled", state.threadId, state.phase);
+                return;
+            }
+            if (dissented) {
+                log.info("Thread {} - {} did not concur, escalating to the full review",
+                        state.threadId, state.concurrer);
+            }
+            startPlannedReview(state, plan);
+        }
+    }
+
+    /** True when the analyst asked to concur raised a concern or an objection, or failed. */
+    static boolean concurrerDissented(ThreadState state) {
+        String concurrer = state.concurrer;
+        if (concurrer == null) return false;
+        boolean objected = state.concernSignals.containsKey(concurrer) || state.blockSignals.containsKey(concurrer);
+        return objected || state.failureSignals.containsKey(concurrer);
+    }
+
+    /** The full review's analysts, never every analyst in the crew. */
+    private List<String> fullReviewers(ThreadState state, Set<String> exclude) {
+        return ReviewRoster.full(selectedAnalysts(state), analystNamesFromResumes(), analystRanking(state), exclude);
+    }
+
+    /** Enter a review phase whose roster is {@code reviewers}, all pending from now. */
+    // Visible for testing
+    void enterReviewPhase(ThreadState state, Phase phase, List<String> reviewers) {
+        state.phase = phase;
+        state.phaseStarted = Instant.now();
+        state.phaseRoster = Set.copyOf(reviewers);
         seedReviewRoster(state, reviewers, System.currentTimeMillis());
         metrics.setPendingEvaluations(state.pendingEvaluations.size());
+    }
 
+    /** The analysts the coordinator selected for this thread, by name. */
+    private List<String> selectedAnalysts(ThreadState state) {
+        var selected = new ArrayList<>(analystCircleFrom(state.innerCircle, analystNamesFromResumes()));
+        Collections.sort(selected);
+        return selected;
+    }
+
+    /**
+     * The crew's resume ranking for this thread's question, looked up once per
+     * thread: every agent the search returns, best match first. Empty when the
+     * resume search is unavailable.
+     */
+    private List<String> analystRanking(ThreadState state) {
+        var cached = state.resumeRanking;
+        if (cached != null) return cached;
+        List<String> ranking = List.of();
+        if (resumeSearchClient != null) {
+            try {
+                int topK = Math.max(properties.discuss().resumePreFilterTopK(), 3 * knownAgentNames.get().size());
+                var found = resumeSearchClient.searchResumes(state.userQuery, topK);
+                ranking = found == null ? List.of() : List.copyOf(found);
+            } catch (Exception e) {
+                log.warn("Thread {} - resume ranking for the review failed: {}", state.threadId, e.getMessage());
+            }
+        }
+        state.resumeRanking = ranking;
+        return ranking;
+    }
+
+    /** Every contribution and concern so far, each truncated, as the reviewers and the decision see them. */
+    private static String reviewSummary(ThreadState state) {
+        var summary = new StringBuilder();
+        for (var agreeEntry : state.agreeSignals.entrySet()) {
+            summary.append("[").append(agreeEntry.getKey()).append("] ")
+                    .append(truncate(agreeEntry.getValue(), REVIEW_SNIPPET_CHARS)).append("\n\n");
+        }
+        for (var concernEntry : state.concernSignals.entrySet()) {
+            summary.append("[CONCERN from ").append(concernEntry.getKey()).append("] ")
+                    .append(truncate(concernEntry.getValue(), REVIEW_SNIPPET_CHARS)).append("\n\n");
+        }
+        return summary.toString();
+    }
+
+    /**
+     * Publish review_ready to exactly {@code reviewers} (the inner circle the
+     * subscribers gate on). A concurrence request carries reviewMode=concur and
+     * opens with {@link ReviewDecision#CONCURRENCE_REQUEST}.
+     */
+    private void publishReviewReady(ThreadState state, List<String> reviewers, boolean concurrence) {
         try {
             var conn = natsProvider.getConnection();
             if (conn == null) return;
-
-            // Build review summary
-            var responseSummary = new StringBuilder();
-            for (var agreeEntry : state.agreeSignals.entrySet()) {
-                responseSummary.append("[").append(agreeEntry.getKey()).append("] ")
-                        .append(truncate(agreeEntry.getValue(), REVIEW_SNIPPET_CHARS)).append("\n\n");
-            }
-            for (var concernEntry : state.concernSignals.entrySet()) {
-                responseSummary.append("[CONCERN from ").append(concernEntry.getKey()).append("] ")
-                        .append(truncate(concernEntry.getValue(), REVIEW_SNIPPET_CHARS)).append("\n\n");
-            }
-
             var metadata = new HashMap<String, Object>();
             metadata.put(FIELD_USER_QUERY, state.userQuery);
             metadata.put("agreeCount", state.agreeSignals.size());
@@ -1786,34 +2056,49 @@ public class DiscussionOrchestrator {
             metadata.put("failureCount", state.failureSignals.size());
             metadata.put(FIELD_GPU_LABEL, GpuLabels.fromEndpoint(properties.model().endpoint()));
             metadata.put(FIELD_MODEL_NAME, properties.model().model());
-
-            // The inner circle scopes review_ready to the selected analysts (the
-            // subscriber's isExcludedByInnerCircle gate); without one, every
-            // analyst wakes. See [[Coordinator Domain-Scoped Analyst Subcommittee]].
-            if (!analystCircle.isEmpty()) {
-                metadata.put(FIELD_INNER_CIRCLE, analystCircle);
-                log.info("Thread {} - scoping review to {} selected analyst(s): {}",
-                        state.threadId, analystCircle.size(), analystCircle);
-            }
-
-            var message = Map.of(
-                    FIELD_MESSAGE_ID, UUID.randomUUID().toString(),
-                    FIELD_THREAD_ID, state.threadId,
-                    FIELD_AGENT_NAME, properties.agentName(),
-                    FIELD_MESSAGE_TYPE, MSG_REVIEW_READY,
-                    FIELD_CONTENT, responseSummary.toString(),
-                    FIELD_CHANNEL, CHANNEL_BROADCAST,
-                    FIELD_TIMESTAMP, Instant.now().toString(),
-                    FIELD_METADATA, metadata
-            );
-
-            String subject = broadcastSubject(state.crew, state.threadId);
-            conn.publish(subject, mapper.writeValueAsBytes(message));
-            log.info("Published review_ready to {} for thread {}", subject, state.threadId);
-
+            metadata.put(FIELD_INNER_CIRCLE, reviewers);
+            metadata.put(FIELD_REVIEW_MODE, concurrence ? ReviewDecision.Shape.CONCUR.wireName()
+                    : ReviewDecision.Shape.FULL.wireName());
+            String content = concurrence
+                    ? ReviewDecision.CONCURRENCE_REQUEST + "\n\n" + reviewSummary(state)
+                    : reviewSummary(state);
+            publishBroadcast(state, MSG_REVIEW_READY, content, metadata);
+            log.info("Published review_ready ({}) to {} for thread {}",
+                    concurrence ? "concurrence" : "full review", reviewers, state.threadId);
         } catch (Exception e) {
             log.warn("Failed to publish review_ready: {}", e.getMessage());
         }
+    }
+
+    /** Publish the review decision for the dashboard timeline; the coordinator ignores its own echo. */
+    private void publishReviewDecision(ThreadState state, ReviewDecision.Decision decision) {
+        try {
+            var metadata = new HashMap<String, Object>();
+            metadata.put("decision", decision.shape().wireName());
+            metadata.put(FIELD_REASON, decision.reason());
+            metadata.put("forced", decision.forced());
+            metadata.put("tier", TIER_REASONING.equals(reviewDecisionTier) ? TIER_REASONING : TIER_FAST);
+            publishBroadcast(state, MSG_REVIEW_DECISION, "Review decision: " + decision.shape().wireName(), metadata);
+        } catch (Exception e) {
+            log.warn("Failed to publish review_decision: {}", e.getMessage());
+        }
+    }
+
+    /** Publish one coordinator message of {@code messageType} on the thread's broadcast subject. */
+    private void publishBroadcast(ThreadState state, String messageType, String content,
+                                  Map<String, Object> metadata) throws Exception {
+        var conn = natsProvider.getConnection();
+        if (conn == null) return;
+        var message = Map.of(
+                FIELD_MESSAGE_ID, UUID.randomUUID().toString(),
+                FIELD_THREAD_ID, state.threadId,
+                FIELD_AGENT_NAME, properties.agentName(),
+                FIELD_MESSAGE_TYPE, messageType,
+                FIELD_CONTENT, content,
+                FIELD_CHANNEL, CHANNEL_BROADCAST,
+                FIELD_TIMESTAMP, Instant.now().toString(),
+                FIELD_METADATA, metadata);
+        conn.publish(broadcastSubject(state.crew, state.threadId), mapper.writeValueAsBytes(message));
     }
 
     /**
@@ -3703,8 +3988,10 @@ public class DiscussionOrchestrator {
     enum Phase {
         SUBMITTED,      // Initial state
         ADVISORY,       // Generating advisory inline via LLM (~3s)
-        EVALUATING,     // Toolers evaluate; settles after 5s quiet (max 45s)
-        REVIEW,         // Cross-check (skipped for single tooler agree; max 15s)
+        EVALUATING,     // Toolers gather; settles when the selected toolers have all signalled
+        DECIDING,       // Shaping the review (the crew's review decision call, when declared)
+        CONCURRING,     // One analyst is asked whether it concurs with the results
+        REVIEW,         // The full review by the selected analysts
         PAUSED,         // External pause — settle timer suspended, no phase transitions
         SYNTHESIZING,   // LLM synthesizing final answer
         CLOSED          // Thread complete
@@ -3822,6 +4109,14 @@ public class DiscussionOrchestrator {
         // Map: agentName → deadline epoch ms (P90 + grace). The settle timer must not fire
         // while any non-expired entry exists here.
         final ConcurrentHashMap<String, Long> pendingEvaluations = new ConcurrentHashMap<>();
+
+        // The agents the current phase waits for (the selected toolers in EVALUATING,
+        // the woken analysts in CONCURRING and REVIEW). Empty when unknown.
+        volatile Set<String> phaseRoster = Set.of(); // NOSONAR S3077: immutable set, reference swapped whole
+        // The analyst asked to concur, while and after CONCURRING.
+        volatile String concurrer;
+        // The crew's resume ranking for this question, looked up once when a review is shaped.
+        volatile List<String> resumeRanking; // NOSONAR S3077: immutable list, reference swapped whole
 
         ThreadState(String threadId) {
             this.threadId = threadId;

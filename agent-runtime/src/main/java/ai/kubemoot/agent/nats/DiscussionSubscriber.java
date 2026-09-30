@@ -49,6 +49,12 @@ public class DiscussionSubscriber {
     private static final ObjectMapper mapper = new ObjectMapper();
 
     private static final String NOTHING_TO_ADD = "NOTHING_TO_ADD";
+    // A reply that starts with this raises a concern with the rest of the reply.
+    static final String CONCERN_SENTINEL = "CONCERN:";
+    private static final String TOOL_GAP_SENTINEL = "TOOL_GAP:";
+    private static final String SIGNAL_CONCERN = "concern";
+    private static final String FIELD_REVIEW_MODE = "reviewMode";
+    private static final String REVIEW_MODE_CONCUR = "concur";
     private static final String SIGNAL_AGREE = "agree";
     private static final String SIGNAL_STAND_ASIDE = "stand_aside";
     /** Published once when an agent starts waiting for GPU capacity. */
@@ -402,9 +408,10 @@ public class DiscussionSubscriber {
 
             String conversation = formatThread(messages, threadId);
             boolean selected = isExplicitlySelected(data);
+            boolean concurrence = selected && isConcurrenceRequest(data);
             scheduler.submit(() -> {
                 try {
-                    evaluateAndRespond(subject, threadId, conversation, selected);
+                    evaluateAndRespond(subject, threadId, conversation, selected, concurrence);
                 } finally {
                     natsMsg.ack();
                 }
@@ -447,7 +454,8 @@ public class DiscussionSubscriber {
 
             String conversation = formatThread(messages, threadId);
             boolean selected = isExplicitlySelected(data);
-            scheduler.submit(() -> evaluateAndRespond(subject, threadId, conversation, selected));
+            boolean concurrence = selected && isConcurrenceRequest(data);
+            scheduler.submit(() -> evaluateAndRespond(subject, threadId, conversation, selected, concurrence));
 
         } catch (Exception e) {
             log.warn("Failed to handle discussion message: {}", e.getMessage());
@@ -597,9 +605,13 @@ public class DiscussionSubscriber {
      *   Only runs for agents that passed triage.
      */
     private void evaluateAndRespond(String subject, String threadId, String conversation,
-                                    boolean explicitlySelected) {
+                                    boolean explicitlySelected, boolean concurrence) {
         try {
-            evaluateSelected(subject, threadId, conversation, explicitlySelected);
+            if (concurrence) {
+                answerConcurrence(subject, threadId, conversation);
+            } else {
+                evaluateSelected(subject, threadId, conversation, explicitlySelected);
+            }
         } finally {
             // Whatever the outcome (answered, stood aside, failed), a plan made at
             // selection that the first call did not use is released here.
@@ -621,6 +633,26 @@ public class DiscussionSubscriber {
                 log.warn("Planning the first call for thread {} failed: {}", threadId, e.getMessage());
             }
         });
+    }
+
+    /**
+     * A concurrence request is addressed to this agent by name, so there is no
+     * should-I-contribute question to triage: the agent goes straight to its
+     * evaluation and answers (agree, or a concern).
+     */
+    private void answerConcurrence(String subject, String threadId, String conversation) {
+        try {
+            if (closedThreads.contains(threadId)) {
+                publishSignal(subject, threadId, SIGNAL_STAND_ASIDE, "", 0, 0, 0, 0, "none");
+                return;
+            }
+            commitToThread(threadId, conversation);
+            log.info("Agent {} answering a concurrence request for thread {}", properties.agentName(), threadId);
+            runMullingPhase(subject, threadId, conversation, 0, System.currentTimeMillis());
+        } catch (Exception e) {
+            log.warn("Failed to answer the concurrence request on thread {}: {}", threadId, e.getMessage());
+            publishExceptionAsFailure(subject, threadId, e, 0, 0, GpuLabels.fromEndpoint(ollamaBaseUrl));
+        }
     }
 
     private void evaluateSelected(String subject, String threadId, String conversation,
@@ -1070,10 +1102,11 @@ public class DiscussionSubscriber {
             return;
         }
 
-        if (content.startsWith("TOOL_GAP:")) {
-            String toolNeed = content.substring("TOOL_GAP:".length()).trim();
-            log.info("Agent {} reported tool gap for thread {}: {}", properties.agentName(), threadId, toolNeed);
-            publishSignal(subject, threadId, "concern", toolNeed, totalMs, triageStartMs, inTok, outTok, gpuLabel,
+        String concern = concernIn(content);
+        if (concern != null) {
+            log.info("Agent {} raised a concern on thread {}: {}", properties.agentName(), threadId,
+                    truncate(concern, ERROR_LOG_PREVIEW_CHARS));
+            publishSignal(subject, threadId, SIGNAL_CONCERN, concern, totalMs, triageStartMs, inTok, outTok, gpuLabel,
                     providerAttribution(result));
             return;
         }
@@ -1091,6 +1124,34 @@ public class DiscussionSubscriber {
 
         publishSignal(subject, threadId, SIGNAL_AGREE, content, totalMs, triageStartMs, inTok, outTok, gpuLabel,
                 providerAttribution(result));
+    }
+
+    /**
+     * The concern a reply raises, or null when it raises none. A reply that starts
+     * with {@code TOOL_GAP:} (the tool the agent lacks) or {@code CONCERN:} (what is
+     * missing or wrong in the results) is a concern carrying the text after the
+     * sentinel. Case-sensitive, like the other reply sentinels.
+     */
+    // Visible for testing
+    static String concernIn(String content) {
+        String reply = content == null ? "" : content.strip();
+        for (String sentinel : List.of(TOOL_GAP_SENTINEL, CONCERN_SENTINEL)) {
+            if (reply.startsWith(sentinel)) {
+                return reply.substring(sentinel.length()).trim();
+            }
+        }
+        return null;
+    }
+
+    /** True when the message is a review_ready that asks for concurrence (reviewMode=concur). */
+    // Visible for testing
+    boolean isConcurrenceRequest(String data) {
+        try {
+            var meta = mapper.readTree(data).path(FIELD_METADATA);
+            return REVIEW_MODE_CONCUR.equals(meta.path(FIELD_REVIEW_MODE).asText(""));
+        } catch (Exception e) {
+            return false;
+        }
     }
 
     private String formatThread(List<ThreadMessage> messages, String threadId) {

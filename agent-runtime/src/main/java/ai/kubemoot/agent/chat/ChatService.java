@@ -399,10 +399,6 @@ public class ChatService {
     // than a generic "<key>" placeholder.
     private static final java.util.regex.Pattern ARTIFACT_KEY_PATTERN =
             java.util.regex.Pattern.compile("\\[ARTIFACT key=([^\\]\\s]+)");
-    // Strips a reasoning model's <think>...</think> block so the no-data sentinel
-    // check sees only the actual answer. See isNoDataDeclaration.
-    private static final java.util.regex.Pattern THINK_BLOCK =
-            java.util.regex.Pattern.compile("(?is)<think>.*?</think>");
     private static final String COMPUTE_CONTRACT_REPROMPT =
             "You produced an answer without running execute_code. You MUST compute the result by "
             + "calling execute_code over the data. If a contribution references an artifact file "
@@ -1000,14 +996,14 @@ public class ChatService {
     /** Strip a reasoning model's &lt;think&gt; block and normalize, so a sentinel check
      *  sees only the agent's actual answer (shared by the NO_DATA / gap checks). */
     private static String normalizeAnswer(String text) {
-        return THINK_BLOCK.matcher(text == null ? "" : text).replaceAll(" ").strip()
+        return ai.kubemoot.agent.util.ThinkBlocks.remove(text).strip()
                 .toUpperCase(java.util.Locale.ROOT);
     }
 
     /** The one-line reason a tooler gave after the NO_DATA sentinel, for the failure
      *  signal's message; a generic note when it gave none. */
     private static String gatherFailedReason(String text) {
-        String t = THINK_BLOCK.matcher(text == null ? "" : text).replaceAll(" ").strip();
+        String t = ai.kubemoot.agent.util.ThinkBlocks.remove(text).strip();
         int colon = t.indexOf(':');
         String reason = colon >= 0 ? t.substring(colon + 1).strip() : "";
         return reason.isEmpty()
