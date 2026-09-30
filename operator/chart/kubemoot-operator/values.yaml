@@ -303,7 +303,7 @@ kubemootConfig:
     mcpGateway: mcp-gateway:0.326.22
     mcpBridge: mcp-bridge:0.341.2
     discussionGateway: discussion-gateway:0.339.6
-    fitnessRunner: fitness-runner:0.341.13
+    fitnessRunner: fitness-runner:0.342.31
     doclingServe: quay.io/docling-project/docling-serve-cpu:latest
   # Default configurations
   defaults:
