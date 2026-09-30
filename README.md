@@ -93,7 +93,7 @@ own cluster with a GPU-backed model provider, see
   scheduling of reminders and follow-ups, and consensus internals.
 - [Questions](docs/introduction/faq.md) and [Roadmap](docs/introduction/roadmap.md):
   the short answers, and the major directions.
-- [Contributor Guide](docs/contributing/contributor-guide.md).
+- [Community](docs/community/) - contributing, governance, code of conduct, security, and releases.
 
 ## Ecosystem
 
@@ -103,59 +103,11 @@ Pilot](docs/ecosystem/pilot.md) is the reference crew, [`kmctl`](docs/ecosystem/
 talking to them from the editor, and [crews](docs/ecosystem/crews.md) covers other
 packaged crews. See [docs/ecosystem/](docs/ecosystem/) for the full picture.
 
-## Development
+## Development and community
 
-### Prerequisites
+Kubemoot is an independent open-source project under the Apache License 2.0. Contributing, support, governance, the code of conduct, security reporting, and releases are documented in one place: the [Community section of kubemoot.org](https://kubemoot.org/docs/community/). Ask questions and share ideas in [GitHub Discussions](https://github.com/orgs/kubemoot/discussions). For anything else write to moot@kubemoot.org, and report vulnerabilities privately to security@kubemoot.org.
 
-- Go 1.27+ (operator)
-- Java 25+ / Gradle (agent runtime, indexer)
-- Node.js 26+ (dashboard)
-- `kubectl`, `helm` (v3.8+, for OCI charts)
-- Access to a Kubernetes cluster
-
-See the [Contributor Guide](docs/contributing/contributor-guide.md) for the full
-repository layout, build/test commands per component, and the conventions a change is
-expected to follow.
-
-### Building and testing the operator
-
-```bash
-cd operator
-
-# Generate code and manifests
-make generate manifests
-
-# Build the operator
-make build
-
-# Run tests
-make test
-```
-
-### Running the operator locally
-
-```bash
-make install   # install CRDs
-make run       # run the operator against your current kubeconfig context
-```
-
-### Running the integration test suite
-
-```bash
-cd k8s/tests
-./test-all.sh       # full suite
-./test-smoke.sh      # fast smoke subset
-```
-
-See [k8s/tests/README.md](k8s/tests/README.md) for what each test covers.
-
-## Community
-
-- Questions and ideas: [GitHub Discussions](https://github.com/orgs/kubemoot/discussions).
-- Bugs and feature requests: this repository's issues.
-- Contributing, code of conduct, and support: the [kubemoot organization](https://github.com/kubemoot).
-- Security reports: security@kubemoot.org, never a public issue.
-- Everything else: moot@kubemoot.org, and [kubemoot.org](https://kubemoot.org).
+The [Development Guide](docs/community/development.md) covers the repository layout, prerequisites, and how to build and test each component. Run `./quickstart/quickstart.sh` on an empty `kind` cluster as a smoke test before opening a pull request. Security details, including the platform's known limitations, are in [SECURITY.md](SECURITY.md).
 
 ## License
 
