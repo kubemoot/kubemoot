@@ -1,0 +1,42 @@
+name: Workflow Changes
+
+# Flags a pull request that adds, edits, renames, or deletes a GitHub Actions workflow,
+# so a maintainer reads those changes before approving the pull request's workflow
+# runs. pull_request_target runs this file as it is on main, before any approval, so a
+# pull request cannot edit the check away. It never checks out or runs pull request
+# code: it only lists the changed file names through the API.
+#
+# A red check is a flag, not a block: it fails every pull request that touches a
+# workflow, a maintainer's too, and stops a merge only if branch protection makes it a
+# required check.
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  workflow-changes:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fail when the pull request changes a workflow
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          changed="$(gh api --paginate "repos/${GITHUB_REPOSITORY}/pulls/${PR}/files" \
+            --jq '.[] | .filename, (.previous_filename // empty) | select(startswith(".github/workflows/"))' \
+            | sort -u)"
+          if [ -z "$changed" ]; then
+            echo "No workflow changes."
+            exit 0
+          fi
+          echo "::error::This pull request changes GitHub Actions workflows. A maintainer reviews them before approving any workflow run for it."
+          echo "Changed workflow files:"
+          printf '%s\n' "$changed" | sed 's/^/  - /'
+          echo
+          echo "Workflow changes run with this repository's Actions permissions once approved."
+          echo "Maintainers: read the diff of each file above, then approve the run or ask for changes."
+          exit 1
