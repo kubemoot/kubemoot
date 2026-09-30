@@ -337,7 +337,7 @@ public class ChatService {
      * caller to attribute the inference to a specific provider in the
      * agent's outbound signal metadata ([[Per-Call Provider Attribution]]).
      */
-    private record ToolLoopResult(String text, long inputTokens, long outputTokens,
+    record ToolLoopResult(String text, long inputTokens, long outputTokens,
                                    String providerName, String pickReason) {}
 
     // Bounded-retry thresholds for tool failures inside callWithToolLoop.
@@ -502,7 +502,11 @@ public class ChatService {
             // The check is BEFORE the LLM call so we never start a fresh
             // 120s-timeout call that would push past the deadline.
             checkLoopDeadline(loopStartMs, loopDeadlineMs, i);
-            checkPromptFitsContext(state, contextLength, i);
+            var gathered = contributionWhenContextIsFull(state, contextLength, i, toolerRawOutput,
+                    providerName, pickReason);
+            if (gathered.isPresent()) {
+                return gathered.get();
+            }
 
             var aiMessage = invokeModelForLoop(modelForThisCall, state);
 
@@ -537,22 +541,44 @@ public class ChatService {
     }
 
     /**
-     * Throw CONTEXT_EXCEEDED when the next prompt would not fit the provider's
-     * context. The engine cuts an oversized prompt without an error, dropping the
-     * oldest messages (the question among them), so the turn fails visibly instead.
+     * Decide what happens when the next prompt would not fit the provider's
+     * context; empty when it fits (or the context is unknown) and the loop goes on.
+     * The engine cuts an oversized prompt without an error, dropping the oldest
+     * messages (the question among them), so the prompt is never sent. A tooler
+     * whose tools already ran stops here with the raw output it gathered: that
+     * output is its contribution, and another model turn would add nothing to it;
+     * when every tool call failed, the gather failed (GATHER_FAILED) rather than
+     * posting error text as data. The metrics drill re-prompt needs another turn,
+     * so it does not run here; an empty metric result is small, so a full window
+     * almost always holds real data. Any other agent needs the question in the
+     * next turn, so it fails visibly with CONTEXT_EXCEEDED.
      */
-    private void checkPromptFitsContext(ToolLoopState state, long contextLength, int iteration) {
+    private java.util.Optional<ToolLoopResult> contributionWhenContextIsFull(
+            ToolLoopState state, long contextLength, int iteration, boolean toolerRawOutput,
+            String providerName, String pickReason) {
         if (contextLength <= 0) {
-            return;
+            return java.util.Optional.empty();
         }
         long next = PromptSize.nextPromptTokens(state.allMessages, tools.specs(),
                 state.lastPromptTokens, state.lastReplyTokens, state.messagesAtLastCall, charsPerToken);
-        if (next > contextLength) {
-            throw new ToolCallFailure(ToolCallFailure.FailureType.CONTEXT_EXCEEDED,
-                    null, null, iteration,
-                    "The next prompt (~" + next + " tokens) exceeds the " + contextLength
-                            + "-token context window of the chosen provider at iteration " + iteration);
+        if (next <= contextLength) {
+            return java.util.Optional.empty();
         }
+        if (toolerRawOutput && state.toolsExecuted && state.toolOutput.length() > 0) {
+            if (state.totalToolFailures >= state.toolCalls) {
+                throw new ToolCallFailure(ToolCallFailure.FailureType.GATHER_FAILED, null, null, iteration,
+                        "every tool call failed and the next prompt (~" + next + " tokens) exceeds the "
+                                + contextLength + "-token context window");
+            }
+            log.info("agent {}: the next prompt (~{} tokens) exceeds the {}-token context; "
+                    + "contributing the tool output gathered in {} iterations", properties.agentName(),
+                    next, contextLength, iteration);
+            return java.util.Optional.of(rawOutputResult(state, providerName, pickReason));
+        }
+        throw new ToolCallFailure(ToolCallFailure.FailureType.CONTEXT_EXCEEDED,
+                null, null, iteration,
+                "The next prompt (~" + next + " tokens) exceeds the " + contextLength
+                        + "-token context window of the chosen provider at iteration " + iteration);
     }
 
     /**
@@ -646,8 +672,7 @@ public class ChatService {
                 return java.util.Optional.of(new ToolLoopResult(finalText,
                         state.totalInput, state.totalOutput, providerName, pickReason));
             }
-            return java.util.Optional.of(new ToolLoopResult(state.toolOutput.toString().strip(),
-                    state.totalInput, state.totalOutput, providerName, pickReason));
+            return java.util.Optional.of(rawOutputResult(state, providerName, pickReason));
         }
         // Compute contract: a compute agent must produce its result by RUNNING
         // execute_code, and when the data was spilled to an artifact it must read
@@ -913,6 +938,7 @@ public class ChatService {
             state.allMessages.add(new ToolExecutionResultMessage(
                     toolRequest.id(), toolRequest.name(), result));
             state.toolsExecuted = true;
+            state.toolCalls++;
             // Two ways the compute agent legitimately reads the spilled FILE:
             //   (1) execute_code whose code opens /artifacts/<key>, or
             //   (2) an artifact read-ops tool (artifact_count/rows/grep/jq/...) that
@@ -986,13 +1012,18 @@ public class ChatService {
      * turn it into an answer) rather than failing outright; otherwise throw
      * ITERATIONS_EXHAUSTED.
      */
+    /** A tooler's contribution: the raw output of the tools it ran, with the loop's token totals. */
+    private static ToolLoopResult rawOutputResult(ToolLoopState state, String providerName, String pickReason) {
+        return new ToolLoopResult(state.toolOutput.toString().strip(),
+                state.totalInput, state.totalOutput, providerName, pickReason);
+    }
+
     private ToolLoopResult exhaustedIterationsResult(ToolLoopState state, int maxIterations,
             boolean toolerRawOutput, String providerName, String pickReason) {
         if (toolerRawOutput && state.toolsExecuted && state.toolOutput.length() > 0) {
             log.info("iterations-exhausted for tooler {}: posting {} chars of raw tool output as the contribution",
                     properties.agentName(), state.toolOutput.length());
-            return new ToolLoopResult(state.toolOutput.toString().strip(),
-                    state.totalInput, state.totalOutput, providerName, pickReason);
+            return rawOutputResult(state, providerName, pickReason);
         }
         log.warn("Tool loop exceeded max iterations for agent {} (no tool output gathered)", properties.agentName());
         throw new ToolCallFailure(
@@ -1016,6 +1047,7 @@ public class ChatService {
         final Map<String, Integer> perToolFailures = new java.util.HashMap<>();
         int totalToolFailures = 0;
         boolean toolsExecuted = false;
+        int toolCalls = 0;
         final StringBuilder toolOutput = new StringBuilder();
         int emptyNoToolsRetries = 0;
         int computeRetries = 0;

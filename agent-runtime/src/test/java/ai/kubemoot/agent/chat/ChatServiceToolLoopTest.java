@@ -1295,6 +1295,69 @@ class ChatServiceToolLoopTest {
     }
 
     @Test
+    void toolLoop_toolerWhoseResultsFillTheContext_contributesWhatItGathered() {
+        var toolSpec = ToolSpecification.builder().name("get_pods").description("List pods").build();
+        var toolExecutor = mock(ToolExecutor.class);
+        when(toolExecutor.execute(any(), any())).thenReturn("pod-" + "p".repeat(40_000));
+        when(mcpClient.getToolSpecifications()).thenReturn(Map.of(toolSpec, toolExecutor));
+        var call = ToolExecutionRequest.builder().id("c1").name("get_pods").arguments("{}").build();
+        var first = mock(ChatResponse.class);
+        when(first.aiMessage()).thenReturn(AiMessage.from(List.of(call)));
+        when(first.tokenUsage()).thenReturn(new TokenUsage(500, 20));
+        when(chatModel.chat(any(ChatRequest.class))).thenReturn(first);
+        var service = createService(5);
+        var messages = new java.util.ArrayList<dev.langchain4j.data.message.ChatMessage>(List.of(
+                dev.langchain4j.data.message.UserMessage.from("list pods")));
+
+        var result = assertDoesNotThrow(() -> service.callWithToolLoop(messages, chatModel, "gpu-a", "test",
+                true, 8_192));
+
+        verify(chatModel, times(1)).chat(any(ChatRequest.class));
+        verify(toolExecutor, times(1)).execute(any(), any());
+        assertTrue(result.text().contains("get_pods") && result.text().contains("pod-ppp"),
+                "the gathered tool output is the contribution");
+        assertEquals(500, result.inputTokens());
+        assertEquals(20, result.outputTokens());
+        assertEquals("gpu-a", result.providerName());
+        assertEquals("test", result.pickReason());
+    }
+
+    @Test
+    void toolLoop_toolerWhoseEveryToolFailed_reportsAFailedGather_notErrorTextAsData() {
+        var toolSpec = ToolSpecification.builder().name("get_pods").description("List pods").build();
+        var toolExecutor = mock(ToolExecutor.class);
+        when(toolExecutor.execute(any(), any())).thenReturn("{\"error\": \"" + "x".repeat(40_000) + "\"}");
+        when(mcpClient.getToolSpecifications()).thenReturn(Map.of(toolSpec, toolExecutor));
+        var call = ToolExecutionRequest.builder().id("c1").name("get_pods").arguments("{}").build();
+        var first = mock(ChatResponse.class);
+        when(first.aiMessage()).thenReturn(AiMessage.from(List.of(call)));
+        when(first.tokenUsage()).thenReturn(new TokenUsage(500, 20));
+        when(chatModel.chat(any(ChatRequest.class))).thenReturn(first);
+        var service = createService(5);
+        var messages = new java.util.ArrayList<dev.langchain4j.data.message.ChatMessage>(List.of(
+                dev.langchain4j.data.message.UserMessage.from("list pods")));
+
+        var failure = assertThrows(ToolCallFailure.class,
+                () -> service.callWithToolLoop(messages, chatModel, "gpu-a", "test", true, 8_192));
+
+        assertEquals(ToolCallFailure.FailureType.GATHER_FAILED, failure.failureType());
+    }
+
+    @Test
+    void toolLoop_toolerWithNoToolRunYet_stillFailsWhenThePromptCannotFit() {
+        when(mcpClient.getToolSpecifications()).thenReturn(Map.of());
+        var service = createService(3);
+        var messages = new java.util.ArrayList<dev.langchain4j.data.message.ChatMessage>(List.of(
+                dev.langchain4j.data.message.UserMessage.from("q".repeat(40_000))));
+
+        var failure = assertThrows(ToolCallFailure.class,
+                () -> service.callWithToolLoop(messages, chatModel, "gpu-a", "test", true, 8_192));
+
+        assertEquals(ToolCallFailure.FailureType.CONTEXT_EXCEEDED, failure.failureType());
+        verifyNoInteractions(chatModel);
+    }
+
+    @Test
     void toolLoop_promptThatFits_isNotRefusedByAPaddedEstimate() {
         // ~30,000 characters of prose is about 8,600 tokens at 3.5 characters per
         // token, inside a 9,000-token context; the 25%-padded VRAM estimate (~9,400)
