@@ -76,7 +76,7 @@ a metrics source that came back empty, is a crew you can act on.
 The same moot on the dashboard, five agreeing findings and two standing aside before
 the synthesis:
 
-![The dashboard after the Claude Code run: the crew's findings and the synthesis](dashboard-moot.png)
+![The dashboard after the Claude Code run: the crew's findings and the synthesis](../dashboard-moot.png)
 
 ## Through a public route
 

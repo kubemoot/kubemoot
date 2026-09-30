@@ -33,6 +33,6 @@ We will enforce **one model per GPU** by convention through the ModelProvider/Mo
 
 ## References
 
-- [Scheduler](../architecture/scheduler/) - filter step uses `Model.spec.vramMib`
-- [Models in Kubemoot](../reference/models/) - GPU compatibility matrix
+- [Scheduler](../architecture/scheduler.md) - filter step uses `Model.spec.vramMib`
+- [Models in Kubemoot](../reference/models.md) - GPU compatibility matrix
 - `homelab-pilot/charts/homelab-pilot-crew/templates/models.yaml` - per-GPU Model declarations

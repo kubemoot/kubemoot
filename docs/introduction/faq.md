@@ -77,7 +77,9 @@ Ollama is the model server today. Cloud and frontier models as crew members is o
 
 No. The API is `v1alpha1`, and Kubemoot is built and run on a homelab with
 production-like patterns, not in production. Known limitations, including the open
-message bus inside the cluster, are listed in the repository's SECURITY.md. Treat it
+message bus inside the cluster, are listed in the "Security model and known
+limitations" section of the repository's
+[SECURITY.md](https://github.com/kubemoot/kubemoot/blob/main/SECURITY.md). Treat it
 as a platform to evaluate and shape, and say so where you deploy it.
 
 ## Can agents change things, or only answer?

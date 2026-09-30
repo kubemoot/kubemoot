@@ -237,18 +237,13 @@ answers from its own capabilities rather than leaving the user with nothing.
 
 ## Capability gaps and onboarding
 
-When a gap is detected - a specialist gap most of all - Kubemoot doesn't just report
-the miss. An onboarding agent watches every thread, and on a specialist or tool gap it
-searches MCP registries for a server that could fill it, evaluates the candidate's
-trustworthiness, and proposes it to the user. On consent, it deploys the server and the
-operator automatically creates the new Tooler agent from it - tools, prompt, and
-discussion channels included. A parallel documentation-discovery agent does the same
-for knowledge gaps, turning newly onboarded servers into indexed RAG sources an Analyst
-can reason over. The full pipeline, the trust-evaluation criteria, and the CRDs
-involved are documented in [Onboarding Guide](../../operating/onboarding-guide/) and in
-[Tooler-Analyst Architecture](../tooler-analyst-architecture/#self-discovered-agents);
-this page only needs the shape: a gap is a signal, and the crew can grow in response to
-one without a human writing a new Agent manifest by hand.
+When a gap is detected, the coordinator signals it instead of only reporting the miss.
+An agent running in onboarding mode listens for that signal, searches for an MCP server
+that could fill the gap, and proposes it to the user. On consent it creates an
+`MCPServer` for it. Wiring the new server to a Tooler agent, and indexing its
+documentation as a `RAGSource`, are manual steps today. The flow and its limits are
+documented in the [Onboarding Guide](../../operating/onboarding-guide/); this page only
+needs the shape: a gap is a signal, and a crew can be extended in response to one.
 
 ## Graceful degradation
 

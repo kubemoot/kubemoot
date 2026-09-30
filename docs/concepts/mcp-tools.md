@@ -41,10 +41,10 @@ tools than one agent should hold, split it across more than one Tooler.
 
 ## Where tools come from
 
-You can declare MCPServers directly, or let the crew acquire them. Kubemoot's
-**autonomic onboarding** detects when no existing agent can answer a question, finds
-an appropriate MCP server, evaluates its quality, deploys it, indexes its docs, and
-creates a Tooler agent for it, with user consent. See
+You declare MCPServers directly. When no existing agent can answer a question, the
+coordinator signals a capability gap, and an agent running in onboarding mode can
+propose an MCP server and create it with user consent. Wiring the new server to a
+Tooler agent is a manual step today. See
 [Onboard MCP Tools](../../user-guides/onboard-mcp-tools/) for the workflow and the
 [MCPServer](../../reference/mcpserver-guide/) and
 [MCPGateway](../../reference/mcpgateway-guide/) references for the specs.

@@ -28,7 +28,7 @@ Agents communicate over the message bus with a vocabulary of consensus signals:
 - `block` - a strong objection.
 
 Additional protocol signals exist for facilitation (e.g. `triaging`, `evaluating`,
-`advisory`, `proposal`, `consent`, `failure`). Not every signal is exercised by every
+`advisory`, `proposal`). Not every signal is exercised by every
 crew yet - which signals matter, and how strongly, depends on the archetype (below).
 A declared **failure** is first-class: agents surface failure as signal rather than
 going silent.
@@ -118,10 +118,9 @@ archetype**.
   Toolers' findings in the REVIEW phase; and the coordinator synthesizes once the
   discussion settles (a consent-style model). The coordinator is itself a light form
   of hierarchy.
-- **By design**, the archetype is meant to be **declarable per crew**, leaving the
-  door open for others - including more **hierarchical** organizations, or stricter
-  consent/voting rules - without changing the underlying goal.
-
-Because the archetype is a declaration rather than hard-coded behavior, the same crew
-of agents can, in principle, be organized to deliberate in different ways. The formal
-archetype declaration is an area of active design.
+- The `MootArchetype` resource names a discussion's phase vocabulary and signals, and
+  the operator's scheduler reads it. The agent runtime does not: the orchestration of
+  a discussion is fixed in code today, so the consensus flow is the only archetype
+  that ships. Hierarchical organizations and stricter consent or voting rules are
+  valid archetypes the design leaves room for; they are not implemented yet (see the
+  [Roadmap](../../introduction/roadmap/#consensus-archetypes-declared-not-coded)).

@@ -31,7 +31,7 @@ The rule forms ADL already has, `DEFINE COMPONENT`, `ASSERT`, `WHEN ... THEN`, `
 prompt actually needs to say: named scopes for related behavior, conditions with
 actions, and unconditional obligations or prohibitions. An architectural fitness
 function, an executable check that fails when reality drifts from intent, becomes
-Kubemoot's [crew fitness functions](../fitness/kubemoot-crew-fitness-functions/) applied
+Kubemoot's [crew fitness functions](../fitness/kubemoot-crew-fitness-functions.md) applied
 to a crew's discussion behavior instead of a codebase's structure. The same reasons ADL
 disciplines an architecture decision record disciplines an agent prompt: declarative
 rules instead of a paragraph of prose, one behavior per line, reviewable in a diff.
@@ -76,7 +76,7 @@ Three properties define the language, and each matches what a prompt actually is
 
 Those properties are also why ADL is its own language rather than a borrowed one. An
 outside-in, example-bound behavior dialect such as Gherkin is the opposite shape; see
-[Gherkin, ADL, and Fitness Functions](../fitness/gherkin-adl-and-fitness-functions/)
+[Gherkin, ADL, and Fitness Functions](../fitness/gherkin-adl-and-fitness-functions.md)
 for that comparison.
 
 ## Where ADL is used
@@ -122,8 +122,8 @@ testable, hold regardless of that result.
 
 ## Next
 
-- [ADL Reference](../reference/adl-reference/) - the complete keyword and assertion vocabulary.
-- [Write Agents & ADL](../user-guides/write-agents-and-adl/) - how to author ADL
+- [ADL Reference](../reference/adl-reference.md) - the complete keyword and assertion vocabulary.
+- [Write Agents & ADL](../user-guides/write-agents-and-adl.md) - how to author ADL
   `PromptModule`s and compose them into an agent.
-- [Kubemoot Crew Fitness Functions](../fitness/kubemoot-crew-fitness-functions/) - the
+- [Kubemoot Crew Fitness Functions](../fitness/kubemoot-crew-fitness-functions.md) - the
   fitness dialect of ADL, run against a live crew.

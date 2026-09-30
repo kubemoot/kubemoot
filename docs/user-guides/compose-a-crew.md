@@ -38,8 +38,8 @@ many questions weakly rather than a few questions strongly).
 **Minimum viable crew.** A crew needs at minimum one coordinator and one Tooler.
 Start small and add agents as you discover gaps rather than pre-populating for
 hypothetical questions. The onboarding system can help: when no Tooler scores
-above the confidence threshold on a question, it signals a capability gap and offers
-to deploy a new one. See [Onboard MCP Tools](../onboard-mcp-tools/) for that path.
+above the confidence threshold on a question, the coordinator signals a capability gap
+and an onboarding agent can offer to deploy an MCP server for it. See [Onboard MCP Tools](../onboard-mcp-tools/) for that path.
 
 **Avoid redundant Toolers.** Two Toolers that always agree on the same
 questions add orchestration overhead without adding information. If two agents

@@ -117,8 +117,10 @@ way changing what an agent believes is already a `PromptModule` edit.
 
 ## Crews that evolve
 
-**Today:** the operator detects gaps in a discussion (a missing tool, a missing
-specialist) and can onboard an MCP server from a catalog with a human's consent.
+**Today:** the coordinator signals gaps in a discussion (a missing tool, a missing
+specialist), and an agent in onboarding mode can create an `MCPServer` with a human's
+consent. Wiring the new server to a Tooler agent is manual, and the chart does not
+deploy the onboarding agents.
 
 **Direction:** crews that find, acquire, rate, and adopt MCP tools on their own, and
 add agents equipped with them, under a quality policy that decides what a crew may

@@ -325,7 +325,7 @@ The runner needs minimal resources (50m CPU, 64Mi RAM) - it's an HTTP client, no
 
 ## Relationship to CrewForge
 
-[CrewForge](../ecosystem/crewforge/) lists crews and lets you talk to them from the
+[CrewForge](../ecosystem/crewforge.md) lists crews and lets you talk to them from the
 editor; it does not create, edit, or run `CrewFitness` resources. Fitness tests are
 Kubernetes resources like everything else Kubemoot manages, so they stay reachable from
 any Kubernetes client, `kubectl`, `kmctl`, or CI/CD, whatever authors them.

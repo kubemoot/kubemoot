@@ -25,11 +25,13 @@ spec:
     verifyOnAdd: true
 ```
 
-The namespace is Kubemoot's isolation boundary. The same crew name can run in many
-namespaces side by side with no crosstalk: every NATS subject, KV key, object key, and
-vector collection a crew's discussion touches carries its namespace first, then the
-crew name, so two crews named `homelab-pilot` in two different namespaces never see
-each other's messages, memory, or resumes.
+The namespace separates names. The same crew name can run in many namespaces side by
+side: every NATS subject, KV key, object key, and vector collection a crew's discussion
+touches carries its namespace first, then the crew name, so two crews named
+`homelab-pilot` in two different namespaces do not collide. This is naming separation,
+not a security boundary: NATS has no authentication in this release, and a client that
+can reach it can read any subject. See
+[Security model and known limitations](https://github.com/kubemoot/kubemoot/blob/main/SECURITY.md#security-model-and-known-limitations).
 
 ## Domain-Agnostic by Design
 

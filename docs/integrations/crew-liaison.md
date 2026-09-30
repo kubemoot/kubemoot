@@ -60,7 +60,7 @@ signals, and the synthesis. Open the crew's discussions page while a client is
 waiting on a ticket and the two views line up: a ticket on one side, a committee at
 work on the other.
 
-![The dashboard's discussions page during a liaison-asked moot: the question at the top, two advisors' findings with their signals, and the coordinator's synthesis](dashboard-moot.png)
+![The dashboard's discussions page during a liaison-asked moot: the question at the top, two advisors' findings with their signals, and the coordinator's synthesis](../dashboard-moot.png)
 
 A clean run, as timed against the reference homelab crew of small models on two GPUs
 (an RTX 5090 node and an RTX 4090 node):

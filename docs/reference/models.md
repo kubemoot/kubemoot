@@ -435,5 +435,5 @@ Either relax the `require` selectors or add a Model that matches them.
 ## Related
 
 - [Scheduler](../../architecture/scheduler/) - Filter / score / bind algorithm and CrewSchedulingPolicy reference
-- [Agent CRD](agent/) - Agent CRD spec
-- [KubemootConfig Guide](kubemootconfig-guide/) - Image versioning and operator config
+- [Agent CRD](agent.md) - Agent CRD spec
+- [KubemootConfig Guide](kubemootconfig-guide.md) - Image versioning and operator config

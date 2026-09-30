@@ -24,11 +24,11 @@ cannot reach a source says so, so the coordinator can route around it, rather th
 standing aside silently and letting the crew mistake "no answer" for "no objection."
 
 Additional protocol signals facilitate the discussion itself - `triaging`,
-`evaluating`, `waiting`, `advisory`, `proposal`, `consent`. An agent publishes `waiting`
+`evaluating`, `waiting`, `advisory`, `proposal`. An agent publishes `waiting`
 (with `metadata.model` and `metadata.reason: gpu-busy`) once when every GPU that can
-hold its model is busy, and `evaluating` again when a GPU frees up. Which signals a crew exercises, and
-how strongly each counts, depends on its consensus archetype (see
-[The Moot](../consensus-model/)).
+hold its model is busy, and `evaluating` again when a GPU frees up. Which signals a crew exercises is fixed
+by the runtime today; the one archetype that ships is described in
+[The Moot](../consensus-model/).
 
 ## Stand-asides for GPU capacity
 

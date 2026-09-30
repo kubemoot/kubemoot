@@ -34,27 +34,25 @@ small (~10-15 tools) for reliable tool-calling. See
 [MCPServer](../../reference/mcpserver-guide/) /
 [MCPGateway](../../reference/mcpgateway-guide/) references for the specs.
 
-## Let the crew onboard a tool for itself
+## Let the crew propose a tool for itself
 
-Kubemoot can close a capability gap on its own, with user consent. When a discussion
-finds that no existing agent can answer, Toolers stand aside and a gap is detected,
-and the onboarding system:
+When a discussion finds that no existing agent can answer, the coordinator signals a
+capability gap. An agent running in onboarding mode reacts to that signal:
 
-1. **Detects the gap** from the discussion's signals.
-2. **Finds an appropriate MCP server** by searching registries.
-3. **Evaluates its quality** against an `MCPQualityPolicy` before trusting it.
-4. **Deploys the server** as an `MCPServer` on consent.
-5. **Indexes its documentation** into a `RAGSource` so the new Tooler has context.
-6. **Creates a Tooler `Agent`** wired to the tool and its docs.
+1. **Detects the gap** from the coordinator's signal.
+2. **Proposes an MCP server** it found by searching registries.
+3. **Deploys the server** as an `MCPServer` when the user consents.
 
-The result is a fully functional Tooler the crew didn't have a minute earlier, and
-because every step produces ordinary Kubernetes resources, you can inspect, version, and
-remove them like anything else.
+Everything after that is manual today: you create the Tooler `Agent` that uses the new
+server's tools, and optionally a `RAGSource` for its documentation. The operator does
+not create the Tooler for you. Because every step produces ordinary Kubernetes
+resources, you can inspect, version, and remove them like anything else.
 
-Onboarding is opt-in and configured in the operator's `internalAgents` values, which
-deploy the onboarding agent, an RTFM (documentation-indexing) agent, and a quality
-evaluator. For the architecture, configuration, and troubleshooting, see the
-[Autonomic Onboarding Guide](../../operating/onboarding-guide/).
+Onboarding mode is set with an annotation on an `Agent` you declare. The operator
+chart's `internalAgents` values deploy the shared MCP servers, catalog, and quality
+policy, and leave the onboarding and RTFM agents off by default. For the flow,
+configuration, and troubleshooting, see the
+[Onboarding Guide](../../operating/onboarding-guide/).
 
 ## Which path to use
 

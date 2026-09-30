@@ -33,10 +33,9 @@ A **moot** is an assembly that reaches a decision by deliberation. In Kubemoot:
   **synthesizes** the answer. No single model dictates it; consensus emerges from the
   crew.
 
-How a crew organizes its deliberation is a declared `MootArchetype`: the phases a
-discussion moves through and the vocabulary of signals. The consensus archetype above
-ships with the operator; others (a debate, an expert panel, a hierarchy) define their
-own phases without changing the scheduler.
+A `MootArchetype` names a discussion's phase vocabulary and signals. The consensus
+flow above is the one archetype that ships; its orchestration is fixed in the
+runtime today (see the [Roadmap](docs/introduction/roadmap.md)).
 
 ## Building blocks (all Kubernetes resources)
 
@@ -108,7 +107,7 @@ packaged crews. See [docs/ecosystem/](docs/ecosystem/) for the full picture.
 
 ### Prerequisites
 
-- Go 1.26+ (operator)
+- Go 1.27+ (operator)
 - Java 25+ / Gradle (agent runtime, indexer)
 - Node.js 26+ (dashboard)
 - `kubectl`, `helm` (v3.8+, for OCI charts)

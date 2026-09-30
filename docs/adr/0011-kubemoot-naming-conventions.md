@@ -39,4 +39,3 @@ We will follow these conventions:
 ## References
 
 - [Kubernetes API Conventions](https://github.com/kubernetes/community/blob/master/contributors/devel/sig-architecture/api-conventions.md)
-- [Ecosystem CLAUDE.md `naming-convention` component](../../../.claude/CLAUDE.md)

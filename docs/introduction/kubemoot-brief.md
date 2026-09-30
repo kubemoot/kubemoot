@@ -24,9 +24,9 @@ A **moot** is an assembly that reaches a decision by deliberation. In Kubemoot:
   the answer. No single model dictates it; consensus emerges from the crew.
 
 The coordinator-facilitated flow above is the **consensus archetype** that ships
-today. How a crew organizes its deliberation - flat, coordinator-led, or
-hierarchical - is meant to be a declared archetype, and the design leaves the door
-open for others; the deliberation *goal* stays constant while the structure can vary.
+today. Other organizations, such as a hierarchy, are valid archetypes that the design
+leaves room for; the runtime fixes the orchestration in code today, so the
+deliberation *goal* stays constant and the structure does not yet vary.
 
 Capability is composed **horizontally** from many small models rather than one large
 one - portable across clusters and runnable on commodity or local GPUs.

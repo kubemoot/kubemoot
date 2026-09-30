@@ -46,7 +46,7 @@ Kubemoot leans on the cluster's existing observability stack rather than shippin
 - **Today Kubemoot does not emit OTel traces**: discussion timing is *reconstructed* from NATS signal messages (see the Agent Span Graph below), which is an approximation, not a true distributed trace.
 - Wiring true trace emission to this existing backend is in [Future work](#future-work).
 
-Two of the three pillars (logs, spans) have gaps; both are observability work to complete before open-sourcing.
+Two of the three pillars (logs, spans) have gaps; see [Future work](#future-work).
 
 ## Agent Span Graph
 

@@ -181,5 +181,5 @@ either tier (filtered before triage) shows no GPU badge at all.
 
 ## Beyond Infrastructure: Domain-Agnostic Crews
 
-Kubemoot is the orchestration substrate; the domain comes from the crew, not from Kubemoot. The same Tooler-and-Analyst machinery serves infrastructure ops, Kafka operations, research, security, and more: each crew declares its own agents and points them at the operator. The cross-domain examples and the portability rationale live with the crew documentation: see [Crew CRD: Domain-Agnostic by Design](../reference/crew/#domain-agnostic-by-design).
+Kubemoot is the orchestration substrate; the domain comes from the crew, not from Kubemoot. The same Tooler-and-Analyst machinery serves infrastructure ops, Kafka operations, research, security, and more: each crew declares its own agents and points them at the operator. The cross-domain examples and the portability rationale live with the crew documentation: see [Crew CRD: Domain-Agnostic by Design](../reference/crew.md#domain-agnostic-by-design).
 
