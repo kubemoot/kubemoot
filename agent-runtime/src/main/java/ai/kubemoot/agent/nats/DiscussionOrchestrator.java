@@ -3547,7 +3547,7 @@ public class DiscussionOrchestrator {
 
     /**
      * Classify channel from advisory technologies. Matches technology names against
-     * configured channel names (from AgentPolicy subscribeChannels). Falls back to "general".
+     * configured channel names (from the Agent's discussChannels). Falls back to "general".
      * No hardcoded domain knowledge — channel names and technologies are both externalized.
      */
     String classifyChannelFromAdvisory(List<String> technologies) {

@@ -47,8 +47,9 @@ spec:
 
   # Indexer configuration
   indexer:
-    # Indexer image that reads env vars and indexes docs; substitute your own if you built one
-    image: ghcr.io/kubemoot/indexer:0.279.36
+    # Indexer image that reads env vars and indexes docs: use the indexer image your
+    # operator chart ships (values.yaml), or your own build
+    image: ghcr.io/kubemoot/indexer:<version>
     schedule: "0 5 * * *"  # Daily at 5am UTC
     resources:
       requests:

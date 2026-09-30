@@ -82,7 +82,7 @@ metadata:
   name: $QUERY_SERVICE_NAME
   namespace: $NAMESPACE
 spec:
-  image: ${QUERY_SERVICE_IMAGE:-ghcr.io/kubemoot/query-service:0.326.0}
+  image: ${QUERY_SERVICE_IMAGE:?set QUERY_SERVICE_IMAGE to the query-service image your operator chart ships (values.yaml kubemootConfig.images.queryService)}
   transport: http
   port: 8000
   replicas: 1

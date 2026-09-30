@@ -80,7 +80,7 @@ type SkillStatus struct {
 // relevant Skills on demand (using the resume pool) and injects their ADL
 // content into chosen agents just-in-time for a discussion.
 //
-// Naming note: this is NOT the deprecated AgentPolicy.spec.a2a.skills[] concept
+// Naming note: this is NOT the removed AgentPolicy.spec.a2a.skills[] concept
 // (AgentSkill, an A2A capability card). Skill is a distinct top-level kind.
 type Skill struct {
 	metav1.TypeMeta   `json:",inline"`
