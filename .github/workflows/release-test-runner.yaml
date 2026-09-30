@@ -21,7 +21,7 @@ concurrency:
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-  REGISTRY: harbor-homelab.dijure.com
+  REGISTRY: ${{ vars.REGISTRY }}
   IMAGE_NAME: kubemoot/test-runner
 
 jobs:
@@ -38,30 +38,12 @@ jobs:
           fetch-depth: 0
           fetch-tags: true
 
-      - name: Calculate semantic version
+      - name: Calculate the release candidate version
         id: version
-        uses: paulhatch/semantic-version@v6.0.2
+        uses: ./.github/actions/release-candidate-version
         with:
           tag_prefix: "test-runner-v"
-          major_pattern: "(BREAKING CHANGE|feat!|fix!)"
-          minor_pattern: "feat"
-          version_format: "${major}.${minor}.${patch}"
-          bump_each_commit: true
-          search_commit_body: true
-
-      - name: Check if release needed
-        id: check
-        run: |
-          echo "Current version: ${{ steps.version.outputs.version }}"
-          echo "Changed: ${{ steps.version.outputs.changed }}"
-
-          if [ "${{ steps.version.outputs.changed }}" = "true" ] || [ "${{ inputs.force_release }}" = "true" ]; then
-            echo "release_created=true" >> $GITHUB_OUTPUT
-            echo "Will create release test-runner-v${{ steps.version.outputs.version }}"
-          else
-            echo "release_created=false" >> $GITHUB_OUTPUT
-            echo "Skipping release - no version-bumping commits since last tag"
-          fi
+          force: ${{ inputs.force_release }}
 
       - name: Install kubectl
         run: |
@@ -69,7 +51,7 @@ jobs:
           chmod +x kubectl && sudo mv kubectl /usr/local/bin/
 
       - name: Build and push with Kaniko
-        if: steps.check.outputs.release_created == 'true'
+        if: steps.version.outputs.release_created == 'true'
         run: |
           SHA="${{ github.sha }}"
           VERSION="${{ steps.version.outputs.version }}"
@@ -77,14 +59,14 @@ jobs:
 
           tar -C k8s/tests -czf /tmp/context.tar.gz .
 
-          kubectl run ${JOB_NAME} \
+          kubectl run "${JOB_NAME}" \
             --rm -i \
             --restart=Never \
             --namespace=arc-runners \
             --image=gcr.io/kaniko-project/executor:latest \
             --overrides='{
               "spec": {
-                "hostAliases": [{"ip": "192.168.50.210", "hostnames": ["harbor-homelab.dijure.com"]}],
+                "hostAliases": [{"ip": "${{ vars.REGISTRY_HOST_IP }}", "hostnames": ["${{ vars.REGISTRY }}"]}],
                 "containers": [{
                   "name": "kaniko",
                   "image": "gcr.io/kaniko-project/executor:latest",
@@ -108,18 +90,8 @@ jobs:
               }
             }' < /tmp/context.tar.gz
 
-      - name: Publish image to the release registry
-        if: steps.check.outputs.release_created == 'true' && vars.RELEASE_REGISTRY != ''
-        env:
-          RELEASE_REGISTRY: ${{ vars.RELEASE_REGISTRY }}
-          GHCR_USERNAME: ${{ secrets.GHCR_USERNAME }}
-          GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
-          HARBOR_USERNAME: ${{ secrets.HARBOR_USERNAME }}
-          HARBOR_PASSWORD: ${{ secrets.HARBOR_PASSWORD }}
-        run: bash .github/scripts/publish-release-image.sh "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.version.outputs.version }}" "${{ steps.version.outputs.version }}"
-
       - name: Create and push tag
-        if: steps.check.outputs.release_created == 'true'
+        if: steps.version.outputs.release_created == 'true'
         run: |
           VERSION="${{ steps.version.outputs.version }}"
           TAG="test-runner-v$VERSION"
@@ -129,46 +101,29 @@ jobs:
 
           if ! git rev-parse "$TAG" >/dev/null 2>&1; then
             echo "Creating tag: $TAG"
-            git tag -a "$TAG" -m "Release Test Runner $TAG"
+            git tag -a "$TAG" -m "Release candidate Test Runner $TAG"
             git push origin "$TAG"
           fi
 
-      - name: Update test job image reference
-        if: steps.check.outputs.release_created == 'true'
-        run: |
-          VERSION="${{ steps.version.outputs.version }}"
-          FULL_IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${VERSION}"
-
-          # Update job yamls with new image version
-          sed -i "s|image: .*/kubemoot/test-runner:.*|image: ghcr.io/kubemoot/test-runner:${VERSION}|" k8s/tests/job/job-smoke.yaml
-          sed -i "s|image: .*/kubemoot/test-runner:.*|image: ghcr.io/kubemoot/test-runner:${VERSION}|" k8s/tests/job/job-all.yaml
-
-          # Commit changes
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add k8s/tests/job/job-smoke.yaml k8s/tests/job/job-all.yaml
-          git commit -m "chore: update test-runner to v${VERSION} [skip ci]" || echo "No changes to commit"
-          git pull --rebase origin main
-          git push origin main || echo "Nothing to push"
-
-      - name: Create GitHub Release
-        if: steps.check.outputs.release_created == 'true'
-        uses: softprops/action-gh-release@v2
+      # The operator chart pins the test-runner for its verification jobs
+      # (verify.image), so each candidate moves that pin and the homelab runs it.
+      - name: Install Helm
+        if: steps.version.outputs.release_created == 'true'
+        uses: azure/setup-helm@v4
         with:
-          tag_name: test-runner-v${{ steps.version.outputs.version }}
-          name: Kubemoot Test Runner v${{ steps.version.outputs.version }}
-          body: |
-            Kubemoot Test Runner v${{ steps.version.outputs.version }}
+          version: 'v4.2.2'
 
-            Container image: `${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.version.outputs.version }}`
-
-            ## Usage
-            ```bash
-            # Run smoke test
-            kubectl create -f k8s/tests/job/job-smoke.yaml
-
-            # Run full test suite
-            kubectl create -f k8s/tests/job/job-all.yaml
-            ```
-          draft: false
-          prerelease: false
+      - name: Update operator chart and push
+        if: steps.version.outputs.release_created == 'true'
+        env:
+          HARBOR_USERNAME: ${{ secrets.HARBOR_USERNAME }}
+          HARBOR_PASSWORD: ${{ secrets.HARBOR_PASSWORD }}
+          REGISTRY: ${{ env.REGISTRY }}
+          VERSION: ${{ steps.version.outputs.version }}
+          EDIT_KIND: component
+          VALUES_KEY: image
+          IMAGE_REPO: test-runner
+          LABEL: test-runner
+        run: |
+          echo "${HARBOR_PASSWORD}" | helm registry login --plain-http "${REGISTRY}" -u "${HARBOR_USERNAME}" --password-stdin
+          bash .github/scripts/bump-operator-chart.sh

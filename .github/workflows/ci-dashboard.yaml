@@ -10,11 +10,25 @@ on:
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-  REGISTRY: harbor-homelab.dijure.com
+  REGISTRY: ${{ vars.REGISTRY }}
   IMAGE_NAME: kubemoot/dashboard
 
 jobs:
+  # Pull requests (including forks) build the image on a GitHub-hosted runner without
+  # pushing, so the gates inside the Dockerfile still run and no cluster is reached.
+  validate:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Build dashboard image (no push)
+        run: docker build --file dashboard/Dockerfile dashboard
+
   build:
+    if: github.event_name != 'pull_request'
     runs-on: homelab-runners
 
     steps:
@@ -24,8 +38,7 @@ jobs:
       # No Node toolchain on the runner: the multistage Dockerfile runs npm ci,
       # npm run check, npm test, and npm run build inside node:26-alpine, so the
       # image build is the single source of truth and the runner needs neither
-      # Node 26 nor libatomic. Kaniko builds it below (validate-only on PRs,
-      # build + push on main).
+      # Node 26 nor libatomic. Kaniko builds and pushes it below.
 
       - name: Install kubectl
         run: |
@@ -33,7 +46,6 @@ jobs:
           chmod +x kubectl && sudo mv kubectl /usr/local/bin/
 
       - name: Ensure Harbor project exists
-        if: github.event_name != 'pull_request'
         run: |
           curl -s -X POST "http://${{ env.REGISTRY }}/api/v2.0/projects" \
             -H "Content-Type: application/json" \
@@ -42,18 +54,13 @@ jobs:
             --fail-with-body || true
 
       # Builds the multistage Dockerfile (npm ci + check + test + build run inside
-      # the image). On a pull_request the image is built but not pushed (--no-push)
-      # so the gates still run; on main it builds and pushes to Harbor.
+      # the image) and pushes it to Harbor.
       - name: Build dashboard image with Kaniko
         run: |
           SHA="${{ github.sha }}"
           JOB_NAME="kaniko-$(echo ${SHA} | cut -c1-8)-${GITHUB_RUN_NUMBER}"
 
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
-            PUSH_ARGS='"--no-push"'
-          else
-            PUSH_ARGS='"--destination=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:'"${SHA}"'", "--destination=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest"'
-          fi
+          PUSH_ARGS='"--destination=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:'"${SHA}"'", "--destination=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest"'
 
           tar -C dashboard -czf /tmp/context.tar.gz .
 
@@ -64,7 +71,7 @@ jobs:
             --image=gcr.io/kaniko-project/executor:latest \
             --overrides='{
               "spec": {
-                "hostAliases": [{"ip": "192.168.50.210", "hostnames": ["harbor-homelab.dijure.com"]}],
+                "hostAliases": [{"ip": "${{ vars.REGISTRY_HOST_IP }}", "hostnames": ["${{ vars.REGISTRY }}"]}],
                 "containers": [{
                   "name": "kaniko",
                   "image": "gcr.io/kaniko-project/executor:latest",

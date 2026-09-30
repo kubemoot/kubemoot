@@ -16,14 +16,14 @@
 #   - the published OCI artifact always matches what is in git.
 # See [[Chart Version Collision on Concurrent Releases]].
 #
+# Every release from main is a release candidate: the chart version is X.Y.Z-rc.N and
+# goes to Harbor only, tagged operator-chart-vX.Y.Z-rc.N. Promote Release publishes the
+# final X.Y.Z (see promote-release.sh); the next candidate then starts at X.Y.(Z+1)-rc.0.
+#
 # Required env:
 #   VERSION     image version just built+pushed (e.g. 0.296.0)
 #   EDIT_KIND   "operator" (bump Chart.yaml appVersion) | "component"
 #   REGISTRY    OCI registry host; helm must already be logged in by the caller
-# Optional:
-#   RELEASE_REGISTRY, GHCR_USERNAME, GHCR_TOKEN  when RELEASE_REGISTRY is set, the chart is
-#               ALSO pushed to oci://${RELEASE_REGISTRY}/charts after the Harbor push
-#               (publish-release-chart.sh handles the login)
 # Component mode additionally requires:
 #   VALUES_KEY  values.yaml image key, e.g. agentRuntime
 #   IMAGE_REPO  bare image name as it appears in values.yaml, e.g. agent-runtime
@@ -31,8 +31,12 @@
 #   LABEL       human label for the commit message, e.g. agent-runtime
 set -euo pipefail
 
+# shellcheck source-path=SCRIPTDIR source=release-lib.sh
+source "$(dirname "$0")/release-lib.sh"
+
 CHART_DIR="operator/chart/kubemoot-operator"
 CHART_FILE="${CHART_DIR}/Chart.yaml"
+CHART_TAG_PREFIX="operator-chart-v"
 VALUES_FILE="${CHART_DIR}/values.yaml"
 
 : "${VERSION:?VERSION required}"
@@ -68,7 +72,15 @@ for attempt in 1 2 3 4 5 6 7 8; do
   fi
 
   current=$(grep '^version:' "${CHART_FILE}" | awk '{print $2}')
-  new_chart=$(echo "${current}" | awk -F. '{print $1"."$2"."$3+1}')
+  # ls-remote --exit-code: 0 = the final tag exists, 2 = it does not, else an error.
+  status=0
+  git ls-remote --exit-code --tags origin "refs/tags/${CHART_TAG_PREFIX}$(rl_final_of "${current}")" >/dev/null || status=$?
+  case "${status}" in
+    0) promoted=true ;;
+    2) promoted=false ;;
+    *) echo "ERROR: could not read tags from origin (git ls-remote exit ${status})" >&2; exit 1 ;;
+  esac
+  new_chart=$(rl_next_chart_rc "${current}" "${promoted}")
   sed -i "s/^version:.*/version: ${new_chart}/" "${CHART_FILE}"
 
   git add "${CHART_FILE}" "${VALUES_FILE}"
@@ -84,9 +96,16 @@ for attempt in 1 2 3 4 5 6 7 8; do
     # so a transient Harbor hiccup can't leave a git-committed chart version with no
     # artifact (Flux would fail to pull it). No re-read needed: git already landed.
     for push_attempt in 1 2 3; do
+      # HELM_PUSH_FLAGS may hold more than one flag, so it is split on purpose.
+      # shellcheck disable=SC2086
       if helm push ${HELM_PUSH_FLAGS} "kubemoot-operator-${new_chart}.tgz" "oci://${REGISTRY}/kubemoot/charts"; then
         echo "Released operator chart v${new_chart} (${msg})"
-        bash "$(dirname "$0")/publish-release-chart.sh" "kubemoot-operator-${new_chart}.tgz"
+        # The candidate tag names the commit whose chart the homelab runs; Promote
+        # Release takes it (or the latest one) as its input.
+        if ! git rev-parse -q --verify "refs/tags/${CHART_TAG_PREFIX}${new_chart}" >/dev/null; then
+          git tag -a "${CHART_TAG_PREFIX}${new_chart}" -m "Release candidate operator chart ${new_chart}"
+        fi
+        git push origin "${CHART_TAG_PREFIX}${new_chart}"
         exit 0
       fi
       echo "helm push failed (attempt ${push_attempt}/3); retrying in 5s"

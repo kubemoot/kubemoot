@@ -2,13 +2,14 @@
 # Publish a released image to the release registry.
 #
 # The in-cluster Harbor registry is the build and deploy loop; it is reachable only
-# from inside the cluster. Releases are copied from Harbor to the release registry
-# (GHCR for the open-source project) at release time, versioned tags only: no
-# :latest, no SHA tags.
+# from inside the cluster. Promote Release copies each tested release candidate from
+# Harbor to the release registry (GHCR for the open-source project) under its final
+# version, versioned tags only: no :latest, no SHA tags.
 #
 # Usage: publish-release-image.sh <source-ref> <version>
-#   source-ref  the versioned Harbor reference just retagged,
-#               e.g. harbor-homelab.dijure.com/kubemoot/agent-runtime:0.322.4
+#   source-ref  the Harbor reference to copy, by tag or by digest, e.g.
+#               <registry>/kubemoot/agent-runtime:0.322.4-rc.2 or
+#               <registry>/kubemoot/agent-runtime@sha256:...
 #   version     the release version, e.g. 0.322.4
 #
 # Required env:
@@ -32,6 +33,7 @@ version="${2:?version required}"
 
 image_name="${source_ref##*/}"      # last path segment, e.g. agent-runtime:0.322.4
 image_name="${image_name%%:*}"      # strip the tag (a registry port never reaches here)
+image_name="${image_name%%@*}"      # strip a digest
 registry_host="${RELEASE_REGISTRY%%/*}"
 source_host="${source_ref%%/*}"
 target="${RELEASE_REGISTRY}/${image_name}:${version}"

@@ -20,7 +20,7 @@ concurrency:
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-  REGISTRY: harbor-homelab.dijure.com
+  REGISTRY: ${{ vars.REGISTRY }}
   IMAGE_NAME: kubemoot/query-service
 
 jobs:
@@ -41,39 +41,21 @@ jobs:
           fetch-depth: 0
           fetch-tags: true
 
-      - name: Calculate semantic version
+      - name: Calculate the release candidate version
         id: version
-        uses: paulhatch/semantic-version@v6.0.2
+        uses: ./.github/actions/release-candidate-version
         with:
           tag_prefix: "query-service-v"
-          major_pattern: "(BREAKING CHANGE|feat!|fix!)"
-          minor_pattern: "feat"
-          version_format: "${major}.${minor}.${patch}"
-          bump_each_commit: true
-          search_commit_body: true
-
-      - name: Check if release needed
-        id: check
-        run: |
-          echo "Current version: ${{ steps.version.outputs.version }}"
-          echo "Changed: ${{ steps.version.outputs.changed }}"
-
-          if [ "${{ steps.version.outputs.changed }}" = "true" ] || [ "${{ inputs.force_release }}" = "true" ]; then
-            echo "release_created=true" >> $GITHUB_OUTPUT
-            echo "Will create release query-service-v${{ steps.version.outputs.version }}"
-          else
-            echo "release_created=false" >> $GITHUB_OUTPUT
-            echo "Skipping release - no version-bumping commits since last tag"
-          fi
+          force: ${{ inputs.force_release }}
 
       - name: Install crane
-        if: steps.check.outputs.release_created == 'true'
+        if: steps.version.outputs.release_created == 'true'
         run: |
           curl -sL https://github.com/google/go-containerregistry/releases/download/v0.20.2/go-containerregistry_Linux_x86_64.tar.gz | tar -xzf - crane
           sudo mv crane /usr/local/bin/
 
       - name: Retag image with version
-        if: steps.check.outputs.release_created == 'true'
+        if: steps.version.outputs.release_created == 'true'
         env:
           HARBOR_USERNAME: ${{ secrets.HARBOR_USERNAME }}
           HARBOR_PASSWORD: ${{ secrets.HARBOR_PASSWORD }}
@@ -92,18 +74,8 @@ jobs:
             crane copy --insecure "${FULL_IMAGE}:latest" "${FULL_IMAGE}:${VERSION}"
           fi
 
-      - name: Publish image to the release registry
-        if: steps.check.outputs.release_created == 'true' && vars.RELEASE_REGISTRY != ''
-        env:
-          RELEASE_REGISTRY: ${{ vars.RELEASE_REGISTRY }}
-          GHCR_USERNAME: ${{ secrets.GHCR_USERNAME }}
-          GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
-          HARBOR_USERNAME: ${{ secrets.HARBOR_USERNAME }}
-          HARBOR_PASSWORD: ${{ secrets.HARBOR_PASSWORD }}
-        run: bash .github/scripts/publish-release-image.sh "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.version.outputs.version }}" "${{ steps.version.outputs.version }}"
-
       - name: Create and push tag
-        if: steps.check.outputs.release_created == 'true'
+        if: steps.version.outputs.release_created == 'true'
         run: |
           VERSION="${{ steps.version.outputs.version }}"
           TAG="query-service-v$VERSION"
@@ -113,24 +85,21 @@ jobs:
 
           if ! git rev-parse "$TAG" >/dev/null 2>&1; then
             echo "Creating tag: $TAG"
-            git tag -a "$TAG" -m "Release Query Service $TAG"
+            git tag -a "$TAG" -m "Release candidate Query Service $TAG"
             git push origin "$TAG"
           fi
 
       - name: Install Helm
-        if: steps.check.outputs.release_created == 'true'
+        if: steps.version.outputs.release_created == 'true'
         uses: azure/setup-helm@v4
         with:
           version: 'v4.2.2'
 
       - name: Update operator chart and push
-        if: steps.check.outputs.release_created == 'true'
+        if: steps.version.outputs.release_created == 'true'
         env:
           HARBOR_USERNAME: ${{ secrets.HARBOR_USERNAME }}
           HARBOR_PASSWORD: ${{ secrets.HARBOR_PASSWORD }}
-          RELEASE_REGISTRY: ${{ vars.RELEASE_REGISTRY }}
-          GHCR_USERNAME: ${{ secrets.GHCR_USERNAME }}
-          GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
           REGISTRY: ${{ env.REGISTRY }}
           VERSION: ${{ steps.version.outputs.version }}
           EDIT_KIND: component
@@ -141,21 +110,3 @@ jobs:
           echo "${HARBOR_PASSWORD}" | helm registry login --plain-http "${REGISTRY}" -u "${HARBOR_USERNAME}" --password-stdin
           bash .github/scripts/bump-operator-chart.sh
 
-      - name: Create GitHub Release
-        if: steps.check.outputs.release_created == 'true'
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: query-service-v${{ steps.version.outputs.version }}
-          name: Kubemoot Query Service v${{ steps.version.outputs.version }}
-          body: |
-            RAGSource Query Service v${{ steps.version.outputs.version }}
-
-            Container image: `${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.version.outputs.version }}`
-
-            ## Usage
-            ```yaml
-            queryService:
-              image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.version.outputs.version }}
-            ```
-          draft: false
-          prerelease: false

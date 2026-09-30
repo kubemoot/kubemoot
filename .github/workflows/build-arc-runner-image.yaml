@@ -14,7 +14,7 @@ on:
       - '.github/workflows/build-arc-runner-image.yaml'
 
 env:
-  REGISTRY: harbor-homelab.dijure.com
+  REGISTRY: ${{ vars.REGISTRY }}
   IMAGE_NAME: kubemoot/actions-runner
   RUNNER_TAG: 2.337.0-homelab
 
@@ -50,7 +50,7 @@ jobs:
             --image=gcr.io/kaniko-project/executor:latest \
             --overrides='{
               "spec": {
-                "hostAliases": [{"ip": "192.168.50.210", "hostnames": ["harbor-homelab.dijure.com"]}],
+                "hostAliases": [{"ip": "${{ vars.REGISTRY_HOST_IP }}", "hostnames": ["${{ vars.REGISTRY }}"]}],
                 "containers": [{
                   "name": "kaniko",
                   "image": "gcr.io/kaniko-project/executor:latest",
