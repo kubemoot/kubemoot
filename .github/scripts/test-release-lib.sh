@@ -25,11 +25,11 @@ check_status() {
   check "$name" "$want" "$got"
 }
 
-# The four repositories carry identical copies of release-lib.sh and the
+# The five repositories carry identical copies of release-lib.sh and the
 # release-candidate-version action; this pins their content so a copy cannot drift
 # alone. After changing either, update every copy and the sum here.
-RELEASE_LIB_SHA256="a79a08739ce60a5ed0eb67b11f6ea1463af8cd44e6f68212a4d4bf68d76fb3d5"
-RELEASE_ACTION_SHA256="d0b4e0590022b885b6ba7c288c8f989777c3d29e927c78e9f3e20145a006c433"
+RELEASE_LIB_SHA256="456e359b77f3e3b173954b75078081bc7b3d6e08f87e32f89e6ef4ebf575504f"
+RELEASE_ACTION_SHA256="b04065f83655f3903e284d8bed0c3cbf32b61dfee26372458c8debaa9e790a33"
 check "release-lib.sh matches the shared copy" "$RELEASE_LIB_SHA256" "$(sha256sum "${here}/release-lib.sh" | cut -d' ' -f1)"
 check "release-candidate-version action matches the shared copy" "$RELEASE_ACTION_SHA256" \
   "$(sha256sum "${here}/../actions/release-candidate-version/action.yml" | cut -d' ' -f1)"
@@ -42,6 +42,25 @@ check_status "other pre-release is not rc" 1 rl_is_rc 0.1.2-beta.1
 check_status "prefixed tag is not a version" 1 rl_is_rc v0.1.2-rc.1
 check "final of rc" "0.1.2" "$(rl_final_of 0.1.2-rc.11)"
 check "final of final" "0.1.2" "$(rl_final_of 0.1.2)"
+check "breaking change on 0.x bumps the minor" "0.345.0-rc.2" "$(rl_hold_zero_major 1.0.0-rc.2 0.344.0 false)"
+check "breaking change before any final" "0.1.0-rc.0" "$(rl_hold_zero_major 1.0.0-rc.0 "" false)"
+check "minor bump on 0.x unchanged" "0.345.0-rc.1" "$(rl_hold_zero_major 0.345.0-rc.1 0.344.0 false)"
+check "patch bump on 0.x unchanged" "0.344.1-rc.3" "$(rl_hold_zero_major 0.344.1-rc.3 0.344.0 false)"
+check "leaving 0.x when allowed" "1.0.0-rc.0" "$(rl_hold_zero_major 1.0.0-rc.0 0.344.0 true)"
+check "allow is exactly true" "0.345.0-rc.0" "$(rl_hold_zero_major 1.0.0-rc.0 0.344.0 yes)"
+check "major bump after 1.0 unchanged" "2.0.0-rc.1" "$(rl_hold_zero_major 2.0.0-rc.1 1.4.2 false)"
+check "non-candidate unchanged" "1.0.0" "$(rl_hold_zero_major 1.0.0 0.344.0 false)"
+check "fix before any final" "0.0.1-rc.0" "$(rl_hold_zero_major 0.0.1-rc.0 "" false)"
+check "breaking after a patch release" "0.345.0-rc.1" "$(rl_hold_zero_major 1.0.0-rc.1 0.344.5 false)"
+check "two-digit rc counter kept" "0.345.0-rc.10" "$(rl_hold_zero_major 1.0.0-rc.10 0.344.0 false)"
+check "candidate already on the next minor" "0.345.0-rc.3" "$(rl_hold_zero_major 0.345.0-rc.3 0.344.0 false)"
+check "candidate of the promoted final unchanged" "0.344.0-rc.0" "$(rl_hold_zero_major 0.344.0-rc.0 0.344.0 false)"
+check "zero-padded minor is decimal" "0.9.0-rc.2" "$(rl_hold_zero_major 1.0.0-rc.2 0.08.0 false)"
+check "empty allow holds" "0.345.0-rc.0" "$(rl_hold_zero_major 1.0.0-rc.0 0.344.0 "")"
+check "empty version unchanged" "" "$(rl_hold_zero_major "" 0.344.0 false)"
+check_status "malformed last final fails" 1 rl_hold_zero_major 1.0.0-rc.0 0.x false
+check_status "prefixed last final fails" 1 rl_hold_zero_major 1.0.0-rc.0 v0.344.0 false
+check_status "empty computed version fails" 1 rl_held_version v "" false
 check "next chart rc from a final" "0.92.582-rc.0" "$(rl_next_chart_rc 0.92.581 false)"
 check "next chart rc counts up" "0.92.582-rc.4" "$(rl_next_chart_rc 0.92.582-rc.3 false)"
 check "next chart rc 9 -> 10" "0.92.582-rc.10" "$(rl_next_chart_rc 0.92.582-rc.9 false)"
@@ -79,6 +98,11 @@ check "latest final ignores rcs" "v0.1.0" "$(rl_latest_final v "$c4")"
 git tag -a v0.2.0 -m final "$c4"
 check "latest final excluding the new one" "v0.1.0" "$(rl_latest_final v "$c4" v0.2.0)"
 check "latest final" "v0.2.0" "$(rl_latest_final v "$c4")"
+check "held version reads the prefix's last final" "0.3.0-rc.1" "$(rl_held_version v 1.0.0-rc.1 false "$c4")"
+check "held version per component" "0.1.0-rc.1" "$(rl_held_version agent-v 1.0.0-rc.1 false "$c4")"
+git tag -a agent-v0.9.0 -m final "$c4"
+check "held version after a component final" "0.10.0-rc.2" "$(rl_held_version agent-v 1.0.0-rc.2 false "$c4")"
+check "held version when allowed" "1.0.0-rc.2" "$(rl_held_version agent-v 1.0.0-rc.2 true "$c4")"
 check_status "tag exists" 0 rl_tag_exists v0.2.0
 check_status "tag missing" 1 rl_tag_exists v9.9.9
 

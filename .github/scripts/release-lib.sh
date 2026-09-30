@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # Shared helpers for release candidates and promotion. Sourced, never run.
 #
-# The same file lives in kubemoot, crews, kmctl, and kubemoot-docs under
+# The same file lives in kubemoot, crews, kmctl, kubemoot-docs, and vscode-crewforge under
 # .github/scripts/release-lib.sh, beside test-release-lib.sh and the composite action
 # .github/actions/release-candidate-version. The test pins this file's sha256, so an
-# edit to one copy fails that repository's test until all four copies (and the pinned
+# edit to one copy fails that repository's test until all five copies (and the pinned
 # sum) are updated together; kubemoot holds the reference copy.
 #
 # Versions: every push to main builds X.Y.Z-rc.N; a promotion tags the candidate's
@@ -19,6 +19,42 @@ rl_is_rc() {
 # rl_final_of VERSION: X.Y.Z-rc.N -> X.Y.Z (a final version is returned unchanged).
 rl_final_of() {
   printf '%s\n' "${1%-rc.*}"
+}
+
+# rl_hold_zero_major VERSION LAST_FINAL ALLOW_MAJOR: keeps a 0.x project at major 0.
+# While the last final version (X.Y.Z; empty when none, which counts as 0.0.0) has
+# major 0, a candidate that a breaking change bumped to a higher major becomes the next
+# minor, 0.(Y+1).0-rc.N, the semver convention for 0.x. Leaving 0.x is a deliberate
+# maintainer step (ALLOW_MAJOR=true), never the effect of a commit message. From 1.0
+# on, and for anything that is not a candidate, VERSION is printed unchanged. A
+# LAST_FINAL that is not X.Y.Z fails, so a bad base never picks a version.
+rl_hold_zero_major() {
+  local version="$1" last="${2:-0.0.0}" allow="$3"
+  if ! [[ "$last" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+    echo "ERROR: last final version [${last}] is not X.Y.Z" >&2
+    return 1
+  fi
+  local last_major last_minor
+  IFS=. read -r last_major last_minor _ <<<"$last"
+  if [ "$allow" = "true" ] || ! rl_is_rc "$version" \
+    || [ "$((10#${last_major}))" -ne 0 ] || [ "${version%%.*}" = "0" ]; then
+    printf '%s\n' "$version"
+    return
+  fi
+  printf '0.%s.0-rc.%s\n' "$((10#${last_minor} + 1))" "${version##*-rc.}"
+}
+
+# rl_held_version PREFIX VERSION ALLOW_MAJOR [COMMIT]: rl_hold_zero_major against the
+# component's last final <prefix>X.Y.Z tag reachable from COMMIT (default HEAD). An
+# empty VERSION fails: semantic-version computed nothing.
+rl_held_version() {
+  local prefix="$1" version="$2" allow="$3" commit="${4:-HEAD}" last
+  if [ -z "$version" ]; then
+    echo "ERROR: no version computed for ${prefix}" >&2
+    return 1
+  fi
+  last="$(rl_latest_final "$prefix" "$commit")"
+  rl_hold_zero_major "$version" "${last#"${prefix}"}" "$allow"
 }
 
 # rl_release_needed PREFIX VERSION CHANGED FORCE: prints release_created=true|false for

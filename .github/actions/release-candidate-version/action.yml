@@ -2,7 +2,8 @@ name: Release candidate version
 description: >-
   Computes the next release candidate X.Y.Z-rc.N for a tag prefix and decides whether
   to build it. Needs a checkout with full history and tags. The same file lives in
-  kubemoot, crews, kmctl, and kubemoot-docs (see .github/scripts/release-lib.sh).
+  kubemoot, crews, kmctl, kubemoot-docs, and vscode-crewforge (see
+  .github/scripts/release-lib.sh).
 
 inputs:
   tag_prefix:
@@ -16,14 +17,20 @@ inputs:
     description: '"true" builds a candidate even without new commits'
     required: false
     default: 'false'
+  allow_major:
+    description: >-
+      "true" lets a breaking change leave major version 0; otherwise a breaking change
+      on 0.x bumps the minor version
+    required: false
+    default: 'false'
 
 outputs:
   version:
     description: The candidate version, X.Y.Z-rc.N
-    value: ${{ steps.version.outputs.version }}
+    value: ${{ steps.hold.outputs.version }}
   version_tag:
     description: The candidate tag, <tag_prefix>X.Y.Z-rc.N
-    value: ${{ inputs.tag_prefix }}${{ steps.version.outputs.version }}
+    value: ${{ inputs.tag_prefix }}${{ steps.hold.outputs.version }}
   release_created:
     description: '"true" when the candidate should be built'
     value: ${{ steps.check.outputs.release_created }}
@@ -46,11 +53,25 @@ runs:
         search_commit_body: true
         change_path: ${{ inputs.change_path }}
 
-    - id: check
+    # A breaking change on 0.x bumps the minor version (rl_hold_zero_major).
+    - id: hold
       shell: bash
       env:
         PREFIX: ${{ inputs.tag_prefix }}
         VERSION: ${{ steps.version.outputs.version }}
+        ALLOW_MAJOR: ${{ inputs.allow_major }}
+        LIB: ${{ github.action_path }}/../../scripts/release-lib.sh
+      run: |
+        # shellcheck source=/dev/null
+        source "${LIB}"
+        held="$(rl_held_version "${PREFIX}" "${VERSION}" "${ALLOW_MAJOR}")"
+        echo "version=${held}" >> "$GITHUB_OUTPUT"
+
+    - id: check
+      shell: bash
+      env:
+        PREFIX: ${{ inputs.tag_prefix }}
+        VERSION: ${{ steps.hold.outputs.version }}
         CHANGED: ${{ steps.version.outputs.changed }}
         FORCE: ${{ inputs.force }}
         LIB: ${{ github.action_path }}/../../scripts/release-lib.sh
