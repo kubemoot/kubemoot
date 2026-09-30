@@ -132,8 +132,9 @@ public class DiscussionOrchestrator {
     // filled in with the artifact's actual content (the tool-free synthesizer cannot
     // read the object store itself). Cap per artifact so one huge object cannot blow
     // the synthesis context.
-    private static final java.util.regex.Pattern ARTIFACT_MARKER_WITH_KEY =
-            java.util.regex.Pattern.compile("\\[ARTIFACT key=([^\\]\\s]+)[^\\]]*\\]");
+    // Possessive quantifiers: a long marker with no closing bracket fails in linear time.
+    static final java.util.regex.Pattern ARTIFACT_MARKER_WITH_KEY =
+            java.util.regex.Pattern.compile("\\[ARTIFACT key=([^\\]\\s]++)[^\\]]*+\\]");
     private static final int MAX_ARTIFACT_INLINE_CHARS = 24_000;
     // Absolute floor of a table's names that must appear in a draft for the synthesis
     // completeness contract to treat the draft as enumerating that table. Below this the
