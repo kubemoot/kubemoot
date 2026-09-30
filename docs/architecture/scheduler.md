@@ -424,7 +424,7 @@ spec:
 
 ### MootArchetype - coordination model + phase vocabulary
 
-Cluster-scoped. Declares the phase vocabulary that `CrewSchedulingPolicy.spec.rules[*].phase` references. The operator chart installs `consent-3` (sociocracy 3.0), the one archetype that ships. The operator validates `CrewSchedulingPolicy` phase names against the archetype; the scheduler and the agent runtime use phases fixed in code, and the orchestration is fixed in code today (see the [Roadmap](../../introduction/roadmap/)).
+Cluster-scoped. Declares the scheduling phases (see the [reference](../../reference/mootarchetype/)) that `CrewSchedulingPolicy.spec.rules[*].phase` references. The operator chart installs `consent-3` (sociocracy 3.0), the one archetype that ships. The operator validates `CrewSchedulingPolicy` phase names against the archetype; the scheduler and the agent runtime use phases fixed in code, and the orchestration is fixed in code today (see the [Roadmap](../../introduction/roadmap/)).
 
 ## Scheduling Algorithm
 

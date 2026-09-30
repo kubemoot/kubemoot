@@ -119,10 +119,12 @@ archetype**.
   Toolers' findings in the REVIEW phase; and the coordinator synthesizes once the
   discussion settles (a consent-style model). The coordinator is itself a light form
   of hierarchy.
-- The `MootArchetype` resource names a discussion's phase vocabulary and signals, and
-  the operator validates `CrewSchedulingPolicy` phase names against it. The scheduler
-  and the agent runtime use phases fixed in code: the orchestration of
-  a discussion is fixed in code today, so the consensus flow is the only archetype
+- The `MootArchetype` resource ([reference](../../reference/mootarchetype/)) declares
+  the scheduling phases and signals of an archetype, and the operator validates
+  `CrewSchedulingPolicy` phase names against it so the scheduler can choose a model per
+  phase. The agent runtime does not read it: the phases and transitions of a
+  discussion (advisory, evaluating, review, synthesis) are fixed in code, so the orchestration of
+  a discussion is fixed today, so the consensus flow is the only archetype
   that ships. Hierarchical organizations and stricter consent or voting rules are
   valid archetypes the design leaves room for; they are not implemented yet (see the
   [Roadmap](../../introduction/roadmap/#consensus-archetypes-declared-not-coded)).

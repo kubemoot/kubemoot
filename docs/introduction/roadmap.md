@@ -104,8 +104,8 @@ accounting, and a circuit breaker the prerequisites, not afterthoughts.
 
 ## Consensus archetypes declared, not coded
 
-**Today:** the `MootArchetype` CRD names a discussion's phases and its signal
-vocabulary, and the consensus archetype (`consent-3`) ships with the operator. How the coordinator
+**Today:** the `MootArchetype` CRD ([reference](../../reference/mootarchetype/)) declares the
+scheduling phases and signals that `CrewSchedulingPolicy` rules use to pick a model per phase, and the consensus archetype (`consent-3`) ships with the operator. How the coordinator
 convenes, who may speak in which phase, when a discussion settles, and the rules of
 engagement between agents are still fixed in code and in prompts.
 
