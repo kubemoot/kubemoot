@@ -43,7 +43,7 @@ The dashboard has no login of its own, whether or not the chart publishes the ro
 
 ## What it shows
 
-The sidebar groups pages by what they cover. The Topology and Agent Policies pages exist by URL (`/topology`, `/agentpolicies`) without a sidebar entry.
+The sidebar groups pages by what they cover. The Topology page exists by URL (`/topology`) without a sidebar entry.
 
 | Section | Pages | Shows |
 |---------|-------|-------|
@@ -103,7 +103,7 @@ The SvelteKit server exposes the JSON and event-stream endpoints the pages use. 
 |----------|--------|---------|
 | `/api/health`, `/api/version` | GET | Health check; dashboard version |
 | `/api/namespaces`, `/api/nodes` | GET | Namespaces; Kubernetes nodes with GPU information |
-| `/api/kubemoot/<plural>` and `/api/kubemoot/<plural>/<name>` | GET | List and detail for `agents`, `crews`, `models`, `modelproviders`, `embeddingmodels`, `mcpservers`, `mcpgateways`, `mcpqualitypolicies`, `mcpcatalogs`, `mcpserverreports`, `ragsources`, `promptmodules`, `agentpolicies`, `crewfitnesses` |
+| `/api/kubemoot/<plural>` and `/api/kubemoot/<plural>/<name>` | GET | List and detail for `agents`, `crews`, `models`, `modelproviders`, `embeddingmodels`, `mcpservers`, `mcpgateways`, `mcpqualitypolicies`, `mcpcatalogs`, `mcpserverreports`, `ragsources`, `promptmodules`, `crewfitnesses` |
 | `/api/kubemoot/config`, `/api/kubemoot/system-info`, `/api/kubemoot/topology` | GET | Configuration, system information, agent topology graph |
 | `/api/kubemoot/crewfitnesssuites` | GET | Fitness suites; sub-paths under `<namespace>/<name>/` serve `scores`, `iterations`, `transcript`, and `artifact`; DELETE on `<namespace>/<name>` removes a run |
 | `/api/kubemoot/mcpserverreports/<name>` | PATCH | Pin a verdict |
