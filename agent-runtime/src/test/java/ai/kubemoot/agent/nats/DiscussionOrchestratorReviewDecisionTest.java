@@ -157,7 +157,7 @@ class DiscussionOrchestratorReviewDecisionTest {
 
         o.decideReview(state, 1);
 
-        assertEquals(DiscussionOrchestrator.Phase.SYNTHESIZING, state.phase);
+        assertReachedSynthesis(state);
         assertTrue(published().stream().noneMatch(m -> "review_ready".equals(m.path("messageType").asText())));
     }
 
@@ -295,7 +295,7 @@ class DiscussionOrchestratorReviewDecisionTest {
 
         o.decideReview(state, 1);
 
-        assertEquals(DiscussionOrchestrator.Phase.SYNTHESIZING, state.phase);
+        assertReachedSynthesis(state);
     }
 
     @Test
@@ -420,7 +420,7 @@ class DiscussionOrchestratorReviewDecisionTest {
 
         o.afterConcurrence(state);
 
-        assertEquals(DiscussionOrchestrator.Phase.SYNTHESIZING, state.phase);
+        assertReachedSynthesis(state);
     }
 
     @Test
@@ -479,7 +479,7 @@ class DiscussionOrchestratorReviewDecisionTest {
 
         assertFalse(DiscussionOrchestrator.concurrerDissented(state));
         o.afterConcurrence(state);
-        assertEquals(DiscussionOrchestrator.Phase.SYNTHESIZING, state.phase);
+        assertReachedSynthesis(state);
     }
 
     @Test
@@ -506,7 +506,7 @@ class DiscussionOrchestratorReviewDecisionTest {
 
         broken.decideReviewOrSynthesize(state, 1);
 
-        assertEquals(DiscussionOrchestrator.Phase.SYNTHESIZING, state.phase);
+        assertReachedSynthesis(state);
     }
 
     @Test
@@ -516,10 +516,10 @@ class DiscussionOrchestratorReviewDecisionTest {
         var state = decidingThread("k8s-advisor");
 
         o.handleStopRequest(state, state.threadId, "dashboard");
-        assertEquals(DiscussionOrchestrator.Phase.SYNTHESIZING, state.phase);
+        assertReachedSynthesis(state);
         o.decideReview(state, 1);
 
-        assertEquals(DiscussionOrchestrator.Phase.SYNTHESIZING, state.phase);
+        assertReachedSynthesis(state);
         assertTrue(published().stream().noneMatch(m -> "review_ready".equals(m.path("messageType").asText())));
     }
 
@@ -532,7 +532,7 @@ class DiscussionOrchestratorReviewDecisionTest {
         o.handleStopRequest(state, state.threadId, "dashboard");
         o.afterConcurrence(state);
 
-        assertEquals(DiscussionOrchestrator.Phase.SYNTHESIZING, state.phase,
+        assertReachedSynthesis(state,
                 "the stop wins; the escalation does not move the thread back to REVIEW");
     }
 
@@ -574,5 +574,16 @@ class DiscussionOrchestratorReviewDecisionTest {
         state.lastSignalReceived = Instant.now();
         o.settlePhase(state, Instant.now(), 3, settle);
         assertEquals(1, advanced.get(), "state, not the 10 s floor, ends the phase");
+    }
+
+    // The synthesis runs on the orchestrator's executor and can finish (CLOSED) before the
+    // assertion reads the phase; either phase means the thread went to synthesis, not REVIEW.
+    private static void assertReachedSynthesis(DiscussionOrchestrator.ThreadState state) {
+        assertReachedSynthesis(state, "the thread went to synthesis");
+    }
+
+    private static void assertReachedSynthesis(DiscussionOrchestrator.ThreadState state, String message) {
+        assertTrue(state.phase == DiscussionOrchestrator.Phase.SYNTHESIZING
+                || state.phase == DiscussionOrchestrator.Phase.CLOSED, message + " (phase " + state.phase + ")");
     }
 }
