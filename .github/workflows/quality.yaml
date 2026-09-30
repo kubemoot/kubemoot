@@ -161,6 +161,18 @@ jobs:
         continue-on-error: true
 
       # ── SonarQube scan ───────────────────────────────────────────────
+      # The analysis version is the latest final release tag, so the gate's
+      # "previous version" new-code period is the change since that release.
+      - name: Resolve analysis version
+        id: version
+        run: |
+          tag=$(git describe --tags --abbrev=0 --match 'v[0-9]*' --exclude '*-rc.*' 2>/dev/null || true)
+          if [ -z "$tag" ]; then
+            echo "::warning::no final vX.Y.Z tag reachable from HEAD; analysis version falls back to 0.0.0"
+            tag=v0.0.0
+          fi
+          echo "version=${tag#v}" >> "$GITHUB_OUTPUT"
+
       - name: SonarQube Scan
         uses: SonarSource/sonarqube-scan-action@v6
         env:
@@ -169,3 +181,4 @@ jobs:
         with:
           args: >
             -Dsonar.externalIssuesReportPaths=trivy-sonarqube.json
+            -Dsonar.projectVersion=${{ steps.version.outputs.version }}
