@@ -1747,9 +1747,41 @@ public class ChatService {
         // for each other. See [[JIT is the sole scheduler]].
         int promptChars = (systemPrompt == null ? 0 : systemPrompt.length())
                 + (userPrompt == null ? 0 : userPrompt.length());
-        MullingPick pick = pickForSimpleCall(promptChars);
+        return placedSimpleCall(pickForSimpleCall(promptChars), messages);
+    }
+
+    /**
+     * One tool-free turn of this agent over its own prompt modules: the model answers
+     * once and no tool is offered, whatever tools the agent has. The call is placed
+     * like the agent's tool-loop call for the thread (the placement planned at
+     * selection when it still fits, a capacity wait through {@code wait} when every
+     * GPU is busy), so it never falls back to the static endpoint. A reasoning block
+     * is removed from the reply, REMEMBER: directives are persisted to crew memory and
+     * removed as on the tool-loop path, and a reply that echoes the agent's
+     * instructions comes back empty.
+     */
+    public ChatResult answerOnce(String threadId, String message, ai.kubemoot.agent.provider.CapacityWait wait) {
+        String system = loadSystemPrompt();
+        List<ChatMessage> messages = buildSimpleMessages(system, message);
+        MullingPick pick = pickMullingChatModel(PromptSize.chars(messages, List.of()), wait, threadId);
+        SimpleLlmResult reply = placedSimpleCall(pick, messages);
+        heartbeatService.recordInference();
+        String text = ai.kubemoot.agent.util.ThinkBlocks.remove(reply.text()).strip();
+        if (crewMemory != null) {
+            text = crewMemory.persistFromResponse(text, properties.agentName()).strip();
+        }
+        if (isInstructionEcho(text, system)) {
+            log.info("agent {} echoed an instruction instead of answering once", properties.agentName());
+            text = "";
+        }
+        return new ChatResult(threadId, text, pick.modelName(), threadId, reply.inputTokens(),
+                reply.outputTokens(), pick.providerName(), pick.pickReason(), pick.evicted());
+    }
+
+    /** Send a no-tool call on {@code pick}, then record the outcome and release its ticket. */
+    private SimpleLlmResult placedSimpleCall(MullingPick pick, List<ChatMessage> messages) {
         String providerName = pick.providerName();
-        // Outbound wire trace (no-tools path: advisory/synthesis/triage). Pair with
+        // Outbound wire trace (no-tools path: advisory/synthesis/triage/concurrence). Pair with
         // OLLAMA_DEBUG on the provider to confirm the wire model matches intent.
         log.info("OUTBOUND inference (simple): agent={} endpoint={} model={} provider={} reason={}",
                 properties.agentName(), pick.endpoint(), pick.modelName(),

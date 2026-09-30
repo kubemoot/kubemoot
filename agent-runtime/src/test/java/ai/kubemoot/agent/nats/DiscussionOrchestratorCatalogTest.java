@@ -142,12 +142,12 @@ class DiscussionOrchestratorCatalogTest {
                 "null extras -> the ranked list is returned as-is");
     }
 
-    // --- artifactUnavailableNotice (honest-fail on an unreadable artifact) ---
+    // --- DiscussionArtifacts.unavailableNotice (honest-fail on an unreadable artifact) ---
 
     @Test
     void artifactUnavailableNotice_namesKeyAndForbidsFabrication() {
         String key = "homelab-pilot/thread1/k8s-config/agree-abc";
-        String notice = DiscussionOrchestrator.artifactUnavailableNotice(key);
+        String notice = DiscussionArtifacts.unavailableNotice(key);
         assertTrue(notice.contains(key), "names the specific artifact key");
         assertTrue(notice.contains("UNAVAILABLE"), "flags the data as unavailable");
         assertTrue(notice.toLowerCase().contains("do not") && notice.toLowerCase().contains("fabricate"),

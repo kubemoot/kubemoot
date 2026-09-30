@@ -69,6 +69,8 @@ public class DiscussionSubscriber {
      * tooler" from "toolers exist but their tools failed."
      */
     private static final String SIGNAL_FAILURE = "failure";
+    /** The content of the failure signal an empty concurrence reply publishes. */
+    static final String EMPTY_CONCURRENCE_REPLY = "The concurrence reply was empty";
 
     // JSON field name constants (used in NATS message construction/parsing)
     private static final String FIELD_MESSAGE_ID = "messageId";
@@ -637,22 +639,32 @@ public class DiscussionSubscriber {
 
     /**
      * A concurrence request is addressed to this agent by name, so there is no
-     * should-I-contribute question to triage: the agent goes straight to its
-     * evaluation and answers (agree, or a concern).
+     * should-I-contribute question to triage. It asks for a second opinion on
+     * results already gathered, so the reply is ONE model turn with no tools, over
+     * the thread (the question and the gathered results, with spilled artifacts read
+     * in) and the agent's own prompt modules: agree, or a concern. A failed or empty
+     * reply is a failure signal, which the coordinator escalates to the full review.
      */
     private void answerConcurrence(String subject, String threadId, String conversation) {
-        try {
-            if (closedThreads.contains(threadId)) {
-                publishSignal(subject, threadId, SIGNAL_STAND_ASIDE, "", 0, 0, 0, 0, "none");
-                return;
-            }
-            commitToThread(threadId, conversation);
-            log.info("Agent {} answering a concurrence request for thread {}", properties.agentName(), threadId);
-            runMullingPhase(subject, threadId, conversation, 0, System.currentTimeMillis());
-        } catch (Exception e) {
-            log.warn("Failed to answer the concurrence request on thread {}: {}", threadId, e.getMessage());
-            publishExceptionAsFailure(subject, threadId, e, 0, 0, GpuLabels.fromEndpoint(ollamaBaseUrl));
+        if (closedThreads.contains(threadId)) {
+            publishSignal(subject, threadId, SIGNAL_STAND_ASIDE, "", 0, 0, 0, 0, "none");
+            return;
         }
+        commitToThread(threadId, conversation);
+        log.info("Agent {} answering a concurrence request for thread {} in one tool-free turn",
+                properties.agentName(), threadId);
+        String message = concurrenceMessage(threadId, conversation);
+        runEvaluationTurn(subject, threadId, 0, System.currentTimeMillis(), new EvaluationTurn(
+                "Answering a concurrence request", wait -> chatService.answerOnce(threadId, message, wait), true));
+    }
+
+    /**
+     * The concurrence turn's message: the thread with each spilled artifact read in
+     * (the turn has no tool to open one), after the thread's selected skills.
+     */
+    // Visible for testing
+    String concurrenceMessage(String threadId, String conversation) {
+        return withSelectedSkills(threadId, DiscussionArtifacts.inlineContent(natsProvider::getConnection, conversation));
     }
 
     private void evaluateSelected(String subject, String threadId, String conversation,
@@ -730,40 +742,66 @@ public class DiscussionSubscriber {
                                   long triageMs, long triageStartMs) {
         // The coordinator already judged this agent relevant, so it always runs
         // the full tool-calling evaluation on the primary GPU.
-        String mullingGpuLabel = GpuLabels.fromEndpoint(ollamaBaseUrl);
+        log.info("Agent {} passed triage ({}ms), running full evaluation for thread {}",
+                properties.agentName(), triageMs, threadId);
+        runEvaluationTurn(subject, threadId, triageMs, triageStartMs, new EvaluationTurn(
+                "Running tool-calling evaluation", wait -> runMullingInference(conversation, threadId, wait), false));
+    }
 
-        publishSignal(subject, threadId, SIGNAL_EVALUATING, "Running tool-calling evaluation",
-                triageMs, triageStartMs, 0, 0, mullingGpuLabel);
-        log.info("Agent {} passed triage ({}ms), running full evaluation for thread {} (gpu={})",
-                properties.agentName(), triageMs, threadId, mullingGpuLabel);
+    /**
+     * One evaluation turn of this agent: its status line, the model call (given the
+     * thread's GPU capacity wait), and whether an empty reply is a failure (a
+     * concurrence reply) rather than a stand aside (a contribution).
+     */
+    private record EvaluationTurn(String status,
+                                  java.util.function.Function<ai.kubemoot.agent.provider.CapacityWait,
+                                          ChatService.ChatResult> call,
+                                  boolean emptyReplyFails) {}
 
-        var heartbeat = startHeartbeat(subject, threadId, mullingGpuLabel);
+    /**
+     * Run an evaluation turn and publish its outcome: {@code evaluating} and a
+     * heartbeat while it runs; a failure signal when the call fails; a stand aside
+     * with its reason when no GPU can run it; otherwise the reply's signal.
+     */
+    private void runEvaluationTurn(String subject, String threadId, long triageMs, long triageStartMs,
+                                   EvaluationTurn turn) {
+        String gpuLabel = GpuLabels.fromEndpoint(ollamaBaseUrl);
+        publishSignal(subject, threadId, SIGNAL_EVALUATING, turn.status(),
+                triageMs, triageStartMs, 0, 0, gpuLabel);
+        var heartbeat = startHeartbeat(subject, threadId, gpuLabel);
 
-        long mullingStartMs = System.currentTimeMillis();
+        long turnStartMs = System.currentTimeMillis();
         ChatService.ChatResult result;
         try {
-            result = runMullingInference(conversation, threadId,
-                    new ThreadCapacityWait(subject, threadId, mullingGpuLabel));
+            result = turn.call().apply(new ThreadCapacityWait(subject, threadId, gpuLabel));
         } catch (ToolCallFailure tcf) {
-            handleToolCallFailure(subject, threadId, tcf, triageMs, triageStartMs, mullingStartMs, mullingGpuLabel);
+            handleToolCallFailure(subject, threadId, tcf, triageMs, triageStartMs, turnStartMs, gpuLabel);
             return;
         } catch (ai.kubemoot.agent.provider.NoFitException nfe) {
-            handleNoFit(subject, threadId, nfe, triageMs, triageStartMs, mullingStartMs, mullingGpuLabel);
+            handleNoFit(subject, threadId, nfe, triageMs, triageStartMs, turnStartMs, gpuLabel);
             return;
         } catch (Exception other) {
-            handleMullingException(subject, threadId, other, triageMs, triageStartMs, mullingStartMs, mullingGpuLabel);
+            handleMullingException(subject, threadId, other, triageMs, triageStartMs, turnStartMs, gpuLabel);
             return;
         } finally {
             heartbeat.cancel(false);
         }
-        long mullingMs = System.currentTimeMillis() - mullingStartMs;
-        long totalMs = triageMs + mullingMs;
+        long totalMs = triageMs + (System.currentTimeMillis() - turnStartMs);
         long inTok = result != null ? result.inputTokens() : 0;
         long outTok = result != null ? result.outputTokens() : 0;
         metrics.recordAgentInference(java.time.Duration.ofMillis(totalMs));
         metrics.recordTokens(inTok, outTok);
 
-        classifyAndPublishResult(subject, threadId, result, totalMs, triageStartMs, inTok, outTok, mullingGpuLabel);
+        if (turn.emptyReplyFails() && isEmptyReply(result) && !closedThreads.contains(threadId)) {
+            publishSignal(subject, threadId, SIGNAL_FAILURE, EMPTY_CONCURRENCE_REPLY, totalMs, triageStartMs,
+                    inTok, outTok, gpuLabel, Map.of("failureType", "empty_reply"));
+            return;
+        }
+        classifyAndPublishResult(subject, threadId, result, totalMs, triageStartMs, inTok, outTok, gpuLabel);
+    }
+
+    private static boolean isEmptyReply(ChatService.ChatResult result) {
+        return result == null || result.response() == null || result.response().isBlank();
     }
 
     /**
@@ -1025,10 +1063,15 @@ public class DiscussionSubscriber {
         // sees the guidance inline. ZERO guarantee: when no skills were selected
         // (the baseline), skillContext is empty and the message is byte-identical
         // to what it was before skills were introduced.
-        String skillContext = skillBodyLoader.load(threadSelectedSkills.get(threadId));
-        String message = skillContext.isEmpty() ? conversation : skillContext + conversation;
-        var request = new ChatService.ChatRequest(threadId, message, null, threadId, retrievalQueryFor(threadId));
+        var request = new ChatService.ChatRequest(threadId, withSelectedSkills(threadId, conversation), null,
+                threadId, retrievalQueryFor(threadId));
         return chatService.directChat(request, false, wait);
+    }
+
+    /** The message with the bodies of the thread's selected skills before it; unchanged when none. */
+    private String withSelectedSkills(String threadId, String message) {
+        String skillContext = skillBodyLoader.load(threadSelectedSkills.get(threadId));
+        return skillContext.isEmpty() ? message : skillContext + message;
     }
 
     /**

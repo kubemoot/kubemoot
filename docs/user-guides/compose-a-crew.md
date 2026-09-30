@@ -312,8 +312,12 @@ runtime's signal counts, the selected Analysts, and the gathered results, and an
 
 - `concur`: one Analyst is asked whether it concurs: the selected Analyst whose resume
   best matches the question, or the best match among all Analysts when none was
-  selected. It answers without a triage call. Agreement goes to synthesis; a reply that
-  starts with `CONCERN:`, a block, or a failure escalates to a full review.
+  selected. A concurrence check is a second opinion on results already gathered, so the
+  Analyst answers without a triage call and in one model turn with no tools, whatever
+  tools it has: the turn sees the question, the gathered results (with any spilled
+  artifact's content read in, as synthesis sees it), and the Analyst's own PromptModules.
+  Agreement goes to synthesis; a reply that starts with `CONCERN:`, a block, a failed
+  turn, or an empty reply escalates to a full review.
 - `full`: the selected Analysts review the results.
 - `none`: straight to synthesis, only where the crew's policy allows it.
 

@@ -47,7 +47,7 @@ stuck agents; the normal path never hits them.
 | `ADVISORY` | The coordinator is generating the framing advisory and selecting the tooler subcommittee. |
 | `EVALUATING` | Selected Toolers are calling their domain MCP tools and publishing findings. |
 | `DECIDING` | The coordinator shapes the review: a full review, a one-analyst concurrence check, or none. |
-| `CONCURRING` | One Analyst is checking the gathered results and answers whether it concurs. |
+| `CONCURRING` | One Analyst checks the gathered results and answers whether it concurs, in one model turn with no tools. |
 | `REVIEW` | Analysts are reasoning over the Toolers' gathered data and contributing interpretive findings before synthesis. |
 | `SYNTHESIZING` | The coordinator is composing the final answer from all contributions. |
 | `CLOSED` | The answer has been delivered and the thread is clean. |
@@ -69,7 +69,7 @@ checker. They fire when the current signal state satisfies the advance condition
 | `DECIDING` | `REVIEW` | The review decision is `full`, or a runtime guard forced it, or the crew does not declare the decision. |
 | `DECIDING` | `SYNTHESIZING` | The review decision is `none`, where the crew's policy allows it. |
 | `CONCURRING` | `SYNTHESIZING` | The Analyst agreed or stood aside. |
-| `CONCURRING` | `REVIEW` | The Analyst raised a concern, blocked, or failed. The review runs with the selected Analysts other than that one (or, if it was the only one, the next best resume match), with its view on the board. |
+| `CONCURRING` | `REVIEW` | The Analyst raised a concern, blocked, or failed (an empty reply is a failure). The review runs with the selected Analysts other than that one (or, if it was the only one, the next best resume match), with its view on the board. |
 | `REVIEW` | `SYNTHESIZING` | The woken Analysts have all reported or expired. There is no fast path in REVIEW: a slow Analyst is not dropped. |
 
 **How a phase settles.** Each phase has a roster: in `EVALUATING` the selected agents

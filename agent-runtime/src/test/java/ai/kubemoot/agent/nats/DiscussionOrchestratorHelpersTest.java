@@ -692,7 +692,7 @@ class DiscussionOrchestratorHelpersTest {
 
     @Test
     void artifactMarkerExtractsTheKey() {
-        var m = DiscussionOrchestrator.ARTIFACT_MARKER_WITH_KEY.matcher(
+        var m = DiscussionArtifacts.MARKER_WITH_KEY.matcher(
                 "before [ARTIFACT key=crew/t/agent/agree/abc bytes=99 - at /artifacts/x] after");
         assertTrue(m.find());
         assertEquals("crew/t/agent/agree/abc", m.group(1));
@@ -701,22 +701,22 @@ class DiscussionOrchestratorHelpersTest {
 
     @Test
     void artifactMarkerWithoutAttributesExtractsTheKey() {
-        var m = DiscussionOrchestrator.ARTIFACT_MARKER_WITH_KEY.matcher("[ARTIFACT key=a/b]");
+        var m = DiscussionArtifacts.MARKER_WITH_KEY.matcher("[ARTIFACT key=a/b]");
         assertTrue(m.find());
         assertEquals("a/b", m.group(1));
     }
 
     @Test
     void artifactMarkerRejectsMalformedMarkers() {
-        assertFalse(DiscussionOrchestrator.ARTIFACT_MARKER_WITH_KEY.matcher("[ARTIFACT key=]").find());
-        assertFalse(DiscussionOrchestrator.ARTIFACT_MARKER_WITH_KEY.matcher("[ARTIFACT key= a]").find());
-        assertFalse(DiscussionOrchestrator.ARTIFACT_MARKER_WITH_KEY.matcher("[ARTIFACT key=abc").find());
+        assertFalse(DiscussionArtifacts.MARKER_WITH_KEY.matcher("[ARTIFACT key=]").find());
+        assertFalse(DiscussionArtifacts.MARKER_WITH_KEY.matcher("[ARTIFACT key= a]").find());
+        assertFalse(DiscussionArtifacts.MARKER_WITH_KEY.matcher("[ARTIFACT key=abc").find());
     }
 
     @Test
     void unterminatedArtifactMarkerFailsInLinearTime() {
         String text = "[ARTIFACT key=" + "k".repeat(50_000) + " " + "x".repeat(50_000);
         assertTimeoutPreemptively(java.time.Duration.ofSeconds(2),
-                () -> assertFalse(DiscussionOrchestrator.ARTIFACT_MARKER_WITH_KEY.matcher(text).find()));
+                () -> assertFalse(DiscussionArtifacts.MARKER_WITH_KEY.matcher(text).find()));
     }
 }

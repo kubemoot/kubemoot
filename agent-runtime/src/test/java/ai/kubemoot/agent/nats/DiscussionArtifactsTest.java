@@ -249,4 +249,65 @@ class DiscussionArtifactsTest {
         when(info.getModified()).thenReturn(modified == null ? null : modified.atZone(ZoneOffset.UTC));
         return info;
     }
+
+    // ---- inlineContent: artifacts read back into a tool-free turn ----
+
+    private static ObjectStore storeHolding(Connection conn, String content) throws Exception {
+        var os = mock(ObjectStore.class);
+        when(conn.objectStore(DiscussionArtifacts.BUCKET)).thenReturn(os);
+        doAnswer(inv -> {
+            ((java.io.OutputStream) inv.getArgument(1))
+                    .write(content.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            return null;
+        }).when(os).get(anyString(), any(java.io.OutputStream.class));
+        return os;
+    }
+
+    @Test
+    void inlineContent_noMarker_neverAsksForAConnection() {
+        @SuppressWarnings("unchecked")
+        java.util.function.Supplier<Connection> connection = mock(java.util.function.Supplier.class);
+
+        assertEquals("plain text", DiscussionArtifacts.inlineContent(connection, "plain text"));
+        assertNull(DiscussionArtifacts.inlineContent(connection, null));
+        verifyNoInteractions(connection);
+    }
+
+    @Test
+    void inlineContent_noConnection_returnsTheTextAsIs() {
+        String text = "[ARTIFACT key=a/b bytes=3]";
+        assertEquals(text, DiscussionArtifacts.inlineContent(() -> null, text));
+    }
+
+    @Test
+    void inlineContent_replacesEachMarkerWithItsContent() throws Exception {
+        var conn = mock(Connection.class);
+        storeHolding(conn, "DATA");
+
+        String out = DiscussionArtifacts.inlineContent(() -> conn,
+                "one [ARTIFACT key=a/b bytes=4] two [ARTIFACT key=c/d]");
+
+        assertEquals("one DATA two DATA", out);
+    }
+
+    @Test
+    void inlineContent_capsAHugeArtifact() throws Exception {
+        var conn = mock(Connection.class);
+        storeHolding(conn, "x".repeat(30_000));
+
+        String out = DiscussionArtifacts.inlineContent(() -> conn, "[ARTIFACT key=a/b]");
+
+        assertTrue(out.startsWith("x".repeat(24_000) + "\n[...artifact truncated...]"), out.substring(0, 40));
+        assertFalse(out.contains("x".repeat(24_001)));
+    }
+
+    @Test
+    void inlineContent_unreadableArtifact_isMarkedUnavailable() throws Exception {
+        var conn = mock(Connection.class);
+        when(conn.objectStore(DiscussionArtifacts.BUCKET)).thenThrow(new java.io.IOException("down"));
+
+        String out = DiscussionArtifacts.inlineContent(() -> conn, "[ARTIFACT key=a/b bytes=4]");
+
+        assertEquals(DiscussionArtifacts.unavailableNotice("a/b"), out);
+    }
 }

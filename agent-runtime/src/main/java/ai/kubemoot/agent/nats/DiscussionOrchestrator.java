@@ -133,14 +133,6 @@ public class DiscussionOrchestrator {
     private static final int SYNTHESIS_CONTENT_CHARS = 200_000;
     private static final java.util.regex.Pattern ARTIFACT_SPILL_MARKER =
             java.util.regex.Pattern.compile("\\s*\\[ARTIFACT key=[^\\]]*\\]");
-    // Captures the object key from a spill marker so the synthesis input can be
-    // filled in with the artifact's actual content (the tool-free synthesizer cannot
-    // read the object store itself). Cap per artifact so one huge object cannot blow
-    // the synthesis context.
-    // Possessive quantifiers: a long marker with no closing bracket fails in linear time.
-    static final java.util.regex.Pattern ARTIFACT_MARKER_WITH_KEY =
-            java.util.regex.Pattern.compile("\\[ARTIFACT key=([^\\]\\s]++)[^\\]]*+\\]");
-    private static final int MAX_ARTIFACT_INLINE_CHARS = 24_000;
     // Absolute floor of a table's names that must appear in a draft for the synthesis
     // completeness contract to treat the draft as enumerating that table. Below this the
     // draft is a count/free-form answer, not an inventory. See enumeratedTable().
@@ -2435,62 +2427,11 @@ public class DiscussionOrchestrator {
     }
 
     /**
-     * Replace each spilled-artifact marker in the synthesis input with the artifact's
-     * actual content read from the object store, so the tool-free synthesizer works over
-     * the real data instead of an empty reference. On a read FAILURE the marker is replaced
-     * with an explicit UNAVAILABLE notice (not the original "the full data is in the file"
-     * marker), so the synthesizer reports the gap instead of fabricating a confident answer
-     * over data it never received.
+     * The synthesis input with each spilled-artifact marker replaced by the artifact's
+     * content (see {@link DiscussionArtifacts#inlineContent}).
      */
     String inlineArtifactContent(String text) {
-        if (text == null || !text.contains("[ARTIFACT key=")) {
-            return text;
-        }
-        Connection conn = natsProvider.getConnection();
-        if (conn == null) {
-            return text;
-        }
-        var m = ARTIFACT_MARKER_WITH_KEY.matcher(text);
-        var sb = new StringBuilder();
-        while (m.find()) {
-            String content = readArtifactForSynthesis(conn, m.group(1));
-            String replacement = content != null ? content : artifactUnavailableNotice(m.group(1));
-            m.appendReplacement(sb, java.util.regex.Matcher.quoteReplacement(replacement));
-        }
-        m.appendTail(sb);
-        return sb.toString();
-    }
-
-    /**
-     * The inline replacement when an artifact could NOT be read (missing, TTL-reaped,
-     * unreadable, NATS down). It is an EXPLICIT unavailability instruction rather than the
-     * original "the full data is in the file /artifacts/&lt;key&gt;" marker, which implies
-     * the data exists and lets the tool-free synthesizer answer confidently over data it
-     * never got. Names the key and tells the synthesis to treat the contribution as
-     * unknown. See "honest-fail on unavailable artifact" (kill fabrication).
-     */
-    static String artifactUnavailableNotice(String key) {
-        return "[ARTIFACT UNAVAILABLE key=" + key + " - this contribution's data could NOT be "
-                + "retrieved. Treat it as UNKNOWN: state that the data was unavailable; do NOT "
-                + "infer, guess, or fabricate any value in its place.]";
-    }
-
-    /** Read one artifact's content for inlining, capped; null on any failure. */
-    private String readArtifactForSynthesis(Connection conn, String key) {
-        try {
-            var bos = new java.io.ByteArrayOutputStream();
-            conn.objectStore(DiscussionArtifacts.BUCKET).get(key, bos);
-            String content = new String(bos.toByteArray(), java.nio.charset.StandardCharsets.UTF_8);
-            if (content.length() > MAX_ARTIFACT_INLINE_CHARS) {
-                content = content.substring(0, MAX_ARTIFACT_INLINE_CHARS)
-                        + "\n[...artifact truncated for synthesis...]";
-            }
-            log.info("synthesis: inlined artifact {} ({} chars)", key, content.length());
-            return content;
-        } catch (Exception e) {
-            log.warn("synthesis: could not read artifact {}: {}", key, e.getMessage());
-            return null;
-        }
+        return DiscussionArtifacts.inlineContent(natsProvider::getConnection, text);
     }
 
     /**

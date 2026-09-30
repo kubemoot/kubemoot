@@ -22,8 +22,9 @@ import static org.mockito.Mockito.*;
 
 /**
  * An analyst's side of the concurrence check: the request is addressed to it by
- * name, so it answers without a triage call, and a reply that starts with
- * CONCERN: is published as a concern.
+ * name, so it answers without a triage call, in one tool-free turn (never the tool
+ * loop). A reply that starts with CONCERN: is a concern; an empty or failed reply is
+ * a failure signal, which the coordinator escalates to the full review.
  */
 class DiscussionSubscriberConcurrenceTest {
 
@@ -54,6 +55,10 @@ class DiscussionSubscriberConcurrenceTest {
     }
 
     private static String reviewReady(String mode, String... circle) throws Exception {
+        return reviewReadyWith(mode, "[k8s-config] default, kube-system", circle);
+    }
+
+    private static String reviewReadyWith(String mode, String results, String... circle) throws Exception {
         var meta = JSON.createObjectNode();
         meta.putArray("innerCircle").addAll(List.of(circle).stream()
                 .map(JSON.getNodeFactory()::textNode).toList());
@@ -63,7 +68,7 @@ class DiscussionSubscriberConcurrenceTest {
         msg.put("threadId", "t1");
         msg.put("agentName", "coordinator");
         msg.put("messageType", "review_ready");
-        msg.put("content", ReviewDecision.CONCURRENCE_REQUEST + "\n\n[k8s-config] default, kube-system");
+        msg.put("content", ReviewDecision.CONCURRENCE_REQUEST + "\n\n" + results);
         msg.set("metadata", meta);
         return JSON.writeValueAsString(msg);
     }
@@ -76,14 +81,40 @@ class DiscussionSubscriberConcurrenceTest {
         return out;
     }
 
+    /** The analyst's tool-loop reply (a full review's evaluation). */
     private void analystReplies(String reply) {
         when(chat.directChat(any(ChatService.ChatRequest.class), eq(false), any()))
                 .thenReturn(new ChatService.ChatResult("c", reply, "qwen3:32b", null, 10, 5, "", ""));
     }
 
+    /** The analyst's one tool-free turn (a concurrence reply). */
+    private void concurrenceReplies(String reply) {
+        when(chat.answerOnce(anyString(), anyString(), any()))
+                .thenReturn(new ChatService.ChatResult("t1", reply, "qwen3:14b", "t1", 10, 5, "", ""));
+    }
+
+    private static JsonNode signal(List<JsonNode> signals, String type) {
+        return signals.stream().filter(m -> type.equals(m.path("messageType").asText()))
+                .findFirst().orElseThrow(() -> new AssertionError("no " + type + " signal in " + signals));
+    }
+
+    @Test
+    void concurrenceRequest_isOneToolFreeTurn_neverTheToolLoop() throws Exception {
+        concurrenceReplies("Concur: the listing is complete.");
+        var sub = analyst();
+
+        sub.handleMessageForTest(SUBJECT, reviewReady("concur", "k8s-advisor"));
+
+        publishedSignals(2);
+        verify(chat, timeout(3_000).times(1)).answerOnce(eq("t1"), anyString(), any());
+        verify(chat, never()).directChat(any(ChatService.ChatRequest.class), anyBoolean(), any());
+        verify(chat, never()).directChat(any(ChatService.ChatRequest.class), anyBoolean());
+        verify(chat, never()).triageChat(anyString(), anyString());
+    }
+
     @Test
     void concurrenceRequest_answersWithoutTriage_andAConcernIsPublishedAsAConcern() throws Exception {
-        analystReplies("CONCERN: the listing stops at 20 of 28 namespaces");
+        concurrenceReplies("CONCERN: the listing stops at 20 of 28 namespaces");
         var sub = analyst();
 
         sub.handleMessageForTest(SUBJECT, reviewReady("concur", "k8s-advisor"));
@@ -100,13 +131,98 @@ class DiscussionSubscriberConcurrenceTest {
 
     @Test
     void concurrenceRequest_agreementIsAnAgree() throws Exception {
-        analystReplies("Concur: the listing is complete.");
+        concurrenceReplies("Concur: the listing is complete.");
         var sub = analyst();
 
         sub.handleMessageForTest(SUBJECT, reviewReady("concur", "k8s-advisor"));
 
-        var signals = publishedSignals(2);
-        assertTrue(signals.stream().anyMatch(m -> "agree".equals(m.path("messageType").asText())));
+        var agree = signal(publishedSignals(2), "agree");
+        assertEquals("Concur: the listing is complete.", agree.path("content").asText());
+    }
+
+    @Test
+    void concurrenceRequest_emptyReplyIsAFailure_soTheCoordinatorEscalates() throws Exception {
+        concurrenceReplies("   ");
+        var sub = analyst();
+
+        sub.handleMessageForTest(SUBJECT, reviewReady("concur", "k8s-advisor"));
+
+        var failure = signal(publishedSignals(2), "failure");
+        assertEquals(DiscussionSubscriber.EMPTY_CONCURRENCE_REPLY, failure.path("content").asText());
+        assertEquals("empty_reply", failure.path("metadata").path("failureType").asText());
+    }
+
+    @Test
+    void concurrenceRequest_nothingToAddIsAStandAside() throws Exception {
+        concurrenceReplies("NOTHING_TO_ADD");
+        var sub = analyst();
+
+        sub.handleMessageForTest(SUBJECT, reviewReady("concur", "k8s-advisor"));
+
+        signal(publishedSignals(2), "stand_aside");
+    }
+
+    @Test
+    void fullReview_emptyReplyStaysAStandAside() throws Exception {
+        when(chat.getToolNames()).thenReturn(List.of());
+        when(chat.triageChat(anyString(), anyString())).thenReturn("CONTRIBUTE");
+        analystReplies("");
+        var sub = analyst();
+
+        sub.handleMessageForTest(SUBJECT, reviewReady("full", "k8s-advisor"));
+
+        var types = publishedSignals(3).stream().map(m -> m.path("messageType").asText()).toList();
+        assertTrue(types.contains("stand_aside"), types.toString());
+        assertFalse(types.contains("failure"), "only a concurrence reply fails on empty: " + types);
+    }
+
+    @Test
+    void concurrenceRequest_failedTurnIsAFailure() throws Exception {
+        when(chat.answerOnce(anyString(), anyString(), any()))
+                .thenThrow(new IllegalStateException("Connection refused"));
+        var sub = analyst();
+
+        sub.handleMessageForTest(SUBJECT, reviewReady("concur", "k8s-advisor"));
+
+        var failure = signal(publishedSignals(2), "failure");
+        assertEquals("provider_unreachable", failure.path("metadata").path("failureType").asText());
+    }
+
+    @Test
+    void concurrenceRequest_noGpuFit_standsAsideWithTheReason() throws Exception {
+        when(chat.answerOnce(anyString(), anyString(), any()))
+                .thenThrow(ai.kubemoot.agent.provider.NoFitException.modelTooLarge("qwen3:14b", "too big"));
+        var sub = analyst();
+
+        sub.handleMessageForTest(SUBJECT, reviewReady("concur", "k8s-advisor"));
+
+        var standAside = signal(publishedSignals(2), "stand_aside");
+        assertEquals("model-too-large", standAside.path("metadata").path("reason").asText());
+    }
+
+    @Test
+    void concurrenceRequest_turnReadsTheSpilledArtifactContent() throws Exception {
+        var os = mock(io.nats.client.ObjectStore.class);
+        when(conn.objectStore("kubemoot_discussion_artifacts")).thenReturn(os);
+        String fullData = "namespaces: arc-runners, cert-manager, harbor (28 total)";
+        doAnswer(inv -> {
+            ((java.io.OutputStream) inv.getArgument(1))
+                    .write(fullData.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            return null;
+        }).when(os).get(anyString(), any(java.io.OutputStream.class));
+        concurrenceReplies("Concur.");
+        var sub = analyst();
+        String key = "ns-a/pilot/t1/k8s-config/agree-abc";
+
+        sub.handleMessageForTest(SUBJECT, reviewReadyWith("concur",
+                "[k8s-config] [ARTIFACT key=" + key + " bytes=64 - the FULL data is in /artifacts/" + key + "]",
+                "k8s-advisor"));
+
+        var message = ArgumentCaptor.forClass(String.class);
+        verify(chat, timeout(3_000)).answerOnce(eq("t1"), message.capture(), any());
+        assertTrue(message.getValue().contains(fullData), message.getValue());
+        assertTrue(message.getValue().contains(ReviewDecision.CONCURRENCE_REQUEST), "the request itself is in the turn");
+        assertFalse(message.getValue().contains("[ARTIFACT key="), "no marker the turn cannot open");
     }
 
     @Test
@@ -128,7 +244,8 @@ class DiscussionSubscriberConcurrenceTest {
 
         sub.handleMessageForTest(SUBJECT, reviewReady("concur", "obs-advisor"));
 
-        verify(chat, after(300).never()).directChat(any(ChatService.ChatRequest.class), anyBoolean(), any());
+        verify(chat, after(300).never()).answerOnce(anyString(), anyString(), any());
+        verify(chat, never()).directChat(any(ChatService.ChatRequest.class), anyBoolean(), any());
         verify(conn, never()).publish(anyString(), any(byte[].class));
     }
 
@@ -141,10 +258,27 @@ class DiscussionSubscriberConcurrenceTest {
 
         sub.handleMessageForTest(SUBJECT, reviewReady("concur", "k8s-advisor"));
 
-        verify(chat, after(300).never()).directChat(any(ChatService.ChatRequest.class), anyBoolean(), any());
+        verify(chat, after(300).never()).answerOnce(anyString(), anyString(), any());
     }
 
     // ---- reply sentinels ----
+
+    @Test
+    void concurrenceMessage_withoutAMarker_isTheThreadUnchanged() throws Exception {
+        var sub = analyst();
+        assertEquals("the thread", sub.concurrenceMessage("t1", "the thread"));
+        verify(conn, never()).objectStore(anyString());
+    }
+
+    @Test
+    void concurrenceMessage_unreadableArtifact_isMarkedUnavailable() throws Exception {
+        when(conn.objectStore("kubemoot_discussion_artifacts")).thenThrow(new java.io.IOException("gone"));
+        var sub = analyst();
+
+        String out = sub.concurrenceMessage("t1", "[k8s-config] [ARTIFACT key=a/b bytes=9]");
+
+        assertTrue(out.contains("ARTIFACT UNAVAILABLE key=a/b"), out);
+    }
 
     @Test
     void concernIn_readsBothConcernSentinels() {
