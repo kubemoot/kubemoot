@@ -13,3 +13,7 @@ grafana:
     enabled: false
 verify:
   enabled: false
+dashboard:
+  enabled: true           # a first look at the crew; reach it with kubectl port-forward
+  gateway:
+    enabled: false        # no route: the dashboard has no authentication, so it stays on the cluster network

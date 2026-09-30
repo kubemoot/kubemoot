@@ -85,3 +85,16 @@ The operator's own image: global.imageRegistry/image.repository:tag
 {{- define "kubemoot-operator.operatorImage" -}}
 {{- include "kubemoot-operator.image" (dict "root" . "image" (printf "%s:%s" .Values.image.repository (include "kubemoot-operator.imageTag" .))) -}}
 {{- end }}
+
+{{/*
+Image pull secrets: the chart-level imagePullSecrets plus global.imagePullSecrets (the
+value the dashboard subchart also reads). Renders a YAML list, empty when none are set.
+Usage: with (include "kubemoot-operator.pullSecrets" . | fromYamlArray)
+*/}}
+{{- define "kubemoot-operator.pullSecrets" -}}
+{{- $global := (.Values.global | default dict).imagePullSecrets | default list -}}
+{{- $all := concat (.Values.imagePullSecrets | default list) $global -}}
+{{- if $all -}}
+{{- toYaml ($all | uniq) -}}
+{{- end -}}
+{{- end }}

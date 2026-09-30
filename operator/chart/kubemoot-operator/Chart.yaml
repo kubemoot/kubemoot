@@ -16,3 +16,15 @@ sources:
 maintainers:
   - name: Kubemoot maintainers
     email: moot@kubemoot.org
+# The dashboard ships inside this chart as an optional subchart, off by default
+# (it has no authentication and admin powers; see SECURITY.md). The dependency is a
+# local path: the release workflows package this chart from the monorepo checkout, so
+# the subchart is always the same commit's dashboard chart and no version is pinned
+# here. Its version and appVersion are still written into dashboard/charts by the
+# dashboard release, and `helm package --dependency-update` embeds them.
+dependencies:
+  - name: kubemoot-dashboard
+    alias: dashboard
+    version: "*"
+    repository: file://../../../dashboard/charts/kubemoot-dashboard
+    condition: dashboard.enabled

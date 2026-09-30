@@ -75,17 +75,22 @@ jobs:
         with:
           cluster_name: kubemoot
 
+      - name: Build the chart's dashboard subchart
+        # Only a checkout install needs it; a published chart carries the subchart.
+        if: steps.chart.outputs.version == ''
+        run: helm dependency build operator/chart/kubemoot-operator
+
       - name: Pull the released images the chart pins and load them into kind
-        # The chart names every component image; the quickstart runs four of them. kind
+        # The chart names every component image; the quickstart runs five of them. kind
         # nodes cannot pull private packages, so the runner pulls and loads them.
         run: |
           version_args=()
           [ -n "${{ steps.chart.outputs.version }}" ] && version_args=(--version "${{ steps.chart.outputs.version }}")
           helm template q "${{ steps.chart.outputs.ref }}" "${version_args[@]}" \
               --values quickstart/operator-values.yaml \
-            | grep -oE "${RELEASE_REGISTRY}/(kubemoot-operator|agent-runtime|discussion-gateway|crew-liaison):[A-Za-z0-9._-]+" \
+            | grep -oE "${RELEASE_REGISTRY}/(kubemoot-operator|agent-runtime|discussion-gateway|crew-liaison|dashboard):[A-Za-z0-9._-]+" \
             | sort -u | tee images.txt
-          [ "$(wc -l < images.txt)" -eq 4 ] || { echo "expected 4 images, got:"; cat images.txt; exit 1; }
+          [ "$(wc -l < images.txt)" -eq 5 ] || { echo "expected 5 images, got:"; cat images.txt; exit 1; }
           while read -r image; do
             docker pull "$image"
             kind load docker-image "$image" --name kubemoot

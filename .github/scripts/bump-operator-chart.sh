@@ -18,7 +18,10 @@
 #
 # Required env:
 #   VERSION     image version just built+pushed (e.g. 0.296.0)
-#   EDIT_KIND   "operator" (bump Chart.yaml appVersion) | "component"
+#   EDIT_KIND   "operator" (bump Chart.yaml appVersion) | "component" | "dashboard"
+#               ("dashboard" edits nothing: the dashboard subchart is a local file://
+#               dependency, so re-packaging from fresh main embeds the just-released
+#               dashboard chart; only the operator chart version moves)
 #   REGISTRY    OCI registry host; helm must already be logged in by the caller
 # Optional:
 #   RELEASE_REGISTRY, GHCR_USERNAME, GHCR_TOKEN  when RELEASE_REGISTRY is set, the chart is
@@ -57,6 +60,13 @@ for attempt in 1 2 3 4 5 6 7 8; do
   if [ "${EDIT_KIND}" = "operator" ]; then
     sed -i "s/^appVersion:.*/appVersion: \"${VERSION}\"/" "${CHART_FILE}"
     msg="update operator image to v${VERSION}"
+  elif [ "${EDIT_KIND}" = "dashboard" ]; then
+    embedded=$(grep '^version:' dashboard/charts/kubemoot-dashboard/Chart.yaml | awk '{print $2}')
+    if [ "${embedded}" != "${VERSION}" ]; then
+      echo "ERROR: main carries dashboard chart ${embedded}, not ${VERSION}; the dashboard chart commit did not land" >&2
+      exit 1
+    fi
+    msg="update dashboard subchart to v${VERSION}"
   else
     : "${VALUES_KEY:?VALUES_KEY required in component mode}"
     : "${IMAGE_REPO:?IMAGE_REPO required in component mode}"
@@ -79,7 +89,9 @@ for attempt in 1 2 3 4 5 6 7 8; do
     # and because we re-read origin/main on each attempt the version is unique -
     # concurrent releases can never publish the same chart version with different
     # content.
-    helm package "${CHART_DIR}"
+    # -u runs `helm dependency update` first: the chart depends on the dashboard chart
+    # by local path (file://), and packaging fails without the subchart built into charts/.
+    helm package -u "${CHART_DIR}"
     # The version is now claimed in git. Push the matching OCI artifact with retries
     # so a transient Harbor hiccup can't leave a git-committed chart version with no
     # artifact (Flux would fail to pull it). No re-read needed: git already landed.

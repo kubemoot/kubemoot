@@ -46,7 +46,7 @@ spec:
             limits:
               cpu: 500m
               memory: 256Mi
-      {{- with .Values.imagePullSecrets }}
+      {{- with (include "kubemoot-operator.pullSecrets" . | fromYamlArray) }}
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
       {{- end }}

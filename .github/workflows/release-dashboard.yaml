@@ -178,6 +178,24 @@ jobs:
             git push origin main || true
           }
 
+      # The operator chart embeds the dashboard chart as an optional subchart (local
+      # file:// dependency). Re-release it from fresh main so the operator chart carries
+      # the dashboard chart committed above; the operator chart version moves, no file edit.
+      - name: Re-release the operator chart with the new dashboard subchart
+        if: steps.check.outputs.release_created == 'true'
+        env:
+          HARBOR_USERNAME: ${{ secrets.HARBOR_USERNAME }}
+          HARBOR_PASSWORD: ${{ secrets.HARBOR_PASSWORD }}
+          RELEASE_REGISTRY: ${{ vars.RELEASE_REGISTRY }}
+          GHCR_USERNAME: ${{ secrets.GHCR_USERNAME }}
+          GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
+          REGISTRY: ${{ env.REGISTRY }}
+          VERSION: ${{ steps.version.outputs.version }}
+          EDIT_KIND: dashboard
+        run: |
+          echo "${HARBOR_PASSWORD}" | helm registry login --plain-http "${REGISTRY}" -u "${HARBOR_USERNAME}" --password-stdin
+          bash .github/scripts/bump-operator-chart.sh
+
       - name: Create GitHub Release
         if: steps.check.outputs.release_created == 'true'
         continue-on-error: true

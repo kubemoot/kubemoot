@@ -16,7 +16,7 @@ spec:
     fitnessRunner: {{ include "kubemoot-operator.image" (dict "root" $ "image" .Values.kubemootConfig.images.fitnessRunner) | quote }}
     doclingServe: {{ include "kubemoot-operator.image" (dict "root" $ "image" .Values.kubemootConfig.images.doclingServe) | quote }}
   defaults:
-    {{- with .Values.imagePullSecrets }}
+    {{- with (include "kubemoot-operator.pullSecrets" . | fromYamlArray) }}
     imagePullSecrets:
       {{- toYaml . | nindent 6 }}
     {{- end }}

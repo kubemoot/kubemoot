@@ -8,7 +8,7 @@ footprint that still holds a real consensus discussion:
 |---|---|---|
 | 1 | NATS with JetStream (release `nats`, namespace `nats`) | every discussion is carried over NATS; the operator bootstraps its streams |
 | 2 | Ollama on CPU, pulling `qwen2.5:1.5b` | a small model that runs anywhere; swap for a GPU-backed Ollama later |
-| 3 | The operator Helm chart with `operator-values.yaml` | admission webhooks, Grafana dashboards, the internal MCP servers, the NATS MCP server and the verify runner are off |
+| 3 | The operator Helm chart with `operator-values.yaml` | the dashboard is on with no route (the script prints the `kubectl port-forward` that opens it); admission webhooks, Grafana dashboards, the internal MCP servers, the NATS MCP server and the verify runner are off |
 | 4 | A `ModelProvider` pointing at that Ollama | the endpoint the scheduler binds agents to at inference time |
 | 5 | The `hello` crew: a coordinator, one Tooler, one `Model`, six `PromptModule`s | the smallest crew that deliberates; prompts are ADL rules you can `kubectl apply` |
 | 6 | One question through the crew's discussion gateway | the answer comes back as the discussion's synthesis |
@@ -56,4 +56,4 @@ Ask another question: rerun with `QUESTION="..." EXPECT=""`, or use `kmctl conve
 ## What it does not cover
 
 RAG sources, MCP tool servers, GPU scheduling across providers, admission webhooks
-(they need cert-manager), and the dashboard. Each has its own guide in `docs/`.
+(they need cert-manager), and publishing the dashboard on a hostname. Each has its own guide in `docs/`.
