@@ -132,7 +132,6 @@ The RTFM agent (`RtfmSubscriber.java`) listens for deployed MCP servers with doc
 
 - Uses the fetch-mcp and github-mcp tools to find documentation
 - Creates a RAGSource CR in the same namespace as the agent
-- Publishes progress updates via NATS (`kubemoot.operator.onboarding.progress`)
 
 Dynamic RAGSources follow the same lifecycle as static ones - the controller manages indexing, query service deployment, and verification identically.
 

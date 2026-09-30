@@ -93,6 +93,20 @@ example:
       - name: my-registry-pull-secret
 ```
 
+## Secret replication
+
+The operator copies Secrets into crew namespaces: image pull secrets, vector-store
+credentials, and Secrets named in a crew's `kubemoot.ai/replicate-secrets` annotation. It
+copies only from its own namespace plus the namespaces listed in the operator chart's
+`secretReplication.allowedSourceNamespaces` value; a request to copy from any other
+namespace is refused.
+
+```yaml
+secretReplication:
+  allowedSourceNamespaces:
+    - shared-credentials
+```
+
 ## Caching
 
 The operator keeps a thread-safe, in-memory cache of the `default` KubemootConfig's

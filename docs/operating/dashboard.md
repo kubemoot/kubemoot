@@ -27,7 +27,7 @@ kubectl -n kubemoot port-forward svc/kubemoot-dashboard 8080:80
 
 Then open `http://localhost:8080/dashboard`.
 
-To publish it on a hostname, the chart renders a Gateway API `HTTPRoute` by default (`gateway.*` values) or an `Ingress` when you set `ingress.enabled: true`:
+To publish it on a hostname, the chart renders a Gateway API `HTTPRoute` when `gateway.enabled` is true (see the chart's `values.yaml` for the default) or an `Ingress` when `ingress.enabled` is true:
 
 ```yaml
 gateway:
@@ -39,11 +39,11 @@ gateway:
   pathPrefix: /dashboard
 ```
 
-The dashboard has no login of its own. Put authentication in front of it at the Gateway or Ingress layer (an OAuth2 proxy or your platform's access policy).
+The dashboard has no login of its own, whether or not the chart publishes the route. Put authentication in front of it at the Gateway or Ingress layer (an OAuth2 proxy or your platform's access policy).
 
 ## What it shows
 
-The sidebar groups pages by what they cover.
+The sidebar groups pages by what they cover. The Topology and Agent Policies pages exist by URL (`/topology`, `/agentpolicies`) without a sidebar entry.
 
 | Section | Pages | Shows |
 |---------|-------|-------|
@@ -66,7 +66,7 @@ The sidebar groups pages by what they cover.
 
 ### Discussions
 
-A two-panel thread viewer. The left panel lists threads grouped by channel. The right panel shows the message timeline for the selected thread: the question, each agent's contribution, and the synthesis. Recent threads are replayed from the JetStream history on page load, and new messages arrive live.
+A two-panel thread viewer. The left panel lists threads, newest first, each tagged with its crew and channel. The right panel shows the message timeline for the selected thread: the question, each agent's contribution, and the synthesis. Recent threads are replayed from the JetStream history on page load, and new messages arrive live.
 
 ### Messages
 
@@ -74,7 +74,7 @@ A general NATS subject explorer. Subscribe to any subject pattern (for example `
 
 ### Reports
 
-MCPServerReport quality verdicts (`use`, `caution`, `avoid`) with the evaluation history. An administrator can pin a verdict to override the automated result.
+MCPServerReport quality verdicts (`use`, `caution`, `avoid`) with the evaluation history. An administrator can pin a verdict to override the automated result; this needs `patch` on `mcpserverreports`, which the chart's `ClusterRole` does not grant by default.
 
 ### Fitness
 
@@ -94,6 +94,28 @@ The chart creates a `ClusterRole` (`kubemoot-dashboard-reader`) with these grant
 | `crewfitnesssuites` | delete | The Fitness page "remove run" action |
 
 The dashboard never reads or displays Secret values. The container runs as a non-root user with a read-only root filesystem.
+
+## HTTP API
+
+The SvelteKit server exposes the JSON and event-stream endpoints the pages use. They carry no authentication, so the same rule applies as for the UI: reach them only through an authenticating proxy. List endpoints accept a `namespace` query parameter; an empty value lists across all namespaces.
+
+| Endpoint | Method | Purpose |
+|----------|--------|---------|
+| `/api/health`, `/api/version` | GET | Health check; dashboard version |
+| `/api/namespaces`, `/api/nodes` | GET | Namespaces; Kubernetes nodes with GPU information |
+| `/api/kubemoot/<plural>` and `/api/kubemoot/<plural>/<name>` | GET | List and detail for `agents`, `crews`, `models`, `modelproviders`, `embeddingmodels`, `mcpservers`, `mcpgateways`, `mcpqualitypolicies`, `mcpcatalogs`, `mcpserverreports`, `ragsources`, `promptmodules`, `agentpolicies`, `crewfitnesses` |
+| `/api/kubemoot/config`, `/api/kubemoot/system-info`, `/api/kubemoot/topology` | GET | Configuration, system information, agent topology graph |
+| `/api/kubemoot/crewfitnesssuites` | GET | Fitness suites; sub-paths under `<namespace>/<name>/` serve `scores`, `iterations`, `transcript`, and `artifact`; DELETE on `<namespace>/<name>` removes a run |
+| `/api/kubemoot/mcpserverreports/<name>` | PATCH | Pin a verdict |
+| `/api/kubemoot/modelproviders/<name>/load`, `/unload`, `/delete` | POST | Model provider actions |
+| `/api/kubemoot/crew-memory` | GET, POST, DELETE | Crew memory facts |
+| `/api/kubemoot/watch/<plural>`, `/api/sse` | GET | Kubernetes resource updates as server-sent events |
+| `/api/nats/subscribe?subject=` | GET | Server-sent events for a NATS subject |
+| `/api/nats/history?stream=&subject=&limit=` | GET | JetStream history replay as a JSON array |
+| `/api/nats/publish` | POST | Publish `{ "subject", "data" }` to NATS |
+| `/api/nats/config`, `/api/nats/kv`, `/api/nats/stream`, `/api/nats/purge` | GET, POST | NATS connection status, KV, stream, and purge helpers |
+
+The browser talks to the SvelteKit server with server-sent events. Only the server holds a NATS connection (the `nats` client over TCP), so the browser never connects to NATS directly.
 
 ## Related
 

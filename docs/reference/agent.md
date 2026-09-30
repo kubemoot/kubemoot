@@ -104,13 +104,13 @@ The operator sets `imagePullSecrets` from `KubemootConfig.spec.defaults.imagePul
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `phase` | string | `Running` when the agent is scheduled and deployed; `Unschedulable` when no feasible Model or Ready ModelProvider exists |
+| `phase` | string | `Running` once the Deployment and Service are applied (not a pod-readiness signal); `Unschedulable` when no feasible Model or Ready ModelProvider exists |
 | `ready` | bool | True when the scheduler bound a Model and the agent is deployed |
-| `endpoint` | string | Internal service URL (`http://<name>.<namespace>.svc.cluster.local:8080`) |
-| `availableReplicas` | int32 | Running pod count |
+| `endpoint` | string | Internal service URL (`http://<name>.<namespace>.svc.cluster.local:<port>`, following `spec.deployment.port`) |
+| `availableReplicas` | int32 | Declared, not populated by the controller today |
 | `message` | string | The bound models (`mulling=<model>@<provider>; triage=<model>@<provider>`), or the reason the agent is unschedulable |
-| `ragSourceStatus[]` | RAGSourceRefStatus | RAG readiness per source |
-| `mcpServerStatus[]` | MCPServerRefStatus | MCP server readiness per referenced server |
+| `ragSourceStatus[]` | RAGSourceRefStatus | Declared, not populated by the controller today |
+| `mcpServerStatus[]` | MCPServerRefStatus | Declared, not populated by the controller today |
 
 ---
 
@@ -616,9 +616,10 @@ Agents expose an HTTP API at the configured port (`Agent.spec.deployment.port`, 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
 | `/chat` | POST | Send message, get response |
-| `/chat/stream` | POST | Streaming response (SSE) |
 | `/health` | GET | Health check (with dependencies) |
 | `/ready` | GET | Readiness check (local only) |
+| `/tools` | GET | List the agent's tools |
+| `/conversations/{id}` | DELETE | Clear a conversation |
 
 ### Chat Request
 

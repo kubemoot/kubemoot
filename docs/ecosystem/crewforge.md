@@ -132,8 +132,10 @@ deployment, from the drift list.
 
 **Remove Deployment** uninstalls a Helm release or `kubectl delete`s a bundle's objects.
 It never deletes the namespace itself, unless the crew carries the
-`kubemoot.ai/manage-namespace` annotation, in which case the operator deletes the
-namespace and everything in it. The confirmation dialog says so before you proceed. A
+`kubemoot.ai/manage-namespace` annotation and the namespace carries the label
+`kubemoot.ai/managed-namespace: "true"` (set by whoever owns the namespace), in which
+case the operator deletes the namespace and everything in it. The operator never
+deletes `kube-system`, `kube-public`, `kube-node-lease`, `default`, or its own namespace. The confirmation dialog says so before you proceed. A
 Flux-managed deployment is removed by deleting it from your GitOps repository.
 
 ### Deploy a revision

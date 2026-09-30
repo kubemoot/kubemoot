@@ -96,8 +96,9 @@ git instead.
 
 **Remove Deployment** uninstalls the Helm release or deletes the bundle's objects. It
 leaves the namespace itself alone, unless the crew is annotated
-`kubemoot.ai/manage-namespace`, in which case removing it also has the operator delete
-the namespace; the confirmation dialog tells you which is about to happen.
+`kubemoot.ai/manage-namespace` and the namespace carries the label
+`kubemoot.ai/managed-namespace: "true"`, in which case removing it also has the operator
+delete the namespace (system namespaces and the operator's own are never deleted); the confirmation dialog tells you which is about to happen.
 
 ## 7. Run fitness and follow a rollout
 

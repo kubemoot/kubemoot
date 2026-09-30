@@ -9,7 +9,7 @@ Date: 2026-02-20
 
 Proposed (not implemented)
 
-Nothing in the operator creates `ScaledObject` resources today. See the [Roadmap](../../introduction/roadmap/) for scale to zero.
+Nothing in the operator creates `ScaledObject` resources today; the chart keeps an unused `scaleToZero` value. See the [Roadmap](../../introduction/roadmap/) for scale to zero.
 
 ## Context
 

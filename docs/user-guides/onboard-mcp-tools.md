@@ -40,17 +40,20 @@ When a discussion finds that no existing agent can answer, the coordinator signa
 capability gap. An agent running in onboarding mode reacts to that signal:
 
 1. **Detects the gap** from the coordinator's signal.
-2. **Proposes an MCP server** it found by searching registries.
-3. **Deploys the server** as an `MCPServer` when the user consents.
+2. **Proposes an MCP server** from its model's own knowledge (the call carries no tools).
+3. **Replies with a proposed `MCPServer` manifest** when the user consents. You review and
+   apply it.
 
-Everything after that is manual today: you create the Tooler `Agent` that uses the new
+Everything after the proposal is manual today: you apply the manifest, create the Tooler `Agent` that uses the new
 server's tools, and optionally a `RAGSource` for its documentation. The operator does
 not create the Tooler for you. Because every step produces ordinary Kubernetes
 resources, you can inspect, version, and remove them like anything else.
 
-Onboarding mode is set with an annotation on an `Agent` you declare. The operator
-chart's `internalAgents` values deploy the shared MCP servers, catalog, and quality
-policy, and leave the onboarding and RTFM agents off by default. For the flow,
+Onboarding mode is an environment variable (`KUBEMOOT_ONBOARDING_MODE=true`) on an
+`Agent` you declare. The operator chart's `internalAgents` values deploy the
+`kubernetes-mcp` and `fetch-mcp` servers (`github-mcp` is opt-in) and a quality policy;
+an `MCPCatalog` is rendered only when `onboardingAgent.enabled` is set. The onboarding and
+RTFM agents are off by default and the chart creates no `Agent` for them. For the flow,
 configuration, and troubleshooting, see the
 [Onboarding Guide](../../operating/onboarding-guide/).
 

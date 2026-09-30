@@ -118,7 +118,7 @@ way changing what an agent believes is already a `PromptModule` edit.
 ## Crews that evolve
 
 **Today:** the coordinator signals gaps in a discussion (a missing tool, a missing
-specialist), and an agent in onboarding mode can create an `MCPServer` with a human's
+specialist), and an agent in onboarding mode can propose an `MCPServer` manifest with a human's
 consent. Wiring the new server to a Tooler agent is manual, and the chart does not
 deploy the onboarding agents.
 

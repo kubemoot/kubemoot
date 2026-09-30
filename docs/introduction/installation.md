@@ -44,8 +44,8 @@ its own page:
 
 ## CPU trial vs. GPU deployment
 
-Kubemoot does not require a GPU to run. The [Quickstart](../quickstart/) proves that end
-to end on a 2-CPU, 8 GB node with no accelerator, and its
+Kubemoot does not require a GPU to run. The [Quickstart](../quickstart/) runs on a
+node with 2 CPUs and 8 GB free and no accelerator, and its
 [CPU trial profile](../quickstart/#the-cpu-trial-profile) table lists what differs from a
 GPU deployment: smaller models, a smaller crew, and slower answers. The rest of this page
 installs the GPU-backed profile.

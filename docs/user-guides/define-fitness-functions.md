@@ -30,7 +30,7 @@ Common assertion patterns include: the discussion endpoint returns 200; a named 
 event is emitted (optionally within a deadline); the discussion completes within a time
 budget; at least N specialists (Toolers) agree (or, for an out-of-scope smoke test, *zero* agree);
 the coordinator produces a synthesis; and the synthesis contains or does **not** contain
-specific terms. In an assertion, write "specialist" for a Tooler: the parser matches that word.
+specific terms. In an assertion, write "specialist" for a Tooler: the runner's agree-floor assertion matches that word, even though the docs call them Toolers.
 
 ## Run one scenario
 

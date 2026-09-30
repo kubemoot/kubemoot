@@ -5,7 +5,7 @@ weight: 1
 
 ## Overview
 
-When no agent in a crew can answer a question, the coordinator signals a capability gap. An agent running in onboarding mode reacts to that signal: it proposes an MCP server that could fill the gap and, with the user's consent, creates an `MCPServer` resource for it.
+When no agent in a crew can answer a question, the coordinator signals a capability gap. An agent running in onboarding mode reacts to that signal: it proposes an MCP server that could fill the gap. On the user's consent it replies with a proposed `MCPServer` manifest in the discussion thread. Applying that manifest, and creating the Tooler `Agent` that uses it, are manual steps today.
 
 This page describes what ships today, how to enable it, and what is not automated yet. For the consensus signals that produce a gap, see [Agentic Consensus](../../architecture/agentic-consensus/).
 
@@ -13,30 +13,33 @@ This page describes what ships today, how to enable it, and what is not automate
 
 | Piece | Where it lives | State |
 |-------|----------------|-------|
-| Gap signal | The coordinator's discussion logic in the agent runtime | Ships |
-| Consent-driven onboarding subscriber (`OnboardingSubscriber`) | Agent runtime, active when `KUBEMOOT_ONBOARDING_MODE=true` | Ships |
+| Gap signal (`gap_detected`) | The coordinator's discussion logic in the agent runtime | Ships |
+| Consent-driven onboarding subscriber (`OnboardingSubscriber`) | Agent runtime, active when `KUBEMOOT_ONBOARDING_MODE=true` | Ships; proposes, does not create |
 | Documentation subscriber (`RtfmSubscriber`) | Agent runtime, active when `KUBEMOOT_RTFM_MODE=true` | Ships; listens for an onboarding-deployed event |
-| Internal MCP servers, MCP catalog, quality policy | Operator Helm chart (`internalAgents`) | Ships |
-| Internal onboarding, RTFM, and quality-evaluator `Agent` resources | Not deployed by the chart | You declare them yourself |
+| Internal MCP servers and quality policy | Operator Helm chart (`internalAgents`) | Ships, opt-in |
+| `MCPCatalog` | Operator Helm chart | Rendered only when `onboardingAgent.enabled` is set |
+| Onboarding, RTFM, and quality-evaluator `Agent` resources | Not deployed by the chart | You declare them yourself |
 | Automatic Tooler creation from an onboarded server | Not implemented | You create the `Agent` yourself |
 
-The operator chart deploys the internal MCP servers and an `MCPCatalog` and `MCPQualityPolicy`. It does not create the onboarding `Agent` resources, and the operator does not create a Tooler agent when an onboarded `MCPServer` becomes ready. Everything after the `MCPServer` is created is a manual step today.
+The operator chart's `internalAgents` values deploy the `kubernetes-mcp` and `fetch-mcp` servers (`github-mcp` is opt-in) and an `MCPQualityPolicy`. An `MCPCatalog` is rendered only when `onboardingAgent.enabled` is set. Both `onboardingAgent` and `rtfmAgent` default to off, and neither creates an `Agent`. Check the chart's `values.yaml` for the current default of `internalAgents.enabled`.
 
 ## The flow
 
 ### Step 1: Gap signal
 
-The coordinator's reasoning over the discussion decides that no agent can help and publishes a gap signal. An agent in onboarding mode listens for it.
+When the discussion settles with no Tooler agreeing, and there are concerns, stand-asides, or low triage confidence on record, the coordinator publishes a `gap_detected` message. An agent in onboarding mode listens for it.
 
 ### Step 2: Proposal
 
-The onboarding agent uses its MCP tools to look for a candidate server (registries or GitHub) and publishes a `proposal` message to the discussion thread:
+The onboarding agent asks its model to propose an MCP server and publishes the result as a `proposal` message to the discussion thread. The call carries no tools, so the proposal is the model's own text drawn from what it knows, not a live registry search. For example:
 
 > Found **kafka-mcp**. Reply `onboard kafka` to deploy.
 
+Treat the proposal as a suggestion to verify. Proposals do not expire and are not stored between messages.
+
 ### Step 3: Consent
 
-The user replies with one of these forms:
+The consent parser accepts these forms:
 
 ```
 onboard <domain>
@@ -44,11 +47,11 @@ onboard <domain> <doc-url-1> <doc-url-2>
 yes, onboard <domain> <doc-url-1>
 ```
 
-Documentation URLs in the reply are stored on the `MCPServer` as the `kubemoot.ai/doc-urls` annotation.
+Documentation URLs in the reply are passed to the model as a hint for the proposed manifest. Nothing stores them today.
 
-### Step 4: MCPServer creation
+### Step 4: Proposed MCPServer manifest
 
-On consent, the onboarding agent creates an `MCPServer` through its Kubernetes MCP tool:
+On consent the onboarding agent replies in the thread with a proposed `MCPServer` manifest. The reply is model text, so no resource exists until you apply it. A proposal is asked to look like this:
 
 ```yaml
 apiVersion: kubemoot.ai/v1alpha1
@@ -59,7 +62,6 @@ metadata:
     kubemoot.ai/onboarded: "true"
     kubemoot.ai/domain: kafka
   annotations:
-    kubemoot.ai/discuss-channel: kubernetes
     kubemoot.ai/doc-urls: "https://kafka.apache.org/documentation"
 spec:
   image: example/kafka-mcp:latest
@@ -67,39 +69,42 @@ spec:
   replicas: 1
 ```
 
-### Step 5: Agent and documentation (manual today)
+Review the image and settings before you apply it.
+
+### Step 5: Agent and documentation (manual)
 
 From here you wire the new server into the crew:
 
-1. Wait for the `MCPServer` to report `Ready` and its tools to appear in `status.tools`.
-2. Create a Tooler `Agent` (`discussRole: tooler`) whose `enabledTools` lists the tools that fit its domain. Keep the set small; see [MCP Tools](../../concepts/mcp-tools/).
-3. Optionally create a `RAGSource` for the server's documentation so an Analyst can reason over it. See the [RAGSource guide](../../reference/ragsource-guide/).
+1. Apply the reviewed `MCPServer` manifest.
+2. Wait for the `MCPServer` to report `Ready` and its tools to appear in `status.tools`.
+3. Create a Tooler `Agent` (`discussRole: tooler`) whose `enabledTools` lists the tools that fit its domain. Keep the set small; see [MCP Tools](../../concepts/mcp-tools/).
+4. Optionally create a `RAGSource` for the server's documentation so an Analyst can reason over it. See the [RAGSource guide](../../reference/ragsource-guide/).
 
 ## Enabling onboarding mode
 
-Onboarding mode is a property of an `Agent`. Declare an agent that carries the onboarding annotations and a Kubernetes MCP tool with permission to create Kubemoot resources:
+Onboarding mode is a property of an `Agent`, set through environment variables in the agent's `spec.env`. The operator does not translate annotations into these variables.
 
-| Annotation | Env var | Effect |
-|------------|---------|--------|
-| `kubemoot.ai/onboarding-mode: "true"` | `KUBEMOOT_ONBOARDING_MODE=true` | Activates `OnboardingSubscriber` |
-| `kubemoot.ai/rtfm-mode: "true"` | `KUBEMOOT_RTFM_MODE=true` | Activates `RtfmSubscriber` |
-| `kubemoot.ai/discuss-priority: low` | `KUBEMOOT_DISCUSS_PRIORITY=low` | Observer priority |
+| Env var | Effect |
+|---------|--------|
+| `KUBEMOOT_ONBOARDING_MODE=true` | Activates `OnboardingSubscriber` |
+| `KUBEMOOT_RTFM_MODE=true` | Activates `RtfmSubscriber` |
+| `KUBEMOOT_DISCUSS_PRIORITY=low` | Observer priority |
+
+Leave `discussRole` unset (the runtime default is `generic`) so the onboarding agent does not also act as a Tooler.
 
 The operator chart's `internalAgents` values control the shared MCP servers, catalog, and quality policy. The `onboardingAgent` and `rtfmAgent` toggles default to off.
-
-The Kubernetes MCP server that creates resources needs permission to create `mcpservers` and `ragsources`. Grant it a narrow `Role` in the crew's namespace rather than a cluster-wide grant.
 
 ## Troubleshooting
 
 ### The onboarding agent does not react to gaps
 
-1. Confirm an `Agent` with the onboarding annotation exists: `kubectl get agents -A -o yaml | grep onboarding-mode`.
+1. Confirm an `Agent` with `KUBEMOOT_ONBOARDING_MODE` in its `spec.env` exists: `kubectl get agents -A -o yaml | grep ONBOARDING_MODE`.
 2. Check that the agent's logs show a NATS connection.
 3. Confirm `KUBEMOOT_ONBOARDING_MODE=true` is set on the agent pod.
 
 ### Consent is not recognized
 
-The consent parser expects `onboard <domain>` or `yes, onboard <domain>`. The domain must match a pending proposal.
+The consent parser accepts `onboard <domain> [url ...]` or `yes, onboard <domain>`; the domain is passed to the model as is.
 
 ### The onboarded server has no tools
 

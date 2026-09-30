@@ -72,8 +72,8 @@ be **operable infrastructure**.
   GPU-aware scheduling that picks a model server per inference call, and executable
   fitness functions that score a crew over time.
 - **vs. model-serving layers such as KServe, llm-d, and vLLM** - those serve models;
-  Kubemoot sits above them and schedules agents onto whatever model servers you run.
-  Ollama is the only model server it drives today; reading engine state from other
+  Kubemoot sits above them: it schedules each inference call onto a model server it can
+  read state from. Ollama is the only model server it drives today; reading engine state from other
   servers is on the [Roadmap](../roadmap/).
 - **vs. hosted agent platforms** - it runs on **your** infrastructure and GPUs, stays
   portable across clusters, and keeps your data and models in your control.

@@ -91,11 +91,11 @@ A crew can recognize a gap and propose to fill it. Two agent roles in the agent 
 
 ### Tool Gap: Onboarding Agent
 
-When no Tooler can answer a question, the coordinator signals a gap. An agent in onboarding mode searches for an MCP server and proposes it:
+When no Tooler can answer a question, the coordinator signals a gap. An agent in onboarding mode proposes an MCP server:
 
 ```
-Gap signal -> Search MCP registries -> Propose to user
-    -> User consents -> Deploy MCPServer CR -> You create the Tooler Agent
+Gap signal -> Propose an MCP server to the user
+    -> User consents -> You apply the MCPServer -> You create the Tooler Agent
 ```
 
 ### Knowledge Gap: RTFM Agent
@@ -115,7 +115,7 @@ The documentation enriches REVIEW-phase reasoning by Analysts about the newly on
 |------|-------------------|----------------------|
 | **Gap signal** | No Tooler agrees | New MCPServer with no docs |
 | **Discovery agent** | Onboarding agent | RTFM agent |
-| **What it creates** | MCPServer CR | RAGSource CR |
+| **What it proposes or creates** | Proposes an MCPServer | RAGSource CR |
 | **What you create** | Tooler Agent | Analyst Agent |
 | **Result** | New tools in the EVALUATING phase | New reasoning depth in the REVIEW phase |
 

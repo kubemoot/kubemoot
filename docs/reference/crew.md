@@ -26,8 +26,8 @@ spec:
 ```
 
 The namespace separates names. The same crew name can run in many namespaces side by
-side: every NATS subject, KV key, object key, and vector collection a crew's discussion
-touches carries its namespace first, then the crew name, so two crews named
+side: the discussion, request, artifact, and memory subjects and keys a crew uses carry its
+namespace and crew name after a fixed prefix (some operator subjects carry no namespace), so two crews named
 `homelab-pilot` in two different namespaces do not collide. This is naming separation,
 not a security boundary: NATS has no authentication in this release, and a client that
 can reach it can read any subject. See
@@ -110,6 +110,16 @@ Facts are kept alive by use and aged out when abandoned:
 | `ttlDays` | int32 | `365` | Age backstop; used facts are touched and survive |
 | `injectLimit` | int32 | `8` | Max facts injected into context per query (small - context budget, not storage) |
 | `verifyOnAdd` | bool | `true` | Vet new facts for duplicates/conflicts on write |
+
+## Namespace lifecycle
+
+Deleting a Crew leaves its namespace alone by default. A Crew that carries the annotation
+`kubemoot.ai/manage-namespace: "true"` asks the operator to delete the namespace with it,
+and the operator does so only when the namespace itself opts in with the label
+`kubemoot.ai/managed-namespace: "true"`. Someone with rights on the `Namespace` object sets
+that label; a namespaced Crew author cannot, and the operator never writes it. The operator
+never deletes `kube-system`, `default`, `kube-public`, `kube-node-lease`, or its own
+namespace, whatever the annotation and labels say.
 
 ## Storage
 

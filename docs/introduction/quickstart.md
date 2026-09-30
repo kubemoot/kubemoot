@@ -34,7 +34,7 @@ soon as the cluster is actually ready, not on a guessed clock.
 |---|---|---|
 | 1 | NATS with JetStream | Every discussion is carried over NATS; the operator bootstraps its streams. |
 | 2 | Ollama on CPU, pulling `qwen2.5:1.5b` | A small model that runs anywhere, with no GPU. |
-| 3 | The operator Helm chart, minimal profile | Admission webhooks, Grafana, and the platform MCP servers are off. |
+| 3 | The operator Helm chart, minimal profile | Admission webhooks, Grafana dashboards, the internal MCP servers, the NATS MCP server, and the verify runner are off. |
 | 4 | A `ModelProvider` pointing at that Ollama | The endpoint the scheduler binds agents to at inference time. |
 | 5 | The `hello` crew: a coordinator plus one Tooler | The smallest crew that actually deliberates; its prompts are ADL rules you can `kubectl apply` and change. |
 | 6 | One question through the crew's discussion gateway | The answer comes back as the discussion's synthesis, streamed over Server-Sent Events. |

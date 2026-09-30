@@ -306,17 +306,7 @@ These mixture-of-experts families are one to two orders of magnitude beyond a si
 
 For scale: four H200 class accelerators run roughly $120,000 to $160,000 to buy, or about $4 to $18 per hour to rent. That is the price of admission to this tier, which is why the practical homelab question is which 20B to 35B class model calls tools best.
 
-Used through an Ollama-compatible endpoint:
-
-```yaml
-apiVersion: kubemoot.ai/v1alpha1
-kind: ModelProvider
-metadata:
-  name: deepseek-cloud
-spec:
-  type: ollama
-  endpoint: https://ollama.cloud/v1
-```
+These tiers are not reachable from Kubemoot today: hosted providers are on the [Roadmap](../../introduction/roadmap/#cloud-and-frontier-models-at-the-table).
 
 ### Tier 2: Locally Hostable Models (20B-35B Class)
 

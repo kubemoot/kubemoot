@@ -62,8 +62,7 @@ work on the other.
 
 ![The dashboard's discussions page during a liaison-asked moot: the question at the top, two advisors' findings with their signals, and the coordinator's synthesis](../dashboard-moot.png)
 
-A clean run, as timed against the reference homelab crew of small models on two GPUs
-(an RTX 5090 node and an RTX 4090 node):
+A clean run, as timed against a Homelab Pilot crew of small models on two GPU nodes:
 
 | Time | Client call | Result |
 |---|---|---|

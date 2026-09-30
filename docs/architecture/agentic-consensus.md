@@ -238,9 +238,9 @@ answers from its own capabilities rather than leaving the user with nothing.
 ## Capability gaps and onboarding
 
 When a gap is detected, the coordinator signals it instead of only reporting the miss.
-An agent running in onboarding mode listens for that signal, searches for an MCP server
-that could fill the gap, and proposes it to the user. On consent it creates an
-`MCPServer` for it. Wiring the new server to a Tooler agent, and indexing its
+An agent running in onboarding mode listens for that signal and proposes an MCP server
+that could fill the gap. On consent it replies with a proposed `MCPServer` manifest in
+the thread. Applying it, wiring the new server to a Tooler agent, and indexing its
 documentation as a `RAGSource`, are manual steps today. The flow and its limits are
 documented in the [Onboarding Guide](../../operating/onboarding-guide/); this page only
 needs the shape: a gap is a signal, and a crew can be extended in response to one.
