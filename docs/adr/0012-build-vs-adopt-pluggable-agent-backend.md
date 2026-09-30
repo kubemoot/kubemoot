@@ -7,7 +7,9 @@ Date: 2026-06-24
 
 ## Status
 
-Accepted
+Accepted (contract not yet implemented)
+
+The agent runtime is the only backend today; the pluggable backend contract described here is a direction.
 
 ## Context
 

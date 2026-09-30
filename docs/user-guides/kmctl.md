@@ -43,8 +43,7 @@ discoverability as the surface grows.
 ### Binary releases
 
 Pre-built static binaries for Linux, macOS, and Windows (amd64 and arm64) are
-published to GitHub releases with every tagged version. While the repository is
-private, use the GitHub CLI to download:
+published to GitHub releases with every tagged version. Use the GitHub CLI to download:
 
 ```bash
 gh release download \
@@ -58,8 +57,7 @@ kmctl version
 Substitute `linux_amd64` for your platform (`darwin_amd64`, `darwin_arm64`,
 `linux_arm64`, `windows_amd64`).
 
-After the project is open-sourced, a plain curl install will also work (details will
-appear in the repository README at that point).
+With Go installed, `go install github.com/kubemoot/kmctl@latest` also works.
 
 ### Homebrew (planned)
 
@@ -129,13 +127,10 @@ prompts and it writes a `demo/` directory:
 ```
 demo/
   crew.yaml
-  crew-scheduling-policy.yaml
-  agent-coordinator.yaml
-  agent-specialist-0.yaml
-  agent-specialist-1.yaml
-  prompt-coordinator.yaml
-  prompt-specialist.yaml
-  fitness-starter.yaml
+  agents.yaml
+  promptmodules.yaml
+  models.yaml
+  fitness.yaml
   README.md
 ```
 
@@ -168,10 +163,11 @@ and the layout its Crew Sources view expects a chart source to have; see
 Open the generated directory. Key files:
 
 - `crew.yaml` - the Crew resource; adjust the name and labels.
-- `agent-coordinator.yaml` - coordinator Agent; review the model group assignment.
-- `prompt-coordinator.yaml` - coordinator PromptModule in ADL; this is the main
-  place to shape the crew's discussion behaviour.
-- `fitness-starter.yaml` - a starter CrewFitnessSuite scenario.
+- `agents.yaml` - the coordinator and Tooler Agents; review each agent's capabilities.
+- `promptmodules.yaml` - the PromptModules in ADL; this is the main place to shape the
+  crew's discussion behaviour.
+- `models.yaml` - the Models the crew's phases select from.
+- `fitness.yaml` - a starter CrewFitnessSuite scenario.
 
 See [Build a Crew](../build-a-crew/) and [Write Agents and ADL](../write-agents-and-adl/)
 for guidance on what to customise and how.

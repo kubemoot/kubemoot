@@ -7,7 +7,9 @@ Date: 2026-02-15
 
 ## Status
 
-Accepted
+Superseded
+
+The scheduler now bin-packs several models onto a GPU and evicts idle ones on demand (see [Scheduler](../../architecture/scheduler/)). The one-model-per-GPU convention no longer holds.
 
 ## Context
 
@@ -33,6 +35,6 @@ We will enforce **one model per GPU** by convention through the ModelProvider/Mo
 
 ## References
 
-- [Scheduler](../architecture/scheduler/) - filter step uses `Model.spec.vramMib`
-- [Models in Kubemoot](../reference/models/) - GPU compatibility matrix
+- [Scheduler](../architecture/scheduler.md) - filter step uses `Model.spec.vramMib`
+- [Models in Kubemoot](../reference/models.md) - GPU compatibility matrix
 - `homelab-pilot/charts/homelab-pilot-crew/templates/models.yaml` - per-GPU Model declarations

@@ -7,10 +7,10 @@ description: "The complete ADL vocabulary: prompt keywords and fitness assertion
 ADL has two dialects that share a style. The **prompt** dialect composes an agent's
 behavior; the **fitness** dialect specifies executable checks against a live crew. This
 page is the complete vocabulary for both; see
-[ADL, the Architecture Definition Language, for agents](../concepts/agent-definition-language/)
+[ADL, the Architecture Definition Language, for agents](../concepts/agent-definition-language.md)
 for where the notation comes from and how Kubemoot applies it. For how to write and run
-it, see [Write Agents & ADL](../user-guides/write-agents-and-adl/) and
-[Kubemoot Crew Fitness Functions](../fitness/kubemoot-crew-fitness-functions/).
+it, see [Write Agents & ADL](../user-guides/write-agents-and-adl.md) and
+[Kubemoot Crew Fitness Functions](../fitness/kubemoot-crew-fitness-functions.md).
 
 ## Prompt ADL
 
@@ -120,8 +120,8 @@ ASSERT(DEFER synthesis REFLECTS "Lists the cluster's nodes with their roles, CPU
 
 ## Next
 
-- [ADL, the Architecture Definition Language, for agents](../concepts/agent-definition-language/) - what ADL is and why.
-- [Write Agents & ADL](../user-guides/write-agents-and-adl/) - authoring prompt
+- [ADL, the Architecture Definition Language, for agents](../concepts/agent-definition-language.md) - what ADL is and why.
+- [Write Agents & ADL](../user-guides/write-agents-and-adl.md) - authoring prompt
   modules and composing them.
-- [Kubemoot Crew Fitness Functions](../fitness/kubemoot-crew-fitness-functions/) - the
+- [Kubemoot Crew Fitness Functions](../fitness/kubemoot-crew-fitness-functions.md) - the
   fitness CRD, run model, and reporting.

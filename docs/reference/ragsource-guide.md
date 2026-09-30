@@ -117,21 +117,14 @@ spec:
 - **Never use glob patterns** (`/**`) in `spec.source.git.paths` - the indexer resolves them as literal directory paths. Use plain directory paths; file matching within directories is handled by `includePatterns`.
 - **Always verify repo structure** before configuring paths. For example, `helm/helm-www` has docs at `/docs/` (Docusaurus), NOT `/content/en/docs`.
 
-## Dynamic RAGSource Creation
+## RAGSources created by an agent
 
-RAGSources can also be created at runtime by Kubemoot's autonomic agents - specifically the RTFM Agent.
-
-### How It Works
-
-1. **User asks about an unknown technology** (e.g., "how do I configure RabbitMQ?")
-2. **Onboarding Agent detects the gap** - 0 Toolers agree, all stand aside
-3. **Onboarding Agent proposes** an MCP server for the technology
-4. **User consents** (e.g., "onboard rabbitmq https://www.rabbitmq.com/docs")
-5. **Operator deploys** the MCPServer CR and creates an Agent CR (capability-only; scheduler binds the model)
-6. **RTFM Agent receives** the `kubemoot.operator.onboarding.deployed` NATS event
-7. **RTFM Agent creates** a RAGSource CR pointing to the documentation URL
-8. **Indexer Job runs**, chunks docs, embeds, stores in pgvector
-9. **Agent now has RAG context** for answering questions about the technology
+An agent running in RTFM mode can create RAGSources at runtime. The RTFM subscriber
+listens for an onboarding-deployed event and creates a RAGSource that points at the
+technology's documentation. The operator chart does not deploy an RTFM agent, and
+nothing in the operator publishes that event today, so this path is wired by you. See the
+[Onboarding Guide](../../operating/onboarding-guide/) for what ships. To index
+documentation now, create the RAGSource yourself as described above.
 
 ### RTFM Agent Behavior
 
@@ -139,7 +132,6 @@ The RTFM agent (`RtfmSubscriber.java`) listens for deployed MCP servers with doc
 
 - Uses the fetch-mcp and github-mcp tools to find documentation
 - Creates a RAGSource CR in the same namespace as the agent
-- Publishes progress updates via NATS (`kubemoot.operator.onboarding.progress`)
 
 Dynamic RAGSources follow the same lifecycle as static ones - the controller manages indexing, query service deployment, and verification identically.
 
@@ -258,9 +250,10 @@ The controller passes configuration to the indexer job via environment variables
 | Variable | Description |
 |----------|-------------|
 | `KUBEMOOT_SOURCE_TYPE` | Source type (git, document, etc.) |
-| `KUBEMOOT_SOURCE_URL` | Git URL or document URL |
-| `KUBEMOOT_SOURCE_BRANCH` | Git branch |
-| `KUBEMOOT_SOURCE_PATHS` | Comma-separated paths to index |
+| `KUBEMOOT_GIT_URL` | Git URL (git sources) |
+| `KUBEMOOT_GIT_BRANCH` | Git branch (git sources) |
+| `KUBEMOOT_GIT_PATHS` | Comma-separated paths to index (git sources) |
+| `KUBEMOOT_URL` | Document URL (URL sources) |
 | `KUBEMOOT_VECTORSTORE_TYPE` | Always `pgvector` currently |
 | `KUBEMOOT_VECTORSTORE_ENDPOINT` | PostgreSQL connection string |
 | `KUBEMOOT_VECTORSTORE_COLLECTION` | Collection name (becomes table `data_{name}`) |

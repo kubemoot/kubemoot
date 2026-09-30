@@ -75,7 +75,7 @@ settles, and the fact that the structure is a pluggable archetype - is covered i
 
 The crew's discussion endpoint returns a `conversationId` with every answer; echo it
 back on your next message to continue the same conversation. Stream the deliberation
-with `/chat/stream` and the thread is surfaced directly (a `thread_found` event,
+with `GET /api/v1/discussions/{crew}/{conversationId}/stream` and the thread is surfaced directly (a `thread_found` event,
 followed by per-phase events) as it unfolds. See [Quickstart](../../introduction/quickstart/)
 for the request and response shapes, and [Dashboard](../../operating/dashboard/) for
 the live `/discussions` view that renders each thread.

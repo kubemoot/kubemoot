@@ -45,7 +45,7 @@ agent on the same models is a hypothesis we measure with
 ## What is ADL, and does it make agents better?
 
 Architecture Definition Language: WHEN/THEN, ASSERT, and NEVER rules from
-[*Architecture as Code*](https://www.dijure.com/books/architecture-as-code/) (Richards,
+[*Architecture as Code*](https://learning.oreilly.com/library/view/architecture-as-code/9798341640368/) (Richards,
 Ford, and Johnson), applied to agents as `PromptModule` resources. The value we claim today is governance: rules you can read, review, diff,
 and change with `kubectl apply`. Quality gains are under measurement; the interim
 result is a tie with prose on quality and a lead on speed, on a small sample. See
@@ -77,7 +77,9 @@ Ollama is the model server today. Cloud and frontier models as crew members is o
 
 No. The API is `v1alpha1`, and Kubemoot is built and run on a homelab with
 production-like patterns, not in production. Known limitations, including the open
-message bus inside the cluster, are listed in the repository's SECURITY.md. Treat it
+message bus inside the cluster, are listed in the "Security model and known
+limitations" section of the repository's
+[SECURITY.md](https://github.com/kubemoot/kubemoot/blob/main/SECURITY.md). Treat it
 as a platform to evaluate and shape, and say so where you deploy it.
 
 ## Can agents change things, or only answer?

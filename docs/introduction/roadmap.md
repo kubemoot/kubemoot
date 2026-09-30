@@ -66,7 +66,7 @@ crews switch to it, and the results will be published.
 
 **Today:** a crew is a harness made of harnesses (see
 [The Table and the Harnesses](../../concepts/the-table-and-the-harnesses/)). Its guides
-are ADL rules, the consent archetype, and skills; its sensors are signals, gap
+are ADL rules, the consensus archetype (`consent-3`), and skills; its sensors are signals, gap
 detection, and fitness functions. A compute agent runs code it writes in a sandbox for
 counting, sorting, and filtering. In the other direction, an agent harness such as
 Claude Code can already use a whole crew as one tool through the
@@ -105,7 +105,7 @@ accounting, and a circuit breaker the prerequisites, not afterthoughts.
 ## Consensus archetypes declared, not coded
 
 **Today:** the `MootArchetype` CRD names a discussion's phases and its signal
-vocabulary, and the consent archetype ships with the operator. How the coordinator
+vocabulary, and the consensus archetype (`consent-3`) ships with the operator. How the coordinator
 convenes, who may speak in which phase, when a discussion settles, and the rules of
 engagement between agents are still fixed in code and in prompts.
 
@@ -117,8 +117,10 @@ way changing what an agent believes is already a `PromptModule` edit.
 
 ## Crews that evolve
 
-**Today:** the operator detects gaps in a discussion (a missing tool, a missing
-specialist) and can onboard an MCP server from a catalog with a human's consent.
+**Today:** the coordinator signals gaps in a discussion (a missing tool, a missing
+specialist), and an agent in onboarding mode can propose an `MCPServer` manifest with a human's
+consent. Wiring the new server to a Tooler agent is manual, and the chart does not
+deploy the onboarding agents.
 
 **Direction:** crews that find, acquire, rate, and adopt MCP tools on their own, and
 add agents equipped with them, under a quality policy that decides what a crew may
@@ -222,7 +224,7 @@ extends the saving to the pods themselves.
 **Today:** the dashboard infers discussion spans from signal timestamps; logs are per
 pod.
 
-**Direction:** an OpenTelemetry trace per discussion, with each agent turn and tool
+**Direction:** an OpenTelemetry trace per discussion, with each agent step and tool
 call a real span carrying the GenAI semantic conventions, exported to any OTel
 backend, and centrally aggregated logs correlated to those traces.
 

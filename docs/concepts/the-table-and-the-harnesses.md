@@ -23,9 +23,10 @@ and sensors act between agents:
 That layering decides what belongs in Kubemoot and what does not.
 
 - **Native to the table, built here.** What only a crew can do, or what a moot needs
-  across all its agents: declared archetypes, budgets and cost accounting across a
-  moot, approval gates for actions, durable crew memory, an evidence and audit trail,
-  and evaluation.
+  across all its agents. Today that is the consensus archetype, crew memory, and
+  evaluation through fitness functions. Budgets and cost accounting across a moot,
+  approval gates for actions, and an evidence and audit trail are directions, not
+  shipped features.
 - **Native to the runtime, adopted.** The open conventions small local models need to
   be useful, in the spirit of the tools people already use: skills, memory, and code
   as action in a sandbox. Adopted as conventions, never as a dependency on a product.

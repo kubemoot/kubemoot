@@ -29,7 +29,7 @@ Kubemoot leans on the cluster's existing observability stack rather than shippin
 ### 1. Metrics: Prometheus / Grafana (in use today)
 
 - **kube-prometheus-stack** (Prometheus + Grafana) scrapes cluster, node, pod, and agent JVM/Micrometer metrics.
-- **DCGM exporter** (namespace `observability`, `ServiceMonitor` labelled `release: kube-prometheus-stack`) provides per-GPU metrics: utilization %, VRAM used/total, temperature, power, per GPU (e.g. RTX 5090 / RTX 4090).
+- **DCGM exporter** (namespace `observability`, `ServiceMonitor` labelled `release: kube-prometheus-stack`) provides per-GPU metrics: utilization %, VRAM used/total, temperature, power, per GPU.
 - **Agent runtime** exposes Micrometer/Prometheus metrics; `DiscussionMetrics` covers inference timings, token usage, signal counts, and thread/synthesis completion.
 - **What it lets you observe:** GPU saturation and VRAM headroom (the scheduler's inputs), inference latency/throughput and token cost, cluster health.
 
@@ -42,11 +42,11 @@ Kubemoot leans on the cluster's existing observability stack rather than shippin
 
 ### 3. Spans / traces: OTel + Tempo deployed, not yet emitted to
 
-- The cluster already runs an **otel-collector** (OTLP `4317`/`4318` → `tempo.observability:4317`) and **Grafana Tempo** as the trace backend.
+- The reference cluster runs an **otel-collector** (OTLP `4317`/`4318` → `tempo.observability:4317`) and **Grafana Tempo** as the trace backend.
 - **Today Kubemoot does not emit OTel traces**: discussion timing is *reconstructed* from NATS signal messages (see the Agent Span Graph below), which is an approximation, not a true distributed trace.
 - Wiring true trace emission to this existing backend is in [Future work](#future-work).
 
-Two of the three pillars (logs, spans) have gaps; both are observability work to complete before open-sourcing.
+Two of the three pillars (logs, spans) have gaps; see [Future work](#future-work).
 
 ## Agent Span Graph
 
@@ -91,7 +91,7 @@ Stand up a log backend so the already-structured JSON logs are centrally searcha
 
 Make OpenTelemetry the canonical span model for discussions instead of the bespoke signal-reconstructed span graph:
 
-- **Produce** a real OTel trace per discussion: thread = root span; each agent evaluation/mulling turn and each tool call = child spans with true start/end, carrying GenAI semantic-convention attributes (`gen_ai.system`, `gen_ai.request.model`, `gen_ai.usage.input_tokens`/`output_tokens`) plus Kubemoot extras (crew, thread, signal, provider, GPU label).
+- **Produce** a real OTel trace per discussion: thread = root span; each agent evaluation or mulling step and each tool call = child spans with true start/end, carrying GenAI semantic-convention attributes (`gen_ai.system`, `gen_ai.request.model`, `gen_ai.usage.input_tokens`/`output_tokens`) plus Kubemoot extras (crew, thread, signal, provider, GPU label).
 - **Consume**: the dashboard span graph renders OTel-shaped spans rather than reconstructing from signals; the same trace data also flows to the existing otel-collector → Tempo, and to any OTel-compatible profiler.
 - **Two transports**: live (NATS, keeping the dashboard real-time) plus OTLP batch (for Tempo and the wider ecosystem). Unlocks replaying historical discussions from the trace backend, not just live ones.
 

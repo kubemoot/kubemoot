@@ -21,16 +21,16 @@ DEFINE CONST QUESTION AS "How many nodes are in the cluster?"
 DEFINE CONST MAX_DURATION AS 120 seconds
 
 ASSERT(discussion completes within MAX_DURATION)
-ASSERT(at least 1 Tooler contributes with signal=agree)
+ASSERT(at least 1 specialist agrees)
 ASSERT(coordinator produces synthesis)
 ASSERT(synthesis CONTAINS reference to a node count)
 ```
 
 Common assertion patterns include: the discussion endpoint returns 200; a named SSE
 event is emitted (optionally within a deadline); the discussion completes within a time
-budget; at least N Toolers agree (or, for an out-of-scope smoke test, *zero* agree);
+budget; at least N specialists (Toolers) agree (or, for an out-of-scope smoke test, *zero* agree);
 the coordinator produces a synthesis; and the synthesis contains or does **not** contain
-specific terms.
+specific terms. In an assertion, write "specialist" for a Tooler: the runner's agree-floor assertion matches that word, even though the docs call them Toolers.
 
 ## Run one scenario
 

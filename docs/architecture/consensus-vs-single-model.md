@@ -1,6 +1,7 @@
 ---
 title: "Kubemoot Architecture - Distributed Consensus vs Single-Model Orchestration"
 weight: 1
+linkTitle: "Consensus vs Single-Model"
 ---
 
 > *"Kubemoot composes capability horizontally - many small specialists, because no single model is big enough to do it all; intelligence is emergent from a committee. A single-model agent is the opposite: capability concentrated in one large reasoner that drives tools and, when needed, spawns copies of itself."*

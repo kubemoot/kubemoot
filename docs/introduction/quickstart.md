@@ -1,6 +1,6 @@
 ---
 title: "Quickstart"
-weight: 50
+weight: 40
 description: "Try Kubemoot on a laptop, no GPU required, in one script."
 ---
 
@@ -20,9 +20,11 @@ kind create cluster --name kubemoot     # or any cluster your kubectl points at
 ./quickstart/quickstart.sh
 ```
 
-Needs `kubectl`, `helm`, and `python3`. The script targets a node with 2 CPUs and 8 GB
-free - the same footprint the CI runner uses to test every release - and takes several
-minutes on a laptop; the model pull and the first discussion dominate. Every wait polls
+Needs `kubectl`, `helm`, and `python3`. The script needs a node with 2 CPUs and 8 GB
+free and takes several minutes on a laptop; the model pull and the first discussion
+dominate. Release images are amd64 only today (see the [Roadmap](../roadmap/)), so on
+an arm64 machine such as Apple Silicon the images run under emulation or fail to
+start with an exec format error. Every wait polls
 a Kubernetes status field rather than sleeping a fixed time, so the script finishes as
 soon as the cluster is actually ready, not on a guessed clock.
 
@@ -32,9 +34,9 @@ soon as the cluster is actually ready, not on a guessed clock.
 |---|---|---|
 | 1 | NATS with JetStream | Every discussion is carried over NATS; the operator bootstraps its streams. |
 | 2 | Ollama on CPU, pulling `qwen2.5:1.5b` | A small model that runs anywhere, with no GPU. |
-| 3 | The operator Helm chart, minimal profile | Admission webhooks, KEDA, Grafana, and the platform MCP servers are off. |
+| 3 | The operator Helm chart, minimal profile | Admission webhooks, Grafana dashboards, the internal MCP servers, the NATS MCP server, and the verify runner are off. |
 | 4 | A `ModelProvider` pointing at that Ollama | The endpoint the scheduler binds agents to at inference time. |
-| 5 | The `hello` crew: a coordinator plus one specialist | The smallest crew that actually deliberates; its prompts are ADL rules you can `kubectl apply` and change. |
+| 5 | The `hello` crew: a coordinator plus one Tooler | The smallest crew that actually deliberates; its prompts are ADL rules you can `kubectl apply` and change. |
 | 6 | One question through the crew's discussion gateway | The answer comes back as the discussion's synthesis, streamed over Server-Sent Events. |
 
 ## The CPU trial profile
@@ -46,22 +48,29 @@ Kubemoot's speed and a crew's size by the right yardstick:
 |---|---|---|
 | Model size | 1-3B parameters (`qwen2.5:1.5b` here) | 8B-32B+ per role, sized to VRAM |
 | Agents per crew | Two (a coordinator plus one Tooler) | As many as the crew's domain needs |
-| Answer latency | About 40 seconds of discussion once the model is warm | Tens of seconds per discussion |
+| Answer latency | Slower, dominated by CPU inference | Faster, bounded by GPU inference |
 | Concurrent discussions | One at a time | Several, bounded by GPU capacity |
-
-The script's own run, on the CI runner's 2-CPU node, takes about four and a half
-minutes end to end including every install step; the discussion itself, once NATS, the
-operator, and the model are up, settles in well under a minute.
 
 ## What just happened
 
 You did three things, all declaratively: installed an operator, applied a crew, and
 asked it a question. Under the hood the coordinator selected the one Tooler that fits
-the question, the Tooler investigated, and the answer was **settled by the crew**
+the question, the Tooler answered from its own knowledge, and the answer was **settled by the crew**
 rather than asserted by one model - see
 [consensus signal](../../concepts/signals-and-protocol/) for what that means. This is
 the same protocol a GPU deployment runs; only the model size, the crew size, and the
 clock are different.
+
+## Troubleshooting
+
+- **The answer says no agent contributed.** The 1.5B model in the trial sometimes stands
+  aside. Rerun the question; the script is idempotent.
+- **The NATS pod stays `Pending`.** NATS keeps its stream on a PersistentVolumeClaim, so
+  the cluster needs a default StorageClass. `kind` provides one.
+- **Ollama restarts or is killed.** The node needs 8 GB free; on a smaller node the
+  kernel kills Ollama while it loads the model.
+- **A pod shows `ImagePullBackOff`.** Check that the node can reach `ghcr.io`, and that
+  it runs on amd64.
 
 ## Then
 

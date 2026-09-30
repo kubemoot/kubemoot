@@ -1,6 +1,6 @@
 ---
 title: "Install the Operator"
-weight: 40
+weight: 50
 description: "Prerequisites and the Helm install of the Kubemoot operator; other components install separately."
 ---
 
@@ -44,23 +44,14 @@ its own page:
 
 ## CPU trial vs. GPU deployment
 
-Kubemoot does not require a GPU to run - the [Quickstart](../quickstart/) proves that
-end to end on a 2-CPU, 8 GB node with no accelerator at all. What changes without a GPU
-is the profile: smaller models, a smaller crew, and slower answers. Know which profile
-you're running before you judge Kubemoot's speed or a crew's size by it.
+Kubemoot does not require a GPU to run. The [Quickstart](../quickstart/) runs on a
+node with 2 CPUs and 8 GB free and no accelerator, and its
+[CPU trial profile](../quickstart/#the-cpu-trial-profile) table lists what differs from a
+GPU deployment: smaller models, a smaller crew, and slower answers. The rest of this page
+installs the GPU-backed profile.
 
-| | CPU trial (Quickstart) | GPU deployment (this page) |
-|---|---|---|
-| Model size | 1-3B parameters | 8B-32B+ per role, sized to VRAM |
-| Agents per crew | Two to three (a coordinator plus one or two Toolers) | As many as the crew's domain needs |
-| Answer latency | Minutes per discussion | Tens of seconds per discussion |
-| Concurrent discussions | One at a time | Several, bounded by GPU capacity |
-| What it's for | Trying the protocol on a laptop, no GPU required | Real crew work |
-
-The CPU trial is a real discussion, not a mock: a coordinator convenes a Tooler,
-signals are exchanged over NATS, and the answer is synthesized - it is simply slower
-and smaller because CPU inference and a 1-3B model are slower and smaller than a
-GPU-backed reasoning model. The rest of this page installs the GPU-backed profile.
+Release images are amd64 only today (see the [Roadmap](../roadmap/)). On an arm64 cluster
+or laptop they run under emulation or fail to start with an exec format error.
 
 ## Install the operator
 
@@ -109,20 +100,16 @@ You should see the operator pod `Running` and the Kubemoot CRDs registered
 Kubemoot does not install Ollama, and it does not pick GPU nodes for you. The seam is
 deliberate: placement is yours, capacity is discovered.
 
-1. **You run one model server per GPU worker node, one GPU per node.** The expected
-   topology is a worker node per GPU: each GPU worker node carries a single GPU, and a
-   cluster scales by adding such nodes, not by stacking GPUs in one. For every GPU node,
-   deploy its own Ollama (or other provider) as an ordinary workload pinned to that node
-   by node affinity, requesting `nvidia.com/gpu`, with the runtime class your cluster
-   uses for NVIDIA. One model server per GPU node, one GPU per node, is the shape the
-   scheduler expects (see ADR 0009): each server becomes one provider with one GPU's
-   VRAM, and the scheduler spreads models across the providers. The
-   reference homelab has two GPU worker nodes, an RTX 5090 node and an RTX 4090 node,
-   and runs one Ollama on each, each from its own infrastructure module with affinity to
-   its node's hostname. The CPU trial runs a single Deployment with no GPU at all.
+1. **You run a model server per GPU worker node.** A common topology is a worker node
+   per GPU, and a cluster scales by adding such nodes. For every GPU node, deploy its own
+   Ollama (or other provider) as an ordinary workload pinned to that node by node
+   affinity, requesting `nvidia.com/gpu`, with the runtime class your cluster uses for
+   NVIDIA. Each server becomes one provider with its GPU's VRAM, and the scheduler
+   places models across the providers, loading and evicting them on demand. The CPU
+   trial runs a single Deployment with no GPU at all.
 2. **You declare a `ModelProvider` per model server.** One manifest for each: the
    type, that server's Service URL, a weight, and, when the host cannot be measured, a
-   memory budget. Two GPU nodes, two Ollamas, two ModelProviders. This is the only static
+   memory budget. Two GPU nodes, two model servers, two ModelProviders. This is the only static
    declaration the operator needs.
 3. **The operator discovers the rest.** It probes the endpoint for available and loaded
    models, follows the Service to its backing pod, records that pod's node, reads

@@ -38,8 +38,8 @@ many questions weakly rather than a few questions strongly).
 **Minimum viable crew.** A crew needs at minimum one coordinator and one Tooler.
 Start small and add agents as you discover gaps rather than pre-populating for
 hypothetical questions. The onboarding system can help: when no Tooler scores
-above the confidence threshold on a question, it signals a capability gap and offers
-to deploy a new one. See [Onboard MCP Tools](../onboard-mcp-tools/) for that path.
+above the confidence threshold on a question, the coordinator signals a capability gap
+and an onboarding agent can propose an MCP server manifest for it. See [Onboard MCP Tools](../onboard-mcp-tools/) for that path.
 
 **Avoid redundant Toolers.** Two Toolers that always agree on the same
 questions add orchestration overhead without adding information. If two agents
@@ -50,7 +50,7 @@ time-series trends. See the cohesion and coupling discussion in the
 split vs. merge.
 
 **Roles:** a crew has exactly one `coordinator` (declared via `spec.discussRole:
-coordinator`), any number of `specialist` (Tooler) agents (the default role),
+coordinator`), any number of Tooler agents (set `discussRole: tooler` explicitly; there is no default role),
 optionally `analyst` agents for the REVIEW phase, and optionally one or more
 `researcher` agents. Researchers augment synthesis but are excluded from settle
 triggers and gap detection: suitable for internet search or other background
