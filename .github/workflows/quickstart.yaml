@@ -2,19 +2,22 @@
 # A GitHub-hosted runner, an empty kind cluster, nothing from the homelab: no Harbor, no
 # ARC runner, no cluster secrets.
 #
-# The images are the released ones. The release workflows build each component once on
-# ARC, publish it to the release registry, and pin the new version in the chart; this
-# job runs when one of them completes, so it tests the exact bytes a stranger pulls. A
-# push that touches only the quickstart runs it against the chart's current pins.
-# Release mode (workflow_dispatch with chart_version) installs a published chart from
-# the registry instead of the checkout.
+# It installs a published chart from the release registry, the way a stranger does, so
+# it tests the exact bytes a stranger pulls. main builds release candidates that live in
+# Harbor only, so there is nothing public to test until a promotion: Promote Release
+# calls this workflow with the chart it just published, before it writes the GitHub
+# Release. A push that touches only the quickstart runs it against the latest published
+# chart; a dispatch takes any published chart version (empty: the latest).
 name: Quickstart
 
 on:
-  workflow_run:
-    workflows: [Release, Release Agent Runtime, Release Discussion Gateway]
-    types: [completed]
-    branches: [main]
+  workflow_call:
+    inputs:
+      chart_version:
+        description: 'Published chart version to test. Empty: the latest published chart.'
+        required: false
+        default: ''
+        type: string
   push:
     branches: [main]
     paths:
@@ -23,13 +26,13 @@ on:
   workflow_dispatch:
     inputs:
       chart_version:
-        description: 'Published chart version to test (release mode). Empty installs the chart from the checkout.'
+        description: 'Published chart version to test. Empty: the latest published chart.'
         required: false
         default: ''
         type: string
 
 concurrency:
-  group: quickstart-main
+  group: quickstart-${{ inputs.chart_version || 'latest' }}
   cancel-in-progress: true
 
 env:
@@ -41,7 +44,6 @@ env:
 
 jobs:
   quickstart:
-    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     timeout-minutes: 45
     permissions:
@@ -53,22 +55,27 @@ jobs:
       - name: Lint the quickstart script
         run: shellcheck quickstart/quickstart.sh
 
-      - name: Choose the chart
-        id: chart
-        run: |
-          if [ -n "${{ inputs.chart_version }}" ]; then
-            echo "ref=oci://${RELEASE_REGISTRY}/charts/kubemoot-operator" >> "$GITHUB_OUTPUT"
-            echo "version=${{ inputs.chart_version }}" >> "$GITHUB_OUTPUT"
-          else
-            echo "ref=operator/chart/kubemoot-operator" >> "$GITHUB_OUTPUT"
-            echo "version=" >> "$GITHUB_OUTPUT"
-          fi
-
       - name: Log in to the release registry
         if: env.GHCR_TOKEN != ''
         run: |
           echo "$GHCR_TOKEN" | docker login "${RELEASE_REGISTRY%%/*}" -u "$GHCR_USERNAME" --password-stdin
           echo "$GHCR_TOKEN" | helm registry login "${RELEASE_REGISTRY%%/*}" -u "$GHCR_USERNAME" --password-stdin
+
+      - name: Choose the chart
+        id: chart
+        env:
+          CHART_VERSION: ${{ inputs.chart_version }}
+        run: |
+          ref="oci://${RELEASE_REGISTRY}/charts/kubemoot-operator"
+          version="${CHART_VERSION}"
+          if [ -z "$version" ]; then
+            # helm resolves an OCI chart without --version to its highest final version.
+            version=$(helm show chart "$ref" | sed -n 's/^version: //p')
+          fi
+          [ -n "$version" ] || { echo "no published chart found at $ref"; exit 1; }
+          echo "Testing $ref $version"
+          echo "ref=$ref" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
 
       - name: Create kind cluster
         uses: helm/kind-action@v1

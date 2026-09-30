@@ -1,0 +1,156 @@
+# Promote Release: publish a tested release candidate as the public release.
+#
+# Every push to main builds release candidates (X.Y.Z-rc.N) into Harbor, and the
+# homelab runs them. When a candidate has passed its tests and measurements, a
+# maintainer runs this workflow (Actions tab, Run workflow; dispatch needs write
+# access). It promotes the operator chart candidate and every component it pins,
+# all together:
+#   promote     copies each image by digest to the release registry under its final
+#               version, packages the charts with the final version and image pins,
+#               pushes them to Harbor and the release registry, and tags the
+#               candidates' commits with the final versions (.github/scripts/promote-release.sh)
+#   quickstart  runs the quickstart against the chart just published
+#   release     writes the GitHub Release from the conventional commits since the
+#               previous release
+# The default is a dry run: it plans, reads the registries, packages the charts, and
+# shows the release notes in the run summary, and publishes nothing.
+#
+# The chart and images are public once promote succeeds, before the quickstart runs.
+# If quickstart or release fails, fix the cause and use "Re-run failed jobs": the rerun
+# keeps promote's outputs and only retries the quickstart and the GitHub Release. A new
+# dispatch for the same candidate is refused (its final tag exists). A release that
+# fails the quickstart is fixed forward with the next candidate.
+name: Promote Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      rc_tag:
+        description: '"latest", or a release-candidate tag on main (normally the operator-chart-vA.B.C-rc.N tag the homelab ran)'
+        required: true
+        default: latest
+        type: string
+      dry_run:
+        description: 'Dry run: plan and package only, publish nothing'
+        required: true
+        default: true
+        type: boolean
+
+concurrency:
+  group: promote-release
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  promote:
+    # Harbor is reachable only in-cluster, so promotion runs on the homelab runners,
+    # and only from main.
+    if: github.ref == 'refs/heads/main'
+    runs-on: homelab-runners
+    permissions:
+      contents: write
+    outputs:
+      chart_version: ${{ steps.promote.outputs.chart_version }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          filter: blob:none
+
+      - name: Install crane
+        run: |
+          curl -sL https://github.com/google/go-containerregistry/releases/download/v0.20.2/go-containerregistry_Linux_x86_64.tar.gz | tar -xzf - crane
+          sudo mv crane /usr/local/bin/
+
+      - name: Install Helm
+        uses: azure/setup-helm@v4
+        with:
+          # The Harbor push combination the operator release uses: helm v3.14.0 with
+          # --insecure-skip-tls-verify (newer helm refuses Harbor's http token realm).
+          version: 'v3.14.0'
+
+      - name: Test the release scripts
+        run: |
+          bash .github/scripts/test-release-lib.sh
+          bash .github/scripts/test-promote-release.sh
+
+      - name: Log in to the registries
+        env:
+          REGISTRY: ${{ vars.REGISTRY }}
+          RELEASE_REGISTRY: ${{ vars.RELEASE_REGISTRY }}
+          HARBOR_USERNAME: ${{ secrets.HARBOR_USERNAME }}
+          HARBOR_PASSWORD: ${{ secrets.HARBOR_PASSWORD }}
+          GHCR_USERNAME: ${{ secrets.GHCR_USERNAME }}
+          GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
+        run: |
+          echo "${HARBOR_PASSWORD}" | crane auth login --insecure "${REGISTRY}" -u "${HARBOR_USERNAME}" --password-stdin
+          echo "${HARBOR_PASSWORD}" | helm registry login --insecure "${REGISTRY}" -u "${HARBOR_USERNAME}" --password-stdin
+          echo "${GHCR_TOKEN}" | crane auth login "${RELEASE_REGISTRY%%/*}" -u "${GHCR_USERNAME}" --password-stdin
+
+      - name: Promote
+        id: promote
+        env:
+          RC_TAG: ${{ inputs.rc_tag }}
+          DRY_RUN: ${{ inputs.dry_run }}
+          REGISTRY: ${{ vars.REGISTRY }}
+          RELEASE_REGISTRY: ${{ vars.RELEASE_REGISTRY }}
+          HARBOR_USERNAME: ${{ secrets.HARBOR_USERNAME }}
+          HARBOR_PASSWORD: ${{ secrets.HARBOR_PASSWORD }}
+          GHCR_USERNAME: ${{ secrets.GHCR_USERNAME }}
+          GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
+          OUT_DIR: promotion
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          bash .github/scripts/promote-release.sh
+
+      - name: Release notes to the run summary
+        run: cat promotion/notes.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Keep the promotion output
+        uses: actions/upload-artifact@v4
+        with:
+          name: promotion
+          path: promotion/
+          retention-days: 30
+
+  quickstart:
+    needs: promote
+    if: ${{ !inputs.dry_run }}
+    uses: ./.github/workflows/quickstart.yaml
+    with:
+      chart_version: ${{ needs.promote.outputs.chart_version }}
+    secrets: inherit
+
+  release:
+    needs: [promote, quickstart]
+    if: ${{ !inputs.dry_run }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download the promotion output
+        uses: actions/download-artifact@v4
+        with:
+          name: promotion
+          path: promotion
+
+      - name: Create the GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # promotion/releases.tsv: tag, title, notes file (one release per line).
+          while IFS=$'\t' read -r tag title notes; do
+            if gh release view "${tag}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
+              echo "${tag} already has a release"
+              continue
+            fi
+            gh release create "${tag}" --repo "${GITHUB_REPOSITORY}" --verify-tag \
+              --title "${title}" --notes-file "promotion/${notes}"
+          done < promotion/releases.tsv

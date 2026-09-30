@@ -1,0 +1,33 @@
+# Tests for the release and promotion scripts. Not a release gate.
+name: CI Release Scripts
+
+on:
+  pull_request:
+    paths:
+      - '.github/scripts/**'
+      - '.github/actions/**'
+      - '.github/workflows/ci-release-scripts.yaml'
+  push:
+    branches-ignore: [main]
+    paths:
+      - '.github/scripts/**'
+      - '.github/actions/**'
+      - '.github/workflows/ci-release-scripts.yaml'
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: azure/setup-helm@v4
+        with:
+          version: 'v3.14.0'
+      - name: Shellcheck
+        run: shellcheck -x .github/scripts/*.sh
+      - name: Tests
+        run: |
+          bash .github/scripts/test-release-lib.sh
+          bash .github/scripts/test-promote-release.sh

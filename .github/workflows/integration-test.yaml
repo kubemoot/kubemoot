@@ -59,10 +59,16 @@ jobs:
           kubectl delete job kubemoot-test-smoke -n kubemoot --ignore-not-found
 
       - name: Run smoke test
-        # The public manifest pulls the test-runner from GHCR. In this cluster the same
-        # image is in Harbor, so rewrite the reference and attach the Harbor pull secret.
+        # The public manifest pulls the last released test-runner from GHCR. This cluster
+        # runs the release candidate the operator chart pins (verify.image), from Harbor,
+        # so rewrite the reference and attach the Harbor pull secret.
+        env:
+          REGISTRY: ${{ vars.REGISTRY }}
         run: |
-          sed -e 's#image: ghcr.io/kubemoot/test-runner#image: ${{ vars.REGISTRY }}/kubemoot/test-runner#' \
+          pin=$(sed -nE '/^verify:/,/^[^ #]/ s/^  image: (test-runner:[^ ]+)$/\1/p' operator/chart/kubemoot-operator/values.yaml)
+          [ -n "$pin" ] || { echo "no verify.image test-runner pin in the operator chart"; exit 1; }
+          echo "test-runner: ${REGISTRY}/kubemoot/${pin}"
+          sed -e "s#image: ghcr.io/kubemoot/test-runner:.*#image: ${REGISTRY}/kubemoot/${pin}#" \
               -e 's#^      serviceAccountName: kubemoot-verify-runner$#&\n      imagePullSecrets:\n        - name: harbor-pull-secret#' \
               k8s/tests/job/job-smoke.yaml | kubectl create -f -
 

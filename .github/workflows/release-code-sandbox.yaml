@@ -41,36 +41,21 @@ jobs:
           fetch-depth: 0
           fetch-tags: true
 
-      - name: Calculate semantic version
+      - name: Calculate the release candidate version
         id: version
-        uses: paulhatch/semantic-version@v6.0.2
+        uses: ./.github/actions/release-candidate-version
         with:
           tag_prefix: "code-sandbox-v"
-          major_pattern: "(BREAKING CHANGE|feat!|fix!)"
-          minor_pattern: "feat"
-          version_format: "${major}.${minor}.${patch}"
-          bump_each_commit: true
-          search_commit_body: true
-
-      - name: Check if release needed
-        id: check
-        run: |
-          if [ "${{ steps.version.outputs.changed }}" = "true" ] || [ "${{ inputs.force_release }}" = "true" ]; then
-            echo "release_created=true" >> $GITHUB_OUTPUT
-            echo "Will create release code-sandbox-v${{ steps.version.outputs.version }}"
-          else
-            echo "release_created=false" >> $GITHUB_OUTPUT
-            echo "Skipping release - no version-bumping commits since last tag"
-          fi
+          force: ${{ inputs.force_release }}
 
       - name: Install crane
-        if: steps.check.outputs.release_created == 'true'
+        if: steps.version.outputs.release_created == 'true'
         run: |
           curl -sL https://github.com/google/go-containerregistry/releases/download/v0.20.2/go-containerregistry_Linux_x86_64.tar.gz | tar -xzf - crane
           sudo mv crane /usr/local/bin/
 
       - name: Retag image with version
-        if: steps.check.outputs.release_created == 'true'
+        if: steps.version.outputs.release_created == 'true'
         env:
           HARBOR_USERNAME: ${{ secrets.HARBOR_USERNAME }}
           HARBOR_PASSWORD: ${{ secrets.HARBOR_PASSWORD }}
@@ -87,44 +72,15 @@ jobs:
             crane copy --insecure "${FULL_IMAGE}:latest" "${FULL_IMAGE}:${VERSION}"
           fi
 
-      - name: Publish image to the release registry
-        if: steps.check.outputs.release_created == 'true' && vars.RELEASE_REGISTRY != ''
-        env:
-          RELEASE_REGISTRY: ${{ vars.RELEASE_REGISTRY }}
-          GHCR_USERNAME: ${{ secrets.GHCR_USERNAME }}
-          GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
-          HARBOR_USERNAME: ${{ secrets.HARBOR_USERNAME }}
-          HARBOR_PASSWORD: ${{ secrets.HARBOR_PASSWORD }}
-        run: bash .github/scripts/publish-release-image.sh "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.version.outputs.version }}" "${{ steps.version.outputs.version }}"
-
       - name: Create and push tag
-        if: steps.check.outputs.release_created == 'true'
+        if: steps.version.outputs.release_created == 'true'
         run: |
           VERSION="${{ steps.version.outputs.version }}"
           TAG="code-sandbox-v$VERSION"
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           if ! git rev-parse "$TAG" >/dev/null 2>&1; then
-            git tag -a "$TAG" -m "Release Code Sandbox $TAG"
+            git tag -a "$TAG" -m "Release candidate Code Sandbox $TAG"
             git push origin "$TAG"
           fi
 
-      # The crews charts pin this image by version in their values; bump the pin
-      # after a release, as with artifact-access.
-
-      - name: Create GitHub Release
-        if: steps.check.outputs.release_created == 'true'
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: code-sandbox-v${{ steps.version.outputs.version }}
-          name: Kubemoot Code Sandbox v${{ steps.version.outputs.version }}
-          body: |
-            Kubemoot Code Sandbox v${{ steps.version.outputs.version }}
-
-            MCP stdio server that runs short Python or bash programs for a crew's
-            compute tooler, with no stdin, a time limit that kills the whole
-            process group, and capped output.
-
-            Container image: `${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.version.outputs.version }}`
-          draft: false
-          prerelease: false
