@@ -11,7 +11,7 @@ require (
 require (
 	github.com/google/jsonschema-go v0.4.3 // indirect
 	github.com/itchyny/timefmt-go v0.1.8 // indirect
-	github.com/klauspost/compress v1.18.5 // indirect
+	github.com/klauspost/compress v1.18.7 // indirect
 	github.com/nats-io/nkeys v0.4.15 // indirect
 	github.com/nats-io/nuid v1.0.1 // indirect
 	github.com/segmentio/asm v1.1.3 // indirect

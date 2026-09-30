@@ -47,3 +47,13 @@ AVD-DS-0026
 DS0002
 DS-0002
 AVD-DS-0002
+
+# --- golang.org/x/crypto/openpgp (GO-2026-5932) ---
+# The advisory covers only the golang.org/x/crypto/openpgp packages and has no
+# fixed version: it matches every x/crypto release, so a module-level scanner
+# flags any module that requires x/crypto at all. No Kubemoot module imports
+# openpgp (`go list -deps -test ./... | grep openpgp` is empty in every module,
+# and govulncheck, which checks the imported packages, reports nothing). x/crypto
+# stays because nats.go requires it through nkeys (curve25519), and it is already
+# at the latest release.
+GO-2026-5932
