@@ -252,6 +252,15 @@ func TestConsistencyOverrideUsedInBuild(t *testing.T) {
 	}
 }
 
+// gradeInput builds scenarioGrade's input in the rubric's positional order, with
+// consistency held at 100 (the grade tests vary the other measures).
+func gradeInput(quality, reliability, factuality, participation, efficiency, fabFraction float64) gradeMeasures {
+	return gradeMeasures{
+		quality: quality, reliability: reliability, factuality: factuality, fabFraction: fabFraction,
+		participation: participation, consistency: 100, efficiency: efficiency,
+	}
+}
+
 // TestGradeComposition checks the weighted-mean grade, including weight
 // normalization (weights need not sum to 1) and zeroing a measure out.
 // NOTE: these weights are deliberately NOT defaultRubricWeights() (participation
@@ -259,16 +268,16 @@ func TestConsistencyOverrideUsedInBuild(t *testing.T) {
 // production rubric. See TestParticipationWeightEnabled for the live weights.
 func TestGradeComposition(t *testing.T) {
 	w := rubricWeights{Quality: 0.45, Reliability: 0.25, Participation: 0, Consistency: 0.15, Efficiency: 0.15}
-	// scenarioGrade(quality, reliability, factuality, participation, consistency,
-	// efficiency, fabFraction, w). factuality=-1 (no facts authored) excludes the
+	// gradeInput(quality, reliability, factuality, participation, efficiency,
+	// fabFraction). factuality=-1 (no facts authored) excludes the
 	// term, so these legacy cases match the pre-factuality grade arithmetic.
 	// All measures 100 → grade 100 regardless of weights.
-	if got := scenarioGrade(100, 100, -1, 100, 100, 100, 0, w); !approx(got, 100) {
+	if got := scenarioGrade(gradeInput(100, 100, -1, 100, 100, 0), w); !approx(got, 100) {
 		t.Errorf("all-100 scenario grade = %v, want 100", got)
 	}
 	// Weight normalization (weights need not sum to 1): efficiency 0, rest 100 →
 	// (100*.45+100*.25+0+100*.15+0*.15)/(.45+.25+0+.15+.15) = 85/1.0 = 85.
-	if got := scenarioGrade(100, 100, -1, 100, 100, 0, 0, w); !approx(got, 85) {
+	if got := scenarioGrade(gradeInput(100, 100, -1, 100, 0, 0), w); !approx(got, 85) {
 		t.Errorf("efficiency-0 scenario grade = %v, want 85", got)
 	}
 	// Zero all weights → 0, no divide-by-zero.
@@ -277,23 +286,23 @@ func TestGradeComposition(t *testing.T) {
 	}
 	// Quality leads: a zero on quality (weight .45) drags the grade more than a
 	// zero on efficiency (weight .15).
-	lowQuality := scenarioGrade(0, 100, -1, 100, 100, 100, 0, w)
-	lowEfficiency := scenarioGrade(100, 100, -1, 100, 100, 0, 0, w)
+	lowQuality := scenarioGrade(gradeInput(0, 100, -1, 100, 100, 0), w)
+	lowEfficiency := scenarioGrade(gradeInput(100, 100, -1, 100, 0, 0), w)
 	if lowQuality >= lowEfficiency {
 		t.Errorf("low quality should hurt more than low efficiency: q=%v e=%v", lowQuality, lowEfficiency)
 	}
 	// Reliability counts: a scenario that fully passed (reliability 100) scores
 	// higher than one that didn't (reliability 0), all else equal.
-	hi := scenarioGrade(100, 100, -1, 100, 100, 100, 0, w)
-	lo := scenarioGrade(100, 0, -1, 100, 100, 100, 0, w)
+	hi := scenarioGrade(gradeInput(100, 100, -1, 100, 100, 0), w)
+	lo := scenarioGrade(gradeInput(100, 0, -1, 100, 100, 0), w)
 	if hi <= lo {
 		t.Errorf("reliability should raise the grade: reliable=%v unreliable=%v", hi, lo)
 	}
 	// Participation counts: weight it, and a crew that didn't deliberate
 	// (participation 0) scores below one that did, all else equal.
 	wp := rubricWeights{Quality: 0.40, Reliability: 0.20, Participation: 0.15, Consistency: 0.10, Efficiency: 0.15}
-	engaged := scenarioGrade(100, 100, -1, 100, 100, 100, 0, wp)
-	silent := scenarioGrade(100, 100, -1, 0, 100, 100, 0, wp)
+	engaged := scenarioGrade(gradeInput(100, 100, -1, 100, 100, 0), wp)
+	silent := scenarioGrade(gradeInput(100, 100, -1, 0, 100, 0), wp)
 	if engaged <= silent {
 		t.Errorf("participation should raise the grade: engaged=%v silent=%v", engaged, silent)
 	}
@@ -307,23 +316,23 @@ func TestGradeFactualityAndFabrication(t *testing.T) {
 
 	// Inert: factuality=-1 (no facts authored) gives the same grade as before, so
 	// existing scenarios are unaffected until they declare facts.
-	base := scenarioGrade(80, 100, -1, 100, 100, 100, 0, w)
-	withFactExcluded := scenarioGrade(80, 100, -1, 100, 100, 100, 0, w)
+	base := scenarioGrade(gradeInput(80, 100, -1, 100, 100, 0), w)
+	withFactExcluded := scenarioGrade(gradeInput(80, 100, -1, 100, 100, 0), w)
 	if !approx(base, withFactExcluded) {
 		t.Errorf("factuality=-1 must be inert: %v vs %v", base, withFactExcluded)
 	}
 
 	// Once authored, a factual answer (100) outscores a false one (0), all else equal.
-	factual := scenarioGrade(80, 100, 100, 100, 100, 100, 0, w)
-	false0 := scenarioGrade(80, 100, 0, 100, 100, 100, 0, w)
+	factual := scenarioGrade(gradeInput(80, 100, 100, 100, 100, 0), w)
+	false0 := scenarioGrade(gradeInput(80, 100, 0, 100, 100, 0), w)
 	if factual <= false0 {
 		t.Errorf("high factuality should raise the grade: factual=%v false=%v", factual, false0)
 	}
 
 	// A fabrication (forbidden claim asserted) heavily discounts the grade but does
 	// NOT zero it (penalize, not hard-fail): the floor keeps >= 35% of the base.
-	clean := scenarioGrade(80, 100, 100, 100, 100, 100, 0, w)
-	fabricated := scenarioGrade(80, 100, 100, 100, 100, 100, 1, w)
+	clean := scenarioGrade(gradeInput(80, 100, 100, 100, 100, 0), w)
+	fabricated := scenarioGrade(gradeInput(80, 100, 100, 100, 100, 1), w)
 	if fabricated >= clean {
 		t.Errorf("fabrication must discount the grade: clean=%v fabricated=%v", clean, fabricated)
 	}

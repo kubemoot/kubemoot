@@ -496,16 +496,16 @@ func weightedGrade(terms ...gradeTerm) float64 {
 // grade unchanged until facts are authored. fabFraction is the fraction of the
 // scenario's runs that asserted a forbidden/stale fact; it applies a heavy (not
 // fatal) multiplicative penalty so a confident fabrication cannot grade well.
-func scenarioGrade(quality, reliability, factuality, participation, consistency, meanEfficiency, fabFraction float64, w rubricWeights) float64 {
+func scenarioGrade(m gradeMeasures, w rubricWeights) float64 {
 	terms := []gradeTerm{
-		{quality, w.Quality},
-		{reliability, w.Reliability},
-		{participation, w.Participation},
-		{consistency, w.Consistency},
-		{meanEfficiency, w.Efficiency},
+		{m.quality, w.Quality},
+		{m.reliability, w.Reliability},
+		{m.participation, w.Participation},
+		{m.consistency, w.Consistency},
+		{m.efficiency, w.Efficiency},
 	}
-	if factuality >= 0 { // known: scenario authored fact assertions
-		terms = append(terms, gradeTerm{factuality, w.Factuality})
+	if m.factuality >= 0 { // known: scenario authored fact assertions
+		terms = append(terms, gradeTerm{m.factuality, w.Factuality})
 	}
-	return weightedGrade(terms...) * fabricationPenalty(fabFraction)
+	return weightedGrade(terms...) * fabricationPenalty(m.fabFraction)
 }

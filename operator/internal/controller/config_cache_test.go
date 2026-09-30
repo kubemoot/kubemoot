@@ -31,62 +31,67 @@ import (
 	kubemootv1alpha1 "github.com/kubemoot/kubemoot/operator/api/v1alpha1"
 )
 
-func TestConfigCache_Prime(t *testing.T) {
+// testPullSecret is the image pull secret name the config tests configure.
+const testPullSecret = "mirror-pull-secret"
+
+// primeScheme is a scheme that knows the Kubemoot API types.
+func primeScheme(t *testing.T) *runtime.Scheme {
+	t.Helper()
 	scheme := runtime.NewScheme()
 	if err := kubemootv1alpha1.AddToScheme(scheme); err != nil {
 		t.Fatal(err)
 	}
-	ctx := context.Background()
+	return scheme
+}
 
-	t.Run("no KubemootConfig keeps fallbacks", func(t *testing.T) {
-		cache := NewConfigCache()
-		reader := fake.NewClientBuilder().WithScheme(scheme).Build()
-		if err := cache.Prime(ctx, reader); err != nil {
-			t.Fatalf("missing config must not be an error, got %v", err)
-		}
-		if cache.GetConfig() != nil {
-			t.Errorf("cache must stay empty without a config")
-		}
-	})
+func TestConfigCache_Prime_NoConfigKeepsFallbacks(t *testing.T) {
+	cache := NewConfigCache()
+	reader := fake.NewClientBuilder().WithScheme(primeScheme(t)).Build()
+	if err := cache.Prime(context.Background(), reader); err != nil {
+		t.Fatalf("missing config must not be an error, got %v", err)
+	}
+	if cache.GetConfig() != nil {
+		t.Errorf("cache must stay empty without a config")
+	}
+}
 
-	t.Run("existing default config is loaded", func(t *testing.T) {
-		cache := NewConfigCache()
-		cfg := &kubemootv1alpha1.KubemootConfig{
-			ObjectMeta: metav1.ObjectMeta{Name: DefaultKubemootConfigName},
-			Spec: kubemootv1alpha1.KubemootConfigSpec{
-				Images: kubemootv1alpha1.ImageConfig{AgentRuntime: "registry.example/agent-runtime:1.2.3"},
-				Defaults: kubemootv1alpha1.DefaultConfig{
-					ImagePullSecrets: []corev1.LocalObjectReference{{Name: "mirror-pull-secret"}},
-				},
+func TestConfigCache_Prime_LoadsTheDefaultConfig(t *testing.T) {
+	cache := NewConfigCache()
+	cfg := &kubemootv1alpha1.KubemootConfig{
+		ObjectMeta: metav1.ObjectMeta{Name: DefaultKubemootConfigName},
+		Spec: kubemootv1alpha1.KubemootConfigSpec{
+			Images: kubemootv1alpha1.ImageConfig{AgentRuntime: "registry.example/agent-runtime:1.2.3"},
+			Defaults: kubemootv1alpha1.DefaultConfig{
+				ImagePullSecrets: []corev1.LocalObjectReference{{Name: testPullSecret}},
 			},
-		}
-		reader := fake.NewClientBuilder().WithScheme(scheme).WithObjects(cfg).Build()
-		if err := cache.Prime(ctx, reader); err != nil {
-			t.Fatal(err)
-		}
-		if got := cache.GetAgentRuntimeImage(); got != "registry.example/agent-runtime:1.2.3" {
-			t.Errorf("image not primed, got %q", got)
-		}
-		if got := cache.GetImagePullSecrets(); len(got) != 1 || got[0].Name != "mirror-pull-secret" {
-			t.Errorf("pull secrets not primed, got %v", got)
-		}
-	})
+		},
+	}
+	reader := fake.NewClientBuilder().WithScheme(primeScheme(t)).WithObjects(cfg).Build()
+	if err := cache.Prime(context.Background(), reader); err != nil {
+		t.Fatal(err)
+	}
+	if got := cache.GetAgentRuntimeImage(); got != "registry.example/agent-runtime:1.2.3" {
+		t.Errorf("image not primed, got %q", got)
+	}
+	if got := cache.GetImagePullSecrets(); len(got) != 1 || got[0].Name != testPullSecret {
+		t.Errorf("pull secrets not primed, got %v", got)
+	}
+}
 
-	t.Run("other read errors are returned", func(t *testing.T) {
-		cache := NewConfigCache()
-		boom := errors.New("api server unavailable")
-		reader := fake.NewClientBuilder().WithScheme(scheme).WithInterceptorFuncs(interceptor.Funcs{
-			Get: func(context.Context, client.WithWatch, client.ObjectKey, client.Object, ...client.GetOption) error {
-				return boom
-			},
-		}).Build()
-		if err := cache.Prime(ctx, reader); !errors.Is(err, boom) {
-			t.Errorf("want the read error surfaced, got %v", err)
-		}
-		if cache.GetConfig() != nil {
-			t.Errorf("cache must stay empty after a failed read")
-		}
-	})
+func TestConfigCache_Prime_ReturnsOtherReadErrors(t *testing.T) {
+	cache := NewConfigCache()
+	boom := errors.New("api server unavailable")
+	reader := fake.NewClientBuilder().WithScheme(primeScheme(t)).WithInterceptorFuncs(interceptor.Funcs{
+		Get: func(context.Context, client.WithWatch, client.ObjectKey, client.Object, ...client.GetOption) error {
+			return boom
+		},
+	}).Build()
+	if err := cache.Prime(context.Background(), reader); !errors.Is(err, boom) {
+		t.Errorf("want the read error surfaced, got %v", err)
+	}
+	if cache.GetConfig() != nil {
+		t.Errorf("cache must stay empty after a failed read")
+	}
 }
 
 func TestConfigCache_ImageGetters_Fallback(t *testing.T) {

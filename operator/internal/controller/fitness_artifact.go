@@ -600,7 +600,10 @@ func (a *scenarioAcc) toStat(s string, consistency, judgeQuality map[string]floa
 		meanCorrectness: mc, meanAdherence: ma, meanEfficiency: me,
 		reliability: rel, participation: part, selectivity: sel, consistency: cons, quality: q,
 		factuality: fact, fabFraction: fabFrac,
-		grade: scenarioGrade(q, rel, fact, part, cons, me, fabFrac, w),
+		grade: scenarioGrade(gradeMeasures{
+			quality: q, reliability: rel, factuality: fact, fabFraction: fabFrac,
+			participation: part, consistency: cons, efficiency: me,
+		}, w),
 	}
 }
 
@@ -616,17 +619,22 @@ func meanFloat(xs []float64) float64 {
 	return sum / float64(len(xs))
 }
 
-// crewScore holds the crew-level mean of each sub-score (each scenario weighted
-// equally, so a flaky niche scenario doesn't drown in a high-volume one).
-type crewScore struct {
+// gradeMeasures are the graded rubric measures scenarioGrade composes, for one
+// scenario or as crew-level means.
+type gradeMeasures struct {
 	quality       float64
 	reliability   float64
-	factuality    float64 // mean over scenarios that authored facts; -1 if none did
-	fabFraction   float64 // mean fabrication fraction across scenarios
+	factuality    float64 // -1 when no fact assertions were authored (excluded from the grade)
+	fabFraction   float64 // fraction of runs that asserted a forbidden/stale fact
 	participation float64
 	consistency   float64
 	efficiency    float64
 }
+
+// crewScore holds the crew-level mean of each sub-score (each scenario weighted
+// equally, so a flaky niche scenario doesn't drown in a high-volume one).
+// Crew factuality is the mean over scenarios that authored facts, -1 if none did.
+type crewScore gradeMeasures
 
 // crewMeans averages each graded measure across scenarios. Factuality averages
 // only over scenarios that authored fact assertions (the rest carry -1); if none
@@ -767,7 +775,7 @@ func scorecardMeasures(w rubricWeights, means crewScore) []scorecardMeasure {
 
 // crewGradeFromMeans applies the rubric weights to already-computed crew means.
 func crewGradeFromMeans(m crewScore, w rubricWeights) float64 {
-	return scenarioGrade(m.quality, m.reliability, m.factuality, m.participation, m.consistency, m.efficiency, m.fabFraction, w)
+	return scenarioGrade(gradeMeasures(m), w)
 }
 
 // writeScenariosSheet writes the per-scenario aggregate table. sample_count,

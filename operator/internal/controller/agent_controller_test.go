@@ -35,12 +35,12 @@ func TestAgentReconciler_ImagePullSecrets(t *testing.T) {
 	configured.Update(&kubemootv1alpha1.KubemootConfig{
 		Spec: kubemootv1alpha1.KubemootConfigSpec{
 			Defaults: kubemootv1alpha1.DefaultConfig{
-				ImagePullSecrets: []corev1.LocalObjectReference{{Name: "mirror-pull-secret"}},
+				ImagePullSecrets: []corev1.LocalObjectReference{{Name: testPullSecret}},
 			},
 		},
 	})
 	got := (&AgentReconciler{ConfigCache: configured}).imagePullSecrets()
-	if len(got) != 1 || got[0].Name != "mirror-pull-secret" {
+	if len(got) != 1 || got[0].Name != testPullSecret {
 		t.Errorf("configured pull secret not propagated to agent pods, got %v", got)
 	}
 }
