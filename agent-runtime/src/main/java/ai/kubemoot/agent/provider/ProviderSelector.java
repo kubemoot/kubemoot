@@ -406,15 +406,21 @@ public class ProviderSelector {
         for (ProviderState p : states) {
             if (!p.ready() || isCircuitOpen(p.name())) continue;
             for (String m : models) {
-                if (!ContextFit.holds(p, m, promptTokens)) continue;
-                if (!p.hasModelLoaded(m) && !ticketManager.activeModelsOn(p.name()).contains(m)) continue;
-                double wait = driver.expectedWaitSeconds(p, elapsedSeconds(p, now), callSeconds(p));
-                if (best == null || wait < best.waitSeconds()) {
-                    best = new PlacementCostModel.QueueOption(m, p.name(), wait);
+                if (queueable(p, m, promptTokens)) {
+                    double wait = driver.expectedWaitSeconds(p, elapsedSeconds(p, now), callSeconds(p));
+                    if (best == null || wait < best.waitSeconds()) {
+                        best = new PlacementCostModel.QueueOption(m, p.name(), wait);
+                    }
                 }
             }
         }
         return Optional.ofNullable(best);
+    }
+
+    /** A call can queue for {@code model} on {@code p}: its context holds the prompt and a copy is loaded or loading. */
+    private boolean queueable(ProviderState p, String model, long promptTokens) {
+        return ContextFit.holds(p, model, promptTokens)
+                && (p.hasModelLoaded(model) || ticketManager.activeModelsOn(p.name()).contains(model));
     }
 
     private List<Double> elapsedSeconds(ProviderState p, long nowMs) {

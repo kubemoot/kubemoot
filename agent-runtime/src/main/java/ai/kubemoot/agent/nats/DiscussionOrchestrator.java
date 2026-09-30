@@ -22,6 +22,7 @@ import java.time.Instant;
 import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * Signal-driven discussion facilitator with early phase transitions.
@@ -277,17 +278,17 @@ public class DiscussionOrchestrator {
     // One reload at a time: the catalog, its revision, and the known agent and skill
     // names change together, so concurrent discussions never pair one with another's.
     private final Object crewResumesLock = new Object();
-    private volatile List<String> knownAgentNames = new CopyOnWriteArrayList<>();
-    private volatile List<String> knownSkillNames = new CopyOnWriteArrayList<>();
+    private final AtomicReference<List<String>> knownAgentNames = new AtomicReference<>(List.of());
+    private final AtomicReference<List<String>> knownSkillNames = new AtomicReference<>(List.of());
 
     /** Package-private: inject known agent names for unit tests without file I/O. */
     void loadKnownAgentNamesForTest(List<String> names) {
-        knownAgentNames = new CopyOnWriteArrayList<>(names);
+        knownAgentNames.set(List.copyOf(names));
     }
 
     /** Package-private: inject known skill names for unit tests without file I/O. */
     void loadKnownSkillNamesForTest(List<String> names) {
-        knownSkillNames = new CopyOnWriteArrayList<>(names);
+        knownSkillNames.set(List.copyOf(names));
     }
 
     /** Package-private: register a pending result future so a unit test can observe completion. */
@@ -850,7 +851,7 @@ public class DiscussionOrchestrator {
     // Visible for testing
     static void recordCapacityReason(ThreadState state, String agentName, JsonNode msg) {
         JsonNode meta = msg == null ? null : msg.path(FIELD_METADATA);
-        String reason = meta == null ? "" : meta.path("reason").asText("");
+        String reason = meta == null ? "" : meta.path(FIELD_REASON).asText("");
         if (!CAPACITY_REASONS.contains(reason)) {
             return;
         }
@@ -1490,7 +1491,7 @@ public class DiscussionOrchestrator {
      * See B0 in [[Crew Evasion - Answer From Available Data]].
      */
     private List<String> withAlwaysCandidates(List<String> ranked) {
-        return unionAlwaysCandidates(ranked, alwaysCandidateNames(), knownAgentNames);
+        return unionAlwaysCandidates(ranked, alwaysCandidateNames(), knownAgentNames.get());
     }
 
     /** Comma-separated always-candidate agent names from config, trimmed and non-empty. */
@@ -1522,9 +1523,10 @@ public class DiscussionOrchestrator {
         var result = new ArrayList<String>(ranked == null ? List.of() : ranked);
         boolean validate = knownNames != null && !knownNames.isEmpty();
         for (var name : extras) {
-            if (result.contains(name)) continue;
-            if (validate && !knownNames.contains(name)) continue;
-            result.add(name);
+            boolean admissible = !validate || knownNames.contains(name);
+            if (admissible && !result.contains(name)) {
+                result.add(name);
+            }
         }
         return result;
     }
@@ -1534,12 +1536,13 @@ public class DiscussionOrchestrator {
      * Returns only names that appear in the known list. Preserves order.
      */
     private List<String> validateAgentNamesList(List<String> names) {
-        if (knownAgentNames == null || knownAgentNames.isEmpty()) {
+        var known = knownAgentNames.get();
+        if (known.isEmpty()) {
             return names;
         }
         var validated = new ArrayList<String>();
         for (var name : names) {
-            if (knownAgentNames.contains(name)) {
+            if (known.contains(name)) {
                 validated.add(name);
             } else {
                 log.warn("Reasoning selected unknown agent '{}' - dropping (hallucinated name)", name);
@@ -1570,12 +1573,13 @@ public class DiscussionOrchestrator {
      * Returns only names present in the known set. Preserves order.
      */
     private List<String> validateSkillNamesList(List<String> names) {
-        if (knownSkillNames == null || knownSkillNames.isEmpty()) {
+        var known = knownSkillNames.get();
+        if (known.isEmpty()) {
             return names;
         }
         var validated = new ArrayList<String>();
         for (var name : names) {
-            if (knownSkillNames.contains(name)) {
+            if (known.contains(name)) {
                 validated.add(name);
             } else {
                 log.warn("Coordinator selected unknown skill '{}' - dropping (hallucinated name)", name);
@@ -1954,37 +1958,39 @@ public class DiscussionOrchestrator {
      * workloads table or a stray prose "table".
      */
     static List<List<String>> expectedItemTables(String content) {
-        var tables = new ArrayList<List<String>>();
-        if (content == null) {
-            return tables;
+        var scan = new ItemTableScan();
+        if (content != null) {
+            for (String raw : content.split("\n")) {
+                scan.accept(raw.strip());
+            }
         }
-        List<String> current = null;
-        int nameIdx = -1;
-        for (String raw : content.split("\n")) {
-            String line = raw.strip();
-            if (line.isEmpty()) {
-                nameIdx = -1; // a table is contiguous; a blank line ends it (prose follows)
-                current = null;
-                continue;
-            }
+        return scan.tables;
+    }
+
+    /** Line-by-line state for expectedItemTables: the table being read and its NAME column. */
+    private static final class ItemTableScan {
+        final List<List<String>> tables = new ArrayList<>();
+        private List<String> current;
+        private int nameIdx = -1;
+
+        void accept(String line) {
             if (isBracketMarker(line)) {
-                continue; // a "[tool]" section marker precedes the header
+                return; // a "[tool]" section marker precedes the header
             }
-            int idx = nameColumnIndex(line);
+            int idx = line.isEmpty() ? -1 : nameColumnIndex(line);
             if (idx >= 0) {
                 nameIdx = idx;
                 current = new ArrayList<>();
                 tables.add(current);
-                continue;
-            }
-            if (isAllCapsLine(line)) {
-                nameIdx = -1; // a header without a NAME column ends the current table
+            } else if (line.isEmpty() || isAllCapsLine(line)) {
+                // A table is contiguous: a blank line (prose follows) or a header
+                // without a NAME column ends the current table.
+                nameIdx = -1;
                 current = null;
-                continue;
+            } else {
+                addDataName(current, nameIdx, line);
             }
-            addDataName(current, nameIdx, line);
         }
-        return tables;
     }
 
     /** A line that is a single "[tool]" bracket marker preceding a table. */
@@ -2337,10 +2343,6 @@ public class DiscussionOrchestrator {
     }
 
     /**
-     * Build a fallback response from tooler agrees, or a generic error message.
-     */
-    // Visible for testing
-    /**
      * The answer when the synthesis call failed: the fallback, naming a synthesis
      * prompt larger than every GPU's context window when that was the cause.
      */
@@ -2349,6 +2351,10 @@ public class DiscussionOrchestrator {
         return buildFallbackResponse(state);
     }
 
+    /**
+     * Build a fallback response from tooler agrees, or a generic error message.
+     */
+    // Visible for testing
     String buildFallbackResponse(ThreadState state) {
         if (!state.agreeSignals.isEmpty()) {
             var fb = new StringBuilder(state.synthesisPromptTooLarge ? SYNTHESIS_TOO_LARGE_PREFIX : "");
@@ -2795,7 +2801,7 @@ public class DiscussionOrchestrator {
         sb.append("Follow your instructions and respond with one JSON object, no markdown fences:\n");
         // The skills field is offered only when the crew actually has skills, so a
         // crew with zero skills sees a coordinator prompt byte-identical to baseline.
-        if (knownSkillNames.isEmpty()) {
+        if (knownSkillNames.get().isEmpty()) {
             sb.append("{\"selected\": [agent names], \"brief\": \"...\", \"technologies\": [...]}");
         } else {
             sb.append("{\"selected\": [agent names], \"brief\": \"...\", \"technologies\": [...], \"skills\": [skill names or empty]}");
@@ -3137,7 +3143,7 @@ public class DiscussionOrchestrator {
             }
         }
         if (!names.isEmpty()) {
-            knownAgentNames = new CopyOnWriteArrayList<>(names);
+            knownAgentNames.set(List.copyOf(names));
         }
         return names;
     }
@@ -3220,12 +3226,13 @@ public class DiscussionOrchestrator {
      * Drops hallucinated names that don't match any real agent.
      */
     private List<TriageResult.SelectedAgent> validateAgentNames(List<TriageResult.SelectedAgent> agents) {
-        if (knownAgentNames == null || knownAgentNames.isEmpty()) {
+        var known = knownAgentNames.get();
+        if (known.isEmpty()) {
             return agents; // Can't validate without known names
         }
         var validated = new ArrayList<TriageResult.SelectedAgent>();
         for (var agent : agents) {
-            if (knownAgentNames.contains(agent.name())) {
+            if (known.contains(agent.name())) {
                 validated.add(agent);
             } else {
                 log.warn("Triage selected unknown agent '{}' — dropping (hallucinated name)", agent.name());
@@ -3301,7 +3308,7 @@ public class DiscussionOrchestrator {
             crewResumesCache = raw;
             crewResumesRevision = entry.getRevision();
             log.info("{} crew capability catalog for '{}' from NATS KV ({} agents, revision {})",
-                    reload ? "Reloaded" : "Loaded", crew, knownAgentNames.size(), crewResumesRevision);
+                    reload ? "Reloaded" : "Loaded", crew, knownAgentNames.get().size(), crewResumesRevision);
             return crewResumesCache;
         } catch (Exception e) {
             log.warn("Failed to load crew capability catalog for '{}' from KV: {}", crew, e.getMessage());
@@ -3309,13 +3316,6 @@ public class DiscussionOrchestrator {
         }
     }
 
-    /**
-     * Compact a full crew-resumes JSON array (each entry carries the agent's bulky
-     * prompt) into a lean coordinator-reasoning catalog: one line per agent with
-     * name, optional role, description, and tools. Dropping the per-agent prompt
-     * keeps the catalog small enough to reason over without degrading tool
-     * selection. readTree only - never records/readValue (GraalVM native).
-     */
     /**
      * The capability catalog the coordinator reasons over: narrowed to the pre-filter
      * candidate agents when the resume search ranked some, or the full crew when it
@@ -3328,6 +3328,13 @@ public class DiscussionOrchestrator {
                 : compactCatalog(rawResumes);
     }
 
+    /**
+     * Compact a full crew-resumes JSON array (each entry carries the agent's bulky
+     * prompt) into a lean coordinator-reasoning catalog: one line per agent with
+     * name, optional role, description, and tools. Dropping the per-agent prompt
+     * keeps the catalog small enough to reason over without degrading tool
+     * selection. readTree only - never records/readValue (GraalVM native).
+     */
     String compactCatalog(String rawJson) {
         return compactCatalog(rawJson, null);
     }
@@ -3439,8 +3446,8 @@ public class DiscussionOrchestrator {
                     agentNames.add(name);
                 }
             }
-            knownAgentNames = new CopyOnWriteArrayList<>(agentNames);
-            knownSkillNames = new CopyOnWriteArrayList<>(skillNames);
+            knownAgentNames.set(List.copyOf(agentNames));
+            knownSkillNames.set(List.copyOf(skillNames));
             log.info("Extracted {} known agent names and {} known skill names from crew capability catalog",
                     agentNames.size(), skillNames.size());
         } catch (Exception e) {

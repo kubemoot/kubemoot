@@ -38,6 +38,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * Chat service that orchestrates LLM interactions with RAG, MCP tools,
@@ -108,7 +109,12 @@ public class ChatService {
     // Tool specs + executors cached after init
     private final McpClientService mcpClient;
     /** The agent's MCP tools, swapped as one value so readers never see a half-updated set. */
-    private volatile ToolSet tools;
+    private final AtomicReference<ToolSet> toolSet = new AtomicReference<>();
+
+    /** The current tool set; one read, so a caller works with a single consistent snapshot. */
+    private ToolSet tools() {
+        return toolSet.get();
+    }
     /** This agent's characters per prompt token, learned from the engine's reported prompt sizes. */
     private final CharsPerToken charsPerToken = new CharsPerToken();
 
@@ -175,11 +181,11 @@ public class ChatService {
         // and exposed uniformly to the agent — scheduling, kubernetes, proxmox, etc.
         // all use the same MCP path. No built-in tools live in agent-runtime.
         this.mcpClient = mcpClient;
-        this.tools = ToolSet.of(mcpClient.getToolSpecifications());
+        toolSet.set(ToolSet.of(mcpClient.getToolSpecifications()));
 
         boolean discussionEnabled = discussionOrchestrator != null && discussionOrchestrator.isEnabled();
         log.info("Chat service initialized: {} MCP tools, discussion={} for agent: {}",
-                tools.specs().size(), discussionEnabled, properties.agentName());
+                tools().specs().size(), discussionEnabled, properties.agentName());
     }
 
     public ChatResult chat(ChatRequest request) {
@@ -284,7 +290,7 @@ public class ChatService {
         // char count so the predictor can gate against in-flight + this-call
         // KV pressure. Crude chars/4 with a safety pad; tighter accuracy
         // via real tokenizer comes in Phase D2 (operator /api/show probe).
-        int promptCharCount = PromptSize.chars(messages, tools.specs());
+        int promptCharCount = PromptSize.chars(messages, tools().specs());
         MullingPick pick = pickMullingChatModel(promptCharCount, wait, request.discussionThreadId());
         String providerName = pick.providerName();
         // Outbound wire trace: the exact model + endpoint this call will send to
@@ -436,7 +442,7 @@ public class ChatService {
      * still get JIT selection via this overload.
      */
     ToolLoopResult callWithToolLoop(List<ChatMessage> messages) {
-        MullingPick pick = pickMullingChatModel(PromptSize.chars(messages, tools.specs()));
+        MullingPick pick = pickMullingChatModel(PromptSize.chars(messages, tools().specs()));
         try {
             // Legacy/test entry defaults to reasoning behavior (no raw output);
             // the tooler raw-output contract is opt-in via the 5-arg overload.
@@ -559,7 +565,7 @@ public class ChatService {
         if (contextLength <= 0) {
             return java.util.Optional.empty();
         }
-        long next = PromptSize.nextPromptTokens(state.allMessages, tools.specs(),
+        long next = PromptSize.nextPromptTokens(state.allMessages, tools().specs(),
                 state.lastPromptTokens, state.lastReplyTokens, state.messagesAtLastCall, charsPerToken);
         if (next <= contextLength) {
             return java.util.Optional.empty();
@@ -602,7 +608,7 @@ public class ChatService {
      */
     private AiMessage invokeModelForLoop(ChatModel modelForThisCall, ToolLoopState state) {
         ChatResponse response;
-        var toolSpecList = tools.specs();
+        var toolSpecList = tools().specs();
         int sentChars = PromptSize.chars(state.allMessages, toolSpecList);
         if (toolSpecList.isEmpty()) {
             response = modelForThisCall.chat(dev.langchain4j.model.chat.request.ChatRequest.builder()
@@ -775,7 +781,7 @@ public class ChatService {
      *  in this agent's tool set, so it CAN resolve a wrong metric name. A query-only
      *  specialist without one is exempt from the drill contract. */
     private boolean discoveryToolAvailable() {
-        for (var spec : tools.specs()) {
+        for (var spec : tools().specs()) {
             if (METRIC_DISCOVERY_TOOLS.contains(spec.name())) {
                 return true;
             }
@@ -1006,18 +1012,18 @@ public class ChatService {
         }
     }
 
-    /**
-     * Build the result when the loop exhausts its iteration budget. If a tooler
-     * gathered raw output, post it as the contribution (the Analyst/Coordinator
-     * turn it into an answer) rather than failing outright; otherwise throw
-     * ITERATIONS_EXHAUSTED.
-     */
     /** A tooler's contribution: the raw output of the tools it ran, with the loop's token totals. */
     private static ToolLoopResult rawOutputResult(ToolLoopState state, String providerName, String pickReason) {
         return new ToolLoopResult(state.toolOutput.toString().strip(),
                 state.totalInput, state.totalOutput, providerName, pickReason);
     }
 
+    /**
+     * Build the result when the loop exhausts its iteration budget. If a tooler
+     * gathered raw output, post it as the contribution (the Analyst/Coordinator
+     * turn it into an answer) rather than failing outright; otherwise throw
+     * ITERATIONS_EXHAUSTED.
+     */
     private ToolLoopResult exhaustedIterationsResult(ToolLoopState state, int maxIterations,
             boolean toolerRawOutput, String providerName, String pickReason) {
         if (toolerRawOutput && state.toolsExecuted && state.toolOutput.length() > 0) {
@@ -1263,8 +1269,8 @@ public class ChatService {
         if (fallback.isPresent()) {
             return fallback.get();
         }
-        // staticFallbackPick returns present whenever providerSelector is null;
-        // the explicit guard keeps the dereferences below locally provable.
+        // staticFallbackPick is always present when providerSelector is null, and
+        // this explicit guard keeps the dereferences below locally provable.
         if (providerSelector == null) {
             return new MullingPick(chatModel, "", java.util.Optional.empty(),
                     STATIC_FALLBACK, staticModel, staticEndpoint, 0L);
@@ -1448,7 +1454,7 @@ public class ChatService {
             return PLAN_PROMPT_CHARS;
         }
         String system = loadSystemPrompt();
-        long chars = (system == null ? 0 : system.length()) + PromptSize.chars(List.of(), tools.specs())
+        long chars = (system == null ? 0 : system.length()) + PromptSize.chars(List.of(), tools().specs())
                 + (long) conversation.length();
         return (int) Math.min(chars, Integer.MAX_VALUE);
     }
@@ -1491,15 +1497,6 @@ public class ChatService {
     }
 
     /**
-     * Placement with no provider state in NATS (degraded window). The direct
-     * prober checks each endpoint for one that passes the VRAM fit gate; it is
-     * used when found. Empty when none fits: without provider VRAM data the
-     * runtime cannot tell a busy cluster from a model that never fits, so the
-     * caller treats it as busy and waits for provider state to return. With no
-     * prober, the static endpoint is the last resort. See [[JIT Fit-Gate Degraded
-     * Mode Can Spill]].
-     */
-    /**
      * Why there is no provider state: the NATS read failed (with its error), or the
      * bucket had no current entries.
      */
@@ -1509,6 +1506,15 @@ public class ChatService {
                         .orElse("no provider state published");
     }
 
+    /**
+     * Placement with no provider state in NATS (degraded window). The direct
+     * prober checks each endpoint for one that passes the VRAM fit gate; it is
+     * used when found. Empty when none fits: without provider VRAM data the
+     * runtime cannot tell a busy cluster from a model that never fits, so the
+     * caller treats it as busy and waits for provider state to return. With no
+     * prober, the static endpoint is the last resort. See [[JIT Fit-Gate Degraded
+     * Mode Can Spill]].
+     */
     private java.util.Optional<MullingPick> degradedMullingPick(String modelName, String staticEndpoint,
                                                                 long coldLoadFootprintMiB) {
         if (directProber == null) {
@@ -1566,7 +1572,7 @@ public class ChatService {
     }
 
     private ToolExecutor findExecutor(String toolName) {
-        for (var entry : tools.executors().entrySet()) {
+        for (var entry : tools().executors().entrySet()) {
             if (entry.getKey().name().equals(toolName)) {
                 return entry.getValue();
             }
@@ -2012,14 +2018,15 @@ public class ChatService {
         if (mcpClient == null || !mcpClient.refreshGatewayToolsIfStale()) {
             return;
         }
-        this.tools = ToolSet.of(mcpClient.getToolSpecifications());
-        log.info("Tools refreshed for agent {}: {} MCP tools", properties.agentName(), tools.specs().size());
+        var refreshed = ToolSet.of(mcpClient.getToolSpecifications());
+        toolSet.set(refreshed);
+        log.info("Tools refreshed for agent {}: {} MCP tools", properties.agentName(), refreshed.specs().size());
     }
 
     /** Returns the list of available tool names (for triage prompt context). */
     public List<String> getToolNames() {
         refreshTools();
-        return tools.specs().stream().map(dev.langchain4j.agent.tool.ToolSpecification::name).toList();
+        return tools().specs().stream().map(dev.langchain4j.agent.tool.ToolSpecification::name).toList();
     }
 
     public void clearConversation(String conversationId) {

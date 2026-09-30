@@ -73,6 +73,8 @@ public class DiscussionSubscriber {
     private static final String FIELD_CHANNEL = "channel";
     private static final String FIELD_TIMESTAMP = "timestamp";
     private static final String FIELD_METADATA = "metadata";
+    private static final String FIELD_MODEL = "model";
+    private static final String FIELD_INNER_CIRCLE = "innerCircle";
 
     // Artifact spill: a contribution larger than this is written to the NATS
     // Object Store and replaced inline with a preview + reference, so bulk data
@@ -782,7 +784,7 @@ public class DiscussionSubscriber {
     // Visible for testing
     static Map<String, Object> noFitMetadata(ai.kubemoot.agent.provider.NoFitException nfe) {
         return Map.of("reason", nfe.reason(),
-                "model", nfe.model(),
+                FIELD_MODEL, nfe.model(),
                 "predictorReason", nfe.predictorReason() == null ? "" : nfe.predictorReason());
     }
 
@@ -820,13 +822,13 @@ public class DiscussionSubscriber {
         public void onWaiting(String model) {
             publishSignal(subject, threadId, SIGNAL_WAITING, "Waiting for a GPU with room for " + model,
                     0, System.currentTimeMillis(), 0, 0, gpuLabel,
-                    Map.of("model", model, "reason", ai.kubemoot.agent.provider.NoFitException.REASON_GPU_BUSY));
+                    Map.of(FIELD_MODEL, model, "reason", ai.kubemoot.agent.provider.NoFitException.REASON_GPU_BUSY));
         }
 
         @Override
         public void onCapacity(String model) {
             publishSignal(subject, threadId, SIGNAL_EVALUATING, "Running tool-calling evaluation",
-                    0, System.currentTimeMillis(), 0, 0, gpuLabel, Map.of("model", model));
+                    0, System.currentTimeMillis(), 0, 0, gpuLabel, Map.of(FIELD_MODEL, model));
         }
 
         @Override
@@ -881,7 +883,7 @@ public class DiscussionSubscriber {
         var meta = new HashMap<String, Object>();
         meta.put("provider", result.providerName());
         if (result.model() != null && !result.model().isEmpty()) {
-            meta.put("model", result.model());
+            meta.put(FIELD_MODEL, result.model());
         }
         if (result.pickReason() != null && !result.pickReason().isEmpty()) {
             meta.put("pickReason", result.pickReason());
@@ -1340,9 +1342,9 @@ public class DiscussionSubscriber {
             var msgNode = mapper.readTree(data);
             if (!msgNode.has(FIELD_METADATA)) return false;
             var meta = msgNode.get(FIELD_METADATA);
-            if (!meta.has("innerCircle")) return false;
+            if (!meta.has(FIELD_INNER_CIRCLE)) return false;
 
-            var innerCircleNode = meta.get("innerCircle");
+            var innerCircleNode = meta.get(FIELD_INNER_CIRCLE);
             if (!innerCircleNode.isArray() || innerCircleNode.isEmpty()) return false;
 
             var innerCircle = new HashSet<String>();
@@ -1378,7 +1380,7 @@ public class DiscussionSubscriber {
     boolean isExplicitlySelected(String data) {
         try {
             var meta = mapper.readTree(data).path(FIELD_METADATA);
-            var circle = meta.path("innerCircle");
+            var circle = meta.path(FIELD_INNER_CIRCLE);
             if (!circle.isArray() || circle.isEmpty()) {
                 return false;
             }

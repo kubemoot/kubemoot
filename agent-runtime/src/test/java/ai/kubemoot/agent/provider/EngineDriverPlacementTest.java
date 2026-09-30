@@ -78,4 +78,20 @@ class EngineDriverPlacementTest {
                 "wait was " + q.waitSeconds());
         assertEquals(Optional.empty(), sel.queueOption(List.of("qwen3:70b"), List.of(gpu(Map.of()))));
     }
+
+    @Test
+    void queueOption_countsACopyStillLoadingOnlyOnItsOwnProvider() {
+        var tickets = mock(TicketManager.class);
+        when(tickets.activeModelsOn("gpu")).thenReturn(Set.of("qwen3:14b"));
+        when(tickets.inFlightStartsFor(anyString())).thenReturn(List.of());
+        var sel = selector(tickets, null);
+
+        var q = sel.queueOption(List.of("qwen3:8b", "qwen3:14b"), List.of(gpu(Map.of()))).orElseThrow();
+        assertEquals("qwen3:14b", q.model(), "an in-flight load is a copy a call can queue on");
+        assertEquals("gpu", q.provider());
+
+        when(tickets.activeModelsOn("gpu")).thenReturn(Set.of());
+        assertEquals(Optional.empty(), sel.queueOption(List.of("qwen3:14b"), List.of(gpu(Map.of()))),
+                "neither loaded nor loading: nothing to queue on");
+    }
 }

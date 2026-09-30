@@ -61,29 +61,31 @@ public final class EvictionPlanner {
     private static Optional<List<PlacementCostModel.Victim>> fewestThatFit(
             List<PlacementCostModel.Victim> ordered, long shortfall) {
         for (int k = 1; k <= ordered.size(); k++) {
-            List<PlacementCostModel.Victim> found = firstCombination(ordered, k, 0, new ArrayList<>(), shortfall);
-            if (found != null) {
-                return Optional.of(found);
+            Optional<List<PlacementCostModel.Victim>> found =
+                    firstCombination(ordered, k, 0, new ArrayList<>(), shortfall);
+            if (found.isPresent()) {
+                return found;
             }
         }
         return Optional.empty();
     }
 
-    private static List<PlacementCostModel.Victim> firstCombination(
+    /** The first combination of {@code k} victims, extending {@code chosen}, that covers {@code shortfall}. */
+    private static Optional<List<PlacementCostModel.Victim>> firstCombination(
             List<PlacementCostModel.Victim> ordered, int k, int from,
             List<PlacementCostModel.Victim> chosen, long shortfall) {
         if (chosen.size() == k) {
             long freed = chosen.stream().mapToLong(PlacementCostModel.Victim::footprintMiB).sum();
-            return freed >= shortfall ? List.copyOf(chosen) : null;
+            return freed >= shortfall ? Optional.of(List.copyOf(chosen)) : Optional.empty();
         }
         for (int i = from; i < ordered.size(); i++) {
             chosen.add(ordered.get(i));
-            List<PlacementCostModel.Victim> found = firstCombination(ordered, k, i + 1, chosen, shortfall);
+            Optional<List<PlacementCostModel.Victim>> found = firstCombination(ordered, k, i + 1, chosen, shortfall);
             chosen.remove(chosen.size() - 1);
-            if (found != null) {
+            if (found.isPresent()) {
                 return found;
             }
         }
-        return null;
+        return Optional.empty();
     }
 }

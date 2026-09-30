@@ -48,7 +48,7 @@ public final class ModelCandidates {
      * malformed value yields {@link #none()}; entries without a model are skipped.
      */
     public static ModelCandidates parse(Optional<String> json, ObjectMapper mapper) {
-        if (json == null || json.isEmpty() || json.get().isBlank()) {
+        if (json.isEmpty() || json.get().isBlank()) {
             return none();
         }
         try {
