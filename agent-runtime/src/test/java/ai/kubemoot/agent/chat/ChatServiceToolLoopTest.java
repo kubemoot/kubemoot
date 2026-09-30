@@ -1272,26 +1272,167 @@ class ChatServiceToolLoopTest {
         verifyNoInteractions(chatModel);
     }
 
-    @Test
-    void toolLoop_toolResultsThatOutgrowTheContext_failBeforeTheNextTurn() {
-        var toolSpec = ToolSpecification.builder().name("get_pods").description("List pods").build();
-        var toolExecutor = mock(ToolExecutor.class);
-        when(toolExecutor.execute(any(), any())).thenReturn("p".repeat(40_000));
-        when(mcpClient.getToolSpecifications()).thenReturn(Map.of(toolSpec, toolExecutor));
+    /** A model turn that calls get_pods once, reported at 500 prompt and {@code replyTokens} reply tokens. */
+    private ChatResponse getPodsCall(long replyTokens) {
         var call = ToolExecutionRequest.builder().id("c1").name("get_pods").arguments("{}").build();
         var first = mock(ChatResponse.class);
         when(first.aiMessage()).thenReturn(AiMessage.from(List.of(call)));
-        when(first.tokenUsage()).thenReturn(new TokenUsage(500, 20));
-        when(chatModel.chat(any(ChatRequest.class))).thenReturn(first);
+        when(first.tokenUsage()).thenReturn(new TokenUsage(500, (int) replyTokens));
+        return first;
+    }
+
+    private ToolExecutor podsTool(String result) {
+        var toolSpec = ToolSpecification.builder().name("get_pods").description("List pods").build();
+        var toolExecutor = mock(ToolExecutor.class);
+        when(toolExecutor.execute(any(), any())).thenReturn(result);
+        when(mcpClient.getToolSpecifications()).thenReturn(Map.of(toolSpec, toolExecutor));
+        return toolExecutor;
+    }
+
+    private static java.util.List<dev.langchain4j.data.message.ChatMessage> listPods() {
+        return new java.util.ArrayList<>(List.of(dev.langchain4j.data.message.UserMessage.from("list pods")));
+    }
+
+    @Test
+    void toolLoop_reasoningAgentWhoseReadsOutgrowTheContext_answersFromWhatItRead() {
+        podsTool("p".repeat(40_000));
+        var closing = mock(ChatResponse.class);
+        when(closing.aiMessage()).thenReturn(new AiMessage("The pods I read are healthy; the rest was not read."));
+        when(closing.tokenUsage()).thenReturn(new TokenUsage(600, 30));
+        var podsTurn = getPodsCall(20);
+        when(chatModel.chat(any(ChatRequest.class))).thenReturn(podsTurn, closing);
         var service = createService(5);
+
+        var result = assertDoesNotThrow(() -> service.callWithToolLoop(listPods(), chatModel, "gpu-a", "test",
+                false, 8_192));
+
+        assertTrue(result.text().contains("healthy"), "the closing answer is the contribution");
+        assertEquals(1_100, result.inputTokens(), "both turns count");
+        var captor = org.mockito.ArgumentCaptor.forClass(ChatRequest.class);
+        verify(chatModel, times(2)).chat(captor.capture());
+        var closingRequest = captor.getAllValues().get(1);
+        assertTrue(closingRequest.toolSpecifications() == null || closingRequest.toolSpecifications().isEmpty(),
+                "the closing turn offers no tools");
+        var sent = closingRequest.messages();
+        assertTrue(sent.stream().anyMatch(m -> m instanceof dev.langchain4j.data.message.ToolExecutionResultMessage tr
+                        && ChatService.UNREAD_TOOL_RESULT.equals(tr.text())),
+                "the result that did not fit is replaced by the unread note");
+        assertTrue(sent.get(sent.size() - 1) instanceof dev.langchain4j.data.message.UserMessage um
+                        && um.singleText().equals(ChatService.CONTEXT_FULL_CLOSING_PROMPT),
+                "the closing instruction is the last message");
+    }
+
+    @Test
+    void toolLoop_reasoningAgentWhoseEveryToolFailed_reportsAFailedGather() {
+        podsTool("{\"error\": \"" + "x".repeat(40_000) + "\"}");
+        var podsTurn = getPodsCall(20);
+        when(chatModel.chat(any(ChatRequest.class))).thenReturn(podsTurn);
+        var service = createService(5);
+
+        var failure = assertThrows(ToolCallFailure.class,
+                () -> service.callWithToolLoop(listPods(), chatModel, "gpu-a", "test", false, 8_192));
+
+        assertEquals(ToolCallFailure.FailureType.GATHER_FAILED, failure.failureType(),
+                "failed tools stay a first-class failure, not an answer");
+        verify(chatModel, times(1)).chat(any(ChatRequest.class));
+    }
+
+    @Test
+    void toolLoop_closingPromptThatStillCannotFit_failsWithContextExceeded() {
+        podsTool("p".repeat(40_000));
+        var podsTurn = getPodsCall(9_000);
+        when(chatModel.chat(any(ChatRequest.class))).thenReturn(podsTurn);
+        var service = createService(5);
+
+        var failure = assertThrows(ToolCallFailure.class,
+                () -> service.callWithToolLoop(listPods(), chatModel, "gpu-a", "test", false, 8_192));
+
+        assertEquals(ToolCallFailure.FailureType.CONTEXT_EXCEEDED, failure.failureType());
+        verify(chatModel, times(1)).chat(any(ChatRequest.class));
+    }
+
+    @Test
+    void toolLoop_computeAgentThatHasNotComputed_doesNotCloseWithAnUncomputedAnswer() {
+        podsTool("p".repeat(40_000));
+        var podsTurn = getPodsCall(20);
+        when(chatModel.chat(any(ChatRequest.class))).thenReturn(podsTurn);
+        var service = createService(5, "analyst", true);
         var messages = new java.util.ArrayList<dev.langchain4j.data.message.ChatMessage>(List.of(
-                dev.langchain4j.data.message.UserMessage.from("list pods")));
+                dev.langchain4j.data.message.UserMessage.from("count pods [ARTIFACT key=k1 bytes=9]")));
 
         var failure = assertThrows(ToolCallFailure.class,
                 () -> service.callWithToolLoop(messages, chatModel, "gpu-a", "test", false, 8_192));
 
+        assertEquals(ToolCallFailure.FailureType.CONTEXT_EXCEEDED, failure.failureType(),
+                "the compute contract (read the artifact) is not met, so no closing answer");
+    }
+
+    @Test
+    void toolLoop_growthIsLearnedFromTheLoop() {
+        podsTool("p".repeat(4_000));
+        var answer = mock(ChatResponse.class);
+        when(answer.aiMessage()).thenReturn(new AiMessage("12 pods"));
+        when(answer.tokenUsage()).thenReturn(new TokenUsage(1_700, 10));
+        var podsTurn = getPodsCall(20);
+        when(chatModel.chat(any(ChatRequest.class))).thenReturn(podsTurn, answer);
+        var service = createService(5);
+        assertEquals(4096, service.loopGrowthEstimate(4096), "nothing learned yet");
+
+        service.callWithToolLoop(listPods(), chatModel, "gpu-a", "test", false, 0L);
+
+        assertEquals(1_210, service.loopGrowthEstimate(4096),
+                "growth = the largest prompt plus reply (1710) minus the first prompt (500)");
+    }
+
+    @Test
+    void withUnreadResults_replacesOnlyTheResultsAfterTheLastCall() {
+        var read = new dev.langchain4j.data.message.ToolExecutionResultMessage("a", "get_pods", "read data");
+        var unread = new dev.langchain4j.data.message.ToolExecutionResultMessage("b", "get_pods", "big data");
+        var msgs = List.<dev.langchain4j.data.message.ChatMessage>of(
+                dev.langchain4j.data.message.UserMessage.from("q"), read, unread);
+
+        var out = ChatService.withUnreadResults(msgs, 2);
+
+        assertEquals(3, out.size());
+        assertSame(read, out.get(1), "a result the model already read is kept");
+        var replaced = (dev.langchain4j.data.message.ToolExecutionResultMessage) out.get(2);
+        assertEquals("b", replaced.id(), "the tool call keeps its result message");
+        assertEquals(ChatService.UNREAD_TOOL_RESULT, replaced.text());
+        assertEquals("big data", unread.text(), "the input list is not changed");
+    }
+
+    @Test
+    void contextNeed_addsGrowth_cappedAtTheLargestContext_neverBelowThePrompt() {
+        assertEquals(9_000, ChatService.contextNeed(false, 5_000, 4_000, 40_960), "prompt plus growth");
+        assertEquals(8_192, ChatService.contextNeed(false, 5_000, 4_000, 8_192), "capped at the largest context");
+        assertEquals(9_000, ChatService.contextNeed(false, 9_000, 4_000, 8_192),
+                "never below the prompt itself (the prompt-too-large check owns that case)");
+        assertEquals(9_000, ChatService.contextNeed(false, 5_000, 4_000, 0), "no known context: uncapped");
+        assertEquals(5_000, ChatService.contextNeed(false, 5_000, -3, 40_960), "negative growth is none");
+        assertEquals(0, ChatService.contextNeed(false, 0, 4_000, 40_960), "an unknown prompt stays unknown");
+    }
+
+    @Test
+    void contextNeed_ofATooler_isItsFirstPromptOnly() {
+        assertEquals(5_000, ChatService.contextNeed(true, 5_000, 4_000, 40_960),
+                "a tooler contributes what it gathered when its context fills, so growth never steers it");
+    }
+
+    @Test
+    void toolLoop_closingTurnWithNoAnswer_failsVisibly_evenWithoutUsage() {
+        podsTool("p".repeat(40_000));
+        var empty = mock(ChatResponse.class);
+        when(empty.aiMessage()).thenReturn(new AiMessage(""));
+        when(empty.tokenUsage()).thenReturn(null);
+        var podsTurn = getPodsCall(20);
+        when(chatModel.chat(any(ChatRequest.class))).thenReturn(podsTurn, empty);
+        var service = createService(5);
+
+        var failure = assertThrows(ToolCallFailure.class,
+                () -> service.callWithToolLoop(listPods(), chatModel, "gpu-a", "test", false, 8_192));
+
         assertEquals(ToolCallFailure.FailureType.CONTEXT_EXCEEDED, failure.failureType());
-        verify(chatModel, times(1)).chat(any(ChatRequest.class));
+        assertTrue(failure.getMessage().contains("closing turn gave no answer"), failure.getMessage());
     }
 
     @Test
