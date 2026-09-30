@@ -23,8 +23,9 @@ import static org.mockito.Mockito.*;
 /**
  * An analyst's side of the concurrence check: the request is addressed to it by
  * name, so it answers without a triage call, in one tool-free turn (never the tool
- * loop). A reply that starts with CONCERN: is a concern; an empty or failed reply is
- * a failure signal, which the coordinator escalates to the full review.
+ * loop). The reply is a verdict: CONCUR: is agreement, CONCERN: is a concern, and an
+ * empty, failed, or verdict-less reply is a failure signal, which the coordinator
+ * escalates to the full review.
  */
 class DiscussionSubscriberConcurrenceTest {
 
@@ -100,7 +101,7 @@ class DiscussionSubscriberConcurrenceTest {
 
     @Test
     void concurrenceRequest_isOneToolFreeTurn_neverTheToolLoop() throws Exception {
-        concurrenceReplies("Concur: the listing is complete.");
+        concurrenceReplies("CONCUR: the listing is complete.");
         var sub = analyst();
 
         sub.handleMessageForTest(SUBJECT, reviewReady("concur", "k8s-advisor"));
@@ -130,14 +131,83 @@ class DiscussionSubscriberConcurrenceTest {
     }
 
     @Test
-    void concurrenceRequest_agreementIsAnAgree() throws Exception {
-        concurrenceReplies("Concur: the listing is complete.");
+    void concurrenceRequest_agreementIsAnAgree_carryingOnlyTheCaveat() throws Exception {
+        concurrenceReplies("CONCUR: the listing is complete.");
         var sub = analyst();
 
         sub.handleMessageForTest(SUBJECT, reviewReady("concur", "k8s-advisor"));
 
         var agree = signal(publishedSignals(2), "agree");
-        assertEquals("Concur: the listing is complete.", agree.path("content").asText());
+        assertEquals("the listing is complete.", agree.path("content").asText());
+    }
+
+    @Test
+    void concurrenceRequest_bareConcur_isAnAgreeWithTheStandardText() throws Exception {
+        concurrenceReplies("CONCUR:");
+        var sub = analyst();
+
+        sub.handleMessageForTest(SUBJECT, reviewReady("concur", "k8s-advisor"));
+
+        var agree = signal(publishedSignals(2), "agree");
+        assertEquals(ConcurrenceReply.CONCURS, agree.path("content").asText());
+    }
+
+    @Test
+    void concurrenceRequest_freeFormAnswerIsNoVerdict_soTheCoordinatorEscalates() throws Exception {
+        // An analyst that answers the question instead of giving a verdict is not
+        // agreeing: its claims must not reach the synthesis as agreement.
+        concurrenceReplies("The etcd leader pod is hosted on the Proxmox VM homelab-k8s-1-cp; "
+                + "disk write is 1.68 MB/s.");
+        var sub = analyst();
+
+        sub.handleMessageForTest(SUBJECT, reviewReady("concur", "k8s-advisor"));
+
+        var signals = publishedSignals(2);
+        var failure = signal(signals, "failure");
+        assertEquals(ConcurrenceReply.NO_VERDICT, failure.path("content").asText());
+        assertEquals("no_verdict", failure.path("metadata").path("failureType").asText());
+        assertTrue(signals.stream().noneMatch(m -> "agree".equals(m.path("messageType").asText())),
+                "a free-form answer is never published as agreement");
+    }
+
+    @Test
+    void concurrenceRequest_toolGapIsAConcern() throws Exception {
+        concurrenceReplies("TOOL_GAP: no tool lists the installed CNI");
+        var sub = analyst();
+
+        sub.handleMessageForTest(SUBJECT, reviewReady("concur", "k8s-advisor"));
+
+        assertEquals("no tool lists the installed CNI",
+                signal(publishedSignals(2), "concern").path("content").asText());
+    }
+
+    @Test
+    void concurrenceRequest_threadClosedDuringTheTurn_standsAside_neverAVerdict() throws Exception {
+        var sub = analyst();
+        when(chat.answerOnce(anyString(), anyString(), any())).thenAnswer(inv -> {
+            sub.handleMessageForTest(SUBJECT, """
+                    {"messageId": "close-2", "threadId": "t1", "agentName": "coordinator",
+                     "messageType": "thread_close", "content": ""}""");
+            return new ChatService.ChatResult("t1", "CONCUR: fine", "qwen3:14b", "t1", 10, 5, "", "");
+        });
+
+        sub.handleMessageForTest(SUBJECT, reviewReady("concur", "k8s-advisor"));
+
+        verify(conn, after(300).atLeast(2)).publish(anyString(), any(byte[].class));
+        var types = publishedSignals(2).stream().map(m -> m.path("messageType").asText()).toList();
+        assertTrue(types.contains("stand_aside"), types.toString());
+        assertFalse(types.contains("agree"), "a closed thread takes no verdict: " + types);
+    }
+
+    @Test
+    void concurrenceRequest_lowercaseConcurIsNoVerdict() throws Exception {
+        concurrenceReplies("Concur. The gathered data answers the question.");
+        var sub = analyst();
+
+        sub.handleMessageForTest(SUBJECT, reviewReady("concur", "k8s-advisor"));
+
+        assertEquals("no_verdict", signal(publishedSignals(2), "failure").path("metadata")
+                .path("failureType").asText());
     }
 
     @Test
@@ -148,18 +218,21 @@ class DiscussionSubscriberConcurrenceTest {
         sub.handleMessageForTest(SUBJECT, reviewReady("concur", "k8s-advisor"));
 
         var failure = signal(publishedSignals(2), "failure");
-        assertEquals(DiscussionSubscriber.EMPTY_CONCURRENCE_REPLY, failure.path("content").asText());
+        assertEquals(ConcurrenceReply.EMPTY_REPLY, failure.path("content").asText());
         assertEquals("empty_reply", failure.path("metadata").path("failureType").asText());
     }
 
     @Test
-    void concurrenceRequest_nothingToAddIsAStandAside() throws Exception {
+    void concurrenceRequest_nothingToAddIsNoVerdict_soTheCoordinatorEscalates() throws Exception {
+        // The concurrer is asked by name for a verdict; standing aside would send the
+        // thread to synthesis with no check at all.
         concurrenceReplies("NOTHING_TO_ADD");
         var sub = analyst();
 
         sub.handleMessageForTest(SUBJECT, reviewReady("concur", "k8s-advisor"));
 
-        signal(publishedSignals(2), "stand_aside");
+        assertEquals("no_verdict", signal(publishedSignals(2), "failure").path("metadata")
+                .path("failureType").asText());
     }
 
     @Test
@@ -210,7 +283,7 @@ class DiscussionSubscriberConcurrenceTest {
                     .write(fullData.getBytes(java.nio.charset.StandardCharsets.UTF_8));
             return null;
         }).when(os).get(anyString(), any(java.io.OutputStream.class));
-        concurrenceReplies("Concur.");
+        concurrenceReplies("CONCUR:");
         var sub = analyst();
         String key = "ns-a/pilot/t1/k8s-config/agree-abc";
 

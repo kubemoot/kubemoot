@@ -310,4 +310,33 @@ class DiscussionArtifactsTest {
 
         assertEquals(DiscussionArtifacts.unavailableNotice("a/b"), out);
     }
+
+    @Test
+    void exceedsInlineCap_readsTheMarkersDeclaredSize() {
+        assertTrue(DiscussionArtifacts.exceedsInlineCap(
+                "[k8s-workloads] [ARTIFACT key=ns/c/t/k8s-workloads/agree-1 bytes=50032 - the FULL data is in the file]"));
+        assertFalse(DiscussionArtifacts.exceedsInlineCap(
+                "[ARTIFACT key=ns/c/t/k8s-metrics/agree-1 bytes=6686 - the FULL data is in the file]"));
+    }
+
+    @Test
+    void exceedsInlineCap_atTheCapIsNotOver_oneByteMoreIs() {
+        int cap = DiscussionArtifacts.MAX_INLINE_CHARS;
+        assertFalse(DiscussionArtifacts.exceedsInlineCap("[ARTIFACT key=a/b bytes=" + cap + " - x]"));
+        assertTrue(DiscussionArtifacts.exceedsInlineCap("[ARTIFACT key=a/b bytes=" + (cap + 1) + " - x]"));
+    }
+
+    @Test
+    void exceedsInlineCap_anyOversizedMarkerAmongSeveralCounts() {
+        assertTrue(DiscussionArtifacts.exceedsInlineCap(
+                "[ARTIFACT key=a/1 bytes=10 - x]\n[ARTIFACT key=a/2 bytes=99999 - y]"));
+    }
+
+    @Test
+    void exceedsInlineCap_textWithoutAMarkerOrSize_isFalse() {
+        assertFalse(DiscussionArtifacts.exceedsInlineCap(null));
+        assertFalse(DiscussionArtifacts.exceedsInlineCap("default\nkube-system"));
+        assertFalse(DiscussionArtifacts.exceedsInlineCap("[ARTIFACT key=a/b - no size given]"));
+        assertFalse(DiscussionArtifacts.exceedsInlineCap("[ARTIFACT key=a/b bytes=lots]"));
+    }
 }

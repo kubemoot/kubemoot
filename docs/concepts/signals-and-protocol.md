@@ -30,19 +30,26 @@ hold its model is busy, and `evaluating` again when a GPU frees up. Which signal
 by the runtime today; the one archetype that ships is described in
 [The Moot](../consensus-model/).
 
-## The CONCERN: reply sentinel
+## The CONCERN: and CONCUR: reply sentinels
 
 An agent reply that starts with `CONCERN:` is published as a `concern` signal whose
 content is the text after the sentinel, the same way `TOOL_GAP:` marks a tool gap. It
-applies to any agent reply. The concurrence check uses it: the Analyst is asked to
-start its reply with `CONCERN:` when something is missing or wrong.
+applies to any agent reply.
+
+A concurrence reply is a verdict and must open with a sentinel: `CONCUR:` is published
+as `agree` carrying only the text after it (a short caveat, or a standard confirmation
+when nothing follows), and `CONCERN:` as a `concern`. A concurrence reply that opens
+with neither, including a free-form answer or `NOTHING_TO_ADD`, is published as a
+`failure` with `failureType` `no_verdict`; an empty one as `failure` with
+`empty_reply`. The coordinator escalates both to the full review. Sentinels are
+case-sensitive.
 
 ## Review messages
 
 | Message | Meaning |
 |---------|---------|
 | `review_decision` | The coordinator's review decision for the thread. Metadata: `decision` (`concur`, `full`, or `none`), `reason`, `forced` (a runtime guard set it, not the crew's policy), and `tier` (`fast` or `reasoning`). The dashboard timeline shows it. |
-| `review_ready` | Wakes the analysts that review. It always names them in `innerCircle`, and `metadata.reviewMode` is `concur` (one analyst, with a concurrence request) or `full`. It never wakes every analyst: when none was selected, the single best resume match reviews, and with no ranking available the thread goes straight to synthesis. |
+| `review_ready` | Wakes the analysts that review. It always names them in `innerCircle`, and `metadata.reviewMode` is `concur` (one analyst, with a concurrence request) or `full`. It never wakes every analyst: when none was selected, the single best resume match among the analysts that declare the thread's channel reviews (among all analysts on the `general` channel), and with no ranking available the thread goes straight to synthesis. |
 
 ## Stand-asides for GPU capacity
 

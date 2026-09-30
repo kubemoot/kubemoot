@@ -14,26 +14,26 @@ class ReviewDecisionTest {
 
     @Test
     void cleanAgreement_isLeftToTheCrewsPolicy() {
-        assertTrue(ReviewDecision.forced(new Evidence(1, 0, 0, 0)).isEmpty());
-        assertTrue(ReviewDecision.forced(new Evidence(3, 0, 0, 0)).isEmpty());
+        assertTrue(ReviewDecision.forced(new Evidence(1, 0, 0, 0, 0)).isEmpty());
+        assertTrue(ReviewDecision.forced(new Evidence(3, 0, 0, 0, 0)).isEmpty());
     }
 
     @Test
     void aFailedTooler_forcesTheFullReview() {
-        var d = ReviewDecision.forced(new Evidence(2, 1, 0, 0)).orElseThrow();
+        var d = ReviewDecision.forced(new Evidence(2, 1, 0, 0, 0)).orElseThrow();
         assertEquals(Shape.FULL, d.shape());
         assertTrue(d.forced());
     }
 
     @Test
     void aConcernOrABlock_forcesTheFullReview() {
-        assertEquals(Shape.FULL, ReviewDecision.forced(new Evidence(1, 0, 1, 0)).orElseThrow().shape());
-        assertEquals(Shape.FULL, ReviewDecision.forced(new Evidence(1, 0, 0, 1)).orElseThrow().shape());
+        assertEquals(Shape.FULL, ReviewDecision.forced(new Evidence(1, 0, 1, 0, 0)).orElseThrow().shape());
+        assertEquals(Shape.FULL, ReviewDecision.forced(new Evidence(1, 0, 0, 1, 0)).orElseThrow().shape());
     }
 
     @Test
     void noToolerAgreement_forcesTheFullReview() {
-        assertEquals(Shape.FULL, ReviewDecision.forced(new Evidence(0, 0, 0, 0)).orElseThrow().shape());
+        assertEquals(Shape.FULL, ReviewDecision.forced(new Evidence(0, 0, 0, 0, 0)).orElseThrow().shape());
     }
 
     // ---- parsing the decision call's answer ----
@@ -99,8 +99,28 @@ class ReviewDecisionTest {
     }
 
     @Test
+    void anOversizedResult_forcesTheFullReview() {
+        var d = ReviewDecision.forced(new Evidence(2, 0, 0, 0, 1)).orElseThrow();
+        assertEquals(Shape.FULL, d.shape());
+        assertTrue(d.forced());
+        assertTrue(d.reason().contains("larger than a concurrence check reads"), d.reason());
+    }
+
+    @Test
+    void aFailure_isNamedBeforeAnOversizedResult() {
+        assertEquals("a tooler failed", ReviewDecision.forced(new Evidence(2, 1, 0, 0, 1)).orElseThrow().reason());
+    }
+
+    @Test
     void concurrenceRequest_namesTheConcernSentinel() {
         assertTrue(ReviewDecision.CONCURRENCE_REQUEST.contains(DiscussionSubscriber.CONCERN_SENTINEL),
                 "the request tells the analyst how to raise a concern the subscriber recognizes");
+    }
+
+    @Test
+    void concurrenceRequest_namesTheConcurSentinel_andAsksForAVerdict() {
+        assertTrue(ReviewDecision.CONCURRENCE_REQUEST.contains(ai.kubemoot.agent.util.ReplySentinels.CONCUR),
+                "the request tells the analyst how to concur in a way the subscriber recognizes");
+        assertTrue(ReviewDecision.CONCURRENCE_REQUEST.contains("verdict, not a new answer"));
     }
 }

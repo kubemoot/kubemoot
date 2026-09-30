@@ -769,7 +769,7 @@ public class ChatService {
             // Case-sensitive on purpose: the contribution flows verbatim to
             // DiscussionSubscriber's classifier, which also matches "TOOL_GAP:"
             // exactly - so the two ends stay in lockstep.
-            if (finalText.startsWith("TOOL_GAP:")) {
+            if (finalText.startsWith(ai.kubemoot.agent.util.ReplySentinels.TOOL_GAP)) {
                 return java.util.Optional.of(new ToolLoopResult(finalText,
                         state.totalInput, state.totalOutput, providerName, pickReason));
             }
@@ -782,9 +782,20 @@ public class ChatService {
         if (computeContractNeedsRetry(aiMessage, state)) {
             return java.util.Optional.empty();
         }
-        // No raw-output contract (or no tools ran): this agent reasons to its own
-        // answer. Use its prose, with a retry for a flaky empty turn and an echo
-        // guard so it never publishes its own instruction prompt as the answer.
+        return proseAnswer(aiMessage, state, providerName, pickReason);
+    }
+
+    /**
+     * No raw-output contract (or no tools ran): the agent reasons to its own answer.
+     * Its prose is the answer, with a retry for a flaky empty turn and an echo guard
+     * so it never publishes its own instruction prompt as the answer. Once the
+     * retries are spent, an agent that was offered tools fails visibly (EMPTY_REPLY):
+     * it was asked to gather and produced nothing. An agent with no tools and nothing
+     * to say returns empty and stands aside. An empty Optional means the caller
+     * continues the loop (a retry).
+     */
+    private java.util.Optional<ToolLoopResult> proseAnswer(AiMessage aiMessage, ToolLoopState state,
+                                                            String providerName, String pickReason) {
         String text = aiMessage.text() != null ? aiMessage.text() : "";
         if (text.isEmpty() && state.emptyNoToolsRetries < EMPTY_NO_TOOLS_MAX_RETRIES) {
             state.emptyNoToolsRetries++;
@@ -793,6 +804,9 @@ public class ChatService {
                     properties.agentName(), state.emptyNoToolsRetries, EMPTY_NO_TOOLS_MAX_RETRIES);
             return java.util.Optional.empty();
         }
+        if (text.isEmpty() && !tools().specs().isEmpty()) {
+            throw emptyReply(state.emptyNoToolsRetries + 1, state.lastReplyTokens);
+        }
         if (isInstructionEcho(text, loadSystemPrompt())) {
             log.info("agent {} echoed an instruction instead of answering - dropping to stand_aside",
                     properties.agentName());
@@ -800,6 +814,19 @@ public class ChatService {
         }
         return java.util.Optional.of(new ToolLoopResult(text, state.totalInput, state.totalOutput,
                 providerName, pickReason));
+    }
+
+    /**
+     * The EMPTY_REPLY failure of a loop whose final turn came back with no text and no
+     * tool call on every one of its {@code attempts}. The last attempt's output token
+     * count tells a model that said nothing (zero) from one whose output the engine
+     * dropped (a call to a tool the agent is not offered), so the failure names both.
+     */
+    static ToolCallFailure emptyReply(int attempts, long lastReplyTokens) {
+        return new ToolCallFailure(ToolCallFailure.FailureType.EMPTY_REPLY, null, null, attempts,
+                "no text and no tool call after " + attempts + " attempts; the last spent "
+                        + lastReplyTokens + " output tokens - output with neither is most often a call to "
+                        + "a tool this agent is not offered, which the engine drops");
     }
 
     /**

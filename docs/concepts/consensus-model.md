@@ -66,10 +66,10 @@ checker. They fire when the current signal state satisfies the advance condition
 | `EVALUATING` | `SYNTHESIZING` | Exactly one Tooler agreed with no concern or block, and the crew has no Analyst agents. |
 | `EVALUATING` | `DECIDING` | Every other settled evaluation (see the settle rule below). |
 | `DECIDING` | `CONCURRING` | The review decision is `concur`. |
-| `DECIDING` | `REVIEW` | The review decision is `full`, or a runtime guard forced it, or the crew does not declare the decision. |
+| `DECIDING` | `REVIEW` | The review decision is `full`, or a runtime guard forced it (a Tooler failure, concern, or block; no Tooler agreement; a gathered result larger than a concurrence turn reads in whole), or the crew does not declare the decision. |
 | `DECIDING` | `SYNTHESIZING` | The review decision is `none`, where the crew's policy allows it. |
-| `CONCURRING` | `SYNTHESIZING` | The Analyst agreed or stood aside. |
-| `CONCURRING` | `REVIEW` | The Analyst raised a concern, blocked, or failed (an empty reply is a failure). The review runs with the selected Analysts other than that one (or, if it was the only one, the next best resume match), with its view on the board. |
+| `CONCURRING` | `SYNTHESIZING` | The Analyst concurred (its reply opened with `CONCUR:`). |
+| `CONCURRING` | `REVIEW` | The Analyst raised a concern, blocked, or failed (an empty reply, or a reply with no `CONCUR:` or `CONCERN:` verdict, is a failure). The review runs with the selected Analysts other than that one (or, if it was the only one, the next best resume match among the Analysts on the thread's channel, or among all Analysts when none is left on it), with its view on the board. |
 | `REVIEW` | `SYNTHESIZING` | The woken Analysts have all reported or expired. There is no fast path in REVIEW: a slow Analyst is not dropped. |
 
 **How a phase settles.** Each phase has a roster: in `EVALUATING` the selected agents

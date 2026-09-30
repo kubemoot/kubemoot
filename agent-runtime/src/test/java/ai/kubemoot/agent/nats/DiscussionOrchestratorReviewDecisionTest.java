@@ -196,6 +196,85 @@ class DiscussionOrchestratorReviewDecisionTest {
         assertEquals("k8s-advisor", state.concurrer);
     }
 
+    private static final String CHANNEL_CATALOG = """
+            [{"name":"k8s-services","role":"tooler","channels":["kubernetes"]},
+             {"name":"k8s-advisor","role":"analyst","channels":["kubernetes","general"]},
+             {"name":"nvidia-gpu-advisor","role":"analyst","channels":["observability","general"]},
+             {"name":"proxmox-advisor","role":"analyst","channels":["proxmox","general"]}]
+            """;
+
+    @Test
+    void withNoAnalystSelected_theConcurrerIsTheBestMatchOnTheThreadsChannel() {
+        // The resume ranking puts off-channel analysts first; the pool keeps the review
+        // on the thread's channel.
+        var o = orchestrator(true, "fast");
+        o.loadCrewResumesForTest(CHANNEL_CATALOG);
+        when(resumeSearch.searchResumes(anyString(), anyInt()))
+                .thenReturn(List.of("proxmox-advisor", "nvidia-gpu-advisor", "k8s-advisor"));
+        decisionReturns("{\"review\":\"concur\"}");
+        var state = decidingThread();
+        state.primaryChannel = "kubernetes";
+
+        o.decideReview(state, 1);
+
+        assertEquals("k8s-advisor", state.concurrer);
+    }
+
+    @Test
+    void aFailedConcurrerThatIsTheOnlyAnalystOnTheChannel_escalatesToAnAnalystOffTheChannel() {
+        var o = orchestrator(true, "fast");
+        o.loadCrewResumesForTest(CHANNEL_CATALOG);
+        when(resumeSearch.searchResumes(anyString(), anyInt()))
+                .thenReturn(List.of("proxmox-advisor", "nvidia-gpu-advisor", "k8s-advisor"));
+        decisionReturns("{\"review\":\"concur\"}");
+        var state = decidingThread();
+        state.primaryChannel = "kubernetes";
+        o.decideReview(state, 1);
+        assertEquals("k8s-advisor", state.concurrer);
+        state.pendingEvaluations.remove("k8s-advisor");
+        state.failureSignals.put("k8s-advisor", ConcurrenceReply.NO_VERDICT);
+
+        o.afterConcurrence(state);
+
+        assertEquals(DiscussionOrchestrator.Phase.REVIEW, state.phase);
+        assertEquals(Set.of("proxmox-advisor"), state.phaseRoster,
+                "an escalation never ends unreviewed because the channel pool is spent");
+    }
+
+    @Test
+    void withNoAnalystSelected_onTheGeneralChannel_theBestMatchAmongAllAnalysts() {
+        var o = orchestrator(true, "fast");
+        o.loadCrewResumesForTest(CHANNEL_CATALOG);
+        when(resumeSearch.searchResumes(anyString(), anyInt()))
+                .thenReturn(List.of("nvidia-gpu-advisor", "k8s-advisor"));
+        decisionReturns("{\"review\":\"full\"}");
+        var state = decidingThread();
+        state.primaryChannel = "general";
+
+        o.decideReview(state, 1);
+
+        assertEquals(Set.of("nvidia-gpu-advisor"), state.phaseRoster);
+    }
+
+    @Test
+    void analystsOnChannel_readsTheDeclaredChannels() {
+        assertEquals(Set.of("k8s-advisor"),
+                DiscussionOrchestrator.analystsOnChannel(CHANNEL_CATALOG, "kubernetes"));
+        assertEquals(Set.of("proxmox-advisor"),
+                DiscussionOrchestrator.analystsOnChannel(CHANNEL_CATALOG, "proxmox"));
+    }
+
+    @Test
+    void analystsOnChannel_noScopingForGeneralUnknownOrUnreadable() {
+        assertTrue(DiscussionOrchestrator.analystsOnChannel(CHANNEL_CATALOG, "general").isEmpty());
+        assertTrue(DiscussionOrchestrator.analystsOnChannel(CHANNEL_CATALOG, null).isEmpty());
+        assertTrue(DiscussionOrchestrator.analystsOnChannel(CHANNEL_CATALOG, "storage").isEmpty(),
+                "a channel no analyst declares scopes nothing, so every analyst stays in the pool");
+        assertTrue(DiscussionOrchestrator.analystsOnChannel("not json", "kubernetes").isEmpty());
+        assertTrue(DiscussionOrchestrator.analystsOnChannel(CATALOG, "kubernetes").isEmpty(),
+                "a catalog without channels scopes nothing");
+    }
+
     @Test
     void full_runsTheReviewWithTheSelectedAnalysts() {
         var o = orchestrator(true, "fast");
@@ -231,6 +310,47 @@ class DiscussionOrchestratorReviewDecisionTest {
         assertTrue(decision.forced());
         verify(chatService, never()).triageChatWithTokens(anyString(), anyString());
         verify(chatService, never()).simpleLlmCallWithTokens(anyString(), anyString());
+    }
+
+    @Test
+    void aResultLargerThanTheConcurrenceTurnReads_escalatesWithoutAskingTheModel() {
+        // The tool-free concurrence turn reads each artifact cut at the inline cap, so a
+        // larger result goes to the full review, whose analysts read it with tools.
+        var o = orchestrator(true, "fast");
+        var state = decidingThread("compute");
+        state.agreeSignals.put("k8s-workloads", "[ARTIFACT key=crew-ns/pilot/t-decide/k8s-workloads/agree-1 "
+                + "bytes=50032 - the FULL data is in the file /artifacts/crew-ns/pilot/t-decide/k8s-workloads/agree-1]");
+
+        var decision = o.reviewDecisionFor(state, 2);
+
+        assertEquals(ReviewDecision.Shape.FULL, decision.shape());
+        assertTrue(decision.forced());
+        verify(chatService, never()).triageChatWithTokens(anyString(), anyString());
+        verify(chatService, never()).simpleLlmCallWithTokens(anyString(), anyString());
+    }
+
+    @Test
+    void aSpilledResultThatFitsTheConcurrenceTurn_leavesTheDecisionToThePolicy() {
+        var o = orchestrator(true, "fast");
+        decisionReturns("{\"review\":\"concur\"}");
+        var state = decidingThread("k8s-advisor");
+        state.agreeSignals.put("k8s-config", "[ARTIFACT key=crew-ns/pilot/t-decide/k8s-config/agree-1 "
+                + "bytes=6686 - the FULL data is in the file /artifacts/crew-ns/pilot/t-decide/k8s-config/agree-1]");
+
+        var decision = o.reviewDecisionFor(state, 1);
+
+        assertEquals(ReviewDecision.Shape.CONCUR, decision.shape());
+        assertFalse(decision.forced());
+    }
+
+    @Test
+    void oversizedResults_countsOnlyMarkersAboveTheInlineCap() {
+        var state = decidingThread();
+        state.agreeSignals.put("a", "[ARTIFACT key=k/a bytes=24001 - ...]");
+        state.agreeSignals.put("b", "[ARTIFACT key=k/b bytes=24000 - ...]");
+        state.agreeSignals.put("c", "plain rows, no marker");
+
+        assertEquals(1, DiscussionOrchestrator.oversizedResults(state));
     }
 
     @Test

@@ -29,14 +29,22 @@ final class DiscussionArtifacts {
 
     static final String BUCKET = "kubemoot_discussion_artifacts";
 
+    /** How every spill marker opens: {@code [ARTIFACT key=<key> bytes=<n> - ...]}. */
+    static final String MARKER_PREFIX = "[ARTIFACT key=";
+
     /**
      * A spill marker, capturing its object key. Possessive quantifiers: a long marker
      * with no closing bracket fails in linear time.
      */
-    static final Pattern MARKER_WITH_KEY = Pattern.compile("\\[ARTIFACT key=([^\\]\\s]++)[^\\]]*+\\]");
+    static final Pattern MARKER_WITH_KEY =
+            Pattern.compile(Pattern.quote(MARKER_PREFIX) + "([^\\]\\s]++)[^\\]]*+\\]");
+
+    /** A spill marker's declared size in bytes, captured. Possessive, like {@link #MARKER_WITH_KEY}. */
+    private static final Pattern MARKER_BYTES =
+            Pattern.compile(Pattern.quote(MARKER_PREFIX) + "[^\\]\\s]++ bytes=(\\d{1,12})");
 
     /** Cap per inlined artifact, so one huge object cannot fill a tool-free turn's context. */
-    private static final int MAX_INLINE_CHARS = 24_000;
+    static final int MAX_INLINE_CHARS = 24_000;
 
     private static final Logger log = LoggerFactory.getLogger(DiscussionArtifacts.class);
 
@@ -180,7 +188,7 @@ final class DiscussionArtifacts {
      * for a connection; with no connection the text is returned as is.
      */
     static String inlineContent(Supplier<Connection> connection, String text) {
-        if (text == null || !text.contains("[ARTIFACT key=")) {
+        if (text == null || !text.contains(MARKER_PREFIX)) {
             return text;
         }
         Connection conn = connection.get();
@@ -196,6 +204,26 @@ final class DiscussionArtifacts {
         }
         m.appendTail(sb);
         return sb.toString();
+    }
+
+    /**
+     * True when {@code text} carries a spill marker whose declared size is larger than
+     * {@link #MAX_INLINE_CHARS}: a tool-free turn reading it in would see it cut. The
+     * size comes from the marker itself, so no object store read is needed. Bytes are
+     * compared with characters, which counts a multi-byte artifact as larger than it
+     * reads, never smaller.
+     */
+    static boolean exceedsInlineCap(String text) {
+        if (text == null || !text.contains(MARKER_PREFIX)) {
+            return false;
+        }
+        var m = MARKER_BYTES.matcher(text);
+        while (m.find()) {
+            if (Long.parseLong(m.group(1)) > MAX_INLINE_CHARS) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**

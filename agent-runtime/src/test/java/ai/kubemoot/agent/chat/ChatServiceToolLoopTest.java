@@ -724,6 +724,66 @@ class ChatServiceToolLoopTest {
     }
 
     @Test
+    void directChat_toolsOffered_everyTurnEmpty_failsWithEmptyReply() {
+        // An agent offered tools whose every turn is empty - no text, no tool call -
+        // was asked to gather and produced nothing, so it fails visibly and the
+        // failure names the output tokens the engine dropped.
+        var toolSpec = ToolSpecification.builder().name("resources_list").build();
+        when(mcpClient.getToolSpecifications()).thenReturn(Map.of(toolSpec, mock(ToolExecutor.class)));
+        var response = mock(ChatResponse.class);
+        when(response.aiMessage()).thenReturn(new AiMessage(""));
+        when(response.tokenUsage()).thenReturn(new TokenUsage(3300, 21));
+        when(chatModel.chat(any(ChatRequest.class))).thenReturn(response);
+        when(ragClient.queryForContext(anyString())).thenReturn("");
+
+        var service = createService(10);
+        var thrown = assertThrows(ToolCallFailure.class, () ->
+                service.directChat(new ChatService.ChatRequest("conv-dropped", "list the helm releases"), false));
+
+        assertEquals(ToolCallFailure.FailureType.EMPTY_REPLY, thrown.failureType());
+        assertTrue(thrown.getMessage().contains("21 output tokens"), thrown.getMessage());
+        verify(chatModel, times(ChatService.EMPTY_NO_TOOLS_MAX_RETRIES + 1)).chat(any(ChatRequest.class));
+    }
+
+    @Test
+    void directChat_toolsOffered_emptyThenAnswer_recoversWithoutFailure() {
+        // The retry still recovers a flaky empty first turn; only a loop that stays
+        // empty through every retry fails.
+        var toolSpec = ToolSpecification.builder().name("resources_list").build();
+        when(mcpClient.getToolSpecifications()).thenReturn(Map.of(toolSpec, mock(ToolExecutor.class)));
+        var empty = mock(ChatResponse.class);
+        when(empty.aiMessage()).thenReturn(new AiMessage(""));
+        when(empty.tokenUsage()).thenReturn(new TokenUsage(50, 0));
+        var answer = mock(ChatResponse.class);
+        when(answer.aiMessage()).thenReturn(new AiMessage("No releases match that name."));
+        when(answer.tokenUsage()).thenReturn(new TokenUsage(60, 12));
+        when(chatModel.chat(any(ChatRequest.class))).thenReturn(empty).thenReturn(answer);
+        when(ragClient.queryForContext(anyString())).thenReturn("");
+
+        var service = createService(10);
+        var result = service.directChat(new ChatService.ChatRequest("conv-recover", "list the helm releases"), false);
+
+        assertEquals("No releases match that name.", result.response());
+    }
+
+    @Test
+    void emptyReply_namesTheAttemptsAndTheDroppedOutput() {
+        var failure = ChatService.emptyReply(4, 21);
+        assertEquals(ToolCallFailure.FailureType.EMPTY_REPLY, failure.failureType());
+        assertEquals(4, failure.failureCount());
+        assertTrue(failure.getMessage().contains("after 4 attempts"), failure.getMessage());
+        assertTrue(failure.getMessage().contains("21 output tokens"), failure.getMessage());
+    }
+
+    @Test
+    void emptyReply_zeroTokens_stillFails() {
+        // A model that said nothing at all (zero output tokens) is the same visible failure.
+        var failure = ChatService.emptyReply(1, 0);
+        assertEquals(ToolCallFailure.FailureType.EMPTY_REPLY, failure.failureType());
+        assertTrue(failure.getMessage().contains("0 output tokens"), failure.getMessage());
+    }
+
+    @Test
     void directChat_emptyNoTools_retryRecoversAnswer() {
         // The cold/dud first turn (empty, no tools) is retried once; the second
         // attempt produces a real answer — recovered instead of standing aside.

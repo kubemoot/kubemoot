@@ -1,5 +1,6 @@
 package ai.kubemoot.agent.nats;
 
+import ai.kubemoot.agent.util.ReplySentinels;
 import ai.kubemoot.agent.util.ThinkBlocks;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
@@ -35,13 +36,23 @@ final class ReviewDecision {
     /** A decided shape, why, and whether a runtime guard (not the crew's policy) set it. */
     record Decision(Shape shape, String reason, boolean forced) {}
 
-    /** The signal counts the guards read. Counted by the runtime, never by the model. */
-    record Evidence(long toolerAgrees, int failures, int concerns, int blocks) {}
+    /**
+     * What the guards read, counted by the runtime and never by the model: the signal
+     * counts, and how many gathered results spilled to an artifact larger than a
+     * tool-free concurrence turn reads in whole.
+     */
+    record Evidence(long toolerAgrees, int failures, int concerns, int blocks, int oversizedResults) {}
 
-    /** The request an analyst receives when asked to concur. */
+    /**
+     * The request an analyst receives when asked to concur. The reply is a verdict
+     * (see {@link ConcurrenceReply}); a reply without one runs the full review.
+     */
     static final String CONCURRENCE_REQUEST = "Concurrence check: the crew has the results below for "
-            + "this question. Do you concur, or is something missing or wrong? If something is missing "
-            + "or wrong, start your reply with CONCERN: and say what.";
+            + "this question. Reply with a verdict, not a new answer. Start with "
+            + ReplySentinels.CONCUR + " when the results answer the question as asked, "
+            + "adding at most a short caveat you are sure of. Start with "
+            + ReplySentinels.CONCERN + " and say what is missing or wrong otherwise. "
+            + "A reply that starts with neither is no verdict, and the crew runs the full review.";
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
     private static final String FIELD_REVIEW = "review";
@@ -52,7 +63,10 @@ final class ReviewDecision {
     /**
      * The shape a guard forces, or empty when the crew's policy decides. A failed
      * tooler, a concern, or a block always escalates to a full review, and so do
-     * results with no tooler agreement: there is nothing to concur with.
+     * results with no tooler agreement: there is nothing to concur with. So does a
+     * result larger than a concurrence turn reads in whole: the turn has no tools, it
+     * sees the artifact cut at the inline cap, and a check over part of the data would
+     * pass an incomplete answer.
      */
     static Optional<Decision> forced(Evidence e) {
         if (e.failures() > 0) {
@@ -63,6 +77,10 @@ final class ReviewDecision {
         }
         if (e.toolerAgrees() == 0) {
             return Optional.of(new Decision(Shape.FULL, "no tooler contributed results", true));
+        }
+        if (e.oversizedResults() > 0) {
+            return Optional.of(new Decision(Shape.FULL,
+                    "a gathered result is larger than a concurrence check reads in whole", true));
         }
         return Optional.empty();
     }

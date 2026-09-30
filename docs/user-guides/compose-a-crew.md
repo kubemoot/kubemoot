@@ -311,13 +311,17 @@ runtime's signal counts, the selected Analysts, and the gathered results, and an
 `{"review": "concur" | "full" | "none", "reason": "..."}`:
 
 - `concur`: one Analyst is asked whether it concurs: the selected Analyst whose resume
-  best matches the question, or the best match among all Analysts when none was
-  selected. A concurrence check is a second opinion on results already gathered, so the
-  Analyst answers without a triage call and in one model turn with no tools, whatever
-  tools it has: the turn sees the question, the gathered results (with any spilled
-  artifact's content read in, as synthesis sees it), and the Analyst's own PromptModules.
-  Agreement goes to synthesis; a reply that starts with `CONCERN:`, a block, a failed
-  turn, or an empty reply escalates to a full review.
+  best matches the question, or, when none was selected, the best match among the
+  Analysts that declare the thread's channel in `discussChannels` (every Analyst when
+  the channel is `general` or none declares it). A concurrence check is a second
+  opinion on results already gathered, so the Analyst answers without a triage call and
+  in one model turn with no tools, whatever tools it has: the turn sees the question,
+  the gathered results (with any spilled artifact's content read in, as synthesis sees
+  it, up to 24,000 characters per artifact), and the Analyst's own PromptModules. The
+  reply is a verdict, not a new answer: it starts with `CONCUR:` (followed by at most a
+  short caveat, which is all that reaches synthesis) or `CONCERN:` (what is missing or
+  wrong). `CONCUR:` goes to synthesis. `CONCERN:`, a block, a failed turn, an empty
+  reply, or a reply that starts with neither sentinel escalates to a full review.
 - `full`: the selected Analysts review the results.
 - `none`: straight to synthesis, only where the crew's policy allows it.
 
@@ -335,12 +339,16 @@ WHEN unsure: THEN full.
 NEVER choose none.
 ```
 
-Give the Analysts a matching rule for answering a concurrence check (confirm briefly,
-or start the reply with `CONCERN:` and name what is missing or wrong).
+Give the Analysts a matching rule for answering a concurrence check (start the reply
+with `CONCUR:` and at most a caveat, or with `CONCERN:` and name what is missing or
+wrong; never answer the question in its place). The check runs over the Analyst's own
+PromptModules, so a review rule that says "answer the question" must be scoped to the
+full review, or it competes with the verdict.
 
 The runtime enforces guards the policy cannot override: any Tooler failure, concern, or
-block, or no Tooler agreement, forces `full` without a model call, and an unreadable
-answer or a failed call is `full`. The decision is published on the thread as a
+block, no Tooler agreement, or a gathered result spilled to an artifact larger than the
+concurrence turn reads in whole (24,000 characters), forces `full` without a model call,
+and an unreadable answer or a failed call is `full`. The decision is published on the thread as a
 `review_decision` message for the dashboard timeline. A crew that does not declare the
 decision keeps the full review.
 

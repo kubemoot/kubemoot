@@ -190,6 +190,7 @@ public class DiscussionOrchestrator {
     private static final String FIELD_LAYERS = "layers";
     private static final String FIELD_CONFIDENCE = "confidence";
     private static final String FIELD_ROLE = "role";
+    private static final String FIELD_CHANNELS = "channels";
     private static final String FIELD_DESCRIPTION = "description";
     private static final String FIELD_TOOLS = "tools";
     private static final String ROLE_TOOLER = "tooler";
@@ -1890,7 +1891,7 @@ public class DiscussionOrchestrator {
         return switch (shape) {
             case NONE -> ReviewPlan.SYNTHESIS;
             case CONCUR -> ReviewPlan.of(Phase.CONCURRING, ReviewRoster.concurrer(selectedAnalysts(state),
-                    analystNamesFromResumes(), analystRanking(state), Set.of()));
+                    reviewPool(state, Set.of()), analystRanking(state), Set.of()));
             case FULL -> ReviewPlan.of(Phase.REVIEW, fullReviewers(state, Set.of()));
         };
     }
@@ -1916,7 +1917,7 @@ public class DiscussionOrchestrator {
     // Visible for testing
     ReviewDecision.Decision reviewDecisionFor(ThreadState state, long toolerAgrees) {
         var evidence = new ReviewDecision.Evidence(toolerAgrees, state.failureSignals.size(),
-                state.concernSignals.size(), state.blockSignals.size());
+                state.concernSignals.size(), state.blockSignals.size(), oversizedResults(state));
         var forced = ReviewDecision.forced(evidence);
         if (forced.isPresent()) {
             return forced.get();
@@ -1930,6 +1931,11 @@ public class DiscussionOrchestrator {
                     state.threadId, e.getMessage());
             return new ReviewDecision.Decision(ReviewDecision.Shape.FULL, "the review decision call failed", true);
         }
+    }
+
+    /** How many gathered contributions spilled to an artifact larger than a tool-free turn reads whole. */
+    static int oversizedResults(ThreadState state) {
+        return (int) state.agreeSignals.values().stream().filter(DiscussionArtifacts::exceedsInlineCap).count();
     }
 
     /** The fast tier (the triage model) unless the crew declares the reasoning tier. */
@@ -1975,7 +1981,74 @@ public class DiscussionOrchestrator {
 
     /** The full review's analysts, never every analyst in the crew. */
     private List<String> fullReviewers(ThreadState state, Set<String> exclude) {
-        return ReviewRoster.full(selectedAnalysts(state), analystNamesFromResumes(), analystRanking(state), exclude);
+        return ReviewRoster.full(selectedAnalysts(state), reviewPool(state, exclude), analystRanking(state), exclude);
+    }
+
+    /**
+     * The review pool: the analysts a review draws from when the coordinator selected
+     * none (or when escalating past the concurrer). Distinct from all the crew's
+     * analysts ({@link #analystNamesFromResumes()}), which decide who counts as an
+     * analyst. The pool is the analysts whose declared channels (the catalog's
+     * {@code channels}, from the Agent's discussChannels) include the thread's channel,
+     * less {@code exclude}. It is every analyst when the channel is general or unknown,
+     * when no analyst declares it, or when excluding leaves no one on the channel, so
+     * an escalation still finds a reviewer. The resume ranking orders the pool.
+     */
+    private Set<String> reviewPool(ThreadState state, Set<String> exclude) {
+        String raw = loadCrewResumes();
+        var onChannel = analystsOnChannel(raw, state.primaryChannel);
+        onChannel.removeAll(exclude);
+        return onChannel.isEmpty() ? analystNamesFromResumes(raw) : onChannel;
+    }
+
+    /**
+     * The analyst-role agents in a crew catalog whose declared channels include
+     * {@code channel}; empty for the general channel, an unknown channel, or a catalog
+     * that cannot be read (meaning: no channel scoping).
+     */
+    // Visible for testing
+    static Set<String> analystsOnChannel(String raw, String channel) {
+        if (!scopesByChannel(channel)) {
+            return new HashSet<>();
+        }
+        return analystsIn(raw, agent -> declaresChannel(agent, channel));
+    }
+
+    /**
+     * The names of the analyst-role agents in a crew catalog (a JSON array of
+     * resumes) that match {@code filter}; empty when the catalog is missing or cannot
+     * be read. The one parser of analyst entries. Parsed with readTree only.
+     */
+    static Set<String> analystsIn(String raw, java.util.function.Predicate<JsonNode> filter) {
+        var analysts = new HashSet<String>();
+        if (raw == null || raw.isBlank()) return analysts;
+        try {
+            var arr = mapper.readTree(raw);
+            if (!arr.isArray()) return analysts;
+            for (var node : arr) {
+                String name = node.path(FIELD_NAME).asText("");
+                if (ROLE_ANALYST.equals(node.path(FIELD_ROLE).asText("")) && !name.isEmpty() && filter.test(node)) {
+                    analysts.add(name);
+                }
+            }
+        } catch (Exception e) {
+            log.debug("Could not parse analyst names from resumes: {}", e.getMessage());
+        }
+        return analysts;
+    }
+
+    /** True for a named channel other than general: every analyst takes the general channel. */
+    private static boolean scopesByChannel(String channel) {
+        return channel != null && !channel.isBlank() && !CHANNEL_GENERAL.equals(channel);
+    }
+
+    private static boolean declaresChannel(JsonNode agent, String channel) {
+        for (var declared : agent.path(FIELD_CHANNELS)) {
+            if (channel.equals(declared.asText(""))) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /** Enter a review phase whose roster is {@code reviewers}, all pending from now. */
@@ -3726,22 +3799,7 @@ public class DiscussionOrchestrator {
 
     /** Parse analyst-role agent names from a crew resumes JSON array. */
     Set<String> analystNamesFromResumes(String raw) {
-        var analysts = new HashSet<String>();
-        try {
-            if (raw == null || raw.isBlank()) return analysts;
-            var arr = mapper.readTree(raw);
-            if (arr.isArray()) {
-                for (var node : arr) {
-                    if (ROLE_ANALYST.equals(node.path(FIELD_ROLE).asText(""))) {
-                        String name = node.path(FIELD_NAME).asText("");
-                        if (!name.isEmpty()) analysts.add(name);
-                    }
-                }
-            }
-        } catch (Exception e) {
-            log.debug("Could not parse analyst names from resumes: {}", e.getMessage());
-        }
-        return analysts;
+        return analystsIn(raw, agent -> true);
     }
 
     /**
