@@ -55,7 +55,7 @@ NATS discussion channels the agent subscribes to. The coordinator should list ev
 Optional. Domain keywords that become part of this agent's **resume** (alongside its description, tools, and role). The coordinator's resume model embeds the resume and matches it semantically against each question to pick the subcommittee, so keywords inform selection without being a literal gate. Set to `["*"]` to opt into every thread (used by researcher agents like internet-search).
 
 ### `spec.promptRefs[]`
-Required. Ordered list of `PromptModule` names whose `content` is concatenated by `order` to form the agent's system prompt. The composed text is written to a ConfigMap and mounted at `/app/config/system.txt`. All prompt text MUST live in PromptModules; inline system prompts are not supported.
+Required. Ordered list of `PromptModule` names whose `content` is concatenated by `order` to form the agent's system prompt. The composed text is written to a ConfigMap and mounted at `/etc/kubemoot/policy/system.txt`. All prompt text MUST live in PromptModules; inline system prompts are not supported.
 
 See the [PromptModule](#promptmodule) section below for the order-range conventions.
 
@@ -104,17 +104,13 @@ The operator sets `imagePullSecrets` from `KubemootConfig.spec.defaults.imagePul
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `phase` | string | `Pending`, `Deploying`, `Running`, `Error` |
-| `ready` | bool | True when the Deployment has at least one ready replica and the scheduler bound a Model |
-| `endpoint` | string | Internal service URL (`<name>.<namespace>:8080`) |
+| `phase` | string | `Running` when the agent is scheduled and deployed; `Unschedulable` when no feasible Model or Ready ModelProvider exists |
+| `ready` | bool | True when the scheduler bound a Model and the agent is deployed |
+| `endpoint` | string | Internal service URL (`http://<name>.<namespace>.svc.cluster.local:8080`) |
 | `availableReplicas` | int32 | Running pod count |
-| `scheduling.model` | string | Currently bound `Model` CR name |
-| `scheduling.provider` | string | Currently bound `ModelProvider` CR name |
-| `scheduling.endpoint` | string | Provider endpoint URL |
-| `scheduling.lastBoundAt` | timestamp | When the bind decision was last computed |
-| `scheduling.lastUnschedulable` | object | Reason + observedAt when no Model matches |
+| `message` | string | The bound models (`mulling=<model>@<provider>; triage=<model>@<provider>`), or the reason the agent is unschedulable |
 | `ragSourceStatus[]` | RAGSourceRefStatus | RAG readiness per source |
-| `conditions[]` | Condition | `Scheduled`, `Available`, `PromptReady`, `ToolsReady` |
+| `mcpServerStatus[]` | MCPServerRefStatus | MCP server readiness per referenced server |
 
 ---
 
@@ -517,7 +513,7 @@ Agent Pod                    MCPGateway Pod               MCPServer Pod
 
 ## System Prompt Composition
 
-System prompts are composed from `PromptModule` CRs referenced by `Agent.spec.promptRefs`. The operator assembles their `content` in `order` and writes the result to a ConfigMap mounted at `/app/config/system.txt`. The agent runtime reads `system.txt` at startup (`KUBEMOOT_SYSTEM_PROMPT_FILE` env var).
+System prompts are composed from `PromptModule` CRs referenced by `Agent.spec.promptRefs`. The operator assembles their `content` in `order` and writes the result to a ConfigMap mounted at `/etc/kubemoot/policy/system.txt`. The agent runtime reads `system.txt` at startup (`KUBEMOOT_SYSTEM_PROMPT_FILE` env var).
 
 ```yaml
 spec:

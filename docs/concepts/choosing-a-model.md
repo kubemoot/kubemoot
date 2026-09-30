@@ -40,8 +40,8 @@ So rank candidates in this order:
 
 ## GPU memory is the binding constraint
 
-Kubemoot keeps [one model resident per GPU](../../adr/0009-one-model-per-gpu/). The
-budget for a card is the quantized weights plus room for KV cache and concurrent
+The scheduler places models by VRAM budget and evicts idle ones on demand (see
+[Scheduler](../../architecture/scheduler/)). The budget for a card is the quantized weights plus room for KV cache and concurrent
 requests. A useful planning rule is to leave roughly a quarter of the card free after
 the weights land.
 
@@ -88,8 +88,9 @@ tags. A tag that looks local but resolves to the vendor's hosted infrastructure 
 hosted API wearing a local-looking name. Read the tag before assuming a model runs on
 your hardware.
 
-Routing to a hosted model is a legitimate choice and Kubemoot supports it through a cloud
-`ModelProvider`. Make it deliberately, because it moves inference, and whatever your
+Routing to a hosted model is a legitimate choice, but it is not implemented yet: the
+`openai` and `anthropic` provider types exist on the CRD as stubs, and Ollama is the
+model server today. When it lands, make the choice deliberately, because it moves inference, and whatever your
 agents read from your cluster, off the premises. If staying local is the point of the
 deployment, the frontier tier is simply not available, and the real question becomes
 which 20B to 35B class model calls tools best on the card you own. For a homelab budget

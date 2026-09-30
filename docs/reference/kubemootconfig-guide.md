@@ -23,8 +23,7 @@ ConfigCache (thread-safe, in-memory)
     ├── RAGSourceReconciler     → indexer, queryService, doclingServe images
     ├── AgentReconciler         → agentRuntime image
     ├── MCPServerReconciler     → mcpBridge image
-    ├── MCPGatewayReconciler    → mcpGateway image
-    └── OnboardedMCPServerReconciler → agentRuntime image
+    └── MCPGatewayReconciler    → mcpGateway image
 ```
 
 The singleton must be named `default`. The operator creates it via the Helm chart on initial install.
@@ -35,11 +34,11 @@ The singleton must be named `default`. The operator creates it via the Helm char
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `images.indexer` | string | `registry.example.com/kubemoot/indexer:latest` | RAGSource indexer job image |
-| `images.queryService` | string | `registry.example.com/kubemoot/query-service:latest` | RAGSource query service image |
-| `images.agentRuntime` | string | `registry.example.com/kubemoot/agent-runtime:latest` | Agent deployment image |
-| `images.mcpGateway` | string | `registry.example.com/kubemoot/mcp-gateway:latest` | MCPGateway deployment image |
-| `images.mcpBridge` | string | `registry.example.com/kubemoot/mcp-bridge:latest` | MCP bridge sidecar image |
+| `images.indexer` | string | `ghcr.io/kubemoot/indexer:latest` | RAGSource indexer job image |
+| `images.queryService` | string | `ghcr.io/kubemoot/query-service:latest` | RAGSource query service image |
+| `images.agentRuntime` | string | `ghcr.io/kubemoot/agent-runtime:latest` | Agent deployment image |
+| `images.mcpGateway` | string | `ghcr.io/kubemoot/mcp-gateway:latest` | MCPGateway deployment image |
+| `images.mcpBridge` | string | `ghcr.io/kubemoot/mcp-bridge:latest` | MCP bridge sidecar image |
 | `images.doclingServe` | string | `quay.io/docling-project/docling-serve-cpu:latest` | Docling document converter image |
 
 ### Defaults
@@ -73,11 +72,11 @@ metadata:
   name: default
 spec:
   images:
-    indexer: "registry.example.com/kubemoot/indexer:0.3.1"
-    queryService: "registry.example.com/kubemoot/query-service:0.2.0"
-    agentRuntime: "registry.example.com/kubemoot/agent-runtime:0.8.5"
-    mcpGateway: "registry.example.com/kubemoot/mcp-gateway:0.5.2"
-    mcpBridge: "registry.example.com/kubemoot/mcp-bridge:0.4.0"
+    indexer: "ghcr.io/kubemoot/indexer:0.3.1"
+    queryService: "ghcr.io/kubemoot/query-service:0.2.0"
+    agentRuntime: "ghcr.io/kubemoot/agent-runtime:0.8.5"
+    mcpGateway: "ghcr.io/kubemoot/mcp-gateway:0.5.2"
+    mcpBridge: "ghcr.io/kubemoot/mcp-bridge:0.4.0"
     doclingServe: "quay.io/docling-project/docling-serve-cpu:latest"
   defaults:
     vectorStoreType: pgvector
@@ -116,7 +115,7 @@ After building a new image version outside of the normal CI flow, manually patch
 
 ```bash
 kubectl patch kubemootconfig default --type=merge -p \
-  '{"spec":{"images":{"mcpBridge":"registry.example.com/kubemoot/mcp-bridge:0.4.1"}}}'
+  '{"spec":{"images":{"mcpBridge":"ghcr.io/kubemoot/mcp-bridge:0.4.1"}}}'
 ```
 
 ### Why Not `:latest`?
@@ -145,5 +144,5 @@ KubemootConfig's `defaults.imagePullSecrets` must use the secret name that exist
 
 The cache updates on KubemootConfig reconciliation. If a controller seems to use old values, check that the KubemootConfigReconciler is running:
 ```bash
-kubectl logs deploy/kubemoot-operator-controller-manager | grep KubemootConfig
+kubectl logs deploy/kubemoot-operator | grep KubemootConfig
 ```

@@ -29,8 +29,8 @@ framework's job ends at "call a model"; everything after that is operations.
 
 A handful of agents running for real need, at minimum:
 
-- **Model access that is not one hardcoded endpoint** - local GPUs and hosted APIs
-  behind a single abstraction, chosen per call as load and availability shift.
+- **Model access that is not one hardcoded endpoint** - model servers behind a single
+  abstraction, chosen per call as load and availability shift.
 - **GPU scheduling that understands model memory.** A 24 GB card can hold a 7B and an
   8B model at once, or a single larger model; which combination is loaded depends on
   what is being asked right now. That decision belongs at the moment of inference, not
@@ -80,8 +80,9 @@ it the next time.
 Closing the gap means making the workflow itself declarative and operable, the same
 way the rest of a cluster is. Concretely:
 
-- **Model providers as resources** - local GPU and hosted APIs unified, selected per
-  inference call rather than pinned at deploy time.
+- **Model providers as resources** - local model servers declared as resources and
+  selected per inference call rather than pinned at deploy time. Ollama is the model
+  server today; hosted APIs are a [Roadmap](../roadmap/) item.
 - **GPU scheduling** that places each call on a provider with room for it, the way the
   Kubernetes scheduler bin-packs pods onto nodes.
 - **Retrieval as a declared source** that is vectorized and served for you.

@@ -7,7 +7,9 @@ Date: 2026-03-16
 
 ## Status
 
-Accepted
+Accepted, amended
+
+Namespaces became the naming boundary for crews: NATS subjects and keys carry the namespace before the crew name. Namespaces separate names; they are not a security boundary today (see [SECURITY.md](https://github.com/kubemoot/kubemoot/blob/main/SECURITY.md)).
 
 ## Context
 

@@ -64,90 +64,34 @@ The bridge image comes from KubemootConfig (`spec.images.mcpBridge`).
 
 ### Bridge Probes and the MCP Initialize Handshake
 
-For stdio-transport MCPServers the operator wires three Kubernetes
-probes on the bridge sidecar. All three target `/healthz`
-(pipes-connected); see *Probe design* below for why readiness gates on
-`/healthz` rather than the stricter `/readyz` handshake signal.
+For stdio-transport MCPServers the operator wires three Kubernetes probes on the bridge
+sidecar:
 
-The probes:
-
-| Probe | Endpoint | Period | Failure threshold | Role |
-|-------|----------|--------|-------------------|------|
-| `startupProbe` | TCP socket | 1s | 10 | Gates the rest of the lifecycle while the bridge process starts up. While startupProbe is running, readinessProbe + livenessProbe are suspended. |
-| `readinessProbe` | `/healthz` | 10s | 3 | Gates Service routing - returns 200 when the bridge process is alive AND its stdio pipes are connected to the MCP server. |
-| `livenessProbe` | TCP socket | 30s | 3 | Restarts the pod when the bridge process itself is dead. |
-
-#### Probe design
-
-The bridge ships a `/readyz` endpoint that returns 200 only after the
-bridge observes a successful MCP `initialize` response come back from
-the server. This signal would gate Service routing on the actual
-protocol-defined "ready to serve tool calls" handshake, eliminating
-the race where stdio MCP servers (FastMCP and similar) open their
-stdin/stdout pipes early but take 30-60s of cold-start work before
-they can answer tool calls. In that window, `/healthz` returns 200
-(pipes connected) but tool calls fail with `Received request before
-initialization was complete`.
-
-The probes target `/healthz` rather than `/readyz` because gating
-readiness on `/readyz` creates a chicken-and-egg deadlock: `/readyz`
-waits for a client-initiated `initialize` to come through the bridge,
-clients only connect to pods the Service routes to, and the Service
-only routes to pods passing readiness. New pods could never enter the
-rotation; they would cycle through startup-probe failures
-indefinitely. Gating on `/healthz` (pipes connected) avoids the
-deadlock, and the layers below compensate for the looser guarantee.
-
-The `/readyz` endpoint and its handshake-tracking logic remain in the
-bridge so a stricter readiness gate becomes possible once the bridge
-itself sends the initial `initialize` request as a proxy-client when
-pipes first connect, making `/readyz` reachable before any external
-client connection.
-
-Layered resilience that compensates for the absence of strict
-readiness gating:
-
-- **Pod-level (probes):** `/healthz` ensures the bridge process and
-  its pipes are alive before Service routes to a pod.
-- **Service-level (replicas):** `replicas: 2` (the default) means a
-  pod restarting cleanly never takes the service down - the other
-  replica continues to serve.
-- **Agent-level:** the agent runtime's failure-signal architecture
-  bounds tool retries and publishes structured `failure` consensus
-  signals when an MCP call still doesn't return cleanly.
+| Probe | Check | Period | Failure threshold | Role |
+|-------|-------|--------|-------------------|------|
+| `startupProbe` | TCP socket | 2s | 60 | Gives the bridge process up to 120 seconds to start listening. Readiness and liveness are suspended while it runs. |
+| `readinessProbe` | `/readyz` | 5s | 3 | Gates Service routing. Returns 200 only after the bridge has seen a successful MCP `initialize` response from the server. |
+| `livenessProbe` | `/healthz` | 30s | 3 | Restarts the bridge when the process is dead or its stdio pipes are disconnected. |
 
 The bridge exposes two endpoints to distinguish "alive" from "ready":
 
-- **`/healthz`** returns `200` when the bridge process is running AND
-  its stdio pipes are connected to the MCP server. This is a
-  liveness-style signal - used by the livenessProbe only. It does NOT
-  guarantee the MCP server will accept tool calls.
+- **`/healthz`** returns `200` when the bridge process is running and its stdio pipes
+  are connected to the MCP server. It does not guarantee the MCP server accepts tool
+  calls.
+- **`/readyz`** returns `200` only when the bridge has observed a successful MCP
+  `initialize` response from the server. It resets to `503` on every stdio disconnect,
+  so a restarted MCP server appears un-ready until it completes a fresh handshake. An
+  error response to `initialize` does not flip readiness.
 
-- **`/readyz`** returns `200` only when the bridge has observed a
-  successful MCP `initialize` response from the server (the
-  protocol-defined "I am ready" handshake completed). Resets to
-  `503` on every stdio disconnect so a restarted MCP server appears
-  un-ready until it completes a fresh handshake. Used by
-  startupProbe + readinessProbe.
+Together with `replicas: 2` (the default), the probes give layered handling of MCP
+transience:
 
-Internally the bridge tracks the handshake by parsing JSON-RPC traffic
-through its `handleMessage` and `readStdoutPipe` paths: outgoing
-`method=initialize` request IDs are recorded; incoming responses with
-matching IDs and a non-error result flip the `initialized` flag. Error
-responses to initialize (server failed its own handshake) intentionally
-do NOT flip readiness - the pod stays un-ready and Kubernetes will
-eventually restart it via the liveness path if it never recovers.
-
-This three-probe pattern combined with `replicas: 2` (the default)
-gives three independent layers handling MCP transience:
-
-1. **Pod-level (probes):** never route a tool call to a pod whose MCP
-   isn't initialized.
-2. **Service-level (replicas):** if one replica is restarting, the
-   Service has another to route to.
-3. **Agent-level:** the agent runtime's failure-signal architecture
-   bounds tool retries and publishes structured `failure` consensus
-   signals when an MCP call still doesn't return cleanly.
+1. **Pod level (probes):** a tool call is not routed to a pod whose MCP server has not
+   initialized.
+2. **Service level (replicas):** while one replica restarts, the Service routes to the
+   other.
+3. **Agent level:** the agent runtime bounds tool retries and publishes structured
+   `failure` consensus signals when an MCP call still does not return cleanly.
 
 ### http
 

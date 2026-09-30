@@ -7,7 +7,9 @@ Date: 2026-02-15
 
 ## Status
 
-Accepted
+Superseded
+
+The scheduler now bin-packs several models onto a GPU and evicts idle ones on demand (see [Scheduler](../../architecture/scheduler/)). The one-model-per-GPU convention no longer holds.
 
 ## Context
 

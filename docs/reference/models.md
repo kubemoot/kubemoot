@@ -10,7 +10,7 @@ For the framework behind these choices - why tool-calling fidelity outranks codi
 ## CRD Hierarchy
 
 ```
-ModelProvider (where - GPU endpoint, cloud API)
+ModelProvider (where - a model server endpoint)
     │
     ├── Model (what - labeled inference model on a provider)
     │
@@ -27,9 +27,9 @@ Declares an inference endpoint. The operator discovers GPU capacity (VRAM, loade
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `type` | enum | Yes | `ollama`, `openai`, `anthropic` |
+| `type` | enum | Yes | `ollama`, `openai`, `anthropic`. Ollama is the model server today; `openai` and `anthropic` exist on the CRD as stubs. |
 | `endpoint` | string | For ollama | API endpoint URL |
-| `secretRef` | string | For cloud | Secret containing API key |
+| `secretRef` | string | For `openai` and `anthropic` | Secret containing API key (stub types) |
 
 ### Status
 
@@ -85,14 +85,6 @@ metadata:
 spec:
   type: ollama
   endpoint: http://ollama.ollama-b:11434
----
-apiVersion: kubemoot.ai/v1alpha1
-kind: ModelProvider
-metadata:
-  name: openai
-spec:
-  type: openai
-  secretRef: openai-api-key
 ```
 
 `kubectl get mdlp` (short name: `mdlp`).
@@ -228,6 +220,7 @@ metadata:
   name: homelab-pilot-default
   namespace: crew-homelab-pilot
 spec:
+  crewRef: homelab-pilot
   rules:
     - phase: mulling
       require:
@@ -235,12 +228,16 @@ spec:
         matchExpressions:
           - { key: params, operator: In, values: ["14B", "32B"] }
       prefer:
-        - { weight: 100, matchLabels: { family: qwen3, params: "32B" } }
+        - weight: 100
+          selector:
+            matchLabels: { family: qwen3, params: "32B" }
     - phase: triage
       require:
         matchLabels: { capability/tool-calling: "true" }
       prefer:
-        - { weight: 100, matchLabels: { latencyClass: low } }
+        - weight: 100
+          selector:
+            matchLabels: { latencyClass: low }
 ```
 
 The scheduler computes a `(model, provider, endpoint)` per agent via filter → score → bind and templates the result into the agent's Deployment as `KUBEMOOT_MODEL_MODEL`, `KUBEMOOT_MODEL_ENDPOINT`, `KUBEMOOT_TRIAGE_MODEL_MODEL_ID`, `KUBEMOOT_TRIAGE_MODEL_ENDPOINT`. See [Scheduler](../../architecture/scheduler/) for the algorithm.
@@ -309,7 +306,7 @@ These mixture-of-experts families are one to two orders of magnitude beyond a si
 
 For scale: four H200 class accelerators run roughly $120,000 to $160,000 to buy, or about $4 to $18 per hour to rent. That is the price of admission to this tier, which is why the practical homelab question is which 20B to 35B class model calls tools best.
 
-Used via a cloud ModelProvider:
+Used through an Ollama-compatible endpoint:
 
 ```yaml
 apiVersion: kubemoot.ai/v1alpha1
@@ -418,10 +415,10 @@ kubectl exec -n ollama deploy/ollama -- ollama pull qwen3:32b
 
 Check the agent's scheduling status:
 ```bash
-kubectl get agent <name> -o jsonpath='{.status.scheduling}'
+kubectl get agent <name> -o jsonpath='{.status.phase}{"\n"}{.status.message}{"\n"}'
 ```
 
-If `lastUnschedulable` is set, the `CrewSchedulingPolicy` `require` selectors didn't match any feasible Model. Check Model labels:
+If the phase is `Unschedulable`, the `CrewSchedulingPolicy` `require` selectors didn't match any feasible Model. Check Model labels:
 ```bash
 kubectl get models --show-labels
 ```

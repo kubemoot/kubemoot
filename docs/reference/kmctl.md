@@ -119,11 +119,11 @@ checkbox selection of discovered ollama providers, and lets you choose a model f
 (with a custom-entry and skip option). Pass `--no-input` with explicit flags to make
 it scriptable.
 
-Output is written to `<output-dir>/<name>/` and includes:
+Output is written to `<output>/<name>/` and includes:
 
-- A `Crew` manifest and `CrewSchedulingPolicy`
-- A coordinator `Agent` and N specialist `Agent` resources
-- `PromptModule` resources in ADL for coordinator and specialists
+- A `Crew` manifest, a `CrewSchedulingPolicy`, and the `Model` resources the crew selects from
+- A coordinator `Agent` and N Tooler `Agent` resources
+- `PromptModule` resources in ADL for the coordinator and the Toolers
 - A starter `CrewFitnessSuite` with a health-check scenario
 - A `README.md` with next-step instructions
 
@@ -150,11 +150,11 @@ command, and the layout its Crew Sources view expects a chart source to have.
 
 | Flag | Short | Description |
 |---|---|---|
-| `--members N` | | Number of specialist agents (default: prompted interactively) |
+| `--members N` | | Number of Tooler agents (default: prompted interactively) |
 | `--providers a,b` | | Comma-separated list of ollama provider names to target |
 | `--model-family` | | Model family hint, e.g. `qwen` |
 | `--no-input` | | Disable interactive prompts; all required inputs must come from flags |
-| `--output-dir DIR` | `-o` | Directory to write scaffold output (default: `.`) |
+| `--output DIR` | `-o` | Directory to write scaffold output (default: `.`) |
 | `--chart` | | Lay the crew out as a Helm chart (`Chart.yaml`, `templates/`, `fitness/`) instead of loose manifests |
 
 **Example (interactive):**
@@ -681,9 +681,8 @@ kmctl fitness download demo-starter -o results.xlsx -n kubemoot
 
 ### Still planned in kmctl fitness
 
-`kmctl fitness run -f FILE` (run from a manifest file without a pre-existing suite)
-is planned but not yet shipped. A per-scenario score breakdown in `kmctl fitness get`
-is also planned.
+A per-scenario score breakdown in `kmctl fitness get` is planned but not yet shipped.
+`kmctl fitness run -f FILE` applies a CrewFitnessSuite manifest and runs it.
 
 ---
 

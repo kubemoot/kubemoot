@@ -90,9 +90,8 @@ completion scripts for all major shells. Resource names complete in `get` comman
 ## Still planned
 
 `kmctl conversation list` and `kmctl conversation get` are planned but not yet
-shipped (no gateway history endpoint exists yet). `kmctl fitness run -f FILE`
-(run from a manifest file without a pre-existing suite) and a per-scenario score
-breakdown in `kmctl fitness get` are also planned. To browse conversation history,
+shipped (no gateway history endpoint exists yet). A per-scenario score breakdown in
+`kmctl fitness get` is also planned. To browse conversation history,
 use the [Kubemoot dashboard](../../operating/dashboard/).
 
 ## Install
