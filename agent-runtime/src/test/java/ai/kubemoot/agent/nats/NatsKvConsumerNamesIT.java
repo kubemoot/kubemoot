@@ -50,7 +50,9 @@ class NatsKvConsumerNamesIT {
             try (Connection c = Nats.connect(url)) {
                 return;
             } catch (Exception e) {
-                Thread.sleep(100);
+                if (server.waitFor(100, TimeUnit.MILLISECONDS)) {
+                    fail("nats-server exited with " + server.exitValue() + ", see " + storeDir.resolve("server.log"));
+                }
             }
         }
         fail("nats-server did not start");
@@ -76,8 +78,12 @@ class NatsKvConsumerNamesIT {
     }
 
     private static final KeyValueWatcher NOOP = new KeyValueWatcher() {
-        @Override public void watch(KeyValueEntry e) { }
-        @Override public void endOfData() { }
+        @Override public void watch(KeyValueEntry e) {
+            // The test needs a live watch subscription, not its entries.
+        }
+        @Override public void endOfData() {
+            // Nothing to do once the initial values are delivered.
+        }
     };
 
     private static ai.kubemoot.agent.provider.NatsCapacityWatch capacityWatch(Connection c) {

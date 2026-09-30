@@ -12,6 +12,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.web.reactive.function.client.WebClient;
 import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
 
 import java.io.IOException;
 import java.io.OutputStream;
@@ -22,7 +23,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -40,6 +44,8 @@ class McpClientManagerConcurrencyTest {
     private final ObjectMapper mapper = new ObjectMapper();
     private final Set<String> inFlight = ConcurrentHashMap.newKeySet();
     private final Set<String> seenCallIds = ConcurrentHashMap.newKeySet();
+    /** Tool calls the backend holds until all have arrived; one unless a test expects more. */
+    private final AtomicReference<CountDownLatch> arrivals = new AtomicReference<>(new CountDownLatch(1));
     private HttpServer backend;
     private McpClientManager manager;
 
@@ -61,6 +67,7 @@ class McpClientManagerConcurrencyTest {
     @Test
     void concurrentCallsWithTheSameCallerIdAllComplete() throws Exception {
         String serverId = register();
+        arrivals.set(new CountDownLatch(6));
 
         // Six callers that all chose the same id, as a millisecond timestamp does.
         List<McpMessage> replies = Flux.range(0, 6)
@@ -89,13 +96,15 @@ class McpClientManagerConcurrencyTest {
         assertEquals(7, ((Number) reply.id()).intValue());
     }
 
-    private String register() throws InterruptedException {
+    private String register() {
         String url = "http://127.0.0.1:" + backend.getAddress().getPort();
         ServerRegistration registration = manager.registerServer("echo-server", url, "http");
-        for (int i = 0; i < 100 && manager.getToolsForServer(registration.id()).isEmpty(); i++) {
-            Thread.sleep(50);
-        }
-        assertFalse(manager.getToolsForServer(registration.id()).isEmpty(), "tools discovered");
+        // Tool discovery runs in the background; poll until it has landed.
+        var tools = Mono.fromSupplier(() -> manager.getToolsForServer(registration.id()))
+            .filter(found -> !found.isEmpty())
+            .repeatWhenEmpty(100, attempts -> attempts.delayElements(Duration.ofMillis(50)))
+            .block(Duration.ofSeconds(10));
+        assertNotNull(tools, "tools discovered");
         return registration.id();
     }
 
@@ -120,16 +129,25 @@ class McpClientManagerConcurrencyTest {
     private void callTool(HttpExchange exchange, JsonNode id) throws IOException {
         String key = id.asText();
         seenCallIds.add(key);
+        arrivals.get().countDown();
         if (!inFlight.add(key)) {
             return; // a duplicate in-flight id: never answered, as the real server does
         }
-        try {
-            Thread.sleep(200); // keep calls overlapping
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
+        if (!awaitOverlap()) {
+            return; // the calls never overlapped: leave this one unanswered so the test fails
         }
         inFlight.remove(key);
         reply(exchange, id, Map.of("content", List.of(Map.of("type", "text", "text", "ok"))));
+    }
+
+    /** Hold a call until every expected call has arrived, so they all overlap in flight. */
+    private boolean awaitOverlap() {
+        try {
+            return arrivals.get().await(5, TimeUnit.SECONDS);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return false;
+        }
     }
 
     private void reply(HttpExchange exchange, JsonNode id, Object result) throws IOException {

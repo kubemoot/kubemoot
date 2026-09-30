@@ -85,14 +85,14 @@ class NatsCapacityWatchTest {
     void awaitChange_wakesOnANudgeFromAnotherThread() throws Exception {
         var watch = new NatsCapacityWatch(providerWith(null));
         long seen = watch.version();
+        var waiter = Thread.currentThread();
         var nudger = new Thread(() -> {
-            try {
-                Thread.sleep(50);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
+            while (waiter.getState() != Thread.State.TIMED_WAITING) {
+                Thread.onSpinWait();
             }
             watch.nudge();
         });
+        nudger.setDaemon(true);
         nudger.start();
         assertTrue(watch.awaitChange(seen, Duration.ofSeconds(5)));
         nudger.join();

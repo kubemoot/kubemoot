@@ -7,6 +7,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -67,8 +68,8 @@ class GpuCapacityWaiterTest {
         while (wait.waiting.isEmpty()) {
             Thread.onSpinWait();
         }
-        Thread.sleep(100);
-        assertFalse(result.isDone(), "no change arrived, so the waiter is still blocked");
+        assertThrows(TimeoutException.class, () -> result.get(100, TimeUnit.MILLISECONDS),
+                "no change arrived, so the waiter is still blocked");
         assertEquals(1, calls.get(), "no retry without a change");
 
         signal.nudge();

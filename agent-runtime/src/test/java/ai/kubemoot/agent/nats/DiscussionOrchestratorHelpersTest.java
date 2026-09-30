@@ -451,9 +451,9 @@ class DiscussionOrchestratorHelpersTest {
                 .thenReturn(new ChatService.SimpleLlmResult("alpha, bravo, charlie, delta, echo", 10, 5))
                 .thenThrow(ai.kubemoot.agent.provider.NoFitException.gpuBusy("m", "busy"));
 
-        var orchestrator = createOrchestrator("", chat, 2);
+        var retrying = createOrchestrator("", chat, 2);
         assertThrows(ai.kubemoot.agent.provider.NoFitException.class,
-                () -> orchestrator.synthesizeWithCompleteness("sys", NAMESPACES, "t-c"));
+                () -> retrying.synthesizeWithCompleteness("sys", NAMESPACES, "t-c"));
     }
 
     // --- Helper ---
