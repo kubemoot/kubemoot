@@ -57,7 +57,7 @@ Within a crew an agent plays a **role** (`spec.discussRole`):
   carrying a consensus signal (`agree`, `concern`, `stand_aside`, `block`,
   `failure`). An agent with no `discussRole` set defaults to `generic` and
   participates as a general contributor without the Tooler raw-output contract.
-- An **Analyst** (`discussRole: analyst`) acts in the REVIEW phase with thinking ON.
+- An **Analyst** (`discussRole: analyst`) acts in the REVIEW phase (or the one-analyst concurrence check) with thinking ON.
   It carries RAG sources and reasons over the data Toolers gathered, weighing the
   evidence before synthesis. Analysts hold no live MCP tools.
 - A **researcher** contributes to synthesis but is excluded from settle triggers and
@@ -68,7 +68,7 @@ Within a crew an agent plays a **role** (`spec.discussRole`):
 
 A question enters through the crew's discussion gateway, the coordinator selects a
 subcommittee of relevant Toolers, each Tooler calls its domain tools and deliberates
-over the message bus, Analysts self-select in the REVIEW phase to reason over the
+over the message bus, the coordinator wakes Analysts by name to check or review the
 Toolers' findings, and the coordinator composes the result. The crew is the unit you
 deploy and operate; the agents are how it thinks. The deliberation itself, signals,
 phases, and how a crew settles, is covered in [The Moot](../consensus-model/) and

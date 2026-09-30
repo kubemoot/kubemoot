@@ -193,18 +193,19 @@ A single `block` outweighs any number of `agree`s. This is consent, not a vote c
 ## How a discussion settles
 
 The coordinator runs a per-thread state machine driven by signal state, not by a fixed
-timer: `SUBMITTED` → `ADVISORY` → `EVALUATING` → `REVIEW` → `SYNTHESIZING` → `CLOSED`,
-with a `PAUSED` state that can interrupt most of it. The full state table, every
+timer: `SUBMITTED` → `ADVISORY` → `EVALUATING` → `DECIDING` → (`CONCURRING` →) `REVIEW` →
+`SYNTHESIZING` → `CLOSED`, with a `PAUSED` state that can interrupt most of it. The full state table, every
 transition, and the design principles behind signal-driven settling (per-agent
-deadlines calibrated from historical latency, a sufficient-consensus fast path in
-EVALUATING, no fast path in REVIEW) are documented once, in
+deadlines calibrated from historical latency, per-phase rosters that settle a phase as
+soon as every member has signalled, a sufficient-consensus fast path in EVALUATING, the
+coordinator's review decision, no fast path in REVIEW) are documented once, in
 [The Moot - Discussion phase lifecycle](../../concepts/consensus-model/#discussion-phase-lifecycle).
 This page does not repeat it.
 
 One behavior worth calling out here because it surprises people reading a discussion
 timeline: a **dropped straggler's vote still counts**. When the coordinator settles
 EVALUATING on sufficient consensus, it stops *waiting* on agents still evaluating - it
-does not reject their eventual answer. If a straggler finishes during the REVIEW window
+does not reject their eventual answer. If a straggler finishes during the review window
 and publishes `agree`, that signal is folded into the synthesis. An `agree` can
 legitimately land after the `REVIEW` phase's own marker and before `SYNTHESIZING`
 without being an ordering bug; a late agree that arrives after synthesis has begun is
@@ -220,7 +221,7 @@ A crew has one coordinator, some Toolers, and optionally some Analysts; what eac
 role is and how they compose is defined in
 [Crews & Agents](../../concepts/crews-and-agents/). Inside a discussion the phases
 give that composition its shape: Toolers act in `EVALUATING` with tool-calling and
-thinking off; Analysts act in `REVIEW` with thinking on and no live tools, reasoning
+thinking off; Analysts act in `CONCURRING` or `REVIEW` with thinking on and no live tools, reasoning
 over what the Toolers gathered. The rationale for splitting the two roles, the
 GPU cost profile of each, and how new Toolers and Analysts get created automatically
 when a capability gap is filled are covered in

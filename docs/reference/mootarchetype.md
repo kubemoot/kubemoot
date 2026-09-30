@@ -26,18 +26,24 @@ kind: MootArchetype
 metadata:
   name: consent-3
 spec:
-  description: "Sociocracy 3.0 consent decision-making."
+  description: "Consent decision-making, the archetype Kubemoot ships. Today its phases are the scheduling phases a CrewSchedulingPolicy rule may name; the operator's per-phase model selection reads mulling and triage."
   phases:
     - name: triaging
       role: gatekeeping
-      description: "Coordinator probes which agents should join the thread."
+      description: "Scheduling phase name for the coordinator's selection of the agents that join a discussion."
+    - name: mulling
+      role: deliberation
+      description: "Scheduling phase: the model an agent's tool-calling evaluation runs on."
+    - name: triage
+      role: deliberation
+      description: "Scheduling phase: the lighter model an agent's should-I-contribute check runs on."
     - name: evaluating
       role: deliberation
-      description: "Agents emit agree, concern, stand_aside, or block signals."
+      description: "Scheduling phase name for the deliberation, where agents emit agree, concern, stand_aside, or block."
     - name: synthesis
       role: closure
-      description: "Coordinator synthesizes the deliberation into a response."
-  signals: [agree, concern, stand_aside, block, advisory]
+      description: "Scheduling phase name for the coordinator's synthesis of the answer."
+  signals: [triaging, evaluating, agree, concern, stand_aside, block, advisory, proposal, consent]
   stateMachine:
     initial: triaging
     transitions:
@@ -99,6 +105,9 @@ phase names and validity.
 - **The operator validates state-machine edges.** `stateMachine.initial` and every
   transition `from` and `to` must name a declared phase. A violation sets
   `status.valid` to `false` and reports the first offending name in `status.message`.
+- **The declared phases are the scheduling phase names.** The phases `consent-3` declares
+  are the names a `CrewSchedulingPolicy` rule may name, and the operator's per-phase model
+  selection reads `mulling` and `triage`.
 - **`CrewSchedulingPolicy` validates its phase names against it.** Each rule in a
   [`CrewSchedulingPolicy`](../../architecture/scheduler/) names a phase so the scheduler can choose a model
   for that phase. The policy's `archetypeRef` (default `consent-3`) selects the
@@ -112,12 +121,14 @@ phase names and validity.
 - **The agent runtime does not read it.** No part of the agent runtime consumes a
   `MootArchetype`. Editing one does not change how a discussion runs.
 - **The discussion's phases and transitions are fixed in code.** The runtime moves a
-  discussion through its own sequence: advisory, evaluating, review, and synthesis.
-  That sequence does not come from the archetype.
+  discussion through its own sequence: advisory, evaluating, deciding, concurring
+  (when chosen), review, and synthesis. That sequence does not come from the archetype.
+- **The review decision is not archetype-driven.** A crew declares it on its coordinator
+  (environment variables and a `PromptModule`), not in the archetype.
 - **The declared phases are scheduling phases.** The phases `consent-3` declares
   (`triaging`, `mulling`, `triage`, `evaluating`, `synthesis`) are the names a
   `CrewSchedulingPolicy` uses to choose a model per phase. They do not name the
-  runtime's advisory, evaluating, review, and synthesis sequence, and there is no
+  runtime's advisory, evaluating, deciding, concurring, review, and synthesis sequence, and there is no
   mapping between the two.
 - **`role`, `signals`, and `on` are informational.** The operator does not interpret
   them.

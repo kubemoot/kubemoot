@@ -68,7 +68,7 @@ its spec:
 
 - `spec.description` - what this agent does, in plain language
 - `spec.triageSummary` - a terse, LLM-optimized description of the agent's scope
-- `spec.discussKeywords` - additional terms included in the fallback similarity path
+- `spec.discussKeywords` - additional terms embedded in the agent's resume
 - `spec.enabledTools` (the tool names themselves) - which tools this agent can call
 
 When a question arrives, the coordinator makes one LLM reasoning call over the entire
@@ -93,9 +93,9 @@ The coordinator cannot reason well about an agent it cannot read clearly.
 If the reasoning call fails or returns nothing, the coordinator falls back to semantic
 similarity over the per-crew resume index (`crew_<namespace>_<crew>_resumes`) and selects the
 agents whose resumes score highest. If that also fails, it broadcasts to all
-specialists. `spec.discussKeywords` feeds the similarity fallback, not the primary
+specialists. `spec.discussKeywords` feeds the resume the similarity search embeds, not the primary
 reasoning call. Treat it as optional supplemental vocabulary that improves fallback
-accuracy, not as the main selection signal.
+accuracy, not as the main selection signal. It is never a relevance gate.
 
 ### Write resumes for the coordinator, not for humans
 
@@ -113,7 +113,7 @@ noun-phrase list of the resource types, operations, and data the agent covers. W
 it like the agent's signature line in a directory listing, not a sentence. Brevity and
 specificity beat prose here.
 
-**`spec.discussKeywords`**: additional terms included in the similarity fallback index.
+**`spec.discussKeywords`**: additional terms embedded in the agent's resume, which the similarity search reads.
 Include synonyms, related concepts, and domain vocabulary the description may omit.
 These improve fallback accuracy but are not read during the primary reasoning call.
 
@@ -286,6 +286,59 @@ ASSERT the advisory is additive: Toolers may use richer tools than the brief sug
 ASSERT Toolers run on smaller models with less context than the coordinator.
   Write briefs that help orient them, not ones that constrain their investigation.
 ```
+
+### Declare the review decision
+
+After the Toolers settle, a crew with Analysts can let the coordinator decide how much
+review the gathered results need. The decision is opt-in per crew and is declared on
+the coordinator Agent:
+
+```yaml
+spec:
+  deployment:
+    env:
+      - name: KUBEMOOT_DISCUSS_REVIEW_DECISION
+        value: "true"            # default false
+      - name: KUBEMOOT_DISCUSS_REVIEW_DECISION_TIER
+        value: "fast"            # fast (default) or reasoning
+```
+
+`fast` runs the decision on the triage model; `reasoning` runs it on the coordinator's
+main model. With no distinct triage model, the main model is used.
+
+With the decision on, the coordinator makes one model call over the question, the
+runtime's signal counts, the selected Analysts, and the gathered results, and answers
+`{"review": "concur" | "full" | "none", "reason": "..."}`:
+
+- `concur`: one Analyst is asked whether it concurs: the selected Analyst whose resume
+  best matches the question, or the best match among all Analysts when none was
+  selected. It answers without a triage call. Agreement goes to synthesis; a reply that
+  starts with `CONCERN:`, a block, or a failure escalates to a full review.
+- `full`: the selected Analysts review the results.
+- `none`: straight to synthesis, only where the crew's policy allows it.
+
+The rule for choosing belongs in a coordinator `PromptModule`, in
+[ADL](../write-agents-and-adl/) or prose like the rest of the crew's prompts. The
+reference crews ship a `review-decision` module; its rules, abbreviated:
+
+```text
+WHEN a tooler failed or raised a concern, OR the contributions conflict: THEN full.
+WHEN the question asks for judgment, a recommendation, a trade-off, a root cause,
+    or a correlation across layers or domains: THEN full.
+WHEN the answer needs a count, total, ranking, sort, or other arithmetic: THEN full.
+WHEN the gathered results directly answer the question as asked: THEN concur.
+WHEN unsure: THEN full.
+NEVER choose none.
+```
+
+Give the Analysts a matching rule for answering a concurrence check (confirm briefly,
+or start the reply with `CONCERN:` and name what is missing or wrong).
+
+The runtime enforces guards the policy cannot override: any Tooler failure, concern, or
+block, or no Tooler agreement, forces `full` without a model call, and an unreadable
+answer or a failed call is `full`. The decision is published on the thread as a
+`review_decision` message for the dashboard timeline. A crew that does not declare the
+decision keeps the full review.
 
 ---
 

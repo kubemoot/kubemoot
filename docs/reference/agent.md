@@ -44,7 +44,7 @@ Role this agent plays in a discussion thread.
 |-------|----------|
 | `generic` (default) | General contributor. Participates in discussions but does not hold the Tooler raw-output contract. Use when an agent is not a domain Tooler, Analyst, coordinator, or researcher. |
 | `tooler` | **Tooler** role: subscribes to channels, calls MCP tools in the EVALUATING phase, participates with signals (`agree`, `concern`, `stand_aside`, `failure`, `block`). Thinking is OFF for deterministic tool selection. |
-| `analyst` | **Analyst** role: participates in the REVIEW phase with thinking ON. Carries RAG sources and reasons over the data Toolers gathered. No live MCP tools. |
+| `analyst` | **Analyst** role: participates in the CONCURRING and REVIEW phases with thinking ON. Carries RAG sources and reasons over the data Toolers gathered. No live MCP tools. |
 | `coordinator` | Receives user queries, generates advisory, runs triage, synthesizes responses. `KUBEMOOT_DISCUSS_COORDINATOR=true`, `KUBEMOOT_DISCUSS_TOOLER=false` |
 | `researcher` | Contributes to synthesis but excluded from settle triggers, fast path, and gap detection. Used for non-settle-gating agents such as internet search that augment the discussion without owning a definitive answer. |
 
@@ -52,7 +52,10 @@ Role this agent plays in a discussion thread.
 NATS discussion channels the agent subscribes to. The coordinator should list every channel the crew uses (e.g., `[kubernetes, observability, proxmox, general]`); a Tooler or Analyst lists only its domain (e.g., `[kubernetes]`). Channels are metadata, not routing gates - subcommittee selection is the coordinator's job (via the resume model), not channel routing.
 
 ### `spec.discussKeywords[]`
-Optional. Domain keywords that become part of this agent's **resume** (alongside its description, tools, and role). The coordinator's resume model embeds the resume and matches it semantically against each question to pick the subcommittee, so keywords inform selection without being a literal gate. Set to `["*"]` to opt into every thread (used by researcher agents like internet-search).
+Optional. Domain keywords that become part of this agent's **resume** (alongside its description, tools, and role). The coordinator's resume search embeds the resume and matches it semantically against each question to pick the subcommittee (and to rank Analysts for a review), so keywords inform selection without being a literal gate.
+
+### `spec.discussRelevance`
+Deprecated. The agent runtime does not read it, because the coordinator selects the agents for a discussion from their resumes and an agent has no relevance filter of its own. The field is still accepted so existing manifests apply unchanged.
 
 ### `spec.promptRefs[]`
 Required. Ordered list of `PromptModule` names whose `content` is concatenated by `order` to form the agent's system prompt. The composed text is written to a ConfigMap and mounted at `/etc/kubemoot/policy/system.txt`. All prompt text MUST live in PromptModules; inline system prompts are not supported.
@@ -284,7 +287,7 @@ Each agent declares its channels via `Agent.spec.discussChannels`. Coordinators 
 2. Coordinator queries the crew's **resume model** to select the subcommittee, then publishes `thread_start` (with that `innerCircle`) to `kubemoot.discuss.<namespace>.<crew>.<channel>.<threadId>`
 3. Only the selected Toolers are woken; the rest are silently excluded (no keyword self-selection)
 4. Each selected Tooler runs a per-agent LLM triage (CONTRIBUTE / NOTHING_TO_ADD) for this specific question
-5. Contributing Toolers call `directChat()` to generate a contribution (with tool calling); Analysts self-select in the REVIEW phase and reason over the gathered data
+5. Contributing Toolers call `directChat()` to generate a contribution (with tool calling); Analysts are woken by name for the concurrence check or the review (the selected Analysts, or the best resume match when none was selected) and reason over the gathered data
 6. Agents publish signals (`triaging`, `evaluating`, `waiting`, `agree`, `concern`, `stand_aside`, `failure`, `block`) back to the thread
 7. Coordinator settles the discussion based on signals (not a fixed timeout) and synthesizes a response
 
@@ -298,7 +301,7 @@ The tool-calling loop is bounded along three axes so a misbehaving tool can't ha
 
 Any of these aborts publishes a first-class `failure` consensus signal with structured cause metadata (`failureType`, `failedTool`, `lastError`) rather than a generic `stand_aside`. Other failures during mulling (a provider timeout, an out-of-memory error, a messaging hiccup, a runtime error) route through the same failure path with heuristic classification (`model_timeout`, `model_oom`, `provider_unreachable`, `internal_exception`).
 
-Before every turn the loop also checks that the next prompt fits the context window of the provider the call runs on. It uses the prompt size the engine reported for the previous turn plus the tool results added since. When the prompt would not fit, the loop fails with `failureType` `CONTEXT_EXCEEDED` rather than send a prompt the engine would cut. See [Scheduler](../architecture/scheduler.md#the-context-window-is-a-hard-constraint).
+Before every turn the loop also checks that the next prompt fits the context window of the provider the call runs on. It uses the prompt size the engine reported for the previous turn plus the tool results added since. A reasoning agent whose next prompt would not fit answers in one tool-free closing turn over what it has read, and the results that did not fit are replaced by a note. If every tool call failed, that is a failure (`GATHER_FAILED`). A compute agent whose contract (read the artifact with a tool) is unmet cannot close this way. An empty closing answer, or a closing prompt that still does not fit, fails with `failureType` `CONTEXT_EXCEEDED` rather than send a prompt the engine would cut. See [Scheduler](../architecture/scheduler.md#the-context-window-is-a-hard-constraint).
 
 A bounded retry policy on the model call itself keeps a slow provider from silently multiplying its own timeout into a multi-minute hang: one retry, then the call surfaces as failed and the failure path takes over. Heartbeats stop the moment an agent publishes any terminal signal, so a finished agent never keeps looking alive after it's done.
 
@@ -326,7 +329,9 @@ When no GPU has room, the agent publishes `waiting` once and retries on every pr
 | `KUBEMOOT_DISCUSS_CHANNELS` | All agents | `Agent.spec.discussChannels` (comma-separated) |
 | `KUBEMOOT_DISCUSS_COORDINATOR` | Coordinators | Set `true` when `discussRole=coordinator` |
 | `KUBEMOOT_DISCUSS_TOOLER` | All agents | `false` for coordinators and researcher-role agents |
-| `KUBEMOOT_DISCUSS_TIMEOUT_SECONDS` | Coordinator | Optional override via `spec.deployment.env` |
+| `KUBEMOOT_DISCUSS_REVIEW_DECISION` | Coordinator | Optional via `spec.deployment.env`; `true` makes the coordinator decide the review shape (`concur`, `full`, or `none`) after evaluation (default `false`). See [Compose a Crew](../user-guides/compose-a-crew.md#declare-the-review-decision) |
+| `KUBEMOOT_DISCUSS_REVIEW_DECISION_TIER` | Coordinator | Optional via `spec.deployment.env`; model tier for the review decision call: `fast` (the triage model, default) or `reasoning` (the coordinator's main model). With no distinct triage model the main model is used |
+| `KUBEMOOT_DISCUSS_ADVISORY_TIMEOUT_SECONDS`, `KUBEMOOT_DISCUSS_EVALUATION_TIMEOUT_SECONDS`, `KUBEMOOT_DISCUSS_REVIEW_TIMEOUT_SECONDS`, `KUBEMOOT_DISCUSS_SYNTHESIS_TIMEOUT_SECONDS` | Coordinator | Optional via `spec.deployment.env`; phase budgets that only sum into the discussion's hard ceiling (a safety net). Signals, not these values, move a discussion between phases. A non-positive value falls back to the declared default (evaluation 300 s) |
 | `KUBEMOOT_MODEL_CANDIDATES_MULLING` | All agents | Ranked candidate models for the mulling phase, JSON `[{"model", "score"}]`, preferred model first |
 | `KUBEMOOT_MODEL_CANDIDATES_TRIAGE` | All agents | Ranked candidate models for the triage phase, same shape |
 | `KUBEMOOT_MODEL_CANDIDATE_TOLERANCE` | All agents | Optional override via `spec.deployment.env`; quality-score points a warm candidate may trail the preferred model (default 10) |
