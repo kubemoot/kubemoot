@@ -39,17 +39,26 @@ func TestMaybeWriteTranscript_KeyButNoNatsIsNoop(t *testing.T) {
 	}
 }
 
-func TestFirstThreadID(t *testing.T) {
-	if got := firstThreadID(nil); got != "" {
-		t.Errorf("empty events → empty threadId, got %q", got)
+func TestAnsweringThreadID(t *testing.T) {
+	if got := answeringThreadID(nil); got != "" {
+		t.Errorf("empty events: want empty threadId, got %q", got)
 	}
 	events := []SignalEvent{
 		{Type: "connected"},
 		{Type: "thread_found", ThreadID: "abc-123"},
-		{Type: "synthesis", ThreadID: "abc-123"},
+		{Type: "synthesis"},
 	}
-	if got := firstThreadID(events); got != "abc-123" {
-		t.Errorf("firstThreadID = %q, want abc-123", got)
+	if got := answeringThreadID(events); got != "abc-123" {
+		t.Errorf("answeringThreadID = %q, want abc-123", got)
+	}
+	restarted := []SignalEvent{
+		{Type: "thread_found", ThreadID: "abandoned"},
+		{Type: "phase"},
+		{Type: "thread_found", ThreadID: "answering"},
+		{Type: "synthesis"},
+	}
+	if got := answeringThreadID(restarted); got != "answering" {
+		t.Errorf("after a coordinator restart: answeringThreadID = %q, want answering", got)
 	}
 }
 

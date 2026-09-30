@@ -75,11 +75,13 @@ type RunOutcome struct {
 	Answered bool `json:"answered"`
 }
 
-// firstThreadID returns the threadId carried on the earliest event that has one.
-func firstThreadID(events []SignalEvent) string {
-	for _, e := range events {
-		if e.ThreadID != "" {
-			return e.ThreadID
+// answeringThreadID returns the thread the stream last announced. The gateway announces
+// a second thread when the coordinator restarted and took the request again; the
+// earlier thread was abandoned and the later one answers.
+func answeringThreadID(events []SignalEvent) string {
+	for i := len(events) - 1; i >= 0; i-- {
+		if events[i].ThreadID != "" {
+			return events[i].ThreadID
 		}
 	}
 	return ""
@@ -320,7 +322,7 @@ func RunFitnessTest(ctx context.Context, ft FitnessTest, endpoint string, maxDur
 		Assertions:     results,
 		Events:         events,
 		ConversationID: conversationID,
-		ThreadID:       firstThreadID(events),
+		ThreadID:       answeringThreadID(events),
 		Question:       question,
 		StartedAt:      startedAt.UTC().Format(time.RFC3339),
 		DurationMs:     time.Since(startedAt).Milliseconds(),
