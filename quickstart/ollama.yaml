@@ -25,7 +25,7 @@ spec:
     spec:
       containers:
         - name: ollama
-          image: ollama/ollama:0.30.10
+          image: ollama/ollama:0.34.4
           ports:
             - name: http
               containerPort: 11434
