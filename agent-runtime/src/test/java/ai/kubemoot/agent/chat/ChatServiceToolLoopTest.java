@@ -1455,15 +1455,10 @@ class ChatServiceToolLoopTest {
             }; }
             @Override public Discuss discuss() { return new Discuss() {
                 @Override public Optional<String> channels() { return Optional.empty(); }
-                @Override public int timeoutSeconds() { return 30; }
                 @Override public int maxInferencesPerMinute() { return 10; }
                 @Override public int maxContributionsPerThread() { return 3; }
                 @Override public boolean tooler() { return true; }
-                @Override public Optional<String> keywords() { return Optional.empty(); }
-                @Override public String relevanceMode() { return "keyword"; }
-                @Override public Optional<String> relevancePromptHint() { return Optional.empty(); }
                 @Override public String priority() { return "medium"; }
-                @Override public int advisoryGraceSeconds() { return 5; }
                 @Override public String role() { return discussRole; }
                 @Override public boolean coordinator() { return false; }
                 @Override public boolean computeContract() { return computeContract; }

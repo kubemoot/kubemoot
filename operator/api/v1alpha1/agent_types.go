@@ -50,23 +50,21 @@ type RAGSourceRef struct {
 	TopK int32 `json:"topK,omitempty"`
 }
 
-// DiscussRelevance configures the RelevanceFilter strategy used by the
-// agent-runtime to decide whether an incoming discussion message is
-// relevant to this agent. See RelevanceFilter in agent-runtime.
+// DiscussRelevance was the per-agent relevance filter configuration.
+//
+// Deprecated: the agent runtime no longer reads it. The coordinator selects the
+// agents for a discussion from their resumes, so an agent has no relevance
+// filter of its own. The field is still accepted so existing manifests apply
+// unchanged.
 type DiscussRelevance struct {
-	// Mode selects the relevance-decision strategy:
-	//   - keyword: literal substring match against Agent.spec.discussKeywords
-	//   - llm: call the triage model with a yes/no relevance prompt
-	//   - keyword-then-llm: try keyword first (cheap), fall back to LLM
+	// Mode is deprecated and unread. Accepted values are kept for compatibility:
+	// keyword, llm, keyword-then-llm.
 	// +kubebuilder:validation:Enum=keyword;llm;keyword-then-llm
 	// +kubebuilder:default=keyword
 	// +optional
 	Mode string `json:"mode,omitempty"`
 
-	// PromptHint is an optional extra sentence appended to the LLM
-	// relevance prompt to bias the model toward this agent's domain.
-	// Ignored when mode=keyword. When empty, the agent's triageSummary
-	// is the sole role description in the prompt.
+	// PromptHint is deprecated and unread.
 	// +optional
 	PromptHint string `json:"promptHint,omitempty"`
 }
@@ -220,19 +218,14 @@ type AgentSpec struct {
 	// +optional
 	DisabledTools []string `json:"disabledTools,omitempty"`
 
-	// DiscussKeywords are domain keywords used to gate this agent's
-	// participation in a discussion (keyword fallback when the LLM
-	// advisory is unavailable). Set as KUBEMOOT_DISCUSS_KEYWORDS env var.
+	// DiscussKeywords are domain keywords embedded in this agent's resume,
+	// which the coordinator searches to select the agents for a discussion.
 	// +optional
 	DiscussKeywords []string `json:"discussKeywords,omitempty"`
 
-	// DiscussRelevance configures how this agent's RelevanceFilter decides
-	// whether an incoming discussion message is relevant. Default mode is
-	// `keyword` (literal substring match against DiscussKeywords). Use
-	// `llm` for agents whose intent surface is unbounded (e.g.,
-	// scheduler-advisor matching arbitrary temporal phrasings); use
-	// `keyword-then-llm` to keep the cheap keyword fast-path and only
-	// invoke the LLM when keywords miss.
+	// DiscussRelevance configured the per-agent relevance filter.
+	//
+	// Deprecated: unread; accepted so existing manifests apply unchanged.
 	// +optional
 	DiscussRelevance *DiscussRelevance `json:"discussRelevance,omitempty"`
 

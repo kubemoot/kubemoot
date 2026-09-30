@@ -2,6 +2,7 @@ package ai.kubemoot.agent.nats;
 
 import ai.kubemoot.agent.chat.ChatService;
 import ai.kubemoot.agent.config.AgentProperties;
+import ai.kubemoot.agent.config.PhaseBudgetDefaults;
 import ai.kubemoot.agent.rag.ResumeSearchClient;
 import ai.kubemoot.agent.util.GpuLabels;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -315,14 +316,15 @@ public class DiscussionOrchestrator {
         this.coordinator = properties.discuss().coordinator();
         this.hasAnalysts = properties.discuss().hasAnalysts();
         this.answerDirectlyEnabled = properties.discuss().answerDirectly();
-        int advTimeout = properties.discuss().advisoryTimeoutSeconds();
-        this.advisoryTimeoutSeconds = advTimeout > 0 ? advTimeout : 10;
-        int evalTimeout = properties.discuss().evaluationTimeoutSeconds();
-        this.evaluationTimeoutSeconds = evalTimeout > 0 ? evalTimeout : 15;
-        int revTimeout = properties.discuss().reviewTimeoutSeconds();
-        this.reviewTimeoutSeconds = revTimeout > 0 ? revTimeout : 15;
-        int synthTimeout = properties.discuss().synthesisTimeoutSeconds();
-        this.synthesisTimeoutSeconds = synthTimeout > 0 ? synthTimeout : 90;
+        var discuss = properties.discuss();
+        this.advisoryTimeoutSeconds = PhaseBudgetDefaults.orDefault(discuss.advisoryTimeoutSeconds(),
+                PhaseBudgetDefaults.ADVISORY_SECONDS);
+        this.evaluationTimeoutSeconds = PhaseBudgetDefaults.orDefault(discuss.evaluationTimeoutSeconds(),
+                PhaseBudgetDefaults.EVALUATION_SECONDS);
+        this.reviewTimeoutSeconds = PhaseBudgetDefaults.orDefault(discuss.reviewTimeoutSeconds(),
+                PhaseBudgetDefaults.REVIEW_SECONDS);
+        this.synthesisTimeoutSeconds = PhaseBudgetDefaults.orDefault(discuss.synthesisTimeoutSeconds(),
+                PhaseBudgetDefaults.SYNTHESIS_SECONDS);
         this.settleSeconds = properties.discuss().settleSeconds();
         this.minEvalSeconds = properties.discuss().minEvalSeconds();
         this.minReviewSeconds = properties.discuss().minReviewSeconds();
@@ -1701,6 +1703,23 @@ public class DiscussionOrchestrator {
     }
 
     /**
+     * Start REVIEW's roster: every agent review_ready wakes is pending from the
+     * moment REVIEW begins, with the same deadline a triaging signal opens. Without
+     * it the roster would be empty until each reviewer's first signal arrived, and
+     * REVIEW could settle at its floor before any reviewer had started. Eval-phase
+     * stragglers are dropped so REVIEW waits only for its own participants.
+     */
+    // Visible for testing
+    void seedReviewRoster(ThreadState state, Collection<String> reviewers, long nowMs) {
+        state.pendingEvaluations.clear();
+        long deadline = nowMs + properties.triageModel().timeoutSeconds() * 1000L;
+        for (String reviewer : reviewers) {
+            state.pendingEvaluations.put(reviewer, deadline);
+        }
+        log.info("Thread {} review roster: {}", state.threadId, reviewers);
+    }
+
+    /**
      * EVALUATING → REVIEW (or direct to SYNTHESIS for single-agree).
      *
      * Single-agree: when exactly 1 tooler agrees with 0 concerns/blocks
@@ -1734,13 +1753,15 @@ public class DiscussionOrchestrator {
             return;
         }
 
+        // The analysts review_ready wakes: the selected analysts, or every analyst
+        // when none was selected (review_ready then carries no inner circle).
+        var analysts = analystNamesFromResumes();
+        var analystCircle = analystCircleFrom(state.innerCircle, analysts);
+        Collection<String> reviewers = analystCircle.isEmpty() ? analysts : analystCircle;
         state.phase = Phase.REVIEW;
         state.phaseStarted = Instant.now();
-        // Fresh roster for REVIEW: only analysts that self-select on review_ready
-        // populate pendingEvaluations. Drop any leftover eval-phase stragglers so
-        // the review settle waits for review participants, not dropped toolers.
-        state.pendingEvaluations.clear();
-        metrics.setPendingEvaluations(0);
+        seedReviewRoster(state, reviewers, System.currentTimeMillis());
+        metrics.setPendingEvaluations(state.pendingEvaluations.size());
 
         try {
             var conn = natsProvider.getConnection();
@@ -1766,15 +1787,9 @@ public class DiscussionOrchestrator {
             metadata.put(FIELD_GPU_LABEL, GpuLabels.fromEndpoint(properties.model().endpoint()));
             metadata.put(FIELD_MODEL_NAME, properties.model().model());
 
-            // Scope the review to the domain-relevant analysts the coordinator
-            // already selected for this thread (the analyst subset of innerCircle),
-            // so review_ready wakes only those analysts instead of broadcasting to
-            // ALL of them (which makes every analyst run a full 32b REVIEW pass,
-            // serialized on the one GPU that fits 32b - the dominant latency).
-            // The subscriber's isExcludedByInnerCircle gate handles the rest; an
-            // absent/empty innerCircle falls back to the prior broadcast-to-all
-            // behavior. See [[Coordinator Domain-Scoped Analyst Subcommittee]].
-            var analystCircle = analystCircleFrom(state.innerCircle, analystNamesFromResumes());
+            // The inner circle scopes review_ready to the selected analysts (the
+            // subscriber's isExcludedByInnerCircle gate); without one, every
+            // analyst wakes. See [[Coordinator Domain-Scoped Analyst Subcommittee]].
             if (!analystCircle.isEmpty()) {
                 metadata.put(FIELD_INNER_CIRCLE, analystCircle);
                 log.info("Thread {} - scoping review to {} selected analyst(s): {}",

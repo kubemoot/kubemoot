@@ -58,3 +58,31 @@ func TestDiscussChannelsEnv(t *testing.T) {
 		t.Fatal("no channels declared means no channels env")
 	}
 }
+
+// spec.discussKeywords reaches the coordinator through the resume, and
+// spec.discussRelevance is deprecated: neither becomes an env var, while an
+// agent that still sets them keeps its role and triage summary.
+func TestDiscussIdentityEnv_DropsUnreadKeywordAndRelevanceVars(t *testing.T) {
+	agent := &kubemootv1alpha1.Agent{Spec: kubemootv1alpha1.AgentSpec{
+		DiscussRole:      "analyst",
+		TriageSummary:    "reviews gathered data",
+		DiscussKeywords:  []string{"proxmox", "zfs"},
+		DiscussRelevance: &kubemootv1alpha1.DiscussRelevance{Mode: "llm", PromptHint: "hint"},
+	}}
+	env := map[string]string{}
+	for _, e := range agentDiscussIdentityEnvVars(agent) {
+		env[e.Name] = e.Value
+	}
+	for _, unread := range []string{"KUBEMOOT_DISCUSS_KEYWORDS", "KUBEMOOT_DISCUSS_RELEVANCE_MODE",
+		"KUBEMOOT_DISCUSS_RELEVANCE_PROMPT_HINT"} {
+		if _, set := env[unread]; set {
+			t.Errorf("%s is injected but the runtime never reads it", unread)
+		}
+	}
+	if env["KUBEMOOT_DISCUSS_ROLE"] != "analyst" || env["KUBEMOOT_TRIAGE_SUMMARY"] != "reviews gathered data" {
+		t.Fatalf("role and triage summary must still be set: %v", env)
+	}
+	if got := agentDiscussIdentityEnvVars(&kubemootv1alpha1.Agent{}); len(got) != 0 {
+		t.Fatalf("an agent with no discuss identity gets no env: %v", got)
+	}
+}

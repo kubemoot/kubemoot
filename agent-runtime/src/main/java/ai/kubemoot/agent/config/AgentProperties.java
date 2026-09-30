@@ -89,9 +89,6 @@ public interface AgentProperties {
     interface Discuss {
         Optional<String> channels();
 
-        @WithDefault("30")
-        int timeoutSeconds();
-
         /**
          * Number of candidate agents the vector resume pre-filter returns to NARROW the
          * catalog the coordinator reasons over (RAG recall; the reasoning call then
@@ -111,20 +108,8 @@ public interface AgentProperties {
         @WithDefault("true")
         boolean tooler();
 
-        Optional<String> keywords();
-
-        /** Relevance decision strategy. One of: keyword (default), llm, keyword-then-llm. */
-        @WithDefault("keyword")
-        String relevanceMode();
-
-        /** Optional extra sentence appended to the LLM relevance prompt to bias toward this agent's domain. */
-        Optional<String> relevancePromptHint();
-
         @WithDefault("medium")
         String priority();
-
-        @WithDefault("5")
-        int advisoryGraceSeconds();
 
         // Default is "generic" (NOT "tooler"): the raw-tool-output contract in
         // ChatService.callWithToolLoop fires only for role=="tooler", so emitting
@@ -213,16 +198,18 @@ public interface AgentProperties {
         @WithDefault("0")
         int synthesisCompletenessRetries();
 
-        @WithDefault("10")
+        // Phase budgets. They only sum into the discussion's hard ceiling (a safety
+        // net); signals, not these values, move a discussion between phases.
+        @WithDefault(PhaseBudgetDefaults.ADVISORY_SECONDS)
         int advisoryTimeoutSeconds();
 
-        @WithDefault("300")
+        @WithDefault(PhaseBudgetDefaults.EVALUATION_SECONDS)
         int evaluationTimeoutSeconds();
 
-        @WithDefault("15")
+        @WithDefault(PhaseBudgetDefaults.REVIEW_SECONDS)
         int reviewTimeoutSeconds();
 
-        @WithDefault("90")
+        @WithDefault(PhaseBudgetDefaults.SYNTHESIS_SECONDS)
         int synthesisTimeoutSeconds();
 
         @WithDefault("20")
