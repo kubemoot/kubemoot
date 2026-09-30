@@ -20,7 +20,7 @@ answer is not one voice's.
 each carrying domain expertise, into a discussion where a question is settled by
 **deliberation** rather than dictated by one model. Agents communicate over a message
 bus using a vocabulary of consensus signals (`agree`, `concern`, `stand_aside`,
-`block`).
+`block`, `failure`).
 
 The name maps directly to the architecture:
 

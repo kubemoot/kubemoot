@@ -47,7 +47,7 @@ spec:
 
 Each agent is an `Agent` CR carrying the `kubemoot.ai/crew: my-crew` label. Give the
 crew exactly one coordinator (`discussRole: coordinator`) and one or more Toolers
-(the default `specialist` role), and optionally Analysts (`analyst` role). An agent
+(`discussRole: tooler`), and optionally Analysts (`analyst` role). An agent
 declares *capabilities*, not a model: the scheduler binds the model. See
 [Crews & Agents](../../concepts/crews-and-agents/) for roles and the
 [Agent CRD reference](../../reference/agent/) for every field.

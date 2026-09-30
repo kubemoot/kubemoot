@@ -5,7 +5,7 @@ weight: 1
 
 Kubemoot implements architectural fitness functions as first-class Kubernetes resources. The `CrewFitness` CRD allows operators and crew designers to define, execute, and observe fitness tests against deployed agent crews - declaratively, headlessly, and with automatic cleanup.
 
-This document describes how Kubemoot adapts the fitness function concept from [*Architecture as Code*](https://www.dijure.com/books/architecture-as-code/) (Richards, Ford, and Johnson) to the domain of AI agent crew orchestration.
+This document describes how Kubemoot adapts the fitness function concept from [*Architecture as Code*](https://learning.oreilly.com/library/view/architecture-as-code/9798341640368/) (Richards, Ford, and Johnson) to the domain of AI agent crew orchestration.
 
 ## From ADL to Kubernetes
 

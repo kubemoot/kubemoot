@@ -27,7 +27,7 @@ Both participate in the same NATS discussion thread. The Coordinator synthesizes
 
 ## Declared Agents
 
-Declared agents are defined in the application's Helm chart (e.g., homelab-pilot). They represent known capabilities that the team needs from day one.
+Declared agents are defined in a crew's Helm chart. They represent known capabilities that the crew needs from day one. The examples below come from the Homelab Pilot reference crew.
 
 ### Toolers
 
@@ -55,7 +55,7 @@ Examples:
 
 An Analyst has RAG-embedded documentation and reasons over the data that Toolers gathered. It provides domain interpretation, weighs evidence, and surfaces caveats. No live tools: just knowledge retrieved from indexed documents via semantic search, plus thinking ON so the reasoning chain is visible and auditable.
 
-The former per-layer RAG agents (k8s-advisor, proxmox-advisor, obs-advisor, nvidia-gpu-advisor, scheduler-advisor) are Analysts: they participate in the REVIEW phase rather than the old ADVISORY phase and reason over Tooler output rather than providing upfront context.
+Analysts participate in the REVIEW phase and reason over Tooler output rather than providing upfront context.
 
 ```
 Agent Pod                    Query Service Pod            pgvector
@@ -74,7 +74,7 @@ Examples:
 
 ### How They Work Together
 
-When a user asks "Why is my pod in CrashLoopBackOff?", the three tiers contribute in sequence:
+When a user asks "Why is my pod in CrashLoopBackOff?", the Toolers, the Analyst, and the coordinator contribute in sequence:
 
 1. **k8s-workloads** (Tooler) calls `pods_get` and `events_list` to report the actual pod status, restart count, and error events
 2. **k8sgpt** (Tooler) runs the `analyze` tool for a deterministic diagnostic scan
@@ -87,39 +87,36 @@ Neither type alone gives the full picture. Toolers know what is happening. Analy
 
 ## Self-Discovered Agents
 
-Kubemoot does not just run what you declare: it recognizes gaps and fills them autonomously. The two self-discovery systems are symmetric.
+A crew can recognize a gap and propose to fill it. Two agent roles in the agent runtime support this, and both are opt-in: the operator chart does not deploy them, and the operator does not create the resulting agents. See the [Onboarding Guide](../../operating/onboarding-guide/) for exactly what ships.
 
-### Tool Gap: Onboarding Agent (Tool Shopper)
+### Tool Gap: Onboarding Agent
 
-When no Tooler can answer a question (0 agrees, multiple stand-asides), the onboarding agent detects the gap and searches for MCP tools:
-
-```
-Gap Detected -> Search MCP registries -> Evaluate quality -> Propose to user
-    -> User consents -> Deploy MCPServer CR -> Operator creates Tooler Agent
-```
-
-The onboarding agent is a **tool shopper**: it finds, evaluates, and deploys new capabilities. Quality checks include GitHub stars, recent commits, known authors, and suspicious keyword filtering.
-
-### Knowledge Gap: RTFM Agent (Research Librarian)
-
-When a new MCP server is onboarded, the RTFM agent automatically finds and indexes its documentation:
+When no Tooler can answer a question, the coordinator signals a gap. An agent in onboarding mode searches for an MCP server and proposes it:
 
 ```
-MCPServer deployed -> Search for docs (GitHub, web) -> Create RAGSource CR
+Gap signal -> Search MCP registries -> Propose to user
+    -> User consents -> Deploy MCPServer CR -> You create the Tooler Agent
+```
+
+### Knowledge Gap: RTFM Agent
+
+An agent in RTFM mode listens for an onboarding-deployed event and finds documentation for the new server:
+
+```
+Onboarding-deployed event -> Search for docs (GitHub, web) -> Create RAGSource CR
     -> Indexer clones, chunks, embeds -> Query service available
-    -> Operator creates Analyst Agent
 ```
 
-The RTFM agent is a **research librarian**: it finds authoritative documentation, indexes it into the vector store, and makes it available to Analysts. The documentation enriches future REVIEW-phase reasoning about the newly onboarded domain.
+The documentation enriches REVIEW-phase reasoning by Analysts about the newly onboarded domain. Creating the Analyst `Agent` that uses it is a manual step.
 
 ### The Symmetry
 
 | Step | Tool System (MCP) | Knowledge System (RAG) |
 |------|-------------------|----------------------|
-| **Gap signal** | 0 Tooler agrees | New MCPServer with no docs |
+| **Gap signal** | No Tooler agrees | New MCPServer with no docs |
 | **Discovery agent** | Onboarding agent | RTFM agent |
 | **What it creates** | MCPServer CR | RAGSource CR |
-| **What the operator creates** | Tooler Agent | Analyst Agent |
+| **What you create** | Tooler Agent | Analyst Agent |
 | **Result** | New tools in the EVALUATING phase | New reasoning depth in the REVIEW phase |
 
 ---

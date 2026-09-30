@@ -1,6 +1,6 @@
 ---
 title: "Install the Operator"
-weight: 40
+weight: 50
 description: "Prerequisites and the Helm install of the Kubemoot operator; other components install separately."
 ---
 

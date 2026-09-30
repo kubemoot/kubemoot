@@ -26,12 +26,12 @@ Agents communicate over the message bus with a vocabulary of consensus signals:
 - `concern` - a reservation that should be weighed before settling.
 - `stand_aside` - no relevant contribution; abstain without blocking.
 - `block` - a strong objection.
+- `failure` - the agent could not do its work (a tool call failed or a source was
+  unreachable).
 
 Additional protocol signals exist for facilitation (e.g. `triaging`, `evaluating`,
-`advisory`, `proposal`). Not every signal is exercised by every
-crew yet - which signals matter, and how strongly, depends on the archetype (below).
-A declared **failure** is first-class: agents surface failure as signal rather than
-going silent.
+`advisory`, `proposal`). A declared **failure** is first-class: agents surface failure
+as signal rather than going silent.
 
 ## Discussion phase lifecycle
 
@@ -113,7 +113,8 @@ The metaphor fixes the **goal** (deliberate to a decision), not one rigid struct
 strongly an objection counts, and how the discussion concludes - is a **consensus
 archetype**.
 
-- **Today** Kubemoot ships a single archetype: a facilitating **coordinator**
+- **Today** Kubemoot ships a single archetype, installed as the `consent-3`
+  `MootArchetype`: a facilitating **coordinator**
   convenes the Toolers whose expertise fits the question; Analysts reason over the
   Toolers' findings in the REVIEW phase; and the coordinator synthesizes once the
   discussion settles (a consent-style model). The coordinator is itself a light form

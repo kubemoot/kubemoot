@@ -14,7 +14,7 @@ checks. ADL is the surface where a crew's behavior is authored, reviewed, and ve
 ADL is the **Architecture Definition Language**, a pseudo-code introduced by Mark
 Richards for describing and governing the structure of a software system, and paired
 with the fitness-function idea from Richards and Neal Ford's evolutionary-architecture
-work (see [*Architecture as Code*](https://www.dijure.com/books/architecture-as-code/) by Mark Richards, Neal Ford, and
+work (see [*Architecture as Code*](https://learning.oreilly.com/library/view/architecture-as-code/9798341640368/) by Mark Richards, Neal Ford, and
 Jonathan Johnson, and Richards' ADL reference at developertoarchitect.com). In its original form ADL defines a system's parts (`DEFINE
 SYSTEM`, `DEFINE DOMAIN`, `DEFINE COMPONENT`) and asserts the rules between them
 (`ASSERT`, `FOREACH ... CONTAINED WITHIN`), making architecture a machine-readable

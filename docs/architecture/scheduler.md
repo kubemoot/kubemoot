@@ -34,7 +34,7 @@ The operator's job is to publish state and candidates, not to pick the call's pr
 - The **`ModelProvider` reconciler** probes each provider (Ollama `/api/ps`, DCGM) and publishes per-provider `{totalVramMiB, loadedModelFootprints, ready, lastProbedAt}` to NATS KV bucket `kubemoot_provider_state`. The agent runtime reads this on every inference call.
 - The **Agent reconciler** computes the candidate `(Model, Provider)` matches via the filter and score machinery described above, binds the best as the agent's preferred model (`KUBEMOOT_MODEL_MODEL`), and publishes each phase's ranked candidate models as `KUBEMOOT_MODEL_CANDIDATES_MULLING` and `KUBEMOOT_MODEL_CANDIDATES_TRIAGE`. The per-call model and provider are chosen at the inference boundary (see [Candidate models per call](#candidate-models-per-call)).
 
-The agent-runtime grows two new classes:
+The agent runtime contains two classes for this:
 
 #### ProviderSelector (agent-side)
 
@@ -66,7 +66,7 @@ Every placement path applies the filter: claiming a provider, queueing on a load
 - A specialist stands aside at once with `metadata.reason = "prompt-too-large"` (and `metadata.model`).
 - A coordinator call fails visibly. It does not fall back to a static endpoint that would cut the prompt.
 
-The tool loop applies the same rule before every turn. It takes the prompt size the engine reported for the previous turn, adds the tool results appended since, and compares the total with the context of the provider the call runs on. When the next prompt would not fit, the loop stops with a `failure` signal whose `failureType` is `CONTEXT_EXCEEDED` instead of sending a prompt the engine would cut. Prompt size counts messages, tool results, tool-call arguments, and tool specifications. Before the engine has reported a size, the runtime estimates tokens from characters using a ratio learned from the engine's reports (an exponentially weighted average, starting at 3.5 characters per token, since prose runs near 4 and JSON or code nearer 3).
+The tool loop applies the same rule before every model call. It takes the prompt size the engine reported for the previous call, adds the tool results appended since, and compares the total with the context of the provider the call runs on. When the next prompt would not fit, the loop stops with a `failure` signal whose `failureType` is `CONTEXT_EXCEEDED` instead of sending a prompt the engine would cut. Prompt size counts messages, tool results, tool-call arguments, and tool specifications. Before the engine has reported a size, the runtime estimates tokens from characters using a ratio learned from the engine's reports (an exponentially weighted average, starting at 3.5 characters per token, since prose runs near 4 and JSON or code nearer 3).
 
 On Ollama, `OLLAMA_CONTEXT_LENGTH` is the per-request context of each parallel slot, and the total KV cache scales with `OLLAMA_NUM_PARALLEL` times that value. A GPU's memory therefore buys either more parallel slots or a larger per-request context. Operators choose the balance for each provider: more slots serve more concurrent calls, a larger context admits longer prompts. Mixed providers can make different choices, and the scheduler routes each call to one whose context holds it.
 
@@ -300,17 +300,6 @@ A crew of one synthesizing coordinator plus several Toolers (and optionally Anal
 | Analyst | `[reasoning]` | 0.7 | `latencyClass: medium` or `high` Model |
 
 The synthesizer holds the larger model because *it* declared `reasoning`. Toolers stay on smaller, faster models because they didn't. One heavy model and many light ones co-exist on the same GPU pool without slot starvation under per-provider `num_parallel=1`.
-
-### What gets deleted later
-
-The sticky/capacity-aware/per-phase-count machinery exists only to compensate for static binding. Once the operator hands each agent a candidate list instead of a single binding, all of it deletes:
-
-- `applySticky` and `stickyHysteresis` in `agent_controller.go`
-- The load-penalty branch in `scoreCandidate`
-- `countAssignedAgents` and `MullingAgentCount`/`TriageAgentCount` in `modelprovider_controller.go`
-- The deployment-hash short-circuit handling for image-only changes (existed to work around env-var-change rollout fragility)
-
-Net code reduction is expected to be several hundred lines.
 
 ## CRD Surface
 

@@ -50,7 +50,7 @@ time-series trends. See the cohesion and coupling discussion in the
 split vs. merge.
 
 **Roles:** a crew has exactly one `coordinator` (declared via `spec.discussRole:
-coordinator`), any number of `specialist` (Tooler) agents (the default role),
+coordinator`), any number of Tooler agents (`discussRole: tooler`),
 optionally `analyst` agents for the REVIEW phase, and optionally one or more
 `researcher` agents. Researchers augment synthesis but are excluded from settle
 triggers and gap detection: suitable for internet search or other background

@@ -49,8 +49,8 @@ Claude Code polls the ticket for you and prints the crew's answer when it settle
 
 ## What a session looks like
 
-A real exchange against the reference homelab crew (an RTX 5090 node and an RTX 4090
-node), run with the scripted command above. Claude Code turned the prompt into a
+A real exchange from the reference cluster (a Homelab Pilot crew on two GPU nodes),
+run with the scripted command above. Claude Code turned the prompt into a
 fuller question for the crew, polled the ticket three times, and printed this after
 196 seconds:
 
@@ -60,8 +60,8 @@ fuller question for the crew, polled the ticket three times, and printed this af
 >
 > | Node | GPU | Count |
 > |---|---|---|
-> | homelab-k8s-1-gpu-worker | NVIDIA GeForce RTX 5090 | 1 |
-> | homelab-k8s-1-gpu-worker-2 | NVIDIA GeForce RTX 4090 | 1 |
+> | gpu-worker-1 | NVIDIA GeForce RTX 5090 | 1 |
+> | gpu-worker-2 | NVIDIA GeForce RTX 4090 | 1 |
 >
 > They found this from the node labels. Both nodes are labeled
 > `nvidia.com/gpu.present=true` with a matching `nvidia.com/gpu.product`, and both

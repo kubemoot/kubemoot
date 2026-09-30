@@ -26,7 +26,7 @@ A **moot** is an assembly that reaches a decision by deliberation. In Kubemoot:
 - A **coordinator** receives a question and convenes the Toolers whose expertise fits
   it.
 - Each **Tooler** investigates with its domain MCP tools and contributes a finding
-  carrying a consensus **signal** - `agree`, `concern`, `stand_aside`, or `block`.
+  carrying a consensus **signal** - `agree`, `concern`, `stand_aside`, `block`, or `failure`.
 - **Analysts**, if the crew has them, reason over the Toolers' findings before
   synthesis.
 - The coordinator watches the signals and, once the discussion settles,

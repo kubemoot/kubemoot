@@ -1,6 +1,7 @@
 ---
 title: "Scheduling - reminders, follow-ups, recurring"
 weight: 4
+linkTitle: "Reminders and Follow-ups"
 ---
 
 > **One sentence**: a crew's `scheduler-advisor` Tooler agent calls the `scheduling-mcp` server's tools to write `ScheduleRecord`s into the NATS KV bucket `kubemoot_scheduled`; the operator's scheduler poller fires due records - either inline in the originating thread or as a new thread, depending on `kind` x whether a `sourceThreadId` was attached.

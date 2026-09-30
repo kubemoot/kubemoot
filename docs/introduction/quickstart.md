@@ -1,6 +1,6 @@
 ---
 title: "Quickstart"
-weight: 50
+weight: 40
 description: "Try Kubemoot on a laptop, no GPU required, in one script."
 ---
 
