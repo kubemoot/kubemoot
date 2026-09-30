@@ -1,6 +1,7 @@
 import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { deleteCrewFitnessSuite } from '$lib/server/k8s';
+import { deleteCrewFitnessSuite, patchCrewFitnessSuiteSpec } from '$lib/server/k8s';
+import { suiteActionPatch } from '$lib/fitness-suite-controls';
 
 /**
  * DELETE /api/kubemoot/crewfitnesssuites/{namespace}/{name}
@@ -21,6 +22,34 @@ export const DELETE: RequestHandler = async ({ params }) => {
 		return json({ deleted: `${namespace}/${name}` });
 	} catch (e) {
 		const message = e instanceof Error ? e.message : 'delete failed';
+		return json({ error: message }, { status: 500 });
+	}
+};
+
+/**
+ * PATCH /api/kubemoot/crewfitnesssuites/{namespace}/{name}
+ * Body: { "action": "pause" | "resume" | "stop" }
+ *
+ * Pause sets spec.suspend=true (the running iteration finishes, no new one
+ * starts, phase becomes Paused). Resume sets spec.suspend=false. Stop sets
+ * spec.cancel=true (the in-flight iteration is deleted, phase becomes Cancelled,
+ * a partial XLSX is written). The operator does the work; this only patches spec.
+ */
+export const PATCH: RequestHandler = async ({ params, request }) => {
+	const { namespace, name } = params;
+	if (!namespace || !name) {
+		throw error(400, 'namespace and name are required');
+	}
+	const body = await request.json().catch(() => ({}));
+	const patch = suiteActionPatch(body?.action);
+	if (!patch) {
+		return json({ error: 'action must be one of pause, resume, stop' }, { status: 400 });
+	}
+	try {
+		await patchCrewFitnessSuiteSpec(namespace, name, patch);
+		return json({ suite: `${namespace}/${name}`, action: body.action });
+	} catch (e) {
+		const message = e instanceof Error ? e.message : 'patch failed';
 		return json({ error: message }, { status: 500 });
 	}
 };

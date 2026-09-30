@@ -4,6 +4,14 @@
 	import { base } from '$app/paths';
 	import { namespace, showStandAsides } from '$stores';
 	import type { CrewFitnessSuite } from '$types/kubemoot.js';
+	import {
+		availableSuiteActions,
+		suiteActionPatch,
+		suiteDisplayPhase,
+		suiteIsJudged,
+		SUITE_TERMINAL_PHASES,
+		type SuiteAction
+	} from '$lib/fitness-suite-controls';
 	import { SYNTHESIS_COLLAPSE_CHARS, artifactKey, artifactHref } from '$lib/discussion-artifacts';
 
 	// Synthesis/advisory are LLM markdown (headers, lists, bold). Render them as
@@ -87,7 +95,9 @@
 	let running = $state<Record<string, FitnessTest[]>>({});
 	let agentNames = $state<Set<string>>(new Set());
 
-	const TERMINAL_PHASES = new Set(['Passed', 'Failed', 'Completed', 'Error']);
+	// Terminal phases of both suites and their CrewFitness children (Passed is the
+	// one child phase that is not also a suite phase).
+	const TERMINAL_PHASES = new Set([...SUITE_TERMINAL_PHASES, 'Passed']);
 
 	function childSuiteId(t: FitnessTest): string | null {
 		const suite = t.metadata.labels?.[SUITE_LABEL];
@@ -155,7 +165,7 @@
 	let judgeState = $state<Record<string, { complete: boolean; judged: number }>>({});
 	// True when the suite has finished running but its quality judging is still going.
 	function isJudging(id: string, phase?: string): boolean {
-		return TERMINAL_PHASES.has(phase ?? '') && !!judgeState[id] && !judgeState[id].complete;
+		return suiteIsJudged(phase) && !!judgeState[id] && !judgeState[id].complete;
 	}
 
 	interface ScenarioGroup {
@@ -347,7 +357,7 @@
 			const ns = suite.metadata.namespace ?? '';
 			const name = suite.metadata.name ?? '';
 			const id = `${ns}/${name}`;
-			if (!TERMINAL_PHASES.has(suite.status?.phase ?? '')) continue;
+			if (!suiteIsJudged(suite.status?.phase)) continue; // Cancelled suites are never judged
 			if (judgeState[id]?.complete) continue; // judging finished — stop polling this one
 			try {
 				const r = await fetch(`${base}/api/kubemoot/crewfitnesssuites/${ns}/${name}/scores`);
@@ -381,6 +391,42 @@
 			suites = suites.filter((s) => !(s.metadata.namespace === ns && s.metadata.name === name));
 		} catch (err) {
 			errorBox = `Delete failed\n\nSuite: ${ns}/${name}\n\n${err instanceof Error ? (err.stack ?? err.message) : String(err)}`;
+		}
+	}
+
+	// Pause, resume or stop a suite: the server merge-patches spec.suspend /
+	// spec.cancel and the operator does the work. The local spec is updated
+	// optimistically so the badge reads Pausing / Stopping at once; the live watch
+	// then carries the operator's phase change.
+	const ACTION_LABEL: Record<SuiteAction, { text: string; title: string }> = {
+		pause: { text: 'Pause', title: 'Pause: the running iteration finishes, no new one starts' },
+		resume: { text: 'Resume', title: 'Resume from the next iteration' },
+		stop: { text: 'Stop', title: 'Stop: end the running iteration and keep completed results (partial XLSX, not judged)' }
+	};
+	async function suiteAction(ns: string, name: string, action: SuiteAction, e: Event) {
+		e.stopPropagation();
+		if (action === 'stop' && !confirm(`Stop suite "${name}"?\n\nThe running iteration is ended and no more start. Completed iterations are kept in a partial XLSX. This cannot be undone.`)) {
+			return;
+		}
+		try {
+			const r = await fetch(`${base}/api/kubemoot/crewfitnesssuites/${ns}/${name}`, {
+				method: 'PATCH',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ action })
+			});
+			if (!r.ok) {
+				const d = await r.json().catch(() => ({}));
+				errorBox = `${action} failed (HTTP ${r.status})\n\nSuite: ${ns}/${name}\n\n${d.error ?? JSON.stringify(d, null, 2)}`;
+				return;
+			}
+			const patch = suiteActionPatch(action);
+			suites = suites.map((s) =>
+				s.metadata.namespace === ns && s.metadata.name === name && patch
+					? { ...s, spec: { ...s.spec, ...patch.spec } }
+					: s
+			);
+		} catch (err) {
+			errorBox = `${action} failed\n\nSuite: ${ns}/${name}\n\n${err instanceof Error ? (err.stack ?? err.message) : String(err)}`;
 		}
 	}
 
@@ -493,6 +539,12 @@
 				return 'phase-fail';
 			case 'Running':
 				return 'phase-running';
+			case 'Paused':
+			case 'Pausing':
+			case 'Stopping':
+				return 'phase-paused';
+			case 'Cancelled':
+				return 'phase-cancelled';
 			default:
 				return 'phase-pending';
 		}
@@ -629,7 +681,7 @@
 						{#if isJudging(id, s?.phase)}
 							<span class="badge phase-running running-badge" title="Suite finished — quality judging in progress"><span class="spin"></span>judging {judgeState[id].judged}</span>
 						{:else}
-							{@render statusBadge(s?.phase)}
+							{@render statusBadge(suiteDisplayPhase(suite))}
 						{/if}
 					</td>
 					<td class="name">
@@ -644,6 +696,9 @@
 						{#if s?.artifactRef?.objectKey}
 							<a class="dl" href="{base}/api/kubemoot/crewfitnesssuites/{ns}/{name}/artifact" download onclick={(e) => e.stopPropagation()} title="Download {formatBytes(s.artifactRef.sizeBytes)}">⬇ XLSX</a>
 						{:else}<span class="muted small">—</span>{/if}
+						{#each availableSuiteActions(suite) as action (action)}
+							<button class="ctl-btn" title={ACTION_LABEL[action].title} aria-label="{action} suite" onclick={(e) => suiteAction(ns, name, action, e)}>{ACTION_LABEL[action].text}</button>
+						{/each}
 						<button class="del-btn" title="Remove this suite run (deletes the run and its artifacts)" aria-label="Remove suite run" onclick={(e) => deleteSuite(ns, name, e)}>✕</button>
 					</td>
 				</tr>
@@ -956,6 +1011,10 @@
 	.iter-row.running:hover { background: transparent; }
 	.ev.standaside-note { font-style: italic; }
 	.phase-pending { background: var(--color-bg-tertiary); color: var(--color-text-muted); }
+	.phase-paused { background: var(--color-warning-bg, rgba(204, 153, 51, 0.15)); color: var(--color-warning, #c93); }
+	.phase-cancelled { background: var(--color-bg-tertiary); color: var(--color-text-muted); text-decoration: line-through; }
+	.ctl-btn { margin-left: 0.35rem; background: none; border: 1px solid var(--color-border); border-radius: 4px; color: var(--color-text-muted, #888); cursor: pointer; font-size: 0.75rem; line-height: 1; padding: 0.1rem 0.3rem; }
+	.ctl-btn:hover { color: var(--color-cyan); border-color: var(--color-cyan); }
 	.passed { color: var(--color-success); font-weight: 600; }
 	.failed { color: var(--color-error); font-weight: 600; }
 	.errored { color: var(--color-warning, #c66); font-weight: 600; }

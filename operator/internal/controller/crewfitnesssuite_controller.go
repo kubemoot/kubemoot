@@ -26,6 +26,10 @@ You may obtain a copy of the License at
 //  4. When IterationsCompleted == IterationsTotal: hand off to XLSX
 //     generation + NATS write (separate commit), then transition to
 //     Completed or Failed.
+//  5. spec.suspend holds scheduling: the running iteration finishes and the
+//     suite reads Paused once nothing is in flight; clearing it resumes.
+//     spec.cancel deletes the in-flight iteration and moves the suite to the
+//     terminal Cancelled phase, which writes a partial XLSX without judging.
 //
 // XLSX writing and NATS Object Store integration ship in the next commit
 // to keep this one reviewable. Until that lands, the suite still completes
@@ -53,6 +57,10 @@ import (
 // CrewFitnessSuiteReconciler reconciles a CrewFitnessSuite object.
 type CrewFitnessSuiteReconciler struct {
 	client.Client
+	// APIReader reads children straight from the API server, bypassing the
+	// informer cache. The pause and cancel decisions use it so a child created
+	// on the previous tick is never missed. Nil falls back to Client.
+	APIReader     client.Reader
 	Scheme        *runtime.Scheme
 	NATSPublisher *kubemootnats.Publisher
 }
@@ -97,8 +105,6 @@ const (
 // +kubebuilder:rbac:groups=kubemoot.ai,resources=crewfitnesses,verbs=get;list;watch;create;update;patch;delete;deletecollection
 
 func (r *CrewFitnessSuiteReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	log := logf.FromContext(ctx)
-
 	suite := &kubemootv1alpha1.CrewFitnessSuite{}
 	if err := r.Get(ctx, req.NamespacedName, suite); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
@@ -112,27 +118,48 @@ func (r *CrewFitnessSuiteReconciler) Reconcile(ctx context.Context, req ctrl.Req
 	}
 	if !controllerutil.ContainsFinalizer(suite, crewFitnessSuiteFinalizer) {
 		controllerutil.AddFinalizer(suite, crewFitnessSuiteFinalizer)
-		if err := r.Update(ctx, suite); err != nil {
-			return ctrl.Result{}, err
-		}
-		return ctrl.Result{Requeue: true}, nil
+		// The update event re-triggers reconcile through the watch, so the
+		// watch must not filter metadata-only updates (no GenerationChangedPredicate).
+		return ctrl.Result{}, r.Update(ctx, suite)
 	}
 
-	switch suite.Status.Phase {
+	return r.dispatchPhase(ctx, suite)
+}
+
+// isSuiteTerminal reports whether the suite has stopped scheduling for good.
+// Cancelled joins Completed/Failed/Error: its post-run upkeep (partial XLSX,
+// child reap) runs through the same terminalUpkeep path.
+func isSuiteTerminal(phase kubemootv1alpha1.CrewFitnessSuitePhase) bool {
+	switch phase {
 	case kubemootv1alpha1.CrewFitnessSuitePhaseCompleted,
 		kubemootv1alpha1.CrewFitnessSuitePhaseFailed,
-		kubemootv1alpha1.CrewFitnessSuitePhaseError:
-		// Terminal — run post-completion upkeep: guarantee the XLSX artifact
-		// is written, then reap the per-iteration children. Idempotent and
-		// retry-safe; converges to (artifact present, zero children) with no
-		// manual cleanup. See terminalUpkeep.
-		return r.terminalUpkeep(ctx, suite)
+		kubemootv1alpha1.CrewFitnessSuitePhaseError,
+		kubemootv1alpha1.CrewFitnessSuitePhaseCancelled:
+		return true
+	}
+	return false
+}
 
+// dispatchPhase routes one reconcile by phase. A terminal suite only runs
+// upkeep. spec.cancel on any non-terminal suite (Pending, Running, Paused) wins
+// over everything else, including spec.suspend.
+func (r *CrewFitnessSuiteReconciler) dispatchPhase(ctx context.Context, suite *kubemootv1alpha1.CrewFitnessSuite) (ctrl.Result, error) {
+	if isSuiteTerminal(suite.Status.Phase) {
+		// Terminal: guarantee the XLSX artifact is written, then reap the
+		// per-iteration children. Idempotent and retry-safe; converges to
+		// (artifact present, zero children) with no manual cleanup.
+		return r.terminalUpkeep(ctx, suite)
+	}
+	if suite.Spec.Cancel {
+		return r.cancelSuite(ctx, suite)
+	}
+	switch suite.Status.Phase {
 	case kubemootv1alpha1.CrewFitnessSuitePhaseRunning:
 		return r.advanceRunning(ctx, suite)
-
+	case kubemootv1alpha1.CrewFitnessSuitePhasePaused:
+		return r.advancePaused(ctx, suite)
 	default:
-		log.Info("Starting fitness suite",
+		logf.FromContext(ctx).Info("Starting fitness suite",
 			"name", suite.Name, "crew", suite.Spec.CrewRef,
 			"scripts", len(suite.Spec.Scripts), "iterations", suite.Spec.Iterations)
 		return r.startSuite(ctx, suite)
@@ -214,89 +241,230 @@ func (r *CrewFitnessSuiteReconciler) startSuite(ctx context.Context, suite *kube
 }
 
 // advanceRunning is the steady-state reconcile tick: refresh counts from
-// the per-iteration CRs we own, schedule the next batch up to concurrency,
-// and finish when all iterations are terminal.
+// the per-iteration CRs we own, schedule the next batch up to concurrency
+// (unless spec.suspend holds scheduling), and settle the phase: Completed when
+// every iteration is terminal, Paused when suspended with nothing in flight,
+// otherwise Running.
 func (r *CrewFitnessSuiteReconciler) advanceRunning(ctx context.Context, suite *kubemootv1alpha1.CrewFitnessSuite) (ctrl.Result, error) {
 	children, err := r.listChildren(ctx, suite)
 	if err != nil {
 		return ctrl.Result{}, fmt.Errorf("listing children: %w", err)
 	}
+	progress := summarizeChildren(children)
 
-	// Account: count terminal vs non-terminal, classify outcomes, identify
-	// per-iteration CRs that have already been scheduled.
-	scheduled := map[string]bool{}
+	if !suite.Spec.Suspend {
+		if err := r.scheduleBatch(ctx, suite, children, progress.inFlight); err != nil {
+			return ctrl.Result{}, err
+		}
+	}
+
+	if suite.Spec.Suspend && progress.inFlight == 0 {
+		// About to report Paused: confirm against the API server, since the
+		// cache may not yet hold a child created on the previous tick.
+		if progress, err = r.liveProgress(ctx, suite); err != nil {
+			return ctrl.Result{}, err
+		}
+	}
+
+	applyProgress(suite, progress)
+	suite.Status.Phase = runningNextPhase(suite.Spec.Suspend, progress, suite.Status.IterationsTotal)
+	if suite.Status.Phase == kubemootv1alpha1.CrewFitnessSuitePhaseCompleted {
+		// Phase reflects EXECUTION lifecycle, not aggregate test outcome: all
+		// iterations reached a terminal state, so the suite ran to completion
+		// even if some iterations failed or errored their assertions. Those
+		// outcomes live in passed/failed/errored. Failed/Error is reserved for
+		// the suite itself failing to execute (setSuiteError). The XLSX write
+		// and child reap happen in terminalUpkeep, one idempotent path.
+		now := metav1.Now()
+		suite.Status.CompletedAt = &now
+	}
+	if err := r.Status().Update(ctx, suite); err != nil {
+		return ctrl.Result{}, err
+	}
+	if suite.Status.Phase == kubemootv1alpha1.CrewFitnessSuitePhasePaused {
+		// Nothing in flight and nothing to schedule: wait for a spec edit
+		// (resume or cancel), which re-triggers reconcile through the watch.
+		return ctrl.Result{}, nil
+	}
+	return ctrl.Result{RequeueAfter: reconcileTickInterval}, nil
+}
+
+// runningNextPhase is the pure phase decision for a Running tick. Completion
+// wins (the last in-flight iteration may finish while suspended). A suspended
+// suite reads Paused only once nothing is in flight, so Paused always means
+// the crew is idle.
+func runningNextPhase(suspend bool, p childProgress, total int32) kubemootv1alpha1.CrewFitnessSuitePhase {
+	if p.completed >= total {
+		return kubemootv1alpha1.CrewFitnessSuitePhaseCompleted
+	}
+	if suspend && p.inFlight == 0 {
+		return kubemootv1alpha1.CrewFitnessSuitePhasePaused
+	}
+	return kubemootv1alpha1.CrewFitnessSuitePhaseRunning
+}
+
+// liveProgress summarizes the suite's children read uncached.
+func (r *CrewFitnessSuiteReconciler) liveProgress(ctx context.Context, suite *kubemootv1alpha1.CrewFitnessSuite) (childProgress, error) {
+	children, err := r.listLiveChildren(ctx, suite)
+	if err != nil {
+		return childProgress{}, fmt.Errorf("listing children uncached: %w", err)
+	}
+	return summarizeChildren(children), nil
+}
+
+// applyProgress copies the per-tick child rollup into the suite status.
+func applyProgress(suite *kubemootv1alpha1.CrewFitnessSuite, p childProgress) {
+	suite.Status.IterationsCompleted = p.completed
+	suite.Status.Passed = p.passed
+	suite.Status.Failed = p.failed
+	suite.Status.Errored = p.errored
+}
+
+// scheduleBatch creates per-iteration CRs until inFlight reaches
+// spec.concurrency or nothing is left to schedule. The existing children form
+// the dedup set, so a resumed suite picks up at the next unscheduled iteration.
+func (r *CrewFitnessSuiteReconciler) scheduleBatch(ctx context.Context, suite *kubemootv1alpha1.CrewFitnessSuite, children []kubemootv1alpha1.CrewFitness, inFlight int) error {
+	scheduled := make(map[string]bool, len(children))
 	for i := range children {
 		scheduled[children[i].Name] = true
 	}
-	progress := summarizeChildren(children)
-
-	// Update status counts (but only Status().Update once at the end of
-	// the tick — bundle the count refresh + the post-schedule check).
-
-	// Schedule next batch up to concurrency.
-	inFlight := progress.inFlight
-	concurrency := int(suite.Spec.Concurrency)
-	if concurrency < 1 {
-		concurrency = 1
-	}
-
+	concurrency := max(int(suite.Spec.Concurrency), 1)
 	for inFlight < concurrency {
 		next := r.findNextIteration(suite, scheduled)
 		if next == nil {
-			break // nothing left to schedule
+			return nil // nothing left to schedule
 		}
 		if err := r.createIterationCR(ctx, suite, next); err != nil {
-			return ctrl.Result{}, fmt.Errorf("creating iteration CR: %w", err)
+			return fmt.Errorf("creating iteration CR: %w", err)
 		}
 		scheduled[next.crName] = true
 		inFlight++
 	}
+	return nil
+}
 
-	// Finalize counts. If all iterations are terminal, transition to
-	// Completed/Failed and (later commit) emit the XLSX artifact.
-	suite.Status.IterationsCompleted = progress.completed
-	suite.Status.Passed = progress.passed
-	suite.Status.Failed = progress.failed
-	suite.Status.Errored = progress.errored
-
-	if progress.completed >= suite.Status.IterationsTotal {
-		// All iterations terminal. Flip to a terminal phase and freeze the
-		// counts. The XLSX artifact write + child reap happen in
-		// terminalUpkeep (driven by the terminal-phase switch case) so the
-		// two post-run guarantees — artifact-exists and zero-lingering-
-		// children — are handled by one idempotent, retry-safe code path
-		// rather than inline here where a partial failure would strand
-		// garbage. Children are still all alive at this point; terminalUpkeep
-		// harvests them on the next tick before reaping.
-		now := metav1.Now()
-		suite.Status.CompletedAt = &now
-		// Phase reflects EXECUTION lifecycle, not aggregate test outcome. All
-		// iterations reached a terminal state, so the suite ran to completion —
-		// that is Completed, even if some iterations failed or errored their
-		// assertions. Those outcomes live in passed/failed/errored. The terminal
-		// Failed/Error phase is reserved for the suite itself failing to execute
-		// (invalid spec, couldn't create children, unrecoverable artifact write —
-		// set via failSuite), not for individual iteration outcomes.
-		suite.Status.Phase = kubemootv1alpha1.CrewFitnessSuitePhaseCompleted
-		if err := r.Status().Update(ctx, suite); err != nil {
-			return ctrl.Result{}, err
-		}
-		// Requeue so terminalUpkeep runs promptly (the status update also
-		// triggers a watch re-reconcile; this is belt-and-suspenders).
-		return ctrl.Result{RequeueAfter: reconcileTickInterval}, nil
+// advancePaused handles a Paused suite. Clearing spec.suspend flips it back to
+// Running and requeues so advanceRunning schedules the next iteration at once.
+// While still suspended there is nothing to do and no requeue: the next spec
+// edit re-triggers reconcile. (spec.cancel is handled before this in
+// dispatchPhase.)
+func (r *CrewFitnessSuiteReconciler) advancePaused(ctx context.Context, suite *kubemootv1alpha1.CrewFitnessSuite) (ctrl.Result, error) {
+	if suite.Spec.Suspend {
+		return ctrl.Result{}, nil
 	}
-
+	logf.FromContext(ctx).Info("Resuming fitness suite", "name", suite.Name,
+		"completed", suite.Status.IterationsCompleted, "total", suite.Status.IterationsTotal)
+	suite.Status.Phase = kubemootv1alpha1.CrewFitnessSuitePhaseRunning
 	if err := r.Status().Update(ctx, suite); err != nil {
 		return ctrl.Result{}, err
 	}
 	return ctrl.Result{RequeueAfter: reconcileTickInterval}, nil
 }
 
+// cancelSuite stops a non-terminal suite. It deletes every iteration still in
+// flight (its Job and pods follow through owner refs), recounts from the
+// iterations that completed, and moves the suite to the terminal Cancelled
+// phase. terminalUpkeep then writes the partial XLSX from the completed
+// children and reaps them; the deferred judge is skipped for a cancelled run.
+func (r *CrewFitnessSuiteReconciler) cancelSuite(ctx context.Context, suite *kubemootv1alpha1.CrewFitnessSuite) (ctrl.Result, error) {
+	children, err := r.listLiveChildren(ctx, suite)
+	if err != nil {
+		return ctrl.Result{}, fmt.Errorf("listing children for cancel: %w", err)
+	}
+	stopped, err := r.deleteInFlight(ctx, children)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+	applyProgress(suite, summarizeChildren(terminalChildren(children)))
+	if suite.Status.RunID == "" {
+		// Cancelled before it started: record the run identity and the planned
+		// total so the status and any report read "0 of N".
+		suite.Status.RunID = generateRunID(suite)
+		suite.Status.IterationsTotal = int32(len(suite.Spec.Scripts)) * suite.Spec.Iterations
+	}
+	now := metav1.Now()
+	suite.Status.Phase = kubemootv1alpha1.CrewFitnessSuitePhaseCancelled
+	suite.Status.CompletedAt = &now
+	if err := r.Status().Update(ctx, suite); err != nil {
+		return ctrl.Result{}, err
+	}
+	logf.FromContext(ctx).Info("Cancelled fitness suite", "name", suite.Name,
+		"completed", suite.Status.IterationsCompleted, "total", suite.Status.IterationsTotal,
+		"stoppedInFlight", stopped)
+	return ctrl.Result{RequeueAfter: reconcileTickInterval}, nil
+}
+
+// deleteInFlight deletes the children that have not reached a terminal phase
+// and returns how many it deleted. Background propagation lets the garbage
+// collector remove each child's Job and pods through owner refs. The delete is
+// conditional on the resourceVersion that was read: a child that finished in
+// the meantime fails with Conflict instead of losing its result, and the error
+// makes the next reconcile re-list and recount.
+func (r *CrewFitnessSuiteReconciler) deleteInFlight(ctx context.Context, children []kubemootv1alpha1.CrewFitness) (int, error) {
+	deleted := 0
+	for i := range children {
+		c := &children[i]
+		if isFitnessTerminal(c.Status.Phase) {
+			continue
+		}
+		rv := c.ResourceVersion
+		err := r.Delete(ctx, c,
+			client.PropagationPolicy(metav1.DeletePropagationBackground),
+			client.Preconditions{ResourceVersion: &rv})
+		switch {
+		case err == nil:
+			deleted++
+		case apierrors.IsNotFound(err):
+			// already gone
+		default:
+			return deleted, fmt.Errorf("deleting in-flight iteration %s: %w", c.Name, err)
+		}
+	}
+	return deleted, nil
+}
+
+// isFitnessTerminal reports whether a CrewFitness run has finished. It is the
+// single definition of the terminal CrewFitness phases for both reconcilers.
+func isFitnessTerminal(phase kubemootv1alpha1.CrewFitnessPhase) bool {
+	switch phase {
+	case kubemootv1alpha1.CrewFitnessPhasePassed,
+		kubemootv1alpha1.CrewFitnessPhaseFailed,
+		kubemootv1alpha1.CrewFitnessPhaseError:
+		return true
+	}
+	return false
+}
+
+// terminalChildren keeps the children that finished. A cancelled suite's
+// in-flight children are being deleted and must not appear in its counts or
+// its XLSX; for a Completed suite every child is terminal, so this is a no-op.
+func terminalChildren(children []kubemootv1alpha1.CrewFitness) []kubemootv1alpha1.CrewFitness {
+	out := make([]kubemootv1alpha1.CrewFitness, 0, len(children))
+	for i := range children {
+		if isFitnessTerminal(children[i].Status.Phase) && children[i].DeletionTimestamp.IsZero() {
+			out = append(out, children[i])
+		}
+	}
+	return out
+}
+
 // listChildren returns all per-iteration CrewFitness CRs owned by this
 // suite (matched via the suiteOwnerLabel selector).
 func (r *CrewFitnessSuiteReconciler) listChildren(ctx context.Context, suite *kubemootv1alpha1.CrewFitnessSuite) ([]kubemootv1alpha1.CrewFitness, error) {
+	return listSuiteChildren(ctx, r.Client, suite)
+}
+
+// listLiveChildren lists the suite's children uncached (see APIReader).
+func (r *CrewFitnessSuiteReconciler) listLiveChildren(ctx context.Context, suite *kubemootv1alpha1.CrewFitnessSuite) ([]kubemootv1alpha1.CrewFitness, error) {
+	if r.APIReader == nil {
+		return r.listChildren(ctx, suite)
+	}
+	return listSuiteChildren(ctx, r.APIReader, suite)
+}
+
+func listSuiteChildren(ctx context.Context, reader client.Reader, suite *kubemootv1alpha1.CrewFitnessSuite) ([]kubemootv1alpha1.CrewFitness, error) {
 	list := &kubemootv1alpha1.CrewFitnessList{}
-	if err := r.List(ctx, list,
+	if err := reader.List(ctx, list,
 		client.InNamespace(suite.Namespace),
 		client.MatchingLabels{suiteOwnerLabel: suite.Name}); err != nil {
 		return nil, err
@@ -328,7 +496,9 @@ func (r *CrewFitnessSuiteReconciler) terminalUpkeep(ctx context.Context, suite *
 	// Post-suite DEFER judging: score deferred assertions via their keyword's crew
 	// once the run is terminal. Idempotent (sidecar-guarded), deduped, and runs the
 	// slow crew calls off-reconcile — never inline during the run.
-	r.runDeferredJudgePass(suite)
+	if !judgeSkipped(suite) {
+		r.runDeferredJudgePass(suite)
+	}
 
 	children, err := r.listChildren(ctx, suite)
 	if err != nil {
@@ -460,12 +630,19 @@ func terminalUpkeepAction(hasArtifact, judgeComplete bool, childCount int) termi
 // With no NATS there is no deferred judge → report complete with no scores so
 // terminalUpkeep keeps the original write-then-reap flow.
 func (r *CrewFitnessSuiteReconciler) deferredJudgeState(suite *kubemootv1alpha1.CrewFitnessSuite) (complete bool, scores map[string]float64) {
-	if r.NATSPublisher == nil || suite.Status.RunID == "" {
+	if r.NATSPublisher == nil || suite.Status.RunID == "" || judgeSkipped(suite) {
 		return true, nil
 	}
 	prefix := fmt.Sprintf("%s/%s/%s/", suite.Namespace, suite.Name, suite.Status.RunID)
 	cache := loadDeferredCache(r.NATSPublisher, prefix)
 	return cache.Complete, cache.Scores
+}
+
+// judgeSkipped reports whether the deferred judge pass is skipped for this
+// suite: a cancelled suite is not judged, and its partial XLSX keeps quality
+// unjudged.
+func judgeSkipped(suite *kubemootv1alpha1.CrewFitnessSuite) bool {
+	return suite.Status.Phase == kubemootv1alpha1.CrewFitnessSuitePhaseCancelled
 }
 
 // reapChildren deletes all per-iteration CrewFitness children owned by the
@@ -489,19 +666,19 @@ type childProgress struct {
 func summarizeChildren(children []kubemootv1alpha1.CrewFitness) childProgress {
 	var p childProgress
 	for i := range children {
-		switch children[i].Status.Phase {
+		phase := children[i].Status.Phase
+		if !isFitnessTerminal(phase) {
+			p.inFlight++ // Pending / Running / empty: still in flight
+			continue
+		}
+		p.completed++
+		switch phase {
 		case kubemootv1alpha1.CrewFitnessPhasePassed:
-			p.completed++
 			p.passed++
 		case kubemootv1alpha1.CrewFitnessPhaseFailed:
-			p.completed++
 			p.failed++
-		case kubemootv1alpha1.CrewFitnessPhaseError:
-			p.completed++
-			p.errored++
 		default:
-			// Pending / Running / empty — still in flight.
-			p.inFlight++
+			p.errored++
 		}
 	}
 	return p
@@ -606,7 +783,7 @@ func (r *CrewFitnessSuiteReconciler) writeArtifact(ctx context.Context, suite *k
 		// the suite still completes, status counts are accurate.
 		return nil, nil
 	}
-	results := HarvestIterationResults(children)
+	results := HarvestIterationResults(terminalChildren(children))
 	// Provenance: enrich the in-memory suite with the crew chart version so the
 	// Overview tab attributes this run to a specific crew version.
 	stampCrewVersion(ctx, r, suite)

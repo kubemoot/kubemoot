@@ -255,7 +255,7 @@ func writeReportSheets(f *excelize.File, suite *kubemootv1alpha1.CrewFitnessSuit
 		write func() error
 	}{
 		{"writing Runs sheet", func() error { return writeRunsSheet(f, suite, results) }},
-		{"writing Assertions sheet", func() error { return writeAssertionsSheet(f, suite, results) }},
+		{"writing Assertions sheet", func() error { return writeAssertionsSheet(f, results) }},
 		{"writing Scenarios sheet", func() error { return writeScenariosSheet(f, aggs) }},
 		{"writing Failures sheet", func() error { return writeFailureSummarySheet(f, results) }},
 		{"writing Overview sheet", func() error { return writeOverviewSheet(f, suite, n, weights, crewMeans(aggs)) }},
@@ -354,7 +354,7 @@ func writeRunRow(f *excelize.File, suite *kubemootv1alpha1.CrewFitnessSuite, r I
 // "scenario X = 60%" into "fails assertion A with message M on iterations 3,7,9".
 // Error-phase iterations (no assertions recorded) get one row carrying the
 // execution error so they aren't silently absent.
-func writeAssertionsSheet(f *excelize.File, suite *kubemootv1alpha1.CrewFitnessSuite, results []IterationResult) error {
+func writeAssertionsSheet(f *excelize.File, results []IterationResult) error {
 	headers := []string{"scenario", "iteration", "assertion", "passed", "message"}
 	for col, h := range headers {
 		cell, _ := excelize.CoordinatesToCellName(col+1, 1)
@@ -544,9 +544,21 @@ func (a *scenarioAcc) add(r IterationResult) {
 	if r.Selectivity >= 0 { // -1 = unknown (no events); skip in the mean
 		a.sel = append(a.sel, r.Selectivity)
 	}
-	// Deterministic ground-truth factuality, computed here from the run's own
-	// assertions + synthesis so no per-run sentinel field can be forgotten by a
-	// constructor. -1 (no fact assertions authored) is excluded from the mean.
+	a.addFactuality(r)
+	a.total++
+	if r.Phase == kubemootv1alpha1.CrewFitnessPhasePassed {
+		a.passed++
+	}
+	if strings.TrimSpace(r.Synthesis) != "" {
+		a.synth = append(a.synth, r.Synthesis)
+	}
+}
+
+// addFactuality folds one iteration's deterministic ground-truth factuality,
+// computed here from the run's own assertions + synthesis so no per-run sentinel
+// field can be forgotten by a constructor. -1 (no fact assertions authored) is
+// excluded from the mean.
+func (a *scenarioAcc) addFactuality(r IterationResult) {
 	fact := factualityScore(r.Assertions)
 	fabricated := fabricationTripped(r.Assertions)
 	if fact >= 0 && fact < honestFactualityFloor && !fabricated && declaresHonestFailure(r.Synthesis) {
@@ -557,13 +569,6 @@ func (a *scenarioAcc) add(r IterationResult) {
 	}
 	if fabricated {
 		a.fabricating++
-	}
-	a.total++
-	if r.Phase == kubemootv1alpha1.CrewFitnessPhasePassed {
-		a.passed++
-	}
-	if strings.TrimSpace(r.Synthesis) != "" {
-		a.synth = append(a.synth, r.Synthesis)
 	}
 }
 
@@ -982,6 +987,11 @@ func (o *overviewWriter) metadata(suite *kubemootv1alpha1.CrewFitnessSuite) erro
 			return err
 		}
 	}
+	if note := partialNote(suite); note != "" {
+		if err := o.put("Partial", note); err != nil {
+			return err
+		}
+	}
 	// Crew chart version, resolved from the Crew CR's kubemoot.ai/crew-version label.
 	// Omitted for hand-applied crews. Lets a downloaded report attribute a run to a
 	// specific crew version - essential for the ADL-vs-prose measurement.
@@ -991,6 +1001,17 @@ func (o *overviewWriter) metadata(suite *kubemootv1alpha1.CrewFitnessSuite) erro
 		}
 	}
 	return nil
+}
+
+// partialNote returns the Overview "Partial" value for a cancelled suite, or ""
+// when the report covers a full run. A cancelled suite's XLSX holds only the
+// iterations that completed before the stop, and its quality is not judged.
+func partialNote(suite *kubemootv1alpha1.CrewFitnessSuite) string {
+	if suite.Status.Phase != kubemootv1alpha1.CrewFitnessSuitePhaseCancelled {
+		return ""
+	}
+	return fmt.Sprintf("yes: cancelled after %d of %d iterations; deferred judge skipped",
+		suite.Status.IterationsCompleted, suite.Status.IterationsTotal)
 }
 
 // timing writes started/completed timestamps and the wall-clock duration formula.

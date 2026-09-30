@@ -54,12 +54,13 @@ rbac:
       - apiGroups: ["kubemoot.ai"]
         resources: ["*"]
         verbs: ["get", "list", "watch"]
-      # Delete fitness suite runs from the Fitness page "remove run" action.
+      # Delete fitness suite runs from the Fitness page "remove run" action, and
+      # patch spec.suspend / spec.cancel for its Pause, Resume and Stop actions.
       # Scoped to crewfitnesssuites only; owned children (CrewFitness CRs)
       # cascade via owner refs, so no separate delete grant is needed for them.
       - apiGroups: ["kubemoot.ai"]
         resources: ["crewfitnesssuites"]
-        verbs: ["delete"]
+        verbs: ["delete", "patch"]
 
 # Service configuration
 service:

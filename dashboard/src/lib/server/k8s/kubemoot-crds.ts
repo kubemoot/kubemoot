@@ -335,6 +335,25 @@ export async function deleteCrewFitnessSuite(namespace: string, name: string): P
 	});
 }
 
+// patchCrewFitnessSuiteSpec merge-patches the suite's control fields
+// (spec.suspend pauses between iterations, spec.cancel stops the suite). The
+// operator acts on them; the dashboard only flips the fields.
+export async function patchCrewFitnessSuiteSpec(
+	namespace: string,
+	name: string,
+	patch: { spec: { suspend?: boolean; cancel?: boolean } }
+): Promise<unknown> {
+	const api = getCustomObjectsApi();
+	return api.patchNamespacedCustomObject({
+		group: GROUP,
+		version: VERSION,
+		namespace,
+		plural: 'crewfitnesssuites',
+		name,
+		body: patch
+	}, setHeaderOptions('Content-Type', 'application/merge-patch+json'));
+}
+
 // KubemootConfig functions (cluster-scoped)
 export async function listKubemootConfigs(): Promise<KubemootList<KubemootConfig>> {
 	return listClusterCRD<KubemootConfig>('kubemootconfigs');

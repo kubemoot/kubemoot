@@ -93,7 +93,7 @@ MCPServerReport quality verdicts (`use`, `caution`, `avoid`) with the evaluation
 
 ### Fitness
 
-CrewFitnessSuite runs and their scores. The Fitness page can delete a suite run; the owned CrewFitness resources are removed with it.
+CrewFitnessSuite runs and their scores. A running suite has Pause and Stop buttons, and a paused one has Resume and Stop; they set `spec.suspend` and `spec.cancel` (see the [CrewFitnessSuite reference](../../reference/crewfitnesssuite/)). The status badge reads `Pausing` while a paused suite's last iteration finishes and `Stopping` until the operator applies a stop. The Fitness page can also delete a suite run; the owned CrewFitness resources are removed with it.
 
 ## Access the dashboard needs
 
@@ -106,7 +106,7 @@ The chart creates a `ClusterRole` (`kubemoot-dashboard-reader`) with these grant
 | `configmaps` | get, list | Agent prompt bundles for the Agent detail page |
 | `deployments` (apps) | get, list, watch | Operator version in the system-info popover |
 | All `kubemoot.ai` resources | get, list, watch | Every Kubemoot page |
-| `crewfitnesssuites` | delete | The Fitness page "remove run" action |
+| `crewfitnesssuites` | delete, patch | The Fitness page "remove run" action, and its Pause, Resume, and Stop actions |
 
 The dashboard never reads or displays Secret values. The container runs as a non-root user with a read-only root filesystem.
 
@@ -120,7 +120,7 @@ The SvelteKit server exposes the JSON and event-stream endpoints the pages use. 
 | `/api/namespaces`, `/api/nodes` | GET | Namespaces; Kubernetes nodes with GPU information |
 | `/api/kubemoot/<plural>` and `/api/kubemoot/<plural>/<name>` | GET | List and detail for `agents`, `crews`, `models`, `modelproviders`, `embeddingmodels`, `mcpservers`, `mcpgateways`, `mcpqualitypolicies`, `mcpcatalogs`, `mcpserverreports`, `ragsources`, `promptmodules`, `crewfitnesses` |
 | `/api/kubemoot/config`, `/api/kubemoot/system-info`, `/api/kubemoot/topology` | GET | Configuration, system information, agent topology graph |
-| `/api/kubemoot/crewfitnesssuites` | GET | Fitness suites; sub-paths under `<namespace>/<name>/` serve `scores`, `iterations`, `transcript`, and `artifact`; DELETE on `<namespace>/<name>` removes a run |
+| `/api/kubemoot/crewfitnesssuites` | GET | Fitness suites; sub-paths under `<namespace>/<name>/` serve `scores`, `iterations`, `transcript`, and `artifact`; DELETE on `<namespace>/<name>` removes a run; PATCH on `<namespace>/<name>` with `{"action": "pause" \| "resume" \| "stop"}` controls it |
 | `/api/kubemoot/mcpserverreports/<name>` | PATCH | Pin a verdict |
 | `/api/kubemoot/modelproviders/<name>/load`, `/unload`, `/delete` | POST | Model provider actions |
 | `/api/kubemoot/crew-memory` | GET, POST, DELETE | Crew memory facts |

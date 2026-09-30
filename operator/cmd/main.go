@@ -361,7 +361,7 @@ func main() {
 			Client: mgr.GetClient(), Scheme: mgr.GetScheme(), ConfigCache: configCache,
 		}).SetupWithManager},
 		{"CrewFitnessSuite", (&controller.CrewFitnessSuiteReconciler{
-			Client: mgr.GetClient(), Scheme: mgr.GetScheme(), NATSPublisher: natsPublisher,
+			Client: mgr.GetClient(), APIReader: mgr.GetAPIReader(), Scheme: mgr.GetScheme(), NATSPublisher: natsPublisher,
 		}).SetupWithManager},
 		{"NotificationSink", (&controller.NotificationSinkReconciler{
 			Client: mgr.GetClient(), Scheme: mgr.GetScheme(),

@@ -78,6 +78,26 @@ type CrewFitnessSuiteSpec struct {
 	// +optional
 	// +kubebuilder:default=true
 	PurgeMemory *bool `json:"purgeMemory,omitempty"`
+
+	// Suspend pauses the suite between iterations. While true, no new
+	// iteration starts; any iteration already running finishes and its result
+	// is kept. The phase becomes Paused once nothing is in flight. Setting it
+	// back to false resumes the suite at the next unscheduled iteration.
+	// Ignored once the suite is terminal. Default false.
+	// +optional
+	// +kubebuilder:default=false
+	Suspend bool `json:"suspend,omitempty"`
+
+	// Cancel stops the suite. When true, the operator deletes any iteration
+	// still in flight (its Job follows through owner refs), starts no new
+	// iteration, and moves the suite to the terminal Cancelled phase with
+	// completedAt set. Results of completed iterations are kept and written
+	// to the XLSX, which is marked partial; the deferred judge is skipped.
+	// Cancel takes precedence over Suspend and cannot be undone. Ignored once
+	// the suite is terminal. Default false.
+	// +optional
+	// +kubebuilder:default=false
+	Cancel bool `json:"cancel,omitempty"`
 }
 
 // SuiteScript is one entry in a suite — mirrors the CrewFitness spec's
@@ -113,6 +133,13 @@ const (
 	CrewFitnessSuitePhaseCompleted CrewFitnessSuitePhase = "Completed"
 	CrewFitnessSuitePhaseFailed    CrewFitnessSuitePhase = "Failed"
 	CrewFitnessSuitePhaseError     CrewFitnessSuitePhase = "Error"
+	// CrewFitnessSuitePhasePaused: spec.suspend is true and no iteration is
+	// in flight. Not terminal; clearing spec.suspend returns to Running.
+	CrewFitnessSuitePhasePaused CrewFitnessSuitePhase = "Paused"
+	// CrewFitnessSuitePhaseCancelled: spec.cancel stopped the suite before
+	// every iteration ran. Terminal; the XLSX holds the completed iterations
+	// and is marked partial.
+	CrewFitnessSuitePhaseCancelled CrewFitnessSuitePhase = "Cancelled"
 )
 
 // SuiteArtifactRef points to the XLSX object the reconciler wrote to the
@@ -147,7 +174,7 @@ type CrewFitnessSuiteStatus struct {
 	StartedAt *metav1.Time `json:"startedAt,omitempty"`
 
 	// CompletedAt records when the last iteration reached a terminal
-	// phase (Passed/Failed/Error/Timeout).
+	// phase (Passed/Failed/Error), or when the suite was cancelled.
 	// +optional
 	CompletedAt *metav1.Time `json:"completedAt,omitempty"`
 
@@ -167,7 +194,7 @@ type CrewFitnessSuiteStatus struct {
 
 	// ArtifactRef is set when the XLSX has been written to the NATS
 	// Object Store. Populated only on terminal phase
-	// (Completed/Failed).
+	// (Completed/Failed/Cancelled).
 	// +optional
 	ArtifactRef *SuiteArtifactRef `json:"artifactRef,omitempty"`
 

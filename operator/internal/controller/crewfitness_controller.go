@@ -39,6 +39,11 @@ import (
 
 const (
 	fitnessResultAnnotation = "kubemoot.ai/fitness-result"
+
+	// envNATSURL is the env var carrying the NATS address to the runner.
+	envNATSURL = "NATS_URL"
+	// dropAllCapability drops every Linux capability from the runner container.
+	dropAllCapability corev1.Capability = "ALL"
 )
 
 // +kubebuilder:rbac:groups=kubemoot.ai,resources=crewfitnesses,verbs=get;list;watch;create;update;patch;delete
@@ -62,12 +67,10 @@ func (r *CrewFitnessReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
-	switch cf.Status.Phase {
-	case kubemootv1alpha1.CrewFitnessPhasePassed,
-		kubemootv1alpha1.CrewFitnessPhaseFailed,
-		kubemootv1alpha1.CrewFitnessPhaseError:
+	if isFitnessTerminal(cf.Status.Phase) {
 		return r.handleTTL(ctx, cf)
-
+	}
+	switch cf.Status.Phase {
 	case kubemootv1alpha1.CrewFitnessPhaseRunning:
 		return r.checkJob(ctx, cf)
 
@@ -195,11 +198,11 @@ func (r *CrewFitnessReconciler) resolveEndpoint(ctx context.Context, cf *kubemoo
 	crew := &kubemootv1alpha1.Crew{}
 	if getErr := r.Get(ctx, types.NamespacedName{Name: cf.Spec.CrewRef, Namespace: cf.Namespace}, crew); getErr != nil {
 		// Crew CR absent (deleted or misspelled crewRef): permanent, fail now.
-		return "", false, fmt.Errorf("Crew %q not found: %v", cf.Spec.CrewRef, getErr)
+		return "", false, fmt.Errorf("crew %q not found: %v", cf.Spec.CrewRef, getErr)
 	}
 	if crew.Status.DiscussionEndpoint == "" {
 		// Crew exists but the gateway is still coming up: transient, wait.
-		return "", true, fmt.Errorf("Crew %q has no discussion endpoint yet", cf.Spec.CrewRef)
+		return "", true, fmt.Errorf("crew %q has no discussion endpoint yet", cf.Spec.CrewRef)
 	}
 	return fmt.Sprintf("http://%s-discussion.%s.svc:80/api/v1/discussions/%s",
 		cf.Spec.CrewRef, cf.Namespace, cf.Spec.CrewRef), false, nil
@@ -395,13 +398,13 @@ func buildRunnerEnv(cf *kubemootv1alpha1.CrewFitness, endpoint, testKey, jobName
 		// independent of whether a transcript can be captured.
 		env = append(env, corev1.EnvVar{Name: "CREWFITNESS_SUITE", Value: suite})
 	}
-	natsURL := os.Getenv("NATS_URL")
+	natsURL := os.Getenv(envNATSURL)
 	if suite != "" && runID != "" && natsURL != "" {
 		key := fmt.Sprintf("%s/%s/%s/s%s-i%s.json",
 			cf.Namespace, suite, runID,
 			cf.Labels[suiteScriptIndexLabel], cf.Labels[suiteIterationIndexLabel])
 		env = append(env,
-			corev1.EnvVar{Name: "NATS_URL", Value: natsURL},
+			corev1.EnvVar{Name: envNATSURL, Value: natsURL},
 			corev1.EnvVar{Name: "TRANSCRIPT_BUCKET", Value: FitnessArtifactsBucket},
 			corev1.EnvVar{Name: "TRANSCRIPT_KEY", Value: key},
 		)
@@ -499,7 +502,7 @@ func (r *CrewFitnessReconciler) buildJob(cf *kubemootv1alpha1.CrewFitness, jobNa
 								RunAsGroup:               &runAsGroup,
 								SeccompProfile:           &seccompProfile,
 								Capabilities: &corev1.Capabilities{
-									Drop: []corev1.Capability{"ALL"},
+									Drop: []corev1.Capability{dropAllCapability},
 								},
 							},
 						},

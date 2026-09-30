@@ -65,6 +65,8 @@ kubectl apply → Pending → Running (Job created) → Passed/Failed/Error
                                               TTL expires → deleted
 ```
 
+A `CrewFitness` has no pause or stop field. To stop a run, delete the resource: its Job and pod are garbage-collected through owner references. A `CrewFitnessSuite` can be paused, resumed, and stopped; see the [CrewFitnessSuite reference](../../reference/crewfitnesssuite/).
+
 ## Declaring fitness: two forms, one behaviour
 
 A crew **may** ship fitness scenarios; it is **optional but strongly encouraged** - fitness is how a crew states, executably, what "working" means for it. A crew with no `fitness/` directory is valid; it simply has no executable expectations.

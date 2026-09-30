@@ -829,6 +829,11 @@ export interface CrewFitnessSuiteSpec {
 	scripts: SuiteScript[];
 	perIterationTimeout?: string;
 	artifactRetention?: string;
+	purgeMemory?: boolean;
+	/** true pauses between iterations; false resumes. */
+	suspend?: boolean;
+	/** true stops the suite (terminal Cancelled phase). */
+	cancel?: boolean;
 }
 
 export interface SuiteArtifactRef {
@@ -838,7 +843,7 @@ export interface SuiteArtifactRef {
 }
 
 export interface CrewFitnessSuiteStatus {
-	phase?: 'Pending' | 'Running' | 'Completed' | 'Failed' | 'Error';
+	phase?: 'Pending' | 'Running' | 'Paused' | 'Completed' | 'Failed' | 'Error' | 'Cancelled';
 	runId?: string;
 	startedAt?: string;
 	completedAt?: string;

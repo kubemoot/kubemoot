@@ -4,6 +4,7 @@
 	import { namespace } from '$stores';
 	import { LiveList } from '$lib/client/liveList.svelte';
 	import type { CrewFitnessSuite } from '$types/kubemoot.js';
+	import { suiteDisplayPhase, suiteIsJudged } from '$lib/fitness-suite-controls';
 
 	// Push-based live list: initial fetch + SSE watch on CrewFitnessSuite. The
 	// operator advances each suite's status (phase, iterationsCompleted,
@@ -31,6 +32,8 @@
 			case 'Completed': return 'phase-pass';
 			case 'Failed': case 'Error': return 'phase-fail';
 			case 'Running': return 'phase-running';
+			case 'Paused': case 'Pausing': case 'Stopping': return 'phase-paused';
+			case 'Cancelled': return 'phase-cancelled';
 			default: return 'phase-pending';
 		}
 	}
@@ -75,8 +78,7 @@
 	let judge = $state<Record<string, { judged: number; complete: boolean }>>({});
 	async function refreshJudge() {
 		for (const suite of live.items) {
-			const ph = suite.status?.phase;
-			if (ph !== 'Completed' && ph !== 'Failed' && ph !== 'Error') continue;
+			if (!suiteIsJudged(suite.status?.phase)) continue; // Cancelled suites are never judged
 			const ns = suite.metadata.namespace;
 			const name = suite.metadata.name;
 			const key = `${ns}/${name}`;
@@ -135,10 +137,11 @@
 				{@const name = suite.metadata.name}
 				{@const jp = judge[ns + '/' + name]}
 				{@const scen = suite.spec.scripts?.length ?? 0}
+				{@const shown = suiteDisplayPhase(suite)}
 				<tr>
 					<td>
-						<span class="phase-badge {phaseClass(s?.phase)}">
-							{s?.phase ?? 'Unknown'}
+						<span class="phase-badge {phaseClass(shown)}">
+							{shown ?? 'Unknown'}
 						</span>
 					</td>
 					<td class="mono">
@@ -173,7 +176,7 @@
 								⬇ XLSX
 							</a>
 							<span class="muted small">({formatBytes(s.artifactRef.sizeBytes)})</span>
-						{:else if s?.phase === 'Running' || s?.phase === 'Pending'}
+						{:else if s?.phase === 'Running' || s?.phase === 'Pending' || s?.phase === 'Paused'}
 							<span class="muted small">pending</span>
 						{:else}
 							<span class="muted small">—</span>
@@ -233,6 +236,8 @@
 	.phase-fail { background: var(--color-error-bg); color: var(--color-error); }
 	.phase-running { background: var(--color-cyan-bg); color: var(--color-cyan); }
 	.phase-pending { background: var(--color-bg-tertiary); color: var(--color-text-muted); }
+	.phase-paused { background: var(--color-warning-bg, rgba(204, 153, 51, 0.15)); color: var(--color-warning, #c93); }
+	.phase-cancelled { background: var(--color-bg-tertiary); color: var(--color-text-muted); text-decoration: line-through; }
 
 	.passed { color: var(--color-success); font-weight: 600; }
 	.failed { color: var(--color-error); font-weight: 600; }

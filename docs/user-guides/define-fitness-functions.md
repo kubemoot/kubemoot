@@ -66,6 +66,23 @@ To measure stability rather than a single pass, a `CrewFitnessSuite` runs a scen
 (or several) many times and writes a spreadsheet of results - pass rates and p50/p90
 timings per scenario - so you can see a crew hold steady or drift across releases.
 
+A long suite can be paused, resumed, or stopped while it runs, from the dashboard Fitness
+page or with `kubectl patch`:
+
+- **Pause** (`spec.suspend: true`): the iteration in flight finishes and is kept, no new one
+  starts, and the suite reads `Paused` once nothing is running.
+- **Resume** (`spec.suspend: false`): the suite continues at the next iteration it has not run.
+- **Stop** (`spec.cancel: true`): the iteration in flight is ended, the suite reads `Cancelled`,
+  and the spreadsheet is written for the iterations that completed, marked partial. A stopped
+  suite is not quality-judged.
+
+```bash
+kubectl patch crewfitnesssuite my-baseline -n crew-my-crew --type merge -p '{"spec":{"suspend":true}}'
+```
+
+To stop a single `CrewFitness`, delete it. See the
+[CrewFitnessSuite reference](../../reference/crewfitnesssuite/) for every field and phase.
+
 ## Holistic by design
 
 These are **holistic** fitness functions: each run exercises the whole crew at once -
