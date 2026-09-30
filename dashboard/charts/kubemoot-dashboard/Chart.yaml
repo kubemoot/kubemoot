@@ -4,8 +4,8 @@ description: Kubernetes Dashboard-like observability for Kubemoot CRDs and GPU r
 type: application
 
 # This version is set by CI/CD from git tags - DO NOT hardcode
-version: 0.330.30
-appVersion: 0.330.30
+version: 0.331.0-rc.131
+appVersion: 0.331.0-rc.131
 
 keywords:
   - kubemoot
