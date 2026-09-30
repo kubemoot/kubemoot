@@ -3,7 +3,9 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 	"time"
@@ -30,6 +32,8 @@ type Handler struct {
 	natsClient *natsclient.Client
 	requests   *requestLog
 	namespace  string
+	// streamsEnd ends every open stream when it is done, such as at shutdown.
+	streamsEnd context.Context
 }
 
 // NewHandler creates a new API handler whose NATS subjects are scoped to namespace.
@@ -38,7 +42,15 @@ func NewHandler(natsClient *natsclient.Client, namespace string) *Handler {
 		natsClient: natsClient,
 		requests:   newRequestLog(time.Hour),
 		namespace:  namespace,
+		streamsEnd: context.Background(),
 	}
+}
+
+// EndStreamsOn makes every open stream end when ctx is done. Other requests are not
+// affected, so a question posted during a shutdown is still queued.
+func (h *Handler) EndStreamsOn(ctx context.Context) *Handler {
+	h.streamsEnd = ctx
+	return h
 }
 
 // scopeFor returns the crew's scope in this gateway's namespace, writing a 400
@@ -69,25 +81,27 @@ type postDiscussionRequest struct {
 // postDiscussionResponse is returned after starting a discussion.
 type postDiscussionResponse struct {
 	ConversationID string `json:"conversationId"`
+	// RequestedAt is when the gateway queued the request. A client sends it back as the
+	// stream's since parameter, so any gateway replica, including one started after the
+	// request, can tell this turn's thread from an earlier turn's.
+	RequestedAt string `json:"requestedAt"`
 }
 
 func (h *Handler) healthHandler(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set(headerContentType, mimeJSON)
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
+// readyHandler is the readiness probe: ready only while connected to NATS, so the
+// Service sends questions and streams only to a gateway that can serve them.
 func (h *Handler) readyHandler(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set(headerContentType, mimeJSON)
-
-	if !h.natsClient.IsConfigured() {
-		w.WriteHeader(http.StatusServiceUnavailable)
-		json.NewEncoder(w).Encode(map[string]string{"status": "not ready", "reason": errNATSNotConfigured})
-		return
+	switch {
+	case !h.natsClient.IsConfigured():
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"status": "not ready", "reason": errNATSNotConfigured})
+	case !h.natsClient.Connected():
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"status": "not ready", "reason": "not connected to NATS"})
+	default:
+		writeJSON(w, http.StatusOK, map[string]string{"status": "ready"})
 	}
-
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]string{"status": "ready"})
 }
 
 func (h *Handler) postDiscussion(w http.ResponseWriter, r *http.Request) {
@@ -118,7 +132,7 @@ func (h *Handler) postDiscussion(w http.ResponseWriter, r *http.Request) {
 		conversationID = uuid.New().String()
 	}
 
-	// Publish to KUBEMOOT_REQUEST stream — coordinator pulls and processes FIFO
+	// Publish to KUBEMOOT_REQUEST stream; the coordinator pulls and processes FIFO
 	subject := scope.RequestSubject()
 	reqBody, _ := json.Marshal(map[string]interface{}{
 		"message":        req.Message,
@@ -140,13 +154,13 @@ func (h *Handler) postDiscussion(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.requests.record(conversationID)
+	requestedAt := h.requests.record(conversationID)
 	handlerLog.Info("Queued discussion request", "crew", crew, "conversationId", conversationID, "subject", subject)
 
-	// Return immediately with conversationId — client opens SSE stream to follow progress
-	w.Header().Set(headerContentType, mimeJSON)
-	json.NewEncoder(w).Encode(postDiscussionResponse{
+	// Return immediately; the client opens the SSE stream to follow progress.
+	writeJSON(w, http.StatusOK, postDiscussionResponse{
 		ConversationID: conversationID,
+		RequestedAt:    requestedAt.UTC().Format(time.RFC3339Nano),
 	})
 }
 
@@ -160,7 +174,11 @@ func (h *Handler) streamDiscussion(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	crew := scope.Crew
+	req, err := h.parseStreamRequest(r, conversationID)
+	if err != nil {
+		httpError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 
 	if !h.natsClient.IsConfigured() {
 		httpError(w, http.StatusServiceUnavailable, errNATSNotConfigured)
@@ -174,15 +192,32 @@ func (h *Handler) streamDiscussion(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Set SSE headers
+	emit, ok := sseEmitter(w, r)
+	if !ok {
+		return
+	}
+
+	ctx, cancel := context.WithCancel(r.Context())
+	defer cancel()
+	defer context.AfterFunc(h.streamsEnd, cancel)()
+
+	// Stream blocks until thread_close, the NATS subscription ends, the client leaves,
+	// or the gateway shuts down.
+	if err := streamDiscussion(ctx, js, scope, req, emit); err != nil && !errors.Is(err, context.Canceled) {
+		handlerLog.Info("Stream ended before the thread closed", "crew", scope.Crew, "conversationId", conversationID, "error", err.Error())
+	}
+}
+
+// sseEmitter sets the SSE response headers and returns a function that writes and
+// flushes one event, or false after answering 500 when w cannot stream.
+func sseEmitter(w http.ResponseWriter, r *http.Request) (func(SSEEvent), bool) {
 	w.Header().Set(headerContentType, "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
 	w.Header().Set("X-Accel-Buffering", "no") // nginx buffering off
 
-	// CORS for Tauri and external clients
-	origin := r.Header.Get("Origin")
-	if origin != "" {
+	// CORS for browser-based and external clients
+	if origin := r.Header.Get("Origin"); origin != "" {
 		w.Header().Set("Access-Control-Allow-Origin", origin)
 		w.Header().Set("Access-Control-Allow-Credentials", "true")
 	}
@@ -190,27 +225,56 @@ func (h *Handler) streamDiscussion(w http.ResponseWriter, r *http.Request) {
 	flusher, ok := w.(http.Flusher)
 	if !ok {
 		httpError(w, http.StatusInternalServerError, "streaming not supported")
-		return
+		return nil, false
 	}
-
-	ctx, cancel := context.WithCancel(r.Context())
-	defer cancel()
-
-	emit := func(event SSEEvent) {
-		data, err := json.Marshal(event)
-		if err != nil {
-			return
+	return func(event SSEEvent) {
+		if writeSSE(w, event) == nil {
+			flusher.Flush()
 		}
-		fmt.Fprintf(w, "data: %s\n\n", data)
-		flusher.Flush()
-	}
+	}, true
+}
 
-	// Stream blocks until thread_close or context cancellation.
-	// Uses conversationId to find the matching thread via thread_start metadata.
-	notBefore := h.requests.notBefore(conversationID)
-	if err := streamDiscussion(ctx, js, scope, conversationID, notBefore, emit); err != nil && err != context.Canceled {
-		handlerLog.V(1).Info("Stream ended", "crew", crew, "conversationId", conversationID, "error", err)
+// writeSSE writes one event, with its id field when it has one.
+func writeSSE(w io.Writer, event SSEEvent) error {
+	data, err := json.Marshal(event)
+	if err != nil {
+		return err
 	}
+	if event.ID != "" {
+		if _, err := fmt.Fprintf(w, "id: %s\n", event.ID); err != nil {
+			return err
+		}
+	}
+	_, err = fmt.Fprintf(w, "data: %s\n\n", data)
+	return err
+}
+
+// parseStreamRequest reads which turn a stream follows. The resume point is the
+// standard Last-Event-ID header, or the lastEventId query parameter for clients that
+// cannot set headers. The turn's request time is the since parameter the POST returned,
+// or, without it, the time this gateway queued the conversation's latest request.
+func (h *Handler) parseStreamRequest(r *http.Request, conversationID string) (streamRequest, error) {
+	req := streamRequest{conversationID: conversationID}
+	lastEventID := r.Header.Get("Last-Event-ID")
+	if lastEventID == "" {
+		lastEventID = r.URL.Query().Get("lastEventId")
+	}
+	resume, err := parseResumePoint(lastEventID)
+	if err != nil {
+		return req, err
+	}
+	req.resume = resume
+	since := r.URL.Query().Get("since")
+	if since == "" {
+		req.notBefore = h.requests.notBefore(conversationID)
+		return req, nil
+	}
+	t, err := time.Parse(time.RFC3339Nano, since)
+	if err != nil {
+		return req, fmt.Errorf("since %q is not an RFC 3339 time", since)
+	}
+	req.notBefore = t.Add(-clockSkew)
+	return req, nil
 }
 
 // publishCoordinatorError publishes synthetic thread_start + thread_close messages
@@ -223,43 +287,39 @@ func (h *Handler) publishCoordinatorError(scope crewscope.Scope, conversationID,
 	threadID := "gateway-error-" + uuid.New().String()[:8]
 	subject := scope.DiscussSubject(errorChannel, threadID)
 
-	// Publish thread_start so SSE consumer can find the thread by conversationId
-	threadStart, _ := json.Marshal(map[string]interface{}{
-		"messageType": "thread_start",
-		"threadId":    threadID,
-		"agentName":   agentNameGateway,
-		"metadata": map[string]string{
-			"conversationId": conversationID,
-		},
-	})
-	if err := h.natsClient.Publish(ctx, subject, threadStart); err != nil {
-		handlerLog.V(1).Info("Failed to publish coordinator error thread_start", "error", err)
-		return
+	// thread_start lets the SSE consumer find the thread by conversationId, the
+	// synthesis carries the error, and thread_close ends the stream.
+	messages := []map[string]interface{}{
+		{"messageType": "thread_start", "metadata": map[string]string{"conversationId": conversationID}},
+		{"messageType": "synthesis", "content": fmt.Sprintf("The discussion could not be started: %s. Please try again.", errMsg)},
+		{"messageType": "thread_close"},
 	}
-
-	// Publish synthesis with error message
-	synthesis, _ := json.Marshal(map[string]interface{}{
-		"messageType": "synthesis",
-		"threadId":    threadID,
-		"agentName":   agentNameGateway,
-		"content":     fmt.Sprintf("The discussion could not be started: %s. Please try again.", errMsg),
-	})
-	h.natsClient.Publish(ctx, subject, synthesis)
-
-	// Publish thread_close so SSE stream terminates
-	threadClose, _ := json.Marshal(map[string]interface{}{
-		"messageType": "thread_close",
-		"threadId":    threadID,
-		"agentName":   agentNameGateway,
-	})
-	h.natsClient.Publish(ctx, subject, threadClose)
+	for _, m := range messages {
+		m["messageId"], m["threadId"], m["agentName"] = uuid.New().String(), threadID, agentNameGateway
+		data, err := json.Marshal(m)
+		if err == nil {
+			err = h.natsClient.Publish(ctx, subject, data)
+		}
+		if err != nil {
+			handlerLog.Info("Failed to publish the coordinator error", "messageType", m["messageType"], "error", err.Error())
+			return
+		}
+	}
 
 	handlerLog.Info("Published coordinator error to NATS",
 		"namespace", scope.Namespace, "crew", scope.Crew, "conversationId", conversationID, "threadId", threadID, "error", errMsg)
 }
 
 func httpError(w http.ResponseWriter, code int, message string) {
+	writeJSON(w, code, map[string]string{"error": message})
+}
+
+// writeJSON writes v as the JSON response with the status code. An encoding failure
+// means the client went away; there is no one left to tell.
+func writeJSON(w http.ResponseWriter, code int, v interface{}) {
 	w.Header().Set(headerContentType, mimeJSON)
 	w.WriteHeader(code)
-	json.NewEncoder(w).Encode(map[string]string{"error": message})
+	if err := json.NewEncoder(w).Encode(v); err != nil {
+		handlerLog.V(1).Info("Could not write the response", "error", err.Error())
+	}
 }

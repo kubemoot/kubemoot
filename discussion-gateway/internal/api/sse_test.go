@@ -13,6 +13,9 @@ package api
 import (
 	"testing"
 	"time"
+
+	"github.com/kubemoot/kubemoot/discussion-gateway/internal/crewscope"
+	"github.com/nats-io/nats.go/jetstream"
 )
 
 // The coordinator dual-publishes synthesis to the broadcast subject AND the
@@ -29,7 +32,7 @@ func TestMessageDeduper_DropsDuplicateMessageID(t *testing.T) {
 	}
 }
 
-// Distinct messages must all pass through — dedup is per messageId, not global.
+// Distinct messages must all pass through: dedup is per messageId, not global.
 func TestMessageDeduper_DistinctIDsPass(t *testing.T) {
 	d := newMessageDeduper()
 
@@ -84,6 +87,15 @@ func TestTranslateAndEmit_PersistsAllConsensusSignals(t *testing.T) {
 	}
 }
 
+// threadStart is a thread_start for conv-1 stored at published with sequence seq.
+func threadStart(thread string, published time.Time, seq uint64) discussMsg {
+	return discussMsg{
+		data:      natsMessage{MessageType: "thread_start", ThreadID: thread, Metadata: map[string]interface{}{"conversationId": "conv-1"}},
+		published: published,
+		seq:       seq,
+	}
+}
+
 // TestThreadFinderSkipsAnEarlierTurnsThread: within the stream's look-back window the
 // previous turn's thread_start (same conversation) comes first; the finder waits for the
 // thread that started after this turn's request was queued.
@@ -92,36 +104,152 @@ func TestThreadFinderSkipsAnEarlierTurnsThread(t *testing.T) {
 	tf := &threadFinder{conversationID: "conv-1", notBefore: queued.Add(-clockSkew)}
 	var events []SSEEvent
 	emit := func(e SSEEvent) { events = append(events, e) }
-	start := func(thread string) natsMessage {
-		return natsMessage{MessageType: "thread_start", ThreadID: thread, Metadata: map[string]interface{}{"conversationId": "conv-1"}}
-	}
 
-	if tf.process(start("turn-1"), queued.Add(-29*time.Second), emit) {
+	tf.process(threadStart("turn-1", queued.Add(-29*time.Second), 1), emit)
+	if tf.threadID != "" {
 		t.Fatal("the previous turn's thread must not be taken")
 	}
-	if tf.process(natsMessage{MessageType: "synthesis", ThreadID: "turn-1", Content: "old answer"}, queued.Add(-1*time.Second), emit) {
-		t.Fatal("messages of the previous turn must not complete the search")
+	old := discussMsg{data: natsMessage{MessageType: "synthesis", ThreadID: "turn-1", Content: "old answer"}, published: queued.Add(-time.Second), seq: 2}
+	if tf.process(old, emit) {
+		t.Fatal("messages of the previous turn must not be translated")
 	}
-	if !tf.process(start("turn-2"), queued.Add(3*time.Second), emit) {
-		t.Fatal("the thread started after the request must be taken")
-	}
+	tf.process(threadStart("turn-2", queued.Add(3*time.Second), 3), emit)
 	if tf.threadID != "turn-2" {
 		t.Fatalf("threadID = %q, want turn-2", tf.threadID)
 	}
-	for _, e := range events {
-		if e.Type == "synthesis" {
-			t.Fatalf("the old turn's synthesis was emitted: %+v", e)
-		}
+	if len(events) != 1 || events[0].Type != "thread_found" || events[0].ID != "turn-2:3" {
+		t.Fatalf("want only thread_found with id turn-2:3, got %+v", events)
 	}
 }
 
 // TestThreadFinderWithoutARequestTimeTakesTheFirstMatch keeps the behaviour for a
-// stream whose request another gateway replica queued.
+// stream whose request time is unknown.
 func TestThreadFinderWithoutARequestTimeTakesTheFirstMatch(t *testing.T) {
 	tf := &threadFinder{conversationID: "conv-1"}
-	msg := natsMessage{MessageType: "thread_start", ThreadID: "t", Metadata: map[string]interface{}{"conversationId": "conv-1"}}
-	if !tf.process(msg, time.Now().Add(-time.Minute), func(SSEEvent) {}) {
+	tf.process(threadStart("t", time.Now().Add(-time.Minute), 1), func(SSEEvent) {})
+	if tf.threadID != "t" {
 		t.Fatal("with no request time the first matching thread is taken")
+	}
+}
+
+// TestThreadFinderFollowsARestartedThread is the rollout defect: the coordinator that
+// started thread A was replaced, its successor took the request again and answered
+// under thread B. The stream must move to B; A never closes.
+func TestThreadFinderFollowsARestartedThread(t *testing.T) {
+	queued := time.Date(2026, 9, 30, 19, 36, 36, 0, time.UTC)
+	tf := &threadFinder{conversationID: "conv-1", notBefore: queued.Add(-clockSkew)}
+	var events []SSEEvent
+	emit := func(e SSEEvent) { events = append(events, e) }
+
+	tf.process(threadStart("A", queued, 10), emit)
+	if !tf.process(discussMsg{data: natsMessage{MessageType: "triaging", ThreadID: "A"}, seq: 11}, emit) {
+		t.Fatal("thread A's own messages are followed until it is superseded")
+	}
+	tf.process(threadStart("B", queued.Add(16*time.Second), 20), emit)
+	if tf.threadID != "B" {
+		t.Fatalf("threadID = %q, want B", tf.threadID)
+	}
+	if tf.process(discussMsg{data: natsMessage{MessageType: "agree", ThreadID: "A"}, seq: 21}, emit) {
+		t.Fatal("the abandoned thread's messages must be dropped")
+	}
+	if !tf.process(discussMsg{data: natsMessage{MessageType: "synthesis", ThreadID: "B"}, seq: 22}, emit) {
+		t.Fatal("the new thread's messages must be followed")
+	}
+	if len(events) != 2 || events[1].ThreadID != "B" || events[1].ID != "B:20" {
+		t.Fatalf("want thread_found A then B, got %+v", events)
+	}
+}
+
+// A second copy of the followed thread's thread_start (a dual publish with its own id)
+// is not a restart.
+func TestThreadFinderIgnoresARepeatOfTheFollowedThreadStart(t *testing.T) {
+	tf := &threadFinder{conversationID: "conv-1"}
+	var events []SSEEvent
+	emit := func(e SSEEvent) { events = append(events, e) }
+	tf.process(threadStart("A", time.Time{}, 1), emit)
+	tf.process(threadStart("A", time.Time{}, 2), emit)
+	if len(events) != 1 {
+		t.Fatalf("want one thread_found, got %+v", events)
+	}
+}
+
+// Messages of the thread seen before its thread_start are replayed when it is found;
+// only the last event of that set carries the thread_start's id, so a client that drops
+// partway through resumes before it. Other threads' are not replayed, and the buffer is
+// bounded.
+func TestThreadFinderReplaysBufferedMessagesOfItsThread(t *testing.T) {
+	tf := &threadFinder{conversationID: "conv-1"}
+	var events []SSEEvent
+	emit := func(e SSEEvent) { events = append(events, e) }
+	for i := 0; i < maxBufferedMessages+5; i++ {
+		tf.process(discussMsg{data: natsMessage{MessageType: "agree", ThreadID: "other"}, seq: uint64(i + 1)}, emit)
+	}
+	if len(tf.buf) != maxBufferedMessages {
+		t.Fatalf("buffer = %d, want %d", len(tf.buf), maxBufferedMessages)
+	}
+	tf.process(discussMsg{data: natsMessage{MessageType: "concern", ThreadID: "A", Content: "early"}, seq: 900}, emit)
+	tf.process(threadStart("A", time.Time{}, 901), emit)
+	if len(events) != 2 || events[0].ID != "" || events[1].Summary != "early" || events[1].ID != "A:901" {
+		t.Fatalf("want thread_found then the buffered concern, got %+v", events)
+	}
+	if tf.buf != nil {
+		t.Fatal("the buffer is emptied once the thread is found")
+	}
+}
+
+// A resumed stream already knows its thread and follows it from the first message.
+func TestNewThreadFinderResumesTheClientsThread(t *testing.T) {
+	tf := newThreadFinder(streamRequest{conversationID: "conv-1", resume: &resumePoint{threadID: "B", afterSeq: 7}})
+	if !tf.process(discussMsg{data: natsMessage{MessageType: "synthesis", ThreadID: "B"}, seq: 8}, func(SSEEvent) {}) {
+		t.Fatal("a resumed stream follows the client's thread")
+	}
+}
+
+func TestEventIDRoundTripsThroughParseResumePoint(t *testing.T) {
+	id := eventID("da5be99e-e0a6-4c6f-a2a5-db504be93bca", 4242)
+	p, err := parseResumePoint(id)
+	if err != nil || p.threadID != "da5be99e-e0a6-4c6f-a2a5-db504be93bca" || p.afterSeq != 4242 {
+		t.Fatalf("round trip of %q: %+v, %v", id, p, err)
+	}
+	if eventID("", 3) != "" || eventID("t", 0) != "" {
+		t.Fatal("an event without a thread or sequence has no id")
+	}
+}
+
+func TestParseResumePointRejectsMalformedIDs(t *testing.T) {
+	if p, err := parseResumePoint(""); p != nil || err != nil {
+		t.Fatalf("empty id: want no resume point, got %+v, %v", p, err)
+	}
+	for _, bad := range []string{"no-sequence", ":12", "t:", "t:x", "t:0", "t:-1"} {
+		if _, err := parseResumePoint(bad); err == nil {
+			t.Errorf("%q: want an error", bad)
+		}
+	}
+}
+
+func TestConsumerConfigStartPoints(t *testing.T) {
+	scope, _ := crewscope.New("ns", "crew")
+	now := time.Date(2026, 9, 30, 20, 0, 0, 0, time.UTC)
+
+	resumed := consumerConfig(scope, streamRequest{resume: &resumePoint{threadID: "t", afterSeq: 41}}, now)
+	if resumed.DeliverPolicy != jetstream.DeliverByStartSequencePolicy || resumed.OptStartSeq != 42 {
+		t.Errorf("resume: got %+v", resumed)
+	}
+	unknown := consumerConfig(scope, streamRequest{}, now)
+	if unknown.DeliverPolicy != jetstream.DeliverByStartTimePolicy || !unknown.OptStartTime.Equal(now.Add(-startTimeOffset)) {
+		t.Errorf("unknown request time: got %v", unknown.OptStartTime)
+	}
+	queued := now.Add(-3 * time.Minute)
+	known := consumerConfig(scope, streamRequest{notBefore: queued}, now)
+	if !known.OptStartTime.Equal(queued) {
+		t.Errorf("known request time: start = %v, want %v", known.OptStartTime, queued)
+	}
+	ancient := consumerConfig(scope, streamRequest{notBefore: now.Add(-48 * time.Hour)}, now)
+	if !ancient.OptStartTime.Equal(now.Add(-maxLookBack)) {
+		t.Errorf("an old request time is bounded: start = %v", ancient.OptStartTime)
+	}
+	if known.FilterSubject != scope.DiscussFilter() || known.AckPolicy != jetstream.AckNonePolicy {
+		t.Errorf("filter and ack policy: got %+v", known)
 	}
 }
 
@@ -129,33 +257,28 @@ func TestThreadFinderWithoutARequestTimeTakesTheFirstMatch(t *testing.T) {
 // for, and a stand-aside carries the agent's reason, so a client can tell "the GPUs
 // were busy" from "the agent had nothing to add".
 func TestTranslateAndEmit_WaitingAndStandAsideReasons(t *testing.T) {
-	emitOne := func(m natsMessage) SSEEvent {
+	cases := []struct {
+		name string
+		in   natsMessage
+		want SSEEvent
+	}{
+		{"waiting", natsMessage{MessageType: "waiting", AgentName: "rules", Metadata: map[string]interface{}{"model": "qwen3:14b", "reason": "gpu-busy"}},
+			SSEEvent{Type: "phase", Agent: "rules", Status: "waiting", Model: "qwen3:14b", Reason: "gpu-busy"}},
+		{"stand_aside with reason", natsMessage{MessageType: "stand_aside", AgentName: "rules", Metadata: map[string]interface{}{"reason": "gpu-busy"}},
+			SSEEvent{Type: "phase", Agent: "rules", Status: "done", StoodAside: true, Signal: "stand_aside", Reason: "gpu-busy"}},
+		{"stand_aside without reason", natsMessage{MessageType: "stand_aside", AgentName: "rules"},
+			SSEEvent{Type: "phase", Agent: "rules", Status: "done", StoodAside: true, Signal: "stand_aside"}},
+		{"evaluating", natsMessage{MessageType: "evaluating", AgentName: "rules", Metadata: map[string]interface{}{"gpuLabel": "ollama-rig1"}},
+			SSEEvent{Type: "phase", Agent: "rules", Status: "evaluating", GPU: "ollama-rig1"}},
+		{"ready", natsMessage{MessageType: "ready", AgentName: "rules"},
+			SSEEvent{Type: "phase", Agent: "rules", Status: "ready"}},
+	}
+	for _, c := range cases {
 		var got []SSEEvent
-		translateAndEmit(m, func(e SSEEvent) { got = append(got, e) })
-		if len(got) != 1 {
-			t.Fatalf("%s: emitted %d events, want 1", m.MessageType, len(got))
+		translateAndEmit(c.in, func(e SSEEvent) { got = append(got, e) })
+		if len(got) != 1 || got[0] != c.want {
+			t.Errorf("%s: got %+v, want %+v", c.name, got, c.want)
 		}
-		return got[0]
-	}
-	w := emitOne(natsMessage{MessageType: "waiting", AgentName: "rules", Metadata: map[string]interface{}{"model": "qwen3:14b", "reason": "gpu-busy"}})
-	if w.Type != "phase" || w.Status != "waiting" || w.Model != "qwen3:14b" || w.Reason != "gpu-busy" || w.Agent != "rules" {
-		t.Errorf("waiting: got %+v", w)
-	}
-	s := emitOne(natsMessage{MessageType: "stand_aside", AgentName: "rules", Metadata: map[string]interface{}{"reason": "gpu-busy"}})
-	if s.Status != "done" || !s.StoodAside || s.Reason != "gpu-busy" {
-		t.Errorf("stand_aside with reason: got %+v", s)
-	}
-	plain := emitOne(natsMessage{MessageType: "stand_aside", AgentName: "rules"})
-	if plain.Reason != "" {
-		t.Errorf("stand_aside without reason: got %q", plain.Reason)
-	}
-	e := emitOne(natsMessage{MessageType: "evaluating", AgentName: "rules", Metadata: map[string]interface{}{"gpuLabel": "ollama-rig1"}})
-	if e.GPU != "ollama-rig1" || e.Status != "evaluating" {
-		t.Errorf("evaluating: got %+v", e)
-	}
-	r := emitOne(natsMessage{MessageType: "ready", AgentName: "rules"})
-	if r.Status != "ready" || r.GPU != "" {
-		t.Errorf("ready: got %+v", r)
 	}
 }
 

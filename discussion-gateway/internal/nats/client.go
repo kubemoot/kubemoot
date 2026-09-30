@@ -2,6 +2,7 @@ package nats
 
 import (
 	"context"
+	"errors"
 	"os"
 	"sync"
 	"time"
@@ -13,7 +14,11 @@ import (
 
 var log = logf.Log.WithName("nats-client")
 
-// Client provides a lazy NATS connection with JetStream access.
+// ErrNotConnected is returned while the connection to NATS is not up.
+var ErrNotConnected = errors.New("not connected to NATS")
+
+// Client holds one NATS connection with JetStream access. Start opens it; the NATS
+// library then keeps it open, reconnecting in the background after a drop.
 type Client struct {
 	mu   sync.Mutex
 	conn *nats.Conn
@@ -21,7 +26,7 @@ type Client struct {
 	url  string
 }
 
-// NewClient creates a client that connects lazily on first use.
+// NewClient creates a client for url, or for NATS_URL when url is empty.
 func NewClient(url string) *Client {
 	if url == "" {
 		url = os.Getenv("NATS_URL")
@@ -34,57 +39,64 @@ func (c *Client) URL() string {
 	return c.url
 }
 
-// connect establishes the connection lazily. Must be called under lock.
-func (c *Client) connect() error {
-	if c.conn != nil && c.conn.IsConnected() {
+// IsConfigured returns true if a NATS URL is set.
+func (c *Client) IsConfigured() bool {
+	return c.url != ""
+}
+
+// Start opens the connection. When the server is unreachable it keeps retrying in the
+// background, so the gateway can start before NATS and turn ready when it connects.
+func (c *Client) Start() error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.conn != nil || c.url == "" {
 		return nil
 	}
 
-	opts := []nats.Option{
+	conn, err := nats.Connect(c.url,
 		nats.Name("discussion-gateway"),
-		nats.ReconnectWait(5 * time.Second),
+		nats.RetryOnFailedConnect(true),
+		nats.ReconnectWait(2*time.Second),
 		nats.MaxReconnects(-1),
+		nats.ConnectHandler(func(_ *nats.Conn) { log.Info("Connected to NATS", "url", c.url) }),
 		nats.DisconnectErrHandler(func(_ *nats.Conn, err error) {
 			if err != nil {
-				log.V(1).Info("NATS disconnected", "error", err)
+				log.Info("NATS disconnected", "error", err.Error())
 			}
 		}),
-		nats.ReconnectHandler(func(_ *nats.Conn) {
-			log.V(1).Info("NATS reconnected")
-		}),
-	}
-
-	conn, err := nats.Connect(c.url, opts...)
+		nats.ReconnectHandler(func(_ *nats.Conn) { log.Info("NATS reconnected") }),
+	)
 	if err != nil {
 		return err
 	}
-
 	js, err := jetstream.New(conn)
 	if err != nil {
 		conn.Close()
 		return err
 	}
-
-	c.conn = conn
-	c.js = js
-	log.Info("Connected to NATS", "url", c.url)
+	c.conn, c.js = conn, js
 	return nil
 }
 
-// JetStream returns the JetStream context, connecting lazily.
-func (c *Client) JetStream() (jetstream.JetStream, error) {
+// Connected reports whether the connection to NATS is up now.
+func (c *Client) Connected() bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-
-	if err := c.connect(); err != nil {
-		return nil, err
-	}
-	return c.js, nil
+	return c.conn != nil && c.conn.IsConnected()
 }
 
-// IsConfigured returns true if a NATS URL is set.
-func (c *Client) IsConfigured() bool {
-	return c.url != ""
+// JetStream returns the JetStream context, opening the connection if Start has not.
+// It fails while the connection is down, so a caller never waits on a dead link.
+func (c *Client) JetStream() (jetstream.JetStream, error) {
+	if err := c.Start(); err != nil {
+		return nil, err
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.conn == nil || c.js == nil || !c.conn.IsConnected() {
+		return nil, ErrNotConnected
+	}
+	return c.js, nil
 }
 
 // Publish publishes a message to JetStream on the given subject.
@@ -109,7 +121,9 @@ func (c *Client) Close() {
 	defer c.mu.Unlock()
 
 	if c.conn != nil {
-		c.conn.Drain()
+		if err := c.conn.Drain(); err != nil {
+			log.Info("Could not drain the NATS connection", "error", err.Error())
+		}
 		c.conn = nil
 		c.js = nil
 	}

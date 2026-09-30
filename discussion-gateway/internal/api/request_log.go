@@ -23,9 +23,9 @@ func newRequestLog(ttl time.Duration) *requestLog {
 	return &requestLog{queued: map[string]time.Time{}, ttl: ttl, now: time.Now}
 }
 
-// record notes that a request for the conversation was queued now, and forgets
-// conversations older than the log's time to live.
-func (l *requestLog) record(conversationID string) {
+// record notes that a request for the conversation was queued now, returns that time,
+// and forgets conversations older than the log's time to live.
+func (l *requestLog) record(conversationID string) time.Time {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	now := l.now()
@@ -35,6 +35,7 @@ func (l *requestLog) record(conversationID string) {
 		}
 	}
 	l.queued[conversationID] = now
+	return now
 }
 
 // notBefore is the earliest time a thread for the conversation's latest request can

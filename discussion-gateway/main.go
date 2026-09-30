@@ -35,14 +35,25 @@ func main() {
 		os.Exit(1)
 	}
 
-	// NATS client (lazy connect)
+	// Connect at startup; /ready reports whether the connection is up, so the Service
+	// sends requests only to a gateway that can queue and stream them.
 	nc := natsclient.NewClient(natsURL)
+	if err := nc.Start(); err != nil {
+		log.Error(err, "Cannot open the NATS connection", "nats", natsURL)
+	}
 	defer nc.Close()
 
-	// HTTP server
-	handler := api.NewHandler(nc, namespace)
+	// Graceful shutdown
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	// A shutdown ends open streams at once, so their clients reconnect to another
+	// gateway and resume instead of waiting out the drain; questions still queue.
+	handler := api.NewHandler(nc, namespace).EndStreamsOn(ctx)
 	mux := http.NewServeMux()
 	handler.RegisterRoutes(mux)
+
+	// HTTP server
 
 	srv := &http.Server{
 		Addr:         ":" + port,
@@ -51,10 +62,6 @@ func main() {
 		WriteTimeout: 0, // SSE requires no write timeout
 		IdleTimeout:  120 * time.Second,
 	}
-
-	// Graceful shutdown
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
 
 	go func() {
 		log.Info("Starting discussion-gateway", "port", port, "nats", natsURL, "namespace", namespace)

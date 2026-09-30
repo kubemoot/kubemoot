@@ -3,12 +3,15 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/kubemoot/kubemoot/discussion-gateway/internal/crewscope"
 	"github.com/nats-io/nats.go/jetstream"
+	logf "sigs.k8s.io/controller-runtime/pkg/log"
 )
 
 const (
@@ -17,7 +20,16 @@ const (
 	inactiveThreshold   = 2 * time.Minute
 	startTimeOffset     = 30 * time.Second
 	maxBufferedMessages = 500
+	// maxLookBack bounds how far back a stream reads when its request time is known;
+	// the gateway forgets queued requests after the same hour.
+	maxLookBack = time.Hour
 )
+
+var streamLog = logf.Log.WithName("stream")
+
+// errSubscriptionEnded means the NATS subscription stopped before the thread closed,
+// for example because the connection dropped. The client reconnects and resumes.
+var errSubscriptionEnded = errors.New("the NATS subscription ended before the thread closed")
 
 // SSEEvent is an event sent to the client over SSE.
 type SSEEvent struct {
@@ -33,6 +45,8 @@ type SSEEvent struct {
 	Model      string `json:"model,omitempty"`
 	Reason     string `json:"reason,omitempty"`
 	Error      string `json:"error,omitempty"`
+	// ID is the SSE event id, written as an "id:" field rather than in the data.
+	ID string `json:"-"`
 }
 
 // natsMessage is the minimal structure of a NATS discussion message.
@@ -45,13 +59,55 @@ type natsMessage struct {
 	Metadata    map[string]interface{} `json:"metadata"`
 }
 
+// streamRequest says which turn a stream follows and where in the discussion stream it
+// starts reading.
+type streamRequest struct {
+	conversationID string
+	// notBefore is the earliest a thread for this turn can have started; earlier threads
+	// of the same conversation are earlier turns. Zero when unknown.
+	notBefore time.Time
+	// resume, when set, continues a stream the client already read up to a point.
+	resume *resumePoint
+}
+
+// resumePoint is where a reconnecting client left off: the thread it was following and
+// the last discussion-stream sequence it received. It travels as the SSE event id
+// "<threadId>:<sequence>", so a standard Last-Event-ID carries it back.
+type resumePoint struct {
+	threadID string
+	afterSeq uint64
+}
+
+// eventID is the SSE id of an event taken from the discussion stream message at seq.
+func eventID(threadID string, seq uint64) string {
+	if threadID == "" || seq == 0 {
+		return ""
+	}
+	return fmt.Sprintf("%s:%d", threadID, seq)
+}
+
+// parseResumePoint reads an SSE event id written by eventID. An empty id is no resume
+// point; a malformed one is an error.
+func parseResumePoint(id string) (*resumePoint, error) {
+	if id == "" {
+		return nil, nil
+	}
+	i := strings.LastIndex(id, ":")
+	if i <= 0 {
+		return nil, fmt.Errorf("event id %q is not <threadId>:<sequence>", id)
+	}
+	seq, err := strconv.ParseUint(id[i+1:], 10, 64)
+	if err != nil || seq == 0 {
+		return nil, fmt.Errorf("event id %q has no valid sequence", id)
+	}
+	return &resumePoint{threadID: id[:i], afterSeq: seq}, nil
+}
+
 // streamDiscussion subscribes to NATS JetStream and writes SSE events to the
-// provided emit function. It blocks until the thread closes or ctx is cancelled.
-// conversationID is used to find the matching thread via thread_start metadata.
-// notBefore, when set, is the earliest a thread for this turn can have started; earlier
-// threads of the same conversation are earlier turns.
-func streamDiscussion(ctx context.Context, js jetstream.JetStream, scope crewscope.Scope, conversationID string, notBefore time.Time, emit func(SSEEvent)) error {
-	consumer, err := createDiscussConsumer(ctx, js, scope, emit)
+// provided emit function. It blocks until the thread closes, the NATS subscription
+// ends, or ctx is cancelled. The thread is found via thread_start metadata.
+func streamDiscussion(ctx context.Context, js jetstream.JetStream, scope crewscope.Scope, req streamRequest, emit func(SSEEvent)) error {
+	consumer, err := createDiscussConsumer(ctx, js, consumerConfig(scope, req, time.Now()), emit)
 	if err != nil {
 		return err
 	}
@@ -66,26 +122,70 @@ func streamDiscussion(ctx context.Context, js jetstream.JetStream, scope crewsco
 	defer iter.Stop()
 
 	msgCh := startMessagePump(ctx, iter)
-	return processMessages(ctx, msgCh, conversationID, notBefore, emit)
+	return processMessages(ctx, msgCh, newThreadFinder(req), resumeDeduper(ctx, js, req), emit)
+}
+
+// resumeDeduper starts a stream's deduper. A resumed stream already delivered the
+// message at its resume point, whose dual-published twin may come right after it, so
+// that message's id counts as seen. Best effort: a message the stream no longer holds
+// is simply not seeded.
+func resumeDeduper(ctx context.Context, js jetstream.JetStream, req streamRequest) *messageDeduper {
+	dedup := newMessageDeduper()
+	if req.resume == nil {
+		return dedup
+	}
+	stream, err := js.Stream(ctx, streamName)
+	if err != nil {
+		return dedup
+	}
+	raw, err := stream.GetMsg(ctx, req.resume.afterSeq)
+	if err != nil {
+		return dedup
+	}
+	var last natsMessage
+	if json.Unmarshal(raw.Data, &last) == nil {
+		dedup.firstSight(last.MessageID)
+	}
+	return dedup
+}
+
+// consumerConfig starts a resumed stream right after the last message the client
+// received. A new stream starts where this turn's threads can begin: at notBefore when
+// the request time is known, else a short look-back that catches a thread_start
+// published just before the stream opened.
+func consumerConfig(scope crewscope.Scope, req streamRequest, now time.Time) jetstream.ConsumerConfig {
+	cfg := jetstream.ConsumerConfig{
+		AckPolicy:         jetstream.AckNonePolicy,
+		FilterSubject:     scope.DiscussFilter(),
+		InactiveThreshold: inactiveThreshold,
+	}
+	if req.resume != nil {
+		cfg.DeliverPolicy = jetstream.DeliverByStartSequencePolicy
+		cfg.OptStartSeq = req.resume.afterSeq + 1
+		return cfg
+	}
+	start := now.Add(-startTimeOffset)
+	if !req.notBefore.IsZero() {
+		start = req.notBefore
+		if earliest := now.Add(-maxLookBack); start.Before(earliest) {
+			start = earliest
+		}
+	}
+	cfg.DeliverPolicy = jetstream.DeliverByStartTimePolicy
+	cfg.OptStartTime = &start
+	return cfg
 }
 
 // createDiscussConsumer verifies the NATS stream exists and creates an ephemeral
-// consumer starting 30s in the past to catch thread_start messages.
-func createDiscussConsumer(ctx context.Context, js jetstream.JetStream, scope crewscope.Scope, emit func(SSEEvent)) (jetstream.Consumer, error) {
+// consumer with cfg.
+func createDiscussConsumer(ctx context.Context, js jetstream.JetStream, cfg jetstream.ConsumerConfig, emit func(SSEEvent)) (jetstream.Consumer, error) {
 	_, err := js.Stream(ctx, streamName)
 	if err != nil {
 		emit(SSEEvent{Type: "error", Error: "Discussion stream not available"})
 		return nil, err
 	}
 
-	startTime := time.Now().Add(-startTimeOffset)
-	consumer, err := js.CreateOrUpdateConsumer(ctx, streamName, jetstream.ConsumerConfig{
-		AckPolicy:         jetstream.AckNonePolicy,
-		DeliverPolicy:     jetstream.DeliverByStartTimePolicy,
-		OptStartTime:      &startTime,
-		FilterSubject:     scope.DiscussFilter(),
-		InactiveThreshold: inactiveThreshold,
-	})
+	consumer, err := js.CreateOrUpdateConsumer(ctx, streamName, cfg)
 	if err != nil {
 		emit(SSEEvent{Type: "error", Error: fmt.Sprintf("Failed to create consumer: %v", err)})
 		return nil, err
@@ -116,45 +216,82 @@ func startMessagePump(ctx context.Context, iter jetstream.MessagesContext) <-cha
 	return msgCh
 }
 
-// threadFinder tracks buffered messages until a thread_start matching the
-// conversationID is found, then replays buffered messages for that thread. A
-// thread_start published before notBefore belongs to an earlier turn and is skipped.
+// discussMsg is one discussion message with where and when NATS stored it.
+type discussMsg struct {
+	data      natsMessage
+	published time.Time
+	seq       uint64
+}
+
+// threadFinder follows the thread that answers this turn. It buffers messages until a
+// thread_start for the conversation arrives, then replays that thread's buffered
+// messages. A thread_start published before notBefore belongs to an earlier turn and is
+// skipped. A later thread_start for the same turn supersedes the followed thread: that
+// is the coordinator starting the request again, for example after it restarted, and
+// the abandoned thread will never close.
 type threadFinder struct {
 	conversationID string
 	notBefore      time.Time
 	threadID       string
-	found          bool
-	buf            []natsMessage
+	buf            []discussMsg
 }
 
-// process handles a message during the thread-finding phase. Returns true if
-// the thread has been found (either already known or just discovered).
-func (tf *threadFinder) process(data natsMessage, published time.Time, emit func(SSEEvent)) bool {
-	if tf.found {
-		return true
+func newThreadFinder(req streamRequest) *threadFinder {
+	tf := &threadFinder{conversationID: req.conversationID, notBefore: req.notBefore}
+	if req.resume != nil {
+		tf.threadID = req.resume.threadID
 	}
+	return tf
+}
 
-	if data.MessageType == "thread_start" {
-		metaConvID, _ := data.Metadata["conversationId"].(string)
-		if metaConvID == tf.conversationID && tf.isThisTurn(published) {
-			tf.found = true
-			tf.threadID = data.ThreadID
-			emit(SSEEvent{Type: "thread_found", ThreadID: tf.threadID})
-			for _, b := range tf.buf {
-				if b.ThreadID == tf.threadID {
-					translateAndEmit(b, emit)
-				}
-			}
-			tf.buf = nil
-			return true
+// process reports whether m belongs to the followed thread and should be translated.
+// A thread_start that begins (or restarts) the turn's thread is announced here.
+func (tf *threadFinder) process(m discussMsg, emit func(SSEEvent)) bool {
+	if tf.startsThreadForTurn(m) {
+		tf.follow(m, emit)
+		return false
+	}
+	if tf.threadID == "" {
+		tf.buf = append(tf.buf, m)
+		if len(tf.buf) > maxBufferedMessages {
+			tf.buf = tf.buf[1:]
+		}
+		return false
+	}
+	return m.data.ThreadID == tf.threadID
+}
+
+// startsThreadForTurn reports whether m is a thread_start of this turn for a thread
+// other than the one followed.
+func (tf *threadFinder) startsThreadForTurn(m discussMsg) bool {
+	if m.data.MessageType != "thread_start" || m.data.ThreadID == tf.threadID {
+		return false
+	}
+	conversationID, _ := m.data.Metadata["conversationId"].(string)
+	return conversationID == tf.conversationID && tf.isThisTurn(m.published)
+}
+
+// follow switches to m's thread, announces it, and replays its buffered messages.
+func (tf *threadFinder) follow(m discussMsg, emit func(SSEEvent)) {
+	if tf.threadID != "" {
+		streamLog.Info("Following a restarted thread", "conversationId", tf.conversationID, "abandoned", tf.threadID, "threadId", m.data.ThreadID)
+	}
+	tf.threadID = m.data.ThreadID
+	events := []SSEEvent{{Type: "thread_found", ThreadID: tf.threadID}}
+	collect := func(e SSEEvent) { events = append(events, e) }
+	for _, b := range tf.buf {
+		if b.data.ThreadID == tf.threadID {
+			translateAndEmit(b.data, collect)
 		}
 	}
-
-	tf.buf = append(tf.buf, data)
-	if len(tf.buf) > maxBufferedMessages {
-		tf.buf = tf.buf[1:]
+	tf.buf = nil
+	// The replayed messages are older than the thread_start. Only the last event sent
+	// here carries the thread_start's id, so a client that drops partway through has
+	// its resume point before the thread_start and receives the whole set again.
+	events[len(events)-1].ID = eventID(tf.threadID, m.seq)
+	for _, e := range events {
+		emit(e)
 	}
-	return false
 }
 
 // messageDeduper suppresses duplicate logical messages within a single
@@ -189,31 +326,26 @@ func (tf *threadFinder) isThisTurn(published time.Time) bool {
 	return tf.notBefore.IsZero() || published.IsZero() || !published.Before(tf.notBefore)
 }
 
-// publishedAt is when NATS stored a message, or the zero time when unknown.
-func publishedAt(msg jetstream.Msg) time.Time {
-	md, err := msg.Metadata()
-	if err != nil || md == nil {
-		return time.Time{}
+// toDiscussMsg decodes a JetStream message, reporting false for one that is not JSON.
+func toDiscussMsg(msg jetstream.Msg) (discussMsg, bool) {
+	var m discussMsg
+	if err := json.Unmarshal(msg.Data(), &m.data); err != nil {
+		return m, false
 	}
-	return md.Timestamp
+	if md, err := msg.Metadata(); err == nil && md != nil {
+		m.published, m.seq = md.Timestamp, md.Sequence.Stream
+	}
+	return m, true
 }
 
 // processMessages is the main event loop that dispatches heartbeats and incoming
 // NATS messages to the SSE emitter.
-func processMessages(ctx context.Context, msgCh <-chan jetstream.Msg, conversationID string, notBefore time.Time, emit func(SSEEvent)) error {
+// The coordinator dual-publishes some messages (notably synthesis) to both the
+// broadcast subject AND the channel subject; both copies carry the same messageId and
+// the wildcard filter matches both, so dedup drops the second copy.
+func processMessages(ctx context.Context, msgCh <-chan jetstream.Msg, tf *threadFinder, dedup *messageDeduper, emit func(SSEEvent)) error {
 	heartbeat := time.NewTicker(heartbeatInterval)
 	defer heartbeat.Stop()
-
-	tf := &threadFinder{conversationID: conversationID, notBefore: notBefore}
-
-	// The coordinator dual-publishes some messages (notably synthesis) to both
-	// the broadcast subject AND the channel subject so every agent — whether it
-	// subscribes to broadcast or to its own channel — sees them. Both copies
-	// carry the same messageId (the payload is marshalled once). Our consumer's
-	// wildcard filter (kubemoot.discuss.<ns>.<crew>.>) matches both, so without
-	// dedup the SSE stream would emit the synthesis (and any other dual-published
-	// message) twice. Dedup by messageId; the deduper lives for one discussion.
-	dedup := newMessageDeduper()
 
 	for {
 		select {
@@ -225,34 +357,33 @@ func processMessages(ctx context.Context, msgCh <-chan jetstream.Msg, conversati
 
 		case msg, ok := <-msgCh:
 			if !ok {
-				return nil
+				return errSubscriptionEnded
 			}
-
-			var data natsMessage
-			if err := json.Unmarshal(msg.Data(), &data); err != nil {
-				continue // skip malformed
-			}
-
-			if !dedup.firstSight(data.MessageID) {
-				continue // already emitted this logical message (dual-publish)
-			}
-
-			if !tf.process(data, publishedAt(msg), emit) {
-				continue
-			}
-
-			// Only process messages for our thread
-			if data.ThreadID != tf.threadID {
-				continue
-			}
-
-			translateAndEmit(data, emit)
-
-			if data.MessageType == "thread_close" {
+			if handleMessage(msg, dedup, tf, emit) {
 				return nil
 			}
 		}
 	}
+}
+
+// handleMessage emits what one NATS message means for the followed thread, reporting
+// true when it closed the thread.
+func handleMessage(msg jetstream.Msg, dedup *messageDeduper, tf *threadFinder, emit func(SSEEvent)) bool {
+	m, ok := toDiscussMsg(msg)
+	if !ok || !dedup.firstSight(m.data.MessageID) || !tf.process(m, emit) {
+		return false
+	}
+	translate(m, emit)
+	return m.data.MessageType == "thread_close"
+}
+
+// translate emits m's SSE event, carrying its resume id.
+func translate(m discussMsg, emit func(SSEEvent)) {
+	id := eventID(m.data.ThreadID, m.seq)
+	translateAndEmit(m.data, func(e SSEEvent) {
+		e.ID = id
+		emit(e)
+	})
 }
 
 // translateAndEmit converts a NATS discussion message to an SSE event.
