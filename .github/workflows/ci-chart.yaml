@@ -1,0 +1,32 @@
+# Render tests for the operator chart and its dashboard subchart. Not a release gate.
+name: CI Chart
+
+on:
+  pull_request:
+    paths:
+      - 'operator/chart/**'
+      - 'dashboard/charts/**'
+      - '.github/workflows/ci-chart.yaml'
+  push:
+    branches-ignore: [main]
+    paths:
+      - 'operator/chart/**'
+      - 'dashboard/charts/**'
+      - '.github/workflows/ci-chart.yaml'
+
+permissions:
+  contents: read
+
+jobs:
+  chart:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: azure/setup-helm@v4
+      - name: Lint (defaults and quickstart values)
+        run: |
+          helm dependency build operator/chart/kubemoot-operator
+          helm lint operator/chart/kubemoot-operator
+          helm lint operator/chart/kubemoot-operator -f quickstart/operator-values.yaml
+      - name: Dashboard subchart render tests
+        run: operator/chart/test-dashboard-subchart.sh

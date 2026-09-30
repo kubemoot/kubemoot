@@ -11,7 +11,26 @@ Metrics, logs, and traces are not part of the dashboard. For those, see [Observa
 
 ## Install
 
-The dashboard ships as a Helm chart. Install it into the namespace of your choice:
+The dashboard is an optional part of the `kubemoot-operator` chart, off by default because it has no login and can purge NATS streams and delete models (see [SECURITY.md](https://github.com/kubemoot/kubemoot/blob/main/SECURITY.md)). Turn it on with one flag when you install the operator:
+
+```bash
+helm upgrade --install kubemoot-operator \
+  oci://ghcr.io/kubemoot/charts/kubemoot-operator \
+  --namespace kubemoot --create-namespace \
+  --set dashboard.enabled=true
+```
+
+Every dashboard setting lives under `dashboard:` in the operator chart's values, with the defaults of the standalone chart. `global.imageRegistry` and `global.imagePullSecrets` apply to the dashboard image as they do to the operator's. The chart exposes the app under the `/dashboard` path prefix and creates no route. To look at it, port-forward the service (named after the release, `kubemoot-operator-dashboard` for the release above):
+
+```bash
+kubectl -n kubemoot port-forward svc/kubemoot-operator-dashboard 8080:80
+```
+
+Then open `http://localhost:8080/dashboard`.
+
+### Standalone chart
+
+The dashboard chart is also published on its own, for a cluster where the operator is installed another way:
 
 ```bash
 helm upgrade --install kubemoot-dashboard \
@@ -19,18 +38,14 @@ helm upgrade --install kubemoot-dashboard \
   --namespace kubemoot --create-namespace
 ```
 
-The chart exposes the app under the `/dashboard` path prefix. To look at it without configuring routing, port-forward the service:
+Its service is `kubemoot-dashboard`, so the port-forward target is `svc/kubemoot-dashboard`. Do not run both the standalone release and `dashboard.enabled=true` in one namespace unless you want two dashboards.
 
-```bash
-kubectl -n kubemoot port-forward svc/kubemoot-dashboard 8080:80
-```
+### Publishing on a hostname
 
-Then open `http://localhost:8080/dashboard`.
-
-To publish it on a hostname, the chart renders a Gateway API `HTTPRoute` when `gateway.enabled` is true (see the chart's `values.yaml` for the default) or an `Ingress` when `ingress.enabled` is true:
+To publish it on a hostname, the chart renders a Gateway API `HTTPRoute` when `gateway.enabled` is true (`dashboard.gateway.enabled` in the operator chart; see the chart's `values.yaml` for the default) or an `Ingress` when `ingress.enabled` is true:
 
 ```yaml
-gateway:
+gateway:                      # nest under dashboard: in the operator chart's values
   enabled: true
   name: gateway
   namespace: default

@@ -76,6 +76,23 @@ helm upgrade --install kubemoot-operator \
 The published chart is `oci://ghcr.io/kubemoot/charts/kubemoot-operator`; pass it as
 the chart reference with `--version` for a specific release.
 
+### Optional: the dashboard
+
+The operator chart carries the [dashboard](../../operating/dashboard/) as an optional
+subchart. It is off by default because the dashboard has no login and can purge NATS
+streams and delete models. To install it with the operator:
+
+```bash
+helm upgrade --install kubemoot-operator \
+  oci://ghcr.io/kubemoot/charts/kubemoot-operator \
+  --namespace kubemoot --create-namespace \
+  --set dashboard.enabled=true
+```
+
+It has no route; reach it with `kubectl port-forward`, as the
+[dashboard page](../../operating/dashboard/) shows. The dashboard chart is also published
+by itself if you prefer a separate release.
+
 ### Optional: GitOps with Flux
 
 If you already manage your cluster with GitOps, you can skip the `helm` command above.

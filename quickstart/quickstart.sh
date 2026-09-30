@@ -70,12 +70,16 @@ kubectl rollout status deployment/ollama -n ollama --timeout="${READY_TIMEOUT}s"
 kubectl exec -n ollama deployment/ollama -- ollama pull "$QUICKSTART_MODEL"
 
 step "3/6 Kubemoot operator ($KUBEMOOT_CHART)"
+# A checkout carries the dashboard as a local subchart that must be built into charts/.
+[ -d "$KUBEMOOT_CHART" ] && helm dependency build "$KUBEMOOT_CHART" >/dev/null
 chart_args=(--namespace kubemoot --create-namespace --values "$HERE/operator-values.yaml" --wait --timeout 10m)
 [ -n "$KUBEMOOT_CHART_VERSION" ] && chart_args+=(--version "$KUBEMOOT_CHART_VERSION")
 if [ -n "$KUBEMOOT_IMAGE_TAG" ]; then
   # Locally built images, already loaded into the cluster under the chart's default
   # registry prefix. Component images are "name:tag"; the chart adds the registry.
-  chart_args+=(--set "image.tag=$KUBEMOOT_IMAGE_TAG"
+  # The dashboard image is not built locally, so it stays off in this mode.
+  chart_args+=(--set "dashboard.enabled=false"
+               --set "image.tag=$KUBEMOOT_IMAGE_TAG"
                --set "image.pullPolicy=IfNotPresent"
                --set "kubemootConfig.images.agentRuntime=agent-runtime:$KUBEMOOT_IMAGE_TAG"
                --set "kubemootConfig.images.discussionGateway=discussion-gateway:$KUBEMOOT_IMAGE_TAG")
@@ -150,3 +154,5 @@ if [ -n "$EXPECT" ] && ! printf '%s' "$answer" | grep -qi -- "$EXPECT"; then
   echo "quickstart: answer does not mention '$EXPECT'" >&2; exit 1
 fi
 echo "quickstart: PASS"
+echo "dashboard (no login, so it is not exposed): kubectl port-forward -n kubemoot svc/kubemoot-operator-dashboard 8080:80"
+echo "then open http://localhost:8080/dashboard"

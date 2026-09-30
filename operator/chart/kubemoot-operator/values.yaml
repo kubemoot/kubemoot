@@ -9,6 +9,9 @@ global:
   # adds its pull secret under imagePullSecrets. An image value that already
   # contains a "/" is used as-is (third-party images such as doclingServe).
   imageRegistry: ghcr.io/kubemoot
+  # Pull secrets for global.imageRegistry, applied to the operator and to the dashboard
+  # subchart. Merged with the chart-level imagePullSecrets below.
+  imagePullSecrets: []
 
 image:
   repository: kubemoot-operator
@@ -364,3 +367,23 @@ notifications:
 #     type: ollama
 #     endpoint: http://ollama.ollama-rig1:11434
 #     schedulingWeight: 25
+
+# Kubemoot dashboard, an optional subchart (dashboard/charts/kubemoot-dashboard).
+# OFF by default: the dashboard has no authentication and can purge NATS streams and
+# delete models (see SECURITY.md). Enable it on a cluster you control:
+#   helm install ... --set dashboard.enabled=true
+# then reach it with kubectl port-forward; its Gateway route stays off.
+# Every other key under dashboard: takes the standalone chart's default and is documented
+# in that chart's values.yaml (image.tag, resources, gateway, rbac, ...). global.imageRegistry
+# and global.imagePullSecrets above apply to it; here global.imageRegistry replaces
+# dashboard.image.registry and any path in dashboard.image.repository (only its last
+# element, "dashboard", is used). The two names below are set empty so
+# they derive from the release name and cannot collide with a standalone
+# kubemoot-dashboard release in the same cluster.
+dashboard:
+  enabled: false
+  serviceAccount:
+    name: ""
+  rbac:
+    clusterRole:
+      name: ""

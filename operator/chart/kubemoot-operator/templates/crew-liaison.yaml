@@ -70,7 +70,7 @@ spec:
         {{- include "kubemoot-operator.selectorLabels" . | nindent 8 }}
         app.kubernetes.io/component: crew-liaison
     spec:
-      {{- with .Values.imagePullSecrets }}
+      {{- with (include "kubemoot-operator.pullSecrets" . | fromYamlArray) }}
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
       {{- end }}
