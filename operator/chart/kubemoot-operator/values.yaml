@@ -301,7 +301,7 @@ kubemootConfig:
     queryService: query-service:0.326.0
     agentRuntime: agent-runtime:0.342.11
     mcpGateway: mcp-gateway:0.326.22
-    mcpBridge: mcp-bridge:0.341.2
+    mcpBridge: mcp-bridge:0.342.31
     discussionGateway: discussion-gateway:0.342.31
     fitnessRunner: fitness-runner:0.342.31
     doclingServe: quay.io/docling-project/docling-serve-cpu:latest
