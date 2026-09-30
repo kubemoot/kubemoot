@@ -60,6 +60,10 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v5
         with:
+          # RELEASE_TOKEN (contents and workflows write) lets the final tag land on the
+          # candidate's commit when workflow files changed on main after it; the default
+          # token is refused there. Falls back to the default token.
+          token: ${{ secrets.RELEASE_TOKEN || github.token }}
           fetch-depth: 0
           filter: blob:none
 
