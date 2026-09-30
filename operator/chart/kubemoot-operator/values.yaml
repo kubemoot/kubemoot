@@ -291,6 +291,7 @@ liaison:
     requests:
       cpu: 10m
       memory: 32Mi
+      ephemeral-storage: 16Mi
 
 kubemootConfig:
   # Whether to create the default KubemootConfig singleton

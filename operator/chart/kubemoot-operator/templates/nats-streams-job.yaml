@@ -20,6 +20,8 @@ spec:
         app.kubernetes.io/component: nats-bootstrap
     spec:
       restartPolicy: OnFailure
+      # The bootstrap talks only to NATS, never to the Kubernetes API.
+      automountServiceAccountToken: false
       containers:
         - name: nats-bootstrap
           image: natsio/nats-box:0.14.5
@@ -147,6 +149,7 @@ spec:
             requests:
               cpu: 10m
               memory: 32Mi
+              ephemeral-storage: 16Mi
             limits:
               cpu: 100m
               memory: 64Mi
