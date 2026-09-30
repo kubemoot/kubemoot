@@ -255,7 +255,7 @@ The internal `kubernetes-mcp` server needs broad permissions to create Kubemoot 
 ClusterRole: kubemoot-mcpserver-creator
 rules:
   - apiGroups: ["kubemoot.ai"]
-    resources: ["mcpservers", "ragsources", "agents", "agentpolicies"]
+    resources: ["mcpservers", "ragsources", "agents"]
     verbs: ["create", "get", "list", "watch", "update", "patch"]
   - apiGroups: [""]
     resources: ["pods", "namespaces", "services", "configmaps", "secrets"]

@@ -37,9 +37,9 @@ rules:
   - apiGroups: ["kubemoot.ai"]
     resources: ["ragsources/status"]
     verbs: ["get"]
-  # Agent and AgentPolicy CRUD for onboarding agent (future auto-creation)
+  # Agent CRUD for onboarding agent (future auto-creation)
   - apiGroups: ["kubemoot.ai"]
-    resources: ["agents", "agentpolicies"]
+    resources: ["agents"]
     verbs: ["create", "get", "list", "watch", "update", "patch"]
   # Pod/namespace listing for kubernetes operations
   - apiGroups: [""]

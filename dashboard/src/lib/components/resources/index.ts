@@ -8,6 +8,5 @@ export { default as MCPQualityPolicyCard } from './MCPQualityPolicyCard.svelte';
 export { default as MCPCatalogCard } from './MCPCatalogCard.svelte';
 export { default as RAGSourceCard } from './RAGSourceCard.svelte';
 export { default as AgentCard } from './AgentCard.svelte';
-export { default as AgentPolicyCard } from './AgentPolicyCard.svelte';
 export { default as MCPServerReportCard } from './MCPServerReportCard.svelte';
 export { default as NodeCard } from './NodeCard.svelte';
