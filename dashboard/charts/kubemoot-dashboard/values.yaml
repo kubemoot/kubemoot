@@ -78,7 +78,7 @@ ingress:
 
 # Gateway API configuration (replaces Ingress)
 gateway:
-  enabled: true
+  enabled: false  # opt-in: the dashboard has no authentication; publish it only behind an authenticating proxy
   name: gateway
   namespace: default
   hostnames:

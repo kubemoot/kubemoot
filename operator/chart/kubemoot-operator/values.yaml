@@ -51,6 +51,13 @@ proxyInjection:
   # Default port for the HTTP/SSE bridge
   port: 8080
 
+# Secret replication: the operator copies Secrets (image pull secrets, vector-store
+# credentials, the kubemoot.ai/replicate-secrets annotation) into crew namespaces
+# only from its own namespace plus the namespaces listed here. Every other source
+# namespace is refused.
+secretReplication:
+  allowedSourceNamespaces: []
+
 # Gateway API configuration for crew discussion HTTPRoutes
 gateway:
   enabled: false
@@ -82,13 +89,15 @@ health:
   port: 8081
 
 # Internal control plane agents (deployed to same namespace as operator)
-# These agents handle MCP quality evaluation and catalog discovery
+# These agents handle MCP quality evaluation and catalog discovery.
+# Off by default: enabling installs MCP servers with cluster read access
+# (see mcpServers below). Opt in only on clusters where every pod is trusted.
 internalAgents:
-  enabled: true
+  enabled: false
   # Shared model provider for internal agents
   modelProvider:
     name: ollama-gpu
-    endpoint: http://ollama.ollama-rig0:11434
+    endpoint: http://ollama.ollama:11434
   # Shared model for inference
   model:
     name: qwen3:8b
@@ -153,10 +162,12 @@ internalAgents:
   mcpServers:
     enabled: true
     # Kubernetes MCP - provides k8s CRUD tools
-    # Using mcp/kubernetes from Docker Hub (official MCP server image)
+    # Using mcp/kubernetes from Docker Hub (official MCP server image); the
+    # repository publishes only a floating tag, so the image is pinned by digest.
+    # Its ServiceAccount reads cluster state but no Secrets.
     kubernetes:
       enabled: true
-      image: mcp/kubernetes:latest
+      image: mcp/kubernetes@sha256:5ffbf7f0a8aa7a58dfcf8d34807fd42a9cd7d88d88a5de88f472edfc3133af73
       command: ["node", "dist/index.js"]
       securityMode: strict  # Node.js image, no root access needed
       # replicas: 2 — stdio MCP servers exit cleanly when the bridge gateway
@@ -176,7 +187,7 @@ internalAgents:
     # Fetch MCP - provides HTTP/web fetching tools
     fetch:
       enabled: true
-      image: mcp/fetch:latest
+      image: mcp/fetch@sha256:1a7a0996a565a0b8ca5c41b42830d4e5f334d33f851596bbd9debb2beedb22d3
       command: ["/app/.venv/bin/mcp-server-fetch"]
       securityMode: relaxed  # Python/uv image, interpreter under /root/ (mode 700)
       # replicas: 2 — fetch-mcp was observed restarting every 2 minutes
@@ -200,7 +211,7 @@ internalAgents:
     # Uses exec mode (no shell required) for distroless/scratch images
     github:
       enabled: false  # Enable after creating github-token secret
-      image: ghcr.io/github/github-mcp-server:latest
+      image: ghcr.io/github/github-mcp-server:v1.12.2
       command: ["/server/github-mcp-server", "stdio"]
       securityMode: strict  # Go binary on distroless, no root access needed
       replicas: 1
@@ -238,8 +249,10 @@ scaleToZero:
   natsMonitoringEndpoint: "nats-headless.nats.svc.cluster.local:8222"
 
 # Verification feature - allows triggering verification jobs via dashboard
+# Off by default: the runner's ServiceAccount creates Jobs and reads Secrets
+# cluster-wide, so enable it only on a cluster you use for testing.
 verify:
-  enabled: true
+  enabled: false
   # Test runner image for verification jobs
   # Version is automatically updated by CI/CD when test-runner is released
   image: test-runner:0.46.2
@@ -345,7 +358,7 @@ notifications:
 # Example:
 #   - name: ollama-gpu
 #     type: ollama
-#     endpoint: http://ollama.ollama-rig0:11434
+#     endpoint: http://ollama.ollama:11434
 #     schedulingWeight: 100
 #   - name: ollama-rig1
 #     type: ollama
