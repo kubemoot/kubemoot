@@ -13,12 +13,14 @@ on:
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-  REGISTRY: harbor-homelab.dijure.com
+  REGISTRY: ${{ vars.REGISTRY }}
   IMAGE_NAME: kubemoot/kubemoot-operator
 
 jobs:
   test:
-    runs-on: homelab-runners
+    # Pull requests (including forks) run on GitHub-hosted runners; the self-hosted
+    # cluster runners take push, dispatch, and workflow_call runs from main only.
+    runs-on: ${{ github.event_name == 'pull_request' && 'ubuntu-latest' || 'homelab-runners' }}
     permissions:
       contents: write   # needed by the regen auto-commit step below
 
@@ -92,6 +94,8 @@ jobs:
 
   build-image:
     needs: test
+    # Kaniko pushes to the in-cluster registry: main only, never a pull request.
+    if: github.event_name != 'pull_request'
     runs-on: homelab-runners
 
     steps:
@@ -110,7 +114,6 @@ jobs:
           chmod +x kubectl && sudo mv kubectl /usr/local/bin/
 
       - name: Ensure Harbor project exists
-        if: github.event_name != 'pull_request'
         run: |
           curl -s -X POST "http://${{ env.REGISTRY }}/api/v2.0/projects" \
             -H "Content-Type: application/json" \
@@ -130,7 +133,6 @@ jobs:
           echo "version=${VERSION}" >> $GITHUB_OUTPUT
 
       - name: Build and push with Kaniko
-        if: github.event_name != 'pull_request'
         run: |
           SHA="${{ github.sha }}"
           VERSION="${{ steps.tag.outputs.version }}"
@@ -145,7 +147,7 @@ jobs:
             --image=gcr.io/kaniko-project/executor:latest \
             --overrides='{
               "spec": {
-                "hostAliases": [{"ip": "192.168.50.210", "hostnames": ["harbor-homelab.dijure.com"]}],
+                "hostAliases": [{"ip": "${{ vars.REGISTRY_HOST_IP }}", "hostnames": ["${{ vars.REGISTRY }}"]}],
                 "containers": [{
                   "name": "kaniko",
                   "image": "gcr.io/kaniko-project/executor:latest",

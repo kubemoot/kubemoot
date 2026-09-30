@@ -62,7 +62,7 @@ jobs:
         # The public manifest pulls the test-runner from GHCR. In this cluster the same
         # image is in Harbor, so rewrite the reference and attach the Harbor pull secret.
         run: |
-          sed -e 's#image: ghcr.io/kubemoot/test-runner#image: harbor-homelab.dijure.com/kubemoot/test-runner#' \
+          sed -e 's#image: ghcr.io/kubemoot/test-runner#image: ${{ vars.REGISTRY }}/kubemoot/test-runner#' \
               -e 's#^      serviceAccountName: kubemoot-verify-runner$#&\n      imagePullSecrets:\n        - name: harbor-pull-secret#' \
               k8s/tests/job/job-smoke.yaml | kubectl create -f -
 

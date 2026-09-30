@@ -1,12 +1,12 @@
-# Independent quality pipeline — runs in parallel with CI/CD, never blocks builds.
+# Independent quality pipeline: runs in parallel with CI/CD, never blocks builds.
 # Reports to self-hosted SonarQube for centralized code quality analysis.
+# Main only: SonarQube is reachable from the self-hosted cluster runners, and pull
+# requests run on GitHub-hosted runners that cannot reach it.
 name: Quality
 
 on:
   push:
     branches: [main]
-  pull_request:
-    types: [opened, synchronize, reopened]
   workflow_dispatch:
 
 env:

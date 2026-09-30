@@ -20,7 +20,7 @@ concurrency:
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-  REGISTRY: harbor-homelab.dijure.com
+  REGISTRY: ${{ vars.REGISTRY }}
   IMAGE_NAME: kubemoot/crew-liaison
 
 jobs:

@@ -8,7 +8,7 @@
 #
 # Usage: publish-release-image.sh <source-ref> <version>
 #   source-ref  the versioned Harbor reference just retagged,
-#               e.g. harbor-homelab.dijure.com/kubemoot/agent-runtime:0.322.4
+#               e.g. <registry>/kubemoot/agent-runtime:0.322.4
 #   version     the release version, e.g. 0.322.4
 #
 # Required env:
