@@ -105,7 +105,7 @@ packaged crews. See [docs/ecosystem/](docs/ecosystem/) for the full picture.
 
 ## Development and community
 
-Kubemoot is an independent open-source project under the Apache License 2.0. Contributing, support, governance, the code of conduct, security reporting, and releases are documented in one place: the [Community section of kubemoot.org](https://kubemoot.org/docs/community/). Ask questions and share ideas in [GitHub Discussions](https://github.com/orgs/kubemoot/discussions). For anything else write to moot@kubemoot.org, and report vulnerabilities privately to security@kubemoot.org.
+Kubemoot is an independent open-source project under the Apache License 2.0. Contributing, support, governance, the code of conduct, security reporting, and releases are documented in one place: the [Community section of kubemoot.org](https://kubemoot.org/docs/community/). Ask questions and share ideas in [GitHub Discussions](https://github.com/orgs/kubemoot/discussions). Write to moot@kubemoot.org for anything else. Use security@kubemoot.org only to report a vulnerability, privately.
 
 The [Development Guide](docs/community/development.md) covers the repository layout, prerequisites, and how to build and test each component. Run `./quickstart/quickstart.sh` on an empty `kind` cluster as a smoke test before opening a pull request. Security details, including the platform's known limitations, are in [SECURITY.md](SECURITY.md).
 
