@@ -303,7 +303,7 @@ kubemootConfig:
   images:
     indexer: indexer:0.280.0-rc.147
     queryService: query-service:0.326.0
-    agentRuntime: agent-runtime:0.343.0-rc.43
+    agentRuntime: agent-runtime:0.343.0-rc.46
     mcpGateway: mcp-gateway:0.327.0-rc.147
     mcpBridge: mcp-bridge:0.342.31
     discussionGateway: discussion-gateway:0.343.0-rc.36
