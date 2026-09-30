@@ -70,11 +70,12 @@ be **operable infrastructure**.
   agents as Kubernetes resources. What Kubemoot adds today is a deliberation protocol
   between agents (consensus signals and a coordinator that synthesizes the answer),
   GPU-aware scheduling that picks a model server per inference call, and executable
-  fitness functions that score a crew over time.
+  fitness functions that score a crew over time. See
+  [Related Projects](../related-projects/) for a fuller comparison.
 - **vs. model-serving layers such as KServe, llm-d, and vLLM** - those serve models;
   Kubemoot sits above them: it schedules each inference call onto a model server it can
   read state from. Ollama is the only model server it drives today; reading engine state from other
-  servers is on the [Roadmap](../roadmap/).
+  servers is on the [Roadmap](../roadmap/). See [Related Projects](../related-projects/).
 - **vs. hosted agent platforms** - it runs on **your** infrastructure and GPUs, stays
   portable across clusters, and keeps your data and models in your control.
 - **vs. agent harnesses such as Claude Code** - not a competitor but a table they can

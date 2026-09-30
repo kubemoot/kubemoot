@@ -33,6 +33,14 @@ Use them when an in-process library fits: one application, a notebook, a prototy
 Kubemoot is for crews that run as shared platform services with tenancy, GitOps, and
 GPUs to schedule. Different job; see [Why Kubemoot](../why-kubemoot/).
 
+## How is Kubemoot different from kagent?
+
+Both declare agents as Kubernetes resources. kagent is the more mature choice for
+agents backed by hosted models and for a ready set of cluster-operations tools.
+Kubemoot adds a consensus protocol between agents, GPU-aware scheduling of each
+inference call, and fitness functions that score a crew. See
+[Related Projects](../related-projects/) for kagent and other neighbors.
+
 ## Why a crew instead of one agent?
 
 Separate roles with separate tools, context, and rules; a coordinator that convenes
