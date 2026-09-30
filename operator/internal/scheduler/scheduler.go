@@ -62,9 +62,9 @@ import (
 
 	"github.com/go-logr/logr"
 	"github.com/google/uuid"
-	"github.com/javajon/kubemoot/operator/internal/crewscope"
-	kubemootnats "github.com/javajon/kubemoot/operator/internal/nats"
-	"github.com/javajon/kubemoot/operator/internal/scheduler/record"
+	"github.com/kubemoot/kubemoot/operator/internal/crewscope"
+	kubemootnats "github.com/kubemoot/kubemoot/operator/internal/nats"
+	"github.com/kubemoot/kubemoot/operator/internal/scheduler/record"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 )
 

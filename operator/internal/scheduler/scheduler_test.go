@@ -14,7 +14,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/javajon/kubemoot/operator/internal/scheduler/record"
+	"github.com/kubemoot/kubemoot/operator/internal/scheduler/record"
 )
 
 const (

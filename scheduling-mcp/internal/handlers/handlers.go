@@ -16,8 +16,8 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/javajon/kubemoot/scheduling-mcp/internal/timeparse"
-	"github.com/javajon/kubemoot/scheduling-mcp/pkg/record"
+	"github.com/kubemoot/kubemoot/scheduling-mcp/internal/timeparse"
+	"github.com/kubemoot/kubemoot/scheduling-mcp/pkg/record"
 )
 
 // KV abstracts the slice of nats.KeyValue we actually use, so handler

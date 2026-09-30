@@ -25,11 +25,11 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/javajon/kubemoot/artifact-access/internal/artifact"
-	"github.com/javajon/kubemoot/artifact-access/internal/materializer"
-	"github.com/javajon/kubemoot/artifact-access/internal/mcpserver"
-	"github.com/javajon/kubemoot/artifact-access/internal/natsstore"
-	"github.com/javajon/kubemoot/artifact-access/internal/scope"
+	"github.com/kubemoot/kubemoot/artifact-access/internal/artifact"
+	"github.com/kubemoot/kubemoot/artifact-access/internal/materializer"
+	"github.com/kubemoot/kubemoot/artifact-access/internal/mcpserver"
+	"github.com/kubemoot/kubemoot/artifact-access/internal/natsstore"
+	"github.com/kubemoot/kubemoot/artifact-access/internal/scope"
 )
 
 func env(key, def string) string {

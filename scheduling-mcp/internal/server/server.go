@@ -15,7 +15,7 @@ import (
 	"io"
 	"strings"
 
-	"github.com/javajon/kubemoot/scheduling-mcp/internal/handlers"
+	"github.com/kubemoot/kubemoot/scheduling-mcp/internal/handlers"
 )
 
 // JSON-RPC 2.0 message types we care about.

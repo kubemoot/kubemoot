@@ -42,13 +42,13 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
-	aiv1alpha1 "github.com/javajon/kubemoot/operator/api/v1alpha1"
-	"github.com/javajon/kubemoot/operator/internal/controller"
-	"github.com/javajon/kubemoot/operator/internal/crewmemory"
-	kubemootnats "github.com/javajon/kubemoot/operator/internal/nats"
-	"github.com/javajon/kubemoot/operator/internal/notifications"
-	kubemootscheduler "github.com/javajon/kubemoot/operator/internal/scheduler"
-	kubemootwebhook "github.com/javajon/kubemoot/operator/internal/webhook"
+	aiv1alpha1 "github.com/kubemoot/kubemoot/operator/api/v1alpha1"
+	"github.com/kubemoot/kubemoot/operator/internal/controller"
+	"github.com/kubemoot/kubemoot/operator/internal/crewmemory"
+	kubemootnats "github.com/kubemoot/kubemoot/operator/internal/nats"
+	"github.com/kubemoot/kubemoot/operator/internal/notifications"
+	kubemootscheduler "github.com/kubemoot/kubemoot/operator/internal/scheduler"
+	kubemootwebhook "github.com/kubemoot/kubemoot/operator/internal/webhook"
 	// +kubebuilder:scaffold:imports
 )
 

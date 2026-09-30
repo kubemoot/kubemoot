@@ -11,7 +11,6 @@ import type {
 	MCPServerReport,
 	RAGSource,
 	Agent,
-	AgentPolicy,
 	KubemootConfig,
 	Crew,
 	CrewFitness,
@@ -34,7 +33,6 @@ export const KUBEMOOT_CRDS = {
 	mcpcatalogs: { plural: 'mcpcatalogs', kind: 'MCPCatalog' },
 	ragsources: { plural: 'ragsources', kind: 'RAGSource' },
 	agents: { plural: 'agents', kind: 'Agent' },
-	agentpolicies: { plural: 'agentpolicies', kind: 'AgentPolicy' },
 	mcpserverreports: { plural: 'mcpserverreports', kind: 'MCPServerReport' },
 	kubemootconfigs: { plural: 'kubemootconfigs', kind: 'KubemootConfig' },
 	crews: { plural: 'crews', kind: 'Crew' },
@@ -262,18 +260,6 @@ export async function listAgents(namespace: string): Promise<KubemootList<Agent>
 
 export async function getAgent(namespace: string, name: string): Promise<Agent> {
 	return getNamespacedCRD<Agent>('agents', namespace, name);
-}
-
-// AgentPolicy functions
-export async function listAgentPolicies(namespace: string): Promise<KubemootList<AgentPolicy>> {
-	if (namespace === '') {
-		return listClusterCRD<AgentPolicy>('agentpolicies');
-	}
-	return listNamespacedCRD<AgentPolicy>('agentpolicies', namespace);
-}
-
-export async function getAgentPolicy(namespace: string, name: string): Promise<AgentPolicy> {
-	return getNamespacedCRD<AgentPolicy>('agentpolicies', namespace, name);
 }
 
 // MCPServerReport functions (namespaced)

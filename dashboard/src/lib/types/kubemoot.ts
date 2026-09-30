@@ -377,51 +377,6 @@ export interface RAGSourceRefStatus {
 	documentCount?: number;
 }
 
-// AgentPolicy types
-export interface AgentPolicy {
-	apiVersion: string;
-	kind: 'AgentPolicy';
-	metadata: K8sMetadata;
-	spec: AgentPolicySpec;
-	status?: AgentPolicyStatus;
-}
-
-export interface AgentPolicySpec {
-	guardrails?: {
-		readBeforeWrite?: boolean;
-		confirmDestructive?: boolean;
-		allowedNamespaces?: string[];
-		deniedResources?: string[];
-		maxToolCallsPerTurn?: number;
-		maxTokensPerRequest?: number;
-		auditLog?: boolean;
-	};
-	a2a?: {
-		enabled?: boolean;
-		role?: 'coordinator' | 'specialist' | 'peer';
-		skills?: Array<{ id: string; name?: string; description?: string }>;
-		subscribeChannels?: string[];
-		maxInferencesPerMinute?: number;
-		discussionTimeoutSeconds?: number;
-	};
-	prompt?: {
-		system?: string;
-	};
-	inference?: {
-		temperature?: number;
-		topP?: number;
-		topK?: number;
-		maxTokens?: number;
-	};
-}
-
-export interface AgentPolicyStatus {
-	ready?: boolean;
-	referencedBy?: string[];
-	lastUpdated?: string;
-	message?: string;
-}
-
 // MCPQualityPolicy types
 export interface MCPQualityPolicy {
 	apiVersion: string;

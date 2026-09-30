@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/javajon/kubemoot/operator/pkg/sse"
+	"github.com/kubemoot/kubemoot/operator/pkg/sse"
 )
 
 // Event is the part of a discussion gateway stream event the liaison acts on.

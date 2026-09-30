@@ -1,4 +1,4 @@
-module github.com/javajon/kubemoot/code-sandbox
+module github.com/kubemoot/kubemoot/code-sandbox
 
 go 1.27.1
 

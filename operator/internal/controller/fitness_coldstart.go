@@ -19,8 +19,8 @@ package controller
 import (
 	"context"
 
-	kubemootv1alpha1 "github.com/javajon/kubemoot/operator/api/v1alpha1"
-	"github.com/javajon/kubemoot/operator/internal/crewscope"
+	kubemootv1alpha1 "github.com/kubemoot/kubemoot/operator/api/v1alpha1"
+	"github.com/kubemoot/kubemoot/operator/internal/crewscope"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 )
 

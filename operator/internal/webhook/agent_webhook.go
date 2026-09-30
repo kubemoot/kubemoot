@@ -23,7 +23,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
-	aiv1alpha1 "github.com/javajon/kubemoot/operator/api/v1alpha1"
+	aiv1alpha1 "github.com/kubemoot/kubemoot/operator/api/v1alpha1"
 )
 
 // +kubebuilder:webhook:path=/validate-kubemoot-ai-v1alpha1-agent,mutating=false,failurePolicy=fail,sideEffects=None,groups=kubemoot.ai,resources=agents,verbs=create;update,versions=v1alpha1,name=vagent.kubemoot.ai,admissionReviewVersions=v1

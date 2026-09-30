@@ -25,7 +25,7 @@ rules:
     verbs: ["get", "list"]
   # Kubemoot CRDs - full access for verification testing
   - apiGroups: ["kubemoot.ai"]
-    resources: ["agents", "agents/status", "agentpolicies", "crews", "crews/status", "crewfitnesses", "crewfitnesses/status", "embeddingmodels", "kubemootconfigs", "kubemootconfigs/status", "mcpcatalogs", "mcpgateways", "mcpgateways/status", "mcpqualitypolicies", "mcpservers", "mcpservers/status", "mcpserverreports", "mcpserverreports/status", "models", "modelgroups", "modelproviders", "modelproviders/status", "promptmodules", "ragsources", "ragsources/status"]
+    resources: ["agents", "agents/status", "crews", "crews/status", "crewfitnesses", "crewfitnesses/status", "embeddingmodels", "kubemootconfigs", "kubemootconfigs/status", "mcpcatalogs", "mcpgateways", "mcpgateways/status", "mcpqualitypolicies", "mcpservers", "mcpservers/status", "mcpserverreports", "mcpserverreports/status", "models", "modelproviders", "modelproviders/status", "promptmodules", "ragsources", "ragsources/status"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
   # Core resources - read for verification
   - apiGroups: [""]

@@ -18,8 +18,6 @@ ALWAYS reference PromptModules via spec.prompt.promptRefs
 WHEN defining shared modules THEN use discussion-protocol (order 10), response-style (order 20)
 WHEN defining per-agent modules THEN use {agent-name}-system (order 30)
 WHEN defining coordinator modules THEN use advisory-prompt (5), coordinator-decision-logic (45), synthesis-prompt (50)
-ASSERT AgentPolicy.spec.prompt.system is deprecated - use PromptModules instead
-ASSERT Agent.spec.policyRef is deprecated - use inline guardrails, a2a, observability on Agent spec
 
 # Discussion System
 

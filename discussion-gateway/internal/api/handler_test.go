@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	natsclient "github.com/javajon/kubemoot/discussion-gateway/internal/nats"
+	natsclient "github.com/kubemoot/kubemoot/discussion-gateway/internal/nats"
 )
 
 func newTestMux(namespace string) *http.ServeMux {

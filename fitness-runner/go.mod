@@ -1,4 +1,4 @@
-module github.com/javajon/kubemoot/fitness-runner
+module github.com/kubemoot/kubemoot/fitness-runner
 
 go 1.27.1
 
@@ -47,10 +47,10 @@ require (
 )
 
 require (
-	github.com/javajon/kubemoot/operator v0.0.0
+	github.com/kubemoot/kubemoot/operator v0.0.0
 	github.com/nats-io/nats.go v1.39.1
 	k8s.io/apimachinery v0.33.0
 	k8s.io/client-go v0.33.0
 )
 
-replace github.com/javajon/kubemoot/operator => ../operator
+replace github.com/kubemoot/kubemoot/operator => ../operator

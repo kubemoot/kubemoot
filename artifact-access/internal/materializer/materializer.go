@@ -15,8 +15,8 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/javajon/kubemoot/artifact-access/internal/artifact"
-	"github.com/javajon/kubemoot/artifact-access/internal/store"
+	"github.com/kubemoot/kubemoot/artifact-access/internal/artifact"
+	"github.com/kubemoot/kubemoot/artifact-access/internal/store"
 )
 
 // Diagnostic retry around the object read (artifact-corruption hunt). If a read fails

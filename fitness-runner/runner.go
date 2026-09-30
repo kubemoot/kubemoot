@@ -29,7 +29,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/javajon/kubemoot/operator/pkg/sse"
+	"github.com/kubemoot/kubemoot/operator/pkg/sse"
 )
 
 // SignalEvent represents a single SSE event from the discussion gateway stream.

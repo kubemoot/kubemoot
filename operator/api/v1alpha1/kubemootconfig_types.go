@@ -88,7 +88,7 @@ type DefaultConfig struct {
 	EmbeddingModel string `json:"embeddingModel,omitempty"`
 
 	// OTelCollectorEndpoint is the default OpenTelemetry collector endpoint for all agents
-	// Agents use this when their AgentPolicy tracing endpoint is not set
+	// Agents use this as their tracing endpoint
 	// +optional
 	OTelCollectorEndpoint string `json:"otelCollectorEndpoint,omitempty"`
 

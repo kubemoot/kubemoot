@@ -20,7 +20,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// PromptModuleSpec defines a reusable prompt fragment that can be composed into AgentPolicies
+// PromptModuleSpec defines a reusable prompt fragment that Agents compose through spec.prompt.promptRefs
 type PromptModuleSpec struct {
 	// Content is the prompt text
 	Content string `json:"content"`
@@ -36,7 +36,7 @@ type PromptModuleStatus struct {
 	// Ready indicates the module is valid and available
 	Ready bool `json:"ready,omitempty"`
 
-	// ReferencedBy lists AgentPolicy names using this module
+	// ReferencedBy is reserved for the names of Agents using this module; the operator does not populate it today
 	// +optional
 	ReferencedBy []string `json:"referencedBy,omitempty"`
 
@@ -50,12 +50,12 @@ type PromptModuleStatus struct {
 // +kubebuilder:resource:shortName=pm
 // +kubebuilder:printcolumn:name="Order",type=integer,JSONPath=`.spec.order`
 // +kubebuilder:printcolumn:name="Ready",type=boolean,JSONPath=`.status.ready`
-// +kubebuilder:printcolumn:name="Refs",type=integer,JSONPath=`.status.referencedBy`,description="Number of policies referencing this module"
+// +kubebuilder:printcolumn:name="Refs",type=integer,JSONPath=`.status.referencedBy`,description="Number of agents referencing this module"
 // +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
 
-// PromptModule is a reusable, named prompt fragment that can be composed into AgentPolicies.
-// Multiple AgentPolicies can reference the same PromptModule. When a PromptModule changes,
-// all agents whose policies reference it are re-reconciled to update their system prompts.
+// PromptModule is a reusable, named prompt fragment that Agents compose into their system prompt.
+// Multiple Agents can reference the same PromptModule. When a PromptModule changes,
+// all agents that reference it are re-reconciled to update their system prompts.
 type PromptModule struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`

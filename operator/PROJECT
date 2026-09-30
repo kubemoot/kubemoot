@@ -9,7 +9,7 @@ plugins:
   manifests.sdk.operatorframework.io/v2: {}
   scorecard.sdk.operatorframework.io/v2: {}
 projectName: operator
-repo: github.com/javajon/kubemoot/operator
+repo: github.com/kubemoot/kubemoot/operator
 resources:
 - api:
     crdVersion: v1
@@ -18,7 +18,7 @@ resources:
   domain: kubemoot.ai
   group: ai
   kind: ModelProvider
-  path: github.com/javajon/kubemoot/operator/api/v1alpha1
+  path: github.com/kubemoot/kubemoot/operator/api/v1alpha1
   version: v1alpha1
 - api:
     crdVersion: v1
@@ -26,6 +26,6 @@ resources:
   domain: kubemoot.ai
   group: ai
   kind: Model
-  path: github.com/javajon/kubemoot/operator/api/v1alpha1
+  path: github.com/kubemoot/kubemoot/operator/api/v1alpha1
   version: v1alpha1
 version: "3"

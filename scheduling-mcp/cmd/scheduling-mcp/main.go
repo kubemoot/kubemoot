@@ -26,10 +26,10 @@ import (
 
 	"github.com/nats-io/nats.go"
 
-	"github.com/javajon/kubemoot/scheduling-mcp/internal/handlers"
-	"github.com/javajon/kubemoot/scheduling-mcp/internal/scope"
-	"github.com/javajon/kubemoot/scheduling-mcp/internal/server"
-	"github.com/javajon/kubemoot/scheduling-mcp/pkg/record"
+	"github.com/kubemoot/kubemoot/scheduling-mcp/internal/handlers"
+	"github.com/kubemoot/kubemoot/scheduling-mcp/internal/scope"
+	"github.com/kubemoot/kubemoot/scheduling-mcp/internal/server"
+	"github.com/kubemoot/kubemoot/scheduling-mcp/pkg/record"
 )
 
 const (

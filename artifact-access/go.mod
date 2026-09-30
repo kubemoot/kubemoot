@@ -1,4 +1,4 @@
-module github.com/javajon/kubemoot/artifact-access
+module github.com/kubemoot/kubemoot/artifact-access
 
 go 1.27.1
 

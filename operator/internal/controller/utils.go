@@ -22,7 +22,7 @@ import (
 	"fmt"
 	"strings"
 
-	kubemootv1alpha1 "github.com/javajon/kubemoot/operator/api/v1alpha1"
+	kubemootv1alpha1 "github.com/kubemoot/kubemoot/operator/api/v1alpha1"
 	appsv1 "k8s.io/api/apps/v1"
 )
 

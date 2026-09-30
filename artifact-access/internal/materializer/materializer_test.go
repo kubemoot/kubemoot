@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/javajon/kubemoot/artifact-access/internal/artifact"
+	"github.com/kubemoot/kubemoot/artifact-access/internal/artifact"
 )
 
 // testKey is a representative artifact object key reused across materializer tests.

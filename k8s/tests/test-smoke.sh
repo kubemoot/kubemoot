@@ -92,7 +92,7 @@ fi
 # Test 3: CRDs installed
 log_section "Test 3: CRD Installation Check"
 
-EXPECTED_CRDS="modelproviders models embeddingmodels mcpservers mcpgateways ragsources agents agentpolicies mcpqualitypolicies mcpcatalogs mcpserverreports kubemootconfigs"
+EXPECTED_CRDS="modelproviders models embeddingmodels mcpservers mcpgateways ragsources agents mcpqualitypolicies mcpcatalogs mcpserverreports kubemootconfigs"
 for crd in $EXPECTED_CRDS; do
     if kubectl get crd "${crd}.kubemoot.ai" &>/dev/null; then
         log_ok "CRD '${crd}.kubemoot.ai' installed"
