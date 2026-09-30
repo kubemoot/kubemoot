@@ -82,7 +82,7 @@ metadata:
   name: $QUERY_SERVICE_NAME
   namespace: $NAMESPACE
 spec:
-  image: harbor-homelab.dijure.com/kubemoot/query-service:0.7.0
+  image: ${QUERY_SERVICE_IMAGE:-ghcr.io/kubemoot/query-service:0.326.0}
   transport: http
   port: 8000
   replicas: 1

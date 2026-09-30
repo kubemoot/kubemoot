@@ -47,8 +47,8 @@ spec:
 
   # Indexer configuration
   indexer:
-    # Your custom indexer image that reads env vars and indexes docs
-    image: ghcr.io/javajon/dr-cluster-indexer:latest
+    # Indexer image that reads env vars and indexes docs; substitute your own if you built one
+    image: ghcr.io/kubemoot/indexer:0.279.36
     schedule: "0 5 * * *"  # Daily at 5am UTC
     resources:
       requests:

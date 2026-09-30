@@ -26,8 +26,9 @@ KSV-0056
 AVD-KSV-0056
 
 # --- Trusted registry ---
-# harbor-homelab.dijure.com is the cluster's own in-cluster registry and the only
-# place images are pushed/pulled (in-cluster only, by design). It is trusted.
+# Kubemoot images come from the project's own registries: ghcr.io/kubemoot for
+# released images, or a deployment's in-cluster registry for development builds.
+# Both are trusted.
 KSV0125
 KSV-0125
 AVD-KSV-0125
