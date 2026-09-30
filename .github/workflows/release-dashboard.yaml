@@ -110,46 +110,47 @@ jobs:
           echo "Pushing Helm chart to ${CHART_REGISTRY}..."
           helm push --plain-http kubemoot-dashboard-${VERSION}.tgz ${CHART_REGISTRY}
 
-      - name: Commit chart changes
-        if: steps.version.outputs.release_created == 'true'
-        run: |
-          VERSION="${{ steps.version.outputs.version }}"
-
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-
-          if git diff --quiet dashboard/charts/; then
-            echo "No chart changes to commit"
-          else
-            git add dashboard/charts/
-            git commit -m "chore: update dashboard Helm chart to v$VERSION [skip ci]"
-          fi
-
-      - name: Create and push tag
+      - name: Commit the chart version to main and tag it
+        # Re-applies only this release's chart version onto fresh main and retries a
+        # rejected push (another release bot pushed first), the same pattern as
+        # bump-operator-chart.sh. The tag is created only after the commit is on main,
+        # so the next version is always computed from a tag main contains. Fails loudly.
         if: steps.version.outputs.release_created == 'true'
         run: |
           VERSION="${{ steps.version.outputs.version }}"
           TAG="dashboard-v$VERSION"
+          CHART=dashboard/charts/kubemoot-dashboard/Chart.yaml
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
 
-          if git rev-parse "$TAG" >/dev/null 2>&1; then
-            echo "Tag $TAG already exists locally, skipping"
-          elif git ls-remote --tags origin | grep -q "refs/tags/$TAG$"; then
-            echo "Tag $TAG already exists on remote, skipping"
+          pushed=false
+          for attempt in 1 2 3 4 5 6 7 8; do
+            git fetch -q origin main
+            git reset -q --hard FETCH_HEAD
+            sed -i "s/^version:.*/version: $VERSION/" "$CHART"
+            sed -i "s/^appVersion:.*/appVersion: $VERSION/" "$CHART"
+            if ! git diff --quiet -- "$CHART"; then
+              git add "$CHART"
+              git commit -q -m "chore: update dashboard Helm chart to v$VERSION [skip ci]"
+            fi
+            if git push origin HEAD:main; then pushed=true; break; fi
+            echo "git push rejected (attempt ${attempt}/8); re-reading origin/main and retrying"
+            sleep $((attempt * 5))
+          done
+          [ "$pushed" = true ] || { echo "::error::could not land the dashboard chart version on main"; exit 1; }
+
+          if git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null 2>&1; then
+            echo "Tag $TAG already exists on remote"
           else
-            echo "Creating tag: $TAG"
             git tag -a "$TAG" -m "Release candidate Kubemoot Dashboard $TAG"
+            git push origin "refs/tags/$TAG"
           fi
-
-          git push origin main --follow-tags || {
-            echo "Push failed, attempting without tags..."
-            git push origin main || true
-          }
 
       # The operator chart embeds the dashboard chart as an optional subchart (local
       # file:// dependency). Re-release it from fresh main so the operator chart carries
       # the dashboard chart committed above; the operator chart version moves, no file edit.
       - name: Re-release the operator chart with the new dashboard subchart
-        if: steps.check.outputs.release_created == 'true'
+        if: steps.version.outputs.release_created == 'true'
         env:
           HARBOR_USERNAME: ${{ secrets.HARBOR_USERNAME }}
           HARBOR_PASSWORD: ${{ secrets.HARBOR_PASSWORD }}
