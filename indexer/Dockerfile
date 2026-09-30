@@ -12,4 +12,10 @@ FROM eclipse-temurin:25-jre-alpine
 WORKDIR /app
 COPY --from=builder /build/build/libs/*.jar app.jar
 EXPOSE 8080
+# Run as the same non-root uid:gid the operator sets in the container
+# securityContext. The indexer clones into /data (a volume in the cluster),
+# so the image directory is owned by that uid for runs without one.
+RUN mkdir -p /data && chown 1000:1000 /data
+ENV HOME=/data
+USER 1000:1000
 ENTRYPOINT ["java", "-jar", "app.jar"]

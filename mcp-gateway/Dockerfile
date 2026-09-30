@@ -12,4 +12,7 @@ FROM eclipse-temurin:25-jre-alpine
 WORKDIR /app
 COPY --from=builder /build/build/libs/*.jar app.jar
 EXPOSE 8080
+# Run as the same non-root uid:gid the operator sets in the container
+# securityContext; the service only reads app.jar and writes to /tmp.
+USER 1000:1000
 ENTRYPOINT ["java", "-jar", "app.jar"]
