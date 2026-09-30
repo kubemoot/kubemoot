@@ -195,6 +195,60 @@ class RequestQueueConsumerTest {
         verify(msg, never()).term();
     }
 
+    // A pod shutdown interrupts orchestrate(), which returns without an answer. The
+    // request goes back to the queue for the replacement coordinator instead of being
+    // acked, which dropped the question and left its thread open forever.
+    @Test
+    void processMessageReturnsTheRequestWhenShutdownInterruptsIt() throws Exception {
+        var orch = mock(DiscussionOrchestrator.class);
+        when(orch.orchestrate(anyString(), anyString(), anyString())).thenAnswer(inv -> {
+            Thread.currentThread().interrupt();
+            return null;
+        });
+        var consumer = coordinatorConsumer(orch);
+        Message msg = validRequestMessage();
+
+        try {
+            consumer.processMessage(msg);
+        } finally {
+            Thread.interrupted();
+        }
+
+        verify(msg, times(1)).nak();
+        verify(msg, never()).ackSync(any(Duration.class));
+        verify(msg, never()).ack();
+        verify(msg, never()).term();
+    }
+
+    @Test
+    void processMessageReturnsTheRequestAfterShutdownStarted() throws Exception {
+        var orch = mock(DiscussionOrchestrator.class);
+        var consumer = coordinatorConsumer(orch);
+        consumer.onShutdown(null);
+        Message msg = validRequestMessage();
+        doThrow(new IllegalStateException("connection closed")).when(msg).nak();
+
+        assertDoesNotThrow(() -> consumer.processMessage(msg));
+
+        verify(msg, times(1)).nak();
+        verify(msg, never()).ackSync(any(Duration.class));
+    }
+
+    @Test
+    void processMessageAcksADiscussionThatFinishedAsShutdownBegan() throws Exception {
+        var orch = mock(DiscussionOrchestrator.class);
+        when(orch.orchestrate(anyString(), anyString(), anyString()))
+                .thenReturn(new DiscussionOrchestrator.OrchestrateResult("t1", "answer"));
+        var consumer = coordinatorConsumer(orch);
+        consumer.onShutdown(null);
+        Message msg = validRequestMessage();
+
+        consumer.processMessage(msg);
+
+        verify(msg, times(1)).ackSync(any(Duration.class));
+        verify(msg, never()).nak();
+    }
+
     private static DiscussionOrchestrator orchestratorThatThrows() {
         var orch = mock(DiscussionOrchestrator.class);
         when(orch.orchestrate(anyString(), anyString(), anyString()))

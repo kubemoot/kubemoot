@@ -239,7 +239,13 @@ public class RequestQueueConsumer {
             // orchestrate() is bounded by the orchestrator's watchdog: it always
             // returns within the hard ceiling (force-closing a stuck discussion),
             // so the consumer thread can never block here indefinitely.
-            orchestrator.orchestrate(request.message(), request.conversationId(), request.crew());
+            var result = orchestrator.orchestrate(request.message(), request.conversationId(), request.crew());
+            // An interrupted orchestrate() returns null; one that finished returns a result
+            // and is acked even when shutdown began meanwhile, so it is not answered twice.
+            if (result == null && stopping()) {
+                release(msg, request.conversationId());
+                return;
+            }
             ackConfirmed(msg);
 
             log.info("Completed queued request: conversationId={}", request.conversationId());
@@ -276,6 +282,24 @@ public class RequestQueueConsumer {
             } catch (Exception ex) {
                 log.warn("async ack also failed: {}", ex.getMessage());
             }
+        }
+    }
+
+    // True when this pod is shutting down: orchestrate() returned because the shutdown
+    // interrupted it, not because the discussion finished.
+    private boolean stopping() {
+        return shutdown.get() || Thread.currentThread().isInterrupted();
+    }
+
+    // Hands an unfinished request back to the queue so the coordinator that replaces
+    // this pod takes it at once. Acking it here would drop the question: its thread
+    // never closes and the asker waits for an answer that no coordinator is writing.
+    private static void release(Message msg, String conversationId) {
+        log.info("Shutting down mid-discussion; returning request to the queue: conversationId={}", conversationId);
+        try {
+            msg.nak();
+        } catch (Exception e) {
+            log.warn("Failed to return the request to the queue ({}); it redelivers after ackWait", e.getMessage());
         }
     }
 
