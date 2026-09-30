@@ -328,16 +328,20 @@ func (r *AgentReconciler) listCrewSkills(ctx context.Context, coordinator *kubem
 // discoverRAGSourceDefaults copies vectorStore + embeddingModel config from an
 // existing non-resume RAGSource so the resume RAGSource embeds with the same
 // store the cluster already uses. Tries the coordinator's namespace first, then
-// all namespaces (crew namespaces often have no RAGSources of their own, but the
-// pilot namespace does). Returns the config plus the namespace it came from (for
-// secret replication).
+// each namespace Secrets may be replicated from (the operator's own plus the
+// configured allowlist), since a crew namespace often has no RAGSources of its own.
+// Other namespaces are never searched: their vectorStore secret could not be copied
+// in. Returns the config plus the namespace it came from (for secret replication).
 func (r *AgentReconciler) discoverRAGSourceDefaults(ctx context.Context, namespace string) (*kubemootv1alpha1.VectorStoreConfig, string, string) {
-	for _, opts := range [][]client.ListOption{
-		{client.InNamespace(namespace)},
-		{},
-	} {
+	searchOrder := []string{namespace}
+	for _, ns := range allowedSecretSourceNamespaces() {
+		if ns != namespace {
+			searchOrder = append(searchOrder, ns)
+		}
+	}
+	for _, ns := range searchOrder {
 		ragList := &kubemootv1alpha1.RAGSourceList{}
-		if err := r.List(ctx, ragList, opts...); err != nil {
+		if err := r.List(ctx, ragList, client.InNamespace(ns)); err != nil {
 			continue
 		}
 		for i := range ragList.Items {

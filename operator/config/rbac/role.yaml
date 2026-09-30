@@ -59,6 +59,18 @@ rules:
   - update
   - watch
 - apiGroups:
+  - authentication.k8s.io
+  resources:
+  - tokenreviews
+  verbs:
+  - create
+- apiGroups:
+  - authorization.k8s.io
+  resources:
+  - subjectaccessreviews
+  verbs:
+  - create
+- apiGroups:
   - batch
   resources:
   - jobs
@@ -77,6 +89,18 @@ rules:
   verbs:
   - get
   - list
+  - watch
+- apiGroups:
+  - gateway.networking.k8s.io
+  resources:
+  - httproutes
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
   - watch
 - apiGroups:
   - kubemoot.ai
@@ -112,6 +136,7 @@ rules:
   - crewfitnesses/finalizers
   - crewfitnesssuites/finalizers
   - crews/finalizers
+  - crewschedulingpolicies/finalizers
   - embeddingmodels/finalizers
   - kubemootconfigs/finalizers
   - mcpcatalogs/finalizers
@@ -120,6 +145,7 @@ rules:
   - mcpservers/finalizers
   - modelproviders/finalizers
   - models/finalizers
+  - mootarchetypes/finalizers
   - notificationsinks/finalizers
   - ragsources/finalizers
   - skills/finalizers

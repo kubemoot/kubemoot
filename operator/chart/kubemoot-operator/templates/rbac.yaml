@@ -35,26 +35,18 @@ rules:
   - ""
   resources:
   - pods
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - ""
+  resources:
   - secrets
   verbs:
   - create
   - get
   - list
-  - watch
-- apiGroups:
-  - rbac.authorization.k8s.io
-  resources:
-  - clusterroles
-  - clusterrolebindings
-  - roles
-  - rolebindings
-  verbs:
-  - create
-  - delete
-  - get
-  - list
-  - patch
-  - update
   - watch
 - apiGroups:
   - apps
@@ -69,21 +61,21 @@ rules:
   - update
   - watch
 - apiGroups:
+  - authentication.k8s.io
+  resources:
+  - tokenreviews
+  verbs:
+  - create
+- apiGroups:
+  - authorization.k8s.io
+  resources:
+  - subjectaccessreviews
+  verbs:
+  - create
+- apiGroups:
   - batch
   resources:
   - jobs
-  verbs:
-  - create
-  - delete
-  - get
-  - list
-  - patch
-  - update
-  - watch
-- apiGroups:
-  - gateway.networking.k8s.io
-  resources:
-  - httproutes
   verbs:
   - create
   - delete
@@ -101,9 +93,9 @@ rules:
   - list
   - watch
 - apiGroups:
-  - monitoring.coreos.com
+  - gateway.networking.k8s.io
   resources:
-  - servicemonitors
+  - httproutes
   verbs:
   - create
   - delete
@@ -111,36 +103,16 @@ rules:
   - list
   - patch
   - update
-  - watch
-- apiGroups:
-  - keda.sh
-  resources:
-  - scaledobjects
-  verbs:
-  - create
-  - delete
-  - get
-  - list
-  - patch
-  - update
-  - watch
-- apiGroups:
-  - kubemoot.ai
-  resources:
-  - mcpqualitypolicies
-  - promptmodules
-  verbs:
-  - get
-  - list
   - watch
 - apiGroups:
   - kubemoot.ai
   resources:
   - agents
-  - crews
   - crewfitnesssuites
+  - crews
   - crewschedulingpolicies
   - embeddingmodels
+  - kubemootconfigs
   - mcpcatalogs
   - mcpgateways
   - mcpserverreports
@@ -151,7 +123,6 @@ rules:
   - notificationsinks
   - ragsources
   - skills
-  - kubemootconfigs
   verbs:
   - create
   - delete
@@ -160,6 +131,53 @@ rules:
   - patch
   - update
   - watch
+- apiGroups:
+  - kubemoot.ai
+  resources:
+  - agents/finalizers
+  - crewfitnesses/finalizers
+  - crewfitnesssuites/finalizers
+  - crews/finalizers
+  - crewschedulingpolicies/finalizers
+  - embeddingmodels/finalizers
+  - kubemootconfigs/finalizers
+  - mcpcatalogs/finalizers
+  - mcpgateways/finalizers
+  - mcpserverreports/finalizers
+  - mcpservers/finalizers
+  - modelproviders/finalizers
+  - models/finalizers
+  - mootarchetypes/finalizers
+  - notificationsinks/finalizers
+  - ragsources/finalizers
+  - skills/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - kubemoot.ai
+  resources:
+  - agents/status
+  - crewfitnesses/status
+  - crewfitnesssuites/status
+  - crews/status
+  - crewschedulingpolicies/status
+  - embeddingmodels/status
+  - kubemootconfigs/status
+  - mcpcatalogs/status
+  - mcpgateways/status
+  - mcpqualitypolicies/status
+  - mcpserverreports/status
+  - mcpservers/status
+  - modelproviders/status
+  - models/status
+  - mootarchetypes/status
+  - notificationsinks/status
+  - ragsources/status
+  - skills/status
+  verbs:
+  - get
+  - patch
+  - update
 - apiGroups:
   - kubemoot.ai
   resources:
@@ -176,51 +194,37 @@ rules:
 - apiGroups:
   - kubemoot.ai
   resources:
-  - agents/finalizers
-  - crews/finalizers
-  - crewfitnesses/finalizers
-  - crewfitnesssuites/finalizers
-  - crewschedulingpolicies/finalizers
-  - embeddingmodels/finalizers
-  - mcpcatalogs/finalizers
-  - mcpgateways/finalizers
-  - mcpserverreports/finalizers
-  - mcpservers/finalizers
-  - modelproviders/finalizers
-  - models/finalizers
-  - mootarchetypes/finalizers
-  - notificationsinks/finalizers
-  - ragsources/finalizers
-  - skills/finalizers
-  - kubemootconfigs/finalizers
-  verbs:
-  - update
-- apiGroups:
-  - kubemoot.ai
-  resources:
-  - agents/status
-  - crews/status
-  - crewfitnesses/status
-  - crewfitnesssuites/status
-  - crewschedulingpolicies/status
-  - embeddingmodels/status
-  - mcpcatalogs/status
-  - mcpgateways/status
-  - mcpqualitypolicies/status
-  - mcpserverreports/status
-  - mcpservers/status
-  - modelproviders/status
-  - models/status
-  - mootarchetypes/status
-  - notificationsinks/status
-  - promptmodules/status
-  - ragsources/status
-  - skills/status
-  - kubemootconfigs/status
+  - mcpqualitypolicies
+  - promptmodules
   verbs:
   - get
+  - list
+  - watch
+- apiGroups:
+  - rbac.authorization.k8s.io
+  resources:
+  - clusterrolebindings
+  - clusterroles
+  verbs:
+  - create
+  - delete
+  - get
+  - list
   - patch
   - update
+  - watch
+- apiGroups:
+  - rbac.authorization.k8s.io
+  resources:
+  - rolebindings
+  - roles
+  verbs:
+  - create
+  - get
+  - list
+  - patch
+  - update
+  - watch
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding

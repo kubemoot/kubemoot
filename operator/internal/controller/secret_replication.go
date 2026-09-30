@@ -3,6 +3,7 @@ package controller
 import (
 	"context"
 	"os"
+	"slices"
 	"strings"
 
 	corev1 "k8s.io/api/core/v1"
@@ -24,11 +25,18 @@ func secretExists(ctx context.Context, c client.Client, name, namespace string) 
 	return c.Get(ctx, types.NamespacedName{Name: name, Namespace: namespace}, &corev1.Secret{}) == nil
 }
 
-// replicateSecretFrom copies a Secret from a specific source namespace into the target namespace
-// if it doesn't already exist. Used when the source secret lives outside the operator namespace
-// (e.g., DB credentials discovered from another crew's RAGSource).
+// replicateSecretFrom copies a Secret from an allowed source namespace into the target namespace
+// if it doesn't already exist. Allowed sources are the operator's namespace plus the namespaces
+// listed in secretSourceNamespacesEnv; every other source is refused, so a tenant cannot pull
+// another namespace's credentials into its own.
 func replicateSecretFrom(ctx context.Context, c client.Client, secretName, sourceNamespace, targetNamespace string) {
 	log := logf.FromContext(ctx)
+
+	if !secretSourceAllowed(sourceNamespace) {
+		log.V(1).Info("Refusing to replicate secret from a namespace that is not an allowed source",
+			"secret", secretName, "sourceNamespace", sourceNamespace, "targetNamespace", targetNamespace)
+		return
+	}
 
 	// Check if it already exists in the target namespace
 	existing := &corev1.Secret{}
@@ -101,6 +109,33 @@ func parseReplicateSecretsAnnotation(annotations map[string]string) []SecretRef 
 		}
 	}
 	return refs
+}
+
+// secretSourceNamespacesEnv holds a comma-separated allowlist of extra namespaces
+// (beyond the operator's own) that Secrets may be replicated from. The chart sets it
+// from secretReplication.allowedSourceNamespaces.
+const secretSourceNamespacesEnv = "SECRET_SOURCE_NAMESPACES"
+
+// allowedSecretSourceNamespaces returns the namespaces Secrets may be replicated from:
+// the operator's namespace first, then the configured allowlist.
+func allowedSecretSourceNamespaces() []string {
+	allowed := []string{operatorNamespace()}
+	for _, ns := range strings.Split(os.Getenv(secretSourceNamespacesEnv), ",") {
+		if ns = strings.TrimSpace(ns); ns != "" && !slices.Contains(allowed, ns) {
+			allowed = append(allowed, ns)
+		}
+	}
+	return allowed
+}
+
+// secretSourceAllowed reports whether Secrets may be replicated out of the namespace.
+func secretSourceAllowed(namespace string) bool {
+	for _, ns := range allowedSecretSourceNamespaces() {
+		if ns == namespace {
+			return true
+		}
+	}
+	return false
 }
 
 func operatorNamespace() string {

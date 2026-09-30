@@ -76,6 +76,10 @@ spec:
             initialDelaySeconds: 5
             periodSeconds: 10
           env:
+            - name: OPERATOR_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
             {{- if .Values.nats.enabled }}
             - name: NATS_URL
               value: {{ .Values.nats.url | quote }}
@@ -83,6 +87,10 @@ spec:
             {{- if and .Values.scaleToZero .Values.scaleToZero.enabled }}
             - name: KEDA_NATS_MONITORING_ENDPOINT
               value: {{ .Values.scaleToZero.natsMonitoringEndpoint | default "nats-headless.nats.svc.cluster.local:8222" | quote }}
+            {{- end }}
+            {{- with .Values.secretReplication.allowedSourceNamespaces }}
+            - name: SECRET_SOURCE_NAMESPACES
+              value: {{ join "," . | quote }}
             {{- end }}
             {{- if .Values.gateway.enabled }}
             - name: GATEWAY_NAME
