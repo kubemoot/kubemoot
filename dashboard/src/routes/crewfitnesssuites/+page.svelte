@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { base } from '$app/paths';
+	import { resolve } from '$app/paths';
 	import { namespace } from '$stores';
 	import { LiveList } from '$lib/client/liveList.svelte';
 	import type { CrewFitnessSuite } from '$types/kubemoot.js';
@@ -10,7 +10,7 @@
 	// operator advances each suite's status (phase, iterationsCompleted,
 	// passed/failed/errored) on the CR as children finish and on the terminal
 	// transition, so MODIFIED events keep the status badge, progress, and counts
-	// current in place — no manual refresh, and the badge flips Running→Completed
+	// current in place - no manual refresh, and the badge flips Running→Completed
 	// the moment the operator does.
 	const live = new LiveList<CrewFitnessSuite>('crewfitnesssuites');
 	// Ticking clock so a running suite's elapsed Duration and ETA advance every
@@ -39,7 +39,7 @@
 	}
 
 	function formatDuration(startedAt?: string, completedAt?: string): string {
-		if (!startedAt) return '—';
+		if (!startedAt) return '-';
 		const start = new Date(startedAt).getTime();
 		const end = completedAt ? new Date(completedAt).getTime() : now;
 		const ms = end - start;
@@ -65,7 +65,7 @@
 	}
 
 	function formatBytes(n?: number): string {
-		if (!n) return '—';
+		if (!n) return '-';
 		if (n < 1024) return `${n} B`;
 		if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
 		return `${(n / 1024 / 1024).toFixed(2)} MB`;
@@ -79,12 +79,12 @@
 	async function refreshJudge() {
 		for (const suite of live.items) {
 			if (!suiteIsJudged(suite.status?.phase)) continue; // Cancelled suites are never judged
-			const ns = suite.metadata.namespace;
+			const ns = suite.metadata.namespace as string;
 			const name = suite.metadata.name;
 			const key = `${ns}/${name}`;
-			if (judge[key]?.complete) continue; // done — stop polling this one
+			if (judge[key]?.complete) continue; // done - stop polling this one
 			try {
-				const r = await fetch(`${base}/api/kubemoot/crewfitnesssuites/${ns}/${name}/scores`);
+				const r = await fetch(resolve('/api/kubemoot/crewfitnesssuites/[namespace]/[name]/scores', { namespace: ns, name }));
 				if (!r.ok) continue;
 				const d = await r.json();
 				judge = { ...judge, [key]: { judged: d.judged ?? 0, complete: !!d.complete } };
@@ -133,7 +133,7 @@
 				{@const s = suite.status}
 				{@const total = s?.iterationsTotal ?? 0}
 				{@const done = s?.iterationsCompleted ?? 0}
-				{@const ns = suite.metadata.namespace}
+				{@const ns = suite.metadata.namespace as string}
 				{@const name = suite.metadata.name}
 				{@const jp = judge[ns + '/' + name]}
 				{@const scen = suite.spec.scripts?.length ?? 0}
@@ -151,7 +151,7 @@
 						{/if}
 					</td>
 					<td>
-						<a href="{base}/crews/{suite.spec.crewRef}?namespace={ns}" class="crew-link">
+						<a href="{resolve('/crews/[name]', { name: suite.spec.crewRef })}?namespace={ns}" class="crew-link">
 							{suite.spec.crewRef}
 						</a>
 					</td>
@@ -168,7 +168,7 @@
 					<td>
 						{#if s?.artifactRef?.objectKey}
 							<a
-								href="{base}/api/kubemoot/crewfitnesssuites/{ns}/{name}/artifact"
+								href="{resolve('/api/kubemoot/crewfitnesssuites/[namespace]/[name]/artifact', { namespace: ns, name })}"
 								class="download-link"
 								download
 								title="Download {formatBytes(s.artifactRef.sizeBytes)}"
@@ -179,7 +179,7 @@
 						{:else if s?.phase === 'Running' || s?.phase === 'Pending' || s?.phase === 'Paused'}
 							<span class="muted small">pending</span>
 						{:else}
-							<span class="muted small">—</span>
+							<span class="muted small">-</span>
 						{/if}
 						{#if jp && !jp.complete && scen > 0}
 							<div class="muted small">⏳ judging {jp.judged}/{scen}</div>
@@ -187,7 +187,7 @@
 							<div class="muted small">judged ✓</div>
 						{/if}
 					</td>
-					<td class="muted">{suite.metadata.creationTimestamp ? new Date(suite.metadata.creationTimestamp).toLocaleString() : '—'}</td>
+					<td class="muted">{suite.metadata.creationTimestamp ? new Date(suite.metadata.creationTimestamp).toLocaleString() : '-'}</td>
 				</tr>
 			{/each}
 		</tbody>

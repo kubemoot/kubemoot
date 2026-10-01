@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { readinessStatus } from '$lib/resource-status';
-	import { base } from '$app/paths';
+	import { resolve } from '$app/paths';
 	import type { MCPServer } from '$types/kubemoot.js';
 	import ResourceCard from './ResourceCard.svelte';
 
@@ -20,7 +20,7 @@
 <ResourceCard
 	name={server.metadata.name}
 	kind="MCPServer"
-	href="{base}/mcpservers/{server.metadata.name}?namespace={server.metadata.namespace}"
+	href="{resolve('/mcpservers/[name]', { name: server.metadata.name })}?namespace={server.metadata.namespace}"
 	{status}
 	{statusLabel}
 	namespace={showNamespace ? server.metadata.namespace : undefined}

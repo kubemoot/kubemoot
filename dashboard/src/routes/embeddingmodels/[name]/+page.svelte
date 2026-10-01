@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { page } from '$app/stores';
-	import { base } from '$app/paths';
+	import { resolve } from '$app/paths';
 	import { namespace, refreshTrigger } from '$stores';
 	import { DetailPanel } from '$components/layout';
 	import { Section, InfoRow, StatusBadge } from '$components/common';
@@ -11,7 +11,7 @@
 	let loading = $state(true);
 	let error = $state<string | null>(null);
 
-	const name = $derived($page.params.name);
+	const name = $derived($page.params.name as string);
 	const ns = $derived($page.url.searchParams.get('namespace') || $namespace);
 
 	async function fetchModel() {
@@ -19,7 +19,7 @@
 		error = null;
 
 		try {
-			const res = await fetch(`${base}/api/kubemoot/embeddingmodels/${name}?namespace=${ns}`);
+			const res = await fetch(`${resolve('/api/kubemoot/embeddingmodels/[name]', { name })}?namespace=${ns}`);
 			if (!res.ok) throw new Error('Embedding model not found');
 			model = await res.json();
 		} catch (e) {

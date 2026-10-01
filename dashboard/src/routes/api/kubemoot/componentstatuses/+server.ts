@@ -6,7 +6,7 @@ import { operatorReportBase } from '$lib/server/operator-report';
  * GET /api/kubemoot/componentstatuses
  *
  * Proxies the operator's control-plane health endpoint (operator self, NATS,
- * model providers). The operator is the source of truth for its own topology —
+ * model providers). The operator is the source of truth for its own topology -
  * the dashboard does not scrape pods or poke ports. Returns the operator's JSON
  * array of { name, healthy, message } verbatim.
  *

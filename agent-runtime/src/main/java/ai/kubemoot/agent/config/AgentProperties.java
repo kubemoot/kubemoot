@@ -272,6 +272,7 @@ public interface AgentProperties {
         @WithDefault("true")
         boolean enabled();
 
+        /** The dashboard's liveness badge (dashboard/src/lib/agent-liveness.ts) assumes this default. */
         @WithDefault("60")
         int intervalSeconds();
 

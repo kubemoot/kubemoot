@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { page } from '$app/stores';
-	import { base } from '$app/paths';
+	import { resolve } from '$app/paths';
 	import { namespace, refreshTrigger } from '$stores';
 	import { DetailPanel } from '$components/layout';
 	import { Section, InfoRow, StatusBadge } from '$components/common';
@@ -13,7 +13,7 @@
 	let busy = $state(false);
 	let actionError = $state<string | null>(null);
 
-	const name = $derived($page.params.name);
+	const name = $derived($page.params.name as string);
 	const ns = $derived($page.url.searchParams.get('namespace') || $namespace);
 
 	async function fetchModel() {
@@ -21,7 +21,7 @@
 		error = null;
 
 		try {
-			const res = await fetch(`${base}/api/kubemoot/models/${name}?namespace=${ns}`);
+			const res = await fetch(`${resolve('/api/kubemoot/models/[name]', { name })}?namespace=${ns}`);
 			if (!res.ok) throw new Error('Model not found');
 			model = await res.json();
 		} catch (e) {
@@ -58,13 +58,13 @@
 	async function deleteFromDisk() {
 		if (!model || busy) return;
 		const ok = confirm(
-			`Delete model "${model.spec.model}" from disk on provider "${model.spec.providerRef}"?\n\nThis is destructive — re-pulling can take many minutes. Other Model CRs that reference the same underlying model will also be affected.`
+			`Delete model "${model.spec.model}" from disk on provider "${model.spec.providerRef}"?\n\nThis is destructive - re-pulling can take many minutes. Other Model CRs that reference the same underlying model will also be affected.`
 		);
 		if (!ok) return;
 		busy = true;
 		actionError = null;
 		try {
-			const url = `${base}/api/kubemoot/modelproviders/${encodeURIComponent(model.spec.providerRef)}/delete?namespace=${encodeURIComponent(model.metadata.namespace ?? 'kubemoot')}`;
+			const url = `${resolve('/api/kubemoot/modelproviders/[name]/delete', { name: encodeURIComponent(model.spec.providerRef) })}?namespace=${encodeURIComponent(model.metadata.namespace ?? 'kubemoot')}`;
 			const res = await fetch(url, {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
@@ -96,7 +96,7 @@
 					<button
 						class="action-btn delete"
 						type="button"
-						title="Delete from disk on the underlying provider (destructive — requires re-pull)"
+						title="Delete from disk on the underlying provider (destructive - requires re-pull)"
 						disabled={busy}
 						onclick={deleteFromDisk}
 					>

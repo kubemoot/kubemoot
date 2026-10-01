@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onMount, onDestroy } from 'svelte';
-	import { base } from '$app/paths';
+	import { resolve } from '$app/paths';
 	import { get } from 'svelte/store';
 	import { namespace } from '$lib/stores';
 	import { CHAT_ALL, DISCUSS_ALL, chatNamespaceFilter, chatSubject, discussNamespaceFilter, isNamespace } from '$lib/crewScope';
@@ -64,7 +64,7 @@
 		}
 
 		// Connect via SSE through the server-side proxy
-		const url = `${base}/api/nats/subscribe?subject=${encodeURIComponent(selectedChannel)}`;
+		const url = `${resolve('/api/nats/subscribe')}?subject=${encodeURIComponent(selectedChannel)}`;
 		eventSource = new EventSource(url);
 
 		eventSource.onmessage = (event) => {
@@ -150,7 +150,7 @@
 		});
 
 		try {
-			const res = await fetch(`${base}/api/nats/publish`, {
+			const res = await fetch(resolve('/api/nats/publish'), {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({ subject: publishSubject, data: payload })

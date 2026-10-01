@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { base } from '$app/paths';
+	import { resolve } from '$app/paths';
 	import { refreshTrigger, showStandAsides } from '$stores';
 	import { DetailPanel } from '$components/layout';
 	import { Section, InfoRow, StatusBadge } from '$components/common';
@@ -15,7 +15,7 @@
 		error = null;
 
 		try {
-			const res = await fetch(`${base}/api/kubemoot/config`);
+			const res = await fetch(resolve('/api/kubemoot/config'));
 			const data = await res.json();
 			// Get the first (and typically only) KubemootConfig
 			config = data.items?.[0] || null;

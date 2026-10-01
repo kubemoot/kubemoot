@@ -12,7 +12,7 @@ import {
 } from '$lib/server/fitness-iterations';
 
 /**
- * Bounded-concurrency map — reads transcripts in parallel without firing N
+ * Bounded-concurrency map - reads transcripts in parallel without firing N
  * simultaneous object-store fetches for a large (e.g. 260-iteration) suite.
  */
 async function mapLimit<T, R>(items: T[], limit: number, fn: (t: T) => Promise<R>): Promise<R[]> {

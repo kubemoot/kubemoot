@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { base } from '$app/paths';
+	import { resolve } from '$app/paths';
 	import { namespace, refreshTrigger } from '$stores';
 	import type { CrewFitness } from '$types/kubemoot.js';
 
@@ -12,7 +12,7 @@
 		loading = true;
 		error = null;
 		try {
-			const res = await fetch(`${base}/api/kubemoot/crewfitnesses?namespace=${$namespace}`);
+			const res = await fetch(`${resolve('/api/kubemoot/crewfitnesses')}?namespace=${$namespace}`);
 			const data = await res.json();
 			tests = (data.items || []).sort((a: CrewFitness, b: CrewFitness) =>
 				(b.metadata.creationTimestamp ?? '').localeCompare(a.metadata.creationTimestamp ?? '')
@@ -42,7 +42,7 @@
 	}
 
 	function formatDuration(ms?: number): string {
-		if (!ms) return '—';
+		if (!ms) return '-';
 		if (ms < 1000) return `${ms}ms`;
 		return `${(ms / 1000).toFixed(1)}s`;
 	}
@@ -84,12 +84,12 @@
 						</span>
 					</td>
 					<td>
-						<a href="{base}/crewfitnesses/{test.metadata.name}?namespace={test.metadata.namespace}" class="name-link">
+						<a href="{resolve('/crewfitnesses/[name]', { name: test.metadata.name })}?namespace={test.metadata.namespace}" class="name-link">
 							{test.metadata.name}
 						</a>
 					</td>
 					<td>
-						<a href="{base}/crews/{test.spec.crewRef}?namespace={test.metadata.namespace}" class="crew-link">
+						<a href="{resolve('/crews/[name]', { name: test.spec.crewRef })}?namespace={test.metadata.namespace}" class="crew-link">
 							{test.spec.crewRef}
 						</a>
 					</td>
@@ -100,11 +100,11 @@
 								{passed}/{total}
 							</span>
 						{:else}
-							—
+							-
 						{/if}
 					</td>
 					<td class="mono">{formatDuration(s?.durationMs)}</td>
-					<td class="muted">{test.metadata.creationTimestamp ? new Date(test.metadata.creationTimestamp).toLocaleString() : '—'}</td>
+					<td class="muted">{test.metadata.creationTimestamp ? new Date(test.metadata.creationTimestamp).toLocaleString() : '-'}</td>
 				</tr>
 			{/each}
 		</tbody>

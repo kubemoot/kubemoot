@@ -2,7 +2,7 @@
 	import { readinessStatus } from '$lib/resource-status';
 	import { onMount } from 'svelte';
 	import { page } from '$app/stores';
-	import { base } from '$app/paths';
+	import { resolve } from '$app/paths';
 	import { namespace, refreshTrigger } from '$stores';
 	import { DetailPanel } from '$components/layout';
 	import { Section, InfoRow, StatusBadge } from '$components/common';
@@ -12,7 +12,7 @@
 	let loading = $state(true);
 	let error = $state<string | null>(null);
 
-	const name = $derived($page.params.name);
+	const name = $derived($page.params.name as string);
 	const ns = $derived($page.url.searchParams.get('namespace') || $namespace);
 
 	async function fetchGateway() {
@@ -20,7 +20,7 @@
 		error = null;
 
 		try {
-			const res = await fetch(`${base}/api/kubemoot/mcpgateways/${name}?namespace=${ns}`);
+			const res = await fetch(`${resolve('/api/kubemoot/mcpgateways/[name]', { name })}?namespace=${ns}`);
 			if (!res.ok) throw new Error('MCP gateway not found');
 			gateway = await res.json();
 		} catch (e) {

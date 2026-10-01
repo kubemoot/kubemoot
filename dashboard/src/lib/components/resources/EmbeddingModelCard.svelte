@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { base } from '$app/paths';
+	import { resolve } from '$app/paths';
 	import type { EmbeddingModel } from '$types/kubemoot.js';
 	import ResourceCard from './ResourceCard.svelte';
 
@@ -28,7 +28,7 @@
 <ResourceCard
 	name={model.metadata.name}
 	kind="Embedding Model"
-	href="{base}/embeddingmodels/{model.metadata.name}?namespace={model.metadata.namespace}"
+	href="{resolve('/embeddingmodels/[name]', { name: model.metadata.name })}?namespace={model.metadata.namespace}"
 	{status}
 	{statusLabel}
 	namespace={showNamespace ? model.metadata.namespace : undefined}

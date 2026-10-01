@@ -10,7 +10,7 @@ import { listFitnessObjects, readFitnessTranscript } from '$lib/server/nats-obje
  * deferred-scores-v2.json checkpoint (written incrementally by the operator's
  * resumable judge pass, one scenario at a time), with a v1 fallback for pre-v2 runs.
  *
- * Response: { scores, complete, judged } — judged < scenario count with
+ * Response: { scores, complete, judged } - judged < scenario count with
  * complete=false means judging is still in progress (the page shows "judging X");
  * complete=true means the pass finished.
  */

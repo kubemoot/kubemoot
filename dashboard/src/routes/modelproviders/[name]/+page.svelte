@@ -2,7 +2,7 @@
 	import { readinessStatus } from '$lib/resource-status';
 	import { onMount } from 'svelte';
 	import { page } from '$app/stores';
-	import { base } from '$app/paths';
+	import { resolve } from '$app/paths';
 	import { namespace, refreshTrigger } from '$stores';
 	import { DetailPanel } from '$components/layout';
 	import { Section, InfoRow, StatusBadge } from '$components/common';
@@ -12,7 +12,7 @@
 	let loading = $state(true);
 	let error = $state<string | null>(null);
 
-	const name = $derived($page.params.name);
+	const name = $derived($page.params.name as string);
 	const ns = $derived($page.url.searchParams.get('namespace') || $namespace);
 
 	async function fetchProvider() {
@@ -20,7 +20,7 @@
 		error = null;
 
 		try {
-			const res = await fetch(`${base}/api/kubemoot/modelproviders/${name}?namespace=${ns}`);
+			const res = await fetch(`${resolve('/api/kubemoot/modelproviders/[name]', { name })}?namespace=${ns}`);
 			if (!res.ok) throw new Error('Provider not found');
 			provider = await res.json();
 		} catch (e) {
@@ -52,13 +52,13 @@
 	);
 
 	function formatMiB(mib: number | undefined): string {
-		if (!mib || mib <= 0) return '–';
+		if (!mib || mib <= 0) return '-';
 		if (mib >= 1024) return `${(mib / 1024).toFixed(1)} GiB`;
 		return `${mib} MiB`;
 	}
 
 	function formatBytesMiB(bytes: number | undefined): string {
-		if (!bytes || bytes <= 0) return '–';
+		if (!bytes || bytes <= 0) return '-';
 		const mib = bytes / (1024 * 1024);
 		if (mib >= 1024) return `${(mib / 1024).toFixed(1)} GiB`;
 		return `${mib.toFixed(0)} MiB`;
@@ -67,7 +67,7 @@
 	function modelDetailsHref(modelName: string): string {
 		if (!provider) return '#';
 		const pns = encodeURIComponent(provider.metadata.namespace ?? 'kubemoot');
-		return `${base}/models?model=${encodeURIComponent(modelName)}&provider=${encodeURIComponent(provider.metadata.name)}&namespace=${pns}`;
+		return `${resolve('/models')}?model=${encodeURIComponent(modelName)}&provider=${encodeURIComponent(provider.metadata.name)}&namespace=${pns}`;
 	}
 </script>
 

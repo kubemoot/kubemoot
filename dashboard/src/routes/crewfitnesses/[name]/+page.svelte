@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { base } from '$app/paths';
+	import { resolve } from '$app/paths';
 	import { page } from '$app/stores';
 	import type { CrewFitness } from '$types/kubemoot.js';
 
@@ -17,7 +17,7 @@
 		loading = true;
 		error = null;
 		try {
-			const res = await fetch(`${base}/api/kubemoot/crewfitnesses/${name}?namespace=${ns}`);
+			const res = await fetch(`${resolve('/api/kubemoot/crewfitnesses/[name]', { name })}?namespace=${ns}`);
 			const data = await res.json();
 			if (data.error) throw new Error(data.error);
 			test = data;
@@ -29,14 +29,14 @@
 	}
 
 	function formatDuration(ms?: number): string {
-		if (!ms) return '—';
+		if (!ms) return '-';
 		if (ms < 1000) return `${ms}ms`;
 		return `${(ms / 1000).toFixed(1)}s`;
 	}
 </script>
 
 <div class="detail-header">
-	<a href="{base}/crewfitnesses" class="back-link">&larr; Fitness Tests</a>
+	<a href="{resolve('/crewfitnesses')}" class="back-link">&larr; Fitness Tests</a>
 	{#if test}
 		<h1>{test.metadata.name}</h1>
 		{@const phase = test.status?.phase ?? 'Unknown'}
@@ -56,7 +56,7 @@
 		<div class="detail-section">
 			<h2>Spec</h2>
 			<table class="detail-table"><tbody>
-				<tr><th>Crew</th><td><a href="{base}/crews/{test.spec.crewRef}?namespace={test.metadata.namespace}" class="link">{test.spec.crewRef}</a></td></tr>
+				<tr><th>Crew</th><td><a href="{resolve('/crews/[name]', { name: test.spec.crewRef })}?namespace={test.metadata.namespace}" class="link">{test.spec.crewRef}</a></td></tr>
 				<tr><th>Test Ref</th><td class="mono">{test.spec.testRef}</td></tr>
 				<tr><th>ConfigMap</th><td class="mono">{test.spec.configMapRef}</td></tr>
 				{#if test.spec.ttl}
@@ -68,7 +68,7 @@
 		<div class="detail-section">
 			<h2>Status</h2>
 			<table class="detail-table"><tbody>
-				<tr><th>Phase</th><td>{s?.phase ?? '—'}</td></tr>
+				<tr><th>Phase</th><td>{s?.phase ?? '-'}</td></tr>
 				<tr><th>Duration</th><td class="mono">{formatDuration(s?.durationMs)}</td></tr>
 				{#if s?.jobRef}
 					<tr><th>Job</th><td class="mono">{s.jobRef}</td></tr>

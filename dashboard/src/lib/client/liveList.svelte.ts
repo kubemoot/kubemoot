@@ -20,7 +20,7 @@ interface K8sObj {
 }
 
 /**
- * LiveList — a reusable push-based list for a kubemoot CRD page.
+ * LiveList - a reusable push-based list for a kubemoot CRD page.
  *
  * Does one initial list fetch (fast first render), then attaches an EventSource
  * to /api/kubemoot/watch/{plural} and reconciles ADDED/MODIFIED/DELETED events
@@ -119,7 +119,7 @@ export class LiveList<T extends K8sObj> {
 		this.#fetchInitial(false).then(() => this.#connect());
 	}
 
-	/** Silent re-fetch (no loading flash) — for immediate feedback after a
+	/** Silent re-fetch (no loading flash) - for immediate feedback after a
 	 * card-initiated mutation; the watch would also deliver the change shortly. */
 	refresh() {
 		this.#fetchInitial(true);

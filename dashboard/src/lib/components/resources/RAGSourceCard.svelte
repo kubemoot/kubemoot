@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { readinessStatus } from '$lib/resource-status';
-	import { base } from '$app/paths';
+	import { resolve } from '$app/paths';
 	import type { RAGSource } from '$types/kubemoot.js';
 	import ResourceCard from './ResourceCard.svelte';
 
@@ -19,7 +19,7 @@
 <ResourceCard
 	name={source.metadata.name}
 	kind="RAGSource"
-	href="{base}/ragsources/{source.metadata.name}?namespace={source.metadata.namespace}"
+	href="{resolve('/ragsources/[name]', { name: source.metadata.name })}?namespace={source.metadata.namespace}"
 	{status}
 	{statusLabel}
 	namespace={showNamespace ? source.metadata.namespace : undefined}

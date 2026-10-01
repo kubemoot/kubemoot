@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { reportComparator } from '$lib/mcp-report-sort';
 	import { onMount } from 'svelte';
-	import { base } from '$app/paths';
+	import { resolve } from '$app/paths';
 	import { refreshTrigger } from '$stores';
 	import { ResourceList } from '$components/layout';
 	import { HelpTooltip } from '$components/common';
@@ -22,7 +22,7 @@
 		loading = true;
 		error = null;
 		try {
-			const res = await fetch(`${base}/api/kubemoot/mcpserverreports`);
+			const res = await fetch(resolve('/api/kubemoot/mcpserverreports'));
 			const data = await res.json();
 			if (data.error) throw new Error(data.error);
 			reports = data.items || [];
@@ -59,7 +59,7 @@
 
 	async function saveEdit(report: MCPServerReport) {
 		try {
-			const res = await fetch(`${base}/api/kubemoot/mcpserverreports/${report.metadata.name}`, {
+			const res = await fetch(resolve('/api/kubemoot/mcpserverreports/[name]', { name: report.metadata.name }), {
 				method: 'PATCH',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({

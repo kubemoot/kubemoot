@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { base } from '$app/paths';
+	import { resolve } from '$app/paths';
 	import type { Model } from '$types/kubemoot.js';
 	import ResourceCard from './ResourceCard.svelte';
 
@@ -29,7 +29,7 @@
 	const statusLabel = $derived(model.status?.state || 'Unknown');
 
 	const deleteUrl = $derived(
-		`${base}/api/kubemoot/modelproviders/${encodeURIComponent(model.spec.providerRef)}/delete?namespace=${encodeURIComponent(model.metadata.namespace ?? 'kubemoot')}`
+		`${resolve('/api/kubemoot/modelproviders/[name]/delete', { name: encodeURIComponent(model.spec.providerRef) })}?namespace=${encodeURIComponent(model.metadata.namespace ?? 'kubemoot')}`
 	);
 
 	async function deleteFromDisk(event: Event) {
@@ -37,7 +37,7 @@
 		event.stopPropagation();
 		if (busy) return;
 		const ok = confirm(
-			`Delete model "${model.spec.model}" from disk on provider "${model.spec.providerRef}"?\n\nThis is destructive — re-pulling can take many minutes. Other Model CRs that reference the same underlying model will also be affected.`
+			`Delete model "${model.spec.model}" from disk on provider "${model.spec.providerRef}"?\n\nThis is destructive - re-pulling can take many minutes. Other Model CRs that reference the same underlying model will also be affected.`
 		);
 		if (!ok) return;
 		busy = true;
@@ -64,7 +64,7 @@
 <ResourceCard
 	name={model.metadata.name}
 	kind="Model"
-	href="{base}/models/{model.metadata.name}?namespace={model.metadata.namespace}"
+	href="{resolve('/models/[name]', { name: model.metadata.name })}?namespace={model.metadata.namespace}"
 	{status}
 	{statusLabel}
 	namespace={showNamespace ? model.metadata.namespace : undefined}
@@ -101,7 +101,7 @@
 		<button
 			class="action-btn delete"
 			type="button"
-			title="Delete from disk on the underlying provider (destructive — requires re-pull)"
+			title="Delete from disk on the underlying provider (destructive - requires re-pull)"
 			disabled={busy}
 			onclick={deleteFromDisk}
 		>

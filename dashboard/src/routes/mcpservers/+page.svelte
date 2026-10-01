@@ -16,7 +16,7 @@
 	});
 </script>
 
-<ResourceList title="MCP Servers" count={live.items.length} loading={live.loading} error={live.error} helpText="MCP (Model Context Protocol) Servers expose tools that agents can call — like kubectl, Helm, or NATS commands. Each server runs as a Kubernetes deployment with an MCP Bridge sidecar.">
+<ResourceList title="MCP Servers" count={live.items.length} loading={live.loading} error={live.error} helpText="MCP (Model Context Protocol) Servers expose tools that agents can call - like kubectl, Helm, or NATS commands. Each server runs as a Kubernetes deployment with an MCP Bridge sidecar.">
 	{#snippet children()}
 		{#each live.items as server (server.metadata.namespace + '/' + server.metadata.name)}
 			<MCPServerCard {server} showNamespace={$namespace === ''} />

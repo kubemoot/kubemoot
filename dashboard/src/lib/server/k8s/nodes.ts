@@ -39,8 +39,8 @@ export interface CrewNamespace {
 	crew: string;
 }
 
-// listCrewNamespaces returns only the namespaces that host a Kubemoot crew —
-// those carrying the `kubemoot.ai/crew` label — paired with the crew name. The
+// listCrewNamespaces returns only the namespaces that host a Kubemoot crew -
+// those carrying the `kubemoot.ai/crew` label - paired with the crew name. The
 // dashboard's top-bar selector scopes pages by crew, so non-crew namespaces
 // (kube-system, flux-system, the shared kubemoot control-plane ns, …) are noise
 // there and excluded. "All crews" (no selection) still shows everything.

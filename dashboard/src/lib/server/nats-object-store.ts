@@ -19,14 +19,14 @@ export const FITNESS_ARTIFACTS_BUCKET = 'kubemoot_fitness_artifacts';
  * as a Uint8Array, or null when the object is absent (operator hasn't
  * written it yet, or TTL has pruned it).
  *
- * Throws when NATS itself is unreachable — caller surfaces this as a
+ * Throws when NATS itself is unreachable - caller surfaces this as a
  * 5xx so the failure mode is distinguishable from "artifact missing"
  * (which is a 404).
  */
 export async function readFitnessArtifact(objectKey: string): Promise<Uint8Array | null> {
 	const nc = await getNatsConnection();
 	const js = nc.jetstream();
-	// views.os is idempotent — returns an existing bucket or creates one.
+	// views.os is idempotent - returns an existing bucket or creates one.
 	// Dashboard "creating" the bucket is harmless: subsequent operator
 	// writes share it.
 	const store = await js.views.os(FITNESS_ARTIFACTS_BUCKET);

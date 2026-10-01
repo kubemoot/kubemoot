@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { page } from '$app/stores';
-	import { base } from '$app/paths';
+	import { resolve } from '$app/paths';
 	import { namespace as nsStore, refreshTrigger } from '$stores';
 	import type { MCPServerReport } from '$types/kubemoot.js';
 
@@ -13,14 +13,14 @@
 	let editNotes = $state('');
 	let editAuthor = $state('');
 
-	const name = $derived($page.params.name);
+	const name = $derived($page.params.name as string);
 	const namespace = $derived($page.url.searchParams.get('namespace') || $nsStore);
 
 	async function fetchReport() {
 		loading = true;
 		error = null;
 		try {
-			const res = await fetch(`${base}/api/kubemoot/mcpserverreports/${name}?namespace=${namespace}`);
+			const res = await fetch(`${resolve('/api/kubemoot/mcpserverreports/[name]', { name })}?namespace=${namespace}`);
 			const data = await res.json();
 			if (data.error) throw new Error(data.error);
 			report = data;
@@ -51,7 +51,7 @@
 	async function saveEdit() {
 		if (!report) return;
 		try {
-			const res = await fetch(`${base}/api/kubemoot/mcpserverreports/${name}?namespace=${namespace}`, {
+			const res = await fetch(`${resolve('/api/kubemoot/mcpserverreports/[name]', { name })}?namespace=${namespace}`, {
 				method: 'PATCH',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({
@@ -91,7 +91,7 @@
 
 <div class="detail-page">
 	<div class="header">
-		<a href="{base}/mcpreports" class="back-link">Back to Reports</a>
+		<a href="{resolve('/mcpreports')}" class="back-link">Back to Reports</a>
 		<h1>{name}</h1>
 	</div>
 

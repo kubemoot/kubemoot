@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { base } from '$app/paths';
+	import { resolve } from '$app/paths';
 	import { namespace, refreshTrigger } from '$stores';
 	import { AgentCard } from '$components/resources';
 	import { HelpTooltip } from '$components/common';
@@ -46,7 +46,7 @@
 
 	async function fetchHeartbeats() {
 		try {
-			const hbRes = await fetch(`${base}/api/nats/kv`);
+			const hbRes = await fetch(resolve('/api/nats/kv'));
 			if (!hbRes.ok) return;
 			const hbData = await hbRes.json();
 			heartbeats = hbData.agents || {};

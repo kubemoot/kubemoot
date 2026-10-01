@@ -40,24 +40,24 @@
 	const PADDING_RIGHT = 60;
 	const PADDING_LEFT = 8;
 
-	// GPU colors assigned dynamically from message data — no hardcoded GPU models
+	// GPU colors assigned dynamically from message data - no hardcoded GPU models
 	const gpuColorPalette = ['#3b82f6', '#f97316', '#a78bfa', '#34d399', '#f472b6', '#facc15', '#22d3ee', '#fb923c'];
 
 	const legendItems = [
 		{ label: 'Agree', color: '#34d399', tooltip: 'Agent ran tools and found relevant data to contribute' },
 		{ label: 'Advisory', color: '#c084fc', tooltip: 'Coordinator identified relevant technologies and context for the query' },
 		{ label: 'Concern', color: '#fbbf24', tooltip: 'Agent found a potential risk or caveat worth highlighting' },
-		{ label: 'Block', color: '#f87171', tooltip: 'Agent raised a serious objection — synthesis is halted' },
-		{ label: 'Stand Aside', color: '#6b7280', tooltip: 'Query is outside this agent\'s domain — no contribution' },
+		{ label: 'Block', color: '#f87171', tooltip: 'Agent raised a serious objection - synthesis is halted' },
+		{ label: 'Stand Aside', color: '#6b7280', tooltip: 'Query is outside this agent\'s domain - no contribution' },
 		{ label: 'Proposal', color: '#60a5fa', tooltip: 'Onboarding agent proposed a new tool to fill a capability gap' },
 		{ label: 'Synthesis', color: '#fbbf24', tooltip: 'Coordinator synthesized all agent contributions into a final answer' },
 		{ label: 'Triaging', color: '#38bdf8', tooltip: 'Agent is queued on the triage GPU deciding whether to contribute' },
 		{ label: 'Evaluating', color: '#818cf8', tooltip: 'Agent passed triage and is running full tool-calling inference' },
-		{ label: 'Heartbeat', color: '#64748b', tooltip: 'Agent is alive — queued for or running LLM inference' },
-		{ label: 'Waking', color: '#fb923c', tooltip: 'Agent is starting from scale-to-zero — cold start in progress' },
+		{ label: 'Heartbeat', color: '#64748b', tooltip: 'Agent is alive - queued for or running LLM inference' },
+		{ label: 'Waking', color: '#fb923c', tooltip: 'Agent is starting from scale-to-zero - cold start in progress' },
 		{ label: 'Ready', color: '#22d3ee', tooltip: 'Agent finished cold start and is ready for triage' },
-		{ label: 'Inference', color: '#9ca3af', type: 'bar-solid' as const, tooltip: 'Saturated bar portion — actual LLM inference time' },
-		{ label: 'Overhead', color: '#9ca3af', type: 'bar-faded' as const, tooltip: 'Faded bar portion — GPU queue wait and triage time before inference' },
+		{ label: 'Inference', color: '#9ca3af', type: 'bar-solid' as const, tooltip: 'Saturated bar portion - actual LLM inference time' },
+		{ label: 'Overhead', color: '#9ca3af', type: 'bar-faded' as const, tooltip: 'Faded bar portion - GPU queue wait and triage time before inference' },
 		{ label: 'Queue Depth', color: '#ef4444', type: 'queue' as const, tooltip: 'Number of other agents running inference on the same GPU concurrently' }
 	];
 
@@ -83,7 +83,7 @@
 
 	// Hide agents that immediately stand_aside with no inference. Driven by the
 	// global "Show stand-asides" preference (Config page) so the graph matches
-	// the Discussions/Fitness views — one setting, no per-view toggle.
+	// the Discussions/Fitness views - one setting, no per-view toggle.
 	const hideNoWorkAgents = $derived(!$showStandAsides);
 
 	function isNoWork(s: AgentSpan): boolean {
@@ -220,7 +220,7 @@
 		clone.setAttribute('y', String(TITLE_HEIGHT));
 		clone.setAttribute('width', String(origWidth));
 		clone.setAttribute('height', String(origHeight));
-		// Remove any foreignObject elements (tool badges on hover) — they break serialization
+		// Remove any foreignObject elements (tool badges on hover) - they break serialization
 		clone.querySelectorAll('foreignObject').forEach((fo) => fo.remove());
 		wrapper.appendChild(clone);
 

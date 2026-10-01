@@ -1,7 +1,7 @@
 <script lang="ts">
 	// Kubemoot Dashboard - Overview Page
 	import { onMount } from 'svelte';
-	import { base } from '$app/paths';
+	import { resolve } from '$app/paths';
 	import { namespace, refreshTrigger } from '$stores';
 	import { StatusBadge } from '$components/common';
 	import { nodeCounts, readyCount, type CountEntry } from '$lib/overview-counts';
@@ -36,7 +36,7 @@
 
 	async function fetchComponentStatuses() {
 		try {
-			const r = await fetch(`${base}/api/kubemoot/componentstatuses`);
+			const r = await fetch(resolve('/api/kubemoot/componentstatuses'));
 			if (!r.ok) throw new Error(`HTTP ${r.status}`);
 			controlPlane = await r.json();
 			cpUnavailable = false;
@@ -57,15 +57,15 @@
 		'agents'
 	] as const;
 
-	const getJson = (path: string) => fetch(`${base}${path}`).then((r) => r.json());
+	const getJson = (url: string) => fetch(url).then((r) => r.json());
 
 	async function fetchCounts() {
 		error = null;
 
 		try {
 			const [nodes, ...lists] = await Promise.all([
-				getJson('/api/nodes'),
-				...CRD_PLURALS.map((plural) => getJson(`/api/kubemoot/${plural}?namespace=${$namespace}`))
+				getJson(resolve('/api/nodes')),
+				...CRD_PLURALS.map((plural) => getJson(resolve(`/api/kubemoot/${plural}`) + `?namespace=${$namespace}`))
 			]);
 			counts = {
 				...nodeCounts(nodes.nodes || []),
@@ -88,20 +88,20 @@
 	});
 
 	$effect(() => {
-		$refreshTrigger; // control plane is cluster-scoped — refresh on trigger, not namespace
+		$refreshTrigger; // control plane is cluster-scoped - refresh on trigger, not namespace
 		fetchComponentStatuses();
 	});
 
 	const resourceTypes = [
-		{ key: 'nodes', label: 'Nodes', href: `${base}/nodes`, icon: 'server' },
-		{ key: 'gpus', label: 'GPUs', href: `${base}/nodes`, icon: 'zap' },
-		{ key: 'modelproviders', label: 'Model Providers', href: `${base}/modelproviders`, icon: 'cloud' },
-		{ key: 'models', label: 'Models', href: `${base}/models`, icon: 'box' },
-		{ key: 'embeddingmodels', label: 'Embedding Models', href: `${base}/embeddingmodels`, icon: 'layers' },
-		{ key: 'mcpservers', label: 'MCP Servers', href: `${base}/mcpservers`, icon: 'terminal' },
-		{ key: 'mcpgateways', label: 'MCP Gateways', href: `${base}/mcpgateways`, icon: 'merge' },
-		{ key: 'ragsources', label: 'RAG Sources', href: `${base}/ragsources`, icon: 'database' },
-		{ key: 'agents', label: 'Agents', href: `${base}/agents`, icon: 'cpu' }
+		{ key: 'nodes', label: 'Nodes', href: resolve('/nodes'), icon: 'server' },
+		{ key: 'gpus', label: 'GPUs', href: resolve('/nodes'), icon: 'zap' },
+		{ key: 'modelproviders', label: 'Model Providers', href: resolve('/modelproviders'), icon: 'cloud' },
+		{ key: 'models', label: 'Models', href: resolve('/models'), icon: 'box' },
+		{ key: 'embeddingmodels', label: 'Embedding Models', href: resolve('/embeddingmodels'), icon: 'layers' },
+		{ key: 'mcpservers', label: 'MCP Servers', href: resolve('/mcpservers'), icon: 'terminal' },
+		{ key: 'mcpgateways', label: 'MCP Gateways', href: resolve('/mcpgateways'), icon: 'merge' },
+		{ key: 'ragsources', label: 'RAG Sources', href: resolve('/ragsources'), icon: 'database' },
+		{ key: 'agents', label: 'Agents', href: resolve('/agents'), icon: 'cpu' }
 	] as const;
 </script>
 

@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { base } from '$app/paths';
+	import { resolve } from '$app/paths';
 	import { namespace } from '$stores';
 	import type { PromptModule } from '$types/kubemoot.js';
 	import { LiveList } from '$lib/client/liveList.svelte';
@@ -34,7 +34,7 @@
 	function firstLine(m: PromptModule): string {
 		const c = m.spec?.content ?? '';
 		const lines = c.split('\n').filter((l) => l.trim().length > 0);
-		// Pull the DESCRIPTION line if present — it's the natural one-liner.
+		// Pull the DESCRIPTION line if present - it's the natural one-liner.
 		const desc = lines.find((l) => l.trim().startsWith('DESCRIPTION '));
 		if (desc) return desc.trim().slice('DESCRIPTION '.length);
 		// Otherwise the DEFINE DOMAIN line, or the first non-empty line.
@@ -56,7 +56,7 @@
 </p>
 
 {#if err && sortedModules.length > 0}
-	<p class="error-banner" title={err}>Could not refresh just now — showing last known data. ({err.length > 120 ? err.slice(0, 117) + '…' : err})</p>
+	<p class="error-banner" title={err}>Could not refresh just now - showing last known data. ({err.length > 120 ? err.slice(0, 117) + '…' : err})</p>
 {/if}
 
 {#if busy && sortedModules.length === 0}
@@ -79,11 +79,11 @@
 		<tbody>
 			{#each sortedModules as m (m.metadata.namespace + '/' + m.metadata.name)}
 				<tr>
-					<td class="col-order mono">{m.spec?.order ?? '—'}</td>
+					<td class="col-order mono">{m.spec?.order ?? '-'}</td>
 					<td>
 						<a
 							class="mono name-link"
-							href="{base}/promptmodules/{m.metadata.name}?namespace={m.metadata.namespace}"
+							href="{resolve('/promptmodules/[name]', { name: m.metadata.name })}?namespace={m.metadata.namespace}"
 						>{m.metadata.name}</a>
 					</td>
 					<td class="desc">{firstLine(m)}</td>

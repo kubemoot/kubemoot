@@ -7,7 +7,7 @@ import { readFitnessTranscript } from '$lib/server/nats-object-store';
  *
  * Returns a single per-iteration transcript JSON (the fitness-runner's
  * RunOutcome: assertions + the full SSE event timeline + run metadata). The
- * key must fall within this suite's prefix — guards against reading another
+ * key must fall within this suite's prefix - guards against reading another
  * suite's (or arbitrary) objects via a crafted key.
  */
 export const GET: RequestHandler = async ({ params, url }) => {

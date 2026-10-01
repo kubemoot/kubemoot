@@ -1,27 +1,6 @@
 // View logic for the Agent detail page.
 
-import type { Agent, AgentHeartbeat } from '$types/kubemoot.js';
-
-export type HeartbeatLiveness = 'live' | 'degraded' | 'stale';
-
-/** How the liveness of a heartbeat shows as a badge. */
-export const LIVENESS_BADGE: Record<
-	HeartbeatLiveness,
-	{ status: 'success' | 'warning' | 'error'; label: string }
-> = {
-	live: { status: 'success', label: 'Live' },
-	degraded: { status: 'warning', label: 'Degraded' },
-	stale: { status: 'error', label: 'Stale' }
-};
-
-/** Stale after 5 minutes, degraded when Ollama or NATS is unreachable, live otherwise. */
-export function heartbeatLiveness(
-	ageSeconds: number,
-	heartbeat: Pick<AgentHeartbeat, 'nats' | 'ollama'>
-): HeartbeatLiveness {
-	if (ageSeconds > 300) return 'stale';
-	return heartbeat.ollama && heartbeat.nats ? 'live' : 'degraded';
-}
+import type { Agent } from '$types/kubemoot.js';
 
 /** The tools an agent sees on an MCP server: its allow list, else all but its deny list. */
 export function visibleTools<T extends { name: string }>(

@@ -36,7 +36,7 @@ export interface Thread {
 	declineCount: number;
 }
 
-// Module-level state — survives navigation
+// Module-level state - survives navigation
 const threadsMap = writable<Map<string, Thread>>(new Map());
 export const connected = writable(false);
 export const streamReady = writable(false);
@@ -223,7 +223,7 @@ function startStream() {
 
 	// Start the live tail from the stream tip recorded by the preceding bounded
 	// history load (loadRecent sets lastSeq). On a from_seq at/near the tip this
-	// replays ~nothing and goes live — it does NOT re-replay the whole stream, which
+	// replays ~nothing and goes live - it does NOT re-replay the whole stream, which
 	// is what froze the page once suite runs filled it with thousands of threads.
 	const streamUrl = `${resolve('/api/nats/stream')}?stream=KUBEMOOT_DISCUSS&subject=${encodeURIComponent(DISCUSS_ALL)}&from_seq=${lastSeq}`;
 	eventSource = new EventSource(streamUrl);
@@ -296,12 +296,12 @@ async function loadRecent() {
 			if (typeof data.lastSeq === 'number' && data.lastSeq > lastSeq) lastSeq = data.lastSeq;
 		}
 	} catch {
-		/* fall through — the live stream still connects below */
+		/* fall through - the live stream still connects below */
 	}
 	streamReady.set(true);
 }
 
-/** Call from onMount — bounded recent load, then the live tail. No-op if already initialized. */
+/** Call from onMount - bounded recent load, then the live tail. No-op if already initialized. */
 export function initDiscussions() {
 	if (!browser || initialized) return;
 	initialized = true;
@@ -345,7 +345,7 @@ export const sortedThreads = derived(threadsMap, ($threads) =>
 	)
 );
 
-// Pinned threads — persisted in NATS KV bucket kubemoot_pinned_threads
+// Pinned threads - persisted in NATS KV bucket kubemoot_pinned_threads
 export const pinnedThreadIds = writable<Set<string>>(new Set());
 
 export async function loadPinnedThreads() {
