@@ -2,6 +2,7 @@ package kubemoot.ai.mcpgateway.config;
 
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -12,6 +13,20 @@ public class McpGatewayProperties {
     private List<ServerConfig> servers = new ArrayList<>();
     private ToolIndex toolIndex = new ToolIndex();
     private MetaTools metaTools = new MetaTools();
+    /**
+     * Safety net: a connected server whose tool list is older than this is re-listed when
+     * the operator next re-registers it. The primary signals are a lost session and the
+     * server's notifications/tools/list_changed; this only catches a change neither reported.
+     */
+    private Duration toolListMaxAge = Duration.ofMinutes(10);
+
+    public Duration getToolListMaxAge() {
+        return toolListMaxAge;
+    }
+
+    public void setToolListMaxAge(Duration toolListMaxAge) {
+        this.toolListMaxAge = toolListMaxAge;
+    }
 
     public int getPort() {
         return port;
