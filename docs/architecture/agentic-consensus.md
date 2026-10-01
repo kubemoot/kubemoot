@@ -196,8 +196,9 @@ The coordinator runs a per-thread state machine driven by signal state, not by a
 timer: `SUBMITTED` → `ADVISORY` → `EVALUATING` → `REVIEW` → `SYNTHESIZING` → `CLOSED`,
 with a `PAUSED` state that can interrupt most of it. The full state table, every
 transition, and the design principles behind signal-driven settling (per-agent
-deadlines calibrated from historical latency, a sufficient-consensus fast path in
-EVALUATING, no fast path in REVIEW) are documented once, in
+deadlines calibrated from historical latency, per-phase rosters that settle a phase as
+soon as every member has signalled, a sufficient-consensus fast path in EVALUATING, no
+fast path in REVIEW) are documented once, in
 [The Moot - Discussion phase lifecycle](../../concepts/consensus-model/#discussion-phase-lifecycle).
 This page does not repeat it.
 

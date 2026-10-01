@@ -65,12 +65,15 @@ In plain terms, the flow is:
    each carrying a signal.
 3. **REVIEW** - Analysts (if the crew has them) reason over the Toolers' gathered data
    and contribute interpretive findings before synthesis. The coordinator waits for
-   every selected Analyst to report; there is no fast path in this phase.
+   every Analyst it woke to report; there is no fast path in this phase.
 4. **SYNTHESIZING** - the coordinator composes the answer from all contributions.
 5. **CLOSED** - the answer has been delivered and the thread is clean.
 
-Timeouts exist only as safety nets. The normal path is driven by signal state: who
-has reported, what they signalled, and whether the discussion has quieted. GPU
+Timeouts exist only as safety nets. The normal path is driven by signal state: each
+phase has a roster (the selected Toolers in EVALUATING, the woken Analysts in REVIEW),
+and when every roster member has published a terminal signal in that phase, the phase
+advances at once. The minimum phase times and the quiet period apply only when the
+roster is unknown or a member is still pending. GPU
 inference and model loading have unpredictable latency, so the protocol waits on
 state transitions, not wall-clock deadlines.
 
