@@ -7,7 +7,7 @@ import { operatorReportBase } from '$lib/server/operator-report';
  *
  * Generates the fitness XLSX ON DEMAND by delegating to the operator's report
  * endpoint, which builds it fresh from the per-iteration transcripts using the
- * currently deployed generator. No pre-baked artifact is read — every download
+ * currently deployed generator. No pre-baked artifact is read - every download
  * reflects the latest report format/code (no staleness, no manual overwrites).
  *
  *   200 + spreadsheet bytes on success

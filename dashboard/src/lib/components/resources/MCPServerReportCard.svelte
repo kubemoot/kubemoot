@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { verdictStatus } from '$lib/resource-status';
-	import { base } from '$app/paths';
+	import { resolve } from '$app/paths';
 	import type { MCPServerReport } from '$types/kubemoot.js';
 	import ResourceCard from './ResourceCard.svelte';
 
@@ -19,7 +19,7 @@
 <ResourceCard
 	name={report.spec?.serverName || report.metadata.name}
 	kind="MCPServerReport"
-	href="{base}/mcpreports/{report.metadata.name}?namespace={report.metadata.namespace}"
+	href="{resolve('/mcpreports/[name]', { name: report.metadata.name })}?namespace={report.metadata.namespace}"
 	{status}
 	{statusLabel}
 >

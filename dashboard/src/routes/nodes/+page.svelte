@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { base } from '$app/paths';
+	import { resolve } from '$app/paths';
 	import { refreshTrigger } from '$stores';
 	import { ResourceList } from '$components/layout';
 	import { NodeCard } from '$components/resources';
@@ -15,7 +15,7 @@
 		error = null;
 
 		try {
-			const res = await fetch(`${base}/api/nodes`);
+			const res = await fetch(resolve('/api/nodes'));
 			const data = await res.json();
 			nodes = data.nodes || [];
 		} catch (e) {

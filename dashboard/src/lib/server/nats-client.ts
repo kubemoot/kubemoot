@@ -30,7 +30,7 @@ export async function getNatsConnection(): Promise<NatsConnection> {
 			connecting = null;
 			console.log(`Connected to NATS at ${NATS_URL}`);
 
-			// Handle permanent close — null out connection so next call reconnects
+			// Handle permanent close - null out connection so next call reconnects
 			conn.closed().then(() => {
 				console.log('NATS connection closed permanently');
 				if (nc === conn) nc = null;

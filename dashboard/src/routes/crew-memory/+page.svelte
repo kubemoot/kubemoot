@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { base } from '$app/paths';
+	import { resolve } from '$app/paths';
 	import { get } from 'svelte/store';
 	import { namespace } from '$lib/stores';
 
@@ -35,7 +35,7 @@
 		try {
 			const q = new URLSearchParams({ crew });
 			if (ns) q.set('namespace', ns);
-			const res = await fetch(`${base}/api/kubemoot/crew-memory?${q}`);
+			const res = await fetch(`${resolve('/api/kubemoot/crew-memory')}?${q}`);
 			const data = await res.json();
 			if (data.error) throw new Error(data.error);
 			facts = (data.facts || []).sort((a: Fact, b: Fact) => b.usedAt.localeCompare(a.usedAt));
@@ -49,7 +49,7 @@
 	async function save() {
 		if (!formTopic || !formKey || !formValue || !ns) return;
 		try {
-			const res = await fetch(`${base}/api/kubemoot/crew-memory`, {
+			const res = await fetch(resolve('/api/kubemoot/crew-memory'), {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({ namespace: ns, crew, topic: formTopic, key: formKey, value: formValue })
@@ -74,7 +74,7 @@
 		if (!confirm(`Delete crew-memory fact?\n\n${f.namespace}: [${f.topic}] ${f.key} = ${f.value}`)) return;
 		try {
 			const q = new URLSearchParams({ namespace: f.namespace, crew: f.crew, topic: f.topic, key: f.key });
-			const res = await fetch(`${base}/api/kubemoot/crew-memory?${q}`, { method: 'DELETE' });
+			const res = await fetch(`${resolve('/api/kubemoot/crew-memory')}?${q}`, { method: 'DELETE' });
 			const data = await res.json();
 			if (data.error) throw new Error(data.error);
 			await load();
@@ -88,7 +88,7 @@
 		if (!confirm(`Clear ALL working memory for crew "${crew}" in namespace "${ns}"?\n\nThis deletes its fact(s) and cannot be undone.`)) return;
 		try {
 			const q = new URLSearchParams({ namespace: ns, crew });
-			const res = await fetch(`${base}/api/kubemoot/crew-memory?${q}`, {
+			const res = await fetch(`${resolve('/api/kubemoot/crew-memory')}?${q}`, {
 				method: 'DELETE'
 			});
 			const data = await res.json();

@@ -2,7 +2,7 @@
 	import { yesNo } from '$lib/resource-status';
 	import { onMount } from 'svelte';
 	import { page } from '$app/stores';
-	import { base } from '$app/paths';
+	import { resolve } from '$app/paths';
 	import { namespace, refreshTrigger } from '$stores';
 	import type { PromptModule, Agent } from '$types/kubemoot.js';
 
@@ -18,7 +18,7 @@
 		loading = true;
 		error = null;
 		try {
-			const res = await fetch(`${base}/api/kubemoot/promptmodules/${name}?namespace=${ns}`);
+			const res = await fetch(`${resolve('/api/kubemoot/promptmodules/[name]', { name })}?namespace=${ns}`);
 			const data = await res.json();
 			if (data.error) throw new Error(data.error);
 			module = data;
@@ -32,7 +32,7 @@
 
 	async function fetchReferencingAgents(agentNs: string, moduleName: string) {
 		try {
-			const res = await fetch(`${base}/api/kubemoot/agents?namespace=${encodeURIComponent(agentNs)}`);
+			const res = await fetch(`${resolve('/api/kubemoot/agents')}?namespace=${encodeURIComponent(agentNs)}`);
 			const data = await res.json();
 			const items: Agent[] = data.items ?? [];
 			// Agents reference PromptModules by name in spec.prompt.promptRefs (or
@@ -58,10 +58,10 @@
 </script>
 
 <div class="detail-header">
-	<a href="{base}/promptmodules" class="back-link">&larr; Prompt Modules</a>
+	<a href="{resolve('/promptmodules')}" class="back-link">&larr; Prompt Modules</a>
 	{#if module}
 		<h1>{module.metadata.name}</h1>
-		<span class="order-badge">order {module.spec?.order ?? '—'}</span>
+		<span class="order-badge">order {module.spec?.order ?? '-'}</span>
 	{/if}
 </div>
 
@@ -73,7 +73,7 @@
 	<div class="meta-row">
 		<span><strong>Namespace:</strong> <code>{module.metadata.namespace}</code></span>
 		<span><strong>Size:</strong> {(module.spec?.content?.length ?? 0).toLocaleString()} chars</span>
-		<span><strong>Created:</strong> {module.metadata.creationTimestamp ? new Date(module.metadata.creationTimestamp).toLocaleString() : '—'}</span>
+		<span><strong>Created:</strong> {module.metadata.creationTimestamp ? new Date(module.metadata.creationTimestamp).toLocaleString() : '-'}</span>
 	</div>
 
 	<h2>ADL Content</h2>
@@ -90,8 +90,8 @@
 			<tbody>
 				{#each referencingAgents as a (a.metadata.namespace + '/' + a.metadata.name)}
 					<tr>
-						<td><a class="mono link" href="{base}/agents/{a.metadata.name}?namespace={a.metadata.namespace}">{a.metadata.name}</a></td>
-						<td>{a.metadata.labels?.['kubemoot.ai/role'] ?? a.spec.type ?? '—'}</td>
+						<td><a class="mono link" href="{resolve('/agents/[name]', { name: a.metadata.name })}?namespace={a.metadata.namespace}">{a.metadata.name}</a></td>
+						<td>{a.metadata.labels?.['kubemoot.ai/role'] ?? a.spec.type ?? '-'}</td>
 						<td class:cond-true={a.status?.ready === true} class:cond-false={a.status?.ready === false}>
 							{yesNo(a.status?.ready)}
 						</td>

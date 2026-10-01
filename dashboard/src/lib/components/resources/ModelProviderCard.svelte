@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { PENDING_TTL_MS, unsettledActions, type PendingAction } from '$lib/pending-actions';
 	import { readinessStatus } from '$lib/resource-status';
-	import { base } from '$app/paths';
+	import { resolve } from '$app/paths';
 	import type { ModelProvider, ModelProviderLoadedModel } from '$types/kubemoot.js';
 	import ResourceCard from './ResourceCard.svelte';
 
@@ -20,7 +20,7 @@
 	// spinner that's mid-flight survives a page refresh. The truth source
 	// is `ModelProvider.status.capacity.loadedModels`; a pending action
 	// expires either when the CR catches up (loaded/unloaded as intended)
-	// or after PENDING_TTL_MS (give-up timeout — operator probe never
+	// or after PENDING_TTL_MS (give-up timeout - operator probe never
 	// confirmed, treat as failed).
 
 	let pendingActions = $state<Record<string, PendingAction>>({});
@@ -94,7 +94,7 @@
 	// CR truth: what's actually loaded right now per the operator's latest
 	// capacity probe. This is the only source of state for which button
 	// is enabled. The pendingActions set drives which buttons show the
-	// spinner — independent of state.
+	// spinner - independent of state.
 	const baseLoadedModels = $derived<ModelProviderLoadedModel[]>(capacity?.loadedModels ?? []);
 	const baseLoadedByName = $derived(
 		new Map(baseLoadedModels.map((m) => [m.name, m] as const))
@@ -130,7 +130,7 @@
 	const vramPct = $derived(vramTotal > 0 ? Math.min(100, Math.round((vramUsed * 100) / vramTotal)) : 0);
 
 	const apiBase = $derived(
-		`${base}/api/kubemoot/modelproviders/${provider.metadata.name}?namespace=${encodeURIComponent(provider.metadata.namespace ?? 'kubemoot')}`
+		`${resolve('/api/kubemoot/modelproviders/[name]', { name: provider.metadata.name })}?namespace=${encodeURIComponent(provider.metadata.namespace ?? 'kubemoot')}`
 	);
 	const loadUrl = $derived(apiBase.replace('?', '/load?'));
 	const unloadUrl = $derived(apiBase.replace('?', '/unload?'));
@@ -141,13 +141,13 @@
 
 	function modelDetailsHref(modelName: string): string {
 		const ns = encodeURIComponent(provider.metadata.namespace ?? 'kubemoot');
-		return `${base}/models?model=${encodeURIComponent(modelName)}&provider=${encodeURIComponent(provider.metadata.name)}&namespace=${ns}`;
+		return `${resolve('/models')}?model=${encodeURIComponent(modelName)}&provider=${encodeURIComponent(provider.metadata.name)}&namespace=${ns}`;
 	}
 
 	async function runAction(model: string, action: 'load' | 'unload') {
 		if (isPending(model)) return;
 		actionError = null;
-		// Record the pending action BEFORE the HTTP call — that way a refresh
+		// Record the pending action BEFORE the HTTP call - that way a refresh
 		// mid-flight still shows the spinner because localStorage is updated
 		// the moment the user clicks.
 		pendingActions = { ...pendingActions, [model]: { action, startedAt: Date.now() } };
@@ -161,7 +161,7 @@
 				const body = await res.text();
 				throw new Error(body || `${action} failed (HTTP ${res.status})`);
 			}
-			// HTTP returned success. Don't clear the pending action here —
+			// HTTP returned success. Don't clear the pending action here -
 			// the reconcile $effect drops it once the CR confirms the new
 			// state (or after TTL). Schedule refetches so the CR catches up
 			// faster than the operator's natural probe interval.
@@ -169,7 +169,7 @@
 			scheduleRefetches();
 		} catch (e) {
 			actionError = e instanceof Error ? e.message : `${action} failed`;
-			// Drop the pending action on failure — spinner shouldn't spin
+			// Drop the pending action on failure - spinner shouldn't spin
 			// forever on a server error. (TTL would also catch this but we
 			// can clear immediately on a known failure.)
 			const next = { ...pendingActions };
@@ -202,14 +202,14 @@
 	}
 
 	function formatMiB(bytes: number | undefined): string {
-		if (!bytes || bytes <= 0) return '–';
+		if (!bytes || bytes <= 0) return '-';
 		const mib = bytes / (1024 * 1024);
 		if (mib >= 1024) return `${(mib / 1024).toFixed(1)} GiB`;
 		return `${mib.toFixed(0)} MiB`;
 	}
 
 	function formatMiBFromMiB(mib: number | undefined): string {
-		if (!mib || mib <= 0) return '–';
+		if (!mib || mib <= 0) return '-';
 		if (mib >= 1024) return `${(mib / 1024).toFixed(1)} GiB`;
 		return `${mib} MiB`;
 	}
@@ -218,7 +218,7 @@
 <ResourceCard
 	name={provider.metadata.name}
 	kind="Model Provider"
-	href="{base}/modelproviders/{provider.metadata.name}?namespace={provider.metadata.namespace}"
+	href="{resolve('/modelproviders/[name]', { name: provider.metadata.name })}?namespace={provider.metadata.namespace}"
 	{status}
 	{statusLabel}
 	namespace={showNamespace ? provider.metadata.namespace : undefined}

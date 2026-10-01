@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { base } from '$app/paths';
+	import { resolve } from '$app/paths';
 	import type { MCPQualityPolicy } from '$types/kubemoot.js';
 	import ResourceCard from './ResourceCard.svelte';
 
@@ -22,7 +22,7 @@
 <ResourceCard
 	name={policy.metadata.name}
 	kind="MCPQualityPolicy"
-	href="{base}/mcpqualitypolicies/{policy.metadata.name}?namespace={policy.metadata.namespace}"
+	href="{resolve('/mcpqualitypolicies/[name]', { name: policy.metadata.name })}?namespace={policy.metadata.namespace}"
 	{status}
 	{statusLabel}
 	namespace={showNamespace ? policy.metadata.namespace : undefined}

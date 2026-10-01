@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { base } from '$app/paths';
+	import { resolve } from '$app/paths';
 	import { namespace, refreshTrigger } from '$lib/stores';
 	import { TopologyGraph } from '$lib/components/topology';
 	import { HelpTooltip } from '$lib/components/common';
@@ -21,7 +21,7 @@
 		loading = true;
 		error = null;
 		try {
-			const res = await fetch(`${base}/api/kubemoot/topology?namespace=${$namespace}`);
+			const res = await fetch(`${resolve('/api/kubemoot/topology')}?namespace=${$namespace}`);
 			const data = await res.json();
 			if (data.error) {
 				error = data.error;

@@ -3,7 +3,7 @@ import type { RequestHandler } from './$types';
 import { listCrewNamespaces } from '$lib/server/k8s';
 
 // Returns the crews (kubemoot.ai/crew-labeled namespaces) for the top-bar
-// "Crew:" selector. Non-crew namespaces are intentionally excluded — the
+// "Crew:" selector. Non-crew namespaces are intentionally excluded - the
 // selector scopes the dashboard by crew, and "All crews" (no selection) shows
 // everything, including shared/control-plane resources in the kubemoot namespace.
 export const GET: RequestHandler = async () => {

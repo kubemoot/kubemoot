@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { phaseStatus } from '$lib/resource-status';
-	import { base } from '$app/paths';
+	import { resolve } from '$app/paths';
 	import type { MCPCatalog } from '$types/kubemoot.js';
 	import ResourceCard from './ResourceCard.svelte';
 
@@ -20,7 +20,7 @@
 <ResourceCard
 	name={catalog.metadata.name}
 	kind="MCPCatalog"
-	href="{base}/mcpcatalogs/{catalog.metadata.name}?namespace={catalog.metadata.namespace}"
+	href="{resolve('/mcpcatalogs/[name]', { name: catalog.metadata.name })}?namespace={catalog.metadata.namespace}"
 	{status}
 	{statusLabel}
 	namespace={showNamespace ? catalog.metadata.namespace : undefined}

@@ -85,7 +85,8 @@ export default [
 			'@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_' }],
 
 			// Not Sonar rules; svelte plugin debt kept off and tracked in the backlog.
-			// paths.base = '/dashboard' means every href/goto needs resolve().
+			// Every internal link goes through resolve(), but this rule cannot follow a
+			// resolved URL built by a helper or passed as a prop, and flags external links.
 			'svelte/no-navigation-without-resolve': 'off',
 			'svelte/require-each-key': 'off',
 			'svelte/no-useless-mustaches': 'off',
@@ -127,9 +128,8 @@ export default [
 
 	// Two sonarjs rules cannot read .svelte files correctly:
 	// - sonarjs/deprecation reads positions from the TS program the svelte parser
-	//   builds from generated code, and crashes. Deprecated API use in .svelte files
-	//   (e.g. `base` from $app/paths, still imported by the pages) is therefore not
-	//   linted; moving those pages to resolve() is tracked backlog.
+	//   builds from generated code, and crashes, so deprecated API use in .svelte
+	//   files is not linted here (pages use resolve() and asset(), not `base`).
 	// - sonarjs/no-use-of-empty-return-value reads {@render snippet()} as using the
 	//   result of a function that returns nothing; rendering a snippet is the Svelte 5
 	//   idiom and has no return value to use.

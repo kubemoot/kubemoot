@@ -2,20 +2,15 @@
 	import { readinessStatus } from '$lib/resource-status';
 	import { onMount } from 'svelte';
 	import { page } from '$app/stores';
-	import { base } from '$app/paths';
+	import { resolve } from '$app/paths';
 	import { namespace, refreshTrigger } from '$stores';
 	import { DetailPanel } from '$components/layout';
 	import { Section, InfoRow, StatusBadge } from '$components/common';
 	import type { Agent, AgentHeartbeat, MCPServer, MCPTool } from '$types/kubemoot.js';
 	import { agentStateFor } from '$lib/crewScope';
 	import { splitCamelCase } from '$lib/text-utils';
-	import {
-		LIVENESS_BADGE,
-		heartbeatLiveness,
-		mcpServerNames,
-		mcpServerRefs,
-		visibleTools
-	} from '$lib/agent-detail';
+	import { mcpServerNames, mcpServerRefs, visibleTools } from '$lib/agent-detail';
+	import { LIVENESS_BADGE, heartbeatLiveness, secondsSince } from '$lib/agent-liveness';
 
 	let agent = $state<Agent | null>(null);
 	let heartbeat = $state<AgentHeartbeat | null>(null);
@@ -27,7 +22,7 @@
 	let promptError = $state<string | null>(null);
 	let showAssembledPrompt = $state(false);
 
-	const name = $derived($page.params.name);
+	const name = $derived($page.params.name as string);
 	const ns = $derived($page.url.searchParams.get('namespace') || $namespace);
 
 	async function fetchAgent() {
@@ -36,8 +31,8 @@
 
 		try {
 			const [res, hbRes] = await Promise.all([
-				fetch(`${base}/api/kubemoot/agents/${name}?namespace=${ns}`),
-				fetch(`${base}/api/nats/kv`).catch(() => null)
+				fetch(`${resolve('/api/kubemoot/agents/[name]', { name })}?namespace=${ns}`),
+				fetch(resolve('/api/nats/kv')).catch(() => null)
 			]);
 			if (!res.ok) throw new Error('Agent not found');
 			agent = await res.json();
@@ -70,7 +65,7 @@
 		promptConfigMapName = null;
 		promptError = null;
 		try {
-			const res = await fetch(`${base}/api/kubemoot/agents/${name}/prompt?namespace=${ns}`);
+			const res = await fetch(`${resolve('/api/kubemoot/agents/[name]/prompt', { name })}?namespace=${ns}`);
 			const data = await res.json();
 			if (!res.ok) {
 				promptError = data.error ?? 'Failed to load assembled prompt';
@@ -95,7 +90,7 @@
 		await Promise.all(
 			serverNames.map(async (serverName) => {
 				try {
-					const res = await fetch(`${base}/api/kubemoot/mcpservers/${serverName}?namespace=${ns}`);
+					const res = await fetch(`${resolve('/api/kubemoot/mcpservers/[name]', { name: serverName })}?namespace=${ns}`);
 					if (res.ok) {
 						const server: MCPServer = await res.json();
 						toolMap.set(serverName, server.status?.tools || []);
@@ -174,7 +169,7 @@
 					{#if promptRefs.length > 0}
 						<div class="prompt-refs">
 							{#each promptRefs as ref}
-								<a class="prompt-ref-chip" href="{base}/promptmodules/{ref}?namespace={ns}">{ref}</a>
+								<a class="prompt-ref-chip" href="{resolve('/promptmodules/[name]', { name: ref })}?namespace={ns}">{ref}</a>
 							{/each}
 						</div>
 					{:else}
@@ -221,7 +216,7 @@
 							{@const shownTools = visibleTools(allTools, specRef)}
 							<div class="mcp-server-block">
 								<div class="mcp-server-header">
-									<a href="{base}/mcpservers/{mcp.name}?namespace={ns}" class="mcp-server-link">{mcp.name}</a>
+									<a href="{resolve('/mcpservers/[name]', { name: mcp.name })}?namespace={ns}" class="mcp-server-link">{mcp.name}</a>
 									{#if mcpStatus}
 										<StatusBadge
 											status={mcpStatus.ready ? 'success' : 'error'}
@@ -311,7 +306,7 @@
 				</Section>
 
 				{#if heartbeat}
-				{@const hbAge = Math.round((Date.now() - new Date(heartbeat.timestamp).getTime()) / 1000)}
+				{@const hbAge = secondsSince(heartbeat.timestamp)}
 				{@const liveness = LIVENESS_BADGE[heartbeatLiveness(hbAge, heartbeat)]}
 				<Section title="Runtime Health">
 					<InfoRow label="Liveness">
@@ -328,7 +323,7 @@
 					<InfoRow label="Model" value={heartbeat.model} mono />
 					<InfoRow label="Heartbeat Age" value={`${hbAge}s`} />
 					{#if heartbeat.lastInference}
-						{@const infAge = Math.round((Date.now() - new Date(heartbeat.lastInference).getTime()) / 1000)}
+						{@const infAge = secondsSince(heartbeat.lastInference)}
 						<InfoRow label="Last Inference" value={`${infAge}s ago`} />
 					{/if}
 				</Section>

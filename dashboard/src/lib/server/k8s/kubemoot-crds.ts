@@ -308,7 +308,7 @@ export async function getCrewFitness(namespace: string, name: string): Promise<C
 	return getNamespacedCRD<CrewFitness>('crewfitnesses', namespace, name);
 }
 
-// CrewFitnessSuite functions — namespaced. List supports all-namespace
+// CrewFitnessSuite functions - namespaced. List supports all-namespace
 // (empty namespace param) for the dashboard's cluster-wide view.
 export async function listCrewFitnessSuites(namespace: string): Promise<KubemootList<CrewFitnessSuite>> {
 	if (namespace === '') {

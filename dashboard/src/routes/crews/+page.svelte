@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { chartVersion } from '$lib/crew-chart';
 	import { onMount } from 'svelte';
-	import { base } from '$app/paths';
+	import { resolve } from '$app/paths';
 	import { namespace } from '$stores';
 	import type { Crew } from '$types/kubemoot.js';
 	import { LiveList } from '$lib/client/liveList.svelte';
@@ -35,7 +35,7 @@
 			{@const phase = status?.phase ?? 'Unknown'}
 			{@const discussing = !!status?.discussionEndpoint}
 			{@const version = chartVersion(crew.metadata.labels)}
-			<a href="{base}/crews/{crew.metadata.name}?namespace={crew.metadata.namespace}" class="crew-card" class:ready class:discussing>
+			<a href="{resolve('/crews/[name]', { name: crew.metadata.name })}?namespace={crew.metadata.namespace}" class="crew-card" class:ready class:discussing>
 				<div class="card-top">
 					<div class="crew-name">{crew.metadata.name}</div>
 					<div class="badges">

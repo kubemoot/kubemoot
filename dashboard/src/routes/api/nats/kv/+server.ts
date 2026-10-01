@@ -22,7 +22,7 @@ export const GET: RequestHandler = async ({ url }) => {
 
 		const agents: Record<string, unknown> = {};
 
-		// Use watch() to get all current values — initializedFn fires
+		// Use watch() to get all current values - initializedFn fires
 		// after all existing entries have been delivered
 		let initialized = false;
 		const watch = await kv.watch({

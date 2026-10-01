@@ -14,11 +14,11 @@ import {
  * Returns version metadata for kubemoot components the user can't otherwise
  * see in the dashboard: the operator's image version (from the Deployment's
  * app.kubernetes.io/version label) plus the running operator pod's start time
- * (so the popover can render "Uptime: 3h 42m" — a quick way to confirm the
+ * (so the popover can render "Uptime: 3h 42m" - a quick way to confirm the
  * operator actually rolled to a new version after a CI/CD release).
  *
  * Deliberately narrow scope to avoid duplicating what's already on /config
- * (KubemootConfig.spec.images — agent runtime, MCP gateway, indexer, etc.)
+ * (KubemootConfig.spec.images - agent runtime, MCP gateway, indexer, etc.)
  * and /nodes (cluster info). The popover that consumes this endpoint links
  * users to those existing pages for the deeper info.
  */
@@ -30,7 +30,7 @@ interface SystemInfo {
 	 * ISO-8601 timestamp the currently-running operator pod started at.
 	 * Empty string when no pod is ready (e.g., during a rollout). When the
 	 * deployment runs multiple replicas (leader-election HA), this is the
-	 * OLDEST ready pod's start time — i.e., the one that's been serving
+	 * OLDEST ready pod's start time - i.e., the one that's been serving
 	 * longest and likely holds the lease.
 	 */
 	operatorStartedAt: string;

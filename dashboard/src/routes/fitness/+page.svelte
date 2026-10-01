@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { marked } from 'marked';
-	import { base } from '$app/paths';
+	import { resolve } from '$app/paths';
 	import { namespace, showStandAsides } from '$stores';
 	import type { CrewFitnessSuite } from '$types/kubemoot.js';
 	import {
@@ -22,10 +22,10 @@
 	} from '$lib/fitness-children';
 
 	// Synthesis/advisory are LLM markdown (headers, lists, bold). Render them as
-	// markdown — matching the Discussions view — instead of raw text.
+	// markdown - matching the Discussions view - instead of raw text.
 	marked.setOptions({ breaks: true, gfm: true });
 	const md = (s: string | undefined) => marked.parse(s ?? '') as string;
-	// Inline variant for one-line messages (agent finding summaries) — renders
+	// Inline variant for one-line messages (agent finding summaries) - renders
 	// bold/code/links without wrapping each in a block <p>.
 	const mdInline = (s: string | undefined) => marked.parseInline(s ?? '') as string;
 
@@ -39,7 +39,7 @@
 	}
 
 	// Copyable, scrollable error surface. Replaces native alert(): alert() truncates,
-	// can't be resized, and can't be copied — which matters for long K8s API errors
+	// can't be resized, and can't be copied - which matters for long K8s API errors
 	// (e.g. an RBAC 403 Status body) the user needs to share when asking for support.
 	let errorBox = $state<string | null>(null);
 	let copiedError = $state(false);
@@ -111,7 +111,7 @@
 		const list = (running[id] ?? []).filter((x) => x.metadata.name !== t.metadata.name);
 		if (!terminal) list.push(t);
 		running = { ...running, [id]: list };
-		// A child just finished — pull the updated iteration rows so per-scenario
+		// A child just finished - pull the updated iteration rows so per-scenario
 		// counts advance live (the suite tally already updates from its own watch).
 		if (terminal) scheduleIterRefetch(id);
 	}
@@ -172,7 +172,7 @@
 
 	// Merge the completed (transcript) iterations with a synthetic row for each
 	// in-flight child, so the spinner lands on the row that will become the
-	// result. Deduped by scenario+iter — once the transcript arrives it replaces
+	// result. Deduped by scenario+iter - once the transcript arrives it replaces
 	// the synthetic running row.
 	function mergedIterations(id: string): Iteration[] {
 		const done = iterations[id] ?? [];
@@ -248,9 +248,9 @@
 		error = null;
 		try {
 			const [sRes, tRes, aRes] = await Promise.all([
-				fetch(`${base}/api/kubemoot/crewfitnesssuites?namespace=${$namespace}`),
-				fetch(`${base}/api/kubemoot/crewfitnesses?namespace=${$namespace}`),
-				fetch(`${base}/api/kubemoot/agents?namespace=${$namespace}`)
+				fetch(`${resolve('/api/kubemoot/crewfitnesssuites')}?namespace=${$namespace}`),
+				fetch(`${resolve('/api/kubemoot/crewfitnesses')}?namespace=${$namespace}`),
+				fetch(`${resolve('/api/kubemoot/agents')}?namespace=${$namespace}`)
 			]);
 			const [sData, tData, aData] = await Promise.all([sRes.json(), tRes.json(), aRes.json()]);
 			applyLists(sData.items || [], tData.items || [], aData.items || []);
@@ -287,7 +287,7 @@
 	}
 	function upsertTest(obj: FitnessTest) {
 		if (obj?.metadata?.labels?.[SUITE_LABEL]) {
-			trackChild(obj); // suite child — feeds the "Running now" line, not the standalone list
+			trackChild(obj); // suite child - feeds the "Running now" line, not the standalone list
 			return;
 		}
 		const name = obj?.metadata?.name;
@@ -302,7 +302,7 @@
 	}
 	function removeTest(obj: FitnessTest) {
 		if (obj?.metadata?.labels?.[SUITE_LABEL]) {
-			trackChild(obj, true); // suite child deleted — drop from "Running now"
+			trackChild(obj, true); // suite child deleted - drop from "Running now"
 			return;
 		}
 		standaloneTests = standaloneTests.filter((t) => t.metadata.name !== obj?.metadata?.name);
@@ -328,7 +328,7 @@
 	}
 	function connectWatch() {
 		closeWatch();
-		es = new EventSource(`${base}/api/kubemoot/fitness/watch?namespace=${$namespace}`);
+		es = new EventSource(`${resolve('/api/kubemoot/fitness/watch')}?namespace=${$namespace}`);
 		es.onmessage = (e) => {
 			try {
 				const ev = JSON.parse(e.data);
@@ -337,12 +337,12 @@
 				/* ignore malformed frames */
 			}
 		};
-		// EventSource reconnects automatically on error — no manual retry needed.
+		// EventSource reconnects automatically on error - no manual retry needed.
 	}
 
 	// Load a suite's DEFER/REFLECTS scores, rationale, and judging progress.
 	async function fetchScores(ns: string, name: string) {
-		const r = await fetch(`${base}/api/kubemoot/crewfitnesssuites/${ns}/${name}/scores`);
+		const r = await fetch(resolve('/api/kubemoot/crewfitnesssuites/[namespace]/[name]/scores', { namespace: ns, name }));
 		if (!r.ok) return;
 		const sj = await r.json();
 		const id = `${ns}/${name}`;
@@ -381,7 +381,7 @@
 			return;
 		}
 		try {
-			const r = await fetch(`${base}/api/kubemoot/crewfitnesssuites/${ns}/${name}`, { method: 'DELETE' });
+			const r = await fetch(resolve('/api/kubemoot/crewfitnesssuites/[namespace]/[name]', { namespace: ns, name }), { method: 'DELETE' });
 			if (!r.ok) {
 				const d = await r.json().catch(() => ({}));
 				const detail = d.error ?? d.message ?? JSON.stringify(d, null, 2);
@@ -409,7 +409,7 @@
 			return;
 		}
 		try {
-			const r = await fetch(`${base}/api/kubemoot/crewfitnesssuites/${ns}/${name}`, {
+			const r = await fetch(resolve('/api/kubemoot/crewfitnesssuites/[namespace]/[name]', { namespace: ns, name }), {
 				method: 'PATCH',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({ action })
@@ -447,13 +447,13 @@
 	});
 
 	// Fetch a suite's completed-iteration list (transcript-backed). silent=true
-	// is a live refresh (no loading flash) when a child completes — keyed {#each}
+	// is a live refresh (no loading flash) when a child completes - keyed {#each}
 	// reconciles rows in place so counts tick up without a page refresh.
 	async function loadIterations(ns: string, name: string, silent = false) {
 		const id = `${ns}/${name}`;
 		if (!silent) iterLoading[id] = true;
 		try {
-			const res = await fetch(`${base}/api/kubemoot/crewfitnesssuites/${ns}/${name}/iterations`);
+			const res = await fetch(resolve('/api/kubemoot/crewfitnesssuites/[namespace]/[name]/iterations', { namespace: ns, name }));
 			const data = await res.json();
 			iterations[id] = data.iterations || [];
 			try {
@@ -472,7 +472,7 @@
 	// which only this refresh advances (12/12 → 13/13) without a manual reload.
 	const refetchTimers: Record<string, ReturnType<typeof setTimeout>> = {};
 	function scheduleIterRefetch(id: string) {
-		if (!iterations[id]) return; // suite not open/loaded — nothing displayed to refresh
+		if (!iterations[id]) return; // suite not open/loaded - nothing displayed to refresh
 		clearTimeout(refetchTimers[id]);
 		refetchTimers[id] = setTimeout(() => {
 			const slash = id.indexOf('/');
@@ -494,7 +494,7 @@
 		if (openIter[tid] && !transcripts[tid]) {
 			try {
 				const res = await fetch(
-					`${base}/api/kubemoot/crewfitnesssuites/${ns}/${name}/transcript?key=${encodeURIComponent(it.key)}`
+					`${resolve('/api/kubemoot/crewfitnesssuites/[namespace]/[name]/transcript', { namespace: ns, name })}?key=${encodeURIComponent(it.key)}`
 				);
 				const data = await res.json();
 				transcripts[tid] = res.ok ? data : { error: data.error || 'failed to load transcript' };
@@ -505,7 +505,7 @@
 	}
 
 	// Older transcripts (captured before the gateway SSE dedup) recorded the
-	// synthesis twice — the coordinator dual-published it and the gateway relayed
+	// synthesis twice - the coordinator dual-published it and the gateway relayed
 	// both copies. Collapse identical synthesis events at render so historical
 	// runs read cleanly too.
 	function dedupeSynthesis(events: SignalEvent[]): SignalEvent[] {
@@ -570,7 +570,7 @@
 
 {#snippet agentTag(agent: string | undefined, ns: string)}
 	{#if agent && agentNames.has(agent)}
-		<a class="evtag agent-link" href="{base}/agents/{agent}?namespace={ns}" title="Open {agent} (deployed in this crew)" onclick={(e) => e.stopPropagation()}>{agent}</a>
+		<a class="evtag agent-link" href="{resolve('/agents/[name]', { name: agent })}?namespace={ns}" title="Open {agent} (deployed in this crew)" onclick={(e) => e.stopPropagation()}>{agent}</a>
 	{:else}
 		<span class="evtag" title={agent ? `${agent} is not in the current crew deployment` : ''}>{agent ?? ''}</span>
 	{/if}
@@ -580,7 +580,7 @@
 	{#if phase === 'Running'}
 		<span class="badge phase-running running-badge" title="Running"><span class="spin"></span>Running</span>
 	{:else}
-		<span class="badge {phaseClass(phase)}">{phase ?? '—'}</span>
+		<span class="badge {phaseClass(phase)}">{phase ?? '-'}</span>
 	{/if}
 {/snippet}
 
@@ -613,7 +613,7 @@
 					<td class="c-caret">{openSuite[id] ? '▼' : '▶'}</td>
 					<td>
 						{#if isJudging(id, s?.phase)}
-							<span class="badge phase-running running-badge" title="Suite finished — quality judging in progress"><span class="spin"></span>judging {judgeState[id].judged}</span>
+							<span class="badge phase-running running-badge" title="Suite finished - quality judging in progress"><span class="spin"></span>judging {judgeState[id].judged}</span>
 						{:else}
 							{@render statusBadge(suiteDisplayPhase(suite))}
 						{/if}
@@ -628,8 +628,8 @@
 					<td>
 						<button class="copy-btn" title="Copy this suite's details to the clipboard" onclick={(e) => copySuite(suite, e)}>{copiedKey === id ? '✓' : '📋'}</button>
 						{#if s?.artifactRef?.objectKey}
-							<a class="dl" href="{base}/api/kubemoot/crewfitnesssuites/{ns}/{name}/artifact" download onclick={(e) => e.stopPropagation()} title="Download {formatBytes(s.artifactRef.sizeBytes)}">⬇ XLSX</a>
-						{:else}<span class="muted small">—</span>{/if}
+							<a class="dl" href="{resolve('/api/kubemoot/crewfitnesssuites/[namespace]/[name]/artifact', { namespace: ns, name })}" download onclick={(e) => e.stopPropagation()} title="Download {formatBytes(s.artifactRef.sizeBytes)}">⬇ XLSX</a>
+						{:else}<span class="muted small">-</span>{/if}
 						{#each availableSuiteActions(suite) as action (action)}
 							<button class="ctl-btn" title={ACTION_LABEL[action].title} aria-label="{action} suite" onclick={(e) => suiteAction(ns, name, action, e)}>{ACTION_LABEL[action].text}</button>
 						{/each}
@@ -698,7 +698,7 @@
 															{#each g.iterations as it (it.key)}
 																{@const tid = it.key}
 																<tbody>
-																	{#if it.running}<tr class="iter-row running"><td class="c-caret"></td><td class="mono">{it.iter}</td><td>{@render statusBadge('Running')}</td><td class="mono muted">—</td><td class="mono muted">—</td></tr>{:else}<tr class="iter-row" onclick={() => toggleIter(ns, name, it)}>
+																	{#if it.running}<tr class="iter-row running"><td class="c-caret"></td><td class="mono">{it.iter}</td><td>{@render statusBadge('Running')}</td><td class="mono muted">-</td><td class="mono muted">-</td></tr>{:else}<tr class="iter-row" onclick={() => toggleIter(ns, name, it)}>
 																		<td class="c-caret">{openIter[tid] ? '▼' : '▶'}</td>
 																		<td class="mono">{it.iter}</td>
 																		<td>{#if it.status === 'Passed'}<span class="badge phase-neutral" title="Discussion ran and hard assertions passed (plumbing). Answer quality is the REFLECTS score on the scenario row, not this.">ran</span>{:else}{@render statusBadge(it.status)}{/if}</td>
@@ -718,7 +718,7 @@
 									{@const standAsides = (t.events ?? []).filter((e) => e.type === 'phase' && e.stood_aside)}
 									{@const convEvents = dedupeSynthesis(t.events ?? [])}
 																					{#if t.question}<div class="q"><strong>Q:</strong> {t.question}</div>{/if}
-																					<div class="meta muted small">thread {t.threadId || '—'}{#if t.threadId}<button class="copy-tid" title="Copy thread id" onclick={(e) => { e.stopPropagation(); copyThreadId(t.threadId, t.question); }}>{copiedTid === t.threadId ? '✓' : '📋'}</button>{/if} · {fmtDur(t.durationMs)}</div>
+																					<div class="meta muted small">thread {t.threadId || '-'}{#if t.threadId}<button class="copy-tid" title="Copy thread id" onclick={(e) => { e.stopPropagation(); copyThreadId(t.threadId, t.question); }}>{copiedTid === t.threadId ? '✓' : '📋'}</button>{/if} · {fmtDur(t.durationMs)}</div>
 																					{#if t.assertions && t.assertions.length > 0}
 																						<div class="asserts">
 																							{#each t.assertions as a}
@@ -729,14 +729,14 @@
 																									<div class="assert defer {n == null ? '' : scoreBand(n)}">
 																										<span class="mark score">{n == null ? '⌛' : n}</span>
 																										<span class="mono">{a.raw}</span>
-																										<span class="amsg">{n == null ? '— pending judge' : `— REFLECTS quality ${n}/100`}</span>
+																										<span class="amsg">{n == null ? '- pending judge' : `- REFLECTS quality ${n}/100`}</span>
 																									</div>
 																									{#if reason}<div class="judge-reason" title="Judge rationale for this score">↳ {reason}</div>{/if}
 																								{:else}
 																									<div class="assert {a.passed ? 'ok' : 'bad'}">
 																										<span class="mark">{a.passed ? '✓' : '✗'}</span>
 																										<span class="mono">{a.raw}</span>
-																										{#if !a.passed && a.message}<span class="amsg">— {a.message}</span>{/if}
+																										{#if !a.passed && a.message}<span class="amsg">- {a.message}</span>{/if}
 																									</div>
 																								{/if}
 																							{/each}
@@ -794,7 +794,7 @@
 			<tbody>
 				{#each standaloneTests as t (t.metadata.namespace + '/' + t.metadata.name)}
 					<tr>
-						<td><span class="badge {phaseClass(t.status?.phase)}">{t.status?.phase ?? '—'}</span></td>
+						<td><span class="badge {phaseClass(t.status?.phase)}">{t.status?.phase ?? '-'}</span></td>
 						<td class="name">{t.metadata.name}</td>
 						<td class="mono muted small">{t.spec?.testRef ?? ''}</td>
 						<td class="mono">{fmtDur(t.status?.durationMs)}</td>
@@ -925,7 +925,7 @@
 	.phase-neutral { background: var(--color-bg-tertiary); color: var(--color-text-muted); }
 	.phase-running { background: var(--color-cyan-bg); color: var(--color-cyan); }
 	/* REFLECTS quality verdict pill on the scenario row: colour by band so a low
-	   score reads as a failure, not a pass. No checkmark — the number is the verdict. */
+	   score reads as a failure, not a pass. No checkmark - the number is the verdict. */
 	.score-pill {
 		display: inline-block; min-width: 1.7rem; text-align: center;
 		margin-left: 0.4rem; padding: 0.05rem 0.4rem; border-radius: 4px;

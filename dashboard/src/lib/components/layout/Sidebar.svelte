@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { page } from '$app/stores';
-	import { base } from '$app/paths';
+	import { resolve } from '$app/paths';
 	import SystemInfoPopover from '$lib/components/common/SystemInfoPopover.svelte';
 
 	const githubUrl = 'https://github.com/kubemoot/kubemoot';
@@ -19,30 +19,31 @@
 	}
 
 	const navItems: NavItem[] = [
-		{ href: `${base}/`, label: 'Overview', icon: 'grid' },
-		{ href: `${base}/nodes`, label: 'Nodes', icon: 'server' },
-		{ href: `${base}/discussions`, label: 'Discussions', icon: 'message-square', section: 'Messaging' },
-		{ href: `${base}/messages`, label: 'Messages', icon: 'message-circle' },
-		{ href: `${base}/crews`, label: 'Crews', icon: 'users', section: 'Crews' },
-		{ href: `${base}/agents`, label: 'Agents', icon: 'cpu' },
-		{ href: `${base}/promptmodules`, label: 'Prompts', icon: 'align-left' },
-		{ href: `${base}/crew-memory`, label: 'Memory', icon: 'database' },
-		{ href: `${base}/fitness`, label: 'Fitness', icon: 'activity' },
-		{ href: `${base}/modelproviders`, label: 'Providers', icon: 'cloud', section: 'Models' },
-		{ href: `${base}/models`, label: 'Models', icon: 'box' },
-		{ href: `${base}/embeddingmodels`, label: 'Embeddings', icon: 'layers' },
-		{ href: `${base}/mcpservers`, label: 'MCP Servers', icon: 'terminal', section: 'MCPs' },
-		{ href: `${base}/mcpgateways`, label: 'MCP Gateways', icon: 'git-merge' },
-		{ href: `${base}/mcpqualitypolicies`, label: 'Quality Policies', icon: 'shield' },
-		{ href: `${base}/mcpcatalogs`, label: 'Catalogs', icon: 'book' },
-		{ href: `${base}/mcpreports`, label: 'Reports', icon: 'file-text' },
-		{ href: `${base}/ragsources`, label: 'RAG Sources', icon: 'database', section: 'Knowledge' },
-		{ href: `${base}/config`, label: 'Config', icon: 'settings', section: 'System' }
+		{ href: resolve('/'), label: 'Overview', icon: 'grid' },
+		{ href: resolve('/nodes'), label: 'Nodes', icon: 'server' },
+		{ href: resolve('/discussions'), label: 'Discussions', icon: 'message-square', section: 'Messaging' },
+		{ href: resolve('/messages'), label: 'Messages', icon: 'message-circle' },
+		{ href: resolve('/crews'), label: 'Crews', icon: 'users', section: 'Crews' },
+		{ href: resolve('/agents'), label: 'Agents', icon: 'cpu' },
+		{ href: resolve('/promptmodules'), label: 'Prompts', icon: 'align-left' },
+		{ href: resolve('/crew-memory'), label: 'Memory', icon: 'database' },
+		{ href: resolve('/fitness'), label: 'Fitness', icon: 'activity' },
+		{ href: resolve('/modelproviders'), label: 'Providers', icon: 'cloud', section: 'Models' },
+		{ href: resolve('/models'), label: 'Models', icon: 'box' },
+		{ href: resolve('/embeddingmodels'), label: 'Embeddings', icon: 'layers' },
+		{ href: resolve('/mcpservers'), label: 'MCP Servers', icon: 'terminal', section: 'MCPs' },
+		{ href: resolve('/mcpgateways'), label: 'MCP Gateways', icon: 'git-merge' },
+		{ href: resolve('/mcpqualitypolicies'), label: 'Quality Policies', icon: 'shield' },
+		{ href: resolve('/mcpcatalogs'), label: 'Catalogs', icon: 'book' },
+		{ href: resolve('/mcpreports'), label: 'Reports', icon: 'file-text' },
+		{ href: resolve('/ragsources'), label: 'RAG Sources', icon: 'database', section: 'Knowledge' },
+		{ href: resolve('/config'), label: 'Config', icon: 'settings', section: 'System' }
 	];
 
 	function isActive(href: string, currentPath: string): boolean {
-		if (href === `${base}/`) {
-			return currentPath === `${base}` || currentPath === `${base}/`;
+		const root = resolve('/');
+		if (href === root) {
+			return currentPath === root || currentPath === root.slice(0, -1);
 		}
 		return currentPath.startsWith(href);
 	}

@@ -1,8 +1,9 @@
 <script lang="ts">
-	import { base } from '$app/paths';
+	import { resolve } from '$app/paths';
 	import type { Agent, AgentHeartbeat } from '$types/kubemoot.js';
 	import { agentRole, type AgentRole } from '$lib/agent-role';
 	import { readinessStatus } from '$lib/resource-status';
+	import { heartbeatLiveness, secondsSince, type HeartbeatLiveness } from '$lib/agent-liveness';
 
 	interface Props {
 		agent: Agent;
@@ -43,34 +44,25 @@
 	});
 	const ragCount = $derived(agent.spec.ragSources?.length || 0);
 
-	type LivenessState = 'live' | 'degraded' | 'stale' | 'unknown';
-
-	const liveness = $derived.by((): LivenessState => {
-		if (!heartbeat) return 'unknown';
-		const age = (Date.now() - new Date(heartbeat.timestamp).getTime()) / 1000;
-		if (age > 300) return 'stale';
-		if (!heartbeat.ollama || !heartbeat.nats) return 'degraded';
-		if (age < 120) return 'live';
-		return 'stale';
-	});
+	const liveness = $derived<HeartbeatLiveness | 'unknown'>(
+		heartbeat ? heartbeatLiveness(secondsSince(heartbeat.timestamp), heartbeat) : 'unknown'
+	);
 
 	const livenessTooltip = $derived.by(() => {
 		if (!heartbeat) return 'No heartbeat data';
-		const age = Math.round((Date.now() - new Date(heartbeat.timestamp).getTime()) / 1000);
 		const parts = [
-			`Heartbeat: ${age}s ago`,
+			`Heartbeat: ${secondsSince(heartbeat.timestamp)}s ago`,
 			`Ollama: ${heartbeat.ollama ? 'reachable' : 'unreachable'}`,
 			`NATS: ${heartbeat.nats ? 'connected' : 'disconnected'}`
 		];
 		if (heartbeat.lastInference) {
-			const infAge = Math.round((Date.now() - new Date(heartbeat.lastInference).getTime()) / 1000);
-			parts.push(`Last inference: ${infAge}s ago`);
+			parts.push(`Last inference: ${secondsSince(heartbeat.lastInference)}s ago`);
 		}
 		return parts.join('\n');
 	});
 </script>
 
-<a href="{base}/agents/{agent.metadata.name}?namespace={agent.metadata.namespace}" class="card" style="--role-color: {roleColors[role]}">
+<a href="{resolve('/agents/[name]', { name: agent.metadata.name })}?namespace={agent.metadata.namespace}" class="card" style="--role-color: {roleColors[role]}">
 	<header class="header">
 		<div class="title-section">
 			<div class="meta-row">

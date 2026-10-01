@@ -124,7 +124,7 @@ The SvelteKit server exposes the JSON and event-stream endpoints the pages use. 
 | `/api/kubemoot/mcpserverreports/<name>` | PATCH | Pin a verdict |
 | `/api/kubemoot/modelproviders/<name>/load`, `/unload`, `/delete` | POST | Model provider actions |
 | `/api/kubemoot/crew-memory` | GET, POST, DELETE | Crew memory facts |
-| `/api/kubemoot/watch/<plural>`, `/api/sse` | GET | Kubernetes resource updates as server-sent events |
+| `/api/kubemoot/watch/<plural>` | GET | Kubernetes resource updates as server-sent events |
 | `/api/nats/subscribe?subject=` | GET | Server-sent events for a NATS subject |
 | `/api/nats/history?stream=&subject=&limit=` | GET | JetStream history replay as a JSON array |
 | `/api/nats/publish` | POST | Publish `{ "subject", "data" }` to NATS |

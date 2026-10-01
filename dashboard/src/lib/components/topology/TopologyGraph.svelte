@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onMount, onDestroy } from 'svelte';
-	import { base } from '$app/paths';
+	import { asset, resolve } from '$app/paths';
 	import { goto } from '$app/navigation';
 	import type { TopologyNode, TopologyEdge } from '$types/kubemoot.js';
 	import type cytoscape from 'cytoscape';
@@ -125,7 +125,7 @@
 				{
 					selector: 'node[role="coordinator"]',
 					style: {
-						'background-image': `${base}/dashboard/coordinator.webp`,
+						'background-image': asset('/coordinator.webp'),
 						'background-fit': 'cover',
 						'background-clip': 'none'
 					}
@@ -133,7 +133,7 @@
 				{
 					selector: 'node[role="specialist"]',
 					style: {
-						'background-image': `${base}/dashboard/specialist.png`,
+						'background-image': asset('/specialist.png'),
 						'background-fit': 'cover',
 						'background-clip': 'none'
 					}
@@ -189,7 +189,7 @@
 			const node = evt.target;
 			const name = node.data('name');
 			const ns = node.data('namespace');
-			goto(`${base}/agents/${name}?namespace=${ns}`);
+			goto(`${resolve('/agents/[name]', { name })}?namespace=${ns}`);
 		});
 
 		// Tooltip on hover
@@ -214,7 +214,7 @@
 	}
 
 	function subscribeToEvents() {
-		eventSource = new EventSource(`${base}/api/nats/subscribe?subject=${encodeURIComponent(CHAT_ALL)}`);
+		eventSource = new EventSource(`${resolve('/api/nats/subscribe')}?subject=${encodeURIComponent(CHAT_ALL)}`);
 
 		eventSource.onmessage = (event) => {
 			try {

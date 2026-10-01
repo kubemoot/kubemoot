@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { base } from '$app/paths';
+	import { resolve } from '$app/paths';
 	import { marked } from 'marked';
 	import type { DiscussionMessage } from '$types/kubemoot.js';
 	import { threads, sortedThreads, discussionsConnected, historyLoaded, initDiscussions, addDiscussionMessage, removeThread, pinnedThreadIds, loadPinnedThreads, pinThread, unpinThread, showStandAsides, namespace, threadScope } from '$lib/stores';
@@ -137,7 +137,7 @@
 	}
 
 	async function publishMessage(subject: string, data: object) {
-		const res = await fetch(`${base}/api/nats/publish`, {
+		const res = await fetch(resolve('/api/nats/publish'), {
 			method: 'POST',
 			headers: { 'Content-Type': 'application/json' },
 			body: JSON.stringify({ subject, data: JSON.stringify(data) })
@@ -215,7 +215,7 @@
 
 	async function fetchDashboardVersion(): Promise<string> {
 		try {
-			const res = await fetch(`${base}/api/version`);
+			const res = await fetch(resolve('/api/version'));
 			const data = await res.json();
 			return data.version || 'dev';
 		} catch {
@@ -245,7 +245,7 @@
 			const inf = data.inferenceMs > 0 ? fmtMs(data.inferenceMs) : '-';
 			const tools = data.tools.size > 0 ? Array.from(data.tools).join(', ') : '-';
 			// Per-call provider attribution wins over reconcile-time gpuLabel
-			// when present — shows the JIT-selected ModelProvider name, the
+			// when present - shows the JIT-selected ModelProvider name, the
 			// truth of where this inference actually ran. FitPredictor v2's
 			// pickReason (if present) carries the per-call decision narrative
 			// ("warm, slot 1/2 | SR=0.92 over 23 samples, EMA latency 4200ms").
@@ -449,7 +449,7 @@
 	// metadata may carry either form (GpuLabels.fromProvider vs fromEndpoint).
 	async function loadGpuLabels() {
 		try {
-			const res = await fetch(`${base}/api/kubemoot/modelproviders?namespace=`);
+			const res = await fetch(`${resolve('/api/kubemoot/modelproviders')}?namespace=`);
 			const data = await res.json();
 			const items = Array.isArray(data?.items) ? data.items : [];
 			gpuDisplayMap = buildGpuDisplayMap(items);
@@ -460,7 +460,7 @@
 
 	async function loadChannels() {
 		try {
-			const res = await fetch(`${base}/api/kubemoot/channels`);
+			const res = await fetch(resolve('/api/kubemoot/channels'));
 			const data = await res.json();
 			if (data.channels && data.channels.length > 0) {
 				channels = data.channels;
@@ -518,7 +518,7 @@
 
 	// Keep the selection consistent with the crew filter: if the selected thread
 	// is filtered out, fall back to the first visible thread (or none). Guarded so
-	// it only writes when the value actually changes — no infinite loop.
+	// it only writes when the value actually changes - no infinite loop.
 	$effect(() => {
 		if (selectedThreadId && !visibleThreads.some((t) => t.threadId === selectedThreadId)) {
 			selectedThreadId = visibleThreads[0]?.threadId ?? null;
@@ -530,8 +530,8 @@
 		loadChannels();
 		loadGpuLabels();
 		loadPinnedThreads();
-		fetch(`${base}/api/namespaces`).then(r => r.json()).then(d => { crews = Array.isArray(d.crews) ? d.crews : []; }).catch(() => {});
-		fetch(`${base}/api/version`).then(r => r.json()).then(d => { dashboardVersion = d.version || 'dev'; }).catch(() => {});
+		fetch(resolve('/api/namespaces')).then(r => r.json()).then(d => { crews = Array.isArray(d.crews) ? d.crews : []; }).catch(() => {});
+		fetch(resolve('/api/version')).then(r => r.json()).then(d => { dashboardVersion = d.version || 'dev'; }).catch(() => {});
 		// Keyboard shortcuts for delete confirmation
 		window.addEventListener('keydown', handleGlobalKeydown);
 		// Auto-select first thread once history loads (if nothing selected)
@@ -688,11 +688,11 @@
 									▶️
 								</button>
 							{:else}
-								<button class="action-btn" onclick={pauseThread} disabled={sending} title="Pause discussion — suspends settle timer">
+								<button class="action-btn" onclick={pauseThread} disabled={sending} title="Pause discussion - suspends settle timer">
 									⏸️
 								</button>
 							{/if}
-							<button class="action-btn" onclick={stopThread} disabled={sending} title="Stop discussion now — coordinator synthesizes with current signals">
+							<button class="action-btn" onclick={stopThread} disabled={sending} title="Stop discussion now - coordinator synthesizes with current signals">
 								⏹️
 							</button>
 						{/if}

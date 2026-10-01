@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { base } from '$app/paths';
+	import { resolve } from '$app/paths';
 	import { onDestroy } from 'svelte';
 
 	interface SystemInfo {
@@ -24,7 +24,7 @@
 		if (info || loading) return;
 		loading = true;
 		try {
-			const res = await fetch(`${base}/api/kubemoot/system-info`);
+			const res = await fetch(resolve('/api/kubemoot/system-info'));
 			if (!res.ok) throw new Error(`HTTP ${res.status}`);
 			info = (await res.json()) as SystemInfo;
 		} catch (e) {

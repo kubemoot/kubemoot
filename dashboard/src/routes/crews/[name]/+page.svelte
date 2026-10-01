@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { base } from '$app/paths';
+	import { resolve } from '$app/paths';
 	import { page } from '$app/stores';
 	import type { Crew, Agent } from '$types/kubemoot.js';
 	import { chartName, chartVersion } from '$lib/crew-chart';
@@ -39,7 +39,7 @@
 		loading = true;
 		error = null;
 		try {
-			const res = await fetch(`${base}/api/kubemoot/crews/${name}?namespace=${ns}`);
+			const res = await fetch(`${resolve('/api/kubemoot/crews/[name]', { name })}?namespace=${ns}`);
 			const data = await res.json();
 			if (data.error) throw new Error(data.error);
 			crew = data;
@@ -59,7 +59,7 @@
 	async function fetchAgents(agentNs: string, crewName: string) {
 		agentsLoading = true;
 		try {
-			const res = await fetch(`${base}/api/kubemoot/agents?namespace=${encodeURIComponent(agentNs)}`);
+			const res = await fetch(`${resolve('/api/kubemoot/agents')}?namespace=${encodeURIComponent(agentNs)}`);
 			const data = await res.json();
 			const items: Agent[] = data.items ?? [];
 			agents = items.filter((a) => {
@@ -75,10 +75,10 @@
 
 	async function fetchResumeModel(ns: string, crewName: string) {
 		// Resume RAGSource is operator-named `crew-<crew>-resumes`. Absent for
-		// crews without a coordinator/resume pipeline — treat 404/error as "none".
+		// crews without a coordinator/resume pipeline - treat 404/error as "none".
 		try {
 			const rs = `crew-${crewName}-resumes`;
-			const res = await fetch(`${base}/api/kubemoot/ragsources/${rs}?namespace=${encodeURIComponent(ns)}`);
+			const res = await fetch(`${resolve('/api/kubemoot/ragsources/[name]', { name: rs })}?namespace=${encodeURIComponent(ns)}`);
 			const data = await res.json();
 			resumeModel = data?.error ? null : data;
 		} catch {
@@ -87,20 +87,20 @@
 	}
 
 	function shortHash(h?: string): string {
-		return h ? h.slice(0, 12) : '—';
+		return h ? h.slice(0, 12) : '-';
 	}
 
 	function fmtTimestamp(ts?: string): string {
-		return ts ? new Date(ts).toLocaleString() : '—';
+		return ts ? new Date(ts).toLocaleString() : '-';
 	}
 
 	function agentRoleLabel(a: Agent): string {
-		return a.metadata.labels?.['kubemoot.ai/role'] ?? a.spec.type ?? '—';
+		return a.metadata.labels?.['kubemoot.ai/role'] ?? a.spec.type ?? '-';
 	}
 </script>
 
 <div class="detail-header">
-	<a href="{base}/crews" class="back-link">&larr; Crews</a>
+	<a href="{resolve('/crews')}" class="back-link">&larr; Crews</a>
 	{#if crew}
 		{@const version = chartVersion(crew.metadata.labels)}
 		<h1>{crew.metadata.name}</h1>
@@ -122,7 +122,7 @@
 		<div class="detail-section">
 			<h2>Spec</h2>
 			<table class="detail-table"><tbody>
-				<tr><th>Description</th><td>{crew.spec.description || '—'}</td></tr>
+				<tr><th>Description</th><td>{crew.spec.description || '-'}</td></tr>
 				<tr><th>Discussion Enabled</th><td>{crew.spec.discussion?.enabled !== false ? 'Yes' : 'No'}</td></tr>
 			</tbody></table>
 		</div>
@@ -130,11 +130,11 @@
 		<div class="detail-section">
 			<h2>Status</h2>
 			<table class="detail-table"><tbody>
-				<tr><th>Phase</th><td>{crew.status?.phase ?? '—'}</td></tr>
+				<tr><th>Phase</th><td>{crew.status?.phase ?? '-'}</td></tr>
 				<tr><th>Ready</th><td>{crew.status?.ready ? 'Yes' : 'No'}</td></tr>
-				<tr><th>Agents</th><td>{crew.status?.agentCount ?? '—'}</td></tr>
-				<tr><th>Coordinator</th><td class="mono">{crew.status?.coordinatorRef || '—'}</td></tr>
-				<tr><th>Discussion Endpoint</th><td class="mono">{crew.status?.discussionEndpoint || '—'}</td></tr>
+				<tr><th>Agents</th><td>{crew.status?.agentCount ?? '-'}</td></tr>
+				<tr><th>Coordinator</th><td class="mono">{crew.status?.coordinatorRef || '-'}</td></tr>
+				<tr><th>Discussion Endpoint</th><td class="mono">{crew.status?.discussionEndpoint || '-'}</td></tr>
 				{#if crew.status?.message}
 					<tr><th>Message</th><td>{crew.status.message}</td></tr>
 				{/if}
@@ -145,15 +145,15 @@
 			<h2>Resume Model</h2>
 			{#if resumeModel}
 				<table class="detail-table"><tbody>
-					<tr><th>Collection</th><td class="mono">{resumeModel.spec?.vectorStore?.collection ?? '—'}</td></tr>
+					<tr><th>Collection</th><td class="mono">{resumeModel.spec?.vectorStore?.collection ?? '-'}</td></tr>
 					<tr><th>Content Hash</th><td class="mono" title={resumeModel.spec?.source?.natsKV?.contentHash ?? ''}>{shortHash(resumeModel.spec?.source?.natsKV?.contentHash)}</td></tr>
 					<tr><th>Last Embedded</th><td>{fmtTimestamp(resumeModel.status?.indexingStats?.lastIndexed)}</td></tr>
-					<tr><th>Phase</th><td>{resumeModel.status?.phase ?? '—'}</td></tr>
-					<tr><th>Embedding Model</th><td class="mono">{resumeModel.spec?.embeddingModelRef ?? '—'}</td></tr>
-					<tr><th>Query Service</th><td class="mono">{resumeModel.status?.queryEndpoint ?? '—'}</td></tr>
+					<tr><th>Phase</th><td>{resumeModel.status?.phase ?? '-'}</td></tr>
+					<tr><th>Embedding Model</th><td class="mono">{resumeModel.spec?.embeddingModelRef ?? '-'}</td></tr>
+					<tr><th>Query Service</th><td class="mono">{resumeModel.status?.queryEndpoint ?? '-'}</td></tr>
 				</tbody></table>
 			{:else}
-				<p class="status-msg">No resume model — this crew has no coordinator-driven resume collection.</p>
+				<p class="status-msg">No resume model - this crew has no coordinator-driven resume collection.</p>
 			{/if}
 		</div>
 
@@ -162,7 +162,7 @@
 			<table class="detail-table"><tbody>
 				<tr><th>Chart</th><td class="mono">{chartName(crew.metadata.labels) ?? NO_VALUE}</td></tr>
 				<tr><th>Version</th><td class="mono">{chartVersion(crew.metadata.labels) ?? NO_VALUE}</td></tr>
-				<tr><th>Managed By</th><td class="mono">{crew.metadata.labels?.['app.kubernetes.io/managed-by'] ?? '—'}</td></tr>
+				<tr><th>Managed By</th><td class="mono">{crew.metadata.labels?.['app.kubernetes.io/managed-by'] ?? '-'}</td></tr>
 			</tbody></table>
 		</div>
 
@@ -171,7 +171,7 @@
 			<table class="detail-table"><tbody>
 				<tr><th>Namespace</th><td class="mono">{crew.metadata.namespace}</td></tr>
 				<tr><th>UID</th><td class="mono uid">{crew.metadata.uid}</td></tr>
-				<tr><th>Created</th><td>{crew.metadata.creationTimestamp ? new Date(crew.metadata.creationTimestamp).toLocaleString() : '—'}</td></tr>
+				<tr><th>Created</th><td>{crew.metadata.creationTimestamp ? new Date(crew.metadata.creationTimestamp).toLocaleString() : '-'}</td></tr>
 			</tbody></table>
 		</div>
 	</div>
@@ -191,15 +191,15 @@
 					{#each agents as a (a.metadata.namespace + '/' + a.metadata.name)}
 						<tr>
 							<td>
-								<a class="mono" href="{base}/agents/{a.metadata.name}?namespace={a.metadata.namespace}">{a.metadata.name}</a>
+								<a class="mono" href="{resolve('/agents/[name]', { name: a.metadata.name })}?namespace={a.metadata.namespace}">{a.metadata.name}</a>
 							</td>
 							<td>{agentRoleLabel(a)}</td>
-							<td>{a.spec.type ?? '—'}</td>
-							<td>{a.status?.phase ?? '—'}</td>
+							<td>{a.spec.type ?? '-'}</td>
+							<td>{a.status?.phase ?? '-'}</td>
 							<td class:cond-true={a.status?.ready === true} class:cond-false={a.status?.ready === false}>
 								{yesNo(a.status?.ready)}
 							</td>
-							<td class="mono small">{a.status?.endpoint ?? '—'}</td>
+							<td class="mono small">{a.status?.endpoint ?? '-'}</td>
 						</tr>
 					{/each}
 				</tbody>
@@ -221,7 +221,7 @@
 							<td class:cond-true={cond.status === 'True'} class:cond-false={cond.status === 'False'}>{cond.status}</td>
 							<td>{cond.reason}</td>
 							<td>{cond.message}</td>
-							<td>{cond.lastTransitionTime ? new Date(cond.lastTransitionTime).toLocaleString() : '—'}</td>
+							<td>{cond.lastTransitionTime ? new Date(cond.lastTransitionTime).toLocaleString() : '-'}</td>
 						</tr>
 					{/each}
 				</tbody>

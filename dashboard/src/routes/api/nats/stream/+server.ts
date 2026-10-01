@@ -1,140 +1,89 @@
 import type { RequestHandler } from './$types';
+import { AckPolicy, DeliverPolicy, type ConsumerMessages, type JsMsg } from 'nats';
 import { getNatsConnection, sc } from '$lib/server/nats-client';
-import { AckPolicy, DeliverPolicy } from 'nats';
+import { relayToSse, sseResponse, type SseSink } from '$lib/server/sse';
 import { DISCUSS_ALL } from '$lib/crewScope';
 
+/** Server-side backstop: NATS removes a consumer idle this long (nanoseconds). */
+const CONSUMER_INACTIVE_NS = 60_000_000_000;
+
+/** Ephemeral consumer config: everything on `subject`, or everything after `fromSeq`. */
+function consumerConfig(subject: string, fromSeq: number): Record<string, unknown> {
+	const config: Record<string, unknown> = {
+		ack_policy: AckPolicy.None,
+		deliver_policy: fromSeq > 0 ? DeliverPolicy.StartSequence : DeliverPolicy.All,
+		filter_subject: subject,
+		inactive_threshold: CONSUMER_INACTIVE_NS
+	};
+	if (fromSeq > 0) {
+		config.opt_start_seq = fromSeq + 1; // resume AFTER the last seen sequence
+	}
+	return config;
+}
+
 /**
- * Unified SSE endpoint backed by a JetStream ordered consumer.
+ * Opens an ephemeral JetStream consumer and relays it to the sink. Returns the
+ * cleanup that stops the consumer and deletes it, so a browser disconnect frees
+ * it at once instead of leaving it to the inactivity backstop.
+ */
+async function openConsumer(
+	sink: SseSink,
+	streamName: string,
+	subject: string,
+	fromSeq: number
+): Promise<(() => Promise<void>) | void> {
+	const nc = await getNatsConnection();
+	const jsm = await nc.jetstreamManager();
+	try {
+		await jsm.streams.info(streamName);
+	} catch {
+		sink.data({ type: 'error', error: `Stream ${streamName} not found` });
+		sink.close();
+		return;
+	}
+
+	const info = await jsm.consumers.add(streamName, consumerConfig(subject, fromSeq));
+	const deleteConsumer = async () => {
+		if (!nc.isClosed()) await jsm.consumers.delete(streamName, info.name);
+	};
+	let messages: ConsumerMessages;
+	try {
+		const consumer = await nc.jetstream().consumers.get(streamName, info.name);
+		messages = await consumer.consume();
+	} catch (err) {
+		await deleteConsumer().catch(() => undefined);
+		throw err;
+	}
+
+	sink.data({ type: 'connected', stream: streamName, subject, fromSeq });
+	void relayToSse(messages, sink, (msg: JsMsg) => ({
+		type: 'message',
+		seq: msg.seq,
+		subject: msg.subject,
+		data: sc.decode(msg.data),
+		timestamp: new Date().toISOString()
+	}));
+
+	return async () => {
+		await messages.close();
+		await deleteConsumer();
+	};
+}
+
+/**
+ * Unified SSE endpoint backed by a JetStream consumer.
  * Replays ALL historical messages first (in stream sequence order),
  * then seamlessly transitions to delivering live messages.
- *
- * One data path, guaranteed causal ordering, zero race conditions.
  *
  * Usage: GET /api/nats/stream?stream=KUBEMOOT_DISCUSS&subject=kubemoot.discuss.>&from_seq=0
  *
  * The client tracks the last received `seq` and passes it as `from_seq`
  * on reconnection to resume without replaying already-seen messages.
  */
-export const GET: RequestHandler = async ({ url }) => {
+export const GET: RequestHandler = ({ url }) => {
 	const streamName = url.searchParams.get('stream') || 'KUBEMOOT_DISCUSS';
 	const subject = url.searchParams.get('subject') || DISCUSS_ALL;
-	const fromSeq = parseInt(url.searchParams.get('from_seq') || '0');
+	const fromSeq = Number.parseInt(url.searchParams.get('from_seq') || '0', 10) || 0;
 
-	const stream = new ReadableStream({
-		async start(controller) {
-			let heartbeatInterval: ReturnType<typeof setInterval> | null = null;
-			let consumerName: string | null = null;
-			let nc_ref: Awaited<ReturnType<typeof getNatsConnection>> | null = null;
-
-			try {
-				const nc = await getNatsConnection();
-				nc_ref = nc;
-				const jsm = await nc.jetstreamManager();
-				const js = nc.jetstream();
-
-				// Verify stream exists
-				try {
-					await jsm.streams.info(streamName);
-				} catch {
-					const notFound = { type: 'error', error: `Stream ${streamName} not found` };
-					controller.enqueue(`data: ${JSON.stringify(notFound)}\n\n`);
-					controller.close();
-					return;
-				}
-
-				// Create ephemeral consumer with ordered delivery
-				const deliverPolicy =
-					fromSeq > 0 ? DeliverPolicy.StartSequence : DeliverPolicy.All;
-
-				const consumerConfig: Record<string, unknown> = {
-					ack_policy: AckPolicy.None,
-					deliver_policy: deliverPolicy,
-					filter_subject: subject,
-					inactive_threshold: 60_000_000_000 // 60s inactivity cleanup
-				};
-
-				if (fromSeq > 0) {
-					consumerConfig.opt_start_seq = fromSeq + 1; // Resume AFTER last seen
-				}
-
-				const ci = await jsm.consumers.add(streamName, consumerConfig);
-				consumerName = ci.name;
-
-				const consumer = await js.consumers.get(streamName, ci.name);
-
-				// Send connected event with stream metadata
-				controller.enqueue(
-					`data: ${JSON.stringify({ type: 'connected', stream: streamName, subject, fromSeq })}\n\n`
-				);
-
-				// Heartbeat every 30s
-				heartbeatInterval = setInterval(() => {
-					try {
-						controller.enqueue(': heartbeat\n\n');
-					} catch {
-						if (heartbeatInterval) clearInterval(heartbeatInterval);
-					}
-				}, 30000);
-
-				// Consume messages — history first, then live (JetStream handles transition)
-				(async () => {
-					try {
-						const iter = await consumer.consume();
-						for await (const msg of iter) {
-							try {
-								const data = sc.decode(msg.data);
-								const event = JSON.stringify({
-									type: 'message',
-									seq: msg.seq,
-									subject: msg.subject,
-									data,
-									timestamp: new Date().toISOString()
-								});
-								controller.enqueue(`data: ${event}\n\n`);
-							} catch {
-								// Skip malformed messages
-							}
-						}
-					} catch {
-						// Consumer closed (client disconnected or stream deleted)
-					} finally {
-						if (heartbeatInterval) clearInterval(heartbeatInterval);
-					}
-				})();
-
-				// Store cleanup for cancel()
-				(controller as any)._streamCleanup = async () => {
-					if (heartbeatInterval) clearInterval(heartbeatInterval);
-					// Delete ephemeral consumer on disconnect
-					if (consumerName && nc_ref && !nc_ref.isClosed()) {
-						try {
-							const m = await nc_ref.jetstreamManager();
-							await m.consumers.delete(streamName, consumerName);
-						} catch {
-							/* already cleaned up */
-						}
-					}
-				};
-			} catch (err) {
-				if (heartbeatInterval) clearInterval(heartbeatInterval);
-				const errorMsg = err instanceof Error ? err.message : 'Failed to connect to NATS';
-				controller.enqueue(
-					`data: ${JSON.stringify({ type: 'error', error: errorMsg })}\n\n`
-				);
-				controller.close();
-			}
-		},
-		cancel(controller) {
-			const cleanup = controller?._streamCleanup;
-			if (typeof cleanup === 'function') cleanup();
-		}
-	});
-
-	return new Response(stream, {
-		headers: {
-			'Content-Type': 'text/event-stream',
-			'Cache-Control': 'no-cache',
-			Connection: 'keep-alive'
-		}
-	});
+	return sseResponse((sink) => openConsumer(sink, streamName, subject, fromSeq));
 };

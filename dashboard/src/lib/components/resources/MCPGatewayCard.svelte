@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { readinessStatus } from '$lib/resource-status';
-	import { base } from '$app/paths';
+	import { resolve } from '$app/paths';
 	import type { MCPGateway } from '$types/kubemoot.js';
 	import ResourceCard from './ResourceCard.svelte';
 
@@ -20,7 +20,7 @@
 <ResourceCard
 	name={gateway.metadata.name}
 	kind="MCPGateway"
-	href="{base}/mcpgateways/{gateway.metadata.name}?namespace={gateway.metadata.namespace}"
+	href="{resolve('/mcpgateways/[name]', { name: gateway.metadata.name })}?namespace={gateway.metadata.namespace}"
 	{status}
 	{statusLabel}
 	namespace={showNamespace ? gateway.metadata.namespace : undefined}

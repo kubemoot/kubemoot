@@ -613,7 +613,7 @@ export interface TopologyResponse {
 	edges: TopologyEdge[];
 }
 
-// Discussion types — consensus signals
+// Discussion types - consensus signals
 export interface DiscussionMessage {
 	messageId: string;
 	threadId: string;
@@ -689,7 +689,7 @@ export interface DiscussionMessage {
 		pickReason?: string;
 		onboarding?: boolean;
 		gapDetected?: boolean;
-		// gap_detected metadata.gapType — distinguishes which kind of gap
+		// gap_detected metadata.gapType - distinguishes which kind of gap
 		// the coordinator detected so dashboards can render differently
 		// (e.g., infrastructure-gap shouldn't suggest "onboard a specialist").
 		// Added 2026-05-26 alongside the gap_detected log/metadata-label
@@ -802,7 +802,7 @@ export interface CrewFitnessStatus {
 	conditions?: Condition[];
 }
 
-// CrewFitnessSuite types — N-iteration sweep of fitness scripts against a
+// CrewFitnessSuite types - N-iteration sweep of fitness scripts against a
 // crew. Operator-side reconciler creates per-iteration CrewFitness CRs
 // serially (or up to spec.concurrency in parallel), aggregates results,
 // and writes an XLSX artifact to the NATS Object Store. Dashboard reads

@@ -99,7 +99,9 @@ All endpoints support `?namespace=` query parameter:
 - `GET /dashboard/api/kubemoot/config`
 
 ### Real-time
-- `GET /dashboard/api/sse?namespace=` - Server-Sent Events
+- `GET /dashboard/api/kubemoot/watch/<plural>?namespace=` - Kubernetes resource changes as Server-Sent Events
+- `GET /dashboard/api/nats/subscribe?subject=` - NATS messages as Server-Sent Events
+- `GET /dashboard/api/nats/stream?stream=&subject=&from_seq=` - JetStream replay then live messages as Server-Sent Events
 
 ## RBAC
 

@@ -1,7 +1,8 @@
 <script lang="ts">
 	import '../app.css';
 	import { onMount } from 'svelte';
-	import { base } from '$app/paths';
+	import { resolve } from '$app/paths';
+	import { routeSection } from '$lib/route-section';
 	import { page } from '$app/stores';
 	import { Sidebar } from '$components/layout';
 	import { NamespaceSelector } from '$components/common';
@@ -11,8 +12,8 @@
 	// (threads carry a crew), so it shows the selector and filters by crew.
 	const NO_NAMESPACE_PAGES = new Set(['', 'nodes', 'messages', 'verify', 'config']);
 	let showNamespace = $derived(() => {
-		const path = $page.url.pathname.replace(base, '').replace(/^\//, '').split('/')[0];
-		return !NO_NAMESPACE_PAGES.has(path);
+		const section = routeSection($page.route.id);
+		return section === null || !NO_NAMESPACE_PAGES.has(section);
 	});
 
 	interface Props {
@@ -26,7 +27,7 @@
 	let version = $state('...');
 
 	// Global auto-refresh driver. The refresh store carries enabled + interval,
-	// and pages re-fetch when $refreshTrigger changes — but nothing ticked it.
+	// and pages re-fetch when $refreshTrigger changes - but nothing ticked it.
 	// This is that ticker: a single app-wide interval so views are live, not
 	// static (the dashboard is a realtime system). Reading enabled/interval via
 	// $derived means trigger()'s lastRefresh updates don't reset the interval.
@@ -41,7 +42,7 @@
 	onMount(async () => {
 		// Fetch crews (kubemoot.ai/crew-labeled namespaces) for the selector
 		try {
-			const res = await fetch(`${base}/api/namespaces`);
+			const res = await fetch(resolve('/api/namespaces'));
 			const data = await res.json();
 			crews = data.crews || [];
 		} catch {
@@ -52,7 +53,7 @@
 
 		// Fetch version
 		try {
-			const res = await fetch(`${base}/api/version`);
+			const res = await fetch(resolve('/api/version'));
 			const data = await res.json();
 			version = data.version;
 		} catch {

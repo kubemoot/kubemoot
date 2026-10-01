@@ -28,7 +28,7 @@ function createBoolPref(key: string, fallback: boolean) {
 }
 
 // A stand-aside is real consensus signal (which specialists saw the question and
-// declined), but it's noisy in bulk — most agents stand aside on any given query.
+// declined), but it's noisy in bulk - most agents stand aside on any given query.
 // One global setting (Config → Display Preferences) drives every view: Discussions,
 // Fitness, and the span graph. Default OFF: stand-aside / no-work agents are hidden
 // (a small "N hidden" note remains so nothing is silently dropped); ON shows them.
