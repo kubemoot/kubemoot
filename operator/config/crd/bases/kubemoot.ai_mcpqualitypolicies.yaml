@@ -202,8 +202,9 @@ spec:
                 properties:
                   blockBroken:
                     default: true
-                    description: BlockBroken automatically blocks servers with "avoid"
-                      verdict
+                    description: |-
+                      BlockBroken automatically blocks servers with "avoid" verdict.
+                      Unset means true.
                     type: boolean
                   enabled:
                     default: false
@@ -216,8 +217,9 @@ spec:
                     type: string
                   preferTested:
                     default: true
-                    description: PreferTested gives priority to servers with successful
-                      test history
+                    description: |-
+                      PreferTested gives priority to servers with successful test history.
+                      Unset means true.
                     type: boolean
                 type: object
             type: object

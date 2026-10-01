@@ -131,10 +131,9 @@ func (r *CrewFitnessSuiteReconciler) Reconcile(ctx context.Context, req ctrl.Req
 		return r.finalizeSuite(ctx, suite)
 	}
 	if !controllerutil.ContainsFinalizer(suite, crewFitnessSuiteFinalizer) {
-		controllerutil.AddFinalizer(suite, crewFitnessSuiteFinalizer)
 		// The update event re-triggers reconcile through the watch, so the
 		// watch must not filter metadata-only updates (no GenerationChangedPredicate).
-		return ctrl.Result{}, r.Update(ctx, suite)
+		return ctrl.Result{}, addFinalizer(ctx, r.Client, suite, crewFitnessSuiteFinalizer)
 	}
 
 	return r.dispatchPhase(ctx, suite)
@@ -233,8 +232,7 @@ func (r *CrewFitnessSuiteReconciler) finalizeSuite(ctx context.Context, suite *k
 				"suite", suite.Name, "prefix", prefix, "objects", n)
 		}
 	}
-	controllerutil.RemoveFinalizer(suite, crewFitnessSuiteFinalizer)
-	return ctrl.Result{}, r.Update(ctx, suite)
+	return ctrl.Result{}, removeFinalizer(ctx, r.Client, suite, crewFitnessSuiteFinalizer)
 }
 
 // startSuite transitions a Pending suite into Running by stamping a runId

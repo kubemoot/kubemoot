@@ -53,7 +53,7 @@ func (l *k8sLister) List(ctx context.Context) ([]Crew, error) {
 
 // hasGateway is true when the crew deploys a discussion gateway (the CRD default).
 func hasGateway(c *kubemootv1alpha1.Crew) bool {
-	return c.Spec.Discussion == nil || c.Spec.Discussion.Enabled
+	return c.Spec.Discussion == nil || c.Spec.Discussion.IsEnabled()
 }
 
 // find resolves a crew by name, and by namespace when the name is not unique.

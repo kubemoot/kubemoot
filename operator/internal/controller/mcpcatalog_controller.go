@@ -561,7 +561,7 @@ func (r *MCPCatalogReconciler) evaluateTestedTier(ctx context.Context, policy *a
 	tested := policy.Spec.Tested
 
 	// Block servers with "avoid" verdict
-	if tested.BlockBroken && report.Status.Verdict == string(aiv1alpha1.VerdictAvoid) {
+	if tested.BlockBrokenEnabled() && report.Status.Verdict == string(aiv1alpha1.VerdictAvoid) {
 		log.Info("Blocking server with avoid verdict", "server", server.Name)
 		return PolicyDecision{
 			Action:     "deny",

@@ -91,8 +91,7 @@ func (r *CrewReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 	}
 
 	if !controllerutil.ContainsFinalizer(crew, crewFinalizer) {
-		controllerutil.AddFinalizer(crew, crewFinalizer)
-		if err := r.Update(ctx, crew); err != nil {
+		if err := addFinalizer(ctx, r.Client, crew, crewFinalizer); err != nil {
 			return ctrl.Result{}, err
 		}
 		return ctrl.Result{Requeue: true}, nil
@@ -184,7 +183,7 @@ func (r *CrewReconciler) discoverAgents(ctx context.Context, crew *kubemootv1alp
 // whether the caller should return early. When handled is true, the caller must
 // return the provided result and error.
 func (r *CrewReconciler) reconcileDiscussion(ctx context.Context, crew *kubemootv1alpha1.Crew) (ctrl.Result, error, bool) {
-	if crew.Spec.Discussion == nil || !crew.Spec.Discussion.Enabled {
+	if crew.Spec.Discussion == nil || !crew.Spec.Discussion.IsEnabled() {
 		crew.Status.DiscussionEndpoint = ""
 		return ctrl.Result{}, nil, false
 	}
@@ -238,8 +237,7 @@ func (r *CrewReconciler) handleDeletion(ctx context.Context, crew *kubemootv1alp
 	r.deleteManagedNamespace(ctx, crew)
 	r.purgeCrewMemory(ctx, crew)
 
-	controllerutil.RemoveFinalizer(crew, crewFinalizer)
-	return ctrl.Result{}, r.Update(ctx, crew)
+	return ctrl.Result{}, removeFinalizer(ctx, r.Client, crew, crewFinalizer)
 }
 
 // deleteClusterRBAC removes the cluster-scoped RBAC resources for a crew; these

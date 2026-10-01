@@ -87,7 +87,7 @@ func (r *AgentReconciler) ragQueryEndpointFor(ctx context.Context, name, namespa
 // queryServiceEnabled reports whether the RAGSource runs a query service; it does unless switched off.
 func queryServiceEnabled(ragSource *kubemootv1alpha1.RAGSource) bool {
 	qs := ragSource.Spec.QueryService
-	return qs == nil || qs.Enabled == nil || *qs.Enabled
+	return qs == nil || kubemootv1alpha1.BoolOrTrue(qs.Enabled)
 }
 
 // ragQueryEndpoint is the in-cluster URL of a RAGSource's query service.

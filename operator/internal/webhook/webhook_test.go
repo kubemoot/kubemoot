@@ -20,6 +20,7 @@ import (
 	"testing"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/utils/ptr"
 
 	aiv1alpha1 "github.com/kubemoot/kubemoot/operator/api/v1alpha1"
 )
@@ -382,7 +383,7 @@ func TestValidateCrew(t *testing.T) {
 			crew: &aiv1alpha1.Crew{
 				ObjectMeta: metav1.ObjectMeta{Name: "hello-world"},
 				Spec: aiv1alpha1.CrewSpec{
-					Discussion: &aiv1alpha1.DiscussionConfig{Enabled: true},
+					Discussion: &aiv1alpha1.DiscussionConfig{Enabled: ptr.To(true)},
 				},
 			},
 			wantWarning: "discussion is enabled",
@@ -392,7 +393,7 @@ func TestValidateCrew(t *testing.T) {
 			crew: &aiv1alpha1.Crew{
 				ObjectMeta: metav1.ObjectMeta{Name: "hello-world"},
 				Spec: aiv1alpha1.CrewSpec{
-					Discussion: &aiv1alpha1.DiscussionConfig{Enabled: false},
+					Discussion: &aiv1alpha1.DiscussionConfig{Enabled: ptr.To(false)},
 				},
 			},
 		},

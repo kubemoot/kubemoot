@@ -68,8 +68,7 @@ func (r *EmbeddingModelReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 
 	// Add finalizer if not present
 	if !controllerutil.ContainsFinalizer(embeddingModel, embeddingModelFinalizer) {
-		controllerutil.AddFinalizer(embeddingModel, embeddingModelFinalizer)
-		if err := r.Update(ctx, embeddingModel); err != nil {
+		if err := addFinalizer(ctx, r.Client, embeddingModel, embeddingModelFinalizer); err != nil {
 			return ctrl.Result{}, err
 		}
 		return ctrl.Result{Requeue: true}, nil
@@ -294,8 +293,7 @@ func (r *EmbeddingModelReconciler) handleDeletion(ctx context.Context, embedding
 	// For now, we leave embedding models in Ollama as they may be shared
 
 	// Remove finalizer
-	controllerutil.RemoveFinalizer(embeddingModel, embeddingModelFinalizer)
-	if err := r.Update(ctx, embeddingModel); err != nil {
+	if err := removeFinalizer(ctx, r.Client, embeddingModel, embeddingModelFinalizer); err != nil {
 		return ctrl.Result{}, err
 	}
 

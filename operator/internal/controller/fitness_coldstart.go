@@ -39,7 +39,7 @@ import (
 func (r *CrewFitnessSuiteReconciler) coldStart(ctx context.Context, suite *kubemootv1alpha1.CrewFitnessSuite) {
 	log := logf.FromContext(ctx)
 
-	if boolPtrDefaultTrue(suite.Spec.PurgeMemory) {
+	if kubemootv1alpha1.BoolOrTrue(suite.Spec.PurgeMemory) {
 		if r.NATSPublisher == nil {
 			log.Info("cold-start: purgeMemory requested but NATS publisher unavailable; skipping")
 		} else if n, err := r.NATSPublisher.PurgeKVPrefix(crewMemoryBucket, crewscope.Scope{Namespace: suite.Namespace, Crew: suite.Spec.CrewRef}.MemoryPrefix()); err != nil {
@@ -49,7 +49,3 @@ func (r *CrewFitnessSuiteReconciler) coldStart(ctx context.Context, suite *kubem
 		}
 	}
 }
-
-// boolPtrDefaultTrue treats a nil pointer as true (matching the CRD default), so
-// a suite authored before these fields existed still gets cold-start behavior.
-func boolPtrDefaultTrue(b *bool) bool { return b == nil || *b }

@@ -49,7 +49,7 @@ The reference deployment uses the `kubemoot` implementation. The gateway image c
 | `port` | int32 | 8080 | Gateway service port |
 | `replicas` | int32 | 1 | Number of gateway instances |
 | `auth` | MCPGatewayAuth | | Authentication configuration |
-| `adminUI` | bool | `true` | Enable admin interface |
+| `adminUI` | bool | `true` | Enable admin interface; unset means enabled, an explicit `false` turns it off |
 | `resources` | ResourceRequirements | | CPU/memory requests and limits |
 | `imagePullSecrets` | []LocalObjectReference | | Image pull secrets |
 | `registries` | MCPRegistriesConfig | | External MCP registry sources |
