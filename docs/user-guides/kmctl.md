@@ -154,9 +154,9 @@ kmctl create demo --chart --members 2 --model-family qwen --no-input
 
 A chart deploys with `helm upgrade --install demo demo --namespace demo --create-namespace`
 instead of `kmctl apply -f demo/`; both forms scaffold the same manifests. This is the
-form [CrewForge](../../ecosystem/crewforge/) scaffolds with its **Create Crew** command,
+form [CrewForge](../../ecosystem/crewforge/) scaffolds with **New Kubemoot Crew Here**,
 and the layout its Crew Sources view expects a chart source to have; see
-[Develop Crews in VS Code](../develop-crews-in-vscode/) for that workflow.
+[Develop a crew in VS Code](../../ecosystem/crewforge/develop-a-crew/) for that workflow.
 
 ### 3. Review and customise
 
@@ -427,5 +427,6 @@ kmctl fitness --help
 - [kmctl - the CLI](../../ecosystem/kmctl/) - overview and ecosystem role
 - [Build a Crew](../build-a-crew/) - resource-level crew authoring
 - [Define Fitness Functions](../define-fitness-functions/) - fitness suite authoring
-- [Develop Crews in VS Code](../develop-crews-in-vscode/) - scaffolding, deploying, and
-  comparing a `--chart` crew from CrewForge instead of the terminal
+- [Develop a crew in VS Code](../../ecosystem/crewforge/develop-a-crew/) - scaffolding,
+  deploying, testing, and redeploying a `--chart` crew from CrewForge instead of the
+  terminal

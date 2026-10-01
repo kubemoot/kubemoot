@@ -96,5 +96,7 @@ across providers, a published dashboard) live in
 - [Crews & Agents](../../concepts/crews-and-agents/) - the model you just ran.
 - [Build a Crew](../../user-guides/build-a-crew/) - author your own, from scratch or
   from the packaged [Homelab Pilot](../../ecosystem/pilot/) chart.
+- [CrewForge](../../ecosystem/crewforge/) - develop the crew from VS Code: create, deploy,
+  ask, and test it in the editor.
 - [Define Fitness Functions](../../user-guides/define-fitness-functions/) - measure
   whether the crew actually does its job.

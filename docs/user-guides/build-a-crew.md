@@ -90,5 +90,5 @@ of the [Crew CRD reference](../../reference/crew/).
 - [Write Agents & ADL](../write-agents-and-adl/) - define behavior.
 - [Define Fitness Functions](../define-fitness-functions/) - measure the crew.
 - [Onboard MCP Tools](../onboard-mcp-tools/) - add capabilities.
-- [Develop Crews in VS Code](../develop-crews-in-vscode/) - do this same workflow from
-  CrewForge's Crew Sources view instead of the terminal.
+- [Develop a crew in VS Code](../../ecosystem/crewforge/develop-a-crew/) - do this same
+  workflow from CrewForge instead of the terminal.
