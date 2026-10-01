@@ -27,7 +27,7 @@ func TestModelChangeEnqueuesTheNamespacesAgents(t *testing.T) {
 	cli := fake.NewClientBuilder().WithScheme(scheme).WithObjects(
 		mkAgent("a1", "crew-ns", "demo"), mkAgent("a2", "crew-ns", "other"), mkAgent("b1", "elsewhere", "demo"),
 	).Build()
-	reqs := mapModelToAgentRequests(context.Background(), cli, mkModel("qwen3.5-9b", "crew-ns"))
+	reqs := namespaceAgentRequests[*kubemootv1alpha1.Model](context.Background(), cli, "Model", mkModel("qwen3.5-9b", "crew-ns"))
 	if len(reqs) != 2 {
 		t.Fatalf("want both agents in crew-ns, got %v", reqs)
 	}
@@ -36,7 +36,7 @@ func TestModelChangeEnqueuesTheNamespacesAgents(t *testing.T) {
 			t.Fatalf("enqueued an agent from another namespace: %v", r)
 		}
 	}
-	if got := mapModelToAgentRequests(context.Background(), cli, mkAgent("x", "crew-ns", "demo")); got != nil {
+	if got := namespaceAgentRequests[*kubemootv1alpha1.Model](context.Background(), cli, "Model", mkAgent("x", "crew-ns", "demo")); got != nil {
 		t.Fatalf("a non-Model object maps to nothing, got %v", got)
 	}
 }

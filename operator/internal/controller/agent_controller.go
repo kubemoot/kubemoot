@@ -1159,8 +1159,13 @@ func (r *AgentReconciler) memoryEnvVars(ctx context.Context, namespace string) [
 // reconciler creates shares the gateway's name; the port comes from spec
 // (defaulting to 8080).
 //
+// With several gateways the first by name wins, and a terminating gateway is
+// skipped, so the pick is deterministic and the Agent controller's MCPGateway
+// watch (create, delete, start of deletion, port change) covers every event that
+// can change it.
+//
 // Returns ok=false when no gateway exists in the namespace. We don't fail
-// reconciliation on absence — agents without a gateway just run with the
+// reconciliation on absence - agents without a gateway just run with the
 // direct-mode default (empty MCP server list, 0 tools).
 func (r *AgentReconciler) findCrewGateway(ctx context.Context, namespace string) (name string, port int32, ok bool) {
 	list := &kubemootv1alpha1.MCPGatewayList{}
@@ -1170,10 +1175,16 @@ func (r *AgentReconciler) findCrewGateway(ctx context.Context, namespace string)
 			"namespace", namespace, "err", err)
 		return "", 0, false
 	}
-	if len(list.Items) == 0 {
+	var gw *kubemootv1alpha1.MCPGateway
+	for i := range list.Items {
+		cand := &list.Items[i]
+		if cand.DeletionTimestamp.IsZero() && (gw == nil || cand.Name < gw.Name) {
+			gw = cand
+		}
+	}
+	if gw == nil {
 		return "", 0, false
 	}
-	gw := &list.Items[0]
 	p := gw.Spec.Port
 	if p == 0 {
 		p = 8080
@@ -1286,7 +1297,7 @@ func (r *AgentReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		// the Models that exist. See model_propagation.go.
 		Watches(
 			&kubemootv1alpha1.Model{},
-			enqueueAgentsOnModelChange(mgr.GetClient()),
+			enqueueNamespaceAgents[*kubemootv1alpha1.Model](mgr.GetClient(), "Model"),
 			builder.WithPredicates(modelBindingChanged()),
 		).
 		// Re-reconcile a crew's coordinator when one of its specialists is added,
@@ -1304,6 +1315,14 @@ func (r *AgentReconciler) SetupWithManager(mgr ctrl.Manager) error {
 			&kubemootv1alpha1.RAGSource{},
 			enqueueAgentsOnRAGSourceChange(mgr.GetClient()),
 			builder.WithPredicates(ragSourceEndpointChanged()),
+		).
+		// Re-reconcile a namespace's Agents when its MCPGateway appears, goes away,
+		// or changes port, so agents created before the gateway get its endpoint.
+		// See gateway_propagation.go.
+		Watches(
+			&kubemootv1alpha1.MCPGateway{},
+			enqueueNamespaceAgents[*kubemootv1alpha1.MCPGateway](mgr.GetClient(), "MCPGateway"),
+			builder.WithPredicates(gatewayWiringChanged()),
 		).
 		Complete(r)
 }
