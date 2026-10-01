@@ -103,6 +103,27 @@ jobs:
           mkdir -p mcp-gateway/build/classes/java/main
           mkdir -p indexer/build/classes/java/main
 
+      # -- Dashboard (SvelteKit / TypeScript) --------------------------------
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: '26'
+          cache: 'npm'
+          cache-dependency-path: dashboard/package-lock.json
+
+      - name: Dashboard tests with coverage
+        working-directory: dashboard
+        run: |
+          npm ci
+          npm run test:coverage
+        continue-on-error: true
+
+      - name: Check the dashboard coverage report exists
+        run: |
+          if [ ! -s dashboard/coverage/lcov.info ]; then
+            echo "::warning::dashboard/coverage/lcov.info is missing, so SonarQube will show 0% dashboard coverage"
+          fi
+
       # ── Trivy security scan ────────────────────────────────────────────
       - name: Trivy scan
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0

@@ -25,6 +25,14 @@ export default defineConfig({
 	test: {
 		environment: 'jsdom',
 		globals: true,
-		include: ['src/**/*.{test,spec}.{ts,js}']
+		include: ['src/**/*.{test,spec}.{ts,js}'],
+		coverage: {
+			provider: 'v8',
+			include: ['src/**/*.{ts,svelte}'],
+			exclude: ['src/**/*.{test,spec}.ts', 'src/**/*.d.ts'],
+			// SonarQube scans from the repository root, so the lcov file paths are written
+			// relative to it (dashboard/src/...), one level above this config.
+			reporter: ['text-summary', ['lcov', { projectRoot: '..' }]]
+		}
 	}
 });
