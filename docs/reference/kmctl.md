@@ -145,8 +145,8 @@ demo/
 
 The fitness suite is kept in `fitness/`, outside `templates/`, so `helm install` never
 starts a run on its own; apply it yourself when you want one. This is the layout
-[CrewForge](../../ecosystem/crewforge/) scaffolds when you use its **Create Crew**
-command, and the layout its Crew Sources view expects a chart source to have.
+[CrewForge](../../ecosystem/crewforge/) scaffolds when you use **New Kubemoot Crew Here**,
+and the layout its Crew Sources view expects a chart source to have.
 
 | Flag | Short | Description |
 |---|---|---|
