@@ -25,7 +25,7 @@ We will follow these conventions:
 | CRD names | Singular, CamelCase | `ModelProvider`, `Agent`, `CrewSchedulingPolicy` |
 | Short names | Lowercase abbreviations | `mdlp`, `mdl`, `mcp`, `rag`, `csp`, `moot`, `pm`, `wc` |
 | Brand names in prose | CrewForge, Homelab Pilot, Kubemoot | Per the ecosystem `.claude/CLAUDE.md` `naming-convention` rule |
-| Brand names in code/config | `crew-forge`, `homelab-pilot`, `kubemoot` | Kebab-case for everything machine-read |
+| Brand names in code/config | `vscode-crewforge`, `homelab-pilot`, `kubemoot` | Kebab-case for everything machine-read |
 | Hedge prefixes | Forbidden | No "honest", "honestly", "frankly" - see ecosystem CLAUDE.md `no-hedge-words` rule |
 
 ## Consequences
