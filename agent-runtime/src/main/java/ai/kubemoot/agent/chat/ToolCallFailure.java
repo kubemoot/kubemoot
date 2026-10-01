@@ -65,15 +65,7 @@ public class ToolCallFailure extends RuntimeException {
          * error, dropping the oldest messages (the question among them), so the
          * loop fails visibly instead.
          */
-        CONTEXT_EXCEEDED,
-        /**
-         * The loop's final turn, retried, came back with no text and no tool call
-         * every time, for an agent offered tools. An empty turn is not a choice to
-         * stand aside (that is NOTHING_TO_ADD): the agent was asked and produced
-         * nothing. A turn that spent output tokens yet shows neither is most often a
-         * call to a tool the agent is not offered, which the engine drops.
-         */
-        EMPTY_REPLY
+        CONTEXT_EXCEEDED
     }
 
     private final FailureType failureType;

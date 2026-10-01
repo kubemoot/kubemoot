@@ -46,12 +46,10 @@ stuck agents; the normal path never hits them.
 | `SUBMITTED` | The user question has arrived; no deliberation has begun yet. |
 | `ADVISORY` | The coordinator is generating the framing advisory and selecting the tooler subcommittee. |
 | `EVALUATING` | Selected Toolers are calling their domain MCP tools and publishing findings. |
-| `DECIDING` | The coordinator shapes the review: a full review, a one-analyst concurrence check, or none. |
-| `CONCURRING` | One Analyst checks the gathered results and answers whether it concurs, in one model turn with no tools. |
 | `REVIEW` | Analysts are reasoning over the Toolers' gathered data and contributing interpretive findings before synthesis. |
 | `SYNTHESIZING` | The coordinator is composing the final answer from all contributions. |
 | `CLOSED` | The answer has been delivered and the thread is clean. |
-| `PAUSED` | The discussion is suspended; settle timers are frozen until it resumes. `DECIDING` cannot be paused. |
+| `PAUSED` | The discussion is suspended; settle timers are frozen until it resumes. |
 
 ### Transitions
 
@@ -63,25 +61,8 @@ checker. They fire when the current signal state satisfies the advance condition
 | From | To | Advance condition |
 |------|----|-------------------|
 | `ADVISORY` | `EVALUATING` | The coordinator's inline advisory LLM call completes and the subcommittee is selected. |
-| `EVALUATING` | `SYNTHESIZING` | Exactly one Tooler agreed with no concern or block, and the crew has no Analyst agents. |
-| `EVALUATING` | `DECIDING` | Every other settled evaluation (see the settle rule below). |
-| `DECIDING` | `CONCURRING` | The review decision is `concur`. |
-| `DECIDING` | `REVIEW` | The review decision is `full`, or a runtime guard forced it (a Tooler failure, concern, or block; no Tooler agreement; a gathered result larger than a concurrence turn reads in whole), or the crew does not declare the decision. |
-| `DECIDING` | `SYNTHESIZING` | The review decision is `none`, where the crew's policy allows it. |
-| `CONCURRING` | `SYNTHESIZING` | The Analyst concurred (its reply opened with `CONCUR:`). |
-| `CONCURRING` | `REVIEW` | The Analyst raised a concern, blocked, or failed (an empty reply, or a reply with no `CONCUR:` or `CONCERN:` verdict, is a failure). The review runs with the selected Analysts other than that one (or, if it was the only one, the next best resume match among the Analysts on the thread's channel, or among all Analysts when none is left on it), with its view on the board. |
-| `REVIEW` | `SYNTHESIZING` | The woken Analysts have all reported or expired. There is no fast path in REVIEW: a slow Analyst is not dropped. |
-
-**How a phase settles.** Each phase has a roster: in `EVALUATING` the selected agents
-other than Analysts; in `CONCURRING` and `REVIEW` the woken Analysts, who count as
-pending from the moment the phase starts. When every roster member has reached a
-terminal signal (`agree`, `concern`, `block`, `stand_aside`, `failure`) and none is
-pending, the phase advances immediately. A member that never answers expires to a
-failure at its deadline. The minimum evaluation time (`minEvalSeconds`, default 20 s),
-the minimum review time (`minReviewSeconds`, default 10 s), and the quiet window apply
-only when the roster is unknown (no agents were selected) or still has signals pending.
-In EVALUATING, a sufficient-consensus fast path can also fire: once enough Toolers have
-agreed and the bus is quiet, the coordinator does not wait for stragglers.
+| `EVALUATING` | `REVIEW` | Every convened Tooler has reached a terminal signal (`agree`, `concern`, `stand_aside`, `block`, `failure`) or its per-agent deadline has expired, **and** the bus has been quiet for the settle window, **and** the minimum evaluation time has elapsed. A sufficient-consensus fast path can also fire: once enough Toolers have agreed and the bus is quiet, the coordinator does not wait for stragglers. In either case, settle is state-driven, not clock-driven. |
+| `REVIEW` | `SYNTHESIZING` | The review roster has settled (every selected Analyst has reported or timed out) and the minimum review time has elapsed. There is no fast path in REVIEW: a slow Analyst is not dropped. |
 
 **Event transitions** fire immediately when a specific message arrives on the bus:
 
@@ -89,7 +70,7 @@ agreed and the bus is quiet, the coordinator does not wait for stragglers.
 |-------|------|----|
 | `thread_start` | `SUBMITTED` | `ADVISORY` |
 | synthesis complete | `SYNTHESIZING` | `CLOSED` |
-| `thread_pause` | any state except `DECIDING`, `SYNTHESIZING`, or `CLOSED` | `PAUSED` |
+| `thread_pause` | any state except `SYNTHESIZING` or `CLOSED` | `PAUSED` |
 | `thread_resume` | `PAUSED` | the saved prior state (settle timers resume) |
 | `stop_requested` | any state except `SYNTHESIZING` or `CLOSED` | `SYNTHESIZING` (the dashboard Stop button: forces synthesis on whatever signals exist) |
 | human reply on a closed thread | `CLOSED` | `EVALUATING` (the thread is reopened for another round) |
@@ -108,20 +89,8 @@ publishes `evaluating`, the deadline tightens to a P90-calibrated estimate. A
 terminal signal) causes the coordinator to treat that agent as absent.
 
 **REVIEW waits for its own roster.** The fast-path rule applies only in EVALUATING.
-Once the coordinator enters REVIEW, it holds until every woken Analyst has reported
-or expired. A slow Analyst is not dropped in favour of a faster synthesis, and the
-phase cannot settle before a woken reviewer has published its first signal.
-
-**The coordinator shapes the review.** After EVALUATING the coordinator can decide how
-much review the results need. A crew that declares the
-[review decision](../../user-guides/compose-a-crew/#declare-the-review-decision)
-gets one coordinator model call that answers `concur` (one Analyst checks the
-results), `full` (the selected Analysts review), or `none` (straight to synthesis).
-The policy lives in the crew's coordinator PromptModule. The runtime enforces guards
-the policy cannot override: a Tooler failure, any concern or block, or no Tooler
-agreement forces `full` without a model call, and an unreadable answer or failed call
-is `full`. The decision is published on the thread as a `review_decision` message.
-Crews without the decision keep the full review.
+Once the coordinator enters REVIEW, it holds until every selected Analyst has
+reported. A slow Analyst is not dropped in favour of a faster synthesis.
 
 **PAUSED suspends settle timers.** While the machine is in PAUSED, the coordinator
 does not advance settle windows or expire deadlines. When `thread_resume` arrives,
@@ -147,17 +116,15 @@ archetype**.
 - **Today** Kubemoot ships a single archetype, installed as the `consent-3`
   `MootArchetype`: a facilitating **coordinator**
   convenes the Toolers whose expertise fits the question; Analysts reason over the
-  Toolers' findings in the REVIEW phase (or check them in a one-analyst concurrence
-  when the crew declares the review decision); and the coordinator synthesizes once the
+  Toolers' findings in the REVIEW phase; and the coordinator synthesizes once the
   discussion settles (a consent-style model). The coordinator is itself a light form
   of hierarchy.
 - The `MootArchetype` resource ([reference](../../reference/mootarchetype/)) declares
   the scheduling phases and signals of an archetype, and the operator validates
   `CrewSchedulingPolicy` phase names against it so the scheduler can choose a model per
   phase. The agent runtime does not read it: the phases and transitions of a
-  discussion (advisory, evaluating, deciding, concurring, review, synthesis) are fixed in
-  code, and the review decision is declared by the crew (coordinator environment and
-  PromptModule), not by the archetype. The consensus flow is the only archetype
+  discussion (advisory, evaluating, review, synthesis) are fixed in code, so the orchestration of
+  a discussion is fixed today, so the consensus flow is the only archetype
   that ships. Hierarchical organizations and stricter consent or voting rules are
   valid archetypes the design leaves room for; they are not implemented yet (see the
   [Roadmap](../../introduction/roadmap/#consensus-archetypes-declared-not-coded)).

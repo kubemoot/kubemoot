@@ -909,7 +909,7 @@ func (r *AgentReconciler) buildEnvVars(ctx context.Context, agent *kubemootv1alp
 	env := baseAgentEnvVars(agent, crew, mulling, triage, port)
 	env = append(env, candidateEnvVars(mulling, triage)...)
 	env = append(env, agentModelEnvVars(agent)...)
-	env = append(env, agentDiscussIdentityEnvVars(agent)...)
+	env = append(env, agentDiscussRelevanceEnvVars(agent)...)
 	env = append(env, r.agentDiscussRoleEnvVars(ctx, agent, crew)...)
 	env = append(env, r.agentGatewayEnvVars(ctx, agent)...)
 	env = append(env, r.ragSourceEnvVars(ctx, agent)...)
@@ -1007,12 +1007,21 @@ func agentModelEnvVars(agent *kubemootv1alpha1.Agent) []corev1.EnvVar {
 	return env
 }
 
-// agentDiscussIdentityEnvVars returns the discuss role and triage summary env
-// vars. spec.discussKeywords reaches the coordinator through the agent's resume
-// (resume_sync.go), and spec.discussRelevance is deprecated and unread, so
-// neither becomes an env var.
-func agentDiscussIdentityEnvVars(agent *kubemootv1alpha1.Agent) []corev1.EnvVar {
+// agentDiscussRelevanceEnvVars returns the discuss keyword/relevance/role/summary
+// env vars derived from the agent's discuss-relevance and triage spec.
+func agentDiscussRelevanceEnvVars(agent *kubemootv1alpha1.Agent) []corev1.EnvVar {
 	var env []corev1.EnvVar
+	if len(agent.Spec.DiscussKeywords) > 0 {
+		env = append(env, corev1.EnvVar{Name: "KUBEMOOT_DISCUSS_KEYWORDS", Value: strings.Join(agent.Spec.DiscussKeywords, ",")})
+	}
+	if agent.Spec.DiscussRelevance != nil {
+		if agent.Spec.DiscussRelevance.Mode != "" {
+			env = append(env, corev1.EnvVar{Name: "KUBEMOOT_DISCUSS_RELEVANCE_MODE", Value: agent.Spec.DiscussRelevance.Mode})
+		}
+		if agent.Spec.DiscussRelevance.PromptHint != "" {
+			env = append(env, corev1.EnvVar{Name: "KUBEMOOT_DISCUSS_RELEVANCE_PROMPT_HINT", Value: agent.Spec.DiscussRelevance.PromptHint})
+		}
+	}
 	if agent.Spec.DiscussRole != "" {
 		env = append(env, corev1.EnvVar{Name: "KUBEMOOT_DISCUSS_ROLE", Value: agent.Spec.DiscussRole})
 	}

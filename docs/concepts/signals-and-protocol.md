@@ -30,27 +30,6 @@ hold its model is busy, and `evaluating` again when a GPU frees up. Which signal
 by the runtime today; the one archetype that ships is described in
 [The Moot](../consensus-model/).
 
-## The CONCERN: and CONCUR: reply sentinels
-
-An agent reply that starts with `CONCERN:` is published as a `concern` signal whose
-content is the text after the sentinel, the same way `TOOL_GAP:` marks a tool gap. It
-applies to any agent reply.
-
-A concurrence reply is a verdict and must open with a sentinel: `CONCUR:` is published
-as `agree` carrying only the text after it (a short caveat, or a standard confirmation
-when nothing follows), and `CONCERN:` as a `concern`. A concurrence reply that opens
-with neither, including a free-form answer or `NOTHING_TO_ADD`, is published as a
-`failure` with `failureType` `no_verdict`; an empty one as `failure` with
-`empty_reply`. The coordinator escalates both to the full review. Sentinels are
-case-sensitive.
-
-## Review messages
-
-| Message | Meaning |
-|---------|---------|
-| `review_decision` | The coordinator's review decision for the thread. Metadata: `decision` (`concur`, `full`, or `none`), `reason`, `forced` (a runtime guard set it, not the crew's policy), and `tier` (`fast` or `reasoning`). The dashboard timeline shows it. |
-| `review_ready` | Wakes the analysts that review. It always names them in `innerCircle`, and `metadata.reviewMode` is `concur` (one analyst, with a concurrence request) or `full`. It never wakes every analyst: when none was selected, the single best resume match among the analysts that declare the thread's channel reviews (among all analysts on the `general` channel), and with no ranking available the thread goes straight to synthesis. |
-
 ## Stand-asides for GPU capacity
 
 A stand-aside usually means the agent had nothing to add. Three reasons mark a different
@@ -71,12 +50,9 @@ See [Models & Scheduling](../models-and-scheduling/#when-every-gpu-is-busy).
 A discussion advances by **state**, not by a fixed timer. The coordinator runs a
 per-thread state machine with the following phases:
 
-`SUBMITTED` → `ADVISORY` → `EVALUATING` → `DECIDING` → (`CONCURRING` →) `REVIEW` → `SYNTHESIZING` → `CLOSED`
+`SUBMITTED` → `ADVISORY` → `EVALUATING` → `REVIEW` → `SYNTHESIZING` → `CLOSED`
 
-When exactly one Tooler agreed with no concern or block and the crew has no Analysts,
-the thread goes from `EVALUATING` straight to `SYNTHESIZING`. The review decision can
-also skip `REVIEW` (after a concurrence, or with `none`). A `PAUSED` state can
-interrupt any phase except `DECIDING`, `SYNTHESIZING`, and `CLOSED`; the
+A `PAUSED` state can interrupt any phase except `SYNTHESIZING` and `CLOSED`; the
 machine resumes to the same phase when unpaused. A dashboard Stop forces an
 immediate transition to `SYNTHESIZING` on whatever signals exist. A human reply on a
 closed thread reopens it to `EVALUATING`.
@@ -87,18 +63,14 @@ In plain terms, the flow is:
    Tooler subcommittee; Toolers acknowledge with `triaging`.
 2. **EVALUATING** - selected Toolers call their domain MCP tools and publish findings,
    each carrying a signal.
-3. **DECIDING** - the coordinator shapes the review: `concur`, `full`, or `none`.
-4. **CONCURRING** (only after `concur`) - one Analyst is asked whether it concurs.
-5. **REVIEW** - Analysts (if the crew has them) reason over the Toolers' gathered data
+3. **REVIEW** - Analysts (if the crew has them) reason over the Toolers' gathered data
    and contribute interpretive findings before synthesis. The coordinator waits for
-   every woken Analyst to report; there is no fast path in this phase.
-6. **SYNTHESIZING** - the coordinator composes the answer from all contributions.
-7. **CLOSED** - the answer has been delivered and the thread is clean.
+   every selected Analyst to report; there is no fast path in this phase.
+4. **SYNTHESIZING** - the coordinator composes the answer from all contributions.
+5. **CLOSED** - the answer has been delivered and the thread is clean.
 
-Timeouts exist only as safety nets. The normal path is driven by signal state: each
-phase has a roster, and when every roster member has a terminal signal the phase
-advances at once. The minimum evaluation and review times and the quiet window apply
-only when the roster is unknown or still has signals pending. GPU
+Timeouts exist only as safety nets. The normal path is driven by signal state: who
+has reported, what they signalled, and whether the discussion has quieted. GPU
 inference and model loading have unpredictable latency, so the protocol waits on
 state transitions, not wall-clock deadlines.
 

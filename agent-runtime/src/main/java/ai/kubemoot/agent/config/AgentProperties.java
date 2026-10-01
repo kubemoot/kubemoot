@@ -89,6 +89,9 @@ public interface AgentProperties {
     interface Discuss {
         Optional<String> channels();
 
+        @WithDefault("30")
+        int timeoutSeconds();
+
         /**
          * Number of candidate agents the vector resume pre-filter returns to NARROW the
          * catalog the coordinator reasons over (RAG recall; the reasoning call then
@@ -108,8 +111,20 @@ public interface AgentProperties {
         @WithDefault("true")
         boolean tooler();
 
+        Optional<String> keywords();
+
+        /** Relevance decision strategy. One of: keyword (default), llm, keyword-then-llm. */
+        @WithDefault("keyword")
+        String relevanceMode();
+
+        /** Optional extra sentence appended to the LLM relevance prompt to bias toward this agent's domain. */
+        Optional<String> relevancePromptHint();
+
         @WithDefault("medium")
         String priority();
+
+        @WithDefault("5")
+        int advisoryGraceSeconds();
 
         // Default is "generic" (NOT "tooler"): the raw-tool-output contract in
         // ChatService.callWithToolLoop fires only for role=="tooler", so emitting
@@ -187,27 +202,6 @@ public interface AgentProperties {
         boolean hasAnalysts();
 
         /**
-         * Whether the crew declares the review decision
-         * (KUBEMOOT_DISCUSS_REVIEW_DECISION). When true, the coordinator makes one
-         * model call after EVALUATING that chooses how the gathered results are
-         * checked: concur (one analyst is asked whether it concurs), full (the review
-         * with the selected analysts), or none. The policy for that choice lives in
-         * the crew's coordinator PromptModule; the runtime escalates to a full review
-         * whenever a tooler failed or a concern or objection is on the board. Off:
-         * the full review runs, as for any crew that does not declare it.
-         */
-        @WithDefault("false")
-        boolean reviewDecision();
-
-        /**
-         * The model tier of the review decision call
-         * (KUBEMOOT_DISCUSS_REVIEW_DECISION_TIER): "fast" uses the triage model,
-         * "reasoning" the coordinator's main model. Any other value is the fast tier.
-         */
-        @WithDefault("fast")
-        String reviewDecisionTier();
-
-        /**
          * Max re-prompts the synthesis makes when its draft under-enumerates an
          * inventory answer (lists fewer entities than the gathered data contains).
          * The completeness contract names the omitted entries and asks for the full
@@ -219,18 +213,16 @@ public interface AgentProperties {
         @WithDefault("0")
         int synthesisCompletenessRetries();
 
-        // Phase budgets. They only sum into the discussion's hard ceiling (a safety
-        // net); signals, not these values, move a discussion between phases.
-        @WithDefault(PhaseBudgetDefaults.ADVISORY_SECONDS)
+        @WithDefault("10")
         int advisoryTimeoutSeconds();
 
-        @WithDefault(PhaseBudgetDefaults.EVALUATION_SECONDS)
+        @WithDefault("300")
         int evaluationTimeoutSeconds();
 
-        @WithDefault(PhaseBudgetDefaults.REVIEW_SECONDS)
+        @WithDefault("15")
         int reviewTimeoutSeconds();
 
-        @WithDefault(PhaseBudgetDefaults.SYNTHESIS_SECONDS)
+        @WithDefault("90")
         int synthesisTimeoutSeconds();
 
         @WithDefault("20")

@@ -139,10 +139,15 @@ class DiscussionSubscriberTest {
                 @Override public Optional<String> channels() {
                     return channels == null || channels.isEmpty() ? Optional.empty() : Optional.of(channels);
                 }
+                @Override public int timeoutSeconds() { return 30; }
                 @Override public int maxInferencesPerMinute() { return 10; }
                 @Override public int maxContributionsPerThread() { return 3; }
                 @Override public boolean tooler() { return true; }
+                @Override public Optional<String> keywords() { return Optional.of("kubernetes"); }
+                @Override public String relevanceMode() { return "keyword"; }
+                @Override public Optional<String> relevancePromptHint() { return Optional.empty(); }
                 @Override public String priority() { return "medium"; }
+                @Override public int advisoryGraceSeconds() { return 5; }
                 @Override public String role() { return "tooler"; }
                 @Override public boolean coordinator() { return false; }
                 @Override public boolean computeContract() { return false; }
@@ -151,8 +156,6 @@ class DiscussionSubscriberTest {
                 @Override public int synthesisCompletenessRetries() { return 0; }
                 @Override public boolean answerDirectly() { return true; }
                 @Override public boolean hasAnalysts() { return false; }
-                @Override public boolean reviewDecision() { return false; }
-                @Override public String reviewDecisionTier() { return "fast"; }
                 @Override public int advisoryTimeoutSeconds() { return 10; }
                 @Override public int evaluationTimeoutSeconds() { return 300; }
                 @Override public int reviewTimeoutSeconds() { return 15; }

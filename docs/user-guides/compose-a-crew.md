@@ -68,7 +68,7 @@ its spec:
 
 - `spec.description` - what this agent does, in plain language
 - `spec.triageSummary` - a terse, LLM-optimized description of the agent's scope
-- `spec.discussKeywords` - additional terms embedded in the agent's resume
+- `spec.discussKeywords` - additional terms included in the fallback similarity path
 - `spec.enabledTools` (the tool names themselves) - which tools this agent can call
 
 When a question arrives, the coordinator makes one LLM reasoning call over the entire
@@ -93,9 +93,9 @@ The coordinator cannot reason well about an agent it cannot read clearly.
 If the reasoning call fails or returns nothing, the coordinator falls back to semantic
 similarity over the per-crew resume index (`crew_<namespace>_<crew>_resumes`) and selects the
 agents whose resumes score highest. If that also fails, it broadcasts to all
-specialists. `spec.discussKeywords` feeds the resume the similarity search embeds, not the primary
+specialists. `spec.discussKeywords` feeds the similarity fallback, not the primary
 reasoning call. Treat it as optional supplemental vocabulary that improves fallback
-accuracy, not as the main selection signal. It is never a relevance gate.
+accuracy, not as the main selection signal.
 
 ### Write resumes for the coordinator, not for humans
 
@@ -113,7 +113,7 @@ noun-phrase list of the resource types, operations, and data the agent covers. W
 it like the agent's signature line in a directory listing, not a sentence. Brevity and
 specificity beat prose here.
 
-**`spec.discussKeywords`**: additional terms embedded in the agent's resume, which the similarity search reads.
+**`spec.discussKeywords`**: additional terms included in the similarity fallback index.
 Include synonyms, related concepts, and domain vocabulary the description may omit.
 These improve fallback accuracy but are not read during the primary reasoning call.
 
@@ -286,71 +286,6 @@ ASSERT the advisory is additive: Toolers may use richer tools than the brief sug
 ASSERT Toolers run on smaller models with less context than the coordinator.
   Write briefs that help orient them, not ones that constrain their investigation.
 ```
-
-### Declare the review decision
-
-After the Toolers settle, a crew with Analysts can let the coordinator decide how much
-review the gathered results need. The decision is opt-in per crew and is declared on
-the coordinator Agent:
-
-```yaml
-spec:
-  deployment:
-    env:
-      - name: KUBEMOOT_DISCUSS_REVIEW_DECISION
-        value: "true"            # default false
-      - name: KUBEMOOT_DISCUSS_REVIEW_DECISION_TIER
-        value: "fast"            # fast (default) or reasoning
-```
-
-`fast` runs the decision on the triage model; `reasoning` runs it on the coordinator's
-main model. With no distinct triage model, the main model is used.
-
-With the decision on, the coordinator makes one model call over the question, the
-runtime's signal counts, the selected Analysts, and the gathered results, and answers
-`{"review": "concur" | "full" | "none", "reason": "..."}`:
-
-- `concur`: one Analyst is asked whether it concurs: the selected Analyst whose resume
-  best matches the question, or, when none was selected, the best match among the
-  Analysts that declare the thread's channel in `discussChannels` (every Analyst when
-  the channel is `general` or none declares it). A concurrence check is a second
-  opinion on results already gathered, so the Analyst answers without a triage call and
-  in one model turn with no tools, whatever tools it has: the turn sees the question,
-  the gathered results (with any spilled artifact's content read in, as synthesis sees
-  it, up to 24,000 characters per artifact), and the Analyst's own PromptModules. The
-  reply is a verdict, not a new answer: it starts with `CONCUR:` (followed by at most a
-  short caveat, which is all that reaches synthesis) or `CONCERN:` (what is missing or
-  wrong). `CONCUR:` goes to synthesis. `CONCERN:`, a block, a failed turn, an empty
-  reply, or a reply that starts with neither sentinel escalates to a full review.
-- `full`: the selected Analysts review the results.
-- `none`: straight to synthesis, only where the crew's policy allows it.
-
-The rule for choosing belongs in a coordinator `PromptModule`, in
-[ADL](../write-agents-and-adl/) or prose like the rest of the crew's prompts. The
-reference crews ship a `review-decision` module; its rules, abbreviated:
-
-```text
-WHEN a tooler failed or raised a concern, OR the contributions conflict: THEN full.
-WHEN the question asks for judgment, a recommendation, a trade-off, a root cause,
-    or a correlation across layers or domains: THEN full.
-WHEN the answer needs a count, total, ranking, sort, or other arithmetic: THEN full.
-WHEN the gathered results directly answer the question as asked: THEN concur.
-WHEN unsure: THEN full.
-NEVER choose none.
-```
-
-Give the Analysts a matching rule for answering a concurrence check (start the reply
-with `CONCUR:` and at most a caveat, or with `CONCERN:` and name what is missing or
-wrong; never answer the question in its place). The check runs over the Analyst's own
-PromptModules, so a review rule that says "answer the question" must be scoped to the
-full review, or it competes with the verdict.
-
-The runtime enforces guards the policy cannot override: any Tooler failure, concern, or
-block, no Tooler agreement, or a gathered result spilled to an artifact larger than the
-concurrence turn reads in whole (24,000 characters), forces `full` without a model call,
-and an unreadable answer or a failed call is `full`. The decision is published on the thread as a
-`review_decision` message for the dashboard timeline. A crew that does not declare the
-decision keeps the full review.
 
 ---
 

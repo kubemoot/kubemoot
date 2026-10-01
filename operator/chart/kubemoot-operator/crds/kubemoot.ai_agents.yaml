@@ -298,29 +298,40 @@ spec:
                 type: array
               discussKeywords:
                 description: |-
-                  DiscussKeywords are domain keywords embedded in this agent's resume,
-                  which the coordinator searches to select the agents for a discussion.
+                  DiscussKeywords are domain keywords used to gate this agent's
+                  participation in a discussion (keyword fallback when the LLM
+                  advisory is unavailable). Set as KUBEMOOT_DISCUSS_KEYWORDS env var.
                 items:
                   type: string
                 type: array
               discussRelevance:
                 description: |-
-                  DiscussRelevance configured the per-agent relevance filter.
-
-                  Deprecated: unread; accepted so existing manifests apply unchanged.
+                  DiscussRelevance configures how this agent's RelevanceFilter decides
+                  whether an incoming discussion message is relevant. Default mode is
+                  `keyword` (literal substring match against DiscussKeywords). Use
+                  `llm` for agents whose intent surface is unbounded (e.g.,
+                  scheduler-advisor matching arbitrary temporal phrasings); use
+                  `keyword-then-llm` to keep the cheap keyword fast-path and only
+                  invoke the LLM when keywords miss.
                 properties:
                   mode:
                     default: keyword
                     description: |-
-                      Mode is deprecated and unread. Accepted values are kept for compatibility:
-                      keyword, llm, keyword-then-llm.
+                      Mode selects the relevance-decision strategy:
+                        - keyword: literal substring match against Agent.spec.discussKeywords
+                        - llm: call the triage model with a yes/no relevance prompt
+                        - keyword-then-llm: try keyword first (cheap), fall back to LLM
                     enum:
                     - keyword
                     - llm
                     - keyword-then-llm
                     type: string
                   promptHint:
-                    description: PromptHint is deprecated and unread.
+                    description: |-
+                      PromptHint is an optional extra sentence appended to the LLM
+                      relevance prompt to bias the model toward this agent's domain.
+                      Ignored when mode=keyword. When empty, the agent's triageSummary
+                      is the sole role description in the prompt.
                     type: string
                 type: object
               discussRole:

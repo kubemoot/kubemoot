@@ -117,8 +117,6 @@ public class ChatService {
     }
     /** This agent's characters per prompt token, learned from the engine's reported prompt sizes. */
     private final CharsPerToken charsPerToken = new CharsPerToken();
-    /** How far this agent's tool loops grow past their first prompt, learned from its own loops. */
-    private final LoopGrowth loopGrowth = new LoopGrowth();
 
     /** Tool specifications in the order offered to the model, and the executor for each. */
     record ToolSet(List<ToolSpecification> specs, Map<ToolSpecification, ToolExecutor> executors) {
@@ -244,7 +242,8 @@ public class ChatService {
      */
     public ChatResult directChat(ChatRequest request, boolean skipRag,
                                  ai.kubemoot.agent.provider.CapacityWait wait) {
-        return directLlmCall(request, skipRag, isToolerRole(), wait);
+        boolean toolerRawOutput = "tooler".equals(properties.discuss().role());
+        return directLlmCall(request, skipRag, toolerRawOutput, wait);
     }
 
     private ChatResult directAnswer(ChatRequest request, String threadId) {
@@ -399,6 +398,10 @@ public class ChatService {
     // than a generic "<key>" placeholder.
     private static final java.util.regex.Pattern ARTIFACT_KEY_PATTERN =
             java.util.regex.Pattern.compile("\\[ARTIFACT key=([^\\]\\s]+)");
+    // Strips a reasoning model's <think>...</think> block so the no-data sentinel
+    // check sees only the actual answer. See isNoDataDeclaration.
+    private static final java.util.regex.Pattern THINK_BLOCK =
+            java.util.regex.Pattern.compile("(?is)<think>.*?</think>");
     private static final String COMPUTE_CONTRACT_REPROMPT =
             "You produced an answer without running execute_code. You MUST compute the result by "
             + "calling execute_code over the data. If a contribution references an artifact file "
@@ -492,22 +495,9 @@ public class ChatService {
                                      long contextLength) {
         refreshTools();
         ToolLoopState state = new ToolLoopState(messages);
-        LoopCall call = new LoopCall(modelForThisCall, providerName, pickReason, toolerRawOutput, contextLength);
-        try {
-            return runToolLoop(state, call);
-        } finally {
-            loopGrowth.record(state.firstPromptTokens, state.peakTokens);
-        }
-    }
-
-    /** One tool loop's model, provider attribution, role contract, and context window. */
-    private record LoopCall(ChatModel model, String providerName, String pickReason,
-                            boolean toolerRawOutput, long contextLength) {}
-
-    private ToolLoopResult runToolLoop(ToolLoopState state, LoopCall call) {
         int maxIterations = properties.model().maxToolIterations();
 
-        // Wall-clock deadline for the entire loop - bounds elapsed time
+        // Wall-clock deadline for the entire loop — bounds elapsed time
         // across slow iterations. See MAX_LOOP_WALL_CLOCK_MS for rationale.
         long loopStartMs = System.currentTimeMillis();
         long loopDeadlineMs = loopStartMs + MAX_LOOP_WALL_CLOCK_MS;
@@ -518,17 +508,18 @@ public class ChatService {
             // The check is BEFORE the LLM call so we never start a fresh
             // 120s-timeout call that would push past the deadline.
             checkLoopDeadline(loopStartMs, loopDeadlineMs, i);
-            var gathered = contributionWhenContextIsFull(state, call, i);
+            var gathered = contributionWhenContextIsFull(state, contextLength, i, toolerRawOutput,
+                    providerName, pickReason);
             if (gathered.isPresent()) {
                 return gathered.get();
             }
 
-            var aiMessage = invokeModelForLoop(call.model(), state);
+            var aiMessage = invokeModelForLoop(modelForThisCall, state);
 
             // If no tool calls, decide the final text (or retry an empty turn).
             if (!aiMessage.hasToolExecutionRequests()) {
-                var done = resolveNoToolResult(aiMessage, state, call.toolerRawOutput(),
-                        call.providerName(), call.pickReason());
+                var done = resolveNoToolResult(aiMessage, state, toolerRawOutput,
+                        providerName, pickReason);
                 if (done.isPresent()) {
                     return done.get();
                 }
@@ -538,8 +529,8 @@ public class ChatService {
             executeToolCalls(aiMessage, state);
         }
 
-        return exhaustedIterationsResult(state, maxIterations, call.toolerRawOutput(),
-                call.providerName(), call.pickReason());
+        return exhaustedIterationsResult(state, maxIterations, toolerRawOutput,
+                providerName, pickReason);
     }
 
     /** Throw LOOP_TIME_EXCEEDED when the wall-clock deadline has passed. */
@@ -559,122 +550,41 @@ public class ChatService {
      * Decide what happens when the next prompt would not fit the provider's
      * context; empty when it fits (or the context is unknown) and the loop goes on.
      * The engine cuts an oversized prompt without an error, dropping the oldest
-     * messages (the question among them), so the prompt is never sent.
-     * <ul>
-     *   <li>Every tool call failed: the gather failed (GATHER_FAILED), whatever the
-     *       role, rather than posting error text as data.</li>
-     *   <li>A tooler whose tools ran contributes the raw output it gathered: that
-     *       output is its contribution, and another model turn would add nothing.
-     *       The metrics drill re-prompt needs another turn, so it does not run here.</li>
-     *   <li>Any other agent that has had a model turn answers from what it has read
-     *       in one closing turn (see {@link #closingTurn}).</li>
-     *   <li>Otherwise the loop fails visibly with CONTEXT_EXCEEDED.</li>
-     * </ul>
+     * messages (the question among them), so the prompt is never sent. A tooler
+     * whose tools already ran stops here with the raw output it gathered: that
+     * output is its contribution, and another model turn would add nothing to it;
+     * when every tool call failed, the gather failed (GATHER_FAILED) rather than
+     * posting error text as data. The metrics drill re-prompt needs another turn,
+     * so it does not run here; an empty metric result is small, so a full window
+     * almost always holds real data. Any other agent needs the question in the
+     * next turn, so it fails visibly with CONTEXT_EXCEEDED.
      */
     private java.util.Optional<ToolLoopResult> contributionWhenContextIsFull(
-            ToolLoopState state, LoopCall call, int iteration) {
-        if (call.contextLength() <= 0) {
+            ToolLoopState state, long contextLength, int iteration, boolean toolerRawOutput,
+            String providerName, String pickReason) {
+        if (contextLength <= 0) {
             return java.util.Optional.empty();
         }
         long next = PromptSize.nextPromptTokens(state.allMessages, tools().specs(),
                 state.lastPromptTokens, state.lastReplyTokens, state.messagesAtLastCall, charsPerToken);
-        if (next <= call.contextLength()) {
+        if (next <= contextLength) {
             return java.util.Optional.empty();
         }
-        state.peakTokens = Math.max(state.peakTokens, next);
-        failIfEveryToolFailed(state, next, call.contextLength(), iteration);
-        if (call.toolerRawOutput() && state.toolsExecuted && state.toolOutput.length() > 0) {
+        if (toolerRawOutput && state.toolsExecuted && state.toolOutput.length() > 0) {
+            if (state.totalToolFailures >= state.toolCalls) {
+                throw new ToolCallFailure(ToolCallFailure.FailureType.GATHER_FAILED, null, null, iteration,
+                        "every tool call failed and the next prompt (~" + next + " tokens) exceeds the "
+                                + contextLength + "-token context window");
+            }
             log.info("agent {}: the next prompt (~{} tokens) exceeds the {}-token context; "
                     + "contributing the tool output gathered in {} iterations", properties.agentName(),
-                    next, call.contextLength(), iteration);
-            return java.util.Optional.of(rawOutputResult(state, call.providerName(), call.pickReason()));
+                    next, contextLength, iteration);
+            return java.util.Optional.of(rawOutputResult(state, providerName, pickReason));
         }
-        if (!call.toolerRawOutput() && canAnswerFromWhatItRead(state)) {
-            return java.util.Optional.of(closingTurn(state, call, iteration, next));
-        }
-        throw contextExceeded(next, call.contextLength(), iteration);
-    }
-
-    /** GATHER_FAILED when tools ran and every call failed: error text is never contributed as data. */
-    private static void failIfEveryToolFailed(ToolLoopState state, long next, long contextLength, int iteration) {
-        if (state.toolsExecuted && state.totalToolFailures >= state.toolCalls) {
-            throw new ToolCallFailure(ToolCallFailure.FailureType.GATHER_FAILED, null, null, iteration,
-                    "every tool call failed and the next prompt (~" + next + " tokens) exceeds the "
-                            + contextLength + "-token context window");
-        }
-    }
-
-    private static ToolCallFailure contextExceeded(long promptTokens, long contextLength, int iteration) {
-        return new ToolCallFailure(ToolCallFailure.FailureType.CONTEXT_EXCEEDED,
+        throw new ToolCallFailure(ToolCallFailure.FailureType.CONTEXT_EXCEEDED,
                 null, null, iteration,
-                "The next prompt (~" + promptTokens + " tokens) exceeds the " + contextLength
+                "The next prompt (~" + next + " tokens) exceeds the " + contextLength
                         + "-token context window of the chosen provider at iteration " + iteration);
-    }
-
-    /**
-     * True when a reasoning agent may close with an answer from what it has read:
-     * it has had a model turn, and when it is bound by the compute contract, that
-     * contract is already met (an answer without the required computation is never
-     * accepted, context or not).
-     */
-    private boolean canAnswerFromWhatItRead(ToolLoopState state) {
-        if (state.lastPromptTokens <= 0) {
-            return false;
-        }
-        return !properties.discuss().computeContract() || computeContractMet(state);
-    }
-
-    // Stands in for a tool result that did not fit, so every tool call keeps its result message.
-    static final String UNREAD_TOOL_RESULT = "[not read: the context window is full]";
-    static final String CONTEXT_FULL_CLOSING_PROMPT =
-            "The context window is full, so no more tools can run and the last tool results were "
-            + "not read. Answer now from what you have already read. If that is not enough to "
-            + "answer, say what is missing.";
-
-    /**
-     * The closing turn of a reasoning agent whose next prompt would not fit: the
-     * tool results that overflowed are replaced by a short note, a closing
-     * instruction is added, and the model answers once with no tools offered.
-     * Fails with CONTEXT_EXCEEDED when even that prompt would not fit.
-     */
-    private ToolLoopResult closingTurn(ToolLoopState state, LoopCall call, int iteration, long refused) {
-        var closing = withUnreadResults(state.allMessages, state.messagesAtLastCall);
-        closing.add(UserMessage.from(CONTEXT_FULL_CLOSING_PROMPT));
-        // Conservative: the last prompt's size still counts the tool specifications,
-        // which the closing turn does not send.
-        long closingTokens = PromptSize.nextPromptTokens(closing, List.of(), state.lastPromptTokens,
-                state.lastReplyTokens, state.messagesAtLastCall, charsPerToken);
-        if (closingTokens > call.contextLength()) {
-            throw contextExceeded(closingTokens, call.contextLength(), iteration);
-        }
-        log.info("agent {}: the next prompt (~{} tokens) exceeds the {}-token context after {} iterations; "
-                + "answering from what it has read", properties.agentName(), refused, call.contextLength(), iteration);
-        var reply = sendAndAccount(call.model(), closing, List.of(), state);
-        String text = reply.text() == null ? "" : reply.text();
-        if (text.isBlank() || isInstructionEcho(text, loadSystemPrompt())) {
-            throw new ToolCallFailure(ToolCallFailure.FailureType.CONTEXT_EXCEEDED, null, null, iteration,
-                    "The context window (" + call.contextLength() + " tokens) filled at iteration " + iteration
-                            + " and the closing turn gave no answer");
-        }
-        return new ToolLoopResult(text, state.totalInput, state.totalOutput, call.providerName(), call.pickReason());
-    }
-
-    /**
-     * A copy of {@code messages} in which every tool result added after
-     * {@code fromIndex} (the results the model has not read yet) carries
-     * {@link #UNREAD_TOOL_RESULT} instead of its content.
-     */
-    static List<ChatMessage> withUnreadResults(List<ChatMessage> messages, int fromIndex) {
-        var copy = new ArrayList<ChatMessage>(messages.size() + 1);
-        for (int i = 0; i < messages.size(); i++) {
-            var m = messages.get(i);
-            if (i >= fromIndex && m instanceof ToolExecutionResultMessage tr) {
-                copy.add(new ToolExecutionResultMessage(tr.id(), tr.toolName(), UNREAD_TOOL_RESULT));
-            } else {
-                copy.add(m);
-            }
-        }
-        return copy;
     }
 
     /**
@@ -697,34 +607,29 @@ public class ChatService {
      * and return it.
      */
     private AiMessage invokeModelForLoop(ChatModel modelForThisCall, ToolLoopState state) {
-        var aiMessage = sendAndAccount(modelForThisCall, state.allMessages, tools().specs(), state);
-        state.allMessages.add(aiMessage);
-        state.recordTurn(state.lastUsage);
-        return aiMessage;
-    }
-
-    /**
-     * Send {@code messages} (with {@code specs} when there are any), add the turn's
-     * token usage to the loop totals, learn the characters-per-token ratio from it,
-     * and return the reply. {@code state.lastUsage} holds the turn's usage.
-     */
-    private AiMessage sendAndAccount(ChatModel model, List<ChatMessage> messages,
-                                     List<ToolSpecification> specs, ToolLoopState state) {
-        int sentChars = PromptSize.chars(messages, specs);
-        var request = dev.langchain4j.model.chat.request.ChatRequest.builder().messages(messages);
-        if (!specs.isEmpty()) {
-            request.toolSpecifications(specs);
+        ChatResponse response;
+        var toolSpecList = tools().specs();
+        int sentChars = PromptSize.chars(state.allMessages, toolSpecList);
+        if (toolSpecList.isEmpty()) {
+            response = modelForThisCall.chat(dev.langchain4j.model.chat.request.ChatRequest.builder()
+                    .messages(state.allMessages)
+                    .build());
+        } else {
+            response = modelForThisCall.chat(dev.langchain4j.model.chat.request.ChatRequest.builder()
+                    .messages(state.allMessages)
+                    .toolSpecifications(toolSpecList)
+                    .build());
         }
-        ChatResponse response = model.chat(request.build());
         var usage = response.tokenUsage();
         if (usage != null) {
-            long in = usage.inputTokenCount() == null ? 0 : usage.inputTokenCount();
-            state.totalInput += in;
+            state.totalInput += usage.inputTokenCount() == null ? 0 : usage.inputTokenCount();
             state.totalOutput += usage.outputTokenCount() == null ? 0 : usage.outputTokenCount();
-            charsPerToken.observe(sentChars, in);
+            charsPerToken.observe(sentChars, usage.inputTokenCount() == null ? 0 : usage.inputTokenCount());
         }
-        state.lastUsage = usage;
-        return response.aiMessage() == null ? new AiMessage("") : response.aiMessage();
+        var aiMessage = response.aiMessage();
+        state.allMessages.add(aiMessage);
+        state.recordTurn(usage);
+        return aiMessage;
     }
 
     /**
@@ -769,7 +674,7 @@ public class ChatService {
             // Case-sensitive on purpose: the contribution flows verbatim to
             // DiscussionSubscriber's classifier, which also matches "TOOL_GAP:"
             // exactly - so the two ends stay in lockstep.
-            if (finalText.startsWith(ai.kubemoot.agent.util.ReplySentinels.TOOL_GAP)) {
+            if (finalText.startsWith("TOOL_GAP:")) {
                 return java.util.Optional.of(new ToolLoopResult(finalText,
                         state.totalInput, state.totalOutput, providerName, pickReason));
             }
@@ -782,20 +687,9 @@ public class ChatService {
         if (computeContractNeedsRetry(aiMessage, state)) {
             return java.util.Optional.empty();
         }
-        return proseAnswer(aiMessage, state, providerName, pickReason);
-    }
-
-    /**
-     * No raw-output contract (or no tools ran): the agent reasons to its own answer.
-     * Its prose is the answer, with a retry for a flaky empty turn and an echo guard
-     * so it never publishes its own instruction prompt as the answer. Once the
-     * retries are spent, an agent that was offered tools fails visibly (EMPTY_REPLY):
-     * it was asked to gather and produced nothing. An agent with no tools and nothing
-     * to say returns empty and stands aside. An empty Optional means the caller
-     * continues the loop (a retry).
-     */
-    private java.util.Optional<ToolLoopResult> proseAnswer(AiMessage aiMessage, ToolLoopState state,
-                                                            String providerName, String pickReason) {
+        // No raw-output contract (or no tools ran): this agent reasons to its own
+        // answer. Use its prose, with a retry for a flaky empty turn and an echo
+        // guard so it never publishes its own instruction prompt as the answer.
         String text = aiMessage.text() != null ? aiMessage.text() : "";
         if (text.isEmpty() && state.emptyNoToolsRetries < EMPTY_NO_TOOLS_MAX_RETRIES) {
             state.emptyNoToolsRetries++;
@@ -804,9 +698,6 @@ public class ChatService {
                     properties.agentName(), state.emptyNoToolsRetries, EMPTY_NO_TOOLS_MAX_RETRIES);
             return java.util.Optional.empty();
         }
-        if (text.isEmpty() && !tools().specs().isEmpty()) {
-            throw emptyReply(state.emptyNoToolsRetries + 1, state.lastReplyTokens);
-        }
         if (isInstructionEcho(text, loadSystemPrompt())) {
             log.info("agent {} echoed an instruction instead of answering - dropping to stand_aside",
                     properties.agentName());
@@ -814,19 +705,6 @@ public class ChatService {
         }
         return java.util.Optional.of(new ToolLoopResult(text, state.totalInput, state.totalOutput,
                 providerName, pickReason));
-    }
-
-    /**
-     * The EMPTY_REPLY failure of a loop whose final turn came back with no text and no
-     * tool call on every one of its {@code attempts}. The last attempt's output token
-     * count tells a model that said nothing (zero) from one whose output the engine
-     * dropped (a call to a tool the agent is not offered), so the failure names both.
-     */
-    static ToolCallFailure emptyReply(int attempts, long lastReplyTokens) {
-        return new ToolCallFailure(ToolCallFailure.FailureType.EMPTY_REPLY, null, null, attempts,
-                "no text and no tool call after " + attempts + " attempts; the last spent "
-                        + lastReplyTokens + " output tokens - output with neither is most often a call to "
-                        + "a tool this agent is not offered, which the engine drops");
     }
 
     /**
@@ -843,7 +721,8 @@ public class ChatService {
         if (!properties.discuss().computeContract() || isNoDataDeclaration(aiMessage.text())) {
             return false;
         }
-        if (computeContractMet(state)) {
+        boolean artifactOk = !inputReferencesArtifact(state) || state.codeReferencedArtifact;
+        if (state.toolsExecuted && artifactOk) {
             return false; // ran code AND (no artifact present OR read the file) -> satisfied
         }
         String why = !state.toolsExecuted
@@ -859,12 +738,6 @@ public class ChatService {
         throw new ToolCallFailure(ToolCallFailure.FailureType.COMPUTE_CONTRACT_UNSATISFIED,
                 null, null, state.computeRetries,
                 "compute agent " + why + " after " + MAX_COMPUTE_RETRIES + " prompts");
-    }
-
-    /** The compute contract's condition: a tool ran and, when the input spilled to an artifact, the file was read. */
-    private static boolean computeContractMet(ToolLoopState state) {
-        boolean artifactOk = !inputReferencesArtifact(state) || state.codeReferencedArtifact;
-        return state.toolsExecuted && artifactOk;
     }
 
     /**
@@ -1023,14 +896,14 @@ public class ChatService {
     /** Strip a reasoning model's &lt;think&gt; block and normalize, so a sentinel check
      *  sees only the agent's actual answer (shared by the NO_DATA / gap checks). */
     private static String normalizeAnswer(String text) {
-        return ai.kubemoot.agent.util.ThinkBlocks.remove(text).strip()
+        return THINK_BLOCK.matcher(text == null ? "" : text).replaceAll(" ").strip()
                 .toUpperCase(java.util.Locale.ROOT);
     }
 
     /** The one-line reason a tooler gave after the NO_DATA sentinel, for the failure
      *  signal's message; a generic note when it gave none. */
     private static String gatherFailedReason(String text) {
-        String t = ai.kubemoot.agent.util.ThinkBlocks.remove(text).strip();
+        String t = THINK_BLOCK.matcher(text == null ? "" : text).replaceAll(" ").strip();
         int colon = t.indexOf(':');
         String reason = colon >= 0 ? t.substring(colon + 1).strip() : "";
         return reason.isEmpty()
@@ -1208,12 +1081,6 @@ public class ChatService {
         long lastPromptTokens = 0;
         long lastReplyTokens = 0;
         int messagesAtLastCall = 0;
-        // The first turn's prompt, and the largest prompt the loop reached or would
-        // have sent next: the loop's growth, which LoopGrowth learns from.
-        long firstPromptTokens = 0;
-        long peakTokens = 0;
-        int turns = 0;
-        dev.langchain4j.model.output.TokenUsage lastUsage;
 
         ToolLoopState(List<ChatMessage> messages) {
             this.allMessages = new ArrayList<>(messages);
@@ -1223,10 +1090,6 @@ public class ChatService {
             lastPromptTokens = usage == null || usage.inputTokenCount() == null ? 0 : usage.inputTokenCount();
             lastReplyTokens = usage == null || usage.outputTokenCount() == null ? 0 : usage.outputTokenCount();
             messagesAtLastCall = allMessages.size();
-            if (turns++ == 0) {
-                firstPromptTokens = lastPromptTokens;
-            }
-            peakTokens = Math.max(peakTokens, lastPromptTokens + lastReplyTokens);
         }
     }
 
@@ -1412,7 +1275,7 @@ public class ChatService {
             return new MullingPick(chatModel, "", java.util.Optional.empty(),
                     STATIC_FALLBACK, staticModel, staticEndpoint, 0L);
         }
-        var placed = heldPlacement(threadId, states, contextNeedTokens(states, promptCharCount))
+        var placed = heldPlacement(threadId, states, promptTokens(promptCharCount))
                 .or(() -> placeCall(states, promptCharCount));
         MullingPick pick = placed.isPresent() ? placed.get()
                 : waitForCapacity(staticModel, coldLoadFootprintMiB, promptCharCount, wait);
@@ -1427,7 +1290,7 @@ public class ChatService {
      * released and the call plans afresh.
      */
     private java.util.Optional<MullingPick> heldPlacement(String threadId, java.util.List<ProviderState> states,
-                                                          long contextNeed) {
+                                                          long promptTokens) {
         var held = callPlanner.takeHeld(threadId);
         if (held.isEmpty()) {
             return java.util.Optional.empty();
@@ -1435,7 +1298,7 @@ public class ChatService {
         String provider = held.get().pick().provider().name();
         String model = held.get().model();
         boolean usable = states.stream().anyMatch(p -> p.name().equals(provider) && p.ready()
-                && ai.kubemoot.agent.provider.ContextFit.holds(p, model, contextNeed));
+                && ai.kubemoot.agent.provider.ContextFit.holds(p, model, promptTokens));
         if (!usable) {
             ticketManager.release(held.get().pick().ticket());
             return java.util.Optional.empty();
@@ -1528,46 +1391,7 @@ public class ChatService {
         return new CallPlanner.PlacementRequest(preferred, mullingAlternatives(preferred), states,
                 m -> m.equals(preferred) ? resolveOccupancyMiB(states, m) : observedFootprintMiB(states, m),
                 m -> ai.kubemoot.agent.provider.KvCacheEstimator.estimateMiB(m, kvTokens, properties.model().maxTokens()),
-                contextNeedTokens(states, promptCharCount));
-    }
-
-    /**
-     * The context, in tokens, a tool-loop call needs: its first prompt plus the
-     * growth this agent's loops show ({@link LoopGrowth}; the reply cap until a
-     * loop has been observed). A tooler's need is its first prompt alone, because
-     * a tooler whose context fills contributes the output it gathered. The need
-     * never exceeds the largest context any provider gives the candidate models,
-     * so the growth only steers the call toward a larger context when one exists,
-     * and never keeps a prompt that fits from being placed.
-     */
-    private long contextNeedTokens(java.util.List<ProviderState> states, int promptCharCount) {
-        java.util.List<String> models = new ArrayList<>();
-        models.add(properties.model().model());
-        models.addAll(mullingAlternatives(properties.model().model()));
-        long largest = ai.kubemoot.agent.provider.ContextFit.largestContext(states, models);
-        return contextNeed(isToolerRole(), promptTokens(promptCharCount),
-                loopGrowth.estimate(properties.model().maxTokens()), largest);
-    }
-
-    /**
-     * The first prompt for a tooler; otherwise {@code prompt + growth}, capped at
-     * {@code largestContext} when that is known, and never less than {@code prompt}.
-     */
-    static long contextNeed(boolean tooler, long prompt, long growth, long largestContext) {
-        if (tooler || prompt <= 0) {
-            return prompt;
-        }
-        long need = prompt + Math.max(0L, growth);
-        return largestContext > 0 ? Math.max(prompt, Math.min(need, largestContext)) : need;
-    }
-
-    /** The loop growth this agent has learned; visible for testing. */
-    long loopGrowthEstimate(long unobservedDefault) {
-        return loopGrowth.estimate(unobservedDefault);
-    }
-
-    private boolean isToolerRole() {
-        return "tooler".equals(properties.discuss().role());
+                promptTokens(promptCharCount));
     }
 
     private MullingPick fromPlacement(CallPlanner.Placement p) {
@@ -1774,41 +1598,9 @@ public class ChatService {
         // for each other. See [[JIT is the sole scheduler]].
         int promptChars = (systemPrompt == null ? 0 : systemPrompt.length())
                 + (userPrompt == null ? 0 : userPrompt.length());
-        return placedSimpleCall(pickForSimpleCall(promptChars), messages);
-    }
-
-    /**
-     * One tool-free turn of this agent over its own prompt modules: the model answers
-     * once and no tool is offered, whatever tools the agent has. The call is placed
-     * like the agent's tool-loop call for the thread (the placement planned at
-     * selection when it still fits, a capacity wait through {@code wait} when every
-     * GPU is busy), so it never falls back to the static endpoint. A reasoning block
-     * is removed from the reply, REMEMBER: directives are persisted to crew memory and
-     * removed as on the tool-loop path, and a reply that echoes the agent's
-     * instructions comes back empty.
-     */
-    public ChatResult answerOnce(String threadId, String message, ai.kubemoot.agent.provider.CapacityWait wait) {
-        String system = loadSystemPrompt();
-        List<ChatMessage> messages = buildSimpleMessages(system, message);
-        MullingPick pick = pickMullingChatModel(PromptSize.chars(messages, List.of()), wait, threadId);
-        SimpleLlmResult reply = placedSimpleCall(pick, messages);
-        heartbeatService.recordInference();
-        String text = ai.kubemoot.agent.util.ThinkBlocks.remove(reply.text()).strip();
-        if (crewMemory != null) {
-            text = crewMemory.persistFromResponse(text, properties.agentName()).strip();
-        }
-        if (isInstructionEcho(text, system)) {
-            log.info("agent {} echoed an instruction instead of answering once", properties.agentName());
-            text = "";
-        }
-        return new ChatResult(threadId, text, pick.modelName(), threadId, reply.inputTokens(),
-                reply.outputTokens(), pick.providerName(), pick.pickReason(), pick.evicted());
-    }
-
-    /** Send a no-tool call on {@code pick}, then record the outcome and release its ticket. */
-    private SimpleLlmResult placedSimpleCall(MullingPick pick, List<ChatMessage> messages) {
+        MullingPick pick = pickForSimpleCall(promptChars);
         String providerName = pick.providerName();
-        // Outbound wire trace (no-tools path: advisory/synthesis/triage/concurrence). Pair with
+        // Outbound wire trace (no-tools path: advisory/synthesis/triage). Pair with
         // OLLAMA_DEBUG on the provider to confirm the wire model matches intent.
         log.info("OUTBOUND inference (simple): agent={} endpoint={} model={} provider={} reason={}",
                 properties.agentName(), pick.endpoint(), pick.modelName(),

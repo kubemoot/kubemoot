@@ -2,16 +2,11 @@ package ai.kubemoot.agent.nats;
 
 import io.nats.client.Connection;
 import io.nats.client.api.ObjectInfo;
-import java.io.ByteArrayOutputStream;
-import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Collection;
 import java.util.List;
 import java.util.function.Predicate;
-import java.util.function.Supplier;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -22,29 +17,11 @@ import org.slf4j.LoggerFactory;
  * and the GC reaper (eviction in {@link DiscussionOrchestrator}) agree byte-for-byte
  * on where an object lives. A drift between the spill key and the delete prefix would
  * silently leak artifacts, which is exactly the divergent-duplication class this
- * helper exists to prevent. It also reads artifacts back into the text of a tool-free
- * turn (the synthesis and a concurrence reply), which cannot open the object store.
+ * helper exists to prevent.
  */
 final class DiscussionArtifacts {
 
     static final String BUCKET = "kubemoot_discussion_artifacts";
-
-    /** How every spill marker opens: {@code [ARTIFACT key=<key> bytes=<n> - ...]}. */
-    static final String MARKER_PREFIX = "[ARTIFACT key=";
-
-    /**
-     * A spill marker, capturing its object key. Possessive quantifiers: a long marker
-     * with no closing bracket fails in linear time.
-     */
-    static final Pattern MARKER_WITH_KEY =
-            Pattern.compile(Pattern.quote(MARKER_PREFIX) + "([^\\]\\s]++)[^\\]]*+\\]");
-
-    /** A spill marker's declared size in bytes, captured. Possessive, like {@link #MARKER_WITH_KEY}. */
-    private static final Pattern MARKER_BYTES =
-            Pattern.compile(Pattern.quote(MARKER_PREFIX) + "[^\\]\\s]++ bytes=(\\d{1,12})");
-
-    /** Cap per inlined artifact, so one huge object cannot fill a tool-free turn's context. */
-    static final int MAX_INLINE_CHARS = 24_000;
 
     private static final Logger log = LoggerFactory.getLogger(DiscussionArtifacts.class);
 
@@ -177,82 +154,5 @@ final class DiscussionArtifacts {
         int start = prefix.length();
         int slash = key.indexOf('/', start);
         return slash < 0 ? null : key.substring(start, slash);
-    }
-
-    /**
-     * Replace each spill marker in {@code text} with the artifact's content read from
-     * the object store, so a tool-free turn (the synthesis, a concurrence reply) works
-     * over the real data instead of a reference it cannot open. An artifact that cannot
-     * be read is replaced with {@link #unavailableNotice}, never left as a marker that
-     * implies the data exists. Text without a marker is returned as is, without asking
-     * for a connection; with no connection the text is returned as is.
-     */
-    static String inlineContent(Supplier<Connection> connection, String text) {
-        if (text == null || !text.contains(MARKER_PREFIX)) {
-            return text;
-        }
-        Connection conn = connection.get();
-        if (conn == null) {
-            return text;
-        }
-        var m = MARKER_WITH_KEY.matcher(text);
-        var sb = new StringBuilder();
-        while (m.find()) {
-            String content = readForInlining(conn, m.group(1));
-            String replacement = content != null ? content : unavailableNotice(m.group(1));
-            m.appendReplacement(sb, Matcher.quoteReplacement(replacement));
-        }
-        m.appendTail(sb);
-        return sb.toString();
-    }
-
-    /**
-     * True when {@code text} carries a spill marker whose declared size is larger than
-     * {@link #MAX_INLINE_CHARS}: a tool-free turn reading it in would see it cut. The
-     * size comes from the marker itself, so no object store read is needed. Bytes are
-     * compared with characters, which counts a multi-byte artifact as larger than it
-     * reads, never smaller.
-     */
-    static boolean exceedsInlineCap(String text) {
-        if (text == null || !text.contains(MARKER_PREFIX)) {
-            return false;
-        }
-        var m = MARKER_BYTES.matcher(text);
-        while (m.find()) {
-            if (Long.parseLong(m.group(1)) > MAX_INLINE_CHARS) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    /**
-     * The inline replacement when an artifact could NOT be read (missing, TTL-reaped,
-     * unreadable, NATS down). It is an explicit unavailability instruction rather than
-     * the original "the full data is in the file /artifacts/&lt;key&gt;" marker, which
-     * implies the data exists and lets a tool-free turn answer confidently over data it
-     * never got. Names the key and tells the reader to treat the contribution as unknown.
-     */
-    static String unavailableNotice(String key) {
-        return "[ARTIFACT UNAVAILABLE key=" + key + " - this contribution's data could NOT be "
-                + "retrieved. Treat it as UNKNOWN: state that the data was unavailable; do NOT "
-                + "infer, guess, or fabricate any value in its place.]";
-    }
-
-    /** Read one artifact's content for inlining, capped; null on any failure. */
-    private static String readForInlining(Connection conn, String key) {
-        try {
-            var bos = new ByteArrayOutputStream();
-            conn.objectStore(BUCKET).get(key, bos);
-            String content = bos.toString(StandardCharsets.UTF_8);
-            if (content.length() > MAX_INLINE_CHARS) {
-                content = content.substring(0, MAX_INLINE_CHARS) + "\n[...artifact truncated...]";
-            }
-            log.info("inlined artifact {} ({} chars)", key, content.length());
-            return content;
-        } catch (Exception e) {
-            log.warn("could not read artifact {} for inlining: {}", key, e.getMessage());
-            return null;
-        }
     }
 }

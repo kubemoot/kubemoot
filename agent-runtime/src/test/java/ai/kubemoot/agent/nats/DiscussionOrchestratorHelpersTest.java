@@ -503,10 +503,15 @@ class DiscussionOrchestratorHelpersTest {
                 @Override public Optional<String> channels() {
                     return channels == null || channels.isEmpty() ? Optional.empty() : Optional.of(channels);
                 }
+                @Override public int timeoutSeconds() { return 30; }
                 @Override public int maxInferencesPerMinute() { return 10; }
                 @Override public int maxContributionsPerThread() { return 3; }
                 @Override public boolean tooler() { return false; }
+                @Override public Optional<String> keywords() { return Optional.empty(); }
+                @Override public String relevanceMode() { return "keyword"; }
+                @Override public Optional<String> relevancePromptHint() { return Optional.empty(); }
                 @Override public String priority() { return "high"; }
+                @Override public int advisoryGraceSeconds() { return 5; }
                 @Override public String role() { return "coordinator"; }
                 @Override public boolean coordinator() { return true; }
                 @Override public boolean computeContract() { return false; }
@@ -515,8 +520,6 @@ class DiscussionOrchestratorHelpersTest {
                 @Override public int synthesisCompletenessRetries() { return completenessRetries; }
                 @Override public boolean answerDirectly() { return true; }
                 @Override public boolean hasAnalysts() { return false; }
-                @Override public boolean reviewDecision() { return false; }
-                @Override public String reviewDecisionTier() { return "fast"; }
                 @Override public int advisoryTimeoutSeconds() { return 10; }
                 @Override public int evaluationTimeoutSeconds() { return 300; }
                 @Override public int reviewTimeoutSeconds() { return 15; }
@@ -692,7 +695,7 @@ class DiscussionOrchestratorHelpersTest {
 
     @Test
     void artifactMarkerExtractsTheKey() {
-        var m = DiscussionArtifacts.MARKER_WITH_KEY.matcher(
+        var m = DiscussionOrchestrator.ARTIFACT_MARKER_WITH_KEY.matcher(
                 "before [ARTIFACT key=crew/t/agent/agree/abc bytes=99 - at /artifacts/x] after");
         assertTrue(m.find());
         assertEquals("crew/t/agent/agree/abc", m.group(1));
@@ -701,22 +704,22 @@ class DiscussionOrchestratorHelpersTest {
 
     @Test
     void artifactMarkerWithoutAttributesExtractsTheKey() {
-        var m = DiscussionArtifacts.MARKER_WITH_KEY.matcher("[ARTIFACT key=a/b]");
+        var m = DiscussionOrchestrator.ARTIFACT_MARKER_WITH_KEY.matcher("[ARTIFACT key=a/b]");
         assertTrue(m.find());
         assertEquals("a/b", m.group(1));
     }
 
     @Test
     void artifactMarkerRejectsMalformedMarkers() {
-        assertFalse(DiscussionArtifacts.MARKER_WITH_KEY.matcher("[ARTIFACT key=]").find());
-        assertFalse(DiscussionArtifacts.MARKER_WITH_KEY.matcher("[ARTIFACT key= a]").find());
-        assertFalse(DiscussionArtifacts.MARKER_WITH_KEY.matcher("[ARTIFACT key=abc").find());
+        assertFalse(DiscussionOrchestrator.ARTIFACT_MARKER_WITH_KEY.matcher("[ARTIFACT key=]").find());
+        assertFalse(DiscussionOrchestrator.ARTIFACT_MARKER_WITH_KEY.matcher("[ARTIFACT key= a]").find());
+        assertFalse(DiscussionOrchestrator.ARTIFACT_MARKER_WITH_KEY.matcher("[ARTIFACT key=abc").find());
     }
 
     @Test
     void unterminatedArtifactMarkerFailsInLinearTime() {
         String text = "[ARTIFACT key=" + "k".repeat(50_000) + " " + "x".repeat(50_000);
         assertTimeoutPreemptively(java.time.Duration.ofSeconds(2),
-                () -> assertFalse(DiscussionArtifacts.MARKER_WITH_KEY.matcher(text).find()));
+                () -> assertFalse(DiscussionOrchestrator.ARTIFACT_MARKER_WITH_KEY.matcher(text).find()));
     }
 }

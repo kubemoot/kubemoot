@@ -2,9 +2,8 @@
 Default MootArchetypes shipped with the operator. These declare the phase
 vocabulary that CrewSchedulingPolicy rules can reference.
 
-`consent-3` is the default: consent decision making, the archetype Kubemoot
-has shipped since the discussion system was introduced. The agent runtime does
-not read it yet; its phases are the names CrewSchedulingPolicy rules use.
+`consent-3` is the default — sociocracy 3.0 consent decision making, the
+archetype kubemoot has shipped since the discussion system was introduced.
 
 To add a new archetype (Robert's Rules, debate, expert panel, etc.) without
 modifying the operator: kubectl apply a new MootArchetype CR with the
@@ -19,23 +18,23 @@ metadata:
     {{- include "kubemoot-operator.labels" . | nindent 4 }}
     kubemoot.ai/builtin: "true"
 spec:
-  description: "Consent decision-making, the archetype Kubemoot ships. Today its phases are the scheduling phases a CrewSchedulingPolicy rule may name; the operator's per-phase model selection reads mulling and triage."
+  description: "Sociocracy 3.0 consent decision-making. Coordinator runs triaging → evaluating → synthesis."
   phases:
     - name: triaging
       role: gatekeeping
-      description: "Scheduling phase name for the coordinator's selection of the agents that join a discussion."
+      description: "Coordinator probes which agents should join the thread."
     - name: mulling
       role: deliberation
-      description: "Scheduling phase: the model an agent's tool-calling evaluation runs on."
+      description: "Agents reason about the question with their full mulling model."
     - name: triage
       role: deliberation
-      description: "Scheduling phase: the lighter model an agent's should-I-contribute check runs on."
+      description: "Agents triage with a lighter model — quick 'should I contribute?' assessment."
     - name: evaluating
       role: deliberation
-      description: "Scheduling phase name for the deliberation, where agents emit agree, concern, stand_aside, or block."
+      description: "Active deliberation phase — agents emit agree / concern / stand_aside / block signals."
     - name: synthesis
       role: closure
-      description: "Scheduling phase name for the coordinator's synthesis of the answer."
+      description: "Coordinator synthesizes the deliberation into a response."
   signals:
     - triaging
     - evaluating

@@ -4,7 +4,6 @@ import ai.kubemoot.agent.chat.ChatService;
 import ai.kubemoot.agent.chat.ToolCallFailure;
 import ai.kubemoot.agent.config.AgentProperties;
 import ai.kubemoot.agent.util.GpuLabels;
-import ai.kubemoot.agent.util.ReplySentinels;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.nats.client.Connection;
@@ -50,12 +49,6 @@ public class DiscussionSubscriber {
     private static final ObjectMapper mapper = new ObjectMapper();
 
     private static final String NOTHING_TO_ADD = "NOTHING_TO_ADD";
-    // A reply that starts with this raises a concern with the rest of the reply.
-    static final String CONCERN_SENTINEL = ReplySentinels.CONCERN;
-    private static final String TOOL_GAP_SENTINEL = ReplySentinels.TOOL_GAP;
-    private static final String SIGNAL_CONCERN = "concern";
-    private static final String FIELD_REVIEW_MODE = "reviewMode";
-    private static final String REVIEW_MODE_CONCUR = "concur";
     private static final String SIGNAL_AGREE = "agree";
     private static final String SIGNAL_STAND_ASIDE = "stand_aside";
     /** Published once when an agent starts waiting for GPU capacity. */
@@ -70,8 +63,6 @@ public class DiscussionSubscriber {
      * tooler" from "toolers exist but their tools failed."
      */
     private static final String SIGNAL_FAILURE = "failure";
-    /** The metadata key naming why a failure signal was published. */
-    private static final String FIELD_FAILURE_TYPE = "failureType";
 
     // JSON field name constants (used in NATS message construction/parsing)
     private static final String FIELD_MESSAGE_ID = "messageId";
@@ -101,7 +92,7 @@ public class DiscussionSubscriber {
     // marker (key + bytes + /artifacts path) - no truncated preview - so consumers
     // read the full file rather than tally an incomplete preview. Kept compatible
     // with ChatService.ARTIFACT_KEY_PATTERN (key terminated by whitespace).
-    private static final String ARTIFACT_MARKER_PREFIX = DiscussionArtifacts.MARKER_PREFIX;
+    private static final String ARTIFACT_MARKER_PREFIX = "[ARTIFACT key=";
     // JetStream API error code for "stream name already in use": a benign result when
     // the artifact bucket already exists (a concurrent or prior create won the race).
     private static final int JSAPI_STREAM_NAME_IN_USE = 10058;
@@ -411,10 +402,9 @@ public class DiscussionSubscriber {
 
             String conversation = formatThread(messages, threadId);
             boolean selected = isExplicitlySelected(data);
-            boolean concurrence = selected && isConcurrenceRequest(data);
             scheduler.submit(() -> {
                 try {
-                    evaluateAndRespond(subject, threadId, conversation, selected, concurrence);
+                    evaluateAndRespond(subject, threadId, conversation, selected);
                 } finally {
                     natsMsg.ack();
                 }
@@ -457,8 +447,7 @@ public class DiscussionSubscriber {
 
             String conversation = formatThread(messages, threadId);
             boolean selected = isExplicitlySelected(data);
-            boolean concurrence = selected && isConcurrenceRequest(data);
-            scheduler.submit(() -> evaluateAndRespond(subject, threadId, conversation, selected, concurrence));
+            scheduler.submit(() -> evaluateAndRespond(subject, threadId, conversation, selected));
 
         } catch (Exception e) {
             log.warn("Failed to handle discussion message: {}", e.getMessage());
@@ -608,13 +597,9 @@ public class DiscussionSubscriber {
      *   Only runs for agents that passed triage.
      */
     private void evaluateAndRespond(String subject, String threadId, String conversation,
-                                    boolean explicitlySelected, boolean concurrence) {
+                                    boolean explicitlySelected) {
         try {
-            if (concurrence) {
-                answerConcurrence(subject, threadId, conversation);
-            } else {
-                evaluateSelected(subject, threadId, conversation, explicitlySelected);
-            }
+            evaluateSelected(subject, threadId, conversation, explicitlySelected);
         } finally {
             // Whatever the outcome (answered, stood aside, failed), a plan made at
             // selection that the first call did not use is released here.
@@ -636,36 +621,6 @@ public class DiscussionSubscriber {
                 log.warn("Planning the first call for thread {} failed: {}", threadId, e.getMessage());
             }
         });
-    }
-
-    /**
-     * A concurrence request is addressed to this agent by name, so there is no
-     * should-I-contribute question to triage. It asks for a second opinion on
-     * results already gathered, so the reply is ONE model turn with no tools, over
-     * the thread (the question and the gathered results, with spilled artifacts read
-     * in) and the agent's own prompt modules: agree, or a concern. A failed or empty
-     * reply is a failure signal, which the coordinator escalates to the full review.
-     */
-    private void answerConcurrence(String subject, String threadId, String conversation) {
-        if (closedThreads.contains(threadId)) {
-            publishSignal(subject, threadId, SIGNAL_STAND_ASIDE, "", 0, 0, 0, 0, "none");
-            return;
-        }
-        commitToThread(threadId, conversation);
-        log.info("Agent {} answering a concurrence request for thread {} in one tool-free turn",
-                properties.agentName(), threadId);
-        String message = concurrenceMessage(threadId, conversation);
-        runEvaluationTurn(subject, threadId, 0, System.currentTimeMillis(), new EvaluationTurn(
-                "Answering a concurrence request", wait -> chatService.answerOnce(threadId, message, wait), true));
-    }
-
-    /**
-     * The concurrence turn's message: the thread with each spilled artifact read in
-     * (the turn has no tool to open one), after the thread's selected skills.
-     */
-    // Visible for testing
-    String concurrenceMessage(String threadId, String conversation) {
-        return withSelectedSkills(threadId, DiscussionArtifacts.inlineContent(natsProvider::getConnection, conversation));
     }
 
     private void evaluateSelected(String subject, String threadId, String conversation,
@@ -743,92 +698,40 @@ public class DiscussionSubscriber {
                                   long triageMs, long triageStartMs) {
         // The coordinator already judged this agent relevant, so it always runs
         // the full tool-calling evaluation on the primary GPU.
-        log.info("Agent {} passed triage ({}ms), running full evaluation for thread {}",
-                properties.agentName(), triageMs, threadId);
-        runEvaluationTurn(subject, threadId, triageMs, triageStartMs, new EvaluationTurn(
-                "Running tool-calling evaluation", wait -> runMullingInference(conversation, threadId, wait), false));
-    }
+        String mullingGpuLabel = GpuLabels.fromEndpoint(ollamaBaseUrl);
 
-    /**
-     * One evaluation turn of this agent: its status line, the model call (given the
-     * thread's GPU capacity wait), and whether it answers a concurrence request, whose
-     * reply is a verdict (see {@link ConcurrenceReply}) rather than a contribution.
-     */
-    private record EvaluationTurn(String status,
-                                  java.util.function.Function<ai.kubemoot.agent.provider.CapacityWait,
-                                          ChatService.ChatResult> call,
-                                  boolean concurrence) {}
+        publishSignal(subject, threadId, SIGNAL_EVALUATING, "Running tool-calling evaluation",
+                triageMs, triageStartMs, 0, 0, mullingGpuLabel);
+        log.info("Agent {} passed triage ({}ms), running full evaluation for thread {} (gpu={})",
+                properties.agentName(), triageMs, threadId, mullingGpuLabel);
 
-    /** A finished turn's time, token counts, and GPU, as every signal it publishes carries them. */
-    private record TurnCost(long totalMs, long triageStartMs, long inTok, long outTok, String gpuLabel) {}
+        var heartbeat = startHeartbeat(subject, threadId, mullingGpuLabel);
 
-    /**
-     * Run an evaluation turn and publish its outcome: {@code evaluating} and a
-     * heartbeat while it runs; a failure signal when the call fails; a stand aside
-     * with its reason when no GPU can run it; otherwise the reply's signal.
-     */
-    private void runEvaluationTurn(String subject, String threadId, long triageMs, long triageStartMs,
-                                   EvaluationTurn turn) {
-        String gpuLabel = GpuLabels.fromEndpoint(ollamaBaseUrl);
-        publishSignal(subject, threadId, SIGNAL_EVALUATING, turn.status(),
-                triageMs, triageStartMs, 0, 0, gpuLabel);
-        var heartbeat = startHeartbeat(subject, threadId, gpuLabel);
-
-        long turnStartMs = System.currentTimeMillis();
+        long mullingStartMs = System.currentTimeMillis();
         ChatService.ChatResult result;
         try {
-            result = turn.call().apply(new ThreadCapacityWait(subject, threadId, gpuLabel));
+            result = runMullingInference(conversation, threadId,
+                    new ThreadCapacityWait(subject, threadId, mullingGpuLabel));
         } catch (ToolCallFailure tcf) {
-            handleToolCallFailure(subject, threadId, tcf, triageMs, triageStartMs, turnStartMs, gpuLabel);
+            handleToolCallFailure(subject, threadId, tcf, triageMs, triageStartMs, mullingStartMs, mullingGpuLabel);
             return;
         } catch (ai.kubemoot.agent.provider.NoFitException nfe) {
-            handleNoFit(subject, threadId, nfe, triageMs, triageStartMs, turnStartMs, gpuLabel);
+            handleNoFit(subject, threadId, nfe, triageMs, triageStartMs, mullingStartMs, mullingGpuLabel);
             return;
         } catch (Exception other) {
-            handleMullingException(subject, threadId, other, triageMs, triageStartMs, turnStartMs, gpuLabel);
+            handleMullingException(subject, threadId, other, triageMs, triageStartMs, mullingStartMs, mullingGpuLabel);
             return;
         } finally {
             heartbeat.cancel(false);
         }
-        long totalMs = triageMs + (System.currentTimeMillis() - turnStartMs);
+        long mullingMs = System.currentTimeMillis() - mullingStartMs;
+        long totalMs = triageMs + mullingMs;
         long inTok = result != null ? result.inputTokens() : 0;
         long outTok = result != null ? result.outputTokens() : 0;
         metrics.recordAgentInference(java.time.Duration.ofMillis(totalMs));
         metrics.recordTokens(inTok, outTok);
 
-        if (turn.concurrence() && !closedThreads.contains(threadId)) {
-            publishConcurrenceVerdict(subject, threadId, result,
-                    new TurnCost(totalMs, triageStartMs, inTok, outTok, gpuLabel));
-            return;
-        }
-        classifyAndPublishResult(subject, threadId, result, totalMs, triageStartMs, inTok, outTok, gpuLabel);
-    }
-
-    /**
-     * Publish a concurrence reply's verdict. CONCUR is agreement carrying only the
-     * text after the sentinel; CONCERN is a concern. An empty reply, or one that opens
-     * with neither sentinel, is a failure signal, which the coordinator escalates to
-     * the full review: a free-form answer is not a verdict.
-     */
-    private void publishConcurrenceVerdict(String subject, String threadId, ChatService.ChatResult result,
-                                           TurnCost cost) {
-        var reply = ConcurrenceReply.classify(result == null ? null : result.response());
-        switch (reply.verdict()) {
-            case CONCUR -> publishSignal(subject, threadId, SIGNAL_AGREE, reply.text(), cost.totalMs(),
-                    cost.triageStartMs(), cost.inTok(), cost.outTok(), cost.gpuLabel(), providerAttribution(result));
-            case CONCERN -> publishSignal(subject, threadId, SIGNAL_CONCERN, reply.text(), cost.totalMs(),
-                    cost.triageStartMs(), cost.inTok(), cost.outTok(), cost.gpuLabel(), providerAttribution(result));
-            case EMPTY -> publishSignal(subject, threadId, SIGNAL_FAILURE, ConcurrenceReply.EMPTY_REPLY, cost.totalMs(),
-                    cost.triageStartMs(), cost.inTok(), cost.outTok(), cost.gpuLabel(),
-                    Map.of(FIELD_FAILURE_TYPE, ConcurrenceReply.EMPTY_FAILURE_TYPE));
-            case NONE -> {
-                log.info("Agent {} gave no verdict on the concurrence request for thread {}: {}",
-                        properties.agentName(), threadId, truncate(reply.text(), ERROR_LOG_PREVIEW_CHARS));
-                publishSignal(subject, threadId, SIGNAL_FAILURE, ConcurrenceReply.NO_VERDICT, cost.totalMs(),
-                        cost.triageStartMs(), cost.inTok(), cost.outTok(), cost.gpuLabel(),
-                        Map.of(FIELD_FAILURE_TYPE, ConcurrenceReply.NO_VERDICT_FAILURE_TYPE));
-            }
-        }
+        classifyAndPublishResult(subject, threadId, result, totalMs, triageStartMs, inTok, outTok, mullingGpuLabel);
     }
 
     /**
@@ -1024,7 +927,7 @@ public class DiscussionSubscriber {
             failureType = "internal_exception";
         }
         var meta = new HashMap<String, Object>();
-        meta.put(FIELD_FAILURE_TYPE, failureType);
+        meta.put("failureType", failureType);
         meta.put("exceptionClass", exceptionClass);
         meta.put("lastError", truncate(message, ERROR_DETAIL_CHARS));
         log.warn("Agent {} publishing failure signal for thread {}: {} ({})",
@@ -1044,7 +947,7 @@ public class DiscussionSubscriber {
     private void publishFailure(String subject, String threadId, ToolCallFailure tcf,
                                 long totalMs, long triageStartMs, String gpuLabel) {
         var failureMeta = new HashMap<String, Object>();
-        failureMeta.put(FIELD_FAILURE_TYPE, tcf.failureType().name().toLowerCase(java.util.Locale.ROOT));
+        failureMeta.put("failureType", tcf.failureType().name().toLowerCase());
         if (tcf.toolName() != null) {
             failureMeta.put("failedTool", tcf.toolName());
         }
@@ -1090,15 +993,10 @@ public class DiscussionSubscriber {
         // sees the guidance inline. ZERO guarantee: when no skills were selected
         // (the baseline), skillContext is empty and the message is byte-identical
         // to what it was before skills were introduced.
-        var request = new ChatService.ChatRequest(threadId, withSelectedSkills(threadId, conversation), null,
-                threadId, retrievalQueryFor(threadId));
-        return chatService.directChat(request, false, wait);
-    }
-
-    /** The message with the bodies of the thread's selected skills before it; unchanged when none. */
-    private String withSelectedSkills(String threadId, String message) {
         String skillContext = skillBodyLoader.load(threadSelectedSkills.get(threadId));
-        return skillContext.isEmpty() ? message : skillContext + message;
+        String message = skillContext.isEmpty() ? conversation : skillContext + conversation;
+        var request = new ChatService.ChatRequest(threadId, message, null, threadId, retrievalQueryFor(threadId));
+        return chatService.directChat(request, false, wait);
     }
 
     /**
@@ -1172,11 +1070,10 @@ public class DiscussionSubscriber {
             return;
         }
 
-        String concern = concernIn(content);
-        if (concern != null) {
-            log.info("Agent {} raised a concern on thread {}: {}", properties.agentName(), threadId,
-                    truncate(concern, ERROR_LOG_PREVIEW_CHARS));
-            publishSignal(subject, threadId, SIGNAL_CONCERN, concern, totalMs, triageStartMs, inTok, outTok, gpuLabel,
+        if (content.startsWith("TOOL_GAP:")) {
+            String toolNeed = content.substring("TOOL_GAP:".length()).trim();
+            log.info("Agent {} reported tool gap for thread {}: {}", properties.agentName(), threadId, toolNeed);
+            publishSignal(subject, threadId, "concern", toolNeed, totalMs, triageStartMs, inTok, outTok, gpuLabel,
                     providerAttribution(result));
             return;
         }
@@ -1194,34 +1091,6 @@ public class DiscussionSubscriber {
 
         publishSignal(subject, threadId, SIGNAL_AGREE, content, totalMs, triageStartMs, inTok, outTok, gpuLabel,
                 providerAttribution(result));
-    }
-
-    /**
-     * The concern a reply raises, or null when it raises none. A reply that starts
-     * with {@code TOOL_GAP:} (the tool the agent lacks) or {@code CONCERN:} (what is
-     * missing or wrong in the results) is a concern carrying the text after the
-     * sentinel. Case-sensitive, like the other reply sentinels.
-     */
-    // Visible for testing
-    static String concernIn(String content) {
-        for (String sentinel : List.of(TOOL_GAP_SENTINEL, CONCERN_SENTINEL)) {
-            String rest = ReplySentinels.after(content, sentinel);
-            if (rest != null) {
-                return rest;
-            }
-        }
-        return null;
-    }
-
-    /** True when the message is a review_ready that asks for concurrence (reviewMode=concur). */
-    // Visible for testing
-    boolean isConcurrenceRequest(String data) {
-        try {
-            var meta = mapper.readTree(data).path(FIELD_METADATA);
-            return REVIEW_MODE_CONCUR.equals(meta.path(FIELD_REVIEW_MODE).asText(""));
-        } catch (Exception e) {
-            return false;
-        }
     }
 
     private String formatThread(List<ThreadMessage> messages, String threadId) {

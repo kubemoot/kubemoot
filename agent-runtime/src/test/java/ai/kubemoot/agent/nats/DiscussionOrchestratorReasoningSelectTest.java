@@ -518,11 +518,9 @@ class DiscussionOrchestratorReasoningSelectTest {
         assertEquals(
                 java.util.Set.of(DiscussionOrchestrator.Phase.ADVISORY,
                         DiscussionOrchestrator.Phase.EVALUATING,
-                        DiscussionOrchestrator.Phase.CONCURRING,
                         DiscussionOrchestrator.Phase.REVIEW),
                 java.util.Set.copyOf(phases),
-                "exactly ADVISORY, EVALUATING, CONCURRING, REVIEW auto-advance; DECIDING advances on its "
-                        + "decision, and terminal/paused phases have no auto edge");
+                "exactly ADVISORY, EVALUATING, REVIEW auto-advance; terminal/paused phases have no auto edge");
     }
 
     // --- Hard-ceiling watchdog: a discussion must never hang ---
