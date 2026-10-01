@@ -11,6 +11,7 @@ import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.reactive.function.client.ClientResponse;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
+import reactor.core.publisher.MonoSink;
 import reactor.core.publisher.Sinks;
 import reactor.core.Disposable;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -21,11 +22,14 @@ import kubemoot.ai.mcpgateway.model.ServerRegistration;
 import kubemoot.ai.mcpgateway.model.ServerRegistration.ServerStatus;
 import kubemoot.ai.mcpgateway.model.ToolInfo;
 
+import java.time.Duration;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 
 @Service
@@ -38,6 +42,10 @@ public class McpClientManager {
     private static final String TRANSPORT_STDIO = "stdio";
     private static final String SESSION_URI_PREFIX = "/message?sessionId=";
     private static final String MCP_NOTIFICATION_INITIALIZED = "notifications/initialized";
+    private static final String MCP_NOTIFICATION_TOOLS_CHANGED = "notifications/tools/list_changed";
+    private static final String METHOD_TOOLS_LIST = "tools/list";
+    /** Safety net for a connect that never answers; the normal path ends long before. */
+    private static final Duration CONNECT_DEADLINE = Duration.ofSeconds(60);
 
     // Tool discovery field constants
     private static final String FIELD_NAME = "name";
@@ -65,6 +73,12 @@ public class McpClientManager {
     // For supergateway: active SSE subscriptions and response sinks
     private final Map<String, Disposable> sseSubscriptions = new ConcurrentHashMap<>();
     private final Map<String, Sinks.Many<McpMessage>> responseSinks = new ConcurrentHashMap<>();
+    // The current SSE stream per server; an ended stream acts only while it is still current
+    private final Map<String, Object> sseStreams = new ConcurrentHashMap<>();
+    // When each server's tool list was last read (or a re-read started)
+    private final Map<String, Instant> toolsListedAt = new ConcurrentHashMap<>();
+    // Listings started per server; only the latest one may replace the cached tools
+    private final Map<String, Long> listings = new ConcurrentHashMap<>();
     // Feedback log: server ID → list of feedback entries (consumed and cleared by operator)
     private final Map<String, List<FeedbackEntry>> feedbackLog = new ConcurrentHashMap<>();
     // Upstream JSON-RPC ids; starts above the fixed ids the handshake uses (1, 2).
@@ -98,6 +112,8 @@ public class McpClientManager {
             servers.put(server.id(), server.withStatus(ServerStatus.DISCONNECTED))
         );
         serverSessions.clear();
+        sseStreams.clear();
+        listings.clear();
         // Clean up SSE subscriptions
         sseSubscriptions.values().forEach(Disposable::dispose);
         sseSubscriptions.clear();
@@ -111,19 +127,7 @@ public class McpClientManager {
         if (existing != null) {
             // Server already registered - check if URL changed
             if (existing.url().equals(url)) {
-                // Self-heal a previously FAILED discovery: if the server is
-                // registered but has 0 tools cached, its initial connect/discover
-                // didn't succeed (e.g. a transient split-brain before Service
-                // session-affinity, or a cold-start race). Don't cache that empty
-                // result forever — re-run connect+discover. The operator
-                // re-registers periodically, so this recovers without a gateway
-                // restart (the old workaround). Observed 2026-05-27.
-                if (getToolsForServer(existing.id()).isEmpty()) {
-                    log.info("Server {} registered but has 0 tools — re-discovering", name);
-                    connectToServer(existing.id());
-                } else {
-                    log.debug("Server {} already registered with same URL, skipping re-registration", name);
-                }
+                reconcileRegisteredServer(existing);
                 return existing;
             } else {
                 // URL changed, unregister old and register new
@@ -135,6 +139,148 @@ public class McpClientManager {
         ServerRegistration registration = ServerRegistration.create(name, url, transport);
         registerServerInternal(registration);
         return registration;
+    }
+
+    /**
+     * The operator re-registers every server on each reconcile; the server's state decides
+     * what that does. A server whose session was lost (its stream ended, as when its pod is
+     * replaced), whose last connect failed, or that has no tools is connected again, which
+     * re-lists its tools. A connected server whose tool list is older than the safety-net
+     * age is re-listed in place. Anything else is left alone.
+     */
+    private void reconcileRegisteredServer(ServerRegistration existing) {
+        if (claimReconnect(existing.id())) {
+            log.info("Server {} lost its session or has no tools, reconnecting to re-list its tools",
+                existing.name());
+            connectToServer(existing.id());
+        } else if (isToolListOld(existing.id())) {
+            log.info("Tool list of {} is older than {}, re-listing", existing.name(),
+                properties.getToolListMaxAge());
+            refreshTools(existing.id());
+        } else {
+            log.debug("Server {} already registered with same URL and connected", existing.name());
+        }
+    }
+
+    /**
+     * Atomically move a server that needs a new connection to CONNECTING, so a burst of
+     * re-registrations starts one connect, not one each.
+     */
+    private boolean claimReconnect(String serverId) {
+        AtomicBoolean claimed = new AtomicBoolean(false);
+        servers.computeIfPresent(serverId, (id, server) -> {
+            if (!needsReconnect(server)) {
+                return server;
+            }
+            claimed.set(true);
+            return server.withStatus(ServerStatus.CONNECTING);
+        });
+        return claimed.get();
+    }
+
+    private boolean needsReconnect(ServerRegistration server) {
+        return switch (server.status()) {
+            case DISCONNECTED, ERROR -> true;
+            case CONNECTED -> getToolsForServer(server.id()).isEmpty();
+            case UNKNOWN, CONNECTING -> false; // a connect is under way
+        };
+    }
+
+    private boolean isToolListOld(String serverId) {
+        Instant listedAt = toolsListedAt.get(serverId);
+        return listedAt != null
+            && listedAt.plus(properties.getToolListMaxAge()).isBefore(Instant.now());
+    }
+
+    /**
+     * Re-list a server's tools and replace the cached list. Uses the current session, or
+     * opens one when there is none. An empty or failed read keeps the tools already known
+     * and marks the server ERROR, so the next re-registration connects again.
+     */
+    void refreshTools(String serverId) {
+        if (!servers.containsKey(serverId)) {
+            return;
+        }
+        toolsListedAt.put(serverId, Instant.now());
+        long listing = startListing(serverId);
+        discoverToolsInternal(serverId, true)
+            .timeout(CONNECT_DEADLINE)
+            .filter(tools -> isLatestListing(serverId, listing))
+            .subscribe(
+                tools -> applyRefreshedTools(serverId, tools),
+                error -> {
+                    log.warn("Re-listing tools of {} failed: {}", serverId, error.getMessage());
+                    if (isLatestListing(serverId, listing)) {
+                        setStatus(serverId, ServerStatus.ERROR);
+                    }
+                });
+    }
+
+    /** Start a listing; a reply to an older listing that arrives later is ignored. */
+    private long startListing(String serverId) {
+        return listings.merge(serverId, 1L, Long::sum);
+    }
+
+    private boolean isLatestListing(String serverId, long listing) {
+        boolean latest = listings.getOrDefault(serverId, 0L) == listing;
+        if (!latest) {
+            log.debug("Ignoring an older tool listing of {}", serverId);
+        }
+        return latest;
+    }
+
+    private void applyRefreshedTools(String serverId, List<ToolInfo> tools) {
+        ServerRegistration server = servers.get(serverId);
+        if (server == null) {
+            return;
+        }
+        if (tools.isEmpty()) {
+            log.warn("Re-listing {} returned no tools, keeping the {} known", server.name(),
+                getToolsForServer(serverId).size());
+            setStatus(serverId, ServerStatus.ERROR);
+            return;
+        }
+        List<ToolInfo> previous = serverTools.put(serverId, tools);
+        setStatus(serverId, ServerStatus.CONNECTED);
+        log.info("Re-listed {}: {} tools (was {})", server.name(), tools.size(),
+            previous == null ? 0 : previous.size());
+        recordFeedback(FeedbackEntry.success(server.name(), serverId, "discover", tools.size()));
+    }
+
+    /**
+     * Open a new session after the old one was lost. A new session can reach a new server
+     * process behind the same URL (a replaced pod) whose tool set differs, so the tools
+     * are re-listed once the session is open.
+     */
+    private Mono<Void> reinitialize(String serverId) {
+        // CONNECTING keeps a concurrent re-registration from opening a second session
+        // that would replace this one under the call waiting on it.
+        return Mono.defer(() -> {
+                setStatus(serverId, ServerStatus.CONNECTING);
+                return initializeConnection(serverId);
+            })
+            .timeout(CONNECT_DEADLINE)
+            .doOnSuccess(ignored -> refreshTools(serverId))
+            .doOnError(error -> setStatus(serverId, ServerStatus.ERROR))
+            // A caller that gives up mid-way leaves no connect under way.
+            .doOnCancel(() -> setStatus(serverId, ServerStatus.ERROR));
+    }
+
+    private void setStatus(String serverId, ServerStatus status) {
+        servers.computeIfPresent(serverId, (id, s) -> s.withStatus(status));
+    }
+
+    /**
+     * A status that means the session is gone and a new one must be opened. The mcp-bridge
+     * (stdio) answers 400 for a session it does not know and 503 while its MCP server is
+     * not connected; a streamable HTTP server answers 404 as the MCP transport specifies,
+     * or 400/401 in older servers.
+     */
+    private static boolean isSessionLost(ServerRegistration server, int statusCode) {
+        if (TRANSPORT_STDIO.equalsIgnoreCase(server.transport())) {
+            return statusCode == 400 || statusCode == 503;
+        }
+        return statusCode == 400 || statusCode == 401 || statusCode == 404;
     }
 
     /**
@@ -163,7 +309,9 @@ public class McpClientManager {
         servers.remove(serverId);
         clients.remove(serverId);
         serverTools.remove(serverId);
-        serverSessions.remove(serverId);
+        toolsListedAt.remove(serverId);
+        listings.remove(serverId);
+        cleanupSseSession(serverId);
         log.info("Unregistered MCP server: {}", serverId);
     }
 
@@ -205,6 +353,7 @@ public class McpClientManager {
 
         // Initialize connection and then discover tools (using defer to ensure ordering)
         // Retry once after 2s if 0 tools are found (handles initialization race with compliant MCP servers)
+        long listing = startListing(serverId);
         initializeConnection(serverId)
             .then(Mono.defer(() -> discoverTools(serverId)))
             .flatMap(tools -> {
@@ -215,20 +364,36 @@ public class McpClientManager {
                 }
                 return Mono.just(tools);
             })
+            .timeout(CONNECT_DEADLINE)
+            .filter(tools -> isLatestListing(serverId, listing))
             .subscribe(
-                tools -> {
-                    serverTools.put(serverId, tools);
-                    servers.put(serverId, servers.get(serverId).withStatus(ServerStatus.CONNECTED));
-                    log.info("Connected to MCP server {} with {} tools", server.name(), tools.size());
-                    recordFeedback(FeedbackEntry.success(server.name(), serverId, "connect"));
-                    recordFeedback(FeedbackEntry.success(server.name(), serverId, "discover", tools.size()));
-                },
+                tools -> onConnected(serverId, server, tools),
                 error -> {
                     log.error("Failed to connect to MCP server {}: {}", server.name(), error.getMessage());
-                    servers.put(serverId, servers.get(serverId).withStatus(ServerStatus.ERROR));
+                    setStatus(serverId, ServerStatus.ERROR);
                     recordFeedback(FeedbackEntry.failure(server.name(), serverId, "connect", error.getMessage()));
                 }
             );
+    }
+
+    /**
+     * Store the tools a connect discovered. A reconnect that finds no tools (a replacement
+     * server still starting) keeps the tools already known and marks the server ERROR, so
+     * the next re-registration connects again instead of agents losing the tools meanwhile.
+     */
+    private void onConnected(String serverId, ServerRegistration server, List<ToolInfo> tools) {
+        if (tools.isEmpty() && !getToolsForServer(serverId).isEmpty()) {
+            log.warn("Reconnected to {} but it listed no tools, keeping the {} known", server.name(),
+                getToolsForServer(serverId).size());
+            setStatus(serverId, ServerStatus.ERROR);
+            return;
+        }
+        serverTools.put(serverId, tools);
+        toolsListedAt.put(serverId, Instant.now());
+        setStatus(serverId, ServerStatus.CONNECTED);
+        log.info("Connected to MCP server {} with {} tools", server.name(), tools.size());
+        recordFeedback(FeedbackEntry.success(server.name(), serverId, "connect"));
+        recordFeedback(FeedbackEntry.success(server.name(), serverId, "discover", tools.size()));
     }
 
     private Mono<Void> initializeConnection(String serverId) {
@@ -304,7 +469,7 @@ public class McpClientManager {
         Sinks.Many<McpMessage> responseSink = Sinks.many().replay().limit(100);
         responseSinks.put(serverId, responseSink);
 
-        return Mono.create(monoSink -> {
+        return Mono.<Void>create(ready -> {
             // Start SSE connection and keep it open in background
             Flux<ServerSentEvent<String>> sseFlux = client.get()
                 .uri("/sse")
@@ -312,42 +477,12 @@ public class McpClientManager {
                 .retrieve()
                 .bodyToFlux(new ParameterizedTypeReference<ServerSentEvent<String>>() {});
 
+            Object stream = new Object();
+            sseStreams.put(serverId, stream);
             Disposable subscription = sseFlux.subscribe(
-                event -> {
-                    String eventType = event.event();
-                    String data = event.data();
-
-                    if ("endpoint".equals(eventType) && data != null && data.contains("sessionId=")) {
-                        // Extract and store session ID
-                        String sessionId = data.substring(data.indexOf("sessionId=") + 10);
-                        if (sessionId.contains("&")) {
-                            sessionId = sessionId.substring(0, sessionId.indexOf("&"));
-                        }
-                        serverSessions.put(serverId, sessionId);
-                        log.info("Captured supergateway session ID for {}: {}", server.name(), sessionId);
-                        // Signal that we're ready to proceed
-                        monoSink.success();
-                    } else if (data != null && data.contains("jsonrpc")) {
-                        // Parse and emit response message (handles both "message" event type and no event type)
-                        try {
-                            McpMessage response = objectMapper.readValue(data, McpMessage.class);
-                            log.debug("Received SSE response with id={} for {}", response.id(), server.name());
-                            responseSink.tryEmitNext(response);
-                        } catch (Exception e) {
-                            log.debug("Failed to parse SSE message: {}", e.getMessage());
-                        }
-                    }
-                },
-                error -> {
-                    log.warn("SSE connection error for {}: {}", server.name(), error.getMessage());
-                    sseSubscriptions.remove(serverId);
-                    serverSessions.remove(serverId);
-                },
-                () -> {
-                    log.info("SSE connection closed for {}", server.name());
-                    sseSubscriptions.remove(serverId);
-                    serverSessions.remove(serverId);
-                }
+                event -> handleSseEvent(serverId, server, event, ready, responseSink),
+                error -> onSseStreamEnded(serverId, stream, "failed: " + error.getMessage()),
+                () -> onSseStreamEnded(serverId, stream, "closed")
             );
 
             sseSubscriptions.put(serverId, subscription);
@@ -361,6 +496,71 @@ public class McpClientManager {
             log.warn("Failed to initialize stdio connection for {}: {}", server.name(), e.getMessage());
             return Mono.empty();
         });
+    }
+
+    /**
+     * One event on a stdio server's SSE stream: the endpoint event carries the session id;
+     * a tools/list_changed notification re-lists the server's tools; any other JSON-RPC
+     * message is a response for a waiting request.
+     */
+    private void handleSseEvent(String serverId, ServerRegistration server, ServerSentEvent<String> event,
+            MonoSink<Void> ready, Sinks.Many<McpMessage> responseSink) {
+        String data = event.data();
+        if (data == null) {
+            return;
+        }
+        if ("endpoint".equals(event.event()) && data.contains("sessionId=")) {
+            captureSseSession(serverId, server, data);
+            ready.success();
+            return;
+        }
+        McpMessage message = data.contains("jsonrpc") ? parseSseMessage(data) : null;
+        if (message == null) {
+            return;
+        }
+        if (MCP_NOTIFICATION_TOOLS_CHANGED.equals(message.method())) {
+            log.info("{} announced that its tool list changed, re-listing", server.name());
+            refreshTools(serverId);
+            return;
+        }
+        log.debug("Received SSE response with id={} for {}", message.id(), server.name());
+        responseSink.tryEmitNext(message);
+    }
+
+    private void captureSseSession(String serverId, ServerRegistration server, String endpointData) {
+        String sessionId = endpointData.substring(endpointData.indexOf("sessionId=") + 10);
+        if (sessionId.contains("&")) {
+            sessionId = sessionId.substring(0, sessionId.indexOf("&"));
+        }
+        serverSessions.put(serverId, sessionId);
+        log.info("Captured supergateway session ID for {}: {}", server.name(), sessionId);
+    }
+
+    private McpMessage parseSseMessage(String data) {
+        try {
+            return objectMapper.readValue(data, McpMessage.class);
+        } catch (Exception e) {
+            log.debug("Failed to parse SSE message: {}", e.getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * The SSE stream to a stdio server ended: the bridge or its pod went away, so the
+     * session is gone and the server behind the URL may come back with other tools. Mark
+     * the server DISCONNECTED; the next tool call or re-registration opens a new session
+     * and re-lists. A stream that a newer one already replaced changes nothing.
+     */
+    void onSseStreamEnded(String serverId, Object stream, String how) {
+        if (!sseStreams.remove(serverId, stream)) {
+            return;
+        }
+        sseSubscriptions.remove(serverId);
+        serverSessions.remove(serverId);
+        setStatus(serverId, ServerStatus.DISCONNECTED);
+        ServerRegistration server = servers.get(serverId);
+        log.warn("SSE stream to {} {}; its tools are re-listed with the next session",
+            server == null ? serverId : server.name(), how);
     }
 
     private Mono<Void> sendStdioInitializeAndWait(String serverId, WebClient client) {
@@ -420,6 +620,7 @@ public class McpClientManager {
      */
     private void cleanupSseSession(String serverId) {
         serverSessions.remove(serverId);
+        sseStreams.remove(serverId);
         Disposable oldSub = sseSubscriptions.remove(serverId);
         if (oldSub != null) oldSub.dispose();
         responseSinks.remove(serverId);
@@ -499,7 +700,10 @@ public class McpClientManager {
             return Mono.just(Collections.emptyList());
         }
 
-        McpMessage listToolsRequest = McpMessage.request(2, "tools/list", Map.of());
+        // A fresh id per listing: the response sink replays earlier messages, and a
+        // re-list on the same session must not take an older listing's reply.
+        long listId = upstreamIds.incrementAndGet();
+        McpMessage listToolsRequest = McpMessage.request(listId, METHOD_TOOLS_LIST, Map.of());
         log.info("Discovering tools for {} via SSE with session: {}", server.name(), sessionId);
 
         // POST the request, check for session errors, then wait for SSE response
@@ -507,7 +711,7 @@ public class McpClientManager {
             .uri(SESSION_URI_PREFIX + sessionId)
             .bodyValue(listToolsRequest)
             .exchangeToMono(response -> handleSseDiscoverResponse(
-                response, serverId, client, server, responseSink, allowRetry))
+                response, serverId, client, server, responseSink, allowRetry, listId))
             .doOnError(e -> log.error("Error discovering tools via SSE for {}: {}", serverId, e.getMessage()))
             .onErrorReturn(Collections.emptyList());
     }
@@ -518,11 +722,11 @@ public class McpClientManager {
      */
     private Mono<List<ToolInfo>> handleSseDiscoverResponse(ClientResponse response, String serverId,
             WebClient client, ServerRegistration server, Sinks.Many<McpMessage> responseSink,
-            boolean allowRetry) {
+            boolean allowRetry, long listId) {
         int statusCode = response.statusCode().value();
 
         // Session expired or SSE closed - re-initialize and retry
-        if ((statusCode == 400 || statusCode == 503) && allowRetry) {
+        if (isSessionLost(server, statusCode) && allowRetry) {
             log.warn("Session error ({}) during tool discovery for {}, re-initializing", statusCode, server.name());
             cleanupSseSession(serverId);
             return initializeConnection(serverId)
@@ -535,16 +739,17 @@ public class McpClientManager {
         }
 
         // POST accepted - wait for response on SSE stream
-        return awaitSseToolList(responseSink, serverId, server);
+        return awaitSseToolList(responseSink, serverId, server, listId);
     }
 
     /**
-     * Wait for the tools/list response (id=2) on the SSE response stream and parse it.
+     * Wait for the tools/list response with the given id on the SSE response stream and parse it.
      */
     private Mono<List<ToolInfo>> awaitSseToolList(Sinks.Many<McpMessage> responseSink,
-            String serverId, ServerRegistration server) {
+            String serverId, ServerRegistration server, long listId) {
+        String expectedId = String.valueOf(listId);
         return responseSink.asFlux()
-            .filter(msg -> msg.id() != null && "2".equals(String.valueOf(msg.id())))
+            .filter(msg -> msg.id() != null && expectedId.equals(String.valueOf(msg.id())))
             .next()
             .timeout(java.time.Duration.ofSeconds(10))
             .map(mcpResponse -> {
@@ -566,7 +771,7 @@ public class McpClientManager {
 
     private Mono<List<ToolInfo>> discoverToolsViaHttp(String serverId, WebClient client,
             ServerRegistration server, boolean allowRetry) {
-        McpMessage listToolsRequest = McpMessage.request(2, "tools/list", Map.of());
+        McpMessage listToolsRequest = McpMessage.request(upstreamIds.incrementAndGet(), METHOD_TOOLS_LIST, Map.of());
         String endpoint = getMcpEndpoint(server.transport());
         String sessionId = serverSessions.get(serverId);
         log.info("Discovering tools for {} via HTTP", server.name());
@@ -584,7 +789,7 @@ public class McpClientManager {
             .exchangeToMono(response -> {
                 int statusCode = response.statusCode().value();
 
-                if ((statusCode == 400 || statusCode == 401) && allowRetry) {
+                if (isSessionLost(server, statusCode) && allowRetry) {
                     log.warn("Session error ({}) during tool discovery for server {}", statusCode, serverId);
                     serverSessions.remove(serverId);
                     return initializeConnection(serverId)
@@ -667,7 +872,7 @@ public class McpClientManager {
         if (sessionId == null || responseSink == null) {
             if (allowRetry) {
                 log.info("No active SSE session for {}, re-initializing", server.name());
-                return initializeConnection(serverId)
+                return reinitialize(serverId)
                     .then(Mono.defer(() -> forwardRequestViaSSE(serverId, client, server, request, false)));
             }
             return Mono.just(McpMessage.error(request.id(), -32600, "No SSE session for server"));
@@ -694,10 +899,10 @@ public class McpClientManager {
         int statusCode = response.statusCode().value();
 
         // Session expired or SSE closed - re-initialize and retry
-        if ((statusCode == 400 || statusCode == 503) && allowRetry) {
+        if (isSessionLost(server, statusCode) && allowRetry) {
             log.warn("Session error ({}) for stdio server {}, re-initializing", statusCode, server.name());
             cleanupSseSession(serverId);
-            return initializeConnection(serverId)
+            return reinitialize(serverId)
                 .then(Mono.defer(() -> forwardRequestViaSSE(serverId, client, server, request, false)));
         }
 
@@ -728,7 +933,7 @@ public class McpClientManager {
         if (allowRetry && e instanceof java.util.concurrent.TimeoutException) {
             log.info("SSE response timeout for {}, re-initializing", server.name());
             cleanupSseSession(serverId);
-            return initializeConnection(serverId)
+            return reinitialize(serverId)
                 .then(Mono.defer(() -> forwardRequestViaSSE(serverId, client, server, request, false)));
         }
         return Mono.just(McpMessage.error(request.id(), -32603, "Internal error: " + e.getMessage()));
@@ -753,10 +958,10 @@ public class McpClientManager {
             .exchangeToMono(response -> {
                 int statusCode = response.statusCode().value();
 
-                if ((statusCode == 400 || statusCode == 401) && allowRetry) {
+                if (isSessionLost(server, statusCode) && allowRetry) {
                     log.warn("Session error ({}) for server {}", statusCode, serverId);
                     serverSessions.remove(serverId);
-                    return initializeConnection(serverId)
+                    return reinitialize(serverId)
                         .then(Mono.defer(() -> forwardRequestViaHttp(serverId, client, server, request, false)));
                 }
 

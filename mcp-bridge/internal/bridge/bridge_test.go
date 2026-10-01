@@ -191,3 +191,70 @@ func TestReadStdoutPipe_OversizedMessageRecovery(t *testing.T) {
 		}
 	}
 }
+
+func subscribe(b *Bridge) chan []byte {
+	ch := make(chan []byte, 8)
+	b.clientMu.Lock()
+	b.clients["gateway"] = ch
+	b.clientMu.Unlock()
+	return ch
+}
+
+// TestHandshakeWithARestartedServerAnnouncesToolsListChanged: an SSE client that
+// stayed connected while the MCP server process restarted is told to list tools
+// again once the new process has completed its handshake.
+func TestHandshakeWithARestartedServerAnnouncesToolsListChanged(t *testing.T) {
+	b := New("/tmp", 8080, "/healthz")
+	ch := subscribe(b)
+	stdin := &strings.Builder{}
+	b.stdin = nopWriteCloser{stdin}
+	b.pipeSessions.Store(2)
+
+	b.sendBridgeInitializedNotification()
+
+	select {
+	case msg := <-ch:
+		if string(msg) != toolsListChanged {
+			t.Fatalf("expected %s, got %s", toolsListChanged, msg)
+		}
+	default:
+		t.Fatalf("no notifications/tools/list_changed after a restarted server's handshake")
+	}
+	if !strings.Contains(stdin.String(), "notifications/initialized") {
+		t.Fatalf("the handshake notification was not sent to the server: %q", stdin.String())
+	}
+}
+
+// TestHandshakeWithTheFirstServerProcessAnnouncesNothing: clients list tools when
+// they connect, so the first server process needs no announcement.
+func TestHandshakeWithTheFirstServerProcessAnnouncesNothing(t *testing.T) {
+	b := New("/tmp", 8080, "/healthz")
+	ch := subscribe(b)
+	b.stdin = nopWriteCloser{&strings.Builder{}}
+	b.pipeSessions.Store(1)
+
+	b.sendBridgeInitializedNotification()
+
+	select {
+	case msg := <-ch:
+		t.Fatalf("unexpected message to SSE client: %s", msg)
+	default:
+	}
+}
+
+// TestAFailedHandshakeAnnouncesNothing: when the notification cannot reach the
+// server (no stdin), the handshake is not complete and clients are not told to
+// list tools from a server that cannot answer.
+func TestAFailedHandshakeAnnouncesNothing(t *testing.T) {
+	b := New("/tmp", 8080, "/healthz")
+	ch := subscribe(b)
+	b.pipeSessions.Store(3)
+
+	b.sendBridgeInitializedNotification()
+
+	select {
+	case msg := <-ch:
+		t.Fatalf("unexpected message to SSE client: %s", msg)
+	default:
+	}
+}

@@ -90,8 +90,12 @@ If the MCP server container restarts (crash, OOM, upgrade), the sidecar:
 2. Sets readiness to 503 (disconnected)
 3. Waits for the new MCP server process to open the pipes
 4. Resumes bridging (readiness returns to 200)
+5. Sends `notifications/tools/list_changed` to every connected SSE client once the new
+   process has completed its handshake, because the new process may offer other tools
 
-No sidecar restart required. The bridge survives MCP server restarts.
+No sidecar restart required. The bridge survives MCP server restarts, and SSE clients
+stay connected across them. A client whose event buffer is full when the notification is
+sent misses it; the gateway's periodic re-list (`mcp.gateway.tool-list-max-age`) catches that.
 
 ## Building
 

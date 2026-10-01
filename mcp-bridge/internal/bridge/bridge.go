@@ -60,6 +60,10 @@ type Bridge struct {
 	// True once the MCP server has connected to both pipes. Liveness signal.
 	connected atomic.Bool
 
+	// Times an MCP server process has opened the pipes. More than one means the
+	// server restarted (or reopened its pipes) while SSE clients stayed connected.
+	pipeSessions atomic.Int64
+
 	// True after the bridge has observed a successful MCP `initialize`
 	// response come back from the server. The flag resets on every pipe
 	// disconnect (so a restarted MCP server appears un-ready until it
@@ -233,6 +237,7 @@ func (b *Bridge) pipeSession(ctx context.Context) error {
 	b.pipeMu.Unlock()
 
 	b.connected.Store(true)
+	b.pipeSessions.Add(1)
 	// Reset init state for the fresh MCP server process. The previous
 	// initialization (if any, before a restart) belonged to the old
 	// process; the new one needs its own handshake before /readyz
@@ -617,6 +622,24 @@ func (b *Bridge) sendBridgeInitializedNotification() {
 		return
 	}
 	log.Printf("Bridge handshake complete (sent notifications/initialized)")
+	b.announceRestart()
+}
+
+// toolsListChanged is the MCP notification that tells a client to list tools again.
+const toolsListChanged = `{"jsonrpc":"2.0","method":"notifications/tools/list_changed"}`
+
+// announceRestart sends notifications/tools/list_changed to every SSE client once
+// a restarted MCP server has completed its handshake. SSE clients outlive a server
+// process restart inside the pod, and the new process may offer other tools, so
+// the clients list them again instead of keeping the previous process's list.
+// The first server process needs no announcement: clients list tools after they
+// connect.
+func (b *Bridge) announceRestart() {
+	if b.pipeSessions.Load() < 2 {
+		return
+	}
+	log.Printf("MCP server restarted; sending notifications/tools/list_changed to SSE clients")
+	b.deliver("", []byte(toolsListChanged))
 }
 
 // installFile puts a copy of src at dst by writing a temporary file in dst's

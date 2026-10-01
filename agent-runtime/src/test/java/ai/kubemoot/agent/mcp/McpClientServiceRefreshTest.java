@@ -2,6 +2,7 @@ package ai.kubemoot.agent.mcp;
 
 import ai.kubemoot.agent.config.AgentProperties;
 import ai.kubemoot.agent.gateway.GatewayClient;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -120,5 +121,38 @@ class McpClientServiceRefreshTest {
 
         assertFalse(service.refreshGatewayToolsIfStale(Instant.now().plus(McpClientService.TOOL_LIST_TTL).plusSeconds(1)));
         verify(gateway, times(1)).listTools();
+    }
+
+    private static GatewayClient.ToolInfo toolWithSchema(String name, String schemaJson) throws Exception {
+        return new GatewayClient.ToolInfo(name, "does " + name, new ObjectMapper().readTree(schemaJson));
+    }
+
+    private static Object schemaOf(McpClientService s, String name) {
+        return s.listTools().stream().filter(t -> t.name().equals(name)).findFirst().orElseThrow().inputSchema();
+    }
+
+    @Test
+    void aStaleListFollowsAChangedInputSchemaOfAKeptTool() throws Exception {
+        var before = toolWithSchema("helm_list", "{\"type\":\"object\",\"properties\":{\"namespace\":{}}}");
+        var after = toolWithSchema("helm_list",
+                "{\"type\":\"object\",\"properties\":{\"namespace\":{},\"all_namespaces\":{}}}");
+        when(gateway.listTools()).thenReturn(List.of(before));
+        service.initialize();
+
+        when(gateway.listTools()).thenReturn(List.of(after));
+        var later = Instant.now().plus(McpClientService.TOOL_LIST_TTL).plusSeconds(1);
+        assertTrue(service.refreshGatewayToolsIfStale(later), "a server restarted with a new schema is picked up");
+        assertEquals(after.inputSchema(), schemaOf(service, "helm_list"));
+    }
+
+    @Test
+    void anIdenticalStaleListWithSchemasReportsNoChange() throws Exception {
+        var schema = "{\"type\":\"object\",\"properties\":{\"namespace\":{}}}";
+        when(gateway.listTools()).thenReturn(List.of(toolWithSchema("helm_list", schema)));
+        service.initialize();
+
+        when(gateway.listTools()).thenReturn(List.of(toolWithSchema("helm_list", schema)));
+        var later = Instant.now().plus(McpClientService.TOOL_LIST_TTL).plusSeconds(1);
+        assertFalse(service.refreshGatewayToolsIfStale(later), "an equal schema read again is not a change");
     }
 }

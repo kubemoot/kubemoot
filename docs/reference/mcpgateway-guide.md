@@ -128,6 +128,23 @@ The gateway must complete the MCP protocol handshake before tools are available:
 
 For stdio/bridge transport, the gateway uses fire-and-forget initialization: send initialize, wait 500ms, send notifications/initialized, wait 500ms, then discover tools. A retry (2s delay) runs if 0 tools are found initially.
 
+## Tool List Changes
+
+A server's tools can change while its URL stays the same: its pod is replaced with new arguments (for example `--toolsets=core,config,helm` adds `helm_list`), its container restarts with a new image, or the server changes its tools at runtime. The gateway lists the tools again when one of these states shows:
+
+| Signal | What the gateway does |
+|--------|-----------------------|
+| A stdio (bridge) server sends `notifications/tools/list_changed` on its SSE stream | Lists the tools again on the open session. The gateway does not hold a listening stream to streamable HTTP servers, so for them the signals below apply |
+| The MCP server process restarts inside its pod | The mcp-bridge sends `notifications/tools/list_changed` to its SSE clients once the new process has completed its handshake, which re-lists as above |
+| The SSE stream to the server ends (the pod was replaced or went away) | Marks the server `DISCONNECTED`; the next tool call or operator re-registration opens a new session and lists the tools on it |
+| A streamable HTTP server answers `400`, `401` or `404` for the session | Opens a new session, retries the call, and lists the tools on the new session |
+| The operator re-registers a server that is `DISCONNECTED`, `ERROR`, or has no tools | Connects again and lists the tools. A burst of re-registrations starts one connect |
+| The operator re-registers a connected server whose list is older than `mcp.gateway.tool-list-max-age` (default `10m`) | Lists the tools again. This is a safety net for a change that none of the signals above reported |
+
+A re-list that returns no tools, or fails, keeps the tools already known (a replacement server may still be starting) and marks the server `ERROR`, so the next re-registration connects again. When several re-lists overlap, only the most recently started one updates the list. `GET /admin/tools` and `GET /admin/servers/{id}/tools` always serve the latest list.
+
+Agents read `GET /admin/tools` when they start and again before an evaluation once their copy is older than 60 seconds (10 seconds while it is empty). A tool that is added, removed, or given a new description or input schema reaches running agents that way, without restarting them.
+
 ## Example
 
 ### Example Gateway

@@ -115,20 +115,17 @@ public class McpClientService {
     /**
      * Re-read the gateway's tool list when it is older than {@link #TOOL_LIST_TTL}, or than
      * {@link #EMPTY_TOOL_LIST_RETRY} while it is empty,
-     * so a tool server registered after this agent started is used without a restart.
-     * Returns true when the set of tool names changed. An empty or failed read keeps the
-     * tools already known: the gateway client answers an error with an empty list.
+     * so a tool server registered or restarted with other tools after this agent started is
+     * used without a restart. Returns true when a tool was added or removed, or a tool's
+     * description or input schema changed. An empty or failed read keeps the tools already
+     * known: the gateway client answers an error with an empty list.
      */
     public boolean refreshGatewayToolsIfStale() {
         return refreshGatewayToolsIfStale(Instant.now());
     }
 
     boolean refreshGatewayToolsIfStale(Instant now) {
-        if (!gatewayMode || gatewayClient == null || !gatewayClient.isConfigured()) {
-            return false;
-        }
-        var trustedFor = gatewayTools.isEmpty() ? EMPTY_TOOL_LIST_RETRY : TOOL_LIST_TTL;
-        if (now.isBefore(gatewayToolsLoadedAt.plus(trustedFor))) {
+        if (!canReadGateway() || !isGatewayToolListStale(now)) {
             return false;
         }
         List<GatewayClient.ToolInfo> fresh;
@@ -139,15 +136,27 @@ public class McpClientService {
             return false;
         }
         gatewayToolsLoadedAt = now;
-        if (fresh == null || fresh.isEmpty()) {
+        return fresh != null && !fresh.isEmpty() && replaceGatewayTools(fresh);
+    }
+
+    private boolean canReadGateway() {
+        return gatewayMode && gatewayClient != null && gatewayClient.isConfigured();
+    }
+
+    private boolean isGatewayToolListStale(Instant now) {
+        var trustedFor = gatewayTools.isEmpty() ? EMPTY_TOOL_LIST_RETRY : TOOL_LIST_TTL;
+        return !now.isBefore(gatewayToolsLoadedAt.plus(trustedFor));
+    }
+
+    /** Replace the known gateway tools with a non-empty fresh list; true when anything differs. */
+    private boolean replaceGatewayTools(List<GatewayClient.ToolInfo> fresh) {
+        var freshByName = new LinkedHashMap<String, GatewayClient.ToolInfo>();
+        fresh.forEach(tool -> freshByName.put(tool.name(), tool));
+        if (freshByName.equals(gatewayTools)) {
             return false;
         }
-        var names = fresh.stream().map(GatewayClient.ToolInfo::name).collect(Collectors.toSet());
-        if (names.equals(gatewayTools.keySet())) {
-            return false;
-        }
-        gatewayTools.keySet().retainAll(names);
-        fresh.forEach(tool -> gatewayTools.put(tool.name(), tool));
+        gatewayTools.keySet().retainAll(freshByName.keySet());
+        gatewayTools.putAll(freshByName);
         log.info("Gateway tool list changed: now {} tools", gatewayTools.size());
         return true;
     }
@@ -270,7 +279,7 @@ public class McpClientService {
         if (gatewayMode) {
             return Map.of("gateway", gatewayClient != null && gatewayClient.isConfigured() && !gatewayTools.isEmpty());
         }
-        return clients.keySet().stream().collect(java.util.stream.Collectors.toMap(k -> k, k -> true));
+        return clients.keySet().stream().collect(Collectors.toMap(k -> k, k -> true));
     }
 
     public boolean isGatewayMode() {
