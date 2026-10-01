@@ -56,6 +56,7 @@ Kubernetes `RuntimeClass`. It ships Go and Python SDKs and an optional Sandbox R
   consensus, ADL governance, or fitness. Kubemoot does not use it today. Evaluating it
   as the isolation layer for the code sandbox is a direction on the
   [Roadmap](../roadmap/#evaluating-agent-sandbox-for-code-execution).
+- **Background:** [Kubernetes Podcast episode 272, "Agent Substrate"](https://kubernetespodcast.com/episode/272-agent-substrate/) covers Agent Sandbox alongside Agent Substrate.
 
 ### Agent Substrate
 
@@ -79,11 +80,10 @@ the agent framework.
   quickly compared with a model load, and pod startup is not the problem Substrate
   solves for Kubemoot today. Substrate does not replace crews, consensus, ADL
   governance, or fitness. It stays here to revisit after it reaches a stable release.
+- **Background:** [Kubernetes Podcast episode 272, "Agent Substrate"](https://kubernetespodcast.com/episode/272-agent-substrate/).
 
 Both projects solve for very large numbers of agent pods: density, isolation, and fast
-resume. That is a later concern for Kubemoot, not a current one. For background, see
-the Kubernetes Podcast episode
-[Agent Substrate](https://kubernetespodcast.com/episode/272-agent-substrate/).
+resume. That is a later concern for Kubemoot, not a current one. Both are discussed in [Kubernetes Podcast episode 272, "Agent Substrate"](https://kubernetespodcast.com/episode/272-agent-substrate/).
 
 ## In-process multi-agent frameworks
 

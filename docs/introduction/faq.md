@@ -48,6 +48,7 @@ density, isolation, and fast resume. Kubemoot's bottleneck today is placing and 
 models across a few GPUs, which neither addresses, and its agent pods already start
 quickly. Agent Sandbox overlaps with the code sandbox the compute agent uses, and
 evaluating it there is on the [Roadmap](../roadmap/#evaluating-agent-sandbox-for-code-execution).
+Background: [Kubernetes Podcast episode 272, "Agent Substrate"](https://kubernetespodcast.com/episode/272-agent-substrate/), with Tim Hockin and Brandon Royal.
 Agent Substrate overlaps with running many idle agents densely and is pre-1.0. Neither
 replaces crews, consensus, ADL governance, or fitness, and Kubemoot does not run on
 either today. See [Related Projects](../related-projects/#agent-sandbox).

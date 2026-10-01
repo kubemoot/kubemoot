@@ -206,7 +206,7 @@ network policy.
 
 **Direction:** evaluate [Agent Sandbox](../related-projects/#agent-sandbox), now stable at
 v1.x, as the isolation layer for code execution in place of Kubemoot's own sandbox
-setup. This is a direction under evaluation, not a commitment.
+setup. This is a direction under evaluation, not a commitment. Background: [Kubernetes Podcast episode 272, "Agent Substrate"](https://kubernetespodcast.com/episode/272-agent-substrate/).
 
 ## The liaison for every agent harness
 
