@@ -80,6 +80,10 @@ page or with `kubectl patch`:
 kubectl patch crewfitnesssuite my-baseline -n crew-my-crew --type merge -p '{"spec":{"suspend":true}}'
 ```
 
+When you change a scenario's reference, earlier scores were taken against the old text.
+A suite with `spec.rejudge` scores an earlier run's saved answers against the current
+scenarios without asking the crew again, so old and new runs compare on the same footing.
+
 To stop a single `CrewFitness`, delete it. See the
 [CrewFitnessSuite reference](../../reference/crewfitnesssuite/) for every field and phase.
 

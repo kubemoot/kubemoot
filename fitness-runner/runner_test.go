@@ -23,6 +23,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/kubemoot/kubemoot/operator/pkg/fitnessscript"
 )
 
 func TestWaitForReady_ImmediateSuccess(t *testing.T) {
@@ -135,16 +137,16 @@ func TestRunFitnessTest_RecoversAfterSSEDrop(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	ft := FitnessTest{
+	ft := fitnessscript.FitnessTest{
 		Constants:  map[string]string{"QUESTION": "q"},
-		Assertions: []Assertion{{Raw: "synthesis is non-empty", Kind: KindSynthesisNonEmpty}},
+		Assertions: []fitnessscript.Assertion{{Raw: "synthesis is non-empty", Kind: fitnessscript.KindSynthesisNonEmpty}},
 	}
 	out := RunFitnessTest(context.Background(), ft, srv.URL, 20*time.Second)
 
-	if !hasDone(out.Events) {
+	if !fitnessscript.HasDone(out.Events) {
 		t.Errorf("expected 'done' recovered after reconnect; got %d events", len(out.Events))
 	}
-	if findSynthesis(out.Events) == "" {
+	if fitnessscript.FindSynthesis(out.Events) == "" {
 		t.Error("expected synthesis recovered after reconnect")
 	}
 	if c := atomic.LoadInt32(&connects); c < 2 {
@@ -174,7 +176,7 @@ func TestRunFitnessTest_AnsweredOnCompletedDiscussion(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	ft := FitnessTest{Constants: map[string]string{"QUESTION": "q"}}
+	ft := fitnessscript.FitnessTest{Constants: map[string]string{"QUESTION": "q"}}
 	out := RunFitnessTest(context.Background(), ft, srv.URL, 10*time.Second)
 
 	if !out.Answered {
@@ -191,7 +193,7 @@ func TestRunFitnessTest_NotAnsweredWhenGatewayFails(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	ft := FitnessTest{Constants: map[string]string{"QUESTION": "q"}}
+	ft := fitnessscript.FitnessTest{Constants: map[string]string{"QUESTION": "q"}}
 	out := RunFitnessTest(context.Background(), ft, srv.URL, 3*time.Second)
 
 	if out.Answered {
@@ -214,9 +216,9 @@ func TestRunFitnessTest_AnsweredEvenWhenAssertionFails(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	ft := FitnessTest{
+	ft := fitnessscript.FitnessTest{
 		Constants:  map[string]string{"QUESTION": "q"},
-		Assertions: []Assertion{{Raw: "synthesis contains green", Kind: KindSynthesisContains, Terms: []string{"green"}}},
+		Assertions: []fitnessscript.Assertion{{Raw: "synthesis contains green", Kind: fitnessscript.KindSynthesisContains, Terms: []string{"green"}}},
 	}
 	out := RunFitnessTest(context.Background(), ft, srv.URL, 10*time.Second)
 
@@ -244,10 +246,10 @@ func TestRunFitnessTest_NotAnsweredWhenNoDone(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	ft := FitnessTest{Constants: map[string]string{"QUESTION": "q"}}
+	ft := fitnessscript.FitnessTest{Constants: map[string]string{"QUESTION": "q"}}
 	out := RunFitnessTest(context.Background(), ft, srv.URL, 2*time.Second)
 
-	if findSynthesis(out.Events) == "" {
+	if fitnessscript.FindSynthesis(out.Events) == "" {
 		t.Fatal("test precondition: expected a synthesis event to have been captured")
 	}
 	if out.Answered {

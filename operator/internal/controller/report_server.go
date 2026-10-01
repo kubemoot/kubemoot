@@ -323,15 +323,21 @@ func GenerateSuiteReport(ctx context.Context, c client.Client, store objectStore
 	if err := c.Get(ctx, client.ObjectKey{Namespace: namespace, Name: name}, &suite); err != nil {
 		return nil, fmt.Errorf("get suite %s/%s: %w", namespace, name, err)
 	}
+	return buildSuiteReport(ctx, c, store, &suite)
+}
+
+// buildSuiteReport builds the XLSX for one suite run from its transcripts and
+// its deferred-judge checkpoint. The suite is enriched in memory only.
+func buildSuiteReport(ctx context.Context, c client.Client, store objectStore, suite *kubemootv1alpha1.CrewFitnessSuite) ([]byte, error) {
 	// Provenance: enrich the in-memory suite with the crew chart version so the
 	// Overview tab attributes this run to a specific crew version.
-	stampCrewVersion(ctx, c, &suite)
-	prefix := fmt.Sprintf("%s/%s/%s/", namespace, name, suite.Status.RunID)
+	stampCrewVersion(ctx, c, suite)
+	prefix := suiteRunPrefix(suite.Namespace, suite.Name, suite.Status.RunID)
 	keys, err := store.ListObjects(FitnessArtifactsBucket, prefix)
 	if err != nil {
 		return nil, fmt.Errorf("list transcripts: %w", err)
 	}
-	results := readTranscriptResults(&suite, store, keys)
+	results := readTranscriptResults(suite, store, keys)
 	sort.SliceStable(results, func(i, j int) bool {
 		if results[i].Scenario != results[j].Scenario {
 			return results[i].Scenario < results[j].Scenario
@@ -339,7 +345,7 @@ func GenerateSuiteReport(ctx context.Context, c client.Client, store objectStore
 		return results[i].Iteration < results[j].Iteration
 	})
 
-	// Semantic self-consistency (embedding-based) with a per-run cache; nil →
+	// Semantic self-consistency (embedding-based) with a per-run cache; nil ->
 	// the builder uses the lexical fallback per scenario.
 	scenarioTexts := map[string][]string{}
 	for _, r := range results {
@@ -352,7 +358,7 @@ func GenerateSuiteReport(ctx context.Context, c client.Client, store objectStore
 	// Answer quality comes from the DEFER post-suite judging pass (crew-scored vs
 	// the scenario's reference), cached at completion; empty until it finishes.
 	quality := readDeferredScores(store, prefix)
-	return BuildFitnessSuiteXLSXWithMeasures(&suite, results, consistency, quality)
+	return BuildFitnessSuiteXLSXWithMeasures(suite, results, consistency, quality)
 }
 
 // ReportServer is a manager Runnable that serves on-demand fitness reports.

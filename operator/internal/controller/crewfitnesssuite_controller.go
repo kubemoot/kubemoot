@@ -63,6 +63,19 @@ type CrewFitnessSuiteReconciler struct {
 	APIReader     client.Reader
 	Scheme        *runtime.Scheme
 	NATSPublisher *kubemootnats.Publisher
+	// artifacts replaces NATSPublisher as the artifact object store in tests.
+	artifacts objectStore
+}
+
+// store returns the artifact object store, or nil when none is configured.
+func (r *CrewFitnessSuiteReconciler) store() objectStore {
+	if r.artifacts != nil {
+		return r.artifacts
+	}
+	if r.NATSPublisher == nil {
+		return nil // a nil *Publisher must not become a non-nil interface
+	}
+	return r.NATSPublisher
 }
 
 // FitnessArtifactsBucket is the NATS Object Store bucket where the
@@ -103,6 +116,7 @@ const (
 // +kubebuilder:rbac:groups=kubemoot.ai,resources=crewfitnesssuites/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=kubemoot.ai,resources=crewfitnesssuites/finalizers,verbs=update
 // +kubebuilder:rbac:groups=kubemoot.ai,resources=crewfitnesses,verbs=get;list;watch;create;update;patch;delete;deletecollection
+// +kubebuilder:rbac:groups="",resources=configmaps,verbs=get;list;watch
 
 func (r *CrewFitnessSuiteReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	suite := &kubemootv1alpha1.CrewFitnessSuite{}
@@ -140,6 +154,11 @@ func isSuiteTerminal(phase kubemootv1alpha1.CrewFitnessSuitePhase) bool {
 	return false
 }
 
+// isSuitePending reports whether the suite has not started yet.
+func isSuitePending(phase kubemootv1alpha1.CrewFitnessSuitePhase) bool {
+	return phase == "" || phase == kubemootv1alpha1.CrewFitnessSuitePhasePending
+}
+
 // dispatchPhase routes one reconcile by phase. A terminal suite only runs
 // upkeep. spec.cancel on any non-terminal suite (Pending, Running, Paused) wins
 // over everything else, including spec.suspend.
@@ -152,6 +171,10 @@ func (r *CrewFitnessSuiteReconciler) dispatchPhase(ctx context.Context, suite *k
 	}
 	if suite.Spec.Cancel {
 		return r.cancelSuite(ctx, suite)
+	}
+	if suite.Spec.Rejudge != nil && isSuitePending(suite.Status.Phase) {
+		// A re-judge runs no iterations: it copies the source run and completes.
+		return r.startRejudge(ctx, suite)
 	}
 	switch suite.Status.Phase {
 	case kubemootv1alpha1.CrewFitnessSuitePhaseRunning:
@@ -200,9 +223,9 @@ func (r *CrewFitnessSuiteReconciler) finalizeSuite(ctx context.Context, suite *k
 	if !controllerutil.ContainsFinalizer(suite, crewFitnessSuiteFinalizer) {
 		return ctrl.Result{}, nil
 	}
-	if r.NATSPublisher != nil {
+	if store := r.store(); store != nil {
 		prefix := fmt.Sprintf("%s/%s/", suite.Namespace, suite.Name)
-		if n, err := purgeArtifacts(r.NATSPublisher, FitnessArtifactsBucket, prefix); err != nil {
+		if n, err := purgeArtifacts(store, FitnessArtifactsBucket, prefix); err != nil {
 			log.Error(err, "Failed to purge fitness artifacts on deletion (bucket TTL is the backstop)",
 				"suite", suite.Name, "prefix", prefix)
 		} else if n > 0 {
@@ -499,6 +522,9 @@ func (r *CrewFitnessSuiteReconciler) terminalUpkeep(ctx context.Context, suite *
 	if !judgeSkipped(suite) {
 		r.runDeferredJudgePass(suite)
 	}
+	if suite.Spec.Rejudge != nil {
+		return r.rejudgeUpkeep(ctx, suite)
+	}
 
 	children, err := r.listChildren(ctx, suite)
 	if err != nil {
@@ -630,11 +656,11 @@ func terminalUpkeepAction(hasArtifact, judgeComplete bool, childCount int) termi
 // With no NATS there is no deferred judge → report complete with no scores so
 // terminalUpkeep keeps the original write-then-reap flow.
 func (r *CrewFitnessSuiteReconciler) deferredJudgeState(suite *kubemootv1alpha1.CrewFitnessSuite) (complete bool, scores map[string]float64) {
-	if r.NATSPublisher == nil || suite.Status.RunID == "" || judgeSkipped(suite) {
+	store := r.store()
+	if store == nil || suite.Status.RunID == "" || judgeSkipped(suite) {
 		return true, nil
 	}
-	prefix := fmt.Sprintf("%s/%s/%s/", suite.Namespace, suite.Name, suite.Status.RunID)
-	cache := loadDeferredCache(r.NATSPublisher, prefix)
+	cache := loadDeferredCache(store, suiteRunPrefix(suite.Namespace, suite.Name, suite.Status.RunID))
 	return cache.Complete, cache.Scores
 }
 
@@ -671,17 +697,22 @@ func summarizeChildren(children []kubemootv1alpha1.CrewFitness) childProgress {
 			p.inFlight++ // Pending / Running / empty: still in flight
 			continue
 		}
-		p.completed++
-		switch phase {
-		case kubemootv1alpha1.CrewFitnessPhasePassed:
-			p.passed++
-		case kubemootv1alpha1.CrewFitnessPhaseFailed:
-			p.failed++
-		default:
-			p.errored++
-		}
+		p.add(phase)
 	}
 	return p
+}
+
+// add counts one finished iteration by phase.
+func (p *childProgress) add(phase kubemootv1alpha1.CrewFitnessPhase) {
+	p.completed++
+	switch phase {
+	case kubemootv1alpha1.CrewFitnessPhasePassed:
+		p.passed++
+	case kubemootv1alpha1.CrewFitnessPhaseFailed:
+		p.failed++
+	default:
+		p.errored++
+	}
 }
 
 // nextIteration identifies the next (scriptIdx, iter) pair the reconciler
@@ -778,8 +809,9 @@ func buildIterationCR(suite *kubemootv1alpha1.CrewFitnessSuite, next *nextIterat
 // real scores instead of the 0-until-judged placeholders. See terminalUpkeep
 // for the regenerate-then-reap ordering.
 func (r *CrewFitnessSuiteReconciler) writeArtifact(ctx context.Context, suite *kubemootv1alpha1.CrewFitnessSuite, children []kubemootv1alpha1.CrewFitness, judgeQuality map[string]float64) (*kubemootv1alpha1.SuiteArtifactRef, error) {
-	if r.NATSPublisher == nil {
-		// NATS not configured (dev-without-NATS path). Skip silently —
+	store := r.store()
+	if store == nil {
+		// NATS not configured (dev-without-NATS path). Skip silently -
 		// the suite still completes, status counts are accurate.
 		return nil, nil
 	}
@@ -787,20 +819,29 @@ func (r *CrewFitnessSuiteReconciler) writeArtifact(ctx context.Context, suite *k
 	// Provenance: enrich the in-memory suite with the crew chart version so the
 	// Overview tab attributes this run to a specific crew version.
 	stampCrewVersion(ctx, r, suite)
-	// consistency is computed elsewhere (currently unused → nil); judgeQuality
+	// consistency is computed elsewhere (currently unused -> nil); judgeQuality
 	// is threaded from the deferred-judge checkpoint so the Quality/Scenarios
 	// tabs reflect the reference-grounded scores.
 	xlsxBytes, err := BuildFitnessSuiteXLSXWithMeasures(suite, results, nil, judgeQuality)
 	if err != nil {
 		return nil, fmt.Errorf("building XLSX: %w", err)
 	}
+	return putSuiteArtifact(store, suite, xlsxBytes)
+}
 
-	ttl := defaultArtifactRetention
+// artifactTTL is the object-store retention for the suite's artifacts.
+func artifactTTL(suite *kubemootv1alpha1.CrewFitnessSuite) time.Duration {
 	if suite.Spec.ArtifactRetention != nil && suite.Spec.ArtifactRetention.Duration > 0 {
-		ttl = suite.Spec.ArtifactRetention.Duration
+		return suite.Spec.ArtifactRetention.Duration
 	}
+	return defaultArtifactRetention
+}
+
+// putSuiteArtifact stores the run's XLSX under <namespace>/<name>/<runId>.xlsx
+// and returns the ref for status.
+func putSuiteArtifact(store objectStore, suite *kubemootv1alpha1.CrewFitnessSuite, xlsxBytes []byte) (*kubemootv1alpha1.SuiteArtifactRef, error) {
 	objectKey := fmt.Sprintf("%s/%s/%s.xlsx", suite.Namespace, suite.Name, suite.Status.RunID)
-	info, err := r.NATSPublisher.PutObject(FitnessArtifactsBucket, objectKey, xlsxBytes, ttl)
+	info, err := store.PutObject(FitnessArtifactsBucket, objectKey, xlsxBytes, artifactTTL(suite))
 	if err != nil {
 		return nil, fmt.Errorf("writing artifact to NATS: %w", err)
 	}
@@ -812,10 +853,8 @@ func (r *CrewFitnessSuiteReconciler) writeArtifact(ctx context.Context, suite *k
 		// info.Size is the canonical byte count from the object store.
 		ref.SizeBytes = int64(info.Size)
 	} else {
-		// Best-effort fallback when NATS returned nil info (NATS unset).
 		ref.SizeBytes = int64(len(xlsxBytes))
 	}
-	_ = ctx // ctx kept in signature for future cancel propagation
 	return ref, nil
 }
 

@@ -137,6 +137,34 @@ spec:
                   the suite starts from a clean state (results aren't biased by facts the crew
                   learned in earlier runs). Defaults to true.
                 type: boolean
+              rejudge:
+                description: |-
+                  Rejudge makes this suite a judge-only pass over an earlier run. When set,
+                  the suite runs no iterations and asks the crew nothing: it copies the
+                  source run's per-scenario transcripts, re-evaluates their assertions
+                  against THIS suite's scripts (matched by testRef), and the deferred judge
+                  scores the saved answers against this suite's references. Iterations,
+                  concurrency, purgeMemory and suspend do not apply. Scenarios of this suite
+                  with no transcript in the source are listed in status.rejudge.notInSource
+                  and not scored; source scenarios missing from this suite are ignored.
+                  Optional; set at creation and immutable afterwards.
+                properties:
+                  runId:
+                    description: |-
+                      RunID is the source run to re-judge; it must equal the source suite's
+                      status.runId.
+                    minLength: 1
+                    type: string
+                  suite:
+                    description: |-
+                      Suite is the source CrewFitnessSuite, in the same namespace. It must be
+                      Completed and must still exist: deleting a suite purges its transcripts.
+                    minLength: 1
+                    type: string
+                required:
+                - runId
+                - suite
+                type: object
               scripts:
                 description: |-
                   Scripts is the ordered list of fitness scripts to execute.
@@ -186,6 +214,10 @@ spec:
             - iterations
             - scripts
             type: object
+            x-kubernetes-validations:
+            - message: 'spec.rejudge is immutable: set it when the suite is created'
+              rule: has(self.rejudge) == has(oldSelf.rejudge) && (!has(self.rejudge)
+                || self.rejudge == oldSelf.rejudge)
           status:
             description: CrewFitnessSuiteStatus reflects the observed state of a suite
               run.
@@ -308,6 +340,46 @@ spec:
               phase:
                 description: Phase is the lifecycle phase.
                 type: string
+              rejudge:
+                description: |-
+                  Rejudge is set on a re-judge suite (spec.rejudge) once its source
+                  transcripts are copied.
+                properties:
+                  notInSource:
+                    description: |-
+                      NotInSource lists this suite's scenarios (testRef) that have no
+                      transcript in the source run. They are not scored.
+                    items:
+                      type: string
+                    type: array
+                  source:
+                    description: Source is the run that was re-judged.
+                    properties:
+                      runId:
+                        description: |-
+                          RunID is the source run to re-judge; it must equal the source suite's
+                          status.runId.
+                        minLength: 1
+                        type: string
+                      suite:
+                        description: |-
+                          Suite is the source CrewFitnessSuite, in the same namespace. It must be
+                          Completed and must still exist: deleting a suite purges its transcripts.
+                        minLength: 1
+                        type: string
+                    required:
+                    - runId
+                    - suite
+                    type: object
+                  transcripts:
+                    description: Transcripts is the number of source transcripts copied
+                      into this run.
+                    format: int32
+                    type: integer
+                required:
+                - source
+                - transcripts
+                type: object
               runId:
                 description: |-
                   RunID identifies this suite execution; set on transition to

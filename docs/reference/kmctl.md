@@ -679,6 +679,14 @@ kmctl fitness download demo-starter -o results.xlsx -n kubemoot
 # Downloads to results.xlsx
 ```
 
+### Re-judging a run
+
+`kmctl` has no re-judge command. A `CrewFitnessSuite` with a `spec.rejudge` block scores an
+earlier run's saved answers against the suite's current scenarios without asking the crew;
+apply it with `kmctl fitness run -f FILE` or `kubectl apply`, then use `kmctl fitness get` and
+`kmctl fitness download` as for any suite. See
+[Re-judge an earlier run](../crewfitnesssuite/#re-judge-an-earlier-run).
+
 ### Still planned in kmctl fitness
 
 A per-scenario score breakdown in `kmctl fitness get` is planned but not yet shipped.

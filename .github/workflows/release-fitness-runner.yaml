@@ -6,6 +6,8 @@ on:
     paths:
       - 'fitness-runner/**'
       - '!fitness-runner/**.md'
+      - 'operator/pkg/fitnessscript/**'
+      - 'operator/pkg/sse/**'
   workflow_dispatch:
     inputs:
       force_release:

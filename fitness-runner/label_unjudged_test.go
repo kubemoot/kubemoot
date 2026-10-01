@@ -3,16 +3,18 @@ package main
 import (
 	"strings"
 	"testing"
+
+	"github.com/kubemoot/kubemoot/operator/pkg/fitnessscript"
 )
 
 // A standalone CrewFitness never reaches the judge, so its deferred assertion must
 // say it was not scored instead of reading as a pass.
 func TestLabelUnjudged(t *testing.T) {
-	assertions := []Assertion{
-		{Kind: KindSynthesisNonEmpty, Raw: "synthesis is non-empty"},
-		{Kind: KindDeferred, Keyword: "REFLECTS", Raw: `DEFER synthesis REFLECTS "ref"`},
+	assertions := []fitnessscript.Assertion{
+		{Kind: fitnessscript.KindSynthesisNonEmpty, Raw: "synthesis is non-empty"},
+		{Kind: fitnessscript.KindDeferred, Keyword: "REFLECTS", Raw: `DEFER synthesis REFLECTS "ref"`},
 	}
-	results := evaluateAssertions(assertions, true, nil, "an answer", false)
+	results := fitnessscript.Evaluate(assertions, fitnessscript.RunState{PostOK: true, Synthesis: "an answer"})
 	labelUnjudged(assertions, results)
 
 	if results[0].Message == "" || strings.Contains(results[0].Message, "not scored") {
@@ -27,7 +29,7 @@ func TestLabelUnjudged(t *testing.T) {
 }
 
 func TestLabelUnjudgedToleratesShortResults(t *testing.T) {
-	assertions := []Assertion{{Kind: KindDeferred, Keyword: "REFLECTS"}}
+	assertions := []fitnessscript.Assertion{{Kind: fitnessscript.KindDeferred, Keyword: "REFLECTS"}}
 	labelUnjudged(assertions, nil)
 	labelUnjudged(nil, []AssertionResult{{Message: "kept"}})
 }

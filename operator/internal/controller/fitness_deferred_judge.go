@@ -40,13 +40,12 @@ import (
 	"regexp"
 	"sort"
 	"strings"
-
-	"github.com/kubemoot/kubemoot/operator/pkg/sse"
 	"sync"
 	"time"
 
 	"github.com/go-logr/logr"
 	kubemootv1alpha1 "github.com/kubemoot/kubemoot/operator/api/v1alpha1"
+	"github.com/kubemoot/kubemoot/operator/pkg/sse"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 )
@@ -617,11 +616,12 @@ func streamJudgeSynthesis(ctx context.Context, hc *http.Client, streamURL string
 // declares its keyword, caching per-scenario mean scores. Idempotent (skips when
 // the sidecar exists), deduped per run, and runs the slow crew calls off-reconcile.
 func (r *CrewFitnessSuiteReconciler) runDeferredJudgePass(suite *kubemootv1alpha1.CrewFitnessSuite) {
-	if r.NATSPublisher == nil || suite.Status.RunID == "" {
+	store := r.store()
+	if store == nil || suite.Status.RunID == "" {
 		return
 	}
-	prefix := fmt.Sprintf("%s/%s/%s/", suite.Namespace, suite.Name, suite.Status.RunID)
-	if loadDeferredCache(r.NATSPublisher, prefix).Complete {
+	prefix := suiteRunPrefix(suite.Namespace, suite.Name, suite.Status.RunID)
+	if loadDeferredCache(store, prefix).Complete {
 		return // already fully judged — resume only an incomplete checkpoint
 	}
 	if _, running := deferredInFlight.LoadOrStore(prefix, struct{}{}); running {
@@ -666,10 +666,10 @@ func (r *CrewFitnessSuiteReconciler) deferredJudgeWorker(suite *kubemootv1alpha1
 
 	p := &judgePass{
 		r:         r,
-		store:     r.NATSPublisher, // *Publisher satisfies objectStore; tests inject a fake
+		store:     r.store(), // the NATS publisher; tests inject a fake
 		suite:     suite,
 		prefix:    prefix,
-		cache:     loadDeferredCache(r.NATSPublisher, prefix), // resume any prior checkpoint
+		cache:     loadDeferredCache(r.store(), prefix), // resume any prior checkpoint
 		endpoints: map[string]string{},
 		hc:        newJudgeHTTPClient(),
 		log:       log,
