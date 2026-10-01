@@ -94,6 +94,8 @@ across providers, a published dashboard) live in
 - [Installation](../installation/) - install the operator on your own cluster with a
   GPU-backed model provider, for real crew work rather than a trial.
 - [Crews & Agents](../../concepts/crews-and-agents/) - the model you just ran.
+- [The starter crew](../../user-guides/starter-crew/) - scaffold a read-only guide to a
+  namespace with `kmctl create`, install it, ask it, and change one of its rules.
 - [Build a Crew](../../user-guides/build-a-crew/) - author your own, from scratch or
   from the packaged [Homelab Pilot](../../ecosystem/pilot/) chart.
 - [CrewForge](../../ecosystem/crewforge/) - develop the crew from VS Code: create, deploy,

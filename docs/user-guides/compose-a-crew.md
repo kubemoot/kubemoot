@@ -35,6 +35,11 @@ single "do-everything" agent carries too many tools, degrades tool-selection acc
 and makes the coordinator's subcommittee selection imprecise (its resume matches too
 many questions weakly rather than a few questions strongly).
 
+**A worked example.** `kmctl create` scaffolds a crew you can read as a model of this
+design: a read-only guide to one namespace whose Toolers split by question shape
+(`workloads`, `events`, `networking`, `config`) and whose Analyst (`reviewer`) checks the
+answer against what they gathered. See [The starter crew](../starter-crew/).
+
 **Minimum viable crew.** A crew needs at minimum one coordinator and one Tooler.
 Start small and add agents as you discover gaps rather than pre-populating for
 hypothetical questions. The onboarding system can help: when no Tooler scores

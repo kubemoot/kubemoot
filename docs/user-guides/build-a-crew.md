@@ -8,6 +8,9 @@ This guide builds a crew from its parts. A crew is a set of Kubernetes resources
 "building" one means declaring those resources - usually packaged together as a Helm
 chart so they version and deploy as a unit.
 
+To see a complete small crew before writing your own, scaffold the
+[starter crew](../starter-crew/) with `kmctl create`.
+
 ## What a crew is made of
 
 | Resource | Role in the crew |

@@ -49,8 +49,10 @@ version. Columns: Ready, Phase, Coordinator, Agents, Age (crew); Type, Ready, Ph
 Endpoint, Age (agent).
 
 **Crew scaffolding.** `kmctl create <name>` scaffolds a complete, working crew: a
-Crew manifest, a coordinator and N specialist Agents with PromptModules in ADL, a
-CrewSchedulingPolicy, a starter CrewFitnessSuite, and a README. On a TTY it runs
+Crew manifest, a coordinator and 1 to 5 specialist Agents with PromptModules in ADL, a
+read-only Kubernetes MCP server behind an MCPGateway, a CrewSchedulingPolicy, a starter
+CrewFitnessSuite that passes on a fresh install, and a README. The crew is a read-only
+guide to its own namespace; see [The starter crew](../../user-guides/starter-crew/). On a TTY it runs
 interactively, discovering available ollama providers and letting you select them.
 Pass `--no-input` with explicit flags to make it scriptable. Think of it like
 `helm create`: the output is a starting point to customise, not a finished product.

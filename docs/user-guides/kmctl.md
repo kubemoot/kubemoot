@@ -130,9 +130,16 @@ demo/
   agents.yaml
   promptmodules.yaml
   models.yaml
-  fitness.yaml
+  tools.yaml
+  access/
+    rbac.yaml
+  fitness/
+    fitness.yaml
   README.md
 ```
+
+The result is the [starter crew](../starter-crew/): a read-only guide to the namespace it
+is installed into. `--members` (1 to 5) sets how many specialists it has.
 
 To skip interaction in CI or scripts, supply all inputs as flags:
 
@@ -163,11 +170,15 @@ and the layout its Crew Sources view expects a chart source to have; see
 Open the generated directory. Key files:
 
 - `crew.yaml` - the Crew resource; adjust the name and labels.
-- `agents.yaml` - the coordinator and Tooler Agents; review each agent's capabilities.
+- `agents.yaml` - the coordinator and the specialist Agents; review each agent's capabilities.
 - `promptmodules.yaml` - the PromptModules in ADL; this is the main place to shape the
   crew's discussion behaviour.
 - `models.yaml` - the Models the crew's phases select from.
-- `fitness.yaml` - a starter CrewFitnessSuite scenario.
+- `tools.yaml` - the read-only Kubernetes MCP server and the MCPGateway in front of it.
+- `access/rbac.yaml` - the Role the tool server runs with; apply it first with
+  `kubectl apply -n <namespace> -f access/`.
+- `fitness/fitness.yaml` - a starter CrewFitnessSuite of scenarios that ground on the
+  crew's own pods.
 
 See [Build a Crew](../build-a-crew/) and [Write Agents and ADL](../write-agents-and-adl/)
 for guidance on what to customise and how.
