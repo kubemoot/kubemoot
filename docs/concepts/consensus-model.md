@@ -61,8 +61,8 @@ checker. They fire when the current signal state satisfies the advance condition
 | From | To | Advance condition |
 |------|----|-------------------|
 | `ADVISORY` | `EVALUATING` | The coordinator's inline advisory LLM call completes and the subcommittee is selected. |
-| `EVALUATING` | `REVIEW` | Every convened Tooler has reached a terminal signal (`agree`, `concern`, `stand_aside`, `block`, `failure`) or its per-agent deadline has expired, **and** the bus has been quiet for the settle window, **and** the minimum evaluation time has elapsed. A sufficient-consensus fast path can also fire: once enough Toolers have agreed and the bus is quiet, the coordinator does not wait for stragglers. In either case, settle is state-driven, not clock-driven. |
-| `REVIEW` | `SYNTHESIZING` | The review roster has settled (every selected Analyst has reported or timed out) and the minimum review time has elapsed. There is no fast path in REVIEW: a slow Analyst is not dropped. |
+| `EVALUATING` | `REVIEW` | Every selected Tooler has published a terminal signal (`agree`, `concern`, `stand_aside`, `block`, `failure`) in this phase, or its per-agent deadline has expired and counts as `failure`. The phase then advances at once, without waiting out the minimum evaluation time or a quiet period. When no subcommittee was selected (the roster is unknown), or a Tooler is still pending, the quiet-window rule applies as the safety net: every agent that started has reached a terminal signal, the bus has been quiet for the settle window, and the minimum evaluation time has elapsed. A sufficient-consensus fast path can also fire: once enough Toolers have agreed and the bus is quiet, the coordinator does not wait for stragglers. |
+| `REVIEW` | `SYNTHESIZING` | Every Analyst that `review_ready` woke (the selected Analysts, or every Analyst when none was selected) has published a terminal signal in this phase, or its deadline has expired and counts as `failure`. Each woken Analyst is pending from the moment REVIEW begins, so the phase cannot settle before its reviewers have started. When the crew has no Analysts, the minimum review time and the quiet period are the safety net. There is no fast path in REVIEW: a slow Analyst is not dropped before its deadline. |
 
 **Event transitions** fire immediately when a specific message arrives on the bus:
 
@@ -88,9 +88,19 @@ publishes `evaluating`, the deadline tightens to a P90-calibrated estimate. A
 `heartbeat` signal refreshes the deadline. Only a missed deadline (no heartbeat, no
 terminal signal) causes the coordinator to treat that agent as absent.
 
+**Each phase settles on its own roster.** EVALUATING waits for the selected Toolers;
+REVIEW waits for the Analysts `review_ready` woke. A phase advances as soon as every
+member of its roster has published `agree`, `concern`, `stand_aside`, `block` or
+`failure` in that phase, or has missed its deadline (which counts as `failure`).
+A member that has only published `triaging`, `evaluating`, `heartbeat` or `waiting`
+holds the phase, and a signal from an earlier phase does not count for the next one.
+The minimum evaluation and review times and the quiet period are safety nets for a
+phase whose roster is unknown or still pending, not the normal path.
+
 **REVIEW waits for its own roster.** The fast-path rule applies only in EVALUATING.
-Once the coordinator enters REVIEW, it holds until every selected Analyst has
-reported. A slow Analyst is not dropped in favour of a faster synthesis.
+Once the coordinator enters REVIEW, it holds until every woken Analyst has
+reported or missed its deadline. A slow Analyst is not dropped in favour of a faster
+synthesis.
 
 **PAUSED suspends settle timers.** While the machine is in PAUSED, the coordinator
 does not advance settle windows or expire deadlines. When `thread_resume` arrives,

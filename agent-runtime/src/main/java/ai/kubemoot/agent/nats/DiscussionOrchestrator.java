@@ -69,6 +69,12 @@ public class DiscussionOrchestrator {
      * distinguish missing-tooler gaps from broken-infrastructure gaps.
      */
     private static final String MSG_FAILURE = "failure";
+    /**
+     * The signals that end an agent's turn in a phase, the terminal cases of
+     * dispatchSignal; triaging, evaluating, heartbeat and waiting do not.
+     */
+    private static final Set<String> TERMINAL_SIGNALS =
+            Set.of("agree", "contribution", "concern", MSG_STAND_ASIDE, "decline", MSG_FAILURE, "block");
     /** An agent started waiting for GPU capacity. */
     private static final String MSG_WAITING = "waiting";
     /** Stand-aside reason: every GPU that could hold the model stayed busy. */
@@ -693,11 +699,20 @@ public class DiscussionOrchestrator {
 
     /**
      * Dispatch an agent signal to the appropriate handler: triaging, evaluating,
-     * heartbeat, agree/contribution, concern, stand_aside/decline, or block.
+     * heartbeat, agree/contribution, concern, stand_aside/decline, or block. A
+     * terminal signal is also recorded on the current phase's roster.
      */
     // Visible for testing
     void handleAgentSignal(ThreadState state, String agentName, String messageType,
                            String content, JsonNode msg) {
+        dispatchSignal(state, agentName, messageType, content, msg);
+        if (TERMINAL_SIGNALS.contains(messageType)) {
+            state.phaseRoster.recordTerminalSignal(agentName);
+        }
+    }
+
+    private void dispatchSignal(ThreadState state, String agentName, String messageType,
+                                String content, JsonNode msg) {
         switch (messageType) {
             case "triaging" -> handleTriagingSignal(state, agentName, msg);
             case "evaluating" -> handleEvaluatingSignal(state, agentName, msg);
@@ -876,11 +891,15 @@ public class DiscussionOrchestrator {
      * Handle human reply on a closed thread — reopen to EVALUATING phase
      * and clear all previous signals.
      */
-    private void handleThreadReopen(ThreadState state, String threadId,
-                                     String messageType, String agentName) {
+    // Visible for testing
+    void handleThreadReopen(ThreadState state, String threadId,
+                            String messageType, String agentName) {
         if (state.phase != Phase.CLOSED || !"reply".equals(messageType) || !"human".equals(agentName)) {
             return;
         }
+        // The roster resets before the phase flips, so the phase checker never sees
+        // EVALUATING with the previous round's fully signalled roster.
+        state.phaseRoster = PhaseRoster.unknown();
         state.phase = Phase.EVALUATING;
         state.phaseStarted = Instant.now();
         state.agreeSignals.clear();
@@ -1049,12 +1068,18 @@ public class DiscussionOrchestrator {
      * REVIEW contribution got dropped (the coordinator synthesized before the
      * analyst finished). Sharing the logic makes that divergence impossible.
      *
-     * Advance only when the phase's participants have SETTLED: every agent that
-     * published triaging/evaluating has reached a terminal signal (agree / concern /
-     * stand_aside / block / failure-by-deadline), the table has been quiet for
-     * settleSeconds, OR (eval cold-start) nobody has responded yet and we are still
-     * inside the grace. No fixed wall-clock phase timeout - per-agent P90 deadlines
-     * (checkEvaluationTimeouts) bound it.
+     * State first: when the phase's roster (the selected toolers in EVALUATING, the
+     * woken analysts in REVIEW) is known and every member has published a terminal
+     * signal in this phase (agree / concern / stand_aside / block / failure, including
+     * failure-by-deadline) with none pending, the phase advances at once, inside its
+     * floor and without a quiet period ({@link #rosterSignalled}).
+     *
+     * Otherwise, past the floor, advance only when the phase's participants have
+     * SETTLED: every agent that published triaging/evaluating has reached a terminal
+     * signal, the table has been quiet for settleSeconds, OR (eval cold-start) nobody
+     * has responded yet and we are still inside the grace. The EVALUATING
+     * sufficient-consensus fast path is unchanged. No fixed wall-clock phase timeout -
+     * per-agent P90 deadlines (checkEvaluationTimeouts) bound it.
      */
     void settlePhase(ThreadState state, Instant now, long elapsed, PhaseSettle cfg) {
         // Don't advance while the advisory LLM call is still running (eval only):
@@ -1064,6 +1089,17 @@ public class DiscussionOrchestrator {
         // Expire agents past their P90+grace deadline -> synthetic failure. The
         // ONLY per-agent timeout; heartbeats keep a deadline refreshed.
         checkEvaluationTimeouts(state);
+
+        // State first: once every participant the phase waits for has published a
+        // terminal signal in this phase, it advances without waiting out the floor or
+        // a quiet period. The floor and quiet paths below are only the safety net
+        // while the roster is unknown or a participant is still pending.
+        if (rosterSignalled(state)) {
+            log.info("Thread {} every participant of {} has signalled after {}s - transitioning",
+                    state.threadId, state.phase, elapsed);
+            cfg.advance().run();
+            return;
+        }
 
         if (elapsed < cfg.floorSeconds()) return;
 
@@ -1095,6 +1131,18 @@ public class DiscussionOrchestrator {
         if (isColdStartWaiting(state, elapsed, cfg)) return;    // 0 signals, agents scaling from zero
         log.info("Thread {} no pending participants after {}s - transitioning", state.threadId, elapsed);
         cfg.advance().run();
+    }
+
+    /**
+     * The state-driven settle guard: never settle on state while a participant of
+     * the phase (a selected tooler in EVALUATING, a woken analyst in REVIEW) has not
+     * published agree, concern, block, stand_aside or failure in this phase, or is
+     * still pending. An unknown roster never settles on state.
+     */
+    // Visible for testing
+    static boolean rosterSignalled(ThreadState state) {
+        var roster = state.phaseRoster;
+        return roster != null && roster.allSignalled(state.pendingEvaluations);
     }
 
     /** Quiet = terminal-signal silence (heartbeats don't count) for settleSeconds. */
@@ -1285,7 +1333,8 @@ public class DiscussionOrchestrator {
      * the settle window and timeouts measure from when toolers actually receive
      * advisory_ready, not from when the advisory LLM call started.
      */
-    private void resetEvaluationClock(ThreadState state) {
+    // Visible for testing
+    void resetEvaluationClock(ThreadState state) {
         state.phaseStarted = Instant.now();
         state.lastSignalReceived = null;
         state.agreeSignals.clear();
@@ -1296,7 +1345,20 @@ public class DiscussionOrchestrator {
         state.clearCapacitySignals();
         state.researcherAgents.clear();
         state.pendingEvaluations.clear();
+        state.phaseRoster = PhaseRoster.of(evaluationRoster(state.innerCircle, analystNamesFromResumes()));
         state.advisoryPending.set(false);
+    }
+
+    /**
+     * The agents EVALUATING waits for: the selected agents minus the analysts,
+     * which act only in review. Empty (unknown) when no inner circle was selected.
+     */
+    // Visible for testing
+    static Set<String> evaluationRoster(Set<String> innerCircle, Set<String> analysts) {
+        if (innerCircle == null || innerCircle.isEmpty()) return Set.of();
+        var roster = new HashSet<>(innerCircle);
+        if (analysts != null) roster.removeAll(analysts);
+        return Set.copyOf(roster);
     }
 
     /** The advisory inputs the EVALUATING tail needs, regardless of which path produced them. */
@@ -1701,6 +1763,33 @@ public class DiscussionOrchestrator {
     }
 
     /**
+     * The analysts review_ready wakes: the selected analysts, or every analyst when
+     * none was selected (review_ready then carries no inner circle).
+     */
+    // Visible for testing
+    static Collection<String> reviewersFor(List<String> analystCircle, Set<String> analysts) {
+        if (analystCircle != null && !analystCircle.isEmpty()) return analystCircle;
+        return analysts == null ? Set.of() : analysts;
+    }
+
+    /**
+     * Start REVIEW's roster: every agent review_ready wakes is a participant and is
+     * pending from the moment REVIEW begins, with the same deadline a triaging signal
+     * opens, so REVIEW holds until each reviewer has signalled or expired. Eval-phase
+     * stragglers are dropped so REVIEW waits only for its own participants.
+     */
+    // Visible for testing
+    void seedReviewRoster(ThreadState state, Collection<String> reviewers, long nowMs) {
+        state.pendingEvaluations.clear();
+        state.phaseRoster = PhaseRoster.of(reviewers);
+        long deadline = nowMs + properties.triageModel().timeoutSeconds() * 1000L;
+        for (String reviewer : reviewers) {
+            state.pendingEvaluations.put(reviewer, deadline);
+        }
+        log.info("Thread {} review roster: {}", state.threadId, reviewers);
+    }
+
+    /**
      * EVALUATING → REVIEW (or direct to SYNTHESIS for single-agree).
      *
      * Single-agree: when exactly 1 tooler agrees with 0 concerns/blocks
@@ -1734,13 +1823,12 @@ public class DiscussionOrchestrator {
             return;
         }
 
+        var analysts = analystNamesFromResumes();
+        var analystCircle = analystCircleFrom(state.innerCircle, analysts);
+        seedReviewRoster(state, reviewersFor(analystCircle, analysts), System.currentTimeMillis());
         state.phase = Phase.REVIEW;
         state.phaseStarted = Instant.now();
-        // Fresh roster for REVIEW: only analysts that self-select on review_ready
-        // populate pendingEvaluations. Drop any leftover eval-phase stragglers so
-        // the review settle waits for review participants, not dropped toolers.
-        state.pendingEvaluations.clear();
-        metrics.setPendingEvaluations(0);
+        metrics.setPendingEvaluations(state.pendingEvaluations.size());
 
         try {
             var conn = natsProvider.getConnection();
@@ -1766,15 +1854,9 @@ public class DiscussionOrchestrator {
             metadata.put(FIELD_GPU_LABEL, GpuLabels.fromEndpoint(properties.model().endpoint()));
             metadata.put(FIELD_MODEL_NAME, properties.model().model());
 
-            // Scope the review to the domain-relevant analysts the coordinator
-            // already selected for this thread (the analyst subset of innerCircle),
-            // so review_ready wakes only those analysts instead of broadcasting to
-            // ALL of them (which makes every analyst run a full 32b REVIEW pass,
-            // serialized on the one GPU that fits 32b - the dominant latency).
-            // The subscriber's isExcludedByInnerCircle gate handles the rest; an
-            // absent/empty innerCircle falls back to the prior broadcast-to-all
-            // behavior. See [[Coordinator Domain-Scoped Analyst Subcommittee]].
-            var analystCircle = analystCircleFrom(state.innerCircle, analystNamesFromResumes());
+            // The inner circle scopes review_ready to the selected analysts (the
+            // subscriber's isExcludedByInnerCircle gate); without one, every
+            // analyst wakes. See [[Coordinator Domain-Scoped Analyst Subcommittee]].
             if (!analystCircle.isEmpty()) {
                 metadata.put(FIELD_INNER_CIRCLE, analystCircle);
                 log.info("Thread {} - scoping review to {} selected analyst(s): {}",
@@ -2581,6 +2663,7 @@ public class DiscussionOrchestrator {
                         state.threadId, timedOutAgent);
                 state.failureSignals.put(timedOutAgent,
                         "Evaluation did not complete within estimated window");
+                state.phaseRoster.recordTerminalSignal(timedOutAgent);
                 state.lastSignalReceived = Instant.now();
                 metrics.evaluationTimedOut();
                 publishSyntheticFailure(timedOutAgent, state.threadId,
@@ -3688,8 +3771,8 @@ public class DiscussionOrchestrator {
     enum Phase {
         SUBMITTED,      // Initial state
         ADVISORY,       // Generating advisory inline via LLM (~3s)
-        EVALUATING,     // Toolers evaluate; settles after 5s quiet (max 45s)
-        REVIEW,         // Cross-check (skipped for single tooler agree; max 15s)
+        EVALUATING,     // Toolers gather; settles when every selected tooler has signalled
+        REVIEW,         // Analysts cross-check (skipped for single tooler agree); settles when every woken analyst has signalled
         PAUSED,         // External pause — settle timer suspended, no phase transitions
         SYNTHESIZING,   // LLM synthesizing final answer
         CLOSED          // Thread complete
@@ -3731,6 +3814,8 @@ public class DiscussionOrchestrator {
         // Evaluation phase must not transition while advisory is pending —
         // agents won't respond until advisory_ready is published.
         final AtomicBoolean advisoryPending = new AtomicBoolean(false);
+        // The participants the current phase waits for; replaced whole when a phase begins.
+        volatile PhaseRoster phaseRoster = PhaseRoster.unknown();
 
         // Thread metadata
         volatile String userQuery;
