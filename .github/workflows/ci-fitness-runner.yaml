@@ -6,6 +6,8 @@ on:
     branches: [main]
     paths:
       - 'fitness-runner/**'
+      - 'operator/pkg/fitnessscript/**'
+      - 'operator/pkg/sse/**'
   workflow_dispatch:
 
 env:

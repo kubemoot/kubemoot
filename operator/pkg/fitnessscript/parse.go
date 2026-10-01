@@ -14,7 +14,11 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package main
+// Package fitnessscript parses fitness scenarios (ADL or prose Markdown) and
+// evaluates their deterministic assertions against a finished run. It is the one
+// assertion engine shared by the fitness runner (live runs) and the operator
+// (re-judging a stored transcript), so both agree on what every ASSERT means.
+package fitnessscript
 
 import (
 	"bufio"
@@ -530,7 +534,8 @@ func parseDeferKeyword(text string) (keyword, reference string) {
 
 // classifySseEmit checks if the assertion is an SSE emit or emit-within variant.
 func classifySseEmit(text, lower string) (Assertion, bool) {
-	if !strings.Contains(lower, "sse stream emits") && !(strings.Contains(lower, "event") && strings.Contains(lower, "emits")) {
+	emitsEvent := strings.Contains(lower, "event") && strings.Contains(lower, "emits")
+	if !strings.Contains(lower, "sse stream emits") && !emitsEvent {
 		return Assertion{}, false
 	}
 	eventType := extractFirstQuoted(text)
@@ -564,7 +569,8 @@ func classifySynthesis(text, lower string) (Assertion, bool) {
 		if q := strings.LastIndex(text, `"`); q >= 0 {
 			after = text[q+1:]
 		}
-		return Assertion{Raw: text, Kind: KindSynthesisMatchCount, Pattern: pattern, MinCount: extractFirstInt(strings.ToLower(after))}, true
+		minCount := extractFirstInt(strings.ToLower(after))
+		return Assertion{Raw: text, Kind: KindSynthesisMatchCount, Pattern: pattern, MinCount: minCount}, true
 	}
 
 	// synthesis does NOT CONTAIN — must be checked before CONTAINS

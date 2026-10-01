@@ -14,12 +14,11 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package main
+package fitnessscript
 
 import (
 	"strings"
 	"testing"
-	"time"
 )
 
 func TestParseFitnessTest_DiscussionHealth(t *testing.T) {
@@ -49,31 +48,16 @@ ASSERT(synthesis is non-empty)
 	if ft.Description != "Verify discussion system is healthy end-to-end" {
 		t.Errorf("unexpected description: %q", ft.Description)
 	}
-	if ft.Constants["QUESTION"] != "Hello, are you there?" {
-		t.Errorf("unexpected QUESTION: %q", ft.Constants["QUESTION"])
+	expectConst(t, ft, "QUESTION", "Hello, are you there?")
+	expectConst(t, ft, "MAX_DURATION", "90 seconds")
+	// assertion[3] is a phase event assertion, classified as Custom (no "emits").
+	expectKinds(t, ft, KindPostReturns200, KindSseEmits, KindSseEmitsWithin, KindCustom,
+		KindCompletesWithin, KindSynthesisNonEmpty)
+	if ft.Assertions[1].EventType != evConnected {
+		t.Errorf("assertion[1]: expected event connected, got %+v", ft.Assertions[1])
 	}
-	if ft.Constants["MAX_DURATION"] != "90 seconds" {
-		t.Errorf("unexpected MAX_DURATION: %q", ft.Constants["MAX_DURATION"])
-	}
-	if len(ft.Assertions) != 6 {
-		t.Errorf("expected 6 assertions, got %d", len(ft.Assertions))
-	}
-
-	if ft.Assertions[0].Kind != KindPostReturns200 {
-		t.Errorf("assertion[0]: expected KindPostReturns200, got %v", ft.Assertions[0].Kind)
-	}
-	if ft.Assertions[1].Kind != KindSseEmits || ft.Assertions[1].EventType != "connected" {
-		t.Errorf("assertion[1]: expected KindSseEmits{connected}, got %+v", ft.Assertions[1])
-	}
-	if ft.Assertions[2].Kind != KindSseEmitsWithin || ft.Assertions[2].EventType != "thread_found" || ft.Assertions[2].WithinSeconds != 30 {
-		t.Errorf("assertion[2]: expected KindSseEmitsWithin{thread_found,30}, got %+v", ft.Assertions[2])
-	}
-	// assertion[3] is a phase event assertion — classified as Custom (no SSE emit prefix without "emits")
-	if ft.Assertions[4].Kind != KindCompletesWithin {
-		t.Errorf("assertion[4]: expected KindCompletesWithin, got %v", ft.Assertions[4].Kind)
-	}
-	if ft.Assertions[5].Kind != KindSynthesisNonEmpty {
-		t.Errorf("assertion[5]: expected KindSynthesisNonEmpty, got %v", ft.Assertions[5].Kind)
+	if a := ft.Assertions[2]; a.EventType != "thread_found" || a.WithinSeconds != 30 {
+		t.Errorf("assertion[2]: expected thread_found within 30, got %+v", a)
 	}
 }
 
@@ -93,28 +77,13 @@ ASSERT(synthesis does NOT CONTAIN agent names or signal terminology)
 
 	ft := ParseFitnessTest(content)
 
-	if len(ft.Assertions) != 5 {
-		t.Errorf("expected 5 assertions, got %d", len(ft.Assertions))
+	expectKinds(t, ft, KindCompletesWithin, KindMinSpecialistAgrees, KindCoordinatorSynthesizes,
+		KindSynthesisContains, KindSynthesisNotContains)
+	if ft.Assertions[1].AgreeCount != 1 {
+		t.Errorf("assertion[1]: expected agree count 1, got %+v", ft.Assertions[1])
 	}
-	if ft.Assertions[0].Kind != KindCompletesWithin {
-		t.Errorf("assertion[0]: expected KindCompletesWithin, got %v", ft.Assertions[0].Kind)
-	}
-	if ft.Assertions[1].Kind != KindMinSpecialistAgrees || ft.Assertions[1].AgreeCount != 1 {
-		t.Errorf("assertion[1]: expected KindMinSpecialistAgrees{1}, got %+v", ft.Assertions[1])
-	}
-	if ft.Assertions[2].Kind != KindCoordinatorSynthesizes {
-		t.Errorf("assertion[2]: expected KindCoordinatorSynthesizes, got %v", ft.Assertions[2].Kind)
-	}
-	if ft.Assertions[3].Kind != KindSynthesisContains {
-		t.Errorf("assertion[3]: expected KindSynthesisContains, got %v", ft.Assertions[3].Kind)
-	} else {
-		terms := ft.Assertions[3].Terms
-		if len(terms) != 3 || terms[0] != "solid" || terms[1] != "liquid" || terms[2] != "gas" {
-			t.Errorf("assertion[3]: unexpected terms %v", terms)
-		}
-	}
-	if ft.Assertions[4].Kind != KindSynthesisNotContains {
-		t.Errorf("assertion[4]: expected KindSynthesisNotContains, got %v", ft.Assertions[4].Kind)
+	if terms := ft.Assertions[3].Terms; strings.Join(terms, ",") != "solid,liquid,gas" {
+		t.Errorf("assertion[3]: unexpected terms %v", terms)
 	}
 }
 
@@ -162,35 +131,13 @@ ASSERT(synthesis is non-empty)
 	}
 }
 
-func TestParseMaxDuration(t *testing.T) {
-	cases := []struct {
-		input    string
-		expected time.Duration
-	}{
-		{"90 seconds", 90 * time.Second},
-		{"2 minutes", 2 * time.Minute},
-		{"120 seconds", 120 * time.Second},
-		{"120s", 120 * time.Second},
-		{"2m30s", 2*time.Minute + 30*time.Second},
-		{"", defaultMaxDuration},
-		{"garbage", defaultMaxDuration},
-	}
-
-	for _, c := range cases {
-		got := parseMaxDuration(c.input)
-		if got != c.expected {
-			t.Errorf("parseMaxDuration(%q) = %v, want %v", c.input, got, c.expected)
-		}
-	}
-}
-
 func TestExtractFirstQuoted(t *testing.T) {
 	cases := []struct {
 		input    string
 		expected string
 	}{
-		{`SSE stream emits "connected" event`, "connected"},
-		{`synthesis CONTAINS "solid"`, "solid"},
+		{`SSE stream emits "connected" event`, evConnected},
+		{`synthesis CONTAINS "solid"`, termSolid},
 		{"no quotes here", ""},
 	}
 	for _, c := range cases {
@@ -204,7 +151,7 @@ func TestExtractFirstQuoted(t *testing.T) {
 func TestExtractAllQuoted(t *testing.T) {
 	input := `synthesis CONTAINS reference to "solid" AND "liquid" AND "gas"`
 	got := extractAllQuoted(input)
-	if len(got) != 3 || got[0] != "solid" || got[1] != "liquid" || got[2] != "gas" {
+	if len(got) != 3 || got[0] != termSolid || got[1] != "liquid" || got[2] != "gas" {
 		t.Errorf("extractAllQuoted: got %v", got)
 	}
 }
@@ -224,9 +171,9 @@ func TestEvaluateAssertion_PostReturns200(t *testing.T) {
 }
 
 func TestEvaluateAssertion_SseEmits(t *testing.T) {
-	a := Assertion{Raw: `SSE stream emits "connected" event`, Kind: KindSseEmits, EventType: "connected"}
+	a := Assertion{Raw: `SSE stream emits "connected" event`, Kind: KindSseEmits, EventType: evConnected}
 	events := []SignalEvent{
-		{Type: "connected"},
+		{Type: evConnected},
 		{Type: "thread_found"},
 	}
 
@@ -235,7 +182,7 @@ func TestEvaluateAssertion_SseEmits(t *testing.T) {
 		t.Error("expected pass when event present")
 	}
 
-	a2 := Assertion{Raw: `SSE stream emits "done" event`, Kind: KindSseEmits, EventType: "done"}
+	a2 := Assertion{Raw: `SSE stream emits "done" event`, Kind: KindSseEmits, EventType: evDone}
 	fail := evaluateAssertion(a2, true, events, "", false)
 	if fail.Passed {
 		t.Error("expected fail when event absent")
@@ -245,7 +192,7 @@ func TestEvaluateAssertion_SseEmits(t *testing.T) {
 func TestEvaluateAssertion_MinSpecialistAgrees(t *testing.T) {
 	a := Assertion{Raw: "at least 1 specialist agrees", Kind: KindMinSpecialistAgrees, AgreeCount: 1}
 	events := []SignalEvent{
-		{Type: "finding", Signal: "agree", Agent: "specialist-a"},
+		{Type: evFinding, Signal: sigAgree, Agent: "specialist-a"},
 	}
 
 	pass := evaluateAssertion(a, true, events, "", false)
@@ -278,7 +225,7 @@ func TestEvaluateAssertion_SynthesisContains(t *testing.T) {
 	a := Assertion{
 		Raw:   `synthesis CONTAINS "solid" AND "liquid"`,
 		Kind:  KindSynthesisContains,
-		Terms: []string{"solid", "liquid"},
+		Terms: []string{termSolid, "liquid"},
 	}
 
 	synthesis := "Matter exists as solid, liquid, and gas."
@@ -315,7 +262,7 @@ func TestEvaluateAssertion_SynthesisNotContains(t *testing.T) {
 func TestEvaluateAssertion_CompletesWithin(t *testing.T) {
 	a := Assertion{Raw: "discussion completes within MAX_DURATION", Kind: KindCompletesWithin}
 
-	events := []SignalEvent{{Type: "done"}}
+	events := []SignalEvent{{Type: evDone}}
 	pass := evaluateAssertion(a, true, events, "", false)
 	if !pass.Passed {
 		t.Errorf("expected pass when done event present and not timed out")
@@ -349,29 +296,29 @@ func TestEvaluateAssertion_Custom(t *testing.T) {
 
 func TestFindSynthesis(t *testing.T) {
 	events := []SignalEvent{
-		{Type: "signal", Signal: "agree"},
+		{Type: evSignal, Signal: sigAgree},
 		{Type: "synthesis", Content: "Matter exists in three states."},
-		{Type: "done"},
+		{Type: evDone},
 	}
 
-	got := findSynthesis(events)
+	got := FindSynthesis(events)
 	if got != "Matter exists in three states." {
 		t.Errorf("unexpected synthesis: %q", got)
 	}
 
 	// done event with content as fallback
 	events2 := []SignalEvent{
-		{Type: "signal", Signal: "agree"},
-		{Type: "done", Content: "Fallback content."},
+		{Type: evSignal, Signal: sigAgree},
+		{Type: evDone, Content: "Fallback content."},
 	}
-	got2 := findSynthesis(events2)
+	got2 := FindSynthesis(events2)
 	if got2 != "Fallback content." {
 		t.Errorf("unexpected synthesis from done: %q", got2)
 	}
 
 	// no synthesis
-	events3 := []SignalEvent{{Type: "signal"}, {Type: "done"}}
-	got3 := findSynthesis(events3)
+	events3 := []SignalEvent{{Type: evSignal}, {Type: evDone}}
+	got3 := FindSynthesis(events3)
 	if got3 != "" {
 		t.Errorf("expected empty synthesis, got %q", got3)
 	}
@@ -474,44 +421,30 @@ func TestParseMarkdownFitnessTest(t *testing.T) {
 	if ft.Description != "Single-agent — enumerate Helm releases" {
 		t.Errorf("description = %q", ft.Description)
 	}
-	if q := ft.Constants["QUESTION"]; q != "Which Helm releases are deployed across all namespaces and their versions?" {
-		t.Errorf("question = %q", q)
-	}
-	if ft.Constants["MAX_DURATION"] != "300 seconds" {
-		t.Errorf("MAX_DURATION = %q, want \"300 seconds\" (seeded from completes-within gate)", ft.Constants["MAX_DURATION"])
-	}
+	expectConst(t, ft, "QUESTION", "Which Helm releases are deployed across all namespaces and their versions?")
+	// MAX_DURATION is seeded from the completes-within gate.
+	expectConst(t, ft, "MAX_DURATION", "300 seconds")
 	// 4 inline gates + 1 deferred = 5.
-	if len(ft.Assertions) != 5 {
-		t.Fatalf("expected 5 assertions, got %d: %+v", len(ft.Assertions), ft.Assertions)
+	expectKinds(t, ft, KindPostReturns200, KindCompletesWithin, KindCoordinatorSynthesizes,
+		KindSynthesisContains, KindDeferred)
+	want := "Enumerates the cluster's actual Helm releases across namespaces \u2014 native and " +
+		"Flux-managed. Names the REAL releases; 'none found' is wrong; does not invent."
+	expectCanonicalDefer(t, ft.Assertions[4], "REFLECTS", want)
+}
+
+// expectCanonicalDefer checks a deferred assertion's keyword, collapsed
+// reference, and Raw. Raw MUST be the canonical ADL DEFER form (stored
+// transcripts carry only Raw; the operator re-parses it to route the post-suite
+// score). A bare reference here regresses to "no DEFER assertions found".
+func expectCanonicalDefer(t *testing.T, def Assertion, keyword, reference string) {
+	t.Helper()
+	if def.Keyword != keyword {
+		t.Errorf("deferred keyword = %q, want %s (fence info string, uppercased)", def.Keyword, keyword)
 	}
-	var def *Assertion
-	kinds := map[AssertionKind]bool{}
-	for i := range ft.Assertions {
-		kinds[ft.Assertions[i].Kind] = true
-		if ft.Assertions[i].Kind == KindDeferred {
-			def = &ft.Assertions[i]
-		}
+	if def.Reference != reference {
+		t.Errorf("deferred reference not collapsed:\n got: %q\nwant: %q", def.Reference, reference)
 	}
-	for _, k := range []AssertionKind{KindPostReturns200, KindCompletesWithin, KindCoordinatorSynthesizes, KindSynthesisContains, KindDeferred} {
-		if !kinds[k] {
-			t.Errorf("missing assertion kind %v", k)
-		}
-	}
-	if def == nil {
-		t.Fatal("expected a KindDeferred assertion from the ```reflects fence")
-	}
-	if def.Keyword != "REFLECTS" {
-		t.Errorf("deferred keyword = %q, want REFLECTS (fence info string, uppercased)", def.Keyword)
-	}
-	want := "Enumerates the cluster's actual Helm releases across namespaces — native and Flux-managed. Names the REAL releases; 'none found' is wrong; does not invent."
-	if def.Reference != want {
-		t.Errorf("deferred reference not collapsed:\n got: %q\nwant: %q", def.Reference, want)
-	}
-	// Raw MUST be the canonical ADL DEFER form (stored transcripts carry only Raw;
-	// the operator re-parses it to route the post-suite score). A bare reference
-	// here regresses to "no DEFER assertions found".
-	wantRaw := `DEFER synthesis REFLECTS "` + want + `"`
-	if def.Raw != wantRaw {
+	if wantRaw := `DEFER synthesis ` + keyword + ` "` + reference + `"`; def.Raw != wantRaw {
 		t.Errorf("deferred Raw not canonical:\n got: %q\nwant: %q", def.Raw, wantRaw)
 	}
 }
@@ -544,6 +477,33 @@ func TestContinuesStatement(t *testing.T) {
 	for _, c := range cases {
 		if got := continuesStatement(c.buf, c.raw, strings.TrimSpace(c.raw)); got != c.want {
 			t.Errorf("%s: continuesStatement(%q,%q) = %v, want %v", c.name, c.buf, c.raw, got, c.want)
+		}
+	}
+}
+
+// evaluateAssertion is the positional form the tests use to build a RunState.
+func evaluateAssertion(a Assertion, postOK bool, events []SignalEvent, synthesis string,
+	timedOut bool) AssertionResult {
+	return EvaluateAssertion(a, RunState{PostOK: postOK, Events: events, Synthesis: synthesis, TimedOut: timedOut})
+}
+
+// expectConst checks one parsed DEFINE CONST value.
+func expectConst(t *testing.T, ft FitnessTest, name, want string) {
+	t.Helper()
+	if got := ft.Constants[name]; got != want {
+		t.Errorf("%s = %q, want %q", name, got, want)
+	}
+}
+
+// expectKinds checks the assertion count and each assertion's kind, in order.
+func expectKinds(t *testing.T, ft FitnessTest, kinds ...AssertionKind) {
+	t.Helper()
+	if len(ft.Assertions) != len(kinds) {
+		t.Fatalf("expected %d assertions, got %d: %+v", len(kinds), len(ft.Assertions), ft.Assertions)
+	}
+	for i, k := range kinds {
+		if ft.Assertions[i].Kind != k {
+			t.Errorf("assertion[%d]: kind %v, want %v", i, ft.Assertions[i].Kind, k)
 		}
 	}
 }

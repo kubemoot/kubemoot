@@ -25,33 +25,19 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"regexp"
 	"strings"
 	"time"
 
+	"github.com/kubemoot/kubemoot/operator/pkg/fitnessscript"
 	"github.com/kubemoot/kubemoot/operator/pkg/sse"
 )
 
-// SignalEvent represents a single SSE event from the discussion gateway stream.
-type SignalEvent struct {
-	Type       string `json:"type"`
-	Agent      string `json:"agent,omitempty"`
-	Status     string `json:"status,omitempty"`
-	GPU        string `json:"gpu,omitempty"`
-	Signal     string `json:"signal,omitempty"`
-	Summary    string `json:"summary,omitempty"`
-	Content    string `json:"content,omitempty"`
-	ThreadID   string `json:"threadId,omitempty"`
-	StoodAside bool   `json:"stood_aside,omitempty"`
-	Error      string `json:"error,omitempty"`
-}
-
-// AssertionResult is the per-assertion pass/fail outcome written to the Job annotation.
-type AssertionResult struct {
-	Raw     string `json:"raw"`
-	Passed  bool   `json:"passed"`
-	Message string `json:"message"`
-}
+// SignalEvent and AssertionResult are the shared assertion engine's types: the
+// runner records them in the transcript and the Job annotation.
+type (
+	SignalEvent     = fitnessscript.SignalEvent
+	AssertionResult = fitnessscript.AssertionResult
+)
 
 // RunOutcome bundles the assertion results with the full discussion transcript
 // (every SSE event) and run metadata. The assertions go to the Job annotation
@@ -132,7 +118,7 @@ func waitForReady(ctx context.Context, client *http.Client, endpoint string, tim
 		cancel()
 
 		if err == nil {
-			resp.Body.Close()
+			_ = resp.Body.Close()
 			if resp.StatusCode == http.StatusOK {
 				fmt.Println("[fitness-runner] gateway is ready")
 				return nil
@@ -170,7 +156,7 @@ func postDiscussion(ctx context.Context, client *http.Client, endpoint, question
 	if err != nil {
 		return "", 0, fmt.Errorf("POST %s: %w", endpoint, err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return "", resp.StatusCode, fmt.Errorf("POST returned %d", resp.StatusCode)
@@ -202,7 +188,7 @@ func collectSSE(ctx context.Context, client *http.Client, streamURL string) ([]S
 	if err != nil {
 		return nil, fmt.Errorf("GET %s: %w", streamURL, err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("SSE stream returned %d", resp.StatusCode)
@@ -235,41 +221,13 @@ func scanSSEEvents(r io.Reader) ([]SignalEvent, error) {
 	return events, err
 }
 
-// hasDone reports whether the event stream contains a terminal "done" event,
-// i.e. the discussion completed (as opposed to the stream dropping mid-flight).
-func hasDone(events []SignalEvent) bool {
-	for _, ev := range events {
-		if ev.Type == "done" {
-			return true
-		}
-	}
-	return false
-}
-
-// findSynthesis scans events (in order) and returns the content of the first
-// "synthesis" event, or the "done" event content if no synthesis event exists.
-func findSynthesis(events []SignalEvent) string {
-	for _, ev := range events {
-		if ev.Type == "synthesis" && ev.Content != "" {
-			return ev.Content
-		}
-	}
-	// Fallback: some implementations put synthesis content on the done event
-	for _, ev := range events {
-		if ev.Type == "done" && ev.Content != "" {
-			return ev.Content
-		}
-	}
-	return ""
-}
-
 // RunFitnessTest executes the full fitness test lifecycle:
 //  1. POST question to endpoint
 //  2. Collect SSE events until done or timeout
 //  3. Evaluate each assertion
 //
 // Returns the list of AssertionResult values.
-func RunFitnessTest(ctx context.Context, ft FitnessTest, endpoint string, maxDuration time.Duration) *RunOutcome {
+func RunFitnessTest(ctx context.Context, ft fitnessscript.FitnessTest, endpoint string, maxDuration time.Duration) *RunOutcome {
 	client := newHTTPClient()
 	startedAt := time.Now()
 
@@ -301,8 +259,10 @@ func RunFitnessTest(ctx context.Context, ft FitnessTest, endpoint string, maxDur
 	}
 
 	// Step 3: Evaluate assertions
-	synthesis := findSynthesis(events)
-	results := evaluateAssertions(ft.Assertions, postOK, events, synthesis, timedOut)
+	synthesis := fitnessscript.FindSynthesis(events)
+	results := fitnessscript.Evaluate(ft.Assertions, fitnessscript.RunState{
+		PostOK: postOK, Events: events, Synthesis: synthesis, TimedOut: timedOut,
+	})
 	if os.Getenv("CREWFITNESS_SUITE") == "" {
 		labelUnjudged(ft.Assertions, results)
 	}
@@ -316,7 +276,7 @@ func RunFitnessTest(ctx context.Context, ft FitnessTest, endpoint string, maxDur
 	// or a deadline/transport drop with no 'done' is a transient/infra failure to
 	// retry, not a real zero. (A run with synthesis but no 'done' is treated as
 	// unanswered on purpose, so the retry can recover the clean conclusion.)
-	answered := postOK && hasDone(events)
+	answered := postOK && fitnessscript.HasDone(events)
 
 	return &RunOutcome{
 		Assertions:     results,
@@ -345,13 +305,13 @@ func collectDiscussionStream(ctx context.Context, client *http.Client, streamURL
 	const maxSSEAttempts = 4
 	for attempt := 1; attempt <= maxSSEAttempts; attempt++ {
 		collected, sseErr := collectSSE(streamCtx, client, streamURL)
-		if hasDone(collected) || len(collected) > len(events) {
+		if fitnessscript.HasDone(collected) || len(collected) > len(events) {
 			events = collected // replay returns the full timeline; keep the richest
 		}
 		if streamCtx.Err() == context.DeadlineExceeded {
 			return events, true
 		}
-		if hasDone(events) {
+		if fitnessscript.HasDone(events) {
 			return events, false
 		}
 		// No 'done' yet and time remains — the drop was transport, not completion.
@@ -386,198 +346,14 @@ func waitBeforeReconnect(streamCtx context.Context, attempt int) bool {
 	}
 }
 
-// evaluateAssertions runs every assertion against the collected run state and
-// returns the per-assertion results in order.
-func evaluateAssertions(assertions []Assertion, postOK bool, events []SignalEvent, synthesis string, timedOut bool) []AssertionResult {
-	var results []AssertionResult
-	for _, a := range assertions {
-		r := evaluateAssertion(a, postOK, events, synthesis, timedOut)
-		results = append(results, r)
-	}
-	return results
-}
-
 // labelUnjudged rewrites the message of each deferred assertion in a run that is
 // not part of a CrewFitnessSuite. Only a suite runs the judge, so a standalone run's
 // quality is never scored, and the message says so instead of reading as a pass.
-func labelUnjudged(assertions []Assertion, results []AssertionResult) {
+func labelUnjudged(assertions []fitnessscript.Assertion, results []AssertionResult) {
 	for i := range results {
-		if i < len(assertions) && assertions[i].Kind == KindDeferred {
+		if i < len(assertions) && assertions[i].Kind == fitnessscript.KindDeferred {
 			results[i].Message = fmt.Sprintf("DEFER %s - not scored: quality is judged only when "+
 				"this scenario runs in a CrewFitnessSuite", assertions[i].Keyword)
 		}
 	}
-}
-
-// runState is what a finished run offers the assertions to check against.
-type runState struct {
-	postOK    bool
-	events    []SignalEvent
-	synthesis string
-	timedOut  bool
-}
-
-// evaluators maps each assertion kind to its check.
-var evaluators = map[AssertionKind]func(Assertion, runState) AssertionResult{
-	KindPostReturns200:         func(a Assertion, s runState) AssertionResult { return evalPostReturns200(a, s.postOK) },
-	KindSseEmits:               func(a Assertion, s runState) AssertionResult { return evalSseEmits(a, s.events) },
-	KindSseEmitsWithin:         func(a Assertion, s runState) AssertionResult { return evalSseEmitsWithin(a, s.events) },
-	KindCompletesWithin:        func(a Assertion, s runState) AssertionResult { return evalCompletesWithin(a, s.events, s.timedOut) },
-	KindMinSpecialistAgrees:    func(a Assertion, s runState) AssertionResult { return evalMinSpecialistAgrees(a, s.events) },
-	KindCoordinatorSynthesizes: func(a Assertion, s runState) AssertionResult { return evalCoordinatorSynthesizes(a, s.synthesis) },
-	KindSynthesisNonEmpty:      func(a Assertion, s runState) AssertionResult { return evalSynthesisNonEmpty(a, s.synthesis) },
-	KindSynthesisContains:      func(a Assertion, s runState) AssertionResult { return evalSynthesisContains(a, s.synthesis) },
-	KindSynthesisNotContains:   func(a Assertion, s runState) AssertionResult { return evalSynthesisNotContains(a, s.synthesis) },
-	KindSynthesisMatchCount:    func(a Assertion, s runState) AssertionResult { return evalSynthesisMatchCount(a, s.synthesis) },
-	KindDeferred:               func(a Assertion, _ runState) AssertionResult { return evalDeferred(a) },
-}
-
-func evaluateAssertion(a Assertion, postOK bool, events []SignalEvent, synthesis string, timedOut bool) AssertionResult {
-	if eval, ok := evaluators[a.Kind]; ok {
-		return eval(a, runState{postOK: postOK, events: events, synthesis: synthesis, timedOut: timedOut})
-	}
-	return AssertionResult{Raw: a.Raw, Passed: true, Message: "Custom assertion - manual review recommended"}
-}
-
-// evalDeferred does not evaluate inline (a judge call would compete with the crew
-// for GPU and perturb the run). The post-suite engine resolves the keyword to its
-// crew and overwrites this with the 0.0-1.0 reference-grounded score.
-func evalDeferred(a Assertion) AssertionResult {
-	return AssertionResult{
-		Raw:     a.Raw,
-		Passed:  true,
-		Message: fmt.Sprintf("DEFER %s - deferred to post-suite judge crew", a.Keyword),
-	}
-}
-
-func evalPostReturns200(a Assertion, postOK bool) AssertionResult {
-	if postOK {
-		return AssertionResult{Raw: a.Raw, Passed: true, Message: "POST returned 200"}
-	}
-	return AssertionResult{Raw: a.Raw, Passed: false, Message: "POST did not return 200"}
-}
-
-func evalSseEmits(a Assertion, events []SignalEvent) AssertionResult {
-	if hasEventType(events, a.EventType) {
-		return AssertionResult{Raw: a.Raw, Passed: true, Message: fmt.Sprintf(`Event "%s" received`, a.EventType)}
-	}
-	return AssertionResult{Raw: a.Raw, Passed: false, Message: fmt.Sprintf(`Event "%s" not received`, a.EventType)}
-}
-
-func evalSseEmitsWithin(a Assertion, events []SignalEvent) AssertionResult {
-	// We cannot measure per-event timing from the stream since we don't timestamp events.
-	// A "within N seconds" check degrades to a plain presence check — if the stream
-	// completed within the overall timeout AND the event was present, it passed.
-	// Delegates to evalSseEmits since timing granularity is not yet available.
-	return evalSseEmits(a, events)
-}
-
-func evalCompletesWithin(a Assertion, events []SignalEvent, timedOut bool) AssertionResult {
-	hasDone := hasEventType(events, "done")
-	if hasDone && !timedOut {
-		return AssertionResult{Raw: a.Raw, Passed: true, Message: "Discussion completed with done event"}
-	}
-	if timedOut {
-		return AssertionResult{Raw: a.Raw, Passed: false, Message: "Timed out before done event"}
-	}
-	return AssertionResult{Raw: a.Raw, Passed: false, Message: "No done event received"}
-}
-
-func evalMinSpecialistAgrees(a Assertion, events []SignalEvent) AssertionResult {
-	count := countAgreeSignals(events)
-	return AssertionResult{
-		Raw:     a.Raw,
-		Passed:  count >= a.AgreeCount,
-		Message: fmt.Sprintf("%d agree signal(s) received (need %d)", count, a.AgreeCount),
-	}
-}
-
-func evalCoordinatorSynthesizes(a Assertion, synthesis string) AssertionResult {
-	if synthesis != "" {
-		return AssertionResult{Raw: a.Raw, Passed: true, Message: "Coordinator produced synthesis"}
-	}
-	return AssertionResult{Raw: a.Raw, Passed: false, Message: "No synthesis produced"}
-}
-
-func evalSynthesisNonEmpty(a Assertion, synthesis string) AssertionResult {
-	if synthesis != "" {
-		return AssertionResult{Raw: a.Raw, Passed: true, Message: "Synthesis is non-empty"}
-	}
-	return AssertionResult{Raw: a.Raw, Passed: false, Message: "Synthesis is empty"}
-}
-
-func evalSynthesisContains(a Assertion, synthesis string) AssertionResult {
-	lower := strings.ToLower(synthesis)
-	var missing []string
-	for _, term := range a.Terms {
-		if !strings.Contains(lower, strings.ToLower(term)) {
-			missing = append(missing, term)
-		}
-	}
-	if len(missing) == 0 {
-		return AssertionResult{Raw: a.Raw, Passed: true, Message: "All expected terms found in synthesis"}
-	}
-	return AssertionResult{
-		Raw:     a.Raw,
-		Passed:  false,
-		Message: fmt.Sprintf("Missing terms: %s", strings.Join(missing, ", ")),
-	}
-}
-
-func evalSynthesisNotContains(a Assertion, synthesis string) AssertionResult {
-	lower := strings.ToLower(synthesis)
-	var found []string
-	for _, term := range a.Terms {
-		if strings.Contains(lower, strings.ToLower(term)) {
-			found = append(found, term)
-		}
-	}
-	if len(found) == 0 {
-		return AssertionResult{Raw: a.Raw, Passed: true, Message: "No prohibited terms found in synthesis"}
-	}
-	return AssertionResult{
-		Raw:     a.Raw,
-		Passed:  false,
-		Message: fmt.Sprintf("Prohibited terms found: %s", strings.Join(found, ", ")),
-	}
-}
-
-// evalSynthesisMatchCount passes when the synthesis contains at least MinCount
-// matches of Pattern (case-insensitive regex) - the drift-tolerant numeric bound
-// that catches a gross under-report (e.g. 4 of 141 deployments) without pinning
-// the exact count.
-func evalSynthesisMatchCount(a Assertion, synthesis string) AssertionResult {
-	re, err := regexp.Compile("(?i)" + a.Pattern)
-	if err != nil {
-		return AssertionResult{Raw: a.Raw, Passed: false, Message: fmt.Sprintf("invalid match pattern %q: %v", a.Pattern, err)}
-	}
-	n := len(re.FindAllString(synthesis, -1))
-	if n >= a.MinCount {
-		return AssertionResult{Raw: a.Raw, Passed: true, Message: fmt.Sprintf("%d matches of /%s/ (need >= %d)", n, a.Pattern, a.MinCount)}
-	}
-	return AssertionResult{Raw: a.Raw, Passed: false, Message: fmt.Sprintf("only %d matches of /%s/ (need >= %d) - likely an under-report", n, a.Pattern, a.MinCount)}
-}
-
-// hasEventType returns true if any event in the slice has the given type.
-func hasEventType(events []SignalEvent, eventType string) bool {
-	for _, ev := range events {
-		if ev.Type == eventType {
-			return true
-		}
-	}
-	return false
-}
-
-// countAgreeSignals counts "finding" events with signal "agree". This backs the
-// ">=N toolers agree" floor assertion; the operator's agreeCountFromEvents
-// (fitness_scoring.go) MUST count agrees identically, because participation is
-// scored against the same expected N. Keep the two in sync.
-func countAgreeSignals(events []SignalEvent) int {
-	count := 0
-	for _, ev := range events {
-		if ev.Type == "finding" && ev.Signal == "agree" {
-			count++
-		}
-	}
-	return count
 }

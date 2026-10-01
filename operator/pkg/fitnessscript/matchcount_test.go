@@ -1,4 +1,4 @@
-package main
+package fitnessscript
 
 import "testing"
 

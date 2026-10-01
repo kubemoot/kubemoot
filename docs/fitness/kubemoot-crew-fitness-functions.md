@@ -193,6 +193,10 @@ The `score` (0.0-1.0) becomes the scenario's quality measure in the rubric.
 
 `kubemoot-fitness` is an internal Kubemoot **control-plane crew** - it is not an end-user crew; its job is to judge other crews' fitness. It is the first `DEFER` plugin: it declares `kubemoot.ai/adl-keyword=REFLECTS` and scores how well an answer reflects the supplied reference (the scenario's expected answer, sourced from the cluster ground-truth baseline). It is deliberately small - a coordinator plus one reasoning-only judge agent (qwen3:32b), no MCP tools - because the reference travels in the payload. Because the pass is post-suite, the judge crew is the only thing running, so it never contends with the crew under test.
 
+### Re-judging a saved run
+
+A judge score is only comparable to another taken against the same reference. When references change, an earlier run can be scored again against the current scenarios without asking the crew anything: create a `CrewFitnessSuite` with the current scripts and a `spec.rejudge` block naming the source suite and its `runId`. The operator copies the source run's transcripts into the new suite, re-evaluates their deterministic assertions against the new scenario text with the same assertion engine the runner uses, and the judge pass scores the saved answers against the new `DEFER` references. See [Re-judge an earlier run](../../reference/crewfitnesssuite/#re-judge-an-earlier-run).
+
 ### ConfigMap Example
 
 ```yaml

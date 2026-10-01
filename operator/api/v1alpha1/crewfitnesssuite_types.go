@@ -19,6 +19,7 @@ import (
 // (script × iteration) pair serially (or up to spec.concurrency in
 // parallel), harvests their results, and aggregates into an XLSX artifact
 // written to the NATS Object Store bucket {@code kubemoot_fitness_artifacts}.
+// +kubebuilder:validation:XValidation:rule="has(self.rejudge) == has(oldSelf.rejudge) && (!has(self.rejudge) || self.rejudge == oldSelf.rejudge)",message="spec.rejudge is immutable: set it when the suite is created"
 type CrewFitnessSuiteSpec struct {
 	// CrewRef references the Crew CR in the same namespace that the
 	// suite runs against. Required.
@@ -98,6 +99,47 @@ type CrewFitnessSuiteSpec struct {
 	// +optional
 	// +kubebuilder:default=false
 	Cancel bool `json:"cancel,omitempty"`
+
+	// Rejudge makes this suite a judge-only pass over an earlier run. When set,
+	// the suite runs no iterations and asks the crew nothing: it copies the
+	// source run's per-scenario transcripts, re-evaluates their assertions
+	// against THIS suite's scripts (matched by testRef), and the deferred judge
+	// scores the saved answers against this suite's references. Iterations,
+	// concurrency, purgeMemory and suspend do not apply. Scenarios of this suite
+	// with no transcript in the source are listed in status.rejudge.notInSource
+	// and not scored; source scenarios missing from this suite are ignored.
+	// Optional; set at creation and immutable afterwards.
+	// +optional
+	Rejudge *RejudgeSource `json:"rejudge,omitempty"`
+}
+
+// RejudgeSource names the earlier run a re-judge suite scores again.
+type RejudgeSource struct {
+	// Suite is the source CrewFitnessSuite, in the same namespace. It must be
+	// Completed and must still exist: deleting a suite purges its transcripts.
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:MinLength=1
+	Suite string `json:"suite"`
+
+	// RunID is the source run to re-judge; it must equal the source suite's
+	// status.runId.
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:MinLength=1
+	RunID string `json:"runId"`
+}
+
+// RejudgeStatus reports what a re-judge suite took from its source run.
+type RejudgeStatus struct {
+	// Source is the run that was re-judged.
+	Source RejudgeSource `json:"source"`
+
+	// Transcripts is the number of source transcripts copied into this run.
+	Transcripts int32 `json:"transcripts"`
+
+	// NotInSource lists this suite's scenarios (testRef) that have no
+	// transcript in the source run. They are not scored.
+	// +optional
+	NotInSource []string `json:"notInSource,omitempty"`
 }
 
 // SuiteScript is one entry in a suite — mirrors the CrewFitness spec's
@@ -201,6 +243,11 @@ type CrewFitnessSuiteStatus struct {
 	// Error provides details when Phase is Error.
 	// +optional
 	Error string `json:"error,omitempty"`
+
+	// Rejudge is set on a re-judge suite (spec.rejudge) once its source
+	// transcripts are copied.
+	// +optional
+	Rejudge *RejudgeStatus `json:"rejudge,omitempty"`
 
 	// Conditions represent the latest available observations.
 	// +optional

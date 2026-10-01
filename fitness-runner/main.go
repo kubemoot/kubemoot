@@ -45,6 +45,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/kubemoot/kubemoot/operator/pkg/fitnessscript"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes"
@@ -82,7 +83,7 @@ func run() error {
 	}
 
 	// Parse ADL
-	ft := ParseFitnessTest(string(raw))
+	ft := fitnessscript.ParseFitnessTest(string(raw))
 	fmt.Printf("[fitness-runner] description=%q assertions=%d\n",
 		ft.Description, len(ft.Assertions))
 
