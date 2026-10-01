@@ -9,10 +9,17 @@
 		suiteActionPatch,
 		suiteDisplayPhase,
 		suiteIsJudged,
-		SUITE_TERMINAL_PHASES,
 		type SuiteAction
 	} from '$lib/fitness-suite-controls';
 	import { SYNTHESIS_COLLAPSE_CHARS, artifactKey, artifactHref } from '$lib/discussion-artifacts';
+	import { durTitle, fmtDur, formatBytes, suiteDurMs, suiteMarkdown } from '$lib/fitness-format';
+	import {
+		SUITE_LABEL,
+		TERMINAL_PHASES,
+		childSuiteId,
+		runningBySuite,
+		type FitnessTest
+	} from '$lib/fitness-children';
 
 	// Synthesis/advisory are LLM markdown (headers, lists, bold). Render them as
 	// markdown — matching the Discussions view — instead of raw text.
@@ -26,7 +33,7 @@
 	let copiedTid = $state<string | null>(null);
 	async function copyThreadId(threadId: string | undefined, question: string | undefined) {
 		if (!threadId) return;
-		await navigator.clipboard.writeText(`Thread id: ${threadId}${question ? ` | ${question}` : ''}`);
+		await navigator.clipboard.writeText([`Thread id: ${threadId}`, question].filter(Boolean).join(' | '));
 		copiedTid = threadId;
 		setTimeout(() => { if (copiedTid === threadId) copiedTid = null; }, 2000);
 	}
@@ -80,12 +87,6 @@
 		startedAt?: string;
 		durationMs?: number;
 	}
-	interface FitnessTest {
-		metadata: { name: string; namespace: string; labels?: Record<string, string>; creationTimestamp?: string };
-		spec?: { testRef?: string };
-		status?: { phase?: string; durationMs?: number };
-	}
-
 	let suites = $state<CrewFitnessSuite[]>([]);
 	let standaloneTests = $state<FitnessTest[]>([]);
 	// Live in-flight suite children, keyed by suite id (ns/name). A suite child
@@ -95,15 +96,6 @@
 	let running = $state<Record<string, FitnessTest[]>>({});
 	let agentNames = $state<Set<string>>(new Set());
 
-	// Terminal phases of both suites and their CrewFitness children (Passed is the
-	// one child phase that is not also a suite phase).
-	const TERMINAL_PHASES = new Set([...SUITE_TERMINAL_PHASES, 'Passed']);
-
-	function childSuiteId(t: FitnessTest): string | null {
-		const suite = t.metadata.labels?.[SUITE_LABEL];
-		if (!suite) return null;
-		return `${t.metadata.namespace ?? ''}/${suite}`;
-	}
 	function childScenario(t: FitnessTest): string {
 		return t.spec?.testRef ?? t.metadata.name.replace(/^run-[^-]+-/, '');
 	}
@@ -229,8 +221,6 @@
 		return groups.sort((a, b) => a.scriptIdx - b.scriptIdx);
 	}
 
-	const SUITE_LABEL = 'kubemoot.ai/fitness-suite';
-
 	let initialized = $state(false);
 	let lastNs = $state<string | null>(null);
 
@@ -238,6 +228,21 @@
 	// blank the table behind the "Loading…" placeholder = flicker). Just swap the
 	// data; the keyed {#each} blocks below diff rows in place. Only the initial
 	// load and a namespace switch show the loading state.
+	function applyLists(
+		suiteItems: CrewFitnessSuite[],
+		allTests: FitnessTest[],
+		agentItems: { metadata?: { name?: string } }[]
+	) {
+		suites = [...suiteItems].sort(byCreatedDesc);
+		standaloneTests = allTests.filter((t) => !t.metadata.labels?.[SUITE_LABEL]);
+		// Seed "Running now" from the initial list so it shows before the first
+		// watch event; the watch keeps it current thereafter.
+		running = runningBySuite(allTests);
+		// Names of agents currently deployed: only these get a link from the
+		// conversation (the agent's version must exist in the crew to look it up).
+		agentNames = new Set(agentItems.map((a) => a.metadata?.name).filter((n): n is string => !!n));
+	}
+
 	async function fetchAll(silent = false) {
 		if (!silent) loading = true;
 		error = null;
@@ -247,29 +252,8 @@
 				fetch(`${base}/api/kubemoot/crewfitnesses?namespace=${$namespace}`),
 				fetch(`${base}/api/kubemoot/agents?namespace=${$namespace}`)
 			]);
-			const sData = await sRes.json();
-			const tData = await tRes.json();
-			const aData = await aRes.json();
-			suites = (sData.items || []).sort((a: CrewFitnessSuite, b: CrewFitnessSuite) =>
-				(b.metadata.creationTimestamp ?? '').localeCompare(a.metadata.creationTimestamp ?? '')
-			);
-			const allTests: FitnessTest[] = tData.items || [];
-			standaloneTests = allTests.filter((t) => !t.metadata.labels?.[SUITE_LABEL]);
-			// Seed "Running now" from the initial list so it shows before the first
-			// watch event; the watch keeps it current thereafter.
-			const nextRunning: Record<string, FitnessTest[]> = {};
-			for (const t of allTests) {
-				const id = childSuiteId(t);
-				if (!id || TERMINAL_PHASES.has(t.status?.phase ?? '')) continue;
-				nextRunning[id] ??= [];
-				nextRunning[id].push(t);
-			}
-			running = nextRunning;
-			// Names of agents currently deployed — only these get a link from the
-			// conversation (the agent's version must exist in the crew to look it up).
-			agentNames = new Set(
-				(aData.items || []).map((a: { metadata?: { name?: string } }) => a.metadata?.name).filter(Boolean)
-			);
+			const [sData, tData, aData] = await Promise.all([sRes.json(), tRes.json(), aRes.json()]);
+			applyLists(sData.items || [], tData.items || [], aData.items || []);
 		} catch (e) {
 			if (!silent) error = e instanceof Error ? e.message : 'Failed to load fitness data';
 		} finally {
@@ -324,6 +308,20 @@
 		standaloneTests = standaloneTests.filter((t) => t.metadata.name !== obj?.metadata?.name);
 	}
 
+	function applyChange<T>(type: string | undefined, obj: T, upsert: (o: T) => void, remove: (o: T) => void) {
+		if (type === 'DELETED') remove(obj);
+		else if (type === 'ADDED' || type === 'MODIFIED') upsert(obj);
+	}
+
+	// Reconcile one watch event into the suite list or the standalone test list.
+	function applyWatchEvent(ev: { kind: string; type?: string; object: unknown }) {
+		if (ev.kind === 'CrewFitnessSuite') {
+			applyChange(ev.type, ev.object as CrewFitnessSuite, upsertSuite, removeSuite);
+		} else if (ev.kind === 'CrewFitness') {
+			applyChange(ev.type, ev.object as FitnessTest, upsertTest, removeTest);
+		}
+	}
+
 	function closeWatch() {
 		es?.close();
 		es = null;
@@ -334,19 +332,28 @@
 		es.onmessage = (e) => {
 			try {
 				const ev = JSON.parse(e.data);
-				if (!ev.kind) return; // 'synced'/heartbeat markers
-				if (ev.kind === 'CrewFitnessSuite') {
-					if (ev.type === 'DELETED') removeSuite(ev.object);
-					else if (ev.type === 'ADDED' || ev.type === 'MODIFIED') upsertSuite(ev.object);
-				} else if (ev.kind === 'CrewFitness') {
-					if (ev.type === 'DELETED') removeTest(ev.object);
-					else if (ev.type === 'ADDED' || ev.type === 'MODIFIED') upsertTest(ev.object);
-				}
+				if (ev.kind) applyWatchEvent(ev); // no kind: 'synced'/heartbeat markers
 			} catch {
 				/* ignore malformed frames */
 			}
 		};
 		// EventSource reconnects automatically on error — no manual retry needed.
+	}
+
+	// Load a suite's DEFER/REFLECTS scores, rationale, and judging progress.
+	async function fetchScores(ns: string, name: string) {
+		const r = await fetch(`${base}/api/kubemoot/crewfitnesssuites/${ns}/${name}/scores`);
+		if (!r.ok) return;
+		const sj = await r.json();
+		const id = `${ns}/${name}`;
+		scores[id] = sj.scores || {};
+		reasons[id] = sj.reasons || {};
+		judgeState[id] = { complete: !!sj.complete, judged: sj.judged ?? 0 };
+	}
+
+	// Cancelled suites are never judged; a suite whose judging finished is not polled again.
+	function judgingPending(suite: CrewFitnessSuite, id: string): boolean {
+		return suiteIsJudged(suite.status?.phase) && !judgeState[id]?.complete;
 	}
 
 	// Poll DEFER judging progress for terminal-but-not-complete suites so the
@@ -356,18 +363,11 @@
 		for (const suite of suites) {
 			const ns = suite.metadata.namespace ?? '';
 			const name = suite.metadata.name ?? '';
-			const id = `${ns}/${name}`;
-			if (!suiteIsJudged(suite.status?.phase)) continue; // Cancelled suites are never judged
-			if (judgeState[id]?.complete) continue; // judging finished — stop polling this one
+			if (!judgingPending(suite, `${ns}/${name}`)) continue;
 			try {
-				const r = await fetch(`${base}/api/kubemoot/crewfitnesssuites/${ns}/${name}/scores`);
-				if (!r.ok) continue;
-				const sj = await r.json();
-				scores[id] = sj.scores || {};
-				reasons[id] = sj.reasons || {};
-				judgeState[id] = { complete: !!sj.complete, judged: sj.judged ?? 0 };
+				await fetchScores(ns, name);
 			} catch {
-				/* transient — retry next tick */
+				/* transient: retry next tick */
 			}
 		}
 	}
@@ -433,7 +433,7 @@
 	onMount(() => {
 		// Initial list for fast first render, then attach the live watch.
 		fetchAll(false).then(connectWatch).then(refreshJudging);
-		const judgeTimer = setInterval(refreshJudging, 10_000);
+		const judgeTimer = setInterval(() => void refreshJudging(), 10_000);
 		return () => { clearInterval(judgeTimer); closeWatch(); };
 	});
 	$effect(() => {
@@ -457,13 +457,7 @@
 			const data = await res.json();
 			iterations[id] = data.iterations || [];
 			try {
-				const sres = await fetch(`${base}/api/kubemoot/crewfitnesssuites/${ns}/${name}/scores`);
-				if (sres.ok) {
-					const sj = await sres.json();
-					scores[id] = sj.scores || {};
-					reasons[id] = sj.reasons || {};
-					judgeState[id] = { complete: !!sj.complete, judged: sj.judged ?? 0 };
-				}
+				await fetchScores(ns, name);
 			} catch { /* REFLECTS scores are optional UI enrichment */ }
 		} catch {
 			if (!silent) iterations[id] = [];
@@ -550,73 +544,13 @@
 		}
 	}
 
-	// Elapsed ms for a suite: completed-minus-started, or now-minus-started while
-	// still running. Undefined when there is no start time.
-	function suiteDurMs(s?: CrewFitnessSuite['status']): number | undefined {
-		if (!s?.startedAt) return undefined;
-		const end = s.completedAt ? new Date(s.completedAt).getTime() : Date.now();
-		return end - new Date(s.startedAt).getTime();
-	}
-
-	function fmtDur(ms?: number): string {
-		if (!ms) return '—';
-		if (ms < 1000) return `${ms}ms`;
-		if (ms < 60_000) return `${(ms / 1000).toFixed(1)}s`;
-		return `${Math.floor(ms / 60_000)}m ${Math.floor((ms % 60_000) / 1000)}s`;
-	}
-
-	function fmtDateTime(iso?: string): string {
-		if (!iso) return '—';
-		const d = new Date(iso);
-		return isNaN(d.getTime()) ? '—' : d.toLocaleString();
-	}
-
-	// Tooltip for the Duration cell: the absolute start/end date-times behind the
-	// relative duration (a running suite has no end yet).
-	function durTitle(startedAt?: string, completedAt?: string): string {
-		if (!startedAt) return 'No start time recorded';
-		return `Started: ${fmtDateTime(startedAt)}\nEnded: ${completedAt ? fmtDateTime(completedAt) : 'running'}`;
-	}
-
-	function formatBytes(n?: number): string {
-		if (!n) return '—';
-		if (n < 1024) return `${n} B`;
-		if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
-		return `${(n / 1024 / 1024).toFixed(2)} MB`;
-	}
-
 	// Copy a suite's run context to the clipboard as markdown, so it can be pasted
 	// into a report or ticket without screenshotting or downloading the XLSX.
 	let copiedKey = $state<string | null>(null);
 	async function copySuite(suite: CrewFitnessSuite, e: Event) {
 		e.stopPropagation(); // don't toggle the row open
-		const s = suite.status;
-		const ns = suite.metadata.namespace ?? '';
-		const name = suite.metadata.name ?? '';
-		const key = `${ns}/${name}`;
-		const jp = judgeState[key];
-		const scen = suite.spec.scripts?.map((x) => x.testRef) ?? [];
-		let judgeLine = '';
-		if (jp) judgeLine = `- Judge: ${jp.complete ? 'complete' : `judging ${jp.judged}/${scen.length}`}`;
-		const text = [
-			`# Fitness Suite: ${name}`,
-			`- Crew: ${suite.spec.crewRef}`,
-			`- Namespace: ${ns}`,
-			suite.spec.description ? `- Description: ${suite.spec.description}` : '',
-			`- Phase: ${s?.phase ?? 'Unknown'}`,
-			`- Iterations: ${s?.iterationsCompleted ?? 0} / ${s?.iterationsTotal ?? 0}`,
-			`- Results: ${s?.passed ?? 0} passed / ${s?.failed ?? 0} failed / ${s?.errored ?? 0} errored`,
-			`- Duration: ${fmtDur(suiteDurMs(s)).replace('\u2014', '-')}`,
-			`- Scenarios (${scen.length}): ${scen.join(', ')}`,
-			judgeLine,
-			s?.runId ? `- Run ID: ${s.runId}` : '',
-			suite.metadata.creationTimestamp ? `- Created: ${suite.metadata.creationTimestamp}` : '',
-			s?.artifactRef?.objectKey
-				? `- Artifact: ${s.artifactRef.objectKey} (${formatBytes(s.artifactRef.sizeBytes)})`
-				: ''
-		]
-			.filter(Boolean)
-			.join('\n');
+		const key = `${suite.metadata.namespace ?? ''}/${suite.metadata.name ?? ''}`;
+		const text = suiteMarkdown(suite, judgeState[key]);
 		try {
 			await navigator.clipboard.writeText(text);
 			copiedKey = key;
@@ -778,7 +712,7 @@
 																				{#if !transcripts[tid]}
 																					<p class="status-msg small">Loading conversation…</p>
 																				{:else if !isTranscript(transcripts[tid])}
-																					<p class="status-msg small error">{(transcripts[tid] as { error: string }).error}</p>
+																					<p class="status-msg small error">{transcripts[tid].error}</p>
 																				{:else}
 																					{@const t = transcripts[tid] as Transcript}
 									{@const standAsides = (t.events ?? []).filter((e) => e.type === 'phase' && e.stood_aside)}

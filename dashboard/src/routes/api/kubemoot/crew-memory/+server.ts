@@ -28,7 +28,7 @@ const BUCKET = 'kubemoot_crew_memory';
 // Mirror the agent/operator key sanitisation: keep [A-Za-z0-9_=-], replace rest.
 function sanitize(s: string): string {
 	if (!s) return '_';
-	return s.trim().replace(/[^A-Za-z0-9_=-]/g, '_');
+	return s.trim().replaceAll(/[^A-Za-z0-9_=-]/g, '_');
 }
 
 function badRequest(message: string) {
@@ -66,6 +66,19 @@ function matches(parsed: CrewMemoryKey | null, crew: string, namespace: string |
 	return !!parsed && parsed.crew === crew && (namespace === null || parsed.namespace === namespace);
 }
 
+type CrewMemoryKV = Awaited<ReturnType<typeof openKV>>;
+
+// The fact stored under a key, or null when the entry is gone or unreadable.
+async function readFact(kv: CrewMemoryKV, k: string, parsed: CrewMemoryKey) {
+	const entry = await kv.get(k);
+	if (!entry) return null;
+	try {
+		return toFact(parsed, JSON.parse(sc.decode(entry.value)));
+	} catch {
+		return null;
+	}
+}
+
 export const GET: RequestHandler = async ({ url }) => {
 	const crewParam = url.searchParams.get('crew');
 	const namespace = url.searchParams.get('namespace') || null;
@@ -79,13 +92,8 @@ export const GET: RequestHandler = async ({ url }) => {
 		for await (const k of iter) {
 			const parsed = parseCrewMemoryKey(k);
 			if (!matches(parsed, crew, namespace)) continue;
-			const entry = await kv.get(k);
-			if (!entry) continue;
-			try {
-				facts.push(toFact(parsed, JSON.parse(sc.decode(entry.value))));
-			} catch {
-				/* skip unreadable */
-			}
+			const fact = await readFact(kv, k, parsed);
+			if (fact) facts.push(fact);
 		}
 		return json({ namespace, crew, facts });
 	} catch (err) {

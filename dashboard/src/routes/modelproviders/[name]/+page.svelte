@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { readinessStatus } from '$lib/resource-status';
 	import { onMount } from 'svelte';
 	import { page } from '$app/stores';
 	import { base } from '$app/paths';
@@ -39,13 +40,7 @@
 		fetchProvider();
 	});
 
-	const status = $derived(
-		provider?.status?.ready
-			? 'success'
-			: provider?.status?.phase === 'Failed'
-				? 'error'
-				: 'pending'
-	);
+	const status = $derived(readinessStatus(provider?.status, 'Failed'));
 
 	const capacity = $derived(provider?.status?.capacity);
 	const loadedModels = $derived(capacity?.loadedModels ?? []);

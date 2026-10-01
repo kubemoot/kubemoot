@@ -44,9 +44,23 @@ npm run dev
 # Type check
 npm run check
 
+# Lint
+npm run lint
+
+# Unit tests
+npm test
+
 # Build for production
 npm run build
 ```
+
+Before you push, run `npm run lint`, `npm run check`, and `npm test`. `npm run lint`
+runs the TypeScript rules of SonarQube's Sonar way profile on `src/` (`.ts` files and
+`.svelte` script blocks): the `eslint-plugin-sonarjs` rules in that profile, plus the
+typescript-eslint and unicorn rules Sonar runs under its own keys, and a cyclomatic
+complexity limit of 10 (see `eslint.config.js`). The repository's
+`sonar-project.properties` leaves `dashboard/` out of the SonarQube analysis, so for
+now this lint is where those rules are checked for the dashboard.
 
 ## Deployment
 

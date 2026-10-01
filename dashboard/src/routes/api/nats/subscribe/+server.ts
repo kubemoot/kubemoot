@@ -67,7 +67,7 @@ export const GET: RequestHandler = async ({ url }) => {
 		},
 		cancel(controller) {
 			// Client disconnected — run cleanup
-			const cleanup = (controller as any)?._natsCleanup;
+			const cleanup = controller?._natsCleanup;
 			if (typeof cleanup === 'function') cleanup();
 		}
 	});

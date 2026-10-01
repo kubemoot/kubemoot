@@ -9,7 +9,7 @@ interface RefreshState {
 }
 
 function createRefreshStore() {
-	const { subscribe, set, update } = writable<RefreshState>({
+	const { subscribe, update } = writable<RefreshState>({
 		enabled: true,
 		interval: DEFAULT_INTERVAL,
 		lastRefresh: Date.now()

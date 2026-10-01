@@ -1,6 +1,6 @@
 import { writable, derived } from 'svelte/store';
 import { browser } from '$app/environment';
-import { base } from '$app/paths';
+import { resolve } from '$app/paths';
 import type { DiscussionMessage } from '$types/kubemoot.js';
 import {
 	DISCUSS_ALL,
@@ -48,43 +48,43 @@ let lastSeq = 0;
 // Track deleted threads so messages don't resurrect them
 const deletedThreadIds = new Set<string>();
 
+const reopen = (t: Thread) => {
+	t.status = 'open';
+};
+const countAgree = (t: Thread) => {
+	t.agreeCount++;
+	t.contributorCount++;
+};
+const countStandAside = (t: Thread) => {
+	t.standAsideCount++;
+	t.declineCount++;
+};
+
+// How each message type moves a thread's tallies and status. 'contribution' and
+// 'decline' are legacy aliases for 'agree' and 'stand_aside'.
+const THREAD_COUNT_UPDATES = new Map<string, (t: Thread) => void>(
+	Object.entries({
+		agree: countAgree,
+		contribution: countAgree,
+		concern: (t) => t.concernCount++,
+		block: (t) => t.blockCount++,
+		stand_aside: countStandAside,
+		decline: countStandAside,
+		advisory: (t) => t.advisoryCount++,
+		proposal: (t) => t.proposalCount++,
+		synthesis: (t) => {
+			t.status = 'synthesized';
+		},
+		follow_up: reopen,
+		reply: reopen,
+		thread_close: (t: Thread) => {
+			t.status = 'closed';
+		}
+	})
+);
+
 function updateThreadCounts(thread: Thread, msg: DiscussionMessage) {
-	switch (msg.messageType) {
-		case 'agree':
-		case 'contribution': // legacy alias for agree
-			thread.agreeCount++;
-			thread.contributorCount++;
-			break;
-		case 'concern':
-			thread.concernCount++;
-			break;
-		case 'block':
-			thread.blockCount++;
-			break;
-		case 'stand_aside':
-		case 'decline': // legacy alias for stand_aside
-			thread.standAsideCount++;
-			thread.declineCount++;
-			break;
-		case 'advisory':
-			thread.advisoryCount++;
-			break;
-		case 'proposal':
-			thread.proposalCount++;
-			break;
-		case 'synthesis':
-			thread.status = 'synthesized';
-			break;
-		case 'follow_up':
-			if (thread.status !== 'open') thread.status = 'open';
-			break;
-		case 'reply':
-			if (thread.status !== 'open') thread.status = 'open';
-			break;
-		case 'thread_close':
-			thread.status = 'closed';
-			break;
-	}
+	THREAD_COUNT_UPDATES.get(msg.messageType)?.(thread);
 }
 
 function emptyThreadCounts() {
@@ -106,7 +106,10 @@ export function threadScope(thread: Pick<Thread, 'namespace' | 'crew'>): CrewSco
 }
 
 function scopeFields(msg: DiscussionMessage, subject: DiscussSubject | null) {
-	return { namespace: subject?.namespace, crew: msg.metadata?.crew ?? subject?.crew };
+	return {
+		namespace: subject?.namespace,
+		crew: msg.metadata?.crew ?? subject?.crew
+	};
 }
 
 // Fills a thread's namespace and crew from a later message when the thread was
@@ -222,7 +225,7 @@ function startStream() {
 	// history load (loadRecent sets lastSeq). On a from_seq at/near the tip this
 	// replays ~nothing and goes live — it does NOT re-replay the whole stream, which
 	// is what froze the page once suite runs filled it with thousands of threads.
-	const streamUrl = `${base}/api/nats/stream?stream=KUBEMOOT_DISCUSS&subject=${encodeURIComponent(DISCUSS_ALL)}&from_seq=${lastSeq}`;
+	const streamUrl = `${resolve('/api/nats/stream')}?stream=KUBEMOOT_DISCUSS&subject=${encodeURIComponent(DISCUSS_ALL)}&from_seq=${lastSeq}`;
 	eventSource = new EventSource(streamUrl);
 
 	eventSource.onopen = () => {
@@ -283,7 +286,7 @@ async function loadRecent() {
 	try {
 		const subject = encodeURIComponent(DISCUSS_ALL);
 		const res = await fetch(
-			`${base}/api/nats/history?stream=KUBEMOOT_DISCUSS&subject=${subject}&limit=${RECENT_LIMIT}`
+			`${resolve('/api/nats/history')}?stream=KUBEMOOT_DISCUSS&subject=${subject}&limit=${RECENT_LIMIT}`
 		);
 		if (res.ok) {
 			const data = await res.json();
@@ -319,7 +322,7 @@ export async function removeThread(threadId: string) {
 
 	// Purge messages from NATS JetStream so they don't come back on reload
 	try {
-		await fetch(`${base}/api/nats/purge`, {
+		await fetch(resolve('/api/nats/purge'), {
 			method: 'POST',
 			headers: { 'Content-Type': 'application/json' },
 			body: JSON.stringify({
@@ -347,7 +350,7 @@ export const pinnedThreadIds = writable<Set<string>>(new Set());
 
 export async function loadPinnedThreads() {
 	try {
-		const res = await fetch(`${base}/api/discussions/pin`);
+		const res = await fetch(resolve('/api/discussions/pin'));
 		if (!res.ok) return;
 		const { pinned } = await res.json();
 		pinnedThreadIds.set(new Set(Object.keys(pinned ?? {})));
@@ -358,7 +361,7 @@ export async function loadPinnedThreads() {
 
 export async function pinThread(threadId: string) {
 	try {
-		await fetch(`${base}/api/discussions/pin`, {
+		await fetch(resolve('/api/discussions/pin'), {
 			method: 'POST',
 			headers: { 'Content-Type': 'application/json' },
 			body: JSON.stringify({ threadId })
@@ -371,7 +374,7 @@ export async function pinThread(threadId: string) {
 
 export async function unpinThread(threadId: string) {
 	try {
-		await fetch(`${base}/api/discussions/pin`, {
+		await fetch(resolve('/api/discussions/pin'), {
 			method: 'DELETE',
 			headers: { 'Content-Type': 'application/json' },
 			body: JSON.stringify({ threadId })

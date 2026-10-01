@@ -1,6 +1,7 @@
 <script lang="ts">
 	import type { DiscussionMessage } from '$types/kubemoot.js';
 	import { showStandAsides } from '$lib/stores';
+	import { buildAgentSpans, type AgentSpan } from '$lib/discussion-spans';
 
 	let {
 		messages = [],
@@ -39,58 +40,8 @@
 	const PADDING_RIGHT = 60;
 	const PADDING_LEFT = 8;
 
-	const signalColors: Record<string, string> = {
-		synthesis: '#fbbf24',
-		block: '#f87171',
-		concern: '#fbbf24',
-		agree: '#34d399',
-		contribution: '#34d399',
-		advisory: '#c084fc',
-		proposal: '#60a5fa',
-		stand_aside: '#6b7280',
-		decline: '#6b7280',
-		thread_start: '#3b82f6',
-		follow_up: '#f59e0b',
-		reply: '#34d399',
-		consent: '#34d399',
-		gap_detected: '#f87171',
-		thread_close: '#9ca3af',
-		advisory_ready: '#38bdf8',
-		review_ready: '#fbbf24',
-		triaging: '#38bdf8',
-		evaluating: '#818cf8',
-		heartbeat: '#64748b',
-		waking: '#fb923c',
-		ready: '#22d3ee'
-	};
-
 	// GPU colors assigned dynamically from message data — no hardcoded GPU models
 	const gpuColorPalette = ['#3b82f6', '#f97316', '#a78bfa', '#34d399', '#f472b6', '#facc15', '#22d3ee', '#fb923c'];
-
-	const signalPriority: Record<string, number> = {
-		synthesis: 10,
-		block: 9,
-		concern: 8,
-		agree: 7,
-		contribution: 7,
-		advisory: 6,
-		proposal: 5,
-		follow_up: 4,
-		reply: 4,
-		consent: 3,
-		stand_aside: 2,
-		decline: 2,
-		gap_detected: 1,
-		thread_close: 1,
-		advisory_ready: 1,
-		review_ready: 1,
-		heartbeat: 0,
-		triaging: 0,
-		evaluating: 0,
-		waking: 0,
-		ready: 0,
-		thread_start: 0
-	};
 
 	const legendItems = [
 		{ label: 'Agree', color: '#34d399', tooltip: 'Agent ran tools and found relevant data to contribute' },
@@ -110,32 +61,6 @@
 		{ label: 'Queue Depth', color: '#ef4444', type: 'queue' as const, tooltip: 'Number of other agents running inference on the same GPU concurrently' }
 	];
 
-	interface SignalMarker {
-		ms: number;
-		type: string;
-		color: string;
-	}
-
-	interface AgentSpan {
-		agent: string;
-		displayName: string;
-		startMs: number;
-		endMs: number;
-		primarySignal: string;
-		color: string;
-		isHuman: boolean;
-		toolsUsed: string[];
-		messages: DiscussionMessage[];
-		gpuLabel?: string;
-		/** FitPredictor v2 per-call reasoning ("warm, slot 1/2 | SR=0.92 …"). */
-		pickReason?: string;
-		inferenceMs: number;
-		inferenceStartMs?: number;
-		loadDurationMs: number;
-		queueDepth: number;
-		signalMarkers: SignalMarker[];
-	}
-
 	// Derive GPU color map from actual message data
 	const gpuColors = $derived.by(() => {
 		const map: Record<string, string> = {};
@@ -154,128 +79,7 @@
 	let containerWidth = $state(600);
 	let hoveredAgent = $state<string | null>(null);
 
-	const spans = $derived.by(() => {
-		if (messages.length === 0) return [];
-
-		const threadStart = messages.find((m) => m.messageType === 'thread_start');
-		const t0 = threadStart ? new Date(threadStart.timestamp).getTime() : new Date(messages[0].timestamp).getTime();
-
-		const agentMap = new Map<string, { msgs: DiscussionMessage[]; minMs: number; maxMs: number }>();
-
-		for (const msg of messages) {
-			const ts = new Date(msg.timestamp).getTime() - t0;
-			const existing = agentMap.get(msg.agentName);
-			if (existing) {
-				existing.msgs.push(msg);
-				existing.minMs = Math.min(existing.minMs, ts);
-				existing.maxMs = Math.max(existing.maxMs, ts);
-			} else {
-				agentMap.set(msg.agentName, { msgs: [msg], minMs: ts, maxMs: ts });
-			}
-		}
-
-		const result: AgentSpan[] = [];
-		// Signal types that get visible markers on the bar when they differ from primarySignal
-		const markerSignals = new Set(['advisory', 'triaging', 'evaluating', 'heartbeat', 'concern', 'advisory_ready', 'review_ready', 'waking', 'ready']);
-
-		for (const [agent, data] of agentMap) {
-			let bestSignal = 'thread_start';
-			let bestPriority = -1;
-			const tools = new Set<string>();
-			let gpuLabel: string | undefined;
-			let pickReason: string | undefined;
-			let inferenceMs = 0;
-			let inferenceStartMs: number | undefined;
-			let loadDurationMs = 0;
-			const markers: SignalMarker[] = [];
-
-			for (const m of data.msgs) {
-				const p = signalPriority[m.messageType] ?? 0;
-				if (p > bestPriority) {
-					bestPriority = p;
-					bestSignal = m.messageType;
-				}
-				if (m.metadata?.toolsUsed) {
-					for (const t of m.metadata.toolsUsed) tools.add(t);
-				}
-				if (m.metadata?.gpuLabel) {
-					gpuLabel = m.metadata.gpuLabel;
-				}
-				if (m.metadata?.pickReason) {
-					pickReason = m.metadata.pickReason;
-				}
-				if (m.metadata?.inferenceMs && m.metadata.inferenceMs > inferenceMs) {
-					inferenceMs = m.metadata.inferenceMs;
-				}
-				if (m.metadata?.inferenceStartMs && !inferenceStartMs) {
-					inferenceStartMs = m.metadata.inferenceStartMs;
-				}
-				if (m.metadata?.loadDurationMs && m.metadata.loadDurationMs > loadDurationMs) {
-					loadDurationMs = m.metadata.loadDurationMs;
-				}
-				// Collect signal markers for non-primary signal types
-				if (markerSignals.has(m.messageType)) {
-					const ts = new Date(m.timestamp).getTime() - t0;
-					markers.push({
-						ms: ts,
-						type: m.messageType,
-						color: signalColors[m.messageType] || '#6b7280'
-					});
-				}
-			}
-
-			// Only keep markers that differ from the primary signal
-			const filteredMarkers = markers.filter(m => m.type !== bestSignal);
-
-			result.push({
-				agent,
-				displayName: agent === 'human' ? 'You' : agent.replace('homelab-', ''),
-				startMs: data.minMs,
-				endMs: data.maxMs,
-				primarySignal: bestSignal,
-				color: signalColors[bestSignal] || '#6b7280',
-				isHuman: agent === 'human',
-				toolsUsed: Array.from(tools),
-				messages: data.msgs,
-				gpuLabel,
-				pickReason,
-				inferenceMs,
-				inferenceStartMs,
-				loadDurationMs,
-				queueDepth: 0,
-				signalMarkers: filteredMarkers
-			});
-		}
-
-		// Compute queue depth: count concurrent inference on same GPU
-		for (const span of result) {
-			if (!span.gpuLabel || !span.inferenceStartMs || span.inferenceMs <= 0) continue;
-			const myStart = span.inferenceStartMs;
-			const myEnd = span.inferenceStartMs + span.inferenceMs;
-			let depth = 0;
-			for (const other of result) {
-				if (other === span) continue;
-				if (other.gpuLabel !== span.gpuLabel) continue;
-				if (!other.inferenceStartMs || other.inferenceMs <= 0) continue;
-				const otherStart = other.inferenceStartMs;
-				const otherEnd = other.inferenceStartMs + other.inferenceMs;
-				// Overlapping inference windows
-				if (myStart < otherEnd && myEnd > otherStart) {
-					depth++;
-				}
-			}
-			span.queueDepth = depth;
-		}
-
-		// Sort: human first, then ascending by endMs
-		result.sort((a, b) => {
-			if (a.isHuman && !b.isHuman) return -1;
-			if (!a.isHuman && b.isHuman) return 1;
-			return a.endMs - b.endMs;
-		});
-
-		return result;
-	});
+	const spans = $derived(buildAgentSpans(messages));
 
 	// Hide agents that immediately stand_aside with no inference. Driven by the
 	// global "Show stand-asides" preference (Config page) so the graph matches
@@ -349,6 +153,21 @@
 		return lines;
 	}
 
+	/** Title block of the copied image: heading, crew, wrapped thread line, version and time. */
+	function graphTitleLines(maxWidth: number, charWidth: number): string[] {
+		const now = new Date().toLocaleString();
+		const rawQuery = userQuery || 'Unknown';
+		const queryText = rawQuery.length > 128 ? rawQuery.substring(0, 128) + '...' : rawQuery;
+		const threadLine = `Thread id: ${threadId || 'unknown'} | ${queryText}`;
+		const metaLine = `v${version || 'dev'}  ${now}`;
+		return [
+			'Kubemoot Discussion Agents',
+			...(crew ? [`Crew: ${crew}`] : []),
+			...wrapText(threadLine, maxWidth, charWidth),
+			metaLine
+		];
+	}
+
 	async function copyGraphImage() {
 		if (!containerEl) return;
 		const svgEl = containerEl.querySelector('svg');
@@ -365,20 +184,7 @@
 		const origHeight = svgEl.clientHeight || svgHeight;
 		const contentWidth = origWidth + PADDING * 2;
 
-		// Build title lines with word wrapping
-		const now = new Date().toLocaleString();
-		const rawQuery = userQuery || 'Unknown';
-		const queryText = rawQuery.length > 128 ? rawQuery.substring(0, 128) + '...' : rawQuery;
-		const threadLine = `Thread id: ${threadId || 'unknown'} | ${queryText}`;
-		const metaLine = `v${version || 'dev'}  ${now}`;
-
-		const crewLine = crew ? `Crew: ${crew}` : '';
-		const titleLines = [
-			'Kubemoot Discussion Agents',
-			...(crewLine ? [crewLine] : []),
-			...wrapText(threadLine, contentWidth - PADDING * 2, CHAR_WIDTH),
-			metaLine
-		];
+		const titleLines = graphTitleLines(contentWidth - PADDING * 2, CHAR_WIDTH);
 
 		const TITLE_HEIGHT = PADDING + titleLines.length * LINE_HEIGHT + 8;
 

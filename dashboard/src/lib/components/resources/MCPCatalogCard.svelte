@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { phaseStatus } from '$lib/resource-status';
 	import { base } from '$app/paths';
 	import type { MCPCatalog } from '$types/kubemoot.js';
 	import ResourceCard from './ResourceCard.svelte';
@@ -10,13 +11,7 @@
 
 	let { catalog, showNamespace = false }: Props = $props();
 
-	const status = $derived(
-		catalog.status?.phase === 'Ready'
-			? 'success'
-			: catalog.status?.phase === 'Error'
-				? 'error'
-				: 'pending'
-	);
+	const status = $derived(phaseStatus(catalog.status?.phase));
 
 	const statusLabel = $derived(catalog.status?.phase || 'Unknown');
 	const discovered = $derived(catalog.status?.serversDiscovered ?? 0);

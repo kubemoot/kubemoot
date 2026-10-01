@@ -2,27 +2,53 @@ import js from '@eslint/js';
 import ts from 'typescript-eslint';
 import svelte from 'eslint-plugin-svelte';
 import sonarjs from 'eslint-plugin-sonarjs';
+import unicorn from 'eslint-plugin-unicorn';
 import prettier from 'eslint-config-prettier';
 import globals from 'globals';
 
+// SonarQube is the authority on quality; the block for src/ is its fast local check.
+// It runs the rules of the server's "Sonar way" TypeScript profile that eslint can run:
+// the sonarjs recommended set, less the rules the profile leaves inactive, plus the
+// typescript-eslint and unicorn rules Sonar runs under its own keys. Rules that report
+// a Sonar security hotspot (super-linear-regex S5852, pseudo-random S2245,
+// no-clear-text-protocols S5332) stay on, so each site carries a reviewed reason.
+//
+// notInSonarWay: the rules of the sonarjs 4.2 recommended set whose Sonar keys are not
+// active in the server's profile, from api/rules/search?qprofile=<Sonar way ts>&activation=true.
+// Compare again when the plugin or the profile changes.
+const notInSonarWay = [
+	'no-extra-arguments', 'prefer-single-boolean-return', 'no-floating-point-equality',
+	'no-unused-vars', 'future-reserved-words', 'null-dereference', 'no-implicit-global',
+	'no-fixed-wait-in-tests', 'different-types-comparison', 'updated-const-var',
+	'inconsistent-function-call', 'argument-type', 'in-operator-type-error',
+	'array-callback-without-return', 'function-return-type',
+	'no-incompatible-assertion-types', 'prefer-specific-assertions', 'no-trivial-assertions',
+	'parameterized-tests', 'no-duplicate-test-title', 'async-test-assertions',
+	'no-empty-test-title', 'hooks-before-test-cases', 'no-forced-browser-interaction',
+	'assertions-in-test-cases', 'synchronous-suite-callback',
+	'prefer-native-lodash-alternative', 'no-default-utility-imports', 'memoize-cache-key',
+	'no-debug-commands-in-ui-tests', 'no-interpolation-in-inline-snapshots',
+	'explicit-test-skip', 'no-empty-parameterized-test-dataset',
+	'testing-library-query-assertion', 'synchronous-exception-assertions',
+	'no-duplicate-parameterized-test-case', 'no-debounce-throttle-in-render',
+	'avoid-mutating-nested-properties-of-shallow-clones', 'prefer-native-jquery-alternative',
+	'no-vue-class-component', 'no-vue-mixins',
+	'testing-library-prefer-query-by-disappearance', 'prefer-cypress-should',
+	'no-mutate-reactive-state-in-updated-hook', 'vitest-mock-at-module-scope',
+	'prefer-native-axios-alternative'
+];
+
 export default [
-	// Base JS recommended rules
+	{ ignores: ['.svelte-kit/', 'build/', 'node_modules/', 'coverage/'] },
+
 	js.configs.recommended,
-
-	// TypeScript recommended rules
 	...ts.configs.recommended,
-
-	// Svelte recommended rules (includes svelte parser for .svelte files)
 	...svelte.configs['flat/recommended'],
-
-	// SonarJS recommended rules (flat config object, not an array)
-	sonarjs.configs.recommended,
 
 	// Prettier compatibility - disables rules that conflict with prettier formatting
 	prettier,
 	...svelte.configs['flat/prettier'],
 
-	// Global environment settings
 	{
 		languageOptions: {
 			globals: {
@@ -32,12 +58,13 @@ export default [
 		}
 	},
 
-	// TypeScript parser for .svelte files (required for ts inside svelte)
+	// TypeScript parser inside .svelte script blocks
 	{
 		files: ['**/*.svelte'],
 		languageOptions: {
 			parserOptions: {
-				parser: ts.parser
+				parser: ts.parser,
+				extraFileExtensions: ['.svelte']
 			}
 		}
 	},
@@ -52,126 +79,65 @@ export default [
 		}
 	},
 
-	// Project-wide rule overrides.
-	//
-	// Correctness rules stay at their recommended severity (error by default).
-	//
-	// The categories below are demoted from error to warn or off for the initial
-	// baseline so that the edit-time quality gate (hooks/quality-check.sh) does
-	// not block on pre-existing debt. Each category is a tracked deferred backlog
-	// item. When a category is addressed, flip it back to 'warn' or 'error'.
-	//
-	// == WARN (tracked complexity debt - visible in CI, not blocking) ==
-	//
-	//   sonarjs/cognitive-complexity (default threshold 15)
-	//     Several server-side route handlers and the topology/fitness pages have
-	//     complexity scores above 15. Kept as WARN so the debt remains visible.
-	//     Deferred systematic refactor of the high-complexity pages.
-	//
-	// == OFF (genuine false-positives or known-intentional patterns) ==
-	//
-	//   sonarjs/pseudo-random (Math.random())
-	//     Used only for UI jitter (tooltip animation offsets, non-crypto). No
-	//     security concern; the SonarQube quality profile flags this as info, not
-	//     a vulnerability, for frontend code.
-	//
-	//   sonarjs/no-duplicate-string (string literals repeated 3+ times)
-	//     Kubernetes API group/version strings ('kubemoot.ai', 'v1alpha1') and
-	//     CSS class names appear in every route. Extracting them as constants
-	//     in every file is noise, not a quality improvement. SonarQube's own
-	//     duplicate-string rule is off for UI code in the shared quality profile.
-	//
-	//   svelte/no-navigation-without-resolve
-	//     All hrefs and goto() calls would need resolve() from $app/paths because
-	//     svelte.config.js sets paths.base = '/dashboard'. Real correctness debt;
-	//     systematic fix touches every page. Tracked in backlog.
-	//
-	//   svelte/require-each-key
-	//     All {#each} blocks should carry a key expression for efficient DOM
-	//     reconciliation. Performance concern, not a data-correctness bug.
-	//     Tracked in backlog.
-	//
-	//   svelte/no-useless-mustaches
-	//     Minor cosmetic: unnecessary {} around static string literals.
-	//
-	//   svelte/no-at-html-tags
-	//     {@html} in the discussions page renders agent-generated markdown via
-	//     marked. Content is coordinator-generated (not user-supplied), so XSS
-	//     risk is low. Intentional; kept off rather than suppressed per-site.
-	//
-	//   @typescript-eslint/no-explicit-any
-	//     K8s API route handlers use `any` for object payloads that predate
-	//     proper type coverage. Deferred type-tightening.
-	//
-	//   @typescript-eslint/no-unused-vars
-	//     Several Svelte page files have scaffolded variables not yet wired.
-	//     Deferred cleanup; easy to tackle incrementally.
-	//
-	//   svelte/prefer-svelte-reactivity
-	//     new Date() in a couple of stores; SvelteDate migration is low priority.
-	//
 	{
 		rules: {
-			// Complexity debt - warn so it stays visible but does not block CI
-			'sonarjs/cognitive-complexity': 'warn',
+			complexity: ['error', 10],
+			'@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_' }],
 
-			// Genuine false-positives for non-crypto UI code
-			'sonarjs/pseudo-random': 'off',
-
-			// K8s/CSS string repetition is not extractable noise-free
-			'sonarjs/no-duplicate-string': 'off',
-
-			// Svelte base-path debt (systematic fix deferred)
+			// Not Sonar rules; svelte plugin debt kept off and tracked in the backlog.
+			// paths.base = '/dashboard' means every href/goto needs resolve().
 			'svelte/no-navigation-without-resolve': 'off',
-
-			// Each-key performance debt (deferred)
 			'svelte/require-each-key': 'off',
-
-			// Cosmetic svelte nits (deferred)
 			'svelte/no-useless-mustaches': 'off',
-
-			// Intentional {@html} for coordinator-generated markdown
+			// {@html} renders coordinator-generated markdown through marked.
 			'svelte/no-at-html-tags': 'off',
-
-			// Type-tightening debt (deferred)
-			'@typescript-eslint/no-explicit-any': 'off',
-
-			// Scaffolded unused vars: WARN (not off) so the unused-variable signal stays
-			// visible rather than being a complete blind spot; pay down incrementally.
-			'@typescript-eslint/no-unused-vars': 'warn',
-
-			// SvelteDate migration (low priority)
 			'svelte/prefer-svelte-reactivity': 'off',
-
-			// == Additional debt surfaced by the flat-config + sonarjs migration ==
-			// OFF: stylistic or false-positive for this codebase
-			'svelte/no-useless-children-snippet': 'off', // Svelte 5 snippet style nit
-			// no-unused-expressions fires on Svelte reactive/template expression
-			// statements (a false positive for .svelte under the TS plugin); genuine
-			// floating promises are handled explicitly (e.g. .catch on init).
-			'@typescript-eslint/no-unused-expressions': 'off',
-			'sonarjs/no-nested-template-literals': 'off', // cosmetic
-			'sonarjs/no-unused-vars': 'off', // superseded by the @typescript-eslint variant below (kept as warn)
-			// internal cluster API routes call http:// services behind the tunnel
-			'sonarjs/no-clear-text-protocols': 'off',
-			'sonarjs/use-type-alias': 'off', // cosmetic
-			// WARN: real smells kept visible to pay down incrementally
-			'sonarjs/no-nested-conditional': 'warn',
-			// Svelte 5 {@render snippet()} renders a void snippet; sonarjs misreads it as
-		// "using the output of a function that returns nothing" (false positive, same
-		// class as no-unused-expressions above). {@render} is the correct idiom.
-		'sonarjs/no-use-of-empty-return-value': 'off',
-			'sonarjs/unused-import': 'warn',
-			'sonarjs/slow-regex': 'warn',
-			'sonarjs/no-nested-functions': 'warn',
-			'sonarjs/no-nested-assignment': 'warn',
-			'sonarjs/no-identical-functions': 'warn',
-			'sonarjs/no-dead-store': 'warn'
+			'svelte/no-useless-children-snippet': 'off',
+			'@typescript-eslint/no-explicit-any': 'off',
+			// Fires on Svelte reactive/template expression statements.
+			'@typescript-eslint/no-unused-expressions': 'off'
 		}
 	},
 
-	// Build artifact and generated file ignores
 	{
-		ignores: ['.svelte-kit/', 'build/', 'node_modules/']
+		name: 'dashboard/sonar-way-src',
+		files: ['src/**/*.ts', 'src/**/*.svelte'],
+		languageOptions: {
+			parserOptions: { projectService: true, tsconfigRootDir: import.meta.dirname }
+		},
+		plugins: { ...sonarjs.configs.recommended.plugins, unicorn },
+		rules: {
+			...sonarjs.configs.recommended.rules,
+			...Object.fromEntries(notInSonarWay.map((rule) => [`sonarjs/${rule}`, 'off'])),
+			'sonarjs/no-commented-code': 'error', // S125, in the profile but not in recommended
+			'@typescript-eslint/no-base-to-string': 'error', // S6551
+			'@typescript-eslint/prefer-readonly': 'error', // S2933
+			'@typescript-eslint/prefer-string-starts-ends-with': 'error', // S6557
+			'@typescript-eslint/no-unnecessary-type-assertion': 'error', // S4325
+			'@typescript-eslint/no-misused-promises': 'error', // S6544
+			'no-duplicate-imports': ['error', { allowSeparateTypeImports: true }], // S3863
+			'unicorn/prefer-single-call': 'error', // S7778
+			'unicorn/prefer-number-properties': 'error', // S7773
+			'unicorn/prefer-string-raw': 'error', // S7780
+			'unicorn/prefer-string-replace-all': 'error', // S7781
+			'unicorn/prefer-export-from': 'error', // S7763
+			'unicorn/prefer-array-find': 'error' // S7750
+		}
+	},
+
+	// Two sonarjs rules cannot read .svelte files correctly:
+	// - sonarjs/deprecation reads positions from the TS program the svelte parser
+	//   builds from generated code, and crashes. Deprecated API use in .svelte files
+	//   (e.g. `base` from $app/paths, still imported by the pages) is therefore not
+	//   linted; moving those pages to resolve() is tracked backlog.
+	// - sonarjs/no-use-of-empty-return-value reads {@render snippet()} as using the
+	//   result of a function that returns nothing; rendering a snippet is the Svelte 5
+	//   idiom and has no return value to use.
+	{
+		files: ['src/**/*.svelte'],
+		rules: {
+			'sonarjs/deprecation': 'off',
+			'sonarjs/no-use-of-empty-return-value': 'off'
+		}
 	}
 ];

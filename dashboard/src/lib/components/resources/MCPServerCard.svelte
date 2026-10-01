@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { readinessStatus } from '$lib/resource-status';
 	import { base } from '$app/paths';
 	import type { MCPServer } from '$types/kubemoot.js';
 	import ResourceCard from './ResourceCard.svelte';
@@ -10,13 +11,7 @@
 
 	let { server, showNamespace = false }: Props = $props();
 
-	const status = $derived(
-		server.status?.ready
-			? 'success'
-			: server.status?.phase === 'Error'
-				? 'error'
-				: 'pending'
-	);
+	const status = $derived(readinessStatus(server.status));
 
 	const statusLabel = $derived(server.status?.phase || 'Unknown');
 	const toolCount = $derived(server.status?.tools?.length || 0);

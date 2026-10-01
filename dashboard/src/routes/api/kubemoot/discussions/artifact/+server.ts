@@ -26,7 +26,7 @@ import { parseArtifactKey, type ArtifactKey } from '$lib/crewScope';
 /** Build a safe download filename from the validated key: `{agent}-{signal}.txt`. */
 function filenameFor(parsed: ArtifactKey): string {
 	const signal = parsed.name.split('-')[0] || 'data';
-	const safe = `${parsed.agent}-${signal}`.replace(/[^A-Za-z0-9._-]/g, '_');
+	const safe = `${parsed.agent}-${signal}`.replaceAll(/[^A-Za-z0-9._-]/g, '_');
 	return `${safe}.txt`;
 }
 

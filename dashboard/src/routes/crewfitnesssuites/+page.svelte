@@ -20,7 +20,7 @@
 		live.start($namespace);
 		const tick = setInterval(() => { now = Date.now(); }, 1000);
 		refreshJudge();
-		const judgeTick = setInterval(refreshJudge, 10_000);
+		const judgeTick = setInterval(() => void refreshJudge(), 10_000);
 		return () => { clearInterval(tick); clearInterval(judgeTick); live.stop(); };
 	});
 	$effect(() => {

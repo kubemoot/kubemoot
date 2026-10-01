@@ -1,8 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { base } from '$app/paths';
-	import { namespace } from '$lib/stores';
-	import { refreshTrigger } from '$lib/stores';
+	import { namespace, refreshTrigger } from '$lib/stores';
 	import { TopologyGraph } from '$lib/components/topology';
 	import { HelpTooltip } from '$lib/components/common';
 	import type { TopologyNode, TopologyEdge } from '$types/kubemoot.js';

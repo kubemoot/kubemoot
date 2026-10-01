@@ -8,6 +8,8 @@
 	import { discussSubject, tryCrewScope, type CrewScope } from '$lib/crewScope';
 	import { DiscussionSpanGraph } from '$lib/components/discussions';
 	import { SYNTHESIS_COLLAPSE_CHARS, artifactKey, artifactHref } from '$lib/discussion-artifacts';
+	import { aggregateAgents, type AgentAgg } from '$lib/discussion-agent-summary';
+	import { buildGpuDisplayMap } from '$lib/gpu-display';
 
 	// Configure marked for safe inline rendering
 	marked.setOptions({ breaks: true, gfm: true });
@@ -211,26 +213,6 @@
 		}
 	}
 
-	// Per-agent aggregation accumulated across a thread's messages for the
-	// clipboard "Agent Summary" table.
-	interface AgentAgg {
-		signal: string;
-		gpu: string;
-		provider: string;
-		pickReason: string;
-		startMs: number;
-		endMs: number;
-		inferenceMs: number;
-		tools: Set<string>;
-	}
-
-	// Signal priority for the per-agent summary: a later, higher-priority signal
-	// (synthesis > block > concern > agree > advisory > stand_aside) wins as the
-	// agent's representative signal. Module scope keeps the aggregation loop simple.
-	const SIGNAL_PRIORITY: Record<string, number> = {
-		synthesis: 10, block: 9, concern: 8, agree: 7, advisory: 6, stand_aside: 2
-	};
-
 	async function fetchDashboardVersion(): Promise<string> {
 		try {
 			const res = await fetch(`${base}/api/version`);
@@ -250,54 +232,6 @@
 		if (thread.crewVersion) text += `**Crew version**: ${thread.crewVersion}\n`;
 		text += `Channel: ${thread.channel} | Status: ${thread.status} | Started: ${thread.startedAt}\n\n`;
 		return text;
-	}
-
-	function newAgentAgg(msg: DiscussionMessage, ts: number): AgentAgg {
-		return {
-			signal: msg.messageType,
-			gpu: msg.metadata?.gpuLabel || '',
-			provider: msg.metadata?.provider || '',
-			// FitPredictor v2 reasoning ("warm, slot 1/2 | SR=0.92 …"). Surfaced as a
-			// title attribute on the GPU/provider column so it's a hover tooltip,
-			// not a column expansion that would push the table wider.
-			pickReason: msg.metadata?.pickReason || '',
-			startMs: ts, endMs: ts,
-			inferenceMs: msg.metadata?.inferenceMs || 0,
-			tools: new Set(msg.metadata?.toolsUsed || [])
-		};
-	}
-
-	function mergeAgentMessage(existing: AgentAgg, msg: DiscussionMessage, ts: number) {
-		existing.startMs = Math.min(existing.startMs, ts);
-		existing.endMs = Math.max(existing.endMs, ts);
-		const p = SIGNAL_PRIORITY[msg.messageType] ?? 0;
-		if (p > (SIGNAL_PRIORITY[existing.signal] ?? 0)) existing.signal = msg.messageType;
-		if (msg.metadata?.gpuLabel) existing.gpu = msg.metadata.gpuLabel;
-		if (msg.metadata?.provider) existing.provider = msg.metadata.provider;
-		if (msg.metadata?.pickReason) existing.pickReason = msg.metadata.pickReason;
-		if (msg.metadata?.inferenceMs && msg.metadata.inferenceMs > existing.inferenceMs) existing.inferenceMs = msg.metadata.inferenceMs;
-		if (msg.metadata?.toolsUsed) msg.metadata.toolsUsed.forEach(t => existing.tools.add(t));
-	}
-
-	// `provider` (e.g. "ollama-gpu", "ollama-rig1") is the JIT-selected
-	// ModelProvider name from the agent runtime's ProviderSelector. Carries
-	// the per-call truth: WHICH provider this agent actually used for THIS
-	// inference. Falls back to the legacy `gpuLabel` (which is the
-	// reconcile-time static label) when a message lacks the provider field
-	// — pre-Card-#2 messages and stand-aside paths without inference.
-	// See Card #4 of [[Epic - JIT GPU Scheduling]].
-	function aggregateAgents(thread: Thread, t0: number): Map<string, AgentAgg> {
-		const agentMap = new Map<string, AgentAgg>();
-		for (const msg of thread.messages) {
-			const ts = new Date(msg.timestamp).getTime() - t0;
-			const existing = agentMap.get(msg.agentName);
-			if (existing) {
-				mergeAgentMessage(existing, msg, ts);
-			} else {
-				agentMap.set(msg.agentName, newAgentAgg(msg, ts));
-			}
-		}
-		return agentMap;
 	}
 
 	function renderAgentSummary(agentMap: Map<string, AgentAgg>): string {
@@ -338,7 +272,7 @@
 		const version = await fetchDashboardVersion();
 		const threadStart = thread.messages.find(m => m.messageType === 'thread_start');
 		const t0 = threadStart ? new Date(threadStart.timestamp).getTime() : new Date(thread.messages[0].timestamp).getTime();
-		const agentMap = aggregateAgents(thread, t0);
+		const agentMap = aggregateAgents(thread.messages, t0);
 		return buildThreadHeader(thread, version) + renderAgentSummary(agentMap) + renderMessageTimeline(thread);
 	}
 
@@ -518,24 +452,7 @@
 			const res = await fetch(`${base}/api/kubemoot/modelproviders?namespace=`);
 			const data = await res.json();
 			const items = Array.isArray(data?.items) ? data.items : [];
-			const map: Record<string, string> = {};
-			for (const mp of items) {
-				const gpuModel: string | undefined = mp?.status?.capacity?.gpuModel;
-				if (!gpuModel) continue;
-				// Strip the vendor prefix for a compact label ("NVIDIA GeForce RTX 5090" -> "RTX 5090").
-				const display = gpuModel.replace(/^NVIDIA GeForce /, '').trim();
-				const name: string | undefined = mp?.metadata?.name;
-				if (name) map[name] = display;
-				const endpoint: string | undefined = mp?.spec?.endpoint;
-				if (endpoint) {
-					// Endpoint host "ollama.ollama-rig0" -> namespace component "ollama-rig0".
-					const host = endpoint.replace(/^[a-z]+:\/\//, '').split('/')[0].split(':')[0];
-					const parts = host.split('.');
-					const ns = parts.length >= 2 ? parts[1] : parts[0];
-					if (ns) map[ns] = display;
-				}
-			}
-			gpuDisplayMap = map;
+			gpuDisplayMap = buildGpuDisplayMap(items);
 		} catch (e) {
 			console.error('Failed to load GPU labels:', e);
 		}
@@ -566,18 +483,22 @@
 		setTimeout(() => { copiedThreadId = false; }, 2000);
 	}
 
+	const TEXT_ENTRY_TAGS = new Set(['INPUT', 'TEXTAREA', 'SELECT']);
+	const CONFIRM_DELETE_KEYS = new Set(['y', 'Y']);
+	const CANCEL_DELETE_KEYS = new Set(['n', 'N', 'Escape']);
+
+	// While the delete prompt is open: y confirms, n or Escape cancels.
+	function answerDeletePrompt(key: string) {
+		if (CONFIRM_DELETE_KEYS.has(key)) deleteThread();
+		else if (CANCEL_DELETE_KEYS.has(key)) deleteConfirm = false;
+	}
+
 	function handleGlobalKeydown(event: KeyboardEvent) {
 		// Ignore when typing in input fields
-		const tag = (event.target as HTMLElement)?.tagName;
-		if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+		if (TEXT_ENTRY_TAGS.has((event.target as HTMLElement)?.tagName)) return;
 
-		if (event.key === 'Delete' && selectedThread && !deleteConfirm) {
-			deleteConfirm = true;
-		} else if (deleteConfirm && (event.key === 'y' || event.key === 'Y')) {
-			deleteThread();
-		} else if (deleteConfirm && (event.key === 'n' || event.key === 'N' || event.key === 'Escape')) {
-			deleteConfirm = false;
-		}
+		if (deleteConfirm) answerDeletePrompt(event.key);
+		else if (event.key === 'Delete' && selectedThread) deleteConfirm = true;
 	}
 
 	// Auto-scroll to bottom when the selected thread gains messages.

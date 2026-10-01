@@ -1,4 +1,19 @@
-import { base } from '$app/paths';
+import { resolve } from '$app/paths';
+
+/** The CRD list endpoints under /api/kubemoot that a LiveList can read and watch. */
+export type LivePlural =
+	| 'agents'
+	| 'crewfitnesssuites'
+	| 'crews'
+	| 'embeddingmodels'
+	| 'mcpcatalogs'
+	| 'mcpgateways'
+	| 'mcpqualitypolicies'
+	| 'mcpservers'
+	| 'modelproviders'
+	| 'models'
+	| 'promptmodules'
+	| 'ragsources';
 
 interface K8sObj {
 	metadata: { name: string; namespace?: string; creationTimestamp?: string };
@@ -24,26 +39,27 @@ export class LiveList<T extends K8sObj> {
 	loading = $state(true);
 	error = $state<string | null>(null);
 
-	#plural: string;
+	readonly #plural: LivePlural;
 	#es: EventSource | null = null;
 	#ns = '';
 	#started = false;
 
-	constructor(plural: string) {
+	constructor(plural: LivePlural) {
 		this.#plural = plural;
 	}
 
 	#key(o: K8sObj): string {
 		return `${o.metadata.namespace ?? ''}/${o.metadata.name}`;
 	}
-	#cmp = (a: T, b: T) =>
+	readonly #cmp = (a: T, b: T) =>
 		(b.metadata.creationTimestamp ?? '').localeCompare(a.metadata.creationTimestamp ?? '') ||
 		a.metadata.name.localeCompare(b.metadata.name);
 
 	async #fetchInitial(silent: boolean) {
 		if (!silent) this.loading = true;
 		try {
-			const res = await fetch(`${base}/api/kubemoot/${this.#plural}?namespace=${this.#ns}`);
+			const listPath = resolve(`/api/kubemoot/${this.#plural}`);
+			const res = await fetch(`${listPath}?namespace=${this.#ns}`);
 			const data = await res.json();
 			this.items = ((data.items as T[]) || []).slice().sort(this.#cmp);
 			this.error = null;
@@ -56,7 +72,9 @@ export class LiveList<T extends K8sObj> {
 
 	#connect() {
 		this.#disconnect();
-		this.#es = new EventSource(`${base}/api/kubemoot/watch/${this.#plural}?namespace=${this.#ns}`);
+		this.#es = new EventSource(
+			`${resolve('/api/kubemoot/watch/[plural]', { plural: this.#plural })}?namespace=${this.#ns}`
+		);
 		this.#es.onmessage = (e) => {
 			let ev: { kind?: string; type?: string; object?: T };
 			try {

@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
 	import { base } from '$app/paths';
 	import { page } from '$app/stores';
 	import type { CrewFitness } from '$types/kubemoot.js';

@@ -1,6 +1,6 @@
 import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { env } from '$env/dynamic/private';
+import { operatorReportBase } from '$lib/server/operator-report';
 
 /**
  * GET /api/kubemoot/componentstatuses
@@ -14,13 +14,10 @@ import { env } from '$env/dynamic/private';
  *   502 when the operator report service is unreachable or errors (the Overview
  *       pane treats any non-200 as "component status unavailable")
  */
-const reportBase = () =>
-	env.OPERATOR_REPORT_URL || 'http://kubemoot-operator-report.kubemoot:8082';
-
 export const GET: RequestHandler = async () => {
 	let upstream: Response;
 	try {
-		upstream = await fetch(`${reportBase()}/componentstatuses`);
+		upstream = await fetch(`${operatorReportBase()}/componentstatuses`);
 	} catch (e) {
 		const msg = e instanceof Error ? e.message : 'fetch failed';
 		throw error(502, `component status service unreachable: ${msg}`);

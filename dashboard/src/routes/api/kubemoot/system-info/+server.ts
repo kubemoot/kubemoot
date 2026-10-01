@@ -1,6 +1,12 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import * as k8s from '@kubernetes/client-node';
+import {
+	oldestRunningStart,
+	operatorDeploymentInfo,
+	type OperatorDeploymentInfo,
+	type OperatorPodLike
+} from '$lib/server/operator-info';
 
 /**
  * GET /api/kubemoot/system-info
@@ -33,67 +39,51 @@ interface SystemInfo {
 const OPERATOR_NAMESPACE = 'kubemoot';
 const OPERATOR_DEPLOYMENT = 'kubemoot-operator';
 
-export const GET: RequestHandler = async () => {
+function kubeConfig(): k8s.KubeConfig {
 	const kc = new k8s.KubeConfig();
 	try {
 		kc.loadFromCluster();
 	} catch {
 		kc.loadFromDefault();
 	}
+	return kc;
+}
 
-	const apps = kc.makeApiClient(k8s.AppsV1Api);
-	const core = kc.makeApiClient(k8s.CoreV1Api);
-
-	let operatorVersion = 'unknown';
-	let operatorImage = 'unknown';
-	let podSelector = '';
+async function readDeploymentInfo(apps: k8s.AppsV1Api): Promise<OperatorDeploymentInfo> {
 	try {
 		const dep = await apps.readNamespacedDeployment({
 			name: OPERATOR_DEPLOYMENT,
 			namespace: OPERATOR_NAMESPACE
 		});
-		const labels = (dep as { metadata?: { labels?: Record<string, string> } }).metadata?.labels ?? {};
-		operatorVersion = labels['app.kubernetes.io/version'] || 'unknown';
-		operatorImage =
-			(dep as { spec?: { template?: { spec?: { containers?: { image?: string }[] } } } })
-				.spec?.template?.spec?.containers?.[0]?.image ?? 'unknown';
-		// Build label selector from the deployment's matchLabels so the pod
-		// list is exact regardless of which key the chart used (we've seen
-		// both control-plane=controller-manager and app=kubemoot-operator).
-		const match =
-			(dep as { spec?: { selector?: { matchLabels?: Record<string, string> } } }).spec?.selector
-				?.matchLabels ?? {};
-		podSelector = Object.entries(match)
-			.map(([k, v]) => `${k}=${v}`)
-			.join(',');
+		// The selector comes from the Deployment's matchLabels so the pod list is exact
+		// whichever key the chart used (control-plane=controller-manager or app=kubemoot-operator).
+		return operatorDeploymentInfo(dep);
 	} catch (err) {
 		console.error('Failed to read kubemoot-operator deployment:', err);
+		return { operatorVersion: 'unknown', operatorImage: 'unknown', podSelector: '' };
 	}
+}
 
-	let operatorStartedAt = '';
-	if (podSelector) {
-		try {
-			const podList = await core.listNamespacedPod({
-				namespace: OPERATOR_NAMESPACE,
-				labelSelector: podSelector
-			});
-			const items =
-				(podList as { items?: { status?: { phase?: string; startTime?: string | Date } }[] })
-					.items ?? [];
-			// Pick the OLDEST Running pod — the leader candidate. Ignore
-			// Pending/Terminating pods during a rollout so the displayed
-			// uptime always reflects the version currently serving traffic.
-			const startTimes = items
-				.filter((p) => p.status?.phase === 'Running' && p.status?.startTime)
-				.map((p) => new Date(p.status!.startTime as string | Date).getTime())
-				.filter((t) => !Number.isNaN(t));
-			if (startTimes.length > 0) {
-				operatorStartedAt = new Date(Math.min(...startTimes)).toISOString();
-			}
-		} catch (err) {
-			console.error('Failed to read kubemoot-operator pods:', err);
-		}
+async function readStartedAt(core: k8s.CoreV1Api, podSelector: string): Promise<string> {
+	if (!podSelector) return '';
+	try {
+		const podList = await core.listNamespacedPod({
+			namespace: OPERATOR_NAMESPACE,
+			labelSelector: podSelector
+		});
+		return oldestRunningStart((podList as { items?: OperatorPodLike[] }).items ?? []);
+	} catch (err) {
+		console.error('Failed to read kubemoot-operator pods:', err);
+		return '';
 	}
+}
+
+export const GET: RequestHandler = async () => {
+	const kc = kubeConfig();
+	const { operatorVersion, operatorImage, podSelector } = await readDeploymentInfo(
+		kc.makeApiClient(k8s.AppsV1Api)
+	);
+	const operatorStartedAt = await readStartedAt(kc.makeApiClient(k8s.CoreV1Api), podSelector);
 
 	const info: SystemInfo = { operatorVersion, operatorImage, operatorStartedAt };
 	return json(info);

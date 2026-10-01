@@ -1,6 +1,7 @@
 <script lang="ts">
 	import type { NodeWithGPU } from '$types/k8s.js';
 	import StatusBadge from '../common/StatusBadge.svelte';
+	import { splitCamelCase } from '$lib/text-utils';
 
 	interface Props {
 		node: NodeWithGPU;
@@ -8,26 +9,16 @@
 
 	let { node }: Props = $props();
 
-	function formatStatus(s: string): string {
-		return s.replace(/([a-z])([A-Z])/g, '$1 $2');
-	}
-
 	const isReady = $derived(
 		node.status?.conditions?.find(c => c.type === 'Ready')?.status === 'True'
 	);
 
 	const status = $derived(isReady ? 'success' : 'error');
-	const statusLabel = $derived(formatStatus(isReady ? 'Ready' : 'NotReady'));
+	const statusLabel = $derived(splitCamelCase(isReady ? 'Ready' : 'NotReady'));
 
 	const internalIP = $derived(
 		node.status?.addresses?.find(a => a.type === 'InternalIP')?.address
 	);
-
-	const roles = $derived(() => {
-		const labels = node.metadata?.labels || {};
-		const roleLabels = Object.keys(labels).filter(k => k.startsWith('node-role.kubernetes.io/'));
-		return roleLabels.map(k => k.replace('node-role.kubernetes.io/', ''));
-	});
 </script>
 
 <div class="card">

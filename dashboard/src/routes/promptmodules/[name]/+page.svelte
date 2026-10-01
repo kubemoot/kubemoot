@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { yesNo } from '$lib/resource-status';
 	import { onMount } from 'svelte';
 	import { page } from '$app/stores';
 	import { base } from '$app/paths';
@@ -92,7 +93,7 @@
 						<td><a class="mono link" href="{base}/agents/{a.metadata.name}?namespace={a.metadata.namespace}">{a.metadata.name}</a></td>
 						<td>{a.metadata.labels?.['kubemoot.ai/role'] ?? a.spec.type ?? '—'}</td>
 						<td class:cond-true={a.status?.ready === true} class:cond-false={a.status?.ready === false}>
-							{a.status?.ready === true ? 'Yes' : a.status?.ready === false ? 'No' : '—'}
+							{yesNo(a.status?.ready)}
 						</td>
 					</tr>
 				{/each}

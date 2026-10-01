@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { verdictStatus } from '$lib/resource-status';
 	import { base } from '$app/paths';
 	import type { MCPServerReport } from '$types/kubemoot.js';
 	import ResourceCard from './ResourceCard.svelte';
@@ -9,15 +10,7 @@
 
 	let { report }: Props = $props();
 
-	const status = $derived(
-		report.status?.verdict === 'use'
-			? 'success'
-			: report.status?.verdict === 'avoid'
-				? 'error'
-				: report.status?.verdict === 'caution'
-					? 'warning'
-					: 'pending'
-	);
+	const status = $derived(verdictStatus(report.status?.verdict));
 
 	const statusLabel = $derived(report.status?.verdict || 'untested');
 	const trialCount = $derived(report.status?.trials?.length || 0);
