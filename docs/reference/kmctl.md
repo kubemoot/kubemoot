@@ -111,8 +111,14 @@ kmctl create <name> [flags]
 ```
 
 Scaffold a working crew directory. The output is a set of Kubemoot manifests ready
-to review, customise, and apply with `kmctl apply -f`. Think of it like `helm create`:
-the scaffold is a starting point, not a finished product.
+to review, customise, and apply with `kmctl apply -f`. Think of it like `helm create`'s
+nginx chart: a small, complete example that works on a fresh install, to change into your
+own crew.
+
+The scaffolded crew is the **starter crew**: a read-only guide to the Kubernetes namespace
+it is installed into. Ask it what is running, what is wrong, and why; it reads the
+namespace with real tools and answers from what it found. It never changes anything. See
+[The starter crew](../../user-guides/starter-crew/) for what it contains and a walkthrough.
 
 On a TTY, `kmctl create` runs interactively: it asks for a member count, offers a
 checkbox selection of discovered ollama providers, and lets you choose a model family
@@ -122,10 +128,12 @@ it scriptable.
 Output is written to `<output>/<name>/` and includes:
 
 - A `Crew` manifest, a `CrewSchedulingPolicy`, and the `Model` resources the crew selects from
-- A coordinator `Agent` and N Tooler `Agent` resources
-- `PromptModule` resources in ADL for the coordinator and the Toolers
-- A starter `CrewFitnessSuite` with a health-check scenario
-- A `README.md` with next-step instructions
+- A coordinator `Agent` and N specialist `Agent` resources (see `--members`)
+- `PromptModule` resources in ADL for the coordinator and each specialist
+- One Kubernetes `MCPServer` in read-only mode and the `MCPGateway` the agents reach it through
+- A namespaced `Role` and `RoleBinding` that allow get, list, and watch (see **Access** below)
+- A starter `CrewFitnessSuite` of 3 to 7 scenarios, all of which pass on a fresh install
+- A `README.md` with a "first five minutes" guide
 
 With `--chart`, the same manifests are laid out as a Helm chart instead of loose YAML:
 
@@ -150,12 +158,39 @@ and the layout its Crew Sources view expects a chart source to have.
 
 | Flag | Short | Description |
 |---|---|---|
-| `--members N` | | Number of Tooler agents (default: prompted interactively) |
+| `--members N` | | Specialists beside the coordinator, 1 to 5 (default: prompted interactively). Size 1 is `workloads`; each larger size adds the next of `events`, `networking`, `config`, and `reviewer` |
 | `--providers a,b` | | Comma-separated list of ollama provider names to target |
 | `--model-family` | | Model family hint, e.g. `qwen` |
 | `--no-input` | | Disable interactive prompts; all required inputs must come from flags |
 | `--output DIR` | `-o` | Directory to write scaffold output (default: `.`) |
+| `--context` | | Kubeconfig context used to discover model providers (a global `kmctl` flag) |
 | `--chart` | | Lay the crew out as a Helm chart (`Chart.yaml`, `templates/`, `fitness/`) instead of loose manifests |
+
+**Sizes.** `--members` counts specialists, so the crew has that many plus the coordinator:
+
+| `--members` | Specialists | Fitness scenarios |
+|---|---|---|
+| 1 | `workloads` | 3 |
+| 2 | `workloads`, `events` | 4 |
+| 3 | `workloads`, `events`, `networking` | 5 |
+| 4 | `workloads`, `events`, `networking`, `config` | 6 |
+| 5 | the four above (Toolers) plus `reviewer` (Analyst) | 7 |
+
+Each Tooler reads one slice of the namespace: `workloads` (Pods, Deployments, ReplicaSets,
+StatefulSets, Jobs), `events` (Warning events, restarts, recent failures), `networking`
+(Services, endpoints, Ingresses or HTTPRoutes, NetworkPolicies), and `config` (ConfigMaps,
+ServiceAccounts, and the Secrets that pod specs reference). The `reviewer` checks the answer
+against the data the Toolers gathered and flags unsupported claims.
+
+**Access.** The tool server runs with `--read-only` and a namespaced `Role` that grants only
+`get`, `list`, and `watch`. The Role has no Secret access: Kubernetes cannot grant a Secret's
+name without its data, so the `config` specialist names Secrets from the references in pod
+specs. Set `access.clusterWide: true` in the chart's `values.yaml` to use a `ClusterRole` and
+let the crew read every namespace; it stays read-only and still has no Secret access.
+
+**Limits.** The prompts carry the namespace name, which Helm fills in at install, so a
+rendered bundle is tied to its namespace. The `reviewer` cannot see Tooler findings over 4 KB,
+which the Toolers post as artifact pointers.
 
 **Example (interactive):**
 
@@ -630,6 +665,7 @@ To run a single scenario in isolation, pass `--scenario`. This creates a single
 | Flag | Description |
 |---|---|
 | `--scenario` | Run only this named scenario as a single CrewFitness |
+| `-f`, `--filename` | Apply a CrewFitnessSuite manifest, then run it |
 | `--timeout` | How long to wait for completion (default: 30m) |
 
 **Example (full suite):**
