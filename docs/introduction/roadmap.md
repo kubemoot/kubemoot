@@ -198,6 +198,16 @@ files a skill carries, and a bundled script a skill may run in the sandbox, so a
 agent can reach for code as a tool rather than being limited to predefined read-only
 functions.
 
+## Evaluating Agent Sandbox for code execution
+
+**Today:** the compute agent runs the code it writes in Kubemoot's own `code-sandbox`
+MCP server, where the pod is the sandbox: no credentials, network limited by the crew's
+network policy.
+
+**Direction:** evaluate [Agent Sandbox](../related-projects/#agent-sandbox), now stable at
+v1.x, as the isolation layer for code execution in place of Kubemoot's own sandbox
+setup. This is a direction under evaluation, not a commitment.
+
 ## The liaison for every agent harness
 
 **Today:** any MCP client can use a crew as one agent through the crew liaison; the
