@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { chartVersion } from '$lib/crew-chart';
 	import { onMount } from 'svelte';
 	import { base } from '$app/paths';
 	import { namespace } from '$stores';
@@ -13,18 +14,6 @@
 	$effect(() => {
 		live.setNamespace($namespace);
 	});
-
-	function chartVersion(crew: Crew): string | null {
-		const labels = crew.metadata.labels ?? {};
-		// `helm.sh/chart` is shaped like `<chart>-<semver>` (e.g. `homelab-pilot-crew-0.91.0`).
-		// Extract the trailing semver-ish suffix; fall back to `app.kubernetes.io/version`.
-		const helmChart = labels['helm.sh/chart'];
-		if (helmChart) {
-			const m = helmChart.match(/-(\d[^-]*)$/);
-			if (m) return m[1];
-		}
-		return labels['app.kubernetes.io/version'] ?? null;
-	}
 </script>
 
 <div class="page-header">
@@ -45,7 +34,7 @@
 			{@const ready = status?.ready ?? false}
 			{@const phase = status?.phase ?? 'Unknown'}
 			{@const discussing = !!status?.discussionEndpoint}
-			{@const version = chartVersion(crew)}
+			{@const version = chartVersion(crew.metadata.labels)}
 			<a href="{base}/crews/{crew.metadata.name}?namespace={crew.metadata.namespace}" class="crew-card" class:ready class:discussing>
 				<div class="card-top">
 					<div class="crew-name">{crew.metadata.name}</div>

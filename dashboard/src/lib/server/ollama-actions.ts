@@ -15,6 +15,7 @@
 // helper appends the appropriate path per action.
 
 import { getModelProvider } from '$lib/server/k8s';
+import { trimTrailingSlashes } from '$lib/text-utils';
 
 export type OllamaAction = 'load' | 'unload' | 'delete';
 
@@ -40,7 +41,7 @@ export async function resolveOllamaEndpoint(
 	if (provider.spec.type !== 'ollama') return null;
 	const endpoint = provider.spec.endpoint;
 	if (!endpoint) return null;
-	return endpoint.replace(/\/+$/, '');
+	return trimTrailingSlashes(endpoint);
 }
 
 /**

@@ -375,17 +375,10 @@ export async function getPromptModule(namespace: string, name: string): Promise<
 	return getNamespacedCRD<PromptModule>('promptmodules', namespace, name);
 }
 
-// List all CRDs across all namespaces
+// List all CRDs across all namespaces: the cluster-scoped list call returns the
+// objects of every namespace.
 export async function listAllNamespacedCRD<T>(plural: string): Promise<KubemootList<T>> {
-	const api = getCustomObjectsApi();
-	const result = await withK8sRetry(() =>
-		api.listClusterCustomObject({
-			group: GROUP,
-			version: VERSION,
-			plural
-		})
-	);
-	return result as KubemootList<T>;
+	return listClusterCRD<T>(plural);
 }
 
 // Generic function to get any Kubemoot CRD by type

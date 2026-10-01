@@ -1,8 +1,9 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
 	import { base } from '$app/paths';
 	import { page } from '$app/stores';
 	import type { Crew, Agent } from '$types/kubemoot.js';
+	import { chartName, chartVersion } from '$lib/crew-chart';
+	import { NO_VALUE, yesNo } from '$lib/resource-status';
 
 	// The per-crew resume model (embedding-based subcommittee selection): the
 	// operator-managed RAGSource `crew-<crew>-resumes`. We surface its content
@@ -42,13 +43,17 @@
 			const data = await res.json();
 			if (data.error) throw new Error(data.error);
 			crew = data;
-			fetchAgents(crew?.metadata.namespace ?? ns, crew?.metadata.name ?? name);
-			fetchResumeModel(crew?.metadata.namespace ?? ns, crew?.metadata.name ?? name);
+			loadCrewChildren(crew?.metadata.namespace ?? ns, crew?.metadata.name ?? name);
 		} catch (e) {
 			error = e instanceof Error ? e.message : 'Failed to fetch crew';
 		} finally {
 			loading = false;
 		}
+	}
+
+	function loadCrewChildren(crewNs: string, crewName: string) {
+		fetchAgents(crewNs, crewName);
+		fetchResumeModel(crewNs, crewName);
 	}
 
 	async function fetchAgents(agentNs: string, crewName: string) {
@@ -89,27 +94,7 @@
 		return ts ? new Date(ts).toLocaleString() : '—';
 	}
 
-	function chartVersion(c: Crew | null): string | null {
-		const labels = c?.metadata.labels ?? {};
-		const helmChart = labels['helm.sh/chart'];
-		if (helmChart) {
-			const m = helmChart.match(/-(\d[^-]*)$/);
-			if (m) return m[1];
-		}
-		return labels['app.kubernetes.io/version'] ?? null;
-	}
-
-	function chartName(c: Crew | null): string | null {
-		const labels = c?.metadata.labels ?? {};
-		const helmChart = labels['helm.sh/chart'];
-		if (helmChart) {
-			// strip trailing `-<version>` to leave the chart name
-			return helmChart.replace(/-(\d[^-]*)$/, '');
-		}
-		return null;
-	}
-
-	function agentRole(a: Agent): string {
+	function agentRoleLabel(a: Agent): string {
 		return a.metadata.labels?.['kubemoot.ai/role'] ?? a.spec.type ?? '—';
 	}
 </script>
@@ -117,7 +102,7 @@
 <div class="detail-header">
 	<a href="{base}/crews" class="back-link">&larr; Crews</a>
 	{#if crew}
-		{@const version = chartVersion(crew)}
+		{@const version = chartVersion(crew.metadata.labels)}
 		<h1>{crew.metadata.name}</h1>
 		{#if version}
 			<span class="chart-badge" title="Helm chart version (reflects the applied chart, not the desired chart in the HelmRelease)">v{version}</span>
@@ -175,8 +160,8 @@
 		<div class="detail-section full">
 			<h2>Helm Chart</h2>
 			<table class="detail-table"><tbody>
-				<tr><th>Chart</th><td class="mono">{chartName(crew) ?? '—'}</td></tr>
-				<tr><th>Version</th><td class="mono">{chartVersion(crew) ?? '—'}</td></tr>
+				<tr><th>Chart</th><td class="mono">{chartName(crew.metadata.labels) ?? NO_VALUE}</td></tr>
+				<tr><th>Version</th><td class="mono">{chartVersion(crew.metadata.labels) ?? NO_VALUE}</td></tr>
 				<tr><th>Managed By</th><td class="mono">{crew.metadata.labels?.['app.kubernetes.io/managed-by'] ?? '—'}</td></tr>
 			</tbody></table>
 		</div>
@@ -208,11 +193,11 @@
 							<td>
 								<a class="mono" href="{base}/agents/{a.metadata.name}?namespace={a.metadata.namespace}">{a.metadata.name}</a>
 							</td>
-							<td>{agentRole(a)}</td>
+							<td>{agentRoleLabel(a)}</td>
 							<td>{a.spec.type ?? '—'}</td>
 							<td>{a.status?.phase ?? '—'}</td>
 							<td class:cond-true={a.status?.ready === true} class:cond-false={a.status?.ready === false}>
-								{a.status?.ready === true ? 'Yes' : a.status?.ready === false ? 'No' : '—'}
+								{yesNo(a.status?.ready)}
 							</td>
 							<td class="mono small">{a.status?.endpoint ?? '—'}</td>
 						</tr>

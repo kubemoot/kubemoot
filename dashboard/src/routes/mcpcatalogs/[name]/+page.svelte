@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { phaseStatus } from '$lib/resource-status';
 	import { onMount } from 'svelte';
 	import { page } from '$app/stores';
 	import { base } from '$app/paths';
@@ -39,13 +40,7 @@
 		fetchCatalog();
 	});
 
-	const status = $derived(
-		catalog?.status?.phase === 'Ready'
-			? 'success'
-			: catalog?.status?.phase === 'Error'
-				? 'error'
-				: 'pending'
-	);
+	const status = $derived(phaseStatus(catalog?.status?.phase));
 </script>
 
 <DetailPanel title={name} subtitle="MCPCatalog" {loading} {error}>

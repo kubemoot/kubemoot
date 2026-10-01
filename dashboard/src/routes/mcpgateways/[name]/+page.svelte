@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { readinessStatus } from '$lib/resource-status';
 	import { onMount } from 'svelte';
 	import { page } from '$app/stores';
 	import { base } from '$app/paths';
@@ -39,13 +40,7 @@
 		fetchGateway();
 	});
 
-	const status = $derived(
-		gateway?.status?.ready
-			? 'success'
-			: gateway?.status?.phase === 'Error'
-				? 'error'
-				: 'pending'
-	);
+	const status = $derived(readinessStatus(gateway?.status));
 </script>
 
 <DetailPanel title={name} subtitle="MCPGateway" {loading} {error}>

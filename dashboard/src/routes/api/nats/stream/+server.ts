@@ -36,9 +36,8 @@ export const GET: RequestHandler = async ({ url }) => {
 				try {
 					await jsm.streams.info(streamName);
 				} catch {
-					controller.enqueue(
-						`data: ${JSON.stringify({ type: 'error', error: `Stream ${streamName} not found` })}\n\n`
-					);
+					const notFound = { type: 'error', error: `Stream ${streamName} not found` };
+					controller.enqueue(`data: ${JSON.stringify(notFound)}\n\n`);
 					controller.close();
 					return;
 				}
@@ -126,7 +125,7 @@ export const GET: RequestHandler = async ({ url }) => {
 			}
 		},
 		cancel(controller) {
-			const cleanup = (controller as any)?._streamCleanup;
+			const cleanup = controller?._streamCleanup;
 			if (typeof cleanup === 'function') cleanup();
 		}
 	});

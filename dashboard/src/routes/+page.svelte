@@ -4,20 +4,8 @@
 	import { base } from '$app/paths';
 	import { namespace, refreshTrigger } from '$stores';
 	import { StatusBadge } from '$components/common';
-	import type {
-		ModelProvider,
-		Model,
-		EmbeddingModel,
-		MCPServer,
-		MCPGateway,
-		RAGSource,
-		Agent
-	} from '$types/kubemoot.js';
-
-	interface CountEntry {
-		total: number;
-		ready: number;
-	}
+	import { nodeCounts, readyCount, type CountEntry } from '$lib/overview-counts';
+	import { readyCountStatus } from '$lib/resource-status';
 
 	type ResourceCounts = Record<string, CountEntry>;
 
@@ -33,7 +21,6 @@
 		agents: { total: 0, ready: 0 }
 	});
 
-	let loading = $state(true);
 	let error = $state<string | null>(null);
 
 	// Control-plane component health, served by the operator's /componentstatuses
@@ -59,70 +46,33 @@
 		}
 	}
 
+	// The CRD lists counted on the Overview, in card order after nodes and GPUs.
+	const CRD_PLURALS = [
+		'modelproviders',
+		'models',
+		'embeddingmodels',
+		'mcpservers',
+		'mcpgateways',
+		'ragsources',
+		'agents'
+	] as const;
+
+	const getJson = (path: string) => fetch(`${base}${path}`).then((r) => r.json());
+
 	async function fetchCounts() {
-		loading = true;
 		error = null;
 
 		try {
-			const [nodes, providers, models, embeddings, mcpServers, mcpGateways, ragSources, agents] =
-				await Promise.all([
-					fetch(`${base}/api/nodes`).then((r) => r.json()),
-					fetch(`${base}/api/kubemoot/modelproviders?namespace=${$namespace}`).then((r) => r.json()),
-					fetch(`${base}/api/kubemoot/models?namespace=${$namespace}`).then((r) => r.json()),
-					fetch(`${base}/api/kubemoot/embeddingmodels?namespace=${$namespace}`).then((r) => r.json()),
-					fetch(`${base}/api/kubemoot/mcpservers?namespace=${$namespace}`).then((r) => r.json()),
-					fetch(`${base}/api/kubemoot/mcpgateways?namespace=${$namespace}`).then((r) => r.json()),
-					fetch(`${base}/api/kubemoot/ragsources?namespace=${$namespace}`).then((r) => r.json()),
-					fetch(`${base}/api/kubemoot/agents?namespace=${$namespace}`).then((r) => r.json())
-				]);
-
-			const nodeList = nodes.nodes || [];
-			const gpuNodes = nodeList.filter((n: { gpu?: { present: boolean } }) => n.gpu?.present);
-
+			const [nodes, ...lists] = await Promise.all([
+				getJson('/api/nodes'),
+				...CRD_PLURALS.map((plural) => getJson(`/api/kubemoot/${plural}?namespace=${$namespace}`))
+			]);
 			counts = {
-				nodes: {
-					total: nodeList.length,
-					ready: nodeList.filter((n: { status?: { conditions?: Array<{ type: string; status: string }> } }) =>
-						n.status?.conditions?.some((c: { type: string; status: string }) => c.type === 'Ready' && c.status === 'True')
-					).length
-				},
-				gpus: {
-					total: gpuNodes.length,
-					ready: gpuNodes.length
-				},
-				modelproviders: {
-					total: providers.items?.length || 0,
-					ready: providers.items?.filter((p: ModelProvider) => p.status?.ready).length || 0
-				},
-				models: {
-					total: models.items?.length || 0,
-					ready: models.items?.filter((m: Model) => m.status?.ready).length || 0
-				},
-				embeddingmodels: {
-					total: embeddings.items?.length || 0,
-					ready: embeddings.items?.filter((e: EmbeddingModel) => e.status?.ready).length || 0
-				},
-				mcpservers: {
-					total: mcpServers.items?.length || 0,
-					ready: mcpServers.items?.filter((s: MCPServer) => s.status?.ready).length || 0
-				},
-				mcpgateways: {
-					total: mcpGateways.items?.length || 0,
-					ready: mcpGateways.items?.filter((g: MCPGateway) => g.status?.ready).length || 0
-				},
-				ragsources: {
-					total: ragSources.items?.length || 0,
-					ready: ragSources.items?.filter((r: RAGSource) => r.status?.ready).length || 0
-				},
-				agents: {
-					total: agents.items?.length || 0,
-					ready: agents.items?.filter((a: Agent) => a.status?.ready).length || 0
-				}
+				...nodeCounts(nodes.nodes || []),
+				...Object.fromEntries(CRD_PLURALS.map((plural, i) => [plural, readyCount(lists[i].items)]))
 			};
 		} catch (e) {
 			error = e instanceof Error ? e.message : 'Failed to fetch resources';
-		} finally {
-			loading = false;
 		}
 	}
 
@@ -197,7 +147,7 @@
 				<div class="card-header">
 					<span class="card-label">{resource.label}</span>
 					<StatusBadge
-						status={c.total === 0 ? 'unknown' : c.ready === c.total ? 'success' : c.ready > 0 ? 'warning' : 'error'}
+						status={readyCountStatus(c.ready, c.total)}
 						label={`${c.ready}/${c.total}`}
 						size="sm"
 					/>

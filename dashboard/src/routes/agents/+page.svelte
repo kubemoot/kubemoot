@@ -7,14 +7,13 @@
 	import type { Agent, AgentHeartbeat } from '$types/kubemoot.js';
 	import { LiveList } from '$lib/client/liveList.svelte';
 	import { agentStateFor } from '$lib/crewScope';
+	import { agentRole, type AgentRole } from '$lib/agent-role';
 
 	// Agent list is push-based (watch→SSE). Heartbeats are decorative NATS-KV
 	// liveness and stay on the (15s) global poll. The bucket is global; its keys are
 	// `<namespace>.<agent>`, so each card looks up its own namespace and name.
 	const live = new LiveList<Agent>('agents');
 	let heartbeats = $state<Record<string, AgentHeartbeat>>({});
-
-	type AgentRole = 'coordinator' | 'tooler' | 'analyst' | 'researcher' | 'specialist' | 'system';
 
 	interface RoleSection {
 		role: AgentRole;
@@ -23,29 +22,7 @@
 		agents: Agent[];
 	}
 
-	function getRole(agent: Agent): AgentRole {
-		const labels = agent.metadata.labels || {};
-		const annotations = agent.metadata.annotations || {};
-
-		// Group by the agent's real role from kubemoot.ai/role (crews set
-		// tooler/analyst/researcher/coordinator); "specialist" is legacy-only.
-		const role = labels['kubemoot.ai/role'];
-		if (role === 'coordinator') return 'coordinator';
-		if (role === 'tooler') return 'tooler';
-		if (role === 'analyst') return 'analyst';
-		if (role === 'researcher') return 'researcher';
-		if (role === 'specialist') return 'specialist';
-		if (
-			annotations['kubemoot.ai/onboarding-mode'] === 'true' ||
-			annotations['kubemoot.ai/rtfm-mode'] === 'true'
-		)
-			return 'system';
-		if (annotations['kubemoot.ai/discuss-role'] === 'observer') return 'system';
-		if (!role) return 'system';
-		return 'tooler';
-	}
-
-	const sections = $derived.by(() => {
+	const sections = $derived.by((): RoleSection[] => {
 		const roleOrder: Array<{ role: AgentRole; label: string; color: string }> = [
 			{ role: 'coordinator', label: 'Coordinator', color: 'var(--color-primary)' },
 			{ role: 'tooler', label: 'Toolers', color: 'var(--color-success)' },
@@ -57,14 +34,14 @@
 
 		const grouped = new Map<AgentRole, Agent[]>();
 		for (const agent of live.items) {
-			const role = getRole(agent);
+			const role = agentRole(agent);
 			if (!grouped.has(role)) grouped.set(role, []);
 			grouped.get(role)!.push(agent);
 		}
 
 		return roleOrder
 			.map((r) => ({ ...r, agents: grouped.get(r.role) || [] }))
-			.filter((s) => s.agents.length > 0) as RoleSection[];
+			.filter((s) => s.agents.length > 0);
 	});
 
 	async function fetchHeartbeats() {

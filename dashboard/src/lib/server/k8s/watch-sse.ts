@@ -1,6 +1,7 @@
 import * as k8s from '@kubernetes/client-node';
 import { getKubeConfig } from './client.js';
 import { KUBEMOOT_CRDS } from './kubemoot-crds.js';
+import { describeError } from '$lib/text-utils';
 
 const GROUP = 'kubemoot.ai';
 const VERSION = 'v1alpha1';
@@ -74,11 +75,11 @@ export function crdWatchResponse(plurals: CrdPlural[], namespace: string): Respo
 						{},
 						(type: string, obj: unknown) => send({ kind, type, object: obj }),
 						(err: unknown) => {
-							if (err) send({ kind, type: 'ERROR', error: String(err) });
+							if (err) send({ kind, type: 'ERROR', error: describeError(err) });
 							if (!closed) setTimeout(() => void startWatch(plural), 1000);
 						}
 					);
-					aborters.push(ac as AbortController);
+					aborters.push(ac);
 				} catch (e) {
 					send({ kind, type: 'ERROR', error: e instanceof Error ? e.message : String(e) });
 					if (!closed) setTimeout(() => void startWatch(plural), 2000);

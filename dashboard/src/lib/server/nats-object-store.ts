@@ -6,6 +6,7 @@
 // the existing nats-client.ts singleton.
 
 import { getNatsConnection } from './nats-client.js';
+import { compareCodeUnits } from '$lib/text-utils';
 
 // FITNESS_ARTIFACTS_BUCKET must match the operator's constant
 // (FitnessArtifactsBucket in kubemoot/operator/internal/controller/
@@ -46,7 +47,7 @@ export async function listFitnessObjects(prefix: string): Promise<string[]> {
 	return entries
 		.filter((e) => !e.deleted && e.name.startsWith(prefix))
 		.map((e) => e.name)
-		.sort();
+		.sort(compareCodeUnits);
 }
 
 /**

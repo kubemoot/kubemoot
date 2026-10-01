@@ -18,7 +18,8 @@ export default defineConfig({
 			$lib: r('./src/lib'),
 			$types: r('./src/lib/types'),
 			'$app/environment': r('./vitest-mocks/app-environment.ts'),
-			'$app/paths': r('./vitest-mocks/app-paths.ts')
+			'$app/paths': r('./vitest-mocks/app-paths.ts'),
+			'$env/dynamic/private': r('./vitest-mocks/env-dynamic-private.ts')
 		}
 	},
 	test: {

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { reportComparator } from '$lib/mcp-report-sort';
 	import { onMount } from 'svelte';
 	import { base } from '$app/paths';
 	import { refreshTrigger } from '$stores';
@@ -98,19 +99,7 @@
 	const filteredReports = $derived(
 		reports
 			.filter(r => filterVerdict === 'all' || r.status?.verdict === filterVerdict)
-			.sort((a, b) => {
-				if (sortBy === 'lastTested') {
-					const aTime = a.status?.lastTested || '';
-					const bTime = b.status?.lastTested || '';
-					return bTime.localeCompare(aTime);
-				}
-				if (sortBy === 'successRate') {
-					const aRate = parseFloat(a.status?.successRate || '0');
-					const bRate = parseFloat(b.status?.successRate || '0');
-					return bRate - aRate;
-				}
-				return (a.spec?.serverName || '').localeCompare(b.spec?.serverName || '');
-			})
+			.sort(reportComparator(sortBy))
 	);
 </script>
 

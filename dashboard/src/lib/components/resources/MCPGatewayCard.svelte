@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { readinessStatus } from '$lib/resource-status';
 	import { base } from '$app/paths';
 	import type { MCPGateway } from '$types/kubemoot.js';
 	import ResourceCard from './ResourceCard.svelte';
@@ -10,13 +11,7 @@
 
 	let { gateway, showNamespace = false }: Props = $props();
 
-	const status = $derived(
-		gateway.status?.ready
-			? 'success'
-			: gateway.status?.phase === 'Error'
-				? 'error'
-				: 'pending'
-	);
+	const status = $derived(readinessStatus(gateway.status));
 
 	const statusLabel = $derived(gateway.status?.phase || 'Unknown');
 	const serverCount = $derived(gateway.status?.registeredServers?.length || 0);

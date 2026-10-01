@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { readinessStatus } from '$lib/resource-status';
 	import { base } from '$app/paths';
 	import type { RAGSource } from '$types/kubemoot.js';
 	import ResourceCard from './ResourceCard.svelte';
@@ -10,13 +11,7 @@
 
 	let { source, showNamespace = false }: Props = $props();
 
-	const status = $derived(
-		source.status?.ready
-			? 'success'
-			: source.status?.phase === 'Error'
-				? 'error'
-				: 'pending'
-	);
+	const status = $derived(readinessStatus(source.status));
 
 	const statusLabel = $derived(source.status?.phase || 'Unknown');
 </script>

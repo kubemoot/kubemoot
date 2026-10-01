@@ -2,11 +2,14 @@ import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { getCrewFitnessSuite } from '$lib/server/k8s';
 import { listFitnessObjects, readFitnessTranscript } from '$lib/server/nats-object-store';
-
-interface TranscriptSummary {
-	assertions?: { passed: boolean }[];
-	durationMs?: number;
-}
+import {
+	isIterationKey,
+	parseIterationKey,
+	scenarioLabel,
+	summarizeTranscript,
+	type IterationResult,
+	type TranscriptSummary
+} from '$lib/server/fitness-iterations';
 
 /**
  * Bounded-concurrency map — reads transcripts in parallel without firing N
@@ -48,40 +51,18 @@ export const GET: RequestHandler = async ({ params }) => {
 		// Skip non-transcript sidecars (judge-v1.json, consistency-v1.json, *.xlsx);
 		// only s{idx}-i{iter}.json blobs are per-iteration transcripts. Without this,
 		// the cache objects parse to scriptIdx -1 and render a phantom "script -1" group.
-		const keys = allKeys.filter((k) => /^s\d+-i\d+\.json$/.test(k.slice(prefix.length)));
+		const keys = allKeys.filter((k) => isIterationKey(k.slice(prefix.length)));
 
 		const iterations = await mapLimit(keys, 16, async (key) => {
-			const tail = key.slice(prefix.length);
-			const m = tail.match(/^s(\d+)-i(\d+)\.json$/);
-			const scriptIdx = m ? parseInt(m[1], 10) : -1;
-			const iter = m ? parseInt(m[2], 10) : -1;
-			const scenario =
-				scriptIdx >= 0 && scripts[scriptIdx]?.testRef
-					? scripts[scriptIdx].testRef
-					: `script ${scriptIdx}`;
-
-			let assertionsPassed = 0;
-			let assertionsTotal = 0;
-			let durationMs = 0;
-			let status = 'Unknown';
+			const { scriptIdx, iter } = parseIterationKey(key.slice(prefix.length));
+			const scenario = scenarioLabel(scripts, scriptIdx);
+			let result: IterationResult = summarizeTranscript(null);
 			try {
-				const t = (await readFitnessTranscript(key)) as TranscriptSummary | null;
-				if (t) {
-					const a = t.assertions ?? [];
-					assertionsTotal = a.length;
-					assertionsPassed = a.filter((x) => x.passed).length;
-					durationMs = t.durationMs ?? 0;
-					status =
-						assertionsTotal > 0
-							? assertionsPassed === assertionsTotal
-								? 'Passed'
-								: 'Failed'
-							: 'Unknown';
-				}
+				result = summarizeTranscript((await readFitnessTranscript(key)) as TranscriptSummary | null);
 			} catch {
-				/* leave defaults — row still renders, conversation lazy-loads */
+				/* leave defaults - row still renders, conversation lazy-loads */
 			}
-			return { key, scriptIdx, iter, scenario, status, assertionsPassed, assertionsTotal, durationMs };
+			return { key, scriptIdx, iter, scenario, ...result };
 		});
 
 		iterations.sort((a, b) => a.scriptIdx - b.scriptIdx || a.iter - b.iter);

@@ -1,6 +1,6 @@
 import { error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { env } from '$env/dynamic/private';
+import { operatorReportBase } from '$lib/server/operator-report';
 
 /**
  * GET /api/kubemoot/crewfitnesssuites/{namespace}/{name}/artifact
@@ -14,16 +14,13 @@ import { env } from '$env/dynamic/private';
  *   404 when the suite/transcripts aren't found
  *   502 when the operator report service is unreachable or errors
  */
-const reportBase = () =>
-	env.OPERATOR_REPORT_URL || 'http://kubemoot-operator-report.kubemoot:8082';
-
 export const GET: RequestHandler = async ({ params }) => {
 	const { namespace, name } = params;
 	if (!namespace || !name) {
 		throw error(400, 'namespace and name are required');
 	}
 
-	const url = `${reportBase()}/report/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`;
+	const url = `${operatorReportBase()}/report/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`;
 	let upstream: Response;
 	try {
 		upstream = await fetch(url);

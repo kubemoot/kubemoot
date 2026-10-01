@@ -1,53 +1,7 @@
 import { getCoreApi } from './client.js';
-import type { K8sNode, NodeWithGPU, GPUInfo } from '$types/k8s.js';
-
-const GPU_RESOURCE_KEYS = [
-	'nvidia.com/gpu',
-	'amd.com/gpu',
-	'intel.com/gpu'
-];
-
-function extractGPUInfo(node: K8sNode): GPUInfo {
-	const capacity = node.status?.capacity || {};
-	const allocatable = node.status?.allocatable || {};
-	const labels = node.metadata?.labels || {};
-
-	// Check for GPU resources
-	for (const key of GPU_RESOURCE_KEYS) {
-		const capacityCount = capacity[key];
-		const allocatableCount = allocatable[key];
-
-		if (capacityCount && parseInt(capacityCount) > 0) {
-			// Try to determine GPU type from labels
-			let gpuType: string | undefined;
-
-			// NVIDIA GPU labels
-			if (labels['nvidia.com/gpu.product']) {
-				gpuType = labels['nvidia.com/gpu.product'];
-			} else if (labels['nvidia.com/gpu.family']) {
-				gpuType = labels['nvidia.com/gpu.family'];
-			}
-
-			// GPU memory from labels (NVIDIA)
-			let gpuMemory: string | undefined;
-			if (labels['nvidia.com/gpu.memory']) {
-				const memMB = parseInt(labels['nvidia.com/gpu.memory']);
-				gpuMemory = `${Math.round(memMB / 1024)}GB`;
-			}
-
-			return {
-				present: true,
-				type: gpuType,
-				count: parseInt(capacityCount),
-				memory: gpuMemory,
-				capacity: capacityCount,
-				allocatable: allocatableCount
-			};
-		}
-	}
-
-	return { present: false };
-}
+import type { K8sNode, NodeWithGPU } from '$types/k8s.js';
+import { compareCodeUnits } from '$lib/text-utils';
+import { extractGPUInfo } from './gpu-info.js';
 
 export async function listNodes(): Promise<NodeWithGPU[]> {
 	const api = getCoreApi();
@@ -76,7 +30,7 @@ export async function listNamespaces(): Promise<string[]> {
 	return nsList.items
 		.map((ns: { metadata?: { name?: string } }) => ns.metadata?.name)
 		.filter((name: string | undefined): name is string => !!name)
-		.sort();
+		.sort(compareCodeUnits);
 }
 
 /** A crew and the namespace it's deployed to. */

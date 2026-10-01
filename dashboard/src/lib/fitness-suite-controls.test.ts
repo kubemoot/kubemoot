@@ -78,6 +78,6 @@ describe('suiteIsJudged', () => {
 		expect(suiteIsJudged('Cancelled')).toBe(false);
 		expect(suiteIsJudged('Paused')).toBe(false);
 		expect(suiteIsJudged('Running')).toBe(false);
-		expect(suiteIsJudged(undefined)).toBe(false);
+		expect(suiteIsJudged()).toBe(false);
 	});
 });

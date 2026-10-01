@@ -69,7 +69,7 @@ export const GET: RequestHandler = async ({ url }) => {
 			await fetchAndSend();
 
 			// Set up polling
-			const intervalId = setInterval(fetchAndSend, POLL_INTERVAL);
+			const intervalId = setInterval(() => void fetchAndSend(), POLL_INTERVAL);
 
 			// Send heartbeat to keep connection alive
 			const heartbeatId = setInterval(() => {

@@ -1,6 +1,8 @@
 <script lang="ts">
 	import { base } from '$app/paths';
 	import type { Agent, AgentHeartbeat } from '$types/kubemoot.js';
+	import { agentRole, type AgentRole } from '$lib/agent-role';
+	import { readinessStatus } from '$lib/resource-status';
 
 	interface Props {
 		agent: Agent;
@@ -9,31 +11,6 @@
 	}
 
 	let { agent, showNamespace = false, heartbeat }: Props = $props();
-
-	type AgentRole = 'coordinator' | 'tooler' | 'analyst' | 'researcher' | 'specialist' | 'system';
-
-	function getRole(a: Agent): AgentRole {
-		const labels = a.metadata.labels || {};
-		const annotations = a.metadata.annotations || {};
-
-		// Show the agent's real role from kubemoot.ai/role (the crews set
-		// tooler/analyst/researcher/coordinator); "specialist" is kept only for
-		// legacy crews that still emit it.
-		const role = labels['kubemoot.ai/role'];
-		if (role === 'coordinator') return 'coordinator';
-		if (role === 'tooler') return 'tooler';
-		if (role === 'analyst') return 'analyst';
-		if (role === 'researcher') return 'researcher';
-		if (role === 'specialist') return 'specialist';
-		if (
-			annotations['kubemoot.ai/onboarding-mode'] === 'true' ||
-			annotations['kubemoot.ai/rtfm-mode'] === 'true'
-		)
-			return 'system';
-		if (annotations['kubemoot.ai/discuss-role'] === 'observer') return 'system';
-		if (!role) return 'system';
-		return 'tooler';
-	}
 
 	const roleColors: Record<AgentRole, string> = {
 		coordinator: 'var(--color-primary)',
@@ -53,15 +30,9 @@
 		system: 'System'
 	};
 
-	const role = $derived(getRole(agent));
+	const role = $derived(agentRole(agent));
 
-	function statusOf(a: Agent): 'success' | 'error' | 'pending' {
-		if (a.status?.ready) return 'success';
-		if (a.status?.phase === 'Error') return 'error';
-		return 'pending';
-	}
-
-	const status = $derived(statusOf(agent));
+	const status = $derived(readinessStatus(agent.status));
 
 	const description = $derived(agent.spec.description || '');
 	const modelCount = $derived(agent.spec.models?.length || 0);
@@ -86,9 +57,11 @@
 	const livenessTooltip = $derived.by(() => {
 		if (!heartbeat) return 'No heartbeat data';
 		const age = Math.round((Date.now() - new Date(heartbeat.timestamp).getTime()) / 1000);
-		const parts = [`Heartbeat: ${age}s ago`];
-		parts.push(`Ollama: ${heartbeat.ollama ? 'reachable' : 'unreachable'}`);
-		parts.push(`NATS: ${heartbeat.nats ? 'connected' : 'disconnected'}`);
+		const parts = [
+			`Heartbeat: ${age}s ago`,
+			`Ollama: ${heartbeat.ollama ? 'reachable' : 'unreachable'}`,
+			`NATS: ${heartbeat.nats ? 'connected' : 'disconnected'}`
+		];
 		if (heartbeat.lastInference) {
 			const infAge = Math.round((Date.now() - new Date(heartbeat.lastInference).getTime()) / 1000);
 			parts.push(`Last inference: ${infAge}s ago`);

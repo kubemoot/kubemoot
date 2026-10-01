@@ -97,15 +97,17 @@
 	// Copy the component versions + uptime as a plain block for pasting into a
 	// support request, so the user doesn't have to transcribe them by hand.
 	let copied = $state(false);
+	const parenthetical = (text: string | undefined) => (text ? ` (${text})` : '');
+
 	async function copyInfo() {
-		const lines = [
-			'Kubemoot components',
-			`Dashboard: v${dashboardVersion}`,
-			info ? `Operator:  v${info.operatorVersion}${info.operatorImage ? ` (${info.operatorImage})` : ''}` : 'Operator:  unknown',
-			uptimeLabel
-				? `Uptime:    ${uptimeLabel}${startedAtAbsolute ? ` (started ${startedAtAbsolute})` : ''}`
-				: 'Uptime:    unknown'
-		];
+		const operatorLine = info
+			? `Operator:  v${info.operatorVersion}${parenthetical(info.operatorImage)}`
+			: 'Operator:  unknown';
+		const startedNote = startedAtAbsolute ? 'started ' + startedAtAbsolute : undefined;
+		const uptimeLine = uptimeLabel
+			? `Uptime:    ${uptimeLabel}${parenthetical(startedNote)}`
+			: 'Uptime:    unknown';
+		const lines = ['Kubemoot components', `Dashboard: v${dashboardVersion}`, operatorLine, uptimeLine];
 		await navigator.clipboard.writeText(lines.join('\n'));
 		copied = true;
 		setTimeout(() => { copied = false; }, 2000);

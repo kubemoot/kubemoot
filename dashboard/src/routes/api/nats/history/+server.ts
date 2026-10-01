@@ -1,8 +1,21 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { getNatsConnection, sc } from '$lib/server/nats-client';
-import { AckPolicy, DeliverPolicy } from 'nats';
+import { AckPolicy, DeliverPolicy, type JsMsg } from 'nats';
 import { DISCUSS_ALL } from '$lib/crewScope';
+
+/** The fetched messages decoded to text; a message that does not decode is skipped. */
+async function decodeMessages(iter: AsyncIterable<JsMsg>) {
+	const messages: Array<{ subject: string; data: string; seq: number }> = [];
+	for await (const msg of iter) {
+		try {
+			messages.push({ subject: msg.subject, data: sc.decode(msg.data), seq: msg.seq });
+		} catch {
+			// skip malformed messages
+		}
+	}
+	return messages;
+}
 
 /**
  * REST endpoint that fetches historical messages from a NATS JetStream stream.
@@ -50,19 +63,7 @@ export const GET: RequestHandler = async ({ url }) => {
 		const consumer = await js.consumers.get(stream, ci.name);
 		const iter = await consumer.fetch({ max_messages: limit, expires: 5000 });
 
-		const messages: Array<{ subject: string; data: string; seq: number }> = [];
-		for await (const msg of iter) {
-			try {
-				const data = sc.decode(msg.data);
-				messages.push({
-					subject: msg.subject,
-					data,
-					seq: msg.seq
-				});
-			} catch {
-				// skip malformed messages
-			}
-		}
+		const messages = await decodeMessages(iter);
 
 		// Cleanup ephemeral consumer
 		try {

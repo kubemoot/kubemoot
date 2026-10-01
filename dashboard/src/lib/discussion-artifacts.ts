@@ -5,7 +5,7 @@
 // between the two views (the divergent-duplication smell this module exists to
 // prevent).
 
-import { base } from '$app/paths';
+import { resolve } from '$app/paths';
 
 // A synthesis longer than this (chars) gets the collapse/expand affordance.
 export const SYNTHESIS_COLLAPSE_CHARS = 600;
@@ -25,5 +25,5 @@ export function artifactKey(text: string | undefined | null): string | null {
 
 /** Read-only download endpoint for a spilled artifact (base-path aware). */
 export function artifactHref(key: string): string {
-	return `${base}/api/kubemoot/discussions/artifact?key=${encodeURIComponent(key)}`;
+	return `${resolve('/api/kubemoot/discussions/artifact')}?key=${encodeURIComponent(key)}`;
 }

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { readinessStatus } from '$lib/resource-status';
 	import { onMount } from 'svelte';
 	import { page } from '$app/stores';
 	import { base } from '$app/paths';
@@ -7,6 +8,14 @@
 	import { Section, InfoRow, StatusBadge } from '$components/common';
 	import type { Agent, AgentHeartbeat, MCPServer, MCPTool } from '$types/kubemoot.js';
 	import { agentStateFor } from '$lib/crewScope';
+	import { splitCamelCase } from '$lib/text-utils';
+	import {
+		LIVENESS_BADGE,
+		heartbeatLiveness,
+		mcpServerNames,
+		mcpServerRefs,
+		visibleTools
+	} from '$lib/agent-detail';
 
 	let agent = $state<Agent | null>(null);
 	let heartbeat = $state<AgentHeartbeat | null>(null);
@@ -33,16 +42,10 @@
 			if (!res.ok) throw new Error('Agent not found');
 			agent = await res.json();
 
-			if (hbRes?.ok && name) {
-				const hbData = await hbRes.json();
-				heartbeat = agentStateFor<AgentHeartbeat>(hbData.agents, agent?.metadata.namespace ?? ns, name) ?? null;
-			}
+			if (hbRes?.ok && name) await loadHeartbeat(hbRes, name);
 
 			// Fetch tools for each referenced MCP server
-			// Use spec.mcpServers first, fall back to status.mcpServerStatus (gateway agents)
-			const serverNames = agent?.spec.mcpServers?.map((m) => m.name)
-				|| agent?.status?.mcpServerStatus?.map((s) => s.name)
-				|| [];
+			const serverNames = mcpServerNames(agent);
 			if (serverNames.length > 0) {
 				await fetchMCPServerTools(serverNames);
 			}
@@ -54,6 +57,12 @@
 		} finally {
 			loading = false;
 		}
+	}
+
+	async function loadHeartbeat(hbRes: Response, agentName: string) {
+		const hbData = await hbRes.json();
+		heartbeat =
+			agentStateFor<AgentHeartbeat>(hbData.agents, agent?.metadata.namespace ?? ns, agentName) ?? null;
 	}
 
 	async function fetchAssembledPrompt() {
@@ -109,24 +118,12 @@
 		fetchAgent();
 	});
 
-	function formatStatus(s: string): string {
-		return s.replace(/([a-z])([A-Z])/g, '$1 $2');
-	}
+	const status = $derived(readinessStatus(agent?.status));
 
-	const status = $derived(
-		agent?.status?.ready
-			? 'success'
-			: agent?.status?.phase === 'Error'
-				? 'error'
-				: 'pending'
-	);
-
-	const statusLabel = $derived(formatStatus(agent?.status?.phase || 'Unknown'));
+	const statusLabel = $derived(splitCamelCase(agent?.status?.phase || 'Unknown'));
 
 	// MCP servers: prefer spec refs, fall back to status (gateway agents)
-	const mcpServers = $derived(
-		agent?.spec.mcpServers || agent?.status?.mcpServerStatus?.map((s) => ({ name: s.name })) || []
-	);
+	const mcpServers = $derived(mcpServerRefs(agent));
 
 	// Enabled tools from KUBEMOOT_ENABLED_TOOLS env var (for gateway-mode agents with no spec.mcpServers)
 	const enabledToolNames = $derived(() => {
@@ -221,13 +218,7 @@
 							{@const mcpStatus = agent.status?.mcpServerStatus?.find((s) => s.name === mcp.name)}
 							{@const specRef = agent.spec.mcpServers?.find((s) => s.name === mcp.name)}
 							{@const allTools = mcpServerTools.get(mcp.name) || []}
-							{@const enabledSet = specRef?.enabledTools ? new Set(specRef.enabledTools) : null}
-							{@const disabledSet = specRef?.disabledTools ? new Set(specRef.disabledTools) : null}
-							{@const visibleTools = enabledSet
-								? allTools.filter((t) => enabledSet.has(t.name))
-								: disabledSet
-									? allTools.filter((t) => !disabledSet.has(t.name))
-									: allTools}
+							{@const shownTools = visibleTools(allTools, specRef)}
 							<div class="mcp-server-block">
 								<div class="mcp-server-header">
 									<a href="{base}/mcpservers/{mcp.name}?namespace={ns}" class="mcp-server-link">{mcp.name}</a>
@@ -248,9 +239,9 @@
 								{#if specRef?.disabledTools && specRef.disabledTools.length > 0}
 									<div class="tool-filter disabled">Disabled: {specRef.disabledTools.join(', ')}</div>
 								{/if}
-								{#if visibleTools.length > 0}
+								{#if shownTools.length > 0}
 									<div class="tools-list">
-										{#each visibleTools as tool}
+										{#each shownTools as tool}
 											<div class="tool">
 												<span class="tool-name">{tool.name}</span>
 												{#if tool.description}
@@ -321,13 +312,13 @@
 
 				{#if heartbeat}
 				{@const hbAge = Math.round((Date.now() - new Date(heartbeat.timestamp).getTime()) / 1000)}
-				{@const livenessState = hbAge > 300 ? 'stale' : (!heartbeat.ollama || !heartbeat.nats) ? 'degraded' : 'live'}
+				{@const liveness = LIVENESS_BADGE[heartbeatLiveness(hbAge, heartbeat)]}
 				<Section title="Runtime Health">
 					<InfoRow label="Liveness">
 						{#snippet children()}
 							<StatusBadge
-								status={livenessState === 'live' ? 'success' : livenessState === 'degraded' ? 'warning' : 'error'}
-								label={livenessState === 'live' ? 'Live' : livenessState === 'degraded' ? 'Degraded' : 'Stale'}
+								status={liveness.status}
+								label={liveness.label}
 								size="sm"
 							/>
 						{/snippet}

@@ -164,7 +164,7 @@
 				}
 			],
 			layout: hasSavedPositions
-				? { name: 'preset' } as cytoscape.LayoutOptions
+				? { name: 'preset' }
 				: {
 					name: 'dagre',
 					rankDir: 'TB',
@@ -225,7 +225,7 @@
 				// namespace only. NATS agent tokens use underscores, node ids hyphens.
 				const chat = parseChatSubject(msg.subject);
 				if (!chat || !cy) return;
-				const node = cy.getElementById(agentNodeId(chat.namespace, chat.agent.replace(/_/g, '-')));
+				const node = cy.getElementById(agentNodeId(chat.namespace, chat.agent.replaceAll('_', '-')));
 				if (node.length === 0) return;
 
 				// Pulse animation

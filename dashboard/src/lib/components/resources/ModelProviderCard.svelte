@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { PENDING_TTL_MS, unsettledActions, type PendingAction } from '$lib/pending-actions';
+	import { readinessStatus } from '$lib/resource-status';
 	import { base } from '$app/paths';
 	import type { ModelProvider, ModelProviderLoadedModel } from '$types/kubemoot.js';
 	import ResourceCard from './ResourceCard.svelte';
@@ -20,11 +22,6 @@
 	// expires either when the CR catches up (loaded/unloaded as intended)
 	// or after PENDING_TTL_MS (give-up timeout — operator probe never
 	// confirmed, treat as failed).
-	interface PendingAction {
-		action: 'load' | 'unload';
-		startedAt: number;
-	}
-	const PENDING_TTL_MS = 60_000;
 
 	let pendingActions = $state<Record<string, PendingAction>>({});
 
@@ -77,20 +74,8 @@
 		const actuallyLoaded = new Set(
 			(provider.status?.capacity?.loadedModels ?? []).map((m) => m.name)
 		);
-		const cutoff = Date.now() - PENDING_TTL_MS;
-		let changed = false;
-		const next: Record<string, PendingAction> = {};
-		for (const [model, p] of Object.entries(pendingActions)) {
-			const stale = p.startedAt < cutoff;
-			const loadDone = p.action === 'load' && actuallyLoaded.has(model);
-			const unloadDone = p.action === 'unload' && !actuallyLoaded.has(model);
-			if (stale || loadDone || unloadDone) {
-				changed = true;
-				continue; // drop
-			}
-			next[model] = p;
-		}
-		if (changed) pendingActions = next;
+		const next = unsettledActions(pendingActions, actuallyLoaded, Date.now() - PENDING_TTL_MS);
+		if (next) pendingActions = next;
 	});
 
 	function isPending(modelName: string, action?: 'load' | 'unload'): boolean {
@@ -100,13 +85,7 @@
 		return true;
 	}
 
-	const status = $derived(
-		provider.status?.ready
-			? 'success'
-			: provider.status?.phase === 'Failed'
-				? 'error'
-				: 'pending'
-	);
+	const status = $derived(readinessStatus(provider.status, 'Failed'));
 
 	const statusLabel = $derived(provider.status?.phase || 'Unknown');
 	const capacity = $derived(provider.status?.capacity);
