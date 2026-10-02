@@ -148,7 +148,7 @@ func declaresHonestFailure(synthesis string) bool {
 const honestFactualityFloor = 50.0
 
 // fabricationFloor is the fraction of its grade a fully-fabricating scenario keeps:
-// heavy penalty, not an auto-zero (penalize, don't hard-fail, per Jonathan).
+// heavy penalty, not an auto-zero (penalize, don't hard-fail).
 const fabricationFloor = 0.35
 
 // fabricationPenalty is the multiplicative grade factor for a scenario, scaling
