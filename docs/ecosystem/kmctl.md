@@ -40,7 +40,7 @@ The shipped command surface covers seven areas:
 **Cluster and operator inspection.** `kmctl status` checks that the cluster is
 reachable and that the Kubemoot API group is registered. `kmctl info` reports the
 resolved context, namespace, server URL, and server version. `kmctl version` prints
-the client version (and optionally the operator version from the cluster).
+the client version.
 
 **Crew and agent inspection.** `kmctl crew list`, `kmctl crew get <name>`,
 `kmctl agent list`, and `kmctl agent get <name>` give a typed, readable view of what
@@ -77,9 +77,10 @@ the final answer. Pass `--conversation-id` to continue an existing thread.
 reaches the crew through the Kubernetes API server's service proxy using your
 kubeconfig credentials; no extra networking setup is required.
 
-**Fitness suite execution.** `kmctl fitness run <suite>` (alias `fit`) applies a
-`CrewFitnessSuite` and polls until the deferred judge pass completes, printing
-progress as it goes. `kmctl fitness list` and `kmctl fitness get <suite>` inspect
+**Fitness suite execution.** `kmctl fitness run <suite>` (`fitness` has the alias `fit`) polls an
+existing `CrewFitnessSuite` until every iteration has run, printing progress as it
+goes; `-f FILE` applies a suite manifest first. Quality scores land after the
+deferred judge pass, and the exit code reflects timeouts and API errors only. `kmctl fitness list` and `kmctl fitness get <suite>` inspect
 suite status. `kmctl fitness scenarios <suite>` lists the scenarios in a suite.
 Pass `--scenario` to run a single scenario in isolation as a quick smoke test.
 `kmctl fitness download <suite>` retrieves the XLSX artifact for a completed suite

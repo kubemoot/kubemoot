@@ -331,9 +331,9 @@ The runner needs minimal resources (50m CPU, 64Mi RAM) - it's an HTTP client, no
 
 ## Relationship to CrewForge
 
-[CrewForge](../ecosystem/crewforge/) runs fitness from VS Code: it lists a crew's
+[CrewForge](../../ecosystem/crewforge/) runs fitness from VS Code: it lists a crew's
 scenarios, starts a run or a single scenario, shows the results, and pauses, resumes, or
-stops a suite. See [Fitness from the editor](../ecosystem/crewforge/fitness/). Fitness
+stops a suite. See [Fitness from the editor](../../ecosystem/crewforge/fitness/). Fitness
 tests are Kubernetes resources like everything else Kubemoot manages, so they stay
 reachable from any Kubernetes client, `kubectl`, `kmctl`, or CI/CD, whatever authors
 them.

@@ -30,7 +30,7 @@ one contract: requests running and queued, KV cache use, loaded models with thei
 context and parallel capacity, and load and unload events. The contract aligns with the
 Kubernetes Gateway API Inference Extension
 [Model Server Protocol](https://github.com/kubernetes-sigs/gateway-api-inference-extension/blob/main/docs/proposals/003-model-server-protocol/README.md),
-an established standard that vLLM implements natively. Each model server gets an adapter
+a proposal in the Gateway API Inference Extension project that vLLM implements natively. Each model server gets an adapter
 that fills the contract, Ollama's first.
 
 The spike also tries vLLM as a substitute for Ollama on the tool-calling roles, where
@@ -201,8 +201,8 @@ functions.
 ## Evaluating Agent Sandbox for code execution
 
 **Today:** the compute agent runs the code it writes in Kubemoot's own `code-sandbox`
-MCP server, where the pod is the sandbox: no credentials, network limited by the crew's
-network policy.
+MCP server, where the pod is the sandbox: no credentials, network limited by a network
+policy where the crew ships one (the reference crew charts do).
 
 **Direction:** evaluate [Agent Sandbox](../related-projects/#agent-sandbox), now stable at
 v1.x, as the isolation layer for code execution in place of Kubemoot's own sandbox

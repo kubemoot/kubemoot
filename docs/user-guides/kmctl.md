@@ -55,7 +55,7 @@ kmctl version
 ```
 
 Substitute `linux_amd64` for your platform (`darwin_amd64`, `darwin_arm64`,
-`linux_arm64`, `windows_amd64`).
+`linux_arm64`, `windows_amd64`). Linux and macOS archives are `.tar.gz`; Windows archives are `.zip`.
 
 With Go installed, `go install github.com/kubemoot/kmctl@latest` also works.
 
@@ -165,7 +165,7 @@ kmctl create demo --chart --members 2 --model-family qwen --no-input
 ```
 
 A chart deploys with `helm upgrade --install demo demo --namespace demo --create-namespace`
-instead of `kmctl apply -f demo/`; both forms scaffold the same manifests. This is the
+instead of the `kubectl` and `kmctl apply` steps below; both forms scaffold the same manifests. This is the
 form [CrewForge](../../ecosystem/crewforge/) scaffolds with **New Kubemoot Crew Here**,
 and the layout its Crew Sources view expects a chart source to have; see
 [Develop a crew in VS Code](../../ecosystem/crewforge/develop-a-crew/) for that workflow.
@@ -190,95 +190,57 @@ for guidance on what to customise and how.
 
 ### 4. Apply to the cluster
 
-```bash
-kmctl apply -f demo/
-```
-
-`kmctl apply` uses server-side apply and accepts only Kubemoot CRD resources. For
-anything outside the Kubemoot API group, use `kubectl apply` directly.
-
-Preview what would be applied without writing to the cluster:
+`kmctl create` prints the command that deploys what it scaffolded. For the loose-manifest
+form, with the default namespace `crew-demo`:
 
 ```bash
-kmctl apply -f demo/ --dry-run
+kubectl create namespace crew-demo && \
+  kubectl apply -n crew-demo -f ./demo/access && \
+  kmctl apply -n crew-demo -f ./demo
 ```
+
+The `access/` folder holds the Role the tool server runs with, so it applies first, with
+`kubectl`. `kmctl apply` uses server-side apply, accepts only Kubemoot CRD resources, and
+reads the files directly in the directory it is given, not subdirectories. That is why
+`access/` and `fitness/` are separate steps. Add `--dry-run` to preview what `kmctl apply`
+would write.
 
 ### 5. Watch the crew come up
 
 ```bash
-kmctl crew get demo
+kmctl crew get demo -n crew-demo
+kmctl agent list -n crew-demo
 ```
 
-Once ready:
-
-```
-NAME  NAMESPACE  READY  PHASE    COORDINATOR       AGENTS  AGE
-demo  kubemoot   true   Running  demo-coordinator  2       45s
-```
-
-Check individual agents:
+### 6. Ask the crew
 
 ```bash
-kmctl crew list
-kmctl agent list -n kubemoot
-kmctl agent get demo-coordinator
+kmctl conversation ask demo "List the pods in this namespace and their status." -n crew-demo
 ```
 
-### 6. Start a conversation
+`kmctl conversation` reaches the crew through the Kubernetes API server's service proxy,
+so no extra port-forwarding is required. Add `--quiet` to print only the final answer,
+and `--conversation-id <id>` (the ID the first `ask` prints) to continue the same
+conversation.
 
-Ask the crew a question and stream the moot's deliberation:
+### 7. Run the fitness suite
 
 ```bash
-kmctl conversation ask demo "is anything unhealthy?" -n kubemoot
+kmctl fitness run -f ./demo/fitness/fitness.yaml -n crew-demo
+kmctl fitness scenarios demo-starter -n crew-demo
+kmctl fitness get demo-starter -n crew-demo
 ```
 
-`kmctl conversation` reaches the crew through the Kubernetes API server's service
-proxy, so no extra port-forwarding is required. You will see each specialist's
-evaluation stream by, followed by the coordinator's synthesis.
-
-To print only the final answer and suppress the intermediate signals:
+`kmctl fitness run` returns when every iteration has run (`phase=Completed`). Quality
+scores land after the judge pass; `kmctl fitness get` shows them once they are in. Then
+download the workbook:
 
 ```bash
-kmctl conversation ask demo "is anything unhealthy?" -n kubemoot --quiet
+kmctl fitness download demo-starter -n crew-demo
 ```
 
-To continue the same conversation thread (replace the ID with the one printed by
-the first `ask`):
-
-```bash
-kmctl conversation ask demo "what caused it?" -n kubemoot --conversation-id <id>
-```
-
-### 7. Run a fitness suite
-
-Run the starter fitness suite that `kmctl create` generated and wait for it to
-complete. The command polls until the deferred judge pass finishes and the suite
-reaches `phase=Completed`:
-
-```bash
-kmctl fitness run demo-fitness-starter -n kubemoot
-```
-
-To run just one scenario as a quick smoke test:
-
-```bash
-kmctl fitness run demo-fitness-starter --scenario smoke-hello -n kubemoot
-```
-
-To see which scenarios are in the suite:
-
-```bash
-kmctl fitness scenarios demo-fitness-starter -n kubemoot
-```
-
-Once the suite reaches `phase=Completed`, download the XLSX results artifact:
-
-```bash
-kmctl fitness download demo-fitness-starter -n kubemoot
-# Downloads to demo-fitness-starter.xlsx
-
-kmctl fitness download demo-fitness-starter -o results.xlsx -n kubemoot
-```
+[The starter crew](../starter-crew/) walks through this flow end to end, including how to
+change one rule and ask again.
 
 ---
 
