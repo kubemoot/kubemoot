@@ -48,7 +48,7 @@ A model's VRAM occupancy is fixed when it loads: weights plus the context KV sla
 
 #### The one hard filter
 
-A provider where M is warm (resident, or being loaded by an in-flight call) is always feasible when it is ready and its circuit is closed: the call shares the loaded copy and queues for a slot. For a cold load, a provider is feasible iff it is ready, its circuit is closed, `usable(P) ≥ occupancy(M)`, and M fits beside the models already resident (`occupancy(M) + resident(P) ≤ usable(P)`), where `usable(P) = totalVram(P) − reserve` (the reserve covers CUDA context, fragmentation, and runtime overhead). A model larger than every card's usable VRAM yields no feasible provider, and the runtime reports it as `model-too-large` rather than spilling silently. A card that could hold M but is full of other resident models is busy, not too small: the runtime waits for it.
+A provider where M is warm (resident, or being loaded by an in-flight call) is always feasible when it is ready and its circuit is closed: the call shares the loaded copy and queues for a slot. For a cold load, a provider is feasible iff it is ready, its circuit is closed, `usable(P) ≥ occupancy(M)`, and M fits beside the models already resident (`occupancy(M) + resident(P) ≤ usable(P)`), where `usable(P) = totalVram(P) - reserve` (the reserve covers CUDA context, fragmentation, and runtime overhead). A model larger than every card's usable VRAM yields no feasible provider, and the runtime reports it as `model-too-large` rather than spilling silently. A card that could hold M but is full of other resident models is busy, not too small: the runtime waits for it.
 
 #### The context window is a hard constraint
 
@@ -80,10 +80,10 @@ For each feasible provider the runtime sums these weights and picks the minimum:
 | reliability | learned recent failure rate | provider healthy |
 | spill | resident set already exceeds usable VRAM (running on CPU) | not spilling |
 | load | cost to load M (scales with its weights) | M already warm here |
-| best-fit | excess capacity `(usable − occupancy)/occupancy` - reserves big GPUs for big models so a small model does not squat a big card; sized to dominate contention | the model fits the card tightly |
+| best-fit | excess capacity `(usable - occupancy)/occupancy` - reserves big GPUs for big models so a small model does not squat a big card; sized to dominate contention | the model fits the card tightly |
 | eviction | cost to evict resident models to fit M; near-infinite if a victim has in-flight (live) work | warm, or `free(P) ≥ occupancy(M)` |
 
-where `free(P) = usable(P) − Σ resident footprints`. `CrewSchedulingPolicy` require/prefer biases fold in as additional weight terms. There are no categorical tiers; the ordering of warm, cold-onto-free, and eviction emerges from the weights.
+where `free(P) = usable(P) - Σ resident footprints`. `CrewSchedulingPolicy` require/prefer biases fold in as additional weight terms. There are no categorical tiers; the ordering of warm, cold-onto-free, and eviction emerges from the weights.
 
 #### What falls out
 
@@ -105,14 +105,14 @@ The list holds every Ready `Model` the phase rule's `require` selector admits, o
 `CallPlanner.place` makes each placement. It tries, in order:
 
 1. `pickAndClaimWarm` for the preferred model.
-2. `pickAndClaimWarm` for each other candidate whose score is at least `preferredScore − tolerance`, highest score first. A warm candidate with a free slot costs no load and no eviction, so it wins over cold-loading the preferred model.
+2. `pickAndClaimWarm` for each other candidate whose score is at least `preferredScore - tolerance`, highest score first. A warm candidate with a free slot costs no load and no eviction, so it wins over cold-loading the preferred model.
 3. `pickAndClaimLoading` for each in-tolerance candidate: a provider where another call's ticket is loading that model right now. The call converges on that copy instead of loading a second model.
 4. `pickAndClaim` for the preferred model: the full weighted cost (queue at a warm copy, cold load onto free room).
 5. When all of these are empty, the queue-or-unload decision below.
 
 A warm copy another call plans to unload (see below) does not count as warm.
 
-The tolerance is `KUBEMOOT_MODEL_CANDIDATE_TOLERANCE`, default 10 points. Under `qualityBias`, one `latencyClass` tier is `|bias − 0.5| × 100` points from its neighbour at the extremes (the `medium` tent peaks at bias 0.5), so a balanced crew may use a warm neighbouring tier while a crew with a strong bias keeps its tier. Explicit `prefer` weights usually sit further apart than the tolerance. A crew keeps an agent on one model size by narrowing `require`, widening the `prefer` gap, or setting the tolerance to 0. The runtime reads the mulling list; the triage list is published alongside it, and the triage path places only its bound model.
+The tolerance is `KUBEMOOT_MODEL_CANDIDATE_TOLERANCE`, default 10 points. Under `qualityBias`, one `latencyClass` tier is `|bias - 0.5| × 100` points from its neighbour at the extremes (the `medium` tent peaks at bias 0.5), so a balanced crew may use a warm neighbouring tier while a crew with a strong bias keeps its tier. Explicit `prefer` weights usually sit further apart than the tolerance. A crew keeps an agent on one model size by narrowing `require`, widening the `prefer` gap, or setting the tolerance to 0. The runtime reads the mulling list; the triage list is published alongside it, and the triage path places only its bound model.
 
 The ChatModel for the call is built for the model actually picked, and the signal records it as `metadata.model`.
 

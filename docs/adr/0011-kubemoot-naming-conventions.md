@@ -24,9 +24,9 @@ We will follow these conventions:
 | Operator name | `kubemoot` (no `-operator` suffix) | `kubectl get deploy -n kubemoot kubemoot-operator` is one component; the project itself is `kubemoot` |
 | CRD names | Singular, CamelCase | `ModelProvider`, `Agent`, `CrewSchedulingPolicy` |
 | Short names | Lowercase abbreviations | `mdlp`, `mdl`, `mcp`, `rag`, `csp`, `moot`, `pm`, `wc` |
-| Brand names in prose | CrewForge, Homelab Pilot, Kubemoot | Per the ecosystem `.claude/CLAUDE.md` `naming-convention` rule |
+| Brand names in prose | CrewForge, Homelab Pilot, Kubemoot | Use the brand names in prose and UI text; use the technical identifiers in code and config |
 | Brand names in code/config | `vscode-crewforge`, `homelab-pilot`, `kubemoot` | Kebab-case for everything machine-read |
-| Hedge prefixes | Forbidden | No "honest", "honestly", "frankly" - see ecosystem CLAUDE.md `no-hedge-words` rule |
+| Hedge prefixes | Forbidden | No "honest", "honestly", "frankly"; state every claim directly |
 
 ## Consequences
 
