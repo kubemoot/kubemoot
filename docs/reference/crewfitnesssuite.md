@@ -55,6 +55,8 @@ spec:
 | `artifactRef` | Bucket, object key (`<namespace>/<suite>/<runId>.xlsx`), and size of the XLSX, set once it is written. |
 | `error` | Why the suite itself failed to execute (phase `Error`). |
 | `rejudge` | On a re-judge suite: the `source` run, how many `transcripts` were copied, and `notInSource`, the scenarios of this suite the source run has no answer for. |
+| `scenarios` | Per-scenario rollup of the finished iterations, in spec order. See [Results in status](#results-in-status). |
+| `judge` | Progress and scores of the deferred judge pass. See [Results in status](#results-in-status). |
 | `conditions` | On a re-judge suite, `RejudgeSourceReady` reports whether the source could be used. See [Re-judge an earlier run](#re-judge-an-earlier-run). |
 
 ### Phases
@@ -67,6 +69,93 @@ spec:
 | `Completed` | yes | Every iteration reached a terminal phase. Failed or errored iterations are outcomes in the counts, not a suite failure. |
 | `Cancelled` | yes | `spec.cancel` stopped the suite. Completed iterations are kept and the XLSX is marked partial. |
 | `Failed`, `Error` | yes | The suite itself could not execute, such as an invalid spec. |
+
+## Results in status
+
+The operator writes a run's results to the suite's status, so any client with read access to `crewfitnesssuites` gets them through the Kubernetes API: `kubectl`, `kmctl`, CrewForge, or a script. The status outlives the per-iteration `CrewFitness` objects, which the operator removes after the run, and the object store retention of the transcripts and judge checkpoint.
+
+```yaml
+status:
+  phase: Completed
+  runId: 7f3c2a1b
+  iterationsTotal: 30
+  iterationsCompleted: 30
+  passed: 26
+  failed: 3
+  errored: 1
+  scenarios:
+    - name: gpu-utilization-live
+      iterations: 15
+      passed: 14
+      failed: 1
+      meanDurationMs: 84210
+      assertionsPassed: 59
+      assertionsTotal: 60
+    - name: node-count
+      iterations: 15
+      passed: 12
+      failed: 2
+      errored: 1
+      meanDurationMs: 40112
+      assertionsPassed: 52
+      assertionsTotal: 60
+  judge:
+    phase: Complete
+    judged: 2
+    total: 2
+    mean: 44
+    zeros: 1
+    completedAt: "2026-10-02T14:31:07Z"
+    scores:
+      - scenario: gpu-utilization-live
+        score: 0
+        reason: all iterations gated (consensus failed or empty synthesis)
+      - scenario: node-count
+        score: 87
+        reason: Correct node count and roles; omits the control-plane taint the reference names.
+  artifactRef:
+    bucket: kubemoot_fitness_artifacts
+    objectKey: crew-homelab-pilot/homelab-baseline/7f3c2a1b.xlsx
+    sizeBytes: 48211
+```
+
+### status.scenarios
+
+One row per distinct `testRef`, in the order of `spec.scripts`. A script with no finished iteration yet has a row with only its `name`. The rows are refreshed on every reconcile of a running suite and are final once the suite is terminal.
+
+| Field | Description |
+|-------|-------------|
+| `name` | The script's `testRef`. |
+| `iterations` | Finished iterations of this scenario. |
+| `passed`, `failed`, `errored` | `iterations` broken down by outcome. |
+| `meanDurationMs` | Mean wall-clock duration of the finished iterations. |
+| `assertionsPassed`, `assertionsTotal` | Assertion results summed over the finished iterations. |
+
+On a re-judge suite the rows come from the copied transcripts, with the durations of the source run.
+
+### status.judge
+
+| Field | Description |
+|-------|-------------|
+| `phase` | `Pending`: the run has not finished, and the judge waits for it. `Judging`: the run finished and the judge is scoring it. `Complete`: every judgeable scenario has a score. `Skipped`: the suite was cancelled, so the judge does not run. |
+| `judged` | Scenarios scored so far. |
+| `total` | Scenarios the judge has to score: those with a `DEFER` assertion and at least one transcript. It is set when the pass starts. |
+| `mean` | Mean scenario score over the judged scenarios, 0 to 100, rounded. |
+| `zeros` | Judged scenarios that scored 0. A scenario whose every iteration failed its consensus floor scores 0 without a judge call. |
+| `completedAt` | When the operator recorded the pass as complete. |
+| `scores` | Each judged scenario in spec order: `scenario`, `score` (0 to 100, rounded), and `reason`, the judge's rationale on one line, cut to 200 characters. |
+
+The judge writes `status.judge` when its pass starts, after each scenario it scores, and when it finishes, so `judged` out of `total` shows progress while the pass runs. Once `phase` is `Complete` or `Skipped` the field is final: it is not rewritten, even after the judge checkpoint passes its object store retention. While judging, `judged` never goes down: if the checkpoint expires before the pass completes, status keeps the scores it recorded. `status.judge` is absent when the operator has no NATS Object Store configured, since there is no judge.
+
+`kubectl get crewfitnesssuites` shows the judge phase and the mean score in the `Judge` and `Quality` columns.
+
+### What stays in the object store
+
+The status carries summaries. The per-iteration transcripts (question, answer, events, assertion messages), the full judge reasons, the judge checkpoint, and the XLSX report stay in the NATS Object Store bucket `kubemoot_fitness_artifacts`, under `<namespace>/<suite>/<runId>/`, and `status.artifactRef` names the XLSX.
+
+### Size bound
+
+Status is stored in etcd with the rest of the object, so both lists are capped at 300 entries (the first 300 distinct `testRef` values in spec order), scenario names at 253 bytes, and reasons at 200 characters. The API server rejects a longer list. `judged`, `total`, `mean`, and `zeros` always cover every scenario, so `judged` greater than the length of `scores` means the list was cut. A `testRef` longer than 253 bytes is cut in status, so keep names shorter than that to keep them distinct. For 300 scenarios with 30-character names and full reasons, the two lists take about 125 KiB; at the field maximums (253-byte names, reasons of 200 four-byte characters) they take under 450 KiB, well below the 1 MiB an object should stay under. A suite with inline `testContent` also stores its scripts in the spec, so keep very large script sets in a ConfigMap.
 
 ## Pause, resume and stop
 
@@ -135,7 +224,7 @@ The simplest way to get the current scripts is to build the suite from the crew'
 2. **Copy.** The operator reads the source run's transcripts from the Object Store and matches them to this suite's scripts by `testRef`. Each matched transcript is copied into this suite's own run, keeping the answer, the events, and the timing, and adding a `rejudgedFrom` field with the source suite, run, and object key.
 3. **Re-evaluate the assertions.** The copied transcript carries this suite's assertions, not the source's (see below).
 4. **Complete.** The suite moves from `Pending` straight to `Completed`. `iterationsTotal` is the number of transcripts copied, and `passed` and `failed` come from the re-evaluated assertions.
-5. **Judge.** The deferred judge pass then scores the copies exactly as it scores a normal run, against this suite's `DEFER` references, one scenario at a time with the same resumable checkpoint. The dashboard shows "judging X/Y" until it finishes, and the XLSX is written once judging is complete.
+5. **Judge.** The deferred judge pass then scores the copies exactly as it scores a normal run, against this suite's `DEFER` references, one scenario at a time with the same resumable checkpoint. `status.judge` reports `judged` out of `total` until it finishes, and the XLSX is written once judging is complete.
 
 The crew named in `crewRef` receives no question. `iterations`, `concurrency`, `perIterationTimeout`, `purgeMemory`, and `suspend` do not apply. The source run is not modified, and its own judge scores are not carried over.
 
@@ -180,7 +269,7 @@ kmctl fitness get baseline-rejudged -n crew-homelab-pilot
 kmctl fitness download baseline-rejudged -n crew-homelab-pilot      # once judging has finished
 ```
 
-Any suite, re-judge or not, reaches `Completed` before its judge pass finishes, so `kmctl fitness run` returns before the scores exist. A re-judge suite reaches `Completed` as soon as its transcripts are copied. Until judging ends, the XLSX served is provisional with quality 0; the operator rewrites it with the final scores. Watch "judging X/Y" on the dashboard Fitness page for the scores. Do not pass `--scenario` for a re-judge suite: it creates a live `CrewFitness` that asks the crew the question.
+Any suite, re-judge or not, reaches `Completed` before its judge pass finishes, so `kmctl fitness run` returns before the scores exist. A re-judge suite reaches `Completed` as soon as its transcripts are copied. Until judging ends, the XLSX served is provisional with quality 0; the operator rewrites it with the final scores. `kmctl fitness get` shows the judge progress and scores from `status.judge`. Do not pass `--scenario` for a re-judge suite: it creates a live `CrewFitness` that asks the crew the question.
 
 ## Deleting a suite
 
