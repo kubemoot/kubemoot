@@ -642,10 +642,10 @@ kmctl fitness download <suite> [-n <namespace>] [-o FILE]
 ```
 
 Inspect and run `CrewFitnessSuite` resources. `kmctl fitness run` polls to
-`phase=Completed`, which the operator sets when every iteration has run. Quality
-scores land after the deferred judge pass finishes; `kmctl fitness get` shows
-them once they are in. Phase reflects execution, not test outcome: a suite whose
-iterations failed their assertions still reaches `Completed`.
+`phase=Completed`, which the operator sets when every iteration has run. Phase
+reflects execution, not test outcome: a suite whose iterations failed their
+assertions still reaches `Completed`. The deferred judge pass runs after that;
+`status.judge` reports its progress and scores, and `kmctl fitness get` shows them.
 
 ### kmctl fitness list
 
@@ -654,15 +654,16 @@ kmctl fitness list [-n <namespace>] [-A]
 ```
 
 List all fitness suites. Default table columns: Name, Namespace, Phase, Done,
-Total, Passed, Failed, Age.
+Total, Passed, Failed, Judge (the judge phase), Quality (the mean judge score,
+0 to 100), Age.
 
 **Example:**
 
 ```bash
 kmctl fitness list -A
-# NAME           NAMESPACE   PHASE      DONE  TOTAL  PASSED  FAILED  AGE
-# demo-starter   kubemoot    Completed  10    10     9       1       3h
-# nightly        kubemoot    Running    4     20     4       0       12m
+# NAMESPACE   NAME           PHASE      DONE  TOTAL  PASSED  FAILED  JUDGE     QUALITY  AGE
+# kubemoot    demo-starter   Completed  10    10     9       1       Complete  82       3h
+# kubemoot    nightly        Running    4     20     4       <none>  Pending   <none>   12m
 ```
 
 ### kmctl fitness get
@@ -671,13 +672,25 @@ kmctl fitness list -A
 kmctl fitness get <suite> [-n <namespace>] [-o <format>]
 ```
 
-Show a suite's status summary. Includes phase, pass/fail counts, and any error
-message. Use `-o yaml` for the full CR.
+Show a suite's results, read from its status through the Kubernetes API: the
+summary row, the judge state, and one row per scenario with its iteration
+outcomes, mean duration, judge score, and the judge's reason (one line, up to
+200 characters). Use `-o yaml` for the full object. See
+[Results in status](../crewfitnesssuite/#results-in-status) for the fields.
 
 **Example:**
 
 ```bash
 kmctl fitness get demo-starter
+# NAME           PHASE      DONE  TOTAL  PASSED  FAILED  JUDGE     QUALITY  AGE
+# demo-starter   Completed  10    10     9       1       Complete  82       3h
+#
+# Judge: Complete, 2 of 2 scenarios judged, mean 82, completed 2026-10-02T14:31:07Z
+#
+# SCENARIO      ITERATIONS  PASSED  FAILED  ERRORED  MEAN DURATION  SCORE  REASON
+# smoke-hello   5           5       0       0        42s            90     Names both nodes and their roles.
+# gotcha-dns    5           4       1       0        1m3s           74     Correct resolver; omits the search domain.
+
 kmctl fitness get demo-starter -o yaml
 ```
 
@@ -707,17 +720,16 @@ kmctl fitness run <suite> [-n <namespace>] [--scenario <name>] [--timeout <durat
 ```
 
 Run a suite and wait for completion. Polls progress and prints it as the run
-proceeds. The command returns when the suite reaches a terminal phase
-(`Completed`, `Failed`, or `Error`) and exits 0 in each case. A non-zero exit
-means the wait timed out or the Kubernetes API returned an error; the exit code
-does not reflect scenario results, so read `kmctl fitness get` for outcomes.
+proceeds. It returns once the iterations have finished (or the suite is
+cancelled) and exits 0 whatever their outcome, which `kmctl fitness get` shows; it
+exits non-zero on a timeout or an API error. When the judge has
+not finished scoring the run by then, it says so, and `kmctl fitness get` shows the
+judge's progress and scores.
 
-`Completed` means every iteration ran. The deferred judge pass runs afterwards.
-Until it finishes, `kmctl fitness download` serves a provisional workbook whose
-quality scores are 0; once judging completes, the operator rewrites the workbook
-with the final scores. Wait for the scores in `kmctl fitness get` before
-treating a downloaded workbook as final. An iteration Job that fails is retried
-twice before the iteration is recorded as failed.
+Until the judge pass finishes, `kmctl fitness download` serves a provisional
+workbook whose quality scores are 0; once judging completes, the operator rewrites
+the workbook with the final scores. An iteration Job that fails is retried twice
+before the iteration is recorded as failed.
 
 To run a single scenario in isolation, pass `--scenario`. This creates a single
 `CrewFitness` for that scenario rather than running the full suite.
@@ -785,7 +797,8 @@ apply it with `kmctl fitness run -f FILE` or `kubectl apply`, then use `kmctl fi
 
 ### Still planned in kmctl fitness
 
-A per-scenario score breakdown in `kmctl fitness get` is planned but not yet shipped.
+`kmctl fitness download` still fetches the XLSX through the dashboard. Fetching it
+through an operator-owned API instead is planned.
 
 ---
 
