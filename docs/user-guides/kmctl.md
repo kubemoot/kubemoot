@@ -120,8 +120,12 @@ kmctl info
 kmctl create demo
 ```
 
-On a TTY, `kmctl create` runs interactively: it discovers available ollama providers,
-lets you select them with a checkbox, and prompts for a model family. Answer the
+`demo` is the crew's Kubernetes name: lowercase letters, digits, and hyphens, starting and
+ending with a letter or digit, at most 36 characters. To give the crew a name people read,
+add `--display-name "Demo Crew"`; it defaults to the Kubernetes name.
+
+On a TTY, `kmctl create` runs interactively: it asks for the display name, discovers
+available ollama providers, lets you select them with a checkbox, and prompts for a model family. Answer the
 prompts and it writes a `demo/` directory:
 
 ```
@@ -133,6 +137,7 @@ demo/
   tools.yaml
   access/
     rbac.yaml
+    fitness-scenarios.yaml
   fitness/
     fitness.yaml
   README.md
@@ -354,7 +359,7 @@ kmctl create my-crew \
 ### Scaffold as a Helm chart
 
 ```bash
-kmctl create my-crew --chart --members 2 --model-family qwen --no-input
+kmctl create my-crew --chart --display-name "My Crew" --members 2 --model-family qwen --no-input
 helm upgrade --install my-crew my-crew --namespace my-crew --create-namespace
 ```
 

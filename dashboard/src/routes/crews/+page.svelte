@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { chartVersion } from '$lib/crew-chart';
+	import { crewDisplayName, crewTechnicalHint } from '$lib/crew-display-name';
 	import { onMount } from 'svelte';
 	import { resolve } from '$app/paths';
 	import { namespace } from '$stores';
@@ -35,9 +36,15 @@
 			{@const phase = status?.phase ?? 'Unknown'}
 			{@const discussing = !!status?.discussionEndpoint}
 			{@const version = chartVersion(crew.metadata.labels)}
+			{@const technical = crewTechnicalHint(crew)}
 			<a href="{resolve('/crews/[name]', { name: crew.metadata.name })}?namespace={crew.metadata.namespace}" class="crew-card" class:ready class:discussing>
 				<div class="card-top">
-					<div class="crew-name">{crew.metadata.name}</div>
+					<div class="crew-names">
+						<div class="crew-name" title={technical}>{crewDisplayName(crew)}</div>
+						{#if technical}
+							<div class="crew-technical-name">{technical}</div>
+						{/if}
+					</div>
 					<div class="badges">
 						{#if version}
 							<span class="chart-badge" title="Helm chart version">v{version}</span>
@@ -117,7 +124,9 @@
 	}
 
 	.card-top { display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; }
-	.crew-name { font-family: var(--font-mono); font-size: 1.1rem; font-weight: 600; color: var(--color-primary); }
+	.crew-names { min-width: 0; }
+	.crew-name { font-family: var(--font-mono); font-size: 1.1rem; font-weight: 600; color: var(--color-primary); overflow-wrap: anywhere; }
+	.crew-technical-name { font-family: var(--font-mono); font-size: 0.75rem; color: var(--color-text-muted); }
 	.badges { display: flex; align-items: center; gap: 0.4rem; flex-shrink: 0; }
 
 	.chart-badge {

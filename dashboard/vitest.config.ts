@@ -17,6 +17,7 @@ export default defineConfig({
 		alias: {
 			$lib: r('./src/lib'),
 			$types: r('./src/lib/types'),
+			$stores: r('./src/lib/stores'),
 			'$app/environment': r('./vitest-mocks/app-environment.ts'),
 			'$app/paths': r('./vitest-mocks/app-paths.ts'),
 			'$env/dynamic/private': r('./vitest-mocks/env-dynamic-private.ts')

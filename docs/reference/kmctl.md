@@ -120,7 +120,15 @@ it is installed into. Ask it what is running, what is wrong, and why; it reads t
 namespace with real tools and answers from what it found. It never changes anything. See
 [The starter crew](../../user-guides/starter-crew/) for what it contains and a walkthrough.
 
-On a TTY, `kmctl create` runs interactively: it asks for a member count, offers a
+`<name>` is the crew's technical name and becomes the Kubernetes name of its objects. It
+must be a DNS-1123 label: lowercase letters, digits, and hyphens, starting and ending with a
+letter or digit, at most 36 characters. The operator names objects after the crew, and the
+longest is the tool index Service `<crew>-kubernetes-mcp-tools-query`, which must fit a
+63-character DNS label (and the name stays under Helm's 53-character release-name limit).
+`--display-name` sets the name people read.
+
+On a TTY, `kmctl create` runs interactively: it asks for the display name first (default:
+`<name>`), then a member count, offers a
 checkbox selection of discovered ollama providers, and lets you choose a model family
 (with a custom-entry and skip option). Pass `--no-input` with explicit flags to make
 it scriptable.
@@ -133,7 +141,10 @@ Output is written to `<output>/<name>/` and includes:
 - One Kubernetes `MCPServer` in read-only mode and the `MCPGateway` the agents reach it through
 - A namespaced `Role` and `RoleBinding` that allow get, list, and watch (see **Access** below)
 - A starter `CrewFitnessSuite` of 3 to 7 scenarios, all of which pass on a fresh install
-- A `README.md` with a "first five minutes" guide
+- A ConfigMap `<name>-fitness` holding the scenario files, so the deployed crew carries its
+  scenarios (see **Fitness scenarios** below)
+- A `README.md` with a "first five minutes" guide, titled with the display name and noting
+  "Its Kubernetes name is `<name>`"
 
 With `--chart`, the same manifests are laid out as a Helm chart instead of loose YAML:
 
@@ -146,6 +157,7 @@ demo/
     agents.yaml
     promptmodules.yaml
     models.yaml
+    fitness-scenarios.yaml
   fitness/
     fitness.yaml
   README.md
@@ -158,6 +170,7 @@ and the layout its Crew Sources view expects a chart source to have.
 
 | Flag | Short | Description |
 |---|---|---|
+| `--display-name "..."` | | The name people read: any one line of text, no line breaks, tabs, or control characters, at most 100 characters (default: `<name>`). Stored as the `kubemoot.ai/display-name` annotation |
 | `--members N` | | Specialists beside the coordinator, 1 to 5 (default: prompted interactively). Size 1 is `workloads`; each larger size adds the next of `events`, `networking`, `config`, and `reviewer` |
 | `--providers a,b` | | Comma-separated list of ollama provider names to target |
 | `--model-family` | | Model family hint, e.g. `qwen` |
@@ -165,6 +178,32 @@ and the layout its Crew Sources view expects a chart source to have.
 | `--output DIR` | `-o` | Directory to write scaffold output (default: `.`) |
 | `--context` | | Kubeconfig context used to discover model providers (a global `kmctl` flag) |
 | `--chart` | | Lay the crew out as a Helm chart (`Chart.yaml`, `templates/`, `fitness/`) instead of loose manifests |
+
+**Display name.** `--display-name` is stored as the annotation `kubemoot.ai/display-name` on
+the `Crew` (in `crew.yaml`, or `templates/crew.yaml` for a chart) and, with `--chart`, in the
+`annotations` of `Chart.yaml`. The `README.md` title is the display name. Text containing
+`{{` is written safely for Helm: it is rendered verbatim and never executed. Tools such as
+[CrewForge](../../ecosystem/crewforge/) show the display name and fall back to the
+Kubernetes name when the annotation is absent.
+
+**Fitness scenarios.** The scaffold deploys the crew's scenarios as a ConfigMap, so a
+running crew carries them. In chart mode, `templates/fitness-scenarios.yaml` builds the
+ConfigMap `<name>-fitness` from the files in `fitness/` (`.Files.Glob "fitness/*"`), labeled
+`kubemoot.ai/crew: <name>` and `kubemoot.ai/fitness-kind: scenarios`. In bundle mode, the
+same ConfigMap is written to `access/fitness-scenarios.yaml`; apply it with
+`kubectl apply -n <ns> -f access/` beside the RBAC, because `kmctl apply` takes only
+`kubemoot.ai` kinds. A ConfigMap starts nothing: installing the crew still never starts a
+run. CrewForge lists and runs a live crew's scenarios from this ConfigMap.
+
+**Scope.** The `synthesis-prompt` module has a `scope` component switched by the chart value
+`access.clusterWide`. By default (`false`) the crew reads only its own namespace; answers
+name it ("in namespace X") and never describe "your cluster". When `true`, it reads the
+whole cluster read-only without Secrets and names the namespace of each resource. Asked
+about other namespaces or the whole cluster, a namespace-scoped crew says its access is
+limited to its namespace, that setting `access.clusterWide: true` in `values.yaml` and
+redeploying widens it, and answers only what its namespace shows. For a bundle, scaffold as
+a chart with `--chart` and set the value. The scaffolded `README.md` has a "What it can
+read" section.
 
 **Sizes.** `--members` counts specialists, so the crew has that many plus the coordinator:
 
@@ -197,6 +236,7 @@ which the Toolers post as artifact pointers.
 ```bash
 kmctl create demo
 # Discovering providers...
+# Display name [demo]: Demo Crew
 # Members [2]: 3
 # Providers: [x] ollama-gpu  [ ] ollama-gpu-b
 # Model family [qwen]: qwen
@@ -226,10 +266,18 @@ kmctl create demo --chart --members 2 --model-family qwen --no-input
 #   demo/templates/agents.yaml
 #   demo/templates/promptmodules.yaml
 #   demo/templates/models.yaml
+#   demo/templates/fitness-scenarios.yaml
 #   demo/fitness/fitness.yaml
 #   demo/README.md
 #
 # Next: helm upgrade --install demo demo --namespace demo --create-namespace
+```
+
+**Example (with a display name):**
+
+```bash
+kmctl create homelab-health-guide --display-name "Homelab Health Guide"
+# Scaffolded crew "Homelab Health Guide" (homelab-health-guide) ...
 ```
 
 ---

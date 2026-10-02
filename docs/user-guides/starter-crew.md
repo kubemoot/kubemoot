@@ -25,12 +25,43 @@ answers from what it found. It never changes anything.
 | Tools | One Kubernetes MCP server in read-only mode, behind an MCPGateway. Each specialist enables only the tools for its slice. |
 | Access | A namespaced `Role` with `get`, `list`, and `watch`, and no Secret access. |
 | Prompts | ADL PromptModules, one per specialist, plus the coordinator's and the shared discussion rules. |
+| Scope | By default the crew reads only its own namespace and names it in every answer. `access.clusterWide: true` widens it to the whole cluster; see [What it can read](#what-it-can-read). |
 | Fitness | 3 scenarios at size 1, up to 7 at size 5. They pass on a fresh install and ground on the crew's own pods. |
 
 Secrets are not readable at all: Kubernetes cannot grant a Secret's name without its data.
 The `config` specialist names the Secrets that pod specs reference instead. Set
 `access.clusterWide: true` in `values.yaml` to switch the `Role` to a `ClusterRole` and let
 the crew read every namespace; it stays read-only and still has no Secret access.
+
+## What it can read
+
+The `synthesis-prompt` module has a `scope` component switched by the chart value
+`access.clusterWide`.
+
+- **`false` (default).** The crew reads only the namespace it is installed into. Answers say
+  "in namespace X" and never describe "your cluster".
+- **`true`.** The crew reads the whole cluster read-only, without Secrets, and names the
+  namespace of each resource it reports.
+
+Ask a namespace-scoped crew about another namespace or the whole cluster and the coordinator
+says its access is limited to its namespace, that setting `access.clusterWide: true` in
+`values.yaml` and redeploying widens it, and answers only what its own namespace shows. For
+a bundle, scaffold as a chart with `--chart` and set the value. The scaffolded `README.md`
+has the same "What it can read" section.
+
+## Files
+
+| File | Holds |
+|---|---|
+| `templates/crew.yaml` (bundle: `crew.yaml`) | The Crew, with the `kubemoot.ai/display-name` annotation |
+| `templates/fitness-scenarios.yaml` (bundle: `access/fitness-scenarios.yaml`) | The ConfigMap `<crew>-fitness`, built from the files in `fitness/` |
+| `fitness/` | The scenario files and the suite you run yourself |
+
+The ConfigMap is labeled `kubemoot.ai/crew: <crew>` and `kubemoot.ai/fitness-kind:
+scenarios`, so the deployed crew carries its scenarios and [CrewForge](../../ecosystem/crewforge/)
+can list and run them without the source. A ConfigMap starts nothing. For a bundle, apply it
+with `kubectl apply -n <ns> -f access/` beside the RBAC, because `kmctl apply` takes only
+`kubemoot.ai` kinds.
 
 ## Walkthrough
 
@@ -42,6 +73,14 @@ You need a cluster with the Kubemoot operator and a model provider (see
 ```bash
 kmctl create hello --chart --members 1 --model-family qwen --no-input
 cd hello
+```
+
+`hello` is the crew's Kubernetes name: lowercase letters, digits, and hyphens, at most 36
+characters. Add `--display-name "Hello Crew"` for the name people read; it defaults to the
+Kubernetes name. For example:
+
+```bash
+kmctl create homelab-health-guide --display-name "Homelab Health Guide"
 ```
 
 `--members 5` scaffolds the full crew. The chart's `README.md` repeats these steps.

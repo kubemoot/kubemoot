@@ -1,13 +1,9 @@
 <script lang="ts">
 	import { namespace } from '$stores';
-
-	interface Crew {
-		namespace: string;
-		crew: string;
-	}
+	import { entryLabel, technicalNameHint, type CrewEntry } from '$lib/crew-display-name';
 
 	interface Props {
-		crews: Crew[];
+		crews: CrewEntry[];
 		loading?: boolean;
 	}
 
@@ -40,8 +36,10 @@
 			<option value="" class="all-crews">All crews</option>
 			{#if crews.length}
 				<option disabled>───────────</option>
-				{#each crews as c}
-					<option value={c.namespace}>{c.crew}</option>
+				{#each crews as c (c.namespace)}
+					{@const label = entryLabel(c)}
+					{@const hint = technicalNameHint(label, c.crew)}
+					<option value={c.namespace} title={hint}>{label}{hint ? ` (${hint})` : ''}</option>
 				{/each}
 			{/if}
 		</select>
