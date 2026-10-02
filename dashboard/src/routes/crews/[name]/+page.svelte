@@ -3,6 +3,7 @@
 	import { page } from '$app/stores';
 	import type { Crew, Agent } from '$types/kubemoot.js';
 	import { chartName, chartVersion } from '$lib/crew-chart';
+	import { crewDisplayName, crewTechnicalHint } from '$lib/crew-display-name';
 	import { NO_VALUE, yesNo } from '$lib/resource-status';
 
 	// The per-crew resume model (embedding-based subcommittee selection): the
@@ -99,11 +100,21 @@
 	}
 </script>
 
+<svelte:head>
+	{#if crew}
+		<title>{crewDisplayName(crew)} - Crews - Kubemoot Dashboard</title>
+	{/if}
+</svelte:head>
+
 <div class="detail-header">
 	<a href="{resolve('/crews')}" class="back-link">&larr; Crews</a>
 	{#if crew}
 		{@const version = chartVersion(crew.metadata.labels)}
-		<h1>{crew.metadata.name}</h1>
+		{@const technical = crewTechnicalHint(crew)}
+		<h1 title={technical}>{crewDisplayName(crew)}</h1>
+		{#if technical}
+			<span class="technical-name">{technical}</span>
+		{/if}
 		{#if version}
 			<span class="chart-badge" title="Helm chart version (reflects the applied chart, not the desired chart in the HelmRelease)">v{version}</span>
 		{/if}
@@ -236,6 +247,7 @@
 	}
 	.back-link { color: var(--color-text-muted); font-size: 0.85rem; }
 	.detail-header h1 { font-size: 1.5rem; font-family: var(--font-mono); }
+	.technical-name { font-size: 0.85rem; font-family: var(--font-mono); color: var(--color-text-muted); }
 	.phase-badge {
 		font-size: 0.75rem; font-weight: 600; padding: 0.2rem 0.6rem;
 		border-radius: 999px; text-transform: uppercase;

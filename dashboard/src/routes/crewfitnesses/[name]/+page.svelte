@@ -2,6 +2,8 @@
 	import { resolve } from '$app/paths';
 	import { page } from '$app/stores';
 	import type { CrewFitness } from '$types/kubemoot.js';
+	import { crewDirectory } from '$stores';
+	import { crewLabel, crewTooltip } from '$lib/crew-display-name';
 
 	let test = $state<CrewFitness | null>(null);
 	let loading = $state(true);
@@ -56,7 +58,7 @@
 		<div class="detail-section">
 			<h2>Spec</h2>
 			<table class="detail-table"><tbody>
-				<tr><th>Crew</th><td><a href="{resolve('/crews/[name]', { name: test.spec.crewRef })}?namespace={test.metadata.namespace}" class="link">{test.spec.crewRef}</a></td></tr>
+				<tr><th>Crew</th><td><a href="{resolve('/crews/[name]', { name: test.spec.crewRef })}?namespace={test.metadata.namespace}" class="link" title={crewTooltip($crewDirectory, test.metadata.namespace, test.spec.crewRef)}>{crewLabel($crewDirectory, test.metadata.namespace, test.spec.crewRef)}</a></td></tr>
 				<tr><th>Test Ref</th><td class="mono">{test.spec.testRef}</td></tr>
 				<tr><th>ConfigMap</th><td class="mono">{test.spec.configMapRef}</td></tr>
 				{#if test.spec.ttl}

@@ -6,7 +6,7 @@
 	import { page } from '$app/stores';
 	import { Sidebar } from '$components/layout';
 	import { NamespaceSelector } from '$components/common';
-	import { refresh } from '$stores';
+	import { crewDirectory, loadCrewDirectory, refresh } from '$stores';
 
 	// Pages where the crew selector doesn't apply. Discussions IS crew-scoped
 	// (threads carry a crew), so it shows the selector and filters by crew.
@@ -22,7 +22,6 @@
 
 	let { children }: Props = $props();
 
-	let crews = $state<Array<{ namespace: string; crew: string }>>([]);
 	let namespacesLoading = $state(true);
 	let version = $state('...');
 
@@ -41,15 +40,8 @@
 
 	onMount(async () => {
 		// Fetch crews (kubemoot.ai/crew-labeled namespaces) for the selector
-		try {
-			const res = await fetch(resolve('/api/namespaces'));
-			const data = await res.json();
-			crews = data.crews || [];
-		} catch {
-			crews = [];
-		} finally {
-			namespacesLoading = false;
-		}
+		await loadCrewDirectory(fetch, resolve('/api/namespaces'));
+		namespacesLoading = false;
 
 		// Fetch version
 		try {
@@ -69,7 +61,7 @@
 		<header class="topbar">
 			<div class="topbar-left">
 				{#if showNamespace()}
-					<NamespaceSelector {crews} loading={namespacesLoading} />
+					<NamespaceSelector crews={$crewDirectory} loading={namespacesLoading} />
 				{/if}
 			</div>
 			<div class="topbar-right">

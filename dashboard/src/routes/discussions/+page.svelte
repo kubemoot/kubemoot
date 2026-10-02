@@ -3,9 +3,10 @@
 	import { resolve } from '$app/paths';
 	import { marked } from 'marked';
 	import type { DiscussionMessage } from '$types/kubemoot.js';
-	import { threads, sortedThreads, discussionsConnected, historyLoaded, initDiscussions, addDiscussionMessage, removeThread, pinnedThreadIds, loadPinnedThreads, pinThread, unpinThread, showStandAsides, namespace, threadScope } from '$lib/stores';
+	import { crewDirectory, threads, sortedThreads, discussionsConnected, historyLoaded, initDiscussions, addDiscussionMessage, removeThread, pinnedThreadIds, loadPinnedThreads, pinThread, unpinThread, showStandAsides, namespace, threadScope } from '$lib/stores';
 	import type { Thread } from '$lib/stores';
 	import { discussSubject, tryCrewScope, type CrewScope } from '$lib/crewScope';
+	import { crewEntry, crewLabel, crewTooltip } from '$lib/crew-display-name';
 	import { DiscussionSpanGraph } from '$lib/components/discussions';
 	import { SYNTHESIS_COLLAPSE_CHARS, artifactKey, artifactHref } from '$lib/discussion-artifacts';
 	import { aggregateAgents, type AgentAgg } from '$lib/discussion-agent-summary';
@@ -22,16 +23,15 @@
 
 	let selectedThreadId = $state<string | null>(null);
 
-	// Crews (namespace+crew pairs) for the global top-bar "Crew:" selector. The
+	// $crewDirectory holds the crews (namespace, crew, display name) of the global
+	// top-bar "Crew:" selector, loaded by the root layout. The
 	// `namespace` store holds the selected crew NAMESPACE ('' = All crews). Threads
 	// carry the namespace from their subject, so the list filters by namespace and
 	// same-named crews in other namespaces stay out of view.
-	interface CrewNamespace { namespace: string; crew: string; }
-	let crews = $state<CrewNamespace[]>([]);
 	const selectedScope = $derived<CrewScope | null>(
 		$namespace === ''
 			? null
-			: tryCrewScope($namespace, crews.find((c) => c.namespace === $namespace)?.crew)
+			: tryCrewScope($namespace, crewEntry($crewDirectory, $namespace)?.crew)
 	);
 	const selectedCrew = $derived(selectedScope?.crew ?? null);
 	const visibleThreads = $derived(
@@ -530,7 +530,6 @@
 		loadChannels();
 		loadGpuLabels();
 		loadPinnedThreads();
-		fetch(resolve('/api/namespaces')).then(r => r.json()).then(d => { crews = Array.isArray(d.crews) ? d.crews : []; }).catch(() => {});
 		fetch(resolve('/api/version')).then(r => r.json()).then(d => { dashboardVersion = d.version || 'dev'; }).catch(() => {});
 		// Keyboard shortcuts for delete confirmation
 		window.addEventListener('keydown', handleGlobalKeydown);
@@ -592,7 +591,7 @@
 			{:else if visibleThreads.length === 0}
 				<div class="empty-state">
 					{#if selectedCrew}
-						No discussions for crew "{selectedCrew}". Pick "All crews" to see all.
+						No discussions for crew "{crewLabel($crewDirectory, $namespace, selectedCrew)}". Pick "All crews" to see all.
 					{:else}
 						No discussions yet. Click "+ New Discussion" to start one.
 					{/if}
@@ -607,7 +606,7 @@
 					>
 						<div class="thread-header">
 							{#if thread.crew}
-								<span class="crew-badge" title={thread.namespace ? `namespace ${thread.namespace}` : undefined}>{$namespace === '' && thread.namespace ? `${thread.namespace}/` : ''}{thread.crew}</span>
+								<span class="crew-badge" title={crewTooltip($crewDirectory, thread.namespace, thread.crew)}>{$namespace === '' && thread.namespace ? `${thread.namespace}/` : ''}{crewLabel($crewDirectory, thread.namespace, thread.crew)}</span>
 							{/if}
 							<span
 								class="channel-badge"
@@ -644,7 +643,7 @@
 			{#if selectedThread}
 				<div class="thread-detail-header">
 					{#if selectedThread.crew}
-						<span class="crew-badge">{selectedThread.crew}</span>
+						<span class="crew-badge" title={crewTooltip($crewDirectory, selectedThread.namespace, selectedThread.crew)}>{crewLabel($crewDirectory, selectedThread.namespace, selectedThread.crew)}</span>
 					{/if}
 					{#if selectedThread.crewVersion}
 						<span class="crew-version-badge" title="Crew chart version">v{selectedThread.crewVersion}</span>

@@ -1,7 +1,8 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { resolve } from '$app/paths';
-	import { namespace, refreshTrigger } from '$stores';
+	import { crewDirectory, namespace, refreshTrigger } from '$stores';
+	import { crewLabel, crewTooltip } from '$lib/crew-display-name';
 	import type { CrewFitness } from '$types/kubemoot.js';
 
 	let tests = $state<CrewFitness[]>([]);
@@ -89,8 +90,8 @@
 						</a>
 					</td>
 					<td>
-						<a href="{resolve('/crews/[name]', { name: test.spec.crewRef })}?namespace={test.metadata.namespace}" class="crew-link">
-							{test.spec.crewRef}
+						<a href="{resolve('/crews/[name]', { name: test.spec.crewRef })}?namespace={test.metadata.namespace}" class="crew-link" title={crewTooltip($crewDirectory, test.metadata.namespace, test.spec.crewRef)}>
+							{crewLabel($crewDirectory, test.metadata.namespace, test.spec.crewRef)}
 						</a>
 					</td>
 					<td class="mono">{test.spec.testRef}</td>

@@ -1,7 +1,8 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { resolve } from '$app/paths';
-	import { namespace } from '$stores';
+	import { crewDirectory, namespace } from '$stores';
+	import { crewLabel, crewTooltip } from '$lib/crew-display-name';
 	import { LiveList } from '$lib/client/liveList.svelte';
 	import type { CrewFitnessSuite } from '$types/kubemoot.js';
 	import { suiteDisplayPhase, suiteIsJudged } from '$lib/fitness-suite-controls';
@@ -151,8 +152,8 @@
 						{/if}
 					</td>
 					<td>
-						<a href="{resolve('/crews/[name]', { name: suite.spec.crewRef })}?namespace={ns}" class="crew-link">
-							{suite.spec.crewRef}
+						<a href="{resolve('/crews/[name]', { name: suite.spec.crewRef })}?namespace={ns}" class="crew-link" title={crewTooltip($crewDirectory, ns, suite.spec.crewRef)}>
+							{crewLabel($crewDirectory, ns, suite.spec.crewRef)}
 						</a>
 					</td>
 					<td class="mono">
