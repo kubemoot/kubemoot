@@ -16,6 +16,7 @@ import (
 
 	kubemootv1alpha1 "github.com/kubemoot/kubemoot/operator/api/v1alpha1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
 
@@ -156,7 +157,7 @@ func TestEvaluateServerQuality_TestedAvoidBlocks(t *testing.T) {
 	policy := &kubemootv1alpha1.MCPQualityPolicy{
 		ObjectMeta: metav1.ObjectMeta{Namespace: "ns"},
 		Spec: kubemootv1alpha1.MCPQualityPolicySpec{
-			Tested: &kubemootv1alpha1.TestedConfig{Enabled: true, BlockBroken: true},
+			Tested: &kubemootv1alpha1.TestedConfig{Enabled: true, BlockBroken: ptr.To(true)},
 		},
 	}
 	d := r.EvaluateServerQuality(context.Background(), policy, MCPServerMetadata{Name: "broken-mcp"})

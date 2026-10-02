@@ -24,10 +24,11 @@ import (
 // DiscussionConfig configures the crew's discussion gateway — the HTTP entry
 // point for external clients to start discussions and stream agent signals.
 type DiscussionConfig struct {
-	// Enabled controls whether a discussion gateway is deployed for this crew
+	// Enabled controls whether a discussion gateway is deployed for this crew.
+	// Unset means enabled.
 	// +kubebuilder:default=true
 	// +optional
-	Enabled bool `json:"enabled,omitempty"`
+	Enabled *bool `json:"enabled,omitempty"`
 
 	// Resources defines resource requirements for the gateway pod
 	// +optional

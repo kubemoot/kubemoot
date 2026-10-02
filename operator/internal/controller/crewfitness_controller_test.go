@@ -25,6 +25,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	aiv1alpha1 "github.com/kubemoot/kubemoot/operator/api/v1alpha1"
@@ -54,7 +55,7 @@ var _ = Describe("CrewFitness Controller", func() {
 			},
 			Spec: aiv1alpha1.CrewSpec{
 				Description: "crew for fitness test",
-				Discussion:  &aiv1alpha1.DiscussionConfig{Enabled: true},
+				Discussion:  &aiv1alpha1.DiscussionConfig{Enabled: ptr.To(true)},
 			},
 		}
 		err := k8sClient.Create(ctx, crew)
@@ -266,7 +267,7 @@ ASSERT(response CONTAINS "ok")`,
 				ObjectMeta: metav1.ObjectMeta{Name: crewName, Namespace: namespace},
 				Spec: aiv1alpha1.CrewSpec{
 					Description: "crew with no endpoint yet",
-					Discussion:  &aiv1alpha1.DiscussionConfig{Enabled: true},
+					Discussion:  &aiv1alpha1.DiscussionConfig{Enabled: ptr.To(true)},
 				},
 			}
 			err := k8sClient.Create(ctx, crew)

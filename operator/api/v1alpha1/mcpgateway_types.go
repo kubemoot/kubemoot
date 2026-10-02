@@ -63,10 +63,10 @@ type MCPGatewaySpec struct {
 	// +optional
 	Auth *MCPGatewayAuth `json:"auth,omitempty"`
 
-	// AdminUI enables the gateway admin interface
+	// AdminUI enables the gateway admin interface. Unset means enabled.
 	// +kubebuilder:default=true
 	// +optional
-	AdminUI bool `json:"adminUI,omitempty"`
+	AdminUI *bool `json:"adminUI,omitempty"`
 
 	// Resources defines resource requirements for the gateway
 	// +optional

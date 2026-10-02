@@ -135,8 +135,7 @@ func (r *ModelReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 
 	// Add finalizer if not present
 	if !controllerutil.ContainsFinalizer(model, modelFinalizer) {
-		controllerutil.AddFinalizer(model, modelFinalizer)
-		if err := r.Update(ctx, model); err != nil {
+		if err := addFinalizer(ctx, r.Client, model, modelFinalizer); err != nil {
 			return ctrl.Result{}, err
 		}
 		return ctrl.Result{Requeue: true}, nil
@@ -331,8 +330,7 @@ func (r *ModelReconciler) handleDeletion(ctx context.Context, model *aiv1alpha1.
 	}
 
 	// Remove finalizer
-	controllerutil.RemoveFinalizer(model, modelFinalizer)
-	if err := r.Update(ctx, model); err != nil {
+	if err := removeFinalizer(ctx, r.Client, model, modelFinalizer); err != nil {
 		return ctrl.Result{}, err
 	}
 

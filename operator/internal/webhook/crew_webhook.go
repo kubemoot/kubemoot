@@ -66,7 +66,7 @@ func validateCrew(crew *aiv1alpha1.Crew) (admission.Warnings, error) {
 	}
 
 	var warnings admission.Warnings
-	if crew.Spec.Discussion != nil && crew.Spec.Discussion.Enabled {
+	if crew.Spec.Discussion != nil && crew.Spec.Discussion.IsEnabled() {
 		hasCoordinator := false
 		// Check labels for coordinator hint — but since we can't query agents here,
 		// just warn about the common pitfall

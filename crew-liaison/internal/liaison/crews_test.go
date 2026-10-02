@@ -7,6 +7,7 @@ import (
 	kubemootv1alpha1 "github.com/kubemoot/kubemoot/operator/api/v1alpha1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
 
@@ -25,8 +26,8 @@ func TestK8sListerFiltersGatewayless(t *testing.T) {
 	}
 	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(
 		crew("hello", "hello", nil, true),
-		crew("pilot", "pilot", &kubemootv1alpha1.DiscussionConfig{Enabled: true}, false),
-		crew("silent", "silent", &kubemootv1alpha1.DiscussionConfig{Enabled: false}, true),
+		crew("pilot", "pilot", &kubemootv1alpha1.DiscussionConfig{Enabled: ptr.To(true)}, false),
+		crew("silent", "silent", &kubemootv1alpha1.DiscussionConfig{Enabled: ptr.To(false)}, true),
 	).Build()
 
 	crews, err := NewLister(c).List(context.Background())

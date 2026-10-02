@@ -98,7 +98,7 @@ func TestFindCrewGateway(t *testing.T) {
 		}
 	}
 
-	t.Run("no gateway → ok=false", func(t *testing.T) {
+	t.Run("no gateway gives ok=false", func(t *testing.T) {
 		cli := fake.NewClientBuilder().WithScheme(scheme).Build()
 		r := &AgentReconciler{Client: cli}
 		name, port, ok := r.findCrewGateway(context.Background(), "crew-x")
@@ -137,6 +137,32 @@ func TestFindCrewGateway(t *testing.T) {
 		name, _, ok := r.findCrewGateway(context.Background(), "crew-y")
 		if !ok || name != "y-gateway" {
 			t.Errorf("expected y-gateway in namespace crew-y; got %q ok=%v", name, ok)
+		}
+	})
+
+	t.Run("several gateways: first by name, terminating skipped", func(t *testing.T) {
+		dying := mkGw("crew-x", "a-gateway", 8080)
+		now := metav1.Now()
+		dying.DeletionTimestamp = &now
+		dying.Finalizers = []string{mcpGatewayFinalizer}
+		cli := fake.NewClientBuilder().WithScheme(scheme).
+			WithObjects(mkGw("crew-x", "c-gateway", 8080), dying, mkGw("crew-x", "b-gateway", 9090)).Build()
+		r := &AgentReconciler{Client: cli}
+		name, port, ok := r.findCrewGateway(context.Background(), "crew-x")
+		if !ok || name != "b-gateway" || port != 9090 {
+			t.Errorf("got name=%q port=%d ok=%v; want b-gateway/9090/true", name, port, ok)
+		}
+	})
+
+	t.Run("only a terminating gateway gives ok=false", func(t *testing.T) {
+		dying := mkGw("crew-x", "x-gateway", 8080)
+		now := metav1.Now()
+		dying.DeletionTimestamp = &now
+		dying.Finalizers = []string{mcpGatewayFinalizer}
+		cli := fake.NewClientBuilder().WithScheme(scheme).WithObjects(dying).Build()
+		r := &AgentReconciler{Client: cli}
+		if name, _, ok := r.findCrewGateway(context.Background(), "crew-x"); ok {
+			t.Errorf("a terminating gateway must not be wired; got %q", name)
 		}
 	})
 }

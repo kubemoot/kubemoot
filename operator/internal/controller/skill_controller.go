@@ -75,16 +75,14 @@ func (r *SkillReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 
 	if !skill.DeletionTimestamp.IsZero() {
 		r.handleSkillDeletion(ctx, skill, crewName)
-		controllerutil.RemoveFinalizer(skill, skillFinalizer)
-		if err := r.Update(ctx, skill); err != nil {
+		if err := removeFinalizer(ctx, r.Client, skill, skillFinalizer); err != nil {
 			return ctrl.Result{}, client.IgnoreNotFound(err)
 		}
 		return ctrl.Result{}, nil
 	}
 
 	if !controllerutil.ContainsFinalizer(skill, skillFinalizer) {
-		controllerutil.AddFinalizer(skill, skillFinalizer)
-		if err := r.Update(ctx, skill); err != nil {
+		if err := addFinalizer(ctx, r.Client, skill, skillFinalizer); err != nil {
 			return ctrl.Result{}, err
 		}
 		return ctrl.Result{Requeue: true}, nil

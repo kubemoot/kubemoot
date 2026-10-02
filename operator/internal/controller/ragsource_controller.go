@@ -86,8 +86,7 @@ func (r *RAGSourceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 
 	// Add finalizer if not present
 	if !controllerutil.ContainsFinalizer(ragSource, ragSourceFinalizer) {
-		controllerutil.AddFinalizer(ragSource, ragSourceFinalizer)
-		if err := r.Update(ctx, ragSource); err != nil {
+		if err := addFinalizer(ctx, r.Client, ragSource, ragSourceFinalizer); err != nil {
 			return ctrl.Result{}, err
 		}
 		return ctrl.Result{Requeue: true}, nil
@@ -1205,8 +1204,7 @@ func (r *RAGSourceReconciler) handleDeletion(ctx context.Context, ragSource *kub
 	// That's the responsibility of the admin
 
 	// Remove finalizer
-	controllerutil.RemoveFinalizer(ragSource, ragSourceFinalizer)
-	if err := r.Update(ctx, ragSource); err != nil {
+	if err := removeFinalizer(ctx, r.Client, ragSource, ragSourceFinalizer); err != nil {
 		return ctrl.Result{}, err
 	}
 

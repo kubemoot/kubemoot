@@ -61,7 +61,8 @@ spec:
             properties:
               adminUI:
                 default: true
-                description: AdminUI enables the gateway admin interface
+                description: AdminUI enables the gateway admin interface. Unset means
+                  enabled.
                 type: boolean
               auth:
                 description: Auth configures authentication for the gateway

@@ -103,15 +103,17 @@ type TestedConfig struct {
 	// +optional
 	MinSuccessRate string `json:"minSuccessRate,omitempty"`
 
-	// BlockBroken automatically blocks servers with "avoid" verdict
+	// BlockBroken automatically blocks servers with "avoid" verdict.
+	// Unset means true.
 	// +kubebuilder:default=true
 	// +optional
-	BlockBroken bool `json:"blockBroken,omitempty"`
+	BlockBroken *bool `json:"blockBroken,omitempty"`
 
-	// PreferTested gives priority to servers with successful test history
+	// PreferTested gives priority to servers with successful test history.
+	// Unset means true.
 	// +kubebuilder:default=true
 	// +optional
-	PreferTested bool `json:"preferTested,omitempty"`
+	PreferTested *bool `json:"preferTested,omitempty"`
 }
 
 // MCPQualityPolicySpec defines the desired state of MCPQualityPolicy

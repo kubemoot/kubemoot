@@ -103,8 +103,7 @@ func (r *MCPGatewayReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 
 	// Add finalizer if not present
 	if !controllerutil.ContainsFinalizer(gateway, mcpGatewayFinalizer) {
-		controllerutil.AddFinalizer(gateway, mcpGatewayFinalizer)
-		if err := r.Update(ctx, gateway); err != nil {
+		if err := addFinalizer(ctx, r.Client, gateway, mcpGatewayFinalizer); err != nil {
 			return ctrl.Result{}, err
 		}
 		return ctrl.Result{Requeue: true}, nil
@@ -396,7 +395,7 @@ func (r *MCPGatewayReconciler) gatewayImplDefaults(gateway *kubemootv1alpha1.MCP
 		env := []corev1.EnvVar{
 			{Name: "HOST", Value: "0.0.0.0"},
 			{Name: "PORT", Value: fmt.Sprintf("%d", defaultContextForgePort)},
-			{Name: "MCPGATEWAY_UI_ENABLED", Value: fmt.Sprintf("%t", gateway.Spec.AdminUI)},
+			{Name: "MCPGATEWAY_UI_ENABLED", Value: fmt.Sprintf("%t", gateway.Spec.AdminUIEnabled())},
 			{Name: "MCPGATEWAY_ADMIN_API_ENABLED", Value: "true"},
 		}
 		databaseURL := "sqlite:///./mcp.db"
@@ -796,7 +795,7 @@ func (r *MCPGatewayReconciler) syncMCPServerRegistrations(ctx context.Context, g
 	for i := range mcpServers {
 		mcp := &mcpServers[i]
 		// Skip if registry is explicitly disabled
-		if mcp.Spec.Registry != nil && mcp.Spec.Registry.Enabled != nil && !*mcp.Spec.Registry.Enabled {
+		if mcp.Spec.Registry != nil && !kubemootv1alpha1.BoolOrTrue(mcp.Spec.Registry.Enabled) {
 			continue
 		}
 		currentServers[mcp.Name] = mcp
@@ -1130,8 +1129,7 @@ func (r *MCPGatewayReconciler) handleDeletion(ctx context.Context, gateway *kube
 	// Deployment and Service will be garbage collected via owner references
 
 	// Remove finalizer
-	controllerutil.RemoveFinalizer(gateway, mcpGatewayFinalizer)
-	if err := r.Update(ctx, gateway); err != nil {
+	if err := removeFinalizer(ctx, r.Client, gateway, mcpGatewayFinalizer); err != nil {
 		return ctrl.Result{}, err
 	}
 
@@ -1163,7 +1161,7 @@ func (r *MCPGatewayReconciler) updateStatusFromDeployment(ctx context.Context, g
 	// Build endpoints
 	endpoint := fmt.Sprintf("http://%s.%s.svc:%d", gateway.Name, gateway.Namespace, port)
 	adminEndpoint := ""
-	if gateway.Spec.AdminUI {
+	if gateway.Spec.AdminUIEnabled() {
 		adminEndpoint = fmt.Sprintf("http://%s.%s.svc:%d/admin", gateway.Name, gateway.Namespace, port)
 	}
 
@@ -1836,7 +1834,7 @@ func (r *MCPGatewayReconciler) evaluateTestedTierForMetadata(ctx context.Context
 
 	tested := policy.Spec.Tested
 
-	if tested.BlockBroken && report.Status.Verdict == string(kubemootv1alpha1.VerdictAvoid) {
+	if tested.BlockBrokenEnabled() && report.Status.Verdict == string(kubemootv1alpha1.VerdictAvoid) {
 		log.Info("Blocking server with avoid verdict", "server", server.Name)
 		return PolicyDecision{
 			Action:     "deny",

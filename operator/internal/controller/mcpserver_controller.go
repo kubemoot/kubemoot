@@ -124,8 +124,7 @@ func (r *MCPServerReconciler) ensureFinalizer(ctx context.Context, mcpServer *ku
 	if controllerutil.ContainsFinalizer(mcpServer, mcpServerFinalizer) {
 		return false, ctrl.Result{}, nil
 	}
-	controllerutil.AddFinalizer(mcpServer, mcpServerFinalizer)
-	if err := r.Update(ctx, mcpServer); err != nil {
+	if err := addFinalizer(ctx, r.Client, mcpServer, mcpServerFinalizer); err != nil {
 		return false, ctrl.Result{}, err
 	}
 	return true, ctrl.Result{Requeue: true}, nil
@@ -144,10 +143,7 @@ func shouldCreateMCPServerService(mcpServer *kubemootv1alpha1.MCPServer) bool {
 // mcpServerProxyEnabled reports whether proxy injection is enabled for the
 // MCPServer (default: true when unspecified).
 func mcpServerProxyEnabled(mcpServer *kubemootv1alpha1.MCPServer) bool {
-	if mcpServer.Spec.ProxyInjection != nil && mcpServer.Spec.ProxyInjection.Enabled != nil {
-		return *mcpServer.Spec.ProxyInjection.Enabled
-	}
-	return true
+	return mcpServer.Spec.ProxyInjection == nil || kubemootv1alpha1.BoolOrTrue(mcpServer.Spec.ProxyInjection.Enabled)
 }
 
 // mcpServerProxyPort returns the bridge/proxy port for the MCPServer, defaulting
@@ -865,8 +861,7 @@ func (r *MCPServerReconciler) handleDeletion(ctx context.Context, mcpServer *kub
 	// Deployment and Service will be garbage collected via owner references
 
 	// Remove finalizer
-	controllerutil.RemoveFinalizer(mcpServer, mcpServerFinalizer)
-	if err := r.Update(ctx, mcpServer); err != nil {
+	if err := removeFinalizer(ctx, r.Client, mcpServer, mcpServerFinalizer); err != nil {
 		return ctrl.Result{}, err
 	}
 
@@ -884,7 +879,7 @@ func (r *MCPServerReconciler) updateStatusFromDeployment(ctx context.Context, mc
 		if mcpServer.Status.Phase != "Ready" {
 			r.recordDeploymentTrial(ctx, mcpServer, true, message)
 		}
-		if mcpServer.Spec.Registry != nil && (mcpServer.Spec.Registry.Enabled == nil || *mcpServer.Spec.Registry.Enabled) {
+		if mcpServer.Spec.Registry != nil && kubemootv1alpha1.BoolOrTrue(mcpServer.Spec.Registry.Enabled) {
 			if err := r.ensureToolIndexed(ctx, mcpServer); err != nil {
 				log.Error(err, "Failed to ensure tool indexing", "mcpServer", mcpServer.Name)
 			}
