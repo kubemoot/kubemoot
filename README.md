@@ -93,13 +93,13 @@ own cluster with a GPU-backed model provider, see
   scheduling of reminders and follow-ups, and consensus internals.
 - [Questions](docs/introduction/faq.md) and [Roadmap](docs/introduction/roadmap.md):
   the short answers, and the major directions.
-- [Community](docs/community/) - contributing, governance, code of conduct, security, and releases.
+- [Community](https://kubemoot.org/docs/community/) - contributing, governance, code of conduct, security, and releases.
 
 ## Ecosystem
 
 Kubemoot is the operator at the center of a small ecosystem: [Homelab
 Pilot](docs/ecosystem/pilot.md) is the reference crew, [`kmctl`](docs/ecosystem/kmctl.md) is the CLI,
-[CrewForge](docs/ecosystem/crewforge.md) is the VS Code extension for browsing crews and
+[CrewForge](https://kubemoot.org/docs/ecosystem/crewforge/) is the VS Code extension for browsing crews and
 talking to them from the editor, and [crews](docs/ecosystem/crews.md) covers other
 packaged crews. See [docs/ecosystem/](docs/ecosystem/) for the full picture.
 

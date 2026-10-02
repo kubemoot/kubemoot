@@ -47,7 +47,7 @@ accounts. Grant create access to them as you would grant it for `Pod`.
 
 The operator chart can deploy internal MCP servers (`internalAgents.enabled`). When
 enabled, they run behind the `kubemoot-mcpserver-creator` `ClusterRole`, which creates and
-updates Kubemoot `mcpservers`, `ragsources`, `agents`, and `agentpolicies` cluster-wide and
+updates Kubemoot `mcpservers`, `ragsources`, and `agents` cluster-wide and
 reads pods, namespaces, services, ConfigMaps, workloads, and jobs. Inspect the rendered role
 (`kubectl get clusterrole kubemoot-mcpserver-creator -o yaml`) and remove any rule that
 grants `secrets` before you rely on it. Check the chart's `values.yaml` for the current
