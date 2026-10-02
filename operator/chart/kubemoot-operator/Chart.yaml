@@ -2,8 +2,8 @@ apiVersion: v2
 name: kubemoot-operator
 description: Kubernetes operator and runtime for multi-agent AI consensus
 type: application
-version: 0.92.583-rc.27
-appVersion: "0.345.0-rc.72"
+version: 0.92.584-rc.0
+appVersion: "0.346.0-rc.12"
 keywords:
   - ai
   - ml
