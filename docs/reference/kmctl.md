@@ -26,13 +26,13 @@ These flags apply to every command:
 |---|---|---|---|
 | `--kubeconfig` | | `~/.kube/config` | Path to the kubeconfig file |
 | `--context` | | current context | Kubeconfig context to use |
-| `--namespace` | `-n` | `default` | Kubernetes namespace |
-| `--all-namespaces` | `-A` | false | List resources across all namespaces |
-| `--output` | `-o` | `table` | Output format: `table`, `yaml`, `json` |
+| `--namespace` | `-n` | kubeconfig context namespace, else `default` | Kubernetes namespace |
 | `--cluster` | | | Kubeconfig cluster override |
 | `--user` | | | Kubeconfig user override |
 | `--as` | | | Username to impersonate |
 | `--help` | `-h` | | Show help for the command |
+
+`-A` (`--all-namespaces`) and `-o` (`--output`) are not global. They belong to the commands that list or print resources, and their meaning varies by command (for example, `-o` is a directory for `kmctl create` and a file for `kmctl fitness download`).
 
 ---
 
@@ -174,7 +174,7 @@ and the layout its Crew Sources view expects a chart source to have.
 | `--members N` | | Specialists beside the coordinator, 1 to 5 (default: prompted interactively). Size 1 is `workloads`; each larger size adds the next of `events`, `networking`, `config`, and `reviewer` |
 | `--providers a,b` | | Comma-separated list of ollama provider names to target |
 | `--model-family` | | Model family hint, e.g. `qwen` |
-| `--no-input` | | Disable interactive prompts; all required inputs must come from flags |
+| `--no-input` | | Never prompt; inputs not given as flags take their defaults |
 | `--output DIR` | `-o` | Directory to write scaffold output (default: `.`) |
 | `--context` | | Kubeconfig context used to discover model providers (a global `kmctl` flag) |
 | `--chart` | | Lay the crew out as a Helm chart (`Chart.yaml`, `templates/`, `fitness/`) instead of loose manifests |
@@ -642,8 +642,10 @@ kmctl fitness download <suite> [-n <namespace>] [-o FILE]
 ```
 
 Inspect and run `CrewFitnessSuite` resources. `kmctl fitness run` polls to
-`phase=Completed`, which the operator sets only after the deferred judge pass
-completes. That phase is the single completion gate.
+`phase=Completed`, which the operator sets when every iteration has run. Quality
+scores land after the deferred judge pass finishes; `kmctl fitness get` shows
+them once they are in. Phase reflects execution, not test outcome: a suite whose
+iterations failed their assertions still reaches `Completed`.
 
 ### kmctl fitness list
 
@@ -705,7 +707,17 @@ kmctl fitness run <suite> [-n <namespace>] [--scenario <name>] [--timeout <durat
 ```
 
 Run a suite and wait for completion. Polls progress and prints it as the run
-proceeds. Exits 0 when the run passes, non-zero on failure or timeout.
+proceeds. The command returns when the suite reaches a terminal phase
+(`Completed`, `Failed`, or `Error`) and exits 0 in each case. A non-zero exit
+means the wait timed out or the Kubernetes API returned an error; the exit code
+does not reflect scenario results, so read `kmctl fitness get` for outcomes.
+
+`Completed` means every iteration ran. The deferred judge pass runs afterwards.
+Until it finishes, `kmctl fitness download` serves a provisional workbook whose
+quality scores are 0; once judging completes, the operator rewrites the workbook
+with the final scores. Wait for the scores in `kmctl fitness get` before
+treating a downloaded workbook as final. An iteration Job that fails is retried
+twice before the iteration is recorded as failed.
 
 To run a single scenario in isolation, pass `--scenario`. This creates a single
 `CrewFitness` for that scenario rather than running the full suite.
@@ -745,13 +757,13 @@ Download the XLSX artifact for a completed suite. The command fetches the artifa
 from the dashboard's artifact endpoint through the Kubernetes API server's service
 proxy, using your kubeconfig credentials. No extra port-forwarding is required.
 
-The suite must have reached `phase=Completed` before the artifact is available.
+The suite must have reached `phase=Completed` before the artifact is available. A workbook downloaded before the judge pass finishes is provisional and carries quality 0.
 
 | Flag | Short | Default | Description |
 |---|---|---|---|
 | `-o FILE` | `-o` | `<suite>.xlsx` | File path to write the downloaded XLSX |
 | `--dashboard-namespace` | | `kubemoot` | Namespace where the Kubemoot dashboard is running |
-| `--dashboard-service` | | `kubemoot-dashboard` | Service name of the Kubemoot dashboard |
+| `--dashboard-service` | | empty | Service name of the Kubemoot dashboard; when empty, the Service is discovered by label in `--dashboard-namespace` |
 
 **Example:**
 
@@ -774,7 +786,6 @@ apply it with `kmctl fitness run -f FILE` or `kubectl apply`, then use `kmctl fi
 ### Still planned in kmctl fitness
 
 A per-scenario score breakdown in `kmctl fitness get` is planned but not yet shipped.
-`kmctl fitness run -f FILE` applies a CrewFitnessSuite manifest and runs it.
 
 ---
 

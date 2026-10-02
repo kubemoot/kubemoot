@@ -180,7 +180,7 @@ kmctl fitness get baseline-rejudged -n crew-homelab-pilot
 kmctl fitness download baseline-rejudged -n crew-homelab-pilot      # once judging has finished
 ```
 
-A re-judge suite reaches `Completed` as soon as its transcripts are copied, before the judge pass finishes, so `kmctl fitness run` returns early; watch "judging X/Y" on the dashboard Fitness page for the scores. Do not pass `--scenario` for a re-judge suite: it creates a live `CrewFitness` that asks the crew the question.
+Any suite, re-judge or not, reaches `Completed` before its judge pass finishes, so `kmctl fitness run` returns before the scores exist. A re-judge suite reaches `Completed` as soon as its transcripts are copied. Until judging ends, the XLSX served is provisional with quality 0; the operator rewrites it with the final scores. Watch "judging X/Y" on the dashboard Fitness page for the scores. Do not pass `--scenario` for a re-judge suite: it creates a live `CrewFitness` that asks the crew the question.
 
 ## Deleting a suite
 
