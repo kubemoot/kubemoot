@@ -1,0 +1,26 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Report a security vulnerability
+    url: "https://kubemoot.org/docs/community/security/"
+    about: Do not open a public issue. Use private vulnerability reporting, described on this page.
+  - name: Ask a question or get support
+    url: "https://github.com/orgs/kubemoot/discussions/categories/q-a"
+    about: "How do I, why does, is this expected? Ask in Discussions Q&A."
+  - name: Ask a question about governance
+    url: "https://kubemoot.org/docs/community/governance/"
+    about: "How decisions are made and how to take part: read the Community governance page."
+  - name: Report a kmctl bug
+    url: "https://github.com/kubemoot/kmctl/issues/new/choose"
+    about: "A kmctl command misbehaves? File it in kubemoot/kmctl."
+  - name: Report a CrewForge bug
+    url: "https://github.com/kubemoot/vscode-crewforge/issues/new/choose"
+    about: "The CrewForge VS Code extension misbehaves? File it in kubemoot/vscode-crewforge."
+  - name: Report a crew problem
+    url: "https://github.com/kubemoot/crews/issues/new/choose"
+    about: "A crew answers badly, or a crew chart is wrong? File it in kubemoot/crews."
+  - name: Report a docs or website problem
+    url: "https://github.com/kubemoot/kubemoot-docs/issues/new/choose"
+    about: "A docs page is wrong or missing, or the website has a broken link or layout? File it in kubemoot/kubemoot-docs."
+  - name: Report a release-actions bug
+    url: "https://github.com/kubemoot/release-actions/issues/new/choose"
+    about: "A shared GitHub Action (setup, release-candidate-version) fails? File it in kubemoot/release-actions."

@@ -1,0 +1,113 @@
+name: Bug report
+description: Something in Kubemoot is broken.
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: "This repository covers the Kubemoot operator, agent runtime, dashboard, MCP bridge and gateway, crew liaison, fitness runner, and quickstart. A kmctl, CrewForge, crew chart, or docs problem belongs in [another repository, found through the issue chooser](https://github.com/kubemoot/kubemoot/issues/new/choose) listed in the chooser; questions go to [Discussions](https://github.com/orgs/kubemoot/discussions/categories/q-a)."
+  - type: checkboxes
+    id: searched
+    attributes:
+      label: Before you file
+      options:
+        - label: I searched existing issues and did not find this one
+          required: true
+  - type: dropdown
+    id: component
+    attributes:
+      label: Component
+      description: Pick the closest match.
+      options:
+        - Operator
+        - Agent runtime
+        - Dashboard
+        - MCP bridge
+        - MCP gateway
+        - Crew liaison
+        - Fitness runner
+        - Not sure
+    validations:
+      required: true
+  - type: input
+    id: operator-version
+    attributes:
+      label: Operator chart version
+      placeholder: "The operator chart version from `helm list -A`"
+    validations:
+      required: true
+  - type: dropdown
+    id: install-method
+    attributes:
+      label: How it was installed
+      options:
+        - Quickstart script
+        - Helm
+        - Flux
+        - Argo CD
+        - Other GitOps tool
+        - Other
+    validations:
+      required: true
+  - type: input
+    id: kubernetes
+    attributes:
+      label: Kubernetes distribution and version
+      placeholder: "Distribution name, and the server version from `kubectl version`"
+    validations:
+      required: true
+  - type: input
+    id: node-os
+    attributes:
+      label: Node OS and architecture
+      placeholder: "For example Talos, Ubuntu, or Bottlerocket on amd64 or arm64; `kubectl get nodes -o wide` shows it"
+    validations:
+      required: true
+  - type: input
+    id: model-provider
+    attributes:
+      label: Model provider and models
+      description: Leave blank if the bug has nothing to do with inference.
+      placeholder: For example Ollama serving the models you use
+    validations:
+      required: false
+  - type: input
+    id: gpu
+    attributes:
+      label: GPU
+      placeholder: GPU model and memory, or CPU only
+    validations:
+      required: false
+  - type: textarea
+    id: happened
+    attributes:
+      label: What happened
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Minimal reproduction
+      description: The smallest crew or set of manifests that shows it, plus the steps. Remove secrets first.
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs
+      description: "For example `kubectl logs` from the operator or the affected agent pod."
+      render: shell
+    validations:
+      required: false
+  - type: textarea
+    id: context
+    attributes:
+      label: Anything else
+    validations:
+      required: false

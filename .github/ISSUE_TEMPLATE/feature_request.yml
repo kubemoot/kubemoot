@@ -1,0 +1,61 @@
+name: Feature request
+description: Something you want that does not exist yet.
+labels:
+  - enhancement
+body:
+  - type: markdown
+    attributes:
+      value: "This repository covers the Kubemoot operator, agent runtime, dashboard, MCP bridge and gateway, crew liaison, fitness runner, and quickstart. Ideas for kmctl, CrewForge, crews, or the docs belong in [another repository, found through the issue chooser](https://github.com/kubemoot/kubemoot/issues/new/choose); open-ended ideas can start in [Discussions](https://github.com/orgs/kubemoot/discussions/categories/ideas)."
+  - type: checkboxes
+    id: searched
+    attributes:
+      label: Before you file
+      options:
+        - label: I searched existing issues and discussions and did not find this one
+          required: true
+  - type: dropdown
+    id: component
+    attributes:
+      label: Component
+      options:
+        - Operator
+        - Agent runtime
+        - Dashboard
+        - MCP bridge
+        - MCP gateway
+        - Crew liaison
+        - Fitness runner
+        - Not sure
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: Describe the situation you are in, not only the feature you have in mind.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What you would like to see
+      description: "A rough shape is fine; this does not need to be a full design."
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Anything else you tried, or why no workaround exists.
+    validations:
+      required: false
+  - type: dropdown
+    id: contribute
+    attributes:
+      label: "Would you be open to contributing this?"
+      options:
+        - "Yes"
+        - Maybe
+        - "No"
+    validations:
+      required: false
