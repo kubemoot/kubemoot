@@ -9,4 +9,4 @@ and do not resolve. The rendered site has working navigation, search, and links,
 there.
 
 To fix or extend a page, edit the Markdown in this folder and open a pull request. The
-contribution guide is at https://kubemoot.org/docs/contributing/.
+contribution guide is at https://kubemoot.org/docs/community/contributing/.
