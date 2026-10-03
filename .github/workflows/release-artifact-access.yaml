@@ -23,6 +23,9 @@ env:
   REGISTRY: ${{ vars.REGISTRY }}
   IMAGE_NAME: kubemoot/artifact-access
 
+permissions:
+  contents: read
+
 jobs:
   ci:
     uses: ./.github/workflows/ci-artifact-access.yaml

@@ -23,6 +23,9 @@ env:
   REGISTRY: ${{ vars.REGISTRY }}
   IMAGE_NAME: kubemoot/query-service
 
+permissions:
+  contents: read
+
 jobs:
   ci:
     uses: ./.github/workflows/ci-query-service.yaml

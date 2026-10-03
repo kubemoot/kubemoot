@@ -19,6 +19,9 @@ on:
       - "docs/**"
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   rebuild:
     runs-on: homelab-runners

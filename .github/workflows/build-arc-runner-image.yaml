@@ -18,6 +18,9 @@ env:
   IMAGE_NAME: kubemoot/actions-runner
   RUNNER_TAG: 2.337.0-homelab
 
+permissions:
+  contents: read
+
 jobs:
   build:
     runs-on: homelab-runners

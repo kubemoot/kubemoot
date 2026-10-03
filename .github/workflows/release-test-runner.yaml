@@ -24,6 +24,9 @@ env:
   REGISTRY: ${{ vars.REGISTRY }}
   IMAGE_NAME: kubemoot/test-runner
 
+permissions:
+  contents: read
+
 jobs:
   build:
     runs-on: homelab-runners

@@ -25,6 +25,9 @@ env:
   REGISTRY: ${{ vars.REGISTRY }}
   IMAGE_NAME: kubemoot/fitness-runner
 
+permissions:
+  contents: read
+
 jobs:
   ci:
     uses: ./.github/workflows/ci-fitness-runner.yaml

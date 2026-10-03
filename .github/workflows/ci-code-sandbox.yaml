@@ -13,6 +13,9 @@ env:
   REGISTRY: ${{ vars.REGISTRY }}
   IMAGE_NAME: kubemoot/code-sandbox
 
+permissions:
+  contents: read
+
 jobs:
   test:
     # Pull requests (including forks) run on GitHub-hosted runners; the self-hosted

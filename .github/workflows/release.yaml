@@ -32,12 +32,15 @@ env:
   IMAGE_NAME: kubemoot/kubemoot-operator
   CHART_NAME: kubemoot/charts
 
+permissions:
+  contents: read
+
 jobs:
   ci:
     uses: ./.github/workflows/ci.yaml
     secrets: inherit
     permissions:
-      contents: write   # required: ci.yaml's test job auto-commits regenerated CRDs
+      contents: write   # required: ci.yaml's regenerate job auto-commits regenerated CRDs
 
   release:
     needs: ci

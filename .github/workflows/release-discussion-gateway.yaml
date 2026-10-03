@@ -23,6 +23,9 @@ env:
   REGISTRY: ${{ vars.REGISTRY }}
   IMAGE_NAME: kubemoot/discussion-gateway
 
+permissions:
+  contents: read
+
 jobs:
   ci:
     uses: ./.github/workflows/ci-discussion-gateway.yaml

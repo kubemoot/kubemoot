@@ -16,13 +16,14 @@ env:
   REGISTRY: ${{ vars.REGISTRY }}
   IMAGE_NAME: kubemoot/kubemoot-operator
 
+permissions:
+  contents: read
+
 jobs:
   test:
     # Pull requests (including forks) run on GitHub-hosted runners; the self-hosted
     # cluster runners take push, dispatch, and workflow_call runs from main only.
     runs-on: ${{ github.event_name == 'pull_request' && 'ubuntu-latest' || 'homelab-runners' }}
-    permissions:
-      contents: write   # needed by the regen auto-commit step below
 
     steps:
       - name: Checkout repository
@@ -47,9 +48,10 @@ jobs:
       # chain (see operator/Makefile:112). That regenerates
       # config/crd/bases/*.yaml and zz_generated.deepcopy.go in the runner's
       # working tree. The CRDs also need to live in chart/kubemoot-operator/crds/ for Helm to
-      # install them; sync that here so the chart packaged by release.yaml
-      # always carries the latest CRDs.
+      # install them; sync that here so the PR check below compares the chart
+      # copy too. On push, the regenerate job does the same sync and commits it.
       - name: Sync regenerated CRDs into chart/kubemoot-operator/crds/
+        if: github.event_name == 'pull_request'
         working-directory: operator
         run: |
           mkdir -p chart/kubemoot-operator/crds
@@ -73,11 +75,41 @@ jobs:
           git diff --stat -- operator/config/crd/bases/ operator/chart/kubemoot-operator/crds/ operator/api/v1alpha1/zz_generated.deepcopy.go
           exit 1
 
-      # On push to main (via release.yaml's workflow_call) or workflow_dispatch,
-      # auto-commit any drift in regenerated artifacts. Mirrors the chart-bump
-      # commit pattern in release.yaml. [skip ci] prevents a recursive trigger.
-      - name: Auto-commit regenerated artifacts (push/workflow_call only)
-        if: github.event_name != 'pull_request'
+  # On push to main (via release.yaml's workflow_call) or workflow_dispatch,
+  # auto-commit any drift in regenerated artifacts. Mirrors the chart-bump
+  # commit pattern in release.yaml. [skip ci] prevents a recursive trigger.
+  # A separate job so only this push path holds contents: write; pull request
+  # runs of the test job stay read-only.
+  regenerate:
+    needs: test
+    if: github.event_name != 'pull_request'
+    runs-on: homelab-runners
+    permissions:
+      contents: write   # pushes the regenerated-artifact commit to main
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Install build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y make
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: '1.27'
+          cache-dependency-path: operator/go.sum
+
+      - name: Regenerate CRDs and deepcopy
+        working-directory: operator
+        run: |
+          make manifests generate
+          mkdir -p chart/kubemoot-operator/crds
+          cp -f config/crd/bases/*.yaml chart/kubemoot-operator/crds/
+
+      - name: Auto-commit regenerated artifacts
         run: |
           if git diff --quiet -- operator/config/crd/bases/ operator/chart/kubemoot-operator/crds/ operator/api/v1alpha1/zz_generated.deepcopy.go; then
             echo "No regenerated-artifact drift to commit"
@@ -87,13 +119,13 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add operator/config/crd/bases/ operator/chart/kubemoot-operator/crds/ operator/api/v1alpha1/zz_generated.deepcopy.go
           git commit -m "chore: regenerate CRDs and deepcopy [skip ci]"
-          # --autostash handles any leftover unstaged changes from `make test`
-          # (test output, transient build artifacts) without losing the commit
+          # --autostash handles any leftover unstaged changes from the
+          # generators without losing the commit
           git pull --rebase --autostash origin main
           git push origin main
 
   build-image:
-    needs: test
+    needs: regenerate
     # Kaniko pushes to the in-cluster registry: main only, never a pull request.
     if: github.event_name != 'pull_request'
     runs-on: homelab-runners
@@ -102,7 +134,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v5
         with:
-          # The test job may have auto-committed regenerated CRDs and deepcopy
+          # The regenerate job may have auto-committed regenerated CRDs and deepcopy
           # to main. Checkout HEAD of main so build-image sees those changes
           # rather than the original workflow trigger SHA — without this,
           # build-image compiles types whose DeepCopy methods don't exist yet.

@@ -23,6 +23,9 @@ env:
   REGISTRY: ${{ vars.REGISTRY }}
   IMAGE_NAME: kubemoot/code-sandbox
 
+permissions:
+  contents: read
+
 jobs:
   ci:
     uses: ./.github/workflows/ci-code-sandbox.yaml
