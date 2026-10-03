@@ -1,0 +1,65 @@
+name: Tool or integration request
+description: An MCP server or model provider Kubemoot should connect to.
+labels:
+  - enhancement
+body:
+  - type: markdown
+    attributes:
+      value: "Use this form for a new MCP server or model provider integration. An improvement to something that exists belongs in Feature request, and a broken integration in Bug report. Crews that use the tool belong in [kubemoot/crews](https://github.com/kubemoot/crews/issues/new/choose)."
+  - type: checkboxes
+    id: searched
+    attributes:
+      label: Before you file
+      options:
+        - label: I searched existing issues and discussions and did not find this one
+          required: true
+  - type: dropdown
+    id: kind
+    attributes:
+      label: What kind of integration
+      options:
+        - MCP server
+        - Model provider
+        - Other
+    validations:
+      required: true
+  - type: input
+    id: target
+    attributes:
+      label: What it connects to
+      placeholder: The product, service, or inference engine, with a link
+    validations:
+      required: true
+  - type: textarea
+    id: usecase
+    attributes:
+      label: What crews would do with it
+      description: The questions or tasks it would let a crew handle.
+    validations:
+      required: true
+  - type: input
+    id: license
+    attributes:
+      label: License
+      description: The license of the server, engine, or client library.
+      placeholder: The license name
+    validations:
+      required: true
+  - type: input
+    id: auth
+    attributes:
+      label: Authentication
+      description: How a client authenticates to it.
+      placeholder: For example none, API key, OAuth, or kubeconfig
+    validations:
+      required: true
+  - type: dropdown
+    id: contribute
+    attributes:
+      label: "Would you be willing to help build this?"
+      options:
+        - "Yes"
+        - Maybe
+        - "No"
+    validations:
+      required: false

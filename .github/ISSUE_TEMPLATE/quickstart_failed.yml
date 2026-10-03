@@ -1,0 +1,83 @@
+name: Quickstart failure
+description: The first run of the quickstart script failed.
+labels:
+  - bug
+  - quickstart
+body:
+  - type: markdown
+    attributes:
+      value: "Use this form when the quickstart script itself fails on your machine; a problem after it finished belongs in the Bug report form. The quickstart runs in CI from an empty kind cluster on every release, so a failure is usually specific to your environment. The fields below describe that environment. "
+  - type: checkboxes
+    id: searched
+    attributes:
+      label: Before you file
+      options:
+        - label: I searched existing issues and did not find this one
+          required: true
+  - type: input
+    id: failed-step
+    attributes:
+      label: Step that failed
+      description: The step from quickstart/README.md, or the last line the script printed.
+    validations:
+      required: true
+  - type: textarea
+    id: output
+    attributes:
+      label: Script output
+      description: The last 40 lines are usually enough.
+      render: shell
+    validations:
+      required: true
+  - type: input
+    id: machine-os
+    attributes:
+      label: Machine OS
+      placeholder: For example Ubuntu, macOS, or Windows with WSL, and the architecture
+    validations:
+      required: true
+  - type: input
+    id: cpu-memory
+    attributes:
+      label: CPU and memory
+      placeholder: For example 8 cores and 32 GB
+    validations:
+      required: true
+  - type: input
+    id: container-runtime
+    attributes:
+      label: Docker or container runtime
+      placeholder: Docker, Podman, or another runtime, with the output of its version command
+    validations:
+      required: true
+  - type: input
+    id: kind-version
+    attributes:
+      label: kind version
+      description: Or the cluster tool you used instead of kind.
+      placeholder: "The output of `kind version`"
+    validations:
+      required: true
+  - type: input
+    id: tool-versions
+    attributes:
+      label: kubectl and helm versions
+      placeholder: "The output of `kubectl version --client` and `helm version`"
+    validations:
+      required: false
+  - type: textarea
+    id: resources
+    attributes:
+      label: Kubemoot resources
+      placeholder: "The output of `kubectl get modelproviders,models,agents,crews -A`"
+      render: shell
+    validations:
+      required: false
+  - type: textarea
+    id: operator-logs
+    attributes:
+      label: Operator logs
+      description: "For example `kubectl logs -n kubemoot deploy/kubemoot-operator --tail=80`; adjust the names if you overrode them."
+      render: shell
+    validations:
+      required: false
