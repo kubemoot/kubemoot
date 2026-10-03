@@ -1,0 +1,108 @@
+# Dependabot version updates: weekly, one grouped pull request per ecosystem.
+# Commit prefixes drive the semantic version bump (chore and ci are patch bumps).
+# Every pull request is reviewed by a maintainer before it merges.
+#
+# Node majors are bumped by hand on purpose: Dependabot does not update dashboard/.nvmrc,
+# the single Node version source that the workflows read with node-version-file.
+# For the same reason the docker entry ignores node majors in dashboard/Dockerfile;
+# a Node major moves dashboard/.nvmrc and that image together.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directories:
+      - "/"
+      - "/.github/actions/release-candidate-version"
+    schedule:
+      interval: weekly
+    groups:
+      github-actions:
+        patterns: ["*"]
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "ci"
+
+  - package-ecosystem: docker
+    directories:
+      - "/agent-runtime/src/main/docker"
+      - "/arc-runner-image"
+      - "/artifact-access"
+      - "/code-sandbox"
+      - "/crew-liaison"
+      - "/dashboard"
+      - "/discussion-gateway"
+      - "/fitness-runner"
+      - "/indexer"
+      - "/k8s/tests"
+      - "/mcp-bridge"
+      - "/mcp-gateway"
+      - "/operator"
+      - "/query-service"
+      - "/scheduling-mcp"
+    schedule:
+      interval: weekly
+    groups:
+      docker:
+        patterns: ["*"]
+    ignore:
+      - dependency-name: "node"
+        update-types: ["version-update:semver-major"]
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore(deps)"
+
+  - package-ecosystem: gomod
+    directories:
+      - "/artifact-access"
+      - "/code-sandbox"
+      - "/crew-liaison"
+      - "/discussion-gateway"
+      - "/fitness-runner"
+      - "/mcp-bridge"
+      - "/operator"
+      - "/scheduling-mcp"
+    schedule:
+      interval: weekly
+    groups:
+      gomod:
+        patterns: ["*"]
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore(deps)"
+
+  - package-ecosystem: gradle
+    directories:
+      - "/agent-runtime"
+      - "/indexer"
+      - "/mcp-gateway"
+    schedule:
+      interval: weekly
+    groups:
+      gradle:
+        patterns: ["*"]
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore(deps)"
+
+  - package-ecosystem: npm
+    directories:
+      - "/dashboard"
+    schedule:
+      interval: weekly
+    groups:
+      npm:
+        patterns: ["*"]
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore(deps)"
+
+  - package-ecosystem: pip
+    directories:
+      - "/query-service"
+    schedule:
+      interval: weekly
+    groups:
+      pip:
+        patterns: ["*"]
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore(deps)"

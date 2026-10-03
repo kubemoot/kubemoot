@@ -11,6 +11,8 @@ permissions:
 
 jobs:
   dco:
+    # A bot cannot certify origin; a maintainer reviews every Dependabot pull request.
+    if: github.event.pull_request.user.login != 'dependabot[bot]'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
