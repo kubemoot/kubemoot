@@ -135,6 +135,30 @@ The RTFM agent (`RtfmSubscriber.java`) listens for deployed MCP servers with doc
 
 Dynamic RAGSources follow the same lifecycle as static ones - the controller manages indexing, query service deployment, and verification identically.
 
+## Design
+
+**Indexing is a Job; querying is a Deployment.** Indexing (clone, walk, split, embed,
+write to pgvector) is a discrete, long-running operation that needs a filesystem and runs
+once per spec or content change. Running it in the controller would tie up the controller
+for tens of minutes. The operator therefore creates a Kubernetes `Job` per index run, with
+the indexer image from `KubemootConfig.spec.images.indexer`, an `emptyDir` at `/data`,
+and all configuration injected as environment variables, so the image carries nothing
+environment-specific. Several RAGSources index concurrently, a long index survives an
+operator restart, and a failed Job persists (with `ttlSecondsAfterFinished`) while the
+failure is surfaced in `status.conditions`. Runtime search is a different shape, a
+long-lived service, so each RAGSource also gets a query-service Deployment that scales and
+probes like any other workload. Re-indexing is triggered two ways: `observedGeneration`
+for spec changes and `lastIndexedChecksum` for content changes.
+
+**Embedding models are their own resource.** Chat and embedding models share a provider
+but differ in everything else: chat models have load and GPU-residency state and are
+selected through `CrewSchedulingPolicy`; embedding models have dimensions and are
+referenced by name. A single `Model` resource with a `kind` discriminator would make every
+reconciler branch and mix two lifecycles. A dedicated `EmbeddingModel` gives each its own
+small controller, makes `RAGSource.spec.embeddingModelRef` type-safe (a RAGSource cannot
+point at a chat model), and lets you change the embedding model, and re-index, independently
+of inference models. See [Models](../models/).
+
 ## Source Types
 
 ### Git (`type: git`)

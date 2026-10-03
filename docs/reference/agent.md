@@ -397,7 +397,7 @@ Symptoms:
 - Many agents triage relevant to the same question; multiple agree on the same answer with the same data.
 - Composite questions (need 2+ tools that live in different agents) go unanswered or require multi-agent handoff.
 - Triage relevance is precise per agent but the crew listing is large and hard to reason about.
-- Each agent adds Kubernetes resources (Deployment, Service, ConfigMap) and KEDA cold-start latency.
+- Each agent adds Kubernetes resources (Deployment, Service, ConfigMap) and an always-on pod.
 
 Costs:
 - **Orchestration overhead** dominates per-discussion time.

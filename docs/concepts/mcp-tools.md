@@ -47,4 +47,6 @@ propose an MCP server and, on user consent, reply with a proposed `MCPServer` ma
 Applying it and wiring the new server to a Tooler agent are manual steps today. See
 [Onboard MCP Tools](../../user-guides/onboard-mcp-tools/) for the workflow and the
 [MCPServer](../../reference/mcpserver-guide/) and
-[MCPGateway](../../reference/mcpgateway-guide/) references for the specs.
+[MCPGateway](../../reference/mcpgateway-guide/) references for the specs. Discovering servers
+from public and private registries is on the
+[Roadmap](../../introduction/roadmap/#mcp-sources-from-public-and-private-registries).

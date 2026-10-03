@@ -180,5 +180,5 @@ it is not something to fold into an experiment that is measuring something else.
 
 - [Models & Scheduling](../models-and-scheduling/) - loose coupling and just-in-time binding
 - [Models in Kubemoot](../../reference/models/) - CRD fields, model catalog, per-GPU fit matrix
-- [One Model Per GPU](../../adr/0009-one-model-per-gpu/) - why a card hosts one resident model
+- [Scheduler](../../architecture/scheduler/) - how models are placed on GPUs, several to a card when they fit
 - [Define Fitness Functions](../../user-guides/define-fitness-functions/) - building the suite you measure with

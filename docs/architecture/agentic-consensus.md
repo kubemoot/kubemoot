@@ -41,6 +41,57 @@ of shared context, which is more moving parts than one process reasoning over on
 context window. Kubemoot accepts that cost for independent scaling, failure isolation,
 and the ability to run many small models instead of depending on one large one.
 
+### Why NATS JetStream
+
+NATS JetStream carries every real-time flow between the operator, the agents, and the
+dashboard: discussion threads, per-agent chat events, operator audit events, and MCP
+quality results. Kubernetes watches suit resource state, not application events. Kubernetes
+Events are throttled and pruned after an hour, so they cannot hold a discussion. The flows
+need publish and subscribe with persistence and replay, so the dashboard can show history
+on page load and a crashed agent can re-read the threads it missed.
+
+JetStream fits that shape with the least operating weight:
+
+- **Persistent streams with retention windows** give replay and bound storage growth.
+- **Wildcard subscriptions** let the coordinator collect signals from every channel of a
+  thread with one subscription.
+- **Broadcast** matches the table: one message reaches every agent convened.
+- **WebSocket transport** lets the browser subscribe directly; the dashboard's server-side
+  proxy is a thin bridge.
+- **One broker, one Helm chart, one set of credentials.** Redis pub/sub has no replay,
+  and Kafka carries more operational weight than a single cluster needs.
+
+Operating notes: set a memory limit on the broker (`GOMEMLIMIT`), because the Go
+allocator can otherwise drive the pod into an OOM kill under bursty load, and put
+JetStream file storage on a durable storage class. Each process shares one lazy NATS
+connection; when `NATS_URL` is unset, NATS operations are no-ops and components degrade
+gracefully. The messaging layer is coupled to NATS subject patterns by design.
+
+### Why not A2A
+
+Google's Agent2Agent (A2A) protocol is an open standard for agent interoperability:
+Agent Cards describe skills, and agents delegate tasks to each other over JSON-RPC and
+HTTP. Its shape is bilateral request and response: one agent delegates, the other
+accepts or rejects, a result returns.
+
+A Kubemoot discussion is a facilitated table. The coordinator broadcasts to the agents it
+convenes, each agent expresses a position on a spectrum (`agree`, `concern`,
+`stand_aside`, `block`, `advisory`), a block halts the proceedings, and an advisory
+enriches the whole table. Concerns, stand-asides, and advisories have no A2A equivalent
+that survives a mapping, and bilateral HTTP connections do not fit broadcast and
+collect. Skill discovery, A2A's main value, is already covered by the `Agent` resources
+and the operator's view of the cluster, so there is no parallel Agent Card registry to
+keep in sync.
+
+Agents therefore communicate over NATS with Kubemoot's signal vocabulary, and external
+agents cannot join a discussion directly. A protocol bridge at the cluster boundary,
+following the same pattern as the MCP gateway, is the path for cross-cluster or external
+agents; see the [Roadmap](../../introduction/roadmap/#the-liaison-for-every-agent-harness).
+The signal vocabulary draws on sociocracy 3.0 and consensus practice such as
+[Seeds for Change](https://www.seedsforchange.org.uk/shortconsensus); research on
+[voting versus consensus in multi-agent debate](https://arxiv.org/abs/2502.19130) found
+consensus improves results on knowledge tasks.
+
 ## The discussion table
 
 Every discussion happens on NATS JetStream subjects,

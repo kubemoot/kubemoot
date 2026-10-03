@@ -163,7 +163,7 @@ spec:
 
 ## EmbeddingModel
 
-Declares an embedding model for RAGSource indexing. Not consumed by chat agents; RAGSources reference EmbeddingModels via `spec.embeddingModelRef`.
+Declares an embedding model for RAGSource indexing. Not consumed by chat agents; RAGSources reference EmbeddingModels via `spec.embeddingModelRef`. It is a separate resource from `Model` because its lifecycle and consumers differ (see the [RAGSource design notes](../ragsource-guide/#design)).
 
 ### Spec
 
