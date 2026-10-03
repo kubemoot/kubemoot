@@ -11,9 +11,6 @@ updates:
   - package-ecosystem: github-actions
     directories:
       - "/"
-      # Not .github/actions/release-candidate-version: that action is a byte-identical
-      # copy in all five repos, so it is bumped in all of them together until it moves
-      # to kubemoot/release-actions.
     schedule:
       interval: weekly
     groups:

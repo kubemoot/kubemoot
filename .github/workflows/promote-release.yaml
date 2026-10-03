@@ -79,9 +79,11 @@ jobs:
           # --insecure-skip-tls-verify (newer helm refuses Harbor's http token realm).
           version: 'v3.14.0'
 
+      - name: Set up the release helpers
+        uses: kubemoot/release-actions/setup@cee9e2e1fd27c0cc9196578af77dd7b07a585e4f # v0.1.0
+
       - name: Test the release scripts
         run: |
-          bash .github/scripts/test-release-lib.sh
           bash .github/scripts/test-promote-release.sh
 
       - name: Log in to the registries

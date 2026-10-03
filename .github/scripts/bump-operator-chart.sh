@@ -27,6 +27,7 @@
 #               dependency, so re-packaging from fresh main embeds the just-released
 #               dashboard chart; only the operator chart version moves)
 #   REGISTRY    OCI registry host; helm must already be logged in by the caller
+#   RELEASE_LIB release-lib.sh of kubemoot/release-actions (release-candidate-version sets it)
 # Component mode additionally requires:
 #   VALUES_KEY  values.yaml image key, e.g. agentRuntime
 #   IMAGE_REPO  bare image name as it appears in values.yaml, e.g. agent-runtime
@@ -34,8 +35,8 @@
 #   LABEL       human label for the commit message, e.g. agent-runtime
 set -euo pipefail
 
-# shellcheck source-path=SCRIPTDIR source=release-lib.sh
-source "$(dirname "$0")/release-lib.sh"
+# shellcheck source=/dev/null
+source "${RELEASE_LIB:?RELEASE_LIB must point to release-lib.sh from kubemoot/release-actions}"
 
 CHART_DIR="operator/chart/kubemoot-operator"
 CHART_FILE="${CHART_DIR}/Chart.yaml"

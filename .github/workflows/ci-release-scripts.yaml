@@ -5,13 +5,11 @@ on:
   pull_request:
     paths:
       - '.github/scripts/**'
-      - '.github/actions/**'
       - '.github/workflows/ci-release-scripts.yaml'
   push:
     branches-ignore: [main]
     paths:
       - '.github/scripts/**'
-      - '.github/actions/**'
       - '.github/workflows/ci-release-scripts.yaml'
 
 permissions:
@@ -25,9 +23,10 @@ jobs:
       - uses: azure/setup-helm@v4
         with:
           version: 'v3.14.0'
+      - name: Set up the release helpers
+        uses: kubemoot/release-actions/setup@cee9e2e1fd27c0cc9196578af77dd7b07a585e4f # v0.1.0
       - name: Shellcheck
         run: shellcheck -x .github/scripts/*.sh
       - name: Tests
         run: |
-          bash .github/scripts/test-release-lib.sh
           bash .github/scripts/test-promote-release.sh
