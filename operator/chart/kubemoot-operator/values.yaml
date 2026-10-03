@@ -302,7 +302,7 @@ kubemootConfig:
   # Kubemoot images are "name:version" and get global.imageRegistry prefixed at render
   images:
     indexer: indexer:0.280.0-rc.147
-    queryService: query-service:0.326.0
+    queryService: query-service:0.327.0-rc.275
     agentRuntime: agent-runtime:0.343.0-rc.81
     mcpGateway: mcp-gateway:0.327.0-rc.192
     mcpBridge: mcp-bridge:0.343.0-rc.70
