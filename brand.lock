@@ -1,0 +1,7 @@
+# Kubemoot brand files, copied from the brand/ folder of github.com/kubemoot/.github.
+# scripts/brand-sync.sh check verifies every copy; scripts/brand-sync.sh refresh [COMMIT]
+# copies them again and rewrites this file. Never edit a copy or a hash by hand.
+commit b4721dd5d96d39b42a2542ff685c1c633d6f96f3
+# sha256 destination source
+b85be74296989f0c56ac3f28c10dac3dfdb4ed9b0f28f6975720b77cb92d2c0a .github/assets/kubemoot-horizontal-color.png horizontal/color/kubemoot-horizontal-color.png
+41d7dbafdd5e69fb6b4fedfed7fb8d39469264ac75b4b757593c27d119496873 .github/assets/kubemoot-horizontal-white-text.png horizontal/white-text/kubemoot-horizontal-white-text.png
