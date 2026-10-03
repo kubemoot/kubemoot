@@ -89,8 +89,8 @@ hosted API wearing a local-looking name. Read the tag before assuming a model ru
 your hardware.
 
 Routing to a hosted model is a legitimate choice, but it is not implemented yet: the
-`openai` and `anthropic` provider types exist on the CRD as stubs, and Ollama is the
-model server today. When it lands, make the choice deliberately, because it moves inference, and whatever your
+Ollama is the only supported provider type today; `openai` and `anthropic` are not
+supported yet and the API server rejects them. When it lands, make the choice deliberately, because it moves inference, and whatever your
 agents read from your cluster, off the premises. If staying local is the point of the
 deployment, the frontier tier is simply not available, and the real question becomes
 which 20B to 35B class model calls tools best on the card you own. For a homelab budget

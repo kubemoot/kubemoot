@@ -147,11 +147,9 @@ func (r *ModelProviderReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	switch provider.Spec.Type {
 	case aiv1alpha1.ProviderTypeOllama:
 		return r.reconcileOllama(ctx, provider)
-	case aiv1alpha1.ProviderTypeOpenAI, aiv1alpha1.ProviderTypeAnthropic:
-		return r.reconcileCloudProvider(ctx, provider)
 	default:
-		log.Error(nil, "Unknown provider type", "type", provider.Spec.Type)
-		return r.updateStatus(ctx, provider, false, "Failed", fmt.Sprintf("Unknown provider type: %s", provider.Spec.Type))
+		log.Info("Unsupported provider type", "type", provider.Spec.Type)
+		return r.updateStatus(ctx, provider, false, "Unsupported", aiv1alpha1.UnsupportedProviderTypeMessage)
 	}
 }
 
@@ -574,23 +572,6 @@ func (r *ModelProviderReconciler) countAssignedAgents(ctx context.Context, provi
 	provider.Status.Capacity.MullingAgentCount = mullingCount
 	provider.Status.Capacity.TriageAgentCount = triageCount
 	provider.Status.Capacity.AgentCount = mullingCount + triageCount
-}
-
-// reconcileCloudProvider handles cloud provider (OpenAI, Anthropic) reconciliation
-func (r *ModelProviderReconciler) reconcileCloudProvider(ctx context.Context, provider *aiv1alpha1.ModelProvider) (ctrl.Result, error) {
-	log := logf.FromContext(ctx)
-
-	if provider.Spec.SecretRef == "" {
-		return r.updateStatus(ctx, provider, false, "Failed", "SecretRef is required for cloud providers")
-	}
-
-	log.Info("Cloud provider configured", "type", provider.Spec.Type, "secretRef", provider.Spec.SecretRef)
-
-	provider.Status.ProviderInfo = &aiv1alpha1.ProviderInfo{
-		LastChecked: time.Now().UTC().Format(time.RFC3339),
-	}
-
-	return r.updateStatus(ctx, provider, true, "Ready", "API key configured")
 }
 
 // updateStatus updates the ModelProvider status

@@ -19,7 +19,7 @@ export interface ModelProvider {
 }
 
 export interface ModelProviderSpec {
-	type: 'ollama' | 'openai' | 'anthropic';
+	type: 'ollama';
 	endpoint?: string;
 	secretRef?: string;
 	scheduling?: {

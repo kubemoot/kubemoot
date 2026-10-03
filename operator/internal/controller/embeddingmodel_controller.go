@@ -91,11 +91,6 @@ func (r *EmbeddingModelReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	switch provider.Spec.Type {
 	case "ollama":
 		return r.reconcileOllamaEmbedding(ctx, embeddingModel, provider)
-	case "openai", "anthropic":
-		// Cloud providers - just mark as available (model is remote)
-		return r.updateStatusWithEndpoint(ctx, embeddingModel, "Available", true,
-			fmt.Sprintf("Cloud embedding model ready via %s", provider.Spec.Type),
-			provider.Spec.Endpoint)
 	default:
 		return r.updateStatus(ctx, embeddingModel, "Error", false,
 			fmt.Sprintf("Unknown provider type: %s", provider.Spec.Type))

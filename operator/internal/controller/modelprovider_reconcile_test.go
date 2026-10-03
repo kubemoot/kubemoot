@@ -17,6 +17,7 @@ import (
 	"testing"
 
 	kubemootv1alpha1 "github.com/kubemoot/kubemoot/operator/api/v1alpha1"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -71,26 +72,29 @@ func TestModelProviderReconcile_OllamaEmptyEndpoint(t *testing.T) {
 	}
 }
 
-// A cloud provider with no SecretRef fails (SecretRef is required). Covers
-// Reconcile's cloud dispatch + reconcileCloudProvider guard.
-func TestModelProviderReconcile_CloudMissingSecret(t *testing.T) {
-	got, _ := reconcileMP(t, &kubemootv1alpha1.ModelProvider{
-		ObjectMeta: metav1.ObjectMeta{Name: "anthropic", Namespace: "ns1"},
-		Spec:       kubemootv1alpha1.ModelProviderSpec{Type: kubemootv1alpha1.ProviderTypeAnthropic},
-	})
-	if got.Status.Ready {
-		t.Error("a cloud provider with no SecretRef must not be Ready")
-	}
-}
-
-// An unknown provider type is reported as Failed (the default switch branch).
-func TestModelProviderReconcile_UnknownType(t *testing.T) {
-	got, _ := reconcileMP(t, &kubemootv1alpha1.ModelProvider{
-		ObjectMeta: metav1.ObjectMeta{Name: "weird", Namespace: "ns1"},
-		Spec:       kubemootv1alpha1.ModelProviderSpec{Type: kubemootv1alpha1.ProviderType("bogus")},
-	})
-	if got.Status.Ready {
-		t.Error("an unknown provider type must not be Ready")
+// A non-ollama type (an object stored before the schema tightened) is
+// reported Ready=False with reason Unsupported, never as configured.
+func TestModelProviderReconcile_UnsupportedTypes(t *testing.T) {
+	for _, typ := range []string{"openai", "anthropic", "bogus"} {
+		t.Run(typ, func(t *testing.T) {
+			got, _ := reconcileMP(t, &kubemootv1alpha1.ModelProvider{
+				ObjectMeta: metav1.ObjectMeta{Name: typ, Namespace: "ns1"},
+				Spec: kubemootv1alpha1.ModelProviderSpec{
+					Type:      kubemootv1alpha1.ProviderType(typ),
+					SecretRef: "key",
+				},
+			})
+			if got.Status.Ready {
+				t.Fatal("an unsupported provider type must not be Ready")
+			}
+			cond := meta.FindStatusCondition(got.Status.Conditions, "Ready")
+			if cond == nil || cond.Status != metav1.ConditionFalse || cond.Reason != "Unsupported" {
+				t.Fatalf("want Ready=False reason Unsupported, got %+v", cond)
+			}
+			if cond.Message != kubemootv1alpha1.UnsupportedProviderTypeMessage {
+				t.Errorf("unexpected message %q", cond.Message)
+			}
+		})
 	}
 }
 

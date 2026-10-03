@@ -27,9 +27,9 @@ Declares an inference endpoint. The operator discovers GPU capacity (VRAM, loade
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `type` | enum | Yes | `ollama`, `openai`, `anthropic`. Ollama is the model server today; `openai` and `anthropic` exist on the CRD as stubs. |
+| `type` | string | Yes | Only `ollama` is supported today. Any other value, including `openai` and `anthropic`, is rejected at admission: those types are not supported yet. |
 | `endpoint` | string | For ollama | API endpoint URL |
-| `secretRef` | string | For `openai` and `anthropic` | Secret containing API key (stub types) |
+| `secretRef` | string | No | Reserved for future provider types; not used by `ollama` |
 
 ### Status
 
