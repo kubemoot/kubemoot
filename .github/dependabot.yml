@@ -61,7 +61,14 @@ updates:
       - "/scheduling-mcp"
     schedule:
       interval: weekly
+    # Kubernetes libraries (k8s.io/*, sigs.k8s.io/*, controller-runtime among them) get
+    # their own pull request so their API migrations do not hold back low-risk bumps.
+    # Dependabot puts a dependency in the first group it matches, so this group comes first.
     groups:
+      kubernetes:
+        patterns:
+          - "k8s.io/*"
+          - "sigs.k8s.io/*"
       gomod:
         patterns: ["*"]
     open-pull-requests-limit: 5
@@ -90,6 +97,11 @@ updates:
     groups:
       npm:
         patterns: ["*"]
+    ignore:
+      # TypeScript 7 waits for the toolchain: svelte-check peers on typescript ^5 || ^6 and
+      # typescript-eslint peers on typescript <6.1.0. Lift this once both accept TypeScript 7.
+      - dependency-name: "typescript"
+        update-types: ["version-update:semver-major"]
     open-pull-requests-limit: 5
     commit-message:
       prefix: "chore(deps)"
