@@ -5,7 +5,7 @@ labels:
 body:
   - type: markdown
     attributes:
-      value: "This repository covers the Kubemoot operator, agent runtime, dashboard, MCP bridge and gateway, crew liaison, fitness runner, and quickstart. A kmctl, CrewForge, crew chart, or docs problem belongs in [another repository, found through the issue chooser](https://github.com/kubemoot/kubemoot/issues/new/choose) listed in the chooser; questions go to [Discussions](https://github.com/orgs/kubemoot/discussions/categories/q-a)."
+      value: "Something that worked or should work does not? Use this form. Something new or different belongs in a Feature request. This repository covers the Kubemoot operator, agent runtime, dashboard, MCP bridge and gateway, crew liaison, fitness runner, and quickstart. A kmctl, CrewForge, crew chart, or docs problem belongs in [another repository, found through the issue chooser](https://github.com/kubemoot/kubemoot/issues/new/choose) listed in the chooser; questions go to [Discussions](https://github.com/orgs/kubemoot/discussions/categories/q-a)."
   - type: checkboxes
     id: searched
     attributes:
