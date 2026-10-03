@@ -255,6 +255,8 @@ func (r *CrewFitnessSuiteReconciler) startSuite(ctx context.Context, suite *kube
 	suite.Status.Passed = 0
 	suite.Status.Failed = 0
 	suite.Status.Errored = 0
+	suite.Status.Scenarios = scenarioResults(suite.Spec.Scripts, nil)
+	suite.Status.Judge = r.newJudgeStatus(kubemootv1alpha1.FitnessJudgePhasePending)
 	if err := r.Status().Update(ctx, suite); err != nil {
 		return ctrl.Result{}, err
 	}
@@ -282,12 +284,13 @@ func (r *CrewFitnessSuiteReconciler) advanceRunning(ctx context.Context, suite *
 	if suite.Spec.Suspend && progress.inFlight == 0 {
 		// About to report Paused: confirm against the API server, since the
 		// cache may not yet hold a child created on the previous tick.
-		if progress, err = r.liveProgress(ctx, suite); err != nil {
+		if progress, children, err = r.liveProgress(ctx, suite); err != nil {
 			return ctrl.Result{}, err
 		}
 	}
 
 	applyProgress(suite, progress)
+	suite.Status.Scenarios = scenarioResults(suite.Spec.Scripts, HarvestIterationResults(terminalChildren(children)))
 	suite.Status.Phase = runningNextPhase(suite.Spec.Suspend, progress, suite.Status.IterationsTotal)
 	if suite.Status.Phase == kubemootv1alpha1.CrewFitnessSuitePhaseCompleted {
 		// Phase reflects EXECUTION lifecycle, not aggregate test outcome: all
@@ -324,13 +327,13 @@ func runningNextPhase(suspend bool, p childProgress, total int32) kubemootv1alph
 	return kubemootv1alpha1.CrewFitnessSuitePhaseRunning
 }
 
-// liveProgress summarizes the suite's children read uncached.
-func (r *CrewFitnessSuiteReconciler) liveProgress(ctx context.Context, suite *kubemootv1alpha1.CrewFitnessSuite) (childProgress, error) {
+// liveProgress summarizes the suite's children read uncached, and returns them.
+func (r *CrewFitnessSuiteReconciler) liveProgress(ctx context.Context, suite *kubemootv1alpha1.CrewFitnessSuite) (childProgress, []kubemootv1alpha1.CrewFitness, error) {
 	children, err := r.listLiveChildren(ctx, suite)
 	if err != nil {
-		return childProgress{}, fmt.Errorf("listing children uncached: %w", err)
+		return childProgress{}, nil, fmt.Errorf("listing children uncached: %w", err)
 	}
-	return summarizeChildren(children), nil
+	return summarizeChildren(children), children, nil
 }
 
 // applyProgress copies the per-tick child rollup into the suite status.
@@ -396,7 +399,10 @@ func (r *CrewFitnessSuiteReconciler) cancelSuite(ctx context.Context, suite *kub
 	if err != nil {
 		return ctrl.Result{}, err
 	}
-	applyProgress(suite, summarizeChildren(terminalChildren(children)))
+	finished := terminalChildren(children)
+	applyProgress(suite, summarizeChildren(finished))
+	suite.Status.Scenarios = scenarioResults(suite.Spec.Scripts, HarvestIterationResults(finished))
+	suite.Status.Judge = r.newJudgeStatus(kubemootv1alpha1.FitnessJudgePhaseSkipped)
 	if suite.Status.RunID == "" {
 		// Cancelled before it started: record the run identity and the planned
 		// total so the status and any report read "0 of N".
@@ -519,6 +525,15 @@ func (r *CrewFitnessSuiteReconciler) terminalUpkeep(ctx context.Context, suite *
 	// slow crew calls off-reconcile — never inline during the run.
 	if !judgeSkipped(suite) {
 		r.runDeferredJudgePass(suite)
+	}
+	// Mirror the judge checkpoint into status.judge. The worker writes it as it
+	// scores; this catches a missed write and fills suites that finished before
+	// the field existed.
+	// It mirrors the checkpoint and gates nothing, so a failed write is logged
+	// and the artifact write and reap go ahead.
+	if err := r.syncJudgeStatus(ctx, suite); err != nil {
+		logf.FromContext(ctx).Info("judge status sync failed; retried on the next reconcile",
+			"suite", suite.Name, "err", err.Error())
 	}
 	if suite.Spec.Rejudge != nil {
 		return r.rejudgeUpkeep(ctx, suite)

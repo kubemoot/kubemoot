@@ -163,9 +163,12 @@ func deferredSidecarKey(prefix string) string { return prefix + "deferred-scores
 // zero — judge-all over a full N=15 suite is hours of GPU-bound crew calls, so the
 // pass MUST be restart-safe. runDeferredJudgePass re-triggers until Complete.
 type deferredScoreCache struct {
-	Scores   map[string]float64 `json:"scores"`
-	Reasons  map[string]string  `json:"reasons,omitempty"` // per-scenario judge rationale (one terse sentence), surfaced in the dashboard
-	Complete bool               `json:"complete"`
+	Scores  map[string]float64 `json:"scores"`
+	Reasons map[string]string  `json:"reasons,omitempty"` // per-scenario judge rationale (one terse sentence), surfaced in the dashboard
+	// Total is how many scenarios the pass has to score (a DEFER assertion and a
+	// transcript); counted at the start of each pass. 0 in older checkpoints.
+	Total    int  `json:"total,omitempty"`
+	Complete bool `json:"complete"`
 }
 
 // loadDeferredCache reads the checkpoint (empty, not-complete when absent).
@@ -680,6 +683,8 @@ func (r *CrewFitnessSuiteReconciler) deferredJudgeWorker(suite *kubemootv1alpha1
 	// alike), builds the comparison document from all iterations (buildComparisonDoc,
 	// applying the consensus gate operator-side), and hands it to the judge in the
 	// dispatch message. No collect_scenario tool round-trip.
+	p.cache.Total = p.countJudgeable()
+	p.publishStatus() // the pass has started: status.judge reads Judging with its total
 	pending := 0
 	for idx := range suite.Spec.Scripts {
 		switch p.processScenario(ctx, idx) {
@@ -693,6 +698,7 @@ func (r *CrewFitnessSuiteReconciler) deferredJudgeWorker(suite *kubemootv1alpha1
 done:
 	complete := pending == 0 && ctx.Err() == nil
 	p.persist(complete)
+	p.publishStatus()
 	log.Info("deferred judge: pass finished", "prefix", prefix,
 		"scenarios", len(p.cache.Scores), "pending", pending, "complete", complete)
 }
@@ -866,6 +872,26 @@ func (p *judgePass) recordScore(scenario string, quality float64, reason string)
 		p.cache.Reasons[scenario] = reason
 	}
 	p.persist(false) // checkpoint after each scenario so a restart resumes
+	p.publishStatus()
+}
+
+// countJudgeable counts the scenarios this pass has to score: those whose
+// first transcript exists and declares a DEFER assertion (the same probe
+// processScenario uses). Scores are keyed by testRef, so a testRef that
+// appears in several scripts counts once, probed at its first script.
+func (p *judgePass) countJudgeable() int {
+	n := 0
+	seen := make(map[string]bool, len(p.suite.Spec.Scripts))
+	for idx, script := range p.suite.Spec.Scripts {
+		if seen[script.TestRef] {
+			continue
+		}
+		seen[script.TestRef] = true
+		if _, ok := p.scenarioKeyword(idx); ok {
+			n++
+		}
+	}
+	return n
 }
 
 // readDeferredScores returns the cached per-scenario deferred-judge scores (0-100).

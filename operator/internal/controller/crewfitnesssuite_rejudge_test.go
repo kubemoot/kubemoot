@@ -148,6 +148,12 @@ var _ = Describe("CrewFitnessSuite re-judge", func() {
 		Expect(s.Status.Rejudge.Transcripts).To(Equal(int32(2)))
 		Expect(s.Status.Rejudge.NotInSource).To(Equal([]string{"fresh"}))
 		Expect(meta.IsStatusConditionTrue(s.Status.Conditions, rejudgeConditionType)).To(BeTrue())
+		Expect(s.Status.Scenarios).To(Equal([]kubemootv1alpha1.SuiteScenarioResult{
+			{Name: rjBeta, Iterations: 1, Failed: 1, MeanDurationMs: 42, AssertionsPassed: 2, AssertionsTotal: 3},
+			{Name: rjAlpha, Iterations: 1, Passed: 1, MeanDurationMs: 42, AssertionsPassed: 3, AssertionsTotal: 3},
+			{Name: "fresh"},
+		}), "status.scenarios rolls up the copied transcripts in spec order")
+		Expect(s.Status.Judge).To(Equal(&kubemootv1alpha1.FitnessJudgeStatus{Phase: kubemootv1alpha1.FitnessJudgePhaseJudging}))
 
 		prefix := suiteRunPrefix(namespace, "rj-ok", s.Status.RunID)
 		beta := store.get(prefix + "s0-i1.json")
@@ -240,9 +246,25 @@ var _ = Describe("CrewFitnessSuite re-judge", func() {
 
 		res := reconcileOnce("rj-resume") // terminal upkeep starts the judge worker
 		Expect(res.RequeueAfter).To(Equal(artifactRetryInterval), "waits on judge completion")
-		Eventually(func() bool {
-			return loadDeferredCache(store, prefix).Complete
-		}).Should(BeTrue())
+		Eventually(func() kubemootv1alpha1.FitnessJudgePhase {
+			if _, running := deferredInFlight.Load(prefix); running {
+				return ""
+			}
+			if js := getSuite("rj-resume").Status.Judge; js != nil {
+				return js.Phase
+			}
+			return ""
+		}).Should(Equal(kubemootv1alpha1.FitnessJudgePhaseComplete), "the worker writes status.judge at completion")
+		js := getSuite("rj-resume").Status.Judge
+		Expect(js.Judged).To(Equal(int32(2)))
+		Expect(js.Total).To(Equal(int32(2)), "fresh has no transcript, so nothing to judge")
+		Expect(js.Mean).To(HaveValue(Equal(int32(65))))
+		Expect(js.Zeros).To(BeZero())
+		Expect(js.CompletedAt).NotTo(BeNil())
+		Expect(js.Scores).To(Equal([]kubemootv1alpha1.FitnessJudgeScore{
+			{Scenario: rjBeta, Score: 40, Reason: "names harbor"},
+			{Scenario: rjAlpha, Score: 90},
+		}), "scores follow the re-judge suite's spec order")
 		cache := loadDeferredCache(store, prefix)
 		Expect(cache.Scores).To(Equal(map[string]float64{rjAlpha: 90, rjBeta: 40}))
 		Expect(cache.Reasons[rjBeta]).To(Equal("names harbor"))

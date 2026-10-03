@@ -114,6 +114,8 @@ func (r *CrewFitnessSuiteReconciler) startRejudge(ctx context.Context, suite *ku
 		return r.failRejudge(ctx, suite, err)
 	}
 	r.completeRejudge(suite, runID, plan, progress)
+	suite.Status.Scenarios = rejudgeScenarios(r.store(), suite)
+	suite.Status.Judge = r.newJudgeStatus(kubemootv1alpha1.FitnessJudgePhaseJudging)
 	if err := r.Status().Update(ctx, suite); err != nil {
 		return ctrl.Result{}, err
 	}
@@ -424,6 +426,19 @@ func (r *CrewFitnessSuiteReconciler) completeRejudge(suite *kubemootv1alpha1.Cre
 		Message: rejudgeSummary(suite.Spec.Rejudge, p.completed, plan.notInSource),
 	})
 	suite.Status.Phase = kubemootv1alpha1.CrewFitnessSuitePhaseCompleted
+}
+
+// rejudgeScenarios rolls up the copied transcripts per scenario for
+// status.scenarios. A listing failure leaves one empty row per scenario: the
+// copies are in place and the XLSX still reports them.
+func rejudgeScenarios(store objectStore, suite *kubemootv1alpha1.CrewFitnessSuite) []kubemootv1alpha1.SuiteScenarioResult {
+	keys, err := store.ListObjects(FitnessArtifactsBucket, suiteRunPrefix(suite.Namespace, suite.Name, suite.Status.RunID))
+	if err != nil {
+		logf.Log.WithName("fitness-rejudge").Info("listing copied transcripts for status.scenarios failed",
+			"suite", suite.Name, "err", err.Error())
+		keys = nil
+	}
+	return scenarioResults(suite.Spec.Scripts, readTranscriptResults(suite, store, keys))
 }
 
 func rejudgeSummary(src *kubemootv1alpha1.RejudgeSource, copied int32, notInSource []string) string {

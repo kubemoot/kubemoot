@@ -35,6 +35,12 @@ spec:
     - jsonPath: .status.failed
       name: Failed
       type: integer
+    - jsonPath: .status.judge.phase
+      name: Judge
+      type: string
+    - jsonPath: .status.judge.mean
+      name: Quality
+      type: integer
     - jsonPath: .metadata.creationTimestamp
       name: Age
       type: date
@@ -331,6 +337,82 @@ spec:
                 description: IterationsTotal is len(spec.scripts) × spec.iterations.
                 format: int32
                 type: integer
+              judge:
+                description: |-
+                  Judge reports the deferred judge pass over this run. Absent when no
+                  artifact store is configured.
+                properties:
+                  completedAt:
+                    description: CompletedAt is when the operator recorded the pass
+                      as complete.
+                    format: date-time
+                    type: string
+                  judged:
+                    description: Judged is the number of scenarios scored so far.
+                    format: int32
+                    type: integer
+                  mean:
+                    description: |-
+                      Mean is the mean scenario score, 0 to 100, rounded, over the scenarios
+                      judged so far. Absent until a scenario is judged.
+                    format: int32
+                    maximum: 100
+                    minimum: 0
+                    type: integer
+                  phase:
+                    description: Phase is where the judge pass stands.
+                    enum:
+                    - Pending
+                    - Judging
+                    - Complete
+                    - Skipped
+                    type: string
+                  scores:
+                    description: Scores lists each judged scenario in spec order,
+                      capped at 300 entries.
+                    items:
+                      description: FitnessJudgeScore is the judge's verdict on one
+                        scenario.
+                      properties:
+                        reason:
+                          description: Reason is the judge's rationale on one line,
+                            cut to 200 characters.
+                          maxLength: 200
+                          type: string
+                        scenario:
+                          description: Scenario is the script's testRef.
+                          maxLength: 253
+                          type: string
+                        score:
+                          description: |-
+                            Score is the scenario's answer quality, 0 to 100, rounded: the mean of
+                            the judge's per-answer scores, with consensus-gated iterations counting 0.
+                          format: int32
+                          maximum: 100
+                          minimum: 0
+                          type: integer
+                      required:
+                      - scenario
+                      - score
+                      type: object
+                    maxItems: 300
+                    type: array
+                    x-kubernetes-list-type: atomic
+                  total:
+                    description: |-
+                      Total is the number of scenarios the judge has to score: those with a
+                      DEFER assertion and at least one transcript. It is 0 until the pass
+                      starts and stays 0 for a run with nothing to judge.
+                    format: int32
+                    type: integer
+                  zeros:
+                    description: Zeros is the number of judged scenarios that scored
+                      0.
+                    format: int32
+                    type: integer
+                required:
+                - phase
+                type: object
               passed:
                 description: |-
                   Passed / Failed / Errored break down IterationsCompleted by
@@ -385,6 +467,55 @@ spec:
                   RunID identifies this suite execution; set on transition to
                   Running. Used as the trailing path segment of the artifact key.
                 type: string
+              scenarios:
+                description: |-
+                  Scenarios rolls up the finished iterations per scenario, in spec order,
+                  capped at 300 entries. It is kept after the per-iteration CrewFitness
+                  objects are removed. The transcripts stay in the object store.
+                items:
+                  description: SuiteScenarioResult rolls up the finished iterations
+                    of one scenario.
+                  properties:
+                    assertionsPassed:
+                      description: |-
+                        AssertionsPassed and AssertionsTotal sum the assertion results of the
+                        finished iterations.
+                      format: int32
+                      type: integer
+                    assertionsTotal:
+                      format: int32
+                      type: integer
+                    errored:
+                      format: int32
+                      type: integer
+                    failed:
+                      format: int32
+                      type: integer
+                    iterations:
+                      description: Iterations is how many iterations of this scenario
+                        finished.
+                      format: int32
+                      type: integer
+                    meanDurationMs:
+                      description: MeanDurationMs is the mean wall-clock duration
+                        of the finished iterations.
+                      format: int64
+                      type: integer
+                    name:
+                      description: Name is the script's testRef.
+                      maxLength: 253
+                      type: string
+                    passed:
+                      description: Passed, Failed and Errored break Iterations down
+                        by outcome.
+                      format: int32
+                      type: integer
+                  required:
+                  - name
+                  type: object
+                maxItems: 300
+                type: array
+                x-kubernetes-list-type: atomic
               startedAt:
                 description: StartedAt records when the reconciler began iteration
                   scheduling.
