@@ -1,12 +1,12 @@
-name: Quickstart failed
-description: The quickstart script did not work on your machine.
+name: Quickstart failure
+description: The first run of the quickstart script failed.
 labels:
   - bug
   - quickstart
 body:
   - type: markdown
     attributes:
-      value: The quickstart runs in CI from an empty kind cluster on every release, so a failure is usually specific to your environment. The fields below describe that environment. A bug after the quickstart finished belongs in the Bug report form.
+      value: "Use this form when the quickstart script itself fails on your machine; a problem after it finished belongs in the Bug report form. The quickstart runs in CI from an empty kind cluster on every release, so a failure is usually specific to your environment. The fields below describe that environment. "
   - type: checkboxes
     id: searched
     attributes:

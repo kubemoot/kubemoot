@@ -5,7 +5,7 @@ labels:
 body:
   - type: markdown
     attributes:
-      value: "This repository covers the Kubemoot operator, agent runtime, dashboard, MCP bridge and gateway, crew liaison, fitness runner, and quickstart. Ideas for kmctl, CrewForge, crews, or the docs belong in [another repository, found through the issue chooser](https://github.com/kubemoot/kubemoot/issues/new/choose). Something that worked or should work does not? File a Bug report instead; this form is for something new or different."
+      value: "This repository covers the Kubemoot operator, agent runtime, dashboard, MCP bridge and gateway, crew liaison, fitness runner, and quickstart. A new MCP server or model provider belongs in Tool or integration request. Ideas for kmctl, CrewForge, crews, or the docs belong in [another repository, found through the issue chooser](https://github.com/kubemoot/kubemoot/issues/new/choose). Something that worked or should work does not? File a Bug report instead; this form is for something new or different."
   - type: checkboxes
     id: searched
     attributes:
