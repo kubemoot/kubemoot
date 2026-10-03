@@ -12,7 +12,6 @@ spec:
     listKind: NotificationSinkList
     plural: notificationsinks
     shortNames:
-    - ns
     - notif
     singular: notificationsink
   scope: Namespaced
