@@ -1,5 +1,6 @@
 ---
 title: "Kubemoot Scheduler"
+description: "The Kubemoot scheduler matches agents to Model and Provider bindings by capability, using labels and CrewSchedulingPolicy rules to filter, score, and bind."
 weight: 5
 ---
 

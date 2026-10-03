@@ -1,5 +1,6 @@
 ---
 title: "MCPServer Guide"
+description: "The MCPServer CRD deploys Model Context Protocol servers on Kubernetes, injects the mcp-bridge sidecar for stdio, sets probes, and registers with gateways."
 weight: 6
 ---
 

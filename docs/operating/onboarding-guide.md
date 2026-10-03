@@ -1,5 +1,6 @@
 ---
 title: "Onboarding Guide"
+description: "How a Kubemoot crew proposes an MCP server when no agent can answer: the capability gap signal, the onboarding agent, consent, and the steps that stay manual."
 weight: 1
 ---
 

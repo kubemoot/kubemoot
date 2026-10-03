@@ -1,5 +1,6 @@
 ---
 title: "Scheduling - reminders, follow-ups, recurring"
+description: "How a crew sets reminders, follow-ups, and recurring tasks: a Tooler calls scheduling-mcp, records land in NATS KV, and the operator fires them when due."
 weight: 4
 linkTitle: "Reminders and Follow-ups"
 ---
