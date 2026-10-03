@@ -52,10 +52,10 @@ dependencies {
     implementation("dev.langchain4j:langchain4j-http-client-jdk")
 
     // MCP protocol client (framework-agnostic, used for direct MCP server connections)
-    implementation("io.modelcontextprotocol.sdk:mcp:0.10.0")
+    implementation("io.modelcontextprotocol.sdk:mcp:2.0.1")
 
     // NATS - publish chat events to NATS JetStream
-    implementation("io.nats:jnats:2.25.3")
+    implementation("io.nats:jnats:2.26.3")
 
     // Observability
     implementation("io.quarkus:quarkus-micrometer-registry-prometheus")
