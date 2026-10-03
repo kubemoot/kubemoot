@@ -19,7 +19,6 @@ package main
 import (
 	"bytes"
 	"context"
-	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -78,15 +77,11 @@ type discussionStartResponse struct {
 	ConversationID string `json:"conversationId"`
 }
 
-// newHTTPClient returns an HTTP client that accepts self-signed TLS certificates.
-// The discussion gateway may sit behind Cloudflare Tunnel with self-signed certs.
+// newHTTPClient returns the client for the discussion gateway. The operator points
+// the runner at the gateway's in-cluster Service over plain HTTP; an https endpoint
+// gets Go's standard certificate verification.
 func newHTTPClient() *http.Client {
 	return &http.Client{
-		Transport: &http.Transport{
-			TLSClientConfig: &tls.Config{
-				InsecureSkipVerify: true, //nolint:gosec // intentional — homelab with self-signed certs
-			},
-		},
 		Timeout: 0, // No client-level timeout; we use context cancellation instead
 	}
 }

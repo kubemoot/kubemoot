@@ -20,6 +20,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -254,5 +255,33 @@ func TestRunFitnessTest_NotAnsweredWhenNoDone(t *testing.T) {
 	}
 	if out.Answered {
 		t.Error("expected Answered=false when 'done' never arrives, even though synthesis was seen")
+	}
+}
+
+// The gateway client verifies certificates: a server with a certificate no
+// trusted CA signed is refused, while the in-cluster plain-HTTP gateway works.
+func TestNewHTTPClientVerifiesCertificates(t *testing.T) {
+	ok := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
+
+	untrusted := httptest.NewTLSServer(ok)
+	defer untrusted.Close()
+	resp, err := newHTTPClient().Get(untrusted.URL)
+	if err == nil {
+		_ = resp.Body.Close()
+		t.Fatal("expected a self-signed certificate to be rejected")
+	}
+	if !strings.Contains(err.Error(), "certificate") {
+		t.Errorf("expected a certificate error, got %v", err)
+	}
+
+	plain := httptest.NewServer(ok)
+	defer plain.Close()
+	resp, err = newHTTPClient().Get(plain.URL)
+	if err != nil {
+		t.Fatalf("plain HTTP gateway: %v", err)
+	}
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("plain HTTP gateway status = %d, want 200", resp.StatusCode)
 	}
 }
