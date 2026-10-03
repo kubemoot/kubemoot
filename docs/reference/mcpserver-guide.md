@@ -62,6 +62,17 @@ How it works:
 
 The bridge image comes from KubemootConfig (`spec.images.mcpBridge`).
 
+**Why a sidecar.** Most MCP server images speak only stdio, while the gateway needs
+HTTP/SSE, and many images are distroless or scratch-based with no shell for a wrapper
+script. The bridge is a single static Go binary with no dependencies, run as a native
+sidecar so that a bridge failure restarts the bridge alone, and so that the startup probe
+holds the main container back until the HTTP/SSE endpoint is ready. It runs in one of two
+modes: *shell mode* (`sh -c "exec <cmd> < /pipes/stdin > /pipes/stdout"`) for images with
+a shell, and *exec mode* for distroless and scratch images, where the bridge copies itself
+into the shared volume and starts the server with `dup2` and `exec`. Pipe overflow is
+handled with a 16 MB buffer and graceful recovery. The cost is one extra container and
+an `emptyDir` per stdio server.
+
 ### Bridge Probes and the MCP Initialize Handshake
 
 For stdio-transport MCPServers the operator wires three Kubernetes probes on the bridge

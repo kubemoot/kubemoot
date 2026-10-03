@@ -39,6 +39,41 @@ is measured against Ollama before any default changes. The payoff: scheduler dec
 improve as it sees more state, and changing the model server under a crew becomes a new
 adapter, not a rework.
 
+## MCP sources from public and private registries
+
+**Today:** an `MCPCatalog` resource ([reference](../../reference/mcpgateway-guide/#mcpcatalog))
+points one gateway at one external source, such as the official MCP Registry, Smithery,
+Glama, Docker, or npm, and a quality policy filters what it finds. Each catalog type is
+handled by its own code, catalogs are referenced per gateway, and the feature is off by
+default until quality filtering is robust enough to keep broken community servers out.
+Private sources are not covered.
+
+**Direction:** Kubemoot inspects and retrieves MCP servers from many public and private
+registries through one interface. Admins declare, once and cluster-wide rather than per
+crew or per gateway, the list of MCP sources Kubemoot may draw from, private sources
+included, and crews and onboarding agents see only servers from that list. A source
+declaration names the registry endpoint, the credentials to reach it, and the quality
+policy that applies. This is a direction, not built behavior.
+
+A standard API exists to build it on. The official MCP Registry publishes
+[`server.json`](https://github.com/modelcontextprotocol/registry/blob/main/docs/reference/server-json/draft/server.schema.json)
+metadata (name, packages or remote URLs, run arguments) and a REST API described by an
+[OpenAPI spec](https://github.com/modelcontextprotocol/registry/blob/main/docs/reference/api/openapi.yaml):
+`GET /v0.1/servers` lists servers with cursor pagination and an `updated_since` filter,
+and `GET /v0.1/servers/{serverName}/versions/{version}` returns one version, where
+`latest` selects the newest. The registry documents that other registries, including
+private ones, can implement the same spec so that hosts need one client for all of them
+([registry overview](https://modelcontextprotocol.io/registry/about),
+[aggregators guide](https://modelcontextprotocol.io/registry/registry-aggregators)),
+with a `_meta` field for registry-specific additions such as ratings. The public
+registry does not accept private servers and recommends a separate private registry for
+them, and its own codebase is not designed for self-hosting. The registry API is still in
+preview. Other registries already implement it: for example, Azure API Center exposes an
+MCP registry endpoint of the form `.../v0.1/servers` for the servers in an organization's
+inventory ([Microsoft documentation](https://learn.microsoft.com/en-us/azure/api-center/register-discover-mcp-server)).
+Marketplaces such as Smithery and Glama do not necessarily follow the spec, so a source
+declaration keeps a type, with the standard API as the default.
+
 ## Model choices for the reference crews
 
 **Today:** the reference crews run open-weight Qwen3 models served by Ollama: an
@@ -91,6 +126,26 @@ hypotheses the fitness harness will test before anything is claimed:
   contributions and a synthesis. The levers on that floor are the models and the
   serving engine, and convening fewer agents. An external harness at the table makes a
   first answer slower and better, not faster.
+
+## Agent backends behind the moot
+
+**Today:** the Kubemoot agent runtime, a native thin agent, is the only backend that runs
+an agent's turn.
+
+**Direction:** the moot is Kubemoot's differentiator: the coordinator convenes a
+subcommittee, agents deliberate by signal, the coordinator synthesizes. What runs one
+agent's turn (call a model, call a tool, produce a signal) is a separate concern that
+capable runtimes already handle well. The moot should talk to an agent through a thin,
+backend-agnostic contract: in comes the question, the agent's role, and the available
+tools; out comes a signal, a rationale, and evidence. Behind that contract could sit the
+native agent (the default, open source, minimal VRAM and startup cost), an external agent
+process supplied and licensed by the user, or a raw local model reached through a model
+provider. The principle is the same one applied to tools: build natively against open
+standards, adopt open standards such as MCP directly, and keep any specific product
+swappable behind a contract rather than load-bearing. The core must run with no
+dependency on a proprietary agent product, and an external backend stays optional and
+never bundled. The contract itself, a Go interface and an adapter registry in the
+operator, is not built.
 
 ## Cloud and frontier models at the table
 
@@ -221,13 +276,33 @@ protocols that speak agent to agent.
 ## Scale to zero
 
 **Today:** agent pods run at their configured replica count whether or not a
-discussion is active; the chart carries a `scaleToZero` toggle, off by default, and
-the operator does not yet wire it.
+discussion is active. The pieces on the agent side exist: an agent that starts from zero
+publishes `waking` and `ready` signals so the coordinator does not settle a discussion
+before it can take part. The operator chart carries a `scaleToZero` toggle, off by
+default. The operator does not yet create any autoscaling resources, so nothing scales
+agents to zero.
 
-**Direction:** [ADR 0010](../../adr/0010-keda-for-autoscaling/): idle agents scale to
-zero on message-bus consumer lag and wake for a discussion. The coordinator's
-subcommittee selection already limits inference to the agents it convenes; this
-extends the saving to the pods themselves.
+**Direction:** [KEDA](https://keda.sh) (Kubernetes Event-Driven Autoscaling) as the
+mechanism. Idle agents scale to zero on message-bus consumer lag through KEDA's
+[NATS JetStream scaler](https://keda.sh/docs/scalers/nats-jetstream/) and wake when a
+discussion starts, and the operator creates and owns a `ScaledObject` beside each agent
+Deployment. The reasoning:
+
+- CPU and memory metrics do not fit these workloads. Agents are message-bus subscribers,
+  so consumer lag is the right signal, and tool servers can sit idle for hours and still
+  need to scale up when a discussion begins.
+- Hand-written replica logic in the operator would reimplement what an autoscaling
+  controller already does. KEDA layers on the standard HPA, handles scale to zero, and
+  covers both the message-bus trigger for agents and request-rate triggers for MCP
+  servers and gateways with one installation.
+- Waking an existing Deployment is faster than creating a Job per discussion, which is
+  too slow for the settle window of a discussion. Only the replica count changes.
+- The cost is a cold start on the first discussion after an idle period (pod start and
+  message-bus connect, not a model load when the model server is warm), and KEDA as a
+  cluster dependency.
+
+The coordinator's subcommittee selection already limits inference to the agents it
+convenes; this extends the saving to the pods themselves.
 
 ## Tracing and logs
 

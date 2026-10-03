@@ -151,6 +151,19 @@ A few project rules a reviewer looks for:
   management are handled in the operator with finalizers and owner references, not in
   client-side tools.
 
+## Naming
+
+| Item | Convention | Example |
+|------|------------|---------|
+| API group | `kubemoot.ai` | `apiVersion: kubemoot.ai/v1alpha1` |
+| CRD kinds | Singular, CamelCase | `ModelProvider`, `Agent`, `CrewSchedulingPolicy` |
+| Short names | Lowercase abbreviations, chosen when the CRD is designed | `mdlp`, `mdl`, `emb`, `mcp`, `mcpgw`, `rag`, `csp`, `pm` |
+| Brand names in prose and UI | CrewForge, Homelab Pilot, Kubemoot | "Install Kubemoot" |
+| Names in code and config | Kebab-case identifiers | `vscode-crewforge`, `homelab-pilot`, `kubemoot` |
+
+Using the same kebab-case identifiers in Helm charts, manifests, and the dashboard keeps
+copy-paste across layers working, and short names keep `kubectl get` output scannable.
+
 ## Project direction
 
 Where the project is headed is sketched in the [Roadmap](../../introduction/roadmap/).

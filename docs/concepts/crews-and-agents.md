@@ -26,6 +26,27 @@ and kept in working memory.
 See the [Crew CRD reference](../../reference/crew/) for spec fields and the
 working-memory policy.
 
+### How a crew is grouped
+
+Every resource that belongs to a crew (`Agent`, `CrewSchedulingPolicy`, `MCPServer`,
+`MCPGateway`, `RAGSource`, `PromptModule`) carries the label `kubemoot.ai/crew: <crew-name>`.
+A label is the Kubernetes-native grouping primitive: queryable with selectors, additive
+(an unlabeled resource keeps working), and already the mechanism an `MCPGateway` uses to
+find its tool servers (`mcpServerSelector` matching `kubemoot.ai/crew`). The dashboard
+builds its crew filter from the distinct label values.
+
+Shared infrastructure, such as a Kubernetes tool server, the vector store, or a model
+server, stays unlabeled and serves every crew, with no duplication per crew. Giving each
+crew its own namespace would force that duplication and cross-namespace plumbing for the
+vector store and model servers.
+
+Namespaces still separate crews that need separate names: message subjects and keys
+carry the namespace before the crew name
+(`kubemoot.discuss.<namespace>.<crew>.<channel>.<threadId>`), so two crews in different
+namespaces never see each other's discussions. A namespace separates names; it is not a
+security boundary today (see
+[SECURITY.md](https://github.com/kubemoot/kubemoot/blob/main/SECURITY.md)).
+
 ## Agent
 
 An `Agent` declares one participant as a thin, **capability-only** resource. The spec

@@ -9,6 +9,17 @@ KubemootConfig is a **cluster-scoped singleton** CRD that centralizes default im
 
 Every Kubemoot controller reads from KubemootConfig via the ConfigCache - a thread-safe in-memory cache that the KubemootConfigReconciler populates on startup and updates on every change.
 
+### Why a singleton
+
+Image references and operator defaults live in one cluster-scoped resource instead of the
+operator source, operator environment variables, or every custom resource. An image bump
+is a patch to one resource: no recompile, no operator restart, no Helm upgrade, and no
+chance of two namespaces running different runtime images. The scope is cluster-wide on
+purpose; a per-namespace config would bring the drift back. New cluster-wide defaults
+(scheduler strategy, retention windows) become new fields on the same resource rather
+than new CRDs. If `default` is missing, controllers fail their first reconcile until it
+exists, which is why the operator chart installs it.
+
 ## Architecture
 
 ```
