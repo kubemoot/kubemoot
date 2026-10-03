@@ -1,12 +1,13 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { listCrews } from '$lib/server/k8s';
+import { scopeList } from '$lib/server/scope';
 
 export const GET: RequestHandler = async ({ url }) => {
 	const namespace = url.searchParams.get('namespace') ?? '';
 
 	try {
-		const result = await listCrews(namespace);
+		const result = await scopeList(namespace, listCrews);
 		return json(result);
 	} catch (e) {
 		const message = e instanceof Error ? e.message : 'Failed to list crews';

@@ -2,7 +2,7 @@
 	import { reportComparator } from '$lib/mcp-report-sort';
 	import { onMount } from 'svelte';
 	import { resolve } from '$app/paths';
-	import { refreshTrigger } from '$stores';
+	import { readOnly, refreshTrigger } from '$stores';
 	import { ResourceList } from '$components/layout';
 	import { HelpTooltip } from '$components/common';
 	import type { MCPServerReport } from '$types/kubemoot.js';
@@ -210,7 +210,7 @@
 
 								<div class="detail-section">
 									<h3>Admin Curation</h3>
-									{#if editingReport === report.metadata.name}
+									{#if editingReport === report.metadata.name && !$readOnly}
 										<div class="edit-form">
 											<div class="form-field">
 												<label for="edit-verdict">Pin Verdict:</label>
@@ -242,7 +242,9 @@
 											{:else}
 												<div class="muted">No admin override. Verdict is auto-computed from trial history.</div>
 											{/if}
-											<button class="btn-edit" onclick={() => startEdit(report)}>Edit</button>
+											{#if !$readOnly}
+												<button class="btn-edit" onclick={() => startEdit(report)}>Edit</button>
+											{/if}
 										</div>
 									{/if}
 								</div>

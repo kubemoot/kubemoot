@@ -1,9 +1,12 @@
 import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { executeOllamaAction, resolveOllamaEndpoint } from '$lib/server/ollama-actions';
+import { guardNamespace } from '$lib/server/scope';
 
 export const POST: RequestHandler = async ({ params, url, request }) => {
 	const namespace = url.searchParams.get('namespace') || 'kubemoot';
+	const denied = await guardNamespace(namespace, 'infra');
+	if (denied) return denied;
 	const { name } = params;
 
 	const body = await request.json().catch(() => ({}));

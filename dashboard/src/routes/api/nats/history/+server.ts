@@ -3,12 +3,14 @@ import type { RequestHandler } from './$types';
 import { getNatsConnection, sc } from '$lib/server/nats-client';
 import { AckPolicy, DeliverPolicy, type JsMsg } from 'nats';
 import { DISCUSS_ALL } from '$lib/crewScope';
+import { guardStreamRead, messageSubjectAllowed } from '$lib/server/scope';
 
 /** The fetched messages decoded to text; a message that does not decode is skipped. */
 async function decodeMessages(iter: AsyncIterable<JsMsg>) {
 	const messages: Array<{ subject: string; data: string; seq: number }> = [];
 	for await (const msg of iter) {
 		try {
+			if (!messageSubjectAllowed(msg.subject)) continue;
 			messages.push({ subject: msg.subject, data: sc.decode(msg.data), seq: msg.seq });
 		} catch {
 			// skip malformed messages
@@ -28,6 +30,9 @@ export const GET: RequestHandler = async ({ url }) => {
 	const stream = url.searchParams.get('stream') || 'KUBEMOOT_DISCUSS';
 	const subject = url.searchParams.get('subject') || DISCUSS_ALL;
 	const limit = Math.min(parseInt(url.searchParams.get('limit') || '500'), 2000);
+
+	const denied = await guardStreamRead(stream, subject);
+	if (denied) return denied;
 
 	try {
 		const nc = await getNatsConnection();

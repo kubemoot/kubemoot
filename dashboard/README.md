@@ -125,6 +125,23 @@ rules:
 | `PORT` | Server port | `3000` |
 | `HOST` | Server host | `0.0.0.0` |
 | `APP_VERSION` | Version displayed in UI | From VERSION file |
+| `KUBEMOOT_DASHBOARD_READ_ONLY` | `true` refuses every request that is not GET, HEAD or OPTIONS with 403, and hides the write controls | `false` |
+| `KUBEMOOT_DASHBOARD_NAMESPACE_SELECTOR` | Label selector (for example `kubemoot.ai/workshop-team=true`); only matching namespaces are shown, resolved against the live cluster | empty (all namespaces) |
+| `KUBEMOOT_DASHBOARD_INFRA_NAMESPACE` | With a selector set, the operator namespace whose model providers, models, embedding models, MCP catalogs and quality policies stay visible | `kubemoot` |
+
+### Read-only, namespace-scoped mode
+
+The same image can run as a read-only view of a few namespaces, for example for workshop
+attendees who `kubectl port-forward` to it. With a selector set, namespace lists, every
+Kubemoot list, get and watch, NATS history, stream, subscribe and key-value reads, discussion
+artifacts and fitness transcripts show only matching namespaces; a get outside them answers
+404. Nodes, the KubemootConfig, operator health and version stay visible (cluster
+infrastructure). Every route under `src/routes/api` either uses `$lib/server/scope` or is
+listed as cluster-scoped, with a reason, in `src/routes/api/route-modes.test.ts`.
+
+The Helm chart renders it as a second Deployment of the same image with its own
+read-only ServiceAccount: `--set dashboard.enabled=true --set dashboard.workshop.enabled=true`
+(selector in `dashboard.workshop.namespaceSelector`).
 
 ## License
 

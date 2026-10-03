@@ -4,6 +4,7 @@
 	import { resolve } from '$app/paths';
 	import type { ModelProvider, ModelProviderLoadedModel } from '$types/kubemoot.js';
 	import ResourceCard from './ResourceCard.svelte';
+	import { readOnly } from '$lib/stores/mode';
 
 	interface Props {
 		provider: ModelProvider;
@@ -304,6 +305,7 @@
 										<span class="model-meta ttl">TTL {formatRemaining(entry.loadedInfo.expiresAt, now)}</span>
 									{/if}
 								</div>
+								{#if !$readOnly}
 								<div class="action-group" class:show={pending}>
 									{#if loaded}
 										<button
@@ -347,6 +349,7 @@
 										</button>
 									{/if}
 								</div>
+								{/if}
 							</div>
 						{/each}
 					</div>

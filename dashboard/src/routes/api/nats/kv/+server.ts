@@ -1,6 +1,9 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
+import type { KvEntry } from 'nats';
 import { getNatsConnection, sc } from '$lib/server/nats-client';
+import { isReadOnly } from '$lib/server/mode';
+import { guardKvRead, keyNamespaceAllowed } from '$lib/server/scope';
 
 /**
  * Reads all entries from a NATS KV bucket.
@@ -12,13 +15,20 @@ import { getNatsConnection, sc } from '$lib/server/nats-client';
  *
  * GET /api/nats/kv?bucket=kubemoot_agent_state
  */
+/** A live entry (not a delete marker, not empty) in a namespace this dashboard may show. */
+function isShownEntry(entry: KvEntry): boolean {
+	return entry.operation === 'PUT' && !!entry.value && entry.value.length > 0 && keyNamespaceAllowed(entry.key);
+}
+
 export const GET: RequestHandler = async ({ url }) => {
 	const bucket = url.searchParams.get('bucket') || 'kubemoot_agent_state';
+	const denied = await guardKvRead(bucket);
+	if (denied) return denied;
 
 	try {
 		const nc = await getNatsConnection();
 		const js = nc.jetstream();
-		const kv = await js.views.kv(bucket);
+		const kv = await js.views.kv(bucket, { bindOnly: isReadOnly() });
 
 		const agents: Record<string, unknown> = {};
 
@@ -32,7 +42,7 @@ export const GET: RequestHandler = async ({ url }) => {
 		});
 
 		for await (const entry of watch) {
-			if (entry.operation === 'PUT' && entry.value && entry.value.length > 0) {
+			if (isShownEntry(entry)) {
 				try {
 					agents[entry.key] = JSON.parse(sc.decode(entry.value));
 				} catch {

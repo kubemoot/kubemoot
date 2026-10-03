@@ -10,6 +10,7 @@ import {
 	type IterationResult,
 	type TranscriptSummary
 } from '$lib/server/fitness-iterations';
+import { guardNamespace } from '$lib/server/scope';
 
 /**
  * Bounded-concurrency map - reads transcripts in parallel without firing N
@@ -39,6 +40,8 @@ async function mapLimit<T, R>(items: T[], limit: number, fn: (t: T) => Promise<R
  */
 export const GET: RequestHandler = async ({ params }) => {
 	const { namespace, name } = params;
+	const denied = await guardNamespace(namespace);
+	if (denied) return denied;
 	try {
 		const suite = await getCrewFitnessSuite(namespace, name);
 		const runId = suite.status?.runId;

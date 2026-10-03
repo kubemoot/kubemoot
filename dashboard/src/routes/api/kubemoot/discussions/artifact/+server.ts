@@ -2,6 +2,7 @@ import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { readDiscussionArtifact } from '$lib/server/nats-object-store';
 import { parseArtifactKey, type ArtifactKey } from '$lib/crewScope';
+import { guardKeyNamespace } from '$lib/server/scope';
 
 /**
  * GET /api/kubemoot/discussions/artifact?key=...
@@ -39,6 +40,8 @@ export const GET: RequestHandler = async ({ url }) => {
 	if (!parsed) {
 		return json({ error: 'invalid artifact key' }, { status: 400 });
 	}
+	const denied = await guardKeyNamespace(parsed);
+	if (denied) return denied;
 	try {
 		const bytes = await readDiscussionArtifact(key);
 		if (!bytes) {

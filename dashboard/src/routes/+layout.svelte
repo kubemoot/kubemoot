@@ -6,7 +6,7 @@
 	import { page } from '$app/stores';
 	import { Sidebar } from '$components/layout';
 	import { NamespaceSelector } from '$components/common';
-	import { crewDirectory, loadCrewDirectory, refresh } from '$stores';
+	import { crewDirectory, dashboardMode, loadCrewDirectory, refresh } from '$stores';
 
 	// Pages where the crew selector doesn't apply. Discussions IS crew-scoped
 	// (threads carry a crew), so it shows the selector and filters by crew.
@@ -18,9 +18,15 @@
 
 	interface Props {
 		children: import('svelte').Snippet;
+		data: { readOnly: boolean; scoped: boolean };
 	}
 
-	let { children }: Props = $props();
+	let { children, data }: Props = $props();
+
+	// The mode is fixed per deployment, so setting the store while the component
+	// initialises gives the server render and the hydrated page the same controls.
+	// svelte-ignore state_referenced_locally
+	dashboardMode.set({ readOnly: data.readOnly, scoped: data.scoped });
 
 	let namespacesLoading = $state(true);
 	let version = $state('...');

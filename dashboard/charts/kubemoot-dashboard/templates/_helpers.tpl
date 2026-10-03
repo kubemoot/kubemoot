@@ -101,3 +101,29 @@ never share a cluster-scoped name.
 {{- define "kubemoot-dashboard.clusterRoleName" -}}
 {{- default (printf "%s-reader" (include "kubemoot-dashboard.fullname" .)) .Values.rbac.clusterRole.name -}}
 {{- end }}
+
+{{/*
+Workshop instance (workshop.enabled): a second, read-only, namespace-scoped Deployment of
+this same image. Its name is the dashboard's fullname plus "-workshop". Its pods carry a
+different app.kubernetes.io/name, so the main Service never selects them and the
+workshop Service never selects the main dashboard's pods.
+*/}}
+{{- define "kubemoot-dashboard.workshop.fullname" -}}
+{{- printf "%s-workshop" (include "kubemoot-dashboard.fullname" . | trunc 54 | trimSuffix "-") -}}
+{{- end }}
+
+{{- define "kubemoot-dashboard.workshop.selectorLabels" -}}
+app.kubernetes.io/name: {{ printf "%s-workshop" (include "kubemoot-dashboard.name" . | trunc 54 | trimSuffix "-") }}
+app.kubernetes.io/instance: {{ .Release.Name }}
+{{- end }}
+
+{{- define "kubemoot-dashboard.workshop.labels" -}}
+helm.sh/chart: {{ include "kubemoot-dashboard.chart" . }}
+{{ include "kubemoot-dashboard.workshop.selectorLabels" . }}
+{{- if .Chart.AppVersion }}
+app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
+{{- end }}
+app.kubernetes.io/managed-by: {{ .Release.Service }}
+app.kubernetes.io/part-of: kubemoot
+app.kubernetes.io/component: dashboard-workshop
+{{- end }}

@@ -2,6 +2,7 @@ import type { RequestHandler } from './$types';
 import type { Msg } from 'nats';
 import { getNatsConnection, sc } from '$lib/server/nats-client';
 import { relayToSse, sseResponse } from '$lib/server/sse';
+import { forbidden, messageSubjectAllowed, subjectFilterAllowed } from '$lib/server/scope';
 
 /**
  * SSE endpoint that subscribes to a NATS subject and streams messages to the browser.
@@ -12,19 +13,24 @@ import { relayToSse, sseResponse } from '$lib/server/sse';
  *
  * Usage: GET /api/nats/subscribe?subject=kubemoot.>
  */
-export const GET: RequestHandler = ({ url }) => {
+export const GET: RequestHandler = async ({ url }) => {
 	const subject = url.searchParams.get('subject') || 'kubemoot.>';
+	if (!(await subjectFilterAllowed(subject))) return forbidden('subject');
 
 	return sseResponse(async (sink) => {
 		const nc = await getNatsConnection();
 		const sub = nc.subscribe(subject);
 		sink.data({ type: 'connected', subject });
-		void relayToSse(sub, sink, (msg: Msg) => ({
-			type: 'message',
-			subject: msg.subject,
-			data: sc.decode(msg.data),
-			timestamp: new Date().toISOString()
-		}));
+		void relayToSse(sub, sink, (msg: Msg) =>
+			messageSubjectAllowed(msg.subject)
+				? {
+						type: 'message',
+						subject: msg.subject,
+						data: sc.decode(msg.data),
+						timestamp: new Date().toISOString()
+					}
+				: undefined
+		);
 		return () => sub.unsubscribe();
 	});
 };

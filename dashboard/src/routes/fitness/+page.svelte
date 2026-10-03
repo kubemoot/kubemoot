@@ -2,7 +2,7 @@
 	import { onMount } from 'svelte';
 	import { marked } from 'marked';
 	import { resolve } from '$app/paths';
-	import { namespace, showStandAsides } from '$stores';
+	import { namespace, readOnly, showStandAsides } from '$stores';
 	import type { CrewFitnessSuite } from '$types/kubemoot.js';
 	import {
 		availableSuiteActions,
@@ -630,10 +630,12 @@
 						{#if s?.artifactRef?.objectKey}
 							<a class="dl" href="{resolve('/api/kubemoot/crewfitnesssuites/[namespace]/[name]/artifact', { namespace: ns, name })}" download onclick={(e) => e.stopPropagation()} title="Download {formatBytes(s.artifactRef.sizeBytes)}">⬇ XLSX</a>
 						{:else}<span class="muted small">-</span>{/if}
-						{#each availableSuiteActions(suite) as action (action)}
-							<button class="ctl-btn" title={ACTION_LABEL[action].title} aria-label="{action} suite" onclick={(e) => suiteAction(ns, name, action, e)}>{ACTION_LABEL[action].text}</button>
-						{/each}
-						<button class="del-btn" title="Remove this suite run (deletes the run and its artifacts)" aria-label="Remove suite run" onclick={(e) => deleteSuite(ns, name, e)}>✕</button>
+						{#if !$readOnly}
+							{#each availableSuiteActions(suite) as action (action)}
+								<button class="ctl-btn" title={ACTION_LABEL[action].title} aria-label="{action} suite" onclick={(e) => suiteAction(ns, name, action, e)}>{ACTION_LABEL[action].text}</button>
+							{/each}
+							<button class="del-btn" title="Remove this suite run (deletes the run and its artifacts)" aria-label="Remove suite run" onclick={(e) => deleteSuite(ns, name, e)}>✕</button>
+						{/if}
 					</td>
 				</tr>
 

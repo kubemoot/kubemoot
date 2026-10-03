@@ -3,7 +3,7 @@
 	import { resolve } from '$app/paths';
 	import { marked } from 'marked';
 	import type { DiscussionMessage } from '$types/kubemoot.js';
-	import { crewDirectory, threads, sortedThreads, discussionsConnected, historyLoaded, initDiscussions, addDiscussionMessage, removeThread, pinnedThreadIds, loadPinnedThreads, pinThread, unpinThread, showStandAsides, namespace, threadScope } from '$lib/stores';
+	import { crewDirectory, threads, sortedThreads, discussionsConnected, historyLoaded, initDiscussions, addDiscussionMessage, removeThread, pinnedThreadIds, loadPinnedThreads, pinThread, unpinThread, showStandAsides, namespace, threadScope, readOnly } from '$lib/stores';
 	import type { Thread } from '$lib/stores';
 	import { discussSubject, tryCrewScope, type CrewScope } from '$lib/crewScope';
 	import { crewEntry, crewLabel, crewTooltip } from '$lib/crew-display-name';
@@ -498,7 +498,7 @@
 		if (TEXT_ENTRY_TAGS.has((event.target as HTMLElement)?.tagName)) return;
 
 		if (deleteConfirm) answerDeletePrompt(event.key);
-		else if (event.key === 'Delete' && selectedThread) deleteConfirm = true;
+		else if (event.key === 'Delete' && selectedThread && !$readOnly) deleteConfirm = true;
 	}
 
 	// Auto-scroll to bottom when the selected thread gains messages.
@@ -550,9 +550,11 @@
 	<div class="page-header">
 		<h1>Agent Discussions</h1>
 		<div class="header-actions">
-			<button class="new-btn" onclick={() => (showNewForm = !showNewForm)}>
-				{showNewForm ? 'Cancel' : '+ New Discussion'}
-			</button>
+			{#if !$readOnly}
+				<button class="new-btn" onclick={() => (showNewForm = !showNewForm)}>
+					{showNewForm ? 'Cancel' : '+ New Discussion'}
+				</button>
+			{/if}
 			<div class="connection-status" class:connected={$discussionsConnected}>
 				<span class="status-dot"></span>
 				{$discussionsConnected ? 'Connected' : 'Disconnected'}
@@ -560,7 +562,7 @@
 		</div>
 	</div>
 
-	{#if showNewForm}
+	{#if showNewForm && !$readOnly}
 		<div class="new-discussion-form">
 			<select bind:value={newChannel} class="channel-select">
 				{#each channels as ch}
@@ -628,12 +630,14 @@
 							<span>{formatTime(thread.startedAt)}</span>
 						</div>
 					</button>
-					<button
-						class="del-thread"
-						title="Remove this discussion (deletes from the timeline and purges its messages)"
-						aria-label="Remove discussion"
-						onclick={(e) => removeDiscussion(thread.threadId, e)}
-					>✕</button>
+					{#if !$readOnly}
+						<button
+							class="del-thread"
+							title="Remove this discussion (deletes from the timeline and purges its messages)"
+							aria-label="Remove discussion"
+							onclick={(e) => removeDiscussion(thread.threadId, e)}
+						>✕</button>
+					{/if}
 					</div>
 				{/each}
 			{/if}
@@ -673,6 +677,7 @@
 						<button class="action-btn" onclick={copyThread} title="Copy thread to clipboard">
 							{copiedThread ? '✓' : '📋'}
 						</button>
+						{#if !$readOnly}
 						<button
 							class="action-btn"
 							class:active-toggle={$pinnedThreadIds.has(selectedThread.threadId)}
@@ -708,6 +713,7 @@
 							<span class="delete-prompt">Delete?</span>
 							<button class="action-btn-text yes" onclick={deleteThread}>Yes</button>
 							<button class="action-btn-text no" onclick={() => { deleteConfirm = false; }}>No</button>
+						{/if}
 						{/if}
 					</div>
 				</div>
@@ -809,6 +815,7 @@
 					{/each}
 				</div>
 
+				{#if !$readOnly}
 				<div class="reply-bar">
 					<input
 						type="text"
@@ -822,6 +829,7 @@
 						Send
 					</button>
 				</div>
+				{/if}
 			{:else}
 				<div class="no-selection">
 					Select a discussion thread to view its timeline
