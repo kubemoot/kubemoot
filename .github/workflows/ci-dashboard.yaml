@@ -17,9 +17,22 @@ permissions:
   contents: read
 
 jobs:
+  # The favicons and the sidebar lockup are copies of github.com/kubemoot/.github brand/
+  # files; brand.lock pins the commit and each copy's sha256. Both jobs below need it.
+  brand:
+    runs-on: ${{ github.event_name == 'pull_request' && 'ubuntu-latest' || 'homelab-runners' }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Check the brand copies against brand.lock
+        run: dashboard/scripts/brand-sync.sh check && dashboard/scripts/brand-sync.test.sh
+
   # Pull requests (including forks) build the image on a GitHub-hosted runner without
   # pushing, so the gates inside the Dockerfile still run and no cluster is reached.
   validate:
+    needs: brand
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
 
@@ -31,6 +44,7 @@ jobs:
         run: docker build --file dashboard/Dockerfile dashboard
 
   build:
+    needs: brand
     if: github.event_name != 'pull_request'
     runs-on: homelab-runners
 

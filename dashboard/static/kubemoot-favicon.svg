@@ -1,0 +1,42 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="18 18 164 164" width="164" height="164" role="img" aria-label="Kubemoot: a round table with seven water drops gathered around it">
+  <title>Kubemoot</title>
+  <!-- Light browser chrome: the full-color mark. Dark chrome: the one-color white mark. -->
+  <style>
+    .on-dark { display: none; }
+    @media (prefers-color-scheme: dark) {
+      .on-light { display: none; }
+      .on-dark { display: inline; }
+    }
+  </style>
+  <g class="on-light">
+    <!-- Keyline: a light rim behind the table. Faint on white, it outlines the table on dark. -->
+    <circle cx="100" cy="100" r="43" fill="#e5e7eb"/>
+    <!-- The table: a round table, seen from above. -->
+    <circle cx="100" cy="100" r="40" fill="#1f2a37"/>
+    <circle cx="100" cy="100" r="32" fill="none" stroke="#5b8def" stroke-width="5"/>
+    <!-- The moot: seven drops around the table, each pointed at its center. -->
+    <g fill="#3b82f6">
+      <path d="M0 0 C 11 -14, 11 -34, 0 -34 C -11 -34, -11 -14, 0 0 Z" transform="rotate(0.000 100 100) translate(100 54)"/>
+      <path d="M0 0 C 11 -14, 11 -34, 0 -34 C -11 -34, -11 -14, 0 0 Z" transform="rotate(51.429 100 100) translate(100 54)"/>
+      <path d="M0 0 C 11 -14, 11 -34, 0 -34 C -11 -34, -11 -14, 0 0 Z" transform="rotate(102.857 100 100) translate(100 54)"/>
+      <path d="M0 0 C 11 -14, 11 -34, 0 -34 C -11 -34, -11 -14, 0 0 Z" transform="rotate(154.286 100 100) translate(100 54)"/>
+      <path d="M0 0 C 11 -14, 11 -34, 0 -34 C -11 -34, -11 -14, 0 0 Z" transform="rotate(205.714 100 100) translate(100 54)"/>
+      <path d="M0 0 C 11 -14, 11 -34, 0 -34 C -11 -34, -11 -14, 0 0 Z" transform="rotate(257.143 100 100) translate(100 54)"/>
+      <path d="M0 0 C 11 -14, 11 -34, 0 -34 C -11 -34, -11 -14, 0 0 Z" transform="rotate(308.571 100 100) translate(100 54)"/>
+    </g>
+  </g>
+  <g class="on-dark">
+    <!-- The table with its ring cut out: the background shows through the ring. -->
+    <path fill="#ffffff" fill-rule="evenodd" d="M60 100a40 40 0 1 0 80 0a40 40 0 1 0 -80 0Z M65.5 100a34.5 34.5 0 1 0 69 0a34.5 34.5 0 1 0 -69 0Z M70.5 100a29.5 29.5 0 1 0 59 0a29.5 29.5 0 1 0 -59 0Z"/>
+    <!-- The moot: seven drops around the table, each pointed at its center. -->
+    <g fill="#ffffff">
+      <path d="M0 0 C 11 -14, 11 -34, 0 -34 C -11 -34, -11 -14, 0 0 Z" transform="rotate(0.000 100 100) translate(100 54)"/>
+      <path d="M0 0 C 11 -14, 11 -34, 0 -34 C -11 -34, -11 -14, 0 0 Z" transform="rotate(51.429 100 100) translate(100 54)"/>
+      <path d="M0 0 C 11 -14, 11 -34, 0 -34 C -11 -34, -11 -14, 0 0 Z" transform="rotate(102.857 100 100) translate(100 54)"/>
+      <path d="M0 0 C 11 -14, 11 -34, 0 -34 C -11 -34, -11 -14, 0 0 Z" transform="rotate(154.286 100 100) translate(100 54)"/>
+      <path d="M0 0 C 11 -14, 11 -34, 0 -34 C -11 -34, -11 -14, 0 0 Z" transform="rotate(205.714 100 100) translate(100 54)"/>
+      <path d="M0 0 C 11 -14, 11 -34, 0 -34 C -11 -34, -11 -14, 0 0 Z" transform="rotate(257.143 100 100) translate(100 54)"/>
+      <path d="M0 0 C 11 -14, 11 -34, 0 -34 C -11 -34, -11 -14, 0 0 Z" transform="rotate(308.571 100 100) translate(100 54)"/>
+    </g>
+  </g>
+</svg>
