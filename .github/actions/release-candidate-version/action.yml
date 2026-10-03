@@ -43,7 +43,7 @@ runs:
     # promoted X.Y.Z sorts above all of its candidates. The action accepts only
     # <prefix>X.Y.Z tags as a base, so candidate tags never become one.
     - id: version
-      uses: paulhatch/semantic-version@v6.0.2
+      uses: paulhatch/semantic-version@v6.0.4
       with:
         tag_prefix: ${{ inputs.tag_prefix }}
         major_pattern: "(BREAKING CHANGE|feat!|fix!)"

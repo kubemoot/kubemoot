@@ -21,8 +21,8 @@ jobs:
   chart:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
-      - uses: azure/setup-helm@v4
+      - uses: actions/checkout@v7
+      - uses: azure/setup-helm@v5
       - name: Lint (defaults and quickstart values)
         run: |
           helm dependency build operator/chart/kubemoot-operator

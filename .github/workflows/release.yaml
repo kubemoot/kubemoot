@@ -52,7 +52,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
         with:
           # RELEASE_TOKEN (contents+workflows write) pushes even when main's workflow files changed after this commit; GITHUB_TOKEN is refused there.
           token: ${{ secrets.RELEASE_TOKEN || github.token }}
@@ -102,7 +102,7 @@ jobs:
 
       - name: Install Helm
         if: steps.version.outputs.release_created == 'true'
-        uses: azure/setup-helm@v4
+        uses: azure/setup-helm@v5
         with:
           # Pin to v3.14.0 to match the crews repo's proven-working Harbor push.
           # Newer helm strictly refuses Harbor's http token realm even with
@@ -212,7 +212,7 @@ jobs:
           kubectl rollout status deployment/kubemoot-operator -n kubemoot --timeout=120s
 
       - name: Dispatch integration test
-        uses: peter-evans/repository-dispatch@v3
+        uses: peter-evans/repository-dispatch@v4
         with:
           event-type: flux-reconciliation
 

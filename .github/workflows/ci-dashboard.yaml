@@ -25,7 +25,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
 
       - name: Build dashboard image (no push)
         run: docker build --file dashboard/Dockerfile dashboard
@@ -36,7 +36,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
 
       # No Node toolchain on the runner: the multistage Dockerfile runs npm ci,
       # npm run check, npm test, and npm run build inside node:26-alpine, so the
