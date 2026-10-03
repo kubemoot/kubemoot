@@ -37,7 +37,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v6
         with:
-          go-version: '1.27'
+          go-version-file: operator/go.mod
           cache-dependency-path: operator/go.sum
 
       - name: Run tests
@@ -90,6 +90,9 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v5
+        with:
+          # RELEASE_TOKEN (contents+workflows write) pushes even when main's workflow files changed after this commit; GITHUB_TOKEN is refused there.
+          token: ${{ secrets.RELEASE_TOKEN || github.token }}
 
       - name: Install build tools
         run: |
@@ -99,7 +102,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v6
         with:
-          go-version: '1.27'
+          go-version-file: operator/go.mod
           cache-dependency-path: operator/go.sum
 
       - name: Regenerate CRDs and deepcopy

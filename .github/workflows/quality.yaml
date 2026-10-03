@@ -29,7 +29,8 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v6
         with:
-          go-version: '1.27'
+          # Several modules are tested here; the operator's go.mod is the toolchain source (all declare the same go line).
+          go-version-file: operator/go.mod
           cache-dependency-path: |
             operator/go.sum
             mcp-bridge/go.sum
@@ -110,7 +111,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v6
         with:
-          node-version: '26'
+          node-version-file: dashboard/.nvmrc
           cache: 'npm'
           cache-dependency-path: dashboard/package-lock.json
 
