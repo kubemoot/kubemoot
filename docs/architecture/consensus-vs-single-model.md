@@ -1,5 +1,6 @@
 ---
 title: "Kubemoot Architecture - Distributed Consensus vs Single-Model Orchestration"
+description: "Compare Kubemoot's committee of small specialist models and a coordinator with a single large-model agent, and what each architecture gains and costs."
 weight: 1
 linkTitle: "Consensus vs Single-Model"
 ---

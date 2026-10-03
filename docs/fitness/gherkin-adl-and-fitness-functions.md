@@ -1,5 +1,6 @@
 ---
 title: "Gherkin, ADL, and Fitness Functions"
+description: "Why Kubemoot uses ADL for agent prompts and a purpose-built fitness format instead of Gherkin: where the two overlap, where they diverge, and the trade-offs."
 weight: 2
 ---
 

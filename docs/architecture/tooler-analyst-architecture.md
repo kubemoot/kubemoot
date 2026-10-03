@@ -1,5 +1,6 @@
 ---
 title: "Tooler-Analyst Architecture"
+description: "Kubemoot splits discussion work into Toolers that query live systems through MCP and Analysts that reason over their findings with RAG, in separate phases."
 weight: 3
 ---
 

@@ -1,5 +1,6 @@
 ---
 title: "CrewFitnessSuite CRD"
+description: "Run fitness scripts against a crew many times with a CrewFitnessSuite and collect every iteration into an XLSX report stored in the NATS Object Store."
 weight: 8
 ---
 

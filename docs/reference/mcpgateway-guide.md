@@ -1,5 +1,6 @@
 ---
 title: "MCPGateway Guide"
+description: "MCPGateway deploys the hub that routes agent tool calls to MCPServers. Agents connect to the gateway, which discovers and manages the matching servers."
 weight: 7
 ---
 

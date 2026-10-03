@@ -1,5 +1,6 @@
 ---
 title: "Kubemoot Crew Fitness Functions"
+description: "Kubemoot treats architectural fitness functions as Kubernetes resources: the CrewFitness CRD defines, runs, and observes tests against deployed agent crews."
 weight: 1
 ---
 

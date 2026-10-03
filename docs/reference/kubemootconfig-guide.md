@@ -1,5 +1,6 @@
 ---
 title: "KubemootConfig Guide"
+description: "KubemootConfig is the cluster-scoped singleton that holds default images and settings for every Kubemoot component, keeping versions out of the operator source."
 weight: 5
 ---
 

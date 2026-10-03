@@ -1,5 +1,6 @@
 ---
 title: "Kubemoot Observability"
+description: "What a Kubemoot crew exposes for observation: discussion signals, metrics, logs, and traces, the surfaces that render them, and the external stack they rely on."
 weight: 3
 ---
 

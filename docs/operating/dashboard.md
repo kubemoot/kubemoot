@@ -1,5 +1,6 @@
 ---
 title: "Kubemoot Dashboard"
+description: "The Kubemoot Dashboard is a web UI that lists resources across namespaces, shows GPU and model state, and streams live agent discussions and NATS messages."
 weight: 2
 ---
 

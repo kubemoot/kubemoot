@@ -1,5 +1,6 @@
 ---
 title: "Crew CRD"
+description: "The Crew CRD groups Agents into one team and configures crew-wide settings such as the discussion gateway and the shared working memory the agents use."
 weight: 2
 ---
 

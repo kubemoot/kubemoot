@@ -1,5 +1,6 @@
 ---
 title: "Models in Kubemoot"
+description: "The Kubemoot model layer: the ModelProvider, Model, and EmbeddingModel CRDs, how the scheduler binds agents to them, load on demand, the catalog, and GPU fit."
 weight: 3
 ---
 

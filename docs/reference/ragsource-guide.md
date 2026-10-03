@@ -1,5 +1,6 @@
 ---
 title: "RAGSource Guide"
+description: "RAGSource manages a retrieval knowledge source end to end: cloning documents, chunking, embedding with Ollama, storing in pgvector, and verifying the index."
 weight: 4
 ---
 
