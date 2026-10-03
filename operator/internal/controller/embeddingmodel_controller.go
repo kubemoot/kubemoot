@@ -87,14 +87,10 @@ func (r *EmbeddingModelReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 			fmt.Sprintf("Waiting for ModelProvider '%s' to be ready", provider.Name))
 	}
 
-	// Handle based on provider type
-	switch provider.Spec.Type {
-	case "ollama":
-		return r.reconcileOllamaEmbedding(ctx, embeddingModel, provider)
-	default:
-		return r.updateStatus(ctx, embeddingModel, "Error", false,
-			fmt.Sprintf("Unknown provider type: %s", provider.Spec.Type))
+	if provider.Spec.Type != kubemootv1alpha1.ProviderTypeOllama {
+		return r.updateStatus(ctx, embeddingModel, "Error", false, kubemootv1alpha1.UnsupportedProviderTypeMessage)
 	}
+	return r.reconcileOllamaEmbedding(ctx, embeddingModel, provider)
 }
 
 // reconcileOllamaEmbedding handles Ollama-based embedding models
@@ -332,12 +328,6 @@ func (r *EmbeddingModelReconciler) updateStatus(ctx context.Context, embeddingMo
 	}
 
 	return ctrl.Result{RequeueAfter: 60 * time.Second}, nil
-}
-
-// updateStatusWithEndpoint updates the status and sets the endpoint
-func (r *EmbeddingModelReconciler) updateStatusWithEndpoint(ctx context.Context, embeddingModel *kubemootv1alpha1.EmbeddingModel, state string, ready bool, message, endpoint string) (ctrl.Result, error) {
-	embeddingModel.Status.Endpoint = endpoint
-	return r.updateStatus(ctx, embeddingModel, state, ready, message)
 }
 
 // SetupWithManager sets up the controller with the Manager.

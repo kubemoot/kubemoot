@@ -48,6 +48,8 @@ Declares an inference endpoint. The operator discovers GPU capacity (VRAM, loade
 | `capacity.nodeName` | Kubernetes | Node hosting the Ollama pod |
 | `capacity.lastProbed` | Operator | When capacity was last discovered |
 
+A ModelProvider stored with any type other than `ollama` (one created before the API server rejected them) reports `ready: false` with reason `Unsupported` and the same message the API server gives; Models and EmbeddingModels on it report the same message.
+
 The scheduler refuses to place a call whose prompt exceeds a provider's context for the
 model, because the engine would silently drop the oldest messages instead of rejecting it
 (see [Scheduler](../architecture/scheduler.md#the-context-window-is-a-hard-constraint)).

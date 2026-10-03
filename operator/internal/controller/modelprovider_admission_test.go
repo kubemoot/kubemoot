@@ -35,7 +35,7 @@ var _ = Describe("ModelProvider admission", func() {
 		Expect(k8sClient.Delete(ctx, mp)).To(Succeed())
 	})
 
-	for _, typ := range []string{"openai", "anthropic", "bogus"} {
+	for _, typ := range unsupportedProviderTypes {
 		It("rejects type "+typ+" with the not-supported message", func() {
 			err := k8sClient.Create(ctx, newMP("adm-"+typ, typ))
 			Expect(err).To(HaveOccurred())

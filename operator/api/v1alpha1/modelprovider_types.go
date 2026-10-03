@@ -36,7 +36,8 @@ const (
 
 // UnsupportedProviderTypeMessage is the admission and status message for any
 // provider type other than ollama. Keep it identical to the XValidation
-// message on ModelProviderSpec.Type.
+// message on ModelProviderSpec.Type (a marker cannot reference a const); the
+// envtest admission test compares this const with the live CRD's error.
 const UnsupportedProviderTypeMessage = "only type ollama is supported today; openai and anthropic are not supported yet"
 
 // ModelProviderSpec defines the desired state of ModelProvider.
