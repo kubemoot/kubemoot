@@ -131,7 +131,7 @@ type NotificationSinkStatus struct {
 
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
-// +kubebuilder:resource:shortName=ns;notif
+// +kubebuilder:resource:shortName=notif
 // +kubebuilder:printcolumn:name="URL",type=string,JSONPath=`.spec.webhook.url`
 // +kubebuilder:printcolumn:name="Ready",type=boolean,JSONPath=`.status.ready`
 // +kubebuilder:printcolumn:name="Dispatched",type=integer,JSONPath=`.status.totalDispatched`
