@@ -27,7 +27,7 @@ jobs:
           echo "Trigger: ${{ toJSON(github.event.client_payload) }}"
 
       - name: Checkout repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
 
       - name: Install kubectl
         run: |
