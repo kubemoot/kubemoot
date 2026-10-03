@@ -34,7 +34,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v6
         with:
-          go-version: '1.27'
+          go-version-file: scheduling-mcp/go.mod
 
       - name: Resolve module dependencies
         working-directory: scheduling-mcp
@@ -60,7 +60,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v6
         with:
-          go-version: '1.27'
+          go-version-file: scheduling-mcp/go.mod
 
       - name: Resolve module dependencies (populates go.sum for the kaniko build context)
         working-directory: scheduling-mcp
