@@ -1,5 +1,5 @@
 DEFINE DOMAIN kubemoot-docs
-DESCRIPTION Authoring rules for Kubemoot end-user documentation (docs/ and the Hugo+Docsy site). Inherits ecosystem and kubemoot rules from the parent .claude/CLAUDE.md files.
+DESCRIPTION Authoring rules for Kubemoot end-user documentation (docs/ and the Hugo+Docsy site).
 
 # Punctuation
 
