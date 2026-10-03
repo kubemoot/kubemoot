@@ -13,6 +13,9 @@ env:
   REGISTRY: ${{ vars.REGISTRY }}
   IMAGE_NAME: kubemoot/dashboard
 
+permissions:
+  contents: read
+
 jobs:
   # Pull requests (including forks) build the image on a GitHub-hosted runner without
   # pushing, so the gates inside the Dockerfile still run and no cluster is reached.

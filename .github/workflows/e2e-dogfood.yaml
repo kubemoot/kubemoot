@@ -19,6 +19,9 @@ on:
         description: "Namespace of that crew"
         default: "crew-homelab-pilot"
 
+permissions:
+  contents: read
+
 jobs:
   dogfood:
     runs-on: homelab-runners

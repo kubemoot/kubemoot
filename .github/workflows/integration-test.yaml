@@ -12,6 +12,9 @@ concurrency:
   group: integration-test
   cancel-in-progress: false
 
+permissions:
+  contents: read
+
 jobs:
   smoke-test:
     runs-on: homelab-runners
