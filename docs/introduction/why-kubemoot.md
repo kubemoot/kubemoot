@@ -90,5 +90,11 @@ least one GPU-backed model provider, and it is built for multi-step, judgment-be
 questions - not for trivial single-shot calls where a deliberating committee is
 overkill.
 
+Its goals and features are not fixed. As people run crews on their own clusters and
+report what works and what gets in the way, Kubemoot will refine what it sets out to do
+and how it does it. Share yours in
+[Discussions](https://github.com/orgs/kubemoot/discussions) or open an issue; the
+[Roadmap](../roadmap/) shows the directions under consideration today.
+
 Next: the [Overview](../kubemoot-brief/) for what's in the box, or the
 [Quickstart](../quickstart/) to run a crew.

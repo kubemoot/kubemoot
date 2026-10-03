@@ -1,5 +1,5 @@
 DEFINE DOMAIN kubemoot
-DESCRIPTION Kubernetes operator for multi-agent AI consensus discussions. Inherits ecosystem rules from parent .claude/CLAUDE.md.
+DESCRIPTION Kubernetes operator for multi-agent AI consensus discussions.
 
 # ADL (the Architecture Definition Language), applied to agents
 
@@ -31,7 +31,7 @@ ASSERT coordinator determines conclusion via signal-based settling, not quorum o
 WHEN an agent publishes triaging THEN coordinator sets generous deadline (~120s)
 WHEN an agent publishes evaluating THEN coordinator tightens deadline to P90 latency
 WHEN all agents have responded or expired AND 2+ seconds quiet THEN coordinator transitions to synthesis
-ASSERT see the parent state-driven-design component - never raise a timeout to fix a bug, find the missing state transition
+ASSERT design transitions on state, not elapsed time: never raise a timeout to fix a bug, find the missing state transition
 
 DEFINE COMPONENT layer-terminology
 DESCRIPTION The four interaction layers; drop legacy "consultation"
@@ -51,7 +51,7 @@ ASSERT run tests: make test (Go envtest)
 ASSERT after make manifests generate, copy CRDs to chart/kubemoot-operator/crds/ and sync RBAC to chart templates
 ASSERT commit zz_generated.deepcopy.go
 WHEN adding lifecycle behavior THEN use finalizers and owner refs in the operator
-ASSERT see the parent architecture-boundaries component - the operator owns lifecycle/cleanup, the CRD editors do not
+ASSERT architecture boundary: the operator owns lifecycle/cleanup, the CRD editors do not
 
 DEFINE COMPONENT namespace-lifecycle
 DESCRIPTION Namespace management for crew deployments
