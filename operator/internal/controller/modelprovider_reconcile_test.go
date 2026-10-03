@@ -17,10 +17,19 @@ import (
 	"testing"
 
 	kubemootv1alpha1 "github.com/kubemoot/kubemoot/operator/api/v1alpha1"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+)
+
+// unsupportedProviderTypes are ModelProvider types the API server rejects.
+var unsupportedProviderTypes = []string{"openai", "anthropic", "bogus"}
+
+const (
+	mpEmbedName  = "embed"
+	mpEmbedModel = "nomic-embed-text"
 )
 
 func reconcileMP(t *testing.T, p *kubemootv1alpha1.ModelProvider) (*kubemootv1alpha1.ModelProvider, ctrl.Result) {
@@ -71,26 +80,29 @@ func TestModelProviderReconcile_OllamaEmptyEndpoint(t *testing.T) {
 	}
 }
 
-// A cloud provider with no SecretRef fails (SecretRef is required). Covers
-// Reconcile's cloud dispatch + reconcileCloudProvider guard.
-func TestModelProviderReconcile_CloudMissingSecret(t *testing.T) {
-	got, _ := reconcileMP(t, &kubemootv1alpha1.ModelProvider{
-		ObjectMeta: metav1.ObjectMeta{Name: "anthropic", Namespace: "ns1"},
-		Spec:       kubemootv1alpha1.ModelProviderSpec{Type: kubemootv1alpha1.ProviderTypeAnthropic},
-	})
-	if got.Status.Ready {
-		t.Error("a cloud provider with no SecretRef must not be Ready")
-	}
-}
-
-// An unknown provider type is reported as Failed (the default switch branch).
-func TestModelProviderReconcile_UnknownType(t *testing.T) {
-	got, _ := reconcileMP(t, &kubemootv1alpha1.ModelProvider{
-		ObjectMeta: metav1.ObjectMeta{Name: "weird", Namespace: "ns1"},
-		Spec:       kubemootv1alpha1.ModelProviderSpec{Type: kubemootv1alpha1.ProviderType("bogus")},
-	})
-	if got.Status.Ready {
-		t.Error("an unknown provider type must not be Ready")
+// A non-ollama type (an object stored before the schema tightened) is
+// reported Ready=False with reason Unsupported, never as configured.
+func TestModelProviderReconcile_UnsupportedTypes(t *testing.T) {
+	for _, typ := range unsupportedProviderTypes {
+		t.Run(typ, func(t *testing.T) {
+			got, _ := reconcileMP(t, &kubemootv1alpha1.ModelProvider{
+				ObjectMeta: metav1.ObjectMeta{Name: typ, Namespace: "ns1"},
+				Spec: kubemootv1alpha1.ModelProviderSpec{
+					Type:      kubemootv1alpha1.ProviderType(typ),
+					SecretRef: "key",
+				},
+			})
+			if got.Status.Ready {
+				t.Fatal("an unsupported provider type must not be Ready")
+			}
+			cond := meta.FindStatusCondition(got.Status.Conditions, "Ready")
+			if cond == nil || cond.Status != metav1.ConditionFalse || cond.Reason != "Unsupported" {
+				t.Fatalf("want Ready=False reason Unsupported, got %+v", cond)
+			}
+			if cond.Message != kubemootv1alpha1.UnsupportedProviderTypeMessage {
+				t.Errorf("unexpected message %q", cond.Message)
+			}
+		})
 	}
 }
 
@@ -103,5 +115,36 @@ func TestModelProviderReconcile_NotFoundIsNoOp(t *testing.T) {
 		NamespacedName: types.NamespacedName{Name: "absent", Namespace: "ns1"},
 	}); err != nil {
 		t.Errorf("absent provider reconcile must be a no-op, got %v", err)
+	}
+}
+
+// An EmbeddingModel on a provider with an unsupported type (stored before the
+// schema tightened, and marked ready) reports the same message as the
+// provider, never Ready.
+func TestEmbeddingModelReconcile_UnsupportedProviderType(t *testing.T) {
+	scheme := agentReconcileScheme(t)
+	provider := &kubemootv1alpha1.ModelProvider{
+		ObjectMeta: metav1.ObjectMeta{Name: "legacy", Namespace: "ns1"},
+		Spec:       kubemootv1alpha1.ModelProviderSpec{Type: kubemootv1alpha1.ProviderType(unsupportedProviderTypes[0])},
+		Status:     kubemootv1alpha1.ModelProviderStatus{Ready: true},
+	}
+	em := &kubemootv1alpha1.EmbeddingModel{
+		ObjectMeta: metav1.ObjectMeta{Name: mpEmbedName, Namespace: "ns1", Finalizers: []string{embeddingModelFinalizer}},
+		Spec:       kubemootv1alpha1.EmbeddingModelSpec{ProviderRef: "legacy", Model: mpEmbedModel},
+	}
+	cli := fake.NewClientBuilder().WithScheme(scheme).
+		WithObjects(provider, em).WithStatusSubresource(provider, em).Build()
+	r := &EmbeddingModelReconciler{Client: cli, Scheme: scheme}
+	if _, err := r.Reconcile(context.Background(), ctrl.Request{
+		NamespacedName: types.NamespacedName{Name: em.Name, Namespace: em.Namespace},
+	}); err != nil {
+		t.Fatalf("reconcile: %v", err)
+	}
+	got := &kubemootv1alpha1.EmbeddingModel{}
+	if err := cli.Get(context.Background(), types.NamespacedName{Name: em.Name, Namespace: em.Namespace}, got); err != nil {
+		t.Fatal(err)
+	}
+	if got.Status.Ready || got.Status.Message != kubemootv1alpha1.UnsupportedProviderTypeMessage {
+		t.Errorf("want not Ready with the unsupported-type message, got ready=%v message=%q", got.Status.Ready, got.Status.Message)
 	}
 }

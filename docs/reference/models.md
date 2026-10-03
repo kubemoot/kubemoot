@@ -27,9 +27,9 @@ Declares an inference endpoint. The operator discovers GPU capacity (VRAM, loade
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `type` | enum | Yes | `ollama`, `openai`, `anthropic`. Ollama is the model server today; `openai` and `anthropic` exist on the CRD as stubs. |
+| `type` | string | Yes | Only `ollama` is supported today. Any other value, including `openai` and `anthropic`, is rejected at admission: those types are not supported yet. |
 | `endpoint` | string | For ollama | API endpoint URL |
-| `secretRef` | string | For `openai` and `anthropic` | Secret containing API key (stub types) |
+| `secretRef` | string | No | Reserved for future provider types; not used by `ollama` |
 
 ### Status
 
@@ -47,6 +47,8 @@ Declares an inference endpoint. The operator discovers GPU capacity (VRAM, loade
 | `capacity.availableModels` | Ollama `/api/tags` | Models downloaded on this provider |
 | `capacity.nodeName` | Kubernetes | Node hosting the Ollama pod |
 | `capacity.lastProbed` | Operator | When capacity was last discovered |
+
+A ModelProvider stored with any type other than `ollama` (one created before the API server rejected them) reports `ready: false` with reason `Unsupported` and the same message the API server gives; Models and EmbeddingModels on it report the same message.
 
 The scheduler refuses to place a call whose prompt exceeds a provider's context for the
 model, because the engine would silently drop the oldest messages instead of rejecting it

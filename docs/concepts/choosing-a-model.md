@@ -88,9 +88,9 @@ tags. A tag that looks local but resolves to the vendor's hosted infrastructure 
 hosted API wearing a local-looking name. Read the tag before assuming a model runs on
 your hardware.
 
-Routing to a hosted model is a legitimate choice, but it is not implemented yet: the
-`openai` and `anthropic` provider types exist on the CRD as stubs, and Ollama is the
-model server today. When it lands, make the choice deliberately, because it moves inference, and whatever your
+Routing to a hosted model is a legitimate choice, but it is not supported yet. Ollama is
+the only provider type today, and the API server rejects `openai` and `anthropic`. When
+hosted models are supported, make the choice deliberately, because it moves inference, and whatever your
 agents read from your cluster, off the premises. If staying local is the point of the
 deployment, the frontier tier is simply not available, and the real question becomes
 which 20B to 35B class model calls tools best on the card you own. For a homelab budget

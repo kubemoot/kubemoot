@@ -6,7 +6,7 @@ Kubernetes operator for AI workflow orchestration. Manages the lifecycle of mode
 
 | CRD | Short Name | Description |
 |-----|------------|-------------|
-| `ModelProvider` | `mp` | Connection to LLM backends (Ollama, vLLM, OpenAI) |
+| `ModelProvider` | `mp` | Connection to an LLM backend (Ollama is the only supported type today) |
 | `Model` | - | LLM model with automatic pulling |
 | `EmbeddingModel` | `em` | Embedding model configuration |
 | `MCPServer` | `mcp` | Model Context Protocol server deployment |

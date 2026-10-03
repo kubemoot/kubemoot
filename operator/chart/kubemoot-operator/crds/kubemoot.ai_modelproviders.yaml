@@ -55,8 +55,7 @@ spec:
             description: ModelProviderSpec defines the desired state of ModelProvider.
             properties:
               endpoint:
-                description: Endpoint is the API endpoint (required for ollama, optional
-                  for cloud providers)
+                description: Endpoint is the Ollama API endpoint (required)
                 type: string
               scheduling:
                 description: Scheduling contains optional scheduling preferences for
@@ -80,16 +79,17 @@ spec:
                     type: integer
                 type: object
               secretRef:
-                description: SecretRef references a secret containing the API key
-                  (for cloud providers)
+                description: SecretRef is reserved for future provider types and is
+                  not used by ollama
                 type: string
               type:
-                description: Type specifies the provider type (ollama, openai, anthropic)
-                enum:
-                - ollama
-                - openai
-                - anthropic
+                description: Type specifies the provider type. Only ollama is supported
+                  today.
                 type: string
+                x-kubernetes-validations:
+                - message: only type ollama is supported today; openai and anthropic
+                    are not supported yet
+                  rule: self == 'ollama'
             required:
             - type
             type: object

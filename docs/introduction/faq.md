@@ -89,8 +89,8 @@ answers in tens of seconds rather than minutes. The two profiles are laid out in
 
 ## Can I use hosted model APIs instead of local models?
 
-Not yet. The `openai` and `anthropic` provider types exist on the CRD but are stubs;
-Ollama is the model server today. Cloud and frontier models as crew members is on the
+Not yet. Ollama is the only supported provider type today; `openai` and `anthropic`
+are not supported yet and the API server rejects them. Cloud and frontier models as crew members is on the
 [Roadmap](../roadmap/), with data handling and cost controls as its prerequisites.
 
 ## Is it production-ready?

@@ -25,27 +25,33 @@ import (
 // EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
 // NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
 
-// ProviderType defines the type of model provider
-// +kubebuilder:validation:Enum=ollama;openai;anthropic
+// ProviderType defines the type of model provider. Only ollama is supported
+// today; the field stays a plain string so more types can be added later
+// without a breaking schema change.
 type ProviderType string
 
 const (
-	ProviderTypeOllama    ProviderType = "ollama"
-	ProviderTypeOpenAI    ProviderType = "openai"
-	ProviderTypeAnthropic ProviderType = "anthropic"
+	ProviderTypeOllama ProviderType = "ollama"
 )
+
+// UnsupportedProviderTypeMessage is the admission and status message for any
+// provider type other than ollama. Keep it identical to the XValidation
+// message on ModelProviderSpec.Type (a marker cannot reference a const); the
+// envtest admission test compares this const with the live CRD's error.
+const UnsupportedProviderTypeMessage = "only type ollama is supported today; openai and anthropic are not supported yet"
 
 // ModelProviderSpec defines the desired state of ModelProvider.
 type ModelProviderSpec struct {
-	// Type specifies the provider type (ollama, openai, anthropic)
+	// Type specifies the provider type. Only ollama is supported today.
 	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:XValidation:rule="self == 'ollama'",message="only type ollama is supported today; openai and anthropic are not supported yet"
 	Type ProviderType `json:"type"`
 
-	// Endpoint is the API endpoint (required for ollama, optional for cloud providers)
+	// Endpoint is the Ollama API endpoint (required)
 	// +optional
 	Endpoint string `json:"endpoint,omitempty"`
 
-	// SecretRef references a secret containing the API key (for cloud providers)
+	// SecretRef is reserved for future provider types and is not used by ollama
 	// +optional
 	SecretRef string `json:"secretRef,omitempty"`
 
