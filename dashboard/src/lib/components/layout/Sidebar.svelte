@@ -2,6 +2,7 @@
 	import { page } from '$app/stores';
 	import { resolve } from '$app/paths';
 	import SystemInfoPopover from '$lib/components/common/SystemInfoPopover.svelte';
+	import KubemootLogo from './KubemootLogo.svelte';
 
 	const githubUrl = 'https://github.com/kubemoot/kubemoot';
 
@@ -52,16 +53,13 @@
 
 <nav class="sidebar">
 	<div class="logo">
-		<span class="logo-icon">K</span>
-		<div class="logo-info">
-			<span class="logo-text">Kubemoot</span>
-			<div class="logo-meta">
-				<div class="version-link">
-					<a href={githubUrl} target="_blank" rel="noopener noreferrer" class="version-github-link" title="View on GitHub">
-						<span class="version-num">v{version}</span>
-					</a>
-					<SystemInfoPopover dashboardVersion={version} />
-				</div>
+		<KubemootLogo />
+		<div class="logo-meta">
+			<div class="version-link">
+				<a href={githubUrl} target="_blank" rel="noopener noreferrer" class="version-github-link" title="View on GitHub">
+					<span class="version-num">v{version}</span>
+				</a>
+				<SystemInfoPopover dashboardVersion={version} />
 			</div>
 		</div>
 	</div>
@@ -148,34 +146,10 @@
 
 	.logo {
 		display: flex;
-		align-items: center;
-		gap: 0.75rem;
+		flex-direction: column;
+		align-items: flex-start;
 		padding: 0.5rem;
 		margin-bottom: 1.5rem;
-	}
-
-	.logo-icon {
-		width: 36px;
-		height: 36px;
-		background: linear-gradient(135deg, var(--color-primary), var(--color-purple));
-		border-radius: 8px;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		font-weight: 700;
-		font-size: 1.25rem;
-		color: white;
-	}
-
-	.logo-info {
-		display: flex;
-		flex-direction: column;
-	}
-
-	.logo-text {
-		font-size: 1.125rem;
-		font-weight: 600;
-		color: var(--color-text);
 	}
 
 	.logo-meta {
@@ -183,11 +157,6 @@
 		align-items: center;
 		justify-content: space-between;
 		margin-top: 0.25rem;
-	}
-
-	.logo-tagline {
-		font-size: 0.7rem;
-		color: var(--color-text-muted);
 	}
 
 	.version-link {
