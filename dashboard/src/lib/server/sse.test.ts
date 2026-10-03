@@ -178,6 +178,12 @@ describe('relayToSse', () => {
 		expect(events).toEqual([1, 3]);
 	});
 
+	it('skips an item that converts to undefined', async () => {
+		const { sink, events } = recordingSink();
+		await relayToSse(fromArray([1, 2, 3]), sink, (n) => (n === 2 ? undefined : n));
+		expect(events).toEqual([1, 3]);
+	});
+
 	it('stops reading once the stream has ended', async () => {
 		const { sink, events } = recordingSink();
 		sink.closed = true;

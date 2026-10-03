@@ -1,0 +1,164 @@
+{{- if .Values.workshop.enabled }}
+{{- $name := include "kubemoot-dashboard.workshop.fullname" . }}
+# Workshop dashboard: the same image and tag as the main dashboard, switched by
+# environment to read-only and to the namespaces matching one label selector. Its own
+# ServiceAccount holds read verbs only, on the kinds the dashboard shows. No Secrets,
+# no pod logs or exec, no create/update/patch/delete anywhere.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ $name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "kubemoot-dashboard.workshop.labels" . | nindent 4 }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ $name }}-reader
+  labels:
+    {{- include "kubemoot-dashboard.workshop.labels" . | nindent 4 }}
+rules:
+  # Namespaces (resolve the selector) and nodes (cluster infrastructure page). Pods are
+  # read only in the operator namespace, by the Role below.
+  - apiGroups: [""]
+    resources: ["namespaces", "nodes"]
+    verbs: ["get", "list", "watch"]
+  # The agent <name>-policy ConfigMap behind the Agent detail page's Prompt section.
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["get"]
+  # The operator Deployment's version label.
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get", "list", "watch"]
+  # Every Kubemoot kind, read only.
+  - apiGroups: ["kubemoot.ai"]
+    resources: ["*"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ $name }}-reader
+  labels:
+    {{- include "kubemoot-dashboard.workshop.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ $name }}-reader
+subjects:
+  - kind: ServiceAccount
+    name: {{ $name }}
+    namespace: {{ .Release.Namespace }}
+---
+# Operator pods in the operator namespace only: the uptime shown by the system popover.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ $name }}-pods
+  namespace: {{ default .Release.Namespace .Values.workshop.infraNamespace }}
+  labels:
+    {{- include "kubemoot-dashboard.workshop.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ $name }}-pods
+  namespace: {{ default .Release.Namespace .Values.workshop.infraNamespace }}
+  labels:
+    {{- include "kubemoot-dashboard.workshop.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ $name }}-pods
+subjects:
+  - kind: ServiceAccount
+    name: {{ $name }}
+    namespace: {{ .Release.Namespace }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "kubemoot-dashboard.workshop.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  ports:
+    - port: {{ .Values.service.port }}
+      targetPort: {{ .Values.service.targetPort }}
+      protocol: TCP
+      name: http
+  selector:
+    {{- include "kubemoot-dashboard.workshop.selectorLabels" . | nindent 4 }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "kubemoot-dashboard.workshop.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.workshop.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "kubemoot-dashboard.workshop.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "kubemoot-dashboard.workshop.selectorLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ $name }}
+      {{- with (include "kubemoot-dashboard.pullSecrets" . | fromYamlArray) }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: dashboard
+          image: {{ include "kubemoot-dashboard.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 3000
+              protocol: TCP
+          env:
+            - name: NODE_ENV
+              value: {{ .Values.env.nodeEnv }}
+            - name: APP_VERSION
+              value: {{ .Chart.AppVersion | quote }}
+            - name: KUBEMOOT_DASHBOARD_READ_ONLY
+              value: "true"
+            - name: KUBEMOOT_DASHBOARD_NAMESPACE_SELECTOR
+              value: {{ required "workshop.namespaceSelector must be a label selector" .Values.workshop.namespaceSelector | quote }}
+            - name: KUBEMOOT_DASHBOARD_INFRA_NAMESPACE
+              value: {{ default .Release.Namespace .Values.workshop.infraNamespace | quote }}
+          livenessProbe:
+            {{- toYaml .Values.livenessProbe | nindent 12 }}
+          readinessProbe:
+            {{- toYaml .Values.readinessProbe | nindent 12 }}
+          resources:
+            {{- toYaml (default .Values.resources .Values.workshop.resources) | nindent 12 }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}

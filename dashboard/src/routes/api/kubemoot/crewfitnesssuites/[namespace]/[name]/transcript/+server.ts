@@ -1,6 +1,7 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { readFitnessTranscript } from '$lib/server/nats-object-store';
+import { guardNamespace } from '$lib/server/scope';
 
 /**
  * GET /api/kubemoot/crewfitnesssuites/{namespace}/{name}/transcript?key=...
@@ -12,6 +13,8 @@ import { readFitnessTranscript } from '$lib/server/nats-object-store';
  */
 export const GET: RequestHandler = async ({ params, url }) => {
 	const { namespace, name } = params;
+	const denied = await guardNamespace(namespace);
+	if (denied) return denied;
 	const key = url.searchParams.get('key');
 	if (!key) {
 		return json({ error: 'key required' }, { status: 400 });

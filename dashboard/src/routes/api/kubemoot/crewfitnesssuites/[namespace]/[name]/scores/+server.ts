@@ -1,6 +1,7 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { listFitnessObjects, readFitnessTranscript } from '$lib/server/nats-object-store';
+import { guardNamespace } from '$lib/server/scope';
 
 /**
  * GET /api/kubemoot/crewfitnesssuites/{namespace}/{name}/scores
@@ -16,6 +17,8 @@ import { listFitnessObjects, readFitnessTranscript } from '$lib/server/nats-obje
  */
 export const GET: RequestHandler = async ({ params }) => {
 	const { namespace, name } = params;
+	const denied = await guardNamespace(namespace);
+	if (denied) return denied;
 	const prefix = `${namespace}/${name}/`;
 	try {
 		const keys = await listFitnessObjects(prefix);

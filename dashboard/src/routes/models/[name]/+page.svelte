@@ -2,7 +2,7 @@
 	import { onMount } from 'svelte';
 	import { page } from '$app/stores';
 	import { resolve } from '$app/paths';
-	import { namespace, refreshTrigger } from '$stores';
+	import { namespace, readOnly, refreshTrigger } from '$stores';
 	import { DetailPanel } from '$components/layout';
 	import { Section, InfoRow, StatusBadge } from '$components/common';
 	import type { Model } from '$types/kubemoot.js';
@@ -93,15 +93,17 @@
 			{#if model}
 				<div class="header-actions">
 					<StatusBadge {status} label={statusLabel} />
-					<button
-						class="action-btn delete"
-						type="button"
-						title="Delete from disk on the underlying provider (destructive - requires re-pull)"
-						disabled={busy}
-						onclick={deleteFromDisk}
-					>
-						{busy ? 'Deleting…' : 'Delete from disk'}
-					</button>
+					{#if !$readOnly}
+						<button
+							class="action-btn delete"
+							type="button"
+							title="Delete from disk on the underlying provider (destructive - requires re-pull)"
+							disabled={busy}
+							onclick={deleteFromDisk}
+						>
+							{busy ? 'Deleting…' : 'Delete from disk'}
+						</button>
+					{/if}
 				</div>
 			{/if}
 		</div>

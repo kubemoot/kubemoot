@@ -129,7 +129,7 @@ export function sseResponse(open: SseOpen, options: SseOptions = {}): Response {
 
 /**
  * Relays each item of `source` to the sink as one data event until either side
- * ends; an item `toEvent` cannot convert is skipped. When the source ends first,
+ * ends; an item `toEvent` cannot convert, or converts to `undefined`, is skipped. When the source ends first,
  * the stream closes so the browser reconnects instead of waiting on a dead source.
  */
 export async function relayToSse<T>(
@@ -156,5 +156,5 @@ function sendConverted<T>(sink: SseSink, item: T, toEvent: (item: T) => unknown)
 	} catch {
 		return;
 	}
-	sink.data(event);
+	if (event !== undefined) sink.data(event);
 }

@@ -1,16 +1,22 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { getNatsConnection, sc } from '$lib/server/nats-client';
+import { isReadOnly, isScoped } from '$lib/server/mode';
+import { forbidden } from '$lib/server/scope';
 
 const BUCKET = 'kubemoot_pinned_threads';
 
+// A read-only dashboard binds to the bucket and never creates it.
 async function getKv() {
 	const nc = await getNatsConnection();
 	const js = nc.jetstream();
-	return await js.views.kv(BUCKET, { history: 1 });
+	return await js.views.kv(BUCKET, { history: 1, bindOnly: isReadOnly() });
 }
 
+// Pins are keyed by thread id alone, so they carry no namespace to filter by. A
+// namespace-scoped dashboard serves none and accepts none.
 export const GET: RequestHandler = async () => {
+	if (isScoped()) return json({ pinned: {} });
 	try {
 		const kv = await getKv();
 		const pinned: Record<string, { pinnedAt: string; note?: string }> = {};
@@ -33,6 +39,7 @@ export const GET: RequestHandler = async () => {
 };
 
 export const POST: RequestHandler = async ({ request }) => {
+	if (isScoped()) return forbidden('pinning');
 	try {
 		const { threadId, note } = await request.json();
 		if (!threadId) {
@@ -49,6 +56,7 @@ export const POST: RequestHandler = async ({ request }) => {
 };
 
 export const DELETE: RequestHandler = async ({ request }) => {
+	if (isScoped()) return forbidden('unpinning');
 	try {
 		const { threadId } = await request.json();
 		if (!threadId) {

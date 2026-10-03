@@ -2,7 +2,7 @@
 	import { onMount, onDestroy } from 'svelte';
 	import { resolve } from '$app/paths';
 	import { get } from 'svelte/store';
-	import { namespace } from '$lib/stores';
+	import { namespace, readOnly, scoped } from '$lib/stores';
 	import { CHAT_ALL, DISCUSS_ALL, chatNamespaceFilter, chatSubject, discussNamespaceFilter, isNamespace } from '$lib/crewScope';
 
 	interface NatsMessage {
@@ -16,7 +16,8 @@
 		'disconnected'
 	);
 	let connectionError = $state<string | null>(null);
-	let selectedChannel = $state('kubemoot.>');
+	// A scoped dashboard serves only chat and discussion subjects (they carry the namespace).
+	let selectedChannel = $state(get(scoped) ? DISCUSS_ALL : 'kubemoot.>');
 	let customSubject = $state('');
 	let composeText = $state('');
 	// Chat subjects are kubemoot.chat.<namespace>.<agent>; default to the selected
@@ -34,6 +35,10 @@
 		{ subject: 'kubemoot.operator.>', label: 'Operator Events' },
 		{ subject: 'kubemoot.gateway.>', label: 'Gateway Feedback' }
 	];
+
+	const visibleChannels = $derived(
+		$scoped ? channels.filter((c) => c.subject === CHAT_ALL || c.subject === DISCUSS_ALL) : channels
+	);
 
 	// Namespace-scoped channels for the crew selected in the top bar.
 	const scopedChannels = $derived(
@@ -214,7 +219,7 @@
 		{/if}
 
 		<div class="channel-list">
-			{#each [...channels, ...scopedChannels] as channel (channel.subject)}
+			{#each [...visibleChannels, ...scopedChannels] as channel (channel.subject)}
 				<button
 					class="channel-btn"
 					class:active={selectedChannel === channel.subject}
@@ -274,6 +279,7 @@
 			{/if}
 		</div>
 
+		{#if !$readOnly}
 		<div class="compose-bar">
 			<div class="compose-subject">
 				<label for="pub-subject">Publish to:</label>
@@ -295,6 +301,7 @@
 				</button>
 			</div>
 		</div>
+		{/if}
 	</div>
 </div>
 

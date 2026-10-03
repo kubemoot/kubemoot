@@ -3,12 +3,13 @@ import type { RequestHandler } from './$types';
 import { listAgents } from '$lib/server/k8s/kubemoot-crds.js';
 import { topologyNode } from '$lib/server/topology';
 import type { TopologyEdge, TopologyResponse } from '$types/kubemoot.js';
+import { scopeList } from '$lib/server/scope';
 
 export const GET: RequestHandler = async ({ url }) => {
 	const namespace = url.searchParams.get('namespace') ?? '';
 
 	try {
-		const agentsResult = await listAgents(namespace);
+		const agentsResult = await scopeList(namespace, listAgents);
 		// Nodes come from the agents; their role is the inline a2a config.
 		const nodes = (agentsResult.items || []).map(topologyNode);
 		const edges: TopologyEdge[] = [];

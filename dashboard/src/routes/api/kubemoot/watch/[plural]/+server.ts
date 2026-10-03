@@ -1,6 +1,7 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { crdWatchResponse, isWatchableCrd } from '$lib/server/k8s/watch-sse';
+import { guardNamespaceOrAll, objectAccepter, scopeKindFor } from '$lib/server/scope';
 
 /**
  * GET /api/kubemoot/watch/{plural}?namespace=<ns>
@@ -9,11 +10,14 @@ import { crdWatchResponse, isWatchableCrd } from '$lib/server/k8s/watch-sse';
  * DELETED events as SSE so pages update push-style instead of polling. The
  * plural is validated against the known CRD set (no arbitrary watch paths).
  */
-export const GET: RequestHandler = ({ params, url }) => {
+export const GET: RequestHandler = async ({ params, url }) => {
 	const plural = params.plural;
 	if (!isWatchableCrd(plural)) {
 		return json({ error: `unknown resource: ${plural}` }, { status: 404 });
 	}
 	const ns = url.searchParams.get('namespace') || '';
-	return crdWatchResponse([plural], ns);
+	const kind = scopeKindFor(plural);
+	const denied = await guardNamespaceOrAll(ns, kind);
+	if (denied) return denied;
+	return crdWatchResponse([plural], ns, objectAccepter(kind));
 };

@@ -1,6 +1,7 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import * as k8s from '@kubernetes/client-node';
+import { infraNamespace } from '$lib/server/mode';
 import {
 	oldestRunningStart,
 	operatorDeploymentInfo,
@@ -36,7 +37,6 @@ interface SystemInfo {
 	operatorStartedAt: string;
 }
 
-const OPERATOR_NAMESPACE = 'kubemoot';
 const OPERATOR_DEPLOYMENT = 'kubemoot-operator';
 
 function kubeConfig(): k8s.KubeConfig {
@@ -53,7 +53,7 @@ async function readDeploymentInfo(apps: k8s.AppsV1Api): Promise<OperatorDeployme
 	try {
 		const dep = await apps.readNamespacedDeployment({
 			name: OPERATOR_DEPLOYMENT,
-			namespace: OPERATOR_NAMESPACE
+			namespace: infraNamespace()
 		});
 		// The selector comes from the Deployment's matchLabels so the pod list is exact
 		// whichever key the chart used (control-plane=controller-manager or app=kubemoot-operator).
@@ -68,7 +68,7 @@ async function readStartedAt(core: k8s.CoreV1Api, podSelector: string): Promise<
 	if (!podSelector) return '';
 	try {
 		const podList = await core.listNamespacedPod({
-			namespace: OPERATOR_NAMESPACE,
+			namespace: infraNamespace(),
 			labelSelector: podSelector
 		});
 		return oldestRunningStart((podList as { items?: OperatorPodLike[] }).items ?? []);

@@ -1,6 +1,8 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { readConfigMap } from '$lib/server/k8s';
+import { isToken } from '$lib/crewScope';
+import { guardNamespace } from '$lib/server/scope';
 
 /**
  * Returns the agent's assembled system prompt from its `<agent>-policy`
@@ -12,8 +14,10 @@ import { readConfigMap } from '$lib/server/k8s';
  */
 export const GET: RequestHandler = async ({ params, url }) => {
 	const namespace = url.searchParams.get('namespace') || 'kubemoot';
+	const denied = await guardNamespace(namespace);
+	if (denied) return denied;
 	const { name } = params;
-	if (!name) {
+	if (!isToken(name)) {
 		return json({ error: 'name is required' }, { status: 400 });
 	}
 

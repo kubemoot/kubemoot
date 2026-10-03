@@ -2,7 +2,7 @@
 	import { onMount } from 'svelte';
 	import { page } from '$app/stores';
 	import { resolve } from '$app/paths';
-	import { namespace as nsStore, refreshTrigger } from '$stores';
+	import { namespace as nsStore, readOnly, refreshTrigger } from '$stores';
 	import type { MCPServerReport } from '$types/kubemoot.js';
 
 	let report = $state<MCPServerReport | null>(null);
@@ -162,7 +162,7 @@
 
 			<div class="section">
 				<h2>Admin Curation</h2>
-				{#if editing}
+				{#if editing && !$readOnly}
 					<div class="edit-form">
 						<div class="form-field">
 							<label for="edit-verdict">Pin Verdict:</label>
@@ -194,7 +194,9 @@
 						{:else}
 							<div class="muted">No admin override. Verdict is auto-computed from trial history.</div>
 						{/if}
-						<button class="btn-edit" onclick={startEdit}>Edit</button>
+						{#if !$readOnly}
+							<button class="btn-edit" onclick={startEdit}>Edit</button>
+						{/if}
 					</div>
 				{/if}
 			</div>

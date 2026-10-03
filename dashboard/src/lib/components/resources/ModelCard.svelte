@@ -2,6 +2,7 @@
 	import { resolve } from '$app/paths';
 	import type { Model } from '$types/kubemoot.js';
 	import ResourceCard from './ResourceCard.svelte';
+	import { readOnly } from '$lib/stores/mode';
 
 	interface Props {
 		model: Model;
@@ -98,15 +99,17 @@
 	{/snippet}
 
 	{#snippet footer()}
-		<button
-			class="action-btn delete"
-			type="button"
-			title="Delete from disk on the underlying provider (destructive - requires re-pull)"
-			disabled={busy}
-			onclick={deleteFromDisk}
-		>
-			{busy ? 'Deleting…' : 'Delete from disk'}
-		</button>
+		{#if !$readOnly}
+			<button
+				class="action-btn delete"
+				type="button"
+				title="Delete from disk on the underlying provider (destructive - requires re-pull)"
+				disabled={busy}
+				onclick={deleteFromDisk}
+			>
+				{busy ? 'Deleting…' : 'Delete from disk'}
+			</button>
+		{/if}
 	{/snippet}
 </ResourceCard>
 

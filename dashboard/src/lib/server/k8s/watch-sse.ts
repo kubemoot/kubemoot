@@ -19,13 +19,17 @@ export function isWatchableCrd(plural: string): plural is CrdPlural {
  * a `{ type: "synced" }` marker is sent once all watches are established, and a
  * heartbeat comment keeps the connection alive. Watches are aborted on client
  * disconnect. Shared by the generic /watch/[plural] endpoint and the combined
- * fitness watch.
+ * fitness watch. `accept` drops the objects a scoped dashboard may not show.
  *
  * This is the push alternative to polling: one watch per resource streams only
  * actual changes: realtime, flicker-free (the browser diffs keyed rows), and
  * near-zero idle load.
  */
-export function crdWatchResponse(plurals: CrdPlural[], namespace: string): Response {
+export function crdWatchResponse(
+	plurals: CrdPlural[],
+	namespace: string,
+	accept: (obj: unknown) => boolean = () => true
+): Response {
 	const kc = getKubeConfig();
 	const watch = new k8s.Watch(kc);
 	// One live watch per plural; a restart replaces the controller of the watch that ended.
@@ -50,7 +54,9 @@ export function crdWatchResponse(plurals: CrdPlural[], namespace: string): Respo
 				const ac = await watch.watch(
 					pathFor(plural),
 					{},
-					(type: string, obj: unknown) => sink.data({ kind, type, object: obj }),
+					(type: string, obj: unknown) => {
+						if (accept(obj)) sink.data({ kind, type, object: obj });
+					},
 					(err: unknown) => {
 						if (err) sink.data({ kind, type: 'ERROR', error: describeError(err) });
 						if (!sink.closed) setTimeout(() => void startWatch(plural), 1000);

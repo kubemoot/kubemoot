@@ -388,3 +388,11 @@ dashboard:
   rbac:
     clusterRole:
       name: ""
+  # A second, read-only dashboard for workshop attendees, off by default. It is the same
+  # image and tag as the dashboard above, set by environment to refuse every write and to
+  # show only the namespaces matching namespaceSelector, with its own ServiceAccount that
+  # can only read (no Secrets). Reach it with kubectl port-forward to the Service
+  # <dashboard fullname>-workshop. Needs dashboard.enabled=true. Keys (see the dashboard
+  # chart's values.yaml): workshop.enabled, workshop.namespaceSelector,
+  # workshop.infraNamespace, workshop.replicaCount, workshop.resources.
+  #   --set dashboard.enabled=true --set dashboard.workshop.enabled=true

@@ -135,6 +135,22 @@ verify:
   # Full reference; a private mirror overrides it alongside image.registry.
   image: ghcr.io/kubemoot/test-runner:0.46.2
 
+# Workshop instance: a second Deployment and Service of this same image and tag (never a
+# separate tag), read-only and limited to the namespaces matching one label selector, with
+# its own ServiceAccount that can only read. Meant for a kubectl port-forward by workshop
+# attendees; the main dashboard stays as it is. Off by default.
+workshop:
+  enabled: false
+  # Only namespaces matching this label selector are shown. Resolved against the live
+  # cluster every few seconds, so a namespace gains or loses access with its label.
+  namespaceSelector: kubemoot.ai/workshop-team=true
+  # The operator namespace, whose shared model providers, models, embedding models, MCP
+  # catalogs and quality policies stay visible. Empty means the release namespace.
+  infraNamespace: ""
+  replicaCount: 1
+  # Empty uses the main dashboard's resources.
+  resources: {}
+
 # Node selector
 nodeSelector: {}
 

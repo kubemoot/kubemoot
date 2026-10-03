@@ -2,6 +2,7 @@ import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { deleteCrewFitnessSuite, patchCrewFitnessSuiteSpec } from '$lib/server/k8s';
 import { suiteActionPatch } from '$lib/fitness-suite-controls';
+import { guardNamespace } from '$lib/server/scope';
 
 /**
  * DELETE /api/kubemoot/crewfitnesssuites/{namespace}/{name}
@@ -14,6 +15,8 @@ import { suiteActionPatch } from '$lib/fitness-suite-controls';
  */
 export const DELETE: RequestHandler = async ({ params }) => {
 	const { namespace, name } = params;
+	const denied = await guardNamespace(namespace);
+	if (denied) return denied;
 	if (!namespace || !name) {
 		throw error(400, 'namespace and name are required');
 	}
@@ -37,6 +40,8 @@ export const DELETE: RequestHandler = async ({ params }) => {
  */
 export const PATCH: RequestHandler = async ({ params, request }) => {
 	const { namespace, name } = params;
+	const denied = await guardNamespace(namespace);
+	if (denied) return denied;
 	if (!namespace || !name) {
 		throw error(400, 'namespace and name are required');
 	}

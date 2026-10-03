@@ -2,7 +2,7 @@
 	import { onMount } from 'svelte';
 	import { resolve } from '$app/paths';
 	import { get } from 'svelte/store';
-	import { namespace } from '$lib/stores';
+	import { namespace, readOnly } from '$lib/stores';
 
 	interface Fact {
 		namespace: string;
@@ -110,7 +110,9 @@
 		<label>Namespace <input bind:value={ns} placeholder="all namespaces" onkeydown={(e) => e.key === 'Enter' && load()} /></label>
 		<label>Crew <input bind:value={crew} onkeydown={(e) => e.key === 'Enter' && load()} /></label>
 		<button onclick={load} disabled={loading}>{loading ? 'Loading…' : 'Load'}</button>
-		<button class="danger" onclick={clearAll} disabled={loading || facts.length === 0 || !ns} title={ns ? undefined : 'Set a namespace to clear one crew'}>Clear all ({facts.length})</button>
+		{#if !$readOnly}
+			<button class="danger" onclick={clearAll} disabled={loading || facts.length === 0 || !ns} title={ns ? undefined : 'Set a namespace to clear one crew'}>Clear all ({facts.length})</button>
+		{/if}
 	</div>
 
 	{#if error}<p class="error">{error}</p>{/if}
@@ -129,8 +131,10 @@
 					<td>{f.learnedBy}</td>
 					<td class="ts">{f.usedAt}</td>
 					<td class="actions">
-						<button onclick={() => edit(f)}>Edit</button>
-						<button class="danger" onclick={() => remove(f)}>Delete</button>
+						{#if !$readOnly}
+							<button onclick={() => edit(f)}>Edit</button>
+							<button class="danger" onclick={() => remove(f)}>Delete</button>
+						{/if}
 					</td>
 				</tr>
 			{/each}
@@ -140,6 +144,7 @@
 		</tbody>
 	</table>
 
+	{#if !$readOnly}
 	<h2>Add / update a fact</h2>
 	<div class="form">
 		<input placeholder="topic (e.g. gpu-topology)" bind:value={formTopic} />
@@ -148,6 +153,7 @@
 		<button onclick={save} disabled={!formTopic || !formKey || !formValue || !ns}>Save</button>
 	</div>
 	<p class="hint">Saving writes to the namespace above (required). Saving an existing topic+key updates it (the crew's own discoveries overwrite the same key).</p>
+	{/if}
 </div>
 
 <style>

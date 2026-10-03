@@ -1,9 +1,12 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { getCrewFitness } from '$lib/server/k8s';
+import { guardNamespace } from '$lib/server/scope';
 
 export const GET: RequestHandler = async ({ params, url }) => {
 	const namespace = url.searchParams.get('namespace') || 'kubemoot';
+	const denied = await guardNamespace(namespace);
+	if (denied) return denied;
 
 	try {
 		const result = await getCrewFitness(namespace, params.name);

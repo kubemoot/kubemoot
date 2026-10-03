@@ -3,6 +3,7 @@ import { AckPolicy, DeliverPolicy, type ConsumerMessages, type JsMsg } from 'nat
 import { getNatsConnection, sc } from '$lib/server/nats-client';
 import { relayToSse, sseResponse, type SseSink } from '$lib/server/sse';
 import { DISCUSS_ALL } from '$lib/crewScope';
+import { guardStreamRead, messageSubjectAllowed } from '$lib/server/scope';
 
 /** Server-side backstop: NATS removes a consumer idle this long (nanoseconds). */
 const CONSUMER_INACTIVE_NS = 60_000_000_000;
@@ -56,13 +57,17 @@ async function openConsumer(
 	}
 
 	sink.data({ type: 'connected', stream: streamName, subject, fromSeq });
-	void relayToSse(messages, sink, (msg: JsMsg) => ({
-		type: 'message',
-		seq: msg.seq,
-		subject: msg.subject,
-		data: sc.decode(msg.data),
-		timestamp: new Date().toISOString()
-	}));
+	void relayToSse(messages, sink, (msg: JsMsg) =>
+		messageSubjectAllowed(msg.subject)
+			? {
+					type: 'message',
+					seq: msg.seq,
+					subject: msg.subject,
+					data: sc.decode(msg.data),
+					timestamp: new Date().toISOString()
+				}
+			: undefined
+	);
 
 	return async () => {
 		await messages.close();
@@ -80,10 +85,13 @@ async function openConsumer(
  * The client tracks the last received `seq` and passes it as `from_seq`
  * on reconnection to resume without replaying already-seen messages.
  */
-export const GET: RequestHandler = ({ url }) => {
+export const GET: RequestHandler = async ({ url }) => {
 	const streamName = url.searchParams.get('stream') || 'KUBEMOOT_DISCUSS';
 	const subject = url.searchParams.get('subject') || DISCUSS_ALL;
 	const fromSeq = Number.parseInt(url.searchParams.get('from_seq') || '0', 10) || 0;
+
+	const denied = await guardStreamRead(streamName, subject);
+	if (denied) return denied;
 
 	return sseResponse((sink) => openConsumer(sink, streamName, subject, fromSeq));
 };
