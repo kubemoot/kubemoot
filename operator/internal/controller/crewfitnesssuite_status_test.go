@@ -27,6 +27,12 @@ import (
 )
 
 const (
+	csStatusCrew = "status-crew"
+	csResumed    = "resumed"
+	csProbe      = "probe"
+)
+
+const (
 	statusKeyword   = "STATUSKW"
 	statusJudgeCrew = "status-judge-crew"
 )
@@ -104,10 +110,10 @@ var _ = Describe("CrewFitnessSuite results in status", func() {
 		suite := &kubemootv1alpha1.CrewFitnessSuite{
 			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace},
 			Spec: kubemootv1alpha1.CrewFitnessSuiteSpec{
-				CrewRef: "status-crew", Iterations: 1,
+				CrewRef: csStatusCrew, Iterations: 1,
 				Scripts: []kubemootv1alpha1.SuiteScript{
 					{TestRef: "gated", TestContent: probeScript},
-					{TestRef: "resumed", TestContent: probeScript},
+					{TestRef: csResumed, TestContent: probeScript},
 					{TestRef: "unjudged", TestContent: probeScript},
 					{TestRef: "plain", TestContent: probeScript},
 				},
@@ -132,7 +138,7 @@ var _ = Describe("CrewFitnessSuite results in status", func() {
 		store.objs[prefix+"s3-i1.json"] = statusTranscript("synthesis is non-empty", "true")
 		longReason := "first line\nsecond line " + strings.Repeat("x", 300)
 		cp, _ := json.Marshal(deferredScoreCache{
-			Scores: map[string]float64{"resumed": 90}, Reasons: map[string]string{"resumed": longReason},
+			Scores: map[string]float64{csResumed: 90}, Reasons: map[string]string{csResumed: longReason},
 		})
 		store.objs[deferredSidecarKey(prefix)] = cp
 
@@ -151,12 +157,12 @@ var _ = Describe("CrewFitnessSuite results in status", func() {
 		Expect(js.Scores[0].Scenario).To(Equal("gated"))
 		Expect(js.Scores[0].Score).To(BeZero())
 		Expect(js.Scores[0].Reason).To(ContainSubstring("all iterations gated"))
-		Expect(js.Scores[1].Scenario).To(Equal("resumed"))
+		Expect(js.Scores[1].Scenario).To(Equal(csResumed))
 		Expect(js.Scores[1].Score).To(Equal(int32(90)))
 		Expect(js.Scores[1].Reason).To(HavePrefix("first line second line xxx"))
 		Expect(js.Scores[1].Reason).To(HaveSuffix("..."))
 		Expect([]rune(js.Scores[1].Reason)).To(HaveLen(kubemootv1alpha1.MaxJudgeReasonLength))
-		Expect(loadDeferredCache(store, prefix).Reasons["resumed"]).To(Equal(longReason),
+		Expect(loadDeferredCache(store, prefix).Reasons[csResumed]).To(Equal(longReason),
 			"the full reason stays in the object store")
 
 		// A later pass scores the last scenario and marks the checkpoint complete.
@@ -195,8 +201,8 @@ var _ = Describe("CrewFitnessSuite results in status", func() {
 		suite := &kubemootv1alpha1.CrewFitnessSuite{
 			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace},
 			Spec: kubemootv1alpha1.CrewFitnessSuiteSpec{
-				CrewRef: "status-crew", Iterations: 2,
-				Scripts: []kubemootv1alpha1.SuiteScript{{TestRef: "probe", TestContent: probeScript}},
+				CrewRef: csStatusCrew, Iterations: 2,
+				Scripts: []kubemootv1alpha1.SuiteScript{{TestRef: csProbe, TestContent: probeScript}},
 			},
 		}
 		Expect(k8sClient.Create(ctx, suite)).To(Succeed())
@@ -204,7 +210,7 @@ var _ = Describe("CrewFitnessSuite results in status", func() {
 		reconcileOnce(name) // Pending -> Running
 		s := getSuite(name)
 		Expect(s.Status.Judge).To(Equal(&kubemootv1alpha1.FitnessJudgeStatus{Phase: kubemootv1alpha1.FitnessJudgePhasePending}))
-		Expect(s.Status.Scenarios).To(Equal([]kubemootv1alpha1.SuiteScenarioResult{{Name: "probe"}}))
+		Expect(s.Status.Scenarios).To(Equal([]kubemootv1alpha1.SuiteScenarioResult{{Name: csProbe}}))
 
 		reconcileOnce(name) // schedule iteration 1
 		cf := &kubemootv1alpha1.CrewFitness{}
@@ -216,7 +222,7 @@ var _ = Describe("CrewFitnessSuite results in status", func() {
 
 		reconcileOnce(name) // count iteration 1, schedule iteration 2
 		want := []kubemootv1alpha1.SuiteScenarioResult{{
-			Name: "probe", Iterations: 1, Passed: 1, MeanDurationMs: 1500, AssertionsPassed: 2, AssertionsTotal: 2,
+			Name: csProbe, Iterations: 1, Passed: 1, MeanDurationMs: 1500, AssertionsPassed: 2, AssertionsTotal: 2,
 		}}
 		Expect(getSuite(name).Status.Scenarios).To(Equal(want))
 
@@ -244,8 +250,8 @@ var _ = Describe("CrewFitnessSuite results in status", func() {
 		suite := &kubemootv1alpha1.CrewFitnessSuite{
 			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace},
 			Spec: kubemootv1alpha1.CrewFitnessSuiteSpec{
-				CrewRef: "status-crew", Iterations: 1,
-				Scripts: []kubemootv1alpha1.SuiteScript{{TestRef: "probe", TestContent: probeScript}},
+				CrewRef: csStatusCrew, Iterations: 1,
+				Scripts: []kubemootv1alpha1.SuiteScript{{TestRef: csProbe, TestContent: probeScript}},
 			},
 		}
 		Expect(k8sClient.Create(ctx, suite)).To(Succeed())

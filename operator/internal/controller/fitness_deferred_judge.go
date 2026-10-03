@@ -877,10 +877,16 @@ func (p *judgePass) recordScore(scenario string, quality float64, reason string)
 
 // countJudgeable counts the scenarios this pass has to score: those whose
 // first transcript exists and declares a DEFER assertion (the same probe
-// processScenario uses).
+// processScenario uses). Scores are keyed by testRef, so a testRef that
+// appears in several scripts counts once, probed at its first script.
 func (p *judgePass) countJudgeable() int {
 	n := 0
-	for idx := range p.suite.Spec.Scripts {
+	seen := make(map[string]bool, len(p.suite.Spec.Scripts))
+	for idx, script := range p.suite.Spec.Scripts {
+		if seen[script.TestRef] {
+			continue
+		}
+		seen[script.TestRef] = true
 		if _, ok := p.scenarioKeyword(idx); ok {
 			n++
 		}

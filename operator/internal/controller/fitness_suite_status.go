@@ -247,6 +247,8 @@ func (r *CrewFitnessSuiteReconciler) applyJudgeStatus(ctx context.Context, suite
 // terminal reconcile when no judge worker is running for the run: it catches a
 // write the worker missed and fills status.judge for a suite that finished
 // before the field existed. While a worker runs, the worker owns the field.
+// The status patch replaces suite with the server's copy, so callers must not
+// hold an unsaved status change when they call it.
 func (r *CrewFitnessSuiteReconciler) syncJudgeStatus(ctx context.Context, suite *kubemootv1alpha1.CrewFitnessSuite) error {
 	store := r.store()
 	if store == nil || suite.Status.RunID == "" {

@@ -124,7 +124,7 @@ func TestJudgeStatusCurrent(t *testing.T) {
 		cur, desired *kubemootv1alpha1.FitnessJudgeStatus
 		want         bool
 	}{
-		{"absent", nil, judging(0), false},
+		{rjAbsent, nil, judging(0), false},
 		{"equal", judging(2), judging(2), true},
 		{"progress", judging(1), judging(2), false},
 		{"checkpoint expired", judging(3), judging(0), true},
@@ -395,6 +395,18 @@ func TestCountJudgeable(t *testing.T) {
 	p.suite.Spec.Scripts = scripts("judged", "plain", "never-ran")
 	if n := p.countJudgeable(); n != 1 {
 		t.Errorf("countJudgeable = %d, want 1 (only the DEFER scenario with a transcript)", n)
+	}
+}
+
+func TestCountJudgeableCountsADuplicateTestRefOnce(t *testing.T) {
+	store := fakeStore{objs: map[string][]byte{
+		wpFirstKey:              []byte(feasibleTranscript),
+		wpPrefix + "s1-i1.json": []byte(feasibleTranscript),
+	}}
+	p := newWorkerPass(t, store)
+	p.suite.Spec.Scripts = scripts("judged", "judged")
+	if n := p.countJudgeable(); n != 1 {
+		t.Errorf("countJudgeable = %d, want 1 (scores are keyed by testRef)", n)
 	}
 }
 
