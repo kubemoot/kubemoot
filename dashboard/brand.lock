@@ -1,0 +1,8 @@
+# Kubemoot brand files, copied from the brand/ folder of github.com/kubemoot/.github.
+# scripts/brand-sync.sh check verifies every copy; scripts/brand-sync.sh refresh [COMMIT]
+# copies them again and rewrites this file. Never edit a copy or a hash by hand.
+commit b4721dd5d96d39b42a2542ff685c1c633d6f96f3
+# sha256 destination source
+ed6b9db97e84f6645301909c27ed26f8fd4f3651bd8eb0e4368a50e684b0685b static/favicon.ico favicon/favicon.ico
+15dc3421b34011af47d46439bbb43b25ec486183282bf0f65f589639fc13c3c6 static/kubemoot-favicon.svg favicon/kubemoot-favicon.svg
+06f7fa2e32c9460d0803f02f7719724135babc03d41a3e1493c88b87735694a6 static/kubemoot-horizontal-white-text.svg horizontal/white-text/kubemoot-horizontal-white-text.svg
