@@ -1,8 +1,5 @@
 blank_issues_enabled: false
 contact_links:
-  - name: Report a security vulnerability
-    url: "https://kubemoot.org/docs/community/security/"
-    about: Do not open an issue. Email security@kubemoot.org, or use Report a vulnerability in the Security tab.
   - name: Ask a question or get support
     url: "https://github.com/orgs/kubemoot/discussions/categories/q-a"
     about: "How do I, why does, is this expected? Ask in Discussions Q&A."
