@@ -2,11 +2,13 @@
 # Tests for promote-release.sh: a throwaway repository with an operator chart, release
 # candidate tags, and a bare origin; crane and `helm push` are stubbed, `helm package`
 # is the real one.
-# Usage: bash .github/scripts/test-promote-release.sh   (exit 0 = all passed)
+# Usage: RELEASE_LIB=<release-actions>/release-lib.sh bash .github/scripts/test-promote-release.sh
+#        (exit 0 = all passed; in CI the release-actions setup action sets RELEASE_LIB)
 set -euo pipefail
 
 here="$(cd "$(dirname "$0")" && pwd)"
 command -v helm >/dev/null || { echo "helm is required"; exit 1; }
+[ -f "${RELEASE_LIB:-}" ] || { echo "RELEASE_LIB must point to release-lib.sh from kubemoot/release-actions"; exit 1; }
 real_helm="$(command -v helm)"
 
 failures=0
