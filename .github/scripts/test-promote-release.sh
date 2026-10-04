@@ -122,7 +122,7 @@ c1=$(c1_commit "feat(runtime): stream tokens")
 git tag -a agent-runtime-v0.342.32-rc.3 -m rc
 c2=$(c1_commit "fix: code sandbox limit")
 for t in code-sandbox-v0.16.32-rc.1 crew-liaison-v0.346.32-rc.0 v0.343.41-rc.2 dashboard-v0.50.1-rc.0 \
-  test-runner-v0.46.3-rc.0; do
+  test-runner-v0.46.3-rc.0 scheduling-mcp-v0.1.0-rc.2; do
   git tag -a "$t" -m rc
 done
 git push -q origin main --tags 2>/dev/null
@@ -263,6 +263,7 @@ check "plans the liaison pin" 1 "$(grep -c 'image crew-liaison: 0.346.32-rc.0' <
 check "plans the test-runner pin" 1 "$(grep -c 'image test-runner: 0.46.3-rc.0' <<<"$out")"
 check "plans the dashboard subchart" 1 "$(grep -c 'image dashboard: 0.50.1-rc.0' <<<"$out")"
 check "plans a standalone image" 1 "$(grep -c 'image code-sandbox: 0.16.32-rc.1' <<<"$out")"
+check "plans scheduling-mcp with the standalone images" 1 "$(grep -c 'image scheduling-mcp: 0.1.0-rc.2 .* -> 0.1.0' <<<"$out")"
 check "skips a standalone candidate newer than the chart candidate" 0 "$(grep -c 'image artifact-access' <<<"$out" || true)"
 check "a promoted pin is already published" 1 "$(grep -c 'image mcp-gateway: .*already published' <<<"$out")"
 check "dry run copies nothing" 0 "$(grep -c '^crane copy' "$LOG" || true)"
@@ -307,11 +308,12 @@ git fetch -q origin --tags
 check "chart final tag on the candidate commit" "$c2" "$(git rev-list -n 1 operator-chart-v0.92.582 2>/dev/null)"
 check "component final tag on its candidate commit" "$c1" "$(git rev-list -n 1 agent-runtime-v0.342.32 2>/dev/null)"
 check "operator final tag" "$c2" "$(git rev-list -n 1 v0.343.41 2>/dev/null)"
+check "standalone scheduling-mcp final tag on its candidate commit" "$c2" "$(git rev-list -n 1 scheduling-mcp-v0.1.0 2>/dev/null)"
 check "notes of the real run start at the previous release" 1 "$(grep -c '^## Changes since operator-chart-v0.92.581' "${root}/out-real/notes.md")"
 check "names the GitHub Release" "operator-chart-v0.92.582|Kubemoot 0.92.582|notes.md" "$(tr '\t' '|' < "${root}/out-real/releases.tsv")"
 check "leaves no scratch worktree" 1 "$(git worktree list | wc -l | tr -d ' ')"
-check "copies six images" 6 "$(grep -c '^crane copy' "$LOG")"
-check "copies by digest" 6 "$(grep '^crane copy' "$LOG" | grep -c '@sha256:')"
+check "copies seven images" 7 "$(grep -c '^crane copy' "$LOG")"
+check "copies by digest" 7 "$(grep '^crane copy' "$LOG" | grep -c '@sha256:')"
 check "pushes the chart to both registries" 2 "$(grep -c '^helm push' "$LOG")"
 
 # 9. A second promotion of the same candidate is refused; the next chart candidate
