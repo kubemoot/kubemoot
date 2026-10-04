@@ -79,3 +79,12 @@ DESCRIPTION Kubemoot Dashboard audience: admins and developers debugging the age
 
 ASSERT dashboard user sees: discussion threads, agent timelines, NATS messages, topology
 ASSERT dashboard user understands everything - no information is hidden
+
+# OpenSSF Criteria
+
+DEFINE COMPONENT openssf-criteria
+DESCRIPTION Every change keeps Kubemoot meeting the OpenSSF Best Practices criteria and its Scorecard checks
+
+ASSERT every solution must continue to meet the OpenSSF Best Practices "passing" criteria; how the project meets them is described at kubemoot.org/docs/community/how-kubemoot-is-built-and-secured/
+NEVER weaken one of them (an unpinned action or base image, a release step that skips signing, a disabled linter or check, a stored long-lived publishing token, a change without tests) without a maintainer's explicit decision
+WHEN adding a workflow, image, dependency, release step, or public endpoint THEN check it against the criteria and OpenSSF Scorecard's checks, and say which criteria it touches
