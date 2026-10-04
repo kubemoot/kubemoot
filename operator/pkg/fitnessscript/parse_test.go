@@ -17,6 +17,7 @@ limitations under the License.
 package fitnessscript
 
 import (
+	"fmt"
 	"math"
 	"strings"
 	"testing"
@@ -575,5 +576,20 @@ func TestExtractFirstIntSaturates(t *testing.T) {
 	}
 	if got := extractFirstInt("within 300 seconds"); got != 300 {
 		t.Errorf("bound = %d, want 300", got)
+	}
+}
+
+// TestParseDeferReadsPreVerbatimTranscripts pins how transcripts stored before
+// references were written verbatim still read. The Markdown form once stored Raw
+// with Go quoting, so a quote or backslash in the reference was escaped. Those
+// transcripts stay in the fitness object store across upgrades, and the judge and
+// re-judge read them through ParseDefer: the keyword routes as before and the
+// reference reads exactly as the judge read it then (escapes included, since an
+// ADL reference may hold a literal backslash and the two cannot be told apart).
+func TestParseDeferReadsPreVerbatimTranscripts(t *testing.T) {
+	old := fmt.Sprintf("DEFER synthesis %s %q", kwReflects, `the "kubemoot" namespace, not C:\temp`)
+	kw, ref, ok := ParseDefer(old)
+	if !ok || kw != kwReflects || ref != `the \"kubemoot\" namespace, not C:\\temp` {
+		t.Errorf("ParseDefer(%q) = (%q, %q, %v)", old, kw, ref, ok)
 	}
 }
