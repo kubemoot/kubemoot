@@ -85,6 +85,16 @@ updates:
     groups:
       gradle:
         patterns: ["*"]
+    # Shipped images use released (GA) Spring versions only: no milestone, release
+    # candidate, or SNAPSHOT. Dependabot already skips pre-releases while the current
+    # version is GA; these ranges also block the Spring AI 2.1.0 and Spring Boot 4.2.0
+    # pre-release lines (Maven ordering puts every -M, -RC and -SNAPSHOT qualifier below the GA).
+    # When the next pre-release line opens, add its range here.
+    ignore:
+      - dependency-name: "org.springframework.ai*"
+        versions: ["[2.1.0-a0,2.1.0)"]
+      - dependency-name: "org.springframework.boot*"
+        versions: ["[4.2.0-a0,4.2.0)"]
     open-pull-requests-limit: 5
     commit-message:
       prefix: "chore(deps)"
