@@ -114,9 +114,10 @@ const (
 	healthPath        = "/health"
 	secretKeyUsername = "username"
 	secretKeyPassword = "password"
-	// skillsName names the skills volume and is the component label of the
-	// skills ConfigMap.
-	skillsName = "skills"
+	// skillsVolumeName names the volume that mounts the skills ConfigMap.
+	skillsVolumeName = "skills"
+	// skillsComponent is the component label of the skills ConfigMap.
+	skillsComponent = "skills"
 	// defaultOperatorNamespace is where the operator runs when OPERATOR_NAMESPACE is unset.
 	defaultOperatorNamespace = "kubemoot"
 	// partOfValue is the app.kubernetes.io/part-of label value.

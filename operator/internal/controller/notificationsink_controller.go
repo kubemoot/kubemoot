@@ -55,7 +55,6 @@ type NotificationSinkReconciler struct {
 // Reconcile validates the sink's webhook config and reports Ready accordingly.
 // The dispatcher is the authoritative writer for LastFiredAt / TotalDispatched
 // / LastError; this reconciler only owns the Ready condition.
-
 func (r *NotificationSinkReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := logf.FromContext(ctx)
 

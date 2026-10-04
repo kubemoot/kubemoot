@@ -227,7 +227,7 @@ func (r *MCPGatewayReconciler) buildDeployment(gateway *kubemootv1alpha1.MCPGate
 		impl = kubemootv1alpha1.ImplementationKubemoot
 	}
 
-	image, port, healthPath, env := r.gatewayImplDefaults(gateway, impl)
+	image, port, probePath, env := r.gatewayImplDefaults(gateway, impl)
 
 	if gateway.Spec.Port != 0 {
 		port = gateway.Spec.Port
@@ -238,7 +238,7 @@ func (r *MCPGatewayReconciler) buildDeployment(gateway *kubemootv1alpha1.MCPGate
 		image = gateway.Spec.ContextForge.Image
 	}
 
-	podLabels := map[string]string{
+	objLabels := map[string]string{
 		labelName:      gateway.Name,
 		labelInstance:  gateway.Name,
 		labelManagedBy: managedByValue,
@@ -255,7 +255,7 @@ func (r *MCPGatewayReconciler) buildDeployment(gateway *kubemootv1alpha1.MCPGate
 		Type: corev1.SeccompProfileTypeRuntimeDefault,
 	}
 
-	container := buildGatewayContainer(gateway, image, healthPath, port, env, runAsNonRoot, seccompProfile)
+	container := buildGatewayContainer(gateway, image, probePath, port, env, runAsNonRoot, seccompProfile)
 
 	// Image pull secrets - use spec if provided, otherwise fall back to KubemootConfig
 	imagePullSecrets := r.gatewayImagePullSecrets(gateway)
@@ -264,16 +264,16 @@ func (r *MCPGatewayReconciler) buildDeployment(gateway *kubemootv1alpha1.MCPGate
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      gateway.Name,
 			Namespace: gateway.Namespace,
-			Labels:    podLabels,
+			Labels:    objLabels,
 		},
 		Spec: appsv1.DeploymentSpec{
 			Replicas: &replicas,
 			Selector: &metav1.LabelSelector{
-				MatchLabels: podLabels,
+				MatchLabels: objLabels,
 			},
 			Template: corev1.PodTemplateSpec{
 				ObjectMeta: metav1.ObjectMeta{
-					Labels: podLabels,
+					Labels: objLabels,
 				},
 				Spec: corev1.PodSpec{
 					Containers:                    []corev1.Container{container},
@@ -301,7 +301,7 @@ func overridePortEnv(env []corev1.EnvVar, port int32) {
 }
 
 // buildGatewayContainer constructs the gateway container spec including probes, resources, and security context.
-func buildGatewayContainer(gateway *kubemootv1alpha1.MCPGateway, image, healthPath string, port int32, env []corev1.EnvVar, runAsNonRoot bool, seccompProfile corev1.SeccompProfile) corev1.Container {
+func buildGatewayContainer(gateway *kubemootv1alpha1.MCPGateway, image, probePath string, port int32, env []corev1.EnvVar, runAsNonRoot bool, seccompProfile corev1.SeccompProfile) corev1.Container {
 	container := corev1.Container{
 		Name:            "mcp-gateway",
 		Image:           image,
@@ -317,7 +317,7 @@ func buildGatewayContainer(gateway *kubemootv1alpha1.MCPGateway, image, healthPa
 		LivenessProbe: &corev1.Probe{
 			ProbeHandler: corev1.ProbeHandler{
 				HTTPGet: &corev1.HTTPGetAction{
-					Path: healthPath,
+					Path: probePath,
 					Port: intstr.FromInt32(port),
 				},
 			},
@@ -329,7 +329,7 @@ func buildGatewayContainer(gateway *kubemootv1alpha1.MCPGateway, image, healthPa
 		ReadinessProbe: &corev1.Probe{
 			ProbeHandler: corev1.ProbeHandler{
 				HTTPGet: &corev1.HTTPGetAction{
-					Path: healthPath,
+					Path: probePath,
 					Port: intstr.FromInt32(port),
 				},
 			},
@@ -585,7 +585,7 @@ func (r *MCPGatewayReconciler) buildToolIndexRAGSource(gateway *kubemootv1alpha1
 		Replicas: 1,
 	}
 
-	podLabels := map[string]string{
+	objLabels := map[string]string{
 		labelName:      ragSourceName,
 		labelInstance:  gateway.Name,
 		labelManagedBy: managedByValue,
@@ -596,7 +596,7 @@ func (r *MCPGatewayReconciler) buildToolIndexRAGSource(gateway *kubemootv1alpha1
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      ragSourceName,
 			Namespace: gateway.Namespace,
-			Labels:    podLabels,
+			Labels:    objLabels,
 		},
 		Spec: kubemootv1alpha1.RAGSourceSpec{
 			Source: kubemootv1alpha1.SourceConfig{
@@ -677,7 +677,7 @@ func (r *MCPGatewayReconciler) reconcileService(ctx context.Context, gateway *ku
 		port = gateway.Spec.Port
 	}
 
-	podLabels := map[string]string{
+	objLabels := map[string]string{
 		labelName:      gateway.Name,
 		labelInstance:  gateway.Name,
 		labelManagedBy: managedByValue,
@@ -688,10 +688,10 @@ func (r *MCPGatewayReconciler) reconcileService(ctx context.Context, gateway *ku
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      gateway.Name,
 			Namespace: gateway.Namespace,
-			Labels:    podLabels,
+			Labels:    objLabels,
 		},
 		Spec: corev1.ServiceSpec{
-			Selector: podLabels,
+			Selector: objLabels,
 			Ports: []corev1.ServicePort{
 				{
 					Name:       portNameHTTP,

@@ -125,7 +125,6 @@ type IterationResult struct {
 // the CrewFitness reconciler populated. Returns the list sorted by
 // (scenario, iteration) so the Runs sheet reads top-to-bottom in the
 // natural order.
-
 func HarvestIterationResults(children []kubemootv1alpha1.CrewFitness) []IterationResult {
 	out := make([]IterationResult, 0, len(children))
 	for i := range children {

@@ -59,7 +59,6 @@ type transcriptAssertion struct {
 
 // parseTranscriptKey extracts (scriptIdx, iter) from a transcript object key
 // whose tail is "s{scriptIdx}-i{iter}.json". ok=false when the tail doesn't match.
-
 func parseTranscriptKey(key string) (idx, iter int, ok bool) {
 	base := key
 	if i := strings.LastIndex(base, "/"); i >= 0 {

@@ -159,3 +159,21 @@ func TestUnblindAndTally(t *testing.T) {
 		t.Fatalf("tie must un-blind to no winner")
 	}
 }
+
+// Replies that are not a bare verdict fall back to a scan: a single slot named as
+// "ANSWER x" or "OPTION x" (or leading the reply) wins, any TIE wins over a named
+// slot, and naming both slots is a tie.
+func TestNormalizePairwiseVoteFallbackScan(t *testing.T) {
+	cases := map[string]pairwiseVote{
+		"I would go with OPTION B here":            voteB,
+		"Overall, answer a covers more":            voteA,
+		"answer a is good, but call it a tie":      voteTie,
+		"TIE: option B is no better than option A": voteTie,
+		"Answer A and Answer B are both weak":      voteTie,
+	}
+	for raw, want := range cases {
+		if got := normalizePairwiseVote(raw); got != want {
+			t.Errorf("normalizePairwiseVote(%q) = %q, want %q", raw, got, want)
+		}
+	}
+}

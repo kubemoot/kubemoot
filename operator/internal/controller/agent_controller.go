@@ -760,12 +760,12 @@ func (r *AgentReconciler) buildDeployment(ctx context.Context, agent *kubemootv1
 	if crew := agent.Labels[labelCrew]; crew != "" {
 		skillsCMName := "crew-" + crew + "-skills"
 		volumeMounts = append(volumeMounts, corev1.VolumeMount{
-			Name:      skillsName,
+			Name:      skillsVolumeName,
 			MountPath: skillsMountPath,
 			ReadOnly:  true,
 		})
 		volumes = append(volumes, corev1.Volume{
-			Name: skillsName,
+			Name: skillsVolumeName,
 			VolumeSource: corev1.VolumeSource{
 				ConfigMap: &corev1.ConfigMapVolumeSource{
 					LocalObjectReference: corev1.LocalObjectReference{Name: skillsCMName},
