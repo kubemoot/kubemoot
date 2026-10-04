@@ -258,7 +258,7 @@ verify:
   enabled: false
   # Test runner image for verification jobs
   # Version is automatically updated by CI/CD when test-runner is released
-  image: test-runner:0.344.0-rc.172
+  image: test-runner:0.344.0-rc.176
   # Deploy static verify jobs with the chart (optional - API creates jobs dynamically)
   deployJobs: false
 
