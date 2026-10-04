@@ -3,7 +3,7 @@
   <img src=".github/assets/kubemoot-horizontal-color.png" alt="Kubemoot" height="64">
 </picture>
 
-[![Latest release](https://img.shields.io/github/v/release/kubemoot/kubemoot?sort=semver&filter=operator-chart-v*)](https://github.com/kubemoot/kubemoot/releases/latest) [![Build status](https://github.com/kubemoot/kubemoot/actions/workflows/release.yaml/badge.svg?branch=main)](https://github.com/kubemoot/kubemoot/actions/workflows/release.yaml?query=branch%3Amain) [![License: Apache 2.0](https://img.shields.io/github/license/kubemoot/kubemoot)](https://github.com/kubemoot/kubemoot/blob/main/LICENSE)
+[![Latest release](https://img.shields.io/github/v/release/kubemoot/kubemoot?sort=semver&filter=operator-chart-v*)](https://github.com/kubemoot/kubemoot/releases/latest) [![Build status](https://github.com/kubemoot/kubemoot/actions/workflows/release.yaml/badge.svg?branch=main)](https://github.com/kubemoot/kubemoot/actions/workflows/release.yaml?query=branch%3Amain) [![License: Apache 2.0](https://img.shields.io/github/license/kubemoot/kubemoot)](https://github.com/kubemoot/kubemoot/blob/main/LICENSE) [![OpenSSF Scorecard](https://img.shields.io/ossf-scorecard/github.com/kubemoot/kubemoot?label=openssf%20scorecard)](https://scorecard.dev/viewer/?uri=github.com/kubemoot/kubemoot)
 
 Kubemoot is a Kubernetes operator and runtime for **multi-agent AI consensus**. A
 question is answered not by one model but by a **crew** of small, specialized agents
