@@ -254,6 +254,19 @@ func mustAddCertWatcher(mgr ctrl.Manager, watcher *certwatcher.CertWatcher, labe
 // +kubebuilder:rbac:groups=authentication.k8s.io,resources=tokenreviews,verbs=create
 // +kubebuilder:rbac:groups=authorization.k8s.io,resources=subjectaccessreviews,verbs=create
 
+// withLeaderElection sets the leader election options. The leader releases its lease
+// when it stops, so a rollout hands over in seconds instead of waiting out the lease;
+// this is safe because main exits as soon as the manager returns.
+func withLeaderElection(o ctrl.Options, f managerFlags) ctrl.Options {
+	o.LeaderElection = f.enableLeaderElection
+	o.LeaderElectionID = "7b551ae9.kubemoot.ai"
+	o.LeaderElectionReleaseOnCancel = true
+	o.LeaseDuration = &f.leaseDuration
+	o.RenewDeadline = &f.renewDeadline
+	o.RetryPeriod = &f.retryPeriod
+	return o
+}
+
 func main() {
 	f := parseFlags()
 	tlsOpts := buildTLSOpts(f.enableHTTP2)
@@ -282,17 +295,12 @@ func main() {
 		})
 	}
 
-	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
+	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), withLeaderElection(ctrl.Options{
 		Scheme:                 scheme,
 		Metrics:                metricsServerOptions,
 		WebhookServer:          webhookServer,
 		HealthProbeBindAddress: f.probeAddr,
-		LeaderElection:         f.enableLeaderElection,
-		LeaderElectionID:       "7b551ae9.kubemoot.ai",
-		LeaseDuration:          &f.leaseDuration,
-		RenewDeadline:          &f.renewDeadline,
-		RetryPeriod:            &f.retryPeriod,
-	})
+	}, f))
 	if err != nil {
 		setupLog.Error(err, "unable to start manager")
 		os.Exit(1)
