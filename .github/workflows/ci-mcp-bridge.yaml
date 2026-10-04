@@ -32,6 +32,12 @@ jobs:
           go-version-file: mcp-bridge/go.mod
           cache-dependency-path: mcp-bridge/go.sum
 
+      - name: Check go.mod and go.sum are tidy
+        working-directory: mcp-bridge
+        env:
+          GOTOOLCHAIN: local
+        run: go mod tidy -diff
+
       - name: Build
         working-directory: mcp-bridge
         run: CGO_ENABLED=0 go build -ldflags="-s -w" -o kubemoot-mcp-bridge ./cmd/bridge/
