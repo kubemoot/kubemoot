@@ -59,7 +59,7 @@ jobs:
       test_runner: ${{ steps.chart.outputs.test_runner }}
     steps:
       - name: Checkout main
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: main
           # RELEASE_TOKEN (contents+workflows write) pushes the tag even when main's workflow files changed after this commit; GITHUB_TOKEN is refused there.
@@ -73,7 +73,7 @@ jobs:
         uses: kubemoot/release-actions/setup@9a88091ef5357ddf4f8d1c8a71b2c72f4cd928c5 # v0.7.0
 
       - name: Install Helm
-        uses: azure/setup-helm@v5
+        uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
         with:
           # The Harbor push combination of the chart releases: helm v3.14.0 with
           # --insecure-skip-tls-verify (newer helm refuses Harbor's http token realm).
@@ -113,7 +113,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Install kubectl
         run: |
@@ -156,7 +156,7 @@ jobs:
       # A newer chart is already applied: its own run dispatches the test.
       - name: Dispatch integration test
         if: steps.flux.outputs.state == 'applied'
-        uses: peter-evans/repository-dispatch@v4
+        uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
         with:
           event-type: flux-reconciliation
           # The test runs the test-runner image this chart pins.
