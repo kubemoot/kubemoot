@@ -32,6 +32,12 @@ jobs:
           go-version-file: code-sandbox/go.mod
           cache-dependency-path: code-sandbox/go.sum
 
+      - name: Check go.mod and go.sum are tidy
+        working-directory: code-sandbox
+        env:
+          GOTOOLCHAIN: local
+        run: go mod tidy -diff
+
       - name: Set up Python
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:

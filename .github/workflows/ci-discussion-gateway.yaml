@@ -32,6 +32,12 @@ jobs:
           go-version-file: discussion-gateway/go.mod
           cache-dependency-path: discussion-gateway/go.sum
 
+      - name: Check go.mod and go.sum are tidy
+        working-directory: discussion-gateway
+        env:
+          GOTOOLCHAIN: local
+        run: go mod tidy -diff
+
       - name: Build
         working-directory: discussion-gateway
         run: CGO_ENABLED=0 go build -ldflags="-s -w" -o discussion-gateway .

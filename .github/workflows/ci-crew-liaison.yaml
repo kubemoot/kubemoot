@@ -32,6 +32,12 @@ jobs:
           go-version-file: crew-liaison/go.mod
           cache-dependency-path: crew-liaison/go.sum
 
+      - name: Check go.mod and go.sum are tidy
+        working-directory: crew-liaison
+        env:
+          GOTOOLCHAIN: local
+        run: go mod tidy -diff
+
       - name: Build
         working-directory: crew-liaison
         run: CGO_ENABLED=0 go build -ldflags="-s -w" -o crew-liaison .

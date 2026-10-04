@@ -31,9 +31,11 @@ jobs:
         with:
           go-version-file: scheduling-mcp/go.mod
 
-      - name: Resolve module dependencies
+      - name: Check go.mod and go.sum are tidy
         working-directory: scheduling-mcp
-        run: go mod tidy
+        env:
+          GOTOOLCHAIN: local
+        run: go mod tidy -diff
 
       - name: Build
         working-directory: scheduling-mcp

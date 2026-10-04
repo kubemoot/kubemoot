@@ -34,6 +34,12 @@ jobs:
           go-version-file: fitness-runner/go.mod
           cache-dependency-path: fitness-runner/go.sum
 
+      - name: Check go.mod and go.sum are tidy
+        working-directory: fitness-runner
+        env:
+          GOTOOLCHAIN: local
+        run: go mod tidy -diff
+
       - name: Build
         working-directory: fitness-runner
         run: CGO_ENABLED=0 go build -ldflags="-s -w" -o fitness-runner .
