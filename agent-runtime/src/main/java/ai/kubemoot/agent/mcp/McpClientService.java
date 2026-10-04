@@ -9,7 +9,11 @@ import dev.langchain4j.service.tool.ToolExecutor;
 import io.modelcontextprotocol.client.McpClient;
 import io.modelcontextprotocol.client.McpSyncClient;
 import io.modelcontextprotocol.client.transport.HttpClientSseClientTransport;
+import io.modelcontextprotocol.json.McpJsonMapper;
+import io.modelcontextprotocol.json.jackson2.JacksonMcpJsonMapper;
+import io.modelcontextprotocol.json.schema.jackson2.DefaultJsonSchemaValidator;
 import io.modelcontextprotocol.spec.McpSchema;
+import io.quarkus.runtime.annotations.RegisterForReflection;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -33,12 +37,19 @@ import java.util.stream.Collectors;
  * 2. Direct mode: Connects directly to individual MCP servers
  *
  * Gateway mode is enabled when kubemoot.gateway.enabled=true and a gateway endpoint is configured.
+ *
+ * Direct mode hands the MCP SDK its JSON mapper and schema validator rather than letting the SDK
+ * find them with ServiceLoader, which the native image does not register. The MCP schema records
+ * (McpSchema and its nested types) are registered for reflection so Jackson can read them in native.
  */
 @ApplicationScoped
+@RegisterForReflection(targets = McpSchema.class)
 public class McpClientService {
 
     private static final Logger log = LoggerFactory.getLogger(McpClientService.class);
     private static final ObjectMapper objectMapper = new ObjectMapper();
+    /** JSON binding for the MCP SDK in direct mode: Jackson 2, the one Jackson Quarkus manages. */
+    static final McpJsonMapper MCP_JSON = new JacksonMcpJsonMapper(objectMapper);
 
     private final AgentProperties properties;
     private final Map<String, McpSyncClient> clients = new ConcurrentHashMap<>();
@@ -179,8 +190,12 @@ public class McpClientService {
 
         var transport = HttpClientSseClientTransport.builder(config.endpoint())
                 .customizeClient(builder -> builder.connectTimeout(Duration.ofSeconds(30)))
+                .jsonMapper(MCP_JSON)
                 .build();
-        var client = McpClient.sync(transport).requestTimeout(Duration.ofSeconds(60)).build();
+        var client = McpClient.sync(transport)
+                .requestTimeout(Duration.ofSeconds(60))
+                .jsonSchemaValidator(new DefaultJsonSchemaValidator(objectMapper))
+                .build();
 
         client.initialize();
         log.debug("MCP server {} initialized", config.name());
@@ -229,13 +244,25 @@ public class McpClientService {
         }
 
         log.debug("Calling tool {} on server {}", actualToolName, serverName);
-        var result = client.callTool(new McpSchema.CallToolRequest(actualToolName, arguments));
+        var result = client.callTool(McpSchema.CallToolRequest.builder(actualToolName)
+                .arguments(arguments)
+                .build());
+        return toToolResult(toolName, result);
+    }
+
+    /**
+     * Map an MCP tool result to a {@link ToolResult}: the first text content is the
+     * result, or the error when the server marks the call failed. An absent
+     * {@code isError} means success, as the MCP spec defines it.
+     */
+    static ToolResult toToolResult(String toolName, McpSchema.CallToolResult result) {
         String content = null;
-        if (result.content() != null && !result.content().isEmpty()) {
-            var first = result.content().getFirst();
-            if (first instanceof McpSchema.TextContent tc) content = tc.text();
+        if (result.content() != null && !result.content().isEmpty()
+                && result.content().getFirst() instanceof McpSchema.TextContent tc) {
+            content = tc.text();
         }
-        return new ToolResult(toolName, !result.isError(), content, result.isError() ? content : null);
+        boolean failed = Boolean.TRUE.equals(result.isError());
+        return new ToolResult(toolName, !failed, content, failed ? content : null);
     }
 
     private ToolResult callToolViaGateway(String toolName, Map<String, Object> arguments) {
