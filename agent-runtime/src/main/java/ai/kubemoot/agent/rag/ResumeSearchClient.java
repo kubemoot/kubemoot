@@ -104,17 +104,7 @@ public class ResumeSearchClient {
                 return null;
             }
 
-            var seen = new java.util.LinkedHashSet<String>();
-            for (var resultNode : resultsNode) {
-                // Extract agent name from metadata (set by operator's resume embedder).
-                // Skill docs have kind=skill and skill_name but NO agent_name - skip them
-                // so a skill doc never becomes a bogus agent name in the selection.
-                var metadataNode = resultNode.get("metadata");
-                if (isAgentMetadata(metadataNode)) {
-                    seen.add(metadataNode.get("agent_name").asText());
-                }
-            }
-            var agentNames = new ArrayList<>(seen);
+            var agentNames = agentNamesFrom(resultsNode);
 
             log.info("Resume search returned {} agents for triage pre-filtering: {}", agentNames.size(), agentNames);
             return agentNames;
@@ -127,6 +117,22 @@ public class ResumeSearchClient {
             log.warn("Resume search failed (falling back to ConfigMap): {}", e.getMessage(), e);
             return null;
         }
+    }
+
+    /**
+     * Agent names from the search results' metadata, de-duplicated in result order.
+     * Skill docs have kind=skill and skill_name but NO agent_name, so they are skipped
+     * and a skill doc never becomes a bogus agent name in the selection.
+     */
+    static List<String> agentNamesFrom(com.fasterxml.jackson.databind.JsonNode resultsNode) {
+        var seen = new java.util.LinkedHashSet<String>();
+        for (var resultNode : resultsNode) {
+            var metadataNode = resultNode.get("metadata");
+            if (isAgentMetadata(metadataNode)) {
+                seen.add(metadataNode.get("agent_name").asText());
+            }
+        }
+        return new ArrayList<>(seen);
     }
 
     /**

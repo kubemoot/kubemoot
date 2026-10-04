@@ -49,4 +49,21 @@ class ResumeSearchClientSkillsTest {
         var metadata = MAPPER.readTree("{\"agent_name\":\"some-agent\"}");
         assertTrue(ResumeSearchClient.isAgentMetadata(metadata));
     }
+
+    @Test
+    void agentNamesFrom_keepsAgentsInOrder_dropsSkillsAndDuplicates() throws Exception {
+        var results = MAPPER.readTree("""
+                [{"metadata":{"agent_name":"b"}},
+                 {"metadata":{"kind":"skill","skill_name":"runbook"}},
+                 {"metadata":{"agent_name":"a"}},
+                 {"content":"no metadata"},
+                 {"metadata":{"agent_name":"b"}}]
+                """);
+        assertEquals(java.util.List.of("b", "a"), ResumeSearchClient.agentNamesFrom(results));
+    }
+
+    @Test
+    void agentNamesFrom_emptyResults_returnsEmptyList() throws Exception {
+        assertTrue(ResumeSearchClient.agentNamesFrom(MAPPER.readTree("[]")).isEmpty());
+    }
 }

@@ -158,11 +158,11 @@ public class OnboardingSubscriber {
     private void handleMessage(String subject, String data) {
         try {
             var msg = mapper.readTree(data);
-            String messageType = msg.has(FIELD_MESSAGE_TYPE) ? msg.get(FIELD_MESSAGE_TYPE).asText() : "";
-            String threadId = msg.has(FIELD_THREAD_ID) ? msg.get(FIELD_THREAD_ID).asText() : "";
-            String agentName = msg.has(FIELD_AGENT_NAME) ? msg.get(FIELD_AGENT_NAME).asText() : "";
-            String messageId = msg.has(FIELD_MESSAGE_ID) ? msg.get(FIELD_MESSAGE_ID).asText() : "";
-            String content = msg.has(FIELD_CONTENT) ? msg.get(FIELD_CONTENT).asText() : "";
+            String messageType = JsonFields.text(msg, FIELD_MESSAGE_TYPE);
+            String threadId = JsonFields.text(msg, FIELD_THREAD_ID);
+            String agentName = JsonFields.text(msg, FIELD_AGENT_NAME);
+            String messageId = JsonFields.text(msg, FIELD_MESSAGE_ID);
+            String content = JsonFields.text(msg, FIELD_CONTENT);
 
             // Ignore own messages
             if (properties.agentName().equals(agentName)) return;
@@ -191,7 +191,7 @@ public class OnboardingSubscriber {
         String userQuery = extractUserQuery(msg);
         if (userQuery.isEmpty()) return;
 
-        String channel = msg.has(FIELD_CHANNEL) ? msg.get(FIELD_CHANNEL).asText() : CHANNEL_GENERAL;
+        String channel = JsonFields.text(msg, FIELD_CHANNEL, CHANNEL_GENERAL);
 
         // Extract tool-gap concerns from metadata
         Map<String, String> concerns = extractConcerns(msg);
@@ -441,7 +441,7 @@ public class OnboardingSubscriber {
         if (msg.has(FIELD_METADATA) && msg.get(FIELD_METADATA).has("userQuery")) {
             return msg.get(FIELD_METADATA).get("userQuery").asText();
         }
-        return msg.has(FIELD_CONTENT) ? msg.get(FIELD_CONTENT).asText() : "";
+        return JsonFields.text(msg, FIELD_CONTENT);
     }
 
     private static boolean looksLikeUrl(String token) {

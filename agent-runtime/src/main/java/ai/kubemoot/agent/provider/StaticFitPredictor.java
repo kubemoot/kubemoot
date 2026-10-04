@@ -80,20 +80,9 @@ public class StaticFitPredictor implements FitPredictor {
 
     @Override
     public FitScore predict(FitInputs in) {
-        if (in == null || in.provider() == null) {
-            return FitScore.no("invalid inputs");
-        }
-        if (in.circuitOpen()) {
-            return FitScore.no("circuit open");
-        }
-        if (!in.provider().ready()) {
-            return FitScore.no("provider not ready");
-        }
-        if (in.coldLoadFootprintMiB() <= 0) {
-            // No model-size estimate available (no provider has loaded
-            // it yet AND no CR hint). Selector falls back to static
-            // endpoint via caller; predictor reports honestly.
-            return FitScore.no("unknown cold-load footprint");
+        FitScore refusal = refuseUnusableInputs(in);
+        if (refusal != null) {
+            return refusal;
         }
 
         boolean trulyWarm = in.provider().hasModelLoaded(in.modelName());
@@ -103,10 +92,7 @@ public class StaticFitPredictor implements FitPredictor {
         // the in-flight provider (Ollama internally queues the call) instead
         // of triggering a redundant cold-load on a different provider. See
         // [[Cold-Start Model-Load Wedge]] for the design and trade-offs.
-        boolean loadingInFlight = !trulyWarm
-                && in.modelName() != null
-                && in.activeModelsOnProvider() != null
-                && in.activeModelsOnProvider().contains(in.modelName());
+        boolean loadingInFlight = !trulyWarm && isLoadingInFlight(in);
         boolean warmOrLoading = trulyWarm || loadingInFlight;
 
         if (warmOrLoading) {
@@ -122,6 +108,42 @@ public class StaticFitPredictor implements FitPredictor {
                     trulyWarm ? "warm (resident, reuse)" : "loading-in-flight (converging)");
         }
 
+        return predictCold(in);
+    }
+
+    /**
+     * Returns the refusal for inputs no provider decision can be made from (missing
+     * inputs, open circuit, provider not ready, unknown footprint), or null when the
+     * inputs are usable.
+     */
+    private static FitScore refuseUnusableInputs(FitInputs in) {
+        if (in == null || in.provider() == null) {
+            return FitScore.no("invalid inputs");
+        }
+        if (in.circuitOpen()) {
+            return FitScore.no("circuit open");
+        }
+        if (!in.provider().ready()) {
+            return FitScore.no("provider not ready");
+        }
+        if (in.coldLoadFootprintMiB() <= 0) {
+            // No model-size estimate available (no provider has loaded
+            // it yet AND no CR hint). Selector falls back to static
+            // endpoint via caller; predictor reports honestly.
+            return FitScore.no("unknown cold-load footprint");
+        }
+        return null;
+    }
+
+    /** True when an active ticket on this provider is already loading the model. */
+    private static boolean isLoadingInFlight(FitInputs in) {
+        return in.modelName() != null
+                && in.activeModelsOnProvider() != null
+                && in.activeModelsOnProvider().contains(in.modelName());
+    }
+
+    /** Fit decision for a model that is not resident on, or loading into, this provider. */
+    private static FitScore predictCold(FitInputs in) {
         // Cold: M must be loaded here. Two hard filters:
         // 1. M physically fits the card alone: usableVram >= coldLoadFootprintMiB.
         //    If not, M spills to CPU even when alone - never feasible here.

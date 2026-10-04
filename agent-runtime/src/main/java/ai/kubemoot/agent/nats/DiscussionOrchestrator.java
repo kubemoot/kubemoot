@@ -542,11 +542,11 @@ public class DiscussionOrchestrator {
     private void handleMessage(String data) {
         try {
             var msg = mapper.readTree(data);
-            String threadId = msg.has(FIELD_THREAD_ID) ? msg.get(FIELD_THREAD_ID).asText() : "";
-            String agentName = msg.has(FIELD_AGENT_NAME) ? msg.get(FIELD_AGENT_NAME).asText() : "";
-            String messageType = msg.has(FIELD_MESSAGE_TYPE) ? msg.get(FIELD_MESSAGE_TYPE).asText() : "";
-            String content = msg.has(FIELD_CONTENT) ? msg.get(FIELD_CONTENT).asText() : "";
-            String channel = msg.has(FIELD_CHANNEL) ? msg.get(FIELD_CHANNEL).asText() : CHANNEL_GENERAL;
+            String threadId = JsonFields.text(msg, FIELD_THREAD_ID);
+            String agentName = JsonFields.text(msg, FIELD_AGENT_NAME);
+            String messageType = JsonFields.text(msg, FIELD_MESSAGE_TYPE);
+            String content = JsonFields.text(msg, FIELD_CONTENT);
+            String channel = JsonFields.text(msg, FIELD_CHANNEL, CHANNEL_GENERAL);
 
             // Waking/ready signals have empty threadId — apply to all active threads
             if (threadId.isEmpty()) {
@@ -602,7 +602,7 @@ public class DiscussionOrchestrator {
 
     /** Dedup by messageId; an already-seen id is a redelivery to drop. */
     private boolean isDuplicateMessage(ThreadState state, JsonNode msg) {
-        String messageId = msg.has(FIELD_MESSAGE_ID) ? msg.get(FIELD_MESSAGE_ID).asText() : "";
+        String messageId = JsonFields.text(msg, FIELD_MESSAGE_ID);
         return !messageId.isEmpty() && !state.seenMessageIds.add(messageId);
     }
 
@@ -1176,11 +1176,16 @@ public class DiscussionOrchestrator {
      */
     // Visible for testing
     static boolean hasZeroSignals(ThreadState state) {
-        return state.agreeSignals.isEmpty()
-                && state.standAsideSignals.isEmpty()
-                && state.concernSignals.isEmpty()
+        return hasNoVotes(state)
                 && state.blockSignals.isEmpty()
                 && state.failureSignals.isEmpty();
+    }
+
+    /** True when no agree, stand_aside, or concern signal has arrived. */
+    private static boolean hasNoVotes(ThreadState state) {
+        return state.agreeSignals.isEmpty()
+                && state.standAsideSignals.isEmpty()
+                && state.concernSignals.isEmpty();
     }
 
     /**
@@ -1466,20 +1471,10 @@ public class DiscussionOrchestrator {
             }
 
             // Parse with readTree() - never readValue/records (GraalVM native rule)
-            String cleaned = response.trim();
-            if (cleaned.startsWith("```")) {
-                cleaned = cleaned.replaceAll("^```\\w*\\n?", "").replaceAll("\\n?```$", "").trim();
-            }
-            var jsonNode = mapper.readTree(cleaned);
+            var jsonNode = mapper.readTree(stripCodeFence(response));
 
             // Parse "selected" - list of agent names
-            var selected = new ArrayList<String>();
-            if (jsonNode.has(FIELD_SELECTED) && jsonNode.get(FIELD_SELECTED).isArray()) {
-                jsonNode.get(FIELD_SELECTED).forEach(n -> {
-                    String name = n.asText("").trim();
-                    if (!name.isEmpty()) selected.add(name);
-                });
-            }
+            var selected = nonBlankTexts(jsonNode, FIELD_SELECTED);
 
             // Validate selected names against known agents (drop hallucinated names)
             var validSelected = validateAgentNamesList(selected);
@@ -1492,19 +1487,10 @@ public class DiscussionOrchestrator {
             String brief = jsonNode.has(FIELD_BRIEF) ? jsonNode.get(FIELD_BRIEF).asText("") : "";
 
             // Parse "technologies" - optional, for channel classification
-            var technologies = new ArrayList<String>();
-            if (jsonNode.has(FIELD_TECHNOLOGIES) && jsonNode.get(FIELD_TECHNOLOGIES).isArray()) {
-                jsonNode.get(FIELD_TECHNOLOGIES).forEach(n -> technologies.add(n.asText()));
-            }
+            var technologies = texts(jsonNode, FIELD_TECHNOLOGIES);
 
             // Parse "skills" - optional array of skill names selected by the coordinator
-            var selectedSkills = parseAndValidateSkills(jsonNode);
-            if (!selectedSkills.isEmpty()) {
-                state.selectedSkills = ConcurrentHashMap.newKeySet();
-                state.selectedSkills.addAll(selectedSkills);
-                log.info("Thread {} - coordinator selected {} skills: {}",
-                        state.threadId, selectedSkills.size(), selectedSkills);
-            }
+            recordSelectedSkills(state, parseAndValidateSkills(jsonNode));
 
             log.info("Thread {} - reasoning select+brief parsed: selected={}, technologies={}, brief={}",
                     state.threadId, validSelected, technologies, truncate(brief, LOG_PREVIEW_CHARS));
@@ -1516,6 +1502,38 @@ public class DiscussionOrchestrator {
             log.warn("Thread {} - reasoning select+brief call failed: {}", state.threadId, e.getMessage());
             return null;
         }
+    }
+
+    /** Records the coordinator's skill selection on the thread; an empty selection changes nothing. */
+    private void recordSelectedSkills(ThreadState state, List<String> selectedSkills) {
+        if (selectedSkills.isEmpty()) {
+            return;
+        }
+        state.selectedSkills = ConcurrentHashMap.newKeySet();
+        state.selectedSkills.addAll(selectedSkills);
+        log.info("Thread {} - coordinator selected {} skills: {}",
+                state.threadId, selectedSkills.size(), selectedSkills);
+    }
+
+    /** The text of each element of the array field, or an empty list when the field is not an array. */
+    static List<String> texts(JsonNode node, String field) {
+        var out = new ArrayList<String>();
+        if (node.has(field) && node.get(field).isArray()) {
+            node.get(field).forEach(n -> out.add(n.asText()));
+        }
+        return out;
+    }
+
+    /** Like {@link #texts}, with each element trimmed and blank elements dropped. */
+    static List<String> nonBlankTexts(JsonNode node, String field) {
+        var out = new ArrayList<String>();
+        if (node.has(field) && node.get(field).isArray()) {
+            node.get(field).forEach(n -> {
+                String text = n.asText("").trim();
+                if (!text.isEmpty()) out.add(text);
+            });
+        }
+        return out;
     }
 
     /**
@@ -1700,36 +1718,8 @@ public class DiscussionOrchestrator {
             var conn = natsProvider.getConnection();
             if (conn == null) return;
 
-            var metadata = new HashMap<String, Object>();
-            metadata.put(FIELD_USER_QUERY, state.userQuery);
-            metadata.put(FIELD_PRIMARY_CHANNEL, state.primaryChannel);
-            metadata.put(FIELD_GPU_LABEL, GpuLabels.fromEndpoint(properties.model().endpoint()));
-            metadata.put(FIELD_MODEL_NAME, properties.model().model());
-            if (!technologies.isEmpty()) {
-                metadata.put(FIELD_TECHNOLOGIES, technologies);
-            }
-            if (wisdom != null && !wisdom.isEmpty()) {
-                metadata.put(MSG_ADVISORY, wisdom);
-            }
-            // Include conversation context so toolers can resolve follow-up references
-            var conversationContext = buildConversationContext(state.conversationId);
-            if (!conversationContext.isEmpty()) {
-                metadata.put(FIELD_CONVERSATION_CONTEXT, conversationContext);
-            }
-            // Include triage inner circle so toolers can skip evaluation early
-            if (state.innerCircle != null && !state.innerCircle.isEmpty()) {
-                metadata.put(FIELD_INNER_CIRCLE, new ArrayList<>(state.innerCircle));
-                metadata.put("triageConfidence", state.triageConfidence);
-            }
-            // Propagate selected skills so a later chunk can inject skill bodies.
-            // Absent when no skills were selected (behavior unchanged from baseline).
-            if (state.selectedSkills != null && !state.selectedSkills.isEmpty()) {
-                metadata.put(FIELD_SELECTED_SKILLS, new ArrayList<>(state.selectedSkills));
-            }
-
-            String advisorySummary = !technologies.isEmpty()
-                    ? "Technologies: " + String.join(", ", technologies) + ". " + truncate(wisdom, LOG_PREVIEW_CHARS)
-                    : truncate(wisdom, LOG_PREVIEW_CHARS);
+            var metadata = advisoryReadyMetadata(state, technologies, wisdom);
+            String advisorySummary = advisorySummary(technologies, wisdom);
 
             var message = Map.of(
                     FIELD_MESSAGE_ID, UUID.randomUUID().toString(),
@@ -1749,6 +1739,44 @@ public class DiscussionOrchestrator {
         } catch (Exception e) {
             log.warn("Failed to publish advisory_ready: {}", e.getMessage());
         }
+    }
+
+    /** The advisory_ready metadata: the thread's question, advisory, context, inner circle, and skills. */
+    private Map<String, Object> advisoryReadyMetadata(ThreadState state, List<String> technologies, String wisdom) {
+        var metadata = new HashMap<String, Object>();
+        metadata.put(FIELD_USER_QUERY, state.userQuery);
+        metadata.put(FIELD_PRIMARY_CHANNEL, state.primaryChannel);
+        metadata.put(FIELD_GPU_LABEL, GpuLabels.fromEndpoint(properties.model().endpoint()));
+        metadata.put(FIELD_MODEL_NAME, properties.model().model());
+        if (!technologies.isEmpty()) {
+            metadata.put(FIELD_TECHNOLOGIES, technologies);
+        }
+        if (wisdom != null && !wisdom.isEmpty()) {
+            metadata.put(MSG_ADVISORY, wisdom);
+        }
+        // Include conversation context so toolers can resolve follow-up references
+        var conversationContext = buildConversationContext(state.conversationId);
+        if (!conversationContext.isEmpty()) {
+            metadata.put(FIELD_CONVERSATION_CONTEXT, conversationContext);
+        }
+        // Include triage inner circle so toolers can skip evaluation early
+        if (state.innerCircle != null && !state.innerCircle.isEmpty()) {
+            metadata.put(FIELD_INNER_CIRCLE, new ArrayList<>(state.innerCircle));
+            metadata.put("triageConfidence", state.triageConfidence);
+        }
+        // Propagate selected skills so a later chunk can inject skill bodies.
+        // Absent when no skills were selected (behavior unchanged from baseline).
+        if (state.selectedSkills != null && !state.selectedSkills.isEmpty()) {
+            metadata.put(FIELD_SELECTED_SKILLS, new ArrayList<>(state.selectedSkills));
+        }
+        return metadata;
+    }
+
+    /** The advisory_ready content: the technologies, when any, and the start of the advisory. */
+    static String advisorySummary(List<String> technologies, String wisdom) {
+        return !technologies.isEmpty()
+                ? "Technologies: " + String.join(", ", technologies) + ". " + truncate(wisdom, LOG_PREVIEW_CHARS)
+                : truncate(wisdom, LOG_PREVIEW_CHARS);
     }
 
     /**
@@ -2359,31 +2387,14 @@ public class DiscussionOrchestrator {
 
     // Visible for testing
     GapType classifyGap(ThreadState state, long toolerAgrees, String response) {
-        boolean hasToolGapConcerns = !state.concernSignals.isEmpty();
-        boolean hasFailures = !state.failureSignals.isEmpty();
-
-        if (toolerAgrees == 0 && hasToolGapConcerns) {
-            return GapType.TOOL_GAP;
+        if (toolerAgrees == 0) {
+            GapType noAgreeGap = classifyNoAgreeGap(state);
+            if (noAgreeGap != GapType.NONE) {
+                return noAgreeGap;
+            }
         }
 
-        // Infrastructure gap: toolers tried to evaluate but their tools/MCP
-        // calls failed (failure signal). Distinct from TOOLER_GAP (no
-        // relevant expertise) because the fix is to stabilise the failing
-        // infrastructure, NOT to onboard a new tooler. Take precedence
-        // over TOOLER_GAP when both apply — failures are a stronger
-        // signal than stand-asides about what went wrong.
-        if (toolerAgrees == 0 && hasFailures) {
-            return GapType.INFRASTRUCTURE_GAP;
-        }
-
-        boolean isToolerGap = toolerAgrees == 0 && !hasToolGapConcerns
-                && !state.standAsideSignals.isEmpty();
-
-        if (!isToolerGap && state.triageConfidence >= 0 && state.triageConfidence < 0.3) {
-            log.info("Thread {} — triage confidence {}, flagging as tooler gap",
-                    state.threadId, state.triageConfidence);
-            isToolerGap = true;
-        }
+        boolean isToolerGap = isToolerGapCandidate(state, toolerAgrees);
 
         if (isToolerGap && !looksLikeGapReport(response)) {
             log.info("Thread {} — LLM answered directly (general knowledge), suppressing gap hint",
@@ -2396,6 +2407,41 @@ public class DiscussionOrchestrator {
         }
 
         return GapType.NONE;
+    }
+
+    /**
+     * The gap when no tooler agreed: TOOL_GAP when toolers raised tool-gap concerns,
+     * INFRASTRUCTURE_GAP when toolers tried but their tools/MCP calls failed, else NONE.
+     */
+    private static GapType classifyNoAgreeGap(ThreadState state) {
+        if (!state.concernSignals.isEmpty()) {
+            return GapType.TOOL_GAP;
+        }
+        // Infrastructure gap: toolers tried to evaluate but their tools/MCP
+        // calls failed (failure signal). Distinct from TOOLER_GAP (no
+        // relevant expertise) because the fix is to stabilise the failing
+        // infrastructure, NOT to onboard a new tooler. Takes precedence
+        // over TOOLER_GAP when both apply: failures are a stronger
+        // signal than stand-asides about what went wrong.
+        if (!state.failureSignals.isEmpty()) {
+            return GapType.INFRASTRUCTURE_GAP;
+        }
+        return GapType.NONE;
+    }
+
+    /**
+     * True when the signals point at missing expertise (no agree, no concern, at
+     * least one stand_aside) or the triage confidence was low.
+     */
+    private boolean isToolerGapCandidate(ThreadState state, long toolerAgrees) {
+        boolean fromSignals = toolerAgrees == 0 && state.concernSignals.isEmpty()
+                && !state.standAsideSignals.isEmpty();
+        if (!fromSignals && state.triageConfidence >= 0 && state.triageConfidence < 0.3) {
+            log.info("Thread {} — triage confidence {}, flagging as tooler gap",
+                    state.threadId, state.triageConfidence);
+            return true;
+        }
+        return fromSignals;
     }
 
     /**
@@ -2760,27 +2806,46 @@ public class DiscussionOrchestrator {
         }
     }
 
+    /** Thread labels for message types that carry no author. */
+    private static final Map<String, String> FIXED_THREAD_LABELS = Map.of(
+            MSG_THREAD_START, "[USER QUESTION]",
+            MSG_ADVISORY_READY, "[ADVISORY READY]",
+            MSG_REVIEW_READY, "[REVIEW READY]",
+            "reply", "[USER REPLY]",
+            "follow_up", "[FACILITATOR FOLLOW-UP]",
+            MSG_SYNTHESIS, "[SYNTHESIS]");
+
+    /** Thread labels for message types shown as "[LABEL from agent]". */
+    private static final Map<String, String> AUTHORED_THREAD_LABELS = Map.of(
+            MSG_ADVISORY, "ADVISORY",
+            "agree", "RESPONSE",
+            "contribution", "RESPONSE",
+            "concern", "CONCERN",
+            "block", "BLOCK",
+            MSG_STAND_ASIDE, "STAND ASIDE",
+            "decline", "STAND ASIDE",
+            "proposal", "PROPOSAL");
+
+    /**
+     * The label a thread message gets in the coordinator's view of the thread.
+     * Unknown types show the upper-cased type with the author.
+     */
+    static String threadLabel(String messageType, String agentName) {
+        String fixed = FIXED_THREAD_LABELS.get(messageType);
+        if (fixed != null) {
+            return fixed;
+        }
+        String kind = AUTHORED_THREAD_LABELS.getOrDefault(messageType, messageType.toUpperCase());
+        return "[" + kind + " from " + agentName + "]";
+    }
+
     private String formatThread(ThreadState state) {
         var sb = new StringBuilder();
         sb.append("Discussion thread ").append(state.threadId).append("\n");
         sb.append("Channel: ").append(state.primaryChannel != null ? state.primaryChannel : CHANNEL_GENERAL).append("\n\n");
 
         for (var msg : state.messages) {
-            String label = switch (msg.messageType) {
-                case MSG_THREAD_START -> "[USER QUESTION]";
-                case MSG_ADVISORY -> "[ADVISORY from " + msg.agentName + "]";
-                case MSG_ADVISORY_READY -> "[ADVISORY READY]";
-                case MSG_REVIEW_READY -> "[REVIEW READY]";
-                case "agree", "contribution" -> "[RESPONSE from " + msg.agentName + "]";
-                case "concern" -> "[CONCERN from " + msg.agentName + "]";
-                case "block" -> "[BLOCK from " + msg.agentName + "]";
-                case MSG_STAND_ASIDE, "decline" -> "[STAND ASIDE from " + msg.agentName + "]";
-                case "proposal" -> "[PROPOSAL from " + msg.agentName + "]";
-                case "reply" -> "[USER REPLY]";
-                case "follow_up" -> "[FACILITATOR FOLLOW-UP]";
-                case MSG_SYNTHESIS -> "[SYNTHESIS]";
-                default -> "[" + msg.messageType.toUpperCase() + " from " + msg.agentName + "]";
-            };
+            String label = threadLabel(msg.messageType, msg.agentName);
 
             sb.append(label).append("\n");
             if (!msg.content.isEmpty()) {
@@ -2993,11 +3058,13 @@ public class DiscussionOrchestrator {
     boolean looksLikeGapReport(String response) {
         if (response == null) return false;
         var lower = response.toLowerCase();
-        return lower.contains("unable to find") || lower.contains("could not find")
-                || lower.contains("no information") || lower.contains("not covered")
-                || lower.contains("no tooler") || lower.contains("isn't covered")
-                || lower.contains("cannot determine") || lower.contains("don't have access");
+        return GAP_REPORT_PHRASES.stream().anyMatch(lower::contains);
     }
+
+    /** Phrases that mark a synthesis as a report of missing information rather than an answer. */
+    private static final List<String> GAP_REPORT_PHRASES = List.of(
+            "unable to find", "could not find", "no information", "not covered",
+            "no tooler", "isn't covered", "cannot determine", "don't have access");
 
     private void publishGapDetected(String threadId, String channel, String userQuery,
                                      Map<String, String> concerns, GapType gapType) {
@@ -3660,7 +3727,7 @@ public class DiscussionOrchestrator {
         if (msg.has(FIELD_METADATA) && msg.get(FIELD_METADATA).has(FIELD_USER_QUERY)) {
             return msg.get(FIELD_METADATA).get(FIELD_USER_QUERY).asText();
         }
-        return msg.has(FIELD_CONTENT) ? msg.get(FIELD_CONTENT).asText() : "";
+        return JsonFields.text(msg, FIELD_CONTENT);
     }
 
     private void cleanupOldThreads() {
