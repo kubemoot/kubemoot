@@ -368,7 +368,8 @@ public class DiscussionSubscriber {
      * - Irrelevant messages: ack after publishing stand_aside
      * - Relevant messages: ack after evaluateAndRespond completes
      */
-    private void handleJetStreamMessage(Message natsMsg) {
+    // Visible for testing
+    void handleJetStreamMessage(Message natsMsg) {
         String subject = natsMsg.getSubject();
         String data = new String(natsMsg.getData());
 
@@ -411,7 +412,7 @@ public class DiscussionSubscriber {
     }
 
     /** A discussion message this agent will evaluate, with the thread formatted for the prompt. */
-    private record PendingEvaluation(String threadId, String conversation, boolean selected) {}
+    record PendingEvaluation(String threadId, String conversation, boolean selected) {}
 
     /**
      * Shared intake for both delivery paths: records the message in the thread state
@@ -419,7 +420,8 @@ public class DiscussionSubscriber {
      * (its own or an already-seen message, a closed thread, a non-trigger type, the
      * rate limit, or not selected by the coordinator).
      */
-    private PendingEvaluation admitForEvaluation(String data) throws java.io.IOException {
+    // Visible for testing
+    PendingEvaluation admitForEvaluation(String data) throws java.io.IOException {
         var msg = mapper.readTree(data);
         String messageType = JsonFields.text(msg, FIELD_MESSAGE_TYPE);
         String threadId = JsonFields.text(msg, FIELD_THREAD_ID);
@@ -448,6 +450,11 @@ public class DiscussionSubscriber {
         log.info("Evaluating thread {} on trigger '{}' for agent {} (selected by coordinator)",
                 threadId, messageType, properties.agentName());
         return new PendingEvaluation(threadId, formatThread(messages, threadId), isExplicitlySelected(data));
+    }
+
+    /** Rate-limit permits taken for the thread. Visible for testing. */
+    int rateLimitPermits(String threadId) {
+        return rateLimiter.getThreadCount(threadId);
     }
 
     /** True when the message id was seen before; records it otherwise. */
@@ -1062,12 +1069,12 @@ public class DiscussionSubscriber {
      */
     private boolean hasNoContributionToPublish(String threadId, ChatService.ChatResult result) {
         if (closedThreads.contains(threadId)) {
-            log.info("Thread {} closed during mulling — {} publishing late stand_aside",
+            log.info("Thread {} closed during mulling - {} publishing late stand_aside",
                     threadId, properties.agentName());
             return true;
         }
         if (result == null || result.response() == null || result.response().isEmpty()) {
-            log.warn("No response from mulling for thread {} — publishing stand_aside", threadId);
+            log.warn("No response from mulling for thread {} - publishing stand_aside", threadId);
             return true;
         }
         return false;
@@ -1120,6 +1127,9 @@ public class DiscussionSubscriber {
                 providerAttribution(result));
     }
 
+    // The agent's view of the thread. DiscussionOrchestrator.threadLabel labels the
+    // same message types for the coordinator's view in its own format; a new message
+    // type gets a label in both tables.
     /** Thread labels for message types that carry no author. */
     private static final Map<String, String> FIXED_THREAD_LABELS = Map.of(
             MSG_THREAD_START, "User Question",

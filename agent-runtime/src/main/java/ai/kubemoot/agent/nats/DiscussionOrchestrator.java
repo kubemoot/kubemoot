@@ -1505,7 +1505,8 @@ public class DiscussionOrchestrator {
     }
 
     /** Records the coordinator's skill selection on the thread; an empty selection changes nothing. */
-    private void recordSelectedSkills(ThreadState state, List<String> selectedSkills) {
+    // Visible for testing
+    void recordSelectedSkills(ThreadState state, List<String> selectedSkills) {
         if (selectedSkills.isEmpty()) {
             return;
         }
@@ -1742,7 +1743,8 @@ public class DiscussionOrchestrator {
     }
 
     /** The advisory_ready metadata: the thread's question, advisory, context, inner circle, and skills. */
-    private Map<String, Object> advisoryReadyMetadata(ThreadState state, List<String> technologies, String wisdom) {
+    // Visible for testing
+    Map<String, Object> advisoryReadyMetadata(ThreadState state, List<String> technologies, String wisdom) {
         var metadata = new HashMap<String, Object>();
         metadata.put(FIELD_USER_QUERY, state.userQuery);
         metadata.put(FIELD_PRIMARY_CHANNEL, state.primaryChannel);
@@ -2413,7 +2415,8 @@ public class DiscussionOrchestrator {
      * The gap when no tooler agreed: TOOL_GAP when toolers raised tool-gap concerns,
      * INFRASTRUCTURE_GAP when toolers tried but their tools/MCP calls failed, else NONE.
      */
-    private static GapType classifyNoAgreeGap(ThreadState state) {
+    // Visible for testing
+    static GapType classifyNoAgreeGap(ThreadState state) {
         if (!state.concernSignals.isEmpty()) {
             return GapType.TOOL_GAP;
         }
@@ -2433,11 +2436,12 @@ public class DiscussionOrchestrator {
      * True when the signals point at missing expertise (no agree, no concern, at
      * least one stand_aside) or the triage confidence was low.
      */
-    private boolean isToolerGapCandidate(ThreadState state, long toolerAgrees) {
+    // Visible for testing
+    boolean isToolerGapCandidate(ThreadState state, long toolerAgrees) {
         boolean fromSignals = toolerAgrees == 0 && state.concernSignals.isEmpty()
                 && !state.standAsideSignals.isEmpty();
         if (!fromSignals && state.triageConfidence >= 0 && state.triageConfidence < 0.3) {
-            log.info("Thread {} — triage confidence {}, flagging as tooler gap",
+            log.info("Thread {} - triage confidence {}, flagging as tooler gap",
                     state.threadId, state.triageConfidence);
             return true;
         }
@@ -2806,6 +2810,9 @@ public class DiscussionOrchestrator {
         }
     }
 
+    // The coordinator's view of the thread. DiscussionSubscriber.threadLabel labels the
+    // same message types for an agent's view in its own format; a new message type
+    // gets a label in both tables.
     /** Thread labels for message types that carry no author. */
     private static final Map<String, String> FIXED_THREAD_LABELS = Map.of(
             MSG_THREAD_START, "[USER QUESTION]",
@@ -3062,7 +3069,7 @@ public class DiscussionOrchestrator {
     }
 
     /** Phrases that mark a synthesis as a report of missing information rather than an answer. */
-    private static final List<String> GAP_REPORT_PHRASES = List.of(
+    static final List<String> GAP_REPORT_PHRASES = List.of(
             "unable to find", "could not find", "no information", "not covered",
             "no tooler", "isn't covered", "cannot determine", "don't have access");
 
