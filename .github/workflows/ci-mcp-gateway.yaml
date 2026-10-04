@@ -6,6 +6,7 @@ on:
     branches: [main]
     paths:
       - 'mcp-gateway/**'
+      - 'config/checkstyle/**'
   workflow_dispatch:
 
 env:

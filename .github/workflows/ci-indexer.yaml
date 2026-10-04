@@ -6,6 +6,7 @@ on:
     branches: [main]
     paths:
       - 'indexer/**'
+      - 'config/checkstyle/**'
   workflow_dispatch:
 
 env:

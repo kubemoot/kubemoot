@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<!DOCTYPE module PUBLIC
+  "-//Checkstyle//DTD Checkstyle Configuration 1.3//EN"
+  "https://checkstyle.org/dtds/configuration_1_3.dtd">
+<!--
+  Complexity ruleset for every Java project in this repository (agent-runtime,
+  indexer, mcp-gateway). Each Gradle build runs it in `check`, so `./gradlew build`
+  fails on a finding. It holds the cyclomatic complexity gate (CC <= 10) and the
+  two related path and boolean complexity checks; broader style is SonarQube's.
+-->
+<module name="Checker">
+  <property name="severity" value="error"/>
+  <module name="TreeWalker">
+    <module name="CyclomaticComplexity">
+      <property name="max" value="10"/>
+    </module>
+    <module name="NPathComplexity"/>
+    <module name="BooleanExpressionComplexity"/>
+  </module>
+</module>
