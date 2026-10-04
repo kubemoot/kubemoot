@@ -23,6 +23,9 @@ package fitnessscript
 import (
 	"bufio"
 	"fmt"
+	"math"
+	"regexp"
+	"strconv"
 	"strings"
 )
 
@@ -102,22 +105,25 @@ func ParseFitnessTest(content string) FitnessTest {
 }
 
 // looksLikeMarkdown decides whether a scenario is prose Markdown rather than ADL.
-// ADL keywords (ASSERT(, DEFINE CONST, DESCRIPTION) are definitive — their
-// presence means ADL. Absent those, an ATX heading or a fenced block marks
-// Markdown. Default is ADL (the original, more common form).
+// A line that starts with an ADL directive (ASSERT(, DEFINE CONST, DESCRIPTION)
+// is definitive: ADL. Absent those, an ATX heading or a fenced block marks
+// Markdown. The directives count only at the start of a line, so Markdown prose
+// that mentions one is still Markdown. Default is ADL (the original form).
 func looksLikeMarkdown(content string) bool {
-	if strings.Contains(content, "ASSERT(") ||
-		strings.Contains(content, "DEFINE CONST") ||
-		strings.Contains(content, "DESCRIPTION ") {
-		return false
-	}
+	markdown := false
 	for _, line := range strings.Split(content, "\n") {
 		t := strings.TrimSpace(line)
-		if strings.HasPrefix(t, "# ") || strings.HasPrefix(t, "```") {
-			return true
+		if isADLDirective(t) {
+			return false
 		}
+		markdown = markdown || strings.HasPrefix(t, "# ") || strings.HasPrefix(t, "```")
 	}
-	return false
+	return markdown
+}
+
+// isADLDirective reports whether a trimmed line opens an ADL directive.
+func isADLDirective(t string) bool {
+	return strings.HasPrefix(t, "ASSERT(") || strings.HasPrefix(t, "DEFINE CONST") || strings.HasPrefix(t, "DESCRIPTION ")
 }
 
 // parseADLFitnessTest parses ADL content into a FitnessTest.
@@ -239,22 +245,19 @@ func (p *markdownParser) consumeFenceLine(raw, t string) {
 }
 
 // closeFence emits the deferred (DEFER synthesis) assertion for the just-ended
-// fenced block and resets the fence state.
+// fenced block and resets the fence state. The keyword is the first word of the
+// info string; a block whose info string is not a keyword declares nothing.
 func (p *markdownParser) closeFence() {
-	if p.fenceKeyword != "" {
+	fields := strings.Fields(p.fenceKeyword)
+	if len(fields) > 0 && validDeferKeyword(fields[0]) {
+		// Raw MUST be the canonical ADL DEFER form: the stored transcript carries
+		// only Raw (not Keyword/Reference), and the operator's post-suite judge
+		// re-parses Raw to route the score to the keyword's crew. Classifying the
+		// formatted Raw keeps the fields exactly what that re-parse yields, so the
+		// .md and .adl forms store the same.
 		ref := collapseSpaces(strings.Join(p.fenceLines, " "))
-		kw := strings.ToUpper(p.fenceKeyword)
-		// Raw MUST be the canonical ADL DEFER form: the stored
-		// transcript carries only Raw (not Keyword/Reference), and the
-		// operator's post-suite judge re-parses Raw to route the score
-		// to the keyword's crew. A bare reference here yields "no DEFER
-		// assertions found" — the .md and .adl forms must store the same.
-		p.ft.Assertions = append(p.ft.Assertions, Assertion{
-			Raw:       fmt.Sprintf("DEFER synthesis %s %q", kw, ref),
-			Kind:      KindDeferred,
-			Keyword:   kw,
-			Reference: ref,
-		})
+		raw := FormatDefer(strings.ToUpper(fields[0]), ref)
+		p.ft.Assertions = append(p.ft.Assertions, classifyAssertion(raw))
 	}
 	p.inFence, p.fenceKeyword, p.fenceLines = false, "", nil
 }
@@ -465,14 +468,15 @@ func classifyAssertion(text string) Assertion {
 	return Assertion{Raw: text, Kind: KindCustom, CustomText: text}
 }
 
-// classifyDefer matches a DEFER synthesis <KEYWORD> "<reference>" assertion — a
+// classifyDefer matches a DEFER synthesis <KEYWORD> "<reference>" assertion - a
 // deferred (post-suite) assertion not evaluated inline; the keyword resolves to
-// a judge crew after the suite (kubemoot.ai/adl-keyword).
+// a judge crew after the suite (kubemoot.ai/adl-keyword). A malformed DEFER is
+// still deferred, with no keyword or reference.
 func classifyDefer(text, _ string) (Assertion, bool) {
-	if !strings.HasPrefix(strings.ToUpper(strings.TrimSpace(text)), "DEFER") {
+	if !isDefer(text) {
 		return Assertion{}, false
 	}
-	kw, ref := parseDeferKeyword(text)
+	kw, ref, _ := ParseDefer(text)
 	return Assertion{Raw: text, Kind: KindDeferred, Keyword: kw, Reference: ref}, true
 }
 
@@ -512,24 +516,55 @@ func classifyCoordinatorSynthesizes(text, lower string) (Assertion, bool) {
 	return Assertion{}, false
 }
 
-// parseDeferKeyword pulls the extension KEYWORD and quoted reference out of a
-// `DEFER synthesis <KEYWORD> "<reference>"` assertion. Keyword-agnostic — KEYWORD
-// is whatever token precedes the reference (other than DEFER / the subject).
-func parseDeferKeyword(text string) (keyword, reference string) {
-	reference = extractFirstQuoted(text)
-	pre := text
-	if q := strings.Index(text, `"`); q >= 0 {
-		pre = text[:q]
+// isDefer reports whether an assertion's text is a DEFER assertion.
+func isDefer(text string) bool {
+	return strings.HasPrefix(strings.ToUpper(strings.TrimSpace(text)), "DEFER")
+}
+
+// ParseDefer pulls the KEYWORD and REFERENCE out of a deferred assertion's raw
+// text, `DEFER synthesis <KEYWORD> "<reference>"`. The reference runs from the
+// first double quote to the last, so it may itself contain quotes; nothing is
+// escaped. KEYWORD is the first token before the reference that is neither DEFER
+// nor the subject, uppercased. ok is false when the text is not a DEFER assertion
+// or lacks a keyword or a non-empty reference. It is the one parser of this form:
+// the runner, the re-judge, and the post-suite judge all read Raw through it.
+func ParseDefer(raw string) (keyword, reference string, ok bool) {
+	t := strings.TrimSpace(raw)
+	if !isDefer(t) {
+		return "", "", false
 	}
-	for _, f := range strings.Fields(pre) {
-		u := strings.ToUpper(f)
-		if u == "DEFER" || u == "SYNTHESIS" {
+	q := strings.Index(t, `"`)
+	if q < 0 {
+		return "", "", false
+	}
+	rest := t[q+1:]
+	end := strings.LastIndex(rest, `"`)
+	if end <= 0 {
+		return "", "", false
+	}
+	for _, f := range strings.Fields(t[:q]) {
+		if strings.EqualFold(f, "DEFER") || strings.EqualFold(f, "synthesis") {
 			continue
 		}
-		keyword = u
-		break
+		return strings.ToUpper(f), rest[:end], true
 	}
-	return keyword, reference
+	return "", "", false
+}
+
+// FormatDefer renders the canonical deferred assertion ParseDefer reads:
+// `DEFER synthesis <KEYWORD> "<reference>"`, the reference written verbatim.
+func FormatDefer(keyword, reference string) string {
+	return "DEFER synthesis " + keyword + ` "` + reference + `"`
+}
+
+// deferKeywordPattern is a Kubernetes label value: a DEFER keyword resolves to the
+// crew labelled kubemoot.ai/adl-keyword=<KEYWORD>, so no other keyword can route.
+var deferKeywordPattern = regexp.MustCompile(`^[A-Za-z0-9]([A-Za-z0-9_.-]{0,61}[A-Za-z0-9])?$`)
+
+// validDeferKeyword reports whether s can name a DEFER keyword: a label value
+// that is not one of the form's own words.
+func validDeferKeyword(s string) bool {
+	return deferKeywordPattern.MatchString(s) && !strings.EqualFold(s, "DEFER") && !strings.EqualFold(s, "synthesis")
 }
 
 // classifySseEmit checks if the assertion is an SSE emit or emit-within variant.
@@ -624,23 +659,30 @@ func extractAllQuoted(s string) []string {
 	return terms
 }
 
-// extractFirstInt finds the first integer token in text and returns it.
-// Returns 0 if no integer is found.
+// extractFirstInt finds the first all-digit token in text and returns it. A
+// number too large for an int saturates at math.MaxInt rather than wrapping
+// negative, so an oversized bound stays an unreachable bound. Returns 0 if no
+// integer is found.
 func extractFirstInt(text string) int {
 	for _, word := range strings.Fields(text) {
-		n := 0
-		allDigits := true
-		for _, c := range word {
-			if c >= '0' && c <= '9' {
-				n = n*10 + int(c-'0')
-			} else {
-				allDigits = false
-				break
-			}
+		if !allDigits(word) {
+			continue
 		}
-		if allDigits && len(word) > 0 {
-			return n
+		n, err := strconv.Atoi(word)
+		if err != nil { // all digits, so the only failure is out of range
+			return math.MaxInt
 		}
+		return n
 	}
 	return 0
+}
+
+// allDigits reports whether word is non-empty and only ASCII digits.
+func allDigits(word string) bool {
+	for i := 0; i < len(word); i++ {
+		if word[i] < '0' || word[i] > '9' {
+			return false
+		}
+	}
+	return word != ""
 }

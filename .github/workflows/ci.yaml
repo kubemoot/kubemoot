@@ -67,6 +67,50 @@ jobs:
           git diff --stat -- "${GENERATED[@]}"
           exit 1
 
+  fuzz:
+    # Runs every Go native fuzz target (func FuzzXxx(f *testing.F)) in the operator for
+    # FUZZ_TIME each, beside the tests rather than before the image build: a new input a
+    # fuzzer finds fails this job without holding up a release. The seed corpora
+    # (f.Add values and testdata/fuzz) already run as plain tests in `make test`.
+    runs-on: ${{ github.event_name == 'pull_request' && 'ubuntu-latest' || 'homelab-runners' }}
+    timeout-minutes: 30
+    env:
+      FUZZ_TIME: 30s
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: operator/go.mod
+          cache-dependency-path: operator/go.sum
+
+      # Targets are discovered, not listed, so a new fuzz test runs here without a
+      # workflow change. Go fuzzes one target per invocation.
+      - name: Fuzz each target
+        working-directory: operator
+        run: |
+          set -euo pipefail
+          for pkg in $(go list ./...); do
+            for target in $(go test -list '^Fuzz' "${pkg}" | grep '^Fuzz' || true); do
+              echo "::group::${target} (${pkg})"
+              go test -run='^$' -fuzz="^${target}\$" -fuzztime="${FUZZ_TIME}" "${pkg}"
+              echo "::endgroup::"
+            done
+          done
+
+      # A failing input is written under the package's testdata/fuzz/<target>/. Keep it
+      # so it can be committed as a regression seed beside the fix.
+      - name: Upload failing fuzz inputs
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: fuzz-failures
+          path: operator/**/testdata/fuzz/
+          if-no-files-found: ignore
+
   build-image:
     needs: test
     # Kaniko pushes to the in-cluster registry: main only, never a pull request.
