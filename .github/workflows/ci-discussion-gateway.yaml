@@ -8,6 +8,7 @@ on:
       - 'discussion-gateway/**'
       - '.golangci.yml'
       - '.github/scripts/golangci-lint.sh'
+      - 'operator/Makefile'
   workflow_dispatch:
 
 env:

@@ -8,6 +8,7 @@ on:
       - 'fitness-runner/**'
       - '.golangci.yml'
       - '.github/scripts/golangci-lint.sh'
+      - 'operator/Makefile'
       - 'operator/pkg/fitnessscript/**'
       - 'operator/pkg/sse/**'
   workflow_dispatch:

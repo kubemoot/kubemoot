@@ -11,5 +11,9 @@ if [ -z "${version}" ]; then
   exit 1
 fi
 
-go install "github.com/golangci/golangci-lint/v2/cmd/golangci-lint@${version}"
-"$(go env GOPATH)/bin/golangci-lint" run ./...
+bin="$(go env GOPATH)/bin/golangci-lint"
+# Reuse an installed binary of the pinned version (a warm self-hosted runner).
+if ! "${bin}" version 2>/dev/null | grep -q "version ${version#v} "; then
+  go install "github.com/golangci/golangci-lint/v2/cmd/golangci-lint@${version}"
+fi
+"${bin}" run ./...
