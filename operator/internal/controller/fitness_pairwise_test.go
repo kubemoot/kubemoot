@@ -67,6 +67,12 @@ func TestBuildPairwiseComparison_BlindOrderAndKey(t *testing.T) {
 	if pc2.aArm != testCrewProse || pc2.bArm != testCrewName {
 		t.Fatalf("flipped un-blind key wrong: aArm=%q bArm=%q", pc2.aArm, pc2.bArm)
 	}
+	assertBlindPairwiseDoc(t, pc)
+}
+
+// assertBlindPairwiseDoc checks that the marshaled judge document hides the arm identity and keeps the question.
+func assertBlindPairwiseDoc(t *testing.T, pc pairwiseComparison) {
+	t.Helper()
 	// The marshalled doc carries NO arm identity (blind).
 	doc, err := marshalPairwiseDoc(pc)
 	if err != nil {

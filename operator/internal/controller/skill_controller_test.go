@@ -293,20 +293,8 @@ func TestSkillReconcile_CoordinatorPoolHashChanges(t *testing.T) {
 	cli := fake.NewClientBuilder().WithScheme(scheme).WithObjects(coord, skill1).Build()
 	r := &SkillReconciler{Client: cli, Scheme: scheme}
 
-	// First reconcile: adds finalizer, requeues.
-	_, err := r.Reconcile(ctx, ctrl.Request{
-		NamespacedName: types.NamespacedName{Name: testSkillGPUBasics, Namespace: testCrewNamespace},
-	})
-	if err != nil {
-		t.Fatalf("first Reconcile: %v", err)
-	}
-	// Second reconcile: finalizer now present, runs sync + enqueue.
-	_, err = r.Reconcile(ctx, ctrl.Request{
-		NamespacedName: types.NamespacedName{Name: testSkillGPUBasics, Namespace: testCrewNamespace},
-	})
-	if err != nil {
-		t.Fatalf("second Reconcile: %v", err)
-	}
+	// First reconcile adds the finalizer; the second runs sync + enqueue.
+	reconcileSkillTwice(ctx, t, r, testSkillGPUBasics)
 
 	// Coordinator should have a non-empty, non-"0" pool-hash annotation.
 	updatedCoord := &kubemootv1alpha1.Agent{}
@@ -323,20 +311,8 @@ func TestSkillReconcile_CoordinatorPoolHashChanges(t *testing.T) {
 	if err := cli.Create(ctx, skill2); err != nil {
 		t.Fatalf("create second skill: %v", err)
 	}
-	// First reconcile of skill2 adds its finalizer.
-	_, err = r.Reconcile(ctx, ctrl.Request{
-		NamespacedName: types.NamespacedName{Name: testSkillNetDiag, Namespace: testCrewNamespace},
-	})
-	if err != nil {
-		t.Fatalf("Reconcile skill2 (finalizer add): %v", err)
-	}
-	// Second reconcile of skill2 runs sync + enqueue with updated pool.
-	_, err = r.Reconcile(ctx, ctrl.Request{
-		NamespacedName: types.NamespacedName{Name: testSkillNetDiag, Namespace: testCrewNamespace},
-	})
-	if err != nil {
-		t.Fatalf("Reconcile skill2 (sync): %v", err)
-	}
+	// Reconciling skill2 twice adds its finalizer, then syncs with the updated pool.
+	reconcileSkillTwice(ctx, t, r, testSkillNetDiag)
 
 	updatedCoord2 := &kubemootv1alpha1.Agent{}
 	if err := cli.Get(ctx, types.NamespacedName{Name: testHomelabCoordinator, Namespace: testCrewNamespace}, updatedCoord2); err != nil {
@@ -345,5 +321,18 @@ func TestSkillReconcile_CoordinatorPoolHashChanges(t *testing.T) {
 	hash2 := updatedCoord2.Annotations["kubemoot.ai/skill-pool-hash"]
 	if hash2 == hash1 {
 		t.Errorf("pool-hash should change when a second skill is added, but got same value %q", hash2)
+	}
+}
+
+// reconcileSkillTwice reconciles a skill twice: the first pass adds the finalizer,
+// the second runs the sync and enqueues the coordinator.
+func reconcileSkillTwice(ctx context.Context, t *testing.T, r *SkillReconciler, name string) {
+	t.Helper()
+	req := ctrl.Request{NamespacedName: types.NamespacedName{Name: name, Namespace: testCrewNamespace}}
+	if _, err := r.Reconcile(ctx, req); err != nil {
+		t.Fatalf("Reconcile %s (finalizer add): %v", name, err)
+	}
+	if _, err := r.Reconcile(ctx, req); err != nil {
+		t.Fatalf("Reconcile %s (sync): %v", name, err)
 	}
 }

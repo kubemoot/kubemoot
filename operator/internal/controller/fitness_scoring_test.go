@@ -440,6 +440,12 @@ func TestBuildXLSXEmitsGradeColumns(t *testing.T) {
 		t.Errorf("Scenarios P2 (scenario_grade, quality 0) = %q, want \"55.0\"", v)
 	}
 
+	assertGradeWithQuality100(t, suite, results)
+}
+
+// assertGradeWithQuality100 checks that a REFLECTS quality score of 100 lifts the scenario grade to 100.
+func assertGradeWithQuality100(t *testing.T, suite *kubemootv1alpha1.CrewFitnessSuite, results []IterationResult) {
+	t.Helper()
 	// With a REFLECTS quality score of 100, the grade reaches 100.
 	b2, err := BuildFitnessSuiteXLSXWithMeasures(suite, results, nil, map[string]float64{testGPUUtilization: 100})
 	if err != nil {

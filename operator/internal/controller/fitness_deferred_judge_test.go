@@ -120,6 +120,12 @@ func TestBuildComparisonDoc(t *testing.T) {
 	if answers != 1 {
 		t.Errorf("answers = %d, want 1 (empty-synthesis run gated)", answers)
 	}
+	assertComparisonDocJSON(t, doc)
+}
+
+// assertComparisonDocJSON checks the judge comparison document built from one good and one gated run.
+func assertComparisonDocJSON(t *testing.T, doc string) {
+	t.Helper()
 	var parsed judgeComparisonDoc
 	if uErr := json.Unmarshal([]byte(doc), &parsed); uErr != nil {
 		t.Fatalf("doc is not valid JSON: %v", uErr)

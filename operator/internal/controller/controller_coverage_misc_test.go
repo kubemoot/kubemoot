@@ -87,6 +87,12 @@ func TestBuildResumeRAGSourceSpec(t *testing.T) {
 	if spec.Source.NatsKV == nil || spec.Source.NatsKV.Key != "team-a.pilot" || spec.Source.NatsKV.ContentHash != "hash123" {
 		t.Errorf("NatsKV source not wired: %+v", spec.Source.NatsKV)
 	}
+	assertResumeStoreAndChunking(t, spec)
+}
+
+// assertResumeStoreAndChunking checks the vector store and the atomic chunking of a resume RAGSource spec.
+func assertResumeStoreAndChunking(t *testing.T, spec kubemootv1alpha1.RAGSourceSpec) {
+	t.Helper()
 	if spec.VectorStore.Collection != "crew_team_a_pilot_resumes" || spec.VectorStore.Endpoint != "http://qdrant:6333" {
 		t.Errorf("vector store not carried through: %+v", spec.VectorStore)
 	}

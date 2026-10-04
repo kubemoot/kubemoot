@@ -18,6 +18,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
 
@@ -97,74 +98,81 @@ func TestFindCrewGateway(t *testing.T) {
 			Spec:       kubemootv1alpha1.MCPGatewaySpec{Port: port},
 		}
 	}
+	dying := func(name string, port int32) *kubemootv1alpha1.MCPGateway {
+		gw := mkGw(testCrewNamespace, name, port)
+		now := metav1.Now()
+		gw.DeletionTimestamp = &now
+		gw.Finalizers = []string{mcpGatewayFinalizer}
+		return gw
+	}
 
-	t.Run("no gateway gives ok=false", func(t *testing.T) {
-		cli := fake.NewClientBuilder().WithScheme(scheme).Build()
-		r := &AgentReconciler{Client: cli}
-		name, port, ok := r.findCrewGateway(context.Background(), testCrewNamespace)
-		if ok {
-			t.Errorf("expected ok=false, got name=%q port=%d", name, port)
-		}
-	})
-
-	t.Run("one gateway with explicit port", func(t *testing.T) {
-		cli := fake.NewClientBuilder().WithScheme(scheme).
-			WithObjects(mkGw(testCrewNamespace, "x-gateway", 9090)).Build()
-		r := &AgentReconciler{Client: cli}
-		name, port, ok := r.findCrewGateway(context.Background(), testCrewNamespace)
-		if !ok || name != "x-gateway" || port != 9090 {
-			t.Errorf("got name=%q port=%d ok=%v; want x-gateway/9090/true", name, port, ok)
-		}
-	})
-
-	t.Run("default port when spec.port is zero", func(t *testing.T) {
-		cli := fake.NewClientBuilder().WithScheme(scheme).
-			WithObjects(mkGw(testCrewNamespace, "x-gateway", 0)).Build()
-		r := &AgentReconciler{Client: cli}
-		_, port, ok := r.findCrewGateway(context.Background(), testCrewNamespace)
-		if !ok || port != 8080 {
-			t.Errorf("port: got %d ok=%v; want 8080/true", port, ok)
-		}
-	})
-
-	t.Run("scoped to namespace", func(t *testing.T) {
-		cli := fake.NewClientBuilder().WithScheme(scheme).
-			WithObjects(
+	cases := []struct {
+		name      string
+		objects   []client.Object
+		namespace string
+		wantOK    bool
+		wantName  string
+		wantPort  int32 // 0 skips the port check
+	}{
+		{name: "no gateway gives ok=false", namespace: testCrewNamespace},
+		{
+			name:      "one gateway with explicit port",
+			objects:   []client.Object{mkGw(testCrewNamespace, "x-gateway", 9090)},
+			namespace: testCrewNamespace, wantOK: true, wantName: "x-gateway", wantPort: 9090,
+		},
+		{
+			name:      "default port when spec.port is zero",
+			objects:   []client.Object{mkGw(testCrewNamespace, "x-gateway", 0)},
+			namespace: testCrewNamespace, wantOK: true, wantName: "x-gateway", wantPort: 8080,
+		},
+		{
+			name: "scoped to namespace",
+			objects: []client.Object{
 				mkGw(testCrewNamespace, "x-gateway", 8080),
 				mkGw("crew-y", "y-gateway", 8080),
-			).Build()
-		r := &AgentReconciler{Client: cli}
-		name, _, ok := r.findCrewGateway(context.Background(), "crew-y")
-		if !ok || name != "y-gateway" {
-			t.Errorf("expected y-gateway in namespace crew-y; got %q ok=%v", name, ok)
-		}
-	})
+			},
+			namespace: "crew-y", wantOK: true, wantName: "y-gateway",
+		},
+		{
+			name: "several gateways: first by name, terminating skipped",
+			objects: []client.Object{
+				mkGw(testCrewNamespace, "c-gateway", 8080),
+				dying("a-gateway", 8080),
+				mkGw(testCrewNamespace, "b-gateway", 9090),
+			},
+			namespace: testCrewNamespace, wantOK: true, wantName: "b-gateway", wantPort: 9090,
+		},
+		{
+			name:      "only a terminating gateway gives ok=false",
+			objects:   []client.Object{dying("x-gateway", 8080)},
+			namespace: testCrewNamespace,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			cli := fake.NewClientBuilder().WithScheme(scheme).WithObjects(tc.objects...).Build()
+			r := &AgentReconciler{Client: cli}
+			name, port, ok := r.findCrewGateway(context.Background(), tc.namespace)
+			assertCrewGateway(t, name, port, ok, tc.wantOK, tc.wantName, tc.wantPort)
+		})
+	}
+}
 
-	t.Run("several gateways: first by name, terminating skipped", func(t *testing.T) {
-		dying := mkGw(testCrewNamespace, "a-gateway", 8080)
-		now := metav1.Now()
-		dying.DeletionTimestamp = &now
-		dying.Finalizers = []string{mcpGatewayFinalizer}
-		cli := fake.NewClientBuilder().WithScheme(scheme).
-			WithObjects(mkGw(testCrewNamespace, "c-gateway", 8080), dying, mkGw(testCrewNamespace, "b-gateway", 9090)).Build()
-		r := &AgentReconciler{Client: cli}
-		name, port, ok := r.findCrewGateway(context.Background(), testCrewNamespace)
-		if !ok || name != "b-gateway" || port != 9090 {
-			t.Errorf("got name=%q port=%d ok=%v; want b-gateway/9090/true", name, port, ok)
-		}
-	})
-
-	t.Run("only a terminating gateway gives ok=false", func(t *testing.T) {
-		dying := mkGw(testCrewNamespace, "x-gateway", 8080)
-		now := metav1.Now()
-		dying.DeletionTimestamp = &now
-		dying.Finalizers = []string{mcpGatewayFinalizer}
-		cli := fake.NewClientBuilder().WithScheme(scheme).WithObjects(dying).Build()
-		r := &AgentReconciler{Client: cli}
-		if name, _, ok := r.findCrewGateway(context.Background(), testCrewNamespace); ok {
-			t.Errorf("a terminating gateway must not be wired; got %q", name)
-		}
-	})
+// assertCrewGateway checks a findCrewGateway result. A wantPort of 0 skips the port.
+func assertCrewGateway(t *testing.T, name string, port int32, ok, wantOK bool, wantName string, wantPort int32) {
+	t.Helper()
+	if ok != wantOK {
+		t.Fatalf("ok: got %v (name=%q port=%d); want %v", ok, name, port, wantOK)
+	}
+	if !wantOK {
+		return
+	}
+	if name != wantName {
+		t.Errorf("name: got %q; want %q", name, wantName)
+	}
+	if wantPort != 0 && port != wantPort {
+		t.Errorf("port: got %d; want %d", port, wantPort)
+	}
 }
 
 // TestScoreCandidateAgentLoadPenalty verifies the load-aware bin-pack term

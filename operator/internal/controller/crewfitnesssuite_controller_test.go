@@ -89,25 +89,11 @@ func TestFindNextIterationOrdersScriptsThenIterations(t *testing.T) {
 	scheduled := map[string]bool{}
 
 	// First call: iteration 1, script a
-	n1 := r.findNextIteration(suite, scheduled)
-	if n1 == nil || n1.iter != 1 || n1.scriptIdx != 0 {
-		t.Fatalf("first: got %+v, want iter=1 scriptIdx=0", n1)
-	}
-	scheduled[n1.crName] = true
-
+	expectNextIteration(t, r, suite, scheduled, "first", 1, 0)
 	// Second call: iteration 1, script b (NOT iteration 2 of a)
-	n2 := r.findNextIteration(suite, scheduled)
-	if n2 == nil || n2.iter != 1 || n2.scriptIdx != 1 {
-		t.Fatalf("second: got %+v, want iter=1 scriptIdx=1", n2)
-	}
-	scheduled[n2.crName] = true
-
+	expectNextIteration(t, r, suite, scheduled, "second", 1, 1)
 	// Third call: iteration 2, script a (only now do we move to iter 2)
-	n3 := r.findNextIteration(suite, scheduled)
-	if n3 == nil || n3.iter != 2 || n3.scriptIdx != 0 {
-		t.Fatalf("third: got %+v, want iter=2 scriptIdx=0", n3)
-	}
-	scheduled[n3.crName] = true
+	expectNextIteration(t, r, suite, scheduled, "third", 2, 0)
 
 	// Skip ahead: schedule everything but the last
 	for iter := int32(1); iter <= 3; iter++ {
@@ -119,6 +105,17 @@ func TestFindNextIterationOrdersScriptsThenIterations(t *testing.T) {
 	if n := r.findNextIteration(suite, scheduled); n != nil {
 		t.Errorf("expected nil when all scheduled, got %+v", n)
 	}
+}
+
+// expectNextIteration asserts the next iteration findNextIteration picks and marks it scheduled.
+func expectNextIteration(t *testing.T, r *CrewFitnessSuiteReconciler, suite *kubemootv1alpha1.CrewFitnessSuite,
+	scheduled map[string]bool, call string, wantIter int32, wantScriptIdx int) {
+	t.Helper()
+	n := r.findNextIteration(suite, scheduled)
+	if n == nil || n.iter != wantIter || n.scriptIdx != wantScriptIdx {
+		t.Fatalf("%s: got %+v, want iter=%d scriptIdx=%d", call, n, wantIter, wantScriptIdx)
+	}
+	scheduled[n.crName] = true
 }
 
 // TestIterationCRHasNoTTL pins the critical invariant that per-iteration

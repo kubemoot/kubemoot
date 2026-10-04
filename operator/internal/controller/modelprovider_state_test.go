@@ -126,6 +126,12 @@ func TestProviderStateJSONContract(t *testing.T) {
 		}
 	}
 
+	assertProviderStateReadyAndModels(t, got)
+}
+
+// assertProviderStateReadyAndModels checks the ready flag and the loadedModels array of a marshaled ProviderState.
+func assertProviderStateReadyAndModels(t *testing.T, got map[string]interface{}) {
+	t.Helper()
 	if got["ready"] != true {
 		t.Errorf("field ready = %v; want true", got["ready"])
 	}

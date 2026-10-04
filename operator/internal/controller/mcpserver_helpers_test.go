@@ -53,17 +53,7 @@ func TestBoundedName(t *testing.T) {
 	// Over-limit names are truncated to exactly 63, stay valid DNS-1123 labels, and differ per input.
 	seen := map[string]string{}
 	for _, n := range []string{proseK8s, proseLegacy} {
-		got := boundedName(n)
-		if len(got) != 63 {
-			t.Errorf("boundedName(%q) len = %d; want 63", n, len(got))
-		}
-		if !dns1123Label.MatchString(got) {
-			t.Errorf("boundedName(%q) = %q is not a valid DNS-1123 label", n, got)
-		}
-		// Deterministic: same input, same output.
-		if boundedName(n) != got {
-			t.Errorf("boundedName(%q) is not deterministic", n)
-		}
+		got := assertBoundedLongName(t, n)
 		seen[got] = n
 	}
 	if len(seen) != 2 {
@@ -80,6 +70,24 @@ func TestBoundedName(t *testing.T) {
 	if toolsName == boundedName(adlLegacy) {
 		t.Errorf("RAGSource name collides with Service name for %q", adlLegacy)
 	}
+}
+
+// assertBoundedLongName checks that an over-limit name bounds to a deterministic,
+// valid 63-character DNS-1123 label, and returns that label.
+func assertBoundedLongName(t *testing.T, n string) string {
+	t.Helper()
+	got := boundedName(n)
+	if len(got) != 63 {
+		t.Errorf("boundedName(%q) len = %d; want 63", n, len(got))
+	}
+	if !dns1123Label.MatchString(got) {
+		t.Errorf("boundedName(%q) = %q is not a valid DNS-1123 label", n, got)
+	}
+	// Deterministic: same input, same output.
+	if boundedName(n) != got {
+		t.Errorf("boundedName(%q) is not deterministic", n)
+	}
+	return got
 }
 
 func TestBuildMCPServerContainer_Defaults(t *testing.T) {

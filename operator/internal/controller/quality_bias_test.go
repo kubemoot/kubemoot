@@ -160,23 +160,34 @@ func TestQualityBiasScoreBoundsAndSymmetry(t *testing.T) {
 	lowLbl := map[string]string{testLatencyClass: testLow}
 	medLbl := map[string]string{testLatencyClass: "medium"}
 
-	// bias=0.0 — full speed.
-	if s, r := qualityBiasScore(0.0, highLbl); s != 0 || r != "bias-high+0" {
-		t.Errorf("bias=0 high: got (%d,%q), want (0,bias-high+0)", s, r)
+	cases := []struct {
+		name       string
+		bias       float64
+		labels     map[string]string
+		wantScore  int64
+		wantReason string // empty skips the reason check
+	}{
+		// bias=0.0: full speed.
+		{"bias=0 high", 0.0, highLbl, 0, "bias-high+0"},
+		{"bias=0 low", 0.0, lowLbl, 100, ""},
+		// bias=1.0: full quality.
+		{"bias=1 high", 1.0, highLbl, 100, ""},
+		{"bias=1 low", 1.0, lowLbl, 0, "bias-low+0"},
+		// medium decays to 0 at the extremes so a pure-speed/pure-quality agent never
+		// lands on the middle tier.
+		{"bias=0 medium", 0.0, medLbl, 0, ""},
+		{"bias=1 medium", 1.0, medLbl, 0, ""},
+		// medium is reachable (strict max) in the mid band, e.g. bias=0.4: 80 vs 40/60.
+		{"bias=0.4 medium (reachable mid-tier)", 0.4, medLbl, 80, ""},
 	}
-	if s, _ := qualityBiasScore(0.0, lowLbl); s != 100 {
-		t.Errorf("bias=0 low: got %d, want 100", s)
+	for _, tc := range cases {
+		s, r := qualityBiasScore(tc.bias, tc.labels)
+		if s != tc.wantScore || (tc.wantReason != "" && r != tc.wantReason) {
+			t.Errorf("%s: got (%d,%q), want (%d,%q)", tc.name, s, r, tc.wantScore, tc.wantReason)
+		}
 	}
 
-	// bias=1.0 — full quality.
-	if s, _ := qualityBiasScore(1.0, highLbl); s != 100 {
-		t.Errorf("bias=1 high: got %d, want 100", s)
-	}
-	if s, r := qualityBiasScore(1.0, lowLbl); s != 0 || r != "bias-low+0" {
-		t.Errorf("bias=1 low: got (%d,%q), want (0,bias-low+0)", s, r)
-	}
-
-	// bias=0.5 — high and low tie at 50; medium PEAKS at 100 (the tent apex), so
+	// bias=0.5: high and low tie at 50; medium PEAKS at 100 (the tent apex), so
 	// the middle tier is the strict winner exactly where neither speed nor quality
 	// is preferred. This is the saddle-point fix: previously all three tied at 50.
 	hi, _ := qualityBiasScore(0.5, highLbl)
@@ -184,19 +195,5 @@ func TestQualityBiasScoreBoundsAndSymmetry(t *testing.T) {
 	lo, _ := qualityBiasScore(0.5, lowLbl)
 	if hi != 50 || md != 100 || lo != 50 {
 		t.Errorf("bias=0.5: got high=%d med=%d low=%d, want 50/100/50", hi, md, lo)
-	}
-
-	// medium decays to 0 at the extremes so a pure-speed/pure-quality agent never
-	// lands on the middle tier.
-	if s, _ := qualityBiasScore(0.0, medLbl); s != 0 {
-		t.Errorf("bias=0 medium: got %d, want 0", s)
-	}
-	if s, _ := qualityBiasScore(1.0, medLbl); s != 0 {
-		t.Errorf("bias=1 medium: got %d, want 0", s)
-	}
-
-	// medium is reachable (strict max) in the mid band, e.g. bias=0.4: 80 vs 40/60.
-	if s, _ := qualityBiasScore(0.4, medLbl); s != 80 {
-		t.Errorf("bias=0.4 medium: got %d, want 80 (reachable mid-tier)", s)
 	}
 }

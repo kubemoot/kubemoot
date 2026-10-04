@@ -39,41 +39,46 @@ func findStatus(ss []ComponentStatus, name string) (ComponentStatus, bool) {
 // operator is always up (it answered), nats reflects the passed connectivity,
 // and modelproviders is derived from CR status — never a false negative.
 func TestBuildComponentStatuses(t *testing.T) {
+	t.Run("nats connected, mixed providers", componentStatusesMixedProviders)
+	t.Run("nats down, no providers is neutral", componentStatusesNoProviders)
+	t.Run("all providers down is unhealthy", componentStatusesAllDown)
+}
+
+func componentStatusesMixedProviders(t *testing.T) {
 	ctx := context.Background()
+	c := newPropagationClient(t, mkModelProvider(testGPU, true), mkModelProvider("rig1", false))
+	ss := buildComponentStatuses(ctx, c, true)
+	if op, _ := findStatus(ss, "operator"); !op.Healthy {
+		t.Errorf("operator should be healthy (it answered)")
+	}
+	if n, _ := findStatus(ss, "nats"); !n.Healthy {
+		t.Errorf("nats should be healthy when connected")
+	}
+	mp, ok := findStatus(ss, "modelproviders")
+	if !ok || !mp.Healthy || mp.Message != "1/2 ready" {
+		t.Errorf("modelproviders = %+v, want healthy '1/2 ready'", mp)
+	}
+}
 
-	t.Run("nats connected, mixed providers", func(t *testing.T) {
-		c := newPropagationClient(t, mkModelProvider(testGPU, true), mkModelProvider("rig1", false))
-		ss := buildComponentStatuses(ctx, c, true)
-		if op, _ := findStatus(ss, "operator"); !op.Healthy {
-			t.Errorf("operator should be healthy (it answered)")
-		}
-		if n, _ := findStatus(ss, "nats"); !n.Healthy {
-			t.Errorf("nats should be healthy when connected")
-		}
-		mp, ok := findStatus(ss, "modelproviders")
-		if !ok || !mp.Healthy || mp.Message != "1/2 ready" {
-			t.Errorf("modelproviders = %+v, want healthy '1/2 ready'", mp)
-		}
-	})
+func componentStatusesNoProviders(t *testing.T) {
+	ctx := context.Background()
+	c := newPropagationClient(t)
+	ss := buildComponentStatuses(ctx, c, false)
+	if n, _ := findStatus(ss, "nats"); n.Healthy {
+		t.Errorf("nats should be unhealthy when not connected")
+	}
+	mp, _ := findStatus(ss, "modelproviders")
+	if !mp.Healthy || mp.Message != "none configured" {
+		t.Errorf("no providers should be neutral-healthy 'none configured', got %+v", mp)
+	}
+}
 
-	t.Run("nats down, no providers is neutral", func(t *testing.T) {
-		c := newPropagationClient(t)
-		ss := buildComponentStatuses(ctx, c, false)
-		if n, _ := findStatus(ss, "nats"); n.Healthy {
-			t.Errorf("nats should be unhealthy when not connected")
-		}
-		mp, _ := findStatus(ss, "modelproviders")
-		if !mp.Healthy || mp.Message != "none configured" {
-			t.Errorf("no providers should be neutral-healthy 'none configured', got %+v", mp)
-		}
-	})
-
-	t.Run("all providers down is unhealthy", func(t *testing.T) {
-		c := newPropagationClient(t, mkModelProvider(testGPU, false), mkModelProvider("rig1", false))
-		ss := buildComponentStatuses(ctx, c, true)
-		mp, _ := findStatus(ss, "modelproviders")
-		if mp.Healthy || mp.Message != "0/2 ready" {
-			t.Errorf("all-down providers should be unhealthy '0/2 ready', got %+v", mp)
-		}
-	})
+func componentStatusesAllDown(t *testing.T) {
+	ctx := context.Background()
+	c := newPropagationClient(t, mkModelProvider(testGPU, false), mkModelProvider("rig1", false))
+	ss := buildComponentStatuses(ctx, c, true)
+	mp, _ := findStatus(ss, "modelproviders")
+	if mp.Healthy || mp.Message != "0/2 ready" {
+		t.Errorf("all-down providers should be unhealthy '0/2 ready', got %+v", mp)
+	}
 }
