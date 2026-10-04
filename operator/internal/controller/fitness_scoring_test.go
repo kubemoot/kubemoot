@@ -27,13 +27,13 @@ func TestCorrectnessAndEfficiencyScores(t *testing.T) {
 	if got := correctnessScore(0, 0); !approx(got, 0) {
 		t.Errorf("correctness 0/0 = %v, want 0 (no assertions ≠ perfect)", got)
 	}
-	if got := efficiencyScore(30000, 60000); !approx(got, 100) {
+	if got := efficiencyScore(30000); !approx(got, 100) {
 		t.Errorf("efficiency under budget = %v, want 100", got)
 	}
-	if got := efficiencyScore(120000, 60000); !approx(got, 50) {
+	if got := efficiencyScore(120000); !approx(got, 50) {
 		t.Errorf("efficiency 2× budget = %v, want 50", got)
 	}
-	if got := efficiencyScore(0, 60000); !approx(got, 0) {
+	if got := efficiencyScore(0); !approx(got, 0) {
 		t.Errorf("efficiency unknown duration = %v, want 0", got)
 	}
 }

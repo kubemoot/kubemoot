@@ -66,10 +66,7 @@ const (
 
 // ConfigMap key names used across controllers
 const (
-	keySystemTxt       = "system.txt"
-	keyPolicyJSON      = "policy.json"
-	keyAppProperties   = "application.properties"
-	keyCrewResumesJSON = "crew-resumes.json"
+	keySystemTxt = "system.txt"
 )
 
 // Connection string prefixes

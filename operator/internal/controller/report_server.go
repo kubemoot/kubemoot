@@ -156,7 +156,7 @@ func iterationFromTranscript(suite *kubemootv1alpha1.CrewFitnessSuite, key strin
 		Question:      doc.Question,
 		Correctness:   correctnessScore(passed, total),
 		Adherence:     adherenceScore(doc.Events),
-		Efficiency:    efficiencyScore(doc.DurationMs, defaultEfficiencyBudgetMs),
+		Efficiency:    efficiencyScore(doc.DurationMs),
 		ConsensusOK:   consensusOK,
 		Participation: participationScore(realAgrees, expectedAgrees),
 		Selectivity:   selectivityScore(doc.Events),

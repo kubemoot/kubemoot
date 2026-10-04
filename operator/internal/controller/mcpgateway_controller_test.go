@@ -60,7 +60,7 @@ func TestMCPGatewayReconcile_CreatesDeploymentAndService(t *testing.T) {
 	if err != nil {
 		t.Fatalf("first reconcile: %v", err)
 	}
-	if !res.Requeue {
+	if res.RequeueAfter <= 0 {
 		t.Error("expected requeue after finalizer addition")
 	}
 

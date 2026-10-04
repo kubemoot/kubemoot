@@ -410,7 +410,7 @@ func candidateBefore(a, b scheduleCandidate) bool {
 // best is feasible[0]. Returns the candidate to actually use. When
 // currentProviderName is empty or no candidate matches it, returns best
 // unchanged (fresh-pick path for new agents).
-func applySticky(best scheduleCandidate, feasible []scheduleCandidate, currentProviderName string, hysteresis int64) scheduleCandidate {
+func applySticky(best scheduleCandidate, feasible []scheduleCandidate, currentProviderName string) scheduleCandidate {
 	if currentProviderName == "" || best.provider.Name == currentProviderName {
 		return best
 	}
@@ -418,7 +418,7 @@ func applySticky(best scheduleCandidate, feasible []scheduleCandidate, currentPr
 		if c.provider.Name != currentProviderName {
 			continue
 		}
-		if best.score-c.score <= hysteresis {
+		if best.score-c.score <= stickyHysteresis {
 			c.reason = c.reason + ",sticky"
 			return c
 		}
@@ -455,7 +455,7 @@ func (r *AgentReconciler) pickModel(ctx context.Context, agent *kubemootv1alpha1
 	}
 
 	sort.SliceStable(feasible, func(i, j int) bool { return candidateBefore(feasible[i], feasible[j]) })
-	pick := applySticky(feasible[0], feasible, currentProviderName, stickyHysteresis)
+	pick := applySticky(feasible[0], feasible, currentProviderName)
 
 	reason := pick.reason
 	if reason == "" {
@@ -613,7 +613,7 @@ func (r *AgentReconciler) ensurePolicyConfigMap(ctx context.Context, agent *kube
 				labelAgent:                     agent.Name,
 			},
 		},
-		Data: map[string]string{"system.txt": systemTxt},
+		Data: map[string]string{keySystemTxt: systemTxt},
 	}
 	if err := controllerutil.SetControllerReference(agent, desired, r.Scheme); err != nil {
 		return fmt.Errorf("setting owner ref on ConfigMap: %w", err)
@@ -626,7 +626,7 @@ func (r *AgentReconciler) ensurePolicyConfigMap(ctx context.Context, agent *kube
 	if err != nil {
 		return err
 	}
-	if existing.Data["system.txt"] == systemTxt {
+	if existing.Data[keySystemTxt] == systemTxt {
 		return nil
 	}
 	existing.Data = desired.Data

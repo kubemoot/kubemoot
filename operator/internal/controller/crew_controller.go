@@ -94,7 +94,7 @@ func (r *CrewReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 		if err := addFinalizer(ctx, r.Client, crew, crewFinalizer); err != nil {
 			return ctrl.Result{}, err
 		}
-		return ctrl.Result{Requeue: true}, nil
+		return requeueNow(), nil
 	}
 
 	log.Info("Reconciling Crew", "name", crew.Name)

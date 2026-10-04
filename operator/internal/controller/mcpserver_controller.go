@@ -127,7 +127,7 @@ func (r *MCPServerReconciler) ensureFinalizer(ctx context.Context, mcpServer *ku
 	if err := addFinalizer(ctx, r.Client, mcpServer, mcpServerFinalizer); err != nil {
 		return false, ctrl.Result{}, err
 	}
-	return true, ctrl.Result{Requeue: true}, nil
+	return true, requeueNow(), nil
 }
 
 // shouldCreateMCPServerService reports whether a Service should be created.
@@ -543,8 +543,9 @@ func overlaySecurityContext(base, override *corev1.SecurityContext) *corev1.Secu
 
 // buildMCPServerVolumes creates secret and emptyDir volumes from MCPServer spec.
 func buildMCPServerVolumes(mcpServer *kubemootv1alpha1.MCPServer) ([]corev1.Volume, []corev1.VolumeMount) {
-	var volumes []corev1.Volume
-	var volumeMounts []corev1.VolumeMount
+	count := len(mcpServer.Spec.SecretVolumes) + len(mcpServer.Spec.EmptyDirVolumes)
+	volumes := make([]corev1.Volume, 0, count)
+	volumeMounts := make([]corev1.VolumeMount, 0, count)
 
 	for i, sv := range mcpServer.Spec.SecretVolumes {
 		volumeName := fmt.Sprintf("secret-vol-%d", i)
@@ -730,8 +731,7 @@ func (r *MCPServerReconciler) applyBridgeSidecar(
 		cmdParts = container.Args
 	}
 
-	execArgs := []string{"exec", "--pipe-dir", bridgePipeDir, "--"}
-	execArgs = append(execArgs, cmdParts...)
+	execArgs := append([]string{"exec", "--pipe-dir", bridgePipeDir, "--"}, cmdParts...)
 	container.Command = []string{"/pipes/kubemoot-mcp-bridge"}
 	container.Args = execArgs
 

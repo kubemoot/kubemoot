@@ -173,7 +173,7 @@ func (r *ModelProviderReconciler) reconcileOllama(ctx context.Context, provider 
 		log.Error(err, "Failed to connect to Ollama", "endpoint", provider.Spec.Endpoint)
 		return r.updateStatus(ctx, provider, false, "Failed", fmt.Sprintf("Failed to connect to Ollama: %v", err))
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return r.updateStatus(ctx, provider, false, "Failed", fmt.Sprintf("Ollama returned status %d", resp.StatusCode))
@@ -395,7 +395,7 @@ func (r *ModelProviderReconciler) queryPrometheusScalar(ctx context.Context, htt
 		log.V(1).Info("Prometheus query failed", "error", err)
 		return 0
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return 0
@@ -442,7 +442,7 @@ func (r *ModelProviderReconciler) queryPrometheusLabel(ctx context.Context, http
 		log.V(1).Info("Prometheus query failed", "error", err)
 		return ""
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return ""
@@ -480,7 +480,7 @@ func (r *ModelProviderReconciler) discoverLoadedModels(ctx context.Context, prov
 		log.V(1).Info("Failed to call /api/ps", "error", err)
 		return
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return
@@ -524,7 +524,7 @@ func (r *ModelProviderReconciler) discoverAvailableModels(ctx context.Context, p
 		log.V(1).Info("Failed to call /api/tags", "error", err)
 		return
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return

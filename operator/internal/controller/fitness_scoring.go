@@ -253,10 +253,11 @@ func boolScore(b bool) float64 {
 // correctnessScore is the assertion pass percentage for one run.
 func correctnessScore(passed, total int) float64 { return pct(passed, total) }
 
-// efficiencyScore rates one run's wall-clock against a fixed budget: 100 at or
-// under budget, decaying as budget/duration past it. 0 when duration is unknown.
-func efficiencyScore(durationMs, budgetMs int64) float64 {
-	if durationMs <= 0 || budgetMs <= 0 {
+// efficiencyScore rates one run's wall-clock against defaultEfficiencyBudgetMs: 100
+// at or under budget, decaying as budget/duration past it. 0 when duration is unknown.
+func efficiencyScore(durationMs int64) float64 {
+	const budgetMs = defaultEfficiencyBudgetMs
+	if durationMs <= 0 {
 		return 0
 	}
 	if durationMs <= budgetMs {

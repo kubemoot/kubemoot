@@ -328,7 +328,7 @@ func (p *Publisher) ListKVKeys(bucket string) ([]string, error) {
 		log.V(1).Info("Failed to list KV keys", "bucket", bucket, "error", err)
 		return nil, nil
 	}
-	defer keyLister.Stop()
+	defer func() { _ = keyLister.Stop() }()
 
 	var keys []string
 	for key := range keyLister.Keys() {
@@ -366,7 +366,7 @@ func (p *Publisher) PurgeKVPrefix(bucket, prefix string) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	defer keyLister.Stop()
+	defer func() { _ = keyLister.Stop() }()
 
 	deleted := 0
 	for key := range keyLister.Keys() {
@@ -536,7 +536,10 @@ func (p *Publisher) Close() {
 	defer p.mu.Unlock()
 
 	if p.conn != nil {
-		p.conn.Drain()
+		if err := p.conn.Drain(); err != nil {
+			log.V(1).Info("NATS drain failed; closing the connection", "error", err)
+			p.conn.Close()
+		}
 		p.conn = nil
 	}
 }
@@ -572,8 +575,8 @@ func (p *Publisher) EnsureObjectStore(bucket string, ttl time.Duration) (nats.Ob
 	if err != nil {
 		return nil, err
 	}
-	if os, err := js.ObjectStore(bucket); err == nil {
-		return os, nil
+	if store, err := js.ObjectStore(bucket); err == nil {
+		return store, nil
 	}
 	// Bucket missing — create.
 	return js.CreateObjectStore(&nats.ObjectStoreConfig{

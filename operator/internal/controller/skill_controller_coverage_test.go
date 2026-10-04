@@ -46,7 +46,7 @@ func TestSkillReconcile_AddsFinalizerThenSyncs(t *testing.T) {
 	if err != nil {
 		t.Fatalf("first reconcile: %v", err)
 	}
-	if !res.Requeue {
+	if res.RequeueAfter <= 0 {
 		t.Error("first reconcile should requeue after adding the finalizer")
 	}
 

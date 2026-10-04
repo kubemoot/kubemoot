@@ -138,7 +138,7 @@ func (r *ModelReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 		if err := addFinalizer(ctx, r.Client, model, modelFinalizer); err != nil {
 			return ctrl.Result{}, err
 		}
-		return ctrl.Result{Requeue: true}, nil
+		return requeueNow(), nil
 	}
 
 	if provider.Spec.Type != aiv1alpha1.ProviderTypeOllama {
@@ -206,15 +206,15 @@ func (r *ModelReconciler) reconcileOllamaModel(ctx context.Context, model *aiv1a
 }
 
 // getOllamaModelInfo retrieves model info from Ollama
-func (r *ModelReconciler) getOllamaModelInfo(ctx context.Context, client *http.Client, endpoint, modelName string) (*OllamaModelInfo, error) {
-	resp, err := client.Get(fmt.Sprintf("%s/api/tags", endpoint))
+func (r *ModelReconciler) getOllamaModelInfo(ctx context.Context, httpClient *http.Client, endpoint, modelName string) (*OllamaModelInfo, error) {
+	resp, err := httpGet(ctx, httpClient, fmt.Sprintf("%s/api/tags", endpoint))
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("Ollama returned status %d", resp.StatusCode)
+		return nil, fmt.Errorf("model server (Ollama) returned status %d", resp.StatusCode)
 	}
 
 	var tagsResp OllamaTagsResponse
@@ -232,12 +232,12 @@ func (r *ModelReconciler) getOllamaModelInfo(ctx context.Context, client *http.C
 }
 
 // isModelLoaded checks if a model is currently loaded in Ollama
-func (r *ModelReconciler) isModelLoaded(ctx context.Context, client *http.Client, endpoint, modelName string) (bool, error) {
-	resp, err := client.Get(fmt.Sprintf("%s/api/ps", endpoint))
+func (r *ModelReconciler) isModelLoaded(ctx context.Context, httpClient *http.Client, endpoint, modelName string) (bool, error) {
+	resp, err := httpGet(ctx, httpClient, fmt.Sprintf("%s/api/ps", endpoint))
 	if err != nil {
 		return false, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return false, nil // /api/ps might not be available in older versions
@@ -291,7 +291,7 @@ func (r *ModelReconciler) pullOllamaModel(ctx context.Context, httpClient *http.
 		log.Error(err, "Failed to pull model")
 		return r.updateModelStatus(ctx, model, "Error", false, fmt.Sprintf("Failed to pull model: %v", err), nil)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return r.updateModelStatus(ctx, model, "Error", false, fmt.Sprintf("Pull failed with status %d", resp.StatusCode), nil)
@@ -305,7 +305,7 @@ func (r *ModelReconciler) pullOllamaModel(ctx context.Context, httpClient *http.
 	log.Info("Model pull completed", "model", model.Spec.Model, "status", pullResp.Status)
 
 	// Requeue to update status with full model info
-	return ctrl.Result{Requeue: true}, nil
+	return requeueNow(), nil
 }
 
 // handleDeletion handles the deletion of a Model
@@ -360,7 +360,7 @@ func (r *ModelReconciler) deleteOllamaModel(ctx context.Context, endpoint, model
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode == http.StatusNotFound {
 		log.Info("Model not found in Ollama, already deleted", "model", modelName)
@@ -430,17 +430,17 @@ func (r *ModelReconciler) updateModelStatus(ctx context.Context, model *aiv1alph
 }
 
 // formatBytes converts bytes to human-readable format
-func formatBytes(bytes int64) string {
+func formatBytes(size int64) string {
 	const unit = 1024
-	if bytes < unit {
-		return fmt.Sprintf("%d B", bytes)
+	if size < unit {
+		return fmt.Sprintf("%d B", size)
 	}
 	div, exp := int64(unit), 0
-	for n := bytes / unit; n >= unit; n /= unit {
+	for n := size / unit; n >= unit; n /= unit {
 		div *= unit
 		exp++
 	}
-	return fmt.Sprintf("%.1f %cB", float64(bytes)/float64(div), "KMGTPE"[exp])
+	return fmt.Sprintf("%.1f %cB", float64(size)/float64(div), "KMGTPE"[exp])
 }
 
 // SetupWithManager sets up the controller with the Manager.

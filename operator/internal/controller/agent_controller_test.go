@@ -384,7 +384,7 @@ func TestApplyStickyAntiOscillation(t *testing.T) {
 	rig1Current := mkCand("ollama-rig1", 30) // 10 points behind; within hysteresis
 	feasible := []scheduleCandidate{gpuBest, rig1Current}
 
-	got := applySticky(gpuBest, feasible, "ollama-rig1", 25)
+	got := applySticky(gpuBest, feasible, "ollama-rig1")
 	if got.provider.Name != "ollama-rig1" {
 		t.Errorf("within hysteresis: should stick to current ollama-rig1, got %s", got.provider.Name)
 	}
@@ -392,26 +392,26 @@ func TestApplyStickyAntiOscillation(t *testing.T) {
 	// Alternative wins by MORE than hysteresis → flip is justified.
 	gpuStrong := mkCand("ollama-gpu", 100)
 	rig1Weak := mkCand("ollama-rig1", 30) // 70 points behind; beyond hysteresis
-	got = applySticky(gpuStrong, []scheduleCandidate{gpuStrong, rig1Weak}, "ollama-rig1", 25)
+	got = applySticky(gpuStrong, []scheduleCandidate{gpuStrong, rig1Weak}, "ollama-rig1")
 	if got.provider.Name != "ollama-gpu" {
 		t.Errorf("beyond hysteresis: should flip to ollama-gpu, got %s", got.provider.Name)
 	}
 
 	// No current pick (fresh agent) → take the best score, no stickiness.
-	got = applySticky(gpuStrong, []scheduleCandidate{gpuStrong, rig1Weak}, "", 25)
+	got = applySticky(gpuStrong, []scheduleCandidate{gpuStrong, rig1Weak}, "")
 	if got.provider.Name != "ollama-gpu" {
 		t.Errorf("fresh agent: should take best ollama-gpu, got %s", got.provider.Name)
 	}
 
 	// Best candidate is ALREADY the current pick → no sticky logic needed.
-	got = applySticky(gpuStrong, []scheduleCandidate{gpuStrong, rig1Weak}, "ollama-gpu", 25)
+	got = applySticky(gpuStrong, []scheduleCandidate{gpuStrong, rig1Weak}, "ollama-gpu")
 	if got.provider.Name != "ollama-gpu" {
 		t.Errorf("best is already current: should keep ollama-gpu, got %s", got.provider.Name)
 	}
 
 	// Current pick no longer in feasible list (e.g. provider went unready)
 	// → take the best, no special handling.
-	got = applySticky(gpuBest, []scheduleCandidate{gpuBest}, "ollama-rig1", 25)
+	got = applySticky(gpuBest, []scheduleCandidate{gpuBest}, "ollama-rig1")
 	if got.provider.Name != "ollama-gpu" {
 		t.Errorf("current pick missing from feasible: should take best ollama-gpu, got %s", got.provider.Name)
 	}
@@ -420,7 +420,7 @@ func TestApplyStickyAntiOscillation(t *testing.T) {
 	// sticks (the rule is "MORE than hysteresis" for a flip; equal stays).
 	gpuTie := mkCand("ollama-gpu", 55)
 	rig1Tie := mkCand("ollama-rig1", 30) // exactly 25 behind
-	got = applySticky(gpuTie, []scheduleCandidate{gpuTie, rig1Tie}, "ollama-rig1", 25)
+	got = applySticky(gpuTie, []scheduleCandidate{gpuTie, rig1Tie}, "ollama-rig1")
 	if got.provider.Name != "ollama-rig1" {
 		t.Errorf("exactly-at-hysteresis: should stick to ollama-rig1, got %s", got.provider.Name)
 	}
@@ -431,7 +431,7 @@ func TestApplyStickyAntiOscillation(t *testing.T) {
 		score:    30,
 		reason:   "provider-weight-50",
 	}
-	got = applySticky(gpuBest, []scheduleCandidate{gpuBest, rig1Reasoned}, "ollama-rig1", 25)
+	got = applySticky(gpuBest, []scheduleCandidate{gpuBest, rig1Reasoned}, "ollama-rig1")
 	if !contains(got.reason, "sticky") {
 		t.Errorf("sticky path should append sticky reason; got reason=%q", got.reason)
 	}

@@ -70,7 +70,7 @@ var _ = Describe("Crew Controller", func() {
 			reconciler := newReconciler()
 			result, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: namespacedName})
 			Expect(err).NotTo(HaveOccurred())
-			Expect(result.Requeue).To(BeTrue(), "should requeue after adding finalizer")
+			Expect(result.RequeueAfter).To(BeNumerically(">", 0), "should requeue after adding finalizer")
 
 			// Verify finalizer was added
 			updated := &aiv1alpha1.Crew{}

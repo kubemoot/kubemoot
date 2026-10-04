@@ -89,7 +89,7 @@ func (r *RAGSourceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		if err := addFinalizer(ctx, r.Client, ragSource, ragSourceFinalizer); err != nil {
 			return ctrl.Result{}, err
 		}
-		return ctrl.Result{Requeue: true}, nil
+		return requeueNow(), nil
 	}
 
 	// Validate referenced EmbeddingModel exists and is ready
@@ -130,7 +130,7 @@ func (r *RAGSourceReconciler) reconcileIndexingState(ctx context.Context, ragSou
 	}
 	if delayActive {
 		ragSource.Status.Phase = "Pending"
-		ragSource.Status.Message = fmt.Sprintf("Waiting for initial delay (until %s)", ragSource.Status.DelayUntil.Time.Format(time.RFC3339))
+		ragSource.Status.Message = fmt.Sprintf("Waiting for initial delay (until %s)", ragSource.Status.DelayUntil.Format(time.RFC3339))
 		if err := r.Status().Update(ctx, ragSource); err != nil {
 			return ctrl.Result{}, err
 		}
@@ -256,7 +256,7 @@ func (r *RAGSourceReconciler) verifyVectorStore(ctx context.Context, ragSource *
 		log.V(1).Info("Query service unreachable, skipping vector store verification", "url", infoURL, "error", err)
 		return false
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		log.V(1).Info("Query service returned non-200, skipping verification", "status", resp.StatusCode)
@@ -567,11 +567,10 @@ func (r *RAGSourceReconciler) buildIndexingJob(ragSource *kubemootv1alpha1.RAGSo
 	}
 
 	// Build volumes and volume mounts for script injection
-	var volumes []corev1.Volume
-	var volumeMounts []corev1.VolumeMount
-
 	scriptVolumes, scriptMounts, scriptEnv := buildIndexerScriptVolumes(ragSource)
+	volumes := make([]corev1.Volume, 0, len(scriptVolumes)+1)
 	volumes = append(volumes, scriptVolumes...)
+	volumeMounts := make([]corev1.VolumeMount, 0, len(scriptMounts)+1)
 	volumeMounts = append(volumeMounts, scriptMounts...)
 	env = append(env, scriptEnv...)
 
@@ -689,8 +688,7 @@ func (r *RAGSourceReconciler) buildIndexingJob(ragSource *kubemootv1alpha1.RAGSo
 // buildIndexerEnv creates environment variables for the indexer container.
 // Dispatches to source-specific builders for each RAGSource type.
 func (r *RAGSourceReconciler) buildIndexerEnv(ragSource *kubemootv1alpha1.RAGSource, embeddingModel *kubemootv1alpha1.EmbeddingModel) []corev1.EnvVar {
-	var env []corev1.EnvVar
-	env = append(env, r.buildIndexerCoreEnv(ragSource, embeddingModel)...)
+	env := r.buildIndexerCoreEnv(ragSource, embeddingModel)
 	env = append(env, buildSourceTypeEnv(ragSource)...)
 	env = append(env, buildChunkingEnv(ragSource)...)
 	env = append(env, buildVectorStoreSecretEnv(ragSource)...)

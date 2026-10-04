@@ -106,7 +106,7 @@ func (r *MCPGatewayReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		if err := addFinalizer(ctx, r.Client, gateway, mcpGatewayFinalizer); err != nil {
 			return ctrl.Result{}, err
 		}
-		return ctrl.Result{Requeue: true}, nil
+		return requeueNow(), nil
 	}
 
 	log.Info("Reconciling MCPGateway", "name", gateway.Name, "implementation", gateway.Spec.Implementation)
@@ -238,7 +238,7 @@ func (r *MCPGatewayReconciler) buildDeployment(gateway *kubemootv1alpha1.MCPGate
 		image = gateway.Spec.ContextForge.Image
 	}
 
-	labels := map[string]string{
+	podLabels := map[string]string{
 		labelName:      gateway.Name,
 		labelInstance:  gateway.Name,
 		labelManagedBy: managedByValue,
@@ -264,16 +264,16 @@ func (r *MCPGatewayReconciler) buildDeployment(gateway *kubemootv1alpha1.MCPGate
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      gateway.Name,
 			Namespace: gateway.Namespace,
-			Labels:    labels,
+			Labels:    podLabels,
 		},
 		Spec: appsv1.DeploymentSpec{
 			Replicas: &replicas,
 			Selector: &metav1.LabelSelector{
-				MatchLabels: labels,
+				MatchLabels: podLabels,
 			},
 			Template: corev1.PodTemplateSpec{
 				ObjectMeta: metav1.ObjectMeta{
-					Labels: labels,
+					Labels: podLabels,
 				},
 				Spec: corev1.PodSpec{
 					Containers:                    []corev1.Container{container},
@@ -581,7 +581,7 @@ func (r *MCPGatewayReconciler) buildToolIndexRAGSource(gateway *kubemootv1alpha1
 		Replicas: 1,
 	}
 
-	labels := map[string]string{
+	podLabels := map[string]string{
 		labelName:      ragSourceName,
 		labelInstance:  gateway.Name,
 		labelManagedBy: managedByValue,
@@ -592,7 +592,7 @@ func (r *MCPGatewayReconciler) buildToolIndexRAGSource(gateway *kubemootv1alpha1
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      ragSourceName,
 			Namespace: gateway.Namespace,
-			Labels:    labels,
+			Labels:    podLabels,
 		},
 		Spec: kubemootv1alpha1.RAGSourceSpec{
 			Source: kubemootv1alpha1.SourceConfig{
@@ -673,7 +673,7 @@ func (r *MCPGatewayReconciler) reconcileService(ctx context.Context, gateway *ku
 		port = gateway.Spec.Port
 	}
 
-	labels := map[string]string{
+	podLabels := map[string]string{
 		labelName:      gateway.Name,
 		labelInstance:  gateway.Name,
 		labelManagedBy: managedByValue,
@@ -684,10 +684,10 @@ func (r *MCPGatewayReconciler) reconcileService(ctx context.Context, gateway *ku
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      gateway.Name,
 			Namespace: gateway.Namespace,
-			Labels:    labels,
+			Labels:    podLabels,
 		},
 		Spec: corev1.ServiceSpec{
-			Selector: labels,
+			Selector: podLabels,
 			Ports: []corev1.ServicePort{
 				{
 					Name:       "http",
@@ -892,7 +892,7 @@ func (r *MCPGatewayReconciler) registerMCPServerWithGateway(ctx context.Context,
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	// Read response body for error details
 	body, _ := io.ReadAll(resp.Body)
@@ -976,7 +976,7 @@ func (r *MCPGatewayReconciler) unregisterMCPServer(ctx context.Context, gateway 
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	// Accept 200, 204 (success) or 404 (already unregistered)
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent && resp.StatusCode != http.StatusNotFound {
@@ -1014,7 +1014,7 @@ func (r *MCPGatewayReconciler) scrapeGatewayFeedback(ctx context.Context, gatewa
 		log.V(1).Info("Failed to scrape gateway feedback", "error", err)
 		return
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return
@@ -1607,95 +1607,6 @@ type PolicyDecision struct {
 	Reason     string  `json:"reason"`
 }
 
-// provisionDynamicMCPServer creates an MCPServer CR for a dynamically discovered server
-// Explicit MCPServer CRs take priority over credential policies
-func (r *MCPGatewayReconciler) provisionDynamicMCPServer(
-	ctx context.Context,
-	gateway *kubemootv1alpha1.MCPGateway,
-	discovery DiscoveredMCPServer,
-) error {
-	log := logf.FromContext(ctx)
-
-	// Step 1: Check if explicit MCPServer CR already exists
-	existingMCP := &kubemootv1alpha1.MCPServer{}
-	err := r.Get(ctx, types.NamespacedName{
-		Name:      discovery.Name,
-		Namespace: gateway.Namespace,
-	}, existingMCP)
-
-	if err == nil {
-		// Explicit MCPServer exists - DO NOT override
-		log.Info("Using explicit MCPServer CR (takes priority over policies)",
-			"server", discovery.Name)
-		return nil
-	}
-
-	if !errors.IsNotFound(err) {
-		return err
-	}
-
-	// Step 2: Find matching credential policy
-	policy := r.findMatchingCredentialPolicy(gateway.Spec.CredentialPolicies, discovery.Categories)
-
-	// Step 3: Build MCPServer spec with policy credentials
-	// Transport priority: registry metadata > policy override > registry-type inference > default (http)
-	transport := kubemootv1alpha1.MCPTransport(discovery.Transport)
-	if transport == "" {
-		// Registry didn't provide transport, check if policy specifies one
-		if policy != nil && policy.Transport != "" {
-			transport = policy.Transport
-		} else {
-			// Infer transport from registry type
-			// npm/pip packages are CLI tools that use stdio
-			// docker images may use http/sse (depends on image)
-			switch strings.ToLower(discovery.Registry) {
-			case "npm", "pip", "pypi":
-				transport = kubemootv1alpha1.TransportStdio
-				log.Info("Inferring stdio transport for npm/pip package", "server", discovery.Name, "registry", discovery.Registry)
-			default:
-				// Default to HTTP (safest assumption for unknown transports)
-				transport = kubemootv1alpha1.TransportHTTP
-			}
-		}
-	}
-
-	mcpServerSpec := kubemootv1alpha1.MCPServerSpec{
-		Image:     discovery.Image,
-		Port:      discovery.Port,
-		Transport: transport,
-	}
-
-	// Apply credentials from matching policy
-	if policy != nil {
-		mcpServerSpec.ServiceAccountName = policy.ServiceAccountName
-		mcpServerSpec.SecretRef = policy.SecretRef
-		mcpServerSpec.SecretVolumes = policy.SecretVolumes
-		mcpServerSpec.EmptyDirVolumes = policy.EmptyDirVolumes
-	}
-
-	// Step 4: Create MCPServer with owner reference to gateway
-	mcpServer := &kubemootv1alpha1.MCPServer{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      discovery.Name,
-			Namespace: gateway.Namespace,
-			Labels: map[string]string{
-				annoDynamic:            "true",
-				annoGateway:            gateway.Name,
-				"kubemoot.ai/registry": discovery.Registry,
-			},
-		},
-		Spec: mcpServerSpec,
-	}
-
-	// Set owner reference so MCPServer is garbage collected with gateway
-	if err := controllerutil.SetControllerReference(gateway, mcpServer, r.Scheme); err != nil {
-		return err
-	}
-
-	log.Info("Creating dynamic MCPServer", "server", discovery.Name, "registry", discovery.Registry)
-	return r.Create(ctx, mcpServer)
-}
-
 // findMatchingCredentialPolicy finds the first credential policy matching the given categories
 func (r *MCPGatewayReconciler) findMatchingCredentialPolicy(
 	policies []kubemootv1alpha1.CredentialPolicy,
@@ -1821,50 +1732,7 @@ func (r *MCPGatewayReconciler) evaluateConsideringTier(ctx context.Context, poli
 
 // evaluateTestedTierForMetadata checks MCPServerReport for prior test experience (metadata variant)
 func (r *MCPGatewayReconciler) evaluateTestedTierForMetadata(ctx context.Context, policy *kubemootv1alpha1.MCPQualityPolicy, server MCPServerMetadata) PolicyDecision {
-	log := logf.FromContext(ctx)
-
-	reportName := sanitizeK8sName(server.Name)
-	report := &kubemootv1alpha1.MCPServerReport{}
-	if err := r.Get(ctx, client.ObjectKey{
-		Namespace: policy.Namespace,
-		Name:      reportName,
-	}, report); err != nil {
-		return PolicyDecision{}
-	}
-
-	tested := policy.Spec.Tested
-
-	if tested.BlockBrokenEnabled() && report.Status.Verdict == string(kubemootv1alpha1.VerdictAvoid) {
-		log.Info("Blocking server with avoid verdict", "server", server.Name)
-		return PolicyDecision{
-			Action:     "deny",
-			Confidence: 1.0,
-			Reason:     fmt.Sprintf("tested: verdict=avoid, %d failures recorded", report.Status.FailureCount),
-		}
-	}
-
-	if report.Status.Verdict == string(kubemootv1alpha1.VerdictUse) {
-		minRate := 0.8
-		if tested.MinSuccessRate != "" {
-			if parsed, err := parseFloat(tested.MinSuccessRate); err == nil {
-				minRate = parsed
-			}
-		}
-		var actualRate float64
-		if report.Status.SuccessRate != "N/A" {
-			fmt.Sscanf(report.Status.SuccessRate, "%f%%", &actualRate)
-			actualRate /= 100
-		}
-		if actualRate >= minRate {
-			return PolicyDecision{
-				Action:     "allow",
-				Confidence: 0.95,
-				Reason:     fmt.Sprintf("tested: verdict=use, success rate %s", report.Status.SuccessRate),
-			}
-		}
-	}
-
-	return PolicyDecision{}
+	return evaluateTestedTier(ctx, r.Client, policy, server.Name)
 }
 
 // matchesAllowing checks if server is in the allowing list (accepted immediately)
@@ -2084,7 +1952,7 @@ func (r *MCPGatewayReconciler) fetchGitHubMetrics(ctx context.Context, repoURL s
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("GitHub API returned %d", resp.StatusCode)
@@ -2173,7 +2041,7 @@ func (r *MCPGatewayReconciler) consultQualityAgent(
 	if err != nil {
 		return PolicyDecision{}, fmt.Errorf("agent call failed: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)

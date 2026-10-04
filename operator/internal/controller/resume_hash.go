@@ -46,7 +46,8 @@ type AgentResume struct {
 // CombinedResumeHash so the agent portion of the combined hash is stable.
 func writeAgentHashSection(h io.Writer, agents []AgentResume) {
 	for _, r := range agents {
-		fmt.Fprintf(h, "%s|%s|%s|%s|%s|%s|%s|%s\n",
+		// Writes to a hash never fail.
+		_, _ = fmt.Fprintf(h, "%s|%s|%s|%s|%s|%s|%s|%s\n",
 			r.Name, r.Description, r.Role, r.Summary,
 			strings.Join(r.Keywords, ","),
 			strings.Join(r.Tools, ","),
@@ -131,7 +132,8 @@ func CombinedResumeHash(agents []AgentResume, skills []SkillResume) string {
 	writeAgentHashSection(h, agents)
 	// Skill section - appended after all agents so the separator is implicit.
 	for _, s := range skills {
-		fmt.Fprintf(h, "skill|%s|%s|%d\n", s.Name, s.Description, s.Order)
+		// Writes to a hash never fail.
+		_, _ = fmt.Fprintf(h, "skill|%s|%s|%d\n", s.Name, s.Description, s.Order)
 	}
 	return fmt.Sprintf("%x", h.Sum(nil))
 }

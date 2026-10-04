@@ -134,7 +134,7 @@ func (r *MCPCatalogReconciler) syncOfficialRegistry(ctx context.Context, catalog
 		log.Error(err, "Failed to fetch official registry", "url", catalog.Spec.URL)
 		return r.updateStatus(ctx, catalog, "Error", fmt.Sprintf("Failed to fetch registry: %v", err), nil)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return r.updateStatus(ctx, catalog, "Error", fmt.Sprintf("Registry returned status %d", resp.StatusCode), nil)
@@ -351,7 +351,7 @@ func (r *MCPCatalogReconciler) invokeAgent(ctx context.Context, endpoint, messag
 	if err != nil {
 		return "", fmt.Errorf("failed to invoke agent: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return "", fmt.Errorf("agent returned status %d", resp.StatusCode)
@@ -545,56 +545,7 @@ func (r *MCPCatalogReconciler) evaluateConsideringTier(ctx context.Context, poli
 
 // evaluateTestedTier checks MCPServerReport for prior test experience
 func (r *MCPCatalogReconciler) evaluateTestedTier(ctx context.Context, policy *aiv1alpha1.MCPQualityPolicy, server aiv1alpha1.DiscoveredServer) PolicyDecision {
-	log := logf.FromContext(ctx)
-
-	// Look up MCPServerReport by sanitized server name
-	reportName := sanitizeK8sName(server.Name)
-	report := &aiv1alpha1.MCPServerReport{}
-	if err := r.Get(ctx, client.ObjectKey{
-		Namespace: policy.Namespace,
-		Name:      reportName,
-	}, report); err != nil {
-		// No report found — pass through to next tier
-		return PolicyDecision{}
-	}
-
-	tested := policy.Spec.Tested
-
-	// Block servers with "avoid" verdict
-	if tested.BlockBrokenEnabled() && report.Status.Verdict == string(aiv1alpha1.VerdictAvoid) {
-		log.Info("Blocking server with avoid verdict", "server", server.Name)
-		return PolicyDecision{
-			Action:     "deny",
-			Confidence: 1.0,
-			Reason:     fmt.Sprintf("tested: verdict=avoid, %d failures recorded", report.Status.FailureCount),
-		}
-	}
-
-	// Auto-allow servers with "use" verdict and sufficient success rate
-	if report.Status.Verdict == string(aiv1alpha1.VerdictUse) {
-		minRate := 0.8
-		if tested.MinSuccessRate != "" {
-			if parsed, err := parseFloat(tested.MinSuccessRate); err == nil {
-				minRate = parsed
-			}
-		}
-		// Parse success rate from status (format: "85%")
-		var actualRate float64
-		if report.Status.SuccessRate != "N/A" {
-			fmt.Sscanf(report.Status.SuccessRate, "%f%%", &actualRate)
-			actualRate /= 100
-		}
-		if actualRate >= minRate {
-			return PolicyDecision{
-				Action:     "allow",
-				Confidence: 0.95,
-				Reason:     fmt.Sprintf("tested: verdict=use, success rate %s", report.Status.SuccessRate),
-			}
-		}
-	}
-
-	// Caution or insufficient data — fall through to considering with context
-	return PolicyDecision{}
+	return evaluateTestedTier(ctx, r.Client, policy, server.Name)
 }
 
 // GitHubMetrics contains metrics fetched from GitHub API
@@ -644,7 +595,7 @@ func (r *MCPCatalogReconciler) fetchGitHubMetrics(ctx context.Context, githubURL
 		metrics.Error = fmt.Sprintf("failed to fetch: %v", err)
 		return metrics
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		metrics.Error = fmt.Sprintf("GitHub API returned status %d", resp.StatusCode)
