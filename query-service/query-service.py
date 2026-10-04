@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 Kubemoot RAG Query Service
 A FastAPI service for semantic search against vector stores.
