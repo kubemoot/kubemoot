@@ -111,14 +111,7 @@ func TestReconcileOllamaModel_AbsentTriggersPull(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	model := &aiv1alpha1.Model{
-		ObjectMeta: metav1.ObjectMeta{Name: "qwen-8b", Namespace: testCrewNamespace},
-		Spec:       aiv1alpha1.ModelSpec{Model: testModelID, ProviderRef: testOllamaGPU},
-	}
-	provider := &aiv1alpha1.ModelProvider{
-		ObjectMeta: metav1.ObjectMeta{Name: testOllamaGPU, Namespace: testKubemoot},
-		Spec:       aiv1alpha1.ModelProviderSpec{Type: aiv1alpha1.ProviderTypeOllama, Endpoint: srv.URL},
-	}
+	model, provider := absentOllamaModel(srv.URL)
 	cl := fake.NewClientBuilder().
 		WithScheme(modelTestScheme(t)).
 		WithObjects(model).

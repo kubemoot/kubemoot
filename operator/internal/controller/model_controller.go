@@ -45,7 +45,8 @@ type ModelReconciler struct {
 	HTTPClient *http.Client
 }
 
-// ollamaDisplayName is how errors name the Ollama provider.
+// ollamaDisplayName is how errors name the Ollama provider. It is passed as an
+// argument because staticcheck ST1005 rejects a capitalized error format string.
 const ollamaDisplayName = "Ollama"
 
 // OllamaTagsResponse represents the response from Ollama /api/tags
@@ -209,7 +210,7 @@ func (r *ModelReconciler) reportOllamaModel(ctx context.Context, httpClient *htt
 
 	state := stateAvailable
 	if loaded {
-		state = "Loaded"
+		state = stateLoaded
 	}
 
 	return r.updateModelStatus(ctx, model, state, true, "Model available", info)
@@ -272,7 +273,7 @@ func (r *ModelReconciler) pullOllamaModel(ctx context.Context, httpClient *http.
 	log := logf.FromContext(ctx)
 
 	// Update status to pulling
-	if _, err := r.updateModelStatus(ctx, model, "Pulling", false, "Pulling model from registry", nil); err != nil {
+	if _, err := r.updateModelStatus(ctx, model, statePulling, false, "Pulling model from registry", nil); err != nil {
 		return ctrl.Result{}, err
 	}
 
@@ -322,15 +323,17 @@ func (r *ModelReconciler) pullOllamaModel(ctx context.Context, httpClient *http.
 // reports success without the model ever appearing cannot loop tightly.
 func (r *ModelReconciler) reconcileAfterPull(ctx context.Context, httpClient *http.Client, model *aiv1alpha1.Model, provider *aiv1alpha1.ModelProvider, pullStatus string) (ctrl.Result, error) {
 	modelInfo, err := r.getOllamaModelInfo(ctx, httpClient, provider.Spec.Endpoint, model.Spec.Model)
+	if err == nil && modelInfo != nil {
+		return r.reportOllamaModel(ctx, httpClient, model, provider, modelInfo)
+	}
+	reason := "the model is not listed yet"
 	if err != nil {
-		return r.updateModelStatus(ctx, model, "Pulling", false,
-			fmt.Sprintf("Pull reported %q; listing the model failed: %v", pullStatus, err), nil)
+		reason = fmt.Sprintf("listing the model failed: %v", err)
 	}
-	if modelInfo == nil {
-		return r.updateModelStatus(ctx, model, "Pulling", false,
-			fmt.Sprintf("Pull reported %q; the model is not listed yet", pullStatus), nil)
+	if pullStatus == "" {
+		pullStatus = "no status"
 	}
-	return r.reportOllamaModel(ctx, httpClient, model, provider, modelInfo)
+	return r.updateModelStatus(ctx, model, statePulling, false, fmt.Sprintf("Pull reported %q; %s", pullStatus, reason), nil)
 }
 
 // handleDeletion handles the deletion of a Model
@@ -445,7 +448,7 @@ func (r *ModelReconciler) updateModelStatus(ctx context.Context, model *aiv1alph
 
 	// Requeue periodically to check model state
 	requeueAfter := 5 * time.Minute
-	if state == "Pulling" {
+	if state == statePulling {
 		requeueAfter = 10 * time.Second // Check pulling progress more frequently
 	} else if !ready {
 		requeueAfter = 30 * time.Second

@@ -15,7 +15,8 @@ import (
 
 // Crew phases derived from the agents' own phases.
 const (
-	crewPhasePending  = "Pending"
+	crewPhasePending = "Pending"
+	// crewPhaseReady is the Crew status protocol value, kept independent of phaseReady.
 	crewPhaseReady    = "Ready"
 	crewPhaseDegraded = "Degraded"
 

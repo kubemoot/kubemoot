@@ -117,7 +117,7 @@ func (r *EmbeddingModelReconciler) reconcileOllamaEmbedding(ctx context.Context,
 			return r.updateStatus(ctx, embeddingModel, "Error",
 				fmt.Sprintf("Failed to pull model: %v", err))
 		}
-		return r.updateStatus(ctx, embeddingModel, "Pulling",
+		return r.updateStatus(ctx, embeddingModel, statePulling,
 			fmt.Sprintf("Pulling model %s", embeddingModel.Spec.Model))
 	}
 
@@ -314,7 +314,7 @@ func (r *EmbeddingModelReconciler) updateStatus(ctx context.Context, embeddingMo
 		return ctrl.Result{}, err
 	}
 
-	if state == "Pulling" {
+	if state == statePulling {
 		return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
 	}
 	return ctrl.Result{RequeueAfter: 30 * time.Second}, nil

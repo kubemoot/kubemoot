@@ -68,7 +68,7 @@ func TestModelBindingChangedPredicate(t *testing.T) {
 		t.Error("status noise must not enqueue")
 	}
 	loaded := base.DeepCopy()
-	loaded.Status.Ready, loaded.Status.State = true, "Loaded"
+	loaded.Status.Ready, loaded.Status.State = true, stateLoaded
 	available := loaded.DeepCopy()
 	available.Status.State = testConditionAvailable
 	if p.Update(event.UpdateEvent{ObjectOld: loaded, ObjectNew: available}) ||

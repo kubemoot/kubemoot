@@ -104,6 +104,8 @@ const (
 	phaseDeploying     = "Deploying"
 	phaseIndexing      = "Indexing"
 	stateAvailable     = "Available"
+	statePulling       = "Pulling"
+	stateLoaded        = "Loaded"
 )
 
 // Workload wiring shared by the Deployments and Services the operator builds.
