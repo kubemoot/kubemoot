@@ -221,9 +221,7 @@ write_notes() {
       echo "| ${PLAN_NAMES[$i]} | \`${RELEASE_REGISTRY}/${PLAN_NAMES[$i]}:$(rl_final_of "${PLAN_RCS[$i]}")\` |"
     done
     echo
-    echo "## Changes${prev:+ since ${prev}}"
-    echo
-    rl_release_notes "$prev" "$src"
+    rl_notes_document "$prev" "$src" "${CHART_PREFIX}${chart_final}"
   } > "${OUT_DIR}/notes.md"
 }
 

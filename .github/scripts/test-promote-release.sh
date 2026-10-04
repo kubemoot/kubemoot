@@ -124,7 +124,7 @@ check "final chart pins the final runtime" 1 "$(grep -c 'agent-runtime:0.342.32$
 check "final chart pins no candidate" 0 "$(grep -c -- '-rc\.' <<<"$values" || true)"
 check "final chart appVersion" 1 "$(tar -xzOf "$tgz" kubemoot-operator/Chart.yaml | grep -cE '^appVersion: "?0.343.41"?$')"
 check "packages the final dashboard chart" 1 "$([ -f "${root}/out-dry/kubemoot-dashboard-0.50.1.tgz" ] && echo 1 || echo 0)"
-check "notes list the feature" 1 "$(grep -c '^- feat(runtime): stream tokens' "${root}/out-dry/notes.md")"
+check "notes list the feature" 1 "$(grep -c '^- Stream tokens (' "${root}/out-dry/notes.md")"
 check "notes stop at the candidate" 0 "$(grep -c 'later work' "${root}/out-dry/notes.md" || true)"
 
 # 2. Unexpected inputs.
@@ -148,7 +148,7 @@ check "chart final tag on the candidate commit" "$candidate" "$(git rev-list -n 
 check "component final tag on its candidate commit" "$(git rev-list -n 1 agent-runtime-v0.342.32-rc.3)" "$(git rev-list -n 1 agent-runtime-v0.342.32 2>/dev/null)"
 check "operator final tag" "$(git rev-list -n 1 v0.343.41-rc.2)" "$(git rev-list -n 1 v0.343.41 2>/dev/null)"
 check "notes of the real run start at the previous release" 1 "$(grep -c '^## Changes since v0.343.40' "${root}/out-real/notes.md")"
-check "notes of the real run list the feature" 1 "$(grep -c '^- feat(runtime): stream tokens' "${root}/out-real/notes.md")"
+check "notes of the real run list the feature" 1 "$(grep -c '^- Stream tokens (' "${root}/out-real/notes.md")"
 check "names the GitHub Release" "operator-chart-v0.92.582|Kubemoot 0.92.582|notes.md" "$(tr '\t' '|' < "${root}/out-real/releases.tsv")"
 check "leaves no scratch worktree" 1 "$(git worktree list | wc -l | tr -d ' ')"
 check "copies five images" 5 "$(grep -c '^crane copy' "$LOG")"

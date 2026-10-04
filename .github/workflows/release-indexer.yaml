@@ -48,7 +48,7 @@ jobs:
 
       - name: Calculate the release candidate version
         id: version
-        uses: kubemoot/release-actions/release-candidate-version@cee9e2e1fd27c0cc9196578af77dd7b07a585e4f # v0.1.0
+        uses: kubemoot/release-actions/release-candidate-version@76c35a749b9db4105e73307b91b8f7cf1359b755 # v0.4.0
         with:
           tag_prefix: "indexer-v"
           force: ${{ inputs.force_release }}
