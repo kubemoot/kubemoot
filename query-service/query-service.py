@@ -5,25 +5,23 @@ A FastAPI service for semantic search against vector stores.
 Auto-deployed by the operator for each RAGSource.
 """
 
-import os
-import re
-import time
 import logging
-from pathlib import Path
-from typing import Optional
+import os
+import time
 from contextlib import asynccontextmanager
-from urllib.parse import urlparse, parse_qs
+from pathlib import Path
+from urllib.parse import urlparse
+
+import httpx
+import psycopg2
+from fastapi import FastAPI, HTTPException
+from psycopg2 import sql
+from psycopg2.extras import RealDictCursor
+from pydantic import BaseModel, Field
 
 # Read version from VERSION file
 VERSION_FILE = Path(__file__).parent / "VERSION"
 VERSION = VERSION_FILE.read_text().strip() if VERSION_FILE.exists() else "0.0.0-dev"
-
-from fastapi import FastAPI, HTTPException, Request
-from pydantic import BaseModel, Field
-import httpx
-import psycopg2
-from psycopg2 import sql
-from psycopg2.extras import RealDictCursor
 
 # Configure logging
 logging.basicConfig(
@@ -218,7 +216,7 @@ async def lifespan(app: FastAPI):
     try:
         get_db_connection()
         logger.info("  Database connection: OK")
-    except Exception as e:
+    except psycopg2.Error as e:
         logger.warning("  Database connection: FAILED (%s)", e)
 
     yield
@@ -239,9 +237,9 @@ app = FastAPI(
 class QueryRequest(BaseModel):
     """Query request model."""
     query: str = Field(..., description="The search query text")
-    top_k: Optional[int] = Field(None, description="Number of results to return", ge=1, le=100)
-    threshold: Optional[float] = Field(None, description="Minimum similarity score (0-1)", ge=0, le=1)
-    filter: Optional[dict] = Field(None, description="Metadata filters")
+    top_k: int | None = Field(None, description="Number of results to return", ge=1, le=100)
+    threshold: float | None = Field(None, description="Minimum similarity score (0-1)", ge=0, le=1)
+    filter: dict | None = Field(None, description="Metadata filters")
 
 
 class SearchResult(BaseModel):
@@ -295,7 +293,7 @@ async def ready():
         conn = get_db_connection()
         with conn.cursor() as cur:
             cur.execute("SELECT 1")
-    except Exception as e:
+    except psycopg2.Error as e:
         errors.append(f"database: {e}")
 
     # Check embedding service
@@ -306,7 +304,7 @@ async def ready():
             else:
                 response = await client.get(f"{EMBEDDING_ENDPOINT}/v1/models")
             response.raise_for_status()
-    except Exception as e:
+    except httpx.HTTPError as e:
         errors.append(f"embedding: {e}")
 
     if errors:
@@ -323,7 +321,6 @@ async def query(request: QueryRequest):
     The query text is embedded using the configured embedding model,
     then similarity search is performed against the vector store.
     """
-    global metrics
     metrics["queries_total"] += 1
 
     top_k = request.top_k or DEFAULT_TOP_K
@@ -405,20 +402,20 @@ async def query(request: QueryRequest):
             search_time_ms=search_time_ms,
         )
 
-    except psycopg2.errors.UndefinedTable:
+    except psycopg2.errors.UndefinedTable as e:
         metrics["queries_error"] += 1
         raise HTTPException(
             status_code=404,
             detail=f"Collection '{COLLECTION}' not found. Has indexing completed?"
-        )
+        ) from e
     except httpx.HTTPError as e:
         metrics["queries_error"] += 1
         logger.error("Embedding service error: %s", e)
-        raise HTTPException(status_code=502, detail=f"Embedding service error: {e}")
+        raise HTTPException(status_code=502, detail=f"Embedding service error: {e}") from e
     except Exception as e:
         metrics["queries_error"] += 1
-        logger.error("Query failed: %s", e)
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.exception("Query failed")
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @app.get("/info")
@@ -432,7 +429,7 @@ async def info():
         with conn.cursor() as cur:
             cur.execute(sql.SQL("SELECT COUNT(*) FROM {}").format(table_name))
             stats["document_count"] = cur.fetchone()[0]
-    except Exception:
+    except psycopg2.Error:
         # Stats are best-effort; any failure (missing table, db down) leaves count unknown.
         stats["document_count"] = None
 

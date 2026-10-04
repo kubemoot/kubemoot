@@ -411,9 +411,9 @@ func (r *AgentReconciler) createOrUpdateResumeRAGSource(ctx context.Context, coo
 				Name:      ragSourceName,
 				Namespace: coordinator.Namespace,
 				Labels: map[string]string{
-					"app.kubernetes.io/managed-by": "kubemoot-operator",
-					"app.kubernetes.io/component":  "resume-rag",
-					crewLabelKey:                   crewName,
+					labelManagedBy:                managedByValue,
+					"app.kubernetes.io/component": "resume-rag",
+					crewLabelKey:                  crewName,
 				},
 			},
 			Spec: desiredSpec,

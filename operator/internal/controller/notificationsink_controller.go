@@ -32,6 +32,13 @@ import (
 	kubemootv1alpha1 "github.com/kubemoot/kubemoot/operator/api/v1alpha1"
 )
 
+// Reasons a NotificationSink is invalid, and the plain-HTTP URL scheme it accepts.
+const (
+	reasonInvalidHeader = "InvalidHeader"
+	reasonInvalidURL    = "InvalidURL"
+	schemeHTTP          = "http"
+)
+
 // NotificationSinkReconciler validates NotificationSink CRs and surfaces the
 // result on the Ready condition. The actual webhook dispatch happens in the
 // notifications package's Dispatcher runnable — this reconciler does not
@@ -61,7 +68,7 @@ func (r *NotificationSinkReconciler) Reconcile(ctx context.Context, req ctrl.Req
 	sink.Status.Ready = ready
 
 	cond := metav1.Condition{
-		Type:               "Ready",
+		Type:               conditionTypeReady,
 		Status:             metav1.ConditionTrue,
 		Reason:             "Validated",
 		Message:            "webhook config valid",
@@ -94,13 +101,13 @@ func validateSinkSpec(spec *kubemootv1alpha1.NotificationSinkSpec) (string, stri
 	for i := range spec.Webhook.Headers {
 		h := &spec.Webhook.Headers[i]
 		if h.Name == "" {
-			return "InvalidHeader", fmt.Sprintf("headers[%d]: name is required", i)
+			return reasonInvalidHeader, fmt.Sprintf("headers[%d]: name is required", i)
 		}
 		if h.Value == "" && h.ValueFrom == nil {
-			return "InvalidHeader", fmt.Sprintf("headers[%d]: one of value or valueFrom is required", i)
+			return reasonInvalidHeader, fmt.Sprintf("headers[%d]: one of value or valueFrom is required", i)
 		}
 		if h.Value != "" && h.ValueFrom != nil {
-			return "InvalidHeader", fmt.Sprintf("headers[%d]: value and valueFrom are mutually exclusive", i)
+			return reasonInvalidHeader, fmt.Sprintf("headers[%d]: value and valueFrom are mutually exclusive", i)
 		}
 	}
 	return "", ""
@@ -109,14 +116,14 @@ func validateSinkSpec(spec *kubemootv1alpha1.NotificationSinkSpec) (string, stri
 func validateWebhookURL(raw string) (string, string) {
 	parsed, err := url.Parse(raw)
 	if err != nil {
-		return "InvalidURL", err.Error()
+		return reasonInvalidURL, err.Error()
 	}
 	scheme := strings.ToLower(parsed.Scheme)
-	if scheme != "http" && scheme != "https" {
-		return "InvalidURL", fmt.Sprintf("scheme must be http or https; got %q", parsed.Scheme)
+	if scheme != schemeHTTP && scheme != "https" {
+		return reasonInvalidURL, fmt.Sprintf("scheme must be http or https; got %q", parsed.Scheme)
 	}
 	if parsed.Host == "" {
-		return "InvalidURL", "host is required"
+		return reasonInvalidURL, "host is required"
 	}
 	return "", ""
 }

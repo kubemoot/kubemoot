@@ -456,6 +456,144 @@ class DiscussionOrchestratorHelpersTest {
                 () -> retrying.synthesizeWithCompleteness("sys", NAMESPACES, "t-c"));
     }
 
+    // --- classifyNoAgreeGap / isToolerGapCandidate ---
+
+    @Test
+    void classifyNoAgreeGap_toolGapTakesPrecedenceOverInfrastructureGap() {
+        var state = new DiscussionOrchestrator.ThreadState("t1");
+        state.concernSignals.put("k8s-agent", "needs a metrics tool");
+        state.failureSignals.put("helm-agent", "mcp call failed");
+        assertEquals(DiscussionOrchestrator.GapType.TOOL_GAP, DiscussionOrchestrator.classifyNoAgreeGap(state));
+    }
+
+    @Test
+    void classifyNoAgreeGap_infrastructureGapWhenOnlyFailures() {
+        var state = new DiscussionOrchestrator.ThreadState("t1");
+        state.failureSignals.put("helm-agent", "mcp call failed");
+        assertEquals(DiscussionOrchestrator.GapType.INFRASTRUCTURE_GAP, DiscussionOrchestrator.classifyNoAgreeGap(state));
+    }
+
+    @Test
+    void classifyNoAgreeGap_noneWithoutConcernsOrFailures() {
+        var state = new DiscussionOrchestrator.ThreadState("t1");
+        state.standAsideSignals.add("k8s-agent");
+        assertEquals(DiscussionOrchestrator.GapType.NONE, DiscussionOrchestrator.classifyNoAgreeGap(state));
+    }
+
+    @Test
+    void classifyGap_concernsAndFailuresIgnoredWhenAToolerAgreed() {
+        var state = new DiscussionOrchestrator.ThreadState("t1");
+        state.concernSignals.put("k8s-agent", "needs a metrics tool");
+        state.failureSignals.put("helm-agent", "mcp call failed");
+        assertEquals(DiscussionOrchestrator.GapType.NONE,
+                orchestrator.classifyGap(state, 1, "Pods are healthy."));
+    }
+
+    @Test
+    void isToolerGapCandidate_standAsidesWithoutAgreesOrConcerns() {
+        var state = new DiscussionOrchestrator.ThreadState("t1");
+        state.standAsideSignals.add("k8s-agent");
+        assertTrue(orchestrator.isToolerGapCandidate(state, 0));
+    }
+
+    @Test
+    void isToolerGapCandidate_notFlaggedWhenAToolerAgreed() {
+        var state = new DiscussionOrchestrator.ThreadState("t1");
+        state.standAsideSignals.add("k8s-agent");
+        assertFalse(orchestrator.isToolerGapCandidate(state, 1));
+    }
+
+    @Test
+    void isToolerGapCandidate_notFlaggedWithConcerns() {
+        var state = new DiscussionOrchestrator.ThreadState("t1");
+        state.standAsideSignals.add("k8s-agent");
+        state.concernSignals.put("helm-agent", "needs a tool");
+        assertFalse(orchestrator.isToolerGapCandidate(state, 0));
+    }
+
+    @Test
+    void isToolerGapCandidate_lowTriageConfidenceFlagsEvenWithAnAgree() {
+        var state = new DiscussionOrchestrator.ThreadState("t1");
+        state.triageConfidence = 0.2;
+        assertTrue(orchestrator.isToolerGapCandidate(state, 1));
+    }
+
+    @Test
+    void isToolerGapCandidate_confidenceBoundsAndUnsetConfidence() {
+        var state = new DiscussionOrchestrator.ThreadState("t1");
+        assertFalse(orchestrator.isToolerGapCandidate(state, 1), "unset confidence (-1) is not low");
+        state.triageConfidence = 0.3;
+        assertFalse(orchestrator.isToolerGapCandidate(state, 1), "0.3 is not below the threshold");
+        state.triageConfidence = 0.0;
+        assertTrue(orchestrator.isToolerGapCandidate(state, 1));
+    }
+
+    // --- looksLikeGapReport phrases ---
+
+    @Test
+    void looksLikeGapReport_everyPhraseMatchesCaseInsensitively() {
+        for (String phrase : DiscussionOrchestrator.GAP_REPORT_PHRASES) {
+            assertTrue(orchestrator.looksLikeGapReport("Sorry, I " + phrase.toUpperCase() + " here."), phrase);
+        }
+        assertEquals(8, DiscussionOrchestrator.GAP_REPORT_PHRASES.size());
+        assertFalse(orchestrator.looksLikeGapReport("The cluster has three nodes."));
+        assertFalse(orchestrator.looksLikeGapReport(null));
+    }
+
+    // --- recordSelectedSkills ---
+
+    @Test
+    void recordSelectedSkills_storesTheSelection() {
+        var state = new DiscussionOrchestrator.ThreadState("t1");
+        orchestrator.recordSelectedSkills(state, List.of("runbook", "upgrade"));
+        assertEquals(java.util.Set.of("runbook", "upgrade"), state.selectedSkills);
+    }
+
+    @Test
+    void recordSelectedSkills_emptySelectionLeavesStateUnchanged() {
+        var state = new DiscussionOrchestrator.ThreadState("t1");
+        var before = state.selectedSkills;
+        orchestrator.recordSelectedSkills(state, List.of());
+        assertSame(before, state.selectedSkills);
+    }
+
+    // --- advisoryReadyMetadata ---
+
+    @Test
+    void advisoryReadyMetadata_minimalStateCarriesOnlyTheBaseFields() {
+        var state = new DiscussionOrchestrator.ThreadState("t1");
+        state.userQuery = "why is the pod pending?";
+        state.primaryChannel = "kubernetes";
+        var meta = orchestrator.advisoryReadyMetadata(state, List.of(), "");
+        assertEquals("why is the pod pending?", meta.get("userQuery"));
+        assertEquals("kubernetes", meta.get("primaryChannel"));
+        assertTrue(meta.containsKey("gpuLabel"));
+        assertTrue(meta.containsKey("modelName"));
+        assertFalse(meta.containsKey("technologies"));
+        assertFalse(meta.containsKey("advisory"));
+        assertFalse(meta.containsKey("conversationContext"));
+        assertFalse(meta.containsKey("innerCircle"));
+        assertFalse(meta.containsKey("triageConfidence"));
+        assertFalse(meta.containsKey("selectedSkills"));
+    }
+
+    @Test
+    void advisoryReadyMetadata_fullStateCarriesEveryOptionalField() {
+        var state = new DiscussionOrchestrator.ThreadState("t1");
+        state.userQuery = "q";
+        state.primaryChannel = "general";
+        state.innerCircle = java.util.concurrent.ConcurrentHashMap.newKeySet();
+        state.innerCircle.add("k8s-agent");
+        state.triageConfidence = 0.9;
+        orchestrator.recordSelectedSkills(state, List.of("runbook"));
+        var meta = orchestrator.advisoryReadyMetadata(state, List.of("k8s"), "check the scheduler");
+        assertEquals(List.of("k8s"), meta.get("technologies"));
+        assertEquals("check the scheduler", meta.get("advisory"));
+        assertEquals(List.of("k8s-agent"), meta.get("innerCircle"));
+        assertEquals(0.9, meta.get("triageConfidence"));
+        assertEquals(List.of("runbook"), meta.get("selectedSkills"));
+    }
+
     // --- Helper ---
 
     private DiscussionOrchestrator createOrchestrator(String channels) {

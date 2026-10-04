@@ -35,7 +35,7 @@ func baseDeployment() *appsv1.Deployment {
 			Replicas: &replicas,
 			Template: corev1.PodTemplateSpec{
 				ObjectMeta: metav1.ObjectMeta{
-					Labels: map[string]string{"app": "test"},
+					Labels: map[string]string{"app": testFixtureAgent},
 				},
 				Spec: corev1.PodSpec{
 					Containers: []corev1.Container{
@@ -43,7 +43,7 @@ func baseDeployment() *appsv1.Deployment {
 							Name:  "agent",
 							Image: "harbor/agent:v1.0.0",
 							Env: []corev1.EnvVar{
-								{Name: "KUBEMOOT_AGENT_NAME", Value: "test"},
+								{Name: "KUBEMOOT_AGENT_NAME", Value: testFixtureAgent},
 							},
 						},
 					},
@@ -106,7 +106,7 @@ func TestComputeDeploymentHash_ChangesOnReplicasChange(t *testing.T) {
 func TestComputeDeploymentHash_StableOnAnnotationChange(t *testing.T) {
 	d1 := baseDeployment()
 	d2 := baseDeployment()
-	d2.ObjectMeta.Annotations["new-annotation"] = "new-value"
+	d2.Annotations["new-annotation"] = "new-value"
 
 	h1 := computeDeploymentHash(d1)
 	h2 := computeDeploymentHash(d2)

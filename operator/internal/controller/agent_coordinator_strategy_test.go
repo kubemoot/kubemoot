@@ -32,11 +32,11 @@ func TestCoordinatorUsesRecreateStrategy(t *testing.T) {
 	}
 	cli := fake.NewClientBuilder().WithScheme(scheme).Build()
 	r := &AgentReconciler{Client: cli}
-	pick := &modelPick{ModelID: "qwen3:8b", Endpoint: "http://ollama:11434"}
+	pick := &modelPick{ModelID: testModelID, Endpoint: testOllamaURL}
 
 	coord := &kubemootv1alpha1.Agent{
-		ObjectMeta: metav1.ObjectMeta{Name: "homelab-coordinator", Namespace: "crew-x"},
-		Spec:       kubemootv1alpha1.AgentSpec{DiscussRole: "coordinator"},
+		ObjectMeta: metav1.ObjectMeta{Name: testHomelabCoordinator, Namespace: testCrewNamespace},
+		Spec:       kubemootv1alpha1.AgentSpec{DiscussRole: testRoleCoordinator},
 	}
 	d := r.buildDeployment(context.Background(), coord, pick, pick, "coordinator-policy", "h")
 	if d.Spec.Strategy.Type != appsv1.RecreateDeploymentStrategyType {
@@ -44,8 +44,8 @@ func TestCoordinatorUsesRecreateStrategy(t *testing.T) {
 	}
 
 	tooler := &kubemootv1alpha1.Agent{
-		ObjectMeta: metav1.ObjectMeta{Name: "k8s-nodes", Namespace: "crew-x"},
-		Spec:       kubemootv1alpha1.AgentSpec{DiscussRole: "tooler"},
+		ObjectMeta: metav1.ObjectMeta{Name: testK8sNodes, Namespace: testCrewNamespace},
+		Spec:       kubemootv1alpha1.AgentSpec{DiscussRole: testRoleTooler},
 	}
 	dt := r.buildDeployment(context.Background(), tooler, pick, pick, "tooler-policy", "h")
 	if dt.Spec.Strategy.Type == appsv1.RecreateDeploymentStrategyType {

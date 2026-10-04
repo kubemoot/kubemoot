@@ -1,6 +1,7 @@
 plugins {
     java
     jacoco
+    checkstyle
     id("io.quarkus")
 }
 
@@ -12,6 +13,16 @@ java {
     toolchain {
         languageVersion = JavaLanguageVersion.of(25)
     }
+}
+
+
+// The repository's shared complexity ruleset (config/checkstyle/checkstyle.xml) runs
+// over main and test sources as part of `check`; any finding fails the build.
+checkstyle {
+    toolVersion = "14.3.0"
+    configFile = rootDir.resolve("../config/checkstyle/checkstyle.xml")
+    maxWarnings = 0
+    isIgnoreFailures = false
 }
 
 repositories {

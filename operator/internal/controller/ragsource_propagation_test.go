@@ -49,7 +49,7 @@ func TestRAGSourceEnqueueScopesToReferencingAgents(t *testing.T) {
 	cli := fake.NewClientBuilder().WithScheme(scheme).WithObjects(
 		mkAgentWithRAG("material-writer", "course-book", "syllabus-notes"),
 		mkAgentWithRAG("material-checker", "course-book"),
-		mkAgentWithRAG("coordinator"),
+		mkAgentWithRAG(testRoleCoordinator),
 	).Build()
 
 	got := mapRAGSourceToAgentRequests(context.Background(), cli, mkRAGSource("course-book", ""))

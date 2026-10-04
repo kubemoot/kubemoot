@@ -127,7 +127,7 @@ func (r *MCPServerReconciler) ensureFinalizer(ctx context.Context, mcpServer *ku
 	if err := addFinalizer(ctx, r.Client, mcpServer, mcpServerFinalizer); err != nil {
 		return false, ctrl.Result{}, err
 	}
-	return true, ctrl.Result{Requeue: true}, nil
+	return true, requeueNow(), nil
 }
 
 // shouldCreateMCPServerService reports whether a Service should be created.
@@ -159,7 +159,7 @@ func mcpServerProxyPort(mcpServer *kubemootv1alpha1.MCPServer) int32 {
 func (r *MCPServerReconciler) reconcileExternalMCPServer(ctx context.Context, mcpServer *kubemootv1alpha1.MCPServer) (ctrl.Result, error) {
 	// External MCP servers don't need deployment or service
 	// Just set the status with the external endpoint
-	return r.updateStatus(ctx, mcpServer, "Ready", true, "External MCP server",
+	return r.updateStatus(ctx, mcpServer, phaseReady, true, "External MCP server",
 		withEndpoint(mcpServer.Spec.ExternalEndpoint),
 		withCapabilities(mcpServer.Spec.Capabilities))
 }
@@ -495,7 +495,7 @@ func applyMCPServerSecurityContext(container *corev1.Container, strictSecurity b
 			RunAsGroup:               &runAsGroup,
 			SeccompProfile:           &seccompProfile,
 			Capabilities: &corev1.Capabilities{
-				Drop: []corev1.Capability{"ALL"},
+				Drop: []corev1.Capability{dropAllCapability},
 			},
 		}
 	} else {
@@ -503,7 +503,7 @@ func applyMCPServerSecurityContext(container *corev1.Container, strictSecurity b
 			AllowPrivilegeEscalation: &allowPrivilegeEscalation,
 			SeccompProfile:           &seccompProfile,
 			Capabilities: &corev1.Capabilities{
-				Drop: []corev1.Capability{"ALL"},
+				Drop: []corev1.Capability{dropAllCapability},
 			},
 		}
 	}
@@ -543,8 +543,9 @@ func overlaySecurityContext(base, override *corev1.SecurityContext) *corev1.Secu
 
 // buildMCPServerVolumes creates secret and emptyDir volumes from MCPServer spec.
 func buildMCPServerVolumes(mcpServer *kubemootv1alpha1.MCPServer) ([]corev1.Volume, []corev1.VolumeMount) {
-	var volumes []corev1.Volume
-	var volumeMounts []corev1.VolumeMount
+	count := len(mcpServer.Spec.SecretVolumes) + len(mcpServer.Spec.EmptyDirVolumes)
+	volumes := make([]corev1.Volume, 0, count)
+	volumeMounts := make([]corev1.VolumeMount, 0, count)
 
 	for i, sv := range mcpServer.Spec.SecretVolumes {
 		volumeName := fmt.Sprintf("secret-vol-%d", i)
@@ -638,7 +639,7 @@ func (r *MCPServerReconciler) applyBridgeSidecar(
 			"--pipe-dir", bridgePipeDir,
 		},
 		Ports: []corev1.ContainerPort{{
-			Name:          "http",
+			Name:          portNameHTTP,
 			ContainerPort: proxyPort,
 			Protocol:      corev1.ProtocolTCP,
 		}},
@@ -730,8 +731,7 @@ func (r *MCPServerReconciler) applyBridgeSidecar(
 		cmdParts = container.Args
 	}
 
-	execArgs := []string{"exec", "--pipe-dir", bridgePipeDir, "--"}
-	execArgs = append(execArgs, cmdParts...)
+	execArgs := append([]string{"exec", "--pipe-dir", bridgePipeDir, "--"}, cmdParts...)
 	container.Command = []string{"/pipes/kubemoot-mcp-bridge"}
 	container.Args = execArgs
 
@@ -876,7 +876,7 @@ func (r *MCPServerReconciler) updateStatusFromDeployment(ctx context.Context, mc
 	phase, ready, message := determineDeploymentPhase(deployment)
 
 	if ready {
-		if mcpServer.Status.Phase != "Ready" {
+		if mcpServer.Status.Phase != phaseReady {
 			r.recordDeploymentTrial(ctx, mcpServer, true, message)
 		}
 		if mcpServer.Spec.Registry != nil && kubemootv1alpha1.BoolOrTrue(mcpServer.Spec.Registry.Enabled) {
@@ -899,17 +899,17 @@ func (r *MCPServerReconciler) updateStatusFromDeployment(ctx context.Context, mc
 // determineDeploymentPhase derives phase, readiness, and message from Deployment status.
 func determineDeploymentPhase(deployment *appsv1.Deployment) (string, bool, string) {
 	if deployment.Status.ReadyReplicas > 0 && deployment.Status.ReadyReplicas == deployment.Status.Replicas {
-		return "Ready", true, fmt.Sprintf("%d/%d replicas ready", deployment.Status.ReadyReplicas, deployment.Status.Replicas)
+		return phaseReady, true, fmt.Sprintf("%d/%d replicas ready", deployment.Status.ReadyReplicas, deployment.Status.Replicas)
 	}
 	if deployment.Status.ReadyReplicas > 0 {
 		return "Degraded", false, fmt.Sprintf("%d/%d replicas ready", deployment.Status.ReadyReplicas, deployment.Status.Replicas)
 	}
-	return "Deploying", false, "Deployment in progress"
+	return phaseDeploying, false, "Deployment in progress"
 }
 
 // recordFailedDeploymentTrial checks for stalled deployments and records a failed trial.
 func (r *MCPServerReconciler) recordFailedDeploymentTrial(ctx context.Context, mcpServer *kubemootv1alpha1.MCPServer, deployment *appsv1.Deployment, ready bool) {
-	if ready || mcpServer.Status.Phase != "Deploying" || deployment.Status.Replicas == 0 || deployment.Status.ReadyReplicas > 0 {
+	if ready || mcpServer.Status.Phase != phaseDeploying || deployment.Status.Replicas == 0 || deployment.Status.ReadyReplicas > 0 {
 		return
 	}
 	for _, cond := range deployment.Status.Conditions {
@@ -1061,7 +1061,7 @@ func (r *MCPServerReconciler) updateStatus(ctx context.Context, mcpServer *kubem
 
 	// Set condition
 	condition := metav1.Condition{
-		Type:               "Ready",
+		Type:               conditionTypeReady,
 		Status:             metav1.ConditionFalse,
 		Reason:             phase,
 		Message:            message,
@@ -1082,11 +1082,11 @@ func (r *MCPServerReconciler) updateStatus(ctx context.Context, mcpServer *kubem
 		_ = r.NATSPublisher.Publish(
 			fmt.Sprintf("kubemoot.operator.mcpserver.%s.status", mcpServer.Name),
 			map[string]interface{}{
-				"name":     mcpServer.Name,
-				"phase":    phase,
-				"ready":    ready,
-				"replicas": mcpServer.Status.Replicas,
-				"message":  message,
+				jsonKeyName:    mcpServer.Name,
+				jsonKeyPhase:   phase,
+				"ready":        ready,
+				"replicas":     mcpServer.Status.Replicas,
+				jsonKeyMessage: message,
 			},
 		)
 	}
@@ -1171,13 +1171,13 @@ func (r *MCPServerReconciler) recordDeploymentTrial(ctx context.Context, mcpServ
 		_ = r.NATSPublisher.Publish(
 			fmt.Sprintf("kubemoot.chronicle.%s.trial", mcpServer.Name),
 			map[string]interface{}{
-				"server":    mcpServer.Name,
-				"phase":     "deploy",
-				"success":   success,
-				"transport": string(mcpServer.Spec.Transport),
-				"version":   mcpServer.Labels[labelVersion],
-				"image":     mcpServer.Spec.Image,
-				"message":   message,
+				jsonKeyServer:  mcpServer.Name,
+				jsonKeyPhase:   "deploy",
+				jsonKeySuccess: success,
+				"transport":    string(mcpServer.Spec.Transport),
+				"version":      mcpServer.Labels[labelVersion],
+				"image":        mcpServer.Spec.Image,
+				jsonKeyMessage: message,
 			},
 		)
 	}

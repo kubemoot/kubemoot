@@ -13,8 +13,10 @@ const (
 	// operator never writes it.
 	managedNamespaceLabel = "kubemoot.ai/managed-namespace"
 	// managedNamespaceOptIn is the value of managedNamespaceLabel that grants consent.
+	// It is a consent-protocol value, kept independent of the generic valueTrue.
 	managedNamespaceOptIn = "true"
 	// manageNamespaceRequested is the value of the Crew annotation manageNamespaceAnno.
+	// It is a consent-protocol value, kept independent of the generic valueTrue.
 	manageNamespaceRequested = "true"
 )
 

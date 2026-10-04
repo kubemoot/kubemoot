@@ -40,8 +40,8 @@ func TestHelperBuildGitSourceEnv(t *testing.T) {
 			Spec: kubemootv1alpha1.RAGSourceSpec{
 				Source: kubemootv1alpha1.SourceConfig{
 					Git: &kubemootv1alpha1.GitSource{
-						URL:    "https://github.com/test/repo",
-						Branch: "main",
+						URL:    testRepoURL,
+						Branch: testMain,
 					},
 				},
 			},
@@ -50,7 +50,7 @@ func TestHelperBuildGitSourceEnv(t *testing.T) {
 		if len(env) != 2 {
 			t.Fatalf("expected 2 env vars, got %d", len(env))
 		}
-		if env[0].Value != "https://github.com/test/repo" {
+		if env[0].Value != testRepoURL {
 			t.Errorf("unexpected git URL: %s", env[0].Value)
 		}
 	})
@@ -60,8 +60,8 @@ func TestHelperBuildGitSourceEnv(t *testing.T) {
 			Spec: kubemootv1alpha1.RAGSourceSpec{
 				Source: kubemootv1alpha1.SourceConfig{
 					Git: &kubemootv1alpha1.GitSource{
-						URL:    "https://github.com/test/repo",
-						Branch: "main",
+						URL:    testRepoURL,
+						Branch: testMain,
 						Paths:  []string{"docs", "content"},
 					},
 				},
@@ -214,7 +214,7 @@ func TestHelperBuildSourceTypeEnv(t *testing.T) {
 					Type: kubemootv1alpha1.RAGSourceTypeGit,
 					Git: &kubemootv1alpha1.GitSource{
 						URL:    "https://example.com",
-						Branch: "main",
+						Branch: testMain,
 					},
 				},
 			},
@@ -229,7 +229,7 @@ func TestHelperBuildSourceTypeEnv(t *testing.T) {
 		rs := &kubemootv1alpha1.RAGSource{
 			Spec: kubemootv1alpha1.RAGSourceSpec{
 				Source: kubemootv1alpha1.SourceConfig{
-					Type: "unknown",
+					Type: testUnknown,
 				},
 			},
 		}

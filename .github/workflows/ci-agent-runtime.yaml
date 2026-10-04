@@ -9,6 +9,7 @@ on:
     branches: [main]
     paths:
       - 'agent-runtime/**'
+      - 'config/checkstyle/**'
   workflow_dispatch:
     inputs:
       native_check:

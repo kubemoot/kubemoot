@@ -419,7 +419,7 @@ func (r *CrewFitnessReconciler) buildJob(cf *kubemootv1alpha1.CrewFitness, jobNa
 		labelManagedBy:            managedByValue,
 		labelComponent:            componentFitnessRunner,
 		"kubemoot.ai/crewfitness": cf.Name,
-		labelFitnessHarness:       "true",
+		labelFitnessHarness:       valueTrue,
 	}
 
 	// Retry transient/infra failures. The runner exits non-zero ONLY when it

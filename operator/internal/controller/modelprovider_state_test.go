@@ -82,14 +82,14 @@ func availableFootprintsMiB(available []aiv1alpha1.AvailableModel, loaded map[st
 // coordinated with the Java side. Catches accidental shape drift.
 func TestProviderStateJSONContract(t *testing.T) {
 	state := ProviderState{
-		Name:         "ollama-gpu",
-		Endpoint:     "http://ollama.ollama-rig0:11434",
+		Name:         testOllamaGPU,
+		Endpoint:     testRig0URL,
 		MaxParallel:  2,
 		ActiveCount:  1,
 		QueueDepth:   0,
-		LoadedModels: []string{"qwen3:32b", "qwen3:8b"},
+		LoadedModels: []string{testModel32B, testModelID},
 		Ready:        true,
-		LastProbedAt: "2026-05-25T06:30:00Z",
+		LastProbedAt: testProbedAt,
 	}
 	bytes, err := json.Marshal(state)
 	if err != nil {
@@ -105,9 +105,9 @@ func TestProviderStateJSONContract(t *testing.T) {
 	}
 
 	wantStrings := map[string]string{
-		"name":         "ollama-gpu",
-		"endpoint":     "http://ollama.ollama-rig0:11434",
-		"lastProbedAt": "2026-05-25T06:30:00Z",
+		"name":         testOllamaGPU,
+		"endpoint":     testRig0URL,
+		"lastProbedAt": testProbedAt,
 	}
 	for k, want := range wantStrings {
 		if got[k] != want {
@@ -126,6 +126,12 @@ func TestProviderStateJSONContract(t *testing.T) {
 		}
 	}
 
+	assertProviderStateReadyAndModels(t, got)
+}
+
+// assertProviderStateReadyAndModels checks the ready flag and the loadedModels array of a marshaled ProviderState.
+func assertProviderStateReadyAndModels(t *testing.T, got map[string]interface{}) {
+	t.Helper()
 	if got["ready"] != true {
 		t.Errorf("field ready = %v; want true", got["ready"])
 	}
@@ -134,7 +140,7 @@ func TestProviderStateJSONContract(t *testing.T) {
 	if !ok || len(models) != 2 {
 		t.Fatalf("loadedModels = %v; want 2-elem array", got["loadedModels"])
 	}
-	if models[0] != "qwen3:32b" || models[1] != "qwen3:8b" {
+	if models[0] != testModel32B || models[1] != testModelID {
 		t.Errorf("loadedModels = %v; want [qwen3:32b, qwen3:8b]", models)
 	}
 }
@@ -144,11 +150,11 @@ func TestProviderStateJSONContract(t *testing.T) {
 // omitempty tag is the user-facing contract; this test pins it.
 func TestProviderStateOmitsEmptyLoadedModels(t *testing.T) {
 	state := ProviderState{
-		Name:         "ollama-rig1",
+		Name:         testOllamaRig1,
 		Endpoint:     "http://ollama.ollama-rig1:11434",
 		MaxParallel:  1,
 		Ready:        true,
-		LastProbedAt: "2026-05-25T06:30:00Z",
+		LastProbedAt: testProbedAt,
 		// LoadedModels intentionally nil
 	}
 	bytes, err := json.Marshal(state)
@@ -171,16 +177,16 @@ func TestProviderStateOmitsEmptyLoadedModels(t *testing.T) {
 // their own dedicated tests.
 func TestProviderStateBuildFromMP(t *testing.T) {
 	mp := &aiv1alpha1.ModelProvider{
-		ObjectMeta: metav1.ObjectMeta{Name: "ollama-gpu"},
+		ObjectMeta: metav1.ObjectMeta{Name: testOllamaGPU},
 		Spec: aiv1alpha1.ModelProviderSpec{
-			Endpoint: "http://ollama.ollama-rig0:11434",
+			Endpoint: testRig0URL,
 		},
 		Status: aiv1alpha1.ModelProviderStatus{
 			Ready: true,
 			Capacity: &aiv1alpha1.DiscoveredCapacity{
 				MaxParallel: 2,
 				LoadedModels: []aiv1alpha1.LoadedModel{
-					{Name: "qwen3:32b"},
+					{Name: testModel32B},
 				},
 			},
 		},
@@ -203,13 +209,13 @@ func TestProviderStateBuildFromMP(t *testing.T) {
 		state.MaxParallel = 1
 	}
 
-	if state.Name != "ollama-gpu" {
+	if state.Name != testOllamaGPU {
 		t.Errorf("Name = %q; want ollama-gpu", state.Name)
 	}
 	if state.MaxParallel != 2 {
 		t.Errorf("MaxParallel = %d; want 2", state.MaxParallel)
 	}
-	if len(state.LoadedModels) != 1 || state.LoadedModels[0] != "qwen3:32b" {
+	if len(state.LoadedModels) != 1 || state.LoadedModels[0] != testModel32B {
 		t.Errorf("LoadedModels = %v; want [qwen3:32b]", state.LoadedModels)
 	}
 
@@ -241,14 +247,14 @@ func TestProviderStateBuildFromMP(t *testing.T) {
 // rename here must be coordinated on the Java side.
 func TestProviderStateV2Fields(t *testing.T) {
 	state := ProviderState{
-		Name:         "ollama-gpu",
-		Endpoint:     "http://ollama.ollama-rig0:11434",
+		Name:         testOllamaGPU,
+		Endpoint:     testRig0URL,
 		Ready:        true,
 		LastProbedAt: "2026-05-28T00:00:00Z",
 		TotalVramMiB: 32000,
 		LoadedModelFootprintsMiB: map[string]int64{
-			"qwen3:32b": 22000,
-			"qwen3:8b":  5000,
+			testModel32B: 22000,
+			testModelID:  5000,
 		},
 	}
 	bytes, err := json.Marshal(state)
@@ -266,11 +272,11 @@ func TestProviderStateV2Fields(t *testing.T) {
 	if !ok {
 		t.Fatalf("loadedModelFootprintsMiB = %v; want object", got["loadedModelFootprintsMiB"])
 	}
-	if fp["qwen3:32b"] != float64(22000) {
-		t.Errorf("qwen3:32b footprint = %v; want 22000", fp["qwen3:32b"])
+	if fp[testModel32B] != float64(22000) {
+		t.Errorf("qwen3:32b footprint = %v; want 22000", fp[testModel32B])
 	}
-	if fp["qwen3:8b"] != float64(5000) {
-		t.Errorf("qwen3:8b footprint = %v; want 5000", fp["qwen3:8b"])
+	if fp[testModelID] != float64(5000) {
+		t.Errorf("qwen3:8b footprint = %v; want 5000", fp[testModelID])
 	}
 }
 
@@ -301,9 +307,9 @@ func TestProviderStateV2OmitsEmpty(t *testing.T) {
 // map. Mirrors the production builder; pure constructor-level.
 func TestPublishStateMapsV2FieldsFromCapacity(t *testing.T) {
 	mp := &aiv1alpha1.ModelProvider{
-		ObjectMeta: metav1.ObjectMeta{Name: "ollama-gpu"},
+		ObjectMeta: metav1.ObjectMeta{Name: testOllamaGPU},
 		Spec: aiv1alpha1.ModelProviderSpec{
-			Endpoint: "http://ollama.ollama-rig0:11434",
+			Endpoint: testRig0URL,
 		},
 		Status: aiv1alpha1.ModelProviderStatus{
 			Ready: true,
@@ -313,8 +319,8 @@ func TestPublishStateMapsV2FieldsFromCapacity(t *testing.T) {
 				LoadedModels: []aiv1alpha1.LoadedModel{
 					// SizeVRAM is bytes (Ollama /api/ps native unit).
 					// 22000 MiB = 22000 * 1024 * 1024 bytes.
-					{Name: "qwen3:32b", SizeVRAM: 22000 * 1024 * 1024},
-					{Name: "qwen3:8b", SizeVRAM: 5000 * 1024 * 1024},
+					{Name: testModel32B, SizeVRAM: 22000 * 1024 * 1024},
+					{Name: testModelID, SizeVRAM: 5000 * 1024 * 1024},
 				},
 			},
 		},
@@ -325,13 +331,13 @@ func TestPublishStateMapsV2FieldsFromCapacity(t *testing.T) {
 	if state.TotalVramMiB != 32000 {
 		t.Errorf("TotalVramMiB = %d; want 32000", state.TotalVramMiB)
 	}
-	if state.LoadedModelFootprintsMiB["qwen3:32b"] != 22000 {
+	if state.LoadedModelFootprintsMiB[testModel32B] != 22000 {
 		t.Errorf("qwen3:32b footprint = %d MiB; want 22000",
-			state.LoadedModelFootprintsMiB["qwen3:32b"])
+			state.LoadedModelFootprintsMiB[testModel32B])
 	}
-	if state.LoadedModelFootprintsMiB["qwen3:8b"] != 5000 {
+	if state.LoadedModelFootprintsMiB[testModelID] != 5000 {
 		t.Errorf("qwen3:8b footprint = %d MiB; want 5000",
-			state.LoadedModelFootprintsMiB["qwen3:8b"])
+			state.LoadedModelFootprintsMiB[testModelID])
 	}
 }
 
@@ -351,9 +357,9 @@ func TestAvailableModelFootprintsPopulatedAtColdStart(t *testing.T) {
 	const qwen38bBytes = int64(5_100_000_000)
 
 	mp := &aiv1alpha1.ModelProvider{
-		ObjectMeta: metav1.ObjectMeta{Name: "ollama-gpu"},
+		ObjectMeta: metav1.ObjectMeta{Name: testOllamaGPU},
 		Spec: aiv1alpha1.ModelProviderSpec{
-			Endpoint: "http://ollama.ollama-rig0:11434",
+			Endpoint: testRig0URL,
 		},
 		Status: aiv1alpha1.ModelProviderStatus{
 			Ready: true,
@@ -361,8 +367,8 @@ func TestAvailableModelFootprintsPopulatedAtColdStart(t *testing.T) {
 				VRAMTotalMiB: 32000,
 				// No loaded models - true cold start.
 				AvailableModels: []aiv1alpha1.AvailableModel{
-					{Name: "qwen3:32b", SizeBytes: qwen332bBytes},
-					{Name: "qwen3:8b", SizeBytes: qwen38bBytes},
+					{Name: testModel32B, SizeBytes: qwen332bBytes},
+					{Name: testModelID, SizeBytes: qwen38bBytes},
 				},
 			},
 		},
@@ -392,14 +398,14 @@ func TestAvailableModelFootprintsPopulatedAtColdStart(t *testing.T) {
 
 	// qwen3:32b should appear in the available-footprint map.
 	want32b := qwen332bBytes / (1024 * 1024) // 27,847 MiB
-	if state.AvailableModelFootprintsMiB["qwen3:32b"] != want32b {
+	if state.AvailableModelFootprintsMiB[testModel32B] != want32b {
 		t.Errorf("availableModelFootprintsMiB[qwen3:32b] = %d MiB; want %d",
-			state.AvailableModelFootprintsMiB["qwen3:32b"], want32b)
+			state.AvailableModelFootprintsMiB[testModel32B], want32b)
 	}
 	want8b := qwen38bBytes / (1024 * 1024) // 4,863 MiB
-	if state.AvailableModelFootprintsMiB["qwen3:8b"] != want8b {
+	if state.AvailableModelFootprintsMiB[testModelID] != want8b {
 		t.Errorf("availableModelFootprintsMiB[qwen3:8b] = %d MiB; want %d",
-			state.AvailableModelFootprintsMiB["qwen3:8b"], want8b)
+			state.AvailableModelFootprintsMiB[testModelID], want8b)
 	}
 }
 
@@ -409,7 +415,7 @@ func TestAvailableModelFootprintsPopulatedAtColdStart(t *testing.T) {
 // from /api/tags; prefer it.
 func TestAvailableModelFootprintsSkipsAlreadyLoaded(t *testing.T) {
 	mp := &aiv1alpha1.ModelProvider{
-		ObjectMeta: metav1.ObjectMeta{Name: "ollama-gpu"},
+		ObjectMeta: metav1.ObjectMeta{Name: testOllamaGPU},
 		Spec:       aiv1alpha1.ModelProviderSpec{Endpoint: "http://x:11434"},
 		Status: aiv1alpha1.ModelProviderStatus{
 			Ready: true,
@@ -417,12 +423,12 @@ func TestAvailableModelFootprintsSkipsAlreadyLoaded(t *testing.T) {
 				VRAMTotalMiB: 32000,
 				LoadedModels: []aiv1alpha1.LoadedModel{
 					// qwen3:32b is loaded; /api/ps says 22 GiB VRAM.
-					{Name: "qwen3:32b", SizeVRAM: 22000 * 1024 * 1024},
+					{Name: testModel32B, SizeVRAM: 22000 * 1024 * 1024},
 				},
 				// /api/tags returns both - qwen3:32b is larger on-disk than in-VRAM.
 				AvailableModels: []aiv1alpha1.AvailableModel{
-					{Name: "qwen3:32b", SizeBytes: 29_200_000_000},
-					{Name: "qwen3:8b", SizeBytes: 5_100_000_000},
+					{Name: testModel32B, SizeBytes: 29_200_000_000},
+					{Name: testModelID, SizeBytes: 5_100_000_000},
 				},
 			},
 		},
@@ -431,17 +437,17 @@ func TestAvailableModelFootprintsSkipsAlreadyLoaded(t *testing.T) {
 	state := buildStateWithFootprints(mp)
 
 	// qwen3:32b is loaded - must NOT appear in AvailableModelFootprintsMiB.
-	if _, found := state.AvailableModelFootprintsMiB["qwen3:32b"]; found {
+	if _, found := state.AvailableModelFootprintsMiB[testModel32B]; found {
 		t.Errorf("qwen3:32b should not be in availableModelFootprintsMiB (loaded model wins)")
 	}
 	// qwen3:8b is not loaded - must appear.
-	if state.AvailableModelFootprintsMiB["qwen3:8b"] == 0 {
+	if state.AvailableModelFootprintsMiB[testModelID] == 0 {
 		t.Errorf("qwen3:8b should be in availableModelFootprintsMiB with non-zero MiB")
 	}
 	// LoadedModelFootprintsMiB should still carry the accurate /api/ps value.
-	if state.LoadedModelFootprintsMiB["qwen3:32b"] != 22000 {
+	if state.LoadedModelFootprintsMiB[testModel32B] != 22000 {
 		t.Errorf("loaded footprint for qwen3:32b = %d; want 22000",
-			state.LoadedModelFootprintsMiB["qwen3:32b"])
+			state.LoadedModelFootprintsMiB[testModel32B])
 	}
 }
 
@@ -449,11 +455,11 @@ func TestAvailableModelFootprintsSkipsAlreadyLoaded(t *testing.T) {
 // new AvailableModelFootprintsMiB field the agent-runtime must parse.
 func TestAvailableModelFootprintsJSONContract(t *testing.T) {
 	state := ProviderState{
-		Name:         "ollama-gpu",
+		Name:         testOllamaGPU,
 		Ready:        true,
 		TotalVramMiB: 24563,
 		AvailableModelFootprintsMiB: map[string]int64{
-			"qwen3:32b": 27847,
+			testModel32B: 27847,
 		},
 	}
 	bytes, err := json.Marshal(state)
@@ -468,8 +474,8 @@ func TestAvailableModelFootprintsJSONContract(t *testing.T) {
 	if !ok {
 		t.Fatalf("availableModelFootprintsMiB = %v; want object", got["availableModelFootprintsMiB"])
 	}
-	if avail["qwen3:32b"] != float64(27847) {
-		t.Errorf("availableModelFootprintsMiB[qwen3:32b] = %v; want 27847", avail["qwen3:32b"])
+	if avail[testModel32B] != float64(27847) {
+		t.Errorf("availableModelFootprintsMiB[qwen3:32b] = %v; want 27847", avail[testModel32B])
 	}
 }
 

@@ -28,15 +28,6 @@ import (
 // so it is exhaustively unit-tested; the dispatch + report wiring builds on it.
 // See [[ADL Bake-Off Measurement Rubric]] (#6 blind pairwise preference).
 
-// armSide is which blind slot (A or B) an arm was randomly assigned for one
-// comparison. The judge sees only "A" and "B"; armSide is the un-blind key.
-type armSide string
-
-const (
-	slotA armSide = "A"
-	slotB armSide = "B"
-)
-
 // pairwiseDoc is the blind comparison handed to the judge: the question and the
 // two answers in slots A and B. It deliberately carries NO arm identity - the
 // judge must not be able to infer which is ADL.
@@ -126,20 +117,16 @@ func normalizePairwiseVote(raw string) pairwiseVote {
 		return voteTie
 	}
 	// Prefer an explicit standalone token if present.
-	switch s {
-	case "A", "ANSWER A", "OPTION A":
-		return voteA
-	case "B", "ANSWER B", "OPTION B":
-		return voteB
-	case "TIE", "EQUAL", "NEITHER", "BOTH":
-		return voteTie
+	if v, ok := pairwiseVoteTokens[s]; ok {
+		return v
 	}
 	// Fall back to first decisive token scan.
-	hasA := strings.Contains(s, "TIE") == false && (strings.HasPrefix(s, "A") || strings.Contains(s, "ANSWER A") || strings.Contains(s, "OPTION A"))
-	hasB := strings.Contains(s, "TIE") == false && (strings.HasPrefix(s, "B") || strings.Contains(s, "ANSWER B") || strings.Contains(s, "OPTION B"))
-	switch {
-	case strings.Contains(s, "TIE"):
+	if strings.Contains(s, string(voteTie)) {
 		return voteTie
+	}
+	hasA := mentionsPairwiseSlot(s, "A")
+	hasB := mentionsPairwiseSlot(s, "B")
+	switch {
 	case hasA && !hasB:
 		return voteA
 	case hasB && !hasA:
@@ -147,6 +134,19 @@ func normalizePairwiseVote(raw string) pairwiseVote {
 	default:
 		return voteTie
 	}
+}
+
+// pairwiseVoteTokens are the whole replies that name a verdict directly.
+var pairwiseVoteTokens = map[string]pairwiseVote{
+	"A": voteA, "ANSWER A": voteA, "OPTION A": voteA,
+	"B": voteB, "ANSWER B": voteB, "OPTION B": voteB,
+	"TIE": voteTie, "EQUAL": voteTie, "NEITHER": voteTie, "BOTH": voteTie,
+}
+
+// mentionsPairwiseSlot reports whether an upper-cased reply starts with the slot
+// letter or names it as "ANSWER <slot>" or "OPTION <slot>".
+func mentionsPairwiseSlot(s, slot string) bool {
+	return strings.HasPrefix(s, slot) || strings.Contains(s, "ANSWER "+slot) || strings.Contains(s, "OPTION "+slot)
 }
 
 // tallyPanel reduces a panel's votes to a single slot verdict by MAJORITY. With

@@ -43,16 +43,16 @@ func newWorkerPass(t *testing.T, store fakeStore, crews ...client.Object) *judge
 	scheme := agentReconcileScheme(t)
 	cli := fake.NewClientBuilder().WithScheme(scheme).WithObjects(crews...).Build()
 	suite := &kubemootv1alpha1.CrewFitnessSuite{
-		ObjectMeta: metav1.ObjectMeta{Name: "suite", Namespace: "ns"},
+		ObjectMeta: metav1.ObjectMeta{Name: testSuite, Namespace: "ns"},
 		Spec: kubemootv1alpha1.CrewFitnessSuiteSpec{
-			Scripts: []kubemootv1alpha1.SuiteScript{{TestRef: "scenario-x"}},
+			Scripts: []kubemootv1alpha1.SuiteScript{{TestRef: testScenarioX}},
 		},
 	}
 	return &judgePass{
 		r:         &CrewFitnessSuiteReconciler{Client: cli},
 		store:     store,
 		suite:     suite,
-		prefix:    "ns/suite/run/",
+		prefix:    testRunPrefix,
 		cache:     deferredScoreCache{Scores: map[string]float64{}, Reasons: map[string]string{}},
 		endpoints: map[string]string{},
 		hc:        &http.Client{Timeout: 500 * time.Millisecond},
@@ -64,16 +64,16 @@ func reflectsCrew() *kubemootv1alpha1.Crew {
 	return &kubemootv1alpha1.Crew{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: "judge-crew", Namespace: "ns",
-			Labels: map[string]string{keywordCrewLabel: "REFLECTS"},
+			Labels: map[string]string{keywordCrewLabel: testVerdictReflects},
 		},
 	}
 }
 
 func TestScenarioKeyword(t *testing.T) {
-	store := fakeStore{objs: map[string][]byte{"ns/suite/run/s0-i1.json": []byte(feasibleTranscript)}}
+	store := fakeStore{objs: map[string][]byte{testRunS0I1: []byte(feasibleTranscript)}}
 	p := newWorkerPass(t, store)
 	kw, ok := p.scenarioKeyword(0)
-	if !ok || kw != "REFLECTS" {
+	if !ok || kw != testVerdictReflects {
 		t.Errorf("scenarioKeyword(0) = %q,%v; want REFLECTS,true", kw, ok)
 	}
 	// No transcript for script index 1 -> not runnable.
@@ -84,7 +84,7 @@ func TestScenarioKeyword(t *testing.T) {
 
 func TestResolveEndpoint(t *testing.T) {
 	p := newWorkerPass(t, fakeStore{objs: map[string][]byte{}}, reflectsCrew())
-	ep, ok := p.resolveEndpoint(context.Background(), "REFLECTS")
+	ep, ok := p.resolveEndpoint(context.Background(), testVerdictReflects)
 	if !ok || ep == "" {
 		t.Fatalf("resolveEndpoint(REFLECTS) = %q,%v; want a non-empty endpoint", ep, ok)
 	}
@@ -105,18 +105,18 @@ func TestProcessScenario_GapWhenNoTranscript(t *testing.T) {
 }
 
 func TestProcessScenario_AllGatedRecordsZero(t *testing.T) {
-	store := fakeStore{objs: map[string][]byte{"ns/suite/run/s0-i1.json": []byte(gatedTranscript)}}
+	store := fakeStore{objs: map[string][]byte{testRunS0I1: []byte(gatedTranscript)}}
 	p := newWorkerPass(t, store, reflectsCrew())
 	if out := p.processScenario(context.Background(), 0); out != scenarioHandled {
 		t.Fatalf("an all-gated scenario should be handled, got %v", out)
 	}
-	if p.cache.Scores["scenario-x"] != 0 {
-		t.Errorf("an all-gated scenario should record quality 0, got %v", p.cache.Scores["scenario-x"])
+	if p.cache.Scores[testScenarioX] != 0 {
+		t.Errorf("an all-gated scenario should record quality 0, got %v", p.cache.Scores[testScenarioX])
 	}
 }
 
 func TestProcessScenario_UnresolvableKeywordPends(t *testing.T) {
-	store := fakeStore{objs: map[string][]byte{"ns/suite/run/s0-i1.json": []byte(feasibleTranscript)}}
+	store := fakeStore{objs: map[string][]byte{testRunS0I1: []byte(feasibleTranscript)}}
 	p := newWorkerPass(t, store) // no crew declares REFLECTS
 	if out := p.processScenario(context.Background(), 0); out != scenarioPending {
 		t.Errorf("an unresolved keyword should pend for a later pass, got %v", out)
@@ -124,7 +124,7 @@ func TestProcessScenario_UnresolvableKeywordPends(t *testing.T) {
 }
 
 func TestProcessScenario_DispatchFailurePends(t *testing.T) {
-	store := fakeStore{objs: map[string][]byte{"ns/suite/run/s0-i1.json": []byte(feasibleTranscript)}}
+	store := fakeStore{objs: map[string][]byte{testRunS0I1: []byte(feasibleTranscript)}}
 	p := newWorkerPass(t, store, reflectsCrew())
 	// The resolved endpoint is an in-cluster svc URL, unreachable from the test, so
 	// the judge dispatch errors and the scenario pends (retry next pass) - it is NOT
@@ -133,7 +133,7 @@ func TestProcessScenario_DispatchFailurePends(t *testing.T) {
 	if out != scenarioPending {
 		t.Errorf("a failed judge dispatch should pend, got %v", out)
 	}
-	if _, recorded := p.cache.Scores["scenario-x"]; recorded {
+	if _, recorded := p.cache.Scores[testScenarioX]; recorded {
 		t.Error("a dispatch failure must not record a score")
 	}
 }

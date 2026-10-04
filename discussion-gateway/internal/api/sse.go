@@ -25,6 +25,42 @@ const (
 	maxLookBack = time.Hour
 )
 
+// NATS discussion message types the gateway reads or publishes.
+const (
+	msgThreadStart = "thread_start"
+	msgThreadClose = "thread_close"
+	msgSynthesis   = "synthesis"
+)
+
+// SSE event types sent to the client.
+const (
+	eventError       = "error"
+	eventPhase       = "phase"
+	eventFinding     = "finding"
+	eventThreadFound = "thread_found"
+	eventDone        = "done"
+)
+
+// Agent phases: the message types that pass through as the phase status, and
+// phaseDone, the status of an agent that stood aside.
+const (
+	phaseWaking     = "waking"
+	phaseReady      = "ready"
+	phaseTriaging   = "triaging"
+	phaseEvaluating = "evaluating"
+	phaseWaiting    = "waiting"
+	phaseDone       = "done"
+)
+
+// Consensus signals an agent contributes to a discussion.
+const (
+	signalAgree      = "agree"
+	signalBlock      = "block"
+	signalFailure    = "failure"
+	signalConcern    = "concern"
+	signalStandAside = "stand_aside"
+)
+
 var streamLog = logf.Log.WithName("stream")
 
 // errSubscriptionEnded means the NATS subscription stopped before the thread closed,
@@ -106,7 +142,9 @@ func parseResumePoint(id string) (*resumePoint, error) {
 // streamDiscussion subscribes to NATS JetStream and writes SSE events to the
 // provided emit function. It blocks until the thread closes, the NATS subscription
 // ends, or ctx is cancelled. The thread is found via thread_start metadata.
-func streamDiscussion(ctx context.Context, js jetstream.JetStream, scope crewscope.Scope, req streamRequest, emit func(SSEEvent)) error {
+func streamDiscussion(
+	ctx context.Context, js jetstream.JetStream, scope crewscope.Scope, req streamRequest, emit func(SSEEvent),
+) error {
 	consumer, err := createDiscussConsumer(ctx, js, consumerConfig(scope, req, time.Now()), emit)
 	if err != nil {
 		return err
@@ -116,7 +154,7 @@ func streamDiscussion(ctx context.Context, js jetstream.JetStream, scope crewsco
 
 	iter, err := consumer.Messages()
 	if err != nil {
-		emit(SSEEvent{Type: "error", Error: fmt.Sprintf("Failed to consume: %v", err)})
+		emit(SSEEvent{Type: eventError, Error: fmt.Sprintf("Failed to consume: %v", err)})
 		return err
 	}
 	defer iter.Stop()
@@ -178,16 +216,18 @@ func consumerConfig(scope crewscope.Scope, req streamRequest, now time.Time) jet
 
 // createDiscussConsumer verifies the NATS stream exists and creates an ephemeral
 // consumer with cfg.
-func createDiscussConsumer(ctx context.Context, js jetstream.JetStream, cfg jetstream.ConsumerConfig, emit func(SSEEvent)) (jetstream.Consumer, error) {
+func createDiscussConsumer(
+	ctx context.Context, js jetstream.JetStream, cfg jetstream.ConsumerConfig, emit func(SSEEvent),
+) (jetstream.Consumer, error) {
 	_, err := js.Stream(ctx, streamName)
 	if err != nil {
-		emit(SSEEvent{Type: "error", Error: "Discussion stream not available"})
+		emit(SSEEvent{Type: eventError, Error: "Discussion stream not available"})
 		return nil, err
 	}
 
 	consumer, err := js.CreateOrUpdateConsumer(ctx, streamName, cfg)
 	if err != nil {
-		emit(SSEEvent{Type: "error", Error: fmt.Sprintf("Failed to create consumer: %v", err)})
+		emit(SSEEvent{Type: eventError, Error: fmt.Sprintf("Failed to create consumer: %v", err)})
 		return nil, err
 	}
 	return consumer, nil
@@ -264,7 +304,7 @@ func (tf *threadFinder) process(m discussMsg, emit func(SSEEvent)) bool {
 // startsThreadForTurn reports whether m is a thread_start of this turn for a thread
 // other than the one followed.
 func (tf *threadFinder) startsThreadForTurn(m discussMsg) bool {
-	if m.data.MessageType != "thread_start" || m.data.ThreadID == tf.threadID {
+	if m.data.MessageType != msgThreadStart || m.data.ThreadID == tf.threadID {
 		return false
 	}
 	conversationID, _ := m.data.Metadata["conversationId"].(string)
@@ -274,10 +314,11 @@ func (tf *threadFinder) startsThreadForTurn(m discussMsg) bool {
 // follow switches to m's thread, announces it, and replays its buffered messages.
 func (tf *threadFinder) follow(m discussMsg, emit func(SSEEvent)) {
 	if tf.threadID != "" {
-		streamLog.Info("Following a restarted thread", "conversationId", tf.conversationID, "abandoned", tf.threadID, "threadId", m.data.ThreadID)
+		streamLog.Info("Following a restarted thread",
+			"conversationId", tf.conversationID, "abandoned", tf.threadID, "threadId", m.data.ThreadID)
 	}
 	tf.threadID = m.data.ThreadID
-	events := []SSEEvent{{Type: "thread_found", ThreadID: tf.threadID}}
+	events := []SSEEvent{{Type: eventThreadFound, ThreadID: tf.threadID}}
 	collect := func(e SSEEvent) { events = append(events, e) }
 	for _, b := range tf.buf {
 		if b.data.ThreadID == tf.threadID {
@@ -343,7 +384,9 @@ func toDiscussMsg(msg jetstream.Msg) (discussMsg, bool) {
 // The coordinator dual-publishes some messages (notably synthesis) to both the
 // broadcast subject AND the channel subject; both copies carry the same messageId and
 // the wildcard filter matches both, so dedup drops the second copy.
-func processMessages(ctx context.Context, msgCh <-chan jetstream.Msg, tf *threadFinder, dedup *messageDeduper, emit func(SSEEvent)) error {
+func processMessages(
+	ctx context.Context, msgCh <-chan jetstream.Msg, tf *threadFinder, dedup *messageDeduper, emit func(SSEEvent),
+) error {
 	heartbeat := time.NewTicker(heartbeatInterval)
 	defer heartbeat.Stop()
 
@@ -374,7 +417,7 @@ func handleMessage(msg jetstream.Msg, dedup *messageDeduper, tf *threadFinder, e
 		return false
 	}
 	translate(m, emit)
-	return m.data.MessageType == "thread_close"
+	return m.data.MessageType == msgThreadClose
 }
 
 // translate emits m's SSE event, carrying its resume id.
@@ -389,12 +432,12 @@ func translate(m discussMsg, emit func(SSEEvent)) {
 // translateAndEmit converts a NATS discussion message to an SSE event.
 func translateAndEmit(data natsMessage, emit func(SSEEvent)) {
 	switch data.MessageType {
-	case "thread_start", "advisory_ready", "review_ready", "advisory", "heartbeat":
+	case msgThreadStart, "advisory_ready", "review_ready", "advisory", "heartbeat":
 		return
-	case "synthesis":
-		emit(SSEEvent{Type: "synthesis", Content: data.Content})
-	case "thread_close":
-		emit(SSEEvent{Type: "done"})
+	case msgSynthesis:
+		emit(SSEEvent{Type: msgSynthesis, Content: data.Content})
+	case msgThreadClose:
+		emit(SSEEvent{Type: eventDone})
 	default:
 		if e, ok := phaseEvent(data); ok {
 			emit(e)
@@ -409,19 +452,19 @@ func translateAndEmit(data natsMessage, emit func(SSEEvent)) {
 // (with the model it waits for), and stood aside (with the reason, when the agent
 // gave one, such as gpu-busy).
 func phaseEvent(data natsMessage) (SSEEvent, bool) {
-	e := SSEEvent{Type: "phase", Agent: data.AgentName}
+	e := SSEEvent{Type: eventPhase, Agent: data.AgentName}
 	switch data.MessageType {
-	case "waking", "ready":
+	case phaseWaking, phaseReady:
 		e.Status = data.MessageType
-	case "triaging", "evaluating":
+	case phaseTriaging, phaseEvaluating:
 		e.Status, e.GPU = data.MessageType, metaString(data, "gpuLabel")
-	case "waiting":
-		e.Status, e.Model, e.Reason = "waiting", metaString(data, "model"), metaString(data, "reason")
-	case "stand_aside":
+	case phaseWaiting:
+		e.Status, e.Model, e.Reason = phaseWaiting, metaString(data, "model"), metaString(data, "reason")
+	case signalStandAside:
 		// Carry the explicit signal alongside the done/stood-aside phase so the
 		// fitness transcript can count stand-aside depth uniformly with the other
 		// signals, while the dashboard still sees it as a completed phase.
-		e.Status, e.StoodAside, e.Signal, e.Reason = "done", true, "stand_aside", metaString(data, "reason")
+		e.Status, e.StoodAside, e.Signal, e.Reason = phaseDone, true, signalStandAside, metaString(data, "reason")
 	default:
 		return SSEEvent{}, false
 	}
@@ -433,11 +476,11 @@ func phaseEvent(data natsMessage) (SSEEvent, bool) {
 // fitness transcript keeps it as verifiable evidence. A block and a declared
 // failure are first-class verdicts, persisted so fitness can measure their rates.
 func findingEvent(data natsMessage) (SSEEvent, bool) {
-	e := SSEEvent{Type: "finding", Agent: data.AgentName, Signal: data.MessageType}
+	e := SSEEvent{Type: eventFinding, Agent: data.AgentName, Signal: data.MessageType}
 	switch data.MessageType {
-	case "agree", "block", "failure":
+	case signalAgree, signalBlock, signalFailure:
 		e.Summary, e.Content = extractSummary(data.Content), data.Content
-	case "concern":
+	case signalConcern:
 		e.Summary = data.Content
 	default:
 		return SSEEvent{}, false

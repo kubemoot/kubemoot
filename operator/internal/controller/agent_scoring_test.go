@@ -27,24 +27,24 @@ import (
 // load penalty. These tests drive the pure scoring path with no client.
 func TestScoreCandidate_PreferAndLocality(t *testing.T) {
 	rule := &kubemootv1alpha1.SchedulingRule{
-		Phase: "mulling",
+		Phase: testMulling,
 		Prefer: []kubemootv1alpha1.PreferenceTerm{{
 			Weight:   25,
-			Selector: &metav1.LabelSelector{MatchLabels: map[string]string{"tier": "fast"}},
+			Selector: &metav1.LabelSelector{MatchLabels: map[string]string{testTier: testFast}},
 		}},
 	}
 	m := &kubemootv1alpha1.Model{
-		ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{"tier": "fast"}},
-		Spec:       kubemootv1alpha1.ModelSpec{Model: "qwen3:8b"},
+		ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{testTier: testFast}},
+		Spec:       kubemootv1alpha1.ModelSpec{Model: testModelID},
 	}
 	prov := &kubemootv1alpha1.ModelProvider{
 		Status: kubemootv1alpha1.ModelProviderStatus{
 			Capacity: &kubemootv1alpha1.DiscoveredCapacity{
-				LoadedModels: []kubemootv1alpha1.LoadedModel{{Name: "qwen3:8b"}},
+				LoadedModels: []kubemootv1alpha1.LoadedModel{{Name: testModelID}},
 			},
 		},
 	}
-	score, reasons := scoreCandidate("mulling", rule, m, prov, false)
+	score, reasons := scoreCandidate(testMulling, rule, m, prov, false)
 	// 25 (prefer) + 10 (locality bonus) = 35.
 	if score != 35 {
 		t.Errorf("score = %d, want 35 (prefer 25 + locality 10); reasons=%v", score, reasons)
@@ -74,14 +74,14 @@ func TestAgentNATSURL(t *testing.T) {
 func TestBuildEnvVars(t *testing.T) {
 	scheme := agentReconcileScheme(t)
 	gw := &kubemootv1alpha1.MCPGateway{ObjectMeta: metav1.ObjectMeta{Name: "gw", Namespace: "ns"}}
-	crew := &kubemootv1alpha1.Crew{ObjectMeta: metav1.ObjectMeta{Name: "crew-a", Namespace: "ns"}}
+	crew := &kubemootv1alpha1.Crew{ObjectMeta: metav1.ObjectMeta{Name: testCrewA, Namespace: "ns"}}
 	cli := fake.NewClientBuilder().WithScheme(scheme).WithObjects(gw, crew).Build()
 	r := &AgentReconciler{Client: cli, Scheme: scheme, ConfigCache: NewConfigCache()}
 	agent := &kubemootv1alpha1.Agent{
-		ObjectMeta: metav1.ObjectMeta{Name: "k8s", Namespace: "ns", Labels: map[string]string{labelCrew: "crew-a"}},
+		ObjectMeta: metav1.ObjectMeta{Name: testK8sAgent, Namespace: "ns", Labels: map[string]string{labelCrew: testCrewA}},
 	}
-	mulling := &modelPick{ModelID: "qwen3:8b", Endpoint: "http://ollama:11434"}
-	triage := &modelPick{ModelID: "qwen3:8b", Endpoint: "http://ollama:11434"}
+	mulling := &modelPick{ModelID: testModelID, Endpoint: testOllamaURL}
+	triage := &modelPick{ModelID: testModelID, Endpoint: testOllamaURL}
 
 	env := r.buildEnvVars(context.Background(), agent, mulling, triage, 8080)
 	byName := map[string]string{}
@@ -91,7 +91,7 @@ func TestBuildEnvVars(t *testing.T) {
 	if byName["KUBEMOOT_SKILLS_DIR"] != skillsMountPath {
 		t.Errorf("crew agent should get KUBEMOOT_SKILLS_DIR, got %q", byName["KUBEMOOT_SKILLS_DIR"])
 	}
-	if byName["KUBEMOOT_GATEWAY_ENABLED"] != "true" {
+	if byName["KUBEMOOT_GATEWAY_ENABLED"] != testEnvTrue {
 		t.Errorf("an MCPGateway in the namespace should enable gateway wiring, got %q", byName["KUBEMOOT_GATEWAY_ENABLED"])
 	}
 	if byName["KUBEMOOT_GATEWAY_ENDPOINT"] != "http://gw.ns:8080" {
@@ -125,7 +125,7 @@ func TestMarkUnschedulable(t *testing.T) {
 		return got
 	}
 	withErr := mk("a1", fmt.Errorf("no GPU"))
-	if withErr.Status.Phase != "Unschedulable" || withErr.Status.Ready {
+	if withErr.Status.Phase != testPhaseUnschedulable || withErr.Status.Ready {
 		t.Errorf("status not stamped: phase=%q ready=%v", withErr.Status.Phase, withErr.Status.Ready)
 	}
 	if withErr.Status.Message != "no GPU" {
@@ -165,32 +165,32 @@ func TestPickModel(t *testing.T) {
 	}
 
 	// winner: provider already has it loaded -> +locality, the highest score.
-	winner := mdl("winner", "qwen3:8b", "provA", true, 0)
+	winner := mdl("winner", testModelID, "provA", true, 0)
 	// runnerUp: feasible but unloaded -> lower score (forces the sort comparator).
 	runnerUp := mdl("runnerup", "llama3:8b", "provB", true, 0)
 	// notReady: filtered at the readiness gate.
 	notReady := mdl("cold", "llama3:70b", "provB", false, 0)
 	// provDown points at a not-ready provider -> rejected at the provider gate.
-	provDown := mdl("orphan", "mistral", "provC", true, 0)
+	provDown := mdl(testOrphan, "mistral", "provC", true, 0)
 	// tooBig declares more VRAM than its provider has -> rejected at the VRAM gate.
 	tooBig := mdl("huge", "qwen3:235b", "provD", true, 100000)
 
 	objs := []client.Object{
 		winner, runnerUp, notReady, provDown, tooBig,
-		prv("provA", true, 24000, "qwen3:8b"),
+		prv("provA", true, 24000, testModelID),
 		prv("provB", true, 24000, ""),
 		prv("provC", false, 24000, ""),
 		prv("provD", true, 8000, ""),
 	}
 	cli := fake.NewClientBuilder().WithScheme(scheme).WithObjects(objs...).Build()
 	r := &AgentReconciler{Client: cli, Scheme: scheme, ConfigCache: NewConfigCache()}
-	agent := &kubemootv1alpha1.Agent{ObjectMeta: metav1.ObjectMeta{Name: "k8s", Namespace: "ns"}}
+	agent := &kubemootv1alpha1.Agent{ObjectMeta: metav1.ObjectMeta{Name: testK8sAgent, Namespace: "ns"}}
 
-	pick, err := r.pickModel(context.Background(), agent, "mulling", "")
+	pick, err := r.pickModel(context.Background(), agent, testMulling, "")
 	if err != nil {
 		t.Fatalf("pickModel: %v", err)
 	}
-	if pick.ModelID != "qwen3:8b" {
+	if pick.ModelID != testModelID {
 		t.Errorf("picked ModelID = %q, want qwen3:8b (the loaded model wins on locality)", pick.ModelID)
 	}
 	if pick.Endpoint != "http://provA:11434" {
@@ -200,7 +200,7 @@ func TestPickModel(t *testing.T) {
 	// No Ready Model -> an error, not a panic.
 	cli2 := fake.NewClientBuilder().WithScheme(scheme).WithObjects(notReady, prv("provB", true, 0, "")).Build()
 	r2 := &AgentReconciler{Client: cli2, Scheme: scheme, ConfigCache: NewConfigCache()}
-	if _, err := r2.pickModel(context.Background(), agent, "mulling", ""); err == nil {
+	if _, err := r2.pickModel(context.Background(), agent, testMulling, ""); err == nil {
 		t.Error("expected an error when no Ready Model is feasible")
 	}
 }
@@ -211,61 +211,61 @@ func TestPickModel(t *testing.T) {
 func TestPickModel_WithPolicy(t *testing.T) {
 	scheme := agentReconcileScheme(t)
 	model := &kubemootv1alpha1.Model{
-		ObjectMeta: metav1.ObjectMeta{Name: "fast", Namespace: "ns",
-			Labels: map[string]string{"tier": "prod", latencyClassLabel: "high"}},
-		Spec:   kubemootv1alpha1.ModelSpec{Model: "qwen3:8b", ProviderRef: "ollama"},
+		ObjectMeta: metav1.ObjectMeta{Name: testFast, Namespace: "ns",
+			Labels: map[string]string{testTier: "prod", latencyClassLabel: testHigh}},
+		Spec:   kubemootv1alpha1.ModelSpec{Model: testModelID, ProviderRef: testOllama},
 		Status: kubemootv1alpha1.ModelStatus{Ready: true},
 	}
 	// A model that fails the Require selector must be filtered at the require gate.
 	wrongTier := &kubemootv1alpha1.Model{
 		ObjectMeta: metav1.ObjectMeta{Name: "dev", Namespace: "ns",
-			Labels: map[string]string{"tier": "dev"}},
-		Spec:   kubemootv1alpha1.ModelSpec{Model: "llama3:8b", ProviderRef: "ollama"},
+			Labels: map[string]string{testTier: "dev"}},
+		Spec:   kubemootv1alpha1.ModelSpec{Model: "llama3:8b", ProviderRef: testOllama},
 		Status: kubemootv1alpha1.ModelStatus{Ready: true},
 	}
 	prov := &kubemootv1alpha1.ModelProvider{
-		ObjectMeta: metav1.ObjectMeta{Name: "ollama", Namespace: "ns"},
-		Spec:       kubemootv1alpha1.ModelProviderSpec{Endpoint: "http://ollama:11434"},
+		ObjectMeta: metav1.ObjectMeta{Name: testOllama, Namespace: "ns"},
+		Spec:       kubemootv1alpha1.ModelProviderSpec{Endpoint: testOllamaURL},
 		Status:     kubemootv1alpha1.ModelProviderStatus{Ready: true},
 	}
 	policy := &kubemootv1alpha1.CrewSchedulingPolicy{
 		ObjectMeta: metav1.ObjectMeta{Name: "pol", Namespace: "ns"},
 		Spec: kubemootv1alpha1.CrewSchedulingPolicySpec{
-			CrewRef: "crew-a",
+			CrewRef: testCrewA,
 			Rules: []kubemootv1alpha1.SchedulingRule{{
-				Phase:   "mulling",
-				Require: &metav1.LabelSelector{MatchLabels: map[string]string{"tier": "prod"}},
+				Phase:   testMulling,
+				Require: &metav1.LabelSelector{MatchLabels: map[string]string{testTier: "prod"}},
 			}},
-			QualityBias: map[string]string{"reasoning": "0.8"},
+			QualityBias: map[string]string{testReasoning: "0.8"},
 		},
 	}
 	cli := fake.NewClientBuilder().WithScheme(scheme).WithObjects(model, wrongTier, prov, policy).Build()
 	r := &AgentReconciler{Client: cli, Scheme: scheme, ConfigCache: NewConfigCache()}
 	agent := &kubemootv1alpha1.Agent{
-		ObjectMeta: metav1.ObjectMeta{Name: "k8s", Namespace: "ns", Labels: map[string]string{labelCrew: "crew-a"}},
-		Spec:       kubemootv1alpha1.AgentSpec{Capabilities: []string{"reasoning"}},
+		ObjectMeta: metav1.ObjectMeta{Name: testK8sAgent, Namespace: "ns", Labels: map[string]string{labelCrew: testCrewA}},
+		Spec:       kubemootv1alpha1.AgentSpec{Capabilities: []string{testReasoning}},
 	}
-	pick, err := r.pickModel(context.Background(), agent, "mulling", "")
+	pick, err := r.pickModel(context.Background(), agent, testMulling, "")
 	if err != nil {
 		t.Fatalf("pickModel: %v", err)
 	}
-	if pick.ModelID != "qwen3:8b" {
+	if pick.ModelID != testModelID {
 		t.Errorf("the require-matching, bias-favoured model should win, got %q", pick.ModelID)
 	}
 }
 
 func TestScoreCandidate_NoMatchNoBonus(t *testing.T) {
 	rule := &kubemootv1alpha1.SchedulingRule{
-		Phase: "mulling",
+		Phase: testMulling,
 		Prefer: []kubemootv1alpha1.PreferenceTerm{{
 			Weight:   25,
-			Selector: &metav1.LabelSelector{MatchLabels: map[string]string{"tier": "fast"}},
+			Selector: &metav1.LabelSelector{MatchLabels: map[string]string{testTier: testFast}},
 		}},
 	}
 	// Model lacks the label and the provider has nothing loaded -> zero score.
 	m := &kubemootv1alpha1.Model{Spec: kubemootv1alpha1.ModelSpec{Model: "llama3:70b"}}
 	prov := &kubemootv1alpha1.ModelProvider{}
-	score, _ := scoreCandidate("mulling", rule, m, prov, true)
+	score, _ := scoreCandidate(testMulling, rule, m, prov, true)
 	if score != 0 {
 		t.Errorf("a non-matching, non-local candidate should score 0, got %d", score)
 	}

@@ -57,19 +57,9 @@ public class NatsKVSourceLoader implements SourceLoader {
 
     @Override
     public List<Document> load() {
-        String natsUrl = System.getenv("NATS_URL");
-        String bucket = System.getenv("KUBEMOOT_NATS_KV_BUCKET");
-        String key = System.getenv("KUBEMOOT_NATS_KV_KEY");
-
-        if (natsUrl == null || natsUrl.isBlank()) {
-            throw new IllegalArgumentException("NATS_URL is required for nats-kv source");
-        }
-        if (bucket == null || bucket.isBlank()) {
-            throw new IllegalArgumentException("KUBEMOOT_NATS_KV_BUCKET is required for nats-kv source");
-        }
-        if (key == null || key.isBlank()) {
-            throw new IllegalArgumentException("KUBEMOOT_NATS_KV_KEY is required for nats-kv source");
-        }
+        String natsUrl = requireEnv("NATS_URL");
+        String bucket = requireEnv("KUBEMOOT_NATS_KV_BUCKET");
+        String key = requireEnv("KUBEMOOT_NATS_KV_KEY");
 
         logger.info("Reading from NATS KV: bucket={}, key={}, url={}", bucket, key, natsUrl);
 
@@ -98,6 +88,21 @@ public class NatsKVSourceLoader implements SourceLoader {
         } catch (Exception e) {
             throw new IllegalStateException("Failed to read from NATS KV bucket=" + bucket + " key=" + key, e);
         }
+    }
+
+    /**
+     * Returns the value of an environment variable the nats-kv source needs, or
+     * throws IllegalArgumentException when it is unset or blank.
+     */
+    static String requireEnv(String name) {
+        return requireValue(name, System.getenv(name));
+    }
+
+    static String requireValue(String name, String value) {
+        if (value == null || value.isBlank()) {
+            throw new IllegalArgumentException(name + " is required for nats-kv source");
+        }
+        return value;
     }
 
     /**
@@ -185,47 +190,38 @@ public class NatsKVSourceLoader implements SourceLoader {
      * matching the format from the operator's BuildResumeText() in
      * kubemoot/operator/internal/controller/resume_hash.go.
      */
-    @SuppressWarnings("unchecked")
     String buildResumeText(Map<String, Object> resume) {
         StringJoiner joiner = new StringJoiner("\n");
 
         joiner.add("Agent: " + resume.getOrDefault("name", "unknown"));
         joiner.add("Role: " + resume.getOrDefault("role", "specialist"));
-
-        String description = (String) resume.get("description");
-        if (description != null && !description.isBlank()) {
-            joiner.add("Description: " + description);
-        }
-
-        String summary = (String) resume.get("triageSummary");
-        if (summary != null && !summary.isBlank()) {
-            joiner.add("Summary: " + summary);
-        }
-
-        Object keywords = resume.get("keywords");
-        if (keywords instanceof List<?> list && !list.isEmpty()) {
-            joiner.add("Keywords: " + String.join(", ", (List<String>) list));
-        }
-
-        Object tools = resume.get("tools");
-        if (tools instanceof List<?> list && !list.isEmpty()) {
-            joiner.add("Tools: " + String.join(", ", (List<String>) list));
-        }
-
-        Object channels = resume.get("channels");
-        if (channels instanceof List<?> list && !list.isEmpty()) {
-            joiner.add("Channels: " + String.join(", ", (List<String>) list));
-        }
+        addText(joiner, "Description: ", (String) resume.get("description"));
+        addText(joiner, "Summary: ", (String) resume.get("triageSummary"));
+        addList(joiner, "Keywords: ", resume.get("keywords"));
+        addList(joiner, "Tools: ", resume.get("tools"));
+        addList(joiner, "Channels: ", resume.get("channels"));
 
         // The agent's full system prompt - the richest statement of what it does -
         // folded in LAST so it adds semantic signal for top-K ranking without
         // displacing the structured fields above. Embed-only: the resume query
         // returns agent names, so this never reaches a triage LLM prompt.
-        String prompt = (String) resume.get("prompt");
-        if (prompt != null && !prompt.isBlank()) {
-            joiner.add("System prompt:\n" + prompt);
-        }
+        addText(joiner, "System prompt:\n", (String) resume.get("prompt"));
 
         return joiner.toString();
+    }
+
+    /** Adds {@code label + value} when the value is non-blank. */
+    private static void addText(StringJoiner joiner, String label, String value) {
+        if (value != null && !value.isBlank()) {
+            joiner.add(label + value);
+        }
+    }
+
+    /** Adds {@code label} and the comma-joined strings when the value is a non-empty list. */
+    @SuppressWarnings("unchecked")
+    private static void addList(StringJoiner joiner, String label, Object value) {
+        if (value instanceof List<?> list && !list.isEmpty()) {
+            joiner.add(label + String.join(", ", (List<String>) list));
+        }
     }
 }

@@ -28,19 +28,18 @@ const transcriptDefaultTTL = 720 * time.Hour
 
 // maybeWriteTranscript writes the per-iteration transcript JSON to NATS Object
 // Store when the operator wired the suite-iteration env (TRANSCRIPT_KEY +
-// NATS_URL). It is best-effort: a failure logs and returns nil so a transcript
-// write never fails the fitness run (the assertion result is the source of
-// truth). Standalone CrewFitness tests (no suite context) have no TRANSCRIPT_KEY
-// and are skipped.
-func maybeWriteTranscript(outcome *RunOutcome, getenv func(string) string) error {
+// NATS_URL). It is best-effort: a failure logs and never fails the fitness run
+// (the assertion result is the source of truth). Standalone CrewFitness tests (no
+// suite context) have no TRANSCRIPT_KEY and are skipped.
+func maybeWriteTranscript(outcome *RunOutcome, getenv func(string) string) {
 	key := getenv("TRANSCRIPT_KEY")
 	if key == "" {
-		return nil // not a suite iteration — nothing to capture
+		return // not a suite iteration - nothing to capture
 	}
 	natsURL := getenv("NATS_URL")
 	if natsURL == "" {
 		fmt.Fprintln(os.Stderr, "[fitness-runner] TRANSCRIPT_KEY set but NATS_URL empty — skipping transcript")
-		return nil
+		return
 	}
 	bucket := getenv("TRANSCRIPT_BUCKET")
 	if bucket == "" {
@@ -50,15 +49,14 @@ func maybeWriteTranscript(outcome *RunOutcome, getenv func(string) string) error
 	blob, err := json.Marshal(outcome)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "[fitness-runner] WARNING: marshal transcript: %v\n", err)
-		return nil
+		return
 	}
 	if err := putObject(natsURL, bucket, key, blob, transcriptDefaultTTL); err != nil {
 		fmt.Fprintf(os.Stderr, "[fitness-runner] WARNING: write transcript %s: %v\n", key, err)
-		return nil
+		return
 	}
 	fmt.Printf("[fitness-runner] wrote transcript %s (%d events, %d bytes)\n",
 		key, len(outcome.Events), len(blob))
-	return nil
 }
 
 // putObject connects to NATS, ensures the Object Store bucket exists (matching

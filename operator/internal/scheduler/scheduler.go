@@ -258,16 +258,8 @@ func (p *Poller) fireReminder(log logr.Logger, rec *record.Record, channel strin
 // agentName=="human" + messageType=="reply" on a CLOSED thread.
 func (p *Poller) fireInlineFollowup(rec *record.Record, channel string) error {
 	subject := threadSubject(rec, channel, rec.SourceThreadID)
-	msg := map[string]any{
-		"messageId":   uuid.NewString(),
-		"threadId":    rec.SourceThreadID,
-		"agentName":   "human", // load-bearing: matches handleThreadReopen guard
-		"messageType": "reply",
-		"content":     rec.Query,
-		"channel":     channel,
-		"timestamp":   p.Now().UTC().Format(time.RFC3339),
-		"metadata":    fireMetadata(rec, false),
-	}
+	// agentName "human" is load-bearing: it matches the handleThreadReopen guard.
+	msg := discussMessage(rec.SourceThreadID, "human", "reply", rec.Query, channel, p.Now().UTC().Format(time.RFC3339), fireMetadata(rec, false))
 	return p.publish(subject, msg)
 }
 
@@ -276,16 +268,7 @@ func (p *Poller) fireInlineFollowup(rec *record.Record, channel string) error {
 func (p *Poller) fireNewThreadFollowup(rec *record.Record, channel string) error {
 	threadID := uuid.NewString()
 	subject := threadSubject(rec, channel, threadID)
-	msg := map[string]any{
-		"messageId":   uuid.NewString(),
-		"threadId":    threadID,
-		"agentName":   "scheduler",
-		"messageType": "thread_start",
-		"content":     rec.Query,
-		"channel":     channel,
-		"timestamp":   p.Now().UTC().Format(time.RFC3339),
-		"metadata":    fireMetadata(rec, true),
-	}
+	msg := discussMessage(threadID, schedulerAgentName, "thread_start", rec.Query, channel, p.Now().UTC().Format(time.RFC3339), fireMetadata(rec, true))
 	return p.publish(subject, msg)
 }
 
@@ -294,16 +277,7 @@ func (p *Poller) fireNewThreadFollowup(rec *record.Record, channel string) error
 // handleThreadReopen's "human" guard.
 func (p *Poller) fireInlineReminder(rec *record.Record, channel string) error {
 	subject := threadSubject(rec, channel, rec.SourceThreadID)
-	msg := map[string]any{
-		"messageId":   uuid.NewString(),
-		"threadId":    rec.SourceThreadID,
-		"agentName":   "scheduler",
-		"messageType": "reminder",
-		"content":     rec.Message,
-		"channel":     channel,
-		"timestamp":   p.Now().UTC().Format(time.RFC3339),
-		"metadata":    fireMetadata(rec, false),
-	}
+	msg := discussMessage(rec.SourceThreadID, schedulerAgentName, "reminder", rec.Message, channel, p.Now().UTC().Format(time.RFC3339), fireMetadata(rec, false))
 	return p.publish(subject, msg)
 }
 
@@ -316,43 +290,35 @@ func (p *Poller) fireNewThreadReminder(rec *record.Record, channel string) error
 	now := p.Now().UTC().Format(time.RFC3339)
 	meta := fireMetadata(rec, true)
 
-	start := map[string]any{
-		"messageId":   uuid.NewString(),
-		"threadId":    threadID,
-		"agentName":   "scheduler",
-		"messageType": "thread_start",
-		"content":     rec.Message,
-		"channel":     channel,
-		"timestamp":   now,
-		"metadata":    meta,
-	}
+	start := discussMessage(threadID, schedulerAgentName, "thread_start", rec.Message, channel, now, meta)
 	if err := p.publish(subject, start); err != nil {
 		return err
 	}
-	synth := map[string]any{
-		"messageId":   uuid.NewString(),
-		"threadId":    threadID,
-		"agentName":   "scheduler",
-		"messageType": "synthesis",
-		"content":     rec.Message,
-		"channel":     channel,
-		"timestamp":   now,
-		"metadata":    meta,
-	}
+	synth := discussMessage(threadID, schedulerAgentName, "synthesis", rec.Message, channel, now, meta)
 	if err := p.publish(subject, synth); err != nil {
 		return err
 	}
-	close := map[string]any{
+	close := discussMessage(threadID, schedulerAgentName, "thread_close", "", channel, now, meta)
+	return p.publish(subject, close)
+}
+
+// schedulerAgentName is the sender of the scheduler's own messages. It is not
+// "human", so handleThreadReopen does not read them as a reply that reopens a thread.
+const schedulerAgentName = "scheduler"
+
+// discussMessage is one message published on a discussion subject, with a fresh
+// message ID. timestamp is RFC 3339.
+func discussMessage(threadID, agentName, messageType, content, channel, timestamp string, metadata map[string]any) map[string]any {
+	return map[string]any{
 		"messageId":   uuid.NewString(),
 		"threadId":    threadID,
-		"agentName":   "scheduler",
-		"messageType": "thread_close",
-		"content":     "",
+		"agentName":   agentName,
+		"messageType": messageType,
+		"content":     content,
 		"channel":     channel,
-		"timestamp":   now,
-		"metadata":    meta,
+		"timestamp":   timestamp,
+		"metadata":    metadata,
 	}
-	return p.publish(subject, close)
 }
 
 // threadSubject is the record's discussion subject,

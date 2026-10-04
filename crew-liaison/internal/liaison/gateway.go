@@ -70,10 +70,11 @@ func (g *Gateway) Start(ctx context.Context, namespace, crew, question string) (
 	if err != nil {
 		return "", fmt.Errorf("crew %s/%s gateway unreachable: %w", namespace, crew, err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		msg, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
-		return "", fmt.Errorf("crew %s/%s gateway refused the question: %s %s", namespace, crew, resp.Status, strings.TrimSpace(string(msg)))
+		return "", fmt.Errorf("crew %s/%s gateway refused the question: %s %s",
+			namespace, crew, resp.Status, strings.TrimSpace(string(msg)))
 	}
 	var out struct {
 		ConversationID string `json:"conversationId"`
@@ -97,7 +98,7 @@ func (g *Gateway) Follow(ctx context.Context, namespace, crew, conversation stri
 	if err != nil {
 		return fmt.Errorf("crew %s/%s stream unreachable: %w", namespace, crew, err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("crew %s/%s stream refused: %s", namespace, crew, resp.Status)
 	}

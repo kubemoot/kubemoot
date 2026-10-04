@@ -45,19 +45,19 @@ func TestDiscoverCapacity_FromPod(t *testing.T) {
 	scheme := capacityScheme(t)
 	slice := &discoveryv1.EndpointSlice{
 		ObjectMeta: metav1.ObjectMeta{
-			Name: "ollama-abc", Namespace: "rig0",
-			Labels: map[string]string{"kubernetes.io/service-name": "ollama"},
+			Name: "ollama-abc", Namespace: testRig0,
+			Labels: map[string]string{"kubernetes.io/service-name": testOllama},
 		},
 		Endpoints: []discoveryv1.Endpoint{{
-			TargetRef: &corev1.ObjectReference{Kind: "Pod", Name: "ollama-0", Namespace: "rig0"},
+			TargetRef: &corev1.ObjectReference{Kind: "Pod", Name: "ollama-0", Namespace: testRig0},
 		}},
 	}
 	pod := &corev1.Pod{
-		ObjectMeta: metav1.ObjectMeta{Name: "ollama-0", Namespace: "rig0"},
+		ObjectMeta: metav1.ObjectMeta{Name: "ollama-0", Namespace: testRig0},
 		Spec: corev1.PodSpec{
 			NodeName: "gpu-node-1",
 			Containers: []corev1.Container{{
-				Name: "ollama",
+				Name: testOllama,
 				Env: []corev1.EnvVar{
 					{Name: "OLLAMA_NUM_PARALLEL", Value: "4"},
 					{Name: "OLLAMA_CONTEXT_LENGTH", Value: "16384"},
@@ -69,7 +69,7 @@ func TestDiscoverCapacity_FromPod(t *testing.T) {
 	cli := fake.NewClientBuilder().WithScheme(scheme).WithObjects(slice, pod).Build()
 	r := &ModelProviderReconciler{Client: cli, ConfigCache: NewConfigCache()}
 	provider := &aiv1alpha1.ModelProvider{
-		ObjectMeta: metav1.ObjectMeta{Name: "prov", Namespace: "rig0"},
+		ObjectMeta: metav1.ObjectMeta{Name: testProviderName, Namespace: testRig0},
 		Spec:       aiv1alpha1.ModelProviderSpec{Endpoint: "http://ollama.rig0:11434"},
 	}
 	ctx := logf.IntoContext(context.Background(), logr.Discard())
@@ -97,9 +97,9 @@ func TestApplyCapacityToState(t *testing.T) {
 	cap := &aiv1alpha1.DiscoveredCapacity{
 		MaxParallel:  8,
 		VRAMTotalMiB: 32768,
-		LoadedModels: []aiv1alpha1.LoadedModel{{Name: "qwen3:32b", SizeVRAM: 2147483648}}, // 2 GiB
+		LoadedModels: []aiv1alpha1.LoadedModel{{Name: testModel32B, SizeVRAM: 2147483648}}, // 2 GiB
 		AvailableModels: []aiv1alpha1.AvailableModel{
-			{Name: "qwen3:32b", SizeBytes: 9999},            // already loaded -> excluded
+			{Name: testModel32B, SizeBytes: 9999},           // already loaded -> excluded
 			{Name: "llama3:8b", SizeBytes: 4 * 1024 * 1024}, // 4 MiB on disk
 		},
 	}
@@ -111,11 +111,11 @@ func TestApplyCapacityToState(t *testing.T) {
 	if state.ActiveCount != 0 || state.QueueDepth != 0 {
 		t.Errorf("v1 saturation fields should be zeroed, got active=%d queue=%d", state.ActiveCount, state.QueueDepth)
 	}
-	if got := state.LoadedModelFootprintsMiB["qwen3:32b"]; got != 2048 {
+	if got := state.LoadedModelFootprintsMiB[testModel32B]; got != 2048 {
 		t.Errorf("loaded footprint = %d MiB, want 2048", got)
 	}
 	// llama3:8b is available-not-loaded -> in the available map; qwen3 is loaded -> excluded.
-	if _, loadedInAvail := state.AvailableModelFootprintsMiB["qwen3:32b"]; loadedInAvail {
+	if _, loadedInAvail := state.AvailableModelFootprintsMiB[testModel32B]; loadedInAvail {
 		t.Error("a loaded model must not appear in the available footprints")
 	}
 	if got := state.AvailableModelFootprintsMiB["llama3:8b"]; got != 4 {

@@ -27,7 +27,7 @@ import (
 func newTestJudgePass(store objectStore) *judgePass {
 	return &judgePass{
 		store:  store,
-		prefix: "ns/suite/run/",
+		prefix: testRunPrefix,
 		cache:  deferredScoreCache{Scores: map[string]float64{}, Reasons: map[string]string{}},
 		hc:     &http.Client{},
 		log:    logr.Discard(),
@@ -73,7 +73,7 @@ func TestLoadTranscriptSkipsBadObjects(t *testing.T) {
 // loadDeferredCache returns an empty, not-complete checkpoint when absent and the
 // parsed checkpoint when present.
 func TestLoadDeferredCacheAbsentAndPresent(t *testing.T) {
-	prefix := "ns/suite/run/"
+	prefix := testRunPrefix
 	empty := loadDeferredCache(fakeStore{objs: map[string][]byte{}}, prefix)
 	if empty.Complete || len(empty.Scores) != 0 {
 		t.Errorf("absent checkpoint must be empty+incomplete, got %+v", empty)
@@ -106,9 +106,9 @@ func TestConsensusOKForJudge(t *testing.T) {
 func TestEvidenceFromEvents(t *testing.T) {
 	events := []transcriptEvent{
 		{Type: "phase"},
-		{Type: "finding", Agent: "k8s", Signal: "agree", Content: "found 3 pods"},
-		{Type: "finding", Summary: "from summary"},
-		{Type: "finding", Content: "   "},
+		{Type: testFinding, Agent: testK8sAgent, Signal: testAgree, Content: "found 3 pods"},
+		{Type: testFinding, Summary: "from summary"},
+		{Type: testFinding, Content: "   "},
 	}
 	ev := evidenceFromEvents(events)
 	if len(ev) != 2 {
@@ -128,7 +128,7 @@ func TestReferenceForKeyword(t *testing.T) {
 		{Raw: `DEFER synthesis REFLECTS "the expected answer"`},
 		{Raw: `HTTP 200`},
 	}}
-	if got := referenceForKeyword(td, "REFLECTS"); got != "the expected answer" {
+	if got := referenceForKeyword(td, testVerdictReflects); got != "the expected answer" {
 		t.Errorf("reference = %q, want 'the expected answer'", got)
 	}
 	if got := referenceForKeyword(td, "OTHER"); got != "" {
@@ -150,7 +150,7 @@ func TestParseDeferredAssertionEdges(t *testing.T) {
 		}
 	}
 	kw, ref, ok := parseDeferredAssertion(`DEFER synthesis REFLECTS "ref text"`)
-	if !ok || kw != "REFLECTS" || ref != "ref text" {
+	if !ok || kw != testVerdictReflects || ref != "ref text" {
 		t.Errorf("parse: ok=%v kw=%q ref=%q", ok, kw, ref)
 	}
 }
@@ -225,7 +225,7 @@ func TestJudgeAndRecordSuccessRecordsQuality(t *testing.T) {
 	p := newTestJudgePass(store)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	if out := p.judgeAndRecord(ctx, "scenario-b", "REFLECTS", srv.URL, "{}"); out != scenarioHandled {
+	if out := p.judgeAndRecord(ctx, "scenario-b", testVerdictReflects, srv.URL, "{}"); out != scenarioHandled {
 		t.Fatalf("expected scenarioHandled, got %v", out)
 	}
 	if p.cache.Scores["scenario-b"] != 100 {
@@ -238,7 +238,7 @@ func TestJudgeAndRecordSuccessRecordsQuality(t *testing.T) {
 
 // readDeferredScores returns the cached per-scenario scores (the dashboard /scores view).
 func TestReadDeferredScores(t *testing.T) {
-	prefix := "ns/suite/run/"
+	prefix := testRunPrefix
 	blob := []byte(`{"scores":{"s-a":88,"s-b":0},"complete":false}`)
 	scores := readDeferredScores(fakeStore{objs: map[string][]byte{deferredSidecarKey(prefix): blob}}, prefix)
 	if scores["s-a"] != 88 || scores["s-b"] != 0 {

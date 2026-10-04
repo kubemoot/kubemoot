@@ -23,28 +23,28 @@ import (
 // assertions, failure-summary, scenarios, and overview writers in one pass.
 func TestBuildFitnessSuiteXLSXWithMeasures(t *testing.T) {
 	suite := &kubemootv1alpha1.CrewFitnessSuite{
-		ObjectMeta: metav1.ObjectMeta{Name: "suite", Namespace: "ns"},
+		ObjectMeta: metav1.ObjectMeta{Name: testSuite, Namespace: "ns"},
 		Spec: kubemootv1alpha1.CrewFitnessSuiteSpec{
-			CrewRef:    "crew-a",
+			CrewRef:    testCrewA,
 			Iterations: 2,
-			Scripts:    []kubemootv1alpha1.SuiteScript{{TestRef: "scenario-x"}},
+			Scripts:    []kubemootv1alpha1.SuiteScript{{TestRef: testScenarioX}},
 		},
 		Status: kubemootv1alpha1.CrewFitnessSuiteStatus{RunID: "run1"},
 	}
 	started := time.Unix(1_700_000_000, 0)
 	results := []IterationResult{
 		{
-			Scenario: "scenario-x", Iteration: 1, StartedAt: started, DurationMs: 1200,
+			Scenario: testScenarioX, Iteration: 1, StartedAt: started, DurationMs: 1200,
 			Phase: kubemootv1alpha1.CrewFitnessPhasePassed, AssertionsPassed: 2, AssertionsTotal: 2,
 			Assertions: []kubemootv1alpha1.AssertionResult{
 				{Raw: "ASSERT answer mentions pods", Passed: true, Message: "ok"},
 				{Raw: "at least 1 tooler agree", Passed: true, Message: "ok"},
 			},
-			Synthesis: "the answer", Question: "q", Correctness: 90, Adherence: 85, Efficiency: 80,
+			Synthesis: testTheAnswer, Question: "q", Correctness: 90, Adherence: 85, Efficiency: 80,
 			ConsensusOK: true, Participation: 70, Selectivity: 65,
 		},
 		{
-			Scenario: "scenario-x", Iteration: 2, StartedAt: started, DurationMs: 1500,
+			Scenario: testScenarioX, Iteration: 2, StartedAt: started, DurationMs: 1500,
 			Phase: kubemootv1alpha1.CrewFitnessPhaseFailed, AssertionsPassed: 1, AssertionsTotal: 2,
 			Assertions: []kubemootv1alpha1.AssertionResult{
 				{Raw: "ASSERT answer mentions pods", Passed: true, Message: "ok"},
@@ -58,8 +58,8 @@ func TestBuildFitnessSuiteXLSXWithMeasures(t *testing.T) {
 			Phase: kubemootv1alpha1.CrewFitnessPhaseError, Error: "crew did not start",
 		},
 	}
-	consistency := map[string]float64{"scenario-x": 0.92}
-	judgeQuality := map[string]float64{"scenario-x": 88}
+	consistency := map[string]float64{testScenarioX: 0.92}
+	judgeQuality := map[string]float64{testScenarioX: 88}
 
 	out, err := BuildFitnessSuiteXLSXWithMeasures(suite, results, consistency, judgeQuality)
 	if err != nil {

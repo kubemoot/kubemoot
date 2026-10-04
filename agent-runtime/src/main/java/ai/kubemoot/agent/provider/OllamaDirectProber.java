@@ -228,11 +228,16 @@ public class OllamaDirectProber {
         // so credit it directly rather than standing aside on an empty KV. (A COLD
         // static endpoint is NOT admitted here - without provider VRAM data we
         // cannot gate it, and refusing avoids a CPU spill.)
-        if (staticEndpoint != null && !staticEndpoint.isBlank()
-                && probe(staticEndpoint).isWarm(modelName)) {
+        if (isWarmStaticEndpoint(staticEndpoint, modelName)) {
             return staticEndpoint;
         }
         return bestCold;
+    }
+
+    /** True when the static endpoint is set and already has the model resident. */
+    private boolean isWarmStaticEndpoint(String staticEndpoint, String modelName) {
+        return staticEndpoint != null && !staticEndpoint.isBlank()
+                && probe(staticEndpoint).isWarm(modelName);
     }
 
     /** How a single provider relates to the target model for the fit-gate degraded path. */

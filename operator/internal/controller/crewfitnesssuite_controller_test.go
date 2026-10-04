@@ -80,45 +80,42 @@ func TestFindNextIterationOrdersScriptsThenIterations(t *testing.T) {
 		Spec: kubemootv1alpha1.CrewFitnessSuiteSpec{
 			Iterations: 3,
 			Scripts: []kubemootv1alpha1.SuiteScript{
-				{TestRef: "a", TestContent: "..."},
-				{TestRef: "b", TestContent: "..."},
+				{TestRef: "a", TestContent: testScriptContent},
+				{TestRef: "b", TestContent: testScriptContent},
 			},
 		},
-		Status: kubemootv1alpha1.CrewFitnessSuiteStatus{RunID: "deadbeef"},
+		Status: kubemootv1alpha1.CrewFitnessSuiteStatus{RunID: testDeadbeef},
 	}
 	scheduled := map[string]bool{}
 
 	// First call: iteration 1, script a
-	n1 := r.findNextIteration(suite, scheduled)
-	if n1 == nil || n1.iter != 1 || n1.scriptIdx != 0 {
-		t.Fatalf("first: got %+v, want iter=1 scriptIdx=0", n1)
-	}
-	scheduled[n1.crName] = true
-
+	expectNextIteration(t, r, suite, scheduled, "first", 1, 0)
 	// Second call: iteration 1, script b (NOT iteration 2 of a)
-	n2 := r.findNextIteration(suite, scheduled)
-	if n2 == nil || n2.iter != 1 || n2.scriptIdx != 1 {
-		t.Fatalf("second: got %+v, want iter=1 scriptIdx=1", n2)
-	}
-	scheduled[n2.crName] = true
-
+	expectNextIteration(t, r, suite, scheduled, "second", 1, 1)
 	// Third call: iteration 2, script a (only now do we move to iter 2)
-	n3 := r.findNextIteration(suite, scheduled)
-	if n3 == nil || n3.iter != 2 || n3.scriptIdx != 0 {
-		t.Fatalf("third: got %+v, want iter=2 scriptIdx=0", n3)
-	}
-	scheduled[n3.crName] = true
+	expectNextIteration(t, r, suite, scheduled, "third", 2, 0)
 
 	// Skip ahead: schedule everything but the last
 	for iter := int32(1); iter <= 3; iter++ {
 		for scriptIdx := 0; scriptIdx < 2; scriptIdx++ {
-			scheduled[iterationCRName("deadbeef", scriptIdx, iter)] = true
+			scheduled[iterationCRName(testDeadbeef, scriptIdx, iter)] = true
 		}
 	}
 	// All scheduled — no next.
 	if n := r.findNextIteration(suite, scheduled); n != nil {
 		t.Errorf("expected nil when all scheduled, got %+v", n)
 	}
+}
+
+// expectNextIteration asserts the next iteration findNextIteration picks and marks it scheduled.
+func expectNextIteration(t *testing.T, r *CrewFitnessSuiteReconciler, suite *kubemootv1alpha1.CrewFitnessSuite,
+	scheduled map[string]bool, call string, wantIter int32, wantScriptIdx int) {
+	t.Helper()
+	n := r.findNextIteration(suite, scheduled)
+	if n == nil || n.iter != wantIter || n.scriptIdx != wantScriptIdx {
+		t.Fatalf("%s: got %+v, want iter=%d scriptIdx=%d", call, n, wantIter, wantScriptIdx)
+	}
+	scheduled[n.crName] = true
 }
 
 // TestIterationCRHasNoTTL pins the critical invariant that per-iteration
@@ -129,13 +126,13 @@ func TestFindNextIterationOrdersScriptsThenIterations(t *testing.T) {
 // 390-run baseline failure.
 func TestIterationCRHasNoTTL(t *testing.T) {
 	suite := &kubemootv1alpha1.CrewFitnessSuite{
-		ObjectMeta: metav1.ObjectMeta{Name: "s", Namespace: "crew-test"},
-		Spec:       kubemootv1alpha1.CrewFitnessSuiteSpec{CrewRef: "homelab-pilot"},
-		Status:     kubemootv1alpha1.CrewFitnessSuiteStatus{RunID: "deadbeef"},
+		ObjectMeta: metav1.ObjectMeta{Name: "s", Namespace: testCrewTest},
+		Spec:       kubemootv1alpha1.CrewFitnessSuiteSpec{CrewRef: testCrewName},
+		Status:     kubemootv1alpha1.CrewFitnessSuiteStatus{RunID: testDeadbeef},
 	}
 	next := &nextIteration{
 		scriptIdx: 0, iter: 1, crName: "run-deadbeef-s0-i1",
-		script: kubemootv1alpha1.SuiteScript{TestRef: "x", TestContent: "..."},
+		script: kubemootv1alpha1.SuiteScript{TestRef: "x", TestContent: testScriptContent},
 	}
 	cf := buildIterationCR(suite, next)
 	if cf.Spec.TTL != nil {
@@ -145,7 +142,7 @@ func TestIterationCRHasNoTTL(t *testing.T) {
 	if cf.Labels[suiteOwnerLabel] != "s" {
 		t.Errorf("owner label: got %q, want s", cf.Labels[suiteOwnerLabel])
 	}
-	if cf.Spec.TestContent != "..." {
+	if cf.Spec.TestContent != testScriptContent {
 		t.Errorf("testContent not threaded through: %q", cf.Spec.TestContent)
 	}
 }
@@ -173,7 +170,7 @@ func TestValidateSuiteSpec(t *testing.T) {
 			name: "zero iterations",
 			suite: &kubemootv1alpha1.CrewFitnessSuite{
 				Spec: kubemootv1alpha1.CrewFitnessSuiteSpec{
-					CrewRef: "homelab-pilot", Iterations: 0,
+					CrewRef: testCrewName, Iterations: 0,
 					Scripts: []kubemootv1alpha1.SuiteScript{{TestRef: "x", TestContent: "a"}},
 				},
 			},
@@ -183,7 +180,7 @@ func TestValidateSuiteSpec(t *testing.T) {
 			name: "empty scripts",
 			suite: &kubemootv1alpha1.CrewFitnessSuite{
 				Spec: kubemootv1alpha1.CrewFitnessSuiteSpec{
-					CrewRef: "homelab-pilot", Iterations: 1, Scripts: []kubemootv1alpha1.SuiteScript{},
+					CrewRef: testCrewName, Iterations: 1, Scripts: []kubemootv1alpha1.SuiteScript{},
 				},
 			},
 			wantErr: "scripts",
@@ -192,7 +189,7 @@ func TestValidateSuiteSpec(t *testing.T) {
 			name: "script missing both sources",
 			suite: &kubemootv1alpha1.CrewFitnessSuite{
 				Spec: kubemootv1alpha1.CrewFitnessSuiteSpec{
-					CrewRef: "homelab-pilot", Iterations: 1,
+					CrewRef: testCrewName, Iterations: 1,
 					Scripts: []kubemootv1alpha1.SuiteScript{{TestRef: "x"}},
 				},
 			},
@@ -202,7 +199,7 @@ func TestValidateSuiteSpec(t *testing.T) {
 			name: "script with both sources",
 			suite: &kubemootv1alpha1.CrewFitnessSuite{
 				Spec: kubemootv1alpha1.CrewFitnessSuiteSpec{
-					CrewRef: "homelab-pilot", Iterations: 1,
+					CrewRef: testCrewName, Iterations: 1,
 					Scripts: []kubemootv1alpha1.SuiteScript{{TestRef: "x", TestContent: "a", ConfigMapRef: "b"}},
 				},
 			},
@@ -212,9 +209,9 @@ func TestValidateSuiteSpec(t *testing.T) {
 			name: "valid spec",
 			suite: &kubemootv1alpha1.CrewFitnessSuite{
 				Spec: kubemootv1alpha1.CrewFitnessSuiteSpec{
-					CrewRef: "homelab-pilot", Iterations: 3,
+					CrewRef: testCrewName, Iterations: 3,
 					Scripts: []kubemootv1alpha1.SuiteScript{
-						{TestRef: "a", TestContent: "..."},
+						{TestRef: "a", TestContent: testScriptContent},
 						{TestRef: "b", ConfigMapRef: "scripts-cm"},
 					},
 				},
@@ -258,11 +255,11 @@ func TestAdvanceRunningCompletesDespiteIterationFailures(t *testing.T) {
 
 	const runID = "abcd1234"
 	suite := &kubemootv1alpha1.CrewFitnessSuite{
-		ObjectMeta: metav1.ObjectMeta{Name: "baseline", Namespace: "crew-test"},
+		ObjectMeta: metav1.ObjectMeta{Name: testBaseline, Namespace: testCrewTest},
 		Spec: kubemootv1alpha1.CrewFitnessSuiteSpec{
-			CrewRef:    "homelab-pilot",
+			CrewRef:    testCrewName,
 			Iterations: 2,
-			Scripts:    []kubemootv1alpha1.SuiteScript{{TestRef: "x", TestContent: "..."}},
+			Scripts:    []kubemootv1alpha1.SuiteScript{{TestRef: "x", TestContent: testScriptContent}},
 		},
 		Status: kubemootv1alpha1.CrewFitnessSuiteStatus{
 			Phase:           kubemootv1alpha1.CrewFitnessSuitePhaseRunning,
@@ -275,8 +272,8 @@ func TestAdvanceRunningCompletesDespiteIterationFailures(t *testing.T) {
 		return &kubemootv1alpha1.CrewFitness{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      iterationCRName(runID, 0, iter),
-				Namespace: "crew-test",
-				Labels:    map[string]string{suiteOwnerLabel: "baseline"},
+				Namespace: testCrewTest,
+				Labels:    map[string]string{suiteOwnerLabel: testBaseline},
 			},
 			Status: kubemootv1alpha1.CrewFitnessStatus{Phase: phase},
 		}
@@ -297,7 +294,7 @@ func TestAdvanceRunningCompletesDespiteIterationFailures(t *testing.T) {
 
 	got := &kubemootv1alpha1.CrewFitnessSuite{}
 	if err := cli.Get(context.Background(),
-		client.ObjectKey{Namespace: "crew-test", Name: "baseline"}, got); err != nil {
+		client.ObjectKey{Namespace: testCrewTest, Name: testBaseline}, got); err != nil {
 		t.Fatalf("get suite: %v", err)
 	}
 	if got.Status.Phase != kubemootv1alpha1.CrewFitnessSuitePhaseCompleted {

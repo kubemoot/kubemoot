@@ -49,7 +49,7 @@ func TestBuildJobCarriesFitnessHarnessLabel(t *testing.T) {
 	cf := &kubemootv1alpha1.CrewFitness{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "run-abc-s4-i1",
-			Namespace: "crew-homelab-pilot",
+			Namespace: testCrewHomelabPilotNS,
 		},
 		Spec: kubemootv1alpha1.CrewFitnessSpec{CrewRef: "homelab-pilot-crew"},
 	}
@@ -62,12 +62,12 @@ func TestBuildJobCarriesFitnessHarnessLabel(t *testing.T) {
 
 	job := r.buildJob(cf, "cf-run-abc-s4-i1", "http://endpoint", "test.adl", "cm")
 
-	if got := job.Labels[labelFitnessHarness]; got != "true" {
+	if got := job.Labels[labelFitnessHarness]; got != testHarnessLabelValue {
 		t.Errorf("Job label %q = %q, want \"true\"", labelFitnessHarness, got)
 	}
 	// The pod template label is what the agent's tooling can filter on; it must
 	// be present there too, not only on the Job object.
-	if got := job.Spec.Template.Labels[labelFitnessHarness]; got != "true" {
+	if got := job.Spec.Template.Labels[labelFitnessHarness]; got != testHarnessLabelValue {
 		t.Errorf("pod template label %q = %q, want \"true\"", labelFitnessHarness, got)
 	}
 }
@@ -79,7 +79,7 @@ func TestBuildJobCarriesFitnessHarnessLabel(t *testing.T) {
 func TestBuildJobRetriesTransientFailures(t *testing.T) {
 	r := &CrewFitnessReconciler{ConfigCache: NewConfigCache()}
 	cf := &kubemootv1alpha1.CrewFitness{
-		ObjectMeta: metav1.ObjectMeta{Name: "run-abc-s25-i1", Namespace: "crew-homelab-pilot"},
+		ObjectMeta: metav1.ObjectMeta{Name: "run-abc-s25-i1", Namespace: testCrewHomelabPilotNS},
 		Spec:       kubemootv1alpha1.CrewFitnessSpec{CrewRef: "homelab-pilot-crew"},
 	}
 

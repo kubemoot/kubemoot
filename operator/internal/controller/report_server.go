@@ -32,6 +32,9 @@ import (
 	kubemootnats "github.com/kubemoot/kubemoot/operator/internal/nats"
 )
 
+// componentModelProviders names the ModelProvider entry in the component status list.
+const componentModelProviders = "modelproviders"
+
 var reportLog = logf.Log.WithName("fitness-report")
 
 // transcriptDoc is the subset of the runner's per-iteration transcript JSON
@@ -156,7 +159,7 @@ func iterationFromTranscript(suite *kubemootv1alpha1.CrewFitnessSuite, key strin
 		Question:      doc.Question,
 		Correctness:   correctnessScore(passed, total),
 		Adherence:     adherenceScore(doc.Events),
-		Efficiency:    efficiencyScore(doc.DurationMs, defaultEfficiencyBudgetMs),
+		Efficiency:    efficiencyScore(doc.DurationMs),
 		ConsensusOK:   consensusOK,
 		Participation: participationScore(realAgrees, expectedAgrees),
 		Selectivity:   selectivityScore(doc.Events),
@@ -400,10 +403,10 @@ func buildComponentStatuses(ctx context.Context, c client.Client, natsConnected 
 	var mps kubemootv1alpha1.ModelProviderList
 	switch err := c.List(ctx, &mps); {
 	case err != nil:
-		out = append(out, ComponentStatus{Name: "modelproviders", Healthy: false, Message: "list failed: " + err.Error()})
+		out = append(out, ComponentStatus{Name: componentModelProviders, Healthy: false, Message: "list failed: " + err.Error()})
 	case len(mps.Items) == 0:
 		// No providers configured is a config state, not a failure — neutral.
-		out = append(out, ComponentStatus{Name: "modelproviders", Healthy: true, Message: "none configured"})
+		out = append(out, ComponentStatus{Name: componentModelProviders, Healthy: true, Message: "none configured"})
 	default:
 		ready := 0
 		for i := range mps.Items {
@@ -412,7 +415,7 @@ func buildComponentStatuses(ctx context.Context, c client.Client, natsConnected 
 			}
 		}
 		out = append(out, ComponentStatus{
-			Name:    "modelproviders",
+			Name:    componentModelProviders,
 			Healthy: ready > 0,
 			Message: fmt.Sprintf("%d/%d ready", ready, len(mps.Items)),
 		})

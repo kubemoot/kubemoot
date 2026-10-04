@@ -313,4 +313,28 @@ class NatsKVSourceLoaderTest {
         assertTrue(docs.stream().anyMatch(d -> "good-skill".equals(d.getMetadata().get("skill_name"))),
                 "good skill must be indexed");
     }
+
+    @Test
+    void requireValue_returnsSetValue() {
+        assertEquals("nats://nats:4222", NatsKVSourceLoader.requireValue("NATS_URL", "nats://nats:4222"));
+    }
+
+    @Test
+    void requireValue_rejectsNullAndBlank() {
+        IllegalArgumentException missing = assertThrows(IllegalArgumentException.class,
+                () -> NatsKVSourceLoader.requireValue("KUBEMOOT_NATS_KV_KEY", null));
+        assertEquals("KUBEMOOT_NATS_KV_KEY is required for nats-kv source", missing.getMessage());
+        assertThrows(IllegalArgumentException.class,
+                () -> NatsKVSourceLoader.requireValue("KUBEMOOT_NATS_KV_BUCKET", "  "));
+    }
+
+    @Test
+    void buildResumeText_skipsEmptyListsAndNonListValues() {
+        Map<String, Object> resume = new HashMap<>();
+        resume.put("name", "a");
+        resume.put("keywords", List.of());
+        resume.put("tools", "not-a-list");
+        String text = loader.buildResumeText(resume);
+        assertEquals("Agent: a\nRole: specialist", text);
+    }
 }

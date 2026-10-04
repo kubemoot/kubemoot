@@ -141,7 +141,7 @@ func secretSourceAllowed(namespace string) bool {
 func operatorNamespace() string {
 	ns := os.Getenv("OPERATOR_NAMESPACE")
 	if ns == "" {
-		ns = "kubemoot"
+		ns = defaultOperatorNamespace
 	}
 	return ns
 }

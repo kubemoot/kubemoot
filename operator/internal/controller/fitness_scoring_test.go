@@ -27,13 +27,13 @@ func TestCorrectnessAndEfficiencyScores(t *testing.T) {
 	if got := correctnessScore(0, 0); !approx(got, 0) {
 		t.Errorf("correctness 0/0 = %v, want 0 (no assertions ≠ perfect)", got)
 	}
-	if got := efficiencyScore(30000, 60000); !approx(got, 100) {
+	if got := efficiencyScore(30000); !approx(got, 100) {
 		t.Errorf("efficiency under budget = %v, want 100", got)
 	}
-	if got := efficiencyScore(120000, 60000); !approx(got, 50) {
+	if got := efficiencyScore(120000); !approx(got, 50) {
 		t.Errorf("efficiency 2× budget = %v, want 50", got)
 	}
-	if got := efficiencyScore(0, 60000); !approx(got, 0) {
+	if got := efficiencyScore(0); !approx(got, 0) {
 		t.Errorf("efficiency unknown duration = %v, want 0", got)
 	}
 }
@@ -43,10 +43,10 @@ func TestCorrectnessAndEfficiencyScores(t *testing.T) {
 // (the protocol is unobservable, not perfect).
 func TestAdherenceScore(t *testing.T) {
 	clean := []transcriptEvent{
-		{Type: "finding", Agent: "k8s", Signal: "agree"},
-		{Type: "finding", Agent: "gpu", Signal: "stand_aside", StoodAside: true},
-		{Type: "synthesis", Content: "the answer"},
-		{Type: "done"},
+		{Type: testFinding, Agent: testK8sAgent, Signal: testAgree},
+		{Type: testFinding, Agent: testGPUAgent, Signal: testStandAside, StoodAside: true},
+		{Type: testSynthesis, Content: testTheAnswer},
+		{Type: testDone},
 	}
 	if got := adherenceScore(clean); !approx(got, 100) {
 		t.Errorf("clean run adherence = %v, want 100", got)
@@ -57,19 +57,19 @@ func TestAdherenceScore(t *testing.T) {
 	// One malformed finding (empty signal, not stood aside) → findings component
 	// 0.5; synthesis+done present, no error → (0.5+1+1+1)/4*100 = 87.5.
 	mixed := []transcriptEvent{
-		{Type: "finding", Agent: "k8s", Signal: "agree"},
-		{Type: "finding", Agent: "gpu"}, // malformed: no signal, not stood aside
-		{Type: "synthesis", Content: "x"},
-		{Type: "done"},
+		{Type: testFinding, Agent: testK8sAgent, Signal: testAgree},
+		{Type: testFinding, Agent: testGPUAgent}, // malformed: no signal, not stood aside
+		{Type: testSynthesis, Content: "x"},
+		{Type: testDone},
 	}
 	if got := adherenceScore(mixed); !approx(got, 87.5) {
 		t.Errorf("mixed run adherence = %v, want 87.5", got)
 	}
 	// An error event drags the error component to 0.
 	errored := []transcriptEvent{
-		{Type: "finding", Agent: "k8s", Signal: "agree"},
-		{Type: "synthesis", Content: "x"},
-		{Type: "done"},
+		{Type: testFinding, Agent: testK8sAgent, Signal: testAgree},
+		{Type: testSynthesis, Content: "x"},
+		{Type: testDone},
 		{Type: "status", Error: "provider timeout"},
 	}
 	if got := adherenceScore(errored); !approx(got, 75) {
@@ -82,29 +82,29 @@ func TestAdherenceScore(t *testing.T) {
 func TestSelectivityScore(t *testing.T) {
 	// 2 contribute, 3 stand aside -> 2/5 = 40 (over-waking).
 	overWake := []transcriptEvent{
-		{Type: "finding", Agent: "k8s", Signal: "agree"},
-		{Type: "finding", Agent: "gpu", Signal: "concern"},
-		{Type: "finding", Agent: "prox", Signal: "stand_aside", StoodAside: true},
-		{Type: "finding", Agent: "obs", Signal: "stand_aside", StoodAside: true},
-		{Type: "finding", Agent: "net", StoodAside: true},
+		{Type: testFinding, Agent: testK8sAgent, Signal: testAgree},
+		{Type: testFinding, Agent: testGPUAgent, Signal: testConcern},
+		{Type: testFinding, Agent: "prox", Signal: testStandAside, StoodAside: true},
+		{Type: testFinding, Agent: "obs", Signal: testStandAside, StoodAside: true},
+		{Type: testFinding, Agent: "net", StoodAside: true},
 	}
 	if got := selectivityScore(overWake); !approx(got, 40) {
 		t.Errorf("over-wake selectivity = %v, want 40", got)
 	}
 	// All three woken agents contribute -> 100 (precise selection).
 	focused := []transcriptEvent{
-		{Type: "finding", Agent: "k8s", Signal: "agree"},
-		{Type: "finding", Agent: "gpu", Signal: "agree"},
-		{Type: "finding", Agent: "prox", Signal: "concern"},
-		{Type: "synthesis", Content: "x"},
+		{Type: testFinding, Agent: testK8sAgent, Signal: testAgree},
+		{Type: testFinding, Agent: testGPUAgent, Signal: testAgree},
+		{Type: testFinding, Agent: "prox", Signal: testConcern},
+		{Type: testSynthesis, Content: "x"},
 	}
 	if got := selectivityScore(focused); !approx(got, 100) {
 		t.Errorf("focused selectivity = %v, want 100", got)
 	}
 	// Answer-directly: no findings at all -> nobody irrelevant woken -> 100.
 	answerDirectly := []transcriptEvent{
-		{Type: "synthesis", Content: "the capital is Paris"},
-		{Type: "done"},
+		{Type: testSynthesis, Content: "the capital is Paris"},
+		{Type: testDone},
 	}
 	if got := selectivityScore(answerDirectly); !approx(got, 100) {
 		t.Errorf("answer-directly selectivity = %v, want 100", got)
@@ -114,8 +114,8 @@ func TestSelectivityScore(t *testing.T) {
 	}
 	// A single agent that stands aside while another contributes -> 1/2 = 50.
 	mixed := []transcriptEvent{
-		{Type: "finding", Agent: "k8s", Signal: "agree"},
-		{Type: "finding", Agent: "gpu", Signal: "stand_aside", StoodAside: true},
+		{Type: testFinding, Agent: testK8sAgent, Signal: testAgree},
+		{Type: testFinding, Agent: testGPUAgent, Signal: testStandAside, StoodAside: true},
 	}
 	if got := selectivityScore(mixed); !approx(got, 50) {
 		t.Errorf("mixed selectivity = %v, want 50", got)
@@ -128,11 +128,11 @@ func TestSelectivityScore(t *testing.T) {
 // See [[Persist Consensus Signals in Transcripts]].
 func TestAgreeCountFromEvents(t *testing.T) {
 	events := []transcriptEvent{
-		{Type: "finding", Agent: "k8s", Signal: "agree"},
-		{Type: "finding", Agent: "gpu", Signal: "agree"},
-		{Type: "finding", Agent: "k8s", Signal: "agree"},   // same agent again: still counts (matches the floor's total count)
-		{Type: "finding", Agent: "net", Signal: "concern"}, // not an agree
-		{Type: "phase", Agent: "x", Signal: "agree"},       // not a finding
+		{Type: testFinding, Agent: testK8sAgent, Signal: testAgree},
+		{Type: testFinding, Agent: testGPUAgent, Signal: testAgree},
+		{Type: testFinding, Agent: testK8sAgent, Signal: testAgree}, // same agent again: still counts (matches the floor's total count)
+		{Type: testFinding, Agent: "net", Signal: testConcern},      // not an agree
+		{Type: "phase", Agent: "x", Signal: testAgree},              // not a finding
 	}
 	if got := agreeCountFromEvents(events); got != 3 {
 		t.Errorf("agreeCountFromEvents = %d, want 3 (total agree findings)", got)
@@ -207,14 +207,14 @@ func TestCosineVec(t *testing.T) {
 func TestSemanticConsistency(t *testing.T) {
 	ctx := context.Background()
 	emb := fakeEmbedder{vecs: map[string][]float64{
-		"gpu at 41%":              {1, 0, 0},
+		testGPUAt41:               {1, 0, 0},
 		"gpu at 76%":              {1, 0, 0}, // same meaning → same vector
 		"totally different topic": {0, 1, 0},
 	}}
-	if got, _ := semanticConsistency(ctx, []string{"gpu at 41%", "gpu at 76%"}, emb); !approx(got, 100) {
+	if got, _ := semanticConsistency(ctx, []string{testGPUAt41, "gpu at 76%"}, emb); !approx(got, 100) {
 		t.Errorf("same-meaning different-number consistency = %v, want 100", got)
 	}
-	if got, _ := semanticConsistency(ctx, []string{"gpu at 41%", "totally different topic"}, emb); got > 1 {
+	if got, _ := semanticConsistency(ctx, []string{testGPUAt41, "totally different topic"}, emb); got > 1 {
 		t.Errorf("different-meaning consistency = %v, want ~0", got)
 	}
 	if got, _ := semanticConsistency(ctx, []string{"only one"}, emb); !approx(got, 100) {
@@ -226,19 +226,19 @@ func TestSemanticConsistency(t *testing.T) {
 // workbook uses for self_consistency (Scenarios!M), not the lexical fallback.
 func TestConsistencyOverrideUsedInBuild(t *testing.T) {
 	suite := &kubemootv1alpha1.CrewFitnessSuite{
-		ObjectMeta: metav1.ObjectMeta{Name: "ov-suite", Namespace: "crew-test"},
-		Spec:       kubemootv1alpha1.CrewFitnessSuiteSpec{CrewRef: "homelab-pilot"},
-		Status:     kubemootv1alpha1.CrewFitnessSuiteStatus{RunID: "abc", Phase: kubemootv1alpha1.CrewFitnessSuitePhaseCompleted},
+		ObjectMeta: metav1.ObjectMeta{Name: "ov-suite", Namespace: testCrewTest},
+		Spec:       kubemootv1alpha1.CrewFitnessSuiteSpec{CrewRef: testCrewName},
+		Status:     kubemootv1alpha1.CrewFitnessSuiteStatus{RunID: testRunID, Phase: kubemootv1alpha1.CrewFitnessSuitePhaseCompleted},
 	}
 	// Two answers with NO lexical overlap (lexical would score ~0), but we inject
 	// a semantic override of 92 — the build must use 92.
 	results := []IterationResult{
-		{Scenario: "gpu-utilization", Iteration: 1, DurationMs: 1000, Phase: kubemootv1alpha1.CrewFitnessPhasePassed,
+		{Scenario: testGPUUtilization, Iteration: 1, DurationMs: 1000, Phase: kubemootv1alpha1.CrewFitnessPhasePassed,
 			AssertionsPassed: 1, AssertionsTotal: 1, Synthesis: "alpha beta", Correctness: 100, Adherence: 100, Efficiency: 100},
-		{Scenario: "gpu-utilization", Iteration: 2, DurationMs: 1000, Phase: kubemootv1alpha1.CrewFitnessPhasePassed,
+		{Scenario: testGPUUtilization, Iteration: 2, DurationMs: 1000, Phase: kubemootv1alpha1.CrewFitnessPhasePassed,
 			AssertionsPassed: 1, AssertionsTotal: 1, Synthesis: "gamma delta", Correctness: 100, Adherence: 100, Efficiency: 100},
 	}
-	b, err := BuildFitnessSuiteXLSXWithMeasures(suite, results, map[string]float64{"gpu-utilization": 92}, nil)
+	b, err := BuildFitnessSuiteXLSXWithMeasures(suite, results, map[string]float64{testGPUUtilization: 92}, nil)
 	if err != nil {
 		t.Fatalf("build failed: %v", err)
 	}
@@ -247,7 +247,7 @@ func TestConsistencyOverrideUsedInBuild(t *testing.T) {
 		t.Fatalf("open: %v", err)
 	}
 	defer func() { _ = f.Close() }()
-	if v, _ := f.GetCellValue("Scenarios", "M2"); v != "92.0" {
+	if v, _ := f.GetCellValue(testSheetScenarios, "M2"); v != "92.0" {
 		t.Errorf("Scenarios M2 (self_consistency) = %q, want \"92.0\" (semantic override, not lexical)", v)
 	}
 }
@@ -348,7 +348,7 @@ func TestGradeFactualityAndFabrication(t *testing.T) {
 func TestIterationFromTranscriptComputesMeasures(t *testing.T) {
 	suite := &kubemootv1alpha1.CrewFitnessSuite{
 		Spec: kubemootv1alpha1.CrewFitnessSuiteSpec{
-			Scripts: []kubemootv1alpha1.SuiteScript{{TestRef: "gpu-utilization"}},
+			Scripts: []kubemootv1alpha1.SuiteScript{{TestRef: testGPUUtilization}},
 		},
 	}
 	data := []byte(`{
@@ -365,7 +365,7 @@ func TestIterationFromTranscriptComputesMeasures(t *testing.T) {
 	if !ok {
 		t.Fatal("iterationFromTranscript returned ok=false")
 	}
-	if ir.Scenario != "gpu-utilization" || ir.Iteration != 3 {
+	if ir.Scenario != testGPUUtilization || ir.Iteration != 3 {
 		t.Errorf("scenario/iter = (%q,%d), want (gpu-utilization,3)", ir.Scenario, ir.Iteration)
 	}
 	if !approx(ir.Correctness, 100) {
@@ -388,17 +388,17 @@ func TestIterationFromTranscriptComputesMeasures(t *testing.T) {
 // the largest weight), and that supplying a REFLECTS quality score folds in.
 func TestBuildXLSXEmitsGradeColumns(t *testing.T) {
 	suite := &kubemootv1alpha1.CrewFitnessSuite{
-		ObjectMeta: metav1.ObjectMeta{Name: "grade-suite", Namespace: "crew-test"},
-		Spec:       kubemootv1alpha1.CrewFitnessSuiteSpec{CrewRef: "homelab-pilot"},
+		ObjectMeta: metav1.ObjectMeta{Name: "grade-suite", Namespace: testCrewTest},
+		Spec:       kubemootv1alpha1.CrewFitnessSuiteSpec{CrewRef: testCrewName},
 		Status:     kubemootv1alpha1.CrewFitnessSuiteStatus{RunID: "feedface", Phase: kubemootv1alpha1.CrewFitnessSuitePhaseCompleted},
 	}
 	// A perfect mechanical run: 5/5 assertions, fast, clean protocol, both passed.
 	results := []IterationResult{
-		{Scenario: "gpu-utilization", Iteration: 1, DurationMs: 1000,
+		{Scenario: testGPUUtilization, Iteration: 1, DurationMs: 1000,
 			Phase: kubemootv1alpha1.CrewFitnessPhasePassed, AssertionsPassed: 5, AssertionsTotal: 5,
 			Synthesis: "gpu high", Correctness: 100, Adherence: 100, Efficiency: 100,
 			ConsensusOK: true, Participation: -1},
-		{Scenario: "gpu-utilization", Iteration: 2, DurationMs: 1000,
+		{Scenario: testGPUUtilization, Iteration: 2, DurationMs: 1000,
 			Phase: kubemootv1alpha1.CrewFitnessPhasePassed, AssertionsPassed: 5, AssertionsTotal: 5,
 			Synthesis: "gpu high", Correctness: 100, Adherence: 100, Efficiency: 100,
 			ConsensusOK: true, Participation: -1},
@@ -417,10 +417,10 @@ func TestBuildXLSXEmitsGradeColumns(t *testing.T) {
 	// per-run grade) plus selectivity (M); Scenarios carries self_consistency (M),
 	// participation (N), quality (O), scenario_grade (P).
 	assertHeaderCells(t, f, [][3]string{
-		{"Runs", "J1", "correctness"}, {"Runs", "K1", "adherence"}, {"Runs", "L1", "efficiency"},
-		{"Runs", "M1", "selectivity"},
-		{"Scenarios", "J1", "mean_correctness"}, {"Scenarios", "M1", "self_consistency"},
-		{"Scenarios", "N1", "participation"}, {"Scenarios", "O1", "quality"}, {"Scenarios", "P1", "scenario_grade"},
+		{testSheetRuns, "J1", "correctness"}, {testSheetRuns, "K1", "adherence"}, {testSheetRuns, "L1", "efficiency"},
+		{testSheetRuns, "M1", "selectivity"},
+		{testSheetScenarios, "J1", "mean_correctness"}, {testSheetScenarios, "M1", "self_consistency"},
+		{testSheetScenarios, "N1", "participation"}, {testSheetScenarios, "O1", "quality"}, {testSheetScenarios, "P1", "scenario_grade"},
 	})
 	// The Rubric sheet is gone — folded into the Overview scorecard.
 	if idx, _ := f.GetSheetIndex("Rubric"); idx != -1 {
@@ -436,12 +436,18 @@ func TestBuildXLSXEmitsGradeColumns(t *testing.T) {
 	// default weights (Q.45/R.25/P0/C.15/E.15 — participation graded at weight 0),
 	// (0*.45 + 100*.25 + 100*.15 + 100*.15)/1.0 = 55, NOT 100. scenario_grade is a
 	// Go-computed value (no cross-sheet formula).
-	if v, _ := f.GetCellValue("Scenarios", "P2"); v != "55.0" {
+	if v, _ := f.GetCellValue(testSheetScenarios, "P2"); v != "55.0" {
 		t.Errorf("Scenarios P2 (scenario_grade, quality 0) = %q, want \"55.0\"", v)
 	}
 
+	assertGradeWithQuality100(t, suite, results)
+}
+
+// assertGradeWithQuality100 checks that a REFLECTS quality score of 100 lifts the scenario grade to 100.
+func assertGradeWithQuality100(t *testing.T, suite *kubemootv1alpha1.CrewFitnessSuite, results []IterationResult) {
+	t.Helper()
 	// With a REFLECTS quality score of 100, the grade reaches 100.
-	b2, err := BuildFitnessSuiteXLSXWithMeasures(suite, results, nil, map[string]float64{"gpu-utilization": 100})
+	b2, err := BuildFitnessSuiteXLSXWithMeasures(suite, results, nil, map[string]float64{testGPUUtilization: 100})
 	if err != nil {
 		t.Fatalf("build with measures failed: %v", err)
 	}
@@ -450,10 +456,10 @@ func TestBuildXLSXEmitsGradeColumns(t *testing.T) {
 		t.Fatalf("open: %v", err)
 	}
 	defer func() { _ = f2.Close() }()
-	if v, _ := f2.GetCellValue("Scenarios", "P2"); v != "100.0" {
+	if v, _ := f2.GetCellValue(testSheetScenarios, "P2"); v != "100.0" {
 		t.Errorf("Scenarios P2 (scenario_grade, quality 100) = %q, want \"100.0\"", v)
 	}
-	if v, _ := f2.GetCellValue("Scenarios", "O2"); v != "100.0" {
+	if v, _ := f2.GetCellValue(testSheetScenarios, "O2"); v != "100.0" {
 		t.Errorf("Scenarios O2 (quality) = %q, want \"100.0\"", v)
 	}
 }

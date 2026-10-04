@@ -18,17 +18,17 @@ import (
 func TestBuildPayload_PopulatesCoreFields(t *testing.T) {
 	msg := &DiscussionMessage{
 		MessageType: ConcernMessageType,
-		AgentName:   "k8s-storage",
+		AgentName:   testAgentK8sStorage,
 		Content:     "Partition /var on rig0 is 96% full",
 		ThreadID:    "abc-123",
-		Channel:     "general",
+		Channel:     testChannelGeneral,
 		Timestamp:   "2026-05-17T04:00:00Z",
 	}
 	p := BuildPayload(msg, crewscope.Scope{Namespace: "team-a", Crew: "homelab-pilot"}, "https://dashboard.example.com")
 	if p.SchemaVersion != PayloadSchemaVersion {
 		t.Errorf("schemaVersion: got %d, want %d", p.SchemaVersion, PayloadSchemaVersion)
 	}
-	if p.Agent != "k8s-storage" {
+	if p.Agent != testAgentK8sStorage {
 		t.Errorf("agent: got %q", p.Agent)
 	}
 	if p.Crew != "homelab-pilot" {

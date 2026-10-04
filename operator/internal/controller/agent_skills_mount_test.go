@@ -37,19 +37,32 @@ func TestSkillsVolumeMountCrewAgent(t *testing.T) {
 	agent := &kubemootv1alpha1.Agent{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "k8s-tooler",
-			Namespace: "crew-x",
+			Namespace: testCrewNamespace,
 			Labels: map[string]string{
-				labelCrew: "crew-x",
+				labelCrew: testCrewNamespace,
 			},
 		},
 	}
-	pick := &modelPick{ModelID: "qwen3:8b", Endpoint: "http://ollama:11434"}
+	pick := &modelPick{ModelID: testModelID, Endpoint: testOllamaURL}
 
 	d := r.buildDeployment(context.Background(), agent, pick, pick, "k8s-tooler-policy", "abc123")
 	podSpec := d.Spec.Template.Spec
 
 	// --- Volume ---
-	skillsVolume := findVolumeByName(podSpec.Volumes, "skills")
+	assertCrewSkillsVolume(t, podSpec)
+
+	// --- VolumeMount ---
+	container := podSpec.Containers[0]
+	assertCrewSkillsMount(t, container)
+
+	// --- Env var ---
+	assertCrewSkillsEnv(t, container)
+}
+
+// assertCrewSkillsVolume checks the optional skills ConfigMap volume of a crew agent.
+func assertCrewSkillsVolume(t *testing.T, podSpec corev1.PodSpec) {
+	t.Helper()
+	skillsVolume := findVolumeByName(podSpec.Volumes, testSkills)
 	if skillsVolume == nil {
 		t.Fatal("skills volume missing from pod template")
 	}
@@ -63,10 +76,12 @@ func TestSkillsVolumeMountCrewAgent(t *testing.T) {
 	if skillsVolume.ConfigMap.Optional == nil || !*skillsVolume.ConfigMap.Optional {
 		t.Errorf("skills volume must be optional=true so pod starts when ConfigMap is absent")
 	}
+}
 
-	// --- VolumeMount ---
-	container := podSpec.Containers[0]
-	skillsMount := findMountByName(container.VolumeMounts, "skills")
+// assertCrewSkillsMount checks the read-only skills mount of a crew agent container.
+func assertCrewSkillsMount(t *testing.T, container corev1.Container) {
+	t.Helper()
+	skillsMount := findMountByName(container.VolumeMounts, testSkills)
 	if skillsMount == nil {
 		t.Fatal("skills VolumeMount missing from agent container")
 	}
@@ -76,8 +91,11 @@ func TestSkillsVolumeMountCrewAgent(t *testing.T) {
 	if !skillsMount.ReadOnly {
 		t.Errorf("skills VolumeMount must be ReadOnly=true")
 	}
+}
 
-	// --- Env var ---
+// assertCrewSkillsEnv checks KUBEMOOT_SKILLS_DIR on a crew agent container.
+func assertCrewSkillsEnv(t *testing.T, container corev1.Container) {
+	t.Helper()
 	v, ok := envValue(container.Env, "KUBEMOOT_SKILLS_DIR")
 	if !ok {
 		t.Fatal("KUBEMOOT_SKILLS_DIR env var missing for crew agent")
@@ -102,24 +120,24 @@ func TestSkillsVolumeMountAbsentForCrewlessAgent(t *testing.T) {
 	agent := &kubemootv1alpha1.Agent{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "standalone-agent",
-			Namespace: "default",
+			Namespace: testDefaultNS,
 			// No crew label.
 		},
 	}
-	pick := &modelPick{ModelID: "qwen3:8b", Endpoint: "http://ollama:11434"}
+	pick := &modelPick{ModelID: testModelID, Endpoint: testOllamaURL}
 
 	d := r.buildDeployment(context.Background(), agent, pick, pick, "standalone-agent-policy", "abc123")
 	podSpec := d.Spec.Template.Spec
 
 	for _, v := range podSpec.Volumes {
-		if v.Name == "skills" {
+		if v.Name == testSkills {
 			t.Errorf("skills volume must be absent for crew-less agent; found it")
 		}
 	}
 
 	container := podSpec.Containers[0]
 	for _, m := range container.VolumeMounts {
-		if m.Name == "skills" {
+		if m.Name == testSkills {
 			t.Errorf("skills VolumeMount must be absent for crew-less agent; found it")
 		}
 	}

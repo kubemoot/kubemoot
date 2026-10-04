@@ -28,7 +28,7 @@ func TestBuildGatewayAuthEnv_Disabled(t *testing.T) {
 	if len(env) != 1 {
 		t.Fatalf("expected 1 env var, got %d", len(env))
 	}
-	if env[0].Name != "AUTH_REQUIRED" || env[0].Value != "false" {
+	if env[0].Name != "AUTH_REQUIRED" || env[0].Value != testEnvFalse {
 		t.Errorf("expected AUTH_REQUIRED=false, got %s=%s", env[0].Name, env[0].Value)
 	}
 }
@@ -43,7 +43,7 @@ func TestBuildGatewayAuthEnv_NilAuth(t *testing.T) {
 	if len(env) != 1 {
 		t.Fatalf("expected 1 env var, got %d", len(env))
 	}
-	if env[0].Value != "false" {
+	if env[0].Value != testEnvFalse {
 		t.Errorf("expected false, got %s", env[0].Value)
 	}
 }
@@ -55,7 +55,7 @@ func TestBuildGatewayAuthEnv_EnabledNotTrue(t *testing.T) {
 		},
 	}
 	env := buildGatewayAuthEnv(gateway)
-	if len(env) != 1 || env[0].Value != "false" {
+	if len(env) != 1 || env[0].Value != testEnvFalse {
 		t.Errorf("expected AUTH_REQUIRED=false for disabled auth")
 	}
 }
@@ -74,7 +74,7 @@ func TestBuildGatewayAuthEnv_JWT(t *testing.T) {
 	if len(env) != 2 {
 		t.Fatalf("expected 2 env vars for JWT auth, got %d", len(env))
 	}
-	if env[0].Name != "AUTH_REQUIRED" || env[0].Value != "true" {
+	if env[0].Name != "AUTH_REQUIRED" || env[0].Value != testEnvTrue {
 		t.Errorf("expected AUTH_REQUIRED=true, got %s=%s", env[0].Name, env[0].Value)
 	}
 	if env[1].Name != "JWT_SECRET_KEY" {
@@ -104,7 +104,7 @@ func TestBuildGatewayAuthEnv_BasicAuth(t *testing.T) {
 	if len(env) != 3 {
 		t.Fatalf("expected 3 env vars for basic auth, got %d", len(env))
 	}
-	if env[0].Value != "true" {
+	if env[0].Value != testEnvTrue {
 		t.Errorf("expected AUTH_REQUIRED=true")
 	}
 	if env[1].Name != "BASIC_AUTH_USER" {
@@ -129,7 +129,7 @@ func TestBuildGatewayAuthEnv_EnabledNoType(t *testing.T) {
 	if len(env) != 1 {
 		t.Fatalf("expected 1 env var, got %d", len(env))
 	}
-	if env[0].Value != "true" {
+	if env[0].Value != testEnvTrue {
 		t.Errorf("expected true, got %s", env[0].Value)
 	}
 }
@@ -139,7 +139,7 @@ func TestBuildDynamicMCPServerSpec_OCI(t *testing.T) {
 		RegistryType:      "oci",
 		PackageIdentifier: "ghcr.io/example/mcp-server:v1",
 	}
-	image, cmd, args, transport, err := buildDynamicMCPServerSpec(discovered, "http")
+	image, cmd, args, transport, err := buildDynamicMCPServerSpec(discovered, testHTTP)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -149,7 +149,7 @@ func TestBuildDynamicMCPServerSpec_OCI(t *testing.T) {
 	if len(cmd) != 0 || len(args) != 0 {
 		t.Errorf("expected no command/args for OCI, got cmd=%v args=%v", cmd, args)
 	}
-	if transport != "http" {
+	if transport != testHTTP {
 		t.Errorf("expected http transport preserved, got %s", string(transport))
 	}
 }
@@ -159,14 +159,14 @@ func TestBuildDynamicMCPServerSpec_NPM(t *testing.T) {
 		RegistryType:      "npm",
 		PackageIdentifier: "@modelcontextprotocol/server-fetch",
 	}
-	image, cmd, args, transport, err := buildDynamicMCPServerSpec(discovered, "http")
+	image, cmd, args, transport, err := buildDynamicMCPServerSpec(discovered, testHTTP)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if image != "node:20-alpine" {
 		t.Errorf("expected node:20-alpine, got %s", image)
 	}
-	if len(cmd) != 1 || cmd[0] != "npx" {
+	if len(cmd) != 1 || cmd[0] != testNpx {
 		t.Errorf("expected npx command, got %v", cmd)
 	}
 	if len(args) != 2 || args[0] != "-y" {
@@ -182,7 +182,7 @@ func TestBuildDynamicMCPServerSpec_PyPI(t *testing.T) {
 		RegistryType:      "pypi",
 		PackageIdentifier: "mcp-server-fetch",
 	}
-	image, cmd, _, transport, err := buildDynamicMCPServerSpec(discovered, "http")
+	image, cmd, _, transport, err := buildDynamicMCPServerSpec(discovered, testHTTP)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -199,9 +199,9 @@ func TestBuildDynamicMCPServerSpec_PyPI(t *testing.T) {
 
 func TestBuildDynamicMCPServerSpec_UnknownRegistry(t *testing.T) {
 	discovered := kubemootv1alpha1.DiscoveredServer{
-		RegistryType: "unknown",
+		RegistryType: testUnknown,
 	}
-	_, _, _, _, err := buildDynamicMCPServerSpec(discovered, "http")
+	_, _, _, _, err := buildDynamicMCPServerSpec(discovered, testHTTP)
 	if err == nil {
 		t.Error("expected error for unknown registry type")
 	}
@@ -211,7 +211,7 @@ func TestBuildDynamicMCPServerSpec_OCI_NoPackage(t *testing.T) {
 	discovered := kubemootv1alpha1.DiscoveredServer{
 		RegistryType: "docker",
 	}
-	_, _, _, _, err := buildDynamicMCPServerSpec(discovered, "http")
+	_, _, _, _, err := buildDynamicMCPServerSpec(discovered, testHTTP)
 	if err == nil {
 		t.Error("expected error for empty package identifier")
 	}

@@ -170,6 +170,97 @@ class DiscussionSubscriberHelpersTest {
         verify(conn).publish(eq("kubemoot.artifacts.ns-a.nocrew.t1"), any(byte[].class));
     }
 
+    // --- admitForEvaluation guard order ---
+
+    private static String msg(String type, String thread, String agent, String id, String metadata) {
+        return "{\"messageType\":\"" + type + "\",\"threadId\":\"" + thread
+                + "\",\"agentName\":\"" + agent + "\",\"messageId\":\"" + id
+                + "\",\"content\":\"c\"" + (metadata == null ? "" : ",\"metadata\":" + metadata) + "}";
+    }
+
+    @Test
+    void admit_selectedTriggerTakesOnePermitAndReturnsTheEvaluation() throws Exception {
+        var sub = createSubscriber("k8s-agent");
+        var evaluation = sub.admitForEvaluation(
+                msg("advisory_ready", "t1", "coord", "m1", "{\"innerCircle\":[\"k8s-agent\"]}"));
+        assertNotNull(evaluation);
+        assertEquals("t1", evaluation.threadId());
+        assertTrue(evaluation.selected());
+        assertTrue(evaluation.conversation().contains("Evaluation Phase Started"));
+        assertEquals(1, sub.rateLimitPermits("t1"));
+    }
+
+    @Test
+    void admit_ownMessageTakesNoPermit() throws Exception {
+        var sub = createSubscriber("k8s-agent");
+        assertNull(sub.admitForEvaluation(msg("advisory_ready", "t1", "k8s-agent", "m1", null)));
+        assertEquals(0, sub.rateLimitPermits("t1"));
+    }
+
+    @Test
+    void admit_duplicateMessageTakesNoSecondPermit() throws Exception {
+        var sub = createSubscriber("k8s-agent");
+        String data = msg("advisory_ready", "t1", "coord", "m1", null);
+        assertNotNull(sub.admitForEvaluation(data));
+        assertNull(sub.admitForEvaluation(data));
+        assertEquals(1, sub.rateLimitPermits("t1"));
+    }
+
+    @Test
+    void admit_closedThreadTakesNoPermit() throws Exception {
+        var sub = createSubscriber("k8s-agent");
+        assertNull(sub.admitForEvaluation(msg("synthesis", "t1", "coord", "m1", null)));
+        assertNull(sub.admitForEvaluation(msg("advisory_ready", "t1", "coord", "m2", null)));
+        assertEquals(0, sub.rateLimitPermits("t1"));
+    }
+
+    @Test
+    void admit_nonTriggerTypeTakesNoPermit() throws Exception {
+        var sub = createSubscriber("k8s-agent");
+        assertNull(sub.admitForEvaluation(msg("agree", "t1", "helm-agent", "m1", null)));
+        assertEquals(0, sub.rateLimitPermits("t1"));
+    }
+
+    @Test
+    void admit_innerCircleIsCheckedLastAfterThePermit() throws Exception {
+        var sub = createSubscriber("proxmox-agent");
+        assertNull(sub.admitForEvaluation(
+                msg("advisory_ready", "t1", "coord", "m1", "{\"innerCircle\":[\"k8s-agent\"]}")));
+        assertEquals(1, sub.rateLimitPermits("t1"), "the permit is taken before the inner-circle check");
+    }
+
+    @Test
+    void admit_exhaustedRateLimitStopsBeforeTheInnerCircle() throws Exception {
+        var sub = createSubscriber("k8s-agent");
+        for (int i = 0; i < 3; i++) {
+            assertNotNull(sub.admitForEvaluation(msg("advisory_ready", "t1", "coord", "m" + i, null)));
+        }
+        assertNull(sub.admitForEvaluation(msg("advisory_ready", "t1", "coord", "m9", null)));
+        assertEquals(3, sub.rateLimitPermits("t1"));
+    }
+
+    @Test
+    void jetStream_ackedWhenTheMessageIsNotAdmitted() {
+        var sub = createSubscriber("k8s-agent");
+        var natsMsg = mock(io.nats.client.Message.class);
+        when(natsMsg.getSubject()).thenReturn("kubemoot.discuss.ns-a.nocrew.general.t1");
+        when(natsMsg.getData()).thenReturn(
+                msg("agree", "t1", "helm-agent", "m1", null).getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        sub.handleJetStreamMessage(natsMsg);
+        verify(natsMsg).ack();
+        assertEquals(0, sub.rateLimitPermits("t1"));
+    }
+
+    @Test
+    void jetStream_ackedWhenTheMessageIsMalformed() {
+        var sub = createSubscriber("k8s-agent");
+        var natsMsg = mock(io.nats.client.Message.class);
+        when(natsMsg.getSubject()).thenReturn("kubemoot.discuss.ns-a.nocrew.general.t1");
+        when(natsMsg.getData()).thenReturn("not json".getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        sub.handleJetStreamMessage(natsMsg);
+        verify(natsMsg).ack();
+    }
+
     // --- Helper methods ---
 
     private DiscussionSubscriber createSubscriber(String agentName) {

@@ -110,7 +110,8 @@ func parseTomorrow(s string, now time.Time) (time.Time, bool, error) {
 // ─── "<weekday> at HH" ──────────────────────────────────────────────────
 
 var weekdayRE = regexp.MustCompile(
-	`^(monday|mon|tuesday|tue|tues|wednesday|wed|thursday|thu|thur|thurs|friday|fri|saturday|sat|sunday|sun)(?:\s+at\s+(.+))?$`)
+	`^(monday|mon|tuesday|tue|tues|wednesday|wed|thursday|thu|thur|thurs|` +
+		`friday|fri|saturday|sat|sunday|sun)(?:\s+at\s+(.+))?$`)
 
 var weekdayMap = map[string]time.Weekday{
 	"sunday": time.Sunday, "sun": time.Sunday,
@@ -183,20 +184,23 @@ func parseClock(s string) (int, int, error) {
 	if m[2] != "" {
 		mn, _ = strconv.Atoi(m[2])
 	}
-	switch m[3] {
-	case "am":
-		if h == 12 {
-			h = 0
-		}
-	case "pm":
-		if h < 12 {
-			h += 12
-		}
-	}
+	h = to24Hour(h, m[3])
 	if h < 0 || h > 23 || mn < 0 || mn > 59 {
 		return 0, 0, fmt.Errorf("clock time out of range: %d:%02d", h, mn)
 	}
 	return h, mn, nil
+}
+
+// to24Hour converts hour h with an optional "am" or "pm" suffix to a 24-hour
+// hour: 12am is 0, 1pm through 11pm add 12, and no suffix leaves h as written.
+func to24Hour(h int, meridiem string) int {
+	switch {
+	case meridiem == "am" && h == 12:
+		return 0
+	case meridiem == "pm" && h < 12:
+		return h + 12
+	}
+	return h
 }
 
 func atClock(day time.Time, h, mn int) time.Time {

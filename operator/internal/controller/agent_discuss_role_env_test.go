@@ -32,14 +32,14 @@ func discussEnv(t *testing.T, role string, channels ...string) map[string]string
 // Only a coordinator turns its discussion subscriber off; every agent the
 // coordinator can convene, researchers included, keeps it, or it can never answer.
 func TestDiscussRoleEnv(t *testing.T) {
-	coordinator := discussEnv(t, "coordinator")
-	if coordinator["KUBEMOOT_DISCUSS_COORDINATOR"] != "true" || coordinator["KUBEMOOT_DISCUSS_TOOLER"] != "false" {
+	coordinator := discussEnv(t, testRoleCoordinator)
+	if coordinator["KUBEMOOT_DISCUSS_COORDINATOR"] != testEnvTrue || coordinator["KUBEMOOT_DISCUSS_TOOLER"] != testEnvFalse {
 		t.Fatalf("coordinator env = %v", coordinator)
 	}
 	if coordinator["KUBEMOOT_RESUME_SEARCH_ENDPOINT"] == "" {
 		t.Fatalf("coordinator needs its resume search endpoint: %v", coordinator)
 	}
-	for _, role := range []string{"researcher", "tooler", "analyst", ""} {
+	for _, role := range []string{testResearcher, testRoleTooler, "analyst", ""} {
 		env := discussEnv(t, role)
 		if v, set := env["KUBEMOOT_DISCUSS_TOOLER"]; set {
 			t.Errorf("%q: KUBEMOOT_DISCUSS_TOOLER=%q would silence a convened agent", role, v)
@@ -51,10 +51,10 @@ func TestDiscussRoleEnv(t *testing.T) {
 }
 
 func TestDiscussChannelsEnv(t *testing.T) {
-	if got := discussEnv(t, "researcher", "kubernetes", "general")["KUBEMOOT_DISCUSS_CHANNELS"]; got != "kubernetes,general" {
+	if got := discussEnv(t, testResearcher, "kubernetes", "general")["KUBEMOOT_DISCUSS_CHANNELS"]; got != "kubernetes,general" {
 		t.Fatalf("channels = %q", got)
 	}
-	if _, set := discussEnv(t, "tooler")["KUBEMOOT_DISCUSS_CHANNELS"]; set {
+	if _, set := discussEnv(t, testRoleTooler)["KUBEMOOT_DISCUSS_CHANNELS"]; set {
 		t.Fatal("no channels declared means no channels env")
 	}
 }

@@ -23,8 +23,8 @@ func TestIterationFromTranscript(t *testing.T) {
 	suite := &kubemootv1alpha1.CrewFitnessSuite{
 		Spec: kubemootv1alpha1.CrewFitnessSuiteSpec{
 			Scripts: []kubemootv1alpha1.SuiteScript{
-				{TestRef: "gpu-utilization"}, // idx 0
-				{TestRef: "k8s-pod-status"},  // idx 1
+				{TestRef: testGPUUtilization}, // idx 0
+				{TestRef: testK8sPodStatus},   // idx 1
 			},
 		},
 	}
@@ -43,19 +43,19 @@ func TestIterationFromTranscript(t *testing.T) {
 			name:     "all pass → Passed, scenario from Scripts[0]",
 			key:      "crew-test/suite/run123/s0-i1.json",
 			json:     `{"assertions":[{"raw":"a","passed":true,"message":""},{"raw":"b","passed":true,"message":""}],"durationMs":1500,"startedAt":"2026-06-02T12:00:00Z"}`,
-			scenario: "gpu-utilization", iter: 1, phase: kubemootv1alpha1.CrewFitnessPhasePassed, passed: 2, total: 2,
+			scenario: testGPUUtilization, iter: 1, phase: kubemootv1alpha1.CrewFitnessPhasePassed, passed: 2, total: 2,
 		},
 		{
 			name:     "one fail → Failed, scenario from Scripts[1]",
 			key:      "crew-test/suite/run123/s1-i3.json",
 			json:     `{"assertions":[{"raw":"a","passed":true,"message":""},{"raw":"b","passed":false,"message":"nope"}],"durationMs":2100,"startedAt":"2026-06-02T12:01:00Z"}`,
-			scenario: "k8s-pod-status", iter: 3, phase: kubemootv1alpha1.CrewFitnessPhaseFailed, passed: 1, total: 2,
+			scenario: testK8sPodStatus, iter: 3, phase: kubemootv1alpha1.CrewFitnessPhaseFailed, passed: 1, total: 2,
 		},
 		{
 			name:     "no assertions → Error",
 			key:      "crew-test/suite/run123/s0-i7.json",
 			json:     `{"assertions":[],"durationMs":300,"startedAt":""}`,
-			scenario: "gpu-utilization", iter: 7, phase: kubemootv1alpha1.CrewFitnessPhaseError, passed: 0, total: 0,
+			scenario: testGPUUtilization, iter: 7, phase: kubemootv1alpha1.CrewFitnessPhaseError, passed: 0, total: 0,
 		},
 	}
 	for _, tc := range cases {
@@ -100,7 +100,7 @@ func assertIterationFields(t *testing.T, ir IterationResult, scenario string, it
 func TestIterationConsensusGate(t *testing.T) {
 	suite := &kubemootv1alpha1.CrewFitnessSuite{
 		Spec: kubemootv1alpha1.CrewFitnessSuiteSpec{
-			Scripts: []kubemootv1alpha1.SuiteScript{{TestRef: "k8s-pod-status"}},
+			Scripts: []kubemootv1alpha1.SuiteScript{{TestRef: testK8sPodStatus}},
 		},
 	}
 	// Participation is now the TRUE agree count from the event stream (not a mirror
@@ -137,7 +137,7 @@ func TestIterationConsensusGate(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			ir, ok := iterationFromTranscript(suite, "ns/suite/run/s0-i1.json", []byte(tc.json))
+			ir, ok := iterationFromTranscript(suite, testRunS0I1, []byte(tc.json))
 			if !ok {
 				t.Fatalf("ok=false")
 			}
@@ -155,22 +155,22 @@ func TestIterationConsensusGate(t *testing.T) {
 // the Complete flag is preserved, and an absent checkpoint reads empty+incomplete.
 func TestDeferredCacheRoundTrip(t *testing.T) {
 	store := fakeStore{objs: map[string][]byte{}}
-	prefix := "ns/suite/run/"
+	prefix := testRunPrefix
 
 	if c := loadDeferredCache(store, prefix); c.Complete || len(c.Scores) != 0 {
 		t.Errorf("absent checkpoint should be empty+incomplete, got %+v", c)
 	}
 
-	blob, _ := json.Marshal(deferredScoreCache{Scores: map[string]float64{"gpu": 82.5}, Complete: false})
+	blob, _ := json.Marshal(deferredScoreCache{Scores: map[string]float64{testScenarioGPU: 82.5}, Complete: false})
 	_, _ = store.PutObject(FitnessArtifactsBucket, deferredSidecarKey(prefix), blob, time.Hour)
-	if got := readDeferredScores(store, prefix)["gpu"]; got != 82.5 {
+	if got := readDeferredScores(store, prefix)[testScenarioGPU]; got != 82.5 {
 		t.Errorf("readDeferredScores[gpu] = %v, want 82.5", got)
 	}
 	if loadDeferredCache(store, prefix).Complete {
 		t.Errorf("checkpoint should be incomplete")
 	}
 
-	blob2, _ := json.Marshal(deferredScoreCache{Scores: map[string]float64{"gpu": 82.5}, Complete: true})
+	blob2, _ := json.Marshal(deferredScoreCache{Scores: map[string]float64{testScenarioGPU: 82.5}, Complete: true})
 	_, _ = store.PutObject(FitnessArtifactsBucket, deferredSidecarKey(prefix), blob2, time.Hour)
 	if !loadDeferredCache(store, prefix).Complete {
 		t.Errorf("checkpoint should be complete after Complete=true write")

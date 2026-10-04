@@ -35,7 +35,7 @@ func TestBearerGate(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		resp.Body.Close()
+		_ = resp.Body.Close()
 		if resp.StatusCode != tc.want {
 			t.Errorf("%s: got %d want %d", tc.name, resp.StatusCode, tc.want)
 		}
@@ -53,55 +53,71 @@ func TestMCPEndToEnd(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
+	session := connectSession(ctx, t, srv.URL+"/mcp", "s3cret")
+
+	if names := toolNames(ctx, t, session); names != "ask,get_answer,list_crews" {
+		t.Fatalf("tools %v", names)
+	}
+	listed := callTool(ctx, t, session, "list_crews", map[string]any{})
+	if !strings.Contains(listed, `"hello"`) {
+		t.Fatalf("list_crews content: %s", listed)
+	}
+
+	var pending AskOutput
+	asked := callTool(ctx, t, session, "ask", map[string]any{"crew": testCrew, "question": testQuestion, argWaitSeconds: 0})
+	if err := json.Unmarshal([]byte(asked), &pending); err != nil || pending.ID == "" {
+		t.Fatalf("ask output: %v %s", err, asked)
+	}
+	settle(t, svc, pending.ID)
+
+	var answer GetAnswerOutput
+	got := callTool(ctx, t, session, "get_answer", map[string]any{"ticket": pending.ID})
+	err := json.Unmarshal([]byte(got), &answer)
+	if err != nil || answer.State != StateAnswered || !strings.Contains(answer.Answer, "Paris") {
+		t.Fatalf("get_answer output: %v %s", err, got)
+	}
+}
+
+// connectSession opens an MCP client session over Streamable HTTP with a bearer token
+// and closes it when the test ends.
+func connectSession(ctx context.Context, t *testing.T, endpoint, token string) *mcp.ClientSession {
+	t.Helper()
 	client := mcp.NewClient(&mcp.Implementation{Name: "test", Version: "0"}, nil)
 	transport := &mcp.StreamableClientTransport{
-		Endpoint:   srv.URL + "/mcp",
-		HTTPClient: &http.Client{Transport: bearerTransport{"s3cret"}},
+		Endpoint:   endpoint,
+		HTTPClient: &http.Client{Transport: bearerTransport{token}},
 	}
 	session, err := client.Connect(ctx, transport, nil)
 	if err != nil {
 		t.Fatalf("connect: %v", err)
 	}
-	defer session.Close()
+	t.Cleanup(func() { _ = session.Close() })
+	return session
+}
 
+// toolNames lists the session's tools as a comma-separated string of names.
+func toolNames(ctx context.Context, t *testing.T, session *mcp.ClientSession) string {
+	t.Helper()
 	tools, err := session.ListTools(ctx, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	var names []string
+	names := make([]string, 0, len(tools.Tools))
 	for _, tool := range tools.Tools {
 		names = append(names, tool.Name)
 	}
-	if strings.Join(names, ",") != "ask,get_answer,list_crews" {
-		t.Fatalf("tools %v", names)
-	}
+	return strings.Join(names, ",")
+}
 
-	listed, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "list_crews", Arguments: map[string]any{}})
-	if err != nil || listed.IsError {
-		t.Fatalf("list_crews: %v %v", err, listed)
+// callTool calls a tool, fails the test on a transport or tool error, and returns the
+// result's text.
+func callTool(ctx context.Context, t *testing.T, session *mcp.ClientSession, name string, args map[string]any) string {
+	t.Helper()
+	res, err := session.CallTool(ctx, &mcp.CallToolParams{Name: name, Arguments: args})
+	if err != nil || res.IsError {
+		t.Fatalf("%s: %v %v", name, err, res)
 	}
-	if !strings.Contains(textOf(listed), `"hello"`) {
-		t.Fatalf("list_crews content: %s", textOf(listed))
-	}
-
-	asked, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "ask", Arguments: map[string]any{"crew": "hello", "question": "Capital of France?", "waitSeconds": 0}})
-	if err != nil || asked.IsError {
-		t.Fatalf("ask: %v %v", err, asked)
-	}
-	var pending AskOutput
-	if err := json.Unmarshal([]byte(textOf(asked)), &pending); err != nil || pending.ID == "" {
-		t.Fatalf("ask output: %v %s", err, textOf(asked))
-	}
-	settle(t, svc, pending.ID)
-
-	got, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "get_answer", Arguments: map[string]any{"ticket": pending.ID}})
-	if err != nil || got.IsError {
-		t.Fatalf("get_answer: %v %v", err, got)
-	}
-	var answer GetAnswerOutput
-	if err := json.Unmarshal([]byte(textOf(got)), &answer); err != nil || answer.State != StateAnswered || !strings.Contains(answer.Answer, "Paris") {
-		t.Fatalf("get_answer output: %v %s", err, textOf(got))
-	}
+	return textOf(res)
 }
 
 type bearerTransport struct{ token string }

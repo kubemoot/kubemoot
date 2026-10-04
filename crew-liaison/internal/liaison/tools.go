@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/jsonschema-go/jsonschema"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 )
@@ -24,8 +25,10 @@ const (
 
 // The hint every pending result carries: the YDY ("Ya Done Yet?") pattern in one line.
 const hintPending = "The crew is still deliberating; discussions take one to several minutes. " +
-	"Call get_answer with this ticket; each call waits up to 45 seconds and returns the answer as soon as it exists. " +
-	"Keep calling until status is \"answered\" or \"failed\". Do not ask again: a repeated question rejoins this same ticket."
+	"Call get_answer with this ticket; each call waits up to 45 seconds " +
+	"and returns the answer as soon as it exists. " +
+	"Keep calling until status is \"answered\" or \"failed\". " +
+	"Do not ask again: a repeated question rejoins this same ticket."
 
 // Service implements the liaison's tools over a crew lister, a gateway client, and a
 // ticket store. It fronts every crew the lister returns.
@@ -60,12 +63,29 @@ type ListCrewsOutput struct {
 	Crews []Crew `json:"crews"`
 }
 
-// AskInput is a question for one crew.
+// Names of the input properties whose descriptions inputSchema sets.
+const (
+	argNamespace   = "namespace"
+	argWaitSeconds = "waitSeconds"
+)
+
+// Argument descriptions too long for a struct tag line; inputSchema sets them on
+// the emitted schema.
+const (
+	namespaceDesc = "namespace of the crew, needed only when the name is not unique"
+	askWaitDesc   = "seconds to wait for the answer before returning the ticket; default and maximum 45, " +
+		"0 returns the ticket at once"
+	getAnswerWaitDesc = "seconds to wait for the answer before reporting pending; default and maximum 45, " +
+		"0 reports the current state at once"
+)
+
+// AskInput is a question for one crew. Namespace and WaitSeconds take their
+// descriptions from askInputSchema.
 type AskInput struct {
 	Crew        string `json:"crew" jsonschema:"name of the crew to ask; see list_crews"`
-	Namespace   string `json:"namespace,omitempty" jsonschema:"namespace of the crew, needed only when the name is not unique"`
+	Namespace   string `json:"namespace,omitempty"`
 	Question    string `json:"question" jsonschema:"the question, in full; the crew has no memory of earlier questions"`
-	WaitSeconds *int   `json:"waitSeconds,omitempty" jsonschema:"seconds to wait for the answer before returning the ticket; default and maximum 45, 0 returns the ticket at once"`
+	WaitSeconds *int   `json:"waitSeconds,omitempty"`
 }
 
 // AskOutput is a ticket, and the answer when it arrived within the wait.
@@ -74,10 +94,39 @@ type AskOutput struct {
 	Hint string `json:"hint,omitempty"`
 }
 
-// GetAnswerInput names a ticket from ask.
+// GetAnswerInput names a ticket from ask. WaitSeconds takes its description from
+// getAnswerInputSchema.
 type GetAnswerInput struct {
 	Ticket      string `json:"ticket" jsonschema:"the ticket returned by ask"`
-	WaitSeconds *int   `json:"waitSeconds,omitempty" jsonschema:"seconds to wait for the answer before reporting pending; default and maximum 45, 0 reports the current state at once"`
+	WaitSeconds *int   `json:"waitSeconds,omitempty"`
+}
+
+// askInputSchema is the ask tool's input schema.
+func askInputSchema() *jsonschema.Schema {
+	return inputSchema[AskInput](map[string]string{argNamespace: namespaceDesc, argWaitSeconds: askWaitDesc})
+}
+
+// getAnswerInputSchema is the get_answer tool's input schema.
+func getAnswerInputSchema() *jsonschema.Schema {
+	return inputSchema[GetAnswerInput](map[string]string{argWaitSeconds: getAnswerWaitDesc})
+}
+
+// inputSchema infers T's JSON schema and sets the description of each named
+// property. It panics on a type the schema cannot be inferred for, or on a name
+// that is not a property, both programming errors caught at server start.
+func inputSchema[T any](descriptions map[string]string) *jsonschema.Schema {
+	schema, err := jsonschema.For[T](nil)
+	if err != nil {
+		panic(fmt.Sprintf("input schema: %v", err))
+	}
+	for name, description := range descriptions {
+		prop, ok := schema.Properties[name]
+		if !ok {
+			panic(fmt.Sprintf("input schema: no property %q", name))
+		}
+		prop.Description = description
+	}
+	return schema
 }
 
 // GetAnswerOutput is the ticket's current state, with the answer once it exists.
@@ -87,7 +136,9 @@ type GetAnswerOutput struct {
 }
 
 // ListCrews returns the crews with a discussion gateway.
-func (s *Service) ListCrews(ctx context.Context, _ *mcp.CallToolRequest, _ ListCrewsInput) (*mcp.CallToolResult, ListCrewsOutput, error) {
+func (s *Service) ListCrews(
+	ctx context.Context, _ *mcp.CallToolRequest, _ ListCrewsInput,
+) (*mcp.CallToolResult, ListCrewsOutput, error) {
 	crews, err := s.crews.List(ctx)
 	if err != nil {
 		return toolError(err.Error()), ListCrewsOutput{}, nil
@@ -97,7 +148,9 @@ func (s *Service) ListCrews(ctx context.Context, _ *mcp.CallToolRequest, _ ListC
 
 // Ask starts a discussion (or rejoins a pending one for the same question) and waits
 // up to the requested time for the answer before returning the ticket.
-func (s *Service) Ask(ctx context.Context, _ *mcp.CallToolRequest, in AskInput) (*mcp.CallToolResult, AskOutput, error) {
+func (s *Service) Ask(
+	ctx context.Context, _ *mcp.CallToolRequest, in AskInput,
+) (*mcp.CallToolResult, AskOutput, error) {
 	question := strings.TrimSpace(in.Question)
 	if question == "" {
 		return toolError("question is required"), AskOutput{}, nil
@@ -120,7 +173,9 @@ func (s *Service) Ask(ctx context.Context, _ *mcp.CallToolRequest, in AskInput) 
 
 // GetAnswer reports a ticket's state, waiting up to the requested time for it to
 // settle: the YDY call, as a long poll.
-func (s *Service) GetAnswer(ctx context.Context, _ *mcp.CallToolRequest, in GetAnswerInput) (*mcp.CallToolResult, GetAnswerOutput, error) {
+func (s *Service) GetAnswer(
+	ctx context.Context, _ *mcp.CallToolRequest, in GetAnswerInput,
+) (*mcp.CallToolResult, GetAnswerOutput, error) {
 	ticket, ok := s.tickets.Get(strings.TrimSpace(in.Ticket))
 	if !ok {
 		return toolError("unknown or expired ticket; ask again"), GetAnswerOutput{}, nil
@@ -142,7 +197,8 @@ func (s *Service) start(ctx context.Context, crew Crew, question string) (*Ticke
 	select {
 	case s.inflight <- struct{}{}:
 	default:
-		return nil, fmt.Errorf("the liaison is at its limit of %d discussions in flight; try again in a minute", cap(s.inflight))
+		return nil, fmt.Errorf(
+			"the liaison is at its limit of %d discussions in flight; try again in a minute", cap(s.inflight))
 	}
 	conversation, err := s.gateway.Start(ctx, crew.Namespace, crew.Name, question)
 	if err != nil {

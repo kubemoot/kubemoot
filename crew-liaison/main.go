@@ -54,7 +54,8 @@ func main() {
 	defer stop()
 	go sweep(ctx, tickets)
 	go func() {
-		log.Info("crew liaison listening", "port", port, "maxInflight", maxInflight, "auth", token != "", "version", liaison.Version)
+		log.Info("crew liaison listening",
+			"port", port, "maxInflight", maxInflight, "auth", token != "", "version", liaison.Version)
 		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			log.Error(err, "server")
 			os.Exit(1)

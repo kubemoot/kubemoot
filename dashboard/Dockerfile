@@ -12,10 +12,11 @@ RUN npm ci
 # Copy source
 COPY . .
 
-# Quality gates run inside the build so the image is the single source of truth
-# and the CI runner needs no Node toolchain (avoids the runner libatomic/Node 26
-# coupling). A failing check or test fails the image build.
+# Quality gates (svelte-check, ESLint, tests) run inside the build so the image is
+# the single source of truth and the CI runner needs no Node toolchain (avoids the
+# runner libatomic/Node 26 coupling). A failing check, lint, or test fails the build.
 RUN npm run check
+RUN npm run lint
 RUN npm test
 
 # Build the application

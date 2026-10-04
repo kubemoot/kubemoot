@@ -6,6 +6,9 @@ on:
     branches: [main]
     paths:
       - 'fitness-runner/**'
+      - '.golangci.yml'
+      - '.github/scripts/golangci-lint.sh'
+      - 'operator/Makefile'
       - 'operator/pkg/fitnessscript/**'
       - 'operator/pkg/sse/**'
   workflow_dispatch:
@@ -43,6 +46,11 @@ jobs:
       - name: Build
         working-directory: fitness-runner
         run: CGO_ENABLED=0 go build -ldflags="-s -w" -o fitness-runner .
+
+      # golangci-lint with the shared root .golangci.yml at the operator/Makefile pin.
+      - name: Lint
+        working-directory: fitness-runner
+        run: ../.github/scripts/golangci-lint.sh
 
       - name: Run tests
         working-directory: fitness-runner

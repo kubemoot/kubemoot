@@ -49,101 +49,114 @@ func (s *Set) owns(r *record.Record) bool {
 
 // ─── Tool surfaces (MCP-shaped specifications) ──────────────────────────
 
+// Tool names, as MCP clients call them.
+const (
+	toolSetReminder      = "set_reminder"
+	toolScheduleFollowup = "schedule_followup"
+	toolListScheduled    = "list_scheduled"
+	toolCancelScheduled  = "cancel_scheduled"
+)
+
+// Argument names shared by the tool input schemas.
+const (
+	argWhen           = "when"
+	argMessage        = "message"
+	argScheduleID     = "scheduleId"
+	argSourceThreadID = "source_thread_id"
+	argReason         = "reason"
+	argQuery          = "query"
+)
+
+// Argument descriptions shown to the model in the tool input schemas.
+const (
+	whenDesc = `Natural-language time. "in 30 minutes", "tomorrow at 9am", "Monday at 14:30", ` +
+		`or an RFC 3339 timestamp.`
+	messageDesc = "The text to deliver as a reminder. " +
+		"Be specific - the future-you reading it lacks today's chat context."
+	reminderThreadDesc = "Optional. The discussion threadId this reminder was created in, so it fires inline. " +
+		"Pull this from 'Discussion context: threadId=...' in your system prompt; " +
+		"omit it if you are not inside a discussion."
+	queryDesc = "The question to re-ask at the scheduled time. " +
+		"Phrase it fully - the follow-up discussion has no memory of the current one " +
+		"unless source_thread_id is set."
+	followupThreadDesc = "Optional. The discussion threadId this follow-up was created in. " +
+		"When present, the original thread is reopened (synthetic human reply) " +
+		"so the prior conversation context is preserved."
+	scheduleIDDesc = "The exact scheduleId (UUID) returned by list_scheduled. " +
+		"The end user never sees these - call list_scheduled first to look up the right id by descriptor."
+)
+
 // Specifications returns the tool-list payload MCP clients consume.
 func (s *Set) Specifications() []map[string]any {
 	return []map[string]any{
-		{
-			"name":        "set_reminder",
-			"description": setReminderDesc,
-			"inputSchema": mustSchema(map[string]any{
-				"type":     "object",
-				"required": []string{"when", "message"},
-				"properties": map[string]any{
-					"when": map[string]any{
-						"type":        "string",
-						"description": `Natural-language time. "in 30 minutes", "tomorrow at 9am", "Monday at 14:30", or an RFC 3339 timestamp.`,
-					},
-					"message": map[string]any{
-						"type":        "string",
-						"description": "The text to deliver as a reminder. Be specific — the future-you reading it lacks today's chat context.",
-					},
-					"source_thread_id": map[string]any{
-						"type":        "string",
-						"description": "Optional. The discussion threadId this reminder was created in, so it fires inline. Pull this from 'Discussion context: threadId=...' in your system prompt; omit it if you are not inside a discussion.",
-					},
-					"reason": map[string]any{
-						"type":        "string",
-						"description": "Optional free-text note for the dashboard timeline.",
-					},
-				},
-			}),
-		},
-		{
-			"name":        "schedule_followup",
-			"description": scheduleFollowupDesc,
-			"inputSchema": mustSchema(map[string]any{
-				"type":     "object",
-				"required": []string{"when", "query"},
-				"properties": map[string]any{
-					"when": map[string]any{
-						"type":        "string",
-						"description": `Natural-language time. Same syntax as set_reminder.`,
-					},
-					"query": map[string]any{
-						"type":        "string",
-						"description": "The question to re-ask at the scheduled time. Phrase it fully — the follow-up discussion has no memory of the current one unless source_thread_id is set.",
-					},
-					"source_thread_id": map[string]any{
-						"type":        "string",
-						"description": "Optional. The discussion threadId this follow-up was created in. When present, the original thread is reopened (synthetic human reply) so the prior conversation context is preserved.",
-					},
-					"reason": map[string]any{
-						"type":        "string",
-						"description": "Optional free-text note.",
-					},
-				},
-			}),
-		},
-		{
-			"name":        "list_scheduled",
-			"description": listScheduledDesc,
-			"inputSchema": mustSchema(map[string]any{
-				"type":       "object",
-				"properties": map[string]any{},
-			}),
-		},
-		{
-			"name":        "cancel_scheduled",
-			"description": cancelScheduledDesc,
-			"inputSchema": mustSchema(map[string]any{
-				"type":     "object",
-				"required": []string{"scheduleId"},
-				"properties": map[string]any{
-					"scheduleId": map[string]any{
-						"type":        "string",
-						"description": "The exact scheduleId (UUID) returned by list_scheduled. The end user never sees these — call list_scheduled first to look up the right id by descriptor.",
-					},
-				},
-			}),
-		},
+		toolSpec(toolSetReminder, setReminderDesc, objectSchema([]string{argWhen, argMessage}, map[string]any{
+			argWhen:           stringProp(whenDesc),
+			argMessage:        stringProp(messageDesc),
+			argSourceThreadID: stringProp(reminderThreadDesc),
+			argReason:         stringProp("Optional free-text note for the dashboard timeline."),
+		})),
+		toolSpec(toolScheduleFollowup, scheduleFollowupDesc, objectSchema([]string{argWhen, argQuery}, map[string]any{
+			argWhen:           stringProp(`Natural-language time. Same syntax as set_reminder.`),
+			argQuery:          stringProp(queryDesc),
+			argSourceThreadID: stringProp(followupThreadDesc),
+			argReason:         stringProp("Optional free-text note."),
+		})),
+		toolSpec(toolListScheduled, listScheduledDesc, objectSchema(nil, map[string]any{})),
+		toolSpec(toolCancelScheduled, cancelScheduledDesc, objectSchema([]string{argScheduleID}, map[string]any{
+			argScheduleID: stringProp(scheduleIDDesc),
+		})),
 	}
 }
 
-const setReminderDesc = `Schedule a one-shot reminder. The operator will publish a notice at the scheduled time — agents do NOT respond, the user just sees the reminder appear.
+// toolSpec is one tool's MCP specification.
+func toolSpec(name, description string, inputSchema map[string]any) map[string]any {
+	return map[string]any{"name": name, "description": description, "inputSchema": inputSchema}
+}
 
-Use this when the user says "remind me…", "ping me…", or "tell me at…". Do NOT use this for questions; use schedule_followup if they want a discussion to run later.
+// objectSchema is a JSON Schema object with the given properties; required is
+// omitted when empty.
+func objectSchema(required []string, properties map[string]any) map[string]any {
+	schema := map[string]any{"type": "object", "properties": properties}
+	if len(required) > 0 {
+		schema["required"] = required
+	}
+	return schema
+}
 
-If you are inside a discussion thread (look for 'Discussion context: threadId=...' in your system prompt), pass that as source_thread_id so the reminder fires inline in this conversation. If you are not, omit it and the reminder lands as a new closed thread.`
+// stringProp is a JSON Schema string property with a description.
+func stringProp(description string) map[string]any {
+	return map[string]any{"type": "string", "description": description}
+}
 
-const scheduleFollowupDesc = `Schedule a deferred discussion. The operator will re-pose the query at the scheduled time and let the crew discuss it.
+const setReminderDesc = "Schedule a one-shot reminder. The operator will publish a notice at the scheduled time - " +
+	"agents do NOT respond, the user just sees the reminder appear.\n" +
+	"\n" +
+	"Use this when the user says \"remind me...\", \"ping me...\", or \"tell me at...\". Do NOT use this " +
+	"for questions; use schedule_followup if they want a discussion to run later.\n" +
+	"\n" +
+	"If you are inside a discussion thread (look for 'Discussion context: threadId=...' in " +
+	"your system prompt), pass that as source_thread_id so the reminder fires inline in this " +
+	"conversation. If you are not, omit it and the reminder lands as a new closed thread."
 
-Use this when the user says "re-check…", "ask again later…", "follow up on…", or "run the weekly health summary every Monday".
+const scheduleFollowupDesc = "Schedule a deferred discussion. " +
+	"The operator will re-pose the query at the scheduled time and let the crew discuss it.\n" +
+	"\n" +
+	"Use this when the user says \"re-check...\", \"ask again later...\", \"follow up on...\", or \"run the " +
+	"weekly health summary every Monday\".\n" +
+	"\n" +
+	"If you are inside a discussion thread (look for 'Discussion context: threadId=...' in " +
+	"your system prompt), pass that as source_thread_id so the follow-up reopens this " +
+	"conversation (preserves context). If you are not, omit it and a fresh discussion will run."
 
-If you are inside a discussion thread (look for 'Discussion context: threadId=...' in your system prompt), pass that as source_thread_id so the follow-up reopens this conversation (preserves context). If you are not, omit it and a fresh discussion will run.`
+const listScheduledDesc = "Return the pending scheduled reminders and follow-ups for this crew. Use this when the " +
+	"user asks \"what's scheduled?\", \"any reminders?\", or before cancelling so you can identify " +
+	"the right entry. Returns a JSON array; describe items to the user by their content + " +
+	"relative time, NEVER by scheduleId."
 
-const listScheduledDesc = `Return the pending scheduled reminders and follow-ups for this crew. Use this when the user asks "what's scheduled?", "any reminders?", or before cancelling so you can identify the right entry. Returns a JSON array; describe items to the user by their content + relative time, NEVER by scheduleId.`
-
-const cancelScheduledDesc = `Cancel a pending schedule by id. ALWAYS call list_scheduled first to find the right id from the user's description; the user does not know ids. Confirm with the user before calling cancel_scheduled ("That's the 9am disk check — cancel?"). On success, the schedule will not fire.`
+const cancelScheduledDesc = "Cancel a pending schedule by id. ALWAYS call list_scheduled first to find the right id " +
+	"from the user's description; the user does not know ids. Confirm with the user before " +
+	"calling cancel_scheduled (\"That's the 9am disk check - cancel?\"). On success, the " +
+	"schedule will not fire."
 
 // ─── Dispatch ───────────────────────────────────────────────────────────
 
@@ -151,13 +164,13 @@ const cancelScheduledDesc = `Cancel a pending schedule by id. ALWAYS call list_s
 // (sent back to the LLM verbatim) or an error.
 func (s *Set) Call(ctx context.Context, name string, args json.RawMessage) (string, error) {
 	switch name {
-	case "set_reminder":
+	case toolSetReminder:
 		return s.setReminder(ctx, args)
-	case "schedule_followup":
+	case toolScheduleFollowup:
 		return s.scheduleFollowup(ctx, args)
-	case "list_scheduled":
+	case toolListScheduled:
 		return s.listScheduled(ctx)
-	case "cancel_scheduled":
+	case toolCancelScheduled:
 		return s.cancelScheduled(ctx, args)
 	default:
 		return "", fmt.Errorf("unknown tool: %s", name)
@@ -181,23 +194,8 @@ func (s *Set) setReminder(ctx context.Context, raw json.RawMessage) (string, err
 	if strings.TrimSpace(a.When) == "" || strings.TrimSpace(a.Message) == "" {
 		return "", errors.New("`when` and `message` are required")
 	}
-	trigger, err := timeparse.Parse(a.When, s.Now())
-	if err != nil {
-		return "", err
-	}
-	rec := record.Record{
-		ScheduleID:     uuid.NewString(),
-		Kind:           record.KindReminder,
-		TriggerAt:      trigger,
-		ScheduledBy:    "scheduler-advisor",
-		Namespace:      s.Namespace,
-		Crew:           s.Crew,
-		Channel:        "general",
-		Message:        strings.TrimSpace(a.Message),
-		Reason:         strings.TrimSpace(a.Reason),
-		SourceThreadID: strings.TrimSpace(a.SourceThreadID),
-	}
-	if err := s.write(ctx, &rec); err != nil {
+	rec := record.Record{Kind: record.KindReminder, Message: strings.TrimSpace(a.Message)}
+	if err := s.schedule(ctx, &rec, a.When, a.Reason, a.SourceThreadID); err != nil {
 		return "", err
 	}
 	return fmt.Sprintf(
@@ -222,28 +220,32 @@ func (s *Set) scheduleFollowup(ctx context.Context, raw json.RawMessage) (string
 	if strings.TrimSpace(a.When) == "" || strings.TrimSpace(a.Query) == "" {
 		return "", errors.New("`when` and `query` are required")
 	}
-	trigger, err := timeparse.Parse(a.When, s.Now())
-	if err != nil {
-		return "", err
-	}
-	rec := record.Record{
-		ScheduleID:     uuid.NewString(),
-		Kind:           record.KindFollowup,
-		TriggerAt:      trigger,
-		ScheduledBy:    "scheduler-advisor",
-		Namespace:      s.Namespace,
-		Crew:           s.Crew,
-		Channel:        "general",
-		Query:          strings.TrimSpace(a.Query),
-		Reason:         strings.TrimSpace(a.Reason),
-		SourceThreadID: strings.TrimSpace(a.SourceThreadID),
-	}
-	if err := s.write(ctx, &rec); err != nil {
+	rec := record.Record{Kind: record.KindFollowup, Query: strings.TrimSpace(a.Query)}
+	if err := s.schedule(ctx, &rec, a.When, a.Reason, a.SourceThreadID); err != nil {
 		return "", err
 	}
 	return fmt.Sprintf(
 		"Follow-up scheduled for %s — will re-ask: %q (id=%s).",
 		humanWhen(rec.TriggerAt, s.Now()), rec.Query, rec.ScheduleID), nil
+}
+
+// schedule completes rec (its Kind and Message or Query already set) with a new
+// id, the trigger time parsed from when, this Set's crew, and the trimmed reason
+// and source thread, then writes it.
+func (s *Set) schedule(ctx context.Context, rec *record.Record, when, reason, sourceThreadID string) error {
+	trigger, err := timeparse.Parse(when, s.Now())
+	if err != nil {
+		return err
+	}
+	rec.ScheduleID = uuid.NewString()
+	rec.TriggerAt = trigger
+	rec.ScheduledBy = "scheduler-advisor"
+	rec.Namespace = s.Namespace
+	rec.Crew = s.Crew
+	rec.Channel = "general"
+	rec.Reason = strings.TrimSpace(reason)
+	rec.SourceThreadID = strings.TrimSpace(sourceThreadID)
+	return s.write(ctx, rec)
 }
 
 // ─── list_scheduled ─────────────────────────────────────────────────────
@@ -362,5 +364,3 @@ func humanWhen(t, now time.Time) string {
 	}
 	return fmt.Sprintf("in %d day(s) at %s UTC", int(d.Hours())/24, t.Format("15:04"))
 }
-
-func mustSchema(m map[string]any) map[string]any { return m }

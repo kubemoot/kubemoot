@@ -75,7 +75,7 @@ func TestFire_UnknownKindRejected(t *testing.T) {
 }
 
 func TestThreadSubject(t *testing.T) {
-	got := threadSubject(&record.Record{Namespace: testNamespace, Crew: pilotCrew}, "general", "thread-7")
+	got := threadSubject(&record.Record{Namespace: testNamespace, Crew: pilotCrew}, testChannelGeneral, "thread-7")
 	want := "kubemoot.discuss.team-a.homelab-pilot.general.thread-7"
 	if got != want {
 		t.Errorf("got %q, want %q", got, want)
@@ -83,8 +83,8 @@ func TestThreadSubject(t *testing.T) {
 }
 
 func TestThreadSubject_SameCrewInTwoNamespacesDiffers(t *testing.T) {
-	a := threadSubject(&record.Record{Namespace: testNamespace, Crew: shortCrew}, "general", "t")
-	b := threadSubject(&record.Record{Namespace: otherNamespace, Crew: shortCrew}, "general", "t")
+	a := threadSubject(&record.Record{Namespace: testNamespace, Crew: shortCrew}, testChannelGeneral, "t")
+	b := threadSubject(&record.Record{Namespace: otherNamespace, Crew: shortCrew}, testChannelGeneral, "t")
 	if a == b {
 		t.Errorf("subjects collide: %q", a)
 	}
@@ -107,7 +107,7 @@ func TestRecordScope_RejectsUnscopedRecords(t *testing.T) {
 
 func TestFireMetadata_IncludesEffectiveKind(t *testing.T) {
 	r := &record.Record{
-		ScheduleID:  "abc",
+		ScheduleID:  testScheduleID,
 		ScheduledBy: "scheduler-advisor",
 		// Kind intentionally empty — should fall back to followup.
 	}
@@ -115,8 +115,8 @@ func TestFireMetadata_IncludesEffectiveKind(t *testing.T) {
 	if m["kind"] != record.KindFollowup {
 		t.Errorf("kind: got %v, want %v", m["kind"], record.KindFollowup)
 	}
-	if m["scheduleId"] != "abc" {
-		t.Errorf("scheduleId: got %v, want %v", m["scheduleId"], "abc")
+	if m["scheduleId"] != testScheduleID {
+		t.Errorf("scheduleId: got %v, want %v", m["scheduleId"], testScheduleID)
 	}
 }
 
@@ -126,55 +126,55 @@ func TestFireMetadata_OmitsEmptyFields(t *testing.T) {
 	if _, ok := m["reason"]; ok {
 		t.Error("empty reason should be omitted")
 	}
-	if _, ok := m["sourceThreadId"]; ok {
+	if _, ok := m[testKeySourceThreadID]; ok {
 		t.Error("empty sourceThreadId should be omitted")
 	}
-	if _, ok := m["userQuery"]; ok {
+	if _, ok := m[testKeyUserQuery]; ok {
 		t.Error("userQuery should be omitted when includeUserQuery=false")
 	}
 }
 
 func TestFireMetadata_InlineKeepsSourceThreadId(t *testing.T) {
 	r := &record.Record{
-		ScheduleID:     "abc",
+		ScheduleID:     testScheduleID,
 		Kind:           record.KindFollowup,
 		SourceThreadID: "thread-1",
-		Query:          "what about disk?",
+		Query:          testQueryDisk,
 	}
 	m := fireMetadata(r, false) // inline fire
-	if m["sourceThreadId"] != "thread-1" {
-		t.Errorf("inline fire should set sourceThreadId, got %v", m["sourceThreadId"])
+	if m[testKeySourceThreadID] != "thread-1" {
+		t.Errorf("inline fire should set sourceThreadId, got %v", m[testKeySourceThreadID])
 	}
-	if _, ok := m["originalSourceThreadId"]; ok {
+	if _, ok := m[testKeyOriginalSourceThreadID]; ok {
 		t.Error("inline fire should not set originalSourceThreadId")
 	}
-	if _, ok := m["degraded"]; ok {
+	if _, ok := m[testDegraded]; ok {
 		t.Error("inline fire should not set degraded flag")
 	}
-	if _, ok := m["userQuery"]; ok {
+	if _, ok := m[testKeyUserQuery]; ok {
 		t.Error("inline fire should not echo the user query in metadata")
 	}
 }
 
 func TestFireMetadata_DegradedNewThreadFlagsOriginal(t *testing.T) {
 	r := &record.Record{
-		ScheduleID:     "abc",
+		ScheduleID:     testScheduleID,
 		Kind:           record.KindFollowup,
 		SourceThreadID: "thread-deleted",
-		Query:          "what about disk?",
+		Query:          testQueryDisk,
 	}
 	m := fireMetadata(r, true) // degraded → new-thread fire
-	if m["originalSourceThreadId"] != "thread-deleted" {
-		t.Errorf("degraded fire should set originalSourceThreadId, got %v", m["originalSourceThreadId"])
+	if m[testKeyOriginalSourceThreadID] != "thread-deleted" {
+		t.Errorf("degraded fire should set originalSourceThreadId, got %v", m[testKeyOriginalSourceThreadID])
 	}
-	if m["degraded"] != true {
-		t.Errorf("degraded fire should set degraded=true, got %v", m["degraded"])
+	if m[testDegraded] != true {
+		t.Errorf("degraded fire should set degraded=true, got %v", m[testDegraded])
 	}
-	if _, ok := m["sourceThreadId"]; ok {
+	if _, ok := m[testKeySourceThreadID]; ok {
 		t.Error("new-thread fire must not advertise sourceThreadId — message lives on a fresh thread")
 	}
-	if m["userQuery"] != "what about disk?" {
-		t.Errorf("new-thread fire should echo userQuery, got %v", m["userQuery"])
+	if m[testKeyUserQuery] != testQueryDisk {
+		t.Errorf("new-thread fire should echo userQuery, got %v", m[testKeyUserQuery])
 	}
 }
 
@@ -191,10 +191,10 @@ func TestFire_DegradesToNewThreadWhenSourceMissing(t *testing.T) {
 		{
 			name: "followup with missing source",
 			rec: record.Record{
-				ScheduleID:     "abc",
+				ScheduleID:     testScheduleID,
 				Namespace:      testNamespace,
 				Crew:           pilotCrew,
-				Channel:        "general",
+				Channel:        testChannelGeneral,
 				Kind:           record.KindFollowup,
 				Query:          "re-check disk",
 				SourceThreadID: "thread-gone",
@@ -203,10 +203,10 @@ func TestFire_DegradesToNewThreadWhenSourceMissing(t *testing.T) {
 		{
 			name: "reminder with missing source",
 			rec: record.Record{
-				ScheduleID:     "abc",
+				ScheduleID:     testScheduleID,
 				Namespace:      testNamespace,
 				Crew:           pilotCrew,
-				Channel:        "general",
+				Channel:        testChannelGeneral,
 				Kind:           record.KindReminder,
 				Message:        "ping me",
 				SourceThreadID: "thread-gone",
@@ -250,10 +250,10 @@ func TestFire_DoesNotCheckWhenNoSource(t *testing.T) {
 		return true
 	}
 	rec := &record.Record{
-		ScheduleID: "abc",
+		ScheduleID: testScheduleID,
 		Namespace:  testNamespace,
 		Crew:       pilotCrew,
-		Channel:    "general",
+		Channel:    testChannelGeneral,
 		Kind:       record.KindFollowup,
 		Query:      "x",
 	}
@@ -270,7 +270,7 @@ func TestFire_DoesNotCheckWhenNoSource(t *testing.T) {
 // existence; the publish path will no-op anyway.
 func TestSourceExists_NoCheckerReturnsTrue(t *testing.T) {
 	p := New(nil)
-	if !p.sourceExists(&record.Record{Namespace: testNamespace, Crew: "crew"}, "general", "thread-x") {
+	if !p.sourceExists(&record.Record{Namespace: testNamespace, Crew: "crew"}, testChannelGeneral, "thread-x") {
 		t.Error("expected sourceExists to be optimistic when no checker is wired")
 	}
 }

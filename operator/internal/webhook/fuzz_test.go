@@ -48,10 +48,10 @@ func FuzzValidateCrewName(f *testing.F) {
 		if err != nil {
 			return
 		}
-		if errs := validation.IsDNS1123Label("crew-" + name); len(errs) > 0 {
+		if errs := validation.IsDNS1123Label(testCrewPrefix + name); len(errs) > 0 {
 			t.Fatalf("crew-%s is not a DNS-1123 label: %v", name, errs)
 		}
-		for _, derived := range []string{"crew-" + name + "-skills", "crew-" + name + "-resumes", "crew-" + name + "-discussion"} {
+		for _, derived := range []string{testCrewPrefix + name + "-skills", testCrewPrefix + name + "-resumes", testCrewPrefix + name + "-discussion"} {
 			if errs := validation.IsDNS1123Subdomain(derived); len(errs) > 0 {
 				t.Fatalf("derived name %q is invalid: %v", derived, errs)
 			}

@@ -134,7 +134,7 @@ func (r *MCPCatalogReconciler) syncOfficialRegistry(ctx context.Context, catalog
 		log.Error(err, "Failed to fetch official registry", "url", catalog.Spec.URL)
 		return r.updateStatus(ctx, catalog, "Error", fmt.Sprintf("Failed to fetch registry: %v", err), nil)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return r.updateStatus(ctx, catalog, "Error", fmt.Sprintf("Registry returned status %d", resp.StatusCode), nil)
@@ -163,7 +163,7 @@ func (r *MCPCatalogReconciler) syncOfficialRegistry(ctx context.Context, catalog
 		"blocked", blockedCount)
 
 	return r.updateStatusWithServers(ctx, catalog, catalogStatusUpdate{
-		phase:      "Ready",
+		phase:      phaseReady,
 		message:    "Synced from official registry",
 		servers:    discoveredServers,
 		discovered: len(registryResp.Servers),
@@ -321,7 +321,7 @@ Return the discovered servers as JSON.`, catalog.Spec.URL, catalog.Spec.Queries)
 		"blocked", blockedCount)
 
 	return r.updateStatusWithServers(ctx, catalog, catalogStatusUpdate{
-		phase:      "Ready",
+		phase:      phaseReady,
 		message:    "Synced via discovery agent",
 		servers:    discoveredServers,
 		discovered: len(discoveredServers) + blockedCount,
@@ -333,7 +333,7 @@ Return the discovered servers as JSON.`, catalog.Spec.URL, catalog.Spec.Queries)
 // invokeAgent sends a chat request to an Agent and returns the response
 func (r *MCPCatalogReconciler) invokeAgent(ctx context.Context, endpoint, message string) (string, error) {
 	reqBody := map[string]interface{}{
-		"message": message,
+		jsonKeyMessage: message,
 	}
 	bodyBytes, err := json.Marshal(reqBody)
 	if err != nil {
@@ -351,7 +351,7 @@ func (r *MCPCatalogReconciler) invokeAgent(ctx context.Context, endpoint, messag
 	if err != nil {
 		return "", fmt.Errorf("failed to invoke agent: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return "", fmt.Errorf("agent returned status %d", resp.StatusCode)
@@ -453,7 +453,7 @@ func (r *MCPCatalogReconciler) applyQualityPolicy(ctx context.Context, catalog *
 		server.QualityDecision = decision.Action
 		server.QualityReason = decision.Reason
 
-		if decision.Action == "allow" {
+		if decision.Action == policyActionAllow {
 			allowed = append(allowed, server)
 		} else {
 			blockedCount++
@@ -491,10 +491,10 @@ func (r *MCPCatalogReconciler) evaluateServerAgainstPolicy(ctx context.Context, 
 func (r *MCPCatalogReconciler) checkAllowingList(policy *aiv1alpha1.MCPQualityPolicy, server aiv1alpha1.DiscoveredServer) (PolicyDecision, bool) {
 	for _, entry := range policy.Spec.Allowing {
 		if entry.Name != "" && entry.Name == server.Name {
-			return PolicyDecision{Action: "allow", Confidence: 1.0, Reason: "In allowing list (by name)"}, true
+			return PolicyDecision{Action: policyActionAllow, Confidence: 1.0, Reason: "In allowing list (by name)"}, true
 		}
 		if entry.Author != "" && entry.Author == server.Author {
-			return PolicyDecision{Action: "allow", Confidence: 1.0, Reason: "In allowing list (by author)"}, true
+			return PolicyDecision{Action: policyActionAllow, Confidence: 1.0, Reason: "In allowing list (by author)"}, true
 		}
 	}
 	return PolicyDecision{}, false
@@ -508,7 +508,7 @@ func (r *MCPCatalogReconciler) checkBlockingList(policy *aiv1alpha1.MCPQualityPo
 			if entry.Reason != "" {
 				reason = entry.Reason
 			}
-			return PolicyDecision{Action: "deny", Confidence: 1.0, Reason: reason}, true
+			return PolicyDecision{Action: policyActionDeny, Confidence: 1.0, Reason: reason}, true
 		}
 	}
 	return PolicyDecision{}, false
@@ -519,7 +519,7 @@ func (r *MCPCatalogReconciler) evaluateConsideringTier(ctx context.Context, poli
 	log := logf.FromContext(ctx)
 
 	if policy.Spec.Considering == nil {
-		return PolicyDecision{Action: "allow", Confidence: 0.5, Reason: "No policy matched, default allow"}
+		return PolicyDecision{Action: policyActionAllow, Confidence: 0.5, Reason: "No policy matched, default allow"}
 	}
 
 	if !policy.Spec.Considering.Enabled {
@@ -545,56 +545,7 @@ func (r *MCPCatalogReconciler) evaluateConsideringTier(ctx context.Context, poli
 
 // evaluateTestedTier checks MCPServerReport for prior test experience
 func (r *MCPCatalogReconciler) evaluateTestedTier(ctx context.Context, policy *aiv1alpha1.MCPQualityPolicy, server aiv1alpha1.DiscoveredServer) PolicyDecision {
-	log := logf.FromContext(ctx)
-
-	// Look up MCPServerReport by sanitized server name
-	reportName := sanitizeK8sName(server.Name)
-	report := &aiv1alpha1.MCPServerReport{}
-	if err := r.Get(ctx, client.ObjectKey{
-		Namespace: policy.Namespace,
-		Name:      reportName,
-	}, report); err != nil {
-		// No report found — pass through to next tier
-		return PolicyDecision{}
-	}
-
-	tested := policy.Spec.Tested
-
-	// Block servers with "avoid" verdict
-	if tested.BlockBrokenEnabled() && report.Status.Verdict == string(aiv1alpha1.VerdictAvoid) {
-		log.Info("Blocking server with avoid verdict", "server", server.Name)
-		return PolicyDecision{
-			Action:     "deny",
-			Confidence: 1.0,
-			Reason:     fmt.Sprintf("tested: verdict=avoid, %d failures recorded", report.Status.FailureCount),
-		}
-	}
-
-	// Auto-allow servers with "use" verdict and sufficient success rate
-	if report.Status.Verdict == string(aiv1alpha1.VerdictUse) {
-		minRate := 0.8
-		if tested.MinSuccessRate != "" {
-			if parsed, err := parseFloat(tested.MinSuccessRate); err == nil {
-				minRate = parsed
-			}
-		}
-		// Parse success rate from status (format: "85%")
-		var actualRate float64
-		if report.Status.SuccessRate != "N/A" {
-			fmt.Sscanf(report.Status.SuccessRate, "%f%%", &actualRate)
-			actualRate /= 100
-		}
-		if actualRate >= minRate {
-			return PolicyDecision{
-				Action:     "allow",
-				Confidence: 0.95,
-				Reason:     fmt.Sprintf("tested: verdict=use, success rate %s", report.Status.SuccessRate),
-			}
-		}
-	}
-
-	// Caution or insufficient data — fall through to considering with context
-	return PolicyDecision{}
+	return evaluateTestedTier(ctx, r.Client, policy, server.Name)
 }
 
 // GitHubMetrics contains metrics fetched from GitHub API
@@ -644,7 +595,7 @@ func (r *MCPCatalogReconciler) fetchGitHubMetrics(ctx context.Context, githubURL
 		metrics.Error = fmt.Sprintf("failed to fetch: %v", err)
 		return metrics
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		metrics.Error = fmt.Sprintf("GitHub API returned status %d", resp.StatusCode)
@@ -701,7 +652,7 @@ func (r *MCPCatalogReconciler) invokeQualityEvaluator(ctx context.Context, polic
 
 	// Build the evaluation request with server metadata and metrics
 	evalRequest := map[string]interface{}{
-		"name":        server.Name,
+		jsonKeyName:   server.Name,
 		"author":      server.Author,
 		"description": server.Description,
 		"version":     server.Version,
@@ -778,9 +729,9 @@ func (r *MCPCatalogReconciler) parseQualityEvaluatorResponse(response string) (P
 		return PolicyDecision{}, fmt.Errorf("failed to parse JSON: %w", err)
 	}
 
-	action := "deny"
-	if strings.ToLower(evalResp.Decision) == "allow" {
-		action = "allow"
+	action := policyActionDeny
+	if strings.ToLower(evalResp.Decision) == policyActionAllow {
+		action = policyActionAllow
 	}
 
 	return PolicyDecision{
@@ -869,13 +820,13 @@ func (r *MCPCatalogReconciler) updateStatusWithServers(ctx context.Context, cata
 
 	// Set condition
 	condition := metav1.Condition{
-		Type:               "Ready",
+		Type:               conditionTypeReady,
 		Status:             metav1.ConditionFalse,
 		Reason:             phase,
 		Message:            message,
 		LastTransitionTime: metav1.Now(),
 	}
-	if phase == "Ready" {
+	if phase == phaseReady {
 		condition.Status = metav1.ConditionTrue
 	}
 	meta.SetStatusCondition(&catalog.Status.Conditions, condition)
@@ -887,7 +838,7 @@ func (r *MCPCatalogReconciler) updateStatusWithServers(ctx context.Context, cata
 
 	// Requeue for next sync
 	requeueAfter := syncInterval
-	if phase != "Ready" {
+	if phase != phaseReady {
 		requeueAfter = 1 * time.Minute // Retry faster if not ready
 	}
 

@@ -52,7 +52,7 @@ func crewForgeAnnotations() map[string]string {
 		annoCrewForgeSource:     revTestSource,
 		annoCrewForgeOwner:      revTestOwner,
 		annoCrewForgeRevision:   revTestHash,
-		annoCrewForgeChannel:    "bundle",
+		annoCrewForgeChannel:    testBundle,
 		annoCrewForgeDeployedAt: revTestDeployedAt,
 	}
 }
@@ -62,7 +62,7 @@ func TestCrewProvenanceReadsAnnotationsAndLabel(t *testing.T) {
 	got := crewProvenance(crew)
 	want := namespaceCrewEntry{
 		Source: revTestSource, Owner: revTestOwner, Revision: revTestHash,
-		Channel: "bundle", CrewVersion: revTestVersion, DeployedAt: revTestDeployedAt,
+		Channel: testBundle, CrewVersion: revTestVersion, DeployedAt: revTestDeployedAt,
 	}
 	if got != want {
 		t.Fatalf("crewProvenance = %+v, want %+v", got, want)
@@ -99,7 +99,7 @@ func TestAppendRevisionDedupesAgainstNewest(t *testing.T) {
 		t.Fatalf("first append must add, got %v changed=%v", history, changed)
 	}
 	dup := first
-	dup.Owner = "someone-else"
+	dup.Owner = testSomeoneElse
 	if _, changed := appendRevision(history, dup); changed {
 		t.Fatal("same (revision, deployed-at, crew-version) must not append")
 	}
@@ -156,14 +156,14 @@ func TestMergeNamespaceCrewsAddAndUpdate(t *testing.T) {
 	if !changed || decodeCrews(t, raw)["pilot"] != e1 {
 		t.Fatalf("add: got %q changed=%v", raw, changed)
 	}
-	raw, _ = mergeNamespaceCrews(raw, "other", namespaceCrewEntry{CrewVersion: revTestVersion})
+	raw, _ = mergeNamespaceCrews(raw, testOtherCrew, namespaceCrewEntry{CrewVersion: revTestVersion})
 	if _, changed = mergeNamespaceCrews(raw, "pilot", e1); changed {
 		t.Fatal("an identical entry must not report a change")
 	}
 	e2 := namespaceCrewEntry{Revision: "b", Owner: revTestOwner}
 	raw, changed = mergeNamespaceCrews(raw, "pilot", e2)
 	crews := decodeCrews(t, raw)
-	if !changed || crews["pilot"] != e2 || crews["other"].CrewVersion != revTestVersion {
+	if !changed || crews["pilot"] != e2 || crews[testOtherCrew].CrewVersion != revTestVersion {
 		t.Fatalf("update must replace pilot and keep other, got %q", raw)
 	}
 }
@@ -175,7 +175,7 @@ func TestMergeNamespaceCrewsRemove(t *testing.T) {
 	if _, present := crews["pilot"]; !changed || present || len(crews) != 1 {
 		t.Fatalf("remove must drop only pilot, got %q", raw)
 	}
-	raw, changed = mergeNamespaceCrews(raw, "other", namespaceCrewEntry{})
+	raw, changed = mergeNamespaceCrews(raw, testOtherCrew, namespaceCrewEntry{})
 	if !changed || raw != "" {
 		t.Fatalf("removing the last entry must yield an empty value, got %q", raw)
 	}

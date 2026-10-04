@@ -42,15 +42,15 @@ func TestCoversScenarios(t *testing.T) {
 func TestGenerateSuiteReport(t *testing.T) {
 	scheme := agentReconcileScheme(t)
 	suite := &kubemootv1alpha1.CrewFitnessSuite{
-		ObjectMeta: metav1.ObjectMeta{Name: "suite", Namespace: "ns"},
-		Spec:       kubemootv1alpha1.CrewFitnessSuiteSpec{Scripts: []kubemootv1alpha1.SuiteScript{{TestRef: "scenario-x"}}},
+		ObjectMeta: metav1.ObjectMeta{Name: testSuite, Namespace: "ns"},
+		Spec:       kubemootv1alpha1.CrewFitnessSuiteSpec{Scripts: []kubemootv1alpha1.SuiteScript{{TestRef: testScenarioX}}},
 		Status:     kubemootv1alpha1.CrewFitnessSuiteStatus{RunID: "run"},
 	}
 	cli := fake.NewClientBuilder().WithScheme(scheme).WithObjects(suite).Build()
 	store := fakeStore{objs: map[string][]byte{
-		"ns/suite/run/s0-i1.json": []byte(feasibleTranscript),
+		testRunS0I1: []byte(feasibleTranscript),
 	}}
-	out, err := GenerateSuiteReport(context.Background(), cli, store, "ns", "suite")
+	out, err := GenerateSuiteReport(context.Background(), cli, store, "ns", testSuite)
 	if err != nil {
 		t.Fatalf("GenerateSuiteReport: %v", err)
 	}
@@ -63,7 +63,7 @@ func TestGenerateSuiteReport_SuiteNotFound(t *testing.T) {
 	scheme := agentReconcileScheme(t)
 	cli := fake.NewClientBuilder().WithScheme(scheme).Build()
 	if _, err := GenerateSuiteReport(context.Background(), cli,
-		fakeStore{objs: map[string][]byte{}}, "ns", "absent"); err == nil {
+		fakeStore{objs: map[string][]byte{}}, "ns", testAbsent); err == nil {
 		t.Error("expected an error when the suite does not exist")
 	}
 }

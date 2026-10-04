@@ -222,11 +222,13 @@ func scanSSEEvents(r io.Reader) ([]SignalEvent, error) {
 //  3. Evaluate each assertion
 //
 // Returns the list of AssertionResult values.
-func RunFitnessTest(ctx context.Context, ft fitnessscript.FitnessTest, endpoint string, maxDuration time.Duration) *RunOutcome {
+func RunFitnessTest(
+	ctx context.Context, ft fitnessscript.FitnessTest, endpoint string, maxDuration time.Duration,
+) *RunOutcome {
 	client := newHTTPClient()
 	startedAt := time.Now()
 
-	question, ok := ft.Constants["QUESTION"]
+	question, ok := ft.Constants[constQuestion]
 	if !ok || question == "" {
 		question = "Hello"
 	}
@@ -292,7 +294,9 @@ func RunFitnessTest(ctx context.Context, ft fitnessscript.FitnessTest, endpoint 
 // recover the persisted timeline — including the 'done'/synthesis — until we have
 // a 'done' event or the overall deadline genuinely expires. Returns the richest
 // collected timeline and whether the overall deadline expired.
-func collectDiscussionStream(ctx context.Context, client *http.Client, streamURL string, maxDuration time.Duration) ([]SignalEvent, bool) {
+func collectDiscussionStream(
+	ctx context.Context, client *http.Client, streamURL string, maxDuration time.Duration,
+) ([]SignalEvent, bool) {
 	streamCtx, streamCancel := context.WithTimeout(ctx, maxDuration)
 	defer streamCancel()
 
@@ -324,9 +328,11 @@ func collectDiscussionStream(ctx context.Context, client *http.Client, streamURL
 // 'done'-less SSE stream.
 func logSSEReconnect(attempt, maxAttempts int, sseErr error) {
 	if sseErr != nil {
-		fmt.Printf("[fitness-runner] SSE drop (attempt %d/%d), reconnecting to recover persisted stream: %v\n", attempt, maxAttempts, sseErr)
+		fmt.Printf("[fitness-runner] SSE drop (attempt %d/%d), reconnecting to recover persisted stream: %v\n",
+			attempt, maxAttempts, sseErr)
 	} else {
-		fmt.Printf("[fitness-runner] SSE ended without 'done' (attempt %d/%d), reconnecting to recover\n", attempt, maxAttempts)
+		fmt.Printf("[fitness-runner] SSE ended without 'done' (attempt %d/%d), reconnecting to recover\n",
+			attempt, maxAttempts)
 	}
 }
 

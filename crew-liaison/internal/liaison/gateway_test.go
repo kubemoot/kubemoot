@@ -19,6 +19,13 @@ type fakeGateway struct {
 	srv       *httptest.Server
 }
 
+// Fixture names shared by the liaison tests.
+const (
+	testCrew     = "hello"
+	dupCrew      = "dup"
+	testQuestion = "Capital of France?"
+)
+
 func newFakeGateway(events ...string) *fakeGateway {
 	f := &fakeGateway{events: events, startCode: http.StatusOK}
 	mux := http.NewServeMux()
@@ -36,7 +43,7 @@ func newFakeGateway(events ...string) *fakeGateway {
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprint(w, `{"conversationId":"conv-42"}`)
+		_, _ = fmt.Fprint(w, `{"conversationId":"conv-42"}`)
 	})
 	mux.HandleFunc("GET /api/v1/discussions/{crew}/{conv}/stream", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
@@ -44,7 +51,7 @@ func newFakeGateway(events ...string) *fakeGateway {
 		events := append([]string(nil), f.events...)
 		f.mu.Unlock()
 		for _, ev := range events {
-			fmt.Fprintf(w, "data: %s\n\n", ev)
+			_, _ = fmt.Fprintf(w, "data: %s\n\n", ev)
 		}
 	})
 	f.srv = httptest.NewServer(mux)
@@ -76,7 +83,7 @@ func TestGatewayStartAndFollow(t *testing.T) {
 	defer f.srv.Close()
 	g := NewGatewayAt(f.resolve)
 
-	conv, err := g.Start(context.Background(), "hello", "hello", "capital of France?")
+	conv, err := g.Start(context.Background(), testCrew, testCrew, "capital of France?")
 	if err != nil || conv != "conv-42" {
 		t.Fatalf("Start: %v %q", err, conv)
 	}
@@ -85,7 +92,7 @@ func TestGatewayStartAndFollow(t *testing.T) {
 	}
 
 	var seen []Event
-	err = g.Follow(context.Background(), "hello", "hello", conv, func(ev Event) bool {
+	err = g.Follow(context.Background(), testCrew, testCrew, conv, func(ev Event) bool {
 		seen = append(seen, ev)
 		return ev.Type != EventSynthesis
 	})
@@ -102,14 +109,14 @@ func TestGatewayStartRefused(t *testing.T) {
 	defer f.srv.Close()
 	f.startCode = http.StatusServiceUnavailable
 	g := NewGatewayAt(f.resolve)
-	if _, err := g.Start(context.Background(), "hello", "hello", "q"); err == nil || !strings.Contains(err.Error(), "refused") {
+	if _, err := g.Start(context.Background(), testCrew, testCrew, "q"); err == nil || !strings.Contains(err.Error(), "refused") {
 		t.Fatalf("want refused error, got %v", err)
 	}
 }
 
 func TestGatewayUnreachable(t *testing.T) {
 	g := NewGatewayAt(func(namespace, crew string) string { return "http://127.0.0.1:1/api/v1/discussions/" + crew })
-	if _, err := g.Start(context.Background(), "hello", "hello", "q"); err == nil || !strings.Contains(err.Error(), "unreachable") {
+	if _, err := g.Start(context.Background(), testCrew, testCrew, "q"); err == nil || !strings.Contains(err.Error(), "unreachable") {
 		t.Fatalf("want unreachable error, got %v", err)
 	}
 }

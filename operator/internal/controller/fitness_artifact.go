@@ -53,6 +53,9 @@ import (
 	kubemootv1alpha1 "github.com/kubemoot/kubemoot/operator/api/v1alpha1"
 )
 
+// columnScenario heads the scenario column of the report sheets.
+const columnScenario = "scenario"
+
 // Sheet names, hoisted so the repeated references stay in sync (a typo in one
 // of the dozens of call sites would silently target a non-existent sheet).
 const (
@@ -283,7 +286,7 @@ func factualityCell(v float64) any {
 
 func writeRunsSheet(f *excelize.File, suite *kubemootv1alpha1.CrewFitnessSuite, results []IterationResult) error {
 	headers := []string{
-		"crew", "scenario", "run_id", "iteration",
+		"crew", columnScenario, "run_id", "iteration",
 		"started_at", "duration_ms", "phase",
 		"assertions_passed", "assertions_total",
 		"correctness", "adherence", "efficiency", "selectivity", "factuality", "fabricated",
@@ -355,7 +358,7 @@ func writeRunRow(f *excelize.File, suite *kubemootv1alpha1.CrewFitnessSuite, r I
 // Error-phase iterations (no assertions recorded) get one row carrying the
 // execution error so they aren't silently absent.
 func writeAssertionsSheet(f *excelize.File, results []IterationResult) error {
-	headers := []string{"scenario", "iteration", "assertion", "passed", "message"}
+	headers := []string{columnScenario, "iteration", "assertion", "passed", "message"}
 	for col, h := range headers {
 		cell, _ := excelize.CoordinatesToCellName(col+1, 1)
 		if err := f.SetCellValue(sheetAssertions, cell, h); err != nil {
@@ -405,7 +408,7 @@ func writeAssertionRows(r IterationResult, put func([]any) error) error {
 // per scenario for execution errors (Phase==Error). First-seen order preserved
 // so the sheet is stable across runs.
 func writeFailureSummarySheet(f *excelize.File, results []IterationResult) error {
-	headers := []string{"scenario", "assertion", "fail_count", "failed_iterations", "sample_message"}
+	headers := []string{columnScenario, "assertion", "fail_count", "failed_iterations", "sample_message"}
 	for col, h := range headers {
 		cell, _ := excelize.CoordinatesToCellName(col+1, 1)
 		if err := f.SetCellValue(sheetFailures, cell, h); err != nil {
@@ -788,7 +791,7 @@ func crewGradeFromMeans(m crewScore, w rubricWeights) float64 {
 // sheet; p50/p90 are values (percentile-of-a-filtered-set needs array formulas).
 func writeScenariosSheet(f *excelize.File, aggs []scenarioStat) error {
 	headers := []string{
-		"scenario", "sample_count", "passed", "failed", "errored",
+		columnScenario, "sample_count", "passed", "failed", "errored",
 		"duration_mean_ms", "duration_p50_ms", "duration_p90_ms", "pass_rate",
 		"mean_correctness", "mean_adherence", "mean_efficiency", "self_consistency", "participation", "quality", "scenario_grade", "mean_selectivity",
 		"factuality", "fabrication_pct",

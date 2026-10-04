@@ -85,7 +85,7 @@ func (r *KubemootConfigReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	config.Status.Message = "Configuration loaded successfully"
 
 	condition := metav1.Condition{
-		Type:               "Ready",
+		Type:               conditionTypeReady,
 		Status:             metav1.ConditionTrue,
 		Reason:             "ConfigLoaded",
 		Message:            "Configuration has been loaded into the operator",

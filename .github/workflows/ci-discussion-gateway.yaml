@@ -6,6 +6,9 @@ on:
     branches: [main]
     paths:
       - 'discussion-gateway/**'
+      - '.golangci.yml'
+      - '.github/scripts/golangci-lint.sh'
+      - 'operator/Makefile'
   workflow_dispatch:
 
 env:
@@ -41,6 +44,11 @@ jobs:
       - name: Build
         working-directory: discussion-gateway
         run: CGO_ENABLED=0 go build -ldflags="-s -w" -o discussion-gateway .
+
+      # golangci-lint with the shared root .golangci.yml at the operator/Makefile pin.
+      - name: Lint
+        working-directory: discussion-gateway
+        run: ../.github/scripts/golangci-lint.sh
 
       - name: Run tests
         working-directory: discussion-gateway

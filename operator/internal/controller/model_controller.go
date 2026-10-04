@@ -45,6 +45,10 @@ type ModelReconciler struct {
 	HTTPClient *http.Client
 }
 
+// ollamaDisplayName is how errors name the Ollama provider. It is passed as an
+// argument because staticcheck ST1005 rejects a capitalized error format string.
+const ollamaDisplayName = "Ollama"
+
 // OllamaTagsResponse represents the response from Ollama /api/tags
 type OllamaTagsResponse struct {
 	Models []OllamaModelInfo `json:"models"`
@@ -138,7 +142,7 @@ func (r *ModelReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 		if err := addFinalizer(ctx, r.Client, model, modelFinalizer); err != nil {
 			return ctrl.Result{}, err
 		}
-		return ctrl.Result{Requeue: true}, nil
+		return requeueNow(), nil
 	}
 
 	if provider.Spec.Type != aiv1alpha1.ProviderTypeOllama {
@@ -174,7 +178,14 @@ func (r *ModelReconciler) reconcileOllamaModel(ctx context.Context, model *aiv1a
 		return r.pullOllamaModel(ctx, httpClient, model, provider)
 	}
 
-	// The /api/tags probe above already confirmed the model is present, so it is
+	return r.reportOllamaModel(ctx, httpClient, model, provider, modelInfo)
+}
+
+// reportOllamaModel records a model the provider lists as present.
+func (r *ModelReconciler) reportOllamaModel(ctx context.Context, httpClient *http.Client, model *aiv1alpha1.Model, provider *aiv1alpha1.ModelProvider, modelInfo *OllamaModelInfo) (ctrl.Result, error) {
+	log := logf.FromContext(ctx)
+
+	// The /api/tags probe already confirmed the model is present, so it is
 	// Available and Ready for scheduling regardless of VRAM residency. isModelLoaded
 	// only refines Available -> Loaded. A transient /api/ps error therefore must NOT
 	// requeue-without-status the way the /api/tags error does: that would leave a
@@ -197,24 +208,24 @@ func (r *ModelReconciler) reconcileOllamaModel(ctx context.Context, model *aiv1a
 		ModifiedAt:   modelInfo.ModifiedAt,
 	}
 
-	state := "Available"
+	state := stateAvailable
 	if loaded {
-		state = "Loaded"
+		state = stateLoaded
 	}
 
 	return r.updateModelStatus(ctx, model, state, true, "Model available", info)
 }
 
 // getOllamaModelInfo retrieves model info from Ollama
-func (r *ModelReconciler) getOllamaModelInfo(ctx context.Context, client *http.Client, endpoint, modelName string) (*OllamaModelInfo, error) {
-	resp, err := client.Get(fmt.Sprintf("%s/api/tags", endpoint))
+func (r *ModelReconciler) getOllamaModelInfo(ctx context.Context, httpClient *http.Client, endpoint, modelName string) (*OllamaModelInfo, error) {
+	resp, err := httpGet(ctx, httpClient, fmt.Sprintf("%s/api/tags", endpoint))
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("Ollama returned status %d", resp.StatusCode)
+		return nil, fmt.Errorf("%s returned status %d", ollamaDisplayName, resp.StatusCode)
 	}
 
 	var tagsResp OllamaTagsResponse
@@ -232,12 +243,12 @@ func (r *ModelReconciler) getOllamaModelInfo(ctx context.Context, client *http.C
 }
 
 // isModelLoaded checks if a model is currently loaded in Ollama
-func (r *ModelReconciler) isModelLoaded(ctx context.Context, client *http.Client, endpoint, modelName string) (bool, error) {
-	resp, err := client.Get(fmt.Sprintf("%s/api/ps", endpoint))
+func (r *ModelReconciler) isModelLoaded(ctx context.Context, httpClient *http.Client, endpoint, modelName string) (bool, error) {
+	resp, err := httpGet(ctx, httpClient, fmt.Sprintf("%s/api/ps", endpoint))
 	if err != nil {
 		return false, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return false, nil // /api/ps might not be available in older versions
@@ -262,7 +273,7 @@ func (r *ModelReconciler) pullOllamaModel(ctx context.Context, httpClient *http.
 	log := logf.FromContext(ctx)
 
 	// Update status to pulling
-	if _, err := r.updateModelStatus(ctx, model, "Pulling", false, "Pulling model from registry", nil); err != nil {
+	if _, err := r.updateModelStatus(ctx, model, statePulling, false, "Pulling model from registry", nil); err != nil {
 		return ctrl.Result{}, err
 	}
 
@@ -291,7 +302,7 @@ func (r *ModelReconciler) pullOllamaModel(ctx context.Context, httpClient *http.
 		log.Error(err, "Failed to pull model")
 		return r.updateModelStatus(ctx, model, "Error", false, fmt.Sprintf("Failed to pull model: %v", err), nil)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return r.updateModelStatus(ctx, model, "Error", false, fmt.Sprintf("Pull failed with status %d", resp.StatusCode), nil)
@@ -303,9 +314,26 @@ func (r *ModelReconciler) pullOllamaModel(ctx context.Context, httpClient *http.
 	}
 
 	log.Info("Model pull completed", "model", model.Spec.Model, "status", pullResp.Status)
+	return r.reconcileAfterPull(ctx, httpClient, model, provider, pullResp.Status)
+}
 
-	// Requeue to update status with full model info
-	return ctrl.Result{Requeue: true}, nil
+// reconcileAfterPull acts on what the provider lists once a pull has returned 200.
+// A model that is now listed is reported at once. One that is not listed yet stays
+// Pulling, and updateModelStatus polls a Pulling model every 10s, so a pull that
+// reports success without the model ever appearing cannot loop tightly.
+func (r *ModelReconciler) reconcileAfterPull(ctx context.Context, httpClient *http.Client, model *aiv1alpha1.Model, provider *aiv1alpha1.ModelProvider, pullStatus string) (ctrl.Result, error) {
+	modelInfo, err := r.getOllamaModelInfo(ctx, httpClient, provider.Spec.Endpoint, model.Spec.Model)
+	if err == nil && modelInfo != nil {
+		return r.reportOllamaModel(ctx, httpClient, model, provider, modelInfo)
+	}
+	reason := "the model is not listed yet"
+	if err != nil {
+		reason = fmt.Sprintf("listing the model failed: %v", err)
+	}
+	if pullStatus == "" {
+		pullStatus = "no status"
+	}
+	return r.updateModelStatus(ctx, model, statePulling, false, fmt.Sprintf("Pull reported %q; %s", pullStatus, reason), nil)
 }
 
 // handleDeletion handles the deletion of a Model
@@ -360,7 +388,7 @@ func (r *ModelReconciler) deleteOllamaModel(ctx context.Context, endpoint, model
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode == http.StatusNotFound {
 		log.Info("Model not found in Ollama, already deleted", "model", modelName)
@@ -402,7 +430,7 @@ func (r *ModelReconciler) updateModelStatus(ctx context.Context, model *aiv1alph
 
 	// Set condition
 	condition := metav1.Condition{
-		Type:               "Ready",
+		Type:               conditionTypeReady,
 		Status:             metav1.ConditionFalse,
 		Reason:             state,
 		Message:            message,
@@ -420,7 +448,7 @@ func (r *ModelReconciler) updateModelStatus(ctx context.Context, model *aiv1alph
 
 	// Requeue periodically to check model state
 	requeueAfter := 5 * time.Minute
-	if state == "Pulling" {
+	if state == statePulling {
 		requeueAfter = 10 * time.Second // Check pulling progress more frequently
 	} else if !ready {
 		requeueAfter = 30 * time.Second
@@ -430,17 +458,17 @@ func (r *ModelReconciler) updateModelStatus(ctx context.Context, model *aiv1alph
 }
 
 // formatBytes converts bytes to human-readable format
-func formatBytes(bytes int64) string {
+func formatBytes(size int64) string {
 	const unit = 1024
-	if bytes < unit {
-		return fmt.Sprintf("%d B", bytes)
+	if size < unit {
+		return fmt.Sprintf("%d B", size)
 	}
 	div, exp := int64(unit), 0
-	for n := bytes / unit; n >= unit; n /= unit {
+	for n := size / unit; n >= unit; n /= unit {
 		div *= unit
 		exp++
 	}
-	return fmt.Sprintf("%.1f %cB", float64(bytes)/float64(div), "KMGTPE"[exp])
+	return fmt.Sprintf("%.1f %cB", float64(size)/float64(div), "KMGTPE"[exp])
 }
 
 // SetupWithManager sets up the controller with the Manager.

@@ -486,7 +486,7 @@ func consensusOKForJudge(td transcriptDoc) bool {
 func evidenceFromEvents(events []transcriptEvent) []string {
 	out := []string{}
 	for _, e := range events {
-		if e.Type != "finding" {
+		if e.Type != eventTypeFinding {
 			continue
 		}
 		text := strings.TrimSpace(e.Content)
@@ -539,7 +539,7 @@ func postJudgeDiscussion(ctx context.Context, hc *http.Client, endpoint, compari
 	msg := "Judge this fitness scenario. The comparison document follows as JSON: score every answer's " +
 		"synthesis against the reference, verifying each claim against that answer's evidence. " +
 		"Output only the verdict JSON.\n\n" + comparisonDoc
-	body, _ := json.Marshal(map[string]string{"message": msg})
+	body, _ := json.Marshal(map[string]string{jsonKeyMessage: msg})
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
 	if err != nil {
 		return "", err
@@ -583,10 +583,10 @@ func streamJudgeSynthesis(ctx context.Context, hc *http.Client, streamURL string
 		if json.Unmarshal([]byte(data), &ev) != nil {
 			return true
 		}
-		if ev.Type == "synthesis" && strings.TrimSpace(ev.Content) != "" {
+		if ev.Type == eventTypeSynthesis && strings.TrimSpace(ev.Content) != "" {
 			synthesis = ev.Content
 		}
-		return ev.Type != "done"
+		return ev.Type != eventTypeDone
 	})
 	return synthesis, err
 }

@@ -23,6 +23,12 @@ const (
 	agentNameGateway     = "discussion-gateway"
 	// errorChannel is the channel token of the synthetic error thread.
 	errorChannel = "broadcast"
+	// JSON response keys and readiness statuses; keyError is also the log key.
+	keyError       = "error"
+	keyStatus      = "status"
+	keyMessageType = "messageType"
+	statusNotReady = "not ready"
+	statusReady    = "ready"
 )
 
 var handlerLog = logf.Log.WithName("api-handler")
@@ -88,7 +94,7 @@ type postDiscussionResponse struct {
 }
 
 func (h *Handler) healthHandler(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+	writeJSON(w, http.StatusOK, map[string]string{keyStatus: "ok"})
 }
 
 // readyHandler is the readiness probe: ready only while connected to NATS, so the
@@ -96,11 +102,13 @@ func (h *Handler) healthHandler(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) readyHandler(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case !h.natsClient.IsConfigured():
-		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"status": "not ready", "reason": errNATSNotConfigured})
+		writeJSON(w, http.StatusServiceUnavailable,
+			map[string]string{keyStatus: statusNotReady, "reason": errNATSNotConfigured})
 	case !h.natsClient.Connected():
-		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"status": "not ready", "reason": "not connected to NATS"})
+		writeJSON(w, http.StatusServiceUnavailable,
+			map[string]string{keyStatus: statusNotReady, "reason": "not connected to NATS"})
 	default:
-		writeJSON(w, http.StatusOK, map[string]string{"status": "ready"})
+		writeJSON(w, http.StatusOK, map[string]string{keyStatus: statusReady})
 	}
 }
 
@@ -204,7 +212,8 @@ func (h *Handler) streamDiscussion(w http.ResponseWriter, r *http.Request) {
 	// Stream blocks until thread_close, the NATS subscription ends, the client leaves,
 	// or the gateway shuts down.
 	if err := streamDiscussion(ctx, js, scope, req, emit); err != nil && !errors.Is(err, context.Canceled) {
-		handlerLog.Info("Stream ended before the thread closed", "crew", scope.Crew, "conversationId", conversationID, "error", err.Error())
+		handlerLog.Info("Stream ended before the thread closed",
+			"crew", scope.Crew, "conversationId", conversationID, keyError, err.Error())
 	}
 }
 
@@ -290,9 +299,10 @@ func (h *Handler) publishCoordinatorError(scope crewscope.Scope, conversationID,
 	// thread_start lets the SSE consumer find the thread by conversationId, the
 	// synthesis carries the error, and thread_close ends the stream.
 	messages := []map[string]interface{}{
-		{"messageType": "thread_start", "metadata": map[string]string{"conversationId": conversationID}},
-		{"messageType": "synthesis", "content": fmt.Sprintf("The discussion could not be started: %s. Please try again.", errMsg)},
-		{"messageType": "thread_close"},
+		{keyMessageType: msgThreadStart, "metadata": map[string]string{"conversationId": conversationID}},
+		{keyMessageType: msgSynthesis,
+			"content": fmt.Sprintf("The discussion could not be started: %s. Please try again.", errMsg)},
+		{keyMessageType: msgThreadClose},
 	}
 	for _, m := range messages {
 		m["messageId"], m["threadId"], m["agentName"] = uuid.New().String(), threadID, agentNameGateway
@@ -301,17 +311,18 @@ func (h *Handler) publishCoordinatorError(scope crewscope.Scope, conversationID,
 			err = h.natsClient.Publish(ctx, subject, data)
 		}
 		if err != nil {
-			handlerLog.Info("Failed to publish the coordinator error", "messageType", m["messageType"], "error", err.Error())
+			handlerLog.Info("Failed to publish the coordinator error", keyMessageType, m[keyMessageType], keyError, err.Error())
 			return
 		}
 	}
 
 	handlerLog.Info("Published coordinator error to NATS",
-		"namespace", scope.Namespace, "crew", scope.Crew, "conversationId", conversationID, "threadId", threadID, "error", errMsg)
+		"namespace", scope.Namespace, "crew", scope.Crew, "conversationId", conversationID,
+		"threadId", threadID, keyError, errMsg)
 }
 
 func httpError(w http.ResponseWriter, code int, message string) {
-	writeJSON(w, code, map[string]string{"error": message})
+	writeJSON(w, code, map[string]string{keyError: message})
 }
 
 // writeJSON writes v as the JSON response with the status code. An encoding failure
@@ -320,6 +331,6 @@ func writeJSON(w http.ResponseWriter, code int, v interface{}) {
 	w.Header().Set(headerContentType, mimeJSON)
 	w.WriteHeader(code)
 	if err := json.NewEncoder(w).Encode(v); err != nil {
-		handlerLog.V(1).Info("Could not write the response", "error", err.Error())
+		handlerLog.V(1).Info("Could not write the response", keyError, err.Error())
 	}
 }

@@ -368,43 +368,21 @@ public class DiscussionSubscriber {
      * - Irrelevant messages: ack after publishing stand_aside
      * - Relevant messages: ack after evaluateAndRespond completes
      */
-    private void handleJetStreamMessage(Message natsMsg) {
+    // Visible for testing
+    void handleJetStreamMessage(Message natsMsg) {
         String subject = natsMsg.getSubject();
         String data = new String(natsMsg.getData());
 
         try {
-            var msg = mapper.readTree(data);
-            String messageType = msg.has(FIELD_MESSAGE_TYPE) ? msg.get(FIELD_MESSAGE_TYPE).asText() : "";
-            String threadId = msg.has(FIELD_THREAD_ID) ? msg.get(FIELD_THREAD_ID).asText() : "";
-            String agentName = msg.has(FIELD_AGENT_NAME) ? msg.get(FIELD_AGENT_NAME).asText() : "";
-            String content = msg.has(FIELD_CONTENT) ? msg.get(FIELD_CONTENT).asText() : "";
-            String messageId = msg.has(FIELD_MESSAGE_ID) ? msg.get(FIELD_MESSAGE_ID).asText() : "";
-
-            if (properties.agentName().equals(agentName)) { natsMsg.ack(); return; }
-            if (!messageId.isEmpty() && !processedMessages.add(messageId)) { natsMsg.ack(); return; }
-
-            trackThreadState(threadId, agentName, messageType, content);
-            extractMetadata(data, messageType, threadId);
-
-            if (closedThreads.contains(threadId) || !triggerTypes.contains(messageType)) { natsMsg.ack(); return; }
-            if (!rateLimiter.tryAcquire(threadId)) { natsMsg.ack(); return; }
-            if (isExcludedByInnerCircle(data, threadId)) { natsMsg.ack(); return; }
-
-            // Subcommittee selection belongs to the coordinator (resume model via
-            // vector pre-filter, or its LLM triage over the same resumes — which
-            // embed each agent's keywords). isExcludedByInnerCircle has already
-            // dropped non-selected agents; a redundant agent-side keyword gate only
-            // vetoed correct semantic picks (e.g. "activity" ≠ literal "utilization"),
-            // so it is removed. A selected agent is relevant by definition.
-            var messages = threadContext.get(threadId);
-            log.info("Evaluating thread {} on trigger '{}' for agent {} (selected by coordinator)",
-                    threadId, messageType, properties.agentName());
-
-            String conversation = formatThread(messages, threadId);
-            boolean selected = isExplicitlySelected(data);
+            var evaluation = admitForEvaluation(data);
+            if (evaluation == null) {
+                natsMsg.ack();
+                return;
+            }
             scheduler.submit(() -> {
                 try {
-                    evaluateAndRespond(subject, threadId, conversation, selected);
+                    evaluateAndRespond(subject, evaluation.threadId(), evaluation.conversation(),
+                            evaluation.selected());
                 } finally {
                     natsMsg.ack();
                 }
@@ -421,37 +399,79 @@ public class DiscussionSubscriber {
      */
     private void handleMessage(String subject, String data) {
         try {
-            var msg = mapper.readTree(data);
-            String messageType = msg.has(FIELD_MESSAGE_TYPE) ? msg.get(FIELD_MESSAGE_TYPE).asText() : "";
-            String threadId = msg.has(FIELD_THREAD_ID) ? msg.get(FIELD_THREAD_ID).asText() : "";
-            String agentName = msg.has(FIELD_AGENT_NAME) ? msg.get(FIELD_AGENT_NAME).asText() : "";
-            String content = msg.has(FIELD_CONTENT) ? msg.get(FIELD_CONTENT).asText() : "";
-            String messageId = msg.has(FIELD_MESSAGE_ID) ? msg.get(FIELD_MESSAGE_ID).asText() : "";
-
-            if (properties.agentName().equals(agentName)) return;
-            if (!messageId.isEmpty() && !processedMessages.add(messageId)) return;
-
-            trackThreadState(threadId, agentName, messageType, content);
-            extractMetadata(data, messageType, threadId);
-
-            if (closedThreads.contains(threadId)) return;
-            if (!triggerTypes.contains(messageType)) return;
-            if (!rateLimiter.tryAcquire(threadId)) return;
-            if (isExcludedByInnerCircle(data, threadId)) return;
-
-            // Coordinator owns subcommittee selection; no agent-side keyword gate
-            // (see handleJetStreamMessage). A selected agent is relevant by definition.
-            var messages = threadContext.get(threadId);
-            log.info("Evaluating thread {} on trigger '{}' for agent {} (selected by coordinator)",
-                    threadId, messageType, properties.agentName());
-
-            String conversation = formatThread(messages, threadId);
-            boolean selected = isExplicitlySelected(data);
-            scheduler.submit(() -> evaluateAndRespond(subject, threadId, conversation, selected));
+            var evaluation = admitForEvaluation(data);
+            if (evaluation == null) {
+                return;
+            }
+            scheduler.submit(() -> evaluateAndRespond(subject, evaluation.threadId(),
+                    evaluation.conversation(), evaluation.selected()));
 
         } catch (Exception e) {
             log.warn("Failed to handle discussion message: {}", e.getMessage());
         }
+    }
+
+    /** A discussion message this agent will evaluate, with the thread formatted for the prompt. */
+    record PendingEvaluation(String threadId, String conversation, boolean selected) {}
+
+    /**
+     * Shared intake for both delivery paths: records the message in the thread state
+     * and returns the evaluation to run, or null when this agent does not respond
+     * (its own or an already-seen message, a closed thread, a non-trigger type, the
+     * rate limit, or not selected by the coordinator).
+     */
+    // Visible for testing
+    PendingEvaluation admitForEvaluation(String data) throws java.io.IOException {
+        var msg = mapper.readTree(data);
+        String messageType = JsonFields.text(msg, FIELD_MESSAGE_TYPE);
+        String threadId = JsonFields.text(msg, FIELD_THREAD_ID);
+        String agentName = JsonFields.text(msg, FIELD_AGENT_NAME);
+        String content = JsonFields.text(msg, FIELD_CONTENT);
+        String messageId = JsonFields.text(msg, FIELD_MESSAGE_ID);
+
+        if (properties.agentName().equals(agentName) || isAlreadyProcessed(messageId)) {
+            return null;
+        }
+
+        trackThreadState(threadId, agentName, messageType, content);
+        extractMetadata(data, messageType, threadId);
+
+        if (!isEvaluationTrigger(data, messageType, threadId)) {
+            return null;
+        }
+
+        // Subcommittee selection belongs to the coordinator (resume model via
+        // vector pre-filter, or its LLM triage over the same resumes, which
+        // embed each agent's keywords). isExcludedByInnerCircle has already
+        // dropped non-selected agents; a redundant agent-side keyword gate only
+        // vetoed correct semantic picks (e.g. "activity" vs literal "utilization"),
+        // so there is none. A selected agent is relevant by definition.
+        var messages = threadContext.get(threadId);
+        log.info("Evaluating thread {} on trigger '{}' for agent {} (selected by coordinator)",
+                threadId, messageType, properties.agentName());
+        return new PendingEvaluation(threadId, formatThread(messages, threadId), isExplicitlySelected(data));
+    }
+
+    /** Rate-limit permits taken for the thread. Visible for testing. */
+    int rateLimitPermits(String threadId) {
+        return rateLimiter.getThreadCount(threadId);
+    }
+
+    /** True when the message id was seen before; records it otherwise. */
+    private boolean isAlreadyProcessed(String messageId) {
+        return !messageId.isEmpty() && !processedMessages.add(messageId);
+    }
+
+    /**
+     * True when the message should start an evaluation: an open thread, a trigger
+     * type, a rate-limit permit, and this agent not excluded by the inner circle.
+     * Checked in that order; the rate limiter takes a permit only when reached.
+     */
+    private boolean isEvaluationTrigger(String data, String messageType, String threadId) {
+        return !closedThreads.contains(threadId)
+                && triggerTypes.contains(messageType)
+                && rateLimiter.tryAcquire(threadId)
+                && !isExcludedByInnerCircle(data, threadId);
     }
 
     private void trackThreadState(String threadId, String agentName, String messageType, String content) {
@@ -1037,6 +1057,29 @@ public class DiscussionSubscriber {
         return MSG_REPLY.equals(msg.messageType) && "human".equals(msg.agentName) && !msg.content.isBlank();
     }
 
+    /** The GPU label of the JIT-picked provider, or the fallback when no pick was made. */
+    private static String jitGpuLabelOr(ChatService.ChatResult result, String fallback) {
+        String jitGpu = result == null ? null : GpuLabels.fromProvider(result.providerName());
+        return jitGpu != null ? jitGpu : fallback;
+    }
+
+    /**
+     * True, with the reason logged, when the mulling result cannot be published as a
+     * contribution: the thread closed while mulling, or the result has no response.
+     */
+    private boolean hasNoContributionToPublish(String threadId, ChatService.ChatResult result) {
+        if (closedThreads.contains(threadId)) {
+            log.info("Thread {} closed during mulling - {} publishing late stand_aside",
+                    threadId, properties.agentName());
+            return true;
+        }
+        if (result == null || result.response() == null || result.response().isEmpty()) {
+            log.warn("No response from mulling for thread {} - publishing stand_aside", threadId);
+            return true;
+        }
+        return false;
+    }
+
     private void classifyAndPublishResult(String subject, String threadId, ChatService.ChatResult result,
                                            long totalMs, long triageStartMs, long inTok, long outTok, String gpuLabel) {
         // The GPU badge should reflect WHERE this inference actually ran — the
@@ -1046,18 +1089,9 @@ public class DiscussionSubscriber {
         // obs-metrics ran on rig0/5090 but the dashboard showed 4090). Fall
         // back to the static label when no JIT pick was made (selector unwired
         // / static fallback). See [[Per-Call Provider Attribution]].
-        String jitGpu = result == null ? null : GpuLabels.fromProvider(result.providerName());
-        if (jitGpu != null) gpuLabel = jitGpu;
+        gpuLabel = jitGpuLabelOr(result, gpuLabel);
 
-        if (closedThreads.contains(threadId)) {
-            log.info("Thread {} closed during mulling — {} publishing late stand_aside",
-                    threadId, properties.agentName());
-            publishSignal(subject, threadId, SIGNAL_STAND_ASIDE, "", totalMs, triageStartMs, inTok, outTok, gpuLabel);
-            return;
-        }
-
-        if (result == null || result.response() == null || result.response().isEmpty()) {
-            log.warn("No response from mulling for thread {} — publishing stand_aside", threadId);
+        if (hasNoContributionToPublish(threadId, result)) {
             publishSignal(subject, threadId, SIGNAL_STAND_ASIDE, "", totalMs, triageStartMs, inTok, outTok, gpuLabel);
             return;
         }
@@ -1093,6 +1127,40 @@ public class DiscussionSubscriber {
                 providerAttribution(result));
     }
 
+    // The agent's view of the thread. DiscussionOrchestrator.threadLabel labels the
+    // same message types for the coordinator's view in its own format; a new message
+    // type gets a label in both tables.
+    /** Thread labels for message types that carry no author. */
+    private static final Map<String, String> FIXED_THREAD_LABELS = Map.of(
+            MSG_THREAD_START, "User Question",
+            MSG_ADVISORY_READY, "Evaluation Phase Started",
+            MSG_REVIEW_READY, "Review Phase - Other Agents' Responses",
+            MSG_REPLY, "User Reply",
+            "follow_up", "Facilitator Follow-up",
+            "synthesis", "Synthesis");
+
+    /** Thread labels for message types shown with their author as "Label (agent)". */
+    private static final Map<String, String> AUTHORED_THREAD_LABELS = Map.of(
+            "advisory", "Advisory",
+            SIGNAL_AGREE, "Response",
+            "contribution", "Response",
+            "concern", "Concern",
+            SIGNAL_STAND_ASIDE, "Stand Aside",
+            "decline", "Stand Aside",
+            "proposal", "Proposal");
+
+    /**
+     * The label a thread message gets in the formatted conversation. Unknown types
+     * show the raw type with the author.
+     */
+    static String threadLabel(String messageType, String agentName) {
+        String fixed = FIXED_THREAD_LABELS.get(messageType);
+        if (fixed != null) {
+            return fixed;
+        }
+        return AUTHORED_THREAD_LABELS.getOrDefault(messageType, messageType) + " (" + agentName + ")";
+    }
+
     private String formatThread(List<ThreadMessage> messages, String threadId) {
         var sb = new StringBuilder();
         sb.append("You are participating in a team discussion (thread ").append(threadId).append(").\n\n");
@@ -1106,20 +1174,7 @@ public class DiscussionSubscriber {
         sb.append("--- Thread conversation ---\n\n");
 
         for (var msg : messages) {
-            String label = switch (msg.messageType) {
-                case MSG_THREAD_START -> "User Question";
-                case "advisory" -> "Advisory (" + msg.agentName + ")";
-                case MSG_ADVISORY_READY -> "Evaluation Phase Started";
-                case MSG_REVIEW_READY -> "Review Phase - Other Agents' Responses";
-                case SIGNAL_AGREE, "contribution" -> "Response (" + msg.agentName + ")";
-                case "concern" -> "Concern (" + msg.agentName + ")";
-                case SIGNAL_STAND_ASIDE, "decline" -> "Stand Aside (" + msg.agentName + ")";
-                case "proposal" -> "Proposal (" + msg.agentName + ")";
-                case MSG_REPLY -> "User Reply";
-                case "follow_up" -> "Facilitator Follow-up";
-                case "synthesis" -> "Synthesis";
-                default -> msg.messageType + " (" + msg.agentName + ")";
-            };
+            String label = threadLabel(msg.messageType, msg.agentName);
 
             sb.append("[").append(label).append("]\n");
             if (!msg.content.isEmpty()) {

@@ -106,7 +106,7 @@ func (r *MCPGatewayReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		if err := addFinalizer(ctx, r.Client, gateway, mcpGatewayFinalizer); err != nil {
 			return ctrl.Result{}, err
 		}
-		return ctrl.Result{Requeue: true}, nil
+		return requeueNow(), nil
 	}
 
 	log.Info("Reconciling MCPGateway", "name", gateway.Name, "implementation", gateway.Spec.Implementation)
@@ -159,7 +159,7 @@ func (r *MCPGatewayReconciler) reconcileGatewayPreReqs(ctx context.Context, gate
 			return result, true
 		}
 		if !ragSourceReady {
-			result, _ := r.updateStatus(ctx, gateway, "Indexing", false, "Tool index RAGSource initializing")
+			result, _ := r.updateStatus(ctx, gateway, phaseIndexing, false, "Tool index RAGSource initializing")
 			return result, true
 		}
 	}
@@ -227,7 +227,7 @@ func (r *MCPGatewayReconciler) buildDeployment(gateway *kubemootv1alpha1.MCPGate
 		impl = kubemootv1alpha1.ImplementationKubemoot
 	}
 
-	image, port, healthPath, env := r.gatewayImplDefaults(gateway, impl)
+	image, port, probePath, env := r.gatewayImplDefaults(gateway, impl)
 
 	if gateway.Spec.Port != 0 {
 		port = gateway.Spec.Port
@@ -238,7 +238,7 @@ func (r *MCPGatewayReconciler) buildDeployment(gateway *kubemootv1alpha1.MCPGate
 		image = gateway.Spec.ContextForge.Image
 	}
 
-	labels := map[string]string{
+	objLabels := map[string]string{
 		labelName:      gateway.Name,
 		labelInstance:  gateway.Name,
 		labelManagedBy: managedByValue,
@@ -255,7 +255,7 @@ func (r *MCPGatewayReconciler) buildDeployment(gateway *kubemootv1alpha1.MCPGate
 		Type: corev1.SeccompProfileTypeRuntimeDefault,
 	}
 
-	container := buildGatewayContainer(gateway, image, healthPath, port, env, runAsNonRoot, seccompProfile)
+	container := buildGatewayContainer(gateway, image, probePath, port, env, runAsNonRoot, seccompProfile)
 
 	// Image pull secrets - use spec if provided, otherwise fall back to KubemootConfig
 	imagePullSecrets := r.gatewayImagePullSecrets(gateway)
@@ -264,16 +264,16 @@ func (r *MCPGatewayReconciler) buildDeployment(gateway *kubemootv1alpha1.MCPGate
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      gateway.Name,
 			Namespace: gateway.Namespace,
-			Labels:    labels,
+			Labels:    objLabels,
 		},
 		Spec: appsv1.DeploymentSpec{
 			Replicas: &replicas,
 			Selector: &metav1.LabelSelector{
-				MatchLabels: labels,
+				MatchLabels: objLabels,
 			},
 			Template: corev1.PodTemplateSpec{
 				ObjectMeta: metav1.ObjectMeta{
-					Labels: labels,
+					Labels: objLabels,
 				},
 				Spec: corev1.PodSpec{
 					Containers:                    []corev1.Container{container},
@@ -294,21 +294,21 @@ func (r *MCPGatewayReconciler) buildDeployment(gateway *kubemootv1alpha1.MCPGate
 // overridePortEnv updates SERVER_PORT/PORT env vars in place to the given port.
 func overridePortEnv(env []corev1.EnvVar, port int32) {
 	for i := range env {
-		if env[i].Name == "SERVER_PORT" || env[i].Name == "PORT" {
+		if env[i].Name == envServerPort || env[i].Name == envPort {
 			env[i].Value = fmt.Sprintf("%d", port)
 		}
 	}
 }
 
 // buildGatewayContainer constructs the gateway container spec including probes, resources, and security context.
-func buildGatewayContainer(gateway *kubemootv1alpha1.MCPGateway, image, healthPath string, port int32, env []corev1.EnvVar, runAsNonRoot bool, seccompProfile corev1.SeccompProfile) corev1.Container {
+func buildGatewayContainer(gateway *kubemootv1alpha1.MCPGateway, image, probePath string, port int32, env []corev1.EnvVar, runAsNonRoot bool, seccompProfile corev1.SeccompProfile) corev1.Container {
 	container := corev1.Container{
 		Name:            "mcp-gateway",
 		Image:           image,
 		ImagePullPolicy: corev1.PullIfNotPresent,
 		Ports: []corev1.ContainerPort{
 			{
-				Name:          "http",
+				Name:          portNameHTTP,
 				ContainerPort: port,
 				Protocol:      corev1.ProtocolTCP,
 			},
@@ -317,7 +317,7 @@ func buildGatewayContainer(gateway *kubemootv1alpha1.MCPGateway, image, healthPa
 		LivenessProbe: &corev1.Probe{
 			ProbeHandler: corev1.ProbeHandler{
 				HTTPGet: &corev1.HTTPGetAction{
-					Path: healthPath,
+					Path: probePath,
 					Port: intstr.FromInt32(port),
 				},
 			},
@@ -329,7 +329,7 @@ func buildGatewayContainer(gateway *kubemootv1alpha1.MCPGateway, image, healthPa
 		ReadinessProbe: &corev1.Probe{
 			ProbeHandler: corev1.ProbeHandler{
 				HTTPGet: &corev1.HTTPGetAction{
-					Path: healthPath,
+					Path: probePath,
 					Port: intstr.FromInt32(port),
 				},
 			},
@@ -368,7 +368,7 @@ func buildGatewayContainer(gateway *kubemootv1alpha1.MCPGateway, image, healthPa
 		RunAsGroup:               &runAsGroup,
 		SeccompProfile:           &seccompProfile,
 		Capabilities: &corev1.Capabilities{
-			Drop: []corev1.Capability{"ALL"},
+			Drop: []corev1.Capability{dropAllCapability},
 		},
 	}
 
@@ -388,15 +388,15 @@ func (r *MCPGatewayReconciler) gatewayImplDefaults(gateway *kubemootv1alpha1.MCP
 	switch impl {
 	case kubemootv1alpha1.ImplementationKubemoot:
 		return r.ConfigCache.GetMcpGatewayImage(), defaultGatewayPort, "/actuator/health", []corev1.EnvVar{
-			{Name: "SERVER_PORT", Value: fmt.Sprintf("%d", defaultGatewayPort)},
+			{Name: envServerPort, Value: fmt.Sprintf("%d", defaultGatewayPort)},
 			{Name: "SPRING_APPLICATION_NAME", Value: gateway.Name},
 		}
 	case kubemootv1alpha1.ImplementationContextForge:
 		env := []corev1.EnvVar{
 			{Name: "HOST", Value: "0.0.0.0"},
-			{Name: "PORT", Value: fmt.Sprintf("%d", defaultContextForgePort)},
+			{Name: envPort, Value: fmt.Sprintf("%d", defaultContextForgePort)},
 			{Name: "MCPGATEWAY_UI_ENABLED", Value: fmt.Sprintf("%t", gateway.Spec.AdminUIEnabled())},
-			{Name: "MCPGATEWAY_ADMIN_API_ENABLED", Value: "true"},
+			{Name: "MCPGATEWAY_ADMIN_API_ENABLED", Value: valueTrue},
 		}
 		databaseURL := "sqlite:///./mcp.db"
 		if gateway.Spec.ContextForge != nil && gateway.Spec.ContextForge.DatabaseURL != "" {
@@ -406,10 +406,10 @@ func (r *MCPGatewayReconciler) gatewayImplDefaults(gateway *kubemootv1alpha1.MCP
 		if gateway.Spec.ContextForge != nil && gateway.Spec.ContextForge.RedisURL != "" {
 			env = append(env, corev1.EnvVar{Name: "REDIS_URL", Value: gateway.Spec.ContextForge.RedisURL})
 		}
-		return defaultContextForgeImage, defaultContextForgePort, "/health", env
+		return defaultContextForgeImage, defaultContextForgePort, healthPath, env
 	default:
 		return r.ConfigCache.GetMcpGatewayImage(), defaultGatewayPort, "/actuator/health", []corev1.EnvVar{
-			{Name: "SERVER_PORT", Value: fmt.Sprintf("%d", defaultGatewayPort)},
+			{Name: envServerPort, Value: fmt.Sprintf("%d", defaultGatewayPort)},
 		}
 	}
 }
@@ -417,10 +417,10 @@ func (r *MCPGatewayReconciler) gatewayImplDefaults(gateway *kubemootv1alpha1.MCP
 // buildGatewayAuthEnv builds auth-related env vars for ContextForge gateways.
 func buildGatewayAuthEnv(gateway *kubemootv1alpha1.MCPGateway) []corev1.EnvVar {
 	if gateway.Spec.Auth == nil || !gateway.Spec.Auth.Enabled {
-		return []corev1.EnvVar{{Name: "AUTH_REQUIRED", Value: "false"}}
+		return []corev1.EnvVar{{Name: "AUTH_REQUIRED", Value: valueFalse}}
 	}
 
-	env := []corev1.EnvVar{{Name: "AUTH_REQUIRED", Value: "true"}}
+	env := []corev1.EnvVar{{Name: "AUTH_REQUIRED", Value: valueTrue}}
 
 	if gateway.Spec.Auth.Type == "jwt" && gateway.Spec.Auth.JWTSecretRef != "" {
 		env = append(env, corev1.EnvVar{
@@ -445,7 +445,7 @@ func buildGatewayAuthEnv(gateway *kubemootv1alpha1.MCPGateway) []corev1.EnvVar {
 						LocalObjectReference: corev1.LocalObjectReference{
 							Name: gateway.Spec.Auth.BasicAuth.SecretRef,
 						},
-						Key: "username",
+						Key: secretKeyUsername,
 					},
 				},
 			},
@@ -456,7 +456,7 @@ func buildGatewayAuthEnv(gateway *kubemootv1alpha1.MCPGateway) []corev1.EnvVar {
 						LocalObjectReference: corev1.LocalObjectReference{
 							Name: gateway.Spec.Auth.BasicAuth.SecretRef,
 						},
-						Key: "password",
+						Key: secretKeyPassword,
 					},
 				},
 			},
@@ -486,28 +486,7 @@ func (r *MCPGatewayReconciler) ensureToolIndexRAGSource(ctx context.Context, gat
 
 	// RAGSource already exists - check status
 	if err == nil {
-		// Update catalog sync status from RAGSource status
-		if gateway.Status.CatalogSync == nil {
-			gateway.Status.CatalogSync = &kubemootv1alpha1.CatalogSyncStatus{}
-		}
-
-		if ragSource.Status.Ready {
-			log.Info("Tool index RAGSource is ready", "ragSource", ragSourceName)
-			gateway.Status.CatalogSync.JobName = ragSource.Status.LastJobName
-			gateway.Status.CatalogSync.JobStatus = "Succeeded"
-			if ragSource.Status.IndexingStats != nil && ragSource.Status.IndexingStats.LastIndexed != nil {
-				gateway.Status.CatalogSync.LastSync = ragSource.Status.IndexingStats.LastIndexed
-			}
-			// Store the query endpoint for the gateway to use
-			gateway.Status.ToolIndexEndpoint = ragSource.Status.QueryEndpoint
-			return true, nil
-		}
-
-		// RAGSource not ready yet
-		log.Info("Tool index RAGSource not ready", "ragSource", ragSourceName, "phase", ragSource.Status.Phase)
-		gateway.Status.CatalogSync.JobName = ragSource.Status.LastJobName
-		gateway.Status.CatalogSync.JobStatus = ragSource.Status.Phase
-		return false, nil
+		return syncToolIndexStatus(ctx, gateway, ragSource), nil
 	}
 
 	// RAGSource doesn't exist - create it
@@ -528,6 +507,31 @@ func (r *MCPGatewayReconciler) ensureToolIndexRAGSource(ctx context.Context, gat
 	gateway.Status.CatalogSync.JobStatus = "Creating"
 
 	return false, nil
+}
+
+// syncToolIndexStatus copies an existing tool index RAGSource's state into the
+// gateway's catalog sync status and reports whether the index is ready. A ready
+// RAGSource also supplies the query endpoint the gateway uses.
+func syncToolIndexStatus(ctx context.Context, gateway *kubemootv1alpha1.MCPGateway, ragSource *kubemootv1alpha1.RAGSource) bool {
+	log := logf.FromContext(ctx)
+	if gateway.Status.CatalogSync == nil {
+		gateway.Status.CatalogSync = &kubemootv1alpha1.CatalogSyncStatus{}
+	}
+	gateway.Status.CatalogSync.JobName = ragSource.Status.LastJobName
+
+	if !ragSource.Status.Ready {
+		log.Info("Tool index RAGSource not ready", "ragSource", ragSource.Name, "phase", ragSource.Status.Phase)
+		gateway.Status.CatalogSync.JobStatus = ragSource.Status.Phase
+		return false
+	}
+
+	log.Info("Tool index RAGSource is ready", "ragSource", ragSource.Name)
+	gateway.Status.CatalogSync.JobStatus = "Succeeded"
+	if ragSource.Status.IndexingStats != nil && ragSource.Status.IndexingStats.LastIndexed != nil {
+		gateway.Status.CatalogSync.LastSync = ragSource.Status.IndexingStats.LastIndexed
+	}
+	gateway.Status.ToolIndexEndpoint = ragSource.Status.QueryEndpoint
+	return true
 }
 
 // buildToolIndexRAGSource creates a RAGSource for MCP tool indexing
@@ -581,7 +585,7 @@ func (r *MCPGatewayReconciler) buildToolIndexRAGSource(gateway *kubemootv1alpha1
 		Replicas: 1,
 	}
 
-	labels := map[string]string{
+	objLabels := map[string]string{
 		labelName:      ragSourceName,
 		labelInstance:  gateway.Name,
 		labelManagedBy: managedByValue,
@@ -592,7 +596,7 @@ func (r *MCPGatewayReconciler) buildToolIndexRAGSource(gateway *kubemootv1alpha1
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      ragSourceName,
 			Namespace: gateway.Namespace,
-			Labels:    labels,
+			Labels:    objLabels,
 		},
 		Spec: kubemootv1alpha1.RAGSourceSpec{
 			Source: kubemootv1alpha1.SourceConfig{
@@ -673,7 +677,7 @@ func (r *MCPGatewayReconciler) reconcileService(ctx context.Context, gateway *ku
 		port = gateway.Spec.Port
 	}
 
-	labels := map[string]string{
+	objLabels := map[string]string{
 		labelName:      gateway.Name,
 		labelInstance:  gateway.Name,
 		labelManagedBy: managedByValue,
@@ -684,13 +688,13 @@ func (r *MCPGatewayReconciler) reconcileService(ctx context.Context, gateway *ku
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      gateway.Name,
 			Namespace: gateway.Namespace,
-			Labels:    labels,
+			Labels:    objLabels,
 		},
 		Spec: corev1.ServiceSpec{
-			Selector: labels,
+			Selector: objLabels,
 			Ports: []corev1.ServicePort{
 				{
-					Name:       "http",
+					Name:       portNameHTTP,
 					Port:       port,
 					TargetPort: intstr.FromInt32(port),
 					Protocol:   corev1.ProtocolTCP,
@@ -846,6 +850,24 @@ func (r *MCPGatewayReconciler) registerMCPServers(ctx context.Context, gateway *
 	return r.syncMCPServerRegistrations(ctx, gateway, mcpServers)
 }
 
+// httpClientOrDefault returns the injected HTTP client, or one with a 10s timeout.
+func (r *MCPGatewayReconciler) httpClientOrDefault() *http.Client {
+	if r.HTTPClient != nil {
+		return r.HTTPClient
+	}
+	return &http.Client{Timeout: 10 * time.Second}
+}
+
+// gatewayRegistrationURL is the admin endpoint that registers an MCP server with the
+// gateway: /admin/servers on the Kubemoot gateway, /gateways on ContextForge.
+func gatewayRegistrationURL(gateway *kubemootv1alpha1.MCPGateway, impl kubemootv1alpha1.MCPGatewayImplementation, port int32) string {
+	path := "gateways"
+	if impl == kubemootv1alpha1.ImplementationKubemoot {
+		path = "admin/servers"
+	}
+	return fmt.Sprintf("http://%s.%s.svc:%d/%s", gateway.Name, gateway.Namespace, port, path)
+}
+
 // registerMCPServerWithGateway makes HTTP call to register MCP server
 func (r *MCPGatewayReconciler) registerMCPServerWithGateway(ctx context.Context, gateway *kubemootv1alpha1.MCPGateway, mcp *kubemootv1alpha1.MCPServer, port int32, bearerToken string) error {
 	impl := gateway.Spec.Implementation
@@ -853,16 +875,7 @@ func (r *MCPGatewayReconciler) registerMCPServerWithGateway(ctx context.Context,
 		impl = kubemootv1alpha1.ImplementationKubemoot
 	}
 
-	// Determine API endpoint based on implementation
-	var adminURL string
-	switch impl {
-	case kubemootv1alpha1.ImplementationKubemoot:
-		// Kubemoot Spring gateway uses /admin/servers
-		adminURL = fmt.Sprintf("http://%s.%s.svc:%d/admin/servers", gateway.Name, gateway.Namespace, port)
-	default:
-		// ContextForge uses /gateways
-		adminURL = fmt.Sprintf("http://%s.%s.svc:%d/gateways", gateway.Name, gateway.Namespace, port)
-	}
+	adminURL := gatewayRegistrationURL(gateway, impl, port)
 
 	payload := r.buildRegistrationPayload(ctx, impl, mcp)
 
@@ -871,11 +884,7 @@ func (r *MCPGatewayReconciler) registerMCPServerWithGateway(ctx context.Context,
 		return err
 	}
 
-	// Create HTTP client with timeout
-	httpClient := r.HTTPClient
-	if httpClient == nil {
-		httpClient = &http.Client{Timeout: 10 * time.Second}
-	}
+	httpClient := r.httpClientOrDefault()
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, adminURL, bytes.NewBuffer(jsonData))
 	if err != nil {
@@ -892,7 +901,7 @@ func (r *MCPGatewayReconciler) registerMCPServerWithGateway(ctx context.Context,
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	// Read response body for error details
 	body, _ := io.ReadAll(resp.Body)
@@ -916,7 +925,7 @@ func (r *MCPGatewayReconciler) buildRegistrationPayload(ctx context.Context, imp
 	}
 
 	payload := map[string]interface{}{
-		"name":      mcp.Name,
+		jsonKeyName: mcp.Name,
 		"url":       mcp.Status.Endpoint,
 		"transport": transport,
 	}
@@ -956,11 +965,7 @@ func (r *MCPGatewayReconciler) unregisterMCPServer(ctx context.Context, gateway 
 		adminURL = fmt.Sprintf("http://%s.%s.svc:%d/gateways/%s", gateway.Name, gateway.Namespace, port, mcpName)
 	}
 
-	// Create HTTP client with timeout
-	httpClient := r.HTTPClient
-	if httpClient == nil {
-		httpClient = &http.Client{Timeout: 10 * time.Second}
-	}
+	httpClient := r.httpClientOrDefault()
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, adminURL, nil)
 	if err != nil {
@@ -976,7 +981,7 @@ func (r *MCPGatewayReconciler) unregisterMCPServer(ctx context.Context, gateway 
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	// Accept 200, 204 (success) or 404 (already unregistered)
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent && resp.StatusCode != http.StatusNotFound {
@@ -998,10 +1003,7 @@ func (r *MCPGatewayReconciler) scrapeGatewayFeedback(ctx context.Context, gatewa
 
 	feedbackURL := fmt.Sprintf("http://%s.%s.svc:%d/admin/feedback", gateway.Name, gateway.Namespace, port)
 
-	httpClient := r.HTTPClient
-	if httpClient == nil {
-		httpClient = &http.Client{Timeout: 10 * time.Second}
-	}
+	httpClient := r.httpClientOrDefault()
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, feedbackURL, nil)
 	if err != nil {
@@ -1014,7 +1016,7 @@ func (r *MCPGatewayReconciler) scrapeGatewayFeedback(ctx context.Context, gatewa
 		log.V(1).Info("Failed to scrape gateway feedback", "error", err)
 		return
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return
@@ -1079,7 +1081,7 @@ func (r *MCPGatewayReconciler) processFeedbackEntries(ctx context.Context, names
 	for _, entry := range entries {
 		now := metav1.Now()
 		trial := kubemootv1alpha1.TrialRecord{
-			Transport:  "http",
+			Transport:  string(kubemootv1alpha1.TransportHTTP),
 			TestedAt:   &now,
 			Phase:      entry.Phase,
 			Success:    entry.Success,
@@ -1105,11 +1107,11 @@ func (r *MCPGatewayReconciler) processFeedbackEntries(ctx context.Context, names
 			_ = r.NATSPublisher.Publish(
 				fmt.Sprintf("kubemoot.gateway.feedback.%s", reportName),
 				map[string]interface{}{
-					"server":  serverName,
-					"phase":   entry.Phase,
-					"success": entry.Success,
-					"tools":   entry.ToolsFound,
-					"error":   entry.ErrorMessage,
+					jsonKeyServer:  serverName,
+					jsonKeyPhase:   entry.Phase,
+					jsonKeySuccess: entry.Success,
+					"tools":        entry.ToolsFound,
+					"error":        entry.ErrorMessage,
 				},
 			)
 		}
@@ -1145,12 +1147,12 @@ func (r *MCPGatewayReconciler) updateStatusFromDeployment(ctx context.Context, g
 	}
 
 	// Determine phase and readiness
-	phase := "Deploying"
+	phase := phaseDeploying
 	ready := false
 	message := "Deployment in progress"
 
 	if deployment.Status.ReadyReplicas > 0 && deployment.Status.ReadyReplicas == deployment.Status.Replicas {
-		phase = "Ready"
+		phase = phaseReady
 		ready = true
 		message = fmt.Sprintf("%d/%d replicas ready, %d MCPServers registered", deployment.Status.ReadyReplicas, deployment.Status.Replicas, len(registeredServers))
 	} else if deployment.Status.ReadyReplicas > 0 {
@@ -1215,7 +1217,7 @@ func (r *MCPGatewayReconciler) updateStatus(ctx context.Context, gateway *kubemo
 
 	// Set condition
 	condition := metav1.Condition{
-		Type:               "Ready",
+		Type:               conditionTypeReady,
 		Status:             metav1.ConditionFalse,
 		Reason:             phase,
 		Message:            message,
@@ -1301,7 +1303,7 @@ func (r *MCPGatewayReconciler) reconcileDynamicMCPServers(ctx context.Context, g
 	if err := r.List(ctx, existingServers,
 		client.InNamespace(gateway.Namespace),
 		client.MatchingLabels{
-			annoDynamic: "true",
+			annoDynamic: valueTrue,
 			annoGateway: gateway.Name,
 		},
 	); err != nil {
@@ -1373,7 +1375,7 @@ func (r *MCPGatewayReconciler) filterServersByQualityPolicy(ctx context.Context,
 	var allowedServers []kubemootv1alpha1.DiscoveredServer
 	for _, server := range discovered {
 		// Check if already evaluated in catalog
-		if server.QualityDecision == "allow" {
+		if server.QualityDecision == policyActionAllow {
 			allowedServers = append(allowedServers, server)
 		}
 	}
@@ -1415,7 +1417,7 @@ func (r *MCPGatewayReconciler) ensureDynamicMCPServer(
 
 	// If explicit MCPServer exists without the dynamic label, don't override it
 	if err == nil {
-		if existingMCP.Labels[annoDynamic] != "true" {
+		if existingMCP.Labels[annoDynamic] != valueTrue {
 			log.Info("Explicit MCPServer exists, skipping dynamic provisioning", "server", discovered.Name)
 			return nil
 		}
@@ -1469,7 +1471,7 @@ func (r *MCPGatewayReconciler) ensureDynamicMCPServer(
 			Name:      sanitizedName,
 			Namespace: gateway.Namespace,
 			Labels: map[string]string{
-				annoDynamic: "true",
+				annoDynamic: valueTrue,
 				annoGateway: gateway.Name,
 			},
 			Annotations: map[string]string{
@@ -1539,7 +1541,7 @@ func (r *MCPGatewayReconciler) resolveTransport(
 
 	// Priority 2: DiscoveredServer metadata
 	switch strings.ToLower(discovered.Transport) {
-	case "http", "streamable-http":
+	case string(kubemootv1alpha1.TransportHTTP), "streamable-http":
 		return kubemootv1alpha1.TransportHTTP
 	case "sse":
 		return kubemootv1alpha1.TransportSSE
@@ -1607,95 +1609,6 @@ type PolicyDecision struct {
 	Reason     string  `json:"reason"`
 }
 
-// provisionDynamicMCPServer creates an MCPServer CR for a dynamically discovered server
-// Explicit MCPServer CRs take priority over credential policies
-func (r *MCPGatewayReconciler) provisionDynamicMCPServer(
-	ctx context.Context,
-	gateway *kubemootv1alpha1.MCPGateway,
-	discovery DiscoveredMCPServer,
-) error {
-	log := logf.FromContext(ctx)
-
-	// Step 1: Check if explicit MCPServer CR already exists
-	existingMCP := &kubemootv1alpha1.MCPServer{}
-	err := r.Get(ctx, types.NamespacedName{
-		Name:      discovery.Name,
-		Namespace: gateway.Namespace,
-	}, existingMCP)
-
-	if err == nil {
-		// Explicit MCPServer exists - DO NOT override
-		log.Info("Using explicit MCPServer CR (takes priority over policies)",
-			"server", discovery.Name)
-		return nil
-	}
-
-	if !errors.IsNotFound(err) {
-		return err
-	}
-
-	// Step 2: Find matching credential policy
-	policy := r.findMatchingCredentialPolicy(gateway.Spec.CredentialPolicies, discovery.Categories)
-
-	// Step 3: Build MCPServer spec with policy credentials
-	// Transport priority: registry metadata > policy override > registry-type inference > default (http)
-	transport := kubemootv1alpha1.MCPTransport(discovery.Transport)
-	if transport == "" {
-		// Registry didn't provide transport, check if policy specifies one
-		if policy != nil && policy.Transport != "" {
-			transport = policy.Transport
-		} else {
-			// Infer transport from registry type
-			// npm/pip packages are CLI tools that use stdio
-			// docker images may use http/sse (depends on image)
-			switch strings.ToLower(discovery.Registry) {
-			case "npm", "pip", "pypi":
-				transport = kubemootv1alpha1.TransportStdio
-				log.Info("Inferring stdio transport for npm/pip package", "server", discovery.Name, "registry", discovery.Registry)
-			default:
-				// Default to HTTP (safest assumption for unknown transports)
-				transport = kubemootv1alpha1.TransportHTTP
-			}
-		}
-	}
-
-	mcpServerSpec := kubemootv1alpha1.MCPServerSpec{
-		Image:     discovery.Image,
-		Port:      discovery.Port,
-		Transport: transport,
-	}
-
-	// Apply credentials from matching policy
-	if policy != nil {
-		mcpServerSpec.ServiceAccountName = policy.ServiceAccountName
-		mcpServerSpec.SecretRef = policy.SecretRef
-		mcpServerSpec.SecretVolumes = policy.SecretVolumes
-		mcpServerSpec.EmptyDirVolumes = policy.EmptyDirVolumes
-	}
-
-	// Step 4: Create MCPServer with owner reference to gateway
-	mcpServer := &kubemootv1alpha1.MCPServer{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      discovery.Name,
-			Namespace: gateway.Namespace,
-			Labels: map[string]string{
-				annoDynamic:            "true",
-				annoGateway:            gateway.Name,
-				"kubemoot.ai/registry": discovery.Registry,
-			},
-		},
-		Spec: mcpServerSpec,
-	}
-
-	// Set owner reference so MCPServer is garbage collected with gateway
-	if err := controllerutil.SetControllerReference(gateway, mcpServer, r.Scheme); err != nil {
-		return err
-	}
-
-	log.Info("Creating dynamic MCPServer", "server", discovery.Name, "registry", discovery.Registry)
-	return r.Create(ctx, mcpServer)
-}
-
 // findMatchingCredentialPolicy finds the first credential policy matching the given categories
 func (r *MCPGatewayReconciler) findMatchingCredentialPolicy(
 	policies []kubemootv1alpha1.CredentialPolicy,
@@ -1738,7 +1651,7 @@ func (r *MCPGatewayReconciler) EvaluateServerQuality(
 	if r.matchesAllowing(policy.Spec.Allowing, server) {
 		log.V(1).Info("Server in allowing list", "server", server.Name)
 		return PolicyDecision{
-			Action:     "allow",
+			Action:     policyActionAllow,
 			Confidence: 1.0,
 			Reason:     "allowing: essential infrastructure MCP",
 		}
@@ -1748,7 +1661,7 @@ func (r *MCPGatewayReconciler) EvaluateServerQuality(
 	if reason := r.matchesBlocking(policy.Spec.Blocking, server); reason != "" {
 		log.V(1).Info("Server in blocking list", "server", server.Name, "reason", reason)
 		return PolicyDecision{
-			Action:     "deny",
+			Action:     policyActionDeny,
 			Confidence: 1.0,
 			Reason:     fmt.Sprintf("blocking: %s", reason),
 		}
@@ -1774,7 +1687,7 @@ func (r *MCPGatewayReconciler) evaluateConsideringTier(ctx context.Context, poli
 	considering := policy.Spec.Considering
 	if considering == nil || !considering.Enabled {
 		// No AI evaluation configured, use fallback
-		fallback := "deny"
+		fallback := policyActionDeny
 		if considering != nil && considering.FallbackAction != "" {
 			fallback = considering.FallbackAction
 		}
@@ -1821,50 +1734,7 @@ func (r *MCPGatewayReconciler) evaluateConsideringTier(ctx context.Context, poli
 
 // evaluateTestedTierForMetadata checks MCPServerReport for prior test experience (metadata variant)
 func (r *MCPGatewayReconciler) evaluateTestedTierForMetadata(ctx context.Context, policy *kubemootv1alpha1.MCPQualityPolicy, server MCPServerMetadata) PolicyDecision {
-	log := logf.FromContext(ctx)
-
-	reportName := sanitizeK8sName(server.Name)
-	report := &kubemootv1alpha1.MCPServerReport{}
-	if err := r.Get(ctx, client.ObjectKey{
-		Namespace: policy.Namespace,
-		Name:      reportName,
-	}, report); err != nil {
-		return PolicyDecision{}
-	}
-
-	tested := policy.Spec.Tested
-
-	if tested.BlockBrokenEnabled() && report.Status.Verdict == string(kubemootv1alpha1.VerdictAvoid) {
-		log.Info("Blocking server with avoid verdict", "server", server.Name)
-		return PolicyDecision{
-			Action:     "deny",
-			Confidence: 1.0,
-			Reason:     fmt.Sprintf("tested: verdict=avoid, %d failures recorded", report.Status.FailureCount),
-		}
-	}
-
-	if report.Status.Verdict == string(kubemootv1alpha1.VerdictUse) {
-		minRate := 0.8
-		if tested.MinSuccessRate != "" {
-			if parsed, err := parseFloat(tested.MinSuccessRate); err == nil {
-				minRate = parsed
-			}
-		}
-		var actualRate float64
-		if report.Status.SuccessRate != "N/A" {
-			fmt.Sscanf(report.Status.SuccessRate, "%f%%", &actualRate)
-			actualRate /= 100
-		}
-		if actualRate >= minRate {
-			return PolicyDecision{
-				Action:     "allow",
-				Confidence: 0.95,
-				Reason:     fmt.Sprintf("tested: verdict=use, success rate %s", report.Status.SuccessRate),
-			}
-		}
-	}
-
-	return PolicyDecision{}
+	return evaluateTestedTier(ctx, r.Client, policy, server.Name)
 }
 
 // matchesAllowing checks if server is in the allowing list (accepted immediately)
@@ -2068,10 +1938,7 @@ func (r *MCPGatewayReconciler) fetchGitHubMetrics(ctx context.Context, repoURL s
 	// Direct HTTP call to GitHub API
 	apiURL := fmt.Sprintf("https://api.github.com/repos/%s/%s", owner, repo)
 
-	httpClient := r.HTTPClient
-	if httpClient == nil {
-		httpClient = &http.Client{Timeout: 10 * time.Second}
-	}
+	httpClient := r.httpClientOrDefault()
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, apiURL, nil)
 	if err != nil {
@@ -2084,7 +1951,7 @@ func (r *MCPGatewayReconciler) fetchGitHubMetrics(ctx context.Context, repoURL s
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("GitHub API returned %d", resp.StatusCode)
@@ -2101,14 +1968,36 @@ func (r *MCPGatewayReconciler) fetchGitHubMetrics(ctx context.Context, repoURL s
 // AI Quality Evaluation (Dogfooding Kubemoot Agent)
 // ============================================================================
 
+// qualityAgentMessage builds the chat message that asks the quality agent to
+// evaluate a server: its metadata as JSON plus the policy criteria, read from the
+// referenced ConfigMap when set and from the inline criteria otherwise (or when the
+// ConfigMap cannot be read).
+func (r *MCPGatewayReconciler) qualityAgentMessage(ctx context.Context, policy *kubemootv1alpha1.MCPQualityPolicy, server MCPServerMetadata) (string, error) {
+	serverJSON, err := json.Marshal(server)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal server metadata: %w", err)
+	}
+
+	criteria := policy.Spec.Considering.Criteria
+	if policy.Spec.Considering.CriteriaFromConfigMap != nil {
+		loadedCriteria, err := r.getCriteriaFromConfigMap(ctx, policy)
+		if err != nil {
+			logf.FromContext(ctx).Error(err, "Failed to load criteria from ConfigMap, using inline criteria")
+		} else {
+			criteria = loadedCriteria
+		}
+	}
+
+	return fmt.Sprintf("Evaluate this MCP server:\n\n```json\n%s\n```\n\nCriteria:\n%s",
+		serverJSON, criteria), nil
+}
+
 // consultQualityAgent calls the dogfooded Agent for AI evaluation
 func (r *MCPGatewayReconciler) consultQualityAgent(
 	ctx context.Context,
 	policy *kubemootv1alpha1.MCPQualityPolicy,
 	server MCPServerMetadata,
 ) (PolicyDecision, error) {
-	log := logf.FromContext(ctx)
-
 	considering := policy.Spec.Considering
 	if considering == nil {
 		return PolicyDecision{}, fmt.Errorf("considering config is nil")
@@ -2123,37 +2012,16 @@ func (r *MCPGatewayReconciler) consultQualityAgent(
 
 	agentURL := fmt.Sprintf("http://%s.%s:8080/chat", agentRef, agentNamespace)
 
-	// Prepare the evaluation request with server metadata
-	serverJSON, err := json.Marshal(server)
+	message, err := r.qualityAgentMessage(ctx, policy, server)
 	if err != nil {
-		return PolicyDecision{}, fmt.Errorf("failed to marshal server metadata: %w", err)
+		return PolicyDecision{}, err
 	}
-
-	// Load criteria (from ConfigMap if specified)
-	criteria := considering.Criteria
-	if considering.CriteriaFromConfigMap != nil {
-		loadedCriteria, err := r.getCriteriaFromConfigMap(ctx, policy)
-		if err != nil {
-			log.Error(err, "Failed to load criteria from ConfigMap, using inline criteria")
-		} else {
-			criteria = loadedCriteria
-		}
-	}
-
-	// Build chat message
-	message := fmt.Sprintf("Evaluate this MCP server:\n\n```json\n%s\n```\n\nCriteria:\n%s",
-		serverJSON, criteria)
-
-	reqBody, err := json.Marshal(map[string]string{"message": message})
+	reqBody, err := json.Marshal(map[string]string{jsonKeyMessage: message})
 	if err != nil {
 		return PolicyDecision{}, err
 	}
 
-	// Call Agent endpoint with timeout
-	timeout := 30 * time.Second
-	if considering.TimeoutSeconds > 0 {
-		timeout = time.Duration(considering.TimeoutSeconds) * time.Second
-	}
+	timeout := qualityAgentTimeout(considering)
 
 	ctxWithTimeout, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
@@ -2173,22 +2041,37 @@ func (r *MCPGatewayReconciler) consultQualityAgent(
 	if err != nil {
 		return PolicyDecision{}, fmt.Errorf("agent call failed: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
+	reply, err := readQualityAgentReply(resp)
+	if err != nil {
+		return PolicyDecision{}, err
+	}
+	return parseAgentDecision(reply)
+}
+
+// qualityAgentTimeout is the policy's agent call timeout, 30s when unset.
+func qualityAgentTimeout(considering *kubemootv1alpha1.ConsideringConfig) time.Duration {
+	if considering.TimeoutSeconds > 0 {
+		return time.Duration(considering.TimeoutSeconds) * time.Second
+	}
+	return 30 * time.Second
+}
+
+// readQualityAgentReply returns the "response" field of the quality agent's JSON
+// reply, or an error carrying the body when the agent did not answer 200.
+func readQualityAgentReply(resp *http.Response) (string, error) {
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		return PolicyDecision{}, fmt.Errorf("agent returned %d: %s", resp.StatusCode, string(body))
+		return "", fmt.Errorf("agent returned %d: %s", resp.StatusCode, string(body))
 	}
-
-	// Parse Agent response (expects JSON: {response: "..."})
 	var agentResp struct {
 		Response string `json:"response"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&agentResp); err != nil {
-		return PolicyDecision{}, fmt.Errorf("failed to parse agent response: %w", err)
+		return "", fmt.Errorf("failed to parse agent response: %w", err)
 	}
-
-	return parseAgentDecision(agentResp.Response)
+	return agentResp.Response, nil
 }
 
 // parseAgentDecision extracts a PolicyDecision from an agent's text response.
@@ -2208,7 +2091,7 @@ func parseAgentDecision(response string) (PolicyDecision, error) {
 	}
 
 	decision.Action = strings.ToLower(decision.Action)
-	if decision.Action != "allow" && decision.Action != "deny" {
+	if decision.Action != policyActionAllow && decision.Action != policyActionDeny {
 		return PolicyDecision{}, fmt.Errorf("invalid decision action: %s", decision.Action)
 	}
 	return decision, nil
@@ -2273,6 +2156,9 @@ func (r *MCPGatewayReconciler) findGatewaysForCatalog(ctx context.Context, obj c
 	return requests
 }
 
+// unnamedServerName is the name sanitizeK8sName gives a server whose name has no usable characters.
+const unnamedServerName = "unnamed-server"
+
 // sanitizeK8sName converts a string to a valid Kubernetes name (DNS-1035 label)
 // DNS-1035 labels must consist of lowercase alphanumeric characters or '-',
 // start with an alphabetic character, and end with an alphanumeric character.
@@ -2286,13 +2172,7 @@ func sanitizeK8sName(name string) string {
 	result = strings.ReplaceAll(result, " ", "-")
 	result = strings.ReplaceAll(result, ".", "-") // Services require DNS-1035 (no dots)
 	// Remove any characters that aren't alphanumeric or dash
-	var sanitized strings.Builder
-	for _, c := range result {
-		if (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-' {
-			sanitized.WriteRune(c)
-		}
-	}
-	result = sanitized.String()
+	result = strings.Map(keepDNSLabelRune, result)
 	// Trim leading/trailing dashes
 	result = strings.Trim(result, "-")
 	// Ensure it starts with a letter (DNS-1035 requirement)
@@ -2301,7 +2181,7 @@ func sanitizeK8sName(name string) string {
 	}
 	// Ensure it's not empty
 	if result == "" {
-		result = "unnamed-server"
+		result = unnamedServerName
 	}
 	// Truncate to max length (63 for DNS-1035 label)
 	if len(result) > 63 {
@@ -2309,6 +2189,15 @@ func sanitizeK8sName(name string) string {
 		result = strings.TrimRight(result, "-")
 	}
 	return result
+}
+
+// keepDNSLabelRune keeps lowercase letters, digits, and '-' and drops every other
+// rune (strings.Map drops a rune mapped to -1).
+func keepDNSLabelRune(c rune) rune {
+	if (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-' {
+		return c
+	}
+	return -1
 }
 
 // getModuleName extracts a Python module name from a package identifier

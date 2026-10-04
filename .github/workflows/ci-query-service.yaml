@@ -31,12 +31,18 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: Install dependencies and test
+      - name: Install dependencies
         working-directory: query-service
-        run: |
-          pip install --require-hashes -r requirements.txt
-          # Basic syntax check
-          python -m py_compile query-service.py
+        run: pip install --require-hashes -r requirements.txt -r requirements-lint.txt
+
+      # Ruff with query-service/ruff.toml, pinned by requirements-lint.txt.
+      - name: Lint
+        working-directory: query-service
+        run: ruff check .
+
+      - name: Run tests
+        working-directory: query-service
+        run: python -m unittest discover -s . -p 'test_*.py' -v
 
       - name: Install kubectl
         if: github.event_name != 'pull_request'

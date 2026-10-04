@@ -9,8 +9,8 @@ func TestRequestLogNotBeforeIsQueuedTimeLessSkew(t *testing.T) {
 	now := time.Date(2026, 9, 27, 6, 0, 0, 0, time.UTC)
 	l := newRequestLog(time.Hour)
 	l.now = func() time.Time { return now }
-	l.record("conv-1")
-	if got, want := l.notBefore("conv-1"), now.Add(-clockSkew); !got.Equal(want) {
+	l.record(testConv)
+	if got, want := l.notBefore(testConv), now.Add(-clockSkew); !got.Equal(want) {
 		t.Fatalf("notBefore = %v, want %v", got, want)
 	}
 	if got := l.notBefore("never-queued"); !got.IsZero() {
@@ -23,10 +23,10 @@ func TestRequestLogKeepsTheLatestTurnAndForgetsOldConversations(t *testing.T) {
 	l := newRequestLog(time.Hour)
 	l.now = func() time.Time { return now }
 	l.record("old")
-	l.record("conv-1")
+	l.record(testConv)
 	now = now.Add(30 * time.Second)
-	l.record("conv-1")
-	if got, want := l.notBefore("conv-1"), now.Add(-clockSkew); !got.Equal(want) {
+	l.record(testConv)
+	if got, want := l.notBefore(testConv), now.Add(-clockSkew); !got.Equal(want) {
 		t.Fatalf("second turn: notBefore = %v, want %v", got, want)
 	}
 	now = now.Add(2 * time.Hour)

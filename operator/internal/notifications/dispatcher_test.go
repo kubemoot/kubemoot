@@ -61,7 +61,7 @@ func TestMatchesFilters(t *testing.T) {
 			},
 		}
 	}
-	msg := &DiscussionMessage{Channel: "general", AgentName: "k8s-storage"}
+	msg := &DiscussionMessage{Channel: testChannelGeneral, AgentName: testAgentK8sStorage}
 
 	cases := []struct {
 		name string
@@ -69,12 +69,12 @@ func TestMatchesFilters(t *testing.T) {
 		want bool
 	}{
 		{"empty filters match anything", mkSink(nil, nil), true},
-		{"channel match", mkSink([]string{"general"}, nil), true},
+		{"channel match", mkSink([]string{testChannelGeneral}, nil), true},
 		{"channel mismatch", mkSink([]string{"alerts"}, nil), false},
-		{"agent match", mkSink(nil, []string{"k8s-storage", "k8s-workloads"}), true},
+		{"agent match", mkSink(nil, []string{testAgentK8sStorage, "k8s-workloads"}), true},
 		{"agent mismatch", mkSink(nil, []string{"k8s-workloads"}), false},
-		{"both match", mkSink([]string{"general"}, []string{"k8s-storage"}), true},
-		{"channel match, agent mismatch", mkSink([]string{"general"}, []string{"other"}), false},
+		{"both match", mkSink([]string{testChannelGeneral}, []string{testAgentK8sStorage}), true},
+		{"channel match, agent mismatch", mkSink([]string{testChannelGeneral}, []string{"other"}), false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -138,10 +138,10 @@ func TestProcessMessage_DispatchesConcernToWebhook(t *testing.T) {
 
 	msg := DiscussionMessage{
 		MessageType: ConcernMessageType,
-		AgentName:   "k8s-storage",
+		AgentName:   testAgentK8sStorage,
 		Content:     "Partition /var on rig0 is 96% full",
 		ThreadID:    "thread-1",
-		Channel:     "general",
+		Channel:     testChannelGeneral,
 		Timestamp:   "2026-05-17T04:00:00Z",
 	}
 	body, _ := json.Marshal(msg)
@@ -163,7 +163,7 @@ func TestProcessMessage_DispatchesConcernToWebhook(t *testing.T) {
 	if h := headers[0].Get("X-Priority"); h != "high" {
 		t.Errorf("X-Priority: got %q, want high", h)
 	}
-	if h := headers[0].Get("X-Title"); !strings.Contains(h, "k8s-storage") {
+	if h := headers[0].Get("X-Title"); !strings.Contains(h, testAgentK8sStorage) {
 		t.Errorf("X-Title should include agent; got %q", h)
 	}
 	if h := headers[0].Get("Content-Type"); h != "application/json" {
@@ -178,7 +178,7 @@ func TestProcessMessage_SkipsWhenNamespaceHasNoSinks(t *testing.T) {
 	cli := fake.NewClientBuilder().WithScheme(scheme).Build()
 	d := &Dispatcher{Client: cli}
 	body, _ := json.Marshal(DiscussionMessage{
-		MessageType: ConcernMessageType, AgentName: "x", Content: "y", ThreadID: "t", Channel: "general",
+		MessageType: ConcernMessageType, AgentName: "x", Content: "y", ThreadID: "t", Channel: testChannelGeneral,
 	})
 	if err := d.ProcessMessage(context.Background(), "kubemoot.discuss.ghost-ns.ghost-crew.general.t", body); err != nil {
 		t.Errorf("expected silent skip; got error %v", err)
@@ -239,7 +239,7 @@ func TestProcessMessage_SameCrewNameInTwoNamespaces(t *testing.T) {
 	cli := fake.NewClientBuilder().WithScheme(scheme).WithObjects(a, b).WithStatusSubresource(a, b).Build()
 	d := &Dispatcher{Client: cli, HTTPClient: srv.Client()}
 	body, _ := json.Marshal(DiscussionMessage{
-		MessageType: ConcernMessageType, AgentName: "a", Content: "c", ThreadID: "t", Channel: "general",
+		MessageType: ConcernMessageType, AgentName: "a", Content: "c", ThreadID: "t", Channel: testChannelGeneral,
 	})
 	if err := d.ProcessMessage(context.Background(), "kubemoot.discuss.team-a.pilot.general.t", body); err != nil {
 		t.Fatalf("ProcessMessage: %v", err)

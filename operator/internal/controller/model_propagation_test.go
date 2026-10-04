@@ -14,8 +14,8 @@ import (
 
 func mkModel(name, ns string) *kubemootv1alpha1.Model {
 	return &kubemootv1alpha1.Model{
-		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: ns, Labels: map[string]string{"latencyClass": "low"}},
-		Spec:       kubemootv1alpha1.ModelSpec{Model: "qwen3.5:9b", ProviderRef: "ollama-gpu"},
+		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: ns, Labels: map[string]string{testLatencyClass: testLow}},
+		Spec:       kubemootv1alpha1.ModelSpec{Model: "qwen3.5:9b", ProviderRef: testOllamaGPU},
 	}
 }
 
@@ -55,10 +55,10 @@ func TestModelBindingChangedPredicate(t *testing.T) {
 	if !change(func(m *kubemootv1alpha1.Model) { m.Status.Ready = true }) {
 		t.Error("a model becoming usable must enqueue")
 	}
-	if !change(func(m *kubemootv1alpha1.Model) { m.Labels["latencyClass"] = "high" }) {
+	if !change(func(m *kubemootv1alpha1.Model) { m.Labels[testLatencyClass] = testHigh }) {
 		t.Error("a relabel must enqueue")
 	}
-	if !change(func(m *kubemootv1alpha1.Model) { m.Spec.ProviderRef = "ollama-rig1" }) {
+	if !change(func(m *kubemootv1alpha1.Model) { m.Spec.ProviderRef = testOllamaRig1 }) {
 		t.Error("a spec change must enqueue")
 	}
 	if !change(func(m *kubemootv1alpha1.Model) { now := metav1.Now(); m.DeletionTimestamp = &now }) {
@@ -68,9 +68,9 @@ func TestModelBindingChangedPredicate(t *testing.T) {
 		t.Error("status noise must not enqueue")
 	}
 	loaded := base.DeepCopy()
-	loaded.Status.Ready, loaded.Status.State = true, "Loaded"
+	loaded.Status.Ready, loaded.Status.State = true, stateLoaded
 	available := loaded.DeepCopy()
-	available.Status.State = "Available"
+	available.Status.State = testConditionAvailable
 	if p.Update(event.UpdateEvent{ObjectOld: loaded, ObjectNew: available}) ||
 		p.Update(event.UpdateEvent{ObjectOld: available, ObjectNew: loaded}) {
 		t.Error("a model loading or unloading must not enqueue: it would roll agents mid-discussion")

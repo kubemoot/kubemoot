@@ -17,14 +17,29 @@ limitations under the License.
 package controller
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"strings"
+	"time"
 
-	kubemootv1alpha1 "github.com/kubemoot/kubemoot/operator/api/v1alpha1"
 	appsv1 "k8s.io/api/apps/v1"
+	ctrl "sigs.k8s.io/controller-runtime"
 )
+
+// immediateRequeueDelay is the base delay of the default controller rate limiter.
+const immediateRequeueDelay = 5 * time.Millisecond
+
+// requeueNow is the result for a reconcile that added a finalizer and must run again
+// at once to act on the updated object. Its delay is the default rate limiter's 5ms
+// base delay, but RequeueAfter carries no per-item backoff: use it only where the
+// next reconcile cannot repeat the same outcome (a second finalizer add is a no-op,
+// and an update conflict returns an error, which does back off).
+func requeueNow() ctrl.Result {
+	return ctrl.Result{RequeueAfter: immediateRequeueDelay}
+}
 
 const deploymentHashAnnotation = "kubemoot.ai/deployment-spec-hash"
 
@@ -149,15 +164,11 @@ func matchCompare(constraintVersion string, serverParts []int, cmpFn func(int) b
 	return cmpFn(compareVersions(serverParts, constraintParts))
 }
 
-// hasExplicitEnv checks if the agent's spec.deployment.env already contains the named env var.
-func hasExplicitEnv(agent *kubemootv1alpha1.Agent, name string) bool {
-	if agent.Spec.Deployment == nil {
-		return false
+// httpGet issues a GET bound to ctx, so a cancelled reconcile stops the request.
+func httpGet(ctx context.Context, httpClient *http.Client, url string) (*http.Response, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, err
 	}
-	for _, e := range agent.Spec.Deployment.Env {
-		if e.Name == name {
-			return true
-		}
-	}
-	return false
+	return httpClient.Do(req)
 }

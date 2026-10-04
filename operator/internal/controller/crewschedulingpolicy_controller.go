@@ -67,24 +67,7 @@ func (r *CrewSchedulingPolicyReconciler) Reconcile(ctx context.Context, req ctrl
 		return ctrl.Result{}, err
 	}
 
-	allowed := map[string]bool{}
-	for _, p := range archetype.Spec.Phases {
-		allowed[p.Name] = true
-	}
-
-	var bad []string
-	for _, rule := range policy.Spec.Rules {
-		if !allowed[rule.Phase] {
-			bad = append(bad, rule.Phase)
-		}
-	}
-	sort.Strings(bad)
-
-	if len(bad) > 0 {
-		policy.Status.ValidationError = fmt.Sprintf("phase(s) not in archetype %q vocabulary: %s", archetypeName, strings.Join(bad, ", "))
-	} else {
-		policy.Status.ValidationError = ""
-	}
+	policy.Status.ValidationError = policyPhaseValidationError(policy, archetype, archetypeName)
 	policy.Status.LastValidated = nowPtr()
 	if err := r.Status().Update(ctx, policy); err != nil {
 		log.Error(err, "Failed to update CrewSchedulingPolicy status")
@@ -102,4 +85,25 @@ func (r *CrewSchedulingPolicyReconciler) SetupWithManager(mgr ctrl.Manager) erro
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&kubemootv1alpha1.CrewSchedulingPolicy{}).
 		Complete(r)
+}
+
+// policyPhaseValidationError names the policy's rule phases that are not in the
+// archetype's phase vocabulary, sorted; it is empty when every phase is known.
+func policyPhaseValidationError(policy *kubemootv1alpha1.CrewSchedulingPolicy, archetype *kubemootv1alpha1.MootArchetype, archetypeName string) string {
+	allowed := map[string]bool{}
+	for _, p := range archetype.Spec.Phases {
+		allowed[p.Name] = true
+	}
+
+	var bad []string
+	for _, rule := range policy.Spec.Rules {
+		if !allowed[rule.Phase] {
+			bad = append(bad, rule.Phase)
+		}
+	}
+	if len(bad) == 0 {
+		return ""
+	}
+	sort.Strings(bad)
+	return fmt.Sprintf("phase(s) not in archetype %q vocabulary: %s", archetypeName, strings.Join(bad, ", "))
 }

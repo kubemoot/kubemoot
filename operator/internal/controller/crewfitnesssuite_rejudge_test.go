@@ -93,7 +93,7 @@ var _ = Describe("CrewFitnessSuite re-judge", func() {
 				Scripts: []kubemootv1alpha1.SuiteScript{
 					script(rjBeta, newScenario(`synthesis does NOT CONTAIN "harbor"`)),
 					script(rjAlpha, newScenario(`synthesis CONTAINS "metrics-server"`)),
-					script("fresh", newScenario(`synthesis is non-empty`)),
+					script("fresh", newScenario(testSynthesisNonEmpty)),
 				},
 				Rejudge: &kubemootv1alpha1.RejudgeSource{Suite: source, RunID: runID},
 			},
@@ -220,7 +220,7 @@ var _ = Describe("CrewFitnessSuite re-judge", func() {
 			Spec: kubemootv1alpha1.CrewFitnessSuiteSpec{
 				CrewRef:    testCrewPilot,
 				Iterations: 1,
-				Scripts:    []kubemootv1alpha1.SuiteScript{script("fresh", newScenario(`synthesis is non-empty`))},
+				Scripts:    []kubemootv1alpha1.SuiteScript{script("fresh", newScenario(testSynthesisNonEmpty))},
 				Rejudge:    &kubemootv1alpha1.RejudgeSource{Suite: "rj-src-none", RunID: sourceRun},
 			},
 		}

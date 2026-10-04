@@ -135,7 +135,7 @@ var _ = Describe("CrewFitnessSuite results in status", func() {
 		// unjudged: no crew declares its keyword, so it stays pending.
 		store.objs[prefix+"s2-i1.json"] = statusTranscript(deferOn("NOJUDGE"), "true")
 		// plain: no DEFER assertion, nothing to judge.
-		store.objs[prefix+"s3-i1.json"] = statusTranscript("synthesis is non-empty", "true")
+		store.objs[prefix+"s3-i1.json"] = statusTranscript(testSynthesisNonEmpty, "true")
 		longReason := "first line\nsecond line " + strings.Repeat("x", 300)
 		cp, _ := json.Marshal(deferredScoreCache{
 			Scores: map[string]float64{csResumed: 90}, Reasons: map[string]string{csResumed: longReason},

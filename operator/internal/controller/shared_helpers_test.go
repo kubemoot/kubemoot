@@ -43,43 +43,43 @@ func TestHelperMatchVersionConstraintShared(t *testing.T) {
 		expected   bool
 	}{
 		// Exact match
-		{"1.2.3", "1.2.3", true},
-		{"1.2.3", "1.2.4", false},
-		{"1.2.3", "v1.2.3", true},
+		{testVersion123, testVersion123, true},
+		{testVersion123, "1.2.4", false},
+		{testVersion123, "v1.2.3", true},
 
 		// Caret (^) — compatible with major
-		{"^1.2.0", "1.3.0", true},
-		{"^1.2.0", "1.2.0", true},
-		{"^1.2.0", "1.1.0", false},
-		{"^1.2.0", "2.0.0", false},
+		{testRangeCaret120, testVersion130, true},
+		{testRangeCaret120, testVersion120, true},
+		{testRangeCaret120, "1.1.0", false},
+		{testRangeCaret120, testVersion200, false},
 
 		// Tilde (~) — compatible with minor
-		{"~1.2.0", "1.2.5", true},
-		{"~1.2.0", "1.3.0", false},
-		{"~1.2.0", "1.2.0", true},
+		{testRangeTilde120, "1.2.5", true},
+		{testRangeTilde120, testVersion130, false},
+		{testRangeTilde120, testVersion120, true},
 
 		// Wildcard
-		{"1.x", "1.0.0", true},
-		{"1.x", "1.99.0", true},
-		{"1.x", "2.0.0", false},
+		{testRange1x, testVersion100, true},
+		{testRange1x, "1.99.0", true},
+		{testRange1x, testVersion200, false},
 		{"2.*", "2.5.0", true},
 		{"2.*", "3.0.0", false},
 
 		// Comparison operators
-		{">=1.2.0", "1.2.0", true},
-		{">=1.2.0", "1.3.0", true},
-		{">=1.2.0", "1.1.0", false},
+		{testRangeAtLeast120, testVersion120, true},
+		{testRangeAtLeast120, testVersion130, true},
+		{testRangeAtLeast120, "1.1.0", false},
 		{">1.2.0", "1.2.1", true},
-		{">1.2.0", "1.2.0", false},
-		{"<=1.2.0", "1.2.0", true},
-		{"<=1.2.0", "1.1.9", true},
-		{"<=1.2.0", "1.2.1", false},
+		{">1.2.0", testVersion120, false},
+		{testRangeAtMost120, testVersion120, true},
+		{testRangeAtMost120, "1.1.9", true},
+		{testRangeAtMost120, "1.2.1", false},
 		{"<2.0.0", "1.9.9", true},
-		{"<2.0.0", "2.0.0", false},
+		{"<2.0.0", testVersion200, false},
 
 		// Edge cases
-		{"1.0.0", "invalid", false},
-		{"invalid", "1.0.0", false},
+		{testVersion100, testInvalid, false},
+		{testInvalid, testVersion100, false},
 	}
 
 	for _, tt := range tests {
@@ -118,12 +118,12 @@ func TestHelperParseVersion(t *testing.T) {
 		expected []int
 		isNil    bool
 	}{
-		{"1.2.3", []int{1, 2, 3}, false},
+		{testVersion123, []int{1, 2, 3}, false},
 		{"v1.0.0", []int{1, 0, 0}, false},
 		{"1.0.0-beta", []int{1, 0, 0}, false},
 		{"1", []int{1, 0, 0}, false},
 		{"1.2", []int{1, 2, 0}, false},
-		{"invalid", nil, true},
+		{testInvalid, nil, true},
 	}
 
 	for _, tt := range tests {
@@ -159,7 +159,7 @@ func TestHelperSanitizeK8sName(t *testing.T) {
 		input    string
 		expected string
 	}{
-		{"simple", "simple"},
+		{testUnchangedName, testUnchangedName},
 		{"with/slash", "with-slash"},
 		{"with_underscore", "with-underscore"},
 		{"with spaces", "with-spaces"},
@@ -190,7 +190,7 @@ func TestHelperGetModuleName(t *testing.T) {
 	}{
 		{"mcp-server-fetch", "mcp_server_fetch"},
 		{"package>=1.0.0", "package"},
-		{"simple", "simple"},
+		{testUnchangedName, testUnchangedName},
 		{"a-b>=2.0", "a_b"},
 		{"package==1.0.0", "package"},
 	}
@@ -217,9 +217,9 @@ func TestHelperComputeTrialStats(t *testing.T) {
 		now := metav1.Now()
 		status := &kubemootv1alpha1.MCPServerReportStatus{
 			Trials: []kubemootv1alpha1.TrialRecord{
-				{Success: true, TestedAt: &now, Version: "1.0", Transport: "http"},
+				{Success: true, TestedAt: &now, Version: "1.0", Transport: testHTTP},
 				{Success: false, TestedAt: &now},
-				{Success: true, TestedAt: &now, Version: "1.1", Transport: "sse"},
+				{Success: true, TestedAt: &now, Version: testRecommendedVersion, Transport: testSSE},
 			},
 		}
 		computeTrialStats(status)
@@ -240,10 +240,10 @@ func assertMixedTrialStats(t *testing.T, status *kubemootv1alpha1.MCPServerRepor
 	if status.SuccessRate != "67%" {
 		t.Errorf("expected 67%%, got %s", status.SuccessRate)
 	}
-	if status.RecommendedVersion != "1.1" {
+	if status.RecommendedVersion != testRecommendedVersion {
 		t.Errorf("expected recommended version 1.1, got %s", status.RecommendedVersion)
 	}
-	if status.RecommendedTransport != "sse" {
+	if status.RecommendedTransport != testSSE {
 		t.Errorf("expected recommended transport sse, got %s", status.RecommendedTransport)
 	}
 	if status.LastTested == nil {
@@ -263,8 +263,8 @@ func TestHelperMatchGlob(t *testing.T) {
 		{"*.json", "test.yaml", false},
 		{"hello*", "helloworld", true},
 		{"he?lo", "hello", true},
-		{"exact", "exact", true},
-		{"exact", "other", false},
+		{testExact, testExact, true},
+		{testExact, testMismatchName, false},
 	}
 
 	for _, tt := range tests {
@@ -285,10 +285,10 @@ func TestHelperParseServiceFromEndpoint(t *testing.T) {
 		endpoint, defaultNS string
 		wantSvc, wantNS     string
 	}{
-		{"http://ollama.ollama-rig0:11434", "default", "ollama", "ollama-rig0"},
-		{"http://ollama.ollama.svc.cluster.local:11434", "default", "ollama", "ollama"},
+		{testRig0URL, testDefaultNS, testOllama, "ollama-rig0"},
+		{"http://ollama.ollama.svc.cluster.local:11434", testDefaultNS, testOllama, testOllama},
 		{"http://localhost:11434", "myns", "localhost", "myns"},
-		{"://bad", "default", "", ""},
+		{"://bad", testDefaultNS, "", ""},
 	}
 
 	for _, tt := range tests {
@@ -331,7 +331,7 @@ func TestHelperParseAgentDecision(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if d.Action != "allow" || d.Confidence != 0.9 {
+		if d.Action != testAllow || d.Confidence != 0.9 {
 			t.Errorf("unexpected decision: %v", d)
 		}
 	})
@@ -341,7 +341,7 @@ func TestHelperParseAgentDecision(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if d.Action != "deny" {
+		if d.Action != testDeny {
 			t.Errorf("expected deny, got %s", d.Action)
 		}
 	})
@@ -366,11 +366,11 @@ func TestHelperContainsIgnoreCase(t *testing.T) {
 		str, substr string
 		expected    bool
 	}{
-		{"Hello World", "hello", true},
-		{"Hello World", "WORLD", true},
-		{"Hello World", "missing", false},
-		{"", "test", false},
-		{"test", "", true},
+		{testHelloWorldTitle, "hello", true},
+		{testHelloWorldTitle, "WORLD", true},
+		{testHelloWorldTitle, "missing", false},
+		{"", testPlainWord, false},
+		{testPlainWord, "", true},
 	}
 
 	for _, tt := range tests {

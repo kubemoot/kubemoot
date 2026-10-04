@@ -44,7 +44,7 @@ func TestValidateSinkSpec(t *testing.T) {
 			name: "header with both value and valueFrom",
 			spec: kubemootv1alpha1.NotificationSinkSpec{
 				Webhook: kubemootv1alpha1.WebhookTarget{
-					URL: "https://ntfy.example.com/topic",
+					URL: testNtfyURL,
 					Headers: []kubemootv1alpha1.HeaderEntry{
 						{
 							Name:      "Authorization",
@@ -60,7 +60,7 @@ func TestValidateSinkSpec(t *testing.T) {
 			name: "header missing both",
 			spec: kubemootv1alpha1.NotificationSinkSpec{
 				Webhook: kubemootv1alpha1.WebhookTarget{
-					URL:     "https://ntfy.example.com/topic",
+					URL:     testNtfyURL,
 					Headers: []kubemootv1alpha1.HeaderEntry{{Name: "X-Bad"}},
 				},
 			},
@@ -70,7 +70,7 @@ func TestValidateSinkSpec(t *testing.T) {
 			name: "valid spec",
 			spec: kubemootv1alpha1.NotificationSinkSpec{
 				Webhook: kubemootv1alpha1.WebhookTarget{
-					URL: "https://ntfy.example.com/topic",
+					URL: testNtfyURL,
 					Headers: []kubemootv1alpha1.HeaderEntry{
 						{Name: "X-Tag", Value: "homelab"},
 					},

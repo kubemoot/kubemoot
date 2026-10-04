@@ -64,7 +64,7 @@ func reconcileArch(t *testing.T, arch *kubemootv1alpha1.MootArchetype) *kubemoot
 
 func TestMootArchetypeReconcile_ValidAndInvalid(t *testing.T) {
 	valid := reconcileArch(t, &kubemootv1alpha1.MootArchetype{
-		ObjectMeta: metav1.ObjectMeta{Name: "ar-ok", Namespace: "ns1"},
+		ObjectMeta: metav1.ObjectMeta{Name: "ar-ok", Namespace: testNS1},
 		Spec: kubemootv1alpha1.MootArchetypeSpec{
 			Phases: []kubemootv1alpha1.ArchetypePhase{{Name: "a"}, {Name: "b"}},
 			StateMachine: &kubemootv1alpha1.ArchetypeStateMachine{
@@ -78,7 +78,7 @@ func TestMootArchetypeReconcile_ValidAndInvalid(t *testing.T) {
 	}
 
 	invalid := reconcileArch(t, &kubemootv1alpha1.MootArchetype{
-		ObjectMeta: metav1.ObjectMeta{Name: "ar-bad", Namespace: "ns1"},
+		ObjectMeta: metav1.ObjectMeta{Name: "ar-bad", Namespace: testNS1},
 		Spec: kubemootv1alpha1.MootArchetypeSpec{
 			Phases:       []kubemootv1alpha1.ArchetypePhase{{Name: "a"}},
 			StateMachine: &kubemootv1alpha1.ArchetypeStateMachine{Initial: "missing"},
@@ -94,7 +94,7 @@ func TestMootArchetypeReconcile_NotFoundIsNoOp(t *testing.T) {
 	cli := fake.NewClientBuilder().WithScheme(scheme).Build()
 	r := &MootArchetypeReconciler{Client: cli, Scheme: scheme}
 	if _, err := r.Reconcile(context.Background(), ctrl.Request{
-		NamespacedName: types.NamespacedName{Name: "absent", Namespace: "ns1"},
+		NamespacedName: types.NamespacedName{Name: testAbsent, Namespace: testNS1},
 	}); err != nil {
 		t.Errorf("absent archetype reconcile must be a no-op, got %v", err)
 	}

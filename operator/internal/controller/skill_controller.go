@@ -85,7 +85,7 @@ func (r *SkillReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 		if err := addFinalizer(ctx, r.Client, skill, skillFinalizer); err != nil {
 			return ctrl.Result{}, err
 		}
-		return ctrl.Result{Requeue: true}, nil
+		return requeueNow(), nil
 	}
 
 	r.syncSkillConfigMap(ctx, crewName, skill.Namespace)
@@ -123,7 +123,7 @@ func (r *SkillReconciler) syncSkillConfigMap(ctx context.Context, crewName, name
 	data := buildSkillConfigMapData(items)
 	cmLabels := map[string]string{
 		labelManagedBy: managedByValue,
-		labelComponent: "skills",
+		labelComponent: skillsComponent,
 		crewLabelKey:   crewName,
 	}
 
@@ -254,7 +254,8 @@ func computePoolHash(items []kubemootv1alpha1.Skill) string {
 	sort.Slice(sorted, func(i, j int) bool { return sorted[i].Name < sorted[j].Name })
 	h := sha256.New()
 	for _, s := range sorted {
-		fmt.Fprintf(h, "%s|%d|%s\n", s.Name, s.Spec.Order, s.ResourceVersion)
+		// Writes to a hash never fail.
+		_, _ = fmt.Fprintf(h, "%s|%d|%s\n", s.Name, s.Spec.Order, s.ResourceVersion)
 	}
 	return fmt.Sprintf("%x", h.Sum(nil))[:16]
 }

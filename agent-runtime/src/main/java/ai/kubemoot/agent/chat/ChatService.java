@@ -656,29 +656,7 @@ public class ChatService {
             return java.util.Optional.empty();
         }
         if (toolerRawOutput && state.toolsExecuted) {
-            // The tooler's OWN judgment of its gather overrides the raw-output
-            // contract, so a tool error is never laundered into findings:
-            //  - NO_DATA  -> its tools errored / returned nothing usable: a FAILED
-            //               gather, raised as a first-class failure signal (not
-            //               error-text-as-data). Distinct from an honest empty
-            //               result, which the tooler reports as a real "none".
-            //  - TOOL_GAP -> it lacks the needed tool TYPE: keep it as the
-            //               contribution so the coordinator routes it to concern /
-            //               gap detection / onboarding (load-bearing, do not reroute).
-            // Otherwise the raw tool output IS the contribution (the data path).
-            String finalText = aiMessage.text() == null ? "" : aiMessage.text().strip();
-            if (declaresGatherFailed(finalText)) {
-                throw new ToolCallFailure(ToolCallFailure.FailureType.GATHER_FAILED,
-                        null, null, 0, gatherFailedReason(finalText));
-            }
-            // Case-sensitive on purpose: the contribution flows verbatim to
-            // DiscussionSubscriber's classifier, which also matches "TOOL_GAP:"
-            // exactly - so the two ends stay in lockstep.
-            if (finalText.startsWith("TOOL_GAP:")) {
-                return java.util.Optional.of(new ToolLoopResult(finalText,
-                        state.totalInput, state.totalOutput, providerName, pickReason));
-            }
-            return java.util.Optional.of(rawOutputResult(state, providerName, pickReason));
+            return java.util.Optional.of(toolerRawOutputResult(aiMessage, state, providerName, pickReason));
         }
         // Compute contract: a compute agent must produce its result by RUNNING
         // execute_code, and when the data was spilled to an artifact it must read
@@ -687,9 +665,49 @@ public class ChatService {
         if (computeContractNeedsRetry(aiMessage, state)) {
             return java.util.Optional.empty();
         }
-        // No raw-output contract (or no tools ran): this agent reasons to its own
-        // answer. Use its prose, with a retry for a flaky empty turn and an echo
-        // guard so it never publishes its own instruction prompt as the answer.
+        // No raw-output contract (or no tools ran): this agent reasons to its own answer.
+        return resolveReasonedText(aiMessage, state, providerName, pickReason);
+    }
+
+    /**
+     * The contribution of a tooler whose tools ran (raw-output contract). The
+     * tooler's NO_DATA declaration raises GATHER_FAILED, a TOOL_GAP declaration is
+     * kept as the contribution, and anything else returns the raw tool output.
+     */
+    private ToolLoopResult toolerRawOutputResult(AiMessage aiMessage, ToolLoopState state,
+                                                 String providerName, String pickReason) {
+        // The tooler's OWN judgment of its gather overrides the raw-output
+        // contract, so a tool error is never laundered into findings:
+        //  - NO_DATA  -> its tools errored / returned nothing usable: a FAILED
+        //               gather, raised as a first-class failure signal (not
+        //               error-text-as-data). Distinct from an honest empty
+        //               result, which the tooler reports as a real "none".
+        //  - TOOL_GAP -> it lacks the needed tool TYPE: keep it as the
+        //               contribution so the coordinator routes it to concern /
+        //               gap detection / onboarding (load-bearing, do not reroute).
+        // Otherwise the raw tool output IS the contribution (the data path).
+        String finalText = aiMessage.text() == null ? "" : aiMessage.text().strip();
+        if (declaresGatherFailed(finalText)) {
+            throw new ToolCallFailure(ToolCallFailure.FailureType.GATHER_FAILED,
+                    null, null, 0, gatherFailedReason(finalText));
+        }
+        // Case-sensitive on purpose: the contribution flows verbatim to
+        // DiscussionSubscriber's classifier, which also matches "TOOL_GAP:"
+        // exactly - so the two ends stay in lockstep.
+        if (finalText.startsWith("TOOL_GAP:")) {
+            return new ToolLoopResult(finalText,
+                    state.totalInput, state.totalOutput, providerName, pickReason);
+        }
+        return rawOutputResult(state, providerName, pickReason);
+    }
+
+    /**
+     * The contribution of an agent that reasons to its own answer: its prose, with
+     * one retry (empty Optional) for a flaky empty turn and an echo guard so it never
+     * publishes its own instruction prompt as the answer.
+     */
+    private java.util.Optional<ToolLoopResult> resolveReasonedText(AiMessage aiMessage, ToolLoopState state,
+                                                                   String providerName, String pickReason) {
         String text = aiMessage.text() != null ? aiMessage.text() : "";
         if (text.isEmpty() && state.emptyNoToolsRetries < EMPTY_NO_TOOLS_MAX_RETRIES) {
             state.emptyNoToolsRetries++;
@@ -945,40 +963,50 @@ public class ChatService {
                     toolRequest.id(), toolRequest.name(), result));
             state.toolsExecuted = true;
             state.toolCalls++;
-            // Two ways the compute agent legitimately reads the spilled FILE:
-            //   (1) execute_code whose code opens /artifacts/<key>, or
-            //   (2) an artifact read-ops tool (artifact_count/rows/grep/jq/...) that
-            //       reads the artifact server-side from its key.
-            // A validate_code or a call that merely names /artifacts/ in unrelated args
-            // does NOT count - it must be one of these two real reads.
-            boolean readViaCode = "execute_code".equals(toolRequest.name())
-                    && toolRequest.arguments() != null
-                    && toolRequest.arguments().contains(ARTIFACT_MOUNT);
-            boolean readViaReadOps = ARTIFACT_READ_TOOLS.contains(toolRequest.name());
-            // Only a SUCCESSFUL read satisfies the contract - a key-not-found / errored
-            // read-ops or execute_code call must not let the agent answer from nothing.
-            if ((readViaCode || readViaReadOps) && !isToolErrorResult(result)) {
-                state.codeReferencedArtifact = true;
-            }
-            // Metrics drill contract signals: a metric query that returns no series
-            // (empty vector) or errors arms the drill; a discovery call that actually
-            // RETURNED metrics satisfies it.
-            if (METRIC_QUERY_TOOLS.contains(toolRequest.name())) {
-                state.metricQueryReturnedEmpty = isEmptyMetricResult(result);
-            }
-            // Only a discovery that RETURNED metrics counts. A zero-result list_metrics
-            // (the model filtered on a wrong stem, e.g. "kube_apiserver_request_total")
-            // must keep re-prompting so the agent broadens the filter, not conclude
-            // "unavailable" off an empty discovery.
-            if (METRIC_DISCOVERY_TOOLS.contains(toolRequest.name()) && !isEmptyDiscoveryResult(result)) {
-                state.discoveredMetrics = true;
-            }
+            recordReadAndMetricSignals(toolRequest.name(), toolRequest.arguments(), result, state);
             // Accumulate the raw output as the tooler's contribution. Cap each
             // result so a pathologically large tool response cannot blow the
             // downstream discussion/synthesis context.
             state.toolOutput.append("[").append(toolRequest.name()).append("]\n")
                     .append(truncate(result, MAX_TOOL_RESULT_CHARS)).append("\n\n");
             recordToolFailure(toolRequest.name(), result, state);
+        }
+    }
+
+    /**
+     * Update the compute and metrics-drill contract flags from one tool call: a
+     * successful read of the spilled artifact, an empty metric query, and a metric
+     * discovery that returned metrics.
+     */
+    private void recordReadAndMetricSignals(String toolName, String arguments, String result,
+                                            ToolLoopState state) {
+        // Two ways the compute agent legitimately reads the spilled FILE:
+        //   (1) execute_code whose code opens /artifacts/<key>, or
+        //   (2) an artifact read-ops tool (artifact_count/rows/grep/jq/...) that
+        //       reads the artifact server-side from its key.
+        // A validate_code or a call that merely names /artifacts/ in unrelated args
+        // does NOT count - it must be one of these two real reads.
+        boolean readViaCode = "execute_code".equals(toolName)
+                && arguments != null
+                && arguments.contains(ARTIFACT_MOUNT);
+        boolean readViaReadOps = ARTIFACT_READ_TOOLS.contains(toolName);
+        // Only a SUCCESSFUL read satisfies the contract - a key-not-found / errored
+        // read-ops or execute_code call must not let the agent answer from nothing.
+        if ((readViaCode || readViaReadOps) && !isToolErrorResult(result)) {
+            state.codeReferencedArtifact = true;
+        }
+        // Metrics drill contract signals: a metric query that returns no series
+        // (empty vector) or errors arms the drill; a discovery call that actually
+        // RETURNED metrics satisfies it.
+        if (METRIC_QUERY_TOOLS.contains(toolName)) {
+            state.metricQueryReturnedEmpty = isEmptyMetricResult(result);
+        }
+        // Only a discovery that RETURNED metrics counts. A zero-result list_metrics
+        // (the model filtered on a wrong stem, e.g. "kube_apiserver_request_total")
+        // must keep re-prompting so the agent broadens the filter, not conclude
+        // "unavailable" off an empty discovery.
+        if (METRIC_DISCOVERY_TOOLS.contains(toolName) && !isEmptyDiscoveryResult(result)) {
+            state.discoveredMetrics = true;
         }
     }
 
@@ -1897,17 +1925,33 @@ public class ChatService {
         if (occupancy <= 0) {
             return new TriagePlacement(triageEndpoint, "", 0L, java.util.Optional.empty());
         }
-        int promptChars = (systemPrompt == null ? 0 : systemPrompt.length())
-                + (conversation == null ? 0 : conversation.length());
+        int promptChars = lengthOrZero(systemPrompt) + lengthOrZero(conversation);
         long kv = ai.kubemoot.agent.provider.KvCacheEstimator.estimateMiB(triageModelId,
                 ai.kubemoot.agent.provider.KvCacheEstimator.estimateTokensFromChars(promptChars), 2048);
         long promptTokens = promptTokens(promptChars);
+        requireTriageContextFits(states, promptTokens);
+        return claimTriagePlacement(occupancy, kv, promptTokens);
+    }
+
+    private static int lengthOrZero(String text) {
+        return text == null ? 0 : text.length();
+    }
+
+    /** Throws NoFitException when no provider's context window can hold the triage prompt. */
+    private void requireTriageContextFits(List<ProviderState> states, long promptTokens) {
         if (!ai.kubemoot.agent.provider.ContextFit.anyCanHold(states, List.of(triageModelId), promptTokens)) {
             throw ai.kubemoot.agent.provider.NoFitException.promptTooLarge(triageModelId,
                     "triage prompt ~" + promptTokens + " tokens exceeds the largest context window ("
                             + ai.kubemoot.agent.provider.ContextFit.largestContext(states, List.of(triageModelId))
                             + " tokens) any provider gives " + triageModelId);
         }
+    }
+
+    /**
+     * Claim a provider for the triage call through the JIT scheduler, or keep the
+     * static triageEndpoint when no provider fits.
+     */
+    private TriagePlacement claimTriagePlacement(long occupancy, long kv, long promptTokens) {
         try {
             var pick = providerSelector.pickAndClaim(triageModelId, occupancy, kv, promptTokens);
             if (pick.isPresent()) {

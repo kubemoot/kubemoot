@@ -30,7 +30,7 @@ var _ = Describe("ModelProvider admission", func() {
 	}
 
 	It("accepts type ollama", func() {
-		mp := newMP("adm-ollama", "ollama")
+		mp := newMP("adm-ollama", testOllama)
 		Expect(k8sClient.Create(ctx, mp)).To(Succeed())
 		Expect(k8sClient.Delete(ctx, mp)).To(Succeed())
 	})

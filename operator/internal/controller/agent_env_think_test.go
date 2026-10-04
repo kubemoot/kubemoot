@@ -41,11 +41,11 @@ func TestThinkEnvRendering(t *testing.T) {
 	}
 	cli := fake.NewClientBuilder().WithScheme(scheme).Build()
 	r := &AgentReconciler{Client: cli}
-	pick := &modelPick{ModelID: "qwen3:8b", Endpoint: "http://ollama:11434"}
+	pick := &modelPick{ModelID: testModelID, Endpoint: testOllamaURL}
 
 	mkAgent := func(think *bool) *kubemootv1alpha1.Agent {
 		return &kubemootv1alpha1.Agent{
-			ObjectMeta: metav1.ObjectMeta{Name: "a", Namespace: "crew-x"},
+			ObjectMeta: metav1.ObjectMeta{Name: "a", Namespace: testCrewNamespace},
 			Spec:       kubemootv1alpha1.AgentSpec{Think: think},
 		}
 	}
@@ -55,7 +55,7 @@ func TestThinkEnvRendering(t *testing.T) {
 	t.Run("think=false renders KUBEMOOT_MODEL_THINK=false", func(t *testing.T) {
 		env := r.buildEnvVars(context.Background(), mkAgent(&fls), pick, pick, 8080)
 		v, ok := envValue(env, "KUBEMOOT_MODEL_THINK")
-		if !ok || v != "false" {
+		if !ok || v != testEnvFalse {
 			t.Fatalf("want KUBEMOOT_MODEL_THINK=false, got %q present=%v", v, ok)
 		}
 	})
@@ -63,7 +63,7 @@ func TestThinkEnvRendering(t *testing.T) {
 	t.Run("think=true renders KUBEMOOT_MODEL_THINK=true", func(t *testing.T) {
 		env := r.buildEnvVars(context.Background(), mkAgent(&tru), pick, pick, 8080)
 		v, ok := envValue(env, "KUBEMOOT_MODEL_THINK")
-		if !ok || v != "true" {
+		if !ok || v != testEnvTrue {
 			t.Fatalf("want KUBEMOOT_MODEL_THINK=true, got %q present=%v", v, ok)
 		}
 	})
@@ -92,30 +92,30 @@ func TestCrewHasAnalysts(t *testing.T) {
 
 	t.Run("true when an analyst is present in the namespace", func(t *testing.T) {
 		cli := fake.NewClientBuilder().WithScheme(scheme).
-			WithObjects(agent("c", "crew-x", "coordinator"), agent("k8s", "crew-x", ""), agent("k8s-analyst", "crew-x", "analyst")).
+			WithObjects(agent("c", testCrewNamespace, testRoleCoordinator), agent(testK8sAgent, testCrewNamespace, ""), agent("k8s-analyst", testCrewNamespace, "analyst")).
 			Build()
 		r := &AgentReconciler{Client: cli}
-		if !r.crewHasAnalysts(context.Background(), "crew-x") {
+		if !r.crewHasAnalysts(context.Background(), testCrewNamespace) {
 			t.Fatal("want true when an analyst exists in the namespace")
 		}
 	})
 
 	t.Run("false when no analyst in the namespace", func(t *testing.T) {
 		cli := fake.NewClientBuilder().WithScheme(scheme).
-			WithObjects(agent("c", "crew-x", "coordinator"), agent("k8s", "crew-x", "")).
+			WithObjects(agent("c", testCrewNamespace, testRoleCoordinator), agent(testK8sAgent, testCrewNamespace, "")).
 			Build()
 		r := &AgentReconciler{Client: cli}
-		if r.crewHasAnalysts(context.Background(), "crew-x") {
+		if r.crewHasAnalysts(context.Background(), testCrewNamespace) {
 			t.Fatal("want false when no analyst exists")
 		}
 	})
 
 	t.Run("scoped to the namespace (analyst in another crew does not count)", func(t *testing.T) {
 		cli := fake.NewClientBuilder().WithScheme(scheme).
-			WithObjects(agent("c", "crew-x", "coordinator"), agent("t", "crew-y", "analyst")).
+			WithObjects(agent("c", testCrewNamespace, testRoleCoordinator), agent("t", "crew-y", "analyst")).
 			Build()
 		r := &AgentReconciler{Client: cli}
-		if r.crewHasAnalysts(context.Background(), "crew-x") {
+		if r.crewHasAnalysts(context.Background(), testCrewNamespace) {
 			t.Fatal("a analyst in crew-y must not count for crew-x")
 		}
 	})
@@ -128,14 +128,14 @@ func TestCoordinatorHasAnalystsEnv(t *testing.T) {
 	if err := kubemootv1alpha1.AddToScheme(scheme); err != nil {
 		t.Fatalf("add scheme: %v", err)
 	}
-	pick := &modelPick{ModelID: "qwen3:32b", Endpoint: "http://ollama:11434"}
+	pick := &modelPick{ModelID: testModel32B, Endpoint: testOllamaURL}
 	coord := &kubemootv1alpha1.Agent{
-		ObjectMeta: metav1.ObjectMeta{Name: "coordinator", Namespace: "crew-x",
-			Labels: map[string]string{"kubemoot.ai/crew": "homelab-pilot"}},
-		Spec: kubemootv1alpha1.AgentSpec{DiscussRole: "coordinator"},
+		ObjectMeta: metav1.ObjectMeta{Name: testRoleCoordinator, Namespace: testCrewNamespace,
+			Labels: map[string]string{"kubemoot.ai/crew": testCrewName}},
+		Spec: kubemootv1alpha1.AgentSpec{DiscussRole: testRoleCoordinator},
 	}
 	analyst := &kubemootv1alpha1.Agent{
-		ObjectMeta: metav1.ObjectMeta{Name: "k8s-analyst", Namespace: "crew-x"},
+		ObjectMeta: metav1.ObjectMeta{Name: "k8s-analyst", Namespace: testCrewNamespace},
 		Spec:       kubemootv1alpha1.AgentSpec{DiscussRole: "analyst"},
 	}
 
@@ -143,7 +143,7 @@ func TestCoordinatorHasAnalystsEnv(t *testing.T) {
 		cli := fake.NewClientBuilder().WithScheme(scheme).WithObjects(coord, analyst).Build()
 		r := &AgentReconciler{Client: cli}
 		env := r.buildEnvVars(context.Background(), coord, pick, pick, 8080)
-		if v, ok := envValue(env, "KUBEMOOT_DISCUSS_HAS_ANALYSTS"); !ok || v != "true" {
+		if v, ok := envValue(env, "KUBEMOOT_DISCUSS_HAS_ANALYSTS"); !ok || v != testEnvTrue {
 			t.Fatalf("want KUBEMOOT_DISCUSS_HAS_ANALYSTS=true, got %q present=%v", v, ok)
 		}
 	})
@@ -168,21 +168,21 @@ func TestCrewVersionEnvRendering(t *testing.T) {
 	}
 	cli := fake.NewClientBuilder().WithScheme(scheme).Build()
 	r := &AgentReconciler{Client: cli}
-	pick := &modelPick{ModelID: "qwen3:8b", Endpoint: "http://ollama:11434"}
+	pick := &modelPick{ModelID: testModelID, Endpoint: testOllamaURL}
 
 	t.Run("crew-version label renders KUBEMOOT_CREW_VERSION", func(t *testing.T) {
 		agent := &kubemootv1alpha1.Agent{ObjectMeta: metav1.ObjectMeta{
-			Name: "a", Namespace: "crew-x",
-			Labels: map[string]string{crewVersionLabel: "1.4.2"},
+			Name: "a", Namespace: testCrewNamespace,
+			Labels: map[string]string{crewVersionLabel: testVersion142},
 		}}
 		env := r.buildEnvVars(context.Background(), agent, pick, pick, 8080)
-		if v, ok := envValue(env, "KUBEMOOT_CREW_VERSION"); !ok || v != "1.4.2" {
+		if v, ok := envValue(env, "KUBEMOOT_CREW_VERSION"); !ok || v != testVersion142 {
 			t.Fatalf("want KUBEMOOT_CREW_VERSION=1.4.2, got %q present=%v", v, ok)
 		}
 	})
 
 	t.Run("no label omits KUBEMOOT_CREW_VERSION", func(t *testing.T) {
-		agent := &kubemootv1alpha1.Agent{ObjectMeta: metav1.ObjectMeta{Name: "a", Namespace: "crew-x"}}
+		agent := &kubemootv1alpha1.Agent{ObjectMeta: metav1.ObjectMeta{Name: "a", Namespace: testCrewNamespace}}
 		env := r.buildEnvVars(context.Background(), agent, pick, pick, 8080)
 		if _, ok := envValue(env, "KUBEMOOT_CREW_VERSION"); ok {
 			t.Fatalf("KUBEMOOT_CREW_VERSION should be absent for a crew with no chart version")
