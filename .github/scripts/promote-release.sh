@@ -23,7 +23,13 @@
 #   3. The chart: packaged from the candidate's commit (in a scratch worktree, never
 #      committed; git holds 0.0.0) stamped with the final chart version and the finals
 #      of the candidate's images, pushed to Harbor and the release registry.
-#   4. Tags are pushed together (atomic); the release notes go to ${OUT_DIR}/notes.md
+#   4. Signing: every image the release ships and the chart are signed by digest in
+#      the release registry with cosign, keyless, under the workflow's GitHub OIDC
+#      identity, unless already signed by it (sign-release.sh). The references go to
+#      ${OUT_DIR}/subjects.tsv and the `subjects` output, which the workflow's attest
+#      job records SLSA build provenance for. A signing failure stops the run before
+#      any tag, so no GitHub Release is written.
+#   5. Tags are pushed together (atomic); the release notes go to ${OUT_DIR}/notes.md
 #      and ${OUT_DIR}/releases.tsv names the GitHub Release to write.
 #
 # Re-running after a partial failure is safe: an image already published with the
@@ -33,7 +39,8 @@
 # Env:
 #   RC_TAG            "latest" (default) or a release-candidate tag on main
 #   DRY_RUN           "true" (default) plans, reads registries, packages the charts, and
-#                     writes the notes; it pushes nothing and creates no tag
+#                     writes the notes; it pushes nothing, signs nothing, and creates no
+#                     tag, but checks that cosign and the signing identity are in place
 #   REGISTRY          Harbor host (images at ${REGISTRY}/kubemoot/<name>)
 #   RELEASE_REGISTRY  registry plus namespace, e.g. ghcr.io/kubemoot
 #   HARBOR_USERNAME, HARBOR_PASSWORD, GHCR_USERNAME, GHCR_TOKEN
@@ -47,6 +54,8 @@ shopt -s inherit_errexit
 here="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=/dev/null
 source "${RELEASE_LIB:?RELEASE_LIB must point to release-lib.sh from kubemoot/release-actions}"
+# shellcheck source=SCRIPTDIR/sign-release.sh
+source "${here}/sign-release.sh"
 
 RC_TAG="${RC_TAG:-latest}"
 DRY_RUN="${DRY_RUN:-true}"
@@ -139,7 +148,7 @@ collect_standalone() {
 # promote_image NAME RC: copy the candidate by digest to its final tag in the
 # release registry and in Harbor.
 promote_image() {
-  local name="$1" rc="$2" final digest published harbor
+  local name="$1" rc="$2" final digest published harbor earlier=""
   final=$(rl_final_of "$rc")
   digest=$(crane digest --insecure "${REGISTRY}/kubemoot/${name}:${rc}") \
     || die "${REGISTRY}/kubemoot/${name}:${rc} not found in Harbor"
@@ -152,11 +161,16 @@ promote_image() {
     die "${REGISTRY}/kubemoot/${name}:${final} exists with digest ${harbor}, not the candidate's ${digest}"
   fi
   echo "image ${name}: ${rc} (${digest}) -> ${final}${published:+ (already published)}"
-  rl_is_dry && return 0
-  if [ -z "$published" ]; then
-    bash "${here}/publish-release-image.sh" "${REGISTRY}/kubemoot/${name}@${digest}" "$final"
+  if ! rl_is_dry; then
+    if [ -z "$published" ]; then
+      bash "${here}/publish-release-image.sh" "${REGISTRY}/kubemoot/${name}@${digest}" "$final"
+    fi
+    crane tag --insecure "${REGISTRY}/kubemoot/${name}@${digest}" "$final"
   fi
-  crane tag --insecure "${REGISTRY}/kubemoot/${name}@${digest}" "$final"
+  # An image an earlier release published (its final tag exists) is signed if it is not
+  # yet, and attested only then.
+  rl_tag_exists "$(image_prefix "$name")${final}" && earlier=earlier
+  sign_release_artifact "${RELEASE_REGISTRY}/${name}" "$digest" $earlier
 }
 
 # tag_final PREFIX RC: tag the candidate's commit with the final version.
@@ -194,13 +208,23 @@ package_operator_chart() {
   helm package --dependency-update "${wt}/${CHART_DIR}" --destination "${OUT_DIR}"
 }
 
+# push_charts: each packaged chart to Harbor and the release registry, then signed by
+# the digest the release registry holds.
 push_charts() {
-  local tgz
+  local tgz repo digest
   for tgz in "${OUT_DIR}"/*.tgz; do
     echo "chart $(basename "$tgz")"
-    rl_is_dry && continue
+    repo="$(sign_release_chart_repo "$tgz")"
+    if rl_is_dry; then
+      sign_release_artifact "$repo" "<digest after the push>"
+      continue
+    fi
     helm push --insecure-skip-tls-verify "$tgz" "oci://${REGISTRY}/kubemoot/charts"
     bash "${here}/publish-release-chart.sh" "$tgz"
+    # publish-release-chart.sh retries the push, so the digest is read from the registry.
+    digest=$(crane digest "${repo}:$(helm show chart "$tgz" | sed -n 's/^version: //p')") \
+      || die "cannot read the digest of ${repo} after the push"
+    sign_release_artifact "$repo" "$digest"
   done
 }
 
@@ -249,6 +273,7 @@ main() {
   src=$(git rev-list -n 1 "$chart_rc")
   prev=$(previous_release "$src")
   echo "Promoting ${chart_rc} (commit ${src}) to operator chart ${chart_final}; dry run: ${DRY_RUN}"
+  sign_release_preflight "${OUT_DIR}"
 
   candidate_chart "${chart_rc#"$CHART_PREFIX"}"
   collect_pins "$CANDIDATE"
@@ -270,6 +295,7 @@ main() {
   rl_push_new_tags
   rl_add_release "${OUT_DIR}" "${CHART_PREFIX}${chart_final}" "Kubemoot ${chart_final}" notes.md
   output chart_version "$chart_final"
+  output subjects "$(sign_release_subjects_json)"
 }
 
 main "$@"

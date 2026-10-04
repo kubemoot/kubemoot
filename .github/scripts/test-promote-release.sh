@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Tests for the release scripts: release-operator-chart.sh builds chart candidates in a
 # throwaway repository (charts at 0.0.0, release candidate tags, a bare origin), and
-# promote-release.sh promotes one of those candidates. crane, `helm push`, and
+# promote-release.sh promotes one of those candidates. crane, cosign, `helm push`, and
 # `helm pull` are stubbed (a directory stands in for Harbor); `helm package` is the real
 # one. The last section checks this repository itself: no chart or Kubemoot image
 # version in git, and no workflow that commits a version.
@@ -22,8 +22,8 @@ check() {
 
 root="$(mktemp -d)"
 trap 'rm -rf "$root"' EXIT
-export LOG="${root}/calls.log" GHCR_STATE="${root}/ghcr" HARBOR_STATE="${root}/harbor"
-mkdir -p "${root}/bin" "$GHCR_STATE" "$HARBOR_STATE"
+export LOG="${root}/calls.log" GHCR_STATE="${root}/ghcr" HARBOR_STATE="${root}/harbor" SIGNED_STATE="${root}/signed"
+mkdir -p "${root}/bin" "$GHCR_STATE" "$HARBOR_STATE" "$SIGNED_STATE"
 touch "$LOG"
 
 # crane stub: Harbor digests are derived from the reference without its tag; a
@@ -39,7 +39,7 @@ case "${args[0]}" in
     ref="${args[1]}"
     case "$ref" in
       ghcr.test/*) f="$GHCR_STATE/$(echo "$ref" | tr '/:' '__')"; [ -f "$f" ] && cat "$f" && exit 0; exit 1 ;;
-      *) echo "sha256:$(echo "${ref%:*}" | sha256sum | cut -c1-16)" ;;
+      *) echo "sha256:$(echo "${ref%:*}" | sha256sum | cut -d' ' -f1)" ;;
     esac ;;
   copy)
     dst="${args[2]}"; src="${args[1]}"
@@ -47,8 +47,27 @@ case "${args[0]}" in
   tag) exit 0 ;;
 esac
 EOF
+# cosign stub: a signature is a file in SIGNED_STATE named for the reference; verify
+# finds it. COSIGN_FAIL makes signing a reference that contains it fail; COSIGN_BROKEN
+# makes cosign not run.
+cat > "${root}/bin/cosign" <<'EOF'
+#!/usr/bin/env bash
+echo "cosign $*" >> "$LOG"
+[ -z "${COSIGN_BROKEN:-}" ] || exit 127
+case "$1" in
+  version) printf 'GitVersion:    v3.0.2\nGitCommit:     test\n' ;;
+  login) exit 0 ;;
+  verify) [ -f "$SIGNED_STATE/$(echo "$2" | tr '/:@' '___')" ] ;;
+  sign)
+    ref="${*: -1}"
+    [ -z "${COSIGN_FAIL:-}" ] || [[ "$ref" != *"${COSIGN_FAIL}"* ]] || exit 1
+    touch "$SIGNED_STATE/$(echo "$ref" | tr '/:@' '___')" ;;
+  *) exit 1 ;;
+esac
+EOF
 # helm stub: push to Harbor stores the chart in HARBOR_STATE (HELM_PUSH_FAIL makes
-# every push fail); pull serves it from there; everything else is the real helm.
+# every push fail), push to the release registry records the package's digest under its
+# reference; pull serves it from Harbor; everything else is the real helm.
 cat > "${root}/bin/helm" <<EOF
 #!/usr/bin/env bash
 case "\$1" in
@@ -58,7 +77,12 @@ case "\$1" in
     [ -z "\${HELM_PUSH_FAIL:-}" ] || exit 1
     tgz=""; dest=""
     for a in "\$@"; do case "\$a" in *.tgz) tgz="\$a" ;; oci://*) dest="\$a" ;; esac; done
-    case "\$dest" in oci://harbor.test/*) cp "\$tgz" "\$HARBOR_STATE/" ;; esac
+    case "\$dest" in
+      oci://harbor.test/*) cp "\$tgz" "\$HARBOR_STATE/" ;;
+      oci://ghcr.test/*)
+        meta="\$(tar -xzOf "\$tgz" --wildcards '*/Chart.yaml' | sed -n 's/^name: //p; s/^version: //p' | head -n 2 | paste -sd:)"
+        echo "sha256:\$(sha256sum "\$tgz" | cut -d' ' -f1)" > "\$GHCR_STATE/\$(echo "\${dest#oci://}/\${meta}" | tr '/:' '__')" ;;
+    esac
     exit 0 ;;
   pull)
     version=""; dir=""
@@ -71,7 +95,7 @@ case "\$1" in
   *) exec "${real_helm}" "\$@" ;;
 esac
 EOF
-chmod +x "${root}/bin/crane" "${root}/bin/helm"
+chmod +x "${root}/bin/crane" "${root}/bin/cosign" "${root}/bin/helm"
 export PATH="${root}/bin:${PATH}"
 
 # Fixture repository: both charts as git holds them.
@@ -129,6 +153,8 @@ git push -q origin main --tags 2>/dev/null
 
 export REGISTRY=harbor.test RELEASE_REGISTRY=ghcr.test/kubemoot
 export HARBOR_USERNAME=u HARBOR_PASSWORD=p GHCR_USERNAME=u GHCR_TOKEN=t
+# The variables GitHub Actions sets for a job with id-token: write.
+export ACTIONS_ID_TOKEN_REQUEST_URL=https://oidc.test ACTIONS_ID_TOKEN_REQUEST_TOKEN=t GITHUB_WORKFLOW_REF=kubemoot/kubemoot/.github/workflows/promote-release.yaml@refs/heads/main
 run_chart() {
   : > "${root}/gh-$1"
   GITHUB_OUTPUT="${root}/gh-$1" OUT_DIR="${root}/chart-$1" bash "${here}/release-operator-chart.sh" > "${root}/chart-$1.log" 2>&1
@@ -248,7 +274,10 @@ check "no chart candidate to count from fails" "1|1" "${status}|$(grep -c 'no op
 check "a real build needs a registry" 1 "$status"
 
 # 6. Promotion of the first candidate (operator-chart-v0.92.582-rc.0, built in 2).
-run_promote() { OUT_DIR="${root}/out-$1" bash "${here}/promote-release.sh" > "${root}/run-$1.log" 2>&1; }
+run_promote() {
+  : > "${root}/gh-promote-$1"
+  GITHUB_OUTPUT="${root}/gh-promote-$1" OUT_DIR="${root}/out-$1" bash "${here}/promote-release.sh" > "${root}/run-$1.log" 2>&1
+}
 cand=operator-chart-v0.92.582-rc.0
 # mcp-gateway 0.326.22 was promoted before: GHCR holds the candidate's digest.
 crane digest --insecure harbor.test/kubemoot/mcp-gateway:x > "${GHCR_STATE}/ghcr.test_kubemoot_mcp-gateway_0.326.22"
@@ -269,6 +298,12 @@ check "a promoted pin is already published" 1 "$(grep -c 'image mcp-gateway: .*a
 check "dry run copies nothing" 0 "$(grep -c '^crane copy' "$LOG" || true)"
 check "dry run pushes no chart" 0 "$(grep -c '^helm push' "$LOG" || true)"
 check "dry run creates no tag" "" "$(git tag -l 'operator-chart-v0.92.582')"
+check "dry run checks cosign and the signing identity" 1 \
+  "$(grep -c '^signing: cosign v3.0.2, identity https://github.com/kubemoot/kubemoot/.github/workflows/promote-release.yaml@refs/heads/main, issuer https://token.actions.githubusercontent.com$' <<<"$out")"
+check "dry run plans signing every image by digest" 8 "$(grep -cE '^sign ghcr.test/kubemoot/[a-z-]+@sha256:[0-9a-f]{64} \(dry run: not signed\)$' <<<"$out")"
+check "dry run plans signing the chart" 1 "$(grep -c '^sign ghcr.test/kubemoot/charts/kubemoot-operator@.*(dry run: not signed)$' <<<"$out")"
+check "dry run signs nothing" 0 "$(grep -cE '^cosign (sign|login)' "$LOG" || true)"
+check "dry run records no signed subject" "[]" "$(sed -n 's/^subjects=//p' "${root}/gh-promote-dry")"
 tgz="${root}/out-dry/kubemoot-operator-0.92.582.tgz"
 check "packages the final operator chart" 1 "$([ -f "$tgz" ] && echo 1 || echo 0)"
 values="$(in_tgz "$tgz" kubemoot-operator/values.yaml)"
@@ -299,6 +334,40 @@ DRY_RUN=true RC_TAG="$cand" run_promote nochart && status=0 || status=$?
 check "refuses a candidate Harbor does not hold" "1|1" "${status}|$(grep -c 'cannot read the candidate' "${root}/run-nochart.log")"
 mv "${root}/held.tgz" "${HARBOR_STATE}/kubemoot-operator-0.92.582-rc.0.tgz"
 
+# A dry run in GitHub Actions without id-token: write fails: signing is not wired.
+GITHUB_ACTIONS=true ACTIONS_ID_TOKEN_REQUEST_URL='' DRY_RUN=true RC_TAG="$cand" run_promote nooidc && status=0 || status=$?
+check "a dry run without an OIDC token fails" "1|1" "${status}|$(grep -c 'needs permissions id-token: write' "${root}/run-nooidc.log")"
+: > "$LOG"
+ACTIONS_ID_TOKEN_REQUEST_URL='' DRY_RUN=false RC_TAG="$cand" run_promote nooidcreal && status=0 || status=$?
+check "a real run without an OIDC token fails before publishing" "1|0" "${status}|$(grep -c '^crane copy' "$LOG" || true)"
+COSIGN_BROKEN=1 DRY_RUN=true RC_TAG="$cand" run_promote nocosign && status=0 || status=$?
+check "a run where cosign does not run fails" "1|1" "${status}|$(grep -c 'cosign is required' "${root}/run-nocosign.log")"
+: > "$LOG"
+GHCR_TOKEN='' DRY_RUN=false RC_TAG="$cand" run_promote notoken && status=0 || status=$?
+check "a real run without a registry token fails before publishing" "1|0" "${status}|$(grep -c '^crane copy' "$LOG" || true)"
+
+# A signing failure stops the promotion before any tag, so no GitHub Release is written.
+# The registry state is restored afterwards so the real promotion below starts clean.
+cp -a "$GHCR_STATE" "${root}/ghcr-held"
+for target in agent-runtime charts/kubemoot-operator; do
+  : > "$LOG"
+  COSIGN_FAIL="$target" DRY_RUN=false RC_TAG="$cand" run_promote "signfail-${target##*/}" && status=0 || status=$?
+  check "a failure signing ${target} fails the promotion" "1|1" \
+    "${status}|$(grep -c "signing ghcr.test/kubemoot/${target}@sha256:.* failed" "${root}/run-signfail-${target##*/}.log")"
+  check "and pushes no final tag" 0 "$(git ls-remote --tags origin 'refs/tags/*' | grep -cE 'refs/tags/(operator-chart-v0.92.582|v0.343.41|agent-runtime-v0.342.32)$' || true)"
+  check "and names no GitHub Release" 0 "$(wc -l < "${root}/out-signfail-${target##*/}/releases.tsv" | tr -d ' ')"
+done
+check "a chart signing failure comes after the chart push" 2 "$(grep -c '^helm push' "$LOG")"
+check "signs an image an earlier release published when it carries no signature" 1 \
+  "$(grep -c '^cosign sign --yes ghcr.test/kubemoot/mcp-gateway@' "$LOG")"
+check "a rerun does not sign again what the failed run signed" 0 \
+  "$(grep -c '^cosign sign --yes ghcr.test/kubemoot/kubemoot-operator@' "$LOG" || true)"
+check "but still records it for the provenance" 1 \
+  "$(grep -c '^ghcr.test/kubemoot/kubemoot-operator	' "${root}/out-signfail-kubemoot-operator/subjects.tsv")"
+rm -rf "$GHCR_STATE" "$SIGNED_STATE"; mv "${root}/ghcr-held" "$GHCR_STATE"; mkdir -p "$SIGNED_STATE"
+# mcp-gateway, published by an earlier release, carries that release's signature.
+touch "${SIGNED_STATE}/$(echo "ghcr.test/kubemoot/mcp-gateway@$(crane digest --insecure harbor.test/kubemoot/mcp-gateway:x)" | tr '/:@' '___')"
+
 # 8. The real promotion.
 : > "$LOG"
 DRY_RUN=false RC_TAG="$cand" run_promote real && status=0 || status=$?
@@ -315,6 +384,19 @@ check "leaves no scratch worktree" 1 "$(git worktree list | wc -l | tr -d ' ')"
 check "copies seven images" 7 "$(grep -c '^crane copy' "$LOG")"
 check "copies by digest" 7 "$(grep '^crane copy' "$LOG" | grep -c '@sha256:')"
 check "pushes the chart to both registries" 2 "$(grep -c '^helm push' "$LOG")"
+check "logs cosign in to the release registry" 1 "$(grep -c '^cosign login ghcr.test -u u --password-stdin$' "$LOG")"
+copied="$(sed -nE 's#^crane copy --insecure harbor.test/kubemoot/([a-z-]+@sha256:[0-9a-f]+) .*#\1#p' "$LOG" | sort)"
+signed="$(sed -nE 's#^cosign sign --yes ghcr.test/kubemoot/([a-z-]+@sha256:[0-9a-f]+)$#\1#p' "$LOG" | sort)"
+check "signs every image it publishes, by the digest it copied" "$copied" "$signed"
+check "signs seven images" 7 "$(wc -l <<<"$signed" | tr -d ' ')"
+check "does not sign again an image signed by an earlier release" 0 "$(grep -c '^cosign sign --yes ghcr.test/kubemoot/mcp-gateway@' "$LOG" || true)"
+check "nor records it for the provenance" 0 "$(grep -c 'mcp-gateway' "${root}/out-real/subjects.tsv" || true)"
+check "signs the chart by the digest the release registry holds" 1 \
+  "$(grep -cx "cosign sign --yes ghcr.test/kubemoot/charts/kubemoot-operator@$(cat "${GHCR_STATE}/ghcr.test_kubemoot_charts_kubemoot-operator_0.92.582")" "$LOG")"
+check "signs nothing by tag" 0 "$(grep '^cosign sign' "$LOG" | grep -vc '@sha256:' || true)"
+check "records each signed artifact for the provenance" 8 "$(wc -l < "${root}/out-real/subjects.tsv" | tr -d ' ')"
+check "outputs them as the attest matrix" "8|ghcr.test/kubemoot/charts/kubemoot-operator" \
+  "$(sed -n 's/^subjects=//p' "${root}/gh-promote-real" | python3 -c 'import json,sys; s=json.load(sys.stdin); print(len(s), s[-1]["name"], sep="|")')"
 
 # 9. A second promotion of the same candidate is refused; the next chart candidate
 # starts the next patch.
