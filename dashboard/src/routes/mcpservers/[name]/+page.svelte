@@ -1,19 +1,19 @@
 <script lang="ts">
-	import { readinessStatus } from '$lib/resource-status';
+	import { readinessStatus } from '#lib/resource-status.js';
 	import { onMount } from 'svelte';
-	import { page } from '$app/stores';
+	import { page } from '$app/state';
 	import { resolve } from '$app/paths';
-	import { namespace, refreshTrigger } from '$stores';
-	import { DetailPanel } from '$components/layout';
-	import { Section, InfoRow, StatusBadge } from '$components/common';
-	import type { MCPServer } from '$types/kubemoot.js';
+	import { namespace, refreshTrigger } from '#lib/stores/index.js';
+	import { DetailPanel } from '#lib/components/layout/index.js';
+	import { Section, InfoRow, StatusBadge } from '#lib/components/common/index.js';
+	import type { MCPServer } from '#lib/types/kubemoot.js';
 
 	let server = $state<MCPServer | null>(null);
 	let loading = $state(true);
 	let error = $state<string | null>(null);
 
-	const name = $derived($page.params.name as string);
-	const ns = $derived($page.url.searchParams.get('namespace') || $namespace);
+	const name = $derived(page.params.name as string);
+	const ns = $derived(page.url.searchParams.get('namespace') || $namespace);
 
 	async function fetchServer() {
 		loading = true;

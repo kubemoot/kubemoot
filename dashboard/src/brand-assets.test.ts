@@ -34,7 +34,7 @@ describe('the page shell icons', () => {
 describe('the sidebar logo', () => {
 	it('is the white-text lockup, shipped and pinned by brand.lock', () => {
 		const logo = readFileSync(dashboard('src/lib/components/layout/KubemootLogo.svelte'), 'utf8');
-		expect(logo).toContain("asset('/kubemoot-horizontal-white-text.svg')");
+		expect(logo).toContain("asset('kubemoot-horizontal-white-text.svg')");
 		expect(existsSync(dashboard('static/kubemoot-horizontal-white-text.svg'))).toBe(true);
 		expect(lockedFiles).toContain('static/kubemoot-horizontal-white-text.svg');
 	});

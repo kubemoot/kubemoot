@@ -1,9 +1,9 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { resolve } from '$app/paths';
-	import { crewDirectory, namespace, refreshTrigger } from '$stores';
-	import { crewLabel, crewTooltip } from '$lib/crew-display-name';
-	import type { CrewFitness } from '$types/kubemoot.js';
+	import { crewDirectory, namespace, refreshTrigger } from '#lib/stores/index.js';
+	import { crewLabel, crewTooltip } from '#lib/crew-display-name.js';
+	import type { CrewFitness } from '#lib/types/kubemoot.js';
 
 	let tests = $state<CrewFitness[]>([]);
 	let loading = $state(true);

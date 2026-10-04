@@ -1,6 +1,6 @@
 // Agent liveness from the heartbeat each agent writes to the kubemoot_agent_state KV bucket.
 
-import type { AgentHeartbeat } from '$types/kubemoot.js';
+import type { AgentHeartbeat } from '#lib/types/kubemoot.js';
 
 /**
  * How often an agent writes its heartbeat: agent-runtime AgentHeartbeatService runs

@@ -1,10 +1,10 @@
 import { getCoreApi } from './client.js';
-import type { K8sNode, NodeWithGPU } from '$types/k8s.js';
-import { compareCodeUnits, describeError } from '$lib/text-utils';
+import type { K8sNode, NodeWithGPU } from '#lib/types/k8s.js';
+import { compareCodeUnits, describeError } from '#lib/text-utils.js';
 import { extractGPUInfo } from './gpu-info.js';
 import { listCrews } from './kubemoot-crds.js';
-import type { Crew } from '$types/kubemoot.js';
-import { crewDisplayName, type CrewEntry, type CrewNameSource } from '$lib/crew-display-name';
+import type { Crew } from '#lib/types/kubemoot.js';
+import { crewDisplayName, type CrewEntry, type CrewNameSource } from '#lib/crew-display-name.js';
 
 export async function listNodes(): Promise<NodeWithGPU[]> {
 	const api = getCoreApi();

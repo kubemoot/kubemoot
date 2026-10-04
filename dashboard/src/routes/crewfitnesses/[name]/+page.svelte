@@ -1,17 +1,17 @@
 <script lang="ts">
 	import { resolve } from '$app/paths';
-	import { page } from '$app/stores';
-	import type { CrewFitness } from '$types/kubemoot.js';
-	import { crewDirectory } from '$stores';
-	import { crewLabel, crewTooltip } from '$lib/crew-display-name';
+	import { page } from '$app/state';
+	import type { CrewFitness } from '#lib/types/kubemoot.js';
+	import { crewDirectory } from '#lib/stores/index.js';
+	import { crewLabel, crewTooltip } from '#lib/crew-display-name.js';
 
 	let test = $state<CrewFitness | null>(null);
 	let loading = $state(true);
 	let error = $state<string | null>(null);
 
 	$effect(() => {
-		const name = $page.params.name as string;
-		const ns = $page.url.searchParams.get('namespace') || 'kubemoot';
+		const name = page.params.name as string;
+		const ns = page.url.searchParams.get('namespace') || 'kubemoot';
 		if (name) fetchTest(ns, name);
 	});
 

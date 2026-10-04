@@ -1,9 +1,9 @@
 <script lang="ts">
 	import { resolve } from '$app/paths';
-	import type { Agent, AgentHeartbeat } from '$types/kubemoot.js';
-	import { agentRole, type AgentRole } from '$lib/agent-role';
-	import { readinessStatus } from '$lib/resource-status';
-	import { heartbeatLiveness, secondsSince, type HeartbeatLiveness } from '$lib/agent-liveness';
+	import type { Agent, AgentHeartbeat } from '#lib/types/kubemoot.js';
+	import { agentRole, type AgentRole } from '#lib/agent-role.js';
+	import { readinessStatus } from '#lib/resource-status.js';
+	import { heartbeatLiveness, secondsSince, type HeartbeatLiveness } from '#lib/agent-liveness.js';
 
 	interface Props {
 		agent: Agent;

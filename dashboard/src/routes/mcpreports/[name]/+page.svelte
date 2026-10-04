@@ -1,9 +1,9 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { page } from '$app/stores';
+	import { page } from '$app/state';
 	import { resolve } from '$app/paths';
-	import { namespace as nsStore, readOnly, refreshTrigger } from '$stores';
-	import type { MCPServerReport } from '$types/kubemoot.js';
+	import { namespace as nsStore, readOnly, refreshTrigger } from '#lib/stores/index.js';
+	import type { MCPServerReport } from '#lib/types/kubemoot.js';
 
 	let report = $state<MCPServerReport | null>(null);
 	let loading = $state(true);
@@ -13,8 +13,8 @@
 	let editNotes = $state('');
 	let editAuthor = $state('');
 
-	const name = $derived($page.params.name as string);
-	const namespace = $derived($page.url.searchParams.get('namespace') || $nsStore);
+	const name = $derived(page.params.name as string);
+	const namespace = $derived(page.url.searchParams.get('namespace') || $nsStore);
 
 	async function fetchReport() {
 		loading = true;

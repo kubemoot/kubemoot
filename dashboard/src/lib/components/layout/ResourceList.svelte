@@ -1,6 +1,6 @@
 <script lang="ts">
 	import type { Snippet } from 'svelte';
-	import { HelpTooltip } from '$components/common';
+	import { HelpTooltip } from '#lib/components/common/index.js';
 
 	interface Props {
 		title: string;

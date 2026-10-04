@@ -1,8 +1,8 @@
 <script lang="ts">
 	import { resolve } from '$app/paths';
-	import type { Model } from '$types/kubemoot.js';
+	import type { Model } from '#lib/types/kubemoot.js';
 	import ResourceCard from './ResourceCard.svelte';
-	import { readOnly } from '$lib/stores/mode';
+	import { readOnly } from '#lib/stores/mode.js';
 
 	interface Props {
 		model: Model;

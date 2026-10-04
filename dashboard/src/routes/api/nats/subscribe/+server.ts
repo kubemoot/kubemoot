@@ -1,8 +1,8 @@
 import type { RequestHandler } from './$types';
 import type { Msg } from 'nats';
-import { getNatsConnection, sc } from '$lib/server/nats-client';
-import { relayToSse, sseResponse } from '$lib/server/sse';
-import { forbidden, messageSubjectAllowed, subjectFilterAllowed } from '$lib/server/scope';
+import { getNatsConnection, sc } from '#lib/server/nats-client.js';
+import { relayToSse, sseResponse } from '#lib/server/sse.js';
+import { forbidden, messageSubjectAllowed, subjectFilterAllowed } from '#lib/server/scope.js';
 
 /**
  * SSE endpoint that subscribes to a NATS subject and streams messages to the browser.

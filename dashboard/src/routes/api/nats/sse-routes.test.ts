@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const { getNatsConnection } = vi.hoisted(() => ({
 	getNatsConnection: vi.fn()
 }));
-vi.mock('$lib/server/nats-client', () => ({
+vi.mock('#lib/server/nats-client.js', () => ({
 	getNatsConnection,
 	sc: { decode: (data: Uint8Array) => new TextDecoder().decode(data) }
 }));

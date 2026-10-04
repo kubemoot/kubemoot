@@ -1,7 +1,7 @@
 <script lang="ts">
-	import type { DiscussionMessage } from '$types/kubemoot.js';
-	import { showStandAsides } from '$lib/stores';
-	import { buildAgentSpans, type AgentSpan } from '$lib/discussion-spans';
+	import type { DiscussionMessage } from '#lib/types/kubemoot.js';
+	import { showStandAsides } from '#lib/stores/index.js';
+	import { buildAgentSpans, type AgentSpan } from '#lib/discussion-spans.js';
 
 	let {
 		messages = [],

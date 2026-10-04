@@ -2,7 +2,7 @@
 	import { onMount } from 'svelte';
 	import { resolve } from '$app/paths';
 	import { get } from 'svelte/store';
-	import { namespace, readOnly } from '$lib/stores';
+	import { namespace, readOnly } from '#lib/stores/index.js';
 
 	interface Fact {
 		namespace: string;
@@ -74,7 +74,10 @@
 		if (!confirm(`Delete crew-memory fact?\n\n${f.namespace}: [${f.topic}] ${f.key} = ${f.value}`)) return;
 		try {
 			const q = new URLSearchParams({ namespace: f.namespace, crew: f.crew, topic: f.topic, key: f.key });
-			const res = await fetch(`${resolve('/api/kubemoot/crew-memory')}?${q}`, { method: 'DELETE' });
+			const res = await fetch(`${resolve('/api/kubemoot/crew-memory')}?${q}`, {
+				method: 'DELETE',
+				headers: { 'Content-Type': 'application/json' }
+			});
 			const data = await res.json();
 			if (data.error) throw new Error(data.error);
 			await load();
@@ -89,7 +92,8 @@
 		try {
 			const q = new URLSearchParams({ namespace: ns, crew });
 			const res = await fetch(`${resolve('/api/kubemoot/crew-memory')}?${q}`, {
-				method: 'DELETE'
+				method: 'DELETE',
+				headers: { 'Content-Type': 'application/json' }
 			});
 			const data = await res.json();
 			if (data.error) throw new Error(data.error);

@@ -1,7 +1,7 @@
-import { json, error } from '@sveltejs/kit';
+import { error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { executeOllamaAction, resolveOllamaEndpoint } from '$lib/server/ollama-actions';
-import { guardNamespace } from '$lib/server/scope';
+import { executeOllamaAction, resolveOllamaEndpoint } from '#lib/server/ollama-actions.js';
+import { guardNamespace } from '#lib/server/scope.js';
 
 // The model to delete from the request body; a missing model or confirmation is a 400.
 async function confirmedModel(request: Request): Promise<string> {
@@ -31,7 +31,7 @@ export const POST: RequestHandler = async ({ params, url, request }) => {
 
 	try {
 		const result = await executeOllamaAction(endpoint, model, 'delete');
-		return json(result);
+		return Response.json(result);
 	} catch (e) {
 		const message = e instanceof Error ? e.message : 'delete failed';
 		throw error(502, message);

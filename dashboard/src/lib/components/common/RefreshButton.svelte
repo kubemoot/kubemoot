@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { refresh } from '$stores';
+	import { refresh } from '#lib/stores/index.js';
 
 	interface Props {
 		loading?: boolean;

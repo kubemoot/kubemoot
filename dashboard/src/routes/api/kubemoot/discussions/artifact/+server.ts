@@ -1,8 +1,7 @@
-import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { readDiscussionArtifact } from '$lib/server/nats-object-store';
-import { parseArtifactKey, type ArtifactKey } from '$lib/crewScope';
-import { guardKeyNamespace } from '$lib/server/scope';
+import { readDiscussionArtifact } from '#lib/server/nats-object-store.js';
+import { parseArtifactKey, type ArtifactKey } from '#lib/crewScope.js';
+import { guardKeyNamespace } from '#lib/server/scope.js';
 
 /**
  * GET /api/kubemoot/discussions/artifact?key=...
@@ -34,18 +33,18 @@ function filenameFor(parsed: ArtifactKey): string {
 export const GET: RequestHandler = async ({ url }) => {
 	const key = url.searchParams.get('key');
 	if (!key) {
-		return json({ error: 'key required' }, { status: 400 });
+		return Response.json({ error: 'key required' }, { status: 400 });
 	}
 	const parsed = parseArtifactKey(key);
 	if (!parsed) {
-		return json({ error: 'invalid artifact key' }, { status: 400 });
+		return Response.json({ error: 'invalid artifact key' }, { status: 400 });
 	}
 	const denied = await guardKeyNamespace(parsed);
 	if (denied) return denied;
 	try {
 		const bytes = await readDiscussionArtifact(key);
 		if (!bytes) {
-			return json(
+			return Response.json(
 				{ error: 'artifact not found (TTL-pruned, GC-reaped, or never written)' },
 				{ status: 404 }
 			);
@@ -62,6 +61,6 @@ export const GET: RequestHandler = async ({ url }) => {
 		});
 	} catch (e) {
 		const message = e instanceof Error ? e.message : 'Failed to read artifact';
-		return json({ error: message }, { status: 500 });
+		return Response.json({ error: message }, { status: 500 });
 	}
 };

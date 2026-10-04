@@ -1,9 +1,9 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { resolve } from '$app/paths';
-	import { namespace } from '$stores';
-	import type { PromptModule } from '$types/kubemoot.js';
-	import { LiveList } from '$lib/client/liveList.svelte';
+	import { namespace } from '#lib/stores/index.js';
+	import type { PromptModule } from '#lib/types/kubemoot.js';
+	import { LiveList } from '#lib/client/liveList.svelte.js';
 
 	const live = new LiveList<PromptModule>('promptmodules');
 	onMount(() => {

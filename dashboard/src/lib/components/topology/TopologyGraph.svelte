@@ -2,9 +2,9 @@
 	import { onMount, onDestroy } from 'svelte';
 	import { asset, resolve } from '$app/paths';
 	import { goto } from '$app/navigation';
-	import type { TopologyNode, TopologyEdge } from '$types/kubemoot.js';
+	import type { TopologyNode, TopologyEdge } from '#lib/types/kubemoot.js';
 	import type cytoscape from 'cytoscape';
-	import { CHAT_ALL, agentNodeId, parseChatSubject } from '$lib/crewScope';
+	import { CHAT_ALL, agentNodeId, parseChatSubject } from '#lib/crewScope.js';
 
 	let { nodes = [], edges = [] }: { nodes: TopologyNode[]; edges: TopologyEdge[] } = $props();
 
@@ -125,7 +125,7 @@
 				{
 					selector: 'node[role="coordinator"]',
 					style: {
-						'background-image': asset('/coordinator.webp'),
+						'background-image': asset('coordinator.webp'),
 						'background-fit': 'cover',
 						'background-clip': 'none'
 					}
@@ -133,7 +133,7 @@
 				{
 					selector: 'node[role="specialist"]',
 					style: {
-						'background-image': asset('/specialist.png'),
+						'background-image': asset('specialist.png'),
 						'background-fit': 'cover',
 						'background-clip': 'none'
 					}

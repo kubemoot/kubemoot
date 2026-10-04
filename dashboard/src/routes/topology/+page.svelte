@@ -1,10 +1,10 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { resolve } from '$app/paths';
-	import { namespace, refreshTrigger } from '$lib/stores';
-	import { TopologyGraph } from '$lib/components/topology';
-	import { HelpTooltip } from '$lib/components/common';
-	import type { TopologyNode, TopologyEdge } from '$types/kubemoot.js';
+	import { namespace, refreshTrigger } from '#lib/stores/index.js';
+	import { TopologyGraph } from '#lib/components/topology/index.js';
+	import { HelpTooltip } from '#lib/components/common/index.js';
+	import type { TopologyNode, TopologyEdge } from '#lib/types/kubemoot.js';
 
 	let nodes = $state<TopologyNode[]>([]);
 	let edges = $state<TopologyEdge[]>([]);

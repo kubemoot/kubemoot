@@ -2,7 +2,7 @@
 // slip past either one:
 //   - every exported non-GET handler under src/routes/api is refused by the hook
 //     in read-only mode;
-//   - every route file either uses the shared scope helper ($lib/server/scope) or
+//   - every route file either uses the shared scope helper (#lib/server/scope) or
 //     is listed below as cluster-scoped on purpose, with the reason.
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { handle } from '../../hooks.server';
@@ -87,6 +87,7 @@ describe('read-only mode', () => {
 		const { response, resolve } = await run(method, file.replace('./', '/dashboard/api/'));
 		expect(response.status).toBe(403);
 		expect(response.headers.get('Allow')).toBe('GET, HEAD, OPTIONS');
+		expect(response.headers.get('Content-Type')).toBe('application/json');
 		expect(await response.json()).toMatchObject({ readOnly: true, error: expect.stringContaining('read-only') });
 		expect(resolve).not.toHaveBeenCalled();
 	});
@@ -131,16 +132,16 @@ describe('read-only mode off', () => {
 describe('namespace scope coverage', () => {
 	it('every route uses the scope helper or is cluster-scoped on purpose', () => {
 		const unguarded = Object.entries(sources)
-			.filter(([file, text]) => !text.includes('$lib/server/scope') && !(file in CLUSTER_SCOPED))
+			.filter(([file, text]) => !text.includes('#lib/server/scope.js') && !(file in CLUSTER_SCOPED))
 			.map(([file]) => file);
-		expect(unguarded, 'use $lib/server/scope in these routes, or list them in CLUSTER_SCOPED with a reason').toEqual([]);
+		expect(unguarded, 'use #lib/server/scope.js in these routes, or list them in CLUSTER_SCOPED with a reason').toEqual([]);
 	});
 
 	it('lists no cluster-scoped route that is gone or already uses the helper', () => {
 		for (const file of Object.keys(CLUSTER_SCOPED)) {
 			expect(sources[file], `${file} no longer exists`).toBeDefined();
 			expect(sources[file], `${file} uses the scope helper; drop it from CLUSTER_SCOPED`).not.toContain(
-				'$lib/server/scope'
+				'#lib/server/scope.js'
 			);
 		}
 	});

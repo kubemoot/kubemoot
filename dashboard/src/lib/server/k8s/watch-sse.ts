@@ -1,7 +1,7 @@
 import * as k8s from '@kubernetes/client-node';
 import { getKubeConfig } from './client.js';
 import { KUBEMOOT_CRDS } from './kubemoot-crds.js';
-import { describeError } from '$lib/text-utils';
+import { describeError } from '#lib/text-utils.js';
 import { sseResponse } from '../sse.js';
 
 const GROUP = 'kubemoot.ai';

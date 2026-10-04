@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { resolve } from '$app/paths';
-	import type { MCPQualityPolicy } from '$types/kubemoot.js';
+	import type { MCPQualityPolicy } from '#lib/types/kubemoot.js';
 	import ResourceCard from './ResourceCard.svelte';
 
 	interface Props {

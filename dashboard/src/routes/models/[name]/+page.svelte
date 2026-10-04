@@ -1,11 +1,11 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { page } from '$app/stores';
+	import { page } from '$app/state';
 	import { resolve } from '$app/paths';
-	import { namespace, readOnly, refreshTrigger } from '$stores';
-	import { DetailPanel } from '$components/layout';
-	import { Section, InfoRow, StatusBadge } from '$components/common';
-	import type { Model } from '$types/kubemoot.js';
+	import { namespace, readOnly, refreshTrigger } from '#lib/stores/index.js';
+	import { DetailPanel } from '#lib/components/layout/index.js';
+	import { Section, InfoRow, StatusBadge } from '#lib/components/common/index.js';
+	import type { Model } from '#lib/types/kubemoot.js';
 
 	let model = $state<Model | null>(null);
 	let loading = $state(true);
@@ -13,8 +13,8 @@
 	let busy = $state(false);
 	let actionError = $state<string | null>(null);
 
-	const name = $derived($page.params.name as string);
-	const ns = $derived($page.url.searchParams.get('namespace') || $namespace);
+	const name = $derived(page.params.name as string);
+	const ns = $derived(page.url.searchParams.get('namespace') || $namespace);
 
 	async function fetchModel() {
 		loading = true;

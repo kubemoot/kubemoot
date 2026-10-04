@@ -1,11 +1,11 @@
 <script lang="ts">
-	import { reportComparator } from '$lib/mcp-report-sort';
+	import { reportComparator } from '#lib/mcp-report-sort.js';
 	import { onMount } from 'svelte';
 	import { resolve } from '$app/paths';
-	import { readOnly, refreshTrigger } from '$stores';
-	import { ResourceList } from '$components/layout';
-	import { HelpTooltip } from '$components/common';
-	import type { MCPServerReport } from '$types/kubemoot.js';
+	import { readOnly, refreshTrigger } from '#lib/stores/index.js';
+	import { ResourceList } from '#lib/components/layout/index.js';
+	import { HelpTooltip } from '#lib/components/common/index.js';
+	import type { MCPServerReport } from '#lib/types/kubemoot.js';
 
 	let reports = $state<MCPServerReport[]>([]);
 	let loading = $state(true);

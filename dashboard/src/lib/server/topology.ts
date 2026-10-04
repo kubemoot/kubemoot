@@ -1,4 +1,4 @@
-import type { Agent, TopologyNode } from '$types/kubemoot.js';
+import type { Agent, TopologyNode } from '#lib/types/kubemoot.js';
 
 /** The agent's topology role from its inline a2a config; anything else is a peer. */
 export function topologyRole(agent: Agent): TopologyNode['role'] {

@@ -1,7 +1,7 @@
 import { writable, derived } from 'svelte/store';
-import { browser } from '$app/environment';
+import { browser } from '$app/env';
 import { resolve } from '$app/paths';
-import type { DiscussionMessage } from '$types/kubemoot.js';
+import type { DiscussionMessage } from '#lib/types/kubemoot.js';
 import {
 	DISCUSS_ALL,
 	discussThreadFilter,
@@ -9,7 +9,7 @@ import {
 	tryCrewScope,
 	type CrewScope,
 	type DiscussSubject
-} from '$lib/crewScope.js';
+} from '#lib/crewScope.js';
 
 export interface Thread {
 	threadId: string;

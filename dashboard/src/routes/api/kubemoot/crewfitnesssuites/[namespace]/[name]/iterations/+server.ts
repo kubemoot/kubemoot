@@ -1,7 +1,6 @@
-import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { getCrewFitnessSuite } from '$lib/server/k8s';
-import { listFitnessObjects, readFitnessTranscript } from '$lib/server/nats-object-store';
+import { getCrewFitnessSuite } from '#lib/server/k8s/index.js';
+import { listFitnessObjects, readFitnessTranscript } from '#lib/server/nats-object-store.js';
 import {
 	isIterationKey,
 	parseIterationKey,
@@ -9,8 +8,8 @@ import {
 	summarizeTranscript,
 	type IterationResult,
 	type TranscriptSummary
-} from '$lib/server/fitness-iterations';
-import { guardNamespace } from '$lib/server/scope';
+} from '#lib/server/fitness-iterations.js';
+import { guardNamespace } from '#lib/server/scope.js';
 
 /**
  * Bounded-concurrency map - reads transcripts in parallel without firing N
@@ -46,7 +45,7 @@ export const GET: RequestHandler = async ({ params }) => {
 		const suite = await getCrewFitnessSuite(namespace, name);
 		const runId = suite.status?.runId;
 		if (!runId) {
-			return json({ iterations: [] });
+			return Response.json({ iterations: [] });
 		}
 		const scripts = suite.spec?.scripts ?? [];
 		const prefix = `${namespace}/${name}/${runId}/`;
@@ -69,9 +68,9 @@ export const GET: RequestHandler = async ({ params }) => {
 		});
 
 		iterations.sort((a, b) => a.scriptIdx - b.scriptIdx || a.iter - b.iter);
-		return json({ runId, iterations });
+		return Response.json({ runId, iterations });
 	} catch (e) {
 		const message = e instanceof Error ? e.message : 'Failed to list iterations';
-		return json({ error: message }, { status: 500 });
+		return Response.json({ error: message }, { status: 500 });
 	}
 };

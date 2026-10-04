@@ -2,15 +2,15 @@
 	import { onMount } from 'svelte';
 	import { resolve } from '$app/paths';
 	import { marked } from 'marked';
-	import type { DiscussionMessage } from '$types/kubemoot.js';
-	import { crewDirectory, threads, sortedThreads, discussionsConnected, historyLoaded, initDiscussions, addDiscussionMessage, removeThread, pinnedThreadIds, loadPinnedThreads, pinThread, unpinThread, showStandAsides, namespace, threadScope, readOnly } from '$lib/stores';
-	import type { Thread } from '$lib/stores';
-	import { discussSubject, tryCrewScope, type CrewScope } from '$lib/crewScope';
-	import { crewEntry, crewLabel, crewTooltip } from '$lib/crew-display-name';
-	import { DiscussionSpanGraph } from '$lib/components/discussions';
-	import { SYNTHESIS_COLLAPSE_CHARS, artifactKey, artifactHref } from '$lib/discussion-artifacts';
-	import { aggregateAgents, type AgentAgg } from '$lib/discussion-agent-summary';
-	import { buildGpuDisplayMap } from '$lib/gpu-display';
+	import type { DiscussionMessage } from '#lib/types/kubemoot.js';
+	import { crewDirectory, threads, sortedThreads, discussionsConnected, historyLoaded, initDiscussions, addDiscussionMessage, removeThread, pinnedThreadIds, loadPinnedThreads, pinThread, unpinThread, showStandAsides, namespace, threadScope, readOnly } from '#lib/stores/index.js';
+	import type { Thread } from '#lib/stores/index.js';
+	import { discussSubject, tryCrewScope, type CrewScope } from '#lib/crewScope.js';
+	import { crewEntry, crewLabel, crewTooltip } from '#lib/crew-display-name.js';
+	import { DiscussionSpanGraph } from '#lib/components/discussions/index.js';
+	import { SYNTHESIS_COLLAPSE_CHARS, artifactKey, artifactHref } from '#lib/discussion-artifacts.js';
+	import { aggregateAgents, type AgentAgg } from '#lib/discussion-agent-summary.js';
+	import { buildGpuDisplayMap } from '#lib/gpu-display.js';
 
 	// Configure marked for safe inline rendering
 	marked.setOptions({ breaks: true, gfm: true });
@@ -49,7 +49,7 @@
 
 	// Per-synthesis expand toggle (keyed by thread:messageId): a long synthesis
 	// collapses to a faded preview by default and expands to the full text on demand.
-	// Same pattern + helpers as the fitness transcript view ($lib/discussion-artifacts).
+	// Same pattern + helpers as the fitness transcript view (#lib/discussion-artifacts).
 	let openSynthesis = $state<Record<string, boolean>>({});
 
 	// Thread actions state

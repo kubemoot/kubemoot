@@ -2,10 +2,10 @@
 	// Kubemoot Dashboard - Overview Page
 	import { onMount } from 'svelte';
 	import { resolve } from '$app/paths';
-	import { namespace, refreshTrigger } from '$stores';
-	import { StatusBadge } from '$components/common';
-	import { nodeCounts, readyCount, type CountEntry } from '$lib/overview-counts';
-	import { readyCountStatus } from '$lib/resource-status';
+	import { namespace, refreshTrigger } from '#lib/stores/index.js';
+	import { StatusBadge } from '#lib/components/common/index.js';
+	import { nodeCounts, readyCount, type CountEntry } from '#lib/overview-counts.js';
+	import { readyCountStatus } from '#lib/resource-status.js';
 
 	type ResourceCounts = Record<string, CountEntry>;
 

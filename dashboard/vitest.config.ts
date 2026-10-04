@@ -1,5 +1,5 @@
 import { defineConfig } from 'vitest/config';
-import { svelte } from '@sveltejs/vite-plugin-svelte';
+import { svelte, vitePreprocess } from '@sveltejs/vite-plugin-svelte';
 import { fileURLToPath } from 'node:url';
 
 const r = (p: string) => fileURLToPath(new URL(p, import.meta.url));
@@ -7,20 +7,18 @@ const r = (p: string) => fileURLToPath(new URL(p, import.meta.url));
 // Separate from vite.config.ts (which uses the sveltekit() plugin for build/dev):
 // component/store tests compile Svelte with the plain svelte() plugin under jsdom,
 // with the browser resolve condition so Svelte 5 mounts client-side rather than SSR.
-// SvelteKit's virtual modules ($app/*) and path aliases ($lib, $types) are
-// stubbed/mapped here so store modules that import them are testable without the
-// full kit runtime.
+// SvelteKit's virtual modules ($app/*) are stubbed here so store modules that import
+// them are testable without the full kit runtime; #lib resolves through the
+// package.json imports field.
 export default defineConfig({
-	plugins: [svelte()],
+	// No config file: the preprocessor is the one the sveltekit() plugin uses in vite.config.ts.
+	plugins: [svelte({ configFile: false, preprocess: vitePreprocess() })],
 	resolve: {
 		conditions: ['browser'],
 		alias: {
-			$lib: r('./src/lib'),
-			$types: r('./src/lib/types'),
-			$stores: r('./src/lib/stores'),
-			'$app/environment': r('./vitest-mocks/app-environment.ts'),
-			'$app/paths': r('./vitest-mocks/app-paths.ts'),
-			'$env/dynamic/private': r('./vitest-mocks/env-dynamic-private.ts')
+			'$app/env/private': r('./vitest-mocks/app-env-private.ts'),
+			'$app/env': r('./vitest-mocks/app-env.ts'),
+			'$app/paths': r('./vitest-mocks/app-paths.ts')
 		}
 	},
 	test: {

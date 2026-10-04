@@ -27,7 +27,7 @@ Gateway exposes it on. See [Dashboard](../docs/operating/dashboard.md) for the d
 
 ## Tech Stack
 
-- **Framework**: SvelteKit 2.0 with Svelte 5
+- **Framework**: SvelteKit 3 with Svelte 5
 - **Adapter**: Node.js adapter for containerization
 - **K8s Client**: `@kubernetes/client-node`
 - **Base Path**: `/dashboard` for ingress compatibility
@@ -136,7 +136,7 @@ attendees who `kubectl port-forward` to it. With a selector set, namespace lists
 Kubemoot list, get and watch, NATS history, stream, subscribe and key-value reads, discussion
 artifacts and fitness transcripts show only matching namespaces; a get outside them answers
 404. Nodes, the KubemootConfig, operator health and version stay visible (cluster
-infrastructure). Every route under `src/routes/api` either uses `$lib/server/scope` or is
+infrastructure). Every route under `src/routes/api` either uses `#lib/server/scope` or is
 listed as cluster-scoped, with a reason, in `src/routes/api/route-modes.test.ts`.
 
 The Helm chart renders it as a second Deployment of the same image with its own

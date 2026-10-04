@@ -1,13 +1,12 @@
-import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import * as k8s from '@kubernetes/client-node';
-import { infraNamespace } from '$lib/server/mode';
+import { infraNamespace } from '#lib/server/mode.js';
 import {
 	oldestRunningStart,
 	operatorDeploymentInfo,
 	type OperatorDeploymentInfo,
 	type OperatorPodLike
-} from '$lib/server/operator-info';
+} from '#lib/server/operator-info.js';
 
 /**
  * GET /api/kubemoot/system-info
@@ -86,5 +85,5 @@ export const GET: RequestHandler = async () => {
 	const operatorStartedAt = await readStartedAt(kc.makeApiClient(k8s.CoreV1Api), podSelector);
 
 	const info: SystemInfo = { operatorVersion, operatorImage, operatorStartedAt };
-	return json(info);
+	return Response.json(info);
 };

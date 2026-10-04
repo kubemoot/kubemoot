@@ -2,8 +2,8 @@
 	import { onMount, onDestroy } from 'svelte';
 	import { resolve } from '$app/paths';
 	import { get } from 'svelte/store';
-	import { namespace, readOnly, scoped } from '$lib/stores';
-	import { CHAT_ALL, DISCUSS_ALL, chatNamespaceFilter, chatSubject, discussNamespaceFilter, isNamespace } from '$lib/crewScope';
+	import { namespace, readOnly, scoped } from '#lib/stores/index.js';
+	import { CHAT_ALL, DISCUSS_ALL, chatNamespaceFilter, chatSubject, discussNamespaceFilter, isNamespace } from '#lib/crewScope.js';
 
 	interface NatsMessage {
 		subject: string;

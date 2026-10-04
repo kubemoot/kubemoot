@@ -1,7 +1,6 @@
-import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { getNatsConnection } from '$lib/server/nats-client';
-import { forbidden, streamAllowed, subjectTargetAllowed } from '$lib/server/scope';
+import { getNatsConnection } from '#lib/server/nats-client.js';
+import { forbidden, streamAllowed, subjectTargetAllowed } from '#lib/server/scope.js';
 
 /**
  * Purges messages from a NATS JetStream stream by subject filter.
@@ -15,7 +14,7 @@ export const POST: RequestHandler = async ({ request }) => {
 		const { stream, filter } = await request.json();
 
 		if (!stream || !filter) {
-			return json({ error: 'stream and filter are required' }, { status: 400 });
+			return Response.json({ error: 'stream and filter are required' }, { status: 400 });
 		}
 
 		if (!streamAllowed(stream)) return forbidden('stream');
@@ -26,9 +25,9 @@ export const POST: RequestHandler = async ({ request }) => {
 
 		const result = await jsm.streams.purge(stream, { filter });
 
-		return json({ success: true, purged: result.purged });
+		return Response.json({ success: true, purged: result.purged });
 	} catch (err) {
 		const message = err instanceof Error ? err.message : 'Failed to purge';
-		return json({ error: message }, { status: 500 });
+		return Response.json({ error: message }, { status: 500 });
 	}
 };

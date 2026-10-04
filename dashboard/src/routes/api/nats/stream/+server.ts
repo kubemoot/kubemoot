@@ -1,9 +1,9 @@
 import type { RequestHandler } from './$types';
 import { AckPolicy, DeliverPolicy, type ConsumerMessages, type JsMsg } from 'nats';
-import { getNatsConnection, sc } from '$lib/server/nats-client';
-import { relayToSse, sseResponse, type SseSink } from '$lib/server/sse';
-import { DISCUSS_ALL } from '$lib/crewScope';
-import { guardStreamRead, messageSubjectAllowed } from '$lib/server/scope';
+import { getNatsConnection, sc } from '#lib/server/nats-client.js';
+import { relayToSse, sseResponse, type SseSink } from '#lib/server/sse.js';
+import { DISCUSS_ALL } from '#lib/crewScope.js';
+import { guardStreamRead, messageSubjectAllowed } from '#lib/server/scope.js';
 
 /** Server-side backstop: NATS removes a consumer idle this long (nanoseconds). */
 const CONSUMER_INACTIVE_NS = 60_000_000_000;

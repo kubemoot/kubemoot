@@ -1,6 +1,5 @@
-import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { getNatsConnection, sc } from '$lib/server/nats-client';
+import { getNatsConnection, sc } from '#lib/server/nats-client.js';
 import {
 	crewMemoryKey,
 	crewMemoryPrefix,
@@ -10,9 +9,9 @@ import {
 	parseCrewMemoryKey,
 	type CrewMemoryKey,
 	type CrewScope
-} from '$lib/crewScope';
-import { isReadOnly } from '$lib/server/mode';
-import { guardNamespace, guardNamespaceOrAll, namespaceAllowedNow } from '$lib/server/scope';
+} from '#lib/crewScope.js';
+import { isReadOnly } from '#lib/server/mode.js';
+import { guardNamespace, guardNamespaceOrAll, namespaceAllowedNow } from '#lib/server/scope.js';
 
 /**
  * CRUD for crew working-memory facts (the kubemoot_crew_memory NATS KV bucket).
@@ -34,7 +33,7 @@ function sanitize(s: string): string {
 }
 
 function badRequest(message: string) {
-	return json({ error: message }, { status: 400 });
+	return Response.json({ error: message }, { status: 400 });
 }
 
 // The validated scope from request parameters, or an error message.
@@ -113,10 +112,10 @@ export const GET: RequestHandler = async ({ url }) => {
 			const fact = await readFact(kv, k, parsed);
 			if (fact) facts.push(fact);
 		}
-		return json({ namespace, crew, facts });
+		return Response.json({ namespace, crew, facts });
 	} catch (err) {
 		const message = err instanceof Error ? err.message : 'Failed to read crew memory';
-		return json({ error: message }, { status: 500 });
+		return Response.json({ error: message }, { status: 500 });
 	}
 };
 
@@ -147,17 +146,17 @@ export const POST: RequestHandler = async ({ request }) => {
 		const learnedAt = await firstLearnedAt(kv, nk, now);
 		const payload = { value: String(value), learnedBy: 'dashboard', learnedAt, usedAt: now };
 		await kv.put(nk, sc.encode(JSON.stringify(payload)));
-		return json({ success: true, key: nk });
+		return Response.json({ success: true, key: nk });
 	} catch (err) {
 		const message = err instanceof Error ? err.message : 'Failed to write crew memory';
-		return json({ error: message }, { status: 500 });
+		return Response.json({ error: message }, { status: 500 });
 	}
 };
 
 async function deleteFact(scope: CrewScope, topic: string, key: string) {
 	const kv = await openKV();
 	await kv.delete(crewMemoryKey(scope, topic, key));
-	return json({ success: true, deleted: 1 });
+	return Response.json({ success: true, deleted: 1 });
 }
 
 // Clear the whole crew's memory via a server-side JetStream stream purge.
@@ -171,7 +170,7 @@ async function clearCrew(scope: CrewScope) {
 	const jsm = await nc.jetstreamManager();
 	const subject = kvPrefixSubject(BUCKET, crewMemoryPrefix(scope));
 	const result = await jsm.streams.purge(`KV_${BUCKET}`, { filter: subject });
-	return json({ success: true, deleted: result.purged });
+	return Response.json({ success: true, deleted: result.purged });
 }
 
 export const DELETE: RequestHandler = async ({ url }) => {
@@ -186,6 +185,6 @@ export const DELETE: RequestHandler = async ({ url }) => {
 		return await clearCrew(scope);
 	} catch (err) {
 		const message = err instanceof Error ? err.message : 'Failed to delete crew memory';
-		return json({ error: message }, { status: 500 });
+		return Response.json({ error: message }, { status: 500 });
 	}
 };

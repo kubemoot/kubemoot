@@ -1,4 +1,3 @@
-import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { readFileSync } from 'fs';
 import { join } from 'path';
@@ -26,7 +25,7 @@ function getVersion(): string {
 }
 
 export const GET: RequestHandler = async () => {
-	return json({
+	return Response.json({
 		version: getVersion(),
 		buildTime: process.env.BUILD_TIME,
 		gitCommit: process.env.GIT_COMMIT

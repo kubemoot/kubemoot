@@ -5,7 +5,7 @@ import {
 	suiteDisplayPhase,
 	suiteIsJudged
 } from './fitness-suite-controls';
-import type { CrewFitnessSuite } from '$types/kubemoot.js';
+import type { CrewFitnessSuite } from '#lib/types/kubemoot.js';
 
 type SuiteLike = Pick<CrewFitnessSuite, 'spec' | 'status'>;
 

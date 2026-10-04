@@ -1,7 +1,7 @@
-import { json, error } from '@sveltejs/kit';
+import { error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { executeOllamaAction, resolveOllamaEndpoint } from '$lib/server/ollama-actions';
-import { guardNamespace } from '$lib/server/scope';
+import { executeOllamaAction, resolveOllamaEndpoint } from '#lib/server/ollama-actions.js';
+import { guardNamespace } from '#lib/server/scope.js';
 
 export const POST: RequestHandler = async ({ params, url, request }) => {
 	const namespace = url.searchParams.get('namespace') || 'kubemoot';
@@ -22,7 +22,7 @@ export const POST: RequestHandler = async ({ params, url, request }) => {
 
 	try {
 		const result = await executeOllamaAction(endpoint, model, 'unload');
-		return json(result);
+		return Response.json(result);
 	} catch (e) {
 		const message = e instanceof Error ? e.message : 'unload failed';
 		throw error(502, message);

@@ -1,4 +1,4 @@
-import type { K8sNode, GPUInfo } from '$types/k8s.js';
+import type { K8sNode, GPUInfo } from '#lib/types/k8s.js';
 
 const GPU_RESOURCE_KEYS = ['nvidia.com/gpu', 'amd.com/gpu', 'intel.com/gpu'];
 

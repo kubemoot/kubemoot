@@ -9,11 +9,10 @@
 // Fail closed: when the namespace list cannot be read and nothing is cached, the
 // helpers throw (routes answer 503) instead of showing everything.
 
-import { json } from '@sveltejs/kit';
 import { getCoreApi } from './k8s/client.js';
 import { infraNamespace, isReadOnly, isScoped, namespaceSelector } from './mode.js';
-import type { KubemootList } from '$types/kubemoot.js';
-import { parseChatSubject, parseDiscussSubject } from '$lib/crewScope';
+import type { KubemootList } from '#lib/types/kubemoot.js';
+import { parseChatSubject, parseDiscussSubject } from '#lib/crewScope.js';
 
 /**
  * namespaced: only namespaces matching the selector.
@@ -112,11 +111,11 @@ export function namespaceAllowedNow(namespace: string, kind: ScopeKind = 'namesp
 }
 
 function notFound(): Response {
-	return json({ error: 'not found' }, { status: 404 });
+	return Response.json({ error: 'not found' }, { status: 404 });
 }
 
 function unavailable(): Response {
-	return json({ error: 'namespace scope unavailable' }, { status: 503 });
+	return Response.json({ error: 'namespace scope unavailable' }, { status: 503 });
 }
 
 /**
@@ -298,5 +297,5 @@ export async function guardKvRead(bucket: string): Promise<Response | null> {
 
 /** The response that refuses a subject, stream or bucket outside what scoped mode serves. */
 export function forbidden(what: string): Response {
-	return json({ error: `${what} is not available on this dashboard` }, { status: 403 });
+	return Response.json({ error: `${what} is not available on this dashboard` }, { status: 403 });
 }

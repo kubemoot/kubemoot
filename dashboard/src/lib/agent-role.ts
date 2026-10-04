@@ -1,4 +1,4 @@
-import type { Agent } from '$types/kubemoot.js';
+import type { Agent } from '#lib/types/kubemoot.js';
 
 export type AgentRole =
 	'coordinator' | 'tooler' | 'analyst' | 'researcher' | 'specialist' | 'system';

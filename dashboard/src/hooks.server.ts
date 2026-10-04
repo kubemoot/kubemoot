@@ -1,5 +1,5 @@
-import { json, type Handle } from '@sveltejs/kit';
-import { isReadOnly, SAFE_METHODS } from '$lib/server/mode';
+import type { Handle } from '@sveltejs/kit/hooks';
+import { isReadOnly, SAFE_METHODS } from '#lib/server/mode.js';
 
 /**
  * Read-only mode (KUBEMOOT_DASHBOARD_READ_ONLY=true): refuse every request whose
@@ -9,7 +9,7 @@ import { isReadOnly, SAFE_METHODS } from '$lib/server/mode';
  */
 export const handle: Handle = async ({ event, resolve }) => {
 	if (isReadOnly() && !SAFE_METHODS.has(event.request.method.toUpperCase())) {
-		return json(
+		return Response.json(
 			{
 				error: 'This dashboard is read-only: requests that change state are refused.',
 				readOnly: true,

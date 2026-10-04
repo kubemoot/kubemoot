@@ -1,10 +1,10 @@
 <script lang="ts">
-	import { PENDING_TTL_MS, unsettledActions, type PendingAction } from '$lib/pending-actions';
-	import { readinessStatus } from '$lib/resource-status';
+	import { PENDING_TTL_MS, unsettledActions, type PendingAction } from '#lib/pending-actions.js';
+	import { readinessStatus } from '#lib/resource-status.js';
 	import { resolve } from '$app/paths';
-	import type { ModelProvider, ModelProviderLoadedModel } from '$types/kubemoot.js';
+	import type { ModelProvider, ModelProviderLoadedModel } from '#lib/types/kubemoot.js';
 	import ResourceCard from './ResourceCard.svelte';
-	import { readOnly } from '$lib/stores/mode';
+	import { readOnly } from '#lib/stores/mode.js';
 
 	interface Props {
 		provider: ModelProvider;

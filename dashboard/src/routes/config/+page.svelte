@@ -1,10 +1,10 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { resolve } from '$app/paths';
-	import { refreshTrigger, showStandAsides } from '$stores';
-	import { DetailPanel } from '$components/layout';
-	import { Section, InfoRow, StatusBadge } from '$components/common';
-	import type { KubemootConfig } from '$types/kubemoot.js';
+	import { refreshTrigger, showStandAsides } from '#lib/stores/index.js';
+	import { DetailPanel } from '#lib/components/layout/index.js';
+	import { Section, InfoRow, StatusBadge } from '#lib/components/common/index.js';
+	import type { KubemootConfig } from '#lib/types/kubemoot.js';
 
 	let config = $state<KubemootConfig | null>(null);
 	let loading = $state(true);

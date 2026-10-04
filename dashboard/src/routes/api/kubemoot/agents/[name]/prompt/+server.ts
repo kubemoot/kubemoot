@@ -1,8 +1,7 @@
-import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { readConfigMap } from '$lib/server/k8s';
-import { isToken } from '$lib/crewScope';
-import { guardNamespace } from '$lib/server/scope';
+import { readConfigMap } from '#lib/server/k8s/index.js';
+import { isToken } from '#lib/crewScope.js';
+import { guardNamespace } from '#lib/server/scope.js';
 
 /**
  * Returns the agent's assembled system prompt from its `<agent>-policy`
@@ -18,13 +17,13 @@ export const GET: RequestHandler = async ({ params, url }) => {
 	if (denied) return denied;
 	const { name } = params;
 	if (!isToken(name)) {
-		return json({ error: 'name is required' }, { status: 400 });
+		return Response.json({ error: 'name is required' }, { status: 400 });
 	}
 
 	const policyName = `${name}-policy`;
 	try {
 		const cm = await readConfigMap(namespace, policyName);
-		return json({
+		return Response.json({
 			configMapName: policyName,
 			namespace,
 			systemPrompt: cm.data?.['system.txt'] ?? null,
@@ -33,6 +32,6 @@ export const GET: RequestHandler = async ({ params, url }) => {
 		});
 	} catch (e) {
 		const message = e instanceof Error ? e.message : 'Failed to read agent policy ConfigMap';
-		return json({ error: message, configMapName: policyName, namespace }, { status: 404 });
+		return Response.json({ error: message, configMapName: policyName, namespace }, { status: 404 });
 	}
 };

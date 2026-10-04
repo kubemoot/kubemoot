@@ -1,7 +1,7 @@
 import { error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { operatorReportBase } from '$lib/server/operator-report';
-import { guardNamespace } from '$lib/server/scope';
+import { operatorReportBase } from '#lib/server/operator-report.js';
+import { guardNamespace } from '#lib/server/scope.js';
 
 /**
  * GET /api/kubemoot/crewfitnesssuites/{namespace}/{name}/artifact

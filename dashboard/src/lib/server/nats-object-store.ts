@@ -6,7 +6,7 @@
 // the existing nats-client.ts singleton.
 
 import { getNatsConnection } from './nats-client.js';
-import { compareCodeUnits } from '$lib/text-utils';
+import { compareCodeUnits } from '#lib/text-utils.js';
 
 // FITNESS_ARTIFACTS_BUCKET must match the operator's constant
 // (FitnessArtifactsBucket in kubemoot/operator/internal/controller/
@@ -65,7 +65,7 @@ export async function readFitnessTranscript(objectKey: string): Promise<unknown 
 // (DiscussionArtifacts.BUCKET in kubemoot/agent-runtime/src/main/java/ai/
 // kubemoot/agent/nats/DiscussionArtifacts.java). The spill in DiscussionSubscriber
 // writes a large agent contribution here at key
-// `{namespace}/{crew}/{threadId}/{agent}/{signal}-{uuid}` (see $lib/crewScope)
+// `{namespace}/{crew}/{threadId}/{agent}/{signal}-{uuid}` (see #lib/crewScope)
 // and appends an `[ARTIFACT key=...]` marker to the inline message. The two literals
 // are kept in sync by code review.
 export const DISCUSSION_ARTIFACTS_BUCKET = 'kubemoot_discussion_artifacts';

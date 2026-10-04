@@ -1,8 +1,8 @@
 // Formatting for the Fitness page: durations, sizes, times, and the markdown a
 // suite row copies to the clipboard.
 
-import type { CrewFitnessSuite } from '$types/kubemoot.js';
-import { NO_VALUE } from '$lib/resource-status';
+import type { CrewFitnessSuite } from '#lib/types/kubemoot.js';
+import { NO_VALUE } from '#lib/resource-status.js';
 
 export interface JudgeProgress {
 	complete: boolean;

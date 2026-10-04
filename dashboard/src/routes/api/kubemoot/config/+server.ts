@@ -1,6 +1,5 @@
-import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { listKubemootConfigs, getKubemootConfig } from '$lib/server/k8s';
+import { listKubemootConfigs, getKubemootConfig } from '#lib/server/k8s/index.js';
 
 export const GET: RequestHandler = async ({ url }) => {
 	const name = url.searchParams.get('name');
@@ -8,13 +7,13 @@ export const GET: RequestHandler = async ({ url }) => {
 	try {
 		if (name) {
 			const result = await getKubemootConfig(name);
-			return json(result);
+			return Response.json(result);
 		} else {
 			const result = await listKubemootConfigs();
-			return json(result);
+			return Response.json(result);
 		}
 	} catch (e) {
 		const message = e instanceof Error ? e.message : 'Failed to get Kubemoot config';
-		return json({ error: message }, { status: 500 });
+		return Response.json({ error: message }, { status: 500 });
 	}
 };
