@@ -53,9 +53,9 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       # No Node toolchain on the runner: the multistage Dockerfile runs npm ci,
-      # npm run check, npm test, and npm run build inside node:26-alpine, so the
-      # image build is the single source of truth and the runner needs neither
-      # Node 26 nor libatomic. Kaniko builds and pushes it below.
+      # npm run check, npm run lint, npm test, and npm run build inside
+      # node:26-alpine, so the image build is the single source of truth and the
+      # runner needs neither Node 26 nor libatomic. Kaniko builds and pushes it below.
 
       - name: Install kubectl
         run: |
@@ -70,7 +70,7 @@ jobs:
             -d '{"project_name": "kubemoot", "public": false}' \
             --fail-with-body || true
 
-      # Builds the multistage Dockerfile (npm ci + check + test + build run inside
+      # Builds the multistage Dockerfile (npm ci + check + lint + test + build run inside
       # the image) and pushes it to Harbor.
       - name: Build dashboard image with Kaniko
         run: |
