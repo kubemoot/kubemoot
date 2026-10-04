@@ -20,9 +20,9 @@ func TestParseQualityBias(t *testing.T) {
 		{"1", 1.0, true},
 		{"  0.5  ", 0.5, true}, // whitespace-tolerant
 		{"", 0, false},
-		{"abc", 0, false},
-		{"-0.1", 0, false}, // below range
-		{"1.1", 0, false},  // above range
+		{testABC, 0, false},
+		{"-0.1", 0, false},        // below range
+		{testVersion11, 0, false}, // above range
 		{"NaN", 0, false},
 		{"+Inf", 0, false},
 	}
@@ -45,22 +45,22 @@ func TestParseQualityBias(t *testing.T) {
 // the reasoning bias (0.7), not be diluted by the tool-calling bias (0.3).
 func TestEffectiveQualityBiasMaxAcrossCapabilities(t *testing.T) {
 	biasMap := map[string]string{
-		"tool-calling":  "0.3",
-		"reasoning":     "0.7",
-		"observability": "0.4",
-		"default":       "0.4",
+		testToolCalling: "0.3",
+		testReasoning:   "0.7",
+		"observability": testBias04,
+		testDefault:     testBias04,
 	}
 
 	// Single-capability tooler (nvidia-gpu-now) → 0.3 (speed-leaning).
-	if b, ok := effectiveQualityBias([]string{"tool-calling"}, biasMap); !ok || math.Abs(b-0.3) > 1e-9 {
+	if b, ok := effectiveQualityBias([]string{testToolCalling}, biasMap); !ok || math.Abs(b-0.3) > 1e-9 {
 		t.Errorf("single tool-calling: got (%v,%v), want (0.3,true)", b, ok)
 	}
 	// Coordinator declares both → max(0.3, 0.7) = 0.7 (quality-leaning).
-	if b, ok := effectiveQualityBias([]string{"tool-calling", "reasoning"}, biasMap); !ok || math.Abs(b-0.7) > 1e-9 {
+	if b, ok := effectiveQualityBias([]string{testToolCalling, testReasoning}, biasMap); !ok || math.Abs(b-0.7) > 1e-9 {
 		t.Errorf("coordinator caps: got (%v,%v), want (0.7,true)", b, ok)
 	}
 	// obs-metrics: tool-calling + observability → max(0.3, 0.4) = 0.4.
-	if b, ok := effectiveQualityBias([]string{"tool-calling", "observability"}, biasMap); !ok || math.Abs(b-0.4) > 1e-9 {
+	if b, ok := effectiveQualityBias([]string{testToolCalling, "observability"}, biasMap); !ok || math.Abs(b-0.4) > 1e-9 {
 		t.Errorf("obs-metrics caps: got (%v,%v), want (0.4,true)", b, ok)
 	}
 }
@@ -71,8 +71,8 @@ func TestEffectiveQualityBiasMaxAcrossCapabilities(t *testing.T) {
 // disabling quality-bias scoring entirely.
 func TestEffectiveQualityBiasDefaultFallback(t *testing.T) {
 	biasMap := map[string]string{
-		"reasoning": "0.9",
-		"default":   "0.4",
+		testReasoning: "0.9",
+		testDefault:   testBias04,
 	}
 	// Agent declares capabilities none of which are in the map → use default.
 	if b, ok := effectiveQualityBias([]string{"unmapped-cap"}, biasMap); !ok || math.Abs(b-0.4) > 1e-9 {
@@ -83,7 +83,7 @@ func TestEffectiveQualityBiasDefaultFallback(t *testing.T) {
 		t.Errorf("nil caps fall back: got (%v,%v), want (0.4,true)", b, ok)
 	}
 	// One mapped + several unmapped → still use the mapped one, not default.
-	if b, ok := effectiveQualityBias([]string{"unmapped", "reasoning", "other"}, biasMap); !ok || math.Abs(b-0.9) > 1e-9 {
+	if b, ok := effectiveQualityBias([]string{"unmapped", testReasoning, testOther}, biasMap); !ok || math.Abs(b-0.9) > 1e-9 {
 		t.Errorf("one mapped wins over default: got (%v,%v), want (0.9,true)", b, ok)
 	}
 }
@@ -95,20 +95,20 @@ func TestEffectiveQualityBiasDefaultFallback(t *testing.T) {
 // latencyClass:low — a hidden behavior change).
 func TestEffectiveQualityBiasDisabledWhenMissing(t *testing.T) {
 	// Nil map.
-	if b, ok := effectiveQualityBias([]string{"reasoning"}, nil); ok || b != 0 {
+	if b, ok := effectiveQualityBias([]string{testReasoning}, nil); ok || b != 0 {
 		t.Errorf("nil map: got (%v,%v), want (0,false)", b, ok)
 	}
 	// Empty map.
-	if b, ok := effectiveQualityBias([]string{"reasoning"}, map[string]string{}); ok || b != 0 {
+	if b, ok := effectiveQualityBias([]string{testReasoning}, map[string]string{}); ok || b != 0 {
 		t.Errorf("empty map: got (%v,%v), want (0,false)", b, ok)
 	}
 	// All unparseable, no default.
-	bad := map[string]string{"reasoning": "garbage", "tool-calling": ""}
-	if b, ok := effectiveQualityBias([]string{"reasoning", "tool-calling"}, bad); ok || b != 0 {
+	bad := map[string]string{testReasoning: "garbage", testToolCalling: ""}
+	if b, ok := effectiveQualityBias([]string{testReasoning, testToolCalling}, bad); ok || b != 0 {
 		t.Errorf("all unparseable: got (%v,%v), want (0,false)", b, ok)
 	}
 	// Unparseable default with unmapped caps.
-	badDefault := map[string]string{"default": "xyz"}
+	badDefault := map[string]string{testDefault: "xyz"}
 	if b, ok := effectiveQualityBias([]string{"unmapped"}, badDefault); ok || b != 0 {
 		t.Errorf("unparseable default: got (%v,%v), want (0,false)", b, ok)
 	}
@@ -119,16 +119,16 @@ func TestEffectiveQualityBiasDisabledWhenMissing(t *testing.T) {
 // bias=0.3 (speed-leaning), latencyClass:low wins. medium follows a tent curve
 // (peaks at bias 0.5). Models without a latencyClass label contribute nothing.
 func TestQualityBiasScoreLatencyClassRanking(t *testing.T) {
-	highLbl := map[string]string{"latencyClass": "high"}
-	medLbl := map[string]string{"latencyClass": "medium"}
-	lowLbl := map[string]string{"latencyClass": "low"}
+	highLbl := map[string]string{testLatencyClass: testHigh}
+	medLbl := map[string]string{testLatencyClass: "medium"}
+	lowLbl := map[string]string{testLatencyClass: testLow}
 	noLbl := map[string]string{"family": "qwen3"} // no latencyClass
 
 	// Quality-biased agent (e.g. coordinator @ 0.7) — high > medium > low.
 	highQ, _ := qualityBiasScore(0.7, highLbl)
 	medQ, _ := qualityBiasScore(0.7, medLbl)
 	lowQ, _ := qualityBiasScore(0.7, lowLbl)
-	if !(highQ > medQ && medQ > lowQ) {
+	if highQ <= medQ || medQ <= lowQ {
 		t.Errorf("bias=0.7 ranking: high=%d med=%d low=%d, want high>med>low", highQ, medQ, lowQ)
 	}
 	// medium tent at bias 0.7: 100 - |0.7-0.5|*200 = 60.
@@ -140,7 +140,7 @@ func TestQualityBiasScoreLatencyClassRanking(t *testing.T) {
 	highS, _ := qualityBiasScore(0.3, highLbl)
 	medS, _ := qualityBiasScore(0.3, medLbl)
 	lowS, _ := qualityBiasScore(0.3, lowLbl)
-	if !(lowS > medS && medS > highS) {
+	if lowS <= medS || medS <= highS {
 		t.Errorf("bias=0.3 ranking: high=%d med=%d low=%d, want low>med>high", highS, medS, lowS)
 	}
 
@@ -156,9 +156,9 @@ func TestQualityBiasScoreLatencyClassRanking(t *testing.T) {
 // 100, low gets 0 (pure quality). bias=0.5 → high=low=50 but medium peaks at 100.
 // Reason tokens carry the score so dashboard attribution stays informative.
 func TestQualityBiasScoreBoundsAndSymmetry(t *testing.T) {
-	highLbl := map[string]string{"latencyClass": "high"}
-	lowLbl := map[string]string{"latencyClass": "low"}
-	medLbl := map[string]string{"latencyClass": "medium"}
+	highLbl := map[string]string{testLatencyClass: testHigh}
+	lowLbl := map[string]string{testLatencyClass: testLow}
+	medLbl := map[string]string{testLatencyClass: "medium"}
 
 	// bias=0.0 — full speed.
 	if s, r := qualityBiasScore(0.0, highLbl); s != 0 || r != "bias-high+0" {

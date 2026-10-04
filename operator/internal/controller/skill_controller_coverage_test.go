@@ -33,14 +33,14 @@ func skillCR(name, crew string, order int32) *kubemootv1alpha1.Skill {
 // pass syncs the crew skills ConfigMap and stamps the coordinator pool hash.
 func TestSkillReconcile_AddsFinalizerThenSyncs(t *testing.T) {
 	scheme := gatewayScheme(t)
-	skill := skillCR("alpha", "crew-a", 1)
+	skill := skillCR(testAlpha, testCrewA, 1)
 	coord := &kubemootv1alpha1.Agent{
-		ObjectMeta: metav1.ObjectMeta{Name: "coord", Namespace: "ns", Labels: map[string]string{crewLabelKey: "crew-a"}},
+		ObjectMeta: metav1.ObjectMeta{Name: testCoord, Namespace: "ns", Labels: map[string]string{crewLabelKey: testCrewA}},
 		Spec:       kubemootv1alpha1.AgentSpec{DiscussRole: roleCoordinator},
 	}
 	cli := fake.NewClientBuilder().WithScheme(scheme).WithObjects(skill, coord).Build()
 	r := &SkillReconciler{Client: cli, Scheme: scheme}
-	req := reconcile.Request{NamespacedName: types.NamespacedName{Name: "alpha", Namespace: "ns"}}
+	req := reconcile.Request{NamespacedName: types.NamespacedName{Name: testAlpha, Namespace: "ns"}}
 
 	res, err := r.Reconcile(context.Background(), req)
 	if err != nil {
@@ -62,7 +62,7 @@ func TestSkillReconcile_AddsFinalizerThenSyncs(t *testing.T) {
 	}
 	// The coordinator should now carry a pool-hash annotation.
 	got := &kubemootv1alpha1.Agent{}
-	if err := cli.Get(context.Background(), types.NamespacedName{Name: "coord", Namespace: "ns"}, got); err != nil {
+	if err := cli.Get(context.Background(), types.NamespacedName{Name: testCoord, Namespace: "ns"}, got); err != nil {
 		t.Fatalf("get coordinator: %v", err)
 	}
 	if got.Annotations["kubemoot.ai/skill-pool-hash"] == "" {
@@ -73,7 +73,7 @@ func TestSkillReconcile_AddsFinalizerThenSyncs(t *testing.T) {
 // marshalResumePayload returns a plain agent array when there are no skills,
 // and a heterogeneous RawMessage array (agents + skills) when skills exist.
 func TestMarshalResumePayload(t *testing.T) {
-	agents := []AgentResume{{Name: "k8s", Role: "specialist"}}
+	agents := []AgentResume{{Name: testK8s, Role: "specialist"}}
 	// No skills -> plain agent array.
 	b, err := marshalResumePayload(agents, nil)
 	if err != nil {
@@ -83,7 +83,7 @@ func TestMarshalResumePayload(t *testing.T) {
 		t.Errorf("expected a JSON array, got %s", b)
 	}
 	// With skills -> combined array of agents + skills.
-	skills := []SkillResume{{Name: "deploy", Kind: "skill", Order: 1}}
+	skills := []SkillResume{{Name: "deploy", Kind: testSkill, Order: 1}}
 	b2, err := marshalResumePayload(agents, skills)
 	if err != nil {
 		t.Fatalf("marshal (with skills): %v", err)

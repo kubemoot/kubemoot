@@ -41,12 +41,12 @@ var _ = Describe("MCPCatalog Controller", func() {
 
 		catalogNamespacedName := types.NamespacedName{
 			Name:      catalogName,
-			Namespace: "default",
+			Namespace: testDefault,
 		}
 
 		policyNamespacedName := types.NamespacedName{
 			Name:      qualityPolicyName,
-			Namespace: "default",
+			Namespace: testDefault,
 		}
 
 		var mockServer *httptest.Server
@@ -55,7 +55,7 @@ var _ = Describe("MCPCatalog Controller", func() {
 			// Create mock registry server with new nested format
 			mockServer = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				w.Header().Set("Content-Type", "application/json")
-				w.Write([]byte(`{
+				_, _ = w.Write([]byte(`{
 					"servers": [
 						{
 							"server": {
@@ -85,7 +85,7 @@ var _ = Describe("MCPCatalog Controller", func() {
 			policy := &aiv1alpha1.MCPQualityPolicy{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      qualityPolicyName,
-					Namespace: "default",
+					Namespace: testDefault,
 				},
 				Spec: aiv1alpha1.MCPQualityPolicySpec{
 					Allowing: []aiv1alpha1.AllowingEntry{
@@ -111,7 +111,7 @@ var _ = Describe("MCPCatalog Controller", func() {
 			catalog := &aiv1alpha1.MCPCatalog{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      catalogName,
-					Namespace: "default",
+					Namespace: testDefault,
 				},
 				Spec: aiv1alpha1.MCPCatalogSpec{
 					Type:             aiv1alpha1.CatalogTypeOfficialRegistry,
@@ -173,14 +173,14 @@ var _ = Describe("MCPCatalog Controller", func() {
 
 		statusNamespacedName := types.NamespacedName{
 			Name:      statusCatalogName,
-			Namespace: "default",
+			Namespace: testDefault,
 		}
 
 		BeforeEach(func() {
 			catalog := &aiv1alpha1.MCPCatalog{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      statusCatalogName,
-					Namespace: "default",
+					Namespace: testDefault,
 				},
 				Spec: aiv1alpha1.MCPCatalogSpec{
 					Type: aiv1alpha1.CatalogTypeOfficialRegistry,
@@ -258,49 +258,49 @@ var _ = Describe("MCPCatalog Controller", func() {
 
 	Context("When testing version constraint matching", func() {
 		It("should match caret constraints", func() {
-			Expect(matchVersionConstraint("^1.2.0", "1.2.0")).To(BeTrue())
-			Expect(matchVersionConstraint("^1.2.0", "1.5.0")).To(BeTrue())
-			Expect(matchVersionConstraint("^1.2.0", "2.0.0")).To(BeFalse())
+			Expect(matchVersionConstraint(testRangeCaret120, testVersion120)).To(BeTrue())
+			Expect(matchVersionConstraint(testRangeCaret120, "1.5.0")).To(BeTrue())
+			Expect(matchVersionConstraint(testRangeCaret120, testVersion200)).To(BeFalse())
 		})
 
 		It("should match tilde constraints", func() {
-			Expect(matchVersionConstraint("~1.2.0", "1.2.0")).To(BeTrue())
-			Expect(matchVersionConstraint("~1.2.0", "1.2.5")).To(BeTrue())
-			Expect(matchVersionConstraint("~1.2.0", "1.3.0")).To(BeFalse())
+			Expect(matchVersionConstraint(testRangeTilde120, testVersion120)).To(BeTrue())
+			Expect(matchVersionConstraint(testRangeTilde120, "1.2.5")).To(BeTrue())
+			Expect(matchVersionConstraint(testRangeTilde120, testVersion130)).To(BeFalse())
 		})
 
 		It("should match >= constraints", func() {
-			Expect(matchVersionConstraint(">=1.0.0", "1.0.0")).To(BeTrue())
-			Expect(matchVersionConstraint(">=1.0.0", "2.0.0")).To(BeTrue())
+			Expect(matchVersionConstraint(">=1.0.0", testVersion100)).To(BeTrue())
+			Expect(matchVersionConstraint(">=1.0.0", testVersion200)).To(BeTrue())
 			Expect(matchVersionConstraint(">=1.0.0", "0.9.0")).To(BeFalse())
 		})
 
 		It("should match wildcard constraints", func() {
-			Expect(matchVersionConstraint("1.x", "1.0.0")).To(BeTrue())
-			Expect(matchVersionConstraint("1.x", "1.9.9")).To(BeTrue())
-			Expect(matchVersionConstraint("1.x", "2.0.0")).To(BeFalse())
+			Expect(matchVersionConstraint(testRange1x, testVersion100)).To(BeTrue())
+			Expect(matchVersionConstraint(testRange1x, "1.9.9")).To(BeTrue())
+			Expect(matchVersionConstraint(testRange1x, testVersion200)).To(BeFalse())
 		})
 	})
 
 	Context("When testing string matcher", func() {
 		It("should match exact strings case-insensitively", func() {
-			matcher := aiv1alpha1.StringMatcher{Type: aiv1alpha1.MatcherTypeExact, Value: "test"}
-			Expect(matchStringMatcher(matcher, "test")).To(BeTrue())
+			matcher := aiv1alpha1.StringMatcher{Type: aiv1alpha1.MatcherTypeExact, Value: testTest}
+			Expect(matchStringMatcher(matcher, testTest)).To(BeTrue())
 			Expect(matchStringMatcher(matcher, "TEST")).To(BeTrue())
-			Expect(matchStringMatcher(matcher, "other")).To(BeFalse())
+			Expect(matchStringMatcher(matcher, testOther)).To(BeFalse())
 		})
 
 		It("should match glob patterns", func() {
 			matcher := aiv1alpha1.StringMatcher{Type: aiv1alpha1.MatcherTypeGlob, Value: "test-*"}
 			Expect(matchStringMatcher(matcher, "test-server")).To(BeTrue())
 			Expect(matchStringMatcher(matcher, "test-")).To(BeTrue())
-			Expect(matchStringMatcher(matcher, "other")).To(BeFalse())
+			Expect(matchStringMatcher(matcher, testOther)).To(BeFalse())
 		})
 
 		It("should negate matches when Negate is true", func() {
-			matcher := aiv1alpha1.StringMatcher{Type: aiv1alpha1.MatcherTypeExact, Value: "test", Negate: true}
-			Expect(matchStringMatcher(matcher, "test")).To(BeFalse())
-			Expect(matchStringMatcher(matcher, "other")).To(BeTrue())
+			matcher := aiv1alpha1.StringMatcher{Type: aiv1alpha1.MatcherTypeExact, Value: testTest, Negate: true}
+			Expect(matchStringMatcher(matcher, testTest)).To(BeFalse())
+			Expect(matchStringMatcher(matcher, testOther)).To(BeTrue())
 		})
 	})
 })

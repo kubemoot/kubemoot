@@ -36,7 +36,7 @@ func TestBuildRunnerEnv_SuiteIterationGetsTranscriptCoords(t *testing.T) {
 	suiteChild := &kubemootv1alpha1.CrewFitness{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "run-abc12345-s1-i3",
-			Namespace: "crew-homelab-pilot",
+			Namespace: testCrewHomelabPilotNS,
 			Labels: map[string]string{
 				suiteOwnerLabel:          "baseline-n10",
 				suiteRunIDLabel:          "abc12345",
@@ -66,7 +66,7 @@ func TestBuildRunnerEnv_SuiteIterationGetsTranscriptCoords(t *testing.T) {
 func TestBuildRunnerEnv_StandaloneSkipsTranscript(t *testing.T) {
 	t.Setenv("NATS_URL", "nats://nats.nats:4222")
 	standalone := &kubemootv1alpha1.CrewFitness{
-		ObjectMeta: metav1.ObjectMeta{Name: "adhoc", Namespace: "crew-test"},
+		ObjectMeta: metav1.ObjectMeta{Name: "adhoc", Namespace: testCrewTest},
 	}
 	m := toMap(buildRunnerEnv(standalone, "http://gw", "t.adl", "adhoc-job"))
 	if _, ok := m["TRANSCRIPT_KEY"]; ok {
@@ -81,7 +81,7 @@ func TestBuildRunnerEnv_NoNatsUrlSkipsTranscript(t *testing.T) {
 	t.Setenv("NATS_URL", "")
 	suiteChild := &kubemootv1alpha1.CrewFitness{
 		ObjectMeta: metav1.ObjectMeta{
-			Name: "run-x-s0-i1", Namespace: "crew-test",
+			Name: "run-x-s0-i1", Namespace: testCrewTest,
 			Labels: map[string]string{suiteOwnerLabel: "s", suiteRunIDLabel: "x"},
 		},
 	}

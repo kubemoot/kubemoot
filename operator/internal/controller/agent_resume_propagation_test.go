@@ -26,7 +26,7 @@ func TestSpecialistChangeEnqueuesItsCoordinator(t *testing.T) {
 	coord := mkResumeAgent("team-prop", "ops-coordinator", "platform-ops", roleCoordinator, nil)
 	other := mkResumeAgent("team-prop", "other-coordinator", "pedagogy", roleCoordinator, nil)
 	reader := mkResumeAgent("team-prop", "docs-reader", "platform-ops", "analyst", nil)
-	crewless := mkResumeAgent("team-prop", "loner", "", "tooler", func(a *kubemootv1alpha1.Agent) { a.Labels = nil })
+	crewless := mkResumeAgent("team-prop", "loner", "", testRoleTooler, func(a *kubemootv1alpha1.Agent) { a.Labels = nil })
 	cli := fake.NewClientBuilder().WithScheme(resumeScheme(t)).WithObjects(coord, other, reader, crewless).Build()
 	ctx := context.Background()
 

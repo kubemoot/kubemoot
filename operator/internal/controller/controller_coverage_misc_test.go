@@ -28,8 +28,8 @@ func TestGenerateRunID(t *testing.T) {
 	if got := generateRunID(long); got != "01234567" {
 		t.Errorf("generateRunID truncates to 8 chars, got %q", got)
 	}
-	short := &kubemootv1alpha1.CrewFitnessSuite{ObjectMeta: metav1.ObjectMeta{UID: types.UID("abc")}}
-	if got := generateRunID(short); got != "abc" {
+	short := &kubemootv1alpha1.CrewFitnessSuite{ObjectMeta: metav1.ObjectMeta{UID: types.UID(testABC)}}
+	if got := generateRunID(short); got != testABC {
 		t.Errorf("a short UID is returned whole, got %q", got)
 	}
 }
@@ -37,19 +37,19 @@ func TestGenerateRunID(t *testing.T) {
 func TestSetSuiteError(t *testing.T) {
 	scheme := agentReconcileScheme(t)
 	suite := &kubemootv1alpha1.CrewFitnessSuite{
-		ObjectMeta: metav1.ObjectMeta{Name: "suite", Namespace: "ns"},
+		ObjectMeta: metav1.ObjectMeta{Name: testSuite, Namespace: "ns"},
 	}
 	cli := fake.NewClientBuilder().WithScheme(scheme).
 		WithObjects(suite).WithStatusSubresource(suite).Build()
 	r := &CrewFitnessSuiteReconciler{Client: cli}
-	if _, err := r.setSuiteError(context.Background(), suite, "boom"); err != nil {
+	if _, err := r.setSuiteError(context.Background(), suite, testBoom); err != nil {
 		t.Fatalf("setSuiteError: %v", err)
 	}
 	got := &kubemootv1alpha1.CrewFitnessSuite{}
-	if err := cli.Get(context.Background(), types.NamespacedName{Name: "suite", Namespace: "ns"}, got); err != nil {
+	if err := cli.Get(context.Background(), types.NamespacedName{Name: testSuite, Namespace: "ns"}, got); err != nil {
 		t.Fatalf("get: %v", err)
 	}
-	if got.Status.Phase != kubemootv1alpha1.CrewFitnessSuitePhaseError || got.Status.Error != "boom" {
+	if got.Status.Phase != kubemootv1alpha1.CrewFitnessSuitePhaseError || got.Status.Error != testBoom {
 		t.Errorf("status not stamped: phase=%q error=%q", got.Status.Phase, got.Status.Error)
 	}
 	if got.Status.CompletedAt == nil {
@@ -60,7 +60,7 @@ func TestSetSuiteError(t *testing.T) {
 func TestControllerSetOwnerReference(t *testing.T) {
 	scheme := agentReconcileScheme(t)
 	owner := &kubemootv1alpha1.CrewFitnessSuite{
-		ObjectMeta: metav1.ObjectMeta{Name: "owner", Namespace: "ns", UID: types.UID("u1")},
+		ObjectMeta: metav1.ObjectMeta{Name: testOwner, Namespace: "ns", UID: types.UID("u1")},
 	}
 	child := &kubemootv1alpha1.CrewFitness{
 		ObjectMeta: metav1.ObjectMeta{Name: "child", Namespace: "ns"},
@@ -69,7 +69,7 @@ func TestControllerSetOwnerReference(t *testing.T) {
 		t.Fatalf("controllerSetOwnerReference: %v", err)
 	}
 	refs := child.GetOwnerReferences()
-	if len(refs) != 1 || refs[0].Name != "owner" {
+	if len(refs) != 1 || refs[0].Name != testOwner {
 		t.Errorf("expected one owner ref to 'owner', got %+v", refs)
 	}
 }
@@ -102,14 +102,14 @@ func TestBuildResumeRAGSourceSpec(t *testing.T) {
 func TestCreateOrUpdateResumeRAGSource(t *testing.T) {
 	scheme := agentReconcileScheme(t)
 	coord := &kubemootv1alpha1.Agent{
-		ObjectMeta: metav1.ObjectMeta{Name: "coord", Namespace: "ns", UID: types.UID("c1")},
+		ObjectMeta: metav1.ObjectMeta{Name: testCoord, Namespace: "ns", UID: types.UID("c1")},
 	}
 	spec := kubemootv1alpha1.RAGSourceSpec{EmbeddingModelRef: "embed-v1"}
 
 	// Create path: no RAGSource exists yet.
 	cli := fake.NewClientBuilder().WithScheme(scheme).WithObjects(coord).Build()
 	r := &AgentReconciler{Client: cli, Scheme: scheme}
-	if !r.createOrUpdateResumeRAGSource(context.Background(), coord, "coord-resume", "crew-a", spec) {
+	if !r.createOrUpdateResumeRAGSource(context.Background(), coord, "coord-resume", testCrewA, spec) {
 		t.Fatal("create path should report success")
 	}
 	got := &kubemootv1alpha1.RAGSource{}
@@ -119,13 +119,13 @@ func TestCreateOrUpdateResumeRAGSource(t *testing.T) {
 	if got.Spec.EmbeddingModelRef != "embed-v1" {
 		t.Errorf("spec not applied on create: %q", got.Spec.EmbeddingModelRef)
 	}
-	if len(got.OwnerReferences) != 1 || got.OwnerReferences[0].Name != "coord" {
+	if len(got.OwnerReferences) != 1 || got.OwnerReferences[0].Name != testCoord {
 		t.Errorf("create should owner-reference the coordinator, got %+v", got.OwnerReferences)
 	}
 
 	// Update path: the RAGSource now exists; a new spec is written in place.
 	spec2 := kubemootv1alpha1.RAGSourceSpec{EmbeddingModelRef: "embed-v2"}
-	if !r.createOrUpdateResumeRAGSource(context.Background(), coord, "coord-resume", "crew-a", spec2) {
+	if !r.createOrUpdateResumeRAGSource(context.Background(), coord, "coord-resume", testCrewA, spec2) {
 		t.Fatal("update path should report success")
 	}
 	if err := cli.Get(context.Background(), types.NamespacedName{Name: "coord-resume", Namespace: "ns"}, got); err != nil {

@@ -166,7 +166,7 @@ func TestOneLineReason(t *testing.T) {
 	if n := utf8.RuneCountInString(long); n != kubemootv1alpha1.MaxJudgeReasonLength {
 		t.Errorf("a long reason is cut to %d characters, got %d", kubemootv1alpha1.MaxJudgeReasonLength, n)
 	}
-	if !strings.HasSuffix(long, "...") || !utf8.ValidString(long) {
+	if !strings.HasSuffix(long, testEllipsis) || !utf8.ValidString(long) {
 		t.Errorf("a cut reason ends with ... and stays valid UTF-8: %q", long)
 	}
 	exact := strings.Repeat("x", kubemootv1alpha1.MaxJudgeReasonLength)

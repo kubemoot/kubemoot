@@ -37,19 +37,19 @@ func TestSkillsVolumeMountCrewAgent(t *testing.T) {
 	agent := &kubemootv1alpha1.Agent{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "k8s-tooler",
-			Namespace: "crew-x",
+			Namespace: testCrewNamespace,
 			Labels: map[string]string{
-				labelCrew: "crew-x",
+				labelCrew: testCrewNamespace,
 			},
 		},
 	}
-	pick := &modelPick{ModelID: "qwen3:8b", Endpoint: "http://ollama:11434"}
+	pick := &modelPick{ModelID: testModelID, Endpoint: testOllamaURL}
 
 	d := r.buildDeployment(context.Background(), agent, pick, pick, "k8s-tooler-policy", "abc123")
 	podSpec := d.Spec.Template.Spec
 
 	// --- Volume ---
-	skillsVolume := findVolumeByName(podSpec.Volumes, "skills")
+	skillsVolume := findVolumeByName(podSpec.Volumes, testSkills)
 	if skillsVolume == nil {
 		t.Fatal("skills volume missing from pod template")
 	}
@@ -66,7 +66,7 @@ func TestSkillsVolumeMountCrewAgent(t *testing.T) {
 
 	// --- VolumeMount ---
 	container := podSpec.Containers[0]
-	skillsMount := findMountByName(container.VolumeMounts, "skills")
+	skillsMount := findMountByName(container.VolumeMounts, testSkills)
 	if skillsMount == nil {
 		t.Fatal("skills VolumeMount missing from agent container")
 	}
@@ -102,24 +102,24 @@ func TestSkillsVolumeMountAbsentForCrewlessAgent(t *testing.T) {
 	agent := &kubemootv1alpha1.Agent{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "standalone-agent",
-			Namespace: "default",
+			Namespace: testDefault,
 			// No crew label.
 		},
 	}
-	pick := &modelPick{ModelID: "qwen3:8b", Endpoint: "http://ollama:11434"}
+	pick := &modelPick{ModelID: testModelID, Endpoint: testOllamaURL}
 
 	d := r.buildDeployment(context.Background(), agent, pick, pick, "standalone-agent-policy", "abc123")
 	podSpec := d.Spec.Template.Spec
 
 	for _, v := range podSpec.Volumes {
-		if v.Name == "skills" {
+		if v.Name == testSkills {
 			t.Errorf("skills volume must be absent for crew-less agent; found it")
 		}
 	}
 
 	container := podSpec.Containers[0]
 	for _, m := range container.VolumeMounts {
-		if m.Name == "skills" {
+		if m.Name == testSkills {
 			t.Errorf("skills VolumeMount must be absent for crew-less agent; found it")
 		}
 	}

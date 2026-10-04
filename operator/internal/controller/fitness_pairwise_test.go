@@ -21,15 +21,15 @@ import (
 // arm IDENTITY leakage, not coincidental answer content.
 func adlArm() armAnswers {
 	return armAnswers{
-		arm:       "homelab-pilot",
-		answers:   map[string]string{"s1": "first-crew reply one", "s2": "first-crew reply two", "only-adl": "x"},
+		arm:       testCrewName,
+		answers:   map[string]string{"s1": testFirstCrewReply, "s2": "first-crew reply two", "only-adl": "x"},
 		questions: map[string]string{"s1": "q1", "s2": "q2", "only-adl": "qx"},
 	}
 }
 func proseArm() armAnswers {
 	return armAnswers{
-		arm:       "homelab-pilot-prose",
-		answers:   map[string]string{"s1": "second-crew reply one", "s2": "second-crew reply two", "only-prose": "y", "empty": "  "},
+		arm:       testCrewProse,
+		answers:   map[string]string{"s1": testSecondCrewReply, "s2": "second-crew reply two", "only-prose": "y", testEmpty: "  "},
 		questions: map[string]string{"s1": "q1", "s2": "q2"},
 	}
 }
@@ -53,18 +53,18 @@ func TestBuildPairwiseComparison_BlindOrderAndKey(t *testing.T) {
 
 	// aInSlotA=true -> ADL is slot A.
 	pc := buildPairwiseComparison("s1", "q1", adl, prose, true)
-	if pc.Doc.AnswerA != "first-crew reply one" || pc.Doc.AnswerB != "second-crew reply one" {
+	if pc.Doc.AnswerA != testFirstCrewReply || pc.Doc.AnswerB != testSecondCrewReply {
 		t.Fatalf("slot order wrong: A=%q B=%q", pc.Doc.AnswerA, pc.Doc.AnswerB)
 	}
-	if pc.aArm != "homelab-pilot" || pc.bArm != "homelab-pilot-prose" {
+	if pc.aArm != testCrewName || pc.bArm != testCrewProse {
 		t.Fatalf("un-blind key wrong: aArm=%q bArm=%q", pc.aArm, pc.bArm)
 	}
 	// aInSlotA=false -> prose is slot A (the randomized flip).
 	pc2 := buildPairwiseComparison("s1", "q1", adl, prose, false)
-	if pc2.Doc.AnswerA != "second-crew reply one" || pc2.Doc.AnswerB != "first-crew reply one" {
+	if pc2.Doc.AnswerA != testSecondCrewReply || pc2.Doc.AnswerB != testFirstCrewReply {
 		t.Fatalf("flipped slot order wrong: A=%q B=%q", pc2.Doc.AnswerA, pc2.Doc.AnswerB)
 	}
-	if pc2.aArm != "homelab-pilot-prose" || pc2.bArm != "homelab-pilot" {
+	if pc2.aArm != testCrewProse || pc2.bArm != testCrewName {
 		t.Fatalf("flipped un-blind key wrong: aArm=%q bArm=%q", pc2.aArm, pc2.bArm)
 	}
 	// The marshalled doc carries NO arm identity (blind).
@@ -72,7 +72,7 @@ func TestBuildPairwiseComparison_BlindOrderAndKey(t *testing.T) {
 	if err != nil {
 		t.Fatalf("marshal: %v", err)
 	}
-	if strings.Contains(doc, "homelab-pilot") || strings.Contains(strings.ToLower(doc), "adl") || strings.Contains(strings.ToLower(doc), "prose") {
+	if strings.Contains(doc, testCrewName) || strings.Contains(strings.ToLower(doc), "adl") || strings.Contains(strings.ToLower(doc), "prose") {
 		t.Fatalf("blind doc leaked arm identity: %s", doc)
 	}
 	var rd pairwiseDoc
@@ -127,14 +127,14 @@ func TestUnblindAndTally(t *testing.T) {
 
 	// s1: ADL in slot A, panel picks A -> ADL wins.
 	pc1 := buildPairwiseComparison("s1", "q1", adl, prose, true)
-	if w := unblind(pc1, voteA); w != "homelab-pilot" {
+	if w := unblind(pc1, voteA); w != testCrewName {
 		t.Fatalf("unblind A = %q, want homelab-pilot", w)
 	}
 	tally.record(pc1, voteA)
 
 	// s2: prose in slot A (flipped), panel picks A -> prose wins.
 	pc2 := buildPairwiseComparison("s2", "q2", adl, prose, false)
-	if w := unblind(pc2, voteA); w != "homelab-pilot-prose" {
+	if w := unblind(pc2, voteA); w != testCrewProse {
 		t.Fatalf("unblind flipped A = %q, want homelab-pilot-prose", w)
 	}
 	tally.record(pc2, voteA)
@@ -143,10 +143,10 @@ func TestUnblindAndTally(t *testing.T) {
 	pc3 := buildPairwiseComparison("s1", "q1", adl, prose, true)
 	tally.record(pc3, voteTie)
 
-	if tally.Wins["homelab-pilot"] != 1 || tally.Wins["homelab-pilot-prose"] != 1 || tally.Ties != 1 {
+	if tally.Wins[testCrewName] != 1 || tally.Wins[testCrewProse] != 1 || tally.Ties != 1 {
 		t.Fatalf("tally wrong: %+v", tally)
 	}
-	if tally.PerScenario["s2"] != "homelab-pilot-prose" {
+	if tally.PerScenario["s2"] != testCrewProse {
 		t.Fatalf("per-scenario winner wrong: %v", tally.PerScenario)
 	}
 	if unblind(pc1, voteTie) != "" {

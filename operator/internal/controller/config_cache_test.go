@@ -170,13 +170,13 @@ func TestConfigCache_GetImagePullSecrets_FromConfig(t *testing.T) {
 		Spec: kubemootv1alpha1.KubemootConfigSpec{
 			Defaults: kubemootv1alpha1.DefaultConfig{
 				ImagePullSecrets: []corev1.LocalObjectReference{
-					{Name: "my-secret"},
+					{Name: testSecretName},
 				},
 			},
 		},
 	})
 	secrets := cache.GetImagePullSecrets()
-	if len(secrets) != 1 || secrets[0].Name != "my-secret" {
+	if len(secrets) != 1 || secrets[0].Name != testSecretName {
 		t.Errorf("expected my-secret, got %v", secrets)
 	}
 }

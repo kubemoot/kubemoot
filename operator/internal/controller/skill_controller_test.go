@@ -43,11 +43,11 @@ func skillScheme(t *testing.T) *runtime.Scheme {
 	return s
 }
 
-func mkSkill(ns, name, crew string, order int32, desc, content string) *kubemootv1alpha1.Skill {
+func mkSkill(name, crew string, order int32, desc, content string) *kubemootv1alpha1.Skill {
 	return &kubemootv1alpha1.Skill{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
-			Namespace: ns,
+			Namespace: testCrewNamespace,
 			Labels:    map[string]string{crewLabelKey: crew},
 		},
 		Spec: kubemootv1alpha1.SkillSpec{
@@ -64,26 +64,26 @@ func TestSkillConfigMap_Create(t *testing.T) {
 	ctx := context.Background()
 	scheme := skillScheme(t)
 
-	skill := mkSkill("crew-x", "gpu-basics", "homelab-pilot", 100, "GPU diagnostics", "WHEN asked about GPU THEN check nvidia-smi")
+	skill := mkSkill(testSkillGPUBasics, testCrewName, 100, "GPU diagnostics", testGPUSkillContent)
 	cli := fake.NewClientBuilder().WithScheme(scheme).WithObjects(skill).Build()
 	r := &SkillReconciler{Client: cli, Scheme: scheme}
 
-	r.syncSkillConfigMap(ctx, "homelab-pilot", "crew-x")
+	r.syncSkillConfigMap(ctx, testCrewName, testCrewNamespace)
 
 	cm := &corev1.ConfigMap{}
-	if err := cli.Get(ctx, types.NamespacedName{Name: "crew-homelab-pilot-skills", Namespace: "crew-x"}, cm); err != nil {
+	if err := cli.Get(ctx, types.NamespacedName{Name: testCrewSkillsConfigMap, Namespace: testCrewNamespace}, cm); err != nil {
 		t.Fatalf("expected ConfigMap crew-homelab-pilot-skills to exist: %v", err)
 	}
 	if _, ok := cm.Data["gpu-basics.txt"]; !ok {
 		t.Error("expected gpu-basics.txt key in ConfigMap data")
 	}
-	if cm.Data["gpu-basics.txt"] != "WHEN asked about GPU THEN check nvidia-smi" {
+	if cm.Data["gpu-basics.txt"] != testGPUSkillContent {
 		t.Errorf("unexpected content: %q", cm.Data["gpu-basics.txt"])
 	}
 	if !strings.Contains(cm.Data["skills-index.txt"], "gpu-basics: GPU diagnostics") {
 		t.Errorf("skills-index.txt missing entry: %q", cm.Data["skills-index.txt"])
 	}
-	if cm.Labels[crewLabelKey] != "homelab-pilot" {
+	if cm.Labels[crewLabelKey] != testCrewName {
 		t.Errorf("ConfigMap missing crew label, got: %v", cm.Labels)
 	}
 }
@@ -94,15 +94,15 @@ func TestSkillConfigMap_Update(t *testing.T) {
 	ctx := context.Background()
 	scheme := skillScheme(t)
 
-	skill1 := mkSkill("crew-x", "gpu-basics", "homelab-pilot", 100, "GPU diagnostics", "WHEN asked about GPU THEN check nvidia-smi")
-	skill2 := mkSkill("crew-x", "network-diag", "homelab-pilot", 200, "Network diagnostics", "WHEN asked about network THEN check ping")
+	skill1 := mkSkill(testSkillGPUBasics, testCrewName, 100, "GPU diagnostics", testGPUSkillContent)
+	skill2 := mkSkill("network-diag", testCrewName, 200, "Network diagnostics", "WHEN asked about network THEN check ping")
 	cli := fake.NewClientBuilder().WithScheme(scheme).WithObjects(skill1, skill2).Build()
 	r := &SkillReconciler{Client: cli, Scheme: scheme}
 
-	r.syncSkillConfigMap(ctx, "homelab-pilot", "crew-x")
+	r.syncSkillConfigMap(ctx, testCrewName, testCrewNamespace)
 
 	cm := &corev1.ConfigMap{}
-	if err := cli.Get(ctx, types.NamespacedName{Name: "crew-homelab-pilot-skills", Namespace: "crew-x"}, cm); err != nil {
+	if err := cli.Get(ctx, types.NamespacedName{Name: testCrewSkillsConfigMap, Namespace: testCrewNamespace}, cm); err != nil {
 		t.Fatalf("ConfigMap not found: %v", err)
 	}
 	if _, ok := cm.Data["network-diag.txt"]; !ok {
@@ -112,7 +112,7 @@ func TestSkillConfigMap_Update(t *testing.T) {
 		t.Errorf("index missing network-diag entry: %q", cm.Data["skills-index.txt"])
 	}
 	// gpu-basics has lower order so it appears first in the index
-	gpuIdx := strings.Index(cm.Data["skills-index.txt"], "gpu-basics")
+	gpuIdx := strings.Index(cm.Data["skills-index.txt"], testSkillGPUBasics)
 	netIdx := strings.Index(cm.Data["skills-index.txt"], "network-diag")
 	if gpuIdx < 0 || netIdx < 0 || gpuIdx > netIdx {
 		t.Errorf("index order wrong: gpu-basics (%d) should precede network-diag (%d)", gpuIdx, netIdx)
@@ -126,8 +126,8 @@ func TestSkillConfigMap_EmptyCrewLabel(t *testing.T) {
 	scheme := skillScheme(t)
 
 	unlabeled := &kubemootv1alpha1.Skill{
-		ObjectMeta: metav1.ObjectMeta{Name: "orphan", Namespace: "crew-x"},
-		Spec:       kubemootv1alpha1.SkillSpec{Description: "orphan", Content: "body"},
+		ObjectMeta: metav1.ObjectMeta{Name: testOrphan, Namespace: testCrewNamespace},
+		Spec:       kubemootv1alpha1.SkillSpec{Description: testOrphan, Content: "body"},
 	}
 	cli := fake.NewClientBuilder().WithScheme(scheme).WithObjects(unlabeled).Build()
 	r := &SkillReconciler{Client: cli, Scheme: scheme}
@@ -153,7 +153,7 @@ func TestSkillConfigMap_EmptyCrewLabel(t *testing.T) {
 
 	// Now call reconcile; the controller should return without creating a ConfigMap.
 	_, err := r.Reconcile(ctx, ctrl.Request{
-		NamespacedName: types.NamespacedName{Name: "orphan", Namespace: "crew-x"},
+		NamespacedName: types.NamespacedName{Name: testOrphan, Namespace: testCrewNamespace},
 	})
 	if err != nil {
 		t.Fatalf("Reconcile returned error: %v", err)
@@ -173,19 +173,19 @@ func TestSkillReconcile_FinalizerAdded(t *testing.T) {
 	ctx := context.Background()
 	scheme := skillScheme(t)
 
-	skill := mkSkill("crew-x", "gpu-basics", "homelab-pilot", 100, "GPU diagnostics", "WHEN asked about GPU THEN check nvidia-smi")
+	skill := mkSkill(testSkillGPUBasics, testCrewName, 100, "GPU diagnostics", testGPUSkillContent)
 	cli := fake.NewClientBuilder().WithScheme(scheme).WithObjects(skill).Build()
 	r := &SkillReconciler{Client: cli, Scheme: scheme}
 
 	_, err := r.Reconcile(ctx, ctrl.Request{
-		NamespacedName: types.NamespacedName{Name: "gpu-basics", Namespace: "crew-x"},
+		NamespacedName: types.NamespacedName{Name: testSkillGPUBasics, Namespace: testCrewNamespace},
 	})
 	if err != nil {
 		t.Fatalf("Reconcile returned error: %v", err)
 	}
 
 	updated := &kubemootv1alpha1.Skill{}
-	if err := cli.Get(ctx, types.NamespacedName{Name: "gpu-basics", Namespace: "crew-x"}, updated); err != nil {
+	if err := cli.Get(ctx, types.NamespacedName{Name: testSkillGPUBasics, Namespace: testCrewNamespace}, updated); err != nil {
 		t.Fatalf("get skill after reconcile: %v", err)
 	}
 	found := false
@@ -210,31 +210,31 @@ func TestSkillReconcile_LastSkillDeletion(t *testing.T) {
 	now := metav1.Now()
 	skill := &kubemootv1alpha1.Skill{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:              "gpu-basics",
-			Namespace:         "crew-x",
-			Labels:            map[string]string{crewLabelKey: "homelab-pilot"},
+			Name:              testSkillGPUBasics,
+			Namespace:         testCrewNamespace,
+			Labels:            map[string]string{crewLabelKey: testCrewName},
 			Finalizers:        []string{skillFinalizer},
 			DeletionTimestamp: &now,
 		},
 		Spec: kubemootv1alpha1.SkillSpec{
 			Description: "GPU diagnostics",
-			Content:     "WHEN asked about GPU THEN check nvidia-smi",
+			Content:     testGPUSkillContent,
 			Order:       100,
 		},
 	}
 	// Pre-create a ConfigMap simulating what a prior reconcile would have left.
 	cm := &corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      "crew-homelab-pilot-skills",
-			Namespace: "crew-x",
+			Name:      testCrewSkillsConfigMap,
+			Namespace: testCrewNamespace,
 			Labels: map[string]string{
 				labelManagedBy: managedByValue,
-				labelComponent: "skills",
-				crewLabelKey:   "homelab-pilot",
+				labelComponent: testSkills,
+				crewLabelKey:   testCrewName,
 			},
 		},
 		Data: map[string]string{
-			"gpu-basics.txt":   "WHEN asked about GPU THEN check nvidia-smi",
+			"gpu-basics.txt":   testGPUSkillContent,
 			"skills-index.txt": "gpu-basics: GPU diagnostics",
 		},
 	}
@@ -242,7 +242,7 @@ func TestSkillReconcile_LastSkillDeletion(t *testing.T) {
 	r := &SkillReconciler{Client: cli, Scheme: scheme}
 
 	_, err := r.Reconcile(ctx, ctrl.Request{
-		NamespacedName: types.NamespacedName{Name: "gpu-basics", Namespace: "crew-x"},
+		NamespacedName: types.NamespacedName{Name: testSkillGPUBasics, Namespace: testCrewNamespace},
 	})
 	if err != nil {
 		t.Fatalf("Reconcile returned error: %v", err)
@@ -250,11 +250,11 @@ func TestSkillReconcile_LastSkillDeletion(t *testing.T) {
 
 	// ConfigMap should have been deleted (no active skills remain).
 	cmList := &corev1.ConfigMapList{}
-	if err := cli.List(ctx, cmList, client.InNamespace("crew-x")); err != nil {
+	if err := cli.List(ctx, cmList, client.InNamespace(testCrewNamespace)); err != nil {
 		t.Fatalf("list configmaps: %v", err)
 	}
 	for _, c := range cmList.Items {
-		if c.Name == "crew-homelab-pilot-skills" {
+		if c.Name == testCrewSkillsConfigMap {
 			t.Errorf("expected ConfigMap crew-homelab-pilot-skills to be deleted, but it still exists")
 		}
 	}
@@ -263,7 +263,7 @@ func TestSkillReconcile_LastSkillDeletion(t *testing.T) {
 	// finalizer from an object with DeletionTimestamp set, it deletes the object
 	// entirely. Not-found means the finalizer was removed successfully.
 	updated := &kubemootv1alpha1.Skill{}
-	getErr := cli.Get(ctx, types.NamespacedName{Name: "gpu-basics", Namespace: "crew-x"}, updated)
+	getErr := cli.Get(ctx, types.NamespacedName{Name: testSkillGPUBasics, Namespace: testCrewNamespace}, updated)
 	if getErr == nil {
 		for _, f := range updated.Finalizers {
 			if f == skillFinalizer {
@@ -283,26 +283,26 @@ func TestSkillReconcile_CoordinatorPoolHashChanges(t *testing.T) {
 
 	coord := &kubemootv1alpha1.Agent{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      "homelab-coordinator",
-			Namespace: "crew-x",
-			Labels:    map[string]string{crewLabelKey: "homelab-pilot"},
+			Name:      testHomelabCoordinator,
+			Namespace: testCrewNamespace,
+			Labels:    map[string]string{crewLabelKey: testCrewName},
 		},
 		Spec: kubemootv1alpha1.AgentSpec{DiscussRole: roleCoordinator},
 	}
-	skill1 := mkSkill("crew-x", "gpu-basics", "homelab-pilot", 100, "GPU diagnostics", "WHEN asked about GPU THEN check nvidia-smi")
+	skill1 := mkSkill(testSkillGPUBasics, testCrewName, 100, "GPU diagnostics", testGPUSkillContent)
 	cli := fake.NewClientBuilder().WithScheme(scheme).WithObjects(coord, skill1).Build()
 	r := &SkillReconciler{Client: cli, Scheme: scheme}
 
 	// First reconcile: adds finalizer, requeues.
 	_, err := r.Reconcile(ctx, ctrl.Request{
-		NamespacedName: types.NamespacedName{Name: "gpu-basics", Namespace: "crew-x"},
+		NamespacedName: types.NamespacedName{Name: testSkillGPUBasics, Namespace: testCrewNamespace},
 	})
 	if err != nil {
 		t.Fatalf("first Reconcile: %v", err)
 	}
 	// Second reconcile: finalizer now present, runs sync + enqueue.
 	_, err = r.Reconcile(ctx, ctrl.Request{
-		NamespacedName: types.NamespacedName{Name: "gpu-basics", Namespace: "crew-x"},
+		NamespacedName: types.NamespacedName{Name: testSkillGPUBasics, Namespace: testCrewNamespace},
 	})
 	if err != nil {
 		t.Fatalf("second Reconcile: %v", err)
@@ -310,7 +310,7 @@ func TestSkillReconcile_CoordinatorPoolHashChanges(t *testing.T) {
 
 	// Coordinator should have a non-empty, non-"0" pool-hash annotation.
 	updatedCoord := &kubemootv1alpha1.Agent{}
-	if err := cli.Get(ctx, types.NamespacedName{Name: "homelab-coordinator", Namespace: "crew-x"}, updatedCoord); err != nil {
+	if err := cli.Get(ctx, types.NamespacedName{Name: testHomelabCoordinator, Namespace: testCrewNamespace}, updatedCoord); err != nil {
 		t.Fatalf("get coordinator: %v", err)
 	}
 	hash1 := updatedCoord.Annotations["kubemoot.ai/skill-pool-hash"]
@@ -319,27 +319,27 @@ func TestSkillReconcile_CoordinatorPoolHashChanges(t *testing.T) {
 	}
 
 	// Add a second skill and reconcile again.
-	skill2 := mkSkill("crew-x", "net-diag", "homelab-pilot", 200, "Network diagnostics", "WHEN asked about network THEN check ping")
+	skill2 := mkSkill(testSkillNetDiag, testCrewName, 200, "Network diagnostics", "WHEN asked about network THEN check ping")
 	if err := cli.Create(ctx, skill2); err != nil {
 		t.Fatalf("create second skill: %v", err)
 	}
 	// First reconcile of skill2 adds its finalizer.
 	_, err = r.Reconcile(ctx, ctrl.Request{
-		NamespacedName: types.NamespacedName{Name: "net-diag", Namespace: "crew-x"},
+		NamespacedName: types.NamespacedName{Name: testSkillNetDiag, Namespace: testCrewNamespace},
 	})
 	if err != nil {
 		t.Fatalf("Reconcile skill2 (finalizer add): %v", err)
 	}
 	// Second reconcile of skill2 runs sync + enqueue with updated pool.
 	_, err = r.Reconcile(ctx, ctrl.Request{
-		NamespacedName: types.NamespacedName{Name: "net-diag", Namespace: "crew-x"},
+		NamespacedName: types.NamespacedName{Name: testSkillNetDiag, Namespace: testCrewNamespace},
 	})
 	if err != nil {
 		t.Fatalf("Reconcile skill2 (sync): %v", err)
 	}
 
 	updatedCoord2 := &kubemootv1alpha1.Agent{}
-	if err := cli.Get(ctx, types.NamespacedName{Name: "homelab-coordinator", Namespace: "crew-x"}, updatedCoord2); err != nil {
+	if err := cli.Get(ctx, types.NamespacedName{Name: testHomelabCoordinator, Namespace: testCrewNamespace}, updatedCoord2); err != nil {
 		t.Fatalf("get coordinator after second skill: %v", err)
 	}
 	hash2 := updatedCoord2.Annotations["kubemoot.ai/skill-pool-hash"]

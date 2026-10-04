@@ -32,13 +32,13 @@ const (
 	mpEmbedModel = "nomic-embed-text"
 )
 
-func reconcileMP(t *testing.T, p *kubemootv1alpha1.ModelProvider) (*kubemootv1alpha1.ModelProvider, ctrl.Result) {
+func reconcileMP(t *testing.T, p *kubemootv1alpha1.ModelProvider) *kubemootv1alpha1.ModelProvider {
 	t.Helper()
 	scheme := agentReconcileScheme(t) // kubemoot types; ModelProvider is one
 	cli := fake.NewClientBuilder().WithScheme(scheme).
 		WithObjects(p).WithStatusSubresource(p).Build()
 	r := &ModelProviderReconciler{Client: cli, Scheme: scheme, ConfigCache: NewConfigCache()}
-	res, err := r.Reconcile(context.Background(), ctrl.Request{
+	_, err := r.Reconcile(context.Background(), ctrl.Request{
 		NamespacedName: types.NamespacedName{Name: p.Name, Namespace: p.Namespace},
 	})
 	if err != nil {
@@ -48,7 +48,7 @@ func reconcileMP(t *testing.T, p *kubemootv1alpha1.ModelProvider) (*kubemootv1al
 	if err := cli.Get(context.Background(), types.NamespacedName{Name: p.Name, Namespace: p.Namespace}, got); err != nil {
 		t.Fatal(err)
 	}
-	return got, res
+	return got
 }
 
 // An Ollama provider whose /api/version answers 200 reconciles to Ready. The
@@ -60,8 +60,8 @@ func TestModelProviderReconcile_OllamaReady(t *testing.T) {
 		_, _ = w.Write([]byte(`{"version":"0.3.0"}`))
 	}))
 	defer srv.Close()
-	got, _ := reconcileMP(t, &kubemootv1alpha1.ModelProvider{
-		ObjectMeta: metav1.ObjectMeta{Name: "ollama-gpu", Namespace: "ns1"},
+	got := reconcileMP(t, &kubemootv1alpha1.ModelProvider{
+		ObjectMeta: metav1.ObjectMeta{Name: testOllamaGPU, Namespace: testNS1},
 		Spec:       kubemootv1alpha1.ModelProviderSpec{Type: kubemootv1alpha1.ProviderTypeOllama, Endpoint: srv.URL},
 	})
 	if !got.Status.Ready {
@@ -71,8 +71,8 @@ func TestModelProviderReconcile_OllamaReady(t *testing.T) {
 
 // An Ollama provider with no endpoint fails fast (Endpoint is required).
 func TestModelProviderReconcile_OllamaEmptyEndpoint(t *testing.T) {
-	got, _ := reconcileMP(t, &kubemootv1alpha1.ModelProvider{
-		ObjectMeta: metav1.ObjectMeta{Name: "ollama-x", Namespace: "ns1"},
+	got := reconcileMP(t, &kubemootv1alpha1.ModelProvider{
+		ObjectMeta: metav1.ObjectMeta{Name: "ollama-x", Namespace: testNS1},
 		Spec:       kubemootv1alpha1.ModelProviderSpec{Type: kubemootv1alpha1.ProviderTypeOllama},
 	})
 	if got.Status.Ready {
@@ -85,8 +85,8 @@ func TestModelProviderReconcile_OllamaEmptyEndpoint(t *testing.T) {
 func TestModelProviderReconcile_UnsupportedTypes(t *testing.T) {
 	for _, typ := range unsupportedProviderTypes {
 		t.Run(typ, func(t *testing.T) {
-			got, _ := reconcileMP(t, &kubemootv1alpha1.ModelProvider{
-				ObjectMeta: metav1.ObjectMeta{Name: typ, Namespace: "ns1"},
+			got := reconcileMP(t, &kubemootv1alpha1.ModelProvider{
+				ObjectMeta: metav1.ObjectMeta{Name: typ, Namespace: testNS1},
 				Spec: kubemootv1alpha1.ModelProviderSpec{
 					Type:      kubemootv1alpha1.ProviderType(typ),
 					SecretRef: "key",
@@ -112,7 +112,7 @@ func TestModelProviderReconcile_NotFoundIsNoOp(t *testing.T) {
 	cli := fake.NewClientBuilder().WithScheme(scheme).Build()
 	r := &ModelProviderReconciler{Client: cli, Scheme: scheme, ConfigCache: NewConfigCache()}
 	if _, err := r.Reconcile(context.Background(), ctrl.Request{
-		NamespacedName: types.NamespacedName{Name: "absent", Namespace: "ns1"},
+		NamespacedName: types.NamespacedName{Name: testAbsent, Namespace: testNS1},
 	}); err != nil {
 		t.Errorf("absent provider reconcile must be a no-op, got %v", err)
 	}
@@ -124,12 +124,12 @@ func TestModelProviderReconcile_NotFoundIsNoOp(t *testing.T) {
 func TestEmbeddingModelReconcile_UnsupportedProviderType(t *testing.T) {
 	scheme := agentReconcileScheme(t)
 	provider := &kubemootv1alpha1.ModelProvider{
-		ObjectMeta: metav1.ObjectMeta{Name: "legacy", Namespace: "ns1"},
+		ObjectMeta: metav1.ObjectMeta{Name: "legacy", Namespace: testNS1},
 		Spec:       kubemootv1alpha1.ModelProviderSpec{Type: kubemootv1alpha1.ProviderType(unsupportedProviderTypes[0])},
 		Status:     kubemootv1alpha1.ModelProviderStatus{Ready: true},
 	}
 	em := &kubemootv1alpha1.EmbeddingModel{
-		ObjectMeta: metav1.ObjectMeta{Name: mpEmbedName, Namespace: "ns1", Finalizers: []string{embeddingModelFinalizer}},
+		ObjectMeta: metav1.ObjectMeta{Name: mpEmbedName, Namespace: testNS1, Finalizers: []string{embeddingModelFinalizer}},
 		Spec:       kubemootv1alpha1.EmbeddingModelSpec{ProviderRef: "legacy", Model: mpEmbedModel},
 	}
 	cli := fake.NewClientBuilder().WithScheme(scheme).

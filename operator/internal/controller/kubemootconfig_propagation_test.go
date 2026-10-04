@@ -38,9 +38,9 @@ func newPropagationClient(t *testing.T, seed ...client.Object) client.Client {
 // image bump in the singleton would update ConfigCache but no Agent
 // would re-reconcile, leaving Deployments on the old image.
 func TestMapKubemootConfigToRequests_EnqueuesEveryAgent(t *testing.T) {
-	a1 := &kubemootv1alpha1.Agent{ObjectMeta: metav1.ObjectMeta{Name: "a1", Namespace: "ns1"}}
-	a2 := &kubemootv1alpha1.Agent{ObjectMeta: metav1.ObjectMeta{Name: "a2", Namespace: "ns2"}}
-	a3 := &kubemootv1alpha1.Agent{ObjectMeta: metav1.ObjectMeta{Name: "a3", Namespace: "ns2"}}
+	a1 := &kubemootv1alpha1.Agent{ObjectMeta: metav1.ObjectMeta{Name: "a1", Namespace: testNS1}}
+	a2 := &kubemootv1alpha1.Agent{ObjectMeta: metav1.ObjectMeta{Name: "a2", Namespace: testNS2}}
+	a3 := &kubemootv1alpha1.Agent{ObjectMeta: metav1.ObjectMeta{Name: "a3", Namespace: testNS2}}
 	cli := newPropagationClient(t, a1, a2, a3)
 
 	cfg := &kubemootv1alpha1.KubemootConfig{
@@ -53,7 +53,7 @@ func TestMapKubemootConfigToRequests_EnqueuesEveryAgent(t *testing.T) {
 	if len(got) != 3 {
 		t.Fatalf("expected 3 reconcile.Requests, got %d: %v", len(got), got)
 	}
-	wantNamespaces := map[string]string{"a1": "ns1", "a2": "ns2", "a3": "ns2"}
+	wantNamespaces := map[string]string{"a1": testNS1, "a2": testNS2, "a3": testNS2}
 	for _, r := range got {
 		ns, ok := wantNamespaces[r.Name]
 		if !ok {

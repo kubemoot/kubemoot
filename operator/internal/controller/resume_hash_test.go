@@ -23,8 +23,8 @@ import (
 
 func TestHashResumes_Deterministic(t *testing.T) {
 	resumes := []AgentResume{
-		{Name: "alpha", Description: "Alpha agent", Role: "tooler", Keywords: []string{"k8s", "pods"}},
-		{Name: "beta", Description: "Beta agent", Role: "researcher", Tools: []string{"kubectl_get"}},
+		{Name: testAlpha, Description: testAlphaDescription, Role: testRoleTooler, Keywords: []string{testK8s, testPods}},
+		{Name: testBeta, Description: testBetaDescription, Role: testResearcher, Tools: []string{testToolKubectlGet}},
 	}
 
 	h1 := HashResumes(resumes)
@@ -40,10 +40,10 @@ func TestHashResumes_Deterministic(t *testing.T) {
 
 func TestHashResumes_ChangeDetection(t *testing.T) {
 	resumes1 := []AgentResume{
-		{Name: "alpha", Description: "Alpha agent", Role: "tooler"},
+		{Name: testAlpha, Description: testAlphaDescription, Role: testRoleTooler},
 	}
 	resumes2 := []AgentResume{
-		{Name: "alpha", Description: "Alpha agent updated", Role: "tooler"},
+		{Name: testAlpha, Description: "Alpha agent updated", Role: testRoleTooler},
 	}
 
 	h1 := HashResumes(resumes1)
@@ -56,10 +56,10 @@ func TestHashResumes_ChangeDetection(t *testing.T) {
 
 func TestHashResumes_PromptChangeDetection(t *testing.T) {
 	resumes1 := []AgentResume{
-		{Name: "alpha", Description: "Alpha agent", Role: "tooler", Prompt: "WHEN asked about nodes THEN list them"},
+		{Name: testAlpha, Description: testAlphaDescription, Role: testRoleTooler, Prompt: "WHEN asked about nodes THEN list them"},
 	}
 	resumes2 := []AgentResume{
-		{Name: "alpha", Description: "Alpha agent", Role: "tooler", Prompt: "WHEN asked about nodes THEN list them with capacity"},
+		{Name: testAlpha, Description: testAlphaDescription, Role: testRoleTooler, Prompt: "WHEN asked about nodes THEN list them with capacity"},
 	}
 	if HashResumes(resumes1) == HashResumes(resumes2) {
 		t.Error("HashResumes should differ when the system prompt changes (so the resume re-embeds)")
@@ -82,10 +82,10 @@ func TestBuildResumeText_Full(t *testing.T) {
 	r := AgentResume{
 		Name:        "k8s-agent",
 		Description: "Kubernetes expert",
-		Role:        "tooler",
+		Role:        testRoleTooler,
 		Summary:     "Handles pod and service queries",
-		Keywords:    []string{"kubernetes", "pods", "services"},
-		Tools:       []string{"kubectl_get", "kubectl_describe"},
+		Keywords:    []string{"kubernetes", testPods, "services"},
+		Tools:       []string{testToolKubectlGet, "kubectl_describe"},
 		Channels:    []string{"infrastructure"},
 	}
 
@@ -109,8 +109,8 @@ func TestBuildResumeText_Full(t *testing.T) {
 
 func TestBuildResumeText_Minimal(t *testing.T) {
 	r := AgentResume{
-		Name: "simple",
-		Role: "researcher",
+		Name: testSimple,
+		Role: testResearcher,
 	}
 
 	text := BuildResumeText(r)

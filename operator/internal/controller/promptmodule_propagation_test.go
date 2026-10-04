@@ -25,7 +25,7 @@ import (
 
 func mkAgentWithPrompts(name string, refs ...string) *kubemootv1alpha1.Agent {
 	return &kubemootv1alpha1.Agent{
-		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "crew-x"},
+		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: testCrewNamespace},
 		Spec:       kubemootv1alpha1.AgentSpec{PromptRefs: refs},
 	}
 }
@@ -41,11 +41,11 @@ func TestPromptModuleEnqueueScopesToReferencingAgents(t *testing.T) {
 	cli := fake.NewClientBuilder().WithScheme(scheme).WithObjects(
 		mkAgentWithPrompts("k8s-advisor", "analyst-review-protocol", "discussion-protocol"),
 		mkAgentWithPrompts("proxmox-advisor", "analyst-review-protocol"),
-		mkAgentWithPrompts("coordinator", "synthesis-prompt"),
+		mkAgentWithPrompts(testRoleCoordinator, "synthesis-prompt"),
 	).Build()
 
 	got := mapPromptModuleToAgentRequests(context.Background(), cli, &kubemootv1alpha1.PromptModule{
-		ObjectMeta: metav1.ObjectMeta{Name: "analyst-review-protocol", Namespace: "crew-x"},
+		ObjectMeta: metav1.ObjectMeta{Name: "analyst-review-protocol", Namespace: testCrewNamespace},
 	})
 	names := make([]string, 0, len(got))
 	for _, r := range got {
@@ -58,13 +58,13 @@ func TestPromptModuleEnqueueScopesToReferencingAgents(t *testing.T) {
 
 	// A PromptModule no agent references → no requests.
 	if reqs := mapPromptModuleToAgentRequests(context.Background(), cli, &kubemootv1alpha1.PromptModule{
-		ObjectMeta: metav1.ObjectMeta{Name: "unreferenced", Namespace: "crew-x"},
+		ObjectMeta: metav1.ObjectMeta{Name: "unreferenced", Namespace: testCrewNamespace},
 	}); len(reqs) != 0 {
 		t.Errorf("unreferenced PromptModule should enqueue nothing, got %v", reqs)
 	}
 
 	// Non-PromptModule object → nil.
-	if reqs := mapPromptModuleToAgentRequests(context.Background(), cli, mkAgentWithPrompts("a", "crew-x")); reqs != nil {
+	if reqs := mapPromptModuleToAgentRequests(context.Background(), cli, mkAgentWithPrompts("a", testCrewNamespace)); reqs != nil {
 		t.Errorf("non-PromptModule object should enqueue nothing, got %v", reqs)
 	}
 }

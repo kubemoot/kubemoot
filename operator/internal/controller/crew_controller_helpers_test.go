@@ -64,14 +64,14 @@ func TestCrewRbacName_SameCrewInTwoNamespacesDiffers(t *testing.T) {
 func TestCrewBuildLabels(t *testing.T) {
 	r := newTestCrewReconciler()
 	crew := &kubemootv1alpha1.Crew{
-		ObjectMeta: metav1.ObjectMeta{Name: "alpha"},
+		ObjectMeta: metav1.ObjectMeta{Name: testAlpha},
 	}
 	labels := r.buildLabels(crew)
 
 	if labels[labelName] != "alpha-discussion" {
 		t.Errorf("expected alpha-discussion, got %s", labels[labelName])
 	}
-	if labels[labelInstance] != "alpha" {
+	if labels[labelInstance] != testAlpha {
 		t.Errorf("expected alpha, got %s", labels[labelInstance])
 	}
 	if labels[labelManagedBy] != managedByValue {
@@ -80,7 +80,7 @@ func TestCrewBuildLabels(t *testing.T) {
 	if labels[labelComponent] != "discussion-gateway" {
 		t.Errorf("expected discussion-gateway, got %s", labels[labelComponent])
 	}
-	if labels[crewLabelKey] != "alpha" {
+	if labels[crewLabelKey] != testAlpha {
 		t.Errorf("expected alpha, got %s", labels[crewLabelKey])
 	}
 }
@@ -92,7 +92,7 @@ func TestCrewBuildLabels_DifferentNames(t *testing.T) {
 		expectedGW   string
 		expectedCrew string
 	}{
-		{"homelab-pilot", "homelab-pilot-discussion", "homelab-pilot"},
+		{testCrewName, "homelab-pilot-discussion", testCrewName},
 		{"x", "x-discussion", "x"},
 	}
 	for _, tt := range tests {

@@ -23,7 +23,7 @@ func TestPercentileNearestRank(t *testing.T) {
 		p      int
 		want   int64
 	}{
-		{"empty", []int64{}, 50, 0},
+		{testEmpty, []int64{}, 50, 0},
 		{"single", []int64{42}, 50, 42},
 		{"single p0", []int64{42}, 0, 42},
 		{"single p100", []int64{42}, 100, 42},
@@ -70,9 +70,9 @@ func TestDurationStatsHandlesAllShapes(t *testing.T) {
 // Catches "we wrote bytes but they're not actually a valid XLSX" failures.
 func TestBuildFitnessSuiteXLSXProducesValidWorkbook(t *testing.T) {
 	suite := &kubemootv1alpha1.CrewFitnessSuite{
-		ObjectMeta: metav1.ObjectMeta{Name: "test-suite", Namespace: "crew-test"},
+		ObjectMeta: metav1.ObjectMeta{Name: "test-suite", Namespace: testCrewTest},
 		Spec: kubemootv1alpha1.CrewFitnessSuiteSpec{
-			CrewRef:    "homelab-pilot",
+			CrewRef:    testCrewName,
 			Iterations: 2,
 		},
 		Status: kubemootv1alpha1.CrewFitnessSuiteStatus{
@@ -83,17 +83,17 @@ func TestBuildFitnessSuiteXLSXProducesValidWorkbook(t *testing.T) {
 		},
 	}
 	results := []IterationResult{
-		{Scenario: "gpu-utilization", Iteration: 1, StartedAt: time.Date(2026, 5, 31, 12, 0, 0, 0, time.UTC),
+		{Scenario: testGPUUtilization, Iteration: 1, StartedAt: time.Date(2026, 5, 31, 12, 0, 0, 0, time.UTC),
 			DurationMs: 1500, Phase: kubemootv1alpha1.CrewFitnessPhasePassed, AssertionsPassed: 5, AssertionsTotal: 5},
-		{Scenario: "gpu-utilization", Iteration: 2, StartedAt: time.Date(2026, 5, 31, 12, 1, 0, 0, time.UTC),
+		{Scenario: testGPUUtilization, Iteration: 2, StartedAt: time.Date(2026, 5, 31, 12, 1, 0, 0, time.UTC),
 			DurationMs: 1700, Phase: kubemootv1alpha1.CrewFitnessPhasePassed, AssertionsPassed: 5, AssertionsTotal: 5},
-		{Scenario: "k8s-pod-status", Iteration: 1, StartedAt: time.Date(2026, 5, 31, 12, 2, 0, 0, time.UTC),
+		{Scenario: testK8sPodStatus, Iteration: 1, StartedAt: time.Date(2026, 5, 31, 12, 2, 0, 0, time.UTC),
 			DurationMs: 2100, Phase: kubemootv1alpha1.CrewFitnessPhaseFailed, AssertionsPassed: 4, AssertionsTotal: 5,
 			Assertions: []kubemootv1alpha1.AssertionResult{
-				{Raw: "synthesis is non-empty", Passed: true, Message: "ok"},
+				{Raw: testSynthesisNonEmpty, Passed: true, Message: "ok"},
 				{Raw: "at least 2 toolers contribute with signal=agree", Passed: false, Message: "1 agree (need 2)"},
 			}},
-		{Scenario: "k8s-pod-status", Iteration: 2, StartedAt: time.Date(2026, 5, 31, 12, 3, 0, 0, time.UTC),
+		{Scenario: testK8sPodStatus, Iteration: 2, StartedAt: time.Date(2026, 5, 31, 12, 3, 0, 0, time.UTC),
 			DurationMs: 2300, Phase: kubemootv1alpha1.CrewFitnessPhasePassed, AssertionsPassed: 5, AssertionsTotal: 5},
 	}
 
@@ -112,7 +112,7 @@ func TestBuildFitnessSuiteXLSXProducesValidWorkbook(t *testing.T) {
 	}
 	defer func() { _ = f.Close() }()
 
-	assertSheetsPresent(t, f, "Overview", "Runs")
+	assertSheetsPresent(t, f, "Overview", testSheetRuns)
 	assertRunsSheet(t, f)
 	assertScenariosSheet(t, f)
 	assertOverviewSheet(t, f)
@@ -130,8 +130,8 @@ func TestBuildFitnessSuiteXLSXProducesValidWorkbook(t *testing.T) {
 // FAILED scores factuality 50 (1 of 2 content facts) and fabricated=TRUE.
 func TestRunsSheetSurfacesFactualityAndFabrication(t *testing.T) {
 	suite := &kubemootv1alpha1.CrewFitnessSuite{
-		ObjectMeta: metav1.ObjectMeta{Name: "test-suite", Namespace: "crew-test"},
-		Spec:       kubemootv1alpha1.CrewFitnessSuiteSpec{CrewRef: "homelab-pilot", Iterations: 1},
+		ObjectMeta: metav1.ObjectMeta{Name: "test-suite", Namespace: testCrewTest},
+		Spec:       kubemootv1alpha1.CrewFitnessSuiteSpec{CrewRef: testCrewName, Iterations: 1},
 		Status:     kubemootv1alpha1.CrewFitnessSuiteStatus{RunID: "fab00001", Phase: kubemootv1alpha1.CrewFitnessSuitePhaseCompleted},
 	}
 	results := []IterationResult{
@@ -154,14 +154,14 @@ func TestRunsSheetSurfacesFactualityAndFabrication(t *testing.T) {
 
 	// factuality is styled "0.0", so match a "50" prefix (50 or 50.0): 1 of 2
 	// content facts passed (CONTAINS passed, NOT CONTAIN failed).
-	if v, _ := f.GetCellValue("Runs", "N2"); !strings.HasPrefix(v, "50") {
+	if v, _ := f.GetCellValue(testSheetRuns, "N2"); !strings.HasPrefix(v, "50") {
 		t.Errorf("Runs factuality N2 = %q, want ~50 (1 of 2 content facts passed)", v)
 	}
-	if v, _ := f.GetCellValue("Runs", "O2"); v != "TRUE" {
+	if v, _ := f.GetCellValue(testSheetRuns, "O2"); v != "TRUE" {
 		t.Errorf("Runs fabricated O2 = %q, want TRUE (a NOT CONTAIN forbidden fact failed)", v)
 	}
 	// Scenarios roll-up carries the same 50 factuality mean for the single run.
-	if v, _ := f.GetCellValue("Scenarios", "R2"); !strings.HasPrefix(v, "50") {
+	if v, _ := f.GetCellValue(testSheetScenarios, "R2"); !strings.HasPrefix(v, "50") {
 		t.Errorf("Scenarios factuality R2 = %q, want ~50", v)
 	}
 }
@@ -170,14 +170,14 @@ func TestRunsSheetSurfacesFactualityAndFabrication(t *testing.T) {
 // assertions leaves the factuality cell blank (not a misleading -1).
 func TestRunsSheetFactualityBlankWhenNoFacts(t *testing.T) {
 	suite := &kubemootv1alpha1.CrewFitnessSuite{
-		ObjectMeta: metav1.ObjectMeta{Name: "s", Namespace: "crew-test"},
-		Spec:       kubemootv1alpha1.CrewFitnessSuiteSpec{CrewRef: "homelab-pilot", Iterations: 1},
+		ObjectMeta: metav1.ObjectMeta{Name: "s", Namespace: testCrewTest},
+		Spec:       kubemootv1alpha1.CrewFitnessSuiteSpec{CrewRef: testCrewName, Iterations: 1},
 		Status:     kubemootv1alpha1.CrewFitnessSuiteStatus{RunID: "nofacts1", Phase: kubemootv1alpha1.CrewFitnessSuitePhaseCompleted},
 	}
 	results := []IterationResult{
 		{Scenario: "concept-only", Iteration: 1, Phase: kubemootv1alpha1.CrewFitnessPhasePassed,
 			AssertionsPassed: 1, AssertionsTotal: 1,
-			Assertions: []kubemootv1alpha1.AssertionResult{{Raw: "synthesis is non-empty", Passed: true}}},
+			Assertions: []kubemootv1alpha1.AssertionResult{{Raw: testSynthesisNonEmpty, Passed: true}}},
 	}
 	xlsxBytes, err := BuildFitnessSuiteXLSX(suite, results)
 	if err != nil {
@@ -188,10 +188,10 @@ func TestRunsSheetFactualityBlankWhenNoFacts(t *testing.T) {
 		t.Fatalf("failed to open generated XLSX: %v", err)
 	}
 	defer func() { _ = f.Close() }()
-	if v, _ := f.GetCellValue("Runs", "N2"); v != "" {
+	if v, _ := f.GetCellValue(testSheetRuns, "N2"); v != "" {
 		t.Errorf("Runs factuality N2 = %q, want blank (no facts authored)", v)
 	}
-	if v, _ := f.GetCellValue("Runs", "O2"); v != "FALSE" {
+	if v, _ := f.GetCellValue(testSheetRuns, "O2"); v != "FALSE" {
 		t.Errorf("Runs fabricated O2 = %q, want FALSE", v)
 	}
 }
@@ -235,11 +235,11 @@ func assertFormulaContains(t *testing.T, f *excelize.File, sheet, cell, substr s
 // assertRunsSheet checks the Runs sheet header + first data row.
 func assertRunsSheet(t *testing.T, f *excelize.File) {
 	t.Helper()
-	assertCellEquals(t, f, "Runs", "A1", "crew")
-	assertCellEquals(t, f, "Runs", "B2", "gpu-utilization")
-	assertCellEquals(t, f, "Runs", "C2", "abc12345")
-	assertCellEquals(t, f, "Runs", "N1", "factuality")
-	assertCellEquals(t, f, "Runs", "O1", "fabricated")
+	assertCellEquals(t, f, testSheetRuns, "A1", "crew")
+	assertCellEquals(t, f, testSheetRuns, "B2", testGPUUtilization)
+	assertCellEquals(t, f, testSheetRuns, "C2", "abc12345")
+	assertCellEquals(t, f, testSheetRuns, "N1", "factuality")
+	assertCellEquals(t, f, testSheetRuns, "O1", "fabricated")
 }
 
 // assertScenariosSheet checks the per-scenario table header + first row. The
@@ -247,11 +247,11 @@ func assertRunsSheet(t *testing.T, f *excelize.File) {
 // is empty until recalc; assert the formula instead.
 func assertScenariosSheet(t *testing.T, f *excelize.File) {
 	t.Helper()
-	assertCellEquals(t, f, "Scenarios", "A1", "scenario")
-	assertCellEquals(t, f, "Scenarios", "A2", "gpu-utilization")
-	assertFormulaContains(t, f, "Scenarios", "B2", "COUNTIF(Runs")
-	assertCellEquals(t, f, "Scenarios", "R1", "factuality")
-	assertCellEquals(t, f, "Scenarios", "S1", "fabrication_pct")
+	assertCellEquals(t, f, testSheetScenarios, "A1", "scenario")
+	assertCellEquals(t, f, testSheetScenarios, "A2", testGPUUtilization)
+	assertFormulaContains(t, f, testSheetScenarios, "B2", "COUNTIF(Runs")
+	assertCellEquals(t, f, testSheetScenarios, "R1", "factuality")
+	assertCellEquals(t, f, testSheetScenarios, "S1", "fabrication_pct")
 }
 
 // overviewHasMetaLabel reports whether a human-readable metadata label
@@ -319,7 +319,7 @@ func assertAssertionsSheet(t *testing.T, f *excelize.File) {
 func assertFailuresSheet(t *testing.T, f *excelize.File) {
 	t.Helper()
 	assertCellEquals(t, f, "Failures", "A1", "scenario")
-	assertCellEquals(t, f, "Failures", "A2", "k8s-pod-status")
+	assertCellEquals(t, f, "Failures", "A2", testK8sPodStatus)
 	assertCellEquals(t, f, "Failures", "C2", "1")
 	assertCellEquals(t, f, "Failures", "D2", "1")
 }
@@ -332,14 +332,14 @@ func itoa(n int) string { return fmt.Sprintf("%d", n) }
 // natural order.
 func TestBuildFitnessSuiteXLSXEmbedsChartsAndPassRate(t *testing.T) {
 	suite := &kubemootv1alpha1.CrewFitnessSuite{
-		ObjectMeta: metav1.ObjectMeta{Name: "chart-suite", Namespace: "crew-test"},
-		Spec:       kubemootv1alpha1.CrewFitnessSuiteSpec{CrewRef: "homelab-pilot", Iterations: 2},
-		Status:     kubemootv1alpha1.CrewFitnessSuiteStatus{RunID: "deadbeef", Phase: kubemootv1alpha1.CrewFitnessSuitePhaseCompleted},
+		ObjectMeta: metav1.ObjectMeta{Name: "chart-suite", Namespace: testCrewTest},
+		Spec:       kubemootv1alpha1.CrewFitnessSuiteSpec{CrewRef: testCrewName, Iterations: 2},
+		Status:     kubemootv1alpha1.CrewFitnessSuiteStatus{RunID: testDeadbeef, Phase: kubemootv1alpha1.CrewFitnessSuitePhaseCompleted},
 	}
 	// gpu-utilization: 1 passed of 2 → pass_rate 0.5.
 	results := []IterationResult{
-		{Scenario: "gpu-utilization", Iteration: 1, DurationMs: 1500, Phase: kubemootv1alpha1.CrewFitnessPhasePassed},
-		{Scenario: "gpu-utilization", Iteration: 2, DurationMs: 1700, Phase: kubemootv1alpha1.CrewFitnessPhaseFailed},
+		{Scenario: testGPUUtilization, Iteration: 1, DurationMs: 1500, Phase: kubemootv1alpha1.CrewFitnessPhasePassed},
+		{Scenario: testGPUUtilization, Iteration: 2, DurationMs: 1700, Phase: kubemootv1alpha1.CrewFitnessPhaseFailed},
 	}
 
 	b, err := BuildFitnessSuiteXLSX(suite, results)
@@ -356,16 +356,16 @@ func TestBuildFitnessSuiteXLSXEmbedsChartsAndPassRate(t *testing.T) {
 	// propagate out of the build). "Quality" is the judgment counterpart to
 	// "Duration"; its presence means AddChart over the quality/grade columns
 	// succeeded (AddChart errors abort the build).
-	assertSheetsPresent(t, f, "Pass Rate", "Duration", "Quality", "Scenarios")
+	assertSheetsPresent(t, f, "Pass Rate", "Duration", "Quality", testSheetScenarios)
 
 	// pass_rate is a live formula on the Scenarios sheet.
-	assertCellEquals(t, f, "Scenarios", "I1", "pass_rate")
-	assertFormulaContains(t, f, "Scenarios", "I2", "C2/B2")
+	assertCellEquals(t, f, testSheetScenarios, "I1", "pass_rate")
+	assertFormulaContains(t, f, testSheetScenarios, "I2", "C2/B2")
 	// Verify the formulas actually compute (excelize's calc engine resolves the
 	// chain): 1 passed of 2 → sample_count 2, pass_rate 0.5 (displayed "50.00%"
 	// because pass_rate is percent-formatted).
-	assertComputedCell(t, f, "Scenarios", "B2", "2")
-	assertComputedCell(t, f, "Scenarios", "I2", "50.00%")
+	assertComputedCell(t, f, testSheetScenarios, "B2", "2")
+	assertComputedCell(t, f, testSheetScenarios, "I2", "50.00%")
 }
 
 // assertComputedCell fails unless the recalculated cell value matches want. A
@@ -391,7 +391,7 @@ func TestHarvestIterationResultsOrdersByScenarioThenIteration(t *testing.T) {
 			},
 		},
 		{
-			Spec: kubemootv1alpha1.CrewFitnessSpec{TestRef: "a-scenario"},
+			Spec: kubemootv1alpha1.CrewFitnessSpec{TestRef: testScenarioA},
 			ObjectMeta: metav1.ObjectMeta{
 				Labels: map[string]string{suiteIterationIndexLabel: "1"},
 			},
@@ -401,7 +401,7 @@ func TestHarvestIterationResultsOrdersByScenarioThenIteration(t *testing.T) {
 			},
 		},
 		{
-			Spec: kubemootv1alpha1.CrewFitnessSpec{TestRef: "a-scenario"},
+			Spec: kubemootv1alpha1.CrewFitnessSpec{TestRef: testScenarioA},
 			ObjectMeta: metav1.ObjectMeta{
 				Labels: map[string]string{suiteIterationIndexLabel: "2"},
 			},
@@ -416,10 +416,10 @@ func TestHarvestIterationResultsOrdersByScenarioThenIteration(t *testing.T) {
 		t.Fatalf("got %d results, want 3", len(got))
 	}
 	// Expect a-scenario first (iter 1, then iter 2), then z-scenario.
-	if got[0].Scenario != "a-scenario" || got[0].Iteration != 1 {
+	if got[0].Scenario != testScenarioA || got[0].Iteration != 1 {
 		t.Errorf("results[0]: got (%q, %d), want (a-scenario, 1)", got[0].Scenario, got[0].Iteration)
 	}
-	if got[1].Scenario != "a-scenario" || got[1].Iteration != 2 {
+	if got[1].Scenario != testScenarioA || got[1].Iteration != 2 {
 		t.Errorf("results[1]: got (%q, %d), want (a-scenario, 2)", got[1].Scenario, got[1].Iteration)
 	}
 	if got[2].Scenario != "z-scenario" || got[2].Iteration != 2 {
@@ -433,10 +433,10 @@ func TestHarvestIterationResultsOrdersByScenarioThenIteration(t *testing.T) {
 func TestOverviewIncludesCrewVersion(t *testing.T) {
 	suite := &kubemootv1alpha1.CrewFitnessSuite{
 		ObjectMeta: metav1.ObjectMeta{
-			Name: "ver-suite", Namespace: "crew-test",
-			Labels: map[string]string{crewVersionLabel: "1.4.2"},
+			Name: "ver-suite", Namespace: testCrewTest,
+			Labels: map[string]string{crewVersionLabel: testVersion142},
 		},
-		Spec:   kubemootv1alpha1.CrewFitnessSuiteSpec{CrewRef: "homelab-pilot", Iterations: 1},
+		Spec:   kubemootv1alpha1.CrewFitnessSuiteSpec{CrewRef: testCrewName, Iterations: 1},
 		Status: kubemootv1alpha1.CrewFitnessSuiteStatus{RunID: "r1", Phase: kubemootv1alpha1.CrewFitnessSuitePhaseCompleted},
 	}
 	results := []IterationResult{
@@ -459,7 +459,7 @@ func TestOverviewIncludesCrewVersion(t *testing.T) {
 	found := false
 	for _, row := range rows {
 		if len(row) >= 2 && row[0] == "Crew version" {
-			if row[1] != "1.4.2" {
+			if row[1] != testVersion142 {
 				t.Fatalf("Crew version cell = %q, want 1.4.2", row[1])
 			}
 			found = true
@@ -543,8 +543,8 @@ func TestWriteAssertionRows(t *testing.T) {
 			}},
 			[][]any{{"s1", int32(2), "ASSERT a", true, "ok"}, {"s1", int32(2), "ASSERT b", false, "nope"}}},
 		{"no assertions surfaces the error",
-			IterationResult{Scenario: "s2", Iteration: 5, Error: "boom"},
-			[][]any{{"s2", int32(5), "(none)", false, "boom"}}},
+			IterationResult{Scenario: "s2", Iteration: 5, Error: testBoom},
+			[][]any{{"s2", int32(5), "(none)", false, testBoom}}},
 		{"no assertions and no error uses placeholder",
 			IterationResult{Scenario: "s3", Iteration: 1},
 			[][]any{{"s3", int32(1), "(none)", false, "(no assertions recorded)"}}},

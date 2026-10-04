@@ -40,13 +40,13 @@ func TestCSPEnqueueScopesToCrew(t *testing.T) {
 		t.Fatalf("add scheme: %v", err)
 	}
 	cli := fake.NewClientBuilder().WithScheme(scheme).WithObjects(
-		mkAgent("coordinator", "crew-x", "x"),
-		mkAgent("k8s", "crew-x", "x"),
-		mkAgent("other", "crew-x", "y"),
+		mkAgent(testRoleCoordinator, testCrewNamespace, "x"),
+		mkAgent(testK8s, testCrewNamespace, "x"),
+		mkAgent(testOther, testCrewNamespace, "y"),
 	).Build()
 
 	got := mapCSPToAgentRequests(context.Background(), cli, &kubemootv1alpha1.CrewSchedulingPolicy{
-		ObjectMeta: metav1.ObjectMeta{Name: "x-scheduling", Namespace: "crew-x"},
+		ObjectMeta: metav1.ObjectMeta{Name: "x-scheduling", Namespace: testCrewNamespace},
 		Spec:       kubemootv1alpha1.CrewSchedulingPolicySpec{CrewRef: "x"},
 	})
 	names := make([]string, 0, len(got))
@@ -54,18 +54,18 @@ func TestCSPEnqueueScopesToCrew(t *testing.T) {
 		names = append(names, r.Name)
 	}
 	sort.Strings(names)
-	if len(names) != 2 || names[0] != "coordinator" || names[1] != "k8s" {
+	if len(names) != 2 || names[0] != testRoleCoordinator || names[1] != testK8s {
 		t.Errorf("expected [coordinator k8s] (crew x only), got %v", names)
 	}
 
 	// Non-CSP object → no requests.
-	if reqs := mapCSPToAgentRequests(context.Background(), cli, mkAgent("a", "crew-x", "x")); reqs != nil {
+	if reqs := mapCSPToAgentRequests(context.Background(), cli, mkAgent("a", testCrewNamespace, "x")); reqs != nil {
 		t.Errorf("non-CSP object should enqueue nothing, got %v", reqs)
 	}
 
 	// Empty crewRef → all agents in the namespace.
 	all := mapCSPToAgentRequests(context.Background(), cli, &kubemootv1alpha1.CrewSchedulingPolicy{
-		ObjectMeta: metav1.ObjectMeta{Name: "all", Namespace: "crew-x"},
+		ObjectMeta: metav1.ObjectMeta{Name: "all", Namespace: testCrewNamespace},
 		Spec:       kubemootv1alpha1.CrewSchedulingPolicySpec{CrewRef: ""},
 	})
 	if len(all) != 3 {

@@ -108,13 +108,13 @@ func TestBuildMCPServerContainer_WithCommandAndArgs(t *testing.T) {
 	mcpServer := &kubemootv1alpha1.MCPServer{
 		Spec: kubemootv1alpha1.MCPServerSpec{
 			Image:   "node:20-alpine",
-			Command: []string{"npx"},
+			Command: []string{testNpx},
 			Args:    []string{"-y", "some-package"},
 		},
 	}
 	c := buildMCPServerContainer(mcpServer, 8080)
 
-	if len(c.Command) != 1 || c.Command[0] != "npx" {
+	if len(c.Command) != 1 || c.Command[0] != testNpx {
 		t.Errorf("expected command [npx], got %v", c.Command)
 	}
 	if len(c.Args) != 2 || c.Args[0] != "-y" {
@@ -126,7 +126,7 @@ func TestBuildMCPServerContainer_WithSecretRef(t *testing.T) {
 	mcpServer := &kubemootv1alpha1.MCPServer{
 		Spec: kubemootv1alpha1.MCPServerSpec{
 			Image:     "example:v1",
-			SecretRef: "my-secret",
+			SecretRef: testSecretName,
 		},
 	}
 	c := buildMCPServerContainer(mcpServer, 3000)
@@ -134,7 +134,7 @@ func TestBuildMCPServerContainer_WithSecretRef(t *testing.T) {
 	if len(c.EnvFrom) != 1 {
 		t.Fatalf("expected 1 envFrom, got %d", len(c.EnvFrom))
 	}
-	if c.EnvFrom[0].SecretRef.Name != "my-secret" {
+	if c.EnvFrom[0].SecretRef.Name != testSecretName {
 		t.Errorf("expected secret ref my-secret, got %s", c.EnvFrom[0].SecretRef.Name)
 	}
 }
@@ -160,8 +160,8 @@ func TestBuildMCPServerContainer_WithCustomResources(t *testing.T) {
 func TestApplyMCPServerProbes_HTTPHealthPath(t *testing.T) {
 	mcpServer := &kubemootv1alpha1.MCPServer{
 		Spec: kubemootv1alpha1.MCPServerSpec{
-			Transport:  "http",
-			HealthPath: "/health",
+			Transport:  testHTTP,
+			HealthPath: testPathHealth,
 		},
 	}
 	c := &corev1.Container{}
@@ -173,14 +173,14 @@ func TestApplyMCPServerProbes_HTTPHealthPath(t *testing.T) {
 	if c.LivenessProbe.HTTPGet == nil {
 		t.Fatal("expected HTTP liveness probe")
 	}
-	if c.LivenessProbe.HTTPGet.Path != "/health" {
+	if c.LivenessProbe.HTTPGet.Path != testPathHealth {
 		t.Errorf("expected /health, got %s", c.LivenessProbe.HTTPGet.Path)
 	}
 	if c.ReadinessProbe == nil || c.ReadinessProbe.HTTPGet == nil {
 		t.Fatal("expected HTTP readiness probe")
 	}
 	// readiness should default to health path when readiness not specified
-	if c.ReadinessProbe.HTTPGet.Path != "/health" {
+	if c.ReadinessProbe.HTTPGet.Path != testPathHealth {
 		t.Errorf("expected /health for readiness, got %s", c.ReadinessProbe.HTTPGet.Path)
 	}
 }
@@ -188,8 +188,8 @@ func TestApplyMCPServerProbes_HTTPHealthPath(t *testing.T) {
 func TestApplyMCPServerProbes_CustomReadinessPath(t *testing.T) {
 	mcpServer := &kubemootv1alpha1.MCPServer{
 		Spec: kubemootv1alpha1.MCPServerSpec{
-			Transport:     "sse",
-			HealthPath:    "/health",
+			Transport:     testSSE,
+			HealthPath:    testPathHealth,
 			ReadinessPath: "/ready",
 		},
 	}
@@ -204,7 +204,7 @@ func TestApplyMCPServerProbes_CustomReadinessPath(t *testing.T) {
 func TestApplyMCPServerProbes_NoHealthPath_TCP(t *testing.T) {
 	mcpServer := &kubemootv1alpha1.MCPServer{
 		Spec: kubemootv1alpha1.MCPServerSpec{
-			Transport: "http",
+			Transport: testHTTP,
 		},
 	}
 	c := &corev1.Container{}
@@ -222,7 +222,7 @@ func TestApplyMCPServerProbes_Stdio_NoProbes(t *testing.T) {
 	mcpServer := &kubemootv1alpha1.MCPServer{
 		Spec: kubemootv1alpha1.MCPServerSpec{
 			Transport:  kubemootv1alpha1.TransportStdio,
-			HealthPath: "/health",
+			HealthPath: testPathHealth,
 		},
 	}
 	c := &corev1.Container{}
@@ -285,7 +285,7 @@ func TestBuildMCPServerVolumes_SecretVolumes(t *testing.T) {
 	mcpServer := &kubemootv1alpha1.MCPServer{
 		Spec: kubemootv1alpha1.MCPServerSpec{
 			SecretVolumes: []kubemootv1alpha1.SecretVolume{
-				{Name: "my-secret", MountPath: "/etc/config", SubPath: "config.yaml", ReadOnly: &readOnly},
+				{Name: testSecretName, MountPath: "/etc/config", SubPath: "config.yaml", ReadOnly: &readOnly},
 				{Name: "other-secret", MountPath: "/etc/other"},
 			},
 		},
@@ -294,7 +294,7 @@ func TestBuildMCPServerVolumes_SecretVolumes(t *testing.T) {
 	if len(vols) != 2 || len(mounts) != 2 {
 		t.Fatalf("expected 2 volumes, got %d vols, %d mounts", len(vols), len(mounts))
 	}
-	if vols[0].Secret.SecretName != "my-secret" {
+	if vols[0].Secret.SecretName != testSecretName {
 		t.Errorf("expected my-secret, got %s", vols[0].Secret.SecretName)
 	}
 	if mounts[0].SubPath != "config.yaml" {
@@ -345,7 +345,7 @@ func TestBuildMCPServerEndpoint_LongName(t *testing.T) {
 			Namespace: "crew-homelab-pilot-prose",
 		},
 		Spec: kubemootv1alpha1.MCPServerSpec{
-			Transport: "http",
+			Transport: testHTTP,
 			Port:      9090,
 		},
 	}
@@ -363,15 +363,15 @@ func TestBuildMCPServerEndpoint_HTTPTransport(t *testing.T) {
 	mcpServer := &kubemootv1alpha1.MCPServer{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "my-server",
-			Namespace: "kubemoot",
+			Namespace: testKubemoot,
 		},
 		Spec: kubemootv1alpha1.MCPServerSpec{
-			Transport: "http",
+			Transport: testHTTP,
 			Port:      9090,
 		},
 	}
 	endpoint := buildMCPServerEndpoint(mcpServer)
-	expected := fmt.Sprintf(svcEndpointFmt, "my-server", "kubemoot", int32(9090))
+	expected := fmt.Sprintf(svcEndpointFmt, "my-server", testKubemoot, int32(9090))
 	if endpoint != expected {
 		t.Errorf("expected %s, got %s", expected, endpoint)
 	}
@@ -381,14 +381,14 @@ func TestBuildMCPServerEndpoint_DefaultPort(t *testing.T) {
 	mcpServer := &kubemootv1alpha1.MCPServer{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "my-server",
-			Namespace: "default",
+			Namespace: testDefault,
 		},
 		Spec: kubemootv1alpha1.MCPServerSpec{
-			Transport: "sse",
+			Transport: testSSE,
 		},
 	}
 	endpoint := buildMCPServerEndpoint(mcpServer)
-	expected := fmt.Sprintf(svcEndpointFmt, "my-server", "default", int32(3000))
+	expected := fmt.Sprintf(svcEndpointFmt, "my-server", testDefault, int32(3000))
 	if endpoint != expected {
 		t.Errorf("expected %s, got %s", expected, endpoint)
 	}
@@ -398,7 +398,7 @@ func TestBuildMCPServerEndpoint_Stdio_ProxyEnabled(t *testing.T) {
 	mcpServer := &kubemootv1alpha1.MCPServer{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "stdio-server",
-			Namespace: "kubemoot",
+			Namespace: testKubemoot,
 		},
 		Spec: kubemootv1alpha1.MCPServerSpec{
 			Transport: kubemootv1alpha1.TransportStdio,
@@ -406,7 +406,7 @@ func TestBuildMCPServerEndpoint_Stdio_ProxyEnabled(t *testing.T) {
 	}
 	endpoint := buildMCPServerEndpoint(mcpServer)
 	// Default proxy port is 8080
-	expected := fmt.Sprintf(svcEndpointFmt, "stdio-server", "kubemoot", int32(8080))
+	expected := fmt.Sprintf(svcEndpointFmt, "stdio-server", testKubemoot, int32(8080))
 	if endpoint != expected {
 		t.Errorf("expected %s, got %s", expected, endpoint)
 	}
@@ -417,7 +417,7 @@ func TestBuildMCPServerEndpoint_Stdio_ProxyDisabled(t *testing.T) {
 	mcpServer := &kubemootv1alpha1.MCPServer{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "stdio-server",
-			Namespace: "kubemoot",
+			Namespace: testKubemoot,
 		},
 		Spec: kubemootv1alpha1.MCPServerSpec{
 			Transport: kubemootv1alpha1.TransportStdio,
@@ -481,7 +481,7 @@ func TestBuildUserSidecars(t *testing.T) {
 	ms := &kubemootv1alpha1.MCPServer{
 		Spec: kubemootv1alpha1.MCPServerSpec{
 			Sidecars: []corev1.Container{
-				{Name: "artifact-access", Image: "img:1", VolumeMounts: []corev1.VolumeMount{{Name: "artifacts", MountPath: "/artifacts"}}},
+				{Name: "artifact-access", Image: "img:1", VolumeMounts: []corev1.VolumeMount{{Name: "artifacts", MountPath: testArtifactsDir}}},
 			},
 		},
 	}
@@ -506,7 +506,7 @@ func TestBuildUserSidecars_SharesEmptyDir(t *testing.T) {
 	// path the main container sees (EmptyDirVolume has no user-settable name).
 	ms := &kubemootv1alpha1.MCPServer{
 		Spec: kubemootv1alpha1.MCPServerSpec{
-			EmptyDirVolumes: []kubemootv1alpha1.EmptyDirVolume{{MountPath: "/artifacts", SizeLimit: "256Mi"}},
+			EmptyDirVolumes: []kubemootv1alpha1.EmptyDirVolume{{MountPath: testArtifactsDir, SizeLimit: "256Mi"}},
 			Sidecars:        []corev1.Container{{Name: "materializer", Image: "img"}},
 		},
 	}
@@ -515,7 +515,7 @@ func TestBuildUserSidecars_SharesEmptyDir(t *testing.T) {
 		t.Fatalf("expected the emptyDir auto-mounted into the sidecar, got %+v", got)
 	}
 	vm := got[0].VolumeMounts[0]
-	if vm.Name != "empty-vol-0" || vm.MountPath != "/artifacts" {
+	if vm.Name != "empty-vol-0" || vm.MountPath != testArtifactsDir {
 		t.Fatalf("expected empty-vol-0 at /artifacts, got %+v", vm)
 	}
 }

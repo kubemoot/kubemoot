@@ -33,7 +33,7 @@ func childCR(name, suite string) *kubemootv1alpha1.CrewFitness {
 	return &kubemootv1alpha1.CrewFitness{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
-			Namespace: "crew-test",
+			Namespace: testCrewTest,
 			Labels:    map[string]string{suiteOwnerLabel: suite},
 		},
 	}
@@ -45,18 +45,18 @@ func childCR(name, suite string) *kubemootv1alpha1.CrewFitness {
 // children or unrelated CrewFitness CRs.
 func TestReapChildrenDeletesOnlyOwnedChildren(t *testing.T) {
 	scheme := reapScheme(t)
-	ours1 := childCR("run-abc-s0-i1", "baseline")
-	ours2 := childCR("run-abc-s0-i2", "baseline")
+	ours1 := childCR("run-abc-s0-i1", testBaseline)
+	ours2 := childCR("run-abc-s0-i2", testBaseline)
 	other := childCR("run-xyz-s0-i1", "other-suite")                     // different suite
 	bare := &kubemootv1alpha1.CrewFitness{ObjectMeta: metav1.ObjectMeta{ // no suite label
-		Name: "standalone", Namespace: "crew-test"}}
+		Name: "standalone", Namespace: testCrewTest}}
 
 	cli := fake.NewClientBuilder().WithScheme(scheme).
 		WithObjects(ours1, ours2, other, bare).Build()
 	r := &CrewFitnessSuiteReconciler{Client: cli, Scheme: scheme}
 
 	suite := &kubemootv1alpha1.CrewFitnessSuite{
-		ObjectMeta: metav1.ObjectMeta{Name: "baseline", Namespace: "crew-test"},
+		ObjectMeta: metav1.ObjectMeta{Name: testBaseline, Namespace: testCrewTest},
 	}
 	if err := r.reapChildren(context.Background(), suite); err != nil {
 		t.Fatalf("reapChildren: %v", err)
@@ -89,7 +89,7 @@ func TestReapChildrenIdempotent(t *testing.T) {
 	cli := fake.NewClientBuilder().WithScheme(scheme).Build()
 	r := &CrewFitnessSuiteReconciler{Client: cli, Scheme: scheme}
 	suite := &kubemootv1alpha1.CrewFitnessSuite{
-		ObjectMeta: metav1.ObjectMeta{Name: "baseline", Namespace: "crew-test"},
+		ObjectMeta: metav1.ObjectMeta{Name: testBaseline, Namespace: testCrewTest},
 	}
 	if err := r.reapChildren(context.Background(), suite); err != nil {
 		t.Fatalf("reap on empty must be a no-op, got: %v", err)
@@ -147,12 +147,12 @@ func TestTerminalUpkeepActionNeverReapsWhileJudging(t *testing.T) {
 // destroying data when the artifact can't be written.
 func TestTerminalUpkeepKeepsChildrenUntilArtifactWritten(t *testing.T) {
 	scheme := reapScheme(t)
-	ch := childCR("run-abc-s0-i1", "baseline")
+	ch := childCR("run-abc-s0-i1", testBaseline)
 	cli := fake.NewClientBuilder().WithScheme(scheme).WithObjects(ch).Build()
 	// NATSPublisher nil → writeArtifact yields (nil, nil) → no artifactRef.
 	r := &CrewFitnessSuiteReconciler{Client: cli, Scheme: scheme}
 	suite := &kubemootv1alpha1.CrewFitnessSuite{
-		ObjectMeta: metav1.ObjectMeta{Name: "baseline", Namespace: "crew-test"},
+		ObjectMeta: metav1.ObjectMeta{Name: testBaseline, Namespace: testCrewTest},
 		Status:     kubemootv1alpha1.CrewFitnessSuiteStatus{Phase: kubemootv1alpha1.CrewFitnessSuitePhaseCompleted},
 	}
 	if _, err := r.terminalUpkeep(context.Background(), suite); err != nil {

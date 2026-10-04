@@ -45,7 +45,7 @@ func TestMCPGatewayReconcile_CreatesDeploymentAndService(t *testing.T) {
 	ctx := context.Background()
 	scheme := gatewayScheme(t)
 	gw := &kubemootv1alpha1.MCPGateway{
-		ObjectMeta: metav1.ObjectMeta{Name: "gw1", Namespace: "ns1"},
+		ObjectMeta: metav1.ObjectMeta{Name: testGateway1, Namespace: testNS1},
 		Spec: kubemootv1alpha1.MCPGatewaySpec{
 			Implementation: kubemootv1alpha1.ImplementationKubemoot,
 			Port:           8080,
@@ -54,7 +54,7 @@ func TestMCPGatewayReconcile_CreatesDeploymentAndService(t *testing.T) {
 	cli := fake.NewClientBuilder().WithScheme(scheme).
 		WithObjects(gw).WithStatusSubresource(gw).Build()
 	r := &MCPGatewayReconciler{Client: cli, Scheme: scheme, ConfigCache: NewConfigCache()}
-	req := ctrl.Request{NamespacedName: types.NamespacedName{Name: "gw1", Namespace: "ns1"}}
+	req := ctrl.Request{NamespacedName: types.NamespacedName{Name: testGateway1, Namespace: testNS1}}
 
 	res, err := r.Reconcile(ctx, req)
 	if err != nil {
@@ -68,12 +68,12 @@ func TestMCPGatewayReconcile_CreatesDeploymentAndService(t *testing.T) {
 		t.Fatalf("second reconcile: %v", err)
 	}
 
-	name := types.NamespacedName{Name: "gw1", Namespace: "ns1"}
+	name := types.NamespacedName{Name: testGateway1, Namespace: testNS1}
 	dep := &appsv1.Deployment{}
 	if err := cli.Get(ctx, name, dep); err != nil {
 		t.Fatalf("expected the gateway Deployment to be created: %v", err)
 	}
-	if len(dep.OwnerReferences) == 0 || dep.OwnerReferences[0].Name != "gw1" {
+	if len(dep.OwnerReferences) == 0 || dep.OwnerReferences[0].Name != testGateway1 {
 		t.Errorf("expected a gateway owner reference on the Deployment, got %v", dep.OwnerReferences)
 	}
 	if err := cli.Get(ctx, name, &corev1.Service{}); err != nil {
@@ -87,7 +87,7 @@ func TestMCPGatewayReconcile_NotFoundIsNoOp(t *testing.T) {
 	cli := fake.NewClientBuilder().WithScheme(scheme).Build()
 	r := &MCPGatewayReconciler{Client: cli, Scheme: scheme, ConfigCache: NewConfigCache()}
 	if _, err := r.Reconcile(context.Background(), ctrl.Request{
-		NamespacedName: types.NamespacedName{Name: "absent", Namespace: "ns1"},
+		NamespacedName: types.NamespacedName{Name: testAbsent, Namespace: testNS1},
 	}); err != nil {
 		t.Errorf("reconcile of an absent gateway must be a no-op, got %v", err)
 	}

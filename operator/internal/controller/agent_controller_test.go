@@ -69,7 +69,7 @@ func TestProviderScore(t *testing.T) {
 		{"mulling adds light-rig weight", phaseMulling, withWeight(25), 25},
 		{"triage inverts heavy-rig weight", phaseTriage, withWeight(100), -100},
 		{"triage inverts light-rig weight", phaseTriage, withWeight(25), -25},
-		{"unknown phase contributes 0", "synthesis", withWeight(100), 0},
+		{"unknown phase contributes 0", testSynthesis, withWeight(100), 0},
 		{"zero weight contributes 0", phaseMulling, withWeight(0), 0},
 	}
 	for _, tc := range tests {
@@ -101,7 +101,7 @@ func TestFindCrewGateway(t *testing.T) {
 	t.Run("no gateway gives ok=false", func(t *testing.T) {
 		cli := fake.NewClientBuilder().WithScheme(scheme).Build()
 		r := &AgentReconciler{Client: cli}
-		name, port, ok := r.findCrewGateway(context.Background(), "crew-x")
+		name, port, ok := r.findCrewGateway(context.Background(), testCrewNamespace)
 		if ok {
 			t.Errorf("expected ok=false, got name=%q port=%d", name, port)
 		}
@@ -109,9 +109,9 @@ func TestFindCrewGateway(t *testing.T) {
 
 	t.Run("one gateway with explicit port", func(t *testing.T) {
 		cli := fake.NewClientBuilder().WithScheme(scheme).
-			WithObjects(mkGw("crew-x", "x-gateway", 9090)).Build()
+			WithObjects(mkGw(testCrewNamespace, "x-gateway", 9090)).Build()
 		r := &AgentReconciler{Client: cli}
-		name, port, ok := r.findCrewGateway(context.Background(), "crew-x")
+		name, port, ok := r.findCrewGateway(context.Background(), testCrewNamespace)
 		if !ok || name != "x-gateway" || port != 9090 {
 			t.Errorf("got name=%q port=%d ok=%v; want x-gateway/9090/true", name, port, ok)
 		}
@@ -119,9 +119,9 @@ func TestFindCrewGateway(t *testing.T) {
 
 	t.Run("default port when spec.port is zero", func(t *testing.T) {
 		cli := fake.NewClientBuilder().WithScheme(scheme).
-			WithObjects(mkGw("crew-x", "x-gateway", 0)).Build()
+			WithObjects(mkGw(testCrewNamespace, "x-gateway", 0)).Build()
 		r := &AgentReconciler{Client: cli}
-		_, port, ok := r.findCrewGateway(context.Background(), "crew-x")
+		_, port, ok := r.findCrewGateway(context.Background(), testCrewNamespace)
 		if !ok || port != 8080 {
 			t.Errorf("port: got %d ok=%v; want 8080/true", port, ok)
 		}
@@ -130,7 +130,7 @@ func TestFindCrewGateway(t *testing.T) {
 	t.Run("scoped to namespace", func(t *testing.T) {
 		cli := fake.NewClientBuilder().WithScheme(scheme).
 			WithObjects(
-				mkGw("crew-x", "x-gateway", 8080),
+				mkGw(testCrewNamespace, "x-gateway", 8080),
 				mkGw("crew-y", "y-gateway", 8080),
 			).Build()
 		r := &AgentReconciler{Client: cli}
@@ -141,27 +141,27 @@ func TestFindCrewGateway(t *testing.T) {
 	})
 
 	t.Run("several gateways: first by name, terminating skipped", func(t *testing.T) {
-		dying := mkGw("crew-x", "a-gateway", 8080)
+		dying := mkGw(testCrewNamespace, "a-gateway", 8080)
 		now := metav1.Now()
 		dying.DeletionTimestamp = &now
 		dying.Finalizers = []string{mcpGatewayFinalizer}
 		cli := fake.NewClientBuilder().WithScheme(scheme).
-			WithObjects(mkGw("crew-x", "c-gateway", 8080), dying, mkGw("crew-x", "b-gateway", 9090)).Build()
+			WithObjects(mkGw(testCrewNamespace, "c-gateway", 8080), dying, mkGw(testCrewNamespace, "b-gateway", 9090)).Build()
 		r := &AgentReconciler{Client: cli}
-		name, port, ok := r.findCrewGateway(context.Background(), "crew-x")
+		name, port, ok := r.findCrewGateway(context.Background(), testCrewNamespace)
 		if !ok || name != "b-gateway" || port != 9090 {
 			t.Errorf("got name=%q port=%d ok=%v; want b-gateway/9090/true", name, port, ok)
 		}
 	})
 
 	t.Run("only a terminating gateway gives ok=false", func(t *testing.T) {
-		dying := mkGw("crew-x", "x-gateway", 8080)
+		dying := mkGw(testCrewNamespace, "x-gateway", 8080)
 		now := metav1.Now()
 		dying.DeletionTimestamp = &now
 		dying.Finalizers = []string{mcpGatewayFinalizer}
 		cli := fake.NewClientBuilder().WithScheme(scheme).WithObjects(dying).Build()
 		r := &AgentReconciler{Client: cli}
-		if name, _, ok := r.findCrewGateway(context.Background(), "crew-x"); ok {
+		if name, _, ok := r.findCrewGateway(context.Background(), testCrewNamespace); ok {
 			t.Errorf("a terminating gateway must not be wired; got %q", name)
 		}
 	})
@@ -311,10 +311,10 @@ func TestShouldBinPackByRole(t *testing.T) {
 		}
 		return a
 	}
-	if shouldBinPack(mkAgent("coordinator")) {
+	if shouldBinPack(mkAgent(testRoleCoordinator)) {
 		t.Error("coordinator role should skip bin-pack penalty")
 	}
-	if !shouldBinPack(mkAgent("tooler")) {
+	if !shouldBinPack(mkAgent(testRoleTooler)) {
 		t.Error("tooler role should apply bin-pack penalty")
 	}
 	if !shouldBinPack(mkAgent("")) {
@@ -380,58 +380,58 @@ func TestApplyStickyAntiOscillation(t *testing.T) {
 	// previously under-loaded → many agents flipped to it. Now MP counts
 	// caught up; ollama-gpu (heavier base weight) now scores slightly
 	// better. WITHOUT sticky, agent flips back. WITH sticky, agent stays.
-	gpuBest := mkCand("ollama-gpu", 40)
-	rig1Current := mkCand("ollama-rig1", 30) // 10 points behind; within hysteresis
+	gpuBest := mkCand(testOllamaGPU, 40)
+	rig1Current := mkCand(testOllamaRig1, 30) // 10 points behind; within hysteresis
 	feasible := []scheduleCandidate{gpuBest, rig1Current}
 
-	got := applySticky(gpuBest, feasible, "ollama-rig1")
-	if got.provider.Name != "ollama-rig1" {
+	got := applySticky(gpuBest, feasible, testOllamaRig1)
+	if got.provider.Name != testOllamaRig1 {
 		t.Errorf("within hysteresis: should stick to current ollama-rig1, got %s", got.provider.Name)
 	}
 
 	// Alternative wins by MORE than hysteresis → flip is justified.
-	gpuStrong := mkCand("ollama-gpu", 100)
-	rig1Weak := mkCand("ollama-rig1", 30) // 70 points behind; beyond hysteresis
-	got = applySticky(gpuStrong, []scheduleCandidate{gpuStrong, rig1Weak}, "ollama-rig1")
-	if got.provider.Name != "ollama-gpu" {
+	gpuStrong := mkCand(testOllamaGPU, 100)
+	rig1Weak := mkCand(testOllamaRig1, 30) // 70 points behind; beyond hysteresis
+	got = applySticky(gpuStrong, []scheduleCandidate{gpuStrong, rig1Weak}, testOllamaRig1)
+	if got.provider.Name != testOllamaGPU {
 		t.Errorf("beyond hysteresis: should flip to ollama-gpu, got %s", got.provider.Name)
 	}
 
 	// No current pick (fresh agent) → take the best score, no stickiness.
 	got = applySticky(gpuStrong, []scheduleCandidate{gpuStrong, rig1Weak}, "")
-	if got.provider.Name != "ollama-gpu" {
+	if got.provider.Name != testOllamaGPU {
 		t.Errorf("fresh agent: should take best ollama-gpu, got %s", got.provider.Name)
 	}
 
 	// Best candidate is ALREADY the current pick → no sticky logic needed.
-	got = applySticky(gpuStrong, []scheduleCandidate{gpuStrong, rig1Weak}, "ollama-gpu")
-	if got.provider.Name != "ollama-gpu" {
+	got = applySticky(gpuStrong, []scheduleCandidate{gpuStrong, rig1Weak}, testOllamaGPU)
+	if got.provider.Name != testOllamaGPU {
 		t.Errorf("best is already current: should keep ollama-gpu, got %s", got.provider.Name)
 	}
 
 	// Current pick no longer in feasible list (e.g. provider went unready)
 	// → take the best, no special handling.
-	got = applySticky(gpuBest, []scheduleCandidate{gpuBest}, "ollama-rig1")
-	if got.provider.Name != "ollama-gpu" {
+	got = applySticky(gpuBest, []scheduleCandidate{gpuBest}, testOllamaRig1)
+	if got.provider.Name != testOllamaGPU {
 		t.Errorf("current pick missing from feasible: should take best ollama-gpu, got %s", got.provider.Name)
 	}
 
 	// Exactly-at-hysteresis edge: best beats current by EXACTLY 25 → still
 	// sticks (the rule is "MORE than hysteresis" for a flip; equal stays).
-	gpuTie := mkCand("ollama-gpu", 55)
-	rig1Tie := mkCand("ollama-rig1", 30) // exactly 25 behind
-	got = applySticky(gpuTie, []scheduleCandidate{gpuTie, rig1Tie}, "ollama-rig1")
-	if got.provider.Name != "ollama-rig1" {
+	gpuTie := mkCand(testOllamaGPU, 55)
+	rig1Tie := mkCand(testOllamaRig1, 30) // exactly 25 behind
+	got = applySticky(gpuTie, []scheduleCandidate{gpuTie, rig1Tie}, testOllamaRig1)
+	if got.provider.Name != testOllamaRig1 {
 		t.Errorf("exactly-at-hysteresis: should stick to ollama-rig1, got %s", got.provider.Name)
 	}
 
 	// "sticky" reason suffix is appended only when we actually stuck.
 	rig1Reasoned := scheduleCandidate{
-		provider: &kubemootv1alpha1.ModelProvider{ObjectMeta: metav1.ObjectMeta{Name: "ollama-rig1"}},
+		provider: &kubemootv1alpha1.ModelProvider{ObjectMeta: metav1.ObjectMeta{Name: testOllamaRig1}},
 		score:    30,
 		reason:   "provider-weight-50",
 	}
-	got = applySticky(gpuBest, []scheduleCandidate{gpuBest, rig1Reasoned}, "ollama-rig1")
+	got = applySticky(gpuBest, []scheduleCandidate{gpuBest, rig1Reasoned}, testOllamaRig1)
 	if !contains(got.reason, "sticky") {
 		t.Errorf("sticky path should append sticky reason; got reason=%q", got.reason)
 	}
@@ -508,12 +508,12 @@ func TestModelFitsProvider(t *testing.T) {
 // scoreCandidate: the bonus applies only when the provider already has the
 // candidate Model loaded.
 func TestImageLocalityScore(t *testing.T) {
-	m := &kubemootv1alpha1.Model{Spec: kubemootv1alpha1.ModelSpec{Model: "qwen3:8b"}}
+	m := &kubemootv1alpha1.Model{Spec: kubemootv1alpha1.ModelSpec{Model: testModelID}}
 
 	loaded := &kubemootv1alpha1.ModelProvider{
 		Status: kubemootv1alpha1.ModelProviderStatus{
 			Capacity: &kubemootv1alpha1.DiscoveredCapacity{
-				LoadedModels: []kubemootv1alpha1.LoadedModel{{Name: "qwen3:8b"}},
+				LoadedModels: []kubemootv1alpha1.LoadedModel{{Name: testModelID}},
 			},
 		},
 	}
@@ -542,12 +542,12 @@ func TestImageLocalityScore(t *testing.T) {
 // rule or nil selector contributes nothing.
 func TestPreferRuleScore(t *testing.T) {
 	m := &kubemootv1alpha1.Model{
-		ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{"tier": "reasoning"}},
+		ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{testTier: testReasoning}},
 	}
 	rule := &kubemootv1alpha1.SchedulingRule{
 		Prefer: []kubemootv1alpha1.PreferenceTerm{
-			{Weight: 30, Selector: &metav1.LabelSelector{MatchLabels: map[string]string{"tier": "reasoning"}}},
-			{Weight: 10, Selector: &metav1.LabelSelector{MatchLabels: map[string]string{"tier": "fast"}}},
+			{Weight: 30, Selector: &metav1.LabelSelector{MatchLabels: map[string]string{testTier: testReasoning}}},
+			{Weight: 10, Selector: &metav1.LabelSelector{MatchLabels: map[string]string{testTier: testFast}}},
 			{Weight: 5, Selector: nil}, // nil selector: skipped
 		},
 	}

@@ -471,7 +471,7 @@ func TestTerminalChildrenDropsInFlightAndDeleting(t *testing.T) {
 		mk("error", kubemootv1alpha1.CrewFitnessPhaseError, false),
 		mk("running", kubemootv1alpha1.CrewFitnessPhaseRunning, false),
 		mk("pending", kubemootv1alpha1.CrewFitnessPhasePending, false),
-		mk("empty", "", false),
+		mk(testEmpty, "", false),
 		mk("passed-deleting", kubemootv1alpha1.CrewFitnessPhasePassed, true),
 	}
 	got := terminalChildren(in)

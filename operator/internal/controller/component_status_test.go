@@ -21,7 +21,7 @@ import (
 
 func mkModelProvider(name string, ready bool) *kubemootv1alpha1.ModelProvider {
 	return &kubemootv1alpha1.ModelProvider{
-		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "kubemoot"},
+		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: testKubemoot},
 		Status:     kubemootv1alpha1.ModelProviderStatus{Ready: ready},
 	}
 }
@@ -42,7 +42,7 @@ func TestBuildComponentStatuses(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("nats connected, mixed providers", func(t *testing.T) {
-		c := newPropagationClient(t, mkModelProvider("gpu", true), mkModelProvider("rig1", false))
+		c := newPropagationClient(t, mkModelProvider(testGPU, true), mkModelProvider("rig1", false))
 		ss := buildComponentStatuses(ctx, c, true)
 		if op, _ := findStatus(ss, "operator"); !op.Healthy {
 			t.Errorf("operator should be healthy (it answered)")
@@ -69,7 +69,7 @@ func TestBuildComponentStatuses(t *testing.T) {
 	})
 
 	t.Run("all providers down is unhealthy", func(t *testing.T) {
-		c := newPropagationClient(t, mkModelProvider("gpu", false), mkModelProvider("rig1", false))
+		c := newPropagationClient(t, mkModelProvider(testGPU, false), mkModelProvider("rig1", false))
 		ss := buildComponentStatuses(ctx, c, true)
 		mp, _ := findStatus(ss, "modelproviders")
 		if mp.Healthy || mp.Message != "0/2 ready" {

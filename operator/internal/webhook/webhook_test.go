@@ -69,16 +69,16 @@ func TestValidateMCPServer(t *testing.T) {
 		{
 			name: "valid with image",
 			server: &aiv1alpha1.MCPServer{
-				ObjectMeta: metav1.ObjectMeta{Name: "test"},
-				Spec:       aiv1alpha1.MCPServerSpec{Image: "mcp/fetch:latest"},
+				ObjectMeta: metav1.ObjectMeta{Name: testName},
+				Spec:       aiv1alpha1.MCPServerSpec{Image: testFetchImage},
 			},
 		},
 		{
 			name: "valid with externalEndpoint",
 			server: &aiv1alpha1.MCPServer{
-				ObjectMeta: metav1.ObjectMeta{Name: "test"},
+				ObjectMeta: metav1.ObjectMeta{Name: testName},
 				Spec: aiv1alpha1.MCPServerSpec{
-					ExternalEndpoint: "http://some-server:8080",
+					ExternalEndpoint: testServerURL,
 					Transport:        aiv1alpha1.TransportHTTP,
 				},
 			},
@@ -86,10 +86,10 @@ func TestValidateMCPServer(t *testing.T) {
 		{
 			name: "both image and externalEndpoint",
 			server: &aiv1alpha1.MCPServer{
-				ObjectMeta: metav1.ObjectMeta{Name: "test"},
+				ObjectMeta: metav1.ObjectMeta{Name: testName},
 				Spec: aiv1alpha1.MCPServerSpec{
-					Image:            "mcp/fetch:latest",
-					ExternalEndpoint: "http://some-server:8080",
+					Image:            testFetchImage,
+					ExternalEndpoint: testServerURL,
 				},
 			},
 			wantErr: "image and externalEndpoint are mutually exclusive",
@@ -97,7 +97,7 @@ func TestValidateMCPServer(t *testing.T) {
 		{
 			name: "neither image nor externalEndpoint",
 			server: &aiv1alpha1.MCPServer{
-				ObjectMeta: metav1.ObjectMeta{Name: "test"},
+				ObjectMeta: metav1.ObjectMeta{Name: testName},
 				Spec:       aiv1alpha1.MCPServerSpec{},
 			},
 			wantErr: "one of image or externalEndpoint must be set",
@@ -105,9 +105,9 @@ func TestValidateMCPServer(t *testing.T) {
 		{
 			name: "stdio with externalEndpoint",
 			server: &aiv1alpha1.MCPServer{
-				ObjectMeta: metav1.ObjectMeta{Name: "test"},
+				ObjectMeta: metav1.ObjectMeta{Name: testName},
 				Spec: aiv1alpha1.MCPServerSpec{
-					ExternalEndpoint: "http://some-server:8080",
+					ExternalEndpoint: testServerURL,
 					Transport:        aiv1alpha1.TransportStdio,
 				},
 			},
@@ -116,9 +116,9 @@ func TestValidateMCPServer(t *testing.T) {
 		{
 			name: "stdio with image is valid",
 			server: &aiv1alpha1.MCPServer{
-				ObjectMeta: metav1.ObjectMeta{Name: "test"},
+				ObjectMeta: metav1.ObjectMeta{Name: testName},
 				Spec: aiv1alpha1.MCPServerSpec{
-					Image:     "mcp/fetch:latest",
+					Image:     testFetchImage,
 					Transport: aiv1alpha1.TransportStdio,
 				},
 			},
@@ -142,12 +142,12 @@ func TestValidateRAGSource(t *testing.T) {
 		{
 			name: "valid git source",
 			rs: &aiv1alpha1.RAGSource{
-				ObjectMeta: metav1.ObjectMeta{Name: "test"},
+				ObjectMeta: metav1.ObjectMeta{Name: testName},
 				Spec: aiv1alpha1.RAGSourceSpec{
 					Source: aiv1alpha1.SourceConfig{
 						Type: aiv1alpha1.RAGSourceTypeGit,
 						Git: &aiv1alpha1.GitSource{
-							URL:   "https://github.com/example/repo",
+							URL:   testRepoURL,
 							Paths: []string{"docs", "content/en"},
 						},
 					},
@@ -157,7 +157,7 @@ func TestValidateRAGSource(t *testing.T) {
 		{
 			name: "git type without git block",
 			rs: &aiv1alpha1.RAGSource{
-				ObjectMeta: metav1.ObjectMeta{Name: "test"},
+				ObjectMeta: metav1.ObjectMeta{Name: testName},
 				Spec: aiv1alpha1.RAGSourceSpec{
 					Source: aiv1alpha1.SourceConfig{
 						Type: aiv1alpha1.RAGSourceTypeGit,
@@ -169,7 +169,7 @@ func TestValidateRAGSource(t *testing.T) {
 		{
 			name: "s3 type without s3 block",
 			rs: &aiv1alpha1.RAGSource{
-				ObjectMeta: metav1.ObjectMeta{Name: "test"},
+				ObjectMeta: metav1.ObjectMeta{Name: testName},
 				Spec: aiv1alpha1.RAGSourceSpec{
 					Source: aiv1alpha1.SourceConfig{
 						Type: aiv1alpha1.RAGSourceTypeS3,
@@ -181,7 +181,7 @@ func TestValidateRAGSource(t *testing.T) {
 		{
 			name: "url type without url block",
 			rs: &aiv1alpha1.RAGSource{
-				ObjectMeta: metav1.ObjectMeta{Name: "test"},
+				ObjectMeta: metav1.ObjectMeta{Name: testName},
 				Spec: aiv1alpha1.RAGSourceSpec{
 					Source: aiv1alpha1.SourceConfig{
 						Type: aiv1alpha1.RAGSourceTypeURL,
@@ -193,76 +193,76 @@ func TestValidateRAGSource(t *testing.T) {
 		{
 			name: "glob star in git paths",
 			rs: &aiv1alpha1.RAGSource{
-				ObjectMeta: metav1.ObjectMeta{Name: "test"},
+				ObjectMeta: metav1.ObjectMeta{Name: testName},
 				Spec: aiv1alpha1.RAGSourceSpec{
 					Source: aiv1alpha1.SourceConfig{
 						Type: aiv1alpha1.RAGSourceTypeGit,
 						Git: &aiv1alpha1.GitSource{
-							URL:   "https://github.com/example/repo",
+							URL:   testRepoURL,
 							Paths: []string{"docs/**/*.md"},
 						},
 					},
 				},
 			},
-			wantErr: "glob patterns are not supported",
+			wantErr: testGlobUnsupported,
 		},
 		{
 			name: "glob question mark in git paths",
 			rs: &aiv1alpha1.RAGSource{
-				ObjectMeta: metav1.ObjectMeta{Name: "test"},
+				ObjectMeta: metav1.ObjectMeta{Name: testName},
 				Spec: aiv1alpha1.RAGSourceSpec{
 					Source: aiv1alpha1.SourceConfig{
 						Type: aiv1alpha1.RAGSourceTypeGit,
 						Git: &aiv1alpha1.GitSource{
-							URL:   "https://github.com/example/repo",
+							URL:   testRepoURL,
 							Paths: []string{"docs/file?.md"},
 						},
 					},
 				},
 			},
-			wantErr: "glob patterns are not supported",
+			wantErr: testGlobUnsupported,
 		},
 		{
 			name: "glob bracket in git paths",
 			rs: &aiv1alpha1.RAGSource{
-				ObjectMeta: metav1.ObjectMeta{Name: "test"},
+				ObjectMeta: metav1.ObjectMeta{Name: testName},
 				Spec: aiv1alpha1.RAGSourceSpec{
 					Source: aiv1alpha1.SourceConfig{
 						Type: aiv1alpha1.RAGSourceTypeGit,
 						Git: &aiv1alpha1.GitSource{
-							URL:   "https://github.com/example/repo",
+							URL:   testRepoURL,
 							Paths: []string{"docs/[a-z]"},
 						},
 					},
 				},
 			},
-			wantErr: "glob patterns are not supported",
+			wantErr: testGlobUnsupported,
 		},
 		{
 			name: "glob brace in git paths",
 			rs: &aiv1alpha1.RAGSource{
-				ObjectMeta: metav1.ObjectMeta{Name: "test"},
+				ObjectMeta: metav1.ObjectMeta{Name: testName},
 				Spec: aiv1alpha1.RAGSourceSpec{
 					Source: aiv1alpha1.SourceConfig{
 						Type: aiv1alpha1.RAGSourceTypeGit,
 						Git: &aiv1alpha1.GitSource{
-							URL:   "https://github.com/example/repo",
+							URL:   testRepoURL,
 							Paths: []string{"docs/{a,b}"},
 						},
 					},
 				},
 			},
-			wantErr: "glob patterns are not supported",
+			wantErr: testGlobUnsupported,
 		},
 		{
 			name: "second path invalid",
 			rs: &aiv1alpha1.RAGSource{
-				ObjectMeta: metav1.ObjectMeta{Name: "test"},
+				ObjectMeta: metav1.ObjectMeta{Name: testName},
 				Spec: aiv1alpha1.RAGSourceSpec{
 					Source: aiv1alpha1.SourceConfig{
 						Type: aiv1alpha1.RAGSourceTypeGit,
 						Git: &aiv1alpha1.GitSource{
-							URL:   "https://github.com/example/repo",
+							URL:   testRepoURL,
 							Paths: []string{"docs", "content/*.md"},
 						},
 					},
@@ -289,21 +289,21 @@ func TestValidateCrewFitness(t *testing.T) {
 		{
 			name: "valid",
 			cf: &aiv1alpha1.CrewFitness{
-				ObjectMeta: metav1.ObjectMeta{Name: "test"},
+				ObjectMeta: metav1.ObjectMeta{Name: testName},
 				Spec: aiv1alpha1.CrewFitnessSpec{
-					CrewRef:      "hello-world",
-					TestRef:      "discussion-health",
-					ConfigMapRef: "hello-world-fitness-tests",
+					CrewRef:      validCrewName,
+					TestRef:      testHealthCheck,
+					ConfigMapRef: fitnessConfigMap,
 				},
 			},
 		},
 		{
 			name: "empty crewRef",
 			cf: &aiv1alpha1.CrewFitness{
-				ObjectMeta: metav1.ObjectMeta{Name: "test"},
+				ObjectMeta: metav1.ObjectMeta{Name: testName},
 				Spec: aiv1alpha1.CrewFitnessSpec{
-					TestRef:      "discussion-health",
-					ConfigMapRef: "hello-world-fitness-tests",
+					TestRef:      testHealthCheck,
+					ConfigMapRef: fitnessConfigMap,
 				},
 			},
 			wantErr: "spec.crewRef is required",
@@ -311,10 +311,10 @@ func TestValidateCrewFitness(t *testing.T) {
 		{
 			name: "empty testRef",
 			cf: &aiv1alpha1.CrewFitness{
-				ObjectMeta: metav1.ObjectMeta{Name: "test"},
+				ObjectMeta: metav1.ObjectMeta{Name: testName},
 				Spec: aiv1alpha1.CrewFitnessSpec{
-					CrewRef:      "hello-world",
-					ConfigMapRef: "hello-world-fitness-tests",
+					CrewRef:      validCrewName,
+					ConfigMapRef: fitnessConfigMap,
 				},
 			},
 			wantErr: "spec.testRef is required",
@@ -322,10 +322,10 @@ func TestValidateCrewFitness(t *testing.T) {
 		{
 			name: "empty configMapRef and testContent",
 			cf: &aiv1alpha1.CrewFitness{
-				ObjectMeta: metav1.ObjectMeta{Name: "test"},
+				ObjectMeta: metav1.ObjectMeta{Name: testName},
 				Spec: aiv1alpha1.CrewFitnessSpec{
-					CrewRef: "hello-world",
-					TestRef: "discussion-health",
+					CrewRef: validCrewName,
+					TestRef: testHealthCheck,
 				},
 			},
 			wantErr: "either spec.configMapRef or spec.testContent is required",
@@ -333,10 +333,10 @@ func TestValidateCrewFitness(t *testing.T) {
 		{
 			name: "valid with testContent",
 			cf: &aiv1alpha1.CrewFitness{
-				ObjectMeta: metav1.ObjectMeta{Name: "test"},
+				ObjectMeta: metav1.ObjectMeta{Name: testName},
 				Spec: aiv1alpha1.CrewFitnessSpec{
-					CrewRef:     "hello-world",
-					TestRef:     "discussion-health",
+					CrewRef:     validCrewName,
+					TestRef:     testHealthCheck,
 					TestContent: "DESCRIPTION: test\nASSERT response_received",
 				},
 			},
@@ -344,11 +344,11 @@ func TestValidateCrewFitness(t *testing.T) {
 		{
 			name: "both configMapRef and testContent",
 			cf: &aiv1alpha1.CrewFitness{
-				ObjectMeta: metav1.ObjectMeta{Name: "test"},
+				ObjectMeta: metav1.ObjectMeta{Name: testName},
 				Spec: aiv1alpha1.CrewFitnessSpec{
-					CrewRef:      "hello-world",
-					TestRef:      "discussion-health",
-					ConfigMapRef: "hello-world-fitness-tests",
+					CrewRef:      validCrewName,
+					TestRef:      testHealthCheck,
+					ConfigMapRef: fitnessConfigMap,
 					TestContent:  "DESCRIPTION: test",
 				},
 			},
@@ -374,14 +374,14 @@ func TestValidateCrew(t *testing.T) {
 		{
 			name: "valid crew",
 			crew: &aiv1alpha1.Crew{
-				ObjectMeta: metav1.ObjectMeta{Name: "hello-world"},
+				ObjectMeta: metav1.ObjectMeta{Name: validCrewName},
 				Spec:       aiv1alpha1.CrewSpec{},
 			},
 		},
 		{
 			name: "valid with discussion enabled warns",
 			crew: &aiv1alpha1.Crew{
-				ObjectMeta: metav1.ObjectMeta{Name: "hello-world"},
+				ObjectMeta: metav1.ObjectMeta{Name: validCrewName},
 				Spec: aiv1alpha1.CrewSpec{
 					Discussion: &aiv1alpha1.DiscussionConfig{Enabled: ptr.To(true)},
 				},
@@ -391,7 +391,7 @@ func TestValidateCrew(t *testing.T) {
 		{
 			name: "discussion disabled no warning",
 			crew: &aiv1alpha1.Crew{
-				ObjectMeta: metav1.ObjectMeta{Name: "hello-world"},
+				ObjectMeta: metav1.ObjectMeta{Name: validCrewName},
 				Spec: aiv1alpha1.CrewSpec{
 					Discussion: &aiv1alpha1.DiscussionConfig{Enabled: ptr.To(false)},
 				},
@@ -411,7 +411,7 @@ func TestValidateCrew(t *testing.T) {
 				ObjectMeta: metav1.ObjectMeta{Name: "Hello-World"},
 				Spec:       aiv1alpha1.CrewSpec{},
 			},
-			wantErr: "not DNS-1123 compliant",
+			wantErr: testDNS1123Error,
 		},
 		{
 			name: "name with underscores",
@@ -419,7 +419,7 @@ func TestValidateCrew(t *testing.T) {
 				ObjectMeta: metav1.ObjectMeta{Name: "hello_world"},
 				Spec:       aiv1alpha1.CrewSpec{},
 			},
-			wantErr: "not DNS-1123 compliant",
+			wantErr: testDNS1123Error,
 		},
 		{
 			name: "name starting with hyphen",
@@ -427,7 +427,7 @@ func TestValidateCrew(t *testing.T) {
 				ObjectMeta: metav1.ObjectMeta{Name: "-hello"},
 				Spec:       aiv1alpha1.CrewSpec{},
 			},
-			wantErr: "not DNS-1123 compliant",
+			wantErr: testDNS1123Error,
 		},
 		{
 			name: "single character name",

@@ -56,10 +56,10 @@ func TestBuildToolIndexIndexerConfig(t *testing.T) {
 		t.Errorf("no Registries should yield nil, got %+v", c)
 	}
 	gw := &kubemootv1alpha1.MCPGateway{Spec: kubemootv1alpha1.MCPGatewaySpec{
-		Registries: &kubemootv1alpha1.MCPRegistriesConfig{IndexerImage: "indexer:v1", SyncInterval: "1h"},
+		Registries: &kubemootv1alpha1.MCPRegistriesConfig{IndexerImage: testIndexerImage, SyncInterval: "1h"},
 	}}
 	c := buildToolIndexIndexerConfig(gw)
-	if c == nil || c.Image != "indexer:v1" || c.Schedule != "1h" {
+	if c == nil || c.Image != testIndexerImage || c.Schedule != "1h" {
 		t.Errorf("indexer config not built from registries: %+v", c)
 	}
 }
@@ -70,12 +70,12 @@ func TestBuildToolIndexRAGSource(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{Name: "gw", Namespace: "ns"},
 		Spec: kubemootv1alpha1.MCPGatewaySpec{
 			Registries: &kubemootv1alpha1.MCPRegistriesConfig{
-				IndexerImage: "indexer:v1",
+				IndexerImage: testIndexerImage,
 				Sources:      []kubemootv1alpha1.MCPRegistrySource{{Name: "mcprun", URL: "https://reg", Type: "mcp-run"}},
 			},
 			ToolIndex: &kubemootv1alpha1.ToolIndexConfig{
 				VectorStore:    kubemootv1alpha1.GatewayVectorStoreConfig{Host: "pg", Port: 5432, Database: "tools", SecretRef: "pg-creds"},
-				EmbeddingModel: kubemootv1alpha1.GatewayEmbeddingModelConfig{Model: "nomic-embed", Dimensions: 768},
+				EmbeddingModel: kubemootv1alpha1.GatewayEmbeddingModelConfig{Model: testNomicEmbed, Dimensions: 768},
 			},
 		},
 	}
@@ -90,7 +90,7 @@ func TestBuildToolIndexRAGSource(t *testing.T) {
 		t.Errorf("registry URL = %q", rag.Spec.Source.MCPRegistry.URL)
 	}
 	// The gateway's explicit embedding model overrides the config-cache default.
-	if rag.Spec.EmbeddingModelRef != "nomic-embed" {
+	if rag.Spec.EmbeddingModelRef != testNomicEmbed {
 		t.Errorf("embedding model ref = %q, want the gateway override", rag.Spec.EmbeddingModelRef)
 	}
 }
@@ -105,7 +105,7 @@ func TestEvaluateServerQuality_Allowing(t *testing.T) {
 		},
 	}
 	d := r.EvaluateServerQuality(context.Background(), policy, MCPServerMetadata{Name: "GitHub-MCP"})
-	if d.Action != "allow" {
+	if d.Action != testAllow {
 		t.Errorf("an allowing-listed server (case-insensitive) should allow, got %q (%s)", d.Action, d.Reason)
 	}
 }
@@ -121,7 +121,7 @@ func TestEvaluateServerQuality_BlockingGlob(t *testing.T) {
 		},
 	}
 	d := r.EvaluateServerQuality(context.Background(), policy, MCPServerMetadata{Name: "evil-miner"})
-	if d.Action != "deny" {
+	if d.Action != testDeny {
 		t.Fatalf("a glob-blocked server should deny, got %q", d.Action)
 	}
 	if d.Reason == "" {
@@ -137,11 +137,11 @@ func TestEvaluateServerQuality_ConsideringDisabledFallback(t *testing.T) {
 	// explicit allow fallback -> the fallback action wins.
 	policy := &kubemootv1alpha1.MCPQualityPolicy{
 		Spec: kubemootv1alpha1.MCPQualityPolicySpec{
-			Considering: &kubemootv1alpha1.ConsideringConfig{Enabled: false, FallbackAction: "allow"},
+			Considering: &kubemootv1alpha1.ConsideringConfig{Enabled: false, FallbackAction: testAllow},
 		},
 	}
-	d := r.EvaluateServerQuality(context.Background(), policy, MCPServerMetadata{Name: "unknown"})
-	if d.Action != "allow" {
+	d := r.EvaluateServerQuality(context.Background(), policy, MCPServerMetadata{Name: testUnknown})
+	if d.Action != testAllow {
 		t.Errorf("disabled considering should use the fallback action, got %q (%s)", d.Action, d.Reason)
 	}
 }
@@ -161,7 +161,7 @@ func TestEvaluateServerQuality_TestedAvoidBlocks(t *testing.T) {
 		},
 	}
 	d := r.EvaluateServerQuality(context.Background(), policy, MCPServerMetadata{Name: "broken-mcp"})
-	if d.Action != "deny" {
+	if d.Action != testDeny {
 		t.Errorf("a tested verdict=avoid server should deny with BlockBroken, got %q (%s)", d.Action, d.Reason)
 	}
 }
@@ -181,7 +181,7 @@ func TestEvaluateServerQuality_TestedUseAllows(t *testing.T) {
 		},
 	}
 	d := r.EvaluateServerQuality(context.Background(), policy, MCPServerMetadata{Name: "good-mcp"})
-	if d.Action != "allow" {
+	if d.Action != testAllow {
 		t.Errorf("a tested verdict=use server above the success floor should allow, got %q (%s)", d.Action, d.Reason)
 	}
 }

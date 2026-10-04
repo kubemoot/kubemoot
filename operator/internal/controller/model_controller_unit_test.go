@@ -52,7 +52,7 @@ func TestReconcileOllamaModel_ProbeErrorDoesNotPull(t *testing.T) {
 	var pulls int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case "/api/tags":
+		case testPathAPITags:
 			w.WriteHeader(http.StatusInternalServerError) // probe fails
 		case "/api/pull":
 			atomic.AddInt32(&pulls, 1)
@@ -64,12 +64,12 @@ func TestReconcileOllamaModel_ProbeErrorDoesNotPull(t *testing.T) {
 	defer srv.Close()
 
 	model := &aiv1alpha1.Model{
-		ObjectMeta: metav1.ObjectMeta{Name: "qwen-8b", Namespace: "crew-x"},
-		Spec:       aiv1alpha1.ModelSpec{Model: "qwen3:8b", ProviderRef: "ollama-gpu"},
-		Status:     aiv1alpha1.ModelStatus{State: "Available", Ready: true},
+		ObjectMeta: metav1.ObjectMeta{Name: "qwen-8b", Namespace: testCrewNamespace},
+		Spec:       aiv1alpha1.ModelSpec{Model: testModelID, ProviderRef: testOllamaGPU},
+		Status:     aiv1alpha1.ModelStatus{State: testConditionAvailable, Ready: true},
 	}
 	provider := &aiv1alpha1.ModelProvider{
-		ObjectMeta: metav1.ObjectMeta{Name: "ollama-gpu", Namespace: "kubemoot"},
+		ObjectMeta: metav1.ObjectMeta{Name: testOllamaGPU, Namespace: testKubemoot},
 		Spec:       aiv1alpha1.ModelProviderSpec{Type: aiv1alpha1.ProviderTypeOllama, Endpoint: srv.URL},
 	}
 
@@ -84,7 +84,7 @@ func TestReconcileOllamaModel_ProbeErrorDoesNotPull(t *testing.T) {
 	if c := atomic.LoadInt32(&pulls); c != 0 {
 		t.Errorf("probe error must not trigger a pull; got %d pull(s)", c)
 	}
-	if model.Status.State != "Available" || !model.Status.Ready {
+	if model.Status.State != testConditionAvailable || !model.Status.Ready {
 		t.Errorf("transient probe error must not downgrade state; got state=%q ready=%v", model.Status.State, model.Status.Ready)
 	}
 }
@@ -98,7 +98,7 @@ func TestReconcileOllamaModel_AbsentTriggersPull(t *testing.T) {
 	var pulls int32
 	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case "/api/tags":
+		case testPathAPITags:
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write([]byte(`{"models":[]}`)) // model genuinely absent
 		case "/api/pull":
@@ -112,11 +112,11 @@ func TestReconcileOllamaModel_AbsentTriggersPull(t *testing.T) {
 	defer srv.Close()
 
 	model := &aiv1alpha1.Model{
-		ObjectMeta: metav1.ObjectMeta{Name: "qwen-8b", Namespace: "crew-x"},
-		Spec:       aiv1alpha1.ModelSpec{Model: "qwen3:8b", ProviderRef: "ollama-gpu"},
+		ObjectMeta: metav1.ObjectMeta{Name: "qwen-8b", Namespace: testCrewNamespace},
+		Spec:       aiv1alpha1.ModelSpec{Model: testModelID, ProviderRef: testOllamaGPU},
 	}
 	provider := &aiv1alpha1.ModelProvider{
-		ObjectMeta: metav1.ObjectMeta{Name: "ollama-gpu", Namespace: "kubemoot"},
+		ObjectMeta: metav1.ObjectMeta{Name: testOllamaGPU, Namespace: testKubemoot},
 		Spec:       aiv1alpha1.ModelProviderSpec{Type: aiv1alpha1.ProviderTypeOllama, Endpoint: srv.URL},
 	}
 	cl := fake.NewClientBuilder().

@@ -27,7 +27,7 @@ func TestFactAssertionClassification(t *testing.T) {
 		{`synthesis does NOT CONTAIN "no database"`, false, true, true},
 		{`synthesis CONTAINS "a" AND "b"`, true, false, true},
 		// Shape + judge assertions are NOT factuality.
-		{`synthesis is non-empty`, false, false, false},
+		{testSynthesisNonEmpty, false, false, false},
 		{`POST to discussion endpoint returns 200`, false, false, false},
 		{`DEFER synthesis REFLECTS "method and honesty"`, false, false, false},
 		{`at least 1 specialist contributes with signal=agree`, false, false, false},
@@ -48,7 +48,7 @@ func TestFactAssertionClassification(t *testing.T) {
 func TestFactualityScore(t *testing.T) {
 	// No content fact-assertions -> unknown (-1), NOT a phantom 100.
 	shapeOnly := []kubemootv1alpha1.AssertionResult{
-		ar("POST returns 200", true), ar("synthesis is non-empty", true),
+		ar("POST returns 200", true), ar(testSynthesisNonEmpty, true),
 		ar(`DEFER synthesis REFLECTS "x"`, true),
 	}
 	if got := factualityScore(shapeOnly); got != -1 {
@@ -59,7 +59,7 @@ func TestFactualityScore(t *testing.T) {
 	allGood := []kubemootv1alpha1.AssertionResult{
 		ar(`synthesis CONTAINS "harbor-database"`, true),
 		ar(`synthesis does NOT CONTAIN "no database"`, true),
-		ar("synthesis is non-empty", true), // shape ignored
+		ar(testSynthesisNonEmpty, true), // shape ignored
 	}
 	if got := factualityScore(allGood); got != 100 {
 		t.Errorf("all-facts factuality=%v, want 100", got)

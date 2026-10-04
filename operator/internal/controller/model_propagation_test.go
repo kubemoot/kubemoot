@@ -14,8 +14,8 @@ import (
 
 func mkModel(name, ns string) *kubemootv1alpha1.Model {
 	return &kubemootv1alpha1.Model{
-		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: ns, Labels: map[string]string{"latencyClass": "low"}},
-		Spec:       kubemootv1alpha1.ModelSpec{Model: "qwen3.5:9b", ProviderRef: "ollama-gpu"},
+		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: ns, Labels: map[string]string{testLatencyClass: testLow}},
+		Spec:       kubemootv1alpha1.ModelSpec{Model: "qwen3.5:9b", ProviderRef: testOllamaGPU},
 	}
 }
 
@@ -25,7 +25,7 @@ func TestModelChangeEnqueuesTheNamespacesAgents(t *testing.T) {
 		t.Fatal(err)
 	}
 	cli := fake.NewClientBuilder().WithScheme(scheme).WithObjects(
-		mkAgent("a1", "crew-ns", "demo"), mkAgent("a2", "crew-ns", "other"), mkAgent("b1", "elsewhere", "demo"),
+		mkAgent("a1", "crew-ns", "demo"), mkAgent("a2", "crew-ns", testOther), mkAgent("b1", "elsewhere", "demo"),
 	).Build()
 	reqs := namespaceAgentRequests[*kubemootv1alpha1.Model](context.Background(), cli, "Model", mkModel("qwen3.5-9b", "crew-ns"))
 	if len(reqs) != 2 {
@@ -55,10 +55,10 @@ func TestModelBindingChangedPredicate(t *testing.T) {
 	if !change(func(m *kubemootv1alpha1.Model) { m.Status.Ready = true }) {
 		t.Error("a model becoming usable must enqueue")
 	}
-	if !change(func(m *kubemootv1alpha1.Model) { m.Labels["latencyClass"] = "high" }) {
+	if !change(func(m *kubemootv1alpha1.Model) { m.Labels[testLatencyClass] = testHigh }) {
 		t.Error("a relabel must enqueue")
 	}
-	if !change(func(m *kubemootv1alpha1.Model) { m.Spec.ProviderRef = "ollama-rig1" }) {
+	if !change(func(m *kubemootv1alpha1.Model) { m.Spec.ProviderRef = testOllamaRig1 }) {
 		t.Error("a spec change must enqueue")
 	}
 	if !change(func(m *kubemootv1alpha1.Model) { now := metav1.Now(); m.DeletionTimestamp = &now }) {
@@ -70,7 +70,7 @@ func TestModelBindingChangedPredicate(t *testing.T) {
 	loaded := base.DeepCopy()
 	loaded.Status.Ready, loaded.Status.State = true, "Loaded"
 	available := loaded.DeepCopy()
-	available.Status.State = "Available"
+	available.Status.State = testConditionAvailable
 	if p.Update(event.UpdateEvent{ObjectOld: loaded, ObjectNew: available}) ||
 		p.Update(event.UpdateEvent{ObjectOld: available, ObjectNew: loaded}) {
 		t.Error("a model loading or unloading must not enqueue: it would roll agents mid-discussion")

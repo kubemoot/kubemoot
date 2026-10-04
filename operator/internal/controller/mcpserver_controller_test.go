@@ -34,7 +34,7 @@ func TestMCPServerReconcile_ManagedCreatesDeploymentAndService(t *testing.T) {
 	ctx := context.Background()
 	scheme := gatewayScheme(t)
 	ms := &kubemootv1alpha1.MCPServer{
-		ObjectMeta: metav1.ObjectMeta{Name: "srv1", Namespace: "ns1"},
+		ObjectMeta: metav1.ObjectMeta{Name: "srv1", Namespace: testNS1},
 		Spec: kubemootv1alpha1.MCPServerSpec{
 			Image:     "registry/mcp:1",
 			Transport: kubemootv1alpha1.TransportStdio,
@@ -42,7 +42,7 @@ func TestMCPServerReconcile_ManagedCreatesDeploymentAndService(t *testing.T) {
 	}
 	cli := fake.NewClientBuilder().WithScheme(scheme).WithObjects(ms).WithStatusSubresource(ms).Build()
 	r := &MCPServerReconciler{Client: cli, Scheme: scheme, ConfigCache: NewConfigCache()}
-	req := ctrl.Request{NamespacedName: types.NamespacedName{Name: "srv1", Namespace: "ns1"}}
+	req := ctrl.Request{NamespacedName: types.NamespacedName{Name: "srv1", Namespace: testNS1}}
 
 	res, err := r.Reconcile(ctx, req)
 	if err != nil {
@@ -57,11 +57,11 @@ func TestMCPServerReconcile_ManagedCreatesDeploymentAndService(t *testing.T) {
 	}
 
 	deps := &appsv1.DeploymentList{}
-	if err := cli.List(ctx, deps, client.InNamespace("ns1")); err != nil || len(deps.Items) != 1 {
+	if err := cli.List(ctx, deps, client.InNamespace(testNS1)); err != nil || len(deps.Items) != 1 {
 		t.Fatalf("expected exactly one Deployment, got %d (err %v)", len(deps.Items), err)
 	}
 	svcs := &corev1.ServiceList{}
-	if err := cli.List(ctx, svcs, client.InNamespace("ns1")); err != nil || len(svcs.Items) != 1 {
+	if err := cli.List(ctx, svcs, client.InNamespace(testNS1)); err != nil || len(svcs.Items) != 1 {
 		t.Fatalf("expected a Service for the stdio+proxy server, got %d (err %v)", len(svcs.Items), err)
 	}
 }
@@ -71,12 +71,12 @@ func TestMCPServerReconcile_ExternalNeedsNoDeployment(t *testing.T) {
 	ctx := context.Background()
 	scheme := gatewayScheme(t)
 	ms := &kubemootv1alpha1.MCPServer{
-		ObjectMeta: metav1.ObjectMeta{Name: "ext1", Namespace: "ns1"},
+		ObjectMeta: metav1.ObjectMeta{Name: "ext1", Namespace: testNS1},
 		Spec:       kubemootv1alpha1.MCPServerSpec{ExternalEndpoint: "http://external:9000"},
 	}
 	cli := fake.NewClientBuilder().WithScheme(scheme).WithObjects(ms).WithStatusSubresource(ms).Build()
 	r := &MCPServerReconciler{Client: cli, Scheme: scheme, ConfigCache: NewConfigCache()}
-	req := ctrl.Request{NamespacedName: types.NamespacedName{Name: "ext1", Namespace: "ns1"}}
+	req := ctrl.Request{NamespacedName: types.NamespacedName{Name: "ext1", Namespace: testNS1}}
 
 	// Reconcile twice (finalizer, then external path).
 	if _, err := r.Reconcile(ctx, req); err != nil {
@@ -86,7 +86,7 @@ func TestMCPServerReconcile_ExternalNeedsNoDeployment(t *testing.T) {
 		t.Fatalf("second reconcile: %v", err)
 	}
 	deps := &appsv1.DeploymentList{}
-	if err := cli.List(ctx, deps, client.InNamespace("ns1")); err != nil || len(deps.Items) != 0 {
+	if err := cli.List(ctx, deps, client.InNamespace(testNS1)); err != nil || len(deps.Items) != 0 {
 		t.Fatalf("external server must not create a Deployment, got %d (err %v)", len(deps.Items), err)
 	}
 }
@@ -96,12 +96,12 @@ func TestMCPServerReconcile_NoImageNoEndpointIsError(t *testing.T) {
 	ctx := context.Background()
 	scheme := gatewayScheme(t)
 	ms := &kubemootv1alpha1.MCPServer{
-		ObjectMeta: metav1.ObjectMeta{Name: "bad1", Namespace: "ns1"},
+		ObjectMeta: metav1.ObjectMeta{Name: "bad1", Namespace: testNS1},
 		Spec:       kubemootv1alpha1.MCPServerSpec{Transport: kubemootv1alpha1.TransportStdio},
 	}
 	cli := fake.NewClientBuilder().WithScheme(scheme).WithObjects(ms).WithStatusSubresource(ms).Build()
 	r := &MCPServerReconciler{Client: cli, Scheme: scheme, ConfigCache: NewConfigCache()}
-	req := ctrl.Request{NamespacedName: types.NamespacedName{Name: "bad1", Namespace: "ns1"}}
+	req := ctrl.Request{NamespacedName: types.NamespacedName{Name: "bad1", Namespace: testNS1}}
 	_, _ = r.Reconcile(ctx, req) // finalizer
 	if _, err := r.Reconcile(ctx, req); err != nil {
 		t.Fatalf("reconcile: %v", err)
@@ -121,7 +121,7 @@ func TestMCPServerReconcile_NotFoundIsNoOp(t *testing.T) {
 	cli := fake.NewClientBuilder().WithScheme(scheme).Build()
 	r := &MCPServerReconciler{Client: cli, Scheme: scheme, ConfigCache: NewConfigCache()}
 	if _, err := r.Reconcile(context.Background(), ctrl.Request{
-		NamespacedName: types.NamespacedName{Name: "absent", Namespace: "ns1"},
+		NamespacedName: types.NamespacedName{Name: testAbsent, Namespace: testNS1},
 	}); err != nil {
 		t.Errorf("absent MCPServer reconcile must be a no-op, got %v", err)
 	}

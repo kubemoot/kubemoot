@@ -30,13 +30,13 @@ func crewProvenanceScheme(t *testing.T) *runtime.Scheme {
 	return scheme
 }
 
-func crewWithVersion(name, namespace, version string) *kubemootv1alpha1.Crew {
+func crewWithVersion(version string) *kubemootv1alpha1.Crew {
 	labels := map[string]string{}
 	if version != "" {
 		labels[crewVersionLabel] = version
 	}
 	return &kubemootv1alpha1.Crew{
-		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace, Labels: labels},
+		ObjectMeta: metav1.ObjectMeta{Name: testCrewName, Namespace: testCrewNamespace, Labels: labels},
 	}
 }
 
@@ -45,30 +45,30 @@ func TestResolveCrewVersion(t *testing.T) {
 
 	t.Run("crew present with version label returns the version", func(t *testing.T) {
 		c := fake.NewClientBuilder().WithScheme(scheme).
-			WithObjects(crewWithVersion("homelab-pilot", "crew-x", "1.4.2")).Build()
-		if v := resolveCrewVersion(context.Background(), c, "crew-x", "homelab-pilot"); v != "1.4.2" {
+			WithObjects(crewWithVersion(testVersion142)).Build()
+		if v := resolveCrewVersion(context.Background(), c, testCrewNamespace, testCrewName); v != testVersion142 {
 			t.Fatalf("want 1.4.2, got %q", v)
 		}
 	})
 
 	t.Run("crew absent returns empty (best-effort, never blocks)", func(t *testing.T) {
 		c := fake.NewClientBuilder().WithScheme(scheme).Build()
-		if v := resolveCrewVersion(context.Background(), c, "crew-x", "missing"); v != "" {
+		if v := resolveCrewVersion(context.Background(), c, testCrewNamespace, "missing"); v != "" {
 			t.Fatalf("want empty for missing crew, got %q", v)
 		}
 	})
 
 	t.Run("empty crewRef returns empty without a lookup", func(t *testing.T) {
 		c := fake.NewClientBuilder().WithScheme(scheme).Build()
-		if v := resolveCrewVersion(context.Background(), c, "crew-x", ""); v != "" {
+		if v := resolveCrewVersion(context.Background(), c, testCrewNamespace, ""); v != "" {
 			t.Fatalf("want empty for blank crewRef, got %q", v)
 		}
 	})
 
 	t.Run("crew present but no version label returns empty", func(t *testing.T) {
 		c := fake.NewClientBuilder().WithScheme(scheme).
-			WithObjects(crewWithVersion("homelab-pilot", "crew-x", "")).Build()
-		if v := resolveCrewVersion(context.Background(), c, "crew-x", "homelab-pilot"); v != "" {
+			WithObjects(crewWithVersion("")).Build()
+		if v := resolveCrewVersion(context.Background(), c, testCrewNamespace, testCrewName); v != "" {
 			t.Fatalf("want empty for version-less crew, got %q", v)
 		}
 	})
@@ -78,17 +78,17 @@ func TestStampCrewVersion(t *testing.T) {
 	scheme := crewProvenanceScheme(t)
 	mkSuite := func(labels map[string]string) *kubemootv1alpha1.CrewFitnessSuite {
 		return &kubemootv1alpha1.CrewFitnessSuite{
-			ObjectMeta: metav1.ObjectMeta{Name: "s", Namespace: "crew-x", Labels: labels},
-			Spec:       kubemootv1alpha1.CrewFitnessSuiteSpec{CrewRef: "homelab-pilot"},
+			ObjectMeta: metav1.ObjectMeta{Name: "s", Namespace: testCrewNamespace, Labels: labels},
+			Spec:       kubemootv1alpha1.CrewFitnessSuiteSpec{CrewRef: testCrewName},
 		}
 	}
 
 	t.Run("resolves from the Crew CR and stamps the in-memory suite", func(t *testing.T) {
 		c := fake.NewClientBuilder().WithScheme(scheme).
-			WithObjects(crewWithVersion("homelab-pilot", "crew-x", "1.4.2")).Build()
+			WithObjects(crewWithVersion(testVersion142)).Build()
 		suite := mkSuite(nil)
 		stampCrewVersion(context.Background(), c, suite)
-		if suite.Labels[crewVersionLabel] != "1.4.2" {
+		if suite.Labels[crewVersionLabel] != testVersion142 {
 			t.Fatalf("want suite stamped 1.4.2, got %q", suite.Labels[crewVersionLabel])
 		}
 	})
@@ -106,10 +106,10 @@ func TestStampCrewVersion(t *testing.T) {
 		// Crew CR says 2.0.0, but the suite already carries 1.0.0 - the short-circuit
 		// must keep the pre-set value and not re-resolve.
 		c := fake.NewClientBuilder().WithScheme(scheme).
-			WithObjects(crewWithVersion("homelab-pilot", "crew-x", "2.0.0")).Build()
-		suite := mkSuite(map[string]string{crewVersionLabel: "1.0.0"})
+			WithObjects(crewWithVersion(testVersion200)).Build()
+		suite := mkSuite(map[string]string{crewVersionLabel: testVersion100})
 		stampCrewVersion(context.Background(), c, suite)
-		if suite.Labels[crewVersionLabel] != "1.0.0" {
+		if suite.Labels[crewVersionLabel] != testVersion100 {
 			t.Fatalf("idempotency: want preserved 1.0.0, got %q", suite.Labels[crewVersionLabel])
 		}
 	})

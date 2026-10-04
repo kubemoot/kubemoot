@@ -19,7 +19,7 @@ func nsWith(name string, labels map[string]string) *corev1.Namespace {
 }
 
 func TestNamespaceDeletableForCrew(t *testing.T) {
-	t.Setenv("OPERATOR_NAMESPACE", "kubemoot")
+	t.Setenv("OPERATOR_NAMESPACE", testKubemoot)
 	optIn := func(crew string) map[string]string {
 		return map[string]string{crewLabelKey: crew, managedNamespaceLabel: managedNamespaceOptIn}
 	}
@@ -43,7 +43,7 @@ func TestNamespaceDeletableForCrew(t *testing.T) {
 		{testKubeSystemNS, nsWith(testKubeSystemNS, optIn("c1")), "c1", false},
 		{"kube-public", nsWith("kube-public", optIn("c1")), "c1", false},
 		{"kube-node-lease", nsWith("kube-node-lease", optIn("c1")), "c1", false},
-		{"operator namespace", nsWith("kubemoot", optIn("c1")), "c1", false},
+		{"operator namespace", nsWith(testKubemoot, optIn("c1")), "c1", false},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -55,7 +55,7 @@ func TestNamespaceDeletableForCrew(t *testing.T) {
 }
 
 func TestSystemNamespacesNeverDeletable(t *testing.T) {
-	t.Setenv("OPERATOR_NAMESPACE", "kubemoot")
+	t.Setenv("OPERATOR_NAMESPACE", testKubemoot)
 	for _, name := range []string{testKubeSystemNS, "kube-public", "kube-node-lease", testDefaultNS} {
 		ns := nsWith(name, map[string]string{crewLabelKey: "c1", managedNamespaceLabel: managedNamespaceOptIn})
 		if namespaceDeletableForCrew(ns, "c1") {
@@ -69,13 +69,13 @@ func TestIsProtectedNamespaceFollowsOperatorNamespace(t *testing.T) {
 	if !isProtectedNamespace("moot-system") {
 		t.Fatal("operator namespace must be protected")
 	}
-	if isProtectedNamespace("kubemoot") {
+	if isProtectedNamespace(testKubemoot) {
 		t.Fatal("only the configured operator namespace is protected besides the system namespaces")
 	}
 }
 
 func TestIsManagedNamespaceRequiresCrewAnnotation(t *testing.T) {
-	t.Setenv("OPERATOR_NAMESPACE", "kubemoot")
+	t.Setenv("OPERATOR_NAMESPACE", testKubemoot)
 	ns := nsWith("team-a", map[string]string{crewLabelKey: "c1", managedNamespaceLabel: managedNamespaceOptIn})
 	r := &CrewReconciler{}
 	crew := &kubemootv1alpha1.Crew{ObjectMeta: metav1.ObjectMeta{Name: "c1", Namespace: "team-a"}}

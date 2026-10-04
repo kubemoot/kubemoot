@@ -129,13 +129,13 @@ var _ = Describe("CrewFitnessSuite results in status", func() {
 		prefix := suiteRunPrefix(namespace, name, runID)
 		deferOn := func(kw string) string { return "DEFER synthesis " + kw + ` "the reference"` }
 		// gated: the agree floor failed, so the worker records 0 without a dispatch.
-		store.objs[prefix+"s0-i1.json"] = statusTranscript(deferOn(statusKeyword), "true", "at least 2 toolers agree", "false")
+		store.objs[prefix+"s0-i1.json"] = statusTranscript(deferOn(statusKeyword), testTrue, "at least 2 toolers agree", testFalse)
 		// resumed: scored by an earlier pass (in the checkpoint below).
-		store.objs[prefix+"s1-i1.json"] = statusTranscript(deferOn(statusKeyword), "true")
+		store.objs[prefix+"s1-i1.json"] = statusTranscript(deferOn(statusKeyword), testTrue)
 		// unjudged: no crew declares its keyword, so it stays pending.
-		store.objs[prefix+"s2-i1.json"] = statusTranscript(deferOn("NOJUDGE"), "true")
+		store.objs[prefix+"s2-i1.json"] = statusTranscript(deferOn("NOJUDGE"), testTrue)
 		// plain: no DEFER assertion, nothing to judge.
-		store.objs[prefix+"s3-i1.json"] = statusTranscript("synthesis is non-empty", "true")
+		store.objs[prefix+"s3-i1.json"] = statusTranscript(testSynthesisNonEmpty, testTrue)
 		longReason := "first line\nsecond line " + strings.Repeat("x", 300)
 		cp, _ := json.Marshal(deferredScoreCache{
 			Scores: map[string]float64{csResumed: 90}, Reasons: map[string]string{csResumed: longReason},
@@ -160,7 +160,7 @@ var _ = Describe("CrewFitnessSuite results in status", func() {
 		Expect(js.Scores[1].Scenario).To(Equal(csResumed))
 		Expect(js.Scores[1].Score).To(Equal(int32(90)))
 		Expect(js.Scores[1].Reason).To(HavePrefix("first line second line xxx"))
-		Expect(js.Scores[1].Reason).To(HaveSuffix("..."))
+		Expect(js.Scores[1].Reason).To(HaveSuffix(testEllipsis))
 		Expect([]rune(js.Scores[1].Reason)).To(HaveLen(kubemootv1alpha1.MaxJudgeReasonLength))
 		Expect(loadDeferredCache(store, prefix).Reasons[csResumed]).To(Equal(longReason),
 			"the full reason stays in the object store")

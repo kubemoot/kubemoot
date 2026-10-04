@@ -95,7 +95,7 @@ func TestDiscoverLoadedModels(t *testing.T) {
 	r := &ModelProviderReconciler{}
 	provider := &aiv1alpha1.ModelProvider{Spec: aiv1alpha1.ModelProviderSpec{Endpoint: srv.URL}, Status: aiv1alpha1.ModelProviderStatus{Capacity: &aiv1alpha1.DiscoveredCapacity{}}}
 	r.discoverLoadedModels(context.Background(), provider, srv.Client())
-	if len(provider.Status.Capacity.LoadedModels) != 1 || provider.Status.Capacity.LoadedModels[0].Name != "qwen3:32b" {
+	if len(provider.Status.Capacity.LoadedModels) != 1 || provider.Status.Capacity.LoadedModels[0].Name != testModel32B {
 		t.Fatalf("LoadedModels not populated: %+v", provider.Status.Capacity.LoadedModels)
 	}
 	if provider.Status.Capacity.VRAMUsedMiB != 2048 {
@@ -105,7 +105,7 @@ func TestDiscoverLoadedModels(t *testing.T) {
 
 func TestDiscoverAvailableModels(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/api/tags" {
+		if r.URL.Path != testPathAPITags {
 			w.WriteHeader(http.StatusNotFound)
 			return
 		}
@@ -126,14 +126,14 @@ func TestCountAssignedAgents(t *testing.T) {
 		return &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "ns", Labels: labels}}
 	}
 	cli := fake.NewClientBuilder().WithScheme(scheme).WithObjects(
-		dep("a", map[string]string{"kubemoot.ai/mulling-provider": "prov"}),
-		dep("b", map[string]string{"kubemoot.ai/triage-provider": "prov"}),
+		dep("a", map[string]string{testMullingProviderKey: testProv}),
+		dep("b", map[string]string{"kubemoot.ai/triage-provider": testProv}),
 		// An agent using this provider for BOTH phases contributes 2.
-		dep("c", map[string]string{"kubemoot.ai/mulling-provider": "prov", "kubemoot.ai/triage-provider": "prov"}),
-		dep("d", map[string]string{"kubemoot.ai/mulling-provider": "other"}),
+		dep("c", map[string]string{testMullingProviderKey: testProv, "kubemoot.ai/triage-provider": testProv}),
+		dep("d", map[string]string{testMullingProviderKey: testOther}),
 	).Build()
 	r := &ModelProviderReconciler{Client: cli}
-	provider := &aiv1alpha1.ModelProvider{ObjectMeta: metav1.ObjectMeta{Name: "prov", Namespace: "ns"}, Status: aiv1alpha1.ModelProviderStatus{Capacity: &aiv1alpha1.DiscoveredCapacity{}}}
+	provider := &aiv1alpha1.ModelProvider{ObjectMeta: metav1.ObjectMeta{Name: testProv, Namespace: "ns"}, Status: aiv1alpha1.ModelProviderStatus{Capacity: &aiv1alpha1.DiscoveredCapacity{}}}
 	r.countAssignedAgents(context.Background(), provider)
 	if provider.Status.Capacity.MullingAgentCount != 2 || provider.Status.Capacity.TriageAgentCount != 2 {
 		t.Errorf("mulling=%d triage=%d, want 2/2", provider.Status.Capacity.MullingAgentCount, provider.Status.Capacity.TriageAgentCount)

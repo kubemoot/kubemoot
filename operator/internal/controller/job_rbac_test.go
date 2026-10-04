@@ -103,7 +103,7 @@ func TestEnsureJobRBACIsIdempotent(t *testing.T) {
 
 func TestEnsureJobRBACUpdatesAStaleRole(t *testing.T) {
 	stale := &rbacv1.Role{
-		ObjectMeta: metav1.ObjectMeta{Name: componentRAGIndexer, Namespace: rbacTestNS, Labels: map[string]string{keptLabel: "someone-else"}},
+		ObjectMeta: metav1.ObjectMeta{Name: componentRAGIndexer, Namespace: rbacTestNS, Labels: map[string]string{keptLabel: testSomeoneElse}},
 		Rules:      []rbacv1.PolicyRule{{APIGroups: []string{batchv1.GroupName}, Resources: []string{jobsResource}, Verbs: []string{verbGet}}},
 	}
 	c := rbacTestClient(t, stale)
@@ -113,7 +113,7 @@ func TestEnsureJobRBACUpdatesAStaleRole(t *testing.T) {
 	if !reflect.DeepEqual(role.Rules[0].Verbs, ragIndexerJobVerbs) {
 		t.Fatalf("verbs not updated: %v", role.Rules[0].Verbs)
 	}
-	if role.Labels[keptLabel] != "someone-else" || role.Labels[labelComponent] != componentRAGIndexer {
+	if role.Labels[keptLabel] != testSomeoneElse || role.Labels[labelComponent] != componentRAGIndexer {
 		t.Fatalf("labels: %v", role.Labels)
 	}
 }

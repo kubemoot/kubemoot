@@ -42,45 +42,45 @@ func TestParseReplicateSecretsAnnotation(t *testing.T) {
 		},
 		{
 			name:        "annotation absent",
-			annotations: map[string]string{"other": "value"},
+			annotations: map[string]string{testOther: "value"},
 			want:        nil,
 		},
 		{
 			name:        "empty value",
-			annotations: map[string]string{"kubemoot.ai/replicate-secrets": ""},
+			annotations: map[string]string{testReplicateSecretsKey: ""},
 			want:        nil,
 		},
 		{
 			name:        "single name uses operator namespace",
-			annotations: map[string]string{"kubemoot.ai/replicate-secrets": "harbor-pull-secret"},
-			want:        []SecretRef{{Name: "harbor-pull-secret"}},
+			annotations: map[string]string{testReplicateSecretsKey: testHarborPullSecret},
+			want:        []SecretRef{{Name: testHarborPullSecret}},
 		},
 		{
 			name:        "single ns/name pair",
-			annotations: map[string]string{"kubemoot.ai/replicate-secrets": "homelab-pilot/proxmox-secret"},
-			want:        []SecretRef{{Name: "proxmox-secret", Namespace: "homelab-pilot"}},
+			annotations: map[string]string{testReplicateSecretsKey: "homelab-pilot/proxmox-secret"},
+			want:        []SecretRef{{Name: "proxmox-secret", Namespace: testCrewName}},
 		},
 		{
 			name:        "mixed list",
-			annotations: map[string]string{"kubemoot.ai/replicate-secrets": "harbor-pull-secret,homelab-pilot/proxmox-secret,db-creds"},
+			annotations: map[string]string{testReplicateSecretsKey: "harbor-pull-secret,homelab-pilot/proxmox-secret,db-creds"},
 			want: []SecretRef{
-				{Name: "harbor-pull-secret"},
-				{Name: "proxmox-secret", Namespace: "homelab-pilot"},
+				{Name: testHarborPullSecret},
+				{Name: "proxmox-secret", Namespace: testCrewName},
 				{Name: "db-creds"},
 			},
 		},
 		{
 			name:        "whitespace trimmed",
-			annotations: map[string]string{"kubemoot.ai/replicate-secrets": "  foo  ,  ns1 / bar  ,baz"},
+			annotations: map[string]string{testReplicateSecretsKey: "  foo  ,  ns1 / bar  ,baz"},
 			want: []SecretRef{
 				{Name: "foo"},
-				{Name: "bar", Namespace: "ns1"},
+				{Name: "bar", Namespace: testNS1},
 				{Name: "baz"},
 			},
 		},
 		{
 			name:        "empty entries skipped",
-			annotations: map[string]string{"kubemoot.ai/replicate-secrets": "foo,,bar,"},
+			annotations: map[string]string{testReplicateSecretsKey: "foo,,bar,"},
 			want: []SecretRef{
 				{Name: "foo"},
 				{Name: "bar"},
@@ -88,14 +88,14 @@ func TestParseReplicateSecretsAnnotation(t *testing.T) {
 		},
 		{
 			name:        "malformed entries skipped",
-			annotations: map[string]string{"kubemoot.ai/replicate-secrets": "/no-ns,no-name/,ns/name/extra,ok"},
+			annotations: map[string]string{testReplicateSecretsKey: "/no-ns,no-name/,ns/name/extra,ok"},
 			want: []SecretRef{
 				{Name: "ok"},
 			},
 		},
 		{
 			name:        "only slash skipped",
-			annotations: map[string]string{"kubemoot.ai/replicate-secrets": "/"},
+			annotations: map[string]string{testReplicateSecretsKey: "/"},
 			want:        nil,
 		},
 	}
@@ -127,7 +127,7 @@ func TestSecretSourceAllowed(t *testing.T) {
 		{"other namespace refused", "", testTenantNS, false},
 		{"kube-system refused", "", testKubeSystemNS, false},
 		{"allowlisted namespace", testSharedNS, testSharedNS, true},
-		{"allowlist with spaces and blanks", " shared-db , ,other", "other", true},
+		{"allowlist with spaces and blanks", " shared-db , ,other", testOther, true},
 		{"not in allowlist", testSharedNS, testTenantNS, false},
 		{"empty source", testSharedNS, "", false},
 	}

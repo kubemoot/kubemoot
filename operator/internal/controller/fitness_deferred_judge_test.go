@@ -98,7 +98,7 @@ func TestDispatchScenario_ContextDeadlineReturnsError(t *testing.T) {
 // carries each judgeable answer's synthesis + evidence.
 // See [[Lean Judge Direct Context No Tool Round-Trip]].
 func TestBuildComparisonDoc(t *testing.T) {
-	pfx := "ns/suite/run/"
+	pfx := testRunPrefix
 	// s0-i1: a good answer with an agree finding (evidence) + a DEFER reference.
 	good := `{"question":"What can fail?","assertions":[{"raw":"DEFER synthesis REFLECTS \"the answer\"","passed":true}],` +
 		`"events":[{"type":"finding","agent":"k8s","signal":"agree","content":"pod X is crashlooping"},{"type":"synthesis","content":"pod X is crashlooping"},{"type":"done"}]}`
@@ -110,7 +110,7 @@ func TestBuildComparisonDoc(t *testing.T) {
 		pfx + "s1-i1.json": []byte(good), // different scenario, must be excluded
 	}}
 
-	doc, total, answers, err := buildComparisonDoc(store, pfx, 0, "REFLECTS")
+	doc, total, answers, err := buildComparisonDoc(store, pfx, 0, testVerdictReflects)
 	if err != nil {
 		t.Fatalf("buildComparisonDoc error: %v", err)
 	}
@@ -124,8 +124,8 @@ func TestBuildComparisonDoc(t *testing.T) {
 	if uErr := json.Unmarshal([]byte(doc), &parsed); uErr != nil {
 		t.Fatalf("doc is not valid JSON: %v", uErr)
 	}
-	if parsed.Reference != "the answer" {
-		t.Errorf("reference = %q, want %q", parsed.Reference, "the answer")
+	if parsed.Reference != testTheAnswer {
+		t.Errorf("reference = %q, want %q", parsed.Reference, testTheAnswer)
 	}
 	if parsed.Gated != 1 {
 		t.Errorf("gated = %d, want 1", parsed.Gated)
@@ -356,7 +356,7 @@ func TestHasCriticalFlawReason(t *testing.T) {
 		reason string
 		want   bool
 	}{
-		{"empty", "", false},
+		{testEmpty, "", false},
 		{"uppercase is matched", "FABRICATED the VM ID", true},
 		{"affirmative fabricated", "correct core but fabricated the node name", true},
 		{"negated: no fabricated", "no fabricated facts; all grounded", false},

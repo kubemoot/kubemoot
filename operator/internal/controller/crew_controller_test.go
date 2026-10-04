@@ -88,7 +88,7 @@ var _ = Describe("Crew Controller", func() {
 		It("should clean up ClusterRole and ClusterRoleBinding on deletion", func() {
 			crew := &aiv1alpha1.Crew{
 				ObjectMeta: metav1.ObjectMeta{
-					Name:      "crew-rbac-test",
+					Name:      testCrewRBACTest,
 					Namespace: namespace,
 				},
 				Spec: aiv1alpha1.CrewSpec{
@@ -101,7 +101,7 @@ var _ = Describe("Crew Controller", func() {
 
 			// First reconcile adds finalizer
 			_, err := reconciler.Reconcile(ctx, reconcile.Request{
-				NamespacedName: types.NamespacedName{Name: "crew-rbac-test", Namespace: namespace},
+				NamespacedName: types.NamespacedName{Name: testCrewRBACTest, Namespace: namespace},
 			})
 			Expect(err).NotTo(HaveOccurred())
 
@@ -115,12 +115,12 @@ var _ = Describe("Crew Controller", func() {
 
 			// Mark the crew for deletion
 			updated := &aiv1alpha1.Crew{}
-			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "crew-rbac-test", Namespace: namespace}, updated)).To(Succeed())
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: testCrewRBACTest, Namespace: namespace}, updated)).To(Succeed())
 			Expect(k8sClient.Delete(ctx, updated)).To(Succeed())
 
 			// Reconcile should handle the deletion
 			_, err = reconciler.Reconcile(ctx, reconcile.Request{
-				NamespacedName: types.NamespacedName{Name: "crew-rbac-test", Namespace: namespace},
+				NamespacedName: types.NamespacedName{Name: testCrewRBACTest, Namespace: namespace},
 			})
 			Expect(err).NotTo(HaveOccurred())
 
@@ -169,7 +169,7 @@ var _ = Describe("Crew Controller", func() {
 			// Create a crew in the default namespace (which is NOT labeled with kubemoot.ai/crew)
 			crew := &aiv1alpha1.Crew{
 				ObjectMeta: metav1.ObjectMeta{
-					Name:      "crew-no-ns-delete",
+					Name:      testCrewNoNSDelete,
 					Namespace: namespace,
 				},
 				Spec: aiv1alpha1.CrewSpec{
@@ -182,18 +182,18 @@ var _ = Describe("Crew Controller", func() {
 
 			// First reconcile adds finalizer
 			_, err := reconciler.Reconcile(ctx, reconcile.Request{
-				NamespacedName: types.NamespacedName{Name: "crew-no-ns-delete", Namespace: namespace},
+				NamespacedName: types.NamespacedName{Name: testCrewNoNSDelete, Namespace: namespace},
 			})
 			Expect(err).NotTo(HaveOccurred())
 
 			// Delete the crew
 			updated := &aiv1alpha1.Crew{}
-			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "crew-no-ns-delete", Namespace: namespace}, updated)).To(Succeed())
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: testCrewNoNSDelete, Namespace: namespace}, updated)).To(Succeed())
 			Expect(k8sClient.Delete(ctx, updated)).To(Succeed())
 
 			// Reconcile handles deletion
 			_, err = reconciler.Reconcile(ctx, reconcile.Request{
-				NamespacedName: types.NamespacedName{Name: "crew-no-ns-delete", Namespace: namespace},
+				NamespacedName: types.NamespacedName{Name: testCrewNoNSDelete, Namespace: namespace},
 			})
 			Expect(err).NotTo(HaveOccurred())
 
@@ -208,7 +208,7 @@ var _ = Describe("Crew Controller", func() {
 			nsName := "crew-no-optin-ns-test"
 			Expect(k8sClient.Create(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{
 				Name:   nsName,
-				Labels: map[string]string{crewLabelKey: crewName, "app.kubernetes.io/managed-by": "kubemoot-operator"},
+				Labels: map[string]string{crewLabelKey: crewName, testLabelManagedBy: "kubemoot-operator"},
 			}})).To(Succeed())
 			crew := &aiv1alpha1.Crew{
 				ObjectMeta: metav1.ObjectMeta{
@@ -254,9 +254,9 @@ var _ = Describe("Crew Controller", func() {
 				ObjectMeta: metav1.ObjectMeta{
 					Name: nsName,
 					Labels: map[string]string{
-						crewLabelKey:                   "crew-managed-delete",
-						managedNamespaceLabel:          managedNamespaceOptIn,
-						"app.kubernetes.io/managed-by": "kubemoot-operator",
+						crewLabelKey:          testCrewManagedDelete,
+						managedNamespaceLabel: managedNamespaceOptIn,
+						testLabelManagedBy:    "kubemoot-operator",
 					},
 				},
 			}
@@ -264,10 +264,10 @@ var _ = Describe("Crew Controller", func() {
 
 			crew := &aiv1alpha1.Crew{
 				ObjectMeta: metav1.ObjectMeta{
-					Name:      "crew-managed-delete",
+					Name:      testCrewManagedDelete,
 					Namespace: nsName,
 					Annotations: map[string]string{
-						manageNamespaceAnno: "true",
+						manageNamespaceAnno: testTrue,
 					},
 				},
 				Spec: aiv1alpha1.CrewSpec{
@@ -280,18 +280,18 @@ var _ = Describe("Crew Controller", func() {
 
 			// First reconcile adds finalizer
 			_, err := reconciler.Reconcile(ctx, reconcile.Request{
-				NamespacedName: types.NamespacedName{Name: "crew-managed-delete", Namespace: nsName},
+				NamespacedName: types.NamespacedName{Name: testCrewManagedDelete, Namespace: nsName},
 			})
 			Expect(err).NotTo(HaveOccurred())
 
 			// Delete the crew
 			updated := &aiv1alpha1.Crew{}
-			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "crew-managed-delete", Namespace: nsName}, updated)).To(Succeed())
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: testCrewManagedDelete, Namespace: nsName}, updated)).To(Succeed())
 			Expect(k8sClient.Delete(ctx, updated)).To(Succeed())
 
 			// Reconcile handles deletion
 			_, err = reconciler.Reconcile(ctx, reconcile.Request{
-				NamespacedName: types.NamespacedName{Name: "crew-managed-delete", Namespace: nsName},
+				NamespacedName: types.NamespacedName{Name: testCrewManagedDelete, Namespace: nsName},
 			})
 			Expect(err).NotTo(HaveOccurred())
 
@@ -317,10 +317,10 @@ var _ = Describe("Crew Controller", func() {
 
 			crew := &aiv1alpha1.Crew{
 				ObjectMeta: metav1.ObjectMeta{
-					Name:      "crew-label-test",
+					Name:      testCrewLabelTest,
 					Namespace: nsName,
 					Annotations: map[string]string{
-						manageNamespaceAnno: "true",
+						manageNamespaceAnno: testTrue,
 					},
 				},
 				Spec: aiv1alpha1.CrewSpec{
@@ -333,25 +333,25 @@ var _ = Describe("Crew Controller", func() {
 
 			// First reconcile adds finalizer
 			_, err := reconciler.Reconcile(ctx, reconcile.Request{
-				NamespacedName: types.NamespacedName{Name: "crew-label-test", Namespace: nsName},
+				NamespacedName: types.NamespacedName{Name: testCrewLabelTest, Namespace: nsName},
 			})
 			Expect(err).NotTo(HaveOccurred())
 
 			// Second reconcile processes the crew logic (including namespace labeling)
 			_, err = reconciler.Reconcile(ctx, reconcile.Request{
-				NamespacedName: types.NamespacedName{Name: "crew-label-test", Namespace: nsName},
+				NamespacedName: types.NamespacedName{Name: testCrewLabelTest, Namespace: nsName},
 			})
 			Expect(err).NotTo(HaveOccurred())
 
 			// Verify namespace was labeled
 			updatedNs := &corev1.Namespace{}
 			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: nsName}, updatedNs)).To(Succeed())
-			Expect(updatedNs.Labels[crewLabelKey]).To(Equal("crew-label-test"))
-			Expect(updatedNs.Labels["app.kubernetes.io/managed-by"]).To(Equal("kubemoot-operator"))
+			Expect(updatedNs.Labels[crewLabelKey]).To(Equal(testCrewLabelTest))
+			Expect(updatedNs.Labels[testLabelManagedBy]).To(Equal("kubemoot-operator"))
 
 			// Cleanup: remove finalizer and delete
 			crewObj := &aiv1alpha1.Crew{}
-			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "crew-label-test", Namespace: nsName}, crewObj)).To(Succeed())
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: testCrewLabelTest, Namespace: nsName}, crewObj)).To(Succeed())
 			crewObj.Finalizers = nil
 			Expect(k8sClient.Update(ctx, crewObj)).To(Succeed())
 			Expect(k8sClient.Delete(ctx, crewObj)).To(Succeed())
@@ -368,7 +368,7 @@ var _ = Describe("Crew Controller", func() {
 
 			crew := &aiv1alpha1.Crew{
 				ObjectMeta: metav1.ObjectMeta{
-					Name:      "crew-nolabel-test",
+					Name:      testCrewNoLabelTest,
 					Namespace: nsName,
 					// No manage-namespace annotation
 				},
@@ -382,13 +382,13 @@ var _ = Describe("Crew Controller", func() {
 
 			// First reconcile adds finalizer
 			_, err := reconciler.Reconcile(ctx, reconcile.Request{
-				NamespacedName: types.NamespacedName{Name: "crew-nolabel-test", Namespace: nsName},
+				NamespacedName: types.NamespacedName{Name: testCrewNoLabelTest, Namespace: nsName},
 			})
 			Expect(err).NotTo(HaveOccurred())
 
 			// Second reconcile processes the crew logic
 			_, err = reconciler.Reconcile(ctx, reconcile.Request{
-				NamespacedName: types.NamespacedName{Name: "crew-nolabel-test", Namespace: nsName},
+				NamespacedName: types.NamespacedName{Name: testCrewNoLabelTest, Namespace: nsName},
 			})
 			Expect(err).NotTo(HaveOccurred())
 
@@ -399,7 +399,7 @@ var _ = Describe("Crew Controller", func() {
 
 			// Cleanup
 			crewObj := &aiv1alpha1.Crew{}
-			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "crew-nolabel-test", Namespace: nsName}, crewObj)).To(Succeed())
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: testCrewNoLabelTest, Namespace: nsName}, crewObj)).To(Succeed())
 			crewObj.Finalizers = nil
 			Expect(k8sClient.Update(ctx, crewObj)).To(Succeed())
 			Expect(k8sClient.Delete(ctx, crewObj)).To(Succeed())
@@ -437,7 +437,7 @@ var _ = Describe("Crew Controller", func() {
 			Expect(rev.Revision).To(Equal(revTestHash))
 			Expect(rev.Source).To(Equal(revTestSource))
 			Expect(rev.Owner).To(Equal(revTestOwner))
-			Expect(rev.Channel).To(Equal("bundle"))
+			Expect(rev.Channel).To(Equal(testBundle))
 			Expect(rev.CrewVersion).To(Equal(revTestVersion))
 			Expect(rev.DeployedAt).To(Equal(revTestDeployedAt))
 			Expect(rev.ObservedAt.IsZero()).To(BeFalse())
@@ -447,8 +447,8 @@ var _ = Describe("Crew Controller", func() {
 			var crews map[string]map[string]string
 			Expect(json.Unmarshal([]byte(ns.Annotations[annoNamespaceCrews]), &crews)).To(Succeed())
 			Expect(crews).To(HaveKeyWithValue(revCrew, map[string]string{
-				"source": revTestSource, "owner": revTestOwner, "revision": revTestHash,
-				"channel": "bundle", "crewVersion": revTestVersion, "deployedAt": revTestDeployedAt,
+				"source": revTestSource, testOwner: revTestOwner, "revision": revTestHash,
+				"channel": testBundle, "crewVersion": revTestVersion, "deployedAt": revTestDeployedAt,
 			}))
 
 			// A redeploy with a new revision prepends a second entry.
