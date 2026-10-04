@@ -13,9 +13,9 @@ const (
 	// operator never writes it.
 	managedNamespaceLabel = "kubemoot.ai/managed-namespace"
 	// managedNamespaceOptIn is the value of managedNamespaceLabel that grants consent.
-	managedNamespaceOptIn = "true"
+	managedNamespaceOptIn = valueTrue
 	// manageNamespaceRequested is the value of the Crew annotation manageNamespaceAnno.
-	manageNamespaceRequested = "true"
+	manageNamespaceRequested = valueTrue
 )
 
 // systemNamespaces are never deleted or adopted, whatever their labels say.

@@ -163,7 +163,7 @@ func (r *MCPCatalogReconciler) syncOfficialRegistry(ctx context.Context, catalog
 		"blocked", blockedCount)
 
 	return r.updateStatusWithServers(ctx, catalog, catalogStatusUpdate{
-		phase:      "Ready",
+		phase:      phaseReady,
 		message:    "Synced from official registry",
 		servers:    discoveredServers,
 		discovered: len(registryResp.Servers),
@@ -321,7 +321,7 @@ Return the discovered servers as JSON.`, catalog.Spec.URL, catalog.Spec.Queries)
 		"blocked", blockedCount)
 
 	return r.updateStatusWithServers(ctx, catalog, catalogStatusUpdate{
-		phase:      "Ready",
+		phase:      phaseReady,
 		message:    "Synced via discovery agent",
 		servers:    discoveredServers,
 		discovered: len(discoveredServers) + blockedCount,
@@ -333,7 +333,7 @@ Return the discovered servers as JSON.`, catalog.Spec.URL, catalog.Spec.Queries)
 // invokeAgent sends a chat request to an Agent and returns the response
 func (r *MCPCatalogReconciler) invokeAgent(ctx context.Context, endpoint, message string) (string, error) {
 	reqBody := map[string]interface{}{
-		"message": message,
+		jsonKeyMessage: message,
 	}
 	bodyBytes, err := json.Marshal(reqBody)
 	if err != nil {
@@ -453,7 +453,7 @@ func (r *MCPCatalogReconciler) applyQualityPolicy(ctx context.Context, catalog *
 		server.QualityDecision = decision.Action
 		server.QualityReason = decision.Reason
 
-		if decision.Action == "allow" {
+		if decision.Action == policyActionAllow {
 			allowed = append(allowed, server)
 		} else {
 			blockedCount++
@@ -491,10 +491,10 @@ func (r *MCPCatalogReconciler) evaluateServerAgainstPolicy(ctx context.Context, 
 func (r *MCPCatalogReconciler) checkAllowingList(policy *aiv1alpha1.MCPQualityPolicy, server aiv1alpha1.DiscoveredServer) (PolicyDecision, bool) {
 	for _, entry := range policy.Spec.Allowing {
 		if entry.Name != "" && entry.Name == server.Name {
-			return PolicyDecision{Action: "allow", Confidence: 1.0, Reason: "In allowing list (by name)"}, true
+			return PolicyDecision{Action: policyActionAllow, Confidence: 1.0, Reason: "In allowing list (by name)"}, true
 		}
 		if entry.Author != "" && entry.Author == server.Author {
-			return PolicyDecision{Action: "allow", Confidence: 1.0, Reason: "In allowing list (by author)"}, true
+			return PolicyDecision{Action: policyActionAllow, Confidence: 1.0, Reason: "In allowing list (by author)"}, true
 		}
 	}
 	return PolicyDecision{}, false
@@ -508,7 +508,7 @@ func (r *MCPCatalogReconciler) checkBlockingList(policy *aiv1alpha1.MCPQualityPo
 			if entry.Reason != "" {
 				reason = entry.Reason
 			}
-			return PolicyDecision{Action: "deny", Confidence: 1.0, Reason: reason}, true
+			return PolicyDecision{Action: policyActionDeny, Confidence: 1.0, Reason: reason}, true
 		}
 	}
 	return PolicyDecision{}, false
@@ -519,7 +519,7 @@ func (r *MCPCatalogReconciler) evaluateConsideringTier(ctx context.Context, poli
 	log := logf.FromContext(ctx)
 
 	if policy.Spec.Considering == nil {
-		return PolicyDecision{Action: "allow", Confidence: 0.5, Reason: "No policy matched, default allow"}
+		return PolicyDecision{Action: policyActionAllow, Confidence: 0.5, Reason: "No policy matched, default allow"}
 	}
 
 	if !policy.Spec.Considering.Enabled {
@@ -652,7 +652,7 @@ func (r *MCPCatalogReconciler) invokeQualityEvaluator(ctx context.Context, polic
 
 	// Build the evaluation request with server metadata and metrics
 	evalRequest := map[string]interface{}{
-		"name":        server.Name,
+		jsonKeyName:   server.Name,
 		"author":      server.Author,
 		"description": server.Description,
 		"version":     server.Version,
@@ -729,9 +729,9 @@ func (r *MCPCatalogReconciler) parseQualityEvaluatorResponse(response string) (P
 		return PolicyDecision{}, fmt.Errorf("failed to parse JSON: %w", err)
 	}
 
-	action := "deny"
-	if strings.ToLower(evalResp.Decision) == "allow" {
-		action = "allow"
+	action := policyActionDeny
+	if strings.ToLower(evalResp.Decision) == policyActionAllow {
+		action = policyActionAllow
 	}
 
 	return PolicyDecision{
@@ -820,13 +820,13 @@ func (r *MCPCatalogReconciler) updateStatusWithServers(ctx context.Context, cata
 
 	// Set condition
 	condition := metav1.Condition{
-		Type:               "Ready",
+		Type:               conditionTypeReady,
 		Status:             metav1.ConditionFalse,
 		Reason:             phase,
 		Message:            message,
 		LastTransitionTime: metav1.Now(),
 	}
-	if phase == "Ready" {
+	if phase == phaseReady {
 		condition.Status = metav1.ConditionTrue
 	}
 	meta.SetStatusCondition(&catalog.Status.Conditions, condition)
@@ -838,7 +838,7 @@ func (r *MCPCatalogReconciler) updateStatusWithServers(ctx context.Context, cata
 
 	// Requeue for next sync
 	requeueAfter := syncInterval
-	if phase != "Ready" {
+	if phase != phaseReady {
 		requeueAfter = 1 * time.Minute // Retry faster if not ready
 	}
 

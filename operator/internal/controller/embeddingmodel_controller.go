@@ -128,7 +128,7 @@ func (r *EmbeddingModelReconciler) reconcileOllamaEmbedding(ctx context.Context,
 	}
 
 	// Update status with model info
-	embeddingModel.Status.State = "Available"
+	embeddingModel.Status.State = stateAvailable
 	embeddingModel.Status.Ready = true
 	embeddingModel.Status.Message = fmt.Sprintf("Embedding model %s is available", embeddingModel.Spec.Model)
 	embeddingModel.Status.Endpoint = endpoint // Set endpoint for RAGSource to use
@@ -144,9 +144,9 @@ func (r *EmbeddingModelReconciler) reconcileOllamaEmbedding(ctx context.Context,
 
 	// Set condition
 	condition := metav1.Condition{
-		Type:               "Ready",
+		Type:               conditionTypeReady,
 		Status:             metav1.ConditionTrue,
-		Reason:             "Available",
+		Reason:             stateAvailable,
 		Message:            embeddingModel.Status.Message,
 		LastTransitionTime: metav1.Now(),
 	}
@@ -302,7 +302,7 @@ func (r *EmbeddingModelReconciler) updateStatus(ctx context.Context, embeddingMo
 	embeddingModel.Status.Message = message
 
 	meta.SetStatusCondition(&embeddingModel.Status.Conditions, metav1.Condition{
-		Type:               "Ready",
+		Type:               conditionTypeReady,
 		Status:             metav1.ConditionFalse,
 		Reason:             state,
 		Message:            message,

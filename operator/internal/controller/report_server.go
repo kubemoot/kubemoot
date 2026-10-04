@@ -32,6 +32,9 @@ import (
 	kubemootnats "github.com/kubemoot/kubemoot/operator/internal/nats"
 )
 
+// componentModelProviders names the ModelProvider entry in the component status list.
+const componentModelProviders = "modelproviders"
+
 var reportLog = logf.Log.WithName("fitness-report")
 
 // transcriptDoc is the subset of the runner's per-iteration transcript JSON
@@ -56,6 +59,7 @@ type transcriptAssertion struct {
 
 // parseTranscriptKey extracts (scriptIdx, iter) from a transcript object key
 // whose tail is "s{scriptIdx}-i{iter}.json". ok=false when the tail doesn't match.
+
 func parseTranscriptKey(key string) (idx, iter int, ok bool) {
 	base := key
 	if i := strings.LastIndex(base, "/"); i >= 0 {
@@ -400,10 +404,10 @@ func buildComponentStatuses(ctx context.Context, c client.Client, natsConnected 
 	var mps kubemootv1alpha1.ModelProviderList
 	switch err := c.List(ctx, &mps); {
 	case err != nil:
-		out = append(out, ComponentStatus{Name: "modelproviders", Healthy: false, Message: "list failed: " + err.Error()})
+		out = append(out, ComponentStatus{Name: componentModelProviders, Healthy: false, Message: "list failed: " + err.Error()})
 	case len(mps.Items) == 0:
 		// No providers configured is a config state, not a failure — neutral.
-		out = append(out, ComponentStatus{Name: "modelproviders", Healthy: true, Message: "none configured"})
+		out = append(out, ComponentStatus{Name: componentModelProviders, Healthy: true, Message: "none configured"})
 	default:
 		ready := 0
 		for i := range mps.Items {
@@ -412,7 +416,7 @@ func buildComponentStatuses(ctx context.Context, c client.Client, natsConnected 
 			}
 		}
 		out = append(out, ComponentStatus{
-			Name:    "modelproviders",
+			Name:    componentModelProviders,
 			Healthy: ready > 0,
 			Message: fmt.Sprintf("%d/%d ready", ready, len(mps.Items)),
 		})

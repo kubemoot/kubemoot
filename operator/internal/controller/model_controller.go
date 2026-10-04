@@ -197,7 +197,7 @@ func (r *ModelReconciler) reconcileOllamaModel(ctx context.Context, model *aiv1a
 		ModifiedAt:   modelInfo.ModifiedAt,
 	}
 
-	state := "Available"
+	state := stateAvailable
 	if loaded {
 		state = "Loaded"
 	}
@@ -402,7 +402,7 @@ func (r *ModelReconciler) updateModelStatus(ctx context.Context, model *aiv1alph
 
 	// Set condition
 	condition := metav1.Condition{
-		Type:               "Ready",
+		Type:               conditionTypeReady,
 		Status:             metav1.ConditionFalse,
 		Reason:             state,
 		Message:            message,

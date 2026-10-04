@@ -20,7 +20,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"os"
 	"regexp"
@@ -102,12 +101,8 @@ func (r *RAGSourceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 			fmt.Sprintf("Waiting for EmbeddingModel '%s' to be ready", ragSource.Spec.EmbeddingModelRef))
 	}
 
-	// Validate cron schedule if specified
-	if ragSource.Spec.Indexer != nil && ragSource.Spec.Indexer.Schedule != "" {
-		if _, err := r.calculateNextRunTime(ragSource.Spec.Indexer.Schedule, time.Now()); err != nil {
-			return r.updateStatus(ctx, ragSource, "Error", false,
-				fmt.Sprintf("Invalid cron schedule: %s", err.Error()))
-		}
+	if msg := r.invalidScheduleMessage(ragSource); msg != "" {
+		return r.updateStatus(ctx, ragSource, "Error", false, msg)
 	}
 
 	// Ensure query service is deployed (if enabled)
@@ -119,6 +114,18 @@ func (r *RAGSourceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	}
 
 	return r.reconcileIndexingState(ctx, ragSource, embeddingModel)
+}
+
+// invalidScheduleMessage explains why the indexer's cron schedule cannot be parsed,
+// or is empty when no schedule is set or it parses.
+func (r *RAGSourceReconciler) invalidScheduleMessage(ragSource *kubemootv1alpha1.RAGSource) string {
+	if ragSource.Spec.Indexer == nil || ragSource.Spec.Indexer.Schedule == "" {
+		return ""
+	}
+	if _, err := r.calculateNextRunTime(ragSource.Spec.Indexer.Schedule, time.Now()); err != nil {
+		return fmt.Sprintf("Invalid cron schedule: %s", err.Error())
+	}
+	return ""
 }
 
 // reconcileIndexingState handles delay checking, indexing triggers, job monitoring, and vector store verification.
@@ -144,7 +151,7 @@ func (r *RAGSourceReconciler) reconcileIndexingState(ctx context.Context, ragSou
 		return r.runIndexingJob(ctx, ragSource, embeddingModel)
 	}
 
-	if ragSource.Status.LastJobName != "" && ragSource.Status.Phase == "Indexing" {
+	if ragSource.Status.LastJobName != "" && ragSource.Status.Phase == phaseIndexing {
 		return r.checkJobStatus(ctx, ragSource)
 	}
 
@@ -153,7 +160,7 @@ func (r *RAGSourceReconciler) reconcileIndexingState(ctx context.Context, ragSou
 		return r.runIndexingJob(ctx, ragSource, embeddingModel)
 	}
 
-	return r.updateStatus(ctx, ragSource, "Ready", true,
+	return r.updateStatus(ctx, ragSource, phaseReady, true,
 		fmt.Sprintf("Indexed %d documents", ragSource.Status.IndexingStats.DocumentCount))
 }
 
@@ -209,7 +216,7 @@ func forceFullIndex(ragSource *kubemootv1alpha1.RAGSource) {
 // needsIndexing determines if indexing should run
 func (r *RAGSourceReconciler) needsIndexing(ragSource *kubemootv1alpha1.RAGSource) bool {
 	// Check if currently indexing
-	if ragSource.Status.Phase == "Indexing" {
+	if ragSource.Status.Phase == phaseIndexing {
 		return false
 	}
 
@@ -239,49 +246,9 @@ func (r *RAGSourceReconciler) needsIndexing(ragSource *kubemootv1alpha1.RAGSourc
 func (r *RAGSourceReconciler) verifyVectorStore(ctx context.Context, ragSource *kubemootv1alpha1.RAGSource) bool {
 	log := logf.FromContext(ctx)
 
-	httpClient := r.HTTPClient
-	if httpClient == nil {
-		httpClient = &http.Client{Timeout: 5 * time.Second}
-	}
-
-	infoURL := ragSource.Status.QueryEndpoint + "/info"
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, infoURL, nil)
-	if err != nil {
-		log.V(1).Info("Failed to create info request", "url", infoURL, "error", err)
+	actualCount, ok := r.queryServiceDocumentCount(ctx, ragSource.Status.QueryEndpoint)
+	if !ok {
 		return false
-	}
-
-	resp, err := httpClient.Do(req)
-	if err != nil {
-		log.V(1).Info("Query service unreachable, skipping vector store verification", "url", infoURL, "error", err)
-		return false
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	if resp.StatusCode != http.StatusOK {
-		log.V(1).Info("Query service returned non-200, skipping verification", "status", resp.StatusCode)
-		return false
-	}
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		log.V(1).Info("Failed to read info response", "error", err)
-		return false
-	}
-
-	var infoResp struct {
-		Stats struct {
-			DocumentCount *int32 `json:"document_count"`
-		} `json:"stats"`
-	}
-	if err := json.Unmarshal(body, &infoResp); err != nil {
-		log.V(1).Info("Failed to parse info response", "error", err)
-		return false
-	}
-
-	actualCount := int32(0)
-	if infoResp.Stats.DocumentCount != nil {
-		actualCount = *infoResp.Stats.DocumentCount
 	}
 
 	// If query service confirms 0 documents, data was lost — trigger re-index.
@@ -307,6 +274,46 @@ func (r *RAGSourceReconciler) verifyVectorStore(ctx context.Context, ragSource *
 	}
 
 	return false
+}
+
+// queryServiceDocumentCount asks the query service at endpoint for its document
+// count (GET /info, stats.document_count; a missing count reads as 0). It reports
+// false when the service cannot be reached or does not answer with a readable
+// 200 response, so the caller skips verification.
+func (r *RAGSourceReconciler) queryServiceDocumentCount(ctx context.Context, endpoint string) (int32, bool) {
+	log := logf.FromContext(ctx)
+
+	httpClient := r.HTTPClient
+	if httpClient == nil {
+		httpClient = &http.Client{Timeout: 5 * time.Second}
+	}
+
+	infoURL := endpoint + "/info"
+	resp, err := httpGet(ctx, httpClient, infoURL)
+	if err != nil {
+		log.V(1).Info("Query service unreachable, skipping vector store verification", "url", infoURL, "error", err)
+		return 0, false
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		log.V(1).Info("Query service returned non-200, skipping verification", "status", resp.StatusCode)
+		return 0, false
+	}
+
+	var infoResp struct {
+		Stats struct {
+			DocumentCount *int32 `json:"document_count"`
+		} `json:"stats"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&infoResp); err != nil {
+		log.V(1).Info("Failed to parse info response", "error", err)
+		return 0, false
+	}
+	if infoResp.Stats.DocumentCount == nil {
+		return 0, true
+	}
+	return *infoResp.Stats.DocumentCount, true
 }
 
 // checkDelayPeriod checks if we're still in the initial delay period
@@ -412,7 +419,7 @@ func (r *RAGSourceReconciler) runIndexingJob(ctx context.Context, ragSource *kub
 	if activeJob := findActiveJob(existingJobs); activeJob != nil {
 		log.Info("Found active indexing job, waiting for completion", "job", activeJob.Name)
 		ragSource.Status.LastJobName = activeJob.Name
-		ragSource.Status.Phase = "Indexing"
+		ragSource.Status.Phase = phaseIndexing
 		ragSource.Status.Message = fmt.Sprintf("Indexing job %s in progress", activeJob.Name)
 		if err := r.Status().Update(ctx, ragSource); err != nil {
 			return ctrl.Result{}, err
@@ -452,15 +459,15 @@ func (r *RAGSourceReconciler) runIndexingJob(ctx context.Context, ragSource *kub
 	}
 
 	// Update status to indexing
-	ragSource.Status.Phase = "Indexing"
+	ragSource.Status.Phase = phaseIndexing
 	ragSource.Status.Ready = false
 	ragSource.Status.LastJobName = jobName
 	ragSource.Status.Message = fmt.Sprintf("Indexing job %s started", jobName)
 
 	condition := metav1.Condition{
-		Type:               "Ready",
+		Type:               conditionTypeReady,
 		Status:             metav1.ConditionFalse,
-		Reason:             "Indexing",
+		Reason:             phaseIndexing,
 		Message:            ragSource.Status.Message,
 		LastTransitionTime: metav1.Now(),
 	}
@@ -607,7 +614,7 @@ func (r *RAGSourceReconciler) buildIndexingJob(ragSource *kubemootv1alpha1.RAGSo
 		RunAsGroup:               &runAsGroup,
 		SeccompProfile:           &seccompProfile,
 		Capabilities: &corev1.Capabilities{
-			Drop: []corev1.Capability{"ALL"},
+			Drop: []corev1.Capability{dropAllCapability},
 		},
 	}
 
@@ -658,7 +665,7 @@ func (r *RAGSourceReconciler) buildIndexingJob(ragSource *kubemootv1alpha1.RAGSo
 			StartupProbe: &corev1.Probe{
 				ProbeHandler: corev1.ProbeHandler{
 					HTTPGet: &corev1.HTTPGetAction{
-						Path: "/health",
+						Path: healthPath,
 						Port: intstr.FromInt32(5001),
 					},
 				},
@@ -711,9 +718,9 @@ func (r *RAGSourceReconciler) buildIndexerCoreEnv(ragSource *kubemootv1alpha1.RA
 		env = append(env, corev1.EnvVar{Name: "KUBEMOOT_LAST_CHECKSUM", Value: ragSource.Status.LastIndexedChecksum})
 	}
 
-	forceReindex := "false"
+	forceReindex := valueFalse
 	if ragSource.Spec.Indexer != nil && ragSource.Spec.Indexer.ForceReindex {
-		forceReindex = "true"
+		forceReindex = valueTrue
 	}
 	env = append(env, corev1.EnvVar{Name: "KUBEMOOT_FORCE_REINDEX", Value: forceReindex})
 
@@ -882,7 +889,7 @@ func buildDocumentSourceEnv(ragSource *kubemootv1alpha1.RAGSource) []corev1.EnvV
 		{Name: "KUBEMOOT_DOCLING_ENDPOINT", Value: "http://localhost:5001"},
 	}
 	if ragSource.Spec.Source.Document.DisableOCR {
-		env = append(env, corev1.EnvVar{Name: "KUBEMOOT_DOCUMENT_DISABLE_OCR", Value: "true"})
+		env = append(env, corev1.EnvVar{Name: "KUBEMOOT_DOCUMENT_DISABLE_OCR", Value: valueTrue})
 	}
 	return env
 }
@@ -897,7 +904,7 @@ func buildNatsKVSourceEnv(ragSource *kubemootv1alpha1.RAGSource) []corev1.EnvVar
 		{Name: "KUBEMOOT_NATS_KV_KEY", Value: ragSource.Spec.Source.NatsKV.Key},
 		{Name: "NATS_URL", Value: os.Getenv("NATS_URL")},
 		// Resumes are a full replacement — truncate old embeddings before re-indexing
-		{Name: "KUBEMOOT_TRUNCATE_BEFORE_INDEX", Value: "true"},
+		{Name: "KUBEMOOT_TRUNCATE_BEFORE_INDEX", Value: valueTrue},
 	}
 	if ragSource.Spec.Source.NatsKV.ContentHash != "" {
 		env = append(env, corev1.EnvVar{Name: "KUBEMOOT_NATS_KV_CONTENT_HASH", Value: ragSource.Spec.Source.NatsKV.ContentHash})
@@ -929,7 +936,7 @@ func buildVectorStoreSecretEnv(ragSource *kubemootv1alpha1.RAGSource) []corev1.E
 					LocalObjectReference: corev1.LocalObjectReference{
 						Name: ragSource.Spec.VectorStore.SecretRef,
 					},
-					Key:      "username",
+					Key:      secretKeyUsername,
 					Optional: ptr.To(true),
 				},
 			},
@@ -941,7 +948,7 @@ func buildVectorStoreSecretEnv(ragSource *kubemootv1alpha1.RAGSource) []corev1.E
 					LocalObjectReference: corev1.LocalObjectReference{
 						Name: ragSource.Spec.VectorStore.SecretRef,
 					},
-					Key: "password",
+					Key: secretKeyPassword,
 				},
 			},
 		},
@@ -1098,7 +1105,7 @@ func (r *RAGSourceReconciler) handleJobSuccess(ctx context.Context, ragSource *k
 	// Clear LastJobName so completed jobs aren't re-processed on next reconcile
 	ragSource.Status.LastJobName = ""
 
-	return r.updateStatus(ctx, ragSource, "Ready", true, statusMessage)
+	return r.updateStatus(ctx, ragSource, phaseReady, true, statusMessage)
 }
 
 // parseJobAnnotations extracts indexing status, checksum, document count, and chunk count from job annotations.
@@ -1154,7 +1161,7 @@ func (r *RAGSourceReconciler) handleIndexingSkipped(ctx context.Context, ragSour
 	// Clear LastJobName so completed jobs aren't re-processed on next reconcile
 	ragSource.Status.LastJobName = ""
 
-	return r.updateStatus(ctx, ragSource, "Ready", true, statusMessage)
+	return r.updateStatus(ctx, ragSource, phaseReady, true, statusMessage)
 }
 
 // calculateNextRunTime calculates the next run time based on cron schedule
@@ -1224,7 +1231,7 @@ func (r *RAGSourceReconciler) updateStatus(ctx context.Context, ragSource *kubem
 		conditionStatus = metav1.ConditionTrue
 	}
 	condition := metav1.Condition{
-		Type:               "Ready",
+		Type:               conditionTypeReady,
 		Status:             conditionStatus,
 		Reason:             phase,
 		Message:            message,
@@ -1239,7 +1246,7 @@ func (r *RAGSourceReconciler) updateStatus(ctx context.Context, ragSource *kubem
 
 	// Requeue based on phase
 	switch phase {
-	case "Indexing":
+	case phaseIndexing:
 		return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
 	case "Error":
 		return ctrl.Result{RequeueAfter: 60 * time.Second}, nil
@@ -1394,7 +1401,7 @@ func (r *RAGSourceReconciler) buildQueryServiceDeployment(ragSource *kubemootv1a
 		{Name: "KUBEMOOT_DB_USER", Value: r.extractUser(ragSource.Spec.VectorStore.Endpoint)},
 		{Name: "KUBEMOOT_COLLECTION", Value: ragSource.Spec.VectorStore.Collection},
 		{Name: "KUBEMOOT_TOP_K", Value: fmt.Sprintf("%d", topK)},
-		{Name: "PORT", Value: fmt.Sprintf("%d", port)},
+		{Name: envPort, Value: fmt.Sprintf("%d", port)},
 	}
 
 	// Add embedding configuration from EmbeddingModel
@@ -1416,7 +1423,7 @@ func (r *RAGSourceReconciler) buildQueryServiceDeployment(ragSource *kubemootv1a
 					LocalObjectReference: corev1.LocalObjectReference{
 						Name: ragSource.Spec.VectorStore.SecretRef,
 					},
-					Key:      "username",
+					Key:      secretKeyUsername,
 					Optional: ptr.To(true), // Fall back to default if not present
 				},
 			},
@@ -1428,7 +1435,7 @@ func (r *RAGSourceReconciler) buildQueryServiceDeployment(ragSource *kubemootv1a
 					LocalObjectReference: corev1.LocalObjectReference{
 						Name: ragSource.Spec.VectorStore.SecretRef,
 					},
-					Key: "password",
+					Key: secretKeyPassword,
 				},
 			},
 		})
@@ -1462,11 +1469,11 @@ func (r *RAGSourceReconciler) buildQueryServiceDeployment(ragSource *kubemootv1a
 		Env:       env,
 		Resources: resources,
 		Ports: []corev1.ContainerPort{
-			{Name: "http", ContainerPort: port, Protocol: corev1.ProtocolTCP},
+			{Name: portNameHTTP, ContainerPort: port, Protocol: corev1.ProtocolTCP},
 		},
 		LivenessProbe: &corev1.Probe{
 			ProbeHandler: corev1.ProbeHandler{
-				HTTPGet: &corev1.HTTPGetAction{Path: "/health", Port: intstr.FromInt32(port)},
+				HTTPGet: &corev1.HTTPGetAction{Path: healthPath, Port: intstr.FromInt32(port)},
 			},
 			InitialDelaySeconds: 10,
 			PeriodSeconds:       30,
@@ -1484,7 +1491,7 @@ func (r *RAGSourceReconciler) buildQueryServiceDeployment(ragSource *kubemootv1a
 			RunAsUser:                &runAsUser,
 			RunAsGroup:               &runAsGroup,
 			SeccompProfile:           &seccompProfile,
-			Capabilities:             &corev1.Capabilities{Drop: []corev1.Capability{"ALL"}},
+			Capabilities:             &corev1.Capabilities{Drop: []corev1.Capability{dropAllCapability}},
 		},
 	}
 
@@ -1545,7 +1552,7 @@ func (r *RAGSourceReconciler) ensureQueryServiceService(ctx context.Context, rag
 				labelComponent: componentQueryService,
 			},
 			Ports: []corev1.ServicePort{
-				{Name: "http", Port: port, TargetPort: intstr.FromInt32(port), Protocol: corev1.ProtocolTCP},
+				{Name: portNameHTTP, Port: port, TargetPort: intstr.FromInt32(port), Protocol: corev1.ProtocolTCP},
 			},
 		},
 	}

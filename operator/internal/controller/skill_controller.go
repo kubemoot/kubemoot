@@ -123,7 +123,7 @@ func (r *SkillReconciler) syncSkillConfigMap(ctx context.Context, crewName, name
 	data := buildSkillConfigMapData(items)
 	cmLabels := map[string]string{
 		labelManagedBy: managedByValue,
-		labelComponent: "skills",
+		labelComponent: skillsName,
 		crewLabelKey:   crewName,
 	}
 

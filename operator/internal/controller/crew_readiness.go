@@ -16,7 +16,7 @@ import (
 // Crew phases derived from the agents' own phases.
 const (
 	crewPhasePending  = "Pending"
-	crewPhaseReady    = "Ready"
+	crewPhaseReady    = phaseReady
 	crewPhaseDegraded = "Degraded"
 
 	agentPhaseRunning       = "Running"

@@ -291,14 +291,14 @@ func adherenceScore(events []transcriptEvent) float64 {
 	var hasSynthesis, hasDone, hasError bool
 	for _, e := range events {
 		switch e.Type {
-		case "finding":
+		case eventTypeFinding:
 			findings++
 			if findingWellFormed(e) {
 				wellFormed++
 			}
-		case "synthesis":
+		case eventTypeSynthesis:
 			hasSynthesis = hasSynthesis || strings.TrimSpace(e.Content) != ""
-		case "done":
+		case eventTypeDone:
 			hasDone = true
 		}
 		hasError = hasError || strings.TrimSpace(e.Error) != ""
@@ -320,7 +320,7 @@ func adherenceScore(events []transcriptEvent) float64 {
 func agreeCountFromEvents(events []transcriptEvent) int {
 	count := 0
 	for _, e := range events {
-		if e.Type == "finding" && strings.EqualFold(strings.TrimSpace(e.Signal), "agree") {
+		if e.Type == eventTypeFinding && strings.EqualFold(strings.TrimSpace(e.Signal), "agree") {
 			count++
 		}
 	}
@@ -354,20 +354,7 @@ func participationScore(agrees, expected int) float64 {
 // claim, computed purely from the signal stream. Data column, not a grade term
 // (the grade stays quality-led). See [[ADL Bake-Off Measurement Rubric]].
 func selectivityScore(events []transcriptEvent) float64 {
-	contributing := map[string]bool{}
-	stoodAside := map[string]bool{}
-	for _, e := range events {
-		if e.Type != "finding" || e.Agent == "" {
-			continue
-		}
-		sig := strings.ToLower(strings.TrimSpace(e.Signal))
-		switch {
-		case e.StoodAside || sig == "stand_aside":
-			stoodAside[e.Agent] = true
-		case sig == "agree" || sig == "concern":
-			contributing[e.Agent] = true
-		}
-	}
+	contributing, stoodAside := findingAgentsBySignal(events)
 	woken := len(contributing)
 	for a := range stoodAside {
 		if !contributing[a] { // an agent that also contributed counts as contributing
@@ -378,6 +365,26 @@ func selectivityScore(events []transcriptEvent) float64 {
 		return 100 // nothing irrelevant woken (incl. the answer-directly path)
 	}
 	return float64(len(contributing)) / float64(woken) * 100
+}
+
+// findingAgentsBySignal splits the agents that posted findings into those that
+// contributed (agree/concern) and those that stood aside.
+func findingAgentsBySignal(events []transcriptEvent) (contributing, stoodAside map[string]bool) {
+	contributing = map[string]bool{}
+	stoodAside = map[string]bool{}
+	for _, e := range events {
+		if e.Type != eventTypeFinding || e.Agent == "" {
+			continue
+		}
+		sig := strings.ToLower(strings.TrimSpace(e.Signal))
+		switch {
+		case e.StoodAside || sig == "stand_aside":
+			stoodAside[e.Agent] = true
+		case sig == "agree" || sig == "concern":
+			contributing[e.Agent] = true
+		}
+	}
+	return contributing, stoodAside
 }
 
 // extractLeadingInt returns the first run of digits in s as an int, or 0 — used to
@@ -400,12 +407,12 @@ func extractLeadingInt(s string) int {
 // and the LLM judge later.
 func synthesisFromEvents(events []transcriptEvent) string {
 	for _, e := range events {
-		if e.Type == "synthesis" && strings.TrimSpace(e.Content) != "" {
+		if e.Type == eventTypeSynthesis && strings.TrimSpace(e.Content) != "" {
 			return e.Content
 		}
 	}
 	for _, e := range events {
-		if e.Type == "done" && strings.TrimSpace(e.Content) != "" {
+		if e.Type == eventTypeDone && strings.TrimSpace(e.Content) != "" {
 			return e.Content
 		}
 	}

@@ -89,3 +89,53 @@ const (
 	bridgePipeDir  = "/pipes"
 	svcEndpointFmt = "http://%s.%s:%d"
 )
+
+// Boolean values as they are written into env vars, labels, and annotations.
+const (
+	valueTrue  = "true"
+	valueFalse = "false"
+)
+
+// Status phases and states shared by several resources.
+const (
+	phaseReady = "Ready"
+	// conditionTypeReady is the type of the Ready status condition.
+	conditionTypeReady = "Ready"
+	phaseDeploying     = "Deploying"
+	phaseIndexing      = "Indexing"
+	stateAvailable     = "Available"
+)
+
+// Workload wiring shared by the Deployments and Services the operator builds.
+const (
+	portNameHTTP      = "http"
+	envPort           = "PORT"
+	envServerPort     = "SERVER_PORT"
+	healthPath        = "/health"
+	secretKeyUsername = "username"
+	secretKeyPassword = "password"
+	// skillsName names the skills volume and is the component label of the
+	// skills ConfigMap.
+	skillsName = "skills"
+	// defaultOperatorNamespace is where the operator runs when OPERATOR_NAMESPACE is unset.
+	defaultOperatorNamespace = "kubemoot"
+	// partOfValue is the app.kubernetes.io/part-of label value.
+	partOfValue = "kubemoot"
+)
+
+// Keys of the JSON documents and unstructured objects the operator writes.
+const (
+	jsonKeyName    = "name"
+	jsonKeyType    = "type"
+	jsonKeyMessage = "message"
+	jsonKeyPhase   = "phase"
+	jsonKeyServer  = "server"
+	jsonKeySuccess = "success"
+)
+
+// Types of the events in a discussion transcript.
+const (
+	eventTypeFinding   = "finding"
+	eventTypeSynthesis = "synthesis"
+	eventTypeDone      = "done"
+)

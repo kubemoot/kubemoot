@@ -290,17 +290,7 @@ func (r *AgentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 		return ctrl.Result{}, err
 	}
 
-	// Read existing Deployment labels to know the agent's current per-phase
-	// provider picks. pickModel uses these for sticky scheduling so that
-	// cache-lag during bulk reconciles doesn't produce flip-back oscillation.
-	currentMulling, currentTriage := r.currentProviderPicks(ctx, agent)
-
-	mullingPick, mullingErr := r.pickModel(ctx, agent, phaseMulling, currentMulling)
-	triagePick, triageErr := r.pickModel(ctx, agent, phaseTriage, currentTriage)
-	if triageErr != nil && mullingPick != nil {
-		log.V(1).Info("Triage phase unschedulable; falling back to mulling pick", "reason", triageErr.Error())
-		triagePick = mullingPick
-	}
+	mullingPick, triagePick, mullingErr := r.pickPhaseModels(ctx, agent)
 	if mullingPick == nil {
 		return r.markUnschedulable(ctx, agent, mullingErr)
 	}
@@ -327,6 +317,23 @@ func (r *AgentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 		log.Error(err, "Failed to refresh Agent status")
 	}
 	return ctrl.Result{}, nil
+}
+
+// pickPhaseModels picks the mulling and triage models for an agent. It reads the
+// existing Deployment labels for the agent's current per-phase provider picks, which
+// pickModel uses for sticky scheduling so cache lag during bulk reconciles does not
+// flip a pick back and forth. An unschedulable triage phase falls back to the mulling
+// pick. A nil mulling pick comes with the error that explains it.
+func (r *AgentReconciler) pickPhaseModels(ctx context.Context, agent *kubemootv1alpha1.Agent) (mulling, triage *modelPick, mullingErr error) {
+	currentMulling, currentTriage := r.currentProviderPicks(ctx, agent)
+
+	mulling, mullingErr = r.pickModel(ctx, agent, phaseMulling, currentMulling)
+	triage, triageErr := r.pickModel(ctx, agent, phaseTriage, currentTriage)
+	if triageErr != nil && mulling != nil {
+		logf.FromContext(ctx).V(1).Info("Triage phase unschedulable; falling back to mulling pick", "reason", triageErr.Error())
+		triage = mulling
+	}
+	return mulling, triage, mullingErr
 }
 
 // markUnschedulable sets the Agent's status to Unschedulable (using mullingErr's
@@ -561,7 +568,7 @@ func (r *AgentReconciler) resolveProvider(ctx context.Context, namespace, name s
 		return prov, true
 	}
 	// Then try the kubemoot system namespace.
-	if err := r.Get(ctx, types.NamespacedName{Name: name, Namespace: "kubemoot"}, prov); err == nil {
+	if err := r.Get(ctx, types.NamespacedName{Name: name, Namespace: defaultOperatorNamespace}, prov); err == nil {
 		return prov, true
 	}
 	// Last try: cluster-scoped lookup with empty namespace.
@@ -609,8 +616,8 @@ func (r *AgentReconciler) ensurePolicyConfigMap(ctx context.Context, agent *kube
 			Name:      cmName,
 			Namespace: agent.Namespace,
 			Labels: map[string]string{
-				"app.kubernetes.io/managed-by": "kubemoot-operator",
-				labelAgent:                     agent.Name,
+				labelManagedBy: managedByValue,
+				labelAgent:     agent.Name,
 			},
 		},
 		Data: map[string]string{keySystemTxt: systemTxt},
@@ -753,12 +760,12 @@ func (r *AgentReconciler) buildDeployment(ctx context.Context, agent *kubemootv1
 	if crew := agent.Labels[labelCrew]; crew != "" {
 		skillsCMName := "crew-" + crew + "-skills"
 		volumeMounts = append(volumeMounts, corev1.VolumeMount{
-			Name:      "skills",
+			Name:      skillsName,
 			MountPath: skillsMountPath,
 			ReadOnly:  true,
 		})
 		volumes = append(volumes, corev1.Volume{
-			Name: "skills",
+			Name: skillsName,
 			VolumeSource: corev1.VolumeSource{
 				ConfigMap: &corev1.ConfigMapVolumeSource{
 					LocalObjectReference: corev1.LocalObjectReference{Name: skillsCMName},
@@ -790,7 +797,7 @@ func (r *AgentReconciler) buildDeployment(ctx context.Context, agent *kubemootv1
 						ImagePullPolicy: corev1.PullIfNotPresent,
 						Env:             env,
 						Ports: []corev1.ContainerPort{{
-							Name:          "http",
+							Name:          portNameHTTP,
 							ContainerPort: port,
 						}},
 						VolumeMounts: volumeMounts,
@@ -883,7 +890,7 @@ func buildDeploymentLabels(agent *kubemootv1alpha1.Agent, mulling, triage *model
 		"app":                         agent.Name,
 		"app.kubernetes.io/name":      agent.Name,
 		"app.kubernetes.io/component": "agent",
-		"app.kubernetes.io/part-of":   "kubemoot",
+		"app.kubernetes.io/part-of":   partOfValue,
 		labelAgent:                    agent.Name,
 	}
 	if crew, ok := agent.Labels[labelCrew]; ok {
@@ -1042,8 +1049,8 @@ func (r *AgentReconciler) agentDiscussRoleEnvVars(ctx context.Context, agent *ku
 	var env []corev1.EnvVar
 	if agent.Spec.DiscussRole == "coordinator" {
 		env = append(env,
-			corev1.EnvVar{Name: "KUBEMOOT_DISCUSS_COORDINATOR", Value: "true"},
-			corev1.EnvVar{Name: "KUBEMOOT_DISCUSS_TOOLER", Value: "false"},
+			corev1.EnvVar{Name: "KUBEMOOT_DISCUSS_COORDINATOR", Value: valueTrue},
+			corev1.EnvVar{Name: "KUBEMOOT_DISCUSS_TOOLER", Value: valueFalse},
 		)
 		// Point the coordinator at its crew's resume query service so the
 		// DiscussionOrchestrator vector pre-filter (resume_sync.go provisions the
@@ -1062,7 +1069,7 @@ func (r *AgentReconciler) agentDiscussRoleEnvVars(ctx context.Context, agent *ku
 		// the REVIEW phase (where analysts self-select) rather than taking the
 		// single-agree fast path that skips it.
 		if r.crewHasAnalysts(ctx, agent.Namespace) {
-			env = append(env, corev1.EnvVar{Name: "KUBEMOOT_DISCUSS_HAS_ANALYSTS", Value: "true"})
+			env = append(env, corev1.EnvVar{Name: "KUBEMOOT_DISCUSS_HAS_ANALYSTS", Value: valueTrue})
 		}
 	}
 	// A researcher keeps its discussion subscriber, like a tooler: when the
@@ -1088,7 +1095,7 @@ func (r *AgentReconciler) agentGatewayEnvVars(ctx context.Context, agent *kubemo
 	}
 	endpoint := fmt.Sprintf("http://%s.%s:%d", gwName, agent.Namespace, gwPort)
 	return []corev1.EnvVar{
-		{Name: "KUBEMOOT_GATEWAY_ENABLED", Value: "true"},
+		{Name: "KUBEMOOT_GATEWAY_ENABLED", Value: valueTrue},
 		{Name: "KUBEMOOT_GATEWAY_ENDPOINT", Value: endpoint},
 	}
 }
@@ -1203,14 +1210,14 @@ func (r *AgentReconciler) ensureService(ctx context.Context, agent *kubemootv1al
 			Name:      agent.Name,
 			Namespace: agent.Namespace,
 			Labels: map[string]string{
-				"app.kubernetes.io/managed-by": "kubemoot-operator",
-				labelAgent:                     agent.Name,
+				labelManagedBy: managedByValue,
+				labelAgent:     agent.Name,
 			},
 		},
 		Spec: corev1.ServiceSpec{
 			Selector: map[string]string{labelAgent: agent.Name},
 			Ports: []corev1.ServicePort{{
-				Name:       "http",
+				Name:       portNameHTTP,
 				Port:       port,
 				TargetPort: intstr.FromInt32(port),
 			}},

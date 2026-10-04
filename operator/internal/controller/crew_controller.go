@@ -212,7 +212,7 @@ func (r *CrewReconciler) reconcileDiscussion(ctx context.Context, crew *kubemoot
 	r.setDiscussionEndpoint(crew)
 
 	if deployment.Status.ReadyReplicas == 0 {
-		res, err := r.updateStatus(ctx, crew, "Deploying", false, "Discussion gateway starting")
+		res, err := r.updateStatus(ctx, crew, phaseDeploying, false, "Discussion gateway starting")
 		return res, err, true
 	}
 
@@ -498,10 +498,10 @@ func (r *CrewReconciler) buildDeployment(crew *kubemootv1alpha1.Crew) *appsv1.De
 							Image:           image,
 							ImagePullPolicy: corev1.PullIfNotPresent,
 							Ports: []corev1.ContainerPort{
-								{Name: "http", ContainerPort: crewGatewayPort, Protocol: corev1.ProtocolTCP},
+								{Name: portNameHTTP, ContainerPort: crewGatewayPort, Protocol: corev1.ProtocolTCP},
 							},
 							Env: []corev1.EnvVar{
-								{Name: "PORT", Value: fmt.Sprintf("%d", crewGatewayPort)},
+								{Name: envPort, Value: fmt.Sprintf("%d", crewGatewayPort)},
 								{Name: "NATS_URL", Value: natsURL},
 								{Name: "COORDINATOR_CACHE_TTL", Value: "30s"},
 								namespaceEnvVar(),
@@ -512,13 +512,13 @@ func (r *CrewReconciler) buildDeployment(crew *kubemootv1alpha1.Crew) *appsv1.De
 								RunAsNonRoot:             &nonRoot,
 								RunAsUser:                &user,
 								Capabilities: &corev1.Capabilities{
-									Drop: []corev1.Capability{"ALL"},
+									Drop: []corev1.Capability{dropAllCapability},
 								},
 							},
 							LivenessProbe: &corev1.Probe{
 								ProbeHandler: corev1.ProbeHandler{
 									HTTPGet: &corev1.HTTPGetAction{
-										Path: "/health",
+										Path: healthPath,
 										Port: intstr.FromInt32(crewGatewayPort),
 									},
 								},
@@ -561,7 +561,7 @@ func (r *CrewReconciler) reconcileService(ctx context.Context, crew *kubemootv1a
 			Selector: r.buildLabels(crew),
 			Ports: []corev1.ServicePort{
 				{
-					Name:       "http",
+					Name:       portNameHTTP,
 					Port:       80,
 					TargetPort: intstr.FromInt32(crewGatewayPort),
 					Protocol:   corev1.ProtocolTCP,
@@ -603,7 +603,7 @@ func (r *CrewReconciler) reconcileHTTPRoute(ctx context.Context, crew *kubemootv
 		route.Object["spec"] = map[string]interface{}{
 			"parentRefs": []interface{}{
 				map[string]interface{}{
-					"name":      gatewayName,
+					jsonKeyName: gatewayName,
 					"namespace": gatewayNamespace,
 				},
 			},
@@ -613,8 +613,8 @@ func (r *CrewReconciler) reconcileHTTPRoute(ctx context.Context, crew *kubemootv
 					"matches": []interface{}{
 						map[string]interface{}{
 							"path": map[string]interface{}{
-								"type":  "PathPrefix",
-								"value": pathPrefix,
+								jsonKeyType: "PathPrefix",
+								"value":     pathPrefix,
 							},
 						},
 					},
@@ -622,10 +622,10 @@ func (r *CrewReconciler) reconcileHTTPRoute(ctx context.Context, crew *kubemootv
 					// route's namespaced prefix is rewritten to it.
 					"filters": []interface{}{
 						map[string]interface{}{
-							"type": "URLRewrite",
+							jsonKeyType: "URLRewrite",
 							"urlRewrite": map[string]interface{}{
 								"path": map[string]interface{}{
-									"type":               "ReplacePrefixMatch",
+									jsonKeyType:          "ReplacePrefixMatch",
 									"replacePrefixMatch": scope.GatewayAPIPath(),
 								},
 							},
@@ -633,8 +633,8 @@ func (r *CrewReconciler) reconcileHTTPRoute(ctx context.Context, crew *kubemootv
 					},
 					"backendRefs": []interface{}{
 						map[string]interface{}{
-							"name": name,
-							"port": int64(80),
+							jsonKeyName: name,
+							"port":      int64(80),
 						},
 					},
 				},
@@ -661,7 +661,7 @@ func (r *CrewReconciler) updateStatus(ctx context.Context, crew *kubemootv1alpha
 	crew.Status.Message = message
 
 	condition := metav1.Condition{
-		Type:               "Ready",
+		Type:               conditionTypeReady,
 		Status:             metav1.ConditionFalse,
 		Reason:             phase,
 		Message:            message,

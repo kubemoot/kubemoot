@@ -107,6 +107,9 @@ type OllamaVersionResponse struct {
 	Version string `json:"version"`
 }
 
+// prometheusStatusSuccess is the status of a Prometheus query that succeeded.
+const prometheusStatusSuccess = "success"
+
 // prometheusQueryResponse represents a Prometheus instant query response
 type prometheusQueryResponse struct {
 	Status string `json:"status"`
@@ -197,7 +200,7 @@ func (r *ModelProviderReconciler) reconcileOllama(ctx context.Context, provider 
 		r.discoverCapacity(ctx, provider, httpClient)
 	}
 
-	return r.updateStatus(ctx, provider, true, "Ready", "Connected to Ollama")
+	return r.updateStatus(ctx, provider, true, phaseReady, "Connected to Ollama")
 }
 
 // discoverCapacity probes the Ollama pod and Prometheus for capacity information
@@ -406,25 +409,33 @@ func (r *ModelProviderReconciler) queryPrometheusScalar(ctx context.Context, htt
 		return 0
 	}
 
+	return prometheusScalarValue(body)
+}
+
+// prometheusScalarValue reads the first sample of a Prometheus instant-query
+// response body, whose value is [timestamp, "value_string"]. It returns 0 when the
+// body is not a successful query with a numeric first sample.
+func prometheusScalarValue(body []byte) float64 {
 	var promResp prometheusQueryResponse
 	if err := json.Unmarshal(body, &promResp); err != nil {
 		return 0
 	}
-
-	if promResp.Status != "success" || len(promResp.Data.Result) == 0 {
+	if promResp.Status != prometheusStatusSuccess || len(promResp.Data.Result) == 0 {
 		return 0
 	}
-
-	// Value is [timestamp, "value_string"]
-	if len(promResp.Data.Result[0].Value) >= 2 {
-		if valStr, ok := promResp.Data.Result[0].Value[1].(string); ok {
-			if val, err := strconv.ParseFloat(valStr, 64); err == nil {
-				return val
-			}
-		}
+	sample := promResp.Data.Result[0].Value
+	if len(sample) < 2 {
+		return 0
 	}
-
-	return 0
+	valStr, ok := sample[1].(string)
+	if !ok {
+		return 0
+	}
+	val, err := strconv.ParseFloat(valStr, 64)
+	if err != nil {
+		return 0
+	}
+	return val
 }
 
 // queryPrometheusLabel queries Prometheus and extracts a label value from the first result
@@ -458,7 +469,7 @@ func (r *ModelProviderReconciler) queryPrometheusLabel(ctx context.Context, http
 		return ""
 	}
 
-	if promResp.Status != "success" || len(promResp.Data.Result) == 0 {
+	if promResp.Status != prometheusStatusSuccess || len(promResp.Data.Result) == 0 {
 		return ""
 	}
 
@@ -583,7 +594,7 @@ func (r *ModelProviderReconciler) updateStatus(ctx context.Context, provider *ai
 	provider.Status.Message = message
 
 	condition := metav1.Condition{
-		Type:               "Ready",
+		Type:               conditionTypeReady,
 		Status:             metav1.ConditionFalse,
 		Reason:             phase,
 		Message:            message,

@@ -73,7 +73,7 @@ func (r *MCPServerReportReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 
 	// Set condition
 	condition := metav1.Condition{
-		Type:               "Ready",
+		Type:               conditionTypeReady,
 		Status:             metav1.ConditionTrue,
 		Reason:             "Computed",
 		Message:            fmt.Sprintf("Verdict: %s, %d trials (%d success, %d failure)", report.Status.Verdict, report.Status.SuccessCount+report.Status.FailureCount, report.Status.SuccessCount, report.Status.FailureCount),
@@ -91,7 +91,7 @@ func (r *MCPServerReportReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		_ = r.NATSPublisher.Publish(
 			fmt.Sprintf("kubemoot.chronicle.%s.verdict", report.Name),
 			map[string]interface{}{
-				"server":               report.Spec.ServerName,
+				jsonKeyServer:          report.Spec.ServerName,
 				"verdict":              report.Status.Verdict,
 				"successRate":          report.Status.SuccessRate,
 				"recommendedTransport": report.Status.RecommendedTransport,
