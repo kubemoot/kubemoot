@@ -28,6 +28,13 @@ jobs:
 
       - name: Checkout repository
         uses: actions/checkout@v5
+        with:
+          # The tags name the test-runner when the dispatch does not.
+          fetch-depth: 0
+          filter: blob:none
+
+      - name: Set up the release helpers
+        uses: kubemoot/release-actions/setup@9a88091ef5357ddf4f8d1c8a71b2c72f4cd928c5 # v0.7.0
 
       - name: Install kubectl
         run: |
@@ -64,12 +71,19 @@ jobs:
       - name: Run smoke test
         # The public manifest pulls the last released test-runner from GHCR. This cluster
         # runs the release candidate the operator chart pins (verify.image), from Harbor,
-        # so rewrite the reference and attach the Harbor pull secret.
+        # so rewrite the reference and attach the Harbor pull secret. The chart release
+        # sends the tag it pinned; a manual run takes the latest test-runner candidate.
         env:
           REGISTRY: ${{ vars.REGISTRY }}
+          TEST_RUNNER: ${{ github.event.client_payload.test_runner }}
         run: |
-          pin=$(sed -nE '/^verify:/,/^[^ #]/ s/^  image: (test-runner:[^ ]+)$/\1/p' operator/chart/kubemoot-operator/values.yaml)
-          [ -n "$pin" ] || { echo "no verify.image test-runner pin in the operator chart"; exit 1; }
+          # shellcheck source=/dev/null
+          source "${RELEASE_LIB}"
+          if [ -z "${TEST_RUNNER}" ]; then
+            TEST_RUNNER=$(rl_latest_version test-runner-v HEAD rc)
+          fi
+          rl_is_version "${TEST_RUNNER}" || { echo "test-runner tag [${TEST_RUNNER}] is not a version"; exit 1; }
+          pin="test-runner:${TEST_RUNNER}"
           echo "test-runner: ${REGISTRY}/kubemoot/${pin}"
           sed -e "s#image: ghcr.io/kubemoot/test-runner:.*#image: ${REGISTRY}/kubemoot/${pin}#" \
               -e 's#^      serviceAccountName: kubemoot-verify-runner$#&\n      imagePullSecrets:\n        - name: harbor-pull-secret#' \

@@ -3,9 +3,10 @@ name: kubemoot-dashboard
 description: Kubernetes Dashboard-like observability for Kubemoot CRDs and GPU resources
 type: application
 
-# This version is set by CI/CD from git tags - DO NOT hardcode
-version: 0.351.0-rc.12
-appVersion: 0.351.0-rc.12
+# Git holds 0.0.0: the operator chart release stamps the version and appVersion (the
+# dashboard image tag) from the dashboard's git tags at packaging.
+version: 0.0.0
+appVersion: 0.0.0
 
 keywords:
   - kubemoot

@@ -256,20 +256,19 @@ scaleToZero:
 # cluster-wide, so enable it only on a cluster you use for testing.
 verify:
   enabled: false
-  # Test runner image for verification jobs
-  # Version is automatically updated by CI/CD when test-runner is released
-  image: test-runner:0.344.0-rc.176
+  # Test runner image for verification jobs. Kubemoot image tags are 0.0.0 in git; the
+  # chart release stamps each from the component's tags (release-operator-chart.sh).
+  image: test-runner:0.0.0
   # Deploy static verify jobs with the chart (optional - API creates jobs dynamically)
   deployJobs: false
 
 # KubemootConfig - centralized default images for all components
-# Image versions are updated by CI/CD when components are released
 # Crew liaison: every crew as one MCP agent for external clients (Claude Code and any
 # other MCP client). Installed with the operator; cluster-internal until a route is
 # enabled. See crew-liaison/README.md.
 liaison:
   enabled: true
-  image: crew-liaison:0.347.0-rc.90
+  image: crew-liaison:0.0.0
   replicas: 1
   maxInflight: 4            # discussions at once; each spends GPU time
   ticketTTLMinutes: 60
@@ -297,17 +296,18 @@ kubemootConfig:
   # Whether to create the default KubemootConfig singleton
   create: true
   # Default container images for Kubemoot components
-  # These versions are automatically updated by component release workflows
-  # DO NOT use :latest - always use explicit versions for reproducibility
-  # Kubemoot images are "name:version" and get global.imageRegistry prefixed at render
+  # Kubemoot images are "name:version" and get global.imageRegistry prefixed at render.
+  # The tags are 0.0.0 in git: every chart build stamps each component's version from
+  # its git tags (a release candidate the latest candidate, a release the final), so a
+  # packaged chart always pins explicit versions. Never :latest.
   images:
-    indexer: indexer:0.280.0-rc.147
-    queryService: query-service:0.327.0-rc.288
-    agentRuntime: agent-runtime:0.343.0-rc.81
-    mcpGateway: mcp-gateway:0.327.0-rc.192
-    mcpBridge: mcp-bridge:0.343.0-rc.70
-    discussionGateway: discussion-gateway:0.344.0-rc.126
-    fitnessRunner: fitness-runner:0.345.0-rc.33
+    indexer: indexer:0.0.0
+    queryService: query-service:0.0.0
+    agentRuntime: agent-runtime:0.0.0
+    mcpGateway: mcp-gateway:0.0.0
+    mcpBridge: mcp-bridge:0.0.0
+    discussionGateway: discussion-gateway:0.0.0
+    fitnessRunner: fitness-runner:0.0.0
     doclingServe: quay.io/docling-project/docling-serve-cpu:latest
   # Default configurations
   defaults:

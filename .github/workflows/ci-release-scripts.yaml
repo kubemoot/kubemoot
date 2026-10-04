@@ -1,11 +1,16 @@
-# Tests for the release and promotion scripts and the brand copies. Not a release gate.
+# Tests for the release and promotion scripts, the check that no chart or image version
+# is typed in git and no workflow commits one, and the brand copies. Not a release gate.
 name: CI Release Scripts
 
 on:
   pull_request:
     paths:
       - '.github/scripts/**'
-      - '.github/workflows/ci-release-scripts.yaml'
+      - '.github/workflows/**'
+      - 'operator/chart/kubemoot-operator/Chart.yaml'
+      - 'operator/chart/kubemoot-operator/values.yaml'
+      - 'dashboard/charts/kubemoot-dashboard/Chart.yaml'
+      - 'dashboard/charts/kubemoot-dashboard/values.yaml'
       - 'brand.lock'
       - 'scripts/brand-sync*.sh'
       - '.github/assets/**'
@@ -13,7 +18,11 @@ on:
     branches-ignore: [main]
     paths:
       - '.github/scripts/**'
-      - '.github/workflows/ci-release-scripts.yaml'
+      - '.github/workflows/**'
+      - 'operator/chart/kubemoot-operator/Chart.yaml'
+      - 'operator/chart/kubemoot-operator/values.yaml'
+      - 'dashboard/charts/kubemoot-dashboard/Chart.yaml'
+      - 'dashboard/charts/kubemoot-dashboard/values.yaml'
       - 'brand.lock'
       - 'scripts/brand-sync*.sh'
       - '.github/assets/**'
@@ -34,7 +43,7 @@ jobs:
         with:
           version: 'v3.14.0'
       - name: Set up the release helpers
-        uses: kubemoot/release-actions/setup@76c35a749b9db4105e73307b91b8f7cf1359b755 # v0.4.0
+        uses: kubemoot/release-actions/setup@9a88091ef5357ddf4f8d1c8a71b2c72f4cd928c5 # v0.7.0
       - name: Shellcheck
         run: shellcheck -x .github/scripts/*.sh
       - name: Tests

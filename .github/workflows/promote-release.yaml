@@ -6,9 +6,10 @@
 # access). It promotes the operator chart candidate and every component it pins,
 # all together:
 #   promote     copies each image by digest to the release registry under its final
-#               version, packages the charts with the final version and image pins,
-#               pushes them to Harbor and the release registry, and tags the
-#               candidates' commits with the final versions (.github/scripts/promote-release.sh)
+#               version, packages the chart with the final version and the finals of the
+#               images the candidate chart in Harbor ran, pushes it to Harbor and the
+#               release registry, and tags the candidates' commits with the final
+#               versions (.github/scripts/promote-release.sh)
 #   quickstart  runs the quickstart against the chart just published
 #   release     writes the GitHub Release from the conventional commits since the
 #               previous release
@@ -75,12 +76,12 @@ jobs:
       - name: Install Helm
         uses: azure/setup-helm@v4
         with:
-          # The Harbor push combination the operator release uses: helm v3.14.0 with
+          # The Harbor push combination the chart release uses: helm v3.14.0 with
           # --insecure-skip-tls-verify (newer helm refuses Harbor's http token realm).
           version: 'v3.14.0'
 
       - name: Set up the release helpers
-        uses: kubemoot/release-actions/setup@76c35a749b9db4105e73307b91b8f7cf1359b755 # v0.4.0
+        uses: kubemoot/release-actions/setup@9a88091ef5357ddf4f8d1c8a71b2c72f4cd928c5 # v0.7.0
 
       - name: Test the release scripts
         run: |

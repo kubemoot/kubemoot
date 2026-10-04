@@ -8,8 +8,8 @@ image:
   # (e.g. harbor.example.com) and adds its pull secret below.
   registry: ghcr.io
   repository: kubemoot/dashboard
-  # The tag is set by CI/CD from git tags - DO NOT override manually
-  tag: ""  # defaults to .Chart.AppVersion
+  # Empty: the tag is .Chart.AppVersion, which the chart release stamps from git tags
+  tag: ""
   pullPolicy: IfNotPresent
 
 # Pull secrets for image.registry. Empty for the public registry.
@@ -131,9 +131,10 @@ readinessProbe:
 
 # Verify feature configuration
 verify:
-  # Test runner image for verification jobs (synced from operator chart by CI/CD).
-  # Full reference; a private mirror overrides it alongside image.registry.
-  image: ghcr.io/kubemoot/test-runner:0.46.2
+  # Test runner image for verification jobs. Full reference; a private mirror overrides
+  # it alongside image.registry. The public registry holds releases only, so the chart
+  # release stamps the tag (0.0.0 in git) with the latest released test-runner.
+  image: ghcr.io/kubemoot/test-runner:0.0.0
 
 # Workshop instance: a second Deployment and Service of this same image and tag (never a
 # separate tag), read-only and limited to the namespaces matching one label selector, with
