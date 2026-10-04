@@ -216,9 +216,6 @@ func scanSSEEvents(r io.Reader) ([]SignalEvent, error) {
 	return events, err
 }
 
-// constQuestion is the ADL constant that holds the question put to the crew.
-const constQuestion = "QUESTION"
-
 // RunFitnessTest executes the full fitness test lifecycle:
 //  1. POST question to endpoint
 //  2. Collect SSE events until done or timeout

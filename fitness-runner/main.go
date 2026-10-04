@@ -58,6 +58,14 @@ const (
 
 	// defaultMaxDuration is the fallback if DEFINE CONST MAX_DURATION is absent.
 	defaultMaxDuration = 120 * time.Second
+
+	// defaultReadinessTimeout bounds the wait for the discussion gateway to be ready.
+	defaultReadinessTimeout = 120 * time.Second
+
+	// constQuestion and constMaxDuration are the ADL constants that hold the
+	// question put to the crew and the longest the discussion may run.
+	constQuestion    = "QUESTION"
+	constMaxDuration = "MAX_DURATION"
 )
 
 func main() {
@@ -81,7 +89,7 @@ func run() error {
 		return err
 	}
 
-	maxDuration := parseMaxDuration(ft.Constants["MAX_DURATION"])
+	maxDuration := parseMaxDuration(ft.Constants[constMaxDuration])
 	fmt.Printf("[fitness-runner] max_duration=%s question=%q\n",
 		maxDuration, ft.Constants[constQuestion])
 
@@ -148,9 +156,6 @@ func loadFitnessTest(path string) (fitnessscript.FitnessTest, error) {
 		ft.Description, len(ft.Assertions))
 	return ft, nil
 }
-
-// defaultReadinessTimeout bounds the wait for the discussion gateway to be ready.
-const defaultReadinessTimeout = 120 * time.Second
 
 // readinessTimeout is READINESS_TIMEOUT in whole seconds when it is a positive
 // integer, else defaultReadinessTimeout.

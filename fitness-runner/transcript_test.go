@@ -12,11 +12,10 @@ package main
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 )
 
-// fakeEnv returns a getenv func backed by a map, for testing the gating logic
-// without touching the process environment or a live NATS.
 // Fixture values shared by the runner tests.
 const (
 	assertSynthesisNonEmpty = "synthesis is non-empty"
@@ -25,23 +24,32 @@ const (
 	testThreadID            = "thread-1"
 )
 
-func fakeEnv(m map[string]string) func(string) string {
-	return func(k string) string { return m[k] }
+// recordingEnv is a getenv backed by m that records every key read, without
+// touching the process environment or a live NATS, so a test can see how far
+// maybeWriteTranscript got before it returned.
+func recordingEnv(m map[string]string) (func(string) string, *[]string) {
+	var read []string
+	return func(k string) string {
+		read = append(read, k)
+		return m[k]
+	}, &read
 }
 
 func TestMaybeWriteTranscript_NoKeyIsNoop(t *testing.T) {
-	// No TRANSCRIPT_KEY → standalone test → no write attempted, no error.
-	if maybeWriteTranscript(&RunOutcome{}, fakeEnv(map[string]string{})) {
-		t.Error("no-key path must be a clean no-op, but it reported a write")
+	// No TRANSCRIPT_KEY: a standalone test, so it stops before reading NATS_URL.
+	getenv, read := recordingEnv(map[string]string{})
+	maybeWriteTranscript(&RunOutcome{}, getenv)
+	if strings.Join(*read, ",") != "TRANSCRIPT_KEY" {
+		t.Errorf("no-key path must stop at TRANSCRIPT_KEY, read %v", *read)
 	}
 }
 
 func TestMaybeWriteTranscript_KeyButNoNatsIsNoop(t *testing.T) {
-	// TRANSCRIPT_KEY set but NATS_URL empty → skip (don't attempt a dial),
-	// never error (transcript capture must not fail the run).
-	if maybeWriteTranscript(&RunOutcome{},
-		fakeEnv(map[string]string{"TRANSCRIPT_KEY": "ns/suite/run/s0-i1.json"})) {
-		t.Error("missing NATS_URL must be a clean no-op, but it reported a write")
+	// TRANSCRIPT_KEY set but NATS_URL empty: skip before choosing a bucket or dialing.
+	getenv, read := recordingEnv(map[string]string{"TRANSCRIPT_KEY": "ns/suite/run/s0-i1.json"})
+	maybeWriteTranscript(&RunOutcome{}, getenv)
+	if strings.Join(*read, ",") != "TRANSCRIPT_KEY,NATS_URL" {
+		t.Errorf("missing NATS_URL must stop before the bucket, read %v", *read)
 	}
 }
 
