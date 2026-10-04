@@ -99,8 +99,8 @@ jobs:
   # Ideally Flux Notification Controller would dispatch via the github
   # provider, but it can't extract a commit hash from OCIRepository
   # revisions (upstream bug: fluxcd/flux2#5148). As a workaround, this
-  # workflow dispatches the integration-test workflow after waiting
-  # for Flux to reconcile the new chart.
+  # workflow dispatches the integration-test workflow after Flux reports
+  # that it applied the chart this run pushed.
   # ==========================================================================
 
   integration-test:
@@ -112,12 +112,15 @@ jobs:
       actions: write
 
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
       - name: Install kubectl
         run: |
           curl -sLO "https://dl.k8s.io/release/$(curl -sL https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
           chmod +x kubectl && sudo mv kubectl /usr/local/bin/
 
-      - name: Wait for Flux reconciliation
+      - name: Set up kubeconfig
         env:
           KUBECONFIG_DATA: ${{ secrets.KUBECONFIG_DATA }}
         run: |
@@ -139,29 +142,20 @@ jobs:
             echo "No kubeconfig available" && exit 1
           fi
 
-          echo "Waiting for Flux to pick up new chart and reconcile..."
-          for i in $(seq 1 30); do
-            STATUS=$(kubectl get helmrelease kubemoot-operator -n kubemoot \
-              -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || echo "Unknown")
-            REVISION=$(kubectl get helmrelease kubemoot-operator -n kubemoot \
-              -o jsonpath='{.status.lastAppliedRevision}' 2>/dev/null || echo "")
-            echo "  Attempt ${i}/30: Ready=${STATUS} Revision=${REVISION}"
-            if [ "$STATUS" = "True" ]; then
-              # Verify the operator pod is running the new image
-              POD_IMAGE=$(kubectl get pods -n kubemoot -l control-plane=controller-manager \
-                -o jsonpath='{.items[0].spec.containers[0].image}' 2>/dev/null || echo "")
-              if echo "$POD_IMAGE" | grep -q ":"; then
-                echo "  Operator image: ${POD_IMAGE}"
-                break
-              fi
-            fi
-            sleep 10
-          done
+      # State, not time: Flux must report the chart version this run pushed, not just
+      # Ready, which the previous release also is until Flux sees the new chart. Flux
+      # upgrades with wait on, so the workloads have rolled out once it is applied. The
+      # timeout inside the script is only a safety net.
+      - name: Wait for Flux to apply this chart
+        id: flux
+        env:
+          CHART_VERSION: ${{ needs.chart.outputs.chart_version }}
+        run: |
+          bash .github/scripts/wait-for-operator-chart.sh "${CHART_VERSION}"
 
-          # Confirm the deployment is fully rolled out
-          kubectl rollout status deployment/kubemoot-operator -n kubemoot --timeout=120s
-
+      # A newer chart is already applied: its own run dispatches the test.
       - name: Dispatch integration test
+        if: steps.flux.outputs.state == 'applied'
         uses: peter-evans/repository-dispatch@v3
         with:
           event-type: flux-reconciliation
