@@ -33,7 +33,7 @@ func discussEnv(t *testing.T, role string, channels ...string) map[string]string
 // coordinator can convene, researchers included, keeps it, or it can never answer.
 func TestDiscussRoleEnv(t *testing.T) {
 	coordinator := discussEnv(t, testRoleCoordinator)
-	if coordinator["KUBEMOOT_DISCUSS_COORDINATOR"] != testTrue || coordinator["KUBEMOOT_DISCUSS_TOOLER"] != testFalse {
+	if coordinator["KUBEMOOT_DISCUSS_COORDINATOR"] != testEnvTrue || coordinator["KUBEMOOT_DISCUSS_TOOLER"] != testEnvFalse {
 		t.Fatalf("coordinator env = %v", coordinator)
 	}
 	if coordinator["KUBEMOOT_RESUME_SEARCH_ENDPOINT"] == "" {

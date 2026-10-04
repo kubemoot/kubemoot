@@ -78,7 +78,7 @@ func TestBuildEnvVars(t *testing.T) {
 	cli := fake.NewClientBuilder().WithScheme(scheme).WithObjects(gw, crew).Build()
 	r := &AgentReconciler{Client: cli, Scheme: scheme, ConfigCache: NewConfigCache()}
 	agent := &kubemootv1alpha1.Agent{
-		ObjectMeta: metav1.ObjectMeta{Name: testK8s, Namespace: "ns", Labels: map[string]string{labelCrew: testCrewA}},
+		ObjectMeta: metav1.ObjectMeta{Name: testK8sAgent, Namespace: "ns", Labels: map[string]string{labelCrew: testCrewA}},
 	}
 	mulling := &modelPick{ModelID: testModelID, Endpoint: testOllamaURL}
 	triage := &modelPick{ModelID: testModelID, Endpoint: testOllamaURL}
@@ -91,7 +91,7 @@ func TestBuildEnvVars(t *testing.T) {
 	if byName["KUBEMOOT_SKILLS_DIR"] != skillsMountPath {
 		t.Errorf("crew agent should get KUBEMOOT_SKILLS_DIR, got %q", byName["KUBEMOOT_SKILLS_DIR"])
 	}
-	if byName["KUBEMOOT_GATEWAY_ENABLED"] != testTrue {
+	if byName["KUBEMOOT_GATEWAY_ENABLED"] != testEnvTrue {
 		t.Errorf("an MCPGateway in the namespace should enable gateway wiring, got %q", byName["KUBEMOOT_GATEWAY_ENABLED"])
 	}
 	if byName["KUBEMOOT_GATEWAY_ENDPOINT"] != "http://gw.ns:8080" {
@@ -184,7 +184,7 @@ func TestPickModel(t *testing.T) {
 	}
 	cli := fake.NewClientBuilder().WithScheme(scheme).WithObjects(objs...).Build()
 	r := &AgentReconciler{Client: cli, Scheme: scheme, ConfigCache: NewConfigCache()}
-	agent := &kubemootv1alpha1.Agent{ObjectMeta: metav1.ObjectMeta{Name: testK8s, Namespace: "ns"}}
+	agent := &kubemootv1alpha1.Agent{ObjectMeta: metav1.ObjectMeta{Name: testK8sAgent, Namespace: "ns"}}
 
 	pick, err := r.pickModel(context.Background(), agent, testMulling, "")
 	if err != nil {
@@ -242,7 +242,7 @@ func TestPickModel_WithPolicy(t *testing.T) {
 	cli := fake.NewClientBuilder().WithScheme(scheme).WithObjects(model, wrongTier, prov, policy).Build()
 	r := &AgentReconciler{Client: cli, Scheme: scheme, ConfigCache: NewConfigCache()}
 	agent := &kubemootv1alpha1.Agent{
-		ObjectMeta: metav1.ObjectMeta{Name: testK8s, Namespace: "ns", Labels: map[string]string{labelCrew: testCrewA}},
+		ObjectMeta: metav1.ObjectMeta{Name: testK8sAgent, Namespace: "ns", Labels: map[string]string{labelCrew: testCrewA}},
 		Spec:       kubemootv1alpha1.AgentSpec{Capabilities: []string{testReasoning}},
 	}
 	pick, err := r.pickModel(context.Background(), agent, testMulling, "")

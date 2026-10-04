@@ -120,7 +120,7 @@ func TestSkillsVolumeMountAbsentForCrewlessAgent(t *testing.T) {
 	agent := &kubemootv1alpha1.Agent{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "standalone-agent",
-			Namespace: testDefault,
+			Namespace: testDefaultNS,
 			// No crew label.
 		},
 	}

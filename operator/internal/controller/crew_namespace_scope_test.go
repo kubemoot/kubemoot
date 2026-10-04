@@ -212,7 +212,7 @@ func TestBindsServiceAccount(t *testing.T) {
 	if bindsServiceAccount(crb, "pilot-discussion", testNamespaceB) {
 		t.Error("another namespace must not match")
 	}
-	if bindsServiceAccount(crb, testOther, testNamespaceA) {
+	if bindsServiceAccount(crb, "other", testNamespaceA) {
 		t.Error("another account must not match")
 	}
 }

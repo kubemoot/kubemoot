@@ -132,7 +132,7 @@ func TestReassertKeepsIdenticalAndEvaluatesChanged(t *testing.T) {
 
 func TestRejudgeTranscriptRewritesAssertionsAndKeepsFields(t *testing.T) {
 	ft := fitnessscript.ParseFitnessTest(newScenario(`synthesis CONTAINS "cilium"`))
-	from := rejudgedFrom{Suite: testSrc, RunID: "r1", Key: rjSrcKey0}
+	from := rejudgedFrom{Suite: testSourceSuite, RunID: "r1", Key: rjSrcKey0}
 	out, phase, ok := rejudgeTranscript(sourceTranscript("cilium is up"), &ft, from)
 	if !ok {
 		t.Fatal("a valid transcript must rewrite")
@@ -221,7 +221,7 @@ func TestCopyRejudgeTranscriptsSkipsUnparseable(t *testing.T) {
 		{scenario: "good", sourceKey: rjSrcKey0, targetKey: "ns/new/r2/s0-i1.json", test: &ft},
 		{scenario: "bad", sourceKey: rjSrcKey1, targetKey: "ns/new/r2/s1-i1.json", test: &ft},
 	}}
-	p, err := copyRejudgeTranscripts(store, &plan, kubemootv1alpha1.RejudgeSource{Suite: testSrc, RunID: "r1"}, time.Hour)
+	p, err := copyRejudgeTranscripts(store, &plan, kubemootv1alpha1.RejudgeSource{Suite: testSourceSuite, RunID: "r1"}, time.Hour)
 	if err != nil {
 		t.Fatalf("copy: %v", err)
 	}
@@ -237,7 +237,7 @@ func TestCopyRejudgeTranscriptsSkipsUnparseable(t *testing.T) {
 
 	// Nothing parseable at all is a permanent failure.
 	only := rejudgePlan{copies: plan.copies[1:]}
-	_, err = copyRejudgeTranscripts(store, &only, kubemootv1alpha1.RejudgeSource{Suite: testSrc, RunID: "r1"}, time.Hour)
+	_, err = copyRejudgeTranscripts(store, &only, kubemootv1alpha1.RejudgeSource{Suite: testSourceSuite, RunID: "r1"}, time.Hour)
 	var rerr *rejudgeError
 	if !errors.As(err, &rerr) || rerr.reason != reasonNoTranscripts {
 		t.Errorf("want a NoTranscripts failure, got %v", err)
@@ -246,10 +246,10 @@ func TestCopyRejudgeTranscriptsSkipsUnparseable(t *testing.T) {
 
 func TestValidateRejudgeSpec(t *testing.T) {
 	cases := map[string]kubemootv1alpha1.CrewFitnessSuiteSpec{
-		"no runId":   {Rejudge: &kubemootv1alpha1.RejudgeSource{Suite: testSrc}, Scripts: []kubemootv1alpha1.SuiteScript{{}}},
+		"no runId":   {Rejudge: &kubemootv1alpha1.RejudgeSource{Suite: testSourceSuite}, Scripts: []kubemootv1alpha1.SuiteScript{{}}},
 		"self":       {Rejudge: &kubemootv1alpha1.RejudgeSource{Suite: "me", RunID: "r"}, Scripts: []kubemootv1alpha1.SuiteScript{{}}},
-		"no scripts": {Rejudge: &kubemootv1alpha1.RejudgeSource{Suite: testSrc, RunID: "r"}},
-		"duplicate testRef": {Rejudge: &kubemootv1alpha1.RejudgeSource{Suite: testSrc, RunID: "r"},
+		"no scripts": {Rejudge: &kubemootv1alpha1.RejudgeSource{Suite: testSourceSuite, RunID: "r"}},
+		"duplicate testRef": {Rejudge: &kubemootv1alpha1.RejudgeSource{Suite: testSourceSuite, RunID: "r"},
 			Scripts: []kubemootv1alpha1.SuiteScript{{TestRef: rjAlpha}, {TestRef: rjAlpha}}},
 	}
 	for name, spec := range cases {
@@ -261,7 +261,7 @@ func TestValidateRejudgeSpec(t *testing.T) {
 	}
 	ok := &kubemootv1alpha1.CrewFitnessSuite{ObjectMeta: metav1.ObjectMeta{Name: "me"},
 		Spec: kubemootv1alpha1.CrewFitnessSuiteSpec{
-			Rejudge: &kubemootv1alpha1.RejudgeSource{Suite: testSrc, RunID: "r"},
+			Rejudge: &kubemootv1alpha1.RejudgeSource{Suite: testSourceSuite, RunID: "r"},
 			Scripts: []kubemootv1alpha1.SuiteScript{{TestRef: "a"}},
 		}}
 	if err := validateRejudgeSpec(ok); err != nil {

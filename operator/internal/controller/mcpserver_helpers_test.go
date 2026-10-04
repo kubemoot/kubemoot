@@ -389,14 +389,14 @@ func TestBuildMCPServerEndpoint_DefaultPort(t *testing.T) {
 	mcpServer := &kubemootv1alpha1.MCPServer{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "my-server",
-			Namespace: testDefault,
+			Namespace: testDefaultNS,
 		},
 		Spec: kubemootv1alpha1.MCPServerSpec{
 			Transport: testSSE,
 		},
 	}
 	endpoint := buildMCPServerEndpoint(mcpServer)
-	expected := fmt.Sprintf(svcEndpointFmt, "my-server", testDefault, int32(3000))
+	expected := fmt.Sprintf(svcEndpointFmt, "my-server", testDefaultNS, int32(3000))
 	if endpoint != expected {
 		t.Errorf("expected %s, got %s", expected, endpoint)
 	}

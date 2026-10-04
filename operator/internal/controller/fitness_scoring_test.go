@@ -43,8 +43,8 @@ func TestCorrectnessAndEfficiencyScores(t *testing.T) {
 // (the protocol is unobservable, not perfect).
 func TestAdherenceScore(t *testing.T) {
 	clean := []transcriptEvent{
-		{Type: testFinding, Agent: testK8s, Signal: testAgree},
-		{Type: testFinding, Agent: testGPU, Signal: testStandAside, StoodAside: true},
+		{Type: testFinding, Agent: testK8sAgent, Signal: testAgree},
+		{Type: testFinding, Agent: testGPUAgent, Signal: testStandAside, StoodAside: true},
 		{Type: testSynthesis, Content: testTheAnswer},
 		{Type: testDone},
 	}
@@ -57,8 +57,8 @@ func TestAdherenceScore(t *testing.T) {
 	// One malformed finding (empty signal, not stood aside) → findings component
 	// 0.5; synthesis+done present, no error → (0.5+1+1+1)/4*100 = 87.5.
 	mixed := []transcriptEvent{
-		{Type: testFinding, Agent: testK8s, Signal: testAgree},
-		{Type: testFinding, Agent: testGPU}, // malformed: no signal, not stood aside
+		{Type: testFinding, Agent: testK8sAgent, Signal: testAgree},
+		{Type: testFinding, Agent: testGPUAgent}, // malformed: no signal, not stood aside
 		{Type: testSynthesis, Content: "x"},
 		{Type: testDone},
 	}
@@ -67,7 +67,7 @@ func TestAdherenceScore(t *testing.T) {
 	}
 	// An error event drags the error component to 0.
 	errored := []transcriptEvent{
-		{Type: testFinding, Agent: testK8s, Signal: testAgree},
+		{Type: testFinding, Agent: testK8sAgent, Signal: testAgree},
 		{Type: testSynthesis, Content: "x"},
 		{Type: testDone},
 		{Type: "status", Error: "provider timeout"},
@@ -82,8 +82,8 @@ func TestAdherenceScore(t *testing.T) {
 func TestSelectivityScore(t *testing.T) {
 	// 2 contribute, 3 stand aside -> 2/5 = 40 (over-waking).
 	overWake := []transcriptEvent{
-		{Type: testFinding, Agent: testK8s, Signal: testAgree},
-		{Type: testFinding, Agent: testGPU, Signal: testConcern},
+		{Type: testFinding, Agent: testK8sAgent, Signal: testAgree},
+		{Type: testFinding, Agent: testGPUAgent, Signal: testConcern},
 		{Type: testFinding, Agent: "prox", Signal: testStandAside, StoodAside: true},
 		{Type: testFinding, Agent: "obs", Signal: testStandAside, StoodAside: true},
 		{Type: testFinding, Agent: "net", StoodAside: true},
@@ -93,8 +93,8 @@ func TestSelectivityScore(t *testing.T) {
 	}
 	// All three woken agents contribute -> 100 (precise selection).
 	focused := []transcriptEvent{
-		{Type: testFinding, Agent: testK8s, Signal: testAgree},
-		{Type: testFinding, Agent: testGPU, Signal: testAgree},
+		{Type: testFinding, Agent: testK8sAgent, Signal: testAgree},
+		{Type: testFinding, Agent: testGPUAgent, Signal: testAgree},
 		{Type: testFinding, Agent: "prox", Signal: testConcern},
 		{Type: testSynthesis, Content: "x"},
 	}
@@ -114,8 +114,8 @@ func TestSelectivityScore(t *testing.T) {
 	}
 	// A single agent that stands aside while another contributes -> 1/2 = 50.
 	mixed := []transcriptEvent{
-		{Type: testFinding, Agent: testK8s, Signal: testAgree},
-		{Type: testFinding, Agent: testGPU, Signal: testStandAside, StoodAside: true},
+		{Type: testFinding, Agent: testK8sAgent, Signal: testAgree},
+		{Type: testFinding, Agent: testGPUAgent, Signal: testStandAside, StoodAside: true},
 	}
 	if got := selectivityScore(mixed); !approx(got, 50) {
 		t.Errorf("mixed selectivity = %v, want 50", got)
@@ -128,11 +128,11 @@ func TestSelectivityScore(t *testing.T) {
 // See [[Persist Consensus Signals in Transcripts]].
 func TestAgreeCountFromEvents(t *testing.T) {
 	events := []transcriptEvent{
-		{Type: testFinding, Agent: testK8s, Signal: testAgree},
-		{Type: testFinding, Agent: testGPU, Signal: testAgree},
-		{Type: testFinding, Agent: testK8s, Signal: testAgree}, // same agent again: still counts (matches the floor's total count)
-		{Type: testFinding, Agent: "net", Signal: testConcern}, // not an agree
-		{Type: "phase", Agent: "x", Signal: testAgree},         // not a finding
+		{Type: testFinding, Agent: testK8sAgent, Signal: testAgree},
+		{Type: testFinding, Agent: testGPUAgent, Signal: testAgree},
+		{Type: testFinding, Agent: testK8sAgent, Signal: testAgree}, // same agent again: still counts (matches the floor's total count)
+		{Type: testFinding, Agent: "net", Signal: testConcern},      // not an agree
+		{Type: "phase", Agent: "x", Signal: testAgree},              // not a finding
 	}
 	if got := agreeCountFromEvents(events); got != 3 {
 		t.Errorf("agreeCountFromEvents = %d, want 3 (total agree findings)", got)
@@ -228,7 +228,7 @@ func TestConsistencyOverrideUsedInBuild(t *testing.T) {
 	suite := &kubemootv1alpha1.CrewFitnessSuite{
 		ObjectMeta: metav1.ObjectMeta{Name: "ov-suite", Namespace: testCrewTest},
 		Spec:       kubemootv1alpha1.CrewFitnessSuiteSpec{CrewRef: testCrewName},
-		Status:     kubemootv1alpha1.CrewFitnessSuiteStatus{RunID: testABC, Phase: kubemootv1alpha1.CrewFitnessSuitePhaseCompleted},
+		Status:     kubemootv1alpha1.CrewFitnessSuiteStatus{RunID: testRunID, Phase: kubemootv1alpha1.CrewFitnessSuitePhaseCompleted},
 	}
 	// Two answers with NO lexical overlap (lexical would score ~0), but we inject
 	// a semantic override of 92 — the build must use 92.

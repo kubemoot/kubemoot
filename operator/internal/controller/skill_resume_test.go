@@ -33,7 +33,7 @@ import (
 // HashResumes so existing crews see no hash change and no re-embed is triggered.
 func TestSkillResume_EmptyPoolNoOp(t *testing.T) {
 	agents := []AgentResume{
-		{Name: testAlpha, Description: testAlphaDescription, Role: testRoleTooler, Keywords: []string{testK8s, testPods}},
+		{Name: testAlpha, Description: testAlphaDescription, Role: testRoleTooler, Keywords: []string{testKeywordK8s, testPods}},
 		{Name: testBeta, Description: testBetaDescription, Role: testResearcher, Tools: []string{testToolKubectlGet}},
 	}
 
@@ -112,7 +112,7 @@ func TestBuildSkillResumeText_Empty(t *testing.T) {
 // the wire-format contract for crews that have no Skills defined.
 func TestMarshalResumePayload_NoSkillsIdentity(t *testing.T) {
 	agents := []AgentResume{
-		{Name: testAlpha, Description: testAlphaDescription, Role: testRoleTooler, Keywords: []string{testK8s}},
+		{Name: testAlpha, Description: testAlphaDescription, Role: testRoleTooler, Keywords: []string{testKeywordK8s}},
 		{Name: testBeta, Description: testBetaDescription, Role: testResearcher, Tools: []string{testToolKubectlGet}},
 	}
 	want, err := json.Marshal(agents)

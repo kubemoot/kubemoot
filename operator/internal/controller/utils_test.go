@@ -35,7 +35,7 @@ func baseDeployment() *appsv1.Deployment {
 			Replicas: &replicas,
 			Template: corev1.PodTemplateSpec{
 				ObjectMeta: metav1.ObjectMeta{
-					Labels: map[string]string{"app": testTest},
+					Labels: map[string]string{"app": testFixtureAgent},
 				},
 				Spec: corev1.PodSpec{
 					Containers: []corev1.Container{
@@ -43,7 +43,7 @@ func baseDeployment() *appsv1.Deployment {
 							Name:  "agent",
 							Image: "harbor/agent:v1.0.0",
 							Env: []corev1.EnvVar{
-								{Name: "KUBEMOOT_AGENT_NAME", Value: testTest},
+								{Name: "KUBEMOOT_AGENT_NAME", Value: testFixtureAgent},
 							},
 						},
 					},

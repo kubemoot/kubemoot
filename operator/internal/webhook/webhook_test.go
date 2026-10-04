@@ -69,14 +69,14 @@ func TestValidateMCPServer(t *testing.T) {
 		{
 			name: "valid with image",
 			server: &aiv1alpha1.MCPServer{
-				ObjectMeta: metav1.ObjectMeta{Name: testName},
+				ObjectMeta: metav1.ObjectMeta{Name: testResourceName},
 				Spec:       aiv1alpha1.MCPServerSpec{Image: testFetchImage},
 			},
 		},
 		{
 			name: "valid with externalEndpoint",
 			server: &aiv1alpha1.MCPServer{
-				ObjectMeta: metav1.ObjectMeta{Name: testName},
+				ObjectMeta: metav1.ObjectMeta{Name: testResourceName},
 				Spec: aiv1alpha1.MCPServerSpec{
 					ExternalEndpoint: testServerURL,
 					Transport:        aiv1alpha1.TransportHTTP,
@@ -86,7 +86,7 @@ func TestValidateMCPServer(t *testing.T) {
 		{
 			name: "both image and externalEndpoint",
 			server: &aiv1alpha1.MCPServer{
-				ObjectMeta: metav1.ObjectMeta{Name: testName},
+				ObjectMeta: metav1.ObjectMeta{Name: testResourceName},
 				Spec: aiv1alpha1.MCPServerSpec{
 					Image:            testFetchImage,
 					ExternalEndpoint: testServerURL,
@@ -97,7 +97,7 @@ func TestValidateMCPServer(t *testing.T) {
 		{
 			name: "neither image nor externalEndpoint",
 			server: &aiv1alpha1.MCPServer{
-				ObjectMeta: metav1.ObjectMeta{Name: testName},
+				ObjectMeta: metav1.ObjectMeta{Name: testResourceName},
 				Spec:       aiv1alpha1.MCPServerSpec{},
 			},
 			wantErr: "one of image or externalEndpoint must be set",
@@ -105,7 +105,7 @@ func TestValidateMCPServer(t *testing.T) {
 		{
 			name: "stdio with externalEndpoint",
 			server: &aiv1alpha1.MCPServer{
-				ObjectMeta: metav1.ObjectMeta{Name: testName},
+				ObjectMeta: metav1.ObjectMeta{Name: testResourceName},
 				Spec: aiv1alpha1.MCPServerSpec{
 					ExternalEndpoint: testServerURL,
 					Transport:        aiv1alpha1.TransportStdio,
@@ -116,7 +116,7 @@ func TestValidateMCPServer(t *testing.T) {
 		{
 			name: "stdio with image is valid",
 			server: &aiv1alpha1.MCPServer{
-				ObjectMeta: metav1.ObjectMeta{Name: testName},
+				ObjectMeta: metav1.ObjectMeta{Name: testResourceName},
 				Spec: aiv1alpha1.MCPServerSpec{
 					Image:     testFetchImage,
 					Transport: aiv1alpha1.TransportStdio,
@@ -142,7 +142,7 @@ func TestValidateRAGSource(t *testing.T) {
 		{
 			name: "valid git source",
 			rs: &aiv1alpha1.RAGSource{
-				ObjectMeta: metav1.ObjectMeta{Name: testName},
+				ObjectMeta: metav1.ObjectMeta{Name: testResourceName},
 				Spec: aiv1alpha1.RAGSourceSpec{
 					Source: aiv1alpha1.SourceConfig{
 						Type: aiv1alpha1.RAGSourceTypeGit,
@@ -157,7 +157,7 @@ func TestValidateRAGSource(t *testing.T) {
 		{
 			name: "git type without git block",
 			rs: &aiv1alpha1.RAGSource{
-				ObjectMeta: metav1.ObjectMeta{Name: testName},
+				ObjectMeta: metav1.ObjectMeta{Name: testResourceName},
 				Spec: aiv1alpha1.RAGSourceSpec{
 					Source: aiv1alpha1.SourceConfig{
 						Type: aiv1alpha1.RAGSourceTypeGit,
@@ -169,7 +169,7 @@ func TestValidateRAGSource(t *testing.T) {
 		{
 			name: "s3 type without s3 block",
 			rs: &aiv1alpha1.RAGSource{
-				ObjectMeta: metav1.ObjectMeta{Name: testName},
+				ObjectMeta: metav1.ObjectMeta{Name: testResourceName},
 				Spec: aiv1alpha1.RAGSourceSpec{
 					Source: aiv1alpha1.SourceConfig{
 						Type: aiv1alpha1.RAGSourceTypeS3,
@@ -181,7 +181,7 @@ func TestValidateRAGSource(t *testing.T) {
 		{
 			name: "url type without url block",
 			rs: &aiv1alpha1.RAGSource{
-				ObjectMeta: metav1.ObjectMeta{Name: testName},
+				ObjectMeta: metav1.ObjectMeta{Name: testResourceName},
 				Spec: aiv1alpha1.RAGSourceSpec{
 					Source: aiv1alpha1.SourceConfig{
 						Type: aiv1alpha1.RAGSourceTypeURL,
@@ -193,7 +193,7 @@ func TestValidateRAGSource(t *testing.T) {
 		{
 			name: "glob star in git paths",
 			rs: &aiv1alpha1.RAGSource{
-				ObjectMeta: metav1.ObjectMeta{Name: testName},
+				ObjectMeta: metav1.ObjectMeta{Name: testResourceName},
 				Spec: aiv1alpha1.RAGSourceSpec{
 					Source: aiv1alpha1.SourceConfig{
 						Type: aiv1alpha1.RAGSourceTypeGit,
@@ -209,7 +209,7 @@ func TestValidateRAGSource(t *testing.T) {
 		{
 			name: "glob question mark in git paths",
 			rs: &aiv1alpha1.RAGSource{
-				ObjectMeta: metav1.ObjectMeta{Name: testName},
+				ObjectMeta: metav1.ObjectMeta{Name: testResourceName},
 				Spec: aiv1alpha1.RAGSourceSpec{
 					Source: aiv1alpha1.SourceConfig{
 						Type: aiv1alpha1.RAGSourceTypeGit,
@@ -225,7 +225,7 @@ func TestValidateRAGSource(t *testing.T) {
 		{
 			name: "glob bracket in git paths",
 			rs: &aiv1alpha1.RAGSource{
-				ObjectMeta: metav1.ObjectMeta{Name: testName},
+				ObjectMeta: metav1.ObjectMeta{Name: testResourceName},
 				Spec: aiv1alpha1.RAGSourceSpec{
 					Source: aiv1alpha1.SourceConfig{
 						Type: aiv1alpha1.RAGSourceTypeGit,
@@ -241,7 +241,7 @@ func TestValidateRAGSource(t *testing.T) {
 		{
 			name: "glob brace in git paths",
 			rs: &aiv1alpha1.RAGSource{
-				ObjectMeta: metav1.ObjectMeta{Name: testName},
+				ObjectMeta: metav1.ObjectMeta{Name: testResourceName},
 				Spec: aiv1alpha1.RAGSourceSpec{
 					Source: aiv1alpha1.SourceConfig{
 						Type: aiv1alpha1.RAGSourceTypeGit,
@@ -257,7 +257,7 @@ func TestValidateRAGSource(t *testing.T) {
 		{
 			name: "second path invalid",
 			rs: &aiv1alpha1.RAGSource{
-				ObjectMeta: metav1.ObjectMeta{Name: testName},
+				ObjectMeta: metav1.ObjectMeta{Name: testResourceName},
 				Spec: aiv1alpha1.RAGSourceSpec{
 					Source: aiv1alpha1.SourceConfig{
 						Type: aiv1alpha1.RAGSourceTypeGit,
@@ -289,7 +289,7 @@ func TestValidateCrewFitness(t *testing.T) {
 		{
 			name: "valid",
 			cf: &aiv1alpha1.CrewFitness{
-				ObjectMeta: metav1.ObjectMeta{Name: testName},
+				ObjectMeta: metav1.ObjectMeta{Name: testResourceName},
 				Spec: aiv1alpha1.CrewFitnessSpec{
 					CrewRef:      validCrewName,
 					TestRef:      testHealthCheck,
@@ -300,7 +300,7 @@ func TestValidateCrewFitness(t *testing.T) {
 		{
 			name: "empty crewRef",
 			cf: &aiv1alpha1.CrewFitness{
-				ObjectMeta: metav1.ObjectMeta{Name: testName},
+				ObjectMeta: metav1.ObjectMeta{Name: testResourceName},
 				Spec: aiv1alpha1.CrewFitnessSpec{
 					TestRef:      testHealthCheck,
 					ConfigMapRef: fitnessConfigMap,
@@ -311,7 +311,7 @@ func TestValidateCrewFitness(t *testing.T) {
 		{
 			name: "empty testRef",
 			cf: &aiv1alpha1.CrewFitness{
-				ObjectMeta: metav1.ObjectMeta{Name: testName},
+				ObjectMeta: metav1.ObjectMeta{Name: testResourceName},
 				Spec: aiv1alpha1.CrewFitnessSpec{
 					CrewRef:      validCrewName,
 					ConfigMapRef: fitnessConfigMap,
@@ -322,7 +322,7 @@ func TestValidateCrewFitness(t *testing.T) {
 		{
 			name: "empty configMapRef and testContent",
 			cf: &aiv1alpha1.CrewFitness{
-				ObjectMeta: metav1.ObjectMeta{Name: testName},
+				ObjectMeta: metav1.ObjectMeta{Name: testResourceName},
 				Spec: aiv1alpha1.CrewFitnessSpec{
 					CrewRef: validCrewName,
 					TestRef: testHealthCheck,
@@ -333,7 +333,7 @@ func TestValidateCrewFitness(t *testing.T) {
 		{
 			name: "valid with testContent",
 			cf: &aiv1alpha1.CrewFitness{
-				ObjectMeta: metav1.ObjectMeta{Name: testName},
+				ObjectMeta: metav1.ObjectMeta{Name: testResourceName},
 				Spec: aiv1alpha1.CrewFitnessSpec{
 					CrewRef:     validCrewName,
 					TestRef:     testHealthCheck,
@@ -344,7 +344,7 @@ func TestValidateCrewFitness(t *testing.T) {
 		{
 			name: "both configMapRef and testContent",
 			cf: &aiv1alpha1.CrewFitness{
-				ObjectMeta: metav1.ObjectMeta{Name: testName},
+				ObjectMeta: metav1.ObjectMeta{Name: testResourceName},
 				Spec: aiv1alpha1.CrewFitnessSpec{
 					CrewRef:      validCrewName,
 					TestRef:      testHealthCheck,

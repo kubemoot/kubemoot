@@ -69,7 +69,7 @@ func TestDiscoverCapacity_FromPod(t *testing.T) {
 	cli := fake.NewClientBuilder().WithScheme(scheme).WithObjects(slice, pod).Build()
 	r := &ModelProviderReconciler{Client: cli, ConfigCache: NewConfigCache()}
 	provider := &aiv1alpha1.ModelProvider{
-		ObjectMeta: metav1.ObjectMeta{Name: testProv, Namespace: testRig0},
+		ObjectMeta: metav1.ObjectMeta{Name: testProviderName, Namespace: testRig0},
 		Spec:       aiv1alpha1.ModelProviderSpec{Endpoint: "http://ollama.rig0:11434"},
 	}
 	ctx := logf.IntoContext(context.Background(), logr.Discard())

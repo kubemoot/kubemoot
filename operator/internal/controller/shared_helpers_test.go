@@ -159,7 +159,7 @@ func TestHelperSanitizeK8sName(t *testing.T) {
 		input    string
 		expected string
 	}{
-		{testSimple, testSimple},
+		{testUnchangedName, testUnchangedName},
 		{"with/slash", "with-slash"},
 		{"with_underscore", "with-underscore"},
 		{"with spaces", "with-spaces"},
@@ -190,7 +190,7 @@ func TestHelperGetModuleName(t *testing.T) {
 	}{
 		{"mcp-server-fetch", "mcp_server_fetch"},
 		{"package>=1.0.0", "package"},
-		{testSimple, testSimple},
+		{testUnchangedName, testUnchangedName},
 		{"a-b>=2.0", "a_b"},
 		{"package==1.0.0", "package"},
 	}
@@ -219,7 +219,7 @@ func TestHelperComputeTrialStats(t *testing.T) {
 			Trials: []kubemootv1alpha1.TrialRecord{
 				{Success: true, TestedAt: &now, Version: "1.0", Transport: testHTTP},
 				{Success: false, TestedAt: &now},
-				{Success: true, TestedAt: &now, Version: testVersion11, Transport: testSSE},
+				{Success: true, TestedAt: &now, Version: testRecommendedVersion, Transport: testSSE},
 			},
 		}
 		computeTrialStats(status)
@@ -240,7 +240,7 @@ func assertMixedTrialStats(t *testing.T, status *kubemootv1alpha1.MCPServerRepor
 	if status.SuccessRate != "67%" {
 		t.Errorf("expected 67%%, got %s", status.SuccessRate)
 	}
-	if status.RecommendedVersion != testVersion11 {
+	if status.RecommendedVersion != testRecommendedVersion {
 		t.Errorf("expected recommended version 1.1, got %s", status.RecommendedVersion)
 	}
 	if status.RecommendedTransport != testSSE {
@@ -264,7 +264,7 @@ func TestHelperMatchGlob(t *testing.T) {
 		{"hello*", "helloworld", true},
 		{"he?lo", "hello", true},
 		{testExact, testExact, true},
-		{testExact, testOther, false},
+		{testExact, testMismatchName, false},
 	}
 
 	for _, tt := range tests {
@@ -285,10 +285,10 @@ func TestHelperParseServiceFromEndpoint(t *testing.T) {
 		endpoint, defaultNS string
 		wantSvc, wantNS     string
 	}{
-		{testRig0URL, testDefault, testOllama, "ollama-rig0"},
-		{"http://ollama.ollama.svc.cluster.local:11434", testDefault, testOllama, testOllama},
+		{testRig0URL, testDefaultNS, testOllama, "ollama-rig0"},
+		{"http://ollama.ollama.svc.cluster.local:11434", testDefaultNS, testOllama, testOllama},
 		{"http://localhost:11434", "myns", "localhost", "myns"},
-		{"://bad", testDefault, "", ""},
+		{"://bad", testDefaultNS, "", ""},
 	}
 
 	for _, tt := range tests {
@@ -369,8 +369,8 @@ func TestHelperContainsIgnoreCase(t *testing.T) {
 		{testHelloWorldTitle, "hello", true},
 		{testHelloWorldTitle, "WORLD", true},
 		{testHelloWorldTitle, "missing", false},
-		{"", testTest, false},
-		{testTest, "", true},
+		{"", testPlainWord, false},
+		{testPlainWord, "", true},
 	}
 
 	for _, tt := range tests {

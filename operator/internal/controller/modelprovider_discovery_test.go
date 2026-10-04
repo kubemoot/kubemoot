@@ -126,14 +126,14 @@ func TestCountAssignedAgents(t *testing.T) {
 		return &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "ns", Labels: labels}}
 	}
 	cli := fake.NewClientBuilder().WithScheme(scheme).WithObjects(
-		dep("a", map[string]string{testMullingProviderKey: testProv}),
-		dep("b", map[string]string{"kubemoot.ai/triage-provider": testProv}),
+		dep("a", map[string]string{testMullingProviderKey: testProviderName}),
+		dep("b", map[string]string{"kubemoot.ai/triage-provider": testProviderName}),
 		// An agent using this provider for BOTH phases contributes 2.
-		dep("c", map[string]string{testMullingProviderKey: testProv, "kubemoot.ai/triage-provider": testProv}),
-		dep("d", map[string]string{testMullingProviderKey: testOther}),
+		dep("c", map[string]string{testMullingProviderKey: testProviderName, "kubemoot.ai/triage-provider": testProviderName}),
+		dep("d", map[string]string{testMullingProviderKey: testOtherProvider}),
 	).Build()
 	r := &ModelProviderReconciler{Client: cli}
-	provider := &aiv1alpha1.ModelProvider{ObjectMeta: metav1.ObjectMeta{Name: testProv, Namespace: "ns"}, Status: aiv1alpha1.ModelProviderStatus{Capacity: &aiv1alpha1.DiscoveredCapacity{}}}
+	provider := &aiv1alpha1.ModelProvider{ObjectMeta: metav1.ObjectMeta{Name: testProviderName, Namespace: "ns"}, Status: aiv1alpha1.ModelProviderStatus{Capacity: &aiv1alpha1.DiscoveredCapacity{}}}
 	r.countAssignedAgents(context.Background(), provider)
 	if provider.Status.Capacity.MullingAgentCount != 2 || provider.Status.Capacity.TriageAgentCount != 2 {
 		t.Errorf("mulling=%d triage=%d, want 2/2", provider.Status.Capacity.MullingAgentCount, provider.Status.Capacity.TriageAgentCount)

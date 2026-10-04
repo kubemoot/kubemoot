@@ -46,7 +46,7 @@ func TestBuildComponentStatuses(t *testing.T) {
 
 func componentStatusesMixedProviders(t *testing.T) {
 	ctx := context.Background()
-	c := newPropagationClient(t, mkModelProvider(testGPU, true), mkModelProvider("rig1", false))
+	c := newPropagationClient(t, mkModelProvider(testGPUProvider, true), mkModelProvider("rig1", false))
 	ss := buildComponentStatuses(ctx, c, true)
 	if op, _ := findStatus(ss, "operator"); !op.Healthy {
 		t.Errorf("operator should be healthy (it answered)")
@@ -75,7 +75,7 @@ func componentStatusesNoProviders(t *testing.T) {
 
 func componentStatusesAllDown(t *testing.T) {
 	ctx := context.Background()
-	c := newPropagationClient(t, mkModelProvider(testGPU, false), mkModelProvider("rig1", false))
+	c := newPropagationClient(t, mkModelProvider(testGPUProvider, false), mkModelProvider("rig1", false))
 	ss := buildComponentStatuses(ctx, c, true)
 	mp, _ := findStatus(ss, "modelproviders")
 	if mp.Healthy || mp.Message != "0/2 ready" {

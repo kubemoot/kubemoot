@@ -62,12 +62,12 @@ func TestBuildJobCarriesFitnessHarnessLabel(t *testing.T) {
 
 	job := r.buildJob(cf, "cf-run-abc-s4-i1", "http://endpoint", "test.adl", "cm")
 
-	if got := job.Labels[labelFitnessHarness]; got != testTrue {
+	if got := job.Labels[labelFitnessHarness]; got != testHarnessLabelValue {
 		t.Errorf("Job label %q = %q, want \"true\"", labelFitnessHarness, got)
 	}
 	// The pod template label is what the agent's tooling can filter on; it must
 	// be present there too, not only on the Job object.
-	if got := job.Spec.Template.Labels[labelFitnessHarness]; got != testTrue {
+	if got := job.Spec.Template.Labels[labelFitnessHarness]; got != testHarnessLabelValue {
 		t.Errorf("pod template label %q = %q, want \"true\"", labelFitnessHarness, got)
 	}
 }

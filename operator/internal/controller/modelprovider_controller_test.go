@@ -38,7 +38,7 @@ var _ = Describe("ModelProvider Controller", func() {
 
 		typeNamespacedName := types.NamespacedName{
 			Name:      resourceName,
-			Namespace: testDefault,
+			Namespace: testDefaultNS,
 		}
 		modelprovider := &aiv1alpha1.ModelProvider{}
 
@@ -49,7 +49,7 @@ var _ = Describe("ModelProvider Controller", func() {
 				resource := &aiv1alpha1.ModelProvider{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      resourceName,
-						Namespace: testDefault,
+						Namespace: testDefaultNS,
 					},
 					Spec: aiv1alpha1.ModelProviderSpec{
 						Type:     aiv1alpha1.ProviderTypeOllama,

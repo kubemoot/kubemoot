@@ -80,8 +80,8 @@ func TestFindNextIterationOrdersScriptsThenIterations(t *testing.T) {
 		Spec: kubemootv1alpha1.CrewFitnessSuiteSpec{
 			Iterations: 3,
 			Scripts: []kubemootv1alpha1.SuiteScript{
-				{TestRef: "a", TestContent: testEllipsis},
-				{TestRef: "b", TestContent: testEllipsis},
+				{TestRef: "a", TestContent: testScriptContent},
+				{TestRef: "b", TestContent: testScriptContent},
 			},
 		},
 		Status: kubemootv1alpha1.CrewFitnessSuiteStatus{RunID: testDeadbeef},
@@ -132,7 +132,7 @@ func TestIterationCRHasNoTTL(t *testing.T) {
 	}
 	next := &nextIteration{
 		scriptIdx: 0, iter: 1, crName: "run-deadbeef-s0-i1",
-		script: kubemootv1alpha1.SuiteScript{TestRef: "x", TestContent: testEllipsis},
+		script: kubemootv1alpha1.SuiteScript{TestRef: "x", TestContent: testScriptContent},
 	}
 	cf := buildIterationCR(suite, next)
 	if cf.Spec.TTL != nil {
@@ -142,7 +142,7 @@ func TestIterationCRHasNoTTL(t *testing.T) {
 	if cf.Labels[suiteOwnerLabel] != "s" {
 		t.Errorf("owner label: got %q, want s", cf.Labels[suiteOwnerLabel])
 	}
-	if cf.Spec.TestContent != testEllipsis {
+	if cf.Spec.TestContent != testScriptContent {
 		t.Errorf("testContent not threaded through: %q", cf.Spec.TestContent)
 	}
 }
@@ -211,7 +211,7 @@ func TestValidateSuiteSpec(t *testing.T) {
 				Spec: kubemootv1alpha1.CrewFitnessSuiteSpec{
 					CrewRef: testCrewName, Iterations: 3,
 					Scripts: []kubemootv1alpha1.SuiteScript{
-						{TestRef: "a", TestContent: testEllipsis},
+						{TestRef: "a", TestContent: testScriptContent},
 						{TestRef: "b", ConfigMapRef: "scripts-cm"},
 					},
 				},
@@ -259,7 +259,7 @@ func TestAdvanceRunningCompletesDespiteIterationFailures(t *testing.T) {
 		Spec: kubemootv1alpha1.CrewFitnessSuiteSpec{
 			CrewRef:    testCrewName,
 			Iterations: 2,
-			Scripts:    []kubemootv1alpha1.SuiteScript{{TestRef: "x", TestContent: testEllipsis}},
+			Scripts:    []kubemootv1alpha1.SuiteScript{{TestRef: "x", TestContent: testScriptContent}},
 		},
 		Status: kubemootv1alpha1.CrewFitnessSuiteStatus{
 			Phase:           kubemootv1alpha1.CrewFitnessSuitePhaseRunning,

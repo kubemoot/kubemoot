@@ -20,9 +20,9 @@ func TestAssessCrew(t *testing.T) {
 	running := agentIn(testRoleCoordinator, agentPhaseRunning, "")
 	stuckCoord := agentIn(testRoleCoordinator, agentPhaseUnschedulable, "no feasible Model for mulling phase")
 	newCoord := agentIn(testRoleCoordinator, "", "")
-	tooler := agentIn(testK8s, agentPhaseRunning, "")
+	tooler := agentIn(testK8sAgent, agentPhaseRunning, "")
 	stuckA := agentIn("obs", agentPhaseUnschedulable, "no ready provider")
-	stuckB := agentIn(testGPU, agentPhaseUnschedulable, "no ready provider")
+	stuckB := agentIn("gpu", agentPhaseUnschedulable, "no ready provider")
 
 	cases := []struct {
 		name        string
@@ -53,7 +53,7 @@ func TestAssessCrew(t *testing.T) {
 
 func TestEnqueueCrewForAgent(t *testing.T) {
 	h := enqueueCrewForAgent()
-	labelled := agentIn(testK8s, agentPhaseRunning, "")
+	labelled := agentIn(testK8sAgent, agentPhaseRunning, "")
 	unlabelled := agentIn("stray", agentPhaseRunning, "")
 	unlabelled.Labels = nil
 	reqs := mapRequests(t, h, &labelled)

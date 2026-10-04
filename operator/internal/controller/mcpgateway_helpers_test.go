@@ -28,7 +28,7 @@ func TestBuildGatewayAuthEnv_Disabled(t *testing.T) {
 	if len(env) != 1 {
 		t.Fatalf("expected 1 env var, got %d", len(env))
 	}
-	if env[0].Name != "AUTH_REQUIRED" || env[0].Value != testFalse {
+	if env[0].Name != "AUTH_REQUIRED" || env[0].Value != testEnvFalse {
 		t.Errorf("expected AUTH_REQUIRED=false, got %s=%s", env[0].Name, env[0].Value)
 	}
 }
@@ -43,7 +43,7 @@ func TestBuildGatewayAuthEnv_NilAuth(t *testing.T) {
 	if len(env) != 1 {
 		t.Fatalf("expected 1 env var, got %d", len(env))
 	}
-	if env[0].Value != testFalse {
+	if env[0].Value != testEnvFalse {
 		t.Errorf("expected false, got %s", env[0].Value)
 	}
 }
@@ -55,7 +55,7 @@ func TestBuildGatewayAuthEnv_EnabledNotTrue(t *testing.T) {
 		},
 	}
 	env := buildGatewayAuthEnv(gateway)
-	if len(env) != 1 || env[0].Value != testFalse {
+	if len(env) != 1 || env[0].Value != testEnvFalse {
 		t.Errorf("expected AUTH_REQUIRED=false for disabled auth")
 	}
 }
@@ -74,7 +74,7 @@ func TestBuildGatewayAuthEnv_JWT(t *testing.T) {
 	if len(env) != 2 {
 		t.Fatalf("expected 2 env vars for JWT auth, got %d", len(env))
 	}
-	if env[0].Name != "AUTH_REQUIRED" || env[0].Value != testTrue {
+	if env[0].Name != "AUTH_REQUIRED" || env[0].Value != testEnvTrue {
 		t.Errorf("expected AUTH_REQUIRED=true, got %s=%s", env[0].Name, env[0].Value)
 	}
 	if env[1].Name != "JWT_SECRET_KEY" {
@@ -104,7 +104,7 @@ func TestBuildGatewayAuthEnv_BasicAuth(t *testing.T) {
 	if len(env) != 3 {
 		t.Fatalf("expected 3 env vars for basic auth, got %d", len(env))
 	}
-	if env[0].Value != testTrue {
+	if env[0].Value != testEnvTrue {
 		t.Errorf("expected AUTH_REQUIRED=true")
 	}
 	if env[1].Name != "BASIC_AUTH_USER" {
@@ -129,7 +129,7 @@ func TestBuildGatewayAuthEnv_EnabledNoType(t *testing.T) {
 	if len(env) != 1 {
 		t.Fatalf("expected 1 env var, got %d", len(env))
 	}
-	if env[0].Value != testTrue {
+	if env[0].Value != testEnvTrue {
 		t.Errorf("expected true, got %s", env[0].Value)
 	}
 }
@@ -228,7 +228,7 @@ func TestParseInt_Valid(t *testing.T) {
 }
 
 func TestParseInt_Invalid(t *testing.T) {
-	_, err := parseInt(testABC)
+	_, err := parseInt("abc")
 	if err == nil {
 		t.Error("expected error for non-numeric input")
 	}

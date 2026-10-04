@@ -41,12 +41,12 @@ var _ = Describe("MCPCatalog Controller", func() {
 
 		catalogNamespacedName := types.NamespacedName{
 			Name:      catalogName,
-			Namespace: testDefault,
+			Namespace: testDefaultNS,
 		}
 
 		policyNamespacedName := types.NamespacedName{
 			Name:      qualityPolicyName,
-			Namespace: testDefault,
+			Namespace: testDefaultNS,
 		}
 
 		var mockServer *httptest.Server
@@ -85,7 +85,7 @@ var _ = Describe("MCPCatalog Controller", func() {
 			policy := &aiv1alpha1.MCPQualityPolicy{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      qualityPolicyName,
-					Namespace: testDefault,
+					Namespace: testDefaultNS,
 				},
 				Spec: aiv1alpha1.MCPQualityPolicySpec{
 					Allowing: []aiv1alpha1.AllowingEntry{
@@ -111,7 +111,7 @@ var _ = Describe("MCPCatalog Controller", func() {
 			catalog := &aiv1alpha1.MCPCatalog{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      catalogName,
-					Namespace: testDefault,
+					Namespace: testDefaultNS,
 				},
 				Spec: aiv1alpha1.MCPCatalogSpec{
 					Type:             aiv1alpha1.CatalogTypeOfficialRegistry,
@@ -173,14 +173,14 @@ var _ = Describe("MCPCatalog Controller", func() {
 
 		statusNamespacedName := types.NamespacedName{
 			Name:      statusCatalogName,
-			Namespace: testDefault,
+			Namespace: testDefaultNS,
 		}
 
 		BeforeEach(func() {
 			catalog := &aiv1alpha1.MCPCatalog{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      statusCatalogName,
-					Namespace: testDefault,
+					Namespace: testDefaultNS,
 				},
 				Spec: aiv1alpha1.MCPCatalogSpec{
 					Type: aiv1alpha1.CatalogTypeOfficialRegistry,
@@ -284,23 +284,23 @@ var _ = Describe("MCPCatalog Controller", func() {
 
 	Context("When testing string matcher", func() {
 		It("should match exact strings case-insensitively", func() {
-			matcher := aiv1alpha1.StringMatcher{Type: aiv1alpha1.MatcherTypeExact, Value: testTest}
-			Expect(matchStringMatcher(matcher, testTest)).To(BeTrue())
+			matcher := aiv1alpha1.StringMatcher{Type: aiv1alpha1.MatcherTypeExact, Value: testMatcherValue}
+			Expect(matchStringMatcher(matcher, testMatcherValue)).To(BeTrue())
 			Expect(matchStringMatcher(matcher, "TEST")).To(BeTrue())
-			Expect(matchStringMatcher(matcher, testOther)).To(BeFalse())
+			Expect(matchStringMatcher(matcher, "other")).To(BeFalse())
 		})
 
 		It("should match glob patterns", func() {
 			matcher := aiv1alpha1.StringMatcher{Type: aiv1alpha1.MatcherTypeGlob, Value: "test-*"}
 			Expect(matchStringMatcher(matcher, "test-server")).To(BeTrue())
 			Expect(matchStringMatcher(matcher, "test-")).To(BeTrue())
-			Expect(matchStringMatcher(matcher, testOther)).To(BeFalse())
+			Expect(matchStringMatcher(matcher, "other")).To(BeFalse())
 		})
 
 		It("should negate matches when Negate is true", func() {
-			matcher := aiv1alpha1.StringMatcher{Type: aiv1alpha1.MatcherTypeExact, Value: testTest, Negate: true}
-			Expect(matchStringMatcher(matcher, testTest)).To(BeFalse())
-			Expect(matchStringMatcher(matcher, testOther)).To(BeTrue())
+			matcher := aiv1alpha1.StringMatcher{Type: aiv1alpha1.MatcherTypeExact, Value: testMatcherValue, Negate: true}
+			Expect(matchStringMatcher(matcher, testMatcherValue)).To(BeFalse())
+			Expect(matchStringMatcher(matcher, "other")).To(BeTrue())
 		})
 	})
 })

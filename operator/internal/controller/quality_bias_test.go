@@ -20,9 +20,9 @@ func TestParseQualityBias(t *testing.T) {
 		{"1", 1.0, true},
 		{"  0.5  ", 0.5, true}, // whitespace-tolerant
 		{"", 0, false},
-		{testABC, 0, false},
-		{"-0.1", 0, false},        // below range
-		{testVersion11, 0, false}, // above range
+		{"abc", 0, false},
+		{"-0.1", 0, false}, // below range
+		{"1.1", 0, false},  // above range
 		{"NaN", 0, false},
 		{"+Inf", 0, false},
 	}
@@ -45,10 +45,10 @@ func TestParseQualityBias(t *testing.T) {
 // the reasoning bias (0.7), not be diluted by the tool-calling bias (0.3).
 func TestEffectiveQualityBiasMaxAcrossCapabilities(t *testing.T) {
 	biasMap := map[string]string{
-		testToolCalling: "0.3",
-		testReasoning:   "0.7",
-		"observability": testBias04,
-		testDefault:     testBias04,
+		testToolCalling:    "0.3",
+		testReasoning:      "0.7",
+		"observability":    testBias04,
+		testBiasDefaultKey: testBias04,
 	}
 
 	// Single-capability tooler (nvidia-gpu-now) → 0.3 (speed-leaning).
@@ -71,8 +71,8 @@ func TestEffectiveQualityBiasMaxAcrossCapabilities(t *testing.T) {
 // disabling quality-bias scoring entirely.
 func TestEffectiveQualityBiasDefaultFallback(t *testing.T) {
 	biasMap := map[string]string{
-		testReasoning: "0.9",
-		testDefault:   testBias04,
+		testReasoning:      "0.9",
+		testBiasDefaultKey: testBias04,
 	}
 	// Agent declares capabilities none of which are in the map → use default.
 	if b, ok := effectiveQualityBias([]string{"unmapped-cap"}, biasMap); !ok || math.Abs(b-0.4) > 1e-9 {
@@ -83,7 +83,7 @@ func TestEffectiveQualityBiasDefaultFallback(t *testing.T) {
 		t.Errorf("nil caps fall back: got (%v,%v), want (0.4,true)", b, ok)
 	}
 	// One mapped + several unmapped → still use the mapped one, not default.
-	if b, ok := effectiveQualityBias([]string{"unmapped", testReasoning, testOther}, biasMap); !ok || math.Abs(b-0.9) > 1e-9 {
+	if b, ok := effectiveQualityBias([]string{"unmapped", testReasoning, "other"}, biasMap); !ok || math.Abs(b-0.9) > 1e-9 {
 		t.Errorf("one mapped wins over default: got (%v,%v), want (0.9,true)", b, ok)
 	}
 }
@@ -108,7 +108,7 @@ func TestEffectiveQualityBiasDisabledWhenMissing(t *testing.T) {
 		t.Errorf("all unparseable: got (%v,%v), want (0,false)", b, ok)
 	}
 	// Unparseable default with unmapped caps.
-	badDefault := map[string]string{testDefault: "xyz"}
+	badDefault := map[string]string{testBiasDefaultKey: "xyz"}
 	if b, ok := effectiveQualityBias([]string{"unmapped"}, badDefault); ok || b != 0 {
 		t.Errorf("unparseable default: got (%v,%v), want (0,false)", b, ok)
 	}
@@ -181,10 +181,12 @@ func TestQualityBiasScoreBoundsAndSymmetry(t *testing.T) {
 		{"bias=0.4 medium (reachable mid-tier)", 0.4, medLbl, 80, ""},
 	}
 	for _, tc := range cases {
-		s, r := qualityBiasScore(tc.bias, tc.labels)
-		if s != tc.wantScore || (tc.wantReason != "" && r != tc.wantReason) {
-			t.Errorf("%s: got (%d,%q), want (%d,%q)", tc.name, s, r, tc.wantScore, tc.wantReason)
-		}
+		t.Run(tc.name, func(t *testing.T) {
+			s, r := qualityBiasScore(tc.bias, tc.labels)
+			if s != tc.wantScore || (tc.wantReason != "" && r != tc.wantReason) {
+				t.Errorf("got (%d,%q), want (%d,%q)", s, r, tc.wantScore, tc.wantReason)
+			}
+		})
 	}
 
 	// bias=0.5: high and low tie at 50; medium PEAKS at 100 (the tent apex), so

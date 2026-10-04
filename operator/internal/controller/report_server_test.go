@@ -161,16 +161,16 @@ func TestDeferredCacheRoundTrip(t *testing.T) {
 		t.Errorf("absent checkpoint should be empty+incomplete, got %+v", c)
 	}
 
-	blob, _ := json.Marshal(deferredScoreCache{Scores: map[string]float64{testGPU: 82.5}, Complete: false})
+	blob, _ := json.Marshal(deferredScoreCache{Scores: map[string]float64{testScenarioGPU: 82.5}, Complete: false})
 	_, _ = store.PutObject(FitnessArtifactsBucket, deferredSidecarKey(prefix), blob, time.Hour)
-	if got := readDeferredScores(store, prefix)[testGPU]; got != 82.5 {
+	if got := readDeferredScores(store, prefix)[testScenarioGPU]; got != 82.5 {
 		t.Errorf("readDeferredScores[gpu] = %v, want 82.5", got)
 	}
 	if loadDeferredCache(store, prefix).Complete {
 		t.Errorf("checkpoint should be incomplete")
 	}
 
-	blob2, _ := json.Marshal(deferredScoreCache{Scores: map[string]float64{testGPU: 82.5}, Complete: true})
+	blob2, _ := json.Marshal(deferredScoreCache{Scores: map[string]float64{testScenarioGPU: 82.5}, Complete: true})
 	_, _ = store.PutObject(FitnessArtifactsBucket, deferredSidecarKey(prefix), blob2, time.Hour)
 	if !loadDeferredCache(store, prefix).Complete {
 		t.Errorf("checkpoint should be complete after Complete=true write")

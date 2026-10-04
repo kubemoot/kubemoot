@@ -112,18 +112,19 @@ func TestFindCrewGateway(t *testing.T) {
 		namespace string
 		wantOK    bool
 		wantName  string
-		wantPort  int32 // 0 skips the port check
+		checkPort bool
+		wantPort  int32
 	}{
 		{name: "no gateway gives ok=false", namespace: testCrewNamespace},
 		{
 			name:      "one gateway with explicit port",
 			objects:   []client.Object{mkGw(testCrewNamespace, "x-gateway", 9090)},
-			namespace: testCrewNamespace, wantOK: true, wantName: "x-gateway", wantPort: 9090,
+			namespace: testCrewNamespace, wantOK: true, wantName: "x-gateway", checkPort: true, wantPort: 9090,
 		},
 		{
 			name:      "default port when spec.port is zero",
 			objects:   []client.Object{mkGw(testCrewNamespace, "x-gateway", 0)},
-			namespace: testCrewNamespace, wantOK: true, wantName: "x-gateway", wantPort: 8080,
+			namespace: testCrewNamespace, wantOK: true, wantName: "x-gateway", checkPort: true, wantPort: 8080,
 		},
 		{
 			name: "scoped to namespace",
@@ -140,7 +141,7 @@ func TestFindCrewGateway(t *testing.T) {
 				dying("a-gateway", 8080),
 				mkGw(testCrewNamespace, "b-gateway", 9090),
 			},
-			namespace: testCrewNamespace, wantOK: true, wantName: "b-gateway", wantPort: 9090,
+			namespace: testCrewNamespace, wantOK: true, wantName: "b-gateway", checkPort: true, wantPort: 9090,
 		},
 		{
 			name:      "only a terminating gateway gives ok=false",
@@ -153,13 +154,14 @@ func TestFindCrewGateway(t *testing.T) {
 			cli := fake.NewClientBuilder().WithScheme(scheme).WithObjects(tc.objects...).Build()
 			r := &AgentReconciler{Client: cli}
 			name, port, ok := r.findCrewGateway(context.Background(), tc.namespace)
-			assertCrewGateway(t, name, port, ok, tc.wantOK, tc.wantName, tc.wantPort)
+			assertCrewGateway(t, name, port, ok, tc.wantOK, tc.wantName, tc.checkPort, tc.wantPort)
 		})
 	}
 }
 
-// assertCrewGateway checks a findCrewGateway result. A wantPort of 0 skips the port.
-func assertCrewGateway(t *testing.T, name string, port int32, ok, wantOK bool, wantName string, wantPort int32) {
+// assertCrewGateway checks a findCrewGateway result; the port only when checkPort is set.
+func assertCrewGateway(t *testing.T, name string, port int32, ok, wantOK bool, wantName string,
+	checkPort bool, wantPort int32) {
 	t.Helper()
 	if ok != wantOK {
 		t.Fatalf("ok: got %v (name=%q port=%d); want %v", ok, name, port, wantOK)
@@ -170,7 +172,7 @@ func assertCrewGateway(t *testing.T, name string, port int32, ok, wantOK bool, w
 	if name != wantName {
 		t.Errorf("name: got %q; want %q", name, wantName)
 	}
-	if wantPort != 0 && port != wantPort {
+	if checkPort && port != wantPort {
 		t.Errorf("port: got %d; want %d", port, wantPort)
 	}
 }

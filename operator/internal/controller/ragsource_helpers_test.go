@@ -155,7 +155,7 @@ func TestHelperBuildNatsKVSourceEnv(t *testing.T) {
 			Spec: kubemootv1alpha1.RAGSourceSpec{
 				Source: kubemootv1alpha1.SourceConfig{
 					NatsKV: &kubemootv1alpha1.NatsKVSource{
-						Bucket:      testTest,
+						Bucket:      "test",
 						Key:         "data",
 						ContentHash: "abc123",
 					},

@@ -25,7 +25,7 @@ func TestModelChangeEnqueuesTheNamespacesAgents(t *testing.T) {
 		t.Fatal(err)
 	}
 	cli := fake.NewClientBuilder().WithScheme(scheme).WithObjects(
-		mkAgent("a1", "crew-ns", "demo"), mkAgent("a2", "crew-ns", testOther), mkAgent("b1", "elsewhere", "demo"),
+		mkAgent("a1", "crew-ns", "demo"), mkAgent("a2", "crew-ns", "other"), mkAgent("b1", "elsewhere", "demo"),
 	).Build()
 	reqs := namespaceAgentRequests[*kubemootv1alpha1.Model](context.Background(), cli, "Model", mkModel("qwen3.5-9b", "crew-ns"))
 	if len(reqs) != 2 {

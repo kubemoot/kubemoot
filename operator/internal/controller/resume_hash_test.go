@@ -23,7 +23,7 @@ import (
 
 func TestHashResumes_Deterministic(t *testing.T) {
 	resumes := []AgentResume{
-		{Name: testAlpha, Description: testAlphaDescription, Role: testRoleTooler, Keywords: []string{testK8s, testPods}},
+		{Name: testAlpha, Description: testAlphaDescription, Role: testRoleTooler, Keywords: []string{testKeywordK8s, testPods}},
 		{Name: testBeta, Description: testBetaDescription, Role: testResearcher, Tools: []string{testToolKubectlGet}},
 	}
 
@@ -109,7 +109,7 @@ func TestBuildResumeText_Full(t *testing.T) {
 
 func TestBuildResumeText_Minimal(t *testing.T) {
 	r := AgentResume{
-		Name: testSimple,
+		Name: "simple",
 		Role: testResearcher,
 	}
 

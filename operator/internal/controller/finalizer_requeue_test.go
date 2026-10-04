@@ -14,16 +14,13 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package webhook
+package controller
 
-// Shared fixtures for the webhook tests.
-const (
-	testCrewPrefix      = "crew-"
-	testDNS1123Error    = "not DNS-1123 compliant"
-	testFetchImage      = "mcp/fetch:latest"
-	testGlobUnsupported = "glob patterns are not supported"
-	testHealthCheck     = "discussion-health"
-	testRepoURL         = "https://github.com/example/repo"
-	testResourceName    = "test"
-	testServerURL       = "http://some-server:8080"
-)
+import ctrl "sigs.k8s.io/controller-runtime"
+
+// isFinalizerRequeue reports whether res is exactly the result a reconciler returns
+// right after adding its finalizer: requeueNow(), the short fixed delay before the
+// next reconcile.
+func isFinalizerRequeue(res ctrl.Result) bool {
+	return res == requeueNow()
+}

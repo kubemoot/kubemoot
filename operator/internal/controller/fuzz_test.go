@@ -70,7 +70,7 @@ func FuzzMergeNamespaceCrews(f *testing.F) {
 	f.Add(``, "pilot", "git@github.com:kubemoot/crews.git", "abc123", "2026-10-01T12:00:00Z")
 	f.Add(`{"other":{"revision":"r1"}}`, "pilot", "", "r2", "")
 	f.Add(`{"pilot":{"revision":"r1","deployedAt":"2026-10-01T12:00:00Z"}}`, "pilot", "", "", "")
-	f.Add(`not json`, "pilot", testSrc, "r1", "")
+	f.Add(`not json`, "pilot", "src", "r1", "")
 	f.Add(`null`, "", "", "", "")
 	f.Fuzz(func(t *testing.T, raw, crew, source, revision, deployedAt string) {
 		if !allValidUTF8(raw, crew, source, revision, deployedAt) {

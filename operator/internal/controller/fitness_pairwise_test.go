@@ -21,14 +21,14 @@ import (
 // arm IDENTITY leakage, not coincidental answer content.
 func adlArm() armAnswers {
 	return armAnswers{
-		arm:       testCrewName,
+		arm:       testPilotArm,
 		answers:   map[string]string{"s1": testFirstCrewReply, "s2": "first-crew reply two", "only-adl": "x"},
 		questions: map[string]string{"s1": "q1", "s2": "q2", "only-adl": "qx"},
 	}
 }
 func proseArm() armAnswers {
 	return armAnswers{
-		arm:       testCrewProse,
+		arm:       testProseArm,
 		answers:   map[string]string{"s1": testSecondCrewReply, "s2": "second-crew reply two", "only-prose": "y", testEmpty: "  "},
 		questions: map[string]string{"s1": "q1", "s2": "q2"},
 	}
@@ -56,7 +56,7 @@ func TestBuildPairwiseComparison_BlindOrderAndKey(t *testing.T) {
 	if pc.Doc.AnswerA != testFirstCrewReply || pc.Doc.AnswerB != testSecondCrewReply {
 		t.Fatalf("slot order wrong: A=%q B=%q", pc.Doc.AnswerA, pc.Doc.AnswerB)
 	}
-	if pc.aArm != testCrewName || pc.bArm != testCrewProse {
+	if pc.aArm != testPilotArm || pc.bArm != testProseArm {
 		t.Fatalf("un-blind key wrong: aArm=%q bArm=%q", pc.aArm, pc.bArm)
 	}
 	// aInSlotA=false -> prose is slot A (the randomized flip).
@@ -64,7 +64,7 @@ func TestBuildPairwiseComparison_BlindOrderAndKey(t *testing.T) {
 	if pc2.Doc.AnswerA != testSecondCrewReply || pc2.Doc.AnswerB != testFirstCrewReply {
 		t.Fatalf("flipped slot order wrong: A=%q B=%q", pc2.Doc.AnswerA, pc2.Doc.AnswerB)
 	}
-	if pc2.aArm != testCrewProse || pc2.bArm != testCrewName {
+	if pc2.aArm != testProseArm || pc2.bArm != testPilotArm {
 		t.Fatalf("flipped un-blind key wrong: aArm=%q bArm=%q", pc2.aArm, pc2.bArm)
 	}
 	assertBlindPairwiseDoc(t, pc)
@@ -78,7 +78,7 @@ func assertBlindPairwiseDoc(t *testing.T, pc pairwiseComparison) {
 	if err != nil {
 		t.Fatalf("marshal: %v", err)
 	}
-	if strings.Contains(doc, testCrewName) || strings.Contains(strings.ToLower(doc), "adl") || strings.Contains(strings.ToLower(doc), "prose") {
+	if strings.Contains(doc, testPilotArm) || strings.Contains(strings.ToLower(doc), "adl") || strings.Contains(strings.ToLower(doc), "prose") {
 		t.Fatalf("blind doc leaked arm identity: %s", doc)
 	}
 	var rd pairwiseDoc
@@ -133,14 +133,14 @@ func TestUnblindAndTally(t *testing.T) {
 
 	// s1: ADL in slot A, panel picks A -> ADL wins.
 	pc1 := buildPairwiseComparison("s1", "q1", adl, prose, true)
-	if w := unblind(pc1, voteA); w != testCrewName {
+	if w := unblind(pc1, voteA); w != testPilotArm {
 		t.Fatalf("unblind A = %q, want homelab-pilot", w)
 	}
 	tally.record(pc1, voteA)
 
 	// s2: prose in slot A (flipped), panel picks A -> prose wins.
 	pc2 := buildPairwiseComparison("s2", "q2", adl, prose, false)
-	if w := unblind(pc2, voteA); w != testCrewProse {
+	if w := unblind(pc2, voteA); w != testProseArm {
 		t.Fatalf("unblind flipped A = %q, want homelab-pilot-prose", w)
 	}
 	tally.record(pc2, voteA)
@@ -149,10 +149,10 @@ func TestUnblindAndTally(t *testing.T) {
 	pc3 := buildPairwiseComparison("s1", "q1", adl, prose, true)
 	tally.record(pc3, voteTie)
 
-	if tally.Wins[testCrewName] != 1 || tally.Wins[testCrewProse] != 1 || tally.Ties != 1 {
+	if tally.Wins[testPilotArm] != 1 || tally.Wins[testProseArm] != 1 || tally.Ties != 1 {
 		t.Fatalf("tally wrong: %+v", tally)
 	}
-	if tally.PerScenario["s2"] != testCrewProse {
+	if tally.PerScenario["s2"] != testProseArm {
 		t.Fatalf("per-scenario winner wrong: %v", tally.PerScenario)
 	}
 	if unblind(pc1, voteTie) != "" {

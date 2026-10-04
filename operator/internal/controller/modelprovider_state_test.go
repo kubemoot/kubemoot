@@ -89,7 +89,7 @@ func TestProviderStateJSONContract(t *testing.T) {
 		QueueDepth:   0,
 		LoadedModels: []string{testModel32B, testModelID},
 		Ready:        true,
-		LastProbedAt: testTimestamp,
+		LastProbedAt: testProbedAt,
 	}
 	bytes, err := json.Marshal(state)
 	if err != nil {
@@ -107,7 +107,7 @@ func TestProviderStateJSONContract(t *testing.T) {
 	wantStrings := map[string]string{
 		"name":         testOllamaGPU,
 		"endpoint":     testRig0URL,
-		"lastProbedAt": testTimestamp,
+		"lastProbedAt": testProbedAt,
 	}
 	for k, want := range wantStrings {
 		if got[k] != want {
@@ -154,7 +154,7 @@ func TestProviderStateOmitsEmptyLoadedModels(t *testing.T) {
 		Endpoint:     "http://ollama.ollama-rig1:11434",
 		MaxParallel:  1,
 		Ready:        true,
-		LastProbedAt: testTimestamp,
+		LastProbedAt: testProbedAt,
 		// LoadedModels intentionally nil
 	}
 	bytes, err := json.Marshal(state)

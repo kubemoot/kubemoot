@@ -42,7 +42,7 @@ func TestParseReplicateSecretsAnnotation(t *testing.T) {
 		},
 		{
 			name:        "annotation absent",
-			annotations: map[string]string{testOther: "value"},
+			annotations: map[string]string{"other": "value"},
 			want:        nil,
 		},
 		{
@@ -127,7 +127,7 @@ func TestSecretSourceAllowed(t *testing.T) {
 		{"other namespace refused", "", testTenantNS, false},
 		{"kube-system refused", "", testKubeSystemNS, false},
 		{"allowlisted namespace", testSharedNS, testSharedNS, true},
-		{"allowlist with spaces and blanks", " shared-db , ,other", testOther, true},
+		{"allowlist with spaces and blanks", " shared-db , ,other", testOtherSecret, true},
 		{"not in allowlist", testSharedNS, testTenantNS, false},
 		{"empty source", testSharedNS, "", false},
 	}

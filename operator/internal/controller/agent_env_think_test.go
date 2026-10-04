@@ -55,7 +55,7 @@ func TestThinkEnvRendering(t *testing.T) {
 	t.Run("think=false renders KUBEMOOT_MODEL_THINK=false", func(t *testing.T) {
 		env := r.buildEnvVars(context.Background(), mkAgent(&fls), pick, pick, 8080)
 		v, ok := envValue(env, "KUBEMOOT_MODEL_THINK")
-		if !ok || v != testFalse {
+		if !ok || v != testEnvFalse {
 			t.Fatalf("want KUBEMOOT_MODEL_THINK=false, got %q present=%v", v, ok)
 		}
 	})
@@ -63,7 +63,7 @@ func TestThinkEnvRendering(t *testing.T) {
 	t.Run("think=true renders KUBEMOOT_MODEL_THINK=true", func(t *testing.T) {
 		env := r.buildEnvVars(context.Background(), mkAgent(&tru), pick, pick, 8080)
 		v, ok := envValue(env, "KUBEMOOT_MODEL_THINK")
-		if !ok || v != testTrue {
+		if !ok || v != testEnvTrue {
 			t.Fatalf("want KUBEMOOT_MODEL_THINK=true, got %q present=%v", v, ok)
 		}
 	})
@@ -92,7 +92,7 @@ func TestCrewHasAnalysts(t *testing.T) {
 
 	t.Run("true when an analyst is present in the namespace", func(t *testing.T) {
 		cli := fake.NewClientBuilder().WithScheme(scheme).
-			WithObjects(agent("c", testCrewNamespace, testRoleCoordinator), agent(testK8s, testCrewNamespace, ""), agent("k8s-analyst", testCrewNamespace, "analyst")).
+			WithObjects(agent("c", testCrewNamespace, testRoleCoordinator), agent(testK8sAgent, testCrewNamespace, ""), agent("k8s-analyst", testCrewNamespace, "analyst")).
 			Build()
 		r := &AgentReconciler{Client: cli}
 		if !r.crewHasAnalysts(context.Background(), testCrewNamespace) {
@@ -102,7 +102,7 @@ func TestCrewHasAnalysts(t *testing.T) {
 
 	t.Run("false when no analyst in the namespace", func(t *testing.T) {
 		cli := fake.NewClientBuilder().WithScheme(scheme).
-			WithObjects(agent("c", testCrewNamespace, testRoleCoordinator), agent(testK8s, testCrewNamespace, "")).
+			WithObjects(agent("c", testCrewNamespace, testRoleCoordinator), agent(testK8sAgent, testCrewNamespace, "")).
 			Build()
 		r := &AgentReconciler{Client: cli}
 		if r.crewHasAnalysts(context.Background(), testCrewNamespace) {
@@ -143,7 +143,7 @@ func TestCoordinatorHasAnalystsEnv(t *testing.T) {
 		cli := fake.NewClientBuilder().WithScheme(scheme).WithObjects(coord, analyst).Build()
 		r := &AgentReconciler{Client: cli}
 		env := r.buildEnvVars(context.Background(), coord, pick, pick, 8080)
-		if v, ok := envValue(env, "KUBEMOOT_DISCUSS_HAS_ANALYSTS"); !ok || v != testTrue {
+		if v, ok := envValue(env, "KUBEMOOT_DISCUSS_HAS_ANALYSTS"); !ok || v != testEnvTrue {
 			t.Fatalf("want KUBEMOOT_DISCUSS_HAS_ANALYSTS=true, got %q present=%v", v, ok)
 		}
 	})

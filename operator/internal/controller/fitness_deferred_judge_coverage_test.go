@@ -106,7 +106,7 @@ func TestConsensusOKForJudge(t *testing.T) {
 func TestEvidenceFromEvents(t *testing.T) {
 	events := []transcriptEvent{
 		{Type: "phase"},
-		{Type: testFinding, Agent: testK8s, Signal: testAgree, Content: "found 3 pods"},
+		{Type: testFinding, Agent: testK8sAgent, Signal: testAgree, Content: "found 3 pods"},
 		{Type: testFinding, Summary: "from summary"},
 		{Type: testFinding, Content: "   "},
 	}

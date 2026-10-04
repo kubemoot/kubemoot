@@ -28,8 +28,8 @@ func TestGenerateRunID(t *testing.T) {
 	if got := generateRunID(long); got != "01234567" {
 		t.Errorf("generateRunID truncates to 8 chars, got %q", got)
 	}
-	short := &kubemootv1alpha1.CrewFitnessSuite{ObjectMeta: metav1.ObjectMeta{UID: types.UID(testABC)}}
-	if got := generateRunID(short); got != testABC {
+	short := &kubemootv1alpha1.CrewFitnessSuite{ObjectMeta: metav1.ObjectMeta{UID: types.UID(testRunID)}}
+	if got := generateRunID(short); got != testRunID {
 		t.Errorf("a short UID is returned whole, got %q", got)
 	}
 }
@@ -42,14 +42,14 @@ func TestSetSuiteError(t *testing.T) {
 	cli := fake.NewClientBuilder().WithScheme(scheme).
 		WithObjects(suite).WithStatusSubresource(suite).Build()
 	r := &CrewFitnessSuiteReconciler{Client: cli}
-	if _, err := r.setSuiteError(context.Background(), suite, testBoom); err != nil {
+	if _, err := r.setSuiteError(context.Background(), suite, testFailureMessage); err != nil {
 		t.Fatalf("setSuiteError: %v", err)
 	}
 	got := &kubemootv1alpha1.CrewFitnessSuite{}
 	if err := cli.Get(context.Background(), types.NamespacedName{Name: testSuite, Namespace: "ns"}, got); err != nil {
 		t.Fatalf("get: %v", err)
 	}
-	if got.Status.Phase != kubemootv1alpha1.CrewFitnessSuitePhaseError || got.Status.Error != testBoom {
+	if got.Status.Phase != kubemootv1alpha1.CrewFitnessSuitePhaseError || got.Status.Error != testFailureMessage {
 		t.Errorf("status not stamped: phase=%q error=%q", got.Status.Phase, got.Status.Error)
 	}
 	if got.Status.CompletedAt == nil {
@@ -60,7 +60,7 @@ func TestSetSuiteError(t *testing.T) {
 func TestControllerSetOwnerReference(t *testing.T) {
 	scheme := agentReconcileScheme(t)
 	owner := &kubemootv1alpha1.CrewFitnessSuite{
-		ObjectMeta: metav1.ObjectMeta{Name: testOwner, Namespace: "ns", UID: types.UID("u1")},
+		ObjectMeta: metav1.ObjectMeta{Name: testOwnerName, Namespace: "ns", UID: types.UID("u1")},
 	}
 	child := &kubemootv1alpha1.CrewFitness{
 		ObjectMeta: metav1.ObjectMeta{Name: "child", Namespace: "ns"},
@@ -69,7 +69,7 @@ func TestControllerSetOwnerReference(t *testing.T) {
 		t.Fatalf("controllerSetOwnerReference: %v", err)
 	}
 	refs := child.GetOwnerReferences()
-	if len(refs) != 1 || refs[0].Name != testOwner {
+	if len(refs) != 1 || refs[0].Name != testOwnerName {
 		t.Errorf("expected one owner ref to 'owner', got %+v", refs)
 	}
 }

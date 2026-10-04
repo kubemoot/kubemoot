@@ -41,8 +41,8 @@ func TestCSPEnqueueScopesToCrew(t *testing.T) {
 	}
 	cli := fake.NewClientBuilder().WithScheme(scheme).WithObjects(
 		mkAgent(testRoleCoordinator, testCrewNamespace, "x"),
-		mkAgent(testK8s, testCrewNamespace, "x"),
-		mkAgent(testOther, testCrewNamespace, "y"),
+		mkAgent(testK8sAgent, testCrewNamespace, "x"),
+		mkAgent("other", testCrewNamespace, "y"),
 	).Build()
 
 	got := mapCSPToAgentRequests(context.Background(), cli, &kubemootv1alpha1.CrewSchedulingPolicy{
@@ -54,7 +54,7 @@ func TestCSPEnqueueScopesToCrew(t *testing.T) {
 		names = append(names, r.Name)
 	}
 	sort.Strings(names)
-	if len(names) != 2 || names[0] != testRoleCoordinator || names[1] != testK8s {
+	if len(names) != 2 || names[0] != testRoleCoordinator || names[1] != testK8sAgent {
 		t.Errorf("expected [coordinator k8s] (crew x only), got %v", names)
 	}
 

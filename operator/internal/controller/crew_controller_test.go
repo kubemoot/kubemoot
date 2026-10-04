@@ -70,7 +70,7 @@ var _ = Describe("Crew Controller", func() {
 			reconciler := newReconciler()
 			result, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: namespacedName})
 			Expect(err).NotTo(HaveOccurred())
-			Expect(result.RequeueAfter).To(BeNumerically(">", 0), "should requeue after adding finalizer")
+			Expect(isFinalizerRequeue(result)).To(BeTrue(), "should requeue immediately after adding finalizer")
 
 			// Verify finalizer was added
 			updated := &aiv1alpha1.Crew{}
@@ -267,7 +267,7 @@ var _ = Describe("Crew Controller", func() {
 					Name:      testCrewManagedDelete,
 					Namespace: nsName,
 					Annotations: map[string]string{
-						manageNamespaceAnno: testTrue,
+						manageNamespaceAnno: managedNamespaceOptIn,
 					},
 				},
 				Spec: aiv1alpha1.CrewSpec{
@@ -320,7 +320,7 @@ var _ = Describe("Crew Controller", func() {
 					Name:      testCrewLabelTest,
 					Namespace: nsName,
 					Annotations: map[string]string{
-						manageNamespaceAnno: testTrue,
+						manageNamespaceAnno: managedNamespaceOptIn,
 					},
 				},
 				Spec: aiv1alpha1.CrewSpec{
@@ -447,7 +447,7 @@ var _ = Describe("Crew Controller", func() {
 			var crews map[string]map[string]string
 			Expect(json.Unmarshal([]byte(ns.Annotations[annoNamespaceCrews]), &crews)).To(Succeed())
 			Expect(crews).To(HaveKeyWithValue(revCrew, map[string]string{
-				"source": revTestSource, testOwner: revTestOwner, "revision": revTestHash,
+				"source": revTestSource, "owner": revTestOwner, "revision": revTestHash,
 				"channel": testBundle, "crewVersion": revTestVersion, "deployedAt": revTestDeployedAt,
 			}))
 

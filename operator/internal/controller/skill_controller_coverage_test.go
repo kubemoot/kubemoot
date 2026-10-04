@@ -46,7 +46,7 @@ func TestSkillReconcile_AddsFinalizerThenSyncs(t *testing.T) {
 	if err != nil {
 		t.Fatalf("first reconcile: %v", err)
 	}
-	if res.RequeueAfter <= 0 {
+	if !isFinalizerRequeue(res) {
 		t.Error("first reconcile should requeue after adding the finalizer")
 	}
 
@@ -73,7 +73,7 @@ func TestSkillReconcile_AddsFinalizerThenSyncs(t *testing.T) {
 // marshalResumePayload returns a plain agent array when there are no skills,
 // and a heterogeneous RawMessage array (agents + skills) when skills exist.
 func TestMarshalResumePayload(t *testing.T) {
-	agents := []AgentResume{{Name: testK8s, Role: "specialist"}}
+	agents := []AgentResume{{Name: testK8sAgent, Role: "specialist"}}
 	// No skills -> plain agent array.
 	b, err := marshalResumePayload(agents, nil)
 	if err != nil {

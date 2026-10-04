@@ -55,10 +55,10 @@ func TestDeterminePhase(t *testing.T) {
 	// A failed Job with no assertions -> Error carrying the job's failure message.
 	cf := &kubemootv1alpha1.CrewFitness{}
 	job := &batchv1.Job{Status: batchv1.JobStatus{Conditions: []batchv1.JobCondition{
-		{Type: batchv1.JobFailed, Message: testBoom},
+		{Type: batchv1.JobFailed, Message: testFailureMessage},
 	}}}
 	r.determinePhase(cf, job, false, true)
-	if cf.Status.Phase != kubemootv1alpha1.CrewFitnessPhaseError || cf.Status.Error != testBoom {
+	if cf.Status.Phase != kubemootv1alpha1.CrewFitnessPhaseError || cf.Status.Error != testFailureMessage {
 		t.Errorf("failed/no-assertions: phase=%v err=%q", cf.Status.Phase, cf.Status.Error)
 	}
 	// A complete Job with passing assertions -> Passed.
