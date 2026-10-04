@@ -236,7 +236,7 @@ check "no dashboard candidate fails" 1 "$status"
 (
   cd "${root}/bare-tags"
   git tag -l 'operator-chart-v*' | xargs git tag -d >/dev/null
-  git tag -a dashboard-v0.50.1-rc.0 -m rc
+  git -c user.name=test -c user.email=test@example.com tag -a dashboard-v0.50.1-rc.0 -m rc
   DRY_RUN=true OUT_DIR="${root}/chart-nochart" bash "${here}/release-operator-chart.sh" > "${root}/chart-nochart.log" 2>&1
 ) && status=0 || status=$?
 check "no chart candidate to count from fails" "1|1" "${status}|$(grep -c 'no operator-chart-v' "${root}/chart-nochart.log")"
