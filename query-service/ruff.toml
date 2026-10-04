@@ -1,0 +1,9 @@
+# Ruff settings for query-service. CI runs `ruff check .` here (requirements-lint.txt).
+# Ruff defaults plus bugbear, pycodestyle, and the cyclomatic complexity gate (<= 10).
+line-length = 120
+
+[lint]
+extend-select = ["B", "C90", "E", "W"]
+
+[lint.mccabe]
+max-complexity = 10
