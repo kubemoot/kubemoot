@@ -73,9 +73,10 @@ CI regenerates them and fails when they differ from what is committed.
 `mcp-gateway/`):
 
 ```bash
-./gradlew test
+./gradlew build   # tests plus Checkstyle (cyclomatic complexity <= 10)
 ```
 
+Checkstyle reads the shared ruleset in `config/checkstyle/checkstyle.xml`.
 Use plain JUnit 5, not `@QuarkusTest`, so the suite does not require a running Ollama.
 
 **Go components** (`mcp-bridge/`, `scheduling-mcp/`, `artifact-access/`, `code-sandbox/`,
@@ -83,6 +84,19 @@ Use plain JUnit 5, not `@QuarkusTest`, so the suite does not require a running O
 
 ```bash
 go test ./...
+../.github/scripts/golangci-lint.sh   # golangci-lint
+```
+
+Every Go module, the operator included, lints with the shared `.golangci.yml` at the
+repository root (cyclomatic complexity <= 10, duplication, and the rest) at the
+`GOLANGCI_LINT_VERSION` pinned in `operator/Makefile`.
+
+**Query service** (`query-service/`):
+
+```bash
+pip install --require-hashes -r requirements.txt -r requirements-lint.txt
+ruff check .
+python -m unittest discover -s . -p 'test_*.py'
 ```
 
 **Dashboard** (`dashboard/`):
