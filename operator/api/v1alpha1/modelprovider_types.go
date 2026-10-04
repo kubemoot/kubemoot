@@ -288,5 +288,5 @@ type ModelProviderList struct {
 }
 
 func init() {
-	SchemeBuilder.Register(&ModelProvider{}, &ModelProviderList{})
+	registerTypes(&ModelProvider{}, &ModelProviderList{})
 }

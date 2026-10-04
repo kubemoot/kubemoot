@@ -377,5 +377,5 @@ type AgentList struct {
 }
 
 func init() {
-	SchemeBuilder.Register(&Agent{}, &AgentList{})
+	registerTypes(&Agent{}, &AgentList{})
 }

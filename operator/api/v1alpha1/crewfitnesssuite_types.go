@@ -424,5 +424,5 @@ type CrewFitnessSuiteList struct {
 }
 
 func init() {
-	SchemeBuilder.Register(&CrewFitnessSuite{}, &CrewFitnessSuiteList{})
+	registerTypes(&CrewFitnessSuite{}, &CrewFitnessSuiteList{})
 }

@@ -144,5 +144,5 @@ type MootArchetypeList struct {
 }
 
 func init() {
-	SchemeBuilder.Register(&MootArchetype{}, &MootArchetypeList{})
+	registerTypes(&MootArchetype{}, &MootArchetypeList{})
 }

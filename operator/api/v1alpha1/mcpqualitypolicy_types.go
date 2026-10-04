@@ -227,5 +227,5 @@ type MCPQualityPolicyList struct {
 }
 
 func init() {
-	SchemeBuilder.Register(&MCPQualityPolicy{}, &MCPQualityPolicyList{})
+	registerTypes(&MCPQualityPolicy{}, &MCPQualityPolicyList{})
 }

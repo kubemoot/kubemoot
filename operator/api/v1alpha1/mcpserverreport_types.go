@@ -190,5 +190,5 @@ type MCPServerReportList struct {
 }
 
 func init() {
-	SchemeBuilder.Register(&MCPServerReport{}, &MCPServerReportList{})
+	registerTypes(&MCPServerReport{}, &MCPServerReportList{})
 }

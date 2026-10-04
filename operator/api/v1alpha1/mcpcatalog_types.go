@@ -209,5 +209,5 @@ type MCPCatalogList struct {
 }
 
 func init() {
-	SchemeBuilder.Register(&MCPCatalog{}, &MCPCatalogList{})
+	registerTypes(&MCPCatalog{}, &MCPCatalogList{})
 }
