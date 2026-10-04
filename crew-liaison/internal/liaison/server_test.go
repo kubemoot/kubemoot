@@ -64,7 +64,7 @@ func TestMCPEndToEnd(t *testing.T) {
 	}
 
 	var pending AskOutput
-	asked := callTool(ctx, t, session, "ask", map[string]any{"crew": testCrew, "question": testQuestion, "waitSeconds": 0})
+	asked := callTool(ctx, t, session, "ask", map[string]any{"crew": testCrew, "question": testQuestion, argWaitSeconds: 0})
 	if err := json.Unmarshal([]byte(asked), &pending); err != nil || pending.ID == "" {
 		t.Fatalf("ask output: %v %s", err, asked)
 	}

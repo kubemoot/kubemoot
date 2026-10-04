@@ -25,11 +25,13 @@ func NewMCPServer(svc *Service) *mcp.Server {
 			"The crew deliberates for one to several minutes and returns one synthesized answer. " +
 			"Waits up to 45 seconds, then returns a ticket if the crew is still at it; poll get_answer with the ticket. " +
 			"Asking the same question again while it runs rejoins the same ticket.",
+		InputSchema: askInputSchema(),
 	}, svc.Ask)
 	mcp.AddTool(server, &mcp.Tool{
 		Name: "get_answer",
 		Description: "Check a ticket from ask. Waits up to 45 seconds for the crew to settle and returns status pending, " +
 			"answered (with the answer), or failed. Call it again while pending.",
+		InputSchema: getAnswerInputSchema(),
 	}, svc.GetAnswer)
 	return server
 }
