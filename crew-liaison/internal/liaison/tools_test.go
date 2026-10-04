@@ -27,7 +27,7 @@ func synthesisEvents() []string {
 
 func newTestService(t *testing.T, f *fakeGateway, maxInflight int) *Service {
 	t.Helper()
-	crews := staticLister{crews: []Crew{{Name: "hello", Namespace: "hello", Ready: true}, {Name: "dup", Namespace: "a"}, {Name: "dup", Namespace: "b"}}}
+	crews := staticLister{crews: []Crew{{Name: testCrew, Namespace: testCrew, Ready: true}, {Name: dupCrew, Namespace: "a"}, {Name: dupCrew, Namespace: "b"}}}
 	return NewService(crews, NewGatewayAt(f.resolve), NewStore(time.Hour), maxInflight)
 }
 
@@ -50,7 +50,7 @@ func TestAskWithWaitReturnsAnswer(t *testing.T) {
 	defer f.srv.Close()
 	svc := newTestService(t, f, 2)
 
-	res, out, err := svc.Ask(context.Background(), nil, AskInput{Crew: "hello", Question: "Capital of France?", WaitSeconds: sec(5)})
+	res, out, err := svc.Ask(context.Background(), nil, AskInput{Crew: testCrew, Question: testQuestion, WaitSeconds: sec(5)})
 	if err != nil || res != nil {
 		t.Fatalf("Ask: res=%v err=%v", res, err)
 	}
@@ -70,7 +70,7 @@ func TestAskThenGetAnswer(t *testing.T) {
 	defer f.srv.Close()
 	svc := newTestService(t, f, 2)
 
-	_, out, _ := svc.Ask(context.Background(), nil, AskInput{Crew: "hello", Question: "Capital of France?", WaitSeconds: sec(0)})
+	_, out, _ := svc.Ask(context.Background(), nil, AskInput{Crew: testCrew, Question: testQuestion, WaitSeconds: sec(0)})
 	if out.ID == "" || out.Hint != hintPending {
 		t.Fatalf("pending output should carry a ticket and the YDY hint: %+v", out)
 	}
@@ -96,9 +96,9 @@ func TestAskValidation(t *testing.T) {
 	defer f.srv.Close()
 	svc := newTestService(t, f, 1)
 	cases := map[string]AskInput{
-		"empty question": {Crew: "hello"},
+		"empty question": {Crew: testCrew},
 		"unknown crew":   {Crew: "ghost", Question: "q"},
-		"ambiguous crew": {Crew: "dup", Question: "q"},
+		"ambiguous crew": {Crew: dupCrew, Question: "q"},
 	}
 	for name, in := range cases {
 		res, _, err := svc.Ask(context.Background(), nil, in)
@@ -115,7 +115,7 @@ func TestAskAmbiguityResolvedByNamespace(t *testing.T) {
 	f := newFakeGateway(synthesisEvents()...)
 	defer f.srv.Close()
 	svc := newTestService(t, f, 1)
-	res, out, _ := svc.Ask(context.Background(), nil, AskInput{Crew: "dup", Namespace: "b", Question: "q", WaitSeconds: sec(5)})
+	res, out, _ := svc.Ask(context.Background(), nil, AskInput{Crew: dupCrew, Namespace: "b", Question: "q", WaitSeconds: sec(5)})
 	if res != nil || out.Namespace != "b" || out.State != StateAnswered {
 		t.Fatalf("namespaced ask: res=%v out=%+v", res, out)
 	}
@@ -130,7 +130,7 @@ func TestAskInflightLimit(t *testing.T) {
 
 	// Hold the single slot by taking it directly, as a running discussion would.
 	svc.inflight <- struct{}{}
-	res, _, _ := svc.Ask(context.Background(), nil, AskInput{Crew: "hello", Question: "q", WaitSeconds: sec(0)})
+	res, _, _ := svc.Ask(context.Background(), nil, AskInput{Crew: testCrew, Question: "q", WaitSeconds: sec(0)})
 	if res == nil || !res.IsError || !strings.Contains(textOf(res), "limit") {
 		t.Fatalf("want limit error, got %v", res)
 	}
@@ -141,7 +141,7 @@ func TestFollowFailsWithoutSynthesis(t *testing.T) {
 	f := newFakeGateway(`{"type":"connected"}`, `{"type":"done"}`)
 	defer f.srv.Close()
 	svc := newTestService(t, f, 1)
-	_, out, _ := svc.Ask(context.Background(), nil, AskInput{Crew: "hello", Question: "q", WaitSeconds: sec(0)})
+	_, out, _ := svc.Ask(context.Background(), nil, AskInput{Crew: testCrew, Question: "q", WaitSeconds: sec(0)})
 	v := settle(t, svc, out.ID)
 	if v.State != StateFailed || !strings.Contains(v.Error, "without a synthesis") {
 		t.Fatalf("want failed ticket, got %+v", v)
@@ -159,7 +159,7 @@ func TestFollowReportsGatewayError(t *testing.T) {
 	f := newFakeGateway(`{"type":"error","error":"Discussion stream not available"}`)
 	defer f.srv.Close()
 	svc := newTestService(t, f, 1)
-	_, out, _ := svc.Ask(context.Background(), nil, AskInput{Crew: "hello", Question: "q", WaitSeconds: sec(5)})
+	_, out, _ := svc.Ask(context.Background(), nil, AskInput{Crew: testCrew, Question: "q", WaitSeconds: sec(5)})
 	if out.State != StateFailed || out.Error != "Discussion stream not available" {
 		t.Fatalf("want gateway error surfaced, got %+v", out)
 	}
@@ -185,12 +185,12 @@ func TestAskRejoinsPendingQuestion(t *testing.T) {
 	f := newFakeGateway(`{"type":"connected"}`) // never settles within the test
 	defer f.srv.Close()
 	svc := newTestService(t, f, 4)
-	_, first, _ := svc.Ask(context.Background(), nil, AskInput{Crew: "hello", Question: "same?", WaitSeconds: sec(0)})
-	_, again, _ := svc.Ask(context.Background(), nil, AskInput{Crew: "hello", Question: "  same?  ", WaitSeconds: sec(0)})
+	_, first, _ := svc.Ask(context.Background(), nil, AskInput{Crew: testCrew, Question: "same?", WaitSeconds: sec(0)})
+	_, again, _ := svc.Ask(context.Background(), nil, AskInput{Crew: testCrew, Question: "  same?  ", WaitSeconds: sec(0)})
 	if first.ID == "" || again.ID != first.ID {
 		t.Fatalf("retry started a new discussion: %s vs %s", first.ID, again.ID)
 	}
-	_, other, _ := svc.Ask(context.Background(), nil, AskInput{Crew: "hello", Question: "different?", WaitSeconds: sec(0)})
+	_, other, _ := svc.Ask(context.Background(), nil, AskInput{Crew: testCrew, Question: "different?", WaitSeconds: sec(0)})
 	if other.ID == first.ID {
 		t.Fatal("a different question reused the ticket")
 	}
@@ -203,7 +203,7 @@ func TestGetAnswerLongPolls(t *testing.T) {
 	f := newFakeGateway(synthesisEvents()...)
 	defer f.srv.Close()
 	svc := newTestService(t, f, 1)
-	_, out, _ := svc.Ask(context.Background(), nil, AskInput{Crew: "hello", Question: "q", WaitSeconds: sec(0)})
+	_, out, _ := svc.Ask(context.Background(), nil, AskInput{Crew: testCrew, Question: "q", WaitSeconds: sec(0)})
 	start := time.Now()
 	_, got, _ := svc.GetAnswer(context.Background(), nil, GetAnswerInput{Ticket: out.ID, WaitSeconds: sec(10)})
 	if got.State != StateAnswered || time.Since(start) > 5*time.Second {

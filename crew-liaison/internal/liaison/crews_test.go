@@ -25,7 +25,7 @@ func TestK8sListerFiltersGatewayless(t *testing.T) {
 		t.Fatal(err)
 	}
 	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(
-		crew("hello", "hello", nil, true),
+		crew(testCrew, testCrew, nil, true),
 		crew("pilot", "pilot", &kubemootv1alpha1.DiscussionConfig{Enabled: ptr.To(true)}, false),
 		crew("silent", "silent", &kubemootv1alpha1.DiscussionConfig{Enabled: ptr.To(false)}, true),
 	).Build()
@@ -38,7 +38,7 @@ func TestK8sListerFiltersGatewayless(t *testing.T) {
 	for _, cr := range crews {
 		got[cr.Name] = cr
 	}
-	if len(got) != 2 || got["hello"].Description != "hello crew" || !got["hello"].Ready || got["pilot"].Ready {
+	if len(got) != 2 || got[testCrew].Description != "hello crew" || !got[testCrew].Ready || got["pilot"].Ready {
 		t.Fatalf("listed %+v", got)
 	}
 	if _, ok := got["silent"]; ok {

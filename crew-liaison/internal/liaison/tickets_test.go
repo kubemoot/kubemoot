@@ -7,8 +7,8 @@ import (
 
 func TestTicketLifecycle(t *testing.T) {
 	s := NewStore(time.Hour)
-	tk := s.Create("hello", "hello", "conv-1", "q")
-	if v := tk.Snapshot(); v.State != StatePending || v.Crew != "hello" || v.Contributions != 0 {
+	tk := s.Create(testCrew, testCrew, "conv-1", "q")
+	if v := tk.Snapshot(); v.State != StatePending || v.Crew != testCrew || v.Contributions != 0 {
 		t.Fatalf("new ticket: %+v", v)
 	}
 	if _, ok := s.Get(tk.ID); !ok {
@@ -31,7 +31,7 @@ func TestTicketLifecycle(t *testing.T) {
 
 func TestTicketFail(t *testing.T) {
 	s := NewStore(time.Hour)
-	tk := s.Create("hello", "hello", "conv-1", "q")
+	tk := s.Create(testCrew, testCrew, "conv-1", "q")
 	tk.Fail("stream ended", time.Now())
 	tk.Answer("late", time.Now()) // ignored after Fail
 	if v := tk.Snapshot(); v.State != StateFailed || v.Error != "stream ended" || v.Answer != "" {
@@ -77,18 +77,18 @@ func TestStoreGetUnknown(t *testing.T) {
 
 func TestStoreFindPending(t *testing.T) {
 	s := NewStore(time.Hour)
-	a := s.Create("hello", "hello", "c1", "what?")
-	if got, ok := s.FindPending("hello", "hello", "what?"); !ok || got != a {
+	a := s.Create(testCrew, testCrew, "c1", "what?")
+	if got, ok := s.FindPending(testCrew, testCrew, "what?"); !ok || got != a {
 		t.Fatal("pending ticket for the same question not found")
 	}
-	if _, ok := s.FindPending("hello", "hello", "other?"); ok {
+	if _, ok := s.FindPending(testCrew, testCrew, "other?"); ok {
 		t.Fatal("different question matched")
 	}
-	if _, ok := s.FindPending("hello", "elsewhere", "what?"); ok {
+	if _, ok := s.FindPending(testCrew, "elsewhere", "what?"); ok {
 		t.Fatal("different namespace matched")
 	}
 	a.Answer("x", time.Now())
-	if _, ok := s.FindPending("hello", "hello", "what?"); ok {
+	if _, ok := s.FindPending(testCrew, testCrew, "what?"); ok {
 		t.Fatal("settled ticket returned as pending")
 	}
 }

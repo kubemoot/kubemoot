@@ -21,7 +21,8 @@ func NewMCPServer(svc *Service) *mcp.Server {
 	}, svc.ListCrews)
 	mcp.AddTool(server, &mcp.Tool{
 		Name: "ask",
-		Description: "Ask a crew a question. The crew deliberates for one to several minutes and returns one synthesized answer. " +
+		Description: "Ask a crew a question. " +
+			"The crew deliberates for one to several minutes and returns one synthesized answer. " +
 			"Waits up to 45 seconds, then returns a ticket if the crew is still at it; poll get_answer with the ticket. " +
 			"Asking the same question again while it runs rejoins the same ticket.",
 	}, svc.Ask)
