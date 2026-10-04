@@ -139,6 +139,12 @@ operator_leader_pod() {
 }
 
 wait_for_operator_leader() {
+    local denied
+    # A permission error is not "no leader yet": say so instead of waiting out the timeout
+    if ! denied=$(kubectl get lease -n "$NAMESPACE" -o name 2>&1 >/dev/null); then
+        log_fail "Cannot read leases in '$NAMESPACE': ${denied}"
+        return 1
+    fi
     if wait_for "a Ready operator pod to hold the leader lease" operator_leader_pod "${LEADER_TIMEOUT:-180}"; then
         log_ok "Kubemoot operator is leading ($(operator_leader_pod))"
         return 0
