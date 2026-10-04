@@ -1,6 +1,6 @@
 # Kubemoot Smoke Test Job
 # Quick tests (~2 min) - run after deployments
-# Usage: kubectl create -f job-smoke.yaml
+# Usage: k8s/tests/job/run.sh smoke   (resolves the test-runner image from the git tags)
 #        kubectl logs -f job/kubemoot-test-smoke -n kubemoot
 ---
 apiVersion: batch/v1
@@ -20,7 +20,7 @@ spec:
       restartPolicy: Never
       containers:
         - name: test
-          image: ghcr.io/kubemoot/test-runner:0.342.31
+          image: ghcr.io/kubemoot/test-runner:0.0.0
           command: ["/bin/bash", "-c"]
           args:
             - |
