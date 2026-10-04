@@ -7,6 +7,7 @@
 #   - make, jq: used by various workflows that previously hand-rolled around the gaps.
 #   - gnupg, dirmngr: SonarSource/sonarqube-scan-action verifies the scanner's GPG
 #     signature, and gpg needs dirmngr to fetch the signing key.
+#   - gettext-base (envsubst): sigstore/cosign-installer expands its install path with it.
 #
 # The FROM line is the one source of the runner version: the build workflow tags the
 # image <runner version>-homelab from it, and Dependabot bumps it.
@@ -18,6 +19,6 @@ FROM ghcr.io/actions/actions-runner:2.337.0@sha256:e5496277be5d09bc968b3d64911b7
 
 USER root
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends libatomic1 make jq gnupg dirmngr \
+    && apt-get install -y --no-install-recommends libatomic1 make jq gnupg dirmngr gettext-base \
     && rm -rf /var/lib/apt/lists/*
 USER runner
