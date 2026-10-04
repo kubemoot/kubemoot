@@ -1,7 +1,7 @@
 <script lang="ts">
-	import { readinessStatus } from '$lib/resource-status';
+	import { readinessStatus } from '#lib/resource-status.js';
 	import { resolve } from '$app/paths';
-	import type { MCPGateway } from '$types/kubemoot.js';
+	import type { MCPGateway } from '#lib/types/kubemoot.js';
 	import ResourceCard from './ResourceCard.svelte';
 
 	interface Props {

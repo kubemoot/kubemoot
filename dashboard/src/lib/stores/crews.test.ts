@@ -1,6 +1,6 @@
 import { get } from 'svelte/store';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { CrewEntry } from '$lib/crew-display-name';
+import type { CrewEntry } from '#lib/crew-display-name.js';
 import { crewDirectory, loadCrewDirectory } from './crews';
 
 const pilot: CrewEntry = { namespace: 'pilot', crew: 'homelab-pilot', displayName: 'Homelab Pilot' };

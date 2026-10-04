@@ -1,8 +1,8 @@
-import { json, error } from '@sveltejs/kit';
+import { error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { deleteCrewFitnessSuite, patchCrewFitnessSuiteSpec } from '$lib/server/k8s';
-import { suiteActionPatch } from '$lib/fitness-suite-controls';
-import { guardNamespace } from '$lib/server/scope';
+import { deleteCrewFitnessSuite, patchCrewFitnessSuiteSpec } from '#lib/server/k8s/index.js';
+import { suiteActionPatch } from '#lib/fitness-suite-controls.js';
+import { guardNamespace } from '#lib/server/scope.js';
 
 /**
  * DELETE /api/kubemoot/crewfitnesssuites/{namespace}/{name}
@@ -22,10 +22,10 @@ export const DELETE: RequestHandler = async ({ params }) => {
 	}
 	try {
 		await deleteCrewFitnessSuite(namespace, name);
-		return json({ deleted: `${namespace}/${name}` });
+		return Response.json({ deleted: `${namespace}/${name}` });
 	} catch (e) {
 		const message = e instanceof Error ? e.message : 'delete failed';
-		return json({ error: message }, { status: 500 });
+		return Response.json({ error: message }, { status: 500 });
 	}
 };
 
@@ -48,13 +48,13 @@ export const PATCH: RequestHandler = async ({ params, request }) => {
 	const body = await request.json().catch(() => ({}));
 	const patch = suiteActionPatch(body?.action);
 	if (!patch) {
-		return json({ error: 'action must be one of pause, resume, stop' }, { status: 400 });
+		return Response.json({ error: 'action must be one of pause, resume, stop' }, { status: 400 });
 	}
 	try {
 		await patchCrewFitnessSuiteSpec(namespace, name, patch);
-		return json({ suite: `${namespace}/${name}`, action: body.action });
+		return Response.json({ suite: `${namespace}/${name}`, action: body.action });
 	} catch (e) {
 		const message = e instanceof Error ? e.message : 'patch failed';
-		return json({ error: message }, { status: 500 });
+		return Response.json({ error: message }, { status: 500 });
 	}
 };

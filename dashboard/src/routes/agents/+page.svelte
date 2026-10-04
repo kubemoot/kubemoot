@@ -1,13 +1,13 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { resolve } from '$app/paths';
-	import { namespace, refreshTrigger } from '$stores';
-	import { AgentCard } from '$components/resources';
-	import { HelpTooltip } from '$components/common';
-	import type { Agent, AgentHeartbeat } from '$types/kubemoot.js';
-	import { LiveList } from '$lib/client/liveList.svelte';
-	import { agentStateFor } from '$lib/crewScope';
-	import { agentRole, type AgentRole } from '$lib/agent-role';
+	import { namespace, refreshTrigger } from '#lib/stores/index.js';
+	import { AgentCard } from '#lib/components/resources/index.js';
+	import { HelpTooltip } from '#lib/components/common/index.js';
+	import type { Agent, AgentHeartbeat } from '#lib/types/kubemoot.js';
+	import { LiveList } from '#lib/client/liveList.svelte.js';
+	import { agentStateFor } from '#lib/crewScope.js';
+	import { agentRole, type AgentRole } from '#lib/agent-role.js';
 
 	// Agent list is push-based (watch→SSE). Heartbeats are decorative NATS-KV
 	// liveness and stay on the (15s) global poll. The bucket is global; its keys are

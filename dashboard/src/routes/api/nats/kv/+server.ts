@@ -1,9 +1,8 @@
-import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import type { KvEntry } from 'nats';
-import { getNatsConnection, sc } from '$lib/server/nats-client';
-import { isReadOnly } from '$lib/server/mode';
-import { guardKvRead, keyNamespaceAllowed } from '$lib/server/scope';
+import { getNatsConnection, sc } from '#lib/server/nats-client.js';
+import { isReadOnly } from '#lib/server/mode.js';
+import { guardKvRead, keyNamespaceAllowed } from '#lib/server/scope.js';
 
 /**
  * Reads all entries from a NATS KV bucket.
@@ -55,9 +54,9 @@ export const GET: RequestHandler = async ({ url }) => {
 		}
 		watch.stop();
 
-		return json({ agents });
+		return Response.json({ agents });
 	} catch (err) {
 		const message = err instanceof Error ? err.message : 'Failed to read KV bucket';
-		return json({ agents: {}, error: message }, { status: 200 });
+		return Response.json({ agents: {}, error: message }, { status: 200 });
 	}
 };

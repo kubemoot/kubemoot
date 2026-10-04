@@ -1,6 +1,6 @@
 <script lang="ts">
-	import { namespace } from '$stores';
-	import { entryLabel, technicalNameHint, type CrewEntry } from '$lib/crew-display-name';
+	import { namespace } from '#lib/stores/index.js';
+	import { entryLabel, technicalNameHint, type CrewEntry } from '#lib/crew-display-name.js';
 
 	interface Props {
 		crews: CrewEntry[];

@@ -1,6 +1,6 @@
-import { json, error } from '@sveltejs/kit';
+import { error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { operatorReportBase } from '$lib/server/operator-report';
+import { operatorReportBase } from '#lib/server/operator-report.js';
 
 /**
  * GET /api/kubemoot/componentstatuses
@@ -28,5 +28,5 @@ export const GET: RequestHandler = async () => {
 		throw error(502, `component status lookup failed: ${body || upstream.status}`);
 	}
 
-	return json(await upstream.json(), { headers: { 'Cache-Control': 'no-store' } });
+	return Response.json(await upstream.json(), { headers: { 'Cache-Control': 'no-store' } });
 };

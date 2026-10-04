@@ -2,7 +2,7 @@
 // bar per agent from its first to its last message, colored by its strongest
 // signal, with GPU placement, inference timing, and GPU queue depth.
 
-import type { DiscussionMessage } from '$types/kubemoot.js';
+import type { DiscussionMessage } from '#lib/types/kubemoot.js';
 
 type MessageMeta = NonNullable<DiscussionMessage['metadata']>;
 

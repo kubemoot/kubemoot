@@ -1,11 +1,11 @@
 <script lang="ts">
-	import { chartVersion } from '$lib/crew-chart';
-	import { crewDisplayName, crewTechnicalHint } from '$lib/crew-display-name';
+	import { chartVersion } from '#lib/crew-chart.js';
+	import { crewDisplayName, crewTechnicalHint } from '#lib/crew-display-name.js';
 	import { onMount } from 'svelte';
 	import { resolve } from '$app/paths';
-	import { namespace } from '$stores';
-	import type { Crew } from '$types/kubemoot.js';
-	import { LiveList } from '$lib/client/liveList.svelte';
+	import { namespace } from '#lib/stores/index.js';
+	import type { Crew } from '#lib/types/kubemoot.js';
+	import { LiveList } from '#lib/client/liveList.svelte.js';
 
 	const live = new LiveList<Crew>('crews');
 	onMount(() => {

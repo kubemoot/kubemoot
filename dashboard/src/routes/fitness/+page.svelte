@@ -2,24 +2,24 @@
 	import { onMount } from 'svelte';
 	import { marked } from 'marked';
 	import { resolve } from '$app/paths';
-	import { namespace, readOnly, showStandAsides } from '$stores';
-	import type { CrewFitnessSuite } from '$types/kubemoot.js';
+	import { namespace, readOnly, showStandAsides } from '#lib/stores/index.js';
+	import type { CrewFitnessSuite } from '#lib/types/kubemoot.js';
 	import {
 		availableSuiteActions,
 		suiteActionPatch,
 		suiteDisplayPhase,
 		suiteIsJudged,
 		type SuiteAction
-	} from '$lib/fitness-suite-controls';
-	import { SYNTHESIS_COLLAPSE_CHARS, artifactKey, artifactHref } from '$lib/discussion-artifacts';
-	import { durTitle, fmtDur, formatBytes, suiteDurMs, suiteMarkdown } from '$lib/fitness-format';
+	} from '#lib/fitness-suite-controls.js';
+	import { SYNTHESIS_COLLAPSE_CHARS, artifactKey, artifactHref } from '#lib/discussion-artifacts.js';
+	import { durTitle, fmtDur, formatBytes, suiteDurMs, suiteMarkdown } from '#lib/fitness-format.js';
 	import {
 		SUITE_LABEL,
 		TERMINAL_PHASES,
 		childSuiteId,
 		runningBySuite,
 		type FitnessTest
-	} from '$lib/fitness-children';
+	} from '#lib/fitness-children.js';
 
 	// Synthesis/advisory are LLM markdown (headers, lists, bold). Render them as
 	// markdown - matching the Discussions view - instead of raw text.
@@ -129,7 +129,7 @@
 	// Per-synthesis expand toggle: a long synthesis collapses to a faded preview
 	// (max-height) by default and expands to the full text on demand. The marker
 	// parse + download URL + collapse threshold are shared with the live discussions
-	// view via $lib/discussion-artifacts so the two stay in lockstep.
+	// view via #lib/discussion-artifacts so the two stay in lockstep.
 	let openSynthesis = $state<Record<string, boolean>>({});
 	let transcripts = $state<Record<string, Transcript | { error: string }>>({});
 	// Per-suite DEFER/REFLECTS quality scores { suiteId: { scenario: score } }, loaded
@@ -381,7 +381,10 @@
 			return;
 		}
 		try {
-			const r = await fetch(resolve('/api/kubemoot/crewfitnesssuites/[namespace]/[name]', { namespace: ns, name }), { method: 'DELETE' });
+			const r = await fetch(resolve('/api/kubemoot/crewfitnesssuites/[namespace]/[name]', { namespace: ns, name }), {
+				method: 'DELETE',
+				headers: { 'Content-Type': 'application/json' }
+			});
 			if (!r.ok) {
 				const d = await r.json().catch(() => ({}));
 				const detail = d.error ?? d.message ?? JSON.stringify(d, null, 2);

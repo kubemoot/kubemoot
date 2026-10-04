@@ -1,9 +1,8 @@
-import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { getNatsConnection, sc } from '$lib/server/nats-client';
+import { getNatsConnection, sc } from '#lib/server/nats-client.js';
 import { AckPolicy, DeliverPolicy, type JsMsg } from 'nats';
-import { DISCUSS_ALL } from '$lib/crewScope';
-import { guardStreamRead, messageSubjectAllowed } from '$lib/server/scope';
+import { DISCUSS_ALL } from '#lib/crewScope.js';
+import { guardStreamRead, messageSubjectAllowed } from '#lib/server/scope.js';
 
 /** The fetched messages decoded to text; a message that does not decode is skipped. */
 async function decodeMessages(iter: AsyncIterable<JsMsg>) {
@@ -44,12 +43,12 @@ export const GET: RequestHandler = async ({ url }) => {
 		try {
 			info = await jsm.streams.info(stream);
 		} catch {
-			return json({ messages: [] });
+			return Response.json({ messages: [] });
 		}
 
 		const lastSeq = Number(info.state.last_seq);
 		if (info.state.messages === 0) {
-			return json({ messages: [], lastSeq });
+			return Response.json({ messages: [], lastSeq });
 		}
 
 		// Deliver the NEWEST `limit` messages, not the oldest: start the ephemeral
@@ -77,9 +76,9 @@ export const GET: RequestHandler = async ({ url }) => {
 			/* already cleaned up by inactivity */
 		}
 
-		return json({ messages, lastSeq });
+		return Response.json({ messages, lastSeq });
 	} catch (e) {
 		const error = e instanceof Error ? e.message : 'Failed to read history';
-		return json({ messages: [], error }, { status: 500 });
+		return Response.json({ messages: [], error }, { status: 500 });
 	}
 };

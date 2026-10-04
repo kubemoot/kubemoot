@@ -1,7 +1,6 @@
-import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { crdWatchResponse, isWatchableCrd } from '$lib/server/k8s/watch-sse';
-import { guardNamespaceOrAll, objectAccepter, scopeKindFor } from '$lib/server/scope';
+import { crdWatchResponse, isWatchableCrd } from '#lib/server/k8s/watch-sse.js';
+import { guardNamespaceOrAll, objectAccepter, scopeKindFor } from '#lib/server/scope.js';
 
 /**
  * GET /api/kubemoot/watch/{plural}?namespace=<ns>
@@ -13,7 +12,7 @@ import { guardNamespaceOrAll, objectAccepter, scopeKindFor } from '$lib/server/s
 export const GET: RequestHandler = async ({ params, url }) => {
 	const plural = params.plural;
 	if (!isWatchableCrd(plural)) {
-		return json({ error: `unknown resource: ${plural}` }, { status: 404 });
+		return Response.json({ error: `unknown resource: ${plural}` }, { status: 404 });
 	}
 	const ns = url.searchParams.get('namespace') || '';
 	const kind = scopeKindFor(plural);

@@ -1,4 +1,4 @@
-import type { Agent } from '$types/kubemoot.js';
+import type { Agent } from '#lib/types/kubemoot.js';
 
 export interface ChannelInfo {
 	name: string;

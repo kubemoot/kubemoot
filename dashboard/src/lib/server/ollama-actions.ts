@@ -14,8 +14,8 @@
 // The endpoint URL is taken from ModelProvider.spec.endpoint as-is. The
 // helper appends the appropriate path per action.
 
-import { getModelProvider } from '$lib/server/k8s';
-import { trimTrailingSlashes } from '$lib/text-utils';
+import { getModelProvider } from '#lib/server/k8s/index.js';
+import { trimTrailingSlashes } from '#lib/text-utils.js';
 
 export type OllamaAction = 'load' | 'unload' | 'delete';
 

@@ -1,11 +1,10 @@
-import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { checkConnection } from '$lib/server/k8s';
+import { checkConnection } from '#lib/server/k8s/index.js';
 
 export const GET: RequestHandler = async () => {
 	const k8sStatus = await checkConnection();
 
-	return json({
+	return Response.json({
 		status: k8sStatus.connected ? 'healthy' : 'unhealthy',
 		timestamp: new Date().toISOString(),
 		kubernetes: {

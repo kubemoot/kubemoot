@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { MCPServerReport } from '$types/kubemoot.js';
+import type { MCPServerReport } from '#lib/types/kubemoot.js';
 import { reportComparator } from './mcp-report-sort';
 
 function report(serverName?: string, lastTested?: string, successRate?: string): MCPServerReport {

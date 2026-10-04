@@ -1,7 +1,7 @@
 <script lang="ts">
-	import type { NodeWithGPU } from '$types/k8s.js';
+	import type { NodeWithGPU } from '#lib/types/k8s.js';
 	import StatusBadge from '../common/StatusBadge.svelte';
-	import { splitCamelCase } from '$lib/text-utils';
+	import { splitCamelCase } from '#lib/text-utils.js';
 
 	interface Props {
 		node: NodeWithGPU;

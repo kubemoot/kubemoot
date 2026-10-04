@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { K8sNode } from '$types/k8s.js';
+import type { K8sNode } from '#lib/types/k8s.js';
 import { extractGPUInfo } from './gpu-info';
 
 function node(

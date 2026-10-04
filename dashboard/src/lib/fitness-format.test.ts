@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { CrewFitnessSuite } from '$types/kubemoot.js';
+import type { CrewFitnessSuite } from '#lib/types/kubemoot.js';
 import { NO_VALUE } from './resource-status';
 import {
 	durTitle,

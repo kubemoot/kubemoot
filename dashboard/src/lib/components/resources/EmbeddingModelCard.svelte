@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { resolve } from '$app/paths';
-	import type { EmbeddingModel } from '$types/kubemoot.js';
+	import type { EmbeddingModel } from '#lib/types/kubemoot.js';
 	import ResourceCard from './ResourceCard.svelte';
 
 	interface Props {

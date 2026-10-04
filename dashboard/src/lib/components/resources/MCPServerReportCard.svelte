@@ -1,7 +1,7 @@
 <script lang="ts">
-	import { verdictStatus } from '$lib/resource-status';
+	import { verdictStatus } from '#lib/resource-status.js';
 	import { resolve } from '$app/paths';
-	import type { MCPServerReport } from '$types/kubemoot.js';
+	import type { MCPServerReport } from '#lib/types/kubemoot.js';
 	import ResourceCard from './ResourceCard.svelte';
 
 	interface Props {

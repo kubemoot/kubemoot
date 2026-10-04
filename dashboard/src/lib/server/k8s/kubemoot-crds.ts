@@ -17,7 +17,7 @@ import type {
 	CrewFitnessSuite,
 	PromptModule,
 	KubemootList
-} from '$types/kubemoot.js';
+} from '#lib/types/kubemoot.js';
 
 const GROUP = 'kubemoot.ai';
 const VERSION = 'v1alpha1';

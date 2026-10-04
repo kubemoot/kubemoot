@@ -1,4 +1,4 @@
-import type { MCPServerReport } from '$types/kubemoot.js';
+import type { MCPServerReport } from '#lib/types/kubemoot.js';
 
 type ReportComparator = (a: MCPServerReport, b: MCPServerReport) => number;
 

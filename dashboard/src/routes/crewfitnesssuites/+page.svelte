@@ -1,11 +1,11 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { resolve } from '$app/paths';
-	import { crewDirectory, namespace } from '$stores';
-	import { crewLabel, crewTooltip } from '$lib/crew-display-name';
-	import { LiveList } from '$lib/client/liveList.svelte';
-	import type { CrewFitnessSuite } from '$types/kubemoot.js';
-	import { suiteDisplayPhase, suiteIsJudged } from '$lib/fitness-suite-controls';
+	import { crewDirectory, namespace } from '#lib/stores/index.js';
+	import { crewLabel, crewTooltip } from '#lib/crew-display-name.js';
+	import { LiveList } from '#lib/client/liveList.svelte.js';
+	import type { CrewFitnessSuite } from '#lib/types/kubemoot.js';
+	import { suiteDisplayPhase, suiteIsJudged } from '#lib/fitness-suite-controls.js';
 
 	// Push-based live list: initial fetch + SSE watch on CrewFitnessSuite. The
 	// operator advances each suite's status (phase, iterationsCompleted,

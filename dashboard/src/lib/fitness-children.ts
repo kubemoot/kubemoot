@@ -1,6 +1,6 @@
 // The CrewFitness children of a suite run, as the Fitness page tracks them.
 
-import { SUITE_TERMINAL_PHASES } from '$lib/fitness-suite-controls';
+import { SUITE_TERMINAL_PHASES } from '#lib/fitness-suite-controls.js';
 
 export const SUITE_LABEL = 'kubemoot.ai/fitness-suite';
 

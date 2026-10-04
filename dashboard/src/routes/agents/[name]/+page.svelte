@@ -1,16 +1,16 @@
 <script lang="ts">
-	import { readinessStatus } from '$lib/resource-status';
+	import { readinessStatus } from '#lib/resource-status.js';
 	import { onMount } from 'svelte';
-	import { page } from '$app/stores';
+	import { page } from '$app/state';
 	import { resolve } from '$app/paths';
-	import { namespace, refreshTrigger } from '$stores';
-	import { DetailPanel } from '$components/layout';
-	import { Section, InfoRow, StatusBadge } from '$components/common';
-	import type { Agent, AgentHeartbeat, MCPServer, MCPTool } from '$types/kubemoot.js';
-	import { agentStateFor } from '$lib/crewScope';
-	import { splitCamelCase } from '$lib/text-utils';
-	import { mcpServerNames, mcpServerRefs, visibleTools } from '$lib/agent-detail';
-	import { LIVENESS_BADGE, heartbeatLiveness, secondsSince } from '$lib/agent-liveness';
+	import { namespace, refreshTrigger } from '#lib/stores/index.js';
+	import { DetailPanel } from '#lib/components/layout/index.js';
+	import { Section, InfoRow, StatusBadge } from '#lib/components/common/index.js';
+	import type { Agent, AgentHeartbeat, MCPServer, MCPTool } from '#lib/types/kubemoot.js';
+	import { agentStateFor } from '#lib/crewScope.js';
+	import { splitCamelCase } from '#lib/text-utils.js';
+	import { mcpServerNames, mcpServerRefs, visibleTools } from '#lib/agent-detail.js';
+	import { LIVENESS_BADGE, heartbeatLiveness, secondsSince } from '#lib/agent-liveness.js';
 
 	let agent = $state<Agent | null>(null);
 	let heartbeat = $state<AgentHeartbeat | null>(null);
@@ -22,8 +22,8 @@
 	let promptError = $state<string | null>(null);
 	let showAssembledPrompt = $state(false);
 
-	const name = $derived($page.params.name as string);
-	const ns = $derived($page.url.searchParams.get('namespace') || $namespace);
+	const name = $derived(page.params.name as string);
+	const ns = $derived(page.url.searchParams.get('namespace') || $namespace);
 
 	async function fetchAgent() {
 		loading = true;

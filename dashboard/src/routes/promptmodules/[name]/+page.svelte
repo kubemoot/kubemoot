@@ -1,18 +1,18 @@
 <script lang="ts">
-	import { yesNo } from '$lib/resource-status';
+	import { yesNo } from '#lib/resource-status.js';
 	import { onMount } from 'svelte';
-	import { page } from '$app/stores';
+	import { page } from '$app/state';
 	import { resolve } from '$app/paths';
-	import { namespace, refreshTrigger } from '$stores';
-	import type { PromptModule, Agent } from '$types/kubemoot.js';
+	import { namespace, refreshTrigger } from '#lib/stores/index.js';
+	import type { PromptModule, Agent } from '#lib/types/kubemoot.js';
 
 	let module = $state<PromptModule | null>(null);
 	let referencingAgents = $state<Agent[]>([]);
 	let loading = $state(true);
 	let error = $state<string | null>(null);
 
-	const name = $derived($page.params.name as string);
-	const ns = $derived($page.url.searchParams.get('namespace') || $namespace || 'kubemoot');
+	const name = $derived(page.params.name as string);
+	const ns = $derived(page.url.searchParams.get('namespace') || $namespace || 'kubemoot');
 
 	async function fetchModule() {
 		loading = true;

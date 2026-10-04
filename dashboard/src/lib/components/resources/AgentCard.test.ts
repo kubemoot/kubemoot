@@ -1,7 +1,7 @@
 import { render } from '@testing-library/svelte';
 import { describe, expect, it } from 'vitest';
-import type { Agent, AgentHeartbeat } from '$types/kubemoot.js';
-import { HEARTBEAT_STALE_AFTER_SECONDS } from '$lib/agent-liveness';
+import type { Agent, AgentHeartbeat } from '#lib/types/kubemoot.js';
+import { HEARTBEAT_STALE_AFTER_SECONDS } from '#lib/agent-liveness.js';
 import AgentCard from './AgentCard.svelte';
 
 const agent = {

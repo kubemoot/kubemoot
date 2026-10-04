@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { DiscussionMessage } from '$types/kubemoot.js';
+import type { DiscussionMessage } from '#lib/types/kubemoot.js';
 import {
 	FALLBACK_SIGNAL_COLOR,
 	SIGNAL_COLORS,

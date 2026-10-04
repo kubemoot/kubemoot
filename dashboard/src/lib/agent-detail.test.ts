@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { Agent } from '$types/kubemoot.js';
+import type { Agent } from '#lib/types/kubemoot.js';
 import {
 	mcpServerNames,
 	mcpServerRefs,

@@ -1,7 +1,6 @@
-import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { getCrew } from '$lib/server/k8s';
-import { guardNamespace } from '$lib/server/scope';
+import { getCrew } from '#lib/server/k8s/index.js';
+import { guardNamespace } from '#lib/server/scope.js';
 
 export const GET: RequestHandler = async ({ params, url }) => {
 	const namespace = url.searchParams.get('namespace') || 'kubemoot';
@@ -10,9 +9,9 @@ export const GET: RequestHandler = async ({ params, url }) => {
 
 	try {
 		const result = await getCrew(namespace, params.name);
-		return json(result);
+		return Response.json(result);
 	} catch (e) {
 		const message = e instanceof Error ? e.message : 'Failed to get crew';
-		return json({ error: message }, { status: 500 });
+		return Response.json({ error: message }, { status: 500 });
 	}
 };

@@ -1,7 +1,7 @@
 <script lang="ts">
-	import { phaseStatus } from '$lib/resource-status';
+	import { phaseStatus } from '#lib/resource-status.js';
 	import { resolve } from '$app/paths';
-	import type { MCPCatalog } from '$types/kubemoot.js';
+	import type { MCPCatalog } from '#lib/types/kubemoot.js';
 	import ResourceCard from './ResourceCard.svelte';
 
 	interface Props {

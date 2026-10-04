@@ -1,6 +1,6 @@
 // View logic for the Agent detail page.
 
-import type { Agent } from '$types/kubemoot.js';
+import type { Agent } from '#lib/types/kubemoot.js';
 
 /** The tools an agent sees on an MCP server: its allow list, else all but its deny list. */
 export function visibleTools<T extends { name: string }>(

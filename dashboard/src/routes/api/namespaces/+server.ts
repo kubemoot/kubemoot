@@ -1,7 +1,6 @@
-import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { listCrewNamespaces } from '$lib/server/k8s';
-import { scopeItems } from '$lib/server/scope';
+import { listCrewNamespaces } from '#lib/server/k8s/index.js';
+import { scopeItems } from '#lib/server/scope.js';
 
 // Returns the crews (kubemoot.ai/crew-labeled namespaces) for the top-bar
 // "Crew:" selector. Non-crew namespaces are intentionally excluded - the
@@ -10,9 +9,9 @@ import { scopeItems } from '$lib/server/scope';
 export const GET: RequestHandler = async () => {
 	try {
 		const crews = await scopeItems(await listCrewNamespaces(), (c) => c.namespace);
-		return json({ crews });
+		return Response.json({ crews });
 	} catch (e) {
 		const message = e instanceof Error ? e.message : 'Failed to list crews';
-		return json({ error: message }, { status: 500 });
+		return Response.json({ error: message }, { status: 500 });
 	}
 };

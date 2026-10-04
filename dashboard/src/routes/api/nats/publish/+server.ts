@@ -1,7 +1,6 @@
-import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { getNatsConnection, sc } from '$lib/server/nats-client';
-import { forbidden, subjectTargetAllowed } from '$lib/server/scope';
+import { getNatsConnection, sc } from '#lib/server/nats-client.js';
+import { forbidden, subjectTargetAllowed } from '#lib/server/scope.js';
 
 /**
  * Publishes a message to a NATS subject via the server-side connection.
@@ -14,7 +13,7 @@ export const POST: RequestHandler = async ({ request }) => {
 		const { subject, data } = await request.json();
 
 		if (!subject || !data) {
-			return json({ error: 'subject and data are required' }, { status: 400 });
+			return Response.json({ error: 'subject and data are required' }, { status: 400 });
 		}
 
 		if (!(await subjectTargetAllowed(subject))) return forbidden('subject');
@@ -22,9 +21,9 @@ export const POST: RequestHandler = async ({ request }) => {
 		const nc = await getNatsConnection();
 		nc.publish(subject, sc.encode(typeof data === 'string' ? data : JSON.stringify(data)));
 
-		return json({ success: true });
+		return Response.json({ success: true });
 	} catch (err) {
 		const message = err instanceof Error ? err.message : 'Failed to publish';
-		return json({ error: message }, { status: 500 });
+		return Response.json({ error: message }, { status: 500 });
 	}
 };

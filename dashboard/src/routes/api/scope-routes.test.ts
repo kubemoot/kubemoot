@@ -13,31 +13,31 @@ const mocks = vi.hoisted(() => ({
 	crdWatchResponse: vi.fn()
 }));
 
-vi.mock('$lib/server/k8s/client.js', () => ({ getCoreApi: () => ({ listNamespace: mocks.listNamespace }) }));
-vi.mock('$lib/server/k8s', () => ({
+vi.mock('#lib/server/k8s/client.js', () => ({ getCoreApi: () => ({ listNamespace: mocks.listNamespace }) }));
+vi.mock('#lib/server/k8s/index.js', () => ({
 	listAgents: mocks.listAgents,
 	getAgent: mocks.getAgent,
 	listCrewNamespaces: mocks.listCrewNamespaces,
 	getCrewFitnessSuite: vi.fn()
 }));
-vi.mock('$lib/server/k8s/watch-sse', () => ({
+vi.mock('#lib/server/k8s/watch-sse.js', () => ({
 	crdWatchResponse: mocks.crdWatchResponse,
 	isWatchableCrd: () => true
 }));
-vi.mock('$lib/server/nats-client', () => ({
+vi.mock('#lib/server/nats-client.js', () => ({
 	getNatsConnection: mocks.getNatsConnection,
 	sc: new (class {
 		encode = (s: string) => new TextEncoder().encode(s);
 		decode = (b: Uint8Array) => new TextDecoder().decode(b);
 	})()
 }));
-vi.mock('$lib/server/nats-object-store', () => ({
+vi.mock('#lib/server/nats-object-store.js', () => ({
 	readDiscussionArtifact: mocks.readDiscussionArtifact,
 	listFitnessObjects: mocks.listFitnessObjects,
 	readFitnessTranscript: mocks.readFitnessTranscript
 }));
 
-import { resetScopeCache } from '$lib/server/scope';
+import { resetScopeCache } from '#lib/server/scope.js';
 import { GET as agentsGET } from './kubemoot/agents/+server';
 import { GET as agentGET } from './kubemoot/agents/[name]/+server';
 import { GET as artifactGET } from './kubemoot/discussions/artifact/+server';

@@ -1,7 +1,6 @@
-import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { listFitnessObjects, readFitnessTranscript } from '$lib/server/nats-object-store';
-import { guardNamespace } from '$lib/server/scope';
+import { listFitnessObjects, readFitnessTranscript } from '#lib/server/nats-object-store.js';
+import { guardNamespace } from '#lib/server/scope.js';
 
 /**
  * GET /api/kubemoot/crewfitnesssuites/{namespace}/{name}/scores
@@ -31,15 +30,15 @@ export const GET: RequestHandler = async ({ params }) => {
 			};
 			const scores = cache.scores ?? {};
 			const reasons = cache.reasons ?? {};
-			return json({ scores, reasons, complete: !!cache.complete, judged: Object.keys(scores).length });
+			return Response.json({ scores, reasons, complete: !!cache.complete, judged: Object.keys(scores).length });
 		}
 		// Back-compat: pre-v2 runs stored a bare { scenario: score } map (always final).
 		const v1Key = keys.find((k) => k.endsWith('deferred-scores-v1.json'));
-		if (!v1Key) return json({ scores: {}, complete: false, judged: 0 });
+		if (!v1Key) return Response.json({ scores: {}, complete: false, judged: 0 });
 		const scores = ((await readFitnessTranscript(v1Key)) ?? {}) as Record<string, number>;
-		return json({ scores, complete: true, judged: Object.keys(scores).length });
+		return Response.json({ scores, complete: true, judged: Object.keys(scores).length });
 	} catch (e) {
 		const message = e instanceof Error ? e.message : 'failed to read scores';
-		return json({ error: message, scores: {}, complete: false, judged: 0 }, { status: 500 });
+		return Response.json({ error: message, scores: {}, complete: false, judged: 0 }, { status: 500 });
 	}
 };

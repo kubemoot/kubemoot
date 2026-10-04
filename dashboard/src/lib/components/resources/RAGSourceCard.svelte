@@ -1,7 +1,7 @@
 <script lang="ts">
-	import { readinessStatus } from '$lib/resource-status';
+	import { readinessStatus } from '#lib/resource-status.js';
 	import { resolve } from '$app/paths';
-	import type { RAGSource } from '$types/kubemoot.js';
+	import type { RAGSource } from '#lib/types/kubemoot.js';
 	import ResourceCard from './ResourceCard.svelte';
 
 	interface Props {

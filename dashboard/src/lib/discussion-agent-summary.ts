@@ -1,7 +1,7 @@
 // Per-agent aggregation behind the "Agent Summary" table of a copied discussion.
 
-import type { DiscussionMessage } from '$types/kubemoot.js';
-import { SIGNAL_PRIORITY } from '$lib/discussion-spans';
+import type { DiscussionMessage } from '#lib/types/kubemoot.js';
+import { SIGNAL_PRIORITY } from '#lib/discussion-spans.js';
 
 export interface AgentAgg {
 	signal: string;

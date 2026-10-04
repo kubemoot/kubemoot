@@ -1,12 +1,13 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
-	import { page } from '$app/stores';
-	import { namespace } from '$stores';
-	import { ResourceList } from '$components/layout';
-	import { ModelCard } from '$components/resources';
-	import type { Model } from '$types/kubemoot.js';
-	import { LiveList } from '$lib/client/liveList.svelte';
+	import { page } from '$app/state';
+	import { namespace } from '#lib/stores/index.js';
+	import { ResourceList } from '#lib/components/layout/index.js';
+	import { ModelCard } from '#lib/components/resources/index.js';
+	import type { Model } from '#lib/types/kubemoot.js';
+	import { LiveList } from '#lib/client/liveList.svelte.js';
+	import { withoutModelFilter } from '#lib/model-filter.js';
 
 	const live = new LiveList<Model>('models');
 	onMount(() => {
@@ -17,8 +18,8 @@
 		live.setNamespace($namespace);
 	});
 
-	const modelFilter = $derived($page.url.searchParams.get('model') ?? '');
-	const providerFilter = $derived($page.url.searchParams.get('provider') ?? '');
+	const modelFilter = $derived(page.url.searchParams.get('model') ?? '');
+	const providerFilter = $derived(page.url.searchParams.get('provider') ?? '');
 
 	const visibleModels = $derived(
 		live.items.filter((m) => {
@@ -31,10 +32,7 @@
 	const filterActive = $derived(modelFilter !== '' || providerFilter !== '');
 
 	function clearFilter() {
-		const target = new URL($page.url);
-		target.searchParams.delete('model');
-		target.searchParams.delete('provider');
-		goto(target.pathname + target.search, { replaceState: true, keepFocus: true });
+		goto(withoutModelFilter(page.url), { replace: true, reset: false });
 	}
 
 </script>

@@ -1,8 +1,7 @@
-import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { getNatsConnection, sc } from '$lib/server/nats-client';
-import { isReadOnly, isScoped } from '$lib/server/mode';
-import { forbidden } from '$lib/server/scope';
+import { getNatsConnection, sc } from '#lib/server/nats-client.js';
+import { isReadOnly, isScoped } from '#lib/server/mode.js';
+import { forbidden } from '#lib/server/scope.js';
 
 const BUCKET = 'kubemoot_pinned_threads';
 
@@ -16,7 +15,7 @@ async function getKv() {
 // Pins are keyed by thread id alone, so they carry no namespace to filter by. A
 // namespace-scoped dashboard serves none and accepts none.
 export const GET: RequestHandler = async () => {
-	if (isScoped()) return json({ pinned: {} });
+	if (isScoped()) return Response.json({ pinned: {} });
 	try {
 		const kv = await getKv();
 		const pinned: Record<string, { pinnedAt: string; note?: string }> = {};
@@ -31,10 +30,10 @@ export const GET: RequestHandler = async () => {
 				}
 			}
 		}
-		return json({ pinned });
+		return Response.json({ pinned });
 	} catch (err) {
 		const message = err instanceof Error ? err.message : 'Failed to list pinned threads';
-		return json({ error: message }, { status: 500 });
+		return Response.json({ error: message }, { status: 500 });
 	}
 };
 
@@ -43,15 +42,15 @@ export const POST: RequestHandler = async ({ request }) => {
 	try {
 		const { threadId, note } = await request.json();
 		if (!threadId) {
-			return json({ error: 'threadId is required' }, { status: 400 });
+			return Response.json({ error: 'threadId is required' }, { status: 400 });
 		}
 		const kv = await getKv();
 		const payload = JSON.stringify({ pinnedAt: new Date().toISOString(), note: note ?? null });
 		await kv.put(threadId, sc.encode(payload));
-		return json({ success: true, threadId });
+		return Response.json({ success: true, threadId });
 	} catch (err) {
 		const message = err instanceof Error ? err.message : 'Failed to pin thread';
-		return json({ error: message }, { status: 500 });
+		return Response.json({ error: message }, { status: 500 });
 	}
 };
 
@@ -60,13 +59,13 @@ export const DELETE: RequestHandler = async ({ request }) => {
 	try {
 		const { threadId } = await request.json();
 		if (!threadId) {
-			return json({ error: 'threadId is required' }, { status: 400 });
+			return Response.json({ error: 'threadId is required' }, { status: 400 });
 		}
 		const kv = await getKv();
 		await kv.delete(threadId);
-		return json({ success: true, threadId });
+		return Response.json({ success: true, threadId });
 	} catch (err) {
 		const message = err instanceof Error ? err.message : 'Failed to unpin thread';
-		return json({ error: message }, { status: 500 });
+		return Response.json({ error: message }, { status: 500 });
 	}
 };

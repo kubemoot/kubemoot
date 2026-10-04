@@ -2,7 +2,7 @@
 // spec.suspend (pause between iterations) and spec.cancel (stop the suite);
 // the dashboard only flips those two fields with a merge patch.
 
-import type { CrewFitnessSuite } from '$types/kubemoot.js';
+import type { CrewFitnessSuite } from '#lib/types/kubemoot.js';
 
 export type SuiteAction = 'pause' | 'resume' | 'stop';
 

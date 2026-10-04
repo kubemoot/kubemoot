@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { get } from 'svelte/store';
 import { handleMessage, sortedThreads, threadScope } from './discussions';
-import type { DiscussionMessage } from '$types/kubemoot';
+import type { DiscussionMessage } from '#lib/types/kubemoot.js';
 
 // Covers the refactored handleMessage dispatch (applyThreadStart / dedup /
 // applyUnknownThreadMessage). threadsMap is a module singleton, so each test uses

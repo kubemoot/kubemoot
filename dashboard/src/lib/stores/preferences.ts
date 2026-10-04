@@ -1,5 +1,5 @@
 import { writable } from 'svelte/store';
-import { browser } from '$app/environment';
+import { browser } from '$app/env';
 
 /**
  * User display preferences, persisted to localStorage so a choice sticks across

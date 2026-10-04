@@ -1,5 +1,5 @@
 import { writable } from 'svelte/store';
-import type { CrewEntry } from '$lib/crew-display-name';
+import type { CrewEntry } from '#lib/crew-display-name.js';
 
 /**
  * The crews deployed in the cluster (namespace, technical name, display name),

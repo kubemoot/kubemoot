@@ -1,10 +1,10 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { namespace } from '$stores';
-	import { ResourceList } from '$components/layout';
-	import { MCPQualityPolicyCard } from '$components/resources';
-	import type { MCPQualityPolicy } from '$types/kubemoot.js';
-	import { LiveList } from '$lib/client/liveList.svelte';
+	import { namespace } from '#lib/stores/index.js';
+	import { ResourceList } from '#lib/components/layout/index.js';
+	import { MCPQualityPolicyCard } from '#lib/components/resources/index.js';
+	import type { MCPQualityPolicy } from '#lib/types/kubemoot.js';
+	import { LiveList } from '#lib/client/liveList.svelte.js';
 
 	const live = new LiveList<MCPQualityPolicy>('mcpqualitypolicies');
 	onMount(() => {

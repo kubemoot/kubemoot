@@ -1,10 +1,10 @@
 <script lang="ts">
 	import { resolve } from '$app/paths';
-	import { page } from '$app/stores';
-	import type { Crew, Agent } from '$types/kubemoot.js';
-	import { chartName, chartVersion } from '$lib/crew-chart';
-	import { crewDisplayName, crewTechnicalHint } from '$lib/crew-display-name';
-	import { NO_VALUE, yesNo } from '$lib/resource-status';
+	import { page } from '$app/state';
+	import type { Crew, Agent } from '#lib/types/kubemoot.js';
+	import { chartName, chartVersion } from '#lib/crew-chart.js';
+	import { crewDisplayName, crewTechnicalHint } from '#lib/crew-display-name.js';
+	import { NO_VALUE, yesNo } from '#lib/resource-status.js';
 
 	// The per-crew resume model (embedding-based subcommittee selection): the
 	// operator-managed RAGSource `crew-<crew>-resumes`. We surface its content
@@ -31,8 +31,8 @@
 	let error = $state<string | null>(null);
 
 	$effect(() => {
-		const name = $page.params.name as string;
-		const ns = $page.url.searchParams.get('namespace') || 'kubemoot';
+		const name = page.params.name as string;
+		const ns = page.url.searchParams.get('namespace') || 'kubemoot';
 		if (name) fetchCrew(ns, name);
 	});
 

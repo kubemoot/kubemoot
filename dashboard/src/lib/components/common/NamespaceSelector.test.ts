@@ -1,6 +1,6 @@
 import { render } from '@testing-library/svelte';
 import { describe, expect, it } from 'vitest';
-import type { CrewEntry } from '$lib/crew-display-name';
+import type { CrewEntry } from '#lib/crew-display-name.js';
 import NamespaceSelector from './NamespaceSelector.svelte';
 
 function crewOptions(container: HTMLElement): HTMLOptionElement[] {

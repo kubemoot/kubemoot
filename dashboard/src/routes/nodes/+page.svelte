@@ -1,10 +1,10 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { resolve } from '$app/paths';
-	import { refreshTrigger } from '$stores';
-	import { ResourceList } from '$components/layout';
-	import { NodeCard } from '$components/resources';
-	import type { NodeWithGPU } from '$types/k8s.js';
+	import { refreshTrigger } from '#lib/stores/index.js';
+	import { ResourceList } from '#lib/components/layout/index.js';
+	import { NodeCard } from '#lib/components/resources/index.js';
+	import type { NodeWithGPU } from '#lib/types/k8s.js';
 
 	let nodes = $state<NodeWithGPU[]>([]);
 	let loading = $state(true);

@@ -1,6 +1,6 @@
 import type { RequestHandler } from './$types';
-import { crdWatchResponse } from '$lib/server/k8s/watch-sse';
-import { guardNamespaceOrAll, objectAccepter } from '$lib/server/scope';
+import { crdWatchResponse } from '#lib/server/k8s/watch-sse.js';
+import { guardNamespaceOrAll, objectAccepter } from '#lib/server/scope.js';
 
 /**
  * GET /api/kubemoot/fitness/watch?namespace=<ns>

@@ -1,4 +1,4 @@
-import { env } from '$env/dynamic/private';
+import { OPERATOR_REPORT_URL } from '$app/env/private';
 
 // The operator's report service (component health, fitness XLSX) inside the cluster.
 // It serves plain HTTP on the pod network only; the dashboard reaches it from its own
@@ -8,5 +8,5 @@ export const IN_CLUSTER_REPORT_URL = 'http://kubemoot-operator-report.kubemoot:8
 
 /** Base URL of the operator report service. */
 export function operatorReportBase(): string {
-	return env.OPERATOR_REPORT_URL || IN_CLUSTER_REPORT_URL;
+	return OPERATOR_REPORT_URL || IN_CLUSTER_REPORT_URL;
 }

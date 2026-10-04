@@ -1,7 +1,7 @@
 <script lang="ts">
-	import { page } from '$app/stores';
+	import { page } from '$app/state';
 	import { resolve } from '$app/paths';
-	import SystemInfoPopover from '$lib/components/common/SystemInfoPopover.svelte';
+	import SystemInfoPopover from '#lib/components/common/SystemInfoPopover.svelte';
 	import KubemootLogo from './KubemootLogo.svelte';
 
 	const githubUrl = 'https://github.com/kubemoot/kubemoot';
@@ -73,7 +73,7 @@
 				<a
 					href={item.href}
 					class="nav-link"
-					class:active={isActive(item.href, $page.url.pathname)}
+					class:active={isActive(item.href, page.url.pathname)}
 				>
 					<span class="nav-icon">
 						<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">

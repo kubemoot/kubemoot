@@ -1,13 +1,12 @@
-import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { listNodes } from '$lib/server/k8s';
+import { listNodes } from '#lib/server/k8s/index.js';
 
 export const GET: RequestHandler = async () => {
 	try {
 		const nodes = await listNodes();
-		return json({ nodes });
+		return Response.json({ nodes });
 	} catch (e) {
 		const message = e instanceof Error ? e.message : 'Failed to list nodes';
-		return json({ error: message }, { status: 500 });
+		return Response.json({ error: message }, { status: 500 });
 	}
 };
