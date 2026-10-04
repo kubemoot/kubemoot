@@ -63,7 +63,11 @@ func main() {
 	if err != nil {
 		log.Fatalf("nats connect: %v", err)
 	}
-	defer nc.Drain()
+	defer func() {
+		if err := nc.Drain(); err != nil {
+			log.Printf("nats drain: %v", err)
+		}
+	}()
 
 	js, err := nc.JetStream()
 	if err != nil {
@@ -165,7 +169,11 @@ func (k *natsKV) Keys(_ context.Context) ([]string, error) {
 		// Empty bucket returns an error from some NATS versions; treat as no keys.
 		return nil, nil
 	}
-	defer lister.Stop()
+	defer func() {
+		if err := lister.Stop(); err != nil {
+			log.Printf("stop key lister: %v", err)
+		}
+	}()
 	var keys []string
 	for k := range lister.Keys() {
 		keys = append(keys, k)

@@ -18,6 +18,12 @@ type memKV struct {
 	m  map[string][]byte
 }
 
+// Fixture values shared by the handler tests.
+const (
+	otherCrewScheduleID = "other-1"
+	ourMessage          = "ours"
+)
+
 func newKV() *memKV { return &memKV{m: map[string][]byte{}} }
 
 func (k *memKV) Put(_ context.Context, key string, v []byte) error {
@@ -66,7 +72,7 @@ func newSet() *Set {
 func putForeign(t *testing.T, s *Set, namespace, crew string) {
 	t.Helper()
 	foreign := record.Record{
-		ScheduleID: "other-1", Kind: record.KindReminder,
+		ScheduleID: otherCrewScheduleID, Kind: record.KindReminder,
 		TriggerAt: fixedNow.Add(time.Hour), Namespace: namespace, Crew: crew,
 		Channel: "general", Message: "not yours",
 	}
@@ -88,12 +94,12 @@ func mustJSON(t *testing.T, v any) json.RawMessage {
 func TestSetReminder_WritesRecordAndConfirms(t *testing.T) {
 	s := newSet()
 	args := mustJSON(t, map[string]any{
-		"when":             "in 30 minutes",
-		"message":          "water the plants",
+		argWhen:            "in 30 minutes",
+		argMessage:         "water the plants",
 		"source_thread_id": "thread-7",
 		"reason":           "asked mid-conversation",
 	})
-	out, err := s.Call(t.Context(), "set_reminder", args)
+	out, err := s.Call(t.Context(), toolSetReminder, args)
 	if err != nil {
 		t.Fatalf("set_reminder: %v", err)
 	}
@@ -136,11 +142,11 @@ func assertScopedToSet(t *testing.T, s *Set, r *record.Record) {
 
 func TestSetReminder_RejectsMissingFields(t *testing.T) {
 	s := newSet()
-	_, err := s.Call(t.Context(), "set_reminder", mustJSON(t, map[string]any{"when": "in 5m"}))
+	_, err := s.Call(t.Context(), toolSetReminder, mustJSON(t, map[string]any{argWhen: "in 5m"}))
 	if err == nil {
 		t.Error("missing message should error")
 	}
-	_, err = s.Call(t.Context(), "set_reminder", mustJSON(t, map[string]any{"message": "hi"}))
+	_, err = s.Call(t.Context(), toolSetReminder, mustJSON(t, map[string]any{argMessage: "hi"}))
 	if err == nil {
 		t.Error("missing when should error")
 	}
@@ -148,8 +154,8 @@ func TestSetReminder_RejectsMissingFields(t *testing.T) {
 
 func TestSetReminder_RejectsBadTime(t *testing.T) {
 	s := newSet()
-	_, err := s.Call(t.Context(), "set_reminder", mustJSON(t, map[string]any{
-		"when": "sometime soon", "message": "hi",
+	_, err := s.Call(t.Context(), toolSetReminder, mustJSON(t, map[string]any{
+		argWhen: "sometime soon", argMessage: "hi",
 	}))
 	if err == nil {
 		t.Error("unrecognized time expression should error")
@@ -161,10 +167,10 @@ func TestSetReminder_RejectsBadTime(t *testing.T) {
 func TestScheduleFollowup_WritesRecordAndConfirms(t *testing.T) {
 	s := newSet()
 	args := mustJSON(t, map[string]any{
-		"when":  "tomorrow at 9am",
+		argWhen: "tomorrow at 9am",
 		"query": "Re-check disk pressure on rig0.",
 	})
-	out, err := s.Call(t.Context(), "schedule_followup", args)
+	out, err := s.Call(t.Context(), toolScheduleFollowup, args)
 	if err != nil {
 		t.Fatalf("schedule_followup: %v", err)
 	}
@@ -192,13 +198,13 @@ func TestScheduleFollowup_WritesRecordAndConfirms(t *testing.T) {
 func TestListScheduled_FiltersByCrew(t *testing.T) {
 	s := newSet()
 	// Write one record for our crew via the tool.
-	_, _ = s.Call(t.Context(), "set_reminder", mustJSON(t, map[string]any{
-		"when": "in 1h", "message": "ours",
+	_, _ = s.Call(t.Context(), toolSetReminder, mustJSON(t, map[string]any{
+		argWhen: "in 1h", argMessage: ourMessage,
 	}))
 	// And one for a different crew directly into KV.
 	putForeign(t, s, testNamespace, "other-crew")
 
-	out, err := s.Call(t.Context(), "list_scheduled", json.RawMessage(`{}`))
+	out, err := s.Call(t.Context(), toolListScheduled, json.RawMessage(`{}`))
 	if err != nil {
 		t.Fatalf("list_scheduled: %v", err)
 	}
@@ -209,8 +215,8 @@ func TestListScheduled_FiltersByCrew(t *testing.T) {
 	if len(items) != 1 {
 		t.Errorf("crew filter failed: %d items, want 1", len(items))
 	}
-	if d, _ := items[0]["descriptor"].(string); d != "ours" {
-		t.Errorf("descriptor: got %q, want %q", d, "ours")
+	if d, _ := items[0]["descriptor"].(string); d != ourMessage {
+		t.Errorf("descriptor: got %q, want %q", d, ourMessage)
 	}
 }
 
@@ -218,15 +224,15 @@ func TestListScheduled_FiltersByCrew(t *testing.T) {
 
 func TestCancelScheduled_DeletesOwnCrewRecord(t *testing.T) {
 	s := newSet()
-	out, _ := s.Call(t.Context(), "set_reminder", mustJSON(t, map[string]any{
-		"when": "in 30m", "message": "ours",
+	out, _ := s.Call(t.Context(), toolSetReminder, mustJSON(t, map[string]any{
+		argWhen: "in 30m", argMessage: ourMessage,
 	}))
 	// Pull the id from the confirmation by parsing "id=<uuid>".
 	id := extractID(out)
 	if id == "" {
 		t.Fatalf("could not extract id from confirmation: %q", out)
 	}
-	res, err := s.Call(t.Context(), "cancel_scheduled", mustJSON(t, map[string]any{"scheduleId": id}))
+	res, err := s.Call(t.Context(), toolCancelScheduled, mustJSON(t, map[string]any{argScheduleID: id}))
 	if err != nil {
 		t.Fatalf("cancel_scheduled: %v", err)
 	}
@@ -243,7 +249,7 @@ func TestCancelScheduled_RefusesForeignCrew(t *testing.T) {
 	s := newSet()
 	putForeign(t, s, testNamespace, "other-crew")
 
-	_, err := s.Call(t.Context(), "cancel_scheduled", mustJSON(t, map[string]any{"scheduleId": "other-1"}))
+	_, err := s.Call(t.Context(), toolCancelScheduled, mustJSON(t, map[string]any{argScheduleID: otherCrewScheduleID}))
 	if err == nil {
 		t.Error("cross-crew cancel should fail")
 	}
@@ -259,14 +265,14 @@ func TestSameCrewNameInAnotherNamespaceIsForeign(t *testing.T) {
 	s := newSet()
 	putForeign(t, s, "team-b", s.Crew)
 
-	out, err := s.Call(t.Context(), "list_scheduled", json.RawMessage(`{}`))
+	out, err := s.Call(t.Context(), toolListScheduled, json.RawMessage(`{}`))
 	if err != nil {
 		t.Fatalf("list_scheduled: %v", err)
 	}
 	if out != "[]" {
 		t.Errorf("another namespace's record listed: %s", out)
 	}
-	if _, err := s.Call(t.Context(), "cancel_scheduled", mustJSON(t, map[string]any{"scheduleId": "other-1"})); err == nil {
+	if _, err := s.Call(t.Context(), toolCancelScheduled, mustJSON(t, map[string]any{argScheduleID: otherCrewScheduleID})); err == nil {
 		t.Error("cross-namespace cancel should fail")
 	}
 	if keys, _ := s.KV.Keys(t.Context()); len(keys) != 1 {
@@ -276,7 +282,7 @@ func TestSameCrewNameInAnotherNamespaceIsForeign(t *testing.T) {
 
 func TestCancelScheduled_RejectsMissingID(t *testing.T) {
 	s := newSet()
-	_, err := s.Call(t.Context(), "cancel_scheduled", json.RawMessage(`{}`))
+	_, err := s.Call(t.Context(), toolCancelScheduled, json.RawMessage(`{}`))
 	if err == nil {
 		t.Error("missing scheduleId should error")
 	}
@@ -295,7 +301,7 @@ func TestSpecifications_AllFourToolsPresent(t *testing.T) {
 		n, _ := sp["name"].(string)
 		names[n] = true
 	}
-	for _, expected := range []string{"set_reminder", "schedule_followup", "list_scheduled", "cancel_scheduled"} {
+	for _, expected := range []string{toolSetReminder, toolScheduleFollowup, toolListScheduled, toolCancelScheduled} {
 		if !names[expected] {
 			t.Errorf("missing tool spec: %s", expected)
 		}

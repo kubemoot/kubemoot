@@ -139,3 +139,25 @@ func TestParse_ErrorMessageMentionsExamples(t *testing.T) {
 		}
 	}
 }
+
+func TestTo24Hour(t *testing.T) {
+	for _, tc := range []struct {
+		h        int
+		meridiem string
+		want     int
+	}{
+		{12, "am", 0},
+		{1, "am", 1},
+		{11, "am", 11},
+		{12, "pm", 12},
+		{1, "pm", 13},
+		{11, "pm", 23},
+		{14, "", 14},
+		{0, "", 0},
+		{13, "pm", 13},
+	} {
+		if got := to24Hour(tc.h, tc.meridiem); got != tc.want {
+			t.Errorf("to24Hour(%d, %q) = %d, want %d", tc.h, tc.meridiem, got, tc.want)
+		}
+	}
+}

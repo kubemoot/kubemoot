@@ -27,6 +27,12 @@ type request struct {
 	Params  json.RawMessage `json:"params,omitempty"`
 }
 
+// jsonRPCVersion is the JSON-RPC protocol version every response carries.
+const jsonRPCVersion = "2.0"
+
+// contentText is the MCP content type of a text tool result.
+const contentText = "text"
+
 type response struct {
 	JSONRPC string          `json:"jsonrpc"`
 	ID      json.RawMessage `json:"id,omitempty"`
@@ -114,7 +120,7 @@ func (s *Server) handleInitialize(req *request) *response {
 			"version": s.ServerVersion,
 		},
 	}
-	return &response{JSONRPC: "2.0", ID: req.ID, Result: result}
+	return &response{JSONRPC: jsonRPCVersion, ID: req.ID, Result: result}
 }
 
 // tools/list: return all registered tools.
@@ -122,7 +128,7 @@ func (s *Server) handleToolsList(req *request) *response {
 	result := map[string]any{
 		"tools": s.Handlers.Specifications(),
 	}
-	return &response{JSONRPC: "2.0", ID: req.ID, Result: result}
+	return &response{JSONRPC: jsonRPCVersion, ID: req.ID, Result: result}
 }
 
 // tools/call: dispatch to the named handler.
@@ -141,22 +147,22 @@ func (s *Server) handleToolsCall(ctx context.Context, req *request) *response {
 		// LLM see the error in-band rather than treating it as a transport
 		// failure.
 		return &response{
-			JSONRPC: "2.0",
+			JSONRPC: jsonRPCVersion,
 			ID:      req.ID,
 			Result: map[string]any{
 				"isError": true,
 				"content": []map[string]any{
-					{"type": "text", "text": err.Error()},
+					{"type": contentText, "text": err.Error()},
 				},
 			},
 		}
 	}
 	return &response{
-		JSONRPC: "2.0",
+		JSONRPC: jsonRPCVersion,
 		ID:      req.ID,
 		Result: map[string]any{
 			"content": []map[string]any{
-				{"type": "text", "text": out},
+				{"type": contentText, "text": out},
 			},
 		},
 	}
@@ -164,7 +170,7 @@ func (s *Server) handleToolsCall(ctx context.Context, req *request) *response {
 
 func errorResponse(id json.RawMessage, code int, msg, data string) *response {
 	return &response{
-		JSONRPC: "2.0",
+		JSONRPC: jsonRPCVersion,
 		ID:      id,
 		Error:   &rpcError{Code: code, Message: msg, Data: data},
 	}
