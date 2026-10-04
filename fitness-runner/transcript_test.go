@@ -17,25 +17,31 @@ import (
 
 // fakeEnv returns a getenv func backed by a map, for testing the gating logic
 // without touching the process environment or a live NATS.
+// Fixture values shared by the runner tests.
+const (
+	assertSynthesisNonEmpty = "synthesis is non-empty"
+	sseThreadFound          = "thread_found"
+	sseSynthesis            = "synthesis"
+	testThreadID            = "thread-1"
+)
+
 func fakeEnv(m map[string]string) func(string) string {
 	return func(k string) string { return m[k] }
 }
 
 func TestMaybeWriteTranscript_NoKeyIsNoop(t *testing.T) {
 	// No TRANSCRIPT_KEY → standalone test → no write attempted, no error.
-	err := maybeWriteTranscript(&RunOutcome{}, fakeEnv(map[string]string{}))
-	if err != nil {
-		t.Errorf("no-key path must be a clean no-op, got: %v", err)
+	if maybeWriteTranscript(&RunOutcome{}, fakeEnv(map[string]string{})) {
+		t.Error("no-key path must be a clean no-op, but it reported a write")
 	}
 }
 
 func TestMaybeWriteTranscript_KeyButNoNatsIsNoop(t *testing.T) {
 	// TRANSCRIPT_KEY set but NATS_URL empty → skip (don't attempt a dial),
 	// never error (transcript capture must not fail the run).
-	err := maybeWriteTranscript(&RunOutcome{},
-		fakeEnv(map[string]string{"TRANSCRIPT_KEY": "ns/suite/run/s0-i1.json"}))
-	if err != nil {
-		t.Errorf("missing NATS_URL must be a clean no-op, got: %v", err)
+	if maybeWriteTranscript(&RunOutcome{},
+		fakeEnv(map[string]string{"TRANSCRIPT_KEY": "ns/suite/run/s0-i1.json"})) {
+		t.Error("missing NATS_URL must be a clean no-op, but it reported a write")
 	}
 }
 
@@ -45,17 +51,17 @@ func TestAnsweringThreadID(t *testing.T) {
 	}
 	events := []SignalEvent{
 		{Type: "connected"},
-		{Type: "thread_found", ThreadID: "abc-123"},
-		{Type: "synthesis"},
+		{Type: sseThreadFound, ThreadID: "abc-123"},
+		{Type: sseSynthesis},
 	}
 	if got := answeringThreadID(events); got != "abc-123" {
 		t.Errorf("answeringThreadID = %q, want abc-123", got)
 	}
 	restarted := []SignalEvent{
-		{Type: "thread_found", ThreadID: "abandoned"},
+		{Type: sseThreadFound, ThreadID: "abandoned"},
 		{Type: "phase"},
-		{Type: "thread_found", ThreadID: "answering"},
-		{Type: "synthesis"},
+		{Type: sseThreadFound, ThreadID: "answering"},
+		{Type: sseSynthesis},
 	}
 	if got := answeringThreadID(restarted); got != "answering" {
 		t.Errorf("after a coordinator restart: answeringThreadID = %q, want answering", got)
@@ -66,16 +72,16 @@ func TestRunOutcomeMarshalsTranscript(t *testing.T) {
 	// The transcript blob is the marshaled RunOutcome — verify the discussion
 	// events + metadata round-trip so the dashboard drill-down has real data.
 	outcome := &RunOutcome{
-		Assertions:     []AssertionResult{{Raw: "synthesis is non-empty", Passed: true, Message: "ok"}},
+		Assertions:     []AssertionResult{{Raw: assertSynthesisNonEmpty, Passed: true, Message: "ok"}},
 		ConversationID: "conv-1",
-		ThreadID:       "thread-1",
+		ThreadID:       testThreadID,
 		Question:       "Are pods healthy?",
 		StartedAt:      "2026-06-01T00:00:00Z",
 		DurationMs:     1234,
 		Events: []SignalEvent{
 			{Type: "phase", Agent: "k8s-workloads", Status: "evaluating", GPU: "rtx-5090"},
 			{Type: "finding", Agent: "k8s-workloads", Signal: "agree", Summary: "47/49 running"},
-			{Type: "synthesis", Content: "All healthy.", ThreadID: "thread-1"},
+			{Type: sseSynthesis, Content: "All healthy.", ThreadID: testThreadID},
 		},
 	}
 	blob, err := json.Marshal(outcome)
@@ -89,7 +95,7 @@ func TestRunOutcomeMarshalsTranscript(t *testing.T) {
 	if len(back.Events) != 3 {
 		t.Errorf("events round-trip: got %d, want 3", len(back.Events))
 	}
-	if back.ThreadID != "thread-1" || back.DurationMs != 1234 {
+	if back.ThreadID != testThreadID || back.DurationMs != 1234 {
 		t.Errorf("metadata round-trip lost: %+v", back)
 	}
 	if back.Events[1].Signal != "agree" {

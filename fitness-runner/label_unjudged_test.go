@@ -11,7 +11,7 @@ import (
 // say it was not scored instead of reading as a pass.
 func TestLabelUnjudged(t *testing.T) {
 	assertions := []fitnessscript.Assertion{
-		{Kind: fitnessscript.KindSynthesisNonEmpty, Raw: "synthesis is non-empty"},
+		{Kind: fitnessscript.KindSynthesisNonEmpty, Raw: assertSynthesisNonEmpty},
 		{Kind: fitnessscript.KindDeferred, Keyword: "REFLECTS", Raw: `DEFER synthesis REFLECTS "ref"`},
 	}
 	results := fitnessscript.Evaluate(assertions, fitnessscript.RunState{PostOK: true, Synthesis: "an answer"})
@@ -31,5 +31,9 @@ func TestLabelUnjudged(t *testing.T) {
 func TestLabelUnjudgedToleratesShortResults(t *testing.T) {
 	assertions := []fitnessscript.Assertion{{Kind: fitnessscript.KindDeferred, Keyword: "REFLECTS"}}
 	labelUnjudged(assertions, nil)
-	labelUnjudged(nil, []AssertionResult{{Message: "kept"}})
+	results := []AssertionResult{{Message: "kept"}}
+	labelUnjudged(nil, results)
+	if results[0].Message != "kept" {
+		t.Errorf("a result with no matching assertion must keep its message, got %q", results[0].Message)
+	}
 }

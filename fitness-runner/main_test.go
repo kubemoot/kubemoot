@@ -11,6 +11,9 @@ You may obtain a copy of the License at
 package main
 
 import (
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -34,5 +37,48 @@ func TestParseMaxDuration(t *testing.T) {
 		if got != c.expected {
 			t.Errorf("parseMaxDuration(%q) = %v, want %v", c.input, got, c.expected)
 		}
+	}
+}
+
+func TestReadinessTimeout(t *testing.T) {
+	for _, tc := range []struct {
+		name, value string
+		want        time.Duration
+	}{
+		{"unset", "", defaultReadinessTimeout},
+		{"positive seconds", "45", 45 * time.Second},
+		{"zero", "0", defaultReadinessTimeout},
+		{"negative", "-5", defaultReadinessTimeout},
+		{"not a number", "2m", defaultReadinessTimeout},
+	} {
+		got := readinessTimeout(func(string) string { return tc.value })
+		if got != tc.want {
+			t.Errorf("%s: readinessTimeout(%q) = %s, want %s", tc.name, tc.value, got, tc.want)
+		}
+	}
+}
+
+func TestVerdict(t *testing.T) {
+	if got := verdict(nil); !strings.Contains(got, "PASSED") {
+		t.Errorf("no assertions: got %q, want PASSED", got)
+	}
+	if got := verdict([]AssertionResult{{Passed: true}, {Passed: true}}); !strings.Contains(got, "PASSED") {
+		t.Errorf("all passed: got %q, want PASSED", got)
+	}
+	if got := verdict([]AssertionResult{{Passed: true}, {Passed: false}}); !strings.Contains(got, "FAILED") {
+		t.Errorf("one failed: got %q, want FAILED", got)
+	}
+}
+
+func TestLoadFitnessTest(t *testing.T) {
+	if _, err := loadFitnessTest(filepath.Join(t.TempDir(), "missing.adl")); err == nil {
+		t.Error("a missing test file must be an error")
+	}
+	path := filepath.Join(t.TempDir(), "t.adl")
+	if err := os.WriteFile(path, []byte("DESCRIPTION \"d\"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := loadFitnessTest(path); err != nil {
+		t.Errorf("an existing test file must load, got %v", err)
 	}
 }

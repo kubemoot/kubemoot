@@ -76,34 +76,20 @@ func run() error {
 	fmt.Printf("[fitness-runner] endpoint=%s test=%s job=%s namespace=%s\n",
 		endpoint, testFile, jobName, namespace)
 
-	// Read ADL file
-	raw, err := os.ReadFile(testFile)
+	ft, err := loadFitnessTest(testFile)
 	if err != nil {
-		return fmt.Errorf("read test file %q: %w", testFile, err)
+		return err
 	}
-
-	// Parse ADL
-	ft := fitnessscript.ParseFitnessTest(string(raw))
-	fmt.Printf("[fitness-runner] description=%q assertions=%d\n",
-		ft.Description, len(ft.Assertions))
 
 	maxDuration := parseMaxDuration(ft.Constants["MAX_DURATION"])
 	fmt.Printf("[fitness-runner] max_duration=%s question=%q\n",
-		maxDuration, ft.Constants["QUESTION"])
+		maxDuration, ft.Constants[constQuestion])
 
 	ctx := context.Background()
 
 	// Readiness gate: wait for the discussion gateway to be ready before testing.
-	// Default 120s, override with READINESS_TIMEOUT env var.
-	readinessTimeout := 120 * time.Second
-	if rtStr := os.Getenv("READINESS_TIMEOUT"); rtStr != "" {
-		if rt, err := strconv.Atoi(rtStr); err == nil && rt > 0 {
-			readinessTimeout = time.Duration(rt) * time.Second
-		}
-	}
-
 	client := newHTTPClient()
-	if err := waitForReady(ctx, client, endpoint, readinessTimeout); err != nil {
+	if err := waitForReady(ctx, client, endpoint, readinessTimeout(os.Getenv)); err != nil {
 		return fmt.Errorf("readiness gate: %w", err)
 	}
 
@@ -120,7 +106,8 @@ func run() error {
 	// an error so the Job's backoffLimit retries the scenario. Only after the
 	// retries are exhausted does the operator record it as an Error.
 	if !outcome.Answered {
-		return fmt.Errorf("no crew answer obtained (gateway unreachable or no synthesis before deadline); retrying via Job backoffLimit")
+		return fmt.Errorf("no crew answer obtained (gateway unreachable or no synthesis before deadline); " +
+			"retrying via Job backoffLimit")
 	}
 
 	// Patch the Job annotation with the results
@@ -141,24 +128,47 @@ func run() error {
 	// Capture the full discussion transcript to NATS Object Store (suite
 	// iterations only; best-effort — never fails the run). Drill-down data for
 	// the merged Fitness dashboard.
-	_ = maybeWriteTranscript(outcome, os.Getenv)
+	maybeWriteTranscript(outcome, os.Getenv)
 
 	// The scenario ran to completion. Exit 0 regardless of assertion pass/fail:
 	// the pass/fail verdict lives in the recorded results, and a Job retry must
 	// NOT re-run a scenario that already produced a real answer.
-	allPassed := true
+	fmt.Println(verdict(results))
+	return nil
+}
+
+// loadFitnessTest reads and parses the ADL fitness test at path.
+func loadFitnessTest(path string) (fitnessscript.FitnessTest, error) {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return fitnessscript.FitnessTest{}, fmt.Errorf("read test file %q: %w", path, err)
+	}
+	ft := fitnessscript.ParseFitnessTest(string(raw))
+	fmt.Printf("[fitness-runner] description=%q assertions=%d\n",
+		ft.Description, len(ft.Assertions))
+	return ft, nil
+}
+
+// defaultReadinessTimeout bounds the wait for the discussion gateway to be ready.
+const defaultReadinessTimeout = 120 * time.Second
+
+// readinessTimeout is READINESS_TIMEOUT in whole seconds when it is a positive
+// integer, else defaultReadinessTimeout.
+func readinessTimeout(getenv func(string) string) time.Duration {
+	if rt, err := strconv.Atoi(getenv("READINESS_TIMEOUT")); err == nil && rt > 0 {
+		return time.Duration(rt) * time.Second
+	}
+	return defaultReadinessTimeout
+}
+
+// verdict is the closing RESULT line: PASSED only when every assertion passed.
+func verdict(results []AssertionResult) string {
 	for _, r := range results {
 		if !r.Passed {
-			allPassed = false
-			break
+			return "[fitness-runner] RESULT: FAILED (answer recorded; not retried)"
 		}
 	}
-	if allPassed {
-		fmt.Println("[fitness-runner] RESULT: PASSED")
-	} else {
-		fmt.Println("[fitness-runner] RESULT: FAILED (answer recorded; not retried)")
-	}
-	return nil
+	return "[fitness-runner] RESULT: PASSED"
 }
 
 // requireEnv returns the value of an environment variable or exits with an error.

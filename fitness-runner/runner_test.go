@@ -139,8 +139,8 @@ func TestRunFitnessTest_RecoversAfterSSEDrop(t *testing.T) {
 	defer srv.Close()
 
 	ft := fitnessscript.FitnessTest{
-		Constants:  map[string]string{"QUESTION": "q"},
-		Assertions: []fitnessscript.Assertion{{Raw: "synthesis is non-empty", Kind: fitnessscript.KindSynthesisNonEmpty}},
+		Constants:  map[string]string{constQuestion: "q"},
+		Assertions: []fitnessscript.Assertion{{Raw: assertSynthesisNonEmpty, Kind: fitnessscript.KindSynthesisNonEmpty}},
 	}
 	out := RunFitnessTest(context.Background(), ft, srv.URL, 20*time.Second)
 
@@ -177,7 +177,7 @@ func TestRunFitnessTest_AnsweredOnCompletedDiscussion(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	ft := fitnessscript.FitnessTest{Constants: map[string]string{"QUESTION": "q"}}
+	ft := fitnessscript.FitnessTest{Constants: map[string]string{constQuestion: "q"}}
 	out := RunFitnessTest(context.Background(), ft, srv.URL, 10*time.Second)
 
 	if !out.Answered {
@@ -194,7 +194,7 @@ func TestRunFitnessTest_NotAnsweredWhenGatewayFails(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	ft := fitnessscript.FitnessTest{Constants: map[string]string{"QUESTION": "q"}}
+	ft := fitnessscript.FitnessTest{Constants: map[string]string{constQuestion: "q"}}
 	out := RunFitnessTest(context.Background(), ft, srv.URL, 3*time.Second)
 
 	if out.Answered {
@@ -218,7 +218,7 @@ func TestRunFitnessTest_AnsweredEvenWhenAssertionFails(t *testing.T) {
 	defer srv.Close()
 
 	ft := fitnessscript.FitnessTest{
-		Constants:  map[string]string{"QUESTION": "q"},
+		Constants:  map[string]string{constQuestion: "q"},
 		Assertions: []fitnessscript.Assertion{{Raw: "synthesis contains green", Kind: fitnessscript.KindSynthesisContains, Terms: []string{"green"}}},
 	}
 	out := RunFitnessTest(context.Background(), ft, srv.URL, 10*time.Second)
@@ -247,7 +247,7 @@ func TestRunFitnessTest_NotAnsweredWhenNoDone(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	ft := fitnessscript.FitnessTest{Constants: map[string]string{"QUESTION": "q"}}
+	ft := fitnessscript.FitnessTest{Constants: map[string]string{constQuestion: "q"}}
 	out := RunFitnessTest(context.Background(), ft, srv.URL, 2*time.Second)
 
 	if fitnessscript.FindSynthesis(out.Events) == "" {
