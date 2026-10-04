@@ -77,7 +77,7 @@ Scenarios are declared in one of two forms, chosen per file:
 - **ADL** (`.adl`) - the structured `DESCRIPTION` / `DEFINE CONST` / `ASSERT(...)` form below. This is the **stronger, preferred form**: scannable, diffable, and unambiguous.
 - **Prose Markdown** (`.md`) - the gentler on-ramp: a heading, a question, a checklist of gates, and a fenced reference block. See [Prose Markdown Form](#prose-markdown-form-md).
 
-The runner **auto-detects** the form from content, and both forms parse to the *same* internal test - identical question, identical inline gates, identical `DEFER`/`REFLECT` deferred assertions. Nothing downstream (the runner, the grade, the report) depends on which form an author chose. A single crew may even mix `.adl` and `.md` files in its `fitness/` directory.
+The runner **auto-detects** the form from content (any line that starts with `ASSERT(`, `DEFINE CONST`, or `DESCRIPTION `, a fenced reference line included, makes it ADL), and both forms parse to the *same* internal test - identical question, identical inline gates, identical `DEFER`/`REFLECT` deferred assertions. Nothing downstream (the runner, the grade, the report) depends on which form an author chose. A single crew may even mix `.adl` and `.md` files in its `fitness/` directory.
 
 ## ADL Test Format
 
@@ -134,7 +134,7 @@ The same scenario can be written as prose Markdown. The convention mirrors ADL o
 | `- <gate>` list item | `ASSERT(<gate>)` - same patterns as the table above |
 | a fenced ` ```<keyword> ` block | `ASSERT(DEFER synthesis <KEYWORD> "...")` |
 
-The fenced block's info string **is** the deferred keyword (lower-cased): ` ```reflects ` becomes the `REFLECTS` keyword, resolved post-suite to the crew labelled `kubemoot.ai/adl-keyword: REFLECTS` (see below). The block body is the reference; it may wrap across lines (whitespace is collapsed). A `completes within N seconds` gate seeds the wall-clock deadline, exactly as `DEFINE CONST MAX_DURATION` does in ADL.
+The first word of the fenced block's info string **is** the deferred keyword (lower-cased): ` ```reflects ` becomes the `REFLECTS` keyword, resolved post-suite to the crew labelled `kubemoot.ai/adl-keyword: REFLECTS` (see below). The keyword must be a valid label value; a block with no info string, or one that is not a label value, declares nothing. The block body is the reference; it may wrap across lines (whitespace is collapsed), and quotes and backslashes in it reach the judge as written. A `completes within N seconds` gate seeds the wall-clock deadline, exactly as `DEFINE CONST MAX_DURATION` does in ADL.
 
 The ADL test at the top of this page, written as prose Markdown:
 

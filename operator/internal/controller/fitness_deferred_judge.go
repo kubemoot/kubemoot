@@ -45,6 +45,7 @@ import (
 
 	"github.com/go-logr/logr"
 	kubemootv1alpha1 "github.com/kubemoot/kubemoot/operator/api/v1alpha1"
+	"github.com/kubemoot/kubemoot/operator/pkg/fitnessscript"
 	"github.com/kubemoot/kubemoot/operator/pkg/sse"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
@@ -187,35 +188,10 @@ func loadDeferredCache(store objectStore, prefix string) deferredScoreCache {
 }
 
 // parseDeferredAssertion pulls the KEYWORD and REFERENCE out of a deferred
-// assertion's raw text: `DEFER synthesis <KEYWORD> "<reference>"`. Keyword-agnostic
-// — KEYWORD is whatever token follows the subject.
+// assertion's raw text: `DEFER synthesis <KEYWORD> "<reference>"`, through the
+// shared assertion engine so the judge reads Raw exactly as the runner wrote it.
 func parseDeferredAssertion(raw string) (keyword, reference string, ok bool) {
-	t := strings.TrimSpace(raw)
-	if !strings.HasPrefix(strings.ToUpper(t), "DEFER") {
-		return "", "", false
-	}
-	q := strings.Index(t, `"`)
-	if q < 0 {
-		return "", "", false
-	}
-	rest := t[q+1:]
-	end := strings.LastIndex(rest, `"`)
-	if end <= 0 {
-		return "", "", false
-	}
-	reference = rest[:end]
-	// KEYWORD is the first token before the quote that isn't DEFER or the subject.
-	for _, f := range strings.Fields(t[:q]) {
-		if strings.EqualFold(f, "DEFER") || strings.EqualFold(f, "synthesis") {
-			continue
-		}
-		keyword = strings.ToUpper(f)
-		break
-	}
-	if keyword == "" {
-		return "", "", false
-	}
-	return keyword, reference, true
+	return fitnessscript.ParseDefer(raw)
 }
 
 // resolveKeywordEndpoint finds the crew that declares the keyword and returns its

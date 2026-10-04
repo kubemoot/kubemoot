@@ -17,9 +17,13 @@ limitations under the License.
 package fitnessscript
 
 import (
+	"math"
 	"strings"
 	"testing"
 )
+
+// kwReflects is the DEFER keyword the reference crews use.
+const kwReflects = "REFLECTS"
 
 func TestParseFitnessTest_DiscussionHealth(t *testing.T) {
 	content := `DESCRIPTION Verify discussion system is healthy end-to-end
@@ -338,7 +342,7 @@ ASSERT(DEFER synthesis REFLECTS "There are 28 namespaces including kube-system, 
 	if def == nil {
 		t.Fatal("expected a KindDeferred assertion")
 	}
-	if def.Keyword != "REFLECTS" {
+	if def.Keyword != kwReflects {
 		t.Errorf("keyword not extracted: %q", def.Keyword)
 	}
 	if def.Reference != "There are 28 namespaces including kube-system, kubemoot, observability." {
@@ -374,7 +378,7 @@ ASSERT(synthesis CONTAINS "namespace")`
 	if def == nil {
 		t.Fatal("expected a KindDeferred assertion from the wrapped ASSERT")
 	}
-	if def.Keyword != "REFLECTS" {
+	if def.Keyword != kwReflects {
 		t.Errorf("keyword: %q", def.Keyword)
 	}
 	want := "Enumerates the cluster's namespaces (discovered, not assumed). Real names; does not invent. Count not scored."
@@ -397,6 +401,9 @@ func TestLooksLikeMarkdown(t *testing.T) {
 		{"markdown heading", "# A scenario\nWhat is up?\n\n- POST returns 200", true},
 		{"markdown fence only", "what is up?\n```reflects\nground truth\n```", true},
 		{"plain prose, no markers", "just some text", false},
+		{"markdown prose naming ADL words",
+			"# Prompts\nWhich module sets the DESCRIPTION line?\n\n- synthesis is non-empty", true},
+		{"indented ADL directive", "# comment\n  ASSERT(synthesis is non-empty)", false},
 	}
 	for _, c := range cases {
 		if got := looksLikeMarkdown(c.content); got != c.want {
@@ -429,7 +436,7 @@ func TestParseMarkdownFitnessTest(t *testing.T) {
 		KindSynthesisContains, KindDeferred)
 	want := "Enumerates the cluster's actual Helm releases across namespaces \u2014 native and " +
 		"Flux-managed. Names the REAL releases; 'none found' is wrong; does not invent."
-	expectCanonicalDefer(t, ft.Assertions[4], "REFLECTS", want)
+	expectCanonicalDefer(t, ft.Assertions[4], kwReflects, want)
 }
 
 // expectCanonicalDefer checks a deferred assertion's keyword, collapsed
@@ -505,5 +512,68 @@ func expectKinds(t *testing.T, ft FitnessTest, kinds ...AssertionKind) {
 		if ft.Assertions[i].Kind != k {
 			t.Errorf("assertion[%d]: kind %v, want %v", i, ft.Assertions[i].Kind, k)
 		}
+	}
+}
+
+func TestParseDefer(t *testing.T) {
+	cases := []struct {
+		raw, keyword, reference string
+		ok                      bool
+	}{
+		{`DEFER synthesis REFLECTS "28 namespaces"`, kwReflects, "28 namespaces", true},
+		{`defer Synthesis reflects "x"`, kwReflects, "x", true},
+		{`DEFER synthesis REFLECTS "names the "kubemoot" namespace"`, kwReflects, `names the "kubemoot" namespace`, true},
+		{`DEFER synthesis REFLECTS "a" and "b"`, kwReflects, `a" and "b`, true},
+		{`DEFER synthesis REFLECTS ""`, "", "", false},
+		{`DEFER synthesis REFLECTS`, "", "", false},
+		{`DEFER synthesis "no keyword"`, "", "", false},
+		{`synthesis CONTAINS "x"`, "", "", false},
+	}
+	for _, c := range cases {
+		kw, ref, ok := ParseDefer(c.raw)
+		if kw != c.keyword || ref != c.reference || ok != c.ok {
+			t.Errorf("ParseDefer(%q) = (%q, %q, %v), want (%q, %q, %v)", c.raw, kw, ref, ok, c.keyword, c.reference, c.ok)
+		}
+	}
+}
+
+// TestMarkdownReferenceVerbatim pins that a fenced reference reaches Raw, the
+// text the judge reads, exactly as written: no escaping of quotes or backslashes.
+func TestMarkdownReferenceVerbatim(t *testing.T) {
+	ft := ParseFitnessTest("# Paths\nq\n\n```reflects\nthe \"kubemoot\" namespace, not C:\\temp\n```\n")
+	want := `the "kubemoot" namespace, not C:\temp`
+	expectKinds(t, ft, KindDeferred)
+	expectCanonicalDefer(t, ft.Assertions[0], kwReflects, want)
+}
+
+func TestMarkdownFenceKeyword(t *testing.T) {
+	cases := []struct {
+		fence, keyword string
+	}{
+		{"```reflects extra words", kwReflects},
+		{"```grounded-v2", "GROUNDED-V2"},
+		{"```", ""},
+		{"```\"quoted\"", ""},
+		{"```synthesis", ""},
+	}
+	for _, c := range cases {
+		ft := ParseFitnessTest("# K\nq\n" + c.fence + "\nref\n```\n")
+		if c.keyword == "" {
+			if len(ft.Assertions) != 0 {
+				t.Errorf("%s: declared %+v, want nothing", c.fence, ft.Assertions)
+			}
+			continue
+		}
+		expectKinds(t, ft, KindDeferred)
+		expectCanonicalDefer(t, ft.Assertions[0], c.keyword, "ref")
+	}
+}
+
+func TestExtractFirstIntSaturates(t *testing.T) {
+	if got := extractFirstInt("at least 99999999999999999999 specialists agree"); got != math.MaxInt {
+		t.Errorf("oversized bound = %d, want math.MaxInt", got)
+	}
+	if got := extractFirstInt("within 300 seconds"); got != 300 {
+		t.Errorf("bound = %d, want 300", got)
 	}
 }
