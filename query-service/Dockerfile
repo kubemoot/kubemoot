@@ -5,7 +5,10 @@
 # Auto-deployed by the operator for each RAGSource.
 #
 
-FROM python:3.13-slim AS builder
+# uv as its own stage so Dependabot keeps its tag and digest current (it reads FROM lines only)
+FROM ghcr.io/astral-sh/uv:0.12.23@sha256:61d393e44e249f2e4b526b6c7ddcecce245946826e608e11c93ad4f5bba55b21 AS uv
+
+FROM python:3.13-slim@sha256:3dd7cc108ec1493442514f5c2a871af6af0ec31d768ff6e378a93340c3b3db5f AS builder
 
 WORKDIR /app
 
@@ -16,15 +19,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Install uv for faster dependency installation
-COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+COPY --from=uv /uv /usr/local/bin/uv
 
 COPY requirements.txt .
 
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv pip install --system --target /app/deps -r requirements.txt
+    uv pip install --system --require-hashes --target /app/deps -r requirements.txt
 
 # Runtime stage
-FROM python:3.13-slim
+FROM python:3.13-slim@sha256:3dd7cc108ec1493442514f5c2a871af6af0ec31d768ff6e378a93340c3b3db5f
 
 WORKDIR /app
 
