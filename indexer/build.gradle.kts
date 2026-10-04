@@ -17,13 +17,11 @@ java {
 
 repositories {
     mavenCentral()
-    maven { url = uri("https://repo.spring.io/milestone") }
-    maven { url = uri("https://repo.spring.io/snapshot") }
 }
 
 dependencyManagement {
     imports {
-        mavenBom("org.springframework.ai:spring-ai-bom:2.1.0-M1")
+        mavenBom("org.springframework.ai:spring-ai-bom:2.0.1")
     }
 }
 
@@ -35,7 +33,7 @@ dependencies {
     // Spring AI - Embeddings
     implementation("org.springframework.ai:spring-ai-starter-model-ollama")
 
-    // Spring AI - Vector Stores (artifact name changed in 1.0.0-M7)
+    // Spring AI - Vector Stores
     implementation("org.springframework.ai:spring-ai-starter-vector-store-pgvector")
 
     // Spring AI - Document processing

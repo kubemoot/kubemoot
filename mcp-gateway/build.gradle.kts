@@ -17,13 +17,11 @@ java {
 
 repositories {
     mavenCentral()
-    maven { url = uri("https://repo.spring.io/milestone") }
-    maven { url = uri("https://repo.spring.io/snapshot") }
 }
 
 dependencyManagement {
     imports {
-        mavenBom("org.springframework.ai:spring-ai-bom:2.1.0-M1")
+        mavenBom("org.springframework.ai:spring-ai-bom:2.0.1")
     }
 }
 
