@@ -34,7 +34,7 @@ const transcriptDefaultTTL = 720 * time.Hour
 func maybeWriteTranscript(outcome *RunOutcome, getenv func(string) string) {
 	key := getenv("TRANSCRIPT_KEY")
 	if key == "" {
-		return // not a suite iteration — nothing to capture
+		return // not a suite iteration - nothing to capture
 	}
 	natsURL := getenv("NATS_URL")
 	if natsURL == "" {
