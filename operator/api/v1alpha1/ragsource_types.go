@@ -480,5 +480,5 @@ type RAGSourceList struct {
 }
 
 func init() {
-	SchemeBuilder.Register(&RAGSource{}, &RAGSourceList{})
+	registerTypes(&RAGSource{}, &RAGSourceList{})
 }

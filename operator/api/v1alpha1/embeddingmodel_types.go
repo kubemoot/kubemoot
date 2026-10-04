@@ -107,5 +107,5 @@ type EmbeddingModelList struct {
 }
 
 func init() {
-	SchemeBuilder.Register(&EmbeddingModel{}, &EmbeddingModelList{})
+	registerTypes(&EmbeddingModel{}, &EmbeddingModelList{})
 }

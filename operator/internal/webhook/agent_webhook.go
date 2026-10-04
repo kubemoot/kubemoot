@@ -18,9 +18,7 @@ package webhook
 
 import (
 	"context"
-	"fmt"
 
-	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	aiv1alpha1 "github.com/kubemoot/kubemoot/operator/api/v1alpha1"
@@ -31,23 +29,17 @@ import (
 // AgentValidator validates Agent resources.
 type AgentValidator struct{}
 
-func (v *AgentValidator) ValidateCreate(ctx context.Context, obj runtime.Object) (admission.Warnings, error) {
-	agent, ok := obj.(*aiv1alpha1.Agent)
-	if !ok {
-		return nil, fmt.Errorf("expected Agent, got %T", obj)
-	}
+var _ admission.Validator[*aiv1alpha1.Agent] = &AgentValidator{}
+
+func (v *AgentValidator) ValidateCreate(ctx context.Context, agent *aiv1alpha1.Agent) (admission.Warnings, error) {
 	return validateAgent(agent)
 }
 
-func (v *AgentValidator) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Object) (admission.Warnings, error) {
-	agent, ok := newObj.(*aiv1alpha1.Agent)
-	if !ok {
-		return nil, fmt.Errorf("expected Agent, got %T", newObj)
-	}
+func (v *AgentValidator) ValidateUpdate(ctx context.Context, _, agent *aiv1alpha1.Agent) (admission.Warnings, error) {
 	return validateAgent(agent)
 }
 
-func (v *AgentValidator) ValidateDelete(ctx context.Context, obj runtime.Object) (admission.Warnings, error) {
+func (v *AgentValidator) ValidateDelete(ctx context.Context, _ *aiv1alpha1.Agent) (admission.Warnings, error) {
 	return nil, nil
 }
 

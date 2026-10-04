@@ -195,5 +195,5 @@ type CrewList struct {
 }
 
 func init() {
-	SchemeBuilder.Register(&Crew{}, &CrewList{})
+	registerTypes(&Crew{}, &CrewList{})
 }

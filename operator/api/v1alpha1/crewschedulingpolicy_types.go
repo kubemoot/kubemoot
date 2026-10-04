@@ -209,5 +209,5 @@ type CrewSchedulingPolicyList struct {
 }
 
 func init() {
-	SchemeBuilder.Register(&CrewSchedulingPolicy{}, &CrewSchedulingPolicyList{})
+	registerTypes(&CrewSchedulingPolicy{}, &CrewSchedulingPolicyList{})
 }

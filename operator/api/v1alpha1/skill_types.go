@@ -100,5 +100,5 @@ type SkillList struct {
 }
 
 func init() {
-	SchemeBuilder.Register(&Skill{}, &SkillList{})
+	registerTypes(&Skill{}, &SkillList{})
 }

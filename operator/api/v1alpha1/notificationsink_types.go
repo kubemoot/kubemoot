@@ -163,5 +163,5 @@ type NotificationSinkList struct {
 }
 
 func init() {
-	SchemeBuilder.Register(&NotificationSink{}, &NotificationSinkList{})
+	registerTypes(&NotificationSink{}, &NotificationSinkList{})
 }

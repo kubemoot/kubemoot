@@ -178,5 +178,5 @@ type KubemootConfigList struct {
 }
 
 func init() {
-	SchemeBuilder.Register(&KubemootConfig{}, &KubemootConfigList{})
+	registerTypes(&KubemootConfig{}, &KubemootConfigList{})
 }

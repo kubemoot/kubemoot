@@ -20,38 +20,23 @@ import (
 	"context"
 	"fmt"
 
-	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	aiv1alpha1 "github.com/kubemoot/kubemoot/operator/api/v1alpha1"
 )
-
-const errExpectedCrewFitness = "expected CrewFitness, got %T"
 
 // +kubebuilder:webhook:path=/validate-kubemoot-ai-v1alpha1-crewfitness,mutating=false,failurePolicy=fail,sideEffects=None,groups=kubemoot.ai,resources=crewfitnesses,verbs=create;update,versions=v1alpha1,name=vcrewfitness.kubemoot.ai,admissionReviewVersions=v1
 
 // CrewFitnessValidator validates CrewFitness resources.
 type CrewFitnessValidator struct{}
 
-func (v *CrewFitnessValidator) ValidateCreate(ctx context.Context, obj runtime.Object) (admission.Warnings, error) {
-	cf, ok := obj.(*aiv1alpha1.CrewFitness)
-	if !ok {
-		return nil, fmt.Errorf(errExpectedCrewFitness, obj)
-	}
+var _ admission.Validator[*aiv1alpha1.CrewFitness] = &CrewFitnessValidator{}
+
+func (v *CrewFitnessValidator) ValidateCreate(ctx context.Context, cf *aiv1alpha1.CrewFitness) (admission.Warnings, error) {
 	return validateCrewFitness(cf)
 }
 
-func (v *CrewFitnessValidator) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Object) (admission.Warnings, error) {
-	cf, ok := newObj.(*aiv1alpha1.CrewFitness)
-	if !ok {
-		return nil, fmt.Errorf(errExpectedCrewFitness, newObj)
-	}
-
-	oldCF, ok := oldObj.(*aiv1alpha1.CrewFitness)
-	if !ok {
-		return nil, fmt.Errorf(errExpectedCrewFitness, oldObj)
-	}
-
+func (v *CrewFitnessValidator) ValidateUpdate(ctx context.Context, oldCF, cf *aiv1alpha1.CrewFitness) (admission.Warnings, error) {
 	// Reject spec changes after completion
 	phase := oldCF.Status.Phase
 	if phase == aiv1alpha1.CrewFitnessPhasePassed ||
@@ -68,7 +53,7 @@ func (v *CrewFitnessValidator) ValidateUpdate(ctx context.Context, oldObj, newOb
 	return validateCrewFitness(cf)
 }
 
-func (v *CrewFitnessValidator) ValidateDelete(ctx context.Context, obj runtime.Object) (admission.Warnings, error) {
+func (v *CrewFitnessValidator) ValidateDelete(ctx context.Context, _ *aiv1alpha1.CrewFitness) (admission.Warnings, error) {
 	return nil, nil
 }
 

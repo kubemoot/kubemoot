@@ -476,5 +476,5 @@ type MCPGatewayList struct {
 }
 
 func init() {
-	SchemeBuilder.Register(&MCPGateway{}, &MCPGatewayList{})
+	registerTypes(&MCPGateway{}, &MCPGatewayList{})
 }

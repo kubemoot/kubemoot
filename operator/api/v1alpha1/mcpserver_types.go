@@ -336,5 +336,5 @@ type MCPServerList struct {
 }
 
 func init() {
-	SchemeBuilder.Register(&MCPServer{}, &MCPServerList{})
+	registerTypes(&MCPServer{}, &MCPServerList{})
 }

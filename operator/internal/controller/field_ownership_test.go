@@ -44,7 +44,7 @@ func userApply(ctx context.Context, kind, name string, spec map[string]interface
 	u.SetKind(kind)
 	u.SetName(name)
 	u.SetNamespace(ownershipNS)
-	return k8sClient.Patch(ctx, u, client.Apply, client.FieldOwner(userFieldManager))
+	return k8sClient.Apply(ctx, client.ApplyConfigurationFromUnstructured(u), client.FieldOwner(userFieldManager))
 }
 
 // specFieldOwners lists the managers that own spec.<path> on the object. Each
@@ -53,7 +53,7 @@ func userApply(ctx context.Context, kind, name string, spec map[string]interface
 func specFieldOwners(obj client.Object, path ...string) []string {
 	var owners []string
 	for _, mf := range obj.GetManagedFields() {
-		if mf.FieldsV1 != nil && fieldsContain(mf.FieldsV1.Raw, append([]string{"spec"}, path...)) {
+		if mf.FieldsV1 != nil && fieldsContain(mf.FieldsV1.GetRawBytes(), append([]string{"spec"}, path...)) {
 			owners = append(owners, mf.Manager)
 		}
 	}

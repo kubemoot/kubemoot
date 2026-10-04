@@ -74,5 +74,5 @@ type PromptModuleList struct {
 }
 
 func init() {
-	SchemeBuilder.Register(&PromptModule{}, &PromptModuleList{})
+	registerTypes(&PromptModule{}, &PromptModuleList{})
 }

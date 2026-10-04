@@ -146,5 +146,5 @@ type ModelList struct {
 }
 
 func init() {
-	SchemeBuilder.Register(&Model{}, &ModelList{})
+	registerTypes(&Model{}, &ModelList{})
 }

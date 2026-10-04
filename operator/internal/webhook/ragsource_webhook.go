@@ -21,7 +21,6 @@ import (
 	"fmt"
 	"strings"
 
-	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	aiv1alpha1 "github.com/kubemoot/kubemoot/operator/api/v1alpha1"
@@ -32,23 +31,17 @@ import (
 // RAGSourceValidator validates RAGSource resources.
 type RAGSourceValidator struct{}
 
-func (v *RAGSourceValidator) ValidateCreate(ctx context.Context, obj runtime.Object) (admission.Warnings, error) {
-	rs, ok := obj.(*aiv1alpha1.RAGSource)
-	if !ok {
-		return nil, fmt.Errorf("expected RAGSource, got %T", obj)
-	}
+var _ admission.Validator[*aiv1alpha1.RAGSource] = &RAGSourceValidator{}
+
+func (v *RAGSourceValidator) ValidateCreate(ctx context.Context, rs *aiv1alpha1.RAGSource) (admission.Warnings, error) {
 	return validateRAGSource(rs)
 }
 
-func (v *RAGSourceValidator) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Object) (admission.Warnings, error) {
-	rs, ok := newObj.(*aiv1alpha1.RAGSource)
-	if !ok {
-		return nil, fmt.Errorf("expected RAGSource, got %T", newObj)
-	}
+func (v *RAGSourceValidator) ValidateUpdate(ctx context.Context, _, rs *aiv1alpha1.RAGSource) (admission.Warnings, error) {
 	return validateRAGSource(rs)
 }
 
-func (v *RAGSourceValidator) ValidateDelete(ctx context.Context, obj runtime.Object) (admission.Warnings, error) {
+func (v *RAGSourceValidator) ValidateDelete(ctx context.Context, _ *aiv1alpha1.RAGSource) (admission.Warnings, error) {
 	return nil, nil
 }
 

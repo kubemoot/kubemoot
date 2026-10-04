@@ -21,7 +21,6 @@ import (
 	"fmt"
 	"regexp"
 
-	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	aiv1alpha1 "github.com/kubemoot/kubemoot/operator/api/v1alpha1"
@@ -32,25 +31,19 @@ import (
 // CrewValidator validates Crew resources.
 type CrewValidator struct{}
 
+var _ admission.Validator[*aiv1alpha1.Crew] = &CrewValidator{}
+
 var dns1123Regex = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]*[a-z0-9])?$`)
 
-func (v *CrewValidator) ValidateCreate(ctx context.Context, obj runtime.Object) (admission.Warnings, error) {
-	crew, ok := obj.(*aiv1alpha1.Crew)
-	if !ok {
-		return nil, fmt.Errorf("expected Crew, got %T", obj)
-	}
+func (v *CrewValidator) ValidateCreate(ctx context.Context, crew *aiv1alpha1.Crew) (admission.Warnings, error) {
 	return validateCrew(crew)
 }
 
-func (v *CrewValidator) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Object) (admission.Warnings, error) {
-	crew, ok := newObj.(*aiv1alpha1.Crew)
-	if !ok {
-		return nil, fmt.Errorf("expected Crew, got %T", newObj)
-	}
+func (v *CrewValidator) ValidateUpdate(ctx context.Context, _, crew *aiv1alpha1.Crew) (admission.Warnings, error) {
 	return validateCrew(crew)
 }
 
-func (v *CrewValidator) ValidateDelete(ctx context.Context, obj runtime.Object) (admission.Warnings, error) {
+func (v *CrewValidator) ValidateDelete(ctx context.Context, _ *aiv1alpha1.Crew) (admission.Warnings, error) {
 	return nil, nil
 }
 

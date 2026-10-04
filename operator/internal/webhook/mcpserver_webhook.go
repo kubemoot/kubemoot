@@ -20,7 +20,6 @@ import (
 	"context"
 	"fmt"
 
-	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	aiv1alpha1 "github.com/kubemoot/kubemoot/operator/api/v1alpha1"
@@ -31,23 +30,17 @@ import (
 // MCPServerValidator validates MCPServer resources.
 type MCPServerValidator struct{}
 
-func (v *MCPServerValidator) ValidateCreate(ctx context.Context, obj runtime.Object) (admission.Warnings, error) {
-	server, ok := obj.(*aiv1alpha1.MCPServer)
-	if !ok {
-		return nil, fmt.Errorf("expected MCPServer, got %T", obj)
-	}
+var _ admission.Validator[*aiv1alpha1.MCPServer] = &MCPServerValidator{}
+
+func (v *MCPServerValidator) ValidateCreate(ctx context.Context, server *aiv1alpha1.MCPServer) (admission.Warnings, error) {
 	return validateMCPServer(server)
 }
 
-func (v *MCPServerValidator) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Object) (admission.Warnings, error) {
-	server, ok := newObj.(*aiv1alpha1.MCPServer)
-	if !ok {
-		return nil, fmt.Errorf("expected MCPServer, got %T", newObj)
-	}
+func (v *MCPServerValidator) ValidateUpdate(ctx context.Context, _, server *aiv1alpha1.MCPServer) (admission.Warnings, error) {
 	return validateMCPServer(server)
 }
 
-func (v *MCPServerValidator) ValidateDelete(ctx context.Context, obj runtime.Object) (admission.Warnings, error) {
+func (v *MCPServerValidator) ValidateDelete(ctx context.Context, _ *aiv1alpha1.MCPServer) (admission.Warnings, error) {
 	return nil, nil
 }
 

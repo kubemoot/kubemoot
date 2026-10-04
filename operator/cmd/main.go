@@ -122,28 +122,31 @@ func mustAddRunnables(mgr ctrl.Manager, natsPublisher *kubemootnats.Publisher) {
 	}
 }
 
-// webhookSetup pairs a CRD object with its validator for webhook registration.
+// webhookSetup names a CRD and registers its validating webhook.
 type webhookSetup struct {
-	name      string
-	object    runtime.Object
-	validator admission.CustomValidator
+	name     string
+	register func(ctrl.Manager) error
+}
+
+// validatingWebhook builds the registration for one CRD's typed validator.
+func validatingWebhook[T runtime.Object](name string, obj T, validator admission.Validator[T]) webhookSetup {
+	return webhookSetup{name: name, register: func(mgr ctrl.Manager) error {
+		return ctrl.NewWebhookManagedBy(mgr, obj).WithValidator(validator).Complete()
+	}}
 }
 
 // mustSetupWebhooks registers each validating webhook with the manager,
 // logging and exiting on any failure.
 func mustSetupWebhooks(mgr ctrl.Manager) {
 	webhooks := []webhookSetup{
-		{"Agent", &aiv1alpha1.Agent{}, &kubemootwebhook.AgentValidator{}},
-		{"MCPServer", &aiv1alpha1.MCPServer{}, &kubemootwebhook.MCPServerValidator{}},
-		{"RAGSource", &aiv1alpha1.RAGSource{}, &kubemootwebhook.RAGSourceValidator{}},
-		{"Crew", &aiv1alpha1.Crew{}, &kubemootwebhook.CrewValidator{}},
-		{"CrewFitness", &aiv1alpha1.CrewFitness{}, &kubemootwebhook.CrewFitnessValidator{}},
+		validatingWebhook("Agent", &aiv1alpha1.Agent{}, &kubemootwebhook.AgentValidator{}),
+		validatingWebhook("MCPServer", &aiv1alpha1.MCPServer{}, &kubemootwebhook.MCPServerValidator{}),
+		validatingWebhook("RAGSource", &aiv1alpha1.RAGSource{}, &kubemootwebhook.RAGSourceValidator{}),
+		validatingWebhook("Crew", &aiv1alpha1.Crew{}, &kubemootwebhook.CrewValidator{}),
+		validatingWebhook("CrewFitness", &aiv1alpha1.CrewFitness{}, &kubemootwebhook.CrewFitnessValidator{}),
 	}
 	for _, w := range webhooks {
-		if err := ctrl.NewWebhookManagedBy(mgr).
-			For(w.object).
-			WithValidator(w.validator).
-			Complete(); err != nil {
+		if err := w.register(mgr); err != nil {
 			setupLog.Error(err, "unable to create webhook", "webhook", w.name)
 			os.Exit(1)
 		}

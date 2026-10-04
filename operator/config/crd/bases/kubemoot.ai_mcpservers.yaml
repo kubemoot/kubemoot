@@ -3,7 +3,7 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.21.0
+    controller-gen.kubebuilder.io/version: v0.22.0
   name: mcpservers.kubemoot.ai
 spec:
   group: kubemoot.ai
@@ -107,7 +107,9 @@ spec:
                     a Container.
                   properties:
                     name:
-                      description: Name of the environment variable. Must be a C_IDENTIFIER.
+                      description: |-
+                        Name of the environment variable.
+                        May consist of any printable ASCII characters except '='.
                       type: string
                     value:
                       description: |-
@@ -129,7 +131,9 @@ spec:
                           description: Selects a key of a ConfigMap.
                           properties:
                             key:
-                              description: The key to select.
+                              description: |-
+                                The key to select from the ConfigMap's Data field.
+                                Keys in the BinaryData field are not currently propagated to container env vars.
                               type: string
                             name:
                               default: ""
@@ -163,6 +167,43 @@ spec:
                               type: string
                           required:
                           - fieldPath
+                          type: object
+                          x-kubernetes-map-type: atomic
+                        fileKeyRef:
+                          description: |-
+                            FileKeyRef selects a key of the env file.
+                            Requires the EnvFiles feature gate to be enabled.
+                          properties:
+                            key:
+                              description: |-
+                                The key within the env file. An invalid key will prevent the pod from starting.
+                                The keys defined within a source may consist of any printable ASCII characters except '='.
+                                During Alpha stage of the EnvFiles feature gate, the key size is limited to 128 characters.
+                              type: string
+                            optional:
+                              default: false
+                              description: |-
+                                Specify whether the file or its key must be defined. If the file or key
+                                does not exist, then the env var is not published.
+                                If optional is set to true and the specified key does not exist,
+                                the environment variable will not be set in the Pod's containers.
+
+                                If optional is set to false and the specified key does not exist,
+                                an error will be returned during Pod creation.
+                              type: boolean
+                            path:
+                              description: |-
+                                The path within the volume from which to select the file.
+                                Must be relative and may not contain the '..' path or start with '..'.
+                              type: string
+                            volumeName:
+                              description: The name of the volume mount containing
+                                the env file.
+                              type: string
+                          required:
+                          - key
+                          - path
+                          - volumeName
                           type: object
                           x-kubernetes-map-type: atomic
                         resourceFieldRef:
@@ -307,7 +348,7 @@ spec:
                       Claims lists the names of resources, defined in spec.resourceClaims,
                       that are used by this container.
 
-                      This is an alpha field and requires enabling the
+                      This field depends on the
                       DynamicResourceAllocation feature gate.
 
                       This field is immutable. It can only be set for containers.
@@ -464,7 +505,6 @@ spec:
                       procMount denotes the type of proc mount to use for the containers.
                       The default value is Default which uses the container runtime defaults for
                       readonly paths and masked paths.
-                      This requires the ProcMountType feature flag to be enabled.
                       Note that this field cannot be set when spec.os.name is windows.
                     type: string
                   readOnlyRootFilesystem:
@@ -650,8 +690,9 @@ spec:
                           in a Container.
                         properties:
                           name:
-                            description: Name of the environment variable. Must be
-                              a C_IDENTIFIER.
+                            description: |-
+                              Name of the environment variable.
+                              May consist of any printable ASCII characters except '='.
                             type: string
                           value:
                             description: |-
@@ -673,7 +714,9 @@ spec:
                                 description: Selects a key of a ConfigMap.
                                 properties:
                                   key:
-                                    description: The key to select.
+                                    description: |-
+                                      The key to select from the ConfigMap's Data field.
+                                      Keys in the BinaryData field are not currently propagated to container env vars.
                                     type: string
                                   name:
                                     default: ""
@@ -707,6 +750,43 @@ spec:
                                     type: string
                                 required:
                                 - fieldPath
+                                type: object
+                                x-kubernetes-map-type: atomic
+                              fileKeyRef:
+                                description: |-
+                                  FileKeyRef selects a key of the env file.
+                                  Requires the EnvFiles feature gate to be enabled.
+                                properties:
+                                  key:
+                                    description: |-
+                                      The key within the env file. An invalid key will prevent the pod from starting.
+                                      The keys defined within a source may consist of any printable ASCII characters except '='.
+                                      During Alpha stage of the EnvFiles feature gate, the key size is limited to 128 characters.
+                                    type: string
+                                  optional:
+                                    default: false
+                                    description: |-
+                                      Specify whether the file or its key must be defined. If the file or key
+                                      does not exist, then the env var is not published.
+                                      If optional is set to true and the specified key does not exist,
+                                      the environment variable will not be set in the Pod's containers.
+
+                                      If optional is set to false and the specified key does not exist,
+                                      an error will be returned during Pod creation.
+                                    type: boolean
+                                  path:
+                                    description: |-
+                                      The path within the volume from which to select the file.
+                                      Must be relative and may not contain the '..' path or start with '..'.
+                                    type: string
+                                  volumeName:
+                                    description: The name of the volume mount containing
+                                      the env file.
+                                    type: string
+                                required:
+                                - key
+                                - path
+                                - volumeName
                                 type: object
                                 x-kubernetes-map-type: atomic
                               resourceFieldRef:
@@ -769,8 +849,8 @@ spec:
                     envFrom:
                       description: |-
                         List of sources to populate environment variables in the container.
-                        The keys defined within a source must be a C_IDENTIFIER. All invalid keys
-                        will be reported as an event when the container is starting. When a key exists in multiple
+                        The keys defined within a source may consist of any printable ASCII characters except '='.
+                        When a key exists in multiple
                         sources, the value associated with the last source will take precedence.
                         Values defined by an Env with a duplicate key will take precedence.
                         Cannot be updated.
@@ -797,8 +877,9 @@ spec:
                             type: object
                             x-kubernetes-map-type: atomic
                           prefix:
-                            description: Optional text to prepend to the name of each
-                              environment variable. Must be a C_IDENTIFIER.
+                            description: |-
+                              Optional text to prepend to the name of each environment variable.
+                              May consist of any printable ASCII characters except '='.
                             type: string
                           secretRef:
                             description: The Secret to select from
@@ -905,6 +986,11 @@ spec:
                                     Number must be in the range 1 to 65535.
                                     Name must be an IANA_SVC_NAME.
                                   x-kubernetes-int-or-string: true
+                                protocol:
+                                  description: |-
+                                    Protocol selects the wire protocol for the probe connection.
+                                    Nil defaults to HTTP/1.1.
+                                  type: string
                                 scheme:
                                   description: |-
                                     Scheme to use for connecting to the host.
@@ -1018,6 +1104,11 @@ spec:
                                     Number must be in the range 1 to 65535.
                                     Name must be an IANA_SVC_NAME.
                                   x-kubernetes-int-or-string: true
+                                protocol:
+                                  description: |-
+                                    Protocol selects the wire protocol for the probe connection.
+                                    Nil defaults to HTTP/1.1.
+                                  type: string
                                 scheme:
                                   description: |-
                                     Scheme to use for connecting to the host.
@@ -1100,6 +1191,13 @@ spec:
                         grpc:
                           description: GRPC specifies a GRPC HealthCheckRequest.
                           properties:
+                            mode:
+                              description: |-
+                                mode specifies the connection mode for the gRPC health probe.
+                                Set to "TLS" to use TLS without certificate verification.
+                                Set to "Plaintext" to use a plaintext (insecure) connection explicitly.
+                                If not specified, the probe uses a plaintext (insecure) connection.
+                              type: string
                             port:
                               description: Port number of the gRPC service. Number
                                 must be in the range 1 to 65535.
@@ -1157,6 +1255,11 @@ spec:
                                 Number must be in the range 1 to 65535.
                                 Name must be an IANA_SVC_NAME.
                               x-kubernetes-int-or-string: true
+                            protocol:
+                              description: |-
+                                Protocol selects the wire protocol for the probe connection.
+                                Nil defaults to HTTP/1.1.
+                              type: string
                             scheme:
                               description: |-
                                 Scheme to use for connecting to the host.
@@ -1312,6 +1415,13 @@ spec:
                         grpc:
                           description: GRPC specifies a GRPC HealthCheckRequest.
                           properties:
+                            mode:
+                              description: |-
+                                mode specifies the connection mode for the gRPC health probe.
+                                Set to "TLS" to use TLS without certificate verification.
+                                Set to "Plaintext" to use a plaintext (insecure) connection explicitly.
+                                If not specified, the probe uses a plaintext (insecure) connection.
+                              type: string
                             port:
                               description: Port number of the gRPC service. Number
                                 must be in the range 1 to 65535.
@@ -1369,6 +1479,11 @@ spec:
                                 Number must be in the range 1 to 65535.
                                 Name must be an IANA_SVC_NAME.
                               x-kubernetes-int-or-string: true
+                            protocol:
+                              description: |-
+                                Protocol selects the wire protocol for the probe connection.
+                                Nil defaults to HTTP/1.1.
+                              type: string
                             scheme:
                               description: |-
                                 Scheme to use for connecting to the host.
@@ -1437,7 +1552,9 @@ spec:
                           type: integer
                       type: object
                     resizePolicy:
-                      description: Resources resize policy for the container.
+                      description: |-
+                        Resources resize policy for the container.
+                        This field cannot be set on ephemeral containers.
                       items:
                         description: ContainerResizePolicy represents resource resize
                           policy for the container.
@@ -1469,7 +1586,7 @@ spec:
                             Claims lists the names of resources, defined in spec.resourceClaims,
                             that are used by this container.
 
-                            This is an alpha field and requires enabling the
+                            This field depends on the
                             DynamicResourceAllocation feature gate.
 
                             This field is immutable. It can only be set for containers.
@@ -1523,10 +1640,10 @@ spec:
                     restartPolicy:
                       description: |-
                         RestartPolicy defines the restart behavior of individual containers in a pod.
-                        This field may only be set for init containers, and the only allowed value is "Always".
-                        For non-init containers or when this field is not specified,
+                        This overrides the pod-level restart policy. When this field is not specified,
                         the restart behavior is defined by the Pod's restart policy and the container type.
-                        Setting the RestartPolicy as "Always" for the init container will have the following effect:
+                        Additionally, setting the RestartPolicy as "Always" for the init container will
+                        have the following effect:
                         this init container will be continually restarted on
                         exit until all regular containers have terminated. Once all regular
                         containers have completed, all init containers with restartPolicy "Always"
@@ -1538,6 +1655,59 @@ spec:
                         init container is started, or after any startupProbe has successfully
                         completed.
                       type: string
+                    restartPolicyRules:
+                      description: |-
+                        Represents a list of rules to be checked to determine if the
+                        container should be restarted on exit. The rules are evaluated in
+                        order. Once a rule matches a container exit condition, the remaining
+                        rules are ignored. If no rule matches the container exit condition,
+                        the Container-level restart policy determines the whether the container
+                        is restarted or not. Constraints on the rules:
+                        - At most 20 rules are allowed.
+                        - Rules can have the same action.
+                        - Identical rules are not forbidden in validations.
+                        When rules are specified, container MUST set RestartPolicy explicitly
+                        even it if matches the Pod's RestartPolicy.
+                      items:
+                        description: ContainerRestartRule describes how a container
+                          exit is handled.
+                        properties:
+                          action:
+                            description: |-
+                              Specifies the action taken on a container exit if the requirements
+                              are satisfied. The only possible value is "Restart" to restart the
+                              container.
+                            type: string
+                          exitCodes:
+                            description: Represents the exit codes to check on container
+                              exits.
+                            properties:
+                              operator:
+                                description: |-
+                                  Represents the relationship between the container exit code(s) and the
+                                  specified values. Possible values are:
+                                  - In: the requirement is satisfied if the container exit code is in the
+                                    set of specified values.
+                                  - NotIn: the requirement is satisfied if the container exit code is
+                                    not in the set of specified values.
+                                type: string
+                              values:
+                                description: |-
+                                  Specifies the set of values to check for container exit codes.
+                                  At most 255 elements are allowed.
+                                items:
+                                  format: int32
+                                  type: integer
+                                type: array
+                                x-kubernetes-list-type: set
+                            required:
+                            - operator
+                            type: object
+                        required:
+                        - action
+                        type: object
+                      type: array
+                      x-kubernetes-list-type: atomic
                     securityContext:
                       description: |-
                         SecurityContext defines the security options the container should be run with.
@@ -1613,7 +1783,6 @@ spec:
                             procMount denotes the type of proc mount to use for the containers.
                             The default value is Default which uses the container runtime defaults for
                             readonly paths and masked paths.
-                            This requires the ProcMountType feature flag to be enabled.
                             Note that this field cannot be set when spec.os.name is windows.
                           type: string
                         readOnlyRootFilesystem:
@@ -1768,6 +1937,13 @@ spec:
                         grpc:
                           description: GRPC specifies a GRPC HealthCheckRequest.
                           properties:
+                            mode:
+                              description: |-
+                                mode specifies the connection mode for the gRPC health probe.
+                                Set to "TLS" to use TLS without certificate verification.
+                                Set to "Plaintext" to use a plaintext (insecure) connection explicitly.
+                                If not specified, the probe uses a plaintext (insecure) connection.
+                              type: string
                             port:
                               description: Port number of the gRPC service. Number
                                 must be in the range 1 to 65535.
@@ -1825,6 +2001,11 @@ spec:
                                 Number must be in the range 1 to 65535.
                                 Name must be an IANA_SVC_NAME.
                               x-kubernetes-int-or-string: true
+                            protocol:
+                              description: |-
+                                Protocol selects the wire protocol for the probe connection.
+                                Nil defaults to HTTP/1.1.
+                              type: string
                             scheme:
                               description: |-
                                 Scheme to use for connecting to the host.
@@ -1964,10 +2145,21 @@ spec:
                         description: VolumeMount describes a mounting of a Volume
                           within a container.
                         properties:
-                          mountPath:
+                          bindMountOptions:
                             description: |-
-                              Path within the container at which the volume should be mounted.  Must
-                              not contain ':'.
+                              bindMountOptions is the list of additional bind mount options to apply when
+                              mounting this volume into the container. Allowed values are noexec,
+                              nodev, and nosuid. These are Linux mount options and have no effect on
+                              Windows nodes.
+                              This field is not supported with image volumes.
+                              This is an alpha field and requires enabling the VolumeBindMountOptions feature gate.
+                            items:
+                              type: string
+                            type: array
+                            x-kubernetes-list-type: set
+                          mountPath:
+                            description: Path within the container at which the volume
+                              should be mounted.
                             type: string
                           mountPropagation:
                             description: |-
