@@ -44,91 +44,31 @@ jobs:
         working-directory: operator
         run: make test
 
-      # `make test` ran `manifests` and `generate` as part of its dependency
-      # chain (see operator/Makefile:112). That regenerates
-      # config/crd/bases/*.yaml and zz_generated.deepcopy.go in the runner's
-      # working tree. The CRDs also need to live in chart/kubemoot-operator/crds/ for Helm to
-      # install them; sync that here so the PR check below compares the chart
-      # copy too. On push, the regenerate job does the same sync and commits it.
-      - name: Sync regenerated CRDs into chart/kubemoot-operator/crds/
-        if: github.event_name == 'pull_request'
-        working-directory: operator
+      # `make test` ran `manifests` and `generate` (operator/Makefile, target test),
+      # which regenerate the CRDs and their chart copy, the manager role and its chart
+      # copy, and zz_generated.deepcopy.go in this working tree. Generated files are
+      # committed by the developer; CI only checks them and never commits.
+      # Runs from the repository root: the paths below are repository-relative.
+      - name: Verify generated files are committed
         run: |
-          mkdir -p chart/kubemoot-operator/crds
-          cp -f config/crd/bases/*.yaml chart/kubemoot-operator/crds/
-
-      # On PRs we can't push back from a fork — just fail the build if the PR
-      # didn't include the regenerated files. Forces the author to run
-      # `make manifests generate && cp -f config/crd/bases/*.yaml chart/kubemoot-operator/crds/`
-      # before merge, so generated artifacts always reflect the API types.
-      - name: Verify regenerated artifacts are committed (PR only)
-        if: github.event_name == 'pull_request'
-        run: |
-          if git diff --quiet -- operator/config/crd/bases/ operator/chart/kubemoot-operator/crds/ operator/api/v1alpha1/zz_generated.deepcopy.go; then
-            echo "Regenerated artifacts are in sync — OK"
+          GENERATED=(operator/config/crd/bases operator/chart/kubemoot-operator/crds
+                     operator/config/rbac/role.yaml operator/chart/kubemoot-operator/templates/rbac.yaml
+                     operator/api/v1alpha1/zz_generated.deepcopy.go)
+          drift="$(git status --porcelain -- "${GENERATED[@]}")"
+          if ! crds="$(diff -rq operator/config/crd/bases operator/chart/kubemoot-operator/crds)"; then
+            drift="${drift}"$'\n'"chart crds/ differs from config/crd/bases (stale or extra file?):"$'\n'"${crds}"
+          fi
+          if [ -z "${drift}" ]; then
+            echo "Generated files match the API types"
             exit 0
           fi
-          echo "::error::Generated CRDs or deepcopy are out of sync with operator/api/v1alpha1/."
-          echo "Run the following locally and commit before merging:"
-          echo "  cd operator && make manifests generate && cp -f config/crd/bases/*.yaml chart/kubemoot-operator/crds/"
-          echo ""
-          git diff --stat -- operator/config/crd/bases/ operator/chart/kubemoot-operator/crds/ operator/api/v1alpha1/zz_generated.deepcopy.go
+          echo "::error::Generated CRDs, RBAC, or deepcopy are out of sync with operator/api. Run 'cd operator && make manifests generate' and commit the result."
+          echo "${drift}"
+          git diff --stat -- "${GENERATED[@]}"
           exit 1
 
-  # On push to main (via release.yaml's workflow_call) or workflow_dispatch,
-  # auto-commit any drift in regenerated artifacts. Mirrors the chart-bump
-  # commit pattern in release.yaml. [skip ci] prevents a recursive trigger.
-  # A separate job so only this push path holds contents: write; pull request
-  # runs of the test job stay read-only.
-  regenerate:
-    needs: test
-    if: github.event_name != 'pull_request'
-    runs-on: homelab-runners
-    permissions:
-      contents: write   # pushes the regenerated-artifact commit to main
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v5
-        with:
-          # RELEASE_TOKEN (contents+workflows write) pushes even when main's workflow files changed after this commit; GITHUB_TOKEN is refused there.
-          token: ${{ secrets.RELEASE_TOKEN || github.token }}
-
-      - name: Install build tools
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y make
-
-      - name: Set up Go
-        uses: actions/setup-go@v6
-        with:
-          go-version-file: operator/go.mod
-          cache-dependency-path: operator/go.sum
-
-      - name: Regenerate CRDs and deepcopy
-        working-directory: operator
-        run: |
-          make manifests generate
-          mkdir -p chart/kubemoot-operator/crds
-          cp -f config/crd/bases/*.yaml chart/kubemoot-operator/crds/
-
-      - name: Auto-commit regenerated artifacts
-        run: |
-          if git diff --quiet -- operator/config/crd/bases/ operator/chart/kubemoot-operator/crds/ operator/api/v1alpha1/zz_generated.deepcopy.go; then
-            echo "No regenerated-artifact drift to commit"
-            exit 0
-          fi
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add operator/config/crd/bases/ operator/chart/kubemoot-operator/crds/ operator/api/v1alpha1/zz_generated.deepcopy.go
-          git commit -m "chore: regenerate CRDs and deepcopy [skip ci]"
-          # --autostash handles any leftover unstaged changes from the
-          # generators without losing the commit
-          git pull --rebase --autostash origin main
-          git push origin main
-
   build-image:
-    needs: regenerate
+    needs: test
     # Kaniko pushes to the in-cluster registry: main only, never a pull request.
     if: github.event_name != 'pull_request'
     runs-on: homelab-runners
@@ -136,12 +76,6 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v5
-        with:
-          # The regenerate job may have auto-committed regenerated CRDs and deepcopy
-          # to main. Checkout HEAD of main so build-image sees those changes
-          # rather than the original workflow trigger SHA — without this,
-          # build-image compiles types whose DeepCopy methods don't exist yet.
-          ref: main
 
       - name: Install kubectl
         run: |

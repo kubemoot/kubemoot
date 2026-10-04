@@ -357,11 +357,11 @@ for f in $(git ls-files '*values.yaml' | grep -E '^(operator/chart|dashboard/cha
   typed="$(grep -nE "(^|[\"' /])(${images}):[A-Za-z0-9._-]+" "$f" | grep -vE ":(${images}):0\.0\.0([\"' ]|$)|/(${images}):0\.0\.0([\"' ]|$)| (${images}):0\.0\.0([\"' ]|$)" || true)"
   check "${f} types no Kubemoot image version" "" "$typed"
 done
-# Commits from CI: only the regenerated CRDs (ci.yaml; generated code, no version) and the
-# docs republish marker written in kubemoot-docs (trigger-docs-rebuild.yaml).
+# Commits from CI: only the docs republish marker written in kubemoot-docs
+# (trigger-docs-rebuild.yaml). Generated code is committed by the developer and checked by ci.yaml.
 commits="$(grep -nE 'git commit|git push.*(origin main|HEAD:main)|\[skip ci\]' .github/workflows/*.yaml .github/scripts/*.sh \
   | grep -vE '^[^:]+:[0-9]+:[[:space:]]*(#|echo )' | cut -d: -f1 | sort -u \
-  | grep -vxE '\.github/workflows/(ci|trigger-docs-rebuild)\.yaml|\.github/scripts/test-promote-release\.sh' || true)"
+  | grep -vxE '\.github/workflows/trigger-docs-rebuild\.yaml|\.github/scripts/test-promote-release\.sh' || true)"
 check "no workflow or script commits to main" "" "$commits"
 check "no workflow writes a chart file" "" \
   "$(grep -nE '(sed|yq).*(Chart|values)\.yaml' .github/workflows/*.yaml | grep -v 'integration-test' || true)"

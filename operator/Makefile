@@ -95,6 +95,10 @@ help: ## Display this help.
 .PHONY: manifests
 manifests: controller-gen ## Generate WebhookConfiguration, ClusterRole and CustomResourceDefinition objects.
 	$(CONTROLLER_GEN) rbac:roleName=manager-role crd webhook paths="./..." output:crd:artifacts:config=config/crd/bases
+	mkdir -p chart/kubemoot-operator/crds
+	rm -f chart/kubemoot-operator/crds/*.yaml
+	cp config/crd/bases/*.yaml chart/kubemoot-operator/crds/
+	hack/sync-chart-rbac.sh
 
 .PHONY: generate
 generate: controller-gen ## Generate code containing DeepCopy, DeepCopyInto, and DeepCopyObject method implementations.
