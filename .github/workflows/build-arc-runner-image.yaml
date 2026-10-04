@@ -4,7 +4,8 @@ name: Build ARC Runner Image
 # via an in-cluster Kaniko Job, the only push path to Harbor that bypasses Cloudflare
 # (the external endpoint is size-gated and advertises an HTTP token realm local
 # clients reject). The homelab OpenTofu arc-runner-scale-set references the pushed
-# tag via its runner_image variable. Bump RUNNER_TAG when the base version changes.
+# tag via its runner_image variable. The tag is <runner version>-homelab, read from the
+# Dockerfile's FROM line, so a base bump is a one-line Dockerfile change.
 on:
   workflow_dispatch:
   push:
@@ -16,7 +17,6 @@ on:
 env:
   REGISTRY: ${{ vars.REGISTRY }}
   IMAGE_NAME: kubemoot/actions-runner
-  RUNNER_TAG: 2.337.0-homelab
 
 permissions:
   contents: read
@@ -27,6 +27,16 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v5
+
+      - name: Derive image tag from the Dockerfile
+        run: |
+          RUNNER_VERSION=$(sed -n 's|^FROM ghcr.io/actions/actions-runner:\([^ @]*\).*|\1|p' arc-runner-image/Dockerfile | head -n 1)
+          if ! echo "${RUNNER_VERSION}" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::error file=arc-runner-image/Dockerfile::expected FROM ghcr.io/actions/actions-runner:<X.Y.Z>, got '${RUNNER_VERSION}'"
+            exit 1
+          fi
+          echo "RUNNER_TAG=${RUNNER_VERSION}-homelab" >> "${GITHUB_ENV}"
+          echo "Image tag: ${RUNNER_VERSION}-homelab"
 
       - name: Install kubectl
         run: |
