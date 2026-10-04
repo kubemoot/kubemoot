@@ -60,6 +60,21 @@ class ReadyTest(unittest.TestCase):
             run(qs.ready())
 
 
+class LifespanTest(unittest.TestCase):
+    def test_starts_with_a_warning_when_the_database_is_down(self):
+        async def start_and_stop():
+            async with qs.lifespan(qs.app):
+                pass
+
+        db_down = psycopg2.OperationalError("db down")
+        with (
+            mock.patch.object(qs, "get_db_connection", side_effect=db_down),
+            self.assertLogs("kubemoot-query", level="WARNING") as logs,
+        ):
+            run(start_and_stop())
+        self.assertTrue(any("Database connection: FAILED (db down)" in line for line in logs.output))
+
+
 class InfoTest(unittest.TestCase):
     def test_document_count_is_unknown_when_the_database_fails(self):
         db_down = psycopg2.OperationalError("db down")
