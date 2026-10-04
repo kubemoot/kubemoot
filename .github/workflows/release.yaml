@@ -33,8 +33,6 @@ jobs:
   ci:
     uses: ./.github/workflows/ci.yaml
     secrets: inherit
-    permissions:
-      contents: write   # required: ci.yaml's regenerate job auto-commits regenerated CRDs
 
   release:
     needs: ci

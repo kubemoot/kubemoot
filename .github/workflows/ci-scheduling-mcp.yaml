@@ -1,11 +1,6 @@
 name: CI Scheduling MCP
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - 'scheduling-mcp/**'
-      - '!scheduling-mcp/**.md'
   workflow_call:
   pull_request:
     branches: [main]

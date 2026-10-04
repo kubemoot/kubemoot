@@ -1,6 +1,6 @@
 # Kubemoot Full Test Suite Job
 # Comprehensive tests (~10 min) - run on-demand or nightly
-# Usage: kubectl create -f job-all.yaml
+# Usage: k8s/tests/job/run.sh all   (resolves the test-runner image from the git tags)
 #        kubectl logs -f job/kubemoot-test-all -n kubemoot
 ---
 apiVersion: batch/v1
@@ -21,7 +21,7 @@ spec:
       restartPolicy: Never
       containers:
         - name: test
-          image: ghcr.io/kubemoot/test-runner:0.342.31
+          image: ghcr.io/kubemoot/test-runner:0.0.0
           command: ["/bin/bash", "-c"]
           args:
             - |

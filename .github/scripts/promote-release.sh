@@ -50,7 +50,7 @@ source "${RELEASE_LIB:?RELEASE_LIB must point to release-lib.sh from kubemoot/re
 
 RC_TAG="${RC_TAG:-latest}"
 DRY_RUN="${DRY_RUN:-true}"
-STANDALONE_IMAGES="${STANDALONE_IMAGES:-code-sandbox artifact-access test-runner}"
+STANDALONE_IMAGES="${STANDALONE_IMAGES:-code-sandbox artifact-access scheduling-mcp test-runner}"
 OUT_DIR="$(mkdir -p "${OUT_DIR:-promotion}" && cd "${OUT_DIR:-promotion}" && pwd)"
 : "${REGISTRY:?REGISTRY required}"
 : "${RELEASE_REGISTRY:?RELEASE_REGISTRY required}"

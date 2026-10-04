@@ -1,15 +1,13 @@
-# Auto-republish the docs site when this repo's docs change.
+# Rebuild the docs site when this repository's docs change.
 #
-# The site (kubemoot-docs) aggregates kubemoot/docs at BUILD time, but its
-# Release Docs Site workflow only fires on a push to kubemoot-docs whose changed
-# paths match its filter. So a kubemoot/docs change does NOT rebuild the site on
-# its own (and an empty commit there matches nothing). This workflow makes the
-# version-bumping commit for us: on a docs change here, it writes the current SHA
-# into a path-filtered marker file in kubemoot-docs, which triggers the release.
+# The site (kubemoot-docs) pulls kubemoot/docs at build time, so a change here needs a
+# new site build. This workflow sends kubemoot-docs a repository_dispatch event
+# (kubemoot-docs-changed) carrying this commit; its Release Docs Site workflow then
+# builds a new release candidate from its own unchanged main, with no commit anywhere,
+# and records the kubemoot docs commit it built in the image label and the tag message.
 #
-# Needs repo secret DOCS_DISPATCH_TOKEN: a token with contents:write on
-# kubemoot-docs. Removes the manual "touch README" step. See the kanban card
-# [[Docs Site Cross-Repo Rebuild Trigger]].
+# Needs repository secret DOCS_DISPATCH_TOKEN: a token allowed to send dispatch events
+# to kubemoot-docs (contents: write on that repository).
 name: Trigger docs rebuild
 
 on:
@@ -24,23 +22,13 @@ permissions:
 
 jobs:
   rebuild:
-    runs-on: homelab-runners
+    # Only a GitHub API call: no cluster or Harbor access, so a hosted runner.
+    runs-on: ubuntu-latest
     steps:
-      - name: Republish kubemoot-docs (component docs changed)
-        env:
-          GH_TOKEN: ${{ secrets.DOCS_DISPATCH_TOKEN }}
-        run: |
-          set -euo pipefail
-          git clone --depth 1 "https://x-access-token:${GH_TOKEN}@github.com/kubemoot/kubemoot-docs.git" /tmp/kdocs
-          cd /tmp/kdocs
-          # component-sync.md is a root, NON-dotfile .md, so it reliably matches the
-          # release paths filter (**.md). A root DOTFILE may not match - the filter's
-          # matcher can exclude leading-dot files, which would silently no-op (the same
-          # failure class this workflow exists to kill). It sits at the repo root,
-          # outside content/, so Hugo never renders it. Overwrite (not append) => no cruft.
-          printf 'Last component-docs sync: kubemoot@%s at %s\n' "${GITHUB_SHA}" "$(date -u +%FT%TZ)" > component-sync.md
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add component-sync.md
-          git commit -qm "docs: republish (kubemoot docs synced @ ${GITHUB_SHA})"
-          git push
+      - name: Dispatch the docs site build
+        uses: peter-evans/repository-dispatch@v3
+        with:
+          token: ${{ secrets.DOCS_DISPATCH_TOKEN }}
+          repository: kubemoot/kubemoot-docs
+          event-type: kubemoot-docs-changed
+          client-payload: '{"kubemoot_sha": "${{ github.sha }}"}'

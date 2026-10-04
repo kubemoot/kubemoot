@@ -65,9 +65,9 @@ make install   # install the CRDs
 make run       # run the operator locally
 ```
 
-After changing CRDs, run `make manifests generate`, copy the generated CRDs to the
-chart, sync the RBAC into the chart templates, and commit the generated
-`zz_generated.deepcopy.go`.
+After changing the API types or RBAC markers, run `make manifests generate` (it also
+copies the CRDs and the manager role into the chart) and commit the generated files.
+CI regenerates them and fails when they differ from what is committed.
 
 **Agent runtime and other Java components** (`agent-runtime/`, `indexer/`,
 `mcp-gateway/`):

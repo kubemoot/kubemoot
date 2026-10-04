@@ -60,6 +60,17 @@ jobs:
             echo "No kubeconfig available" && exit 1
           fi
 
+      # The chart under test must be the one Flux applied: a Ready HelmRelease or a
+      # finished rollout can still be the previous chart. The chart release dispatches
+      # this only after Flux applied its chart, so this normally returns at once; a
+      # manual run tests whatever is deployed. TIMEOUT is only a safety net.
+      - name: Wait for Flux to apply the chart under test
+        if: github.event.client_payload.chart_version != ''
+        env:
+          CHART_VERSION: ${{ github.event.client_payload.chart_version }}
+          TIMEOUT: '120'
+        run: bash .github/scripts/wait-for-operator-chart.sh "${CHART_VERSION}"
+
       - name: Wait for operator rollout
         run: |
           kubectl rollout status deployment/kubemoot-operator -n kubemoot --timeout=120s

@@ -1,0 +1,96 @@
+name: Release Scheduling MCP
+
+# scheduling-mcp is not pinned by the operator chart: crews pin it, like code-sandbox and
+# artifact-access. Each push builds a scheduling-mcp-vX.Y.Z-rc.N image in Harbor; Promote
+# Release copies the latest candidate to GHCR as the final with the other standalone
+# images (STANDALONE_IMAGES in .github/scripts/promote-release.sh).
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'scheduling-mcp/**'
+      - '!scheduling-mcp/**.md'
+  workflow_dispatch:
+    inputs:
+      force_release:
+        description: 'Force a release even if no conventional commits found'
+        required: false
+        default: 'false'
+        type: boolean
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  REGISTRY: ${{ vars.REGISTRY }}
+  IMAGE_NAME: kubemoot/scheduling-mcp
+
+permissions:
+  contents: read
+
+jobs:
+  ci:
+    uses: ./.github/workflows/ci-scheduling-mcp.yaml
+    secrets: inherit
+
+  release:
+    needs: ci
+    runs-on: homelab-runners
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+        with:
+          # RELEASE_TOKEN (contents+workflows write) pushes even when main's workflow files changed after this commit; GITHUB_TOKEN is refused there.
+          token: ${{ secrets.RELEASE_TOKEN || github.token }}
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Calculate the release candidate version
+        id: version
+        uses: kubemoot/release-actions/release-candidate-version@71225d1c899d63a0c66500eeb798433b137ebe4f # v0.8.1
+        with:
+          tag_prefix: "scheduling-mcp-v"
+          change_path: "scheduling-mcp"
+          force: ${{ inputs.force_release }}
+
+      - name: Install crane
+        if: steps.version.outputs.release_created == 'true'
+        run: |
+          curl -sL https://github.com/google/go-containerregistry/releases/download/v0.20.2/go-containerregistry_Linux_x86_64.tar.gz | tar -xzf - crane
+          sudo mv crane /usr/local/bin/
+
+      # The image this run's CI built (tagged with the commit), never another build's.
+      - name: Tag the image with the version
+        if: steps.version.outputs.release_created == 'true'
+        env:
+          HARBOR_USERNAME: ${{ secrets.HARBOR_USERNAME }}
+          HARBOR_PASSWORD: ${{ secrets.HARBOR_PASSWORD }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          FULL_IMAGE="${REGISTRY}/${IMAGE_NAME}"
+          echo "${HARBOR_PASSWORD}" | crane auth login --insecure "${REGISTRY}" -u "${HARBOR_USERNAME}" --password-stdin
+          if ! crane manifest --insecure "${FULL_IMAGE}:${GITHUB_SHA}" >/dev/null 2>&1; then
+            echo "::error::${FULL_IMAGE}:${GITHUB_SHA} was not built"
+            exit 1
+          fi
+          crane copy --insecure "${FULL_IMAGE}:${GITHUB_SHA}" "${FULL_IMAGE}:${VERSION}"
+
+      - name: Create and push tag
+        if: steps.version.outputs.release_created == 'true'
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          TAG="scheduling-mcp-v${VERSION}"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          if git ls-remote --exit-code --tags origin "refs/tags/${TAG}" >/dev/null 2>&1; then
+            echo "Tag ${TAG} already exists on remote"
+          else
+            git tag -a "${TAG}" -m "Release candidate Scheduling MCP ${TAG}" "${GITHUB_SHA}"
+            git push origin "refs/tags/${TAG}"
+          fi
