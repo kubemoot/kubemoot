@@ -35,6 +35,10 @@ rules:
   - apiGroups: ["apps"]
     resources: ["deployments", "replicasets"]
     verbs: ["get", "list", "watch"]
+  # Leases - read which operator pod leads, so tests start after a rollout hands over
+  - apiGroups: ["coordination.k8s.io"]
+    resources: ["leases"]
+    verbs: ["get", "list"]
   # Jobs - for verify job management
   - apiGroups: ["batch"]
     resources: ["jobs"]
