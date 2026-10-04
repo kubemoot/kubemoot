@@ -1,0 +1,67 @@
+# One golangci-lint configuration for every Go module in this repository.
+# golangci-lint looks for its config in the working directory and then in each
+# parent, so a run from any module directory (operator/, crew-liaison/, ...) picks
+# up this file. CI runs it in each module's test job; the edit-time hook does the
+# same on the touched file. Paths below are relative to this file.
+version: "2"
+run:
+  allow-parallel-runners: true
+  relative-path-mode: cfg
+linters:
+  default: none
+  enable:
+    - copyloopvar
+    - dupl
+    - errcheck
+    - ginkgolinter
+    - goconst
+    - gocyclo
+    - govet
+    - ineffassign
+    - lll
+    - misspell
+    - nakedret
+    - prealloc
+    - revive
+    - staticcheck
+    - unconvert
+    - unparam
+    - unused
+  settings:
+    gocyclo:
+      # Ecosystem cyclomatic complexity gate: CC <= 10.
+      min-complexity: 10
+    revive:
+      rules:
+        - name: comment-spacings
+        - name: import-shadowing
+  exclusions:
+    generated: lax
+    rules:
+      # Table-driven tests repeat fixtures and run long by design.
+      - linters:
+          - dupl
+          - lll
+        path: _test\.go$
+      # kubebuilder markers on the API types cannot be wrapped.
+      - linters:
+          - lll
+        path: ^operator/api/
+      # Long lines in the operator internals predate this shared config.
+      - linters:
+          - lll
+        path: ^operator/internal/
+    paths:
+      - third_party$
+      - builtin$
+      - examples$
+formatters:
+  enable:
+    - gofmt
+    - goimports
+  exclusions:
+    generated: lax
+    paths:
+      - third_party$
+      - builtin$
+      - examples$

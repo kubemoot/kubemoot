@@ -6,6 +6,8 @@ on:
     branches: [main]
     paths:
       - 'code-sandbox/**'
+      - '.golangci.yml'
+      - '.github/scripts/golangci-lint.sh'
   workflow_dispatch:
 
 env:
@@ -51,11 +53,10 @@ jobs:
         working-directory: code-sandbox
         run: go vet ./...
 
+      # golangci-lint with the shared root .golangci.yml at the operator/Makefile pin.
       - name: Lint
         working-directory: code-sandbox
-        run: |
-          go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.14.0
-          "$(go env GOPATH)/bin/golangci-lint" run ./...
+        run: ../.github/scripts/golangci-lint.sh
 
       - name: Run tests
         working-directory: code-sandbox
