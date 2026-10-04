@@ -64,6 +64,7 @@ const (
 	argScheduleID     = "scheduleId"
 	argSourceThreadID = "source_thread_id"
 	argReason         = "reason"
+	argQuery          = "query"
 )
 
 // Argument descriptions shown to the model in the tool input schemas.
@@ -71,18 +72,18 @@ const (
 	whenDesc = `Natural-language time. "in 30 minutes", "tomorrow at 9am", "Monday at 14:30", ` +
 		`or an RFC 3339 timestamp.`
 	messageDesc = "The text to deliver as a reminder. " +
-		"Be specific — the future-you reading it lacks today's chat context."
+		"Be specific - the future-you reading it lacks today's chat context."
 	reminderThreadDesc = "Optional. The discussion threadId this reminder was created in, so it fires inline. " +
 		"Pull this from 'Discussion context: threadId=...' in your system prompt; " +
 		"omit it if you are not inside a discussion."
 	queryDesc = "The question to re-ask at the scheduled time. " +
-		"Phrase it fully — the follow-up discussion has no memory of the current one " +
+		"Phrase it fully - the follow-up discussion has no memory of the current one " +
 		"unless source_thread_id is set."
 	followupThreadDesc = "Optional. The discussion threadId this follow-up was created in. " +
 		"When present, the original thread is reopened (synthetic human reply) " +
 		"so the prior conversation context is preserved."
 	scheduleIDDesc = "The exact scheduleId (UUID) returned by list_scheduled. " +
-		"The end user never sees these — call list_scheduled first to look up the right id by descriptor."
+		"The end user never sees these - call list_scheduled first to look up the right id by descriptor."
 )
 
 // Specifications returns the tool-list payload MCP clients consume.
@@ -94,9 +95,9 @@ func (s *Set) Specifications() []map[string]any {
 			argSourceThreadID: stringProp(reminderThreadDesc),
 			argReason:         stringProp("Optional free-text note for the dashboard timeline."),
 		})),
-		toolSpec(toolScheduleFollowup, scheduleFollowupDesc, objectSchema([]string{argWhen, "query"}, map[string]any{
+		toolSpec(toolScheduleFollowup, scheduleFollowupDesc, objectSchema([]string{argWhen, argQuery}, map[string]any{
 			argWhen:           stringProp(`Natural-language time. Same syntax as set_reminder.`),
-			"query":           stringProp(queryDesc),
+			argQuery:          stringProp(queryDesc),
 			argSourceThreadID: stringProp(followupThreadDesc),
 			argReason:         stringProp("Optional free-text note."),
 		})),
@@ -127,10 +128,10 @@ func stringProp(description string) map[string]any {
 	return map[string]any{"type": "string", "description": description}
 }
 
-const setReminderDesc = "Schedule a one-shot reminder. The operator will publish a notice at the scheduled time — " +
+const setReminderDesc = "Schedule a one-shot reminder. The operator will publish a notice at the scheduled time - " +
 	"agents do NOT respond, the user just sees the reminder appear.\n" +
 	"\n" +
-	"Use this when the user says \"remind me…\", \"ping me…\", or \"tell me at…\". Do NOT use this " +
+	"Use this when the user says \"remind me...\", \"ping me...\", or \"tell me at...\". Do NOT use this " +
 	"for questions; use schedule_followup if they want a discussion to run later.\n" +
 	"\n" +
 	"If you are inside a discussion thread (look for 'Discussion context: threadId=...' in " +
@@ -140,7 +141,7 @@ const setReminderDesc = "Schedule a one-shot reminder. The operator will publish
 const scheduleFollowupDesc = "Schedule a deferred discussion. " +
 	"The operator will re-pose the query at the scheduled time and let the crew discuss it.\n" +
 	"\n" +
-	"Use this when the user says \"re-check…\", \"ask again later…\", \"follow up on…\", or \"run the " +
+	"Use this when the user says \"re-check...\", \"ask again later...\", \"follow up on...\", or \"run the " +
 	"weekly health summary every Monday\".\n" +
 	"\n" +
 	"If you are inside a discussion thread (look for 'Discussion context: threadId=...' in " +
@@ -154,7 +155,7 @@ const listScheduledDesc = "Return the pending scheduled reminders and follow-ups
 
 const cancelScheduledDesc = "Cancel a pending schedule by id. ALWAYS call list_scheduled first to find the right id " +
 	"from the user's description; the user does not know ids. Confirm with the user before " +
-	"calling cancel_scheduled (\"That's the 9am disk check — cancel?\"). On success, the " +
+	"calling cancel_scheduled (\"That's the 9am disk check - cancel?\"). On success, the " +
 	"schedule will not fire."
 
 // ─── Dispatch ───────────────────────────────────────────────────────────

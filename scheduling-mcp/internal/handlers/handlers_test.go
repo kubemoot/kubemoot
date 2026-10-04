@@ -12,17 +12,17 @@ import (
 	"github.com/kubemoot/kubemoot/scheduling-mcp/pkg/record"
 )
 
-// memKV is a goroutine-safe in-memory KV used by handler tests.
-type memKV struct {
-	mu sync.Mutex
-	m  map[string][]byte
-}
-
 // Fixture values shared by the handler tests.
 const (
 	otherCrewScheduleID = "other-1"
 	ourMessage          = "ours"
 )
+
+// memKV is a goroutine-safe in-memory KV used by handler tests.
+type memKV struct {
+	mu sync.Mutex
+	m  map[string][]byte
+}
 
 func newKV() *memKV { return &memKV{m: map[string][]byte{}} }
 
@@ -94,10 +94,10 @@ func mustJSON(t *testing.T, v any) json.RawMessage {
 func TestSetReminder_WritesRecordAndConfirms(t *testing.T) {
 	s := newSet()
 	args := mustJSON(t, map[string]any{
-		argWhen:            "in 30 minutes",
-		argMessage:         "water the plants",
-		"source_thread_id": "thread-7",
-		"reason":           "asked mid-conversation",
+		argWhen:           "in 30 minutes",
+		argMessage:        "water the plants",
+		argSourceThreadID: "thread-7",
+		argReason:         "asked mid-conversation",
 	})
 	out, err := s.Call(t.Context(), toolSetReminder, args)
 	if err != nil {
@@ -160,6 +160,54 @@ func TestSetReminder_RejectsBadTime(t *testing.T) {
 	if err == nil {
 		t.Error("unrecognized time expression should error")
 	}
+	if n := len(s.KV.(*memKV).m); n != 0 {
+		t.Errorf("a rejected time must write nothing, KV holds %d records", n)
+	}
+}
+
+func TestScheduleFollowup_RejectsBadTimeWithoutWriting(t *testing.T) {
+	s := newSet()
+	_, err := s.Call(t.Context(), toolScheduleFollowup, mustJSON(t, map[string]any{
+		argWhen: "sometime soon", argQuery: "is rig0 healthy?",
+	}))
+	if err == nil {
+		t.Error("unrecognized time expression should error")
+	}
+	if n := len(s.KV.(*memKV).m); n != 0 {
+		t.Errorf("a rejected time must write nothing, KV holds %d records", n)
+	}
+}
+
+func TestSpecifications_RequiredArguments(t *testing.T) {
+	want := map[string][]string{
+		toolSetReminder:      {argWhen, argMessage},
+		toolScheduleFollowup: {argWhen, argQuery},
+		toolListScheduled:    nil,
+		toolCancelScheduled:  {argScheduleID},
+	}
+	specs := newSet().Specifications()
+	if len(specs) != len(want) {
+		t.Fatalf("got %d tools, want %d", len(specs), len(want))
+	}
+	for _, spec := range specs {
+		name, _ := spec["name"].(string)
+		required, has := want[name]
+		if !has {
+			t.Errorf("unexpected tool %q", name)
+			continue
+		}
+		schema, _ := spec["inputSchema"].(map[string]any)
+		got, present := schema["required"]
+		if required == nil {
+			if present {
+				t.Errorf("%s: want no required list, got %v", name, got)
+			}
+			continue
+		}
+		if gotList, _ := got.([]string); strings.Join(gotList, ",") != strings.Join(required, ",") {
+			t.Errorf("%s: required = %v, want %v", name, got, required)
+		}
+	}
 }
 
 // ─── schedule_followup ─────────────────────────────────────────────────
@@ -167,8 +215,8 @@ func TestSetReminder_RejectsBadTime(t *testing.T) {
 func TestScheduleFollowup_WritesRecordAndConfirms(t *testing.T) {
 	s := newSet()
 	args := mustJSON(t, map[string]any{
-		argWhen: "tomorrow at 9am",
-		"query": "Re-check disk pressure on rig0.",
+		argWhen:  "tomorrow at 9am",
+		argQuery: "Re-check disk pressure on rig0.",
 	})
 	out, err := s.Call(t.Context(), toolScheduleFollowup, args)
 	if err != nil {
