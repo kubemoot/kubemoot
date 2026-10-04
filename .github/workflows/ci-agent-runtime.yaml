@@ -10,6 +10,17 @@ on:
     paths:
       - 'agent-runtime/**'
   workflow_dispatch:
+    inputs:
+      native_check:
+        description: 'Build and start the native image on the homelab runners without pushing it (for a branch before merge)'
+        required: false
+        default: false
+        type: boolean
+      mcp_endpoint:
+        description: 'Required with native_check: an in-cluster MCP server (HTTP+SSE) the native binary connects to directly, e.g. http://<service>.<namespace>:8080'
+        required: false
+        default: ''
+        type: string
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
@@ -49,6 +60,8 @@ jobs:
     # The release job gates on ALL CI jobs passing before creating
     # the version tag that Flux deploys. A failed test means the
     # SHA-tagged image sits unused in Harbor.
+    # A dispatch with native_check builds the same native binary and starts it
+    # instead of pushing: nothing reaches Harbor and no tag is created.
     runs-on: homelab-runners
     if: github.event_name != 'pull_request'
 
@@ -73,11 +86,13 @@ jobs:
         run: chmod +x gradlew
 
       - name: Install kubectl
+        if: ${{ !inputs.native_check }}
         run: |
           curl -sLO "https://dl.k8s.io/release/$(curl -sL https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
           chmod +x kubectl && sudo mv kubectl /usr/local/bin/
 
       - name: Ensure Harbor project exists
+        if: ${{ !inputs.native_check }}
         run: |
           curl -s -X POST "http://${{ env.REGISTRY }}/api/v2.0/projects" \
             -H "Content-Type: application/json" \
@@ -93,7 +108,53 @@ jobs:
             -Dquarkus.native.container-build=false \
             -Dquarkus.package.jar.enabled=false
 
+      - name: Start the native binary (native check)
+        if: ${{ inputs.native_check }}
+        timeout-minutes: 3
+        working-directory: agent-runtime
+        env:
+          MCP_ENDPOINT: ${{ inputs.mcp_endpoint }}
+          QUARKUS_HTTP_PORT: '18080'
+          KUBEMOOT_AGENT_NAME: native-check
+          KUBEMOOT_AGENT_DESCRIPTION: native image check
+        # Checks what native compilation can break (startup, MCP SDK JSON and reflection),
+        # not NATS or Ollama connectivity: the binary runs without either.
+        run: |
+          if [ -z "${MCP_ENDPOINT}" ]; then
+            echo "::error::native_check needs mcp_endpoint: the MCP client is only exercised against a live server"
+            exit 1
+          fi
+          export KUBEMOOT_MCP_SERVERS_0__NAME=check
+          export KUBEMOOT_MCP_SERVERS_0__ENDPOINT="${MCP_ENDPOINT}"
+          runner=(build/*-runner)
+          "./${runner[0]}" > runner.log 2>&1 &
+          pid=$!
+          until curl -sf "http://localhost:${QUARKUS_HTTP_PORT}/q/health/live" >/dev/null; do
+            if ! kill -0 "${pid}" 2>/dev/null; then
+              echo "::error::The native binary exited during startup"
+              cat runner.log
+              exit 1
+            fi
+            sleep 1
+          done
+          # The tools endpoint initializes the MCP client, which connects to MCP_ENDPOINT.
+          if ! tools="$(curl -sf "http://localhost:${QUARKUS_HTTP_PORT}/tools")"; then
+            echo "::error::The native binary did not answer /tools"
+            cat runner.log
+            exit 1
+          fi
+          kill "${pid}"
+          cat runner.log
+          echo "tools: ${tools}"
+          count="$(printf '%s' "${tools}" | grep -o '"count":[0-9]*' | cut -d: -f2)"
+          if [ "${count:-0}" -eq 0 ]; then
+            echo "::error::The native binary listed no tools from ${MCP_ENDPOINT}"
+            exit 1
+          fi
+          echo "Native binary started; ${count} MCP tools listed from ${MCP_ENDPOINT}."
+
       - name: Build and push with Kaniko
+        if: ${{ !inputs.native_check }}
         working-directory: agent-runtime
         run: |
           SHA="${{ github.sha }}"
