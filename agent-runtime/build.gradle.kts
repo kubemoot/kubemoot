@@ -51,11 +51,15 @@ dependencies {
     // provider abstraction so other backends (vLLM, …) stay possible.
     implementation("dev.langchain4j:langchain4j-http-client-jdk")
 
-    // MCP protocol client (framework-agnostic, used for direct MCP server connections)
-    implementation("io.modelcontextprotocol.sdk:mcp:0.10.0")
+    // MCP protocol client (framework-agnostic, used for direct MCP server connections).
+    // mcp-core with the Jackson 2 binding instead of the `mcp` bundle, which brings
+    // Jackson 3 and a YAML stack: the agent keeps the one Jackson that Quarkus manages
+    // and the native image carries no second JSON library.
+    implementation("io.modelcontextprotocol.sdk:mcp-core:2.0.1")
+    implementation("io.modelcontextprotocol.sdk:mcp-json-jackson2:2.0.1")
 
     // NATS - publish chat events to NATS JetStream
-    implementation("io.nats:jnats:2.25.3")
+    implementation("io.nats:jnats:2.26.3")
 
     // Observability
     implementation("io.quarkus:quarkus-micrometer-registry-prometheus")
