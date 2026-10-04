@@ -6,6 +6,12 @@ import (
 	"testing"
 )
 
+// The namespace and crew most tests scope to.
+const (
+	testNamespace = "team-a"
+	testCrew      = "pilot"
+)
+
 func mustScope(t *testing.T, ns, crew string) Scope {
 	t.Helper()
 	s, err := New(ns, crew)
@@ -16,7 +22,7 @@ func mustScope(t *testing.T, ns, crew string) Scope {
 }
 
 func TestSubjectsCarryNamespaceBeforeCrew(t *testing.T) {
-	s := mustScope(t, "team-a", "pilot")
+	s := mustScope(t, testNamespace, testCrew)
 	cases := map[string]string{
 		"request": s.RequestSubject(),
 		"discuss": s.DiscussSubject("broadcast", "t-1"),
@@ -35,8 +41,8 @@ func TestSubjectsCarryNamespaceBeforeCrew(t *testing.T) {
 }
 
 func TestSameCrewNameInTwoNamespacesDiffers(t *testing.T) {
-	a := mustScope(t, "team-a", "pilot")
-	b := mustScope(t, "team-b", "pilot")
+	a := mustScope(t, testNamespace, testCrew)
+	b := mustScope(t, "team-b", testCrew)
 	if a.RequestSubject() == b.RequestSubject() {
 		t.Errorf("request subjects collide: %q", a.RequestSubject())
 	}
@@ -50,13 +56,13 @@ func TestSameCrewNameInTwoNamespacesDiffers(t *testing.T) {
 
 func TestNewRejectsInvalidTokens(t *testing.T) {
 	for _, c := range []struct{ ns, crew string }{
-		{"", "pilot"},
-		{"team-a", ""},
-		{"team.a", "pilot"},
-		{"team-a", "pi.lot"},
-		{"team-a", "pilot>"},
-		{"team-a", "*"},
-		{"team a", "pilot"},
+		{"", testCrew},
+		{testNamespace, ""},
+		{"team.a", testCrew},
+		{testNamespace, "pi.lot"},
+		{testNamespace, "pilot>"},
+		{testNamespace, "*"},
+		{"team a", testCrew},
 	} {
 		if _, err := New(c.ns, c.crew); err == nil {
 			t.Errorf("New(%q, %q) accepted an invalid token", c.ns, c.crew)
@@ -75,7 +81,7 @@ func TestResolveNamespacePrefersEnv(t *testing.T) {
 	}
 	file := func(string) ([]byte, error) { return []byte("from-file"), nil }
 	ns, err := ResolveNamespace(env, file)
-	if err != nil || ns != "team-a" {
+	if err != nil || ns != testNamespace {
 		t.Fatalf("got %q, %v; want team-a", ns, err)
 	}
 }

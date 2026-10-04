@@ -21,6 +21,16 @@ import (
 // The coordinator dual-publishes synthesis to the broadcast subject AND the
 // channel subject; both copies share one messageId. The wildcard consumer
 // matches both, so the deduper must let the first through and drop the second.
+// Fixture values shared by the API tests.
+const (
+	testConv       = "conv-1"
+	testAgent      = "k8s"
+	sigAgree       = "agree"
+	sigConcern     = "concern"
+	reasonGPUBusy  = "gpu-busy"
+	testRulesAgent = "rules"
+)
+
 func TestMessageDeduper_DropsDuplicateMessageID(t *testing.T) {
 	d := newMessageDeduper()
 
@@ -65,15 +75,15 @@ func TestTranslateAndEmit_PersistsAllConsensusSignals(t *testing.T) {
 		wantType   string
 		wantSignal string
 	}{
-		{"agree", "finding", "agree"},
-		{"concern", "finding", "concern"},
-		{"block", "finding", "block"},
-		{"failure", "finding", "failure"},
-		{"stand_aside", "phase", "stand_aside"},
+		{sigAgree, eventFinding, sigAgree},
+		{sigConcern, eventFinding, sigConcern},
+		{"block", eventFinding, "block"},
+		{"failure", eventFinding, "failure"},
+		{signalStandAside, eventPhase, signalStandAside},
 	}
 	for _, c := range cases {
 		var got []SSEEvent
-		translateAndEmit(natsMessage{MessageType: c.msgType, AgentName: "k8s", Content: "x"}, func(e SSEEvent) { got = append(got, e) })
+		translateAndEmit(natsMessage{MessageType: c.msgType, AgentName: testAgent, Content: "x"}, func(e SSEEvent) { got = append(got, e) })
 		if len(got) != 1 {
 			t.Fatalf("%s: emitted %d events, want 1", c.msgType, len(got))
 		}
@@ -81,7 +91,7 @@ func TestTranslateAndEmit_PersistsAllConsensusSignals(t *testing.T) {
 			t.Errorf("%s: got Type=%q Signal=%q, want Type=%q Signal=%q",
 				c.msgType, got[0].Type, got[0].Signal, c.wantType, c.wantSignal)
 		}
-		if got[0].Agent != "k8s" {
+		if got[0].Agent != testAgent {
 			t.Errorf("%s: agent = %q, want k8s", c.msgType, got[0].Agent)
 		}
 	}
@@ -90,7 +100,7 @@ func TestTranslateAndEmit_PersistsAllConsensusSignals(t *testing.T) {
 // threadStart is a thread_start for conv-1 stored at published with sequence seq.
 func threadStart(thread string, published time.Time, seq uint64) discussMsg {
 	return discussMsg{
-		data:      natsMessage{MessageType: "thread_start", ThreadID: thread, Metadata: map[string]interface{}{"conversationId": "conv-1"}},
+		data:      natsMessage{MessageType: "thread_start", ThreadID: thread, Metadata: map[string]interface{}{"conversationId": testConv}},
 		published: published,
 		seq:       seq,
 	}
@@ -101,7 +111,7 @@ func threadStart(thread string, published time.Time, seq uint64) discussMsg {
 // thread that started after this turn's request was queued.
 func TestThreadFinderSkipsAnEarlierTurnsThread(t *testing.T) {
 	queued := time.Date(2026, 9, 27, 6, 25, 40, 0, time.UTC)
-	tf := &threadFinder{conversationID: "conv-1", notBefore: queued.Add(-clockSkew)}
+	tf := &threadFinder{conversationID: testConv, notBefore: queued.Add(-clockSkew)}
 	var events []SSEEvent
 	emit := func(e SSEEvent) { events = append(events, e) }
 
@@ -109,7 +119,7 @@ func TestThreadFinderSkipsAnEarlierTurnsThread(t *testing.T) {
 	if tf.threadID != "" {
 		t.Fatal("the previous turn's thread must not be taken")
 	}
-	old := discussMsg{data: natsMessage{MessageType: "synthesis", ThreadID: "turn-1", Content: "old answer"}, published: queued.Add(-time.Second), seq: 2}
+	old := discussMsg{data: natsMessage{MessageType: msgSynthesis, ThreadID: "turn-1", Content: "old answer"}, published: queued.Add(-time.Second), seq: 2}
 	if tf.process(old, emit) {
 		t.Fatal("messages of the previous turn must not be translated")
 	}
@@ -125,7 +135,7 @@ func TestThreadFinderSkipsAnEarlierTurnsThread(t *testing.T) {
 // TestThreadFinderWithoutARequestTimeTakesTheFirstMatch keeps the behaviour for a
 // stream whose request time is unknown.
 func TestThreadFinderWithoutARequestTimeTakesTheFirstMatch(t *testing.T) {
-	tf := &threadFinder{conversationID: "conv-1"}
+	tf := &threadFinder{conversationID: testConv}
 	tf.process(threadStart("t", time.Now().Add(-time.Minute), 1), func(SSEEvent) {})
 	if tf.threadID != "t" {
 		t.Fatal("with no request time the first matching thread is taken")
@@ -137,7 +147,7 @@ func TestThreadFinderWithoutARequestTimeTakesTheFirstMatch(t *testing.T) {
 // under thread B. The stream must move to B; A never closes.
 func TestThreadFinderFollowsARestartedThread(t *testing.T) {
 	queued := time.Date(2026, 9, 30, 19, 36, 36, 0, time.UTC)
-	tf := &threadFinder{conversationID: "conv-1", notBefore: queued.Add(-clockSkew)}
+	tf := &threadFinder{conversationID: testConv, notBefore: queued.Add(-clockSkew)}
 	var events []SSEEvent
 	emit := func(e SSEEvent) { events = append(events, e) }
 
@@ -149,10 +159,10 @@ func TestThreadFinderFollowsARestartedThread(t *testing.T) {
 	if tf.threadID != "B" {
 		t.Fatalf("threadID = %q, want B", tf.threadID)
 	}
-	if tf.process(discussMsg{data: natsMessage{MessageType: "agree", ThreadID: "A"}, seq: 21}, emit) {
+	if tf.process(discussMsg{data: natsMessage{MessageType: sigAgree, ThreadID: "A"}, seq: 21}, emit) {
 		t.Fatal("the abandoned thread's messages must be dropped")
 	}
-	if !tf.process(discussMsg{data: natsMessage{MessageType: "synthesis", ThreadID: "B"}, seq: 22}, emit) {
+	if !tf.process(discussMsg{data: natsMessage{MessageType: msgSynthesis, ThreadID: "B"}, seq: 22}, emit) {
 		t.Fatal("the new thread's messages must be followed")
 	}
 	if len(events) != 2 || events[1].ThreadID != "B" || events[1].ID != "B:20" {
@@ -163,7 +173,7 @@ func TestThreadFinderFollowsARestartedThread(t *testing.T) {
 // A second copy of the followed thread's thread_start (a dual publish with its own id)
 // is not a restart.
 func TestThreadFinderIgnoresARepeatOfTheFollowedThreadStart(t *testing.T) {
-	tf := &threadFinder{conversationID: "conv-1"}
+	tf := &threadFinder{conversationID: testConv}
 	var events []SSEEvent
 	emit := func(e SSEEvent) { events = append(events, e) }
 	tf.process(threadStart("A", time.Time{}, 1), emit)
@@ -178,16 +188,16 @@ func TestThreadFinderIgnoresARepeatOfTheFollowedThreadStart(t *testing.T) {
 // partway through resumes before it. Other threads' are not replayed, and the buffer is
 // bounded.
 func TestThreadFinderReplaysBufferedMessagesOfItsThread(t *testing.T) {
-	tf := &threadFinder{conversationID: "conv-1"}
+	tf := &threadFinder{conversationID: testConv}
 	var events []SSEEvent
 	emit := func(e SSEEvent) { events = append(events, e) }
 	for i := 0; i < maxBufferedMessages+5; i++ {
-		tf.process(discussMsg{data: natsMessage{MessageType: "agree", ThreadID: "other"}, seq: uint64(i + 1)}, emit)
+		tf.process(discussMsg{data: natsMessage{MessageType: sigAgree, ThreadID: "other"}, seq: uint64(i + 1)}, emit)
 	}
 	if len(tf.buf) != maxBufferedMessages {
 		t.Fatalf("buffer = %d, want %d", len(tf.buf), maxBufferedMessages)
 	}
-	tf.process(discussMsg{data: natsMessage{MessageType: "concern", ThreadID: "A", Content: "early"}, seq: 900}, emit)
+	tf.process(discussMsg{data: natsMessage{MessageType: sigConcern, ThreadID: "A", Content: "early"}, seq: 900}, emit)
 	tf.process(threadStart("A", time.Time{}, 901), emit)
 	if len(events) != 2 || events[0].ID != "" || events[1].Summary != "early" || events[1].ID != "A:901" {
 		t.Fatalf("want thread_found then the buffered concern, got %+v", events)
@@ -199,8 +209,8 @@ func TestThreadFinderReplaysBufferedMessagesOfItsThread(t *testing.T) {
 
 // A resumed stream already knows its thread and follows it from the first message.
 func TestNewThreadFinderResumesTheClientsThread(t *testing.T) {
-	tf := newThreadFinder(streamRequest{conversationID: "conv-1", resume: &resumePoint{threadID: "B", afterSeq: 7}})
-	if !tf.process(discussMsg{data: natsMessage{MessageType: "synthesis", ThreadID: "B"}, seq: 8}, func(SSEEvent) {}) {
+	tf := newThreadFinder(streamRequest{conversationID: testConv, resume: &resumePoint{threadID: "B", afterSeq: 7}})
+	if !tf.process(discussMsg{data: natsMessage{MessageType: msgSynthesis, ThreadID: "B"}, seq: 8}, func(SSEEvent) {}) {
 		t.Fatal("a resumed stream follows the client's thread")
 	}
 }
@@ -262,16 +272,16 @@ func TestTranslateAndEmit_WaitingAndStandAsideReasons(t *testing.T) {
 		in   natsMessage
 		want SSEEvent
 	}{
-		{"waiting", natsMessage{MessageType: "waiting", AgentName: "rules", Metadata: map[string]interface{}{"model": "qwen3:14b", "reason": "gpu-busy"}},
-			SSEEvent{Type: "phase", Agent: "rules", Status: "waiting", Model: "qwen3:14b", Reason: "gpu-busy"}},
-		{"stand_aside with reason", natsMessage{MessageType: "stand_aside", AgentName: "rules", Metadata: map[string]interface{}{"reason": "gpu-busy"}},
-			SSEEvent{Type: "phase", Agent: "rules", Status: "done", StoodAside: true, Signal: "stand_aside", Reason: "gpu-busy"}},
-		{"stand_aside without reason", natsMessage{MessageType: "stand_aside", AgentName: "rules"},
-			SSEEvent{Type: "phase", Agent: "rules", Status: "done", StoodAside: true, Signal: "stand_aside"}},
-		{"evaluating", natsMessage{MessageType: "evaluating", AgentName: "rules", Metadata: map[string]interface{}{"gpuLabel": "ollama-rig1"}},
-			SSEEvent{Type: "phase", Agent: "rules", Status: "evaluating", GPU: "ollama-rig1"}},
-		{"ready", natsMessage{MessageType: "ready", AgentName: "rules"},
-			SSEEvent{Type: "phase", Agent: "rules", Status: "ready"}},
+		{phaseWaiting, natsMessage{MessageType: phaseWaiting, AgentName: testRulesAgent, Metadata: map[string]interface{}{"model": "qwen3:14b", "reason": reasonGPUBusy}},
+			SSEEvent{Type: eventPhase, Agent: testRulesAgent, Status: phaseWaiting, Model: "qwen3:14b", Reason: reasonGPUBusy}},
+		{"stand_aside with reason", natsMessage{MessageType: signalStandAside, AgentName: testRulesAgent, Metadata: map[string]interface{}{"reason": reasonGPUBusy}},
+			SSEEvent{Type: eventPhase, Agent: testRulesAgent, Status: "done", StoodAside: true, Signal: signalStandAside, Reason: reasonGPUBusy}},
+		{"stand_aside without reason", natsMessage{MessageType: signalStandAside, AgentName: testRulesAgent},
+			SSEEvent{Type: eventPhase, Agent: testRulesAgent, Status: "done", StoodAside: true, Signal: signalStandAside}},
+		{phaseEvaluating, natsMessage{MessageType: phaseEvaluating, AgentName: testRulesAgent, Metadata: map[string]interface{}{"gpuLabel": "ollama-rig1"}},
+			SSEEvent{Type: eventPhase, Agent: testRulesAgent, Status: phaseEvaluating, GPU: "ollama-rig1"}},
+		{phaseReady, natsMessage{MessageType: phaseReady, AgentName: testRulesAgent},
+			SSEEvent{Type: eventPhase, Agent: testRulesAgent, Status: phaseReady}},
 	}
 	for _, c := range cases {
 		var got []SSEEvent
@@ -287,7 +297,7 @@ func TestTranslateAndEmit_IgnoresNoiseAndUnknown(t *testing.T) {
 		translateAndEmit(natsMessage{MessageType: mt}, func(e SSEEvent) { t.Errorf("%s emitted %+v", mt, e) })
 	}
 	var got []SSEEvent
-	translateAndEmit(natsMessage{MessageType: "concern", Content: "careful"}, func(e SSEEvent) { got = append(got, e) })
+	translateAndEmit(natsMessage{MessageType: sigConcern, Content: "careful"}, func(e SSEEvent) { got = append(got, e) })
 	if len(got) != 1 || got[0].Summary != "careful" || got[0].Content != "" {
 		t.Errorf("concern: got %+v", got)
 	}

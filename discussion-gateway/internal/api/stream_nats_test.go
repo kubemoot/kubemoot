@@ -62,12 +62,16 @@ func publishDiscuss(t *testing.T, js jetstream.JetStream, msg map[string]interfa
 	return ack.Sequence
 }
 
-func startOf(thread, conversation string) map[string]interface{} {
-	return map[string]interface{}{"messageId": "start-" + thread, "messageType": "thread_start", "threadId": thread, "metadata": map[string]string{"conversationId": conversation}}
+// startOf is the thread_start of thread for the test conversation.
+func startOf(thread string) map[string]interface{} {
+	return map[string]interface{}{
+		"messageId": "start-" + thread, "messageType": msgThreadStart, "threadId": thread,
+		"metadata": map[string]string{"conversationId": testConv},
+	}
 }
 
 func msgOf(thread, id, messageType, content string) map[string]interface{} {
-	return map[string]interface{}{"messageId": id, "messageType": messageType, "threadId": thread, "agentName": "k8s", "content": content}
+	return map[string]interface{}{"messageId": id, "messageType": messageType, "threadId": thread, "agentName": testAgent, "content": content}
 }
 
 // readStream reads a stream to its end and returns its non-empty field lines.
@@ -114,10 +118,10 @@ func gatewayServer(t *testing.T, nc *natsclient.Client) *httptest.Server {
 func TestStreamFollowsTheThreadACoordinatorRestartStarted(t *testing.T) {
 	nc, js := jetStreamServer(t)
 	since := time.Now().UTC().Format(time.RFC3339Nano)
-	publishDiscuss(t, js, startOf("A", "conv-1"))
+	publishDiscuss(t, js, startOf("A"))
 	publishDiscuss(t, js, msgOf("A", "a1", "triaging", ""))
-	b := publishDiscuss(t, js, startOf("B", "conv-1"))
-	publishDiscuss(t, js, msgOf("B", "b1", "synthesis", "the namespaces are ..."))
+	b := publishDiscuss(t, js, startOf("B"))
+	publishDiscuss(t, js, msgOf("B", "b1", msgSynthesis, "the namespaces are ..."))
 	closeSeq := publishDiscuss(t, js, msgOf("B", "b2", "thread_close", ""))
 
 	lines := readStream(t, gatewayServer(t, nc), "/api/v1/discussions/pilot/conv-1/stream?since="+url.QueryEscape(since), nil)
@@ -138,10 +142,10 @@ func TestStreamFollowsTheThreadACoordinatorRestartStarted(t *testing.T) {
 // came after, including the answer, without the events it already has.
 func TestStreamResumesAfterTheLastEventID(t *testing.T) {
 	nc, js := jetStreamServer(t)
-	publishDiscuss(t, js, startOf("A", "conv-1"))
-	publishDiscuss(t, js, msgOf("A", "a1", "concern", "seen before the drop"))
-	seen := publishDiscuss(t, js, msgOf("A", "a2", "agree", "also seen"))
-	publishDiscuss(t, js, msgOf("A", "a3", "synthesis", "answer"))
+	publishDiscuss(t, js, startOf("A"))
+	publishDiscuss(t, js, msgOf("A", "a1", sigConcern, "seen before the drop"))
+	seen := publishDiscuss(t, js, msgOf("A", "a2", sigAgree, "also seen"))
+	publishDiscuss(t, js, msgOf("A", "a3", msgSynthesis, "answer"))
 	publishDiscuss(t, js, msgOf("A", "a4", "thread_close", ""))
 	srv := gatewayServer(t, nc)
 
@@ -167,9 +171,9 @@ func TestStreamResumesAfterTheLastEventID(t *testing.T) {
 // event was the first copy must not receive the second after it resumes.
 func TestStreamResumeSkipsTheTwinOfTheLastDeliveredMessage(t *testing.T) {
 	nc, js := jetStreamServer(t)
-	publishDiscuss(t, js, startOf("A", "conv-1"))
-	first := publishDiscuss(t, js, msgOf("A", "dual", "concern", "said once"))
-	publishDiscuss(t, js, msgOf("A", "dual", "concern", "said once"))
+	publishDiscuss(t, js, startOf("A"))
+	first := publishDiscuss(t, js, msgOf("A", "dual", sigConcern, "said once"))
+	publishDiscuss(t, js, msgOf("A", "dual", sigConcern, "said once"))
 	publishDiscuss(t, js, msgOf("A", "a9", "thread_close", ""))
 	header := http.Header{}
 	header.Set("Last-Event-ID", eventID("A", first))
@@ -186,7 +190,7 @@ func TestStreamResumeSkipsTheTwinOfTheLastDeliveredMessage(t *testing.T) {
 // question posted meanwhile is still queued.
 func TestEndStreamsOnEndsStreamsButNotQuestions(t *testing.T) {
 	nc, js := jetStreamServer(t)
-	publishDiscuss(t, js, startOf("A", "conv-1"))
+	publishDiscuss(t, js, startOf("A"))
 	shutdown, stop := context.WithCancel(context.Background())
 	mux := http.NewServeMux()
 	NewHandler(nc, "ns").EndStreamsOn(shutdown).RegisterRoutes(mux)
