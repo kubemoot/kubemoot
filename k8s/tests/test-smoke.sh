@@ -33,19 +33,22 @@ if ! kubectl get namespace "$NAMESPACE" &>/dev/null; then
 fi
 log_ok "Namespace '$NAMESPACE' exists"
 
-if ! kubectl get deployment -n "$NAMESPACE" -l app.kubernetes.io/name=kubemoot-operator &>/dev/null; then
+if [ -z "$(kubectl get deployment -n "$NAMESPACE" -l "$OPERATOR_SELECTOR" -o name 2>/dev/null)" ]; then
     log_fail "Operator not deployed"
     exit 1
 fi
 log_ok "Operator is deployed"
 
 # Check operator is running
-OPERATOR_READY=$(kubectl get deployment -n "$NAMESPACE" -l app.kubernetes.io/name=kubemoot-operator -o jsonpath='{.items[0].status.readyReplicas}' 2>/dev/null || echo "0")
+OPERATOR_READY=$(kubectl get deployment -n "$NAMESPACE" -l "$OPERATOR_SELECTOR" -o jsonpath='{.items[0].status.readyReplicas}' 2>/dev/null || echo "0")
 if [[ "$OPERATOR_READY" -lt 1 ]]; then
     log_fail "Operator not ready"
     exit 1
 fi
 log_ok "Operator is ready"
+
+# A Ready pod is not yet a running operator: wait until a Ready pod holds the leader lease
+wait_for_operator_leader || exit 1
 
 # Test 1: ModelProvider
 log_section "Test 1: ModelProvider Quick Check"

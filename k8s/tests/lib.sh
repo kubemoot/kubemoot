@@ -102,18 +102,48 @@ check_namespace() {
     log_ok "Namespace '$ns' exists"
 }
 
+# The operator's own pods: the chart gives the liaison, the notification mock, and the
+# NATS bootstrap job the same app.kubernetes.io/name, so control-plane picks the operator.
+OPERATOR_SELECTOR="${OPERATOR_SELECTOR:-app.kubernetes.io/name=kubemoot-operator,control-plane=controller-manager}"
+
 check_operator() {
-    # Check for kubemoot-operator deployment (standard name)
-    if kubectl get deploy kubemoot-operator -n "$NAMESPACE" > /dev/null 2>&1; then
-        log_ok "Kubemoot operator is deployed"
+    if [ -z "$(kubectl get deploy -n "$NAMESPACE" -l "$OPERATOR_SELECTOR" -o name 2>/dev/null)" ]; then
+        log_fail "Kubemoot operator not found in namespace '$NAMESPACE'"
+        return 1
+    fi
+    log_ok "Kubemoot operator is deployed"
+    wait_for_operator_leader
+}
+
+#
+# operator_leader_pod: the operator pod that holds a leader lease in the namespace, if
+# that pod is Ready and not shutting down; prints nothing otherwise. Pod readiness alone
+# is not enough: during a rollout the new pod is Ready while the old one still holds the
+# lease, and no controller reconciles until the lease changes hands. A lease holder is
+# <pod name>_<uuid>.
+#
+operator_leader_pod() {
+    local holders ready pod
+    holders=$(kubectl get lease -n "$NAMESPACE" \
+        -o jsonpath='{range .items[*]}{.spec.holderIdentity}{"\n"}{end}' 2>/dev/null | sed 's/_.*//')
+    ready=$(kubectl get pods -n "$NAMESPACE" -l "$OPERATOR_SELECTOR" \
+        -o jsonpath='{range .items[*]}{.metadata.name}|{.metadata.deletionTimestamp}|{.status.conditions[?(@.type=="Ready")].status}{"\n"}{end}' \
+        2>/dev/null | awk -F'|' '$2 == "" && $3 == "True" {print $1}')
+    for pod in $holders; do
+        if grep -qx "$pod" <<<"$ready"; then
+            echo "$pod"
+            return 0
+        fi
+    done
+    return 1
+}
+
+wait_for_operator_leader() {
+    if wait_for "a Ready operator pod to hold the leader lease" operator_leader_pod "${LEADER_TIMEOUT:-180}"; then
+        log_ok "Kubemoot operator is leading ($(operator_leader_pod))"
         return 0
     fi
-    # Fallback: check for kubemoot deployment (legacy name)
-    if kubectl get deploy kubemoot -n "$NAMESPACE" > /dev/null 2>&1; then
-        log_ok "Kubemoot operator is deployed"
-        return 0
-    fi
-    log_fail "Kubemoot operator not found in namespace '$NAMESPACE'"
+    log_fail "No Ready operator pod holds the leader lease"
     return 1
 }
 
