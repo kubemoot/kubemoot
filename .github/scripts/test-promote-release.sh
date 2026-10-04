@@ -357,12 +357,16 @@ for f in $(git ls-files '*values.yaml' | grep -E '^(operator/chart|dashboard/cha
   typed="$(grep -nE "(^|[\"' /])(${images}):[A-Za-z0-9._-]+" "$f" | grep -vE ":(${images}):0\.0\.0([\"' ]|$)|/(${images}):0\.0\.0([\"' ]|$)| (${images}):0\.0\.0([\"' ]|$)" || true)"
   check "${f} types no Kubemoot image version" "" "$typed"
 done
-# Commits from CI: only the docs republish marker written in kubemoot-docs
-# (trigger-docs-rebuild.yaml). Generated code is committed by the developer and checked by ci.yaml.
+# No workflow or script commits: generated code is committed by the developer and checked
+# by ci.yaml, and a docs change reaches kubemoot-docs as a dispatch event.
 commits="$(grep -nE 'git commit|git push.*(origin main|HEAD:main)|\[skip ci\]' .github/workflows/*.yaml .github/scripts/*.sh \
   | grep -vE '^[^:]+:[0-9]+:[[:space:]]*(#|echo )' | cut -d: -f1 | sort -u \
-  | grep -vxE '\.github/workflows/trigger-docs-rebuild\.yaml|\.github/scripts/test-promote-release\.sh' || true)"
+  | grep -vxE '\.github/scripts/test-promote-release\.sh' || true)"
 check "no workflow or script commits to main" "" "$commits"
+# kubemoot-docs' Release Docs Site listens for exactly this event type; a dispatch with
+# no listener succeeds and builds nothing.
+check "a docs change dispatches kubemoot-docs-changed" "1" \
+  "$(grep -cE '^[[:space:]]+event-type: kubemoot-docs-changed$' .github/workflows/trigger-docs-rebuild.yaml)"
 check "no workflow writes a chart file" "" \
   "$(grep -nE '(sed|yq).*(Chart|values)\.yaml' .github/workflows/*.yaml | grep -v 'integration-test' || true)"
 
