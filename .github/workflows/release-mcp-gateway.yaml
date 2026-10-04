@@ -48,7 +48,7 @@ jobs:
 
       - name: Calculate the release candidate version
         id: version
-        uses: kubemoot/release-actions/release-candidate-version@76c35a749b9db4105e73307b91b8f7cf1359b755 # v0.4.0
+        uses: kubemoot/release-actions/release-candidate-version@9a88091ef5357ddf4f8d1c8a71b2c72f4cd928c5 # v0.7.0
         with:
           tag_prefix: "mcp-gateway-v"
           force: ${{ inputs.force_release }}
@@ -93,25 +93,3 @@ jobs:
             git tag -a "$TAG" -m "Release candidate MCP Gateway $TAG"
             git push origin "$TAG"
           fi
-
-      - name: Install Helm
-        if: steps.version.outputs.release_created == 'true'
-        uses: azure/setup-helm@v4
-        with:
-          version: 'v4.2.2'
-
-      - name: Update operator chart and push
-        if: steps.version.outputs.release_created == 'true'
-        env:
-          HARBOR_USERNAME: ${{ secrets.HARBOR_USERNAME }}
-          HARBOR_PASSWORD: ${{ secrets.HARBOR_PASSWORD }}
-          REGISTRY: ${{ env.REGISTRY }}
-          VERSION: ${{ steps.version.outputs.version }}
-          EDIT_KIND: component
-          VALUES_KEY: mcpGateway
-          IMAGE_REPO: mcp-gateway
-          LABEL: mcp-gateway
-        run: |
-          echo "${HARBOR_PASSWORD}" | helm registry login --plain-http "${REGISTRY}" -u "${HARBOR_USERNAME}" --password-stdin
-          bash .github/scripts/bump-operator-chart.sh
-

@@ -1,12 +1,16 @@
 #!/usr/bin/env bash
-# Tests for promote-release.sh: a throwaway repository with an operator chart, release
-# candidate tags, and a bare origin; crane and `helm push` are stubbed, `helm package`
-# is the real one.
+# Tests for the release scripts: release-operator-chart.sh builds chart candidates in a
+# throwaway repository (charts at 0.0.0, release candidate tags, a bare origin), and
+# promote-release.sh promotes one of those candidates. crane, `helm push`, and
+# `helm pull` are stubbed (a directory stands in for Harbor); `helm package` is the real
+# one. The last section checks this repository itself: no chart or Kubemoot image
+# version in git, and no workflow that commits a version.
 # Usage: RELEASE_LIB=<release-actions>/release-lib.sh bash .github/scripts/test-promote-release.sh
 #        (exit 0 = all passed; in CI the release-actions setup action sets RELEASE_LIB)
 set -euo pipefail
 
 here="$(cd "$(dirname "$0")" && pwd)"
+repo_root="$(git -C "$here" rev-parse --show-toplevel)"
 command -v helm >/dev/null || { echo "helm is required"; exit 1; }
 [ -f "${RELEASE_LIB:-}" ] || { echo "RELEASE_LIB must point to release-lib.sh from kubemoot/release-actions"; exit 1; }
 real_helm="$(command -v helm)"
@@ -18,12 +22,12 @@ check() {
 
 root="$(mktemp -d)"
 trap 'rm -rf "$root"' EXIT
-export LOG="${root}/calls.log" GHCR_STATE="${root}/ghcr"
-mkdir -p "${root}/bin" "$GHCR_STATE"
+export LOG="${root}/calls.log" GHCR_STATE="${root}/ghcr" HARBOR_STATE="${root}/harbor"
+mkdir -p "${root}/bin" "$GHCR_STATE" "$HARBOR_STATE"
 touch "$LOG"
 
-# crane stub: Harbor digests are derived from the reference; a release-registry
-# reference exists once copied (or planted by a test).
+# crane stub: Harbor digests are derived from the reference without its tag; a
+# release-registry reference exists once copied (or planted by a test).
 cat > "${root}/bin/crane" <<'EOF'
 #!/usr/bin/env bash
 echo "crane $*" >> "$LOG"
@@ -43,17 +47,34 @@ case "${args[0]}" in
   tag) exit 0 ;;
 esac
 EOF
+# helm stub: push to Harbor stores the chart in HARBOR_STATE (HELM_PUSH_FAIL makes
+# every push fail); pull serves it from there; everything else is the real helm.
 cat > "${root}/bin/helm" <<EOF
 #!/usr/bin/env bash
 case "\$1" in
-  push|registry) echo "helm \$*" >> "\$LOG"; exit 0 ;;
+  registry) echo "helm \$*" >> "\$LOG"; exit 0 ;;
+  push)
+    echo "helm \$*" >> "\$LOG"
+    [ -z "\${HELM_PUSH_FAIL:-}" ] || exit 1
+    tgz=""; dest=""
+    for a in "\$@"; do case "\$a" in *.tgz) tgz="\$a" ;; oci://*) dest="\$a" ;; esac; done
+    case "\$dest" in oci://harbor.test/*) cp "\$tgz" "\$HARBOR_STATE/" ;; esac
+    exit 0 ;;
+  pull)
+    version=""; dir=""
+    while [ \$# -gt 0 ]; do
+      case "\$1" in --version) version="\$2"; shift ;; --untardir) dir="\$2"; shift ;; esac
+      shift
+    done
+    [ -f "\$HARBOR_STATE/kubemoot-operator-\${version}.tgz" ] || exit 1
+    tar -xzf "\$HARBOR_STATE/kubemoot-operator-\${version}.tgz" -C "\$dir" ;;
+  *) exec "${real_helm}" "\$@" ;;
 esac
-exec "${real_helm}" "\$@"
 EOF
 chmod +x "${root}/bin/crane" "${root}/bin/helm"
 export PATH="${root}/bin:${PATH}"
 
-# Fixture repository.
+# Fixture repository: both charts as git holds them.
 git init -q --bare "${root}/origin.git"
 git clone -q "${root}/origin.git" "${root}/repo" 2>/dev/null
 cd "${root}/repo"
@@ -62,103 +83,288 @@ git config user.name test
 git checkout -q -b main
 chart=operator/chart/kubemoot-operator
 dash=dashboard/charts/kubemoot-dashboard
-mkdir -p "$chart" "$dash"
-write_chart() {
-  printf 'apiVersion: v2\nname: kubemoot-operator\nversion: %s\nappVersion: "%s"\n' "$1" "$2" > "$chart/Chart.yaml"
-  cat > "$chart/values.yaml" <<EOF
+mkdir -p "$chart/templates" "$dash"
+cat > "$chart/Chart.yaml" <<'EOF'
+apiVersion: v2
+name: kubemoot-operator
+version: 0.0.0
+appVersion: "0.0.0"
+dependencies:
+  - name: kubemoot-dashboard
+    alias: dashboard
+    version: ">=0.0.0-0"
+    repository: file://../../../dashboard/charts/kubemoot-dashboard
+    condition: dashboard.enabled
+EOF
+cat > "$chart/values.yaml" <<'EOF'
 verify:
-  image: test-runner:0.46.2
+  image: test-runner:0.0.0
 liaison:
-  image: crew-liaison:$4
+  image: crew-liaison:0.0.0
 config:
   images:
-    agentRuntime: agent-runtime:$3
-    mcpGateway: mcp-gateway:0.326.22
+    agentRuntime: agent-runtime:0.0.0
+    mcpGateway: mcp-gateway:0.0.0
+    doclingServe: quay.io/docling-project/docling-serve-cpu:latest
+dashboard:
+  enabled: false
 EOF
-}
-printf 'apiVersion: v2\nname: kubemoot-dashboard\nversion: 0.50.0\nappVersion: 0.50.0\n' > "$dash/Chart.yaml"
-write_chart 0.92.581 0.343.40 0.342.31 0.346.31
+printf 'apiVersion: v2\nname: kubemoot-dashboard\nversion: 0.0.0\nappVersion: 0.0.0\n' > "$dash/Chart.yaml"
+printf 'verify:\n  image: ghcr.io/kubemoot/test-runner:0.0.0\n' > "$dash/values.yaml"
 git add -A; git commit -q -m "chore: init"
-git tag -a v0.343.40 -m f; git tag -a agent-runtime-v0.342.31 -m f
-
-git commit -q --allow-empty -m "feat(runtime): stream tokens"
+for t in v0.343.40 agent-runtime-v0.342.31 mcp-gateway-v0.326.22-rc.5 mcp-gateway-v0.326.22 \
+  test-runner-v0.46.2-rc.1 test-runner-v0.46.2 crew-liaison-v0.346.31 dashboard-v0.50.0 \
+  operator-chart-v0.92.581-rc.3 operator-chart-v0.92.581; do
+  git tag -a "$t" -m "$t"
+done
+c1_commit() { git commit -q --allow-empty -m "$1"; git rev-parse HEAD; }
+c1=$(c1_commit "feat(runtime): stream tokens")
 git tag -a agent-runtime-v0.342.32-rc.3 -m rc
-git commit -q --allow-empty -m "fix: code sandbox limit"
-git tag -a code-sandbox-v0.16.32-rc.1 -m rc
-git tag -a crew-liaison-v0.346.32-rc.0 -m rc
-git tag -a v0.343.41-rc.2 -m rc
-sed -i 's/^version:.*/version: 0.50.1-rc.0/; s/^appVersion:.*/appVersion: 0.50.1-rc.0/' "$dash/Chart.yaml"
-git commit -q -am "chore: update dashboard Helm chart to v0.50.1-rc.0 [skip ci]"
-git tag -a dashboard-v0.50.1-rc.0 -m rc
-write_chart 0.92.582-rc.1 0.343.41-rc.2 0.342.32-rc.3 0.346.32-rc.0
-git commit -q -am "chore: update pins, operator chart to v0.92.582-rc.1 [skip ci]"
-git tag -a operator-chart-v0.92.582-rc.1 -m rc
-candidate=$(git rev-parse HEAD)
-git commit -q --allow-empty -m "fix: later work not yet built"
-git tag -a artifact-access-v0.342.33-rc.0 -m rc
+c2=$(c1_commit "fix: code sandbox limit")
+for t in code-sandbox-v0.16.32-rc.1 crew-liaison-v0.346.32-rc.0 v0.343.41-rc.2 dashboard-v0.50.1-rc.0 \
+  test-runner-v0.46.3-rc.0; do
+  git tag -a "$t" -m rc
+done
 git push -q origin main --tags 2>/dev/null
-git fetch -q origin
 
 export REGISTRY=harbor.test RELEASE_REGISTRY=ghcr.test/kubemoot
 export HARBOR_USERNAME=u HARBOR_PASSWORD=p GHCR_USERNAME=u GHCR_TOKEN=t
-run_promote() { OUT_DIR="${root}/out-$1" bash "${here}/promote-release.sh" > "${root}/run-$1.log" 2>&1; }
+run_chart() {
+  : > "${root}/gh-$1"
+  GITHUB_OUTPUT="${root}/gh-$1" OUT_DIR="${root}/chart-$1" bash "${here}/release-operator-chart.sh" > "${root}/chart-$1.log" 2>&1
+}
+gh_out() { sed -n "s/^$2=//p" "${root}/gh-$1"; }
+in_tgz() { tar -xzOf "$1" "$2"; }
+# dash_file TGZ FILE: FILE of the dashboard subchart inside an operator chart package,
+# which embeds it as a directory or as a package of its own, depending on the helm version.
+dash_file() {
+  local sub
+  if tar -tzf "$1" | grep -qx "kubemoot-operator/charts/kubemoot-dashboard/$2"; then
+    in_tgz "$1" "kubemoot-operator/charts/kubemoot-dashboard/$2"
+  else
+    sub="$(tar -tzf "$1" | grep -E '^kubemoot-operator/charts/kubemoot-dashboard-.*\.tgz$')"
+    in_tgz "$1" "$sub" | tar -xzO "kubemoot-dashboard/$2"
+  fi
+}
+remote_tag() { git ls-remote --tags origin "refs/tags/$1" | wc -l | tr -d ' '; }
 
-# 1. Dry run of the latest candidate: plans, packages, publishes nothing.
-DRY_RUN=true RC_TAG=latest run_promote dry && status=0 || status=$?
-check "dry run succeeds" 0 "$status"
+# 1. A dry chart build: the versions come from the tags; nothing is pushed or committed.
+DRY_RUN=true run_chart dry && status=0 || status=$?
+check "dry chart build succeeds" 0 "$status"
+[ "$status" -eq 0 ] || sed 's/^/    /' "${root}/chart-dry.log"
+tgz="${root}/chart-dry/kubemoot-operator-0.92.582-rc.0.tgz"
+check "the next candidate after a promoted one starts the next patch" 1 "$([ -f "$tgz" ] && echo 1 || echo 0)"
+cv="$(in_tgz "$tgz" kubemoot-operator/values.yaml)"
+check "chart appVersion is the latest operator candidate" 1 "$(in_tgz "$tgz" kubemoot-operator/Chart.yaml | grep -c '^appVersion: 0.343.41-rc.2$')"
+check "pins the latest runtime candidate" 1 "$(grep -c 'agentRuntime: agent-runtime:0.342.32-rc.3$' <<<"$cv")"
+check "pins the latest liaison candidate" 1 "$(grep -c 'image: crew-liaison:0.346.32-rc.0$' <<<"$cv")"
+check "pins the latest test-runner candidate" 1 "$(grep -c 'image: test-runner:0.46.3-rc.0$' <<<"$cv")"
+check "pins a promoted candidate as it is" 1 "$(grep -c 'mcpGateway: mcp-gateway:0.326.22-rc.5$' <<<"$cv")"
+check "leaves a third-party image alone" 1 "$(grep -c 'docling-serve-cpu:latest$' <<<"$cv")"
+check "no 0.0.0 left in the chart" 0 "$(tar -xzOf "$tgz" | grep -c ':0\.0\.0' || true)"
+check "embeds the latest dashboard candidate" "0.50.1-rc.0|0.50.1-rc.0" \
+  "$(dash_file "$tgz" Chart.yaml | sed -n 's/^version: //p')|$(dash_file "$tgz" Chart.yaml | sed -n 's/^appVersion: //p')"
+check "dashboard public reference takes the latest final" 1 \
+  "$(dash_file "$tgz" values.yaml | grep -c 'ghcr.io/kubemoot/test-runner:0.46.2$')"
+check "dry build pushes no chart" 0 "$(grep -c '^helm push' "$LOG" || true)"
+check "dry build pushes no tag" 0 "$(remote_tag operator-chart-v0.92.582-rc.0)"
+check "dry build leaves git at 0.0.0" "" "$(git status --porcelain)"
+check "dry build reports no release" false "$(gh_out dry released)"
+
+# 2. The real build: the tag claims the version on HEAD, then the chart goes to Harbor.
+DRY_RUN=false run_chart rc0 && status=0 || status=$?
+check "chart build succeeds" 0 "$status"
+check "tags the candidate on HEAD" "$c2" "$(git ls-remote origin refs/tags/operator-chart-v0.92.582-rc.0^{} | cut -f1)"
+check "pushes the chart to Harbor" 1 "$([ -f "${HARBOR_STATE}/kubemoot-operator-0.92.582-rc.0.tgz" ] && echo 1 || echo 0)"
+check "reports the release" "true|0.92.582-rc.0|0.46.3-rc.0" \
+  "$(gh_out rc0 released)|$(gh_out rc0 chart_version)|$(gh_out rc0 test_runner)"
+git fetch -q origin --tags
+check "the tag records the versions" 1 \
+  "$(git tag -l --format='%(contents:body)' operator-chart-v0.92.582-rc.0 | grep -c '^agent-runtime 0.342.32-rc.3$')"
+check "the build commits nothing" "$c2" "$(git ls-remote origin refs/heads/main | cut -f1)"
+
+# 3. Nothing changed: no new candidate. A forced build makes one.
+DRY_RUN=false run_chart same && status=0 || status=$?
+check "an unchanged chart builds nothing" "0|false" "${status}|$(gh_out same released)"
+check "and pushes no chart" 1 "$(grep -c '^helm push' "$LOG")"
+FORCE=true DRY_RUN=true run_chart force && status=0 || status=$?
+check "a forced build makes the next candidate" 1 "$([ -f "${root}/chart-force/kubemoot-operator-0.92.582-rc.1.tgz" ] && echo 1 || echo 0)"
+
+# 4. An image the chart does not pin does not rebuild it; a pinned one, or a chart
+# source change, does.
+c3=$(c1_commit "fix: later work not yet built")
+git tag -a artifact-access-v0.342.33-rc.0 -m rc
+git push -q origin main --tags 2>/dev/null
+DRY_RUN=false run_chart standalone && status=0 || status=$?
+check "a standalone image builds no chart" "0|false" "${status}|$(gh_out standalone released)"
+# A runtime release that finished after the candidate was built, tagged on an older commit.
+git tag -a agent-runtime-v0.342.33-rc.0 -m rc "$c1"
+git push -q origin --tags 2>/dev/null
+DRY_RUN=false run_chart rc1 && status=0 || status=$?
+check "a new pinned candidate builds the next chart" "0|0.92.582-rc.1" "${status}|$(gh_out rc1 chart_version)"
+check "with that candidate" 1 \
+  "$(in_tgz "${root}/chart-rc1/kubemoot-operator-0.92.582-rc.1.tgz" kubemoot-operator/values.yaml | grep -c 'agent-runtime:0.342.33-rc.0$')"
+echo "# a template" > "$chart/templates/notes.txt"
+git add "$chart/templates/notes.txt"; git commit -q -m "feat: chart notes"
+DRY_RUN=true run_chart source && status=0 || status=$?
+check "a chart source change builds a chart" "0|0.92.582-rc.2" "${status}|$(gh_out source chart_version)"
+git reset -q --hard "$c3"
+
+# 5. Unexpected inputs.
+printf '    newThing: new-thing:0.0.0\n' >> "$chart/values.yaml"
+git commit -q -am "feat: a component with no release yet"
+DRY_RUN=false run_chart untagged && status=0 || status=$?
+check "an image with no candidate fails" 1 "$status"
+check "and names it" 1 "$(grep -c 'no rc new-thing-vX.Y.Z tag' "${root}/chart-untagged.log")"
+check "and pushes no tag" 0 "$(remote_tag operator-chart-v0.92.582-rc.2)"
+git reset -q --hard "$c3"
+git tag -a crew-liaison-v0.346.33-rc.0 -m rc
+git push -q origin --tags 2>/dev/null
+: > "$LOG"
+HELM_PUSH_FAIL=1 DRY_RUN=false run_chart pushfail && status=0 || status=$?
+check "a failed chart push fails" 1 "$status"
+check "after three attempts" 3 "$(grep -c '^helm push' "$LOG")"
+check "and removes the tag it claimed" 0 "$(remote_tag operator-chart-v0.92.582-rc.2)"
+check "locally too" "" "$(git tag -l operator-chart-v0.92.582-rc.2)"
+git clone -q -b main "${root}/origin.git" "${root}/bare-tags" 2>/dev/null
+(
+  cd "${root}/bare-tags"
+  git tag -l 'dashboard-v*' | xargs git tag -d >/dev/null
+  DRY_RUN=true OUT_DIR="${root}/chart-nodash" bash "${here}/release-operator-chart.sh" > "${root}/chart-nodash.log" 2>&1
+) && status=0 || status=$?
+check "no dashboard candidate fails" 1 "$status"
+(
+  cd "${root}/bare-tags"
+  git tag -l 'operator-chart-v*' | xargs git tag -d >/dev/null
+  git tag -a dashboard-v0.50.1-rc.0 -m rc
+  DRY_RUN=true OUT_DIR="${root}/chart-nochart" bash "${here}/release-operator-chart.sh" > "${root}/chart-nochart.log" 2>&1
+) && status=0 || status=$?
+check "no chart candidate to count from fails" "1|1" "${status}|$(grep -c 'no operator-chart-v' "${root}/chart-nochart.log")"
+(
+  cd "${root}/bare-tags"
+  unset REGISTRY
+  DRY_RUN=false OUT_DIR="${root}/chart-noreg" bash "${here}/release-operator-chart.sh" > /dev/null 2>&1
+) && status=0 || status=$?
+check "a real build needs a registry" 1 "$status"
+
+# 6. Promotion of the first candidate (operator-chart-v0.92.582-rc.0, built in 2).
+run_promote() { OUT_DIR="${root}/out-$1" bash "${here}/promote-release.sh" > "${root}/run-$1.log" 2>&1; }
+cand=operator-chart-v0.92.582-rc.0
+# mcp-gateway 0.326.22 was promoted before: GHCR holds the candidate's digest.
+crane digest --insecure harbor.test/kubemoot/mcp-gateway:x > "${GHCR_STATE}/ghcr.test_kubemoot_mcp-gateway_0.326.22"
+: > "$LOG"
+DRY_RUN=true RC_TAG="$cand" run_promote dry && status=0 || status=$?
+check "promotion dry run succeeds" 0 "$status"
+[ "$status" -eq 0 ] || sed 's/^/    /' "${root}/run-dry.log"
 out="$(cat "${root}/run-dry.log")"
 check "plans the operator image" 1 "$(grep -c 'image kubemoot-operator: 0.343.41-rc.2 .* -> 0.343.41' <<<"$out")"
-check "plans a pinned component" 1 "$(grep -c 'image agent-runtime: 0.342.32-rc.3 .* -> 0.342.32' <<<"$out")"
+check "plans the runtime the candidate ran, not a later one" 1 "$(grep -c 'image agent-runtime: 0.342.32-rc.3 .* -> 0.342.32' <<<"$out")"
 check "plans the liaison pin" 1 "$(grep -c 'image crew-liaison: 0.346.32-rc.0' <<<"$out")"
+check "plans the test-runner pin" 1 "$(grep -c 'image test-runner: 0.46.3-rc.0' <<<"$out")"
+check "plans the dashboard subchart" 1 "$(grep -c 'image dashboard: 0.50.1-rc.0' <<<"$out")"
 check "plans a standalone image" 1 "$(grep -c 'image code-sandbox: 0.16.32-rc.1' <<<"$out")"
-check "plans the standalone dashboard" 1 "$(grep -c 'image dashboard: 0.50.1-rc.0' <<<"$out")"
 check "skips a standalone candidate newer than the chart candidate" 0 "$(grep -c 'image artifact-access' <<<"$out" || true)"
-check "leaves a final pin alone" 0 "$(grep -c 'image mcp-gateway' <<<"$out" || true)"
+check "a promoted pin is already published" 1 "$(grep -c 'image mcp-gateway: .*already published' <<<"$out")"
 check "dry run copies nothing" 0 "$(grep -c '^crane copy' "$LOG" || true)"
 check "dry run pushes no chart" 0 "$(grep -c '^helm push' "$LOG" || true)"
 check "dry run creates no tag" "" "$(git tag -l 'operator-chart-v0.92.582')"
 tgz="${root}/out-dry/kubemoot-operator-0.92.582.tgz"
 check "packages the final operator chart" 1 "$([ -f "$tgz" ] && echo 1 || echo 0)"
-values="$(tar -xzOf "$tgz" kubemoot-operator/values.yaml)"
-check "final chart pins the final runtime" 1 "$(grep -c 'agent-runtime:0.342.32$' <<<"$values")"
-check "final chart pins no candidate" 0 "$(grep -c -- '-rc\.' <<<"$values" || true)"
-check "final chart appVersion" 1 "$(tar -xzOf "$tgz" kubemoot-operator/Chart.yaml | grep -cE '^appVersion: "?0.343.41"?$')"
-check "packages the final dashboard chart" 1 "$([ -f "${root}/out-dry/kubemoot-dashboard-0.50.1.tgz" ] && echo 1 || echo 0)"
+values="$(in_tgz "$tgz" kubemoot-operator/values.yaml)"
+check "final chart pins the runtime's final" 1 "$(grep -c 'agent-runtime:0.342.32$' <<<"$values")"
+check "final chart pins the test-runner's final" 1 "$(grep -c 'image: test-runner:0.46.3$' <<<"$values")"
+check "final chart pins the promoted gateway's final" 1 "$(grep -c 'mcp-gateway:0.326.22$' <<<"$values")"
+check "final chart pins no candidate" 0 "$(tar -xzOf "$tgz" | grep -c -- '-rc\.' || true)"
+check "final chart pins no 0.0.0" 0 "$(tar -xzOf "$tgz" | grep -c ':0\.0\.0' || true)"
+check "final chart appVersion" 1 "$(in_tgz "$tgz" kubemoot-operator/Chart.yaml | grep -cE '^appVersion: 0.343.41$')"
+check "final chart embeds the final dashboard" "0.50.1|0.50.1" \
+  "$(dash_file "$tgz" Chart.yaml | sed -n 's/^version: //p')|$(dash_file "$tgz" Chart.yaml | sed -n 's/^appVersion: //p')"
+check "final dashboard keeps the candidate's public test-runner" 1 "$(dash_file "$tgz" values.yaml | grep -c 'test-runner:0.46.2$')"
 check "notes list the feature" 1 "$(grep -c '^- Stream tokens (' "${root}/out-dry/notes.md")"
 check "notes stop at the candidate" 0 "$(grep -c 'later work' "${root}/out-dry/notes.md" || true)"
 
-# 2. Unexpected inputs.
+# 7. Unexpected inputs to the promotion.
 DRY_RUN=true RC_TAG=v9.9.9-rc.1 run_promote badtag && status=0 || status=$?
 check "refuses an unknown tag" 1 "$status"
 DRY_RUN=true RC_TAG=v0.343.40 run_promote final && status=0 || status=$?
 check "refuses a final tag as input" 1 "$status"
 echo "sha256:someotherdigest" > "${GHCR_STATE}/ghcr.test_kubemoot_agent-runtime_0.342.32"
-DRY_RUN=true RC_TAG=latest run_promote clash && status=0 || status=$?
+DRY_RUN=true RC_TAG="$cand" run_promote clash && status=0 || status=$?
 check "refuses a published version with another digest" 1 "$status"
 check "names the clash" 1 "$(grep -c 'exists with digest' "${root}/run-clash.log")"
 rm "${GHCR_STATE}/ghcr.test_kubemoot_agent-runtime_0.342.32"
+mv "${HARBOR_STATE}/kubemoot-operator-0.92.582-rc.0.tgz" "${root}/held.tgz"
+DRY_RUN=true RC_TAG="$cand" run_promote nochart && status=0 || status=$?
+check "refuses a candidate Harbor does not hold" "1|1" "${status}|$(grep -c 'cannot read the candidate' "${root}/run-nochart.log")"
+mv "${root}/held.tgz" "${HARBOR_STATE}/kubemoot-operator-0.92.582-rc.0.tgz"
 
-# 3. The real promotion from an explicit candidate tag.
+# 8. The real promotion.
 : > "$LOG"
-DRY_RUN=false RC_TAG=operator-chart-v0.92.582-rc.1 run_promote real && status=0 || status=$?
+DRY_RUN=false RC_TAG="$cand" run_promote real && status=0 || status=$?
 check "promotion succeeds" 0 "$status"
 [ "$status" -eq 0 ] || sed 's/^/    /' "${root}/run-real.log"
 git fetch -q origin --tags
-check "chart final tag on the candidate commit" "$candidate" "$(git rev-list -n 1 operator-chart-v0.92.582 2>/dev/null)"
-check "component final tag on its candidate commit" "$(git rev-list -n 1 agent-runtime-v0.342.32-rc.3)" "$(git rev-list -n 1 agent-runtime-v0.342.32 2>/dev/null)"
-check "operator final tag" "$(git rev-list -n 1 v0.343.41-rc.2)" "$(git rev-list -n 1 v0.343.41 2>/dev/null)"
-check "notes of the real run start at the previous release" 1 "$(grep -c '^## Changes since v0.343.40' "${root}/out-real/notes.md")"
-check "notes of the real run list the feature" 1 "$(grep -c '^- Stream tokens (' "${root}/out-real/notes.md")"
+check "chart final tag on the candidate commit" "$c2" "$(git rev-list -n 1 operator-chart-v0.92.582 2>/dev/null)"
+check "component final tag on its candidate commit" "$c1" "$(git rev-list -n 1 agent-runtime-v0.342.32 2>/dev/null)"
+check "operator final tag" "$c2" "$(git rev-list -n 1 v0.343.41 2>/dev/null)"
+check "notes of the real run start at the previous release" 1 "$(grep -c '^## Changes since operator-chart-v0.92.581' "${root}/out-real/notes.md")"
 check "names the GitHub Release" "operator-chart-v0.92.582|Kubemoot 0.92.582|notes.md" "$(tr '\t' '|' < "${root}/out-real/releases.tsv")"
 check "leaves no scratch worktree" 1 "$(git worktree list | wc -l | tr -d ' ')"
-check "copies five images" 5 "$(grep -c '^crane copy' "$LOG")"
-check "copies by digest" 5 "$(grep '^crane copy' "$LOG" | grep -c '@sha256:')"
-check "pushes two charts to both registries" 4 "$(grep -c '^helm push' "$LOG")"
+check "copies six images" 6 "$(grep -c '^crane copy' "$LOG")"
+check "copies by digest" 6 "$(grep '^crane copy' "$LOG" | grep -c '@sha256:')"
+check "pushes the chart to both registries" 2 "$(grep -c '^helm push' "$LOG")"
 
-# 4. A second promotion of the same candidate is refused.
-DRY_RUN=false RC_TAG=latest run_promote again && status=0 || status=$?
+# 9. A second promotion of the same candidate is refused; the next chart candidate
+# starts the next patch.
+DRY_RUN=false RC_TAG="$cand" run_promote again && status=0 || status=$?
 check "refuses a candidate already released" 1 "$status"
 check "says it is released" 1 "$(grep -c 'already released' "${root}/run-again.log")"
+git checkout -q main; git reset -q --hard "$c3"
+DRY_RUN=true run_chart after && status=0 || status=$?
+check "after a promotion the next candidate starts the next patch" "0|0.92.583-rc.0" "${status}|$(gh_out after chart_version)"
+
+# 10. A candidate built before the versions moved to the tags: git at its commit holds
+# the real versions, and the chart in Harbor was packaged from them.
+sed -i 's/^version: 0.0.0/version: 0.92.583-rc.0/; s/^appVersion: "0.0.0"/appVersion: "0.343.41-rc.2"/' "$chart/Chart.yaml"
+sed -i 's/^version: 0.0.0/version: 0.50.1-rc.0/; s/^appVersion: 0.0.0/appVersion: 0.50.1-rc.0/' "$dash/Chart.yaml"
+sed -i 's/test-runner:0.0.0/test-runner:0.46.3-rc.0/; s/crew-liaison:0.0.0/crew-liaison:0.346.33-rc.0/;
+  s/agent-runtime:0.0.0/agent-runtime:0.342.33-rc.0/; s/mcp-gateway:0.0.0/mcp-gateway:0.326.22-rc.5/' "$chart/values.yaml"
+sed -i 's/test-runner:0.0.0/test-runner:0.46.2/' "$dash/values.yaml"
+git commit -q -am "chore: update pins, operator chart to v0.92.583-rc.0 [skip ci]"
+git tag -a operator-chart-v0.92.583-rc.0 -m rc
+git push -q origin main --tags 2>/dev/null
+"$real_helm" package --dependency-update "$chart" --destination "$HARBOR_STATE" >/dev/null
+git checkout -q -- . 2>/dev/null || true
+rm -rf "$chart/charts" "$chart/Chart.lock"
+DRY_RUN=true RC_TAG=operator-chart-v0.92.583-rc.0 run_promote old && status=0 || status=$?
+check "promotes a candidate built before the migration" 0 "$status"
+[ "$status" -eq 0 ] || sed 's/^/    /' "${root}/run-old.log"
+tgz="${root}/out-old/kubemoot-operator-0.92.583.tgz"
+values="$(in_tgz "$tgz" kubemoot-operator/values.yaml 2>/dev/null || true)"
+check "with the finals of its pins" "1|1" \
+  "$(grep -c 'agent-runtime:0.342.33$' <<<"$values")|$(grep -c 'crew-liaison:0.346.33$' <<<"$values")"
+check "and no candidate left" 0 "$(tar -xzOf "$tgz" 2>/dev/null | grep -c -- '-rc\.' || true)"
+
+# 11. This repository: versions live only in tags.
+cd "$repo_root"
+for f in $(git ls-files '*Chart.yaml'); do
+  check "${f} holds version 0.0.0" "0.0.0|0.0.0" \
+    "$(sed -nE 's/^version: *"?([^"]*)"?$/\1/p' "$f")|$(sed -nE 's/^appVersion: *"?([^"]*)"?$/\1/p' "$f")"
+done
+images="$(sed -nE 's#^[[:space:]]*IMAGE_NAME: kubemoot/([a-z0-9-]+)$#\1#p' .github/workflows/*.yaml | sort -u | paste -sd'|')"
+check "knows the Kubemoot images" 1 "$([ -n "$images" ] && grep -q 'agent-runtime' <<<"$images" && echo 1 || echo 0)"
+for f in $(git ls-files '*values.yaml' | grep -E '^(operator/chart|dashboard/charts)/'); do
+  typed="$(grep -nE "(^|[\"' /])(${images}):[A-Za-z0-9._-]+" "$f" | grep -vE ":(${images}):0\.0\.0([\"' ]|$)|/(${images}):0\.0\.0([\"' ]|$)| (${images}):0\.0\.0([\"' ]|$)" || true)"
+  check "${f} types no Kubemoot image version" "" "$typed"
+done
+# Commits from CI: only the regenerated CRDs (ci.yaml; generated code, no version) and the
+# docs republish marker written in kubemoot-docs (trigger-docs-rebuild.yaml).
+commits="$(grep -nE 'git commit|git push.*(origin main|HEAD:main)|\[skip ci\]' .github/workflows/*.yaml .github/scripts/*.sh \
+  | grep -vE '^[^:]+:[0-9]+:[[:space:]]*(#|echo )' | cut -d: -f1 | sort -u \
+  | grep -vxE '\.github/workflows/(ci|trigger-docs-rebuild)\.yaml|\.github/scripts/test-promote-release\.sh' || true)"
+check "no workflow or script commits to main" "" "$commits"
+check "no workflow writes a chart file" "" \
+  "$(grep -nE '(sed|yq).*(Chart|values)\.yaml' .github/workflows/*.yaml | grep -v 'integration-test' || true)"
 
 if [ "$failures" -ne 0 ]; then echo "${failures} test(s) failed"; exit 1; fi
-echo "all promote-release tests passed"
+echo "all release script tests passed"

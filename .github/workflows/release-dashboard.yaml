@@ -48,7 +48,7 @@ jobs:
 
       - name: Calculate the release candidate version
         id: version
-        uses: kubemoot/release-actions/release-candidate-version@76c35a749b9db4105e73307b91b8f7cf1359b755 # v0.4.0
+        uses: kubemoot/release-actions/release-candidate-version@9a88091ef5357ddf4f8d1c8a71b2c72f4cd928c5 # v0.7.0
         with:
           tag_prefix: "dashboard-v"
           force: ${{ inputs.force_release }}
@@ -58,12 +58,6 @@ jobs:
         run: |
           curl -sL https://github.com/google/go-containerregistry/releases/download/v0.20.2/go-containerregistry_Linux_x86_64.tar.gz | tar -xzf - crane
           sudo mv crane /usr/local/bin/
-
-      - name: Install Helm
-        if: steps.version.outputs.release_created == 'true'
-        uses: azure/setup-helm@v4
-        with:
-          version: 'v4.2.2'
 
       - name: Retag image with version
         if: steps.version.outputs.release_created == 'true'
@@ -85,87 +79,17 @@ jobs:
             crane copy --insecure "${FULL_IMAGE}:latest" "${FULL_IMAGE}:${VERSION}"
           fi
 
-      - name: Update Helm chart version
-        if: steps.version.outputs.release_created == 'true'
-        run: |
-          VERSION="${{ steps.version.outputs.version }}"
-          echo "Updating Helm chart to version: $VERSION"
-
-          sed -i "s/^version:.*/version: $VERSION/" dashboard/charts/kubemoot-dashboard/Chart.yaml
-          sed -i "s/^appVersion:.*/appVersion: $VERSION/" dashboard/charts/kubemoot-dashboard/Chart.yaml
-
-          echo "Updated Chart.yaml:"
-          grep -E "^(version|appVersion):" dashboard/charts/kubemoot-dashboard/Chart.yaml
-
-      - name: Package and push Helm chart
-        if: steps.version.outputs.release_created == 'true'
-        env:
-          HARBOR_USERNAME: ${{ secrets.HARBOR_USERNAME }}
-          HARBOR_PASSWORD: ${{ secrets.HARBOR_PASSWORD }}
-        run: |
-          VERSION="${{ steps.version.outputs.version }}"
-          CHART_REGISTRY="oci://${{ env.REGISTRY }}/kubemoot/charts"
-
-          echo "Packaging Helm chart..."
-          helm package dashboard/charts/kubemoot-dashboard
-
-          echo "Logging in to Harbor OCI registry..."
-          echo "${HARBOR_PASSWORD}" | helm registry login --plain-http ${{ env.REGISTRY }} -u "${HARBOR_USERNAME}" --password-stdin
-
-          echo "Pushing Helm chart to ${CHART_REGISTRY}..."
-          helm push --plain-http kubemoot-dashboard-${VERSION}.tgz ${CHART_REGISTRY}
-
-      - name: Commit the chart version to main and tag it
-        # Re-applies only this release's chart version onto fresh main and retries a
-        # rejected push (another release bot pushed first), the same pattern as
-        # bump-operator-chart.sh. The tag is created only after the commit is on main,
-        # so the next version is always computed from a tag main contains. Fails loudly.
+      - name: Create and push tag
         if: steps.version.outputs.release_created == 'true'
         run: |
           VERSION="${{ steps.version.outputs.version }}"
           TAG="dashboard-v$VERSION"
-          CHART=dashboard/charts/kubemoot-dashboard/Chart.yaml
+
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-          pushed=false
-          for attempt in 1 2 3 4 5 6 7 8; do
-            git fetch -q origin main
-            git reset -q --hard FETCH_HEAD
-            sed -i "s/^version:.*/version: $VERSION/" "$CHART"
-            sed -i "s/^appVersion:.*/appVersion: $VERSION/" "$CHART"
-            if ! git diff --quiet -- "$CHART"; then
-              git add "$CHART"
-              git commit -q -m "chore: update dashboard Helm chart to v$VERSION [skip ci]"
-            fi
-            if git push origin HEAD:main; then pushed=true; break; fi
-            echo "git push rejected (attempt ${attempt}/8); re-reading origin/main and retrying"
-            sleep $((attempt * 5))
-          done
-          [ "$pushed" = true ] || { echo "::error::could not land the dashboard chart version on main"; exit 1; }
-
-          if git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null 2>&1; then
-            echo "Tag $TAG already exists on remote"
-          else
+          if ! git rev-parse "$TAG" >/dev/null 2>&1; then
+            echo "Creating tag: $TAG"
             git tag -a "$TAG" -m "Release candidate Kubemoot Dashboard $TAG"
-            git push origin "refs/tags/$TAG"
+            git push origin "$TAG"
           fi
-
-      # The operator chart embeds the dashboard chart as an optional subchart (local
-      # file:// dependency). Re-release it from fresh main so the operator chart carries
-      # the dashboard chart committed above; the operator chart version moves, no file edit.
-      - name: Re-release the operator chart with the new dashboard subchart
-        if: steps.version.outputs.release_created == 'true'
-        env:
-          HARBOR_USERNAME: ${{ secrets.HARBOR_USERNAME }}
-          HARBOR_PASSWORD: ${{ secrets.HARBOR_PASSWORD }}
-          RELEASE_REGISTRY: ${{ vars.RELEASE_REGISTRY }}
-          GHCR_USERNAME: ${{ secrets.GHCR_USERNAME }}
-          GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
-          REGISTRY: ${{ env.REGISTRY }}
-          VERSION: ${{ steps.version.outputs.version }}
-          EDIT_KIND: dashboard
-        run: |
-          echo "${HARBOR_PASSWORD}" | helm registry login --plain-http "${REGISTRY}" -u "${HARBOR_USERNAME}" --password-stdin
-          bash .github/scripts/bump-operator-chart.sh
-

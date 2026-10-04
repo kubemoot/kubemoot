@@ -14,14 +14,9 @@ on:
         default: 'false'
         type: boolean
 
-# Share the operator-chart serialization group with the component release
-# workflows (agent-runtime, fitness-runner, gateway, mcp-*, indexer,
-# query-service). All of them bump the single kubemoot-operator Chart.yaml
-# version counter, so they must run one-at-a-time, not concurrently. The
-# operator release previously used its own ${{ github.workflow }} group, so it
-# raced component releases on a shared push (operator + a component) and
-# collided on the chart version. cancel-in-progress: false queues rather than
-# cancels. See "Chart Version Collision on Concurrent Releases".
+# One operator release at a time. The operator chart is not built here: Release
+# Operator Chart (release-chart.yaml) runs when this workflow finishes and packages
+# the chart with this release's image tag.
 concurrency:
   group: ${{ github.workflow }}
   cancel-in-progress: false
@@ -30,7 +25,6 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
   REGISTRY: ${{ vars.REGISTRY }}
   IMAGE_NAME: kubemoot/kubemoot-operator
-  CHART_NAME: kubemoot/charts
 
 permissions:
   contents: read
@@ -69,7 +63,7 @@ jobs:
 
       - name: Calculate the release candidate version
         id: version
-        uses: kubemoot/release-actions/release-candidate-version@76c35a749b9db4105e73307b91b8f7cf1359b755 # v0.4.0
+        uses: kubemoot/release-actions/release-candidate-version@9a88091ef5357ddf4f8d1c8a71b2c72f4cd928c5 # v0.7.0
         with:
           tag_prefix: "v"
           force: ${{ inputs.force_release }}
@@ -100,34 +94,6 @@ jobs:
             crane copy --insecure "${FULL_IMAGE}:latest" "${FULL_IMAGE}:${VERSION}"
           fi
 
-      - name: Install Helm
-        if: steps.version.outputs.release_created == 'true'
-        uses: azure/setup-helm@v4
-        with:
-          # Pin to v3.14.0 to match the crews repo's proven-working Harbor push.
-          # Newer helm strictly refuses Harbor's http token realm even with
-          # --plain-http; v3.14.0 + --insecure-skip-tls-verify works. Modernizing
-          # this is the open "Harbor HTTP Realm" card.
-          version: 'v3.14.0'
-
-      - name: Update Chart version and push
-        if: steps.version.outputs.release_created == 'true'
-        env:
-          HARBOR_USERNAME: ${{ secrets.HARBOR_USERNAME }}
-          HARBOR_PASSWORD: ${{ secrets.HARBOR_PASSWORD }}
-          REGISTRY: ${{ env.REGISTRY }}
-          VERSION: ${{ steps.version.outputs.version }}
-          EDIT_KIND: operator
-          # The operator release keeps its proven Harbor combo: helm v3.14.0 (pinned
-          # in the Install Helm step) + --insecure login / --insecure-skip-tls-verify
-          # push. Newer helm + --plain-http is refused by Harbor's http token realm
-          # (see the Install Helm comment + the Harbor HTTP Realm card). Components
-          # use --plain-http (the script default).
-          HELM_PUSH_FLAGS: --insecure-skip-tls-verify
-        run: |
-          echo "${HARBOR_PASSWORD}" | helm registry login --insecure "${REGISTRY}" -u "${HARBOR_USERNAME}" --password-stdin
-          bash .github/scripts/bump-operator-chart.sh
-
       - name: Create and push tag
         if: steps.version.outputs.release_created == 'true'
         run: |
@@ -142,77 +108,3 @@ jobs:
             git tag -a "$TAG" -m "Release candidate $TAG"
             git push origin "$TAG"
           fi
-
-  # ==========================================================================
-  # Integration tests run AFTER Flux reconciliation, not during the build.
-  #
-  # Ideally Flux Notification Controller would dispatch via the github
-  # provider, but it can't extract a commit hash from OCIRepository
-  # revisions (upstream bug: fluxcd/flux2#5148). As a workaround, the
-  # release job dispatches the integration-test workflow after waiting
-  # for Flux to reconcile the new chart.
-  # ==========================================================================
-
-  integration-test:
-    needs: release
-    if: needs.release.outputs.release_created == 'true'
-    runs-on: homelab-runners
-    permissions:
-      contents: write
-      actions: write
-
-    steps:
-      - name: Install kubectl
-        run: |
-          curl -sLO "https://dl.k8s.io/release/$(curl -sL https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
-          chmod +x kubectl && sudo mv kubectl /usr/local/bin/
-
-      - name: Wait for Flux reconciliation
-        env:
-          KUBECONFIG_DATA: ${{ secrets.KUBECONFIG_DATA }}
-        run: |
-          # Self-hosted runner: prefer local kubeconfig if it exists and works,
-          # fall back to the KUBECONFIG_DATA secret for remote runners.
-          # Talos uses self-signed certs so --insecure-skip-tls-verify is needed
-          # when the runner's trust store doesn't include the cluster CA.
-          if [ -f "$HOME/.kube/config" ] && kubectl cluster-info --insecure-skip-tls-verify >/dev/null 2>&1; then
-            kubectl config set-cluster "$(kubectl config current-context)" --insecure-skip-tls-verify=true 2>/dev/null || true
-            echo "Using runner's local kubeconfig"
-          elif [ -n "${KUBECONFIG_DATA}" ]; then
-            mkdir -p ~/.kube
-            echo "${KUBECONFIG_DATA}" > ~/.kube/config
-            chmod 600 ~/.kube/config
-            # Skip TLS verify for self-signed Talos cluster CA
-            kubectl config set-cluster "$(kubectl config view -o jsonpath='{.clusters[0].name}')" --insecure-skip-tls-verify=true
-            echo "Using KUBECONFIG_DATA secret"
-          else
-            echo "No kubeconfig available" && exit 1
-          fi
-
-          echo "Waiting for Flux to pick up new chart and reconcile..."
-          for i in $(seq 1 30); do
-            STATUS=$(kubectl get helmrelease kubemoot-operator -n kubemoot \
-              -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || echo "Unknown")
-            REVISION=$(kubectl get helmrelease kubemoot-operator -n kubemoot \
-              -o jsonpath='{.status.lastAppliedRevision}' 2>/dev/null || echo "")
-            echo "  Attempt ${i}/30: Ready=${STATUS} Revision=${REVISION}"
-            if [ "$STATUS" = "True" ]; then
-              # Verify the operator pod is running the new image
-              POD_IMAGE=$(kubectl get pods -n kubemoot -l control-plane=controller-manager \
-                -o jsonpath='{.items[0].spec.containers[0].image}' 2>/dev/null || echo "")
-              if echo "$POD_IMAGE" | grep -q ":"; then
-                echo "  Operator image: ${POD_IMAGE}"
-                break
-              fi
-            fi
-            sleep 10
-          done
-
-          # Confirm the deployment is fully rolled out
-          kubectl rollout status deployment/kubemoot-operator -n kubemoot --timeout=120s
-
-      - name: Dispatch integration test
-        uses: peter-evans/repository-dispatch@v3
-        with:
-          event-type: flux-reconciliation
-

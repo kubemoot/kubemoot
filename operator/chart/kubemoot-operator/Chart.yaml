@@ -2,8 +2,10 @@ apiVersion: v2
 name: kubemoot-operator
 description: Kubernetes operator and runtime for multi-agent AI consensus
 type: application
-version: 0.92.588-rc.9
-appVersion: "0.349.0-rc.24"
+# Git holds 0.0.0: the chart release stamps the chart version, and the operator image
+# version as appVersion, from the git tags at packaging (release-operator-chart.sh).
+version: 0.0.0
+appVersion: "0.0.0"
 keywords:
   - ai
   - ml
@@ -18,10 +20,10 @@ maintainers:
     email: moot@kubemoot.org
 # The dashboard ships inside this chart as an optional subchart, off by default
 # (it has no authentication and admin powers; see SECURITY.md). The dependency is a
-# local path: the release workflows package this chart from the monorepo checkout, so
-# the subchart is always the same commit's dashboard chart and no version is pinned
-# here. Its version and appVersion are still written into dashboard/charts by the
-# dashboard release, and `helm package --dependency-update` embeds them.
+# local path: the chart release packages this chart from the monorepo checkout, so the
+# subchart is always the same commit's dashboard chart and no version is pinned here.
+# The chart release stamps the dashboard chart's version and appVersion (the dashboard
+# image tag) from the dashboard's tags before `helm package --dependency-update` embeds it.
 dependencies:
   - name: kubemoot-dashboard
     alias: dashboard

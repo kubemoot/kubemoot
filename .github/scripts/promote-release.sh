@@ -9,15 +9,20 @@
 #
 #   1. The candidate: the highest operator-chart-vA.B.C-rc.N tag reachable from the
 #      starting point (RC_TAG, or the tip of main for "latest").
-#   2. Images: every X.Y.Z-rc.N image the chart pins at that commit (values.yaml,
-#      the operator appVersion, the dashboard chart when it is a subchart), plus the
-#      latest candidate, as of that commit, of each image the chart does not pin
-#      (STANDALONE_IMAGES). The promotion is main as it was at the chart candidate.
-#      Each is copied by digest to ${RELEASE_REGISTRY}/<name>:X.Y.Z and tagged X.Y.Z
-#      in Harbor, and its candidate tag's commit gets the final <prefix>X.Y.Z tag.
-#   3. Charts: packaged from the candidate commit with the final version and the
-#      final image pins (in a scratch worktree, never committed), pushed to Harbor
-#      and the release registry.
+#   2. Images: every X.Y.Z-rc.N image the candidate chart in Harbor was packaged with
+#      (the operator appVersion, its values, the dashboard subchart's appVersion), read
+#      from that chart, so the release ships exactly what the homelab ran; plus the
+#      latest candidate, as of the candidate's commit, of each image the chart does not
+#      pin (STANDALONE_IMAGES). Each is copied by digest to
+#      ${RELEASE_REGISTRY}/<name>:X.Y.Z and tagged X.Y.Z in Harbor, and its candidate
+#      tag's commit gets the final <prefix>X.Y.Z tag.
+#      A candidate must embed the dashboard as a subchart: candidates from before the
+#      dashboard became a subchart cannot be promoted. A candidate built before the
+#      versions moved to the tags (real versions in git at its commit) still promotes:
+#      its pins are taken from the candidate chart the same way.
+#   3. The chart: packaged from the candidate's commit (in a scratch worktree, never
+#      committed; git holds 0.0.0) stamped with the final chart version and the finals
+#      of the candidate's images, pushed to Harbor and the release registry.
 #   4. Tags are pushed together (atomic); the release notes go to ${OUT_DIR}/notes.md
 #      and ${OUT_DIR}/releases.tsv names the GitHub Release to write.
 #
@@ -36,6 +41,8 @@
 #   OUT_DIR           where packaged charts and notes.md land (default: promotion)
 #   RELEASE_LIB       release-lib.sh of kubemoot/release-actions (its actions set it)
 set -euo pipefail
+# A failure inside $(...) stops the script too.
+shopt -s inherit_errexit
 
 here="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=/dev/null
@@ -43,7 +50,7 @@ source "${RELEASE_LIB:?RELEASE_LIB must point to release-lib.sh from kubemoot/re
 
 RC_TAG="${RC_TAG:-latest}"
 DRY_RUN="${DRY_RUN:-true}"
-STANDALONE_IMAGES="${STANDALONE_IMAGES:-code-sandbox artifact-access test-runner dashboard}"
+STANDALONE_IMAGES="${STANDALONE_IMAGES:-code-sandbox artifact-access test-runner}"
 OUT_DIR="$(mkdir -p "${OUT_DIR:-promotion}" && cd "${OUT_DIR:-promotion}" && pwd)"
 : "${REGISTRY:?REGISTRY required}"
 : "${RELEASE_REGISTRY:?RELEASE_REGISTRY required}"
@@ -51,12 +58,17 @@ OUT_DIR="$(mkdir -p "${OUT_DIR:-promotion}" && cd "${OUT_DIR:-promotion}" && pwd
 CHART_PREFIX="operator-chart-v"
 CHART_DIR="operator/chart/kubemoot-operator"
 DASH_DIR="dashboard/charts/kubemoot-dashboard"
+CANDIDATE=""
 
 PLAN_NAMES=()     # image names to promote
 PLAN_RCS=()       # their candidate versions
 
 die() { echo "ERROR: $*" >&2; exit 1; }
-trap rl_remove_worktrees EXIT
+cleanup() {
+  rl_remove_worktrees
+  [ -z "$CANDIDATE" ] || rm -rf "$(dirname "$CANDIDATE")"
+}
+trap cleanup EXIT
 
 # image_prefix NAME: the git tag prefix of an image's releases.
 image_prefix() {
@@ -75,34 +87,47 @@ plan_add() {
   PLAN_RCS+=("$2")
 }
 
-# collect_pins WORKTREE: every release-candidate image the operator chart pins.
+# candidate_chart VERSION: pulls the candidate chart from Harbor into a scratch
+# directory, its path in CANDIDATE, with the dashboard subchart unpacked under
+# ${CANDIDATE}/charts/kubemoot-dashboard.
+candidate_chart() {
+  local dir sub
+  dir="$(mktemp -d)"
+  helm pull --insecure-skip-tls-verify "oci://${REGISTRY}/kubemoot/charts/kubemoot-operator" \
+    --version "$1" --untar --untardir "$dir" >/dev/null \
+    || die "cannot read the candidate operator chart $1 from Harbor"
+  CANDIDATE="${dir}/kubemoot-operator"
+  if [ ! -d "${CANDIDATE}/charts/kubemoot-dashboard" ]; then
+    sub=$(find "${CANDIDATE}/charts" -maxdepth 1 -name 'kubemoot-dashboard-*.tgz' 2>/dev/null | head -n 1)
+    [ -n "$sub" ] || die "the candidate operator chart $1 has no dashboard subchart"
+    tar -xzf "$sub" -C "${CANDIDATE}/charts"
+  fi
+}
+
+chart_app_version() {
+  sed -nE 's/^appVersion: "?([^"]+)"?$/\1/p' "$1/Chart.yaml"
+}
+
+# collect_pins CANDIDATE: every release-candidate image the candidate chart pins.
 collect_pins() {
-  local wt="$1" app name version
-  app=$(sed -nE 's/^appVersion: "?([^"]+)"?$/\1/p' "${wt}/${CHART_DIR}/Chart.yaml")
+  local cand="$1" app name version
+  app=$(chart_app_version "$cand")
   rl_is_rc "$app" && plan_add kubemoot-operator "$app"
   while read -r name version; do
     plan_add "$name" "$version"
   done < <(sed -nE 's/^[[:space:]]*[A-Za-z]+: ([a-z0-9-]+):([0-9]+\.[0-9]+\.[0-9]+-rc\.[0-9]+)[[:space:]]*$/\1 \2/p' \
-             "${wt}/${CHART_DIR}/values.yaml")
-  if dashboard_is_subchart "$wt"; then
-    app=$(sed -nE 's/^appVersion: "?([^"]+)"?$/\1/p' "${wt}/${DASH_DIR}/Chart.yaml")
-    rl_is_rc "$app" && plan_add dashboard "$app"
-  fi
+             "${cand}/values.yaml")
+  app=$(chart_app_version "${cand}/charts/kubemoot-dashboard")
+  rl_is_rc "$app" && plan_add dashboard "$app"
   return 0
 }
 
-dashboard_is_subchart() {
-  grep -qE '^[[:space:]]+- name: kubemoot-dashboard' "$1/${CHART_DIR}/Chart.yaml"
-}
-
-# collect_standalone COMMIT WORKTREE: the latest candidate, as of the chart
-# candidate's COMMIT, of each image the chart does not pin. A dashboard that ships as a
-# subchart is pinned by the chart instead.
+# collect_standalone COMMIT: the latest candidate, as of the chart candidate's COMMIT,
+# of each image the chart does not pin.
 collect_standalone() {
-  local point="$1" wt="$2" name prefix rc
+  local point="$1" name prefix rc
   for name in ${STANDALONE_IMAGES}; do
     planned "$name" && continue
-    [ "$name" = "dashboard" ] && dashboard_is_subchart "$wt" && continue
     prefix=$(image_prefix "$name")
     rc=$(rl_latest_rc "$prefix" "$point")
     [ -n "$rc" ] || continue
@@ -145,44 +170,28 @@ tag_final() {
 }
 
 
-# set_chart_version DIR VERSION: version and appVersion of a chart whose app
-# version follows the chart (the dashboard chart).
-set_chart_version() {
-  sed -i -E "s/^version:.*/version: $2/; s/^appVersion:.*/appVersion: $2/" "$1/Chart.yaml"
+# finalize_pins FILE: rewrite every candidate pin in FILE to its final version.
+finalize_pins() {
+  local file="$1" i name rc
+  for i in "${!PLAN_NAMES[@]}"; do
+    name="${PLAN_NAMES[$i]}"; rc="${PLAN_RCS[$i]}"
+    sed -i -E "s|^([[:space:]]*[A-Za-z]+: \"?${name}:)${rc//./\\.}([\"[:space:]]*)$|\1$(rl_final_of "$rc")\2|" "$file"
+  done
 }
 
-# finalize_pins WORKTREE: rewrite every candidate pin to its final version.
-finalize_pins() {
-  local wt="$1" i name rc final
-  for i in "${!PLAN_NAMES[@]}"; do
-    name="${PLAN_NAMES[$i]}"; rc="${PLAN_RCS[$i]}"; final=$(rl_final_of "$rc")
-    case "$name" in
-      kubemoot-operator) sed -i -E "s/^appVersion:.*/appVersion: \"${final}\"/" "${wt}/${CHART_DIR}/Chart.yaml" ;;
-      dashboard) dashboard_is_subchart "$wt" && set_chart_version "${wt}/${DASH_DIR}" "$final" ;;
-      *) sed -i -E "s|^([[:space:]]*[A-Za-z]+: ${name}:)${rc//./\\.}([[:space:]]*)$|\1${final}\2|" "${wt}/${CHART_DIR}/values.yaml" ;;
-    esac
-  done
-  if grep -nE -- '-rc\.[0-9]+' "${wt}/${CHART_DIR}/values.yaml"; then
+# package_operator_chart WORKTREE CANDIDATE VERSION: the chart at the candidate's commit,
+# stamped with the final VERSION and the finals of the images CANDIDATE was packaged with.
+package_operator_chart() {
+  local wt="$1" cand="$2" version="$3" values="$1/${CHART_DIR}/values.yaml" dash="$1/${DASH_DIR}"
+  rl_stamp_images_like "$values" "${cand}/values.yaml" >/dev/null
+  rl_stamp_images_like "${dash}/values.yaml" "${cand}/charts/kubemoot-dashboard/values.yaml" >/dev/null
+  finalize_pins "$values"
+  if grep -nE -- '-rc\.[0-9]+' "$values" "${dash}/values.yaml"; then
     die "the chart still pins a release candidate the promotion does not cover"
   fi
-  return 0
-}
-
-# package_operator_chart WORKTREE VERSION
-package_operator_chart() {
-  sed -i -E "s/^version:.*/version: $2/" "$1/${CHART_DIR}/Chart.yaml"
-  helm package --dependency-update "$1/${CHART_DIR}" --version "$2" --destination "${OUT_DIR}"
-}
-
-# package_standalone_dashboard RC: the dashboard chart, when it is released on its own,
-# from its candidate's commit with the final version.
-package_standalone_dashboard() {
-  local rc="$1" wt final
-  final=$(rl_final_of "$rc")
-  rl_checkout_at "$(git rev-list -n 1 "dashboard-v${rc}")"
-  wt="$RL_CHECKOUT"
-  set_chart_version "${wt}/${DASH_DIR}" "$final"
-  helm package "${wt}/${DASH_DIR}" --destination "${OUT_DIR}"
+  rl_stamp_chart "$dash" "$(rl_final_of "$(chart_app_version "${cand}/charts/kubemoot-dashboard")")"
+  rl_stamp_chart "${wt}/${CHART_DIR}" "$version" "$(rl_final_of "$(chart_app_version "$cand")")"
+  helm package --dependency-update "${wt}/${CHART_DIR}" --destination "${OUT_DIR}"
 }
 
 push_charts() {
@@ -231,7 +240,7 @@ output() {
 }
 
 main() {
-  local point chart_rc chart_final src wt prev i
+  local point chart_rc chart_final src prev i
   point=$(rl_resolve_point "$RC_TAG")
   chart_rc=$(rl_latest_rc "$CHART_PREFIX" "$point")
   [ -n "$chart_rc" ] || die "no ${CHART_PREFIX}*-rc.* tag at or before ${RC_TAG}"
@@ -241,20 +250,14 @@ main() {
   prev=$(previous_release "$src")
   echo "Promoting ${chart_rc} (commit ${src}) to operator chart ${chart_final}; dry run: ${DRY_RUN}"
 
-  rl_checkout_at "$src"
-  wt="$RL_CHECKOUT"
-  collect_pins "$wt"
-  collect_standalone "$src" "$wt"
+  candidate_chart "${chart_rc#"$CHART_PREFIX"}"
+  collect_pins "$CANDIDATE"
+  collect_standalone "$src"
 
-  # Package and check every chart before the first push.
+  # Package and check the chart before the first push.
   : > "${OUT_DIR}/releases.tsv"
-  finalize_pins "$wt"
-  package_operator_chart "$wt" "$chart_final"
-  for i in "${!PLAN_NAMES[@]}"; do
-    if [ "${PLAN_NAMES[$i]}" = "dashboard" ] && ! dashboard_is_subchart "$wt"; then
-      package_standalone_dashboard "${PLAN_RCS[$i]}"
-    fi
-  done
+  rl_checkout_at "$src"
+  package_operator_chart "$RL_CHECKOUT" "$CANDIDATE" "$chart_final"
 
   for i in "${!PLAN_NAMES[@]}"; do
     promote_image "${PLAN_NAMES[$i]}" "${PLAN_RCS[$i]}"
