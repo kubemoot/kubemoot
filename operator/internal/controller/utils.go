@@ -32,8 +32,11 @@ import (
 // immediateRequeueDelay is the base delay of the default controller rate limiter.
 const immediateRequeueDelay = 5 * time.Millisecond
 
-// requeueNow is the result for a reconcile that changed its object (added a
-// finalizer, started a model pull) and must run again at once to act on the result.
+// requeueNow is the result for a reconcile that added a finalizer and must run again
+// at once to act on the updated object. Its delay is the default rate limiter's 5ms
+// base delay, but RequeueAfter carries no per-item backoff: use it only where the
+// next reconcile cannot repeat the same outcome (a second finalizer add is a no-op,
+// and an update conflict returns an error, which does back off).
 func requeueNow() ctrl.Result {
 	return ctrl.Result{RequeueAfter: immediateRequeueDelay}
 }

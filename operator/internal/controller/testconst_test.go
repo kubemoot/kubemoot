@@ -93,6 +93,7 @@ const (
 	testOtherSecret         = "other"
 	testOwnerName           = "owner"
 	testPathAPITags         = "/api/tags"
+	testPathAPIPull         = "/api/pull"
 	testPathHealth          = "/health"
 	testPhaseUnschedulable  = "Unschedulable"
 	testPilotArm            = "homelab-pilot"

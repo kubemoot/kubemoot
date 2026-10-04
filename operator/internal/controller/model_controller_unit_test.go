@@ -54,7 +54,7 @@ func TestReconcileOllamaModel_ProbeErrorDoesNotPull(t *testing.T) {
 		switch r.URL.Path {
 		case testPathAPITags:
 			w.WriteHeader(http.StatusInternalServerError) // probe fails
-		case "/api/pull":
+		case testPathAPIPull:
 			atomic.AddInt32(&pulls, 1)
 			w.WriteHeader(http.StatusOK)
 		default:
@@ -101,7 +101,7 @@ func TestReconcileOllamaModel_AbsentTriggersPull(t *testing.T) {
 		case testPathAPITags:
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write([]byte(`{"models":[]}`)) // model genuinely absent
-		case "/api/pull":
+		case testPathAPIPull:
 			atomic.AddInt32(&pulls, 1)
 			w.WriteHeader(http.StatusOK)
 			_, _ = w.Write([]byte(`{"status":"success"}`))

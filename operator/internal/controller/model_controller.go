@@ -45,6 +45,9 @@ type ModelReconciler struct {
 	HTTPClient *http.Client
 }
 
+// ollamaDisplayName is how errors name the Ollama provider.
+const ollamaDisplayName = "Ollama"
+
 // OllamaTagsResponse represents the response from Ollama /api/tags
 type OllamaTagsResponse struct {
 	Models []OllamaModelInfo `json:"models"`
@@ -174,7 +177,14 @@ func (r *ModelReconciler) reconcileOllamaModel(ctx context.Context, model *aiv1a
 		return r.pullOllamaModel(ctx, httpClient, model, provider)
 	}
 
-	// The /api/tags probe above already confirmed the model is present, so it is
+	return r.reportOllamaModel(ctx, httpClient, model, provider, modelInfo)
+}
+
+// reportOllamaModel records a model the provider lists as present.
+func (r *ModelReconciler) reportOllamaModel(ctx context.Context, httpClient *http.Client, model *aiv1alpha1.Model, provider *aiv1alpha1.ModelProvider, modelInfo *OllamaModelInfo) (ctrl.Result, error) {
+	log := logf.FromContext(ctx)
+
+	// The /api/tags probe already confirmed the model is present, so it is
 	// Available and Ready for scheduling regardless of VRAM residency. isModelLoaded
 	// only refines Available -> Loaded. A transient /api/ps error therefore must NOT
 	// requeue-without-status the way the /api/tags error does: that would leave a
@@ -214,7 +224,7 @@ func (r *ModelReconciler) getOllamaModelInfo(ctx context.Context, httpClient *ht
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("model server (Ollama) returned status %d", resp.StatusCode)
+		return nil, fmt.Errorf("%s returned status %d", ollamaDisplayName, resp.StatusCode)
 	}
 
 	var tagsResp OllamaTagsResponse
@@ -303,9 +313,24 @@ func (r *ModelReconciler) pullOllamaModel(ctx context.Context, httpClient *http.
 	}
 
 	log.Info("Model pull completed", "model", model.Spec.Model, "status", pullResp.Status)
+	return r.reconcileAfterPull(ctx, httpClient, model, provider, pullResp.Status)
+}
 
-	// Requeue to update status with full model info
-	return requeueNow(), nil
+// reconcileAfterPull acts on what the provider lists once a pull has returned 200.
+// A model that is now listed is reported at once. One that is not listed yet stays
+// Pulling, and updateModelStatus polls a Pulling model every 10s, so a pull that
+// reports success without the model ever appearing cannot loop tightly.
+func (r *ModelReconciler) reconcileAfterPull(ctx context.Context, httpClient *http.Client, model *aiv1alpha1.Model, provider *aiv1alpha1.ModelProvider, pullStatus string) (ctrl.Result, error) {
+	modelInfo, err := r.getOllamaModelInfo(ctx, httpClient, provider.Spec.Endpoint, model.Spec.Model)
+	if err != nil {
+		return r.updateModelStatus(ctx, model, "Pulling", false,
+			fmt.Sprintf("Pull reported %q; listing the model failed: %v", pullStatus, err), nil)
+	}
+	if modelInfo == nil {
+		return r.updateModelStatus(ctx, model, "Pulling", false,
+			fmt.Sprintf("Pull reported %q; the model is not listed yet", pullStatus), nil)
+	}
+	return r.reportOllamaModel(ctx, httpClient, model, provider, modelInfo)
 }
 
 // handleDeletion handles the deletion of a Model
