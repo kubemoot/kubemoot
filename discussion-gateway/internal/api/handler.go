@@ -23,11 +23,12 @@ const (
 	agentNameGateway     = "discussion-gateway"
 	// errorChannel is the channel token of the synthetic error thread.
 	errorChannel = "broadcast"
-	// keyError and keyStatus are JSON response keys; keyError is also the log key.
+	// JSON response keys and readiness statuses; keyError is also the log key.
 	keyError       = "error"
 	keyStatus      = "status"
 	keyMessageType = "messageType"
 	statusNotReady = "not ready"
+	statusReady    = "ready"
 )
 
 var handlerLog = logf.Log.WithName("api-handler")
@@ -107,7 +108,7 @@ func (h *Handler) readyHandler(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusServiceUnavailable,
 			map[string]string{keyStatus: statusNotReady, "reason": "not connected to NATS"})
 	default:
-		writeJSON(w, http.StatusOK, map[string]string{keyStatus: phaseReady})
+		writeJSON(w, http.StatusOK, map[string]string{keyStatus: statusReady})
 	}
 }
 

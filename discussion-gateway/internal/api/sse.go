@@ -32,22 +32,34 @@ const (
 	msgSynthesis   = "synthesis"
 )
 
-// SSE event types: eventError reports a stream failure, eventPhase an agent's phase.
+// SSE event types sent to the client.
 const (
-	eventError   = "error"
-	eventPhase   = "phase"
-	eventFinding = "finding"
+	eventError       = "error"
+	eventPhase       = "phase"
+	eventFinding     = "finding"
+	eventThreadFound = "thread_found"
+	eventDone        = "done"
 )
 
-// Agent phases that pass through to the client as the phase status.
+// Agent phases: the message types that pass through as the phase status, and
+// phaseDone, the status of an agent that stood aside.
 const (
+	phaseWaking     = "waking"
 	phaseReady      = "ready"
+	phaseTriaging   = "triaging"
 	phaseEvaluating = "evaluating"
 	phaseWaiting    = "waiting"
+	phaseDone       = "done"
 )
 
-// signalStandAside is the stand-aside signal, reported as a completed phase.
-const signalStandAside = "stand_aside"
+// Consensus signals an agent contributes to a discussion.
+const (
+	signalAgree      = "agree"
+	signalBlock      = "block"
+	signalFailure    = "failure"
+	signalConcern    = "concern"
+	signalStandAside = "stand_aside"
+)
 
 var streamLog = logf.Log.WithName("stream")
 
@@ -306,7 +318,7 @@ func (tf *threadFinder) follow(m discussMsg, emit func(SSEEvent)) {
 			"conversationId", tf.conversationID, "abandoned", tf.threadID, "threadId", m.data.ThreadID)
 	}
 	tf.threadID = m.data.ThreadID
-	events := []SSEEvent{{Type: "thread_found", ThreadID: tf.threadID}}
+	events := []SSEEvent{{Type: eventThreadFound, ThreadID: tf.threadID}}
 	collect := func(e SSEEvent) { events = append(events, e) }
 	for _, b := range tf.buf {
 		if b.data.ThreadID == tf.threadID {
@@ -425,7 +437,7 @@ func translateAndEmit(data natsMessage, emit func(SSEEvent)) {
 	case msgSynthesis:
 		emit(SSEEvent{Type: msgSynthesis, Content: data.Content})
 	case msgThreadClose:
-		emit(SSEEvent{Type: "done"})
+		emit(SSEEvent{Type: eventDone})
 	default:
 		if e, ok := phaseEvent(data); ok {
 			emit(e)
@@ -442,9 +454,9 @@ func translateAndEmit(data natsMessage, emit func(SSEEvent)) {
 func phaseEvent(data natsMessage) (SSEEvent, bool) {
 	e := SSEEvent{Type: eventPhase, Agent: data.AgentName}
 	switch data.MessageType {
-	case "waking", phaseReady:
+	case phaseWaking, phaseReady:
 		e.Status = data.MessageType
-	case "triaging", phaseEvaluating:
+	case phaseTriaging, phaseEvaluating:
 		e.Status, e.GPU = data.MessageType, metaString(data, "gpuLabel")
 	case phaseWaiting:
 		e.Status, e.Model, e.Reason = phaseWaiting, metaString(data, "model"), metaString(data, "reason")
@@ -452,7 +464,7 @@ func phaseEvent(data natsMessage) (SSEEvent, bool) {
 		// Carry the explicit signal alongside the done/stood-aside phase so the
 		// fitness transcript can count stand-aside depth uniformly with the other
 		// signals, while the dashboard still sees it as a completed phase.
-		e.Status, e.StoodAside, e.Signal, e.Reason = "done", true, signalStandAside, metaString(data, "reason")
+		e.Status, e.StoodAside, e.Signal, e.Reason = phaseDone, true, signalStandAside, metaString(data, "reason")
 	default:
 		return SSEEvent{}, false
 	}
@@ -466,9 +478,9 @@ func phaseEvent(data natsMessage) (SSEEvent, bool) {
 func findingEvent(data natsMessage) (SSEEvent, bool) {
 	e := SSEEvent{Type: eventFinding, Agent: data.AgentName, Signal: data.MessageType}
 	switch data.MessageType {
-	case "agree", "block", "failure":
+	case signalAgree, signalBlock, signalFailure:
 		e.Summary, e.Content = extractSummary(data.Content), data.Content
-	case "concern":
+	case signalConcern:
 		e.Summary = data.Content
 	default:
 		return SSEEvent{}, false

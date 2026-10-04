@@ -119,7 +119,7 @@ func TestStreamFollowsTheThreadACoordinatorRestartStarted(t *testing.T) {
 	nc, js := jetStreamServer(t)
 	since := time.Now().UTC().Format(time.RFC3339Nano)
 	publishDiscuss(t, js, startOf("A"))
-	publishDiscuss(t, js, msgOf("A", "a1", "triaging", ""))
+	publishDiscuss(t, js, msgOf("A", "a1", phaseTriaging, ""))
 	b := publishDiscuss(t, js, startOf("B"))
 	publishDiscuss(t, js, msgOf("B", "b1", msgSynthesis, "the namespaces are ..."))
 	closeSeq := publishDiscuss(t, js, msgOf("B", "b2", "thread_close", ""))
@@ -143,8 +143,8 @@ func TestStreamFollowsTheThreadACoordinatorRestartStarted(t *testing.T) {
 func TestStreamResumesAfterTheLastEventID(t *testing.T) {
 	nc, js := jetStreamServer(t)
 	publishDiscuss(t, js, startOf("A"))
-	publishDiscuss(t, js, msgOf("A", "a1", sigConcern, "seen before the drop"))
-	seen := publishDiscuss(t, js, msgOf("A", "a2", sigAgree, "also seen"))
+	publishDiscuss(t, js, msgOf("A", "a1", signalConcern, "seen before the drop"))
+	seen := publishDiscuss(t, js, msgOf("A", "a2", signalAgree, "also seen"))
 	publishDiscuss(t, js, msgOf("A", "a3", msgSynthesis, "answer"))
 	publishDiscuss(t, js, msgOf("A", "a4", "thread_close", ""))
 	srv := gatewayServer(t, nc)
@@ -158,7 +158,7 @@ func TestStreamResumesAfterTheLastEventID(t *testing.T) {
 			header.Set("Last-Event-ID", eventID("A", seen))
 		}
 		got := strings.Join(readStream(t, srv, path, header), "\n")
-		if strings.Contains(got, "seen before the drop") || strings.Contains(got, "also seen") || strings.Contains(got, "thread_found") {
+		if strings.Contains(got, "seen before the drop") || strings.Contains(got, "also seen") || strings.Contains(got, eventThreadFound) {
 			t.Errorf("%s: resumed stream repeated events:\n%s", name, got)
 		}
 		if !strings.Contains(got, `"content":"answer"`) || !strings.Contains(got, `"type":"done"`) {
@@ -172,8 +172,8 @@ func TestStreamResumesAfterTheLastEventID(t *testing.T) {
 func TestStreamResumeSkipsTheTwinOfTheLastDeliveredMessage(t *testing.T) {
 	nc, js := jetStreamServer(t)
 	publishDiscuss(t, js, startOf("A"))
-	first := publishDiscuss(t, js, msgOf("A", "dual", sigConcern, "said once"))
-	publishDiscuss(t, js, msgOf("A", "dual", sigConcern, "said once"))
+	first := publishDiscuss(t, js, msgOf("A", "dual", signalConcern, "said once"))
+	publishDiscuss(t, js, msgOf("A", "dual", signalConcern, "said once"))
 	publishDiscuss(t, js, msgOf("A", "a9", "thread_close", ""))
 	header := http.Header{}
 	header.Set("Last-Event-ID", eventID("A", first))
@@ -199,7 +199,7 @@ func TestEndStreamsOnEndsStreamsButNotQuestions(t *testing.T) {
 
 	time.AfterFunc(200*time.Millisecond, stop)
 	got := strings.Join(readStream(t, srv, "/api/v1/discussions/pilot/conv-1/stream", nil), "\n")
-	if !strings.Contains(got, "thread_found") || strings.Contains(got, `"type":"done"`) {
+	if !strings.Contains(got, eventThreadFound) || strings.Contains(got, `"type":"done"`) {
 		t.Fatalf("want the stream to end open after thread_found:\n%s", got)
 	}
 	resp, err := http.Post(srv.URL+"/api/v1/discussions/pilot", mimeJSON, strings.NewReader(`{"message":"hi"}`))
