@@ -26,7 +26,7 @@ one.
 | Component | Path | Language / stack |
 |-----------|------|------------------|
 | Operator | `operator/` | Go, controller-runtime, kubebuilder CRDs |
-| Agent runtime | `agent-runtime/` | Java / Quarkus + LangChain4j (GraalVM native) |
+| Agent runtime | `agent-runtime/` | Java / Quarkus + LangChain4j (GraalVM Community native) |
 | Dashboard | `dashboard/` | SvelteKit |
 | MCP bridge, scheduling and tool servers | `mcp-bridge/`, `scheduling-mcp/`, `artifact-access/`, `code-sandbox/` | Go |
 | MCP gateway | `mcp-gateway/` | Java |
