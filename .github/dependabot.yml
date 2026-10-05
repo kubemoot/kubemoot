@@ -46,6 +46,10 @@ updates:
     ignore:
       - dependency-name: "node"
         update-types: ["version-update:semver-major"]
+      # test-runner's kubectl (registry.k8s.io/kubectl) matches the cluster's Kubernetes
+      # version and moves with a Talos upgrade, not on this schedule; Dependabot also
+      # cannot read registry.k8s.io anonymously and would fail the whole Docker run.
+      - dependency-name: "kubectl"
     open-pull-requests-limit: 5
     commit-message:
       prefix: "chore(deps)"
