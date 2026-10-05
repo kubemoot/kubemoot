@@ -32,6 +32,6 @@ export function extractGPUInfo(node: K8sNode): GPUInfo {
 		count: Number.parseInt(capacity[key]),
 		memory: gpuMemoryFromLabels(labels),
 		capacity: capacity[key],
-		allocatable: (node.status?.allocatable || {})[key]
+		allocatable: node.status?.allocatable?.[key]
 	};
 }

@@ -272,7 +272,7 @@ function processHistoryMessage(m: { seq?: unknown; data?: unknown; subject?: str
 	if (typeof m.seq === 'number' && m.seq > lastSeq) lastSeq = m.seq;
 	try {
 		const d = typeof m.data === 'string' ? JSON.parse(m.data) : m.data;
-		if (d && d.threadId && d.messageType) handleMessage(d as DiscussionMessage, m.subject);
+		if (d?.threadId && d.messageType) handleMessage(d as DiscussionMessage, m.subject);
 	} catch {
 		/* skip malformed */
 	}

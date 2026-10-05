@@ -2,7 +2,7 @@ import * as k8s from '@kubernetes/client-node';
 import { getKubeConfig } from './client.js';
 import { KUBEMOOT_CRDS } from './kubemoot-crds.js';
 import { describeError } from '#lib/text-utils.js';
-import { sseResponse } from '../sse.js';
+import { sseResponse, type SseSink } from '../sse.js';
 
 const GROUP = 'kubemoot.ai';
 const VERSION = 'v1alpha1';
@@ -10,7 +10,50 @@ const VERSION = 'v1alpha1';
 export type CrdPlural = keyof typeof KUBEMOOT_CRDS;
 
 export function isWatchableCrd(plural: string): plural is CrdPlural {
-	return Object.prototype.hasOwnProperty.call(KUBEMOOT_CRDS, plural);
+	return Object.hasOwn(KUBEMOOT_CRDS, plural);
+}
+
+interface WatchContext {
+	watch: k8s.Watch;
+	pathFor: (plural: string) => string;
+	accept: (obj: unknown) => boolean;
+	aborters: Map<CrdPlural, AbortController>;
+	sink: SseSink;
+}
+
+/**
+ * Start one CRD watch and relay its events to the sink. A k8s watch ends after the
+ * API server's timeout (minutes) or on a transient error. If we don't RESTART it,
+ * the SSE stays open (heartbeats) but no further ADDED/MODIFIED/DELETED events
+ * arrive - the page silently freezes at the last state until a manual refresh. So
+ * re-establish the watch whenever it ends; restarting re-lists current objects
+ * (ADDED), which also heals any change missed during the gap.
+ */
+async function startCrdWatch(ctx: WatchContext, plural: CrdPlural): Promise<void> {
+	const { sink } = ctx;
+	if (sink.closed) return;
+	const kind = KUBEMOOT_CRDS[plural].kind;
+	const restartAfter = (delayMs: number) => {
+		if (!sink.closed) setTimeout(() => void startCrdWatch(ctx, plural), delayMs);
+	};
+	try {
+		const ac = await ctx.watch.watch(
+			ctx.pathFor(plural),
+			{},
+			(type: string, obj: unknown) => {
+				if (ctx.accept(obj)) sink.data({ kind, type, object: obj });
+			},
+			(err: unknown) => {
+				if (err) sink.data({ kind, type: 'ERROR', error: describeError(err) });
+				restartAfter(1000);
+			}
+		);
+		ctx.aborters.set(plural, ac);
+		if (sink.closed) ac.abort();
+	} catch (e) {
+		sink.data({ kind, type: 'ERROR', error: e instanceof Error ? e.message : String(e) });
+		restartAfter(2000);
+	}
 }
 
 /**
@@ -41,36 +84,9 @@ export function crdWatchResponse(
 			: `/apis/${GROUP}/${VERSION}/${plural}`;
 
 	return sseResponse(async (sink) => {
-		// A k8s watch ends after the API server's timeout (minutes) or on a
-		// transient error. If we don't RESTART it, the SSE stays open (heartbeats)
-		// but no further ADDED/MODIFIED/DELETED events arrive - the page silently
-		// freezes at the last state until a manual refresh. So re-establish the
-		// watch whenever it ends; restarting re-lists current objects (ADDED),
-		// which also heals any change missed during the gap.
-		const startWatch = async (plural: CrdPlural) => {
-			if (sink.closed) return;
-			const kind = KUBEMOOT_CRDS[plural].kind;
-			try {
-				const ac = await watch.watch(
-					pathFor(plural),
-					{},
-					(type: string, obj: unknown) => {
-						if (accept(obj)) sink.data({ kind, type, object: obj });
-					},
-					(err: unknown) => {
-						if (err) sink.data({ kind, type: 'ERROR', error: describeError(err) });
-						if (!sink.closed) setTimeout(() => void startWatch(plural), 1000);
-					}
-				);
-				aborters.set(plural, ac);
-				if (sink.closed) ac.abort();
-			} catch (e) {
-				sink.data({ kind, type: 'ERROR', error: e instanceof Error ? e.message : String(e) });
-				if (!sink.closed) setTimeout(() => void startWatch(plural), 2000);
-			}
-		};
+		const ctx: WatchContext = { watch, pathFor, accept, aborters, sink };
 		for (const plural of plurals) {
-			await startWatch(plural);
+			await startCrdWatch(ctx, plural);
 		}
 		sink.data({ type: 'synced' });
 

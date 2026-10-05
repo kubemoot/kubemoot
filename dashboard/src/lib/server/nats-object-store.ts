@@ -55,7 +55,7 @@ export async function listFitnessObjects(prefix: string): Promise<string[]> {
  * object is absent (TTL-pruned or never written). Shape mirrors the
  * fitness-runner's RunOutcome (assertions + events + run metadata).
  */
-export async function readFitnessTranscript(objectKey: string): Promise<unknown | null> {
+export async function readFitnessTranscript(objectKey: string): Promise<unknown> {
 	const bytes = await readFitnessArtifact(objectKey);
 	if (!bytes) return null;
 	return JSON.parse(new TextDecoder().decode(bytes));
