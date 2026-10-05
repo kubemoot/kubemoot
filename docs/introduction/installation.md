@@ -30,7 +30,8 @@ its own page:
   models your crew will use. Kubemoot is built for Ollama today; one or more GPUs are
   the intended target. A crew composes capability from several small models, so a
   single modest GPU is enough to start. The GPU must be visible to the worker node,
-  on bare metal or passed through to a VM; running a model server on it is covered in
+  on bare metal or passed through to a VM (see [GPU Worker Nodes](../../operating/gpu-worker-nodes/));
+  running a model server on it is covered in
   [Put a model server on your GPU nodes](#put-a-model-server-on-your-gpu-nodes) below.
   [Ollama](https://ollama.com/) can be installed in-cluster with the community
   [Ollama Helm chart](https://github.com/otwld/ollama-helm).
@@ -115,7 +116,9 @@ You should see the operator pod `Running` and the Kubemoot CRDs registered
 ## Put a model server on your GPU nodes
 
 Kubemoot does not install Ollama, and it does not pick GPU nodes for you. The seam is
-deliberate: placement is yours, capacity is discovered.
+deliberate: placement is yours, capacity is discovered. Getting a GPU into a worker node
+in the first place, including VM passthrough, is covered in
+[GPU Worker Nodes](../../operating/gpu-worker-nodes/).
 
 1. **You run a model server per GPU worker node.** A common topology is a worker node
    per GPU, and a cluster scales by adding such nodes. For every GPU node, deploy its own
