@@ -272,7 +272,7 @@ public interface AgentProperties {
         @WithDefault("true")
         boolean enabled();
 
-        /** The dashboard's liveness badge (dashboard/src/lib/agent-liveness.ts) assumes this default. */
+        /** Seconds between heartbeats; each heartbeat carries this value as intervalSeconds. */
         @WithDefault("60")
         int intervalSeconds();
 

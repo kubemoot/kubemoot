@@ -727,6 +727,8 @@ export interface AgentHeartbeat {
 	ollama: boolean;
 	model: string;
 	lastInference?: string;
+	/** Seconds between this agent's heartbeats; absent on heartbeats from older agents. */
+	intervalSeconds?: number;
 }
 
 // Crew types

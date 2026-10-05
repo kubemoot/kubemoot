@@ -2,19 +2,33 @@
 
 import type { AgentHeartbeat } from '#lib/types/kubemoot.js';
 
-/**
- * How often an agent writes its heartbeat: agent-runtime AgentHeartbeatService runs
- * at kubemoot.heartbeat.interval-seconds, default 60 (AgentProperties.Heartbeat), and
- * the operator does not override it.
- */
-export const AGENT_HEARTBEAT_INTERVAL_SECONDS = 60;
+/** Interval assumed for a heartbeat that carries no usable intervalSeconds (older agents). */
+export const FALLBACK_HEARTBEAT_INTERVAL_SECONDS = 60;
+
+/** Intervals above this (one hour) are treated as corrupt and replaced by the fallback. */
+export const MAX_HEARTBEAT_INTERVAL_SECONDS = 3600;
+
+/** The heartbeat's own interval, or the fallback when it is missing, non-numeric, not positive, or implausibly large. */
+export function heartbeatIntervalSeconds(intervalSeconds: unknown): number {
+	if (
+		typeof intervalSeconds !== 'number' ||
+		!Number.isFinite(intervalSeconds) ||
+		intervalSeconds <= 0 ||
+		intervalSeconds > MAX_HEARTBEAT_INTERVAL_SECONDS
+	) {
+		return FALLBACK_HEARTBEAT_INTERVAL_SECONDS;
+	}
+	return intervalSeconds;
+}
 
 /**
- * A heartbeat is stale once two intervals pass without a newer one: the next beat
- * was due and a further interval of slack went by without it. The KV entry itself
+ * A heartbeat is stale once two of its own intervals pass without a newer one: the next
+ * beat was due and a further interval of slack went by without it. The KV entry itself
  * expires later (the bucket TTL is 300 s), at which point there is no heartbeat at all.
  */
-export const HEARTBEAT_STALE_AFTER_SECONDS = 2 * AGENT_HEARTBEAT_INTERVAL_SECONDS;
+export function staleAfterSeconds(intervalSeconds: unknown): number {
+	return 2 * heartbeatIntervalSeconds(intervalSeconds);
+}
 
 export type HeartbeatLiveness = 'live' | 'degraded' | 'stale';
 
@@ -33,11 +47,11 @@ export function secondsSince(timestamp: string, now: number = Date.now()): numbe
 	return Math.round((now - new Date(timestamp).getTime()) / 1000);
 }
 
-/** Stale past the threshold (or with no readable age), degraded when Ollama or NATS is unreachable, live otherwise. */
+/** Stale past two of the heartbeat's own intervals (or with no readable age), degraded when Ollama or NATS is unreachable, live otherwise. */
 export function heartbeatLiveness(
 	ageSeconds: number,
-	heartbeat: Pick<AgentHeartbeat, 'nats' | 'ollama'>
+	heartbeat: Pick<AgentHeartbeat, 'nats' | 'ollama' | 'intervalSeconds'>
 ): HeartbeatLiveness {
-	if (Number.isNaN(ageSeconds) || ageSeconds > HEARTBEAT_STALE_AFTER_SECONDS) return 'stale';
+	if (Number.isNaN(ageSeconds) || ageSeconds > staleAfterSeconds(heartbeat.intervalSeconds)) return 'stale';
 	return heartbeat.ollama && heartbeat.nats ? 'live' : 'degraded';
 }

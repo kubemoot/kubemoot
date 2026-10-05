@@ -1,7 +1,7 @@
 import { render } from '@testing-library/svelte';
 import { describe, expect, it } from 'vitest';
 import type { Agent, AgentHeartbeat } from '#lib/types/kubemoot.js';
-import { HEARTBEAT_STALE_AFTER_SECONDS } from '#lib/agent-liveness.js';
+import { staleAfterSeconds } from '#lib/agent-liveness.js';
 import AgentCard from './AgentCard.svelte';
 
 const agent = {
@@ -52,8 +52,14 @@ describe('AgentCard liveness', () => {
 
 	it('marks a heartbeat stale at the same threshold as the agent detail page', () => {
 		const { container } = render(AgentCard, {
-			props: { agent, heartbeat: heartbeatAged(HEARTBEAT_STALE_AFTER_SECONDS + 10) }
+			props: { agent, heartbeat: heartbeatAged(staleAfterSeconds(undefined) + 10) }
 		});
+		expect(livenessDot(container)?.classList.contains('stale')).toBe(true);
+	});
+
+	it('judges staleness by the interval the heartbeat carries', () => {
+		const beat = { ...heartbeatAged(30), intervalSeconds: 10 };
+		const { container } = render(AgentCard, { props: { agent, heartbeat: beat } });
 		expect(livenessDot(container)?.classList.contains('stale')).toBe(true);
 	});
 

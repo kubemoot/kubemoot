@@ -16,12 +16,17 @@ import java.util.concurrent.TimeUnit;
 /**
  * Publishes periodic heartbeats to NATS KV bucket for agent liveness tracking, keyed
  * {@code <namespace>.<agent>} (see {@link CrewScope#agentStateKey}).
+ * Each record carries {@code intervalSeconds}, the period between beats, so consumers
+ * derive staleness from the heartbeat itself.
  * Graceful no-op when NATS is unavailable (matches existing pattern).
  */
 @ApplicationScoped
 public class AgentHeartbeatService {
 
     private static final Logger log = LoggerFactory.getLogger(AgentHeartbeatService.class);
+
+    /** Interval used when the configured one is not a positive number. */
+    static final int FALLBACK_INTERVAL_SECONDS = 60;
 
     private final NatsConnectionProvider natsConnectionProvider;
     private final ModelWarmupService warmupService;
@@ -46,11 +51,17 @@ public class AgentHeartbeatService {
             return;
         }
 
-        int intervalSeconds = properties.heartbeat().intervalSeconds();
+        int intervalSeconds = effectiveIntervalSeconds();
         ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(1,
                 r -> Thread.ofVirtual().name("heartbeat").unstarted(r));
         scheduler.scheduleAtFixedRate(this::publishHeartbeat, intervalSeconds, intervalSeconds, TimeUnit.SECONDS);
         log.info("Agent heartbeat started: interval={}s, bucket={}", intervalSeconds, properties.heartbeat().kvBucket());
+    }
+
+    /** The configured interval, or the fallback when it is zero or negative. */
+    int effectiveIntervalSeconds() {
+        int configured = properties.heartbeat().intervalSeconds();
+        return configured > 0 ? configured : FALLBACK_INTERVAL_SECONDS;
     }
 
     /**
@@ -75,7 +86,8 @@ public class AgentHeartbeatService {
             Instant now = Instant.now();
             Instant inference = lastInference;
 
-            String json = buildHeartbeatJson(agentName, now, natsConnected, ollamaReachable, model, inference);
+            String json = buildHeartbeatJson(agentName, now, natsConnected, ollamaReachable, model, inference,
+                    effectiveIntervalSeconds());
 
             var kv = conn.keyValue(properties.heartbeat().kvBucket());
             kv.put(natsConnectionProvider.scope().agentStateKey(agentName), json.getBytes());
@@ -85,13 +97,14 @@ public class AgentHeartbeatService {
     }
 
     String buildHeartbeatJson(String agent, Instant timestamp, boolean nats, boolean ollama,
-                               String model, Instant lastInferenceTime) {
+                               String model, Instant lastInferenceTime, int intervalSeconds) {
         var sb = new StringBuilder();
         sb.append("{\"agent\":\"").append(escapeJson(agent)).append("\"");
         sb.append(",\"timestamp\":\"").append(timestamp.toString()).append("\"");
         sb.append(",\"nats\":").append(nats);
         sb.append(",\"ollama\":").append(ollama);
         sb.append(",\"model\":\"").append(escapeJson(model)).append("\"");
+        sb.append(",\"intervalSeconds\":").append(intervalSeconds);
         if (lastInferenceTime != null) {
             sb.append(",\"lastInference\":\"").append(lastInferenceTime.toString()).append("\"");
         }
