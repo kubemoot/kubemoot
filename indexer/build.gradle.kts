@@ -54,7 +54,7 @@ dependencies {
     implementation("org.eclipse.jgit:org.eclipse.jgit:7.8.0.202609011348-r")
 
     // AWS S3 support
-    implementation("software.amazon.awssdk:s3:2.55.9")
+    implementation("software.amazon.awssdk:s3:2.55.10")
 
     // HTTP client for URL sources and MCP registries
     implementation("org.springframework.boot:spring-boot-starter-webflux")
