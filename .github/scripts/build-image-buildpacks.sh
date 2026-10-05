@@ -6,8 +6,17 @@
 # stdin as a gzipped tar. The pod needs no daemon, no root and no added capabilities:
 # it runs as the builder's non-root CNB user (1001) with every capability dropped, no
 # privilege escalation and the RuntimeDefault seccomp profile, which Pod Security
-# "restricted" admits. It reaches Harbor in-cluster through the Gateway host alias, over
-# plain HTTP (-insecure-registry), with the push credentials in PUSH_SECRET.
+# "restricted" admits. It pushes to Harbor in-cluster over plain HTTP (-insecure-registry)
+# with the push credentials in PUSH_SECRET, and reaches REGISTRY through the Gateway
+# host alias.
+#
+# PUSH_HOST: Harbor advertises an http:// token realm, and the Gateway also answers
+# HTTPS for REGISTRY. The lifecycle's registry client (go-containerregistry) then treats
+# REGISTRY as a secure registry and refuses the http realm. Pushing to Harbor's
+# in-cluster Service, which serves only HTTP, avoids that: the client falls back to HTTP
+# and accepts the realm. PUSH_HOST names that Service; the image lands in the same
+# Harbor repositories, so every other reference keeps using REGISTRY. Once Harbor
+# advertises an https realm, PUSH_HOST can go.
 #
 # The builder and run images are pinned by tag and digest in .github/buildpacks/images.yaml.
 # The lifecycle writes the SBOM (CycloneDX, SPDX, Syft) into the image as a layer.
@@ -31,13 +40,17 @@
 #   REGISTRY_HOST_IP (required)   the in-cluster address the host alias points at
 #   NAMESPACE (arc-runners)       where the build pod runs
 #   PUSH_SECRET (kaniko-docker-config)  the docker config secret with the push credentials
+#   PUSH_HOST (REGISTRY)          the in-cluster Harbor host the pod pushes to
 #   IMAGES_FILE (.github/buildpacks/images.yaml)  KUBECTL (kubectl)
 set -euo pipefail
 
-# The command the build pod runs: unpack the context from stdin, write the build-time
-# variables as /platform/env files, then hand over to the creator with the arguments.
+# The command the build pod runs: key the push credentials to PUSH_HOST, unpack the
+# context from stdin, write the build-time variables as /platform/env files, then hand
+# over to the creator with the arguments.
 # shellcheck disable=SC2016 # expanded inside the pod, not here
 POD_SCRIPT='set -euo pipefail
+cfg="$(cat /docker-config/config.json)"
+printf "%s" "${cfg//$REGISTRY/$PUSH_HOST}" > /push-config/config.json
 tar -xzf - -C /workspace --no-overwrite-dir
 mkdir -p /platform/env
 printf "%s\n" "${BUILD_ENV:-}" | while IFS= read -r kv; do
@@ -98,13 +111,14 @@ creator_args() {
   jq -cn '$ARGS.positional' --args -- "${args[@]}"
 }
 
-# pod_overrides POD BUILDER CREATOR_ARGS_JSON BUILD_ENV REGISTRY REGISTRY_HOST_IP PUSH_SECRET:
+# pod_overrides POD BUILDER CREATOR_ARGS_JSON BUILD_ENV REGISTRY REGISTRY_HOST_IP PUSH_SECRET PUSH_HOST:
 # the `kubectl run --overrides` pod spec for the build.
 pod_overrides() {
   local pod="$1" builder="$2" creator_json="$3" build_env="$4" registry="$5" host_ip="$6" secret="$7"
+  local push_host="$8"
   jq -cn --arg pod "$pod" --arg builder "$builder" --argjson creator "$creator_json" \
     --arg script "$POD_SCRIPT" --arg env "$build_env" --arg registry "$registry" \
-    --arg ip "$host_ip" --arg secret "$secret" '
+    --arg ip "$host_ip" --arg secret "$secret" --arg push "$push_host" '
     def scratch(name): {name: name, emptyDir: {}};
     {
       apiVersion: "v1",
@@ -125,7 +139,9 @@ pod_overrides() {
           args: $creator,
           env: [
             {name: "CNB_PLATFORM_API", value: "0.15"},
-            {name: "DOCKER_CONFIG", value: "/docker-config"},
+            {name: "DOCKER_CONFIG", value: "/push-config"},
+            {name: "REGISTRY", value: $registry},
+            {name: "PUSH_HOST", value: $push},
             {name: "BUILD_ENV", value: $env}
           ],
           securityContext: {
@@ -138,11 +154,12 @@ pod_overrides() {
             {name: "workspace", mountPath: "/workspace"},
             {name: "layers", mountPath: "/layers"},
             {name: "platform", mountPath: "/platform"},
+            {name: "push-config", mountPath: "/push-config"},
             {name: "docker-config", mountPath: "/docker-config", readOnly: true}
           ]
         }],
         volumes: [
-          scratch("workspace"), scratch("layers"), scratch("platform"),
+          scratch("workspace"), scratch("layers"), scratch("platform"), scratch("push-config"),
           {name: "docker-config", secret: {secretName: $secret,
             items: [{key: "config.json", path: "config.json"}]}}
         ]
@@ -170,14 +187,15 @@ main() {
   [ -n "$pod" ] || die "--pod is required"
   [ -n "$ref" ] || die "--ref is required"
   [ $# -eq 2 ] || die "usage: build-image-buildpacks.sh [options] CONTEXT_DIR REPOSITORY"
-  local context="$1" repo="$2"
+  local context="$1" repo="$2" push_host="${PUSH_HOST:-${REGISTRY:-}}"
   [ -d "$context" ] || die "context directory not found: ${context}"
   : "${REGISTRY:?REGISTRY required}"
   : "${REGISTRY_HOST_IP:?REGISTRY_HOST_IP required}"
 
   local plan cache="" previous="" line
   local images=()
-  plan="$(image_plan "$repo" "$sha" "$ref")" || exit 2
+  [ "${repo%%/*}" = "$REGISTRY" ] || die "the repository must be on ${REGISTRY}: ${repo}"
+  plan="$(image_plan "${push_host}/${repo#*/}" "$sha" "$ref")" || exit 2
   while IFS= read -r line; do
     case "$line" in
       "cache "*) cache="${line#cache }" ;;
@@ -191,9 +209,9 @@ main() {
   images_file="${IMAGES_FILE:-${here}/../buildpacks/images.yaml}"
   builder="$(pinned_image "$images_file" "$builder_name")" || exit 2
   run_image="$(pinned_image "$images_file" "$run_name")" || exit 2
-  creator_json="$(creator_args "$REGISTRY" "$run_image" "$cache" "$previous" "${images[@]}")"
+  creator_json="$(creator_args "$push_host" "$run_image" "$cache" "$previous" "${images[@]}")"
   overrides="$(pod_overrides "$pod" "$builder" "$creator_json" "$build_env" \
-    "$REGISTRY" "$REGISTRY_HOST_IP" "${PUSH_SECRET:-kaniko-docker-config}")"
+    "$REGISTRY" "$REGISTRY_HOST_IP" "${PUSH_SECRET:-kaniko-docker-config}" "$push_host")"
 
   echo "Building ${images[*]} with ${builder} on ${run_image}"
   # The first pull of the builder can take minutes; the pod-running timeout is only a safety net.

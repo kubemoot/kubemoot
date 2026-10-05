@@ -92,6 +92,8 @@ jobs:
       - name: Build and push with Paketo buildpacks
         env:
           REGISTRY_HOST_IP: ${{ vars.REGISTRY_HOST_IP }}
+          # Harbor's in-cluster Service; see PUSH_HOST in the script for why.
+          PUSH_HOST: harbor.harbor.svc.cluster.local
           SHA: ${{ github.sha }}
         run: |
           .github/scripts/build-image-buildpacks.sh \

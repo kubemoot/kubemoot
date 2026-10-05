@@ -70,7 +70,7 @@ check "extra images become -tag" '["-tag=reg.example/a:latest"]' "$(jq -c '[.[] 
 check "cache image passed" 1 "$(jq '[.[] | select(. == "-cache-image=reg.example/a-cache:main")] | length' <<<"$cargs")"
 check "previous image passed" 1 "$(jq '[.[] | select(. == "-previous-image=reg.example/a:latest")] | length' <<<"$cargs")"
 
-spec="$(pod_overrides pod1 builder@sha256:b "$cargs" $'BP_JVM_VERSION=25\n' reg.example 10.0.0.1 push-secret)"
+spec="$(pod_overrides pod1 builder@sha256:b "$cargs" $'BP_JVM_VERSION=25\n' reg.example 10.0.0.1 push-secret svc.local)"
 check "pod runs as non-root" true "$(jq '.spec.securityContext.runAsNonRoot and .spec.containers[0].securityContext.runAsNonRoot' <<<"$spec")"
 check "pod uid is the CNB user" 1001 "$(jq '.spec.securityContext.runAsUser' <<<"$spec")"
 check "no privilege escalation" false "$(jq '.spec.containers[0].securityContext.allowPrivilegeEscalation' <<<"$spec")"
@@ -83,6 +83,8 @@ check "no service account token" false "$(jq '.spec.automountServiceAccountToken
 check "builder image" builder@sha256:b "$(jq -r '.spec.containers[0].image' <<<"$spec")"
 check "host alias to Harbor" "10.0.0.1 reg.example" "$(jq -r '.spec.hostAliases[0] | "\(.ip) \(.hostnames[0])"' <<<"$spec")"
 check "push secret mounted" push-secret "$(jq -r '.spec.volumes[] | select(.name == "docker-config") | .secret.secretName' <<<"$spec")"
+check "push host reaches the pod" svc.local "$(jq -r '.spec.containers[0].env[] | select(.name == "PUSH_HOST") | .value' <<<"$spec")"
+check "credentials read from the rewritten config" /push-config "$(jq -r '.spec.containers[0].env[] | select(.name == "DOCKER_CONFIG") | .value' <<<"$spec")"
 check "platform API" 0.15 "$(jq -r '.spec.containers[0].env[] | select(.name == "CNB_PLATFORM_API") | .value' <<<"$spec")"
 check "creator args are the container args" "$cargs" "$(jq -c '.spec.containers[0].args' <<<"$spec")"
 
@@ -90,7 +92,9 @@ check "creator args are the container args" "$cargs" "$(jq -c '.spec.containers[
 # /platform/env files, and the creator gets the arguments. Run it with the pod paths
 # mapped into a scratch directory.
 root="${work}/pod"
-mkdir -p "${root}/workspace" "${root}/platform" "${root}/cnb/lifecycle" "${work}/ctx"
+mkdir -p "${root}/workspace" "${root}/platform" "${root}/cnb/lifecycle" "${root}/push-config" \
+  "${root}/docker-config" "${work}/ctx"
+echo '{"auths":{"reg.example":{"auth":"dTpw"}}}' > "${root}/docker-config/config.json"
 echo hello > "${work}/ctx/app.txt"
 cat > "${root}/cnb/lifecycle/creator" <<EOF
 #!/usr/bin/env bash
@@ -100,12 +104,15 @@ chmod +x "${root}/cnb/lifecycle/creator"
 pod_script="${POD_SCRIPT//\/workspace/${root}/workspace}"
 pod_script="${pod_script//\/platform/${root}/platform}"
 pod_script="${pod_script//\/cnb/${root}/cnb}"
+pod_script="${pod_script//\/push-config/${root}/push-config}"
+pod_script="${pod_script//\/docker-config/${root}/docker-config}"
 tar -C "${work}/ctx" -czf - . | BUILD_ENV=$'BP_JVM_VERSION=25\nBP_OCI_SOURCE=https://x/?a=b\n' \
-  bash -c "$pod_script" pod1 -flag img:1
+  REGISTRY=reg.example PUSH_HOST=svc.local bash -c "$pod_script" pod1 -flag img:1
 check "context unpacked into the workspace" hello "$(cat "${root}/workspace/app.txt")"
 check "a variable written as a platform env file" 25 "$(cat "${root}/platform/env/BP_JVM_VERSION")"
 check "a value with = kept whole" "https://x/?a=b" "$(cat "${root}/platform/env/BP_OCI_SOURCE")"
 check "creator called with the arguments" "-flag img:1" "$(paste -sd' ' "${root}/creator.args")"
+check "push credentials keyed to the push host" '{"auths":{"svc.local":{"auth":"dTpw"}}}' "$(cat "${root}/push-config/config.json")"
 
 # The tag and cache plan per ref.
 sha=0123456789abcdef0123456789abcdef01234567
@@ -151,6 +158,12 @@ check "a branch builds only :branch-<sha>" "reg.example/a:branch-${sha}" \
   "$(jq -r '[.[] | select(startswith("reg.example/a:") or startswith("-tag="))] | join(" ")' <<<"$cargs")"
 check "a branch reuses no previous image" 0 "$(jq '[.[] | select(startswith("-previous-image="))] | length' <<<"$cargs")"
 
+PUSH_HOST=svc.local run_main --pod bp-3 --sha "$sha" --ref refs/heads/main "${work}/ctx" reg.example/a >/dev/null
+cargs="$(sed -n 's/^--overrides=//p' "${work}/kubectl.args" | jq -c '.spec.containers[0].args')"
+check "PUSH_HOST: images pushed through the push host" "-tag=svc.local/a:latest svc.local/a:${sha}" \
+  "$(jq -r '[.[] | select(startswith("svc.local/a:") or startswith("-tag="))] | join(" ")' <<<"$cargs")"
+check "PUSH_HOST: the push host is the insecure registry" 1 "$(jq '[.[] | select(. == "-insecure-registry=svc.local")] | length' <<<"$cargs")"
+check "PUSH_HOST: the cache through the push host" 1 "$(jq '[.[] | select(. == "-cache-image=svc.local/a-buildcache:main")] | length' <<<"$cargs")"
 ok=(--pod p --sha "$sha" --ref refs/heads/main)
 check_fails "main without --pod" run_main --sha "$sha" --ref refs/heads/main "${work}/ctx" reg.example/a
 check_fails "main without --ref" run_main --pod p --sha "$sha" "${work}/ctx" reg.example/a
@@ -160,6 +173,7 @@ check_fails "main with an extra argument" run_main "${ok[@]}" "${work}/ctx" reg.
 check_fails "main with a missing context" run_main "${ok[@]}" "${work}/nowhere" reg.example/a
 check_fails "main with a bad --env" run_main "${ok[@]}" --env bad "${work}/ctx" reg.example/a
 check_fails "main with a multi-line --env" run_main "${ok[@]}" --env $'A=1\n../x=y' "${work}/ctx" reg.example/a
+check_fails "main with a repository on another registry" run_main "${ok[@]}" "${work}/ctx" other.example/a
 check_fails "main with an unknown builder" run_main "${ok[@]}" --builder nothing "${work}/ctx" reg.example/a
 check_fails "main with an unknown option" run_main "${ok[@]}" --nope "${work}/ctx" reg.example/a
 check_fails "main without REGISTRY" env -u REGISTRY bash "${here}/build-image-buildpacks.sh" "${ok[@]}" "${work}/ctx" reg.example/a
