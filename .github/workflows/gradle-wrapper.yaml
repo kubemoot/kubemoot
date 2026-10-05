@@ -1,0 +1,20 @@
+# Checks every committed gradle-wrapper.jar against Gradle's published checksums, so a
+# tampered wrapper cannot run in a build. Runs on every push to main (no path filter)
+# because OpenSSF Scorecard accepts the committed wrappers only when this check passed
+# on the latest commit.
+name: Gradle Wrapper
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: gradle/actions/wrapper-validation@3f5f9adaf7d9fecd50b5935e54106014257a94e6 # v6.4.0
