@@ -56,14 +56,6 @@ jobs:
           curl -sLO "https://dl.k8s.io/release/$(curl -sL https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
           chmod +x kubectl && sudo mv kubectl /usr/local/bin/
 
-      - name: Ensure Harbor project exists
-        run: |
-          curl -s -X POST "http://${{ env.REGISTRY }}/api/v2.0/projects" \
-            -H "Content-Type: application/json" \
-            -u "${{ secrets.HARBOR_USERNAME }}:${{ secrets.HARBOR_PASSWORD }}" \
-            -d '{"project_name": "kubemoot", "public": false}' \
-            --fail-with-body || true
-
       - name: Build and push with Kaniko
         run: |
           SHA="${{ github.sha }}"
