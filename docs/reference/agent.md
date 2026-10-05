@@ -648,5 +648,6 @@ curl -X POST http://k8s-workloads.crew-homelab-pilot:8080/chat \
 - [scheduler.md](../architecture/scheduler.md) - Scheduler design (CRD surface, filter/score/bind)
 - [models.md](models.md) - Model catalog and Model CRD reference
 - [agentic-consensus.md](../architecture/agentic-consensus.md) - Discussion protocol semantics
+- [skill.md](skill.md) - Skill CRD reference: crew-level procedures the coordinator selects on demand
 - `chart/kubemoot-operator/templates/mootarchetypes.yaml` - built-in `consent-3` MootArchetype
 - `homelab-pilot/charts/homelab-pilot-crew/templates/` - example Agent CRs for the Homelab Pilot crew

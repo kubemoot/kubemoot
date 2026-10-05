@@ -29,7 +29,7 @@ working-memory policy.
 ### How a crew is grouped
 
 Every resource that belongs to a crew (`Agent`, `CrewSchedulingPolicy`, `MCPServer`,
-`MCPGateway`, `RAGSource`, `PromptModule`) carries the label `kubemoot.ai/crew: <crew-name>`.
+`MCPGateway`, `RAGSource`, `PromptModule`, `Skill`) carries the label `kubemoot.ai/crew: <crew-name>`.
 A label is the Kubernetes-native grouping primitive: queryable with selectors, additive
 (an unlabeled resource keeps working), and already the mechanism an `MCPGateway` uses to
 find its tool servers (`mcpServerSelector` matching `kubemoot.ai/crew`). The dashboard
@@ -53,13 +53,15 @@ An `Agent` declares one participant as a thin, **capability-only** resource. The
 carries no model name, no provider, and no GPU hint - an agent declares *what it can
 do* (`spec.capabilities`, e.g. `tool-calling`, `reasoning`, `kubernetes`) and the
 scheduler matches it to a concrete `(model, provider, endpoint)` at decision time. An
-agent composes four things:
+agent composes five things:
 
 - **Models** - resolved by the scheduler from the agent's capabilities, never named
   in the spec. See [Models & Scheduling](../models-and-scheduling/).
 - **Knowledge** - RAG retrieval via `spec.ragSources`.
 - **Tools** - MCP tool execution through the gateway, filtered by
   `spec.enabledTools` / `spec.disabledTools`. See [MCP Tools](../mcp-tools/).
+- **Skills** - procedures the coordinator selects per discussion and loads just in
+  time from `Skill` CRs. See the [Skill CRD reference](../../reference/skill/).
 - **Prompts** - behavior composed from `PromptModule` CRs (written in
   [ADL](../agent-definition-language/)) referenced by `spec.promptRefs`. Prompt
   text always lives in PromptModules, never inline.
