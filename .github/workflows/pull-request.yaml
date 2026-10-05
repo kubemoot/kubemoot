@@ -1,0 +1,14 @@
+# The required check for pull requests: waits for every other check on the pull
+# request's commit and passes only when all of them passed or were skipped. Auto-merge
+# waits on it. The shared definition lives in kubemoot/release-actions.
+name: Pull Request
+
+on:
+  pull_request:
+
+permissions:
+  checks: read
+
+jobs:
+  all-checks:
+    uses: kubemoot/release-actions/.github/workflows/all-checks.yaml@f2585afb79cf9234d30135888158c647d834fcba # v0.10.0
