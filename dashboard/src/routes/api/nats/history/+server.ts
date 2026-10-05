@@ -28,7 +28,7 @@ async function decodeMessages(iter: AsyncIterable<JsMsg>) {
 export const GET: RequestHandler = async ({ url }) => {
 	const stream = url.searchParams.get('stream') || 'KUBEMOOT_DISCUSS';
 	const subject = url.searchParams.get('subject') || DISCUSS_ALL;
-	const limit = Math.min(parseInt(url.searchParams.get('limit') || '500'), 2000);
+	const limit = Math.min(Number.parseInt(url.searchParams.get('limit') || '500'), 2000);
 
 	const denied = await guardStreamRead(stream, subject);
 	if (denied) return denied;

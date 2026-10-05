@@ -68,7 +68,7 @@ function retryAfterMs(err: unknown, attempt: number): number {
 	const headers = (err as MaybeK8sError)?.response?.headers;
 	const raw = headers?.['retry-after'] ?? headers?.['Retry-After'];
 	const headerVal = Array.isArray(raw) ? raw[0] : raw;
-	const headerSeconds = headerVal ? Number(headerVal) : NaN;
+	const headerSeconds = headerVal ? Number(headerVal) : Number.NaN;
 	if (Number.isFinite(headerSeconds) && headerSeconds > 0) {
 		return Math.min(5000, headerSeconds * 1000);
 	}
