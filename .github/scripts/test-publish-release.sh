@@ -307,6 +307,7 @@ check "dry run plans signing every image by digest" 8 "$(grep -cE '^sign ghcr.te
 check "dry run plans signing the chart" 1 "$(grep -c '^sign ghcr.test/kubemoot/charts/kubemoot-operator@.*(dry run: not signed)$' <<<"$out")"
 check "dry run signs nothing" 0 "$(grep -cE '^cosign (sign|login)' "$LOG" || true)"
 check "dry run records no signed subject" "[]" "$(sed -n 's/^subjects=//p' "${root}/gh-publish-dry")"
+check "dry run maps no provenance" 0 "$(wc -l < "${root}/out-dry/provenance.tsv" | tr -d ' ')"
 tgz="${root}/out-dry/kubemoot-operator-0.92.582.tgz"
 check "packages the final operator chart" 1 "$([ -f "$tgz" ] && echo 1 || echo 0)"
 values="$(in_tgz "$tgz" kubemoot-operator/values.yaml)"
@@ -400,6 +401,9 @@ check "signs nothing by tag" 0 "$(grep '^cosign sign' "$LOG" | grep -vc '@sha256
 check "records each signed artifact for the provenance" 8 "$(wc -l < "${root}/out-real/subjects.tsv" | tr -d ' ')"
 check "outputs them as the attest matrix" "8|ghcr.test/kubemoot/charts/kubemoot-operator" \
   "$(sed -n 's/^subjects=//p' "${root}/gh-publish-real" | python3 -c 'import json,sys; s=json.load(sys.stdin); print(len(s), s[-1]["name"], sep="|")')"
+check "maps every signed artifact's provenance to the one GitHub Release" \
+  "$(awk -F'\t' '{ print "operator-chart-v0.92.582|kubemoot_0.92.582.intoto.jsonl|" $1 "|" $2 }' "${root}/out-real/subjects.tsv")" \
+  "$(tr '\t' '|' < "${root}/out-real/provenance.tsv")"
 
 # 9. A second release of the same candidate is refused; the next chart candidate
 # starts the next patch.

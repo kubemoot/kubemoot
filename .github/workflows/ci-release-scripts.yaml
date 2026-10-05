@@ -56,6 +56,7 @@ jobs:
       - name: Tests
         run: |
           bash .github/scripts/test-publish-release.sh
+          bash .github/scripts/test-create-github-releases.sh
           bash .github/scripts/test-wait-for-operator-chart.sh
           bash k8s/tests/job/run.test.sh
           bash .github/scripts/test-osv-ignores.sh --self
