@@ -15,7 +15,10 @@
 #               the release registry and the repository's attestations
 #   quickstart  runs the quickstart against the chart just published
 #   release     writes the GitHub Release from the conventional commits since the
-#               previous release
+#               previous release, with the provenance of every artifact the release
+#               signed attached as kubemoot_<version>.intoto.jsonl: created as a draft,
+#               given the file, then published, since releases are immutable once
+#               published (.github/scripts/create-github-releases.sh)
 # The default is a dry run: it plans, reads the registries, packages the charts, and
 # shows the release notes in the run summary, and publishes nothing. It signs nothing
 # either, but checks that cosign runs and that the job can mint the OIDC token the
@@ -168,12 +171,32 @@ jobs:
         run: echo "${GHCR_TOKEN}" | docker login "${RELEASE_REGISTRY%%/*}" -u "${GHCR_USERNAME}" --password-stdin
 
       - name: Attest the build provenance
+        id: attest
         uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
         with:
           subject-name: ${{ matrix.subject.name }}
           subject-digest: ${{ matrix.subject.digest }}
           push-to-registry: true
           create-storage-record: false
+
+      # The release job attaches this bundle to the GitHub Release; the file is named for
+      # the digest, which provenance.tsv maps to the release.
+      - name: Name the provenance for the release
+        env:
+          BUNDLE: ${{ steps.attest.outputs.bundle-path }}
+          DIGEST: ${{ matrix.subject.digest }}
+        run: |
+          mkdir -p "${RUNNER_TEMP}/provenance"
+          cp "${BUNDLE}" "${RUNNER_TEMP}/provenance/${DIGEST//:/-}.jsonl"
+
+      - name: Keep the provenance
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: provenance-${{ strategy.job-index }}
+          path: ${{ runner.temp }}/provenance/
+          if-no-files-found: error
+          overwrite: true
+          retention-days: 30
 
   quickstart:
     needs: publish
@@ -190,22 +213,25 @@ jobs:
     permissions:
       contents: write
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
       - name: Download the release files
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: release-files
           path: release-files
 
+      - name: Download the provenance
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: provenance-*
+          merge-multiple: true
+          path: provenance
+
       - name: Create the GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: |
-          # release-files/releases.tsv: tag, title, notes file (one release per line).
-          while IFS=$'\t' read -r tag title notes; do
-            if gh release view "${tag}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
-              echo "${tag} already has a release"
-              continue
-            fi
-            gh release create "${tag}" --repo "${GITHUB_REPOSITORY}" --verify-tag \
-              --title "${title}" --notes-file "release-files/${notes}"
-          done < release-files/releases.tsv
+        run: bash .github/scripts/create-github-releases.sh release-files provenance

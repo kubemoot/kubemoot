@@ -31,6 +31,8 @@
 #      stops the run before any tag, so no GitHub Release is written.
 #   5. Tags are pushed together (atomic); the release notes go to ${OUT_DIR}/notes.md
 #      and ${OUT_DIR}/releases.tsv names the GitHub Release to write.
+#      ${OUT_DIR}/provenance.tsv maps every signed artifact to that release, which
+#      carries their provenance as kubemoot_A.B.C.intoto.jsonl (create-github-releases.sh).
 #
 # Re-running after a partial failure is safe: an image already published with the
 # same digest is skipped, a different digest stops the run, and the run refuses to
@@ -256,6 +258,16 @@ write_notes() {
   } > "${OUT_DIR}/notes.md"
 }
 
+# write_provenance_map TAG ASSET: the GitHub Release TAG carries the provenance of every
+# artifact this run signed, as the one asset ASSET.
+write_provenance_map() {
+  local name digest
+  : > "${OUT_DIR}/provenance.tsv"
+  while IFS=$'\t' read -r name digest; do
+    printf '%s\t%s\t%s\t%s\n' "$1" "$2" "$name" "$digest" >> "${OUT_DIR}/provenance.tsv"
+  done < "${OUT_DIR}/subjects.tsv"
+}
+
 output() {
   [ -n "${GITHUB_OUTPUT:-}" ] && echo "$1=$2" >> "$GITHUB_OUTPUT"
   return 0
@@ -292,6 +304,7 @@ main() {
   write_notes "$src" "$chart_final" "$prev"
   rl_push_new_tags
   rl_add_release "${OUT_DIR}" "${CHART_PREFIX}${chart_final}" "Kubemoot ${chart_final}" notes.md
+  write_provenance_map "${CHART_PREFIX}${chart_final}" "kubemoot_${chart_final}.intoto.jsonl"
   output chart_version "$chart_final"
   output subjects "$(rl_sign_subjects_json)"
 }
