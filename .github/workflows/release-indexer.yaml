@@ -73,13 +73,13 @@ jobs:
 
           echo "${HARBOR_PASSWORD}" | crane auth login --insecure ${{ env.REGISTRY }} -u "${HARBOR_USERNAME}" --password-stdin
 
-          if crane manifest --insecure "${FULL_IMAGE}:${SHA}" >/dev/null 2>&1; then
-            echo "Copying ${FULL_IMAGE}:${SHA} -> ${FULL_IMAGE}:${VERSION}"
-            crane copy --insecure "${FULL_IMAGE}:${SHA}" "${FULL_IMAGE}:${VERSION}"
-          elif crane manifest --insecure "${FULL_IMAGE}:latest" >/dev/null 2>&1; then
-            echo "Copying ${FULL_IMAGE}:latest -> ${FULL_IMAGE}:${VERSION}"
-            crane copy --insecure "${FULL_IMAGE}:latest" "${FULL_IMAGE}:${VERSION}"
+          # Only main's build pushes :<sha>; a release never falls back to another image.
+          if ! crane manifest --insecure "${FULL_IMAGE}:${SHA}" >/dev/null 2>&1; then
+            echo "::error::${FULL_IMAGE}:${SHA} not found; the release needs main's build of this commit"
+            exit 1
           fi
+          echo "Copying ${FULL_IMAGE}:${SHA} -> ${FULL_IMAGE}:${VERSION}"
+          crane copy --insecure "${FULL_IMAGE}:${SHA}" "${FULL_IMAGE}:${VERSION}"
 
       - name: Create and push tag
         if: steps.version.outputs.release_created == 'true'

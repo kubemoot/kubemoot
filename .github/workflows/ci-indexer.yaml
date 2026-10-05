@@ -53,7 +53,7 @@ jobs:
             indexer/build/libs/*.jar
             !indexer/build/libs/*-plain.jar
           if-no-files-found: error
-          retention-days: 1
+          retention-days: 3
 
   build-image:
     needs: test
@@ -65,8 +65,12 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Install kubectl
+        env:
+          KUBECTL_VERSION: v1.37.1
+          KUBECTL_SHA256: 65691ff77eb6fa44c908b77a1082c9f092c3b9733b5cefabec0d1104890e21a8
         run: |
-          curl -sLO "https://dl.k8s.io/release/$(curl -sL https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+          curl -fsSLO "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl"
+          echo "${KUBECTL_SHA256}  kubectl" | sha256sum -c -
           chmod +x kubectl && sudo mv kubectl /usr/local/bin/
 
       - name: Fetch the tested jar
@@ -83,28 +87,19 @@ jobs:
           mkdir -p "${RUNNER_TEMP}/indexer-app"
           unzip -q "${jars[0]}" -d "${RUNNER_TEMP}/indexer-app"
 
-      # main pushes :<sha> (the release retags it) and :latest. Any other ref pushes only
-      # :branch-<sha> and keeps its own build cache, so it never moves a tag main uses.
+      # main pushes :<sha>, which the release retags, and :latest; any other ref pushes
+      # only :branch-<sha> (build-image-buildpacks.sh decides the tags per ref).
       - name: Build and push with Paketo buildpacks
         env:
-          REGISTRY: ${{ env.REGISTRY }}
           REGISTRY_HOST_IP: ${{ vars.REGISTRY_HOST_IP }}
           SHA: ${{ github.sha }}
         run: |
-          repo="${REGISTRY}/${IMAGE_NAME}"
-          cache="${repo}-buildcache"
-          if [ "${GITHUB_REF}" = "refs/heads/main" ]; then
-            refs=("${repo}:${SHA}" "${repo}:latest")
-            opts=(--cache-image "${cache}:main" --previous-image "${repo}:latest")
-          else
-            refs=("${repo}:branch-${SHA}")
-            opts=(--cache-image "${cache}:branches")
-          fi
           .github/scripts/build-image-buildpacks.sh \
             --pod "buildpacks-indexer-${SHA:0:8}-${GITHUB_RUN_NUMBER}-${GITHUB_RUN_ATTEMPT}" \
-            --builder builder-java-tiny --run-image run-tiny "${opts[@]}" \
+            --sha "${SHA}" --ref "${GITHUB_REF}" \
+            --builder builder-java-tiny --run-image run-tiny \
             --env BP_JVM_VERSION=25 \
             --env BP_OCI_SOURCE=https://github.com/kubemoot/kubemoot \
             --env BP_OCI_LICENSES=Apache-2.0 \
             --env "BP_OCI_REVISION=${SHA}" \
-            "${RUNNER_TEMP}/indexer-app" "${refs[@]}"
+            "${RUNNER_TEMP}/indexer-app" "${REGISTRY}/${IMAGE_NAME}"
