@@ -34,6 +34,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
@@ -72,7 +73,7 @@ type CrewReconciler struct {
 // +kubebuilder:rbac:groups=core,resources=services,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=core,resources=serviceaccounts,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=core,resources=namespaces,verbs=get;update;patch;delete
-// +kubebuilder:rbac:groups=core,resources=secrets,verbs=get;create
+// +kubebuilder:rbac:groups=core,resources=secrets,verbs=get;create;update
 // +kubebuilder:rbac:groups=gateway.networking.k8s.io,resources=httproutes,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=clusterroles,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=clusterrolebindings,verbs=get;list;watch;create;update;patch;delete
@@ -699,5 +700,8 @@ func (r *CrewReconciler) SetupWithManager(mgr ctrl.Manager) error {
 				func() client.ObjectList { return &kubemootv1alpha1.CrewList{} },
 				"crew"),
 		).
+		// A rotated image pull secret reaches the crew namespace copies at once.
+		Watches(&corev1.Secret{}, enqueueCrewsForSecret(mgr.GetClient(), r.ConfigCache),
+			builder.WithPredicates(sourceSecretPredicate())).
 		Complete(r)
 }
