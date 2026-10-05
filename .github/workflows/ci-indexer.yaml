@@ -7,6 +7,8 @@ on:
     paths:
       - 'indexer/**'
       - 'config/checkstyle/**'
+      - '.github/buildpacks/**'
+      - '.github/scripts/build-image-buildpacks.sh'
   workflow_dispatch:
 
 env:
@@ -41,6 +43,18 @@ jobs:
         working-directory: indexer
         run: ./gradlew build
 
+      # The image packages this tested jar; the build pod does not compile again.
+      - name: Keep the tested jar for the image build
+        if: github.event_name != 'pull_request'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: indexer-jar
+          path: |
+            indexer/build/libs/*.jar
+            !indexer/build/libs/*-plain.jar
+          if-no-files-found: error
+          retention-days: 1
+
   build-image:
     needs: test
     runs-on: homelab-runners
@@ -55,40 +69,42 @@ jobs:
           curl -sLO "https://dl.k8s.io/release/$(curl -sL https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
           chmod +x kubectl && sudo mv kubectl /usr/local/bin/
 
-      - name: Build and push with Kaniko
+      - name: Fetch the tested jar
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: indexer-jar
+          path: ${{ runner.temp }}/indexer-jar
+
+      # Buildpacks build a Spring Boot app from its exploded jar.
+      - name: Explode the jar
         run: |
-          SHA="${{ github.sha }}"
-          JOB_NAME="kaniko-indexer-$(echo ${SHA} | cut -c1-8)-${GITHUB_RUN_NUMBER}"
+          jars=("${RUNNER_TEMP}"/indexer-jar/*.jar)
+          [ "${#jars[@]}" -eq 1 ] || { echo "want one boot jar, found: ${jars[*]}"; exit 1; }
+          mkdir -p "${RUNNER_TEMP}/indexer-app"
+          unzip -q "${jars[0]}" -d "${RUNNER_TEMP}/indexer-app"
 
-          tar -C indexer -czf /tmp/context.tar.gz .
-
-          kubectl run ${JOB_NAME} \
-            --rm -i \
-            --restart=Never \
-            --namespace=arc-runners \
-            --image=gcr.io/kaniko-project/executor:latest \
-            --overrides='{
-              "spec": {
-                "hostAliases": [{"ip": "${{ vars.REGISTRY_HOST_IP }}", "hostnames": ["${{ vars.REGISTRY }}"]}],
-                "containers": [{
-                  "name": "kaniko",
-                  "image": "gcr.io/kaniko-project/executor:latest",
-                  "stdin": true,
-                  "stdinOnce": true,
-                  "args": [
-                    "--context=tar://stdin",
-                    "--dockerfile=Dockerfile",
-                    "--label=org.opencontainers.image.source=https://github.com/kubemoot/kubemoot",
-                    "--label=org.opencontainers.image.licenses=Apache-2.0",
-                    "--label=org.opencontainers.image.revision='"${SHA}"'",
-                    "--destination=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:'"${SHA}"'",
-                    "--destination=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest",
-                    "--insecure",
-                    "--skip-tls-verify",
-                    "--cache=false"
-                  ],
-                  "volumeMounts": [{"name": "docker-config", "mountPath": "/kaniko/.docker"}]
-                }],
-                "volumes": [{"name": "docker-config", "secret": {"secretName": "kaniko-docker-config", "items": [{"key": "config.json", "path": "config.json"}]}}]
-              }
-            }' < /tmp/context.tar.gz
+      # main pushes :<sha> (the release retags it) and :latest. Any other ref pushes only
+      # :branch-<sha> and keeps its own build cache, so it never moves a tag main uses.
+      - name: Build and push with Paketo buildpacks
+        env:
+          REGISTRY: ${{ env.REGISTRY }}
+          REGISTRY_HOST_IP: ${{ vars.REGISTRY_HOST_IP }}
+          SHA: ${{ github.sha }}
+        run: |
+          repo="${REGISTRY}/${IMAGE_NAME}"
+          cache="${repo}-buildcache"
+          if [ "${GITHUB_REF}" = "refs/heads/main" ]; then
+            refs=("${repo}:${SHA}" "${repo}:latest")
+            opts=(--cache-image "${cache}:main" --previous-image "${repo}:latest")
+          else
+            refs=("${repo}:branch-${SHA}")
+            opts=(--cache-image "${cache}:branches")
+          fi
+          .github/scripts/build-image-buildpacks.sh \
+            --pod "buildpacks-indexer-${SHA:0:8}-${GITHUB_RUN_NUMBER}-${GITHUB_RUN_ATTEMPT}" \
+            --builder builder-java-tiny --run-image run-tiny "${opts[@]}" \
+            --env BP_JVM_VERSION=25 \
+            --env BP_OCI_SOURCE=https://github.com/kubemoot/kubemoot \
+            --env BP_OCI_LICENSES=Apache-2.0 \
+            --env "BP_OCI_REVISION=${SHA}" \
+            "${RUNNER_TEMP}/indexer-app" "${refs[@]}"

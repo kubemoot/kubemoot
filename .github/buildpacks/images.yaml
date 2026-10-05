@@ -1,0 +1,18 @@
+# The Cloud Native Buildpacks images every buildpacks image build uses, pinned by tag
+# and digest. .github/scripts/build-image-buildpacks.sh reads an entry by its name.
+#
+# Not applied to the cluster. The apiVersion and kind make Dependabot's docker ecosystem
+# read this file as a Kubernetes manifest, so it refreshes each image: tag and digest.
+#
+# builder-java-tiny: the Paketo Java builder (Liberica JRE, executable-jar, Spring Boot,
+#   image-labels, procfile) with the lifecycle; the build pod runs this image.
+# run-tiny: the distroless-like Ubuntu Noble run image the app layers go on (no shell,
+#   no package manager; glibc, openssl, ca-certificates, tzdata).
+apiVersion: v1
+kind: List
+metadata: {}
+items:
+  - name: builder-java-tiny
+    image: docker.io/paketobuildpacks/builder-noble-java-tiny:0.0.197@sha256:b95da27fce97b58037f0c11ae934760c50730da4c9a24976205b53638592eba9
+  - name: run-tiny
+    image: docker.io/paketobuildpacks/ubuntu-noble-run-tiny:0.0.138@sha256:b1a26d91357134faa5a7f118f4e68a8c4c3278230660e8a49c924e92af6a905a
