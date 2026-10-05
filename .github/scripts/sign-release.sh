@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Keyless signing of the artifacts a promotion publishes; sourced by promote-release.sh
+# Keyless signing of the artifacts a release publishes; sourced by publish-release.sh
 # after release-lib.sh.
 #
 # cosign signs each image or chart by digest in the release registry with the GitHub
@@ -12,7 +12,7 @@
 #
 # Verify a signature:
 #   cosign verify <repository>@<digest> \
-#     --certificate-identity https://github.com/<owner>/<repo>/.github/workflows/promote-release.yaml@refs/heads/main \
+#     --certificate-identity https://github.com/<owner>/<repo>/.github/workflows/publish-release.yaml@refs/heads/main \
 #     --certificate-oidc-issuer https://token.actions.githubusercontent.com
 #
 # This file is the same in kubemoot and crews; change both, until it moves to
@@ -64,7 +64,7 @@ sign_release_signed() {
 # release registry and record it for the provenance attestation. An artifact already
 # signed by this workflow is not signed again; it is still recorded unless "earlier"
 # says an earlier release published it (and attested it then). A failure returns
-# non-zero, which stops the promotion before any tag is pushed.
+# non-zero, which stops the release before any tag is pushed.
 sign_release_artifact() {
   local repo="$1" digest="$2" earlier="${3:-}"
   if rl_is_dry; then

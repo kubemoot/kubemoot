@@ -4,7 +4,7 @@
 #
 # It installs a published chart from the release registry, the way a stranger does, so
 # it tests the exact bytes a stranger pulls. main builds release candidates that live in
-# Harbor only, so there is nothing public to test until a promotion: Promote Release
+# Harbor only, so there is nothing public to test until a release: Publish Release
 # calls this workflow with the chart it just published, before it writes the GitHub
 # Release. A push that touches only the quickstart runs it against the latest published
 # chart; a dispatch takes any published chart version (empty: the latest).

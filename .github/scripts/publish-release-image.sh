@@ -2,7 +2,7 @@
 # Publish a released image to the release registry.
 #
 # The in-cluster Harbor registry is the build and deploy loop; it is reachable only
-# from inside the cluster. Promote Release copies each tested release candidate from
+# from inside the cluster. Publish Release copies each tested release candidate from
 # Harbor to the release registry (GHCR for the open-source project) under its final
 # version, versioned tags only: no :latest, no SHA tags.
 #

@@ -6,7 +6,7 @@
 # only; this script packages the chart from HEAD (the tip of main in CI) in a scratch
 # worktree, never committed, stamped with:
 #   chart version     the next operator-chart-vX.Y.Z-rc.N after the latest candidate,
-#                     or X.Y.(Z+1)-rc.0 once that candidate's X.Y.Z is promoted
+#                     or X.Y.(Z+1)-rc.0 once that candidate's X.Y.Z is published
 #   appVersion        the latest operator candidate vX.Y.Z-rc.N (the operator image)
 #   dashboard         the subchart's version and appVersion (the dashboard image): the
 #                     latest dashboard-vX.Y.Z-rc.N
@@ -58,12 +58,12 @@ output() {
 
 # next_chart_version COMMIT: the version after the latest chart candidate.
 next_chart_version() {
-  local latest current promoted=false
+  local latest current published=false
   latest=$(rl_latest_rc "$CHART_PREFIX" "$1")
   [ -n "$latest" ] || die "no ${CHART_PREFIX}X.Y.Z-rc.N tag reachable from $1 to count from"
   current="${latest#"$CHART_PREFIX"}"
-  rl_tag_exists "${CHART_PREFIX}$(rl_final_of "$current")" && promoted=true
-  rl_next_chart_rc "$current" "$promoted"
+  rl_tag_exists "${CHART_PREFIX}$(rl_final_of "$current")" && published=true
+  rl_next_chart_rc "$current" "$published"
 }
 
 # stamp WORKTREE COMMIT: stamps both charts in WORKTREE and prints the manifest lines

@@ -1,9 +1,9 @@
 name: Release Scheduling MCP
 
 # scheduling-mcp is not pinned by the operator chart: crews pin it, like code-sandbox and
-# artifact-access. Each push builds a scheduling-mcp-vX.Y.Z-rc.N image in Harbor; Promote
+# artifact-access. Each push builds a scheduling-mcp-vX.Y.Z-rc.N image in Harbor; Publish
 # Release copies the latest candidate to GHCR as the final with the other standalone
-# images (STANDALONE_IMAGES in .github/scripts/promote-release.sh).
+# images (STANDALONE_IMAGES in .github/scripts/publish-release.sh).
 on:
   push:
     branches: [main]

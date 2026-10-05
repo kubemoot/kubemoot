@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Promote a tested Kubemoot release candidate to a public release.
+# Publish a tested Kubemoot release candidate as a public release.
 #
 # main builds release candidates only: every component image X.Y.Z-rc.N and the
 # operator chart A.B.C-rc.N go to Harbor, and the homelab runs them. This script
@@ -17,8 +17,8 @@
 #      ${RELEASE_REGISTRY}/<name>:X.Y.Z and tagged X.Y.Z in Harbor, and its candidate
 #      tag's commit gets the final <prefix>X.Y.Z tag.
 #      A candidate must embed the dashboard as a subchart: candidates from before the
-#      dashboard became a subchart cannot be promoted. A candidate built before the
-#      versions moved to the tags (real versions in git at its commit) still promotes:
+#      dashboard became a subchart cannot be published. A candidate built before the
+#      versions moved to the tags (real versions in git at its commit) still publishes:
 #      its pins are taken from the candidate chart the same way.
 #   3. The chart: packaged from the candidate's commit (in a scratch worktree, never
 #      committed; git holds 0.0.0) stamped with the final chart version and the finals
@@ -45,7 +45,7 @@
 #   RELEASE_REGISTRY  registry plus namespace, e.g. ghcr.io/kubemoot
 #   HARBOR_USERNAME, HARBOR_PASSWORD, GHCR_USERNAME, GHCR_TOKEN
 #   STANDALONE_IMAGES images released on their own (default below)
-#   OUT_DIR           where packaged charts and notes.md land (default: promotion)
+#   OUT_DIR           where packaged charts and notes.md land (default: release-files)
 #   RELEASE_LIB       release-lib.sh of kubemoot/release-actions (its actions set it)
 set -euo pipefail
 # A failure inside $(...) stops the script too.
@@ -60,7 +60,7 @@ source "${here}/sign-release.sh"
 RC_TAG="${RC_TAG:-latest}"
 DRY_RUN="${DRY_RUN:-true}"
 STANDALONE_IMAGES="${STANDALONE_IMAGES:-code-sandbox artifact-access scheduling-mcp test-runner}"
-OUT_DIR="$(mkdir -p "${OUT_DIR:-promotion}" && cd "${OUT_DIR:-promotion}" && pwd)"
+OUT_DIR="$(mkdir -p "${OUT_DIR:-release-files}" && cd "${OUT_DIR:-release-files}" && pwd)"
 : "${REGISTRY:?REGISTRY required}"
 : "${RELEASE_REGISTRY:?RELEASE_REGISTRY required}"
 
@@ -69,7 +69,7 @@ CHART_DIR="operator/chart/kubemoot-operator"
 DASH_DIR="dashboard/charts/kubemoot-dashboard"
 CANDIDATE=""
 
-PLAN_NAMES=()     # image names to promote
+PLAN_NAMES=()     # image names to publish
 PLAN_RCS=()       # their candidate versions
 
 die() { echo "ERROR: $*" >&2; exit 1; }
@@ -145,9 +145,9 @@ collect_standalone() {
   done
 }
 
-# promote_image NAME RC: copy the candidate by digest to its final tag in the
+# publish_image NAME RC: copy the candidate by digest to its final tag in the
 # release registry and in Harbor.
-promote_image() {
+publish_image() {
   local name="$1" rc="$2" final digest published harbor earlier=""
   final=$(rl_final_of "$rc")
   digest=$(crane digest --insecure "${REGISTRY}/kubemoot/${name}:${rc}") \
@@ -201,7 +201,7 @@ package_operator_chart() {
   rl_stamp_images_like "${dash}/values.yaml" "${cand}/charts/kubemoot-dashboard/values.yaml" >/dev/null
   finalize_pins "$values"
   if grep -nE -- '-rc\.[0-9]+' "$values" "${dash}/values.yaml"; then
-    die "the chart still pins a release candidate the promotion does not cover"
+    die "the chart still pins a release candidate the release does not cover"
   fi
   rl_stamp_chart "$dash" "$(rl_final_of "$(chart_app_version "${cand}/charts/kubemoot-dashboard")")"
   rl_stamp_chart "${wt}/${CHART_DIR}" "$version" "$(rl_final_of "$(chart_app_version "$cand")")"
@@ -229,7 +229,7 @@ push_charts() {
 }
 
 # previous_release COMMIT: the release the notes start from; read before this run
-# creates any final tag. Until the first promoted chart, the last operator release.
+# creates any final tag. Until the first published chart, the last operator release.
 previous_release() {
   local prev
   prev=$(rl_latest_final "$CHART_PREFIX" "$1")
@@ -272,7 +272,7 @@ main() {
   rl_tag_exists "${CHART_PREFIX}${chart_final}" && die "${CHART_PREFIX}${chart_final} is already released"
   src=$(git rev-list -n 1 "$chart_rc")
   prev=$(previous_release "$src")
-  echo "Promoting ${chart_rc} (commit ${src}) to operator chart ${chart_final}; dry run: ${DRY_RUN}"
+  echo "Publishing ${chart_rc} (commit ${src}) to operator chart ${chart_final}; dry run: ${DRY_RUN}"
   sign_release_preflight "${OUT_DIR}"
 
   candidate_chart "${chart_rc#"$CHART_PREFIX"}"
@@ -285,7 +285,7 @@ main() {
   package_operator_chart "$RL_CHECKOUT" "$CANDIDATE" "$chart_final"
 
   for i in "${!PLAN_NAMES[@]}"; do
-    promote_image "${PLAN_NAMES[$i]}" "${PLAN_RCS[$i]}"
+    publish_image "${PLAN_NAMES[$i]}" "${PLAN_RCS[$i]}"
     tag_final "$(image_prefix "${PLAN_NAMES[$i]}")" "${PLAN_RCS[$i]}"
   done
   push_charts
