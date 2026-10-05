@@ -105,6 +105,11 @@ func mustAddRunnables(mgr ctrl.Manager, natsPublisher *kubemootnats.Publisher) {
 			Publisher:     natsPublisher,
 			DashboardBase: os.Getenv("KUBEMOOT_DASHBOARD_BASE"),
 		}},
+		// Deletes provider-state entries no ModelProvider owns, once at start.
+		{"provider state sweep", &controller.ProviderStateSweeper{
+			Reader: mgr.GetAPIReader(),
+			Store:  natsPublisher,
+		}},
 		// On-demand fitness report server: generates the XLSX fresh from transcripts
 		// on each download (no pre-baked artifact), so every report reflects the
 		// currently deployed generator. The dashboard's download endpoint proxies here.

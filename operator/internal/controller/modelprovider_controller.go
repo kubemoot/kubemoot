@@ -30,6 +30,7 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	discoveryv1 "k8s.io/api/discovery/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -141,7 +142,11 @@ func (r *ModelProviderReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	// Fetch the ModelProvider instance
 	provider := &aiv1alpha1.ModelProvider{}
 	if err := r.Get(ctx, req.NamespacedName, provider); err != nil {
-		return ctrl.Result{}, client.IgnoreNotFound(err)
+		if apierrors.IsNotFound(err) {
+			r.removeProviderState(ctx, req.Name)
+			return ctrl.Result{}, nil
+		}
+		return ctrl.Result{}, err
 	}
 
 	log.Info("Reconciling ModelProvider", "name", provider.Name, "type", provider.Spec.Type)
@@ -655,6 +660,41 @@ func (r *ModelProviderReconciler) publishStateToKV(ctx context.Context, provider
 	if err := r.NATSPublisher.PutKVValue(ProviderStateBucket, provider.Name, payload); err != nil {
 		log.V(1).Info("Failed to publish provider state to NATS KV", "provider", provider.Name, "error", err)
 	}
+}
+
+// removeProviderState deletes the provider's entry from the state bucket once no
+// ModelProvider of that name exists in any namespace. Like publishStateToKV it never
+// fails the reconcile.
+func (r *ModelProviderReconciler) removeProviderState(ctx context.Context, name string) {
+	if r.NATSPublisher == nil {
+		return
+	}
+	deleteOrphanedProviderState(ctx, r.Client, r.NATSPublisher, name)
+}
+
+// deleteOrphanedProviderState deletes the state key unless a ModelProvider still has that name.
+func deleteOrphanedProviderState(ctx context.Context, c client.Reader, store providerStateStore, name string) {
+	exists, err := providerNameExists(ctx, c, name)
+	if err != nil || exists {
+		return
+	}
+	if err := store.DeleteKVKey(ProviderStateBucket, name); err != nil {
+		logf.FromContext(ctx).V(1).Info("Failed to delete provider state from NATS KV", "provider", name, "error", err)
+	}
+}
+
+// providerNameExists reports whether any ModelProvider carries the name.
+func providerNameExists(ctx context.Context, c client.Reader, name string) (bool, error) {
+	list := &aiv1alpha1.ModelProviderList{}
+	if err := c.List(ctx, list); err != nil {
+		return false, err
+	}
+	for i := range list.Items {
+		if list.Items[i].Name == name {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 // buildProviderState is the single place the published ProviderState snapshot is
