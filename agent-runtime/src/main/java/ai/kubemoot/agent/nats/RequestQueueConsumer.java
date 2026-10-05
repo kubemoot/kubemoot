@@ -104,40 +104,55 @@ public class RequestQueueConsumer {
 
     private void consumeLoop() {
         JetStreamSubscription subscription = null;
+        boolean interrupted = false;
 
-        while (!shutdown.get()) {
+        while (!shutdown.get() && !interrupted) {
             try {
-                if (subscription == null) {
-                    subscription = createSubscription();
-                    if (subscription == null) {
-                        Thread.sleep(POLL_TIMEOUT.toMillis());
-                        continue;
-                    }
-                }
-
-                // fetch() issues a fresh pull and collects up to the batch within the
-                // timeout, returning a finite list. It replaces the hand-rolled
-                // pull(1)+nextMessage pattern, which could stall after the first
-                // message and silently stop delivering (observed wedge).
-                // See [[Discussion Request Pump Can Wedge a Crew]].
-                for (Message msg : subscription.fetch(1, POLL_TIMEOUT)) {
-                    processMessage(msg);
-                }
+                subscription = pollOnce(subscription);
             } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                break;
+                interrupted = true;
             } catch (Exception e) {
-                log.warn("Request queue error: {} — retrying in 10s", e.getMessage());
+                log.warn("Request queue error: {} - retrying in 10s", e.getMessage());
                 subscription = null;
-                try {
-                    Thread.sleep(ERROR_RETRY_BACKOFF_MS);
-                } catch (InterruptedException ie) {
-                    Thread.currentThread().interrupt();
-                    break;
-                }
+                interrupted = !backOff();
             }
         }
+        if (interrupted) {
+            Thread.currentThread().interrupt();
+        }
         log.info("Request queue consumer stopped: crew={}", crew);
+    }
+
+    /** Fetch and process at most one message; returns the subscription to reuse, or null when none could be created. */
+    private JetStreamSubscription pollOnce(JetStreamSubscription current) throws Exception {
+        JetStreamSubscription subscription = current;
+        if (subscription == null) {
+            subscription = createSubscription();
+            if (subscription == null) {
+                Thread.sleep(POLL_TIMEOUT.toMillis());
+                return null;
+            }
+        }
+
+        // fetch() issues a fresh pull and collects up to the batch within the
+        // timeout, returning a finite list. It replaces the hand-rolled
+        // pull(1)+nextMessage pattern, which could stall after the first
+        // message and silently stop delivering (observed wedge).
+        // See [[Discussion Request Pump Can Wedge a Crew]].
+        for (Message msg : subscription.fetch(1, POLL_TIMEOUT)) {
+            processMessage(msg);
+        }
+        return subscription;
+    }
+
+    /** Sleep out the error backoff; false when interrupted. */
+    private boolean backOff() {
+        try {
+            Thread.sleep(ERROR_RETRY_BACKOFF_MS);
+            return true;
+        } catch (InterruptedException ie) {
+            return false;
+        }
     }
 
     private JetStreamSubscription createSubscription() {

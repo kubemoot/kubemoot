@@ -135,7 +135,7 @@ class LearningFitPredictorTest {
 
     @Test
     void perModelLearning_isolation() {
-        // Learning for (provider, modelA) does NOT bleed into (provider, modelB).
+        // Learning for one provider and model pair does NOT bleed into another model on that provider.
         for (int i = 0; i < 10; i++) {
             pred.recordOutcome("ollama-gpu", "qwen3:32b", 90_000L, false);
         }

@@ -520,17 +520,17 @@ public class ProviderSelector {
             List<ProviderState> states = readState();
             if (states.isEmpty()) return Optional.empty();
 
+            var load = LoadView.of(
+                            p -> ticketManager.activeCountFor(p.name()),
+                            p -> ticketManager.activeFootprintFor(p.name()),
+                            p -> recentLatency.getOrDefault(p.endpoint(), 0.0),
+                            this::isCircuitOpen)
+                    .withKvCache(p -> ticketManager.activeKvCacheFor(p.name()))
+                    .withActiveModels(p -> ticketManager.activeModelsOn(p.name()))       // cold-start convergence
+                    .withResidentOverlay(p -> ticketManager.residentFootprintsFor(p.name())); // residency overlay (anti-thrash)
             List<Candidate> ranked = rankCandidates(
-                    states, modelName, coldLoadFootprintMiB,
-                    p -> ticketManager.activeCountFor(p.name()),
-                    p -> ticketManager.activeFootprintFor(p.name()),
-                    p -> recentLatency.getOrDefault(p.endpoint(), 0.0),
-                    this::isCircuitOpen,
-                    fitPredictor != null ? fitPredictor : DEFAULT_PREDICTOR,
-                    p -> ticketManager.activeKvCacheFor(p.name()),
-                    kvForThisCall,
-                    p -> ticketManager.activeModelsOn(p.name()),       // cold-start convergence
-                    p -> ticketManager.residentFootprintsFor(p.name())); // residency overlay (anti-thrash)
+                    states, modelName, coldLoadFootprintMiB, load,
+                    fitPredictor != null ? fitPredictor : DEFAULT_PREDICTOR, kvForThisCall);
             ranked = ranked.stream()
                     .filter(c -> mode.admits(c, modelName, driver) && !plannedForEviction(c, modelName)
                             && ContextFit.holds(c.provider(), modelName, promptTokens))
@@ -623,6 +623,44 @@ public class ProviderSelector {
     record Candidate(ProviderState provider, boolean warm, int activeCount, double latency, FitScore score) {}
 
     /**
+     * The live scheduling state {@link #rankCandidates} reads per provider. Built
+     * with {@link #of} for the required accessors; the optional ones (in-flight
+     * KV reservations, models being cold-loaded, residency overlay) are added
+     * with the {@code with} methods and default when null.
+     */
+    record LoadView(
+            java.util.function.ToIntFunction<ProviderState> activeCount,
+            java.util.function.ToLongFunction<ProviderState> activeFootprint,
+            java.util.function.ToDoubleFunction<ProviderState> observedLatency,
+            java.util.function.Predicate<String> isCircuitOpen,
+            java.util.function.ToLongFunction<ProviderState> activeKvCache,
+            java.util.function.Function<ProviderState, java.util.Set<String>> activeModels,
+            java.util.function.Function<ProviderState, java.util.Map<String, Long>> residentOverlay) {
+
+        static LoadView of(java.util.function.ToIntFunction<ProviderState> activeCount,
+                           java.util.function.ToLongFunction<ProviderState> activeFootprint,
+                           java.util.function.ToDoubleFunction<ProviderState> observedLatency,
+                           java.util.function.Predicate<String> isCircuitOpen) {
+            return new LoadView(activeCount, activeFootprint, observedLatency, isCircuitOpen, null, null, null);
+        }
+
+        LoadView withKvCache(java.util.function.ToLongFunction<ProviderState> fn) {
+            return new LoadView(activeCount, activeFootprint, observedLatency, isCircuitOpen, fn, activeModels,
+                    residentOverlay);
+        }
+
+        LoadView withActiveModels(java.util.function.Function<ProviderState, java.util.Set<String>> fn) {
+            return new LoadView(activeCount, activeFootprint, observedLatency, isCircuitOpen, activeKvCache, fn,
+                    residentOverlay);
+        }
+
+        LoadView withResidentOverlay(java.util.function.Function<ProviderState, java.util.Map<String, Long>> fn) {
+            return new LoadView(activeCount, activeFootprint, observedLatency, isCircuitOpen, activeKvCache,
+                    activeModels, fn);
+        }
+    }
+
+    /**
      * The per-provider state accessors {@link #buildFits} reads while evaluating
      * each provider's fit. Bundled into one carrier so the fit loop takes a single
      * parameter instead of five separate function arguments. A null field is
@@ -669,71 +707,35 @@ public class ProviderSelector {
             List<ProviderState> states,
             String modelName,
             long coldLoadFootprintMiB,
-            java.util.function.ToIntFunction<ProviderState> activeCountFn,
-            java.util.function.ToLongFunction<ProviderState> activeFootprintFn,
-            java.util.function.ToDoubleFunction<ProviderState> observedLatencyFn,
-            java.util.function.Predicate<String> isCircuitOpenFn,
+            LoadView load,
             FitPredictor predictor) {
-        return rankCandidates(states, modelName, coldLoadFootprintMiB,
-                activeCountFn, activeFootprintFn, observedLatencyFn,
-                isCircuitOpenFn, predictor, p -> 0L, 0L);
+        return rankCandidates(states, modelName, coldLoadFootprintMiB, load, predictor, 0L);
     }
 
     /**
-     * Phase D overload — also threads {@code activeKvCacheFn} (sum of
-     * in-flight ticket KV reservations) and {@code thisCallKvCacheMiB}
-     * (this call's estimated KV-cache need) into {@link FitInputs} so
-     * the predictor's cold-load gate factors in real KV-cache VRAM
-     * pressure. Old callers that pass {@code 0L} for both reproduce
-     * the v2.2 model-weights-only behavior.
+     * Also threads {@code thisCallKvCacheMiB} (this call's estimated KV-cache
+     * need) into {@link FitInputs} so the predictor's cold-load gate factors in
+     * real KV-cache VRAM pressure, together with the in-flight KV reservations,
+     * the models providers are cold-loading (so a second selector converges on
+     * the loading provider instead of cold-loading elsewhere; see
+     * [[Cold-Start Model-Load Wedge]]) and the residency overlay.
      */
     static List<Candidate> rankCandidates(
             List<ProviderState> states,
             String modelName,
             long coldLoadFootprintMiB,
-            java.util.function.ToIntFunction<ProviderState> activeCountFn,
-            java.util.function.ToLongFunction<ProviderState> activeFootprintFn,
-            java.util.function.ToDoubleFunction<ProviderState> observedLatencyFn,
-            java.util.function.Predicate<String> isCircuitOpenFn,
+            LoadView load,
             FitPredictor predictor,
-            java.util.function.ToLongFunction<ProviderState> activeKvCacheFn,
             long thisCallKvCacheMiB) {
-        return rankCandidates(states, modelName, coldLoadFootprintMiB,
-                activeCountFn, activeFootprintFn, observedLatencyFn,
-                isCircuitOpenFn, predictor, activeKvCacheFn, thisCallKvCacheMiB,
-                p -> java.util.Set.of(), p -> java.util.Map.of());
-    }
-
-    /**
-     * Cold-start convergence overload — threads {@code activeModelsFn} so
-     * the FitPredictor and the score function can recognise providers
-     * that are currently cold-loading the target model (via in-flight
-     * ticket inspection). A second selector arriving during the
-     * cold-load window treats the loading provider as warm-equivalent
-     * and converges on it, avoiding the redundant cold-load on another
-     * provider that drove the 5× slowdown in [[Cold-Start Model-Load Wedge]].
-     */
-    static List<Candidate> rankCandidates(
-            List<ProviderState> states,
-            String modelName,
-            long coldLoadFootprintMiB,
-            java.util.function.ToIntFunction<ProviderState> activeCountFn,
-            java.util.function.ToLongFunction<ProviderState> activeFootprintFn,
-            java.util.function.ToDoubleFunction<ProviderState> observedLatencyFn,
-            java.util.function.Predicate<String> isCircuitOpenFn,
-            FitPredictor predictor,
-            java.util.function.ToLongFunction<ProviderState> activeKvCacheFn,
-            long thisCallKvCacheMiB,
-            java.util.function.Function<ProviderState, java.util.Set<String>> activeModelsFn,
-            java.util.function.Function<ProviderState, java.util.Map<String, Long>> residentOverlayFn) {
         if (states == null || coldLoadFootprintMiB <= 0) return List.of();
         java.util.function.Function<ProviderState, java.util.Map<String, Long>> overlayFn =
-                residentOverlayFn == null ? p -> java.util.Map.of() : residentOverlayFn;
+                load.residentOverlay() == null ? p -> java.util.Map.of() : load.residentOverlay();
+        java.util.function.ToLongFunction<ProviderState> activeFootprintFn = load.activeFootprint();
 
         List<Candidate> fits = buildFits(
                 states, modelName, coldLoadFootprintMiB, predictor, thisCallKvCacheMiB,
-                new FitAccessors(activeCountFn, observedLatencyFn, isCircuitOpenFn,
-                        activeKvCacheFn, activeModelsFn));
+                new FitAccessors(load.activeCount(), load.observedLatency(), load.isCircuitOpen(),
+                        load.activeKvCache(), load.activeModels()));
         if (fits.isEmpty()) return List.of();
 
         // Weighted-cost placement (lower is better; pick argmin). No tiers - warm,

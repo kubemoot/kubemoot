@@ -61,6 +61,11 @@ public class DiscussionOrchestrator {
     // Message type constants
     private static final String MSG_ADVISORY = "advisory";
     private static final String MSG_STAND_ASIDE = "stand_aside";
+    private static final String MSG_AGREE = "agree";
+    private static final String MSG_CONTRIBUTION = "contribution";
+    private static final String MSG_CONCERN = "concern";
+    private static final String MSG_DECLINE = "decline";
+    private static final String MSG_BLOCK = "block";
     /**
      * First-class consensus signal for infrastructure failure during agent
      * evaluation (MCP tool timeout exhaustion, model OOM, tool-loop iteration
@@ -74,7 +79,7 @@ public class DiscussionOrchestrator {
      * dispatchSignal; triaging, evaluating, heartbeat and waiting do not.
      */
     private static final Set<String> TERMINAL_SIGNALS =
-            Set.of("agree", "contribution", "concern", MSG_STAND_ASIDE, "decline", MSG_FAILURE, "block");
+            Set.of(MSG_AGREE, MSG_CONTRIBUTION, MSG_CONCERN, MSG_STAND_ASIDE, MSG_DECLINE, MSG_FAILURE, MSG_BLOCK);
     /** An agent started waiting for GPU capacity. */
     private static final String MSG_WAITING = "waiting";
     /** Stand-aside reason: every GPU that could hold the model stayed busy. */
@@ -718,11 +723,11 @@ public class DiscussionOrchestrator {
             case "evaluating" -> handleEvaluatingSignal(state, agentName, msg);
             case "heartbeat" -> handleHeartbeatSignal(state, agentName, msg);
             case MSG_WAITING -> handleWaitingSignal(state, agentName, msg);
-            case "agree", "contribution" -> handleAgreeSignal(state, agentName, content, msg);
-            case "concern" -> handleConcernSignal(state, agentName, content, msg);
-            case MSG_STAND_ASIDE, "decline" -> handleStandAsideSignal(state, agentName, msg);
+            case MSG_AGREE, MSG_CONTRIBUTION -> handleAgreeSignal(state, agentName, content, msg);
+            case MSG_CONCERN -> handleConcernSignal(state, agentName, content, msg);
+            case MSG_STAND_ASIDE, MSG_DECLINE -> handleStandAsideSignal(state, agentName, msg);
             case MSG_FAILURE -> handleFailureSignal(state, agentName, content, msg);
-            case "block" -> handleBlockSignal(state, agentName, content, msg);
+            case MSG_BLOCK -> handleBlockSignal(state, agentName, content, msg);
             default -> {
                 // Other message types (e.g. advisory, proposal, consent) don't need signal tracking
             }
@@ -923,29 +928,33 @@ public class DiscussionOrchestrator {
         var now = Instant.now();
 
         for (var entry : threads.entrySet()) {
-            var state = entry.getValue();
+            checkThreadTransition(entry.getValue(), now);
+        }
+    }
 
-            // Hard-ceiling backstop FIRST, before the phase table: a discussion must
-            // ALWAYS reach a terminal state. This catches threads stuck in ANY phase -
-            // including SYNTHESIZING and any phase with no auto edge - that the normal
-            // per-phase settles failed to conclude (a missed transition, a hung LLM
-            // call, dirty NATS state, a rogue agent). See [[Discussion Request Pump Can Wedge a Crew]].
-            if (forceCloseIfOverCeiling(state, now)) continue;
+    private void checkThreadTransition(ThreadState state, Instant now) {
+        // Hard-ceiling backstop FIRST, before the phase table: a discussion must
+        // ALWAYS reach a terminal state. This catches threads stuck in ANY phase -
+        // including SYNTHESIZING and any phase with no auto edge - that the normal
+        // per-phase settles failed to conclude (a missed transition, a hung LLM
+        // call, dirty NATS state, a rogue agent). See [[Discussion Request Pump Can Wedge a Crew]].
+        if (forceCloseIfOverCeiling(state, now)) {
+            return;
+        }
 
-            // The transition table IS the phase machine: a phase absent from it has
-            // no automatic edge. SUBMITTED waits for thread_start, PAUSED for
-            // thread_resume, SYNTHESIZING/CLOSED are terminal/event-driven. Only
-            // ADVISORY, EVALUATING, and REVIEW auto-advance here.
-            var rule = autoTransitions.get(state.phase);
-            if (rule == null) continue;
-            if (!state.transitioning.compareAndSet(false, true)) continue;
-
-            try {
-                long elapsed = Duration.between(state.phaseStarted, now).getSeconds();
-                rule.advance(state, now, elapsed);
-            } finally {
-                state.transitioning.set(false);
-            }
+        // The transition table IS the phase machine: a phase absent from it has
+        // no automatic edge. SUBMITTED waits for thread_start, PAUSED for
+        // thread_resume, SYNTHESIZING/CLOSED are terminal/event-driven. Only
+        // ADVISORY, EVALUATING, and REVIEW auto-advance here.
+        var rule = autoTransitions.get(state.phase);
+        if (rule == null || !state.transitioning.compareAndSet(false, true)) {
+            return;
+        }
+        try {
+            long elapsed = Duration.between(state.phaseStarted, now).getSeconds();
+            rule.advance(state, now, elapsed);
+        } finally {
+            state.transitioning.set(false);
         }
     }
 
@@ -2104,21 +2113,21 @@ public class DiscussionOrchestrator {
                 addDataName(current, nameIdx, line);
             }
         }
-    }
 
-    /** A line that is a single "[tool]" bracket marker preceding a table. */
-    private static boolean isBracketMarker(String line) {
-        return line.length() >= 2 && line.charAt(0) == '[' && line.charAt(line.length() - 1) == ']';
-    }
-
-    /** Add the NAME-column token of a data row to the current table, if it is name-shaped. */
-    private static void addDataName(List<String> current, int nameIdx, String line) {
-        if (nameIdx < 0 || current == null) {
-            return;
+        /** A line that is a single "[tool]" bracket marker preceding a table. */
+        private static boolean isBracketMarker(String line) {
+            return line.length() >= 2 && line.charAt(0) == '[' && line.charAt(line.length() - 1) == ']';
         }
-        String[] toks = line.split("\\s+");
-        if (nameIdx < toks.length && isNameShaped(toks[nameIdx])) {
-            current.add(toks[nameIdx]);
+
+        /** Add the NAME-column token of a data row to the current table, if it is name-shaped. */
+        private static void addDataName(List<String> current, int nameIdx, String line) {
+            if (nameIdx < 0 || current == null) {
+                return;
+            }
+            String[] toks = line.split("\\s+");
+            if (nameIdx < toks.length && isNameShaped(toks[nameIdx])) {
+                current.add(toks[nameIdx]);
+            }
         }
     }
 
@@ -2825,12 +2834,12 @@ public class DiscussionOrchestrator {
     /** Thread labels for message types shown as "[LABEL from agent]". */
     private static final Map<String, String> AUTHORED_THREAD_LABELS = Map.of(
             MSG_ADVISORY, "ADVISORY",
-            "agree", "RESPONSE",
-            "contribution", "RESPONSE",
-            "concern", "CONCERN",
-            "block", "BLOCK",
+            MSG_AGREE, "RESPONSE",
+            MSG_CONTRIBUTION, "RESPONSE",
+            MSG_CONCERN, "CONCERN",
+            MSG_BLOCK, "BLOCK",
             MSG_STAND_ASIDE, "STAND ASIDE",
-            "decline", "STAND ASIDE",
+            MSG_DECLINE, "STAND ASIDE",
             "proposal", "PROPOSAL");
 
     /**
@@ -2941,9 +2950,7 @@ public class DiscussionOrchestrator {
         var context = buildConversationContext(state.conversationId);
         if (!context.isEmpty()) {
             sb.append("Previous conversation turns (for follow-up context):\n");
-            for (var turn : context) {
-                @SuppressWarnings("unchecked")
-                var turnMap = (Map<String, String>) turn;
+            for (var turnMap : context) {
                 sb.append("Q: ").append(turnMap.get(FIELD_QUERY)).append("\n");
                 sb.append("A: ").append(truncate(turnMap.get(FIELD_RESPONSE), CONTEXT_RESPONSE_CHARS)).append("\n\n");
             }
@@ -2980,9 +2987,7 @@ public class DiscussionOrchestrator {
         var context = buildConversationContext(state.conversationId);
         if (!context.isEmpty()) {
             sb.append("Previous conversation turns (for context on follow-up references):\n");
-            for (var turn : context) {
-                @SuppressWarnings("unchecked")
-                var turnMap = (Map<String, String>) turn;
+            for (var turnMap : context) {
                 sb.append("Q: ").append(turnMap.get(FIELD_QUERY)).append("\n");
                 sb.append("A: ").append(truncate(turnMap.get(FIELD_RESPONSE), CONTEXT_RESPONSE_CHARS)).append("\n\n");
             }

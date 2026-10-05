@@ -540,4 +540,15 @@ class DiscussionSubscriberHelpersTest {
         return new DiscussionSubscriber(natsProvider, chat, metrics,
                 stubProperties("test-agent", "kubernetes", null, false), "http://localhost:11434");
     }
+
+    @Test
+    void signalTiming_noneIsAllZero_andOfCarriesNoTokens() {
+        var none = DiscussionSubscriber.SignalTiming.NONE;
+        assertEquals(0L, none.inferenceMs() + none.inferenceStartMs() + none.inputTokens() + none.outputTokens());
+        var timed = DiscussionSubscriber.SignalTiming.of(120L, 5L);
+        assertEquals(120L, timed.inferenceMs());
+        assertEquals(5L, timed.inferenceStartMs());
+        assertEquals(0L, timed.inputTokens());
+        assertEquals(0L, timed.outputTokens());
+    }
 }

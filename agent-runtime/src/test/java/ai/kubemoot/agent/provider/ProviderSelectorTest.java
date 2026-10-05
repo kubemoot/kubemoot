@@ -1,5 +1,6 @@
 package ai.kubemoot.agent.provider;
 
+import ai.kubemoot.agent.provider.ProviderSelector.LoadView;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -107,7 +108,7 @@ class ProviderSelectorTest {
 
     @Test
     void emptyWhenNoProvidersReady() {
-        // Pathological — no provider is ready. Selector returns empty;
+        // Pathological: no provider is ready. Selector returns empty;
         // ChatService falls back to the static Quarkus-injected ChatModel.
         var rig0 = state("ollama-gpu", "http://rig0:11434", 1, 0, false, List.of("qwen3:32b"));
         var rig1 = state("ollama-rig1", "http://rig1:11434", 1, 0, false, List.of("qwen3:8b"));
@@ -245,9 +246,8 @@ class ProviderSelectorTest {
     }
 
     // --- v2 (VRAM-headroom) field tests: see docs/scheduler.md ---
-    // These cover the new fields that drive ticket-based selection. The
-    // selector's headroom-and-claim algorithm will be wired in commit 3;
-    // these tests lock the math of the underlying ProviderState helpers.
+    // These cover the fields that drive ticket-based selection: the tests lock
+    // the math of the underlying ProviderState helpers.
 
     @Test
     void fromJson_parsesV2HeadroomFields() throws Exception {
@@ -342,15 +342,11 @@ class ProviderSelectorTest {
         // so this asserts that path: the call must not NPE, and both warm providers
         // must still flow through (ranking ORDER is the weighted-placement-cost
         // concern of other tests, not this one).
+        // activeKvCache, activeModels and residentOverlay stay unset (null): each must default.
         var ranked = ProviderSelector.rankCandidates(
                 List.of(fresh, busy), "model-x", 5_000L,
-                active, NO_TICKETS, NO_LATENCY,
-                null,             // isCircuitOpenFn null -> default (no circuit open)
-                STATIC_PREDICTOR,
-                null,             // activeKvCacheFn null -> default 0
-                0L,
-                null,             // activeModelsFn null -> default empty set
-                null);            // residentOverlayFn null -> default empty
+                LoadView.of(active, NO_TICKETS, NO_LATENCY, null), // isCircuitOpen null -> no circuit open
+                STATIC_PREDICTOR, 0L);
         assertEquals(2, ranked.size(),
                 "both warm providers feasible; null optional accessors must default, not NPE or drop either");
         var names = ranked.stream().map(c -> c.provider().name()).toList();
@@ -371,7 +367,9 @@ class ProviderSelectorTest {
         var rigSmall = v2StateWithSlots("ollama-rig1", "http://rig1", 1, 24_563L,
                 java.util.Map.of("model-x", 22_000L));
         var ranked = ProviderSelector.rankCandidates(
-                List.of(rigBig, rigSmall), "model-x", 22_000L, NO_TICKET_COUNT, NO_TICKETS, NO_LATENCY, NO_CIRCUIT_OPEN, STATIC_PREDICTOR);
+                List.of(rigBig, rigSmall), "model-x", 22_000L,
+                LoadView.of(NO_TICKET_COUNT, NO_TICKETS, NO_LATENCY, NO_CIRCUIT_OPEN),
+                STATIC_PREDICTOR);
         assertEquals(2, ranked.size(), "both warm cards feasible; spilling one is penalized, not refused");
         assertEquals("ollama-gpu", ranked.get(0).provider().name(),
                 "healthy card beats the spilling card via SPILL_PENALTY");
@@ -390,7 +388,9 @@ class ProviderSelectorTest {
         java.util.function.ToIntFunction<ProviderState> tickets = p ->
                 p.name().equals("ollama-gpu") ? 1 : 0;
         var ranked = ProviderSelector.rankCandidates(
-                List.of(rigBig, rigSmall), "model-x", 22_000L, tickets, NO_TICKETS, NO_LATENCY, NO_CIRCUIT_OPEN, STATIC_PREDICTOR);
+                List.of(rigBig, rigSmall), "model-x", 22_000L,
+                LoadView.of(tickets, NO_TICKETS, NO_LATENCY, NO_CIRCUIT_OPEN),
+                STATIC_PREDICTOR);
         assertEquals(2, ranked.size(), "both feasible");
         assertEquals("ollama-gpu", ranked.get(0).provider().name(),
                 "busy-but-healthy (contention 1.0) beats idle-but-spilling (SPILL_PENALTY 20)");
@@ -411,7 +411,8 @@ class ProviderSelectorTest {
                 p.name().equals("ollama-gpu") ? 2 : 3;        // both busy; small busier
         var ranked = ProviderSelector.rankCandidates(
                 List.of(big32, small8), "qwen3:8b", 5_979L,
-                tickets, NO_TICKETS, NO_LATENCY, NO_CIRCUIT_OPEN, STATIC_PREDICTOR);
+                LoadView.of(tickets, NO_TICKETS, NO_LATENCY, NO_CIRCUIT_OPEN),
+                STATIC_PREDICTOR);
         assertEquals("ollama-rig1", ranked.get(0).provider().name(),
                 "queue at the warm 8B home; never evict the live 32B on the big card");
     }
@@ -426,7 +427,8 @@ class ProviderSelectorTest {
                 java.util.Map.of("other-model", 18_000L));    // idle but nearly full
         var ranked = ProviderSelector.rankCandidates(
                 List.of(fullCard, freeCard), "qwen3:14b", 9_000L,
-                NO_TICKET_COUNT, NO_TICKETS, NO_LATENCY, NO_CIRCUIT_OPEN, STATIC_PREDICTOR);
+                LoadView.of(NO_TICKET_COUNT, NO_TICKETS, NO_LATENCY, NO_CIRCUIT_OPEN),
+                STATIC_PREDICTOR);
         assertEquals("ollama-gpu", ranked.get(0).provider().name(),
                 "load onto the card with free room, not the one that needs an eviction");
     }
@@ -450,8 +452,11 @@ class ProviderSelectorTest {
                 p.name().equals("ollama-gpu") ? java.util.Map.of("qwen3:32b", 27_252L) : java.util.Map.of();
         var ranked = ProviderSelector.rankCandidates(
                 List.of(rig05090, rig14090), "qwen3:8b", 5_979L,
-                busy4090, NO_TICKETS, NO_LATENCY, NO_CIRCUIT_OPEN, STATIC_PREDICTOR,
-                p -> 0L, 0L, p -> java.util.Set.of(), overlay);
+                LoadView.of(busy4090, NO_TICKETS, NO_LATENCY, NO_CIRCUIT_OPEN)
+                        .withKvCache(p -> 0L)
+                        .withActiveModels(p -> java.util.Set.of())
+                        .withResidentOverlay(overlay),
+                STATIC_PREDICTOR, 0L);
         assertEquals("ollama-rig1", ranked.get(0).provider().name(),
                 "residency overlay reveals the 32B on the 5090 (probe-stale), so the 8B queues on the busy 4090 instead of thrashing the 5090");
     }
@@ -491,7 +496,8 @@ class ProviderSelectorTest {
         var rig14090 = v2StateWithSlots("ollama-rig1", "http://rig1", 1, 24_563L, java.util.Map.of());
         var ranked = ProviderSelector.rankCandidates(
                 List.of(rig05090, rig14090), "qwen3:8b", 5_979L,
-                NO_TICKET_COUNT, NO_TICKETS, NO_LATENCY, NO_CIRCUIT_OPEN, STATIC_PREDICTOR);
+                LoadView.of(NO_TICKET_COUNT, NO_TICKETS, NO_LATENCY, NO_CIRCUIT_OPEN),
+                STATIC_PREDICTOR);
         assertEquals("ollama-rig1", ranked.get(0).provider().name(),
                 "best-fit: a small model prefers the smaller card, reserving the big GPU for big models");
     }
@@ -504,7 +510,8 @@ class ProviderSelectorTest {
         var rig14090 = v2StateWithSlots("ollama-rig1", "http://rig1", 1, 24_563L, java.util.Map.of());
         var ranked = ProviderSelector.rankCandidates(
                 List.of(rig05090, rig14090), "qwen3:32b", 27_252L,
-                NO_TICKET_COUNT, NO_TICKETS, NO_LATENCY, NO_CIRCUIT_OPEN, STATIC_PREDICTOR);
+                LoadView.of(NO_TICKET_COUNT, NO_TICKETS, NO_LATENCY, NO_CIRCUIT_OPEN),
+                STATIC_PREDICTOR);
         assertEquals(1, ranked.size(), "only the 5090 fits a 32B");
         assertEquals("ollama-gpu", ranked.get(0).provider().name());
     }
@@ -521,7 +528,9 @@ class ProviderSelectorTest {
         java.util.function.ToIntFunction<ProviderState> tickets = p ->
                 p.name().equals("ollama-gpu") ? 1 : 0;
         var ranked = ProviderSelector.rankCandidates(
-                List.of(rig0, rig1), "qwen3:8b", 5_000L, tickets, NO_TICKETS, NO_LATENCY, NO_CIRCUIT_OPEN, STATIC_PREDICTOR);
+                List.of(rig0, rig1), "qwen3:8b", 5_000L,
+                LoadView.of(tickets, NO_TICKETS, NO_LATENCY, NO_CIRCUIT_OPEN),
+                STATIC_PREDICTOR);
         assertEquals("ollama-rig1", ranked.get(0).provider().name(),
                 "rig1 has 0/2 active < rig0's 1/2 — bin-pack spreads to emptiest");
     }
@@ -536,7 +545,9 @@ class ProviderSelectorTest {
         var rig1 = v2StateWithSlots("ollama-rig1", "http://rig1", 1, 24_563L,
                 java.util.Map.of("qwen3:8b", 5_000L));      // 19GB free
         var ranked = ProviderSelector.rankCandidates(
-                List.of(rig0, rig1), "qwen3:14b", 8_000L, NO_TICKET_COUNT, NO_TICKETS, NO_LATENCY, NO_CIRCUIT_OPEN, STATIC_PREDICTOR);
+                List.of(rig0, rig1), "qwen3:14b", 8_000L,
+                LoadView.of(NO_TICKET_COUNT, NO_TICKETS, NO_LATENCY, NO_CIRCUIT_OPEN),
+                STATIC_PREDICTOR);
         assertEquals(2, ranked.size(), "Both pass cold-load gate (>=8GB free)");
     }
 
@@ -549,7 +560,9 @@ class ProviderSelectorTest {
         var rig0 = v2StateWithSlots("ollama-gpu", "http://rig0", 1, 32_605L, java.util.Map.of());
         var rig1 = v2StateWithSlots("ollama-rig1", "http://rig1", 1, 24_563L, java.util.Map.of());
         var ranked = ProviderSelector.rankCandidates(
-                List.of(rig0, rig1), "qwen3:32b", 27_000L, NO_TICKET_COUNT, NO_TICKETS, NO_LATENCY, NO_CIRCUIT_OPEN, STATIC_PREDICTOR);
+                List.of(rig0, rig1), "qwen3:32b", 27_000L,
+                LoadView.of(NO_TICKET_COUNT, NO_TICKETS, NO_LATENCY, NO_CIRCUIT_OPEN),
+                STATIC_PREDICTOR);
         assertEquals(1, ranked.size(), "Only rig0 has enough TOTAL VRAM to ever load a 27GB model");
         assertEquals("ollama-gpu", ranked.get(0).provider().name());
     }
@@ -570,7 +583,9 @@ class ProviderSelectorTest {
         java.util.function.ToLongFunction<ProviderState> footprints = p ->
                 p.name().equals("ollama-gpu") ? 20_000L : 0L;
         var ranked = ProviderSelector.rankCandidates(
-                List.of(rig0), "qwen3:14b", 14_000L, NO_TICKET_COUNT, footprints, NO_LATENCY, NO_CIRCUIT_OPEN, STATIC_PREDICTOR);
+                List.of(rig0), "qwen3:14b", 14_000L,
+                LoadView.of(NO_TICKET_COUNT, footprints, NO_LATENCY, NO_CIRCUIT_OPEN),
+                STATIC_PREDICTOR);
         assertEquals(1, ranked.size(),
                 "v2.2: 14GB cold-load on a 32GB provider passes regardless of in-flight ticket footprints");
     }
@@ -585,7 +600,9 @@ class ProviderSelectorTest {
         var unprobed = new ProviderState("ollama-gpu", "http://rig0", 1, 0, 0,
                 List.of(), true, "", 0L, java.util.Map.of());
         var ranked = ProviderSelector.rankCandidates(
-                List.of(unprobed), "qwen3:14b", 14_000L, NO_TICKET_COUNT, NO_TICKETS, NO_LATENCY, NO_CIRCUIT_OPEN, STATIC_PREDICTOR);
+                List.of(unprobed), "qwen3:14b", 14_000L,
+                LoadView.of(NO_TICKET_COUNT, NO_TICKETS, NO_LATENCY, NO_CIRCUIT_OPEN),
+                STATIC_PREDICTOR);
         assertTrue(ranked.isEmpty(), "Unknown totalVramMiB → provider skipped for cold-load");
     }
 
@@ -598,7 +615,8 @@ class ProviderSelectorTest {
         var rig1Cold = v2StateWithSlots("ollama-rig1", "http://rig1", 1, 32_605L, java.util.Map.of());
         var ranked = ProviderSelector.rankCandidates(
                 List.of(rig0Warm, rig1Cold), "qwen3:8b", 5_000L,
-                NO_TICKET_COUNT, NO_TICKETS, NO_LATENCY, NO_CIRCUIT_OPEN, STATIC_PREDICTOR);
+                LoadView.of(NO_TICKET_COUNT, NO_TICKETS, NO_LATENCY, NO_CIRCUIT_OPEN),
+                STATIC_PREDICTOR);
         assertEquals("ollama-gpu", ranked.get(0).provider().name(),
                 "Equal saturation, both fit → warm wins tiebreak");
     }
@@ -624,7 +642,8 @@ class ProviderSelectorTest {
                 p.name().equals("ollama-gpu") ? 1 : 0;
         var ranked = ProviderSelector.rankCandidates(
                 List.of(rig0Warm, rig1Cold), "qwen3:8b", 5_000L,
-                tickets, NO_TICKETS, NO_LATENCY, NO_CIRCUIT_OPEN, STATIC_PREDICTOR);
+                LoadView.of(tickets, NO_TICKETS, NO_LATENCY, NO_CIRCUIT_OPEN),
+                STATIC_PREDICTOR);
         assertEquals(2, ranked.size(), "warm co-schedules + cold fits → both qualify");
         assertEquals("ollama-gpu", ranked.get(0).provider().name(),
                 "warm co-schedule beats cold-load — converge on the loaded instance, avoid a redundant cold-load");
@@ -643,7 +662,8 @@ class ProviderSelectorTest {
                 p.endpoint().contains("rig1") ? 30_000.0 : 100.0;
         var ranked = ProviderSelector.rankCandidates(
                 List.of(rig0, rig1), "qwen3:8b", 5_000L,
-                NO_TICKET_COUNT, NO_TICKETS, latency, NO_CIRCUIT_OPEN, STATIC_PREDICTOR);
+                LoadView.of(NO_TICKET_COUNT, NO_TICKETS, latency, NO_CIRCUIT_OPEN),
+                STATIC_PREDICTOR);
         assertEquals("ollama-gpu", ranked.get(0).provider().name(),
                 "Equal saturation + both warm → lower latency wins");
     }
@@ -658,21 +678,45 @@ class ProviderSelectorTest {
                 java.util.Map.of("qwen3:8b", 5_000L));
         var ranked = ProviderSelector.rankCandidates(
                 List.of(rig0Down, rig1Up), "qwen3:8b", 5_000L,
-                NO_TICKET_COUNT, NO_TICKETS, NO_LATENCY, NO_CIRCUIT_OPEN, STATIC_PREDICTOR);
+                LoadView.of(NO_TICKET_COUNT, NO_TICKETS, NO_LATENCY, NO_CIRCUIT_OPEN),
+                STATIC_PREDICTOR);
         assertEquals(1, ranked.size());
         assertEquals("ollama-rig1", ranked.get(0).provider().name(),
                 "Down provider filtered out before ranking");
     }
 
     @Test
+    void loadView_withersKeepEveryOtherAccessor() {
+        java.util.function.ToLongFunction<ProviderState> kv = p -> 7L;
+        java.util.function.Function<ProviderState, java.util.Set<String>> models = p -> java.util.Set.of("m");
+        java.util.function.Function<ProviderState, java.util.Map<String, Long>> overlay = p -> java.util.Map.of();
+        var view = LoadView.of(NO_TICKET_COUNT, NO_TICKETS, NO_LATENCY, NO_CIRCUIT_OPEN)
+                .withKvCache(kv).withActiveModels(models).withResidentOverlay(overlay);
+        assertSame(NO_TICKET_COUNT, view.activeCount());
+        assertSame(NO_TICKETS, view.activeFootprint());
+        assertSame(NO_LATENCY, view.observedLatency());
+        assertSame(NO_CIRCUIT_OPEN, view.isCircuitOpen());
+        assertSame(kv, view.activeKvCache());
+        assertSame(models, view.activeModels());
+        assertSame(overlay, view.residentOverlay());
+        var bare = LoadView.of(NO_TICKET_COUNT, NO_TICKETS, NO_LATENCY, NO_CIRCUIT_OPEN);
+        assertNull(bare.activeKvCache());
+        assertNull(bare.activeModels());
+        assertNull(bare.residentOverlay());
+    }
+
+    @Test
     void rankCandidates_nullOrInvalidInputReturnsEmpty() {
         assertTrue(ProviderSelector.rankCandidates(null, "x", 5_000L,
-                NO_TICKET_COUNT, NO_TICKETS, NO_LATENCY, NO_CIRCUIT_OPEN, STATIC_PREDICTOR).isEmpty());
+                LoadView.of(NO_TICKET_COUNT, NO_TICKETS, NO_LATENCY, NO_CIRCUIT_OPEN),
+                STATIC_PREDICTOR).isEmpty());
         assertTrue(ProviderSelector.rankCandidates(List.of(), "x", 5_000L,
-                NO_TICKET_COUNT, NO_TICKETS, NO_LATENCY, NO_CIRCUIT_OPEN, STATIC_PREDICTOR).isEmpty());
+                LoadView.of(NO_TICKET_COUNT, NO_TICKETS, NO_LATENCY, NO_CIRCUIT_OPEN),
+                STATIC_PREDICTOR).isEmpty());
         var rig0 = v2StateWithSlots("ollama-gpu", "http://x", 1, 32_605L, java.util.Map.of());
         assertTrue(ProviderSelector.rankCandidates(List.of(rig0), "x", 0L,
-                NO_TICKET_COUNT, NO_TICKETS, NO_LATENCY, NO_CIRCUIT_OPEN, STATIC_PREDICTOR).isEmpty(),
+                LoadView.of(NO_TICKET_COUNT, NO_TICKETS, NO_LATENCY, NO_CIRCUIT_OPEN),
+                STATIC_PREDICTOR).isEmpty(),
                 "Zero cold-load footprint → empty (caller should fall back, not over-commit)");
     }
 
@@ -740,7 +784,8 @@ class ProviderSelectorTest {
         java.util.function.Predicate<String> rig1IsOpen = n -> n.equals("ollama-rig1");
         var ranked = ProviderSelector.rankCandidates(
                 List.of(rig0, rig1), "qwen3:8b", 5_000L,
-                NO_TICKET_COUNT, NO_TICKETS, NO_LATENCY, rig1IsOpen, STATIC_PREDICTOR);
+                LoadView.of(NO_TICKET_COUNT, NO_TICKETS, NO_LATENCY, rig1IsOpen),
+                STATIC_PREDICTOR);
         assertEquals(1, ranked.size(), "rig1 excluded by open circuit");
         assertEquals("ollama-gpu", ranked.get(0).provider().name());
     }
@@ -858,7 +903,8 @@ class ProviderSelectorTest {
 
         var ranked = ProviderSelector.rankCandidates(
                 List.of(rig14090), "qwen3:32b", footprint,
-                NO_TICKET_COUNT, NO_TICKETS, NO_LATENCY, NO_CIRCUIT_OPEN, STATIC_PREDICTOR);
+                LoadView.of(NO_TICKET_COUNT, NO_TICKETS, NO_LATENCY, NO_CIRCUIT_OPEN),
+                STATIC_PREDICTOR);
         assertTrue(ranked.isEmpty(),
                 "4090 (24563 MiB) must be rejected for qwen3:32b (27847 MiB from /api/tags): "
                         + "this was the root cause of the 2026-06-11 CPU spill");
@@ -883,7 +929,8 @@ class ProviderSelectorTest {
         long footprint = 27_847L;
         var ranked = ProviderSelector.rankCandidates(
                 List.of(rig14090, rig05090), "qwen3:32b", footprint,
-                NO_TICKET_COUNT, NO_TICKETS, NO_LATENCY, NO_CIRCUIT_OPEN, STATIC_PREDICTOR);
+                LoadView.of(NO_TICKET_COUNT, NO_TICKETS, NO_LATENCY, NO_CIRCUIT_OPEN),
+                STATIC_PREDICTOR);
         assertEquals(1, ranked.size(), "only 5090 fits qwen3:32b at cold start");
         assertEquals("ollama-gpu", ranked.get(0).provider().name(),
                 "5090 selected because it has enough VRAM; 4090 correctly rejected");
@@ -916,7 +963,8 @@ class ProviderSelectorTest {
 
         var ranked = ProviderSelector.rankCandidates(
                 List.of(rig05090, rig14090), "qwen3:32b", footprint,
-                NO_TICKET_COUNT, NO_TICKETS, NO_LATENCY, NO_CIRCUIT_OPEN, STATIC_PREDICTOR);
+                LoadView.of(NO_TICKET_COUNT, NO_TICKETS, NO_LATENCY, NO_CIRCUIT_OPEN),
+                STATIC_PREDICTOR);
 
         assertEquals(1, ranked.size(),
                 "only the 5090 (warm) must be a candidate; 4090 refused by cold-gate (22300 > 21616 usable)");
@@ -947,7 +995,8 @@ class ProviderSelectorTest {
 
         var ranked = ProviderSelector.rankCandidates(
                 List.of(rig05090, rig14090), "qwen3:32b", footprint,
-                oneTicketOn5090, NO_TICKETS, NO_LATENCY, NO_CIRCUIT_OPEN, STATIC_PREDICTOR);
+                LoadView.of(oneTicketOn5090, NO_TICKETS, NO_LATENCY, NO_CIRCUIT_OPEN),
+                STATIC_PREDICTOR);
 
         // The 5090 is warm (even if saturated, the predictor admits it; ranking
         // penalises contention but does NOT exclude). The 4090 is refused by the
@@ -980,7 +1029,8 @@ class ProviderSelectorTest {
 
         var ranked = ProviderSelector.rankCandidates(
                 List.of(rig05090, rig14090), "qwen3:8b", footprint8b,
-                NO_TICKET_COUNT, NO_TICKETS, NO_LATENCY, NO_CIRCUIT_OPEN, STATIC_PREDICTOR);
+                LoadView.of(NO_TICKET_COUNT, NO_TICKETS, NO_LATENCY, NO_CIRCUIT_OPEN),
+                STATIC_PREDICTOR);
 
         // 5090: 27252 resident + 5979 cold = 33231 > 28693 usable -> REFUSED.
         // 4090: 0 resident + 5979 cold = 5979 < 21616 usable -> ADMITTED.
@@ -1003,12 +1053,14 @@ class ProviderSelectorTest {
 
         var ranked8b = ProviderSelector.rankCandidates(
                 List.of(rig05090, rig14090), "qwen3:8b", 5_979L,
-                NO_TICKET_COUNT, NO_TICKETS, NO_LATENCY, NO_CIRCUIT_OPEN, STATIC_PREDICTOR);
+                LoadView.of(NO_TICKET_COUNT, NO_TICKETS, NO_LATENCY, NO_CIRCUIT_OPEN),
+                STATIC_PREDICTOR);
         assertEquals(2, ranked8b.size(), "8B fits both empty GPUs (no regression to bin-packing)");
 
         var ranked14b = ProviderSelector.rankCandidates(
                 List.of(rig05090, rig14090), "qwen3:14b", 8_000L,
-                NO_TICKET_COUNT, NO_TICKETS, NO_LATENCY, NO_CIRCUIT_OPEN, STATIC_PREDICTOR);
+                LoadView.of(NO_TICKET_COUNT, NO_TICKETS, NO_LATENCY, NO_CIRCUIT_OPEN),
+                STATIC_PREDICTOR);
         assertEquals(2, ranked14b.size(), "14B fits both empty GPUs (no regression)");
     }
 
@@ -1035,7 +1087,8 @@ class ProviderSelectorTest {
 
         var ranked4090 = ProviderSelector.rankCandidates(
                 List.of(rig14090), "qwen3:32b", inflatedMiB,
-                NO_TICKET_COUNT, NO_TICKETS, NO_LATENCY, NO_CIRCUIT_OPEN, STATIC_PREDICTOR);
+                LoadView.of(NO_TICKET_COUNT, NO_TICKETS, NO_LATENCY, NO_CIRCUIT_OPEN),
+                STATIC_PREDICTOR);
         assertTrue(ranked4090.isEmpty(), "4090 must be refused for 32B via inflated on-disk footprint");
 
         // 5090: cold, no residents. Inflated 23118 < usable 28693 -> ADMITTED.
@@ -1045,7 +1098,8 @@ class ProviderSelectorTest {
                 java.util.Map.of("qwen3:32b", onDiskMiB));
         var ranked5090 = ProviderSelector.rankCandidates(
                 List.of(rig05090), "qwen3:32b", inflatedMiB,
-                NO_TICKET_COUNT, NO_TICKETS, NO_LATENCY, NO_CIRCUIT_OPEN, STATIC_PREDICTOR);
+                LoadView.of(NO_TICKET_COUNT, NO_TICKETS, NO_LATENCY, NO_CIRCUIT_OPEN),
+                STATIC_PREDICTOR);
         assertEquals(1, ranked5090.size(), "5090 must be admitted for 32B via inflated on-disk footprint");
         assertEquals("ollama-gpu", ranked5090.get(0).provider().name());
     }
