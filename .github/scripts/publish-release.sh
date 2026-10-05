@@ -25,10 +25,10 @@
 #      of the candidate's images, pushed to Harbor and the release registry.
 #   4. Signing: every image the release ships and the chart are signed by digest in
 #      the release registry with cosign, keyless, under the workflow's GitHub OIDC
-#      identity, unless already signed by it (sign-release.sh). The references go to
-#      ${OUT_DIR}/subjects.tsv and the `subjects` output, which the workflow's attest
-#      job records SLSA build provenance for. A signing failure stops the run before
-#      any tag, so no GitHub Release is written.
+#      identity, unless already signed by it (rl_sign_artifact of release-lib.sh).
+#      The references go to ${OUT_DIR}/subjects.tsv and the `subjects` output, which
+#      the workflow's attest job records SLSA build provenance for. A signing failure
+#      stops the run before any tag, so no GitHub Release is written.
 #   5. Tags are pushed together (atomic); the release notes go to ${OUT_DIR}/notes.md
 #      and ${OUT_DIR}/releases.tsv names the GitHub Release to write.
 #
@@ -54,8 +54,6 @@ shopt -s inherit_errexit
 here="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=/dev/null
 source "${RELEASE_LIB:?RELEASE_LIB must point to release-lib.sh from kubemoot/release-actions}"
-# shellcheck source=SCRIPTDIR/sign-release.sh
-source "${here}/sign-release.sh"
 
 RC_TAG="${RC_TAG:-latest}"
 DRY_RUN="${DRY_RUN:-true}"
@@ -170,7 +168,7 @@ publish_image() {
   # An image an earlier release published (its final tag exists) is signed if it is not
   # yet, and attested only then.
   rl_tag_exists "$(image_prefix "$name")${final}" && earlier=earlier
-  sign_release_artifact "${RELEASE_REGISTRY}/${name}" "$digest" $earlier
+  rl_sign_artifact "${RELEASE_REGISTRY}/${name}" "$digest" $earlier
 }
 
 # tag_final PREFIX RC: tag the candidate's commit with the final version.
@@ -214,9 +212,9 @@ push_charts() {
   local tgz repo digest
   for tgz in "${OUT_DIR}"/*.tgz; do
     echo "chart $(basename "$tgz")"
-    repo="$(sign_release_chart_repo "$tgz")"
+    repo="$(rl_chart_repo "$tgz")"
     if rl_is_dry; then
-      sign_release_artifact "$repo" "<digest after the push>"
+      rl_sign_artifact "$repo" "<digest after the push>"
       continue
     fi
     helm push --insecure-skip-tls-verify "$tgz" "oci://${REGISTRY}/kubemoot/charts"
@@ -224,7 +222,7 @@ push_charts() {
     # publish-release-chart.sh retries the push, so the digest is read from the registry.
     digest=$(crane digest "${repo}:$(helm show chart "$tgz" | sed -n 's/^version: //p')") \
       || die "cannot read the digest of ${repo} after the push"
-    sign_release_artifact "$repo" "$digest"
+    rl_sign_artifact "$repo" "$digest"
   done
 }
 
@@ -273,7 +271,7 @@ main() {
   src=$(git rev-list -n 1 "$chart_rc")
   prev=$(previous_release "$src")
   echo "Publishing ${chart_rc} (commit ${src}) to operator chart ${chart_final}; dry run: ${DRY_RUN}"
-  sign_release_preflight "${OUT_DIR}"
+  rl_sign_preflight "${OUT_DIR}"
 
   candidate_chart "${chart_rc#"$CHART_PREFIX"}"
   collect_pins "$CANDIDATE"
@@ -295,7 +293,7 @@ main() {
   rl_push_new_tags
   rl_add_release "${OUT_DIR}" "${CHART_PREFIX}${chart_final}" "Kubemoot ${chart_final}" notes.md
   output chart_version "$chart_final"
-  output subjects "$(sign_release_subjects_json)"
+  output subjects "$(rl_sign_subjects_json)"
 }
 
 main "$@"
