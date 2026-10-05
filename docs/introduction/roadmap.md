@@ -313,6 +313,29 @@ pod.
 call a real span carrying the GenAI semantic conventions, exported to any OTel
 backend, and centrally aggregated logs correlated to those traces.
 
+## Images built with Cloud Native Buildpacks
+
+**Today:** every image is built from a Dockerfile by Kaniko, running as an unprivileged
+Job inside the project's own cluster. Kaniko is archived upstream, and its executor image
+is not pinned by digest.
+
+**Direction:** build images with [Cloud Native Buildpacks](https://buildpacks.io/) and
+the [Paketo](https://paketo.io/) buildpacks for every language Kubemoot uses: Java
+(including the GraalVM native agent runtime), Go, Python, and Node.js. A buildpack
+replaces the Dockerfile where it fits, which brings:
+
+- the same layout, non-root user, and metadata in every image, without a hand-written
+  Dockerfile per component;
+- a software bill of materials from every build;
+- rebasing an image onto a patched operating-system layer without rebuilding the
+  application;
+- builder and run images pinned by digest, like every other dependency.
+
+The buildpacks lifecycle runs unprivileged, with no Docker daemon, so builds stay inside
+the cluster. The few images a buildpack cannot express keep a Dockerfile, built by a
+maintained rootless builder. Signing by digest and the provenance on every release stay
+as they are.
+
 ## Images for arm64
 
 **Today:** release images are amd64 only.
