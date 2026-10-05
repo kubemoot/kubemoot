@@ -12,17 +12,20 @@
 # The builder and run images are pinned by tag and digest in .github/buildpacks/images.yaml.
 # The lifecycle writes the SBOM (CycloneDX, SPDX, Syft) into the image as a layer.
 #
-# Usage: build-image-buildpacks.sh [options] CONTEXT_DIR IMAGE [EXTRA_IMAGE...]
+# Usage: build-image-buildpacks.sh [options] CONTEXT_DIR REPOSITORY
 #   CONTEXT_DIR      the application directory the buildpacks detect and build
-#   IMAGE            the image reference to push, e.g. <registry>/kubemoot/indexer:<sha>
-#   EXTRA_IMAGE      more references for the same image, e.g. <registry>/kubemoot/indexer:latest
+#   REPOSITORY       the image repository, e.g. <registry>/kubemoot/indexer
 # Options:
 #   --pod NAME             the build pod name (required)
+#   --sha SHA              the commit the image is built from (required)
+#   --ref REF              the git ref being built, e.g. refs/heads/main (required)
 #   --builder NAME         the images.yaml entry of the builder (builder-java-tiny)
 #   --run-image NAME       the images.yaml entry of the run image (run-tiny)
-#   --cache-image REF      a registry image that holds the build cache between builds
-#   --previous-image REF   the image whose launch layers this build may reuse
 #   --env KEY=VALUE        a build-time variable for the buildpacks (repeatable)
+#
+# Tags (see image_plan): main pushes :<sha>, which the release retags, and :latest. Any
+# other ref pushes only :branch-<sha>, so it never moves a tag main uses. Each ref keeps
+# its own build cache image, <repository>-buildcache:<ref>.
 # Env:
 #   REGISTRY (required)           the Harbor host, e.g. harbor-homelab.dijure.com
 #   REGISTRY_HOST_IP (required)   the in-cluster address the host alias points at
@@ -35,7 +38,7 @@ set -euo pipefail
 # variables as /platform/env files, then hand over to the creator with the arguments.
 # shellcheck disable=SC2016 # expanded inside the pod, not here
 POD_SCRIPT='set -euo pipefail
-tar -xzf - -C /workspace
+tar -xzf - -C /workspace --no-overwrite-dir
 mkdir -p /platform/env
 printf "%s\n" "${BUILD_ENV:-}" | while IFS= read -r kv; do
   [ -n "$kv" ] || continue
@@ -59,9 +62,25 @@ pinned_image() {
   esac
 }
 
-# valid_env KEY=VALUE: true when KEY can be a /platform/env file name and a variable name.
+# valid_env KEY=VALUE: true when KEY can be a /platform/env file name and a variable
+# name, and the whole pair is one line (BUILD_ENV carries one pair per line).
 valid_env() {
-  [[ "$1" =~ ^[A-Z_][A-Z0-9_]*= ]]
+  [[ "$1" =~ ^[A-Z_][A-Z0-9_]*= ]] && [[ "$1" != *$'\n'* ]]
+}
+
+# image_plan REPOSITORY SHA REF: the image references to push, one per line, then a line
+# "cache <ref>" and, on main, a line "previous <ref>".
+image_plan() {
+  local repo="$1" sha="$2" ref="$3"
+  [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || die "--sha needs a full commit SHA, got: ${sha}"
+  if [ "$ref" = "refs/heads/main" ]; then
+    printf '%s\n' "${repo}:${sha}" "${repo}:latest" "cache ${repo}-buildcache:main" "previous ${repo}:latest"
+    return
+  fi
+  # A tag holds at most 128 characters from [A-Za-z0-9_.-].
+  local name="${ref#refs/heads/}"
+  name="${name//[^A-Za-z0-9_.-]/-}"
+  printf '%s\n' "${repo}:branch-${sha}" "cache ${repo}-buildcache:branch-${name:0:120}"
 }
 
 # creator_args REGISTRY RUN_IMAGE CACHE_IMAGE PREVIOUS_IMAGE IMAGE [EXTRA_IMAGE...]:
@@ -132,17 +151,16 @@ pod_overrides() {
 }
 
 main() {
-  local pod="" builder_name="builder-java-tiny" run_name="run-tiny" cache_image="" previous_image=""
-  local build_env=""
+  local pod="" sha="" ref="" builder_name="builder-java-tiny" run_name="run-tiny" build_env=""
   while [ $# -gt 0 ]; do
     case "$1" in
       --pod) pod="${2:?--pod needs a value}"; shift 2 ;;
+      --sha) sha="${2:?--sha needs a value}"; shift 2 ;;
+      --ref) ref="${2:?--ref needs a value}"; shift 2 ;;
       --builder) builder_name="${2:?--builder needs a value}"; shift 2 ;;
       --run-image) run_name="${2:?--run-image needs a value}"; shift 2 ;;
-      --cache-image) cache_image="${2:?--cache-image needs a value}"; shift 2 ;;
-      --previous-image) previous_image="${2:?--previous-image needs a value}"; shift 2 ;;
       --env)
-        valid_env "${2:-}" || die "--env needs KEY=VALUE with an upper-case KEY, got: ${2:-}"
+        valid_env "${2:-}" || die "--env needs one-line KEY=VALUE with an upper-case KEY, got: ${2:-}"
         build_env+="${2}"$'\n'; shift 2 ;;
       --) shift; break ;;
       -*) die "unknown option: $1" ;;
@@ -150,22 +168,34 @@ main() {
     esac
   done
   [ -n "$pod" ] || die "--pod is required"
-  [ $# -ge 2 ] || die "usage: build-image-buildpacks.sh [options] CONTEXT_DIR IMAGE [EXTRA_IMAGE...]"
-  local context="$1"; shift
+  [ -n "$ref" ] || die "--ref is required"
+  [ $# -eq 2 ] || die "usage: build-image-buildpacks.sh [options] CONTEXT_DIR REPOSITORY"
+  local context="$1" repo="$2"
   [ -d "$context" ] || die "context directory not found: ${context}"
   : "${REGISTRY:?REGISTRY required}"
   : "${REGISTRY_HOST_IP:?REGISTRY_HOST_IP required}"
 
+  local plan cache="" previous="" line
+  local images=()
+  plan="$(image_plan "$repo" "$sha" "$ref")" || exit 2
+  while IFS= read -r line; do
+    case "$line" in
+      "cache "*) cache="${line#cache }" ;;
+      "previous "*) previous="${line#previous }" ;;
+      *) images+=("$line") ;;
+    esac
+  done <<<"$plan"
+
   local here images_file builder run_image creator_json overrides
   here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
   images_file="${IMAGES_FILE:-${here}/../buildpacks/images.yaml}"
-  builder="$(pinned_image "$images_file" "$builder_name")"
-  run_image="$(pinned_image "$images_file" "$run_name")"
-  creator_json="$(creator_args "$REGISTRY" "$run_image" "$cache_image" "$previous_image" "$@")"
+  builder="$(pinned_image "$images_file" "$builder_name")" || exit 2
+  run_image="$(pinned_image "$images_file" "$run_name")" || exit 2
+  creator_json="$(creator_args "$REGISTRY" "$run_image" "$cache" "$previous" "${images[@]}")"
   overrides="$(pod_overrides "$pod" "$builder" "$creator_json" "$build_env" \
     "$REGISTRY" "$REGISTRY_HOST_IP" "${PUSH_SECRET:-kaniko-docker-config}")"
 
-  echo "Building $* with ${builder} on ${run_image}"
+  echo "Building ${images[*]} with ${builder} on ${run_image}"
   # The first pull of the builder can take minutes; the pod-running timeout is only a safety net.
   tar -C "$context" -czf - . | "${KUBECTL:-kubectl}" run "$pod" \
     --rm -i --restart=Never --namespace="${NAMESPACE:-arc-runners}" \

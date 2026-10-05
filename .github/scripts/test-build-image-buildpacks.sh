@@ -29,9 +29,9 @@ work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 
 # The checked-in pins: every entry carries a tag and a digest.
-images="${here}/../buildpacks/images.yaml"
+pins="${here}/../buildpacks/images.yaml"
 for name in builder-java-tiny run-tiny; do
-  ref="$(pinned_image "$images" "$name")"
+  ref="$(pinned_image "$pins" "$name")"
   [[ "$ref" =~ ^docker\.io/paketobuildpacks/[a-z-]+:[0-9.]+@sha256:[0-9a-f]{64}$ ]] \
     && got=pinned || got="$ref"
   check "images.yaml ${name} is pinned by tag and digest" pinned "$got"
@@ -58,6 +58,7 @@ check_status "env with = in the value" "BP_OCI_SOURCE=https://x/?a=b" valid
 check_status "env without =" "BP_JVM_VERSION" invalid
 check_status "env with a path in the key" "../etc/passwd=x" invalid
 check_status "env with a lower-case key" "bp_jvm=25" invalid
+check_status "env with a second line" $'A=1\n../x=y' invalid
 
 cargs="$(creator_args reg.example run@sha256:r "" "" reg.example/a:1)"
 check "creator args without cache or previous image" \
@@ -106,6 +107,22 @@ check "a variable written as a platform env file" 25 "$(cat "${root}/platform/en
 check "a value with = kept whole" "https://x/?a=b" "$(cat "${root}/platform/env/BP_OCI_SOURCE")"
 check "creator called with the arguments" "-flag img:1" "$(paste -sd' ' "${root}/creator.args")"
 
+# The tag and cache plan per ref.
+sha=0123456789abcdef0123456789abcdef01234567
+check "main pushes :<sha> and :latest, reuses :latest, caches as main" \
+  "r/a:${sha} r/a:latest cache r/a-buildcache:main previous r/a:latest" \
+  "$(image_plan r/a "$sha" refs/heads/main | paste -sd' ')"
+check "a branch pushes only :branch-<sha> with its own cache" \
+  "r/a:branch-${sha} cache r/a-buildcache:branch-agent-buildpacks-indexer" \
+  "$(image_plan r/a "$sha" refs/heads/agent/buildpacks-indexer | paste -sd' ')"
+check "a branch never plans :latest or :<sha>" 0 \
+  "$(image_plan r/a "$sha" refs/heads/feature | grep -cE "^r/a:(latest|${sha})$" || true)"
+long="refs/heads/$(printf 'x%.0s' {1..300})"
+check "a long branch name is cut to a valid tag" 127 \
+  "$(image_plan r/a "$sha" "$long" | sed -n 's/^cache r\/a-buildcache://p' | tr -d '\n' | wc -c)"
+check_fails "image_plan refuses a short SHA" image_plan r/a 0123abcd refs/heads/main
+check_fails "image_plan refuses an empty SHA" image_plan r/a "" refs/heads/main
+
 # A whole run against a fake kubectl.
 cat > "${work}/kubectl" <<EOF
 #!/usr/bin/env bash
@@ -113,24 +130,39 @@ printf '%s\n' "\$@" > "${work}/kubectl.args"
 cat > "${work}/kubectl.stdin"
 EOF
 chmod +x "${work}/kubectl"
-REGISTRY=reg.example REGISTRY_HOST_IP=10.0.0.1 KUBECTL="${work}/kubectl" NAMESPACE=ns1 \
-  main --pod bp-1 --env BP_JVM_VERSION=25 --cache-image reg.example/a-cache:main \
-  "${work}/ctx" reg.example/a:1 reg.example/a:latest >/dev/null
+run_main() { REGISTRY=reg.example REGISTRY_HOST_IP=10.0.0.1 KUBECTL="${work}/kubectl" NAMESPACE=ns1 main "$@"; }
+run_main --pod bp-1 --sha "$sha" --ref refs/heads/main --env BP_JVM_VERSION=25 \
+  "${work}/ctx" reg.example/a >/dev/null
 check "kubectl runs the pod" "run bp-1" "$(sed -n '1,2p' "${work}/kubectl.args" | paste -sd' ')"
 check "kubectl in the namespace" 1 "$(grep -cx -- '--namespace=ns1' "${work}/kubectl.args")"
 check "kubectl gets the pinned builder" 1 "$(grep -c -- '--image=docker.io/paketobuildpacks/builder-noble-java-tiny:.*@sha256:' "${work}/kubectl.args")"
 check "the context arrives on stdin" "./app.txt" "$(tar -tzf "${work}/kubectl.stdin" | grep app.txt)"
 overrides="$(sed -n 's/^--overrides=//p' "${work}/kubectl.args")"
-check "the run image is pinned" 1 "$(jq '[.spec.containers[0].args[] | select(test("^-run-image=docker.io/paketobuildpacks/ubuntu-noble-run-tiny:.*@sha256:"))] | length' <<<"$overrides")"
+cargs="$(jq -c '.spec.containers[0].args' <<<"$overrides")"
+check "the run image is pinned" 1 "$(jq '[.[] | select(test("^-run-image=docker.io/paketobuildpacks/ubuntu-noble-run-tiny:.*@sha256:"))] | length' <<<"$cargs")"
+check "main builds :<sha>" "reg.example/a:${sha}" "$(jq -r '.[-1]' <<<"$cargs")"
+check "main also tags :latest" '["-tag=reg.example/a:latest"]' "$(jq -c '[.[] | select(startswith("-tag="))]' <<<"$cargs")"
+check "main caches as main" 1 "$(jq '[.[] | select(. == "-cache-image=reg.example/a-buildcache:main")] | length' <<<"$cargs")"
 check "build env reaches the pod" BP_JVM_VERSION=25 "$(jq -r '.spec.containers[0].env[] | select(.name == "BUILD_ENV") | .value' <<<"$overrides")"
 
-run_main() { REGISTRY=reg.example REGISTRY_HOST_IP=10.0.0.1 KUBECTL="${work}/kubectl" main "$@"; }
-check_fails "main without --pod" run_main "${work}/ctx" reg.example/a:1
-check_fails "main without an image" run_main --pod p "${work}/ctx"
-check_fails "main with a missing context" run_main --pod p "${work}/nowhere" reg.example/a:1
-check_fails "main with a bad --env" run_main --pod p --env bad "${work}/ctx" reg.example/a:1
-check_fails "main with an unknown option" run_main --pod p --nope "${work}/ctx" reg.example/a:1
-check_fails "main without REGISTRY" env -u REGISTRY bash "${here}/build-image-buildpacks.sh" --pod p "${work}/ctx" reg.example/a:1
+run_main --pod bp-2 --sha "$sha" --ref refs/heads/agent/x "${work}/ctx" reg.example/a >/dev/null
+cargs="$(sed -n 's/^--overrides=//p' "${work}/kubectl.args" | jq -c '.spec.containers[0].args')"
+check "a branch builds only :branch-<sha>" "reg.example/a:branch-${sha}" \
+  "$(jq -r '[.[] | select(startswith("reg.example/a:") or startswith("-tag="))] | join(" ")' <<<"$cargs")"
+check "a branch reuses no previous image" 0 "$(jq '[.[] | select(startswith("-previous-image="))] | length' <<<"$cargs")"
+
+ok=(--pod p --sha "$sha" --ref refs/heads/main)
+check_fails "main without --pod" run_main --sha "$sha" --ref refs/heads/main "${work}/ctx" reg.example/a
+check_fails "main without --ref" run_main --pod p --sha "$sha" "${work}/ctx" reg.example/a
+check_fails "main without --sha" run_main --pod p --ref refs/heads/main "${work}/ctx" reg.example/a
+check_fails "main without a repository" run_main "${ok[@]}" "${work}/ctx"
+check_fails "main with an extra argument" run_main "${ok[@]}" "${work}/ctx" reg.example/a reg.example/b
+check_fails "main with a missing context" run_main "${ok[@]}" "${work}/nowhere" reg.example/a
+check_fails "main with a bad --env" run_main "${ok[@]}" --env bad "${work}/ctx" reg.example/a
+check_fails "main with a multi-line --env" run_main "${ok[@]}" --env $'A=1\n../x=y' "${work}/ctx" reg.example/a
+check_fails "main with an unknown builder" run_main "${ok[@]}" --builder nothing "${work}/ctx" reg.example/a
+check_fails "main with an unknown option" run_main "${ok[@]}" --nope "${work}/ctx" reg.example/a
+check_fails "main without REGISTRY" env -u REGISTRY bash "${here}/build-image-buildpacks.sh" "${ok[@]}" "${work}/ctx" reg.example/a
 
 if [ "$failures" -gt 0 ]; then
   echo "${failures} test(s) failed"
