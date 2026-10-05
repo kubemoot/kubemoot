@@ -12,7 +12,7 @@
 		type SuiteAction
 	} from '#lib/fitness-suite-controls.js';
 	import { SYNTHESIS_COLLAPSE_CHARS, artifactKey, artifactHref } from '#lib/discussion-artifacts.js';
-	import { durTitle, fmtDur, formatBytes, suiteDurMs, suiteMarkdown } from '#lib/fitness-format.js';
+	import { durTitle, fmtDur, formatBytes, iterDurText, suiteDurMs, suiteMarkdown } from '#lib/fitness-format.js';
 	import {
 		SUITE_LABEL,
 		TERMINAL_PHASES,
@@ -60,6 +60,7 @@
 		assertionsTotal: number;
 		durationMs: number;
 		running?: boolean; // synthetic row for an in-flight child (no transcript yet)
+		startedAt?: string; // the in-flight child's status.startedAt, for its elapsed time
 	}
 	interface AssertionResult {
 		raw: string;
@@ -116,6 +117,8 @@
 		if (terminal) scheduleIterRefetch(id);
 	}
 	let loading = $state(true);
+	// Wall clock for the running durations (suite row and in-flight iterations).
+	let now = $state(Date.now());
 	let error = $state<string | null>(null);
 
 	let openSuite = $state<Record<string, boolean>>({});
@@ -188,7 +191,8 @@
 				assertionsPassed: 0,
 				assertionsTotal: 0,
 				durationMs: 0,
-				running: true
+				running: true,
+				startedAt: rc.status?.startedAt
 			};
 		}).filter((it) => !seen.has(`${it.scenario}#${it.iter}`));
 		return [...done, ...live];
@@ -437,7 +441,8 @@
 		// Initial list for fast first render, then attach the live watch.
 		fetchAll(false).then(connectWatch).then(refreshJudging);
 		const judgeTimer = setInterval(() => void refreshJudging(), 10_000);
-		return () => { clearInterval(judgeTimer); closeWatch(); };
+		const clock = setInterval(() => { now = Date.now(); }, 1000);
+		return () => { clearInterval(judgeTimer); clearInterval(clock); closeWatch(); };
 	});
 	$effect(() => {
 		const ns = $namespace;
@@ -627,7 +632,7 @@
 					</td>
 					<td class="mono"><span class="passed">{s?.passed ?? 0}</span>/<span class="failed">{s?.failed ?? 0}</span>/<span class="errored">{s?.errored ?? 0}</span></td>
 					<td class="mono">{s?.iterationsCompleted ?? 0}/{s?.iterationsTotal ?? 0}</td>
-					<td class="mono" title={durTitle(s?.startedAt, s?.completedAt)}>{fmtDur(suiteDurMs(s))}</td>
+					<td class="mono" title={durTitle(s?.startedAt, s?.completedAt)}>{fmtDur(suiteDurMs(s, now))}</td>
 					<td>
 						<button class="copy-btn" title="Copy this suite's details to the clipboard" onclick={(e) => copySuite(suite, e)}>{copiedKey === id ? '✓' : '📋'}</button>
 						{#if s?.artifactRef?.objectKey}
@@ -703,12 +708,12 @@
 															{#each g.iterations as it (it.key)}
 																{@const tid = it.key}
 																<tbody>
-																	{#if it.running}<tr class="iter-row running"><td class="c-caret"></td><td class="mono">{it.iter}</td><td>{@render statusBadge('Running')}</td><td class="mono muted">-</td><td class="mono muted">-</td></tr>{:else}<tr class="iter-row" onclick={() => toggleIter(ns, name, it)}>
+																	{#if it.running}<tr class="iter-row running"><td class="c-caret"></td><td class="mono">{it.iter}</td><td>{@render statusBadge('Running')}</td><td class="mono muted">-</td><td class="mono" title={durTitle(it.startedAt)}>{iterDurText(it, now)}</td></tr>{:else}<tr class="iter-row" onclick={() => toggleIter(ns, name, it)}>
 																		<td class="c-caret">{openIter[tid] ? '▼' : '▶'}</td>
 																		<td class="mono">{it.iter}</td>
 																		<td>{#if it.status === 'Passed'}<span class="badge phase-neutral" title="Discussion ran and hard assertions passed (plumbing). Answer quality is the REFLECTS score on the scenario row, not this.">ran</span>{:else}{@render statusBadge(it.status)}{/if}</td>
 																		<td class="mono">{it.assertionsPassed}/{it.assertionsTotal}</td>
-																		<td class="mono">{fmtDur(it.durationMs)}</td>
+																		<td class="mono">{iterDurText(it, now)}</td>
 																	</tr>
 																	{#if openIter[tid]}
 																		<tr class="conv-row">

@@ -16,7 +16,7 @@ export interface FitnessTest {
 		creationTimestamp?: string;
 	};
 	spec?: { testRef?: string };
-	status?: { phase?: string; durationMs?: number };
+	status?: { phase?: string; startedAt?: string; durationMs?: number };
 }
 
 /** The suite id (ns/name) a CrewFitness belongs to, or null for a standalone test. */

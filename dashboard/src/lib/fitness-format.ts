@@ -23,6 +23,26 @@ export function fmtDur(ms?: number): string {
 	return `${Math.floor(ms / 60_000)}m ${Math.floor((ms % 60_000) / 1000)}s`;
 }
 
+/** An iteration row's duration: its final duration, or time since start while it runs. */
+export interface IterationTiming {
+	running?: boolean;
+	startedAt?: string;
+	durationMs?: number;
+}
+
+/**
+ * Text for an iteration's Duration cell. A completed iteration shows its final
+ * duration; a running one shows the time elapsed since its CrewFitness started,
+ * clamped to 0 when the browser clock is behind the cluster's.
+ */
+export function iterDurText(it: IterationTiming, now = Date.now()): string {
+	if (!it.running) return fmtDur(it.durationMs);
+	const start = it.startedAt ? new Date(it.startedAt).getTime() : Number.NaN;
+	if (Number.isNaN(start)) return NO_VALUE;
+	const elapsed = Math.max(0, now - start);
+	return elapsed < 1000 ? '0s' : fmtDur(elapsed);
+}
+
 export function fmtDateTime(iso?: string): string {
 	if (!iso) return NO_VALUE;
 	const d = new Date(iso);
