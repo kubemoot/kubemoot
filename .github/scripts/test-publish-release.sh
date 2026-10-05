@@ -458,6 +458,10 @@ check "no workflow or script commits to main" "" "$commits"
 # no listener succeeds and builds nothing.
 check "a docs change dispatches kubemoot-docs-changed" "1" \
   "$(grep -cE '^[[:space:]]+event-type: kubemoot-docs-changed$' .github/workflows/trigger-docs-rebuild.yaml)"
+# The crews' release workflows listen for exactly this event and build new candidates
+# with the finals just published.
+check "a published release dispatches kubemoot-published to the crews" "1|1" \
+  "$(grep -cE '^[[:space:]]+repository: kubemoot/crews$' .github/workflows/publish-release.yaml)|$(grep -cE '^[[:space:]]+event-type: kubemoot-published$' .github/workflows/publish-release.yaml)"
 check "no workflow writes a chart file" "" \
   "$(grep -nE '(sed|yq).*(Chart|values)\.yaml' .github/workflows/*.yaml | grep -v 'integration-test' || true)"
 

@@ -19,6 +19,8 @@
 #               signed attached as kubemoot_<version>.intoto.jsonl: created as a draft,
 #               given the file, then published, since releases are immutable once
 #               published (.github/scripts/create-github-releases.sh)
+#   crews       asks kubemoot/crews to build new crew candidates, which take the finals
+#               just published (repository_dispatch kubemoot-published)
 # The default is a dry run: it plans, reads the registries, packages the charts, and
 # shows the release notes in the run summary, and publishes nothing. It signs nothing
 # either, but checks that cosign runs and that the job can mint the OIDC token the
@@ -235,3 +237,20 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: bash .github/scripts/create-github-releases.sh release-files provenance
+
+  # The crew charts take Kubemoot's latest finals when a candidate is built, so a new
+  # Kubemoot release asks the crews for new candidates. Only a GitHub API call, with
+  # RELEASE_TOKEN (contents write on kubemoot/crews); the job's own token needs nothing.
+  crews:
+    needs: [publish, release]
+    if: ${{ !inputs.dry_run }}
+    runs-on: ubuntu-latest
+    permissions: {}
+    steps:
+      - name: Dispatch the crew candidate builds
+        uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
+        with:
+          token: ${{ secrets.RELEASE_TOKEN }}
+          repository: kubemoot/crews
+          event-type: kubemoot-published
+          client-payload: '{"chart_version": "${{ needs.publish.outputs.chart_version }}"}'
