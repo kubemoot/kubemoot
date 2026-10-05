@@ -120,6 +120,12 @@ func (r *ModelReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 
 	log.Info("Reconciling Model", "name", model.Name, "model", model.Spec.Model, "providerRef", model.Spec.ProviderRef)
 
+	// A deleting Model is released before its provider is looked up, so a
+	// provider that is gone or not ready never leaves the finalizer stuck.
+	if !model.DeletionTimestamp.IsZero() {
+		return r.reconcileDeletion(ctx, model)
+	}
+
 	// Get the referenced ModelProvider (search cluster-wide — providers are
 	// infrastructure and may be in a different namespace than the Model)
 	provider, err := r.findModelProvider(ctx, model.Spec.ProviderRef)
@@ -130,11 +136,6 @@ func (r *ModelReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 	// Check if provider is ready
 	if !provider.Status.Ready {
 		return r.updateModelStatus(ctx, model, "Pending", false, fmt.Sprintf("Waiting for ModelProvider %s to be ready", model.Spec.ProviderRef), nil)
-	}
-
-	// Handle deletion
-	if !model.DeletionTimestamp.IsZero() {
-		return r.handleDeletion(ctx, model, provider)
 	}
 
 	// Add finalizer if not present
@@ -336,7 +337,21 @@ func (r *ModelReconciler) reconcileAfterPull(ctx context.Context, httpClient *ht
 	return r.updateModelStatus(ctx, model, statePulling, false, fmt.Sprintf("Pull reported %q; %s", pullStatus, reason), nil)
 }
 
-// handleDeletion handles the deletion of a Model
+// reconcileDeletion looks up the Model's provider and hands the deletion on.
+// A provider that no longer exists has nothing left to clean up.
+func (r *ModelReconciler) reconcileDeletion(ctx context.Context, model *aiv1alpha1.Model) (ctrl.Result, error) {
+	provider, err := r.findModelProvider(ctx, model.Spec.ProviderRef)
+	if err != nil {
+		logf.FromContext(ctx).Info("ModelProvider is gone, releasing Model without a model-server delete", "providerRef", model.Spec.ProviderRef)
+		provider = nil
+	}
+	return r.handleDeletion(ctx, model, provider)
+}
+
+// handleDeletion removes the model file from the provider unless another Model on
+// the same provider still uses the tag, then releases the finalizer. A failed
+// delete is returned so the finalizer stays and the deletion retries. A nil
+// provider means it is gone and only the finalizer is released.
 func (r *ModelReconciler) handleDeletion(ctx context.Context, model *aiv1alpha1.Model, provider *aiv1alpha1.ModelProvider) (ctrl.Result, error) {
 	log := logf.FromContext(ctx)
 
@@ -346,21 +361,54 @@ func (r *ModelReconciler) handleDeletion(ctx context.Context, model *aiv1alpha1.
 
 	log.Info("Handling model deletion", "model", model.Spec.Model)
 
-	// Delete model from Ollama
-	if provider.Spec.Type == aiv1alpha1.ProviderTypeOllama {
-		if err := r.deleteOllamaModel(ctx, provider.Spec.Endpoint, model.Spec.Model); err != nil {
-			log.Error(err, "Failed to delete model from Ollama, continuing with finalizer removal")
-			// Don't block deletion if Ollama delete fails
+	if provider != nil && provider.Spec.Type == aiv1alpha1.ProviderTypeOllama {
+		if err := r.releaseOllamaModel(ctx, model, provider); err != nil {
+			return ctrl.Result{}, err
 		}
 	}
 
-	// Remove finalizer
 	if err := removeFinalizer(ctx, r.Client, model, modelFinalizer); err != nil {
 		return ctrl.Result{}, err
 	}
 
 	log.Info("Model deleted successfully", "model", model.Spec.Model)
 	return ctrl.Result{}, nil
+}
+
+// releaseOllamaModel deletes the model file from Ollama when no other Model on the
+// provider uses the same tag.
+func (r *ModelReconciler) releaseOllamaModel(ctx context.Context, model *aiv1alpha1.Model, provider *aiv1alpha1.ModelProvider) error {
+	inUse, err := r.tagUsedByOtherModel(ctx, model)
+	if err != nil {
+		return fmt.Errorf("checking other Models for tag %s: %w", model.Spec.Model, err)
+	}
+	if inUse {
+		logf.FromContext(ctx).Info("Another Model on the provider uses this tag, keeping it", "model", model.Spec.Model, "provider", provider.Name)
+		return nil
+	}
+	if err := r.deleteOllamaModel(ctx, provider.Spec.Endpoint, model.Spec.Model); err != nil {
+		return fmt.Errorf("deleting model %s from provider %s: %w", model.Spec.Model, provider.Name, err)
+	}
+	return nil
+}
+
+// tagUsedByOtherModel reports whether a different Model, in any namespace, that is
+// not itself being deleted, refers to the same model tag on the same provider.
+func (r *ModelReconciler) tagUsedByOtherModel(ctx context.Context, model *aiv1alpha1.Model) (bool, error) {
+	list := &aiv1alpha1.ModelList{}
+	if err := r.List(ctx, list); err != nil {
+		return false, err
+	}
+	for i := range list.Items {
+		other := &list.Items[i]
+		if other.UID == model.UID && other.Namespace == model.Namespace && other.Name == model.Name {
+			continue
+		}
+		if other.DeletionTimestamp.IsZero() && other.Spec.ProviderRef == model.Spec.ProviderRef && other.Spec.Model == model.Spec.Model {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 // deleteOllamaModel deletes a model from Ollama
