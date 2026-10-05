@@ -36,6 +36,9 @@ jobs:
           results_file: results.sarif
           results_format: sarif
           publish_results: true
+          # A read-only token (Administration: read) lets the Branch-Protection check read
+          # main's protection; set by kubemoot/infra. Without it, the workflow's own token.
+          repo_token: ${{ secrets.SCORECARD_TOKEN || github.token }}
 
       - name: Keep the SARIF file
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
