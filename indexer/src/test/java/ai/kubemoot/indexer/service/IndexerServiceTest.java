@@ -17,7 +17,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class IndexerServiceTest {
 
     private final IndexerService service =
-            new IndexerService(null, null, null, null, null, null);
+            new IndexerService(null, null, null, null, null);
 
     private static Document doc(String text) {
         return new Document(text, Map.of());

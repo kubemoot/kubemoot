@@ -6,8 +6,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.document.Document;
 import org.springframework.ai.transformer.splitter.TokenTextSplitter;
-import org.springframework.ai.vectorstore.VectorStore;
-import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Service;
 
 import java.util.Arrays;
@@ -37,23 +35,20 @@ public class IndexerService {
 
     private final IndexerConfig config;
     private final List<SourceLoader> sourceLoaders;
-    private final VectorStore vectorStore;
+    private final ChunkStore chunkStore;
     private final ChecksumService checksumService;
     private final KubernetesService kubernetesService;
-    private final JdbcClient jdbcClient;
 
     public IndexerService(IndexerConfig config,
                           List<SourceLoader> sourceLoaders,
-                          VectorStore vectorStore,
+                          ChunkStore chunkStore,
                           ChecksumService checksumService,
-                          KubernetesService kubernetesService,
-                          JdbcClient jdbcClient) {
+                          KubernetesService kubernetesService) {
         this.config = config;
         this.sourceLoaders = sourceLoaders;
-        this.vectorStore = vectorStore;
+        this.chunkStore = chunkStore;
         this.checksumService = checksumService;
         this.kubernetesService = kubernetesService;
-        this.jdbcClient = jdbcClient;
     }
 
     /**
@@ -140,22 +135,9 @@ public class IndexerService {
             chunk.getMetadata().put("collection", config.vectorstoreCollection());
         }
 
-        // For nats-kv sources, truncate old embeddings before re-indexing.
-        // Resumes are always a full replacement, not incremental additions.
-        if ("true".equalsIgnoreCase(System.getenv("KUBEMOOT_TRUNCATE_BEFORE_INDEX"))) {
-            String collection = config.vectorstoreCollection();
-            String tableName = "data_" + collection;
-            try {
-                long deleted = jdbcClient.sql("DELETE FROM " + tableName)
-                        .update();
-                logger.info("Truncated {} existing rows from collection '{}' before re-indexing", deleted, collection);
-            } catch (Exception e) {
-                logger.info("Table '{}' does not exist yet — skipping truncation (first index run)", tableName);
-            }
-        }
-
-        vectorStore.add(chunks);
-        logger.info("Stored {} vectors in collection '{}'", chunks.size(), config.vectorstoreCollection());
+        // Replace the collection's contents: upsert by deterministic id, then drop
+        // rows this run did not produce. A reindex never adds a second copy.
+        chunkStore.replace(chunks);
 
         // Step 4: Extract topics for auto-discovery
         logger.info("Step 4: Extracting topics for auto-discovery...");
