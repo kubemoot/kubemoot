@@ -65,4 +65,35 @@ class PhaseRosterTest {
         assertEquals(Set.of("a"), roster.members());
         assertTrue(roster.isKnown());
     }
+
+    @Test
+    void concurrentSignals_areAllRecorded() throws Exception {
+        var names = new java.util.ArrayList<String>();
+        for (int i = 0; i < 64; i++) {
+            names.add("agent-" + i);
+        }
+        var holder = new java.util.concurrent.atomic.AtomicReference<>(PhaseRoster.of(names));
+        var pool = java.util.concurrent.Executors.newFixedThreadPool(8);
+        try {
+            var futures = new java.util.ArrayList<java.util.concurrent.Future<?>>();
+            for (String name : names) {
+                futures.add(pool.submit(() -> holder.get().recordTerminalSignal(name)));
+            }
+            for (var f : futures) {
+                f.get(10, java.util.concurrent.TimeUnit.SECONDS);
+            }
+        } finally {
+            pool.shutdownNow();
+        }
+        assertTrue(holder.get().allSignalled(NONE_PENDING));
+    }
+
+    @Test
+    void replacedRoster_isTheOneNextReadersSee() {
+        var holder = new java.util.concurrent.atomic.AtomicReference<>(PhaseRoster.unknown());
+        holder.get().recordTerminalSignal("compute");
+        holder.set(PhaseRoster.of(List.of("compute")));
+        assertTrue(holder.get().isKnown());
+        assertFalse(holder.get().allSignalled(NONE_PENDING));
+    }
 }
