@@ -14,7 +14,7 @@ RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o fitness-runner .
 # Use distroless/nonroot so the binary runs as uid 65532 by default.
 # The operator sets runAsUser: 1000 explicitly via SecurityContext, so the
 # distroless user is overridden in the Pod spec. Either way, we never run as root.
-FROM gcr.io/distroless/static-debian12:nonroot@sha256:afa5c872c891853ca7fcf1f12c3edb23f7eeef36189728842dd51042ff57f7ab
+FROM gcr.io/distroless/static-debian13:nonroot@sha256:e2e927ec666bae08560abb3c55d0659eceabb657f56b6782ab500a9fc7f555e3
 
 COPY --from=builder /build/fitness-runner /fitness-runner
 

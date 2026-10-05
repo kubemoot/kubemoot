@@ -14,7 +14,7 @@ COPY crew-liaison/ /build/
 ARG VERSION=dev
 RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w -X github.com/kubemoot/kubemoot/crew-liaison/internal/liaison.Version=${VERSION}" -o crew-liaison .
 
-FROM gcr.io/distroless/static-debian12:nonroot@sha256:afa5c872c891853ca7fcf1f12c3edb23f7eeef36189728842dd51042ff57f7ab
+FROM gcr.io/distroless/static-debian13:nonroot@sha256:e2e927ec666bae08560abb3c55d0659eceabb657f56b6782ab500a9fc7f555e3
 COPY --from=builder /build/crew-liaison /crew-liaison
 EXPOSE 8080
 ENTRYPOINT ["/crew-liaison"]
