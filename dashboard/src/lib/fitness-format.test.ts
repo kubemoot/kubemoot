@@ -6,6 +6,7 @@ import {
 	fmtDateTime,
 	fmtDur,
 	formatBytes,
+	iterDurText,
 	suiteDurMs,
 	suiteMarkdown
 } from './fitness-format';
@@ -121,5 +122,46 @@ describe('suiteMarkdown', () => {
 
 	it('reports a completed judge', () => {
 		expect(suiteMarkdown(base, { complete: true, judged: 2 })).toContain('- Judge: complete');
+	});
+});
+
+describe('iterDurText', () => {
+	const start = '2026-10-04T12:00:00Z';
+	const t0 = new Date(start).getTime();
+
+	it('shows the time elapsed since start for a running iteration', () => {
+		expect(iterDurText({ running: true, startedAt: start }, t0 + 125_000)).toBe('2m 5s');
+		expect(iterDurText({ running: true, startedAt: start }, t0 + 12_300)).toBe('12.3s');
+	});
+
+	it('advances as the clock ticks', () => {
+		const it0 = { running: true, startedAt: start };
+		expect(iterDurText(it0, t0 + 61_000)).toBe('1m 1s');
+		expect(iterDurText(it0, t0 + 62_000)).toBe('1m 2s');
+	});
+
+	it('keeps the final duration for a completed iteration, ignoring the clock', () => {
+		expect(iterDurText({ durationMs: 90_000, startedAt: start }, t0 + 999_999)).toBe('1m 30s');
+		expect(iterDurText({ running: false, durationMs: 4_200 })).toBe('4.2s');
+	});
+
+	it('shows the no-value mark for a completed iteration without a duration', () => {
+		expect(iterDurText({ durationMs: 0 })).toBe(NO_VALUE);
+		expect(iterDurText({})).toBe(NO_VALUE);
+	});
+
+	it('shows the no-value mark for a running iteration without a usable start', () => {
+		expect(iterDurText({ running: true }, t0)).toBe(NO_VALUE);
+		expect(iterDurText({ running: true, startedAt: '' }, t0)).toBe(NO_VALUE);
+		expect(iterDurText({ running: true, startedAt: 'not a time' }, t0)).toBe(NO_VALUE);
+	});
+
+	it('shows 0s when the browser clock is behind the start (clock skew)', () => {
+		expect(iterDurText({ running: true, startedAt: start }, t0 - 30_000)).toBe('0s');
+	});
+
+	it('shows 0s in the first second of a run', () => {
+		expect(iterDurText({ running: true, startedAt: start }, t0)).toBe('0s');
+		expect(iterDurText({ running: true, startedAt: start }, t0 + 999)).toBe('0s');
 	});
 });
