@@ -282,7 +282,7 @@ async def health():
     )
 
 
-@app.get("/ready")
+@app.get("/ready", responses={503: {"description": "The database or the embedding service is unreachable"}})
 async def ready():
     """Readiness check - verifies database and embedding service connectivity."""
     errors = []
@@ -312,7 +312,15 @@ async def ready():
     return {"status": "ready", "checks": {"database": "ok", "embedding": "ok"}}
 
 
-@app.post("/query", response_model=QueryResponse)
+@app.post(
+    "/query",
+    response_model=QueryResponse,
+    responses={
+        404: {"description": "The collection does not exist yet"},
+        500: {"description": "The query failed unexpectedly"},
+        502: {"description": "The embedding service failed"},
+    },
+)
 async def query(request: QueryRequest):
     """
     Perform semantic search against the vector store.

@@ -154,26 +154,41 @@ func TestFindCrewGateway(t *testing.T) {
 			cli := fake.NewClientBuilder().WithScheme(scheme).WithObjects(tc.objects...).Build()
 			r := &AgentReconciler{Client: cli}
 			name, port, ok := r.findCrewGateway(context.Background(), tc.namespace)
-			assertCrewGateway(t, name, port, ok, tc.wantOK, tc.wantName, tc.checkPort, tc.wantPort)
+			assertCrewGateway(t, crewGatewayResult{name: name, port: port, ok: ok},
+				crewGatewayWant{ok: tc.wantOK, name: tc.wantName, checkPort: tc.checkPort, port: tc.wantPort})
 		})
 	}
 }
 
-// assertCrewGateway checks a findCrewGateway result; the port only when checkPort is set.
-func assertCrewGateway(t *testing.T, name string, port int32, ok, wantOK bool, wantName string,
-	checkPort bool, wantPort int32) {
+// crewGatewayResult is what findCrewGateway returned.
+type crewGatewayResult struct {
+	name string
+	port int32
+	ok   bool
+}
+
+// crewGatewayWant is the expected findCrewGateway outcome; the port is checked only when checkPort is set.
+type crewGatewayWant struct {
+	name      string
+	port      int32
+	ok        bool
+	checkPort bool
+}
+
+// assertCrewGateway checks a findCrewGateway result against the expected outcome.
+func assertCrewGateway(t *testing.T, got crewGatewayResult, want crewGatewayWant) {
 	t.Helper()
-	if ok != wantOK {
-		t.Fatalf("ok: got %v (name=%q port=%d); want %v", ok, name, port, wantOK)
+	if got.ok != want.ok {
+		t.Fatalf("ok: got %v (name=%q port=%d); want %v", got.ok, got.name, got.port, want.ok)
 	}
-	if !wantOK {
+	if !want.ok {
 		return
 	}
-	if name != wantName {
-		t.Errorf("name: got %q; want %q", name, wantName)
+	if got.name != want.name {
+		t.Errorf("name: got %q; want %q", got.name, want.name)
 	}
-	if checkPort && port != wantPort {
-		t.Errorf("port: got %d; want %d", port, wantPort)
+	if want.checkPort && got.port != want.port {
+		t.Errorf("port: got %d; want %d", got.port, want.port)
 	}
 }
 

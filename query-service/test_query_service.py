@@ -27,7 +27,7 @@ class FailingEmbeddingClient:
     """An httpx.AsyncClient stand-in whose requests fail to connect."""
 
     def __init__(self, *args, **kwargs):
-        pass
+        """Accept and ignore the arguments the real client takes."""
 
     async def __aenter__(self):
         return self
@@ -64,7 +64,7 @@ class LifespanTest(unittest.TestCase):
     def test_starts_with_a_warning_when_the_database_is_down(self):
         async def start_and_stop():
             async with qs.lifespan(qs.app):
-                pass
+                await asyncio.sleep(0)  # the app would serve requests here
 
         db_down = psycopg2.OperationalError("db down")
         with (

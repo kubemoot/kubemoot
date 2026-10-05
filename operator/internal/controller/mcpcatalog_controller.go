@@ -231,7 +231,7 @@ func (r *MCPCatalogReconciler) syncSmithery(ctx context.Context, catalog *aiv1al
 	log := logf.FromContext(ctx)
 	log.Info("Smithery catalog sync not yet implemented", "url", catalog.Spec.URL)
 
-	// TODO: Implement Smithery API integration
+	// Not implemented: Smithery API integration; the catalog stays Pending.
 	return r.updateStatus(ctx, catalog, "Pending", "Smithery sync not yet implemented", nil)
 }
 
@@ -240,7 +240,7 @@ func (r *MCPCatalogReconciler) syncGlama(ctx context.Context, catalog *aiv1alpha
 	log := logf.FromContext(ctx)
 	log.Info("Glama catalog sync not yet implemented", "url", catalog.Spec.URL)
 
-	// TODO: Implement Glama API integration
+	// Not implemented: Glama API integration; the catalog stays Pending.
 	return r.updateStatus(ctx, catalog, "Pending", "Glama sync not yet implemented", nil)
 }
 
@@ -249,7 +249,7 @@ func (r *MCPCatalogReconciler) syncDocker(ctx context.Context, catalog *aiv1alph
 	log := logf.FromContext(ctx)
 	log.Info("Docker catalog sync not yet implemented", "url", catalog.Spec.URL)
 
-	// TODO: Implement Docker Hub API integration
+	// Not implemented: Docker Hub API integration; the catalog stays Pending.
 	return r.updateStatus(ctx, catalog, "Pending", "Docker sync not yet implemented", nil)
 }
 
@@ -258,7 +258,7 @@ func (r *MCPCatalogReconciler) syncNpm(ctx context.Context, catalog *aiv1alpha1.
 	log := logf.FromContext(ctx)
 	log.Info("npm catalog sync not yet implemented", "url", catalog.Spec.URL)
 
-	// TODO: Implement npm registry API integration
+	// Not implemented: npm registry API integration; the catalog stays Pending.
 	return r.updateStatus(ctx, catalog, "Pending", "npm sync not yet implemented", nil)
 }
 
