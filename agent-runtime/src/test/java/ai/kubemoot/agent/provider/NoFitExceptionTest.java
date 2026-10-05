@@ -43,7 +43,7 @@ class NoFitExceptionTest {
 
     @Test
     void isRuntimeException_caughtByCatch_Exception() {
-        // Sanity: must extend RuntimeException so a `catch (Exception)`
+        // Sanity: must extend RuntimeException so a generic Exception catch
         // can route it (and our earlier catch clause for NoFitException
         // can intercept it before the generic catch fires).
         assertTrue(RuntimeException.class.isAssignableFrom(NoFitException.class));

@@ -302,19 +302,15 @@ public class ChatService {
                 providerName.isEmpty() ? "static" : providerName, pick.pickReason());
         long callStartMs = System.currentTimeMillis();
         ToolLoopResult loopResult;
-        boolean callFailed = false;
+        // Stays true for any Throwable escaping the loop (timeouts, 5xx, ToolCallFailure
+        // with an infrastructure cause, or an Error): the circuit-breaker input.
+        boolean callFailed = true;
         try {
             loopResult = callWithToolLoop(messages, pick.model(), providerName, pick.pickReason(), toolerRawOutput,
                     contextLengthOf(pick));
-        } catch (RuntimeException | Error e) {
-            // Mark for circuit-breaker on any exception escaping the loop —
-            // timeouts, 5xx, ToolCallFailure with infrastructure cause, etc.
-            // Rethrow after the finally so the caller's failure-signal path
-            // is unchanged.
-            callFailed = true;
-            throw e;
+            callFailed = false;
         } finally {
-            // ALWAYS record observed latency, even on ToolCallFailure —
+            // ALWAYS record observed latency, even on ToolCallFailure -
             // the failed-call duration is exactly the signal we need to
             // steer subsequent picks away from the bad provider.
             long callDurationMs = System.currentTimeMillis() - callStartMs;
@@ -444,7 +440,7 @@ public class ChatService {
     ToolLoopResult callWithToolLoop(List<ChatMessage> messages) {
         MullingPick pick = pickMullingChatModel(PromptSize.chars(messages, tools().specs()));
         try {
-            // Legacy/test entry defaults to reasoning behavior (no raw output);
+            // Legacy/test entry defaults to reasoning behavior, with no raw output;
             // the tooler raw-output contract is opt-in via the 5-arg overload.
             return callWithToolLoop(messages, pick.model(), pick.providerName(), pick.pickReason(), false,
                     contextLengthOf(pick));

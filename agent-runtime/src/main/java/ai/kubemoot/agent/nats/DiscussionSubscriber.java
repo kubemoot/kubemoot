@@ -648,14 +648,14 @@ public class DiscussionSubscriber {
         try {
             if (closedThreads.contains(threadId)) {
                 log.debug("Thread {} closed before evaluation — {} standing aside", threadId, properties.agentName());
-                publishSignal(subject, threadId, SIGNAL_STAND_ASIDE, "", 0, 0, 0, 0, "none");
+                publishSignal(subject, threadId, SIGNAL_STAND_ASIDE, "", SignalTiming.NONE, "none");
                 return;
             }
 
             commitToThread(threadId, conversation);
             String triageGpuLabel = GpuLabels.fromEndpoint(chatService.getTriageEndpoint());
             publishSignal(subject, threadId, "triaging", "Queued for triage assessment",
-                    0, System.currentTimeMillis(), 0, 0, triageGpuLabel);
+                    SignalTiming.of(0, System.currentTimeMillis()), triageGpuLabel);
 
             long triageStartMs = System.currentTimeMillis();
             String triageResponse = runTriage(subject, threadId, conversation, triageGpuLabel, triageStartMs);
@@ -668,7 +668,8 @@ public class DiscussionSubscriber {
                 log.debug("Agent {} standing aside after triage for thread {} ({}ms)",
                         properties.agentName(), threadId, triageMs);
                 String triageGpu = GpuLabels.fromEndpoint(chatService.getTriageEndpoint());
-                publishSignal(subject, threadId, SIGNAL_STAND_ASIDE, "", triageMs, triageStartMs, 0, 0, triageGpu);
+                publishSignal(subject, threadId, SIGNAL_STAND_ASIDE, "",
+                        SignalTiming.of(triageMs, triageStartMs), triageGpu);
                 return;
             }
             if (triageResponse.contains(NOTHING_TO_ADD)) {
@@ -681,7 +682,7 @@ public class DiscussionSubscriber {
 
         } catch (Exception e) {
             log.warn("Failed to evaluate thread {}: {} — publishing stand_aside", threadId, e.getMessage());
-            publishSignal(subject, threadId, SIGNAL_STAND_ASIDE, "", 0, 0, 0, 0);
+            publishSignal(subject, threadId, SIGNAL_STAND_ASIDE, "", SignalTiming.NONE);
         }
     }
 
@@ -700,7 +701,8 @@ public class DiscussionSubscriber {
             long triageMs = System.currentTimeMillis() - triageStartMs;
             log.info("Triage failed for {} on thread {} ({}ms) - standing aside: {}",
                     properties.agentName(), threadId, triageMs, e.getMessage());
-            publishSignal(subject, threadId, SIGNAL_STAND_ASIDE, "", triageMs, triageStartMs, 0, 0, triageGpuLabel);
+            publishSignal(subject, threadId, SIGNAL_STAND_ASIDE, "",
+                    SignalTiming.of(triageMs, triageStartMs), triageGpuLabel);
             return null;
         }
     }
@@ -710,7 +712,7 @@ public class DiscussionSubscriber {
         log.info("Thread {} closed during triage — {} standing aside",
                 threadId, properties.agentName());
         String triageGpu = GpuLabels.fromEndpoint(chatService.getTriageEndpoint());
-        publishSignal(subject, threadId, SIGNAL_STAND_ASIDE, "", triageMs, triageStartMs, 0, 0, triageGpu);
+        publishSignal(subject, threadId, SIGNAL_STAND_ASIDE, "", SignalTiming.of(triageMs, triageStartMs), triageGpu);
         return true;
     }
 
@@ -721,28 +723,26 @@ public class DiscussionSubscriber {
         String mullingGpuLabel = GpuLabels.fromEndpoint(ollamaBaseUrl);
 
         publishSignal(subject, threadId, SIGNAL_EVALUATING, "Running tool-calling evaluation",
-                triageMs, triageStartMs, 0, 0, mullingGpuLabel);
+                SignalTiming.of(triageMs, triageStartMs), mullingGpuLabel);
         log.info("Agent {} passed triage ({}ms), running full evaluation for thread {} (gpu={})",
                 properties.agentName(), triageMs, threadId, mullingGpuLabel);
 
         var heartbeat = startHeartbeat(subject, threadId, mullingGpuLabel);
 
         long mullingStartMs = System.currentTimeMillis();
-        ChatService.ChatResult result;
+        ChatService.ChatResult result = null;
+        boolean failed = false;
         try {
             result = runMullingInference(conversation, threadId,
                     new ThreadCapacityWait(subject, threadId, mullingGpuLabel));
-        } catch (ToolCallFailure tcf) {
-            handleToolCallFailure(subject, threadId, tcf, triageMs, triageStartMs, mullingStartMs, mullingGpuLabel);
-            return;
-        } catch (ai.kubemoot.agent.provider.NoFitException nfe) {
-            handleNoFit(subject, threadId, nfe, triageMs, triageStartMs, mullingStartMs, mullingGpuLabel);
-            return;
-        } catch (Exception other) {
-            handleMullingException(subject, threadId, other, triageMs, triageStartMs, mullingStartMs, mullingGpuLabel);
-            return;
+        } catch (Exception e) {
+            failed = true;
+            handleMullingFailure(subject, threadId, e, triageMs, triageStartMs, mullingStartMs, mullingGpuLabel);
         } finally {
             heartbeat.cancel(false);
+        }
+        if (failed) {
+            return;
         }
         long mullingMs = System.currentTimeMillis() - mullingStartMs;
         long totalMs = triageMs + mullingMs;
@@ -751,7 +751,20 @@ public class DiscussionSubscriber {
         metrics.recordAgentInference(java.time.Duration.ofMillis(totalMs));
         metrics.recordTokens(inTok, outTok);
 
-        classifyAndPublishResult(subject, threadId, result, totalMs, triageStartMs, inTok, outTok, mullingGpuLabel);
+        classifyAndPublishResult(subject, threadId, result,
+                new SignalTiming(totalMs, triageStartMs, inTok, outTok), mullingGpuLabel);
+    }
+
+    private void handleMullingFailure(String subject, String threadId, Exception failure,
+                                      long triageMs, long triageStartMs, long mullingStartMs, String mullingGpuLabel) {
+        if (failure instanceof ToolCallFailure tcf) {
+            handleToolCallFailure(subject, threadId, tcf, triageMs, triageStartMs, mullingStartMs, mullingGpuLabel);
+        } else if (failure instanceof ai.kubemoot.agent.provider.NoFitException nfe) {
+            handleNoFit(subject, threadId, nfe, triageMs, triageStartMs, mullingStartMs, mullingGpuLabel);
+        } else {
+            handleMullingException(subject, threadId, failure, triageMs, triageStartMs, mullingStartMs,
+                    mullingGpuLabel);
+        }
     }
 
     /**
@@ -787,7 +800,7 @@ public class DiscussionSubscriber {
         log.info("Agent {} stand-aside ({}) on thread {}: {}",
                 properties.agentName(), nfe.reason(), threadId, nfe.predictorReason());
         publishSignal(subject, threadId, SIGNAL_STAND_ASIDE, noFitContent(nfe),
-                totalMs, triageStartMs, 0, 0, mullingGpuLabel, noFitMetadata(nfe));
+                SignalTiming.of(totalMs, triageStartMs), mullingGpuLabel, noFitMetadata(nfe));
     }
 
     // Visible for testing
@@ -841,14 +854,14 @@ public class DiscussionSubscriber {
         @Override
         public void onWaiting(String model) {
             publishSignal(subject, threadId, SIGNAL_WAITING, "Waiting for a GPU with room for " + model,
-                    0, System.currentTimeMillis(), 0, 0, gpuLabel,
+                    SignalTiming.of(0, System.currentTimeMillis()), gpuLabel,
                     Map.of(FIELD_MODEL, model, "reason", ai.kubemoot.agent.provider.NoFitException.REASON_GPU_BUSY));
         }
 
         @Override
         public void onCapacity(String model) {
             publishSignal(subject, threadId, SIGNAL_EVALUATING, "Running tool-calling evaluation",
-                    0, System.currentTimeMillis(), 0, 0, gpuLabel, Map.of(FIELD_MODEL, model));
+                    SignalTiming.of(0, System.currentTimeMillis()), gpuLabel, Map.of(FIELD_MODEL, model));
         }
 
         @Override
@@ -953,7 +966,7 @@ public class DiscussionSubscriber {
         log.warn("Agent {} publishing failure signal for thread {}: {} ({})",
                 properties.agentName(), threadId, failureType, truncate(message, ERROR_LOG_PREVIEW_CHARS));
         publishSignal(subject, threadId, SIGNAL_FAILURE, "Mulling failed: " + truncate(message, FAILURE_CONTENT_CHARS),
-                totalMs, triageStartMs, 0, 0, gpuLabel, meta);
+                SignalTiming.of(totalMs, triageStartMs), gpuLabel, meta);
     }
 
     /**
@@ -979,7 +992,7 @@ public class DiscussionSubscriber {
                 properties.agentName(), threadId, tcf.failureType(),
                 tcf.toolName(), tcf.failureCount());
         publishSignal(subject, threadId, SIGNAL_FAILURE, tcf.getMessage(),
-                totalMs, triageStartMs, 0, 0, gpuLabel, failureMeta);
+                SignalTiming.of(totalMs, triageStartMs), gpuLabel, failureMeta);
     }
 
     private java.util.concurrent.ScheduledFuture<?> startHeartbeat(String subject, String threadId, String mullingGpuLabel) {
@@ -994,7 +1007,7 @@ public class DiscussionSubscriber {
                 }
                 log.info("Publishing discussion heartbeat for {} on thread {}", properties.agentName(), threadId);
                 publishSignal(subject, threadId, "heartbeat", "Queued or running inference",
-                        0, 0, 0, 0, mullingGpuLabel);
+                        SignalTiming.NONE, mullingGpuLabel);
             } catch (Exception e) {
                 log.warn("Heartbeat publish failed for {} on thread {}: {}", properties.agentName(), threadId, e.getMessage());
             }
@@ -1081,7 +1094,7 @@ public class DiscussionSubscriber {
     }
 
     private void classifyAndPublishResult(String subject, String threadId, ChatService.ChatResult result,
-                                           long totalMs, long triageStartMs, long inTok, long outTok, String gpuLabel) {
+                                           SignalTiming timing, String gpuLabel) {
         // The GPU badge should reflect WHERE this inference actually ran — the
         // JIT-selected provider — not the agent's static reconcile-time
         // endpoint. Without this, an agent that JIT-picked the 5090 still shows
@@ -1092,7 +1105,7 @@ public class DiscussionSubscriber {
         gpuLabel = jitGpuLabelOr(result, gpuLabel);
 
         if (hasNoContributionToPublish(threadId, result)) {
-            publishSignal(subject, threadId, SIGNAL_STAND_ASIDE, "", totalMs, triageStartMs, inTok, outTok, gpuLabel);
+            publishSignal(subject, threadId, SIGNAL_STAND_ASIDE, "", timing, gpuLabel);
             return;
         }
 
@@ -1100,15 +1113,14 @@ public class DiscussionSubscriber {
 
         if (content.contains(NOTHING_TO_ADD)) {
             log.debug("Agent {} standing aside after mulling for thread {}", properties.agentName(), threadId);
-            publishSignal(subject, threadId, SIGNAL_STAND_ASIDE, "", totalMs, triageStartMs, inTok, outTok, gpuLabel);
+            publishSignal(subject, threadId, SIGNAL_STAND_ASIDE, "", timing, gpuLabel);
             return;
         }
 
         if (content.startsWith("TOOL_GAP:")) {
             String toolNeed = content.substring("TOOL_GAP:".length()).trim();
             log.info("Agent {} reported tool gap for thread {}: {}", properties.agentName(), threadId, toolNeed);
-            publishSignal(subject, threadId, "concern", toolNeed, totalMs, triageStartMs, inTok, outTok, gpuLabel,
-                    providerAttribution(result));
+            publishSignal(subject, threadId, "concern", toolNeed, timing, gpuLabel, providerAttribution(result));
             return;
         }
 
@@ -1119,12 +1131,11 @@ public class DiscussionSubscriber {
         // surface as failure signals.
         if (content.contains("unable to complete the request within the allowed number of tool calls")) {
             log.info("Agent {} exhausted tool loop for thread {} — standing aside (legacy)", properties.agentName(), threadId);
-            publishSignal(subject, threadId, SIGNAL_STAND_ASIDE, content, totalMs, triageStartMs, inTok, outTok, gpuLabel);
+            publishSignal(subject, threadId, SIGNAL_STAND_ASIDE, content, timing, gpuLabel);
             return;
         }
 
-        publishSignal(subject, threadId, SIGNAL_AGREE, content, totalMs, triageStartMs, inTok, outTok, gpuLabel,
-                providerAttribution(result));
+        publishSignal(subject, threadId, SIGNAL_AGREE, content, timing, gpuLabel, providerAttribution(result));
     }
 
     // The agent's view of the thread. DiscussionOrchestrator.threadLabel labels the
@@ -1186,24 +1197,27 @@ public class DiscussionSubscriber {
         return sb.toString();
     }
 
-    private void publishSignal(String originalSubject, String threadId, String signal, String content,
-                               long inferenceMs, long inferenceStartMs,
-                               long inputTokens, long outputTokens) {
-        publishSignal(originalSubject, threadId, signal, content, inferenceMs, inferenceStartMs,
-                inputTokens, outputTokens, GpuLabels.fromEndpoint(ollamaBaseUrl));
+    /** Inference timing and token counts a signal reports. */
+    record SignalTiming(long inferenceMs, long inferenceStartMs, long inputTokens, long outputTokens) {
+        static final SignalTiming NONE = new SignalTiming(0, 0, 0, 0);
+
+        static SignalTiming of(long inferenceMs, long inferenceStartMs) {
+            return new SignalTiming(inferenceMs, inferenceStartMs, 0, 0);
+        }
     }
 
     private void publishSignal(String originalSubject, String threadId, String signal, String content,
-                               long inferenceMs, long inferenceStartMs,
-                               long inputTokens, long outputTokens, String gpuLabel) {
-        publishSignal(originalSubject, threadId, signal, content, inferenceMs, inferenceStartMs,
-                inputTokens, outputTokens, gpuLabel, null);
+                               SignalTiming timing) {
+        publishSignal(originalSubject, threadId, signal, content, timing, GpuLabels.fromEndpoint(ollamaBaseUrl));
     }
 
     private void publishSignal(String originalSubject, String threadId, String signal, String content,
-                               long inferenceMs, long inferenceStartMs,
-                               long inputTokens, long outputTokens, String gpuLabel,
-                               Map<String, Object> extraMetadata) {
+                               SignalTiming timing, String gpuLabel) {
+        publishSignal(originalSubject, threadId, signal, content, timing, gpuLabel, null);
+    }
+
+    private void publishSignal(String originalSubject, String threadId, String signal, String content,
+                               SignalTiming timing, String gpuLabel, Map<String, Object> extraMetadata) {
         try {
             var conn = natsProvider.getConnection();
             if (conn == null) return;
@@ -1219,11 +1233,11 @@ public class DiscussionSubscriber {
             metadata.put("role", properties.discuss().role());
             metadata.put("modelName", properties.model().model());
             metadata.put("gpuLabel", gpuLabel);
-            metadata.put("inferenceMs", inferenceMs);
-            metadata.put("inferenceStartMs", inferenceStartMs);
-            metadata.put("inputTokens", inputTokens);
-            metadata.put("outputTokens", outputTokens);
-            metadata.put("totalTokens", inputTokens + outputTokens);
+            metadata.put("inferenceMs", timing.inferenceMs());
+            metadata.put("inferenceStartMs", timing.inferenceStartMs());
+            metadata.put("inputTokens", timing.inputTokens());
+            metadata.put("outputTokens", timing.outputTokens());
+            metadata.put("totalTokens", timing.inputTokens() + timing.outputTokens());
             if (extraMetadata != null) {
                 metadata.putAll(extraMetadata);
             }
