@@ -70,7 +70,7 @@ class AgentHeartbeatServiceTest {
         Instant now = Instant.parse("2026-03-06T10:00:00Z");
         Instant lastInf = Instant.parse("2026-03-06T09:55:00Z");
 
-        String json = service.buildHeartbeatJson("my-agent", now, true, true, "qwen2.5:32b", lastInf);
+        String json = service.buildHeartbeatJson("my-agent", now, true, true, "qwen2.5:32b", lastInf, 60);
 
         assertTrue(json.contains("\"agent\":\"my-agent\""));
         assertTrue(json.contains("\"timestamp\":\"2026-03-06T10:00:00Z\""));
@@ -78,13 +78,43 @@ class AgentHeartbeatServiceTest {
         assertTrue(json.contains("\"ollama\":true"));
         assertTrue(json.contains("\"model\":\"qwen2.5:32b\""));
         assertTrue(json.contains("\"lastInference\":\"2026-03-06T09:55:00Z\""));
+        assertTrue(json.contains("\"intervalSeconds\":60"));
+    }
+
+    @Test
+    void publishHeartbeat_carriesConfiguredInterval() throws Exception {
+        assertEquals(15, publishedInterval(15));
+        assertEquals(86400, publishedInterval(86400));
+    }
+
+    @Test
+    void publishHeartbeat_zeroOrNegativeIntervalFallsBackToDefault() throws Exception {
+        assertEquals(AgentHeartbeatService.FALLBACK_INTERVAL_SECONDS, publishedInterval(0));
+        assertEquals(AgentHeartbeatService.FALLBACK_INTERVAL_SECONDS, publishedInterval(-5));
+    }
+
+    private int publishedInterval(int configured) throws Exception {
+        var conn = mock(Connection.class);
+        var kv = mock(KeyValue.class);
+        when(natsProvider.getConnection()).thenReturn(conn);
+        when(conn.keyValue("kubemoot_agent_state")).thenReturn(kv);
+        var svc = new AgentHeartbeatService(natsProvider, warmupService,
+                stubProperties("test-agent", true, configured, "kubemoot_agent_state"));
+
+        svc.publishHeartbeat();
+
+        var captor = ArgumentCaptor.forClass(byte[].class);
+        verify(kv, atLeastOnce()).put(eq("ns-a.test-agent"), captor.capture());
+        var node = new com.fasterxml.jackson.databind.ObjectMapper()
+                .readTree(captor.getValue());
+        return node.get("intervalSeconds").asInt();
     }
 
     @Test
     void buildHeartbeatJson_omitsLastInferenceWhenNull() {
         Instant now = Instant.parse("2026-03-06T10:00:00Z");
 
-        String json = service.buildHeartbeatJson("my-agent", now, true, false, "qwen2.5:32b", null);
+        String json = service.buildHeartbeatJson("my-agent", now, true, false, "qwen2.5:32b", null, 60);
 
         assertFalse(json.contains("lastInference"));
         assertTrue(json.contains("\"ollama\":false"));

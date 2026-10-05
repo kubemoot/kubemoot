@@ -318,6 +318,21 @@ When no GPU has room, the agent publishes `waiting` once and retries on every pr
 - Prevents runaway inference costs from chatty discussion threads
 - Configured via `KUBEMOOT_DISCUSS_MAX_INFERENCES_PER_MINUTE` env var
 
+### Liveness Heartbeat
+
+Each agent writes a liveness record to the `kubemoot_agent_state` NATS KV bucket, keyed `<namespace>.<agent>`, every `intervalSeconds` (default 60). The entry expires from the bucket after 300 seconds, at which point there is no heartbeat at all.
+
+| Field | Meaning |
+|---|---|
+| `agent` | Agent name |
+| `timestamp` | When the record was written (ISO 8601) |
+| `nats`, `ollama` | Whether the agent reached NATS and its model provider |
+| `model` | Model the agent is configured with |
+| `lastInference` | Time of the last successful inference (omitted until the first one) |
+| `intervalSeconds` | Seconds between this agent's heartbeats |
+
+Consumers judge staleness from the record itself: a heartbeat is stale once two of its own `intervalSeconds` pass without a newer one, so changing the interval needs no change in any consumer. A record without `intervalSeconds` (written by an older agent), or one whose value is not a positive number or exceeds one hour, is judged against a 60 second interval. An agent configured with a zero or negative interval publishes 60.
+
 ### Operator-Injected Env Vars
 
 | Env Var | Applies To | Source |
