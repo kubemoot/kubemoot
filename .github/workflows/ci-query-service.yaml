@@ -29,7 +29,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
-          python-version: '3.12'
+          python-version: '3.13'
 
       - name: Install dependencies
         working-directory: query-service
@@ -63,11 +63,11 @@ jobs:
         if: github.event_name != 'pull_request'
         run: |
           SHA="${{ github.sha }}"
-          JOB_NAME="kaniko-query-service-$(echo ${SHA} | cut -c1-8)-${GITHUB_RUN_NUMBER}"
+          JOB_NAME="kaniko-query-service-${SHA:0:8}-${GITHUB_RUN_NUMBER}"
 
           tar -C query-service -czf /tmp/context.tar.gz .
 
-          kubectl run ${JOB_NAME} \
+          kubectl run "${JOB_NAME}" \
             --rm -i \
             --restart=Never \
             --namespace=arc-runners \
