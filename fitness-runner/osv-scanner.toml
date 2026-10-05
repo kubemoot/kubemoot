@@ -1,0 +1,7 @@
+# Advisories that do not apply to Kubemoot, with the reason. Read by osv-scanner and
+# OpenSSF Scorecard. One identical copy sits next to each go.mod that needs it
+# (.github/scripts/test-osv-ignores.sh checks that).
+
+[[IgnoredVulns]]
+id = "GO-2026-5932"
+reason = "Flags every golang.org/x/crypto version because its openpgp packages are unmaintained; no fixed version exists. No Kubemoot module imports golang.org/x/crypto/openpgp (govulncheck: not called); x/crypto arrives through nats and excelize for other packages."

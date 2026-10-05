@@ -1,6 +1,6 @@
 # Tests for the release scripts, the check that no chart or image version
 # is typed in git and no workflow commits one, the test Jobs' single RBAC source and
-# image placeholder, and the brand copies. Not a release gate.
+# image placeholder, the brand copies, and the advisory ignores. Not a release gate.
 name: CI Release Scripts
 
 on:
@@ -16,6 +16,8 @@ on:
       - 'scripts/brand-sync*.sh'
       - '.github/assets/**'
       - 'k8s/tests/job/**'
+      - '**/go.mod'
+      - '**/osv-scanner.toml'
   push:
     branches-ignore: [main]
     paths:
@@ -29,6 +31,8 @@ on:
       - 'scripts/brand-sync*.sh'
       - '.github/assets/**'
       - 'k8s/tests/job/**'
+      - '**/go.mod'
+      - '**/osv-scanner.toml'
 
 permissions:
   contents: read
@@ -54,3 +58,5 @@ jobs:
           bash .github/scripts/test-publish-release.sh
           bash .github/scripts/test-wait-for-operator-chart.sh
           bash k8s/tests/job/run.test.sh
+          bash .github/scripts/test-osv-ignores.sh --self
+          bash .github/scripts/test-osv-ignores.sh
