@@ -54,6 +54,8 @@ jobs:
             !indexer/build/libs/*-plain.jar
           if-no-files-found: error
           retention-days: 3
+          # A jar is already a zip; compressing it again only costs time.
+          compression-level: 0
 
   build-image:
     needs: test
