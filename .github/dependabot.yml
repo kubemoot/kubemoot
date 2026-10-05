@@ -22,6 +22,7 @@ updates:
 
   - package-ecosystem: docker
     directories:
+      - "/.github/buildpacks"
       - "/agent-runtime/src/main/docker"
       - "/arc-runner-image"
       - "/artifact-access"

@@ -7,6 +7,7 @@ on:
   pull_request:
     paths:
       - '.github/scripts/**'
+      - '.github/buildpacks/**'
       - '.github/workflows/**'
       - 'operator/chart/kubemoot-operator/Chart.yaml'
       - 'operator/chart/kubemoot-operator/values.yaml'
@@ -22,6 +23,7 @@ on:
     branches-ignore: [main]
     paths:
       - '.github/scripts/**'
+      - '.github/buildpacks/**'
       - '.github/workflows/**'
       - 'operator/chart/kubemoot-operator/Chart.yaml'
       - 'operator/chart/kubemoot-operator/values.yaml'
@@ -58,6 +60,7 @@ jobs:
           bash .github/scripts/test-publish-release.sh
           bash .github/scripts/test-create-github-releases.sh
           bash .github/scripts/test-wait-for-operator-chart.sh
+          bash .github/scripts/test-build-image-buildpacks.sh
           bash k8s/tests/job/run.test.sh
           bash .github/scripts/test-osv-ignores.sh --self
           bash .github/scripts/test-osv-ignores.sh

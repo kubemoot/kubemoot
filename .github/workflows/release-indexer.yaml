@@ -6,6 +6,8 @@ on:
     paths:
       - 'indexer/**'
       - '!indexer/**.md'
+      - '.github/buildpacks/**'
+      - '.github/scripts/build-image-buildpacks.sh'
   workflow_dispatch:
     inputs:
       force_release:
