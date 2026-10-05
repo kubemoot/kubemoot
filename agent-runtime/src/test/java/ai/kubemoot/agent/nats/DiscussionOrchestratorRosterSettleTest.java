@@ -69,7 +69,7 @@ class DiscussionOrchestratorRosterSettleTest {
     private static DiscussionOrchestrator.ThreadState evaluating(String id, String... toolers) {
         var s = new DiscussionOrchestrator.ThreadState(id);
         s.phase = DiscussionOrchestrator.Phase.EVALUATING;
-        s.phaseRoster = PhaseRoster.of(List.of(toolers));
+        s.phaseRoster.set(PhaseRoster.of(List.of(toolers)));
         return s;
     }
 
@@ -101,7 +101,7 @@ class DiscussionOrchestratorRosterSettleTest {
 
         orchestrator.resetEvaluationClock(s);
 
-        assertEquals(Set.of("k8s-nodes", "k8s-metrics"), s.phaseRoster.members());
+        assertEquals(Set.of("k8s-nodes", "k8s-metrics"), s.phaseRoster.get().members());
         assertFalse(DiscussionOrchestrator.rosterSignalled(s), "nothing has signalled on the new roster");
         assertTrue(s.agreeSignals.isEmpty());
     }
@@ -113,7 +113,7 @@ class DiscussionOrchestratorRosterSettleTest {
 
         orchestrator.resetEvaluationClock(s);
 
-        assertFalse(s.phaseRoster.isKnown());
+        assertFalse(s.phaseRoster.get().isKnown());
     }
 
     // ---- who reviews ----
@@ -247,7 +247,7 @@ class DiscussionOrchestratorRosterSettleTest {
 
         orchestrator.handleThreadReopen(s, "g5", "reply", "human");
 
-        assertFalse(s.phaseRoster.isKnown());
+        assertFalse(s.phaseRoster.get().isKnown());
         assertFalse(DiscussionOrchestrator.rosterSignalled(s));
     }
 
@@ -291,7 +291,7 @@ class DiscussionOrchestratorRosterSettleTest {
         assertEquals(2, state.pendingEvaluations.size());
         assertFalse(state.pendingEvaluations.containsKey("slow-tooler"), "eval stragglers are dropped");
         assertEquals(now + 120_000L, state.pendingEvaluations.get("compute"));
-        assertEquals(Set.of("compute", "k8s-advisor"), state.phaseRoster.members());
+        assertEquals(Set.of("compute", "k8s-advisor"), state.phaseRoster.get().members());
     }
 
     @Test
@@ -315,7 +315,7 @@ class DiscussionOrchestratorRosterSettleTest {
         var advanced = new AtomicInteger();
 
         assertTrue(state.pendingEvaluations.isEmpty());
-        assertFalse(state.phaseRoster.isKnown());
+        assertFalse(state.phaseRoster.get().isKnown());
         orchestrator.settlePhase(state, Instant.now(), 5, reviewSettle(advanced));
         assertEquals(0, advanced.get(), "inside the floor nothing settles on state");
         orchestrator.settlePhase(state, Instant.now(), 11, reviewSettle(advanced));

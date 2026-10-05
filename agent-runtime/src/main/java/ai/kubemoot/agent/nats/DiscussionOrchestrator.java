@@ -707,7 +707,7 @@ public class DiscussionOrchestrator {
                            String content, JsonNode msg) {
         dispatchSignal(state, agentName, messageType, content, msg);
         if (TERMINAL_SIGNALS.contains(messageType)) {
-            state.phaseRoster.recordTerminalSignal(agentName);
+            state.phaseRoster.get().recordTerminalSignal(agentName);
         }
     }
 
@@ -899,7 +899,7 @@ public class DiscussionOrchestrator {
         }
         // The roster resets before the phase flips, so the phase checker never sees
         // EVALUATING with the previous round's fully signalled roster.
-        state.phaseRoster = PhaseRoster.unknown();
+        state.phaseRoster.set(PhaseRoster.unknown());
         state.phase = Phase.EVALUATING;
         state.phaseStarted = Instant.now();
         state.agreeSignals.clear();
@@ -1141,7 +1141,7 @@ public class DiscussionOrchestrator {
      */
     // Visible for testing
     static boolean rosterSignalled(ThreadState state) {
-        var roster = state.phaseRoster;
+        var roster = state.phaseRoster.get();
         return roster != null && roster.allSignalled(state.pendingEvaluations);
     }
 
@@ -1350,7 +1350,7 @@ public class DiscussionOrchestrator {
         state.clearCapacitySignals();
         state.researcherAgents.clear();
         state.pendingEvaluations.clear();
-        state.phaseRoster = PhaseRoster.of(evaluationRoster(state.innerCircle, analystNamesFromResumes()));
+        state.phaseRoster.set(PhaseRoster.of(evaluationRoster(state.innerCircle, analystNamesFromResumes())));
         state.advisoryPending.set(false);
     }
 
@@ -1811,7 +1811,7 @@ public class DiscussionOrchestrator {
     // Visible for testing
     void seedReviewRoster(ThreadState state, Collection<String> reviewers, long nowMs) {
         state.pendingEvaluations.clear();
-        state.phaseRoster = PhaseRoster.of(reviewers);
+        state.phaseRoster.set(PhaseRoster.of(reviewers));
         long deadline = nowMs + properties.triageModel().timeoutSeconds() * 1000L;
         for (String reviewer : reviewers) {
             state.pendingEvaluations.put(reviewer, deadline);
@@ -2713,7 +2713,7 @@ public class DiscussionOrchestrator {
                         state.threadId, timedOutAgent);
                 state.failureSignals.put(timedOutAgent,
                         "Evaluation did not complete within estimated window");
-                state.phaseRoster.recordTerminalSignal(timedOutAgent);
+                state.phaseRoster.get().recordTerminalSignal(timedOutAgent);
                 state.lastSignalReceived = Instant.now();
                 metrics.evaluationTimedOut();
                 publishSyntheticFailure(timedOutAgent, state.threadId,
@@ -3889,7 +3889,7 @@ public class DiscussionOrchestrator {
         // agents won't respond until advisory_ready is published.
         final AtomicBoolean advisoryPending = new AtomicBoolean(false);
         // The participants the current phase waits for; replaced whole when a phase begins.
-        volatile PhaseRoster phaseRoster = PhaseRoster.unknown();
+        final AtomicReference<PhaseRoster> phaseRoster = new AtomicReference<>(PhaseRoster.unknown());
 
         // Thread metadata
         volatile String userQuery;
