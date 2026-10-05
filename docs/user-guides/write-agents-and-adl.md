@@ -59,8 +59,8 @@ every invariant - should be ADL.
 
 ### Side-by-side examples
 
-The two pilot crews (`homelab-pilot-crew` and `homelab-pilot-crew-prose`) ship the
-same behavior in both forms. These examples are drawn verbatim from those files.
+Each example shows one rule in ADL, as `homelab-pilot-crew` ships it, next to the same
+rule written as prose.
 
 **Evaluation Phase rule (discussion-protocol module, order 10)**
 
@@ -71,11 +71,10 @@ ADL form (`homelab-pilot-crew/templates/promptmodule-discussion.yaml`):
 
 ```text
 WHEN question touches your domain AND you have tools:
-  USE tools first, then report facts. Real data - even partial - always
-  beats a gap report.
+  Use tools first; real data, even partial, beats a gap report.
 ```
 
-Prose form (`homelab-pilot-crew-prose/templates/promptmodule-discussion.yaml`):
+The same rule as prose:
 
 ```text
 If it does and you have tools, use them first to gather real data, then contribute
@@ -83,7 +82,7 @@ facts. Real data, even partial, beats a gap report.
 ```
 
 The ADL form makes the condition explicit (`WHEN ... AND ...`) and separate from the
-action (`USE tools first`). The prose form embeds the condition in a clause ("If it
+action (`Use tools first`). The prose form embeds the condition in a clause ("If it
 does"). For a smaller model parsing a long system prompt, the ADL form is easier to
 match against: the keywords stand out and the condition boundary is unambiguous.
 
@@ -96,11 +95,11 @@ ADL form (`homelab-pilot-crew/templates/promptmodule-coordinator.yaml`):
 
 ```text
 ASSERT: The brief is additive guidance only.
-NEVER phrase a prohibition or tell Toolers NOT to use a tool.
-ALWAYS suggest methods, data sources, and approach angles Toolers and Analysts should consider.
+NEVER phrase a prohibition or tell toolers NOT to use a tool.
+ALWAYS suggest methods, data sources, and approach angles toolers should consider.
 ```
 
-Prose form (`homelab-pilot-crew-prose/templates/promptmodule-coordinator.yaml`):
+The same rule as prose:
 
 ```text
 The brief must be additive guidance only. Suggest methods, data sources, and approach
