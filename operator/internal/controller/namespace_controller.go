@@ -6,6 +6,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
@@ -21,7 +22,7 @@ type NamespaceReconciler struct {
 }
 
 // +kubebuilder:rbac:groups=core,resources=namespaces,verbs=get;list;watch
-// +kubebuilder:rbac:groups=core,resources=secrets,verbs=get;list;create
+// +kubebuilder:rbac:groups=core,resources=secrets,verbs=get;list;watch;create;update
 
 func (r *NamespaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := logf.FromContext(ctx).WithValues("namespace", req.Name)
@@ -54,7 +55,7 @@ func (r *NamespaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		}
 	}
 
-	// Requeue periodically to handle secret rotation
+	// Source Secret changes arrive through the Secret watch; the resync is a safety net.
 	return ctrl.Result{RequeueAfter: 5 * time.Minute}, nil
 }
 
@@ -76,8 +77,10 @@ func (r *NamespaceReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	}
 
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&corev1.Namespace{}).
-		WithEventFilter(crewLabelPredicate).
+		For(&corev1.Namespace{}, builder.WithPredicates(crewLabelPredicate)).
+		// A change to a source Secret re-reconciles the crew namespaces that replicate it.
+		Watches(&corev1.Secret{}, enqueueNamespacesForSecret(mgr.GetClient(), r.ConfigCache),
+			builder.WithPredicates(sourceSecretPredicate())).
 		Complete(r)
 }
 
