@@ -26,9 +26,14 @@ import (
 	kubemootv1alpha1 "github.com/kubemoot/kubemoot/operator/api/v1alpha1"
 )
 
+const (
+	toolOverrideServerName = "mcp-under-test"
+	toolOverrideTool       = "helm_list"
+)
+
 func toolOverrideServer(overrides ...kubemootv1alpha1.ToolOverride) *kubemootv1alpha1.MCPServer {
 	return &kubemootv1alpha1.MCPServer{
-		ObjectMeta: metav1.ObjectMeta{Name: "kubernetes", Namespace: ehNamespace},
+		ObjectMeta: metav1.ObjectMeta{Name: toolOverrideServerName, Namespace: ehNamespace},
 		Spec:       kubemootv1alpha1.MCPServerSpec{ToolOverrides: overrides},
 		Status:     kubemootv1alpha1.MCPServerStatus{Endpoint: "http://k8s.tools.svc:8080"},
 	}
@@ -37,7 +42,7 @@ func toolOverrideServer(overrides ...kubemootv1alpha1.ToolOverride) *kubemootv1a
 func TestRegistrationPayloadCarriesToolOverrides(t *testing.T) {
 	r := &MCPGatewayReconciler{}
 	mcp := toolOverrideServer(kubemootv1alpha1.ToolOverride{
-		Name:        "helm_list",
+		Name:        toolOverrideTool,
 		Description: "truthful",
 		Parameters:  map[string]kubemootv1alpha1.ToolParameterOverride{"namespace": {Description: "this namespace"}},
 	})
@@ -60,7 +65,7 @@ func TestRegistrationPayloadCarriesToolOverrides(t *testing.T) {
 	if err := json.Unmarshal(raw, &got); err != nil {
 		t.Fatal(err)
 	}
-	if len(got.ToolOverrides) != 1 || got.ToolOverrides[0].Name != "helm_list" ||
+	if len(got.ToolOverrides) != 1 || got.ToolOverrides[0].Name != toolOverrideTool ||
 		got.ToolOverrides[0].Parameters["namespace"].Description != "this namespace" {
 		t.Errorf("payload overrides = %s", raw)
 	}
@@ -76,7 +81,7 @@ func TestRegistrationPayloadOmitsOverridesWhenUnset(t *testing.T) {
 
 func TestRegistrationPayloadSkipsOverridesForContextForge(t *testing.T) {
 	r := &MCPGatewayReconciler{}
-	mcp := toolOverrideServer(kubemootv1alpha1.ToolOverride{Name: "helm_list", Description: "x"})
+	mcp := toolOverrideServer(kubemootv1alpha1.ToolOverride{Name: toolOverrideTool, Description: "x"})
 	payload := r.buildRegistrationPayload(context.Background(), kubemootv1alpha1.ImplementationContextForge, mcp)
 	if _, ok := payload["toolOverrides"]; ok {
 		t.Errorf("ContextForge does not take overrides: %v", payload)

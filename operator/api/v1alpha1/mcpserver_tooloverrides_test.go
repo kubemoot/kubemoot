@@ -51,7 +51,11 @@ func TestMCPServerCRDToolOverridesSchema(t *testing.T) {
 	if overrides.XListType == nil || *overrides.XListType != "map" {
 		t.Errorf("toolOverrides should be a map list so tool names are unique")
 	}
-	item := overrides.Items.Schema
+	checkToolOverrideItemSchema(t, overrides.Items.Schema)
+}
+
+func checkToolOverrideItemSchema(t *testing.T, item *apiextensionsv1.JSONSchemaProps) {
+	t.Helper()
 	if len(item.Required) != 1 || item.Required[0] != "name" {
 		t.Errorf("only name is required on an override, got %v", item.Required)
 	}
