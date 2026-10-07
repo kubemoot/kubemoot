@@ -305,8 +305,8 @@ spec:
                   can find the volume behind the Ollama pod
                 properties:
                   freeBytes:
-                    description: FreeBytes is TotalBytes minus ModelBytes, never below
-                      zero
+                    description: FreeBytes is TotalBytes minus ModelBytes and PartialBytes,
+                      never below zero
                     format: int64
                     type: integer
                   lastProbed:
@@ -316,6 +316,14 @@ spec:
                   modelBytes:
                     description: ModelBytes is the sum of the sizes of the models
                       the provider lists
+                    format: int64
+                    type: integer
+                  partialBytes:
+                    description: |-
+                      PartialBytes is the disk held by downloads that have not finished: pulls in
+                      progress, and the partial files a cancelled or failed pull leaves behind
+                      until the model server restarts. Ollama lists none of it, so the operator
+                      counts it from the pulls it ran.
                     format: int64
                     type: integer
                   totalBytes:

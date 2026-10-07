@@ -112,9 +112,10 @@ type ModelProviderStatus struct {
 
 // ProviderStorage describes the volume that holds a provider's model files.
 // FreeBytes is an estimate: the volume's declared capacity minus the sizes
-// Ollama lists for its downloaded models. Layers shared between models are
-// counted once per model and partial downloads are not counted, so the real
-// free space can differ slightly.
+// Ollama lists for its downloaded models and the unfinished downloads the
+// operator knows about. Layers shared between models are counted once per model,
+// and partial files left by a download the operator no longer remembers (after an
+// operator restart) are not counted, so the real free space can differ slightly.
 type ProviderStorage struct {
 	// Volume names the backing volume, for example "pvc/ollama-data"
 	// +optional
@@ -128,7 +129,14 @@ type ProviderStorage struct {
 	// +optional
 	ModelBytes int64 `json:"modelBytes,omitempty"`
 
-	// FreeBytes is TotalBytes minus ModelBytes, never below zero
+	// PartialBytes is the disk held by downloads that have not finished: pulls in
+	// progress, and the partial files a cancelled or failed pull leaves behind
+	// until the model server restarts. Ollama lists none of it, so the operator
+	// counts it from the pulls it ran.
+	// +optional
+	PartialBytes int64 `json:"partialBytes,omitempty"`
+
+	// FreeBytes is TotalBytes minus ModelBytes and PartialBytes, never below zero
 	// +optional
 	FreeBytes int64 `json:"freeBytes,omitempty"`
 

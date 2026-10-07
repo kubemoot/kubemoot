@@ -1278,6 +1278,11 @@ func (in *EmbeddingModelStatus) DeepCopyInto(out *EmbeddingModelStatus) {
 		*out = new(EmbeddingModelInfo)
 		**out = **in
 	}
+	if in.Pull != nil {
+		in, out := &in.Pull, &out.Pull
+		*out = new(PullProgress)
+		**out = **in
+	}
 	if in.Conditions != nil {
 		in, out := &in.Conditions, &out.Conditions
 		*out = make([]metav1.Condition, len(*in))

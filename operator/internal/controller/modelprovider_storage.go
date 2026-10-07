@@ -18,6 +18,7 @@ package controller
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"strings"
 
@@ -56,9 +57,10 @@ func (r *ModelProviderReconciler) findOllamaPod(ctx context.Context, provider *a
 // discoverStorage records the disk behind the provider's model directory in
 // status.storage. The size comes from the volume the Ollama pod mounts at its
 // models directory (a PersistentVolumeClaim's capacity, or an emptyDir's size
-// limit); the used part is the sum of the model sizes Ollama lists. A provider
-// whose volume cannot be sized gets no storage status. Best effort: a failure
-// leaves the previous value untouched.
+// limit); the used part is the sum of the model sizes Ollama lists plus the bytes of
+// unfinished downloads the operator tracks. A provider whose volume cannot be
+// sized gets no storage status. Best effort: a failure leaves the previous value
+// untouched.
 func (r *ModelProviderReconciler) discoverStorage(ctx context.Context, provider *aiv1alpha1.ModelProvider, httpClient *http.Client) {
 	log := logf.FromContext(ctx)
 	pod := r.findOllamaPod(ctx, provider)
@@ -79,14 +81,37 @@ func (r *ModelProviderReconciler) discoverStorage(ctx context.Context, provider 
 	for _, m := range models {
 		used += m.Size
 	}
+	partial := r.partialBytes(provider.Name, pod)
 	now := metav1.Now()
 	provider.Status.Storage = &aiv1alpha1.ProviderStorage{
-		Volume:     volume,
-		TotalBytes: total,
-		ModelBytes: used,
-		FreeBytes:  max(total-used, 0),
-		LastProbed: &now,
+		Volume:       volume,
+		TotalBytes:   total,
+		ModelBytes:   used,
+		PartialBytes: partial,
+		FreeBytes:    max(total-used-partial, 0),
+		LastProbed:   &now,
 	}
+}
+
+// partialBytes is the disk held by unfinished downloads on the provider. Ollama
+// removes partial files when it starts, so a change of server instance (a new pod
+// or a container restart) first clears what the operator remembered.
+func (r *ModelProviderReconciler) partialBytes(provider string, pod *corev1.Pod) int64 {
+	if r.Pulls == nil {
+		return 0
+	}
+	r.Pulls.ServerRestarted(provider, serverInstance(pod))
+	return r.Pulls.PartialBytes(provider)
+}
+
+// serverInstance identifies one run of the model server: the pod and how many times
+// its containers have restarted.
+func serverInstance(pod *corev1.Pod) string {
+	var restarts int32
+	for _, cs := range pod.Status.ContainerStatuses {
+		restarts += cs.RestartCount
+	}
+	return fmt.Sprintf("%s/%d", pod.UID, restarts)
 }
 
 // modelVolumeCapacity finds the volume mounted at the pod's models directory and

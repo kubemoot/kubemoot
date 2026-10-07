@@ -71,6 +71,11 @@ type EmbeddingModelStatus struct {
 	// +optional
 	ModelInfo *EmbeddingModelInfo `json:"modelInfo,omitempty"`
 
+	// Pull is the download progress while the model is being pulled; it is
+	// cleared once the model is on the provider.
+	// +optional
+	Pull *PullProgress `json:"pull,omitempty"`
+
 	// Message provides additional status information
 	Message string `json:"message,omitempty"`
 

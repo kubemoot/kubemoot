@@ -51,14 +51,26 @@ Declares an inference endpoint. The operator discovers GPU capacity (VRAM, loade
 | `storage.volume` | Ollama pod | The volume mounted at the models directory (`OLLAMA_MODELS`, default `/root/.ollama/models`), for example `pvc/ollama-data` |
 | `storage.totalBytes` | PersistentVolumeClaim | Declared capacity of that volume (an `emptyDir` counts only when it has a size limit) |
 | `storage.modelBytes` | Ollama `/api/tags` | Sum of the sizes of the downloaded models |
-| `storage.freeBytes` | Operator | `totalBytes` minus `modelBytes`, an estimate of the free disk |
+| `storage.partialBytes` | Operator | Disk held by downloads that have not finished: pulls in progress and the partial files a cancelled or failed pull left behind |
+| `storage.freeBytes` | Operator | `totalBytes` minus `modelBytes` and `partialBytes`, an estimate of the free disk |
 
 `storage` is reported whether or not the scheduler is enabled. It is absent when the
 volume cannot be sized (for example a `hostPath` or an `emptyDir` without a limit).
-`freeBytes` is an estimate: layers shared between models are counted once per model and
-partial downloads are not counted. A pull whose remaining download exceeds `freeBytes`
+`freeBytes` is an estimate: layers shared between models are counted once per model.
+A pull whose remaining download exceeds `freeBytes`
 stops and the Model reports `Error` with the amount it is short, instead of the server's
 raw failure; the pull is tried again once `freeBytes` changes.
+
+Ollama lists no partial download in `/api/tags`, and it has no call that removes the
+partial files of a model that never finished: `DELETE /api/delete` answers "not found"
+for a model without a manifest, and the server deletes unused partial files only when it
+starts. The operator therefore does not reclaim them. It counts them instead: it adds
+the bytes each pull downloaded to `partialBytes` while the pull runs, and keeps that
+number when a pull is cancelled (the last Model or EmbeddingModel using the tag was
+deleted or retargeted) or fails. The count is dropped when a later pull of the same tag
+resumes from those files, when the model lands, and when the Ollama pod or container
+restarts. An operator restart forgets the count, so partial files from before the
+restart are not reported until the model server restarts.
 
 A ModelProvider stored with any type other than `ollama` (one created before the API server rejected them) reports `ready: false` with reason `Unsupported` and the same message the API server gives; Models and EmbeddingModels on it report the same message.
 
@@ -141,7 +153,8 @@ A model the provider does not list is downloaded in the background, so the Model
 reconcile returns at once and deleting or changing other Models is never held up by a
 download. Models with the same tag on the same provider share one download. Deleting
 the last Model that uses a tag cancels its download in progress and removes the
-partial model from the provider. If the operator restarts mid-download, the Model
+model from the provider. The partial files of the cancelled download stay on the
+provider's disk and are counted in `storage.partialBytes` (see the ModelProvider status). If the operator restarts mid-download, the Model
 stays `Pulling`, the pull starts again, and the provider resumes the partial files.
 A failed download reports `Error` with the reason and is retried.
 
@@ -202,9 +215,15 @@ Declares an embedding model for RAGSource indexing. Not consumed by chat agents;
 | Field | Description |
 |-------|-------------|
 | `state` | `Pending`, `Pulling`, `Available`, `Error` |
+| `pull` | While `Pulling`: `completedBytes`, `totalBytes` and `percent` of the download, as on a Model. Cleared when the model is on the provider. |
 | `ready` | Model ready for embedding |
 | `endpoint` | Embedding API endpoint (from provider) |
 | `modelInfo` | Dimensions, max input tokens, family |
+
+An embedding model the provider does not list is downloaded in the background on the
+same pull a Model uses, so the reconcile returns at once, a Model and an EmbeddingModel
+with the same tag on the same provider share one download, and deleting the last one that
+wants the tag cancels it.
 
 ### Example
 

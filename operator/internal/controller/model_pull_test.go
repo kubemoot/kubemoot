@@ -47,7 +47,11 @@ func absentOllamaModel(endpoint string) (*aiv1alpha1.Model, *aiv1alpha1.ModelPro
 	return model, provider
 }
 
-const pullTestWait = 5 * time.Second
+const (
+	pullTestWait = 5 * time.Second
+	// otherPullTag is a tag no test Model starts with.
+	otherPullTag = "other:1b"
+)
 
 // fakeOllama is an Ollama server whose /api/pull behavior each test supplies.
 type fakeOllama struct {
@@ -146,7 +150,7 @@ func (h *pullHarness) reconcile() time.Duration {
 }
 
 func (h *pullHarness) tracked() *pullState {
-	return h.r.pulls.get(pullKey(h.model.Spec.ProviderRef, h.model.Spec.Model))
+	return h.r.tracker().get(pullKey(h.model.Spec.ProviderRef, h.model.Spec.Model))
 }
 
 func (h *pullHarness) waitFinished() {
@@ -378,7 +382,7 @@ func TestPull_RestartResumesPullingModel(t *testing.T) {
 	h := newPullHarness(t, newFakeOllama(t, blockedPull(halfDone, release, &cancelled)), 0)
 	h.model.Status.State = statePulling
 	h.model.Status.Pull = &aiv1alpha1.PullProgress{CompletedBytes: 500, TotalBytes: 1000, Percent: 50}
-	h.r.pulls = pullTracker{}
+	h.r.Pulls = &PullTracker{}
 
 	h.reconcile()
 	eventually(t, "the resumed pull", func() bool { return atomic.LoadInt32(&h.f.pulls) == 1 })
@@ -482,7 +486,7 @@ func TestPull_ConcurrentStartsShareOnePull(t *testing.T) {
 	defer close(release)
 	var cancelled atomic.Bool
 	f := newFakeOllama(t, blockedPull(halfDone, release, &cancelled))
-	var tracker pullTracker
+	var tracker PullTracker
 	var wg sync.WaitGroup
 	for i := 0; i < 16; i++ {
 		wg.Add(1)
@@ -508,12 +512,12 @@ func TestPull_ChangingTheTagCancelsTheOldPull(t *testing.T) {
 	h.reconcile()
 	eventually(t, "the pull request", func() bool { return atomic.LoadInt32(&h.f.pulls) == 1 })
 
-	h.model.Spec.Model = "other:1b"
+	h.model.Spec.Model = otherPullTag
 	stored := &aiv1alpha1.Model{}
 	if err := h.r.Get(context.Background(), client.ObjectKeyFromObject(h.model), stored); err != nil {
 		t.Fatalf("get stored Model: %v", err)
 	}
-	stored.Spec.Model = "other:1b"
+	stored.Spec.Model = otherPullTag
 	if err := h.r.Update(context.Background(), stored); err != nil {
 		t.Fatalf("update stored Model: %v", err)
 	}
@@ -521,7 +525,7 @@ func TestPull_ChangingTheTagCancelsTheOldPull(t *testing.T) {
 	h.model.UID = "uid-1" // the fake client resets the UID on a status write
 	h.reconcile()
 	eventually(t, "the old pull to be cancelled", cancelled.Load)
-	if h.r.pulls.get(pullKey(h.model.Spec.ProviderRef, testModelID)) != nil {
+	if h.r.tracker().get(pullKey(h.model.Spec.ProviderRef, testModelID)) != nil {
 		t.Error("the pull for the old tag must leave the tracker")
 	}
 }
