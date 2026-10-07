@@ -44,8 +44,7 @@ func modelTestScheme(t *testing.T) *runtime.Scheme {
 }
 
 // A transient provider probe failure (/api/tags returns 500) must NOT trigger a
-// model pull. pullOllamaModel does a long synchronous download that blocks the
-// reconcile worker; spurious-pulling on a momentary blip is what left fresh crew
+// model pull. A pull downloads gigabytes; spurious-pulling on a momentary blip is what left fresh crew
 // Models stuck and their agents Unschedulable. The reconcile must requeue and
 // leave an already-Ready model untouched.
 func TestReconcileOllamaModel_ProbeErrorDoesNotPull(t *testing.T) {
@@ -92,7 +91,7 @@ func TestReconcileOllamaModel_ProbeErrorDoesNotPull(t *testing.T) {
 // When the provider answers and the model is genuinely absent, the reconcile
 // pulls it. This is the legitimate counterpart to the probe-error case above.
 // A TLS server is used deliberately: the default transport would reject the
-// server's self-signed cert, so a passing pull assertion proves pullOllamaModel
+// server's self-signed cert, so a passing pull assertion proves the pull
 // honors the injected r.HTTPClient (srv.Client) rather than a fresh client.
 func TestReconcileOllamaModel_AbsentTriggersPull(t *testing.T) {
 	var pulls int32
@@ -121,7 +120,5 @@ func TestReconcileOllamaModel_AbsentTriggersPull(t *testing.T) {
 	if _, err := r.reconcileOllamaModel(context.Background(), model, provider); err != nil {
 		t.Fatalf("reconcileOllamaModel returned error: %v", err)
 	}
-	if c := atomic.LoadInt32(&pulls); c != 1 {
-		t.Errorf("absent model should trigger exactly one pull; got %d", c)
-	}
+	eventually(t, "the background pull", func() bool { return atomic.LoadInt32(&pulls) == 1 })
 }

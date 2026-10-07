@@ -20,6 +20,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"time"
@@ -43,6 +44,9 @@ type ModelReconciler struct {
 	client.Client
 	Scheme     *runtime.Scheme
 	HTTPClient *http.Client
+
+	// pulls tracks the downloads this process has started.
+	pulls pullTracker
 }
 
 // ollamaDisplayName is how errors name the Ollama provider. It is passed as an
@@ -164,11 +168,10 @@ func (r *ModelReconciler) reconcileOllamaModel(ctx context.Context, model *aiv1a
 	// Check if model exists locally in Ollama
 	modelInfo, err := r.getOllamaModelInfo(ctx, httpClient, provider.Spec.Endpoint, model.Spec.Model)
 	if err != nil {
-		// The probe failed (provider busy or momentarily unreachable). Do NOT treat
-		// this as "model absent" and start a pull: pullOllamaModel blocks the
-		// reconcile worker on a long synchronous download, head-of-line-blocking
-		// every other Model. Preserve the current state and retry shortly — a model
-		// that was already Available stays Available across a transient blip.
+		// The probe failed (provider busy or momentarily unreachable). That is not
+		// proof the model is absent, so do not start a pull. Keep the current state
+		// and retry shortly: a model that was already Available stays Available
+		// across a transient blip.
 		log.Error(err, "Failed to probe model in Ollama; retrying without changing state", "model", model.Spec.Model)
 		return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
 	}
@@ -176,9 +179,11 @@ func (r *ModelReconciler) reconcileOllamaModel(ctx context.Context, model *aiv1a
 	if modelInfo == nil {
 		// Model genuinely absent from the provider — pull it.
 		log.Info("Model not found in Ollama, initiating pull", "model", model.Spec.Model)
-		return r.pullOllamaModel(ctx, httpClient, model, provider)
+		return r.reconcilePull(ctx, httpClient, model, provider)
 	}
 
+	// The model is listed, so any finished pull record is stale.
+	r.pulls.drop(pullKey(model.Spec.ProviderRef, model.Spec.Model))
 	return r.reportOllamaModel(ctx, httpClient, model, provider, modelInfo)
 }
 
@@ -217,8 +222,8 @@ func (r *ModelReconciler) reportOllamaModel(ctx context.Context, httpClient *htt
 	return r.updateModelStatus(ctx, model, state, true, "Model available", info)
 }
 
-// getOllamaModelInfo retrieves model info from Ollama
-func (r *ModelReconciler) getOllamaModelInfo(ctx context.Context, httpClient *http.Client, endpoint, modelName string) (*OllamaModelInfo, error) {
+// listOllamaTags lists the models downloaded on an Ollama server.
+func listOllamaTags(ctx context.Context, httpClient *http.Client, endpoint string) ([]OllamaModelInfo, error) {
 	resp, err := httpGet(ctx, httpClient, fmt.Sprintf("%s/api/tags", endpoint))
 	if err != nil {
 		return nil, err
@@ -233,13 +238,20 @@ func (r *ModelReconciler) getOllamaModelInfo(ctx context.Context, httpClient *ht
 	if err := json.NewDecoder(resp.Body).Decode(&tagsResp); err != nil {
 		return nil, err
 	}
+	return tagsResp.Models, nil
+}
 
-	for _, m := range tagsResp.Models {
+// getOllamaModelInfo retrieves model info from Ollama; nil means the model is absent.
+func (r *ModelReconciler) getOllamaModelInfo(ctx context.Context, httpClient *http.Client, endpoint, modelName string) (*OllamaModelInfo, error) {
+	models, err := listOllamaTags(ctx, httpClient, endpoint)
+	if err != nil {
+		return nil, err
+	}
+	for _, m := range models {
 		if m.Name == modelName {
 			return &m, nil
 		}
 	}
-
 	return nil, nil
 }
 
@@ -269,53 +281,95 @@ func (r *ModelReconciler) isModelLoaded(ctx context.Context, httpClient *http.Cl
 	return false, nil
 }
 
-// pullOllamaModel initiates a model pull in Ollama
-func (r *ModelReconciler) pullOllamaModel(ctx context.Context, httpClient *http.Client, model *aiv1alpha1.Model, provider *aiv1alpha1.ModelProvider) (ctrl.Result, error) {
-	log := logf.FromContext(ctx)
-
-	// Update status to pulling
-	if _, err := r.updateModelStatus(ctx, model, statePulling, false, "Pulling model from registry", nil); err != nil {
+// reconcilePull drives the download of a model the provider does not list. The pull
+// runs in a goroutine that outlives the reconcile, so this returns at once: it starts
+// the pull, reports the progress of a running one, or reports how a finished one
+// ended. A pull is tracked per provider and tag, so a second reconcile (or a second
+// Model with the same tag) never starts a duplicate. After an operator restart the
+// tracker is empty, so a Model still Pulling starts its pull again and Ollama
+// resumes the partial download.
+func (r *ModelReconciler) reconcilePull(ctx context.Context, httpClient *http.Client, model *aiv1alpha1.Model, provider *aiv1alpha1.ModelProvider) (ctrl.Result, error) {
+	key := pullKey(model.Spec.ProviderRef, model.Spec.Model)
+	free := providerFreeBytes(provider)
+	if err := r.dropStalePulls(ctx, model, key); err != nil {
 		return ctrl.Result{}, err
 	}
-
-	// Make pull request (non-streaming for simplicity)
-	pullReq := OllamaPullRequest{
-		Name:   model.Spec.Model,
-		Stream: false,
+	if state := r.pulls.get(key); state != nil {
+		if res, handled, err := r.consumePull(ctx, httpClient, model, provider, key, state, free); handled {
+			return res, err
+		}
 	}
+	logf.FromContext(ctx).Info("Model not found in Ollama, starting pull", "model", model.Spec.Model, "provider", provider.Name)
+	startPull(&r.pulls, key, model.UID, pullStream{endpoint: provider.Spec.Endpoint, tag: model.Spec.Model, freeBytes: free, client: httpClient})
+	model.Status.Pull = pullProgress(0, 0)
+	return r.updateModelStatus(ctx, model, statePulling, false, pullMessage(model.Status.Pull), nil)
+}
 
-	reqBody, err := json.Marshal(pullReq)
-	if err != nil {
-		return ctrl.Result{}, err
+// dropStalePulls cancels pulls this Model started under a provider or tag it no
+// longer names, unless another Model still needs them.
+func (r *ModelReconciler) dropStalePulls(ctx context.Context, model *aiv1alpha1.Model, current string) error {
+	for _, key := range r.pulls.ownedBy(model.UID) {
+		if key == current {
+			continue
+		}
+		list := &aiv1alpha1.ModelList{}
+		if err := r.List(ctx, list); err != nil {
+			return err
+		}
+		if !keyInUse(list.Items, model, key) {
+			r.pulls.drop(key)
+		}
 	}
+	return nil
+}
 
-	// Use a longer timeout for pull operations, but keep the injected transport so
-	// r.HTTPClient (used by tests and any custom transport) is honored on the pull
-	// path too — this is the call that must be redirectable in tests.
-	pullClient := *httpClient
-	pullClient.Timeout = 30 * time.Minute
-	resp, err := pullClient.Post(
-		fmt.Sprintf("%s/api/pull", provider.Spec.Endpoint),
-		"application/json",
-		bytes.NewReader(reqBody),
-	)
-	if err != nil {
-		log.Error(err, "Failed to pull model")
-		return r.updateModelStatus(ctx, model, "Error", false, fmt.Sprintf("Failed to pull model: %v", err), nil)
+// keyInUse reports whether a Model other than self, not being deleted, wants the pull key.
+func keyInUse(models []aiv1alpha1.Model, self *aiv1alpha1.Model, key string) bool {
+	for i := range models {
+		m := &models[i]
+		if m.UID != self.UID && m.DeletionTimestamp.IsZero() && pullKey(m.Spec.ProviderRef, m.Spec.Model) == key {
+			return true
+		}
 	}
-	defer func() { _ = resp.Body.Close() }()
+	return false
+}
 
-	if resp.StatusCode != http.StatusOK {
-		return r.updateModelStatus(ctx, model, "Error", false, fmt.Sprintf("Pull failed with status %d", resp.StatusCode), nil)
+// consumePull reports a tracked pull. handled is false when the entry was dropped
+// and a new pull should start in its place.
+func (r *ModelReconciler) consumePull(ctx context.Context, httpClient *http.Client, model *aiv1alpha1.Model, provider *aiv1alpha1.ModelProvider, key string, state *pullState, free int64) (res ctrl.Result, handled bool, err error) {
+	out := state.outcome()
+	pullErr := out.err
+	switch {
+	case !out.finished:
+		completed, total := state.totals()
+		model.Status.Pull = pullProgress(completed, total)
+		res, err = r.updateModelStatus(ctx, model, statePulling, false, pullMessage(model.Status.Pull), nil)
+		return res, true, err
+	case pullErr == nil:
+		r.pulls.drop(key)
+		res, err = r.reconcileAfterPull(ctx, httpClient, model, provider, "success")
+		return res, true, err
+	case errors.Is(pullErr, errNoSpace) && free != out.freeAtFailure:
+		// The provider's free disk changed since the pull failed, so try again.
+		r.pulls.drop(key)
+		return ctrl.Result{}, false, nil
+	case errors.Is(pullErr, errNoSpace):
+		// Keep the failure until the free disk changes; do not retry on a timer.
+		res, err = r.updateModelStatus(ctx, model, stateError, false, pullErr.Error(), nil)
+		return res, true, err
+	default:
+		r.pulls.drop(key)
+		res, err = r.updateModelStatus(ctx, model, stateError, false, pullErr.Error(), nil)
+		return res, true, err
 	}
+}
 
-	var pullResp OllamaPullResponse
-	if err := json.NewDecoder(resp.Body).Decode(&pullResp); err != nil {
-		log.Error(err, "Failed to parse pull response")
+// providerFreeBytes is the provider's estimated free disk, or 0 when unknown.
+func providerFreeBytes(provider *aiv1alpha1.ModelProvider) int64 {
+	if provider.Status.Storage == nil {
+		return 0
 	}
-
-	log.Info("Model pull completed", "model", model.Spec.Model, "status", pullResp.Status)
-	return r.reconcileAfterPull(ctx, httpClient, model, provider, pullResp.Status)
+	return provider.Status.Storage.FreeBytes
 }
 
 // reconcileAfterPull acts on what the provider lists once a pull has returned 200.
@@ -361,8 +415,17 @@ func (r *ModelReconciler) handleDeletion(ctx context.Context, model *aiv1alpha1.
 
 	log.Info("Handling model deletion", "model", model.Spec.Model)
 
+	inUse, err := r.tagUsedByOtherModel(ctx, model)
+	if err != nil {
+		return ctrl.Result{}, fmt.Errorf("checking other Models for tag %s: %w", model.Spec.Model, err)
+	}
+	if !inUse {
+		// Stop a download of the tag that is still running before the file is removed.
+		r.pulls.drop(pullKey(model.Spec.ProviderRef, model.Spec.Model))
+	}
+
 	if provider != nil && provider.Spec.Type == aiv1alpha1.ProviderTypeOllama {
-		if err := r.releaseOllamaModel(ctx, model, provider); err != nil {
+		if err := r.releaseOllamaModel(ctx, model, provider, inUse); err != nil {
 			return ctrl.Result{}, err
 		}
 	}
@@ -375,13 +438,9 @@ func (r *ModelReconciler) handleDeletion(ctx context.Context, model *aiv1alpha1.
 	return ctrl.Result{}, nil
 }
 
-// releaseOllamaModel deletes the model file from Ollama when no other Model on the
-// provider uses the same tag.
-func (r *ModelReconciler) releaseOllamaModel(ctx context.Context, model *aiv1alpha1.Model, provider *aiv1alpha1.ModelProvider) error {
-	inUse, err := r.tagUsedByOtherModel(ctx, model)
-	if err != nil {
-		return fmt.Errorf("checking other Models for tag %s: %w", model.Spec.Model, err)
-	}
+// releaseOllamaModel deletes the model file from Ollama unless inUse reports that
+// another Model on the provider uses the same tag.
+func (r *ModelReconciler) releaseOllamaModel(ctx context.Context, model *aiv1alpha1.Model, provider *aiv1alpha1.ModelProvider, inUse bool) error {
 	if inUse {
 		logf.FromContext(ctx).Info("Another Model on the provider uses this tag, keeping it", "model", model.Spec.Model, "provider", provider.Name)
 		return nil
@@ -472,6 +531,9 @@ func (r *ModelReconciler) updateModelStatus(ctx context.Context, model *aiv1alph
 	model.Status.State = state
 	model.Status.Ready = ready
 	model.Status.Message = message
+	if state != statePulling {
+		model.Status.Pull = nil
+	}
 	if info != nil {
 		model.Status.ModelInfo = info
 	}
@@ -524,8 +586,8 @@ func (r *ModelReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&aiv1alpha1.Model{}).
 		Named("model").
-		// Reconcile Models concurrently. A genuine pull is a long synchronous call;
-		// with a single worker one pull would block every other Model's reconcile.
+		// Reconcile Models concurrently; pulls run outside the reconcile, and the
+		// pull tracker is safe for concurrent workers.
 		WithOptions(controller.Options{MaxConcurrentReconciles: 4}).
 		Complete(r)
 }

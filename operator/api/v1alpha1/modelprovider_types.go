@@ -96,6 +96,11 @@ type ModelProviderStatus struct {
 	// +optional
 	Capacity *DiscoveredCapacity `json:"capacity,omitempty"`
 
+	// Storage is the disk the provider keeps its models on, when the operator
+	// can find the volume behind the Ollama pod
+	// +optional
+	Storage *ProviderStorage `json:"storage,omitempty"`
+
 	// Message provides additional status information
 	// +optional
 	Message string `json:"message,omitempty"`
@@ -103,6 +108,33 @@ type ModelProviderStatus struct {
 	// Conditions represent the latest available observations
 	// +optional
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
+}
+
+// ProviderStorage describes the volume that holds a provider's model files.
+// FreeBytes is an estimate: the volume's declared capacity minus the sizes
+// Ollama lists for its downloaded models. Layers shared between models are
+// counted once per model and partial downloads are not counted, so the real
+// free space can differ slightly.
+type ProviderStorage struct {
+	// Volume names the backing volume, for example "pvc/ollama-data"
+	// +optional
+	Volume string `json:"volume,omitempty"`
+
+	// TotalBytes is the declared capacity of the volume
+	// +optional
+	TotalBytes int64 `json:"totalBytes,omitempty"`
+
+	// ModelBytes is the sum of the sizes of the models the provider lists
+	// +optional
+	ModelBytes int64 `json:"modelBytes,omitempty"`
+
+	// FreeBytes is TotalBytes minus ModelBytes, never below zero
+	// +optional
+	FreeBytes int64 `json:"freeBytes,omitempty"`
+
+	// LastProbed is when the storage was last measured
+	// +optional
+	LastProbed *metav1.Time `json:"lastProbed,omitempty"`
 }
 
 // AvailableModel represents a model downloaded on a provider (from /api/tags).

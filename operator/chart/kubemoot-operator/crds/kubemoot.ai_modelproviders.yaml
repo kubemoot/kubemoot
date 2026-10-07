@@ -299,6 +299,33 @@ spec:
               ready:
                 description: Ready indicates if the provider is ready
                 type: boolean
+              storage:
+                description: |-
+                  Storage is the disk the provider keeps its models on, when the operator
+                  can find the volume behind the Ollama pod
+                properties:
+                  freeBytes:
+                    description: FreeBytes is TotalBytes minus ModelBytes, never below
+                      zero
+                    format: int64
+                    type: integer
+                  lastProbed:
+                    description: LastProbed is when the storage was last measured
+                    format: date-time
+                    type: string
+                  modelBytes:
+                    description: ModelBytes is the sum of the sizes of the models
+                      the provider lists
+                    format: int64
+                    type: integer
+                  totalBytes:
+                    description: TotalBytes is the declared capacity of the volume
+                    format: int64
+                    type: integer
+                  volume:
+                    description: Volume names the backing volume, for example "pvc/ollama-data"
+                    type: string
+                type: object
             type: object
         type: object
     served: true

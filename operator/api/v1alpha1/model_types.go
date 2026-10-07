@@ -74,6 +74,11 @@ type ModelStatus struct {
 	// +optional
 	ModelInfo *ModelInfo `json:"modelInfo,omitempty"`
 
+	// Pull reports download progress while State is Pulling and is cleared
+	// once the model is on the provider.
+	// +optional
+	Pull *PullProgress `json:"pull,omitempty"`
+
 	// Message provides additional status information
 	// +optional
 	Message string `json:"message,omitempty"`
@@ -81,6 +86,22 @@ type ModelStatus struct {
 	// Conditions represent the latest available observations
 	// +optional
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
+}
+
+// PullProgress is the download progress of a model being pulled onto a provider.
+type PullProgress struct {
+	// CompletedBytes is how many bytes of the known layers have downloaded
+	// +optional
+	CompletedBytes int64 `json:"completedBytes,omitempty"`
+
+	// TotalBytes is the combined size of the layers the provider has announced so
+	// far; it can grow while the pull discovers more layers
+	// +optional
+	TotalBytes int64 `json:"totalBytes,omitempty"`
+
+	// Percent is CompletedBytes as a whole percentage of TotalBytes
+	// +optional
+	Percent int32 `json:"percent,omitempty"`
 }
 
 // ModelInfo contains metadata about a downloaded model
@@ -124,6 +145,7 @@ type ModelInfo struct {
 // +kubebuilder:printcolumn:name="Provider",type=string,JSONPath=`.spec.providerRef`
 // +kubebuilder:printcolumn:name="Model",type=string,JSONPath=`.spec.model`
 // +kubebuilder:printcolumn:name="State",type=string,JSONPath=`.status.state`
+// +kubebuilder:printcolumn:name="Progress",type=integer,JSONPath=`.status.pull.percent`
 // +kubebuilder:printcolumn:name="Size",type=string,JSONPath=`.status.modelInfo.size`
 // +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
 
