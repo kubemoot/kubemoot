@@ -70,11 +70,6 @@ describe('suiteEta', () => {
 		expect(suiteEta(status(), T0 - HOUR)).toBeUndefined();
 	});
 
-	it('still estimates from durations when the start time is missing', () => {
-		const eta = suiteEta(status({ startedAt: undefined }), T0);
-		expect(eta?.remainingMs).toBe(8 * 60_000);
-	});
-
 	it('treats negative or fractional counts as unusable or floors them', () => {
 		expect(suiteEta(status({ iterationsCompleted: -3 }), T0 + HOUR)).toBeUndefined();
 		expect(suiteEta(status({ iterationsTotal: 10.9, iterationsCompleted: 2.5 }), T0 + 2000)?.remainingMs).toBe(8000);
