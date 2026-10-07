@@ -63,6 +63,7 @@ jobs:
           bash .github/scripts/test-build-image-buildpacks.sh
           bash .github/scripts/test-go-build-static.sh
           bash .github/scripts/test-retag-image.sh
+          bash .github/scripts/test-check-native-libs.sh
           bash .github/scripts/test-java-toolchain-version.sh
           bash k8s/tests/job/run.test.sh
           bash .github/scripts/test-osv-ignores.sh --self

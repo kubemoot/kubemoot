@@ -82,11 +82,10 @@ dependencies {
     // SSE support
     implementation("io.quarkus:quarkus-rest-qute")
 
-    // Container image build (Kaniko in CI, no Docker daemon required)
-    // No container-image extension: images are built by Paketo buildpacks with the
-    // pack CLI (GitHub-hosted runners, laptops; see .github/workflows/quickstart.yaml)
-    // or, on the in-cluster ARC runners that have no Docker daemon, by Kaniko around
-    // the native binary (src/main/docker/Dockerfile.native).
+    // No container-image extension. CI compiles the native binary on the runner, then
+    // Paketo buildpacks package it unchanged: the Procfile buildpack runs it as the web
+    // process (src/main/buildpacks/Procfile) on the pinned ubuntu-noble-run-tiny run image,
+    // in an in-cluster build pod (.github/workflows/ci-agent-runtime.yaml).
 
     // Testing
     testImplementation("io.quarkus:quarkus-junit5")
