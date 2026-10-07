@@ -7,12 +7,14 @@ on:
     paths:
       - 'mcp-gateway/**'
       - 'config/checkstyle/**'
+      - '.github/buildpacks/**'
+      - '.github/scripts/build-image-buildpacks.sh'
+      - '.github/scripts/java-toolchain-version.sh'
+      - '.github/workflows/build-boot-jar-image.yaml'
   workflow_dispatch:
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-  REGISTRY: ${{ vars.REGISTRY }}
-  IMAGE_NAME: kubemoot/mcp-gateway
 
 permissions:
   contents: read
@@ -22,74 +24,50 @@ jobs:
     # Pull requests (including forks) run on GitHub-hosted runners; the self-hosted
     # cluster runners take push, dispatch, and workflow_call runs from main only.
     runs-on: ${{ github.event_name == 'pull_request' && 'ubuntu-latest' || 'homelab-runners' }}
+    outputs:
+      java-version: ${{ steps.java.outputs.version }}
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: Set up JDK 25
+      # The Gradle toolchain is the one place the Java version is written.
+      - name: Read the Java toolchain version
+        id: java
+        run: echo "version=$(.github/scripts/java-toolchain-version.sh mcp-gateway/build.gradle.kts)" >> "$GITHUB_OUTPUT"
+
+      - name: Set up JDK ${{ steps.java.outputs.version }}
         uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
         with:
-          java-version: '25'
+          java-version: ${{ steps.java.outputs.version }}
           distribution: 'temurin'
           cache: 'gradle'
 
-      - name: Grant execute permission for gradlew
-        working-directory: mcp-gateway
-        run: chmod +x gradlew
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@3f5f9adaf7d9fecd50b5935e54106014257a94e6 # v6.4.0
 
       - name: Build and test
         working-directory: mcp-gateway
         run: ./gradlew build
 
+      # The image packages this tested jar; the build pod does not compile again.
+      - name: Keep the tested jar for the image build
+        if: github.event_name != 'pull_request'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: mcp-gateway-jar
+          path: |
+            mcp-gateway/build/libs/*.jar
+            !mcp-gateway/build/libs/*-plain.jar
+          if-no-files-found: error
+          retention-days: 3
+          # A jar is already a zip; compressing it again only costs time.
+          compression-level: 0
+
   build-image:
     needs: test
-    runs-on: homelab-runners
     if: github.event_name != 'pull_request'
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
-      - name: Install kubectl
-        run: |
-          curl -sLO "https://dl.k8s.io/release/$(curl -sL https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
-          chmod +x kubectl && sudo mv kubectl /usr/local/bin/
-
-      - name: Build and push with Kaniko
-        run: |
-          SHA="${{ github.sha }}"
-          JOB_NAME="kaniko-mcp-gateway-$(echo ${SHA} | cut -c1-8)-${GITHUB_RUN_NUMBER}"
-
-          tar -C mcp-gateway -czf /tmp/context.tar.gz .
-
-          kubectl run ${JOB_NAME} \
-            --rm -i \
-            --restart=Never \
-            --namespace=arc-runners \
-            --image=gcr.io/kaniko-project/executor:latest \
-            --overrides='{
-              "spec": {
-                "hostAliases": [{"ip": "${{ vars.REGISTRY_HOST_IP }}", "hostnames": ["${{ vars.REGISTRY }}"]}],
-                "containers": [{
-                  "name": "kaniko",
-                  "image": "gcr.io/kaniko-project/executor:latest",
-                  "stdin": true,
-                  "stdinOnce": true,
-                  "args": [
-                    "--context=tar://stdin",
-                    "--dockerfile=Dockerfile",
-                    "--label=org.opencontainers.image.source=https://github.com/kubemoot/kubemoot",
-                    "--label=org.opencontainers.image.licenses=Apache-2.0",
-                    "--label=org.opencontainers.image.revision='"${SHA}"'",
-                    "--destination=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:'"${SHA}"'",
-                    "--destination=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest",
-                    "--insecure",
-                    "--skip-tls-verify",
-                    "--cache=false"
-                  ],
-                  "volumeMounts": [{"name": "docker-config", "mountPath": "/kaniko/.docker"}]
-                }],
-                "volumes": [{"name": "docker-config", "secret": {"secretName": "kaniko-docker-config", "items": [{"key": "config.json", "path": "config.json"}]}}]
-              }
-            }' < /tmp/context.tar.gz
+    uses: ./.github/workflows/build-boot-jar-image.yaml
+    with:
+      name: mcp-gateway
+      java-version: ${{ needs.test.outputs.java-version }}

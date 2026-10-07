@@ -8,6 +8,8 @@ on:
       - '!indexer/**.md'
       - '.github/buildpacks/**'
       - '.github/scripts/build-image-buildpacks.sh'
+      - '.github/scripts/java-toolchain-version.sh'
+      - '.github/workflows/build-boot-jar-image.yaml'
   workflow_dispatch:
     inputs:
       force_release:
