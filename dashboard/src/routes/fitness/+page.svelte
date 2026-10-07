@@ -12,7 +12,8 @@
 		type SuiteAction
 	} from '#lib/fitness-suite-controls.js';
 	import { SYNTHESIS_COLLAPSE_CHARS, artifactKey, artifactHref } from '#lib/discussion-artifacts.js';
-	import { durTitle, fmtDur, formatBytes, iterDurText, suiteDurMs, suiteMarkdown } from '#lib/fitness-format.js';
+	import { durTitle, fmtDateTime, fmtDur, formatBytes, iterDurText, suiteDurMs, suiteMarkdown } from '#lib/fitness-format.js';
+	import { etaText, meanDurationMs, suiteEta } from '#lib/fitness-eta.js';
 	import {
 		SUITE_LABEL,
 		TERMINAL_PHASES,
@@ -198,6 +199,11 @@
 		return [...done, ...live];
 	}
 
+	// Durations of a suite's completed iterations (empty until its rows are loaded).
+	function completedDurations(id: string): number[] {
+		return (iterations[id] ?? []).filter((i) => !i.running).map((i) => i.durationMs);
+	}
+
 	// Group a suite's flat iteration list by scenario, with per-scenario rollups
 	// (pass count + mean duration) so each scenario shows once instead of N rows.
 	function groupScenarios(its: Iteration[]): ScenarioGroup[] {
@@ -210,8 +216,7 @@
 		for (const [scenario, list] of m) {
 			const completed = list.filter((i) => !i.running);
 			const passed = completed.filter((i) => i.status === 'Passed').length;
-			const durs = completed.map((i) => i.durationMs).filter((d) => d > 0);
-			const meanMs = durs.length ? Math.round(durs.reduce((a, b) => a + b, 0) / durs.length) : 0;
+			const meanMs = Math.round(meanDurationMs(completed.map((i) => i.durationMs)));
 			groups.push({
 				scenario,
 				scriptIdx: list[0].scriptIdx,
@@ -616,6 +621,7 @@
 			{@const ns = suite.metadata.namespace ?? ''}
 			{@const name = suite.metadata.name ?? ''}
 			{@const id = `${ns}/${name}`}
+			{@const eta = suiteEta(s, now, completedDurations(id))}
 			<tbody>
 				<tr class="suite-row" onclick={() => toggleSuite(ns, name)}>
 					<td class="c-caret">{openSuite[id] ? '▼' : '▶'}</td>
@@ -628,11 +634,12 @@
 					</td>
 					<td class="name">
 						{name}
+						<div class="desc">Crew: {suite.spec.crewRef}{#if s?.startedAt} · Started {fmtDateTime(s.startedAt)}{/if}</div>
 						{#if suite.spec.description}<div class="desc">{suite.spec.description}</div>{/if}
 					</td>
 					<td class="mono"><span class="passed">{s?.passed ?? 0}</span>/<span class="failed">{s?.failed ?? 0}</span>/<span class="errored">{s?.errored ?? 0}</span></td>
 					<td class="mono">{s?.iterationsCompleted ?? 0}/{s?.iterationsTotal ?? 0}</td>
-					<td class="mono" title={durTitle(s?.startedAt, s?.completedAt)}>{fmtDur(suiteDurMs(s, now))}</td>
+					<td class="mono" title={durTitle(s?.startedAt, s?.completedAt)}>{fmtDur(suiteDurMs(s, now))}{#if eta}<div class="desc" title="Estimate: iterations left x mean duration of completed iterations">{etaText(eta)}</div>{/if}</td>
 					<td>
 						<button class="copy-btn" title="Copy this suite's details to the clipboard" onclick={(e) => copySuite(suite, e)}>{copiedKey === id ? '✓' : '📋'}</button>
 						{#if s?.artifactRef?.objectKey}
