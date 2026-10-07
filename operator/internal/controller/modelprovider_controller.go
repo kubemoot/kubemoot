@@ -100,6 +100,10 @@ type ModelProviderReconciler struct {
 	HTTPClient    *http.Client
 	ConfigCache   *ConfigCache
 	NATSPublisher *kubemootnats.Publisher
+
+	// Pulls is the tracker shared with the Model controllers; it reports the disk
+	// held by unfinished downloads. Nil counts none.
+	Pulls *PullTracker
 }
 
 // OllamaVersionResponse represents the response from Ollama /api/version

@@ -25,11 +25,13 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"reflect"
 	"strings"
 	"sync"
 	"time"
 
 	"k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	aiv1alpha1 "github.com/kubemoot/kubemoot/operator/api/v1alpha1"
 )
@@ -48,7 +50,9 @@ func pullKey(providerRef, tag string) string { return providerRef + "/" + tag }
 // pullState is one pull running outside the reconcile loop, or its outcome.
 type pullState struct {
 	cancel context.CancelFunc
-	owner  types.UID
+	owners map[types.UID]bool
+	// provider names the ModelProvider the pull downloads onto.
+	provider string
 
 	mu       sync.Mutex
 	layers   map[string]*pullLayer
@@ -61,6 +65,20 @@ type pullState struct {
 
 // pullLayer is the progress of one layer of a model download.
 type pullLayer struct{ Total, Completed int64 }
+
+// addOwner records another object that wants the pull, so the pull is released
+// only when none of its owners still wants it.
+func (p *pullState) addOwner(owner types.UID) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.owners[owner] = true
+}
+
+func (p *pullState) hasOwner(owner types.UID) bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.owners[owner]
+}
 
 func (p *pullState) setLayer(digest string, total, completed int64) {
 	p.mu.Lock()
@@ -89,6 +107,12 @@ func (p *pullState) finish(err error, freeBytes int64) {
 	}
 }
 
+// succeeded reports whether the pull finished and the model downloaded.
+func (p *pullState) succeeded() bool {
+	out := p.outcome()
+	return out.finished && out.err == nil
+}
+
 // pullOutcome is how far a pull got.
 type pullOutcome struct {
 	finished      bool
@@ -102,46 +126,277 @@ func (p *pullState) outcome() pullOutcome {
 	return pullOutcome{finished: p.finished, err: p.err, freeAtFailure: p.freeAtFailure}
 }
 
-// pullTracker holds the pulls this operator process has started. A restarted
-// operator starts empty; a Model still Pulling then starts its pull again and
-// Ollama resumes the partial download.
-type pullTracker struct {
-	mu    sync.Mutex
-	pulls map[string]*pullState
+// PullTracker holds the pulls this operator process has started, shared by every
+// controller that downloads models. A restarted operator starts empty; a model still
+// Pulling then starts its pull again and Ollama resumes the partial download.
+//
+// Ollama has no API that removes the partial files of an unfinished model, and it
+// prunes them only when the server starts. The tracker therefore also remembers the
+// bytes a cancelled or failed pull left on disk, so the provider's free-disk
+// estimate can count them until the model server restarts.
+type PullTracker struct {
+	mu        sync.Mutex
+	pulls     map[string]*pullState
+	leftovers map[string]leftover
+	instances map[string]string
 }
 
-func (t *pullTracker) get(key string) *pullState {
+// leftover is the partial download a stopped pull left on a provider's disk.
+type leftover struct {
+	provider string
+	bytes    int64
+}
+
+func (t *PullTracker) get(key string) *pullState {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	return t.pulls[key]
 }
 
-// ownedBy lists the keys of pulls started for the Model with the given UID.
-func (t *pullTracker) ownedBy(owner types.UID) []string {
+// ownedBy lists the keys of pulls started for the object with the given UID.
+func (t *PullTracker) ownedBy(owner types.UID) []string {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	var keys []string
 	for k, p := range t.pulls {
-		if p.owner == owner {
+		if p.hasOwner(owner) {
 			keys = append(keys, k)
 		}
 	}
 	return keys
 }
 
-// drop forgets a pull and cancels it when it is still running.
-func (t *pullTracker) drop(key string) {
+// forget drops a pull whose model is on the provider, and any partial record. A
+// pull still running is cancelled.
+func (t *PullTracker) forget(key string) {
 	t.mu.Lock()
 	p := t.pulls[key]
 	delete(t.pulls, key)
+	delete(t.leftovers, key)
 	t.mu.Unlock()
 	if p != nil {
 		p.cancel()
 	}
 }
 
+// abandon stops a pull that did not finish and remembers the bytes it downloaded,
+// which stay on the provider's disk as partial files.
+func (t *PullTracker) abandon(key string) {
+	t.mu.Lock()
+	p := t.pulls[key]
+	delete(t.pulls, key)
+	if p != nil && !p.succeeded() {
+		if completed, _ := p.totals(); completed > 0 {
+			if t.leftovers == nil {
+				t.leftovers = map[string]leftover{}
+			}
+			t.leftovers[key] = leftover{provider: p.provider, bytes: completed}
+		}
+	}
+	t.mu.Unlock()
+	if p != nil {
+		p.cancel()
+	}
+}
+
+// PartialBytes is the disk the provider holds for unfinished downloads: pulls in
+// progress plus the partial files of stopped ones.
+func (t *PullTracker) PartialBytes(provider string) int64 {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	var sum int64
+	for _, l := range t.leftovers {
+		if l.provider == provider {
+			sum += l.bytes
+		}
+	}
+	for _, p := range t.pulls {
+		if p.provider == provider && !p.succeeded() {
+			completed, _ := p.totals()
+			sum += completed
+		}
+	}
+	return sum
+}
+
+// ServerRestarted records the identity of the model server instance behind a
+// provider (for example its pod UID and restart count) and clears the partial
+// files remembered for it when the identity changed, since Ollama removes them
+// when it starts.
+func (t *PullTracker) ServerRestarted(provider, instance string) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.instances == nil {
+		t.instances = map[string]string{}
+	}
+	previous, seen := t.instances[provider]
+	t.instances[provider] = instance
+	if !seen || previous == instance {
+		return
+	}
+	for k, l := range t.leftovers {
+		if l.provider == provider {
+			delete(t.leftovers, k)
+		}
+	}
+}
+
+// pullPhase is where a pull stands after advance.
+type pullPhase int
+
+const (
+	pullRunning pullPhase = iota
+	pullSucceeded
+	pullFailed
+)
+
+// pullStep is what a controller reports after advancing a pull.
+type pullStep struct {
+	phase    pullPhase
+	progress *aiv1alpha1.PullProgress
+	err      error
+}
+
+// advance moves the pull for key one step: it reports a pull in progress, how a
+// finished one ended, or starts a pull when none is tracked (or the tracked one
+// failed for lack of space and the free disk has since changed). owner is the UID of
+// the object that asked for the pull; ps.freeBytes is the provider's free disk.
+func (t *PullTracker) advance(key string, owner types.UID, ps pullStream) pullStep {
+	if state := t.get(key); state != nil {
+		state.addOwner(owner)
+		if step, handled := t.consume(key, state, ps.freeBytes); handled {
+			return step
+		}
+	}
+	startPull(t, key, owner, ps)
+	return pullStep{phase: pullRunning, progress: pullProgress(0, 0)}
+}
+
+// consume reports a tracked pull. handled is false when the entry was dropped and
+// a new pull should start in its place.
+func (t *PullTracker) consume(key string, state *pullState, free int64) (step pullStep, handled bool) {
+	out := state.outcome()
+	switch {
+	case !out.finished:
+		completed, total := state.totals()
+		return pullStep{phase: pullRunning, progress: pullProgress(completed, total)}, true
+	case out.err == nil:
+		t.forget(key)
+		return pullStep{phase: pullSucceeded}, true
+	case errors.Is(out.err, errNoSpace) && free != out.freeAtFailure:
+		// The provider's free disk changed since the pull failed, so try again.
+		t.abandon(key)
+		return pullStep{}, false
+	case errors.Is(out.err, errNoSpace):
+		// Keep the failure until the free disk changes; do not retry on a timer.
+		return pullStep{phase: pullFailed, err: out.err}, true
+	default:
+		t.abandon(key)
+		return pullStep{phase: pullFailed, err: out.err}, true
+	}
+}
+
+// dropUnwanted stops the pulls owner started under a key other than current that
+// no object wants any more.
+func (t *PullTracker) dropUnwanted(owner types.UID, current string, wanted map[string]bool) {
+	for _, key := range t.ownedBy(owner) {
+		if key != current && !wanted[key] {
+			t.abandon(key)
+		}
+	}
+}
+
+// trackerOrNew returns *slot, creating a tracker there when it is nil.
+func trackerOrNew(slot **PullTracker) *PullTracker {
+	trackerInit.Lock()
+	defer trackerInit.Unlock()
+	if *slot == nil {
+		*slot = &PullTracker{}
+	}
+	return *slot
+}
+
+var trackerInit sync.Mutex
+
+// tagWantedElsewhere reports whether a Model or EmbeddingModel other than self, not
+// being deleted, wants the pull key.
+func tagWantedElsewhere(ctx context.Context, c client.Client, self client.Object, key string) (bool, error) {
+	wanted, err := wantedPullKeys(ctx, c, self)
+	return wanted[key], err
+}
+
+// wantedPullKeys lists the provider and tag of every Model and EmbeddingModel not
+// being deleted, other than self.
+func wantedPullKeys(ctx context.Context, c client.Client, self client.Object) (map[string]bool, error) {
+	wanted := map[string]bool{}
+	models := &aiv1alpha1.ModelList{}
+	if err := c.List(ctx, models); err != nil {
+		return nil, err
+	}
+	for i := range models.Items {
+		m := &models.Items[i]
+		if m.DeletionTimestamp.IsZero() && !isSameObject(self, m) {
+			wanted[pullKey(m.Spec.ProviderRef, m.Spec.Model)] = true
+		}
+	}
+	embeddings := &aiv1alpha1.EmbeddingModelList{}
+	if err := c.List(ctx, embeddings); err != nil {
+		return nil, err
+	}
+	for i := range embeddings.Items {
+		e := &embeddings.Items[i]
+		if e.DeletionTimestamp.IsZero() && !isSameObject(self, e) {
+			wanted[pullKey(e.Spec.ProviderRef, e.Spec.Model)] = true
+		}
+	}
+	return wanted, nil
+}
+
+// isSameObject reports whether a and b are the same kind with the same namespace and name.
+func isSameObject(a, b client.Object) bool {
+	return reflect.TypeOf(a) == reflect.TypeOf(b) &&
+		a.GetNamespace() == b.GetNamespace() && a.GetName() == b.GetName()
+}
+
+// releaseStalePulls cancels the pulls self started under a provider or tag other
+// than current, unless another Model or EmbeddingModel still needs them.
+func releaseStalePulls(ctx context.Context, c client.Client, t *PullTracker, self client.Object, current string) error {
+	uid := self.GetUID()
+	if len(t.ownedBy(uid)) == 0 {
+		return nil
+	}
+	wanted, err := wantedPullKeys(ctx, c, self)
+	if err != nil {
+		return err
+	}
+	t.dropUnwanted(uid, current, wanted)
+	return nil
+}
+
+// abandonIfUnwanted cancels the pull for key when no Model or EmbeddingModel other
+// than self wants it.
+func abandonIfUnwanted(ctx context.Context, c client.Client, t *PullTracker, self client.Object, key string) error {
+	wanted, err := tagWantedElsewhere(ctx, c, self, key)
+	if err != nil {
+		return err
+	}
+	if !wanted {
+		t.abandon(key)
+	}
+	return nil
+}
+
+// newPullStream is the pull request for tag onto provider.
+func newPullStream(provider *aiv1alpha1.ModelProvider, tag string, httpClient *http.Client) pullStream {
+	return pullStream{
+		provider: provider.Name, endpoint: provider.Spec.Endpoint, tag: tag,
+		freeBytes: providerFreeBytes(provider), client: httpClient,
+	}
+}
+
 // pullStream is the pull request, the stream settings and what ends the stream.
 type pullStream struct {
+	provider  string // ModelProvider name, to attribute the disk the pull uses
 	endpoint  string
 	tag       string
 	freeBytes int64 // provider free disk when known, otherwise 0
@@ -152,7 +407,7 @@ type pullStream struct {
 // for a pull already tracked under key and the insert happen under one lock, so
 // concurrent reconciles of Models sharing a tag start one pull. owner is the UID
 // of the Model that asked for it.
-func startPull(tracker *pullTracker, key string, owner types.UID, ps pullStream) {
+func startPull(tracker *PullTracker, key string, owner types.UID, ps pullStream) {
 	tracker.mu.Lock()
 	defer tracker.mu.Unlock()
 	if tracker.pulls[key] != nil {
@@ -162,8 +417,9 @@ func startPull(tracker *pullTracker, key string, owner types.UID, ps pullStream)
 		tracker.pulls = map[string]*pullState{}
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	state := &pullState{cancel: cancel, owner: owner, layers: map[string]*pullLayer{}}
+	state := &pullState{cancel: cancel, owners: map[types.UID]bool{owner: true}, provider: ps.provider, layers: map[string]*pullLayer{}}
 	tracker.pulls[key] = state
+	delete(tracker.leftovers, key) // the resumed pull counts the partial files itself
 	go func() {
 		defer cancel()
 		state.finish(ps.run(ctx, cancel, state), ps.freeBytes)

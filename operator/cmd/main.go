@@ -329,21 +329,25 @@ func main() {
 
 	// KubemootConfig controller is listed first to populate the cache before others start.
 	// Registration order is preserved from the original setup sequence.
+	// One pull tracker serves every controller that downloads models, so a tag that
+	// a Model and an EmbeddingModel both name is downloaded once.
+	modelPulls := &controller.PullTracker{}
 	mustSetupControllers(mgr, []controllerSetup{
 		{"KubemootConfig", (&controller.KubemootConfigReconciler{
 			Client: mgr.GetClient(), Scheme: mgr.GetScheme(), ConfigCache: configCache,
 		}).SetupWithManager},
 		{"ModelProvider", (&controller.ModelProviderReconciler{
 			Client: mgr.GetClient(), Scheme: mgr.GetScheme(), ConfigCache: configCache, NATSPublisher: natsPublisher,
+			Pulls: modelPulls,
 		}).SetupWithManager},
 		{"Model", (&controller.ModelReconciler{
-			Client: mgr.GetClient(), Scheme: mgr.GetScheme(),
+			Client: mgr.GetClient(), Scheme: mgr.GetScheme(), Pulls: modelPulls,
 		}).SetupWithManager},
 		{"MCPServer", (&controller.MCPServerReconciler{
 			Client: mgr.GetClient(), Scheme: mgr.GetScheme(), ConfigCache: configCache, NATSPublisher: natsPublisher,
 		}).SetupWithManager},
 		{"EmbeddingModel", (&controller.EmbeddingModelReconciler{
-			Client: mgr.GetClient(), Scheme: mgr.GetScheme(),
+			Client: mgr.GetClient(), Scheme: mgr.GetScheme(), Pulls: modelPulls,
 		}).SetupWithManager},
 		{"RAGSource", (&controller.RAGSourceReconciler{
 			Client: mgr.GetClient(), Scheme: mgr.GetScheme(), ConfigCache: configCache,

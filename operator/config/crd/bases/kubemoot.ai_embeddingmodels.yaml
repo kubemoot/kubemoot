@@ -167,6 +167,28 @@ spec:
                     format: int32
                     type: integer
                 type: object
+              pull:
+                description: |-
+                  Pull is the download progress while the model is being pulled; it is
+                  cleared once the model is on the provider.
+                properties:
+                  completedBytes:
+                    description: CompletedBytes is how many bytes of the known layers
+                      have downloaded
+                    format: int64
+                    type: integer
+                  percent:
+                    description: Percent is CompletedBytes as a whole percentage of
+                      TotalBytes
+                    format: int32
+                    type: integer
+                  totalBytes:
+                    description: |-
+                      TotalBytes is the combined size of the layers the provider has announced so
+                      far; it can grow while the pull discovers more layers
+                    format: int64
+                    type: integer
+                type: object
               ready:
                 description: Ready indicates if the embedding model is ready for use
                 type: boolean
