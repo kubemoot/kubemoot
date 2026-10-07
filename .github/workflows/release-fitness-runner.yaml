@@ -50,7 +50,7 @@ jobs:
 
       - name: Calculate the release candidate version
         id: version
-        uses: kubemoot/release-actions/release-candidate-version@9a88091ef5357ddf4f8d1c8a71b2c72f4cd928c5 # v0.7.0
+        uses: kubemoot/release-actions/release-candidate-version@5f3e78f33afb630a0eb6718dcc659a4e2ef26101 # v0.8.3
         with:
           tag_prefix: "fitness-runner-v"
           force: ${{ inputs.force_release }}

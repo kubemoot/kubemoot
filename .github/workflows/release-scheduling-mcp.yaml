@@ -52,7 +52,7 @@ jobs:
 
       - name: Calculate the release candidate version
         id: version
-        uses: kubemoot/release-actions/release-candidate-version@71225d1c899d63a0c66500eeb798433b137ebe4f # v0.8.1
+        uses: kubemoot/release-actions/release-candidate-version@5f3e78f33afb630a0eb6718dcc659a4e2ef26101 # v0.8.3
         with:
           tag_prefix: "scheduling-mcp-v"
           change_path: "scheduling-mcp"
