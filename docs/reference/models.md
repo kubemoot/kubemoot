@@ -48,6 +48,17 @@ Declares an inference endpoint. The operator discovers GPU capacity (VRAM, loade
 | `capacity.availableModels` | Ollama `/api/tags` | Models downloaded on this provider |
 | `capacity.nodeName` | Kubernetes | Node hosting the Ollama pod |
 | `capacity.lastProbed` | Operator | When capacity was last discovered |
+| `storage.volume` | Ollama pod | The volume mounted at the models directory (`OLLAMA_MODELS`, default `/root/.ollama/models`), for example `pvc/ollama-data` |
+| `storage.totalBytes` | PersistentVolumeClaim | Declared capacity of that volume (an `emptyDir` counts only when it has a size limit) |
+| `storage.modelBytes` | Ollama `/api/tags` | Sum of the sizes of the downloaded models |
+| `storage.freeBytes` | Operator | `totalBytes` minus `modelBytes`, an estimate of the free disk |
+
+`storage` is reported whether or not the scheduler is enabled. It is absent when the
+volume cannot be sized (for example a `hostPath` or an `emptyDir` without a limit).
+`freeBytes` is an estimate: layers shared between models are counted once per model and
+partial downloads are not counted. A pull whose remaining download exceeds `freeBytes`
+stops and the Model reports `Error` with the amount it is short, instead of the server's
+raw failure; the pull is tried again once `freeBytes` changes.
 
 A ModelProvider stored with any type other than `ollama` (one created before the API server rejected them) reports `ready: false` with reason `Unsupported` and the same message the API server gives; Models and EmbeddingModels on it report the same message.
 
