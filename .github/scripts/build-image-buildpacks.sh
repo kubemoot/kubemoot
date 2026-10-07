@@ -23,6 +23,10 @@
 #   --builder NAME         the images.yaml entry of the builder (builder-java-tiny)
 #   --run-image NAME       the images.yaml entry of the run image (run-tiny)
 #   --env KEY=VALUE        a build-time variable for the buildpacks (repeatable)
+#   --buildpack ID         a buildpack of the builder to run, in order (repeatable); when
+#                          given, these form the only detect group instead of the builder's
+#                          own order, e.g. paketo-buildpacks/procfile for a packaged binary.
+#                          The pod takes each one's version from the builder.
 #
 # Tags (see image_plan): main pushes :<sha>, which the release retags, and :latest. Any
 # other ref pushes only :branch-<sha>, so it never moves a tag main uses. Each ref keeps
@@ -36,7 +40,8 @@
 set -euo pipefail
 
 # The command the build pod runs: unpack the context from stdin, write the build-time
-# variables as /platform/env files, then hand over to the creator with the arguments.
+# variables as /platform/env files, write /platform/order.toml when buildpacks are named
+# (each at the one version the builder holds), then hand over to the creator.
 # shellcheck disable=SC2016 # expanded inside the pod, not here
 POD_SCRIPT='set -euo pipefail
 tar -xzf - -C /workspace --no-overwrite-dir
@@ -45,6 +50,17 @@ printf "%s\n" "${BUILD_ENV:-}" | while IFS= read -r kv; do
   [ -n "$kv" ] || continue
   printf "%s" "${kv#*=}" > "/platform/env/${kv%%=*}"
 done
+if [ -n "${BUILD_BUILDPACKS:-}" ]; then
+  echo "[[order]]" > /platform/order.toml
+  printf "%s\n" "$BUILD_BUILDPACKS" | while IFS= read -r id; do
+    [ -n "$id" ] || continue
+    versions=(/cnb/buildpacks/"${id//\//_}"/*)
+    if [ "${#versions[@]}" -ne 1 ] || [ ! -d "${versions[0]}" ]; then
+      echo "the builder has no single version of buildpack ${id}" >&2; exit 1
+    fi
+    printf "  [[order.group]]\n    id = \"%s\"\n    version = \"%s\"\n" "$id" "${versions[0]##*/}" >> /platform/order.toml
+  done
+fi
 exec /cnb/lifecycle/creator "$@"'
 
 die() { echo "build-image-buildpacks: $*" >&2; exit 2; }
@@ -67,6 +83,11 @@ pinned_image() {
 # name, and the whole pair is one line (BUILD_ENV carries one pair per line).
 valid_env() {
   [[ "$1" =~ ^[A-Z_][A-Z0-9_]*= ]] && [[ "$1" != *$'\n'* ]]
+}
+
+# valid_buildpack_id ID: true when ID is a buildpack id (letters, digits, . _ - and /).
+valid_buildpack_id() {
+  [[ "$1" =~ ^[A-Za-z0-9][A-Za-z0-9._/-]*$ ]]
 }
 
 # image_plan REPOSITORY SHA REF: the image references to push, one per line, then a line
@@ -99,13 +120,15 @@ creator_args() {
   jq -cn '$ARGS.positional' --args -- "${args[@]}"
 }
 
-# pod_overrides POD BUILDER CREATOR_ARGS_JSON BUILD_ENV REGISTRY REGISTRY_HOST_IP PUSH_SECRET:
-# the `kubectl run --overrides` pod spec for the build.
+# pod_overrides POD BUILDER CREATOR_ARGS_JSON BUILD_ENV REGISTRY REGISTRY_HOST_IP PUSH_SECRET
+# [BUILDPACKS]: the `kubectl run --overrides` pod spec for the build; BUILDPACKS holds one
+# buildpack id per line.
 pod_overrides() {
   local pod="$1" builder="$2" creator_json="$3" build_env="$4" registry="$5" host_ip="$6" secret="$7"
+  local buildpacks="${8:-}"
   jq -cn --arg pod "$pod" --arg builder "$builder" --argjson creator "$creator_json" \
     --arg script "$POD_SCRIPT" --arg env "$build_env" --arg registry "$registry" \
-    --arg ip "$host_ip" --arg secret "$secret" '
+    --arg ip "$host_ip" --arg secret "$secret" --arg buildpacks "$buildpacks" '
     def scratch(name): {name: name, emptyDir: {}};
     {
       apiVersion: "v1",
@@ -127,7 +150,8 @@ pod_overrides() {
           env: [
             {name: "CNB_PLATFORM_API", value: "0.15"},
             {name: "DOCKER_CONFIG", value: "/docker-config"},
-            {name: "BUILD_ENV", value: $env}
+            {name: "BUILD_ENV", value: $env},
+            {name: "BUILD_BUILDPACKS", value: $buildpacks}
           ],
           securityContext: {
             runAsNonRoot: true,
@@ -153,6 +177,7 @@ pod_overrides() {
 
 main() {
   local pod="" sha="" ref="" builder_name="builder-java-tiny" run_name="run-tiny" build_env=""
+  local buildpacks=()
   while [ $# -gt 0 ]; do
     case "$1" in
       --pod) pod="${2:?--pod needs a value}"; shift 2 ;;
@@ -163,6 +188,9 @@ main() {
       --env)
         valid_env "${2:-}" || die "--env needs one-line KEY=VALUE with an upper-case KEY, got: ${2:-}"
         build_env+="${2}"$'\n'; shift 2 ;;
+      --buildpack)
+        valid_buildpack_id "${2:-}" || die "--buildpack needs a buildpack id, got: ${2:-}"
+        buildpacks+=("$2"); shift 2 ;;
       --) shift; break ;;
       -*) die "unknown option: $1" ;;
       *) break ;;
@@ -187,14 +215,18 @@ main() {
     esac
   done <<<"$plan"
 
-  local here images_file builder run_image creator_json overrides
+  local here images_file builder run_image creator_json overrides buildpack_lines=""
   here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
   images_file="${IMAGES_FILE:-${here}/../buildpacks/images.yaml}"
   builder="$(pinned_image "$images_file" "$builder_name")" || exit 2
   run_image="$(pinned_image "$images_file" "$run_name")" || exit 2
   creator_json="$(creator_args "$REGISTRY" "$run_image" "$cache" "$previous" "${images[@]}")"
+  if [ "${#buildpacks[@]}" -gt 0 ]; then
+    buildpack_lines="$(printf '%s\n' "${buildpacks[@]}")"
+    creator_json="$(jq -c '["-order=/platform/order.toml"] + .' <<<"$creator_json")"
+  fi
   overrides="$(pod_overrides "$pod" "$builder" "$creator_json" "$build_env" \
-    "$REGISTRY" "$REGISTRY_HOST_IP" "${PUSH_SECRET:-kaniko-docker-config}")"
+    "$REGISTRY" "$REGISTRY_HOST_IP" "${PUSH_SECRET:-kaniko-docker-config}" "$buildpack_lines")"
 
   echo "Building ${images[*]} with ${builder} on ${run_image}"
   # The first pull of the builder can take minutes; the pod-running timeout is only a safety net.

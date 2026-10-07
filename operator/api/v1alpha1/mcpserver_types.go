@@ -90,7 +90,8 @@ type ProxyInjectionConfig struct {
 	Enabled *bool `json:"enabled,omitempty"`
 
 	// Image specifies the mcp-bridge image containing the bridge binary
-	// The image should have the bridge binary at /kubemoot-mcp-bridge
+	// The image's entrypoint must start the bridge, which copies its own binary
+	// into the shared pipe directory for the MCP server container
 	// Defaults to the value from KubemootConfig if not set
 	// +optional
 	Image string `json:"image,omitempty"`

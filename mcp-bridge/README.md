@@ -100,16 +100,11 @@ sent misses it; the gateway's periodic re-list (`mcp.gateway.tool-list-max-age`)
 ## Building
 
 The image is built by CI/CD on push to `main` (see `.github/workflows/ci-mcp-bridge.yaml`).
-
-```dockerfile
-FROM golang:1.26-alpine AS builder
-RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o kubemoot-mcp-bridge ./cmd/bridge/
-FROM scratch
-COPY --from=builder /build/kubemoot-mcp-bridge /kubemoot-mcp-bridge
-ENTRYPOINT ["/kubemoot-mcp-bridge"]
-```
-
-Final image: ~2.4 MB (static binary on scratch).
+The workflow builds the static binary on the runner after the tests
+(`.github/scripts/go-build-static.sh`: `CGO_ENABLED=0`, `-trimpath`), and Paketo buildpacks
+package it onto the Ubuntu Noble `run-static` image (`.github/workflows/build-go-binary-image.yaml`).
+The binary is `/workspace/kubemoot-mcp-bridge`, started by the image entrypoint
+`/cnb/process/web`. The image runs as uid 1002, gid 1001 unless the pod sets a user.
 
 ## Configuration
 

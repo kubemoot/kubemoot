@@ -1,0 +1,81 @@
+# Packages a tested, statically linked Go binary into an image with Paketo buildpacks and
+# pushes it to Harbor. The calling workflow builds and tests the binary and uploads it as
+# the artifact <name>-binary; this job hands it to .github/scripts/build-image-buildpacks.sh.
+#
+# The Procfile buildpack makes the binary the image's `web` process, started directly
+# (no shell) by the launcher at /cnb/process/web, which is the image entrypoint. The
+# binary is at /workspace/<binary>. The run image is run-static (ca-certificates and
+# tzdata, no libc), and the image runs as the run image's user, 1002:1001, unless the pod
+# sets one.
+name: Build Go Binary Image
+
+on:
+  workflow_call:
+    inputs:
+      name:
+        description: 'The image name under kubemoot/, also the binary artifact prefix and the build pod name'
+        required: true
+        type: string
+      binary:
+        description: 'The file name of the binary in the artifact; the image runs /workspace/<binary>'
+        required: true
+        type: string
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  REGISTRY: ${{ vars.REGISTRY }}
+  IMAGE_NAME: kubemoot/${{ inputs.name }}
+
+permissions:
+  contents: read
+
+jobs:
+  build-image:
+    runs-on: homelab-runners
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install kubectl
+        uses: ./.github/actions/install-kubectl
+
+      - name: Fetch the tested binary
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: ${{ inputs.name }}-binary
+          path: ${{ runner.temp }}/app
+
+      # Artifacts do not keep file modes; the image runs the binary as any uid the pod sets.
+      - name: Check the inputs and the binary
+        env:
+          NAME: ${{ inputs.name }}
+          BINARY: ${{ inputs.binary }}
+        run: |
+          [[ "${NAME}" =~ ^[a-z0-9][a-z0-9-]*$ ]] || { echo "::error::bad image name: ${NAME}"; exit 1; }
+          [[ "${BINARY}" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] || { echo "::error::bad binary name: ${BINARY}"; exit 1; }
+          files=("${RUNNER_TEMP}"/app/*)
+          [ "${#files[@]}" -eq 1 ] && [ "${files[0]}" = "${RUNNER_TEMP}/app/${BINARY}" ] \
+            || { echo "::error::want only ${BINARY} in the artifact, found: ${files[*]}"; exit 1; }
+          chmod 0755 "${RUNNER_TEMP}/app/${BINARY}"
+
+      # main pushes :<sha>, which the release retags, and :latest; any other ref pushes
+      # only :branch-<sha> (build-image-buildpacks.sh decides the tags per ref).
+      - name: Build and push with Paketo buildpacks
+        env:
+          REGISTRY_HOST_IP: ${{ vars.REGISTRY_HOST_IP }}
+          SHA: ${{ github.sha }}
+          NAME: ${{ inputs.name }}
+          BINARY: ${{ inputs.binary }}
+        run: |
+          .github/scripts/build-image-buildpacks.sh \
+            --pod "buildpacks-${NAME}-${SHA:0:8}-${GITHUB_RUN_NUMBER}-${GITHUB_RUN_ATTEMPT}" \
+            --sha "${SHA}" --ref "${GITHUB_REF}" \
+            --builder builder-java-tiny --run-image run-static \
+            --buildpack paketo-buildpacks/procfile --buildpack paketo-buildpacks/image-labels \
+            --env "BP_PROCFILE_DEFAULT_PROCESS=/workspace/${BINARY}" \
+            --env BP_DIRECT_PROCESS=true \
+            --env BP_OCI_SOURCE=https://github.com/kubemoot/kubemoot \
+            --env BP_OCI_LICENSES=Apache-2.0 \
+            --env "BP_OCI_REVISION=${SHA}" \
+            "${RUNNER_TEMP}/app" "${REGISTRY}/${IMAGE_NAME}"

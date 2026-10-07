@@ -10,6 +10,11 @@ on:
     paths:
       - 'scheduling-mcp/**'
       - '!scheduling-mcp/**.md'
+      - '.github/buildpacks/**'
+      - '.github/scripts/build-image-buildpacks.sh'
+      - '.github/scripts/retag-image.sh'
+      - '.github/scripts/go-build-static.sh'
+      - '.github/workflows/build-go-binary-image.yaml'
   workflow_dispatch:
     inputs:
       force_release:
@@ -74,11 +79,7 @@ jobs:
         run: |
           FULL_IMAGE="${REGISTRY}/${IMAGE_NAME}"
           echo "${HARBOR_PASSWORD}" | crane auth login --insecure "${REGISTRY}" -u "${HARBOR_USERNAME}" --password-stdin
-          if ! crane manifest --insecure "${FULL_IMAGE}:${GITHUB_SHA}" >/dev/null 2>&1; then
-            echo "::error::${FULL_IMAGE}:${GITHUB_SHA} was not built"
-            exit 1
-          fi
-          crane copy --insecure "${FULL_IMAGE}:${GITHUB_SHA}" "${FULL_IMAGE}:${VERSION}"
+          .github/scripts/retag-image.sh "${FULL_IMAGE}" "${GITHUB_SHA}" "${VERSION}"
 
       - name: Create and push tag
         if: steps.version.outputs.release_created == 'true'
