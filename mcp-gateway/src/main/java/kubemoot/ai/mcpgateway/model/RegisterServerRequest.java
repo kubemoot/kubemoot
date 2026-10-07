@@ -1,9 +1,12 @@
 package kubemoot.ai.mcpgateway.model;
 
+import java.util.List;
+
 public record RegisterServerRequest(
     String name,
     String url,
-    String transport
+    String transport,
+    List<ToolOverride> toolOverrides
 ) {
     public RegisterServerRequest {
         if (name == null || name.isBlank()) {
@@ -15,5 +18,10 @@ public record RegisterServerRequest(
         if (transport == null) {
             transport = "sse";
         }
+        toolOverrides = toolOverrides == null ? List.of() : List.copyOf(toolOverrides);
+    }
+
+    public RegisterServerRequest(String name, String url, String transport) {
+        this(name, url, transport, List.of());
     }
 }

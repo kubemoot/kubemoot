@@ -46,7 +46,8 @@ public class AdminController {
         ServerRegistration registration = clientManager.registerServer(
             request.name(),
             request.url(),
-            request.transport()
+            request.transport(),
+            request.toolOverrides()
         );
 
         return ResponseEntity.status(HttpStatus.CREATED).body(registration);

@@ -21,6 +21,7 @@ import kubemoot.ai.mcpgateway.model.McpMessage;
 import kubemoot.ai.mcpgateway.model.ServerRegistration;
 import kubemoot.ai.mcpgateway.model.ServerRegistration.ServerStatus;
 import kubemoot.ai.mcpgateway.model.ToolInfo;
+import kubemoot.ai.mcpgateway.model.ToolOverride;
 
 import java.time.Duration;
 import java.time.Instant;
@@ -69,6 +70,8 @@ public class McpClientManager {
     private final Map<String, ServerRegistration> servers = new ConcurrentHashMap<>();
     private final Map<String, WebClient> clients = new ConcurrentHashMap<>();
     private final Map<String, List<ToolInfo>> serverTools = new ConcurrentHashMap<>();
+    // Description overrides per server ID, applied to every tool list read from that server
+    private final Map<String, List<ToolOverride>> serverOverrides = new ConcurrentHashMap<>();
     private final Map<String, String> serverSessions = new ConcurrentHashMap<>();
     // For supergateway: active SSE subscriptions and response sinks
     private final Map<String, Disposable> sseSubscriptions = new ConcurrentHashMap<>();
@@ -122,11 +125,21 @@ public class McpClientManager {
     }
 
     public ServerRegistration registerServer(String name, String url, String transport) {
+        return registerServer(name, url, transport, List.of());
+    }
+
+    public ServerRegistration registerServer(String name, String url, String transport,
+                                             List<ToolOverride> toolOverrides) {
+        List<ToolOverride> overrides = toolOverrides == null ? List.of() : toolOverrides;
         // Check if a server with the same name already exists
         ServerRegistration existing = findServerByName(name);
         if (existing != null) {
             // Server already registered - check if URL changed
             if (existing.url().equals(url)) {
+                List<ToolOverride> previous = serverOverrides.put(existing.id(), overrides);
+                if (!overrides.equals(previous)) {
+                    ToolOverrides.warnUnmatched(getToolsForServer(existing.id()), overrides, name);
+                }
                 reconcileRegisteredServer(existing);
                 return existing;
             } else {
@@ -137,6 +150,7 @@ public class McpClientManager {
         }
 
         ServerRegistration registration = ServerRegistration.create(name, url, transport);
+        serverOverrides.put(registration.id(), overrides);
         registerServerInternal(registration);
         return registration;
     }
@@ -241,6 +255,7 @@ public class McpClientManager {
             return;
         }
         List<ToolInfo> previous = serverTools.put(serverId, tools);
+        ToolOverrides.warnUnmatched(tools, serverOverrides.get(serverId), server.name());
         setStatus(serverId, ServerStatus.CONNECTED);
         log.info("Re-listed {}: {} tools (was {})", server.name(), tools.size(),
             previous == null ? 0 : previous.size());
@@ -309,6 +324,7 @@ public class McpClientManager {
         servers.remove(serverId);
         clients.remove(serverId);
         serverTools.remove(serverId);
+        serverOverrides.remove(serverId);
         toolsListedAt.remove(serverId);
         listings.remove(serverId);
         cleanupSseSession(serverId);
@@ -323,14 +339,17 @@ public class McpClientManager {
         return servers.get(serverId);
     }
 
+    /** Every server's tools, with each server's description overrides applied. */
     public List<ToolInfo> getAllTools() {
-        return serverTools.values().stream()
-            .flatMap(List::stream)
+        return serverTools.keySet().stream()
+            .flatMap(id -> getToolsForServer(id).stream())
             .toList();
     }
 
+    /** The server's tools as agents see them: upstream tools with description overrides applied. */
     public List<ToolInfo> getToolsForServer(String serverId) {
-        return serverTools.getOrDefault(serverId, Collections.emptyList());
+        return ToolOverrides.apply(serverTools.getOrDefault(serverId, Collections.emptyList()),
+            serverOverrides.get(serverId));
     }
 
     public String findServerForTool(String toolName) {
@@ -389,6 +408,7 @@ public class McpClientManager {
             return;
         }
         serverTools.put(serverId, tools);
+        ToolOverrides.warnUnmatched(tools, serverOverrides.get(serverId), server.name());
         toolsListedAt.put(serverId, Instant.now());
         setStatus(serverId, ServerStatus.CONNECTED);
         log.info("Connected to MCP server {} with {} tools", server.name(), tools.size());

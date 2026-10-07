@@ -933,6 +933,10 @@ func (r *MCPGatewayReconciler) buildRegistrationPayload(ctx context.Context, imp
 		"transport": transport,
 	}
 
+	if impl == kubemootv1alpha1.ImplementationKubemoot && len(mcp.Spec.ToolOverrides) > 0 {
+		payload["toolOverrides"] = mcp.Spec.ToolOverrides
+	}
+
 	if impl == kubemootv1alpha1.ImplementationContextForge && mcp.Spec.Registry != nil && mcp.Spec.Registry.AuthSecretRef != "" {
 		secret := &corev1.Secret{}
 		if err := r.Get(ctx, types.NamespacedName{

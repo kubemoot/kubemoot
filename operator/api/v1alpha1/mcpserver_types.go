@@ -119,6 +119,35 @@ type RegistryConfig struct {
 	AuthSecretRef string `json:"authSecretRef,omitempty"`
 }
 
+// ToolParameterOverride replaces the description of one tool parameter.
+type ToolParameterOverride struct {
+	// Description is the text agents see for this parameter
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=2000
+	Description string `json:"description"`
+}
+
+// ToolOverride replaces the description text an MCP server reports for one of its
+// tools, for servers whose own descriptions are wrong or misleading. Only text
+// changes: the tool's name, parameters, and behavior are the server's own.
+type ToolOverride struct {
+	// Name is the tool the override applies to. A name the server does not list
+	// is logged by the gateway and ignored.
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=256
+	Name string `json:"name"`
+
+	// Description replaces the tool description. Unset keeps the server's own.
+	// +kubebuilder:validation:MaxLength=4000
+	// +optional
+	Description string `json:"description,omitempty"`
+
+	// Parameters replaces parameter descriptions, keyed by parameter name.
+	// +kubebuilder:validation:MaxProperties=32
+	// +optional
+	Parameters map[string]ToolParameterOverride `json:"parameters,omitempty"`
+}
+
 // MCPServerSpec defines the desired state of MCPServer
 type MCPServerSpec struct {
 	// Image is the container image for the MCP server (for managed/private MCPs)
@@ -233,6 +262,15 @@ type MCPServerSpec struct {
 	// Registry configures how this MCPServer is registered with MCPGateways
 	// +optional
 	Registry *RegistryConfig `json:"registry,omitempty"`
+
+	// ToolOverrides replaces tool and parameter descriptions in the tool list the
+	// gateway serves to agents. Sent to the gateway on registration; ignored by
+	// gateway implementations other than the Kubemoot gateway.
+	// +listType=map
+	// +listMapKey=name
+	// +kubebuilder:validation:MaxItems=64
+	// +optional
+	ToolOverrides []ToolOverride `json:"toolOverrides,omitempty"`
 }
 
 // RegistryStatus tracks registration state with an MCPGateway

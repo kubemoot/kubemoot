@@ -171,6 +171,7 @@ spec:
 | `readinessPath` | string | | HTTP readiness path (falls back to healthPath) |
 | `serviceAccountName` | string | | K8s service account (needed for cluster access) |
 | `registry` | RegistryConfig | | Gateway registration settings |
+| `toolOverrides` | []ToolOverride | | Corrected tool and parameter descriptions served to agents |
 
 ### RegistryConfig
 
@@ -179,6 +180,28 @@ spec:
 | `enabled` | bool | `true` | Register with matching MCPGateways |
 | `categories` | []string | | Searchable tags for tool discovery |
 | `authSecretRef` | string | | Secret with auth credentials for this server |
+
+### ToolOverride
+
+Replaces the description text an MCP server reports for one of its tools. Use it when an upstream description is wrong or misleading and you cannot change the image. The operator sends the overrides to the Kubemoot gateway when it registers the server, and the gateway applies them to the tool list it serves to agents. Only text changes: the tool's name, parameters, and behavior stay the server's own.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `name` | string | Tool the override applies to (unique within the list) |
+| `description` | string | Replaces the tool description; unset keeps the server's own |
+| `parameters` | map[string]{description} | Replaces parameter descriptions, keyed by parameter name |
+
+A name the server does not list is logged by the gateway as a warning and ignored. An edit takes effect on the next reconcile, without restarting the server or the gateway. Other gateway implementations ignore the field.
+
+```yaml
+spec:
+  toolOverrides:
+    - name: helm_list
+      description: Lists Helm releases in one namespace, or in every namespace with all_namespaces=true.
+      parameters:
+        all_namespaces:
+          description: Boolean true lists releases in every namespace.
+```
 
 ### ProxyInjectionConfig
 
