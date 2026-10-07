@@ -199,11 +199,6 @@
 		return [...done, ...live];
 	}
 
-	// Durations of a suite's completed iterations (empty until its rows are loaded).
-	function completedDurations(id: string): number[] {
-		return (iterations[id] ?? []).filter((i) => !i.running).map((i) => i.durationMs);
-	}
-
 	// Group a suite's flat iteration list by scenario, with per-scenario rollups
 	// (pass count + mean duration) so each scenario shows once instead of N rows.
 	function groupScenarios(its: Iteration[]): ScenarioGroup[] {
@@ -621,7 +616,7 @@
 			{@const ns = suite.metadata.namespace ?? ''}
 			{@const name = suite.metadata.name ?? ''}
 			{@const id = `${ns}/${name}`}
-			{@const eta = suiteEta(s, now, completedDurations(id))}
+			{@const eta = suiteEta(s, now)}
 			<tbody>
 				<tr class="suite-row" onclick={() => toggleSuite(ns, name)}>
 					<td class="c-caret">{openSuite[id] ? '▼' : '▶'}</td>
@@ -639,7 +634,7 @@
 					</td>
 					<td class="mono"><span class="passed">{s?.passed ?? 0}</span>/<span class="failed">{s?.failed ?? 0}</span>/<span class="errored">{s?.errored ?? 0}</span></td>
 					<td class="mono">{s?.iterationsCompleted ?? 0}/{s?.iterationsTotal ?? 0}</td>
-					<td class="mono" title={durTitle(s?.startedAt, s?.completedAt)}>{fmtDur(suiteDurMs(s, now))}{#if eta}<div class="desc" title="Estimate: iterations left x mean duration of completed iterations">{etaText(eta)}</div>{/if}</td>
+					<td class="mono" title={durTitle(s?.startedAt, s?.completedAt)}>{fmtDur(suiteDurMs(s, now))}{#if eta}<div class="desc" title="Estimate: iterations left x elapsed time per completed iteration">{etaText(eta)}</div>{/if}</td>
 					<td>
 						<button class="copy-btn" title="Copy this suite's details to the clipboard" onclick={(e) => copySuite(suite, e)}>{copiedKey === id ? '✓' : '📋'}</button>
 						{#if s?.artifactRef?.objectKey}

@@ -8,7 +8,7 @@ export interface SuiteEta {
 	remainingMs: number;
 	/** Estimated finish as epoch milliseconds. */
 	finishAtMs: number;
-	/** Mean duration per completed iteration used for the estimate. */
+	/** Elapsed time per completed iteration used for the estimate. */
 	meanMs: number;
 }
 
@@ -33,26 +33,22 @@ function isFinished(s: NonNullable<CrewFitnessSuite['status']>): boolean {
 
 /**
  * Time left for a running suite: (iterationsTotal - iterationsCompleted) x the
- * mean duration of the completed iterations. When per-iteration durations are
- * not available the mean falls back to the suite's elapsed time divided by the
- * completed count. Returns undefined when no estimate can be made: the suite
- * has finished, has no start time, or has not completed an iteration yet.
+ * suite's elapsed time divided by its completed iterations. Elapsed time
+ * includes the per-iteration overhead the wall-clock finish depends on.
+ * Returns undefined when no estimate can be made: the suite has finished, has
+ * no usable start time, or has not completed an iteration yet.
  */
 export function suiteEta(
 	status: CrewFitnessSuite['status'] | undefined,
-	now = Date.now(),
-	completedDurationsMs: readonly number[] = []
+	now = Date.now()
 ): SuiteEta | undefined {
 	if (!status || isFinished(status)) return undefined;
 	const completed = positiveCount(status.iterationsCompleted);
 	const total = positiveCount(status.iterationsTotal);
 	if (completed === 0 || total === 0) return undefined;
-	let meanMs = meanDurationMs(completedDurationsMs);
-	if (meanMs === 0) {
-		const elapsed = now - toMs(status.startedAt);
-		if (!Number.isFinite(elapsed) || elapsed <= 0) return undefined;
-		meanMs = elapsed / completed;
-	}
+	const elapsed = now - toMs(status.startedAt);
+	if (!Number.isFinite(elapsed) || elapsed <= 0) return undefined;
+	const meanMs = elapsed / completed;
 	const remainingMs = Math.round(Math.max(0, total - completed) * meanMs);
 	return { remainingMs, finishAtMs: now + remainingMs, meanMs: Math.round(meanMs) };
 }
