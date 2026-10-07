@@ -28,17 +28,11 @@ describe('meanDurationMs', () => {
 });
 
 describe('suiteEta', () => {
-	it('multiplies remaining iterations by the mean completed duration', () => {
-		const eta = suiteEta(status(), T0 + 2 * HOUR, [HOUR, HOUR]);
-		expect(eta?.meanMs).toBe(HOUR);
-		expect(eta?.remainingMs).toBe(8 * HOUR);
-		expect(eta?.finishAtMs).toBe(T0 + 10 * HOUR);
-	});
-
-	it('falls back to elapsed / completed without per-iteration durations', () => {
+	it('multiplies remaining iterations by elapsed time per completed iteration', () => {
 		const eta = suiteEta(status(), T0 + 2 * HOUR);
 		expect(eta?.meanMs).toBe(HOUR);
 		expect(eta?.remainingMs).toBe(8 * HOUR);
+		expect(eta?.finishAtMs).toBe(T0 + 10 * HOUR);
 	});
 
 	it('is hidden with zero completed iterations', () => {
@@ -47,43 +41,43 @@ describe('suiteEta', () => {
 	});
 
 	it('reports zero remaining when all iterations are completed but the suite still runs', () => {
-		const eta = suiteEta(status({ iterationsCompleted: 10 }), T0 + HOUR, [1000]);
+		const eta = suiteEta(status({ iterationsCompleted: 10 }), T0 + HOUR);
 		expect(eta?.remainingMs).toBe(0);
 		expect(eta?.finishAtMs).toBe(T0 + HOUR);
 	});
 
 	it('never goes negative when more are completed than total', () => {
-		expect(suiteEta(status({ iterationsCompleted: 12 }), T0 + HOUR, [1000])?.remainingMs).toBe(0);
+		expect(suiteEta(status({ iterationsCompleted: 12 }), T0 + HOUR)?.remainingMs).toBe(0);
 	});
 
 	it('is gone once the suite finishes', () => {
-		expect(suiteEta(status({ completedAt: '2026-10-06T12:00:00Z' }), T0 + HOUR, [1000])).toBeUndefined();
-		expect(suiteEta(status({ phase: 'Completed' }), T0 + HOUR, [1000])).toBeUndefined();
-		expect(suiteEta(status({ phase: 'Cancelled' }), T0 + HOUR, [1000])).toBeUndefined();
+		expect(suiteEta(status({ completedAt: '2026-10-06T12:00:00Z' }), T0 + HOUR)).toBeUndefined();
+		expect(suiteEta(status({ phase: 'Completed' }), T0 + HOUR)).toBeUndefined();
+		expect(suiteEta(status({ phase: 'Cancelled' }), T0 + HOUR)).toBeUndefined();
 	});
 
 	it('is hidden without a status or total', () => {
 		expect(suiteEta(undefined, T0)).toBeUndefined();
-		expect(suiteEta(status({ iterationsTotal: 0 }), T0 + HOUR, [1000])).toBeUndefined();
+		expect(suiteEta(status({ iterationsTotal: 0 }), T0 + HOUR)).toBeUndefined();
 	});
 
-	it('needs a usable start time for the fallback mean', () => {
+	it('needs a usable start time', () => {
 		expect(suiteEta(status({ startedAt: undefined }), T0 + HOUR)).toBeUndefined();
 		expect(suiteEta(status({ startedAt: 'garbage' }), T0 + HOUR)).toBeUndefined();
 	});
 
-	it('is hidden when the browser clock is before the start (fallback mean)', () => {
+	it('is hidden when the browser clock is before the start ', () => {
 		expect(suiteEta(status(), T0 - HOUR)).toBeUndefined();
 	});
 
 	it('still estimates from durations when the start time is missing', () => {
-		const eta = suiteEta(status({ startedAt: undefined }), T0, [60_000]);
+		const eta = suiteEta(status({ startedAt: undefined }), T0);
 		expect(eta?.remainingMs).toBe(8 * 60_000);
 	});
 
 	it('treats negative or fractional counts as unusable or floors them', () => {
 		expect(suiteEta(status({ iterationsCompleted: -3 }), T0 + HOUR)).toBeUndefined();
-		expect(suiteEta(status({ iterationsTotal: 10.9, iterationsCompleted: 2.5 }), T0, [1000])?.remainingMs).toBe(8000);
+		expect(suiteEta(status({ iterationsTotal: 10.9, iterationsCompleted: 2.5 }), T0 + 2000)?.remainingMs).toBe(8000);
 	});
 });
 
