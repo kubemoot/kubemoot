@@ -340,18 +340,21 @@ func buildGatewayContainer(gateway *kubemootv1alpha1.MCPGateway, image, probePat
 		},
 	}
 
-	// Set resource requirements
+	// Set resource requirements. The default memory limit leaves room for the JVM's
+	// non-heap regions: the buildpacks memory calculator sizes the heap from the limit
+	// after reserving thread stacks (250 for a servlet app), code cache and metaspace,
+	// and refuses to start the JVM when the limit cannot hold them.
 	if gateway.Spec.Resources != nil {
 		container.Resources = *gateway.Spec.Resources
 	} else {
 		container.Resources = corev1.ResourceRequirements{
 			Requests: corev1.ResourceList{
 				corev1.ResourceCPU:    resource.MustParse("100m"),
-				corev1.ResourceMemory: resource.MustParse("256Mi"),
+				corev1.ResourceMemory: resource.MustParse("512Mi"),
 			},
 			Limits: corev1.ResourceList{
 				corev1.ResourceCPU:    resource.MustParse("500m"),
-				corev1.ResourceMemory: resource.MustParse("512Mi"),
+				corev1.ResourceMemory: resource.MustParse("1Gi"),
 			},
 		}
 	}
