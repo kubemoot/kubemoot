@@ -34,7 +34,6 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
@@ -129,6 +128,7 @@ type prometheusQueryResponse struct {
 // +kubebuilder:rbac:groups=kubemoot.ai,resources=agents,verbs=get;list;watch
 // +kubebuilder:rbac:groups=core,resources=services,verbs=get;list;watch
 // +kubebuilder:rbac:groups=core,resources=pods,verbs=get;list;watch
+// +kubebuilder:rbac:groups=core,resources=persistentvolumeclaims,verbs=get;list;watch
 // +kubebuilder:rbac:groups=discovery.k8s.io,resources=endpointslices,verbs=get;list;watch
 // +kubebuilder:rbac:groups=apps,resources=deployments,verbs=get;list;watch
 // (deployments list/get is needed by countAssignedAgents to count agents
@@ -200,6 +200,8 @@ func (r *ModelProviderReconciler) reconcileOllama(ctx context.Context, provider 
 		LastChecked: time.Now().UTC().Format(time.RFC3339),
 	}
 
+	r.discoverStorage(ctx, provider, httpClient)
+
 	// Discover capacity when scheduler is enabled
 	if r.ConfigCache != nil && r.ConfigCache.IsSchedulerEnabled() {
 		r.discoverCapacity(ctx, provider, httpClient)
@@ -247,32 +249,15 @@ func (r *ModelProviderReconciler) discoverCapacity(ctx context.Context, provider
 // into provider.Status.Capacity. Best-effort: missing pieces are logged at
 // V(1) and skipped, leaving the corresponding capacity fields untouched.
 func (r *ModelProviderReconciler) discoverPodCapacity(ctx context.Context, provider *aiv1alpha1.ModelProvider, httpClient *http.Client) {
-	log := logf.FromContext(ctx)
-
-	// 1. Parse service name/namespace from endpoint URL
-	svcName, svcNamespace := parseServiceFromEndpoint(provider.Spec.Endpoint, provider.Namespace)
-	if svcName == "" {
-		log.V(1).Info("Could not parse service from endpoint", "endpoint", provider.Spec.Endpoint)
-		return
-	}
-
-	// 2. Find the backing pod via EndpointSlices
-	podName, podNamespace := r.findBackingPod(ctx, svcName, svcNamespace)
-	if podName == "" {
-		return
-	}
-
-	// 3. Read pod env vars and node name
-	pod := &corev1.Pod{}
-	if err := r.Get(ctx, types.NamespacedName{Name: podName, Namespace: podNamespace}, pod); err != nil {
-		log.V(1).Info("Failed to get Ollama pod", "pod", podName, "error", err)
+	pod := r.findOllamaPod(ctx, provider)
+	if pod == nil {
 		return
 	}
 
 	provider.Status.Capacity.NodeName = pod.Spec.NodeName
 	r.applyEngineEnvFromPod(ctx, pod, provider)
 
-	// 4. Query Prometheus for DCGM metrics if configured
+	// Query Prometheus for DCGM metrics if configured
 	schedulerConfig := r.ConfigCache.GetSchedulerConfig()
 	if schedulerConfig != nil && schedulerConfig.PrometheusEndpoint != "" && pod.Spec.NodeName != "" {
 		r.queryDCGMMetrics(ctx, httpClient, schedulerConfig.PrometheusEndpoint, pod.Spec.NodeName, provider)
