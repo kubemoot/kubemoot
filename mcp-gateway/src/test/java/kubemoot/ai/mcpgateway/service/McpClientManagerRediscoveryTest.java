@@ -9,6 +9,8 @@ import kubemoot.ai.mcpgateway.model.McpMessage;
 import kubemoot.ai.mcpgateway.model.ServerRegistration;
 import kubemoot.ai.mcpgateway.model.ServerRegistration.ServerStatus;
 import kubemoot.ai.mcpgateway.model.ToolInfo;
+import kubemoot.ai.mcpgateway.model.ToolOverride;
+import kubemoot.ai.mcpgateway.model.ToolOverride.ParameterOverride;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -279,7 +281,67 @@ class McpClientManagerRediscoveryTest {
         awaitTools(server.id(), HELM_TOOLS);
     }
 
+    @Test
+    void registeredOverridesChangeTheDescriptionsTheGatewayServes() {
+        ToolOverride override = new ToolOverride("helm_list", "truthful helm_list",
+            Map.of("namespace", new ParameterOverride("truthful namespace")));
+        ServerRegistration server = manager.registerServer(SERVER, url, "stdio", List.of(override));
+        awaitTools(server.id(), CORE_TOOLS);
+
+        ToolInfo untouched = tool(server.id(), "pods_list");
+        assertEquals("pods_list", untouched.description());
+        assertEquals("upstream namespace", propertyDescription(untouched, "namespace"));
+
+        toolNames.set(HELM_TOOLS);
+        manager.refreshTools(server.id());
+        awaitTools(server.id(), HELM_TOOLS);
+        ToolInfo helm = tool(server.id(), "helm_list");
+        assertEquals("truthful helm_list", helm.description());
+        assertEquals("truthful namespace", propertyDescription(helm, "namespace"));
+        assertEquals("string", ((Map<?, ?>) ((Map<?, ?>) helm.inputSchema().get("properties"))
+            .get("namespace")).get("type"), "parameter types are never changed");
+    }
+
+    @Test
+    void anOverrideForAnUnknownToolIsIgnored() {
+        ToolOverride override = new ToolOverride("no_such_tool", "x", Map.of());
+        ServerRegistration server = manager.registerServer(SERVER, url, "stdio", List.of(override));
+
+        awaitTools(server.id(), CORE_TOOLS);
+        assertEquals("pods_list", tool(server.id(), "pods_list").description());
+        assertEquals(ServerStatus.CONNECTED, awaitConnected(server.id()));
+    }
+
+    @Test
+    void changedOverridesOnReRegistrationAreServedAfterAReList() {
+        ServerRegistration server = registerAndAwait(CORE_TOOLS);
+        assertEquals("pods_list", tool(server.id(), "pods_list").description());
+
+        manager.registerServer(SERVER, url, "stdio",
+            List.of(new ToolOverride("pods_list", "new text", Map.of())));
+
+        awaitTrue("override served", () -> "new text".equals(tool(server.id(), "pods_list").description()));
+
+        manager.registerServer(SERVER, url, "stdio", List.of());
+        awaitTrue("override removed", () -> "pods_list".equals(tool(server.id(), "pods_list").description()));
+    }
+
     // --- helpers -------------------------------------------------------------------
+
+    private ToolInfo tool(String serverId, String name) {
+        return manager.getToolsForServer(serverId).stream()
+            .filter(t -> t.name().equals(name)).findFirst().orElseThrow();
+    }
+
+    private ServerStatus awaitConnected(String serverId) {
+        awaitTrue("connected", () -> manager.getServer(serverId).status() == ServerStatus.CONNECTED);
+        return manager.getServer(serverId).status();
+    }
+
+    private static String propertyDescription(ToolInfo tool, String parameter) {
+        Map<?, ?> properties = (Map<?, ?>) tool.inputSchema().get("properties");
+        return (String) ((Map<?, ?>) properties.get(parameter)).get("description");
+    }
 
     private ServerRegistration registerAndAwait(List<String> expected) {
         ServerRegistration registration = manager.registerServer(SERVER, url, "stdio");
@@ -383,7 +445,8 @@ class McpClientManagerRediscoveryTest {
             case "tools/list" -> {
                 toolListings.incrementAndGet();
                 yield Map.of("tools", toolNames.get().stream()
-                    .map(n -> Map.of("name", n, "description", n, "inputSchema", Map.of("type", "object")))
+                    .map(n -> Map.of("name", n, "description", n, "inputSchema", Map.of("type", "object", "properties",
+                        Map.of("namespace", Map.of("type", "string", "description", "upstream namespace")))))
                     .toList());
             }
             default -> Map.of("content", List.of(Map.of("type", "text", "text", "ok")));

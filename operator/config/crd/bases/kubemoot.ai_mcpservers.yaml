@@ -2228,6 +2228,55 @@ spec:
                   - name
                   type: object
                 type: array
+              toolOverrides:
+                description: |-
+                  ToolOverrides replaces tool and parameter descriptions in the tool list the
+                  gateway serves to agents. Sent to the gateway on registration; ignored by
+                  gateway implementations other than the Kubemoot gateway.
+                items:
+                  description: |-
+                    ToolOverride replaces the description text an MCP server reports for one of its
+                    tools, for servers whose own descriptions are wrong or misleading. Only text
+                    changes: the tool's name, parameters, and behavior are the server's own.
+                  properties:
+                    description:
+                      description: Description replaces the tool description. Unset
+                        keeps the server's own.
+                      maxLength: 4000
+                      type: string
+                    name:
+                      description: |-
+                        Name is the tool the override applies to. A name the server does not list
+                        is logged by the gateway and ignored.
+                      maxLength: 256
+                      minLength: 1
+                      type: string
+                    parameters:
+                      additionalProperties:
+                        description: ToolParameterOverride replaces the description
+                          of one tool parameter.
+                        properties:
+                          description:
+                            description: Description is the text agents see for this
+                              parameter
+                            maxLength: 2000
+                            minLength: 1
+                            type: string
+                        required:
+                        - description
+                        type: object
+                      description: Parameters replaces parameter descriptions, keyed
+                        by parameter name.
+                      maxProperties: 32
+                      type: object
+                  required:
+                  - name
+                  type: object
+                maxItems: 64
+                type: array
+                x-kubernetes-list-map-keys:
+                - name
+                x-kubernetes-list-type: map
               transport:
                 default: http
                 description: Transport specifies the MCP transport protocol (http,
