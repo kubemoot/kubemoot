@@ -30,7 +30,7 @@ trap 'rm -rf "$work"' EXIT
 
 # The checked-in pins: every entry carries a tag and a digest.
 pins="${here}/../buildpacks/images.yaml"
-for name in builder-java-tiny run-tiny; do
+for name in builder-java-tiny run-tiny run-static; do
   ref="$(pinned_image "$pins" "$name")"
   [[ "$ref" =~ ^docker\.io/paketobuildpacks/[a-z-]+:[0-9.]+@sha256:[0-9a-f]{64}$ ]] \
     && got=pinned || got="$ref"
@@ -60,6 +60,15 @@ check_status "env with a path in the key" "../etc/passwd=x" invalid
 check_status "env with a lower-case key" "bp_jvm=25" invalid
 check_status "env with a second line" $'A=1\n../x=y' invalid
 
+check_bp() { if valid_buildpack_id "$2"; then check "$1" "$3" valid; else check "$1" "$3" invalid; fi; }
+check_bp "buildpack id with a namespace" paketo-buildpacks/procfile valid
+check_bp "buildpack id with dots" io.buildpacks.x valid
+check_bp "empty buildpack id" "" invalid
+check_bp "buildpack id with a quote" 'a"b' invalid
+check_bp "buildpack id with a space" "a b" invalid
+check_bp "buildpack id with a second line" $'a\nb' invalid
+check_bp "buildpack id starting with a dash" -order invalid
+
 cargs="$(creator_args reg.example run@sha256:r "" "" reg.example/a:1)"
 check "creator args without cache or previous image" \
   '["-app=/workspace","-layers=/layers","-platform=/platform","-run-image=run@sha256:r","-insecure-registry=reg.example","-report=/layers/report.toml","reg.example/a:1"]' \
@@ -86,6 +95,9 @@ check "push secret mounted" push-secret "$(jq -r '.spec.volumes[] | select(.name
 check "push credentials from the mounted secret" /docker-config "$(jq -r '.spec.containers[0].env[] | select(.name == "DOCKER_CONFIG") | .value' <<<"$spec")"
 check "platform API" 0.15 "$(jq -r '.spec.containers[0].env[] | select(.name == "CNB_PLATFORM_API") | .value' <<<"$spec")"
 check "creator args are the container args" "$cargs" "$(jq -c '.spec.containers[0].args' <<<"$spec")"
+check "no buildpacks named by default" "" "$(jq -r '.spec.containers[0].env[] | select(.name == "BUILD_BUILDPACKS") | .value' <<<"$spec")"
+spec="$(pod_overrides pod1 builder@sha256:b "$cargs" "" reg.example 10.0.0.1 push-secret a/one)"
+check "the buildpacks reach the pod" a/one "$(jq -r '.spec.containers[0].env[] | select(.name == "BUILD_BUILDPACKS") | .value' <<<"$spec")"
 
 # The in-pod script: the context lands in the workspace, the variables become
 # /platform/env files, and the creator gets the arguments. Run it with the pod paths
@@ -107,6 +119,19 @@ check "context unpacked into the workspace" hello "$(cat "${root}/workspace/app.
 check "a variable written as a platform env file" 25 "$(cat "${root}/platform/env/BP_JVM_VERSION")"
 check "a value with = kept whole" "https://x/?a=b" "$(cat "${root}/platform/env/BP_OCI_SOURCE")"
 check "creator called with the arguments" "-flag img:1" "$(paste -sd' ' "${root}/creator.args")"
+check "no order file without buildpacks" absent "$([ -e "${root}/platform/order.toml" ] && echo present || echo absent)"
+mkdir -p "${root}/cnb/buildpacks/a_one/1.2.3" "${root}/cnb/buildpacks/b_two/4.5.6"
+tar -C "${work}/ctx" -czf - . | BUILD_BUILDPACKS=$'a/one\nb/two\n' bash -c "$pod_script" pod1 img:1
+check "the order file names each buildpack at the builder's version, in order" \
+  "$(printf '%s\n' '[[order]]' '  [[order.group]]' '    id = "a/one"' '    version = "1.2.3"' '  [[order.group]]' '    id = "b/two"' '    version = "4.5.6"')" \
+  "$(cat "${root}/platform/order.toml")"
+rm -f "${root}/creator.args"
+check_fails "a buildpack the builder lacks stops the build" \
+  bash -c "tar -C '${work}/ctx' -czf - . | BUILD_BUILDPACKS=c/none bash -c \"\$1\" pod1 img:1" _ "$pod_script"
+check "the creator does not run without the buildpack" absent "$([ -e "${root}/creator.args" ] && echo present || echo absent)"
+mkdir -p "${root}/cnb/buildpacks/a_one/1.2.4"
+check_fails "a buildpack with two versions in the builder stops the build" \
+  bash -c "tar -C '${work}/ctx' -czf - . | BUILD_BUILDPACKS=a/one bash -c \"\$1\" pod1 img:1" _ "$pod_script"
 
 # The tag and cache plan per ref.
 sha=0123456789abcdef0123456789abcdef01234567
@@ -145,6 +170,18 @@ check "main builds :<sha>" "reg.example/a:${sha}" "$(jq -r '.[-1]' <<<"$cargs")"
 check "main also tags :latest" '["-tag=reg.example/a:latest"]' "$(jq -c '[.[] | select(startswith("-tag="))]' <<<"$cargs")"
 check "main caches as main" 1 "$(jq '[.[] | select(. == "-cache-image=reg.example/a-buildcache:main")] | length' <<<"$cargs")"
 check "build env reaches the pod" BP_JVM_VERSION=25 "$(jq -r '.spec.containers[0].env[] | select(.name == "BUILD_ENV") | .value' <<<"$overrides")"
+check "the builder's own order without --buildpack" 0 "$(jq '[.[] | select(startswith("-order="))] | length' <<<"$cargs")"
+
+run_main --pod bp-3 --sha "$sha" --ref refs/heads/main --run-image run-static \
+  --buildpack paketo-buildpacks/procfile --buildpack paketo-buildpacks/image-labels \
+  "${work}/ctx" reg.example/a >/dev/null
+overrides="$(sed -n 's/^--overrides=//p' "${work}/kubectl.args")"
+cargs="$(jq -c '.spec.containers[0].args' <<<"$overrides")"
+check "--buildpack passes the platform order file to the creator" 1 "$(jq '[.[] | select(. == "-order=/platform/order.toml")] | length' <<<"$cargs")"
+check "with --buildpack the image is still the last creator argument" "reg.example/a:${sha}" "$(jq -r '.[-1]' <<<"$cargs")"
+check "--buildpack ids reach the pod in order" "paketo-buildpacks/procfile paketo-buildpacks/image-labels" \
+  "$(jq -r '.spec.containers[0].env[] | select(.name == "BUILD_BUILDPACKS") | .value' <<<"$overrides" | paste -sd' ')"
+check "--run-image run-static picks the static run image" 1 "$(jq '[.[] | select(test("^-run-image=docker.io/paketobuildpacks/ubuntu-noble-run-static:.*@sha256:"))] | length' <<<"$cargs")"
 
 run_main --pod bp-2 --sha "$sha" --ref refs/heads/agent/x "${work}/ctx" reg.example/a >/dev/null
 cargs="$(sed -n 's/^--overrides=//p' "${work}/kubectl.args" | jq -c '.spec.containers[0].args')"
@@ -161,6 +198,8 @@ check_fails "main with an extra argument" run_main "${ok[@]}" "${work}/ctx" reg.
 check_fails "main with a missing context" run_main "${ok[@]}" "${work}/nowhere" reg.example/a
 check_fails "main with a bad --env" run_main "${ok[@]}" --env bad "${work}/ctx" reg.example/a
 check_fails "main with a multi-line --env" run_main "${ok[@]}" --env $'A=1\n../x=y' "${work}/ctx" reg.example/a
+check_fails "main with a bad --buildpack" run_main "${ok[@]}" --buildpack 'a"b' "${work}/ctx" reg.example/a
+check_fails "main with an empty --buildpack" run_main "${ok[@]}" --buildpack "" "${work}/ctx" reg.example/a
 check_fails "main with an unknown builder" run_main "${ok[@]}" --builder nothing "${work}/ctx" reg.example/a
 check_fails "main with an unknown option" run_main "${ok[@]}" --nope "${work}/ctx" reg.example/a
 check_fails "main without REGISTRY" env -u REGISTRY bash "${here}/build-image-buildpacks.sh" "${ok[@]}" "${work}/ctx" reg.example/a

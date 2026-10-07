@@ -1,0 +1,17 @@
+# Installs the pinned kubectl the image build jobs use to start the build pod, checked
+# against its sha256. The one place the image builds pin kubectl.
+name: Install kubectl
+description: Install the pinned, checksum-verified kubectl into /usr/local/bin
+
+runs:
+  using: composite
+  steps:
+    - name: Install kubectl
+      shell: bash
+      env:
+        KUBECTL_VERSION: v1.37.1
+        KUBECTL_SHA256: 65691ff77eb6fa44c908b77a1082c9f092c3b9733b5cefabec0d1104890e21a8
+      run: |
+        curl -fsSLO "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl"
+        echo "${KUBECTL_SHA256}  kubectl" | sha256sum -c -
+        chmod +x kubectl && sudo mv kubectl /usr/local/bin/

@@ -9,12 +9,14 @@ on:
       - '.golangci.yml'
       - '.github/scripts/golangci-lint.sh'
       - 'operator/Makefile'
+      - '.github/buildpacks/**'
+      - '.github/scripts/build-image-buildpacks.sh'
+      - '.github/scripts/go-build-static.sh'
+      - '.github/workflows/build-go-binary-image.yaml'
   workflow_dispatch:
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-  REGISTRY: ${{ vars.REGISTRY }}
-  IMAGE_NAME: kubemoot/discussion-gateway
 
 permissions:
   contents: read
@@ -41,10 +43,6 @@ jobs:
           GOTOOLCHAIN: local
         run: go mod tidy -diff
 
-      - name: Build
-        working-directory: discussion-gateway
-        run: CGO_ENABLED=0 go build -ldflags="-s -w" -o discussion-gateway .
-
       # golangci-lint with the shared root .golangci.yml at the operator/Makefile pin.
       - name: Lint
         working-directory: discussion-gateway
@@ -54,55 +52,24 @@ jobs:
         working-directory: discussion-gateway
         run: go test ./...
 
+      # The image packages this tested binary; the build pod does not compile again.
+      - name: Build the static binary
+        working-directory: discussion-gateway
+        run: ../.github/scripts/go-build-static.sh discussion-gateway .
+
+      - name: Keep the tested binary for the image build
+        if: github.event_name != 'pull_request'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: discussion-gateway-binary
+          path: discussion-gateway/discussion-gateway
+          if-no-files-found: error
+          retention-days: 3
+
   build-image:
     needs: test
-    runs-on: homelab-runners
     if: github.event_name != 'pull_request'
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
-      - name: Install kubectl
-        run: |
-          curl -sLO "https://dl.k8s.io/release/$(curl -sL https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
-          chmod +x kubectl && sudo mv kubectl /usr/local/bin/
-
-      - name: Build and push with Kaniko
-        run: |
-          SHA="${{ github.sha }}"
-          JOB_NAME="kaniko-disc-gw-$(echo ${SHA} | cut -c1-8)-${GITHUB_RUN_NUMBER}"
-
-          # Kaniko needs operator + discussion-gateway dirs as context
-          tar -czf /tmp/context.tar.gz discussion-gateway/ operator/api/ operator/go.mod operator/go.sum
-
-          kubectl run ${JOB_NAME} \
-            --rm -i \
-            --restart=Never \
-            --namespace=arc-runners \
-            --image=gcr.io/kaniko-project/executor:latest \
-            --overrides='{
-              "spec": {
-                "hostAliases": [{"ip": "${{ vars.REGISTRY_HOST_IP }}", "hostnames": ["${{ vars.REGISTRY }}"]}],
-                "containers": [{
-                  "name": "kaniko",
-                  "image": "gcr.io/kaniko-project/executor:latest",
-                  "stdin": true,
-                  "stdinOnce": true,
-                  "args": [
-                    "--context=tar://stdin",
-                    "--dockerfile=discussion-gateway/Dockerfile",
-                    "--label=org.opencontainers.image.source=https://github.com/kubemoot/kubemoot",
-                    "--label=org.opencontainers.image.licenses=Apache-2.0",
-                    "--label=org.opencontainers.image.revision='"${SHA}"'",
-                    "--destination=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:'"${SHA}"'",
-                    "--destination=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest",
-                    "--insecure",
-                    "--skip-tls-verify",
-                    "--cache=false"
-                  ],
-                  "volumeMounts": [{"name": "docker-config", "mountPath": "/kaniko/.docker"}]
-                }],
-                "volumes": [{"name": "docker-config", "secret": {"secretName": "kaniko-docker-config", "items": [{"key": "config.json", "path": "config.json"}]}}]
-              }
-            }' < /tmp/context.tar.gz
+    uses: ./.github/workflows/build-go-binary-image.yaml
+    with:
+      name: discussion-gateway
+      binary: discussion-gateway

@@ -30,3 +30,5 @@ jobs:
           helm lint operator/chart/kubemoot-operator -f quickstart/operator-values.yaml
       - name: Dashboard subchart render tests
         run: operator/chart/test-dashboard-subchart.sh
+      - name: Image entrypoint render tests
+        run: operator/chart/test-image-entrypoints.sh

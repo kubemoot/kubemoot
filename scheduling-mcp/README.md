@@ -32,4 +32,4 @@ go test ./...
 go build ./cmd/scheduling-mcp/
 ```
 
-The Dockerfile produces a static `scratch`-based image. CI tags via the existing `kubemoot/.github/workflows` semantic-version pattern.
+CI builds the static binary and Paketo buildpacks package it onto the Ubuntu Noble `run-static` image (`.github/workflows/build-go-binary-image.yaml`). The binary is `/workspace/scheduling-mcp`; the image entrypoint `/cnb/process/web` starts it.

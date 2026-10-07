@@ -34,8 +34,8 @@ spec:
         - name: manager
           image: {{ include "kubemoot-operator.operatorImage" . | quote }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
-          command:
-            - /manager
+          # No command: the image entrypoint starts the manager (the buildpacks launcher
+          # at /cnb/process/web, which runs /workspace/manager with these args).
           args:
             {{- if .Values.leaderElection.enabled }}
             - --leader-elect
