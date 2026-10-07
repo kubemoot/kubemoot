@@ -17,9 +17,12 @@ import (
 	kubemootv1alpha1 "github.com/kubemoot/kubemoot/operator/api/v1alpha1"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/equality"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
@@ -90,5 +93,71 @@ func TestMCPGatewayReconcile_NotFoundIsNoOp(t *testing.T) {
 		NamespacedName: types.NamespacedName{Name: testAbsent, Namespace: testNS1},
 	}); err != nil {
 		t.Errorf("reconcile of an absent gateway must be a no-op, got %v", err)
+	}
+}
+
+// gatewayContainerFor builds the gateway container for a Kubemoot-implementation gateway.
+func gatewayContainerFor(resources *corev1.ResourceRequirements) corev1.Container {
+	gw := &kubemootv1alpha1.MCPGateway{
+		ObjectMeta: metav1.ObjectMeta{Name: testGateway1, Namespace: testNS1},
+		Spec: kubemootv1alpha1.MCPGatewaySpec{
+			Implementation: kubemootv1alpha1.ImplementationKubemoot,
+			Resources:      resources,
+		},
+	}
+	seccomp := corev1.SeccompProfile{Type: corev1.SeccompProfileTypeRuntimeDefault}
+	return buildGatewayContainer(gw, "img", "/actuator/health", 8080, nil, true, seccomp)
+}
+
+// Without spec.resources the gateway gets a memory limit the JVM memory calculator can
+// fit thread stacks, code cache, metaspace and a heap into.
+func TestBuildGatewayContainer_DefaultResourcesFitTheJVM(t *testing.T) {
+	c := gatewayContainerFor(nil)
+	if got := c.Resources.Limits[corev1.ResourceMemory]; got.Cmp(resource.MustParse("1Gi")) != 0 {
+		t.Errorf("default memory limit = %s, want 1Gi", got.String())
+	}
+	if got := c.Resources.Requests[corev1.ResourceMemory]; got.Cmp(resource.MustParse("512Mi")) != 0 {
+		t.Errorf("default memory request = %s, want 512Mi", got.String())
+	}
+	req, limit := c.Resources.Requests[corev1.ResourceCPU], c.Resources.Limits[corev1.ResourceCPU]
+	if req.Cmp(limit) > 0 {
+		t.Errorf("default CPU request %s exceeds the limit %s", req.String(), limit.String())
+	}
+}
+
+// spec.resources replaces the defaults whole, including a smaller memory limit.
+func TestBuildGatewayContainer_SpecResourcesOverrideDefaults(t *testing.T) {
+	want := corev1.ResourceRequirements{
+		Limits: corev1.ResourceList{corev1.ResourceMemory: resource.MustParse("384Mi")},
+	}
+	c := gatewayContainerFor(&want)
+	if got := c.Resources.Limits[corev1.ResourceMemory]; got.Cmp(resource.MustParse("384Mi")) != 0 {
+		t.Errorf("memory limit = %s, want the spec's 384Mi", got.String())
+	}
+	if _, ok := c.Resources.Requests[corev1.ResourceMemory]; ok {
+		t.Error("a spec without requests must not get the default memory request")
+	}
+	if _, ok := c.Resources.Limits[corev1.ResourceCPU]; ok {
+		t.Error("a spec without a CPU limit must not get the default CPU limit")
+	}
+}
+
+// The gateway runs as a fixed non-root uid with no privileges, whatever user the
+// image declares.
+func TestBuildGatewayContainer_RunsNonRootWithoutPrivileges(t *testing.T) {
+	sc := gatewayContainerFor(nil).SecurityContext
+	if sc == nil {
+		t.Fatal("want a container security context")
+	}
+	want := corev1.SecurityContext{
+		RunAsUser:                ptr.To(int64(1000)),
+		RunAsGroup:               ptr.To(int64(1000)),
+		RunAsNonRoot:             ptr.To(true),
+		AllowPrivilegeEscalation: ptr.To(false),
+		Capabilities:             &corev1.Capabilities{Drop: []corev1.Capability{dropAllCapability}},
+		SeccompProfile:           &corev1.SeccompProfile{Type: corev1.SeccompProfileTypeRuntimeDefault},
+	}
+	if !equality.Semantic.DeepEqual(*sc, want) {
+		t.Errorf("security context = %+v, want %+v", *sc, want)
 	}
 }
