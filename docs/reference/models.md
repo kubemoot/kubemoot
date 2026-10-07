@@ -121,9 +121,18 @@ Declares a specific inference model on a provider, **labeled** so the scheduler 
 | Field | Description |
 |-------|-------------|
 | `state` | `Pending`, `Pulling`, `Available`, `Loaded`, `Error` |
+| `pull` | While `Pulling`: `completedBytes`, `totalBytes` and `percent` of the download. `totalBytes` grows as the registry announces layers. Cleared when the model is on the provider. |
 | `ready` | Model ready for inference |
 | `endpoint` | Inference endpoint (from provider) |
 | `modelInfo` | Size, parameters, family, quantization, context length, format, digest |
+
+A model the provider does not list is downloaded in the background, so the Model
+reconcile returns at once and deleting or changing other Models is never held up by a
+download. Models with the same tag on the same provider share one download. Deleting
+the last Model that uses a tag cancels its download in progress and removes the
+partial model from the provider. If the operator restarts mid-download, the Model
+stays `Pulling`, the pull starts again, and the provider resumes the partial files.
+A failed download reports `Error` with the reason and is retried.
 
 ### Example
 

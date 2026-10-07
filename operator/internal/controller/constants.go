@@ -106,6 +106,7 @@ const (
 	stateAvailable     = "Available"
 	statePulling       = "Pulling"
 	stateLoaded        = "Loaded"
+	stateError         = "Error"
 )
 
 // Workload wiring shared by the Deployments and Services the operator builds.
