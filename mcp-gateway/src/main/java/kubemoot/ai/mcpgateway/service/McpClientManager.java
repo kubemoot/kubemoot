@@ -8,6 +8,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.codec.ServerSentEvent;
 import org.springframework.web.reactive.function.client.WebClient;
+import org.springframework.web.reactive.function.client.WebClientRequestException;
 import org.springframework.web.reactive.function.client.ClientResponse;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
@@ -31,6 +32,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.Predicate;
 import java.util.concurrent.atomic.AtomicLong;
 
 @Service
@@ -82,6 +84,8 @@ public class McpClientManager {
     private final Map<String, Instant> toolsListedAt = new ConcurrentHashMap<>();
     // Listings started per server; only the latest one may replace the cached tools
     private final Map<String, Long> listings = new ConcurrentHashMap<>();
+    /** The connect a request started for a server; requests that arrive meanwhile wait on it. */
+    private final Map<String, Mono<Void>> requestReconnects = new ConcurrentHashMap<>();
     // Feedback log: server ID → list of feedback entries (consumed and cleared by operator)
     private final Map<String, List<FeedbackEntry>> feedbackLog = new ConcurrentHashMap<>();
     // Upstream JSON-RPC ids; starts above the fixed ids the handshake uses (1, 2).
@@ -183,9 +187,13 @@ public class McpClientManager {
      * re-registrations starts one connect, not one each.
      */
     private boolean claimReconnect(String serverId) {
+        return claimReconnect(serverId, this::needsReconnect);
+    }
+
+    private boolean claimReconnect(String serverId, Predicate<ServerRegistration> wanted) {
         AtomicBoolean claimed = new AtomicBoolean(false);
         servers.computeIfPresent(serverId, (id, server) -> {
-            if (!needsReconnect(server)) {
+            if (!wanted.test(server)) {
                 return server;
             }
             claimed.set(true);
@@ -875,6 +883,14 @@ public class McpClientManager {
             return Mono.just(McpMessage.error(request.id(), -32600, "Server not found: " + serverId));
         }
 
+        if (allowRetry) {
+            Mono<Void> connecting = connectForRequest(serverId);
+            if (connecting != null) {
+                return connecting.then(Mono.defer(() -> forwardRequestInternal(serverId, request, false)))
+                    .onErrorResume(e -> unreachable(request, e));
+            }
+        }
+
         boolean isStdio = TRANSPORT_STDIO.equalsIgnoreCase(server.transport());
 
         // For stdio transport, use SSE-based communication
@@ -884,6 +900,77 @@ public class McpClientManager {
 
         // For other transports, use direct HTTP request
         return forwardRequestViaHttp(serverId, client, server, request, allowRetry);
+    }
+
+    /**
+     * A request for a server that is not usable (its first connect failed, its session was
+     * lost, or it listed no tools) opens a new session first, so a caller does not wait for
+     * the next re-registration. The caller that finds the server in that state starts the
+     * connect; the request is then sent once, with no further retry.
+     */
+    private Mono<McpMessage> reconnectThenForward(String serverId, McpMessage request) {
+        return reconnectForRequest(serverId)
+            .then(Mono.defer(() -> forwardRequestInternal(serverId, request, false)))
+            .onErrorResume(e -> unreachable(request, e));
+    }
+
+    private static Mono<McpMessage> unreachable(McpMessage request, Throwable e) {
+        String reason = e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage();
+        return Mono.just(McpMessage.error(request.id(), -32603, "Server not reachable: " + reason));
+    }
+
+    /**
+     * The connect to wait for before forwarding: the one already started for a request, a
+     * new one when the server is DISCONNECTED or ERROR, or null when the server is usable.
+     * A server that is connected but lists no tools is left to re-registration, so a server
+     * with no tools by design is not reconnected by every request.
+     */
+    private Mono<Void> connectForRequest(String serverId) {
+        Mono<Void> pending = requestReconnects.get(serverId);
+        if (pending != null) {
+            return pending;
+        }
+        return claimReconnect(serverId, McpClientManager::isDown) ? reconnectForRequest(serverId) : null;
+    }
+
+    private static boolean isDown(ServerRegistration server) {
+        return server.status() == ServerStatus.DISCONNECTED || server.status() == ServerStatus.ERROR;
+    }
+
+    /** One connect per server at a time; every request that needs it waits on the same one. */
+    private Mono<Void> reconnectForRequest(String serverId) {
+        return requestReconnects.computeIfAbsent(serverId, id -> {
+            log.info("Server {} is not connected, connecting before forwarding the request", id);
+            return reinitialize(id).doFinally(signal -> requestReconnects.remove(id)).share();
+        });
+    }
+
+    /** A connection that was refused never reached the server, so the request is safe to send again. */
+    private static boolean isConnectRefused(Throwable e) {
+        for (Throwable t = e; t != null; t = t.getCause()) {
+            if (t instanceof java.net.ConnectException) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * A refused or reset connection to a streamable HTTP server means the server is gone or
+     * restarting. The server is marked ERROR and, when a retry is allowed, connected again
+     * and the request sent once more.
+     */
+    private Mono<McpMessage> recoverHttpTransportError(Throwable e, String serverId,
+            McpMessage request, boolean allowRetry) {
+        log.warn("Error forwarding request to {}: {}", serverId, e.getMessage());
+        if (e instanceof WebClientRequestException) {
+            setStatus(serverId, ServerStatus.ERROR);
+            if (allowRetry && isConnectRefused(e)) {
+                serverSessions.remove(serverId);
+                return reconnectThenForward(serverId, request);
+            }
+        }
+        return Mono.just(McpMessage.error(request.id(), -32603, "Internal error: " + e.getMessage()));
     }
 
     private Mono<McpMessage> forwardRequestViaSSE(String serverId, WebClient client,
@@ -984,7 +1071,8 @@ public class McpClientManager {
                     log.warn("Session error ({}) for server {}", statusCode, serverId);
                     serverSessions.remove(serverId);
                     return reinitialize(serverId)
-                        .then(Mono.defer(() -> forwardRequestViaHttp(serverId, client, server, request, false)));
+                        .then(Mono.defer(() -> forwardRequestViaHttp(serverId, client, server, request, false)))
+                        .onErrorResume(e -> unreachable(request, e));
                 }
 
                 if (!response.statusCode().is2xxSuccessful()) {
@@ -1007,10 +1095,7 @@ public class McpClientManager {
                     })
                     .defaultIfEmpty(McpMessage.error(request.id(), -32603, "Empty response from server"));
             })
-            .onErrorResume(e -> {
-                log.error("Error forwarding request to {}: {}", serverId, e.getMessage());
-                return Mono.just(McpMessage.error(request.id(), -32603, "Internal error: " + e.getMessage()));
-            });
+            .onErrorResume(e -> recoverHttpTransportError(e, serverId, request, allowRetry));
     }
 
     /**
