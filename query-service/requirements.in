@@ -2,7 +2,7 @@
 #
 # The ranges live here; requirements.txt is the hash-locked install set, generated with:
 #   pip-compile --allow-unsafe --generate-hashes --strip-extras --output-file=requirements.txt requirements.in
-# (Python 3.13, the image's Python). Dependabot updates both.
+# (Python 3.14, the image's Python). Dependabot updates both.
 
 # Web framework
 fastapi>=0.142.2,<0.143.0

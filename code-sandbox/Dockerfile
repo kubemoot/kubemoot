@@ -7,9 +7,9 @@ COPY cmd/ cmd/
 COPY internal/ internal/
 RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o code-sandbox ./cmd/code-sandbox/
 
-# The programs agents write run on this image: Python 3.12 with the standard
+# The programs agents write run on this image: Python 3.14 with the standard
 # library only, and bash. Nothing else is installed.
-FROM docker.io/library/python:3.12-slim@sha256:02108f5d322dd89f1c9e552442c25acb0543dfdbc455693a5599624f20d9155d
+FROM docker.io/library/python:3.14-slim@sha256:f85c5697265c178cc6887276c55fe16cf3d14ca35c3df6a5eab3b360534a55d2
 # tini reaps processes a killed program leaves behind; without it they stay as
 # zombies under the server for the life of the pod.
 RUN apt-get update && apt-get install -y --no-install-recommends tini && rm -rf /var/lib/apt/lists/*
