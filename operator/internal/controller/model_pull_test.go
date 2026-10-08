@@ -217,6 +217,8 @@ func TestPull_TwoModelsWithSameTagShareOnePull(t *testing.T) {
 	var cancelled atomic.Bool
 	h := newPullHarness(t, newFakeOllama(t, blockedPull(halfDone, release, &cancelled)), 0)
 	h.reconcile()
+	eventually(t, "the pull request", func() bool { return atomic.LoadInt32(&h.f.pulls) == 1 })
+	first := h.tracked()
 	second, _ := absentOllamaModel(h.f.srv.URL)
 	second.Name = "qwen-8b-copy"
 	if err := h.r.Create(context.Background(), second); err != nil {
@@ -224,6 +226,9 @@ func TestPull_TwoModelsWithSameTagShareOnePull(t *testing.T) {
 	}
 	h.model = second
 	h.reconcile()
+	if h.tracked() != first {
+		t.Errorf("the second Model got its own pull, want the shared one")
+	}
 	if n := atomic.LoadInt32(&h.f.pulls); n != 1 {
 		t.Errorf("pulls = %d for two Models with one tag, want 1", n)
 	}
