@@ -22,10 +22,11 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
 
-// scoreCandidate sums the soft-preference weight, the image-locality bonus (when
-// the provider already has the model loaded), the provider phase score, and the
-// load penalty. These tests drive the pure scoring path with no client.
-func TestScoreCandidate_PreferAndLocality(t *testing.T) {
+// scoreCandidate sums the soft-preference weight and the provider phase score.
+// Live provider state (loaded models, agent counts) never contributes, so the
+// pick does not move while models load and unload. These tests drive the pure
+// scoring path with no client.
+func TestScoreCandidate_PreferAndProviderWeight(t *testing.T) {
 	rule := &kubemootv1alpha1.SchedulingRule{
 		Phase: testMulling,
 		Prefer: []kubemootv1alpha1.PreferenceTerm{{
@@ -38,16 +39,14 @@ func TestScoreCandidate_PreferAndLocality(t *testing.T) {
 		Spec:       kubemootv1alpha1.ModelSpec{Model: testModelID},
 	}
 	prov := &kubemootv1alpha1.ModelProvider{
-		Status: kubemootv1alpha1.ModelProviderStatus{
-			Capacity: &kubemootv1alpha1.DiscoveredCapacity{
-				LoadedModels: []kubemootv1alpha1.LoadedModel{{Name: testModelID}},
-			},
+		Spec: kubemootv1alpha1.ModelProviderSpec{
+			Scheduling: &kubemootv1alpha1.ProviderScheduling{Weight: 100},
 		},
 	}
-	score, reasons := scoreCandidate(testMulling, rule, m, prov, false)
-	// 25 (prefer) + 10 (locality bonus) = 35.
-	if score != 35 {
-		t.Errorf("score = %d, want 35 (prefer 25 + locality 10); reasons=%v", score, reasons)
+	score, reasons := scoreCandidate(testMulling, rule, m, prov)
+	// 25 (prefer) + 100 (mulling provider weight) = 125.
+	if score != 125 {
+		t.Errorf("score = %d, want 125 (prefer 25 + provider 100); reasons=%v", score, reasons)
 	}
 	if len(reasons) == 0 {
 		t.Error("scoreCandidate should report the reason fragments")
@@ -149,24 +148,24 @@ func TestPickModel(t *testing.T) {
 			Status:     kubemootv1alpha1.ModelStatus{Ready: ready},
 		}
 	}
-	prv := func(name string, ready bool, vramTotal int64, loaded string) *kubemootv1alpha1.ModelProvider {
+	prv := func(name string, ready bool, vramTotal int64, weight int) *kubemootv1alpha1.ModelProvider {
 		p := &kubemootv1alpha1.ModelProvider{
 			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "ns"},
-			Spec:       kubemootv1alpha1.ModelProviderSpec{Endpoint: "http://" + name + ":11434"},
-			Status:     kubemootv1alpha1.ModelProviderStatus{Ready: ready},
+			Spec: kubemootv1alpha1.ModelProviderSpec{
+				Endpoint:   "http://" + name + ":11434",
+				Scheduling: &kubemootv1alpha1.ProviderScheduling{Weight: weight},
+			},
+			Status: kubemootv1alpha1.ModelProviderStatus{Ready: ready},
 		}
-		if vramTotal > 0 || loaded != "" {
+		if vramTotal > 0 {
 			p.Status.Capacity = &kubemootv1alpha1.DiscoveredCapacity{VRAMTotalMiB: vramTotal}
-			if loaded != "" {
-				p.Status.Capacity.LoadedModels = []kubemootv1alpha1.LoadedModel{{Name: loaded}}
-			}
 		}
 		return p
 	}
 
-	// winner: provider already has it loaded -> +locality, the highest score.
+	// winner: its provider carries the heaviest weight, the highest mulling score.
 	winner := mdl("winner", testModelID, "provA", true, 0)
-	// runnerUp: feasible but unloaded -> lower score (forces the sort comparator).
+	// runnerUp: feasible on a lighter provider -> lower score (forces the sort comparator).
 	runnerUp := mdl("runnerup", "llama3:8b", "provB", true, 0)
 	// notReady: filtered at the readiness gate.
 	notReady := mdl("cold", "llama3:70b", "provB", false, 0)
@@ -177,30 +176,30 @@ func TestPickModel(t *testing.T) {
 
 	objs := []client.Object{
 		winner, runnerUp, notReady, provDown, tooBig,
-		prv("provA", true, 24000, testModelID),
-		prv("provB", true, 24000, ""),
-		prv("provC", false, 24000, ""),
-		prv("provD", true, 8000, ""),
+		prv("provA", true, 24000, 100),
+		prv("provB", true, 24000, 25),
+		prv("provC", false, 24000, 100),
+		prv("provD", true, 8000, 100),
 	}
 	cli := fake.NewClientBuilder().WithScheme(scheme).WithObjects(objs...).Build()
 	r := &AgentReconciler{Client: cli, Scheme: scheme, ConfigCache: NewConfigCache()}
 	agent := &kubemootv1alpha1.Agent{ObjectMeta: metav1.ObjectMeta{Name: testK8sAgent, Namespace: "ns"}}
 
-	pick, err := r.pickModel(context.Background(), agent, testMulling, "")
+	pick, err := r.pickModel(context.Background(), agent, testMulling)
 	if err != nil {
 		t.Fatalf("pickModel: %v", err)
 	}
 	if pick.ModelID != testModelID {
-		t.Errorf("picked ModelID = %q, want qwen3:8b (the loaded model wins on locality)", pick.ModelID)
+		t.Errorf("picked ModelID = %q, want qwen3:8b (the heaviest provider wins mulling)", pick.ModelID)
 	}
 	if pick.Endpoint != "http://provA:11434" {
 		t.Errorf("pick endpoint = %q", pick.Endpoint)
 	}
 
 	// No Ready Model -> an error, not a panic.
-	cli2 := fake.NewClientBuilder().WithScheme(scheme).WithObjects(notReady, prv("provB", true, 0, "")).Build()
+	cli2 := fake.NewClientBuilder().WithScheme(scheme).WithObjects(notReady, prv("provB", true, 0, 25)).Build()
 	r2 := &AgentReconciler{Client: cli2, Scheme: scheme, ConfigCache: NewConfigCache()}
-	if _, err := r2.pickModel(context.Background(), agent, testMulling, ""); err == nil {
+	if _, err := r2.pickModel(context.Background(), agent, testMulling); err == nil {
 		t.Error("expected an error when no Ready Model is feasible")
 	}
 }
@@ -245,7 +244,7 @@ func TestPickModel_WithPolicy(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{Name: testK8sAgent, Namespace: "ns", Labels: map[string]string{labelCrew: testCrewA}},
 		Spec:       kubemootv1alpha1.AgentSpec{Capabilities: []string{testReasoning}},
 	}
-	pick, err := r.pickModel(context.Background(), agent, testMulling, "")
+	pick, err := r.pickModel(context.Background(), agent, testMulling)
 	if err != nil {
 		t.Fatalf("pickModel: %v", err)
 	}
@@ -262,11 +261,59 @@ func TestScoreCandidate_NoMatchNoBonus(t *testing.T) {
 			Selector: &metav1.LabelSelector{MatchLabels: map[string]string{testTier: testFast}},
 		}},
 	}
-	// Model lacks the label and the provider has nothing loaded -> zero score.
+	// Model lacks the label and the provider carries no weight -> zero score.
 	m := &kubemootv1alpha1.Model{Spec: kubemootv1alpha1.ModelSpec{Model: "llama3:70b"}}
 	prov := &kubemootv1alpha1.ModelProvider{}
-	score, _ := scoreCandidate(testMulling, rule, m, prov, true)
+	score, _ := scoreCandidate(testMulling, rule, m, prov)
 	if score != 0 {
-		t.Errorf("a non-matching, non-local candidate should score 0, got %d", score)
+		t.Errorf("a non-matching candidate on an unweighted provider should score 0, got %d", score)
+	}
+}
+
+// The pick that becomes the pod's default endpoint ignores live provider state:
+// loading a model, or piling agents onto a provider, leaves it unchanged.
+func TestPickModel_IgnoresLiveProviderState(t *testing.T) {
+	scheme := agentReconcileScheme(t)
+	mdl := func(name, id, provRef string) *kubemootv1alpha1.Model {
+		return &kubemootv1alpha1.Model{
+			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "ns"},
+			Spec:       kubemootv1alpha1.ModelSpec{Model: id, ProviderRef: provRef},
+			Status:     kubemootv1alpha1.ModelStatus{Ready: true},
+		}
+	}
+	prv := func(name string, capacity *kubemootv1alpha1.DiscoveredCapacity) *kubemootv1alpha1.ModelProvider {
+		return &kubemootv1alpha1.ModelProvider{
+			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "ns"},
+			Spec: kubemootv1alpha1.ModelProviderSpec{
+				Endpoint:   "http://" + name + ":11434",
+				Scheduling: &kubemootv1alpha1.ProviderScheduling{Weight: 100},
+			},
+			Status: kubemootv1alpha1.ModelProviderStatus{Ready: true, Capacity: capacity},
+		}
+	}
+	agent := &kubemootv1alpha1.Agent{ObjectMeta: metav1.ObjectMeta{Name: testK8sAgent, Namespace: "ns"}}
+	pickWith := func(capA, capB *kubemootv1alpha1.DiscoveredCapacity) *modelPick {
+		cli := fake.NewClientBuilder().WithScheme(scheme).WithObjects(
+			mdl("m-a", "qwen3:8b", "provA"), mdl("m-b", "qwen3:8b", "provB"),
+			prv("provA", capA), prv("provB", capB),
+		).Build()
+		r := &AgentReconciler{Client: cli, Scheme: scheme, ConfigCache: NewConfigCache()}
+		pick, err := r.pickModel(context.Background(), agent, testMulling)
+		if err != nil {
+			t.Fatalf("pickModel: %v", err)
+		}
+		return pick
+	}
+
+	idle := pickWith(nil, nil)
+	loadedOnB := pickWith(nil, &kubemootv1alpha1.DiscoveredCapacity{
+		LoadedModels: []kubemootv1alpha1.LoadedModel{{Name: "qwen3:8b"}},
+	})
+	busyA := pickWith(&kubemootv1alpha1.DiscoveredCapacity{MullingAgentCount: 20, MaxParallel: 1}, nil)
+
+	for name, got := range map[string]*modelPick{"model loaded on the other provider": loadedOnB, "agents piled on the first provider": busyA} {
+		if got.Endpoint != idle.Endpoint || got.ModelID != idle.ModelID {
+			t.Errorf("%s moved the pick: got %s/%s, want %s/%s", name, got.Endpoint, got.ModelID, idle.Endpoint, idle.ModelID)
+		}
 	}
 }

@@ -29,8 +29,5 @@ func TestIsCoordinator(t *testing.T) {
 		if got := isCoordinator(c.a); got != c.want {
 			t.Errorf("%s: isCoordinator = %v, want %v", c.name, got, c.want)
 		}
-		if got := shouldBinPack(c.a); got == c.want {
-			t.Errorf("%s: shouldBinPack = %v, want %v", c.name, got, !c.want)
-		}
 	}
 }

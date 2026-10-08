@@ -79,42 +79,14 @@ const (
 // becomes Ready or a Model CR is created.
 const requeueUnscheduledInterval = 30 * time.Second
 
-// imageLocalityBonus is added to a candidate's score when the model is
-// already loaded on the provider (mirrors kube-scheduler's image-locality).
-const imageLocalityBonus = 10
-
-// agentLoadPenaltyPerAgent is subtracted from a candidate's score for each
-// agent already bound to the provider (per phase). Drives load-aware
-// bin-packing.
-// Tunable; revisit if provider weights spread changes meaningfully.
-const agentLoadPenaltyPerAgent = 10
-
-// stickyHysteresis is the score margin an ALTERNATIVE provider must beat
-// the agent's CURRENT pick by, before pickModel flips the binding. Without
-// this, cache lag in the ModelProvider counts produces flip-back
-// oscillation: many agents reconcile against stale counts, all migrate to
-// the under-loaded provider, MP counts catch up, NEXT reconcile sees the
-// other side under-loaded, they migrate back. Hysteresis breaks the loop —
-// once an agent is on a provider, only a meaningfully-better alternative
-// dislodges it. 25 ≈ 2.5× agentLoadPenaltyPerAgent, requiring roughly
-// "3 agents' worth of load relief" to justify a flip. Has no effect on
-// fresh picks for agents with no current binding.
-const stickyHysteresis = 25
-
 // scoreCandidate computes the score and human-readable reason tokens for a
-// (model, provider) candidate under a given phase rule. It composes four
-// sources: label-prefer weights, image-locality, provider weight, and (when
-// applyLoadPenalty=true) a per-phase agent-count penalty that drives
-// bin-packing across providers.
-//
-// applyLoadPenalty=false is for "critical-path" agents (currently:
-// coordinators) whose work runs sequentially BEFORE the rest of the crew
-// wakes up. For them, bin-packing is the wrong objective — there's no
-// parallel load to balance, only end-to-end latency on a blocker, so they
-// always pick the heaviest-weight provider their Model rules permit.
-// Penalty applies to toolers, who run in parallel after triage and
-// benefit from being spread across providers.
-func scoreCandidate(phase string, rule *kubemootv1alpha1.SchedulingRule, m *kubemootv1alpha1.Model, prov *kubemootv1alpha1.ModelProvider, applyLoadPenalty bool) (int64, []string) {
+// (model, provider) candidate under a given phase rule. It composes the
+// label-prefer weights and the provider's phase-aware scheduling weight. Both
+// come from the spec, never from live provider state (loaded models, agent
+// counts): the pick becomes the agent's default endpoint in the pod template,
+// and a pick that follows live state rolls the pod whenever the state moves.
+// Where each inference call actually runs is decided per call by the runtime.
+func scoreCandidate(phase string, rule *kubemootv1alpha1.SchedulingRule, m *kubemootv1alpha1.Model, prov *kubemootv1alpha1.ModelProvider) (int64, []string) {
 	var score int64
 	var reasonParts []string
 
@@ -122,19 +94,9 @@ func scoreCandidate(phase string, rule *kubemootv1alpha1.SchedulingRule, m *kube
 	score += preferScore
 	reasonParts = append(reasonParts, preferReasons...)
 
-	if localityScore, ok := imageLocalityScore(m, prov); ok {
-		score += localityScore
-		reasonParts = append(reasonParts, fmt.Sprintf("locality+%d", localityScore))
-	}
 	if ps := providerScore(phase, prov); ps != 0 {
 		score += ps
 		reasonParts = append(reasonParts, fmt.Sprintf("provider%+d", ps))
-	}
-	if applyLoadPenalty {
-		if penalty, ok := loadPenalty(phase, prov); ok {
-			score -= penalty
-			reasonParts = append(reasonParts, fmt.Sprintf("load-%d", penalty))
-		}
 	}
 	return score, reasonParts
 }
@@ -164,79 +126,12 @@ func preferRuleScore(rule *kubemootv1alpha1.SchedulingRule, m *kubemootv1alpha1.
 	return score, reasonParts
 }
 
-// imageLocalityScore returns the locality bonus (and ok=true) when the provider
-// already has the candidate Model loaded, so reusing it avoids a model pull/load.
-func imageLocalityScore(m *kubemootv1alpha1.Model, prov *kubemootv1alpha1.ModelProvider) (int64, bool) {
-	if prov == nil || prov.Status.Capacity == nil {
-		return 0, false
-	}
-	for _, lm := range prov.Status.Capacity.LoadedModels {
-		if lm.Name == m.Spec.Model {
-			return imageLocalityBonus, true
-		}
-	}
-	return 0, false
-}
-
-// loadPenalty computes the load-aware bin-pack penalty for a provider in a phase:
-// the per-phase agent count, scaled down by the provider's MaxParallel capacity.
-// ok=false when there is no capacity info or no agents in this phase (no penalty).
-//
-// Load-aware bin-packing penalizes providers that already host many agents IN THIS
-// PHASE. Per-phase counts (Mulling/TriageAgentCount) are populated by
-// ModelProviderReconciler.countAssignedAgents from the per-phase deployment labels.
-// Using a phase-specific count is critical: a single AgentCount totalling both
-// phases grows in lockstep on both providers (each agent contributes once to each),
-// so the penalties cancel and the bin-pack signal disappears.
-func loadPenalty(phase string, prov *kubemootv1alpha1.ModelProvider) (int64, bool) {
-	if prov == nil || prov.Status.Capacity == nil {
-		return 0, false
-	}
-	var phaseCount int
-	switch phase {
-	case phaseMulling:
-		phaseCount = prov.Status.Capacity.MullingAgentCount
-	case phaseTriage:
-		phaseCount = prov.Status.Capacity.TriageAgentCount
-	}
-	if phaseCount <= 0 {
-		return 0, false
-	}
-	// Capacity-aware penalty: divide by MaxParallel (discovered from
-	// OLLAMA_NUM_PARALLEL on the provider pod). A provider with
-	// num_parallel=2 has 2x the concurrent-inference capacity of one
-	// at num_parallel=1, so each agent assigned costs half as much
-	// "saturation." Without this normalization the scheduler treats
-	// a 5090@num_parallel=2 the same as a 4090@num_parallel=1,
-	// pushing agents off the higher-capacity provider too eagerly.
-	// Equilibrium under uniform penalty was ~10/16 across rig0/rig1
-	// for 26 agents; with capacity-aware penalty it shifts to ~21/5,
-	// biasing work toward the warmer, more-parallel GPU.
-	parallel := prov.Status.Capacity.MaxParallel
-	if parallel < 1 {
-		parallel = 1 // defensive: pre-discovery providers default to 1
-	}
-	return int64(phaseCount) * agentLoadPenaltyPerAgent / int64(parallel), true
-}
-
 // isCoordinator reports whether an agent is its crew's coordinator: declared
 // with discussRole coordinator, or with the kubemoot.ai/role=coordinator label
 // that crews created before discussRole existed still carry. Every controller
 // that needs the coordinator uses this one rule.
 func isCoordinator(agent *kubemootv1alpha1.Agent) bool {
 	return agent.Spec.DiscussRole == roleCoordinator || agent.Labels[annoRole] == roleCoordinator
-}
-
-// shouldBinPack returns true when the agent's pickModel run should apply
-// the load-aware bin-pack penalty. Coordinators skip it because their work
-// is sequential and there's no parallel load to balance; latency dominates
-// and they should always pick the heaviest provider. Every other agent
-// bin-packs.
-func shouldBinPack(agent *kubemootv1alpha1.Agent) bool {
-	if agent == nil {
-		return true
-	}
-	return !isCoordinator(agent)
 }
 
 // providerScore returns the phase-aware contribution from a ModelProvider's
@@ -319,16 +214,12 @@ func (r *AgentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 	return ctrl.Result{}, nil
 }
 
-// pickPhaseModels picks the mulling and triage models for an agent. It reads the
-// existing Deployment labels for the agent's current per-phase provider picks, which
-// pickModel uses for sticky scheduling so cache lag during bulk reconciles does not
-// flip a pick back and forth. An unschedulable triage phase falls back to the mulling
-// pick. A nil mulling pick comes with the error that explains it.
+// pickPhaseModels picks the mulling and triage models for an agent. An
+// unschedulable triage phase falls back to the mulling pick. A nil mulling pick
+// comes with the error that explains it.
 func (r *AgentReconciler) pickPhaseModels(ctx context.Context, agent *kubemootv1alpha1.Agent) (mulling, triage *modelPick, mullingErr error) {
-	currentMulling, currentTriage := r.currentProviderPicks(ctx, agent)
-
-	mulling, mullingErr = r.pickModel(ctx, agent, phaseMulling, currentMulling)
-	triage, triageErr := r.pickModel(ctx, agent, phaseTriage, currentTriage)
+	mulling, mullingErr = r.pickModel(ctx, agent, phaseMulling)
+	triage, triageErr := r.pickModel(ctx, agent, phaseTriage)
 	if triageErr != nil && mulling != nil {
 		logf.FromContext(ctx).V(1).Info("Triage phase unschedulable; falling back to mulling pick", "reason", triageErr.Error())
 		triage = mulling
@@ -366,23 +257,8 @@ type modelPick struct {
 	Candidates []modelCandidate
 }
 
-// currentProviderPicks returns the mulling/triage provider names recorded
-// on the agent's existing Deployment labels (the operator's prior decision).
-// Empty strings on first-deploy (no existing Deployment) — pickModel
-// degrades to a normal best-score pick in that case.
-func (r *AgentReconciler) currentProviderPicks(ctx context.Context, agent *kubemootv1alpha1.Agent) (mulling, triage string) {
-	existing := &appsv1.Deployment{}
-	if err := r.Get(ctx, types.NamespacedName{Name: agent.Name, Namespace: agent.Namespace}, existing); err != nil {
-		return "", ""
-	}
-	return existing.Labels["kubemoot.ai/mulling-provider"], existing.Labels["kubemoot.ai/triage-provider"]
-}
-
 // scheduleCandidate is one feasible (Model, ModelProvider) pairing under
-// consideration during pickModel scoring. Exported at package scope (vs.
-// originally being local to pickModel) so the sticky-scheduling helper
-// applySticky can take it as input and be unit-tested without spinning up
-// a fake client + scheme.
+// consideration during pickModel scoring.
 type scheduleCandidate struct {
 	model    *kubemootv1alpha1.Model
 	provider *kubemootv1alpha1.ModelProvider
@@ -410,37 +286,11 @@ func candidateBefore(a, b scheduleCandidate) bool {
 	return a.model.Name < b.model.Name
 }
 
-// applySticky implements anti-oscillation: when the best-scoring candidate
-// uses a DIFFERENT provider than the agent's current binding, keep the
-// current binding unless the alternative beats it by more than
-// stickyHysteresis points. feasible MUST be sorted descending by score;
-// best is feasible[0]. Returns the candidate to actually use. When
-// currentProviderName is empty or no candidate matches it, returns best
-// unchanged (fresh-pick path for new agents).
-func applySticky(best scheduleCandidate, feasible []scheduleCandidate, currentProviderName string) scheduleCandidate {
-	if currentProviderName == "" || best.provider.Name == currentProviderName {
-		return best
-	}
-	for _, c := range feasible {
-		if c.provider.Name != currentProviderName {
-			continue
-		}
-		if best.score-c.score <= stickyHysteresis {
-			c.reason = c.reason + ",sticky"
-			return c
-		}
-		break
-	}
-	return best
-}
-
 // pickModel runs filter+score for one phase and returns the best feasible pick.
-// currentProviderName, if non-empty, is the provider this agent is CURRENTLY
-// bound to for this phase. When the highest-scoring candidate uses a different
-// provider, pickModel applies applySticky to keep the existing binding unless
-// the alternative beats it by stickyHysteresis points, preventing
-// reconcile-cycle oscillation under MP-cache lag.
-func (r *AgentReconciler) pickModel(ctx context.Context, agent *kubemootv1alpha1.Agent, phase string, currentProviderName string) (*modelPick, error) {
+// The ranking reads only spec-level inputs (see scoreCandidate), so the same
+// Models and providers always yield the same pick and the agent's pod template
+// stays put while models load and unload.
+func (r *AgentReconciler) pickModel(ctx context.Context, agent *kubemootv1alpha1.Agent, phase string) (*modelPick, error) {
 	policy, rule := r.findPolicyAndRule(ctx, agent, phase)
 
 	models := &kubemootv1alpha1.ModelList{}
@@ -462,7 +312,7 @@ func (r *AgentReconciler) pickModel(ctx context.Context, agent *kubemootv1alpha1
 	}
 
 	sort.SliceStable(feasible, func(i, j int) bool { return candidateBefore(feasible[i], feasible[j]) })
-	pick := applySticky(feasible[0], feasible, currentProviderName)
+	pick := feasible[0]
 
 	reason := pick.reason
 	if reason == "" {
@@ -506,7 +356,7 @@ func (r *AgentReconciler) evaluateCandidate(ctx context.Context, agent *kubemoot
 	if err != nil || !feasible {
 		return scheduleCandidate{}, false, err
 	}
-	score, reasonParts := scoreCandidate(phase, rule, m, prov, shouldBinPack(agent))
+	score, reasonParts := scoreCandidate(phase, rule, m, prov)
 	if haveBias {
 		if biasScore, biasReason := qualityBiasScore(effBias, m.Labels); biasReason != "" {
 			score += biasScore
@@ -712,7 +562,8 @@ func (r *AgentReconciler) ensureDeployment(ctx context.Context, agent *kubemootv
 	// labels. countAssignedAgents in ModelProviderReconciler queries on the
 	// top-level labels via label selectors — they must reflect the latest
 	// scheduling decision even when no spec change otherwise warrants an
-	// update.
+	// update. The provider bindings are Deployment-only labels, so a changed
+	// binding is recorded here without touching the pod template.
 	labelsChanged := !maps.Equal(existing.Labels, desired.Labels)
 	// The spec hash covers the pod template + replicas but NOT Spec.Strategy, so a
 	// coordinator switching to Recreate (see buildDeployment) must reconcile even
@@ -787,7 +638,7 @@ func (r *AgentReconciler) buildDeployment(ctx context.Context, agent *kubemootv1
 				MatchLabels: map[string]string{labelAgent: agent.Name},
 			},
 			Template: corev1.PodTemplateSpec{
-				ObjectMeta: metav1.ObjectMeta{Labels: labelsMap},
+				ObjectMeta: metav1.ObjectMeta{Labels: podLabels(agent)},
 				Spec: corev1.PodSpec{
 					ServiceAccountName: serviceAccountName,
 					ImagePullSecrets:   r.imagePullSecrets(),
@@ -881,11 +732,25 @@ func (r *AgentReconciler) resolveDeploymentParams(agent *kubemootv1alpha1.Agent)
 	return replicas, port, image, serviceAccountName
 }
 
-// buildDeploymentLabels builds the Deployment/pod labels, including the per-phase
-// provider bindings used by ModelProviderReconciler for the load-aware bin-pack
-// penalty in scoreCandidate. The provider labels are NOT in the selector
-// (selector immutability would block legitimate re-scheduling).
+// buildDeploymentLabels builds the Deployment labels, including the per-phase
+// provider bindings used by ModelProviderReconciler to count the agents each
+// provider hosts. The provider labels live on the Deployment only: the pod
+// template carries podLabels, so a binding change never rolls the pod. The
+// selector uses neither.
 func buildDeploymentLabels(agent *kubemootv1alpha1.Agent, mulling, triage *modelPick) map[string]string {
+	labelsMap := podLabels(agent)
+	if mulling != nil && mulling.Provider != nil {
+		labelsMap[labelMullingProvider] = mulling.Provider.Name
+	}
+	if triage != nil && triage.Provider != nil {
+		labelsMap[labelTriageProvider] = triage.Provider.Name
+	}
+	return labelsMap
+}
+
+// podLabels are the labels on the Deployment's pod template: identity only,
+// nothing that follows scheduling decisions.
+func podLabels(agent *kubemootv1alpha1.Agent) map[string]string {
 	labelsMap := map[string]string{
 		"app":                         agent.Name,
 		"app.kubernetes.io/name":      agent.Name,
@@ -896,14 +761,14 @@ func buildDeploymentLabels(agent *kubemootv1alpha1.Agent, mulling, triage *model
 	if crew, ok := agent.Labels[labelCrew]; ok {
 		labelsMap[labelCrew] = crew
 	}
-	if mulling != nil && mulling.Provider != nil {
-		labelsMap["kubemoot.ai/mulling-provider"] = mulling.Provider.Name
-	}
-	if triage != nil && triage.Provider != nil {
-		labelsMap["kubemoot.ai/triage-provider"] = triage.Provider.Name
-	}
 	return labelsMap
 }
+
+// Deployment labels recording which ModelProvider each phase is bound to.
+const (
+	labelMullingProvider = "kubemoot.ai/mulling-provider"
+	labelTriageProvider  = "kubemoot.ai/triage-provider"
+)
 
 // skillsMountPath is the fixed volume-mount path for the per-crew skills
 // ConfigMap. The agent-runtime reads this via KUBEMOOT_SKILLS_DIR so the

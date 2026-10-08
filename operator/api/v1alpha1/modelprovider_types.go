@@ -223,22 +223,21 @@ type DiscoveredCapacity struct {
 	AvailableModels []AvailableModel `json:"availableModels,omitempty"`
 
 	// AgentCount is the total number of agent-phase bindings on this provider
-	// (mulling + triage summed). Kept for backwards compatibility with status
-	// readers; the scheduler uses the per-phase fields below for bin-packing.
+	// (mulling + triage summed), for status readers and the dashboard. The
+	// scheduler does not read it.
 	// +optional
 	AgentCount int `json:"agentCount,omitempty"`
 
 	// MullingAgentCount is the number of agents whose mulling phase binds to
 	// this provider (kubemoot.ai/mulling-provider label on the Agent's
-	// Deployment matches this provider's name). Used by scoreCandidate when
-	// choosing a mulling-phase model to spread sustained tool-calling work
-	// across providers.
+	// Deployment matches this provider's name). Observability only; it does
+	// not feed model selection.
 	// +optional
 	MullingAgentCount int `json:"mullingAgentCount,omitempty"`
 
 	// TriageAgentCount is the number of agents whose triage phase binds to
-	// this provider (kubemoot.ai/triage-provider label). Used by
-	// scoreCandidate when choosing a triage-phase model.
+	// this provider (kubemoot.ai/triage-provider label). Observability only; it does not
+	// feed model selection.
 	// +optional
 	TriageAgentCount int `json:"triageAgentCount,omitempty"`
 

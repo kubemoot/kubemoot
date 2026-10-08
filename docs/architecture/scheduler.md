@@ -447,9 +447,9 @@ Filter is pure. No side effects.
 Score is the sum of:
 
 - `prefer.matchLabels` weights - for each `prefer` rule that matches the candidate's labels, add `prefer.weight`
-- **Capacity score** - bias toward providers with more free VRAM (`spread`) or less free VRAM (`binpack`), configurable via `KubemootConfig.scheduler.strategy`
-- **Image-locality bonus** - if the model is already loaded on the provider (`status.capacity.loadedModels`), add a fixed bonus (matches kube-scheduler's `ImageLocalityPriority`)
 - **Provider weight (phase-aware)** - `ModelProvider.spec.scheduling.weight` (default 100) contributes per phase: mulling adds `+weight` (favors heavy providers); triage adds `-weight` (favors lighter providers). This lets two rigs carrying identically-labeled Models split phase work - a 5090 (`weight=100`) takes mulling, a 4090 (`weight=25`) takes triage - without forcing per-rig labels onto the Models.
+
+The score reads only spec-level inputs. Live provider state (loaded models, agent counts) never enters it, because the winner becomes the agent's default endpoint in the pod template and a pick that followed live state would roll the pod whenever a model loaded or unloaded. Where each inference call actually runs is decided per call by the runtime (see [JIT provider selection](#jit-per-call-provider-selection)).
 
 ### 3. Topology spread
 
@@ -457,7 +457,7 @@ If `topologySpread` is configured, distribute bindings so that no single `topolo
 
 ### 4. Bind
 
-Write the chosen `(model, provider, endpoint)` into `Agent.status.scheduling` and template the agent's Deployment env vars (`KUBEMOOT_MODEL_MODEL`, `KUBEMOOT_MODEL_ENDPOINT`, `KUBEMOOT_TRIAGE_MODEL_MODEL_ID`, `KUBEMOOT_TRIAGE_MODEL_ENDPOINT`), plus the ranked candidate lists `KUBEMOOT_MODEL_CANDIDATES_MULLING` and `KUBEMOOT_MODEL_CANDIDATES_TRIAGE` described in [Candidate models per call](#candidate-models-per-call).
+Write the chosen `(model, provider, endpoint)` into `Agent.status.scheduling` and template the agent's Deployment env vars (`KUBEMOOT_MODEL_MODEL`, `KUBEMOOT_MODEL_ENDPOINT`, `KUBEMOOT_TRIAGE_MODEL_MODEL_ID`, `KUBEMOOT_TRIAGE_MODEL_ENDPOINT`) as the agent's stable default, plus the ranked candidate lists `KUBEMOOT_MODEL_CANDIDATES_MULLING` and `KUBEMOOT_MODEL_CANDIDATES_TRIAGE` described in [Candidate models per call](#candidate-models-per-call).
 
 ## Helm-Parameterized Model Bundle
 

@@ -170,7 +170,7 @@ func TestPickModel_PublishesRankedCandidates(t *testing.T) {
 		Spec:       kubemootv1alpha1.AgentSpec{Capabilities: []string{candReasoning}},
 	}
 
-	pick, err := r.pickModel(context.Background(), agent, phaseMulling, "")
+	pick, err := r.pickModel(context.Background(), agent, phaseMulling)
 	if err != nil {
 		t.Fatalf("pickModel: %v", err)
 	}
