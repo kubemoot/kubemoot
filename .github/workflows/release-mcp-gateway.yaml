@@ -6,9 +6,6 @@ on:
     paths:
       - 'mcp-gateway/**'
       - '!mcp-gateway/**.md'
-      - '.github/buildpacks/**'
-      - '.github/scripts/build-image-buildpacks.sh'
-      - '.github/scripts/build-image-lib.sh'
       - '.github/scripts/retag-image.sh'
       - '.github/scripts/java-toolchain-version.sh'
       - '.github/workflows/build-boot-jar-image.yaml'

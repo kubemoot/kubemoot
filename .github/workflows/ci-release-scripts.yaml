@@ -7,8 +7,6 @@ on:
   pull_request:
     paths:
       - '.github/scripts/**'
-      - '.github/buildpacks/**'
-      - '.github/buildah/**'
       - '.github/workflows/**'
       - 'operator/chart/kubemoot-operator/Chart.yaml'
       - 'operator/chart/kubemoot-operator/values.yaml'
@@ -24,8 +22,6 @@ on:
     branches-ignore: [main]
     paths:
       - '.github/scripts/**'
-      - '.github/buildpacks/**'
-      - '.github/buildah/**'
       - '.github/workflows/**'
       - 'operator/chart/kubemoot-operator/Chart.yaml'
       - 'operator/chart/kubemoot-operator/values.yaml'
@@ -54,7 +50,7 @@ jobs:
         with:
           version: 'v3.14.0'
       - name: Set up the release helpers
-        uses: kubemoot/release-actions/setup@6ba4d559b8ec0fe5b57b101eb7831ab48289c036 # v0.10.2
+        uses: kubemoot/release-actions/setup@7d1fcd865e059e89051a7f8c8c14745f02140d3a # agent/build-image
       - name: Shellcheck
         run: shellcheck -x .github/scripts/*.sh k8s/tests/job/*.sh
       - name: Tests
@@ -62,8 +58,6 @@ jobs:
           bash .github/scripts/test-publish-release.sh
           bash .github/scripts/test-create-github-releases.sh
           bash .github/scripts/test-wait-for-operator-chart.sh
-          bash .github/scripts/test-build-image-buildpacks.sh
-          bash .github/scripts/test-build-image-buildah.sh
           bash .github/scripts/test-go-build-static.sh
           bash .github/scripts/test-retag-image.sh
           bash .github/scripts/test-check-native-libs.sh

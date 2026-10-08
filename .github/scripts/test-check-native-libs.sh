@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Tests for check-native-libs.sh: parsing ldd output, matching libraries against an image
 # file list, and whole runs against a fake ldd and a fake crane.
-# Usage: bash .github/scripts/test-check-native-libs.sh   (exit 0 = all passed)
+# Usage: BUILD_IMAGE_DIR=<release-actions>/build-image bash .github/scripts/test-check-native-libs.sh
+#   (exit 0 = all passed; the release-actions setup action exports BUILD_IMAGE_DIR)
 set -euo pipefail
 
 here="$(cd "$(dirname "$0")" && pwd)"
@@ -142,6 +143,12 @@ check "a missing binary fails" 1 "$(run_main "${work}/ldd-static.txt" "${work}/n
 check "no arguments fails" 1 "$(run_main "${work}/ldd-static.txt")"
 check "an unpinned run image fails" 1 "$(run_main "${work}/ldd-static.txt" "${work}/app-runner" unpinned)"
 check "an unknown run image fails" 1 "$(run_main "${work}/ldd-static.txt" "${work}/app-runner" nothing)"
+if env -u BUILD_IMAGE_DIR bash "${here}/check-native-libs.sh" "${work}/app-runner" >/dev/null 2>&1; then
+  got=succeeds
+else
+  got=fails
+fi
+check "without BUILD_IMAGE_DIR the script fails" fails "$got"
 
 if [ "$failures" -gt 0 ]; then
   echo "${failures} check(s) failed"

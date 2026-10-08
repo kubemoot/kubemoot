@@ -2,7 +2,7 @@
 # Check that a run image can run a native binary built on the runner.
 #
 # Reads the binary's dynamic dependencies with ldd on the runner and the files of the
-# pinned run image from .github/buildpacks/images.yaml. Fails when a library (or the
+# pinned run image from the shared buildpacks/images.yaml. Fails when a library (or the
 # program interpreter) has no file of the same name in the image, or when the binary
 # needs a GLIBC symbol version the image's libc.so.6 does not define (a runner on a newer
 # Ubuntu than the run image). A packaged binary with either gap builds and pushes fine and
@@ -12,13 +12,14 @@
 #   BINARY           the native executable to check
 #   RUN_IMAGE_NAME   the images.yaml entry of the run image (run-tiny)
 # Env:
-#   IMAGES_FILE (.github/buildpacks/images.yaml)  CRANE (crane)  LDD (ldd)
+#   BUILD_IMAGE_DIR (required)  the build-image directory of kubemoot/release-actions, which
+#                               its setup action exports; holds buildpacks/images.yaml
+#   IMAGES_FILE (${BUILD_IMAGE_DIR}/buildpacks/images.yaml)  CRANE (crane)  LDD (ldd)
 #   PLATFORM (linux/amd64)  the run image platform to read
 set -euo pipefail
 
-here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# shellcheck source-path=SCRIPTDIR source=build-image-buildpacks.sh
-source "${here}/build-image-buildpacks.sh"
+# shellcheck source=/dev/null # the shared build-image helpers (pinned_image)
+source "${BUILD_IMAGE_DIR:?BUILD_IMAGE_DIR is exported by kubemoot/release-actions/setup}/build-image-lib.sh"
 
 fail() { echo "check-native-libs: $*" >&2; exit 1; }
 
@@ -93,7 +94,7 @@ main() {
   local binary="$1" run_name="${2:-run-tiny}"
   [ -f "$binary" ] || fail "binary not found: ${binary}"
   local images_file run_image work
-  images_file="${IMAGES_FILE:-${here}/../buildpacks/images.yaml}"
+  images_file="${IMAGES_FILE:-${BUILD_IMAGE_DIR}/buildpacks/images.yaml}"
   run_image="$(pinned_image "$images_file" "$run_name")" || exit 1
   work="$(mktemp -d)"
   # shellcheck disable=SC2064 # expand work now, the trap runs after main returns

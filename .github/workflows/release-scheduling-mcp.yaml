@@ -10,9 +10,6 @@ on:
     paths:
       - 'scheduling-mcp/**'
       - '!scheduling-mcp/**.md'
-      - '.github/buildpacks/**'
-      - '.github/scripts/build-image-buildpacks.sh'
-      - '.github/scripts/build-image-lib.sh'
       - '.github/scripts/retag-image.sh'
       - '.github/scripts/go-build-static.sh'
       - '.github/workflows/build-go-binary-image.yaml'
