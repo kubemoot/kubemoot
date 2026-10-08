@@ -162,14 +162,14 @@ spec:
 | `port` | int32 | 3000 | Port the server listens on |
 | `replicas` | int32 | 2 | Number of pod replicas |
 | `env` | []EnvVar | | Environment variables |
-| `secretRef` | string | | Secret name for env vars (envFrom) |
+| `secretRef` | string | | Secret name for env vars (envFrom); see [Secrets and tools](../../concepts/secrets-and-tools/) |
 | `secretVolumes` | []SecretVolume | | Secrets mounted as files |
 | `emptyDirVolumes` | []EmptyDirVolume | | EmptyDir volumes (override baked-in configs) |
 | `resources` | ResourceRequirements | | CPU/memory requests and limits |
 | `capabilities` | []string | | Declared capabilities (informational) |
 | `healthPath` | string | | HTTP health check path (TCP probe if unset) |
 | `readinessPath` | string | | HTTP readiness path (falls back to healthPath) |
-| `serviceAccountName` | string | | K8s service account (needed for cluster access) |
+| `serviceAccountName` | string | | K8s service account (needed for cluster access); see [Secrets and tools](../../concepts/secrets-and-tools/) |
 | `registry` | RegistryConfig | | Gateway registration settings |
 | `toolOverrides` | []ToolOverride | | Corrected tool and parameter descriptions served to agents |
 
