@@ -34,6 +34,16 @@ These flags apply to every command:
 
 `-A` (`--all-namespaces`) and `-o` (`--output`) are not global. They belong to the commands that list or print resources, and their meaning varies by command (for example, `-o` is a directory for `kmctl create` and a file for `kmctl fitness download`).
 
+## Output formats
+
+Commands that list or print resources take `-o`. The default is a table. `-o yaml` and `-o json` print the full object. `-o kyaml` prints KYAML, the strict YAML subset that `kubectl get -o kyaml` prints: every string is quoted, maps use `{ }`, and lists use `[ ]`. KYAML is valid YAML, so any YAML parser reads it, and it removes the ambiguities of unquoted values such as `no` or `on` and of indentation.
+
+```bash
+kmctl crew get demo -o kyaml
+```
+
+`-o kyaml` works wherever a command accepts `-o yaml`. YAML stays the default.
+
 ---
 
 ## kmctl version
@@ -63,7 +73,7 @@ kmctl version --short
 ## kmctl info
 
 ```
-kmctl info [-o yaml|json]
+kmctl info [-o yaml|json|kyaml]
 ```
 
 Print the resolved kubeconfig context, namespace, server URL, and server version.
