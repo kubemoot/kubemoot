@@ -556,8 +556,8 @@ func (r *ModelProviderReconciler) discoverAvailableModels(ctx context.Context, p
 // Each agent deployment carries two labels (`kubemoot.ai/mulling-provider`
 // and `kubemoot.ai/triage-provider`) set by the AgentReconciler at deploy
 // time; agents that use this provider for both phases contribute 2 to the
-// count (they load the provider twice — once per phase model — which is
-// what the scheduler's load penalty should see).
+// count (they use the provider once per phase). The counts are for status
+// and the dashboard; model selection does not read them.
 //
 // When/if Scheduler v2 lands and binding becomes per-discussion on NATS
 // subjects rather than per-agent on Deployments, this should switch to
@@ -567,11 +567,11 @@ func (r *ModelProviderReconciler) countAssignedAgents(ctx context.Context, provi
 	mullingCount := 0
 	triageCount := 0
 	mullingList := &appsv1.DeploymentList{}
-	if err := r.List(ctx, mullingList, client.MatchingLabels{"kubemoot.ai/mulling-provider": name}); err == nil {
+	if err := r.List(ctx, mullingList, client.MatchingLabels{labelMullingProvider: name}); err == nil {
 		mullingCount = len(mullingList.Items)
 	}
 	triageList := &appsv1.DeploymentList{}
-	if err := r.List(ctx, triageList, client.MatchingLabels{"kubemoot.ai/triage-provider": name}); err == nil {
+	if err := r.List(ctx, triageList, client.MatchingLabels{labelTriageProvider: name}); err == nil {
 		triageCount = len(triageList.Items)
 	}
 	provider.Status.Capacity.MullingAgentCount = mullingCount

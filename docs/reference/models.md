@@ -314,7 +314,7 @@ When the first inference of the session hits a cold provider, Ollama loads the m
 Two mechanisms make this cost acceptable:
 
 1. **`OLLAMA_KEEP_ALIVE=1h`** - once loaded, the model stays in VRAM for an hour of inactivity. Every subsequent query within the session is warm.
-2. **`CrewSchedulingPolicy` `prefer` weights** - direct the scheduler toward models the provider is likely to already have resident (via image-locality scoring) and toward models that fit the phase's latency profile.
+2. **`CrewSchedulingPolicy` `prefer` weights** - steer the agent's default model toward the phase's latency profile; the runtime then prefers a copy that is already resident when it picks where each call runs.
 
 The cold-load tax is paid once per `(model, provider)` per session. If a user complains that "the first response was slow," the answer is **not** to add preload. The answer is to verify that subsequent queries are fast (they will be), and to consider session-shaping if the cold cost is unacceptable for the workload.
 
