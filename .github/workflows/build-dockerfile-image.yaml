@@ -53,7 +53,7 @@ jobs:
         uses: ./.github/actions/install-kubectl
 
       - name: Set up the build helpers
-        uses: kubemoot/release-actions/setup@7d1fcd865e059e89051a7f8c8c14745f02140d3a # agent/build-image
+        uses: kubemoot/release-actions/setup@f0649e246e695534f92e0d9d4b6ba43bb1045d85 # v0.11.0
 
       - name: Build and push with Buildah
         env:
