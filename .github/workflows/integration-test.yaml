@@ -34,7 +34,7 @@ jobs:
           filter: blob:none
 
       - name: Set up the release helpers
-        uses: kubemoot/release-actions/setup@6ba4d559b8ec0fe5b57b101eb7831ab48289c036 # v0.10.2
+        uses: kubemoot/release-actions/setup@f0649e246e695534f92e0d9d4b6ba43bb1045d85 # v0.11.0
 
       - name: Install kubectl
         run: |
