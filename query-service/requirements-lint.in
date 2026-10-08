@@ -2,6 +2,6 @@
 #
 # requirements-lint.txt is the hash-locked install set, generated with:
 #   pip-compile --allow-unsafe --generate-hashes --strip-extras --output-file=requirements-lint.txt requirements-lint.in
-# (Python 3.13, like requirements.txt). Dependabot updates both.
+# (Python 3.14, like requirements.txt). Dependabot updates both.
 
 ruff==0.16.10
