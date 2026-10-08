@@ -185,6 +185,7 @@ jobs:
             --pod "buildpacks-agent-runtime-${SHA:0:8}-${GITHUB_RUN_NUMBER}-${GITHUB_RUN_ATTEMPT}" \
             --sha "${SHA}" --ref "${GITHUB_REF}" \
             --builder builder-java-tiny --run-image run-tiny \
+            --buildpack paketo-buildpacks/procfile --buildpack paketo-buildpacks/image-labels \
             --env BP_DIRECT_PROCESS=true \
             --env BP_OCI_SOURCE=https://github.com/kubemoot/kubemoot \
             --env BP_OCI_LICENSES=Apache-2.0 \
