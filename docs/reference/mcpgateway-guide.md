@@ -47,6 +47,7 @@ The reference deployment uses the `kubemoot` implementation. The gateway image c
 |-------|------|---------|-------------|
 | `implementation` | enum | `kubemoot` | Gateway implementation to deploy |
 | `mcpServerSelector` | LabelSelector | | Selects MCPServers to register (all in namespace if empty) |
+| `logLevel` | enum | `INFO` | Gateway log level: `DEBUG`, `INFO`, `WARN` |
 | `port` | int32 | 8080 | Gateway service port |
 | `replicas` | int32 | 1 | Number of gateway instances |
 | `auth` | MCPGatewayAuth | | Authentication configuration |
@@ -59,6 +60,8 @@ The reference deployment uses the `kubemoot` implementation. The gateway image c
 | `credentialPolicies` | []CredentialPolicy | | Credentials for dynamically discovered MCPs |
 | `qualityPolicyRef` | string | | MCPQualityPolicy for filtering discovered MCPs |
 | `catalogRefs` | []string | | MCPCatalog resources for server discovery |
+
+The `kubemoot` gateway logs each tool call at INFO (`ToolController`, "Tool call request") and a server registration at INFO only when it is new or changed, so `kubectl logs` keeps hours of tool calls and confirms tool use. Set `logLevel: DEBUG` on one gateway to see every re-registration; no rebuild is needed.
 
 ### MCPGatewayAuth
 

@@ -41,7 +41,7 @@ public class AdminController {
 
     @PostMapping("/servers")
     public ResponseEntity<ServerRegistration> registerServer(@RequestBody RegisterServerRequest request) {
-        log.info("Registering new MCP server: {} at {}", request.name(), request.url());
+        log.debug("Register request for MCP server: {} at {}", request.name(), request.url());
 
         ServerRegistration registration = clientManager.registerServer(
             request.name(),

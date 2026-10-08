@@ -138,6 +138,7 @@ public class McpClientManager {
             if (existing.url().equals(url)) {
                 List<ToolOverride> previous = serverOverrides.put(existing.id(), overrides);
                 if (!overrides.equals(previous)) {
+                    log.info("Server {} tool overrides changed", name);
                     ToolOverrides.warnUnmatched(getToolsForServer(existing.id()), overrides, name);
                 }
                 reconcileRegisteredServer(existing);
@@ -149,6 +150,7 @@ public class McpClientManager {
             }
         }
 
+        log.info("Registering new MCP server: {} at {}", name, url);
         ServerRegistration registration = ServerRegistration.create(name, url, transport);
         serverOverrides.put(registration.id(), overrides);
         registerServerInternal(registration);

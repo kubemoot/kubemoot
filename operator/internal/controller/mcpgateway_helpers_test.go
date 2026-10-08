@@ -250,3 +250,14 @@ func TestParseFloat_Invalid(t *testing.T) {
 		t.Error("expected error for non-numeric input")
 	}
 }
+
+func TestGatewayLogLevelEnv(t *testing.T) {
+	cases := map[string]string{"": "INFO", "DEBUG": "DEBUG", "WARN": "WARN"}
+	for level, want := range cases {
+		gateway := &kubemootv1alpha1.MCPGateway{Spec: kubemootv1alpha1.MCPGatewaySpec{LogLevel: level}}
+		env := gatewayLogLevelEnv(gateway)
+		if env.Name != "LOGGING_LEVEL_KUBEMOOT_AI_MCPGATEWAY" || env.Value != want {
+			t.Errorf("level %q: got %s=%s, want %s", level, env.Name, env.Value, want)
+		}
+	}
+}
