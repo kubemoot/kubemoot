@@ -50,6 +50,8 @@ public class McpClientManager {
     private static final String METHOD_TOOLS_LIST = "tools/list";
     /** Safety net for a connect that never answers; the normal path ends long before. */
     private static final Duration CONNECT_DEADLINE = Duration.ofSeconds(60);
+    /** How long a stdio request waits for its reply on the SSE stream; tests shorten it. */
+    Duration replyTimeout = Duration.ofSeconds(30);
 
     // Tool discovery field constants
     private static final String FIELD_NAME = "name";
@@ -512,7 +514,10 @@ public class McpClientManager {
             sseStreams.put(serverId, stream);
             Disposable subscription = sseFlux.subscribe(
                 event -> handleSseEvent(serverId, server, event, ready, responseSink),
-                error -> onSseStreamEnded(serverId, stream, "failed: " + error.getMessage()),
+                error -> {
+                    onSseStreamEnded(serverId, stream, "failed: " + error.getMessage());
+                    ready.error(error);
+                },
                 () -> onSseStreamEnded(serverId, stream, "closed")
             );
 
@@ -522,11 +527,7 @@ public class McpClientManager {
         // Defer is critical: sendStdioInitializeAndWait reads serverSessions which is only
         // populated after Mono.create completes. Without defer, it evaluates at assembly time
         // when the session ID is null, causing initialization to be silently skipped.
-        .then(Mono.defer(() -> sendStdioInitializeAndWait(serverId, client)))
-        .onErrorResume(e -> {
-            log.warn("Failed to initialize stdio connection for {}: {}", server.name(), e.getMessage());
-            return Mono.empty();
-        });
+        .then(Mono.defer(() -> sendStdioInitializeAndWait(serverId, client)));
     }
 
     /**
@@ -1037,7 +1038,7 @@ public class McpClientManager {
         return responseSink.asFlux()
             .filter(msg -> msg.id() != null && String.valueOf(msg.id()).equals(expectedId))
             .next()
-            .timeout(java.time.Duration.ofSeconds(30));
+            .timeout(replyTimeout);
     }
 
     private Mono<McpMessage> forwardRequestViaHttp(String serverId, WebClient client,
