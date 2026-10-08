@@ -13,6 +13,45 @@ nothing below is mistaken for something already shipped.
 Ideas become work in the open: propose or argue for one in
 [Discussions](https://github.com/orgs/kubemoot/discussions).
 
+## Credentials for tools, granted per tool
+
+This is the top priority on this page, and the gap it closes is a security gap you
+should know about before you run Kubemoot with real credentials.
+
+**Today:** an MCPServer takes credentials from Secrets in its own namespace, through
+`env` entries with `secretKeyRef`, `secretRef`, and `secretVolumes`. The operator mounts
+whatever Secret the MCPServer names, and nothing checks that the person who created the
+MCPServer is allowed to read that Secret. A crew author who can create an MCPServer can
+therefore have the operator mount any Secret in that namespace into a pod they control.
+The same holds for `serviceAccountName`: the server runs as any ServiceAccount the
+author names. Agent pods run as the namespace `default` ServiceAccount unless the Agent
+sets another, with the ServiceAccount token mounted. The model itself never sees a
+Secret value in the prompt path, but the boundary that keeps one tool's credential away
+from another crew author is not enforced yet. Until it is, treat every namespace as one
+trust domain and follow the guidance in [Secrets and tools](../../concepts/secrets-and-tools/).
+
+**Direction:** the principle is that the model never holds a secret; only the tool
+process does. The design uses Kubernetes mechanisms and invents nothing new:
+
+- An admin owns each Secret in the crew namespace. Crew authors have no read access to
+  Secrets.
+- The admin grants a `use` verb, not `get`, on one named Secret to whoever applies the
+  crew, such as a Flux identity per crew namespace.
+- A ValidatingAdmissionPolicy on MCPServer create and update uses the CEL `authorizer`
+  to check that the requester may `use` every Secret and ServiceAccount the MCPServer
+  references, and rejects the request otherwise.
+- The operator mounts a Secret only into its own MCPServer's pod, under a per-tool
+  ServiceAccount. Agent pods get no Secret access.
+- Only tools that call the Kubernetes API reference an admin-made ServiceAccount, behind
+  the same `use` check. Every other tool runs as a ServiceAccount with no permissions
+  and no mounted token.
+- An egress policy per tool, so the mail tool reaches only the mail provider.
+
+Later steps add a secret store such as OpenBao with External Secrets Operator for
+rotation, short-lived credentials, and audit, and per-user OAuth for assistants that act
+for one person. See [Secrets and tools](../../concepts/secrets-and-tools/) for the full
+picture.
+
 ## Assessing model servers beyond Ollama
 
 **Today:** Ollama is the only self-hosted model server Kubemoot drives.
