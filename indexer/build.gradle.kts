@@ -54,7 +54,7 @@ dependencies {
     implementation("org.eclipse.jgit:org.eclipse.jgit:7.8.0.202609011348-r")
 
     // AWS S3 support
-    implementation("software.amazon.awssdk:s3:2.55.11")
+    implementation("software.amazon.awssdk:s3:2.55.12")
 
     // HTTP client for URL sources and MCP registries
     implementation("org.springframework.boot:spring-boot-starter-webflux")
@@ -63,7 +63,7 @@ dependencies {
     implementation("io.fabric8:kubernetes-client:8.0.0")
 
     // NATS client for KV source
-    implementation("io.nats:jnats:2.26.3")
+    implementation("io.nats:jnats:2.26.4")
 
     // JSON processing
     implementation("com.fasterxml.jackson.core:jackson-databind")
