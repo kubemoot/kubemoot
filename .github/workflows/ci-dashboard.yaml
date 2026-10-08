@@ -6,12 +6,14 @@ on:
     branches: [main]
     paths:
       - 'dashboard/**'
+      - '.github/buildah/**'
+      - '.github/scripts/build-image-buildah.sh'
+      - '.github/scripts/build-image-lib.sh'
+      - '.github/workflows/build-dockerfile-image.yaml'
   workflow_dispatch:
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-  REGISTRY: ${{ vars.REGISTRY }}
-  IMAGE_NAME: kubemoot/dashboard
 
 permissions:
   contents: read
@@ -43,62 +45,13 @@ jobs:
       - name: Build dashboard image (no push)
         run: docker build --file dashboard/Dockerfile dashboard
 
-  build:
+  # No Node toolchain on the runner: the multistage Dockerfile runs npm ci,
+  # npm run check, npm run lint, npm test, and npm run build inside node:26-alpine,
+  # so the image build is the single source of truth.
+  build-image:
     needs: brand
     if: github.event_name != 'pull_request'
-    runs-on: homelab-runners
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
-      # No Node toolchain on the runner: the multistage Dockerfile runs npm ci,
-      # npm run check, npm run lint, npm test, and npm run build inside
-      # node:26-alpine, so the image build is the single source of truth and the
-      # runner needs neither Node 26 nor libatomic. Kaniko builds and pushes it below.
-
-      - name: Install kubectl
-        run: |
-          curl -sLO "https://dl.k8s.io/release/$(curl -sL https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
-          chmod +x kubectl && sudo mv kubectl /usr/local/bin/
-
-      # Builds the multistage Dockerfile (npm ci + check + lint + test + build run inside
-      # the image) and pushes it to Harbor.
-      - name: Build dashboard image with Kaniko
-        run: |
-          SHA="${{ github.sha }}"
-          JOB_NAME="kaniko-$(echo ${SHA} | cut -c1-8)-${GITHUB_RUN_NUMBER}"
-
-          PUSH_ARGS='"--destination=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:'"${SHA}"'", "--destination=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest"'
-
-          tar -C dashboard -czf /tmp/context.tar.gz .
-
-          kubectl run ${JOB_NAME} \
-            --rm -i \
-            --restart=Never \
-            --namespace=arc-runners \
-            --image=gcr.io/kaniko-project/executor:latest \
-            --overrides='{
-              "spec": {
-                "hostAliases": [{"ip": "${{ vars.REGISTRY_HOST_IP }}", "hostnames": ["${{ vars.REGISTRY }}"]}],
-                "containers": [{
-                  "name": "kaniko",
-                  "image": "gcr.io/kaniko-project/executor:latest",
-                  "stdin": true,
-                  "stdinOnce": true,
-                  "args": [
-                    "--context=tar://stdin",
-                    "--dockerfile=Dockerfile",
-                    "--label=org.opencontainers.image.source=https://github.com/kubemoot/kubemoot",
-                    "--label=org.opencontainers.image.licenses=Apache-2.0",
-                    "--label=org.opencontainers.image.revision='"${SHA}"'",
-                    '"${PUSH_ARGS}"',
-                    "--insecure",
-                    "--skip-tls-verify",
-                    "--cache=false"
-                  ],
-                  "volumeMounts": [{"name": "docker-config", "mountPath": "/kaniko/.docker"}]
-                }],
-                "volumes": [{"name": "docker-config", "secret": {"secretName": "kaniko-docker-config", "items": [{"key": "config.json", "path": "config.json"}]}}]
-              }
-            }' < /tmp/context.tar.gz
+    uses: ./.github/workflows/build-dockerfile-image.yaml
+    with:
+      name: dashboard
+      context: dashboard

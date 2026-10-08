@@ -7,6 +7,11 @@ on:
       - 'k8s/tests/**'
       - '!k8s/tests/job/**'
       - '!k8s/tests/**.md'
+      - '.github/buildah/**'
+      - '.github/scripts/build-image-buildah.sh'
+      - '.github/scripts/build-image-lib.sh'
+      - '.github/scripts/retag-image.sh'
+      - '.github/workflows/build-dockerfile-image.yaml'
   workflow_dispatch:
     inputs:
       force_release:
@@ -28,11 +33,19 @@ permissions:
   contents: read
 
 jobs:
-  build:
+  # A dispatch on another branch builds only :branch-<sha>; the release job runs on main.
+  build-image:
+    uses: ./.github/workflows/build-dockerfile-image.yaml
+    with:
+      name: test-runner
+      context: k8s/tests
+
+  release:
+    needs: build-image
+    if: github.ref == 'refs/heads/main'
     runs-on: homelab-runners
     permissions:
       contents: write
-      packages: write
 
     steps:
       - name: Checkout repository
@@ -50,50 +63,25 @@ jobs:
           tag_prefix: "test-runner-v"
           force: ${{ inputs.force_release }}
 
-      - name: Install kubectl
-        run: |
-          curl -sLO "https://dl.k8s.io/release/$(curl -sL https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
-          chmod +x kubectl && sudo mv kubectl /usr/local/bin/
-
-      - name: Build and push with Kaniko
+      - name: Install crane
         if: steps.version.outputs.release_created == 'true'
         run: |
-          SHA="${{ github.sha }}"
+          curl -sL https://github.com/google/go-containerregistry/releases/download/v0.20.2/go-containerregistry_Linux_x86_64.tar.gz | tar -xzf - crane
+          sudo mv crane /usr/local/bin/
+
+      - name: Retag image with version
+        if: steps.version.outputs.release_created == 'true'
+        env:
+          HARBOR_USERNAME: ${{ secrets.HARBOR_USERNAME }}
+          HARBOR_PASSWORD: ${{ secrets.HARBOR_PASSWORD }}
+        run: |
           VERSION="${{ steps.version.outputs.version }}"
-          JOB_NAME="kaniko-test-runner-$(echo ${SHA} | cut -c1-8)-${GITHUB_RUN_NUMBER}"
+          SHA="${{ github.sha }}"
+          FULL_IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}"
 
-          tar -C k8s/tests -czf /tmp/context.tar.gz .
+          echo "${HARBOR_PASSWORD}" | crane auth login --insecure ${{ env.REGISTRY }} -u "${HARBOR_USERNAME}" --password-stdin
 
-          kubectl run "${JOB_NAME}" \
-            --rm -i \
-            --restart=Never \
-            --namespace=arc-runners \
-            --image=gcr.io/kaniko-project/executor:latest \
-            --overrides='{
-              "spec": {
-                "hostAliases": [{"ip": "${{ vars.REGISTRY_HOST_IP }}", "hostnames": ["${{ vars.REGISTRY }}"]}],
-                "containers": [{
-                  "name": "kaniko",
-                  "image": "gcr.io/kaniko-project/executor:latest",
-                  "stdin": true,
-                  "stdinOnce": true,
-                  "args": [
-                    "--context=tar://stdin",
-                    "--dockerfile=Dockerfile",
-                    "--label=org.opencontainers.image.source=https://github.com/kubemoot/kubemoot",
-                    "--label=org.opencontainers.image.licenses=Apache-2.0",
-                    "--label=org.opencontainers.image.revision='"${SHA}"'",
-                    "--destination=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:'"${VERSION}"'",
-                    "--destination=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:'"${SHA}"'",
-                    "--insecure",
-                    "--skip-tls-verify",
-                    "--cache=false"
-                  ],
-                  "volumeMounts": [{"name": "docker-config", "mountPath": "/kaniko/.docker"}]
-                }],
-                "volumes": [{"name": "docker-config", "secret": {"secretName": "kaniko-docker-config", "items": [{"key": "config.json", "path": "config.json"}]}}]
-              }
-            }' < /tmp/context.tar.gz
+          .github/scripts/retag-image.sh "${FULL_IMAGE}" "${SHA}" "${VERSION}"
 
       - name: Create and push tag
         if: steps.version.outputs.release_created == 'true'

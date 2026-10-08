@@ -1,0 +1,73 @@
+# Builds an image from a Dockerfile with Buildah in the cluster and pushes it to Harbor,
+# for the images a buildpack cannot express. The job hands the context directory to
+# .github/scripts/build-image-buildah.sh, which runs Buildah in a user-namespaced pod.
+#
+# main pushes :<sha>, which the release retags, and :latest (plus extra_tag); any other
+# ref pushes only :branch-<sha> (build-image-buildah.sh decides the tags per ref).
+name: Build Dockerfile Image
+
+on:
+  workflow_call:
+    inputs:
+      name:
+        description: 'The image name under kubemoot/, also the build pod name prefix'
+        required: true
+        type: string
+      context:
+        description: 'The build context directory in the repository'
+        required: true
+        type: string
+      file:
+        description: 'The Dockerfile, relative to the context'
+        required: false
+        default: 'Dockerfile'
+        type: string
+      license:
+        description: 'The org.opencontainers.image.licenses label; empty leaves it out'
+        required: false
+        default: 'Apache-2.0'
+        type: string
+      extra_tag:
+        description: 'One more tag pushed on main only; empty for none'
+        required: false
+        default: ''
+        type: string
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  REGISTRY: ${{ vars.REGISTRY }}
+
+permissions:
+  contents: read
+
+jobs:
+  build-image:
+    runs-on: homelab-runners
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install kubectl
+        uses: ./.github/actions/install-kubectl
+
+      - name: Build and push with Buildah
+        env:
+          REGISTRY_HOST_IP: ${{ vars.REGISTRY_HOST_IP }}
+          SHA: ${{ github.sha }}
+          NAME: ${{ inputs.name }}
+          CONTEXT: ${{ inputs.context }}
+          FILE: ${{ inputs.file }}
+          LICENSE: ${{ inputs.license }}
+          EXTRA_TAG: ${{ inputs.extra_tag }}
+        run: |
+          [[ "${NAME}" =~ ^[a-z0-9][a-z0-9-]*$ ]] || { echo "::error::bad image name: ${NAME}"; exit 1; }
+          args=(
+            --pod "buildah-${NAME}-${SHA:0:8}-${GITHUB_RUN_NUMBER}-${GITHUB_RUN_ATTEMPT}"
+            --sha "${SHA}" --ref "${GITHUB_REF}" --file "${FILE}"
+            --label org.opencontainers.image.source=https://github.com/kubemoot/kubemoot
+            --label "org.opencontainers.image.revision=${SHA}"
+          )
+          [ -z "${LICENSE}" ] || args+=(--label "org.opencontainers.image.licenses=${LICENSE}")
+          [ -z "${EXTRA_TAG}" ] || args+=(--extra-tag "${EXTRA_TAG}")
+          .github/scripts/build-image-buildah.sh "${args[@]}" "${CONTEXT}" "${REGISTRY}/kubemoot/${NAME}"

@@ -1,5 +1,5 @@
 # Build stage
-FROM node:26-alpine@sha256:0b36e8c136b94cd4fcf02188228e76c31ad5872eef3fec8cbd2eee500cfd9e80 AS builder
+FROM docker.io/library/node:26-alpine@sha256:0b36e8c136b94cd4fcf02188228e76c31ad5872eef3fec8cbd2eee500cfd9e80 AS builder
 
 WORKDIR /app
 
@@ -23,7 +23,7 @@ RUN npm test
 RUN npm run build
 
 # Production stage
-FROM node:26-alpine@sha256:0b36e8c136b94cd4fcf02188228e76c31ad5872eef3fec8cbd2eee500cfd9e80
+FROM docker.io/library/node:26-alpine@sha256:0b36e8c136b94cd4fcf02188228e76c31ad5872eef3fec8cbd2eee500cfd9e80
 
 WORKDIR /app
 

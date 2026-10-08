@@ -36,12 +36,11 @@ make run
 
 ### Deploy to Cluster
 
-```bash
-# Build and push image
-make docker-build docker-push IMG=<registry>/kubemoot-operator:latest
+CI builds the operator image with Paketo buildpacks (`.github/workflows/build-go-binary-image.yaml`);
+deploy a published image:
 
-# Deploy
-make deploy IMG=<registry>/kubemoot-operator:latest
+```bash
+make deploy IMG=<registry>/kubemoot-operator:<version>
 ```
 
 ## RAGSource

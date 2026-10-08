@@ -315,26 +315,23 @@ backend, and centrally aggregated logs correlated to those traces.
 
 ## Images built with Cloud Native Buildpacks
 
-**Today:** every image is built from a Dockerfile by Kaniko, running as an unprivileged
-Job inside the project's own cluster. Kaniko is archived upstream, and its executor image
-is not pinned by digest.
+**Today:** the Java, GraalVM native, and Go images (the operator, agent runtime, indexer,
+MCP gateway, MCP bridge, and the other Go services) are built with
+[Cloud Native Buildpacks](https://buildpacks.io/) and the [Paketo](https://paketo.io/)
+buildpacks. The lifecycle runs as a non-root user with no daemon in a short-lived pod
+inside the project's own cluster, writes a software bill of materials into every image,
+and uses builder and run images pinned by digest.
 
-**Direction:** build images with [Cloud Native Buildpacks](https://buildpacks.io/) and
-the [Paketo](https://paketo.io/) buildpacks for every language Kubemoot uses: Java
-(including the GraalVM native agent runtime), Go, Python, and Node.js. A buildpack
-replaces the Dockerfile where it fits, which brings:
+The images that keep a Dockerfile (the dashboard, the RAG query service, the code
+sandbox, the test runner, and the CI runner image) are built by
+[Buildah](https://buildah.io/) in the same kind of pod. The pod runs in its own user
+namespace, so the build is root only inside it, with no privileged container and the
+Buildah image pinned by digest.
 
-- the same layout, non-root user, and metadata in every image, without a hand-written
-  Dockerfile per component;
-- a software bill of materials from every build;
-- rebasing an image onto a patched operating-system layer without rebuilding the
-  application;
-- builder and run images pinned by digest, like every other dependency.
-
-The buildpacks lifecycle runs unprivileged, with no Docker daemon, so builds stay inside
-the cluster. The few images a buildpack cannot express keep a Dockerfile, built by a
-maintained rootless builder. Signing by digest and the provenance on every release stay
-as they are.
+**Direction:** move the dashboard to the Node.js buildpack and the RAG query service to
+the Python buildpack, so only the images whose operating-system contents are the product
+(the code sandbox, the test runner, and the CI runner image) keep a Dockerfile. Signing
+by digest and the provenance on every release stay as they are.
 
 ## Images for arm64
 

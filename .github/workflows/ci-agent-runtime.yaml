@@ -12,6 +12,7 @@ on:
       - 'config/checkstyle/**'
       - '.github/buildpacks/**'
       - '.github/scripts/build-image-buildpacks.sh'
+      - '.github/scripts/build-image-lib.sh'
       - '.github/scripts/check-native-libs.sh'
       - '.github/workflows/ci-agent-runtime.yaml'
   workflow_dispatch:

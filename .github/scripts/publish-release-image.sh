@@ -38,8 +38,7 @@ registry_host="${RELEASE_REGISTRY%%/*}"
 source_host="${source_ref%%/*}"
 target="${RELEASE_REGISTRY}/${image_name}:${version}"
 
-# Not every release workflow installs crane before this step (test-runner builds
-# straight from Kaniko), so provision it here when missing.
+# Not every caller installs crane before this step, so provision it here when missing.
 if ! command -v crane >/dev/null 2>&1; then
   curl -sL https://github.com/google/go-containerregistry/releases/download/v0.20.2/go-containerregistry_Linux_x86_64.tar.gz \
     | tar -xzf - crane

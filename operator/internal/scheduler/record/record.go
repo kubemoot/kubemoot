@@ -2,8 +2,8 @@
 // `kubemoot_scheduled`.
 //
 // IMPORTANT: keep in sync with kubemoot/scheduling-mcp/pkg/record/record.go.
-// Both files define the same wire schema; the operator's per-module
-// Kaniko build context can't cross monorepo boundaries, so the schema
+// Both files define the same wire schema; each Go module builds on its
+// own and can't import across monorepo module boundaries, so the schema
 // is duplicated as a Go-only file (no Java/Go cross-language drift).
 // If you change one, change the other. Both files are short by design
 // to keep this discipline cheap.

@@ -69,20 +69,3 @@ tasks.test {
     finalizedBy(tasks.jacocoTestReport)
 }
 
-// Container image configuration
-tasks.named<org.springframework.boot.gradle.tasks.bundling.BootBuildImage>("bootBuildImage") {
-    imageName.set("${findProperty("image.registry") ?: "ghcr.io/kubemoot"}/${project.name}:${project.version}")
-
-    environment.set(mapOf(
-        "BP_JVM_VERSION" to "25"
-    ))
-
-    // Docker registry configuration for publishing
-    docker {
-        publishRegistry {
-            url.set(findProperty("spring.boot.image.docker.publishRegistry.url")?.toString() ?: "ghcr.io")
-            username.set(findProperty("spring.boot.image.docker.publishRegistry.username")?.toString() ?: "")
-            password.set(findProperty("spring.boot.image.docker.publishRegistry.password")?.toString() ?: "")
-        }
-    }
-}
