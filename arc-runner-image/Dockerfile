@@ -15,7 +15,7 @@
 # Built + pushed by .github/workflows/build-arc-runner-image.yaml (in-cluster Kaniko,
 # the only push path to Harbor that bypasses Cloudflare). Referenced from the homelab
 # OpenTofu arc-runner-scale-set module via its `runner_image` variable.
-FROM ghcr.io/actions/actions-runner:2.337.0@sha256:e5496277be5d09bc968b3d64911b74e219ac4a3f2edce956a3ecf9271bea1ef4
+FROM ghcr.io/actions/actions-runner:2.338.0@sha256:4ffadc0002b2581327e06101fc8c06cd189232baf79fe561fac9caeb76f5e807
 
 USER root
 RUN apt-get update \
