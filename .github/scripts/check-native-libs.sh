@@ -89,7 +89,7 @@ check_glibc() {
 }
 
 main() {
-  [ $# -ge 1 ] && [ $# -le 2 ] || fail "usage: check-native-libs.sh BINARY [RUN_IMAGE_NAME]"
+  if [ $# -lt 1 ] || [ $# -gt 2 ]; then fail "usage: check-native-libs.sh BINARY [RUN_IMAGE_NAME]"; fi
   local binary="$1" run_name="${2:-run-tiny}"
   [ -f "$binary" ] || fail "binary not found: ${binary}"
   local images_file run_image work
