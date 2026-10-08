@@ -28,16 +28,20 @@
 #                          own order, e.g. paketo-buildpacks/procfile for a packaged binary.
 #                          The pod takes each one's version from the builder.
 #
-# Tags (see image_plan): main pushes :<sha>, which the release retags, and :latest. Any
-# other ref pushes only :branch-<sha>, so it never moves a tag main uses. Each ref keeps
-# its own build cache image, <repository>-buildcache:<ref>.
+# Tags (see image_plan in build-image-lib.sh): main pushes :<sha>, which the release
+# retags, and :latest. Any other ref pushes only :branch-<sha>. Each ref keeps its own
+# build cache image, <repository>-buildcache:<ref>.
 # Env:
 #   REGISTRY (required)           the Harbor host, e.g. harbor-homelab.dijure.com
 #   REGISTRY_HOST_IP (required)   the in-cluster address the host alias points at
 #   NAMESPACE (arc-runners)       where the build pod runs
-#   PUSH_SECRET (kaniko-docker-config)  the docker config secret with the push credentials
+#   PUSH_SECRET (harbor-push)     the docker config secret with the push credentials
 #   IMAGES_FILE (.github/buildpacks/images.yaml)  KUBECTL (kubectl)
 set -euo pipefail
+
+BUILD_IMAGE_TOOL=build-image-buildpacks
+# shellcheck source-path=SCRIPTDIR source=build-image-lib.sh
+source "$(dirname "${BASH_SOURCE[0]}")/build-image-lib.sh"
 
 # The command the build pod runs: unpack the context from stdin, write the build-time
 # variables as /platform/env files, write /platform/order.toml when buildpacks are named
@@ -63,22 +67,6 @@ if [ -n "${BUILD_BUILDPACKS:-}" ]; then
 fi
 exec /cnb/lifecycle/creator "$@"'
 
-die() { echo "build-image-buildpacks: $*" >&2; exit 2; }
-
-# pinned_image FILE NAME: the image of the images.yaml entry NAME; fails when it has no digest.
-pinned_image() {
-  local file="$1" name="$2" ref
-  ref="$(awk -v want="$name" '
-    /^[[:space:]]*-[[:space:]]*name:/ { current = $NF }
-    /^[[:space:]]*image:/ && current == want { print $NF; exit }
-  ' "$file")"
-  [ -n "$ref" ] || die "no image named ${name} in ${file}"
-  case "$ref" in
-    *@sha256:*) echo "$ref" ;;
-    *) die "image ${name} in ${file} is not pinned by digest: ${ref}" ;;
-  esac
-}
-
 # valid_env KEY=VALUE: true when KEY can be a /platform/env file name and a variable
 # name, and the whole pair is one line (BUILD_ENV carries one pair per line).
 valid_env() {
@@ -88,21 +76,6 @@ valid_env() {
 # valid_buildpack_id ID: true when ID is a buildpack id (letters, digits, . _ - and /).
 valid_buildpack_id() {
   [[ "$1" =~ ^[A-Za-z0-9][A-Za-z0-9._/-]*$ ]]
-}
-
-# image_plan REPOSITORY SHA REF: the image references to push, one per line, then a line
-# "cache <ref>" and, on main, a line "previous <ref>".
-image_plan() {
-  local repo="$1" sha="$2" ref="$3"
-  [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || die "--sha needs a full commit SHA, got: ${sha}"
-  if [ "$ref" = "refs/heads/main" ]; then
-    printf '%s\n' "${repo}:${sha}" "${repo}:latest" "cache ${repo}-buildcache:main" "previous ${repo}:latest"
-    return
-  fi
-  # A tag holds at most 128 characters from [A-Za-z0-9_.-].
-  local name="${ref#refs/heads/}"
-  name="${name//[^A-Za-z0-9_.-]/-}"
-  printf '%s\n' "${repo}:branch-${sha}" "cache ${repo}-buildcache:branch-${name:0:120}"
 }
 
 # creator_args REGISTRY RUN_IMAGE CACHE_IMAGE PREVIOUS_IMAGE IMAGE [EXTRA_IMAGE...]:
@@ -127,15 +100,10 @@ pod_overrides() {
   local pod="$1" builder="$2" creator_json="$3" build_env="$4" registry="$5" host_ip="$6" secret="$7"
   local buildpacks="${8:-}"
   jq -cn --arg pod "$pod" --arg builder "$builder" --argjson creator "$creator_json" \
-    --arg script "$POD_SCRIPT" --arg env "$build_env" --arg registry "$registry" \
-    --arg ip "$host_ip" --arg secret "$secret" --arg buildpacks "$buildpacks" '
-    def scratch(name): {name: name, emptyDir: {}};
-    {
-      apiVersion: "v1",
+    --arg script "$POD_SCRIPT" --arg env "$build_env" --arg buildpacks "$buildpacks" \
+    --argjson reg "$(pod_parts "$registry" "$host_ip" "$secret")" "${POD_JQ_DEFS}"'
+    $reg.base * {
       spec: {
-        restartPolicy: "Never",
-        automountServiceAccountToken: false,
-        hostAliases: [{ip: $ip, hostnames: [$registry]}],
         securityContext: {
           runAsNonRoot: true, runAsUser: 1001, runAsGroup: 1001, fsGroup: 1001,
           seccompProfile: {type: "RuntimeDefault"}
@@ -163,13 +131,11 @@ pod_overrides() {
             {name: "workspace", mountPath: "/workspace"},
             {name: "layers", mountPath: "/layers"},
             {name: "platform", mountPath: "/platform"},
-            {name: "docker-config", mountPath: "/docker-config", readOnly: true}
+            $reg.mount
           ]
         }],
         volumes: [
-          scratch("workspace"), scratch("layers"), scratch("platform"),
-          {name: "docker-config", secret: {secretName: $secret,
-            items: [{key: "config.json", path: "config.json"}]}}
+          scratch("workspace"), scratch("layers"), scratch("platform"), $reg.volume
         ]
       }
     }'
@@ -226,13 +192,10 @@ main() {
     creator_json="$(jq -c '["-order=/platform/order.toml"] + .' <<<"$creator_json")"
   fi
   overrides="$(pod_overrides "$pod" "$builder" "$creator_json" "$build_env" \
-    "$REGISTRY" "$REGISTRY_HOST_IP" "${PUSH_SECRET:-kaniko-docker-config}" "$buildpack_lines")"
+    "$REGISTRY" "$REGISTRY_HOST_IP" "${PUSH_SECRET:-harbor-push}" "$buildpack_lines")"
 
   echo "Building ${images[*]} with ${builder} on ${run_image}"
-  # The first pull of the builder can take minutes; the pod-running timeout is only a safety net.
-  tar -C "$context" -czf - . | "${KUBECTL:-kubectl}" run "$pod" \
-    --rm -i --restart=Never --namespace="${NAMESPACE:-arc-runners}" \
-    --pod-running-timeout=10m --image="$builder" --overrides="$overrides"
+  run_build_pod "$pod" "$builder" "$overrides" "$context"
 }
 
 if [ "${BASH_SOURCE[0]}" = "$0" ]; then

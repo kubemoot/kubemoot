@@ -1,0 +1,14 @@
+# The Buildah image the Dockerfile image builds run, pinned by tag and digest.
+# .github/scripts/build-image-buildah.sh reads an entry by its name.
+#
+# Not applied to the cluster. The apiVersion and kind make Dependabot's docker ecosystem
+# read this file as a Kubernetes manifest, so it refreshes each image: tag and digest.
+#
+# buildah: the upstream Buildah image (Fedora based, rebuilt as Fedora ships fixes) with
+#   the unprivileged `build` user (uid 1000) and its /etc/subuid and /etc/subgid ranges.
+apiVersion: v1
+kind: List
+metadata: {}
+items:
+  - name: buildah
+    image: quay.io/buildah/stable:v1.43.4@sha256:3ad011878909103fabc3e1ff19bf6341e1d41d48ac679dddf55418c694e49c28

@@ -22,21 +22,13 @@ updates:
 
   - package-ecosystem: docker
     directories:
+      - "/.github/buildah"
       - "/.github/buildpacks"
       - "/arc-runner-image"
-      - "/artifact-access"
       - "/code-sandbox"
-      - "/crew-liaison"
       - "/dashboard"
-      - "/discussion-gateway"
-      - "/fitness-runner"
-      - "/indexer"
       - "/k8s/tests"
-      - "/mcp-bridge"
-      - "/mcp-gateway"
-      - "/operator"
       - "/query-service"
-      - "/scheduling-mcp"
     schedule:
       interval: weekly
     groups:

@@ -6,12 +6,14 @@ on:
     branches: [main]
     paths:
       - 'query-service/**'
+      - '.github/buildah/**'
+      - '.github/scripts/build-image-buildah.sh'
+      - '.github/scripts/build-image-lib.sh'
+      - '.github/workflows/build-dockerfile-image.yaml'
   workflow_dispatch:
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-  REGISTRY: ${{ vars.REGISTRY }}
-  IMAGE_NAME: kubemoot/query-service
 
 permissions:
   contents: read
@@ -44,47 +46,10 @@ jobs:
         working-directory: query-service
         run: python -m unittest discover -s . -p 'test_*.py' -v
 
-      - name: Install kubectl
-        if: github.event_name != 'pull_request'
-        run: |
-          curl -sLO "https://dl.k8s.io/release/$(curl -sL https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
-          chmod +x kubectl && sudo mv kubectl /usr/local/bin/
-
-      - name: Build and push with Kaniko
-        if: github.event_name != 'pull_request'
-        run: |
-          SHA="${{ github.sha }}"
-          JOB_NAME="kaniko-query-service-${SHA:0:8}-${GITHUB_RUN_NUMBER}"
-
-          tar -C query-service -czf /tmp/context.tar.gz .
-
-          kubectl run "${JOB_NAME}" \
-            --rm -i \
-            --restart=Never \
-            --namespace=arc-runners \
-            --image=gcr.io/kaniko-project/executor:latest \
-            --overrides='{
-              "spec": {
-                "hostAliases": [{"ip": "${{ vars.REGISTRY_HOST_IP }}", "hostnames": ["${{ vars.REGISTRY }}"]}],
-                "containers": [{
-                  "name": "kaniko",
-                  "image": "gcr.io/kaniko-project/executor:latest",
-                  "stdin": true,
-                  "stdinOnce": true,
-                  "args": [
-                    "--context=tar://stdin",
-                    "--dockerfile=Dockerfile",
-                    "--label=org.opencontainers.image.source=https://github.com/kubemoot/kubemoot",
-                    "--label=org.opencontainers.image.licenses=Apache-2.0",
-                    "--label=org.opencontainers.image.revision='"${SHA}"'",
-                    "--destination=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:'"${SHA}"'",
-                    "--destination=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest",
-                    "--insecure",
-                    "--skip-tls-verify",
-                    "--cache=false"
-                  ],
-                  "volumeMounts": [{"name": "docker-config", "mountPath": "/kaniko/.docker"}]
-                }],
-                "volumes": [{"name": "docker-config", "secret": {"secretName": "kaniko-docker-config", "items": [{"key": "config.json", "path": "config.json"}]}}]
-              }
-            }' < /tmp/context.tar.gz
+  build-image:
+    needs: build
+    if: github.event_name != 'pull_request'
+    uses: ./.github/workflows/build-dockerfile-image.yaml
+    with:
+      name: query-service
+      context: query-service

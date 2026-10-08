@@ -1,11 +1,11 @@
 name: Build ARC Runner Image
 
 # Builds the custom homelab-runners image (stock actions-runner + libatomic1/make/jq)
-# via an in-cluster Kaniko Job, the only push path to Harbor that bypasses Cloudflare
-# (the external endpoint is size-gated and advertises an HTTP token realm local
-# clients reject). The homelab OpenTofu arc-runner-scale-set references the pushed
-# tag via its runner_image variable. The tag is <runner version>-homelab, read from the
-# Dockerfile's FROM line, so a base bump is a one-line Dockerfile change.
+# with Buildah in the cluster (build-dockerfile-image.yaml), the push path to Harbor that
+# stays off Cloudflare. The homelab OpenTofu arc-runner-scale-set references the
+# <runner version>-homelab tag, read from the Dockerfile's FROM line, so a base bump is a
+# one-line Dockerfile change. main pushes that tag with :<sha> and :latest; a dispatch
+# on another branch pushes only :branch-<sha>.
 on:
   workflow_dispatch:
   push:
@@ -13,65 +13,39 @@ on:
     paths:
       - 'arc-runner-image/**'
       - '.github/workflows/build-arc-runner-image.yaml'
-
-env:
-  REGISTRY: ${{ vars.REGISTRY }}
-  IMAGE_NAME: kubemoot/actions-runner
+      - '.github/buildah/**'
+      - '.github/scripts/build-image-buildah.sh'
+      - '.github/scripts/build-image-lib.sh'
+      - '.github/workflows/build-dockerfile-image.yaml'
 
 permissions:
   contents: read
 
 jobs:
-  build:
-    runs-on: homelab-runners
+  tag:
+    runs-on: ubuntu-latest
+    outputs:
+      runner_tag: ${{ steps.tag.outputs.runner_tag }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Derive image tag from the Dockerfile
+        id: tag
         run: |
           RUNNER_VERSION=$(sed -n 's|^FROM ghcr.io/actions/actions-runner:\([^ @]*\).*|\1|p' arc-runner-image/Dockerfile | head -n 1)
           if ! echo "${RUNNER_VERSION}" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
             echo "::error file=arc-runner-image/Dockerfile::expected FROM ghcr.io/actions/actions-runner:<X.Y.Z>, got '${RUNNER_VERSION}'"
             exit 1
           fi
-          echo "RUNNER_TAG=${RUNNER_VERSION}-homelab" >> "${GITHUB_ENV}"
+          echo "runner_tag=${RUNNER_VERSION}-homelab" >> "${GITHUB_OUTPUT}"
           echo "Image tag: ${RUNNER_VERSION}-homelab"
 
-      - name: Install kubectl
-        run: |
-          curl -sLO "https://dl.k8s.io/release/$(curl -sL https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
-          chmod +x kubectl && sudo mv kubectl /usr/local/bin/
-
-      - name: Build and push runner image with Kaniko
-        run: |
-          JOB_NAME="kaniko-runner-$(echo ${GITHUB_SHA} | cut -c1-8)-${GITHUB_RUN_NUMBER}"
-          tar -C arc-runner-image -czf /tmp/context.tar.gz .
-
-          kubectl run ${JOB_NAME} \
-            --rm -i \
-            --restart=Never \
-            --namespace=arc-runners \
-            --image=gcr.io/kaniko-project/executor:latest \
-            --overrides='{
-              "spec": {
-                "hostAliases": [{"ip": "${{ vars.REGISTRY_HOST_IP }}", "hostnames": ["${{ vars.REGISTRY }}"]}],
-                "containers": [{
-                  "name": "kaniko",
-                  "image": "gcr.io/kaniko-project/executor:latest",
-                  "stdin": true,
-                  "stdinOnce": true,
-                  "args": [
-                    "--context=tar://stdin",
-                    "--dockerfile=Dockerfile",
-                    "--destination=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:'"${RUNNER_TAG}"'",
-                    "--destination=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest",
-                    "--insecure",
-                    "--skip-tls-verify",
-                    "--cache=false"
-                  ],
-                  "volumeMounts": [{"name": "docker-config", "mountPath": "/kaniko/.docker"}]
-                }],
-                "volumes": [{"name": "docker-config", "secret": {"secretName": "kaniko-docker-config", "items": [{"key": "config.json", "path": "config.json"}]}}]
-              }
-            }' < /tmp/context.tar.gz
+  build-image:
+    needs: tag
+    uses: ./.github/workflows/build-dockerfile-image.yaml
+    with:
+      name: actions-runner
+      context: arc-runner-image
+      license: ''
+      extra_tag: ${{ needs.tag.outputs.runner_tag }}

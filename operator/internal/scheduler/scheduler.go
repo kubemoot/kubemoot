@@ -15,8 +15,8 @@ You may obtain a copy of the License at
 //
 // The record schema is duplicated in two Go files — one here at
 // internal/scheduler/record/, one at kubemoot/scheduling-mcp/pkg/record/.
-// The duplication is intentional: per-module Kaniko builds can't share
-// source across the monorepo. Keep both files in sync.
+// The duplication is intentional: each Go module builds on its own and
+// can't import source across the monorepo. Keep both files in sync.
 //
 // Firing behavior (four-cell matrix, by Kind × SourceThreadID present):
 //

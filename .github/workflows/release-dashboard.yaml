@@ -6,6 +6,11 @@ on:
     paths:
       - 'dashboard/**'
       - '!dashboard/**.md'
+      - '.github/buildah/**'
+      - '.github/scripts/build-image-buildah.sh'
+      - '.github/scripts/build-image-lib.sh'
+      - '.github/scripts/retag-image.sh'
+      - '.github/workflows/build-dockerfile-image.yaml'
   workflow_dispatch:
     inputs:
       force_release:
@@ -71,13 +76,7 @@ jobs:
 
           echo "${HARBOR_PASSWORD}" | crane auth login --insecure ${{ env.REGISTRY }} -u "${HARBOR_USERNAME}" --password-stdin
 
-          if crane manifest --insecure "${FULL_IMAGE}:${SHA}" >/dev/null 2>&1; then
-            echo "Copying ${FULL_IMAGE}:${SHA} -> ${FULL_IMAGE}:${VERSION}"
-            crane copy --insecure "${FULL_IMAGE}:${SHA}" "${FULL_IMAGE}:${VERSION}"
-          elif crane manifest --insecure "${FULL_IMAGE}:latest" >/dev/null 2>&1; then
-            echo "Copying ${FULL_IMAGE}:latest -> ${FULL_IMAGE}:${VERSION}"
-            crane copy --insecure "${FULL_IMAGE}:latest" "${FULL_IMAGE}:${VERSION}"
-          fi
+          .github/scripts/retag-image.sh "${FULL_IMAGE}" "${SHA}" "${VERSION}"
 
       - name: Create and push tag
         if: steps.version.outputs.release_created == 'true'
