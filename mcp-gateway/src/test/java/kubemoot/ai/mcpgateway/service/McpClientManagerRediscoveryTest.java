@@ -14,6 +14,11 @@ import kubemoot.ai.mcpgateway.model.ToolOverride.ParameterOverride;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
+import org.slf4j.LoggerFactory;
 import org.springframework.web.reactive.function.client.WebClient;
 import reactor.core.publisher.Mono;
 
@@ -324,6 +329,38 @@ class McpClientManagerRediscoveryTest {
 
         manager.registerServer(SERVER, url, "stdio", List.of());
         awaitTrue("override removed", () -> "pods_list".equals(tool(server.id(), "pods_list").description()));
+    }
+
+    @Test
+    void anUnchangedReRegistrationLogsNothingAtInfoAndAChangedOneDoes() {
+        Logger logger = (Logger) LoggerFactory.getLogger(McpClientManager.class);
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        logger.addAppender(appender);
+        try {
+            ServerRegistration server = registerAndAwait(CORE_TOOLS);
+            assertEquals(1, infoLines(appender, "Registering new MCP server").size(), "a new server logs once");
+
+            appender.list.clear();
+            manager.registerServer(SERVER, url, "stdio");
+            assertTrue(infoLines(appender, "Registering new MCP server").isEmpty()
+            && infoLines(appender, "overrides changed").isEmpty()
+            && infoLines(appender, "already registered").isEmpty(), "an unchanged re-registration is quiet at INFO");
+
+            manager.registerServer(SERVER, url, "stdio", List.of(new ToolOverride("pods_list", "new text", Map.of())));
+            assertEquals(1, infoLines(appender, "tool overrides changed").size());
+            assertNotNull(manager.getServer(server.id()));
+        } finally {
+            logger.detachAppender(appender);
+        }
+    }
+
+    private static List<String> infoLines(ListAppender<ILoggingEvent> appender, String containing) {
+        return appender.list.stream()
+            .filter(e -> e.getLevel().isGreaterOrEqual(Level.INFO))
+            .map(ILoggingEvent::getFormattedMessage)
+            .filter(m -> m.contains(containing))
+            .toList();
     }
 
     // --- helpers -------------------------------------------------------------------

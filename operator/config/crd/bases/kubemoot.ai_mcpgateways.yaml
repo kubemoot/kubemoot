@@ -255,6 +255,15 @@ spec:
                 - microsoft
                 - docker
                 type: string
+              logLevel:
+                default: INFO
+                description: LogLevel sets the kubemoot gateway log level. Tool calls
+                  log at INFO.
+                enum:
+                - DEBUG
+                - INFO
+                - WARN
+                type: string
               mcpServerSelector:
                 description: |-
                   MCPServerSelector selects which MCPServers to register with the gateway

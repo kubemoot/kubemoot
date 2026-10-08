@@ -47,6 +47,6 @@ management:
 logging:
   level:
     root: INFO
-    kubemoot.ai.mcpgateway: DEBUG
+    kubemoot.ai.mcpgateway: INFO
   pattern:
     console: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"

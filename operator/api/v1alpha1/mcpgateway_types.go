@@ -48,6 +48,12 @@ type MCPGatewaySpec struct {
 	// +optional
 	MCPServerSelector *metav1.LabelSelector `json:"mcpServerSelector,omitempty"`
 
+	// LogLevel sets the kubemoot gateway log level. Tool calls log at INFO.
+	// +kubebuilder:validation:Enum=DEBUG;INFO;WARN
+	// +kubebuilder:default=INFO
+	// +optional
+	LogLevel string `json:"logLevel,omitempty"`
+
 	// Port is the port for the gateway service
 	// +kubebuilder:default=8080
 	// +optional

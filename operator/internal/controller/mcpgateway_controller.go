@@ -393,6 +393,7 @@ func (r *MCPGatewayReconciler) gatewayImplDefaults(gateway *kubemootv1alpha1.MCP
 		return r.ConfigCache.GetMcpGatewayImage(), defaultGatewayPort, "/actuator/health", []corev1.EnvVar{
 			{Name: envServerPort, Value: fmt.Sprintf("%d", defaultGatewayPort)},
 			{Name: "SPRING_APPLICATION_NAME", Value: gateway.Name},
+			gatewayLogLevelEnv(gateway),
 		}
 	case kubemootv1alpha1.ImplementationContextForge:
 		env := []corev1.EnvVar{
@@ -2268,4 +2269,14 @@ func (r *MCPGatewayReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Named("mcpgateway").
 		WithOptions(controller.Options{MaxConcurrentReconciles: 1}).
 		Complete(r)
+}
+
+// gatewayLogLevelEnv returns the Spring env var that sets the kubemoot gateway log level;
+// an unset spec.logLevel means INFO.
+func gatewayLogLevelEnv(gateway *kubemootv1alpha1.MCPGateway) corev1.EnvVar {
+	level := gateway.Spec.LogLevel
+	if level == "" {
+		level = "INFO"
+	}
+	return corev1.EnvVar{Name: "LOGGING_LEVEL_KUBEMOOT_AI_MCPGATEWAY", Value: level}
 }
