@@ -7,9 +7,6 @@ on:
       - 'k8s/tests/**'
       - '!k8s/tests/job/**'
       - '!k8s/tests/**.md'
-      - '.github/buildah/**'
-      - '.github/scripts/build-image-buildah.sh'
-      - '.github/scripts/build-image-lib.sh'
       - '.github/scripts/retag-image.sh'
       - '.github/workflows/build-dockerfile-image.yaml'
   workflow_dispatch:

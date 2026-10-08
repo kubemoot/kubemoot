@@ -22,8 +22,6 @@ updates:
 
   - package-ecosystem: docker
     directories:
-      - "/.github/buildah"
-      - "/.github/buildpacks"
       - "/arc-runner-image"
       - "/code-sandbox"
       - "/dashboard"

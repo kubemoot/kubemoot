@@ -1,6 +1,7 @@
 # Builds an image from a Dockerfile with Buildah in the cluster and pushes it to Harbor,
 # for the images a buildpack cannot express. The job hands the context directory to
-# .github/scripts/build-image-buildah.sh, which runs Buildah in a user-namespaced pod.
+# build-image-buildah.sh from kubemoot/release-actions (its setup action exports
+# BUILD_IMAGE_DIR), which runs Buildah in a user-namespaced pod.
 #
 # main pushes :<sha>, which the release retags, and :latest (plus extra_tag); any other
 # ref pushes only :branch-<sha> (build-image-buildah.sh decides the tags per ref).
@@ -51,6 +52,9 @@ jobs:
       - name: Install kubectl
         uses: ./.github/actions/install-kubectl
 
+      - name: Set up the build helpers
+        uses: kubemoot/release-actions/setup@7d1fcd865e059e89051a7f8c8c14745f02140d3a # agent/build-image
+
       - name: Build and push with Buildah
         env:
           REGISTRY_HOST_IP: ${{ vars.REGISTRY_HOST_IP }}
@@ -70,4 +74,4 @@ jobs:
           )
           [ -z "${LICENSE}" ] || args+=(--label "org.opencontainers.image.licenses=${LICENSE}")
           [ -z "${EXTRA_TAG}" ] || args+=(--extra-tag "${EXTRA_TAG}")
-          .github/scripts/build-image-buildah.sh "${args[@]}" "${CONTEXT}" "${REGISTRY}/kubemoot/${NAME}"
+          "${BUILD_IMAGE_DIR}/build-image-buildah.sh" "${args[@]}" "${CONTEXT}" "${REGISTRY}/kubemoot/${NAME}"

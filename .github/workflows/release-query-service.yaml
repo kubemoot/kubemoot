@@ -6,9 +6,6 @@ on:
     paths:
       - 'query-service/**'
       - '!query-service/**.md'
-      - '.github/buildah/**'
-      - '.github/scripts/build-image-buildah.sh'
-      - '.github/scripts/build-image-lib.sh'
       - '.github/scripts/retag-image.sh'
       - '.github/workflows/build-dockerfile-image.yaml'
   workflow_dispatch:

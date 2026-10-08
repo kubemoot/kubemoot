@@ -10,9 +10,6 @@ on:
     paths:
       - 'agent-runtime/**'
       - 'config/checkstyle/**'
-      - '.github/buildpacks/**'
-      - '.github/scripts/build-image-buildpacks.sh'
-      - '.github/scripts/build-image-lib.sh'
       - '.github/scripts/check-native-libs.sh'
       - '.github/workflows/ci-agent-runtime.yaml'
   workflow_dispatch:
@@ -159,8 +156,13 @@ jobs:
           fi
           echo "Native binary started; ${count} MCP tools listed from ${MCP_ENDPOINT}."
 
+      - name: Set up the build helpers
+        if: ${{ !inputs.native_check }}
+        uses: kubemoot/release-actions/setup@7d1fcd865e059e89051a7f8c8c14745f02140d3a # agent/build-image
+
       # The run image must hold every shared library the binary links against; the image
-      # would build and push without one and the agent pod would fail at startup.
+      # would build and push without one and the agent pod would fail at startup. The
+      # check reads the run image pin from BUILD_IMAGE_DIR, set by the step above.
       - name: Check the binary's libraries against the run image
         if: ${{ !inputs.native_check }}
         run: |
@@ -182,7 +184,7 @@ jobs:
           mkdir -p "${app}"
           cp agent-runtime/build/*-runner "${app}/application"
           cp agent-runtime/src/main/buildpacks/Procfile "${app}/Procfile"
-          .github/scripts/build-image-buildpacks.sh \
+          "${BUILD_IMAGE_DIR}/build-image-buildpacks.sh" \
             --pod "buildpacks-agent-runtime-${SHA:0:8}-${GITHUB_RUN_NUMBER}-${GITHUB_RUN_ATTEMPT}" \
             --sha "${SHA}" --ref "${GITHUB_REF}" \
             --builder builder-java-tiny --run-image run-tiny \

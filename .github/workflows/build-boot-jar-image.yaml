@@ -1,6 +1,7 @@
 # Packages a tested Spring Boot jar into an image with Paketo buildpacks and pushes it to
 # Harbor. The calling workflow builds and tests the jar and uploads it as an artifact;
-# this job explodes it and hands it to .github/scripts/build-image-buildpacks.sh.
+# this job explodes it and hands it to build-image-buildpacks.sh
+# from kubemoot/release-actions (its setup action exports BUILD_IMAGE_DIR).
 name: Build Boot Jar Image
 
 on:
@@ -34,6 +35,9 @@ jobs:
       - name: Install kubectl
         uses: ./.github/actions/install-kubectl
 
+      - name: Set up the build helpers
+        uses: kubemoot/release-actions/setup@7d1fcd865e059e89051a7f8c8c14745f02140d3a # agent/build-image
+
       - name: Fetch the tested jar
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
@@ -57,7 +61,7 @@ jobs:
           NAME: ${{ inputs.name }}
           JAVA_VERSION: ${{ inputs.java-version }}
         run: |
-          .github/scripts/build-image-buildpacks.sh \
+          "${BUILD_IMAGE_DIR}/build-image-buildpacks.sh" \
             --pod "buildpacks-${NAME}-${SHA:0:8}-${GITHUB_RUN_NUMBER}-${GITHUB_RUN_ATTEMPT}" \
             --sha "${SHA}" --ref "${GITHUB_REF}" \
             --builder builder-java-tiny --run-image run-tiny \
