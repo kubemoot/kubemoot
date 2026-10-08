@@ -32,6 +32,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.TimeoutException;
 import java.util.function.Predicate;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -914,6 +915,16 @@ public class McpClientManager {
             .onErrorResume(e -> unreachable(request, e));
     }
 
+    /**
+     * The one retry both transports use when a session is lost or the connection fails: drop
+     * the dead session, connect (shared with every request waiting on the same server) and
+     * send the request once more over the transport's own path, with no further retry.
+     */
+    private Mono<McpMessage> reconnectAndResend(String serverId, McpMessage request) {
+        cleanupSseSession(serverId);
+        return reconnectThenForward(serverId, request);
+    }
+
     private static Mono<McpMessage> unreachable(McpMessage request, Throwable e) {
         String reason = e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage();
         return Mono.just(McpMessage.error(request.id(), -32603, "Server not reachable: " + reason));
@@ -956,19 +967,20 @@ public class McpClientManager {
     }
 
     /**
-     * A refused or reset connection to a streamable HTTP server means the server is gone or
-     * restarting. The server is marked ERROR and, when a retry is allowed, connected again
-     * and the request sent once more.
+     * A failed forward on either transport. A transport failure marks the server ERROR. A
+     * refused connection (never reached the server) or, over SSE only, a reply timeout is retried once
+     * after a reconnect when a retry is allowed; any other error, such as a reset after the
+     * request was sent, is returned to the caller so a tool call never runs twice.
      */
-    private Mono<McpMessage> recoverHttpTransportError(Throwable e, String serverId,
-            McpMessage request, boolean allowRetry) {
+    private Mono<McpMessage> recoverForwardError(Throwable e, String serverId, McpMessage request,
+            boolean allowRetry, boolean replayOnTimeout) {
         log.warn("Error forwarding request to {}: {}", serverId, e.getMessage());
         if (e instanceof WebClientRequestException) {
             setStatus(serverId, ServerStatus.ERROR);
-            if (allowRetry && isConnectRefused(e)) {
-                serverSessions.remove(serverId);
-                return reconnectThenForward(serverId, request);
-            }
+        }
+        boolean retryable = (replayOnTimeout && e instanceof TimeoutException) || isConnectRefused(e);
+        if (allowRetry && retryable) {
+            return reconnectAndResend(serverId, request);
         }
         return Mono.just(McpMessage.error(request.id(), -32603, "Internal error: " + e.getMessage()));
     }
@@ -981,8 +993,7 @@ public class McpClientManager {
         if (sessionId == null || responseSink == null) {
             if (allowRetry) {
                 log.info("No active SSE session for {}, re-initializing", server.name());
-                return reinitialize(serverId)
-                    .then(Mono.defer(() -> forwardRequestViaSSE(serverId, client, server, request, false)));
+                return reconnectAndResend(serverId, request);
             }
             return Mono.just(McpMessage.error(request.id(), -32600, "No SSE session for server"));
         }
@@ -995,7 +1006,7 @@ public class McpClientManager {
             .bodyValue(request)
             .exchangeToMono(response -> handleSseForwardResponse(
                 response, serverId, client, server, request, responseSink, allowRetry))
-            .onErrorResume(e -> handleSseForwardError(e, serverId, client, server, request, allowRetry));
+            .onErrorResume(e -> recoverForwardError(e, serverId, request, allowRetry, true));
     }
 
     /**
@@ -1010,9 +1021,7 @@ public class McpClientManager {
         // Session expired or SSE closed - re-initialize and retry
         if (isSessionLost(server, statusCode) && allowRetry) {
             log.warn("Session error ({}) for stdio server {}, re-initializing", statusCode, server.name());
-            cleanupSseSession(serverId);
-            return reinitialize(serverId)
-                .then(Mono.defer(() -> forwardRequestViaSSE(serverId, client, server, request, false)));
+            return reconnectAndResend(serverId, request);
         }
 
         if (!response.statusCode().is2xxSuccessful()) {
@@ -1029,23 +1038,6 @@ public class McpClientManager {
             .filter(msg -> msg.id() != null && String.valueOf(msg.id()).equals(expectedId))
             .next()
             .timeout(java.time.Duration.ofSeconds(30));
-    }
-
-    /**
-     * Resume an SSE forward error: re-initialize and retry on timeout when allowed, else
-     * surface an internal-error message.
-     */
-    private Mono<McpMessage> handleSseForwardError(Throwable e, String serverId, WebClient client,
-            ServerRegistration server, McpMessage request, boolean allowRetry) {
-        log.error("Error forwarding request via SSE to {}: {}", serverId, e.getMessage());
-        // On timeout or other error, try to re-initialize if allowed
-        if (allowRetry && e instanceof java.util.concurrent.TimeoutException) {
-            log.info("SSE response timeout for {}, re-initializing", server.name());
-            cleanupSseSession(serverId);
-            return reinitialize(serverId)
-                .then(Mono.defer(() -> forwardRequestViaSSE(serverId, client, server, request, false)));
-        }
-        return Mono.just(McpMessage.error(request.id(), -32603, "Internal error: " + e.getMessage()));
     }
 
     private Mono<McpMessage> forwardRequestViaHttp(String serverId, WebClient client,
@@ -1069,10 +1061,7 @@ public class McpClientManager {
 
                 if (isSessionLost(server, statusCode) && allowRetry) {
                     log.warn("Session error ({}) for server {}", statusCode, serverId);
-                    serverSessions.remove(serverId);
-                    return reinitialize(serverId)
-                        .then(Mono.defer(() -> forwardRequestViaHttp(serverId, client, server, request, false)))
-                        .onErrorResume(e -> unreachable(request, e));
+                    return reconnectAndResend(serverId, request);
                 }
 
                 if (!response.statusCode().is2xxSuccessful()) {
@@ -1095,7 +1084,7 @@ public class McpClientManager {
                     })
                     .defaultIfEmpty(McpMessage.error(request.id(), -32603, "Empty response from server"));
             })
-            .onErrorResume(e -> recoverHttpTransportError(e, serverId, request, allowRetry));
+            .onErrorResume(e -> recoverForwardError(e, serverId, request, allowRetry, false));
     }
 
     /**

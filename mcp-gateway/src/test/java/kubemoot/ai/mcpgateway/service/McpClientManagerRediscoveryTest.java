@@ -121,6 +121,25 @@ class McpClientManagerRediscoveryTest {
     }
 
     @Test
+    void stdioRequestsThatArriveTogetherAfterTheRestartShareOneConnect() {
+        ServerRegistration server = registerAndAwait(CORE_TOOLS);
+        restartBackendWith(HELM_TOOLS);
+        awaitTrue("the gateway notices the lost session",
+            () -> manager.getServer(server.id()).status() == ServerStatus.DISCONNECTED);
+        int connectsBefore = sseConnects.get();
+
+        List<McpMessage> replies = reactor.core.publisher.Flux.range(0, 4)
+            .flatMap(i -> manager.forwardRequest(server.id(), McpMessage.request(20 + i, "tools/call",
+                Map.of("name", "pods_list", "arguments", Map.of()))))
+            .collectList()
+            .block(Duration.ofSeconds(30));
+
+        assertNotNull(replies);
+        assertTrue(replies.stream().allMatch(r -> r.error() == null), "every request is answered");
+        assertEquals(1, sseConnects.get() - connectsBefore, "one session served all of them");
+    }
+
+    @Test
     void aToolsListChangedNotificationReListsWithoutARestart() {
         ServerRegistration server = registerAndAwait(CORE_TOOLS);
         int connectsBefore = sseConnects.get();
