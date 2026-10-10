@@ -70,7 +70,7 @@ dependencies {
     implementation("io.modelcontextprotocol.sdk:mcp-json-jackson2:2.0.1")
 
     // NATS - publish chat events to NATS JetStream
-    implementation("io.nats:jnats:2.26.3")
+    implementation("io.nats:jnats:2.26.4")
 
     // Observability
     implementation("io.quarkus:quarkus-micrometer-registry-prometheus")
