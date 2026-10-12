@@ -1,6 +1,6 @@
 module github.com/kubemoot/kubemoot/artifact-access
 
-go 1.27.1
+go 1.27.2
 
 require (
 	github.com/itchyny/gojq v0.12.19
