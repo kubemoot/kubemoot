@@ -3,7 +3,6 @@
 	import { resolve } from '$app/paths';
 	import SystemInfoPopover from '#lib/components/common/SystemInfoPopover.svelte';
 	import KubemootLogo from './KubemootLogo.svelte';
-	import { isReleaseCandidate } from '#lib/release-candidate.js';
 
 	const githubUrl = 'https://github.com/kubemoot/kubemoot';
 
@@ -60,9 +59,6 @@
 				<a href={githubUrl} target="_blank" rel="noopener noreferrer" class="version-github-link" title="View on GitHub">
 					<span class="version-num">v{version}</span>
 				</a>
-				{#if isReleaseCandidate(version)}
-					<span class="rc-badge" title="This dashboard runs a release candidate">RC</span>
-				{/if}
 				<SystemInfoPopover dashboardVersion={version} />
 			</div>
 		</div>
@@ -173,17 +169,6 @@
 		font-size: 0.65rem;
 		color: var(--color-text-muted);
 		opacity: 0.7;
-	}
-
-	.rc-badge {
-		font-size: 0.6rem;
-		font-weight: 700;
-		letter-spacing: 0.05em;
-		color: var(--color-warning);
-		border: 1px solid var(--color-warning);
-		border-radius: 4px;
-		padding: 0 0.3rem;
-		line-height: 1.4;
 	}
 
 	.version-github-link {
