@@ -4,6 +4,8 @@ import (
 	"reflect"
 	"sort"
 	"time"
+
+	"github.com/kubemoot/kubemoot/operator/pkg/bus"
 )
 
 // eventSubcommittee is the SSE event that names the agents the coordinator convened.
@@ -27,57 +29,9 @@ const (
 	subcommitteeFromTriage   = "triage"
 )
 
-// SignalMeta is what an agent's signal metadata says about how it was made: the model,
-// token counts and inference time of its call, the tools it has enabled, the artifact
-// it spilled, and for a failure, what failed. Absent values are left out.
-type SignalMeta struct {
-	ModelName    string `json:"modelName,omitempty"`
-	InputTokens  int64  `json:"inputTokens,omitempty"`
-	OutputTokens int64  `json:"outputTokens,omitempty"`
-	TotalTokens  int64  `json:"totalTokens,omitempty"`
-	InferenceMs  int64  `json:"inferenceMs,omitempty"`
-	// ToolsUsed is the agent runtime's toolsUsed: the tools the agent has enabled,
-	// sent on agree signals.
-	ToolsUsed []string `json:"toolsUsed,omitempty"`
-	// FailureType, FailedTool, FailureCount and LastError describe a failure signal:
-	// the kind of failure, the tool that failed, how many tool calls failed, and the
-	// last error text.
-	FailureType  string       `json:"failureType,omitempty"`
-	FailedTool   string       `json:"failedTool,omitempty"`
-	FailureCount int64        `json:"failureCount,omitempty"`
-	LastError    string       `json:"lastError,omitempty"`
-	Artifact     *ArtifactRef `json:"artifact,omitempty"`
-}
-
-// ArtifactRef names a contribution spilled to the discussion artifact store.
-type ArtifactRef struct {
-	Key   string `json:"key"`
-	Bytes int64  `json:"bytes,omitempty"`
-}
-
-// Subcommittee is the agents the coordinator convened for a thread. From the advisory
-// it carries the brief; from a triage selection, each agent's reason and confidence.
-type Subcommittee struct {
-	Source  string               `json:"source,omitempty"`
-	Members []SubcommitteeMember `json:"members,omitempty"`
-	// AllAgents is set when the coordinator convened no subcommittee and every agent
-	// may take part.
-	AllAgents    bool     `json:"allAgents,omitempty"`
-	Brief        string   `json:"brief,omitempty"`
-	Confidence   float64  `json:"confidence,omitempty"`
-	Technologies []string `json:"technologies,omitempty"`
-}
-
-// SubcommitteeMember is one convened agent.
-type SubcommitteeMember struct {
-	Agent      string  `json:"agent"`
-	Reason     string  `json:"reason,omitempty"`
-	Confidence float64 `json:"confidence,omitempty"`
-}
-
 // signalMetaOf reads the signal metadata of data, or nil when it carries none.
-func signalMetaOf(data natsMessage) *SignalMeta {
-	m := SignalMeta{
+func signalMetaOf(data bus.DiscussionMessage) *bus.SignalMeta {
+	m := bus.SignalMeta{
 		ModelName:    metaString(data, "modelName"),
 		InputTokens:  metaInt(data, metaInputTokens),
 		OutputTokens: metaInt(data, metaOutputTokens),
@@ -98,7 +52,7 @@ func signalMetaOf(data natsMessage) *SignalMeta {
 
 // artifactRefOf reads metadata.artifact, the reference an agent adds when it spills a
 // large contribution, or nil.
-func artifactRefOf(data natsMessage) *ArtifactRef {
+func artifactRefOf(data bus.DiscussionMessage) *bus.ArtifactRef {
 	ref, ok := data.Metadata["artifact"].(map[string]interface{})
 	if !ok {
 		return nil
@@ -107,13 +61,13 @@ func artifactRefOf(data natsMessage) *ArtifactRef {
 	if key == "" {
 		return nil
 	}
-	return &ArtifactRef{Key: key, Bytes: toInt(ref["bytes"])}
+	return &bus.ArtifactRef{Key: key, Bytes: toInt(ref["bytes"])}
 }
 
 // subcommitteeEvent maps the coordinator's advisory_ready and triage_result to a
 // subcommittee event.
-func subcommitteeEvent(data natsMessage) (SSEEvent, bool) {
-	var s Subcommittee
+func subcommitteeEvent(data bus.DiscussionMessage) (SSEEvent, bool) {
+	var s bus.Subcommittee
 	switch data.MessageType {
 	case msgAdvisoryReady:
 		s = advisorySubcommittee(data)
@@ -122,19 +76,21 @@ func subcommitteeEvent(data natsMessage) (SSEEvent, bool) {
 	default:
 		return SSEEvent{}, false
 	}
-	return SSEEvent{Type: eventSubcommittee, Agent: data.AgentName, Subcommittee: &s}, true
+	e := sseEvent(bus.StreamEventBase{Type: eventSubcommittee, Agent: data.AgentName})
+	e.Subcommittee = &s
+	return e, true
 }
 
 // advisorySubcommittee is the inner circle of advisory_ready with the coordinator's
 // brief. Without an inner circle, every agent may take part.
-func advisorySubcommittee(data natsMessage) Subcommittee {
+func advisorySubcommittee(data bus.DiscussionMessage) bus.Subcommittee {
 	circle := metaStrings(data, "innerCircle")
-	members := make([]SubcommitteeMember, 0, len(circle))
+	members := make([]bus.SubcommitteeMember, 0, len(circle))
 	for _, agent := range circle {
-		members = append(members, SubcommitteeMember{Agent: agent})
+		members = append(members, bus.SubcommitteeMember{Agent: agent})
 	}
 	sortMembers(members)
-	return Subcommittee{
+	return bus.Subcommittee{
 		Source: subcommitteeFromAdvisory, Members: members, AllAgents: len(members) == 0,
 		Brief: metaString(data, msgAdvisory), Confidence: metaFloat(data, "triageConfidence"),
 		Technologies: metaStrings(data, "technologies"),
@@ -142,9 +98,9 @@ func advisorySubcommittee(data natsMessage) Subcommittee {
 }
 
 // triageSubcommittee is the triage selection: each agent with its reason and confidence.
-func triageSubcommittee(data natsMessage) Subcommittee {
+func triageSubcommittee(data bus.DiscussionMessage) bus.Subcommittee {
 	raw, _ := data.Metadata["agents"].([]interface{})
-	members := []SubcommitteeMember{}
+	members := []bus.SubcommitteeMember{}
 	for _, item := range raw {
 		a, ok := item.(map[string]interface{})
 		if !ok {
@@ -155,24 +111,26 @@ func triageSubcommittee(data natsMessage) Subcommittee {
 			continue
 		}
 		reason, _ := a[metaReason].(string)
-		members = append(members, SubcommitteeMember{Agent: name, Reason: reason, Confidence: toFloat(a["confidence"])})
+		members = append(members, bus.SubcommitteeMember{Agent: name, Reason: reason, Confidence: toFloat(a["confidence"])})
 	}
 	sortMembers(members)
-	return Subcommittee{Source: subcommitteeFromTriage, Members: members, Confidence: metaFloat(data, "overallConfidence")}
+	return bus.Subcommittee{
+		Source: subcommitteeFromTriage, Members: members, Confidence: metaFloat(data, "overallConfidence"),
+	}
 }
 
-func sortMembers(members []SubcommitteeMember) {
+func sortMembers(members []bus.SubcommitteeMember) {
 	sort.Slice(members, func(i, j int) bool { return members[i].Agent < members[j].Agent })
 }
 
 // metaInt is a numeric metadata value as an integer, or zero.
-func metaInt(data natsMessage, key string) int64 { return toInt(data.Metadata[key]) }
+func metaInt(data bus.DiscussionMessage, key string) int64 { return toInt(data.Metadata[key]) }
 
 // metaFloat is a numeric metadata value, or zero.
-func metaFloat(data natsMessage, key string) float64 { return toFloat(data.Metadata[key]) }
+func metaFloat(data bus.DiscussionMessage, key string) float64 { return toFloat(data.Metadata[key]) }
 
 // metaStrings is a metadata list of strings, skipping anything that is not a string.
-func metaStrings(data natsMessage, key string) []string {
+func metaStrings(data bus.DiscussionMessage, key string) []string {
 	raw, _ := data.Metadata[key].([]interface{})
 	var out []string
 	for _, v := range raw {

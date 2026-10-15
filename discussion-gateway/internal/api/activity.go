@@ -6,6 +6,7 @@ import (
 	"sort"
 	"time"
 
+	"github.com/kubemoot/kubemoot/operator/pkg/bus"
 	"github.com/nats-io/nats.go/jetstream"
 )
 
@@ -64,21 +65,9 @@ const (
 )
 
 // terminalSignals end an agent's part in a thread.
-var terminalSignals = map[string]bool{
+var terminalSignals = map[bus.DiscussionMessageMessageType]bool{
 	signalAgree: true, signalContribution: true, signalConcern: true, signalStandAside: true,
 	signalDecline: true, signalBlock: true, signalFailure: true,
-}
-
-// AgentActivity is one busy agent in an activity event.
-type AgentActivity struct {
-	Agent string `json:"agent"`
-	// Doing is waking, triaging, evaluating, waiting_for_accelerator, reasoning,
-	// waiting_for_agents, or synthesizing.
-	Doing string `json:"doing"`
-	GPU   string `json:"gpu,omitempty"`
-	Model string `json:"model,omitempty"`
-	// Since is when the agent started this step (RFC 3339).
-	Since string `json:"since,omitempty"`
 }
 
 // agentStep is the step an agent is in on a thread.
@@ -115,7 +104,7 @@ func newActivityTracker() *activityTracker {
 }
 
 // observe records what one discussion message says, at the time it was published.
-func (a *activityTracker) observe(m natsMessage, at time.Time) {
+func (a *activityTracker) observe(m bus.DiscussionMessage, at time.Time) {
 	if m.ThreadID == "" {
 		return
 	}
@@ -132,15 +121,15 @@ func (a *activityTracker) observe(m natsMessage, at time.Time) {
 }
 
 // coordinatorUpdates are the messages that move the coordinator's own step.
-var coordinatorUpdates = map[string]func(*threadActivity, natsMessage){
-	msgThreadStart:   func(th *threadActivity, m natsMessage) { th.coordinator = m.AgentName },
-	msgAdvisory:      func(th *threadActivity, _ natsMessage) { th.advised = true },
-	msgAdvisoryReady: func(th *threadActivity, _ natsMessage) { th.advised, th.awaitingAgents = true, true },
-	msgReviewReady:   func(th *threadActivity, _ natsMessage) { th.advised, th.awaitingAgents = true, true },
-	msgSynthesis:     func(th *threadActivity, _ natsMessage) { th.synthesized = true },
+var coordinatorUpdates = map[bus.DiscussionMessageMessageType]func(*threadActivity, bus.DiscussionMessage){
+	msgThreadStart:   func(th *threadActivity, m bus.DiscussionMessage) { th.coordinator = m.AgentName },
+	msgAdvisory:      func(th *threadActivity, _ bus.DiscussionMessage) { th.advised = true },
+	msgAdvisoryReady: func(th *threadActivity, _ bus.DiscussionMessage) { th.advised, th.awaitingAgents = true, true },
+	msgReviewReady:   func(th *threadActivity, _ bus.DiscussionMessage) { th.advised, th.awaitingAgents = true, true },
+	msgSynthesis:     func(th *threadActivity, _ bus.DiscussionMessage) { th.synthesized = true },
 }
 
-func (th *threadActivity) observe(m natsMessage, at time.Time) {
+func (th *threadActivity) observe(m bus.DiscussionMessage, at time.Time) {
 	if m.AgentName != "" {
 		th.lastSeen[m.AgentName] = at
 	}
@@ -164,7 +153,7 @@ func (th *threadActivity) observe(m natsMessage, at time.Time) {
 // agentStepOf is the step a progress message puts an agent in, given the step it was
 // in. A discussion heartbeat keeps the current step, or means evaluating when the
 // stream joined after the agent's evaluating message.
-func agentStepOf(m natsMessage, current agentStep, at time.Time) (agentStep, bool) {
+func agentStepOf(m bus.DiscussionMessage, current agentStep, at time.Time) (agentStep, bool) {
 	step := agentStep{gpu: metaString(m, metaGPULabel), model: metaString(m, metaModel), since: at}
 	switch m.MessageType {
 	case phaseWaking, phaseReady:
@@ -201,7 +190,7 @@ type livenessSource interface {
 // gone.
 func (a *activityTracker) busy(
 	ctx context.Context, threadID string, now time.Time, live livenessSource,
-) []AgentActivity {
+) []bus.AgentActivity {
 	th, ok := a.threads[threadID]
 	if !ok || th.synthesized {
 		return nil
@@ -210,7 +199,7 @@ func (a *activityTracker) busy(
 		seen, ok := th.lastSeen[agent]
 		return (ok && now.Sub(seen) <= threadBeatWindow) || live.alive(ctx, agent)
 	}
-	var out []AgentActivity
+	var out []bus.AgentActivity
 	for _, agent := range sortedKeys(th.steps) {
 		if isAlive(agent) {
 			out = append(out, th.steps[agent].activity(agent))
@@ -219,7 +208,7 @@ func (a *activityTracker) busy(
 	if len(out) > 0 || th.coordinator == "" || !isAlive(th.coordinator) {
 		return out
 	}
-	return []AgentActivity{{Agent: th.coordinator, Doing: th.coordinatorStep()}}
+	return []bus.AgentActivity{{Agent: th.coordinator, Doing: bus.AgentActivityDoing(th.coordinatorStep())}}
 }
 
 // coordinatorStep is what the coordinator is doing while no agent is busy: reasoning
@@ -236,9 +225,9 @@ func (th *threadActivity) coordinatorStep() string {
 	}
 }
 
-func (s agentStep) activity(agent string) AgentActivity {
-	return AgentActivity{
-		Agent: agent, Doing: s.doing, GPU: s.gpu, Model: s.model,
+func (s agentStep) activity(agent string) bus.AgentActivity {
+	return bus.AgentActivity{
+		Agent: agent, Doing: bus.AgentActivityDoing(s.doing), GPU: s.gpu, Model: s.model,
 		Since: s.since.UTC().Format(time.RFC3339),
 	}
 }
@@ -253,11 +242,11 @@ func sortedKeys(m map[string]agentStep) []string {
 }
 
 // activityEvent is the SSE event for the busy agents, or false when no one is busy.
-func activityEvent(agents []AgentActivity, now time.Time) (SSEEvent, bool) {
+func activityEvent(agents []bus.AgentActivity, now time.Time) (SSEEvent, bool) {
 	if len(agents) == 0 {
 		return SSEEvent{}, false
 	}
-	return SSEEvent{Type: eventActivity, Agents: agents, At: now.UTC().Format(time.RFC3339)}, true
+	return sseEvent(bus.StreamEventBase{Type: eventActivity, Agents: agents, At: now.UTC().Format(time.RFC3339)}), true
 }
 
 // kvLiveness reads agents' liveness heartbeats from the kubemoot_agent_state bucket.
@@ -265,12 +254,6 @@ type kvLiveness struct {
 	kv        jetstream.KeyValue
 	namespace string
 	now       func() time.Time
-}
-
-// agentHeartbeat is the part of an agent's liveness heartbeat the gateway reads.
-type agentHeartbeat struct {
-	Timestamp       time.Time `json:"timestamp"`
-	IntervalSeconds int       `json:"intervalSeconds"`
 }
 
 // alive reports whether the agent's heartbeat is fresh: no older than two of its own
@@ -282,16 +265,20 @@ func (k kvLiveness) alive(ctx context.Context, agent string) bool {
 	if err != nil {
 		return false
 	}
-	var hb agentHeartbeat
-	if json.Unmarshal(entry.Value(), &hb) != nil || hb.Timestamp.IsZero() {
+	var hb bus.AgentHeartbeat
+	if json.Unmarshal(entry.Value(), &hb) != nil {
 		return false
 	}
-	return k.now().Sub(hb.Timestamp) <= staleAfter(hb.IntervalSeconds)
+	at, err := time.Parse(time.RFC3339Nano, hb.Timestamp)
+	if err != nil || at.IsZero() {
+		return false
+	}
+	return k.now().Sub(at) <= staleAfter(hb.IntervalSeconds)
 }
 
 // staleAfter is two heartbeat intervals, with the fallback for a missing or
 // implausible interval.
-func staleAfter(intervalSeconds int) time.Duration {
+func staleAfter(intervalSeconds int64) time.Duration {
 	if intervalSeconds <= 0 || intervalSeconds > maxBeatInterval {
 		intervalSeconds = fallbackBeatInterval
 	}

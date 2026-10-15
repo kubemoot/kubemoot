@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/kubemoot/kubemoot/discussion-gateway/internal/crewscope"
+	"github.com/kubemoot/kubemoot/operator/pkg/bus"
 	"github.com/nats-io/nats.go/jetstream"
 )
 
@@ -60,13 +61,13 @@ func TestListConversationsNewestFirstWithTheFirstQuestion(t *testing.T) {
 	publishOn(t, js, "kubemoot.discuss.ns2.pilot.broadcast.t5", turnStart("t5", "conv-ns2", "hidden"))
 	srv := gatewayServer(t, nc)
 
-	var got conversationList
+	var got bus.ConversationList
 	if code := getJSON(t, srv.URL+"/api/v1/discussions/pilot", &got); code != http.StatusOK || len(got.Conversations) != 2 {
 		t.Fatalf("status %d, want 2 conversations: %+v", code, got.Conversations)
 	}
 	assertNewestFirst(t, got.Conversations)
 
-	var limited conversationList
+	var limited bus.ConversationList
 	getJSON(t, srv.URL+"/api/v1/discussions/pilot?limit=1", &limited)
 	if len(limited.Conversations) != 1 || limited.Conversations[0].ConversationID != "conv-a" {
 		t.Fatalf("limit=1: got %+v", limited.Conversations)
@@ -74,7 +75,7 @@ func TestListConversationsNewestFirstWithTheFirstQuestion(t *testing.T) {
 }
 
 // assertNewestFirst checks conv-a, asked twice and last, is first with its first question.
-func assertNewestFirst(t *testing.T, got []ConversationSummary) {
+func assertNewestFirst(t *testing.T, got []bus.ConversationSummary) {
 	t.Helper()
 	a, b := got[0], got[1]
 	if a.ConversationID != "conv-a" || a.Question != "Describe the proxmox nodes." || a.Turns != 2 || b.ConversationID != "conv-b" {
@@ -127,10 +128,10 @@ func TestParseLimit(t *testing.T) {
 func TestConversationIndexKeepsTheEarliestQuestion(t *testing.T) {
 	t0 := time.Date(2026, 10, 15, 12, 0, 0, 0, time.UTC)
 	idx := conversationIndex{}
-	idx.observe(discussMsg{data: natsMessage{MessageType: msgThreadStart, Content: "second", Metadata: map[string]interface{}{metaConversationID: "c"}}, published: t0.Add(time.Minute)})
-	idx.observe(discussMsg{data: natsMessage{MessageType: msgThreadStart, Metadata: map[string]interface{}{metaConversationID: "c"}}, published: t0})
-	idx.observe(discussMsg{data: natsMessage{MessageType: msgThreadStart}, published: t0})
-	idx.observe(discussMsg{data: natsMessage{MessageType: signalAgree, Metadata: map[string]interface{}{metaConversationID: "c"}}, published: t0})
+	idx.observe(discussMsg{data: bus.DiscussionMessage{MessageType: msgThreadStart, Content: "second", Metadata: map[string]interface{}{metaConversationID: "c"}}, published: t0.Add(time.Minute)})
+	idx.observe(discussMsg{data: bus.DiscussionMessage{MessageType: msgThreadStart, Metadata: map[string]interface{}{metaConversationID: "c"}}, published: t0})
+	idx.observe(discussMsg{data: bus.DiscussionMessage{MessageType: msgThreadStart}, published: t0})
+	idx.observe(discussMsg{data: bus.DiscussionMessage{MessageType: signalAgree, Metadata: map[string]interface{}{metaConversationID: "c"}}, published: t0})
 	got := idx.newestFirst(10)
 	if len(got) != 1 || got[0].Question != "second" || got[0].Turns != 2 || got[0].StartedAt != testStamp {
 		t.Fatalf("got %+v", got)

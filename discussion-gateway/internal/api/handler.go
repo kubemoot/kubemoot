@@ -13,6 +13,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/kubemoot/kubemoot/discussion-gateway/internal/crewscope"
 	natsclient "github.com/kubemoot/kubemoot/discussion-gateway/internal/nats"
+	"github.com/kubemoot/kubemoot/operator/pkg/bus"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 )
 
@@ -80,21 +81,6 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/discussions/{crew}/{conversationId}/stream", h.streamDiscussion)
 }
 
-// postDiscussionRequest is the body for starting a discussion.
-type postDiscussionRequest struct {
-	Message        string `json:"message"`
-	ConversationID string `json:"conversationId,omitempty"`
-}
-
-// postDiscussionResponse is returned after starting a discussion.
-type postDiscussionResponse struct {
-	ConversationID string `json:"conversationId"`
-	// RequestedAt is when the gateway queued the request. A client sends it back as the
-	// stream's since parameter, so any gateway replica, including one started after the
-	// request, can tell this turn's thread from an earlier turn's.
-	RequestedAt string `json:"requestedAt"`
-}
-
 func (h *Handler) healthHandler(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{keyStatus: "ok"})
 }
@@ -121,7 +107,7 @@ func (h *Handler) postDiscussion(w http.ResponseWriter, r *http.Request) {
 	}
 	crew := scope.Crew
 
-	var req postDiscussionRequest
+	var req bus.PostDiscussionRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		httpError(w, http.StatusBadRequest, "invalid JSON body")
 		return
@@ -144,14 +130,14 @@ func (h *Handler) postDiscussion(w http.ResponseWriter, r *http.Request) {
 
 	// Publish to KUBEMOOT_REQUEST stream; the coordinator pulls and processes FIFO
 	subject := scope.RequestSubject()
-	reqBody, _ := json.Marshal(map[string]interface{}{
-		"message":        req.Message,
-		"conversationId": conversationID,
-		"namespace":      scope.Namespace,
-		"crew":           crew,
-		"timestamp":      time.Now().UTC().Format(time.RFC3339),
-		"use_rag":        true,
-		"use_tools":      true,
+	reqBody, _ := json.Marshal(bus.DiscussionRequest{
+		Message:        req.Message,
+		ConversationID: conversationID,
+		Namespace:      scope.Namespace,
+		Crew:           crew,
+		Timestamp:      time.Now().UTC().Format(time.RFC3339),
+		UseRag:         true,
+		UseTools:       true,
 	})
 
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
@@ -168,7 +154,7 @@ func (h *Handler) postDiscussion(w http.ResponseWriter, r *http.Request) {
 	handlerLog.Info("Queued discussion request", "crew", crew, "conversationId", conversationID, "subject", subject)
 
 	// Return immediately; the client opens the SSE stream to follow progress.
-	writeJSON(w, http.StatusOK, postDiscussionResponse{
+	writeJSON(w, http.StatusOK, bus.PostDiscussionResponse{
 		ConversationID: conversationID,
 		RequestedAt:    requestedAt.UTC().Format(time.RFC3339Nano),
 	})
@@ -293,20 +279,20 @@ func (h *Handler) publishCoordinatorError(scope crewscope.Scope, conversationID,
 
 	// thread_start lets the SSE consumer find the thread by conversationId, the
 	// synthesis carries the error, and thread_close ends the stream.
-	messages := []map[string]interface{}{
-		{keyMessageType: msgThreadStart, "metadata": map[string]string{"conversationId": conversationID}},
-		{keyMessageType: msgSynthesis,
-			"content": fmt.Sprintf("The discussion could not be started: %s. Please try again.", errMsg)},
-		{keyMessageType: msgThreadClose},
+	messages := []bus.DiscussionMessage{
+		{MessageType: msgThreadStart, Metadata: bus.DiscussionMessageMetadata{metaConversationID: conversationID}},
+		{MessageType: msgSynthesis,
+			Content: fmt.Sprintf("The discussion could not be started: %s. Please try again.", errMsg)},
+		{MessageType: msgThreadClose},
 	}
 	for _, m := range messages {
-		m["messageId"], m["threadId"], m["agentName"] = uuid.New().String(), threadID, agentNameGateway
+		m.MessageID, m.ThreadID, m.AgentName = uuid.New().String(), threadID, agentNameGateway
 		data, err := json.Marshal(m)
 		if err == nil {
 			err = h.natsClient.Publish(ctx, subject, data)
 		}
 		if err != nil {
-			handlerLog.Info("Failed to publish the coordinator error", keyMessageType, m[keyMessageType], keyError, err.Error())
+			handlerLog.Info("Failed to publish the coordinator error", keyMessageType, m.MessageType, keyError, err.Error())
 			return
 		}
 	}
@@ -317,7 +303,7 @@ func (h *Handler) publishCoordinatorError(scope crewscope.Scope, conversationID,
 }
 
 func httpError(w http.ResponseWriter, code int, message string) {
-	writeJSON(w, code, map[string]string{keyError: message})
+	writeJSON(w, code, bus.ErrorResponse{Error: message})
 }
 
 // writeJSON writes v as the JSON response with the status code. An encoding failure
