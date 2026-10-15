@@ -53,19 +53,39 @@ public final class KvKeys {
      * a minute per bucket and purpose, so a failing read is visible without flooding.
      */
     public static void warnReadFailure(Logger log, String bucket, String purpose, Exception e) {
-        String key = bucket + "|" + purpose;
+        if (warningDue("read|" + bucket + "|" + purpose)) {
+            log.warn("Reading NATS KV bucket {} for {} failed: {} (NATS answered with an error; not an empty bucket)",
+                    bucket, purpose, e.toString());
+        } else {
+            log.debug("Reading NATS KV bucket {} for {} failed again: {}", bucket, purpose, e.getMessage());
+        }
+    }
+
+    /**
+     * Logs a failed write (put or delete) of {@code key} in {@code bucket} at WARN with
+     * the key and the error, at most once a minute per bucket and key, so a write that
+     * never lands (an illegal key, a missing bucket) is visible without flooding.
+     */
+    public static void warnWriteFailure(Logger log, String bucket, String key, Exception e) {
+        if (warningDue("write|" + bucket + "|" + key)) {
+            log.warn("Writing NATS KV key {} in bucket {} failed: {}", key, bucket, e.toString());
+        } else {
+            log.debug("Writing NATS KV key {} in bucket {} failed again: {}", key, bucket, e.getMessage());
+        }
+    }
+
+    /**
+     * True when no warning for {@code key} was logged within the last minute; records this one.
+     * Holds one entry per key it has seen, so callers pass a bounded set of keys.
+     */
+    private static boolean warningDue(String key) {
         long now = System.currentTimeMillis();
         boolean[] due = {false};
         lastWarnAt.compute(key, (k, last) -> {
             due[0] = last == null || now - last >= WARN_INTERVAL_MS;
             return due[0] ? now : last;
         });
-        if (due[0]) {
-            log.warn("Reading NATS KV bucket {} for {} failed: {} (NATS answered with an error; not an empty bucket)",
-                    bucket, purpose, e.toString());
-        } else {
-            log.debug("Reading NATS KV bucket {} for {} failed again: {}", bucket, purpose, e.getMessage());
-        }
+        return due[0];
     }
 
     // Visible for testing

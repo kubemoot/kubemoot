@@ -231,6 +231,8 @@ Releases are guaranteed by two independent layers:
 
 The `finally` delete is the fast reclaim (sub-second); the TTL is the unconditional reclaim, so no dead agent permanently owns VRAM and no reaper process is needed. Both layers must exist; either alone has a failure mode.
 
+The same bucket holds a residency entry for each model a call left loaded, refreshed on every use, so other planners count the model before the provider probe reports it. Its key is `residency__<provider>__<model>` with both names encoded to legal NATS KV key characters (`qwen3:14b` is stored as `qwen3_3a14b`); the entry's `modelName` field holds the name itself. A residency write that fails is logged at WARN with its key and does not affect the call.
+
 ### Model footprint source
 
 A model's occupancy is observed first, declared second:

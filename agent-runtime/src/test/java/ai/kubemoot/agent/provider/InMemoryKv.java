@@ -4,6 +4,7 @@ import ai.kubemoot.agent.nats.NatsConnectionProvider;
 import io.nats.client.Connection;
 import io.nats.client.KeyValue;
 import io.nats.client.api.KeyValueEntry;
+import io.nats.client.support.Validator;
 
 import java.util.ArrayList;
 import java.util.Map;
@@ -17,7 +18,9 @@ import static org.mockito.Mockito.*;
 
 /**
  * A thread-safe in-memory NATS KV bucket (keys, get, create, put, delete) behind Mockito mocks.
- * Every write gets the next revision, as a JetStream stream sequence does.
+ * Every write gets the next revision, as a JetStream stream sequence does. Keys are checked
+ * with jnats's own validator, so a key the real client rejects (such as one holding ':')
+ * fails here with the same IllegalArgumentException.
  */
 public final class InMemoryKv {
 
@@ -32,7 +35,7 @@ public final class InMemoryKv {
             when(kv.get(anyString())).thenAnswer(inv -> entry(inv.getArgument(0)));
             when(kv.create(anyString(), any(byte[].class))).thenAnswer(inv -> write(inv.getArgument(0), inv.getArgument(1), true));
             when(kv.put(anyString(), any(byte[].class))).thenAnswer(inv -> write(inv.getArgument(0), inv.getArgument(1), false));
-            doAnswer(inv -> data.remove((String) inv.getArgument(0))).when(kv).delete(anyString());
+            doAnswer(inv -> data.remove(validKey(inv.getArgument(0)))).when(kv).delete(anyString());
         } catch (Exception e) {
             throw new IllegalStateException(e);
         }
@@ -50,6 +53,7 @@ public final class InMemoryKv {
 
     /** Stores the value under the next revision; a create of an existing key fails. */
     private synchronized long write(String key, byte[] value, boolean create) {
+        validKey(key);
         if (create && data.containsKey(key)) {
             throw new IllegalStateException("key exists");
         }
@@ -60,7 +64,7 @@ public final class InMemoryKv {
     }
 
     private KeyValueEntry entry(String key) {
-        byte[] value = data.get(key);
+        byte[] value = data.get(validKey(key));
         if (value == null) {
             return null;
         }
@@ -68,6 +72,12 @@ public final class InMemoryKv {
         when(e.getValue()).thenReturn(value);
         when(e.getRevision()).thenReturn(revisions.getOrDefault(key, 0L));
         return e;
+    }
+
+    /** {@code key}, or the IllegalArgumentException jnats throws for a key the server cannot hold. */
+    private static String validKey(String key) {
+        Validator.validateNonWildcardKvKeyRequired(key);
+        return key;
     }
 
     /**
