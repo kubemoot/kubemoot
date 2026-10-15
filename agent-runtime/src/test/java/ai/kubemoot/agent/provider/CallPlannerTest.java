@@ -40,6 +40,7 @@ class CallPlannerTest {
         when(selector.driver()).thenReturn(driver);
         when(selector.pickAndClaimWarm(anyString(), anyLong(), anyLong(), anyLong())).thenReturn(Optional.empty());
         when(selector.pickAndClaimLoading(anyString(), anyLong(), anyLong(), anyLong())).thenReturn(Optional.empty());
+        when(selector.pickAndClaimRoom(anyString(), anyLong(), anyLong(), anyLong())).thenReturn(Optional.empty());
         when(selector.pickAndClaim(anyString(), anyLong(), anyLong(), anyLong())).thenReturn(Optional.empty());
         when(selector.queueOption(anyList(), anyList(), anyLong())).thenReturn(Optional.empty());
         when(selector.planEviction(anyString(), anyLong(), anyList(), anyMap(), anyLong())).thenReturn(Optional.empty());

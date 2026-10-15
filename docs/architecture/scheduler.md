@@ -105,11 +105,18 @@ The list holds every Ready `Model` the phase rule's `require` selector admits, o
 
 `CallPlanner.place` makes each placement. It tries, in order:
 
-1. `pickAndClaimWarm` for the preferred model.
+1. `pickAndClaimWarm` for the preferred model: a copy that is resident or still loading, with a free slot.
 2. `pickAndClaimWarm` for each other candidate whose score is at least `preferredScore - tolerance`, highest score first. A warm candidate with a free slot costs no load and no eviction, so it wins over cold-loading the preferred model.
-3. `pickAndClaimLoading` for each in-tolerance candidate: a provider where another call's ticket is loading that model right now. The call converges on that copy instead of loading a second model.
-4. `pickAndClaim` for the preferred model: the full weighted cost (queue at a warm copy, cold load onto free room).
+3. `pickAndClaimRoom` for the preferred model, then each in-tolerance candidate: a load onto free memory, admitted only when no copy of that model is resident or loading on a provider whose context holds the prompt.
+4. `pickAndClaimLoading` for each in-tolerance candidate, then `pickAndClaim` for the preferred model under the full weighted cost: these queue, on a copy another call is loading or on a warm copy, or load a second copy when the cost says so.
 5. When all of these are empty, the queue-or-unload decision below.
+
+Steps 1 to 3 start the call now; step 4 queues. Two rules meet at a copy that is still loading:
+
+- **Convergence:** step 3 never starts a load of a model while a copy of it is resident or loading on a provider whose context holds the prompt, with or without a free slot, so agents selected together share one load. A second copy comes only from the weighted cost in step 4. When two calls start the same load at once, the ticket written first keeps it and the later one releases and joins that copy.
+- **Slot check:** every claim that joins a copy for a free slot, resident or loading, re-counts the slots after its ticket is written (see [Ticket claim and crash-safe release](#ticket-claim-and-crash-safe-release)), so no more calls keep a loading copy than its engine has slots.
+
+A call that loses the loading copy's last slot therefore does not load the same model elsewhere, and does not queue while an in-tolerance model can start now: it takes that model warm with a free slot (step 2) or loads it onto free memory (step 3). It queues on the loading copy only when no in-tolerance model can start (step 4). The same order holds for a busy resident copy: an in-tolerance model that can load onto free memory is taken before queueing on the preferred model's copy.
 
 A warm copy another call plans to unload (see below) does not count as warm.
 
@@ -213,7 +220,7 @@ The winning provider's VRAM is reserved with a ticket so concurrent calls accoun
 
 Multiple tickets coexist on one provider as long as their footprints fit its free VRAM; that coexistence is the bin-pack. The contended object is the provider's budget, not the unique ticketId, so a claim is written first and verified after: with its own ticket in the bucket, the claimer re-reads the provider's tickets and releases its own when the VRAM budget no longer fits.
 
-A claim made for a free slot on a warm copy (`pickAndClaimWarm`) also re-counts the slots. NATS KV gives every write a revision, so the claimer counts the provider's tickets written before its own and releases when no slot is left for it. Agents that read the same free slot at the same moment are ordered by revision, so no more of them keep the provider than it has slots, and the rest move on to the next candidate: another in-tolerance model with a free slot, then the weighted cost. A claimer that loses every candidate re-reads the state and retries a few times before the selector reports no room.
+A claim made for a free slot on a warm copy (`pickAndClaimWarm`, and `pickAndClaimRoom` joining a copy), resident or still loading, also re-counts the slots. NATS KV gives every write a revision, so the claimer counts the provider's tickets written before its own and releases when no slot is left for it. Agents that read the same free slot at the same moment are ordered by revision, so no more of them keep the provider than it has slots, and the rest move on to the next candidate: another in-tolerance model with a free slot or one that can load onto free memory, then the weighted cost. A claimer that loses every candidate re-reads the state and retries a few times before the selector reports no room.
 
 Releases are guaranteed by two independent layers:
 
