@@ -108,6 +108,17 @@ export function signalColor(type: string): string {
 	return SIGNAL_COLORS[type] || FALLBACK_SIGNAL_COLOR;
 }
 
+/** The value an accelerator field carries when the sender ran on none. */
+export const NO_ACCELERATOR = 'none';
+
+/**
+ * Where a call ran: the ModelProvider that served it, chosen per call, else the
+ * accelerator the sender reports; undefined when neither is set or it ran on none.
+ */
+export function placementOf(provider?: string, gpuLabel?: string): string | undefined {
+	return [provider, gpuLabel].find((p) => !!p && p !== NO_ACCELERATOR);
+}
+
 /** When a message was published, in epoch milliseconds; NaN when it carries no timestamp. */
 export function messageTimeMs(msg: DiscussionMessage): number {
 	return msg.timestamp ? new Date(msg.timestamp).getTime() : Number.NaN;

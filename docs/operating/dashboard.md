@@ -84,6 +84,15 @@ The sidebar groups pages by what they cover. The Topology page exists by URL (`/
 
 A two-panel thread viewer. The left panel lists threads, newest first, each tagged with its crew and channel. The right panel shows the message timeline for the selected thread: the question, each agent's contribution, and the synthesis. Recent threads are replayed from the JetStream history on page load, and new messages arrive live.
 
+The timeline shows the date and time once, when the thread started, and each message after that as the time since the start, such as `+1m12s`; hover over it for the exact time. Each agent's contribution shows what its messages carry:
+
+- **triage**: from the agent's `triaging` message to its `evaluating` message, or to its signal when it never evaluated
+- **evaluation**: from the agent's `evaluating` message to its signal
+- **inference**: the time spent in model calls
+- **tokens** in and out, the **model** the call ran on, and the **accelerator** (the ModelProvider) that served it
+
+`kmctl conversation` derives triage and evaluation the same way, so the two agree. A thread ends with the time it was answered and a summary of how the answer was made: total time, time to the first signal, the agents the coordinator convened and those that stood aside, each agent's latest signal by kind, agent and coordinator tokens, and the models and accelerators used. A field a message does not carry is left out rather than shown as zero, so older threads show only what they recorded.
+
 ### Messages
 
 A general NATS subject explorer. Subscribe to any subject pattern (for example `kubemoot.chat.>` or `kubemoot.operator.>`), watch JSON payloads as they arrive, and publish to arbitrary subjects. It is useful for debugging agent communication and operator events.
