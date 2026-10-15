@@ -81,6 +81,40 @@ The full state machine (all states, both automatic and event-driven transitions,
 the key design principles) is documented in
 [The Moot - Discussion phase lifecycle](../consensus-model/#discussion-phase-lifecycle).
 
+## The bus contract
+
+The messages on the bus, the key-value entries agents and Kubemoot share, and the
+discussion gateway's event stream are written down as one versioned contract: an
+[AsyncAPI](https://www.asyncapi.com/) document with a JSON Schema file per payload, in
+[`operator/pkg/bus/schema`](https://github.com/kubemoot/kubemoot/tree/main/operator/pkg/bus/schema).
+It is the reference for every field named on this page. The Go types the operator and
+the discussion gateway use, and the TypeScript types the dashboard uses, are generated
+from it.
+
+| Channel | Address | Payload |
+|---|---|---|
+| Discussion thread | `kubemoot.discuss.<namespace>.<crew>.<channel>.<threadId>` | `DiscussionMessage`: `messageId`, `threadId`, `agentName`, `messageType`, `content`, `channel`, `timestamp`, `metadata` |
+| Agent lifecycle | `kubemoot.lifecycle.<namespace>.<crew>.<signal>.<agent>` | `DiscussionMessage` with `waking` or `ready` |
+| Request queue | `kubemoot.request.<namespace>.<crew>` | `DiscussionRequest`: the question for the crew's coordinator |
+| Artifact notices | `kubemoot.artifacts.<namespace>.<crew>.<threadId>` | `ArtifactNotice`: a contribution spilled to the artifact store |
+| Direct chat | `kubemoot.chat.<namespace>.<agent>` | `ChatEvent` |
+| Onboarding | `kubemoot.operator.onboarding.deployed`, `.progress`, `.docs-indexed` | `OnboardingDeployed`, `OnboardingProgress`, `OnboardingDocsIndexed` |
+| Discussion stream | `GET /api/v1/discussions/{crew}/{conversationId}/stream` on the gateway | `StreamEvent`, as server-sent events |
+
+The key-value buckets are channels too, addressed as `$KV.<bucket>.<key>`:
+`kubemoot_agent_state` (heartbeats), `kubemoot_provider_state` and
+`kubemoot_provider_tickets` (accelerator capacity and claims), `kubemoot_model_demand`,
+`kubemoot_latency`, `kubemoot_conversations`, `kubemoot_crew_resumes`,
+`kubemoot_crew_memory`, `kubemoot_scheduled` and `kubemoot_pinned_threads`.
+
+A field is required only where its writer always sends it; every other field is
+optional, and readers ignore fields they do not know. The contract's version is the
+AsyncAPI document's `info.version`. Removing a field, changing its type, or changing
+whether it is required is a breaking change and needs a new major version; the
+operator's tests compare the schema with the surface recorded for the current version
+and fail on a breaking change without one. Recorded messages from a running crew, and
+what agent-runtime writes, are validated against the schema in the tests too.
+
 ## Why a protocol instead of direct calls
 
 Routing every contribution through the bus with an explicit signal makes disagreement
