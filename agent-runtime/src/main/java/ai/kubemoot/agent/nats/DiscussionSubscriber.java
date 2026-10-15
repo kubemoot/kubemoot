@@ -643,8 +643,9 @@ public class DiscussionSubscriber {
         });
     }
 
-    private void evaluateSelected(String subject, String threadId, String conversation,
-                                  boolean explicitlySelected) {
+    // Visible for testing
+    void evaluateSelected(String subject, String threadId, String conversation,
+                          boolean explicitlySelected) {
         try {
             if (closedThreads.contains(threadId)) {
                 log.debug("Thread {} closed before evaluation — {} standing aside", threadId, properties.agentName());
@@ -655,30 +656,18 @@ public class DiscussionSubscriber {
             commitToThread(threadId, conversation);
             String triageGpuLabel = GpuLabels.fromEndpoint(chatService.getTriageEndpoint());
             publishSignal(subject, threadId, "triaging", "Queued for triage assessment",
-                    SignalTiming.of(0, System.currentTimeMillis()), triageGpuLabel);
+                    SignalTiming.of(0, System.currentTimeMillis()), triageGpuLabel, plannedTriageModel());
 
             long triageStartMs = System.currentTimeMillis();
-            String triageResponse = runTriage(subject, threadId, conversation, triageGpuLabel, triageStartMs);
-            if (triageResponse == null) return;
-            long triageMs = System.currentTimeMillis() - triageStartMs;
+            ChatService.SimpleLlmResult triage = runTriage(subject, threadId, conversation, triageGpuLabel,
+                    triageStartMs);
+            if (triage == null) return;
+            var outcome = TriageOutcome.of(triage, SignalTiming.of(System.currentTimeMillis() - triageStartMs,
+                    triageStartMs), triageGpuLabel);
 
-            if (isClosedAfterTriage(subject, threadId, triageMs, triageStartMs)) return;
+            if (standsAsideAfterTriage(subject, threadId, outcome, explicitlySelected)) return;
 
-            if (triageResponse.contains(NOTHING_TO_ADD) && !explicitlySelected) {
-                log.debug("Agent {} standing aside after triage for thread {} ({}ms)",
-                        properties.agentName(), threadId, triageMs);
-                String triageGpu = GpuLabels.fromEndpoint(chatService.getTriageEndpoint());
-                publishSignal(subject, threadId, SIGNAL_STAND_ASIDE, "",
-                        SignalTiming.of(triageMs, triageStartMs), triageGpu);
-                return;
-            }
-            if (triageResponse.contains(NOTHING_TO_ADD)) {
-                log.info("Agent {} triaged NOTHING_TO_ADD but was coordinator-selected for thread {} - "
-                        + "gathering with tools instead of vetoing on the lightweight model",
-                        properties.agentName(), threadId);
-            }
-
-            runMullingPhase(subject, threadId, conversation, triageMs, triageStartMs);
+            runMullingPhase(subject, threadId, conversation, outcome.timing().inferenceMs(), triageStartMs);
 
         } catch (Exception e) {
             log.warn("Failed to evaluate thread {}: {} — publishing stand_aside", threadId, e.getMessage());
@@ -686,12 +675,25 @@ public class DiscussionSubscriber {
         }
     }
 
+    /**
+     * The model the triage call is planned to run on, for the signals sent before
+     * it ran or when it did not complete; null when unknown.
+     */
+    private Map<String, Object> plannedTriageModel() {
+        String model = chatService.getTriageModelId();
+        return model == null || model.isEmpty() ? null : Map.of(ModelAttribution.FIELD_MODEL_NAME, model);
+    }
+
+    /**
+     * Run the triage call; the result names the model and provider it ran on. Null,
+     * after publishing the stand-aside, when the call could not be placed or failed.
+     */
     // Visible for testing
-    String runTriage(String subject, String threadId, String conversation,
-                             String triageGpuLabel, long triageStartMs) {
+    ChatService.SimpleLlmResult runTriage(String subject, String threadId, String conversation,
+                                          String triageGpuLabel, long triageStartMs) {
         try {
             String triagePrompt = buildTriagePrompt(threadId);
-            return chatService.triageChat(triagePrompt, conversation);
+            return chatService.triageChatWithTokens(triagePrompt, conversation);
         } catch (ai.kubemoot.agent.provider.NoFitException nfe) {
             // The triage call could not be placed: the same capacity stand-aside as a
             // mulling call, with its reason, so the coordinator can name the cluster.
@@ -702,17 +704,51 @@ public class DiscussionSubscriber {
             log.info("Triage failed for {} on thread {} ({}ms) - standing aside: {}",
                     properties.agentName(), threadId, triageMs, e.getMessage());
             publishSignal(subject, threadId, SIGNAL_STAND_ASIDE, "",
-                    SignalTiming.of(triageMs, triageStartMs), triageGpuLabel);
+                    SignalTiming.of(triageMs, triageStartMs), triageGpuLabel, plannedTriageModel());
             return null;
         }
     }
 
-    private boolean isClosedAfterTriage(String subject, String threadId, long triageMs, long triageStartMs) {
-        if (!closedThreads.contains(threadId)) return false;
-        log.info("Thread {} closed during triage — {} standing aside",
-                threadId, properties.agentName());
-        String triageGpu = GpuLabels.fromEndpoint(chatService.getTriageEndpoint());
-        publishSignal(subject, threadId, SIGNAL_STAND_ASIDE, "", SignalTiming.of(triageMs, triageStartMs), triageGpu);
+    /**
+     * A completed triage call: its reply, its timing, and where it ran (the provider
+     * label for gpuLabel and the model metadata from {@link ModelAttribution}).
+     */
+    record TriageOutcome(String text, SignalTiming timing, String gpuLabel, Map<String, Object> ranOn) {
+        static TriageOutcome of(ChatService.SimpleLlmResult triage, SignalTiming timing, String fallbackGpu) {
+            String text = triage.text() == null ? "" : triage.text();
+            var use = triage.modelUse() == null ? List.<ai.kubemoot.agent.chat.ModelUse>of()
+                    : List.of(triage.modelUse());
+            return new TriageOutcome(text, timing, ModelAttribution.gpuLabel(use, fallbackGpu),
+                    ModelAttribution.of(use));
+        }
+
+        boolean nothingToAdd() {
+            return text.contains(NOTHING_TO_ADD);
+        }
+    }
+
+    /**
+     * Publish the stand-aside, naming where triage ran, when the thread closed
+     * during triage or the agent has nothing to add and was not explicitly selected;
+     * true when it did.
+     */
+    private boolean standsAsideAfterTriage(String subject, String threadId, TriageOutcome outcome,
+                                           boolean explicitlySelected) {
+        if (closedThreads.contains(threadId)) {
+            log.info("Thread {} closed during triage - {} standing aside", threadId, properties.agentName());
+        } else if (outcome.nothingToAdd() && !explicitlySelected) {
+            log.debug("Agent {} standing aside after triage for thread {} ({}ms)",
+                    properties.agentName(), threadId, outcome.timing().inferenceMs());
+        } else {
+            if (outcome.nothingToAdd()) {
+                log.info("Agent {} triaged NOTHING_TO_ADD but was coordinator-selected for thread {} - "
+                        + "gathering with tools instead of vetoing on the lightweight model",
+                        properties.agentName(), threadId);
+            }
+            return false;
+        }
+        publishSignal(subject, threadId, SIGNAL_STAND_ASIDE, "", outcome.timing(), outcome.gpuLabel(),
+                outcome.ranOn());
         return true;
     }
 
@@ -906,17 +942,18 @@ public class DiscussionSubscriber {
      */
     // Visible for testing
     static Map<String, Object> providerAttribution(ChatService.ChatResult result) {
-        if (result == null || result.providerName() == null || result.providerName().isEmpty()) {
+        var last = result == null ? null : result.lastModelUse();
+        if (last == null || last.provider().isEmpty()) {
             return null;
         }
         // pickReason carries the predictor's reasoning (e.g. "warm, slot 1/2 |
         // SR=0.92 over 23 samples, EMA latency 4200ms") so the dashboard shows WHY
-        // the selector picked this provider; model is the model the call ran on,
-        // which differs from the bound model when a warm candidate was used.
+        // the selector picked this provider; provider and model name where the
+        // final call ran, the same place modelName and modelsUsed report.
         var meta = new HashMap<String, Object>();
-        meta.put("provider", result.providerName());
-        if (result.model() != null && !result.model().isEmpty()) {
-            meta.put(FIELD_MODEL, result.model());
+        meta.put("provider", last.provider());
+        if (!last.model().isEmpty()) {
+            meta.put(FIELD_MODEL, last.model());
         }
         if (result.pickReason() != null && !result.pickReason().isEmpty()) {
             meta.put("pickReason", result.pickReason());
@@ -1070,10 +1107,28 @@ public class DiscussionSubscriber {
         return MSG_REPLY.equals(msg.messageType) && "human".equals(msg.agentName) && !msg.content.isBlank();
     }
 
-    /** The GPU label of the JIT-picked provider, or the fallback when no pick was made. */
+    /** The provider the evaluation's last call ran on, or the fallback when no pick was made. */
     private static String jitGpuLabelOr(ChatService.ChatResult result, String fallback) {
-        String jitGpu = result == null ? null : GpuLabels.fromProvider(result.providerName());
-        return jitGpu != null ? jitGpu : fallback;
+        return result == null ? fallback : ModelAttribution.gpuLabel(result.modelsUsed(), fallback);
+    }
+
+    /** The model metadata of the evaluation's calls; empty when there is no result. */
+    private static Map<String, Object> ranOn(ChatService.ChatResult result) {
+        return result == null ? Map.of() : ModelAttribution.of(result.modelsUsed());
+    }
+
+    /**
+     * The metadata of a finding (agree or concern): where its calls ran
+     * ({@link ModelAttribution}) and the scheduler's pick ({@link #providerAttribution}).
+     */
+    // Visible for testing
+    static Map<String, Object> findingMetadata(ChatService.ChatResult result) {
+        var meta = new HashMap<String, Object>(ranOn(result));
+        var pick = providerAttribution(result);
+        if (pick != null) {
+            meta.putAll(pick);
+        }
+        return meta;
     }
 
     /**
@@ -1093,8 +1148,9 @@ public class DiscussionSubscriber {
         return false;
     }
 
-    private void classifyAndPublishResult(String subject, String threadId, ChatService.ChatResult result,
-                                           SignalTiming timing, String gpuLabel) {
+    // Visible for testing
+    void classifyAndPublishResult(String subject, String threadId, ChatService.ChatResult result,
+                                  SignalTiming timing, String gpuLabel) {
         // The GPU badge should reflect WHERE this inference actually ran — the
         // JIT-selected provider — not the agent's static reconcile-time
         // endpoint. Without this, an agent that JIT-picked the 5090 still shows
@@ -1103,9 +1159,10 @@ public class DiscussionSubscriber {
         // back to the static label when no JIT pick was made (selector unwired
         // / static fallback). See [[Per-Call Provider Attribution]].
         gpuLabel = jitGpuLabelOr(result, gpuLabel);
+        var ranOn = ranOn(result);
 
         if (hasNoContributionToPublish(threadId, result)) {
-            publishSignal(subject, threadId, SIGNAL_STAND_ASIDE, "", timing, gpuLabel);
+            publishSignal(subject, threadId, SIGNAL_STAND_ASIDE, "", timing, gpuLabel, ranOn);
             return;
         }
 
@@ -1113,14 +1170,14 @@ public class DiscussionSubscriber {
 
         if (content.contains(NOTHING_TO_ADD)) {
             log.debug("Agent {} standing aside after mulling for thread {}", properties.agentName(), threadId);
-            publishSignal(subject, threadId, SIGNAL_STAND_ASIDE, "", timing, gpuLabel);
+            publishSignal(subject, threadId, SIGNAL_STAND_ASIDE, "", timing, gpuLabel, ranOn);
             return;
         }
 
         if (content.startsWith("TOOL_GAP:")) {
             String toolNeed = content.substring("TOOL_GAP:".length()).trim();
             log.info("Agent {} reported tool gap for thread {}: {}", properties.agentName(), threadId, toolNeed);
-            publishSignal(subject, threadId, "concern", toolNeed, timing, gpuLabel, providerAttribution(result));
+            publishSignal(subject, threadId, "concern", toolNeed, timing, gpuLabel, findingMetadata(result));
             return;
         }
 
@@ -1131,11 +1188,11 @@ public class DiscussionSubscriber {
         // surface as failure signals.
         if (content.contains("unable to complete the request within the allowed number of tool calls")) {
             log.info("Agent {} exhausted tool loop for thread {} — standing aside (legacy)", properties.agentName(), threadId);
-            publishSignal(subject, threadId, SIGNAL_STAND_ASIDE, content, timing, gpuLabel);
+            publishSignal(subject, threadId, SIGNAL_STAND_ASIDE, content, timing, gpuLabel, ranOn);
             return;
         }
 
-        publishSignal(subject, threadId, SIGNAL_AGREE, content, timing, gpuLabel, providerAttribution(result));
+        publishSignal(subject, threadId, SIGNAL_AGREE, content, timing, gpuLabel, findingMetadata(result));
     }
 
     // The agent's view of the thread. DiscussionOrchestrator.threadLabel labels the
@@ -1231,7 +1288,9 @@ public class DiscussionSubscriber {
                 metadata.put("toolsUsed", properties.enabledTools().orElse(List.of()));
             }
             metadata.put("role", properties.discuss().role());
-            metadata.put("modelName", properties.model().model());
+            // The configured model until a call has run; extraMetadata names the
+            // model the calls ran on (ModelAttribution) once they have.
+            metadata.put(ModelAttribution.FIELD_MODEL_NAME, properties.model().model());
             metadata.put("gpuLabel", gpuLabel);
             metadata.put("inferenceMs", timing.inferenceMs());
             metadata.put("inferenceStartMs", timing.inferenceStartMs());

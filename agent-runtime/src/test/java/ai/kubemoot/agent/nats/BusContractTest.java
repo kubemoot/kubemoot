@@ -88,7 +88,7 @@ class BusContractTest {
         var conn = mock(Connection.class);
         var chat = mock(ChatService.class);
         when(chat.getToolNames()).thenReturn(List.of());
-        when(chat.triageChat(anyString(), anyString())).thenThrow(NoFitException.promptTooLarge("m:8b", "too long"));
+        when(chat.triageChatWithTokens(anyString(), anyString())).thenThrow(NoFitException.promptTooLarge("m:8b", "too long"));
 
         subscriber(conn, chat).runTriage(SUBJECT, "t1", "conversation", "4090", System.currentTimeMillis());
 
@@ -96,6 +96,23 @@ class BusContractTest {
         verify(conn).publish(anyString(), payload.capture());
         JsonNode msg = MAPPER.readTree(payload.getValue());
         assertEquals("stand_aside", msg.path("messageType").asText());
+        assertConforms(MESSAGE, msg);
+    }
+
+    @Test
+    void aFindingNamingTheModelsItsCallsRanOnMatchesTheContract() throws Exception {
+        var conn = mock(Connection.class);
+        var result = new ChatService.ChatResult("c", "finding", MODEL, "t1", 10, 5, "provider-b", "warm",
+                List.of(), List.of(new ai.kubemoot.agent.chat.ModelUse("other:32b", "provider-a"),
+                        new ai.kubemoot.agent.chat.ModelUse(MODEL, "provider-b")));
+
+        subscriber(conn, mock(ChatService.class)).classifyAndPublishResult(SUBJECT, "t1", result,
+                new DiscussionSubscriber.SignalTiming(100, 1, 10, 5), "4090");
+
+        var payload = ArgumentCaptor.forClass(byte[].class);
+        verify(conn).publish(anyString(), payload.capture());
+        JsonNode msg = MAPPER.readTree(payload.getValue());
+        assertEquals(2, msg.path("metadata").path("modelsUsed").size());
         assertConforms(MESSAGE, msg);
     }
 

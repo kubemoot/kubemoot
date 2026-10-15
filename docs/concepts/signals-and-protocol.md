@@ -30,6 +30,19 @@ hold its model is busy, and `evaluating` again when a GPU frees up. Which signal
 by the runtime today; the one archetype that ships is described in
 [The Moot](../consensus-model/).
 
+## Which model a signal reports
+
+The scheduler places each inference call when it is made, so a call can run on a
+different model or provider than the one the agent prefers: a warm alternative within
+the agent's quality tolerance, or a re-plan when the plan made at selection only
+queued. A signal names where its calls actually ran:
+
+| Field | Meaning |
+|---|---|
+| `metadata.modelName` | The model the last call behind the signal ran on. On `triaging`, the triage model the agent plans to use. On a signal sent before a call completed (`evaluating`, `waiting`, `failure`), the model the agent is configured with. |
+| `metadata.gpuLabel` | The provider the last call ran on, or a label derived from the agent's static endpoint when no provider was picked. |
+| `metadata.modelsUsed` | Each distinct place the calls ran, as `model@provider` in call order (the model alone for the static endpoint). |
+
 ## Stand-asides for GPU capacity
 
 A stand-aside usually means the agent had nothing to add. Three reasons mark a different

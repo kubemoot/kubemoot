@@ -124,6 +124,8 @@ class ChatServiceCapacityTest {
 
         assertEquals("warm answer", result.response());
         assertEquals(WARM_CANDIDATE, result.model(), "the result reports the model the call ran on");
+        assertEquals(List.of(new ModelUse(WARM_CANDIDATE, "ollama-a")), result.modelsUsed());
+        assertEquals("ollama-a", result.providerName());
         verify(pool).forEndpoint(eq(EP), eq(WARM_CANDIDATE), anyDouble(), anyInt(), any(), any());
         verify(selector, never()).pickAndClaim(anyString(), anyLong(), anyLong(), anyLong());
         verify(tickets).recordResidency("ollama-a", WARM_CANDIDATE, 10_000L);
@@ -268,6 +270,8 @@ class ChatServiceCapacityTest {
 
         assertEquals("alternative answer", result.response());
         assertEquals(WARM_CANDIDATE, result.model(), "the slot freed after selection is used");
+        assertEquals(List.of(new ModelUse(WARM_CANDIDATE, "ollama-a")), result.modelsUsed(),
+                "the result names the model and provider the re-planned call ran on, not the preferred model");
         verify(tickets).release(queued.ticket());
         verify(selector, times(1)).pickAndClaim(eq(PREFERRED), anyLong(), anyLong(), anyLong());
     }
@@ -386,7 +390,10 @@ class ChatServiceCapacityTest {
         when(response.tokenUsage()).thenReturn(new TokenUsage(10, 5));
         when(staticModel.chat(any(ChatRequest.class))).thenReturn(response);
 
-        assertEquals("synthesis", service(null, null).simpleLlmCallWithTokens("system", "short").text());
+        var result = service(null, null).simpleLlmCallWithTokens("system", "short");
+
+        assertEquals("synthesis", result.text());
+        assertEquals(new ModelUse(PREFERRED, ""), result.modelUse(), "the static endpoint has no provider");
     }
 
     @Test
@@ -409,6 +416,40 @@ class ChatServiceCapacityTest {
         assertThrows(RuntimeException.class, () -> service(null, null).triageChat("system", "c".repeat(7_000)));
 
         verify(selector).pickAndClaim(eq(PREFERRED), anyLong(), anyLong(), eq(2_002L));
+    }
+
+    @Test
+    void triage_reportsTheTriageModelAndTheProviderThatServedIt() throws Exception {
+        var server = com.sun.net.httpserver.HttpServer.create(
+                new java.net.InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/api/chat", exchange -> {
+            byte[] body = "{\"message\":{\"content\":\"CONTRIBUTE\"},\"prompt_eval_count\":7,\"eval_count\":1}"
+                    .getBytes(java.nio.charset.StandardCharsets.UTF_8);
+            exchange.sendResponseHeaders(200, body.length);
+            try (var out = exchange.getResponseBody()) {
+                out.write(body);
+            }
+        });
+        server.start();
+        try {
+            String endpoint = "http://127.0.0.1:" + server.getAddress().getPort();
+            var rig = new ProviderState("ollama-b", endpoint, 1, 0, 0, List.of(PREFERRED), true,
+                    "2026-09-27T00:00:00Z", 32_768, Map.of(PREFERRED, 20_000L), Map.of(PREFERRED, 20_000L),
+                    32_768, Map.of());
+            when(selector.readState()).thenReturn(List.of(rig));
+            when(selector.pickAndClaim(eq(PREFERRED), anyLong(), anyLong(), anyLong()))
+                    .thenReturn(Optional.of(pickOn(rig)));
+
+            var result = service(null, null).triageChatWithTokens("system", "conversation");
+
+            assertEquals("CONTRIBUTE", result.text());
+            assertEquals(7, result.inputTokens());
+            assertEquals(new ModelUse(PREFERRED, "ollama-b"), result.modelUse());
+            assertEquals(PREFERRED, service(null, null).getTriageModelId(),
+                    "with no triage model configured, triage runs on the agent's model");
+        } finally {
+            server.stop(0);
+        }
     }
 
     @Test

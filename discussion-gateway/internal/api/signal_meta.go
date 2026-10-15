@@ -33,6 +33,7 @@ const (
 func signalMetaOf(data bus.DiscussionMessage) *bus.SignalMeta {
 	m := bus.SignalMeta{
 		ModelName:    metaString(data, "modelName"),
+		ModelsUsed:   metaStrings(data, "modelsUsed"),
 		InputTokens:  metaInt(data, metaInputTokens),
 		OutputTokens: metaInt(data, metaOutputTokens),
 		TotalTokens:  metaInt(data, "totalTokens"),
