@@ -328,7 +328,8 @@ func readyStatus(t *testing.T, nc *natsclient.Client) int {
 func TestProcessMessagesReportsAnEndedSubscription(t *testing.T) {
 	ch := make(chan jetstream.Msg)
 	close(ch)
-	err := processMessages(context.Background(), ch, &threadFinder{conversationID: "c"}, newMessageDeduper(), func(SSEEvent) {})
+	f := follower{tf: &threadFinder{conversationID: "c"}, dedup: newMessageDeduper(), activity: newActivityReporter(unknownLiveness{})}
+	err := processMessages(context.Background(), ch, f, func(SSEEvent) {})
 	if err != errSubscriptionEnded {
 		t.Fatalf("err = %v, want errSubscriptionEnded", err)
 	}

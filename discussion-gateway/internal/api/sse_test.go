@@ -11,6 +11,7 @@ You may obtain a copy of the License at
 package api
 
 import (
+	"reflect"
 	"testing"
 	"time"
 
@@ -284,7 +285,7 @@ func TestTranslateAndEmit_WaitingAndStandAsideReasons(t *testing.T) {
 	for _, c := range cases {
 		var got []SSEEvent
 		translateAndEmit(c.in, func(e SSEEvent) { got = append(got, e) })
-		if len(got) != 1 || got[0] != c.want {
+		if len(got) != 1 || !reflect.DeepEqual(got[0], c.want) {
 			t.Errorf("%s: got %+v, want %+v", c.name, got, c.want)
 		}
 	}

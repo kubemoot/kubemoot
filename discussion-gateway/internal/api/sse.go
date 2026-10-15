@@ -81,6 +81,9 @@ type SSEEvent struct {
 	Model      string `json:"model,omitempty"`
 	Reason     string `json:"reason,omitempty"`
 	Error      string `json:"error,omitempty"`
+	// Agents are the busy agents of an activity event, and At when it was taken.
+	Agents []AgentActivity `json:"agents,omitempty"`
+	At     string          `json:"at,omitempty"`
 	// ID is the SSE event id, written as an "id:" field rather than in the data.
 	ID string `json:"-"`
 }
@@ -160,7 +163,11 @@ func streamDiscussion(
 	defer iter.Stop()
 
 	msgCh := startMessagePump(ctx, iter)
-	return processMessages(ctx, msgCh, newThreadFinder(req), resumeDeduper(ctx, js, req), emit)
+	f := follower{
+		tf: newThreadFinder(req), dedup: resumeDeduper(ctx, js, req),
+		activity: newActivityReporter(livenessFor(ctx, js, scope.Namespace)),
+	}
+	return processMessages(ctx, msgCh, f, emit)
 }
 
 // resumeDeduper starts a stream's deduper. A resumed stream already delivered the
@@ -379,16 +386,24 @@ func toDiscussMsg(msg jetstream.Msg) (discussMsg, bool) {
 	return m, true
 }
 
-// processMessages is the main event loop that dispatches heartbeats and incoming
-// NATS messages to the SSE emitter.
+// follower is the state of one stream: the thread it follows, the messages it has
+// seen, and who is busy on the thread.
+type follower struct {
+	tf       *threadFinder
+	dedup    *messageDeduper
+	activity *activityReporter
+}
+
+// processMessages is the main event loop that dispatches heartbeats, activity, and
+// incoming NATS messages to the SSE emitter.
 // The coordinator dual-publishes some messages (notably synthesis) to both the
 // broadcast subject AND the channel subject; both copies carry the same messageId and
 // the wildcard filter matches both, so dedup drops the second copy.
-func processMessages(
-	ctx context.Context, msgCh <-chan jetstream.Msg, tf *threadFinder, dedup *messageDeduper, emit func(SSEEvent),
-) error {
+func processMessages(ctx context.Context, msgCh <-chan jetstream.Msg, f follower, emit func(SSEEvent)) error {
 	heartbeat := time.NewTicker(heartbeatInterval)
 	defer heartbeat.Stop()
+	activity := time.NewTicker(f.activity.interval)
+	defer activity.Stop()
 
 	for {
 		select {
@@ -398,11 +413,14 @@ func processMessages(
 		case <-heartbeat.C:
 			emit(SSEEvent{Type: "heartbeat"})
 
+		case <-activity.C:
+			f.activity.report(ctx, f.tf.threadID, emit)
+
 		case msg, ok := <-msgCh:
 			if !ok {
 				return errSubscriptionEnded
 			}
-			if handleMessage(msg, dedup, tf, emit) {
+			if f.handleMessage(msg, emit) {
 				return nil
 			}
 		}
@@ -410,10 +428,14 @@ func processMessages(
 }
 
 // handleMessage emits what one NATS message means for the followed thread, reporting
-// true when it closed the thread.
-func handleMessage(msg jetstream.Msg, dedup *messageDeduper, tf *threadFinder, emit func(SSEEvent)) bool {
+// true when it closed the thread. Every new message also updates the activity.
+func (f follower) handleMessage(msg jetstream.Msg, emit func(SSEEvent)) bool {
 	m, ok := toDiscussMsg(msg)
-	if !ok || !dedup.firstSight(m.data.MessageID) || !tf.process(m, emit) {
+	if !ok || !f.dedup.firstSight(m.data.MessageID) {
+		return false
+	}
+	f.activity.observe(m)
+	if !f.tf.process(m, emit) {
 		return false
 	}
 	translate(m, emit)
@@ -432,7 +454,7 @@ func translate(m discussMsg, emit func(SSEEvent)) {
 // translateAndEmit converts a NATS discussion message to an SSE event.
 func translateAndEmit(data natsMessage, emit func(SSEEvent)) {
 	switch data.MessageType {
-	case msgThreadStart, "advisory_ready", "review_ready", "advisory", "heartbeat":
+	case msgThreadStart, msgAdvisoryReady, msgReviewReady, msgAdvisory, msgHeartbeat:
 		return
 	case msgSynthesis:
 		emit(SSEEvent{Type: msgSynthesis, Content: data.Content})
@@ -457,9 +479,9 @@ func phaseEvent(data natsMessage) (SSEEvent, bool) {
 	case phaseWaking, phaseReady:
 		e.Status = data.MessageType
 	case phaseTriaging, phaseEvaluating:
-		e.Status, e.GPU = data.MessageType, metaString(data, "gpuLabel")
+		e.Status, e.GPU = data.MessageType, metaString(data, metaGPULabel)
 	case phaseWaiting:
-		e.Status, e.Model, e.Reason = phaseWaiting, metaString(data, "model"), metaString(data, "reason")
+		e.Status, e.Model, e.Reason = phaseWaiting, metaString(data, metaModel), metaString(data, "reason")
 	case signalStandAside:
 		// Carry the explicit signal alongside the done/stood-aside phase so the
 		// fitness transcript can count stand-aside depth uniformly with the other

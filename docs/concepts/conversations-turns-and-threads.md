@@ -88,6 +88,39 @@ parameter) and receives only what it missed. If the coordinator is replaced whil
 works on a question, its successor starts the question again on a new thread, and the
 stream announces it with a second `thread_found`; the earlier thread will not close.
 
+### Activity on the stream
+
+Some steps run for minutes without a new phase event: a model loading onto a GPU, an
+agent waiting in the GPU queue, a long tool-calling evaluation, the coordinator
+synthesizing the answer. So a client can tell a crew that is working from one that has
+stopped, the stream sends an `activity` event every 15 seconds while anyone is busy on
+the thread, and sends none while no one is:
+
+```json
+{"type":"activity","at":"2026-10-15T12:04:37Z","agents":[
+  {"agent":"compute","doing":"evaluating","gpu":"ollama-rig0","since":"2026-10-15T12:02:36Z"},
+  {"agent":"rules","doing":"waiting_for_accelerator","model":"qwen3:14b","since":"2026-10-15T12:03:10Z"}]}
+```
+
+| `doing` | Meaning |
+| --- | --- |
+| `waking` | The agent is starting up for the thread. |
+| `triaging` | The agent is deciding whether it has something to add. |
+| `evaluating` | The agent is running its tool-calling evaluation (model calls and tool calls), on `gpu`. |
+| `waiting_for_accelerator` | The agent is queued for a GPU with room for `model`. |
+| `reasoning` | The coordinator is choosing which agents to convene. |
+| `waiting_for_agents` | The coordinator has convened agents that have not reported yet. |
+| `synthesizing` | Every agent is done and the coordinator is writing the answer. |
+
+The gateway derives activity from the thread's own messages (each agent's phase, and
+the discussion heartbeat an evaluating agent publishes every 30 seconds) and counts an
+agent only while it is alive: its liveness heartbeat in the `kubemoot_agent_state`
+bucket is no older than two of its intervals, or it published on the thread within the
+last 75 seconds. The coordinator is listed only when no agent is busy. Activity events
+carry no SSE `id`; they describe the present, so a reconnecting client is not sent the
+ones it missed. The `heartbeat` event, every 30 seconds, only keeps the connection open
+and says nothing about the crew.
+
 ## Related
 
 - [The Moot - Consensus Model](../consensus-model/) - how a discussion is organized and settles.
