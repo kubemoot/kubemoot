@@ -39,8 +39,9 @@ import java.util.concurrent.atomic.AtomicReference;
  * Each call holds a ticket in the {@link TicketManager} bucket while it runs,
  * and the in-flight count per provider comes from those tickets. A claim is
  * written first and verified after: the VRAM budget for every claim, and the
- * free call slot for a claim admitted because a slot was free
- * ({@link Mode#WARM_FREE_SLOT}). Concurrent claimers that read the same free
+ * free call slot for a warm claim admitted because a slot was free
+ * ({@link Mode#WARM_FREE_SLOT}, {@link Mode#ROOM}), whether the copy is resident
+ * or still loading. Concurrent claimers that read the same free
  * slot are ordered by the tickets' KV revisions, so only as many keep the
  * provider as it has slots; the rest release and try the next candidate.
  *
@@ -340,21 +341,51 @@ public class ProviderSelector {
         return pickAndClaim(modelName, coldLoadFootprintMiB, thisCallKvCacheMiB, promptTokens, Mode.LOADING);
     }
 
+    /**
+     * Like {@link #pickAndClaim(String, long, long, long)}, restricted to placements
+     * where the call starts without queueing and without loading a second copy: a
+     * warm (resident or loading) copy with a free slot, verified after the claim as
+     * in {@link #pickAndClaimWarm}, or a cold load onto free memory when no copy of
+     * the model is resident or loading on any provider. Empty when the only copies
+     * have no slot left for this call, so the caller can try another model before
+     * it queues.
+     */
+    public Optional<Pick> pickAndClaimRoom(String modelName, long coldLoadFootprintMiB,
+                                           long thisCallKvCacheMiB, long promptTokens) {
+        return pickAndClaim(modelName, coldLoadFootprintMiB, thisCallKvCacheMiB, promptTokens, Mode.ROOM);
+    }
+
     /** Which ranked candidates a claim may use. */
     enum Mode {
         /** Every feasible candidate, by the weighted cost. */
         ANY,
         /** Warm (resident or loading) with a free slot. */
         WARM_FREE_SLOT,
-        /** Being loaded by an in-flight call, not yet resident. */
-        LOADING;
+        /** Being loaded by an in-flight call, not yet resident; joins whether or not a slot is free. */
+        LOADING,
+        /**
+         * Starts without queueing: warm with a free slot, or cold when no copy of the
+         * model is resident or loading anywhere ({@code copyExists} false).
+         */
+        ROOM;
 
-        boolean admits(Candidate c, String model, EngineDriver driver) {
+        boolean admits(Candidate c, String model, EngineDriver driver, boolean copyExists) {
             return switch (this) {
                 case ANY -> true;
                 case WARM_FREE_SLOT -> c.warm() && driver.hasFreeCapacity(c.provider(), c.activeCount());
                 case LOADING -> c.warm() && !c.provider().hasModelLoaded(model);
+                case ROOM -> c.warm() ? driver.hasFreeCapacity(c.provider(), c.activeCount()) : !copyExists;
             };
+        }
+
+        /** A warm claim admitted for a free slot re-counts the slots after its ticket is written. */
+        boolean verifiesSlot(Candidate c) {
+            return c.warm() && (this == WARM_FREE_SLOT || this == ROOM);
+        }
+
+        /** A cold claim admitted because no copy exists checks that no earlier claim started the load. */
+        boolean verifiesLoad(Candidate c) {
+            return !c.warm() && this == ROOM;
         }
     }
 
@@ -379,7 +410,7 @@ public class ProviderSelector {
 
     /** Warm (resident or loading) and the provider can start another call now. */
     boolean warmWithFreeSlot(Candidate c) {
-        return Mode.WARM_FREE_SLOT.admits(c, c.provider().name(), driver);
+        return Mode.WARM_FREE_SLOT.admits(c, c.provider().name(), driver, true);
     }
 
     /** A warm candidate whose copy another call plans to unload is not warm for this call. */
@@ -532,10 +563,8 @@ public class ProviderSelector {
             List<Candidate> ranked = rankCandidates(
                     states, modelName, coldLoadFootprintMiB, load,
                     fitPredictor != null ? fitPredictor : DEFAULT_PREDICTOR, kvForThisCall);
-            ranked = ranked.stream()
-                    .filter(c -> mode.admits(c, modelName, driver) && !plannedForEviction(c, modelName)
-                            && ContextFit.holds(c.provider(), modelName, promptTokens))
-                    .toList();
+            Admission admission = admitted(ranked, modelName, promptTokens, mode);
+            ranked = admission.candidates();
 
             if (ranked.isEmpty()) {
                 log.debug("No candidate fits for model {} (attempt {}): saturated or no headroom incl. KV {} MiB",
@@ -544,7 +573,8 @@ public class ProviderSelector {
             }
 
             Optional<Pick> pick = claimFirstAvailable(
-                    ranked, modelName, coldLoadFootprintMiB, kvForThisCall, attempt, mode);
+                    ranked, new Claim(modelName, coldLoadFootprintMiB, kvForThisCall, mode, admission.serving()),
+                    attempt);
             if (pick.isPresent()) return pick;
             cache.set(null);
         }
@@ -553,16 +583,40 @@ public class ProviderSelector {
     }
 
     /**
+     * The candidates a mode admits, and the providers that could serve this call
+     * whatever the mode (where a copy of the model would count for convergence).
+     */
+    private record Admission(List<Candidate> candidates, java.util.Set<String> serving) {}
+
+    /**
+     * The ranked candidates {@code mode} admits. A copy counts only where it can
+     * serve this call: not planned for unloading, and with a context that holds the
+     * prompt, so a copy this call cannot use never stops a load elsewhere.
+     */
+    private Admission admitted(List<Candidate> ranked, String modelName, long promptTokens, Mode mode) {
+        List<Candidate> usable = ranked.stream()
+                .filter(c -> !plannedForEviction(c, modelName)
+                        && ContextFit.holds(c.provider(), modelName, promptTokens))
+                .toList();
+        boolean copyExists = usable.stream().anyMatch(Candidate::warm);
+        java.util.Set<String> serving = new java.util.HashSet<>();
+        usable.forEach(c -> serving.add(c.provider().name()));
+        return new Admission(usable.stream().filter(c -> mode.admits(c, modelName, driver, copyExists)).toList(),
+                serving);
+    }
+
+    /**
      * Walk the ranked candidates best-first and return the first one whose
      * ticket claim succeeds, or {@link Optional#empty()} if every candidate
      * loses the race to a concurrent claim.
      */
-    private Optional<Pick> claimFirstAvailable(List<Candidate> ranked, String modelName,
-                                               long coldLoadFootprintMiB, long kvForThisCall, int attempt,
-                                               Mode mode) {
+    private Optional<Pick> claimFirstAvailable(List<Candidate> ranked, Claim request, int attempt) {
+        String modelName = request.model();
+        long kvForThisCall = request.kvMiB();
         for (Candidate c : ranked) {
-            long claimFootprint = c.warm() ? WARM_SCRATCH_MIB : coldLoadFootprintMiB;
-            Optional<Ticket> ticket = claimOn(c, modelName, claimFootprint, kvForThisCall, mode);
+            long claimFootprint = c.warm() ? WARM_SCRATCH_MIB : request.footprintMiB();
+            Optional<Ticket> ticket = claimOn(c, new Claim(modelName, claimFootprint, kvForThisCall, request.mode(),
+                    request.serving()));
             if (ticket.isPresent()) {
                 log.debug("JIT pick: provider={} model={} warm={} claim={}MiB kv={}MiB slots={}/{} (attempt={})",
                         c.provider().name(), modelName, c.warm(), claimFootprint, kvForThisCall,
@@ -574,22 +628,37 @@ public class ProviderSelector {
     }
 
     /**
+     * What one claim asks for: the model, the footprint (the cold-load footprint for
+     * a request, the ticket's own footprint on a candidate) and KV estimate,
+     * the mode that admitted the candidate, and the providers whose copy of the
+     * model could serve this call, before the mode's filter.
+     */
+    private record Claim(String model, long footprintMiB, long kvMiB, Mode mode, java.util.Set<String> serving) {}
+
+    /**
      * Claims a ticket on the candidate. The ticket carries the model name so other
      * selectors arriving during this call's cold load see the in-flight load and
-     * converge here (see [[Cold-Start Model-Load Wedge]]). A claim that was admitted
-     * for a free slot ({@link Mode#WARM_FREE_SLOT}) re-checks the slot after the
-     * ticket is written, so concurrent claimers that read the same free slot do not
-     * all keep it: the losers release and move on to the next candidate.
+     * converge here (see [[Cold-Start Model-Load Wedge]]). A warm claim that was
+     * admitted for a free slot ({@link Mode#WARM_FREE_SLOT}, {@link Mode#ROOM})
+     * re-checks the slot after the ticket is written, so concurrent claimers that
+     * read the same free slot do not all keep it: the losers release and move on to
+     * the next candidate. This holds for a copy that is still loading as well as a
+     * resident one. A cold claim admitted because no copy exists ({@link Mode#ROOM})
+     * re-checks that no earlier claim started the same load, so concurrent first
+     * loads leave one load, and the losers retry and join it.
      */
-    private Optional<Ticket> claimOn(Candidate c, String modelName, long claimFootprint, long kvForThisCall,
-                                     Mode mode) {
+    private Optional<Ticket> claimOn(Candidate c, Claim claim) {
         String provider = c.provider().name();
         long headroomBudget = c.provider().preTicketHeadroomMiB();
-        if (mode != Mode.WARM_FREE_SLOT) {
-            return ticketManager.claim(provider, claimFootprint, kvForThisCall, headroomBudget, modelName);
+        if (claim.mode().verifiesSlot(c)) {
+            return ticketManager.claimSlot(provider, claim.footprintMiB(), claim.kvMiB(), headroomBudget,
+                    claim.model(), ahead -> driver.hasFreeCapacity(c.provider(), ahead));
         }
-        return ticketManager.claimSlot(provider, claimFootprint, kvForThisCall, headroomBudget, modelName,
-                ahead -> driver.hasFreeCapacity(c.provider(), ahead));
+        if (claim.mode().verifiesLoad(c)) {
+            return ticketManager.claimLoad(provider, claim.footprintMiB(), claim.kvMiB(), headroomBudget,
+                    claim.model(), claim.serving());
+        }
+        return ticketManager.claim(provider, claim.footprintMiB(), claim.kvMiB(), headroomBudget, claim.model());
     }
 
     /** Max retries when every ranked candidate loses the race to concurrent claims. */

@@ -218,16 +218,64 @@ public class TicketManager {
     public Optional<Ticket> claimSlot(String provider, long footprintMiB, long kvCacheFootprintMiB,
                                       long availableHeadroomMiB, String modelName,
                                       java.util.function.IntPredicate slotFree) {
+        return claimVerified(provider, footprintMiB, kvCacheFootprintMiB, availableHeadroomMiB, modelName,
+                revision -> {
+                    int ahead = claimsAhead(provider, revision);
+                    return slotFree.test(ahead) ? Optional.empty()
+                            : Optional.of(ahead + " earlier claims hold its call slots");
+                });
+    }
+
+    /**
+     * {@link #claim}, then, with our ticket written, {@code refusal} checks our create
+     * revision against the claims written before it and gives the reason to release,
+     * or empty to keep the ticket. The shared shape of {@link #claimSlot} and
+     * {@link #claimLoad}.
+     */
+    private Optional<Ticket> claimVerified(String provider, long footprintMiB, long kvCacheFootprintMiB,
+                                           long availableHeadroomMiB, String modelName,
+                                           java.util.function.LongFunction<Optional<String>> refusal) {
         Optional<Claimed> claimed = claimRevisioned(provider, footprintMiB, kvCacheFootprintMiB,
                 availableHeadroomMiB, modelName, java.util.Map.of(), java.util.Set.of());
         if (claimed.isEmpty()) return Optional.empty();
         Ticket ticket = claimed.get().ticket();
-        int ahead = claimsAhead(provider, claimed.get().revision());
-        if (slotFree.test(ahead)) return Optional.of(ticket);
-        log.info("Released ticket {} on {} for {}: {} earlier claims hold its call slots",
-                ticket.ticketId(), provider, modelName, ahead);
+        Optional<String> reason = refusal.apply(claimed.get().revision());
+        if (reason.isEmpty()) return Optional.of(ticket);
+        log.info("Released ticket {} on {} for {}: {}", ticket.ticketId(), provider, modelName, reason.get());
         release(ticket);
         return Optional.empty();
+    }
+
+    /**
+     * Claim a ticket that starts a load of {@code modelName} on {@code provider},
+     * where no copy of it is resident or loading. The {@link #claim} budget applies
+     * first; then, with our ticket written, an active ticket for the same model on
+     * any of {@code servingProviders} written before ours (lower KV revision) means
+     * another claimer started that load first, and the claim is released so the
+     * caller joins that copy instead of loading the model twice. Concurrent first
+     * loads are ordered by revision, so exactly the earliest one keeps its ticket.
+     *
+     * @param servingProviders the providers whose copy of the model could serve this call
+     */
+    public Optional<Ticket> claimLoad(String provider, long footprintMiB, long kvCacheFootprintMiB,
+                                      long availableHeadroomMiB, String modelName,
+                                      java.util.Set<String> servingProviders) {
+        return claimVerified(provider, footprintMiB, kvCacheFootprintMiB, availableHeadroomMiB, modelName,
+                revision -> loadStartedBefore(modelName, revision, servingProviders)
+                        ? Optional.of("an earlier claim is loading it") : Optional.empty());
+    }
+
+    /** True when an active ticket for {@code model} on one of {@code providers} predates {@code ownRevision}. */
+    private boolean loadStartedBefore(String model, long ownRevision, java.util.Set<String> providers) {
+        KeyValue kv = openBucket();
+        if (kv == null || model == null) return false;
+        boolean[] earlier = {false};
+        for (String provider : providers) {
+            forEachTicketEntry(kv, provider, "earlier loads", (node, revision) -> {
+                if (revision < ownRevision && model.equals(node.path(FIELD_MODEL_NAME).asText(null))) earlier[0] = true;
+            });
+        }
+        return earlier[0];
     }
 
     /**
