@@ -490,6 +490,12 @@
     "discussion-metadata.json#/modelName": {
       "type": "string"
     },
+    "discussion-metadata.json#/modelsUsed": {
+      "type": "array"
+    },
+    "discussion-metadata.json#/modelsUsed[]": {
+      "type": "string"
+    },
     "discussion-metadata.json#/onboarding": {
       "type": "boolean"
     },
@@ -924,6 +930,12 @@
       "type": "string"
     },
     "signal-meta.json#/modelName": {
+      "type": "string"
+    },
+    "signal-meta.json#/modelsUsed": {
+      "type": "array"
+    },
+    "signal-meta.json#/modelsUsed[]": {
       "type": "string"
     },
     "signal-meta.json#/outputTokens": {

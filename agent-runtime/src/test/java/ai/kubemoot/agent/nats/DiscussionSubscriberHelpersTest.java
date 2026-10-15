@@ -417,12 +417,184 @@ class DiscussionSubscriberHelpersTest {
                 "the static fallback has no JIT attribution");
     }
 
+    private static final String SUBJECT_T1 = "kubemoot.discuss.ns-a.nocrew.general.t1";
+
+    /** Every message the connection published, parsed, in publish order. */
+    private static List<com.fasterxml.jackson.databind.JsonNode> published(Connection conn, int count)
+            throws Exception {
+        var payload = ArgumentCaptor.forClass(byte[].class);
+        verify(conn, times(count)).publish(anyString(), payload.capture());
+        var mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+        var out = new java.util.ArrayList<com.fasterxml.jackson.databind.JsonNode>();
+        for (byte[] p : payload.getAllValues()) {
+            out.add(mapper.readTree(p));
+        }
+        return out;
+    }
+
+    private static List<String> modelsUsed(com.fasterxml.jackson.databind.JsonNode msg) {
+        var out = new java.util.ArrayList<String>();
+        msg.path("metadata").path("modelsUsed").forEach(n -> out.add(n.asText()));
+        return out;
+    }
+
+    @Test
+    void finding_replannedToAnAlternative_reportsTheAlternativeNotTheConfiguredModel() throws Exception {
+        var conn = mock(Connection.class);
+        var sub = createSubscriberWithConnection(conn);
+        // The stub agent is configured with qwen2.5:32b; the call was re-planned elsewhere.
+        var result = new ChatService.ChatResult("c", "the finding", "alt-model:14b", "t1", 100, 20,
+                "provider-b", "re-planned");
+
+        sub.classifyAndPublishResult(SUBJECT_T1, "t1", result,
+                new DiscussionSubscriber.SignalTiming(500, 1, 100, 20), "static-label");
+
+        var msg = published(conn, 1).get(0);
+        assertEquals("agree", msg.path("messageType").asText());
+        var meta = msg.path("metadata");
+        assertEquals("alt-model:14b", meta.path("modelName").asText());
+        assertEquals("provider-b", meta.path("gpuLabel").asText());
+        assertEquals(List.of("alt-model:14b@provider-b"), modelsUsed(msg));
+        assertEquals(100, meta.path("inputTokens").asLong(), "token counts are unchanged");
+        assertEquals(20, meta.path("outputTokens").asLong());
+    }
+
+    @Test
+    void finding_whoseCallsRanOnTwoModels_reportsTheLastAndListsBoth() throws Exception {
+        var conn = mock(Connection.class);
+        var sub = createSubscriberWithConnection(conn);
+        var result = new ChatService.ChatResult("c", "the finding", "second:8b", "t1", 1, 1,
+                "provider-b", "", List.of(), List.of(
+                        new ai.kubemoot.agent.chat.ModelUse("first:32b", "provider-a"),
+                        new ai.kubemoot.agent.chat.ModelUse("second:8b", "provider-b")));
+
+        sub.classifyAndPublishResult(SUBJECT_T1, "t1", result, DiscussionSubscriber.SignalTiming.NONE, "static");
+
+        var msg = published(conn, 1).get(0);
+        assertEquals("second:8b", msg.path("metadata").path("modelName").asText());
+        assertEquals("provider-b", msg.path("metadata").path("gpuLabel").asText());
+        assertEquals(List.of("first:32b@provider-a", "second:8b@provider-b"), modelsUsed(msg));
+        assertEquals("second:8b", msg.path("metadata").path("model").asText());
+        assertEquals("provider-b", msg.path("metadata").path("provider").asText());
+    }
+
+    @Test
+    void providerAttribution_readsTheLastCall_evenWhenTheResultFieldsDisagree() {
+        var result = new ChatService.ChatResult("c", "r", "stale:32b", "t1", 1, 1, "stale-provider", "",
+                List.of(), List.of(new ai.kubemoot.agent.chat.ModelUse("last:8b", "provider-b")));
+
+        var meta = DiscussionSubscriber.findingMetadata(result);
+
+        assertEquals("last:8b", meta.get("modelName"));
+        assertEquals("last:8b", meta.get("model"));
+        assertEquals("provider-b", meta.get("provider"));
+    }
+
+    @Test
+    void triage_whenTheThreadClosedDuringIt_standsAsideNamingWhereTriageRan() throws Exception {
+        var conn = mock(Connection.class);
+        var chat = mock(ChatService.class);
+        when(chat.getToolNames()).thenReturn(List.of());
+        when(chat.getTriageModelId()).thenReturn("");
+        var sub = createSubscriberWithConnection(conn, chat);
+        when(chat.triageChatWithTokens(anyString(), anyString())).thenAnswer(inv -> {
+            sub.handleMessageForTest(SUBJECT_T1, """
+                    {"messageId": "m-c", "threadId": "t1", "agentName": "coordinator",
+                     "messageType": "thread_close", "content": ""}""");
+            return new ChatService.SimpleLlmResult("CONTRIBUTE", 5, 1,
+                    new ai.kubemoot.agent.chat.ModelUse("triage-model:4b", "provider-c"));
+        });
+
+        sub.evaluateSelected(SUBJECT_T1, "t1", "conversation", true);
+
+        var msgs = published(conn, 2);
+        assertEquals("qwen2.5:32b", msgs.get(0).path("metadata").path("modelName").asText(),
+                "an empty triage model id is not reported; the configured model stays");
+        var standAside = msgs.get(1);
+        assertEquals("stand_aside", standAside.path("messageType").asText());
+        assertEquals("triage-model:4b", standAside.path("metadata").path("modelName").asText());
+        assertEquals("provider-c", standAside.path("metadata").path("gpuLabel").asText());
+        verify(chat, never()).directChat(any(), anyBoolean(), any());
+    }
+
+    @Test
+    void standAsideAfterMulling_reportsTheModelItsCallsRanOn() throws Exception {
+        var conn = mock(Connection.class);
+        var sub = createSubscriberWithConnection(conn);
+        var result = new ChatService.ChatResult("c", "NOTHING_TO_ADD", "alt-model:14b", "t1", 1, 1,
+                "provider-b", "");
+
+        sub.classifyAndPublishResult(SUBJECT_T1, "t1", result, DiscussionSubscriber.SignalTiming.NONE, "static");
+
+        var msg = published(conn, 1).get(0);
+        assertEquals("stand_aside", msg.path("messageType").asText());
+        assertEquals("alt-model:14b", msg.path("metadata").path("modelName").asText());
+        assertTrue(msg.path("metadata").path("model").isMissingNode(),
+                "a plain stand-aside carries no capacity model: " + msg);
+    }
+
+    @Test
+    void noResult_standsAsideWithTheConfiguredModelAndFallbackLabel() throws Exception {
+        var conn = mock(Connection.class);
+        var sub = createSubscriberWithConnection(conn);
+
+        sub.classifyAndPublishResult(SUBJECT_T1, "t1", null, DiscussionSubscriber.SignalTiming.NONE, "static");
+
+        var meta = published(conn, 1).get(0).path("metadata");
+        assertEquals("qwen2.5:32b", meta.path("modelName").asText());
+        assertEquals("static", meta.path("gpuLabel").asText());
+        assertTrue(meta.path("modelsUsed").isMissingNode());
+    }
+
+    @Test
+    void triage_reportsTheTriageModelAndTheProviderItRanOn() throws Exception {
+        var conn = mock(Connection.class);
+        var chat = mock(ChatService.class);
+        when(chat.getToolNames()).thenReturn(List.of());
+        when(chat.getTriageModelId()).thenReturn("triage-model:4b");
+        when(chat.getTriageEndpoint()).thenReturn("http://ollama.static-ns:11434");
+        when(chat.triageChatWithTokens(anyString(), anyString())).thenReturn(new ChatService.SimpleLlmResult(
+                "NOTHING_TO_ADD", 50, 2, new ai.kubemoot.agent.chat.ModelUse("triage-model:4b", "provider-c")));
+        var sub = createSubscriberWithConnection(conn, chat);
+
+        sub.evaluateSelected(SUBJECT_T1, "t1", "conversation", false);
+
+        var msgs = published(conn, 2);
+        assertEquals("triaging", msgs.get(0).path("messageType").asText());
+        assertEquals("triage-model:4b", msgs.get(0).path("metadata").path("modelName").asText(),
+                "before triage runs, the signal names the triage model, not the mulling model");
+        var standAside = msgs.get(1);
+        assertEquals("stand_aside", standAside.path("messageType").asText());
+        assertEquals("triage-model:4b", standAside.path("metadata").path("modelName").asText());
+        assertEquals("provider-c", standAside.path("metadata").path("gpuLabel").asText());
+        assertEquals(List.of("triage-model:4b@provider-c"), modelsUsed(standAside));
+    }
+
+    @Test
+    void triage_onTheStaticEndpoint_keepsTheEndpointLabel() throws Exception {
+        var conn = mock(Connection.class);
+        var chat = mock(ChatService.class);
+        when(chat.getToolNames()).thenReturn(List.of());
+        when(chat.getTriageEndpoint()).thenReturn("http://ollama.static-ns:11434");
+        when(chat.triageChatWithTokens(anyString(), anyString())).thenReturn(new ChatService.SimpleLlmResult(
+                "NOTHING_TO_ADD", 50, 2, new ai.kubemoot.agent.chat.ModelUse("triage-model:4b", "")));
+        var sub = createSubscriberWithConnection(conn, chat);
+
+        sub.evaluateSelected(SUBJECT_T1, "t1", "conversation", false);
+
+        var msgs = published(conn, 2);
+        assertEquals("qwen2.5:32b", msgs.get(0).path("metadata").path("modelName").asText(),
+                "with no triage model known, the configured model stays");
+        assertEquals("static-ns", msgs.get(1).path("metadata").path("gpuLabel").asText());
+        assertEquals("triage-model:4b", msgs.get(1).path("metadata").path("modelName").asText());
+    }
+
     @Test
     void triageThatCannotBePlaced_standsAsideWithTheReason() throws Exception {
         var conn = mock(Connection.class);
         var chat = mock(ChatService.class);
         when(chat.getToolNames()).thenReturn(List.of());
-        when(chat.triageChat(anyString(), anyString())).thenThrow(
+        when(chat.triageChatWithTokens(anyString(), anyString())).thenThrow(
                 ai.kubemoot.agent.provider.NoFitException.promptTooLarge("m:8b", "triage prompt ~9000 tokens"));
         var sub = createSubscriberWithConnection(conn, chat);
 
@@ -442,7 +614,7 @@ class DiscussionSubscriberHelpersTest {
         var conn = mock(Connection.class);
         var chat = mock(ChatService.class);
         when(chat.getToolNames()).thenReturn(List.of());
-        when(chat.triageChat(anyString(), anyString())).thenThrow(new IllegalStateException("connection refused"));
+        when(chat.triageChatWithTokens(anyString(), anyString())).thenThrow(new IllegalStateException("connection refused"));
         var sub = createSubscriberWithConnection(conn, chat);
 
         assertNull(sub.runTriage("kubemoot.discuss.ns-a.nocrew.general.t1", "t1", "conversation", "4090",

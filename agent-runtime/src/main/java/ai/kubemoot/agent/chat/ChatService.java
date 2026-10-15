@@ -328,7 +328,8 @@ public class ChatService {
         conversation.addMessage(new AiMessage(text));
         return new ChatResult(request.conversationId(), text, pick.modelName(), null,
                 loopResult.inputTokens(), loopResult.outputTokens(),
-                loopResult.providerName(), loopResult.pickReason(), pick.evicted());
+                providerName, loopResult.pickReason(), pick.evicted(),
+                List.of(new ModelUse(pick.modelName(), providerName)));
     }
 
     /**
@@ -1614,8 +1615,20 @@ public class ChatService {
         return null;
     }
 
-    /** Result of a simple (no-tool) LLM call with token usage. */
-    public record SimpleLlmResult(String text, long inputTokens, long outputTokens) {}
+    /**
+     * The text and token counts of a no-tool call, and the model and provider it ran
+     * on ({@code modelUse}, null when the call's placement is not known).
+     */
+    public record SimpleLlmResult(String text, long inputTokens, long outputTokens, ModelUse modelUse) {
+        public SimpleLlmResult(String text, long inputTokens, long outputTokens) {
+            this(text, inputTokens, outputTokens, null);
+        }
+
+        /** This result, ran on {@code use}. */
+        public SimpleLlmResult ranOn(ModelUse use) {
+            return new SimpleLlmResult(text, inputTokens, outputTokens, use);
+        }
+    }
 
     /**
      * Simple LLM call without tools — returns response text plus token counts.
@@ -1698,7 +1711,8 @@ public class ChatService {
         }
         // Capture Ollama's load_duration from the response metadata if available.
         lastLoadDurationMs = extractLoadDurationMs(response);
-        return new SimpleLlmResult(response.aiMessage().text(), inTok, outTok);
+        return new SimpleLlmResult(response.aiMessage().text(), inTok, outTok,
+                new ModelUse(pick.modelName(), pick.providerName()));
     }
 
     /**
@@ -1890,7 +1904,8 @@ public class ChatService {
                 throw new IOException("Ollama returned " + response.statusCode() + ": " + response.body());
             }
 
-            SimpleLlmResult result = parseOllamaChat(objectMapper.readTree(response.body()));
+            SimpleLlmResult result = parseOllamaChat(objectMapper.readTree(response.body()))
+                    .ranOn(new ModelUse(triageModelId, placement.pickedProvider()));
             ok = true;
             return result;
         } catch (InterruptedException e) {
@@ -2055,6 +2070,11 @@ public class ChatService {
         return properties.systemPrompt().orElse("");
     }
 
+    /** Returns the model triage calls run on. */
+    public String getTriageModelId() {
+        return triageModelId;
+    }
+
     /** Returns the triage model endpoint URL (for GPU label derivation). */
     public String getTriageEndpoint() {
         return triageEndpoint;
@@ -2113,9 +2133,33 @@ public class ChatService {
         }
     }
 
+    /**
+     * The outcome of a chat turn. {@code model} and {@code providerName} name where
+     * the final inference call ran; {@code modelsUsed} lists the model and provider of
+     * each call behind the response, in call order.
+     */
     public record ChatResult(String conversationId, String response, String model, String threadId,
                               long inputTokens, long outputTokens,
-                              String providerName, String pickReason, List<String> evicted) {
+                              String providerName, String pickReason, List<String> evicted,
+                              List<ModelUse> modelsUsed) {
+        public ChatResult {
+            evicted = evicted == null ? List.of() : evicted;
+            modelsUsed = modelsUsed == null ? List.of() : List.copyOf(modelsUsed);
+        }
+        /**
+         * Where the final call ran: the last entry of {@code modelsUsed}, or the
+         * result's {@code model} and {@code providerName} when no call is listed.
+         */
+        public ModelUse lastModelUse() {
+            return modelsUsed.isEmpty() ? new ModelUse(model, providerName) : modelsUsed.get(modelsUsed.size() - 1);
+        }
+        /** One call: the model and provider the result names. */
+        public ChatResult(String conversationId, String response, String model, String threadId,
+                          long inputTokens, long outputTokens,
+                          String providerName, String pickReason, List<String> evicted) {
+            this(conversationId, response, model, threadId, inputTokens, outputTokens, providerName, pickReason,
+                    evicted, model == null || model.isEmpty() ? List.of() : List.of(new ModelUse(model, providerName)));
+        }
         /** Without evictions: the call needed no model unloaded. */
         public ChatResult(String conversationId, String response, String model, String threadId,
                           long inputTokens, long outputTokens, String providerName, String pickReason) {

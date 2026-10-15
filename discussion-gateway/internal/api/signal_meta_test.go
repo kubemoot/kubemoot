@@ -27,7 +27,9 @@ func emitted(t *testing.T, m bus.DiscussionMessage) SSEEvent {
 // The metadata as it arrives from JSON: numbers are float64, lists []interface{}.
 func agreeMetadata() map[string]interface{} {
 	return map[string]interface{}{
-		"modelName": actModel, "gpuLabel": testGPU,
+		"modelName":     actModel,
+		"modelsUsed":    []interface{}{"qwen3:32b@rig-a", actModel + "@" + testGPU},
+		"gpuLabel":      testGPU,
 		metaInputTokens: float64(1200), metaOutputTokens: float64(340), "totalTokens": float64(1540),
 		"inferenceMs": float64(6100), "toolsUsed": []interface{}{"pods_list", "", 7, "nodes_top"},
 		"artifact": map[string]interface{}{"key": testArtifact, "bytes": float64(8499)},
@@ -37,7 +39,9 @@ func agreeMetadata() map[string]interface{} {
 func TestFindingCarriesTheSignalMetadata(t *testing.T) {
 	e := emitted(t, bus.DiscussionMessage{MessageType: signalAgree, AgentName: testAgent, Content: "x", Metadata: agreeMetadata()})
 	want := &bus.SignalMeta{
-		ModelName: actModel, InputTokens: 1200, OutputTokens: 340, TotalTokens: 1540, InferenceMs: 6100,
+		ModelName:   actModel,
+		ModelsUsed:  []string{"qwen3:32b@rig-a", actModel + "@" + testGPU},
+		InputTokens: 1200, OutputTokens: 340, TotalTokens: 1540, InferenceMs: 6100,
 		ToolsUsed: []string{"pods_list", "nodes_top"},
 		Artifact:  &bus.ArtifactRef{Key: testArtifact, Bytes: 8499},
 	}
@@ -45,7 +49,7 @@ func TestFindingCarriesTheSignalMetadata(t *testing.T) {
 		t.Fatalf("got %+v (gpu %q), want %+v", e.SignalMeta, e.GPU, want)
 	}
 	data, _ := json.Marshal(e)
-	for _, field := range []string{`"inputTokens":1200`, `"modelName":"qwen3:14b"`, `"artifact":{"key":"ns/pilot/t1/k8s/agree-1","bytes":8499}`} {
+	for _, field := range []string{`"inputTokens":1200`, `"modelName":"qwen3:14b"`, `"modelsUsed":["qwen3:32b@rig-a","qwen3:14b@`, `"artifact":{"key":"ns/pilot/t1/k8s/agree-1","bytes":8499}`} {
 		if !strings.Contains(string(data), field) {
 			t.Errorf("JSON lacks %s: %s", field, data)
 		}

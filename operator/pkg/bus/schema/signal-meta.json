@@ -4,7 +4,12 @@
   "description": "What an agent's signal metadata says about how a finding or stand-aside was made. Each field is present only when the agent sent it.",
   "type": "object",
   "properties": {
-    "modelName": { "type": "string", "description": "The model the agent called." },
+    "modelName": { "type": "string", "description": "The model the agent's inference actually ran on: for a finding or a stand-aside after its calls ran, the model the last call ran on, as the scheduler placed it." },
+    "modelsUsed": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Each distinct place the agent's model calls for the signal ran, as model@provider, in call order."
+    },
     "inputTokens": { "type": "integer", "description": "Input tokens of the agent's model calls for the signal." },
     "outputTokens": { "type": "integer", "description": "Output tokens of the agent's model calls for the signal." },
     "totalTokens": { "type": "integer", "description": "Input plus output tokens." },

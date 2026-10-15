@@ -14,11 +14,16 @@
     },
     "modelName": {
       "type": "string",
-      "description": "The model the sender is configured with. Sent on agent signals and on the coordinator's advisory, advisory_ready and review_ready."
+      "description": "The model the sender's inference actually ran on. On an agent signal sent after its calls ran (agree, concern, or a stand-aside after triage or evaluation), the model the last call ran on, as the scheduler placed it; modelsUsed lists every place the calls ran. On triaging, the triage model the agent plans to use. On a signal sent before a call completed (evaluating, heartbeat, waiting, failure) and on the coordinator's advisory, advisory_ready and review_ready, the model the sender is configured with."
+    },
+    "modelsUsed": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Each distinct place the model calls behind an agent signal ran, as model@provider (the model alone when the call went to the agent's static endpoint), in call order. Sent with modelName when the calls ran."
     },
     "model": {
       "type": "string",
-      "description": "The model an agent's call ran on, which differs from modelName when a warm model was used; on waiting and on a capacity stand-aside, the model the agent waits for or could not place."
+      "description": "The model an agent's call ran on, the same as modelName on agree and concern; on waiting and on a capacity stand-aside, the model the agent waits for or could not place."
     },
     "gpuLabel": {
       "type": "string",
