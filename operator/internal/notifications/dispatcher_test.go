@@ -23,6 +23,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	kubemootv1alpha1 "github.com/kubemoot/kubemoot/operator/api/v1alpha1"
+	"github.com/kubemoot/kubemoot/operator/pkg/bus"
 )
 
 func newScheme(t *testing.T) *runtime.Scheme {
@@ -39,7 +40,7 @@ func newScheme(t *testing.T) *runtime.Scheme {
 
 func TestProcessMessage_RejectsUnscopedSubject(t *testing.T) {
 	d := &Dispatcher{}
-	body, _ := json.Marshal(DiscussionMessage{MessageType: ConcernMessageType, AgentName: "x", Content: "y", ThreadID: "t"})
+	body, _ := json.Marshal(bus.DiscussionMessage{MessageType: ConcernMessageType, AgentName: "x", Content: "y", ThreadID: "t"})
 	for _, subject := range []string{
 		"kubemoot.discuss.crew.channel",
 		"kubemoot.discuss..crew.channel.thread",
@@ -61,7 +62,7 @@ func TestMatchesFilters(t *testing.T) {
 			},
 		}
 	}
-	msg := &DiscussionMessage{Channel: testChannelGeneral, AgentName: testAgentK8sStorage}
+	msg := &bus.DiscussionMessage{Channel: testChannelGeneral, AgentName: testAgentK8sStorage}
 
 	cases := []struct {
 		name string
@@ -89,8 +90,8 @@ func TestMatchesFilters(t *testing.T) {
 // dispatches in the first release.
 func TestProcessMessage_SkipsNonConcernSignals(t *testing.T) {
 	d := &Dispatcher{} // no client/HTTP needed for the skip path
-	for _, mt := range []string{"agree", "stand_aside", "synthesis", "advisory", "evaluating"} {
-		body, _ := json.Marshal(DiscussionMessage{MessageType: mt, AgentName: "x", Content: "y", ThreadID: "t"})
+	for _, mt := range []bus.DiscussionMessageMessageType{"agree", "stand_aside", "synthesis", "advisory", "evaluating"} {
+		body, _ := json.Marshal(bus.DiscussionMessage{MessageType: mt, AgentName: "x", Content: "y", ThreadID: "t"})
 		if err := d.ProcessMessage(context.Background(), "kubemoot.discuss.ns.c.general.t", body); err != nil {
 			t.Errorf("messageType=%q: expected nil error; got %v", mt, err)
 		}
@@ -136,7 +137,7 @@ func TestProcessMessage_DispatchesConcernToWebhook(t *testing.T) {
 
 	d := &Dispatcher{Client: cli, HTTPClient: srv.Client(), DashboardBase: "https://dash.example.com"}
 
-	msg := DiscussionMessage{
+	msg := bus.DiscussionMessage{
 		MessageType: ConcernMessageType,
 		AgentName:   testAgentK8sStorage,
 		Content:     "Partition /var on rig0 is 96% full",
@@ -177,7 +178,7 @@ func TestProcessMessage_SkipsWhenNamespaceHasNoSinks(t *testing.T) {
 	scheme := newScheme(t)
 	cli := fake.NewClientBuilder().WithScheme(scheme).Build()
 	d := &Dispatcher{Client: cli}
-	body, _ := json.Marshal(DiscussionMessage{
+	body, _ := json.Marshal(bus.DiscussionMessage{
 		MessageType: ConcernMessageType, AgentName: "x", Content: "y", ThreadID: "t", Channel: testChannelGeneral,
 	})
 	if err := d.ProcessMessage(context.Background(), "kubemoot.discuss.ghost-ns.ghost-crew.general.t", body); err != nil {
@@ -203,7 +204,7 @@ func TestProcessMessage_SkipsUnreadySinks(t *testing.T) {
 	}
 	cli := fake.NewClientBuilder().WithScheme(scheme).WithObjects(sink).Build()
 	d := &Dispatcher{Client: cli, HTTPClient: srv.Client()}
-	body, _ := json.Marshal(DiscussionMessage{
+	body, _ := json.Marshal(bus.DiscussionMessage{
 		MessageType: ConcernMessageType, AgentName: "a", Content: "c", ThreadID: "t",
 	})
 	_ = d.ProcessMessage(context.Background(), "kubemoot.discuss.crew-x.x.general.t", body)
@@ -238,7 +239,7 @@ func TestProcessMessage_SameCrewNameInTwoNamespaces(t *testing.T) {
 	a, b := mkSink("team-a"), mkSink("team-b")
 	cli := fake.NewClientBuilder().WithScheme(scheme).WithObjects(a, b).WithStatusSubresource(a, b).Build()
 	d := &Dispatcher{Client: cli, HTTPClient: srv.Client()}
-	body, _ := json.Marshal(DiscussionMessage{
+	body, _ := json.Marshal(bus.DiscussionMessage{
 		MessageType: ConcernMessageType, AgentName: "a", Content: "c", ThreadID: "t", Channel: testChannelGeneral,
 	})
 	if err := d.ProcessMessage(context.Background(), "kubemoot.discuss.team-a.pilot.general.t", body); err != nil {
