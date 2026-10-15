@@ -554,88 +554,174 @@ full setup instructions per shell.
 Alias: `conv`
 
 ```
-kmctl conversation ask <crew> "<message>" [-n <namespace>] [--quiet] [--conversation-id <id>]
-kmctl conversation watch <crew> <conversation-id> [-n <namespace>]
+kmctl conversation ask <crew> "<message>" [-n <namespace>] [-o full|plain|json|quiet] [-q] [--conversation-id <id>]
+kmctl conversation watch <crew> <conversation-id> [-n <namespace>] [-o full|plain|json|quiet] [-q]
+kmctl conversation list <crew> [-n <namespace>] [-o yaml|json|kyaml]
+kmctl conversation artifact <crew> <key> [-n <namespace>] [-f <file>]
 ```
 
-Start a new conversation turn with a crew and stream the moot's deliberation in
-real time. `kmctl conversation` reaches the crew's discussion gateway through the
+Start a conversation turn with a crew and stream the moot's deliberation in real
+time. `kmctl conversation` reaches the crew's discussion gateway through the
 Kubernetes API server's service proxy using your kubeconfig credentials; no extra
 port-forwarding or networking setup is required.
 
 ### kmctl conversation ask
 
 ```
-kmctl conversation ask <crew> "<message>" [-n <namespace>] [--quiet] [--conversation-id <id>]
+kmctl conversation ask <crew> "<message>" [-n <namespace>] [-o full|plain|json|quiet] [-q] [--conversation-id <id>]
 ```
 
-Starts a turn and streams discussion signals (agent evaluations, agreements, concerns)
-followed by the coordinator's synthesis. When the turn completes, exits 0.
+Starts a turn and streams the discussion until the crew answers, then exits 0.
 
-| Flag | Description |
-|---|---|
-| `-n` | Namespace of the crew (required when the crew is not in the default namespace) |
-| `--quiet` | Suppress streaming signals; print only the final coordinator answer |
-| `--conversation-id` | Continue an existing conversation thread instead of starting a new one |
+| Flag | Default | Description |
+|---|---|---|
+| `-n` | context namespace | Namespace of the crew |
+| `-o`, `--output` | `full` | `full`, `plain`, `json`, or `quiet` (see [Output modes](#output-modes)) |
+| `-q`, `--quiet` | | The same as `-o quiet`: print only the answer. `-q` with a different `-o` is an error |
+| `--conversation-id` | | Continue an existing conversation: its ID or a unique prefix of it |
+| `--idle-timeout` | `5m` | Stop waiting when the crew shows no activity for this long; `0` waits while the stream is open |
+| `--timeout` | `0` | Overall cap on the wait, for scripts; `0` means no cap |
 
 **Example:**
 
 ```bash
-kmctl conversation ask homelab-pilot "what is failing?" -n crew-homelab-pilot
+kmctl conversation ask homelab-pilot "Describe the proxmox nodes." -n crew-homelab-pilot -o plain
 ```
 
-Sample output (streaming):
-
 ```
-[evaluating] homelab-pilot-k8s-specialist
-[evaluating] homelab-pilot-network-specialist
-[agree]      homelab-pilot-k8s-specialist   "Three pods in CrashLoopBackOff..."
-[agree]      homelab-pilot-network-specialist "DNS resolution failing for..."
-[synthesis]  Two issues detected: (1) Pod homelab-pilot-backend is crash-looping
-             due to a missing ConfigMap. (2) CoreDNS is returning SERVFAIL for
-             in-cluster names in the homelab-pilot namespace.
+conversation 6733c361-aa0c-4bde-85c6-e143af23b251
+[   2.0s] thread t-42
+[   3.0s] subcommittee: pilot-metrics, pilot-proxmox, pilot-storage; brief: List each Proxmox node with its role...
+[   8.0s] pilot-gpu              stood aside (qwen3:8b, 419 tokens): not in the subcommittee
+[  10.0s] pilot-proxmox          agree (evaluation 10.4s, qwen3:14b, 5,850 tokens): The cluster has three Proxmox nodes, all online.
+[  11.0s] pilot-metrics          agree (evaluation 12.0s, qwen3:14b, 8,230 tokens): attached artifact (8.3 KB); fetch command below
+[  14.0s] done
+
+ANSWER:
+## Proxmox nodes
+...
+
+**How this answer was made**
+
+- Total time (as received by kmctl): 14.0s; first signal after 8.0s
+- Crew time (thread start to answer, as the crew published): 31.0s
+- Subcommittee: 3 convened (pilot-metrics (node metrics), pilot-proxmox (proxmox inventory), pilot-storage)
+- Agents: 4 took part (pilot-proxmox, pilot-metrics, pilot-gpu, pilot-storage); 1 stood aside (pilot-gpu)
+- Signals: 2 agree, 1 failure, 1 stand_aside
+- Tokens: 15,740 in, 2,059 out
+- Models: qwen3:14b, qwen3:8b
+- Tool errors: pilot-storage: zfs_pool_status failed 3 times: connection refused
+- Artifact from pilot-metrics (8.3 KB): `kmctl conversation artifact homelab-pilot crew-homelab-pilot/homelab-pilot/t-42/pilot-metrics/agree-1b2c -n crew-homelab-pilot`
+
+Next: kmctl conversation ask homelab-pilot "<next question>" -n crew-homelab-pilot --conversation-id 6733c361-aa0c-4bde-85c6-e143af23b251
 ```
 
-With `--quiet`:
+Continue the conversation with a short ID prefix:
 
 ```bash
-kmctl conversation ask homelab-pilot "what is failing?" -n crew-homelab-pilot --quiet
-# Two issues detected: (1) Pod homelab-pilot-backend is crash-looping...
+kmctl conversation ask homelab-pilot "and their memory?" -n crew-homelab-pilot --conversation-id 6733c
 ```
 
-Continue an existing conversation:
+### Output modes
 
-```bash
-kmctl conversation ask homelab-pilot "which ConfigMap is missing?" \
-  -n crew-homelab-pilot \
-  --conversation-id 7f3a1b9c
+| Mode | What it shows |
+|---|---|
+| `full` (default) | A live view: one row per agent with a spinner while it works, its step, the accelerator and model it runs on, its step durations and tokens, and the subcommittee under the header. Each row settles to a colored signal. The answer is rendered as markdown. |
+| `plain` | One line per event with the time since the turn began, no color or animation, for logs, CI, and screen readers. The answer is raw markdown. |
+| `json` | Newline-delimited JSON: a `conversation` line, one line per gateway event (with `elapsedMs` and any step duration added), and a final `result` line with `answer`, `summary`, and `next`. Every line carries `schemaVersion` (1). |
+| `quiet` | Only the answer. `-q` is the same. |
+
+`full` falls back to `plain` when stdout is not a terminal, `NO_COLOR` is set, or
+`TERM=dumb`.
+
+Every mode except `quiet` ends with a summary right after the answer's own notes,
+then the follow-up command. The summary has the total time and the time to the
+first signal (as kmctl received them), the crew's own time from the thread's start
+to the answer, the subcommittee the coordinator convened with each agent's reason
+when given, the agents that took part and stood aside, signals by kind, tokens in
+and out, accelerators, models, agents that waited for GPU capacity, tool errors,
+and the command that fetches each attached artifact. Step durations come from the
+timestamps the crew published (`summary.timeSource` is `published`); with a
+discussion gateway that does not send timestamps they are measured on receipt
+(`received`), and the fields that gateway does not send (tokens, models, the
+subcommittee, tool errors) are left out rather than estimated. Retries are not
+published by the crew, so the summary does not show them. The stream's events and
+fields are described in
+[Conversations, Turns, and Threads](../../concepts/conversations-turns-and-threads/#timestamps-and-signal-detail).
+
+### How long kmctl waits
+
+kmctl waits as long as the crew is working. While anyone on the crew is busy, the
+gateway sends an `activity` event every 15 seconds: `plain` prints it as a `busy:`
+line, `json` as a line of type `activity`, and `full` names who is busy in the
+header. The only default clock is `--idle-timeout` (default `5m`), which runs only
+while the crew shows no activity and starts again with every event from the crew.
+`--timeout` (default `0`, no cap) is an overall limit for scripts. When either one
+stops the wait, kmctl prints the conversation and thread IDs and the command that
+reattaches, because the crew may still answer:
+
+```
+Error: the crew showed no activity for 5m0s; the discussion may still finish.
+Conversation 6733c361-aa0c-4bde-85c6-e143af23b251, thread 8f0c2a1e
+Reattach: kmctl conversation watch homelab-pilot 6733c361-aa0c-4bde-85c6-e143af23b251 -n crew-homelab-pilot
 ```
 
 ### kmctl conversation watch
 
 ```
-kmctl conversation watch <crew> <conversation-id> [-n <namespace>]
+kmctl conversation watch <crew> <conversation-id> [-n <namespace>] [-o full|plain|json|quiet] [-q]
 ```
 
-Live-tail an in-flight conversation thread. Prints each signal as it arrives and
-exits when the thread closes. Useful for watching a conversation that was started
-by another process (the dashboard, a CI job, or another terminal session).
-
-| Flag | Description |
-|---|---|
-| `-n` | Namespace of the crew |
-
-**Example:**
+Follow the discussion of a conversation's current turn until the crew answers, for
+example one started by the dashboard, a CI job, or another terminal. The
+conversation ID may be a unique prefix. The output modes and the wait flags
+(`--idle-timeout`, `--timeout`) are the same as for `ask`.
 
 ```bash
-kmctl conversation watch homelab-pilot 7f3a1b9c -n crew-homelab-pilot
+kmctl conversation watch homelab-pilot 6733c -n crew-homelab-pilot
 ```
+
+### kmctl conversation list
+
+```
+kmctl conversation list <crew> [-n <namespace>] [-o yaml|json|kyaml]
+```
+
+List the crew's recent conversations, newest first, with each one's first question.
+The gateway reads them from the discussion stream, which keeps about a day.
+
+```bash
+kmctl conversation list homelab-pilot -n crew-homelab-pilot
+# CONVERSATION ID                        LAST TURN              TURNS   FIRST QUESTION
+# 6733c361-aa0c-4bde-85c6-e143af23b251   2026-10-15T09:12:40Z   2       Describe the proxmox nodes.
+```
+
+### Short conversation IDs and completion
+
+Wherever kmctl takes a conversation ID, a unique prefix works, as with git hashes.
+An ambiguous prefix fails and lists the matching conversations with their first
+questions; a prefix that matches no recent conversation says so. A full ID is used
+as given. Shell completion of `--conversation-id` and of `watch`'s conversation
+argument offers the crew's recent conversations, each with its first question as
+the description. A discussion gateway that cannot list conversations needs the full
+ID, and kmctl says so.
+
+### kmctl conversation artifact
+
+```
+kmctl conversation artifact <crew> <key> [-n <namespace>] [-f <file>]
+```
+
+Write an artifact an agent attached to a discussion (a contribution too large for
+the stream) to stdout, or to a file with `-f`. The conversation output prints this
+command for each artifact. The coordinator deletes a thread's artifacts soon after
+the thread closes; after that kmctl reports the artifact as not found.
 
 ### Still planned in kmctl conversation
 
-`kmctl conversation list` and `kmctl conversation get` are planned but not yet
-shipped. There is no gateway history endpoint yet. To browse conversation history,
-use the [Kubemoot dashboard](../../operating/dashboard/).
+`kmctl conversation get`, to read a past turn's answer, is planned but not yet
+shipped. To browse conversation history, use the
+[Kubemoot dashboard](../../operating/dashboard/).
 
 ---
 

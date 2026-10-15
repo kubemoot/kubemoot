@@ -75,6 +75,8 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /health", h.healthHandler)
 	mux.HandleFunc("GET /ready", h.readyHandler)
 	mux.HandleFunc("POST /api/v1/discussions/{crew}", h.postDiscussion)
+	mux.HandleFunc("GET /api/v1/discussions/{crew}", h.listConversationsHandler)
+	mux.HandleFunc("GET /api/v1/discussions/{crew}/artifact", h.getArtifact)
 	mux.HandleFunc("GET /api/v1/discussions/{crew}/{conversationId}/stream", h.streamDiscussion)
 }
 
@@ -188,15 +190,8 @@ func (h *Handler) streamDiscussion(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if !h.natsClient.IsConfigured() {
-		httpError(w, http.StatusServiceUnavailable, errNATSNotConfigured)
-		return
-	}
-
-	js, err := h.natsClient.JetStream()
-	if err != nil {
-		handlerLog.Error(err, "Failed to get JetStream")
-		httpError(w, http.StatusServiceUnavailable, "NATS connection failed")
+	js, ok := h.jetStreamFor(w)
+	if !ok {
 		return
 	}
 

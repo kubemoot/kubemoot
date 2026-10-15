@@ -73,7 +73,9 @@ delete.
 starts a turn and streams the moot's deliberation in real time, including each
 specialist's evaluation and the coordinator's synthesis. Pass `--quiet` to print only
 the final answer. Pass `--conversation-id` to continue an existing thread.
-`kmctl conversation watch` live-tails an in-flight conversation by ID. The command
+`kmctl conversation watch` live-tails an in-flight conversation by ID or a unique
+prefix of one, `kmctl conversation list` lists a crew's recent conversations, and
+`kmctl conversation artifact` fetches an artifact an agent attached. The command
 reaches the crew through the Kubernetes API server's service proxy using your
 kubeconfig credentials; no extra networking setup is required.
 
@@ -92,8 +94,8 @@ completion scripts for all major shells. Resource names complete in `get` comman
 
 ## Still planned
 
-`kmctl conversation list` and `kmctl conversation get` are planned but not yet
-shipped (no gateway history endpoint exists yet). A per-scenario score breakdown in
+`kmctl conversation get`, to read a past turn's answer, is planned but not yet
+shipped. A per-scenario score breakdown in
 `kmctl fitness get` is also planned. To browse conversation history,
 use the [Kubemoot dashboard](../../operating/dashboard/).
 
