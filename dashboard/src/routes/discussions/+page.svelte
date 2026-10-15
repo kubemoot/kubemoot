@@ -7,10 +7,12 @@
 	import type { Thread } from '#lib/stores/index.js';
 	import { discussSubject, tryCrewScope, type CrewScope } from '#lib/crewScope.js';
 	import { crewEntry, crewLabel, crewTooltip } from '#lib/crew-display-name.js';
-	import { DiscussionSpanGraph } from '#lib/components/discussions/index.js';
+	import { DiscussionSpanGraph, MessageStatsLine, ThreadSummaryPanel } from '#lib/components/discussions/index.js';
+	import { formatTimestamp, messageStats, summarizeThread } from '#lib/discussion-timing.js';
+	import { formatDuration, formatElapsed } from '#lib/duration-format.js';
 	import { SYNTHESIS_COLLAPSE_CHARS, artifactKey, artifactHref } from '#lib/discussion-artifacts.js';
 	import { aggregateAgents, type AgentAgg } from '#lib/discussion-agent-summary.js';
-	import { threadStartMs as messagesStartMs } from '#lib/discussion-spans.js';
+	import { placementOf, threadStartMs as messagesStartMs } from '#lib/discussion-spans.js';
 	import { buildGpuDisplayMap } from '#lib/gpu-display.js';
 
 	// Configure marked for safe inline rendering
@@ -99,6 +101,17 @@
 	};
 
 	const selectedThread = $derived(selectedThreadId ? $threads.get(selectedThreadId) : null);
+	// Per-message elapsed time, step durations, tokens and placement, and the thread's
+	// summary, derived from the selected thread's messages as they arrive.
+	const selectedStats = $derived(messageStats(selectedThread?.messages ?? []));
+	const selectedSummary = $derived(
+		selectedThread ? summarizeThread(selectedThread.messages, selectedStats) : null
+	);
+
+	/** An agent's name as the timeline shows it. */
+	function agentLabel(agent: string): string {
+		return agent === 'human' ? 'You' : agent.replace('homelab-', '');
+	}
 
 	// Maps a raw thread status to its human label. Shared by the thread-list row
 	// and the detail pane so both stay in lockstep (open->Active, synthesized->Answered).
@@ -106,17 +119,6 @@
 		if (status === 'open') return 'Active';
 		if (status === 'synthesized') return 'Answered';
 		return 'Closed';
-	}
-
-	function formatTime(ts: string): string {
-		try {
-			return new Date(ts).toLocaleString([], {
-				month: 'short', day: 'numeric',
-				hour: '2-digit', minute: '2-digit', second: '2-digit'
-			});
-		} catch {
-			return ts;
-		}
 	}
 
 	function selectThread(threadId: string) {
@@ -237,20 +239,19 @@
 
 	function renderAgentSummary(agentMap: Map<string, AgentAgg>): string {
 		let text = `## Agent Summary\n`;
-		text += `| Agent | Signal | GPU | Duration | Inference | Tools |\n`;
+		text += `| Agent | Signal | Accelerator | Duration | Inference | Tools |\n`;
 		text += `|-------|--------|-----|----------|-----------|-------|\n`;
-		const fmtMs = (ms: number) => ms < 1000 ? `${ms}ms` : `${(ms / 1000).toFixed(1)}s`;
 		for (const [agent, data] of agentMap) {
-			const name = agent === 'human' ? 'You' : agent.replace('homelab-', '');
-			const dur = fmtMs(data.endMs - data.startMs);
-			const inf = data.inferenceMs > 0 ? fmtMs(data.inferenceMs) : '-';
+			const name = agentLabel(agent);
+			const dur = formatDuration(data.endMs - data.startMs) || '-';
+			const inf = data.inferenceMs > 0 ? formatDuration(data.inferenceMs) : '-';
 			const tools = data.tools.size > 0 ? Array.from(data.tools).join(', ') : '-';
 			// Per-call provider attribution wins over reconcile-time gpuLabel
 			// when present - shows the JIT-selected ModelProvider name, the
 			// truth of where this inference actually ran. FitPredictor v2's
 			// pickReason (if present) carries the per-call decision narrative
 			// ("warm, slot 1/2 | SR=0.92 over 23 samples, EMA latency 4200ms").
-			const where = data.provider || data.gpu || '-';
+			const where = placementOf(data.provider, data.gpu) ?? '-';
 			const why = data.pickReason ? `<br/>_${data.pickReason}_` : '';
 			text += `| ${name} | ${data.signal} | ${where}${why} | ${dur} | ${inf} | ${tools} |\n`;
 		}
@@ -260,9 +261,12 @@
 
 	function renderMessageTimeline(thread: Thread): string {
 		let text = `## Messages\n`;
+		const stats = messageStats(thread.messages);
 		for (const msg of thread.messages) {
-			const agent = msg.agentName === 'human' ? 'You' : msg.agentName.replace('homelab-', '');
-			text += `**${agent}** [${messageTypeLabels[msg.messageType] || msg.messageType}] (${formatTime(msg.timestamp ?? '')})\n`;
+			const agent = agentLabel(msg.agentName);
+			const elapsed = formatElapsed(stats.get(msg)?.elapsedMs);
+			const when = elapsed ? ' (' + elapsed + ')' : '';
+			text += `**${agent}** [${messageTypeLabels[msg.messageType] || msg.messageType}]${when}\n`;
 			if (msg.content) text += `${msg.content}\n`;
 			text += '\n';
 		}
@@ -627,7 +631,7 @@
 							<span>
 								{thread.agreeCount} agree{#if thread.concernCount > 0}, {thread.concernCount} concern{thread.concernCount !== 1 ? 's' : ''}{/if}{#if thread.blockCount > 0}, {thread.blockCount} block{thread.blockCount !== 1 ? 's' : ''}{/if}{#if thread.standAsideCount > 0}, {thread.standAsideCount} aside{/if}
 							</span>
-							<span>{formatTime(thread.startedAt)}</span>
+							<span title={thread.startedAt}>{formatTimestamp(thread.startedAt)}</span>
 						</div>
 					</button>
 					{#if !$readOnly}
@@ -723,6 +727,11 @@
 						{copiedThreadId ? '✓' : '#'}
 					</button>
 				</div>
+				{#if selectedSummary?.startedAt && formatTimestamp(selectedSummary.startedAt)}
+					<div class="thread-started" title={selectedSummary.startedAt}>
+						Started {formatTimestamp(selectedSummary.startedAt)}; times below are since then
+					</div>
+				{/if}
 
 				{#if showSpanGraph && selectedThread}
 					<div class="span-graph-panel">
@@ -739,6 +748,7 @@
 
 				<div class="message-timeline" bind:this={timelineEl}>
 					{#each selectedThread.messages.filter((m) => $showStandAsides || m.messageType !== 'stand_aside') as msg, msgIdx}
+						{@const stats = selectedStats.get(msg) ?? {}}
 						<div
 							class="message-card {msg.messageType}"
 							class:synthesis={msg.messageType === 'synthesis'}
@@ -753,7 +763,7 @@
 						>
 							<div class="message-header">
 								<span class="agent-name" class:human-name={msg.agentName === 'human'}>
-									{msg.agentName === 'human' ? 'You' : msg.agentName.replace('homelab-', '')}
+									{agentLabel(msg.agentName)}
 								</span>
 								<span class="message-type-badge {msg.messageType}">
 									{messageTypeLabels[msg.messageType] || msg.messageType}
@@ -761,7 +771,7 @@
 								{#if msg.messageType === 'stand_aside' && msg.metadata?.reason}
 									<span class="decline-reason">({msg.metadata.reason})</span>
 								{/if}
-								<span class="message-time">{formatTime(msg.timestamp ?? '')}</span>
+								<span class="message-time" title={formatTimestamp(msg.timestamp)}>{formatElapsed(stats.elapsedMs)}</span>
 							</div>
 							{#if (msg.messageType === 'advisory' || msg.messageType === 'advisory_ready') && msg.metadata?.technologies && msg.metadata.technologies.length > 0}
 								<div class="tech-badges">
@@ -799,21 +809,12 @@
 									{/if}
 								</div>
 							{/if}
-							{#if msg.metadata?.inputTokens || msg.metadata?.outputTokens}
-								<span class="token-badge" title="Input/output tokens">
-									{msg.metadata.inputTokens ?? 0}↓ {msg.metadata.outputTokens ?? 0}↑
-								</span>
-							{/if}
-							{#if msg.messageType === 'thread_close' && typeof msg.metadata?.totalTokens === 'object' && msg.metadata.totalTokens}
-								{@const tt = msg.metadata.totalTokens}
-								<div class="token-summary">
-									Tokens: advisory {tt.advisory?.in ?? 0}↓/{tt.advisory?.out ?? 0}↑
-									| triage {tt.triage?.in ?? 0}↓/{tt.triage?.out ?? 0}↑
-									| synthesis {tt.synthesis?.in ?? 0}↓/{tt.synthesis?.out ?? 0}↑
-								</div>
-							{/if}
+							<MessageStatsLine {stats} acceleratorNames={gpuDisplayMap} />
 						</div>
 					{/each}
+					{#if selectedSummary && (selectedSummary.endedAt || selectedSummary.participants.length > 0)}
+						<ThreadSummaryPanel summary={selectedSummary} {agentLabel} />
+					{/if}
 				</div>
 
 				{#if !$readOnly}
@@ -1301,22 +1302,10 @@
 		padding: 0.125rem 0.5rem;
 	}
 
-	.token-badge {
-		display: inline-block;
-		font-size: 0.6rem;
+	.thread-started {
+		font-size: 0.7rem;
 		color: var(--color-text-muted);
-		margin-top: 0.25rem;
-		font-family: monospace;
-	}
-
-	.token-summary {
-		font-size: 0.6rem;
-		color: var(--color-text-muted);
-		margin-top: 0.375rem;
-		font-family: monospace;
-		padding: 0.25rem 0.5rem;
-		background: rgba(107, 114, 128, 0.1);
-		border-radius: 0.25rem;
+		margin-top: -0.5rem;
 	}
 
 	.thread-status-label {

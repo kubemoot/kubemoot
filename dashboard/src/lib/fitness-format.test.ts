@@ -15,7 +15,7 @@ describe('fmtDur', () => {
 	it('formats milliseconds, seconds, and minutes', () => {
 		expect(fmtDur(850)).toBe('850ms');
 		expect(fmtDur(12_340)).toBe('12.3s');
-		expect(fmtDur(125_000)).toBe('2m 5s');
+		expect(fmtDur(125_000)).toBe('2m05s');
 	});
 
 	it('shows the no-value mark for zero or a missing duration', () => {
@@ -95,7 +95,7 @@ describe('suiteMarkdown', () => {
 				'- Phase: Completed',
 				'- Iterations: 4 / 4',
 				'- Results: 3 passed / 1 failed / 0 errored',
-				'- Duration: 2m 5s',
+				'- Duration: 2m05s',
 				'- Scenarios (2): gpu, pods',
 				'- Judge: judging 1/2',
 				'- Run ID: r1',
@@ -130,18 +130,18 @@ describe('iterDurText', () => {
 	const t0 = new Date(start).getTime();
 
 	it('shows the time elapsed since start for a running iteration', () => {
-		expect(iterDurText({ running: true, startedAt: start }, t0 + 125_000)).toBe('2m 5s');
+		expect(iterDurText({ running: true, startedAt: start }, t0 + 125_000)).toBe('2m05s');
 		expect(iterDurText({ running: true, startedAt: start }, t0 + 12_300)).toBe('12.3s');
 	});
 
 	it('advances as the clock ticks', () => {
 		const it0 = { running: true, startedAt: start };
-		expect(iterDurText(it0, t0 + 61_000)).toBe('1m 1s');
-		expect(iterDurText(it0, t0 + 62_000)).toBe('1m 2s');
+		expect(iterDurText(it0, t0 + 61_000)).toBe('1m01s');
+		expect(iterDurText(it0, t0 + 62_000)).toBe('1m02s');
 	});
 
 	it('keeps the final duration for a completed iteration, ignoring the clock', () => {
-		expect(iterDurText({ durationMs: 90_000, startedAt: start }, t0 + 999_999)).toBe('1m 30s');
+		expect(iterDurText({ durationMs: 90_000, startedAt: start }, t0 + 999_999)).toBe('1m30s');
 		expect(iterDurText({ running: false, durationMs: 4_200 })).toBe('4.2s');
 	});
 

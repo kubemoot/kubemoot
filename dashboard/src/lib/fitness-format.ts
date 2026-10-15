@@ -3,6 +3,7 @@
 
 import type { CrewFitnessSuite } from '#lib/types/kubemoot.js';
 import { NO_VALUE } from '#lib/resource-status.js';
+import { formatDuration } from '#lib/duration-format.js';
 
 export interface JudgeProgress {
 	complete: boolean;
@@ -17,10 +18,7 @@ export function suiteDurMs(s?: CrewFitnessSuite['status'], now = Date.now()): nu
 }
 
 export function fmtDur(ms?: number): string {
-	if (!ms) return NO_VALUE;
-	if (ms < 1000) return `${ms}ms`;
-	if (ms < 60_000) return `${(ms / 1000).toFixed(1)}s`;
-	return `${Math.floor(ms / 60_000)}m ${Math.floor((ms % 60_000) / 1000)}s`;
+	return (ms && formatDuration(ms)) || NO_VALUE;
 }
 
 /** An iteration row's duration: its final duration, or time since start while it runs. */
