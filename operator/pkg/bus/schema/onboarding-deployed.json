@@ -1,0 +1,12 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "OnboardingDeployed",
+  "description": "An onboarded MCP server is deployed, read on kubemoot.operator.onboarding.deployed by the documentation agent. No component in this repository publishes it yet.",
+  "type": "object",
+  "properties": {
+    "serverName": { "type": "string", "description": "The MCP server." },
+    "domain": { "type": "string", "description": "Its domain." },
+    "githubUrl": { "type": "string", "description": "The server's source repository." },
+    "docUrls": { "type": "array", "items": { "type": "string" }, "description": "Documentation to index." }
+  }
+}

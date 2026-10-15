@@ -1,0 +1,20 @@
+{
+  "messageId": "cc647f4f-22a1-48e3-87a1-a679acda3c7f",
+  "channel": "broadcast",
+  "threadId": "33627b88-c58c-4017-a483-119d2e45c712",
+  "timestamp": "2026-10-15T17:39:24.277262209Z",
+  "content": "",
+  "metadata": {
+    "modelName": "qwen3:32b",
+    "role": "analyst",
+    "inputTokens": 0,
+    "inferenceMs": 5312,
+    "signal": "stand_aside",
+    "outputTokens": 0,
+    "totalTokens": 0,
+    "gpuLabel": "ollama-rig1",
+    "inferenceStartMs": 1792085958965
+  },
+  "agentName": "nvidia-gpu-advisor",
+  "messageType": "stand_aside"
+}

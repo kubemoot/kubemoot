@@ -1,0 +1,71 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "DiscussionMessage",
+  "description": "One message on a discussion thread: a signal from an agent, a coordinator step, or a message from a person. Published on kubemoot.discuss.<namespace>.<crew>.<channel>.<threadId>, and on kubemoot.lifecycle for the waking and ready signals.",
+  "type": "object",
+  "required": ["messageId", "threadId", "agentName", "messageType"],
+  "properties": {
+    "messageId": {
+      "type": "string",
+      "description": "Unique id of this message (a UUID). A message published to two subjects carries the same id, so readers drop the second copy."
+    },
+    "threadId": {
+      "type": "string",
+      "description": "The thread the message belongs to. Empty on the lifecycle signals waking and ready, which belong to no thread."
+    },
+    "agentName": {
+      "type": "string",
+      "description": "Who sent the message: an agent's name, human for a person in the dashboard, scheduler for a scheduled follow-up, or discussion-gateway for a request the gateway could not queue."
+    },
+    "messageType": {
+      "type": "string",
+      "description": "What the message is. Agents send waking, ready, triaging, evaluating, waiting, heartbeat, and the terminal signals agree, concern, stand_aside and failure. The coordinator sends thread_start, advisory, advisory_ready, triage_result, review_ready, gap_detected, synthesis and thread_close, and failure on behalf of an agent that missed its deadline. Onboarding agents send proposal. People send thread_start, reply, thread_pause, thread_resume and stop_requested; the scheduler sends reminder. block is a consensus signal readers handle that no shipped agent sends.",
+      "enum": [
+        "thread_start",
+        "advisory",
+        "advisory_ready",
+        "triage_result",
+        "review_ready",
+        "gap_detected",
+        "synthesis",
+        "thread_close",
+        "waking",
+        "ready",
+        "triaging",
+        "evaluating",
+        "waiting",
+        "heartbeat",
+        "agree",
+        "concern",
+        "block",
+        "stand_aside",
+        "failure",
+        "proposal",
+        "reply",
+        "reminder",
+        "thread_pause",
+        "thread_resume",
+        "stop_requested"
+      ]
+    },
+    "content": {
+      "type": "string",
+      "description": "The message text: the question on thread_start, the contribution on a signal, the answer on synthesis. Large contributions are spilled to the artifact store and the content then names the artifact."
+    },
+    "channel": {
+      "type": "string",
+      "description": "The channel token of the subject the message belongs to, such as broadcast or general."
+    },
+    "timestamp": {
+      "type": "string",
+      "description": "When the message was published, RFC 3339 in UTC. Java writers send nanosecond precision, Go writers whole seconds."
+    },
+    "metadata": {
+      "$ref": "discussion-metadata.json",
+      "goJSONSchema": {
+        "type": "map[string]any",
+        "pointer": false
+      }
+    }
+  }
+}

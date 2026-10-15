@@ -1,0 +1,41 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "StreamEventBase",
+  "description": "The fields every stream event may carry. A finding and a stand-aside phase event add SignalMeta; a subcommittee event adds Subcommittee.",
+  "type": "object",
+  "required": ["type"],
+  "properties": {
+    "type": {
+      "type": "string",
+      "enum": ["connected", "heartbeat", "error", "thread_found", "phase", "finding", "subcommittee", "activity", "synthesis", "done"],
+      "description": "connected: the stream is open. heartbeat: keeps the connection open. error: the stream cannot continue. thread_found: the thread answering this turn, by threadId. phase: an agent's progress. finding: an agent's consensus signal. subcommittee: the agents the coordinator convened. activity: who is busy on the thread now. synthesis: the answer, in content. done: the thread closed."
+    },
+    "agent": { "type": "string", "description": "The agent a phase, finding or subcommittee event is about." },
+    "status": {
+      "type": "string",
+      "description": "The phase: waking, ready, triaging, evaluating, waiting, or done for an agent that stood aside."
+    },
+    "gpu": { "type": "string", "description": "The accelerator the agent runs on." },
+    "signal": {
+      "type": "string",
+      "description": "The consensus signal of a finding (agree, concern, block or failure), or stand_aside on the stand-aside phase event."
+    },
+    "summary": { "type": "string", "description": "The first line of a finding, or a concern's text." },
+    "content": { "type": "string", "description": "A finding's full contribution, or the synthesis." },
+    "threadId": { "type": "string", "description": "The thread, on thread_found." },
+    "stood_aside": { "type": "boolean", "description": "Set on the phase event of an agent that stood aside." },
+    "model": { "type": "string", "description": "The model a waiting agent waits for." },
+    "reason": { "type": "string", "description": "Why an agent waits or stood aside, such as gpu-busy." },
+    "error": { "type": "string", "description": "What went wrong, on error." },
+    "agents": {
+      "type": "array",
+      "items": { "$ref": "agent-activity.json" },
+      "description": "The busy agents, on activity."
+    },
+    "at": { "type": "string", "description": "When an activity event was taken, RFC 3339 in UTC." },
+    "timestamp": {
+      "type": "string",
+      "description": "When the discussion message behind the event was published, RFC 3339 in UTC. Events the gateway makes up itself carry none."
+    }
+  }
+}

@@ -1,0 +1,34 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ProviderState",
+  "description": "A ModelProvider's capacity as the operator last probed it, in the kubemoot_provider_state bucket, key <provider>.",
+  "type": "object",
+  "required": ["name", "endpoint", "maxParallel", "activeCount", "queueDepth", "ready", "lastProbedAt"],
+  "properties": {
+    "name": { "type": "string", "description": "The ModelProvider." },
+    "endpoint": { "type": "string", "description": "Its model server URL." },
+    "maxParallel": { "type": "integer", "description": "How many calls it serves at once; at least 1." },
+    "activeCount": { "type": "integer", "description": "Calls in progress. The operator writes 0; tickets carry the live count." },
+    "queueDepth": { "type": "integer", "description": "Calls waiting. The operator writes 0." },
+    "loadedModels": { "type": "array", "items": { "type": "string" }, "description": "Models loaded now." },
+    "ready": { "type": "boolean", "description": "Whether the provider answered its probe." },
+    "lastProbedAt": { "type": "string", "description": "When the operator wrote this entry, RFC 3339 in UTC. Readers treat an entry older than five minutes as stale." },
+    "totalVramMiB": { "type": "integer", "description": "Accelerator memory in MiB." },
+    "loadedModelFootprintsMiB": {
+      "type": "object",
+      "additionalProperties": { "type": "integer" },
+      "description": "Memory each loaded model takes, in MiB, by model."
+    },
+    "availableModelFootprintsMiB": {
+      "type": "object",
+      "additionalProperties": { "type": "integer" },
+      "description": "Size of each model the provider has but has not loaded, in MiB, by model."
+    },
+    "contextLength": { "type": "integer", "description": "The provider's default context window, in tokens." },
+    "loadedModelContextLengths": {
+      "type": "object",
+      "additionalProperties": { "type": "integer" },
+      "description": "The context window each loaded model runs with, in tokens, by model."
+    }
+  }
+}

@@ -1,0 +1,20 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ScheduledRecord",
+  "description": "A scheduled reminder or follow-up, in the kubemoot_scheduled bucket, key <scheduleId>. The operator fires it at triggerAt and deletes it.",
+  "type": "object",
+  "required": ["scheduleId", "triggerAt", "namespace", "crew"],
+  "properties": {
+    "scheduleId": { "type": "string", "description": "The schedule (a UUID)." },
+    "kind": { "type": "string", "enum": ["reminder", "followup"], "description": "What fires; absent means followup." },
+    "triggerAt": { "type": "string", "description": "When it fires, RFC 3339 in UTC." },
+    "scheduledBy": { "type": "string", "description": "Who scheduled it." },
+    "namespace": { "type": "string", "description": "The crew's namespace." },
+    "crew": { "type": "string", "description": "The crew." },
+    "channel": { "type": "string", "description": "The channel to publish on." },
+    "query": { "type": "string", "description": "The question a follow-up asks again." },
+    "message": { "type": "string", "description": "The text of a reminder." },
+    "reason": { "type": "string", "description": "Why it was scheduled." },
+    "sourceThreadId": { "type": "string", "description": "The thread it continues." }
+  }
+}

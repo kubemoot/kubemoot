@@ -1,0 +1,1060 @@
+{
+  "version": "1.0.0",
+  "surface": {
+    "agent-activity.json#": {
+      "type": "object"
+    },
+    "agent-activity.json#/agent": {
+      "type": "string",
+      "required": true
+    },
+    "agent-activity.json#/doing": {
+      "type": "string",
+      "enum": [
+        "evaluating",
+        "reasoning",
+        "synthesizing",
+        "triaging",
+        "waiting_for_accelerator",
+        "waiting_for_agents",
+        "waking"
+      ],
+      "required": true
+    },
+    "agent-activity.json#/gpu": {
+      "type": "string"
+    },
+    "agent-activity.json#/model": {
+      "type": "string"
+    },
+    "agent-activity.json#/since": {
+      "type": "string"
+    },
+    "agent-heartbeat.json#": {
+      "type": "object"
+    },
+    "agent-heartbeat.json#/agent": {
+      "type": "string",
+      "required": true
+    },
+    "agent-heartbeat.json#/intervalSeconds": {
+      "type": "integer",
+      "required": true
+    },
+    "agent-heartbeat.json#/lastInference": {
+      "type": "string"
+    },
+    "agent-heartbeat.json#/model": {
+      "type": "string",
+      "required": true
+    },
+    "agent-heartbeat.json#/nats": {
+      "type": "boolean",
+      "required": true
+    },
+    "agent-heartbeat.json#/ollama": {
+      "type": "boolean",
+      "required": true
+    },
+    "agent-heartbeat.json#/timestamp": {
+      "type": "string",
+      "required": true
+    },
+    "artifact-notice.json#": {
+      "type": "object"
+    },
+    "artifact-notice.json#/artifact": {
+      "required": true,
+      "ref": "artifact-reference.json"
+    },
+    "artifact-ref.json#": {
+      "type": "object"
+    },
+    "artifact-ref.json#/bytes": {
+      "type": "integer"
+    },
+    "artifact-ref.json#/key": {
+      "type": "string",
+      "required": true
+    },
+    "artifact-reference.json#": {
+      "type": "object"
+    },
+    "artifact-reference.json#/agent": {
+      "type": "string",
+      "required": true
+    },
+    "artifact-reference.json#/bucket": {
+      "type": "string",
+      "required": true
+    },
+    "artifact-reference.json#/bytes": {
+      "type": "integer",
+      "required": true
+    },
+    "artifact-reference.json#/createdAt": {
+      "type": "string",
+      "required": true
+    },
+    "artifact-reference.json#/key": {
+      "type": "string",
+      "required": true
+    },
+    "artifact-reference.json#/preview": {
+      "type": "string",
+      "required": true
+    },
+    "artifact-reference.json#/tool": {
+      "type": "string",
+      "required": true
+    },
+    "chat-event.json#": {
+      "type": "object"
+    },
+    "chat-event.json#/agent": {
+      "type": "string",
+      "required": true
+    },
+    "chat-event.json#/conversationId": {
+      "type": "string",
+      "required": true
+    },
+    "chat-event.json#/inputTokens": {
+      "type": "integer",
+      "required": true
+    },
+    "chat-event.json#/model": {
+      "type": "string",
+      "required": true
+    },
+    "chat-event.json#/outputTokens": {
+      "type": "integer",
+      "required": true
+    },
+    "chat-event.json#/response": {
+      "type": "string",
+      "required": true
+    },
+    "chat-event.json#/timestamp": {
+      "type": "string",
+      "required": true
+    },
+    "chat-event.json#/userMessage": {
+      "type": "string",
+      "required": true
+    },
+    "conversation-history.json#": {
+      "type": "object"
+    },
+    "conversation-history.json#/definitions/StoredTurn": {
+      "type": "object"
+    },
+    "conversation-history.json#/definitions/StoredTurn/query": {
+      "type": "string",
+      "required": true
+    },
+    "conversation-history.json#/definitions/StoredTurn/response": {
+      "type": "string",
+      "required": true
+    },
+    "conversation-history.json#/definitions/StoredTurn/threadId": {
+      "type": "string",
+      "required": true
+    },
+    "conversation-history.json#/definitions/StoredTurn/timestamp": {
+      "type": "string",
+      "required": true
+    },
+    "conversation-history.json#/lastAccessed": {
+      "type": "string",
+      "required": true
+    },
+    "conversation-history.json#/turns": {
+      "type": "array",
+      "required": true
+    },
+    "conversation-history.json#/turns[]": {
+      "ref": "#/definitions/StoredTurn"
+    },
+    "conversation-list.json#": {
+      "type": "object"
+    },
+    "conversation-list.json#/conversations": {
+      "type": "array",
+      "required": true
+    },
+    "conversation-list.json#/conversations[]": {
+      "ref": "#/definitions/ConversationSummary"
+    },
+    "conversation-list.json#/definitions/ConversationSummary": {
+      "type": "object"
+    },
+    "conversation-list.json#/definitions/ConversationSummary/conversationId": {
+      "type": "string",
+      "required": true
+    },
+    "conversation-list.json#/definitions/ConversationSummary/lastTurnAt": {
+      "type": "string",
+      "required": true
+    },
+    "conversation-list.json#/definitions/ConversationSummary/question": {
+      "type": "string"
+    },
+    "conversation-list.json#/definitions/ConversationSummary/startedAt": {
+      "type": "string",
+      "required": true
+    },
+    "conversation-list.json#/definitions/ConversationSummary/turns": {
+      "type": "integer",
+      "required": true
+    },
+    "crew-memory-fact.json#": {
+      "type": "object"
+    },
+    "crew-memory-fact.json#/learnedAt": {
+      "type": "string",
+      "required": true
+    },
+    "crew-memory-fact.json#/learnedBy": {
+      "type": "string",
+      "required": true
+    },
+    "crew-memory-fact.json#/usedAt": {
+      "type": "string"
+    },
+    "crew-memory-fact.json#/value": {
+      "type": "string",
+      "required": true
+    },
+    "crew-resumes.json#": {
+      "type": "array"
+    },
+    "crew-resumes.json#/definitions/CrewResume": {
+      "type": "object"
+    },
+    "crew-resumes.json#/definitions/CrewResume/channels": {
+      "type": "array"
+    },
+    "crew-resumes.json#/definitions/CrewResume/channels[]": {
+      "type": "string"
+    },
+    "crew-resumes.json#/definitions/CrewResume/description": {
+      "type": "string",
+      "required": true
+    },
+    "crew-resumes.json#/definitions/CrewResume/keywords": {
+      "type": "array"
+    },
+    "crew-resumes.json#/definitions/CrewResume/keywords[]": {
+      "type": "string"
+    },
+    "crew-resumes.json#/definitions/CrewResume/kind": {
+      "type": "string",
+      "enum": [
+        "skill"
+      ]
+    },
+    "crew-resumes.json#/definitions/CrewResume/name": {
+      "type": "string",
+      "required": true
+    },
+    "crew-resumes.json#/definitions/CrewResume/order": {
+      "type": "integer"
+    },
+    "crew-resumes.json#/definitions/CrewResume/prompt": {
+      "type": "string"
+    },
+    "crew-resumes.json#/definitions/CrewResume/role": {
+      "type": "string"
+    },
+    "crew-resumes.json#/definitions/CrewResume/tools": {
+      "type": "array"
+    },
+    "crew-resumes.json#/definitions/CrewResume/tools[]": {
+      "type": "string"
+    },
+    "crew-resumes.json#/definitions/CrewResume/triageSummary": {
+      "type": "string"
+    },
+    "crew-resumes.json#[]": {
+      "ref": "#/definitions/CrewResume"
+    },
+    "discussion-message.json#": {
+      "type": "object"
+    },
+    "discussion-message.json#/agentName": {
+      "type": "string",
+      "required": true
+    },
+    "discussion-message.json#/channel": {
+      "type": "string"
+    },
+    "discussion-message.json#/content": {
+      "type": "string"
+    },
+    "discussion-message.json#/messageId": {
+      "type": "string",
+      "required": true
+    },
+    "discussion-message.json#/messageType": {
+      "type": "string",
+      "enum": [
+        "advisory",
+        "advisory_ready",
+        "agree",
+        "block",
+        "concern",
+        "evaluating",
+        "failure",
+        "gap_detected",
+        "heartbeat",
+        "proposal",
+        "ready",
+        "reminder",
+        "reply",
+        "review_ready",
+        "stand_aside",
+        "stop_requested",
+        "synthesis",
+        "thread_close",
+        "thread_pause",
+        "thread_resume",
+        "thread_start",
+        "triage_result",
+        "triaging",
+        "waiting",
+        "waking"
+      ],
+      "required": true
+    },
+    "discussion-message.json#/metadata": {
+      "ref": "discussion-metadata.json"
+    },
+    "discussion-message.json#/threadId": {
+      "type": "string",
+      "required": true
+    },
+    "discussion-message.json#/timestamp": {
+      "type": "string"
+    },
+    "discussion-metadata.json#": {
+      "type": "object"
+    },
+    "discussion-metadata.json#/advisory": {
+      "type": "string"
+    },
+    "discussion-metadata.json#/agents": {
+      "type": "array"
+    },
+    "discussion-metadata.json#/agents[]": {
+      "ref": "#/definitions/TriageChoice"
+    },
+    "discussion-metadata.json#/agreeCount": {
+      "type": "integer"
+    },
+    "discussion-metadata.json#/artifact": {
+      "ref": "artifact-reference.json"
+    },
+    "discussion-metadata.json#/concernCount": {
+      "type": "integer"
+    },
+    "discussion-metadata.json#/consentAck": {
+      "type": "boolean"
+    },
+    "discussion-metadata.json#/conversationContext": {
+      "type": "array"
+    },
+    "discussion-metadata.json#/conversationContext[]": {
+      "ref": "#/definitions/ConversationTurn"
+    },
+    "discussion-metadata.json#/conversationId": {
+      "type": "string"
+    },
+    "discussion-metadata.json#/crew": {
+      "type": "string"
+    },
+    "discussion-metadata.json#/crewVersion": {
+      "type": "string"
+    },
+    "discussion-metadata.json#/definitions/ConversationTurn": {
+      "type": "object"
+    },
+    "discussion-metadata.json#/definitions/ConversationTurn/query": {
+      "type": "string",
+      "required": true
+    },
+    "discussion-metadata.json#/definitions/ConversationTurn/response": {
+      "type": "string",
+      "required": true
+    },
+    "discussion-metadata.json#/definitions/TokenCount": {
+      "type": "object"
+    },
+    "discussion-metadata.json#/definitions/TokenCount/in": {
+      "type": "integer",
+      "required": true
+    },
+    "discussion-metadata.json#/definitions/TokenCount/out": {
+      "type": "integer",
+      "required": true
+    },
+    "discussion-metadata.json#/definitions/TokenTotals": {
+      "type": "object"
+    },
+    "discussion-metadata.json#/definitions/TokenTotals{}": {
+      "ref": "#/definitions/TokenCount"
+    },
+    "discussion-metadata.json#/definitions/TriageChoice": {
+      "type": "object"
+    },
+    "discussion-metadata.json#/definitions/TriageChoice/confidence": {
+      "type": "number",
+      "required": true
+    },
+    "discussion-metadata.json#/definitions/TriageChoice/name": {
+      "type": "string",
+      "required": true
+    },
+    "discussion-metadata.json#/definitions/TriageChoice/reason": {
+      "type": "string",
+      "required": true
+    },
+    "discussion-metadata.json#/degraded": {
+      "type": "boolean"
+    },
+    "discussion-metadata.json#/evicted": {
+      "type": "array"
+    },
+    "discussion-metadata.json#/evicted[]": {
+      "type": "string"
+    },
+    "discussion-metadata.json#/exceptionClass": {
+      "type": "string"
+    },
+    "discussion-metadata.json#/failedTool": {
+      "type": "string"
+    },
+    "discussion-metadata.json#/failureCount": {
+      "type": "integer"
+    },
+    "discussion-metadata.json#/failureType": {
+      "type": "string"
+    },
+    "discussion-metadata.json#/gapDetected": {
+      "type": "boolean"
+    },
+    "discussion-metadata.json#/gapType": {
+      "type": "string",
+      "enum": [
+        "INFRASTRUCTURE_GAP",
+        "TOOLER_GAP",
+        "TOOL_GAP"
+      ]
+    },
+    "discussion-metadata.json#/gpuLabel": {
+      "type": "string"
+    },
+    "discussion-metadata.json#/inferenceMs": {
+      "type": "integer"
+    },
+    "discussion-metadata.json#/inferenceStartMs": {
+      "type": "integer"
+    },
+    "discussion-metadata.json#/innerCircle": {
+      "type": "array"
+    },
+    "discussion-metadata.json#/innerCircle[]": {
+      "type": "string"
+    },
+    "discussion-metadata.json#/inputTokens": {
+      "type": "integer"
+    },
+    "discussion-metadata.json#/kind": {
+      "type": "string"
+    },
+    "discussion-metadata.json#/lastError": {
+      "type": "string"
+    },
+    "discussion-metadata.json#/layers": {
+      "type": "array"
+    },
+    "discussion-metadata.json#/layers[]": {
+      "type": "string"
+    },
+    "discussion-metadata.json#/loadDurationMs": {
+      "type": "integer"
+    },
+    "discussion-metadata.json#/model": {
+      "type": "string"
+    },
+    "discussion-metadata.json#/modelName": {
+      "type": "string"
+    },
+    "discussion-metadata.json#/onboarding": {
+      "type": "boolean"
+    },
+    "discussion-metadata.json#/originalSourceThreadId": {
+      "type": "string"
+    },
+    "discussion-metadata.json#/outputTokens": {
+      "type": "integer"
+    },
+    "discussion-metadata.json#/overallConfidence": {
+      "type": "number"
+    },
+    "discussion-metadata.json#/pickReason": {
+      "type": "string"
+    },
+    "discussion-metadata.json#/predictorReason": {
+      "type": "string"
+    },
+    "discussion-metadata.json#/primaryChannel": {
+      "type": "string"
+    },
+    "discussion-metadata.json#/provider": {
+      "type": "string"
+    },
+    "discussion-metadata.json#/reason": {
+      "type": "string"
+    },
+    "discussion-metadata.json#/replayOf": {
+      "type": "string"
+    },
+    "discussion-metadata.json#/role": {
+      "type": "string"
+    },
+    "discussion-metadata.json#/scheduleId": {
+      "type": "string"
+    },
+    "discussion-metadata.json#/scheduledBy": {
+      "type": "string"
+    },
+    "discussion-metadata.json#/selectedSkills": {
+      "type": "array"
+    },
+    "discussion-metadata.json#/selectedSkills[]": {
+      "type": "string"
+    },
+    "discussion-metadata.json#/signal": {
+      "type": "string"
+    },
+    "discussion-metadata.json#/sourceThreadId": {
+      "type": "string"
+    },
+    "discussion-metadata.json#/standAsideCount": {
+      "type": "integer"
+    },
+    "discussion-metadata.json#/synthesizedBy": {
+      "type": "string"
+    },
+    "discussion-metadata.json#/technologies": {
+      "type": "array"
+    },
+    "discussion-metadata.json#/technologies[]": {
+      "type": "string"
+    },
+    "discussion-metadata.json#/toolGapConcerns": {
+      "type": "object"
+    },
+    "discussion-metadata.json#/toolGapConcerns{}": {
+      "type": "string"
+    },
+    "discussion-metadata.json#/toolsUsed": {
+      "type": "array"
+    },
+    "discussion-metadata.json#/toolsUsed[]": {
+      "type": "string"
+    },
+    "discussion-metadata.json#/totalTokens": {},
+    "discussion-metadata.json#/totalTokens/oneOf/0": {
+      "type": "integer"
+    },
+    "discussion-metadata.json#/totalTokens/oneOf/1": {
+      "ref": "#/definitions/TokenTotals"
+    },
+    "discussion-metadata.json#/triageConfidence": {
+      "type": "number"
+    },
+    "discussion-metadata.json#/userQuery": {
+      "type": "string"
+    },
+    "discussion-metadata.json#/wisdom": {
+      "type": "string"
+    },
+    "discussion-request.json#": {
+      "type": "object"
+    },
+    "discussion-request.json#/conversationId": {
+      "type": "string",
+      "required": true
+    },
+    "discussion-request.json#/crew": {
+      "type": "string",
+      "required": true
+    },
+    "discussion-request.json#/message": {
+      "type": "string",
+      "required": true
+    },
+    "discussion-request.json#/namespace": {
+      "type": "string",
+      "required": true
+    },
+    "discussion-request.json#/timestamp": {
+      "type": "string",
+      "required": true
+    },
+    "discussion-request.json#/use_rag": {
+      "type": "boolean",
+      "required": true
+    },
+    "discussion-request.json#/use_tools": {
+      "type": "boolean",
+      "required": true
+    },
+    "error-response.json#": {
+      "type": "object"
+    },
+    "error-response.json#/error": {
+      "type": "string",
+      "required": true
+    },
+    "latency-samples.json#": {
+      "type": "object"
+    },
+    "latency-samples.json#/samples": {
+      "type": "array",
+      "required": true
+    },
+    "latency-samples.json#/samples[]": {
+      "type": "integer"
+    },
+    "model-demand.json#": {
+      "type": "object"
+    },
+    "model-demand.json#/agent": {
+      "type": "string"
+    },
+    "model-demand.json#/expiresAt": {
+      "type": "integer",
+      "required": true
+    },
+    "model-demand.json#/kind": {
+      "type": "string",
+      "enum": [
+        "intent",
+        "sel",
+        "use",
+        "wait"
+      ],
+      "required": true
+    },
+    "model-demand.json#/lastUsedAt": {
+      "type": "integer"
+    },
+    "model-demand.json#/model": {
+      "type": "string"
+    },
+    "model-demand.json#/models": {
+      "type": "array"
+    },
+    "model-demand.json#/models[]": {
+      "type": "string"
+    },
+    "model-demand.json#/rate": {
+      "type": "number"
+    },
+    "model-demand.json#/thread": {
+      "type": "string"
+    },
+    "model-demand.json#/updatedAt": {
+      "type": "integer"
+    },
+    "onboarding-deployed.json#": {
+      "type": "object"
+    },
+    "onboarding-deployed.json#/docUrls": {
+      "type": "array"
+    },
+    "onboarding-deployed.json#/docUrls[]": {
+      "type": "string"
+    },
+    "onboarding-deployed.json#/domain": {
+      "type": "string"
+    },
+    "onboarding-deployed.json#/githubUrl": {
+      "type": "string"
+    },
+    "onboarding-deployed.json#/serverName": {
+      "type": "string"
+    },
+    "onboarding-docs-indexed.json#": {
+      "type": "object"
+    },
+    "onboarding-docs-indexed.json#/agent": {
+      "type": "string",
+      "required": true
+    },
+    "onboarding-docs-indexed.json#/domain": {
+      "type": "string",
+      "required": true
+    },
+    "onboarding-docs-indexed.json#/result": {
+      "type": "string",
+      "required": true
+    },
+    "onboarding-docs-indexed.json#/serverName": {
+      "type": "string",
+      "required": true
+    },
+    "onboarding-docs-indexed.json#/timestamp": {
+      "type": "string",
+      "required": true
+    },
+    "onboarding-progress.json#": {
+      "type": "object"
+    },
+    "onboarding-progress.json#/domain": {
+      "type": "string",
+      "required": true
+    },
+    "onboarding-progress.json#/message": {
+      "type": "string",
+      "required": true
+    },
+    "onboarding-progress.json#/stage": {
+      "type": "string",
+      "required": true
+    },
+    "onboarding-progress.json#/timestamp": {
+      "type": "string",
+      "required": true
+    },
+    "pinned-thread.json#": {
+      "type": "object"
+    },
+    "pinned-thread.json#/note": {
+      "type": "null,string",
+      "required": true
+    },
+    "pinned-thread.json#/pinnedAt": {
+      "type": "string",
+      "required": true
+    },
+    "post-discussion-request.json#": {
+      "type": "object"
+    },
+    "post-discussion-request.json#/conversationId": {
+      "type": "string"
+    },
+    "post-discussion-request.json#/message": {
+      "type": "string",
+      "required": true
+    },
+    "post-discussion-response.json#": {
+      "type": "object"
+    },
+    "post-discussion-response.json#/conversationId": {
+      "type": "string",
+      "required": true
+    },
+    "post-discussion-response.json#/requestedAt": {
+      "type": "string",
+      "required": true
+    },
+    "provider-state.json#": {
+      "type": "object"
+    },
+    "provider-state.json#/activeCount": {
+      "type": "integer",
+      "required": true
+    },
+    "provider-state.json#/availableModelFootprintsMiB": {
+      "type": "object"
+    },
+    "provider-state.json#/availableModelFootprintsMiB{}": {
+      "type": "integer"
+    },
+    "provider-state.json#/contextLength": {
+      "type": "integer"
+    },
+    "provider-state.json#/endpoint": {
+      "type": "string",
+      "required": true
+    },
+    "provider-state.json#/lastProbedAt": {
+      "type": "string",
+      "required": true
+    },
+    "provider-state.json#/loadedModelContextLengths": {
+      "type": "object"
+    },
+    "provider-state.json#/loadedModelContextLengths{}": {
+      "type": "integer"
+    },
+    "provider-state.json#/loadedModelFootprintsMiB": {
+      "type": "object"
+    },
+    "provider-state.json#/loadedModelFootprintsMiB{}": {
+      "type": "integer"
+    },
+    "provider-state.json#/loadedModels": {
+      "type": "array"
+    },
+    "provider-state.json#/loadedModels[]": {
+      "type": "string"
+    },
+    "provider-state.json#/maxParallel": {
+      "type": "integer",
+      "required": true
+    },
+    "provider-state.json#/name": {
+      "type": "string",
+      "required": true
+    },
+    "provider-state.json#/queueDepth": {
+      "type": "integer",
+      "required": true
+    },
+    "provider-state.json#/ready": {
+      "type": "boolean",
+      "required": true
+    },
+    "provider-state.json#/totalVramMiB": {
+      "type": "integer"
+    },
+    "provider-ticket.json#": {
+      "type": "object"
+    },
+    "provider-ticket.json#/claimedAt": {
+      "type": "string"
+    },
+    "provider-ticket.json#/evicts": {
+      "type": "object"
+    },
+    "provider-ticket.json#/evicts{}": {
+      "type": "integer"
+    },
+    "provider-ticket.json#/holderId": {
+      "type": "string"
+    },
+    "provider-ticket.json#/kvCacheFootprintMiB": {
+      "type": "integer"
+    },
+    "provider-ticket.json#/modelFootprintMiB": {
+      "type": "integer",
+      "required": true
+    },
+    "provider-ticket.json#/modelName": {
+      "type": "string"
+    },
+    "provider-ticket.json#/provider": {
+      "type": "string",
+      "required": true
+    },
+    "provider-ticket.json#/ticketId": {
+      "type": "string"
+    },
+    "scheduled-record.json#": {
+      "type": "object"
+    },
+    "scheduled-record.json#/channel": {
+      "type": "string"
+    },
+    "scheduled-record.json#/crew": {
+      "type": "string",
+      "required": true
+    },
+    "scheduled-record.json#/kind": {
+      "type": "string",
+      "enum": [
+        "followup",
+        "reminder"
+      ]
+    },
+    "scheduled-record.json#/message": {
+      "type": "string"
+    },
+    "scheduled-record.json#/namespace": {
+      "type": "string",
+      "required": true
+    },
+    "scheduled-record.json#/query": {
+      "type": "string"
+    },
+    "scheduled-record.json#/reason": {
+      "type": "string"
+    },
+    "scheduled-record.json#/scheduleId": {
+      "type": "string",
+      "required": true
+    },
+    "scheduled-record.json#/scheduledBy": {
+      "type": "string"
+    },
+    "scheduled-record.json#/sourceThreadId": {
+      "type": "string"
+    },
+    "scheduled-record.json#/triggerAt": {
+      "type": "string",
+      "required": true
+    },
+    "signal-meta.json#": {
+      "type": "object"
+    },
+    "signal-meta.json#/artifact": {
+      "ref": "artifact-ref.json"
+    },
+    "signal-meta.json#/failedTool": {
+      "type": "string"
+    },
+    "signal-meta.json#/failureCount": {
+      "type": "integer"
+    },
+    "signal-meta.json#/failureType": {
+      "type": "string"
+    },
+    "signal-meta.json#/inferenceMs": {
+      "type": "integer"
+    },
+    "signal-meta.json#/inputTokens": {
+      "type": "integer"
+    },
+    "signal-meta.json#/lastError": {
+      "type": "string"
+    },
+    "signal-meta.json#/modelName": {
+      "type": "string"
+    },
+    "signal-meta.json#/outputTokens": {
+      "type": "integer"
+    },
+    "signal-meta.json#/toolsUsed": {
+      "type": "array"
+    },
+    "signal-meta.json#/toolsUsed[]": {
+      "type": "string"
+    },
+    "signal-meta.json#/totalTokens": {
+      "type": "integer"
+    },
+    "stream-event-base.json#": {
+      "type": "object"
+    },
+    "stream-event-base.json#/agent": {
+      "type": "string"
+    },
+    "stream-event-base.json#/agents": {
+      "type": "array"
+    },
+    "stream-event-base.json#/agents[]": {
+      "ref": "agent-activity.json"
+    },
+    "stream-event-base.json#/at": {
+      "type": "string"
+    },
+    "stream-event-base.json#/content": {
+      "type": "string"
+    },
+    "stream-event-base.json#/error": {
+      "type": "string"
+    },
+    "stream-event-base.json#/gpu": {
+      "type": "string"
+    },
+    "stream-event-base.json#/model": {
+      "type": "string"
+    },
+    "stream-event-base.json#/reason": {
+      "type": "string"
+    },
+    "stream-event-base.json#/signal": {
+      "type": "string"
+    },
+    "stream-event-base.json#/status": {
+      "type": "string"
+    },
+    "stream-event-base.json#/stood_aside": {
+      "type": "boolean"
+    },
+    "stream-event-base.json#/summary": {
+      "type": "string"
+    },
+    "stream-event-base.json#/threadId": {
+      "type": "string"
+    },
+    "stream-event-base.json#/timestamp": {
+      "type": "string"
+    },
+    "stream-event-base.json#/type": {
+      "type": "string",
+      "enum": [
+        "activity",
+        "connected",
+        "done",
+        "error",
+        "finding",
+        "heartbeat",
+        "phase",
+        "subcommittee",
+        "synthesis",
+        "thread_found"
+      ],
+      "required": true
+    },
+    "stream-event.json#": {},
+    "stream-event.json#/allOf/0": {
+      "ref": "stream-event-base.json"
+    },
+    "stream-event.json#/allOf/1": {
+      "ref": "signal-meta.json"
+    },
+    "stream-event.json#/allOf/2": {
+      "ref": "subcommittee.json"
+    },
+    "subcommittee.json#": {
+      "type": "object"
+    },
+    "subcommittee.json#/allAgents": {
+      "type": "boolean"
+    },
+    "subcommittee.json#/brief": {
+      "type": "string"
+    },
+    "subcommittee.json#/confidence": {
+      "type": "number"
+    },
+    "subcommittee.json#/definitions/SubcommitteeMember": {
+      "type": "object"
+    },
+    "subcommittee.json#/definitions/SubcommitteeMember/agent": {
+      "type": "string",
+      "required": true
+    },
+    "subcommittee.json#/definitions/SubcommitteeMember/confidence": {
+      "type": "number"
+    },
+    "subcommittee.json#/definitions/SubcommitteeMember/reason": {
+      "type": "string"
+    },
+    "subcommittee.json#/members": {
+      "type": "array"
+    },
+    "subcommittee.json#/members[]": {
+      "ref": "#/definitions/SubcommitteeMember"
+    },
+    "subcommittee.json#/source": {
+      "type": "string",
+      "enum": [
+        "advisory",
+        "triage"
+      ]
+    },
+    "subcommittee.json#/technologies": {
+      "type": "array"
+    },
+    "subcommittee.json#/technologies[]": {
+      "type": "string"
+    }
+  }
+}

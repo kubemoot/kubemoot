@@ -1,0 +1,37 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "DiscussionRequest",
+  "description": "A question queued for a crew on kubemoot.request.<namespace>.<crew>. The crew's coordinator takes requests one at a time and starts a thread for each.",
+  "type": "object",
+  "required": ["message", "conversationId", "namespace", "crew", "timestamp", "use_rag", "use_tools"],
+  "properties": {
+    "message": {
+      "type": "string",
+      "description": "The question."
+    },
+    "conversationId": {
+      "type": "string",
+      "description": "The conversation the question continues, or a new one."
+    },
+    "namespace": {
+      "type": "string",
+      "description": "The crew's namespace."
+    },
+    "crew": {
+      "type": "string",
+      "description": "The crew. The coordinator publishes the thread under this crew."
+    },
+    "timestamp": {
+      "type": "string",
+      "description": "When the request was queued, RFC 3339 in UTC."
+    },
+    "use_rag": {
+      "type": "boolean",
+      "description": "Whether the crew may use knowledge retrieval. The coordinator reads it and does not act on it."
+    },
+    "use_tools": {
+      "type": "boolean",
+      "description": "Whether the crew may use tools. The coordinator reads it and does not act on it."
+    }
+  }
+}

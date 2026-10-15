@@ -1,0 +1,32 @@
+{
+  "messageId": "6209c7f1-00e7-4209-886d-3d04dca60acf",
+  "channel": "broadcast",
+  "threadId": "33627b88-c58c-4017-a483-119d2e45c712",
+  "timestamp": "2026-10-15T17:40:28.187411979Z",
+  "content": "The Proxmox node data shows:\n\n1. **rig2** (Online)\n   - CPU: 0.057 of 24 cores (2.38% usage)\n   - Memory: 86.7GB of 93.4GB (92.8% usage)\n   - Storage: 12.8TB of 96.4TB (13.3% usage)\n   - Uptime: 2,911",
+  "metadata": {
+    "role": "analyst",
+    "pickReason": "warm (resident, reuse) | bootstrap (3 samples)",
+    "inputTokens": 11141,
+    "inferenceMs": 69221,
+    "totalTokens": 12901,
+    "inferenceStartMs": 1792085958965,
+    "modelName": "qwen3:32b",
+    "provider": "ollama-gpu",
+    "toolsUsed": [
+      "artifact_head",
+      "artifact_tail",
+      "artifact_grep",
+      "artifact_count",
+      "artifact_rows",
+      "artifact_select",
+      "artifact_jq"
+    ],
+    "model": "qwen3:32b",
+    "signal": "agree",
+    "outputTokens": 1760,
+    "gpuLabel": "ollama-gpu"
+  },
+  "agentName": "obs-advisor",
+  "messageType": "agree"
+}

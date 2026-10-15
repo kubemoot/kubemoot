@@ -1,0 +1,23 @@
+{
+  "type": "finding",
+  "agent": "obs-advisor",
+  "gpu": "ollama-gpu",
+  "signal": "agree",
+  "summary": "The Proxmox node data shows:",
+  "content": "The Proxmox node data shows:\n\n1. **rig2** (Online)\n   - CPU: 0.057 of 24 cores (2.38% usage)\n   - Memory: 86.7GB of 93.4GB (92.8% usage)\n   - Storage: 12.8TB of 96.4TB (13.3% usage)\n   - Uptime: 2,911",
+  "timestamp": "2026-10-15T17:40:28.187411979Z",
+  "modelName": "qwen3:32b",
+  "inputTokens": 11141,
+  "outputTokens": 1760,
+  "totalTokens": 12901,
+  "inferenceMs": 69221,
+  "toolsUsed": [
+    "artifact_head",
+    "artifact_tail",
+    "artifact_grep",
+    "artifact_count",
+    "artifact_rows",
+    "artifact_select",
+    "artifact_jq"
+  ]
+}

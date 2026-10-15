@@ -1,0 +1,10 @@
+{
+  "kind": "sel",
+  "rate": 1.00019670369335,
+  "updatedAt": 1792093345986,
+  "expiresAt": 1792114945986,
+  "models": [
+    "qwen3:32b",
+    "qwen3:14b"
+  ]
+}

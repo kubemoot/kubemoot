@@ -1,0 +1,23 @@
+{
+  "messageId": "4c088283-3012-43ad-a435-e5fb1a583be3",
+  "channel": "broadcast",
+  "threadId": "33627b88-c58c-4017-a483-119d2e45c712",
+  "timestamp": "2026-10-15T17:39:00.869203797Z",
+  "content": "Technologies: proxmox. List Proxmox nodes with their status, including node names, online/offline status, storage usage, and network configuration. Use proxmox-list-nodes and proxmox-node-status to ga",
+  "metadata": {
+    "technologies": [
+      "proxmox"
+    ],
+    "triageConfidence": 0.9,
+    "modelName": "qwen3:32b",
+    "advisory": "List Proxmox nodes with their status, including node names, online/offline status, storage usage, and network configuration. Use proxmox-list-nodes and proxmox-node-status to gather details about each",
+    "innerCircle": [
+      "proxmox-pve"
+    ],
+    "userQuery": "Describe the proxmox nodes.",
+    "primaryChannel": "proxmox",
+    "gpuLabel": "ollama-rig0"
+  },
+  "agentName": "homelab-coordinator",
+  "messageType": "advisory_ready"
+}

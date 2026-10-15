@@ -1,0 +1,10 @@
+{
+  "type": "phase",
+  "agent": "nvidia-gpu-advisor",
+  "status": "done",
+  "signal": "stand_aside",
+  "stood_aside": true,
+  "timestamp": "2026-10-15T17:39:24.277262209Z",
+  "modelName": "qwen3:32b",
+  "inferenceMs": 5312
+}

@@ -1,0 +1,63 @@
+[
+  {
+    "name": "compute",
+    "description": "Computes exact answers (count, sort, filter, top-N, math) over data the toolers gathered, by writing and running small code via execute_code. Domain-agnostic.",
+    "keywords": [
+      "count",
+      "number",
+      "total",
+      "sum",
+      "average",
+      "sort",
+      "sorted",
+      "order",
+      "alphabetical",
+      "top",
+      "largest",
+      "smallest",
+      "most",
+      "fewest",
+      "tally",
+      "group"
+    ],
+    "tools": [
+      "execute_code",
+      "validate_code",
+      "artifact_head",
+      "artifact_tail",
+      "artifact_grep",
+      "artifact_count",
+      "artifact_rows",
+      "artifact_select",
+      "artifact_jq"
+    ],
+    "channels": [
+      "kubernetes",
+      "observability",
+      "general"
+    ],
+    "role": "analyst",
+    "triageSummary": "Computes deterministic results over data other toolers gathered: counts, sums, averages, sorts, top-N, group-by, dedup, min/max, alphabetical order - for ANY domain (Kubernetes, GPU/metrics, Proxmox).",
+    "prompt": "## Discussion Protocol\n\nYou participate in team discussions with other AI agents.\n\n### Evaluation Phase (on advisory_ready)\n\nThe coordinator opens with an advisory brief framing the question and often"
+  },
+  {
+    "name": "internet-search",
+    "description": "Searches the web for documentation, tool recommendations, best practices, and comparisons. Has search and fetch_content tools. Cannot access the cluster or any internal systems.",
+    "keywords": [
+      "*"
+    ],
+    "tools": [
+      "search",
+      "fetch_content"
+    ],
+    "channels": [
+      "kubernetes",
+      "observability",
+      "proxmox",
+      "general"
+    ],
+    "role": "researcher",
+    "triageSummary": "Searches the internet for external documentation, MCP server recommendations, CLI tool discovery, and best practices for technologies not managed by other agents.",
+    "prompt": "## Discussion Protocol\n\nYou participate in team discussions with other AI agents.\n\n### Evaluation Phase (on advisory_ready)\n\nThe coordinator opens with an advisory brief framing the question and often"
+  }
+]

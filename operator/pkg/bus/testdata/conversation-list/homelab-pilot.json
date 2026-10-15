@@ -1,0 +1,18 @@
+{
+  "conversations": [
+    {
+      "conversationId": "ee25e465-44f5-4c0e-8aa2-32f099b7d3f5",
+      "question": "Describe the proxmox nodes.",
+      "startedAt": "2026-10-15T19:41:53Z",
+      "lastTurnAt": "2026-10-15T19:41:53Z",
+      "turns": 1
+    },
+    {
+      "conversationId": "6733c361-aa0c-4bde-85c6-e143af23b251",
+      "question": "Describe the proxmox nodes.",
+      "startedAt": "2026-10-15T17:38:46Z",
+      "lastTurnAt": "2026-10-15T17:38:46Z",
+      "turns": 1
+    }
+  ]
+}

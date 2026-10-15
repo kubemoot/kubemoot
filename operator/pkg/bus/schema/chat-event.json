@@ -1,0 +1,17 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ChatEvent",
+  "description": "One direct chat exchange with an agent, published on kubemoot.chat.<namespace>.<agent> with hyphens in the agent name replaced by underscores.",
+  "type": "object",
+  "required": ["agent", "conversationId", "userMessage", "response", "model", "inputTokens", "outputTokens", "timestamp"],
+  "properties": {
+    "agent": { "type": "string", "description": "The agent." },
+    "conversationId": { "type": "string", "description": "The chat conversation." },
+    "userMessage": { "type": "string", "description": "The person's message, truncated." },
+    "response": { "type": "string", "description": "The agent's answer, truncated." },
+    "model": { "type": "string", "description": "The model that answered." },
+    "inputTokens": { "type": "integer", "description": "Input tokens of the call." },
+    "outputTokens": { "type": "integer", "description": "Output tokens of the call." },
+    "timestamp": { "type": "string", "description": "When the exchange finished, RFC 3339 in UTC." }
+  }
+}

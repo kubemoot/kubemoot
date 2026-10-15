@@ -1,0 +1,20 @@
+{
+  "messageId": "9fb417b5-e379-45b7-af2e-f2642f606f73",
+  "channel": "broadcast",
+  "threadId": "33627b88-c58c-4017-a483-119d2e45c712",
+  "timestamp": "2026-10-15T17:39:00.871994989Z",
+  "content": "Queued for triage assessment",
+  "metadata": {
+    "modelName": "qwen3:14b",
+    "role": "tooler",
+    "inputTokens": 0,
+    "inferenceMs": 0,
+    "signal": "triaging",
+    "outputTokens": 0,
+    "totalTokens": 0,
+    "gpuLabel": "ollama-rig1",
+    "inferenceStartMs": 1792085940871
+  },
+  "agentName": "proxmox-pve",
+  "messageType": "triaging"
+}

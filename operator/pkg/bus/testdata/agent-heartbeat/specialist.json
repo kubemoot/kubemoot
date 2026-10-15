@@ -1,0 +1,8 @@
+{
+  "agent": "proxmox-pve",
+  "timestamp": "2026-10-15T21:24:44.058955679Z",
+  "nats": true,
+  "ollama": true,
+  "model": "qwen3:14b",
+  "intervalSeconds": 60
+}

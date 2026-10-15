@@ -1,0 +1,28 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ConversationHistory",
+  "description": "The turns of a conversation, in the kubemoot_conversations bucket, key conv.<conversationId>. The coordinator gives earlier turns to the agents as context.",
+  "type": "object",
+  "required": ["lastAccessed", "turns"],
+  "properties": {
+    "lastAccessed": { "type": "string", "description": "When the conversation was last used, RFC 3339 in UTC." },
+    "turns": {
+      "type": "array",
+      "items": { "$ref": "#/definitions/StoredTurn" },
+      "description": "The latest turns, oldest first."
+    }
+  },
+  "definitions": {
+    "StoredTurn": {
+      "title": "StoredTurn",
+      "type": "object",
+      "required": ["query", "response", "threadId", "timestamp"],
+      "properties": {
+        "query": { "type": "string", "description": "The question." },
+        "response": { "type": "string", "description": "The answer." },
+        "threadId": { "type": "string", "description": "The thread that answered it." },
+        "timestamp": { "type": "string", "description": "When it was answered, RFC 3339 in UTC." }
+      }
+    }
+  }
+}

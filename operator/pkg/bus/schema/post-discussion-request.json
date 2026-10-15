@@ -1,0 +1,11 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "PostDiscussionRequest",
+  "description": "The body of POST /api/v1/discussions/{crew}: a question for the crew.",
+  "type": "object",
+  "required": ["message"],
+  "properties": {
+    "message": { "type": "string", "description": "The question; must not be blank." },
+    "conversationId": { "type": "string", "description": "The conversation to continue. Without it, the gateway starts a new one." }
+  }
+}

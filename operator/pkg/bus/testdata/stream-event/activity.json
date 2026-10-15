@@ -1,0 +1,18 @@
+{
+  "type": "activity",
+  "agents": [
+    {
+      "agent": "nvidia-gpu-advisor",
+      "doing": "triaging",
+      "gpu": "ollama-rig1",
+      "since": "2026-10-15T17:39:18Z"
+    },
+    {
+      "agent": "obs-advisor",
+      "doing": "triaging",
+      "gpu": "ollama-rig1",
+      "since": "2026-10-15T17:39:18Z"
+    }
+  ],
+  "at": "2026-10-15T17:39:18Z"
+}

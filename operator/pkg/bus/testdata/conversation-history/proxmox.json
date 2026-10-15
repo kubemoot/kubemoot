@@ -1,0 +1,11 @@
+{
+  "lastAccessed": "2026-10-15T17:43:27.909512857Z",
+  "turns": [
+    {
+      "query": "Describe the proxmox nodes.",
+      "response": "The Proxmox cluster consists of three online nodes: **rig0**, **rig1**, and **rig2**. Here's a detailed overview:\n\n---\n\n### **rig0**\n- **Status**: Online  \n- **CPU**: 9.76% usage (0.0976 of 32 cores) ",
+      "threadId": "33627b88-c58c-4017-a483-119d2e45c712",
+      "timestamp": "2026-10-15T17:43:27.909509506Z"
+    }
+  ]
+}

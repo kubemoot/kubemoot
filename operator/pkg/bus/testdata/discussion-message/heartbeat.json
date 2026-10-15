@@ -1,0 +1,20 @@
+{
+  "messageId": "d928af86-7c5b-442a-a25b-f37501304f15",
+  "channel": "broadcast",
+  "threadId": "33627b88-c58c-4017-a483-119d2e45c712",
+  "timestamp": "2026-10-15T17:39:41.354181938Z",
+  "content": "Queued or running inference",
+  "metadata": {
+    "modelName": "qwen3:32b",
+    "role": "analyst",
+    "inputTokens": 0,
+    "inferenceMs": 0,
+    "signal": "heartbeat",
+    "outputTokens": 0,
+    "totalTokens": 0,
+    "gpuLabel": "ollama-rig0",
+    "inferenceStartMs": 0
+  },
+  "agentName": "obs-advisor",
+  "messageType": "heartbeat"
+}

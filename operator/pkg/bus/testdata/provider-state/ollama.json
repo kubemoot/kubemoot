@@ -1,0 +1,17 @@
+{
+  "name": "ollama-rig1",
+  "endpoint": "http://ollama.ollama-rig1:11434",
+  "maxParallel": 4,
+  "activeCount": 0,
+  "queueDepth": 0,
+  "ready": true,
+  "lastProbedAt": "2026-10-15T21:25:33Z",
+  "totalVramMiB": 24563,
+  "availableModelFootprintsMiB": {
+    "mxbai-embed-large:latest": 638,
+    "qwen3:14b": 8846,
+    "qwen3:32b": 19265,
+    "qwen3:8b": 4983
+  },
+  "contextLength": 8192
+}

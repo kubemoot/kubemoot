@@ -1,0 +1,20 @@
+{
+  "messageId": "8d401be3-2155-4f48-bd0c-e594a6445658",
+  "channel": "broadcast",
+  "threadId": "33627b88-c58c-4017-a483-119d2e45c712",
+  "timestamp": "2026-10-15T17:39:05.289139297Z",
+  "content": "Running tool-calling evaluation",
+  "metadata": {
+    "modelName": "qwen3:14b",
+    "role": "tooler",
+    "inputTokens": 0,
+    "inferenceMs": 4417,
+    "signal": "evaluating",
+    "outputTokens": 0,
+    "totalTokens": 0,
+    "gpuLabel": "ollama-rig0",
+    "inferenceStartMs": 1792085940872
+  },
+  "agentName": "proxmox-pve",
+  "messageType": "evaluating"
+}
