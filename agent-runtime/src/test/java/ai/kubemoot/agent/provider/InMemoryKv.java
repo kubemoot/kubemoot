@@ -8,32 +8,30 @@ import io.nats.client.api.KeyValueEntry;
 import java.util.ArrayList;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicLong;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
-/** A thread-safe in-memory NATS KV bucket (keys, get, create, put, delete) behind Mockito mocks. */
+/**
+ * A thread-safe in-memory NATS KV bucket (keys, get, create, put, delete) behind Mockito mocks.
+ * Every write gets the next revision, as a JetStream stream sequence does.
+ */
 public final class InMemoryKv {
 
     public final Map<String, byte[]> data = new ConcurrentHashMap<>();
     public final KeyValue kv = mock(KeyValue.class);
+    private final Map<String, Long> revisions = new ConcurrentHashMap<>();
+    private final AtomicLong sequence = new AtomicLong();
 
     public InMemoryKv() {
         try {
             when(kv.keys()).thenAnswer(inv -> new ArrayList<>(data.keySet()));
-            when(kv.get(anyString())).thenAnswer(inv -> entry(data.get((String) inv.getArgument(0))));
-            when(kv.create(anyString(), any(byte[].class))).thenAnswer(inv -> {
-                if (data.putIfAbsent(inv.getArgument(0), inv.getArgument(1)) != null) {
-                    throw new IllegalStateException("key exists");
-                }
-                return 1L;
-            });
-            when(kv.put(anyString(), any(byte[].class))).thenAnswer(inv -> {
-                data.put(inv.getArgument(0), inv.getArgument(1));
-                return 1L;
-            });
+            when(kv.get(anyString())).thenAnswer(inv -> entry(inv.getArgument(0)));
+            when(kv.create(anyString(), any(byte[].class))).thenAnswer(inv -> write(inv.getArgument(0), inv.getArgument(1), true));
+            when(kv.put(anyString(), any(byte[].class))).thenAnswer(inv -> write(inv.getArgument(0), inv.getArgument(1), false));
             doAnswer(inv -> data.remove((String) inv.getArgument(0))).when(kv).delete(anyString());
         } catch (Exception e) {
             throw new IllegalStateException(e);
@@ -50,12 +48,25 @@ public final class InMemoryKv {
         return info;
     }
 
-    private static KeyValueEntry entry(byte[] value) {
+    /** Stores the value under the next revision; a create of an existing key fails. */
+    private synchronized long write(String key, byte[] value, boolean create) {
+        if (create && data.containsKey(key)) {
+            throw new IllegalStateException("key exists");
+        }
+        long revision = sequence.incrementAndGet();
+        revisions.put(key, revision);
+        data.put(key, value);
+        return revision;
+    }
+
+    private KeyValueEntry entry(String key) {
+        byte[] value = data.get(key);
         if (value == null) {
             return null;
         }
         KeyValueEntry e = mock(KeyValueEntry.class);
         when(e.getValue()).thenReturn(value);
+        when(e.getRevision()).thenReturn(revisions.getOrDefault(key, 0L));
         return e;
     }
 
