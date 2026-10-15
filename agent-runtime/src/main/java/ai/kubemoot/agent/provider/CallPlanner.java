@@ -101,6 +101,14 @@ public class CallPlanner {
 
     /** A claimed placement. {@code evicted} lists the models unloaded to make room. */
     public record Placement(Pick pick, String model, long footprintMiB, List<String> evicted) {
+        /**
+         * True when the placement joined a busy copy without a counted call slot (a
+         * fallback queue), as opposed to a slot it holds or a load it starts.
+         */
+        public boolean queued() {
+            return pick.queued();
+        }
+
         /** True when the model is not resident on the chosen provider yet. */
         public boolean coldLoad() {
             return !pick.provider().hasModelLoaded(model);

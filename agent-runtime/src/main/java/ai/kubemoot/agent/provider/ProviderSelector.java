@@ -621,7 +621,9 @@ public class ProviderSelector {
                 log.debug("JIT pick: provider={} model={} warm={} claim={}MiB kv={}MiB slots={}/{} (attempt={})",
                         c.provider().name(), modelName, c.warm(), claimFootprint, kvForThisCall,
                         c.activeCount() + 1, c.provider().maxParallel(), attempt + 1);
-                return Optional.of(new Pick(c.provider(), ticket.get(), c.score()));
+                // queued: joined a warm (resident or loading) copy without a verified slot.
+                return Optional.of(new Pick(c.provider(), ticket.get(), c.score(),
+                        c.warm() && !request.mode().verifiesSlot(c)));
             }
         }
         return Optional.empty();

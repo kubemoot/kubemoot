@@ -1299,8 +1299,7 @@ public class ChatService {
             return new MullingPick(chatModel, "", java.util.Optional.empty(),
                     STATIC_FALLBACK, staticModel, staticEndpoint, 0L);
         }
-        var placed = heldPlacement(threadId, states, promptTokens(promptCharCount))
-                .or(() -> placeCall(states, promptCharCount));
+        var placed = heldOrPlaced(threadId, states, promptCharCount);
         MullingPick pick = placed.isPresent() ? placed.get()
                 : waitForCapacity(staticModel, coldLoadFootprintMiB, promptCharCount, wait);
         callPlanner.callStarted(threadId, pick.modelName());
@@ -1309,26 +1308,37 @@ public class ChatService {
 
     /**
      * The placement planned for this thread when the coordinator selected the
-     * agent, when its provider is still ready and its context holds the prompt
-     * (the plan was made before the prompt existed); otherwise its claim is
-     * released and the call plans afresh.
+     * agent, when it still serves the call ({@link #heldStillServes}); otherwise its
+     * claim is released and the call is placed against the state read now.
      */
-    private java.util.Optional<MullingPick> heldPlacement(String threadId, java.util.List<ProviderState> states,
-                                                          long promptTokens) {
+    private java.util.Optional<MullingPick> heldOrPlaced(String threadId, java.util.List<ProviderState> states,
+                                                         int promptCharCount) {
         var held = callPlanner.takeHeld(threadId);
-        if (held.isEmpty()) {
-            return java.util.Optional.empty();
+        if (held.isPresent() && heldStillServes(held.get(), states, promptTokens(promptCharCount))) {
+            log.info("Using the placement planned at selection: {} on {}", held.get().model(),
+                    held.get().pick().provider().name());
+            return java.util.Optional.of(fromPlacement(held.get()));
         }
-        String provider = held.get().pick().provider().name();
-        String model = held.get().model();
-        boolean usable = states.stream().anyMatch(p -> p.name().equals(provider) && p.ready()
-                && ai.kubemoot.agent.provider.ContextFit.holds(p, model, promptTokens));
-        if (!usable) {
-            ticketManager.release(held.get().pick().ticket());
-            return java.util.Optional.empty();
-        }
-        log.info("Using the placement planned at selection: {} on {}", held.get().model(), provider);
-        return java.util.Optional.of(fromPlacement(held.get()));
+        held.ifPresent(h -> ticketManager.release(h.pick().ticket()));
+        var placed = placeCall(states, promptCharCount);
+        held.filter(CallPlanner.Placement::queued).ifPresent(h -> log.info(
+                "Re-planned the queue planned at selection ({} on {}): {}", h.model(), h.pick().provider().name(),
+                placed.map(p -> p.modelName() + " on " + p.providerName()).orElse("no room now, waiting for capacity")));
+        return placed;
+    }
+
+    /**
+     * A held plan serves the call when its provider is still ready, its context
+     * holds the prompt (the plan was made before the prompt existed), and it owns
+     * a call slot or a load it started. A plan that only queued on a busy copy is
+     * placed again: the calls that held that copy's slots at selection may have
+     * finished, or another model may have room now.
+     */
+    private static boolean heldStillServes(CallPlanner.Placement held, java.util.List<ProviderState> states,
+                                           long promptTokens) {
+        String provider = held.pick().provider().name();
+        return !held.queued() && states.stream().anyMatch(p -> p.name().equals(provider) && p.ready()
+                && ai.kubemoot.agent.provider.ContextFit.holds(p, held.model(), promptTokens));
     }
 
     /**

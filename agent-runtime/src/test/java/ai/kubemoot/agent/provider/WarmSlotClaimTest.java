@@ -286,6 +286,8 @@ class WarmSlotClaimTest {
         assertEquals(GPU, second.pick().provider().name(),
                 "the 32b fits only the gpu, so queueing at its copy is the cheapest placement");
         assertEquals(2, ticketsOn(bucket, GPU), "the queued call holds a ticket, so the next estimate counts it");
+        assertFalse(first.queued(), "the first call holds the 32b's slot");
+        assertTrue(second.queued(), "the second waits behind it");
     }
 
     // ---- joining a copy that is still loading ----
@@ -330,6 +332,8 @@ class WarmSlotClaimTest {
 
         assertEquals(GPU, loader.pick().provider().name());
         assertEquals(BIG_MODEL, loader.model());
+        assertFalse(loader.queued(), "a load the call starts is not a queue");
+        assertTrue(joiners.stream().map(Optional::orElseThrow).noneMatch(CallPlanner.Placement::queued));
         assertTrue(joiners.stream().allMatch(Optional::isPresent));
         assertEquals(3, placedOn(joiners, RIG1).size(), "no joiner queues behind the gpu's one slot");
         assertTrue(placedOn(joiners, RIG1).stream().allMatch(p -> SMALL_MODEL.equals(p.model())));
@@ -366,6 +370,7 @@ class WarmSlotClaimTest {
                 concurrently(3, () -> planner.place(request(List.of(), states)));
 
         assertEquals(3, placedOn(placed, GPU).size(), "queueing at the loading copy is the last resort");
+        assertTrue(placedOn(placed, GPU).stream().allMatch(CallPlanner.Placement::queued));
         assertEquals(4, ticketsOn(bucket, GPU));
         assertEquals(0, ticketsOn(bucket, RIG1));
     }

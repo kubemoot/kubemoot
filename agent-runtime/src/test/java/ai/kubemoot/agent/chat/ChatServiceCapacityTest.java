@@ -241,6 +241,78 @@ class ChatServiceCapacityTest {
         verify(tickets).release(any());
     }
 
+    /** A pick that joined a busy copy without a counted slot, as the weighted cost's queue does. */
+    private static Pick queuedPickOn(ProviderState p) {
+        return new Pick(p, new Ticket("t-queued", p.name(), 512, "test", "2026-09-27T00:00:00Z"),
+                ai.kubemoot.agent.provider.FitScore.yes(0L, "warm"), true);
+    }
+
+    private static ChatService.ChatRequest onThread(String threadId) {
+        return new ChatService.ChatRequest("conv", "q", null, threadId, "q");
+    }
+
+    @Test
+    void queuedPlanMadeAtSelection_isPlacedAgain_andLandsOnAnAlternativeWithAFreeSlot() {
+        var rig = provider(32_768);
+        var queued = queuedPickOn(rig);
+        when(selector.readState()).thenReturn(List.of(rig));
+        when(selector.pickAndClaimWarm(eq(PREFERRED), anyLong(), anyLong(), anyLong())).thenReturn(Optional.empty());
+        when(selector.pickAndClaimWarm(eq(WARM_CANDIDATE), anyLong(), anyLong(), anyLong()))
+                .thenReturn(Optional.empty(), Optional.of(pickOn(rig)));
+        when(selector.pickAndClaim(eq(PREFERRED), anyLong(), anyLong(), anyLong())).thenReturn(Optional.of(queued));
+        poolServes(WARM_CANDIDATE, answering("alternative answer"));
+        var service = service(null, candidates(70, 60));
+
+        service.commitToThread("t-queue", System.currentTimeMillis());
+        var result = service.directChat(onThread("t-queue"), true, CapacityWait.NONE);
+
+        assertEquals("alternative answer", result.response());
+        assertEquals(WARM_CANDIDATE, result.model(), "the slot freed after selection is used");
+        verify(tickets).release(queued.ticket());
+        verify(selector, times(1)).pickAndClaim(eq(PREFERRED), anyLong(), anyLong(), anyLong());
+    }
+
+    @Test
+    void planOwningASlot_isUsedUnchanged_evenWhenAnAlternativeHasRoomAtCallTime() {
+        var rig = provider(32_768);
+        var owned = pickOn(rig);
+        when(selector.readState()).thenReturn(List.of(rig));
+        when(selector.pickAndClaimWarm(eq(PREFERRED), anyLong(), anyLong(), anyLong())).thenReturn(Optional.of(owned));
+        when(selector.pickAndClaimWarm(eq(WARM_CANDIDATE), anyLong(), anyLong(), anyLong()))
+                .thenReturn(Optional.of(pickOn(rig)));
+        poolServes(PREFERRED, answering("planned answer"));
+        var service = service(null, candidates(70, 60));
+
+        service.commitToThread("t-slot", System.currentTimeMillis());
+        var result = service.directChat(onThread("t-slot"), true, CapacityWait.NONE);
+
+        assertEquals(PREFERRED, result.model());
+        verify(selector, times(1)).pickAndClaimWarm(eq(PREFERRED), anyLong(), anyLong(), anyLong());
+        verify(selector, never()).pickAndClaimWarm(eq(WARM_CANDIDATE), anyLong(), anyLong(), anyLong());
+    }
+
+    @Test
+    void queuedPlan_withStillNoRoomAtCallTime_queuesAsBefore() {
+        var rig = provider(32_768);
+        var atSelection = queuedPickOn(rig);
+        var atCall = new Pick(rig, new Ticket("t-queued-2", rig.name(), 512, "test", "2026-09-27T00:00:00Z"),
+                ai.kubemoot.agent.provider.FitScore.yes(0L, "warm"), true);
+        when(selector.readState()).thenReturn(List.of(rig));
+        when(selector.pickAndClaimWarm(anyString(), anyLong(), anyLong(), anyLong())).thenReturn(Optional.empty());
+        when(selector.pickAndClaim(eq(PREFERRED), anyLong(), anyLong(), anyLong()))
+                .thenReturn(Optional.of(atSelection), Optional.of(atCall));
+        poolServes(PREFERRED, answering("queued answer"));
+        var service = service(null, null);
+
+        service.commitToThread("t-busy", System.currentTimeMillis());
+        var result = service.directChat(onThread("t-busy"), true, CapacityWait.NONE);
+
+        assertEquals("queued answer", result.response());
+        assertEquals(PREFERRED, result.model());
+        verify(tickets).release(atSelection.ticket());
+        verify(selector, times(2)).pickAndClaim(eq(PREFERRED), anyLong(), anyLong(), anyLong());
+    }
+
     @Test
     void releasePlan_releasesAnUnusedPlan() {
         var rig = provider(32_768);
