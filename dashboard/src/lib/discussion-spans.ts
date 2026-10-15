@@ -108,16 +108,21 @@ export function signalColor(type: string): string {
 	return SIGNAL_COLORS[type] || FALLBACK_SIGNAL_COLOR;
 }
 
-/** Milliseconds since the thread started (its thread_start, else its first message). */
-function threadStartMs(messages: DiscussionMessage[]): number {
+/** When a message was published, in epoch milliseconds; NaN when it carries no timestamp. */
+export function messageTimeMs(msg: DiscussionMessage): number {
+	return msg.timestamp ? new Date(msg.timestamp).getTime() : Number.NaN;
+}
+
+/** When the thread started: its thread_start, else its first message, in epoch milliseconds. */
+export function threadStartMs(messages: DiscussionMessage[]): number {
 	const start = messages.find((m) => m.messageType === 'thread_start') ?? messages[0];
-	return new Date(start.timestamp).getTime();
+	return messageTimeMs(start);
 }
 
 function groupByAgent(messages: DiscussionMessage[], t0: number): Map<string, AgentMessages> {
 	const byAgent = new Map<string, AgentMessages>();
 	for (const msg of messages) {
-		const ts = new Date(msg.timestamp).getTime() - t0;
+		const ts = messageTimeMs(msg) - t0;
 		const existing = byAgent.get(msg.agentName);
 		if (existing) {
 			existing.msgs.push(msg);
@@ -180,7 +185,7 @@ function signalMarkers(msgs: DiscussionMessage[], t0: number, primary: string): 
 	return msgs
 		.filter((m) => MARKER_SIGNALS.has(m.messageType) && m.messageType !== primary)
 		.map((m) => ({
-			ms: new Date(m.timestamp).getTime() - t0,
+			ms: messageTimeMs(m) - t0,
 			type: m.messageType,
 			color: signalColor(m.messageType)
 		}));

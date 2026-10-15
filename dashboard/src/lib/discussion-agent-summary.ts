@@ -1,7 +1,7 @@
 // Per-agent aggregation behind the "Agent Summary" table of a copied discussion.
 
 import type { DiscussionMessage } from '#lib/types/kubemoot.js';
-import { SIGNAL_PRIORITY } from '#lib/discussion-spans.js';
+import { SIGNAL_PRIORITY, messageTimeMs } from '#lib/discussion-spans.js';
 
 export interface AgentAgg {
 	signal: string;
@@ -70,7 +70,7 @@ export function mergeAgentMessage(existing: AgentAgg, msg: DiscussionMessage, ts
 export function aggregateAgents(messages: DiscussionMessage[], t0: number): Map<string, AgentAgg> {
 	const agentMap = new Map<string, AgentAgg>();
 	for (const msg of messages) {
-		const ts = new Date(msg.timestamp).getTime() - t0;
+		const ts = messageTimeMs(msg) - t0;
 		const existing = agentMap.get(msg.agentName);
 		if (existing) {
 			mergeAgentMessage(existing, msg, ts);

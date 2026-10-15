@@ -10,6 +10,7 @@
 	import { DiscussionSpanGraph } from '#lib/components/discussions/index.js';
 	import { SYNTHESIS_COLLAPSE_CHARS, artifactKey, artifactHref } from '#lib/discussion-artifacts.js';
 	import { aggregateAgents, type AgentAgg } from '#lib/discussion-agent-summary.js';
+	import { threadStartMs as messagesStartMs } from '#lib/discussion-spans.js';
 	import { buildGpuDisplayMap } from '#lib/gpu-display.js';
 
 	// Configure marked for safe inline rendering
@@ -261,7 +262,7 @@
 		let text = `## Messages\n`;
 		for (const msg of thread.messages) {
 			const agent = msg.agentName === 'human' ? 'You' : msg.agentName.replace('homelab-', '');
-			text += `**${agent}** [${messageTypeLabels[msg.messageType] || msg.messageType}] (${formatTime(msg.timestamp)})\n`;
+			text += `**${agent}** [${messageTypeLabels[msg.messageType] || msg.messageType}] (${formatTime(msg.timestamp ?? '')})\n`;
 			if (msg.content) text += `${msg.content}\n`;
 			text += '\n';
 		}
@@ -270,8 +271,7 @@
 
 	async function formatThreadForClipboard(thread: Thread): Promise<string> {
 		const version = await fetchDashboardVersion();
-		const threadStart = thread.messages.find(m => m.messageType === 'thread_start');
-		const t0 = threadStart ? new Date(threadStart.timestamp).getTime() : new Date(thread.messages[0].timestamp).getTime();
+		const t0 = messagesStartMs(thread.messages);
 		const agentMap = aggregateAgents(thread.messages, t0);
 		return buildThreadHeader(thread, version) + renderAgentSummary(agentMap) + renderMessageTimeline(thread);
 	}
@@ -738,11 +738,11 @@
 				{/if}
 
 				<div class="message-timeline" bind:this={timelineEl}>
-					{#each selectedThread.messages.filter((m) => $showStandAsides || (m.messageType !== 'stand_aside' && m.messageType !== 'decline')) as msg, msgIdx}
+					{#each selectedThread.messages.filter((m) => $showStandAsides || m.messageType !== 'stand_aside') as msg, msgIdx}
 						<div
 							class="message-card {msg.messageType}"
 							class:synthesis={msg.messageType === 'synthesis'}
-							class:decline={msg.messageType === 'decline' || msg.messageType === 'stand_aside'}
+							class:decline={msg.messageType === 'stand_aside'}
 							class:advisory={msg.messageType === 'advisory'}
 							class:advisory_ready={msg.messageType === 'advisory_ready'}
 							class:review_ready={msg.messageType === 'review_ready'}
@@ -758,10 +758,10 @@
 								<span class="message-type-badge {msg.messageType}">
 									{messageTypeLabels[msg.messageType] || msg.messageType}
 								</span>
-								{#if (msg.messageType === 'decline' || msg.messageType === 'stand_aside') && msg.metadata?.reason}
+								{#if msg.messageType === 'stand_aside' && msg.metadata?.reason}
 									<span class="decline-reason">({msg.metadata.reason})</span>
 								{/if}
-								<span class="message-time">{formatTime(msg.timestamp)}</span>
+								<span class="message-time">{formatTime(msg.timestamp ?? '')}</span>
 							</div>
 							{#if (msg.messageType === 'advisory' || msg.messageType === 'advisory_ready') && msg.metadata?.technologies && msg.metadata.technologies.length > 0}
 								<div class="tech-badges">
@@ -804,11 +804,12 @@
 									{msg.metadata.inputTokens ?? 0}↓ {msg.metadata.outputTokens ?? 0}↑
 								</span>
 							{/if}
-							{#if msg.messageType === 'thread_close' && msg.metadata?.totalTokens}
+							{#if msg.messageType === 'thread_close' && typeof msg.metadata?.totalTokens === 'object' && msg.metadata.totalTokens}
+								{@const tt = msg.metadata.totalTokens}
 								<div class="token-summary">
-									Tokens: advisory {msg.metadata.totalTokens.advisory?.in ?? 0}↓/{msg.metadata.totalTokens.advisory?.out ?? 0}↑
-									| triage {msg.metadata.totalTokens.triage?.in ?? 0}↓/{msg.metadata.totalTokens.triage?.out ?? 0}↑
-									| synthesis {msg.metadata.totalTokens.synthesis?.in ?? 0}↓/{msg.metadata.totalTokens.synthesis?.out ?? 0}↑
+									Tokens: advisory {tt.advisory?.in ?? 0}↓/{tt.advisory?.out ?? 0}↑
+									| triage {tt.triage?.in ?? 0}↓/{tt.triage?.out ?? 0}↑
+									| synthesis {tt.synthesis?.in ?? 0}↓/{tt.synthesis?.out ?? 0}↑
 								</div>
 							{/if}
 						</div>

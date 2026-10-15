@@ -17,6 +17,7 @@ function heartbeatAged(seconds: number, healthy = true): AgentHeartbeat {
 		nats: healthy,
 		ollama: healthy,
 		model: 'qwen3:8b',
+		intervalSeconds: 60,
 		lastInference: new Date(Date.now() - 5000).toISOString()
 	};
 }
