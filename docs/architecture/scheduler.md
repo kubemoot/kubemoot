@@ -211,7 +211,9 @@ The winning provider's VRAM is reserved with a ticket so concurrent calls accoun
 { ticketId: UUID, provider, modelFootprintMiB, holderId, expiresAt }
 ```
 
-Multiple tickets coexist on one provider as long as their footprints fit its free VRAM; that coexistence is the bin-pack. The claim uses CAS: NATS KV versions every key and commits a write only if the key is still at the expected revision, so two agents racing for the same budget cannot both win. The contended object is the VRAM budget (recomputed on each retry), not the unique ticketId, so the race-safe step is the read-decide-create loop, bounded to a few attempts before falling back to the static endpoint.
+Multiple tickets coexist on one provider as long as their footprints fit its free VRAM; that coexistence is the bin-pack. The contended object is the provider's budget, not the unique ticketId, so a claim is written first and verified after: with its own ticket in the bucket, the claimer re-reads the provider's tickets and releases its own when the VRAM budget no longer fits.
+
+A claim made for a free slot on a warm copy (`pickAndClaimWarm`) also re-counts the slots. NATS KV gives every write a revision, so the claimer counts the provider's tickets written before its own and releases when no slot is left for it. Agents that read the same free slot at the same moment are ordered by revision, so no more of them keep the provider than it has slots, and the rest move on to the next candidate: another in-tolerance model with a free slot, then the weighted cost. A claimer that loses every candidate re-reads the state and retries a few times before the selector reports no room.
 
 Releases are guaranteed by two independent layers:
 

@@ -164,6 +164,18 @@ public class TicketManager {
                                                long availableHeadroomMiB, String modelName,
                                                java.util.Map<String, Long> evictions,
                                                java.util.Set<String> residentModels) {
+        return claimRevisioned(provider, footprintMiB, kvCacheFootprintMiB, availableHeadroomMiB, modelName,
+                evictions, residentModels).map(Claimed::ticket);
+    }
+
+    /** A ticket written to the bucket, with the KV revision its create was given. */
+    private record Claimed(Ticket ticket, long revision) {}
+
+    /** {@link #claimWithEvictions}, keeping the create revision for the slot order. */
+    private Optional<Claimed> claimRevisioned(String provider, long footprintMiB, long kvCacheFootprintMiB,
+                                              long availableHeadroomMiB, String modelName,
+                                              java.util.Map<String, Long> evictions,
+                                              java.util.Set<String> residentModels) {
         if (provider == null || provider.isEmpty() || footprintMiB <= 0) return Optional.empty();
         KeyValue kv = openBucket();
         if (kv == null) return Optional.empty();
@@ -174,8 +186,9 @@ public class TicketManager {
         }
         Ticket ticket = new Ticket(UUID.randomUUID().toString(), provider, footprintMiB, holderId,
                 Instant.now().toString(), Math.max(0L, kvCacheFootprintMiB), modelName);
+        long revision;
         try {
-            kv.create(ticket.keyName(), encode(ticket, evictions));
+            revision = kv.create(ticket.keyName(), encode(ticket, evictions));
         } catch (Exception e) {
             log.debug("Ticket create failed for {}: {}", ticket.keyName(), e.getMessage());
             return Optional.empty();
@@ -188,7 +201,47 @@ public class TicketManager {
         }
         log.debug("Claimed ticket {} on {} for {} MiB (evicting {})",
                 ticket.ticketId(), provider, footprintMiB, evictions.keySet());
-        return Optional.of(ticket);
+        return Optional.of(new Claimed(ticket, revision));
+    }
+
+    /**
+     * Claim a ticket that must also hold one of the provider's call slots. The
+     * {@link #claim} budget applies first; then, with our ticket written, the active
+     * tickets on the provider written before ours (lower KV revision) are counted,
+     * and the claim is released when {@code slotFree} says a call behind that many
+     * cannot start now. Concurrent claimers that all read a free slot from the same
+     * state are ordered by revision, so the earliest ones keep their tickets and the
+     * rest release, instead of all of them queueing inside the model server.
+     *
+     * @param slotFree true when a call can start with the given number of calls ahead of it
+     */
+    public Optional<Ticket> claimSlot(String provider, long footprintMiB, long kvCacheFootprintMiB,
+                                      long availableHeadroomMiB, String modelName,
+                                      java.util.function.IntPredicate slotFree) {
+        Optional<Claimed> claimed = claimRevisioned(provider, footprintMiB, kvCacheFootprintMiB,
+                availableHeadroomMiB, modelName, java.util.Map.of(), java.util.Set.of());
+        if (claimed.isEmpty()) return Optional.empty();
+        Ticket ticket = claimed.get().ticket();
+        int ahead = claimsAhead(provider, claimed.get().revision());
+        if (slotFree.test(ahead)) return Optional.of(ticket);
+        log.info("Released ticket {} on {} for {}: {} earlier claims hold its call slots",
+                ticket.ticketId(), provider, modelName, ahead);
+        release(ticket);
+        return Optional.empty();
+    }
+
+    /**
+     * Active tickets on {@code provider} written before revision {@code ownRevision}.
+     * Zero when the bucket cannot be read: never block a call on ticket infrastructure.
+     */
+    private int claimsAhead(String provider, long ownRevision) {
+        KeyValue kv = openBucket();
+        if (kv == null) return 0;
+        int[] ahead = {0};
+        forEachTicketEntry(kv, provider, "tickets ahead", (node, revision) -> {
+            if (revision < ownRevision) ahead[0]++;
+        });
+        return ahead[0];
     }
 
     /** The tickets bucket's keys from its subject index (no consumer; see {@link KvKeys}). */
@@ -424,25 +477,6 @@ public class TicketManager {
     }
 
     /**
-     * Parse one stored ticket entry to a {@link JsonNode}, or {@code null}
-     * if the entry is absent, empty, or unreadable. Native-safe: uses
-     * {@code readTree}, never {@code readValue} on the Ticket record (record
-     * reflection fails silently in GraalVM native; see
-     * {@code [[project_jit_native_deser_bug]]}). Unreadable entries are
-     * logged and skipped — better to under-count than crash a headroom calc.
-     */
-    private JsonNode readTicketNode(KeyValue kv, String key, String context) {
-        try {
-            var entry = kv.get(key);
-            if (entry == null || entry.getValue() == null) return null;
-            return objectMapper.readTree(entry.getValue());
-        } catch (Exception e) {
-            log.debug("Skipping unreadable ticket {} ({}): {}", key, context, e.getMessage());
-            return null;
-        }
-    }
-
-    /**
      * Scan every ticket whose key matches the provider prefix and feed each
      * successfully-parsed document to {@code consumer}. Centralises the
      * list-keys / prefix-filter / parse / per-entry-skip pattern shared by
@@ -451,18 +485,39 @@ public class TicketManager {
      */
     private void forEachTicket(KeyValue kv, String provider, String context,
                                java.util.function.Consumer<JsonNode> consumer) {
+        forEachTicketEntry(kv, provider, context, (node, revision) -> consumer.accept(node));
+    }
+
+    /** {@link #forEachTicket}, also passing each ticket's KV revision (its claim order). */
+    private void forEachTicketEntry(KeyValue kv, String provider, String context,
+                                    java.util.function.ObjLongConsumer<JsonNode> consumer) {
         String prefix = keyPrefixFor(provider);
         try {
             for (String key : listKeys()) {
                 if (key.startsWith(prefix)) {
-                    JsonNode node = readTicketNode(kv, key, context);
-                    if (node != null) {
-                        consumer.accept(node);
-                    }
+                    acceptTicket(kv, key, context, consumer);
                 }
             }
         } catch (Exception e) {
             KvKeys.warnReadFailure(log, TICKETS_BUCKET, "tickets on " + provider, e);
+        }
+    }
+
+    /**
+     * Parses one ticket entry and hands it to {@code consumer}; absent or unreadable
+     * entries are skipped (better to under-count than crash a headroom calc).
+     * Native-safe: {@code readTree}, never {@code readValue} on the Ticket record
+     * (record reflection fails silently in GraalVM native; see
+     * {@code [[project_jit_native_deser_bug]]}).
+     */
+    private void acceptTicket(KeyValue kv, String key, String context,
+                              java.util.function.ObjLongConsumer<JsonNode> consumer) {
+        try {
+            var entry = kv.get(key);
+            if (entry == null || entry.getValue() == null) return;
+            consumer.accept(objectMapper.readTree(entry.getValue()), entry.getRevision());
+        } catch (Exception e) {
+            log.debug("Skipping unreadable ticket {} ({}): {}", key, context, e.getMessage());
         }
     }
 
@@ -607,23 +662,11 @@ public class TicketManager {
         return total[0];
     }
 
-    /** Count tickets matching the provider prefix on the bucket. Native-safe (no record reflection). */
+    /** Count readable tickets for the named provider. Native-safe (no record reflection). */
     private int countTicketsFor(KeyValue kv, String provider) {
-        String prefix = keyPrefixFor(provider);
-        int count = 0;
-        try {
-            for (String key : listKeys()) {
-                if (key.startsWith(prefix)) {
-                    var entry = kv.get(key);
-                    if (entry != null && entry.getValue() != null) {
-                        count++;
-                    }
-                }
-            }
-        } catch (Exception e) {
-            KvKeys.warnReadFailure(log, TICKETS_BUCKET, "ticket count on " + provider, e);
-        }
-        return count;
+        int[] count = {0};
+        forEachTicket(kv, provider, "ticket count", node -> count[0]++);
+        return count[0];
     }
 
     /**

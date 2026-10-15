@@ -35,13 +35,14 @@ import java.util.concurrent.atomic.AtomicReference;
  * freest provider given current shared state, just like kube-scheduler
  * picks the best Node when a Pod becomes Pending.
  *
- * <h3>Atomic claim/release (not yet implemented)</h3>
- * This v1 reads the operator-published {@code activeCount} (probe-time,
- * up to 30s stale). Under heavy concurrent load, two agents can read
- * stale state and both pick the same provider before its activeCount
- * updates — they'll both run; ollama queues; not broken but not
- * optimally distributed. A follow-up will add atomic NATS KV CAS
- * increment/decrement around each call for per-call accuracy.
+ * <h3>Claims</h3>
+ * Each call holds a ticket in the {@link TicketManager} bucket while it runs,
+ * and the in-flight count per provider comes from those tickets. A claim is
+ * written first and verified after: the VRAM budget for every claim, and the
+ * free call slot for a claim admitted because a slot was free
+ * ({@link Mode#WARM_FREE_SLOT}). Concurrent claimers that read the same free
+ * slot are ordered by the tickets' KV revisions, so only as many keep the
+ * provider as it has slots; the rest release and try the next candidate.
  *
  * <h3>Caching</h3>
  * The KV reads are sub-millisecond on a warm NATS connection, but during
@@ -543,7 +544,7 @@ public class ProviderSelector {
             }
 
             Optional<Pick> pick = claimFirstAvailable(
-                    ranked, modelName, coldLoadFootprintMiB, kvForThisCall, attempt);
+                    ranked, modelName, coldLoadFootprintMiB, kvForThisCall, attempt, mode);
             if (pick.isPresent()) return pick;
             cache.set(null);
         }
@@ -554,20 +555,14 @@ public class ProviderSelector {
     /**
      * Walk the ranked candidates best-first and return the first one whose
      * ticket claim succeeds, or {@link Optional#empty()} if every candidate
-     * loses the race to a concurrent claim. Pure extraction of the inner
-     * claim loop of {@link #pickAndClaim}; claim shape and logging unchanged.
+     * loses the race to a concurrent claim.
      */
     private Optional<Pick> claimFirstAvailable(List<Candidate> ranked, String modelName,
-                                               long coldLoadFootprintMiB, long kvForThisCall, int attempt) {
+                                               long coldLoadFootprintMiB, long kvForThisCall, int attempt,
+                                               Mode mode) {
         for (Candidate c : ranked) {
             long claimFootprint = c.warm() ? WARM_SCRATCH_MIB : coldLoadFootprintMiB;
-            long headroomBudget = c.provider().preTicketHeadroomMiB();
-            // 2026-05-31: stamp modelName on the ticket so other selectors
-            // arriving during this call's cold-load see the in-flight load
-            // and converge here instead of triggering a redundant cold-load
-            // on a different provider. See [[Cold-Start Model-Load Wedge]].
-            Optional<Ticket> ticket = ticketManager.claim(
-                    c.provider().name(), claimFootprint, kvForThisCall, headroomBudget, modelName);
+            Optional<Ticket> ticket = claimOn(c, modelName, claimFootprint, kvForThisCall, mode);
             if (ticket.isPresent()) {
                 log.debug("JIT pick: provider={} model={} warm={} claim={}MiB kv={}MiB slots={}/{} (attempt={})",
                         c.provider().name(), modelName, c.warm(), claimFootprint, kvForThisCall,
@@ -576,6 +571,25 @@ public class ProviderSelector {
             }
         }
         return Optional.empty();
+    }
+
+    /**
+     * Claims a ticket on the candidate. The ticket carries the model name so other
+     * selectors arriving during this call's cold load see the in-flight load and
+     * converge here (see [[Cold-Start Model-Load Wedge]]). A claim that was admitted
+     * for a free slot ({@link Mode#WARM_FREE_SLOT}) re-checks the slot after the
+     * ticket is written, so concurrent claimers that read the same free slot do not
+     * all keep it: the losers release and move on to the next candidate.
+     */
+    private Optional<Ticket> claimOn(Candidate c, String modelName, long claimFootprint, long kvForThisCall,
+                                     Mode mode) {
+        String provider = c.provider().name();
+        long headroomBudget = c.provider().preTicketHeadroomMiB();
+        if (mode != Mode.WARM_FREE_SLOT) {
+            return ticketManager.claim(provider, claimFootprint, kvForThisCall, headroomBudget, modelName);
+        }
+        return ticketManager.claimSlot(provider, claimFootprint, kvForThisCall, headroomBudget, modelName,
+                ahead -> driver.hasFreeCapacity(c.provider(), ahead));
     }
 
     /** Max retries when every ranked candidate loses the race to concurrent claims. */
