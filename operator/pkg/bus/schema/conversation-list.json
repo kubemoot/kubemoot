@@ -1,0 +1,27 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ConversationList",
+  "description": "The answer to GET /api/v1/discussions/{crew}: the crew's recent conversations, newest first by their latest turn.",
+  "type": "object",
+  "required": ["conversations"],
+  "properties": {
+    "conversations": {
+      "type": "array",
+      "items": { "$ref": "#/definitions/ConversationSummary" }
+    }
+  },
+  "definitions": {
+    "ConversationSummary": {
+      "title": "ConversationSummary",
+      "type": "object",
+      "required": ["conversationId", "startedAt", "lastTurnAt", "turns"],
+      "properties": {
+        "conversationId": { "type": "string", "description": "The conversation." },
+        "question": { "type": "string", "description": "The first question of the conversation the discussion stream holds." },
+        "startedAt": { "type": "string", "description": "When its first turn began, RFC 3339 in UTC." },
+        "lastTurnAt": { "type": "string", "description": "When its latest turn began, RFC 3339 in UTC." },
+        "turns": { "type": "integer", "description": "How many threads answered it." }
+      }
+    }
+  }
+}

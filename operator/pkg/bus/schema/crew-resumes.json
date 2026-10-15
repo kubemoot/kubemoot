@@ -1,0 +1,26 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "CrewResumes",
+  "description": "What each agent and skill of a crew offers, in the kubemoot_crew_resumes bucket, key <namespace>.<crew>. The coordinator chooses agents from it. Agents come first, then skills.",
+  "type": "array",
+  "items": { "$ref": "#/definitions/CrewResume" },
+  "definitions": {
+    "CrewResume": {
+      "title": "CrewResume",
+      "type": "object",
+      "required": ["name", "description"],
+      "properties": {
+        "name": { "type": "string", "description": "The agent or skill." },
+        "description": { "type": "string", "description": "What it does." },
+        "kind": { "type": "string", "enum": ["skill"], "description": "skill on a skill; absent on an agent." },
+        "role": { "type": "string", "description": "The agent's discussion role. Agents only, always sent." },
+        "keywords": { "type": "array", "items": { "type": "string" }, "description": "Words the agent is relevant to." },
+        "tools": { "type": "array", "items": { "type": "string" }, "description": "The agent's tools." },
+        "channels": { "type": "array", "items": { "type": "string" }, "description": "The channels the agent listens on." },
+        "triageSummary": { "type": "string", "description": "A short summary for triage." },
+        "prompt": { "type": "string", "description": "The agent's assembled system prompt." },
+        "order": { "type": "integer", "description": "The skill's position. Skills only." }
+      }
+    }
+  }
+}

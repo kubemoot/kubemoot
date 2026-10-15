@@ -1,0 +1,37 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ArtifactReference",
+  "description": "A contribution spilled whole to the kubemoot_discussion_artifacts Object Store, carried as metadata.artifact on the signal and in the ArtifactNotice on kubemoot.artifacts.",
+  "type": "object",
+  "required": ["bucket", "key", "bytes", "agent", "tool", "createdAt", "preview"],
+  "properties": {
+    "bucket": {
+      "type": "string",
+      "description": "The Object Store bucket, kubemoot_discussion_artifacts."
+    },
+    "key": {
+      "type": "string",
+      "description": "The object key: <namespace>/<crew>/<threadId>/<agent>/<signal>-<uuid>, with nocrew for a crewless agent."
+    },
+    "bytes": {
+      "type": "integer",
+      "description": "Size of the object in bytes."
+    },
+    "agent": {
+      "type": "string",
+      "description": "The agent that spilled the contribution."
+    },
+    "tool": {
+      "type": "string",
+      "description": "The signal the contribution was sent with, such as agree."
+    },
+    "createdAt": {
+      "type": "string",
+      "description": "When the object was written, RFC 3339 in UTC."
+    },
+    "preview": {
+      "type": "string",
+      "description": "The start of the contribution."
+    }
+  }
+}

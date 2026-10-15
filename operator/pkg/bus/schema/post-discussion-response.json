@@ -1,0 +1,14 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "PostDiscussionResponse",
+  "description": "The answer to POST /api/v1/discussions/{crew}: the question is queued; follow it on the stream.",
+  "type": "object",
+  "required": ["conversationId", "requestedAt"],
+  "properties": {
+    "conversationId": { "type": "string", "description": "The conversation the question belongs to." },
+    "requestedAt": {
+      "type": "string",
+      "description": "When the gateway queued the question, RFC 3339 in UTC. Send it as the stream's since parameter."
+    }
+  }
+}

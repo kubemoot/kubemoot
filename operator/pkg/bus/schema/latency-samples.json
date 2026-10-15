@@ -1,0 +1,14 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "LatencySamples",
+  "description": "An agent's recent evaluation latencies on one provider, in the kubemoot_latency bucket, key latency.<namespace>.<agent>.<provider>. The coordinator sets evaluation deadlines from them.",
+  "type": "object",
+  "required": ["samples"],
+  "properties": {
+    "samples": {
+      "type": "array",
+      "items": { "type": "integer" },
+      "description": "Latencies in milliseconds, oldest first."
+    }
+  }
+}

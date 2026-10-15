@@ -1,0 +1,7 @@
+{
+  "type": "phase",
+  "agent": "proxmox-pve",
+  "status": "evaluating",
+  "gpu": "ollama-rig0",
+  "timestamp": "2026-10-15T17:39:05.289139297Z"
+}

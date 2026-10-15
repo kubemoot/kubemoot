@@ -1,0 +1,25 @@
+{
+  "threadId": "33627b88-c58c-4017-a483-119d2e45c712",
+  "metadata": {
+    "totalTokens": {
+      "advisory": {
+        "in": 3341,
+        "out": 465
+      },
+      "triage": {
+        "in": 0,
+        "out": 0
+      },
+      "synthesis": {
+        "in": 7829,
+        "out": 1643
+      }
+    }
+  },
+  "messageType": "thread_close",
+  "channel": "proxmox",
+  "messageId": "91ea8518-4ff5-4541-9cf2-399ab3878132",
+  "agentName": "homelab-coordinator",
+  "content": "",
+  "timestamp": "2026-10-15T17:43:27.909444796Z"
+}

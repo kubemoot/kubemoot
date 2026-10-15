@@ -1,0 +1,465 @@
+asyncapi: 3.1.0
+info:
+  title: Kubemoot bus contract
+  version: 1.0.0
+  description: |
+    The messages agents and Kubemoot exchange over NATS, the key-value entries they
+    share, and the event stream the discussion gateway serves. Payloads are JSON
+    Schema files beside this document. Fields a writer always sends are required;
+    every other field is optional, and readers ignore fields they do not know.
+
+    `info.version` is the contract version. A change that removes a field, changes
+    its type, or changes whether it is required is a breaking change and needs a new
+    major version; contract.lock.json records the surface of the current version.
+
+    Names in channel addresses are scoped by namespace first, then crew. A crewless
+    agent leaves the crew token out of discussion and lifecycle subjects and uses
+    nocrew in artifact subjects.
+  license:
+    name: Apache 2.0
+    url: https://www.apache.org/licenses/LICENSE-2.0
+defaultContentType: application/json
+
+servers:
+  nats:
+    host: nats:4222
+    protocol: nats
+    description: The NATS server with JetStream that every crew in the cluster shares.
+  gateway:
+    host: '{crew}-discussion.{namespace}.svc'
+    protocol: http
+    description: A crew's discussion gateway.
+    variables:
+      crew:
+        description: The crew.
+      namespace:
+        description: The crew's namespace.
+
+channels:
+  discussion:
+    address: kubemoot.discuss.{namespace}.{crew}.{channel}.{threadId}
+    title: Discussion thread
+    description: |
+      Every message of a discussion thread. The JetStream stream KUBEMOOT_DISCUSS
+      holds these subjects for a day. thread_start, the coordinator's steps and
+      thread_close go to the broadcast channel; synthesis and thread_close also go to
+      the thread's primary channel, with the same messageId.
+    servers:
+      - $ref: '#/servers/nats'
+    parameters:
+      namespace:
+        $ref: '#/components/parameters/namespace'
+      crew:
+        $ref: '#/components/parameters/crew'
+      channel:
+        description: The channel, such as broadcast or general.
+      threadId:
+        $ref: '#/components/parameters/threadId'
+    messages:
+      discussionMessage:
+        $ref: '#/components/messages/DiscussionMessage'
+
+  lifecycle:
+    address: kubemoot.lifecycle.{namespace}.{crew}.{signal}.{agent}
+    title: Agent lifecycle
+    description: |
+      An agent's waking and ready signals, read by its crew's coordinator. Core NATS
+      only: no stream holds these subjects, so waking agents are not counted as
+      consumer lag.
+    servers:
+      - $ref: '#/servers/nats'
+    parameters:
+      namespace:
+        $ref: '#/components/parameters/namespace'
+      crew:
+        $ref: '#/components/parameters/crew'
+      signal:
+        enum: [waking, ready]
+        description: The lifecycle signal.
+      agent:
+        $ref: '#/components/parameters/agent'
+    messages:
+      discussionMessage:
+        $ref: '#/components/messages/DiscussionMessage'
+
+  request:
+    address: kubemoot.request.{namespace}.{crew}
+    title: Request queue
+    description: |
+      Questions for a crew. The work-queue stream KUBEMOOT_REQUEST holds them until
+      the crew's coordinator takes them, one at a time.
+    servers:
+      - $ref: '#/servers/nats'
+    parameters:
+      namespace:
+        $ref: '#/components/parameters/namespace'
+      crew:
+        $ref: '#/components/parameters/crew'
+    messages:
+      discussionRequest:
+        $ref: '#/components/messages/DiscussionRequest'
+
+  artifacts:
+    address: kubemoot.artifacts.{namespace}.{crew}.{threadId}
+    title: Artifact notices
+    description: |
+      A contribution an agent spilled to the kubemoot_discussion_artifacts Object
+      Store, for the artifact materializer. Core NATS only.
+    servers:
+      - $ref: '#/servers/nats'
+    parameters:
+      namespace:
+        $ref: '#/components/parameters/namespace'
+      crew:
+        $ref: '#/components/parameters/crew'
+      threadId:
+        $ref: '#/components/parameters/threadId'
+    messages:
+      artifactNotice:
+        $ref: '#/components/messages/ArtifactNotice'
+
+  chat:
+    address: kubemoot.chat.{namespace}.{agent}
+    title: Direct chat
+    description: |
+      A direct chat exchange with one agent. The agent token has hyphens replaced by
+      underscores. The stream KUBEMOOT_CHAT holds these subjects for a week.
+    servers:
+      - $ref: '#/servers/nats'
+    parameters:
+      namespace:
+        $ref: '#/components/parameters/namespace'
+      agent:
+        $ref: '#/components/parameters/agent'
+    messages:
+      chatEvent:
+        $ref: '#/components/messages/ChatEvent'
+
+  onboardingDeployed:
+    address: kubemoot.operator.onboarding.deployed
+    title: Onboarding, server deployed
+    servers:
+      - $ref: '#/servers/nats'
+    messages:
+      onboardingDeployed:
+        $ref: '#/components/messages/OnboardingDeployed'
+
+  onboardingProgress:
+    address: kubemoot.operator.onboarding.progress
+    title: Onboarding, progress
+    servers:
+      - $ref: '#/servers/nats'
+    messages:
+      onboardingProgress:
+        $ref: '#/components/messages/OnboardingProgress'
+
+  onboardingDocsIndexed:
+    address: kubemoot.operator.onboarding.docs-indexed
+    title: Onboarding, documentation indexed
+    servers:
+      - $ref: '#/servers/nats'
+    messages:
+      onboardingDocsIndexed:
+        $ref: '#/components/messages/OnboardingDocsIndexed'
+
+  agentState:
+    address: $KV.kubemoot_agent_state.{namespace}.{agent}
+    title: KV kubemoot_agent_state
+    description: Each agent's liveness heartbeat. Entries expire after 300 seconds.
+    servers:
+      - $ref: '#/servers/nats'
+    parameters:
+      namespace:
+        $ref: '#/components/parameters/namespace'
+      agent:
+        $ref: '#/components/parameters/agent'
+    messages:
+      agentHeartbeat:
+        $ref: '#/components/messages/AgentHeartbeat'
+
+  providerState:
+    address: $KV.kubemoot_provider_state.{provider}
+    title: KV kubemoot_provider_state
+    description: Each ModelProvider's capacity, written by the operator.
+    servers:
+      - $ref: '#/servers/nats'
+    parameters:
+      provider:
+        $ref: '#/components/parameters/provider'
+    messages:
+      providerState:
+        $ref: '#/components/messages/ProviderState'
+
+  providerTickets:
+    address: $KV.kubemoot_provider_tickets.{entry}
+    title: KV kubemoot_provider_tickets
+    description: |
+      Slot and memory claims on providers. Keys are <provider>__<ticketId> for a
+      ticket and residency__<provider>__<model> for a model left loaded. Entries
+      expire after 10 minutes.
+    servers:
+      - $ref: '#/servers/nats'
+    parameters:
+      entry:
+        description: The entry key.
+    messages:
+      providerTicket:
+        $ref: '#/components/messages/ProviderTicket'
+
+  modelDemand:
+    address: $KV.kubemoot_model_demand.{entry}
+    title: KV kubemoot_model_demand
+    description: |
+      Which models crews are waiting for, about to use, and have used. Keys are
+      wait.<model>.<agent>, intent.<model>.<agent>, use.<model> and
+      sel.<crew>.<agent>; each token is escaped. Entries expire after 6 hours.
+    servers:
+      - $ref: '#/servers/nats'
+    parameters:
+      entry:
+        description: The entry key.
+    messages:
+      modelDemand:
+        $ref: '#/components/messages/ModelDemand'
+
+  latency:
+    address: $KV.kubemoot_latency.latency.{namespace}.{agent}.{provider}
+    title: KV kubemoot_latency
+    description: Each agent's recent evaluation latencies per provider.
+    servers:
+      - $ref: '#/servers/nats'
+    parameters:
+      namespace:
+        $ref: '#/components/parameters/namespace'
+      agent:
+        $ref: '#/components/parameters/agent'
+      provider:
+        $ref: '#/components/parameters/provider'
+    messages:
+      latencySamples:
+        $ref: '#/components/messages/LatencySamples'
+
+  conversations:
+    address: $KV.kubemoot_conversations.conv.{conversationId}
+    title: KV kubemoot_conversations
+    description: The turns of each conversation. Entries expire after 24 hours.
+    servers:
+      - $ref: '#/servers/nats'
+    parameters:
+      conversationId:
+        description: The conversation.
+    messages:
+      conversationHistory:
+        $ref: '#/components/messages/ConversationHistory'
+
+  crewResumes:
+    address: $KV.kubemoot_crew_resumes.{namespace}.{crew}
+    title: KV kubemoot_crew_resumes
+    description: What each agent and skill of a crew offers, written by the operator.
+    servers:
+      - $ref: '#/servers/nats'
+    parameters:
+      namespace:
+        $ref: '#/components/parameters/namespace'
+      crew:
+        $ref: '#/components/parameters/crew'
+    messages:
+      crewResumes:
+        $ref: '#/components/messages/CrewResumes'
+
+  crewMemory:
+    address: $KV.kubemoot_crew_memory.{namespace}.{crew}.{topic}.{key}
+    title: KV kubemoot_crew_memory
+    description: Facts a crew remembers. Entries expire after 30 days.
+    servers:
+      - $ref: '#/servers/nats'
+    parameters:
+      namespace:
+        $ref: '#/components/parameters/namespace'
+      crew:
+        $ref: '#/components/parameters/crew'
+      topic:
+        description: The fact's topic.
+      key:
+        description: The fact's key.
+    messages:
+      crewMemoryFact:
+        $ref: '#/components/messages/CrewMemoryFact'
+
+  scheduled:
+    address: $KV.kubemoot_scheduled.{scheduleId}
+    title: KV kubemoot_scheduled
+    description: Scheduled reminders and follow-ups, fired by the operator.
+    servers:
+      - $ref: '#/servers/nats'
+    parameters:
+      scheduleId:
+        description: The schedule.
+    messages:
+      scheduledRecord:
+        $ref: '#/components/messages/ScheduledRecord'
+
+  pinnedThreads:
+    address: $KV.kubemoot_pinned_threads.{threadId}
+    title: KV kubemoot_pinned_threads
+    description: Threads pinned in the dashboard.
+    servers:
+      - $ref: '#/servers/nats'
+    parameters:
+      threadId:
+        $ref: '#/components/parameters/threadId'
+    messages:
+      pinnedThread:
+        $ref: '#/components/messages/PinnedThread'
+
+  discussionStream:
+    address: /api/v1/discussions/{crew}/{conversationId}/stream
+    title: Discussion stream
+    description: |
+      Server-sent events that follow the turn of a conversation, from the
+      discussion gateway. Each event's data is a StreamEvent. Query parameters:
+      since, the requestedAt of the POST that asked the question; lastEventId, the
+      same as the Last-Event-ID header, to resume after a dropped connection.
+      POST /api/v1/discussions/{crew} (PostDiscussionRequest, answered with
+      PostDiscussionResponse) asks the question; GET /api/v1/discussions/{crew}
+      lists recent conversations (ConversationList); GET
+      /api/v1/discussions/{crew}/artifact?key=<key> returns an artifact as text.
+      Failures answer with ErrorResponse.
+    servers:
+      - $ref: '#/servers/gateway'
+    parameters:
+      crew:
+        $ref: '#/components/parameters/crew'
+      conversationId:
+        description: The conversation.
+    messages:
+      streamEvent:
+        $ref: '#/components/messages/StreamEvent'
+
+operations:
+  followDiscussion:
+    action: receive
+    title: Follow a discussion
+    channel:
+      $ref: '#/channels/discussionStream'
+    messages:
+      - $ref: '#/channels/discussionStream/messages/streamEvent'
+    bindings:
+      http:
+        method: GET
+
+components:
+  schemas:
+    PostDiscussionRequest:
+      $ref: './post-discussion-request.json'
+    PostDiscussionResponse:
+      $ref: './post-discussion-response.json'
+    ConversationList:
+      $ref: './conversation-list.json'
+    ErrorResponse:
+      $ref: './error-response.json'
+
+  parameters:
+    namespace:
+      description: The Kubernetes namespace, one NATS token.
+    crew:
+      description: The crew, one NATS token.
+    threadId:
+      description: The thread (a UUID).
+    agent:
+      description: The agent.
+    provider:
+      description: The ModelProvider.
+
+  messages:
+    DiscussionMessage:
+      name: DiscussionMessage
+      title: Discussion message
+      payload:
+        $ref: './discussion-message.json'
+    DiscussionRequest:
+      name: DiscussionRequest
+      title: Discussion request
+      payload:
+        $ref: './discussion-request.json'
+    ArtifactNotice:
+      name: ArtifactNotice
+      title: Artifact notice
+      payload:
+        $ref: './artifact-notice.json'
+    ChatEvent:
+      name: ChatEvent
+      title: Chat event
+      payload:
+        $ref: './chat-event.json'
+    OnboardingDeployed:
+      name: OnboardingDeployed
+      title: Onboarding server deployed
+      payload:
+        $ref: './onboarding-deployed.json'
+    OnboardingProgress:
+      name: OnboardingProgress
+      title: Onboarding progress
+      payload:
+        $ref: './onboarding-progress.json'
+    OnboardingDocsIndexed:
+      name: OnboardingDocsIndexed
+      title: Onboarding documentation indexed
+      payload:
+        $ref: './onboarding-docs-indexed.json'
+    AgentHeartbeat:
+      name: AgentHeartbeat
+      title: Agent heartbeat
+      payload:
+        $ref: './agent-heartbeat.json'
+    ProviderState:
+      name: ProviderState
+      title: Provider state
+      payload:
+        $ref: './provider-state.json'
+    ProviderTicket:
+      name: ProviderTicket
+      title: Provider ticket
+      payload:
+        $ref: './provider-ticket.json'
+    ModelDemand:
+      name: ModelDemand
+      title: Model demand
+      payload:
+        $ref: './model-demand.json'
+    LatencySamples:
+      name: LatencySamples
+      title: Latency samples
+      payload:
+        $ref: './latency-samples.json'
+    ConversationHistory:
+      name: ConversationHistory
+      title: Conversation history
+      payload:
+        $ref: './conversation-history.json'
+    CrewResumes:
+      name: CrewResumes
+      title: Crew resumes
+      payload:
+        $ref: './crew-resumes.json'
+    CrewMemoryFact:
+      name: CrewMemoryFact
+      title: Crew memory fact
+      payload:
+        $ref: './crew-memory-fact.json'
+    ScheduledRecord:
+      name: ScheduledRecord
+      title: Scheduled record
+      payload:
+        $ref: './scheduled-record.json'
+    PinnedThread:
+      name: PinnedThread
+      title: Pinned thread
+      payload:
+        $ref: './pinned-thread.json'
+    StreamEvent:
+      name: StreamEvent
+      title: Stream event
+      contentType: application/json
+      payload:
+        $ref: './stream-event.json'

@@ -1,0 +1,16 @@
+{
+  "messageId": "57f0a5ec-bf46-4c4e-83d6-8b547a6a4d8c",
+  "channel": "general",
+  "threadId": "33627b88-c58c-4017-a483-119d2e45c712",
+  "timestamp": "2026-10-15T17:38:46.699394557Z",
+  "content": "Describe the proxmox nodes.",
+  "metadata": {
+    "conversationId": "6733c361-aa0c-4bde-85c6-e143af23b251",
+    "crewVersion": "0.47.3_c716452d39c7",
+    "userQuery": "Describe the proxmox nodes.",
+    "primaryChannel": "general",
+    "crew": "homelab-pilot"
+  },
+  "agentName": "homelab-coordinator",
+  "messageType": "thread_start"
+}

@@ -1,0 +1,11 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "PinnedThread",
+  "description": "A thread pinned in the dashboard, in the kubemoot_pinned_threads bucket, key <threadId>.",
+  "type": "object",
+  "required": ["pinnedAt", "note"],
+  "properties": {
+    "pinnedAt": { "type": "string", "description": "When it was pinned, RFC 3339 in UTC." },
+    "note": { "type": ["string", "null"], "description": "A note, or null." }
+  }
+}

@@ -1,0 +1,272 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "DiscussionMetadata",
+  "description": "Structured detail of a discussion message. Every field is optional: which fields a message carries depends on its messageType and on who sent it. Readers ignore fields they do not know.",
+  "type": "object",
+  "properties": {
+    "signal": {
+      "type": "string",
+      "description": "The signal an agent sent, the same as messageType. Sent on every agent signal and on the lifecycle signals."
+    },
+    "role": {
+      "type": "string",
+      "description": "The sending agent's discussion role, such as tooler or analyst. Sent on agent signals."
+    },
+    "modelName": {
+      "type": "string",
+      "description": "The model the sender is configured with. Sent on agent signals and on the coordinator's advisory, advisory_ready and review_ready."
+    },
+    "model": {
+      "type": "string",
+      "description": "The model an agent's call ran on, which differs from modelName when a warm model was used; on waiting and on a capacity stand-aside, the model the agent waits for or could not place."
+    },
+    "gpuLabel": {
+      "type": "string",
+      "description": "The accelerator the sender ran on, such as a ModelProvider name; none when it ran on none."
+    },
+    "provider": {
+      "type": "string",
+      "description": "The ModelProvider that served an agent's call, chosen when the call was made."
+    },
+    "pickReason": {
+      "type": "string",
+      "description": "Why the scheduler picked the provider, as text."
+    },
+    "evicted": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Models the scheduler unloaded to make room for the call."
+    },
+    "inferenceMs": {
+      "type": "integer",
+      "description": "Milliseconds spent in model calls for the message."
+    },
+    "inferenceStartMs": {
+      "type": "integer",
+      "description": "When the agent's work for the signal started, in milliseconds since the Unix epoch; 0 when unknown."
+    },
+    "loadDurationMs": {
+      "type": "integer",
+      "description": "Milliseconds the model server spent loading the model for the coordinator's advisory call."
+    },
+    "inputTokens": {
+      "type": "integer",
+      "description": "Input tokens of the model calls behind the message."
+    },
+    "outputTokens": {
+      "type": "integer",
+      "description": "Output tokens of the model calls behind the message."
+    },
+    "totalTokens": {
+      "description": "On an agent signal, inputTokens plus outputTokens. On thread_close, the coordinator's own token counts per step.",
+      "oneOf": [
+        { "type": "integer" },
+        { "$ref": "#/definitions/TokenTotals" }
+      ]
+    },
+    "toolsUsed": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "The tools the agent has enabled, sent with agree. It lists what the agent could call, not the calls it made."
+    },
+    "reason": {
+      "type": "string",
+      "description": "Why: on stand_aside and waiting, gpu-busy, model-too-large or prompt-too-large; on gap_detected, the gap in words; on stop_requested, manual_stop; on a scheduled message, the reason it was scheduled."
+    },
+    "predictorReason": {
+      "type": "string",
+      "description": "The scheduler's explanation for a capacity stand-aside."
+    },
+    "failureType": {
+      "type": "string",
+      "description": "The kind of failure on a failure signal, such as same_tool_repeated, too_many_tool_failures, iterations_exhausted, loop_time_exceeded, model_timeout, model_oom, provider_unreachable, internal_exception or evaluation_timeout."
+    },
+    "failedTool": {
+      "type": "string",
+      "description": "The tool that failed, on a failure signal."
+    },
+    "failureCount": {
+      "type": "integer",
+      "description": "On a failure signal, how many tool calls failed; on review_ready, how many agents sent failure."
+    },
+    "lastError": {
+      "type": "string",
+      "description": "The last error text of a failure, truncated."
+    },
+    "exceptionClass": {
+      "type": "string",
+      "description": "The Java exception class behind a failure that was not a tool failure."
+    },
+    "synthesizedBy": {
+      "type": "string",
+      "description": "Set to coordinator on a failure the coordinator sent for an agent that missed its deadline."
+    },
+    "artifact": {
+      "$ref": "artifact-reference.json"
+    },
+    "userQuery": {
+      "type": "string",
+      "description": "The person's question, on thread_start, advisory_ready and review_ready."
+    },
+    "primaryChannel": {
+      "type": "string",
+      "description": "The channel the thread is answered on."
+    },
+    "conversationId": {
+      "type": "string",
+      "description": "The conversation a thread_start belongs to."
+    },
+    "conversationContext": {
+      "type": "array",
+      "items": { "$ref": "#/definitions/ConversationTurn" },
+      "description": "Earlier turns of the conversation, oldest first."
+    },
+    "crew": {
+      "type": "string",
+      "description": "The crew a thread_start belongs to."
+    },
+    "crewVersion": {
+      "type": "string",
+      "description": "The version of the crew chart that produced the thread, when the crew has one."
+    },
+    "replayOf": {
+      "type": "string",
+      "description": "The thread a dashboard replay repeats the question of."
+    },
+    "technologies": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "The technologies the coordinator's advisory names."
+    },
+    "layers": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "The layers of the system the coordinator's advisory names."
+    },
+    "wisdom": {
+      "type": "string",
+      "description": "The coordinator's advisory text, on advisory."
+    },
+    "advisory": {
+      "type": "string",
+      "description": "The coordinator's advisory text, on advisory_ready: the brief for the convened agents."
+    },
+    "innerCircle": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "The agents the coordinator convened. Absent when every agent may take part."
+    },
+    "triageConfidence": {
+      "type": "number",
+      "description": "The coordinator's confidence in its choice of the inner circle."
+    },
+    "selectedSkills": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "The skills the coordinator selected for the thread."
+    },
+    "agents": {
+      "type": "array",
+      "items": { "$ref": "#/definitions/TriageChoice" },
+      "description": "The agents a triage_result selects, each with its confidence and reason."
+    },
+    "overallConfidence": {
+      "type": "number",
+      "description": "The coordinator's confidence in a triage_result as a whole."
+    },
+    "agreeCount": {
+      "type": "integer",
+      "description": "How many agents sent agree, on review_ready."
+    },
+    "concernCount": {
+      "type": "integer",
+      "description": "How many agents sent concern, on review_ready."
+    },
+    "standAsideCount": {
+      "type": "integer",
+      "description": "How many agents sent stand_aside, on review_ready."
+    },
+    "gapType": {
+      "type": "string",
+      "enum": ["TOOL_GAP", "TOOLER_GAP", "INFRASTRUCTURE_GAP"],
+      "description": "The gap a gap_detected names: agents that lack tools, no agent with the expertise, or tools that failed."
+    },
+    "toolGapConcerns": {
+      "type": "object",
+      "additionalProperties": { "type": "string" },
+      "description": "On a TOOL_GAP, each agent's concern, by agent name."
+    },
+    "onboarding": {
+      "type": "boolean",
+      "description": "Set on messages from an onboarding agent."
+    },
+    "gapDetected": {
+      "type": "boolean",
+      "description": "Set on an onboarding proposal."
+    },
+    "consentAck": {
+      "type": "boolean",
+      "description": "Set on an onboarding agent's agree to a proposal."
+    },
+    "scheduleId": {
+      "type": "string",
+      "description": "The schedule a scheduled message comes from."
+    },
+    "scheduledBy": {
+      "type": "string",
+      "description": "Who scheduled a scheduled message."
+    },
+    "kind": {
+      "type": "string",
+      "description": "The kind of a scheduled message: reminder or followup."
+    },
+    "sourceThreadId": {
+      "type": "string",
+      "description": "The thread a scheduled message continues."
+    },
+    "originalSourceThreadId": {
+      "type": "string",
+      "description": "The thread a scheduled message would have continued, when it starts a new thread instead."
+    },
+    "degraded": {
+      "type": "boolean",
+      "description": "Set when a scheduled message starts a new thread because it could not continue its source thread."
+    }
+  },
+  "definitions": {
+    "TokenTotals": {
+      "title": "TokenTotals",
+      "type": "object",
+      "description": "The coordinator's token counts by step: advisory, triage and synthesis.",
+      "additionalProperties": { "$ref": "#/definitions/TokenCount" }
+    },
+    "TokenCount": {
+      "title": "TokenCount",
+      "type": "object",
+      "required": ["in", "out"],
+      "properties": {
+        "in": { "type": "integer", "description": "Input tokens." },
+        "out": { "type": "integer", "description": "Output tokens." }
+      }
+    },
+    "ConversationTurn": {
+      "title": "ConversationTurn",
+      "type": "object",
+      "required": ["query", "response"],
+      "properties": {
+        "query": { "type": "string", "description": "The question of an earlier turn." },
+        "response": { "type": "string", "description": "The answer of an earlier turn, truncated." }
+      }
+    },
+    "TriageChoice": {
+      "title": "TriageChoice",
+      "type": "object",
+      "required": ["name", "confidence", "reason"],
+      "properties": {
+        "name": { "type": "string", "description": "The agent." },
+        "confidence": { "type": "number", "description": "The coordinator's confidence in the agent." },
+        "reason": { "type": "string", "description": "Why the coordinator selected the agent." }
+      }
+    }
+  }
+}

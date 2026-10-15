@@ -9,6 +9,7 @@ require (
 	github.com/onsi/ginkgo/v2 v2.33.0
 	github.com/onsi/gomega v1.44.0
 	github.com/robfig/cron/v3 v3.0.1
+	github.com/santhosh-tekuri/jsonschema/v6 v6.0.3
 	github.com/xuri/excelize/v2 v2.11.1-0.20261011032807-402e3bdd9eae
 	k8s.io/api v0.37.1
 	k8s.io/apiextensions-apiserver v0.37.1

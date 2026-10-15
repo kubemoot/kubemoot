@@ -1,0 +1,16 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "AgentHeartbeat",
+  "description": "An agent's liveness heartbeat in the kubemoot_agent_state bucket, key <namespace>.<agent>. An agent is alive while its heartbeat is no older than two of its intervals.",
+  "type": "object",
+  "required": ["agent", "timestamp", "nats", "ollama", "model", "intervalSeconds"],
+  "properties": {
+    "agent": { "type": "string", "description": "The agent." },
+    "timestamp": { "type": "string", "description": "When the heartbeat was written, RFC 3339 in UTC." },
+    "nats": { "type": "boolean", "description": "Whether the agent is connected to NATS." },
+    "ollama": { "type": "boolean", "description": "Whether the agent's model is ready." },
+    "model": { "type": "string", "description": "The agent's model." },
+    "intervalSeconds": { "type": "integer", "description": "Seconds between heartbeats." },
+    "lastInference": { "type": "string", "description": "When the agent last finished a model call, RFC 3339 in UTC. Absent until its first call." }
+  }
+}

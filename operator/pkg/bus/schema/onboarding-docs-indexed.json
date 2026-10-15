@@ -1,0 +1,14 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "OnboardingDocsIndexed",
+  "description": "The documentation agent finished indexing an onboarded server's documentation, published on kubemoot.operator.onboarding.docs-indexed.",
+  "type": "object",
+  "required": ["serverName", "domain", "agent", "result", "timestamp"],
+  "properties": {
+    "serverName": { "type": "string", "description": "The MCP server." },
+    "domain": { "type": "string", "description": "Its domain." },
+    "agent": { "type": "string", "description": "The agent that indexed it." },
+    "result": { "type": "string", "description": "What the indexing produced, truncated." },
+    "timestamp": { "type": "string", "description": "When, RFC 3339 in UTC." }
+  }
+}

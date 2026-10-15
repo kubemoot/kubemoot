@@ -1,0 +1,11 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ArtifactRef",
+  "description": "A contribution spilled to the discussion artifact store, fetched with GET /api/v1/discussions/{crew}/artifact?key=<key>.",
+  "type": "object",
+  "required": ["key"],
+  "properties": {
+    "key": { "type": "string", "description": "The artifact key." },
+    "bytes": { "type": "integer", "description": "Its size in bytes." }
+  }
+}

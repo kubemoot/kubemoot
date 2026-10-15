@@ -1,0 +1,13 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "CrewMemoryFact",
+  "description": "A fact a crew remembers, in the kubemoot_crew_memory bucket, key <namespace>.<crew>.<topic>.<key>, with default as the crew of a crewless agent.",
+  "type": "object",
+  "required": ["value", "learnedBy", "learnedAt"],
+  "properties": {
+    "value": { "type": "string", "description": "The fact." },
+    "learnedBy": { "type": "string", "description": "The agent that learned it, or dashboard." },
+    "learnedAt": { "type": "string", "description": "When it was learned, RFC 3339 in UTC." },
+    "usedAt": { "type": "string", "description": "When it was last used, RFC 3339 in UTC. Older entries lack it; readers use learnedAt." }
+  }
+}

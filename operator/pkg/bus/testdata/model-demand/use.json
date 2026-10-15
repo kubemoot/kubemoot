@@ -1,0 +1,9 @@
+{
+  "kind": "use",
+  "model": "qwen3:14b",
+  "agent": "crew-homelab-pilot/proxmox-pve",
+  "expiresAt": 1792114929902,
+  "rate": 1.0001972532466548,
+  "updatedAt": 1792093329902,
+  "lastUsedAt": 1792093329902
+}

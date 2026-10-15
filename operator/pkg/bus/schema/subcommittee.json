@@ -1,0 +1,30 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Subcommittee",
+  "description": "The agents the coordinator convened for a thread. From the advisory it carries the brief; from a triage selection, each agent's reason and confidence.",
+  "type": "object",
+  "properties": {
+    "source": { "type": "string", "enum": ["advisory", "triage"], "description": "Which coordinator message the event comes from." },
+    "members": {
+      "type": "array",
+      "items": { "$ref": "#/definitions/SubcommitteeMember" },
+      "description": "The convened agents, by name."
+    },
+    "allAgents": { "type": "boolean", "description": "Set when the coordinator convened no subcommittee and every agent may take part." },
+    "brief": { "type": "string", "description": "The coordinator's brief for the agents." },
+    "confidence": { "type": "number", "description": "The coordinator's confidence in its choice." },
+    "technologies": { "type": "array", "items": { "type": "string" }, "description": "The technologies the coordinator named." }
+  },
+  "definitions": {
+    "SubcommitteeMember": {
+      "title": "SubcommitteeMember",
+      "type": "object",
+      "required": ["agent"],
+      "properties": {
+        "agent": { "type": "string", "description": "The agent." },
+        "reason": { "type": "string", "description": "Why the coordinator chose it, from triage." },
+        "confidence": { "type": "number", "description": "The coordinator's confidence in it, from triage." }
+      }
+    }
+  }
+}

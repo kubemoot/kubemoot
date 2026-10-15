@@ -1,0 +1,22 @@
+{
+  "messageId": "d20f4a68-96f7-4dfc-b28f-0067065b1b58",
+  "channel": "broadcast",
+  "threadId": "a40cca03-8ad1-45b2-993b-6a4ad7d2594a",
+  "timestamp": "2026-10-15T19:48:08.851409442Z",
+  "content": "Tool loop exceeded wall-clock deadline at iteration 9 (elapsed 336794ms, cap 300000ms)",
+  "metadata": {
+    "modelName": "qwen3:32b",
+    "role": "analyst",
+    "failureType": "loop_time_exceeded",
+    "inputTokens": 0,
+    "inferenceMs": 342870,
+    "signal": "failure",
+    "outputTokens": 0,
+    "totalTokens": 0,
+    "gpuLabel": "ollama-rig0",
+    "inferenceStartMs": 1792093345981,
+    "failureCount": 9
+  },
+  "agentName": "compute",
+  "messageType": "failure"
+}

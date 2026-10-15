@@ -1,0 +1,22 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ModelDemand",
+  "description": "An entry in the kubemoot_model_demand bucket, which the scheduler reads to predict which models crews are about to use. Keys: wait.<model>.<agent>, intent.<model>.<agent>, use.<model> and sel.<crew>.<agent>, each token escaped. Times are milliseconds since the Unix epoch.",
+  "type": "object",
+  "required": ["kind", "expiresAt"],
+  "properties": {
+    "kind": {
+      "type": "string",
+      "enum": ["wait", "intent", "use", "sel"],
+      "description": "wait: an agent waits for capacity for the model. intent: an agent is about to call the model. use: the model's recent use. sel: how often the coordinator selects an agent, with the models it may call."
+    },
+    "model": { "type": "string", "description": "The model. Absent on sel." },
+    "agent": { "type": "string", "description": "The agent, as <namespace>/<agent>; on use, the last agent that used the model. Absent on sel." },
+    "thread": { "type": "string", "description": "The thread an intent belongs to." },
+    "expiresAt": { "type": "integer", "description": "When the entry stops counting, epoch milliseconds." },
+    "rate": { "type": "number", "description": "A decaying count of uses or selections. use and sel only." },
+    "updatedAt": { "type": "integer", "description": "When the rate was last updated, epoch milliseconds. use and sel only." },
+    "lastUsedAt": { "type": "integer", "description": "When the model was last used, epoch milliseconds. use only." },
+    "models": { "type": "array", "items": { "type": "string" }, "description": "The models the agent may call. sel only." }
+  }
+}
