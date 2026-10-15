@@ -26,6 +26,7 @@ import (
 	kubemootv1alpha1 "github.com/kubemoot/kubemoot/operator/api/v1alpha1"
 	"github.com/kubemoot/kubemoot/operator/internal/crewscope"
 	kubemootnats "github.com/kubemoot/kubemoot/operator/internal/nats"
+	"github.com/kubemoot/kubemoot/operator/pkg/bus"
 )
 
 // DiscussionSubjectWildcard is the NATS subject the dispatcher subscribes
@@ -130,7 +131,7 @@ func (d *Dispatcher) Start(ctx context.Context) error {
 // Returns nil for routine "skip" cases (wrong messageType, no matching sinks);
 // returns an error only when a real failure should be visible to callers.
 func (d *Dispatcher) ProcessMessage(ctx context.Context, subject string, body []byte) error {
-	var msg DiscussionMessage
+	var msg bus.DiscussionMessage
 	if err := json.Unmarshal(body, &msg); err != nil {
 		return fmt.Errorf("decode: %w", err)
 	}
@@ -171,7 +172,7 @@ func (d *Dispatcher) ProcessMessage(ctx context.Context, subject string, body []
 
 // matchesFilters returns true when the message should fire this sink.
 // Empty filter slices mean "match anything".
-func matchesFilters(sink *kubemootv1alpha1.NotificationSink, msg *DiscussionMessage) bool {
+func matchesFilters(sink *kubemootv1alpha1.NotificationSink, msg *bus.DiscussionMessage) bool {
 	if len(sink.Spec.Channels) > 0 && !contains(sink.Spec.Channels, msg.Channel) {
 		return false
 	}

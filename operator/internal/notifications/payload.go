@@ -23,6 +23,7 @@ import (
 	"fmt"
 
 	"github.com/kubemoot/kubemoot/operator/internal/crewscope"
+	"github.com/kubemoot/kubemoot/operator/pkg/bus"
 )
 
 // PayloadSchemaVersion is bumped only on incompatible payload changes.
@@ -30,7 +31,7 @@ const PayloadSchemaVersion = 1
 
 // ConcernMessageType is the discussion messageType this package dispatches
 // on. Other signal types are ignored in the first release.
-const ConcernMessageType = "concern"
+const ConcernMessageType = bus.DiscussionMessageMessageTypeConcern
 
 // Payload is the JSON body sent to the webhook. Marshaled with
 // json.Marshal — `omitempty` keeps the body tight when fields are unset.
@@ -46,22 +47,10 @@ type Payload struct {
 	DashboardURL  string `json:"dashboardUrl,omitempty"`
 }
 
-// DiscussionMessage is the subset of a NATS discussion envelope this
-// package consumes. The dashboard/coordinator publish a richer shape;
-// the dispatcher only reads what it dispatches on.
-type DiscussionMessage struct {
-	MessageType string `json:"messageType"`
-	AgentName   string `json:"agentName"`
-	Content     string `json:"content"`
-	ThreadID    string `json:"threadId"`
-	Channel     string `json:"channel,omitempty"`
-	Timestamp   string `json:"timestamp,omitempty"`
-}
-
 // BuildPayload constructs the Payload for a concern dispatch. dashboardBase
 // is optional ("" to omit the deepLink). When provided, the link points at
 // the dashboard's threads view with a query param the dashboard parses.
-func BuildPayload(msg *DiscussionMessage, scope crewscope.Scope, dashboardBase string) Payload {
+func BuildPayload(msg *bus.DiscussionMessage, scope crewscope.Scope, dashboardBase string) Payload {
 	p := Payload{
 		SchemaVersion: PayloadSchemaVersion,
 		Agent:         msg.AgentName,

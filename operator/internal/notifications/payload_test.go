@@ -13,10 +13,11 @@ import (
 	"testing"
 
 	"github.com/kubemoot/kubemoot/operator/internal/crewscope"
+	"github.com/kubemoot/kubemoot/operator/pkg/bus"
 )
 
 func TestBuildPayload_PopulatesCoreFields(t *testing.T) {
-	msg := &DiscussionMessage{
+	msg := &bus.DiscussionMessage{
 		MessageType: ConcernMessageType,
 		AgentName:   testAgentK8sStorage,
 		Content:     "Partition /var on rig0 is 96% full",
@@ -49,7 +50,7 @@ func TestBuildPayload_PopulatesCoreFields(t *testing.T) {
 }
 
 func TestBuildPayload_OmitsDashboardURLWhenBaseEmpty(t *testing.T) {
-	msg := &DiscussionMessage{AgentName: "x", Content: "y", ThreadID: "t1"}
+	msg := &bus.DiscussionMessage{AgentName: "x", Content: "y", ThreadID: "t1"}
 	p := BuildPayload(msg, crewscope.Scope{Namespace: "ns", Crew: "c"}, "")
 	if p.DashboardURL != "" {
 		t.Errorf("dashboardUrl should be empty; got %q", p.DashboardURL)
@@ -57,7 +58,7 @@ func TestBuildPayload_OmitsDashboardURLWhenBaseEmpty(t *testing.T) {
 }
 
 func TestBuildPayload_OmitsDashboardURLWhenThreadMissing(t *testing.T) {
-	msg := &DiscussionMessage{AgentName: "x", Content: "y"} // no ThreadID
+	msg := &bus.DiscussionMessage{AgentName: "x", Content: "y"} // no ThreadID
 	p := BuildPayload(msg, crewscope.Scope{Namespace: "ns", Crew: "c"}, "https://dash.example.com")
 	if p.DashboardURL != "" {
 		t.Errorf("dashboardUrl should be empty without threadId; got %q", p.DashboardURL)
