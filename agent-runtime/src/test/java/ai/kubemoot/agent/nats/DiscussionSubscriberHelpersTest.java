@@ -272,7 +272,7 @@ class DiscussionSubscriberHelpersTest {
         return new DiscussionSubscriber(natsProvider, chatService, metrics, props, "http://localhost:11434");
     }
 
-    private static AgentProperties stubProperties(String agentName, String channels,
+    static AgentProperties stubProperties(String agentName, String channels,
                                                     String jsConsumer, boolean hasTriageEndpoint) {
         return new AgentProperties() {
             @Override public Memory memory() { return ai.kubemoot.agent.TestStubs.memory(); }
