@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/kubemoot/kubemoot/discussion-gateway/internal/crewscope"
+	"github.com/kubemoot/kubemoot/operator/pkg/bus"
 	"github.com/nats-io/nats.go/jetstream"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 )
@@ -67,43 +68,20 @@ var streamLog = logf.Log.WithName("stream")
 // for example because the connection dropped. The client reconnects and resumes.
 var errSubscriptionEnded = errors.New("the NATS subscription ended before the thread closed")
 
-// SSEEvent is an event sent to the client over SSE.
+// SSEEvent is an event sent to the client over SSE: the bus contract's stream event,
+// made of its base fields, the signal metadata of a finding or stand-aside event, and
+// the content of a subcommittee event, plus the SSE id.
 type SSEEvent struct {
-	Type       string `json:"type"`
-	Agent      string `json:"agent,omitempty"`
-	Status     string `json:"status,omitempty"`
-	GPU        string `json:"gpu,omitempty"`
-	Signal     string `json:"signal,omitempty"`
-	Summary    string `json:"summary,omitempty"`
-	Content    string `json:"content,omitempty"`
-	ThreadID   string `json:"threadId,omitempty"`
-	StoodAside bool   `json:"stood_aside,omitempty"`
-	Model      string `json:"model,omitempty"`
-	Reason     string `json:"reason,omitempty"`
-	Error      string `json:"error,omitempty"`
-	// Agents are the busy agents of an activity event, and At when it was taken.
-	Agents []AgentActivity `json:"agents,omitempty"`
-	At     string          `json:"at,omitempty"`
-	// Timestamp is when the discussion message behind the event was published
-	// (RFC 3339, UTC). Events the gateway makes up itself carry none.
-	Timestamp string `json:"timestamp,omitempty"`
-	// SignalMeta is the signal metadata of a finding or stand-aside event.
-	*SignalMeta
-	// Subcommittee is the content of a subcommittee event.
-	*Subcommittee
+	bus.StreamEventBase
+	*bus.SignalMeta
+	*bus.Subcommittee
 	// ID is the SSE event id, written as an "id:" field rather than in the data.
 	ID string `json:"-"`
 }
 
-// natsMessage is the minimal structure of a NATS discussion message.
-type natsMessage struct {
-	MessageID   string                 `json:"messageId"`
-	MessageType string                 `json:"messageType"`
-	ThreadID    string                 `json:"threadId"`
-	AgentName   string                 `json:"agentName"`
-	Content     string                 `json:"content"`
-	Timestamp   string                 `json:"timestamp"`
-	Metadata    map[string]interface{} `json:"metadata"`
+// sseEvent is an SSE event with base fields only.
+func sseEvent(base bus.StreamEventBase) SSEEvent {
+	return SSEEvent{StreamEventBase: base}
 }
 
 // streamRequest says which turn a stream follows and where in the discussion stream it
@@ -161,11 +139,11 @@ func streamDiscussion(
 		return err
 	}
 
-	emit(SSEEvent{Type: "connected"})
+	emit(sseEvent(bus.StreamEventBase{Type: "connected"}))
 
 	iter, err := consumer.Messages()
 	if err != nil {
-		emit(SSEEvent{Type: eventError, Error: fmt.Sprintf("Failed to consume: %v", err)})
+		emit(sseEvent(bus.StreamEventBase{Type: eventError, Error: fmt.Sprintf("Failed to consume: %v", err)}))
 		return err
 	}
 	defer iter.Stop()
@@ -195,7 +173,7 @@ func resumeDeduper(ctx context.Context, js jetstream.JetStream, req streamReques
 	if err != nil {
 		return dedup
 	}
-	var last natsMessage
+	var last bus.DiscussionMessage
 	if json.Unmarshal(raw.Data, &last) == nil {
 		dedup.firstSight(last.MessageID)
 	}
@@ -236,13 +214,13 @@ func createDiscussConsumer(
 ) (jetstream.Consumer, error) {
 	_, err := js.Stream(ctx, streamName)
 	if err != nil {
-		emit(SSEEvent{Type: eventError, Error: "Discussion stream not available"})
+		emit(sseEvent(bus.StreamEventBase{Type: eventError, Error: "Discussion stream not available"}))
 		return nil, err
 	}
 
 	consumer, err := js.CreateOrUpdateConsumer(ctx, streamName, cfg)
 	if err != nil {
-		emit(SSEEvent{Type: eventError, Error: fmt.Sprintf("Failed to create consumer: %v", err)})
+		emit(sseEvent(bus.StreamEventBase{Type: eventError, Error: fmt.Sprintf("Failed to create consumer: %v", err)}))
 		return nil, err
 	}
 	return consumer, nil
@@ -273,7 +251,7 @@ func startMessagePump(ctx context.Context, iter jetstream.MessagesContext) <-cha
 
 // discussMsg is one discussion message with where and when NATS stored it.
 type discussMsg struct {
-	data      natsMessage
+	data      bus.DiscussionMessage
 	published time.Time
 	seq       uint64
 }
@@ -333,7 +311,8 @@ func (tf *threadFinder) follow(m discussMsg, emit func(SSEEvent)) {
 			"conversationId", tf.conversationID, "abandoned", tf.threadID, "threadId", m.data.ThreadID)
 	}
 	tf.threadID = m.data.ThreadID
-	events := []SSEEvent{{Type: eventThreadFound, ThreadID: tf.threadID, Timestamp: m.timestamp()}}
+	found := bus.StreamEventBase{Type: eventThreadFound, ThreadID: tf.threadID, Timestamp: m.timestamp()}
+	events := []SSEEvent{sseEvent(found)}
 	collect := func(e SSEEvent) { events = append(events, e) }
 	for _, b := range tf.buf {
 		if b.data.ThreadID == tf.threadID {
@@ -419,7 +398,7 @@ func processMessages(ctx context.Context, msgCh <-chan jetstream.Msg, f follower
 			return ctx.Err()
 
 		case <-heartbeat.C:
-			emit(SSEEvent{Type: "heartbeat"})
+			emit(sseEvent(bus.StreamEventBase{Type: "heartbeat"}))
 
 		case <-activity.C:
 			f.activity.report(ctx, f.tf.threadID, emit)
@@ -460,14 +439,14 @@ func translate(m discussMsg, emit func(SSEEvent)) {
 }
 
 // translateAndEmit converts a NATS discussion message to an SSE event.
-func translateAndEmit(data natsMessage, emit func(SSEEvent)) {
+func translateAndEmit(data bus.DiscussionMessage, emit func(SSEEvent)) {
 	switch data.MessageType {
 	case msgThreadStart, msgReviewReady, msgAdvisory, msgHeartbeat:
 		return
 	case msgSynthesis:
-		emit(SSEEvent{Type: msgSynthesis, Content: data.Content})
+		emit(sseEvent(bus.StreamEventBase{Type: msgSynthesis, Content: data.Content}))
 	case msgThreadClose:
-		emit(SSEEvent{Type: eventDone})
+		emit(sseEvent(bus.StreamEventBase{Type: eventDone}))
 	case msgAdvisoryReady, msgTriageResult:
 		if e, ok := subcommitteeEvent(data); ok {
 			emit(e)
@@ -485,13 +464,13 @@ func translateAndEmit(data natsMessage, emit func(SSEEvent)) {
 // triaging and evaluating (with the GPU it landed on), waiting for GPU capacity
 // (with the model it waits for), and stood aside (with the reason, when the agent
 // gave one, such as gpu-busy).
-func phaseEvent(data natsMessage) (SSEEvent, bool) {
-	e := SSEEvent{Type: eventPhase, Agent: data.AgentName}
+func phaseEvent(data bus.DiscussionMessage) (SSEEvent, bool) {
+	e := sseEvent(bus.StreamEventBase{Type: eventPhase, Agent: data.AgentName})
 	switch data.MessageType {
 	case phaseWaking, phaseReady:
-		e.Status = data.MessageType
+		e.Status = string(data.MessageType)
 	case phaseTriaging, phaseEvaluating:
-		e.Status, e.GPU = data.MessageType, metaString(data, metaGPULabel)
+		e.Status, e.GPU = string(data.MessageType), metaString(data, metaGPULabel)
 	case phaseWaiting:
 		e.Status, e.Model, e.Reason = phaseWaiting, metaString(data, metaModel), metaString(data, metaReason)
 	case signalStandAside:
@@ -512,8 +491,10 @@ func phaseEvent(data natsMessage) (SSEEvent, bool) {
 // failure are first-class verdicts, persisted so fitness can measure their rates.
 // SignalMeta carries the signal's metadata: model, tokens, inference time, tools,
 // a spilled artifact, and what failed.
-func findingEvent(data natsMessage) (SSEEvent, bool) {
-	e := SSEEvent{Type: eventFinding, Agent: data.AgentName, Signal: data.MessageType, GPU: metaString(data, metaGPULabel)}
+func findingEvent(data bus.DiscussionMessage) (SSEEvent, bool) {
+	e := sseEvent(bus.StreamEventBase{
+		Type: eventFinding, Agent: data.AgentName, Signal: string(data.MessageType), GPU: metaString(data, metaGPULabel),
+	})
 	switch data.MessageType {
 	case signalAgree, signalBlock, signalFailure:
 		e.Summary, e.Content = extractSummary(data.Content), data.Content
@@ -527,7 +508,7 @@ func findingEvent(data natsMessage) (SSEEvent, bool) {
 }
 
 // metaString is a metadata value as text, or empty when absent.
-func metaString(data natsMessage, key string) string {
+func metaString(data bus.DiscussionMessage, key string) string {
 	if v, ok := data.Metadata[key]; ok && v != nil {
 		return fmt.Sprintf("%v", v)
 	}

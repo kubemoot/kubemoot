@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/kubemoot/kubemoot/operator/pkg/bus"
 	"github.com/nats-io/nats.go/jetstream"
 )
 
@@ -25,12 +26,12 @@ func (f fixedLiveness) alive(_ context.Context, agent string) bool { return f[ag
 
 var actT0 = time.Date(2026, 10, 15, 12, 0, 0, 0, time.UTC)
 
-func actMsg(agent, messageType string, meta map[string]interface{}) natsMessage {
-	return natsMessage{ThreadID: actThread, AgentName: agent, MessageType: messageType, Metadata: meta}
+func actMsg(agent, messageType string, meta map[string]interface{}) bus.DiscussionMessage {
+	return bus.DiscussionMessage{ThreadID: actThread, AgentName: agent, MessageType: bus.DiscussionMessageMessageType(messageType), Metadata: meta}
 }
 
 // trackerAt feeds msgs to a new tracker, one second apart from actT0.
-func trackerAt(msgs ...natsMessage) *activityTracker {
+func trackerAt(msgs ...bus.DiscussionMessage) *activityTracker {
 	a := newActivityTracker()
 	for i, m := range msgs {
 		a.observe(m, actT0.Add(time.Duration(i)*time.Second))
@@ -38,10 +39,10 @@ func trackerAt(msgs ...natsMessage) *activityTracker {
 	return a
 }
 
-func doings(agents []AgentActivity) map[string]string {
+func doings(agents []bus.AgentActivity) map[string]string {
 	out := map[string]string{}
 	for _, a := range agents {
-		out[a.Agent] = a.Doing
+		out[a.Agent] = string(a.Doing)
 	}
 	return out
 }
@@ -96,23 +97,23 @@ func TestActivityCoordinatorSteps(t *testing.T) {
 	start := actMsg(actCoord, msgThreadStart, nil)
 	cases := []struct {
 		name string
-		msgs []natsMessage
+		msgs []bus.DiscussionMessage
 		want string
 	}{
-		{"reasoning before the advisory", []natsMessage{start}, doingReasoning},
-		{"waiting for woken agents", []natsMessage{start, actMsg(actCoord, msgAdvisoryReady, nil)}, doingWaitingForAgents},
-		{"waiting for a review", []natsMessage{start, actMsg(actCoord, msgAdvisory, nil), actMsg(actCoord, msgReviewReady, nil)}, doingWaitingForAgents},
-		{"synthesizing once every agent is done", []natsMessage{
+		{"reasoning before the advisory", []bus.DiscussionMessage{start}, doingReasoning},
+		{"waiting for woken agents", []bus.DiscussionMessage{start, actMsg(actCoord, msgAdvisoryReady, nil)}, doingWaitingForAgents},
+		{"waiting for a review", []bus.DiscussionMessage{start, actMsg(actCoord, msgAdvisory, nil), actMsg(actCoord, msgReviewReady, nil)}, doingWaitingForAgents},
+		{"synthesizing once every agent is done", []bus.DiscussionMessage{
 			start, actMsg(actCoord, msgAdvisoryReady, nil),
 			actMsg(testAgent, phaseTriaging, nil), actMsg(testAgent, signalAgree, nil),
 		}, doingSynthesizing},
-		{"waiting for an agent that stopped heartbeating", []natsMessage{
+		{"waiting for an agent that stopped heartbeating", []bus.DiscussionMessage{
 			start, actMsg(actCoord, msgAdvisoryReady, nil), actMsg(testAgent, phaseEvaluating, nil),
 		}, doingWaitingForAgents},
 	}
 	for _, c := range cases {
 		got := trackerAt(c.msgs...).busy(context.Background(), actThread, actLater, fixedLiveness{actCoord: true})
-		if want := []AgentActivity{{Agent: actCoord, Doing: c.want}}; !reflect.DeepEqual(got, want) {
+		if want := []bus.AgentActivity{{Agent: actCoord, Doing: bus.AgentActivityDoing(c.want)}}; !reflect.DeepEqual(got, want) {
 			t.Errorf("%s: busy = %+v, want %+v", c.name, got, want)
 		}
 	}
@@ -152,7 +153,7 @@ func TestActivityRecentThreadMessageMeansAlive(t *testing.T) {
 
 func TestActivityIgnoresMessagesWithoutAThread(t *testing.T) {
 	a := newActivityTracker()
-	a.observe(natsMessage{AgentName: testAgent, MessageType: phaseWaking}, actT0)
+	a.observe(bus.DiscussionMessage{AgentName: testAgent, MessageType: phaseWaking}, actT0)
 	if len(a.threads) != 0 {
 		t.Fatalf("threads = %v", a.threads)
 	}
@@ -162,7 +163,7 @@ func TestActivityEventOnlyWhenBusy(t *testing.T) {
 	if _, ok := activityEvent(nil, actT0); ok {
 		t.Error("an event with no busy agents")
 	}
-	agents := []AgentActivity{{Agent: testAgent, Doing: doingTriaging}}
+	agents := []bus.AgentActivity{{Agent: testAgent, Doing: doingTriaging}}
 	e, ok := activityEvent(agents, actT0)
 	if !ok || e.Type != eventActivity || e.At != testStamp || !reflect.DeepEqual(e.Agents, agents) {
 		t.Fatalf("event = %+v", e)
@@ -175,7 +176,7 @@ func TestActivityEventOnlyWhenBusy(t *testing.T) {
 }
 
 func TestStaleAfterUsesTheHeartbeatsInterval(t *testing.T) {
-	for in, want := range map[int]time.Duration{30: time.Minute, 0: 2 * time.Minute, -5: 2 * time.Minute, 7200: 2 * time.Minute} {
+	for in, want := range map[int64]time.Duration{30: time.Minute, 0: 2 * time.Minute, -5: 2 * time.Minute, 7200: 2 * time.Minute} {
 		if got := staleAfter(in); got != want {
 			t.Errorf("staleAfter(%d) = %s, want %s", in, got, want)
 		}
@@ -198,11 +199,22 @@ func TestKVLivenessReadsTheAgentStateBucket(t *testing.T) {
 	}
 	put("fresh", now.Add(-50*time.Second))
 	put("stale", now.Add(-61*time.Second))
-	if _, err := kv.Put(ctx, "ns.garbled", []byte("not json")); err != nil {
-		t.Fatal(err)
+	for key, value := range map[string]string{
+		"ns.garbled":    "not json",
+		"ns.untimed":    `{"agent":"untimed","intervalSeconds":30}`,
+		"ns.badtime":    `{"agent":"badtime","timestamp":"yesterday","intervalSeconds":30}`,
+		"ns.zerotime":   `{"agent":"zerotime","timestamp":"0001-01-01T00:00:00Z","intervalSeconds":30}`,
+		"ns.wrongtyped": `{"agent":"wrongtyped","timestamp":"` + now.Format(time.RFC3339Nano) + `","intervalSeconds":"30"}`,
+	} {
+		if _, err := kv.Put(ctx, key, []byte(value)); err != nil {
+			t.Fatal(err)
+		}
 	}
 	live := livenessFor(ctx, js, "ns")
-	for agent, want := range map[string]bool{"fresh": true, "stale": false, "garbled": false, "missing": false} {
+	for agent, want := range map[string]bool{
+		"fresh": true, "stale": false, "garbled": false, "missing": false,
+		"untimed": false, "badtime": false, "zerotime": false, "wrongtyped": false,
+	} {
 		if got := live.alive(ctx, agent); got != want {
 			t.Errorf("alive(%s) = %v, want %v", agent, got, want)
 		}
@@ -229,7 +241,7 @@ func (m fakeMsg) Metadata() (*jetstream.MsgMetadata, error) {
 	return &jetstream.MsgMetadata{Sequence: jetstream.SequencePair{Stream: m.seq}, Timestamp: time.Now()}, nil
 }
 
-func jsonMsg(t *testing.T, seq uint64, m natsMessage) jetstream.Msg {
+func jsonMsg(t *testing.T, seq uint64, m bus.DiscussionMessage) jetstream.Msg {
 	t.Helper()
 	data, err := json.Marshal(m)
 	if err != nil {

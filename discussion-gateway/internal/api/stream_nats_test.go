@@ -15,6 +15,7 @@ import (
 
 	"github.com/kubemoot/kubemoot/discussion-gateway/internal/crewscope"
 	natsclient "github.com/kubemoot/kubemoot/discussion-gateway/internal/nats"
+	"github.com/kubemoot/kubemoot/operator/pkg/bus"
 	"github.com/nats-io/nats-server/v2/server"
 	"github.com/nats-io/nats.go/jetstream"
 )
@@ -241,7 +242,7 @@ func TestPostDiscussionReturnsRequestedAt(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = resp.Body.Close() }()
-	var body postDiscussionResponse
+	var body bus.PostDiscussionResponse
 	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
 		t.Fatal(err)
 	}

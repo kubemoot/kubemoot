@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/kubemoot/kubemoot/discussion-gateway/internal/crewscope"
+	"github.com/kubemoot/kubemoot/operator/pkg/bus"
 	"github.com/nats-io/nats.go/jetstream"
 )
 
@@ -23,22 +24,6 @@ const (
 	listFetchBatch = 500
 )
 
-// ConversationSummary is one recent conversation of a crew.
-type ConversationSummary struct {
-	ConversationID string `json:"conversationId"`
-	// Question is the first question of the conversation the discussion stream holds.
-	Question string `json:"question,omitempty"`
-	// StartedAt and LastTurnAt are when its first and latest turns began (RFC 3339).
-	StartedAt  string `json:"startedAt"`
-	LastTurnAt string `json:"lastTurnAt"`
-	Turns      int    `json:"turns"`
-}
-
-// conversationList is the response of the list endpoint.
-type conversationList struct {
-	Conversations []ConversationSummary `json:"conversations"`
-}
-
 // conversationAcc collects the turns of one conversation as thread_start messages
 // arrive.
 type conversationAcc struct {
@@ -47,7 +32,7 @@ type conversationAcc struct {
 	questionAt time.Time
 	first      time.Time
 	last       time.Time
-	turns      int
+	turns      int64
 }
 
 // add records one turn, a thread_start published at, with its question.
@@ -87,7 +72,7 @@ func (idx conversationIndex) observe(m discussMsg) {
 
 // questionOf is the user's question a thread_start carries: metadata.userQuery, else
 // its content.
-func questionOf(data natsMessage) string {
+func questionOf(data bus.DiscussionMessage) string {
 	if q := metaString(data, "userQuery"); q != "" {
 		return q
 	}
@@ -95,7 +80,7 @@ func questionOf(data natsMessage) string {
 }
 
 // newestFirst lists the conversations by their latest turn, newest first, at most limit.
-func (idx conversationIndex) newestFirst(limit int) []ConversationSummary {
+func (idx conversationIndex) newestFirst(limit int) []bus.ConversationSummary {
 	accs := make([]*conversationAcc, 0, len(idx))
 	for _, acc := range idx {
 		accs = append(accs, acc)
@@ -109,9 +94,9 @@ func (idx conversationIndex) newestFirst(limit int) []ConversationSummary {
 	if len(accs) > limit {
 		accs = accs[:limit]
 	}
-	out := make([]ConversationSummary, 0, len(accs))
+	out := make([]bus.ConversationSummary, 0, len(accs))
 	for _, acc := range accs {
-		out = append(out, ConversationSummary{
+		out = append(out, bus.ConversationSummary{
 			ConversationID: acc.id, Question: acc.question, Turns: acc.turns,
 			StartedAt:  acc.first.UTC().Format(time.RFC3339),
 			LastTurnAt: acc.last.UTC().Format(time.RFC3339),
@@ -125,7 +110,7 @@ func (idx conversationIndex) newestFirst(limit int) []ConversationSummary {
 // channel, so only that channel is read.
 func listConversations(
 	ctx context.Context, js jetstream.JetStream, scope crewscope.Scope, limit int,
-) ([]ConversationSummary, error) {
+) ([]bus.ConversationSummary, error) {
 	ctx, cancel := context.WithTimeout(ctx, listReadTimeout)
 	defer cancel()
 	consumer, err := js.CreateConsumer(ctx, streamName, jetstream.ConsumerConfig{
@@ -217,7 +202,7 @@ func (h *Handler) listConversationsHandler(w http.ResponseWriter, r *http.Reques
 		httpError(w, http.StatusServiceUnavailable, "could not read the discussion stream")
 		return
 	}
-	writeJSON(w, http.StatusOK, conversationList{Conversations: conversations})
+	writeJSON(w, http.StatusOK, bus.ConversationList{Conversations: conversations})
 }
 
 // jetStreamFor returns the JetStream context, or writes a 503 and returns false when
