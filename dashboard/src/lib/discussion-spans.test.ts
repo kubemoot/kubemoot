@@ -4,9 +4,11 @@ import {
 	FALLBACK_SIGNAL_COLOR,
 	SIGNAL_COLORS,
 	buildAgentSpans,
+	messageTimeMs,
 	primarySignal,
 	queueDepth,
 	signalColor,
+	threadStartMs,
 	type AgentSpan
 } from './discussion-spans';
 
@@ -124,5 +126,26 @@ describe('queueDepth', () => {
 		const other = { gpuLabel: 'g1', inferenceStartMs: 0, inferenceMs: 100 } as AgentSpan;
 		expect(queueDepth(bare, [bare, other])).toBe(0);
 		expect(queueDepth(untimed, [untimed, other])).toBe(0);
+	});
+});
+
+describe('messageTimeMs', () => {
+	it('reads the message timestamp', () => {
+		expect(messageTimeMs(msg('a', 'agree', 1500))).toBe(T0 + 1500);
+	});
+
+	it('is NaN without a usable timestamp', () => {
+		const untimed = { ...msg('a', 'agree', 0), timestamp: undefined };
+		expect(messageTimeMs(untimed)).toBeNaN();
+		expect(messageTimeMs({ ...untimed, timestamp: '' })).toBeNaN();
+		expect(messageTimeMs({ ...untimed, timestamp: 'yesterday' })).toBeNaN();
+	});
+});
+
+describe('threadStartMs', () => {
+	it('is the thread_start, else the first message', () => {
+		const later = msg('a', 'agree', 2000);
+		expect(threadStartMs([later, msg('coordinator', 'thread_start', 5000)])).toBe(T0 + 5000);
+		expect(threadStartMs([later, msg('b', 'agree', 1000)])).toBe(T0 + 2000);
 	});
 });

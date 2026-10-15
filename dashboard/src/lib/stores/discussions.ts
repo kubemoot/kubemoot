@@ -120,6 +120,22 @@ function fillScope(thread: Thread, subject: DiscussSubject | null) {
 	thread.crew ??= subject.crew;
 }
 
+/** A new thread opened by its thread_start message. */
+function threadFromStart(msg: DiscussionMessage, subject: DiscussSubject | null): Thread {
+	return {
+		threadId: msg.threadId,
+		channel: msg.channel ?? '',
+		...scopeFields(msg, subject),
+		crewVersion: msg.metadata?.crewVersion,
+		userQuery: msg.metadata?.userQuery || msg.content || '',
+		startedBy: msg.agentName,
+		startedAt: msg.timestamp ?? '',
+		messages: [msg],
+		status: 'open',
+		...emptyThreadCounts()
+	};
+}
+
 function applyThreadStart(
 	threads: Map<string, Thread>,
 	existing: Thread | undefined,
@@ -127,18 +143,7 @@ function applyThreadStart(
 	subject: DiscussSubject | null
 ) {
 	if (!existing) {
-		threads.set(msg.threadId, {
-			threadId: msg.threadId,
-			channel: msg.channel,
-			...scopeFields(msg, subject),
-			crewVersion: msg.metadata?.crewVersion,
-			userQuery: msg.metadata?.userQuery || msg.content,
-			startedBy: msg.agentName,
-			startedAt: msg.timestamp,
-			messages: [msg],
-			status: 'open',
-			...emptyThreadCounts()
-		});
+		threads.set(msg.threadId, threadFromStart(msg, subject));
 		return;
 	}
 	// With ordered stream delivery this path rarely fires,
@@ -147,8 +152,8 @@ function applyThreadStart(
 	if (query && !existing.userQuery) {
 		existing.userQuery = query;
 		existing.startedBy = msg.agentName;
-		existing.startedAt = msg.timestamp;
-		existing.channel = msg.channel;
+		existing.startedAt = msg.timestamp ?? '';
+		existing.channel = msg.channel ?? '';
 	}
 	if (!existing.messages.some((m) => m.messageType === 'thread_start')) {
 		existing.messages.unshift(msg);
@@ -167,7 +172,7 @@ function applyUnknownThreadMessage(
 		channel: msg.channel && msg.channel !== 'broadcast' ? msg.channel : 'general',
 		userQuery: msg.content || '',
 		startedBy: msg.agentName,
-		startedAt: msg.timestamp,
+		startedAt: msg.timestamp ?? '',
 		...scopeFields(msg, subject),
 		crewVersion: msg.metadata?.crewVersion,
 		messages: [msg],

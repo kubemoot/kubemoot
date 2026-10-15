@@ -50,7 +50,8 @@ export function secondsSince(timestamp: string, now: number = Date.now()): numbe
 /** Stale past two of the heartbeat's own intervals (or with no readable age), degraded when Ollama or NATS is unreachable, live otherwise. */
 export function heartbeatLiveness(
 	ageSeconds: number,
-	heartbeat: Pick<AgentHeartbeat, 'nats' | 'ollama' | 'intervalSeconds'>
+	// intervalSeconds is optional here: heartbeats from older agents carry none.
+	heartbeat: Pick<AgentHeartbeat, 'nats' | 'ollama'> & Partial<Pick<AgentHeartbeat, 'intervalSeconds'>>
 ): HeartbeatLiveness {
 	if (Number.isNaN(ageSeconds) || ageSeconds > staleAfterSeconds(heartbeat.intervalSeconds)) return 'stale';
 	return heartbeat.ollama && heartbeat.nats ? 'live' : 'degraded';
