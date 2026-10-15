@@ -121,6 +121,84 @@ carry no SSE `id`; they describe the present, so a reconnecting client is not se
 ones it missed. The `heartbeat` event, every 30 seconds, only keeps the connection open
 and says nothing about the crew.
 
+### Timestamps and signal detail
+
+Every event the gateway makes from a discussion message carries `timestamp`, when the
+message was published (RFC 3339, UTC): the message's own timestamp, or the time NATS
+stored it when the message has none. `thread_found` carries the thread start's. Step
+durations computed from these are the crew's own, not the time each event reached the
+client. The gateway's own events (`connected`, `heartbeat`, `activity`, `error`) carry
+none; `activity` has `at` instead.
+
+`finding` events and the stand-aside `phase` event also carry the signal's metadata,
+each field only when the agent sent it:
+
+| Field | Meaning |
+| --- | --- |
+| `modelName` | The model the agent called. |
+| `inputTokens`, `outputTokens`, `totalTokens` | Token counts of the agent's model calls for the signal. |
+| `inferenceMs` | Time spent in model calls. |
+| `gpu` | The accelerator the agent ran on (findings; phase events already had it). |
+| `toolsUsed` | The tools the agent has enabled, sent with `agree`. It lists what the agent could call, not the calls it made. |
+| `artifact` | `{"key", "bytes"}` of a contribution spilled to the artifact store. |
+| `failureType`, `failedTool`, `failureCount`, `lastError` | For a `failure`: the kind of failure, the tool that failed, how many tool calls failed, and the last error. |
+
+```json
+{"type":"finding","agent":"pilot-proxmox","signal":"agree","gpu":"rig1-gpu0",
+ "summary":"The cluster has three Proxmox nodes, all online.","content":"...",
+ "timestamp":"2026-10-15T09:00:16.4Z","modelName":"qwen3:14b",
+ "inputTokens":5210,"outputTokens":640,"totalTokens":5850,"inferenceMs":9800,
+ "toolsUsed":["proxmox_nodes","proxmox_vms"]}
+```
+
+### The subcommittee
+
+When the coordinator decides which agents to convene, the stream sends a
+`subcommittee` event with the convened agents in `members`. The coordinator's
+advisory produces one with `source` `advisory`, which also carries the brief the
+coordinator wrote for the agents, its confidence, and the technologies it named.
+When the coordinator chooses by triage, its triage result produces one more, before
+the advisory's, with `source` `triage` and each agent's `reason` and `confidence`.
+When the coordinator convened no subcommittee, `allAgents` is true and every agent
+may take part. The coordinator does not publish the agents it left out, so the
+event does not name them.
+
+```json
+{"type":"subcommittee","agent":"homelab-pilot-coordinator","source":"advisory",
+ "members":[{"agent":"pilot-metrics"},{"agent":"pilot-proxmox"}],
+ "brief":"List each Proxmox node with its role, then flag capacity problems.",
+ "confidence":0.9,"technologies":["proxmox"],"timestamp":"2026-10-15T09:00:04Z"}
+```
+
+### Listing conversations
+
+`GET /api/v1/discussions/{crew}` lists the crew's recent conversations, newest first by
+their latest turn, at most `limit` (default 20, at most 100):
+
+```json
+{"conversations":[{"conversationId":"6733c361-aa0c-4bde-85c6-e143af23b251",
+  "question":"Describe the proxmox nodes.","startedAt":"2026-10-15T09:00:00Z",
+  "lastTurnAt":"2026-10-15T09:12:40Z","turns":2}]}
+```
+
+The gateway reads the crew's `thread_start` messages from the discussion stream, so
+the list covers what the stream still holds (about a day). `question` is the first
+question the stream holds for the conversation, and `turns` counts its threads; a
+question the coordinator started again counts twice.
+
+### Fetching an artifact
+
+`GET /api/v1/discussions/{crew}/artifact?key=<key>` returns an artifact's bytes as text,
+for the `artifact.key` a finding names. The key must belong to the crew in the
+gateway's namespace (`<namespace>/<crew>/<thread>/<agent>/<object>`); any other key is
+answered as not found. The coordinator deletes a thread's artifacts soon after the
+thread closes ([Discussion Artifact Store](../discussion-artifact-store/)), and the
+gateway then answers `404`.
+
+Both endpoints are reached the same way as the stream, through the crew's
+`<crew>-discussion` Service, so through the API server's service proxy they need the
+same permission (`services/proxy` in the crew's namespace).
+
 ## Related
 
 - [The Moot - Consensus Model](../consensus-model/) - how a discussion is organized and settles.

@@ -84,6 +84,13 @@ type SSEEvent struct {
 	// Agents are the busy agents of an activity event, and At when it was taken.
 	Agents []AgentActivity `json:"agents,omitempty"`
 	At     string          `json:"at,omitempty"`
+	// Timestamp is when the discussion message behind the event was published
+	// (RFC 3339, UTC). Events the gateway makes up itself carry none.
+	Timestamp string `json:"timestamp,omitempty"`
+	// SignalMeta is the signal metadata of a finding or stand-aside event.
+	*SignalMeta
+	// Subcommittee is the content of a subcommittee event.
+	*Subcommittee
 	// ID is the SSE event id, written as an "id:" field rather than in the data.
 	ID string `json:"-"`
 }
@@ -95,6 +102,7 @@ type natsMessage struct {
 	ThreadID    string                 `json:"threadId"`
 	AgentName   string                 `json:"agentName"`
 	Content     string                 `json:"content"`
+	Timestamp   string                 `json:"timestamp"`
 	Metadata    map[string]interface{} `json:"metadata"`
 }
 
@@ -314,7 +322,7 @@ func (tf *threadFinder) startsThreadForTurn(m discussMsg) bool {
 	if m.data.MessageType != msgThreadStart || m.data.ThreadID == tf.threadID {
 		return false
 	}
-	conversationID, _ := m.data.Metadata["conversationId"].(string)
+	conversationID, _ := m.data.Metadata[metaConversationID].(string)
 	return conversationID == tf.conversationID && tf.isThisTurn(m.published)
 }
 
@@ -325,11 +333,11 @@ func (tf *threadFinder) follow(m discussMsg, emit func(SSEEvent)) {
 			"conversationId", tf.conversationID, "abandoned", tf.threadID, "threadId", m.data.ThreadID)
 	}
 	tf.threadID = m.data.ThreadID
-	events := []SSEEvent{{Type: eventThreadFound, ThreadID: tf.threadID}}
+	events := []SSEEvent{{Type: eventThreadFound, ThreadID: tf.threadID, Timestamp: m.timestamp()}}
 	collect := func(e SSEEvent) { events = append(events, e) }
 	for _, b := range tf.buf {
 		if b.data.ThreadID == tf.threadID {
-			translateAndEmit(b.data, collect)
+			translateAndEmit(b.data, stamped(b, collect))
 		}
 	}
 	tf.buf = nil
@@ -442,24 +450,28 @@ func (f follower) handleMessage(msg jetstream.Msg, emit func(SSEEvent)) bool {
 	return m.data.MessageType == msgThreadClose
 }
 
-// translate emits m's SSE event, carrying its resume id.
+// translate emits m's SSE event, carrying its resume id and timestamp.
 func translate(m discussMsg, emit func(SSEEvent)) {
 	id := eventID(m.data.ThreadID, m.seq)
-	translateAndEmit(m.data, func(e SSEEvent) {
+	translateAndEmit(m.data, stamped(m, func(e SSEEvent) {
 		e.ID = id
 		emit(e)
-	})
+	}))
 }
 
 // translateAndEmit converts a NATS discussion message to an SSE event.
 func translateAndEmit(data natsMessage, emit func(SSEEvent)) {
 	switch data.MessageType {
-	case msgThreadStart, msgAdvisoryReady, msgReviewReady, msgAdvisory, msgHeartbeat:
+	case msgThreadStart, msgReviewReady, msgAdvisory, msgHeartbeat:
 		return
 	case msgSynthesis:
 		emit(SSEEvent{Type: msgSynthesis, Content: data.Content})
 	case msgThreadClose:
 		emit(SSEEvent{Type: eventDone})
+	case msgAdvisoryReady, msgTriageResult:
+		if e, ok := subcommitteeEvent(data); ok {
+			emit(e)
+		}
 	default:
 		if e, ok := phaseEvent(data); ok {
 			emit(e)
@@ -481,12 +493,13 @@ func phaseEvent(data natsMessage) (SSEEvent, bool) {
 	case phaseTriaging, phaseEvaluating:
 		e.Status, e.GPU = data.MessageType, metaString(data, metaGPULabel)
 	case phaseWaiting:
-		e.Status, e.Model, e.Reason = phaseWaiting, metaString(data, metaModel), metaString(data, "reason")
+		e.Status, e.Model, e.Reason = phaseWaiting, metaString(data, metaModel), metaString(data, metaReason)
 	case signalStandAside:
 		// Carry the explicit signal alongside the done/stood-aside phase so the
 		// fitness transcript can count stand-aside depth uniformly with the other
 		// signals, while the dashboard still sees it as a completed phase.
-		e.Status, e.StoodAside, e.Signal, e.Reason = phaseDone, true, signalStandAside, metaString(data, "reason")
+		e.Status, e.StoodAside, e.Signal, e.Reason = phaseDone, true, signalStandAside, metaString(data, metaReason)
+		e.SignalMeta = signalMetaOf(data)
 	default:
 		return SSEEvent{}, false
 	}
@@ -497,8 +510,10 @@ func phaseEvent(data natsMessage) (SSEEvent, bool) {
 // first line for live display; Content carries the full contribution so the
 // fitness transcript keeps it as verifiable evidence. A block and a declared
 // failure are first-class verdicts, persisted so fitness can measure their rates.
+// SignalMeta carries the signal's metadata: model, tokens, inference time, tools,
+// a spilled artifact, and what failed.
 func findingEvent(data natsMessage) (SSEEvent, bool) {
-	e := SSEEvent{Type: eventFinding, Agent: data.AgentName, Signal: data.MessageType}
+	e := SSEEvent{Type: eventFinding, Agent: data.AgentName, Signal: data.MessageType, GPU: metaString(data, metaGPULabel)}
 	switch data.MessageType {
 	case signalAgree, signalBlock, signalFailure:
 		e.Summary, e.Content = extractSummary(data.Content), data.Content
@@ -507,6 +522,7 @@ func findingEvent(data natsMessage) (SSEEvent, bool) {
 	default:
 		return SSEEvent{}, false
 	}
+	e.SignalMeta = signalMetaOf(data)
 	return e, true
 }
 

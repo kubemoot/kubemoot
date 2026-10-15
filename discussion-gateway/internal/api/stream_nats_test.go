@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"regexp"
 	"strconv"
 	"strings"
 	"testing"
@@ -65,13 +66,13 @@ func publishDiscuss(t *testing.T, js jetstream.JetStream, msg map[string]interfa
 // startOf is the thread_start of thread for the test conversation.
 func startOf(thread string) map[string]interface{} {
 	return map[string]interface{}{
-		"messageId": "start-" + thread, "messageType": msgThreadStart, "threadId": thread,
-		"metadata": map[string]string{"conversationId": testConv},
+		keyMessageID: "start-" + thread, keyMessageType: msgThreadStart, "threadId": thread,
+		"metadata": map[string]string{metaConversationID: testConv},
 	}
 }
 
 func msgOf(thread, id, messageType, content string) map[string]interface{} {
-	return map[string]interface{}{"messageId": id, "messageType": messageType, "threadId": thread, "agentName": testAgent, "content": content}
+	return map[string]interface{}{keyMessageID: id, "messageType": messageType, "threadId": thread, "agentName": testAgent, "content": content}
 }
 
 // readStream reads a stream to its end and returns its non-empty field lines.
@@ -125,7 +126,7 @@ func TestStreamFollowsTheThreadACoordinatorRestartStarted(t *testing.T) {
 	closeSeq := publishDiscuss(t, js, msgOf("B", "b2", "thread_close", ""))
 
 	lines := readStream(t, gatewayServer(t, nc), "/api/v1/discussions/pilot/conv-1/stream?since="+url.QueryEscape(since), nil)
-	got := strings.Join(lines, "\n")
+	got := withoutTimestamps(strings.Join(lines, "\n"))
 	for _, want := range []string{
 		`data: {"type":"thread_found","threadId":"A"}`,
 		`id: B:` + itoa(b) + "\n" + `data: {"type":"thread_found","threadId":"B"}`,
@@ -333,6 +334,14 @@ func TestProcessMessagesReportsAnEndedSubscription(t *testing.T) {
 	if err != errSubscriptionEnded {
 		t.Fatalf("err = %v, want errSubscriptionEnded", err)
 	}
+}
+
+// timestampField matches the timestamp field of an event's data.
+var timestampField = regexp.MustCompile(`,"timestamp":"[^"]*"`)
+
+// withoutTimestamps drops the timestamp fields of a stream, for comparing the rest.
+func withoutTimestamps(stream string) string {
+	return timestampField.ReplaceAllString(stream, "")
 }
 
 func itoa(n uint64) string {

@@ -55,13 +55,13 @@ func TestActivityAgentsInAStepAreBusy(t *testing.T) {
 		actMsg(actCoord, msgAdvisoryReady, nil),
 		actMsg(actAgent, phaseEvaluating, map[string]interface{}{metaGPULabel: actGPU}),
 		actMsg("obs", phaseTriaging, nil),
-		actMsg("rules", phaseWaiting, map[string]interface{}{metaModel: actModel}),
+		actMsg(testRulesAgent, phaseWaiting, map[string]interface{}{metaModel: actModel}),
 		actMsg(testAgent, phaseTriaging, nil),
 		actMsg(testAgent, signalAgree, nil),
 	)
-	live := fixedLiveness{actCoord: true, actAgent: true, "obs": true, "rules": true, testAgent: true}
+	live := fixedLiveness{actCoord: true, actAgent: true, "obs": true, testRulesAgent: true, testAgent: true}
 	got := a.busy(context.Background(), actThread, actLater, live)
-	want := map[string]string{actAgent: doingEvaluating, "obs": doingTriaging, "rules": doingWaitingForAccelerator}
+	want := map[string]string{actAgent: doingEvaluating, "obs": doingTriaging, testRulesAgent: doingWaitingForAccelerator}
 	if !reflect.DeepEqual(doings(got), want) {
 		t.Fatalf("busy = %+v, want %v", got, want)
 	}
@@ -164,11 +164,11 @@ func TestActivityEventOnlyWhenBusy(t *testing.T) {
 	}
 	agents := []AgentActivity{{Agent: testAgent, Doing: doingTriaging}}
 	e, ok := activityEvent(agents, actT0)
-	if !ok || e.Type != eventActivity || e.At != "2026-10-15T12:00:00Z" || !reflect.DeepEqual(e.Agents, agents) {
+	if !ok || e.Type != eventActivity || e.At != testStamp || !reflect.DeepEqual(e.Agents, agents) {
 		t.Fatalf("event = %+v", e)
 	}
 	data, _ := json.Marshal(e)
-	want := `{"type":"activity","agents":[{"agent":"k8s","doing":"triaging"}],"at":"2026-10-15T12:00:00Z"}`
+	want := `{"type":"activity","agents":[{"agent":"k8s","doing":"triaging"}],"at":"` + testStamp + `"}`
 	if string(data) != want {
 		t.Errorf("json = %s, want %s", data, want)
 	}

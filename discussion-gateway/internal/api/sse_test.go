@@ -28,6 +28,10 @@ const (
 	testAgent      = "k8s"
 	reasonGPUBusy  = "gpu-busy"
 	testRulesAgent = "rules"
+	testGPU        = "ollama-rig1"
+	testStamp      = "2026-10-15T12:00:00Z"
+	testArtifact   = "ns/pilot/t1/k8s/agree-1"
+	keyMessageID   = "messageId"
 )
 
 func TestMessageDeduper_DropsDuplicateMessageID(t *testing.T) {
@@ -99,7 +103,7 @@ func TestTranslateAndEmit_PersistsAllConsensusSignals(t *testing.T) {
 // threadStart is a thread_start for conv-1 stored at published with sequence seq.
 func threadStart(thread string, published time.Time, seq uint64) discussMsg {
 	return discussMsg{
-		data:      natsMessage{MessageType: "thread_start", ThreadID: thread, Metadata: map[string]interface{}{"conversationId": testConv}},
+		data:      natsMessage{MessageType: "thread_start", ThreadID: thread, Metadata: map[string]interface{}{metaConversationID: testConv}},
 		published: published,
 		seq:       seq,
 	}
@@ -271,14 +275,14 @@ func TestTranslateAndEmit_WaitingAndStandAsideReasons(t *testing.T) {
 		in   natsMessage
 		want SSEEvent
 	}{
-		{phaseWaiting, natsMessage{MessageType: phaseWaiting, AgentName: testRulesAgent, Metadata: map[string]interface{}{"model": "qwen3:14b", "reason": reasonGPUBusy}},
-			SSEEvent{Type: eventPhase, Agent: testRulesAgent, Status: phaseWaiting, Model: "qwen3:14b", Reason: reasonGPUBusy}},
-		{"stand_aside with reason", natsMessage{MessageType: signalStandAside, AgentName: testRulesAgent, Metadata: map[string]interface{}{"reason": reasonGPUBusy}},
+		{phaseWaiting, natsMessage{MessageType: phaseWaiting, AgentName: testRulesAgent, Metadata: map[string]interface{}{"model": actModel, metaReason: reasonGPUBusy}},
+			SSEEvent{Type: eventPhase, Agent: testRulesAgent, Status: phaseWaiting, Model: actModel, Reason: reasonGPUBusy}},
+		{"stand_aside with reason", natsMessage{MessageType: signalStandAside, AgentName: testRulesAgent, Metadata: map[string]interface{}{metaReason: reasonGPUBusy}},
 			SSEEvent{Type: eventPhase, Agent: testRulesAgent, Status: phaseDone, StoodAside: true, Signal: signalStandAside, Reason: reasonGPUBusy}},
 		{"stand_aside without reason", natsMessage{MessageType: signalStandAside, AgentName: testRulesAgent},
 			SSEEvent{Type: eventPhase, Agent: testRulesAgent, Status: phaseDone, StoodAside: true, Signal: signalStandAside}},
-		{phaseEvaluating, natsMessage{MessageType: phaseEvaluating, AgentName: testRulesAgent, Metadata: map[string]interface{}{"gpuLabel": "ollama-rig1"}},
-			SSEEvent{Type: eventPhase, Agent: testRulesAgent, Status: phaseEvaluating, GPU: "ollama-rig1"}},
+		{phaseEvaluating, natsMessage{MessageType: phaseEvaluating, AgentName: testRulesAgent, Metadata: map[string]interface{}{"gpuLabel": testGPU}},
+			SSEEvent{Type: eventPhase, Agent: testRulesAgent, Status: phaseEvaluating, GPU: testGPU}},
 		{phaseReady, natsMessage{MessageType: phaseReady, AgentName: testRulesAgent},
 			SSEEvent{Type: eventPhase, Agent: testRulesAgent, Status: phaseReady}},
 	}
@@ -292,7 +296,7 @@ func TestTranslateAndEmit_WaitingAndStandAsideReasons(t *testing.T) {
 }
 
 func TestTranslateAndEmit_IgnoresNoiseAndUnknown(t *testing.T) {
-	for _, mt := range []string{"heartbeat", "advisory_ready", "something-new"} {
+	for _, mt := range []string{"heartbeat", msgAdvisory, "review_ready", "something-new"} {
 		translateAndEmit(natsMessage{MessageType: mt}, func(e SSEEvent) { t.Errorf("%s emitted %+v", mt, e) })
 	}
 	var got []SSEEvent
