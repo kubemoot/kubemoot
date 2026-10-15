@@ -248,7 +248,7 @@ public class DemandBoard {
             cache.set(null);
             return true;
         } catch (Exception e) {
-            log.debug("Demand write {} failed: {}", key, e.getMessage());
+            KvKeys.warnWriteFailure(log, BUCKET, key, e);
             return false;
         }
     }
@@ -262,7 +262,7 @@ public class DemandBoard {
             kv.delete(key);
             cache.set(null);
         } catch (Exception e) {
-            log.debug("Demand delete {} failed (TTL cleans up): {}", key, e.getMessage());
+            KvKeys.warnWriteFailure(log, BUCKET, key, e);
         }
     }
 

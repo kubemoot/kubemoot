@@ -195,8 +195,11 @@ channels:
     title: KV kubemoot_provider_tickets
     description: |
       Slot and memory claims on providers. Keys are <provider>__<ticketId> for a
-      ticket and residency__<provider>__<model> for a model left loaded. Entries
-      expire after 10 minutes.
+      ticket and residency__<provider>__<model> for a model left loaded. In a
+      residency key the provider and model names keep letters, digits and '-',
+      and write any other character as '_' and two hex digits ('__' and four
+      above U+00FF), so qwen3:14b becomes qwen3_3a14b; a NATS KV key cannot hold
+      ':'. Entries expire after 10 minutes.
     servers:
       - $ref: '#/servers/nats'
     parameters:

@@ -37,6 +37,31 @@ class KvKeysTest {
     }
 
     @Test
+    void failedWrite_warnsWithTheKey_oncePerKeyAMinute() {
+        var log = mock(Logger.class);
+        var error = new IllegalArgumentException("Key must only contain A-Z, a-z, 0-9");
+
+        KvKeys.warnWriteFailure(log, "kubemoot_provider_tickets", "residency__a__m1", error);
+        KvKeys.warnWriteFailure(log, "kubemoot_provider_tickets", "residency__a__m1", error);
+        KvKeys.warnWriteFailure(log, "kubemoot_provider_tickets", "residency__a__m2", error);
+
+        verify(log).warn(anyString(), eq("residency__a__m1"), eq("kubemoot_provider_tickets"), contains("Key must"));
+        verify(log).warn(anyString(), eq("residency__a__m2"), eq("kubemoot_provider_tickets"), contains("Key must"));
+        verify(log, times(1)).debug(anyString(), any(), any(), any());
+    }
+
+    @Test
+    void readAndWriteWarnings_areRateLimitedSeparately() {
+        var log = mock(Logger.class);
+        var error = new IOException("timeout");
+
+        KvKeys.warnReadFailure(log, "b", "k", error);
+        KvKeys.warnWriteFailure(log, "b", "k", error);
+
+        verify(log, times(2)).warn(anyString(), any(), any(), any());
+    }
+
+    @Test
     void listPropagatesTheNatsError() throws Exception {
         var conn = mock(Connection.class);
         var jsm = mock(JetStreamManagement.class);

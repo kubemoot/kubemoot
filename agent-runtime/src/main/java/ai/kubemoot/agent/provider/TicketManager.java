@@ -410,14 +410,18 @@ public class TicketManager {
         }
     }
 
-    /** Drops the residency overlay entry for a model that was unloaded. Best-effort. */
+    /**
+     * Drops the residency overlay entry for a model that was unloaded. Best-effort:
+     * a failed delete is logged at WARN and the bucket TTL removes the entry.
+     */
     public void clearResidency(String provider, String model) {
         KeyValue kv = openBucket();
         if (kv == null || provider == null || model == null) return;
+        String key = residencyKey(provider, model);
         try {
-            kv.delete(residencyKey(provider, model));
+            kv.delete(key);
         } catch (Exception e) {
-            log.debug("clearResidency({},{}) failed (TTL cleans up): {}", provider, model, e.getMessage());
+            KvKeys.warnWriteFailure(log, TICKETS_BUCKET, key, e);
         }
     }
 
@@ -602,21 +606,31 @@ public class TicketManager {
     // STABLE key, refreshed on every use, so all agents see M resident at decision
     // time without waiting for the probe. Stored in the same tickets bucket but
     // under a distinct "residency__<provider>__<model>" prefix so the per-call
-    // ticket sums (which scan "<provider>__") never see it. The bucket's 10m TTL
-    // reaps a residency entry that stops being refreshed (model idled out/evicted).
-    // See [[JIT Scheduler Locality Algorithm]].
+    // ticket sums (which scan "<provider>__") never see it. The provider and model
+    // parts are ModelKeys tokens: a model name such as "qwen3:14b" holds ':', which
+    // is not a legal NATS KV key character, so it is stored as "qwen3_3a14b". The
+    // document carries the model name itself; nothing parses it back from the key.
+    // The bucket's 10m TTL reaps a residency entry that stops being refreshed
+    // (model idled out/evicted). See [[JIT Scheduler Locality Algorithm]].
     static final String RESIDENCY_PREFIX = "residency__";
 
+    /** The key prefix every residency entry on {@code provider} starts with. */
+    static String residencyPrefix(String provider) {
+        return RESIDENCY_PREFIX + ModelKeys.token(provider) + "__";
+    }
+
+    /** The residency entry's key: legal KV characters only, whatever the model name holds. */
     static String residencyKey(String provider, String model) {
-        return RESIDENCY_PREFIX + provider + "__" + model;
+        return residencyPrefix(provider) + ModelKeys.token(model);
     }
 
     /**
      * Record (or refresh) that {@code model} is resident on {@code provider} with
      * the given VRAM footprint. Idempotent upsert under a stable key; each call
      * resets the bucket TTL so the reservation lives as long as the model keeps
-     * being used. Best-effort: NATS errors are swallowed (the probe is the
-     * eventual backstop). No-op for blank inputs or non-positive footprint.
+     * being used. Best-effort: a failed write is logged at WARN with the key and
+     * the error and never reaches the caller (the probe is the eventual
+     * backstop). No-op for blank inputs or non-positive footprint.
      */
     public void recordResidency(String provider, String model, long footprintMiB) {
         if (provider == null || provider.isEmpty()) return;
@@ -625,15 +639,16 @@ public class TicketManager {
         if (!natsProvider.isAvailable()) return;
         Connection conn = natsProvider.getConnection();
         if (conn == null) return;
+        String key = residencyKey(provider, model);
         try {
             KeyValue kv = conn.keyValue(TICKETS_BUCKET);
             ObjectNode node = objectMapper.createObjectNode();
             node.put("provider", provider);
             node.put(FIELD_MODEL_NAME, model);
             node.put(FIELD_MODEL_FOOTPRINT, footprintMiB);
-            kv.put(residencyKey(provider, model), objectMapper.writeValueAsBytes(node));
+            kv.put(key, objectMapper.writeValueAsBytes(node));
         } catch (Exception e) {
-            log.debug("recordResidency({},{}) failed (probe is backstop): {}", provider, model, e.getMessage());
+            KvKeys.warnWriteFailure(log, TICKETS_BUCKET, key, e);
         }
     }
 
@@ -648,13 +663,13 @@ public class TicketManager {
         if (provider == null || !natsProvider.isAvailable()) return java.util.Map.of();
         Connection conn = natsProvider.getConnection();
         if (conn == null) return java.util.Map.of();
-        String prefix = RESIDENCY_PREFIX + provider + "__";
+        String prefix = residencyPrefix(provider);
         java.util.Map<String, Long> out = new java.util.HashMap<>();
         try {
             KeyValue kv = conn.keyValue(TICKETS_BUCKET);
             for (String key : listKeys()) {
                 if (key.startsWith(prefix)) {
-                    collectResidency(kv, key, out);
+                    collectResidency(kv, key, provider, out);
                 }
             }
         } catch (Exception e) {
@@ -664,16 +679,17 @@ public class TicketManager {
     }
 
     /**
-     * Parse one residency entry and, when valid (non-blank model, positive
-     * footprint), record it in {@code out}. Unreadable entries are logged
+     * Parse one residency entry and, when valid (written for {@code provider},
+     * non-blank model, positive footprint), record it in {@code out}. Unreadable entries are logged
      * and skipped — extracted from {@link #residentFootprintsFor} to drop
      * the nested try/catch.
      */
-    private void collectResidency(KeyValue kv, String key, java.util.Map<String, Long> out) {
+    private void collectResidency(KeyValue kv, String key, String provider, java.util.Map<String, Long> out) {
         try {
             var entry = kv.get(key);
             if (entry == null || entry.getValue() == null) return;
             JsonNode n = objectMapper.readTree(entry.getValue());
+            if (!provider.equals(n.path("provider").asText(null))) return;
             String model = n.path(FIELD_MODEL_NAME).asText(null);
             long fp = n.path(FIELD_MODEL_FOOTPRINT).asLong(0L);
             if (model != null && !model.isEmpty() && fp > 0) {

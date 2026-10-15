@@ -1,7 +1,7 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "ProviderTicket",
-  "description": "An entry in the kubemoot_provider_tickets bucket. A ticket (key <provider>__<ticketId>) claims a slot and memory on a provider for one model call and is deleted when the call ends. A residency entry (key residency__<provider>__<model>) records a model left loaded on a provider.",
+  "description": "An entry in the kubemoot_provider_tickets bucket. A ticket (key <provider>__<ticketId>) claims a slot and memory on a provider for one model call and is deleted when the call ends. A residency entry (key residency__<provider>__<model>) records a model left loaded on a provider; in its key the provider and model names keep letters, digits and '-', and write any other character as '_' and two hex digits ('__' and four above U+00FF), so qwen3:14b becomes qwen3_3a14b. The modelName field holds the name itself.",
   "type": "object",
   "required": ["provider", "modelFootprintMiB"],
   "properties": {
