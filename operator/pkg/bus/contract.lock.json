@@ -905,6 +905,103 @@
       "type": "string",
       "required": true
     },
+    "scheduler-performance.json#": {
+      "type": "object",
+      "constraints": {
+        "additionalProperties": "false"
+      }
+    },
+    "scheduler-performance.json#/agent": {
+      "type": "string",
+      "required": true
+    },
+    "scheduler-performance.json#/failures": {
+      "type": "integer"
+    },
+    "scheduler-performance.json#/model": {
+      "type": "string",
+      "required": true
+    },
+    "scheduler-performance.json#/provider": {
+      "type": "string",
+      "required": true
+    },
+    "scheduler-performance.json#/requests": {
+      "type": "integer"
+    },
+    "scheduler-performance.json#/samples": {
+      "type": "array",
+      "required": true
+    },
+    "scheduler-performance.json#/samples[]": {
+      "type": "object",
+      "constraints": {
+        "additionalProperties": "false"
+      }
+    },
+    "scheduler-performance.json#/samples[]/activeCalls": {
+      "type": "integer"
+    },
+    "scheduler-performance.json#/samples[]/at": {
+      "type": "integer",
+      "required": true
+    },
+    "scheduler-performance.json#/samples[]/coldStart": {
+      "type": "boolean"
+    },
+    "scheduler-performance.json#/samples[]/durationMs": {
+      "type": "integer",
+      "required": true
+    },
+    "scheduler-performance.json#/samples[]/evalMs": {
+      "type": "integer"
+    },
+    "scheduler-performance.json#/samples[]/kind": {
+      "type": "string",
+      "enum": [
+        "simple",
+        "tool-turn",
+        "triage"
+      ],
+      "required": true
+    },
+    "scheduler-performance.json#/samples[]/loadMs": {
+      "type": "integer"
+    },
+    "scheduler-performance.json#/samples[]/ok": {
+      "type": "boolean",
+      "required": true
+    },
+    "scheduler-performance.json#/samples[]/outputTokens": {
+      "type": "integer"
+    },
+    "scheduler-performance.json#/samples[]/promptEvalMs": {
+      "type": "integer"
+    },
+    "scheduler-performance.json#/samples[]/promptTokens": {
+      "type": "integer"
+    },
+    "scheduler-performance.json#/updatedAt": {
+      "type": "integer"
+    },
+    "scheduler-performance.json#/waits": {
+      "type": "array",
+      "required": true
+    },
+    "scheduler-performance.json#/waits[]": {
+      "type": "object",
+      "constraints": {
+        "additionalProperties": "false"
+      }
+    },
+    "scheduler-performance.json#/waits[]/at": {
+      "type": "integer",
+      "required": true
+    },
+    "scheduler-performance.json#/waits[]/ms": {
+      "type": "integer",
+      "required": true
+    },
     "signal-meta.json#": {
       "type": "object"
     },

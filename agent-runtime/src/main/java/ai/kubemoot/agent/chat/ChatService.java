@@ -92,6 +92,8 @@ public class ChatService {
     private final ai.kubemoot.agent.provider.CandidatePolicy candidatePolicy;
     /** Places mulling calls and plans an agent's first call at selection. */
     private final CallPlanner callPlanner;
+    /** Records each model request for the scheduler's learned history; null in tests that do not need it. */
+    private final ai.kubemoot.agent.provider.PerformanceHistory performanceHistory;
 
     /**
      * Crew working memory. Recalled facts are auto-injected into the system
@@ -150,7 +152,8 @@ public class ChatService {
             OllamaDirectProber directProber,
             ai.kubemoot.agent.provider.GpuCapacityWaiter capacityWaiter,
             ai.kubemoot.agent.provider.CandidatePolicy candidatePolicy,
-            CallPlanner callPlanner
+            CallPlanner callPlanner,
+            ai.kubemoot.agent.provider.PerformanceHistory performanceHistory
     ) {
         this.chatModel = chatModel;
         this.ragClient = ragClient;
@@ -167,6 +170,7 @@ public class ChatService {
         this.candidatePolicy = candidatePolicy;
         this.callPlanner = callPlanner != null ? callPlanner
                 : new CallPlanner(providerSelector, ticketManager, null);
+        this.performanceHistory = performanceHistory;
 
         // Triage model: use dedicated endpoint/model if configured, else fall back to primary
         var triage = properties.triageModel();
@@ -306,8 +310,9 @@ public class ChatService {
         // with an infrastructure cause, or an Error): the circuit-breaker input.
         boolean callFailed = true;
         try {
-            loopResult = callWithToolLoop(messages, pick.model(), providerName, pick.pickReason(), toolerRawOutput,
-                    contextLengthOf(pick));
+            loopResult = callWithToolLoop(messages,
+                    observed(pick, ai.kubemoot.agent.provider.CallObservation.KIND_TOOL_TURN),
+                    providerName, pick.pickReason(), toolerRawOutput, contextLengthOf(pick));
             callFailed = false;
         } finally {
             // ALWAYS record observed latency, even on ToolCallFailure -
@@ -443,8 +448,9 @@ public class ChatService {
         try {
             // Legacy/test entry defaults to reasoning behavior, with no raw output;
             // the tooler raw-output contract is opt-in via the 5-arg overload.
-            return callWithToolLoop(messages, pick.model(), pick.providerName(), pick.pickReason(), false,
-                    contextLengthOf(pick));
+            return callWithToolLoop(messages,
+                    observed(pick, ai.kubemoot.agent.provider.CallObservation.KIND_TOOL_TURN),
+                    pick.providerName(), pick.pickReason(), false, contextLengthOf(pick));
         } finally {
             // v2 release safety: this overload is the test/legacy entry
             // point (the primary directLlmCall hoists pickMullingChatModel
@@ -1197,15 +1203,23 @@ public class ChatService {
     private record MullingPick(ChatModel model, String providerName,
                                 java.util.Optional<ai.kubemoot.agent.provider.Ticket> ticket,
                                 String pickReason, String modelName, String endpoint,
-                                long occupancyMiB, java.util.List<String> evicted) {
+                                long occupancyMiB, java.util.List<String> evicted, boolean coldLoad) {
         MullingPick(ChatModel model, String providerName,
                     java.util.Optional<ai.kubemoot.agent.provider.Ticket> ticket,
                     String pickReason, String modelName, String endpoint, long occupancyMiB) {
-            this(model, providerName, ticket, pickReason, modelName, endpoint, occupancyMiB, java.util.List.of());
+            this(model, providerName, ticket, pickReason, modelName, endpoint, occupancyMiB, java.util.List.of(),
+                    false);
         }
 
         MullingPick withEvicted(java.util.List<String> models) {
-            return new MullingPick(model, providerName, ticket, pickReason, modelName, endpoint, occupancyMiB, models);
+            return new MullingPick(model, providerName, ticket, pickReason, modelName, endpoint, occupancyMiB, models,
+                    coldLoad);
+        }
+
+        /** This pick, marked as placed where the model was not resident. */
+        MullingPick withColdLoad(boolean cold) {
+            return new MullingPick(model, providerName, ticket, pickReason, modelName, endpoint, occupancyMiB, evicted,
+                    cold);
         }
     }
 
@@ -1361,11 +1375,17 @@ public class ChatService {
             throw ai.kubemoot.agent.provider.NoFitException.gpuBusy(model, busy);
         }
         callPlanner.waitStarted(model);
+        long waitStartMs = System.currentTimeMillis();
         try {
-            return capacityWaiter.await(model, () -> {
+            MullingPick placed = capacityWaiter.await(model, () -> {
                 providerSelector.invalidateCache();
                 return placeCall(providerSelector.readState(), promptCharCount);
             }, wait);
+            if (performanceHistory != null) {
+                performanceHistory.recordWait(placed.providerName(), placed.modelName(),
+                        System.currentTimeMillis() - waitStartMs);
+            }
+            return placed;
         } finally {
             callPlanner.waitEnded(model);
         }
@@ -1603,7 +1623,8 @@ public class ChatService {
                 properties.model().think().orElse(null)
         );
         return new MullingPick(built, ps.name(), java.util.Optional.of(p.ticket()),
-                p.score() != null ? p.score().reasoning() : "", modelName, ps.endpoint(), coldLoadFootprintMiB);
+                p.score() != null ? p.score().reasoning() : "", modelName, ps.endpoint(), coldLoadFootprintMiB)
+                .withColdLoad(!ps.hasModelLoaded(modelName));
     }
 
     private ToolExecutor findExecutor(String toolName) {
@@ -1700,9 +1721,10 @@ public class ChatService {
 
     /** Send a no-tool chat request, record load_duration, and return text + token counts. */
     private SimpleLlmResult invokeSimpleCall(MullingPick pick, List<ChatMessage> messages) {
-        var response = pick.model().chat(dev.langchain4j.model.chat.request.ChatRequest.builder()
-                .messages(messages)
-                .build());
+        var response = observed(pick, ai.kubemoot.agent.provider.CallObservation.KIND_SIMPLE)
+                .chat(dev.langchain4j.model.chat.request.ChatRequest.builder()
+                        .messages(messages)
+                        .build());
         long inTok = 0;
         long outTok = 0;
         if (response.tokenUsage() != null) {
@@ -1713,6 +1735,29 @@ public class ChatService {
         lastLoadDurationMs = extractLoadDurationMs(response);
         return new SimpleLlmResult(response.aiMessage().text(), inTok, outTok,
                 new ModelUse(pick.modelName(), pick.providerName()));
+    }
+
+    /**
+     * The pick's model, wrapped so each request it sends is recorded in the scheduler's
+     * performance history; the bare model when nothing records or the pick is static.
+     */
+    private ChatModel observed(MullingPick pick, String kind) {
+        var context = callContext(pick.providerName(), pick.modelName(), kind, pick.coldLoad());
+        return context == null ? pick.model()
+                : new ai.kubemoot.agent.provider.ObservedChatModel(pick.model(), performanceHistory, context);
+    }
+
+    /**
+     * Where a call is placed, read once as it starts; null when nothing records or no
+     * provider was chosen (the static fallback).
+     */
+    private ai.kubemoot.agent.provider.CallContext callContext(String provider, String model, String kind,
+                                                                boolean coldLoad) {
+        if (performanceHistory == null || provider == null || provider.isEmpty()) {
+            return null;
+        }
+        int active = ticketManager == null ? 0 : ticketManager.activeCountFor(provider);
+        return new ai.kubemoot.agent.provider.CallContext(provider, model, kind, coldLoad, active);
     }
 
     /**
@@ -1874,9 +1919,12 @@ public class ChatService {
         // static triageEndpoint only when the scheduler cannot decide (NATS down).
         TriagePlacement placement = pickTriagePlacement(systemPrompt, conversation);
         String endpoint = placement.endpoint();
+        var observedCall = callContext(placement.pickedProvider(), triageModelId,
+                ai.kubemoot.agent.provider.CallObservation.KIND_TRIAGE, placement.coldLoad());
 
         long startMs = System.currentTimeMillis();
         boolean ok = false;
+        com.fasterxml.jackson.databind.JsonNode replyBody = null;
         try {
             var messages = new ArrayList<Map<String, String>>();
             if (systemPrompt != null && !systemPrompt.isEmpty()) {
@@ -1904,7 +1952,8 @@ public class ChatService {
                 throw new IOException("Ollama returned " + response.statusCode() + ": " + response.body());
             }
 
-            SimpleLlmResult result = parseOllamaChat(objectMapper.readTree(response.body()))
+            replyBody = objectMapper.readTree(response.body());
+            SimpleLlmResult result = parseOllamaChat(replyBody)
                     .ranOn(new ModelUse(triageModelId, placement.pickedProvider()));
             ok = true;
             return result;
@@ -1916,6 +1965,15 @@ public class ChatService {
         } finally {
             long durMs = System.currentTimeMillis() - startMs;
             recordTriageOutcome(placement, durMs, ok);
+            recordTriagePerformance(observedCall, ok, startMs, durMs, replyBody);
+        }
+    }
+
+    /** Records a triage request with the engine's own counts and timings from its reply, when recording. */
+    private void recordTriagePerformance(ai.kubemoot.agent.provider.CallContext context, boolean ok, long startMs,
+                                         long durMs, com.fasterxml.jackson.databind.JsonNode reply) {
+        if (context != null) {
+            performanceHistory.record(context.measured(ok, startMs, durMs, 0L, 0L).withOllamaReply(reply));
         }
     }
 
@@ -1926,7 +1984,12 @@ public class ChatService {
      * triageChatWithTokens so the call body stays under the complexity gate.
      */
     private record TriagePlacement(String endpoint, String pickedProvider, long occupancy,
-                                   java.util.Optional<ai.kubemoot.agent.provider.Ticket> ticket) {}
+                                   java.util.Optional<ai.kubemoot.agent.provider.Ticket> ticket, boolean coldLoad) {
+        /** The static triage endpoint, with no provider claimed. */
+        static TriagePlacement unscheduled(String endpoint, long occupancy) {
+            return new TriagePlacement(endpoint, "", occupancy, java.util.Optional.empty(), false);
+        }
+    }
 
     /**
      * Route the triage model's PLACEMENT through the same JIT scheduler as
@@ -1936,15 +1999,15 @@ public class ChatService {
      */
     private TriagePlacement pickTriagePlacement(String systemPrompt, String conversation) {
         if (providerSelector == null || ticketManager == null) {
-            return new TriagePlacement(triageEndpoint, "", 0L, java.util.Optional.empty());
+            return TriagePlacement.unscheduled(triageEndpoint, 0L);
         }
         var states = providerSelector.readState();
         if (states.isEmpty()) {
-            return new TriagePlacement(triageEndpoint, "", 0L, java.util.Optional.empty());
+            return TriagePlacement.unscheduled(triageEndpoint, 0L);
         }
         long occupancy = resolveOccupancyMiB(states, triageModelId);
         if (occupancy <= 0) {
-            return new TriagePlacement(triageEndpoint, "", 0L, java.util.Optional.empty());
+            return TriagePlacement.unscheduled(triageEndpoint, 0L);
         }
         int promptChars = lengthOrZero(systemPrompt) + lengthOrZero(conversation);
         long kv = ai.kubemoot.agent.provider.KvCacheEstimator.estimateMiB(triageModelId,
@@ -1981,13 +2044,14 @@ public class ChatService {
                 log.info("OUTBOUND inference (triage): agent={} endpoint={} model={} provider={}",
                         properties.agentName(), endpoint, triageModelId, pickedProvider);
                 return new TriagePlacement(endpoint, pickedProvider, occupancy,
-                        java.util.Optional.of(pick.get().ticket()));
+                        java.util.Optional.of(pick.get().ticket()),
+                        !pick.get().provider().hasModelLoaded(triageModelId));
             }
             // pick empty (NoFit/degraded) -> keep the static triageEndpoint
         } catch (ai.kubemoot.agent.provider.NoFitException nfe) {
             log.info("triage: no provider fit ({}) - static endpoint", nfe.predictorReason());
         }
-        return new TriagePlacement(triageEndpoint, "", occupancy, java.util.Optional.empty());
+        return TriagePlacement.unscheduled(triageEndpoint, occupancy);
     }
 
     /**

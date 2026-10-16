@@ -38,6 +38,7 @@ import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.longThat;
 import static org.mockito.Mockito.*;
 
 /**
@@ -58,6 +59,7 @@ class ChatServiceCapacityTest {
     private ProviderSelector selector;
     private ChatModelPool pool;
     private TicketManager tickets;
+    private ai.kubemoot.agent.provider.PerformanceHistory history;
 
     @BeforeEach
     void setUp() {
@@ -99,7 +101,7 @@ class ChatServiceCapacityTest {
         return new ChatService(staticModel, mock(RagClient.class), mcpClient, mock(DiscussionOrchestrator.class),
                 ChatServiceToolLoopTest.stubProperties(3, "tooler", false, false),
                 mock(AgentHeartbeatService.class), MAPPER, selector, pool, null, tickets, null,
-                waiter, policy, null);
+                waiter, policy, null, history);
     }
 
     private static ChatService.ChatRequest request() {
@@ -130,6 +132,47 @@ class ChatServiceCapacityTest {
         verify(selector, never()).pickAndClaim(anyString(), anyLong(), anyLong(), anyLong());
         verify(tickets).recordResidency("ollama-a", WARM_CANDIDATE, 10_000L);
         verifyNoInteractions(staticModel);
+    }
+
+    @Test
+    void aScheduledCall_recordsEachRequestOnTheProviderItRanOn() {
+        history = mock(ai.kubemoot.agent.provider.PerformanceHistory.class);
+        var rig = provider(32_768);
+        when(selector.readState()).thenReturn(List.of(rig));
+        when(selector.pickAndClaimWarm(eq(PREFERRED), anyLong(), anyLong(), anyLong())).thenReturn(Optional.empty());
+        when(selector.pickAndClaimWarm(eq(WARM_CANDIDATE), anyLong(), anyLong(), anyLong())).thenReturn(Optional.of(pickOn(rig)));
+        when(tickets.activeCountFor("ollama-a")).thenReturn(2);
+        poolServes(WARM_CANDIDATE, answering("warm answer"));
+
+        service(null, candidates(70, 60)).directChat(request(), true, CapacityWait.NONE);
+
+        var seen = org.mockito.ArgumentCaptor.forClass(ai.kubemoot.agent.provider.CallObservation.class);
+        verify(history).record(seen.capture());
+        var o = seen.getValue();
+        assertEquals("ollama-a", o.provider());
+        assertEquals(WARM_CANDIDATE, o.model());
+        assertEquals(ai.kubemoot.agent.provider.CallObservation.KIND_TOOL_TURN, o.kind());
+        assertTrue(o.ok());
+        assertFalse(o.coldStart(), "the candidate was resident when the call was placed");
+        assertEquals(10, o.promptTokens());
+        assertEquals(2, o.activeCalls());
+    }
+
+    @Test
+    void aCallPlacedWhereTheModelIsNotResident_isRecordedCold() {
+        history = mock(ai.kubemoot.agent.provider.PerformanceHistory.class);
+        var rig = provider(32_768);
+        when(selector.readState()).thenReturn(List.of(rig));
+        when(selector.pickAndClaimWarm(anyString(), anyLong(), anyLong(), anyLong())).thenReturn(Optional.empty());
+        when(selector.pickAndClaim(eq(PREFERRED), anyLong(), anyLong(), anyLong())).thenReturn(Optional.of(pickOn(rig)));
+        poolServes(PREFERRED, answering("cold answer"));
+
+        service(null, null).directChat(request(), true, CapacityWait.NONE);
+
+        var seen = org.mockito.ArgumentCaptor.forClass(ai.kubemoot.agent.provider.CallObservation.class);
+        verify(history).record(seen.capture());
+        assertEquals(PREFERRED, seen.getValue().model());
+        assertTrue(seen.getValue().coldStart());
     }
 
     @Test
@@ -181,6 +224,7 @@ class ChatServiceCapacityTest {
     @Test
     @Timeout(value = 10, unit = TimeUnit.SECONDS)
     void saturatedCluster_waitsThenRunsWhenCapacityArrives() {
+        history = mock(ai.kubemoot.agent.provider.PerformanceHistory.class);
         var rig = provider(32_768);
         when(selector.readState()).thenReturn(List.of(rig));
         when(selector.pickAndClaimWarm(anyString(), anyLong(), anyLong(), anyLong())).thenReturn(Optional.empty());
@@ -194,6 +238,7 @@ class ChatServiceCapacityTest {
         var result = service(new GpuCapacityWaiter(signal, 60, 90), null).directChat(request(), true, wait);
 
         assertEquals("after the wait", result.response());
+        verify(history).recordWait(eq("ollama-a"), eq(PREFERRED), longThat(ms -> ms >= 0));
         assertEquals(List.of(PREFERRED), wait.waiting);
         assertEquals(List.of(PREFERRED), wait.capacity);
         verify(selector, atLeastOnce()).invalidateCache();

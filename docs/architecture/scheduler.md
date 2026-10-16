@@ -267,6 +267,16 @@ spec:
 
 The operator resolves crew, then realm, then `algorithm`, and passes the result to each agent as `KUBEMOOT_SCHEDULER_PLACEMENT_POLICY`; changing it rolls the crew's agent pods. An unknown value falls back to `algorithm`. Run one policy per measurement arm: crews on different policies at the same time compete for the same accelerators.
 
+## Performance history
+
+Every scheduled model request is recorded so the scheduler can learn from what it observed instead of from configured values. The agent runtime writes the NATS KV bucket `kubemoot_scheduler_performance` (created by the operator's streams job, TTL 30 days); its schema is `SchedulerPerformance` in the bus contract.
+
+- **One key per provider, model, and agent:** `<provider>.<model>.<agent>`, each token escaped. Each agent writes only its own key, so writes need no compare-and-set; a reader folds every agent's key for a provider and model.
+- **Each request records:** which path sent it (`tool-turn`, `simple`, `triage`), the outcome, whether the model was cold on the provider when the call was placed, prompt and generated tokens, the duration the agent measured, the number of calls holding a ticket on the provider when it started, and, when the engine reports them, its load, prompt-processing, and generation times. Triage calls carry the engine's timings; calls through the chat client carry tokens and duration, and the engine timings are `-1`.
+- **Each wait records:** how long a call waited for capacity before it was placed on that provider.
+- **Bounded:** each key keeps its last 32 requests and 16 waits, with lifetime request and failure counts.
+- **Never in the way:** writes run on one background thread with a bounded queue and are dropped when the queue is full or NATS is down; a request is never slowed or failed by recording it.
+
 ## Quality bias
 
 ### Purpose

@@ -1420,7 +1420,7 @@ class ChatServiceToolLoopTest {
                 // back to static chatModel anyway, ticket release is no-op).
                 // null OllamaDirectProber = NATS-independent self-fetch skipped
                 // in tests (providerSelector is null so the JIT path never runs).
-                null, null, null, null, null, null, null, null
+                null, null, null, null, null, null, null, null, null
         );
     }
 
@@ -1537,6 +1537,24 @@ class ChatServiceToolLoopTest {
     }
 
     @Test
+    void aCallOnTheStaticEndpoint_isNotRecorded_asItRanOnNoKnownProvider() throws Exception {
+        when(mcpClient.getToolSpecifications()).thenReturn(Map.of());
+        var response = mock(ChatResponse.class);
+        when(response.aiMessage()).thenReturn(new AiMessage("answer"));
+        when(response.tokenUsage()).thenReturn(new TokenUsage(10, 5));
+        when(chatModel.chat(any(ChatRequest.class))).thenReturn(response);
+        var history = mock(ai.kubemoot.agent.provider.PerformanceHistory.class);
+
+        var service = new ChatService(chatModel, ragClient, mcpClient, discussionOrchestrator,
+                stubProperties(3, "tooler", false, false), heartbeatService, objectMapper,
+                null, null, null, null, null, null, null, null, history);
+        service.directChat(new ChatService.ChatRequest("conv-static", "Which nodes have a GPU?"), true);
+
+        verify(chatModel).chat(any(ChatRequest.class));
+        verifyNoInteractions(history);
+    }
+
+    @Test
     void crewMemoryRecallSearchesWithTheRetrievalQuery() throws Exception {
         when(mcpClient.getToolSpecifications()).thenReturn(Map.of());
         var response = mock(ChatResponse.class);
@@ -1550,7 +1568,7 @@ class ChatServiceToolLoopTest {
 
         var service = new ChatService(chatModel, ragClient, mcpClient, discussionOrchestrator,
                 stubProperties(3, "tooler", false, false), heartbeatService, objectMapper,
-                null, null, memory, null, null, null, null, null);
+                null, null, memory, null, null, null, null, null, null);
         service.directChat(new ChatService.ChatRequest("conv-mem", "You are in a discussion... [User Question] Which nodes have a GPU? [Response (x)] ...",
                 null, "thread-mem", "Which nodes have a GPU?"), false);
 
