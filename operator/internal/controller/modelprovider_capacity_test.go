@@ -123,6 +123,46 @@ func TestApplyCapacityToState(t *testing.T) {
 	}
 }
 
+// A CPU server reports size_vram 0 for a loaded model; without a discovered VRAM
+// total the model's whole size counts against the declared memory budget. A GPU
+// host keeps counting size_vram only, so a model held in host RAM does not use
+// up VRAM.
+func TestApplyCapacityToStateCPUResidentFootprint(t *testing.T) {
+	cpuLoaded := []aiv1alpha1.LoadedModel{{Name: "qwen3:8b", SizeVRAM: 0, Size: 6 * 1024 * 1024 * 1024}}
+
+	cpu := &ProviderState{}
+	applyCapacityToState(cpu, &aiv1alpha1.DiscoveredCapacity{LoadedModels: cpuLoaded})
+	if got := cpu.LoadedModelFootprintsMiB["qwen3:8b"]; got != 6144 {
+		t.Errorf("CPU-resident footprint = %d MiB, want 6144 (the model size)", got)
+	}
+
+	gpu := &ProviderState{}
+	applyCapacityToState(gpu, &aiv1alpha1.DiscoveredCapacity{VRAMTotalMiB: 24576, LoadedModels: cpuLoaded})
+	if got := gpu.LoadedModelFootprintsMiB["qwen3:8b"]; got != 0 {
+		t.Errorf("GPU host must count size_vram only, got %d MiB", got)
+	}
+
+	partial := &ProviderState{}
+	applyCapacityToState(partial, &aiv1alpha1.DiscoveredCapacity{LoadedModels: []aiv1alpha1.LoadedModel{
+		{Name: "m", SizeVRAM: 1024 * 1024 * 1024, Size: 2 * 1024 * 1024 * 1024},
+	}})
+	if got := partial.LoadedModelFootprintsMiB["m"]; got != 1024 {
+		t.Errorf("a reported size_vram wins over the model size, got %d MiB", got)
+	}
+
+	unsized := &ProviderState{}
+	applyCapacityToState(unsized, &aiv1alpha1.DiscoveredCapacity{LoadedModels: []aiv1alpha1.LoadedModel{
+		{Name: "neg", SizeVRAM: -1, Size: 1024 * 1024 * 1024},
+		{Name: "none", SizeVRAM: 0, Size: 0},
+	}})
+	if got := unsized.LoadedModelFootprintsMiB["neg"]; got != 1024 {
+		t.Errorf("a non-positive size_vram falls back to the model size, got %d MiB", got)
+	}
+	if got := unsized.LoadedModelFootprintsMiB["none"]; got != 0 {
+		t.Errorf("no reported size leaves the footprint at 0, got %d MiB", got)
+	}
+}
+
 func TestAvailableFootprints(t *testing.T) {
 	// Empty input -> nil.
 	if got := availableFootprints(nil, nil); got != nil {

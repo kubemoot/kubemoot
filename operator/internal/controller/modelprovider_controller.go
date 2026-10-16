@@ -506,7 +506,7 @@ func (r *ModelProviderReconciler) discoverLoadedModels(ctx context.Context, prov
 			Size:          m.Size,
 			ContextLength: m.ContextLength,
 		})
-		totalVRAMUsed += m.SizeVRAM
+		totalVRAMUsed += m.SizeVRAM // VRAM in use only; host-RAM residency is not VRAM
 	}
 
 	provider.Status.Capacity.LoadedModels = loadedModels
@@ -734,8 +734,7 @@ func applyCapacityToState(state *ProviderState, cap *aiv1alpha1.DiscoveredCapaci
 	if len(cap.LoadedModels) > 0 {
 		state.LoadedModelFootprintsMiB = make(map[string]int64, len(cap.LoadedModels))
 		for _, m := range cap.LoadedModels {
-			// LoadedModel.SizeVRAM is bytes (from /api/ps); convert to MiB.
-			state.LoadedModelFootprintsMiB[m.Name] = m.SizeVRAM / (1024 * 1024)
+			state.LoadedModelFootprintsMiB[m.Name] = residentFootprintMiB(m, cap.VRAMTotalMiB > 0)
 		}
 	}
 	if avail := availableFootprints(state.LoadedModelFootprintsMiB, cap.AvailableModels); len(avail) > 0 {
@@ -743,6 +742,19 @@ func applyCapacityToState(state *ProviderState, cap *aiv1alpha1.DiscoveredCapaci
 	}
 	state.ContextLength = cap.ContextLength
 	state.LoadedModelContextLengths = loadedContextLengths(cap.LoadedModels)
+}
+
+// residentFootprintMiB is the memory a loaded model holds against the provider's
+// budget, in MiB. /api/ps reports bytes. A GPU host (VRAM discovered) counts
+// size_vram only. A provider without a discovered VRAM total budgets the
+// declared spec.scheduling.memoryMiB, and a CPU server reports size_vram 0, so
+// there the model's whole size counts.
+func residentFootprintMiB(m aiv1alpha1.LoadedModel, vramDiscovered bool) int64 {
+	bytes := m.SizeVRAM
+	if bytes <= 0 && !vramDiscovered {
+		bytes = m.Size
+	}
+	return bytes / (1024 * 1024)
 }
 
 // loadedContextLengths maps each loaded model that reports a per-request

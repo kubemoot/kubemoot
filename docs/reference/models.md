@@ -95,6 +95,10 @@ spec:
 A discovered VRAM total always wins over the declaration. With neither, agents refuse
 cold loads on that provider because the fit gate has no budget to check against.
 
+On a provider without a discovered VRAM total, a loaded model whose `/api/ps`
+`size_vram` is 0 (how a CPU server reports a model held in host RAM) counts at its
+whole size against `memoryMiB`.
+
 ### Example
 
 ```yaml
