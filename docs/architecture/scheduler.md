@@ -279,6 +279,34 @@ Every scheduled model request is recorded so the scheduler can learn from what i
 - **Bounded:** each key keeps its last 32 requests and 16 waits, with lifetime request and failure counts.
 - **Never in the way:** writes run on one background thread with a bounded queue and are dropped when the queue is full or NATS is down; a request is never slowed or failed by recording it.
 
+## The scheduling crew
+
+Kubemoot ships its own crew for scheduling work, `kubemoot-scheduling`, in the operator
+chart (`schedulingCrew` values, on by default) and in its own namespace,
+`kubemoot-scheduling`. It is built like any crew: a coordinator, a specialist, ADL
+PromptModules, a Skill, an MCPServer reached through the crew's MCPGateway, and one
+small tool-calling Model per ModelProvider the chart declares.
+
+- **model-provider-calibrator** (tooler) measures ModelProviders with the
+  `accelerator-mcp` tools: `list_providers`, `provider_state`, `probe_model`, and
+  `record_calibration`. The tools enforce the safety rules; what to probe and when the
+  results are good enough is the calibrator's `calibrate-a-provider` skill. Results land
+  on each ModelProvider's `status.calibration` (see the
+  [ModelProvider reference](../reference/models.md)).
+- No prompt or skill names a provider, model, or accelerator: what exists is read live
+  with the tools.
+
+Ask it like any crew:
+
+```bash
+kmctl conversation ask kubemoot-scheduling "Calibrate ollama-gpu" -n kubemoot-scheduling
+kmctl conversation ask kubemoot-scheduling "How are the model providers calibrated?" -n kubemoot-scheduling
+```
+
+The crew calibrates when asked; the scheduler does not read the results yet. Its Models
+come from the chart's `modelProviders` values, so a ModelProvider created another way
+needs a Model in `kubemoot-scheduling` for the crew to think with.
+
 ## Quality bias
 
 ### Purpose

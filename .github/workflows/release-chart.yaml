@@ -18,6 +18,7 @@ on:
     # Every release whose image the operator chart pins (Release is the operator).
     workflows:
       - Release
+      - Release Accelerator MCP
       - Release Agent Runtime
       - Release Crew Liaison
       - Release Dashboard

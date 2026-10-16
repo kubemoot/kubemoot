@@ -34,3 +34,5 @@ jobs:
         run: operator/chart/test-image-entrypoints.sh
       - name: ModelProvider render tests
         run: operator/chart/test-modelproviders.sh
+      - name: Scheduling crew render tests
+        run: operator/chart/test-scheduling-crew.sh

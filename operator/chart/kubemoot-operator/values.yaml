@@ -262,6 +262,44 @@ verify:
   # Deploy static verify jobs with the chart (optional - API creates jobs dynamically)
   deployJobs: false
 
+# The scheduling crew: Kubemoot's own crew for scheduling work, in its own namespace.
+# Its model-provider-calibrator measures each ModelProvider (load time, prompt and
+# generation speed, parallel throughput, fit) through the accelerator-mcp tools and
+# records the results on the provider's status.calibration. Ask it with
+# `kmctl conversation ask kubemoot-scheduling "Calibrate ollama-gpu" -n kubemoot-scheduling`.
+# It renders only when modelProviders below is not empty: its agents think with one
+# Model per chart-declared ModelProvider.
+schedulingCrew:
+  enabled: true
+  namespace: kubemoot-scheduling
+  # The small tool-calling model the crew's agents think with. The chart declares one
+  # Model per ModelProvider in modelProviders below; the scheduler places each call.
+  # Like any Model, it is pulled onto each provider that lacks it, and deleting the
+  # Model (disabling the crew, changing this name) removes the model from a provider
+  # only when no other Model on that provider uses the same tag. Choosing a model other
+  # crews already use costs no extra disk.
+  model:
+    name: qwen3:8b
+    vramMib: 5120
+    contextWindow: "40960"
+  accelerator:
+    image: accelerator-mcp:0.0.0
+    resources:
+      requests:
+        cpu: 20m
+        memory: 64Mi
+      limits:
+        cpu: 500m
+        memory: 256Mi
+  gateway:
+    resources:
+      requests:
+        cpu: 100m
+        memory: 768Mi
+      limits:
+        cpu: 500m
+        memory: 1Gi
+
 # KubemootConfig - centralized default images for all components
 # Crew liaison: every crew as one MCP agent for external clients (Claude Code and any
 # other MCP client). Installed with the operator; cluster-internal until a route is
