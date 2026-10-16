@@ -1,0 +1,76 @@
+name: CI Accelerator MCP
+
+on:
+  workflow_call:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'accelerator-mcp/**'
+      # It builds against the operator's API types.
+      - 'operator/api/**'
+      - 'operator/go.mod'
+      - '.golangci.yml'
+      - '.github/scripts/golangci-lint.sh'
+      - 'operator/Makefile'
+      - '.github/scripts/go-build-static.sh'
+      - '.github/workflows/build-go-binary-image.yaml'
+  workflow_dispatch:
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    # Pull requests (including forks) run on GitHub-hosted runners; the self-hosted
+    # cluster runners take push, dispatch, and workflow_call runs from main only.
+    runs-on: ${{ github.event_name == 'pull_request' && 'ubuntu-latest' || 'homelab-runners' }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: accelerator-mcp/go.mod
+          cache-dependency-path: accelerator-mcp/go.sum
+
+      - name: Check go.mod and go.sum are tidy
+        working-directory: accelerator-mcp
+        env:
+          GOTOOLCHAIN: local
+        run: go mod tidy -diff
+
+      # golangci-lint with the shared root .golangci.yml at the operator/Makefile pin.
+      - name: Lint
+        working-directory: accelerator-mcp
+        run: ../.github/scripts/golangci-lint.sh
+
+      - name: Run tests
+        working-directory: accelerator-mcp
+        run: go test ./...
+
+      # The image packages this tested binary; the build pod does not compile again.
+      - name: Build the static binary
+        working-directory: accelerator-mcp
+        run: ../.github/scripts/go-build-static.sh --x "main.Version=${GITHUB_SHA::8}" accelerator-mcp ./cmd/accelerator-mcp/
+
+      - name: Keep the tested binary for the image build
+        if: github.event_name != 'pull_request'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: accelerator-mcp-binary
+          path: accelerator-mcp/accelerator-mcp
+          if-no-files-found: error
+          retention-days: 3
+
+  build-image:
+    needs: test
+    if: github.event_name != 'pull_request'
+    uses: ./.github/workflows/build-go-binary-image.yaml
+    with:
+      name: accelerator-mcp
+      binary: accelerator-mcp

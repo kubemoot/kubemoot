@@ -58,6 +58,23 @@ type ModelProviderSpec struct {
 	// Scheduling contains optional scheduling preferences for this provider
 	// +optional
 	Scheduling *ProviderScheduling `json:"scheduling,omitempty"`
+
+	// Calibration controls whether this provider may be probed to measure its models
+	// +optional
+	Calibration *ProviderCalibrationSpec `json:"calibration,omitempty"`
+}
+
+// ProviderCalibrationSpec controls calibration of a ModelProvider. To ask for a
+// fresh calibration, set the annotation kubemoot.ai/calibration-reset to a new
+// value; with kubemoot.ai/calibration-reset-scope: all, the start of that
+// calibration also forgets the provider's recorded performance history.
+type ProviderCalibrationSpec struct {
+	// Enabled allows calibration probes on this provider (the default). When false,
+	// the accelerator-mcp probe_model tool refuses the provider: use it for an
+	// accelerator whose probe calls cost money and are not wanted.
+	// +kubebuilder:default=true
+	// +optional
+	Enabled *bool `json:"enabled,omitempty"`
 }
 
 // ProviderScheduling contains scheduling preferences for a ModelProvider
@@ -105,9 +122,93 @@ type ModelProviderStatus struct {
 	// +optional
 	Message string `json:"message,omitempty"`
 
+	// Calibration is what calibration measured on this provider: per model, how
+	// long it takes to load, how fast it processes prompts and generates, and
+	// whether it fits the accelerator. It is recorded through the accelerator-mcp
+	// tools; the scheduler does not read it yet
+	// +optional
+	Calibration *ProviderCalibration `json:"calibration,omitempty"`
+
 	// Conditions represent the latest available observations
 	// +optional
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
+}
+
+// ProviderCalibration is the outcome of calibrating a ModelProvider.
+type ProviderCalibration struct {
+	// Phase is Calibrating, Calibrated, Waiting (paused because crew calls were
+	// using the provider), or Failed
+	// +optional
+	Phase string `json:"phase,omitempty"`
+
+	// Message explains the phase
+	// +optional
+	Message string `json:"message,omitempty"`
+
+	// EngineVersion is the engine version the results were measured on
+	// +optional
+	EngineVersion string `json:"engineVersion,omitempty"`
+
+	// ResetToken is the last kubemoot.ai/calibration-reset value acted on: set when
+	// the calibration it asked for starts
+	// +optional
+	ResetToken string `json:"resetToken,omitempty"`
+
+	// CompletedAt is when the last calibration finished
+	// +optional
+	CompletedAt *metav1.Time `json:"completedAt,omitempty"`
+
+	// Models holds one result per model calibrated
+	// +optional
+	Models []ModelCalibration `json:"models,omitempty"`
+}
+
+// ModelCalibration is what calibration measured for one model on a provider.
+// Speeds are tokens per second, rounded down.
+type ModelCalibration struct {
+	// Model is the model name on the provider, such as qwen3:14b
+	Model string `json:"model"`
+
+	// Fits is false when the model does not fit the provider's memory: it would
+	// spill to the CPU, or it is larger than the memory budget
+	Fits bool `json:"fits"`
+
+	// LoadMs is how long the engine took to load the model, in milliseconds
+	// +optional
+	LoadMs int64 `json:"loadMs,omitempty"`
+
+	// ResidentMiB is the accelerator memory the model took once loaded
+	// +optional
+	ResidentMiB int64 `json:"residentMiB,omitempty"`
+
+	// ContextLength is the context the engine gives the model, in tokens
+	// +optional
+	ContextLength int `json:"contextLength,omitempty"`
+
+	// PromptTokensPerSecond is how fast the model processes a long prompt
+	// +optional
+	PromptTokensPerSecond int64 `json:"promptTokensPerSecond,omitempty"`
+
+	// GenerateTokensPerSecond is how fast one request generates
+	// +optional
+	GenerateTokensPerSecond int64 `json:"generateTokensPerSecond,omitempty"`
+
+	// ParallelRequests is how many requests ran together for the parallel measure
+	// +optional
+	ParallelRequests int `json:"parallelRequests,omitempty"`
+
+	// ParallelGenerateTokensPerSecond is the total generation speed with
+	// ParallelRequests running together
+	// +optional
+	ParallelGenerateTokensPerSecond int64 `json:"parallelGenerateTokensPerSecond,omitempty"`
+
+	// Reason explains a model that does not fit or could not be measured
+	// +optional
+	Reason string `json:"reason,omitempty"`
+
+	// CalibratedAt is when this model was measured
+	// +optional
+	CalibratedAt *metav1.Time `json:"calibratedAt,omitempty"`
 }
 
 // ProviderStorage describes the volume that holds a provider's model files.

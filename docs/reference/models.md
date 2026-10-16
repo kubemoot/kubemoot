@@ -33,6 +33,7 @@ Declares an inference endpoint. The operator discovers GPU capacity (VRAM, loade
 | `secretRef` | string | No | Reserved for future provider types; not used by `ollama` |
 | `scheduling.weight` | int | No | Preference between providers for reasons other than capacity (higher is preferred); default 100 |
 | `scheduling.memoryMiB` | int | No | Memory budget the fit gate spends when the operator cannot discover one; see below |
+| `calibration.enabled` | bool | No | Whether the scheduling crew calibrates this provider (default `true`); see Calibration below |
 
 ### Status
 
@@ -98,6 +99,49 @@ cold loads on that provider because the fit gate has no budget to check against.
 On a provider without a discovered VRAM total, a loaded model whose `/api/ps`
 `size_vram` is 0 (how a CPU server reports a model held in host RAM) counts at its
 whole size against `memoryMiB`.
+
+### Calibration
+
+`status.calibration` records what calibrating a provider measured, for each model: how
+long the engine takes to load it, how much accelerator memory it takes, the context the
+engine gives it, how fast it processes a long prompt and generates, the total generation
+speed with the provider's parallel slots in use, and whether it fits or spills to the
+CPU, with a `Calibrated` condition. Calibration is done by calling the `accelerator-mcp`
+tools (`list_providers`, `provider_state`, `probe_model`, `record_calibration`), which
+measure and record but leave what to probe, and when, to the caller. The scheduler does
+not read `status.calibration` yet. A provider no one has calibrated has no
+`status.calibration`.
+
+| `status.calibration` field | Description |
+|-------|-------------|
+| `phase` | `Calibrating`, `Calibrated`, `Waiting` (paused because crew calls were using the provider), or `Failed` |
+| `message` | What the caller said about the run |
+| `engineVersion` | The engine version the results were measured on |
+| `resetToken` | The last reset request acted on, set when the calibration it asked for starts |
+| `completedAt` | When the last calibration finished |
+| `models[]` | Per model: `fits`, `reason`, `loadMs`, `residentMiB`, `contextLength`, `promptTokensPerSecond`, `generateTokensPerSecond`, `parallelRequests`, `parallelGenerateTokensPerSecond`, `calibratedAt` |
+
+The tools keep calibration out of a crew's way. A probe sends nothing while other calls
+hold the provider, claims tickets for its own requests like any call, refuses a model the
+provider has not reported or one larger than its memory budget, and the models it loaded
+are unloaded when the calibration is recorded (or after ten idle minutes), unless a crew
+call is using one. Every probe request is kept in the scheduler's performance history as
+kind `calibration`.
+
+**Asking for a fresh calibration.** Set the annotation `kubemoot.ai/calibration-reset` on
+the ModelProvider to a new value. The next calibration that starts clears the earlier
+results and records the value in `status.calibration.resetToken`, so each value resets
+once. With `kubemoot.ai/calibration-reset-scope: all`, it also forgets the provider's
+recorded performance history, for a first-install test. With GitOps, set the annotations
+in the ModelProvider manifest in git; by hand:
+
+```bash
+kubectl annotate modelprovider ollama-gpu -n kubemoot --overwrite \
+  kubemoot.ai/calibration-reset="$(date +%s)" kubemoot.ai/calibration-reset-scope=all
+```
+
+Set `spec.calibration.enabled: false` to refuse probes on a provider whose calls are not
+wanted, such as a leased accelerator billed per request.
 
 ### Example
 
@@ -354,6 +398,10 @@ Future requests in the form *"can we just preload model X on GPU Y"* should be r
 4. Pin VRAM only as a last resort, and never via a chart - manual `curl /api/generate keep_alive=-1` is fine for one-off debugging.
 
 The architectural commitment: **the orchestrator decides what to load. The chart declares what's possible (Model CRs with labels), not what's resident.**
+
+Calibration is not preload: it loads a model to measure it, never while other calls hold
+the provider, and unloads what it loaded when the calibration is recorded (see
+Calibration above).
 
 ## Model Catalog
 

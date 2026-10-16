@@ -54,7 +54,11 @@ public class StaticFitPredictor implements FitPredictor {
     static final double VRAM_SAFETY_FRACTION = 0.12;
     static final long VRAM_SAFETY_FLOOR_MIB = 2048;
 
-    /** Usable VRAM for a cold-load fit decision: total minus the safety reserve. */
+    /**
+     * Usable VRAM for a cold-load fit decision: total minus the safety reserve.
+     * accelerator-mcp's cluster.UsableMemoryMiB (Go) applies the same rule to refuse
+     * probing a model larger than the budget; change both together.
+     */
     static long usableVramMiB(long totalVramMiB) {
         if (totalVramMiB <= 0) return 0L;
         long reserve = Math.max(VRAM_SAFETY_FLOOR_MIB, (long) (totalVramMiB * VRAM_SAFETY_FRACTION));
