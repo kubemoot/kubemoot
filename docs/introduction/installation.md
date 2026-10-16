@@ -151,7 +151,8 @@ metadata:
 spec:
   type: ollama
   endpoint: http://ollama.ollama-a:11434
-  weight: 100
+  scheduling:
+    weight: 100
 ---
 apiVersion: kubemoot.ai/v1alpha1
 kind: ModelProvider
@@ -161,7 +162,8 @@ metadata:
 spec:
   type: ollama
   endpoint: http://ollama.ollama-b:11434
-  weight: 100
+  scheduling:
+    weight: 100
 ```
 
 The full field reference, discovery sources, and the budget rules are in

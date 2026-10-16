@@ -31,6 +31,8 @@ Declares an inference endpoint. The operator discovers GPU capacity (VRAM, loade
 | `type` | string | Yes | Only `ollama` is supported today. Any other value, including `openai` and `anthropic`, is rejected at admission: those types are not supported yet. |
 | `endpoint` | string | For ollama | API endpoint URL |
 | `secretRef` | string | No | Reserved for future provider types; not used by `ollama` |
+| `scheduling.weight` | int | No | Preference between providers for reasons other than capacity (higher is preferred); default 100 |
+| `scheduling.memoryMiB` | int | No | Memory budget the fit gate spends when the operator cannot discover one; see below |
 
 ### Status
 
@@ -114,6 +116,26 @@ spec:
 ```
 
 `kubectl get mdlp` (short name: `mdlp`).
+
+### From the operator chart
+
+The operator chart can declare ModelProviders from its `modelProviders` values. Each
+entry renders one ModelProvider; `schedulingWeight` and `memoryMiB` render under
+`spec.scheduling` when set:
+
+```yaml
+modelProviders:
+  - name: ollama-gpu-a
+    type: ollama
+    endpoint: http://ollama.ollama-a:11434
+    schedulingWeight: 100
+  - name: ollama-cpu
+    type: ollama
+    endpoint: http://ollama.ollama-cpu:11434
+    memoryMiB: 20480   # host RAM the CPU server may spend on models
+```
+
+`namespace` defaults to the release namespace.
 
 ## Model
 

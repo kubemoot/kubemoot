@@ -32,3 +32,5 @@ jobs:
         run: operator/chart/test-dashboard-subchart.sh
       - name: Image entrypoint render tests
         run: operator/chart/test-image-entrypoints.sh
+      - name: ModelProvider render tests
+        run: operator/chart/test-modelproviders.sh
