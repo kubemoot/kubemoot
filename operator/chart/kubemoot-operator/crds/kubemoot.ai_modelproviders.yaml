@@ -54,6 +54,18 @@ spec:
           spec:
             description: ModelProviderSpec defines the desired state of ModelProvider.
             properties:
+              calibration:
+                description: Calibration controls whether this provider may be probed
+                  to measure its models
+                properties:
+                  enabled:
+                    default: true
+                    description: |-
+                      Enabled allows calibration probes on this provider (the default). When false,
+                      the accelerator-mcp probe_model tool refuses the provider: use it for an
+                      accelerator whose probe calls cost money and are not wanted.
+                    type: boolean
+                type: object
               endpoint:
                 description: Endpoint is the Ollama API endpoint (required)
                 type: string
@@ -96,6 +108,98 @@ spec:
           status:
             description: ModelProviderStatus defines the observed state of ModelProvider.
             properties:
+              calibration:
+                description: |-
+                  Calibration is what calibration measured on this provider: per model, how
+                  long it takes to load, how fast it processes prompts and generates, and
+                  whether it fits the accelerator. It is recorded through the accelerator-mcp
+                  tools; the scheduler does not read it yet
+                properties:
+                  completedAt:
+                    description: CompletedAt is when the last calibration finished
+                    format: date-time
+                    type: string
+                  engineVersion:
+                    description: EngineVersion is the engine version the results were
+                      measured on
+                    type: string
+                  message:
+                    description: Message explains the phase
+                    type: string
+                  models:
+                    description: Models holds one result per model calibrated
+                    items:
+                      description: |-
+                        ModelCalibration is what calibration measured for one model on a provider.
+                        Speeds are tokens per second, rounded down.
+                      properties:
+                        calibratedAt:
+                          description: CalibratedAt is when this model was measured
+                          format: date-time
+                          type: string
+                        contextLength:
+                          description: ContextLength is the context the engine gives
+                            the model, in tokens
+                          type: integer
+                        fits:
+                          description: |-
+                            Fits is false when the model does not fit the provider's memory: it would
+                            spill to the CPU, or it is larger than the memory budget
+                          type: boolean
+                        generateTokensPerSecond:
+                          description: GenerateTokensPerSecond is how fast one request
+                            generates
+                          format: int64
+                          type: integer
+                        loadMs:
+                          description: LoadMs is how long the engine took to load
+                            the model, in milliseconds
+                          format: int64
+                          type: integer
+                        model:
+                          description: Model is the model name on the provider, such
+                            as qwen3:14b
+                          type: string
+                        parallelGenerateTokensPerSecond:
+                          description: |-
+                            ParallelGenerateTokensPerSecond is the total generation speed with
+                            ParallelRequests running together
+                          format: int64
+                          type: integer
+                        parallelRequests:
+                          description: ParallelRequests is how many requests ran together
+                            for the parallel measure
+                          type: integer
+                        promptTokensPerSecond:
+                          description: PromptTokensPerSecond is how fast the model
+                            processes a long prompt
+                          format: int64
+                          type: integer
+                        reason:
+                          description: Reason explains a model that does not fit or
+                            could not be measured
+                          type: string
+                        residentMiB:
+                          description: ResidentMiB is the accelerator memory the model
+                            took once loaded
+                          format: int64
+                          type: integer
+                      required:
+                      - fits
+                      - model
+                      type: object
+                    type: array
+                  phase:
+                    description: |-
+                      Phase is Calibrating, Calibrated, Waiting (paused because crew calls were
+                      using the provider), or Failed
+                    type: string
+                  resetToken:
+                    description: |-
+                      ResetToken is the last kubemoot.ai/calibration-reset value acted on: set when
+                      the calibration it asked for starts
+                    type: string
+                type: object
               capacity:
                 description: Capacity contains discovered capacity information for
                   scheduling

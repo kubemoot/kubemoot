@@ -1143,6 +1143,7 @@
     "scheduler-performance.json#/samples[]/kind": {
       "type": "string",
       "enum": [
+        "calibration",
         "simple",
         "tool-turn",
         "triage"

@@ -792,7 +792,11 @@ public class TicketManager {
         return held;
     }
 
-    /** Encode a Ticket and its planned evictions to JSON bytes via manual ObjectNode (native-safe). */
+    /**
+     * Encode a Ticket and its planned evictions to JSON bytes via manual ObjectNode (native-safe).
+     * The format is bus schema ProviderTicket; accelerator-mcp writes the same tickets for its
+     * calibration probes.
+     */
     private byte[] encode(Ticket ticket, java.util.Map<String, Long> evictions) {
         ObjectNode node = objectMapper.createObjectNode();
         node.put("ticketId", ticket.ticketId());

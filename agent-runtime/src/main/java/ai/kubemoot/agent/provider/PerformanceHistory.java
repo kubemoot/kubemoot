@@ -29,6 +29,9 @@ import java.util.concurrent.atomic.AtomicLong;
  * for each provider and model, the recent model requests (tokens, times, outcome,
  * cold start, load on the provider) and the waits for capacity that ended there.
  *
+ * <p>The accelerator-mcp server writes calibration samples to the same bucket in
+ * the same format (bus schema SchedulerPerformance), as kind {@code calibration}.</p>
+ *
  * <p>Each agent writes only its own key, {@code <provider>.<model>.<agent>}, so
  * writes need no compare-and-set; a reader folds every agent's key for a provider
  * and model. Each key keeps the last {@value #MAX_SAMPLES} requests and

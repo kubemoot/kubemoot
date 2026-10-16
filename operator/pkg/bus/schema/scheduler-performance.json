@@ -56,9 +56,10 @@
             "enum": [
               "tool-turn",
               "simple",
-              "triage"
+              "triage",
+              "calibration"
             ],
-            "description": "tool-turn: one model turn of the tool loop. simple: a no-tool call (advisory, synthesis). triage: a triage call."
+            "description": "tool-turn: one model turn of the tool loop. simple: a no-tool call (advisory, synthesis). triage: a triage call. calibration: a probe the scheduler sent to measure the provider, not a crew call."
           },
           "ok": {
             "type": "boolean",

@@ -28,7 +28,7 @@ one.
 | Operator | `operator/` | Go, controller-runtime, kubebuilder CRDs |
 | Agent runtime | `agent-runtime/` | Java / Quarkus + LangChain4j (GraalVM Community native) |
 | Dashboard | `dashboard/` | SvelteKit |
-| MCP bridge, scheduling and tool servers | `mcp-bridge/`, `scheduling-mcp/`, `artifact-access/`, `code-sandbox/` | Go |
+| MCP bridge, scheduling and tool servers | `mcp-bridge/`, `scheduling-mcp/`, `accelerator-mcp/`, `artifact-access/`, `code-sandbox/` | Go |
 | MCP gateway | `mcp-gateway/` | Java |
 | Discussion gateway, crew liaison, fitness runner | `discussion-gateway/`, `crew-liaison/`, `fitness-runner/` | Go |
 | Indexer | `indexer/` | Java |
@@ -79,7 +79,7 @@ CI regenerates them and fails when they differ from what is committed.
 Checkstyle reads the shared ruleset in `config/checkstyle/checkstyle.xml`.
 Use plain JUnit 5, not `@QuarkusTest`, so the suite does not require a running Ollama.
 
-**Go components** (`mcp-bridge/`, `scheduling-mcp/`, `artifact-access/`, `code-sandbox/`,
+**Go components** (`mcp-bridge/`, `scheduling-mcp/`, `accelerator-mcp/`, `artifact-access/`, `code-sandbox/`,
 `discussion-gateway/`, `crew-liaison/`, `fitness-runner/`):
 
 ```bash
