@@ -117,8 +117,9 @@ from it.
 The key-value buckets are channels too, addressed as `$KV.<bucket>.<key>`:
 `kubemoot_agent_state` (heartbeats), `kubemoot_provider_state` and
 `kubemoot_provider_tickets` (accelerator capacity and claims), `kubemoot_model_demand`,
-`kubemoot_latency`, `kubemoot_conversations`, `kubemoot_crew_resumes`,
-`kubemoot_crew_memory`, `kubemoot_scheduled` and `kubemoot_pinned_threads`.
+`kubemoot_scheduler_performance` (what the scheduler observed), `kubemoot_latency`,
+`kubemoot_conversations`, `kubemoot_crew_resumes`, `kubemoot_crew_memory`,
+`kubemoot_scheduled` and `kubemoot_pinned_threads`.
 
 A field is required only where its writer always sends it; every other field is
 optional, and readers ignore fields they do not know. The contract's version is the

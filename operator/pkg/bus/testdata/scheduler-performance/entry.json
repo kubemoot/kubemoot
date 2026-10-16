@@ -1,0 +1,42 @@
+{
+  "provider": "ollama-gpu",
+  "model": "qwen3:14b",
+  "agent": "crew-homelab-pilot/kubernetes-specialist",
+  "updatedAt": 1791000000000,
+  "requests": 2,
+  "failures": 0,
+  "samples": [
+    {
+      "at": 1790999990000,
+      "kind": "triage",
+      "ok": true,
+      "coldStart": true,
+      "promptTokens": 1840,
+      "outputTokens": 96,
+      "durationMs": 6210,
+      "loadMs": 3900,
+      "promptEvalMs": 410,
+      "evalMs": 1850,
+      "activeCalls": 1
+    },
+    {
+      "at": 1790999997000,
+      "kind": "tool-turn",
+      "ok": true,
+      "coldStart": false,
+      "promptTokens": 5120,
+      "outputTokens": 240,
+      "durationMs": 3020,
+      "loadMs": -1,
+      "promptEvalMs": -1,
+      "evalMs": -1,
+      "activeCalls": 2
+    }
+  ],
+  "waits": [
+    {
+      "at": 1790999980000,
+      "ms": 9500
+    }
+  ]
+}

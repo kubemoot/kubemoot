@@ -225,6 +225,23 @@ channels:
       modelDemand:
         $ref: '#/components/messages/ModelDemand'
 
+  schedulerPerformance:
+    address: $KV.kubemoot_scheduler_performance.{entry}
+    title: KV kubemoot_scheduler_performance
+    description: |
+      What the scheduler observed: each agent's recent model requests (tokens,
+      times, outcome, cold start, load on the provider) and capacity waits, per
+      provider and model. Keys are <provider>.<model>.<agent>; each token is
+      escaped. Entries expire 30 days after their last write.
+    servers:
+      - $ref: '#/servers/nats'
+    parameters:
+      entry:
+        description: The entry key.
+    messages:
+      schedulerPerformance:
+        $ref: '#/components/messages/SchedulerPerformance'
+
   latency:
     address: $KV.kubemoot_latency.latency.{namespace}.{agent}.{provider}
     title: KV kubemoot_latency
@@ -430,6 +447,11 @@ components:
       title: Model demand
       payload:
         $ref: './model-demand.json'
+    SchedulerPerformance:
+      name: SchedulerPerformance
+      title: Scheduler performance
+      payload:
+        $ref: './scheduler-performance.json'
     LatencySamples:
       name: LatencySamples
       title: Latency samples

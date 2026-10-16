@@ -1,0 +1,127 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "SchedulerPerformance",
+  "description": "An entry in the kubemoot_scheduler_performance bucket: one agent's recent model requests and capacity waits for one model on one provider, which the scheduler learns from. Key: <provider>.<model>.<agent>, each token escaped. Times are milliseconds; an engine timing the engine did not report is -1.",
+  "type": "object",
+  "required": [
+    "provider",
+    "model",
+    "agent",
+    "samples",
+    "waits"
+  ],
+  "properties": {
+    "provider": {
+      "type": "string",
+      "description": "The ModelProvider."
+    },
+    "model": {
+      "type": "string",
+      "description": "The model."
+    },
+    "agent": {
+      "type": "string",
+      "description": "The agent that wrote the entry, as <namespace>/<agent>."
+    },
+    "updatedAt": {
+      "type": "integer",
+      "description": "When the entry was last written, epoch milliseconds."
+    },
+    "requests": {
+      "type": "integer",
+      "description": "Requests this agent has recorded for the model on the provider."
+    },
+    "failures": {
+      "type": "integer",
+      "description": "How many of those requests failed or timed out."
+    },
+    "samples": {
+      "type": "array",
+      "description": "The most recent requests, oldest first.",
+      "items": {
+        "type": "object",
+        "required": [
+          "at",
+          "kind",
+          "ok",
+          "durationMs"
+        ],
+        "properties": {
+          "at": {
+            "type": "integer",
+            "description": "When the request started, epoch milliseconds."
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "tool-turn",
+              "simple",
+              "triage"
+            ],
+            "description": "tool-turn: one model turn of the tool loop. simple: a no-tool call (advisory, synthesis). triage: a triage call."
+          },
+          "ok": {
+            "type": "boolean",
+            "description": "False when the request failed or timed out."
+          },
+          "coldStart": {
+            "type": "boolean",
+            "description": "The model was not resident on the provider when the call was placed."
+          },
+          "promptTokens": {
+            "type": "integer",
+            "description": "Prompt tokens the engine reported; 0 when unknown."
+          },
+          "outputTokens": {
+            "type": "integer",
+            "description": "Generated tokens the engine reported; 0 when unknown."
+          },
+          "durationMs": {
+            "type": "integer",
+            "description": "Time from sending the request to the reply or failure, measured by the agent."
+          },
+          "loadMs": {
+            "type": "integer",
+            "description": "Model load time the engine reported; -1 when not reported."
+          },
+          "promptEvalMs": {
+            "type": "integer",
+            "description": "Prompt processing time the engine reported; -1 when not reported."
+          },
+          "evalMs": {
+            "type": "integer",
+            "description": "Generation time the engine reported; -1 when not reported."
+          },
+          "activeCalls": {
+            "type": "integer",
+            "description": "Calls holding a ticket on the provider when the request started, this one included."
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "waits": {
+      "type": "array",
+      "description": "The most recent waits for capacity that ended with a call placed here, oldest first.",
+      "items": {
+        "type": "object",
+        "required": [
+          "at",
+          "ms"
+        ],
+        "properties": {
+          "at": {
+            "type": "integer",
+            "description": "When the wait started, epoch milliseconds."
+          },
+          "ms": {
+            "type": "integer",
+            "description": "How long the call waited."
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

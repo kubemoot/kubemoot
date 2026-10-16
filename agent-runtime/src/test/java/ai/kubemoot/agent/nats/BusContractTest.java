@@ -144,6 +144,24 @@ class BusContractTest {
     }
 
     @Test
+    void aSchedulerPerformanceEntryMatchesTheContract() throws Exception {
+        var bucket = new ai.kubemoot.agent.provider.InMemoryKv();
+        var props = mock(AgentProperties.class);
+        when(props.agentName()).thenReturn("pilot-k8s");
+        when(props.namespace()).thenReturn(java.util.Optional.of("crew-homelab-pilot"));
+        var history = ai.kubemoot.agent.provider.PerformanceHistoryFixtures.direct(
+                bucket.provider(ai.kubemoot.agent.provider.PerformanceHistory.BUCKET), MAPPER, props);
+        long unknown = ai.kubemoot.agent.provider.CallObservation.UNKNOWN;
+        history.record(new ai.kubemoot.agent.provider.CallObservation("ollama-gpu", MODEL,
+                ai.kubemoot.agent.provider.CallObservation.KIND_TOOL_TURN, true, true, 4_000, 200, 9_000,
+                unknown, unknown, unknown, 2, 1_791_000_000_000L));
+        history.recordWait("ollama-gpu", MODEL, 12_000);
+
+        assertEquals(1, bucket.data.size());
+        assertConforms("scheduler-performance.json", MAPPER.readTree(bucket.data.values().iterator().next()));
+    }
+
+    @Test
     void theContractRejectsWhatAWriterMustNotSend() throws Exception {
         JsonNode valid = MAPPER.readTree("""
                 {"messageId": "m", "threadId": "t", "agentName": "a", "messageType": "agree",

@@ -222,16 +222,17 @@ type streamEvent struct {
 
 // goTypes are the generated types of the recorded messages.
 var goTypes = map[string]func() any{
-	"discussion-message.json":   func() any { return &bus.DiscussionMessage{} },
-	"artifact-notice.json":      func() any { return &bus.ArtifactNotice{} },
-	"agent-heartbeat.json":      func() any { return &bus.AgentHeartbeat{} },
-	"provider-state.json":       func() any { return &bus.ProviderState{} },
-	"model-demand.json":         func() any { return &bus.ModelDemand{} },
-	"latency-samples.json":      func() any { return &bus.LatencySamples{} },
-	"conversation-history.json": func() any { return &bus.ConversationHistory{} },
-	"crew-resumes.json":         func() any { return &bus.CrewResumes{} },
-	"conversation-list.json":    func() any { return &bus.ConversationList{} },
-	"stream-event.json":         func() any { return &streamEvent{} },
+	"discussion-message.json":    func() any { return &bus.DiscussionMessage{} },
+	"artifact-notice.json":       func() any { return &bus.ArtifactNotice{} },
+	"agent-heartbeat.json":       func() any { return &bus.AgentHeartbeat{} },
+	"provider-state.json":        func() any { return &bus.ProviderState{} },
+	"model-demand.json":          func() any { return &bus.ModelDemand{} },
+	"latency-samples.json":       func() any { return &bus.LatencySamples{} },
+	"scheduler-performance.json": func() any { return &bus.SchedulerPerformance{} },
+	"conversation-history.json":  func() any { return &bus.ConversationHistory{} },
+	"crew-resumes.json":          func() any { return &bus.CrewResumes{} },
+	"conversation-list.json":     func() any { return &bus.ConversationList{} },
+	"stream-event.json":          func() any { return &streamEvent{} },
 }
 
 func TestRecordedMessagesDecodeIntoTheGeneratedTypes(t *testing.T) {
