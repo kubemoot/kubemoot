@@ -117,6 +117,17 @@ type SchedulerConfig struct {
 	// PrometheusEndpoint for DCGM metric queries
 	// +optional
 	PrometheusEndpoint string `json:"prometheusEndpoint,omitempty"`
+
+	// PlacementPolicy is the realm default for how agents decide where each
+	// model call runs: "algorithm" (the hand-written placement order),
+	// "learned" (placement learned from observed performance), or "shadow"
+	// (the algorithm places; the learned policy's choice is recorded beside
+	// it). A crew's CrewSchedulingPolicy spec.placementPolicy overrides it.
+	// Independent of Enabled.
+	// +kubebuilder:validation:Enum=algorithm;learned;shadow
+	// +kubebuilder:default=algorithm
+	// +optional
+	PlacementPolicy string `json:"placementPolicy,omitempty"`
 }
 
 // KubemootConfigSpec defines the desired state of KubemootConfig

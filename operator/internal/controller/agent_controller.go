@@ -434,16 +434,7 @@ func (r *AgentReconciler) resolveProvider(ctx context.Context, namespace, name s
 // rule so callers can read policy-scoped fields (e.g. QualityBias) without
 // re-listing the policy.
 func (r *AgentReconciler) findPolicyAndRule(ctx context.Context, agent *kubemootv1alpha1.Agent, phase string) (*kubemootv1alpha1.CrewSchedulingPolicy, *kubemootv1alpha1.SchedulingRule) {
-	crew := agent.Labels[labelCrew]
-	policies := &kubemootv1alpha1.CrewSchedulingPolicyList{}
-	if err := r.List(ctx, policies, client.InNamespace(agent.Namespace)); err != nil {
-		return nil, nil
-	}
-	for i := range policies.Items {
-		p := &policies.Items[i]
-		if crew != "" && p.Spec.CrewRef != "" && p.Spec.CrewRef != crew {
-			continue
-		}
+	for _, p := range r.matchingPolicies(ctx, agent) {
 		for j := range p.Spec.Rules {
 			rule := &p.Spec.Rules[j]
 			if rule.Phase == phase {
@@ -452,6 +443,27 @@ func (r *AgentReconciler) findPolicyAndRule(ctx context.Context, agent *kubemoot
 		}
 	}
 	return nil, nil
+}
+
+// matchingPolicies returns the CrewSchedulingPolicies that govern the agent's
+// crew, ordered by name. When several match, the first by name wins for each
+// field it sets (a phase rule, a placement policy). A list error is logged and
+// yields none; reads come from the informer cache, so this is rare.
+func (r *AgentReconciler) matchingPolicies(ctx context.Context, agent *kubemootv1alpha1.Agent) []*kubemootv1alpha1.CrewSchedulingPolicy {
+	policies := &kubemootv1alpha1.CrewSchedulingPolicyList{}
+	if err := r.List(ctx, policies, client.InNamespace(agent.Namespace)); err != nil {
+		logf.FromContext(ctx).Error(err, "Listing CrewSchedulingPolicies failed", "agent", agent.Name)
+		return nil
+	}
+	crew := agent.Labels[labelCrew]
+	var out []*kubemootv1alpha1.CrewSchedulingPolicy
+	for i := range policies.Items {
+		if policyAppliesTo(&policies.Items[i], crew) {
+			out = append(out, &policies.Items[i])
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out
 }
 
 // ensurePolicyConfigMap assembles system.txt from PromptModule refs and
@@ -780,6 +792,7 @@ func (r *AgentReconciler) buildEnvVars(ctx context.Context, agent *kubemootv1alp
 	crew := agent.Labels[labelCrew]
 	env := baseAgentEnvVars(agent, crew, mulling, triage, port)
 	env = append(env, candidateEnvVars(mulling, triage)...)
+	env = append(env, r.placementPolicyEnvVar(ctx, agent))
 	env = append(env, agentModelEnvVars(agent)...)
 	env = append(env, agentDiscussRelevanceEnvVars(agent)...)
 	env = append(env, r.agentDiscussRoleEnvVars(ctx, agent, crew)...)

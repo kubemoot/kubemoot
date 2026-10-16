@@ -67,6 +67,13 @@ type CrewSchedulingPolicySpec struct {
 	// kubemoot/docs/scheduler.md "Quality bias" section.
 	// +optional
 	QualityBias map[string]string `json:"qualityBias,omitempty"`
+
+	// PlacementPolicy overrides the realm default (KubemootConfig
+	// spec.defaults.scheduler.placementPolicy) for this crew's agents:
+	// "algorithm", "learned", or "shadow". Unset inherits the realm default.
+	// +kubebuilder:validation:Enum=algorithm;learned;shadow
+	// +optional
+	PlacementPolicy string `json:"placementPolicy,omitempty"`
 }
 
 // SchedulingRule is the rule for a single discussion phase. Phase strings must

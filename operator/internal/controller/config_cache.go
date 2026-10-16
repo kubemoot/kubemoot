@@ -251,6 +251,16 @@ func (c *ConfigCache) GetSchedulerConfig() *kubemootv1alpha1.SchedulerConfig {
 	return nil
 }
 
+// GetPlacementPolicy returns the realm's default placement policy, or "" when unset.
+func (c *ConfigCache) GetPlacementPolicy() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if c.config != nil && c.config.Spec.Defaults.Scheduler != nil {
+		return c.config.Spec.Defaults.Scheduler.PlacementPolicy
+	}
+	return ""
+}
+
 // IsSchedulerEnabled returns true if the scheduler is configured and enabled
 func (c *ConfigCache) IsSchedulerEnabled() bool {
 	c.mu.RLock()

@@ -73,6 +73,16 @@ spec:
               crewRef:
                 description: CrewRef is the name of the Crew this policy applies to.
                 type: string
+              placementPolicy:
+                description: |-
+                  PlacementPolicy overrides the realm default (KubemootConfig
+                  spec.defaults.scheduler.placementPolicy) for this crew's agents:
+                  "algorithm", "learned", or "shadow". Unset inherits the realm default.
+                enum:
+                - algorithm
+                - learned
+                - shadow
+                type: string
               qualityBias:
                 additionalProperties:
                   type: string

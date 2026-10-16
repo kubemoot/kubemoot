@@ -109,6 +109,7 @@ class DiscussionSubscriberTest {
 
     private static AgentProperties stubProperties(String agentName, String channels, String jsConsumer) {
         return new AgentProperties() {
+            @Override public ai.kubemoot.agent.config.AgentProperties.Scheduler scheduler() { return ai.kubemoot.agent.TestStubs.scheduler(); }
             @Override public Memory memory() { return ai.kubemoot.agent.TestStubs.memory(); }
             @Override public String agentName() { return agentName; }
             @Override public String agentDescription() { return ""; }

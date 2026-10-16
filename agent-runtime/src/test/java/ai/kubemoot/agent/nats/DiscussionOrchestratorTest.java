@@ -222,6 +222,7 @@ class DiscussionOrchestratorTest {
 
     private static AgentProperties stubProperties(String channels) {
         return new AgentProperties() {
+            @Override public ai.kubemoot.agent.config.AgentProperties.Scheduler scheduler() { return ai.kubemoot.agent.TestStubs.scheduler(); }
             @Override public Memory memory() { return ai.kubemoot.agent.TestStubs.memory(); }
             @Override public String agentName() { return "test-coordinator"; }
             @Override public String agentDescription() { return ""; }
