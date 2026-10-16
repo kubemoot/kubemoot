@@ -1,6 +1,23 @@
 {
   "threadId": "33627b88-c58c-4017-a483-119d2e45c712",
   "metadata": {
+    "receipt": {
+      "startedAt": 1792087190000,
+      "settledAt": 1792087407909,
+      "totalMs": 217909,
+      "firstSignalMs": 57200,
+      "phasesMs": { "advisory": 9100, "selection": 6300, "evaluation": 171400, "synthesis": 31109 },
+      "consensus": { "convened": 6, "agree": 4, "concern": 0, "block": 0, "standAside": 2, "failure": 0 },
+      "tokens": { "in": 64749, "out": 9395, "agentsIn": 53579, "agentsOut": 7287, "coordinatorIn": 11170, "coordinatorOut": 2108 },
+      "agents": [
+        { "agent": "k8s-advisor", "signal": "stand_aside", "atMs": 57200, "models": ["qwen3:8b@ollama-cpu"], "inputTokens": 363, "outputTokens": 148, "inferenceMs": 28988, "waitMs": 0, "reason": "outside my domain" },
+        { "agent": "proxmox-pve", "signal": "agree", "atMs": 186600, "models": ["qwen3:8b@ollama-cpu", "qwen3:14b@ollama-rig1"], "inputTokens": 21480, "outputTokens": 2911, "inferenceMs": 101200, "waitMs": 12400 }
+      ],
+      "placements": [
+        { "place": "qwen3:14b@ollama-rig1", "agents": 1 },
+        { "place": "qwen3:8b@ollama-cpu", "agents": 2 }
+      ]
+    },
     "totalTokens": {
       "advisory": {
         "in": 3341,

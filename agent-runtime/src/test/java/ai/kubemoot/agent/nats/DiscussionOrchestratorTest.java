@@ -220,7 +220,7 @@ class DiscussionOrchestratorTest {
         return new DiscussionOrchestrator(natsProvider, properties, chatService, metrics, latencyTracker, resumeSearchClient);
     }
 
-    private static AgentProperties stubProperties(String channels) {
+    static AgentProperties stubProperties(String channels) {
         return new AgentProperties() {
             @Override public ai.kubemoot.agent.config.AgentProperties.Scheduler scheduler() { return ai.kubemoot.agent.TestStubs.scheduler(); }
             @Override public Memory memory() { return ai.kubemoot.agent.TestStubs.memory(); }
