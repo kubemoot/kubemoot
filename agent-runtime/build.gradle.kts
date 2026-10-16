@@ -70,7 +70,7 @@ dependencies {
     implementation("io.modelcontextprotocol.sdk:mcp-json-jackson2:2.0.1")
 
     // NATS - publish chat events to NATS JetStream
-    implementation("io.nats:jnats:2.26.3")
+    implementation("io.nats:jnats:2.26.4")
 
     // Observability
     implementation("io.quarkus:quarkus-micrometer-registry-prometheus")
@@ -92,7 +92,7 @@ dependencies {
     testImplementation("io.rest-assured:rest-assured")
     testImplementation("org.mockito:mockito-core")
     // Validates what the runtime writes on the bus against operator/pkg/bus/schema.
-    testImplementation("com.networknt:json-schema-validator:2.0.7")
+    testImplementation("com.networknt:json-schema-validator:3.0.8")
 }
 
 tasks.withType<Test> {
