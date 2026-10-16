@@ -10,8 +10,13 @@ metadata:
 spec:
   type: {{ .type }}
   endpoint: {{ .endpoint }}
-  {{- if .schedulingWeight }}
+  {{- if or .schedulingWeight .memoryMiB }}
   scheduling:
-    weight: {{ .schedulingWeight }}
+    {{- with .schedulingWeight }}
+    weight: {{ . }}
+    {{- end }}
+    {{- with .memoryMiB }}
+    memoryMiB: {{ . }}
+    {{- end }}
   {{- end }}
 {{- end }}

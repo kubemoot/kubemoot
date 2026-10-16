@@ -333,8 +333,22 @@ webhook:
     enabled: true
 
 # ModelProviders define GPU/inference backends available for scheduling.
-# These are infrastructure resources — agents reference equivalence groups,
+# These are infrastructure resources: agents reference equivalence groups,
 # not providers directly. The scheduler distributes agents across providers.
+# Each entry: name, type, endpoint, optional namespace (default: the release
+# namespace), optional schedulingWeight (spec.scheduling.weight) and optional
+# memoryMiB (spec.scheduling.memoryMiB: the memory budget the fit gate spends
+# when the operator cannot discover one, such as the host RAM of a CPU server;
+# unset there, agents refuse cold loads on that provider).
+# Example:
+#   - name: ollama-gpu
+#     type: ollama
+#     endpoint: http://ollama.ollama:11434
+#     schedulingWeight: 100
+#   - name: ollama-cpu
+#     type: ollama
+#     endpoint: http://ollama.ollama-cpu:11434
+#     memoryMiB: 20480
 modelProviders: []
 
 # Grafana dashboard provisioning via sidecar ConfigMap discovery
@@ -359,15 +373,6 @@ notifications:
       requests:
         cpu: 5m
         memory: 32Mi
-# Example:
-#   - name: ollama-gpu
-#     type: ollama
-#     endpoint: http://ollama.ollama:11434
-#     schedulingWeight: 100
-#   - name: ollama-rig1
-#     type: ollama
-#     endpoint: http://ollama.ollama-rig1:11434
-#     schedulingWeight: 25
 
 # Kubemoot dashboard, an optional subchart (dashboard/charts/kubemoot-dashboard).
 # OFF by default: the dashboard has no authentication and can purge NATS streams and
