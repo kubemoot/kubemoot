@@ -236,9 +236,108 @@
     "degraded": {
       "type": "boolean",
       "description": "Set when a scheduled message starts a new thread because it could not continue its source thread."
+    },
+    "receipt": {
+      "$ref": "#/definitions/DiscussionReceipt",
+      "description": "On thread_close, what the thread cost and how it went."
     }
   },
   "definitions": {
+    "DiscussionReceipt": {
+      "title": "DiscussionReceipt",
+      "type": "object",
+      "description": "What one thread cost and how it went, from the coordinator's view. Times are milliseconds; startedAt and settledAt are epoch milliseconds, and the other times count from the thread's start as the coordinator received its messages. It is a snapshot at the close. A reply that reopens the thread starts a new round, and the next close carries that round's receipt.",
+      "required": ["startedAt", "settledAt", "totalMs", "phasesMs", "consensus", "tokens", "agents", "placements"],
+      "properties": {
+        "startedAt": { "type": "integer", "description": "When the coordinator saw the thread start." },
+        "settledAt": { "type": "integer", "description": "When the coordinator closed the thread." },
+        "totalMs": { "type": "integer", "description": "From start to close." },
+        "firstSignalMs": { "type": "integer", "description": "From start to the first agent's terminal signal; absent when no agent signalled." },
+        "phasesMs": {
+          "type": "object",
+          "description": "Time in each phase: advisory to the advisory, selection to the triage result, evaluation from the end of selection (or the first agent signal, when earlier) to the last signal, synthesis to the close. A phase the thread skipped is absent.",
+          "properties": {
+            "advisory": { "type": "integer", "description": "From start to the advisory." },
+            "selection": { "type": "integer", "description": "To the triage result." },
+            "evaluation": { "type": "integer", "description": "To the last agent's terminal signal." },
+            "synthesis": { "type": "integer", "description": "To the close." }
+          },
+          "additionalProperties": false
+        },
+        "consensus": {
+          "type": "object",
+          "description": "Who was convened and how they signalled.",
+          "required": ["convened", "agree", "concern", "block", "standAside", "failure"],
+          "properties": {
+            "convened": { "type": "integer", "description": "The larger of the agents the coordinator selected and the agents that signalled." },
+            "agree": { "type": "integer", "description": "Agents whose last terminal signal was agree." },
+            "concern": { "type": "integer", "description": "Agents that raised a concern." },
+            "block": { "type": "integer", "description": "Agents that blocked." },
+            "standAside": { "type": "integer", "description": "Agents that stood aside." },
+            "failure": { "type": "integer", "description": "Agents that failed." }
+          },
+          "additionalProperties": false
+        },
+        "tokens": {
+          "type": "object",
+          "description": "Tokens the thread used: the agents' calls behind their signals, the coordinator's own advisory, triage and synthesis, and the sums.",
+          "required": ["in", "out", "agentsIn", "agentsOut", "coordinatorIn", "coordinatorOut"],
+          "properties": {
+            "in": { "type": "integer", "description": "All input tokens." },
+            "out": { "type": "integer", "description": "All output tokens." },
+            "agentsIn": { "type": "integer", "description": "Input tokens of the agents' calls." },
+            "agentsOut": { "type": "integer", "description": "Output tokens of the agents' calls." },
+            "coordinatorIn": { "type": "integer", "description": "The coordinator's input tokens." },
+            "coordinatorOut": { "type": "integer", "description": "The coordinator's output tokens." }
+          },
+          "additionalProperties": false
+        },
+        "agents": {
+          "type": "array",
+          "description": "One line per agent that sent a terminal signal, in the order they signalled.",
+          "items": { "$ref": "#/definitions/ReceiptAgent" }
+        },
+        "placements": {
+          "type": "array",
+          "description": "How many agents' calls ran at each model@provider.",
+          "items": { "$ref": "#/definitions/ReceiptPlacement" }
+        }
+      },
+      "additionalProperties": false
+    },
+    "ReceiptAgent": {
+      "title": "ReceiptAgent",
+      "type": "object",
+      "description": "One agent's part in a thread.",
+      "required": ["agent", "signal", "atMs", "models", "inputTokens", "outputTokens", "inferenceMs", "waitMs"],
+      "properties": {
+        "agent": { "type": "string", "description": "The agent." },
+        "signal": {
+          "type": "string",
+          "enum": ["agree", "concern", "block", "stand_aside", "failure"],
+          "description": "Its last terminal signal in the round; contribution counts as agree and decline as stand_aside."
+        },
+        "atMs": { "type": "integer", "description": "From the thread's start to that signal." },
+        "models": { "type": "array", "items": { "type": "string" }, "description": "Where its calls ran, as model@provider, from the signal's modelsUsed." },
+        "inputTokens": { "type": "integer", "description": "Input tokens of its calls over the round; 0 when not reported." },
+        "outputTokens": { "type": "integer", "description": "Output tokens of its calls; 0 when not reported." },
+        "inferenceMs": { "type": "integer", "description": "Time in model calls; 0 when not reported." },
+        "waitMs": { "type": "integer", "description": "Time it spent waiting for an accelerator, from its first waiting message to its next evaluating message or terminal signal." },
+        "reason": { "type": "string", "description": "The reason it gave, or for a failure its last error; at most 300 characters." }
+      },
+      "additionalProperties": false
+    },
+    "ReceiptPlacement": {
+      "title": "ReceiptPlacement",
+      "type": "object",
+      "description": "A model@provider and how many agents' calls ran there.",
+      "required": ["place", "agents"],
+      "properties": {
+        "place": { "type": "string", "description": "model@provider, or the model alone for a static endpoint." },
+        "agents": { "type": "integer", "description": "Agents with at least one call there." }
+      },
+      "additionalProperties": false
+    },
     "TokenTotals": {
       "title": "TokenTotals",
       "type": "object",

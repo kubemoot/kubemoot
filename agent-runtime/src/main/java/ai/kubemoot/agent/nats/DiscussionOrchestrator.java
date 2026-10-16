@@ -6,6 +6,7 @@ import ai.kubemoot.agent.rag.ResumeSearchClient;
 import ai.kubemoot.agent.util.GpuLabels;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import io.nats.client.Connection;
 import io.nats.client.Dispatcher;
 import io.quarkus.runtime.StartupEvent;
@@ -544,7 +545,20 @@ public class DiscussionOrchestrator {
         log.info("Thread {} → ADVISORY phase (reasoning select+brief will run in transitionToEvaluating)", threadId);
     }
 
-    private void handleMessage(String data) {
+    /**
+     * Feeds a message to the thread's receipt. The coordinator's own terminal-type
+     * messages are left out: an agent's signal is counted under the agent's name.
+     */
+    private void observeForReceipt(ThreadState state, String agentName, String messageType, JsonNode msg,
+                                   Instant at) {
+        if (properties.agentName().equals(agentName) && DiscussionReceipt.isTerminal(messageType)) {
+            return;
+        }
+        state.receipt.observe(agentName, messageType, msg, at);
+    }
+
+    // Visible for testing
+    void handleMessage(String data) {
         try {
             var msg = mapper.readTree(data);
             String threadId = JsonFields.text(msg, FIELD_THREAD_ID);
@@ -568,6 +582,7 @@ public class DiscussionOrchestrator {
 
             var messageRecord = new MessageRecord(agentName, messageType, content, channel, Instant.now());
             state.messages.add(messageRecord);
+            observeForReceipt(state, agentName, messageType, msg, messageRecord.timestamp());
 
             trackThreadStart(state, msg, messageType, channel);
 
@@ -915,6 +930,7 @@ public class DiscussionOrchestrator {
         state.clearCapacitySignals();
         state.researcherAgents.clear();
         state.pendingEvaluations.clear();
+        state.receipt.startRound(state.phaseStarted);
         log.info("Thread {} reopened by human reply → EVALUATING", threadId);
     }
 
@@ -3134,7 +3150,22 @@ public class DiscussionOrchestrator {
         }
     }
 
-    private void publishThreadClose(String threadId, String channel) {
+    /** The thread's receipt as of now, with the coordinator's own tokens and how many agents it selected. */
+    // Visible for testing
+    ObjectNode receiptFor(ThreadState state) {
+        Set<String> circle = state.innerCircle;
+        return state.receipt.build(mapper, Instant.now(), circle == null ? 0 : circle.size(),
+                state.advisoryInputTokens + state.triageInputTokens + state.synthesisInputTokens,
+                state.advisoryOutputTokens + state.triageOutputTokens + state.synthesisOutputTokens);
+    }
+
+    /** The state of {@code threadId}, or null; for tests. */
+    ThreadState threadForTest(String threadId) {
+        return threads.get(threadId);
+    }
+
+    // Visible for testing
+    void publishThreadClose(String threadId, String channel) {
         try {
             var conn = natsProvider.getConnection();
             if (conn == null) return;
@@ -3143,6 +3174,7 @@ public class DiscussionOrchestrator {
             var tokenMetadata = new HashMap<String, Object>();
             var state = threads.get(threadId);
             if (state != null) {
+                tokenMetadata.put("receipt", receiptFor(state));
                 tokenMetadata.put("totalTokens", Map.of(
                         MSG_ADVISORY, Map.of(TOKENS_IN, state.advisoryInputTokens, TOKENS_OUT, state.advisoryOutputTokens),
                         "triage", Map.of(TOKENS_IN, state.triageInputTokens, TOKENS_OUT, state.triageOutputTokens),
@@ -3881,6 +3913,8 @@ public class DiscussionOrchestrator {
         final String threadId;
         final Instant threadCreated = Instant.now();
         final List<MessageRecord> messages = new CopyOnWriteArrayList<>();
+        /** What the thread cost and how it went, published on thread_close. */
+        final DiscussionReceipt receipt = new DiscussionReceipt(threadCreated);
         final Set<String> seenMessageIds = ConcurrentHashMap.newKeySet();
 
         // Phase tracking

@@ -58,6 +58,30 @@ different values: one conversation spans many threads, one per turn. A concluded
 thread can be reopened for a further round of deliberation rather than being treated
 as immutable.
 
+### The thread's receipt
+
+When a thread settles, the coordinator puts a **receipt** on its `thread_close` message,
+as `metadata.receipt`: what the thread cost and how it went, from the coordinator's view.
+
+- **Time:** start and settle times, the total, time to the first agent signal, and the
+  time in each phase (advisory, selection, evaluation, synthesis).
+- **Consensus:** how many agents were convened (the coordinator's selection, or the agents
+  that signalled when more did) and how many agreed, raised a concern, blocked, stood
+  aside, or failed.
+- **Tokens:** the agents' calls, the coordinator's own calls, and the totals.
+- **Agents:** one line per agent with its last signal, when it came, where its calls ran
+  (`model@provider`), its tokens and time in model calls, how long it waited for an
+  accelerator, and the reason it gave for standing aside or the error it failed with.
+- **Placements:** how many agents' calls ran at each `model@provider`.
+
+Times are from when the coordinator received each message, and the receipt is a snapshot
+at the close: a message that arrives after it is not counted. Agents may signal before
+the triage result reaches the coordinator, so evaluation starts at whichever comes first.
+An agent that signals more than once in a round has its tokens and calls added up, with
+its last signal shown. A reply that reopens the thread starts a new round, and the next
+`thread_close` carries that round's receipt. The schema is `DiscussionReceipt` in the bus
+contract.
+
 ## Discussion
 
 **Discussion** and **thread** name the same layer from two angles. The *thread* is the

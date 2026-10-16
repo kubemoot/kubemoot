@@ -387,6 +387,187 @@
       "type": "string",
       "required": true
     },
+    "discussion-metadata.json#/definitions/DiscussionReceipt": {
+      "type": "object",
+      "constraints": {
+        "additionalProperties": "false"
+      }
+    },
+    "discussion-metadata.json#/definitions/DiscussionReceipt/agents": {
+      "type": "array",
+      "required": true
+    },
+    "discussion-metadata.json#/definitions/DiscussionReceipt/agents[]": {
+      "ref": "#/definitions/ReceiptAgent"
+    },
+    "discussion-metadata.json#/definitions/DiscussionReceipt/consensus": {
+      "type": "object",
+      "required": true,
+      "constraints": {
+        "additionalProperties": "false"
+      }
+    },
+    "discussion-metadata.json#/definitions/DiscussionReceipt/consensus/agree": {
+      "type": "integer",
+      "required": true
+    },
+    "discussion-metadata.json#/definitions/DiscussionReceipt/consensus/block": {
+      "type": "integer",
+      "required": true
+    },
+    "discussion-metadata.json#/definitions/DiscussionReceipt/consensus/concern": {
+      "type": "integer",
+      "required": true
+    },
+    "discussion-metadata.json#/definitions/DiscussionReceipt/consensus/convened": {
+      "type": "integer",
+      "required": true
+    },
+    "discussion-metadata.json#/definitions/DiscussionReceipt/consensus/failure": {
+      "type": "integer",
+      "required": true
+    },
+    "discussion-metadata.json#/definitions/DiscussionReceipt/consensus/standAside": {
+      "type": "integer",
+      "required": true
+    },
+    "discussion-metadata.json#/definitions/DiscussionReceipt/firstSignalMs": {
+      "type": "integer"
+    },
+    "discussion-metadata.json#/definitions/DiscussionReceipt/phasesMs": {
+      "type": "object",
+      "required": true,
+      "constraints": {
+        "additionalProperties": "false"
+      }
+    },
+    "discussion-metadata.json#/definitions/DiscussionReceipt/phasesMs/advisory": {
+      "type": "integer"
+    },
+    "discussion-metadata.json#/definitions/DiscussionReceipt/phasesMs/evaluation": {
+      "type": "integer"
+    },
+    "discussion-metadata.json#/definitions/DiscussionReceipt/phasesMs/selection": {
+      "type": "integer"
+    },
+    "discussion-metadata.json#/definitions/DiscussionReceipt/phasesMs/synthesis": {
+      "type": "integer"
+    },
+    "discussion-metadata.json#/definitions/DiscussionReceipt/placements": {
+      "type": "array",
+      "required": true
+    },
+    "discussion-metadata.json#/definitions/DiscussionReceipt/placements[]": {
+      "ref": "#/definitions/ReceiptPlacement"
+    },
+    "discussion-metadata.json#/definitions/DiscussionReceipt/settledAt": {
+      "type": "integer",
+      "required": true
+    },
+    "discussion-metadata.json#/definitions/DiscussionReceipt/startedAt": {
+      "type": "integer",
+      "required": true
+    },
+    "discussion-metadata.json#/definitions/DiscussionReceipt/tokens": {
+      "type": "object",
+      "required": true,
+      "constraints": {
+        "additionalProperties": "false"
+      }
+    },
+    "discussion-metadata.json#/definitions/DiscussionReceipt/tokens/agentsIn": {
+      "type": "integer",
+      "required": true
+    },
+    "discussion-metadata.json#/definitions/DiscussionReceipt/tokens/agentsOut": {
+      "type": "integer",
+      "required": true
+    },
+    "discussion-metadata.json#/definitions/DiscussionReceipt/tokens/coordinatorIn": {
+      "type": "integer",
+      "required": true
+    },
+    "discussion-metadata.json#/definitions/DiscussionReceipt/tokens/coordinatorOut": {
+      "type": "integer",
+      "required": true
+    },
+    "discussion-metadata.json#/definitions/DiscussionReceipt/tokens/in": {
+      "type": "integer",
+      "required": true
+    },
+    "discussion-metadata.json#/definitions/DiscussionReceipt/tokens/out": {
+      "type": "integer",
+      "required": true
+    },
+    "discussion-metadata.json#/definitions/DiscussionReceipt/totalMs": {
+      "type": "integer",
+      "required": true
+    },
+    "discussion-metadata.json#/definitions/ReceiptAgent": {
+      "type": "object",
+      "constraints": {
+        "additionalProperties": "false"
+      }
+    },
+    "discussion-metadata.json#/definitions/ReceiptAgent/agent": {
+      "type": "string",
+      "required": true
+    },
+    "discussion-metadata.json#/definitions/ReceiptAgent/atMs": {
+      "type": "integer",
+      "required": true
+    },
+    "discussion-metadata.json#/definitions/ReceiptAgent/inferenceMs": {
+      "type": "integer",
+      "required": true
+    },
+    "discussion-metadata.json#/definitions/ReceiptAgent/inputTokens": {
+      "type": "integer",
+      "required": true
+    },
+    "discussion-metadata.json#/definitions/ReceiptAgent/models": {
+      "type": "array",
+      "required": true
+    },
+    "discussion-metadata.json#/definitions/ReceiptAgent/models[]": {
+      "type": "string"
+    },
+    "discussion-metadata.json#/definitions/ReceiptAgent/outputTokens": {
+      "type": "integer",
+      "required": true
+    },
+    "discussion-metadata.json#/definitions/ReceiptAgent/reason": {
+      "type": "string"
+    },
+    "discussion-metadata.json#/definitions/ReceiptAgent/signal": {
+      "type": "string",
+      "enum": [
+        "agree",
+        "block",
+        "concern",
+        "failure",
+        "stand_aside"
+      ],
+      "required": true
+    },
+    "discussion-metadata.json#/definitions/ReceiptAgent/waitMs": {
+      "type": "integer",
+      "required": true
+    },
+    "discussion-metadata.json#/definitions/ReceiptPlacement": {
+      "type": "object",
+      "constraints": {
+        "additionalProperties": "false"
+      }
+    },
+    "discussion-metadata.json#/definitions/ReceiptPlacement/agents": {
+      "type": "integer",
+      "required": true
+    },
+    "discussion-metadata.json#/definitions/ReceiptPlacement/place": {
+      "type": "string",
+      "required": true
+    },
     "discussion-metadata.json#/definitions/TokenCount": {
       "type": "object"
     },
@@ -522,6 +703,9 @@
     },
     "discussion-metadata.json#/reason": {
       "type": "string"
+    },
+    "discussion-metadata.json#/receipt": {
+      "ref": "#/definitions/DiscussionReceipt"
     },
     "discussion-metadata.json#/replayOf": {
       "type": "string"

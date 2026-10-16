@@ -162,6 +162,20 @@ class BusContractTest {
     }
 
     @Test
+    void aThreadCloseCarryingAReceiptMatchesTheContract() throws Exception {
+        var receipt = DiscussionReceiptTest.fullThread().build(MAPPER, Instant.parse("2026-10-16T04:03:37Z"),
+                2, 11_170, 2_108);
+        var close = MAPPER.createObjectNode();
+        close.put("messageId", "m");
+        close.put("threadId", "t");
+        close.put("agentName", "homelab-coordinator");
+        close.put("messageType", "thread_close");
+        close.put("content", "");
+        close.putObject("metadata").set("receipt", receipt);
+        assertConforms(MESSAGE, close);
+    }
+
+    @Test
     void theContractRejectsWhatAWriterMustNotSend() throws Exception {
         JsonNode valid = MAPPER.readTree("""
                 {"messageId": "m", "threadId": "t", "agentName": "a", "messageType": "agree",
