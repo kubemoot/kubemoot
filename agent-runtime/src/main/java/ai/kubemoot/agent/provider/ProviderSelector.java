@@ -690,13 +690,14 @@ public class ProviderSelector {
     }
 
     /**
-     * Per-call scratch VRAM reservation when the model is already warm
-     * on the chosen provider. KV cache + activations for a single
-     * concurrent qwen3-class inference are typically a few hundred MiB;
-     * 512 is a safe upper bound that doesn't gate practical packing.
-     * Used as the ticket's recorded footprint so cold-load math stays
-     * consistent when a concurrent caller racing for cold-load headroom
-     * sees this ticket's reservation.
+     * The footprint a ticket records for a call that joins a model already warm
+     * (resident or loading) on the provider. It marks the call's slot; it is not
+     * memory per call. The engines Kubemoot drives reserve a model's memory when
+     * they load it (Ollama's KV slab, vLLM's preallocated KV pool), so the ticket
+     * budget counts each model once per provider at its largest ticket
+     * ({@code TicketManager.distinctFootprintMiB}): any number of warm calls of one
+     * model hold this amount once, and a cold load of that model adds only what it
+     * exceeds it by.
      */
     static final long WARM_SCRATCH_MIB = 512;
 

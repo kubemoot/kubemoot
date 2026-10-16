@@ -31,6 +31,19 @@ class EvictionBudgetTest {
     }
 
     @Test
+    void distinctFootprint_countsEachModelOnceAtItsLargestTicket() {
+        var held = List.of(
+                new TicketManager.HeldFootprint("qwen3:14b", 12_224),
+                new TicketManager.HeldFootprint("qwen3:14b", 12_224),
+                new TicketManager.HeldFootprint("qwen3:14b", 512),
+                new TicketManager.HeldFootprint("qwen3:8b", 6_000),
+                new TicketManager.HeldFootprint(null, 300),
+                new TicketManager.HeldFootprint("", 200));
+        assertEquals(12_224 + 6_000 + 300 + 200, TicketManager.distinctFootprintMiB(held));
+        assertEquals(0, TicketManager.distinctFootprintMiB(List.of()));
+    }
+
+    @Test
     void withinBudget_rules() {
         assertTrue(TicketManager.withinBudget(0, 12_000, 2_000, 14_000));
         assertFalse(TicketManager.withinBudget(12_000, 12_000, 2_000, 14_000));
