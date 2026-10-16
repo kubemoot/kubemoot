@@ -28,6 +28,7 @@ class DiscussionReceiptWiringTest {
         var nats = mock(NatsConnectionProvider.class);
         conn = mock(Connection.class);
         when(nats.getConnection()).thenReturn(conn);
+        when(nats.scope()).thenReturn(new CrewScope("crew-ns", "demo"));
         orchestrator = new DiscussionOrchestrator(nats, DiscussionOrchestratorTest.stubProperties("kubernetes"),
                 mock(ChatService.class), mock(DiscussionMetrics.class), mock(LatencyTracker.class),
                 mock(ai.kubemoot.agent.rag.ResumeSearchClient.class));
