@@ -108,7 +108,9 @@ engine gives it, how fast it processes a long prompt and generates, the total ge
 speed with the provider's parallel slots in use, and whether it fits or spills to the
 CPU, with a `Calibrated` condition. Calibration is done by calling the `accelerator-mcp`
 tools (`list_providers`, `provider_state`, `probe_model`, `record_calibration`), which
-measure and record but leave what to probe, and when, to the caller. The scheduler does
+measure and record but leave what to probe, and when, to the caller: the scheduling
+crew's model-provider-calibrator (see
+[The scheduling crew](../architecture/scheduler.md#the-scheduling-crew)) when asked. The scheduler does
 not read `status.calibration` yet. A provider no one has calibrated has no
 `status.calibration`.
 

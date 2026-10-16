@@ -1,0 +1,89 @@
+{{- /*
+The scheduling crew's tools: the accelerator-mcp server, reached through the crew's
+MCPGateway, running as a ServiceAccount that may read ModelProviders and Models and
+write ModelProvider status (where calibration is recorded).
+*/ -}}
+{{- if and .Values.schedulingCrew.enabled .Values.modelProviders }}
+{{- $ns := .Values.schedulingCrew.namespace }}
+{{- $crew := "kubemoot-scheduling" }}
+{{- $name := "accelerator-mcp" }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ $name }}
+  namespace: {{ $ns }}
+  labels:
+    {{- include "kubemoot-operator.labels" . | nindent 4 }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "kubemoot-operator.fullname" . }}-accelerator-mcp
+  labels:
+    {{- include "kubemoot-operator.labels" . | nindent 4 }}
+rules:
+  - apiGroups: ["kubemoot.ai"]
+    resources: ["modelproviders", "models"]
+    verbs: ["get", "list"]
+  - apiGroups: ["kubemoot.ai"]
+    resources: ["modelproviders/status"]
+    verbs: ["update"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "kubemoot-operator.fullname" . }}-accelerator-mcp
+  labels:
+    {{- include "kubemoot-operator.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "kubemoot-operator.fullname" . }}-accelerator-mcp
+subjects:
+  - kind: ServiceAccount
+    name: {{ $name }}
+    namespace: {{ $ns }}
+---
+apiVersion: kubemoot.ai/v1alpha1
+kind: MCPServer
+metadata:
+  name: {{ $name }}
+  namespace: {{ $ns }}
+  labels:
+    {{- include "kubemoot-operator.labels" . | nindent 4 }}
+    kubemoot.ai/crew: {{ $crew }}
+spec:
+  image: {{ include "kubemoot-operator.image" (dict "root" . "image" .Values.schedulingCrew.accelerator.image) | quote }}
+  transport: stdio
+  # The buildpacks launcher starts the binary; mcp-bridge wraps it for stdio.
+  command: ["/cnb/process/web"]
+  port: 3000
+  replicas: 1
+  serviceAccountName: {{ $name }}
+  # Non-root, read-only root filesystem, no privilege escalation.
+  securityMode: strict
+  env:
+    - name: NATS_URL
+      value: {{ .Values.nats.url | quote }}
+  capabilities: [accelerators, calibration, model-providers]
+  resources:
+    {{- toYaml .Values.schedulingCrew.accelerator.resources | nindent 4 }}
+---
+apiVersion: kubemoot.ai/v1alpha1
+kind: MCPGateway
+metadata:
+  name: {{ $crew }}-gateway
+  namespace: {{ $ns }}
+  labels:
+    {{- include "kubemoot-operator.labels" . | nindent 4 }}
+    kubemoot.ai/crew: {{ $crew }}
+spec:
+  implementation: kubemoot
+  port: 8080
+  replicas: 1
+  mcpServerSelector:
+    matchLabels:
+      kubemoot.ai/crew: {{ $crew }}
+  resources:
+    {{- toYaml .Values.schedulingCrew.gateway.resources | nindent 4 }}
+{{- end }}

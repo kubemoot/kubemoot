@@ -41,4 +41,12 @@ go build ./cmd/accelerator-mcp/
 ```
 
 CI builds the static binary and Paketo buildpacks package it, as for the other Go
-components. The binary is `/workspace/accelerator-mcp`.
+components. The binary is `/workspace/accelerator-mcp`, started by the buildpacks launcher
+`/cnb/process/web`.
+
+## Deployment
+
+The operator chart runs it for the scheduling crew (`schedulingCrew` values): an
+MCPServer in the crew namespace started by `/cnb/process/web` (mcp-bridge wraps it for
+stdio), its ServiceAccount, and a ClusterRole with the access above. The chart pins the
+image, so Publish Release ships it with the chart.

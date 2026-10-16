@@ -1,9 +1,9 @@
 name: Release Accelerator MCP
 
-# accelerator-mcp is not pinned by the operator chart: the scheduling crew pins it, like code-sandbox and
-# artifact-access. Each push builds an accelerator-mcp-vX.Y.Z-rc.N image in Harbor; Publish
-# Release copies the latest candidate to GHCR as the final with the other standalone
-# images (STANDALONE_IMAGES in .github/scripts/publish-release.sh).
+# accelerator-mcp is pinned by the operator chart for its scheduling crew (schedulingCrew
+# values). Each push builds an accelerator-mcp-vX.Y.Z-rc.N image in Harbor; the chart
+# release stamps the latest candidate into the chart, and Publish Release copies the
+# candidate the chart was packaged with to GHCR as the final.
 on:
   push:
     branches: [main]

@@ -13,6 +13,8 @@ grafana:
     enabled: false
 verify:
   enabled: false
+schedulingCrew:
+  enabled: false          # needs chart-declared modelProviders; the quickstart adds its provider separately
 dashboard:
   enabled: true           # a first look at the crew; reach it with kubectl port-forward
   gateway:

@@ -1,0 +1,133 @@
+{{- /*
+The scheduling crew: Kubemoot's own crew for scheduling work, in its own namespace.
+Today it has a coordinator and one specialist, the model-provider-calibrator, which
+measures ModelProviders through the accelerator-mcp tools (scheduling-crew-tools.yaml)
+by the probe plan in its skill (scheduling-crew-prompts.yaml).
+*/ -}}
+{{- if and .Values.schedulingCrew.enabled .Values.modelProviders }}
+{{- $ns := .Values.schedulingCrew.namespace }}
+{{- $crew := "kubemoot-scheduling" }}
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ $ns }}
+  labels:
+    {{- include "kubemoot-operator.labels" . | nindent 4 }}
+---
+apiVersion: kubemoot.ai/v1alpha1
+kind: Crew
+metadata:
+  name: {{ $crew }}
+  namespace: {{ $ns }}
+  labels:
+    {{- include "kubemoot-operator.labels" . | nindent 4 }}
+    kubemoot.ai/crew: {{ $crew }}
+  annotations:
+    kubemoot.ai/display-name: "Kubemoot scheduling"
+spec:
+  description: "Kubemoot's own scheduling crew: measures the cluster's model providers so the scheduler does not place calls blind."
+  discussion:
+    enabled: true
+---
+apiVersion: kubemoot.ai/v1alpha1
+kind: CrewSchedulingPolicy
+metadata:
+  name: {{ $crew }}-scheduling
+  namespace: {{ $ns }}
+  labels:
+    {{- include "kubemoot-operator.labels" . | nindent 4 }}
+    kubemoot.ai/crew: {{ $crew }}
+spec:
+  crewRef: {{ $crew }}
+  archetypeRef: consent-3
+  # The crew's own work is short: plan probes, call tools, report. A fast model serves it.
+  rules:
+    - phase: mulling
+      require:
+        matchLabels:
+          capability/tool-calling: "true"
+      prefer:
+        - weight: 100
+          selector:
+            matchLabels:
+              latencyClass: low
+    - phase: triage
+      require:
+        matchLabels:
+          capability/tool-calling: "true"
+      prefer:
+        - weight: 100
+          selector:
+            matchLabels:
+              latencyClass: low
+---
+apiVersion: kubemoot.ai/v1alpha1
+kind: Agent
+metadata:
+  name: scheduling-coordinator
+  namespace: {{ $ns }}
+  labels:
+    {{- include "kubemoot-operator.labels" . | nindent 4 }}
+    kubemoot.ai/crew: {{ $crew }}
+    kubemoot.ai/role: coordinator
+spec:
+  type: chat
+  description: "Coordinator for the scheduling crew: routes each request to the role that handles it and writes the answer."
+  discussRole: coordinator
+  capabilities: [tool-calling, reasoning]
+  discussChannels: [general]
+  promptRefs: [scheduling-advisory, scheduling-decision-logic, scheduling-synthesis]
+  temperature: "0.1"
+  maxTokens: 4096
+  deployment:
+    replicas: 1
+    port: 8080
+    env:
+      # The coordinator calls no tools: the calibrator measures, it writes the answer.
+      - name: KUBEMOOT_GATEWAY_ENABLED
+        value: "false"
+---
+apiVersion: kubemoot.ai/v1alpha1
+kind: Agent
+metadata:
+  name: model-provider-calibrator
+  namespace: {{ $ns }}
+  labels:
+    {{- include "kubemoot-operator.labels" . | nindent 4 }}
+    kubemoot.ai/crew: {{ $crew }}
+    kubemoot.ai/role: tooler
+spec:
+  type: chat
+  description: "Measures ModelProviders: load time, prompt and generation speed, parallel throughput, and whether each model fits."
+  triageSummary: "Calibrates ModelProviders with the accelerator-mcp tools: lists providers and their calibration status, probes their models, and records the results on each provider."
+  discussRole: tooler
+  capabilities: [tool-calling]
+  discussChannels: [general]
+  discussKeywords: [calibrate, calibration, recalibrate, provider, providers, accelerator, probe, modelprovider]
+  promptRefs: [scheduling-protocol, scheduling-response-style, model-provider-calibrator-system]
+  enabledTools: [list_providers, provider_state, probe_model, record_calibration]
+  temperature: "0.1"
+  maxTokens: 4096
+  deployment:
+    replicas: 1
+    port: 8080
+{{- range .Values.modelProviders }}
+---
+apiVersion: kubemoot.ai/v1alpha1
+kind: Model
+metadata:
+  name: {{ regexReplaceAll "[^a-z0-9-]+" (printf "%s-%s" .name $.Values.schedulingCrew.model.name | lower) "-" | trunc 63 | trimSuffix "-" }}
+  namespace: {{ $ns }}
+  labels:
+    {{- include "kubemoot-operator.labels" $ | nindent 4 }}
+    kubemoot.ai/crew: {{ $crew }}
+    latencyClass: "low"
+    contextWindow: {{ $.Values.schedulingCrew.model.contextWindow | quote }}
+    capability/tool-calling: "true"
+    capability/reasoning: "true"
+spec:
+  model: {{ $.Values.schedulingCrew.model.name | quote }}
+  providerRef: {{ .name | quote }}
+  vramMib: {{ $.Values.schedulingCrew.model.vramMib }}
+{{- end }}
+{{- end }}
