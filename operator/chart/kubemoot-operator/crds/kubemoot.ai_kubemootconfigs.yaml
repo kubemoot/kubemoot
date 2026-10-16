@@ -105,6 +105,20 @@ spec:
                         description: Enabled turns on automatic agent scheduling.
                           Default false.
                         type: boolean
+                      placementPolicy:
+                        default: algorithm
+                        description: |-
+                          PlacementPolicy is the realm default for how agents decide where each
+                          model call runs: "algorithm" (the hand-written placement order),
+                          "learned" (placement learned from observed performance), or "shadow"
+                          (the algorithm places; the learned policy's choice is recorded beside
+                          it). A crew's CrewSchedulingPolicy spec.placementPolicy overrides it.
+                          Independent of Enabled.
+                        enum:
+                        - algorithm
+                        - learned
+                        - shadow
+                        type: string
                       probeIntervalSeconds:
                         default: 30
                         description: ProbeIntervalSeconds is how often to probe providers

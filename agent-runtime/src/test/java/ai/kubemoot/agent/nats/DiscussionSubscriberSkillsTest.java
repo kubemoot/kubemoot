@@ -312,6 +312,7 @@ class DiscussionSubscriberSkillsTest {
 
     private static AgentProperties stubProperties(String agentName) {
         return new AgentProperties() {
+            @Override public ai.kubemoot.agent.config.AgentProperties.Scheduler scheduler() { return ai.kubemoot.agent.TestStubs.scheduler(); }
             @Override public ai.kubemoot.agent.config.AgentProperties.Memory memory() {
                 return ai.kubemoot.agent.TestStubs.memory();
             }

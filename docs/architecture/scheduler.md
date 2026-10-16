@@ -240,6 +240,33 @@ A model's occupancy is observed first, declared second:
 1. **Ollama `/api/ps`** reports `size_vram` per loaded model (weights plus its KV slab). The operator probe writes the observed footprint into `ModelProvider.status.capacity.loadedModelFootprints` and into NATS KV, caching the first-observed value. This KV-inclusive number is the occupancy the selector uses.
 2. **`Model.spec.vramMib`** is an optional declared override on the Model CR, used for a model never loaded anywhere so the selector still has a number; it is replaced by the observed value the first time the model loads.
 
+## Placement policy
+
+The decision of where a call runs is a swappable policy inside the agent runtime. Tickets, slot counting, and residency are shared by every policy, so two policies never overbook the same accelerator; only the decision changes.
+
+| Policy | What it does |
+|---|---|
+| `algorithm` (default) | The placement order described above under JIT Per-Call Provider Selection. |
+| `learned` | Places calls from observed performance. Until it has learned from recorded history it has no opinion of its own and places as `algorithm` does, so selecting it is safe. |
+| `shadow` | `algorithm` places every call; the learned policy's choice for the same call is logged beside it (DEBUG) and counted in `kubemoot_scheduler_shadow_decisions_total` by `agreement` (`agree`, `differ`, `no_opinion`), once per placement attempt, so a call that waits for capacity counts each retry. Placement never depends on the learned policy. |
+
+Set the realm default in KubemootConfig and override it per crew in its CrewSchedulingPolicy:
+
+```yaml
+# KubemootConfig
+spec:
+  defaults:
+    scheduler:
+      placementPolicy: shadow     # algorithm | learned | shadow
+---
+# CrewSchedulingPolicy
+spec:
+  crewRef: homelab-pilot
+  placementPolicy: algorithm     # unset inherits the realm default
+```
+
+The operator resolves crew, then realm, then `algorithm`, and passes the result to each agent as `KUBEMOOT_SCHEDULER_PLACEMENT_POLICY`; changing it rolls the crew's agent pods. An unknown value falls back to `algorithm`. Run one policy per measurement arm: crews on different policies at the same time compete for the same accelerators.
+
 ## Quality bias
 
 ### Purpose
@@ -426,6 +453,7 @@ spec:
         - weight: 100
           selector:
             matchLabels: { latencyClass: low }
+  placementPolicy: shadow        # optional; see Placement policy
   topologySpread:
     whenUnsatisfiable: ScheduleAnyway
     topologyKey: provider

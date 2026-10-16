@@ -27,6 +27,7 @@ spec:
       enabled: {{ .Values.kubemootConfig.defaults.scheduler.enabled | default false }}
       strategy: {{ .Values.kubemootConfig.defaults.scheduler.strategy | default "spread" | quote }}
       probeIntervalSeconds: {{ .Values.kubemootConfig.defaults.scheduler.probeIntervalSeconds | default 30 }}
+      placementPolicy: {{ .Values.kubemootConfig.defaults.scheduler.placementPolicy | default "algorithm" | quote }}
       {{- if .Values.kubemootConfig.defaults.scheduler.prometheusEndpoint }}
       prometheusEndpoint: {{ .Values.kubemootConfig.defaults.scheduler.prometheusEndpoint | quote }}
       {{- end }}

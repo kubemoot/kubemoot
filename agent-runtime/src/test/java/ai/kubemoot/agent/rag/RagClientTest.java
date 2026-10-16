@@ -135,6 +135,7 @@ class RagClientTest {
 
     private static AgentProperties stubProperties(List<AgentProperties.RagSource> sources) {
         return new AgentProperties() {
+            @Override public ai.kubemoot.agent.config.AgentProperties.Scheduler scheduler() { return ai.kubemoot.agent.TestStubs.scheduler(); }
             @Override public Memory memory() { return ai.kubemoot.agent.TestStubs.memory(); }
             @Override public String agentName() { return "test-agent"; }
             @Override public String agentDescription() { return ""; }

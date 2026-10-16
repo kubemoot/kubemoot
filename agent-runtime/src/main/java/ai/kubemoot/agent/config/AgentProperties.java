@@ -67,6 +67,8 @@ public interface AgentProperties {
 
     Memory memory();
 
+    Scheduler scheduler();
+
     Optional<List<RagSource>> ragSources();
 
     Optional<List<McpServer>> mcpServers();
@@ -300,6 +302,17 @@ public interface AgentProperties {
 
         @WithDefault("true")
         boolean verifyOnAdd();
+    }
+
+    /**
+     * Scheduler settings the operator sets per agent. {@code placementPolicy} comes from
+     * KUBEMOOT_SCHEDULER_PLACEMENT_POLICY: the crew's CrewSchedulingPolicy
+     * {@code spec.placementPolicy}, else KubemootConfig
+     * {@code spec.defaults.scheduler.placementPolicy}; one of algorithm, learned, shadow.
+     */
+    interface Scheduler {
+        @WithDefault("algorithm")
+        String placementPolicy();
     }
 
     interface Gateway {

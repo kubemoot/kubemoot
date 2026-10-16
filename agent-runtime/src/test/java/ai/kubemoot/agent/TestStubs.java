@@ -17,4 +17,9 @@ public final class TestStubs {
             @Override public boolean verifyOnAdd() { return true; }
         };
     }
+
+    /** Default scheduler config: the algorithm places calls. */
+    public static AgentProperties.Scheduler scheduler() {
+        return () -> "algorithm";
+    }
 }
