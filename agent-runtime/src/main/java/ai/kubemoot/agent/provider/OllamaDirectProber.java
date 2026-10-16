@@ -272,13 +272,19 @@ public class OllamaDirectProber {
     // ---- Private HTTP helpers ----
 
     /**
-     * Fetch loaded model sizes from Ollama /api/ps (models currently in VRAM).
-     * Returns a map of model name to size_vram in MiB. Never throws; returns
-     * empty map on any failure.
+     * Fetch loaded model sizes from Ollama /api/ps. Returns a map of model name to
+     * resident footprint in MiB: size_vram, or the model's whole size when size_vram
+     * is 0, which is how a CPU server reports a model held in host RAM. Never throws;
+     * returns empty map on any failure.
+     *
+     * The operator counts the whole size only on a provider without a discovered
+     * VRAM total. This probe cannot tell a GPU host from a CPU host, so it applies
+     * the rule to every provider; on a GPU host Ollama holds a model wholly in RAM
+     * only when it does not fit VRAM, and the probe then reads it as warm at its size.
      *
      * Response shape (per Ollama API):
-     * {"models":[{"name":"qwen3:32b","size_vram":23380803584,...},...]}
-     * size_vram is in bytes.
+     * {"models":[{"name":"qwen3:32b","size":20200000000,"size_vram":23380803584,...},...]}
+     * Sizes are in bytes.
      */
     Map<String, Long> fetchPs(String endpoint) {
         try {
@@ -290,6 +296,7 @@ public class OllamaDirectProber {
                 for (var m : models) {
                     String name = m.path("name").asText("");
                     long sizeBytes = m.path("size_vram").asLong(0L);
+                    if (sizeBytes <= 0) sizeBytes = m.path("size").asLong(0L);
                     if (!name.isEmpty() && sizeBytes > 0) {
                         result.put(name, sizeBytes / (1024L * 1024L));
                     }

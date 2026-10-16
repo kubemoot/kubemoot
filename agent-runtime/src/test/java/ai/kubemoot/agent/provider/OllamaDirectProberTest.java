@@ -125,6 +125,41 @@ class OllamaDirectProberTest {
     }
 
     @Test
+    void fetchPs_cpuResidentModel_countsWholeSize() throws Exception {
+        var http = mockHttp("""
+                {"models":[{"name":"qwen3:8b","size":%d,"size_vram":0}]}
+                """.formatted(6144L * 1024L * 1024L));
+        var prober = new OllamaDirectProber(mapper(), http);
+
+        var result = prober.fetchPs("http://cpu:11434");
+
+        assertEquals(6144L, result.get("qwen3:8b"),
+                "a CPU server reports size_vram 0; the model's whole size is its footprint");
+    }
+
+    @Test
+    void fetchPs_reportedVramWinsOverSize() throws Exception {
+        var http = mockHttp("""
+                {"models":[{"name":"qwen3:8b","size":%d,"size_vram":%d}]}
+                """.formatted(2048L * 1024L * 1024L, 1024L * 1024L * 1024L));
+        var prober = new OllamaDirectProber(mapper(), http);
+
+        assertEquals(1024L, prober.fetchPs("http://rig0:11434").get("qwen3:8b"),
+                "a positive size_vram is the footprint, not the whole size");
+    }
+
+    @Test
+    void fetchPs_noSizeAtAll_isSkipped() throws Exception {
+        var http = mockHttp("""
+                {"models":[{"name":"qwen3:8b","size":0,"size_vram":0}]}
+                """);
+        var prober = new OllamaDirectProber(mapper(), http);
+
+        assertTrue(prober.fetchPs("http://cpu:11434").isEmpty(),
+                "a model with no reported size has no footprint to record");
+    }
+
+    @Test
     void fetchPs_emptyModels_returnsEmptyMap() throws Exception {
         var http = mockHttp(emptyPs());
         var prober = new OllamaDirectProber(mapper(), http);
