@@ -297,6 +297,74 @@ class WarmSlotClaimTest {
                 .toList();
     }
 
+    /** Each placement as model@provider with its flags, and each ticket's model and footprint: for failure messages. */
+    private static Supplier<String> describe(List<Optional<CallPlanner.Placement>> placed, InMemoryKv bucket) {
+        return () -> placed.stream().map(o -> o.map(p -> p.model() + "@" + p.pick().provider().name()
+                        + (p.queued() ? " queued" : "") + (p.coldLoad() ? " cold" : "")).orElse("none")).toList()
+                + " tickets " + bucket.data.entrySet().stream().map(e -> e.getKey() + "=" + ticketSummary(e.getValue()))
+                .toList();
+    }
+
+    private static String ticketSummary(byte[] value) {
+        try {
+            var n = new ObjectMapper().readTree(value);
+            return n.path("modelName").asText("?") + "/" + n.path("modelFootprintMiB").asLong();
+        } catch (java.io.IOException e) {
+            return "unreadable";
+        }
+    }
+
+    @Test
+    void aFullLoadOfAModelThatHasASlotTicket_addsOnlyTheDifference() {
+        var bucket = new InMemoryKv();
+        var tickets = tickets(bucket);
+        tickets.claim(RIG1, ProviderSelector.WARM_SCRATCH_MIB, 0, 24_564, SMALL_MODEL).orElseThrow();
+
+        assertTrue(tickets.claim(RIG1, SMALL_MIB, 0, SMALL_MIB, SMALL_MODEL).isPresent(),
+                "the model's memory is its largest ticket, not the slot ticket plus the load");
+        assertTrue(tickets.claim(RIG1, SMALL_MIB + 1, 0, SMALL_MIB, SMALL_MODEL).isEmpty(),
+                "a larger ticket of the model must still fit as a whole");
+    }
+
+    @Test
+    void ticketsWithoutAModel_eachCountInFull() {
+        var bucket = new InMemoryKv();
+        var tickets = tickets(bucket);
+        tickets.claim(GPU, 10_000, 0, 32_607, null).orElseThrow();
+        tickets.claim(GPU, 10_000, 0, 32_607, null).orElseThrow();
+
+        assertEquals(20_000, tickets.activeFootprintFor(GPU));
+        assertTrue(tickets.claim(GPU, 13_000, 0, 32_607, null).isEmpty());
+        assertTrue(tickets.claim(GPU, 12_000, 0, 32_607, null).isPresent());
+    }
+
+    @Test
+    void aDuplicateLoadTicketOfTheSameModel_doesNotFillTheProvider() {
+        var bucket = new InMemoryKv();
+        var tickets = tickets(bucket);
+        // Two claimers wrote a ticket to load the 14b on rig1 at once; the later one is
+        // about to release. Until it does, rig1 must not look full: the model loads once.
+        tickets.claim(RIG1, SMALL_MIB, 0, 24_564, SMALL_MODEL).orElseThrow();
+        tickets.claim(RIG1, SMALL_MIB, 0, 24_564, SMALL_MODEL).orElseThrow();
+
+        assertEquals(SMALL_MIB, tickets.activeFootprintFor(RIG1));
+        var join = tickets.claimSlot(RIG1, ProviderSelector.WARM_SCRATCH_MIB, 0, 24_564, SMALL_MODEL,
+                ahead -> ahead < 4);
+        assertTrue(join.isPresent(), "a call joining the loading copy fits beside the duplicate");
+    }
+
+    @Test
+    void aSecondModelStillNeedsItsOwnRoom() {
+        var bucket = new InMemoryKv();
+        var tickets = tickets(bucket);
+        tickets.claim(GPU, BIG_MIB, 0, 32_607, BIG_MODEL).orElseThrow();
+
+        assertTrue(tickets.claim(GPU, SMALL_MIB, 0, 32_607, SMALL_MODEL).isEmpty(),
+                "a different model adds its whole footprint");
+        assertTrue(tickets.claim(GPU, BIG_MIB, 0, 32_607, BIG_MODEL).isPresent(),
+                "the same model again adds nothing");
+    }
+
     /** Another agent's cold load of the 32b is in flight on the gpu and holds its one slot. */
     private static void loadInFlight(TicketManager tickets) {
         tickets.claim(GPU, BIG_MIB, 0, 32_607, BIG_MODEL).orElseThrow();
@@ -330,12 +398,13 @@ class WarmSlotClaimTest {
         List<Optional<CallPlanner.Placement>> joiners =
                 concurrently(3, () -> planner.place(request(List.of(SMALL_MODEL), states)));
 
+        Supplier<String> dump = describe(joiners, bucket);
         assertEquals(GPU, loader.pick().provider().name());
         assertEquals(BIG_MODEL, loader.model());
         assertFalse(loader.queued(), "a load the call starts is not a queue");
-        assertTrue(joiners.stream().map(Optional::orElseThrow).noneMatch(CallPlanner.Placement::queued));
-        assertTrue(joiners.stream().allMatch(Optional::isPresent));
-        assertEquals(3, placedOn(joiners, RIG1).size(), "no joiner queues behind the gpu's one slot");
+        assertTrue(joiners.stream().allMatch(Optional::isPresent), dump);
+        assertTrue(joiners.stream().map(Optional::orElseThrow).noneMatch(CallPlanner.Placement::queued), dump);
+        assertEquals(3, placedOn(joiners, RIG1).size(), () -> "no joiner queues behind the gpu's one slot: " + dump.get());
         assertTrue(placedOn(joiners, RIG1).stream().allMatch(p -> SMALL_MODEL.equals(p.model())));
         assertEquals(1, ticketsOn(bucket, GPU));
         assertEquals(3, ticketsOn(bucket, RIG1), "the 14b's four slots hold all three");
@@ -351,9 +420,10 @@ class WarmSlotClaimTest {
         List<Optional<CallPlanner.Placement>> placed =
                 concurrently(4, () -> planner.place(request(List.of(SMALL_MODEL), states)));
 
-        assertTrue(placed.stream().allMatch(Optional::isPresent));
+        Supplier<String> dump = describe(placed, bucket);
+        assertTrue(placed.stream().allMatch(Optional::isPresent), dump);
         assertTrue(placedOn(placed, GPU).size() <= 1, "at most one call holds the gpu's one slot");
-        assertTrue(placedOn(placed, GPU).stream().allMatch(p -> BIG_MODEL.equals(p.model())));
+        assertTrue(placedOn(placed, GPU).stream().allMatch(p -> BIG_MODEL.equals(p.model())), dump);
         assertTrue(placedOn(placed, RIG1).stream().allMatch(p -> SMALL_MODEL.equals(p.model())));
         assertTrue(ticketsOn(bucket, GPU) <= 1);
     }

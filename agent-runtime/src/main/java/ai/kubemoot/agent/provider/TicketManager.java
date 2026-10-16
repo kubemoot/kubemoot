@@ -155,7 +155,11 @@ public class TicketManager {
      * headroom). Two planners that pick the same victim therefore cannot both spend
      * its memory: the second one's post-claim check sees both loads against one
      * victim's credit and releases. The claim is also released when a victim picked
-     * up in-flight work in the meantime.
+     * up in-flight work in the meantime. Each model counts once per provider
+     * ({@link #distinctFootprintMiB}), so a claim for a model another ticket already
+     * holds adds only what it exceeds that ticket by, and two claims for the same
+     * model both fit; {@link #claimLoad} and {@link #claimSlot} order such duplicates
+     * by revision.
      *
      * @param availableHeadroomMiB total VRAM minus loaded-model footprints
      * @param residentModels       models the provider currently reports loaded
@@ -179,9 +183,9 @@ public class TicketManager {
         if (provider == null || provider.isEmpty() || footprintMiB <= 0) return Optional.empty();
         KeyValue kv = openBucket();
         if (kv == null) return Optional.empty();
-        Budget budget = new Budget(provider, footprintMiB, availableHeadroomMiB, residentModels);
+        Budget budget = new Budget(provider, modelName, footprintMiB, availableHeadroomMiB, residentModels);
         // Pre-flight: cheap check before writing; planned victims (including ours) count once.
-        if (!budget.fits(kv, evictions, 0L)) {
+        if (!budget.fits(kv, evictions, false)) {
             return Optional.empty();
         }
         Ticket ticket = new Ticket(UUID.randomUUID().toString(), provider, footprintMiB, holderId,
@@ -194,7 +198,7 @@ public class TicketManager {
             return Optional.empty();
         }
         // Post-claim verification: our ticket is now in the scan, so re-check without adding it again.
-        if (!budget.fits(kv, java.util.Map.of(), -footprintMiB) || victimsBusy(kv, provider, evictions.keySet())) {
+        if (!budget.fits(kv, java.util.Map.of(), true) || victimsBusy(kv, provider, evictions.keySet())) {
             log.debug("Released ticket {} on {}: over budget or a planned victim is busy", ticket.ticketId(), provider);
             release(ticket);
             return Optional.empty();
@@ -322,25 +326,62 @@ public class TicketManager {
     /** The budget for one claim: active footprints plus this claim within headroom plus eviction credit. */
     private final class Budget {
         private final String provider;
+        private final String modelName;
         private final long footprintMiB;
         private final long headroomMiB;
         private final java.util.Set<String> resident;
 
-        Budget(String provider, long footprintMiB, long headroomMiB, java.util.Set<String> resident) {
+        Budget(String provider, String modelName, long footprintMiB, long headroomMiB,
+               java.util.Set<String> resident) {
             this.provider = provider;
+            this.modelName = modelName;
             this.footprintMiB = footprintMiB;
             this.headroomMiB = headroomMiB;
             this.resident = resident == null ? java.util.Set.of() : resident;
         }
 
-        /** {@code adjustMiB} corrects for our own ticket already being in the scan (post-claim). */
-        boolean fits(KeyValue kv, java.util.Map<String, Long> ownEvictions, long adjustMiB) {
+        /**
+         * True when the provider's tickets, with this claim among them, fit the headroom
+         * plus the eviction credit. Each model's memory counts once
+         * ({@link #distinctFootprintMiB}), so a claim on a model another ticket already
+         * holds adds only what its ticket exceeds it by. {@code ownInScan} is true after
+         * the claim's ticket is written (it is already among the tickets).
+         */
+        boolean fits(KeyValue kv, java.util.Map<String, Long> ownEvictions, boolean ownInScan) {
             List<java.util.Map<String, Long>> planned = new ArrayList<>(plannedEvictionMaps(kv, provider));
             planned.add(ownEvictions);
             long credit = evictionCreditMiB(planned, resident);
-            long active = sumFootprintsFor(kv, provider) + adjustMiB;
-            return withinBudget(active, footprintMiB, headroomMiB, credit);
+            List<HeldFootprint> held = footprintsOn(kv, provider);
+            if (!ownInScan) {
+                held.add(new HeldFootprint(modelName, footprintMiB));
+            }
+            long othersMiB = distinctFootprintMiB(held) - footprintMiB;
+            return withinBudget(othersMiB, footprintMiB, headroomMiB, credit);
         }
+    }
+
+    /** The memory one ticket holds and the model it holds it for (null for a ticket without one). */
+    record HeldFootprint(String model, long mib) {}
+
+    /**
+     * The memory a provider's tickets hold, counting each model once: an engine
+     * loads one copy of a model per server, so two tickets for the same model hold
+     * that model's memory once, at the larger of their footprints. Concurrent
+     * claimers that each wrote a ticket to load the same model therefore never make
+     * the provider look full while the losers release. A ticket without a model
+     * counts on its own. Pure, for testing.
+     */
+    static long distinctFootprintMiB(List<HeldFootprint> held) {
+        java.util.Map<String, Long> byModel = new java.util.HashMap<>();
+        long unnamed = 0L;
+        for (HeldFootprint h : held) {
+            if (h.model() == null || h.model().isEmpty()) {
+                unnamed += h.mib();
+            } else {
+                byModel.merge(h.model(), h.mib(), Math::max);
+            }
+        }
+        return unnamed + byModel.values().stream().mapToLong(Long::longValue).sum();
     }
 
     /**
@@ -450,8 +491,8 @@ public class TicketManager {
     }
 
     /**
-     * Sum the footprints of all active tickets for the named provider.
-     * Used by callers (notably {@link ProviderSelector}) to compute
+     * The memory all active tickets on the named provider hold, each model counted
+     * once ({@link #distinctFootprintMiB}). Used by callers (notably {@link ProviderSelector}) to compute
      * provider headroom for the cold-load gate (free VRAM ≥ footprint).
      */
     public long activeFootprintFor(String provider) {
@@ -740,10 +781,15 @@ public class TicketManager {
      * see {@code [[project_jit_native_deser_bug]]}).
      */
     private long sumFootprintsFor(KeyValue kv, String provider) {
-        long[] total = {0L};
-        forEachTicket(kv, provider, "footprint sum",
-                node -> total[0] += node.path(FIELD_MODEL_FOOTPRINT).asLong(0L));
-        return total[0];
+        return distinctFootprintMiB(footprintsOn(kv, provider));
+    }
+
+    /** Each active ticket's footprint on the provider, with the model it names. */
+    private List<HeldFootprint> footprintsOn(KeyValue kv, String provider) {
+        List<HeldFootprint> held = new ArrayList<>();
+        forEachTicket(kv, provider, "footprint sum", node -> held.add(new HeldFootprint(
+                node.path(FIELD_MODEL_NAME).asText(null), node.path(FIELD_MODEL_FOOTPRINT).asLong(0L))));
+        return held;
     }
 
     /** Encode a Ticket and its planned evictions to JSON bytes via manual ObjectNode (native-safe). */
