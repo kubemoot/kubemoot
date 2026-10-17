@@ -19,7 +19,7 @@ class EngineDriverPlacementTest {
 
     private static ProviderState gpu(Map<String, Long> loaded) {
         return new ProviderState("gpu", "http://gpu", 1, 0, 0, List.copyOf(loaded.keySet()), true,
-                "2026-09-27T00:00:00Z", 32_768, loaded);
+                "2026-09-27T00:00:00Z", 32_768, loaded, Map.of("qwen3:14b", 8_855L, "qwen3:32b", 19_265L));
     }
 
     private static ProviderSelector selector(TicketManager tickets, EngineDriver driver) {
@@ -93,5 +93,17 @@ class EngineDriverPlacementTest {
         when(tickets.activeModelsOn("gpu")).thenReturn(Set.of());
         assertEquals(Optional.empty(), sel.queueOption(List.of("qwen3:14b"), List.of(gpu(Map.of()))),
                 "neither loaded nor loading: nothing to queue on");
+    }
+
+    /** Unloading models on a provider without the model makes no room for it: the load would fail. */
+    @Test
+    void eviction_isNotPlannedOnAProviderWithoutTheModel() {
+        var cpu = new ProviderState("cpu", "http://cpu", 1, 0, 0, List.of("qwen3:8b"), true,
+                "2026-10-17T00:00:00Z", 18_432, Map.of("qwen3:8b", 15_000L));
+        var tickets = mock(TicketManager.class);
+        assertTrue(selector(tickets, null).planEviction("qwen3:14b", 12_224, List.of(cpu), Map.of()).isEmpty());
+        when(tickets.activeModelsOn("cpu")).thenReturn(java.util.Set.of("qwen3:14b"));
+        assertTrue(selector(tickets, null).planEviction("qwen3:14b", 12_224, List.of(cpu), Map.of()).isPresent(),
+                "a provider a call is loading the model on has it");
     }
 }

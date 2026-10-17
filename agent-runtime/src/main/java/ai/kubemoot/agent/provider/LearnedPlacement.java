@@ -7,7 +7,6 @@ import org.slf4j.LoggerFactory;
 
 import java.util.List;
 import java.util.Locale;
-import java.util.Map;
 import java.util.Optional;
 
 /**
@@ -145,7 +144,7 @@ public class LearnedPlacement implements PlacementPolicy {
     static Optional<Ranked> soonest(String model, List<ProviderSelector.Option> options, long promptTokens) {
         Ranked best = null;
         for (ProviderSelector.Option o : options) {
-            if (!holds(o.provider(), model)) {
+            if (!o.provider().hasModel(model)) {
                 continue;
             }
             Optional<Prediction> p = predict(o, model, promptTokens);
@@ -157,16 +156,6 @@ public class LearnedPlacement implements PlacementPolicy {
             }
         }
         return Optional.ofNullable(best);
-    }
-
-    /**
-     * True when the provider has the model loaded or downloaded. The operator lists
-     * downloaded models that are not loaded in availableModelFootprintsMiB, so a
-     * provider whose state has no such list counts only what it has loaded.
-     */
-    static boolean holds(ProviderState p, String model) {
-        Map<String, Long> downloaded = p.availableModelFootprintsMiB();
-        return p.hasModelLoaded(model) || (downloaded != null && downloaded.containsKey(model));
     }
 
     /**

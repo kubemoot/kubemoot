@@ -36,26 +36,29 @@ class WarmSlotClaimTest {
     private static final long BIG_MIB = 27_252;
     private static final long SMALL_MIB = 12_224;
 
+    /** Both test models are downloaded on every test provider. */
+    private static final Map<String, Long> DOWNLOADED = Map.of(BIG_MODEL, BIG_MIB, SMALL_MODEL, SMALL_MIB);
+
     private static ProviderState gpu(int maxParallel) {
         return new ProviderState(GPU, "http://gpu", maxParallel, 0, 0, List.of(BIG_MODEL), true,
-                "2026-10-15T00:00:00Z", 32_607, Map.of(BIG_MODEL, BIG_MIB));
+                "2026-10-15T00:00:00Z", 32_607, Map.of(BIG_MODEL, BIG_MIB), DOWNLOADED);
     }
 
     private static ProviderState rig1() {
         return new ProviderState(RIG1, "http://rig1", 4, 0, 0, List.of(SMALL_MODEL), true,
-                "2026-10-15T00:00:00Z", 24_564, Map.of(SMALL_MODEL, SMALL_MIB));
+                "2026-10-15T00:00:00Z", 24_564, Map.of(SMALL_MODEL, SMALL_MIB), DOWNLOADED);
     }
 
     /** A GPU with nothing resident: a cold start. */
     private static ProviderState emptyGpu(String name, int maxParallel) {
         return new ProviderState(name, "http://" + name, maxParallel, 0, 0, List.of(), true,
-                "2026-10-15T00:00:00Z", 32_607, Map.of());
+                "2026-10-15T00:00:00Z", 32_607, Map.of(), DOWNLOADED);
     }
 
     /** rig1 with nothing resident; the 32b does not fit it, the 14b does. */
     private static ProviderState emptyRig1() {
         return new ProviderState(RIG1, "http://rig1", 4, 0, 0, List.of(), true,
-                "2026-10-15T00:00:00Z", 24_564, Map.of());
+                "2026-10-15T00:00:00Z", 24_564, Map.of(), DOWNLOADED);
     }
 
     private static TicketManager tickets(InMemoryKv bucket) {
@@ -238,7 +241,7 @@ class WarmSlotClaimTest {
         assertTrue(selector(List.of(gpu(1)), tickets).pickAndClaim(BIG_MODEL, BIG_MIB, 0).isPresent(),
                 "the weighted cost queues at a busy warm copy");
         var loading = new ProviderState(GPU, "http://gpu", 1, 0, 0, List.of(), true,
-                "2026-10-15T00:00:00Z", 32_607, Map.of());
+                "2026-10-15T00:00:00Z", 32_607, Map.of(), DOWNLOADED);
         assertTrue(selector(List.of(loading), tickets).pickAndClaimLoading(BIG_MODEL, BIG_MIB, 0).isPresent(),
                 "a call converges on a copy being loaded");
         assertEquals(3, ticketsOn(bucket, GPU));

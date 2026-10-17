@@ -45,15 +45,19 @@ class ProviderSelectorTest {
         // v1 helper: zero v2 fields, so headroom-based callers degrade to fallback.
         // v2 tests below use the v2State helper which sets totalVramMiB + footprints.
         return new ProviderState(name, endpoint, maxParallel, activeCount, 0, loaded, ready,
-                "2026-05-25T00:00:00Z", 0L, java.util.Map.of());
+                "2026-05-25T00:00:00Z", 0L, java.util.Map.of(), DOWNLOADED);
     }
+
+    /** The models every test provider has downloaded, with their on-disk sizes. */
+    static final java.util.Map<String, Long> DOWNLOADED =
+            java.util.Map.of("qwen3:8b", 4_983L, "qwen3:14b", 8_855L, "qwen3:32b", 19_265L);
 
     /** v2 helper: include totalVramMiB and per-model footprints for headroom tests. */
     private static ProviderState v2State(String name, String endpoint, boolean ready,
                                           long totalVramMiB, java.util.Map<String, Long> loadedFootprints) {
         return new ProviderState(name, endpoint, 1, 0, 0,
                 List.copyOf(loadedFootprints.keySet()), ready, "2026-05-28T00:00:00Z",
-                totalVramMiB, loadedFootprints);
+                totalVramMiB, loadedFootprints, DOWNLOADED);
     }
 
     @Test
@@ -321,7 +325,7 @@ class ProviderSelectorTest {
                                                    java.util.Map<String, Long> loadedFootprints) {
         return new ProviderState(name, endpoint, maxParallel, 0, 0,
                 List.copyOf(loadedFootprints.keySet()), true, "2026-05-28T00:00:00Z",
-                totalVramMiB, loadedFootprints);
+                totalVramMiB, loadedFootprints, DOWNLOADED);
     }
 
     @Test
@@ -1171,5 +1175,60 @@ class ProviderSelectorTest {
         var sel = new ProviderSelector(nats, new com.fasterxml.jackson.databind.ObjectMapper(), null, null, null);
         assertTrue(sel.readState().isEmpty());
         assertEquals("NATS unavailable", sel.lastReadError().orElseThrow());
+    }
+
+    /** A provider that has not downloaded the model cannot load it: the engine answers 404. */
+    @Test
+    void rankCandidates_skipsAProviderWithoutTheModel() {
+        var gpu = v2StateWithSlots("ollama-rig1", "http://rig1", 1, 24_563L, java.util.Map.of());
+        var cpu = new ProviderState("ollama-cpu", "http://cpu", 1, 0, 0, List.of(), true,
+                "2026-10-17T00:00:00Z", 18_432L, java.util.Map.of(), java.util.Map.of("qwen3:8b", 4_983L));
+        var load = LoadView.of(NO_TICKET_COUNT, NO_TICKETS, NO_LATENCY, NO_CIRCUIT_OPEN);
+
+        var ranked = ProviderSelector.rankCandidates(List.of(cpu, gpu), "qwen3:14b", 8_855L, load, STATIC_PREDICTOR);
+        assertEquals(List.of("ollama-rig1"), ranked.stream().map(c -> c.provider().name()).toList(),
+                "the CPU has only qwen3:8b, so it is no candidate for qwen3:14b");
+        assertEquals(2, ProviderSelector.rankCandidates(List.of(cpu, gpu), "qwen3:8b", 4_983L, load,
+                STATIC_PREDICTOR).size(), "both have qwen3:8b");
+
+        // A provider loading the model has it, though its state has yet to say so.
+        var loadingOnCpu = load.withActiveModels(p -> p.name().equals("ollama-cpu")
+                ? java.util.Set.of("qwen3:14b") : java.util.Set.of());
+        assertEquals(2, ProviderSelector.rankCandidates(List.of(cpu, gpu), "qwen3:14b", 8_855L, loadingOnCpu,
+                STATIC_PREDICTOR).size());
+    }
+
+    @Test
+    void hasModel_isLoadedOrDownloaded() {
+        var s = new ProviderState("p", "http://p", 1, 0, 0, List.of("qwen3:32b"), true, "", 32_000L,
+                java.util.Map.of("qwen3:32b", 20_000L), java.util.Map.of("qwen3:8b", 4_983L));
+        assertTrue(s.hasModel("qwen3:32b"), "loaded");
+        assertTrue(s.hasModel("qwen3:8b"), "downloaded");
+        assertFalse(s.hasModel("qwen3:14b"));
+        assertFalse(s.hasModel(null));
+        var bare = new ProviderState("p", "http://p", 1, 0, 0, null, true, "", 0L, null, null);
+        assertFalse(bare.hasModel("qwen3:8b"), "a state that lists nothing has nothing");
+        var allLoaded = new ProviderState("p", "http://p", 1, 0, 0, List.of("qwen3:8b"), true, "", 0L,
+                java.util.Map.of("qwen3:8b", 5_000L), null);
+        assertTrue(allLoaded.hasModel("qwen3:8b"), "the operator omits the list when every downloaded model is loaded");
+        var untagged = new ProviderState("p", "http://p", 1, 0, 0, List.of(), true, "", 0L,
+                java.util.Map.of(), java.util.Map.of("llama3:latest", 4_000L));
+        assertTrue(untagged.hasModel("llama3"), "Ollama lists an untagged model as name:latest");
+        assertFalse(untagged.hasModel("llama3:8b"));
+    }
+
+    @Test
+    void someProviderHasAny_countsReadyProvidersAndLoadsInFlight() {
+        var cpu = new ProviderState("cpu", "http://cpu", 1, 0, 0, List.of(), true, "", 0L,
+                java.util.Map.of(), java.util.Map.of("qwen3:8b", 4_983L));
+        var down = new ProviderState("down", "http://down", 1, 0, 0, List.of(), false, "", 0L,
+                java.util.Map.of(), java.util.Map.of("qwen3:14b", 8_855L));
+        java.util.function.Function<String, java.util.Set<String>> none = n -> java.util.Set.of();
+        assertTrue(ProviderSelector.someProviderHasAny(List.of(cpu), List.of("qwen3:14b", "qwen3:8b"), none));
+        assertFalse(ProviderSelector.someProviderHasAny(List.of(cpu, down), List.of("qwen3:14b"), none),
+                "a provider that is not ready does not count");
+        assertTrue(ProviderSelector.someProviderHasAny(List.of(cpu), List.of("qwen3:14b"),
+                n -> java.util.Set.of("qwen3:14b")), "a load in flight counts");
+        assertFalse(ProviderSelector.someProviderHasAny(List.of(cpu), List.of("qwen3:14b"), n -> null));
     }
 }
