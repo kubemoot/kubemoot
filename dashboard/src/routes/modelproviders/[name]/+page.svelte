@@ -7,6 +7,9 @@
 	import { DetailPanel } from '#lib/components/layout/index.js';
 	import { Section, InfoRow, StatusBadge } from '#lib/components/common/index.js';
 	import type { ModelProvider } from '#lib/types/kubemoot.js';
+	import { calibrationBadge, calibrationRows, hasCalibration } from '#lib/provider-calibration.js';
+	import { formatBytes, formatMiB } from '#lib/format.js';
+	import { formatTimestamp } from '#lib/discussion-timing.js';
 
 	let provider = $state<ModelProvider | null>(null);
 	let loading = $state(true);
@@ -43,6 +46,8 @@
 	const status = $derived(readinessStatus(provider?.status, 'Failed'));
 
 	const capacity = $derived(provider?.status?.capacity);
+	const calibration = $derived(provider?.status?.calibration);
+	const calibrationTable = $derived(calibrationRows(calibration));
 	const loadedModels = $derived(capacity?.loadedModels ?? []);
 	const loadedNames = $derived(new Set(loadedModels.map((m) => m.name)));
 	const cachedOnly = $derived(
@@ -51,18 +56,6 @@
 			.filter((n) => !loadedNames.has(n))
 	);
 
-	function formatMiB(mib: number | undefined): string {
-		if (!mib || mib <= 0) return '-';
-		if (mib >= 1024) return `${(mib / 1024).toFixed(1)} GiB`;
-		return `${mib} MiB`;
-	}
-
-	function formatBytesMiB(bytes: number | undefined): string {
-		if (!bytes || bytes <= 0) return '-';
-		const mib = bytes / (1024 * 1024);
-		if (mib >= 1024) return `${(mib / 1024).toFixed(1)} GiB`;
-		return `${mib.toFixed(0)} MiB`;
-	}
 
 	function modelDetailsHref(modelName: string): string {
 		if (!provider) return '#';
@@ -129,6 +122,52 @@
 					</Section>
 				{/if}
 
+				<Section title="Calibration">
+					{#if hasCalibration(calibration)}
+						<div class="calibration-head">
+							<StatusBadge status={calibrationBadge(calibration.phase)} label={calibration.phase || 'Unknown'} />
+							{#if calibration.message}<span class="model-meta">{calibration.message}</span>{/if}
+						</div>
+						<InfoRow label="Engine" value={calibration.engineVersion} />
+						<InfoRow label="Completed" value={formatTimestamp(calibration.completedAt)} />
+						{#if calibrationTable.length > 0}
+							<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+							<div class="calibration-table" role="region" aria-label="Calibration per model" tabindex="0">
+								<table>
+									<caption class="sr-only">What calibration measured for each model on {name}</caption>
+									<thead>
+										<tr>
+											<th scope="col">Model</th><th scope="col">Fits</th><th scope="col">Load</th>
+											<th scope="col">Generate</th><th scope="col">Prompt</th>
+											<th scope="col">Parallel</th><th scope="col">Memory</th>
+										</tr>
+									</thead>
+									<tbody>
+										{#each calibrationTable as row (row.model)}
+											<tr>
+												<td class="mono">
+													{row.model}
+													{#if row.fits && row.reason}<div class="model-meta">{row.reason}</div>{/if}
+												</td>
+												<td>{row.fits ? 'yes' : 'no'}</td>
+												<td>{row.load}</td>
+												{#if row.fits}
+													<td>{row.generate}</td><td>{row.prompt}</td>
+													<td>{row.parallel}</td><td>{row.resident}</td>
+												{:else}
+													<td colspan="4" class="model-meta">{row.reason}</td>
+												{/if}
+											</tr>
+										{/each}
+									</tbody>
+								</table>
+							</div>
+						{/if}
+					{:else}
+						<span class="model-meta">Not calibrated yet.</span>
+					{/if}
+				</Section>
+
 				{#if loadedModels.length > 0}
 					<Section title="Loaded in VRAM ({loadedModels.length})">
 						<div class="model-list">
@@ -136,7 +175,7 @@
 								<div class="model-row">
 									<span class="model-state loaded" title="In VRAM"></span>
 									<a class="model-name mono" href={modelDetailsHref(m.name)}>{m.name}</a>
-									<span class="model-meta">{formatBytesMiB(m.sizeVram)}</span>
+									<span class="model-meta">{formatBytes(m.sizeVram)}</span>
 									{#if m.expiresAt}
 										<span class="model-meta">expires {new Date(m.expiresAt).toLocaleTimeString()}</span>
 									{/if}
@@ -247,5 +286,51 @@
 	.model-meta {
 		font-size: 0.75rem;
 		color: var(--color-text-muted);
+	}
+
+	.calibration-head {
+		display: flex;
+		align-items: center;
+		gap: 0.75rem;
+		margin-bottom: 0.5rem;
+	}
+
+	.calibration-table {
+		overflow-x: auto;
+		margin-top: 0.5rem;
+	}
+
+	.calibration-table table {
+		border-collapse: collapse;
+		font-size: 0.8rem;
+		font-variant-numeric: tabular-nums;
+	}
+
+	.calibration-table th,
+	.calibration-table td {
+		padding: 0.3rem 0.75rem 0.3rem 0;
+		text-align: left;
+		white-space: nowrap;
+	}
+
+	.calibration-table th {
+		color: var(--color-text-muted);
+		font-weight: 500;
+	}
+
+	.mono {
+		font-family: var(--font-mono);
+	}
+
+	.sr-only {
+		position: absolute;
+		width: 1px;
+		height: 1px;
+		padding: 0;
+		margin: -1px;
+		overflow: hidden;
+		clip: rect(0, 0, 0, 0);
+		white-space: nowrap;
+		border: 0;
 	}
 </style>

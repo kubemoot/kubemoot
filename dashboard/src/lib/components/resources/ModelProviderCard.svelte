@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { formatBytes, formatMiB } from '#lib/format.js';
 	import { PENDING_TTL_MS, unsettledActions, type PendingAction } from '#lib/pending-actions.js';
 	import { readinessStatus } from '#lib/resource-status.js';
 	import { resolve } from '$app/paths';
@@ -202,18 +203,6 @@
 		return `${secs}s`;
 	}
 
-	function formatMiB(bytes: number | undefined): string {
-		if (!bytes || bytes <= 0) return '-';
-		const mib = bytes / (1024 * 1024);
-		if (mib >= 1024) return `${(mib / 1024).toFixed(1)} GiB`;
-		return `${mib.toFixed(0)} MiB`;
-	}
-
-	function formatMiBFromMiB(mib: number | undefined): string {
-		if (!mib || mib <= 0) return '-';
-		if (mib >= 1024) return `${(mib / 1024).toFixed(1)} GiB`;
-		return `${mib} MiB`;
-	}
 </script>
 
 <ResourceCard
@@ -257,7 +246,7 @@
 			{#if vramTotal > 0}
 				<div class="row">
 					<span class="label">VRAM</span>
-					<span class="value">{formatMiBFromMiB(vramUsed)} / {formatMiBFromMiB(vramTotal)}</span>
+					<span class="value">{formatMiB(vramUsed)} / {formatMiB(vramTotal)}</span>
 				</div>
 				<div class="vram-bar" aria-hidden="true">
 					<div class="vram-fill" style="width: {vramPct}%"></div>
@@ -265,7 +254,7 @@
 			{:else if vramUsed > 0}
 				<div class="row">
 					<span class="label">VRAM used</span>
-					<span class="value">{formatMiBFromMiB(vramUsed)}</span>
+					<span class="value">{formatMiB(vramUsed)}</span>
 				</div>
 			{/if}
 
@@ -299,7 +288,7 @@
 										onclick={stopProp}
 									>{entry.name}</a>
 									{#if entry.loadedInfo?.sizeVram}
-										<span class="model-meta">{formatMiB(entry.loadedInfo.sizeVram)}</span>
+										<span class="model-meta">{formatBytes(entry.loadedInfo.sizeVram)}</span>
 									{/if}
 									{#if entry.loadedInfo?.expiresAt}
 										<span class="model-meta ttl">TTL {formatRemaining(entry.loadedInfo.expiresAt, now)}</span>

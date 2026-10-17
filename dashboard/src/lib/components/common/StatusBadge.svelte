@@ -1,5 +1,5 @@
 <script lang="ts">
-	type Status = 'success' | 'warning' | 'error' | 'pending' | 'unknown' | 'hot';
+	import type { BadgeStatus as Status } from '#lib/status.js';
 
 	interface Props {
 		status: Status;
