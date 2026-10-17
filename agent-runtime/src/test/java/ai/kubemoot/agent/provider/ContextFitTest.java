@@ -175,7 +175,7 @@ class ContextFitTest {
     void planEviction_skipsAProviderWhoseContextCannotHoldThePrompt() {
         var sel = selectorOver(List.of(), mock(TicketManager.class));
         var full = new ProviderState("small-context", "http://s", 1, 0, 0, List.of("idle:32b"), true,
-                "2026-09-29T00:00:00Z", 24_000, Map.of("idle:32b", 20_000L), Map.of(), 8_192, Map.of());
+                "2026-09-29T00:00:00Z", 24_000, Map.of("idle:32b", 20_000L), Map.of(MODEL, 9_000L), 8_192, Map.of());
 
         assertTrue(sel.planEviction(MODEL, 10_000, List.of(full), Map.of(), 0).isPresent(),
                 "with no prompt size the idle model can be unloaded");

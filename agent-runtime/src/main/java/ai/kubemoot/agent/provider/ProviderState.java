@@ -165,6 +165,26 @@ public record ProviderState(
     }
 
     /**
+     * True when the provider has the model loaded or downloaded, so a call can run
+     * it there. The operator lists downloaded models that are not loaded in
+     * {@link #availableModelFootprintsMiB}, from the engine's own list, and leaves
+     * the list out when every downloaded model is loaded. An engine loads only
+     * what it has; a provider without the model cannot serve the call.
+     */
+    public boolean hasModel(String modelName) {
+        if (modelName == null) return false;
+        String name = withTag(modelName);
+        if (loadedModels != null && loadedModels.stream().anyMatch(m -> withTag(m).equals(name))) return true;
+        return availableModelFootprintsMiB != null
+                && availableModelFootprintsMiB.keySet().stream().anyMatch(m -> withTag(m).equals(name));
+    }
+
+    /** The model name with its tag; Ollama lists an untagged name as {@code name:latest}. */
+    static String withTag(String model) {
+        return model.contains(":") ? model : model + ":latest";
+    }
+
+    /**
      * Sum of all loaded models' VRAM footprints on this provider, in MiB.
      * Subtracted from {@link #totalVramMiB} to get the budget available
      * for ticket claims. Returns 0 when no footprint data has been

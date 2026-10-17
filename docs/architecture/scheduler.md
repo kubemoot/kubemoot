@@ -49,6 +49,8 @@ A model's VRAM occupancy is fixed when it loads: weights plus the context KV sla
 
 #### The one hard filter
 
+A provider is a candidate for M only when it has M: loaded, downloaded, or being loaded by an in-flight call. The operator publishes each provider's downloaded models from the engine's own list (`availableModelFootprintsMiB`, with the loaded ones in `loadedModels`). An engine loads only what it has, so a provider without M cannot serve the call however much room it has, and unloading models there makes no room for it. Both placement policies and the eviction planner use this rule. Ollama lists an untagged model as `name:latest`, so `llama3` matches `llama3:latest`. When no ready provider has the model or any in-tolerance candidate, the call fails at once with a failure signal naming the models: no capacity change could place it, so it does not wait.
+
 A provider where M is warm (resident, or being loaded by an in-flight call) is always feasible when it is ready and its circuit is closed: the call shares the loaded copy and queues for a slot. For a cold load, a provider is feasible iff it is ready, its circuit is closed, `usable(P) ≥ occupancy(M)`, and M fits beside the models already resident (`occupancy(M) + resident(P) ≤ usable(P)`), where `usable(P) = totalVram(P) - reserve` (the reserve covers CUDA context, fragmentation, and runtime overhead). A model larger than every card's usable VRAM yields no feasible provider, and the runtime reports it as `model-too-large` rather than spilling silently. A card that could hold M but is full of other resident models is busy, not too small: the runtime waits for it.
 
 #### The context window is a hard constraint

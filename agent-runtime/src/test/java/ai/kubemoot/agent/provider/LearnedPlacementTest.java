@@ -145,17 +145,17 @@ class LearnedPlacementTest {
         var selector = new FixedSelector(Map.of(OTHER, List.of(idle(cpuWithout, false), idle(gpuWithOther, true))));
         var request = new PlacementRequest(OTHER, List.of(), List.of(), m -> 9_000L, m -> 0L, 100L);
         assertEquals(GPU, new LearnedPlacement(new Fallback(), selector).propose(request).orElseThrow().provider());
-        assertTrue(LearnedPlacement.holds(gpuWithOther, OTHER));
-        assertFalse(LearnedPlacement.holds(cpuWithout, OTHER));
-        assertTrue(LearnedPlacement.holds(cpuWithout, SMALL));
+        assertTrue(gpuWithOther.hasModel(OTHER));
+        assertFalse(cpuWithout.hasModel(OTHER));
+        assertTrue(cpuWithout.hasModel(SMALL));
     }
 
     @Test
     void aStateWithNoDownloadedListCountsOnlyWhatIsLoaded() {
         ProviderState noList = new ProviderState(CPU, "http://" + CPU, 1, 0, 0, List.of(SMALL), true,
                 "2026-01-01T00:00:00Z", 32_000, Map.of(), null, 0L, Map.of(), Map.of());
-        assertTrue(LearnedPlacement.holds(noList, SMALL));
-        assertFalse(LearnedPlacement.holds(noList, OTHER));
+        assertTrue(noList.hasModel(SMALL));
+        assertFalse(noList.hasModel(OTHER));
     }
 
     @Test

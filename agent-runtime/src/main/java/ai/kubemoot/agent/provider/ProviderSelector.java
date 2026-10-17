@@ -124,7 +124,7 @@ public class ProviderSelector {
      * which catches false-warm situations (state says model loaded but
      * ollama actually evicted and cold-loads on the next call). Updated
      * via {@link #recordObservedLatency} after each call; consulted in
-     * {@link #pickFor} to penalise providers that recently took long.
+     * the ranking to penalise providers that recently took long.
      *
      * Self-correcting: a single bad call records the slowness, the next
      * pick avoids that provider, the bad provider gets a chance to
@@ -196,55 +196,6 @@ public class ProviderSelector {
         this.ticketManager = ticketManager;
         this.fitPredictor = fitPredictor;
         this.driver = driver != null ? driver : new OllamaDriver(null);
-    }
-
-    /**
-     * Pick the freest provider for the given model. Returns the picked
-     * ProviderState wrapped in Optional; empty when no candidate matches
-     * or NATS is unavailable (caller should fall back to its static
-     * endpoint in that case).
-     *
-     * Selection rules (in order):
-     * 1. Filter to ready providers
-     * 2. Prefer providers with the model already loaded (warm)
-     *    - if none warm, fall back to all ready providers (cold-load OK)
-     * 3. Among the filtered set, prefer those with a free slot
-     *    - if none free, fall back to least-saturated (queue on the smallest queue)
-     * 4. Among the survivors, lowest saturationRatio wins; ties broken by
-     *    higher maxParallel (more headroom)
-     */
-    public Optional<ProviderState> pickFor(String modelName) {
-        List<ProviderState> all = readState();
-        if (all.isEmpty()) return Optional.empty();
-
-        List<ProviderState> ready = all.stream().filter(ProviderState::ready).toList();
-        if (ready.isEmpty()) return Optional.empty();
-
-        List<ProviderState> warm = ready.stream()
-                .filter(p -> p.hasModelLoaded(modelName))
-                .toList();
-        List<ProviderState> candidates = warm.isEmpty() ? ready : warm;
-
-        List<ProviderState> free = candidates.stream().filter(ProviderState::hasFreeSlot).toList();
-        if (!free.isEmpty()) candidates = free;
-
-        // Smart scoring: combine saturation (state-reported load) with
-        // OBSERVED latency from the agent's own recent calls. State can be
-        // stale (probe lag, model evicted between probes); observed latency
-        // catches false-warm cases automatically — a provider that took 30s
-        // last call gets a penalty equivalent to 3 queued agents, so the
-        // selector avoids it next time unless the alternative is worse.
-        ProviderState pick = candidates.stream()
-                .min(Comparator.comparingDouble(this::scoreForRanking)
-                        .thenComparing(Comparator.comparingInt(ProviderState::maxParallel).reversed()))
-                .orElse(null);
-
-        if (pick == null) return Optional.empty();
-        log.debug("Picked provider {} for model {} (sat={}, observedLatencyMs={}, warm={}, free={})",
-                pick.name(), modelName, pick.saturationRatio(),
-                recentLatency.getOrDefault(pick.endpoint(), 0.0),
-                pick.hasModelLoaded(modelName), pick.hasFreeSlot());
-        return Optional.of(pick);
     }
 
     /**
@@ -497,7 +448,8 @@ public class ProviderSelector {
                                                                  long promptTokens) {
         PlacementCostModel.EvictionPlan best = null;
         for (ProviderState p : states) {
-            if (!ContextFit.holds(p, model, promptTokens)) continue;
+            if (!hasOrLoads(p, model, ticketManager.activeModelsOn(p.name()))
+                    || !ContextFit.holds(p, model, promptTokens)) continue;
             PlacementCostModel.EvictionPlan plan = planOn(p, model, footprintMiB, demand);
             if (plan != null && (best == null || plan.costSeconds() < best.costSeconds())) {
                 best = plan;
@@ -625,6 +577,35 @@ public class ProviderSelector {
         Set<String> out = new java.util.HashSet<>(serving);
         out.removeAll(resident);
         return out;
+    }
+
+    /**
+     * True when {@code p} can run {@code model}: it has the model, or a call holds a
+     * ticket loading it there ({@code loading}, the models in flight on {@code p}).
+     */
+    static boolean hasOrLoads(ProviderState p, String model, Set<String> loading) {
+        return p.hasModel(model) || (loading != null && loading.contains(model));
+    }
+
+    /** The models calls hold tickets for on the provider: loading or loaded. */
+    public Set<String> activeModelsOn(String providerName) {
+        return ticketManager.activeModelsOn(providerName);
+    }
+
+    /**
+     * True when some ready provider in {@code states} has one of {@code models} or is
+     * loading it; {@code loadingOn} gives the models in flight on a provider.
+     */
+    public static boolean someProviderHasAny(List<ProviderState> states, List<String> models,
+                                             java.util.function.Function<String, Set<String>> loadingOn) {
+        for (ProviderState p : states) {
+            if (!p.ready()) continue;
+            Set<String> loading = loadingOn.apply(p.name());
+            for (String m : models) {
+                if (hasOrLoads(p, m, loading)) return true;
+            }
+        }
+        return false;
     }
 
     /** What the ranking reads about load on each provider: tickets, latency, circuit, residency. */
@@ -941,8 +922,8 @@ public class ProviderSelector {
 
     /**
      * Build the feasible-candidate list for {@link #rankCandidates}: for each
-     * provider, evaluate the {@link FitPredictor} gate and keep only those that
-     * {@code canServe}. Pure extraction of the per-provider fit loop; behaviour
+     * provider that has the model or is loading it, evaluate the {@link FitPredictor}
+     * gate and keep only those that {@code canServe}. Pure extraction of the per-provider fit loop; behaviour
      * and ordering are identical to the inline form.
      */
     private static List<Candidate> buildFits(
@@ -962,6 +943,7 @@ public class ProviderSelector {
 
         List<Candidate> fits = new ArrayList<>();
         for (ProviderState p : states) {
+            if (!hasOrLoads(p, modelName, modelsFn.apply(p))) continue;
             int active = accessors.activeCount().applyAsInt(p);
             double latency = accessors.observedLatency().applyAsDouble(p);
             FitInputs inputs = new FitInputs(
@@ -972,7 +954,7 @@ public class ProviderSelector {
                     thisCallKvCacheMiB,                  // Phase D: this call's KV estimate
                     latency,
                     circuitOpen.test(p.name()),
-                    modelsFn.apply(p));                  // 2026-05-31: in-flight cold-loads
+                    modelsFn.apply(p));                  // in-flight cold-loads
             FitScore score = fit.predict(inputs);
             if (!score.canServe()) continue;
             // warm = truly-warm OR an active ticket is loading this model
@@ -1237,7 +1219,7 @@ public class ProviderSelector {
      * a provider endpoint. Called by ChatService after each successful
      * call. EMA-smoothed so a single outlier doesn't dominate ranking.
      *
-     * Used by the next {@link #pickFor} call: if observed latency for
+     * Used by the next ranking: if observed latency for
      * endpoint X is significantly higher than peers (e.g., X cold-loaded
      * a 32B model while peers were already warm), X gets penalised and
      * subsequent picks prefer alternatives — even when MP state still

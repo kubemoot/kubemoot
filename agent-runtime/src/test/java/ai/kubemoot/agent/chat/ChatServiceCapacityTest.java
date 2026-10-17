@@ -263,6 +263,22 @@ class ChatServiceCapacityTest {
         assertEquals(PREFERRED, nfe.model());
     }
 
+    /** No capacity change can place a model no provider has, so the call fails at once instead of waiting. */
+    @Test
+    void modelNoProviderHas_failsWithoutWaiting() {
+        var withoutIt = new ProviderState("ollama-a", EP, 1, 0, 0, List.of(), true,
+                "2026-10-17T00:00:00Z", 32_768, Map.of(), Map.of("other:8b", 5_000L));
+        when(selector.readState()).thenReturn(List.of(withoutIt));
+        when(selector.pickAndClaimWarm(anyString(), anyLong(), anyLong(), anyLong())).thenReturn(Optional.empty());
+        when(selector.pickAndClaim(anyString(), anyLong(), anyLong(), anyLong())).thenReturn(Optional.empty());
+        var signal = new FakeCapacitySignal();
+
+        var e = assertThrows(IllegalStateException.class, () -> service(new GpuCapacityWaiter(signal, 60, 90), null)
+                .directChat(request(), true, new RecordingCapacityWait()));
+
+        assertTrue(e.getMessage().contains(PREFERRED), e.getMessage());
+    }
+
     @Test
     void callThatCannotWait_standsAsideGpuBusy_evenWithAWaiter() {
         when(selector.readState()).thenReturn(List.of(provider(32_768)));

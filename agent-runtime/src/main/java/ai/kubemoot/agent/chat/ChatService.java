@@ -1369,6 +1369,7 @@ public class ChatService {
             throw ai.kubemoot.agent.provider.NoFitException.modelTooLarge(model,
                     "model=" + model + " coldLoad=" + footprintMiB + "MiB exceeds every GPU's usable VRAM");
         }
+        requireSomeProviderHasIt(model);
         requireSomeContextHolds(model, promptTokens(promptCharCount));
         String busy = "model=" + model + " coldLoad=" + footprintMiB + "MiB: every GPU that can hold it is busy";
         if (capacityWaiter == null || wait.threadEnded()) {
@@ -1388,6 +1389,22 @@ public class ChatService {
             return placed;
         } finally {
             callPlanner.waitEnded(model);
+        }
+    }
+
+    /**
+     * Fails the call when no ready provider has the model or an acceptable
+     * alternative, downloaded or loading: an engine loads only what it has, so no
+     * capacity change can place the call, and the crew's answer reports the failure.
+     */
+    private void requireSomeProviderHasIt(String model) {
+        java.util.List<String> models = new ArrayList<>();
+        models.add(model);
+        models.addAll(mullingAlternatives(model));
+        if (!ProviderSelector.someProviderHasAny(providerSelector.readState(), models,
+                providerSelector::activeModelsOn)) {
+            throw new IllegalStateException("no ready model provider has " + String.join(" or ", models)
+                    + " downloaded");
         }
     }
 
