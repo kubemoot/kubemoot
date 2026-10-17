@@ -94,6 +94,15 @@ It has no route; reach it with `kubectl port-forward`, as the
 [dashboard page](../../operating/dashboard/) shows. The dashboard chart is also published
 by itself if you prefer a separate release.
 
+### Optional: metrics and Grafana dashboards
+
+Prometheus and Grafana are a recommended add-on, not a prerequisite. If your cluster
+runs the Prometheus Operator, the operator chart creates PodMonitors for Kubemoot's
+metrics, and it installs Grafana dashboards for them. Both are values of the same
+chart, and [Observability](../../operating/observability/) covers the labels your
+Prometheus selects on, how to see the live list of metrics, and how to load the
+dashboards into your Grafana.
+
 ### Optional: GitOps with Flux
 
 If you already manage your cluster with GitOps, you can skip the `helm` command above.
