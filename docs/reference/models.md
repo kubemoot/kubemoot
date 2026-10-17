@@ -167,6 +167,14 @@ wanted, such as a leased accelerator billed per request.
 asked about (`new`, `reset/<token>`, `engine/<version>`, or `models/<digest>`), `reason`
 says it in words, and `requestedAt` says when.
 
+`status.calibrationDrift` lists the models whose crew calls, running alone on the
+provider, generated much slower or faster than calibration measured (see
+[Drift](../architecture/scheduler.md#drift)): per model, `calibratedTokensPerSecond`,
+`observedTokensPerSecond`, and the `samples` behind the median as detected, with
+`detectedAt` and, once the scheduling crew was asked to judge it, `askedAt`. It is
+cleared once the speeds agree again or a new calibration replaces the one they drifted
+from.
+
 ### Example
 
 ```yaml

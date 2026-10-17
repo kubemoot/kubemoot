@@ -6,9 +6,11 @@ on:
     branches: [main]
     paths:
       - 'accelerator-mcp/**'
-      # It builds against the operator's API types.
+      # It builds against the operator's API types and shared packages.
       - 'operator/api/**'
+      - 'operator/pkg/**'
       - 'operator/go.mod'
+      - 'operator/go.sum'
       - '.golangci.yml'
       - '.github/scripts/golangci-lint.sh'
       - 'operator/Makefile'

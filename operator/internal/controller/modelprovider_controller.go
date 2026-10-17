@@ -107,6 +107,9 @@ type ModelProviderReconciler struct {
 
 	// Calibration starts provider calibrations; nil starts none.
 	Calibration Calibrator
+	// Drift watches calibrated providers for drift and asks the scheduling crew to
+	// judge it; nil watches none.
+	Drift DriftWatch
 }
 
 // OllamaVersionResponse represents the response from Ollama /api/version
@@ -215,6 +218,7 @@ func (r *ModelProviderReconciler) reconcileOllama(ctx context.Context, provider 
 	}
 
 	r.requestCalibration(ctx, provider)
+	r.reviewDrift(ctx, provider)
 
 	return r.updateStatus(ctx, provider, true, phaseReady, "Connected to Ollama")
 }

@@ -10,8 +10,9 @@ on:
     paths:
       - 'accelerator-mcp/**'
       - '!accelerator-mcp/**.md'
-      # It builds against the operator's API types: rebuild when they change.
+      # It builds against the operator's API types and shared packages: rebuild when they change.
       - 'operator/api/**'
+      - 'operator/pkg/**'
       - 'operator/go.mod'
       - 'operator/go.sum'
       - '.github/scripts/retag-image.sh'

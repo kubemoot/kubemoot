@@ -12,10 +12,12 @@ package tools
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -24,6 +26,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	aiv1alpha1 "github.com/kubemoot/kubemoot/operator/api/v1alpha1"
+	"github.com/kubemoot/kubemoot/operator/pkg/bus"
 
 	"github.com/kubemoot/kubemoot/accelerator-mcp/internal/cluster"
 	"github.com/kubemoot/kubemoot/accelerator-mcp/internal/store"
@@ -276,4 +279,60 @@ func TestRecoverInterrupted_marksOnlyCalibratingRunsAsWaiting(t *testing.T) {
 	other := &aiv1alpha1.ModelProvider{}
 	_ = f.client.Get(context.Background(), client.ObjectKey{Namespace: opNS, Name: gpuB}, other)
 	check(t, "a finished run is left alone", other.Status.Calibration.Phase == PhaseCalibrated, other.Status.Calibration)
+}
+
+// history writes one agent's performance entry for model on gpu.
+func history(t *testing.T, f fixture, model string, samples ...bus.SchedulerPerformanceSamplesElem) {
+	t.Helper()
+	raw, _ := json.Marshal(bus.SchedulerPerformance{Provider: gpu, Model: model, Agent: "crew/a", Samples: samples})
+	key := bus.PerformanceKey(gpu, model, "crew/a")
+	check(t, "history written", f.kv.PutKVValue(store.PerformanceBucket, key, raw) == nil, key)
+}
+
+func soloCall(at time.Time, tps int64) bus.SchedulerPerformanceSamplesElem {
+	return bus.SchedulerPerformanceSamplesElem{At: at.UnixMilli(), Ok: true, ActiveCalls: 1,
+		Kind: bus.SchedulerPerformanceSamplesElemKindToolTurn, OutputTokens: tps, EvalMs: 1000}
+}
+
+func TestObservedPerformance_comparesCrewCallsWithTheCalibration(t *testing.T) {
+	p := readyProvider()
+	done := metav1.NewTime(t0.Add(-time.Hour))
+	p.Status.Calibration = &aiv1alpha1.ProviderCalibration{Phase: PhaseCalibrated, CompletedAt: &done,
+		Models: []aiv1alpha1.ModelCalibration{{Model: model, Fits: true, GenerateTokensPerSecond: 50}}}
+	f := newFixture(t, p)
+	calls := make([]bus.SchedulerPerformanceSamplesElem, 0, 11)
+	for i := range 10 {
+		calls = append(calls, soloCall(t0.Add(-time.Duration(30-i)*time.Minute), 20))
+	}
+	calls = append(calls, soloCall(t0.Add(-2*time.Hour), 999)) // before the calibration
+	history(t, f, model, calls...)
+	_ = f.kv.PutKVValue(store.TicketsBucket, gpu+"__crew", []byte(`{"holderId":"crew/b"}`))
+
+	out, err := call(t, f.set, ToolObservedPerformance, map[string]string{argProv: gpu})
+	check(t, "no error", err == nil, err)
+	observed := out["observed"].([]any)[0].(map[string]any)
+	check(t, "solo speed since the calibration", observed["soloTokensPerSecond"] == float64(20) &&
+		observed["soloSamples"] == float64(10), observed)
+	drifted := out["drifted"].([]any)
+	check(t, "drifted", len(drifted) == 1 && drifted[0].(map[string]any)["calibratedTokensPerSecond"] == float64(50), drifted)
+	check(t, "calls now and the rule", out["callsNow"] == float64(1) && strings.Contains(out["driftRule"].(string), "alone"), out)
+}
+
+func TestObservedPerformance_failures(t *testing.T) {
+	f := newFixture(t, readyProvider())
+	_, err := call(t, f.set, ToolObservedPerformance, map[string]string{})
+	check(t, "provider required", err != nil, err)
+	_, err = call(t, f.set, ToolObservedPerformance, map[string]string{argProv: "nope"})
+	check(t, "unknown provider", err != nil, err)
+	f.kv.Set(&f.kv.FailList, true)
+	_, err = call(t, f.set, ToolObservedPerformance, map[string]string{argProv: gpu})
+	check(t, "unreadable history is an error", err != nil && strings.Contains(err.Error(), "history"), err)
+}
+
+func TestObservedPerformance_aProviderNeverCalibrated(t *testing.T) {
+	f := newFixture(t, readyProvider())
+	history(t, f, model, soloCall(t0, 20))
+	out, err := call(t, f.set, ToolObservedPerformance, map[string]string{argProv: gpu})
+	check(t, "observed, nothing to drift from", err == nil && len(out["observed"].([]any)) == 1 &&
+		len(out["drifted"].([]any)) == 0, out)
 }

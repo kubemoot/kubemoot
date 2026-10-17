@@ -22,6 +22,7 @@ import (
 	"sync"
 
 	aiv1alpha1 "github.com/kubemoot/kubemoot/operator/api/v1alpha1"
+	"github.com/kubemoot/kubemoot/operator/pkg/perf"
 
 	"github.com/kubemoot/kubemoot/accelerator-mcp/internal/cluster"
 	"github.com/kubemoot/kubemoot/accelerator-mcp/internal/probe"
@@ -29,6 +30,9 @@ import (
 
 // ToolCalibrateProvider runs the calibration recipe on a provider in the background.
 const ToolCalibrateProvider = "calibrate_provider"
+
+// ToolObservedPerformance compares crew calls since the calibration with it.
+const ToolObservedPerformance = "observed_performance"
 
 // defaultTargets is how many of the smallest downloaded models a calibration
 // measures when no Model binds any to the provider.
@@ -362,4 +366,41 @@ func fillStep(result *aiv1alpha1.ModelCalibration, kind string, r probe.Result) 
 		result.ParallelRequests = r.ParallelRequests
 		result.ParallelGenerateTokensPerSecond = r.ParallelGenerateTokensPerSecond
 	}
+}
+
+// observedPerformance shows, per model, how fast crew calls generated on the
+// provider since its calibration, alone and alongside other calls, beside the
+// calibrated speed, and which models drifted by the operator's rule.
+func (s *Set) observedPerformance(ctx context.Context, raw json.RawMessage) (any, error) {
+	var args providerArgs
+	if err := parse(raw, &args); err != nil {
+		return nil, err
+	}
+	if err := required(fieldProvider, args.Provider); err != nil {
+		return nil, err
+	}
+	p, err := s.Cluster.Provider(ctx, args.Provider)
+	if err != nil {
+		return nil, err
+	}
+	entries, err := s.History.Of(p.Name)
+	if err != nil {
+		return nil, fmt.Errorf("reading the performance history: %w", err)
+	}
+	others, err := s.Tickets.Others(p.Name)
+	if err != nil {
+		return nil, fmt.Errorf("reading the provider's tickets: %w", err)
+	}
+	calibrated, since := perf.CalibratedSpeeds(p.Status.Calibration)
+	observed := perf.Observe(entries, p.Name, since)
+	return map[string]any{
+		fieldProvider: p.Name,
+		"calibration": p.Status.Calibration,
+		"callsNow":    others,
+		"observed":    observed,
+		"drifted":     perf.Drifted(calibrated, observed),
+		"driftRule": fmt.Sprintf("median speed of warm crew calls running alone below %.0f%% or above %.0f%% "+
+			"of the calibrated speed, over at least %d calls since the calibration",
+			perf.MinRatio*100, perf.MaxRatio*100, perf.MinSamples),
+	}, nil
 }

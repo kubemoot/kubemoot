@@ -13,12 +13,12 @@ import (
 	"github.com/kubemoot/kubemoot/accelerator-mcp/internal/storetest"
 )
 
-func TestNewToolSet_wiresTheFiveTools(t *testing.T) {
+func TestNewToolSet_wiresTheSixTools(t *testing.T) {
 	scheme := runtime.NewScheme()
 	_ = aiv1alpha1.AddToScheme(scheme)
 	set := newToolSet(context.Background(), fake.NewClientBuilder().WithScheme(scheme).Build(), storetest.NewMemKV(), "kubemoot/accelerator-mcp/pod-a")
-	if len(set.Specifications()) != 5 {
-		t.Fatalf("five tools: %v", set.Specifications())
+	if len(set.Specifications()) != 6 {
+		t.Fatalf("six tools: %v", set.Specifications())
 	}
 	if set.Jobs == nil {
 		t.Fatal("no background jobs runner for calibrate_provider")

@@ -34,28 +34,12 @@ func otherTicket(kv *storetest.MemKV) {
 
 func historyOf(t *testing.T, kv *storetest.MemKV) bus.SchedulerPerformance {
 	t.Helper()
-	raw, _ := kv.GetKVValue(PerformanceBucket, Token(testProvider)+"."+Token(testModel)+"."+Token(testHolder))
+	raw, _ := kv.GetKVValue(PerformanceBucket, bus.PerformanceKey(testProvider, testModel, testHolder))
 	var entry bus.SchedulerPerformance
 	if err := json.Unmarshal(raw, &entry); err != nil {
 		t.Fatalf("history entry: %v", err)
 	}
 	return entry
-}
-
-func TestToken_matchesTheAgentRuntimeEncoding(t *testing.T) {
-	cases := map[string]string{
-		"qwen3:14b":       "qwen3_3a14b",
-		"crew-ns/agent-a": "crew-ns_2fagent-a",
-		"":                "_",
-		"model.v2":        "model_2ev2",
-		"caf\u00e9":       "caf_e9",
-		"\u4e2d":          "__4e2d",
-		// Outside the Basic Multilingual Plane: two UTF-16 surrogates, as Java iterates chars.
-		"\U0001F600": "__d83d__de00",
-	}
-	for in, want := range cases {
-		check(t, "Token("+in+")", Token(in) == want, Token(in))
-	}
 }
 
 func TestTickets_othersCountsOnlyOtherHoldersOnThisProvider(t *testing.T) {
@@ -147,7 +131,7 @@ func TestHistory_aReadErrorNeverReplacesTheStoredHistory(t *testing.T) {
 func TestHistory_aCorruptEntryIsRebuilt(t *testing.T) {
 	kv := storetest.NewMemKV()
 	h := History{KV: kv, Agent: testHolder, Now: fixedNow}
-	_ = kv.PutKVValue(PerformanceBucket, Token(testProvider)+"."+Token(testModel)+"."+Token(testHolder), []byte(`{"samples":3`))
+	_ = kv.PutKVValue(PerformanceBucket, bus.PerformanceKey(testProvider, testModel, testHolder), []byte(`{"samples":3`))
 	check(t, "record", h.Record(testProvider, testModel, []Sample{{Kind: KindCalibration, Ok: true}}) == nil, nil)
 	check(t, "rebuilt", historyOf(t, kv).Requests == 1, historyOf(t, kv))
 }

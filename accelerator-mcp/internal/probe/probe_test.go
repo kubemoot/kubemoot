@@ -85,7 +85,7 @@ func TestProbes_recordCalibrationSamples(t *testing.T) {
 	_, _ = p.Probe(context.Background(), request(KindLoad))
 	_, _ = p.Probe(context.Background(), request(KindParallel))
 
-	raw, _ := kv.GetKVValue(store.PerformanceBucket, store.Token(provider)+"."+store.Token(model)+"."+store.Token(holder))
+	raw, _ := kv.GetKVValue(store.PerformanceBucket, bus.PerformanceKey(provider, model, holder))
 	var entry bus.SchedulerPerformance
 	_ = json.Unmarshal(raw, &entry)
 	check(t, "three samples", len(entry.Samples) == 3, entry.Samples)
@@ -145,7 +145,7 @@ func TestAFailingEngine_isAnError_andReleasesTickets(t *testing.T) {
 	check(t, "error", errors.Is(err, storetest.ErrEngine), err)
 	check(t, "tickets released", len(kv.Keys(store.TicketsBucket)) == 0, kv.Keys(store.TicketsBucket))
 
-	raw, _ := kv.GetKVValue(store.PerformanceBucket, store.Token(provider)+"."+store.Token(model)+"."+store.Token(holder))
+	raw, _ := kv.GetKVValue(store.PerformanceBucket, bus.PerformanceKey(provider, model, holder))
 	var entry bus.SchedulerPerformance
 	_ = json.Unmarshal(raw, &entry)
 	check(t, "failed requests are recorded without engine timings",
