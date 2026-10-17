@@ -48,6 +48,14 @@ type MCPGatewaySpec struct {
 	// +optional
 	MCPServerSelector *metav1.LabelSelector `json:"mcpServerSelector,omitempty"`
 
+	// CoreServerSelector also registers core MCP servers: MCPServers in the
+	// operator's namespace that are offered to every crew (labeled
+	// kubemoot.ai/core-mcp: "true") and match this selector. An empty selector
+	// registers every core server; unset registers none. A server in the gateway's
+	// own namespace with the same name takes precedence
+	// +optional
+	CoreServerSelector *metav1.LabelSelector `json:"coreServerSelector,omitempty"`
+
 	// LogLevel sets the kubemoot gateway log level. Tool calls log at INFO.
 	// +kubebuilder:validation:Enum=DEBUG;INFO;WARN
 	// +kubebuilder:default=INFO
@@ -381,6 +389,11 @@ type MCPGatewayStatus struct {
 	// MCPServers lists the names of registered MCPServers
 	// +optional
 	MCPServers []string `json:"mcpServers,omitempty"`
+
+	// MCPServerEndpoints is the endpoint each registered MCPServer was registered
+	// with, by name; a server whose endpoint changes is registered again
+	// +optional
+	MCPServerEndpoints map[string]string `json:"mcpServerEndpoints,omitempty"`
 
 	// AvailableReplicas is the number of ready gateway replicas
 	AvailableReplicas int32 `json:"availableReplicas,omitempty"`

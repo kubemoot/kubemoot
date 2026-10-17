@@ -47,6 +47,7 @@ The reference deployment uses the `kubemoot` implementation. The gateway image c
 |-------|------|---------|-------------|
 | `implementation` | enum | `kubemoot` | Gateway implementation to deploy |
 | `mcpServerSelector` | LabelSelector | | Selects MCPServers to register (all in namespace if empty) |
+| `coreServerSelector` | LabelSelector | | Also registers the core MCP servers this selects; unset registers none, empty registers all |
 | `logLevel` | enum | `INFO` | Gateway log level: `DEBUG`, `INFO`, `WARN` |
 | `port` | int32 | 8080 | Gateway service port |
 | `replicas` | int32 | 1 | Number of gateway instances |
@@ -120,6 +121,46 @@ spec:
 This selects all MCPServers deployed by the same Helm release. MCPServers must also have `registry.enabled: true` (the default).
 
 If `mcpServerSelector` is empty, all MCPServers in the namespace are registered.
+
+### Core MCP servers
+
+Core MCP servers run once, in the operator's namespace, and any crew can use them
+instead of running its own copy. A server is offered to crews when it carries the label
+`kubemoot.ai/core-mcp: "true"`; other servers in the operator's namespace stay private.
+A gateway registers the offered servers that its `coreServerSelector` matches:
+
+```yaml
+spec:
+  mcpServerSelector:
+    matchLabels:
+      kubemoot.ai/crew: my-crew
+  coreServerSelector: {}          # every offered core server
+```
+
+or only some of them:
+
+```yaml
+  coreServerSelector:
+    matchLabels:
+      app.kubernetes.io/name: accelerator-mcp
+```
+
+Things to know:
+
+- **Names are shared.** The gateway registers a server by its bare name, so a server in
+  the gateway's own namespace with the same name as a core server takes precedence.
+  When that changes (the crew adds or removes a server of that name), the gateway
+  registers the name again at the new endpoint. Give core servers names crews will not
+  reuse.
+- **The opt-in is the access boundary.** Anyone who can create an MCPGateway can select
+  any server labeled `kubemoot.ai/core-mcp: "true"`; nothing else limits it. Label only
+  servers every crew may use.
+- **No credentials cross namespaces.** A core server with `registry.authSecretRef` is
+  not offered to crews, since its secret lives in the operator's namespace.
+- A gateway in the operator's namespace already sees those servers through
+  `mcpServerSelector`.
+- The gateway reaches a core server by its cluster address, so a network policy that
+  isolates the operator's namespace must allow crew gateways in.
 
 ## MCP Protocol Initialization
 

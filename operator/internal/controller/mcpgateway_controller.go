@@ -24,6 +24,7 @@ import (
 	"io"
 	"net/http"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
@@ -141,7 +142,7 @@ func (r *MCPGatewayReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	r.scrapeGatewayFeedback(ctx, gateway)
 
 	// Register MCPServers with gateway (if gateway is ready)
-	registeredServers := r.registerMCPServers(ctx, gateway, mcpServers)
+	registeredServers := r.syncMCPServerRegistrations(ctx, gateway, mcpServers)
 
 	// Update status based on deployment state
 	return r.updateStatusFromDeployment(ctx, gateway, deployment, registeredServers)
@@ -729,36 +730,95 @@ func (r *MCPGatewayReconciler) reconcileService(ctx context.Context, gateway *ku
 	return service, nil
 }
 
-// listMCPServers lists MCPServers matching the gateway's selector
+// listMCPServers lists the ready MCPServers the gateway registers: those in its
+// namespace matching its selector, then the core servers its core selector picks.
 func (r *MCPGatewayReconciler) listMCPServers(ctx context.Context, gateway *kubemootv1alpha1.MCPGateway) ([]kubemootv1alpha1.MCPServer, error) {
-	mcpServerList := &kubemootv1alpha1.MCPServerList{}
-
-	listOpts := []client.ListOption{
-		client.InNamespace(gateway.Namespace),
-	}
-
-	// Apply label selector if specified
-	if gateway.Spec.MCPServerSelector != nil {
-		selector, err := metav1.LabelSelectorAsSelector(gateway.Spec.MCPServerSelector)
-		if err != nil {
-			return nil, err
-		}
-		listOpts = append(listOpts, client.MatchingLabelsSelector{Selector: selector})
-	}
-
-	if err := r.List(ctx, mcpServerList, listOpts...); err != nil {
+	own, err := r.listServersIn(ctx, gateway.Namespace, gateway.Spec.MCPServerSelector, nil)
+	if err != nil {
 		return nil, err
 	}
+	core, err := r.listCoreServers(ctx, gateway)
+	if err != nil {
+		return nil, err
+	}
+	return readyServers(withoutShadowed(own, core)), nil
+}
 
-	// Filter to only ready MCPServers
-	var readyServers []kubemootv1alpha1.MCPServer
-	for _, mcp := range mcpServerList.Items {
-		if mcp.Status.Ready && mcp.Status.Endpoint != "" {
-			readyServers = append(readyServers, mcp)
+// listServersIn lists MCPServers in namespace matching selector (nil matches all)
+// and, when given, the extra label requirements.
+func (r *MCPGatewayReconciler) listServersIn(ctx context.Context, namespace string,
+	selector *metav1.LabelSelector, require map[string]string) ([]kubemootv1alpha1.MCPServer, error) {
+	sel, err := parseSelector(selector)
+	if err != nil {
+		return nil, err
+	}
+	list := &kubemootv1alpha1.MCPServerList{}
+	opts := []client.ListOption{client.InNamespace(namespace), client.MatchingLabelsSelector{Selector: sel}}
+	if len(require) > 0 {
+		opts = append(opts, client.MatchingLabels(require))
+	}
+	if err := r.List(ctx, list, opts...); err != nil {
+		return nil, err
+	}
+	return list.Items, nil
+}
+
+// parseSelector parses a label selector; nil selects everything.
+func parseSelector(selector *metav1.LabelSelector) (labels.Selector, error) {
+	if selector == nil {
+		return labels.Everything(), nil
+	}
+	return metav1.LabelSelectorAsSelector(selector)
+}
+
+// listCoreServers lists the core servers the gateway's core selector picks; none
+// when it has no core selector or already lives in the operator's namespace. A core
+// server with registry credentials is not offered: its secret lives in the
+// operator's namespace and must not be handed to a crew's gateway.
+func (r *MCPGatewayReconciler) listCoreServers(ctx context.Context, gateway *kubemootv1alpha1.MCPGateway) ([]kubemootv1alpha1.MCPServer, error) {
+	if gateway.Spec.CoreServerSelector == nil || gateway.Namespace == operatorNamespace() {
+		return nil, nil
+	}
+	servers, err := r.listServersIn(ctx, operatorNamespace(), gateway.Spec.CoreServerSelector,
+		map[string]string{labelCoreMCP: valueTrue})
+	if err != nil {
+		return nil, err
+	}
+	offered := make([]kubemootv1alpha1.MCPServer, 0, len(servers))
+	for _, mcp := range servers {
+		if mcp.Spec.Registry != nil && mcp.Spec.Registry.AuthSecretRef != "" {
+			logf.FromContext(ctx).Info("not offering a core MCP server that carries registry credentials",
+				"mcpServer", mcp.Name, "gateway", gateway.Namespace+"/"+gateway.Name)
+			continue
+		}
+		offered = append(offered, mcp)
+	}
+	return offered, nil
+}
+
+// withoutShadowed appends the core servers whose names no own server uses.
+func withoutShadowed(own, core []kubemootv1alpha1.MCPServer) []kubemootv1alpha1.MCPServer {
+	names := make(map[string]bool, len(own))
+	for _, mcp := range own {
+		names[mcp.Name] = true
+	}
+	for _, mcp := range core {
+		if !names[mcp.Name] {
+			own = append(own, mcp)
 		}
 	}
+	return own
+}
 
-	return readyServers, nil
+// readyServers keeps the servers that are ready and have an endpoint.
+func readyServers(servers []kubemootv1alpha1.MCPServer) []kubemootv1alpha1.MCPServer {
+	var ready []kubemootv1alpha1.MCPServer
+	for _, mcp := range servers {
+		if mcp.Status.Ready && mcp.Status.Endpoint != "" {
+			ready = append(ready, mcp)
+		}
+	}
+	return ready
 }
 
 // getAdminAPIToken retrieves the bearer token for Admin API from secret
@@ -783,8 +843,10 @@ func (r *MCPGatewayReconciler) getAdminAPIToken(ctx context.Context, gateway *ku
 	return string(token), nil
 }
 
-// syncMCPServerRegistrations syncs MCPServer registrations with gateway, handling adds and removes
-func (r *MCPGatewayReconciler) syncMCPServerRegistrations(ctx context.Context, gateway *kubemootv1alpha1.MCPGateway, mcpServers []kubemootv1alpha1.MCPServer) []string {
+// syncMCPServerRegistrations syncs MCPServer registrations with gateway, handling
+// adds, removes, and servers whose endpoint changed. It returns the endpoint each
+// registered server was registered with, by name.
+func (r *MCPGatewayReconciler) syncMCPServerRegistrations(ctx context.Context, gateway *kubemootv1alpha1.MCPGateway, mcpServers []kubemootv1alpha1.MCPServer) map[string]string {
 	log := logf.FromContext(ctx)
 
 	// Get bearer token for Admin API
@@ -815,10 +877,13 @@ func (r *MCPGatewayReconciler) syncMCPServerRegistrations(ctx context.Context, g
 		previousServers[name] = true
 	}
 
-	var registered []string
+	registered := make(map[string]string, len(currentServers))
 
 	// Unregister servers no longer in current set
 	r.unregisterRemovedMCPServers(ctx, gateway, previousServers, currentServers, port, bearerToken)
+	// Unregister servers whose endpoint changed (for example a crew server now
+	// shadowing a core server of the same name), so they register at the new one.
+	r.unregisterMovedMCPServers(ctx, gateway, currentServers, port, bearerToken)
 
 	// Register current servers
 	for name, mcp := range currentServers {
@@ -826,11 +891,28 @@ func (r *MCPGatewayReconciler) syncMCPServerRegistrations(ctx context.Context, g
 			log.Error(err, "Failed to register MCPServer with gateway", "mcpServer", name)
 			continue
 		}
-		registered = append(registered, name)
-		delete(previousServers, name) // Mark as processed
+		registered[name] = mcp.Status.Endpoint
 	}
 
 	return registered
+}
+
+// unregisterMovedMCPServers unregisters each current server whose endpoint differs
+// from the one it was registered with.
+func (r *MCPGatewayReconciler) unregisterMovedMCPServers(ctx context.Context, gateway *kubemootv1alpha1.MCPGateway, currentServers map[string]*kubemootv1alpha1.MCPServer, port int32, bearerToken string) {
+	log := logf.FromContext(ctx)
+	for name, mcp := range currentServers {
+		previous, known := gateway.Status.MCPServerEndpoints[name]
+		if !known || previous == mcp.Status.Endpoint {
+			continue
+		}
+		if err := r.unregisterMCPServer(ctx, gateway, name, port, bearerToken); err != nil {
+			log.Error(err, "Failed to unregister a moved MCPServer", "mcpServer", name)
+			continue
+		}
+		log.Info("MCPServer endpoint changed; registering it again", "mcpServer", name,
+			"from", previous, "to", mcp.Status.Endpoint)
+	}
 }
 
 // unregisterRemovedMCPServers unregisters servers that were previously registered but are no longer current.
@@ -846,12 +928,6 @@ func (r *MCPGatewayReconciler) unregisterRemovedMCPServers(ctx context.Context, 
 			}
 		}
 	}
-}
-
-// registerMCPServers registers MCPServers with the gateway via Admin API
-func (r *MCPGatewayReconciler) registerMCPServers(ctx context.Context, gateway *kubemootv1alpha1.MCPGateway, mcpServers []kubemootv1alpha1.MCPServer) []string {
-	// Use new sync function that handles both registration and unregistration
-	return r.syncMCPServerRegistrations(ctx, gateway, mcpServers)
 }
 
 // httpClientOrDefault returns the injected HTTP client, or one with a 10s timeout.
@@ -1148,7 +1224,7 @@ func (r *MCPGatewayReconciler) handleDeletion(ctx context.Context, gateway *kube
 }
 
 // updateStatusFromDeployment updates MCPGateway status based on Deployment state
-func (r *MCPGatewayReconciler) updateStatusFromDeployment(ctx context.Context, gateway *kubemootv1alpha1.MCPGateway, deployment *appsv1.Deployment, registeredServers []string) (ctrl.Result, error) {
+func (r *MCPGatewayReconciler) updateStatusFromDeployment(ctx context.Context, gateway *kubemootv1alpha1.MCPGateway, deployment *appsv1.Deployment, registeredServers map[string]string) (ctrl.Result, error) {
 	port := defaultGatewayPort
 	if gateway.Spec.Port != 0 {
 		port = gateway.Spec.Port
@@ -1203,10 +1279,22 @@ func gwWithReplicas(available int32) gatewayStatusOption {
 	}
 }
 
-func gwWithMCPServers(servers []string) gatewayStatusOption {
+func gwWithMCPServers(servers map[string]string) gatewayStatusOption {
 	return func(s *kubemootv1alpha1.MCPGatewayStatus) {
-		s.MCPServers = servers
-		s.RegisteredServers = len(servers)
+		names := make([]string, 0, len(servers))
+		for name := range servers {
+			names = append(names, name)
+		}
+		slices.Sort(names)
+		if len(names) == 0 {
+			names = nil
+		}
+		s.MCPServers = names
+		s.MCPServerEndpoints = servers
+		if len(servers) == 0 {
+			s.MCPServerEndpoints = nil
+		}
+		s.RegisteredServers = len(names)
 	}
 }
 
@@ -1250,40 +1338,64 @@ func (r *MCPGatewayReconciler) updateStatus(ctx context.Context, gateway *kubemo
 	return ctrl.Result{RequeueAfter: 60 * time.Second}, nil
 }
 
-// findGatewaysForMCPServer maps MCPServer changes to MCPGateway reconcile requests
+// findGatewaysForMCPServer maps an MCPServer change to the gateways that register
+// it: those in its namespace whose selector matches, and, for a core server, the
+// gateways in other namespaces whose core selector matches.
 func (r *MCPGatewayReconciler) findGatewaysForMCPServer(ctx context.Context, obj client.Object) []reconcile.Request {
 	log := logf.FromContext(ctx)
 	mcp := obj.(*kubemootv1alpha1.MCPServer)
 
-	// Find all MCPGateways in the same namespace
 	gatewayList := &kubemootv1alpha1.MCPGatewayList{}
 	if err := r.List(ctx, gatewayList, client.InNamespace(mcp.Namespace)); err != nil {
 		log.Error(err, "Failed to list MCPGateways")
 		return nil
 	}
+	requests := gatewayRequests(gatewayList.Items, mcp, func(gw kubemootv1alpha1.MCPGateway) *metav1.LabelSelector {
+		return gw.Spec.MCPServerSelector
+	}, true)
 
-	var requests []reconcile.Request
-	for _, gw := range gatewayList.Items {
-		// Check if this MCPServer matches the gateway's selector
-		if gw.Spec.MCPServerSelector != nil {
-			selector, err := metav1.LabelSelectorAsSelector(gw.Spec.MCPServerSelector)
-			if err != nil {
-				continue
-			}
-			if !selector.Matches(labels.Set(mcp.Labels)) {
-				continue
-			}
+	if mcp.Namespace != operatorNamespace() || mcp.Labels[labelCoreMCP] != valueTrue {
+		return requests
+	}
+	all := &kubemootv1alpha1.MCPGatewayList{}
+	if err := r.List(ctx, all); err != nil {
+		log.Error(err, "Failed to list MCPGateways for a core MCP server")
+		return requests
+	}
+	others := make([]kubemootv1alpha1.MCPGateway, 0, len(all.Items))
+	for _, gw := range all.Items {
+		if gw.Namespace != mcp.Namespace {
+			others = append(others, gw)
 		}
-		// MCPServer matches (or gateway has no selector), trigger reconcile
+	}
+	return append(requests, gatewayRequests(others, mcp, func(gw kubemootv1alpha1.MCPGateway) *metav1.LabelSelector {
+		return gw.Spec.CoreServerSelector
+	}, false)...)
+}
+
+// gatewayRequests is a reconcile request for each gateway whose selector (chosen
+// by pick) matches the server. A nil selector matches when nilMatches is set.
+func gatewayRequests(gateways []kubemootv1alpha1.MCPGateway, mcp *kubemootv1alpha1.MCPServer,
+	pick func(kubemootv1alpha1.MCPGateway) *metav1.LabelSelector, nilMatches bool) []reconcile.Request {
+	var requests []reconcile.Request
+	for _, gw := range gateways {
+		if !selectorMatches(pick(gw), mcp.Labels, nilMatches) {
+			continue
+		}
 		requests = append(requests, reconcile.Request{
-			NamespacedName: types.NamespacedName{
-				Name:      gw.Name,
-				Namespace: gw.Namespace,
-			},
+			NamespacedName: types.NamespacedName{Name: gw.Name, Namespace: gw.Namespace},
 		})
 	}
-
 	return requests
+}
+
+// selectorMatches reports whether set matches selector; an invalid selector matches nothing.
+func selectorMatches(selector *metav1.LabelSelector, set map[string]string, nilMatches bool) bool {
+	if selector == nil {
+		return nilMatches
+	}
+	parsed, err := parseSelector(selector)
+	return err == nil && parsed.Matches(labels.Set(set))
 }
 
 // ============================================================================
@@ -2237,7 +2349,9 @@ func (r *MCPGatewayReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	// no longer enqueue gateway reconciles. Spec-change events (the
 	// only ones the gateway actually cares about for registration)
 	// continue to flow.
-	specChangedOnly := builder.WithPredicates(predicate.GenerationChangedPredicate{})
+	// Label changes also count: a server's labels decide which gateways select it,
+	// including the kubemoot.ai/core-mcp offer, and do not bump the generation.
+	specChangedOnly := builder.WithPredicates(predicate.Or(predicate.GenerationChangedPredicate{}, predicate.LabelChangedPredicate{}))
 
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&kubemootv1alpha1.MCPGateway{}).
