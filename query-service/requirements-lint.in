@@ -4,4 +4,4 @@
 #   pip-compile --allow-unsafe --generate-hashes --strip-extras --output-file=requirements-lint.txt requirements-lint.in
 # (Python 3.14, like requirements.txt). Dependabot updates both.
 
-ruff==0.16.10
+ruff==0.17.0
