@@ -11,6 +11,7 @@ import httpx
 import psycopg2
 import psycopg2.errors
 from fastapi import HTTPException
+from prometheus_client import REGISTRY
 
 _SPEC = importlib.util.spec_from_file_location(
     "query_service", Path(__file__).parent / "query-service.py"
@@ -83,12 +84,59 @@ class InfoTest(unittest.TestCase):
         self.assertIsNone(body["stats"]["document_count"])
 
 
+def sample(name):
+    """The value Prometheus would scrape for this RAGSource's metric."""
+    return REGISTRY.get_sample_value(name, {"ragsource": qs.RAGSOURCE_NAME}) or 0.0
+
+
+def errors():
+    """The failed-query count Prometheus would scrape."""
+    return sample("kubemoot_query_errors_total")
+
+
+class MetricsTest(unittest.TestCase):
+    def test_metrics_are_prometheus_text_with_help(self):
+        response = run(qs.prometheus_metrics())
+        self.assertTrue(response.media_type.startswith("text/plain"), response.media_type)
+        body = response.body.decode()
+        for name in ("kubemoot_query_requests_total", "kubemoot_query_success_total", "kubemoot_query_errors_total",
+                     "kubemoot_embedding_time_ms_total", "kubemoot_search_time_ms_total"):
+            self.assertIn(f'{name}{{ragsource="{qs.RAGSOURCE_NAME}"}}', body)
+        for name in ("kubemoot_query_requests", "kubemoot_query_errors", "kubemoot_search_time_ms"):
+            self.assertRegex(body, rf"# HELP {name}_total \S")
+
+    def test_an_answered_query_counts_its_success(self):
+        cursor = mock.MagicMock()
+        cursor.__enter__.return_value.fetchall.return_value = [{"content": "c", "metadata": {}, "score": 0.9}]
+        conn = mock.MagicMock()
+        conn.cursor.return_value = cursor
+        before = sample("kubemoot_query_success_total")
+        with (
+            mock.patch.object(qs, "get_embedding", mock.AsyncMock(return_value=[0.1])),
+            mock.patch.object(qs, "get_db_connection", return_value=conn),
+        ):
+            body = run(qs.query(qs.QueryRequest(query="q")))
+        self.assertEqual(len(body.results), 1)
+        self.assertEqual(sample("kubemoot_query_success_total"), before + 1)
+
+    def test_a_query_is_counted(self):
+        before = sample("kubemoot_query_requests_total")
+        with (
+            mock.patch.object(qs, "get_embedding", mock.AsyncMock(return_value=[0.1])),
+            mock.patch.object(qs, "get_db_connection", side_effect=RuntimeError("boom")),
+            self.assertLogs("kubemoot-query", level="ERROR"),
+            self.assertRaises(HTTPException),
+        ):
+            run(qs.query(qs.QueryRequest(query="q")))
+        self.assertEqual(sample("kubemoot_query_requests_total"), before + 1)
+
+
 class QueryTest(unittest.TestCase):
     def setUp(self):
         embed = mock.patch.object(qs, "get_embedding", mock.AsyncMock(return_value=[0.1]))
         embed.start()
         self.addCleanup(embed.stop)
-        self.errors_before = qs.metrics["queries_error"]
+        self.errors_before = errors()
 
     def query(self):
         return run(qs.query(qs.QueryRequest(query="what runs here")))
@@ -102,7 +150,7 @@ class QueryTest(unittest.TestCase):
             self.query()
         self.assertEqual(ctx.exception.status_code, 404)
         self.assertIsInstance(ctx.exception.__cause__, psycopg2.errors.UndefinedTable)
-        self.assertEqual(qs.metrics["queries_error"], self.errors_before + 1)
+        self.assertEqual(errors(), self.errors_before + 1)
 
     def test_embedding_failure_is_502(self):
         failing = mock.AsyncMock(side_effect=httpx.ConnectError("refused"))
@@ -124,7 +172,7 @@ class QueryTest(unittest.TestCase):
         self.assertEqual(ctx.exception.status_code, 500)
         self.assertEqual(ctx.exception.detail, "boom")
         self.assertIn("Traceback", logs.output[0])
-        self.assertEqual(qs.metrics["queries_error"], self.errors_before + 1)
+        self.assertEqual(errors(), self.errors_before + 1)
 
 
 if __name__ == "__main__":
