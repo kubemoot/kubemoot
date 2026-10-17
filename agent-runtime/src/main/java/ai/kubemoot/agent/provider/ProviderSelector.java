@@ -13,6 +13,9 @@ import org.slf4j.LoggerFactory;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.Set;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
@@ -367,7 +370,14 @@ public class ProviderSelector {
          * Starts without queueing: warm with a free slot, or cold when no copy of the
          * model is resident or loading anywhere ({@code copyExists} false).
          */
-        ROOM;
+        ROOM,
+        /**
+         * Cold on the provider: loads the model there even when a copy is resident on
+         * another provider, for a policy that chose this provider as the soonest to
+         * finish. Like every load it converges: a claim that finds a load of the same
+         * model already started on any provider releases its ticket.
+         */
+        COLD;
 
         boolean admits(Candidate c, String model, EngineDriver driver, boolean copyExists) {
             return switch (this) {
@@ -375,6 +385,7 @@ public class ProviderSelector {
                 case WARM_FREE_SLOT -> c.warm() && driver.hasFreeCapacity(c.provider(), c.activeCount());
                 case LOADING -> c.warm() && !c.provider().hasModelLoaded(model);
                 case ROOM -> c.warm() ? driver.hasFreeCapacity(c.provider(), c.activeCount()) : !copyExists;
+                case COLD -> !c.warm();
             };
         }
 
@@ -385,7 +396,7 @@ public class ProviderSelector {
 
         /** A cold claim admitted because no copy exists checks that no earlier claim started the load. */
         boolean verifiesLoad(Candidate c) {
-            return !c.warm() && this == ROOM;
+            return !c.warm() && (this == ROOM || this == COLD);
         }
     }
 
@@ -544,6 +555,93 @@ public class ProviderSelector {
 
     private Optional<Pick> pickAndClaim(String modelName, long coldLoadFootprintMiB,
                                         long thisCallKvCacheMiB, long promptTokens, Mode mode) {
+        return pickAndClaim(modelName, coldLoadFootprintMiB, thisCallKvCacheMiB, promptTokens, mode, null);
+    }
+
+    /** How a chosen provider takes a call now: a free slot on a warm copy, or a cold load. */
+    public enum Start { SLOT, LOAD }
+
+    /**
+     * Claims a call of {@code modelName} on the one provider named, the way
+     * {@code start} says, with the same checks as the other claims: a slot is
+     * re-counted after the ticket is written, and concurrent cold loads on the
+     * provider converge on one. Empty when that provider cannot take it that way now.
+     */
+    public Optional<Pick> pickAndClaimOn(String providerName, Start start, String modelName,
+                                         long coldLoadFootprintMiB, long thisCallKvCacheMiB, long promptTokens) {
+        Mode mode = switch (start) {
+            case SLOT -> Mode.WARM_FREE_SLOT;
+            case LOAD -> Mode.COLD;
+        };
+        return pickAndClaim(modelName, coldLoadFootprintMiB, thisCallKvCacheMiB, promptTokens, mode, providerName);
+    }
+
+    /**
+     * One way a call of a model could run on a provider: whether a copy is warm there
+     * (resident or loading), whether the provider has a slot free now, and the
+     * expected wait for one when it has not (0 when it has).
+     */
+    public record Option(ProviderState provider, boolean warm, boolean freeSlot, double waitSeconds) {
+        /** True when the call starts now: a free slot, on a warm copy or for a cold load. */
+        public boolean startsNow() {
+            return freeSlot;
+        }
+    }
+
+    /**
+     * Every provider that could take a call of {@code modelName} now, as the claims
+     * see it (fit, memory, tickets, context, circuit), without claiming anything.
+     */
+    public List<Option> options(String modelName, long coldLoadFootprintMiB, long thisCallKvCacheMiB,
+                                long promptTokens) {
+        if (coldLoadFootprintMiB <= 0) return List.of();
+        List<ProviderState> states = readState();
+        if (states.isEmpty()) return List.of();
+        List<Candidate> ranked = admitted(rankCandidates(states, modelName, coldLoadFootprintMiB, loadView(),
+                fitPredictor != null ? fitPredictor : DEFAULT_PREDICTOR, Math.max(thisCallKvCacheMiB, 0L)),
+                modelName, promptTokens, Mode.ANY).candidates();
+        long now = System.currentTimeMillis();
+        List<Option> out = new ArrayList<>(ranked.size());
+        for (Candidate c : ranked) {
+            boolean free = driver.hasFreeCapacity(c.provider(), c.activeCount());
+            double wait = free ? 0.0
+                    : driver.expectedWaitSeconds(c.provider(), elapsedSeconds(c.provider(), now), callSeconds(c.provider()));
+            out.add(new Option(c.provider(), c.warm(), free, wait));
+        }
+        return out;
+    }
+
+    /**
+     * The providers among {@code serving} where the model is not resident: a ticket
+     * for it there is a load in progress, not a call on a resident copy. A cold load
+     * yields only to an earlier load, so a model resident and busy on a slow
+     * provider never stops a load on a faster one.
+     */
+    private static Set<String> loading(Set<String> serving, List<ProviderState> states, String model) {
+        Set<String> resident = new java.util.HashSet<>();
+        for (ProviderState p : states) {
+            if (p.hasModelLoaded(model)) resident.add(p.name());
+        }
+        Set<String> out = new java.util.HashSet<>(serving);
+        out.removeAll(resident);
+        return out;
+    }
+
+    /** What the ranking reads about load on each provider: tickets, latency, circuit, residency. */
+    private LoadView loadView() {
+        return LoadView.of(
+                        p -> ticketManager.activeCountFor(p.name()),
+                        p -> ticketManager.activeFootprintFor(p.name()),
+                        p -> recentLatency.getOrDefault(p.endpoint(), 0.0),
+                        this::isCircuitOpen)
+                .withKvCache(p -> ticketManager.activeKvCacheFor(p.name()))
+                .withActiveModels(p -> ticketManager.activeModelsOn(p.name()))       // cold-start convergence
+                .withResidentOverlay(p -> ticketManager.residentFootprintsFor(p.name())); // residency overlay (anti-thrash)
+    }
+
+    /** {@link #pickAndClaim(String, long, long, long, Mode)} limited to {@code onlyProvider} when it is set. */
+    private Optional<Pick> pickAndClaim(String modelName, long coldLoadFootprintMiB,
+                                        long thisCallKvCacheMiB, long promptTokens, Mode mode, String onlyProvider) {
         if (coldLoadFootprintMiB <= 0) return Optional.empty();
         if (thisCallKvCacheMiB < 0) thisCallKvCacheMiB = 0L;
         final long kvForThisCall = thisCallKvCacheMiB;
@@ -552,29 +650,16 @@ public class ProviderSelector {
             List<ProviderState> states = readState();
             if (states.isEmpty()) return Optional.empty();
 
-            var load = LoadView.of(
-                            p -> ticketManager.activeCountFor(p.name()),
-                            p -> ticketManager.activeFootprintFor(p.name()),
-                            p -> recentLatency.getOrDefault(p.endpoint(), 0.0),
-                            this::isCircuitOpen)
-                    .withKvCache(p -> ticketManager.activeKvCacheFor(p.name()))
-                    .withActiveModels(p -> ticketManager.activeModelsOn(p.name()))       // cold-start convergence
-                    .withResidentOverlay(p -> ticketManager.residentFootprintsFor(p.name())); // residency overlay (anti-thrash)
-            List<Candidate> ranked = rankCandidates(
-                    states, modelName, coldLoadFootprintMiB, load,
-                    fitPredictor != null ? fitPredictor : DEFAULT_PREDICTOR, kvForThisCall);
-            Admission admission = admitted(ranked, modelName, promptTokens, mode);
-            ranked = admission.candidates();
-
-            if (ranked.isEmpty()) {
+            Admission admission = candidatesFor(states, modelName, coldLoadFootprintMiB, kvForThisCall,
+                    promptTokens, mode, onlyProvider);
+            if (admission.candidates().isEmpty()) {
                 log.debug("No candidate fits for model {} (attempt {}): saturated or no headroom incl. KV {} MiB",
                         modelName, attempt + 1, kvForThisCall);
                 return Optional.empty();
             }
 
-            Optional<Pick> pick = claimFirstAvailable(
-                    ranked, new Claim(modelName, coldLoadFootprintMiB, kvForThisCall, mode, admission.serving()),
-                    attempt);
+            Optional<Pick> pick = claimFirstAvailable(admission.candidates(),
+                    new Claim(modelName, coldLoadFootprintMiB, kvForThisCall, mode, admission.serving()), attempt);
             if (pick.isPresent()) return pick;
             cache.set(null);
         }
@@ -586,7 +671,22 @@ public class ProviderSelector {
      * The candidates a mode admits, and the providers that could serve this call
      * whatever the mode (where a copy of the model would count for convergence).
      */
-    private record Admission(List<Candidate> candidates, java.util.Set<String> serving) {}
+    private record Admission(List<Candidate> candidates, Set<String> serving) {}
+
+    /**
+     * The ranked candidates for one claim attempt: those {@code mode} admits, only on
+     * {@code onlyProvider} when it is set, and the providers a cold claim must check
+     * for an earlier load ({@link Mode#COLD}: only where the model is not resident).
+     */
+    private Admission candidatesFor(List<ProviderState> states, String modelName, long footprintMiB, long kvMiB,
+                                    long promptTokens, Mode mode, String onlyProvider) {
+        Admission admission = admitted(rankCandidates(states, modelName, footprintMiB, loadView(),
+                fitPredictor != null ? fitPredictor : DEFAULT_PREDICTOR, kvMiB), modelName, promptTokens, mode);
+        List<Candidate> ranked = onlyProvider == null ? admission.candidates()
+                : admission.candidates().stream().filter(c -> c.provider().name().equals(onlyProvider)).toList();
+        Set<String> serving = mode == Mode.COLD ? loading(admission.serving(), states, modelName) : admission.serving();
+        return new Admission(ranked, serving);
+    }
 
     /**
      * The ranked candidates {@code mode} admits. A copy counts only where it can
@@ -1263,8 +1363,26 @@ public class ProviderSelector {
                 footprints,
                 availFootprints,
                 n.path("contextLength").asLong(0L),
-                longMapField(n, "loadedModelContextLengths")
+                longMapField(n, "loadedModelContextLengths"),
+                speedsField(n)
         );
+    }
+
+    /** The {@code modelSpeeds} object, by model; empty when absent or malformed. */
+    static Map<String, ModelSpeed> speedsField(JsonNode n) {
+        Map<String, ModelSpeed> out = new HashMap<>();
+        JsonNode node = n.path("modelSpeeds");
+        if (node.isObject()) {
+            node.fields().forEachRemaining(e -> {
+                JsonNode m = e.getValue();
+                if (m.isObject()) {
+                    out.put(e.getKey(), new ModelSpeed(m.path("loadMs").asLong(0L),
+                            m.path("promptTokensPerSecond").asLong(0L), m.path("generateTokensPerSecond").asLong(0L),
+                            m.path("observedGenerateTokensPerSecond").asLong(0L), m.path("observedSamples").asInt(0)));
+                }
+            });
+        }
+        return out;
     }
 
     /**

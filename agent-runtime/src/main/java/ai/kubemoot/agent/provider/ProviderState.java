@@ -50,6 +50,12 @@ import java.util.Map;
  * selector never places a call whose prompt does not fit ({@link ContextFit}).
  * Zero or absent means unknown, and an unknown context never refuses a call.
  *
+ * <h3>Model speeds</h3>
+ * {@link #modelSpeeds} holds, per model calibration found to fit, its calibrated
+ * load time and prompt and generation speed and the observed speed of solo crew
+ * calls since ({@link ModelSpeed}). The learned placement policy plans with it.
+ * Absent means unknown.
+ *
  * {@code @JsonIgnoreProperties(ignoreUnknown=true)} so adding fields on
  * the operator side never breaks deserialisation on the agent side; the
  * inverse case (operator hasn't published a new field yet) is handled by
@@ -70,8 +76,27 @@ public record ProviderState(
         Map<String, Long> loadedModelFootprintsMiB,
         Map<String, Long> availableModelFootprintsMiB,
         long contextLength,
-        Map<String, Long> loadedModelContextLengths
+        Map<String, Long> loadedModelContextLengths,
+        Map<String, ModelSpeed> modelSpeeds
 ) {
+    /** A state with no model speeds: every model's cost is unknown. */
+    public ProviderState(String name, String endpoint, int maxParallel,
+                         int activeCount, int queueDepth, List<String> loadedModels,
+                         boolean ready, String lastProbedAt, long totalVramMiB,
+                         Map<String, Long> loadedModelFootprintsMiB,
+                         Map<String, Long> availableModelFootprintsMiB,
+                         long contextLength, Map<String, Long> loadedModelContextLengths) {
+        this(name, endpoint, maxParallel, activeCount, queueDepth, loadedModels,
+                ready, lastProbedAt, totalVramMiB, loadedModelFootprintsMiB,
+                availableModelFootprintsMiB, contextLength, loadedModelContextLengths, Map.of());
+    }
+
+    /** What {@code modelName} costs here; empty when calibration has not measured it. */
+    public java.util.Optional<ModelSpeed> speedOf(String modelName) {
+        if (modelName == null || modelSpeeds == null) return java.util.Optional.empty();
+        return java.util.Optional.ofNullable(modelSpeeds.get(modelName));
+    }
+
     /** A state with no context information: every context is unknown. */
     public ProviderState(String name, String endpoint, int maxParallel,
                          int activeCount, int queueDepth, List<String> loadedModels,

@@ -998,6 +998,28 @@
       "type": "integer",
       "required": true
     },
+    "provider-state.json#/modelSpeeds": {
+      "type": "object"
+    },
+    "provider-state.json#/modelSpeeds{}": {
+      "type": "object"
+    },
+    "provider-state.json#/modelSpeeds{}/generateTokensPerSecond": {
+      "type": "integer",
+      "required": true
+    },
+    "provider-state.json#/modelSpeeds{}/loadMs": {
+      "type": "integer"
+    },
+    "provider-state.json#/modelSpeeds{}/observedGenerateTokensPerSecond": {
+      "type": "integer"
+    },
+    "provider-state.json#/modelSpeeds{}/observedSamples": {
+      "type": "integer"
+    },
+    "provider-state.json#/modelSpeeds{}/promptTokensPerSecond": {
+      "type": "integer"
+    },
     "provider-state.json#/name": {
       "type": "string",
       "required": true

@@ -94,6 +94,8 @@ public class AlgorithmPlacement implements PlacementPolicy {
             case LOADING -> selector.pickAndClaimLoading(model, fp, kv, r.promptTokens());
             case ROOM -> selector.pickAndClaimRoom(model, fp, kv, r.promptTokens());
             case ANY -> selector.pickAndClaim(model, fp, kv, r.promptTokens());
+            // The algorithm never loads a copy while one is warm elsewhere (convergence).
+            case COLD -> Optional.empty();
         };
         return pick.map(p -> new Placement(p, model, fp, List.of()));
     }
