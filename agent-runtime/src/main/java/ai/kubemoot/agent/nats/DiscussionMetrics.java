@@ -8,6 +8,7 @@ import io.micrometer.core.instrument.Timer;
 import jakarta.enterprise.context.ApplicationScoped;
 
 import java.time.Duration;
+import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
@@ -25,6 +26,25 @@ public class DiscussionMetrics {
     private static final String METRIC_PHASE_DURATION = "kubemoot_discussion_phase_duration_seconds";
     private static final String METRIC_TOKENS_TOTAL = "kubemoot_discussion_tokens_total";
     private static final String METRIC_COORDINATOR_TOKENS = "kubemoot_discussion_coordinator_tokens_total";
+
+    /**
+     * The description of each metric registered under several tags. Prometheus serves
+     * one HELP line per metric name, so every tag of a name shares its description.
+     */
+    private static final Map<String, String> DESCRIPTIONS = Map.of(
+            METRIC_THREADS_TOTAL, "Discussion threads, by state: started, completed with synthesis, timed_out, "
+                    + "or fast_path (resolved by a single agree)",
+            METRIC_SIGNALS_TOTAL, "Discussion signals agents sent, by type (agree, concern, stand_aside, block, evaluating)",
+            METRIC_GAPS_TOTAL, "Gaps detected in discussions, by type: a missing tooler role or a missing tool",
+            METRIC_PHASE_DURATION, "Discussion phase duration, by phase (triage, advisory, evaluation, synthesis)",
+            METRIC_TOKENS_TOTAL, "Model tokens agents used in discussions, by direction (input, output)",
+            METRIC_COORDINATOR_TOKENS, "Model tokens the coordinator used, by direction (input, output)");
+
+    /** Bucket bounds for the duration timers: from a second to a long discussion. */
+    private static final Duration[] BUCKETS = {
+            Duration.ofSeconds(1), Duration.ofSeconds(2), Duration.ofSeconds(5), Duration.ofSeconds(10),
+            Duration.ofSeconds(20), Duration.ofSeconds(30), Duration.ofSeconds(60), Duration.ofSeconds(120),
+            Duration.ofSeconds(300), Duration.ofSeconds(600), Duration.ofSeconds(900)};
 
     // Tag key constants
     private static final String TAG_TYPE = "type";
@@ -80,22 +100,10 @@ public class DiscussionMetrics {
     public DiscussionMetrics(MeterRegistry registry) {
         this.registry = registry;
 
-        threadsStarted = Counter.builder(METRIC_THREADS_TOTAL)
-                .tag(TAG_STATE, "started")
-                .description("Discussion threads started")
-                .register(registry);
-        threadsCompleted = Counter.builder(METRIC_THREADS_TOTAL)
-                .tag(TAG_STATE, "completed")
-                .description("Discussion threads completed with synthesis")
-                .register(registry);
-        threadsTimedOut = Counter.builder(METRIC_THREADS_TOTAL)
-                .tag(TAG_STATE, "timed_out")
-                .description("Discussion threads that timed out")
-                .register(registry);
-        threadsFastPath = Counter.builder(METRIC_THREADS_TOTAL)
-                .tag(TAG_STATE, "fast_path")
-                .description("Discussion threads resolved via single-agree fast path")
-                .register(registry);
+        threadsStarted = counter(METRIC_THREADS_TOTAL, TAG_STATE, "started");
+        threadsCompleted = counter(METRIC_THREADS_TOTAL, TAG_STATE, "completed");
+        threadsTimedOut = counter(METRIC_THREADS_TOTAL, TAG_STATE, "timed_out");
+        threadsFastPath = counter(METRIC_THREADS_TOTAL, TAG_STATE, "fast_path");
 
         signalsAgree = counter(METRIC_SIGNALS_TOTAL, TAG_TYPE, "agree");
         signalsConcern = counter(METRIC_SIGNALS_TOTAL, TAG_TYPE, "concern");
@@ -105,10 +113,12 @@ public class DiscussionMetrics {
         gapsTooler = counter(METRIC_GAPS_TOTAL, TAG_TYPE, "tooler");
         gapsTool = counter(METRIC_GAPS_TOTAL, TAG_TYPE, "tool");
 
-        threadDuration = timer("kubemoot_discussion_thread_duration_seconds", "Total thread duration");
-        advisoryDuration = timer(METRIC_PHASE_DURATION, "Advisory phase duration", TAG_PHASE, "advisory");
-        evaluationDuration = timer(METRIC_PHASE_DURATION, "Evaluation phase duration", TAG_PHASE, "evaluation");
-        synthesisDuration = timer(METRIC_PHASE_DURATION, "Synthesis phase duration", TAG_PHASE, "synthesis");
+        threadDuration = Timer.builder("kubemoot_discussion_thread_duration_seconds")
+                .description("Discussion thread duration, from start to answer").serviceLevelObjectives(BUCKETS)
+                .register(registry);
+        advisoryDuration = phaseTimer("advisory");
+        evaluationDuration = phaseTimer("evaluation");
+        synthesisDuration = phaseTimer("synthesis");
 
         participantCount = DistributionSummary.builder("kubemoot_discussion_participants")
                 .description("Number of participating agents per thread")
@@ -118,10 +128,10 @@ public class DiscussionMetrics {
         tokensOutput = counter(METRIC_TOKENS_TOTAL, TAG_DIRECTION, "output");
 
         agentInference = Timer.builder("kubemoot_discussion_agent_inference_seconds")
-                .description("Agent inference duration during discussions")
+                .description("Agent inference duration during discussions").serviceLevelObjectives(BUCKETS)
                 .register(registry);
 
-        triageDuration = timer(METRIC_PHASE_DURATION, "Triage phase duration", TAG_PHASE, "triage");
+        triageDuration = phaseTimer("triage");
         coordinatorTokensInput = counter(METRIC_COORDINATOR_TOKENS, TAG_DIRECTION, "input");
         coordinatorTokensOutput = counter(METRIC_COORDINATOR_TOKENS, TAG_DIRECTION, "output");
         triageAgentsSelected = DistributionSummary.builder("kubemoot_discussion_triage_agents_selected")
@@ -233,14 +243,11 @@ public class DiscussionMetrics {
     // --- Helpers ---
 
     private Counter counter(String name, String tagKey, String tagValue) {
-        return Counter.builder(name).tag(tagKey, tagValue).register(registry);
+        return Counter.builder(name).description(DESCRIPTIONS.get(name)).tag(tagKey, tagValue).register(registry);
     }
 
-    private Timer timer(String name, String description) {
-        return Timer.builder(name).description(description).register(registry);
-    }
-
-    private Timer timer(String name, String description, String tagKey, String tagValue) {
-        return Timer.builder(name).description(description).tag(tagKey, tagValue).register(registry);
+    private Timer phaseTimer(String phase) {
+        return Timer.builder(METRIC_PHASE_DURATION).description(DESCRIPTIONS.get(METRIC_PHASE_DURATION))
+                .tag(TAG_PHASE, phase).serviceLevelObjectives(BUCKETS).register(registry);
     }
 }

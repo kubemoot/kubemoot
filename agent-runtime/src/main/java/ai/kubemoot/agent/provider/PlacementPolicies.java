@@ -1,6 +1,7 @@
 package ai.kubemoot.agent.provider;
 
 import ai.kubemoot.agent.config.AgentProperties;
+import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.inject.Produces;
@@ -59,8 +60,11 @@ public class PlacementPolicies {
                             : d.learned().model() + "@" + d.learned().provider() + " " + d.learned().reason(),
                     agreement.name().toLowerCase(Locale.ROOT));
             if (registry != null) {
-                registry.counter(METRIC_SHADOW_DECISIONS, "agreement",
-                        agreement.name().toLowerCase(Locale.ROOT)).increment();
+                Counter.builder(METRIC_SHADOW_DECISIONS)
+                        .description("Placement decisions in shadow mode, by how the learned policy's choice "
+                                + "compared with the algorithm's: agree, differ, or no_opinion")
+                        .tag("agreement", agreement.name().toLowerCase(Locale.ROOT))
+                        .register(registry).increment();
             }
         };
     }

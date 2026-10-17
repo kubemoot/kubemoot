@@ -86,6 +86,17 @@ leaderElection:
 metrics:
   enabled: true
   port: 8080
+  # Prometheus scraping, for a Prometheus that runs the Prometheus Operator (for
+  # example kube-prometheus-stack): PodMonitors for the agents and the operator,
+  # rendered only when the cluster serves the PodMonitor API. Kubemoot runs without
+  # Prometheus; scraping is optional and recommended.
+  podMonitor:
+    enabled: true
+    # Labels your Prometheus selects monitors by; kube-prometheus-stack selects
+    # release: <its Helm release name> unless configured otherwise.
+    labels: {}
+    # Scrape interval; empty uses Prometheus's default.
+    interval: ""
 
 # Health probes
 health:
@@ -398,7 +409,24 @@ modelProviders: []
 # Grafana dashboard provisioning via sidecar ConfigMap discovery
 grafana:
   dashboards:
+    # Kubemoot's dashboards (overview, discussions, scheduler) as ConfigMaps for
+    # Grafana's dashboard sidecar, which the Grafana Helm chart and
+    # kube-prometheus-stack run. Grafana is optional.
     enabled: true
+    # The label the sidecar loads ConfigMaps by, and its value.
+    label: grafana_dashboard
+    labelValue: "1"
+    # The Grafana folder the dashboards land in.
+    folder: Kubemoot
+    # Where the sidecar looks; empty is the release namespace.
+    namespace: ""
+    # With the Grafana Operator: a GrafanaDashboard per dashboard, for the Grafana
+    # instances instanceSelector matches (rendered only when its API is served).
+    # instanceSelector is required when enabled, for example
+    # {matchLabels: {dashboards: grafana}}.
+    grafanaOperator:
+      enabled: false
+      instanceSelector: {}
 
 # NotificationSink mock receiver — a small Python HTTP server that logs
 # every POST it receives. Ships disabled by default; flip on for smoke

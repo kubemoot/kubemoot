@@ -7,12 +7,20 @@ on:
       - 'operator/chart/**'
       - 'dashboard/charts/**'
       - '.github/workflows/ci-chart.yaml'
+      # The dashboards may query only metrics this code defines (test-observability.sh).
+      - 'agent-runtime/src/main/**'
+      - 'operator/internal/**'
+      - 'query-service/**'
   push:
     branches-ignore: [main]
     paths:
       - 'operator/chart/**'
       - 'dashboard/charts/**'
       - '.github/workflows/ci-chart.yaml'
+      # The dashboards may query only metrics this code defines (test-observability.sh).
+      - 'agent-runtime/src/main/**'
+      - 'operator/internal/**'
+      - 'query-service/**'
 
 permissions:
   contents: read
@@ -36,3 +44,5 @@ jobs:
         run: operator/chart/test-modelproviders.sh
       - name: Scheduling crew render tests
         run: operator/chart/test-scheduling-crew.sh
+      - name: Observability tests (dashboards and scraping)
+        run: operator/chart/test-observability.sh
