@@ -36,6 +36,21 @@ func (s *Set) Specifications() []map[string]any {
 				fieldModel:    stringProp("The model name on the provider, such as qwen3:14b."),
 				"probe":       enumProp("Which probe to send.", "load", "short", "long", "parallel"),
 			})),
+		spec(ToolCalibrateProvider,
+			"Calibrate a provider: in the background, measure each model with the fixed recipe (load, two "+
+				"short requests, a long prompt, and a parallel batch when the provider runs requests together) "+
+				"and record the results on the provider. Returns at once with the models it will measure. "+
+				"Without models it measures the downloaded models that Model resources bind to the provider, "+
+				"else the three smallest that fit. It pauses as Waiting when crew calls take the provider. "+
+				"Follow progress with list_providers.",
+			object([]string{fieldProvider}, map[string]any{
+				fieldProvider: providerProp,
+				fieldModels: map[string]any{
+					fieldType:        "array",
+					fieldDescription: "Optional: the models to measure, by name on the provider.",
+					"items":          map[string]any{fieldType: typeString},
+				},
+			})),
 		spec(ToolRecordCalibration,
 			"Record a calibration on the provider's status. Phase Calibrating marks the start (and, for a "+
 				"reset of scope all, forgets the provider's performance history). Calibrated, Waiting (paused "+
@@ -44,7 +59,7 @@ func (s *Set) Specifications() []map[string]any {
 				fieldProvider: providerProp,
 				fieldPhase:    enumProp("The calibration phase.", PhaseCalibrating, PhaseCalibrated, PhaseWaiting, PhaseFailed),
 				"message":     stringProp("A short explanation shown on the provider."),
-				"models": map[string]any{
+				fieldModels: map[string]any{
 					fieldType:        "array",
 					fieldDescription: "Per-model results; each replaces an earlier result for the same model.",
 					"items":          modelResultSchema(),
@@ -83,9 +98,9 @@ func object(required []string, properties map[string]any) map[string]any {
 }
 
 func stringProp(description string) map[string]any {
-	return map[string]any{fieldType: "string", fieldDescription: description}
+	return map[string]any{fieldType: typeString, fieldDescription: description}
 }
 
 func enumProp(description string, values ...string) map[string]any {
-	return map[string]any{fieldType: "string", fieldDescription: description, "enum": values}
+	return map[string]any{fieldType: typeString, fieldDescription: description, "enum": values}
 }

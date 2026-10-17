@@ -23,6 +23,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime/debug"
 	"time"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
@@ -338,7 +339,8 @@ func main() {
 		}).SetupWithManager},
 		{"ModelProvider", (&controller.ModelProviderReconciler{
 			Client: mgr.GetClient(), Scheme: mgr.GetScheme(), ConfigCache: configCache, NATSPublisher: natsPublisher,
-			Pulls: modelPulls,
+			Pulls:       modelPulls,
+			Calibration: controller.MCPCalibrator{Client: mgr.GetClient(), Publisher: natsPublisher, Version: buildVersion()},
 		}).SetupWithManager},
 		{"Model", (&controller.ModelReconciler{
 			Client: mgr.GetClient(), Scheme: mgr.GetScheme(), Pulls: modelPulls,
@@ -416,4 +418,13 @@ func main() {
 		setupLog.Error(err, "problem running manager")
 		os.Exit(1)
 	}
+}
+
+// buildVersion is the operator's module version from its build info; "dev" when
+// the build carries none.
+func buildVersion() string {
+	if info, ok := debug.ReadBuildInfo(); ok && info.Main.Version != "" && info.Main.Version != "(devel)" {
+		return info.Main.Version
+	}
+	return "dev"
 }

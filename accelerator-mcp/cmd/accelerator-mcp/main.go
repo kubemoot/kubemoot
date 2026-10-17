@@ -17,7 +17,7 @@ You may obtain a copy of the License at
 //	NATS_URL   NATS server (default nats://nats.nats.svc.cluster.local:4222)
 //
 // The Kubernetes client uses the in-cluster service account (or KUBECONFIG). It
-// needs get and list on modelproviders and models, and update on modelproviders/status.
+// needs get and list on modelproviders and models, and patch on modelproviders/status.
 //
 // Reads JSON-RPC messages line by line on stdin and writes responses on stdout.
 package main
@@ -83,9 +83,12 @@ func main() {
 		log.Fatalf("jetstream: %v", err)
 	}
 
-	set := newToolSet(k8s, store.NATS{JS: js}, holderID())
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	set := newToolSet(ctx, k8s, store.NATS{JS: js}, holderID())
+	if err := set.RecoverInterrupted(ctx); err != nil {
+		log.Printf("recording interrupted calibrations: %v", err)
+	}
 	go unloadIdle(ctx, set.Prober.(*probe.Prober))
 
 	log.Printf("accelerator-mcp %s starting: nats=%s", Version, natsURL)
@@ -105,7 +108,8 @@ func holderID() string {
 	return holderPrefix + host
 }
 
-func newToolSet(k8s client.Client, kv store.KV, holder string) *tools.Set {
+// newToolSet builds the tool set; calibrations it starts run under ctx.
+func newToolSet(ctx context.Context, k8s client.Client, kv store.KV, holder string) *tools.Set {
 	httpClient := &http.Client{Timeout: 10 * time.Minute}
 	engineFor := func(endpoint string) engine.Engine {
 		return engine.OllamaEngine{Endpoint: endpoint, Client: httpClient}
@@ -120,6 +124,7 @@ func newToolSet(k8s client.Client, kv store.KV, holder string) *tools.Set {
 		History: history,
 		Engine:  engineFor,
 		Now:     time.Now,
+		Jobs:    &tools.Jobs{Base: ctx},
 	}
 }
 

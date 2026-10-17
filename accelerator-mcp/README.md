@@ -1,15 +1,16 @@
 # accelerator-mcp
 
-Stdio MCP server the scheduling crew uses to see and measure the cluster's model
-providers (any accelerator, or a CPU server). The tools enforce the rules that keep
-measuring out of a crew's way; what to measure, in what order, and when the results are
-good enough is the calling agent's decision, set by its skill.
+Stdio MCP server that sees and measures the cluster's model providers (any accelerator,
+or a CPU server). The operator calls `calibrate_provider` when a provider needs
+calibrating, and the scheduling crew's calibrator uses the tools when asked. The tools
+enforce the rules that keep measuring out of a crew's way.
 
 | Tool | Input | Effect |
 |---|---|---|
 | `list_providers` | none | Every ModelProvider: readiness, engine and version, memory (total and the budget a model must fit), accelerator or CPU, parallel slots, calibration status, and any reset a person requested. |
 | `provider_state` | `provider` | One provider now: models loaded and how much of each is on the accelerator, how many other calls hold it and the models they use, downloaded models with sizes, models that Model resources bind to it. |
 | `probe_model` | `provider`, `model`, `probe` (`load`, `short`, `long`, `parallel`) | Sends one probe and returns the engine's timings: load time and spill (`load`), generation speed (`short`), prompt speed (`long`), total speed with the provider's slots in use (`parallel`). |
+| `calibrate_provider` | `provider`, optional `models` | Runs the calibration recipe in the background and returns at once with the models it will measure (or `running: true` when one is already running on the provider). For each model: load, two short requests, a long prompt, and a parallel batch when the provider runs requests together; each number is copied from one probe. Without `models` it measures the downloaded models Model resources bind to the provider, else the three smallest that fit. It records `Calibrating`, then `Calibrated`, `Waiting` (crew calls took the provider), or `Failed` (nothing could be measured). |
 | `record_calibration` | `provider`, `phase`, optional `message` and `models` | Writes `status.calibration` and the `Calibrated` condition on the ModelProvider. `Calibrating` marks the start; when a reset is pending it clears earlier results, records the reset as acted on, and for scope `all` forgets the provider's performance history (once, so resuming after `Waiting` keeps the new results); `Calibrated`, `Waiting`, and `Failed` record per-model results and unload what the probes loaded. |
 
 ## The rules the tools enforce
@@ -22,6 +23,7 @@ good enough is the calling agent's decision, set by its skill.
 - Models a probe loaded are unloaded when the calibration is recorded, or after ten minutes without a probe of that model, unless a crew call is using one; one that is in use or fails to unload is kept for a later try. Probes and unloads run one at a time.
 - Every probe request is recorded in `kubemoot_scheduler_performance` (bus schema `SchedulerPerformance`) as kind `calibration`; a failed request has no engine timings (-1).
 - Tickets and history are written as `kubemoot/accelerator-mcp/<pod name>`, so two replicas see each other's probes as other calls and never share a history key.
+- One `calibrate_provider` run per provider at a time. While it runs, `probe_model` and `record_calibration` refuse that provider, so nothing unloads a model between its measurements. A run that the server stops is recorded as `Waiting` (its final record is written even while stopping), and at startup any provider left `Calibrating` is recorded as `Waiting`, since this server runs every calibration.
 
 ## Config
 
@@ -30,7 +32,7 @@ good enough is the calling agent's decision, set by its skill.
 | `NATS_URL` | `nats://nats.nats.svc.cluster.local:4222` | NATS server holding the ticket and performance buckets. |
 
 The Kubernetes client uses the pod's service account (or `KUBECONFIG`). It needs `get` and
-`list` on `modelproviders` and `models`, and `update` on `modelproviders/status`, in
+`list` on `modelproviders` and `models`, and `patch` on `modelproviders/status`, in
 `kubemoot.ai`. Only Ollama providers are supported, as for ModelProvider itself.
 
 ## Local build / test

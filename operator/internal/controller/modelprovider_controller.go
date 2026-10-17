@@ -104,6 +104,9 @@ type ModelProviderReconciler struct {
 	// Pulls is the tracker shared with the Model controllers; it reports the disk
 	// held by unfinished downloads. Nil counts none.
 	Pulls *PullTracker
+
+	// Calibration starts provider calibrations; nil starts none.
+	Calibration Calibrator
 }
 
 // OllamaVersionResponse represents the response from Ollama /api/version
@@ -210,6 +213,8 @@ func (r *ModelProviderReconciler) reconcileOllama(ctx context.Context, provider 
 	if r.ConfigCache != nil && r.ConfigCache.IsSchedulerEnabled() {
 		r.discoverCapacity(ctx, provider, httpClient)
 	}
+
+	r.requestCalibration(ctx, provider)
 
 	return r.updateStatus(ctx, provider, true, phaseReady, "Connected to Ollama")
 }

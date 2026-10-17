@@ -279,6 +279,28 @@ Every scheduled model request is recorded so the scheduler can learn from what i
 - **Bounded:** each key keeps its last 32 requests and 16 waits, with lifetime request and failure counts.
 - **Never in the way:** writes run on one background thread with a bounded queue and are dropped when the queue is full or NATS is down; a request is never slowed or failed by recording it.
 
+## How the scheduler thinks: one decision, four speeds
+
+A placement (which provider and model serve this inference call) is made on every call,
+and one discussion makes dozens of calls. If a language model chose each placement,
+every call would wait seconds for that choice, and the choice would itself be an
+inference call needing a placement. So the thinking is split by how fast each decision
+must be made, the way a network router works: routing protocols think about the network
+and fill a table, and each packet is forwarded by a table lookup.
+
+| Who | When it runs | Uses a model? | What it produces | Today |
+|---|---|---|---|---|
+| Placement code in each agent runtime | Every inference call, in microseconds | No | A pick: provider and model | Runs (the `algorithm` placement policy) |
+| Calibration recipe (`accelerator-mcp`) | A new provider, a reset, an engine change, newly bound models | No | `status.calibration`: what each model costs on each provider | Runs, started by the operator |
+| Model provider calibrator (scheduling crew) | When someone asks | Yes | Which provider or models to calibrate, and an explanation of the results | Runs |
+| Real-time scheduling agent | When the situation changes: a provider joins, one is overloaded, new results arrive | Yes | The policy the placement code applies: weights, preferences, limits | Not built yet; the `learned` placement policy is where it plugs in |
+| Post-analysis learning agent | After each settled discussion, from its receipt | Yes | Learned facts per model and provider | Not built yet |
+| Deep analysis agent | When the system is quiet | Yes | Tuning changes, with their evidence | Not built yet |
+
+Models reason and write policy and data; code applies them on every call. The scheduling
+crew's own calls are placed by the same code, so the agents that tune the scheduler never
+depend on themselves to be scheduled.
+
 ## The scheduling crew
 
 Kubemoot ships its own crew for scheduling work, `kubemoot-scheduling`, in the operator
@@ -292,12 +314,10 @@ registers through its `coreServerSelector` (see
 register it too. It can write ModelProvider status, so any crew that registers it can
 record calibrations: the core opt-in is its only access boundary.
 
-- **model-provider-calibrator** (tooler) measures ModelProviders with the
-  `accelerator-mcp` tools: `list_providers`, `provider_state`, `probe_model`, and
-  `record_calibration`. The tools enforce the safety rules; what to probe and when the
-  results are good enough is the calibrator's `calibrate-a-provider` skill. Results land
-  on each ModelProvider's `status.calibration` (see the
-  [ModelProvider reference](../reference/models.md)).
+- **model-provider-calibrator** (tooler) handles the judgment around calibration: which
+  provider or models to calibrate when someone asks, and explaining the results. It
+  calls the `accelerator-mcp` tools `list_providers`, `provider_state`, and
+  `calibrate_provider`, following its `calibrate-a-provider` skill.
 - No prompt or skill names a provider, model, or accelerator: what exists is read live
   with the tools.
 
@@ -308,9 +328,32 @@ kmctl conversation ask kubemoot-scheduling "Calibrate ollama-gpu" -n kubemoot-sc
 kmctl conversation ask kubemoot-scheduling "How are the model providers calibrated?" -n kubemoot-scheduling
 ```
 
-The crew calibrates when asked; the scheduler does not read the results yet. Its Models
-come from the chart's `modelProviders` values, so a ModelProvider created another way
-needs a Model in `kubemoot-scheduling` for the crew to think with.
+Its Models come from the chart's `modelProviders` values, so a ModelProvider created
+another way needs a Model in `kubemoot-scheduling` for the crew to think with.
+
+### Calibration
+
+Calibration measures each provider before real requests arrive, so the first crew
+question on a fresh install is not placed blind. Measuring is a fixed recipe, so no model
+makes decisions in it:
+
+1. The operator sees that a provider needs calibrating: it is new, a reset was
+   requested, its engine version changed, or Models were bound to it that were never
+   measured.
+2. Once the `accelerator-mcp` core server is ready, the operator calls its
+   `calibrate_provider` tool and records the request in the provider's
+   `status.calibrationRequest`, so it asks once per need.
+3. The tool runs the recipe in the background, one model at a time: load, two short
+   requests, a long prompt, and a parallel batch when the provider runs requests
+   together. It writes the results to the provider's `status.calibration`.
+4. If crew calls take the provider, or the server stops mid-run, the run is recorded
+   as `Waiting`; the operator starts it again once no call holds the provider. A run
+   that `Failed` is started again once the provider has become ready after the
+   failure.
+
+This works before any crew runs, including the scheduling crew. The scheduler does not
+read the results yet. Fields and the reset annotation are in the
+[ModelProvider reference](../reference/models.md).
 
 ## Quality bias
 

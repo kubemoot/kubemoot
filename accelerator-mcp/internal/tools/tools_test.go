@@ -81,7 +81,7 @@ func newFixture(t *testing.T, objects ...client.Object) fixture {
 		Cluster: cluster.Cluster{Client: c},
 		Prober: &probe.Prober{Engine: engineFor, Tickets: tickets, History: history,
 			Prompts: probe.DefaultPrompts(), Now: now},
-		Tickets: tickets, History: history, Engine: engineFor, Now: now,
+		Tickets: tickets, History: history, Engine: engineFor, Now: now, Jobs: &Jobs{},
 	}
 	return fixture{set: set, client: c, kv: kv, eng: eng}
 }
@@ -165,12 +165,18 @@ func getProvider(t *testing.T, f fixture) *aiv1alpha1.ModelProvider {
 	return p
 }
 
+// checkPhase asserts the calibration is in phase and stamped with when it was recorded.
+func checkPhase(t *testing.T, cal *aiv1alpha1.ProviderCalibration, phase string) {
+	t.Helper()
+	check(t, phase, cal != nil && cal.Phase == phase && cal.UpdatedAt != nil, cal)
+}
+
 func TestRecordCalibration_startThenFinish(t *testing.T) {
 	f := newFixture(t, readyProvider())
 	f.eng.Sizes[model] = 9_000
 	_, _ = call(t, f.set, ToolRecordCalibration, map[string]any{argProv: gpu, argPh: PhaseCalibrating,
 		"message": "measuring qwen3:14b"})
-	check(t, "calibrating", getProvider(t, f).Status.Calibration.Phase == PhaseCalibrating, nil)
+	checkPhase(t, getProvider(t, f).Status.Calibration, PhaseCalibrating)
 
 	_, _ = call(t, f.set, ToolProbeModel, map[string]string{argProv: gpu, argMod: model, argPr: probe.KindLoad})
 	out, err := call(t, f.set, ToolRecordCalibration, map[string]any{argProv: gpu, argPh: PhaseCalibrated,
@@ -233,7 +239,7 @@ func TestCall_unknownTool(t *testing.T) {
 	check(t, "unknown tool", err != nil, err)
 }
 
-func TestSpecifications_namesTheFourTools(t *testing.T) {
+func TestSpecifications_namesTheFiveTools(t *testing.T) {
 	f := newFixture(t)
 	specs := f.set.Specifications()
 	names := make([]string, 0, len(specs))
@@ -241,8 +247,8 @@ func TestSpecifications_namesTheFourTools(t *testing.T) {
 		names = append(names, s["name"].(string))
 		check(t, "every spec has a schema and description", s["inputSchema"] != nil && s["description"] != "", s)
 	}
-	check(t, "four tools", strings.Join(names, ",") ==
-		"list_providers,provider_state,probe_model,record_calibration", names)
+	check(t, "five tools", strings.Join(names, ",") ==
+		"list_providers,provider_state,probe_model,calibrate_provider,record_calibration", names)
 }
 
 func TestProbeModel_refusesAProviderWithCalibrationOff(t *testing.T) {

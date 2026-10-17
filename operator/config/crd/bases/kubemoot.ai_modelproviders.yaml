@@ -199,6 +199,35 @@ spec:
                       ResetToken is the last kubemoot.ai/calibration-reset value acted on: set when
                       the calibration it asked for starts
                     type: string
+                  updatedAt:
+                    description: UpdatedAt is when the calibration was last recorded,
+                      in any phase
+                    format: date-time
+                    type: string
+                type: object
+              calibrationRequest:
+                description: |-
+                  CalibrationRequest is the operator's last request to calibrate this provider,
+                  made through the accelerator-mcp core server. The operator asks once per need
+                  (a new provider, a reset, a changed engine, newly bound models), and again for
+                  the same need only after the calibration paused as Waiting and the provider
+                  fell idle
+                properties:
+                  key:
+                    description: |-
+                      Key names the need asked about, such as new, reset/<token>, engine/<version>,
+                      or models/<digest>
+                    type: string
+                  reason:
+                    description: Reason is the need in words
+                    type: string
+                  requestedAt:
+                    description: RequestedAt is when the request was made
+                    format: date-time
+                    type: string
+                required:
+                - key
+                - requestedAt
                 type: object
               capacity:
                 description: Capacity contains discovered capacity information for
