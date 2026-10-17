@@ -19,7 +19,7 @@ How to observe what a Kubemoot crew is doing: the data it exposes, the surfaces 
 
 ## Surfaces
 
-- **Kubemoot Dashboard**: the primary real-time view (discussion threads & timeline, agent topology, NATS messages, fitness suites, GPU/model activity). Updates push-style via NATS JetStream SSE and k8s watch→SSE. See [dashboard.md](dashboard.md).
+- **Kubemoot Dashboard**: the primary real-time view (discussion threads & timeline, agent topology, NATS messages, fitness suites, accelerator and model activity). Updates push-style via NATS JetStream SSE and k8s watch→SSE. See [dashboard.md](dashboard.md).
 - **NATS JetStream**: the event substrate. Streams: `KUBEMOOT_CHRONICLE`, `KUBEMOOT_QUALITY`, `KUBEMOOT_CHAT`, `KUBEMOOT_OPERATOR`, `KUBEMOOT_DISCUSS`. Anything the dashboard shows is reconstructable from these.
 - **Prometheus metrics and Grafana dashboards** (optional): every Kubemoot component serves Prometheus metrics, and Kubemoot ships Grafana dashboards for them. See [Metrics: Prometheus and Grafana](#1-metrics-prometheus-and-grafana-optional).
 
@@ -52,8 +52,9 @@ kubectl get --raw "/api/v1/namespaces/<crew-namespace>/pods/<agent-pod>:8080/pro
 
 With Prometheus scraping them, the same descriptions come from its metadata API
 (`/api/v1/metadata?metric=<name>`), and Grafana's metrics browser shows them next to
-each metric name. Every Kubemoot metric has a description; the agent runtime's and
-the operator's tests fail on one without.
+each metric name. Every Kubemoot metric has a description. The operator's metrics
+are served over HTTPS and need a token, so read their descriptions through
+Prometheus or Grafana.
 
 **Scraping.** With the Prometheus Operator (for example kube-prometheus-stack), the
 operator chart creates PodMonitors for the agents, the query services, and the
@@ -73,8 +74,8 @@ For the operator's HTTPS endpoint the chart also creates a metrics reader: a
 ServiceAccount allowed to read `/metrics` only, whose token the operator's PodMonitor
 presents. The operator serves its metrics with a self-signed certificate, so that
 PodMonitor skips certificate verification; the token still has to pass the operator's
-authentication and authorization. Without the Prometheus Operator, scrape the same endpoints with your own
-scrape configuration.
+authentication and authorization. Without the Prometheus Operator, scrape the same
+endpoints with your own scrape configuration.
 
 Accelerator metrics (utilization, memory, temperature) come from the accelerator's own
 exporter where one runs, such as NVIDIA's DCGM exporter; Kubemoot does not install it.
