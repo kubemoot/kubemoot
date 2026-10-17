@@ -559,3 +559,19 @@ func TestDiscoverLoadedModelsReadsContextLength(t *testing.T) {
 		t.Errorf("LoadedModels = %+v, want contexts 8192 and 0", models)
 	}
 }
+
+// The published state names the provider's engine type, so agents call its server
+// the right way; JSON leaves it out when a provider has none.
+func TestBuildProviderStateEngine(t *testing.T) {
+	ollama := &aiv1alpha1.ModelProvider{Spec: aiv1alpha1.ModelProviderSpec{Type: aiv1alpha1.ProviderTypeOllama}}
+	if got := buildProviderState(ollama).Engine; got != string(aiv1alpha1.ProviderTypeOllama) {
+		t.Errorf("engine = %q, want %s", got, aiv1alpha1.ProviderTypeOllama)
+	}
+	raw, err := json.Marshal(buildProviderState(&aiv1alpha1.ModelProvider{}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(raw), `"engine"`) {
+		t.Errorf("a provider without a type publishes no engine: %s", raw)
+	}
+}

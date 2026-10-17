@@ -98,32 +98,4 @@ class ChatServiceHelpersTest {
     // --- Model tiering: triage-model call parsing (advisory + subcommittee triage
     //     run on the fast triage model; these confirm the response parse) ---
 
-    @Test
-    void parseOllamaChat_extractsTextAndTokenCounts() throws Exception {
-        var json = new ObjectMapper().readTree(
-                "{\"message\":{\"role\":\"assistant\",\"content\":\"{\\\"technologies\\\":[\\\"gpu\\\"]}\"}," +
-                        "\"prompt_eval_count\":640,\"eval_count\":42}");
-        var result = ChatService.parseOllamaChat(json);
-        assertEquals("{\"technologies\":[\"gpu\"]}", result.text());
-        assertEquals(640, result.inputTokens());
-        assertEquals(42, result.outputTokens());
-    }
-
-    @Test
-    void parseOllamaChat_missingTokenFieldsDefaultToZero() throws Exception {
-        var json = new ObjectMapper().readTree(
-                "{\"message\":{\"role\":\"assistant\",\"content\":\"hi\"}}");
-        var result = ChatService.parseOllamaChat(json);
-        assertEquals("hi", result.text());
-        assertEquals(0, result.inputTokens());
-        assertEquals(0, result.outputTokens());
-    }
-
-    @Test
-    void parseOllamaChat_missingMessageYieldsEmptyText() throws Exception {
-        var json = new ObjectMapper().readTree("{\"eval_count\":5}");
-        var result = ChatService.parseOllamaChat(json);
-        assertEquals("", result.text());
-        assertEquals(5, result.outputTokens());
-    }
 }

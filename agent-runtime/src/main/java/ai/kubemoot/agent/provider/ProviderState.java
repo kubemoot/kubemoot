@@ -77,8 +77,27 @@ public record ProviderState(
         Map<String, Long> availableModelFootprintsMiB,
         long contextLength,
         Map<String, Long> loadedModelContextLengths,
-        Map<String, ModelSpeed> modelSpeeds
+        Map<String, ModelSpeed> modelSpeeds,
+        String engine
 ) {
+    /** A state that names no engine type: an Ollama provider published before the type was. */
+    public ProviderState(String name, String endpoint, int maxParallel,
+                         int activeCount, int queueDepth, List<String> loadedModels,
+                         boolean ready, String lastProbedAt, long totalVramMiB,
+                         Map<String, Long> loadedModelFootprintsMiB,
+                         Map<String, Long> availableModelFootprintsMiB,
+                         long contextLength, Map<String, Long> loadedModelContextLengths,
+                         Map<String, ModelSpeed> modelSpeeds) {
+        this(name, endpoint, maxParallel, activeCount, queueDepth, loadedModels,
+                ready, lastProbedAt, totalVramMiB, loadedModelFootprintsMiB,
+                availableModelFootprintsMiB, contextLength, loadedModelContextLengths, modelSpeeds, "");
+    }
+
+    /** How a call reaches this provider's model server, by its engine type. */
+    public ChatEngine chatEngine() {
+        return ChatEngines.forType(engine);
+    }
+
     /** A state with no model speeds: every model's cost is unknown. */
     public ProviderState(String name, String endpoint, int maxParallel,
                          int activeCount, int queueDepth, List<String> loadedModels,

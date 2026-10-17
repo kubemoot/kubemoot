@@ -58,8 +58,11 @@ const ProviderStateBucket = "kubemoot_provider_state"
 // runtime needs to make a per-call provider decision. Kept narrow so the
 // per-call read is small and fast.
 type ProviderState struct {
-	Name         string   `json:"name"`
-	Endpoint     string   `json:"endpoint"`
+	Name     string `json:"name"`
+	Endpoint string `json:"endpoint"`
+	// Engine is the model server's engine type (ModelProvider spec.type); agents
+	// pick how to call the server by it.
+	Engine       string   `json:"engine,omitempty"`
 	MaxParallel  int      `json:"maxParallel"`
 	ActiveCount  int      `json:"activeCount"`
 	QueueDepth   int      `json:"queueDepth"`
@@ -722,6 +725,7 @@ func buildProviderState(provider *aiv1alpha1.ModelProvider) ProviderState {
 	state := ProviderState{
 		Name:         provider.Name,
 		Endpoint:     provider.Spec.Endpoint,
+		Engine:       string(provider.Spec.Type),
 		Ready:        provider.Status.Ready,
 		LastProbedAt: time.Now().UTC().Format(time.RFC3339),
 	}

@@ -861,4 +861,17 @@ class DiscussionOrchestratorHelpersTest {
         assertTimeoutPreemptively(java.time.Duration.ofSeconds(2),
                 () -> assertFalse(DiscussionOrchestrator.ARTIFACT_MARKER_WITH_KEY.matcher(text).find()));
     }
+
+    @Test
+    void putFirstToken_addsTheWaitAndColdFlag_onlyForATimedCall() {
+        var timed = new java.util.HashMap<String, Object>();
+        DiscussionOrchestrator.putFirstToken(timed, new ai.kubemoot.agent.chat.ChatService.LastSimpleCall(6_200L, true));
+        assertEquals(6_200L, timed.get("firstTokenMs"));
+        assertEquals(true, timed.get("coldStart"));
+
+        var none = new java.util.HashMap<String, Object>();
+        DiscussionOrchestrator.putFirstToken(none, ai.kubemoot.agent.chat.ChatService.LastSimpleCall.NONE);
+        DiscussionOrchestrator.putFirstToken(none, null);
+        assertTrue(none.isEmpty(), "no timed call, no fields");
+    }
 }

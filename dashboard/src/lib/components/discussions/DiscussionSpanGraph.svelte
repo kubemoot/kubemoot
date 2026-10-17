@@ -321,7 +321,7 @@
 			{@const overheadWidth = hasInference ? (overheadMs / Math.max(spanDuration, 1)) * barWidth : 0}
 			{@const inferenceWidth = hasInference ? barWidth - overheadWidth : 0}
 			{@const gpuColor = span.gpuLabel ? (gpuColors[span.gpuLabel] || '#6b7280') : span.color}
-			{@const loadMs = hasInference ? Math.min(span.loadDurationMs, span.inferenceMs) : 0}
+			{@const loadMs = hasInference ? Math.min(span.firstTokenMs, span.inferenceMs) : 0}
 			{@const hasLoad = loadMs > 0 && inferenceWidth > 4}
 			{@const loadWidth = hasLoad ? (loadMs / Math.max(span.inferenceMs, 1)) * inferenceWidth : 0}
 			{@const evalWidth = hasInference ? inferenceWidth - loadWidth : 0}
@@ -416,7 +416,7 @@
 							fill={gpuColor}
 							opacity={isHovered ? 0.55 : 0.35}
 						>
-							<title>Model load: {formatDuration(loadMs)}</title>
+							<title>First token after {formatDuration(loadMs)}{span.coldStart ? ', including the model load' : ''}</title>
 						</rect>
 					{/if}
 					<rect
@@ -472,7 +472,7 @@
 						fill="#9ca3af"
 						font-size="10"
 						font-family="ui-monospace, monospace"
-					>{formatDuration(spanDuration)}<tspan fill="#6b7280" font-size="9"> ({formatDuration(span.inferenceMs)} inf{#if hasLoad}, {formatDuration(loadMs)} load{/if})</tspan></text>
+					>{formatDuration(spanDuration)}<tspan fill="#6b7280" font-size="9"> ({formatDuration(span.inferenceMs)} inf{#if hasLoad}, {formatDuration(loadMs)} to first token{/if})</tspan></text>
 				{:else}
 					<!-- Agent: solid bar (no inference data or stand_aside) -->
 					<rect

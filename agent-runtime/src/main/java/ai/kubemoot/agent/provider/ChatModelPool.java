@@ -2,7 +2,9 @@ package ai.kubemoot.agent.provider;
 
 import dev.langchain4j.http.client.jdk.JdkHttpClientBuilder;
 import dev.langchain4j.model.chat.ChatModel;
-import dev.langchain4j.model.ollama.OllamaChatModel;
+import dev.langchain4j.model.chat.StreamingChatModel;
+import dev.langchain4j.model.openai.OpenAiChatModel;
+import dev.langchain4j.model.openai.OpenAiStreamingChatModel;
 import jakarta.enterprise.context.ApplicationScoped;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -12,93 +14,87 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 
 /**
- * Per-endpoint cache of LangChain4j ChatModel instances. The Quarkus-injected
- * ChatModel is fixed to a single base-url at startup, which is the wrong shape
- * for JIT provider selection — each inference call may need a different
- * endpoint. This pool gives ChatService a way to get a properly-configured
- * ChatModel for any endpoint the {@link ProviderSelector} returns, building
- * each one lazily on first use and reusing it (and its underlying HTTP
- * connection pool) thereafter.
+ * Per-endpoint cache of LangChain4j chat models. The scheduler picks a provider
+ * for each call, so a call may go to any server; this pool builds a model for a
+ * server the first time a call goes there and reuses it (and its HTTP
+ * connections) after that.
  *
- * Construction is cheap-ish (~10-50ms first call for an endpoint as the
- * underlying HttpClient initialises; subsequent calls reuse). All ChatModel
- * instances share the same model/temperature/timeout settings; only the
- * baseUrl differs. If those settings need to vary per provider in future,
- * extend the key beyond just endpoint.
- *
- * Thread-safe via ConcurrentHashMap.computeIfAbsent — no lock contention
- * once the pool is warm.
+ * Every model speaks the OpenAI-compatible chat API, whatever the engine behind
+ * it; the provider's {@link ChatEngine} says where that API lives on the server
+ * and how a request sets thinking.
  */
 @ApplicationScoped
 public class ChatModelPool {
 
     private static final Logger log = LoggerFactory.getLogger(ChatModelPool.class);
 
+    /** The key sent to servers that need none (Ollama, an in-cluster vLLM). */
+    static final String NO_API_KEY = "none";
+
     private final ConcurrentMap<String, ChatModel> cache = new ConcurrentHashMap<>();
+    private final ConcurrentMap<String, StreamingChatModel> streamingCache = new ConcurrentHashMap<>();
 
     /**
-     * Get or build a ChatModel bound to the given endpoint + model + timeout.
-     * Idempotent and thread-safe.
+     * Get or build a ChatModel for {@code engine}'s OpenAI-compatible API on the
+     * server at {@code endpoint}. Idempotent and thread-safe.
      */
-    public ChatModel forEndpoint(String endpoint, String modelName, double temperature,
-                                  int maxTokens, Duration timeout, Boolean think) {
-        // Cache key combines the parameters that determine the model's
-        // identity. If two calls request the same endpoint + model with
-        // different temperature, they'd otherwise collide; including
-        // temperature in the key keeps them separate. Cheap to maintain.
-        // `think` is included because it changes the ollama request shape
-        // (thinking on/off); null means "leave the model default".
-        String key = endpoint + "|" + modelName + "|" + temperature + "|" + maxTokens
-                + "|" + timeout.toMillis() + "|" + think;
-        return cache.computeIfAbsent(key, k -> {
-            log.info("Building ChatModel for endpoint={} model={} think={} (first use)",
-                    endpoint, modelName, think);
-            var builder = OllamaChatModel.builder()
-                    // Explicit JDK HTTP client. Without this the builder uses
-                    // ServiceLoader to discover an HttpClientBuilder, which
-                    // finds NONE in GraalVM native (the Quarkus extension
-                    // excludes langchain4j-http-client-jdk and provides its
-                    // client only to the injected model). Setting it directly
-                    // bypasses ServiceLoader and uses java.net.http — the same
-                    // native-safe client the triage path uses. Without it,
-                    // every JIT-built model threw "No HTTP client has been
-                    // found in the classpath" (observed 2026-05-26, thread
-                    // 297dea21, right after JIT selection started engaging).
+    public ChatModel forEndpoint(ChatEngine engine, String endpoint, String modelName, double temperature,
+                                 int maxTokens, Duration timeout, Boolean think) {
+        return cache.computeIfAbsent(key(engine, endpoint, modelName, temperature, maxTokens, timeout, think), k -> {
+            log.info("Building ChatModel for engine={} endpoint={} model={} think={} (first use)",
+                    engine.type(), endpoint, modelName, think);
+            return OpenAiChatModel.builder()
+                    // The JDK HTTP client, set explicitly: the native image has no
+                    // HTTP client for LangChain4j to discover through ServiceLoader.
                     .httpClientBuilder(new JdkHttpClientBuilder())
-                    .baseUrl(endpoint)
+                    .baseUrl(engine.chatBaseUrl(endpoint))
+                    // Local servers take no key; the client still sends one.
+                    .apiKey(NO_API_KEY)
                     .modelName(modelName)
                     .temperature(temperature)
-                    .numPredict(maxTokens)
+                    .maxTokens(maxTokens)
                     .timeout(timeout)
-                    // FIX #1 of three: bound LangChain4j's internal retry loop
-                    // to a single attempt. The default is 3 attempts, which
-                    // multiplied by the Quarkus/Vertx HTTP timeout (120s)
-                    // turns a single slow call into a 6+ minute silent retry
-                    // storm — observed concretely 2026-05-25 on k8s-metrics'
-                    // mulling call to ollama-rig1: 3 × 120s with no visible
-                    // signal except heartbeats, then a generic stand_aside.
-                    // With maxRetries(1), a timeout surfaces as a single
-                    // failed call in 120s; our failure-signal path in
-                    // DiscussionSubscriber.runMullingPhase catches it and
-                    // publishes the `failure` signal with cause metadata —
-                    // the dashboard sees it, the coordinator can settle.
-                    .maxRetries(1);
-            // Thinking control. Per-agent declared behavior (KUBEMOOT_MODEL_THINK)
-            // plumbed generically — the runtime does not special-case any agent
-            // role here; it only honors the configured value. think=false stops
-            // qwen3 from emitting a reasoning chain (deterministic tool-callers
-            // do not need it and it dominates their latency); think=true keeps
-            // it (analysts, coordinator). null leaves the model/family default.
-            if (think != null) {
-                builder.think(think);
-            }
-            return builder.build();
+                    // One attempt: LangChain4j retries a failed call by default, which
+                    // multiplies a slow call's timeout. A failure surfaces once, as the
+                    // agent's failure signal.
+                    .maxRetries(1)
+                    // Per-agent thinking control, in the engine's own request fields.
+                    .customParameters(engine.thinkingFields(think))
+                    .build();
         });
+    }
+
+    /**
+     * Get or build the streaming twin of {@link #forEndpoint}: the same server, model,
+     * and settings, for calls timed by their first token ({@link StreamedChat}).
+     */
+    public StreamingChatModel streamingForEndpoint(ChatEngine engine, String endpoint, String modelName,
+                                                   double temperature, int maxTokens, Duration timeout,
+                                                   Boolean think) {
+        String key = key(engine, endpoint, modelName, temperature, maxTokens, timeout, think);
+        return streamingCache.computeIfAbsent(key, k -> OpenAiStreamingChatModel.builder()
+                .httpClientBuilder(new JdkHttpClientBuilder())
+                .baseUrl(engine.chatBaseUrl(endpoint))
+                .apiKey(NO_API_KEY)
+                .modelName(modelName)
+                .temperature(temperature)
+                .maxTokens(maxTokens)
+                .timeout(timeout)
+                .customParameters(engine.thinkingFields(think))
+                .build());
+    }
+
+    /** Every setting that changes the request; {@code think} is null when the agent leaves the default. */
+    private static String key(ChatEngine engine, String endpoint, String modelName, double temperature,
+                              int maxTokens, Duration timeout, Boolean think) {
+        return engine.type() + "|" + endpoint + "|" + modelName + "|" + temperature + "|" + maxTokens
+                + "|" + timeout.toMillis() + "|" + think;
     }
 
     /** Test-only; not part of normal use. */
     void clearForTest() {
         cache.clear();
+        streamingCache.clear();
     }
 
     int sizeForTest() {
