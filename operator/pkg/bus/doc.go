@@ -14,9 +14,11 @@ You may obtain a copy of the License at
 // JSON Schema files in schema/; the types in zz_generated.bus.go are generated from
 // them, so change the schema and run go generate, never the generated file.
 //
-// The package holds only data types and no behavior, so it has no abstractions to
-// offer its importers; it is the shared vocabulary of the contract, kept stable by
-// the contract's versioning rather than by interfaces.
+// The package holds the data types and the key formats of the buckets they live in
+// (buckets.go, keys.go: how a provider, model, or agent name becomes a key), and no
+// other behavior, so it has no abstractions to offer its importers; it is the shared
+// vocabulary of the contract, kept stable by the contract's versioning rather than by
+// interfaces.
 package bus
 
 //go:generate go run ./internal/gen
