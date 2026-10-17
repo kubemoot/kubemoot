@@ -44,12 +44,40 @@ export interface ModelProviderCapacity {
 	lastProbed?: string;
 }
 
+/** What calibration measured for one model on a provider; speeds are tokens per second. */
+export interface ModelCalibration {
+	model: string;
+	fits: boolean;
+	reason?: string;
+	loadMs?: number;
+	residentMiB?: number;
+	contextLength?: number;
+	promptTokensPerSecond?: number;
+	generateTokensPerSecond?: number;
+	parallelRequests?: number;
+	parallelGenerateTokensPerSecond?: number;
+	calibratedAt?: string;
+}
+
+/** The outcome of calibrating a ModelProvider (status.calibration). */
+export interface ProviderCalibration {
+	/** Calibrating, Calibrated, Waiting, or Failed. */
+	phase?: string;
+	message?: string;
+	engineVersion?: string;
+	resetToken?: string;
+	completedAt?: string;
+	updatedAt?: string;
+	models?: ModelCalibration[];
+}
+
 export interface ModelProviderStatus {
 	ready?: boolean;
 	phase?: string;
 	message?: string;
 	conditions?: Condition[];
 	capacity?: ModelProviderCapacity;
+	calibration?: ProviderCalibration;
 	providerInfo?: {
 		version?: string;
 		lastChecked?: string;

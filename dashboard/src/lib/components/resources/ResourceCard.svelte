@@ -2,7 +2,7 @@
 	import type { Snippet } from 'svelte';
 	import StatusBadge from '../common/StatusBadge.svelte';
 
-	type Status = 'success' | 'warning' | 'error' | 'pending' | 'unknown' | 'hot';
+	import type { BadgeStatus as Status } from '#lib/status.js';
 
 	interface Props {
 		name: string;
