@@ -137,6 +137,28 @@ class LearnedPlacementTest {
     }
 
     @Test
+    void aProviderWithoutTheModelIsNeitherAnOptionNorAReasonForNoOpinion() {
+        // The CPU has not downloaded OTHER: it can neither serve the call nor stop an opinion.
+        ProviderState cpuWithout = new ProviderState(CPU, "http://" + CPU, 1, 0, 0, List.of(SMALL), true,
+                "2026-01-01T00:00:00Z", 32_000, Map.of(), Map.of(SMALL, SMALL_MIB), 0L, Map.of(), Map.of());
+        ProviderState gpuWithOther = provider(GPU, List.of(OTHER), Map.of(OTHER, new ModelSpeed(1, 8_000, 130, 0, 0)));
+        var selector = new FixedSelector(Map.of(OTHER, List.of(idle(cpuWithout, false), idle(gpuWithOther, true))));
+        var request = new PlacementRequest(OTHER, List.of(), List.of(), m -> 9_000L, m -> 0L, 100L);
+        assertEquals(GPU, new LearnedPlacement(new Fallback(), selector).propose(request).orElseThrow().provider());
+        assertTrue(LearnedPlacement.holds(gpuWithOther, OTHER));
+        assertFalse(LearnedPlacement.holds(cpuWithout, OTHER));
+        assertTrue(LearnedPlacement.holds(cpuWithout, SMALL));
+    }
+
+    @Test
+    void aStateWithNoDownloadedListCountsOnlyWhatIsLoaded() {
+        ProviderState noList = new ProviderState(CPU, "http://" + CPU, 1, 0, 0, List.of(SMALL), true,
+                "2026-01-01T00:00:00Z", 32_000, Map.of(), null, 0L, Map.of(), Map.of());
+        assertTrue(LearnedPlacement.holds(noList, SMALL));
+        assertFalse(LearnedPlacement.holds(noList, OTHER));
+    }
+
+    @Test
     void itKeepsThePreferredModel_andUsesAnAlternativeOnlyWhenThePreferredIsUnmeasured() {
         ProviderState fastOther = provider(GPU, List.of(OTHER), Map.of(OTHER, new ModelSpeed(1, 99_999, 999, 0, 0)));
         var both = new FixedSelector(Map.of(SMALL, List.of(idle(cpuWarm, true)), OTHER, List.of(idle(fastOther, true))));

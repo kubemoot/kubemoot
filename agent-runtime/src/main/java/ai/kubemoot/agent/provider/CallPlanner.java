@@ -59,11 +59,19 @@ public class CallPlanner {
     /**
      * What a call needs placed. {@code footprint} and {@code kv} give MiB per model
      * name; {@code promptTokens} is the prompt's estimated size, which the chosen
-     * provider's context must hold (zero when unknown).
+     * provider's context must hold (zero when unknown). {@code mayUnload} false
+     * means the call never unloads idle models to make room: it is placed only
+     * where it fits now, or not at all.
      */
     public record PlacementRequest(String preferred, List<String> alternatives, List<ProviderState> states,
                                    ToLongFunction<String> footprint, ToLongFunction<String> kv,
-                                   long promptTokens) {
+                                   long promptTokens, boolean mayUnload) {
+        /** A request that may unload idle models when nothing fits. */
+        public PlacementRequest(String preferred, List<String> alternatives, List<ProviderState> states,
+                                ToLongFunction<String> footprint, ToLongFunction<String> kv, long promptTokens) {
+            this(preferred, alternatives, states, footprint, kv, promptTokens, true);
+        }
+
         /** A request whose prompt size is unknown. */
         public PlacementRequest(String preferred, List<String> alternatives, List<ProviderState> states,
                                 ToLongFunction<String> footprint, ToLongFunction<String> kv) {

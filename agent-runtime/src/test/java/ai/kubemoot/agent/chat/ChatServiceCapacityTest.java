@@ -97,11 +97,17 @@ class ChatServiceCapacityTest {
     }
 
     private ChatService service(GpuCapacityWaiter waiter, String candidatesJson) {
+        return service(waiter, candidatesJson, null);
+    }
+
+    /** A service whose calls are placed by {@code planner}; null uses the algorithm over {@code selector}. */
+    private ChatService service(GpuCapacityWaiter waiter, String candidatesJson,
+                                ai.kubemoot.agent.provider.CallPlanner planner) {
         var policy = new CandidatePolicy(MAPPER, Optional.ofNullable(candidatesJson), CandidatePolicy.DEFAULT_TOLERANCE);
         return new ChatService(staticModel, mock(RagClient.class), mcpClient, mock(DiscussionOrchestrator.class),
                 ChatServiceToolLoopTest.stubProperties(3, "tooler", false, false),
                 mock(AgentHeartbeatService.class), MAPPER, selector, pool, null, tickets, null,
-                waiter, policy, null, history);
+                waiter, policy, planner, history);
     }
 
     private static ChatService.ChatRequest request() {
@@ -449,6 +455,35 @@ class ChatServiceCapacityTest {
                 () -> service(null, null).triageChat("system", "c".repeat(20_000)));
 
         assertEquals(NoFitException.REASON_PROMPT_TOO_LARGE, nfe.reason());
+        verify(selector, never()).pickAndClaim(anyString(), anyLong(), anyLong(), anyLong());
+    }
+
+    @Test
+    void triage_isPlacedByTheConfiguredPolicy_andNeverUnloadsModels() {
+        when(selector.readState()).thenReturn(List.of(providerWithContext(32_768, 32_768)));
+        var asked = new java.util.ArrayList<ai.kubemoot.agent.provider.CallPlanner.PlacementRequest>();
+        ai.kubemoot.agent.provider.PlacementPolicy recording = new ai.kubemoot.agent.provider.PlacementPolicy() {
+            @Override
+            public ai.kubemoot.agent.provider.PlacementMode mode() {
+                return ai.kubemoot.agent.provider.PlacementMode.LEARNED;
+            }
+
+            @Override
+            public Optional<ai.kubemoot.agent.provider.CallPlanner.Placement> place(
+                    ai.kubemoot.agent.provider.CallPlanner.PlacementRequest r) {
+                asked.add(r);
+                return Optional.empty();
+            }
+        };
+        var service = service(null, null, new ai.kubemoot.agent.provider.CallPlanner(selector, tickets, null, recording));
+
+        // With no placement the call goes to the static endpoint, unreachable in a unit test.
+        assertThrows(RuntimeException.class, () -> service.triageChat("system", "c".repeat(7_000)));
+
+        assertEquals(1, asked.size(), "triage must go through the placement policy");
+        assertEquals(PREFERRED, asked.get(0).preferred());
+        assertTrue(asked.get(0).alternatives().isEmpty(), "triage keeps its own model");
+        assertFalse(asked.get(0).mayUnload(), "a triage call never unloads models to make room");
         verify(selector, never()).pickAndClaim(anyString(), anyLong(), anyLong(), anyLong());
     }
 

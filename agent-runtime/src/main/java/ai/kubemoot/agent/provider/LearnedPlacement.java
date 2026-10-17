@@ -7,6 +7,7 @@ import org.slf4j.LoggerFactory;
 
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Optional;
 
 /**
@@ -117,8 +118,8 @@ public class LearnedPlacement implements PlacementPolicy {
 
     /**
      * The soonest-finishing option of the first model, in the request's order, that
-     * has any option: empty when that model has an unmeasured option, or no model has
-     * an option.
+     * has any option: empty when that model has an unmeasured option, when none of
+     * its options is on a provider that has it, or when no model has an option.
      */
     Optional<Ranked> best(PlacementRequest request) {
         if (selector == null) {
@@ -135,10 +136,18 @@ public class LearnedPlacement implements PlacementPolicy {
         return Optional.empty();
     }
 
-    /** The soonest of the options; empty when any of them is unmeasured. */
+    /**
+     * The soonest of the options on providers that have the model (loaded or
+     * downloaded); empty when any of those is unmeasured. A provider without the
+     * model cannot serve the call, so it is neither an option nor a reason for no
+     * opinion.
+     */
     static Optional<Ranked> soonest(String model, List<ProviderSelector.Option> options, long promptTokens) {
         Ranked best = null;
         for (ProviderSelector.Option o : options) {
+            if (!holds(o.provider(), model)) {
+                continue;
+            }
             Optional<Prediction> p = predict(o, model, promptTokens);
             if (p.isEmpty()) {
                 return Optional.empty();
@@ -148,6 +157,16 @@ public class LearnedPlacement implements PlacementPolicy {
             }
         }
         return Optional.ofNullable(best);
+    }
+
+    /**
+     * True when the provider has the model loaded or downloaded. The operator lists
+     * downloaded models that are not loaded in availableModelFootprintsMiB, so a
+     * provider whose state has no such list counts only what it has loaded.
+     */
+    static boolean holds(ProviderState p, String model) {
+        Map<String, Long> downloaded = p.availableModelFootprintsMiB();
+        return p.hasModelLoaded(model) || (downloaded != null && downloaded.containsKey(model));
     }
 
     /**
