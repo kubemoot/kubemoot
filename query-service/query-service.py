@@ -13,7 +13,8 @@ from urllib.parse import urlparse
 
 import httpx
 import psycopg2
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Response
+from prometheus_client import CONTENT_TYPE_LATEST, Counter, generate_latest
 from psycopg2 import sql
 from psycopg2.extras import RealDictCursor
 from pydantic import BaseModel, Field
@@ -29,15 +30,6 @@ logging.basicConfig(
     datefmt='%Y-%m-%dT%H:%M:%SZ'
 )
 logger = logging.getLogger("kubemoot-query")
-
-# Metrics
-metrics = {
-    "queries_total": 0,
-    "queries_success": 0,
-    "queries_error": 0,
-    "embedding_time_total_ms": 0,
-    "search_time_total_ms": 0,
-}
 
 
 def parse_postgres_endpoint(endpoint: str) -> dict:
@@ -102,6 +94,19 @@ HOST = os.environ.get("KUBEMOOT_QUERY_HOST", "0.0.0.0")
 
 RAGSOURCE_NAME = os.environ.get("KUBEMOOT_RAGSOURCE_NAME", "unknown")
 RAGSOURCE_NAMESPACE = os.environ.get("KUBEMOOT_RAGSOURCE_NAMESPACE", "default")
+
+# Metrics, served at /metrics in the Prometheus text format; counters export with _total.
+# A pod serves one RAGSource, so each counter is bound to its name once.
+QUERIES = Counter("kubemoot_query_requests", "Query requests this RAG query service received",
+                  ["ragsource"]).labels(RAGSOURCE_NAME)
+QUERY_SUCCESSES = Counter("kubemoot_query_success", "Query requests answered",
+                          ["ragsource"]).labels(RAGSOURCE_NAME)
+QUERY_ERRORS = Counter("kubemoot_query_errors", "Query requests that failed",
+                       ["ragsource"]).labels(RAGSOURCE_NAME)
+EMBEDDING_MS = Counter("kubemoot_embedding_time_ms", "Time spent embedding queries, in milliseconds",
+                       ["ragsource"]).labels(RAGSOURCE_NAME)
+SEARCH_MS = Counter("kubemoot_search_time_ms", "Time spent searching the vector store, in milliseconds",
+                    ["ragsource"]).labels(RAGSOURCE_NAME)
 
 
 def get_db_config() -> dict:
@@ -328,7 +333,7 @@ async def query(request: QueryRequest):
     The query text is embedded using the configured embedding model,
     then similarity search is performed against the vector store.
     """
-    metrics["queries_total"] += 1
+    QUERIES.inc()
 
     top_k = request.top_k or DEFAULT_TOP_K
     # Quote table name to handle special characters like hyphens
@@ -342,7 +347,7 @@ async def query(request: QueryRequest):
         embed_start = time.time()
         embedding = await get_embedding(request.query)
         embed_time_ms = int((time.time() - embed_start) * 1000)
-        metrics["embedding_time_total_ms"] += embed_time_ms
+        EMBEDDING_MS.inc(embed_time_ms)
 
         # Search pgvector
         search_start = time.time()
@@ -387,7 +392,7 @@ async def query(request: QueryRequest):
             rows = cur.fetchall()
 
         search_time_ms = int((time.time() - search_start) * 1000)
-        metrics["search_time_total_ms"] += search_time_ms
+        SEARCH_MS.inc(search_time_ms)
 
         results = []
         for row in rows:
@@ -397,7 +402,7 @@ async def query(request: QueryRequest):
                 score=float(row["score"]),
             ))
 
-        metrics["queries_success"] += 1
+        QUERY_SUCCESSES.inc()
         logger.info("Found %s results (embed=%sms, search=%sms)",
                     len(results), embed_time_ms, search_time_ms)
 
@@ -410,17 +415,17 @@ async def query(request: QueryRequest):
         )
 
     except psycopg2.errors.UndefinedTable as e:
-        metrics["queries_error"] += 1
+        QUERY_ERRORS.inc()
         raise HTTPException(
             status_code=404,
             detail=f"Collection '{COLLECTION}' not found. Has indexing completed?"
         ) from e
     except httpx.HTTPError as e:
-        metrics["queries_error"] += 1
+        QUERY_ERRORS.inc()
         logger.error("Embedding service error: %s", e)
         raise HTTPException(status_code=502, detail=f"Embedding service error: {e}") from e
     except Exception as e:
-        metrics["queries_error"] += 1
+        QUERY_ERRORS.inc()
         logger.exception("Query failed")
         raise HTTPException(status_code=500, detail=str(e)) from e
 
@@ -466,30 +471,9 @@ async def info():
 
 
 @app.get("/metrics")
-async def prometheus_metrics():
-    """Prometheus-compatible metrics endpoint."""
-    lines = [
-        "# HELP kubemoot_query_requests_total Total number of query requests",
-        "# TYPE kubemoot_query_requests_total counter",
-        f'kubemoot_query_requests_total{{ragsource="{RAGSOURCE_NAME}"}} {metrics["queries_total"]}',
-        "",
-        "# HELP kubemoot_query_success_total Successful query requests",
-        "# TYPE kubemoot_query_success_total counter",
-        f'kubemoot_query_success_total{{ragsource="{RAGSOURCE_NAME}"}} {metrics["queries_success"]}',
-        "",
-        "# HELP kubemoot_query_errors_total Failed query requests",
-        "# TYPE kubemoot_query_errors_total counter",
-        f'kubemoot_query_errors_total{{ragsource="{RAGSOURCE_NAME}"}} {metrics["queries_error"]}',
-        "",
-        "# HELP kubemoot_embedding_time_ms_total Total embedding generation time",
-        "# TYPE kubemoot_embedding_time_ms_total counter",
-        f'kubemoot_embedding_time_ms_total{{ragsource="{RAGSOURCE_NAME}"}} {metrics["embedding_time_total_ms"]}',
-        "",
-        "# HELP kubemoot_search_time_ms_total Total vector search time",
-        "# TYPE kubemoot_search_time_ms_total counter",
-        f'kubemoot_search_time_ms_total{{ragsource="{RAGSOURCE_NAME}"}} {metrics["search_time_total_ms"]}',
-    ]
-    return "\n".join(lines)
+async def prometheus_metrics() -> Response:
+    """Prometheus metrics, each with its HELP description."""
+    return Response(content=generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
 
 if __name__ == "__main__":
