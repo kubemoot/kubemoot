@@ -33,7 +33,7 @@ Declares an inference endpoint. The operator discovers GPU capacity (VRAM, loade
 | `secretRef` | string | No | Reserved for future provider types; not used by `ollama` |
 | `scheduling.weight` | int | No | Preference between providers for reasons other than capacity (higher is preferred); default 100 |
 | `scheduling.memoryMiB` | int | No | Memory budget the fit gate spends when the operator cannot discover one; see below |
-| `calibration.enabled` | bool | No | Whether the scheduling crew calibrates this provider (default `true`); see Calibration below |
+| `calibration.enabled` | bool | No | Whether this provider may be calibrated (default `true`); see Calibration below |
 
 ### Status
 
@@ -106,21 +106,39 @@ whole size against `memoryMiB`.
 long the engine takes to load it, how much accelerator memory it takes, the context the
 engine gives it, how fast it processes a long prompt and generates, the total generation
 speed with the provider's parallel slots in use, and whether it fits or spills to the
-CPU, with a `Calibrated` condition. Calibration is done by calling the `accelerator-mcp`
-tools (`list_providers`, `provider_state`, `probe_model`, `record_calibration`), which
-measure and record but leave what to probe, and when, to the caller: the scheduling
-crew's model-provider-calibrator (see
-[The scheduling crew](../architecture/scheduler.md#the-scheduling-crew)) when asked. The scheduler does
-not read `status.calibration` yet. A provider no one has calibrated has no
+CPU, with a `Calibrated` condition.
+
+**When it runs.** The operator starts a calibration on its own when a provider needs one:
+it was never calibrated, a reset was requested, its engine version changed, or Models
+were bound to it that the calibration has not measured. It asks once per need. It
+resumes a calibration that paused as `Waiting` (crew calls took the provider, or the
+calibration server stopped mid-run) once no call holds the provider, and retries one
+that `Failed` once the provider has become ready again after the failure. A need that
+arrives while a calibration is already running is asked once that run ends. It
+starts calibrations through the `accelerator-mcp` core server once that server is ready
+(see [The scheduling crew](../architecture/scheduler.md#the-scheduling-crew)); the
+scheduling crew's model-provider-calibrator also starts them when asked. The scheduler
+does not read `status.calibration` yet. A provider never calibrated has no
 `status.calibration`.
+
+**What it measures.** The `calibrate_provider` tool runs a fixed recipe in the
+background, with no model making decisions: for each model, load it, send two short
+requests, a long prompt, and, when the provider runs requests together, a parallel batch.
+Each number is copied from one probe: generation speed from the second (warm) short
+request, prompt speed from the long prompt. Without a list of models it measures the
+downloaded models that Model resources bind to the provider, else the three smallest that
+fit. A model that does not fit is recorded with `fits: false` and its reason; a model the
+recipe could not measure is left out and named in the message; if none could be
+measured, the phase is `Failed`.
 
 | `status.calibration` field | Description |
 |-------|-------------|
 | `phase` | `Calibrating`, `Calibrated`, `Waiting` (paused because crew calls were using the provider), or `Failed` |
-| `message` | What the caller said about the run |
+| `message` | What the run measured, or why it paused or failed |
 | `engineVersion` | The engine version the results were measured on |
 | `resetToken` | The last reset request acted on, set when the calibration it asked for starts |
 | `completedAt` | When the last calibration finished |
+| `updatedAt` | When the calibration was last recorded, in any phase |
 | `models[]` | Per model: `fits`, `reason`, `loadMs`, `residentMiB`, `contextLength`, `promptTokensPerSecond`, `generateTokensPerSecond`, `parallelRequests`, `parallelGenerateTokensPerSecond`, `calibratedAt` |
 
 The tools keep calibration out of a crew's way. A probe sends nothing while other calls
@@ -144,6 +162,10 @@ kubectl annotate modelprovider ollama-gpu -n kubemoot --overwrite \
 
 Set `spec.calibration.enabled: false` to refuse probes on a provider whose calls are not
 wanted, such as a leased accelerator billed per request.
+
+`status.calibrationRequest` is the operator's last request: `key` names the need it
+asked about (`new`, `reset/<token>`, `engine/<version>`, or `models/<digest>`), `reason`
+says it in words, and `requestedAt` says when.
 
 ### Example
 

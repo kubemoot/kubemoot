@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"testing"
 
 	"k8s.io/apimachinery/pkg/runtime"
@@ -12,12 +13,15 @@ import (
 	"github.com/kubemoot/kubemoot/accelerator-mcp/internal/storetest"
 )
 
-func TestNewToolSet_wiresTheFourTools(t *testing.T) {
+func TestNewToolSet_wiresTheFiveTools(t *testing.T) {
 	scheme := runtime.NewScheme()
 	_ = aiv1alpha1.AddToScheme(scheme)
-	set := newToolSet(fake.NewClientBuilder().WithScheme(scheme).Build(), storetest.NewMemKV(), "kubemoot/accelerator-mcp/pod-a")
-	if len(set.Specifications()) != 4 {
-		t.Fatalf("four tools: %v", set.Specifications())
+	set := newToolSet(context.Background(), fake.NewClientBuilder().WithScheme(scheme).Build(), storetest.NewMemKV(), "kubemoot/accelerator-mcp/pod-a")
+	if len(set.Specifications()) != 5 {
+		t.Fatalf("five tools: %v", set.Specifications())
+	}
+	if set.Jobs == nil {
+		t.Fatal("no background jobs runner for calibrate_provider")
 	}
 	if _, ok := set.Prober.(*probe.Prober); !ok {
 		t.Fatalf("the prober the idle unloader drives: %T", set.Prober)

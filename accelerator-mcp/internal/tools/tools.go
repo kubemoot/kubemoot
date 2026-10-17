@@ -46,6 +46,8 @@ const (
 	fieldProbe       = "probe"
 	fieldType        = "type"
 	fieldDescription = "description"
+	fieldModels      = "models"
+	typeString       = "string"
 )
 
 // resetScopeAll is the reset scope that also forgets the provider's performance history.
@@ -82,6 +84,8 @@ type Set struct {
 	History store.History
 	Engine  func(endpoint string) engine.Engine
 	Now     func() time.Time
+	// Jobs runs calibrate_provider recipes in the background.
+	Jobs *Jobs
 }
 
 // Call runs the named tool with its JSON arguments and returns its JSON result.
@@ -97,6 +101,8 @@ func (s *Set) Call(ctx context.Context, name string, args json.RawMessage) (stri
 		out, err = s.probeModel(ctx, args)
 	case ToolRecordCalibration:
 		out, err = s.recordCalibration(ctx, args)
+	case ToolCalibrateProvider:
+		out, err = s.calibrateProvider(ctx, args)
 	default:
 		return "", fmt.Errorf("unknown tool %q", name)
 	}
@@ -291,16 +297,23 @@ func (s *Set) probeModel(ctx context.Context, raw json.RawMessage) (any, error) 
 	if !cluster.CalibrationEnabled(p) {
 		return nil, fmt.Errorf("provider %s has spec.calibration.enabled false", p.Name)
 	}
-	size, ok := sizeOf(p, args.Model)
-	if !ok {
+	if _, ok := sizeOf(p, args.Model); !ok {
 		return nil, fmt.Errorf("%s has not reported %s among its downloaded models; provider_state lists them",
 			p.Name, args.Model)
 	}
-	return s.Prober.Probe(ctx, probe.Request{
-		Provider: p.Name, Endpoint: p.Spec.Endpoint, Model: args.Model, Kind: args.Probe,
-		MaxParallel: cluster.MaxParallel(p), SizeMiB: size,
-		MemoryMiB: cluster.UsableMemoryMiB(p), Accelerator: cluster.HasAccelerator(p),
-	})
+	if err := s.notDuringAJob(p.Name); err != nil {
+		return nil, err
+	}
+	return s.Prober.Probe(ctx, requestFor(p, args.Model, args.Probe))
+}
+
+// notDuringAJob refuses a tool that would disturb a calibrate_provider run: a
+// probe or a record unloading its model would make the next measurement cold.
+func (s *Set) notDuringAJob(provider string) error {
+	if s.Jobs.Running(provider) {
+		return fmt.Errorf("a calibrate_provider run is in progress on %s; list_providers shows when it ends", provider)
+	}
+	return nil
 }
 
 // sizeOf is the model's size on disk as the provider reports it; false when the
@@ -387,19 +400,30 @@ func (s *Set) recordCalibration(ctx context.Context, raw json.RawMessage) (any, 
 	if err != nil {
 		return nil, err
 	}
-	p, err := s.Cluster.Provider(ctx, args.Provider)
+	if err := s.notDuringAJob(args.Provider); err != nil {
+		return nil, err
+	}
+	return s.record(ctx, args.Provider, args.Phase, args.Message, models)
+}
+
+// record writes a calibration phase and its results on the provider. Starting
+// (Calibrating) acts on a pending reset; any other phase ends the calibration and
+// unloads the models its probes loaded.
+func (s *Set) record(ctx context.Context, provider, phase, message string,
+	models []aiv1alpha1.ModelCalibration) (map[string]any, error) {
+	p, err := s.Cluster.Provider(ctx, provider)
 	if err != nil {
 		return nil, err
 	}
-	forgot, err := s.forgetOnReset(p, args.Phase)
+	forgot, err := s.forgetOnReset(p, phase)
 	if err != nil {
 		return nil, fmt.Errorf("forgetting the provider's history for the reset: %w", err)
 	}
-	if err := s.Cluster.RecordCalibration(ctx, p, s.apply(args.Phase, args.Message, models)); err != nil {
+	if err := s.Cluster.RecordCalibration(ctx, p, s.apply(phase, message, models)); err != nil {
 		return nil, err
 	}
-	out := map[string]any{fieldProvider: p.Name, fieldPhase: args.Phase, "historyForgotten": forgot}
-	if args.Phase != PhaseCalibrating {
+	out := map[string]any{fieldProvider: p.Name, fieldPhase: phase, "historyForgotten": forgot}
+	if phase != PhaseCalibrating {
 		unloaded, err := s.Prober.Finish(ctx, p.Name)
 		out["unloaded"] = unloaded
 		if err != nil {
@@ -432,6 +456,7 @@ func (s *Set) apply(phase, message string,
 		now := s.now()
 		cal.Phase = phase
 		cal.Message = message
+		cal.UpdatedAt = &now
 		if phase == PhaseCalibrating && cluster.ResetRequested(p) {
 			cal.Models = nil
 			cal.ResetToken = p.Annotations[cluster.AnnotationReset]

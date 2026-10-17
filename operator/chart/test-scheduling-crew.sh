@@ -33,10 +33,10 @@ ns=kubemoot-scheduling
   || fail "the crew should have two agents"
 [ "$(get "$out" Agent scheduling-coordinator .spec.discussRole)" = coordinator ] || fail "no coordinator"
 
-# The calibrator: a tooler limited to the four accelerator-mcp tools.
+# The calibrator: a tooler limited to the accelerator-mcp tools it needs for judgment.
 [ "$(get "$out" Agent model-provider-calibrator .spec.discussRole)" = tooler ] || fail "the calibrator is not a tooler"
 [ "$(get "$out" Agent model-provider-calibrator '.spec.enabledTools | join(",")')" = \
-  "list_providers,provider_state,probe_model,record_calibration" ] || fail "the calibrator's tools are wrong"
+  "list_providers,provider_state,calibrate_provider" ] || fail "the calibrator's tools are wrong"
 
 # Every prompt module an agent refers to exists in the crew namespace.
 for ref in $(yq -N 'select(.kind == "Agent" and .metadata.namespace == "kubemoot-scheduling") | .spec.promptRefs[]' <<<"$out"); do
@@ -67,7 +67,7 @@ image="$(get "$out" MCPServer accelerator-mcp .spec.image)"
 [[ "$image" == */accelerator-mcp:* ]] || fail "unexpected accelerator-mcp image: $image"
 [ "$(get "$out" MCPServer accelerator-mcp '.spec.command[0]')" = /cnb/process/web ] || fail "not started by the launcher"
 [ "$(get "$out" MCPServer accelerator-mcp .spec.serviceAccountName)" = accelerator-mcp ] || fail "no ServiceAccount"
-writes="$(yq -N 'select(.kind == "ClusterRole" and (.metadata.name | test("accelerator-mcp"))) | .rules[] | select(.verbs[] == "update") | .resources[]' <<<"$out" | sort -u)"
+writes="$(yq -N 'select(.kind == "ClusterRole" and (.metadata.name | test("accelerator-mcp"))) | .rules[] | select(.verbs[] == "patch") | .resources[]' <<<"$out" | sort -u)"
 [ "$writes" = "modelproviders/status" ] || fail "the tools may update more than ModelProvider status: $writes"
 
 # No rule names hardware: prompts and the skill read what exists through the tools.
@@ -76,12 +76,12 @@ if yq -N 'select(.metadata.namespace == "kubemoot-scheduling" and (.kind == "Pro
   fail "a scheduling-crew prompt names hardware or a model"
 fi
 
-# The RBAC grants exactly what the tools call: get and list, and update on status.
+# The RBAC grants exactly what the tools call: get and list, and patch on status.
 role='select(.kind == "ClusterRole" and (.metadata.name | test("accelerator-mcp")))'
 [ "$(yq -N "$role | .rules[] | select(.resources[] == \"models\") | .verbs | join(\",\")" <<<"$out")" = "get,list" ] \
   || fail "the tools should only get and list ModelProviders and Models"
-[ "$(yq -N "$role | .rules[] | select(.resources[] == \"modelproviders/status\") | .verbs | join(\",\")" <<<"$out")" = "update" ] \
-  || fail "the tools should only update ModelProvider status"
+[ "$(yq -N "$role | .rules[] | select(.resources[] == \"modelproviders/status\") | .verbs | join(\",\")" <<<"$out")" = "patch" ] \
+  || fail "the tools should only patch ModelProvider status"
 [ "$(get "$out" MCPServer accelerator-mcp .spec.securityMode)" = strict ] || fail "the MCP server should run in strict security mode"
 
 # Without chart-declared ModelProviders the crew would have no Model to think with: nothing renders.

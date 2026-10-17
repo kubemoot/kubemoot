@@ -118,12 +118,16 @@ func (c Cluster) RecordCalibration(ctx context.Context, p *aiv1alpha1.ModelProvi
 		if err := c.Client.Get(ctx, key, current); err != nil {
 			return err
 		}
+		// A merge patch sends only what changed, so status fields this build does
+		// not know about are left as they are; the resource version guards races.
+		original := current.DeepCopy()
 		if current.Status.Calibration == nil {
 			current.Status.Calibration = &aiv1alpha1.ProviderCalibration{}
 		}
 		update(current.Status.Calibration, current)
 		meta.SetStatusCondition(&current.Status.Conditions, condition(current.Status.Calibration))
-		return c.Client.Status().Update(ctx, current)
+		return c.Client.Status().Patch(ctx, current,
+			client.MergeFromWithOptions(original, client.MergeFromWithOptimisticLock{}))
 	})
 }
 

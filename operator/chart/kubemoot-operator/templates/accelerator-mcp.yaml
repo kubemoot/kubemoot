@@ -26,7 +26,7 @@ rules:
     verbs: ["get", "list"]
   - apiGroups: ["kubemoot.ai"]
     resources: ["modelproviders/status"]
-    verbs: ["update"]
+    verbs: ["patch"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding

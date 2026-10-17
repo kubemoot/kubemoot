@@ -91,14 +91,14 @@ func TestRecordCalibration_retriesAConflict(t *testing.T) {
 	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(provider("kubemoot", "gpu-a")).
 		WithStatusSubresource(&aiv1alpha1.ModelProvider{}).
 		WithInterceptorFuncs(interceptor.Funcs{
-			SubResourceUpdate: func(ctx context.Context, cl client.Client, sub string, obj client.Object,
-				opts ...client.SubResourceUpdateOption) error {
+			SubResourcePatch: func(ctx context.Context, cl client.Client, sub string, obj client.Object,
+				patch client.Patch, opts ...client.SubResourcePatchOption) error {
 				if conflicts > 0 {
 					conflicts--
 					return apierrors.NewConflict(schema.GroupResource{Resource: "modelproviders"}, obj.GetName(),
 						errors.New("changed meanwhile"))
 				}
-				return cl.SubResource(sub).Update(ctx, obj, opts...)
+				return cl.SubResource(sub).Patch(ctx, obj, patch, opts...)
 			},
 		}).Build()
 	cl := Cluster{Client: c}
@@ -113,3 +113,31 @@ func TestRecordCalibration_retriesAConflict(t *testing.T) {
 	got, _ := cl.Provider(context.Background(), "gpu-a")
 	check(t, "written", got.Status.Calibration != nil && got.Status.Calibration.Phase == PhaseCalibrated, got.Status)
 }
+
+// Recording a calibration leaves the rest of the status as it was, including the
+// operator's calibration request.
+func TestRecordCalibration_keepsTheRestOfTheStatus(t *testing.T) {
+	scheme := runtime.NewScheme()
+	if err := aiv1alpha1.AddToScheme(scheme); err != nil {
+		t.Fatal(err)
+	}
+	p := provider("kubemoot", "gpu-a")
+	p.Status.Message = "Connected to Ollama"
+	p.Status.CalibrationRequest = &aiv1alpha1.CalibrationRequest{Key: "new", RequestedAt: metav1.Now()}
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(p).
+		WithStatusSubresource(&aiv1alpha1.ModelProvider{}).Build()
+	cl := Cluster{Client: c}
+	current, _ := cl.Provider(context.Background(), "gpu-a")
+	err := cl.RecordCalibration(context.Background(), current, func(cal *aiv1alpha1.ProviderCalibration,
+		_ *aiv1alpha1.ModelProvider) {
+		cal.Phase = phaseWaitingForTest
+	})
+	got, _ := cl.Provider(context.Background(), "gpu-a")
+	check(t, "recorded", err == nil && got.Status.Calibration.Phase == phaseWaitingForTest, err)
+	check(t, "request kept", got.Status.CalibrationRequest != nil && got.Status.CalibrationRequest.Key == "new",
+		got.Status.CalibrationRequest)
+	check(t, "message kept", got.Status.Message == "Connected to Ollama", got.Status.Message)
+}
+
+// phaseWaitingForTest is the phase the tools record when crews were using the provider.
+const phaseWaitingForTest = "Waiting"

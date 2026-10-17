@@ -129,6 +129,14 @@ type ModelProviderStatus struct {
 	// +optional
 	Calibration *ProviderCalibration `json:"calibration,omitempty"`
 
+	// CalibrationRequest is the operator's last request to calibrate this provider,
+	// made through the accelerator-mcp core server. The operator asks once per need
+	// (a new provider, a reset, a changed engine, newly bound models), and again for
+	// the same need only after the calibration paused as Waiting and the provider
+	// fell idle
+	// +optional
+	CalibrationRequest *CalibrationRequest `json:"calibrationRequest,omitempty"`
+
 	// Conditions represent the latest available observations
 	// +optional
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
@@ -158,9 +166,27 @@ type ProviderCalibration struct {
 	// +optional
 	CompletedAt *metav1.Time `json:"completedAt,omitempty"`
 
+	// UpdatedAt is when the calibration was last recorded, in any phase
+	// +optional
+	UpdatedAt *metav1.Time `json:"updatedAt,omitempty"`
+
 	// Models holds one result per model calibrated
 	// +optional
 	Models []ModelCalibration `json:"models,omitempty"`
+}
+
+// CalibrationRequest is a request the operator made to calibrate a provider.
+type CalibrationRequest struct {
+	// Key names the need asked about, such as new, reset/<token>, engine/<version>,
+	// or models/<digest>
+	Key string `json:"key"`
+
+	// Reason is the need in words
+	// +optional
+	Reason string `json:"reason,omitempty"`
+
+	// RequestedAt is when the request was made
+	RequestedAt metav1.Time `json:"requestedAt"`
 }
 
 // ModelCalibration is what calibration measured for one model on a provider.

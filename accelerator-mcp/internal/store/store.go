@@ -35,7 +35,7 @@ type KV interface {
 
 // Buckets the agent runtime reads; the operator's streams job creates them.
 const (
-	TicketsBucket     = "kubemoot_provider_tickets"
+	TicketsBucket     = bus.ProviderTicketsBucket
 	PerformanceBucket = "kubemoot_scheduler_performance"
 )
 
@@ -57,7 +57,7 @@ func (t Tickets) othersOn(provider string) ([]bus.ProviderTicket, error) {
 	}
 	var out []bus.ProviderTicket
 	for _, key := range keys {
-		if !strings.HasPrefix(key, provider+"__") {
+		if !strings.HasPrefix(key, bus.ProviderTicketPrefix(provider)) {
 			continue
 		}
 		raw, err := t.KV.GetKVValue(TicketsBucket, key)
@@ -114,7 +114,7 @@ func (t Tickets) Claim(provider, model string, footprintMiB int64) (string, erro
 	if err != nil {
 		return "", err
 	}
-	key := provider + "__" + ticket.TicketID
+	key := bus.ProviderTicketPrefix(provider) + ticket.TicketID
 	return key, t.KV.PutKVValue(TicketsBucket, key, raw)
 }
 

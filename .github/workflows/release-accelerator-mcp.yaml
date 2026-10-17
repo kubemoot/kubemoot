@@ -1,6 +1,6 @@
 name: Release Accelerator MCP
 
-# accelerator-mcp is pinned by the operator chart for its scheduling crew (schedulingCrew
+# accelerator-mcp is pinned by the operator chart as a core MCP server (acceleratorMcp
 # values). Each push builds an accelerator-mcp-vX.Y.Z-rc.N image in Harbor; the chart
 # release stamps the latest candidate into the chart, and Publish Release copies the
 # candidate the chart was packaged with to GHCR as the final.
@@ -10,6 +10,10 @@ on:
     paths:
       - 'accelerator-mcp/**'
       - '!accelerator-mcp/**.md'
+      # It builds against the operator's API types: rebuild when they change.
+      - 'operator/api/**'
+      - 'operator/go.mod'
+      - 'operator/go.sum'
       - '.github/scripts/retag-image.sh'
       - '.github/scripts/go-build-static.sh'
       - '.github/workflows/build-go-binary-image.yaml'

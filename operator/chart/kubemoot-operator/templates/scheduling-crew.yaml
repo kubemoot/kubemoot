@@ -99,14 +99,14 @@ metadata:
     kubemoot.ai/role: tooler
 spec:
   type: chat
-  description: "Measures ModelProviders: load time, prompt and generation speed, parallel throughput, and whether each model fits."
-  triageSummary: "Calibrates ModelProviders with the accelerator-mcp tools: lists providers and their calibration status, probes their models, and records the results on each provider."
+  description: "Decides when and what to calibrate on ModelProviders, starts calibrations, and explains the results."
+  triageSummary: "Calibrates ModelProviders with the accelerator-mcp tools: lists providers and their calibration status and results, and starts a calibration of a provider or of chosen models."
   discussRole: tooler
   capabilities: [tool-calling]
   discussChannels: [general]
   discussKeywords: [calibrate, calibration, recalibrate, provider, providers, accelerator, probe, modelprovider]
   promptRefs: [scheduling-protocol, scheduling-response-style, model-provider-calibrator-system]
-  enabledTools: [list_providers, provider_state, probe_model, record_calibration]
+  enabledTools: [list_providers, provider_state, calibrate_provider]
   temperature: "0.1"
   maxTokens: 4096
   deployment:
