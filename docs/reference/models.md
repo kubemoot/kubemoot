@@ -28,7 +28,7 @@ Declares an inference endpoint. The operator discovers GPU capacity (VRAM, loade
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `type` | string | Yes | Only `ollama` is supported today. Any other value, including `openai` and `anthropic`, is rejected at admission: those types are not supported yet. |
+| `type` | string | Yes | The model server's engine type. Only `ollama` is supported today. Any other value, including `openai` and `anthropic`, is rejected at admission: those types are not supported yet. The operator publishes it as `engine` in the provider state, and agents use it to pick the adapter that calls the server through the OpenAI-compatible chat API. |
 | `endpoint` | string | For ollama | API endpoint URL |
 | `secretRef` | string | No | Reserved for future provider types; not used by `ollama` |
 | `scheduling.weight` | int | No | Preference between providers for reasons other than capacity (higher is preferred); default 100 |

@@ -32,7 +32,7 @@ Kubemoot's provider selection works the same way. Each inference call is the equ
 
 The operator's job is to publish state and candidates, not to pick the call's provider:
 
-- The **`ModelProvider` reconciler** probes each provider (Ollama `/api/ps`, DCGM) and publishes per-provider `{totalVramMiB, loadedModelFootprints, ready, lastProbedAt}` to NATS KV bucket `kubemoot_provider_state`. The agent runtime reads this on every inference call.
+- The **`ModelProvider` reconciler** probes each provider (Ollama `/api/ps`, DCGM) and publishes per-provider `{engine, totalVramMiB, loadedModelFootprints, ready, lastProbedAt}` to NATS KV bucket `kubemoot_provider_state`. `engine` is the provider's `spec.type`; when it is absent the agent treats the provider as Ollama. The agent runtime reads this on every inference call.
 - The **Agent reconciler** computes the candidate `(Model, Provider)` matches via the filter and score machinery described above, binds the best as the agent's preferred model (`KUBEMOOT_MODEL_MODEL`), and publishes each phase's ranked candidate models as `KUBEMOOT_MODEL_CANDIDATES_MULLING` and `KUBEMOOT_MODEL_CANDIDATES_TRIAGE`. The per-call model and provider are chosen at the inference boundary (see [Candidate models per call](#candidate-models-per-call)).
 
 The agent runtime contains two classes for this:
@@ -193,17 +193,26 @@ The coordinator records each `waiting` signal and each `stand_aside` carrying `g
 
 Both sentences appear when both reasons occurred. Otherwise the ordinary synthesis and no-contribution text apply.
 
-#### ChatModelPool
+#### ChatModelPool and engine adapters
 
 `agent-runtime/src/main/java/ai/kubemoot/agent/provider/ChatModelPool.java`
 
-The Quarkus-injected `ChatModel` is fixed to one base-url at startup - wrong shape for JIT selection. `ChatModelPool` caches `OllamaChatModel` instances keyed by endpoint, model, and call settings (temperature, max tokens, timeout, think), built lazily on first use. A call that picks a candidate model on an endpoint the pool already serves gets its own instance for that model. Built with `.maxRetries(1)` - see [Bounded retries](#bounded-retries-and-failure-attribution) below.
+The Quarkus-injected `ChatModel` is fixed to one base-url at startup - wrong shape for JIT selection. `ChatModelPool` caches chat clients keyed by endpoint, model, engine, and call settings (temperature, max tokens, timeout, thinking), built lazily on first use. A call that picks a candidate model on an endpoint the pool already serves gets its own instance for that model. Built with a single retry - see [Bounded retries](#bounded-retries-and-failure-attribution) below.
+
+Every scheduled call reaches the model server through the OpenAI-compatible chat API (`/v1/chat/completions`), so the call path is the same on every engine. The API leaves two things open, and a small per-engine adapter (`ChatEngine`) supplies them:
+
+- **Where the API lives** on the server. Ollama serves it at the provider endpoint plus `/v1`.
+- **How a request turns thinking off.** Ollama takes `reasoning_effort: none`, because it ignores its native `think` setting on this API. Other OpenAI-compatible servers, such as vLLM and SGLang, take `chat_template_kwargs: {enable_thinking: false}`. Turning thinking on, or leaving the agent's setting unset, sends nothing, because thinking models think by default.
+
+The agent picks the adapter from the `engine` field the operator publishes in the provider state; an absent `engine` selects the Ollama adapter. The `ModelProvider` CRD admits only `type: ollama` today, so every provider is Ollama in practice. Supporting another engine means adding one adapter. Calibration is separate: it measures a provider through `accelerator-mcp`, which still talks to Ollama's own API.
+
+The static fallback model, used when the scheduler cannot place a tool-loop call, still comes from the Quarkus Ollama extension and its `quarkus.langchain4j.ollama.*` settings.
 
 ### Bounded retries and failure attribution
 
 Two follow-on protections were essential once selection moved to call-time:
 
-- **`OllamaChatModel.builder().maxRetries(1)`** in `ChatModelPool`. LangChain4j's default `RetryUtils` would have silently retried a slow Ollama call up to 3 times, multiplying the 120s Quarkus/Vertx HTTP timeout into a 6+ minute silent hang. With maxRetries(1), a timeout surfaces as a single failed call in 120s and the agent's failure-signal path takes over.
+- **A single retry** on every client in `ChatModelPool`. LangChain4j's default retries would have silently retried a slow model call up to 3 times, multiplying the 120s Quarkus/Vertx HTTP timeout into a 6+ minute silent hang. With one retry, a timeout surfaces as a single failed call in 120s and the agent's failure-signal path takes over.
 - **`ChatService.callWithToolLoop` bounded tool retries** via `ToolCallFailure`. Caps same-tool failures at 2 and total tool failures at 4 per loop iteration. When a tool consistently errors (MCP server down, etc.), the loop aborts early instead of grinding through 15 iterations of error responses.
 
 When these protections trip, the agent publishes a **first-class `failure` consensus signal** (not a `stand_aside`) carrying `failureType` + `failedTool` + `lastError` metadata. See `agentic-consensus.md` for the consensus-protocol implications and `agent.md` for the runtime mechanics.
@@ -317,7 +326,7 @@ The operator resolves crew, then realm, then `algorithm`, and passes the result 
 Every scheduled model request is recorded so the scheduler can learn from what it observed instead of from configured values. The agent runtime writes the NATS KV bucket `kubemoot_scheduler_performance` (created by the operator's streams job, TTL 30 days); its schema is `SchedulerPerformance` in the bus contract.
 
 - **One key per provider, model, and agent:** `<provider>.<model>.<agent>`, each token escaped. Each agent writes only its own key, so writes need no compare-and-set; a reader folds every agent's key for a provider and model.
-- **Each request records:** which path sent it (`tool-turn`, `simple`, `triage`), the outcome, whether the model was cold on the provider when the call was placed, prompt and generated tokens, the duration the agent measured, the number of calls holding a ticket on the provider when it started, and, when the engine reports them, its load, prompt-processing, and generation times. Triage calls carry the engine's timings; calls through the chat client carry tokens and duration, and the engine timings are `-1`.
+- **Each request records:** which path sent it (`tool-turn`, `simple`, `triage`), the outcome, whether the model was cold on the provider when the call was placed, prompt and generated tokens, the duration the agent measured, the number of calls holding a ticket on the provider when it started, and the call's timings. Triage, advisory, and synthesis calls are streamed and timed on any engine: the time to first token (reading the prompt, plus loading the model when the call was cold) and the generation time after it. Prompt time is recorded only for warm calls, and generation time only for replies of at least 8 tokens, so a cold load or a very short reply does not skew the history. Token usage comes from the stream's final chunk. Other calls carry tokens and duration, and the timings are `-1`.
 - **Each wait records:** how long a call waited for capacity before it was placed on that provider.
 - **Bounded:** each key keeps its last 32 requests and 16 waits, with lifetime request and failure counts.
 - **Never in the way:** writes run on one background thread with a bounded queue and are dropped when the queue is full or NATS is down; a request is never slowed or failed by recording it.
