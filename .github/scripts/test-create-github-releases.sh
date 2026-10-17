@@ -133,6 +133,40 @@ check "the rerun publishes the draft" "0|published|published" "${status}|$(state
 check "without creating it again" 0 "$(grep -c '^gh release create alpha-v0.5.0 ' "$LOG" || true)"
 check "with one copy of its provenance" 2 "$(wc -l < "${GH_STATE}/alpha-v0.5.0/assets/alpha_0.5.0.intoto.jsonl" | tr -d ' ')"
 
+# 3b. Other assets: assets.tsv adds files to a release beside its provenance.
+rm -rf "${GH_STATE:?}"/*
+setup assets
+mkdir -p "${root}/assets/files/dashboards"
+echo '{"title":"x"}' > "${root}/assets/files/dashboards/kubemoot-scheduler.json"
+printf 'alpha-v0.5.0\tdashboards/kubemoot-scheduler.json\n' > "${root}/assets/files/assets.tsv"
+run assets && status=0 || status=$?
+check "a release with other assets is published" "0|published" "${status}|$(state alpha-v0.5.0)"
+check "with the asset beside its provenance" "alpha_0.5.0.intoto.jsonl kubemoot-scheduler.json" \
+  "$(find "${GH_STATE}/alpha-v0.5.0/assets" -type f -printf '%f\n' | sort | paste -sd' ')"
+check "and only on its own release" "beta_0.30.1.intoto.jsonl" "$(ls "${GH_STATE}/beta-v0.30.1/assets")"
+
+rm -rf "${GH_STATE:?}"/*
+setup asset-missing
+printf 'alpha-v0.5.0\tdashboards/gone.json\n' > "${root}/asset-missing/files/assets.tsv"
+run asset-missing && status=0 || status=$?
+check "a missing asset fails the run" 1 "$((status != 0))"
+check "and names it" 1 "$(grep -c 'asset dashboards/gone.json of alpha-v0.5.0 not found' "${root}/asset-missing.log")"
+check "before the release is created" none "$(state alpha-v0.5.0)"
+
+for clash in "alpha_0.5.0.intoto.jsonl" "dashboards/a/x.json dashboards/b/x.json"; do
+  rm -rf "${GH_STATE:?}"/*
+  setup asset-clash
+  mkdir -p "${root}/asset-clash/files/dashboards/a" "${root}/asset-clash/files/dashboards/b"
+  : > "${root}/asset-clash/files/assets.tsv"
+  for f in $clash; do
+    echo '{}' > "${root}/asset-clash/files/${f}"
+    printf 'alpha-v0.5.0\t%s\n' "$f" >> "${root}/asset-clash/files/assets.tsv"
+  done
+  run asset-clash && status=0 || status=$?
+  check "assets with one name fail the run (${clash})" "1|1|none" \
+    "$((status != 0))|$(grep -c 'two assets of alpha-v0.5.0 are named' "${root}/asset-clash.log")|$(state alpha-v0.5.0)"
+done
+
 # 4. Unexpected inputs: nothing is created for a release whose provenance is not right.
 rm -rf "${GH_STATE:?}"/*
 setup missing

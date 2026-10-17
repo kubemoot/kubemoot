@@ -33,6 +33,7 @@
 #      and ${OUT_DIR}/releases.tsv names the GitHub Release to write.
 #      ${OUT_DIR}/provenance.tsv maps every signed artifact to that release, which
 #      carries their provenance as kubemoot_A.B.C.intoto.jsonl (create-github-releases.sh).
+#      ${OUT_DIR}/assets.tsv adds the chart's Grafana dashboards to that release.
 #
 # Re-running after a partial failure is safe: an image already published with the
 # same digest is skipped, a different digest stops the run, and the run refuses to
@@ -268,6 +269,23 @@ write_provenance_map() {
   done < "${OUT_DIR}/subjects.tsv"
 }
 
+# write_dashboard_assets TAG: the Grafana dashboards of the chart being published, for
+# the GitHub Release TAG to carry as assets, so Grafana users can import them without
+# the chart. They are the chart's own files, read from the checkout it is packaged from.
+write_dashboard_assets() {
+  local f
+  : > "${OUT_DIR}/assets.tsv"
+  rm -rf "${OUT_DIR}/dashboards"
+  mkdir -p "${OUT_DIR}/dashboards"
+  for f in "${RL_CHECKOUT}/${CHART_DIR}/dashboards/"*.json; do
+    [ -f "$f" ] || continue
+    # A broken dashboard stops the run before anything is published.
+    jq -e . "$f" >/dev/null 2>&1 || die "dashboard ${f##*/} is not valid JSON"
+    cp "$f" "${OUT_DIR}/dashboards/"
+    printf '%s\t%s\n' "$1" "dashboards/${f##*/}" >> "${OUT_DIR}/assets.tsv"
+  done
+}
+
 output() {
   [ -n "${GITHUB_OUTPUT:-}" ] && echo "$1=$2" >> "$GITHUB_OUTPUT"
   return 0
@@ -293,6 +311,7 @@ main() {
   : > "${OUT_DIR}/releases.tsv"
   rl_checkout_at "$src"
   package_operator_chart "$RL_CHECKOUT" "$CANDIDATE" "$chart_final"
+  write_dashboard_assets "${CHART_PREFIX}${chart_final}"
 
   for i in "${!PLAN_NAMES[@]}"; do
     publish_image "${PLAN_NAMES[$i]}" "${PLAN_RCS[$i]}"
@@ -309,4 +328,7 @@ main() {
   output subjects "$(rl_sign_subjects_json)"
 }
 
-main "$@"
+# Sourced (by the tests), it defines the functions and runs nothing.
+if [ "${BASH_SOURCE[0]}" = "$0" ]; then
+  main "$@"
+fi

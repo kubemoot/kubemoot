@@ -137,6 +137,8 @@ dashboard:
   enabled: false
 EOF
 printf 'apiVersion: v2\nname: kubemoot-dashboard\nversion: 0.0.0\nappVersion: 0.0.0\n' > "$dash/Chart.yaml"
+mkdir -p "$chart/dashboards"
+echo '{"title": "Kubemoot Test"}' > "$chart/dashboards/kubemoot-test.json"
 printf 'verify:\n  image: ghcr.io/kubemoot/test-runner:0.0.0\n' > "$dash/values.yaml"
 git add -A; git commit -q -m "chore: init"
 for t in v0.343.40 agent-runtime-v0.342.31 mcp-gateway-v0.326.22-rc.5 mcp-gateway-v0.326.22 \
@@ -384,6 +386,8 @@ check "operator final tag" "$c2" "$(git rev-list -n 1 v0.343.41 2>/dev/null)"
 check "standalone scheduling-mcp final tag on its candidate commit" "$c2" "$(git rev-list -n 1 scheduling-mcp-v0.1.0 2>/dev/null)"
 check "notes of the real run start at the previous release" 1 "$(grep -c '^## Changes since operator-chart-v0.92.581' "${root}/out-real/notes.md")"
 check "names the GitHub Release" "operator-chart-v0.92.582|Kubemoot 0.92.582|notes.md" "$(tr '\t' '|' < "${root}/out-real/releases.tsv")"
+check "attaches the chart's dashboards to it" "operator-chart-v0.92.582|dashboards/kubemoot-test.json|Kubemoot Test" \
+  "$(tr '\t' '|' < "${root}/out-real/assets.tsv")|$(jq -r .title "${root}/out-real/dashboards/kubemoot-test.json")"
 check "leaves no scratch worktree" 1 "$(git worktree list | wc -l | tr -d ' ')"
 check "copies seven images" 7 "$(grep -c '^crane copy' "$LOG")"
 check "copies by digest" 7 "$(grep '^crane copy' "$LOG" | grep -c '@sha256:')"
@@ -404,6 +408,29 @@ check "outputs them as the attest matrix" "8|ghcr.test/kubemoot/charts/kubemoot-
 check "maps every signed artifact's provenance to the one GitHub Release" \
   "$(awk -F'\t' '{ print "operator-chart-v0.92.582|kubemoot_0.92.582.intoto.jsonl|" $1 "|" $2 }' "${root}/out-real/subjects.tsv")" \
   "$(tr '\t' '|' < "${root}/out-real/provenance.tsv")"
+
+# 8b. The dashboard assets on their own: a broken dashboard stops the run, a chart
+# without dashboards attaches none, and a rerun leaves no stale file behind.
+dash_assets() {
+  # shellcheck disable=SC2016 # expanded by the inner bash
+  REGISTRY=harbor.test RELEASE_REGISTRY=ghcr.test OUT_DIR="${root}/assets-$1" \
+    bash -c 'source "$1"; RL_CHECKOUT="$2"; write_dashboard_assets operator-chart-v1.0.0' \
+    _ "${here}/publish-release.sh" "${root}/checkout-$1" > "${root}/assets-$1.log" 2>&1
+}
+mkdir -p "${root}/checkout-broken/${chart}/dashboards"
+echo '{"title": ' > "${root}/checkout-broken/${chart}/dashboards/kubemoot-broken.json"
+dash_assets broken && status=0 || status=$?
+check "a broken dashboard fails the run" "1|1" \
+  "$((status != 0))|$(grep -c 'dashboard kubemoot-broken.json is not valid JSON' "${root}/assets-broken.log")"
+mkdir -p "${root}/checkout-none/${chart}"
+dash_assets none && status=0 || status=$?
+check "a chart without dashboards attaches none" "0|0" "${status}|$(wc -l < "${root}/assets-none/assets.tsv" | tr -d ' ')"
+mkdir -p "${root}/assets-stale/dashboards" "${root}/checkout-stale/${chart}/dashboards"
+echo '{}' > "${root}/assets-stale/dashboards/kubemoot-old.json"
+echo '{}' > "${root}/checkout-stale/${chart}/dashboards/kubemoot-new.json"
+dash_assets stale && status=0 || status=$?
+check "a rerun keeps only the chart's dashboards" "0|kubemoot-new.json" \
+  "${status}|$(find "${root}/assets-stale/dashboards" -type f -printf '%f\n' | paste -sd' ')"
 
 # 9. A second release of the same candidate is refused; the next chart candidate
 # starts the next patch.
