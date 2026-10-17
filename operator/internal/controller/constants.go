@@ -38,6 +38,8 @@ const (
 	annoRole            = "kubemoot.ai/role"
 	labelAgent          = "kubemoot.ai/agent"
 	labelCrew           = "kubemoot.ai/crew"
+	// labelCoreMCP marks an MCPServer in the operator namespace as offered to every crew.
+	labelCoreMCP = "kubemoot.ai/core-mcp"
 	// crewVersionLabel carries the crew Helm chart version, stamped by the crew
 	// chart's labels helper. Provenance: which crew VERSION produced a thread/run.
 	crewVersionLabel = "kubemoot.ai/crew-version"

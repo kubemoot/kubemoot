@@ -333,7 +333,7 @@ kubectl get pod -l kubemoot.ai/mcpserver=<name> -o jsonpath='{.items[0].spec.ini
 
 Tools are discovered by the MCPGateway, not the MCPServer controller. Check:
 1. MCPServer has `registry.enabled: true` (default)
-2. MCPGateway's `mcpServerSelector` matches this server's labels
+2. MCPGateway's `mcpServerSelector` matches this server's labels, or, for a core server in the operator's namespace, the server is labeled `kubemoot.ai/core-mcp: "true"` and the gateway's `coreServerSelector` matches it
 3. Gateway pod logs for connection errors
 
 ### Gateway caches failed connections

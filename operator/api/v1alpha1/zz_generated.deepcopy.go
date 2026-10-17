@@ -1852,6 +1852,11 @@ func (in *MCPGatewaySpec) DeepCopyInto(out *MCPGatewaySpec) {
 		*out = new(metav1.LabelSelector)
 		(*in).DeepCopyInto(*out)
 	}
+	if in.CoreServerSelector != nil {
+		in, out := &in.CoreServerSelector, &out.CoreServerSelector
+		*out = new(metav1.LabelSelector)
+		(*in).DeepCopyInto(*out)
+	}
 	if in.Replicas != nil {
 		in, out := &in.Replicas, &out.Replicas
 		*out = new(int32)
@@ -1928,6 +1933,13 @@ func (in *MCPGatewayStatus) DeepCopyInto(out *MCPGatewayStatus) {
 		in, out := &in.MCPServers, &out.MCPServers
 		*out = make([]string, len(*in))
 		copy(*out, *in)
+	}
+	if in.MCPServerEndpoints != nil {
+		in, out := &in.MCPServerEndpoints, &out.MCPServerEndpoints
+		*out = make(map[string]string, len(*in))
+		for key, val := range *in {
+			(*out)[key] = val
+		}
 	}
 	if in.CatalogSync != nil {
 		in, out := &in.CatalogSync, &out.CatalogSync
