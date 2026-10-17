@@ -1909,14 +1909,10 @@ public class ChatService {
      * See the "Coordinator Model Tiering" card / agentic-consensus.md.
      */
     public SimpleLlmResult triageChatWithTokens(String systemPrompt, String conversation) {
-        // Route the triage model's PLACEMENT through the same JIT scheduler as
-        // mulling. Triage stays a native-safe direct-HTTP Ollama call, but WHERE it
-        // runs is now a scheduler decision (best-fit / fit / residency / eviction +
-        // a claimed VRAM ticket), not a static endpoint baked in by the operator.
-        // Before this, triage was the one inference path that bypassed the scheduler
-        // entirely, so an 8B triage call pinned to the big GPU loaded 8B there and
-        // evicted the resident big model (the 2026-06-11 thrash). Falls back to the
-        // static triageEndpoint only when the scheduler cannot decide (NATS down).
+        // WHERE the triage call runs is decided by the configured placement policy,
+        // like every other call, with a claimed ticket; the call itself stays a
+        // native-safe direct-HTTP Ollama call. It falls back to the static
+        // triageEndpoint only when the scheduler cannot decide (NATS down, no fit).
         TriagePlacement placement = pickTriagePlacement(systemPrompt, conversation);
         String endpoint = placement.endpoint();
         var observedCall = callContext(placement.pickedProvider(), triageModelId,
@@ -1992,10 +1988,10 @@ public class ChatService {
     }
 
     /**
-     * Route the triage model's PLACEMENT through the same JIT scheduler as
-     * mulling. Returns the static triageEndpoint (no provider claimed) when the
-     * scheduler is unwired, NATS is down, the footprint is unknown, or no provider
-     * fits. See the triageChatWithTokens javadoc for the 2026-06-11 thrash this fixes.
+     * Places the triage call through the configured placement policy, as mulling
+     * calls are placed. Returns the static triageEndpoint (no provider claimed) when
+     * the scheduler is unwired, NATS is down, the footprint is unknown, or no
+     * provider fits.
      */
     private TriagePlacement pickTriagePlacement(String systemPrompt, String conversation) {
         if (providerSelector == null || ticketManager == null) {
@@ -2014,7 +2010,7 @@ public class ChatService {
                 ai.kubemoot.agent.provider.KvCacheEstimator.estimateTokensFromChars(promptChars), 2048);
         long promptTokens = promptTokens(promptChars);
         requireTriageContextFits(states, promptTokens);
-        return claimTriagePlacement(occupancy, kv, promptTokens);
+        return claimTriagePlacement(states, occupancy, kv, promptTokens);
     }
 
     private static int lengthOrZero(String text) {
@@ -2032,20 +2028,26 @@ public class ChatService {
     }
 
     /**
-     * Claim a provider for the triage call through the JIT scheduler, or keep the
-     * static triageEndpoint when no provider fits.
+     * Claim a provider for the triage call through the configured placement policy,
+     * as every other call is placed, or keep the static triageEndpoint when no
+     * provider fits. Triage is short and waits on nothing, so it never unloads idle
+     * models to make room. It has its own model and no alternatives, so one
+     * occupancy and KV estimate serve every lookup. A queued placement keeps its
+     * ticket like any other; recordTriageOutcome releases it.
      */
-    private TriagePlacement claimTriagePlacement(long occupancy, long kv, long promptTokens) {
+    private TriagePlacement claimTriagePlacement(List<ProviderState> states, long occupancy, long kv,
+                                                 long promptTokens) {
         try {
-            var pick = providerSelector.pickAndClaim(triageModelId, occupancy, kv, promptTokens);
-            if (pick.isPresent()) {
-                String endpoint = pick.get().provider().endpoint();
-                String pickedProvider = pick.get().provider().name();
+            var placed = callPlanner.place(new CallPlanner.PlacementRequest(triageModelId, List.of(), states,
+                    m -> occupancy, m -> kv, promptTokens, false));
+            if (placed.isPresent()) {
+                var p = placed.get();
+                String endpoint = p.pick().provider().endpoint();
+                String pickedProvider = p.pick().provider().name();
                 log.info("OUTBOUND inference (triage): agent={} endpoint={} model={} provider={}",
                         properties.agentName(), endpoint, triageModelId, pickedProvider);
                 return new TriagePlacement(endpoint, pickedProvider, occupancy,
-                        java.util.Optional.of(pick.get().ticket()),
-                        !pick.get().provider().hasModelLoaded(triageModelId));
+                        java.util.Optional.of(p.pick().ticket()), p.coldLoad());
             }
             // pick empty (NoFit/degraded) -> keep the static triageEndpoint
         } catch (ai.kubemoot.agent.provider.NoFitException nfe) {

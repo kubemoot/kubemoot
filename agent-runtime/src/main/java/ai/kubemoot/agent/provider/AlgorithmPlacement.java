@@ -61,7 +61,7 @@ public class AlgorithmPlacement implements PlacementPolicy {
     @Override
     public Optional<Placement> place(PlacementRequest r) {
         Optional<Placement> quick = placeWithoutUnloading(r);
-        return quick.isPresent() ? quick : decideWhenFull(r);
+        return quick.isPresent() || !r.mayUnload() ? quick : decideWhenFull(r);
     }
 
     private Optional<Placement> placeWithoutUnloading(PlacementRequest r) {

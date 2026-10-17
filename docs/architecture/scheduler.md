@@ -244,7 +244,7 @@ A model's occupancy is observed first, declared second:
 
 ## Placement policy
 
-The decision of where a call runs is a swappable policy inside the agent runtime. Tickets, slot counting, and residency are shared by every policy, so two policies never overbook the same accelerator; only the decision changes.
+The decision of where a call runs is a swappable policy inside the agent runtime. Every model call goes through it: tool-loop turns, advisory and synthesis calls, and triage. A triage call is short and waits on nothing, so it never unloads idle models to make room: with no room it runs on the agent's configured triage endpoint. Tickets, slot counting, and residency are shared by every policy, so two policies never overbook the same accelerator; only the decision changes.
 
 | Policy | What it does |
 |---|---|
@@ -277,11 +277,12 @@ provider's recent call time.
 
 The policy keeps the crew's model choice: it places the preferred model on its soonest
 provider, and considers an alternative only when the preferred model has no option at
-all, so it changes where calls run, not which model answers. It has no opinion, and
-`algorithm` places the call, when:
+all, so it changes where calls run, not which model answers. A provider that has not
+downloaded the model is not an option. It has no opinion, and `algorithm` places the
+call, when:
 
-- any provider that could take the model has not measured it (an unmeasured provider is
-  never guessed fast or slow, so a calibrated CPU never wins over an uncalibrated GPU);
+- any provider that has the model has not measured it (an unmeasured provider is never
+  guessed fast or slow, so a calibrated CPU never wins over an uncalibrated GPU);
 - the soonest option has to wait for a slot (`algorithm` weighs queueing against
   unloading idle models, and queues across models);
 - another call takes the chosen slot, or starts a load of the same model, first.
