@@ -1,0 +1,134 @@
+{{- /*
+Prometheus scraping, for a cluster whose Prometheus runs the Prometheus Operator
+(for example kube-prometheus-stack): a PodMonitor for every Kubemoot agent pod (plain
+HTTP at /q/metrics), one for every RAGSource query service (plain HTTP at /metrics),
+and one for the operator (HTTPS at /metrics, authorized as the metrics reader below). Rendered only when the cluster serves the PodMonitor API, so a
+cluster without Prometheus gets nothing. Prometheus is optional.
+*/ -}}
+{{- if and .Values.metrics.enabled .Values.metrics.podMonitor.enabled (.Capabilities.APIVersions.Has "monitoring.coreos.com/v1/PodMonitor") }}
+{{- $reader := printf "%s-metrics-reader" (include "kubemoot-operator.fullname" .) }}
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: {{ include "kubemoot-operator.fullname" . }}-agents
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "kubemoot-operator.labels" . | nindent 4 }}
+    {{- with .Values.metrics.podMonitor.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  # Agents run in their crews' namespaces.
+  namespaceSelector:
+    any: true
+  selector:
+    matchLabels:
+      app.kubernetes.io/part-of: kubemoot
+      app.kubernetes.io/component: agent
+  podMetricsEndpoints:
+    - port: http
+      path: /q/metrics
+      {{- with .Values.metrics.podMonitor.interval }}
+      interval: {{ . }}
+      {{- end }}
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: {{ include "kubemoot-operator.fullname" . }}-query-services
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "kubemoot-operator.labels" . | nindent 4 }}
+    {{- with .Values.metrics.podMonitor.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  # A RAGSource's query service runs in its crew's namespace.
+  namespaceSelector:
+    any: true
+  selector:
+    matchLabels:
+      app.kubernetes.io/managed-by: kubemoot-operator
+      app.kubernetes.io/component: query-service
+  podMetricsEndpoints:
+    - port: http
+      path: /metrics
+      {{- with .Values.metrics.podMonitor.interval }}
+      interval: {{ . }}
+      {{- end }}
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: {{ include "kubemoot-operator.fullname" . }}-operator
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "kubemoot-operator.labels" . | nindent 4 }}
+    {{- with .Values.metrics.podMonitor.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "kubemoot-operator.selectorLabels" . | nindent 6 }}
+      control-plane: controller-manager
+  podMetricsEndpoints:
+    - port: metrics
+      path: /metrics
+      scheme: https
+      # The operator serves its metrics with a self-signed certificate.
+      tlsConfig:
+        insecureSkipVerify: true
+      authorization:
+        credentials:
+          name: {{ $reader }}
+          key: token
+      {{- with .Values.metrics.podMonitor.interval }}
+      interval: {{ . }}
+      {{- end }}
+---
+# The identity Prometheus scrapes the operator as: allowed to read /metrics only.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ $reader }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "kubemoot-operator.labels" . | nindent 4 }}
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ $reader }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "kubemoot-operator.labels" . | nindent 4 }}
+  annotations:
+    kubernetes.io/service-account.name: {{ $reader }}
+type: kubernetes.io/service-account-token
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ $reader }}
+  labels:
+    {{- include "kubemoot-operator.labels" . | nindent 4 }}
+rules:
+  - nonResourceURLs: ["/metrics"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ $reader }}
+  labels:
+    {{- include "kubemoot-operator.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ $reader }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ $reader }}
+    namespace: {{ .Release.Namespace }}
+{{- end }}

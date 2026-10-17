@@ -1387,6 +1387,11 @@ public class ChatService {
                         System.currentTimeMillis() - waitStartMs);
             }
             return placed;
+        } catch (RuntimeException e) {
+            if (performanceHistory != null) {
+                performanceHistory.recordUnplacedWait(model, System.currentTimeMillis() - waitStartMs);
+            }
+            throw e;
         } finally {
             callPlanner.waitEnded(model);
         }

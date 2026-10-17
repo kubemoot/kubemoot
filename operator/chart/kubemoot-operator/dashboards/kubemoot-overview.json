@@ -3,7 +3,10 @@
     "list": [
       {
         "builtIn": 1,
-        "datasource": { "type": "grafana", "uid": "-- Grafana --" },
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
         "enable": true,
         "hide": true,
         "iconColor": "rgba(0, 211, 255, 1)",
@@ -20,16 +23,26 @@
   "panels": [
     {
       "collapsed": false,
-      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 },
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
       "id": 100,
       "title": "Agent Activity",
       "type": "row"
     },
     {
-      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
       "fieldConfig": {
         "defaults": {
-          "color": { "mode": "palette-classic" },
+          "color": {
+            "mode": "palette-classic"
+          },
           "custom": {
             "axisBorderShow": false,
             "drawStyle": "line",
@@ -43,26 +56,47 @@
         },
         "overrides": []
       },
-      "gridPos": { "h": 8, "w": 10, "x": 0, "y": 1 },
+      "gridPos": {
+        "h": 8,
+        "w": 10,
+        "x": 0,
+        "y": 1
+      },
       "id": 1,
       "options": {
-        "legend": { "calcs": ["mean", "lastNotNull"], "displayMode": "table", "placement": "bottom" },
-        "tooltip": { "mode": "multi" }
+        "legend": {
+          "calcs": [
+            "mean",
+            "lastNotNull"
+          ],
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
       },
-      "title": "Agent Request Rate",
+      "title": "Model Calls",
       "targets": [
         {
-          "expr": "sum by (pod) (rate(http_server_requests_seconds_count{namespace=\"kubemoot\"}[5m]))",
-          "legendFormat": "{{ pod }}"
+          "expr": "sum by (namespace) (rate(kubemoot_scheduler_calls_total{namespace=~\"$namespace\"}[5m]))",
+          "legendFormat": "{{namespace}}",
+          "refId": "A"
         }
       ],
-      "type": "timeseries"
+      "type": "timeseries",
+      "description": "Model calls agents made, by crew namespace."
     },
     {
-      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
       "fieldConfig": {
         "defaults": {
-          "color": { "mode": "palette-classic" },
+          "color": {
+            "mode": "palette-classic"
+          },
           "custom": {
             "axisBorderShow": false,
             "drawStyle": "line",
@@ -76,67 +110,117 @@
         },
         "overrides": []
       },
-      "gridPos": { "h": 8, "w": 10, "x": 10, "y": 1 },
+      "gridPos": {
+        "h": 8,
+        "w": 10,
+        "x": 10,
+        "y": 1
+      },
       "id": 2,
       "options": {
-        "legend": { "calcs": ["mean", "lastNotNull"], "displayMode": "table", "placement": "bottom" },
-        "tooltip": { "mode": "multi" }
+        "legend": {
+          "calcs": [
+            "mean",
+            "lastNotNull"
+          ],
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
       },
-      "title": "Agent Latency p95",
+      "title": "Model Call Duration p95",
       "targets": [
         {
-          "expr": "histogram_quantile(0.95, sum by (le, pod) (rate(http_server_requests_seconds_bucket{namespace=\"kubemoot\"}[5m])))",
-          "legendFormat": "{{ pod }}"
+          "expr": "histogram_quantile(0.95, sum by (le, namespace) (rate(kubemoot_scheduler_call_seconds_bucket{namespace=~\"$namespace\"}[5m])))",
+          "legendFormat": "{{namespace}}",
+          "refId": "A"
         }
       ],
       "type": "timeseries"
     },
     {
-      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
       "fieldConfig": {
         "defaults": {
-          "color": { "mode": "thresholds" },
+          "color": {
+            "mode": "thresholds"
+          },
           "thresholds": {
             "mode": "absolute",
             "steps": [
-              { "color": "green", "value": null },
-              { "color": "yellow", "value": 5 },
-              { "color": "red", "value": 10 }
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 5
+              },
+              {
+                "color": "red",
+                "value": 10
+              }
             ]
           }
         },
         "overrides": []
       },
-      "gridPos": { "h": 8, "w": 4, "x": 20, "y": 1 },
+      "gridPos": {
+        "h": 8,
+        "w": 4,
+        "x": 20,
+        "y": 1
+      },
       "id": 3,
       "options": {
         "colorMode": "background",
         "graphMode": "area",
         "justifyMode": "auto",
-        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
         "textMode": "auto"
       },
-      "title": "Active Requests",
+      "title": "Agents Evaluating",
       "targets": [
         {
-          "expr": "sum(http_server_active_requests{namespace=\"kubemoot\"})",
-          "legendFormat": "active"
+          "expr": "sum(kubemoot_discussion_pending_evaluations{namespace=~\"$namespace\"})",
+          "legendFormat": "evaluating",
+          "refId": "A"
         }
       ],
-      "type": "stat"
+      "type": "stat",
+      "description": "Agents evaluating a discussion now."
     },
     {
       "collapsed": false,
-      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 9 },
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 9
+      },
       "id": 101,
       "title": "RAG Pipeline",
       "type": "row"
     },
     {
-      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
       "fieldConfig": {
         "defaults": {
-          "color": { "mode": "palette-classic" },
+          "color": {
+            "mode": "palette-classic"
+          },
           "custom": {
             "axisBorderShow": false,
             "drawStyle": "line",
@@ -150,26 +234,46 @@
         },
         "overrides": []
       },
-      "gridPos": { "h": 8, "w": 6, "x": 0, "y": 10 },
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 0,
+        "y": 10
+      },
       "id": 4,
       "options": {
-        "legend": { "calcs": ["mean", "lastNotNull"], "displayMode": "table", "placement": "bottom" },
-        "tooltip": { "mode": "multi" }
+        "legend": {
+          "calcs": [
+            "mean",
+            "lastNotNull"
+          ],
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
       },
       "title": "RAG Query Rate",
       "targets": [
         {
-          "expr": "sum by (ragsource) (rate(kubemoot_query_requests_total[5m]))",
-          "legendFormat": "{{ ragsource }}"
+          "expr": "sum by (namespace, ragsource) (rate(kubemoot_query_requests_total{namespace=~\"$namespace\"}[5m]))",
+          "legendFormat": "{{ragsource}}",
+          "refId": "A"
         }
       ],
       "type": "timeseries"
     },
     {
-      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
       "fieldConfig": {
         "defaults": {
-          "color": { "mode": "palette-classic" },
+          "color": {
+            "mode": "palette-classic"
+          },
           "custom": {
             "axisBorderShow": false,
             "drawStyle": "line",
@@ -183,30 +287,51 @@
         },
         "overrides": []
       },
-      "gridPos": { "h": 8, "w": 6, "x": 6, "y": 10 },
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 6,
+        "y": 10
+      },
       "id": 5,
       "options": {
-        "legend": { "calcs": ["mean", "lastNotNull"], "displayMode": "table", "placement": "bottom" },
-        "tooltip": { "mode": "multi" }
+        "legend": {
+          "calcs": [
+            "mean",
+            "lastNotNull"
+          ],
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
       },
       "title": "RAG Success vs Errors",
       "targets": [
         {
-          "expr": "sum by (ragsource) (rate(kubemoot_query_requests_total{status=\"success\"}[5m]))",
-          "legendFormat": "{{ ragsource }} success"
+          "expr": "sum by (namespace, ragsource) (rate(kubemoot_query_success_total{namespace=~\"$namespace\"}[5m]))",
+          "legendFormat": "{{ragsource}} success",
+          "refId": "A"
         },
         {
-          "expr": "sum by (ragsource) (rate(kubemoot_query_requests_total{status=\"error\"}[5m]))",
-          "legendFormat": "{{ ragsource }} error"
+          "expr": "sum by (namespace, ragsource) (rate(kubemoot_query_errors_total{namespace=~\"$namespace\"}[5m]))",
+          "legendFormat": "{{ragsource}} errors",
+          "refId": "B"
         }
       ],
       "type": "timeseries"
     },
     {
-      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
       "fieldConfig": {
         "defaults": {
-          "color": { "mode": "palette-classic" },
+          "color": {
+            "mode": "palette-classic"
+          },
           "custom": {
             "axisBorderShow": false,
             "drawStyle": "line",
@@ -220,26 +345,46 @@
         },
         "overrides": []
       },
-      "gridPos": { "h": 8, "w": 6, "x": 12, "y": 10 },
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 12,
+        "y": 10
+      },
       "id": 6,
       "options": {
-        "legend": { "calcs": ["mean", "lastNotNull"], "displayMode": "table", "placement": "bottom" },
-        "tooltip": { "mode": "multi" }
+        "legend": {
+          "calcs": [
+            "mean",
+            "lastNotNull"
+          ],
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
       },
       "title": "Avg Embedding Time",
       "targets": [
         {
-          "expr": "rate(kubemoot_embedding_time_ms_total[5m]) / rate(kubemoot_query_requests_total[5m])",
-          "legendFormat": "{{ ragsource }}"
+          "expr": "sum by (namespace, ragsource) (rate(kubemoot_embedding_time_ms_total{namespace=~\"$namespace\"}[5m])) / (sum by (namespace, ragsource) (rate(kubemoot_query_requests_total{namespace=~\"$namespace\"}[5m])) > 0)",
+          "legendFormat": "{{ragsource}}",
+          "refId": "A"
         }
       ],
       "type": "timeseries"
     },
     {
-      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
       "fieldConfig": {
         "defaults": {
-          "color": { "mode": "palette-classic" },
+          "color": {
+            "mode": "palette-classic"
+          },
           "custom": {
             "axisBorderShow": false,
             "drawStyle": "line",
@@ -253,33 +398,58 @@
         },
         "overrides": []
       },
-      "gridPos": { "h": 8, "w": 6, "x": 18, "y": 10 },
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 18,
+        "y": 10
+      },
       "id": 7,
       "options": {
-        "legend": { "calcs": ["mean", "lastNotNull"], "displayMode": "table", "placement": "bottom" },
-        "tooltip": { "mode": "multi" }
+        "legend": {
+          "calcs": [
+            "mean",
+            "lastNotNull"
+          ],
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
       },
       "title": "Avg Search Time",
       "targets": [
         {
-          "expr": "rate(kubemoot_search_time_ms_total[5m]) / rate(kubemoot_query_requests_total[5m])",
-          "legendFormat": "{{ ragsource }}"
+          "expr": "sum by (namespace, ragsource) (rate(kubemoot_search_time_ms_total{namespace=~\"$namespace\"}[5m])) / (sum by (namespace, ragsource) (rate(kubemoot_query_requests_total{namespace=~\"$namespace\"}[5m])) > 0)",
+          "legendFormat": "{{ragsource}}",
+          "refId": "A"
         }
       ],
       "type": "timeseries"
     },
     {
       "collapsed": false,
-      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 18 },
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 18
+      },
       "id": 102,
       "title": "Resources",
       "type": "row"
     },
     {
-      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
       "fieldConfig": {
         "defaults": {
-          "color": { "mode": "palette-classic" },
+          "color": {
+            "mode": "palette-classic"
+          },
           "custom": {
             "axisBorderShow": false,
             "drawStyle": "line",
@@ -293,26 +463,45 @@
         },
         "overrides": []
       },
-      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 19 },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 19
+      },
       "id": 8,
       "options": {
-        "legend": { "calcs": ["mean", "lastNotNull"], "displayMode": "table", "placement": "bottom" },
-        "tooltip": { "mode": "multi" }
+        "legend": {
+          "calcs": [
+            "mean",
+            "lastNotNull"
+          ],
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
       },
       "title": "Agent Pod Memory",
       "targets": [
         {
-          "expr": "container_memory_working_set_bytes{namespace=\"kubemoot\", container!=\"\"}",
+          "expr": "container_memory_working_set_bytes{namespace=~\"$namespace\", container!=\"\"}",
           "legendFormat": "{{ pod }} / {{ container }}"
         }
       ],
       "type": "timeseries"
     },
     {
-      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
       "fieldConfig": {
         "defaults": {
-          "color": { "mode": "palette-classic" },
+          "color": {
+            "mode": "palette-classic"
+          },
           "custom": {
             "axisBorderShow": false,
             "drawStyle": "line",
@@ -326,26 +515,45 @@
         },
         "overrides": []
       },
-      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 19 },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 8,
+        "y": 19
+      },
       "id": 9,
       "options": {
-        "legend": { "calcs": ["mean", "lastNotNull"], "displayMode": "table", "placement": "bottom" },
-        "tooltip": { "mode": "multi" }
+        "legend": {
+          "calcs": [
+            "mean",
+            "lastNotNull"
+          ],
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
       },
       "title": "Agent Pod CPU",
       "targets": [
         {
-          "expr": "rate(container_cpu_usage_seconds_total{namespace=\"kubemoot\", container!=\"\"}[5m])",
+          "expr": "rate(container_cpu_usage_seconds_total{namespace=~\"$namespace\", container!=\"\"}[5m])",
           "legendFormat": "{{ pod }} / {{ container }}"
         }
       ],
       "type": "timeseries"
     },
     {
-      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
       "fieldConfig": {
         "defaults": {
-          "color": { "mode": "palette-classic" },
+          "color": {
+            "mode": "palette-classic"
+          },
           "custom": {
             "axisBorderShow": false,
             "drawStyle": "line",
@@ -359,16 +567,30 @@
         },
         "overrides": []
       },
-      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 19 },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 19
+      },
       "id": 10,
       "options": {
-        "legend": { "calcs": ["mean", "lastNotNull"], "displayMode": "table", "placement": "bottom" },
-        "tooltip": { "mode": "multi" }
+        "legend": {
+          "calcs": [
+            "mean",
+            "lastNotNull"
+          ],
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
       },
       "title": "JVM Heap Usage",
       "targets": [
         {
-          "expr": "jvm_memory_used_bytes{namespace=\"kubemoot\", area=\"heap\"}",
+          "expr": "jvm_memory_used_bytes{namespace=~\"$namespace\", area=\"heap\"}",
           "legendFormat": "{{ pod }}"
         }
       ],
@@ -376,11 +598,19 @@
     }
   ],
   "schemaVersion": 39,
-  "tags": ["kubemoot", "agents", "rag"],
+  "tags": [
+    "kubemoot",
+    "agents",
+    "rag"
+  ],
   "templating": {
     "list": [
       {
-        "current": { "selected": false, "text": "Prometheus", "value": "prometheus" },
+        "current": {
+          "selected": false,
+          "text": "Prometheus",
+          "value": "prometheus"
+        },
         "hide": 0,
         "includeAll": false,
         "label": "Data Source",
@@ -390,10 +620,41 @@
         "query": "prometheus",
         "refresh": 1,
         "type": "datasource"
+      },
+      {
+        "name": "namespace",
+        "label": "Namespace",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${datasource}"
+        },
+        "query": {
+          "query": "label_values({__name__=~\"kubemoot_.+\"}, namespace)",
+          "refId": "namespaces"
+        },
+        "definition": "label_values({__name__=~\"kubemoot_.+\"}, namespace)",
+        "includeAll": true,
+        "multi": true,
+        "allValue": ".*",
+        "refresh": 2,
+        "sort": 1,
+        "current": {
+          "selected": true,
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        }
       }
     ]
   },
-  "time": { "from": "now-1h", "to": "now" },
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
   "timepicker": {},
   "timezone": "",
   "title": "Kubemoot Overview",

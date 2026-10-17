@@ -10,6 +10,6 @@ public final class PerformanceHistoryFixtures {
     private PerformanceHistoryFixtures() {}
 
     public static PerformanceHistory direct(NatsConnectionProvider nats, ObjectMapper mapper, AgentProperties props) {
-        return new PerformanceHistory(nats, mapper, props, Runnable::run);
+        return new PerformanceHistory(nats, mapper, props, Runnable::run, SchedulerMetrics.none());
     }
 }

@@ -67,15 +67,19 @@ public class PerformanceHistory {
     /** This agent's entries, by key; loaded from the bucket on first use after a restart. Writer thread only. */
     private final Map<String, ObjectNode> entries = new HashMap<>();
     private final AtomicLong dropped = new AtomicLong();
+    /** Exports each recorded call and wait as metrics. */
+    private final SchedulerMetrics metrics;
 
     @Inject
-    public PerformanceHistory(NatsConnectionProvider natsProvider, ObjectMapper mapper, AgentProperties properties) {
-        this(natsProvider, mapper, properties, null);
+    public PerformanceHistory(NatsConnectionProvider natsProvider, ObjectMapper mapper, AgentProperties properties,
+                              SchedulerMetrics metrics) {
+        this(natsProvider, mapper, properties, null, metrics);
     }
 
     /** {@code writer} runs each write on one thread at a time; null uses the background writer. */
     PerformanceHistory(NatsConnectionProvider natsProvider, ObjectMapper mapper, AgentProperties properties,
-                       Executor writer) {
+                       Executor writer, SchedulerMetrics metrics) {
+        this.metrics = metrics;
         this.natsProvider = natsProvider;
         this.mapper = mapper;
         this.agentId = properties.namespace().orElse("") + "/" + properties.agentName();
@@ -108,7 +112,17 @@ public class PerformanceHistory {
         if (o == null || !o.attributable()) {
             return;
         }
+        metrics.call(o);
         writer.execute(() -> append(o.provider(), o.model(), F_SAMPLES, sample(o), MAX_SAMPLES, !o.ok()));
+    }
+
+    /**
+     * Records that a call waited {@code waitMs} for capacity for {@code model} and was
+     * not placed: the thread ended, or nothing could take it. Only a metric; the
+     * history keeps the waits of placed calls.
+     */
+    public void recordUnplacedWait(String model, long waitMs) {
+        metrics.waitedUnplaced(model, waitMs);
     }
 
     /** Records that a call waited {@code waitMs} for capacity before it was placed on {@code provider}. */
@@ -116,6 +130,7 @@ public class PerformanceHistory {
         if (waitMs < 0 || !CallObservation.names(provider, model)) {
             return;
         }
+        metrics.waited(provider, model, waitMs);
         ObjectNode w = mapper.createObjectNode();
         w.put("at", System.currentTimeMillis() - waitMs);
         w.put("ms", waitMs);

@@ -26,10 +26,30 @@ class PerformanceHistoryTest {
     private static final String MODEL = "qwen3:14b";
 
     private static PerformanceHistory history(NatsConnectionProvider nats, String agent) {
+        return history(nats, agent, SchedulerMetrics.none());
+    }
+
+    private static PerformanceHistory history(NatsConnectionProvider nats, String agent, SchedulerMetrics metrics) {
         var props = mock(AgentProperties.class);
         when(props.agentName()).thenReturn(agent);
         when(props.namespace()).thenReturn(Optional.of("crew-ns"));
-        return new PerformanceHistory(nats, MAPPER, props, Runnable::run);
+        return new PerformanceHistory(nats, MAPPER, props, Runnable::run, metrics);
+    }
+
+    @Test
+    void recordedCallsAndWaits_reachTheMetrics() {
+        var registry = new io.micrometer.core.instrument.simple.SimpleMeterRegistry();
+        var h = history(new InMemoryKv().provider(PerformanceHistory.BUCKET), "a", new SchedulerMetrics(registry, "learned"));
+
+        h.record(call(true, false, 100));
+        h.record(new CallObservation("", "", CallObservation.KIND_SIMPLE, true, false, 0, 0, 1, -1, -1, -1, 0, 0L));
+        h.recordWait(PROVIDER, MODEL, 2_000);
+        h.recordWait(PROVIDER, MODEL, -1);
+        h.recordUnplacedWait(MODEL, 9_000);
+
+        assertEquals(1.0, registry.find(SchedulerMetrics.CALLS).counter().count(), "an unattributable call is not counted");
+        assertEquals(1, registry.find(SchedulerMetrics.WAIT_SECONDS).tag("outcome", "placed").timer().count());
+        assertEquals(1, registry.find(SchedulerMetrics.WAIT_SECONDS).tag("outcome", "not_placed").timer().count());
     }
 
     private static CallObservation call(boolean ok, boolean cold, long ms) {
@@ -207,7 +227,7 @@ class PerformanceHistoryTest {
         var props = mock(AgentProperties.class);
         when(props.agentName()).thenReturn("a");
         when(props.namespace()).thenReturn(Optional.of("crew-ns"));
-        var h = new PerformanceHistory(bucket.provider(PerformanceHistory.BUCKET), MAPPER, props);
+        var h = new PerformanceHistory(bucket.provider(PerformanceHistory.BUCKET), MAPPER, props, SchedulerMetrics.none());
 
         h.record(call(true, false, 100));
 

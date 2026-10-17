@@ -657,13 +657,15 @@ func (r *ModelProviderReconciler) updateStatus(ctx context.Context, provider *ai
 // methods no-op, which leaves agents on whatever they were previously
 // configured against (legacy single-endpoint env vars).
 func (r *ModelProviderReconciler) publishStateToKV(ctx context.Context, provider *aiv1alpha1.ModelProvider) {
+	speeds := modelSpeeds(provider.Status.Calibration, r.observed(ctx, provider))
+	recordProviderMetrics(provider, speeds)
 	if r.NATSPublisher == nil {
 		return
 	}
 	log := logf.FromContext(ctx)
 
 	state := buildProviderState(provider)
-	state.ModelSpeeds = modelSpeeds(provider.Status.Calibration, r.observed(ctx, provider))
+	state.ModelSpeeds = speeds
 
 	payload, err := json.Marshal(state)
 	if err != nil {
@@ -679,6 +681,7 @@ func (r *ModelProviderReconciler) publishStateToKV(ctx context.Context, provider
 // ModelProvider of that name exists in any namespace. Like publishStateToKV it never
 // fails the reconcile.
 func (r *ModelProviderReconciler) removeProviderState(ctx context.Context, name string) {
+	forgetProviderMetrics(name)
 	if r.NATSPublisher == nil {
 		return
 	}

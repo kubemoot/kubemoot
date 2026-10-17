@@ -1,30 +1,50 @@
-{{- if .Values.grafana.dashboards.enabled }}
+{{- /*
+Kubemoot's Grafana dashboards, from dashboards/*.json, for whichever Grafana the
+cluster runs: ConfigMaps for Grafana's dashboard sidecar (the Grafana Helm chart and
+kube-prometheus-stack load ConfigMaps carrying their label), and, when the Grafana
+Operator is installed and asked for, GrafanaDashboard resources that point at the
+same ConfigMaps. Grafana is optional; with neither, nothing here is used.
+*/ -}}
+{{- $cfg := .Values.grafana.dashboards }}
+{{- if $cfg.enabled }}
+{{- $root := . }}
+{{- $ns := $cfg.namespace | default .Release.Namespace }}
+{{- if and $cfg.grafanaOperator.enabled (empty $cfg.grafanaOperator.instanceSelector) }}
+{{- fail "grafana.dashboards.grafanaOperator.instanceSelector must select your Grafana instances" }}
+{{- end }}
+{{- range $path, $_ := $root.Files.Glob "dashboards/*.json" }}
+{{- $file := base $path }}
+{{- $name := printf "%s-dashboard-%s" (include "kubemoot-operator.fullname" $root) (trimPrefix "kubemoot-" (trimSuffix ".json" $file)) }}
 ---
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: {{ include "kubemoot-operator.fullname" . }}-dashboard-overview
-  namespace: {{ .Release.Namespace }}
+  name: {{ $name }}
+  namespace: {{ $ns }}
   labels:
-    {{- include "kubemoot-operator.labels" . | nindent 4 }}
-    grafana_dashboard: "1"
+    {{- include "kubemoot-operator.labels" $root | nindent 4 }}
+    {{ $cfg.label }}: {{ $cfg.labelValue | quote }}
   annotations:
-    grafana_folder: "Kubemoot"
+    grafana_folder: {{ $cfg.folder | quote }}
 data:
-  kubemoot-overview.json: |-
-{{ .Files.Get "dashboards/kubemoot-overview.json" | indent 4 }}
+  {{ $file }}: |-
+{{ $root.Files.Get $path | indent 4 }}
+{{- if and $cfg.grafanaOperator.enabled ($root.Capabilities.APIVersions.Has "grafana.integreatly.org/v1beta1/GrafanaDashboard") }}
 ---
-apiVersion: v1
-kind: ConfigMap
+apiVersion: grafana.integreatly.org/v1beta1
+kind: GrafanaDashboard
 metadata:
-  name: {{ include "kubemoot-operator.fullname" . }}-dashboard-discussions
-  namespace: {{ .Release.Namespace }}
+  name: {{ $name }}
+  namespace: {{ $ns }}
   labels:
-    {{- include "kubemoot-operator.labels" . | nindent 4 }}
-    grafana_dashboard: "1"
-  annotations:
-    grafana_folder: "Kubemoot"
-data:
-  kubemoot-discussions.json: |-
-{{ .Files.Get "dashboards/kubemoot-discussions.json" | indent 4 }}
+    {{- include "kubemoot-operator.labels" $root | nindent 4 }}
+spec:
+  folder: {{ $cfg.folder | quote }}
+  instanceSelector:
+    {{- toYaml $cfg.grafanaOperator.instanceSelector | nindent 4 }}
+  configMapRef:
+    name: {{ $name }}
+    key: {{ $file }}
+{{- end }}
+{{- end }}
 {{- end }}
