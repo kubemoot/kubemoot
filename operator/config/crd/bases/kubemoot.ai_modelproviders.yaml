@@ -205,6 +205,62 @@ spec:
                     format: date-time
                     type: string
                 type: object
+              calibrationDrift:
+                description: |-
+                  CalibrationDrift lists the models whose crew calls, running alone on the
+                  provider, generated much slower or faster than calibration measured. The
+                  operator asks the scheduling crew once per drift to judge whether to
+                  recalibrate; it is cleared once the speeds agree again
+                properties:
+                  askedAt:
+                    description: AskedAt is when the scheduling crew was asked to
+                      judge it
+                    format: date-time
+                    type: string
+                  detectedAt:
+                    description: DetectedAt is when the operator first saw it
+                    format: date-time
+                    type: string
+                  key:
+                    description: 'Key names this drift: the models and the calibration
+                      they drifted from'
+                    type: string
+                  models:
+                    description: Models are the models that drifted
+                    items:
+                      description: ModelDrift is one model's calibrated and observed
+                        generation speed.
+                      properties:
+                        calibratedTokensPerSecond:
+                          description: CalibratedTokensPerSecond is the generation
+                            speed calibration measured
+                          format: int64
+                          type: integer
+                        model:
+                          description: Model is the model name on the provider
+                          type: string
+                        observedTokensPerSecond:
+                          description: |-
+                            ObservedTokensPerSecond is the median generation speed of warm crew calls
+                            that ran alone on the provider since the calibration
+                          format: int64
+                          type: integer
+                        samples:
+                          description: Samples is how many such calls the median is
+                            over
+                          type: integer
+                      required:
+                      - calibratedTokensPerSecond
+                      - model
+                      - observedTokensPerSecond
+                      - samples
+                      type: object
+                    type: array
+                required:
+                - detectedAt
+                - key
+                - models
+                type: object
               calibrationRequest:
                 description: |-
                   CalibrationRequest is the operator's last request to calibrate this provider,

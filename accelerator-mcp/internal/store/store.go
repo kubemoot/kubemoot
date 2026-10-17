@@ -23,6 +23,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/kubemoot/kubemoot/operator/pkg/bus"
+	"github.com/kubemoot/kubemoot/operator/pkg/perf"
 )
 
 // KV is the part of the NATS KV client the store uses.
@@ -36,7 +37,7 @@ type KV interface {
 // Buckets the agent runtime reads; the operator's streams job creates them.
 const (
 	TicketsBucket     = bus.ProviderTicketsBucket
-	PerformanceBucket = "kubemoot_scheduler_performance"
+	PerformanceBucket = bus.PerformanceBucket
 )
 
 // Tickets claims and releases call tickets on a provider (key <provider>__<ticketId>),
@@ -151,7 +152,7 @@ func (h History) Record(provider, model string, samples []Sample) error {
 	if len(samples) == 0 {
 		return nil
 	}
-	key := Token(provider) + "." + Token(model) + "." + Token(h.Agent)
+	key := bus.PerformanceKey(provider, model, h.Agent)
 	raw, err := h.KV.GetKVValue(PerformanceBucket, key)
 	if err != nil {
 		return fmt.Errorf("reading %s: %w", key, err)
@@ -182,13 +183,18 @@ func (h History) Record(provider, model string, samples []Sample) error {
 	return h.KV.PutKVValue(PerformanceBucket, key, out)
 }
 
+// Of reads every agent's performance history for the provider.
+func (h History) Of(provider string) ([]bus.SchedulerPerformance, error) {
+	return perf.ReadHistory(h.KV, provider)
+}
+
 // Forget deletes every agent's performance history for the provider.
 func (h History) Forget(provider string) error {
 	keys, err := h.KV.ListKVKeys(PerformanceBucket)
 	if err != nil {
 		return err
 	}
-	prefix := Token(provider) + "."
+	prefix := bus.PerformanceKeyPrefix(provider)
 	for _, key := range keys {
 		if strings.HasPrefix(key, prefix) {
 			if err := h.KV.DeleteKVKey(PerformanceBucket, key); err != nil {

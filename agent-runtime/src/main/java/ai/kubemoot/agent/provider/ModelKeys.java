@@ -6,7 +6,7 @@ package ai.kubemoot.agent.provider;
  * character becomes '_' and two hex digits (or '__' and four for characters above
  * 0xff), so distinct names never
  * share a token, and a token never contains the '.' token separator or ':'.
- * accelerator-mcp's store.Token (Go) encodes the same way, walking UTF-16 code
+ * bus.KeyToken in operator/pkg/bus (Go) encodes the same way, walking UTF-16 code
  * units as this does; change both together.
  */
 public final class ModelKeys {

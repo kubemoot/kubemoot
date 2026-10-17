@@ -5,6 +5,8 @@ import (
 	"time"
 
 	ctrl "sigs.k8s.io/controller-runtime"
+
+	"github.com/kubemoot/kubemoot/operator/internal/controller"
 )
 
 func TestWithLeaderElectionReleasesTheLeaseOnShutdown(t *testing.T) {
@@ -35,5 +37,21 @@ func TestWithLeaderElectionDisabled(t *testing.T) {
 	o := withLeaderElection(ctrl.Options{}, managerFlags{})
 	if o.LeaderElection {
 		t.Error("leader election must stay off when the flag is off")
+	}
+}
+
+func TestDriftWatch(t *testing.T) {
+	t.Setenv(controller.SchedulingCrewEnv, "")
+	if w := driftWatch(nil, nil); w != nil {
+		t.Errorf("no crew should watch nothing: %v", w)
+	}
+	t.Setenv(controller.SchedulingCrewEnv, "not-a-crew")
+	if w := driftWatch(nil, nil); w != nil {
+		t.Errorf("a malformed crew should watch nothing: %v", w)
+	}
+	t.Setenv(controller.SchedulingCrewEnv, "kubemoot-scheduling/kubemoot-scheduling")
+	w, ok := driftWatch(nil, nil).(controller.NATSDriftWatch)
+	if !ok || w.Crew.Name != "kubemoot-scheduling" || w.Crew.Namespace != "kubemoot-scheduling" {
+		t.Errorf("crew watch: %+v", w)
 	}
 }

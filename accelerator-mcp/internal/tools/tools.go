@@ -103,6 +103,8 @@ func (s *Set) Call(ctx context.Context, name string, args json.RawMessage) (stri
 		out, err = s.recordCalibration(ctx, args)
 	case ToolCalibrateProvider:
 		out, err = s.calibrateProvider(ctx, args)
+	case ToolObservedPerformance:
+		out, err = s.observedPerformance(ctx, args)
 	default:
 		return "", fmt.Errorf("unknown tool %q", name)
 	}
@@ -127,6 +129,7 @@ type providerSummary struct {
 	MaxParallel   int                             `json:"maxParallel"`
 	ContextLength int                             `json:"contextLength,omitempty"`
 	Calibration   *aiv1alpha1.ProviderCalibration `json:"calibration,omitempty"`
+	Drift         *aiv1alpha1.CalibrationDrift    `json:"calibrationDrift,omitempty"`
 	ResetRequest  *resetRequest                   `json:"resetRequested,omitempty"`
 }
 
@@ -154,6 +157,7 @@ func summarize(p *aiv1alpha1.ModelProvider) providerSummary {
 		Accelerator: cluster.HasAccelerator(p), MaxParallel: cluster.MaxParallel(p),
 		Calibrate:   cluster.CalibrationEnabled(p),
 		Calibration: p.Status.Calibration,
+		Drift:       p.Status.CalibrationDrift,
 	}
 	if p.Status.ProviderInfo != nil {
 		sum.EngineVersion = p.Status.ProviderInfo.Version

@@ -137,6 +137,13 @@ type ModelProviderStatus struct {
 	// +optional
 	CalibrationRequest *CalibrationRequest `json:"calibrationRequest,omitempty"`
 
+	// CalibrationDrift lists the models whose crew calls, running alone on the
+	// provider, generated much slower or faster than calibration measured. The
+	// operator asks the scheduling crew once per drift to judge whether to
+	// recalibrate; it is cleared once the speeds agree again
+	// +optional
+	CalibrationDrift *CalibrationDrift `json:"calibrationDrift,omitempty"`
+
 	// Conditions represent the latest available observations
 	// +optional
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
@@ -187,6 +194,39 @@ type CalibrationRequest struct {
 
 	// RequestedAt is when the request was made
 	RequestedAt metav1.Time `json:"requestedAt"`
+}
+
+// CalibrationDrift is a difference between what crew calls showed and what
+// calibration measured.
+type CalibrationDrift struct {
+	// Key names this drift: the models and the calibration they drifted from
+	Key string `json:"key"`
+
+	// DetectedAt is when the operator first saw it
+	DetectedAt metav1.Time `json:"detectedAt"`
+
+	// Models are the models that drifted
+	Models []ModelDrift `json:"models"`
+
+	// AskedAt is when the scheduling crew was asked to judge it
+	// +optional
+	AskedAt *metav1.Time `json:"askedAt,omitempty"`
+}
+
+// ModelDrift is one model's calibrated and observed generation speed.
+type ModelDrift struct {
+	// Model is the model name on the provider
+	Model string `json:"model"`
+
+	// CalibratedTokensPerSecond is the generation speed calibration measured
+	CalibratedTokensPerSecond int64 `json:"calibratedTokensPerSecond"`
+
+	// ObservedTokensPerSecond is the median generation speed of warm crew calls
+	// that ran alone on the provider since the calibration
+	ObservedTokensPerSecond int64 `json:"observedTokensPerSecond"`
+
+	// Samples is how many such calls the median is over
+	Samples int `json:"samples"`
 }
 
 // ModelCalibration is what calibration measured for one model on a provider.

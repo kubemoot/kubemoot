@@ -292,7 +292,8 @@ and fill a table, and each packet is forwarded by a table lookup.
 |---|---|---|---|---|
 | Placement code in each agent runtime | Every inference call, in microseconds | No | A pick: provider and model | Runs (the `algorithm` placement policy) |
 | Calibration recipe (`accelerator-mcp`) | A new provider, a reset, an engine change, newly bound models | No | `status.calibration`: what each model costs on each provider | Runs, started by the operator |
-| Model provider calibrator (scheduling crew) | When someone asks | Yes | Which provider or models to calibrate, and an explanation of the results | Runs |
+| Drift check (operator) | Every provider reconcile, once calibrated | No | `status.calibrationDrift`: models whose crew calls drifted from their calibration | Runs |
+| Model provider calibrator (scheduling crew) | When the operator reports a drift | Yes | A decision: recalibrate the drifted models now, or wait, with the evidence | Runs |
 | Real-time scheduling agent | When the situation changes: a provider joins, one is overloaded, new results arrive | Yes | The policy the placement code applies: weights, preferences, limits | Not built yet; the `learned` placement policy is where it plugs in |
 | Post-analysis learning agent | After each settled discussion, from its receipt | Yes | Learned facts per model and provider | Not built yet |
 | Deep analysis agent | When the system is quiet | Yes | Tuning changes, with their evidence | Not built yet |
@@ -314,19 +315,18 @@ registers through its `coreServerSelector` (see
 register it too. It can write ModelProvider status, so any crew that registers it can
 record calibrations: the core opt-in is its only access boundary.
 
-- **model-provider-calibrator** (tooler) handles the judgment around calibration: which
-  provider or models to calibrate when someone asks, and explaining the results. It
-  calls the `accelerator-mcp` tools `list_providers`, `provider_state`, and
-  `calibrate_provider`, following its `calibrate-a-provider` skill.
+- **model-provider-calibrator** (tooler) judges a calibration drift the operator reports:
+  whether the cause is lasting (an engine or hardware change), so the drifted models are
+  recalibrated, or passing (other load on the accelerator, a short burst), so the
+  calibration stands. It calls the `accelerator-mcp` tools `list_providers`,
+  `provider_state`, `observed_performance`, and `calibrate_provider`, following its
+  `judge-a-drift` skill. Its answer is the record of the decision and its evidence.
 - No prompt or skill names a provider, model, or accelerator: what exists is read live
   with the tools.
 
-Ask it like any crew:
-
-```bash
-kmctl conversation ask kubemoot-scheduling "Calibrate ollama-gpu" -n kubemoot-scheduling
-kmctl conversation ask kubemoot-scheduling "How are the model providers calibrated?" -n kubemoot-scheduling
-```
+The crew does scheduling work the operator hands it; it is not a crew to ask questions.
+People read calibration where it is recorded: `kmctl model list` and `kmctl model get
+NAME`, and the provider page in the dashboard.
 
 Its Models come from the chart's `modelProviders` values, so a ModelProvider created
 another way needs a Model in `kubemoot-scheduling` for the crew to think with.
@@ -354,6 +354,25 @@ makes decisions in it:
 This works before any crew runs, including the scheduling crew. The scheduler does not
 read the results yet. Fields and the reset annotation are in the
 [ModelProvider reference](../reference/models.md).
+
+### Drift
+
+A calibration can stop being true while the hardware and engine look the same. Once a
+provider is calibrated, the operator compares the crew calls since then (the performance
+history) with it. A model has drifted when its warm calls running alone on the provider
+generated, at the median over enough calls, far slower or far faster than the calibrated
+speed; the exact rule is defined once, in `operator/pkg/perf`, and `observed_performance`
+states it in its `driftRule`. A call runs alone when it was the only call holding the
+provider as it started. Calls running alongside others are left out of the rule, since
+sharing the provider slows each call.
+
+On a drift the operator records it in the provider's `status.calibrationDrift` and asks
+the scheduling crew, once per drift and once its agents are ready, to judge it. A drift is
+the set of drifted models against one calibration: another model drifting, or a drift
+against a newer calibration, is a new drift and is asked about again. The
+calibrator reads the evidence with `observed_performance` and either recalibrates the
+drifted models or decides to wait. The drift clears when the speeds agree again or a new
+calibration replaces the one they drifted from.
 
 ## Quality bias
 

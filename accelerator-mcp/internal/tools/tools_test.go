@@ -239,7 +239,7 @@ func TestCall_unknownTool(t *testing.T) {
 	check(t, "unknown tool", err != nil, err)
 }
 
-func TestSpecifications_namesTheFiveTools(t *testing.T) {
+func TestSpecifications_namesTheSixTools(t *testing.T) {
 	f := newFixture(t)
 	specs := f.set.Specifications()
 	names := make([]string, 0, len(specs))
@@ -247,8 +247,8 @@ func TestSpecifications_namesTheFiveTools(t *testing.T) {
 		names = append(names, s["name"].(string))
 		check(t, "every spec has a schema and description", s["inputSchema"] != nil && s["description"] != "", s)
 	}
-	check(t, "five tools", strings.Join(names, ",") ==
-		"list_providers,provider_state,probe_model,calibrate_provider,record_calibration", names)
+	check(t, "six tools", strings.Join(names, ",") ==
+		"list_providers,provider_state,probe_model,calibrate_provider,observed_performance,record_calibration", names)
 }
 
 func TestProbeModel_refusesAProviderWithCalibrationOff(t *testing.T) {

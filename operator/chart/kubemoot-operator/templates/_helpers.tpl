@@ -98,3 +98,10 @@ Usage: with (include "kubemoot-operator.pullSecrets" . | fromYamlArray)
 {{- toYaml ($all | uniq) -}}
 {{- end -}}
 {{- end }}
+
+{{/*
+The scheduling crew's name (scheduling-crew.yaml); the operator is told it too.
+*/}}
+{{- define "kubemoot-operator.schedulingCrew" -}}
+kubemoot-scheduling
+{{- end }}

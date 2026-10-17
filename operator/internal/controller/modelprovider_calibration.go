@@ -213,20 +213,10 @@ func (r *ModelProviderReconciler) requestCalibration(ctx context.Context, p *aiv
 		return
 	}
 	log.Info("started a calibration", "provider", p.Name, "reason", need.Reason)
-	r.recordRequest(ctx, p, &aiv1alpha1.CalibrationRequest{Key: need.Key, Reason: need.Reason, RequestedAt: metav1.Now()})
-}
-
-// recordRequest writes the request with a merge patch that touches only that field.
-// It patches a copy: the patch response is the stored object, which must not replace
-// what this reconcile discovered and has yet to write. The request is also set on p.
-func (r *ModelProviderReconciler) recordRequest(ctx context.Context, p *aiv1alpha1.ModelProvider,
-	req *aiv1alpha1.CalibrationRequest) {
-	stored := p.DeepCopy()
-	before := stored.DeepCopy()
-	stored.Status.CalibrationRequest = req
-	if err := r.Status().Patch(ctx, stored, client.MergeFrom(before)); err != nil {
-		logf.FromContext(ctx).Info("could not record the calibration request", "provider", p.Name, "err", err)
-	}
+	req := &aiv1alpha1.CalibrationRequest{Key: need.Key, Reason: need.Reason, RequestedAt: metav1.Now()}
+	r.patchStatus(ctx, p, func(s *aiv1alpha1.ModelProviderStatus) { s.CalibrationRequest = req })
+	// The calibration has started: keep the request on p even if its patch failed,
+	// so the reconcile's status update can still record it.
 	p.Status.CalibrationRequest = req
 }
 

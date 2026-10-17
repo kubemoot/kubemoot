@@ -35,6 +35,7 @@ import (
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/certwatcher"
+	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
@@ -341,6 +342,7 @@ func main() {
 			Client: mgr.GetClient(), Scheme: mgr.GetScheme(), ConfigCache: configCache, NATSPublisher: natsPublisher,
 			Pulls:       modelPulls,
 			Calibration: controller.MCPCalibrator{Client: mgr.GetClient(), Publisher: natsPublisher, Version: buildVersion()},
+			Drift:       driftWatch(mgr.GetClient(), natsPublisher),
 		}).SetupWithManager},
 		{"Model", (&controller.ModelReconciler{
 			Client: mgr.GetClient(), Scheme: mgr.GetScheme(), Pulls: modelPulls,
@@ -427,4 +429,19 @@ func buildVersion() string {
 		return info.Main.Version
 	}
 	return "dev"
+}
+
+// driftWatch watches calibrated providers for drift and asks the scheduling crew
+// named by KUBEMOOT_SCHEDULING_CREW (namespace/name) to judge it; nil when that is
+// unset or malformed.
+func driftWatch(c ctrlclient.Reader, publisher *kubemootnats.Publisher) controller.DriftWatch {
+	raw := os.Getenv(controller.SchedulingCrewEnv)
+	crew, ok := controller.ParseCrewRef(raw)
+	if !ok {
+		if raw != "" {
+			setupLog.Info("ignoring malformed scheduling crew", "env", controller.SchedulingCrewEnv, "value", raw)
+		}
+		return nil
+	}
+	return controller.NATSDriftWatch{Client: c, KV: publisher, Crew: crew, Now: time.Now}
 }

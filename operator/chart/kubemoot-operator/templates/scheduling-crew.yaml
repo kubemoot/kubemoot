@@ -7,7 +7,7 @@ skill (scheduling-crew-prompts.yaml).
 */ -}}
 {{- if and .Values.schedulingCrew.enabled .Values.modelProviders }}
 {{- $ns := .Values.schedulingCrew.namespace }}
-{{- $crew := "kubemoot-scheduling" }}
+{{- $crew := include "kubemoot-operator.schedulingCrew" . }}
 apiVersion: v1
 kind: Namespace
 metadata:
@@ -99,14 +99,14 @@ metadata:
     kubemoot.ai/role: tooler
 spec:
   type: chat
-  description: "Decides when and what to calibrate on ModelProviders, starts calibrations, and explains the results."
-  triageSummary: "Calibrates ModelProviders with the accelerator-mcp tools: lists providers and their calibration status and results, and starts a calibration of a provider or of chosen models."
+  description: "Judges calibration drift on ModelProviders: recalibrates when a lasting change made crew calls slower or faster than calibrated, waits when the cause is passing."
+  triageSummary: "Judges a calibration drift the operator reports on a ModelProvider: compares crew calls with the calibration using the accelerator-mcp tools, then recalibrates the drifted models or decides to wait."
   discussRole: tooler
   capabilities: [tool-calling]
   discussChannels: [general]
-  discussKeywords: [calibrate, calibration, recalibrate, provider, providers, accelerator, probe, modelprovider]
+  discussKeywords: [calibration, drift, drifted, recalibrate, provider, modelprovider]
   promptRefs: [scheduling-protocol, scheduling-response-style, model-provider-calibrator-system]
-  enabledTools: [list_providers, provider_state, calibrate_provider]
+  enabledTools: [list_providers, provider_state, observed_performance, calibrate_provider]
   temperature: "0.1"
   maxTokens: 4096
   deployment:

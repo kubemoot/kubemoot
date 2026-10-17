@@ -51,6 +51,13 @@ func (s *Set) Specifications() []map[string]any {
 					"items":          map[string]any{fieldType: typeString},
 				},
 			})),
+		spec(ToolObservedPerformance,
+			"Compare crew calls on a provider since its calibration with what the calibration measured: per "+
+				"model, the median generation speed of warm calls that ran alone and of calls that ran alongside "+
+				"others, the medians of the earlier and later half of the calls alone, sample counts, failures, the "+
+				"time span, the most calls seen at once, callsNow (calls by other holders on the provider now), and "+
+				"which models drifted by the operator's rule (stated in driftRule).",
+			object([]string{fieldProvider}, map[string]any{fieldProvider: providerProp})),
 		spec(ToolRecordCalibration,
 			"Record a calibration on the provider's status. Phase Calibrating marks the start (and, for a "+
 				"reset of scope all, forgets the provider's performance history). Calibrated, Waiting (paused "+

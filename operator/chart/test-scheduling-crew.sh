@@ -36,13 +36,13 @@ ns=kubemoot-scheduling
 # The calibrator: a tooler limited to the accelerator-mcp tools it needs for judgment.
 [ "$(get "$out" Agent model-provider-calibrator .spec.discussRole)" = tooler ] || fail "the calibrator is not a tooler"
 [ "$(get "$out" Agent model-provider-calibrator '.spec.enabledTools | join(",")')" = \
-  "list_providers,provider_state,calibrate_provider" ] || fail "the calibrator's tools are wrong"
+  "list_providers,provider_state,observed_performance,calibrate_provider" ] || fail "the calibrator's tools are wrong"
 
 # Every prompt module an agent refers to exists in the crew namespace.
 for ref in $(yq -N 'select(.kind == "Agent" and .metadata.namespace == "kubemoot-scheduling") | .spec.promptRefs[]' <<<"$out"); do
   [ "$(get "$out" PromptModule "$ref" .metadata.namespace)" = "$ns" ] || fail "promptRef $ref has no PromptModule"
 done
-[ "$(get "$out" Skill calibrate-a-provider .metadata.namespace)" = "$ns" ] || fail "the probe-plan skill is missing"
+[ "$(get "$out" Skill judge-a-drift .metadata.namespace)" = "$ns" ] || fail "the drift-judgment skill is missing"
 
 # One small Model per ModelProvider the chart declares, low latency, tool-calling.
 [ "$(count "$out" '.kind == "Model" and .metadata.namespace == "kubemoot-scheduling"')" = 2 ] \
@@ -84,6 +84,10 @@ role='select(.kind == "ClusterRole" and (.metadata.name | test("accelerator-mcp"
   || fail "the tools should only patch ModelProvider status"
 [ "$(get "$out" MCPServer accelerator-mcp .spec.securityMode)" = strict ] || fail "the MCP server should run in strict security mode"
 
+# The operator is told where the crew is, so it can ask it to judge calibration drift.
+crew_env() { yq -N 'select(.kind == "Deployment" and (.metadata.name | test("kubemoot-operator$"))) | .spec.template.spec.containers[0].env[] | select(.name == "KUBEMOOT_SCHEDULING_CREW") | .value' <<<"$1"; }
+[ "$(crew_env "$out")" = "kubemoot-scheduling/kubemoot-scheduling" ] || fail "the operator is not told where the scheduling crew is"
+
 # Without chart-declared ModelProviders the crew would have no Model to think with: nothing renders.
 none="$(render)"
 [ "$(count "$none" '.metadata.namespace == "kubemoot-scheduling" or .metadata.name == "kubemoot-scheduling"')" = 0 ] \
@@ -98,6 +102,7 @@ name="$(yq -N 'select(.kind == "Model" and .spec.providerRef == "gpu") | .metada
 off="$(render "${providers[@]}" --set schedulingCrew.enabled=false)"
 [ "$(count "$off" '.metadata.namespace == "kubemoot-scheduling" or .metadata.name == "kubemoot-scheduling"')" = 0 ] \
   || fail "the crew renders when disabled"
+[ -z "$(crew_env "$off")" ] || fail "the operator is told about a crew that is disabled"
 [ "$(get "$off" MCPServer accelerator-mcp .metadata.name)" = accelerator-mcp ] \
   || fail "accelerator-mcp is a core server and should not depend on the crew"
 [ "$(get "$none" MCPServer accelerator-mcp .metadata.name)" = accelerator-mcp ] \
@@ -112,6 +117,7 @@ done
 # Another namespace and model are honored.
 other="$(render "${providers[@]}" --set schedulingCrew.namespace=km-sched --set schedulingCrew.model.name=llama3.2:3b)"
 [ "$(get "$other" Crew kubemoot-scheduling .metadata.namespace)" = km-sched ] || fail "namespace value ignored"
+[ "$(crew_env "$other")" = "km-sched/kubemoot-scheduling" ] || fail "the operator is told the wrong crew namespace"
 [ "$(get "$other" Model gpu-llama3-2-3b .spec.model)" = "llama3.2:3b" ] || fail "model value ignored"
 
 echo "PASS: scheduling crew render tests"
