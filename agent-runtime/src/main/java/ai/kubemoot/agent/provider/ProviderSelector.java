@@ -1346,7 +1346,8 @@ public class ProviderSelector {
                 availFootprints,
                 n.path("contextLength").asLong(0L),
                 longMapField(n, "loadedModelContextLengths"),
-                speedsField(n)
+                speedsField(n),
+                n.path("engine").isTextual() ? n.path("engine").asText() : ""
         );
     }
 

@@ -49,18 +49,19 @@ dependencies {
     implementation("com.fasterxml.jackson.core:jackson-databind")
     implementation("com.fasterxml.jackson.datatype:jackson-datatype-jsr310")
 
-    // LangChain4j via Quarkus extension
+    // LangChain4j via the Quarkus Ollama extension: still the injected static-fallback
+    // chat model and the quarkus.langchain4j.ollama.* settings ModelWarmupService and
+    // DiscussionSubscriber read. Scheduled calls go through langchain4j-open-ai below.
     implementation("io.quarkiverse.langchain4j:quarkus-langchain4j-ollama")
-    // JDK HTTP client for LangChain4j models built MANUALLY (ChatModelPool's
-    // per-endpoint JIT models). quarkus-langchain4j-ollama EXCLUDES
-    // langchain4j-http-client-jdk and wires its own JAX-RS client for the
-    // INJECTED model only — so a manually-built OllamaChatModel finds no HTTP
-    // client via ServiceLoader and fails in native with "No HTTP client has
-    // been found in the classpath". Adding it back lets ChatModelPool set an
-    // explicit JdkHttpClientBuilder (java.net.http — native-safe, the same
-    // client the triage path already uses). Keeps LangChain4j as the
-    // provider abstraction so other backends (vLLM, …) stay possible.
+    // The JDK HTTP client for the chat models ChatModelPool builds per endpoint. The
+    // Quarkus extension wires its own client only into the model it injects, so a model
+    // built by hand finds no HTTP client through ServiceLoader in the native image;
+    // ChatModelPool sets this one explicitly (java.net.http, native-safe).
     implementation("dev.langchain4j:langchain4j-http-client-jdk")
+    // The OpenAI-compatible chat client every agent call goes through, whatever the
+    // engine (Ollama, vLLM, SGLang, a hosted API): the plain library, not the Quarkus
+    // extension, because ChatModelPool builds one model per endpoint itself.
+    implementation("dev.langchain4j:langchain4j-open-ai")
 
     // MCP protocol client (framework-agnostic, used for direct MCP server connections).
     // mcp-core with the Jackson 2 binding instead of the `mcp` bundle, which brings

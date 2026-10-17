@@ -8,8 +8,8 @@ import java.time.Duration;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
- * Unit tests for {@link ChatModelPool} — the per-endpoint lazy ChatModel cache
- * that backs JIT provider selection. Building a model is offline (no ollama
+ * Unit tests for {@link ChatModelPool}, the per-endpoint lazy ChatModel cache
+ * that backs JIT provider selection. Building a model is offline (no server
  * call until {@code .chat()}), so the cache behavior is testable in plain JUnit.
  *
  * Focus: the {@code think} parameter (per-agent thinking control) must (a) be
@@ -23,7 +23,7 @@ class ChatModelPoolTest {
     private static final Duration T = Duration.ofMinutes(5);
 
     private ChatModel build(ChatModelPool pool, Boolean think) {
-        return pool.forEndpoint(EP, MODEL, 0.3, 4096, T, think);
+        return pool.forEndpoint(ChatEngines.OLLAMA, EP, MODEL, 0.3, 4096, T, think);
     }
 
     @Test
@@ -61,9 +61,19 @@ class ChatModelPoolTest {
         // pool already serves; the cached model for the first must not be reused.
         var pool = new ChatModelPool();
         pool.clearForTest();
-        ChatModel big = pool.forEndpoint(EP, "qwen3:32b", 0.3, 4096, T, null);
-        ChatModel mid = pool.forEndpoint(EP, "qwen3:14b", 0.3, 4096, T, null);
+        ChatModel big = pool.forEndpoint(ChatEngines.OLLAMA, EP, "qwen3:32b", 0.3, 4096, T, null);
+        ChatModel mid = pool.forEndpoint(ChatEngines.OLLAMA, EP, "qwen3:14b", 0.3, 4096, T, null);
         assertNotSame(big, mid);
+        assertEquals(2, pool.sizeForTest());
+    }
+
+    @Test
+    void theEngineIsPartOfTheCacheKey() {
+        var pool = new ChatModelPool();
+        pool.clearForTest();
+        ChatModel ollama = pool.forEndpoint(ChatEngines.OLLAMA, EP, MODEL, 0.3, 4096, T, false);
+        ChatModel other = pool.forEndpoint(ChatEngines.OPENAI_COMPATIBLE, EP, MODEL, 0.3, 4096, T, false);
+        assertNotSame(ollama, other, "the same server and model on another engine sends other request fields");
         assertEquals(2, pool.sizeForTest());
     }
 }

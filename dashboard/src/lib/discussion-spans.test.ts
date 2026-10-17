@@ -58,6 +58,21 @@ describe('buildAgentSpans', () => {
 		expect(buildAgentSpans([])).toEqual([]);
 	});
 
+	it('reads the wait for the first token, and whether it included a model load', () => {
+		const [, warm] = buildAgentSpans([
+			msg('human', 'thread_start', 0),
+			msg('advisor', 'advisory', 2000, { inferenceMs: 1800, firstTokenMs: 400, coldStart: false })
+		]);
+		expect(warm).toMatchObject({ firstTokenMs: 400, coldStart: false });
+		const [, cold] = buildAgentSpans([
+			msg('human', 'thread_start', 0),
+			msg('advisor', 'advisory', 9000, { inferenceMs: 8000, firstTokenMs: 6200, coldStart: true })
+		]);
+		expect(cold).toMatchObject({ firstTokenMs: 6200, coldStart: true });
+		const [, none] = buildAgentSpans([msg('human', 'thread_start', 0), msg('advisor', 'advisory', 900)]);
+		expect(none).toMatchObject({ firstTokenMs: 0, coldStart: false });
+	});
+
 	it('builds one span per agent from the thread start, human first then by end time', () => {
 		const spans = buildAgentSpans([
 			msg('coordinator', 'heartbeat', -5000),
@@ -89,7 +104,9 @@ describe('buildAgentSpans', () => {
 			pickReason: 'warm, slot 1/2',
 			inferenceMs: 2500,
 			inferenceStartMs: 1500,
-			loadDurationMs: 300,
+			// An older message carries only a load time: the wait was a load.
+			firstTokenMs: 300,
+			coldStart: true,
 			queueDepth: 0
 		});
 		expect(sre.signalMarkers).toEqual([

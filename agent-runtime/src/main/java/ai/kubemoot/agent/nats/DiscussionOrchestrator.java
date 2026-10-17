@@ -1710,13 +1710,7 @@ public class DiscussionOrchestrator {
             // render the same colored badge it does for toolers.
             metadata.put(FIELD_GPU_LABEL, GpuLabels.fromEndpoint(properties.model().endpoint()));
             metadata.put(FIELD_MODEL_NAME, properties.model().model());
-            // Plumb the LangChain4j-reported Ollama load_duration through the
-            // most recent simpleLlmCall, if any — so the dashboard can split
-            // the inference span into a pale "model load" prefix.
-            long loadMs = chatService.getLastLoadDurationMs();
-            if (loadMs > 0) {
-                metadata.put("loadDurationMs", loadMs);
-            }
+            putFirstToken(metadata, chatService.lastSimpleCall());
 
             var advisory = Map.of(
                     FIELD_MESSAGE_ID, UUID.randomUUID().toString(),
@@ -4187,5 +4181,17 @@ public class DiscussionOrchestrator {
         }
         sb.append("--- Current question ---\n\n");
         return sb.toString();
+    }
+
+    /**
+     * Adds the advisory call's wait for its first token, and whether its model loaded
+     * first, so the dashboard can mark that wait as a pale prefix of the inference span;
+     * nothing when there was no timed call.
+     */
+    static void putFirstToken(Map<String, Object> metadata, ChatService.LastSimpleCall last) {
+        if (last != null && last.firstTokenMs() > 0) {
+            metadata.put("firstTokenMs", last.firstTokenMs());
+            metadata.put("coldStart", last.coldStart());
+        }
     }
 }

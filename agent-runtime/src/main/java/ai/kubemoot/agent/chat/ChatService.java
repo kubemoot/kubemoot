@@ -9,6 +9,7 @@ import ai.kubemoot.agent.provider.OllamaDirectProber;
 import ai.kubemoot.agent.provider.CallPlanner;
 import ai.kubemoot.agent.provider.ProviderSelector;
 import ai.kubemoot.agent.provider.ProviderState;
+import ai.kubemoot.agent.provider.StreamedChat;
 import ai.kubemoot.agent.rag.RagClient;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.langchain4j.agent.tool.ToolSpecification;
@@ -18,6 +19,7 @@ import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.ToolExecutionResultMessage;
 import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.model.chat.ChatModel;
+import dev.langchain4j.model.chat.StreamingChatModel;
 import dev.langchain4j.model.chat.request.ChatRequest;
 import dev.langchain4j.model.chat.response.ChatResponse;
 import dev.langchain4j.service.tool.ToolExecutor;
@@ -27,10 +29,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
-import java.net.URI;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
@@ -49,9 +47,6 @@ public class ChatService {
 
     private static final Logger log = LoggerFactory.getLogger(ChatService.class);
 
-    // Ollama API field constants
-    private static final String OLLAMA_ROLE = "role";
-    private static final String OLLAMA_CONTENT = "content";
     private static final String STATIC_FALLBACK = "static fallback"; // scheduler-outcome reason label
 
     private final ChatModel chatModel;
@@ -103,10 +98,9 @@ public class ChatService {
      */
     private final ai.kubemoot.agent.memory.CrewMemoryClient crewMemory;
 
-    // Triage model config — direct HTTP to Ollama API (avoids LangChain4j/Quarkus wiring issues in native)
+    // The triage model: its static endpoint (used when the scheduler cannot place the call) and its name.
     private final String triageEndpoint;
     private final String triageModelId;
-    private final HttpClient triageHttpClient;
 
     // Tool specs + executors cached after init
     private final McpClientService mcpClient;
@@ -127,13 +121,22 @@ public class ChatService {
         }
     }
 
-    // Most recent Ollama `load_duration` from a simpleLlmCall, in milliseconds.
-    // 0 when the model was already loaded (warm path) or when LangChain4j
-    // doesn't surface the field on this provider. Reflection-based extraction
-    // lets us read it from OllamaChatResponseMetadata without a hard import,
-    // so the build keeps working if the LangChain4j provider class moves.
-    private volatile long lastLoadDurationMs = 0;
-    private volatile boolean loadDurationProbed = false;
+    /**
+     * The most recent simple call's wait for its first token, and whether its model had
+     * to load first (then the wait includes the load). One value, so both always
+     * describe the same call; {@link #NONE} before any call and after a failed one.
+     */
+    public record LastSimpleCall(long firstTokenMs, boolean coldStart) {
+        public static final LastSimpleCall NONE = new LastSimpleCall(0L, false);
+    }
+
+    private volatile LastSimpleCall lastSimpleCall = LastSimpleCall.NONE;
+
+    /** How long a simple (advisory or synthesis) call may take. */
+    private static final Duration SIMPLE_CALL_TIMEOUT = Duration.ofMinutes(5);
+    /** The triage call's sampling settings: classification, so low temperature and a bounded reply. */
+    private static final double TRIAGE_TEMPERATURE = 0.3;
+    private static final int TRIAGE_MAX_TOKENS = 2048;
 
     @Inject
     @SuppressWarnings("java:S107") // CDI constructor: one parameter per collaborator
@@ -176,9 +179,6 @@ public class ChatService {
         var triage = properties.triageModel();
         this.triageEndpoint = triage.endpoint().orElse(properties.model().endpoint());
         this.triageModelId = triage.modelId().orElse(properties.model().model());
-        this.triageHttpClient = HttpClient.newBuilder()
-                .connectTimeout(Duration.ofSeconds(10))
-                .build();
         log.info("Triage model: {} @ {}", triageModelId, triageEndpoint);
 
         // Register MCP tools. Tools are discovered via the MCPGateway/McpClientService
@@ -1199,6 +1199,8 @@ public class ChatService {
      * up the call chain so DiscussionSubscriber can include it in the
      * agent's signal metadata for per-call attribution in the dashboard.
      * See [[Per-Call Provider Attribution]] (Epic - JIT GPU Scheduling).
+     * Tool-loop calls use {@code model}; simple (no-tool) calls stream from
+     * {@code endpoint} with the agent's model settings instead.
      */
     private record MullingPick(ChatModel model, String providerName,
                                 java.util.Optional<ai.kubemoot.agent.provider.Ticket> ticket,
@@ -1608,7 +1610,10 @@ public class ChatService {
         }
         log.info("No provider state ({}): fit pick endpoint={} model={} coldLoad={}MiB (direct probe)",
                 noStateReason(), fittingEndpoint, modelName, coldLoadFootprintMiB);
+        // Without provider state the engine type is unknown; direct probing finds
+        // only Ollama servers.
         ChatModel degradedModel = chatModelPool.forEndpoint(
+                ai.kubemoot.agent.provider.ChatEngines.OLLAMA,
                 fittingEndpoint,
                 modelName,
                 properties.model().temperature(),
@@ -1631,15 +1636,14 @@ public class ChatService {
         log.info("JIT pick: provider={} endpoint={} model={} coldLoadFootprintEstimate={}MiB totalVram={}MiB",
                 ps.name(), ps.endpoint(), modelName, coldLoadFootprintMiB, ps.totalVramMiB());
         ChatModel built = chatModelPool.forEndpoint(
+                ps.chatEngine(),
                 ps.endpoint(),
                 modelName,
                 properties.model().temperature(),
                 properties.model().maxTokens(),
-                // Mulling timeout: 5 min matches the homelab coordinator's
-                // existing QUARKUS_LANGCHAIN4J_OLLAMA_TIMEOUT=300s setting.
-                // Generous because tool-loop iterations chain multiple
-                // inferences; individual tool failures are already bounded
-                // by ToolCallFailure thresholds in callWithToolLoop.
+                // Generous: a tool loop chains several calls on one model, and
+                // individual tool failures are bounded by ToolCallFailure
+                // thresholds in callWithToolLoop.
                 java.time.Duration.ofMinutes(5),
                 // Per-agent thinking control; empty leaves the model default.
                 properties.model().think().orElse(null)
@@ -1741,22 +1745,64 @@ public class ChatService {
         }
     }
 
-    /** Send a no-tool chat request, record load_duration, and return text + token counts. */
+    /** Send a no-tool chat request as a timed stream, record it, and return text + token counts. */
     private SimpleLlmResult invokeSimpleCall(MullingPick pick, List<ChatMessage> messages) {
-        var response = observed(pick, ai.kubemoot.agent.provider.CallObservation.KIND_SIMPLE)
-                .chat(dev.langchain4j.model.chat.request.ChatRequest.builder()
-                        .messages(messages)
-                        .build());
-        long inTok = 0;
-        long outTok = 0;
-        if (response.tokenUsage() != null) {
-            inTok = response.tokenUsage().inputTokenCount();
-            outTok = response.tokenUsage().outputTokenCount();
-        }
-        // Capture Ollama's load_duration from the response metadata if available.
-        lastLoadDurationMs = extractLoadDurationMs(response);
-        return new SimpleLlmResult(response.aiMessage().text(), inTok, outTok,
+        var model = chatModelPool.streamingForEndpoint(engineFor(pick.providerName()), pick.endpoint(),
+                pick.modelName(), properties.model().temperature(), properties.model().maxTokens(),
+                SIMPLE_CALL_TIMEOUT, properties.model().think().orElse(null));
+        var context = callContext(pick.providerName(), pick.modelName(),
+                ai.kubemoot.agent.provider.CallObservation.KIND_SIMPLE, pick.coldLoad());
+        lastSimpleCall = LastSimpleCall.NONE;
+        var timed = sendTimed(model, messages, SIMPLE_CALL_TIMEOUT, context);
+        lastSimpleCall = new LastSimpleCall(timed.firstTokenMs(), pick.coldLoad());
+        var usage = timed.response().tokenUsage();
+        return new SimpleLlmResult(timed.response().aiMessage().text(), inputTokens(usage), outputTokens(usage),
                 new ModelUse(pick.modelName(), pick.providerName()));
+    }
+
+    /**
+     * Sends {@code messages} as one timed stream and records it in the performance
+     * history when {@code context} is set, whether it succeeds or fails.
+     */
+    private StreamedChat.Timed sendTimed(StreamingChatModel model, List<ChatMessage> messages, Duration timeout,
+                                         ai.kubemoot.agent.provider.CallContext context) {
+        long start = System.currentTimeMillis();
+        StreamedChat.Timed timed = null;
+        try {
+            timed = StreamedChat.send(model, dev.langchain4j.model.chat.request.ChatRequest.builder().messages(messages).build(), timeout);
+            return timed;
+        } finally {
+            if (context != null) {
+                performanceHistory.record(timed == null
+                        ? context.measured(false, start, System.currentTimeMillis() - start, 0L, 0L)
+                        : context.streamed(true, start, timed, inputTokens(timed.response().tokenUsage()),
+                                outputTokens(timed.response().tokenUsage())));
+            }
+        }
+    }
+
+    private static long inputTokens(dev.langchain4j.model.output.TokenUsage usage) {
+        return usage == null || usage.inputTokenCount() == null ? 0L : usage.inputTokenCount();
+    }
+
+    private static long outputTokens(dev.langchain4j.model.output.TokenUsage usage) {
+        return usage == null || usage.outputTokenCount() == null ? 0L : usage.outputTokenCount();
+    }
+
+    /**
+     * How calls reach the provider's model server, from its engine type in the provider
+     * state; Ollama when no provider was chosen (the static endpoints are Ollama) or its
+     * state is not readable.
+     */
+    private ai.kubemoot.agent.provider.ChatEngine engineFor(String providerName) {
+        if (providerSelector == null || providerName == null || providerName.isEmpty()) {
+            return ai.kubemoot.agent.provider.ChatEngines.OLLAMA;
+        }
+        return providerSelector.readState().stream()
+                .filter(p -> providerName.equals(p.name()))
+                .findFirst()
+                .map(ai.kubemoot.agent.provider.ProviderState::chatEngine)
+                .orElse(ai.kubemoot.agent.provider.ChatEngines.OLLAMA);
     }
 
     /**
@@ -1835,72 +1881,9 @@ public class ChatService {
         return null;
     }
 
-    /**
-     * Returns the Ollama `load_duration` in milliseconds from the most recent
-     * `simpleLlmCallWithTokens` call. 0 if the model was already warm or if
-     * the underlying ChatModel doesn't expose the field.
-     */
-    public long getLastLoadDurationMs() {
-        return lastLoadDurationMs;
-    }
-
-    /**
-     * Reflection-based extraction of `load_duration` (nanoseconds, per Ollama
-     * convention) from a LangChain4j ChatResponse's metadata. Tries common
-     * accessor patterns the Ollama provider may expose:
-     *
-     *   - response.metadata() has a `loadDuration()` / `getLoadDuration()` accessor
-     *   - or a `loadDurationNanos()` accessor
-     *   - or the response itself carries `loadDuration()` on a provider-specific subclass
-     *
-     * If nothing matches, logs once and returns 0 — the dashboard simply
-     * doesn't render the load-prefix in that case.
-     */
-    private long extractLoadDurationMs(dev.langchain4j.model.chat.response.ChatResponse response) {
-        if (response == null) return 0;
-        try {
-            // Probe metadata() first (the spec-compliant location).
-            var meta = response.metadata();
-            Long ns = invokeLongAccessor(meta, "loadDuration", "getLoadDuration", "loadDurationNanos");
-            if (ns == null) {
-                // Some providers expose it directly on the response wrapper.
-                ns = invokeLongAccessor(response, "loadDuration", "getLoadDuration", "loadDurationNanos");
-            }
-            if (ns != null && ns > 0) {
-                return Math.round(ns / 1_000_000.0);
-            }
-        } catch (Exception e) {
-            log.debug("load_duration extraction threw: {}", e.getMessage());
-        }
-        if (!loadDurationProbed) {
-            loadDurationProbed = true;
-            log.info("LangChain4j ChatResponse does not surface load_duration on this provider — dashboard will not render the model-load span prefix.");
-        }
-        return 0;
-    }
-
-    private static Long invokeLongAccessor(Object target, String... names) {
-        if (target == null) return null;
-        Class<?> cls = target.getClass();
-        for (String name : names) {
-            try {
-                var method = cls.getMethod(name);
-                Object value = method.invoke(target);
-                if (value instanceof Number n) {
-                    long v = n.longValue();
-                    if (v > 0) return v;
-                }
-                if (value instanceof java.time.Duration d) {
-                    return d.toNanos();
-                }
-            } catch (NoSuchMethodException ignored) {
-                // try next
-            } catch (Exception e) {
-                // accessor exists but errored — give up on this target
-                return null;
-            }
-        }
-        return null;
+    /** The most recent simple call's first-token wait; {@link LastSimpleCall#NONE} when there is none. */
+    public LastSimpleCall lastSimpleCall() {
+        return lastSimpleCall;
     }
 
     /**
@@ -1940,58 +1923,27 @@ public class ChatService {
         var observedCall = callContext(placement.pickedProvider(), triageModelId,
                 ai.kubemoot.agent.provider.CallObservation.KIND_TRIAGE, placement.coldLoad());
 
+        Duration timeout = Duration.ofSeconds(properties.triageModel().timeoutSeconds());
+        var model = chatModelPool.streamingForEndpoint(engineFor(placement.pickedProvider()), endpoint, triageModelId,
+                TRIAGE_TEMPERATURE, TRIAGE_MAX_TOKENS, timeout, null);
+        var messages = new ArrayList<ChatMessage>();
+        if (systemPrompt != null && !systemPrompt.isEmpty()) {
+            messages.add(SystemMessage.from(systemPrompt));
+        }
+        messages.add(UserMessage.from(conversation));
+
         long startMs = System.currentTimeMillis();
         boolean ok = false;
-        com.fasterxml.jackson.databind.JsonNode replyBody = null;
         try {
-            var messages = new ArrayList<Map<String, String>>();
-            if (systemPrompt != null && !systemPrompt.isEmpty()) {
-                messages.add(Map.of(OLLAMA_ROLE, "system", OLLAMA_CONTENT, systemPrompt));
-            }
-            messages.add(Map.of(OLLAMA_ROLE, "user", OLLAMA_CONTENT, conversation));
-
-            var body = objectMapper.writeValueAsString(Map.of(
-                    "model", triageModelId,
-                    "messages", messages,
-                    "stream", false,
-                    "options", Map.of("temperature", 0.3, "num_predict", 2048)
-            ));
-
-            var request = HttpRequest.newBuilder()
-                    .uri(URI.create(endpoint + "/api/chat"))
-                    .header("Content-Type", "application/json")
-                    .timeout(Duration.ofSeconds(properties.triageModel().timeoutSeconds()))
-                    .POST(HttpRequest.BodyPublishers.ofString(body))
-                    .build();
-
-            var response = triageHttpClient.send(request, HttpResponse.BodyHandlers.ofString());
-
-            if (response.statusCode() != 200) {
-                throw new IOException("Ollama returned " + response.statusCode() + ": " + response.body());
-            }
-
-            replyBody = objectMapper.readTree(response.body());
-            SimpleLlmResult result = parseOllamaChat(replyBody)
-                    .ranOn(new ModelUse(triageModelId, placement.pickedProvider()));
+            var timed = sendTimed(model, messages, timeout, observedCall);
+            var usage = timed.response().tokenUsage();
             ok = true;
-            return result;
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw new java.io.UncheckedIOException(new IOException("Triage call interrupted", e));
-        } catch (IOException e) {
-            throw new java.io.UncheckedIOException("Triage call failed: " + e.getMessage(), e);
+            return new SimpleLlmResult(timed.response().aiMessage().text(), inputTokens(usage), outputTokens(usage))
+                    .ranOn(new ModelUse(triageModelId, placement.pickedProvider()));
+        } catch (RuntimeException e) {
+            throw new java.io.UncheckedIOException("Triage call failed: " + e.getMessage(), new IOException(e));
         } finally {
-            long durMs = System.currentTimeMillis() - startMs;
-            recordTriageOutcome(placement, durMs, ok);
-            recordTriagePerformance(observedCall, ok, startMs, durMs, replyBody);
-        }
-    }
-
-    /** Records a triage request with the engine's own counts and timings from its reply, when recording. */
-    private void recordTriagePerformance(ai.kubemoot.agent.provider.CallContext context, boolean ok, long startMs,
-                                         long durMs, com.fasterxml.jackson.databind.JsonNode reply) {
-        if (context != null) {
-            performanceHistory.record(context.measured(ok, startMs, durMs, 0L, 0L).withOllamaReply(reply));
+            recordTriageOutcome(placement, System.currentTimeMillis() - startMs, ok);
         }
     }
 
@@ -2099,19 +2051,6 @@ public class ChatService {
         if (ticketManager != null) {
             placement.ticket().ifPresent(ticketManager::release);
         }
-    }
-
-    /**
-     * Parse an Ollama /api/chat non-streaming response into text + token counts.
-     * Uses readTree navigation (record deserialization fails silently in GraalVM
-     * native — see CLAUDE.md). prompt_eval_count / eval_count are Ollama's input /
-     * output token fields; absent when the response omits them → 0.
-     */
-    static SimpleLlmResult parseOllamaChat(com.fasterxml.jackson.databind.JsonNode responseBody) {
-        String text = responseBody.path("message").path(OLLAMA_CONTENT).asText("");
-        long inTok = responseBody.path("prompt_eval_count").asLong(0);
-        long outTok = responseBody.path("eval_count").asLong(0);
-        return new SimpleLlmResult(text, inTok, outTok);
     }
 
     /** True when a triage model endpoint distinct from the primary model is configured. */

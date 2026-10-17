@@ -19,8 +19,10 @@ import ai.kubemoot.agent.rag.RagClient;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.model.chat.ChatModel;
+import dev.langchain4j.model.chat.StreamingChatModel;
 import dev.langchain4j.model.chat.request.ChatRequest;
 import dev.langchain4j.model.chat.response.ChatResponse;
+import dev.langchain4j.model.chat.response.StreamingChatResponseHandler;
 import dev.langchain4j.model.output.TokenUsage;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -92,8 +94,21 @@ class ChatServiceCapacityTest {
         return model;
     }
 
+    /** A streaming model that answers {@code text} in one token and completes. */
+    private static StreamingChatModel streamingAnswering(String text) {
+        var model = mock(StreamingChatModel.class);
+        var response = ChatResponse.builder().aiMessage(new AiMessage(text)).tokenUsage(new TokenUsage(10, 5)).build();
+        doAnswer(inv -> {
+            StreamingChatResponseHandler handler = inv.getArgument(1);
+            handler.onPartialResponse(text);
+            handler.onCompleteResponse(response);
+            return null;
+        }).when(model).chat(any(ChatRequest.class), any(StreamingChatResponseHandler.class));
+        return model;
+    }
+
     private void poolServes(String model, ChatModel chat) {
-        when(pool.forEndpoint(eq(EP), eq(model), anyDouble(), anyInt(), any(), any())).thenReturn(chat);
+        when(pool.forEndpoint(any(), eq(EP), eq(model), anyDouble(), anyInt(), any(), any())).thenReturn(chat);
     }
 
     private ChatService service(GpuCapacityWaiter waiter, String candidatesJson) {
@@ -119,6 +134,25 @@ class ChatServiceCapacityTest {
                 + "{\"model\":\"" + WARM_CANDIDATE + "\",\"score\":" + candidateScore + "}]";
     }
 
+    /** A provider whose state names another engine is called through that engine's adapter. */
+    @Test
+    void aProviderOnAnotherEngine_isCalledThroughItsAdapter() {
+        var vllm = new ProviderState("ollama-a", EP, 1, 0, 0, List.of(WARM_CANDIDATE), true,
+                "2026-10-17T00:00:00Z", 32_768, Map.of(WARM_CANDIDATE, 10_000L), Map.of(PREFERRED, 20_000L),
+                0L, Map.of(), Map.of(), "vllm");
+        when(selector.readState()).thenReturn(List.of(vllm));
+        when(selector.pickAndClaimWarm(eq(PREFERRED), anyLong(), anyLong(), anyLong())).thenReturn(Optional.empty());
+        when(selector.pickAndClaimWarm(eq(WARM_CANDIDATE), anyLong(), anyLong(), anyLong()))
+                .thenReturn(Optional.of(pickOn(vllm)));
+        var vllmChat = answering("from vllm");
+        when(pool.forEndpoint(eq(ai.kubemoot.agent.provider.ChatEngines.OPENAI_COMPATIBLE), eq(EP), eq(WARM_CANDIDATE),
+                anyDouble(), anyInt(), any(), any())).thenReturn(vllmChat);
+
+        var result = service(null, candidates(70, 60)).directChat(request(), true, CapacityWait.NONE);
+
+        assertEquals("from vllm", result.response());
+    }
+
     @Test
     void warmCandidateWithinTolerance_beatsColdLoadingThePreferredModel() {
         var rig = provider(32_768);
@@ -134,7 +168,8 @@ class ChatServiceCapacityTest {
         assertEquals(WARM_CANDIDATE, result.model(), "the result reports the model the call ran on");
         assertEquals(List.of(new ModelUse(WARM_CANDIDATE, "ollama-a")), result.modelsUsed());
         assertEquals("ollama-a", result.providerName());
-        verify(pool).forEndpoint(eq(EP), eq(WARM_CANDIDATE), anyDouble(), anyInt(), any(), any());
+        verify(pool).forEndpoint(eq(ai.kubemoot.agent.provider.ChatEngines.OLLAMA), eq(EP), eq(WARM_CANDIDATE),
+                anyDouble(), anyInt(), any(), any());
         verify(selector, never()).pickAndClaim(anyString(), anyLong(), anyLong(), anyLong());
         verify(tickets).recordResidency("ollama-a", WARM_CANDIDATE, 10_000L);
         verifyNoInteractions(staticModel);
@@ -194,7 +229,7 @@ class ChatServiceCapacityTest {
         assertEquals("quality answer", result.response());
         assertEquals(PREFERRED, result.model());
         verify(selector, never()).pickAndClaimWarm(eq(WARM_CANDIDATE), anyLong(), anyLong(), anyLong());
-        verify(pool).forEndpoint(eq(EP), eq(PREFERRED), anyDouble(), anyInt(), any(), any());
+        verify(pool).forEndpoint(any(), eq(EP), eq(PREFERRED), anyDouble(), anyInt(), any(), any());
     }
 
     @Test
@@ -435,7 +470,7 @@ class ChatServiceCapacityTest {
 
         assertEquals(NoFitException.REASON_PROMPT_TOO_LARGE, nfe.reason());
         verify(tickets, times(1)).release(any());
-        verify(pool, never()).forEndpoint(anyString(), anyString(), anyDouble(), anyInt(), any(), any());
+        verify(pool, never()).forEndpoint(any(), anyString(), anyString(), anyDouble(), anyInt(), any(), any());
     }
 
     @Test
@@ -452,15 +487,55 @@ class ChatServiceCapacityTest {
     @Test
     void coordinatorCall_everyGpuBusy_stillFallsBackToTheStaticEndpoint() {
         when(selector.readState()).thenReturn(List.of(providerWithContext(32_768, 32_768)));
-        var response = mock(ChatResponse.class);
-        when(response.aiMessage()).thenReturn(new AiMessage("synthesis"));
-        when(response.tokenUsage()).thenReturn(new TokenUsage(10, 5));
-        when(staticModel.chat(any(ChatRequest.class))).thenReturn(response);
+        var synthesis = streamingAnswering("synthesis");
+        when(pool.streamingForEndpoint(any(), anyString(), anyString(), anyDouble(), anyInt(), any(), any()))
+                .thenReturn(synthesis);
 
         var result = service(null, null).simpleLlmCallWithTokens("system", "short");
 
         assertEquals("synthesis", result.text());
         assertEquals(new ModelUse(PREFERRED, ""), result.modelUse(), "the static endpoint has no provider");
+        // No provider was chosen, so the call goes to the static endpoint, which is Ollama.
+        // The agent's own settings apply: its thinking switch is unset here, so null.
+        verify(pool).streamingForEndpoint(eq(ai.kubemoot.agent.provider.ChatEngines.OLLAMA), anyString(),
+                eq(PREFERRED), anyDouble(), anyInt(), any(), isNull());
+    }
+
+    /** A failed triage call surfaces as before, an UncheckedIOException naming the cause. */
+    @Test
+    void triage_serverError_surfacesAsUncheckedIOException() throws Exception {
+        var server = com.sun.net.httpserver.HttpServer.create(new java.net.InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/", exchange -> {
+            byte[] body = "{\"error\":{\"message\":\"model 'qwen2.5:32b' not found\"}}"
+                    .getBytes(java.nio.charset.StandardCharsets.UTF_8);
+            exchange.sendResponseHeaders(404, body.length);
+            try (var out = exchange.getResponseBody()) {
+                out.write(body);
+            }
+        });
+        server.start();
+        try {
+            String endpoint = "http://127.0.0.1:" + server.getAddress().getPort();
+            var rig = new ProviderState("ollama-b", endpoint, 1, 0, 0, List.of(PREFERRED), true,
+                    "2026-10-17T00:00:00Z", 32_768, Map.of(PREFERRED, 20_000L), Map.of(PREFERRED, 20_000L),
+                    32_768, Map.of());
+            when(selector.readState()).thenReturn(List.of(rig));
+            when(selector.pickAndClaim(eq(PREFERRED), anyLong(), anyLong(), anyLong()))
+                    .thenReturn(Optional.of(pickOn(rig)));
+            var realPool = new ai.kubemoot.agent.provider.ChatModelPool();
+            when(pool.streamingForEndpoint(any(), anyString(), anyString(), anyDouble(), anyInt(), any(), any()))
+                    .thenAnswer(inv -> realPool.streamingForEndpoint(inv.getArgument(0), inv.getArgument(1),
+                            inv.getArgument(2), inv.getArgument(3), inv.getArgument(4), inv.getArgument(5),
+                            inv.getArgument(6)));
+
+            var e = assertThrows(java.io.UncheckedIOException.class,
+                    () -> service(null, null).triageChatWithTokens("system", "conversation"));
+
+            assertTrue(e.getMessage().startsWith("Triage call failed: "), e.getMessage());
+            assertTrue(e.getMessage().contains("not found"), e.getMessage());
+        } finally {
+            server.stop(0);
+        }
     }
 
     @Test
@@ -518,9 +593,14 @@ class ChatServiceCapacityTest {
     void triage_reportsTheTriageModelAndTheProviderThatServedIt() throws Exception {
         var server = com.sun.net.httpserver.HttpServer.create(
                 new java.net.InetSocketAddress("127.0.0.1", 0), 0);
-        server.createContext("/api/chat", exchange -> {
-            byte[] body = "{\"message\":{\"content\":\"CONTRIBUTE\"},\"prompt_eval_count\":7,\"eval_count\":1}"
-                    .getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        server.createContext("/v1/chat/completions", exchange -> {
+            String chunk = "{\"id\":\"1\",\"object\":\"chat.completion.chunk\",\"created\":1,\"model\":\"m\",";
+            byte[] body = ("data: " + chunk + "\"choices\":[{\"index\":0,\"delta\":{\"content\":\"CONTRIBUTE\"},"
+                    + "\"finish_reason\":\"stop\"}]}\n\n"
+                    + "data: " + chunk + "\"choices\":[],\"usage\":{\"prompt_tokens\":7,\"completion_tokens\":1,"
+                    + "\"total_tokens\":8}}\n\n"
+                    + "data: [DONE]\n\n").getBytes(java.nio.charset.StandardCharsets.UTF_8);
+            exchange.getResponseHeaders().add("Content-Type", "text/event-stream");
             exchange.sendResponseHeaders(200, body.length);
             try (var out = exchange.getResponseBody()) {
                 out.write(body);
@@ -535,6 +615,11 @@ class ChatServiceCapacityTest {
             when(selector.readState()).thenReturn(List.of(rig));
             when(selector.pickAndClaim(eq(PREFERRED), anyLong(), anyLong(), anyLong()))
                     .thenReturn(Optional.of(pickOn(rig)));
+            var realPool = new ai.kubemoot.agent.provider.ChatModelPool();
+            when(pool.streamingForEndpoint(any(), anyString(), anyString(), anyDouble(), anyInt(), any(), any()))
+                    .thenAnswer(inv -> realPool.streamingForEndpoint(inv.getArgument(0), inv.getArgument(1),
+                            inv.getArgument(2), inv.getArgument(3), inv.getArgument(4), inv.getArgument(5),
+                            inv.getArgument(6)));
 
             var result = service(null, null).triageChatWithTokens("system", "conversation");
 

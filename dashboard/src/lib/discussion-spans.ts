@@ -93,7 +93,13 @@ export interface AgentSpan {
 	pickReason?: string;
 	inferenceMs: number;
 	inferenceStartMs?: number;
-	loadDurationMs: number;
+	/**
+	 * Milliseconds from sending the call to its first token; it includes loading the
+	 * model when {@link coldStart}. Older messages report only a load time, used here.
+	 */
+	firstTokenMs: number;
+	/** Whether the model had to load before the first token. */
+	coldStart: boolean;
 	queueDepth: number;
 	signalMarkers: SignalMarker[];
 }
@@ -174,13 +180,30 @@ function lastMeta<K extends 'gpuLabel' | 'pickReason'>(
 }
 
 /** The largest positive value of a numeric metadata field, 0 when none is set. */
-function maxMeta(msgs: DiscussionMessage[], key: 'inferenceMs' | 'loadDurationMs'): number {
+function maxMeta(
+	msgs: DiscussionMessage[],
+	key: 'inferenceMs' | 'loadDurationMs' | 'firstTokenMs'
+): number {
 	let max = 0;
 	for (const m of msgs) {
 		const v = m.metadata?.[key];
 		if (v && v > max) max = v;
 	}
 	return max;
+}
+
+/**
+ * The wait for the first token and whether it included a model load: the longest wait
+ * among the agent's messages, cold when any of them loaded the model. Messages from
+ * before agents streamed their calls carry only a load time: that wait was a load.
+ */
+function firstToken(msgs: DiscussionMessage[]): { firstTokenMs: number; coldStart: boolean } {
+	const firstTokenMs = maxMeta(msgs, 'firstTokenMs');
+	if (firstTokenMs > 0) {
+		return { firstTokenMs, coldStart: msgs.some((m) => m.metadata?.coldStart === true) };
+	}
+	const loadMs = maxMeta(msgs, 'loadDurationMs');
+	return { firstTokenMs: loadMs, coldStart: loadMs > 0 };
 }
 
 function firstInferenceStart(msgs: DiscussionMessage[]): number | undefined {
@@ -219,7 +242,7 @@ function agentSpan(agent: string, data: AgentMessages, t0: number): AgentSpan {
 		pickReason: lastMeta(data.msgs, 'pickReason'),
 		inferenceMs: maxMeta(data.msgs, 'inferenceMs'),
 		inferenceStartMs: firstInferenceStart(data.msgs),
-		loadDurationMs: maxMeta(data.msgs, 'loadDurationMs'),
+		...firstToken(data.msgs),
 		queueDepth: 0,
 		signalMarkers: signalMarkers(data.msgs, t0, primary)
 	};

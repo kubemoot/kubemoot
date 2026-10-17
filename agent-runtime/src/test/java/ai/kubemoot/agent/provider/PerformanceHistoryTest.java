@@ -161,29 +161,6 @@ class PerformanceHistoryTest {
     // ---- CallObservation ----
 
     @Test
-    void withOllamaReply_takesTokensAndEngineTimings() throws Exception {
-        JsonNode reply = MAPPER.readTree("{\"prompt_eval_count\":900,\"eval_count\":120,"
-                + "\"load_duration\":2500000000,\"prompt_eval_duration\":600000000,\"eval_duration\":3000000000}");
-        CallObservation o = call(true, true, 7_000).withOllamaReply(reply);
-        assertEquals(900, o.promptTokens());
-        assertEquals(120, o.outputTokens());
-        assertEquals(2_500, o.loadMs());
-        assertEquals(600, o.promptEvalMs());
-        assertEquals(3_000, o.evalMs());
-        assertEquals(7_000, o.durationMs(), "the agent's own duration is kept");
-    }
-
-    @Test
-    void withOllamaReply_missingFieldsStayUnknown_andNoReplyChangesNothing() throws Exception {
-        CallObservation base = call(false, false, 10);
-        assertSame(base, base.withOllamaReply(null));
-        CallObservation o = base.withOllamaReply(MAPPER.readTree("{}"));
-        assertEquals(1200, o.promptTokens());
-        assertEquals(CallObservation.UNKNOWN, o.loadMs());
-        assertEquals(CallObservation.UNKNOWN, o.evalMs());
-    }
-
-    @Test
     void aFailedRead_skipsTheWrite_andNeverReplacesTheStoredHistory() throws Exception {
         var bucket = new InMemoryKv();
         var nats = bucket.provider(PerformanceHistory.BUCKET);

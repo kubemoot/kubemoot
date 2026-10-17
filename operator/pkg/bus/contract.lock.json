@@ -355,6 +355,9 @@
     "discussion-metadata.json#/artifact": {
       "ref": "artifact-reference.json"
     },
+    "discussion-metadata.json#/coldStart": {
+      "type": "boolean"
+    },
     "discussion-metadata.json#/concernCount": {
       "type": "integer"
     },
@@ -620,6 +623,9 @@
     },
     "discussion-metadata.json#/failureType": {
       "type": "string"
+    },
+    "discussion-metadata.json#/firstTokenMs": {
+      "type": "integer"
     },
     "discussion-metadata.json#/gapDetected": {
       "type": "boolean"
@@ -971,6 +977,9 @@
     "provider-state.json#/endpoint": {
       "type": "string",
       "required": true
+    },
+    "provider-state.json#/engine": {
+      "type": "string"
     },
     "provider-state.json#/lastProbedAt": {
       "type": "string",

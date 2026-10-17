@@ -52,7 +52,15 @@
     },
     "loadDurationMs": {
       "type": "integer",
-      "description": "Milliseconds the model server spent loading the model for the coordinator's advisory call."
+      "description": "Milliseconds the model server spent loading the model for the coordinator's advisory call. Older messages only; newer ones carry firstTokenMs and coldStart."
+    },
+    "firstTokenMs": {
+      "type": "integer",
+      "description": "Milliseconds from sending the coordinator's advisory call to its first streamed token: reading the prompt, and loading the model first when coldStart is true."
+    },
+    "coldStart": {
+      "type": "boolean",
+      "description": "Whether the model had to load for the call that firstTokenMs times."
     },
     "inputTokens": {
       "type": "integer",
