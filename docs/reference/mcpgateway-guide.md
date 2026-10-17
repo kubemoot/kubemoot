@@ -142,7 +142,7 @@ or only some of them:
 ```yaml
   coreServerSelector:
     matchLabels:
-      app.kubernetes.io/name: accelerator-mcp
+      kubemoot.ai/tools: accelerators
 ```
 
 Things to know:

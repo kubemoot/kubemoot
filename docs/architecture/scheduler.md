@@ -284,8 +284,13 @@ Every scheduled model request is recorded so the scheduler can learn from what i
 Kubemoot ships its own crew for scheduling work, `kubemoot-scheduling`, in the operator
 chart (`schedulingCrew` values, on by default) and in its own namespace,
 `kubemoot-scheduling`. It is built like any crew: a coordinator, a specialist, ADL
-PromptModules, a Skill, an MCPServer reached through the crew's MCPGateway, and one
-small tool-calling Model per ModelProvider the chart declares.
+PromptModules, a Skill, an MCPGateway, and one small tool-calling Model per
+ModelProvider the chart declares. Its tools come from `accelerator-mcp`, a core MCP
+server in the operator's namespace (`acceleratorMcp` values) that the crew's gateway
+registers through its `coreServerSelector` (see
+[Core MCP servers](../reference/mcpgateway-guide.md#core-mcp-servers)); other crews may
+register it too. It can write ModelProvider status, so any crew that registers it can
+record calibrations: the core opt-in is its only access boundary.
 
 - **model-provider-calibrator** (tooler) measures ModelProviders with the
   `accelerator-mcp` tools: `list_providers`, `provider_state`, `probe_model`, and
