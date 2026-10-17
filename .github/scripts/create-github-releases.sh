@@ -14,6 +14,8 @@
 # Usage: create-github-releases.sh RELEASE_FILES PROVENANCE_DIR
 #   RELEASE_FILES/releases.tsv     tag, title, notes file (relative to RELEASE_FILES)
 #   RELEASE_FILES/provenance.tsv   tag, asset name, subject, subject digest
+#   RELEASE_FILES/assets.tsv       optional: tag, a file (relative to RELEASE_FILES) the
+#                                  release also carries as an asset
 #   PROVENANCE_DIR/<digest>.jsonl  the attest job's bundle for that digest, with the
 #                                  ':' of the digest written as '-'
 # Env: GITHUB_REPOSITORY, GH_TOKEN (contents: write)
@@ -62,7 +64,22 @@ provenance_assets() {
   [ -n "$(find "$dir" -type f -print -quit)" ] || die "no provenance recorded for ${tag}"
 }
 
-# publish_release TAG TITLE NOTES: the release as a draft, its provenance, then published.
+# release_assets TAG DIR: copies into DIR, which already holds the provenance, the files
+# assets.tsv names for TAG. A file that is missing, or an asset whose name another asset
+# of the release (the provenance among them) already has, stops the run.
+release_assets() {
+  local tag="$1" dir="$2" t file
+  [ -f "${files}/assets.tsv" ] || return 0
+  while IFS=$'\t' read -r t file; do
+    [ "$t" = "$tag" ] || continue
+    [ -f "${files}/${file}" ] || die "asset ${file} of ${tag} not found"
+    [ ! -e "${dir}/${file##*/}" ] || die "two assets of ${tag} are named ${file##*/}"
+    cp "${files}/${file}" "${dir}/"
+  done < "${files}/assets.tsv"
+}
+
+# publish_release TAG TITLE NOTES: the release as a draft, its provenance and assets,
+# then published.
 publish_release() {
   local tag="$1" title="$2" notes="$3" state dir asset
   state="$(release_state "$tag")"
@@ -73,6 +90,7 @@ publish_release() {
   dir="${work}/${tag}"
   mkdir -p "$dir"
   provenance_assets "$tag" "$dir"
+  release_assets "$tag" "$dir"
   if [ "$state" = none ]; then
     gh release create "$tag" --repo "$repo" --verify-tag --draft \
       --title "$title" --notes-file "${files}/${notes}"

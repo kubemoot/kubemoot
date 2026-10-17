@@ -96,7 +96,7 @@ Grafana loads dashboards:
 |---|---|
 | Runs the dashboard sidecar (the Grafana Helm chart, kube-prometheus-stack) | The operator chart creates a ConfigMap per dashboard that the sidecar loads (`grafana.dashboards`, on by default). Set `label`, `labelValue`, `folder`, and `namespace` to match the sidecar's configuration. |
 | Is run by the Grafana Operator | Set `grafana.dashboards.grafanaOperator.enabled: true` and `instanceSelector` to match your Grafana; the chart creates a GrafanaDashboard per dashboard. |
-| Anything else | Import the dashboard JSON (in the operator chart's `dashboards/` folder) with Grafana's Import dashboard, and pick your Prometheus data source. |
+| Anything else | Import each dashboard with Grafana's Import dashboard and pick your Prometheus data source. The JSON files are in the chart's `dashboards/` folder, and releases that list them carry them as assets of the [GitHub Release](https://github.com/kubemoot/kubemoot/releases), byte for byte the chart's files, which are signed with the chart. |
 
 The dashboards fill as the metrics are scraped; the scheduler's provider panels need
 the operator's metrics, and its placement panels need the agents'.
