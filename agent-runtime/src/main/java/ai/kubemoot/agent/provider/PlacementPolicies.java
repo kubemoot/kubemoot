@@ -24,7 +24,7 @@ public class PlacementPolicies {
     PlacementPolicy placementPolicy(ProviderSelector selector, TicketManager tickets, DemandBoard demand,
                                     AgentProperties props, MeterRegistry registry) {
         PlacementPolicy policy = create(props.scheduler().placementPolicy(),
-                new AlgorithmPlacement(selector, tickets, demand), shadowRecorder(registry));
+                new AlgorithmPlacement(selector, tickets, demand), selector, shadowRecorder(registry));
         log.info("Placement policy: {}", policy.mode().configName());
         return policy;
     }
@@ -33,7 +33,7 @@ public class PlacementPolicies {
      * The policy for {@code configured}; an unknown value selects the algorithm, so a
      * typo never leaves an agent without placement.
      */
-    static PlacementPolicy create(String configured, PlacementPolicy algorithm,
+    static PlacementPolicy create(String configured, PlacementPolicy algorithm, ProviderSelector selector,
                                   Consumer<ShadowPlacement.Decision> recorder) {
         PlacementMode mode = PlacementMode.parse(configured).orElseGet(() -> {
             log.warn("Unknown placement policy '{}', using algorithm", configured);
@@ -42,7 +42,7 @@ public class PlacementPolicies {
         if (mode == PlacementMode.ALGORITHM) {
             return algorithm;
         }
-        LearnedPlacement learned = new LearnedPlacement(algorithm);
+        LearnedPlacement learned = new LearnedPlacement(algorithm, selector);
         return mode == PlacementMode.LEARNED ? learned : new ShadowPlacement(algorithm, learned, recorder);
     }
 
@@ -50,7 +50,10 @@ public class PlacementPolicies {
     static Consumer<ShadowPlacement.Decision> shadowRecorder(MeterRegistry registry) {
         return d -> {
             ShadowPlacement.Agreement agreement = d.agreement();
-            log.debug("Shadow placement for {}: algorithm={} learned={} ({})", d.preferred(),
+            // A difference is what a shadow run is for, so it logs at INFO; agreement at DEBUG.
+            org.slf4j.event.Level level = agreement == ShadowPlacement.Agreement.DIFFER
+                    ? org.slf4j.event.Level.INFO : org.slf4j.event.Level.DEBUG;
+            log.atLevel(level).log("Shadow placement for {}: algorithm={} learned={} ({})", d.preferred(),
                     d.actual() == null ? "wait" : d.actual().model() + "@" + d.actual().pick().provider().name(),
                     d.learned() == null ? "no opinion"
                             : d.learned().model() + "@" + d.learned().provider() + " " + d.learned().reason(),

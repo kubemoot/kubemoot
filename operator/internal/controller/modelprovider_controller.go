@@ -41,6 +41,7 @@ import (
 
 	aiv1alpha1 "github.com/kubemoot/kubemoot/operator/api/v1alpha1"
 	kubemootnats "github.com/kubemoot/kubemoot/operator/internal/nats"
+	"github.com/kubemoot/kubemoot/operator/pkg/perf"
 )
 
 // ProviderStateBucket is the NATS KV bucket where per-provider live capacity
@@ -91,6 +92,19 @@ type ProviderState struct {
 	// LoadedModelContextLengths maps loaded model name to the context window, in
 	// tokens, each request to it gets (from Ollama /api/ps context_length).
 	LoadedModelContextLengths map[string]int `json:"loadedModelContextLengths,omitempty"`
+	// ModelSpeeds is what each model calibration found to fit costs on the
+	// provider: its calibrated load time, prompt and generation speed, and the
+	// observed generation speed of crew calls since (see modelSpeeds).
+	ModelSpeeds map[string]ModelSpeed `json:"modelSpeeds,omitempty"`
+}
+
+// ModelSpeed is one model's entry in ProviderState.ModelSpeeds.
+type ModelSpeed struct {
+	LoadMs                          int64 `json:"loadMs,omitempty"`
+	PromptTokensPerSecond           int64 `json:"promptTokensPerSecond,omitempty"`
+	GenerateTokensPerSecond         int64 `json:"generateTokensPerSecond"`
+	ObservedGenerateTokensPerSecond int64 `json:"observedGenerateTokensPerSecond,omitempty"`
+	ObservedSamples                 int   `json:"observedSamples,omitempty"`
 }
 
 // ModelProviderReconciler reconciles a ModelProvider object
@@ -649,6 +663,7 @@ func (r *ModelProviderReconciler) publishStateToKV(ctx context.Context, provider
 	log := logf.FromContext(ctx)
 
 	state := buildProviderState(provider)
+	state.ModelSpeeds = modelSpeeds(provider.Status.Calibration, r.observed(ctx, provider))
 
 	payload, err := json.Marshal(state)
 	if err != nil {
@@ -816,4 +831,50 @@ func (r *ModelProviderReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		// ModelProvider not becoming Ready in 60s). Matches the Model controller.
 		WithOptions(controller.Options{MaxConcurrentReconciles: 4}).
 		Complete(r)
+}
+
+// observed is what crew calls showed for each model on the provider since its
+// calibration; none when the history cannot be read or there is no calibration.
+func (r *ModelProviderReconciler) observed(ctx context.Context, provider *aiv1alpha1.ModelProvider) []perf.Observation {
+	cal := provider.Status.Calibration
+	if r.NATSPublisher == nil || !r.NATSPublisher.Configured() || cal == nil ||
+		cal.Phase != calibrationPhaseCalibrated || cal.CompletedAt == nil {
+		return nil
+	}
+	entries, err := perf.ReadHistory(r.NATSPublisher, provider.Name)
+	if err != nil {
+		logf.FromContext(ctx).V(1).Info("could not read the performance history", "provider", provider.Name, "err", err)
+		return nil
+	}
+	_, since := perf.CalibratedSpeeds(cal)
+	return perf.Observe(entries, provider.Name, since)
+}
+
+// modelSpeeds is, for each model calibration found to fit, its calibrated costs and
+// the observed generation speed of solo crew calls once there are enough of them to
+// trust (perf.MinSamples).
+func modelSpeeds(cal *aiv1alpha1.ProviderCalibration, observed []perf.Observation) map[string]ModelSpeed {
+	if cal == nil {
+		return nil
+	}
+	seen := make(map[string]perf.Observation, len(observed))
+	for _, o := range observed {
+		seen[o.Model] = o
+	}
+	out := map[string]ModelSpeed{}
+	for _, m := range cal.Models {
+		if !m.Fits || m.GenerateTokensPerSecond <= 0 {
+			continue
+		}
+		speed := ModelSpeed{LoadMs: m.LoadMs, PromptTokensPerSecond: m.PromptTokensPerSecond,
+			GenerateTokensPerSecond: m.GenerateTokensPerSecond}
+		if o, ok := seen[m.Model]; ok && o.SoloSamples >= perf.MinSamples {
+			speed.ObservedGenerateTokensPerSecond, speed.ObservedSamples = o.SoloTokensPerSecond, o.SoloSamples
+		}
+		out[m.Model] = speed
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }

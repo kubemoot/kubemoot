@@ -29,6 +29,21 @@
       "type": "object",
       "additionalProperties": { "type": "integer" },
       "description": "The context window each loaded model runs with, in tokens, by model."
+    },
+    "modelSpeeds": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["generateTokensPerSecond"],
+        "properties": {
+          "loadMs": { "type": "integer", "description": "How long the engine took to load the model when calibrated, in milliseconds; 0 when not measured." },
+          "promptTokensPerSecond": { "type": "integer", "description": "Prompt processing speed calibration measured; 0 when not measured." },
+          "generateTokensPerSecond": { "type": "integer", "description": "Generation speed of one request calibration measured." },
+          "observedGenerateTokensPerSecond": { "type": "integer", "description": "Median generation speed of warm crew calls that ran alone on the provider since the calibration; 0 with too few such calls to trust." },
+          "observedSamples": { "type": "integer", "description": "How many such calls the observed median is over." }
+        }
+      },
+      "description": "What each model costs on the provider, by model: what calibration measured, and how fast crew calls have run since. Only models calibration found to fit."
     }
   }
 }

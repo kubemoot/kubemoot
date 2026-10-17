@@ -89,17 +89,17 @@ class PlacementPolicyTest {
     @Test
     void create_selectsThePolicyForEachMode() {
         var algorithm = new FixedPolicy(Optional.empty());
-        assertSame(algorithm, PlacementPolicies.create("algorithm", algorithm, d -> { }));
-        assertEquals(PlacementMode.LEARNED, PlacementPolicies.create("learned", algorithm, d -> { }).mode());
-        assertEquals(PlacementMode.SHADOW, PlacementPolicies.create("shadow", algorithm, d -> { }).mode());
+        assertSame(algorithm, PlacementPolicies.create("algorithm", algorithm, null, d -> { }));
+        assertEquals(PlacementMode.LEARNED, PlacementPolicies.create("learned", algorithm, null, d -> { }).mode());
+        assertEquals(PlacementMode.SHADOW, PlacementPolicies.create("shadow", algorithm, null, d -> { }).mode());
     }
 
     @Test
     void create_unknownOrBlankValue_fallsBackToTheAlgorithm() {
         var algorithm = new FixedPolicy(Optional.empty());
-        assertSame(algorithm, PlacementPolicies.create("fastest", algorithm, d -> { }));
-        assertSame(algorithm, PlacementPolicies.create("", algorithm, d -> { }));
-        assertSame(algorithm, PlacementPolicies.create(null, algorithm, d -> { }));
+        assertSame(algorithm, PlacementPolicies.create("fastest", algorithm, null, d -> { }));
+        assertSame(algorithm, PlacementPolicies.create("", algorithm, null, d -> { }));
+        assertSame(algorithm, PlacementPolicies.create(null, algorithm, null, d -> { }));
     }
 
     @Test

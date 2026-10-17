@@ -249,8 +249,48 @@ The decision of where a call runs is a swappable policy inside the agent runtime
 | Policy | What it does |
 |---|---|
 | `algorithm` (default) | The placement order described above under JIT Per-Call Provider Selection. |
-| `learned` | Places calls from observed performance. Until it has learned from recorded history it has no opinion of its own and places as `algorithm` does, so selecting it is safe. |
-| `shadow` | `algorithm` places every call; the learned policy's choice for the same call is logged beside it (DEBUG) and counted in `kubemoot_scheduler_shadow_decisions_total` by `agreement` (`agree`, `differ`, `no_opinion`), once per placement attempt, so a call that waits for capacity counts each retry. Placement never depends on the learned policy. |
+| `learned` | Places each call where it is predicted to finish soonest (below). With no measured option it has no opinion and places as `algorithm` does, so selecting it is safe on a provider that is not calibrated yet. |
+| `shadow` | `algorithm` places every call; the learned policy's choice for the same call is logged beside it (INFO when the two differ, with the prediction) and counted in `kubemoot_scheduler_shadow_decisions_total` by `agreement` (`agree`, `differ`, `no_opinion`), once per placement attempt, so a call that waits for capacity counts each retry. Placement never depends on the learned policy. |
+
+### The learned policy: predicted completion time
+
+For each provider that can take the call now, the learned policy predicts when the call
+would finish:
+
+- the wait for a slot, when the copy there is busy (from the calls in flight and the
+  provider's recent call time);
+- plus the load time, when the model is not warm there;
+- plus the prompt tokens over the provider's prompt speed for the model;
+- plus a fixed expected output over its generation speed.
+
+It takes the soonest. A fast accelerator wins by default; a slower provider, such as a
+CPU, wins only when the fast ones are busy enough that it finishes first, and a long
+prompt never goes to a slow provider when a fast one finishes first. No rule names a
+call type or a provider.
+
+The speeds come from each ModelProvider's calibration and, once enough crew calls have
+run alone on the provider since (as many as the drift rule needs), their observed
+generation speed replaces the calibrated one; the operator publishes both with the
+provider's live state (`modelSpeeds`). The expected output is the same fixed length
+for every option, so options compare by speed; the wait for a slot comes from the
+provider's recent call time.
+
+The policy keeps the crew's model choice: it places the preferred model on its soonest
+provider, and considers an alternative only when the preferred model has no option at
+all, so it changes where calls run, not which model answers. It has no opinion, and
+`algorithm` places the call, when:
+
+- any provider that could take the model has not measured it (an unmeasured provider is
+  never guessed fast or slow, so a calibrated CPU never wins over an uncalibrated GPU);
+- the soonest option has to wait for a slot (`algorithm` weighs queueing against
+  unloading idle models, and queues across models);
+- another call takes the chosen slot, or starts a load of the same model, first.
+
+The learned policy claims only a free slot on a warm copy or a cold load onto a
+provider with a free slot. A cold load yields to a load of the same model already in
+progress on any provider, so concurrent calls still converge on one copy; a call
+running on a resident copy is not a load, so a busy copy on a slow provider never stops
+a load on a faster one.
 
 Set the realm default in KubemootConfig and override it per crew in its CrewSchedulingPolicy:
 
@@ -290,11 +330,11 @@ and fill a table, and each packet is forwarded by a table lookup.
 
 | Who | When it runs | Uses a model? | What it produces | Today |
 |---|---|---|---|---|
-| Placement code in each agent runtime | Every inference call, in microseconds | No | A pick: provider and model | Runs (the `algorithm` placement policy) |
+| Placement code in each agent runtime | Every inference call, in microseconds | No | A pick: provider and model | Runs: `algorithm` by default, or `learned` (predicted completion time) per crew |
 | Calibration recipe (`accelerator-mcp`) | A new provider, a reset, an engine change, newly bound models | No | `status.calibration`: what each model costs on each provider | Runs, started by the operator |
 | Drift check (operator) | Every provider reconcile, once calibrated | No | `status.calibrationDrift`: models whose crew calls drifted from their calibration | Runs |
 | Model provider calibrator (scheduling crew) | When the operator reports a drift | Yes | A decision: recalibrate the drifted models now, or wait, with the evidence | Runs |
-| Real-time scheduling agent | When the situation changes: a provider joins, one is overloaded, new results arrive | Yes | The policy the placement code applies: weights, preferences, limits | Not built yet; the `learned` placement policy is where it plugs in |
+| Real-time scheduling agent | When the situation changes: a provider joins, one is overloaded, new results arrive | Yes | The policy the placement code applies: weights, preferences, limits | Not built yet; the `learned` placement policy (predicted completion time) is the code it will tune |
 | Post-analysis learning agent | After each settled discussion, from its receipt | Yes | Learned facts per model and provider | Not built yet |
 | Deep analysis agent | When the system is quiet | Yes | Tuning changes, with their evidence | Not built yet |
 
