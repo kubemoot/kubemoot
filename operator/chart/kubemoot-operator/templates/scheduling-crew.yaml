@@ -1,8 +1,9 @@
 {{- /*
 The scheduling crew: Kubemoot's own crew for scheduling work, in its own namespace.
 Today it has a coordinator and one specialist, the model-provider-calibrator, which
-measures ModelProviders through the accelerator-mcp tools (scheduling-crew-tools.yaml)
-by the probe plan in its skill (scheduling-crew-prompts.yaml).
+measures ModelProviders through the accelerator-mcp tools (the core MCP server in
+accelerator-mcp.yaml, reached through the crew's gateway) by the probe plan in its
+skill (scheduling-crew-prompts.yaml).
 */ -}}
 {{- if and .Values.schedulingCrew.enabled .Values.modelProviders }}
 {{- $ns := .Values.schedulingCrew.namespace }}
@@ -111,6 +112,28 @@ spec:
   deployment:
     replicas: 1
     port: 8080
+---
+apiVersion: kubemoot.ai/v1alpha1
+kind: MCPGateway
+metadata:
+  name: {{ $crew }}-gateway
+  namespace: {{ $ns }}
+  labels:
+    {{- include "kubemoot-operator.labels" . | nindent 4 }}
+    kubemoot.ai/crew: {{ $crew }}
+spec:
+  implementation: kubemoot
+  port: 8080
+  replicas: 1
+  mcpServerSelector:
+    matchLabels:
+      kubemoot.ai/crew: {{ $crew }}
+  # The accelerator-mcp core server, from the operator's namespace.
+  coreServerSelector:
+    matchLabels:
+      kubemoot.ai/tools: accelerators
+  resources:
+    {{- toYaml .Values.schedulingCrew.gateway.resources | nindent 4 }}
 {{- range .Values.modelProviders }}
 ---
 apiVersion: kubemoot.ai/v1alpha1

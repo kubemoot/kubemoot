@@ -46,7 +46,10 @@ components. The binary is `/workspace/accelerator-mcp`, started by the buildpack
 
 ## Deployment
 
-The operator chart runs it for the scheduling crew (`schedulingCrew` values): an
-MCPServer in the crew namespace started by `/cnb/process/web` (mcp-bridge wraps it for
-stdio), its ServiceAccount, and a ClusterRole with the access above. The chart pins the
+The operator chart runs one copy as a core MCP server (`acceleratorMcp` values, on by
+default, needs NATS): an MCPServer in the operator's namespace labeled
+`kubemoot.ai/core-mcp: "true"` and `kubemoot.ai/tools: accelerators`, started by
+`/cnb/process/web` (mcp-bridge wraps it for stdio), with its ServiceAccount and a
+ClusterRole with the access above. A crew's gateway registers it by selecting those
+labels in `coreServerSelector`; the scheduling crew's gateway does. The chart pins the
 image, so Publish Release ships it with the chart.

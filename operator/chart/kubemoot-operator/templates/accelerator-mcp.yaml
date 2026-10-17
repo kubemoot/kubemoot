@@ -1,17 +1,16 @@
 {{- /*
-The scheduling crew's tools: the accelerator-mcp server, reached through the crew's
-MCPGateway, running as a ServiceAccount that may read ModelProviders and Models and
-write ModelProvider status (where calibration is recorded).
+accelerator-mcp, a core MCP server: one copy in the operator's namespace, offered to
+every crew (kubemoot.ai/core-mcp) and registered by any gateway whose
+coreServerSelector matches. It runs as a ServiceAccount that may read ModelProviders
+and Models and update ModelProvider status, where calibration is recorded.
 */ -}}
-{{- if and .Values.schedulingCrew.enabled .Values.modelProviders }}
-{{- $ns := .Values.schedulingCrew.namespace }}
-{{- $crew := "kubemoot-scheduling" }}
+{{- if and .Values.acceleratorMcp.enabled .Values.nats.enabled }}
 {{- $name := "accelerator-mcp" }}
 apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: {{ $name }}
-  namespace: {{ $ns }}
+  namespace: {{ .Release.Namespace }}
   labels:
     {{- include "kubemoot-operator.labels" . | nindent 4 }}
 ---
@@ -42,18 +41,20 @@ roleRef:
 subjects:
   - kind: ServiceAccount
     name: {{ $name }}
-    namespace: {{ $ns }}
+    namespace: {{ .Release.Namespace }}
 ---
 apiVersion: kubemoot.ai/v1alpha1
 kind: MCPServer
 metadata:
   name: {{ $name }}
-  namespace: {{ $ns }}
+  namespace: {{ .Release.Namespace }}
   labels:
     {{- include "kubemoot-operator.labels" . | nindent 4 }}
-    kubemoot.ai/crew: {{ $crew }}
+    app.kubernetes.io/component: core-mcp
+    kubemoot.ai/core-mcp: "true"
+    kubemoot.ai/tools: accelerators
 spec:
-  image: {{ include "kubemoot-operator.image" (dict "root" . "image" .Values.schedulingCrew.accelerator.image) | quote }}
+  image: {{ include "kubemoot-operator.image" (dict "root" . "image" .Values.acceleratorMcp.image) | quote }}
   transport: stdio
   # The buildpacks launcher starts the binary; mcp-bridge wraps it for stdio.
   command: ["/cnb/process/web"]
@@ -67,23 +68,5 @@ spec:
       value: {{ .Values.nats.url | quote }}
   capabilities: [accelerators, calibration, model-providers]
   resources:
-    {{- toYaml .Values.schedulingCrew.accelerator.resources | nindent 4 }}
----
-apiVersion: kubemoot.ai/v1alpha1
-kind: MCPGateway
-metadata:
-  name: {{ $crew }}-gateway
-  namespace: {{ $ns }}
-  labels:
-    {{- include "kubemoot-operator.labels" . | nindent 4 }}
-    kubemoot.ai/crew: {{ $crew }}
-spec:
-  implementation: kubemoot
-  port: 8080
-  replicas: 1
-  mcpServerSelector:
-    matchLabels:
-      kubemoot.ai/crew: {{ $crew }}
-  resources:
-    {{- toYaml .Values.schedulingCrew.gateway.resources | nindent 4 }}
+    {{- toYaml .Values.acceleratorMcp.resources | nindent 4 }}
 {{- end }}

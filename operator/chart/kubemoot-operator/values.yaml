@@ -282,15 +282,6 @@ schedulingCrew:
     name: qwen3:8b
     vramMib: 5120
     contextWindow: "40960"
-  accelerator:
-    image: accelerator-mcp:0.0.0
-    resources:
-      requests:
-        cpu: 20m
-        memory: 64Mi
-      limits:
-        cpu: 500m
-        memory: 256Mi
   gateway:
     resources:
       requests:
@@ -299,6 +290,21 @@ schedulingCrew:
       limits:
         cpu: 500m
         memory: 1Gi
+
+# accelerator-mcp - a core MCP server: one copy in the operator's namespace that any
+# crew's gateway may register (coreServerSelector). It lists ModelProviders, reads their
+# live state, probes their models, and records calibration on their status. The
+# scheduling crew's calibrator uses it. Needs NATS (provider tickets and history).
+acceleratorMcp:
+  enabled: true
+  image: accelerator-mcp:0.0.0
+  resources:
+    requests:
+      cpu: 20m
+      memory: 64Mi
+    limits:
+      cpu: 500m
+      memory: 256Mi
 
 # KubemootConfig - centralized default images for all components
 # Crew liaison: every crew as one MCP agent for external clients (Claude Code and any

@@ -7,7 +7,8 @@ chart="$here/kubemoot-operator"
 helm dependency build "$chart" >/dev/null
 
 fail() { echo "FAIL: $*" >&2; exit 1; }
-render() { helm template kubemoot-operator "$chart" "$@"; }
+release_ns=kubemoot
+render() { helm template kubemoot-operator "$chart" --namespace "$release_ns" "$@"; }
 # count <rendered> <yq filter>: how many documents match; a yq error is fatal.
 count() {
   local kinds
@@ -50,8 +51,18 @@ done
 [ "$(get "$out" Model cpu-qwen3-8b '.metadata.labels["capability/tool-calling"]')" = "true" ] \
   || fail "the crew's Model is not labeled tool-calling"
 
-# The MCP server: the accelerator-mcp image, started by the buildpacks launcher, as a
-# ServiceAccount allowed to write ModelProvider status and nothing more.
+# The tools: accelerator-mcp is a core MCP server in the operator's (release)
+# namespace, offered to crews, started by the buildpacks launcher, as a ServiceAccount
+# allowed to write ModelProvider status and nothing more. The crew's gateway selects it.
+[ "$(get "$out" MCPServer accelerator-mcp .metadata.namespace)" = "$release_ns" ] \
+  || fail "accelerator-mcp is not in the operator's namespace"
+[ "$(get "$out" MCPServer accelerator-mcp '.metadata.labels["kubemoot.ai/core-mcp"]')" = "true" ] \
+  || fail "accelerator-mcp is not offered as a core MCP server"
+[ "$(count "$out" '.kind == "MCPServer" and .metadata.namespace == "kubemoot-scheduling"')" = 0 ] \
+  || fail "the crew runs its own MCP server copy"
+sel="$(get "$out" MCPGateway kubemoot-scheduling-gateway '.spec.coreServerSelector.matchLabels["kubemoot.ai/tools"]')"
+[ "$(get "$out" MCPServer accelerator-mcp ".metadata.labels[\"kubemoot.ai/tools\"]")" = "$sel" ] \
+  || fail "the crew's gateway does not select accelerator-mcp"
 image="$(get "$out" MCPServer accelerator-mcp .spec.image)"
 [[ "$image" == */accelerator-mcp:* ]] || fail "unexpected accelerator-mcp image: $image"
 [ "$(get "$out" MCPServer accelerator-mcp '.spec.command[0]')" = /cnb/process/web ] || fail "not started by the launcher"
@@ -87,8 +98,16 @@ name="$(yq -N 'select(.kind == "Model" and .spec.providerRef == "gpu") | .metada
 off="$(render "${providers[@]}" --set schedulingCrew.enabled=false)"
 [ "$(count "$off" '.metadata.namespace == "kubemoot-scheduling" or .metadata.name == "kubemoot-scheduling"')" = 0 ] \
   || fail "the crew renders when disabled"
-[ "$(count "$off" '.kind == "ClusterRole" and (.metadata.name | test("accelerator-mcp"))')" = 0 ] \
-  || fail "the accelerator-mcp ClusterRole renders when disabled"
+[ "$(get "$off" MCPServer accelerator-mcp .metadata.name)" = accelerator-mcp ] \
+  || fail "accelerator-mcp is a core server and should not depend on the crew"
+[ "$(get "$none" MCPServer accelerator-mcp .metadata.name)" = accelerator-mcp ] \
+  || fail "accelerator-mcp should run with no chart-declared providers"
+
+# accelerator-mcp off, or no NATS: none of it renders.
+for value in acceleratorMcp.enabled=false nats.enabled=false; do
+  gone="$(render "${providers[@]}" --set "$value")"
+  [ "$(count "$gone" '(.metadata.name | test("accelerator-mcp"))')" = 0 ] || fail "accelerator-mcp renders with $value"
+done
 
 # Another namespace and model are honored.
 other="$(render "${providers[@]}" --set schedulingCrew.namespace=km-sched --set schedulingCrew.model.name=llama3.2:3b)"
