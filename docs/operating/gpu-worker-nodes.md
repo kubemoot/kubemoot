@@ -186,6 +186,19 @@ vLLM is the recommended engine for a model that several agents call at once (see
 [Choosing a Model](../../concepts/choosing-a-model/#the-serving-runtime-is-a-separate-choice)).
 These requirements apply to the node and to the Kubernetes objects around the server:
 
+- **Use a driver that supports the CUDA version the image is built on.** The node's
+  NVIDIA driver must be new enough for the CUDA version of the model server image. In the
+  measurement, the vLLM image was built on CUDA 13.0, which needs NVIDIA driver 580 or
+  later. The GPU Operator publishes the node's driver in the
+  `nvidia.com/cuda.driver-version.full` node label.
+- **Leave disk room for the image.** The vLLM image is about 9 GB compressed and larger
+  unpacked. A node with a 30 GB disk went into `DiskPressure` while pulling it. Keep model
+  weights on network storage (a ReadWriteOnce volume), not on the node disk.
+- **Give every engine the same context length.** When several engines serve the same
+  crews, set the same context length on each, so a long prompt is not cut on one and
+  refused on another. vLLM refuses to start rather than shrink its context: a 4-bit 32B
+  model on a 24 GB GPU leaves too little cache for a 32k context, and on a 32 GB GPU it
+  needs 95% of GPU memory for one 32k request.
 - **Pass AVX through in a VM.** The virtual CPU must expose AVX to the guest, or vLLM
   crashes at start. On Proxmox, set the CPU type to `host`.
 - **Do not name the Service `vllm`.** Kubernetes injects service-link environment
