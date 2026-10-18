@@ -232,8 +232,8 @@ func (r *ModelProviderReconciler) boundModels(ctx context.Context, provider stri
 	}
 	var out []string
 	for _, m := range models.Items {
-		if m.Spec.ProviderRef == provider && m.Spec.Model != "" {
-			out = append(out, m.Spec.Model)
+		if m.Spec.ProviderRef == provider && m.OllamaTag() != "" {
+			out = append(out, m.OllamaTag())
 		}
 	}
 	return out, nil

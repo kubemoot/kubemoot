@@ -226,10 +226,24 @@ Declares a specific inference model on a provider, **labeled** so the scheduler 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `providerRef` | string | Yes | Name of the ModelProvider CR |
-| `model` | string | Yes | Model identifier on the provider (e.g., `qwen3:32b`, `gpt-4o`) |
+| `model` | string | Yes | The served name: the name every request uses to ask for this model (e.g., `qwen3:32b`), whatever engine serves it. Where the weights come from is `source`. |
+| `source` | object | No | Where the weights come from, as exactly one of `ollama` or `huggingFace`. Absent means an Ollama tag equal to `model`, so existing Models need no change. |
 | `vramMib` | int32 | For GPU providers | Capacity request - used by the scheduler's filter step |
 | `contextLength` | int | No | Override maximum context window |
 | `quantization` | string | No | Quantization method (e.g., `q4_K_M`, `q8_0`) |
+
+### Source
+
+`source` holds exactly one of these fields; setting none or both is rejected when the Model is created.
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `ollama.tag` | string | Yes, within `ollama` | The Ollama tag to pull. When set, the Ollama provider pulls, lists, and removes this tag. Ollama serves a model under its tag, so keep it equal to `model` unless something in front of Ollama maps the names. |
+| `huggingFace.repo` | string | Yes, within `huggingFace` | The Hugging Face repository, for example `Qwen/Qwen3-14B-AWQ` |
+| `huggingFace.revision` | string | Yes, within `huggingFace` | The commit sha the weights are pinned to, 7 to 40 hex characters. A branch or tag name is rejected. |
+| `huggingFace.quantization` | string | No | The quantization of the repository's weights, for example `awq` or `gptq` |
+
+The source must fit the engine of the provider: `ollama` for an ollama provider, `huggingFace` for a vLLM provider. The operator never guesses or falls back. A source that does not fit is reported on the Model's `SourceCompatible` condition (reason `SourceEngineMismatch`, with a message naming the mismatch), the Model's state is `Error`, and nothing is pulled. A source that fits sets the condition to `True`. `source` cannot be changed after the Model is created; delete and recreate the Model to change where its weights come from.
 
 ### Labels (open string set, selected by `CrewSchedulingPolicy`)
 
@@ -248,6 +262,7 @@ Declares a specific inference model on a provider, **labeled** so the scheduler 
 | `state` | `Pending`, `Pulling`, `Available`, `Loaded`, `Error` |
 | `pull` | While `Pulling`: `completedBytes`, `totalBytes` and `percent` of the download. `totalBytes` grows as the registry announces layers. Cleared when the model is on the provider. |
 | `ready` | Model ready for inference |
+| `conditions` | `Ready`, and `SourceCompatible`: whether `source` fits the provider's engine |
 | `endpoint` | Inference endpoint (from provider) |
 | `modelInfo` | Size, parameters, family, quantization, context length, format, digest |
 
@@ -295,6 +310,27 @@ spec:
   providerRef: ollama-b
   vramMib: 5120
   quantization: q4_K_M
+```
+
+A Model for a vLLM provider (coming next) names its weights with a Hugging Face source and keeps the same served name, so crews and policies that select it by label do not change:
+
+```yaml
+apiVersion: kubemoot.ai/v1alpha1
+kind: Model
+metadata:
+  name: qwen3-14b
+  labels:
+    family: qwen3
+    params: "14B"
+    capability/tool-calling: "true"
+spec:
+  model: qwen3:14b
+  providerRef: vllm-a
+  source:
+    huggingFace:
+      repo: Qwen/Qwen3-14B-AWQ
+      revision: 31c69efc
+      quantization: awq
 ```
 
 `kubectl get mdl` (short name: `mdl`).

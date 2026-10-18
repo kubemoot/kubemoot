@@ -65,7 +65,11 @@ spec:
                   override)
                 type: integer
               model:
-                description: Model is the model identifier (e.g., "qwen2.5:7b", "gpt-4o")
+                description: |-
+                  Model is the served name: the name every request uses to ask for this
+                  model (e.g., "qwen3:14b"), whatever engine serves it. Where the weights
+                  come from is spec.source. For an engine that serves under a name you
+                  choose (vLLM's --served-model-name) this is that name.
                 type: string
               providerRef:
                 description: ProviderRef references the parent ModelProvider
@@ -74,6 +78,54 @@ spec:
                 description: Quantization specifies the quantization method (e.g.,
                   q4_K_M)
                 type: string
+              source:
+                description: |-
+                  Source says where the weights come from, as exactly one of ollama or
+                  huggingFace. It must fit the engine of the provider: ollama for an
+                  ollama provider, huggingFace for a vLLM provider. A mismatch is reported
+                  on the Model's SourceCompatible condition and nothing is pulled; the
+                  operator never guesses or falls back. When absent the source is an
+                  Ollama tag equal to spec.model.
+                properties:
+                  huggingFace:
+                    description: HuggingFace names a Hugging Face repository pinned
+                      to a revision.
+                    properties:
+                      quantization:
+                        description: |-
+                          Quantization names the quantization of the repository's weights
+                          (e.g., awq, gptq).
+                        type: string
+                      repo:
+                        description: Repo is the repository (e.g., "Qwen/Qwen3-14B-AWQ").
+                        minLength: 1
+                        type: string
+                      revision:
+                        description: |-
+                          Revision is the commit sha the weights are pinned to: 7 to 40 hex
+                          characters. A branch or tag name is not accepted, so the weights never
+                          change under a running Model.
+                        pattern: ^[0-9a-fA-F]{7,40}$
+                        type: string
+                    required:
+                    - repo
+                    - revision
+                    type: object
+                  ollama:
+                    description: Ollama names an Ollama library tag.
+                    properties:
+                      tag:
+                        description: Tag is the Ollama tag to pull (e.g., "qwen3:14b").
+                        minLength: 1
+                        type: string
+                    required:
+                    - tag
+                    type: object
+                type: object
+                x-kubernetes-validations:
+                - message: exactly one of ollama or huggingFace must be set
+                  rule: '(has(self.ollama) ? 1 : 0) + (has(self.huggingFace) ? 1 :
+                    0) == 1'
               vramMib:
                 description: |-
                   VRAMMib declares the VRAM footprint (in MiB) this Model needs when
@@ -92,6 +144,11 @@ spec:
             - model
             - providerRef
             type: object
+            x-kubernetes-validations:
+            - message: 'spec.source is immutable: delete and recreate the Model to
+                change where its weights come from'
+              rule: has(self.source) == has(oldSelf.source) && (!has(self.source)
+                || self.source == oldSelf.source)
           status:
             description: ModelStatus defines the observed state of Model.
             properties:
