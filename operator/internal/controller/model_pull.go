@@ -335,8 +335,8 @@ func wantedPullKeys(ctx context.Context, c client.Client, self client.Object) (m
 	}
 	for i := range models.Items {
 		m := &models.Items[i]
-		if m.DeletionTimestamp.IsZero() && !isSameObject(self, m) {
-			wanted[pullKey(m.Spec.ProviderRef, m.Spec.Model)] = true
+		if m.DeletionTimestamp.IsZero() && !isSameObject(self, m) && m.OllamaTag() != "" {
+			wanted[pullKey(m.Spec.ProviderRef, m.OllamaTag())] = true
 		}
 	}
 	embeddings := &aiv1alpha1.EmbeddingModelList{}

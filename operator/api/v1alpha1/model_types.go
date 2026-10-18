@@ -24,14 +24,27 @@ import (
 // NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
 
 // ModelSpec defines the desired state of Model.
+// +kubebuilder:validation:XValidation:rule="has(self.source) == has(oldSelf.source) && (!has(self.source) || self.source == oldSelf.source)",message="spec.source is immutable: delete and recreate the Model to change where its weights come from"
 type ModelSpec struct {
 	// ProviderRef references the parent ModelProvider
 	// +kubebuilder:validation:Required
 	ProviderRef string `json:"providerRef"`
 
-	// Model is the model identifier (e.g., "qwen2.5:7b", "gpt-4o")
+	// Model is the served name: the name every request uses to ask for this
+	// model (e.g., "qwen3:14b"), whatever engine serves it. Where the weights
+	// come from is spec.source. For an engine that serves under a name you
+	// choose (vLLM's --served-model-name) this is that name.
 	// +kubebuilder:validation:Required
 	Model string `json:"model"`
+
+	// Source says where the weights come from, as exactly one of ollama or
+	// huggingFace. It must fit the engine of the provider: ollama for an
+	// ollama provider, huggingFace for a vLLM provider. A mismatch is reported
+	// on the Model's SourceCompatible condition and nothing is pulled; the
+	// operator never guesses or falls back. When absent the source is an
+	// Ollama tag equal to spec.model.
+	// +optional
+	Source *ModelSource `json:"source,omitempty"`
 
 	// ContextLength is the maximum context window size (optional override)
 	// +optional
@@ -53,6 +66,61 @@ type ModelSpec struct {
 	// +optional
 	// +kubebuilder:validation:Minimum=0
 	VRAMMib int32 `json:"vramMib,omitempty"`
+}
+
+// ModelSource is where a Model's weights come from. Exactly one field is set.
+// +kubebuilder:validation:XValidation:rule="(has(self.ollama) ? 1 : 0) + (has(self.huggingFace) ? 1 : 0) == 1",message="exactly one of ollama or huggingFace must be set"
+type ModelSource struct {
+	// Ollama names an Ollama library tag.
+	// +optional
+	Ollama *OllamaSource `json:"ollama,omitempty"`
+
+	// HuggingFace names a Hugging Face repository pinned to a revision.
+	// +optional
+	HuggingFace *HuggingFaceSource `json:"huggingFace,omitempty"`
+}
+
+// OllamaSource is an Ollama library tag.
+type OllamaSource struct {
+	// Tag is the Ollama tag to pull (e.g., "qwen3:14b").
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:MinLength=1
+	Tag string `json:"tag"`
+}
+
+// HuggingFaceSource is a Hugging Face repository at a pinned revision.
+type HuggingFaceSource struct {
+	// Repo is the repository (e.g., "Qwen/Qwen3-14B-AWQ").
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:MinLength=1
+	Repo string `json:"repo"`
+
+	// Revision is the commit sha the weights are pinned to: 7 to 40 hex
+	// characters. A branch or tag name is not accepted, so the weights never
+	// change under a running Model.
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:Pattern=`^[0-9a-fA-F]{7,40}$`
+	Revision string `json:"revision"`
+
+	// Quantization names the quantization of the repository's weights
+	// (e.g., awq, gptq).
+	// +optional
+	Quantization string `json:"quantization,omitempty"`
+}
+
+// OllamaTag is the tag an Ollama provider pulls and serves for this Model:
+// source.ollama.tag when set, else spec.model. It is empty when the source is
+// not an Ollama one, which means there is nothing for Ollama to pull.
+func (m *Model) OllamaTag() string {
+	if s := m.Spec.Source; s != nil {
+		if s.Ollama != nil {
+			return s.Ollama.Tag
+		}
+		if s.HuggingFace != nil {
+			return ""
+		}
+	}
+	return m.Spec.Model
 }
 
 // ModelStatus defines the observed state of Model.
