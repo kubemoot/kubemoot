@@ -38,7 +38,7 @@ import (
 const (
 	sourceTestRepo     = "Qwen/Qwen3-14B-AWQ"
 	sourceTestRevision = "31c69efc"
-	sourceTestTag      = "qwen3:14b-q4"
+	sourceTestTag      = "qwen3:14b"
 )
 
 func ollamaSource() *aiv1alpha1.ModelSource {
@@ -100,14 +100,70 @@ var _ = Describe("Model spec.source admission", func() {
 		})
 	}
 
-	It("rejects a change to source after creation", func() {
-		m := newModel("src-immutable", ollamaSource())
-		Expect(k8sClient.Create(ctx, m)).To(Succeed())
-		DeferCleanup(func() { _ = k8sClient.Delete(ctx, m) })
-		m.Spec.Source = hfSource(sourceTestRevision)
-		err := k8sClient.Update(ctx, m)
+	It("accepts an ollama tag equal to spec.model", func() { accepts("src-tag-equal", ollamaSource()) })
+
+	It("rejects an ollama tag that differs from spec.model", func() {
+		m := newModel("src-tag-differs", ollamaSource())
+		m.Spec.Model = "qwen3:8b"
+		err := k8sClient.Create(ctx, m)
 		Expect(err).To(HaveOccurred())
-		Expect(err.Error()).To(ContainSubstring("spec.source is immutable"))
+		Expect(err.Error()).To(ContainSubstring("source.ollama.tag must equal spec.model"))
+	})
+
+	Describe("changing source after creation", func() {
+		update := func(name string, before, after *aiv1alpha1.ModelSource) error {
+			m := newModel(name, before)
+			Expect(k8sClient.Create(ctx, m)).To(Succeed())
+			DeferCleanup(func() { _ = k8sClient.Delete(ctx, m) })
+			m.Spec.Source = after
+			return k8sClient.Update(ctx, m)
+		}
+		rejected := func(err error) {
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("spec.source is immutable"))
+		}
+
+		It("accepts adding an ollama source (tag equal to spec.model) to a Model without one", func() {
+			Expect(update("src-add-ollama", nil, ollamaSource())).To(Succeed())
+		})
+		It("rejects adding an ollama source whose tag differs from spec.model", func() {
+			m := newModel("src-add-ollama-differs", nil)
+			m.Spec.Model = "qwen3:8b"
+			Expect(k8sClient.Create(ctx, m)).To(Succeed())
+			DeferCleanup(func() { _ = k8sClient.Delete(ctx, m) })
+			m.Spec.Source = ollamaSource()
+			err := k8sClient.Update(ctx, m)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("source.ollama.tag must equal spec.model"))
+		})
+		It("rejects changing spec.model while an ollama source is set", func() {
+			m := newModel("src-model-change-ollama", ollamaSource())
+			Expect(k8sClient.Create(ctx, m)).To(Succeed())
+			DeferCleanup(func() { _ = k8sClient.Delete(ctx, m) })
+			m.Spec.Model = "qwen3:8b"
+			err := k8sClient.Update(ctx, m)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("source.ollama.tag must equal spec.model"))
+		})
+		It("accepts changing spec.model on a Model without a source", func() {
+			m := newModel("src-model-change-none", nil)
+			Expect(k8sClient.Create(ctx, m)).To(Succeed())
+			DeferCleanup(func() { _ = k8sClient.Delete(ctx, m) })
+			m.Spec.Model = "qwen3:8b"
+			Expect(k8sClient.Update(ctx, m)).To(Succeed())
+		})
+		It("rejects adding a huggingFace source to a Model without one", func() {
+			rejected(update("src-add-hf", nil, hfSource(sourceTestRevision)))
+		})
+		It("rejects changing an ollama source to huggingFace", func() {
+			rejected(update("src-ollama-to-hf", ollamaSource(), hfSource(sourceTestRevision)))
+		})
+		It("rejects removing an ollama source", func() {
+			rejected(update("src-remove-ollama", ollamaSource(), nil))
+		})
+		It("rejects changing a huggingFace revision", func() {
+			rejected(update("src-hf-revision", hfSource(sourceTestRevision), hfSource("deadbee")))
+		})
 	})
 
 	It("rejects a huggingFace source without a repo", func() {
@@ -247,7 +303,7 @@ func TestPull_UsesSourceTagWhenSetElseModel(t *testing.T) {
 		src  *aiv1alpha1.ModelSource
 		want string
 	}{
-		"source.ollama.tag set": {ollamaSource(), sourceTestTag},
+		"source.ollama.tag set": {&aiv1alpha1.ModelSource{Ollama: &aiv1alpha1.OllamaSource{Tag: otherPullTag}}, otherPullTag},
 		"source absent":         {nil, testModelID},
 	}
 	for name, tc := range cases {

@@ -67,9 +67,10 @@ spec:
               model:
                 description: |-
                   Model is the served name: the name every request uses to ask for this
-                  model (e.g., "qwen3:14b"), whatever engine serves it. Where the weights
-                  come from is spec.source. For an engine that serves under a name you
-                  choose (vLLM's --served-model-name) this is that name.
+                  model (e.g., "qwen3:14b"). Where the weights come from is spec.source.
+                  For vLLM this is the name the server is started with
+                  (--served-model-name). Ollama serves a model only under its tag, so for
+                  an ollama source it must equal source.ollama.tag.
                 type: string
               providerRef:
                 description: ProviderRef references the parent ModelProvider
@@ -81,11 +82,13 @@ spec:
               source:
                 description: |-
                   Source says where the weights come from, as exactly one of ollama or
-                  huggingFace. It must fit the engine of the provider: ollama for an
-                  ollama provider, huggingFace for a vLLM provider. A mismatch is reported
-                  on the Model's SourceCompatible condition and nothing is pulled; the
-                  operator never guesses or falls back. When absent the source is an
-                  Ollama tag equal to spec.model.
+                  huggingFace. It cannot change after creation, except that an ollama
+                  source may be added to a Model that has none (its tag equals spec.model,
+                  the same meaning as an absent source). It must fit the engine of the
+                  provider: ollama for an ollama provider, huggingFace for a vLLM
+                  provider. A mismatch is reported on the Model's SourceCompatible
+                  condition and nothing is pulled; the operator never guesses or falls
+                  back. When absent the source is an Ollama tag equal to spec.model.
                 properties:
                   huggingFace:
                     description: HuggingFace names a Hugging Face repository pinned
@@ -115,7 +118,9 @@ spec:
                     description: Ollama names an Ollama library tag.
                     properties:
                       tag:
-                        description: Tag is the Ollama tag to pull (e.g., "qwen3:14b").
+                        description: |-
+                          Tag is the Ollama tag to pull (e.g., "qwen3:14b"). It must equal
+                          spec.model, because Ollama serves a model only under its tag.
                         minLength: 1
                         type: string
                     required:
@@ -145,10 +150,16 @@ spec:
             - providerRef
             type: object
             x-kubernetes-validations:
-            - message: 'spec.source is immutable: delete and recreate the Model to
-                change where its weights come from'
-              rule: has(self.source) == has(oldSelf.source) && (!has(self.source)
-                || self.source == oldSelf.source)
+            - message: 'spec.source is immutable except for adding an ollama source
+                to a Model that has none: delete and recreate the Model to change
+                where its weights come from'
+              rule: (has(self.source) == has(oldSelf.source) && (!has(self.source)
+                || self.source == oldSelf.source)) || (!has(oldSelf.source) && has(self.source)
+                && has(self.source.ollama))
+            - message: 'source.ollama.tag must equal spec.model: Ollama serves a model
+                only under its tag'
+              rule: '!has(self.source) || !has(self.source.ollama) || self.source.ollama.tag
+                == self.model'
           status:
             description: ModelStatus defines the observed state of Model.
             properties:
