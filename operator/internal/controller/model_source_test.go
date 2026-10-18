@@ -104,7 +104,7 @@ var _ = Describe("Model spec.source admission", func() {
 
 	It("rejects an ollama tag that differs from spec.model", func() {
 		m := newModel("src-tag-differs", ollamaSource())
-		m.Spec.Model = "qwen3:8b"
+		m.Spec.Model = testModelID
 		err := k8sClient.Create(ctx, m)
 		Expect(err).To(HaveOccurred())
 		Expect(err.Error()).To(ContainSubstring("source.ollama.tag must equal spec.model"))
@@ -128,7 +128,7 @@ var _ = Describe("Model spec.source admission", func() {
 		})
 		It("rejects adding an ollama source whose tag differs from spec.model", func() {
 			m := newModel("src-add-ollama-differs", nil)
-			m.Spec.Model = "qwen3:8b"
+			m.Spec.Model = testModelID
 			Expect(k8sClient.Create(ctx, m)).To(Succeed())
 			DeferCleanup(func() { _ = k8sClient.Delete(ctx, m) })
 			m.Spec.Source = ollamaSource()
@@ -140,7 +140,7 @@ var _ = Describe("Model spec.source admission", func() {
 			m := newModel("src-model-change-ollama", ollamaSource())
 			Expect(k8sClient.Create(ctx, m)).To(Succeed())
 			DeferCleanup(func() { _ = k8sClient.Delete(ctx, m) })
-			m.Spec.Model = "qwen3:8b"
+			m.Spec.Model = testModelID
 			err := k8sClient.Update(ctx, m)
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("source.ollama.tag must equal spec.model"))
@@ -149,7 +149,7 @@ var _ = Describe("Model spec.source admission", func() {
 			m := newModel("src-model-change-none", nil)
 			Expect(k8sClient.Create(ctx, m)).To(Succeed())
 			DeferCleanup(func() { _ = k8sClient.Delete(ctx, m) })
-			m.Spec.Model = "qwen3:8b"
+			m.Spec.Model = testModelID
 			Expect(k8sClient.Update(ctx, m)).To(Succeed())
 		})
 		It("rejects adding a huggingFace source to a Model without one", func() {
