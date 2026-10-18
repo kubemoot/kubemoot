@@ -25,6 +25,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -40,6 +41,7 @@ import (
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
 	aiv1alpha1 "github.com/kubemoot/kubemoot/operator/api/v1alpha1"
+	"github.com/kubemoot/kubemoot/operator/internal/engine"
 	kubemootnats "github.com/kubemoot/kubemoot/operator/internal/nats"
 	"github.com/kubemoot/kubemoot/operator/pkg/perf"
 )
@@ -99,6 +101,14 @@ type ProviderState struct {
 	// provider: its calibrated load time, prompt and generation speed, and the
 	// observed generation speed of crew calls since (see modelSpeeds).
 	ModelSpeeds map[string]ModelSpeed `json:"modelSpeeds,omitempty"`
+	// The fields below are what the provider's engine adapter reports (see
+	// engine.Snapshot). Each is absent when the engine does not report it.
+	ModelStates         map[string]string `json:"modelStates,omitempty"`
+	RequestsRunning     *int              `json:"requestsRunning,omitempty"`
+	RequestsWaiting     *int              `json:"requestsWaiting,omitempty"`
+	KVCacheUsage        *float64          `json:"kvCacheUsage,omitempty"`
+	SwitchCostMs        map[string]int64  `json:"switchCostMs,omitempty"`
+	HostMemoryParkedMiB *int64            `json:"hostMemoryParkedMiB,omitempty"`
 }
 
 // ModelSpeed is one model's entry in ProviderState.ModelSpeeds.
@@ -127,6 +137,14 @@ type ModelProviderReconciler struct {
 	// Drift watches calibrated providers for drift and asks the scheduling crew to
 	// judge it; nil watches none.
 	Drift DriftWatch
+
+	// Engines picks the adapter that probes a provider by its spec.type; nil uses
+	// DefaultEngines.
+	Engines *engine.Registry
+
+	// probes holds each provider's last engine snapshot until the state publish
+	// reads it, by provider name.
+	probes sync.Map
 }
 
 // OllamaVersionResponse represents the response from Ollama /api/version
@@ -192,6 +210,10 @@ func (r *ModelProviderReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 func (r *ModelProviderReconciler) reconcileOllama(ctx context.Context, provider *aiv1alpha1.ModelProvider) (ctrl.Result, error) {
 	log := logf.FromContext(ctx)
 
+	// Each reconcile publishes only what its own probe read, so a provider that
+	// stops answering, or whose capacity discovery is off, publishes no engine fields.
+	r.probes.Delete(provider.Name)
+
 	if provider.Spec.Endpoint == "" {
 		return r.updateStatus(ctx, provider, false, "Failed", "Endpoint is required for Ollama provider")
 	}
@@ -253,11 +275,8 @@ func (r *ModelProviderReconciler) discoverCapacity(ctx context.Context, provider
 	// 1-4. Inspect the backing Ollama pod (env vars, node, DCGM metrics).
 	r.discoverPodCapacity(ctx, provider, httpClient)
 
-	// 5. Call /api/ps for loaded models and VRAM usage
-	r.discoverLoadedModels(ctx, provider, httpClient)
-
-	// 5b. Call /api/tags for available (downloaded) models
-	r.discoverAvailableModels(ctx, provider, httpClient)
+	// 5. Ask the provider's engine adapter for loaded and available models
+	r.probeEngine(ctx, provider, httpClient)
 
 	// 6. Count agents assigned to this provider
 	r.countAssignedAgents(ctx, provider)
@@ -496,85 +515,46 @@ func (r *ModelProviderReconciler) queryPrometheusLabel(ctx context.Context, http
 	return promResp.Data.Result[0].Metric[labelName]
 }
 
-// discoverLoadedModels calls Ollama /api/ps to get loaded models and VRAM usage
-func (r *ModelProviderReconciler) discoverLoadedModels(ctx context.Context, provider *aiv1alpha1.ModelProvider, httpClient *http.Client) {
+// probeEngine asks the adapter for the provider's spec.type to probe the provider,
+// records what it found in the provider's capacity, and keeps the snapshot for the
+// state publish. A reply the adapter could not read leaves the earlier capacity
+// as it was.
+func (r *ModelProviderReconciler) probeEngine(ctx context.Context, provider *aiv1alpha1.ModelProvider, httpClient *http.Client) {
 	log := logf.FromContext(ctx)
 
-	psURL := fmt.Sprintf("%s/api/ps", provider.Spec.Endpoint)
-	req, err := http.NewRequestWithContext(ctx, "GET", psURL, nil)
+	adapter, err := r.engines().Adapter(provider.Spec.Type, httpClient)
 	if err != nil {
+		log.V(1).Info("No engine adapter", "provider", provider.Name, "error", err)
 		return
 	}
-
-	resp, err := httpClient.Do(req)
+	snap, err := adapter.Probe(ctx, provider.Spec.Endpoint)
 	if err != nil {
-		log.V(1).Info("Failed to call /api/ps", "error", err)
+		log.V(1).Info("Engine probe failed", "provider", provider.Name, "error", err)
 		return
 	}
-	defer func() { _ = resp.Body.Close() }()
-
-	if resp.StatusCode != http.StatusOK {
-		return
-	}
-
-	var psResp OllamaRunningModelsResponse
-	if err := json.NewDecoder(resp.Body).Decode(&psResp); err != nil {
-		log.V(1).Info("Failed to parse /api/ps response", "error", err)
-		return
-	}
-
-	var loadedModels []aiv1alpha1.LoadedModel
-	var totalVRAMUsed int64
-	for _, m := range psResp.Models {
-		loadedModels = append(loadedModels, aiv1alpha1.LoadedModel{
-			Name:          m.Name,
-			SizeVRAM:      m.SizeVRAM,
-			Size:          m.Size,
-			ContextLength: m.ContextLength,
-		})
-		totalVRAMUsed += m.SizeVRAM // VRAM in use only; host-RAM residency is not VRAM
-	}
-
-	provider.Status.Capacity.LoadedModels = loadedModels
-	// Convert bytes to MiB
-	provider.Status.Capacity.VRAMUsedMiB = totalVRAMUsed / (1024 * 1024)
+	applySnapshotToCapacity(provider.Status.Capacity, snap)
+	r.probes.Store(provider.Name, snap)
 }
 
-// discoverAvailableModels calls Ollama /api/tags to get downloaded (available) models
-func (r *ModelProviderReconciler) discoverAvailableModels(ctx context.Context, provider *aiv1alpha1.ModelProvider, httpClient *http.Client) {
-	log := logf.FromContext(ctx)
-
-	tagsURL := fmt.Sprintf("%s/api/tags", provider.Spec.Endpoint)
-	req, err := http.NewRequestWithContext(ctx, "GET", tagsURL, nil)
-	if err != nil {
-		return
+// engines is the registry that picks the adapter for a provider type.
+func (r *ModelProviderReconciler) engines() *engine.Registry {
+	if r.Engines != nil {
+		return r.Engines
 	}
+	return DefaultEngines()
+}
 
-	resp, err := httpClient.Do(req)
-	if err != nil {
-		log.V(1).Info("Failed to call /api/tags", "error", err)
-		return
+// applySnapshotToCapacity copies what a probe read into the provider's discovered
+// capacity: the loaded models with their accelerator memory use, and the models
+// the provider has. Whatever the probe did not read stays as it was.
+func applySnapshotToCapacity(capacity *aiv1alpha1.DiscoveredCapacity, snap engine.Snapshot) {
+	if snap.LoadedKnown {
+		capacity.LoadedModels = snap.Loaded
+		capacity.VRAMUsedMiB = snap.VRAMUsedMiB()
 	}
-	defer func() { _ = resp.Body.Close() }()
-
-	if resp.StatusCode != http.StatusOK {
-		return
+	if snap.AvailableKnown {
+		capacity.AvailableModels = snap.Available
 	}
-
-	var tagsResp OllamaTagsResponse
-	if err := json.NewDecoder(resp.Body).Decode(&tagsResp); err != nil {
-		log.V(1).Info("Failed to parse /api/tags response", "error", err)
-		return
-	}
-
-	var available []aiv1alpha1.AvailableModel
-	for _, m := range tagsResp.Models {
-		available = append(available, aiv1alpha1.AvailableModel{
-			Name:      m.Name,
-			SizeBytes: m.Size,
-		})
-	}
-	provider.Status.Capacity.AvailableModels = available
 }
 
 // countAssignedAgents counts how many agent deployments are currently
@@ -669,6 +649,9 @@ func (r *ModelProviderReconciler) publishStateToKV(ctx context.Context, provider
 
 	state := buildProviderState(provider)
 	state.ModelSpeeds = speeds
+	if snap, ok := r.probes.Load(provider.Name); ok {
+		applySnapshotToState(&state, snap.(engine.Snapshot))
+	}
 
 	payload, err := json.Marshal(state)
 	if err != nil {
@@ -685,6 +668,7 @@ func (r *ModelProviderReconciler) publishStateToKV(ctx context.Context, provider
 // fails the reconcile.
 func (r *ModelProviderReconciler) removeProviderState(ctx context.Context, name string) {
 	forgetProviderMetrics(name)
+	r.probes.Delete(name)
 	if r.NATSPublisher == nil {
 		return
 	}
@@ -739,6 +723,24 @@ func buildProviderState(provider *aiv1alpha1.ModelProvider) ProviderState {
 		state.MaxParallel = 1 // defensive: agents divide by this
 	}
 	return state
+}
+
+// applySnapshotToState copies the fields an engine adapter reports into the
+// published state. A field the engine did not report stays absent.
+func applySnapshotToState(state *ProviderState, snap engine.Snapshot) {
+	if len(snap.ModelStates) > 0 {
+		state.ModelStates = make(map[string]string, len(snap.ModelStates))
+		for model, st := range snap.ModelStates {
+			state.ModelStates[model] = string(st)
+		}
+	}
+	state.RequestsRunning = snap.RequestsRunning
+	state.RequestsWaiting = snap.RequestsWaiting
+	state.KVCacheUsage = snap.KVCacheUsage
+	if len(snap.SwitchCostMs) > 0 {
+		state.SwitchCostMs = snap.SwitchCostMs
+	}
+	state.HostMemoryParkedMiB = snap.HostMemoryParkedMiB
 }
 
 // applyCapacityToState maps the subset of DiscoveredCapacity the agent

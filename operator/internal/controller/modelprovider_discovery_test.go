@@ -93,8 +93,8 @@ func TestDiscoverLoadedModels(t *testing.T) {
 	}))
 	defer srv.Close()
 	r := &ModelProviderReconciler{}
-	provider := &aiv1alpha1.ModelProvider{Spec: aiv1alpha1.ModelProviderSpec{Endpoint: srv.URL}, Status: aiv1alpha1.ModelProviderStatus{Capacity: &aiv1alpha1.DiscoveredCapacity{}}}
-	r.discoverLoadedModels(context.Background(), provider, srv.Client())
+	provider := &aiv1alpha1.ModelProvider{Spec: aiv1alpha1.ModelProviderSpec{Type: aiv1alpha1.ProviderTypeOllama, Endpoint: srv.URL}, Status: aiv1alpha1.ModelProviderStatus{Capacity: &aiv1alpha1.DiscoveredCapacity{}}}
+	r.probeEngine(context.Background(), provider, srv.Client())
 	if len(provider.Status.Capacity.LoadedModels) != 1 || provider.Status.Capacity.LoadedModels[0].Name != testModel32B {
 		t.Fatalf("LoadedModels not populated: %+v", provider.Status.Capacity.LoadedModels)
 	}
@@ -113,8 +113,8 @@ func TestDiscoverAvailableModels(t *testing.T) {
 	}))
 	defer srv.Close()
 	r := &ModelProviderReconciler{}
-	provider := &aiv1alpha1.ModelProvider{Spec: aiv1alpha1.ModelProviderSpec{Endpoint: srv.URL}, Status: aiv1alpha1.ModelProviderStatus{Capacity: &aiv1alpha1.DiscoveredCapacity{}}}
-	r.discoverAvailableModels(context.Background(), provider, srv.Client())
+	provider := &aiv1alpha1.ModelProvider{Spec: aiv1alpha1.ModelProviderSpec{Type: aiv1alpha1.ProviderTypeOllama, Endpoint: srv.URL}, Status: aiv1alpha1.ModelProviderStatus{Capacity: &aiv1alpha1.DiscoveredCapacity{}}}
+	r.probeEngine(context.Background(), provider, srv.Client())
 	if len(provider.Status.Capacity.AvailableModels) != 2 {
 		t.Fatalf("AvailableModels = %+v, want 2", provider.Status.Capacity.AvailableModels)
 	}

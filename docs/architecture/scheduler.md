@@ -208,6 +208,27 @@ The agent picks the adapter from the `engine` field the operator publishes in th
 
 The static fallback model, used when the scheduler cannot place a tool-loop call, still comes from the Quarkus Ollama extension and its `quarkus.langchain4j.ollama.*` settings.
 
+### The engine adapter seam
+
+The operator does not know how any one model server works. It reaches each provider through an engine adapter, chosen by the provider's `spec.type` from one registry. Ollama is the only engine registered today, and the `ModelProvider` CRD still admits only `type: ollama`. Supporting another engine means writing one adapter and registering it. The agent runtime has a matching seam for the call path (see [ChatModelPool and engine adapters](#chatmodelpool-and-engine-adapters)).
+
+An adapter does two things:
+
+- **Probe.** It asks the provider what it holds and how busy it is, and the `ModelProvider` reconciler publishes the answer in the provider state. A probe that fails leaves the provider's last known capacity as it was and publishes none of the adapter's fields, so the state never shows models for a server that stopped answering. A provider that answers only in part publishes what it answered. Whether the provider is ready is decided separately, by its version check.
+- **Act.** It makes a model ready (`ready`) or frees it (`release`). For Ollama, `ready` is the prompt-less load a first request would make, and `release` is `keep_alive: 0`. The scheduler does not call these yet; models still load on demand when a call needs them, and the agent runtime still does the unloading.
+
+A provider is an address, not a process. It may be one server or a pool of servers behind one endpoint, and nothing in the provider state assumes otherwise.
+
+Beyond the fields described above, the provider state carries these optional fields. Each is absent when the provider's engine does not report it, and a reader treats absent as unknown, never as zero.
+
+| Field | Meaning | Ollama |
+|---|---|---|
+| `modelStates` | Each model by name: `awake` (loaded now), `asleep` (parked by the engine and quick to wake), or `available` (the provider has it, not loaded) | Filled from the loaded models (`awake`) and the downloaded ones (`available`); never `asleep` |
+| `requestsRunning`, `requestsWaiting` | Requests the engine is running and holding in its own queue, across the provider | Absent: Ollama exports no metrics, so the agents' tickets keep the live counts |
+| `kvCacheUsage` | Fraction of the engine's key-value cache in use, 0 to 1 | Absent |
+| `switchCostMs` | Observed time to make each model ready, by model, in milliseconds | Absent; the calibrated load time in `modelSpeeds` is the measure |
+| `hostMemoryParkedMiB` | Host memory holding the weights of models the engine put to sleep | Absent |
+
 ### Bounded retries and failure attribution
 
 Two follow-on protections were essential once selection moved to call-time:

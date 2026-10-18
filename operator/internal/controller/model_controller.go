@@ -34,6 +34,7 @@ import (
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
 	aiv1alpha1 "github.com/kubemoot/kubemoot/operator/api/v1alpha1"
+	"github.com/kubemoot/kubemoot/operator/internal/engine/ollama"
 )
 
 const modelFinalizer = "kubemoot.ai/model-finalizer"
@@ -59,28 +60,20 @@ func (r *ModelReconciler) tracker() *PullTracker {
 // argument because staticcheck ST1005 rejects a capitalized error format string.
 const ollamaDisplayName = "Ollama"
 
-// OllamaTagsResponse represents the response from Ollama /api/tags
-type OllamaTagsResponse struct {
-	Models []OllamaModelInfo `json:"models"`
-}
-
-// OllamaModelInfo represents model info from Ollama
-type OllamaModelInfo struct {
-	Name       string             `json:"name"`
-	ModifiedAt string             `json:"modified_at"`
-	Size       int64              `json:"size"`
-	Digest     string             `json:"digest"`
-	Details    OllamaModelDetails `json:"details"`
-}
-
-// OllamaModelDetails contains model details
-type OllamaModelDetails struct {
-	Format            string   `json:"format"`
-	Family            string   `json:"family"`
-	Families          []string `json:"families"`
-	ParameterSize     string   `json:"parameter_size"`
-	QuantizationLevel string   `json:"quantization_level"`
-}
+// The Ollama /api/tags and /api/ps answers are read by the Ollama engine adapter;
+// these names keep the model controllers on the same types.
+type (
+	// OllamaTagsResponse is the /api/tags answer.
+	OllamaTagsResponse = ollama.TagsResponse
+	// OllamaModelInfo is one downloaded model in /api/tags.
+	OllamaModelInfo = ollama.ModelInfo
+	// OllamaModelDetails is the format and size detail of a downloaded model.
+	OllamaModelDetails = ollama.ModelDetails
+	// OllamaRunningModelsResponse is the /api/ps answer.
+	OllamaRunningModelsResponse = ollama.RunningModelsResponse
+	// OllamaRunningModel is one loaded model in /api/ps.
+	OllamaRunningModel = ollama.RunningModel
+)
 
 // OllamaPullRequest represents a pull request to Ollama
 type OllamaPullRequest struct {
@@ -99,19 +92,6 @@ type OllamaPullResponse struct {
 // OllamaDeleteRequest represents a delete request to Ollama
 type OllamaDeleteRequest struct {
 	Name string `json:"name"`
-}
-
-// OllamaRunningModelsResponse represents running models from /api/ps
-type OllamaRunningModelsResponse struct {
-	Models []OllamaRunningModel `json:"models"`
-}
-
-// OllamaRunningModel represents a running model from /api/ps
-type OllamaRunningModel struct {
-	Name          string `json:"name"`
-	SizeVRAM      int64  `json:"size_vram"`
-	Size          int64  `json:"size"`
-	ContextLength int    `json:"context_length"`
 }
 
 // +kubebuilder:rbac:groups=kubemoot.ai,resources=models,verbs=get;list;watch;create;update;patch;delete

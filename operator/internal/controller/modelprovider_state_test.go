@@ -549,11 +549,11 @@ func TestDiscoverLoadedModelsReadsContextLength(t *testing.T) {
 	}))
 	defer srv.Close()
 	provider := &aiv1alpha1.ModelProvider{
-		Spec:   aiv1alpha1.ModelProviderSpec{Endpoint: srv.URL},
+		Spec:   aiv1alpha1.ModelProviderSpec{Type: aiv1alpha1.ProviderTypeOllama, Endpoint: srv.URL},
 		Status: aiv1alpha1.ModelProviderStatus{Capacity: &aiv1alpha1.DiscoveredCapacity{}},
 	}
 	r := &ModelProviderReconciler{}
-	r.discoverLoadedModels(logf.IntoContext(context.Background(), logr.Discard()), provider, srv.Client())
+	r.probeEngine(logf.IntoContext(context.Background(), logr.Discard()), provider, srv.Client())
 	models := provider.Status.Capacity.LoadedModels
 	if len(models) != 2 || models[0].ContextLength != 8192 || models[1].ContextLength != 0 {
 		t.Errorf("LoadedModels = %+v, want contexts 8192 and 0", models)
