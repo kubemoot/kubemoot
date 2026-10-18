@@ -101,10 +101,72 @@ genuinely competitive.
 
 The model and the thing that serves it are different decisions. Kubemoot talks to a
 `ModelProvider`, so the serving runtime is swappable and no crew depends on a particular
-one. Ollama is the common starting point because it is simple to operate. Higher
-throughput runtimes trade that simplicity for lower per-request overhead and better
-batching under concurrent load, which matters when a crew of twenty agents queues behind
-one card. See the [roadmap](../../introduction/roadmap/) for backends beyond Ollama.
+one. The runtime decides how many calls a card can work on at once, and a moot makes that
+number matter: it fans one question out to several agents, so overlapping calls are the
+normal case.
+
+| Situation | Recommended engine |
+|---|---|
+| One model that several agents call at once | vLLM |
+| A quickstart, a CPU-only setup, or a small setup | Ollama |
+| Many models on one GPU, each loaded on demand | Ollama |
+
+vLLM batches overlapping requests on one model, so its throughput keeps rising as calls
+pile up. Ollama loads models per call, which suits many models sharing a card, but it
+serves a fixed number of requests at a time per loaded model and queues the rest. The
+cost of switching models (Ollama loads per call; vLLM serves one model per server and
+switches by restart or sleep and wake) has not been measured yet, so this guidance is
+about serving one busy model.
+
+#### Measured results
+
+The measurement replayed 151 real model calls captured from the Homelab Pilot reference
+crew against each engine, with identical settings: a 32768-token context and thinking
+off. One engine ran at a time on an otherwise idle cluster. The replay sent 1,476
+requests with 0 errors. It ran on 2026-10-18 against the current releases of both
+engines at the time.
+
+Terms used below:
+
+- **c1, c4, c8**: 1, 4, or 8 requests in flight at once.
+- **Throughput**: output tokens per second, summed across the requests in flight
+  (tokens/s). Higher is better.
+
+| Model | GPU | Engine | c1 | c4 | c8 |
+|---|---|---|---|---|---|
+| Qwen3 14B | RTX 5090 | vLLM | 115.6 | 300.4 | 371.3 |
+| Qwen3 14B | RTX 5090 | Ollama | 99.6 | 145.0 | 144.7 |
+| Qwen3 14B | RTX 4090 | vLLM | 75.9 | 192.5 | 257.7 |
+| Qwen3 14B | RTX 4090 | Ollama | 66.8 | 94.5 | 98.8 |
+| Qwen3 32B | RTX 5090 | vLLM | 62.0 | 168.2 | 195.4 |
+| Qwen3 32B | RTX 5090 | Ollama | 53.4 | 53.9 | 53.1 |
+
+What the numbers show:
+
+- **One call at a time**, vLLM is about 15% faster.
+- **With calls overlapping**, vLLM is 2.0 to 2.6 times faster on the 14B and 3.1 to 3.7
+  times faster on the 32B.
+- **Ollama's throughput stops at its slot count.** The 14B ran with 2 slots and the 32B
+  with 1, because 2 slots do not fit in 32 GB at a 32k context. Calls beyond the slot
+  count wait. On the 32B at c8, the median time to the first token of a text answer was
+  91 s on Ollama and 5.6 s on vLLM.
+- **The engine effect is the same on both GPUs**, within 4%. The RTX 5090 is 1.44 to 1.56
+  times the RTX 4090 with either engine.
+- **Prompt-prefix cache**: both engines reuse about 71% of prompt tokens at c1. Under load
+  vLLM keeps 72 to 75% and Ollama drops to 63%.
+
+Caveats:
+
+- The engines ran different 4-bit builds of the same models: GGUF Q4 in Ollama and AWQ in
+  vLLM. Speed compares per token. Answer quality was not judged, and on the 14B the AWQ
+  build wrote about 13% fewer output tokens.
+- The replay sends each captured conversation as recorded and does not run tools, so both
+  engines receive identical input.
+
+To run vLLM on a GPU node, see
+[Run vLLM on a GPU node](../../operating/gpu-worker-nodes/#run-vllm-on-a-gpu-node). For
+which provider types a `ModelProvider` accepts today, see
+[Models in Kubemoot](../../reference/models/).
 
 ## Match the model to the discussion role
 
