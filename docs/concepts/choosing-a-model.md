@@ -108,15 +108,15 @@ normal case.
 | Situation | Recommended engine |
 |---|---|
 | One model that several agents call at once | vLLM |
+| Several models on one accelerator, each busy at times | vLLM with sleep mode, if the host has memory to park weights; otherwise Ollama |
 | A quickstart, a CPU-only setup, or a small setup | Ollama |
-| Many models on one GPU, each loaded on demand | Ollama |
+| Many models on one GPU, each loaded on demand, on a host without spare memory | Ollama |
 
 vLLM batches overlapping requests on one model, so its throughput keeps rising as calls
 pile up. Ollama loads models per call, which suits many models sharing a card, but it
-serves a fixed number of requests at a time per loaded model and queues the rest. The
-cost of switching models (Ollama loads per call; vLLM serves one model per server and
-switches by restart or sleep and wake) has not been measured yet, so this guidance is
-about serving one busy model.
+serves a fixed number of requests at a time per loaded model and queues the rest. vLLM
+serves one model per server and switches models by restart or by sleep and wake. The
+measured cost of each switch is in [Switching models](#switching-models).
 
 #### Measured results
 
@@ -162,6 +162,58 @@ Caveats:
   build wrote about 13% fewer output tokens.
 - The replay sends each captured conversation as recorded and does not run tools, so both
   engines receive identical input.
+
+#### Switching models
+
+Switch cost is the time from asking a model server for a different model to that model's
+first full reply, minus a normal reply's time. Each value is the median of 5 switches per
+direction. Each request was a median-sized captured crew call with output capped at 16
+tokens and a unique prefix, so no prompt cache helped. There were 0 failed trials. Ollama
+ran at its normal settings (one loaded model). vLLM ran with a 16384-token context and 85%
+of GPU memory per server. The measurement ran on 2026-10-18 against the current releases
+of both engines at the time.
+
+How each engine switches:
+
+- **Ollama** unloads one model and loads the other.
+- **vLLM restart** stops one server and starts the other.
+- **vLLM sleep mode** keeps every server started with one awake. At level 1 the sleeping
+  model's weights are parked in CPU memory. At level 2 they are dropped and reloaded.
+
+Switch cost in seconds:
+
+| Switch | GPU | Ollama | vLLM restart | vLLM sleep level 1 | vLLM sleep level 2 |
+|---|---|---|---|---|---|
+| 8B to 14B | RTX 5090 | 2.78 | 35.6 | 0.72 | 3.33 |
+| 14B to 8B | RTX 5090 | 2.75 | 33.6 | 0.73 | 2.50 |
+| 14B to 32B | RTX 5090 | 3.12 | 46.6 | 1.21 | 4.92 |
+| 32B to 14B | RTX 5090 | 3.09 | 36.6 | 1.21 | 3.31 |
+| 8B to 14B | RTX 4090 | 2.77 | 37.6 | 1.25 | 4.50 |
+| 14B to 8B | RTX 4090 | 3.07 | 33.6 | 1.22 | 3.45 |
+
+What the numbers show:
+
+- **vLLM sleep mode switches as fast as Ollama or faster.** Level 1 took 0.7 to 1.3 s,
+  level 2 took 2.5 to 4.9 s, and Ollama took 2.8 to 3.1 s.
+- **Restarting vLLM is 11 to 15 times slower than Ollama.** Switch vLLM models by sleep
+  and wake.
+- **Ollama's first load after a node restart is slower.** It took 13 to 51 s, because the
+  weights are read from network storage, and about 3 s after that.
+
+Costs of sleep mode:
+
+- Level 1 needs host memory for every sleeping model's weights. A 14B and a 32B together
+  needed a 44 GiB container memory limit on a 48 GB node. A memory-backed `/dev/shm`
+  counts against that limit.
+- Each model's server must be started once. That takes about 35 to 47 s when its weights
+  and compile cache are already on the node, and minutes otherwise.
+
+With sleep mode, vLLM keeps fast switching alongside its concurrency advantage. Ollama
+remains a fit for CPU-only and quickstart setups and for hosts without memory to park
+weights.
+
+Not measured yet: answer quality through vLLM, and more than two models sharing one
+accelerator.
 
 To run vLLM on a GPU node, see
 [Run vLLM on a GPU node](../../operating/gpu-worker-nodes/#run-vllm-on-a-gpu-node). For
