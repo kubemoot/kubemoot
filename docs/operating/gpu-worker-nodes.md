@@ -196,6 +196,14 @@ These requirements apply to the node and to the Kubernetes objects around the se
   Check that the cache holds at least one request at your context length.
 - **Mount a memory-backed `/dev/shm`.** Back it with an `emptyDir` whose `medium` is
   `Memory`.
+- **Enable sleep mode to switch models quickly.** Start each server with
+  `--enable-sleep-mode` and set `VLLM_SERVER_DEV_MODE=1`. Sleep and wake are development
+  endpoints: keep them off any public route and reachable only inside the cluster. See
+  [Switching models](../../concepts/choosing-a-model/#switching-models).
+- **Cover parked weights in the memory limit.** At sleep level 1 every sleeping model's
+  weights sit in host memory, so the container memory limit must cover them. A 14B and a
+  32B together needed 44 GiB on a 48 GB node, and a memory-backed `/dev/shm` counts
+  against the limit.
 - **Allow for start-up time.** From a warm weights volume, start-up took 100 to 220 s,
   mostly CUDA graph capture and compilation. Set probes so Kubernetes waits for it.
 
