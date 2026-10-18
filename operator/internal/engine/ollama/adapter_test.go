@@ -19,6 +19,7 @@ package ollama
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -216,5 +217,37 @@ func TestReadyAndReleaseReportFailure(t *testing.T) {
 	failing.Close()
 	if err := a.Ready(context.Background(), failing.URL, modelTag); err == nil {
 		t.Error("Ready must fail when the provider does not answer")
+	}
+}
+
+func TestListTagsAndListRunning(t *testing.T) {
+	srv, _ := fakeOllama(t, psBody, tagsBody)
+	tags, err := ListTags(context.Background(), srv.Client(), srv.URL)
+	if err != nil || len(tags) != 2 || tags[0].Name != modelTag {
+		t.Errorf("ListTags = %+v, %v", tags, err)
+	}
+	running, err := ListRunning(context.Background(), srv.Client(), srv.URL)
+	if err != nil || len(running) != 1 || running[0].ContextLength != 8192 {
+		t.Errorf("ListRunning = %+v, %v", running, err)
+	}
+}
+
+func TestListersTellStatusDecodeAndTransportFailuresApart(t *testing.T) {
+	status, _ := fakeOllama(t, "", "")
+	_, err := ListRunning(context.Background(), status.Client(), status.URL)
+	var se *StatusError
+	if !errors.As(err, &se) || se.Code != http.StatusInternalServerError || se.Error() != "Ollama returned status 500" {
+		t.Errorf("want a StatusError 500, got %v", err)
+	}
+	garbled, _ := fakeOllama(t, "nope", "nope")
+	_, err = ListTags(context.Background(), garbled.Client(), garbled.URL)
+	var de *DecodeError
+	if !errors.As(err, &de) {
+		t.Errorf("want a DecodeError, got %v", err)
+	}
+	status.Close()
+	_, err = ListTags(context.Background(), status.Client(), status.URL)
+	if err == nil || errors.As(err, &se) || errors.As(err, &de) {
+		t.Errorf("want a transport error, got %v", err)
 	}
 }

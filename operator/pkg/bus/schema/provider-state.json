@@ -36,15 +36,15 @@
       "additionalProperties": { "type": "string", "enum": ["awake", "asleep", "available"] },
       "description": "Where each model stands on the provider, by model: awake (loaded and answering now), asleep (parked by the engine and quick to wake, for engines that sleep models), or available (the provider has it but it is not loaded). Ollama fills it from its loaded and downloaded models; engines that sleep models fill asleep from the server. Absent means the provider did not report states; readers then use loadedModels. Describes a provider that may be a pool of servers, not one process."
     },
-    "requestsRunning": { "type": "integer", "description": "Requests the engine is running now, across the whole provider. Filled by engines that export it (the Model Server Protocol metrics); Ollama exports none, so it is absent and the tickets carry the live count." },
-    "requestsWaiting": { "type": "integer", "description": "Requests the engine holds in its own queue, across the whole provider. Filled by engines that export it; absent for Ollama." },
-    "kvCacheUsage": { "type": "number", "minimum": 0, "maximum": 1, "description": "Fraction of the engine's key-value cache in use, 0 to 1, across the whole provider. Filled by engines that export it; absent for Ollama, which does not." },
+    "requestsRunning": { "type": "integer", "goJSONSchema": { "pointer": true }, "description": "Requests the engine is running now, across the whole provider. Filled by engines that export it (the Model Server Protocol metrics); Ollama exports none, so it is absent and the tickets carry the live count." },
+    "requestsWaiting": { "type": "integer", "goJSONSchema": { "pointer": true }, "description": "Requests the engine holds in its own queue, across the whole provider. Filled by engines that export it; absent for Ollama." },
+    "kvCacheUsage": { "type": "number", "minimum": 0, "maximum": 1, "goJSONSchema": { "pointer": true }, "description": "Fraction of the engine's key-value cache in use, 0 to 1, across the whole provider. Filled by engines that export it; absent for Ollama, which does not." },
     "switchCostMs": {
       "type": "object",
       "additionalProperties": { "type": "integer" },
       "description": "How long the provider last took to make each model ready, in milliseconds, by model, as observed (a load, or a wake from sleep). Absent means not observed; the calibrated loadMs in modelSpeeds is the fallback."
     },
-    "hostMemoryParkedMiB": { "type": "integer", "description": "Host memory in MiB holding the weights of models the engine has put to sleep. Filled by engines that park weights in host memory; absent for Ollama." },
+    "hostMemoryParkedMiB": { "type": "integer", "goJSONSchema": { "pointer": true }, "description": "Host memory in MiB holding the weights of models the engine has put to sleep. Filled by engines that park weights in host memory; absent for Ollama." },
     "modelSpeeds": {
       "type": "object",
       "additionalProperties": {

@@ -139,8 +139,8 @@ func TestApplySnapshotToStateCarriesEveryContractField(t *testing.T) {
 	if err := dec.Decode(&contract); err != nil {
 		t.Fatalf("state does not match the contract: %v\n%s", err, raw)
 	}
-	if contract.ModelStates["a"] != "asleep" || contract.RequestsRunning != 2 || contract.RequestsWaiting != 5 ||
-		contract.KvCacheUsage != 0.75 || contract.SwitchCostMs["a"] != 900 || contract.HostMemoryParkedMiB != 4096 {
+	if contract.ModelStates["a"] != "asleep" || *contract.RequestsRunning != 2 || *contract.RequestsWaiting != 5 ||
+		*contract.KvCacheUsage != 0.75 || contract.SwitchCostMs["a"] != 900 || *contract.HostMemoryParkedMiB != 4096 {
 		t.Errorf("contract = %+v", contract)
 	}
 }
@@ -181,5 +181,85 @@ func TestReconcileDropsTheEarlierSnapshotWhenTheProviderStopsAnswering(t *testin
 	}
 	if _, ok := r.probes.Load(silentProvider); ok {
 		t.Error("a provider that stopped answering must not keep its earlier snapshot")
+	}
+}
+
+// A reported 0 is not the same as not reported: it must survive the published
+// JSON and the generated contract type.
+func TestZeroEngineValuesSurviveTheContract(t *testing.T) {
+	zeroInt, zeroInt64, zeroCache := 0, int64(0), 0.0
+	state := ProviderState{Name: "p"}
+	applySnapshotToState(&state, engine.Snapshot{
+		RequestsRunning: &zeroInt, RequestsWaiting: &zeroInt, KVCacheUsage: &zeroCache,
+		HostMemoryParkedMiB: &zeroInt64, SwitchCostMs: map[string]int64{"a": 0},
+	})
+	raw, err := json.Marshal(state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var contract bus.ProviderState
+	if err := json.Unmarshal(raw, &contract); err != nil {
+		t.Fatal(err)
+	}
+	assertZerosKept(t, raw, contract)
+}
+
+// assertZerosKept checks every optional number a snapshot reported as 0 is still
+// present in the decoded contract and in its re-encoding.
+func assertZerosKept(t *testing.T, raw []byte, contract bus.ProviderState) {
+	t.Helper()
+	if contract.RequestsRunning == nil || contract.RequestsWaiting == nil || contract.KvCacheUsage == nil ||
+		contract.HostMemoryParkedMiB == nil {
+		t.Fatalf("a reported 0 became absent: %s", raw)
+	}
+	if v, ok := contract.SwitchCostMs["a"]; !ok || v != 0 {
+		t.Errorf("a 0 switch cost must stay in the map: %s", raw)
+	}
+	again, err := json.Marshal(contract)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, field := range []string{"requestsRunning", "requestsWaiting", "kvCacheUsage", "hostMemoryParkedMiB"} {
+		if !bytes.Contains(again, []byte(`"`+field+`":0`)) {
+			t.Errorf("%s: 0 lost on re-encode: %s", field, again)
+		}
+	}
+}
+
+func TestIsModelLoadedReadsTheAdapterAndKeepsItsLeniency(t *testing.T) {
+	ps := "{\"models\":[{\"name\":\"m:14b\"}]}"
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(ps))
+	}))
+	defer srv.Close()
+	r := &ModelReconciler{}
+	ctx := context.Background()
+	if ok, err := r.isModelLoaded(ctx, srv.Client(), srv.URL, "m:14b"); err != nil || !ok {
+		t.Errorf("loaded model: ok=%v err=%v", ok, err)
+	}
+	if ok, err := r.isModelLoaded(ctx, srv.Client(), srv.URL, "other"); err != nil || ok {
+		t.Errorf("other model: ok=%v err=%v", ok, err)
+	}
+}
+
+func TestIsModelLoadedCountsAnUnusableAnswerAsNotLoaded(t *testing.T) {
+	for name, handler := range map[string]http.HandlerFunc{
+		"no /api/ps": func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNotFound) },
+		"unreadable": func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte("garbled")) },
+	} {
+		srv := httptest.NewServer(handler)
+		ok, err := (&ModelReconciler{}).isModelLoaded(context.Background(), srv.Client(), srv.URL, "m:14b")
+		srv.Close()
+		if err != nil || ok {
+			t.Errorf("%s: ok=%v err=%v, want not loaded and no error", name, ok, err)
+		}
+	}
+}
+
+func TestIsModelLoadedFailsWhenTheServerIsUnreachable(t *testing.T) {
+	srv := httptest.NewServer(http.NotFoundHandler())
+	srv.Close()
+	if _, err := (&ModelReconciler{}).isModelLoaded(context.Background(), srv.Client(), srv.URL, "m:14b"); err == nil {
+		t.Error("an unreachable server is an error")
 	}
 }
