@@ -24,25 +24,29 @@ import (
 // NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
 
 // ModelSpec defines the desired state of Model.
-// +kubebuilder:validation:XValidation:rule="has(self.source) == has(oldSelf.source) && (!has(self.source) || self.source == oldSelf.source)",message="spec.source is immutable: delete and recreate the Model to change where its weights come from"
+// +kubebuilder:validation:XValidation:rule="(has(self.source) == has(oldSelf.source) && (!has(self.source) || self.source == oldSelf.source)) || (!has(oldSelf.source) && has(self.source) && has(self.source.ollama))",message="spec.source is immutable except for adding an ollama source to a Model that has none: delete and recreate the Model to change where its weights come from"
+// +kubebuilder:validation:XValidation:rule="!has(self.source) || !has(self.source.ollama) || self.source.ollama.tag == self.model",message="source.ollama.tag must equal spec.model: Ollama serves a model only under its tag"
 type ModelSpec struct {
 	// ProviderRef references the parent ModelProvider
 	// +kubebuilder:validation:Required
 	ProviderRef string `json:"providerRef"`
 
 	// Model is the served name: the name every request uses to ask for this
-	// model (e.g., "qwen3:14b"), whatever engine serves it. Where the weights
-	// come from is spec.source. For an engine that serves under a name you
-	// choose (vLLM's --served-model-name) this is that name.
+	// model (e.g., "qwen3:14b"). Where the weights come from is spec.source.
+	// For vLLM this is the name the server is started with
+	// (--served-model-name). Ollama serves a model only under its tag, so for
+	// an ollama source it must equal source.ollama.tag.
 	// +kubebuilder:validation:Required
 	Model string `json:"model"`
 
 	// Source says where the weights come from, as exactly one of ollama or
-	// huggingFace. It must fit the engine of the provider: ollama for an
-	// ollama provider, huggingFace for a vLLM provider. A mismatch is reported
-	// on the Model's SourceCompatible condition and nothing is pulled; the
-	// operator never guesses or falls back. When absent the source is an
-	// Ollama tag equal to spec.model.
+	// huggingFace. It cannot change after creation, except that an ollama
+	// source may be added to a Model that has none (its tag equals spec.model,
+	// the same meaning as an absent source). It must fit the engine of the
+	// provider: ollama for an ollama provider, huggingFace for a vLLM
+	// provider. A mismatch is reported on the Model's SourceCompatible
+	// condition and nothing is pulled; the operator never guesses or falls
+	// back. When absent the source is an Ollama tag equal to spec.model.
 	// +optional
 	Source *ModelSource `json:"source,omitempty"`
 
@@ -82,7 +86,8 @@ type ModelSource struct {
 
 // OllamaSource is an Ollama library tag.
 type OllamaSource struct {
-	// Tag is the Ollama tag to pull (e.g., "qwen3:14b").
+	// Tag is the Ollama tag to pull (e.g., "qwen3:14b"). It must equal
+	// spec.model, because Ollama serves a model only under its tag.
 	// +kubebuilder:validation:Required
 	// +kubebuilder:validation:MinLength=1
 	Tag string `json:"tag"`

@@ -238,12 +238,12 @@ Declares a specific inference model on a provider, **labeled** so the scheduler 
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `ollama.tag` | string | Yes, within `ollama` | The Ollama tag to pull. When set, the Ollama provider pulls, lists, and removes this tag. Ollama serves a model under its tag, so keep it equal to `model` unless something in front of Ollama maps the names. |
+| `ollama.tag` | string | Yes, within `ollama` | The Ollama tag to pull. It must equal `model`, because Ollama serves a model only under its tag; a different value is rejected, and so is changing `model` while an `ollama` source is set. |
 | `huggingFace.repo` | string | Yes, within `huggingFace` | The Hugging Face repository, for example `Qwen/Qwen3-14B-AWQ` |
 | `huggingFace.revision` | string | Yes, within `huggingFace` | The commit sha the weights are pinned to, 7 to 40 hex characters. A branch or tag name is rejected. |
 | `huggingFace.quantization` | string | No | The quantization of the repository's weights, for example `awq` or `gptq` |
 
-The source must fit the engine of the provider: `ollama` for an ollama provider, `huggingFace` for a vLLM provider. The operator never guesses or falls back. A source that does not fit is reported on the Model's `SourceCompatible` condition (reason `SourceEngineMismatch`, with a message naming the mismatch), the Model's state is `Error`, and nothing is pulled. A source that fits sets the condition to `True`. `source` cannot be changed after the Model is created; delete and recreate the Model to change where its weights come from.
+The source must fit the engine of the provider: `ollama` for an ollama provider, `huggingFace` for a vLLM provider. The operator never guesses or falls back. A source that does not fit is reported on the Model's `SourceCompatible` condition (reason `SourceEngineMismatch`, with a message naming the mismatch), the Model's state is `Error`, and nothing is pulled. A source that fits sets the condition to `True`. `source` cannot be changed after the Model is created, with one exception: an `ollama` source (tag equal to `model`) may be added to a Model that has none, which keeps the same meaning and does not download the weights again. To change anything else, delete and recreate the Model.
 
 ### Labels (open string set, selected by `CrewSchedulingPolicy`)
 
@@ -312,7 +312,7 @@ spec:
   quantization: q4_K_M
 ```
 
-A Model for a vLLM provider (coming next) names its weights with a Hugging Face source and keeps the same served name, so crews and policies that select it by label do not change:
+A Model for a vLLM provider (coming next) names its weights with a Hugging Face source, and the served name is the name the vLLM server is started with, so crews and policies that select it by label do not change:
 
 ```yaml
 apiVersion: kubemoot.ai/v1alpha1
