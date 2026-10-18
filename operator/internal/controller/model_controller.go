@@ -20,6 +20,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"time"
@@ -55,10 +56,6 @@ type ModelReconciler struct {
 func (r *ModelReconciler) tracker() *PullTracker {
 	return trackerOrNew(&r.Pulls)
 }
-
-// ollamaDisplayName is how errors name the Ollama provider. It is passed as an
-// argument because staticcheck ST1005 rejects a capitalized error format string.
-const ollamaDisplayName = "Ollama"
 
 // The Ollama /api/tags and /api/ps answers are read by the Ollama engine adapter;
 // these names keep the model controllers on the same types.
@@ -217,21 +214,7 @@ func (r *ModelReconciler) reportOllamaModel(ctx context.Context, httpClient *htt
 
 // listOllamaTags lists the models downloaded on an Ollama server.
 func listOllamaTags(ctx context.Context, httpClient *http.Client, endpoint string) ([]OllamaModelInfo, error) {
-	resp, err := httpGet(ctx, httpClient, fmt.Sprintf("%s/api/tags", endpoint))
-	if err != nil {
-		return nil, err
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("%s returned status %d", ollamaDisplayName, resp.StatusCode)
-	}
-
-	var tagsResp OllamaTagsResponse
-	if err := json.NewDecoder(resp.Body).Decode(&tagsResp); err != nil {
-		return nil, err
-	}
-	return tagsResp.Models, nil
+	return ollama.ListTags(ctx, httpClient, endpoint)
 }
 
 // getOllamaModelInfo retrieves model info from Ollama; nil means the model is absent.
@@ -248,29 +231,24 @@ func (r *ModelReconciler) getOllamaModelInfo(ctx context.Context, httpClient *ht
 	return nil, nil
 }
 
-// isModelLoaded checks if a model is currently loaded in Ollama
+// isModelLoaded checks if a model is currently loaded in Ollama. An answer Ollama
+// gave but that cannot be read (an older version without /api/ps) counts as not
+// loaded; only a failure to reach it is an error.
 func (r *ModelReconciler) isModelLoaded(ctx context.Context, httpClient *http.Client, endpoint, modelName string) (bool, error) {
-	resp, err := httpGet(ctx, httpClient, fmt.Sprintf("%s/api/ps", endpoint))
+	running, err := ollama.ListRunning(ctx, httpClient, endpoint)
 	if err != nil {
+		var status *ollama.StatusError
+		var decode *ollama.DecodeError
+		if errors.As(err, &status) || errors.As(err, &decode) {
+			return false, nil
+		}
 		return false, err
 	}
-	defer func() { _ = resp.Body.Close() }()
-
-	if resp.StatusCode != http.StatusOK {
-		return false, nil // /api/ps might not be available in older versions
-	}
-
-	var psResp OllamaRunningModelsResponse
-	if err := json.NewDecoder(resp.Body).Decode(&psResp); err != nil {
-		return false, nil
-	}
-
-	for _, m := range psResp.Models {
+	for _, m := range running {
 		if m.Name == modelName {
 			return true, nil
 		}
 	}
-
 	return false, nil
 }
 

@@ -98,12 +98,12 @@ func Factory(client *http.Client) engine.Adapter {
 func (a *Adapter) Probe(ctx context.Context, endpoint string) (engine.Snapshot, error) {
 	var snap engine.Snapshot
 
-	ps, psErr := getJSON[RunningModelsResponse](ctx, a.client, endpoint+pathPS)
+	ps, psErr := ListRunning(ctx, a.client, endpoint)
 	if psErr == nil {
 		snap.LoadedKnown = true
 		snap.Loaded = loadedModels(ps)
 	}
-	tags, tagsErr := getJSON[TagsResponse](ctx, a.client, endpoint+pathTags)
+	tags, tagsErr := ListTags(ctx, a.client, endpoint)
 	if tagsErr == nil {
 		snap.AvailableKnown = true
 		snap.Available = availableModels(tags)
@@ -149,6 +149,32 @@ func (a *Adapter) generate(ctx context.Context, endpoint string, body map[string
 	return nil
 }
 
+// StatusError is an Ollama answer with a status other than 200.
+type StatusError struct{ Code int }
+
+func (e *StatusError) Error() string { return fmt.Sprintf("Ollama returned status %d", e.Code) }
+
+// DecodeError is an Ollama answer that is not the JSON the endpoint documents.
+type DecodeError struct {
+	URL string
+	Err error
+}
+
+func (e *DecodeError) Error() string { return fmt.Sprintf("decode %s: %v", e.URL, e.Err) }
+func (e *DecodeError) Unwrap() error { return e.Err }
+
+// ListTags lists the models downloaded on the Ollama server at endpoint.
+func ListTags(ctx context.Context, client *http.Client, endpoint string) ([]ModelInfo, error) {
+	tags, err := getJSON[TagsResponse](ctx, client, endpoint+pathTags)
+	return tags.Models, err
+}
+
+// ListRunning lists the models loaded on the Ollama server at endpoint.
+func ListRunning(ctx context.Context, client *http.Client, endpoint string) ([]RunningModel, error) {
+	ps, err := getJSON[RunningModelsResponse](ctx, client, endpoint+pathPS)
+	return ps.Models, err
+}
+
 // getJSON GETs url and decodes a 200 answer into T.
 func getJSON[T any](ctx context.Context, client *http.Client, url string) (T, error) {
 	var out T
@@ -162,22 +188,22 @@ func getJSON[T any](ctx context.Context, client *http.Client, url string) (T, er
 	}
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
-		return out, fmt.Errorf("GET %s returned status %d", url, resp.StatusCode)
+		return out, &StatusError{Code: resp.StatusCode}
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
-		return out, fmt.Errorf("decode %s: %w", url, err)
+		return out, &DecodeError{URL: url, Err: err}
 	}
 	return out, nil
 }
 
 // loadedModels maps /api/ps models to the operator's loaded-model record. The
 // result is nil when nothing is loaded; Snapshot.LoadedKnown tells that from no answer.
-func loadedModels(ps RunningModelsResponse) []aiv1alpha1.LoadedModel {
-	if len(ps.Models) == 0 {
+func loadedModels(ps []RunningModel) []aiv1alpha1.LoadedModel {
+	if len(ps) == 0 {
 		return nil
 	}
-	loaded := make([]aiv1alpha1.LoadedModel, 0, len(ps.Models))
-	for _, m := range ps.Models {
+	loaded := make([]aiv1alpha1.LoadedModel, 0, len(ps))
+	for _, m := range ps {
 		loaded = append(loaded, aiv1alpha1.LoadedModel{
 			Name:          m.Name,
 			SizeVRAM:      m.SizeVRAM,
@@ -189,12 +215,12 @@ func loadedModels(ps RunningModelsResponse) []aiv1alpha1.LoadedModel {
 }
 
 // availableModels maps /api/tags models to the operator's available-model record.
-func availableModels(tags TagsResponse) []aiv1alpha1.AvailableModel {
-	if len(tags.Models) == 0 {
+func availableModels(tags []ModelInfo) []aiv1alpha1.AvailableModel {
+	if len(tags) == 0 {
 		return nil
 	}
-	available := make([]aiv1alpha1.AvailableModel, 0, len(tags.Models))
-	for _, m := range tags.Models {
+	available := make([]aiv1alpha1.AvailableModel, 0, len(tags))
+	for _, m := range tags {
 		available = append(available, aiv1alpha1.AvailableModel{Name: m.Name, SizeBytes: m.Size})
 	}
 	return available
@@ -203,15 +229,15 @@ func availableModels(tags TagsResponse) []aiv1alpha1.AvailableModel {
 // modelStates marks every loaded model awake and every other downloaded model
 // available. Without /api/ps the loaded ones cannot be told apart, so it returns
 // nil and the states stay unknown.
-func modelStates(ps RunningModelsResponse, tags TagsResponse, psKnown bool) map[string]engine.ModelState {
+func modelStates(ps []RunningModel, tags []ModelInfo, psKnown bool) map[string]engine.ModelState {
 	if !psKnown {
 		return nil
 	}
-	states := make(map[string]engine.ModelState, len(ps.Models)+len(tags.Models))
-	for _, m := range tags.Models {
+	states := make(map[string]engine.ModelState, len(ps)+len(tags))
+	for _, m := range tags {
 		states[m.Name] = engine.StateAvailable
 	}
-	for _, m := range ps.Models {
+	for _, m := range ps {
 		states[m.Name] = engine.StateAwake
 	}
 	return states
