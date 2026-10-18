@@ -180,6 +180,25 @@ Two GPU nodes mean two model servers and two ModelProviders. To see GPU utilizat
 VRAM in the dashboard, deploy the NVIDIA DCGM exporter and point the operator at your
 Prometheus. See [Observability](../observability/) and [Models](../../reference/models/).
 
+## Run vLLM on a GPU node
+
+vLLM is the recommended engine for a model that several agents call at once (see
+[Choosing a Model](../../concepts/choosing-a-model/#the-serving-runtime-is-a-separate-choice)).
+These requirements apply to the node and to the Kubernetes objects around the server:
+
+- **Pass AVX through in a VM.** The virtual CPU must expose AVX to the guest, or vLLM
+  crashes at start. On Proxmox, set the CPU type to `host`.
+- **Do not name the Service `vllm`.** Kubernetes injects service-link environment
+  variables into pods, and a Service named `vllm` sets `VLLM_PORT=tcp://...`, which stops
+  vLLM. Set `enableServiceLinks: false` on the pod, or name the Service otherwise.
+- **Size GPU memory for one full request.** A 32B 4-bit model on a 32 GB GPU needs
+  `--gpu-memory-utilization 0.95` to leave room for the cache of one 32k-token request.
+  Check that the cache holds at least one request at your context length.
+- **Mount a memory-backed `/dev/shm`.** Back it with an `emptyDir` whose `medium` is
+  `Memory`.
+- **Allow for start-up time.** From a warm weights volume, start-up took 100 to 220 s,
+  mostly CUDA graph capture and compilation. Set probes so Kubernetes waits for it.
+
 ## Worked example: Proxmox and Talos
 
 The Kubemoot reference deployment runs Kubernetes on Talos Linux VMs hosted on Proxmox,
