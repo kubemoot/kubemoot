@@ -981,6 +981,16 @@
     "provider-state.json#/engine": {
       "type": "string"
     },
+    "provider-state.json#/hostMemoryParkedMiB": {
+      "type": "integer"
+    },
+    "provider-state.json#/kvCacheUsage": {
+      "type": "number",
+      "constraints": {
+        "maximum": "1",
+        "minimum": "0"
+      }
+    },
     "provider-state.json#/lastProbedAt": {
       "type": "string",
       "required": true
@@ -1029,6 +1039,17 @@
     "provider-state.json#/modelSpeeds{}/promptTokensPerSecond": {
       "type": "integer"
     },
+    "provider-state.json#/modelStates": {
+      "type": "object"
+    },
+    "provider-state.json#/modelStates{}": {
+      "type": "string",
+      "enum": [
+        "asleep",
+        "available",
+        "awake"
+      ]
+    },
     "provider-state.json#/name": {
       "type": "string",
       "required": true
@@ -1040,6 +1061,18 @@
     "provider-state.json#/ready": {
       "type": "boolean",
       "required": true
+    },
+    "provider-state.json#/requestsRunning": {
+      "type": "integer"
+    },
+    "provider-state.json#/requestsWaiting": {
+      "type": "integer"
+    },
+    "provider-state.json#/switchCostMs": {
+      "type": "object"
+    },
+    "provider-state.json#/switchCostMs{}": {
+      "type": "integer"
     },
     "provider-state.json#/totalVramMiB": {
       "type": "integer"
