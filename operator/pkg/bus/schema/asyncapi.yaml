@@ -190,6 +190,27 @@ channels:
       providerState:
         $ref: '#/components/messages/ProviderState'
 
+  providerModel:
+    address: kubemoot.provider.model.{provider}
+    title: Model lifecycle request
+    description: |
+      An agent asks the operator, by NATS request and reply on core NATS, to make a
+      model ready on a provider (wake its vLLM server, putting the awake one on the
+      same accelerator to sleep first) or to release it. The operator answers when the
+      provider reports the model in the state asked for. Only engines that put models
+      to sleep take it; Ollama loads on demand and is never asked. The provider token
+      is the ModelProvider name, escaped as a key token is.
+    servers:
+      - $ref: '#/servers/nats'
+    parameters:
+      provider:
+        $ref: '#/components/parameters/provider'
+    messages:
+      modelLifecycleRequest:
+        $ref: '#/components/messages/ModelLifecycleRequest'
+      modelLifecycleReply:
+        $ref: '#/components/messages/ModelLifecycleReply'
+
   providerTickets:
     address: $KV.kubemoot_provider_tickets.{entry}
     title: KV kubemoot_provider_tickets
@@ -437,6 +458,16 @@ components:
       title: Provider state
       payload:
         $ref: './provider-state.json'
+    ModelLifecycleRequest:
+      name: ModelLifecycleRequest
+      title: Model lifecycle request
+      payload:
+        $ref: './model-lifecycle-request.json'
+    ModelLifecycleReply:
+      name: ModelLifecycleReply
+      title: Model lifecycle reply
+      payload:
+        $ref: './model-lifecycle-reply.json'
     ProviderTicket:
       name: ProviderTicket
       title: Provider ticket

@@ -52,6 +52,17 @@ func KeyToken(name string) string {
 	return b.String()
 }
 
+// ModelLifecycleSubjectPrefix starts the NATS subject an agent sends a
+// ModelLifecycleRequest to; the provider's token follows.
+const ModelLifecycleSubjectPrefix = "kubemoot.provider.model."
+
+// ModelLifecycleSubject is the subject of requests to make a model ready on, or
+// release it from, the provider. The token is escaped as KeyToken does, which the
+// agent runtime's ModelKeys.token matches, so a provider name with a dot stays one token.
+func ModelLifecycleSubject(provider string) string {
+	return ModelLifecycleSubjectPrefix + KeyToken(provider)
+}
+
 func isLetterOrDigit(u uint16) bool {
 	return (u >= 'a' && u <= 'z') || (u >= 'A' && u <= 'Z') || (u >= '0' && u <= '9')
 }

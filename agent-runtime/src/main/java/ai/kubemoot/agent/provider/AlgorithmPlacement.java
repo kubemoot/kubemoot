@@ -133,7 +133,7 @@ public class AlgorithmPlacement implements PlacementPolicy {
         ProviderState provider = pick.get().provider();
         EngineDriver driver = selector.driverFor(provider);
         for (String victim : plan.victimModels()) {
-            if (!driver.release(provider.endpointFor(victim), victim)) {
+            if (!driver.release(provider, victim)) {
                 log.warn("{} did not confirm releasing {}", provider.name(), victim);
             }
             tickets.clearResidency(plan.provider(), victim);

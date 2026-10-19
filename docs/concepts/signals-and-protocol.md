@@ -109,6 +109,7 @@ from it.
 | Discussion thread | `kubemoot.discuss.<namespace>.<crew>.<channel>.<threadId>` | `DiscussionMessage`: `messageId`, `threadId`, `agentName`, `messageType`, `content`, `channel`, `timestamp`, `metadata` |
 | Agent lifecycle | `kubemoot.lifecycle.<namespace>.<crew>.<signal>.<agent>` | `DiscussionMessage` with `waking` or `ready` |
 | Request queue | `kubemoot.request.<namespace>.<crew>` | `DiscussionRequest`: the question for the crew's coordinator |
+| Model lifecycle | `kubemoot.provider.model.<provider>` | `ModelLifecycleRequest`: an agent asks the operator to wake (`ready`) or sleep (`release`) a model on a vLLM provider; the reply is a `ModelLifecycleReply` sent once the provider reports the state |
 | Artifact notices | `kubemoot.artifacts.<namespace>.<crew>.<threadId>` | `ArtifactNotice`: a contribution spilled to the artifact store |
 | Direct chat | `kubemoot.chat.<namespace>.<agent>` | `ChatEvent` |
 | Onboarding | `kubemoot.operator.onboarding.deployed`, `.progress`, `.docs-indexed` | `OnboardingDeployed`, `OnboardingProgress`, `OnboardingDocsIndexed` |

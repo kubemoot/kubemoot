@@ -3,7 +3,10 @@
 The chart renders the server list into servers.json and mounts this script
 beside it. All servers share one accelerator, and a vLLM server measures the free
 accelerator memory when it starts, so they start one at a time: start a server,
-wait for /health, put it to sleep, start the next, and wake the first at the end.
+wait for /health, put it to sleep, start the next. Every server is asleep when the
+launcher is done; the launcher never wakes one. Waking the server a call needs (and
+putting the awake one to sleep first) is the Kubemoot operator's vLLM adapter, which
+agents ask over NATS, so there is one place that wakes and sleeps.
 
 A server is dead when its process has exited, and only then does the launcher
 restart it, the same way, with every other server asleep first. The launcher never
@@ -12,7 +15,7 @@ waking or sleeping it, and a wake or sleep is judged by the state the server rep
 not by a clock. A running server that does not answer is skipped when the others are
 put to sleep and takes the pod out of ready until it answers again.
 
-A wake or sleep is waited on without a deadline while anything is changing: a step answered,
+A sleep is waited on without a deadline while anything is changing: a step answered,
 or, once the steps are answered, a different state reported. Only a wait in which nothing at
 all changes for NO_PROGRESS_LIMIT_S (a safety net) is given up (the wait for a server's first
 /health is not bounded, because a first start downloads and compiles for a long time): the launcher
@@ -222,8 +225,8 @@ class Server:
     def change(self, steps, asleep):
         """Sends the steps in a worker thread with no deadline, and waits until the server
         reports the wanted state. The wait ends on that state, on an error answer, on the
-        server's process exiting, or on a stop request; never on elapsed time. A level 2
-        reload that outlasts any single request therefore succeeds."""
+        server's process exiting, or on a stop request; never on elapsed time. A sleep that
+        outlasts any single request therefore succeeds."""
         failures = []
         answered = []
 
@@ -255,20 +258,6 @@ class Server:
 
     def sleep(self):
         self.change([("/sleep?level=%d" % self.level, None)], asleep=True)
-
-    def wake(self):
-        """Wakes the server. After a level 2 sleep the weights are gone: restore the
-        weight buffers, reload the weights from disk, then restore the key-value
-        cache, in that order. After level 1 one call restores everything. The
-        operator's vLLM adapter wakes a server the same way (operator/internal/engine/
-        vllm/adapter.go, wake); keep the two in step."""
-        if self.level == 2:
-            steps = [("/wake_up?tags=weights", None),
-                     ("/collective_rpc", {"method": "reload_weights"}),
-                     ("/wake_up?tags=kv_cache", None)]
-        else:
-            steps = [("/wake_up", None)]
-        self.change(steps, asleep=False)
 
     def _signal(self, sig):
         """Signals the process group; False when the group is already gone."""
@@ -316,10 +305,10 @@ class Launcher:
         server.sleep()
 
     def start_all(self):
-        """Starts every server one at a time, each asleep before the next starts, then wakes the first."""
+        """Starts every server one at a time, each asleep before the next starts. All stay
+        asleep: the operator's vLLM adapter wakes the one a call needs."""
         for server in self.servers:
             self.start_server_asleep(server)
-        self.servers[0].wake()
         set_ready(True)
 
     def sleep_state(self, server):
@@ -345,9 +334,8 @@ class Launcher:
         or brings an already restarted one to sleep after a failed attempt.
 
         `awake` are the servers that were possibly awake before the first attempt; each
-        that reports it is awake now is put to sleep, and the first of them that answers is
-        woken again afterwards. When none was (the dead server was the awake one) the first
-        answering server is.
+        that reports it is awake now is put to sleep. Nothing is woken afterwards: the
+        operator's vLLM adapter wakes a server when a call needs it.
         """
         for server in awake:
             if server.running() and self.sleep_state(server) == "awake":
@@ -359,17 +347,11 @@ class Launcher:
             dead.wait_ready()
             if not dead.reached(True):
                 dead.sleep()
-        answering = [s for s in self.servers if s.running() and s.healthy()]
-        target = next((s for s in awake if s in answering), None) or (answering[0] if answering else None)
-        if target is None:
-            raise RuntimeError("no answering server to wake")
-        target.wake()
 
     def recover_with_backoff(self, dead):
         """Retries recover until it works or the launcher is stopped. A server that exits
         during the restart, or one that answers with an error, fails the attempt, not the
-        launcher. A server that is running is never stopped here: a failure that is not
-        its own (the wake of another server) leaves it as it is."""
+        launcher. A server that is running is never stopped here."""
         set_ready(False)
         delay = BACKOFF_START_S
         awake = None

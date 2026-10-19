@@ -57,6 +57,7 @@ import java.util.Map;
  * Absent means unknown.
  *
  * <h3>Engine-reported load</h3>
+ * {@link #switchCostMs} is how long the operator last saw each model take to become ready.
  * {@link #requestsRunning}, {@link #requestsWaiting} and {@link #kvCacheUsage} are what an
  * engine that exports its own load reports for the whole provider (vLLM does; Ollama does
  * not). Null means the engine did not report it; a reported zero is zero. Placement reads
@@ -88,8 +89,25 @@ public record ProviderState(
         Map<String, String> modelEndpoints,
         Integer requestsRunning,
         Integer requestsWaiting,
-        Double kvCacheUsage
+        Double kvCacheUsage,
+        Map<String, Long> switchCostMs
 ) {
+    /** A state with no observed switch times: every model's wake cost is unknown. */
+    public ProviderState(String name, String endpoint, int maxParallel,
+                         int activeCount, int queueDepth, List<String> loadedModels,
+                         boolean ready, String lastProbedAt, long totalVramMiB,
+                         Map<String, Long> loadedModelFootprintsMiB,
+                         Map<String, Long> availableModelFootprintsMiB,
+                         long contextLength, Map<String, Long> loadedModelContextLengths,
+                         Map<String, ModelSpeed> modelSpeeds, String engine,
+                         Map<String, String> modelEndpoints, Integer requestsRunning,
+                         Integer requestsWaiting, Double kvCacheUsage) {
+        this(name, endpoint, maxParallel, activeCount, queueDepth, loadedModels,
+                ready, lastProbedAt, totalVramMiB, loadedModelFootprintsMiB,
+                availableModelFootprintsMiB, contextLength, loadedModelContextLengths, modelSpeeds, engine,
+                modelEndpoints, requestsRunning, requestsWaiting, kvCacheUsage, Map.of());
+    }
+
     /**
      * A state with no engine-reported load: a provider whose engine exports none
      * (Ollama), or one published before the load fields were.
@@ -105,7 +123,7 @@ public record ProviderState(
         this(name, endpoint, maxParallel, activeCount, queueDepth, loadedModels,
                 ready, lastProbedAt, totalVramMiB, loadedModelFootprintsMiB,
                 availableModelFootprintsMiB, contextLength, loadedModelContextLengths, modelSpeeds, engine,
-                modelEndpoints, null, null, null);
+                modelEndpoints, null, null, null, Map.of());
     }
 
     /**
@@ -162,6 +180,16 @@ public record ProviderState(
     /** How a call reaches this provider's model server, by its engine type. */
     public ChatEngine chatEngine() {
         return ChatEngines.forType(engine);
+    }
+
+    /**
+     * How long the provider last took to make {@code modelName} ready (a wake from sleep),
+     * in seconds, as the operator observed it; empty when it has not been observed.
+     */
+    public java.util.Optional<Double> switchSeconds(String modelName) {
+        if (modelName == null || switchCostMs == null) return java.util.Optional.empty();
+        Long ms = switchCostMs.get(modelName);
+        return ms == null || ms <= 0 ? java.util.Optional.empty() : java.util.Optional.of(ms / 1000.0);
     }
 
     /** How placement judges fit, crowding, and ticket budget on this provider, by its engine type. */

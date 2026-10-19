@@ -151,6 +151,10 @@ type ModelProviderReconciler struct {
 	// probes holds each provider's last engine snapshot until the state publish
 	// reads it, by provider name.
 	probes sync.Map
+
+	// switches holds how long each model last took to become ready, by provider,
+	// as the model lifecycle server observed it; the state publish carries it.
+	switches switchLog
 }
 
 // OllamaVersionResponse represents the response from Ollama /api/version
@@ -672,6 +676,7 @@ func (r *ModelProviderReconciler) publishStateToKV(ctx context.Context, provider
 	if snap, ok := r.probes.Load(provider.Name); ok {
 		applySnapshotToState(&state, snap.(engine.Snapshot))
 	}
+	state.SwitchCostMs = mergeSwitchCosts(state.SwitchCostMs, r.switches.For(provider.Name))
 
 	payload, err := json.Marshal(state)
 	if err != nil {
@@ -688,6 +693,7 @@ func (r *ModelProviderReconciler) publishStateToKV(ctx context.Context, provider
 // fails the reconcile.
 func (r *ModelProviderReconciler) removeProviderState(ctx context.Context, name string) {
 	forgetProviderMetrics(name)
+	r.switches.Forget(name)
 	r.probes.Delete(name)
 	if r.NATSPublisher == nil {
 		return

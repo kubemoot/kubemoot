@@ -159,6 +159,7 @@ var unrecorded = map[string]bool{
 	"discussion-request.json": true, "error-response.json": true, "onboarding-deployed.json": true,
 	"onboarding-docs-indexed.json": true, "onboarding-progress.json": true, "pinned-thread.json": true,
 	"post-discussion-request.json": true, "post-discussion-response.json": true,
+	"model-lifecycle-reply.json": true, "model-lifecycle-request.json": true,
 	"provider-ticket.json": true, "scheduled-record.json": true, "signal-meta.json": true,
 	"stream-event-base.json": true, "subcommittee.json": true,
 }

@@ -129,6 +129,23 @@ func mustAddRunnables(mgr ctrl.Manager, natsPublisher *kubemootnats.Publisher) {
 	}
 }
 
+// mustAddModelLifecycleServer registers the server that answers agents asking over
+// NATS to make a model ready (wake its vLLM server) or release it (sleep): the engine
+// adapter is the one place that wakes and sleeps. Leader-elected, so one operator answers.
+func mustAddModelLifecycleServer(
+	mgr ctrl.Manager, natsPublisher *kubemootnats.Publisher, providers *controller.ModelProviderReconciler,
+) {
+	server := &controller.ModelLifecycleServer{
+		Reader:     mgr.GetAPIReader(),
+		Subscriber: natsPublisher,
+		Refresher:  providers,
+	}
+	if err := mgr.Add(server); err != nil {
+		setupLog.Error(err, "unable to register runnable", "runnable", "model lifecycle server")
+		os.Exit(1)
+	}
+}
+
 // webhookSetup names a CRD and registers its validating webhook.
 type webhookSetup struct {
 	name     string
@@ -334,16 +351,19 @@ func main() {
 	// One pull tracker serves every controller that downloads models, so a tag that
 	// a Model and an EmbeddingModel both name is downloaded once.
 	modelPulls := &controller.PullTracker{}
+	// The ModelProvider reconciler is shared with the model lifecycle server, which
+	// publishes the provider state after a model wakes or sleeps.
+	modelProviders := &controller.ModelProviderReconciler{
+		Client: mgr.GetClient(), Scheme: mgr.GetScheme(), ConfigCache: configCache, NATSPublisher: natsPublisher,
+		Pulls:       modelPulls,
+		Calibration: controller.MCPCalibrator{Client: mgr.GetClient(), Publisher: natsPublisher, Version: buildVersion()},
+		Drift:       driftWatch(mgr.GetClient(), natsPublisher),
+	}
 	mustSetupControllers(mgr, []controllerSetup{
 		{"KubemootConfig", (&controller.KubemootConfigReconciler{
 			Client: mgr.GetClient(), Scheme: mgr.GetScheme(), ConfigCache: configCache,
 		}).SetupWithManager},
-		{"ModelProvider", (&controller.ModelProviderReconciler{
-			Client: mgr.GetClient(), Scheme: mgr.GetScheme(), ConfigCache: configCache, NATSPublisher: natsPublisher,
-			Pulls:       modelPulls,
-			Calibration: controller.MCPCalibrator{Client: mgr.GetClient(), Publisher: natsPublisher, Version: buildVersion()},
-			Drift:       driftWatch(mgr.GetClient(), natsPublisher),
-		}).SetupWithManager},
+		{"ModelProvider", modelProviders.SetupWithManager},
 		{"Model", (&controller.ModelReconciler{
 			Client: mgr.GetClient(), Scheme: mgr.GetScheme(), Pulls: modelPulls,
 		}).SetupWithManager},
@@ -397,6 +417,7 @@ func main() {
 	// +kubebuilder:scaffold:builder
 
 	mustAddRunnables(mgr, natsPublisher)
+	mustAddModelLifecycleServer(mgr, natsPublisher, modelProviders)
 
 	// Register validating webhooks
 	if len(f.webhookCertPath) > 0 {

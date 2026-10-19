@@ -186,9 +186,9 @@ func (a *Adapter) sleep(ctx context.Context, endpoint string, level int) error {
 // wake brings a sleeping server back. After a level 2 sleep the weights are gone:
 // restore the weight buffers, reload the weights from disk, then restore the
 // key-value cache, in that order. After a level 1 sleep one call restores
-// everything. The kubemoot-vllm chart's launcher wakes the first server it starts
-// the same way (vllm/charts/kubemoot-vllm/files/launcher.py, Server.wake); keep the
-// two in step.
+// everything. This is the one place that wakes a server: the kubemoot-vllm chart's
+// launcher leaves every server asleep, and agents ask the operator to wake one over
+// NATS (ModelLifecycleServer).
 func (a *Adapter) wake(ctx context.Context, endpoint string, level int) error {
 	if level == 2 {
 		return a.wakeAfterLevelTwo(ctx, endpoint)

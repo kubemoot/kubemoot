@@ -97,7 +97,9 @@ public class ProviderSelector {
     private final FitPredictor fitPredictor;
     /** The model server's lifecycle driver: concurrency and model-switch costs. */
     private final EngineDriver driver;
-    /** Per-engine drivers that do not load or release models, for engines with no runtime driver. */
+    /** Asks the operator to wake and sleep models; null without NATS. */
+    private volatile ModelLifecycle lifecycle;
+    /** Per-engine drivers that ask the operator to load and release models, for every engine but Ollama. */
     private final java.util.concurrent.ConcurrentMap<String, EngineDriver> noLifecycle =
             new java.util.concurrent.ConcurrentHashMap<>();
     /**
@@ -199,6 +201,13 @@ public class ProviderSelector {
         this.ticketManager = ticketManager;
         this.fitPredictor = fitPredictor;
         this.driver = driver != null ? driver : new OllamaDriver(null);
+        this.lifecycle = natsProvider == null ? null : new NatsModelLifecycle(natsProvider, objectMapper, null);
+    }
+
+    /** Replaces the operator lifecycle requests; for tests. */
+    void useLifecycle(ModelLifecycle lifecycle) {
+        this.lifecycle = lifecycle;
+        noLifecycle.clear();
     }
 
     /**
@@ -523,7 +532,8 @@ public class ProviderSelector {
             return driver;
         }
         String engine = provider.engine().trim().toLowerCase(java.util.Locale.ROOT);
-        return noLifecycle.computeIfAbsent(engine, e -> new NoLifecycleDriver(driver, e));
+        return noLifecycle.computeIfAbsent(engine, e -> lifecycle == null
+                ? new OperatorLifecycleDriver(driver, e) : new OperatorLifecycleDriver(driver, e, lifecycle));
     }
 
     /** Drops the cached provider-state snapshot so the next read is fresh. */
@@ -942,7 +952,7 @@ public class ProviderSelector {
         //                        evict resident models; near-forbidden if it would
         //                        evict a card with in-flight (live) work
         fits.sort(Comparator
-                .<Candidate>comparingDouble(c -> placementCost(c, coldLoadFootprintMiB, activeFootprintFn, overlayFn))
+                .<Candidate>comparingDouble(c -> placementCost(c, modelName, coldLoadFootprintMiB, activeFootprintFn, overlayFn))
                 .thenComparingDouble(Candidate::latency));
         return fits;
     }
@@ -999,12 +1009,13 @@ public class ProviderSelector {
      */
     private static double placementCost(
             Candidate c,
+            String modelName,
             long coldLoadFootprintMiB,
             java.util.function.ToLongFunction<ProviderState> activeFootprintFn,
             java.util.function.Function<ProviderState, java.util.Map<String, Long>> overlayFn) {
         ProviderState p = c.provider();
         if (!p.engineFit().budgetsMemory()) {
-            return servedModelCost(c);
+            return servedModelCost(c, modelName);
         }
         long usable = StaticFitPredictor.usableVramMiB(p.totalVramMiB());
         // Everything that takes up room, freshest-first:
@@ -1053,11 +1064,22 @@ public class ProviderSelector {
      * asleep model costs. No memory term applies, because no load fits or evicts
      * anything: there is no best-fit, spill, or eviction cost.
      */
-    private static double servedModelCost(Candidate c) {
+    private static double servedModelCost(Candidate c, String modelName) {
         ProviderState p = c.provider();
         double reliabilityPenalty = (1.0 - c.score().successProbability()) * RELIABILITY_PENALTY_WEIGHT;
         return p.engineFit().contention(p, c.activeCount()) + reliabilityPenalty
-                + (c.warm() ? 0.0 : COLD_LOAD_PENALTY);
+                + (c.warm() ? 0.0 : wakeCost(p, modelName));
+    }
+
+    /**
+     * What waking a hosted but asleep model costs, in the units of {@link #COLD_LOAD_PENALTY}
+     * (queued calls): the wake time the operator last observed for it, over a typical call,
+     * else the load penalty when no wake has been observed.
+     */
+    static double wakeCost(ProviderState p, String modelName) {
+        return p.switchSeconds(modelName)
+                .map(seconds -> seconds / PlacementCostModel.DEFAULT_CALL_SECONDS)
+                .orElse(COLD_LOAD_PENALTY);
     }
 
     /**
@@ -1400,7 +1422,8 @@ public class ProviderSelector {
                 stringMapField(n, "modelEndpoints"),
                 optionalInt(n, "requestsRunning"),
                 optionalInt(n, "requestsWaiting"),
-                optionalDouble(n, "kvCacheUsage")
+                optionalDouble(n, "kvCacheUsage"),
+                longMapField(n, "switchCostMs")
         );
     }
 
