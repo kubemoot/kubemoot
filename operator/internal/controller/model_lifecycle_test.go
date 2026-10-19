@@ -325,3 +325,24 @@ func TestARequestQueuedBehindAStuckWakeEndsAtTheSafetyLimit(t *testing.T) {
 	}
 	<-first
 }
+
+func TestTwoRequestsToWakeTheSameModelWakeItOnce(t *testing.T) {
+	adapter := asleepAwake()
+	adapter.hold = 50 * time.Millisecond
+	s, ref := lifecycleServer(t, adapter, namedProvider(lifecycleProvider, aiv1alpha1.ProviderTypeVLLM))
+	replies := make(chan bus.ModelLifecycleReply, 2)
+	for range 2 {
+		go func() {
+			replies <- s.Handle(context.Background(), lifecycleSubject, request(t, bus.ModelLifecycleRequestActionReady, vllmModel14))
+		}()
+	}
+	for range 2 {
+		if r := <-replies; !r.Ok || r.State != bus.ModelLifecycleReplyStateAwake {
+			t.Fatalf("reply = %+v", r)
+		}
+	}
+	if len(adapter.readied) != 1 || len(ref.calls) != 1 {
+		t.Errorf("the second request waited on the first wake instead of waking again: readied %v, published %v",
+			adapter.readied, ref.calls)
+	}
+}
