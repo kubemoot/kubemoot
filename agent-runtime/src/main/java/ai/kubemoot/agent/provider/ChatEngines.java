@@ -18,9 +18,11 @@ public final class ChatEngines {
      * nothing engine-specific beyond the API.
      */
     public static ChatEngine forType(String type) {
-        if (type == null || type.isBlank()) {
-            return OLLAMA;
-        }
-        return OllamaChatEngine.TYPE.equals(type.trim().toLowerCase(Locale.ROOT)) ? OLLAMA : OPENAI_COMPATIBLE;
+        return isOllama(type) ? OLLAMA : OPENAI_COMPATIBLE;
+    }
+
+    /** True for {@code ollama} and for a type that is absent (providers published before the type was). */
+    public static boolean isOllama(String type) {
+        return type == null || type.isBlank() || OllamaChatEngine.TYPE.equals(type.trim().toLowerCase(Locale.ROOT));
     }
 }

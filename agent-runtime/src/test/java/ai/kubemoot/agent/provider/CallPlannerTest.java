@@ -38,6 +38,7 @@ class CallPlannerTest {
         tickets = mock(TicketManager.class);
         driver = new FakeEngineDriver(OllamaDriver.PROFILE);
         when(selector.driver()).thenReturn(driver);
+        when(selector.driverFor(any())).thenReturn(driver);
         when(selector.pickAndClaimWarm(anyString(), anyLong(), anyLong(), anyLong())).thenReturn(Optional.empty());
         when(selector.pickAndClaimLoading(anyString(), anyLong(), anyLong(), anyLong())).thenReturn(Optional.empty());
         when(selector.pickAndClaimRoom(anyString(), anyLong(), anyLong(), anyLong())).thenReturn(Optional.empty());
@@ -163,6 +164,23 @@ class CallPlannerTest {
     }
 
     @Test
+    void planOnAVllmProvider_neverStartsAnOllamaLoad() {
+        var base = gpu(BIG, 32_768, Map.of());
+        var vllm = new ProviderState(base.name(), "", 1, 0, 0, List.of(), true, base.lastProbedAt(), 32_768,
+                Map.of(), Map.of(), 0L, Map.of(), Map.of(), "vllm", Map.of("qwen3:32b", "http://vllm-32b:8000"));
+        var noOp = new NoLifecycleDriver(driver, "vllm");
+        when(selector.driverFor(any())).thenReturn(noOp);
+        var planner = new CallPlanner(selector, tickets, demandOn(new InMemoryKv(), "analyst"));
+        when(selector.pickAndClaim(eq("qwen3:32b"), anyLong(), anyLong(), anyLong())).thenReturn(Optional.of(pickOn(vllm, "p")));
+
+        planner.commit("t1", List.of("qwen3:32b"), () -> planner.place(request("qwen3:32b", List.of(), List.of(vllm))));
+
+        assertTrue(planner.holds("t1"));
+        assertTrue(driver.warmed.isEmpty(), "the Ollama driver must not be asked to load on a vLLM server");
+        assertEquals(1, noOp.reports());
+    }
+
+    @Test
     void standAsideOrThreadEnd_releasesThePlansClaim_andClearsIntents() {
         var big = gpu(BIG, 32_768, Map.of("qwen3:32b", 27_000L));
         var bucket = new InMemoryKv();
@@ -219,6 +237,7 @@ class CallPlannerTest {
         // Agent B waits for room for qwen3:14b.
         var selectorB = mock(ProviderSelector.class);
         when(selectorB.driver()).thenReturn(driver);
+        when(selectorB.driverFor(any())).thenReturn(driver);
         when(selectorB.pickAndClaimWarm(anyString(), anyLong(), anyLong(), anyLong())).thenReturn(Optional.empty());
         when(selectorB.pickAndClaimLoading(anyString(), anyLong(), anyLong(), anyLong())).thenReturn(Optional.empty());
         when(selectorB.pickAndClaim(eq("qwen3:14b"), anyLong(), anyLong(), anyLong()))
