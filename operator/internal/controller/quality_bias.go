@@ -18,12 +18,29 @@ import (
 	"math"
 	"strconv"
 	"strings"
+
+	aiv1alpha1 "github.com/kubemoot/kubemoot/operator/api/v1alpha1"
 )
 
-// latencyClassLabel is the Model label whose value (low/medium/high) drives
-// the auto-derived quality bias score. Authoritative on the Model CR; the
-// scheduler reads it only as a string.
+// latencyClassLabel is the retired Model label (low/medium/high) that a crew's own
+// Models still carry. The quality-bias score reads it only when a Model has no size
+// label (see tierOf); the cluster catalog carries sizes, not this label.
 const latencyClassLabel = "latencyClass"
+
+// tierOf is the model's place on the speed-to-quality scale: high (large), medium
+// or low (small). The size label decides; the retired latencyClass label is read
+// only when the model has no size. Empty when neither is recognized.
+func tierOf(modelLabels map[string]string) string {
+	switch modelLabels[aiv1alpha1.LabelSize] {
+	case aiv1alpha1.SizeLarge:
+		return "high"
+	case aiv1alpha1.SizeMedium:
+		return "medium"
+	case aiv1alpha1.SizeSmall:
+		return "low"
+	}
+	return modelLabels[latencyClassLabel]
+}
 
 // parseQualityBias parses a CSP QualityBias map value into a float in
 // [0.0, 1.0]. Returns (value, true) on a clean parse; (0, false) for the
@@ -78,11 +95,16 @@ func effectiveQualityBias(agentCaps []string, biasMap map[string]string) (float6
 }
 
 // qualityBiasScore returns the score contribution and reason token for a
-// single Model under the supplied effective bias. Reads the Model's
-// latencyClass label and produces a weight in [0, 100]:
-//   - high   → round(bias * 100)            // quality-leaning models win as bias → 1
+// single Model under the supplied effective bias. Reads the model's size class
+// (the kubemoot.ai/size label) and produces a weight in [0, 100]:
+//   - large  → round(bias * 100)            // quality-leaning models win as bias → 1
 //   - medium → round(100 - |bias-0.5|*200)  // TENT curve, peaks at bias 0.5
-//   - low    → round((1 - bias) * 100)      // speed-leaning models win as bias → 0
+//   - small  → round((1 - bias) * 100)      // speed-leaning models win as bias → 0
+//
+// A Model that has no size label but carries the retired latencyClass label is
+// read as high = large, medium = medium, low = small, so a crew that still ships
+// its own Models scores exactly as before. The reason tokens keep the names
+// bias-high, bias-medium and bias-low.
 //
 // Medium uses a TENT curve, not a flat 50, so the middle tier is actually
 // reachable. A flat 50 is a saddle point: high=bias*100 and low=(1-bias)*100 tie
@@ -92,10 +114,10 @@ func effectiveQualityBias(agentCaps []string, biasMap map[string]string) (float6
 // extremes (a pure-speed or pure-quality agent should never land on medium).
 // See [[Declare Medium-Tier 14B and Let Kubemoot Place It]].
 //
-// Models without a recognized latencyClass label (or with an unexpected value)
-// receive no contribution and an empty reason — the caller appends nothing.
+// Models with neither a recognized size nor a recognized latencyClass label
+// receive no contribution and an empty reason - the caller appends nothing.
 func qualityBiasScore(bias float64, modelLabels map[string]string) (int64, string) {
-	switch modelLabels[latencyClassLabel] {
+	switch tierOf(modelLabels) {
 	case "high":
 		s := int64(math.Round(bias * 100))
 		return s, fmt.Sprintf("bias-high+%d", s)

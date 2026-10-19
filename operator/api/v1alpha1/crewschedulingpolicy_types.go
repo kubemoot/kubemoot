@@ -17,6 +17,7 @@ limitations under the License.
 package v1alpha1
 
 import (
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -53,9 +54,12 @@ type CrewSchedulingPolicySpec struct {
 	// computes effectiveBias = max(QualityBias[c]) across the agent's
 	// declared spec.capabilities, falling back to QualityBias["default"]
 	// when no capability is mapped. The effective bias compiles into a
-	// per-Model score against the Model's "latencyClass" label:
-	// high → bias*100, medium → 50, low → (1-bias)*100. Models without
-	// a latencyClass label receive no bias contribution.
+	// per-model score against the model's size class (the kubemoot.ai/size
+	// label in the cluster catalog): large → bias*100, small → (1-bias)*100,
+	// medium → 100 - |bias-0.5|*200. A model with no size contributes
+	// nothing. A crew that still ships its own Models, which carry a
+	// "latencyClass" label instead of a size, is scored by that label:
+	// high is large, medium is medium, low is small.
 	//
 	// Capability declarations are preference-shaping, not hard
 	// requirements — agents always schedule against the best available
@@ -74,6 +78,18 @@ type CrewSchedulingPolicySpec struct {
 	// +kubebuilder:validation:Enum=algorithm;learned;shadow
 	// +optional
 	PlacementPolicy string `json:"placementPolicy,omitempty"`
+
+	// AbilityWeight is the points a candidate model earns for each ability
+	// (tool-calling, reasoning, vision) that the agent declares in
+	// spec.capabilities and the model has. Default 20, above the runtime's
+	// default quality tolerance of 10 points, so an agent that declares reasoning
+	// keeps a reasoning model unless one with an equal score is already loaded.
+	// It applies to a rule with no explicit prefer block, and only to a crew that
+	// selects from the cluster's model catalog.
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:validation:Maximum=100
+	AbilityWeight *int32 `json:"abilityWeight,omitempty"`
 }
 
 // SchedulingRule is the rule for a single discussion phase. Phase strings must
@@ -92,6 +108,17 @@ type SchedulingRule struct {
 	// +optional
 	Require *metav1.LabelSelector `json:"require,omitempty"`
 
+	// RequireExpressions are further hard constraints, ANDed with Require. They are
+	// the Kubernetes NodeSelectorRequirement type, so they add the comparisons a
+	// LabelSelector lacks: Gt and Lt, which compare a label's integer value
+	// strictly (at least 16K tokens of context is key kubemoot.ai/context-tokens,
+	// operator Gt, values ["16383"]). A model without the label fails a Gt or Lt.
+	// The admission webhook rejects an unknown operator and a Gt or Lt without
+	// exactly one integer value.
+	// +optional
+	// +kubebuilder:validation:MaxItems=16
+	RequireExpressions []corev1.NodeSelectorRequirement `json:"requireExpressions,omitempty"`
+
 	// Prefer is the ordered list of soft scheduling preferences. Each entry
 	// adds Weight to the score of any candidate Model whose labels match.
 	// +optional
@@ -99,7 +126,9 @@ type SchedulingRule struct {
 }
 
 // PreferenceTerm is a single weighted preference. The scheduler adds Weight to
-// a Model candidate's score if its labels match Selector.
+// a Model candidate's score if its labels match Selector and satisfy every one
+// of Expressions. At least one of the two is required.
+// +kubebuilder:validation:XValidation:rule="has(self.selector) || (has(self.expressions) && size(self.expressions) > 0)",message="a preference needs a selector or expressions"
 type PreferenceTerm struct {
 	// Weight to add to candidates that match Selector. Higher = more preferred.
 	// +kubebuilder:validation:Minimum=1
@@ -109,8 +138,15 @@ type PreferenceTerm struct {
 
 	// Selector matches Model labels. The Kubernetes LabelSelector idiom —
 	// supports matchLabels and matchExpressions.
-	// +kubebuilder:validation:Required
-	Selector *metav1.LabelSelector `json:"selector"`
+	// +optional
+	Selector *metav1.LabelSelector `json:"selector,omitempty"`
+
+	// Expressions are comparisons on Model labels, the Kubernetes
+	// NodeSelectorRequirement type, so Gt and Lt are available. All must hold, and
+	// Selector too when it is set, for the term to add its Weight.
+	// +optional
+	// +kubebuilder:validation:MaxItems=16
+	Expressions []corev1.NodeSelectorRequirement `json:"expressions,omitempty"`
 }
 
 // TopologySpread distributes phase bindings across a topology key, mirroring
@@ -156,6 +192,10 @@ type CrewSchedulingPolicyStatus struct {
 	PhaseStatus []PhaseStatus `json:"phaseStatus,omitempty"`
 
 	// Conditions represent the latest available observations of the policy.
+	// CatalogMode says where the crew's models come from: CrewLocal while the crew
+	// ships Models of its own (it uses only those), Cluster when it selects from
+	// the cluster's model catalog. LegacyLatencyClass is True when a rule selects
+	// on the latencyClass label against the catalog, which carries none.
 	// +optional
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
 }

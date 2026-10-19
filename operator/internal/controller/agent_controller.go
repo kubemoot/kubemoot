@@ -30,6 +30,7 @@ package controller
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"maps"
 	"os"
@@ -45,7 +46,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
@@ -81,18 +81,13 @@ const requeueUnscheduledInterval = 30 * time.Second
 
 // scoreCandidate computes the score and human-readable reason tokens for a
 // (model, provider) candidate under a given phase rule. It composes the
-// label-prefer weights and the provider's phase-aware scheduling weight. Both
+// policy-driven terms (policyScore) and the provider's phase-aware scheduling weight. Both
 // come from the spec, never from live provider state (loaded models, agent
 // counts): the pick becomes the agent's default endpoint in the pod template,
 // and a pick that follows live state rolls the pod whenever the state moves.
 // Where each inference call actually runs is decided per call by the runtime.
-func scoreCandidate(phase string, rule *kubemootv1alpha1.SchedulingRule, m *kubemootv1alpha1.Model, prov *kubemootv1alpha1.ModelProvider) (int64, []string) {
-	var score int64
-	var reasonParts []string
-
-	preferScore, preferReasons := preferRuleScore(rule, m)
-	score += preferScore
-	reasonParts = append(reasonParts, preferReasons...)
+func scoreCandidate(phase string, rule *kubemootv1alpha1.SchedulingRule, m *kubemootv1alpha1.Model, prov *kubemootv1alpha1.ModelProvider, sc phaseScoring) (int64, []string) {
+	score, reasonParts := policyScore(rule, m, sc)
 
 	if ps := providerScore(phase, prov); ps != 0 {
 		score += ps
@@ -101,9 +96,10 @@ func scoreCandidate(phase string, rule *kubemootv1alpha1.SchedulingRule, m *kube
 	return score, reasonParts
 }
 
-// preferRuleScore sums the weights of every Prefer selector in rule that matches
-// the Model's labels, returning the total and a reason fragment per match. A nil
-// rule, a nil selector, or an unparsable selector contributes nothing.
+// preferRuleScore sums the weights of every Prefer term in rule that matches the
+// Model's labels (its selector and every expression), returning the total and a
+// reason fragment per match. A nil rule, an empty term, or a term that does not
+// parse contributes nothing.
 func preferRuleScore(rule *kubemootv1alpha1.SchedulingRule, m *kubemootv1alpha1.Model) (int64, []string) {
 	if rule == nil {
 		return 0, nil
@@ -111,14 +107,10 @@ func preferRuleScore(rule *kubemootv1alpha1.SchedulingRule, m *kubemootv1alpha1.
 	var score int64
 	var reasonParts []string
 	for _, pref := range rule.Prefer {
-		if pref.Selector == nil {
+		if pref.Selector == nil && len(pref.Expressions) == 0 {
 			continue
 		}
-		sel, err := metav1.LabelSelectorAsSelector(pref.Selector)
-		if err != nil {
-			continue
-		}
-		if sel.Matches(labels.Set(m.Labels)) {
+		if termMatches(pref, m.Labels) {
 			score += int64(pref.Weight)
 			reasonParts = append(reasonParts, fmt.Sprintf("prefer+%d", pref.Weight))
 		}
@@ -293,22 +285,20 @@ func candidateBefore(a, b scheduleCandidate) bool {
 func (r *AgentReconciler) pickModel(ctx context.Context, agent *kubemootv1alpha1.Agent, phase string) (*modelPick, error) {
 	policy, rule := r.findPolicyAndRule(ctx, agent, phase)
 
-	models := &kubemootv1alpha1.ModelList{}
-	if err := r.List(ctx, models, client.InNamespace(agent.Namespace)); err != nil {
-		return nil, fmt.Errorf("listing Models: %w", err)
+	src, err := r.modelSource(ctx, agent.Namespace)
+	if err != nil {
+		return nil, err
 	}
+	models := &kubemootv1alpha1.ModelList{Items: src.Models}
 
-	bias, haveBias := phaseQualityBias(agent, policy, rule)
-	feasible, err := r.feasibleCandidates(ctx, agent, phase, rule, models, bias, haveBias)
+	sc := newPhaseScoring(agent, policy, rule, src.Mode)
+	feasible, err := r.feasibleCandidates(ctx, agent, phase, rule, models, sc)
 	if err != nil {
 		return nil, err
 	}
 
 	if len(feasible) == 0 {
-		if rule != nil && rule.Require != nil {
-			return nil, fmt.Errorf("no Ready Model matches phase=%s require selectors", phase)
-		}
-		return nil, fmt.Errorf("no Ready Model with a Ready ModelProvider in namespace %s", agent.Namespace)
+		return nil, errors.New(noMatchReason(phase, rule, src, agent.Namespace))
 	}
 
 	sort.SliceStable(feasible, func(i, j int) bool { return candidateBefore(feasible[i], feasible[j]) })
@@ -324,19 +314,19 @@ func (r *AgentReconciler) pickModel(ctx context.Context, agent *kubemootv1alpha1
 		Reason:     reason,
 		Model:      pick.model,
 		Provider:   pick.provider,
-		Candidates: rankedCandidates(pick.model.Spec.Model, rule, models.Items, bias, haveBias),
+		Candidates: rankedCandidates(pick.model.Spec.Model, rule, models.Items, sc),
 	}, nil
 }
 
 // feasibleCandidates filters the Models against the phase's require selector and
 // VRAM capacity, resolves each Model's provider, and scores the survivors. It
 // returns the scored candidate set (unsorted) for pickModel to rank. effBias
-// and haveBias come from phaseQualityBias.
-func (r *AgentReconciler) feasibleCandidates(ctx context.Context, agent *kubemootv1alpha1.Agent, phase string, rule *kubemootv1alpha1.SchedulingRule, models *kubemootv1alpha1.ModelList, effBias float64, haveBias bool) ([]scheduleCandidate, error) {
+// comes from newPhaseScoring.
+func (r *AgentReconciler) feasibleCandidates(ctx context.Context, agent *kubemootv1alpha1.Agent, phase string, rule *kubemootv1alpha1.SchedulingRule, models *kubemootv1alpha1.ModelList, sc phaseScoring) ([]scheduleCandidate, error) {
 	var feasible []scheduleCandidate
 	for i := range models.Items {
 		m := &models.Items[i]
-		cand, ok, err := r.evaluateCandidate(ctx, agent, phase, rule, m, effBias, haveBias)
+		cand, ok, err := r.evaluateCandidate(ctx, agent, phase, rule, m, sc)
 		if err != nil {
 			return nil, err
 		}
@@ -351,18 +341,12 @@ func (r *AgentReconciler) feasibleCandidates(ctx context.Context, agent *kubemoo
 // if so, returns its scored candidate. ok=false means the Model was filtered out
 // (not ready, require-mismatch, no ready provider, or VRAM-too-large). A non-nil
 // error is only an invalid require selector (which aborts the whole pick).
-func (r *AgentReconciler) evaluateCandidate(ctx context.Context, agent *kubemootv1alpha1.Agent, phase string, rule *kubemootv1alpha1.SchedulingRule, m *kubemootv1alpha1.Model, effBias float64, haveBias bool) (scheduleCandidate, bool, error) {
+func (r *AgentReconciler) evaluateCandidate(ctx context.Context, agent *kubemootv1alpha1.Agent, phase string, rule *kubemootv1alpha1.SchedulingRule, m *kubemootv1alpha1.Model, sc phaseScoring) (scheduleCandidate, bool, error) {
 	prov, feasible, err := r.candidateFeasible(ctx, agent, phase, rule, m)
 	if err != nil || !feasible {
 		return scheduleCandidate{}, false, err
 	}
-	score, reasonParts := scoreCandidate(phase, rule, m, prov)
-	if haveBias {
-		if biasScore, biasReason := qualityBiasScore(effBias, m.Labels); biasReason != "" {
-			score += biasScore
-			reasonParts = append(reasonParts, biasReason)
-		}
-	}
+	score, reasonParts := scoreCandidate(phase, rule, m, prov, sc)
 	return scheduleCandidate{
 		model:    m,
 		provider: prov,
@@ -372,7 +356,7 @@ func (r *AgentReconciler) evaluateCandidate(ctx context.Context, agent *kubemoot
 }
 
 // candidateFeasible applies the feasibility gates for one (Model, phase): the
-// Model must be Ready, satisfy the rule's Require selector, resolve to a Ready
+// Model must be Ready, satisfy the rule's Require constraints, resolve to a Ready
 // ModelProvider, and fit the provider's VRAM. Returns the resolved provider with
 // feasible=true only when every gate passes; a malformed Require selector is the
 // one error (it can't be silently skipped without masking a misconfiguration).
@@ -380,16 +364,14 @@ func (r *AgentReconciler) candidateFeasible(ctx context.Context, agent *kubemoot
 	if !m.Status.Ready {
 		return nil, false, nil
 	}
-	if rule != nil && rule.Require != nil {
-		sel, err := metav1.LabelSelectorAsSelector(rule.Require)
-		if err != nil {
-			return nil, false, fmt.Errorf("invalid require selector for phase %s: %w", phase, err)
-		}
-		if !sel.Matches(labels.Set(m.Labels)) {
-			return nil, false, nil
-		}
+	matches, err := requireMatches(rule, m.Labels)
+	if err != nil {
+		return nil, false, fmt.Errorf("invalid require for phase %s: %w", phase, err)
 	}
-	prov, ok := r.resolveProvider(ctx, agent.Namespace, m.Spec.ProviderRef)
+	if !matches {
+		return nil, false, nil
+	}
+	prov, ok := r.providerOf(ctx, agent.Namespace, m)
 	if !ok || !prov.Status.Ready {
 		return nil, false, nil
 	}
@@ -417,8 +399,8 @@ func (r *AgentReconciler) resolveProvider(ctx context.Context, namespace, name s
 	if err := r.Get(ctx, types.NamespacedName{Name: name, Namespace: namespace}, prov); err == nil {
 		return prov, true
 	}
-	// Then try the kubemoot system namespace.
-	if err := r.Get(ctx, types.NamespacedName{Name: name, Namespace: defaultOperatorNamespace}, prov); err == nil {
+	// Then try the operator's namespace.
+	if err := r.Get(ctx, types.NamespacedName{Name: name, Namespace: operatorNamespace()}, prov); err == nil {
 		return prov, true
 	}
 	// Last try: cluster-scoped lookup with empty namespace.
@@ -1184,6 +1166,15 @@ func (r *AgentReconciler) SetupWithManager(mgr ctrl.Manager) error {
 			&kubemootv1alpha1.Model{},
 			enqueueNamespaceAgents[*kubemootv1alpha1.Model](mgr.GetClient(), "Model"),
 			builder.WithPredicates(modelBindingChanged()),
+		).
+		// Re-reconcile the Agents that can use a ModelProvider when its model catalog
+		// changes (a model appears, goes away, is relabeled, or the provider's
+		// readiness changes), so bindings follow the cluster's models with no edit in
+		// the crew. See catalog_propagation.go.
+		Watches(
+			&kubemootv1alpha1.ModelProvider{},
+			enqueueAgentsOnCatalogChange(mgr.GetClient()),
+			builder.WithPredicates(catalogChanged()),
 		).
 		// Re-reconcile a crew's coordinator when one of its specialists is added,
 		// changed, or removed, so the crew's resumes (and so selection) include it.

@@ -156,7 +156,13 @@ func factsFromOllama(t ollama.ModelInfo, info ollama.ShowInfo, haveShow bool) ca
 // the server reports and the parameters and abilities the Service declares.
 func (r *ModelProviderReconciler) vllmFacts(ctx context.Context, httpClient *http.Client, provider *aiv1alpha1.ModelProvider, snap engine.Snapshot) []catalogFacts {
 	declared := r.declaredVLLMModels(ctx, provider)
+	// A server that is restarting does not answer, but its model has not gone: a model
+	// stays present while it was present before, so a restart does not drop it from the
+	// catalog and roll the pods bound to it. A server that never answered is not present.
 	answering := map[string]bool{}
+	for _, e := range provider.Status.Models {
+		answering[e.Name] = e.Present
+	}
 	for _, a := range snap.Available {
 		answering[a.Name] = true
 	}

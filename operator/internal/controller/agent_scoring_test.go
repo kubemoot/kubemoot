@@ -43,7 +43,7 @@ func TestScoreCandidate_PreferAndProviderWeight(t *testing.T) {
 			Scheduling: &kubemootv1alpha1.ProviderScheduling{Weight: 100},
 		},
 	}
-	score, reasons := scoreCandidate(testMulling, rule, m, prov)
+	score, reasons := scoreCandidate(testMulling, rule, m, prov, phaseScoring{})
 	// 25 (prefer) + 100 (mulling provider weight) = 125.
 	if score != 125 {
 		t.Errorf("score = %d, want 125 (prefer 25 + provider 100); reasons=%v", score, reasons)
@@ -264,7 +264,7 @@ func TestScoreCandidate_NoMatchNoBonus(t *testing.T) {
 	// Model lacks the label and the provider carries no weight -> zero score.
 	m := &kubemootv1alpha1.Model{Spec: kubemootv1alpha1.ModelSpec{Model: "llama3:70b"}}
 	prov := &kubemootv1alpha1.ModelProvider{}
-	score, _ := scoreCandidate(testMulling, rule, m, prov)
+	score, _ := scoreCandidate(testMulling, rule, m, prov, phaseScoring{})
 	if score != 0 {
 		t.Errorf("a non-matching candidate on an unweighted provider should score 0, got %d", score)
 	}

@@ -58,7 +58,7 @@ func TestRankedCandidates_BoundFirstThenQualityThenName(t *testing.T) {
 	rule := &kubemootv1alpha1.SchedulingRule{Phase: phaseMulling}
 
 	// bias 0.7: high=70, medium=60, low=30. The bound model leads even when it is not the best.
-	got := rankedCandidates(testModelID, rule, models, 0.7, true)
+	got := rankedCandidates(testModelID, rule, models, phaseScoring{Bias: 0.7, HaveBias: true})
 	want := []modelCandidate{
 		{Model: testModelID, Score: 30},
 		{Model: candModel32, Score: 70},
@@ -84,7 +84,7 @@ func TestRankedCandidates_RequireFiltersAndDuplicatesKeepBestScore(t *testing.T)
 			Selector: &metav1.LabelSelector{MatchLabels: map[string]string{candFamily: candQwen}},
 		}},
 	}
-	got := rankedCandidates(candModel32, rule, models, 0, false)
+	got := rankedCandidates(candModel32, rule, models, phaseScoring{})
 	want := []modelCandidate{{Model: candModel32, Score: 100}, {Model: candModel14, Score: 0}}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("rankedCandidates = %+v, want %+v", got, want)
@@ -95,7 +95,7 @@ func TestRankedCandidates_MalformedRequireAdmitsNothing(t *testing.T) {
 	rule := &kubemootv1alpha1.SchedulingRule{Require: &metav1.LabelSelector{
 		MatchExpressions: []metav1.LabelSelectorRequirement{{Key: candTier, Operator: "Bogus"}},
 	}}
-	got := rankedCandidates(testModelID, rule, []kubemootv1alpha1.Model{candModel("m", testModelID, true, nil)}, 0, false)
+	got := rankedCandidates(testModelID, rule, []kubemootv1alpha1.Model{candModel("m", testModelID, true, nil)}, phaseScoring{})
 	if len(got) != 0 {
 		t.Fatalf("want no candidates under a malformed selector, got %+v", got)
 	}

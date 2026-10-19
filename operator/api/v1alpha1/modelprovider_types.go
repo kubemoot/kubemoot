@@ -257,7 +257,7 @@ type ModelProviderStatus struct {
 	// model the provider has (downloaded for Ollama, answering for vLLM) merged
 	// with the Model objects in the provider's namespace that name it. A Model
 	// with spec.disabled is left out; an embedding-only model is never admitted.
-	// Each entry carries the labels the catalog offers for selecting models.
+	// Scheduling rules match each entry's labels.
 	// +optional
 	// +listType=map
 	// +listMapKey=name

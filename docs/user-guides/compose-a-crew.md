@@ -370,9 +370,32 @@ spec:
 ```
 
 The scheduler matches capabilities to a concrete model and provider at reconcile time
-via `CrewSchedulingPolicy`. No agent names a model - loose coupling is preserved so
-the same crew chart runs on a different cluster with different hardware. See
-[Models & Scheduling](../../concepts/models-and-scheduling/) for the scheduler.
+via `CrewSchedulingPolicy`, from the cluster's model catalog. A crew ships no `Model`
+objects and names no provider - loose coupling is preserved so the same crew chart runs
+on a different cluster with different hardware, and switching the cluster from one model
+server to another needs no change to the crew. The policy states what each phase needs:
+tool calling as a hard need (`require`), and a size or reasoning as a wish (`prefer`, or
+`qualityBias`, which reads the model's size class):
+
+```yaml
+spec:
+  crewRef: my-crew
+  qualityBias: {reasoning: "0.7", tool-calling: "0.3", default: "0.4"}
+  rules:
+    - phase: mulling
+      require: {matchLabels: {capability/tool-calling: "true"}}
+    - phase: triage
+      require: {matchLabels: {capability/tool-calling: "true"}}
+      prefer:
+        - weight: 100
+          selector: {matchLabels: {kubemoot.ai/size: small}}
+```
+
+Keep a hard `require` to what the crew cannot work without. A crew that requires a size
+the cluster does not have cannot be scheduled there. A crew that still ships `Model`
+objects of its own uses only those until it deletes them. See
+[Models & Scheduling](../../concepts/models-and-scheduling/) and the
+[scheduler design](../../architecture/scheduler/#selecting-from-the-model-catalog).
 
 ---
 
@@ -471,6 +494,7 @@ Before deploying a crew:
 - [ ] The coordinator has an `advisory-prompt` module instructing it on additive briefs.
 - [ ] Analyst and coordinator RAGSources have low `topK` (2-3 per source).
 - [ ] No model names appear anywhere in Agent specs - capabilities only.
+- [ ] The crew ships no `Model` objects and no `providerRef`; its `CrewSchedulingPolicy` requires only what it cannot work without.
 - [ ] No cluster-specific labels, node names, or topology are baked into prompt text.
 
 ---

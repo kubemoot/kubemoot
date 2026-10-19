@@ -168,6 +168,8 @@ func mustSetupWebhooks(mgr ctrl.Manager) {
 		validatingWebhook("RAGSource", &aiv1alpha1.RAGSource{}, &kubemootwebhook.RAGSourceValidator{}),
 		validatingWebhook("Crew", &aiv1alpha1.Crew{}, &kubemootwebhook.CrewValidator{}),
 		validatingWebhook("CrewFitness", &aiv1alpha1.CrewFitness{}, &kubemootwebhook.CrewFitnessValidator{}),
+		validatingWebhook("CrewSchedulingPolicy", &aiv1alpha1.CrewSchedulingPolicy{},
+			&kubemootwebhook.CrewSchedulingPolicyValidator{}),
 	}
 	for _, w := range webhooks {
 		if err := w.register(mgr); err != nil {
@@ -175,7 +177,8 @@ func mustSetupWebhooks(mgr ctrl.Manager) {
 			os.Exit(1)
 		}
 	}
-	setupLog.Info("Registered validating webhooks for Agent, Crew, CrewFitness, MCPServer, RAGSource")
+	setupLog.Info("Registered validating webhooks for Agent, Crew, CrewFitness, CrewSchedulingPolicy, " +
+		"MCPServer, RAGSource")
 }
 
 // managerFlags holds all parsed command-line flags.

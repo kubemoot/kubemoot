@@ -33,6 +33,12 @@ context window, and its abilities such as tool calling and reasoning. Speed is n
 calibration measures it per provider, because the same model is fast on one accelerator and
 slow on another.
 
+A crew ships no Model objects and names no provider. Its policy asks for what each phase needs
+(tool calling is a hard need; a size and reasoning are wishes) and the scheduler matches that
+against the catalog. Switching a model server from Ollama to vLLM, adding an accelerator, or
+moving a model to another accelerator changes the catalog and nothing in the crew's namespace.
+A crew that still ships Models of its own uses only those until it deletes them.
+
 ## Just-in-time scheduling
 
 Scheduling happens in two steps. When an agent reconciles, the operator ranks the
@@ -58,8 +64,8 @@ vLLM server is placed without a memory total or a measured speed.
 ## How a model is chosen
 
 **The operator ranks candidates.** For each phase of an agent (mulling and triage),
-the operator matches the crew's `CrewSchedulingPolicy` against the `Model` labels. A
-rule's `require` selector decides which models are allowed at all. Its `prefer` weights,
+the operator matches the crew's `CrewSchedulingPolicy` against the labels of the models in the
+cluster catalog. A rule's `require` constraints decide which models are allowed at all. Its `prefer` weights,
 or the policy's `qualityBias` when the rule has no `prefer` block, give each allowed
 model a **quality score**. The best model becomes the agent's **preferred model**, and
 the operator hands the agent the whole ranked list, preferred model first.
@@ -86,20 +92,22 @@ The tolerance is **10 quality-score points** by default. A candidate qualifies w
 score is at most 10 points below the preferred model's score. How far apart models
 score depends on the crew's policy:
 
-- With `qualityBias`, each model's `latencyClass` label contributes `high` = bias x 100,
-  `low` = (1 - bias) x 100, and `medium` = 100 - |bias - 0.5| x 200. At a bias of `0.7`,
-  that is high 70, medium 60, low 30: an agent whose preferred model is `high` may use a
-  loaded `medium` model (10 points below) but never a `low` one (40 below). At `0.9` it
-  is high 90, medium 20, low 10, so the agent stays on `high`. A bias of `0.3` mirrors
-  this toward the fast models.
+- With `qualityBias`, each model's size contributes `large` = bias x 100,
+  `small` = (1 - bias) x 100, and `medium` = 100 - |bias - 0.5| x 200. At a bias of `0.7`,
+  that is large 70, medium 60, small 30: an agent whose preferred model is `large` may use a
+  loaded `medium` model (10 points below) but never a `small` one (40 below). At `0.9` it
+  is large 90, medium 20, small 10, so the agent stays on `large`. A bias of `0.3` mirrors
+  this toward the small models. An agent that declares an ability (`reasoning`, `tool-calling`,
+  `vision`) also earns 20 points for each such ability a model has, so it keeps a model with
+  the ability unless an equal one is already loaded.
 - With explicit `prefer` weights, the gap is the difference between the weights. Weights
   of 100 and 50 are 50 points apart, so the agent keeps the preferred model.
 - Models that score the same (for example, no `prefer` block, no `qualityBias`, and no
-  `latencyClass` label) are interchangeable.
+  size) are interchangeable.
 
 To keep an agent on a particular model size, do one of these:
 
-- Narrow the rule's `require` selector to that size (for example, `params: "32B"`).
+- Narrow the rule's `require` to that size (for example, `kubemoot.ai/size: large`).
   Models outside the selector are never candidates.
 - Give the size an explicit `prefer` weight more than 10 points above the others, or set
   the capability's `qualityBias` strongly toward quality (0.8 or higher) or speed (0.2

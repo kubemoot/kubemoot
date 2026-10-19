@@ -284,7 +284,7 @@ Each entry of `status.models`:
 | `contextLength` | Context window in tokens |
 | `capabilities` | `tool-calling`, `reasoning`, `vision` |
 | `modelRef` | The Model object that contributed, as `namespace/name` |
-| `labels` | The effective labels: the derived ones above plus the Model's own |
+| `labels` | The effective labels a scheduling rule matches: the derived ones above plus the Model's own |
 
 The labels the catalog produces:
 
@@ -301,7 +301,8 @@ The size class is the same on every cluster: **small** is under 12 billion param
 **medium** is 12 billion up to but not including 30 billion, **large** is 30 billion and over.
 It counts total parameters, so a mixture-of-experts model with few active parameters is large
 and shows its speed in calibration instead. An entry whose parameter count is unknown has no
-size: the provider's `CatalogSizeKnown` condition is `False` and names the models. Declare
+size: the provider's `CatalogSizeKnown` condition is `False` and names the models, it contributes
+no size score to `qualityBias`, and a rule that requires a size excludes it. Declare
 `spec.parameters` on a Model to fix it. An Ollama server too old to list `capabilities` on
 `/api/show` cannot say that an embedding-only model is one; keep such a model out with a
 Model that sets `disabled: true`.
@@ -418,7 +419,7 @@ Declares a specific inference model on a provider, **labeled** so the scheduler 
 | `quantization` | string | No | Quantization method (e.g., `q4_K_M`, `q8_0`) |
 | `parameters` | string | No | The total parameter count, such as `14B`, `0.5B` or `751M`. Declare it where the engine cannot report it (vLLM does not) or to correct a wrong report. The size class in the [model catalog](#the-model-catalog) is derived from it. |
 | `capabilities` | list | No | Abilities the engine cannot report: `tool-calling`, `reasoning`, `vision`. When set they replace what the engine reports. |
-| `disabled` | bool | No | Keep the model out of the catalog. Its state is `Disabled`, the operator downloads nothing for it, and calibration skips it. |
+| `disabled` | bool | No | Keep the model out of the catalog. Its state is `Disabled`, the operator downloads nothing for it, no crew selects it, and calibration skips it. |
 
 ### Source
 
@@ -441,7 +442,7 @@ The source must fit the engine of the provider: `ollama` for an ollama provider,
 | `params` | Parameter count | `"3B"`, `"8B"`, `"14B"`, `"24B"`, `"32B"` |
 | `capability/<name>` | What the model can do | `capability/tool-calling: "true"`, `capability/reasoning: "true"` |
 | `contextWindow` | Max context tokens | `"32768"`, `"131072"`, `"200000"` |
-| `latencyClass` | Latency profile | `low`, `medium`, `high` |
+| `latencyClass` | Retired. Read only for a crew's own Models, as `low` = small, `medium` = medium, `high` = large; the catalog carries `kubemoot.ai/size` instead | `low`, `medium`, `high` |
 
 ### Status
 
@@ -499,6 +500,8 @@ spec:
   vramMib: 5120
   quantization: q4_K_M
 ```
+
+These labels are for a crew that still ships its own Models, which it uses instead of the catalog until it deletes them (see [Scheduler](../../architecture/scheduler/#crew-local-models-replace-the-catalog)). A crew that ships none selects from the catalog by the labels in [the model catalog](#the-model-catalog); the cluster owner's Models carry only what the engine cannot report and any labels of their own.
 
 A Model for a vLLM provider needs no source: the vLLM server decides its own weights, and the operator downloads and pulls nothing for it. What the Model must get right is its served name. `model` is the name the server is started with (`--served-model-name`), so crews and policies that select the Model by label do not change when the engine does. The name appears twice, in the install values of the server (`servedName` in the `kubemoot-vllm` chart) and in the Model, and the operator checks them against each other: it asks the provider's servers which names they report, and a `model` no server reports is an `Error` whose `ServedNameFound` condition is `False` with the reason `ServedNameNotReported` and a message that lists the names reported. It never guesses. While the provider has not found its servers yet the Model is `Pending`.
 
