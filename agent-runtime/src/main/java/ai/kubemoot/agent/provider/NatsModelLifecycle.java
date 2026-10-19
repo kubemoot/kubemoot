@@ -11,6 +11,12 @@ import org.slf4j.LoggerFactory;
 
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.Locale;
+import java.util.concurrent.CancellationException;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 /**
  * {@link ModelLifecycle} over NATS request and reply on
@@ -28,6 +34,12 @@ public final class NatsModelLifecycle implements ModelLifecycle {
 
     /** Longer than the operator's safety limit (30 minutes), so the operator's answer arrives first. */
     static final Duration SAFETY_TIMEOUT = Duration.ofMinutes(31);
+
+    /** How long past the request's own timeout the wait lasts before it gives up on NATS. */
+    private static final long GRACE_MS = 5_000L;
+
+    static final String NO_ANSWER = "the operator did not answer before the safety limit";
+    static final String NOT_LISTENING = "no operator is listening for model lifecycle requests";
 
     private final NatsConnectionProvider nats;
     private final ObjectMapper mapper;
@@ -68,25 +80,62 @@ public final class NatsModelLifecycle implements ModelLifecycle {
         if (agent != null && !agent.isBlank()) {
             body.put("agent", agent);
         }
+        CompletableFuture<Message> pending;
         try {
-            Message answer = conn.request(subjectFor(provider), mapper.writeValueAsBytes(body), timeout);
-            return parse(answer);
+            // The future, not the blocking request: the blocking form returns null both
+            // on a timeout and when NATS reports that nobody subscribes to the subject.
+            pending = conn.requestWithTimeout(subjectFor(provider), mapper.writeValueAsBytes(body), timeout);
+        } catch (Exception e) {
+            log.debug("Lifecycle request {} {} on {} failed: {}", action, model, provider, e.toString());
+            return Reply.failure(couldNotAsk(action, model, e.getMessage()));
+        }
+        return await(pending, action, model);
+    }
+
+    /**
+     * Waits for the operator's reply. NATS ends the request itself at {@code timeout};
+     * the wait lasts a little longer only so a request NATS never ends cannot hang.
+     */
+    Reply await(CompletableFuture<Message> pending, String action, String model) {
+        try {
+            return parse(pending.get(timeout.toMillis() + GRACE_MS, TimeUnit.MILLISECONDS));
+        } catch (CancellationException e) {
+            // NATS cancels a request when the server reports that nobody subscribes.
+            return Reply.failure(NOT_LISTENING);
+        } catch (TimeoutException e) {
+            pending.cancel(true);
+            return Reply.failure(NO_ANSWER);
+        } catch (ExecutionException e) {
+            return Reply.failure(reasonFor(e.getCause(), action, model));
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             return Reply.failure("interrupted while waiting for the operator to " + action + " " + model);
-        } catch (Exception e) {
-            log.debug("Lifecycle request {} {} on {} failed: {}", action, model, provider, e.toString());
-            return Reply.failure("the operator could not be asked to " + action + " " + model + ": " + e.getMessage());
         }
+    }
+
+    /** Why a request ended without a reply, from the exception NATS completed it with. */
+    static String reasonFor(Throwable cause, String action, String model) {
+        if (cause instanceof TimeoutException) {
+            return NO_ANSWER;
+        }
+        String text = cause == null || cause.getMessage() == null ? "no reason given" : cause.getMessage();
+        if (text.toLowerCase(Locale.ROOT).contains("no responders")) {
+            return NOT_LISTENING;
+        }
+        return couldNotAsk(action, model, text);
+    }
+
+    private static String couldNotAsk(String action, String model, String reason) {
+        return "the operator could not be asked to " + action + " " + model + ": " + reason;
     }
 
     /** Reads the operator's reply by tree navigation (record deserialization fails in native images). */
     Reply parse(Message answer) {
         if (answer == null) {
-            return Reply.failure("the operator did not answer before the safety limit");
+            return Reply.failure(NO_ANSWER);
         }
         if (answer.isStatusMessage()) {
-            return Reply.failure("no operator is listening for model lifecycle requests");
+            return Reply.failure(NOT_LISTENING);
         }
         try {
             JsonNode n = mapper.readTree(new String(answer.getData(), StandardCharsets.UTF_8));
