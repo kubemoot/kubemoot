@@ -236,17 +236,28 @@ What the values mean:
 
 The chart starts the servers one at a time in a single container, because each measures
 free accelerator memory when it starts: it starts a server, waits for its `/health`, puts
-it to sleep, starts the next, and wakes the first at the end. A server whose process dies,
-or that is running but stops answering `/health` for three checks in a row (it is hung), is
-killed and restarted the same way, with every other server asleep first; a server whose
-`/health` is down is skipped when the others are put to sleep. Each server's log lines carry
-its model name. The pod is ready once every server is up, which takes minutes on the first
-start while the weights download and the models compile, and it is not ready while a server
-is being recovered. A liveness probe reads a heartbeat the launcher touches whenever it makes
-progress, so a launcher that is itself stuck is restarted with the pod. Set the memory limit above the weights of every model plus
-`shmSize`; the servers are ordered by `servedName`, on ports 8000 and up, and adding or
-removing a model recreates the pod. The pod meets the `restricted` Pod Security level except
-`runAsNonRoot`, because the vLLM image runs as root, so its namespace needs `baseline`.
+it to sleep, starts the next, and wakes the first at the end. It waits on what each server
+reports, not on a clock: a sleep or wake is done when the server says it is asleep or awake,
+so a level 2 weight reload that takes minutes succeeds. A server is dead when its process has
+exited, and only then is it restarted the same way, with every other server asleep first.
+The launcher never kills a running server, however slowly it answers, because Kubemoot's
+adapter may be waking or sleeping it; a running server that does not answer is skipped when
+the others are put to sleep, and keeps the pod from being ready until it answers. Each
+server's log lines carry its model name. The pod is ready once every server is up and
+answering, which takes minutes on the first start while the weights download and the models
+compile. A liveness probe reads a heartbeat the launcher touches whenever it makes progress,
+so a launcher that is itself stuck is restarted with the pod.
+
+Two limits follow from never acting on a clock. A sleep or wake that a server never answers
+is waited on without a deadline, so while one is outstanding the launcher does not restart
+other servers that exit, and the liveness probe does not fire because the launcher is still
+polling. A running server that does not report its sleep state is not put to sleep before
+another server starts, so its memory use can make that start fail; the launcher retries.
+
+Set the memory limit above the weights of every model plus `shmSize`; the servers are
+ordered by `servedName`, on ports 8000 and up, and adding or removing a model recreates the
+pod. The pod meets the `restricted` Pod Security level except `runAsNonRoot`, because the
+vLLM image runs as root, so its namespace needs `baseline`.
 
 The install notes print the next two steps ready to copy. The first is a ModelProvider that
 names the chart's Service, so you write no endpoints; the operator reads the Service's ports
