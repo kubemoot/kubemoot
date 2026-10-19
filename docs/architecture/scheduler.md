@@ -109,7 +109,7 @@ The feasibility filter, the weighted cost, and the ticket budget above are writt
 
 A load the engine does not report is read as no load. A model that only vLLM providers host is never reported too large for the accelerators: `model-too-large` applies to a model no accelerator can hold, and a hosting server already holds it. The operator publishes `maxParallel` for a vLLM provider as the engine's own ceiling on concurrently scheduled sequences, not as one slot, so a reader that still divides by it does not serialize the batch.
 
-The learned policy plans from measured speeds, and calibration measures through Ollama's own API, so a vLLM provider publishes none. A provider with no measured speed gives the learned policy no opinion, and the algorithm places the call. Because the algorithm judges a vLLM provider by the rules above, a hosted, awake model with room is placed on its vLLM server without any measurement. Calibrating a vLLM provider is separate work; the learned policy takes over for it once speeds are published.
+The learned policy plans from measured speeds, which calibration publishes for Ollama and vLLM providers alike (see [Calibration](#calibration)). A provider with no measured speed, such as a vLLM provider before its first calibration, gives the learned policy no opinion, and the algorithm places the call. Because the algorithm judges a vLLM provider by the rules above, a hosted, awake model with room is placed on its vLLM server without any measurement; the learned policy takes over once the provider is calibrated.
 
 #### Candidate models per call
 
@@ -220,7 +220,7 @@ Every scheduled call reaches the model server through the OpenAI-compatible chat
 - **Where the API lives** on the server. Ollama serves it at the provider endpoint plus `/v1`.
 - **How a request turns thinking off.** Ollama takes `reasoning_effort: none`, because it ignores its native `think` setting on this API. Other OpenAI-compatible servers, such as vLLM and SGLang, take `chat_template_kwargs: {enable_thinking: false}`. Turning thinking on, or leaving the agent's setting unset, sends nothing, because thinking models think by default.
 
-The agent picks the adapter from the `engine` field the operator publishes in the provider state; an absent `engine` selects the Ollama adapter. The `ModelProvider` CRD admits `type: ollama` and `type: vllm`; a `vllm` provider gets the generic OpenAI-compatible adapter and each of its models is called at that model's own server. Supporting another engine means adding one adapter. Calibration is separate: it measures a provider through `accelerator-mcp`, which still talks to Ollama's own API.
+The agent picks the adapter from the `engine` field the operator publishes in the provider state; an absent `engine` selects the Ollama adapter. The `ModelProvider` CRD admits `type: ollama` and `type: vllm`; a `vllm` provider gets the generic OpenAI-compatible adapter and each of its models is called at that model's own server. Supporting another engine means adding one adapter. Calibration is separate: it measures a provider through `accelerator-mcp`, which has a client for each engine (Ollama's own API, and streamed `/v1/chat/completions` requests for vLLM).
 
 The static fallback model, used when the scheduler cannot place a tool-loop call, still comes from the Quarkus Ollama extension and its `quarkus.langchain4j.ollama.*` settings.
 

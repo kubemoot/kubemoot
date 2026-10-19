@@ -424,3 +424,39 @@ func TestAgentOnAVLLMModelGetsTheModelsServerAndServedName(t *testing.T) {
 		t.Errorf("KUBEMOOT_MODEL_MODEL = %q", v)
 	}
 }
+
+func TestBoundModelsOfAVLLMProviderAreServedNames(t *testing.T) {
+	hf := vllmModelCR("pilot-14b", vllmModel14) // a Hugging Face source: no Ollama tag
+	r := calReconciler(t, &fakeCalibrator{}, hf)
+
+	vllmP := vllmProvider(server(vllmModel14, "http://a:8000"))
+	got, err := r.boundModels(context.Background(), vllmP)
+	if err != nil || len(got) != 1 || got[0] != vllmModel14 {
+		t.Errorf("a vLLM provider calibrates the served name: %v %v", got, err)
+	}
+
+	ollama := vllmProvider()
+	ollama.Spec.Type = aiv1alpha1.ProviderTypeOllama
+	got, err = r.boundModels(context.Background(), ollama)
+	if err != nil || len(got) != 0 {
+		t.Errorf("an Ollama provider has nothing to pull for a Hugging Face model: %v %v", got, err)
+	}
+}
+
+func TestAVLLMProviderIsAskedToBeCalibratedOnceItIsReconciled(t *testing.T) {
+	srv := fakeVLLM{metrics: vllmMetrics(0, 0, 0)}.start(t, vllmModel14)
+	p := vllmProvider(server(vllmModel14, srv.URL))
+	scheme := agentReconcileScheme(t)
+	cal := &fakeCalibrator{}
+	cli := fake.NewClientBuilder().WithScheme(scheme).WithObjects(p, vllmModelCR("pilot-14b", vllmModel14)).
+		WithStatusSubresource(p).Build()
+	r := &ModelProviderReconciler{Client: cli, Scheme: scheme, ConfigCache: NewConfigCache(), Calibration: cal}
+
+	key := types.NamespacedName{Name: p.Name, Namespace: p.Namespace}
+	if _, err := r.Reconcile(context.Background(), ctrl.Request{NamespacedName: key}); err != nil {
+		t.Fatal(err)
+	}
+	if len(cal.started) != 1 || cal.started[0] != vllmProviderName {
+		t.Errorf("the vLLM provider must be calibrated like an Ollama one: %v", cal.started)
+	}
+}

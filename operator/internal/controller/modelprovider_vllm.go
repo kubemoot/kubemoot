@@ -32,7 +32,7 @@ import (
 // spec.servers or found behind the Service spec.serviceRef names. The
 // operator starts nothing and downloads nothing: the provider is Ready when at
 // least one of its servers answers, and each Model on it is Available when its own
-// server does. Version, storage, pod and calibration handling are Ollama's and do
+// server does. Version, storage and pod handling are Ollama's and do
 // not apply: a vllm provider has no single endpoint or pod.
 func (r *ModelProviderReconciler) reconcileVLLM(ctx context.Context, provider *aiv1alpha1.ModelProvider) (ctrl.Result, error) {
 	log := logf.FromContext(ctx)
@@ -63,6 +63,10 @@ func (r *ModelProviderReconciler) reconcileVLLM(ctx context.Context, provider *a
 	if r.ConfigCache != nil && r.ConfigCache.IsSchedulerEnabled() {
 		r.countAssignedAgents(ctx, provider)
 	}
+
+	// A vLLM provider is calibrated like an Ollama one: accelerator-mcp measures each bound
+	// model through its server, waking a sleeping one through the operator's lifecycle path.
+	r.requestCalibration(ctx, provider)
 
 	message := fmt.Sprintf("%d of %d vLLM servers answering", len(snap.Available), len(servers))
 	return r.updateStatus(ctx, provider, true, phaseReady, message)

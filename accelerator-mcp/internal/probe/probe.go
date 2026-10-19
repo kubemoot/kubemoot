@@ -79,6 +79,9 @@ type Request struct {
 	MemoryMiB int64
 	// Accelerator is true when a model only partly in accelerator memory has spilled.
 	Accelerator bool
+	// EngineType is the provider's engine (spec.type); empty is Ollama. Prober.For picks
+	// the engine client by it.
+	EngineType string
 }
 
 // Result is what one probe measured. Times are milliseconds, speeds tokens per second.
@@ -115,7 +118,11 @@ var ErrUnknownProbe = errors.New("unknown probe; use load, short, long, or paral
 // Finish, and FinishIdle run one at a time, so a model is never unloaded under a
 // probe that is using it.
 type Prober struct {
-	Engine  func(endpoint string) engine.Engine
+	Engine func(endpoint string) engine.Engine
+	// For picks the engine client for a request when the engine is not Ollama (a vLLM
+	// server is per model and needs the provider and model to ask the operator to wake
+	// it). Nil uses Engine(endpoint).
+	For     func(Request) engine.Engine
 	Tickets store.Tickets
 	History store.History
 	Prompts Prompts
@@ -126,6 +133,7 @@ type Prober struct {
 }
 
 type loadedModel struct {
+	engine   engine.Engine
 	endpoint string
 	lastUsed time.Time
 }
@@ -138,7 +146,7 @@ func (p *Prober) Probe(ctx context.Context, req Request) (Result, error) {
 	if refused, err := p.refuse(req, &result); refused || err != nil {
 		return result, err
 	}
-	eng := p.Engine(req.Endpoint)
+	eng := p.engineFor(req)
 	wasLoaded, err := p.isLoaded(ctx, eng, req.Model)
 	if err != nil {
 		return result, err
@@ -167,7 +175,7 @@ func (p *Prober) refuse(req Request, result *Result) (bool, error) {
 // provider is still free of other calls.
 func (p *Prober) probe(ctx context.Context, eng engine.Engine, req Request, wasLoaded bool, result *Result) error {
 	_, remembered := p.loaded[req.Provider][req.Model]
-	p.touch(req, !wasLoaded)
+	p.touch(req, eng, !wasLoaded)
 	if err := p.run(ctx, eng, req, wasLoaded, result); err != nil || result.Busy {
 		if result.Busy && !wasLoaded && !remembered {
 			delete(p.loaded[req.Provider], req.Model) // nothing was sent, so nothing was loaded
@@ -207,7 +215,7 @@ func (p *Prober) isLoaded(ctx context.Context, eng engine.Engine, model string) 
 // touch remembers a model this probe is about to load, before it sends anything, so
 // a load that succeeds after a failed reply is still unloaded later; and refreshes
 // the idle clock of a model it loaded earlier.
-func (p *Prober) touch(req Request, loading bool) {
+func (p *Prober) touch(req Request, eng engine.Engine, loading bool) {
 	models := p.loaded[req.Provider]
 	if _, remembered := models[req.Model]; !remembered && !loading {
 		return
@@ -219,7 +227,7 @@ func (p *Prober) touch(req Request, loading bool) {
 		models = map[string]loadedModel{}
 		p.loaded[req.Provider] = models
 	}
-	models[req.Model] = loadedModel{endpoint: req.Endpoint, lastUsed: p.Now()}
+	models[req.Model] = loadedModel{engine: eng, endpoint: req.Endpoint, lastUsed: p.Now()}
 }
 
 // run claims the probe's tickets, checks no one else arrived (and sends nothing,
@@ -385,7 +393,7 @@ func (p *Prober) finish(ctx context.Context, provider string, pick func(loadedMo
 		if !pick(m) || inUse[model] {
 			continue
 		}
-		if err := p.Engine(m.endpoint).Unload(ctx, model); err != nil {
+		if err := m.client(p).Unload(ctx, model); err != nil {
 			failed = append(failed, fmt.Errorf("unloading %s: %w", model, err))
 			continue
 		}
@@ -397,6 +405,22 @@ func (p *Prober) finish(ctx context.Context, provider string, pick func(loadedMo
 	}
 	sort.Strings(unloaded)
 	return unloaded, errors.Join(failed...)
+}
+
+// engineFor is the engine client for a request.
+func (p *Prober) engineFor(req Request) engine.Engine {
+	if p.For != nil && req.EngineType != "" {
+		return p.For(req)
+	}
+	return p.Engine(req.Endpoint)
+}
+
+// client is the engine client the model was loaded through.
+func (m loadedModel) client(p *Prober) engine.Engine {
+	if m.engine != nil {
+		return m.engine
+	}
+	return p.Engine(m.endpoint)
 }
 
 func residentOf(residents []engine.Resident, model string) *engine.Resident {

@@ -16,7 +16,7 @@ import (
 func TestNewToolSet_wiresTheSixTools(t *testing.T) {
 	scheme := runtime.NewScheme()
 	_ = aiv1alpha1.AddToScheme(scheme)
-	set := newToolSet(context.Background(), fake.NewClientBuilder().WithScheme(scheme).Build(), storetest.NewMemKV(), "kubemoot/accelerator-mcp/pod-a")
+	set := newToolSet(context.Background(), fake.NewClientBuilder().WithScheme(scheme).Build(), storetest.NewMemKV(), "kubemoot/accelerator-mcp/pod-a", nil)
 	if len(set.Specifications()) != 6 {
 		t.Fatalf("six tools: %v", set.Specifications())
 	}

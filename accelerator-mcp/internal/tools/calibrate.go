@@ -329,8 +329,12 @@ func (s *Set) RecoverInterrupted(ctx context.Context) error {
 // requestFor is a probe of model on the provider, with the provider's limits.
 func requestFor(p *aiv1alpha1.ModelProvider, model, kind string) probe.Request {
 	size, _ := sizeOf(p, model)
+	engineType := ""
+	if cluster.IsVLLM(p) {
+		engineType = string(p.Spec.Type)
+	}
 	return probe.Request{
-		Provider: p.Name, Endpoint: p.Spec.Endpoint, Model: model, Kind: kind,
+		Provider: p.Name, Endpoint: p.EndpointFor(model), Model: model, Kind: kind, EngineType: engineType,
 		MaxParallel: cluster.MaxParallel(p), SizeMiB: size,
 		MemoryMiB: cluster.UsableMemoryMiB(p), Accelerator: cluster.HasAccelerator(p),
 	}

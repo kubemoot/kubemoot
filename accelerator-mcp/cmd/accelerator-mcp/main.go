@@ -85,7 +85,7 @@ func main() {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	set := newToolSet(ctx, k8s, store.NATS{JS: js}, holderID())
+	set := newToolSet(ctx, k8s, store.NATS{JS: js}, holderID(), engine.NATSLifecycle{Conn: nc, Agent: serverName})
 	if err := set.RecoverInterrupted(ctx); err != nil {
 		log.Printf("recording interrupted calibrations: %v", err)
 	}
@@ -109,7 +109,9 @@ func holderID() string {
 }
 
 // newToolSet builds the tool set; calibrations it starts run under ctx.
-func newToolSet(ctx context.Context, k8s client.Client, kv store.KV, holder string) *tools.Set {
+func newToolSet(
+	ctx context.Context, k8s client.Client, kv store.KV, holder string, lifecycle engine.Lifecycle,
+) *tools.Set {
 	httpClient := &http.Client{Timeout: 10 * time.Minute}
 	engineFor := func(endpoint string) engine.Engine {
 		return engine.OllamaEngine{Endpoint: endpoint, Client: httpClient}
@@ -118,13 +120,22 @@ func newToolSet(ctx context.Context, k8s client.Client, kv store.KV, holder stri
 	history := store.History{KV: kv, Agent: holder, Now: time.Now}
 	return &tools.Set{
 		Cluster: cluster.Cluster{Client: k8s},
-		Prober: &probe.Prober{Engine: engineFor, Tickets: tickets, History: history,
+		Prober: &probe.Prober{Engine: engineFor, For: vllmFor(httpClient, lifecycle), Tickets: tickets, History: history,
 			Prompts: probe.DefaultPrompts(), Now: time.Now},
 		Tickets: tickets,
 		History: history,
 		Engine:  engineFor,
 		Now:     time.Now,
 		Jobs:    &tools.Jobs{Base: ctx},
+	}
+}
+
+// vllmFor is the engine client for a vLLM probe: the server of the probed model, woken
+// and put to sleep through the operator, never directly.
+func vllmFor(httpClient *http.Client, lifecycle engine.Lifecycle) func(probe.Request) engine.Engine {
+	return func(req probe.Request) engine.Engine {
+		return engine.VLLMEngine{Endpoint: req.Endpoint, Provider: req.Provider, Model: req.Model,
+			Client: httpClient, Lifecycle: lifecycle}
 	}
 }
 
