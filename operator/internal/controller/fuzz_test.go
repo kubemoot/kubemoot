@@ -72,6 +72,7 @@ func FuzzMergeNamespaceCrews(f *testing.F) {
 	f.Add(`{"pilot":{"revision":"r1","deployedAt":"2026-10-01T12:00:00Z"}}`, "pilot", "", "", "")
 	f.Add(`not json`, "pilot", "src", "r1", "")
 	f.Add(`null`, "", "", "", "")
+	f.Add(`{"pilot":{}}`, "pilot", "", "", "")
 	f.Fuzz(func(t *testing.T, raw, crew, source, revision, deployedAt string) {
 		if !allValidUTF8(raw, crew, source, revision, deployedAt) {
 			return
