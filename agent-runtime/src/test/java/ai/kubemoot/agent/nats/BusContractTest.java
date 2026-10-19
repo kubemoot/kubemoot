@@ -154,7 +154,7 @@ class BusContractTest {
         lifecycle.ready("vllm-rig0", MODEL);
         lifecycle.release("vllm-rig0", MODEL);
 
-        verify(conn, org.mockito.Mockito.times(2)).request(org.mockito.ArgumentMatchers.anyString(), sent.capture(),
+        verify(conn, org.mockito.Mockito.times(2)).requestWithTimeout(org.mockito.ArgumentMatchers.anyString(), sent.capture(),
                 org.mockito.ArgumentMatchers.any(java.time.Duration.class));
         for (byte[] body : sent.getAllValues()) {
             assertConforms("model-lifecycle-request.json", MAPPER.readTree(body));

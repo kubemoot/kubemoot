@@ -11,6 +11,9 @@ import org.mockito.ArgumentCaptor;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
@@ -46,7 +49,8 @@ class NatsModelLifecycleTest {
     void readyAsksTheOperatorAndReadsItsAnswer() throws Exception {
         Connection conn = mock(Connection.class);
         Message answer = reply("{\"ok\":true,\"state\":\"awake\",\"switchMs\":1200}");
-        when(conn.request(anyString(), any(byte[].class), any(Duration.class))).thenReturn(answer);
+        when(conn.requestWithTimeout(anyString(), any(byte[].class), any(Duration.class)))
+                .thenReturn(CompletableFuture.completedFuture(answer));
 
         ModelLifecycle.Reply r = over(conn).ready("vllm-rig0", "qwen3:14b");
 
@@ -54,7 +58,8 @@ class NatsModelLifecycleTest {
         assertEquals("awake", r.state());
         assertEquals(1200L, r.switchMs());
         ArgumentCaptor<byte[]> body = ArgumentCaptor.forClass(byte[].class);
-        verify(conn).request(org.mockito.ArgumentMatchers.eq("kubemoot.provider.model.vllm-rig0"), body.capture(),
+        verify(conn).requestWithTimeout(org.mockito.ArgumentMatchers.eq("kubemoot.provider.model.vllm-rig0"),
+                body.capture(),
                 any(Duration.class));
         JsonNode sent = JSON.readTree(body.getValue());
         assertEquals("ready", sent.path("action").asText());
@@ -66,10 +71,11 @@ class NatsModelLifecycleTest {
     void releaseSendsTheReleaseAction() throws Exception {
         Connection conn = mock(Connection.class);
         Message answer = reply("{\"ok\":true,\"state\":\"asleep\"}");
-        when(conn.request(anyString(), any(byte[].class), any(Duration.class))).thenReturn(answer);
+        when(conn.requestWithTimeout(anyString(), any(byte[].class), any(Duration.class)))
+                .thenReturn(CompletableFuture.completedFuture(answer));
         assertTrue(over(conn).release("p", "m").ok());
         ArgumentCaptor<byte[]> body = ArgumentCaptor.forClass(byte[].class);
-        verify(conn).request(anyString(), body.capture(), any(Duration.class));
+        verify(conn).requestWithTimeout(anyString(), body.capture(), any(Duration.class));
         assertEquals("release", JSON.readTree(body.getValue()).path("action").asText());
     }
 
@@ -77,7 +83,8 @@ class NatsModelLifecycleTest {
     void aRefusalCarriesTheOperatorsReason() throws Exception {
         Connection conn = mock(Connection.class);
         Message answer = reply("{\"ok\":false,\"error\":\"no vLLM server serves model m\"}");
-        when(conn.request(anyString(), any(byte[].class), any(Duration.class))).thenReturn(answer);
+        when(conn.requestWithTimeout(anyString(), any(byte[].class), any(Duration.class)))
+                .thenReturn(CompletableFuture.completedFuture(answer));
         ModelLifecycle.Reply r = over(conn).ready("p", "m");
         assertFalse(r.ok());
         assertEquals("no vLLM server serves model m", r.error());
@@ -86,22 +93,44 @@ class NatsModelLifecycleTest {
     @Test
     void everyWayTheOperatorCannotAnswerIsAFailureWithAReason() throws Exception {
         Connection silent = mock(Connection.class);
-        when(silent.request(anyString(), any(byte[].class), any(Duration.class))).thenReturn(null);
-        assertTrue(over(silent).ready("p", "m").error().contains("did not answer"));
+        when(silent.requestWithTimeout(anyString(), any(byte[].class), any(Duration.class)))
+                .thenReturn(CompletableFuture.failedFuture(new TimeoutException("timed out")));
+        assertEquals(NatsModelLifecycle.NO_ANSWER, over(silent).ready("p", "m").error());
+
+        // NATS cancels a request nobody subscribes to: that is not a timeout.
+        Connection unheard = mock(Connection.class);
+        CompletableFuture<Message> cancelled = new CompletableFuture<>();
+        cancelled.cancel(true);
+        when(unheard.requestWithTimeout(anyString(), any(byte[].class), any(Duration.class))).thenReturn(cancelled);
+        assertEquals(NatsModelLifecycle.NOT_LISTENING, over(unheard).ready("p", "m").error());
+
+        Connection reported = mock(Connection.class);
+        when(reported.requestWithTimeout(anyString(), any(byte[].class), any(Duration.class)))
+                .thenReturn(CompletableFuture.failedFuture(new IllegalStateException("503 No Responders Available")));
+        assertEquals(NatsModelLifecycle.NOT_LISTENING, over(reported).ready("p", "m").error());
+
+        Connection refused = mock(Connection.class);
+        when(refused.requestWithTimeout(anyString(), any(byte[].class), any(Duration.class)))
+                .thenReturn(CompletableFuture.failedFuture(new IllegalStateException("permissions violation")));
+        assertEquals("the operator could not be asked to ready m: permissions violation",
+                over(refused).ready("p", "m").error());
 
         Connection nobody = mock(Connection.class);
         Message status = mock(Message.class);
         when(status.isStatusMessage()).thenReturn(true);
-        when(nobody.request(anyString(), any(byte[].class), any(Duration.class))).thenReturn(status);
+        when(nobody.requestWithTimeout(anyString(), any(byte[].class), any(Duration.class)))
+                .thenReturn(CompletableFuture.completedFuture(status));
         assertTrue(over(nobody).ready("p", "m").error().contains("no operator is listening"));
 
         Connection broken = mock(Connection.class);
-        when(broken.request(anyString(), any(byte[].class), any(Duration.class))).thenThrow(new IllegalStateException("closed"));
+        when(broken.requestWithTimeout(anyString(), any(byte[].class), any(Duration.class)))
+                .thenThrow(new IllegalStateException("closed"));
         assertFalse(over(broken).ready("p", "m").ok());
 
         Connection garbled = mock(Connection.class);
         Message answer = reply("not json");
-        when(garbled.request(anyString(), any(byte[].class), any(Duration.class))).thenReturn(answer);
+        when(garbled.requestWithTimeout(anyString(), any(byte[].class), any(Duration.class)))
+                .thenReturn(CompletableFuture.completedFuture(answer));
         assertTrue(over(garbled).ready("p", "m").error().contains("could not be read"));
 
         assertTrue(over(null).ready("p", "m").error().contains("NATS is not available"));
@@ -109,9 +138,40 @@ class NatsModelLifecycleTest {
     }
 
     @Test
+    void aRequestNatsNeverEndsGivesUpAfterTheSafetyLimitAndIsCancelled() throws Exception {
+        @SuppressWarnings("unchecked")
+        CompletableFuture<Message> stuck = mock(CompletableFuture.class);
+        when(stuck.get(org.mockito.ArgumentMatchers.anyLong(), any(TimeUnit.class)))
+                .thenThrow(new TimeoutException());
+
+        ModelLifecycle.Reply r = over(mock(Connection.class)).await(stuck, "ready", "m");
+
+        assertEquals(NatsModelLifecycle.NO_ANSWER, r.error());
+        verify(stuck).cancel(true);
+    }
+
+    @Test
+    void reasonForNamesWhyTheRequestEnded() {
+        assertEquals(NatsModelLifecycle.NO_ANSWER, NatsModelLifecycle.reasonFor(new TimeoutException(), "ready", "m"));
+        assertEquals(NatsModelLifecycle.NOT_LISTENING,
+                NatsModelLifecycle.reasonFor(new IllegalStateException("No Responders"), "ready", "m"));
+        assertEquals("the operator could not be asked to ready m: no reason given",
+                NatsModelLifecycle.reasonFor(null, "ready", "m"));
+        assertEquals("the operator could not be asked to release m: no reason given",
+                NatsModelLifecycle.reasonFor(new IllegalStateException(), "release", "m"));
+        assertEquals("the operator could not be asked to ready m: port 5030 closed",
+                NatsModelLifecycle.reasonFor(new IllegalStateException("port 5030 closed"), "ready", "m"));
+    }
+
+    @Test
     void anInterruptedWaitKeepsTheInterruptAndFails() throws Exception {
         Connection conn = mock(Connection.class);
-        when(conn.request(anyString(), any(byte[].class), any(Duration.class))).thenThrow(new InterruptedException());
+        @SuppressWarnings("unchecked")
+        CompletableFuture<Message> waiting = mock(CompletableFuture.class);
+        when(waiting.get(org.mockito.ArgumentMatchers.anyLong(), any(TimeUnit.class)))
+                .thenThrow(new InterruptedException());
+        when(conn.requestWithTimeout(anyString(), any(byte[].class), any(Duration.class)))
+                .thenReturn(waiting);
         try {
             assertFalse(over(conn).ready("p", "m").ok());
             assertTrue(Thread.currentThread().isInterrupted());
