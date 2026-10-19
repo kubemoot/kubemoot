@@ -172,8 +172,22 @@ func HasAccelerator(p *aiv1alpha1.ModelProvider) bool {
 	return p.Status.Capacity != nil && p.Status.Capacity.VRAMTotalMiB > 0
 }
 
+// IsVLLM is true for a provider of vLLM servers, which batch requests and keep models asleep.
+func IsVLLM(p *aiv1alpha1.ModelProvider) bool {
+	return p.Spec.Type == aiv1alpha1.ProviderTypeVLLM
+}
+
+// VLLMProbeWidth is how many requests the parallel probe sends together to a vLLM
+// server. The server batches without a fixed limit, so the width is a probe size, not a
+// capacity.
+const VLLMProbeWidth = 4
+
 // MaxParallel is how many requests the provider's engine serves together; at least 1.
+// A vLLM provider batches requests, so it is the probe width.
 func MaxParallel(p *aiv1alpha1.ModelProvider) int {
+	if IsVLLM(p) {
+		return VLLMProbeWidth
+	}
 	if p.Status.Capacity != nil && p.Status.Capacity.MaxParallel > 0 {
 		return p.Status.Capacity.MaxParallel
 	}

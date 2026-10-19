@@ -29,6 +29,8 @@ import (
 	"github.com/kubemoot/kubemoot/operator/pkg/bus"
 
 	"github.com/kubemoot/kubemoot/accelerator-mcp/internal/cluster"
+	"github.com/kubemoot/kubemoot/accelerator-mcp/internal/engine"
+	"github.com/kubemoot/kubemoot/accelerator-mcp/internal/probe"
 	"github.com/kubemoot/kubemoot/accelerator-mcp/internal/store"
 )
 
@@ -335,4 +337,57 @@ func TestObservedPerformance_aProviderNeverCalibrated(t *testing.T) {
 	out, err := call(t, f.set, ToolObservedPerformance, map[string]string{argProv: gpu})
 	check(t, "observed, nothing to drift from", err == nil && len(out["observed"].([]any)) == 1 &&
 		len(out["drifted"].([]any)) == 0, out)
+}
+
+// vllmProvider is a ready vLLM provider whose one server serves model, which the fake
+// engine plays; the probe asks the engine factory for it by the request's engine type.
+func vllmCalibrationFixture(t *testing.T) fixture {
+	t.Helper()
+	p := &aiv1alpha1.ModelProvider{
+		ObjectMeta: metav1.ObjectMeta{Name: "vllm-rig1", Namespace: opNS},
+		Spec: aiv1alpha1.ModelProviderSpec{Type: aiv1alpha1.ProviderTypeVLLM,
+			Servers: []aiv1alpha1.VLLMServer{{Model: model, Endpoint: "http://vllm-rig1:8000"}}},
+	}
+	p.Status.Ready = true
+	p.Status.Capacity = &aiv1alpha1.DiscoveredCapacity{
+		AvailableModels: []aiv1alpha1.AvailableModel{{Name: model}}}
+	f := newFixture(t, p)
+	var asked []probe.Request
+	f.set.Prober.(*probe.Prober).For = func(req probe.Request) engine.Engine {
+		asked = append(asked, req)
+		return f.eng
+	}
+	t.Cleanup(func() {
+		for _, req := range asked {
+			if req.EngineType != "vllm" || req.Endpoint != "http://vllm-rig1:8000" {
+				t.Errorf("a vLLM probe must name its engine and the model's own server: %+v", req)
+			}
+		}
+	})
+	return f
+}
+
+func TestCalibrateProvider_aVLLMProviderIsCalibratedLikeAnOllamaOne(t *testing.T) {
+	f := vllmCalibrationFixture(t)
+
+	out, err := calibrate(t, f, map[string]any{argProv: "vllm-rig1"})
+	check(t, "started", err == nil && out["started"] == true, out)
+
+	cal := getNamedProvider(t, f, "vllm-rig1").Status.Calibration
+	check(t, "calibrated", cal != nil && cal.Phase == PhaseCalibrated && len(cal.Models) == 1, cal)
+	m := cal.Models[0]
+	check(t, "the speeds modelSpeeds publishes", m.Model == model && m.Fits && m.GenerateTokensPerSecond == 50 &&
+		m.PromptTokensPerSecond > 0 && m.ContextLength == 8192, m)
+	check(t, "the parallel probe uses the vLLM probe width, not a slot count",
+		m.ParallelRequests == cluster.VLLMProbeWidth, m)
+	check(t, "the server is put back as it was found", slices.Contains(f.eng.Unloads, model), f.eng.Unloads)
+}
+
+func getNamedProvider(t *testing.T, f fixture, name string) *aiv1alpha1.ModelProvider {
+	t.Helper()
+	p := &aiv1alpha1.ModelProvider{}
+	if err := f.client.Get(context.Background(), client.ObjectKey{Namespace: opNS, Name: name}, p); err != nil {
+		t.Fatal(err)
+	}
+	return p
 }

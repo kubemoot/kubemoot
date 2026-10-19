@@ -185,7 +185,7 @@ func (r *ModelProviderReconciler) requestCalibration(ctx context.Context, p *aiv
 		return
 	}
 	log := logf.FromContext(ctx).WithName("calibration")
-	bound, err := r.boundModels(ctx, p.Name)
+	bound, err := r.boundModels(ctx, p)
 	if err != nil {
 		log.Info("could not list Models bound to the provider", "provider", p.Name, "err", err)
 		return
@@ -224,16 +224,25 @@ func calibrationEnabled(p *aiv1alpha1.ModelProvider) bool {
 	return p.Spec.Calibration == nil || p.Spec.Calibration.Enabled == nil || *p.Spec.Calibration.Enabled
 }
 
-// boundModels is the model names of every Model that references the provider.
-func (r *ModelProviderReconciler) boundModels(ctx context.Context, provider string) ([]string, error) {
+// boundModels is the names of every Model that references the provider, as the
+// provider's engine knows them: the Ollama tag for an Ollama provider, the served name
+// (spec.model) for a vLLM one, which has no tag and serves what its servers are named for.
+func (r *ModelProviderReconciler) boundModels(ctx context.Context, p *aiv1alpha1.ModelProvider) ([]string, error) {
 	var models aiv1alpha1.ModelList
 	if err := r.List(ctx, &models); err != nil {
 		return nil, err
 	}
 	var out []string
 	for _, m := range models.Items {
-		if m.Spec.ProviderRef == provider && m.OllamaTag() != "" {
-			out = append(out, m.OllamaTag())
+		if m.Spec.ProviderRef != p.Name {
+			continue
+		}
+		name := m.OllamaTag()
+		if p.Spec.Type == aiv1alpha1.ProviderTypeVLLM {
+			name = m.Spec.Model
+		}
+		if name != "" {
+			out = append(out, name)
 		}
 	}
 	return out, nil

@@ -48,7 +48,7 @@ func check(t *testing.T, what string, ok bool, got any) {
 
 func readyProvider() *aiv1alpha1.ModelProvider {
 	p := &aiv1alpha1.ModelProvider{
-		ObjectMeta: metav1.ObjectMeta{Name: gpu, Namespace: "kubemoot"},
+		ObjectMeta: metav1.ObjectMeta{Name: gpu, Namespace: opNS},
 		Spec:       aiv1alpha1.ModelProviderSpec{Type: aiv1alpha1.ProviderTypeOllama, Endpoint: "http://gpu-a"},
 	}
 	p.Status.Ready = true

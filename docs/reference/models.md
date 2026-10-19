@@ -89,7 +89,7 @@ What the operator does with the servers:
 - **Placement.** An agent places a call on a `vllm` provider that hosts the model, awake or asleep. The provider needs no accelerator memory total and no per-model footprint: the server reserved its memory when it started. It has room while it holds no waiting request and its key-value cache is not nearly full; the number of calls in flight does not limit it, because they join the engine's batch. `maxParallel` is published as the engine's ceiling on concurrent sequences rather than one slot. See [How placement treats each engine](../../architecture/scheduler/#how-placement-treats-each-engine).
 - **Switching.** An agent asks the operator over NATS before a call to a model that is not awake (see [Waking and sleeping over NATS](../../architecture/scheduler/#waking-and-sleeping-over-nats)), and the operator replies when the provider reports the state. The chart's launcher wakes nothing: every server starts asleep. To make a model ready, the adapter puts any other awake server of the provider to sleep, then wakes the model's server. To release a model, it puts that server to sleep. It never restarts a server, because a restart takes 34 to 47 seconds where a wake takes 0.7 to 4.9. At level 2 the wake restores the weight buffers, reloads the weights from disk, then restores the key-value cache, in that order.
 
-An agent that uses a model on a `vllm` provider calls that model's own server with the served name. `ModelProvider.status.capacity` is filled from the same probe (loaded models, no accelerator memory per model); the accelerator total comes from `scheduling.memoryMiB` or DCGM. Calibration, storage, and the Ollama version check do not apply to a `vllm` provider. An `EmbeddingModel` cannot use one.
+An agent that uses a model on a `vllm` provider calls that model's own server with the served name. `ModelProvider.status.capacity` is filled from the same probe (loaded models, no accelerator memory per model); the accelerator total comes from `scheduling.memoryMiB` or DCGM. Storage and the Ollama version check do not apply to a `vllm` provider; it is calibrated like an Ollama one (see Calibration below). An `EmbeddingModel` cannot use one.
 
 ### Status
 
@@ -158,6 +158,8 @@ On a provider without a discovered VRAM total, a loaded model whose `/api/ps`
 whole size against `memoryMiB`.
 
 ### Calibration
+
+A `vllm` provider is calibrated through the same path. The probes are streamed `/v1/chat/completions` requests: the prompt speed is the prompt tokens the server reports over the time to the first token, the generation speed is the tokens after the first over the time from the first token to the last, and the context is the `max_model_len` the server lists. The parallel probe sends four requests together, because a vLLM server batches without a fixed slot count. A model that is asleep is woken through the operator's lifecycle request, the same one agents use, never with a direct `/wake_up`; the time that took is the model's load time, and the model is put back to sleep through the operator when the calibration ends. Nothing is loaded ahead of a call that needs it. The models measured are the served names of the Models bound to the provider.
 
 `status.calibration` records what calibrating a provider measured, for each model: how
 long the engine takes to load it, how much accelerator memory it takes, the context the
