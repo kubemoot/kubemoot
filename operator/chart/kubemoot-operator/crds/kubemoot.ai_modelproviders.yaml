@@ -146,10 +146,17 @@ spec:
                       SleepLevel is how a server is put to sleep when another model takes the
                       accelerator: 1 parks the weights in host memory (fast to wake), 2 drops
                       them and reloads from disk on wake (holds no host memory). Default 1.
+                      It cannot change once set, because a sleeping server wakes by the level
+                      the provider names, and that must be the level it slept at; to change it,
+                      delete and recreate the provider.
                     enum:
                     - 1
                     - 2
                     type: integer
+                    x-kubernetes-validations:
+                    - message: 'spec.vllm.sleepLevel is immutable: delete and recreate
+                        the provider to change it'
+                      rule: self == oldSelf
                 required:
                 - servers
                 type: object

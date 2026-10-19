@@ -81,6 +81,34 @@ var _ = Describe("ModelProvider admission", func() {
 		Expect(k8sClient.Create(ctx, mp)).NotTo(Succeed())
 	})
 
+	It("rejects changing the sleep level", func() {
+		mp := newVLLM("adm-vllm-immutable", oneServer)
+		Expect(k8sClient.Create(ctx, mp)).To(Succeed())
+		DeferCleanup(func() { _ = k8sClient.Delete(ctx, mp) })
+		mp.Spec.VLLM.SleepLevel = 2
+		err := k8sClient.Update(ctx, mp)
+		Expect(err).To(HaveOccurred())
+		Expect(err.Error()).To(ContainSubstring("sleepLevel is immutable"))
+	})
+
+	It("accepts an update that keeps the sleep level and changes the servers", func() {
+		mp := newVLLM("adm-vllm-servers", oneServer)
+		mp.Spec.VLLM.SleepLevel = 2
+		Expect(k8sClient.Create(ctx, mp)).To(Succeed())
+		DeferCleanup(func() { _ = k8sClient.Delete(ctx, mp) })
+		mp.Spec.VLLM.Servers = append(mp.Spec.VLLM.Servers, aiv1alpha1.VLLMServer{Model: vllmModel8, Endpoint: "http://vllm-8b.models:8000"})
+		Expect(k8sClient.Update(ctx, mp)).To(Succeed())
+	})
+
+	It("allows setting the sleep level to 1 on a provider that left it unset", func() {
+		mp := newVLLM("adm-vllm-unset", oneServer)
+		Expect(k8sClient.Create(ctx, mp)).To(Succeed())
+		DeferCleanup(func() { _ = k8sClient.Delete(ctx, mp) })
+		Expect(mp.Spec.VLLM.SleepLevel).To(Equal(1)) // absent means 1: the default fills it in
+		mp.Spec.VLLM.SleepLevel = 1
+		Expect(k8sClient.Update(ctx, mp)).To(Succeed())
+	})
+
 	It("rejects two servers for one served model", func() {
 		other := aiv1alpha1.VLLMServer{Model: oneServer.Model, Endpoint: "http://elsewhere:8000"}
 		Expect(k8sClient.Create(ctx, newVLLM("adm-vllm-dup", oneServer, other))).NotTo(Succeed())

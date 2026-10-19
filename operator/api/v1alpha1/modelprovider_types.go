@@ -92,7 +92,11 @@ type VLLMSpec struct {
 	// SleepLevel is how a server is put to sleep when another model takes the
 	// accelerator: 1 parks the weights in host memory (fast to wake), 2 drops
 	// them and reloads from disk on wake (holds no host memory). Default 1.
+	// It cannot change once set, because a sleeping server wakes by the level
+	// the provider names, and that must be the level it slept at; to change it,
+	// delete and recreate the provider.
 	// +kubebuilder:validation:Enum=1;2
+	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="spec.vllm.sleepLevel is immutable: delete and recreate the provider to change it"
 	// +kubebuilder:default=1
 	// +optional
 	SleepLevel int `json:"sleepLevel,omitempty"`
