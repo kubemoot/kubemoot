@@ -56,6 +56,12 @@ import java.util.Map;
  * calls since ({@link ModelSpeed}). The learned placement policy plans with it.
  * Absent means unknown.
  *
+ * <h3>Engine-reported load</h3>
+ * {@link #requestsRunning}, {@link #requestsWaiting} and {@link #kvCacheUsage} are what an
+ * engine that exports its own load reports for the whole provider (vLLM does; Ollama does
+ * not). Null means the engine did not report it; a reported zero is zero. Placement reads
+ * them through {@link EngineFit} for engines that batch requests.
+ *
  * {@code @JsonIgnoreProperties(ignoreUnknown=true)} so adding fields on
  * the operator side never breaks deserialisation on the agent side; the
  * inverse case (operator hasn't published a new field yet) is handled by
@@ -79,8 +85,29 @@ public record ProviderState(
         Map<String, Long> loadedModelContextLengths,
         Map<String, ModelSpeed> modelSpeeds,
         String engine,
-        Map<String, String> modelEndpoints
+        Map<String, String> modelEndpoints,
+        Integer requestsRunning,
+        Integer requestsWaiting,
+        Double kvCacheUsage
 ) {
+    /**
+     * A state with no engine-reported load: a provider whose engine exports none
+     * (Ollama), or one published before the load fields were.
+     */
+    public ProviderState(String name, String endpoint, int maxParallel,
+                         int activeCount, int queueDepth, List<String> loadedModels,
+                         boolean ready, String lastProbedAt, long totalVramMiB,
+                         Map<String, Long> loadedModelFootprintsMiB,
+                         Map<String, Long> availableModelFootprintsMiB,
+                         long contextLength, Map<String, Long> loadedModelContextLengths,
+                         Map<String, ModelSpeed> modelSpeeds, String engine,
+                         Map<String, String> modelEndpoints) {
+        this(name, endpoint, maxParallel, activeCount, queueDepth, loadedModels,
+                ready, lastProbedAt, totalVramMiB, loadedModelFootprintsMiB,
+                availableModelFootprintsMiB, contextLength, loadedModelContextLengths, modelSpeeds, engine,
+                modelEndpoints, null, null, null);
+    }
+
     /**
      * A state that names no per-model servers: a provider that is one server at
      * {@link #endpoint}, which is every provider but a vLLM one.
@@ -135,6 +162,19 @@ public record ProviderState(
     /** How a call reaches this provider's model server, by its engine type. */
     public ChatEngine chatEngine() {
         return ChatEngines.forType(engine);
+    }
+
+    /** How placement judges fit, crowding, and ticket budget on this provider, by its engine type. */
+    public EngineFit engineFit() {
+        return EngineFits.forType(engine);
+    }
+
+    /**
+     * True when this provider needs no accelerator memory found for {@code modelName}
+     * and has the model: its engine reserved the memory when its server started.
+     */
+    public boolean hostsWithoutMemoryBudget(String modelName) {
+        return !engineFit().budgetsMemory() && hasModel(modelName);
     }
 
     /** A state with no model speeds: every model's cost is unknown. */

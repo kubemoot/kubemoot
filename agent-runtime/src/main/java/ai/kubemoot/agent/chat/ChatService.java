@@ -1305,7 +1305,7 @@ public class ChatService {
         // or footprint unknown/unestimable). Resolution order for the footprint
         // is documented on resolveOccupancyMiB; zero means we cannot gate it.
         var states = (providerSelector != null) ? providerSelector.readState() : null;
-        long coldLoadFootprintMiB = (states != null) ? resolveOccupancyMiB(states, staticModel) : 0L;
+        long coldLoadFootprintMiB = (states != null) ? placementFootprintMiB(states, staticModel, staticModel) : 0L;
         var fallback = staticFallbackPick(staticModel, staticEndpoint, staticModel, coldLoadFootprintMiB);
         if (fallback.isPresent()) {
             return fallback.get();
@@ -1366,7 +1366,7 @@ public class ChatService {
      */
     private MullingPick waitForCapacity(String model, long footprintMiB, int promptCharCount,
                                         ai.kubemoot.agent.provider.CapacityWait wait) {
-        if (!ProviderSelector.canEverHold(providerSelector.readState(), footprintMiB)) {
+        if (!ProviderSelector.canEverHold(providerSelector.readState(), model, footprintMiB)) {
             log.info("No GPU can hold {} (coldLoad {}MiB) - stand-aside", model, footprintMiB);
             throw ai.kubemoot.agent.provider.NoFitException.modelTooLarge(model,
                     "model=" + model + " coldLoad=" + footprintMiB + "MiB exceeds every GPU's usable VRAM");
@@ -1426,8 +1426,7 @@ public class ChatService {
         java.util.List<String> models = new ArrayList<>();
         models.add(model);
         models.addAll(mullingAlternatives(model));
-        java.util.function.ToLongFunction<String> footprint =
-                m -> m.equals(model) ? resolveOccupancyMiB(states, m) : observedFootprintMiB(states, m);
+        java.util.function.ToLongFunction<String> footprint = m -> placementFootprintMiB(states, model, m);
         if (!ai.kubemoot.agent.provider.ContextFit.anyCanRun(states, models, promptTokens, footprint)) {
             long largest = ai.kubemoot.agent.provider.ContextFit.largestContext(states, models);
             log.info("Prompt of ~{} tokens exceeds every context window for {} (largest {}) - stand-aside",
@@ -1468,7 +1467,7 @@ public class ChatService {
         // factors in in-flight context-size pressure. Conservative (overestimate).
         long kvTokens = ai.kubemoot.agent.provider.KvCacheEstimator.estimateTokensFromChars(promptCharCount);
         return new CallPlanner.PlacementRequest(preferred, mullingAlternatives(preferred), states,
-                m -> m.equals(preferred) ? resolveOccupancyMiB(states, m) : observedFootprintMiB(states, m),
+                m -> placementFootprintMiB(states, preferred, m),
                 m -> ai.kubemoot.agent.provider.KvCacheEstimator.estimateMiB(m, kvTokens, properties.model().maxTokens()),
                 promptTokens(promptCharCount));
     }
@@ -1480,6 +1479,18 @@ public class ChatService {
 
     private java.util.List<String> mullingAlternatives(String preferred) {
         return candidatePolicy == null ? java.util.List.of() : candidatePolicy.mullingAlternatives(preferred);
+    }
+
+    /**
+     * The footprint a placement request carries for {@code model}: the bound model's
+     * resolved occupancy, else what providers report. A model only a provider whose
+     * engine reserved its memory at start hosts (vLLM) has no footprint to report and
+     * needs none, so it carries the ticket marker instead of zero, which would leave
+     * that provider out of every placement.
+     */
+    private long placementFootprintMiB(java.util.List<ProviderState> states, String preferred, String model) {
+        long fp = model.equals(preferred) ? resolveOccupancyMiB(states, model) : observedFootprintMiB(states, model);
+        return ai.kubemoot.agent.provider.EngineFits.placementFootprintMiB(states, model, fp);
     }
 
     /** A model's KV-published footprint; zero when no provider reports it. */

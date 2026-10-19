@@ -34,6 +34,7 @@ import (
 
 	aiv1alpha1 "github.com/kubemoot/kubemoot/operator/api/v1alpha1"
 	"github.com/kubemoot/kubemoot/operator/internal/engine"
+	"github.com/kubemoot/kubemoot/operator/internal/engine/vllm"
 	"github.com/kubemoot/kubemoot/operator/pkg/bus"
 )
 
@@ -206,6 +207,27 @@ func TestVLLMProviderReconcileKeepsAReportedZeroAndLeavesAbsentMetricsOut(t *tes
 	}
 }
 
+func TestVLLMProviderPublishesABatchingCeilingNotOneSlot(t *testing.T) {
+	srv := fakeVLLM{metrics: vllmMetrics(3, 0, 0.2)}.start(t, vllmModel14)
+	p, r := reconcileVLLMProvider(t, vllmProvider(server(vllmModel14, srv.URL)))
+	state := publishedState(t, p, r)
+	if state.MaxParallel != vllm.DefaultMaxSequences {
+		t.Errorf("maxParallel = %d, want the engine's ceiling %d: one slot would serialize a batching server",
+			state.MaxParallel, vllm.DefaultMaxSequences)
+	}
+}
+
+func TestDefaultMaxParallelIsOneForEveryEngineButVLLM(t *testing.T) {
+	for _, typ := range []aiv1alpha1.ProviderType{aiv1alpha1.ProviderTypeOllama, "", "openai"} {
+		if got := defaultMaxParallel(typ); got != 1 {
+			t.Errorf("defaultMaxParallel(%q) = %d, want 1", typ, got)
+		}
+	}
+	if got := defaultMaxParallel(aiv1alpha1.ProviderTypeVLLM); got != vllm.DefaultMaxSequences {
+		t.Errorf("defaultMaxParallel(vllm) = %d", got)
+	}
+}
+
 func TestVLLMProviderIsReadyWhileOneServerAnswers(t *testing.T) {
 	up := fakeVLLM{}.start(t, vllmModel14)
 	down := fakeVLLM{unhealthy: true}.start(t, vllmModel8)
@@ -253,12 +275,12 @@ func TestApplySnapshotToCapacityKeepsMemoryUseTheEngineDoesNotReport(t *testing.
 }
 
 func TestEndpointForNamesTheServerOfAVLLMModel(t *testing.T) {
-	vllm := vllmProvider(server(vllmModel14, "http://a:8000"), server(vllmModel8, "http://b:8000"))
+	vllmProv := vllmProvider(server(vllmModel14, "http://a:8000"), server(vllmModel8, "http://b:8000"))
 	ollama := aiv1alpha1.ModelProviderSpec{Type: aiv1alpha1.ProviderTypeOllama, Endpoint: "http://o:11434"}
 	cases := map[string]struct{ got, want string }{
-		"first server":              {vllm.Spec.EndpointFor(vllmModel14), "http://a:8000"},
-		"second server":             {vllm.Spec.EndpointFor(vllmModel8), "http://b:8000"},
-		"model with no server":      {vllm.Spec.EndpointFor("other"), ""},
+		"first server":              {vllmProv.Spec.EndpointFor(vllmModel14), "http://a:8000"},
+		"second server":             {vllmProv.Spec.EndpointFor(vllmModel8), "http://b:8000"},
+		"model with no server":      {vllmProv.Spec.EndpointFor("other"), ""},
 		"ollama has one endpoint":   {ollama.EndpointFor(vllmModel14), "http://o:11434"},
 		"vllm without a vllm block": {(&aiv1alpha1.ModelProviderSpec{Type: aiv1alpha1.ProviderTypeVLLM}).EndpointFor("x"), ""},
 	}

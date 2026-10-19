@@ -33,6 +33,16 @@ latency: a static binding made at deploy time would be wrong as soon as load shi
 Cold start is treated the same as warm start: if a model isn't resident yet, the
 system waits on the state transition rather than failing or requiring a manual warm-up.
 
+## Each engine is judged by what it does
+
+Ollama loads a model on demand, so the scheduler asks whether the model fits an
+accelerator's memory and whether a parallel slot is free. vLLM reserves its memory when
+its server starts and batches requests, so for it the questions are different: does the
+provider host the model, and does the engine have room (no waiting requests, a key-value
+cache that is not nearly full). The runtime asks the engine's own question for each
+provider, so one crew can use Ollama and vLLM providers side by side, and a model on a
+vLLM server is placed without a memory total or a measured speed.
+
 ## How a model is chosen
 
 **The operator ranks candidates.** For each phase of an agent (mulling and triage),

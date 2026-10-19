@@ -43,6 +43,7 @@ import (
 
 	aiv1alpha1 "github.com/kubemoot/kubemoot/operator/api/v1alpha1"
 	"github.com/kubemoot/kubemoot/operator/internal/engine"
+	"github.com/kubemoot/kubemoot/operator/internal/engine/vllm"
 	kubemootnats "github.com/kubemoot/kubemoot/operator/internal/nats"
 	"github.com/kubemoot/kubemoot/operator/pkg/perf"
 )
@@ -742,9 +743,21 @@ func buildProviderState(provider *aiv1alpha1.ModelProvider) ProviderState {
 		state.TotalVramMiB = provider.Spec.Scheduling.MemoryMiB
 	}
 	if state.MaxParallel < 1 {
-		state.MaxParallel = 1 // defensive: agents divide by this
+		state.MaxParallel = defaultMaxParallel(provider.Spec.Type) // defensive: agents divide by this
 	}
 	return state
+}
+
+// defaultMaxParallel is the parallelism published for a provider that discovered
+// none. A vLLM server has no fixed slots: it batches requests, so one is not a
+// limit a reader may serialize on; it publishes the engine's own ceiling on
+// concurrently scheduled sequences, and the load fields (requestsWaiting,
+// kvCacheUsage) say whether it has room. Every other engine publishes the minimum.
+func defaultMaxParallel(t aiv1alpha1.ProviderType) int {
+	if t == aiv1alpha1.ProviderTypeVLLM {
+		return vllm.DefaultMaxSequences
+	}
+	return 1
 }
 
 // modelEndpoints maps each served model to its server's endpoint; nil without servers.

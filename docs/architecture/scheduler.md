@@ -95,6 +95,22 @@ where `free(P) = usable(P) - Σ resident footprints`. `CrewSchedulingPolicy` req
 - A cold load lands on a card with free room; evicting a resident model is far costlier, and evicting one with live work is effectively forbidden, so distinct models partition across cards while the same model concentrates on its home.
 - The aggregate distribution is emergent, like `kube-scheduler` bin-packing Nodes: no anti-affinity rules, no sticky bindings, no rebalancer.
 
+#### How placement treats each engine
+
+The feasibility filter, the weighted cost, and the ticket budget above are written for Ollama, which loads models on demand into accelerator memory. Fit and capacity are an engine decision: the agent runtime picks the rule from the `engine` field of the provider state, so each engine is judged by what it actually does.
+
+| Question | Ollama | vLLM (and any other OpenAI-compatible server) |
+|---|---|---|
+| Can the provider serve the model? | Resident, or fits the accelerator's usable memory beside what is resident (above) | It hosts the model, awake or asleep. Memory totals, footprints, and what else is resident play no part: the server reserved its memory when it started |
+| Does the provider have room now? | In-flight calls are fewer than `maxParallel` | The engine holds no waiting request (`requestsWaiting` is 0) and its key-value cache is below 90 percent (`kvCacheUsage`). Calls in flight do not count: they join the engine's batch |
+| How long is the wait when there is no room? | The soonest in-flight call's remaining time, plus a call per queued call, over the slots | One call time per waiting request, spread over the running requests |
+| What does the cost add up? | The weights above | Only the engine's crowding (waiting requests plus cache use, plus a light touch per call this agent has in flight), the learned reliability, and the load cost for a hosted model that is asleep. There is no best-fit, spill, or eviction term, because a load fits or evicts nothing |
+| What does a ticket budget? | The memory left after the resident models | Nothing. The ticket counts the call and never refuses it |
+
+A load the engine does not report is read as no load. A model that only vLLM providers host is never reported too large for the accelerators: `model-too-large` applies to a model no accelerator can hold, and a hosting server already holds it. The operator publishes `maxParallel` for a vLLM provider as the engine's own ceiling on concurrently scheduled sequences, not as one slot, so a reader that still divides by it does not serialize the batch.
+
+The learned policy plans from measured speeds, and calibration measures through Ollama's own API, so a vLLM provider publishes none. A provider with no measured speed gives the learned policy no opinion, and the algorithm places the call. Because the algorithm judges a vLLM provider by the rules above, a hosted, awake model with room is placed on its vLLM server without any measurement. Calibrating a vLLM provider is separate work; the learned policy takes over for it once speeds are published.
+
 #### Candidate models per call
 
 The operator publishes each phase's candidate models as a JSON list, preferred model first:
@@ -234,7 +250,7 @@ Beyond the fields described above, the provider state carries these optional fie
 
 vLLM serves one model per server, so a `vllm` provider lists a server for each served model ([vLLM providers](../../reference/models/#vllm-providers)), and its sleep mode lets those servers share one accelerator. The adapter switches models by sleeping and waking servers and never restarts one: on the measured nodes a restart took 34 to 47 seconds, a level 1 wake 0.7 to 1.3, and a level 2 wake 2.5 to 4.9 (see the [measured results](../../concepts/choosing-a-model/#measured-results)).
 
-- **Probe.** Per server: `/health` (the server is up), `/v1/models` (the served name), `/is_sleeping` (`awake` or `asleep`; a server without the sleep endpoints counts as awake), and `/metrics` for `vllm:num_requests_running`, `vllm:num_requests_waiting`, and the key-value cache gauge. Because the provider state describes the whole provider, the request counts are summed over its servers and the cache use is the highest of them. vLLM has no fixed request slots, so `maxParallel` is not filled from the engine and the request counts and cache use are what show how busy it is.
+- **Probe.** Per server: `/health` (the server is up), `/v1/models` (the served name), `/is_sleeping` (`awake` or `asleep`; a server without the sleep endpoints counts as awake), and `/metrics` for `vllm:num_requests_running`, `vllm:num_requests_waiting`, and the key-value cache gauge. Because the provider state describes the whole provider, the request counts are summed over its servers and the cache use is the highest of them. vLLM has no fixed request slots, so the operator publishes `maxParallel` as the engine's default ceiling on concurrently scheduled sequences instead of one, and the request counts and cache use are what show how busy it is (see [How placement treats each engine](#how-placement-treats-each-engine)).
 - **Ready.** The adapter first puts every other awake server of the provider to sleep at the provider's sleep level, then wakes the model's server. A server that is down (it answers neither its sleep state nor `/health`) holds no accelerator memory and is skipped. An awake server that cannot sleep, or whose sleep state cannot be read while it is up, fails the call, because the accelerator cannot be shown to be free. A model whose own server has no sleep endpoints is always awake, so there is nothing to do for it. At level 1 the wake is one call. At level 2 it is three, in order: restore the weight buffers, reload the weights from disk, restore the key-value cache.
 - **Release.** The adapter puts the model's server to sleep at the provider's sleep level, level 1 by default, which parks the weights in host memory. A server already asleep is left alone.
 

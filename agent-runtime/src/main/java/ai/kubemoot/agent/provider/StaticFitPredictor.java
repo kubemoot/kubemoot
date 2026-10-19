@@ -82,8 +82,21 @@ public class StaticFitPredictor implements FitPredictor {
         return residentOthersMiB <= 0 || footprintMiB + residentOthersMiB <= usableVramMiB;
     }
 
+    /**
+     * Feasibility is the provider's engine's decision ({@link EngineFit}): the memory
+     * rules documented on this class are Ollama's ({@link OllamaFit}); an engine that
+     * reserved its memory when it started is judged by whether it hosts the model.
+     */
     @Override
     public FitScore predict(FitInputs in) {
+        if (in == null || in.provider() == null) {
+            return FitScore.no("invalid inputs");
+        }
+        return in.provider().engineFit().predict(in);
+    }
+
+    /** Feasibility by accelerator memory, the rules in this class's documentation. */
+    static FitScore predictByMemory(FitInputs in) {
         FitScore refusal = refuseUnusableInputs(in);
         if (refusal != null) {
             return refusal;

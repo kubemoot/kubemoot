@@ -52,6 +52,12 @@ const (
 	maxBody = 8 << 20
 )
 
+// DefaultMaxSequences is vLLM's default ceiling on the sequences one server schedules
+// at once. A server batches requests and has no fixed slots; this is the parallelism
+// the operator publishes for a vLLM provider, so a reader that divides by it does not
+// serialize the batch.
+const DefaultMaxSequences = 256
+
 // Adapter talks to the vLLM servers of one provider over HTTP.
 type Adapter struct {
 	client *http.Client
