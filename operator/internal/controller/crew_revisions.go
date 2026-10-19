@@ -139,12 +139,14 @@ func mergeNamespaceCrews(raw, crew string, entry namespaceCrewEntry) (string, bo
 }
 
 // entryUnchanged reports whether setting entry for crew would leave crews as is.
+// An empty entry removes the crew, so it leaves crews as is only when the crew is
+// absent; a crew already recorded with an empty entry is still removed.
 func entryUnchanged(crews map[string]namespaceCrewEntry, crew string, entry namespaceCrewEntry) bool {
 	current, present := crews[crew]
-	if !present {
-		return entry.isEmpty()
+	if entry.isEmpty() {
+		return !present
 	}
-	return current == entry
+	return present && current == entry
 }
 
 // encodeNamespaceCrews renders the map as JSON; an empty map renders as "".

@@ -150,6 +150,20 @@ func decodeCrews(t *testing.T, raw string) map[string]namespaceCrewEntry {
 	return out
 }
 
+func TestMergeNamespaceCrewsRemovesAnEmptyRecordedEntry(t *testing.T) {
+	raw, changed := mergeNamespaceCrews(`{"pilot":{}}`, "pilot", namespaceCrewEntry{})
+	if !changed || raw != "" {
+		t.Fatalf("an empty recorded entry is removed: got %q changed=%v", raw, changed)
+	}
+	raw, changed = mergeNamespaceCrews(`{"pilot":{},"other":{"revision":"r1"}}`, "pilot", namespaceCrewEntry{})
+	if !changed || raw != `{"other":{"revision":"r1"}}` {
+		t.Fatalf("only pilot is removed: got %q changed=%v", raw, changed)
+	}
+	if _, changed = mergeNamespaceCrews(`{"other":{"revision":"r1"}}`, "pilot", namespaceCrewEntry{}); changed {
+		t.Fatal("removing an absent crew changes nothing")
+	}
+}
+
 func TestMergeNamespaceCrewsAddAndUpdate(t *testing.T) {
 	e1 := namespaceCrewEntry{Revision: "a", Owner: revTestOwner}
 	raw, changed := mergeNamespaceCrews("", "pilot", e1)
