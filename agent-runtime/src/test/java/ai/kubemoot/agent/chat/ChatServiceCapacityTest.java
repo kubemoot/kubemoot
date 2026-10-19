@@ -119,7 +119,8 @@ class ChatServiceCapacityTest {
     /** A service whose calls are placed by {@code planner}; null uses the algorithm over {@code selector}. */
     private ChatService service(GpuCapacityWaiter waiter, String candidatesJson,
                                 ai.kubemoot.agent.provider.CallPlanner planner) {
-        var policy = new CandidatePolicy(MAPPER, Optional.ofNullable(candidatesJson), CandidatePolicy.DEFAULT_TOLERANCE);
+        var policy = new CandidatePolicy(MAPPER, Optional.ofNullable(candidatesJson), Optional.empty(),
+                CandidatePolicy.DEFAULT_TOLERANCE, 0L, 0L);
         return new ChatService(staticModel, mock(RagClient.class), mcpClient, mock(DiscussionOrchestrator.class),
                 ChatServiceToolLoopTest.stubProperties(3, "tooler", false, false),
                 mock(AgentHeartbeatService.class), MAPPER, selector, pool, null, tickets, null,

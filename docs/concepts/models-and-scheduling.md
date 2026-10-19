@@ -70,6 +70,8 @@ or the policy's `qualityBias` when the rule has no `prefer` block, give each all
 model a **quality score**. The best model becomes the agent's **preferred model**, and
 the operator hands the agent the whole ranked list, preferred model first.
 
+A rule may also ask for the faster model with `preferFaster`. Speed is measured per provider, because the same model is fast on one accelerator and slow on another, so the runtime applies it on each call: it adds up to that many points to each candidate in proportion to its measured speed relative to the fastest candidate, and prefers the best of the raised scores. A model nobody has measured gets no points. Triage uses its own candidate list the same way, and still never loads or unloads a model to make room.
+
 **The runtime picks per call.** At each call the runtime works down this order and
 takes the first that succeeds:
 

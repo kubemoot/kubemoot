@@ -1371,7 +1371,7 @@ public class ChatService {
             throw ai.kubemoot.agent.provider.NoFitException.modelTooLarge(model,
                     "model=" + model + " coldLoad=" + footprintMiB + "MiB exceeds every GPU's usable VRAM");
         }
-        requireSomeProviderHasIt(model);
+        requireSomeProviderHasIt();
         requireSomeContextHolds(model, promptTokens(promptCharCount));
         String busy = "model=" + model + " coldLoad=" + footprintMiB + "MiB: every GPU that can hold it is busy";
         if (capacityWaiter == null || wait.threadEnded()) {
@@ -1404,12 +1404,10 @@ public class ChatService {
      * alternative, downloaded or loading: an engine loads only what it has, so no
      * capacity change can place the call, and the crew's answer reports the failure.
      */
-    private void requireSomeProviderHasIt(String model) {
-        java.util.List<String> models = new ArrayList<>();
-        models.add(model);
-        models.addAll(mullingAlternatives(model));
-        if (!ProviderSelector.someProviderHasAny(providerSelector.readState(), models,
-                providerSelector::activeModelsOn)) {
+    private void requireSomeProviderHasIt() {
+        var states = providerSelector.readState();
+        java.util.List<String> models = mullingRanking(states).acceptable();
+        if (!ProviderSelector.someProviderHasAny(states, models, providerSelector::activeModelsOn)) {
             throw new IllegalStateException("no ready model provider has " + String.join(" or ", models)
                     + " downloaded");
         }
@@ -1423,9 +1421,7 @@ public class ChatService {
      */
     private void requireSomeContextHolds(String model, long promptTokens) {
         var states = providerSelector.readState();
-        java.util.List<String> models = new ArrayList<>();
-        models.add(model);
-        models.addAll(mullingAlternatives(model));
+        java.util.List<String> models = mullingRanking(states).acceptable();
         java.util.function.ToLongFunction<String> footprint = m -> placementFootprintMiB(states, model, m);
         if (!ai.kubemoot.agent.provider.ContextFit.anyCanRun(states, models, promptTokens, footprint)) {
             long largest = ai.kubemoot.agent.provider.ContextFit.largestContext(states, models);
@@ -1462,14 +1458,11 @@ public class ChatService {
     }
 
     private CallPlanner.PlacementRequest placementRequest(java.util.List<ProviderState> states, int promptCharCount) {
-        String preferred = properties.model().model();
+        String bound = properties.model().model();
         // Phase D: each model's KV-cache need for this call, so the predictor's gate
         // factors in in-flight context-size pressure. Conservative (overestimate).
-        long kvTokens = ai.kubemoot.agent.provider.KvCacheEstimator.estimateTokensFromChars(promptCharCount);
-        return new CallPlanner.PlacementRequest(preferred, mullingAlternatives(preferred), states,
-                m -> placementFootprintMiB(states, preferred, m),
-                m -> ai.kubemoot.agent.provider.KvCacheEstimator.estimateMiB(m, kvTokens, properties.model().maxTokens()),
-                promptTokens(promptCharCount));
+        return requestFor(mullingRanking(states), states, m -> placementFootprintMiB(states, bound, m),
+                promptCharCount, properties.model().maxTokens(), true);
     }
 
     private MullingPick fromPlacement(CallPlanner.Placement p) {
@@ -1477,8 +1470,59 @@ public class ChatService {
         return p.evicted().isEmpty() ? pick : pick.withEvicted(p.evicted());
     }
 
-    private java.util.List<String> mullingAlternatives(String preferred) {
-        return candidatePolicy == null ? java.util.List.of() : candidatePolicy.mullingAlternatives(preferred);
+    /**
+     * The models this mulling call may use: the bound model and the operator's
+     * in-tolerance candidates, re-ranked by the rule's preferFaster against the speeds
+     * the providers report. Without a candidate policy, or without preferFaster, it is
+     * the bound model and its in-tolerance alternatives.
+     */
+    private ai.kubemoot.agent.provider.ModelCandidates.Ranking mullingRanking(java.util.List<ProviderState> states) {
+        return rankPhase(properties.model().model(), states,
+                candidatePolicy == null ? null : candidatePolicy::mullingRanking);
+    }
+
+    /**
+     * One phase's ranking of {@code bound} and its candidates against the speeds in
+     * {@code states}; the bound model alone when the phase has no policy ({@code phase} null).
+     */
+    private ai.kubemoot.agent.provider.ModelCandidates.Ranking rankPhase(String bound,
+            java.util.List<ProviderState> states,
+            java.util.function.BiFunction<String, java.util.function.ToLongFunction<String>,
+                    ai.kubemoot.agent.provider.ModelCandidates.Ranking> phase) {
+        if (phase == null) {
+            return new ai.kubemoot.agent.provider.ModelCandidates.Ranking(bound, java.util.List.of());
+        }
+        return phase.apply(bound, m -> measuredSpeed(states, m));
+    }
+
+    /**
+     * A placement request for a ranking: the preferred model and its alternatives, with
+     * each model's KV-cache need for a prompt of {@code promptChars} and
+     * {@code outputTokens} of output.
+     */
+    private CallPlanner.PlacementRequest requestFor(ai.kubemoot.agent.provider.ModelCandidates.Ranking ranking,
+            java.util.List<ProviderState> states, java.util.function.ToLongFunction<String> footprint,
+            int promptChars, int outputTokens, boolean mayUnload) {
+        long kvTokens = ai.kubemoot.agent.provider.KvCacheEstimator.estimateTokensFromChars(promptChars);
+        return new CallPlanner.PlacementRequest(ranking.preferred(), ranking.alternatives(), states, footprint,
+                m -> ai.kubemoot.agent.provider.KvCacheEstimator.estimateMiB(m, kvTokens, outputTokens),
+                promptTokens(promptChars), mayUnload);
+    }
+
+    /**
+     * The best generation speed, in tokens per second, any ready provider that has the
+     * model reports for it: what calibration measured, or what solo crew calls observed
+     * once there are enough. Zero when no provider has measured it, which preferFaster
+     * treats as unknown, never as slow.
+     */
+    static long measuredSpeed(java.util.List<ProviderState> states, String model) {
+        return states.stream()
+                .filter(ProviderState::ready)
+                .filter(p -> p.hasModel(model))
+                .map(p -> p.speedOf(model))
+                .flatMap(java.util.Optional::stream)
+                .mapToLong(ai.kubemoot.agent.provider.ModelSpeed::generateSpeed)
+                .max().orElse(0L);
     }
 
     /**
@@ -1522,10 +1566,7 @@ public class ChatService {
         if (providerSelector == null || ticketManager == null || chatModelPool == null) {
             return;
         }
-        String preferred = properties.model().model();
-        java.util.List<String> candidates = new ArrayList<>();
-        candidates.add(preferred);
-        candidates.addAll(mullingAlternatives(preferred));
+        java.util.List<String> candidates = mullingRanking(providerSelector.readState()).acceptable();
         int planChars = planPromptChars(conversation);
         callPlanner.commit(threadId, selectedAtMs, candidates, () -> {
             var states = providerSelector.readState();
@@ -1929,11 +1970,11 @@ public class ChatService {
         // triageEndpoint only when the scheduler cannot decide (NATS down, no fit).
         TriagePlacement placement = pickTriagePlacement(systemPrompt, conversation);
         String endpoint = placement.endpoint();
-        var observedCall = callContext(placement.pickedProvider(), triageModelId,
+        var observedCall = callContext(placement.pickedProvider(), placement.model(),
                 ai.kubemoot.agent.provider.CallObservation.KIND_TRIAGE, placement.coldLoad());
 
         Duration timeout = Duration.ofSeconds(properties.triageModel().timeoutSeconds());
-        var model = chatModelPool.streamingForEndpoint(engineFor(placement.pickedProvider()), endpoint, triageModelId,
+        var model = chatModelPool.streamingForEndpoint(engineFor(placement.pickedProvider()), endpoint, placement.model(),
                 TRIAGE_TEMPERATURE, TRIAGE_MAX_TOKENS, timeout, null);
         var messages = new ArrayList<ChatMessage>();
         if (systemPrompt != null && !systemPrompt.isEmpty()) {
@@ -1948,7 +1989,7 @@ public class ChatService {
             var usage = timed.response().tokenUsage();
             ok = true;
             return new SimpleLlmResult(timed.response().aiMessage().text(), inputTokens(usage), outputTokens(usage))
-                    .ranOn(new ModelUse(triageModelId, placement.pickedProvider()));
+                    .ranOn(new ModelUse(placement.model(), placement.pickedProvider()));
         } catch (RuntimeException e) {
             throw new java.io.UncheckedIOException("Triage call failed: " + e.getMessage(), new IOException(e));
         } finally {
@@ -1962,11 +2003,11 @@ public class ChatService {
      * the model occupancy used to claim VRAM, and the held ticket. Extracted from
      * triageChatWithTokens so the call body stays under the complexity gate.
      */
-    private record TriagePlacement(String endpoint, String pickedProvider, long occupancy,
+    private record TriagePlacement(String endpoint, String pickedProvider, String model, long occupancy,
                                    java.util.Optional<ai.kubemoot.agent.provider.Ticket> ticket, boolean coldLoad) {
-        /** The static triage endpoint, with no provider claimed. */
-        static TriagePlacement unscheduled(String endpoint, long occupancy) {
-            return new TriagePlacement(endpoint, "", occupancy, java.util.Optional.empty(), false);
+        /** The static triage endpoint and the bound triage model, with no provider claimed. */
+        static TriagePlacement unscheduled(String endpoint, String model, long occupancy) {
+            return new TriagePlacement(endpoint, "", model, occupancy, java.util.Optional.empty(), false);
         }
     }
 
@@ -1978,22 +2019,30 @@ public class ChatService {
      */
     private TriagePlacement pickTriagePlacement(String systemPrompt, String conversation) {
         if (providerSelector == null || ticketManager == null) {
-            return TriagePlacement.unscheduled(triageEndpoint, 0L);
+            return TriagePlacement.unscheduled(triageEndpoint, triageModelId, 0L);
         }
         var states = providerSelector.readState();
         if (states.isEmpty()) {
-            return TriagePlacement.unscheduled(triageEndpoint, 0L);
+            return TriagePlacement.unscheduled(triageEndpoint, triageModelId, 0L);
         }
+        var ranking = triageRanking(states);
         long occupancy = resolveOccupancyMiB(states, triageModelId);
-        if (occupancy <= 0) {
-            return TriagePlacement.unscheduled(triageEndpoint, 0L);
+        if (occupancy <= 0 && ranking.alternatives().isEmpty()) {
+            return TriagePlacement.unscheduled(triageEndpoint, triageModelId, 0L);
         }
         int promptChars = lengthOrZero(systemPrompt) + lengthOrZero(conversation);
-        long kv = ai.kubemoot.agent.provider.KvCacheEstimator.estimateMiB(triageModelId,
-                ai.kubemoot.agent.provider.KvCacheEstimator.estimateTokensFromChars(promptChars), 2048);
         long promptTokens = promptTokens(promptChars);
-        requireTriageContextFits(states, promptTokens);
-        return claimTriagePlacement(states, occupancy, kv, promptTokens);
+        requireTriageContextFits(states, ranking.acceptable(), promptTokens);
+        return claimTriagePlacement(states, ranking, occupancy, promptChars);
+    }
+
+    /**
+     * The models this triage call may use: the bound triage model and the operator's
+     * in-tolerance triage candidates, re-ranked by the rule's preferFaster. Without a
+     * candidate policy, or without a candidate list, it is the bound triage model alone.
+     */
+    private ai.kubemoot.agent.provider.ModelCandidates.Ranking triageRanking(java.util.List<ProviderState> states) {
+        return rankPhase(triageModelId, states, candidatePolicy == null ? null : candidatePolicy::triageRanking);
     }
 
     private static int lengthOrZero(String text) {
@@ -2001,12 +2050,12 @@ public class ChatService {
     }
 
     /** Throws NoFitException when no provider's context window can hold the triage prompt. */
-    private void requireTriageContextFits(List<ProviderState> states, long promptTokens) {
-        if (!ai.kubemoot.agent.provider.ContextFit.anyCanHold(states, List.of(triageModelId), promptTokens)) {
+    private void requireTriageContextFits(List<ProviderState> states, List<String> models, long promptTokens) {
+        if (!ai.kubemoot.agent.provider.ContextFit.anyCanHold(states, models, promptTokens)) {
             throw ai.kubemoot.agent.provider.NoFitException.promptTooLarge(triageModelId,
                     "triage prompt ~" + promptTokens + " tokens exceeds the largest context window ("
-                            + ai.kubemoot.agent.provider.ContextFit.largestContext(states, List.of(triageModelId))
-                            + " tokens) any provider gives " + triageModelId);
+                            + ai.kubemoot.agent.provider.ContextFit.largestContext(states, models)
+                            + " tokens) any provider gives " + models);
         }
     }
 
@@ -2014,32 +2063,38 @@ public class ChatService {
      * Claim a provider for the triage call through the configured placement policy,
      * as every other call is placed, or keep the static triageEndpoint when no
      * provider fits. Triage is short and waits on nothing, so it never unloads idle
-     * models to make room. It has its own model and no alternatives, so one
-     * occupancy and KV estimate serve every lookup. A queued placement keeps its
+     * models to make room: it takes the preferred triage model warm with room, else an
+     * in-tolerance candidate that is warm or fits now. A queued placement keeps its
      * ticket like any other; recordTriageOutcome releases it.
      */
-    private TriagePlacement claimTriagePlacement(List<ProviderState> states, long occupancy, long kv,
-                                                 long promptTokens) {
+    private TriagePlacement claimTriagePlacement(List<ProviderState> states,
+                                                 ai.kubemoot.agent.provider.ModelCandidates.Ranking ranking,
+                                                 long occupancy, int promptChars) {
         try {
-            var placed = callPlanner.place(new CallPlanner.PlacementRequest(triageModelId, List.of(), states,
-                    m -> occupancy, m -> kv, promptTokens, false));
+            var placed = callPlanner.place(requestFor(ranking, states,
+                    m -> m.equals(triageModelId) ? occupancy : placementFootprintMiB(states, triageModelId, m),
+                    promptChars, 2048, false));
             if (placed.isPresent()) {
-                var p = placed.get();
-                // Same readiness step as every other call: a model asleep on its server is
-                // woken by the operator before the request is sent.
-                ai.kubemoot.agent.provider.ModelReadiness.ensure(providerSelector, ticketManager, p.pick(), triageModelId);
-                String endpoint = p.pick().provider().endpointFor(triageModelId);
-                String pickedProvider = p.pick().provider().name();
-                log.info("OUTBOUND inference (triage): agent={} endpoint={} model={} provider={}",
-                        properties.agentName(), endpoint, triageModelId, pickedProvider);
-                return new TriagePlacement(endpoint, pickedProvider, occupancy,
-                        java.util.Optional.of(p.pick().ticket()), p.coldLoad());
+                return scheduledTriage(placed.get());
             }
             // pick empty (NoFit/degraded) -> keep the static triageEndpoint
         } catch (ai.kubemoot.agent.provider.NoFitException nfe) {
             log.info("triage: no provider fit ({}) - static endpoint", nfe.predictorReason());
         }
-        return TriagePlacement.unscheduled(triageEndpoint, occupancy);
+        return TriagePlacement.unscheduled(triageEndpoint, triageModelId, occupancy);
+    }
+
+    /** The triage placement for a claimed pick: the model it chose, its endpoint, ticket and readiness. */
+    private TriagePlacement scheduledTriage(CallPlanner.Placement p) {
+        // Same readiness step as every other call: a model asleep on its server is
+        // woken by the operator before the request is sent.
+        ai.kubemoot.agent.provider.ModelReadiness.ensure(providerSelector, ticketManager, p.pick(), p.model());
+        String endpoint = p.pick().provider().endpointFor(p.model());
+        String pickedProvider = p.pick().provider().name();
+        log.info("OUTBOUND inference (triage): agent={} endpoint={} model={} provider={}",
+                properties.agentName(), endpoint, p.model(), pickedProvider);
+        return new TriagePlacement(endpoint, pickedProvider, p.model(), p.footprintMiB(),
+                java.util.Optional.of(p.pick().ticket()), p.coldLoad());
     }
 
     /**
@@ -2054,7 +2109,7 @@ public class ChatService {
             if (ok) {
                 providerSelector.recordSuccess(placement.pickedProvider());
                 if (ticketManager != null && placement.occupancy() > 0) {
-                    ticketManager.recordResidency(placement.pickedProvider(), triageModelId, placement.occupancy());
+                    ticketManager.recordResidency(placement.pickedProvider(), placement.model(), placement.occupancy());
                 }
             } else {
                 providerSelector.recordFailure(placement.pickedProvider());

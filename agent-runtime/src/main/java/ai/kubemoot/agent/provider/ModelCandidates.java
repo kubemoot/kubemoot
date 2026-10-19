@@ -9,14 +9,15 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
+import java.util.function.ToLongFunction;
 
 /**
  * The ranked candidate models the operator publishes for a phase
  * ({@code KUBEMOOT_MODEL_CANDIDATES_MULLING}, a JSON list of
  * {@code {"model": "...", "score": N}}, the bound model first). {@code score} is
  * the model's quality score under the crew's scheduling policy: the sum of the
- * matching {@code prefer} weights and the {@code qualityBias}/{@code latencyClass}
- * contribution.
+ * matching {@code prefer} weights and the {@code qualityBias} (model size) and
+ * ability contribution.
  *
  * <p>The per-call pick uses {@link #warmAlternatives} to decide which other
  * models may replace the bound model when one of them is already warm with room:
@@ -30,6 +31,20 @@ public final class ModelCandidates {
 
     /** One published candidate. */
     public record Candidate(String model, long score) {}
+
+    /**
+     * The models one call may use: the one to place first and the others that may
+     * stand in for it, best first.
+     */
+    public record Ranking(String preferred, List<String> alternatives) {
+        /** The preferred model, then the alternatives. */
+        public List<String> acceptable() {
+            List<String> all = new ArrayList<>();
+            all.add(preferred);
+            all.addAll(alternatives);
+            return all;
+        }
+    }
 
     private final List<Candidate> ranked;
 
@@ -94,5 +109,57 @@ public final class ModelCandidates {
                 .map(Candidate::model)
                 .distinct()
                 .toList();
+    }
+
+    /**
+     * Ranks the candidates for one call. With {@code preferFaster} points and at least
+     * one measured speed, each candidate's score is raised by {@code preferFaster}
+     * times its measured speed over the fastest candidate's, and the call prefers the
+     * best of the raised scores (the bound model on a tie); the tolerance applies to
+     * the raised scores. A candidate with no measured speed gets no points: it is never
+     * guessed fast or slow. With {@code preferFaster} 0, no measured speed, or a bound
+     * model that is not listed, the bound model stays preferred and the alternatives are
+     * {@link #warmAlternatives}, as before.
+     *
+     * @param speedOf measured generation speed of a model, tokens per second; 0 when
+     *                not measured
+     */
+    public Ranking rank(String bound, long tolerance, long preferFaster, ToLongFunction<String> speedOf) {
+        Optional<Candidate> boundEntry = ranked.stream().filter(c -> c.model().equals(bound)).findFirst();
+        long fastest = ranked.stream().mapToLong(c -> speedOf.applyAsLong(c.model())).max().orElse(0L);
+        if (boundEntry.isEmpty() || preferFaster <= 0 || fastest <= 0) {
+            return new Ranking(bound, warmAlternatives(bound, tolerance));
+        }
+        List<Candidate> raised = ranked.stream()
+                .map(c -> new Candidate(c.model(), c.score() + speedPoints(speedOf.applyAsLong(c.model()), fastest, preferFaster)))
+                .toList();
+        Candidate best = bestOf(raised, bound);
+        long floor = best.score() - Math.max(0L, tolerance);
+        List<String> alternatives = raised.stream()
+                .filter(c -> !c.model().equals(best.model()) && c.score() >= floor)
+                .sorted(Comparator.comparingLong(Candidate::score).reversed())
+                .map(Candidate::model)
+                .distinct()
+                .toList();
+        return new Ranking(best.model(), alternatives);
+    }
+
+    /** The points a speed earns: {@code preferFaster} in proportion to {@code speed} over {@code fastest}. */
+    static long speedPoints(long speed, long fastest, long preferFaster) {
+        if (speed <= 0 || fastest <= 0) {
+            return 0L;
+        }
+        return Math.round((double) preferFaster * speed / fastest);
+    }
+
+    /** The highest-scoring candidate; the bound model keeps a tie, then list order decides. */
+    private static Candidate bestOf(List<Candidate> candidates, String bound) {
+        Candidate best = candidates.stream().filter(c -> c.model().equals(bound)).findFirst().orElse(candidates.get(0));
+        for (Candidate c : candidates) {
+            if (c.score() > best.score()) {
+                best = c;
+            }
+        }
+        return best;
     }
 }
