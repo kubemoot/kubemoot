@@ -2025,6 +2025,9 @@ public class ChatService {
                     m -> occupancy, m -> kv, promptTokens, false));
             if (placed.isPresent()) {
                 var p = placed.get();
+                // Same readiness step as every other call: a model asleep on its server is
+                // woken by the operator before the request is sent.
+                ai.kubemoot.agent.provider.ModelReadiness.ensure(providerSelector, ticketManager, p.pick(), triageModelId);
                 String endpoint = p.pick().provider().endpointFor(triageModelId);
                 String pickedProvider = p.pick().provider().name();
                 log.info("OUTBOUND inference (triage): agent={} endpoint={} model={} provider={}",
