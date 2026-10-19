@@ -172,6 +172,8 @@ spec:
             - type
             type: object
             x-kubernetes-validations:
+            - message: an ollama provider needs spec.endpoint
+              rule: self.type != 'ollama' || has(self.endpoint)
             - message: spec.endpoint is only for an ollama provider; a vllm provider
                 names its servers with spec.serviceRef or spec.servers
               rule: self.type == 'ollama' || !has(self.endpoint)
@@ -607,9 +609,10 @@ spec:
                 type: object
               vllmServers:
                 description: |-
-                  VLLMServers is, for a vllm provider with spec.vllm.serviceRef, the servers
-                  the operator discovered: the served name each port reports on /v1/models
-                  and that port's URL. Empty in servers mode, where spec.vllm.servers says it.
+                  VLLMServers is, for a vllm provider with spec.serviceRef, the servers the
+                  operator discovered: each served name a port reports on /v1/models and that
+                  port's URL. A port that stops answering keeps the servers last found there.
+                  Empty with spec.servers, which says it itself.
                 items:
                   description: VLLMServer is one vLLM server and the model it serves.
                   properties:

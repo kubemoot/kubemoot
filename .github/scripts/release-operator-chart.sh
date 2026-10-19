@@ -39,7 +39,7 @@ shopt -s inherit_errexit
 
 # shellcheck source=/dev/null
 source "${RELEASE_LIB:?RELEASE_LIB must point to release-lib.sh from kubemoot/release-actions}"
-# shellcheck source=./release-chart-lib.sh
+# shellcheck source=/dev/null
 source "$(dirname "${BASH_SOURCE[0]}")/release-chart-lib.sh"
 
 FORCE="${FORCE:-false}"

@@ -21,10 +21,10 @@ template:
     image: ""
     imagePullPolicy: IfNotPresent
     # Host memory and the accelerator. At sleep level 1 every sleeping model's weights
-    # are parked in host memory, so the memory limit must cover the weights of every
-    # model below plus the processes, and the memory-backed /dev/shm (shmSize) counts
-    # against it too. A 14B and a 32B model together needed 44Gi. The accelerator is
-    # requested here by its resource name, so any vendor works:
+    # are parked in host memory: size the memory limit above the sum of the sleeping
+    # models' weights, plus the processes and the memory-backed /dev/shm (shmSize),
+    # which counts against it too. The accelerator is requested here by its resource
+    # name, so any vendor works:
     # resources:
     #   requests: {memory: 32Gi, nvidia.com/gpu: 1}
     #   limits: {memory: 44Gi, nvidia.com/gpu: 1}

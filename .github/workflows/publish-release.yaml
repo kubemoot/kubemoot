@@ -4,7 +4,9 @@
 # homelab runs them. When a candidate has passed its tests and measurements, a
 # maintainer runs this workflow (Actions tab, Run workflow; dispatch needs write
 # access). It publishes the operator chart candidate and every component it pins,
-# all together:
+# all together, and with them the kubemoot-vllm chart when it has a candidate that is
+# not yet published (signed and attested like the operator chart, with its own tag
+# vllm-chart-vX.Y.Z and its own GitHub Release):
 #   publish     copies each image by digest to the release registry under its final
 #               version, packages the chart with the final version and the finals of the
 #               images the candidate chart in Harbor ran, pushes it to Harbor and the
@@ -142,7 +144,12 @@ jobs:
           bash .github/scripts/publish-release.sh
 
       - name: Release notes to the run summary
-        run: cat release-files/notes.md >> "$GITHUB_STEP_SUMMARY"
+        run: |
+          cat release-files/notes.md >> "$GITHUB_STEP_SUMMARY"
+          if [ -f release-files/notes-vllm.md ]; then
+            printf '\n---\n\n' >> "$GITHUB_STEP_SUMMARY"
+            cat release-files/notes-vllm.md >> "$GITHUB_STEP_SUMMARY"
+          fi
 
       - name: Keep the release files
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

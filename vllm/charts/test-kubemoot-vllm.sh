@@ -50,6 +50,23 @@ out="$(render -f "$example")"
 [ "$(get "$out" Deployment '.spec.template.spec.containers[0].resources.limits["nvidia.com/gpu"]')" = "1" ] || fail "accelerator resource lost"
 [ "$(get "$out" Deployment '.spec.template.spec.containers[0].resources.limits.memory')" = "44Gi" ] || fail "memory limit lost"
 
+# The liveness probe runs the rendered command against the launcher's heartbeat file:
+# a fresh file passes, a stale or missing one fails.
+mapfile -t liveness < <(get "$out" Deployment '.spec.template.spec.containers[0].livenessProbe.exec.command[]')
+[ "${#liveness[@]}" = 4 ] && [ "${liveness[0]}" = "python3" ] && [ "${liveness[3]}" = "/tmp/launcher-alive" ] || fail "no liveness probe on the launcher's heartbeat"
+beat="$(mktemp)"
+trap 'rm -f "$beat"' EXIT
+"${liveness[0]}" "${liveness[1]}" "${liveness[2]}" "$beat" || fail "the liveness probe fails on a fresh heartbeat"
+touch -d '15 minutes ago' "$beat"
+if "${liveness[0]}" "${liveness[1]}" "${liveness[2]}" "$beat"; then fail "the liveness probe passes on a stale heartbeat"; fi
+rm -f "$beat"
+if "${liveness[0]}" "${liveness[1]}" "${liveness[2]}" "$beat" 2>/dev/null; then fail "the liveness probe passes without a heartbeat"; fi
+[ "$(get "$out" Deployment '.spec.template.spec.containers[0].livenessProbe.failureThreshold')" = "3" ] || fail "liveness failureThreshold"
+
+# The pod's grace period is the one the launcher's shutdown budget is checked against.
+grace="$(get "$out" Deployment .spec.template.spec.terminationGracePeriodSeconds)"
+[ "$grace" = "$(sed -n 's/^GRACE_PERIOD_S = //p' "$chart/files/launcher.py")" ] || fail "terminationGracePeriodSeconds ($grace) differs from the launcher's GRACE_PERIOD_S"
+
 # Caches on the weights volume, sleep endpoints on, shared memory in memory.
 env="$(get "$out" Deployment '.spec.template.spec.containers[0].env[] | .name + "=" + .value')"
 grep -qx 'HF_HOME=/models/huggingface' <<<"$env" || fail "HF_HOME is not on the weights volume"

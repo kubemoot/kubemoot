@@ -59,7 +59,10 @@ type fakeServer struct {
 	// unhealthy makes /health answer 503.
 	unhealthy bool
 	// served is the id /v1/models lists; empty lists the test's model.
-	served  string
+	served string
+	// aliases are further ids /v1/models lists, as a server started with several
+	// --served-model-name values does.
+	aliases []string
 	metrics string
 	log     []string
 }
@@ -87,6 +90,15 @@ func (f *fakeServer) handle(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// aliasEntries is the extra /v1/models entries for the aliases, each with a leading comma.
+func (f *fakeServer) aliasEntries() string {
+	var out string
+	for _, id := range f.aliases {
+		out += fmt.Sprintf(`,{"id":%q}`, id)
+	}
+	return out
+}
+
 // record appends the request, with its body when it has one, to the log.
 func (f *fakeServer) record(r *http.Request) {
 	entry := r.Method + " " + r.URL.RequestURI()
@@ -103,7 +115,7 @@ func (f *fakeServer) read(w http.ResponseWriter, r *http.Request) {
 	case r.URL.Path == pathHealth && f.unhealthy:
 		w.WriteHeader(http.StatusServiceUnavailable)
 	case r.URL.Path == pathModels:
-		_, _ = fmt.Fprintf(w, `{"data":[{"id":%q}]}`, f.served)
+		_, _ = fmt.Fprintf(w, `{"data":[{"id":%q}%s]}`, f.served, f.aliasEntries())
 	case r.URL.Path == pathIsSleeping:
 		f.readSleeping(w, r)
 	case r.URL.Path == pathMetrics && f.metrics != "":
@@ -352,7 +364,7 @@ func TestReadyWakesTheServerAtLevelOne(t *testing.T) {
 	if err := New(http.DefaultClient).Ready(context.Background(), specOf(1, map[string]*fakeServer{qwen14: a}, qwen14), qwen14); err != nil {
 		t.Fatal(err)
 	}
-	if got := a.posts(); len(got) != 1 || got[0] != "POST /wake_up" {
+	if got := a.posts(); len(got) != 1 || got[0] != postWakeUp {
 		t.Errorf("posts = %v, want one POST /wake_up", got)
 	}
 }
@@ -367,7 +379,7 @@ func TestReadySleepsTheAwakeServerFirst(t *testing.T) {
 	if got := a.posts(); len(got) != 1 || got[0] != "POST /sleep?level=1" {
 		t.Errorf("the awake server is put to sleep, posts = %v", got)
 	}
-	if got := b.posts(); len(got) != 1 || got[0] != "POST /wake_up" {
+	if got := b.posts(); len(got) != 1 || got[0] != postWakeUp {
 		t.Errorf("the target is woken, posts = %v", got)
 	}
 	if a.isAsleep() != true || b.isAsleep() != false {
@@ -387,6 +399,8 @@ func TestReadyDoesNotTouchServersAlreadyInTheRightState(t *testing.T) {
 	}
 }
 
+// The kubemoot-vllm launcher wakes a level 2 server with the same three requests in the
+// same order (vllm/charts/launcher_test.py, test_level_two_sleeps_at_level_two_and_wakes_in_three_steps).
 func TestReadyLevelTwoWakesInOrder(t *testing.T) {
 	a := newFake(t, qwen14, true)
 	if err := New(http.DefaultClient).Ready(context.Background(), specOf(2, map[string]*fakeServer{qwen14: a}, qwen14), qwen14); err != nil {

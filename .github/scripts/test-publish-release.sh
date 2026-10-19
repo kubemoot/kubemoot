@@ -463,6 +463,61 @@ check "with the finals of its pins" "1|1" \
   "$(grep -c 'agent-runtime:0.342.33$' <<<"$values")|$(grep -c 'crew-liaison:0.346.33$' <<<"$values")"
 check "and no candidate left" 0 "$(tar -xzOf "$tgz" 2>/dev/null | grep -c -- '-rc\.' || true)"
 
+# 10b. The kubemoot-vllm chart releases beside the operator chart when it has a candidate
+# that is not yet published. It references no Kubemoot image, so it pins nothing.
+cd "${root}/repo"
+git checkout -q main
+mkdir -p vllm/charts
+cp -r "${repo_root}/vllm/charts/kubemoot-vllm" vllm/charts/
+git add vllm
+git commit -q -m "feat(vllm): the kubemoot-vllm chart"
+vllm_commit=$(git rev-parse HEAD)
+git tag -a vllm-chart-v0.1.0-rc.0 -m rc
+git commit -q --allow-empty -m "feat: later work, not in the vllm chart"
+git push -q origin main --tags 2>/dev/null
+DRY_RUN=true RC_TAG=latest run_publish vllm && status=0 || status=$?
+check "a dry run with a vllm chart candidate succeeds" 0 "$status"
+[ "$status" -eq 0 ] || sed 's/^/    /' "${root}/run-vllm.log"
+out="$(cat "${root}/run-vllm.log")"
+vtgz="${root}/out-vllm/kubemoot-vllm-0.1.0.tgz"
+check "packages the vllm chart at the final version" "1|0.1.0|0.1.0" \
+  "$([ -f "$vtgz" ] && echo 1 || echo 0)|$(in_tgz "$vtgz" kubemoot-vllm/Chart.yaml | sed -n 's/^version: //p')|$(in_tgz "$vtgz" kubemoot-vllm/Chart.yaml | sed -n 's/^appVersion: //p' | tr -d '"')"
+check "plans signing the vllm chart" 1 "$(grep -c '^sign ghcr.test/kubemoot/charts/kubemoot-vllm@.*(dry run: not signed)$' <<<"$out")"
+check "plans the operator chart as before" 1 "$(grep -c '^sign ghcr.test/kubemoot/charts/kubemoot-operator@.*(dry run: not signed)$' <<<"$out")"
+check "plans its final tag with the others" 1 "$(grep -c '^Final tags:.*vllm-chart-v0.1.0' <<<"$out")"
+check "names its own GitHub Release" 1 "$(grep -c '^vllm-chart-v0.1.0	kubemoot-vllm chart 0.1.0	notes-vllm.md$' "${root}/out-vllm/releases.tsv")"
+check "the operator release is still named" 1 "$(grep -c '^operator-chart-v0.92.583	Kubemoot 0.92.583	notes.md$' "${root}/out-vllm/releases.tsv")"
+check "its notes give the install command" 1 "$(grep -c 'helm install vllm-gpu oci://ghcr.test/kubemoot/charts/kubemoot-vllm --version 0.1.0' "${root}/out-vllm/notes-vllm.md")"
+check "its notes list the chart's changes only" "1|0" \
+  "$(grep -c '^- The kubemoot-vllm chart (' "${root}/out-vllm/notes-vllm.md")|$(grep -c 'later work' "${root}/out-vllm/notes-vllm.md" || true)"
+check "dry run creates no vllm tag" "" "$(git tag -l 'vllm-chart-v0.1.0')"
+check "the vllm chart is stamped from its candidate's commit" "$vllm_commit" "$(git rev-list -n 1 vllm-chart-v0.1.0-rc.0)"
+check "git keeps the vllm chart at 0.0.0" "version: 0.0.0" "$(grep '^version:' "${vllm_chart_dir:-vllm/charts/kubemoot-vllm}/Chart.yaml")"
+
+# A candidate whose final is already published is not published again.
+git tag -a vllm-chart-v0.1.0 -m final "$vllm_commit"
+DRY_RUN=true RC_TAG=latest run_publish vllmdone && status=0 || status=$?
+check "a published vllm chart is skipped" "0|0" \
+  "${status}|$(find "${root}/out-vllmdone" -name 'kubemoot-vllm-*' | wc -l | tr -d ' ')"
+git tag -d vllm-chart-v0.1.0 >/dev/null
+
+# Provenance: the vllm chart's goes to its own release, everything else to the operator's.
+printf 'ghcr.test/kubemoot/agent-runtime\tsha256:aaa\nghcr.test/kubemoot/charts/kubemoot-operator\tsha256:bbb\nghcr.test/kubemoot/charts/kubemoot-vllm\tsha256:ccc\n' \
+  > "${root}/subjects.tsv"
+mkdir -p "${root}/prov"
+cp "${root}/subjects.tsv" "${root}/prov/subjects.tsv"
+# shellcheck disable=SC2016 # expanded by the inner bash
+REGISTRY=harbor.test RELEASE_REGISTRY=ghcr.test OUT_DIR="${root}/prov" \
+  bash -c 'source "$1"; write_provenance_map operator-chart-v1.0.0 kubemoot_1.0.0.intoto.jsonl vllm-chart-v0.1.0 kubemoot-vllm_0.1.0.intoto.jsonl' _ "${here}/publish-release.sh" > /dev/null 2>&1
+check "splits the provenance between the two releases" \
+  "operator-chart-v1.0.0|kubemoot_1.0.0.intoto.jsonl|ghcr.test/kubemoot/agent-runtime|sha256:aaa;operator-chart-v1.0.0|kubemoot_1.0.0.intoto.jsonl|ghcr.test/kubemoot/charts/kubemoot-operator|sha256:bbb;vllm-chart-v0.1.0|kubemoot-vllm_0.1.0.intoto.jsonl|ghcr.test/kubemoot/charts/kubemoot-vllm|sha256:ccc" \
+  "$(tr '\t' '|' < "${root}/prov/provenance.tsv" | paste -sd';')"
+# shellcheck disable=SC2016 # expanded by the inner bash
+REGISTRY=harbor.test RELEASE_REGISTRY=ghcr.test OUT_DIR="${root}/prov" \
+  bash -c 'source "$1"; write_provenance_map operator-chart-v1.0.0 kubemoot_1.0.0.intoto.jsonl' _ "${here}/publish-release.sh" > /dev/null 2>&1
+check "without a vllm release everything goes to the operator's" 3 \
+  "$(grep -c '^operator-chart-v1.0.0	kubemoot_1.0.0.intoto.jsonl	' "${root}/prov/provenance.tsv")"
+
 # 11. This repository: versions live only in tags.
 cd "$repo_root"
 for f in $(git ls-files '*Chart.yaml'); do

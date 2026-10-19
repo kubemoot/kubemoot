@@ -15,7 +15,10 @@ on:
     branches: [main]
     paths:
       - 'vllm/charts/kubemoot-vllm/**'
+      - 'vllm/charts/test-kubemoot-vllm.sh'
+      - 'vllm/charts/launcher_test.py'
       - '.github/scripts/release-vllm-chart.sh'
+      - '.github/scripts/release-chart-lib.sh'
       - '.github/workflows/release-vllm-chart.yaml'
   workflow_dispatch:
     inputs:

@@ -70,9 +70,25 @@ spec:
             # A cold start downloads the weights and compiles each model. This bound is a
             # safety net (60 minutes), not the way the start is judged.
             failureThreshold: 360
+          # Ready while every server is up; the launcher removes the file while it
+          # recovers a server.
           readinessProbe:
             exec: {command: [test, -f, /tmp/launcher-ready]}
             periodSeconds: 10
+          # The launcher touches /tmp/launcher-alive whenever it makes progress (each
+          # cycle, each wait for a server, each recovery attempt), so a launcher that
+          # is stuck is restarted with the pod. Ten minutes covers the longest wait
+          # between two touches. It runs after the startup probe has passed.
+          livenessProbe:
+            exec:
+              command:
+                - python3
+                - -c
+                - "import os,sys,time; sys.exit(0 if time.time()-os.stat(sys.argv[1]).st_mtime < 600 else 1)"
+                - /tmp/launcher-alive
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 3
           {{- with .Values.template.container.resources }}
           resources:
             {{- toYaml . | nindent 12 }}

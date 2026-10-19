@@ -60,7 +60,7 @@ spec:
     namespace: vllm
 ```
 
-`helm install` prints this ModelProvider for the release, with a Model for each model, so you copy it rather than type it. The operator records what it found in `status.vllmServers`: each served name and the URL of its port. A port that does not answer yet is left out until it does, and the provider is `Pending` until a port reports a model.
+`helm install` prints this ModelProvider for the release, with a Model for each model, so you copy it rather than type it. The operator records what it found in `status.vllmServers`: each served name and the URL of its port. It asks the TCP ports of the Service and keeps every name a server lists, so a server started with several served names is known by all of them. A port that has never answered is left out until it does, and the provider is `Pending` until a port reports a model. A port that answered before and stops answering, for example while its server restarts, keeps the servers last found there, so its Models are not reported as misnamed. If the Service itself cannot be read, the last known servers stay in the status and the provider reports `Failed`.
 
 For vLLM deployed another way, list the servers yourself with `servers`, one endpoint per model:
 

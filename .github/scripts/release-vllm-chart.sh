@@ -30,7 +30,7 @@ shopt -s inherit_errexit
 
 # shellcheck source=/dev/null
 source "${RELEASE_LIB:?RELEASE_LIB must point to release-lib.sh from kubemoot/release-actions}"
-# shellcheck source=./release-chart-lib.sh
+# shellcheck source=/dev/null
 source "$(dirname "${BASH_SOURCE[0]}")/release-chart-lib.sh"
 
 FORCE="${FORCE:-false}"
@@ -59,10 +59,8 @@ main() {
     return 0
   fi
 
-  rl_checkout_at "$commit"
   version=$(next_chart_version "$commit" "$FIRST_VERSION")
-  rl_stamp_chart "${RL_CHECKOUT}/${CHART_DIR}" "$version"
-  helm package "${RL_CHECKOUT}/${CHART_DIR}" --destination "${OUT_DIR}" >&2
+  package_chart_at "$commit" "$CHART_DIR" "$version" "$OUT_DIR"
   echo "kubemoot-vllm chart ${version} at ${commit}; dry run: ${DRY_RUN:-true}"
   output chart_version "$version"
   if rl_is_dry; then

@@ -103,6 +103,11 @@ class LauncherTest(unittest.TestCase):
         self.launcher = load_launcher()
         self.launcher.HEALTH_POLL_S = 0.05
         self.launcher.READY_FILE = os.path.join(tempfile.mkdtemp(), "ready")
+        self.launcher.ALIVE_FILE = os.path.join(tempfile.mkdtemp(), "alive")
+        self.launcher.HEALTH_TIMEOUT_S = 0.5
+        self.launcher.HEALTH_FAILURES = 2
+        self.launcher.HUNG_STOP_TIMEOUT_S = 5
+        self.launcher.BACKOFF_START_S = 0.05
         self.tmp = tempfile.mkdtemp()
         self.events = os.path.join(self.tmp, "events")
         Path(self.events).touch()
@@ -178,20 +183,145 @@ class LauncherTest(unittest.TestCase):
         instance.start_all()
         os.killpg(instance.servers[1].proc.pid, signal.SIGKILL)
         instance.servers[1].proc.wait()
-        self.launcher.BACKOFF_START_S = 0.05
-        real = instance.recover
+        real = instance.start_server_asleep
         attempts = []
 
-        def flaky(dead):
-            attempts.append(dead.name)
+        def flaky(server):
+            attempts.append(server.name)
             if len(attempts) == 1:
                 raise self.launcher.ServerExited("b exited with 3 before it answered /health")
-            real(dead)
+            real(server)
 
-        instance.recover = flaky
+        instance.start_server_asleep = flaky
         self.assertTrue(instance.check_once())
         self.assertEqual(attempts, ["b", "b"])
         self.assertTrue(instance.servers[1].running())
+        # The server that was awake before the failed attempt is the one woken after.
+        self.assertFalse(instance.servers[0].is_sleeping())
+        self.assertTrue(instance.servers[1].is_sleeping())
+
+    def test_a_failed_restart_wakes_the_server_that_was_awake_not_the_first(self):
+        instance = self.make(["a", "b", "c"])
+        instance.start_all()
+        instance.servers[0].sleep()
+        instance.servers[2].wake()  # c is the awake one
+        self.kill(instance.servers[1])
+        real = instance.start_server_asleep
+        attempts = []
+
+        def flaky(server):
+            attempts.append(1)
+            if len(attempts) == 1:
+                raise self.launcher.ServerExited("exited")
+            real(server)
+
+        instance.start_server_asleep = flaky
+        self.assertTrue(instance.check_once())
+        self.assertEqual([s.is_sleeping() for s in instance.servers], [True, True, False])
+
+    def test_the_ready_file_is_removed_while_a_server_is_recovered_and_back_after(self):
+        instance = self.make(["a", "b"])
+        instance.start_all()
+        self.kill(instance.servers[1])
+        during = []
+        real = instance.start_server_asleep
+
+        def watching(server):
+            during.append(os.path.exists(self.launcher.READY_FILE))
+            real(server)
+
+        instance.start_server_asleep = watching
+        self.assertTrue(instance.check_once())
+        self.assertEqual(during, [False])
+        self.assertTrue(os.path.exists(self.launcher.READY_FILE))
+
+    def stall(self, server):
+        """A server that stays a running process and stops answering, as a hung one does."""
+        os.killpg(server.proc.pid, signal.SIGSTOP)
+
+    def test_a_running_server_that_stops_answering_is_killed_and_restarted(self):
+        instance = self.make(["a", "b"])
+        instance.start_all()
+        mark = self.mark()
+        old = instance.servers[1].proc.pid
+        self.stall(instance.servers[1])
+
+        self.assertFalse(instance.check_once())  # the first failed check is not enough
+        self.assertTrue(instance.check_once())   # the second marks it hung and recovers it
+        self.assertEqual(self.seen()[mark:], ["sleep1 a", "start b", "sleep1 b", "wake a"])
+        self.assertNotEqual(instance.servers[1].proc.pid, old)
+        self.assertTrue(instance.servers[1].healthy())
+        with self.assertRaises(ProcessLookupError):
+            os.killpg(old, 0)
+
+    def test_a_server_that_wedges_again_after_every_restart_is_recovered_every_time(self):
+        instance = self.make(["a", "b"])
+        instance.start_all()
+        for _ in range(2):
+            self.stall(instance.servers[1])
+            self.assertFalse(instance.check_once())
+            self.assertTrue(instance.check_once())
+            self.assertTrue(instance.servers[1].healthy())
+        self.assertFalse(instance.servers[0].is_sleeping())
+
+    def test_one_slow_health_answer_does_not_make_a_server_hung(self):
+        instance = self.make(["a", "b"])
+        instance.start_all()
+        server = instance.servers[1]
+        self.stall(server)
+        self.assertFalse(instance.check_once())
+        os.killpg(server.proc.pid, signal.SIGCONT)  # it answers again
+        self.assertFalse(instance.check_once())
+        self.assertEqual(server.failed_checks, 0)
+
+    def test_a_stalled_server_counts_as_not_awake_when_the_others_are_put_to_sleep(self):
+        instance = self.make(["a", "b"])
+        instance.start_all()
+        self.stall(instance.servers[0])  # the awake one
+        self.assertFalse(instance.is_awake(instance.servers[0]))
+        self.assertEqual(instance.awake_servers(instance.servers[1]), [])
+
+    def test_two_hung_servers_do_not_wedge_the_launcher_on_a_wake_that_cannot_work(self):
+        instance = self.make(["a", "b", "c"])
+        instance.start_all()
+        self.stall(instance.servers[0])
+        self.stall(instance.servers[1])
+        for _ in range(8):  # each hung server needs HEALTH_FAILURES checks, then a recovery
+            instance.check_once()
+            if all(s.healthy() for s in instance.servers):
+                break
+        self.assertTrue(all(s.healthy() for s in instance.servers))
+        self.assertEqual(sum(1 for s in instance.servers if not s.is_sleeping()), 1)
+
+    def test_no_wake_target_fails_the_attempt(self):
+        instance = self.make(["a", "b"])
+        instance.start_all()
+        for s in instance.servers:
+            s.healthy = lambda: False
+        instance.start_server_asleep = lambda server: None  # the restart "works" but nothing is healthy
+        with self.assertRaises(RuntimeError):
+            instance.recover(instance.servers[1], [instance.servers[0]], 1)
+
+    def test_the_shutdown_budget_fits_the_pods_grace_period(self):
+        L = self.launcher
+        self.assertEqual(L.GRACE_PERIOD_S, 300)
+        self.assertLess(L.REQUEST_TIMEOUT_S + L.STOP_TIMEOUT_S + L.KILL_WAIT_S, L.GRACE_PERIOD_S)
+
+    def test_every_request_is_progress(self):
+        instance = self.make(["a"])
+        instance.start_all()
+        os.remove(self.launcher.ALIVE_FILE)
+        instance.servers[0].healthy()
+        self.assertTrue(os.path.exists(self.launcher.ALIVE_FILE))
+
+    def test_progress_is_recorded_for_the_liveness_probe(self):
+        self.assertFalse(os.path.exists(self.launcher.ALIVE_FILE))
+        instance = self.make(["a"])
+        instance.start_all()
+        first = os.stat(self.launcher.ALIVE_FILE).st_mtime
+        os.utime(self.launcher.ALIVE_FILE, (first - 100, first - 100))
+        self.launcher.beat()
+        self.assertGreater(os.stat(self.launcher.ALIVE_FILE).st_mtime, first - 50)
 
     def kill(self, server):
         os.killpg(server.proc.pid, signal.SIGKILL)
