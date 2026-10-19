@@ -6,7 +6,12 @@
   "required": ["name", "endpoint", "maxParallel", "activeCount", "queueDepth", "ready", "lastProbedAt"],
   "properties": {
     "name": { "type": "string", "description": "The ModelProvider." },
-    "endpoint": { "type": "string", "description": "Its model server URL." },
+    "endpoint": { "type": "string", "description": "Its model server URL. Empty for a provider that runs one server per model (vLLM); those servers are listed in modelEndpoints." },
+    "modelEndpoints": {
+      "type": "object",
+      "additionalProperties": { "type": "string" },
+      "description": "The server URL a call for each model goes to, by model, for a provider that runs one server per model (vLLM). Absent means every model is served at endpoint."
+    },
     "engine": { "type": "string", "description": "Its model server's engine type, from ModelProvider spec.type (for example ollama); absent means ollama. Agents pick how to call the server by it." },
     "maxParallel": { "type": "integer", "description": "How many calls it serves at once; at least 1." },
     "activeCount": { "type": "integer", "description": "Calls in progress. The operator writes 0; tickets carry the live count." },
