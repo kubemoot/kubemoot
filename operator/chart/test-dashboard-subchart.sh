@@ -62,10 +62,11 @@ ws_sel="$(yq -N 'select(.kind == "Service" and .metadata.name == "kubemoot-opera
 [ "$main_sel" != "$ws_sel" ] || fail "workshop and dashboard Services select the same pods"
 verbs="$(yq -N 'select(.kind == "ClusterRole" and .metadata.name == "kubemoot-operator-dashboard-workshop-reader") | .rules[].verbs[]' <<<"$out" | sort -u | tr '\n' ' ')"
 case "$verbs" in "get list watch ") ;; *) fail "workshop ClusterRole verbs are '$verbs', want only get list watch" ;; esac
-yq -N 'select(.kind == "ClusterRole" and .metadata.name == "kubemoot-operator-dashboard-workshop-reader") | .rules[].resources[]' <<<"$out" \
-  | grep -qx 'secrets' && fail "workshop ClusterRole can read Secrets"
-yq -N 'select(.kind == "ClusterRole" and .metadata.name == "kubemoot-operator-dashboard-workshop-reader") | .rules[].resources[]' <<<"$out" \
-  | grep -qx 'pods' && fail "workshop ClusterRole reads pods cluster-wide"
+# Captured first: a pipe into grep -q can fail with SIGPIPE under pipefail, which would
+# make these "must not match" checks pass when they should fail.
+resources="$(yq -N 'select(.kind == "ClusterRole" and .metadata.name == "kubemoot-operator-dashboard-workshop-reader") | .rules[].resources[]' <<<"$out")"
+if grep -qx 'secrets' <<<"$resources"; then fail "workshop ClusterRole can read Secrets"; fi
+if grep -qx 'pods' <<<"$resources"; then fail "workshop ClusterRole reads pods cluster-wide"; fi
 [ "$(yq -N 'select(.kind == "Role" and .metadata.name == "kubemoot-operator-dashboard-workshop-pods") | .metadata.namespace' <<<"$out")" = "moot" ] \
   || fail "workshop pod Role is not in the infra namespace"
 # The main dashboard is untouched by the option.
@@ -77,6 +78,6 @@ render kubemoot-operator --set dashboard.enabled=true --set dashboard.workshop.e
   --set dashboard.workshop.namespaceSelector= >/dev/null 2>&1 && fail "empty workshop selector was accepted"
 
 # Standalone chart keeps its own defaults.
-helm template x "$here/../../dashboard/charts/kubemoot-dashboard" | grep -q 'image: ghcr.io/kubemoot/dashboard:' \
-  || fail "standalone dashboard image changed"
+standalone="$(helm template x "$here/../../dashboard/charts/kubemoot-dashboard")"
+grep -q 'image: ghcr.io/kubemoot/dashboard:' <<<"$standalone" || fail "standalone dashboard image changed"
 echo "dashboard subchart tests: PASS"

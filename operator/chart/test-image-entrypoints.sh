@@ -22,8 +22,10 @@ out="$(helm template kubemoot-operator "$chart")"
   || fail "no manager container in the operator Deployment"
 [ "$(container_field "$out" kubemoot-operator manager command)" = null ] \
   || fail "the operator container sets a command; the image entrypoint must start the manager"
-container_field "$out" kubemoot-operator manager 'args[]' | grep -qx -- '--health-probe-bind-address=:8081' \
-  || fail "the operator container lost its args"
+# Captured first: grep -q exits at the first match, and a producer that takes SIGPIPE
+# would fail the pipeline under pipefail.
+args="$(container_field "$out" kubemoot-operator manager 'args[]')"
+grep -qx -- '--health-probe-bind-address=:8081' <<<"$args" || fail "the operator container lost its args"
 
 [ "$(container_field "$out" kubemoot-operator-liaison crew-liaison name)" = crew-liaison ] \
   || fail "no crew-liaison container in the liaison Deployment"

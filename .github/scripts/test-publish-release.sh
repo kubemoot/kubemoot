@@ -170,10 +170,12 @@ in_tgz() { tar -xzOf "$1" "$2"; }
 # which embeds it as a directory or as a package of its own, depending on the helm version.
 dash_file() {
   local sub
-  if tar -tzf "$1" | grep -qx "kubemoot-operator/charts/kubemoot-dashboard/$2"; then
+  local listing
+  listing="$(tar -tzf "$1")"
+  if grep -qx "kubemoot-operator/charts/kubemoot-dashboard/$2" <<<"$listing"; then
     in_tgz "$1" "kubemoot-operator/charts/kubemoot-dashboard/$2"
   else
-    sub="$(tar -tzf "$1" | grep -E '^kubemoot-operator/charts/kubemoot-dashboard-.*\.tgz$')"
+    sub="$(grep -E '^kubemoot-operator/charts/kubemoot-dashboard-.*\.tgz$' <<<"$listing")"
     in_tgz "$1" "$sub" | tar -xzO "kubemoot-dashboard/$2"
   fi
 }

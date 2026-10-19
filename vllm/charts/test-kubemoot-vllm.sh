@@ -98,9 +98,11 @@ servers="$(get "$out" ConfigMap '.data["servers.json"]')"
 [ "$(yq -p=json '.servers[0].args | join(" ")' <<<"$servers")" = \
   "serve Qwen/Qwen3-14B-AWQ --revision=31c69efc --served-model-name=qwen3:14b --host=0.0.0.0 --port=8000 --enable-sleep-mode --gpu-memory-utilization=0.85 --max-model-len=16384 --enable-auto-tool-choice --tool-call-parser=hermes --reasoning-parser=qwen3" ] \
   || fail "first server args wrong: $(yq -p=json '.servers[0].args | join(" ")' <<<"$servers")"
-yq -p=json '.servers[1].args | join(" ")' <<<"$servers" | grep -qF -- '--gpu-memory-utilization=0.95' || fail "second server lost its own memory fraction"
-yq -p=json '.servers[1].args | join(" ")' <<<"$servers" | grep -qF -- '--revision=0499c3ac --served-model-name=qwen3:32b' || fail "second server revision or name wrong"
-get "$out" ConfigMap '.data["launcher.py"]' | grep -q 'def start_all' || fail "the launcher script is not in the ConfigMap"
+second="$(yq -p=json '.servers[1].args | join(" ")' <<<"$servers")"
+grep -qF -- '--gpu-memory-utilization=0.95' <<<"$second" || fail "second server lost its own memory fraction"
+grep -qF -- '--revision=0499c3ac --served-model-name=qwen3:32b' <<<"$second" || fail "second server revision or name wrong"
+launcher="$(get "$out" ConfigMap '.data["launcher.py"]')"
+grep -q 'def start_all' <<<"$launcher" || fail "the launcher script is not in the ConfigMap"
 
 # ---- order does not depend on the values order ------------------------------
 reordered="$(mktemp)"
