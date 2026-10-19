@@ -45,9 +45,11 @@ if ! command -v crane >/dev/null 2>&1; then
   sudo mv crane /usr/local/bin/
 fi
 
-# Log in to both ends here so no caller has to remember a prior crane login.
-echo "${HARBOR_PASSWORD}" | crane auth login --insecure "${source_host}" -u "${HARBOR_USERNAME}" --password-stdin
-echo "${GHCR_TOKEN}" | crane auth login "${registry_host}" -u "${GHCR_USERNAME}" --password-stdin
+# Log in to both ends here so no caller has to remember a prior crane login. The secret
+# is a here-string, not a pipe: under pipefail a login that exits before it has read its
+# stdin would make `echo` fail with a broken pipe and stop the release.
+crane auth login --insecure "${source_host}" -u "${HARBOR_USERNAME}" --password-stdin <<<"${HARBOR_PASSWORD}"
+crane auth login "${registry_host}" -u "${GHCR_USERNAME}" --password-stdin <<<"${GHCR_TOKEN}"
 
 # --insecure lets crane read the plain-HTTP Harbor source; the release target is HTTPS.
 # GHCR's token endpoint fails transiently now and then ("stopped after 10 redirects");
