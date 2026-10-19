@@ -7,11 +7,13 @@ import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
- * The driver for an engine the runtime has no model lifecycle driver for (vLLM today):
- * capacity and cost questions are answered by the base driver, but {@code warm} and
- * {@code release} do nothing, so the runtime never sends Ollama's load and unload
- * calls to another engine's server. Models on such a provider stay as they are until
- * the operator carries out the wake and sleep.
+ * The driver for an engine the runtime has no model lifecycle driver for (vLLM today).
+ * {@code warm} and {@code release} do nothing, so the runtime never sends Ollama's load
+ * and unload calls to another engine's server; models on such a provider stay as they
+ * are until the operator carries out the wake and sleep. Cost questions come from the
+ * base driver. Capacity is the engine's own: such a server batches requests and has no
+ * fixed slots, so it has room while it holds no waiting request and its cache is not
+ * nearly full ({@link ServedModelFit}), whatever {@code maxParallel} says.
  */
 final class NoLifecycleDriver implements EngineDriver {
 
@@ -33,12 +35,12 @@ final class NoLifecycleDriver implements EngineDriver {
 
     @Override
     public boolean hasFreeCapacity(ProviderState provider, int inFlightCalls) {
-        return base.hasFreeCapacity(provider, inFlightCalls);
+        return ServedModelFit.hasFreeCapacity(provider);
     }
 
     @Override
     public double expectedWaitSeconds(ProviderState provider, List<Double> inFlightElapsedSeconds, double callSeconds) {
-        return base.expectedWaitSeconds(provider, inFlightElapsedSeconds, callSeconds);
+        return ServedModelFit.expectedWaitSeconds(provider, inFlightElapsedSeconds, callSeconds);
     }
 
     @Override

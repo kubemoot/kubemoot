@@ -58,14 +58,17 @@ public final class ContextFit {
                                     ToLongFunction<String> footprintMiB) {
         if (states == null || states.isEmpty() || promptTokens <= 0) return true;
         for (ProviderState p : states) {
-            long usable = StaticFitPredictor.usableVramMiB(p.totalVramMiB());
             for (String m : models) {
-                long fp = footprintMiB.applyAsLong(m);
-                boolean fits = usable <= 0 || fp <= 0 || usable >= fp;
-                if (fits && holds(p, m, promptTokens)) return true;
+                if (memoryFits(p, footprintMiB.applyAsLong(m)) && holds(p, m, promptTokens)) return true;
             }
         }
         return false;
+    }
+
+    /** True when the provider's memory holds {@code fp}; unknown memory or footprint fits, and so does an engine that budgets none. */
+    private static boolean memoryFits(ProviderState p, long fp) {
+        long usable = StaticFitPredictor.usableVramMiB(p.totalVramMiB());
+        return !p.engineFit().budgetsMemory() || usable <= 0 || fp <= 0 || usable >= fp;
     }
 
     /** The largest known context any provider gives any of {@code models}; zero when none is known. */

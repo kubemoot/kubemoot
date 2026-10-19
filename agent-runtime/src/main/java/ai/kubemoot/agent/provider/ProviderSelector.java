@@ -333,12 +333,14 @@ public class ProviderSelector {
          */
         COLD;
 
-        boolean admits(Candidate c, String model, EngineDriver driver, boolean copyExists) {
+        boolean admits(Candidate c, String model, java.util.function.Function<ProviderState, EngineDriver> drivers,
+                       boolean copyExists) {
             return switch (this) {
                 case ANY -> true;
-                case WARM_FREE_SLOT -> c.warm() && driver.hasFreeCapacity(c.provider(), c.activeCount());
+                case WARM_FREE_SLOT -> c.warm() && drivers.apply(c.provider()).hasFreeCapacity(c.provider(), c.activeCount());
                 case LOADING -> c.warm() && !c.provider().hasModelLoaded(model);
-                case ROOM -> c.warm() ? driver.hasFreeCapacity(c.provider(), c.activeCount()) : !copyExists;
+                case ROOM -> c.warm() ? drivers.apply(c.provider()).hasFreeCapacity(c.provider(), c.activeCount())
+                        : !copyExists;
                 case COLD -> !c.warm();
             };
         }
@@ -360,7 +362,15 @@ public class ProviderSelector {
      * means no GPU can ever hold it (the model is too large), as opposed to every
      * GPU being busy. Providers that have not published their VRAM total are
      * unknown and never prove the model too large, so an all-unknown list is true.
+     * A provider whose engine reserved its memory at start and hosts the model can
+     * always hold it, whatever the model's size.
      */
+    public static boolean canEverHold(List<ProviderState> states, String model, long footprintMiB) {
+        if (states != null && states.stream().anyMatch(p -> p.hostsWithoutMemoryBudget(model))) return true;
+        return canEverHold(states, footprintMiB);
+    }
+
+    /** {@link #canEverHold(List, String, long)} for a model no engine-reserved server is known to host. */
     public static boolean canEverHold(List<ProviderState> states, long footprintMiB) {
         if (states == null || states.isEmpty() || footprintMiB <= 0) return true;
         boolean anyKnown = false;
@@ -375,7 +385,7 @@ public class ProviderSelector {
 
     /** Warm (resident or loading) and the provider can start another call now. */
     boolean warmWithFreeSlot(Candidate c) {
-        return Mode.WARM_FREE_SLOT.admits(c, c.provider().name(), driver, true);
+        return Mode.WARM_FREE_SLOT.admits(c, c.provider().name(), this::driverFor, true);
     }
 
     /** A warm candidate whose copy another call plans to unload is not warm for this call. */
@@ -404,7 +414,7 @@ public class ProviderSelector {
             if (!p.ready() || isCircuitOpen(p.name())) continue;
             for (String m : models) {
                 if (queueable(p, m, promptTokens)) {
-                    double wait = driver.expectedWaitSeconds(p, elapsedSeconds(p, now), callSeconds(p));
+                    double wait = driverFor(p).expectedWaitSeconds(p, elapsedSeconds(p, now), callSeconds(p));
                     if (best == null || wait < best.waitSeconds()) {
                         best = new PlacementCostModel.QueueOption(m, p.name(), wait);
                     }
@@ -464,7 +474,7 @@ public class ProviderSelector {
     private PlacementCostModel.EvictionPlan planOn(ProviderState p, String model, long footprintMiB,
                                                     java.util.Map<String, ModelDemand> demand) {
         long usable = StaticFitPredictor.usableVramMiB(p.totalVramMiB());
-        if (!p.ready() || isCircuitOpen(p.name()) || usable < footprintMiB) return null;
+        if (!p.engineFit().budgetsMemory() || !p.ready() || isCircuitOpen(p.name()) || usable < footprintMiB) return null;
         java.util.Map<String, Long> residents = new java.util.HashMap<>(
                 p.loadedModelFootprintsMiB() == null ? java.util.Map.of() : p.loadedModelFootprintsMiB());
         ticketManager.residentFootprintsFor(p.name()).forEach((m, fp) -> residents.merge(m, fp, Math::max));
@@ -493,7 +503,7 @@ public class ProviderSelector {
         java.util.Map<String, Long> evictions = new java.util.HashMap<>();
         plan.victims().forEach(v -> evictions.put(v.model(), v.footprintMiB()));
         ProviderState p = provider.get();
-        return ticketManager.claimWithEvictions(p.name(), footprintMiB, kvMiB, p.preTicketHeadroomMiB(), model,
+        return ticketManager.claimWithEvictions(p.name(), footprintMiB, kvMiB, p.engineFit().ticketHeadroomMiB(p), model,
                         evictions, p.loadedModels() == null ? java.util.Set.of() : new java.util.HashSet<>(p.loadedModels()))
                 .map(t -> new Pick(p, t, FitScore.yes(0L, "cold load after unloading " + plan.victimModels())));
     }
@@ -571,9 +581,10 @@ public class ProviderSelector {
         long now = System.currentTimeMillis();
         List<Option> out = new ArrayList<>(ranked.size());
         for (Candidate c : ranked) {
-            boolean free = driver.hasFreeCapacity(c.provider(), c.activeCount());
+            EngineDriver engineDriver = driverFor(c.provider());
+            boolean free = engineDriver.hasFreeCapacity(c.provider(), c.activeCount());
             double wait = free ? 0.0
-                    : driver.expectedWaitSeconds(c.provider(), elapsedSeconds(c.provider(), now), callSeconds(c.provider()));
+                    : engineDriver.expectedWaitSeconds(c.provider(), elapsedSeconds(c.provider(), now), callSeconds(c.provider()));
             out.add(new Option(c.provider(), c.warm(), free, wait));
         }
         return out;
@@ -698,7 +709,7 @@ public class ProviderSelector {
         boolean copyExists = usable.stream().anyMatch(Candidate::warm);
         java.util.Set<String> serving = new java.util.HashSet<>();
         usable.forEach(c -> serving.add(c.provider().name()));
-        return new Admission(usable.stream().filter(c -> mode.admits(c, modelName, driver, copyExists)).toList(),
+        return new Admission(usable.stream().filter(c -> mode.admits(c, modelName, this::driverFor, copyExists)).toList(),
                 serving);
     }
 
@@ -748,10 +759,10 @@ public class ProviderSelector {
      */
     private Optional<Ticket> claimOn(Candidate c, Claim claim) {
         String provider = c.provider().name();
-        long headroomBudget = c.provider().preTicketHeadroomMiB();
+        long headroomBudget = c.provider().engineFit().ticketHeadroomMiB(c.provider());
         if (claim.mode().verifiesSlot(c)) {
             return ticketManager.claimSlot(provider, claim.footprintMiB(), claim.kvMiB(), headroomBudget,
-                    claim.model(), ahead -> driver.hasFreeCapacity(c.provider(), ahead));
+                    claim.model(), ahead -> driverFor(c.provider()).hasFreeCapacity(c.provider(), ahead));
         }
         if (claim.mode().verifiesLoad(c)) {
             return ticketManager.claimLoad(provider, claim.footprintMiB(), claim.kvMiB(), headroomBudget,
@@ -992,6 +1003,9 @@ public class ProviderSelector {
             java.util.function.ToLongFunction<ProviderState> activeFootprintFn,
             java.util.function.Function<ProviderState, java.util.Map<String, Long>> overlayFn) {
         ProviderState p = c.provider();
+        if (!p.engineFit().budgetsMemory()) {
+            return servedModelCost(c);
+        }
         long usable = StaticFitPredictor.usableVramMiB(p.totalVramMiB());
         // Everything that takes up room, freshest-first:
         //   resident = per-model MAX(operator-published /api/ps, residency
@@ -1020,8 +1034,7 @@ public class ProviderSelector {
                 ? BEST_FIT_WEIGHT * Math.max(0L, usable - coldLoadFootprintMiB)
                         / coldLoadFootprintMiB
                 : 0.0;
-        double contention = (double) c.activeCount()
-                / Math.max(p.maxParallel(), 1);
+        double contention = p.engineFit().contention(p, c.activeCount());
         double reliabilityPenalty = (1.0 - c.score().successProbability())
                 * RELIABILITY_PENALTY_WEIGHT;
         // Spill weight: a card whose resident set already exceeds usable
@@ -1032,6 +1045,19 @@ public class ProviderSelector {
         double loadCost = c.warm() ? 0.0 : COLD_LOAD_PENALTY;
         double evictCost = c.warm() ? 0.0 : evictionCost(c, coldLoadFootprintMiB, free);
         return contention + reliabilityPenalty + spillCost + loadCost + evictCost + bestFit;
+    }
+
+    /**
+     * Placement cost of a candidate on an engine that reserved its memory at start:
+     * the engine's own crowding, the learned reliability, and the wake a hosted but
+     * asleep model costs. No memory term applies, because no load fits or evicts
+     * anything: there is no best-fit, spill, or eviction cost.
+     */
+    private static double servedModelCost(Candidate c) {
+        ProviderState p = c.provider();
+        double reliabilityPenalty = (1.0 - c.score().successProbability()) * RELIABILITY_PENALTY_WEIGHT;
+        return p.engineFit().contention(p, c.activeCount()) + reliabilityPenalty
+                + (c.warm() ? 0.0 : COLD_LOAD_PENALTY);
     }
 
     /**
@@ -1371,8 +1397,23 @@ public class ProviderSelector {
                 longMapField(n, "loadedModelContextLengths"),
                 speedsField(n),
                 n.path("engine").isTextual() ? n.path("engine").asText() : "",
-                stringMapField(n, "modelEndpoints")
+                stringMapField(n, "modelEndpoints"),
+                optionalInt(n, "requestsRunning"),
+                optionalInt(n, "requestsWaiting"),
+                optionalDouble(n, "kvCacheUsage")
         );
+    }
+
+    /** A numeric field as an Integer; null when absent or not a number, so a reported 0 stays distinct. */
+    static Integer optionalInt(JsonNode n, String field) {
+        JsonNode v = n.path(field);
+        return v.isNumber() ? Integer.valueOf(v.asInt()) : null;
+    }
+
+    /** A numeric field as a Double; null when absent or not a number. */
+    static Double optionalDouble(JsonNode n, String field) {
+        JsonNode v = n.path(field);
+        return v.isNumber() ? Double.valueOf(v.asDouble()) : null;
     }
 
     /** A JSON object of strings, by key; empty when absent or not an object. Non-text values are skipped. */
