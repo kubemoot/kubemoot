@@ -2,7 +2,10 @@
 
 A fake `vllm` stands in for the real server: it answers /health, /is_sleeping,
 /sleep, /wake_up and /collective_rpc on its port and appends what happens to an
-events file, so a test reads the order the launcher did things in.
+events file, so a test reads the order the launcher did things in. It is
+single-threaded, like a server busy with a wake: while it handles a slow request,
+/health and /is_sleeping wait. WAKE_DELAY makes each wake step take that many seconds
+and WAKE_LAG keeps /is_sleeping reporting asleep that long after a wake was answered.
 
     python3 -I launcher_test.py
 """
@@ -15,13 +18,14 @@ import stat
 import sys
 import tempfile
 import threading
+import time
 import unittest
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 
 FAKE_VLLM = '''#!/usr/bin/env python3
-import json, os, sys
+import json, os, sys, time
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from urllib.parse import urlparse
 
@@ -29,7 +33,9 @@ args = sys.argv[1:]
 name = next(a.split("=", 1)[1] for a in args if a.startswith("--served-model-name="))
 port = int(next(a.split("=", 1)[1] for a in args if a.startswith("--port=")))
 events = os.environ["EVENTS"]
-state = {"asleep": False}
+delay = float(os.environ.get("WAKE_DELAY", "0"))
+lag = float(os.environ.get("WAKE_LAG", "0"))
+state = {"asleep": False, "lag_until": 0.0}
 
 
 def record(what):
@@ -51,7 +57,8 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/health":
             self.reply()
         elif path == "/is_sleeping":
-            self.reply(200, json.dumps({"is_sleeping": state["asleep"]}).encode())
+            asleep = state["asleep"] or time.time() < state["lag_until"]
+            self.reply(200, json.dumps({"is_sleeping": asleep}).encode())
         else:
             self.reply(404)
 
@@ -63,9 +70,13 @@ class Handler(BaseHTTPRequestHandler):
             state["asleep"] = True
             record("sleep" + parsed.query.replace("level=", ""))
         elif parsed.path == "/wake_up":
+            time.sleep(delay)
             state["asleep"] = parsed.query == "tags=weights"
+            if not state["asleep"]:
+                state["lag_until"] = time.time() + lag
             record("wake" + ("-" + parsed.query if parsed.query else ""))
         elif parsed.path == "/collective_rpc":
+            time.sleep(delay)
             record("reload")
         else:
             return self.reply(404)
@@ -101,13 +112,13 @@ def free_ports(count):
 class LauncherTest(unittest.TestCase):
     def setUp(self):
         self.launcher = load_launcher()
-        self.launcher.HEALTH_POLL_S = 0.05
-        self.launcher.READY_FILE = os.path.join(tempfile.mkdtemp(), "ready")
-        self.launcher.ALIVE_FILE = os.path.join(tempfile.mkdtemp(), "alive")
-        self.launcher.HEALTH_TIMEOUT_S = 0.5
-        self.launcher.HEALTH_FAILURES = 2
-        self.launcher.HUNG_STOP_TIMEOUT_S = 5
-        self.launcher.BACKOFF_START_S = 0.05
+        L = self.launcher
+        L.HEALTH_POLL_S = 0.05
+        L.STATE_POLL_S = 0.05
+        L.READY_FILE = os.path.join(tempfile.mkdtemp(), "ready")
+        L.ALIVE_FILE = os.path.join(tempfile.mkdtemp(), "alive")
+        L.HEALTH_TIMEOUT_S = 0.5
+        L.BACKOFF_START_S = 0.05
         self.tmp = tempfile.mkdtemp()
         self.events = os.path.join(self.tmp, "events")
         Path(self.events).touch()
@@ -121,6 +132,8 @@ class LauncherTest(unittest.TestCase):
     def tearDown(self):
         for instance in self.instances:
             instance.stop_all()
+        for key in ("WAKE_DELAY", "WAKE_LAG"):
+            os.environ.pop(key, None)
 
     def install_vllm(self, body):
         path = os.path.join(self.bin, "vllm")
@@ -141,6 +154,16 @@ class LauncherTest(unittest.TestCase):
     def mark(self):
         return len(self.seen())
 
+    def kill(self, server):
+        os.killpg(server.proc.pid, signal.SIGKILL)
+        server.proc.wait()
+
+    def stall(self, server):
+        """A server that stays a running process and stops answering, as a hung one does."""
+        os.killpg(server.proc.pid, signal.SIGSTOP)
+
+    # ---- start order and restart on exit -------------------------------------
+
     def test_starts_one_server_at_a_time_puts_each_to_sleep_and_wakes_the_first(self):
         instance = self.make(["a", "b", "c"])
         instance.start_all()
@@ -154,8 +177,7 @@ class LauncherTest(unittest.TestCase):
         instance = self.make(["a", "b"])
         instance.start_all()
         mark = self.mark()
-        os.killpg(instance.servers[1].proc.pid, signal.SIGKILL)
-        instance.servers[1].proc.wait()
+        self.kill(instance.servers[1])
 
         self.assertTrue(instance.check_once())
         self.assertEqual(self.seen()[mark:], ["sleep1 a", "start b", "sleep1 b", "wake a"])
@@ -165,8 +187,7 @@ class LauncherTest(unittest.TestCase):
         instance = self.make(["a", "b"])
         instance.start_all()
         mark = self.mark()
-        os.killpg(instance.servers[0].proc.pid, signal.SIGKILL)
-        instance.servers[0].proc.wait()
+        self.kill(instance.servers[0])
 
         self.assertTrue(instance.check_once())
         self.assertEqual(self.seen()[mark:], ["start a", "sleep1 a", "wake a"])
@@ -178,24 +199,35 @@ class LauncherTest(unittest.TestCase):
         self.assertFalse(instance.check_once())
         self.assertEqual(self.seen()[mark:], [])
 
+    def test_two_dead_servers_are_restarted_one_after_the_other_in_order(self):
+        instance = self.make(["a", "b", "c"])
+        instance.start_all()
+        self.kill(instance.servers[0])
+        self.kill(instance.servers[1])
+
+        self.assertTrue(instance.check_once())  # restarts a; b is still dead and is not woken
+        self.assertTrue(instance.servers[0].running())
+        self.assertTrue(instance.check_once())  # restarts b
+        self.assertFalse(instance.check_once())
+        self.assertTrue(all(s.running() for s in instance.servers))
+        self.assertEqual(sum(1 for s in instance.servers if not s.is_sleeping()), 1)
+
     def test_a_restart_that_fails_is_retried_until_the_server_comes_up(self):
         instance = self.make(["a", "b"])
         instance.start_all()
-        os.killpg(instance.servers[1].proc.pid, signal.SIGKILL)
-        instance.servers[1].proc.wait()
+        self.kill(instance.servers[1])
         real = instance.start_server_asleep
         attempts = []
 
         def flaky(server):
             attempts.append(server.name)
             if len(attempts) == 1:
-                raise self.launcher.ServerExited("b exited with 3 before it answered /health")
+                raise self.launcher.ServerExited("b exited")
             real(server)
 
         instance.start_server_asleep = flaky
         self.assertTrue(instance.check_once())
         self.assertEqual(attempts, ["b", "b"])
-        self.assertTrue(instance.servers[1].running())
         # The server that was awake before the failed attempt is the one woken after.
         self.assertFalse(instance.servers[0].is_sleeping())
         self.assertTrue(instance.servers[1].is_sleeping())
@@ -219,6 +251,13 @@ class LauncherTest(unittest.TestCase):
         self.assertTrue(instance.check_once())
         self.assertEqual([s.is_sleeping() for s in instance.servers], [True, True, False])
 
+    def test_a_server_that_exits_before_it_answers_fails_the_first_start(self):
+        self.install_vllm(FAKE_CRASH)
+        instance = self.make(["a"])
+        with self.assertRaises(self.launcher.ServerExited):
+            instance.start_all()
+        self.assertFalse(os.path.exists(self.launcher.READY_FILE))
+
     def test_the_ready_file_is_removed_while_a_server_is_recovered_and_back_after(self):
         instance = self.make(["a", "b"])
         instance.start_all()
@@ -235,136 +274,165 @@ class LauncherTest(unittest.TestCase):
         self.assertEqual(during, [False])
         self.assertTrue(os.path.exists(self.launcher.READY_FILE))
 
-    def stall(self, server):
-        """A server that stays a running process and stops answering, as a hung one does."""
-        os.killpg(server.proc.pid, signal.SIGSTOP)
+    # ---- a running server is never killed -----------------------------------------
 
-    def test_a_running_server_that_stops_answering_is_killed_and_restarted(self):
-        instance = self.make(["a", "b"])
-        instance.start_all()
-        mark = self.mark()
-        old = instance.servers[1].proc.pid
-        self.stall(instance.servers[1])
-
-        self.assertFalse(instance.check_once())  # the first failed check is not enough
-        self.assertTrue(instance.check_once())   # the second marks it hung and recovers it
-        self.assertEqual(self.seen()[mark:], ["sleep1 a", "start b", "sleep1 b", "wake a"])
-        self.assertNotEqual(instance.servers[1].proc.pid, old)
-        self.assertTrue(instance.servers[1].healthy())
-        with self.assertRaises(ProcessLookupError):
-            os.killpg(old, 0)
-
-    def test_a_server_that_wedges_again_after_every_restart_is_recovered_every_time(self):
-        instance = self.make(["a", "b"])
-        instance.start_all()
-        for _ in range(2):
-            self.stall(instance.servers[1])
-            self.assertFalse(instance.check_once())
-            self.assertTrue(instance.check_once())
-            self.assertTrue(instance.servers[1].healthy())
-        self.assertFalse(instance.servers[0].is_sleeping())
-
-    def test_one_slow_health_answer_does_not_make_a_server_hung(self):
+    def test_a_running_server_that_stops_answering_is_never_killed(self):
         instance = self.make(["a", "b"])
         instance.start_all()
         server = instance.servers[1]
+        pid = server.proc.pid
         self.stall(server)
-        self.assertFalse(instance.check_once())
+        for _ in range(10):  # far more checks than any count that once marked a server hung
+            self.assertFalse(instance.check_once())
+            instance.report_ready()
+        self.assertEqual(server.proc.pid, pid)
+        self.assertTrue(server.running())
+        self.assertFalse(os.path.exists(self.launcher.READY_FILE), "a server that does not answer is not ready")
+
         os.killpg(server.proc.pid, signal.SIGCONT)  # it answers again
-        self.assertFalse(instance.check_once())
-        self.assertEqual(server.failed_checks, 0)
+        instance.report_ready()
+        self.assertTrue(os.path.exists(self.launcher.READY_FILE))
+        self.assertEqual(server.proc.pid, pid)
 
-    def test_a_stalled_server_counts_as_not_awake_when_the_others_are_put_to_sleep(self):
-        instance = self.make(["a", "b"])
+    def test_a_server_that_does_not_answer_is_skipped_when_the_others_are_put_to_sleep(self):
+        instance = self.make(["a", "b", "c"])
         instance.start_all()
-        self.stall(instance.servers[0])  # the awake one
+        a_pid = instance.servers[0].proc.pid
+        self.stall(instance.servers[0])  # the awake one stops answering
         self.assertFalse(instance.is_awake(instance.servers[0]))
-        self.assertEqual(instance.awake_servers(instance.servers[1]), [])
+        self.kill(instance.servers[2])
 
-    def test_two_hung_servers_do_not_wedge_the_launcher_on_a_wake_that_cannot_work(self):
-        instance = self.make(["a", "b", "c"])
-        instance.start_all()
-        self.stall(instance.servers[0])
-        self.stall(instance.servers[1])
-        for _ in range(8):  # each hung server needs HEALTH_FAILURES checks, then a recovery
-            instance.check_once()
-            if all(s.healthy() for s in instance.servers):
-                break
-        self.assertTrue(all(s.healthy() for s in instance.servers))
-        self.assertEqual(sum(1 for s in instance.servers if not s.is_sleeping()), 1)
+        self.assertTrue(instance.check_once())  # c exited: restarted, a is skipped, not killed
+        self.assertEqual(instance.servers[0].proc.pid, a_pid)
+        self.assertTrue(instance.servers[2].running())
+        self.assertNotIn("sleep1 a", self.seen()[-4:])
 
-    def test_no_wake_target_fails_the_attempt(self):
+    def test_a_server_that_does_not_report_its_sleep_state_is_skipped_not_restarted(self):
         instance = self.make(["a", "b"])
         instance.start_all()
-        for s in instance.servers:
-            s.healthy = lambda: False
-        instance.start_server_asleep = lambda server: None  # the restart "works" but nothing is healthy
-        with self.assertRaises(RuntimeError):
-            instance.recover(instance.servers[1], [instance.servers[0]], 1)
-
-    def test_the_shutdown_budget_fits_the_pods_grace_period(self):
-        L = self.launcher
-        self.assertEqual(L.GRACE_PERIOD_S, 300)
-        self.assertLess(L.REQUEST_TIMEOUT_S + L.STOP_TIMEOUT_S + L.KILL_WAIT_S, L.GRACE_PERIOD_S)
-
-    def test_every_request_is_progress(self):
-        instance = self.make(["a"])
-        instance.start_all()
-        os.remove(self.launcher.ALIVE_FILE)
-        instance.servers[0].healthy()
-        self.assertTrue(os.path.exists(self.launcher.ALIVE_FILE))
-
-    def test_progress_is_recorded_for_the_liveness_probe(self):
-        self.assertFalse(os.path.exists(self.launcher.ALIVE_FILE))
-        instance = self.make(["a"])
-        instance.start_all()
-        first = os.stat(self.launcher.ALIVE_FILE).st_mtime
-        os.utime(self.launcher.ALIVE_FILE, (first - 100, first - 100))
-        self.launcher.beat()
-        self.assertGreater(os.stat(self.launcher.ALIVE_FILE).st_mtime, first - 50)
-
-    def kill(self, server):
-        os.killpg(server.proc.pid, signal.SIGKILL)
-        server.proc.wait()
-
-    def test_two_dead_servers_are_restarted_one_after_the_other_without_waking_a_dead_one(self):
-        instance = self.make(["a", "b", "c"])
-        instance.start_all()
-        self.kill(instance.servers[0])
+        pid = instance.servers[0].proc.pid
         self.kill(instance.servers[1])
 
-        self.assertTrue(instance.check_once())  # restarts a; b is still dead and is not woken
-        self.assertTrue(instance.servers[0].running())
-        self.assertTrue(instance.check_once())  # restarts b
-        self.assertFalse(instance.check_once())
-        self.assertTrue(all(s.running() for s in instance.servers))
-        self.assertEqual(sum(1 for s in instance.servers if not s.is_sleeping()), 1)
-
-    def test_a_server_that_does_not_answer_fails_the_attempt_not_the_launcher(self):
-        instance = self.make(["a", "b"])
-        instance.start_all()
-        self.launcher.BACKOFF_START_S = 0.05
-        self.kill(instance.servers[1])
         real = instance.servers[0].is_sleeping
         calls = []
 
-        def wedged():
+        def failing_once():
             calls.append(1)
             if len(calls) == 1:
                 raise OSError("connection reset")
             return real()
 
-        instance.servers[0].is_sleeping = wedged
+        instance.servers[0].is_sleeping = failing_once
         self.assertTrue(instance.check_once())
-        self.assertGreaterEqual(len(calls), 2)
+        self.assertEqual(instance.servers[0].proc.pid, pid)
         self.assertTrue(instance.servers[1].running())
 
-    def test_a_server_that_exits_before_it_answers_fails_the_first_start(self):
-        self.install_vllm(FAKE_CRASH)
-        instance = self.make(["a"])
-        with self.assertRaises(self.launcher.ServerExited):
-            instance.start_all()
+    def test_no_answering_server_to_wake_fails_the_attempt(self):
+        instance = self.make(["a", "b"])
+        instance.start_all()
+        self.kill(instance.servers[1])
+        for s in instance.servers:
+            s.healthy = lambda: False
+        instance.start_server_asleep = lambda server: None  # the restart "works" but nothing answers
+        with self.assertRaises(RuntimeError):
+            instance.recover(instance.servers[1], [instance.servers[0]])
+
+    def test_a_failure_that_is_not_the_restarted_servers_does_not_stop_it_again(self):
+        instance = self.make(["a", "b"])
+        instance.start_all()
+        self.kill(instance.servers[1])
+        stops = []
+        real_stop = instance.servers[1].stop
+
+        def counting(timeout=self.launcher.STOP_TIMEOUT_S):
+            stops.append(instance.servers[1].running())
+            real_stop(timeout)
+
+        instance.servers[1].stop = counting
+        real_wake = instance.servers[0].wake
+        calls = []
+
+        def failing_once():
+            calls.append(1)
+            if len(calls) == 1:
+                raise RuntimeError("POST /wake_up returned 500")
+            real_wake()
+
+        instance.servers[0].wake = failing_once
+        self.assertTrue(instance.check_once())
+        # b was stopped before its restart (exited, so not running), and never again.
+        self.assertEqual(stops, [False])
+        self.assertEqual(self.seen().count("start b"), 2)  # the first start and the one restart
+        self.assertFalse(instance.servers[0].is_sleeping())
+        self.assertTrue(instance.servers[1].is_sleeping())
+
+    def test_a_server_that_does_not_report_at_first_is_put_to_sleep_once_it_does(self):
+        instance = self.make(["a", "b"])
+        instance.start_all()
+        self.kill(instance.servers[1])
+        real = instance.servers[0].is_sleeping
+        calls = []
+
+        def silent_twice():
+            calls.append(1)
+            if len(calls) <= 2:
+                raise OSError("no answer")
+            return real()
+
+        instance.servers[0].is_sleeping = silent_twice
+        real_start = instance.start_server_asleep
+        attempts = []
+
+        def flaky(server):
+            attempts.append(1)
+            if len(attempts) == 1:
+                raise self.launcher.ServerExited("exited")
+            real_start(server)
+
+        instance.start_server_asleep = flaky
+        mark = self.mark()
+        self.assertTrue(instance.check_once())
+        # The second attempt saw a awake, put it to sleep, then started b.
+        self.assertEqual(self.seen()[mark:], ["sleep1 a", "start b", "sleep1 b", "wake a"])
+
+    def test_the_readiness_of_stalled_servers_is_read_side_by_side(self):
+        instance = self.make(["a", "b", "c"])
+        instance.start_all()
+        self.stall(instance.servers[0])
+        self.stall(instance.servers[1])
+        start = time.monotonic()
+        instance.report_ready()
+        self.assertLess(time.monotonic() - start, 0.9)  # one 0.5 s read, not two or three
         self.assertFalse(os.path.exists(self.launcher.READY_FILE))
+        for s in instance.servers[:2]:
+            os.killpg(s.proc.pid, signal.SIGCONT)
+
+    def test_an_error_answer_to_is_sleeping_is_logged_once_not_waited_on_silently(self):
+        import io
+        instance = self.make(["a"])
+        server = instance.servers[0]
+
+        def refused():
+            raise RuntimeError("a: /is_sleeping returned 404")
+
+        server.is_sleeping = refused
+        out, real = io.StringIO(), sys.stdout
+        sys.stdout = out
+        try:
+            for _ in range(3):
+                self.assertFalse(server.reached(True))
+        finally:
+            sys.stdout = real
+        self.assertEqual(out.getvalue().count("returned 404"), 1)
+
+    def test_a_reply_that_does_not_say_whether_the_server_sleeps_is_an_error(self):
+        instance = self.make(["a"])
+        server = instance.servers[0]
+        self.launcher.http_request = lambda *a, **k: (200, b"{}")
+        with self.assertRaises(ValueError):
+            server.is_sleeping()
+
+    # ---- sleeping and waking wait on state ------------------------------------------
 
     def test_level_two_sleeps_at_level_two_and_wakes_in_three_steps(self):
         instance = self.make(["a", "b"], level=2)
@@ -374,6 +442,62 @@ class LauncherTest(unittest.TestCase):
         instance.servers[0].wake()
         self.assertEqual(self.seen()[:2], ["start a", "sleep2 a"])
         self.assertEqual(self.seen()[mark:], ["wake-tags=weights a", "reload a", "wake-tags=kv_cache a"])
+
+    def test_a_wake_slower_than_a_request_timeout_succeeds(self):
+        os.environ["WAKE_DELAY"] = "2"  # each step takes four times a health read's timeout
+        instance = self.make(["a", "b"], level=2)
+        start = time.monotonic()
+        instance.start_all()  # the first server's wake is three slow steps
+        self.assertGreater(time.monotonic() - start, 5)
+        self.assertFalse(instance.servers[0].is_sleeping())
+        self.assertTrue(os.path.exists(self.launcher.READY_FILE))
+
+    def test_a_server_that_stalls_health_during_a_wake_is_not_killed(self):
+        # The fake is single-threaded: for the 3 s of the wake /health and /is_sleeping
+        # wait, so every read in that window times out. Nothing kills the server.
+        os.environ["WAKE_DELAY"] = "3"
+        instance = self.make(["a", "b"])
+        instance.start_all()
+        pids = [s.proc.pid for s in instance.servers]
+        instance.servers[0].sleep()
+        instance.servers[1].wake()
+        self.assertEqual([s.proc.pid for s in instance.servers], pids)
+        self.assertFalse(instance.servers[1].is_sleeping())
+
+    def test_a_wake_waits_for_the_state_not_for_the_answer(self):
+        os.environ["WAKE_LAG"] = "1.5"  # the wake is answered, but the server reports asleep a while longer
+        instance = self.make(["a", "b"])
+        instance.start_all()
+        instance.servers[0].sleep()
+        start = time.monotonic()
+        instance.servers[0].wake()
+        self.assertGreaterEqual(time.monotonic() - start, 1.0)
+        self.assertFalse(instance.servers[0].is_sleeping())
+
+    def test_a_wake_ends_with_the_servers_process_exiting(self):
+        os.environ["WAKE_DELAY"] = "30"
+        instance = self.make(["a", "b"])
+        # a is started; b is asked to wake with a slow step, and exits meanwhile
+        instance.start_server_asleep(instance.servers[0])
+        server = instance.servers[0]
+        threading.Timer(0.5, lambda: self.kill(server)).start()
+        # Either the exit is seen or the request in flight fails with the connection; both
+        # fail the recovery attempt, which restarts the server.
+        with self.assertRaises(self.launcher.RECOVERABLE):
+            server.wake()
+        self.assertFalse(server.running())
+
+    def test_a_wake_ends_on_a_stop_request(self):
+        os.environ["WAKE_DELAY"] = "30"
+        instance = self.make(["a"])
+        instance.start_server_asleep(instance.servers[0])
+        threading.Timer(0.5, instance.stopping.set).start()
+        start = time.monotonic()
+        with self.assertRaises(self.launcher.Stopping):
+            instance.servers[0].wake()
+        self.assertLess(time.monotonic() - start, 5)
+
+    # ---- shutdown ----------------------------------------------------------------
 
     def test_stop_ends_every_process_of_every_group(self):
         instance = self.make(["a", "b"])
@@ -391,6 +515,49 @@ class LauncherTest(unittest.TestCase):
         with self.assertRaises(self.launcher.Stopping):
             instance.start_all()
 
+    def test_a_stop_during_a_failing_recovery_stops_at_once_without_stopping_the_server_again(self):
+        instance = self.make(["a", "b"])
+        instance.start_all()
+        self.kill(instance.servers[1])
+        self.launcher.BACKOFF_START_S = 30
+        stops = []
+        real_stop = instance.servers[1].stop
+
+        def watching(timeout=self.launcher.STOP_TIMEOUT_S):
+            stops.append(instance.stopping.is_set())
+            real_stop(timeout)
+
+        instance.servers[1].stop = watching
+
+        def failing(server):
+            raise self.launcher.ServerExited("exited again")
+
+        instance.start_server_asleep = failing
+        threading.Timer(0.5, instance.stopping.set).start()
+        start = time.monotonic()
+        with self.assertRaises(self.launcher.Stopping):
+            instance.recover_with_backoff(instance.servers[1])
+        self.assertLess(time.monotonic() - start, 5, "the 30 s backoff must not be waited out")
+        self.assertNotIn(True, stops, "no server is stopped after the stop request")
+
+    def test_the_whole_stop_path_fits_the_pods_grace_period(self):
+        L = self.launcher
+        self.assertEqual(L.GRACE_PERIOD_S, 300)
+        # a stop request is seen within a poll; every group is then stopped at once
+        self.assertLess(L.STATE_POLL_S + L.HEALTH_TIMEOUT_S + L.STOP_TIMEOUT_S + L.KILL_WAIT_S, L.GRACE_PERIOD_S)
+
+    def test_a_server_that_ignores_sigterm_is_killed_within_the_budget(self):
+        self.install_vllm('#!/usr/bin/env python3\nimport signal, time\nsignal.signal(signal.SIGTERM, signal.SIG_IGN)\ntime.sleep(60)\n')
+        instance = self.make(["a"])
+        server = instance.servers[0]
+        server.start()
+        time.sleep(0.5)
+        self.launcher.KILL_WAIT_S = 5
+        start = time.monotonic()
+        server.stop(timeout=1)
+        self.assertLess(time.monotonic() - start, 4)
+        self.assertFalse(server.running())
+
     def test_each_servers_log_lines_are_prefixed_with_its_name(self):
         self.install_vllm("#!/bin/sh\necho hello from vllm\nexec sleep 30\n")
         instance = self.make(["a"])
@@ -407,6 +574,24 @@ class LauncherTest(unittest.TestCase):
         finally:
             sys.stdout = real
         self.assertIn("[a] hello from vllm", out.getvalue())
+
+    # ---- liveness and configuration --------------------------------------------------
+
+    def test_every_request_is_progress(self):
+        instance = self.make(["a"])
+        instance.start_all()
+        os.remove(self.launcher.ALIVE_FILE)
+        instance.servers[0].healthy()
+        self.assertTrue(os.path.exists(self.launcher.ALIVE_FILE))
+
+    def test_progress_is_recorded_for_the_liveness_probe(self):
+        self.assertFalse(os.path.exists(self.launcher.ALIVE_FILE))
+        instance = self.make(["a"])
+        instance.start_all()
+        first = os.stat(self.launcher.ALIVE_FILE).st_mtime
+        os.utime(self.launcher.ALIVE_FILE, (first - 100, first - 100))
+        self.launcher.beat()
+        self.assertGreater(os.stat(self.launcher.ALIVE_FILE).st_mtime, first - 50)
 
     def test_the_rendered_servers_file_shape_loads(self):
         path = os.path.join(self.tmp, "servers.json")

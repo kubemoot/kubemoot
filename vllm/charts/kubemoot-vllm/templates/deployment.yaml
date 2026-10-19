@@ -70,8 +70,10 @@ spec:
             # A cold start downloads the weights and compiles each model. This bound is a
             # safety net (60 minutes), not the way the start is judged.
             failureThreshold: 360
-          # Ready while every server is up; the launcher removes the file while it
-          # recovers a server.
+          # Ready while every server is running and answering /health; the launcher
+          # removes the file while a server has exited and is being restarted, and while
+          # a running server does not answer. It restarts exited servers and never kills a
+          # running one.
           readinessProbe:
             exec: {command: [test, -f, /tmp/launcher-ready]}
             periodSeconds: 10
