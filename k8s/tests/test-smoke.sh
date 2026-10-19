@@ -53,7 +53,13 @@ wait_for_operator_leader || exit 1
 # Test 1: ModelProvider
 log_section "Test 1: ModelProvider Quick Check"
 
-cat <<EOF | kubectl apply -f -
+# A second provider on the endpoint of one the cluster already has Ready, so the check
+# follows the cluster's model servers.
+OLLAMA_ENDPOINT=$(ready_ollama_endpoint)
+if [ -z "$OLLAMA_ENDPOINT" ]; then
+    log_skip "ModelProvider check: no Ready Ollama ModelProvider in $NAMESPACE to share an endpoint with"
+else
+    cat <<EOF | kubectl apply -f -
 apiVersion: kubemoot.ai/v1alpha1
 kind: ModelProvider
 metadata:
@@ -61,19 +67,19 @@ metadata:
   namespace: $NAMESPACE
 spec:
   type: ollama
-  endpoint: http://ollama.ollama-rig0:11434
+  endpoint: $OLLAMA_ENDPOINT
 EOF
-log_ok "ModelProvider created"
+    log_ok "ModelProvider created on $OLLAMA_ENDPOINT"
 
-if wait_for "ModelProvider to be ready" "kubectl get modelprovider -n $NAMESPACE smoke-test-provider -o jsonpath='{.status.phase}' 2>/dev/null | grep -q 'Ready'" 60; then
-    log_ok "ModelProvider is Ready"
-else
-    log_fail "ModelProvider did not become Ready"
+    if wait_for "ModelProvider to be ready" "kubectl get modelprovider -n $NAMESPACE smoke-test-provider -o jsonpath='{.status.phase}' 2>/dev/null | grep -q 'Ready'" 60; then
+        log_ok "ModelProvider is Ready"
+    else
+        log_fail "ModelProvider did not become Ready"
+    fi
+
+    kubectl delete modelprovider -n "$NAMESPACE" smoke-test-provider --ignore-not-found &>/dev/null
+    log_ok "ModelProvider cleaned up"
 fi
-
-# Cleanup ModelProvider
-kubectl delete modelprovider -n "$NAMESPACE" smoke-test-provider --ignore-not-found &>/dev/null
-log_ok "ModelProvider cleaned up"
 
 # Test 2: KubemootConfig exists
 log_section "Test 2: KubemootConfig Check"
