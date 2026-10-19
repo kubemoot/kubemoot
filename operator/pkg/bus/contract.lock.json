@@ -866,6 +866,44 @@
     "model-demand.json#/updatedAt": {
       "type": "integer"
     },
+    "model-lifecycle-reply.json#": {
+      "type": "object"
+    },
+    "model-lifecycle-reply.json#/error": {
+      "type": "string"
+    },
+    "model-lifecycle-reply.json#/ok": {
+      "type": "boolean",
+      "required": true
+    },
+    "model-lifecycle-reply.json#/state": {
+      "type": "string",
+      "enum": [
+        "asleep",
+        "awake"
+      ]
+    },
+    "model-lifecycle-reply.json#/switchMs": {
+      "type": "integer"
+    },
+    "model-lifecycle-request.json#": {
+      "type": "object"
+    },
+    "model-lifecycle-request.json#/action": {
+      "type": "string",
+      "enum": [
+        "ready",
+        "release"
+      ],
+      "required": true
+    },
+    "model-lifecycle-request.json#/agent": {
+      "type": "string"
+    },
+    "model-lifecycle-request.json#/model": {
+      "type": "string",
+      "required": true
+    },
     "onboarding-deployed.json#": {
       "type": "object"
     },

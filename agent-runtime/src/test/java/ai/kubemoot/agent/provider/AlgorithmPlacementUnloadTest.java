@@ -38,7 +38,12 @@ class AlgorithmPlacementUnloadTest {
     void aProviderTheRuntimeCannotUnloadIsNeverPlannedAnEviction() {
         ProviderSelector selector = mock(ProviderSelector.class);
         var algorithm = new AlgorithmPlacement(selector, mock(TicketManager.class), null);
-        when(selector.driverFor(any())).thenReturn(new NoLifecycleDriver(new OllamaDriver(null), "vllm"));
+        when(selector.driverFor(any())).thenReturn(new FakeEngineDriver(OllamaDriver.PROFILE) {
+            @Override
+            public boolean canRelease() {
+                return false;
+            }
+        });
 
         algorithm.place(request(true));
         verify(selector).planEviction(eq(MODEL), eq(5_000L), eq(List.of()), anyMap(), eq(100L));

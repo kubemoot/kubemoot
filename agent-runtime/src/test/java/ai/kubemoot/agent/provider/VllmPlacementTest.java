@@ -157,6 +157,30 @@ class VllmPlacementTest {
                 "an Ollama GPU that cannot fit the model is still no option");
     }
 
+    @Test
+    void anAsleepModelWithAnObservedWakeCostsLessThanOneWithNone() {
+        ProviderState observed = new ProviderState("vllm-a", "", 1, 0, 0, List.of(), true, "2026-10-19T00:00:00Z",
+                0L, Map.of(), Map.of(MODEL, 0L), 0L, Map.of(), Map.of(), "vllm", Map.of(MODEL, "http://a:8000"),
+                0, 0, 0.0, Map.of(MODEL, 1_500L));
+        ProviderState unobserved = new ProviderState("vllm-b", "", 1, 0, 0, List.of(), true, "2026-10-19T00:00:00Z",
+                0L, Map.of(), Map.of(MODEL, 0L), 0L, Map.of(), Map.of(), "vllm", Map.of(MODEL, "http://b:8000"),
+                0, 0, 0.0);
+        var ranked = ProviderSelector.rankCandidates(List.of(unobserved, observed), MODEL, FOOTPRINT_MIB,
+                ProviderSelector.LoadView.of(p -> 0, p -> 0L, p -> 0.0, n -> false), new StaticFitPredictor());
+        assertEquals("vllm-a", ranked.get(0).provider().name(), "a known 1.5 s wake beats the default load penalty");
+    }
+
+    @Test
+    void theLearnedPredictionUsesTheObservedWakeForASleepingModel() {
+        ModelSpeed speed = new ModelSpeed(30_000, 20_000, 120, 0, 0);
+        ProviderState asleep = new ProviderState(VLLM, "", 1, 0, 0, List.of(), true, "2026-10-19T00:00:00Z",
+                0L, Map.of(), Map.of(MODEL, 0L), 0L, Map.of(), Map.of(MODEL, speed), "vllm",
+                Map.of(MODEL, "http://v:8000"), 0, 0, 0.0, Map.of(MODEL, 2_000L));
+        var option = new ProviderSelector.Option(asleep, false, true, 0.0);
+        var prediction = LearnedPlacement.predict(option, MODEL, 0L).orElseThrow();
+        assertEquals(2.0, prediction.load(), 1e-9, "the observed wake, not the calibrated 30 s load");
+    }
+
     private static final class Fallback implements PlacementPolicy {
         @Override
         public PlacementMode mode() {

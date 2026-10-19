@@ -168,7 +168,19 @@ class CallPlannerTest {
         var base = gpu(BIG, 32_768, Map.of());
         var vllm = new ProviderState(base.name(), "", 1, 0, 0, List.of(), true, base.lastProbedAt(), 32_768,
                 Map.of(), Map.of(), 0L, Map.of(), Map.of(), "vllm", Map.of("qwen3:32b", "http://vllm-32b:8000"));
-        var noOp = new NoLifecycleDriver(driver, "vllm");
+        var asked = new java.util.ArrayList<String>();
+        var noOp = new OperatorLifecycleDriver(driver, "vllm", new ModelLifecycle() {
+            @Override
+            public Reply ready(String provider, String model) {
+                asked.add("ready " + provider + " " + model);
+                return new Reply(true, "awake", 0L, "");
+            }
+
+            @Override
+            public Reply release(String provider, String model) {
+                return new Reply(true, "asleep", 0L, "");
+            }
+        }, Runnable::run);
         when(selector.driverFor(any())).thenReturn(noOp);
         var planner = new CallPlanner(selector, tickets, demandOn(new InMemoryKv(), "analyst"));
         when(selector.pickAndClaim(eq("qwen3:32b"), anyLong(), anyLong(), anyLong())).thenReturn(Optional.of(pickOn(vllm, "p")));
@@ -177,7 +189,7 @@ class CallPlannerTest {
 
         assertTrue(planner.holds("t1"));
         assertTrue(driver.warmed.isEmpty(), "the Ollama driver must not be asked to load on a vLLM server");
-        assertEquals(1, noOp.reports());
+        assertEquals(List.of("ready " + vllm.name() + " qwen3:32b"), asked, "the operator is asked to wake it");
     }
 
     @Test

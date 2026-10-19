@@ -122,7 +122,7 @@ class ServedModelFitTest {
 
     @Test
     void theDriverAnswersFromTheEnginesLoad_notFromInFlightCalls() {
-        EngineDriver driver = new NoLifecycleDriver(new OllamaDriver(null), "vllm");
+        EngineDriver driver = new OperatorLifecycleDriver(new OllamaDriver(null), "vllm");
         ProviderState p = idle();
         assertTrue(driver.hasFreeCapacity(p, 50), "fifty calls in flight batch; they do not fill slots");
         assertFalse(driver.hasFreeCapacity(vllm(List.of(MODEL), List.of(), true, 8, 2, 0.2), 0));

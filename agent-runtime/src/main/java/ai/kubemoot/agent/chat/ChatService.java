@@ -1640,6 +1640,7 @@ public class ChatService {
             ai.kubemoot.agent.provider.Pick p,
             String modelName, long coldLoadFootprintMiB) {
         var ps = p.provider();
+        ai.kubemoot.agent.provider.ModelReadiness.ensure(providerSelector, ticketManager, p, modelName);
         // INFO (placement visibility): which provider the scheduler chose, the
         // model, and the cold-load footprint estimate that drove the fit gate.
         // This is the trace needed to verify the scheduler keeps oversized models

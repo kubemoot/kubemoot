@@ -63,7 +63,7 @@ spec:
             {{- range $i, $s := $servers }}
             - {name: vllm-{{ $i }}, containerPort: {{ $s.port }}}
             {{- end }}
-          # Ready once every server is up and asleep and the first is awake.
+          # Ready once every server is up and asleep; the operator wakes the one a call needs.
           startupProbe:
             exec: {command: [test, -f, /tmp/launcher-ready]}
             periodSeconds: 10

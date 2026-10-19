@@ -236,9 +236,10 @@ What the values mean:
 
 The chart starts the servers one at a time in a single container, because each measures
 free accelerator memory when it starts: it starts a server, waits for its `/health`, puts
-it to sleep, starts the next, and wakes the first at the end. It waits on what each server
-reports, not on a clock: a sleep or wake is done when the server says it is asleep or awake,
-so a level 2 weight reload that takes minutes succeeds. A server is dead when its process has
+it to sleep, and starts the next. Every server is asleep when it is done: the launcher never
+wakes one. Kubemoot's operator wakes the server a call needs, and puts the awake one to sleep
+first, when an agent asks over NATS. The launcher waits on what each server reports, not on a
+clock: a sleep is done when the server says it is asleep. A server is dead when its process has
 exited, and only then is it restarted the same way, with every other server asleep first.
 The launcher never kills a running server, however slowly it answers, because Kubemoot's
 adapter may be waking or sleeping it; a running server that does not answer is skipped when
@@ -279,9 +280,9 @@ spec:
 The second is a Model for each model, with the labels your crews select models by. The
 served name is in two places, the chart values and the Model's `model`, and the operator
 reports a mismatch on the Model (`ServedNameFound` is `False`) instead of guessing. See
-[Models](../../reference/models/#vllm-providers) for the fields. The runtime's wake and
-sleep requests, which switch the awake model when a call needs another, come next; until
-then only the first model, by name, is awake.
+[Models](../../reference/models/#vllm-providers) for the fields. Every server starts asleep. When a
+call needs a model, the agent runtime asks the operator to wake it, and the operator puts the
+awake one to sleep first, so the first call to a model waits for its wake (seconds).
 
 ### Requirements for the node and the server
 

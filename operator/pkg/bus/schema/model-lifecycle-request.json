@@ -1,0 +1,12 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ModelLifecycleRequest",
+  "description": "An agent asking the operator to make a model ready on a provider, or to release it, over NATS request and reply on kubemoot.provider.model.<provider>. The operator's engine adapter carries it out. Only engines that put models to sleep (vLLM) take it; Ollama loads on demand and is never asked.",
+  "type": "object",
+  "required": ["action", "model"],
+  "properties": {
+    "action": { "type": "string", "enum": ["ready", "release"], "description": "ready wakes the model's server (putting the awake one on the same accelerator to sleep first); release puts it to sleep." },
+    "model": { "type": "string", "description": "The model, by the name the provider serves it under." },
+    "agent": { "type": "string", "description": "The agent asking, for the operator's log." }
+  }
+}

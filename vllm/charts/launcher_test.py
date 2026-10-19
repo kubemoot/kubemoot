@@ -1,7 +1,7 @@
 """Tests for kubemoot-vllm/files/launcher.py, run by test-kubemoot-vllm.sh.
 
 A fake `vllm` stands in for the real server: it answers /health, /is_sleeping,
-/sleep, /wake_up and /collective_rpc on its port and appends what happens to an
+/sleep, /wake_up and /collective_rpc on its port (the launcher never wakes a server; the tests wake one to stand in for the operator's adapter) and appends what happens to an
 events file, so a test reads the order the launcher did things in. It is
 single-threaded, like a server busy with a wake: while it handles a slow request,
 /health and /is_sleeping wait. WAKE_DELAY makes each wake step take that many seconds
@@ -35,6 +35,7 @@ port = int(next(a.split("=", 1)[1] for a in args if a.startswith("--port=")))
 events = os.environ["EVENTS"]
 delay = float(os.environ.get("WAKE_DELAY", "0"))
 lag = float(os.environ.get("WAKE_LAG", "0"))
+never_sleep = bool(os.environ.get("NEVER_SLEEP"))
 state = {"asleep": False, "lag_until": 0.0}
 
 
@@ -67,6 +68,9 @@ class Handler(BaseHTTPRequestHandler):
         length = int(self.headers.get("Content-Length") or 0)
         self.rfile.read(length)
         if parsed.path == "/sleep":
+            if never_sleep:
+                record("sleep-ignored")
+                return self.reply()  # accepts the request and never changes state
             state["asleep"] = True
             record("sleep" + parsed.query.replace("level=", ""))
         elif parsed.path == "/wake_up":
@@ -135,7 +139,7 @@ class LauncherTest(unittest.TestCase):
     def tearDown(self):
         for instance in self.instances:
             instance.stop_all()
-        for key in ("WAKE_DELAY", "WAKE_LAG", "NEVER_WAKE"):
+        for key in ("WAKE_DELAY", "WAKE_LAG", "NEVER_WAKE", "NEVER_SLEEP"):
             os.environ.pop(key, None)
 
     def install_vllm(self, body):
@@ -150,6 +154,16 @@ class LauncherTest(unittest.TestCase):
         instance = self.launcher.Launcher({"sleepLevel": level, "servers": servers})
         self.instances.append(instance)
         return instance
+
+    def wake(self, server):
+        """Wakes a server the way the operator's adapter does, standing in for it: the
+        launcher itself never wakes one."""
+        if server.level == 2:
+            steps = [("/wake_up?tags=weights", None), ("/collective_rpc", {"method": "reload_weights"}),
+                     ("/wake_up?tags=kv_cache", None)]
+        else:
+            steps = [("/wake_up", None)]
+        server.change(steps, asleep=False)
 
     def seen(self):
         return Path(self.events).read_text().split("\n")[:-1]
@@ -167,33 +181,33 @@ class LauncherTest(unittest.TestCase):
 
     # ---- start order and restart on exit -------------------------------------
 
-    def test_starts_one_server_at_a_time_puts_each_to_sleep_and_wakes_the_first(self):
+    def test_starts_one_server_at_a_time_puts_each_to_sleep_and_wakes_none(self):
         instance = self.make(["a", "b", "c"])
         instance.start_all()
         self.assertEqual(self.seen(), [
-            "start a", "sleep1 a", "start b", "sleep1 b", "start c", "sleep1 c", "wake a"])
+            "start a", "sleep1 a", "start b", "sleep1 b", "start c", "sleep1 c"])
         self.assertTrue(os.path.exists(self.launcher.READY_FILE))
-        self.assertFalse(instance.servers[0].is_sleeping())
-        self.assertTrue(instance.servers[1].is_sleeping())
+        self.assertTrue(all(s.is_sleeping() for s in instance.servers), "the adapter wakes, not the launcher")
 
-    def test_a_dead_asleep_server_restarts_with_the_awake_one_asleep_first_and_woken_after(self):
+    def test_a_dead_server_restarts_with_the_awake_one_asleep_first_and_nothing_woken(self):
         instance = self.make(["a", "b"])
         instance.start_all()
+        self.wake(instance.servers[0])  # the adapter woke a for a call
         mark = self.mark()
         self.kill(instance.servers[1])
 
         self.assertTrue(instance.check_once())
-        self.assertEqual(self.seen()[mark:], ["sleep1 a", "start b", "sleep1 b", "wake a"])
-        self.assertFalse(instance.servers[0].is_sleeping())
+        self.assertEqual(self.seen()[mark:], ["sleep1 a", "start b", "sleep1 b"])
+        self.assertTrue(all(s.is_sleeping() for s in instance.servers))
 
-    def test_a_dead_awake_server_restarts_asleep_and_the_first_server_is_woken(self):
+    def test_a_dead_server_restarts_asleep_and_no_server_is_woken(self):
         instance = self.make(["a", "b"])
         instance.start_all()
         mark = self.mark()
         self.kill(instance.servers[0])
 
         self.assertTrue(instance.check_once())
-        self.assertEqual(self.seen()[mark:], ["start a", "sleep1 a", "wake a"])
+        self.assertEqual(self.seen()[mark:], ["start a", "sleep1 a"])
 
     def test_nothing_restarts_while_every_server_runs(self):
         instance = self.make(["a", "b"])
@@ -213,7 +227,7 @@ class LauncherTest(unittest.TestCase):
         self.assertTrue(instance.check_once())  # restarts b
         self.assertFalse(instance.check_once())
         self.assertTrue(all(s.running() for s in instance.servers))
-        self.assertEqual(sum(1 for s in instance.servers if not s.is_sleeping()), 1)
+        self.assertTrue(all(s.is_sleeping() for s in instance.servers))
 
     def test_a_restart_that_fails_is_retried_until_the_server_comes_up(self):
         instance = self.make(["a", "b"])
@@ -231,15 +245,12 @@ class LauncherTest(unittest.TestCase):
         instance.start_server_asleep = flaky
         self.assertTrue(instance.check_once())
         self.assertEqual(attempts, ["b", "b"])
-        # The server that was awake before the failed attempt is the one woken after.
-        self.assertFalse(instance.servers[0].is_sleeping())
-        self.assertTrue(instance.servers[1].is_sleeping())
+        self.assertTrue(all(s.is_sleeping() for s in instance.servers))
 
-    def test_a_failed_restart_wakes_the_server_that_was_awake_not_the_first(self):
+    def test_a_failed_restart_leaves_every_server_asleep(self):
         instance = self.make(["a", "b", "c"])
         instance.start_all()
-        instance.servers[0].sleep()
-        instance.servers[2].wake()  # c is the awake one
+        self.wake(instance.servers[2])  # the adapter woke c for a call
         self.kill(instance.servers[1])
         real = instance.start_server_asleep
         attempts = []
@@ -252,7 +263,7 @@ class LauncherTest(unittest.TestCase):
 
         instance.start_server_asleep = flaky
         self.assertTrue(instance.check_once())
-        self.assertEqual([s.is_sleeping() for s in instance.servers], [True, True, False])
+        self.assertEqual([s.is_sleeping() for s in instance.servers], [True, True, True])
 
     def test_a_server_that_exits_before_it_answers_fails_the_first_start(self):
         self.install_vllm(FAKE_CRASH)
@@ -330,48 +341,10 @@ class LauncherTest(unittest.TestCase):
         self.assertEqual(instance.servers[0].proc.pid, pid)
         self.assertTrue(instance.servers[1].running())
 
-    def test_no_answering_server_to_wake_fails_the_attempt(self):
-        instance = self.make(["a", "b"])
-        instance.start_all()
-        self.kill(instance.servers[1])
-        for s in instance.servers:
-            s.healthy = lambda: False
-        instance.start_server_asleep = lambda server: None  # the restart "works" but nothing answers
-        with self.assertRaises(RuntimeError):
-            instance.recover(instance.servers[1], [instance.servers[0]])
-
-    def test_a_failure_that_is_not_the_restarted_servers_does_not_stop_it_again(self):
-        instance = self.make(["a", "b"])
-        instance.start_all()
-        self.kill(instance.servers[1])
-        stops = []
-        real_stop = instance.servers[1].stop
-
-        def counting(timeout=self.launcher.STOP_TIMEOUT_S):
-            stops.append(instance.servers[1].running())
-            real_stop(timeout)
-
-        instance.servers[1].stop = counting
-        real_wake = instance.servers[0].wake
-        calls = []
-
-        def failing_once():
-            calls.append(1)
-            if len(calls) == 1:
-                raise RuntimeError("POST /wake_up returned 500")
-            real_wake()
-
-        instance.servers[0].wake = failing_once
-        self.assertTrue(instance.check_once())
-        # b was stopped before its restart (exited, so not running), and never again.
-        self.assertEqual(stops, [False])
-        self.assertEqual(self.seen().count("start b"), 2)  # the first start and the one restart
-        self.assertFalse(instance.servers[0].is_sleeping())
-        self.assertTrue(instance.servers[1].is_sleeping())
-
     def test_a_server_that_does_not_report_at_first_is_put_to_sleep_once_it_does(self):
         instance = self.make(["a", "b"])
         instance.start_all()
+        self.wake(instance.servers[0])
         self.kill(instance.servers[1])
         real = instance.servers[0].is_sleeping
         calls = []
@@ -396,7 +369,7 @@ class LauncherTest(unittest.TestCase):
         mark = self.mark()
         self.assertTrue(instance.check_once())
         # The second attempt saw a awake, put it to sleep, then started b.
-        self.assertEqual(self.seen()[mark:], ["sleep1 a", "start b", "sleep1 b", "wake a"])
+        self.assertEqual(self.seen()[mark:], ["sleep1 a", "start b", "sleep1 b"])
 
     def test_the_readiness_of_stalled_servers_is_read_side_by_side(self):
         instance = self.make(["a", "b", "c"])
@@ -437,23 +410,19 @@ class LauncherTest(unittest.TestCase):
 
     # ---- sleeping and waking wait on state ------------------------------------------
 
-    def test_level_two_sleeps_at_level_two_and_wakes_in_three_steps(self):
+    def test_level_two_sleeps_at_level_two_and_never_wakes(self):
         instance = self.make(["a", "b"], level=2)
         instance.start_all()
-        instance.servers[0].sleep()
-        mark = self.mark()
-        instance.servers[0].wake()
-        self.assertEqual(self.seen()[:2], ["start a", "sleep2 a"])
-        self.assertEqual(self.seen()[mark:], ["wake-tags=weights a", "reload a", "wake-tags=kv_cache a"])
+        self.assertEqual(self.seen(), ["start a", "sleep2 a", "start b", "sleep2 b"])
 
-    def test_a_wake_slower_than_a_request_timeout_succeeds(self):
+    def test_a_change_slower_than_a_request_timeout_succeeds(self):
         os.environ["WAKE_DELAY"] = "2"  # each step takes four times a health read's timeout
         instance = self.make(["a", "b"], level=2)
+        instance.start_all()
         start = time.monotonic()
-        instance.start_all()  # the first server's wake is three slow steps
+        self.wake(instance.servers[0])  # three slow steps
         self.assertGreater(time.monotonic() - start, 5)
         self.assertFalse(instance.servers[0].is_sleeping())
-        self.assertTrue(os.path.exists(self.launcher.READY_FILE))
 
     def test_a_server_that_stalls_health_during_a_wake_is_not_killed(self):
         # The fake is single-threaded: for the 3 s of the wake /health and /is_sleeping
@@ -463,7 +432,7 @@ class LauncherTest(unittest.TestCase):
         instance.start_all()
         pids = [s.proc.pid for s in instance.servers]
         instance.servers[0].sleep()
-        instance.servers[1].wake()
+        self.wake(instance.servers[1])
         self.assertEqual([s.proc.pid for s in instance.servers], pids)
         self.assertFalse(instance.servers[1].is_sleeping())
 
@@ -471,9 +440,8 @@ class LauncherTest(unittest.TestCase):
         os.environ["WAKE_LAG"] = "1.5"  # the wake is answered, but the server reports asleep a while longer
         instance = self.make(["a", "b"])
         instance.start_all()
-        instance.servers[0].sleep()
         start = time.monotonic()
-        instance.servers[0].wake()
+        self.wake(instance.servers[0])
         self.assertGreaterEqual(time.monotonic() - start, 1.0)
         self.assertFalse(instance.servers[0].is_sleeping())
 
@@ -484,7 +452,7 @@ class LauncherTest(unittest.TestCase):
         instance.start_server_asleep(instance.servers[0])
         start = time.monotonic()
         with self.assertRaises(self.launcher.NoProgress):
-            instance.servers[0].wake()
+            self.wake(instance.servers[0])
         elapsed = time.monotonic() - start
         self.assertGreaterEqual(elapsed, 1.5)
         self.assertLess(elapsed, 6)
@@ -494,12 +462,12 @@ class LauncherTest(unittest.TestCase):
         self.assertEqual(os.stat(self.launcher.ALIVE_FILE).st_mtime, beat_at)
 
     def test_no_progress_is_not_swallowed_by_the_recovery_retries(self):
-        os.environ["NEVER_WAKE"] = "1"
         self.launcher.NO_PROGRESS_LIMIT_S = 1.0
         instance = self.make(["a", "b"])
         for s in instance.servers:
             instance.start_server_asleep(s)
         self.kill(instance.servers[1])
+        os.environ["NEVER_SLEEP"] = "1"  # the restarted server accepts /sleep and never sleeps
         with self.assertRaises(self.launcher.NoProgress):
             instance.recover_with_backoff(instance.servers[1])
 
@@ -509,8 +477,9 @@ class LauncherTest(unittest.TestCase):
         os.environ["WAKE_DELAY"] = "1"
         self.launcher.NO_PROGRESS_LIMIT_S = 2.5
         instance = self.make(["a", "b"], level=2)
-        start = time.monotonic()
         instance.start_all()
+        start = time.monotonic()
+        self.wake(instance.servers[0])
         self.assertGreater(time.monotonic() - start, 3)
         self.assertFalse(instance.servers[0].is_sleeping())
 
@@ -524,7 +493,7 @@ class LauncherTest(unittest.TestCase):
         # Either the exit is seen or the request in flight fails with the connection; both
         # fail the recovery attempt, which restarts the server.
         with self.assertRaises(self.launcher.RECOVERABLE):
-            server.wake()
+            self.wake(server)
         self.assertFalse(server.running())
 
     def test_a_wake_ends_on_a_stop_request(self):
@@ -534,7 +503,7 @@ class LauncherTest(unittest.TestCase):
         threading.Timer(0.5, instance.stopping.set).start()
         start = time.monotonic()
         with self.assertRaises(self.launcher.Stopping):
-            instance.servers[0].wake()
+            self.wake(instance.servers[0])
         self.assertLess(time.monotonic() - start, 5)
 
     # ---- shutdown ----------------------------------------------------------------

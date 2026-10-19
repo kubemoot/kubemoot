@@ -66,7 +66,6 @@ class DriverSelectionTest {
         d.warm("e", "m");
         d.release("e", "m");
         d.warm("e", "m");
-        assertEquals(1, ((NoLifecycleDriver) d).reports());
         assertTrue(control.calls.isEmpty());
     }
 
@@ -80,9 +79,67 @@ class DriverSelectionTest {
     }
 
     @Test
-    void onlyOllamaCanRelease() {
+    void bothDriversCanRelease_ollamaByUnloadingAndOtherEnginesThroughTheOperator() {
         assertTrue(selector.driverFor(state("ollama")).canRelease());
-        assertFalse(selector.driverFor(state("vllm")).canRelease());
+        assertTrue(selector.driverFor(state("vllm")).canRelease());
+    }
+
+    /** Records the requests that would go to the operator. */
+    private static final class RecordingLifecycle implements ModelLifecycle {
+        final List<String> asked = new ArrayList<>();
+        Reply answer = new Reply(true, "awake", 800L, "");
+
+        @Override
+        public Reply ready(String provider, String model) {
+            asked.add("ready " + provider + " " + model);
+            return answer;
+        }
+
+        @Override
+        public Reply release(String provider, String model) {
+            asked.add("release " + provider + " " + model);
+            return answer;
+        }
+    }
+
+    @Test
+    void vllmWakesAndSleepsThroughTheOperatorAndNeverOllamasEndpoints() {
+        RecordingLifecycle operator = new RecordingLifecycle();
+        selector.useLifecycle(operator);
+        EngineDriver d = selector.driverFor(state("vllm"));
+
+        d.ensureReady(state("vllm"), "m");
+        assertTrue(d.release(state("vllm"), "m"));
+
+        assertEquals(List.of("ready p m", "release p m"), operator.asked);
+        assertTrue(control.calls.isEmpty(), "nothing may reach an Ollama endpoint: " + control.calls);
+    }
+
+    @Test
+    void aFailedWakeIsAnExceptionNamingTheReason() {
+        RecordingLifecycle operator = new RecordingLifecycle();
+        operator.answer = new ModelLifecycle.Reply(false, "", 0L, "the server has no sleep mode");
+        selector.useLifecycle(operator);
+        ModelNotReadyException e = org.junit.jupiter.api.Assertions.assertThrows(ModelNotReadyException.class,
+                () -> selector.driverFor(state("vllm")).ensureReady(state("vllm"), "m"));
+        assertTrue(e.getMessage().contains("the server has no sleep mode"), e.getMessage());
+        assertFalse(selector.driverFor(state("vllm")).release(state("vllm"), "m"));
+    }
+
+    @Test
+    void aBackgroundWarmAsksTheOperatorWithoutWaiting() {
+        RecordingLifecycle operator = new RecordingLifecycle();
+        OperatorLifecycleDriver d = new OperatorLifecycleDriver(selector.driver(), "vllm", operator, Runnable::run);
+        d.warm(state("vllm"), "m");
+        assertEquals(List.of("ready p m"), operator.asked);
+    }
+
+    @Test
+    void ollamaNeverWaitsForAReadyModel() {
+        EngineDriver ollama = selector.driverFor(state("ollama"));
+        ollama.ensureReady(state("ollama"), "m"); // load on demand: nothing to wait for
+        ollama.warm(state("ollama"), "m");
+        assertEquals(List.of("load http://p:1"), control.calls);
     }
 
     @Test

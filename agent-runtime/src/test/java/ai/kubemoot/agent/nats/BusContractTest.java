@@ -144,6 +144,32 @@ class BusContractTest {
     }
 
     @Test
+    void aModelLifecycleRequestMatchesTheContract() throws Exception {
+        var conn = mock(io.nats.client.Connection.class);
+        var nats = mock(NatsConnectionProvider.class);
+        when(nats.getConnection()).thenReturn(conn);
+        var lifecycle = new ai.kubemoot.agent.provider.NatsModelLifecycle(nats, MAPPER, "pilot-k8s");
+        var sent = org.mockito.ArgumentCaptor.forClass(byte[].class);
+
+        lifecycle.ready("vllm-rig0", MODEL);
+        lifecycle.release("vllm-rig0", MODEL);
+
+        verify(conn, org.mockito.Mockito.times(2)).request(org.mockito.ArgumentMatchers.anyString(), sent.capture(),
+                org.mockito.ArgumentMatchers.any(java.time.Duration.class));
+        for (byte[] body : sent.getAllValues()) {
+            assertConforms("model-lifecycle-request.json", MAPPER.readTree(body));
+        }
+    }
+
+    @Test
+    void aModelLifecycleReplyTheRuntimeReadsMatchesTheContract() throws Exception {
+        String ok = "{\"ok\":true,\"state\":\"awake\",\"switchMs\":1200}";
+        String refused = "{\"ok\":false,\"error\":\"no vLLM server serves model m\"}";
+        assertConforms("model-lifecycle-reply.json", MAPPER.readTree(ok));
+        assertConforms("model-lifecycle-reply.json", MAPPER.readTree(refused));
+    }
+
+    @Test
     void aSchedulerPerformanceEntryMatchesTheContract() throws Exception {
         var bucket = new ai.kubemoot.agent.provider.InMemoryKv();
         var props = mock(AgentProperties.class);

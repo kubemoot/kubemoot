@@ -169,7 +169,7 @@ public class LearnedPlacement implements PlacementPolicy {
             return Optional.empty();
         }
         ModelSpeed s = speed.get();
-        double load = o.warm() ? 0.0 : s.loadMs() / 1000.0;
+        double load = o.warm() ? 0.0 : o.provider().switchSeconds(model).orElse(s.loadMs() / 1000.0);
         double prompt = Math.max(promptTokens, 0L) / (double) s.promptTokensPerSecond();
         double generate = EXPECTED_OUTPUT_TOKENS / (double) s.generateSpeed();
         return Optional.of(new Prediction(Math.max(o.waitSeconds(), 0.0), load, prompt, generate));
