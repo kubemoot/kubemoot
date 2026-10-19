@@ -395,6 +395,12 @@ webhook:
 # memoryMiB (spec.scheduling.memoryMiB: the memory budget the fit gate spends
 # when the operator cannot discover one, such as the host RAM of a CPU server;
 # unset there, agents refuse cold loads on that provider).
+# A vllm provider has no endpoint. It sets exactly one of serviceRef ({name,
+# namespace}: the Service of a vLLM install such as the kubemoot-vllm chart; the
+# operator finds the servers from its ports) or servers (a list of {model,
+# endpoint} for vLLM deployed another way), and optionally sleepLevel. All three are
+# copied into the ModelProvider spec as they are. The scheduling crew declares no
+# Model on a vllm provider.
 # Example:
 #   - name: ollama-gpu
 #     type: ollama
@@ -404,6 +410,14 @@ webhook:
 #     type: ollama
 #     endpoint: http://ollama.ollama-cpu:11434
 #     memoryMiB: 20480
+#   - name: vllm-gpu
+#     type: vllm
+#     serviceRef: {name: vllm-gpu, namespace: vllm}
+#   - name: vllm-external
+#     type: vllm
+#     sleepLevel: 1
+#     servers:
+#       - {model: "qwen3:14b", endpoint: "http://vllm-14b.models:8000"}
 modelProviders: []
 
 # Grafana dashboard provisioning via sidecar ConfigMap discovery

@@ -88,10 +88,7 @@ func isNotFound(err error) bool {
 
 // serversOf is the servers the spec lists; none when the spec has no vllm block.
 func serversOf(spec aiv1alpha1.ModelProviderSpec) []aiv1alpha1.VLLMServer {
-	if spec.VLLM == nil {
-		return nil
-	}
-	return spec.VLLM.Servers
+	return spec.Servers
 }
 
 // serverFor is the server that serves model.
@@ -113,7 +110,7 @@ func (a *Adapter) Ready(ctx context.Context, spec aiv1alpha1.ModelProviderSpec, 
 	if err != nil {
 		return err
 	}
-	level := spec.VLLM.SleepLevelOrDefault()
+	level := spec.SleepLevelOrDefault()
 	for _, other := range serversOf(spec) {
 		if other.Model == model {
 			continue
@@ -149,7 +146,7 @@ func (a *Adapter) Release(ctx context.Context, spec aiv1alpha1.ModelProviderSpec
 	if sleeping {
 		return nil
 	}
-	return a.sleep(ctx, target.Endpoint, spec.VLLM.SleepLevelOrDefault())
+	return a.sleep(ctx, target.Endpoint, spec.SleepLevelOrDefault())
 }
 
 // sleepIfAwake puts srv to sleep when it is awake. A server that is down (its
@@ -264,6 +261,37 @@ func (a *Adapter) post(ctx context.Context, endpoint, path string, body []byte) 
 // join appends path (which may carry a query) to a server's base URL.
 func join(endpoint, path string) string {
 	return strings.TrimRight(endpoint, "/") + path
+}
+
+// ServedModel is one model a vLLM server lists on /v1/models.
+type ServedModel struct {
+	// ID is the served name (--served-model-name).
+	ID string
+	// Root is where the server loaded the weights from: the Hugging Face
+	// repository, or a path. Empty when the server does not say.
+	Root string
+}
+
+// ServedModels asks the server at endpoint which models it serves.
+func (a *Adapter) ServedModels(ctx context.Context, endpoint string) ([]ServedModel, error) {
+	body, err := a.get(ctx, endpoint, pathModels)
+	if err != nil {
+		return nil, err
+	}
+	var out struct {
+		Data []struct {
+			ID   string `json:"id"`
+			Root string `json:"root"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(body, &out); err != nil {
+		return nil, fmt.Errorf("decode vLLM %s: %w", pathModels, err)
+	}
+	models := make([]ServedModel, 0, len(out.Data))
+	for _, m := range out.Data {
+		models = append(models, ServedModel{ID: m.ID, Root: m.Root})
+	}
+	return models, nil
 }
 
 // servedNames reads the model ids from a /v1/models answer.

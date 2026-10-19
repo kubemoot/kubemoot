@@ -1,4 +1,4 @@
-# Render tests for the operator chart and its dashboard subchart. Not a release gate.
+# Render tests for the operator chart, its dashboard subchart, and the kubemoot-vllm chart. Not a release gate.
 name: CI Chart
 
 on:
@@ -6,6 +6,7 @@ on:
     paths:
       - 'operator/chart/**'
       - 'dashboard/charts/**'
+      - 'vllm/charts/**'
       - '.github/workflows/ci-chart.yaml'
       # The dashboards may query only metrics this code defines (test-observability.sh).
       - 'agent-runtime/src/main/**'
@@ -16,6 +17,7 @@ on:
     paths:
       - 'operator/chart/**'
       - 'dashboard/charts/**'
+      - 'vllm/charts/**'
       - '.github/workflows/ci-chart.yaml'
       # The dashboards may query only metrics this code defines (test-observability.sh).
       - 'agent-runtime/src/main/**'
@@ -46,3 +48,5 @@ jobs:
         run: operator/chart/test-scheduling-crew.sh
       - name: Observability tests (dashboards and scraping)
         run: operator/chart/test-observability.sh
+      - name: kubemoot-vllm chart and launcher tests
+        run: vllm/charts/test-kubemoot-vllm.sh

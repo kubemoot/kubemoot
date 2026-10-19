@@ -135,6 +135,8 @@ spec:
   resources:
     {{- toYaml .Values.schedulingCrew.gateway.resources | nindent 4 }}
 {{- range .Values.modelProviders }}
+{{- /* A vllm provider serves Models from a huggingFace source; the crew's model below is an Ollama tag. */ -}}
+{{- if ne .type "vllm" }}
 ---
 apiVersion: kubemoot.ai/v1alpha1
 kind: Model
@@ -152,5 +154,6 @@ spec:
   model: {{ $.Values.schedulingCrew.model.name | quote }}
   providerRef: {{ .name | quote }}
   vramMib: {{ $.Values.schedulingCrew.model.vramMib }}
+{{- end }}
 {{- end }}
 {{- end }}

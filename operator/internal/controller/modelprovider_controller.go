@@ -38,6 +38,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
 	aiv1alpha1 "github.com/kubemoot/kubemoot/operator/api/v1alpha1"
@@ -540,7 +541,7 @@ func (r *ModelProviderReconciler) probeSnapshot(ctx context.Context, provider *a
 	if err != nil {
 		return engine.Snapshot{}, err
 	}
-	snap, err := adapter.Probe(ctx, provider.Spec)
+	snap, err := adapter.Probe(ctx, provider.EffectiveSpec())
 	if err != nil {
 		return engine.Snapshot{}, err
 	}
@@ -732,7 +733,7 @@ func buildProviderState(provider *aiv1alpha1.ModelProvider) ProviderState {
 		LastProbedAt: time.Now().UTC().Format(time.RFC3339),
 	}
 	if provider.Spec.Type == aiv1alpha1.ProviderTypeVLLM {
-		state.ModelEndpoints = modelEndpoints(provider.Spec.VLLM)
+		state.ModelEndpoints = modelEndpoints(provider.VLLMServers())
 	}
 	if cap := provider.Status.Capacity; cap != nil {
 		applyCapacityToState(&state, cap)
@@ -747,12 +748,12 @@ func buildProviderState(provider *aiv1alpha1.ModelProvider) ProviderState {
 }
 
 // modelEndpoints maps each served model to its server's endpoint; nil without servers.
-func modelEndpoints(spec *aiv1alpha1.VLLMSpec) map[string]string {
-	if spec == nil || len(spec.Servers) == 0 {
+func modelEndpoints(servers []aiv1alpha1.VLLMServer) map[string]string {
+	if len(servers) == 0 {
 		return nil
 	}
-	out := make(map[string]string, len(spec.Servers))
-	for _, s := range spec.Servers {
+	out := make(map[string]string, len(servers))
+	for _, s := range servers {
 		out[s.Model] = s.Endpoint
 	}
 	return out
@@ -865,6 +866,9 @@ func (r *ModelProviderReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&aiv1alpha1.ModelProvider{}).
 		Named("modelprovider").
+		// A provider that names a Service by spec.serviceRef finds its servers
+		// from the Service's ports, so a change to the Service reconciles it.
+		Watches(&corev1.Service{}, handler.EnqueueRequestsFromMapFunc(r.servicesToProviders)).
 		// Reconcile ModelProviders concurrently. Each reconcile blocks on a chain
 		// of HTTP probes (api/version, capacity discovery via api/ps, api/tags, and
 		// Prometheus), each up to the client timeout. With a single worker, a

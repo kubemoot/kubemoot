@@ -9,7 +9,20 @@ metadata:
     {{- include "kubemoot-operator.labels" $ | nindent 4 }}
 spec:
   type: {{ .type }}
-  endpoint: {{ .endpoint }}
+  {{- with .endpoint }}
+  endpoint: {{ . }}
+  {{- end }}
+  {{- with .serviceRef }}
+  serviceRef:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  {{- with .servers }}
+  servers:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  {{- with .sleepLevel }}
+  sleepLevel: {{ . }}
+  {{- end }}
   {{- if or .schedulingWeight .memoryMiB }}
   scheduling:
     {{- with .schedulingWeight }}

@@ -1,0 +1,19 @@
+apiVersion: v2
+name: kubemoot-vllm
+description: vLLM model servers for Kubemoot, several models on one accelerator, switched by sleep and wake
+type: application
+# Git holds 0.0.0: the chart release stamps the version from the git tags at packaging
+# (release-vllm-chart.sh). appVersion is not used: the vLLM image is set in the values.
+version: 0.0.0
+appVersion: "0.0.0"
+keywords:
+  - vllm
+  - llm
+  - inference
+  - kubemoot
+home: https://github.com/kubemoot/kubemoot
+sources:
+  - https://github.com/kubemoot/kubemoot
+maintainers:
+  - name: Kubemoot maintainers
+    email: moot@kubemoot.org

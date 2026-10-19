@@ -1,0 +1,78 @@
+# kubemoot-vllm: vLLM model servers for Kubemoot. It installs plain Kubernetes objects
+# (no Kubemoot resources): one pod on one accelerator that runs one `vllm serve` per
+# model, a Service with one port per model, and a volume for the weights. Install it
+# first; then point a ModelProvider at its Service (`helm status` prints the
+# ModelProvider and a Model per model to copy).
+#
+# vLLM serves one model per server. The servers here share one accelerator, so only
+# one is awake at a time and the others sleep; Kubemoot wakes the one a call needs.
+
+# The pod. Everything a node needs to place it.
+template:
+  nodeSelector: {}
+  tolerations: []
+  #  - {key: nvidia.com/gpu, operator: Equal, value: present, effect: NoSchedule}
+  affinity: {}
+  imagePullSecrets: []
+  container:
+    # The vLLM image, pinned by digest (repo/name:tag@sha256:...). There is no default:
+    # a floating tag would change the engine under running models. The image needs
+    # python3, which the launcher uses.
+    image: ""
+    imagePullPolicy: IfNotPresent
+    # Host memory and the accelerator. At sleep level 1 every sleeping model's weights
+    # are parked in host memory, so the memory limit must cover the weights of every
+    # model below plus the processes, and the memory-backed /dev/shm (shmSize) counts
+    # against it too. A 14B and a 32B model together needed 44Gi. The accelerator is
+    # requested here by its resource name, so any vendor works:
+    # resources:
+    #   requests: {memory: 32Gi, nvidia.com/gpu: 1}
+    #   limits: {memory: 44Gi, nvidia.com/gpu: 1}
+    resources: {}
+
+# The volume for the downloaded weights and vLLM's compile cache (HF_HOME and
+# VLLM_CACHE_ROOT live on it), so a restart starts in minutes, not tens of minutes.
+# It is ReadWriteOnce and is kept when the release is uninstalled, so the weights are
+# never downloaded twice by accident; delete the claim yourself to free the space.
+weights:
+  storageClassName: ""   # empty: the cluster's default class
+  size: ""               # required, for example 100Gi
+
+# Size of the memory-backed /dev/shm that vLLM's workers share. It counts against the
+# memory limit above.
+shmSize: 8Gi
+
+# How a server is put to sleep when another model takes the accelerator: 1 parks the
+# weights in host memory (fast to wake), 2 drops them and reloads from disk on wake
+# (holds no host memory). The ModelProvider you create must name the same level; it is
+# printed for you.
+sleepLevel: 1
+
+# The models, one server each. Required, at least one.
+#   servedName   the name every request uses (--served-model-name). The Kubemoot Model's
+#                spec.model must equal it; the operator reports a mismatch.
+#   repo         the Hugging Face repository
+#   revision     the commit it is pinned to (--revision)
+#   args         this model's own `vllm serve` arguments, one list item per word:
+#                memory fraction, context length, tool and reasoning parsers. The chart
+#                refuses the arguments it sets itself: --model, --served-model-name,
+#                --revision, --port, --host, --enable-sleep-mode.
+#
+# Two models on one accelerator:
+# models:
+#   - servedName: qwen3:14b
+#     repo: Qwen/Qwen3-14B-AWQ
+#     revision: 31c69efc
+#     args:
+#       - --gpu-memory-utilization=0.85
+#       - --max-model-len=16384
+#       - --enable-auto-tool-choice
+#       - --tool-call-parser=hermes
+#       - --reasoning-parser=qwen3
+#   - servedName: qwen3:32b
+#     repo: Qwen/Qwen3-32B-AWQ
+#     revision: 0499c3ac
+#     args:
+#       - --gpu-memory-utilization=0.95
+#       - --max-model-len=16384
+models: []

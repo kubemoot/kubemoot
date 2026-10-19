@@ -1,0 +1,101 @@
+{{- $servers := include "kubemoot-vllm.servers" . | fromJsonArray -}}
+{{- $name := include "kubemoot-vllm.fullname" . -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "kubemoot-vllm.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  # The accelerator is shared: a second pod cannot start beside the old one.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "kubemoot-vllm.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "kubemoot-vllm.labels" . | nindent 8 }}
+      annotations:
+        # A changed launcher or model list recreates the pod.
+        checksum/launcher: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+    spec:
+      # A Service named like the release would otherwise set <NAME>_PORT=tcp://... in
+      # the pod, which vLLM reads as its own setting and refuses.
+      enableServiceLinks: false
+      # The launcher stops every server's process group at once and waits up to 120 s for
+      # each, then kills what is left and waits again.
+      terminationGracePeriodSeconds: 300
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
+      {{- with .Values.template.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.template.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.template.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.template.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: vllm
+          image: {{ .Values.template.container.image | quote }}
+          imagePullPolicy: {{ .Values.template.container.imagePullPolicy }}
+          # One container runs every server, started one at a time (launcher.py).
+          command: [python3, /launcher/launcher.py, /launcher/servers.json]
+          env:
+            - {name: HF_HOME, value: /models/huggingface}
+            - {name: VLLM_CACHE_ROOT, value: /models/vllm}
+            # vLLM serves its sleep and wake endpoints only with this set. They are
+            # development endpoints: keep the Service cluster-internal.
+            - {name: VLLM_SERVER_DEV_MODE, value: "1"}
+          ports:
+            {{- range $i, $s := $servers }}
+            - {name: vllm-{{ $i }}, containerPort: {{ $s.port }}}
+            {{- end }}
+          # Ready once every server is up and asleep and the first is awake.
+          startupProbe:
+            exec: {command: [test, -f, /tmp/launcher-ready]}
+            periodSeconds: 10
+            # A cold start downloads the weights and compiles each model. This bound is a
+            # safety net (60 minutes), not the way the start is judged.
+            failureThreshold: 360
+          readinessProbe:
+            exec: {command: [test, -f, /tmp/launcher-ready]}
+            periodSeconds: 10
+          {{- with .Values.template.container.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          # The restricted profile's requirements except runAsNonRoot: the vLLM image
+          # runs as root.
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+          volumeMounts:
+            - {name: models, mountPath: /models}
+            - {name: shm, mountPath: /dev/shm}
+            - {name: launcher, mountPath: /launcher, readOnly: true}
+      volumes:
+        - name: models
+          persistentVolumeClaim:
+            claimName: {{ $name }}-weights
+        # NCCL and vLLM's workers use shared memory; the container default is 64 MB.
+        - name: shm
+          emptyDir:
+            medium: Memory
+            sizeLimit: {{ .Values.shmSize | quote }}
+        - name: launcher
+          configMap:
+            name: {{ $name }}-launcher

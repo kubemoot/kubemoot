@@ -130,7 +130,7 @@ func TestApplySnapshotToStateCarriesEveryContractField(t *testing.T) {
 	if err := dec.Decode(&contract); err != nil {
 		t.Fatalf("state does not match the contract: %v\n%s", err, raw)
 	}
-	if contract.ModelStates["a"] != "asleep" || *contract.RequestsRunning != 2 || *contract.RequestsWaiting != 5 ||
+	if contract.ModelStates["a"] != stateAsleepName || *contract.RequestsRunning != 2 || *contract.RequestsWaiting != 5 ||
 		*contract.KvCacheUsage != 0.75 || contract.SwitchCostMs["a"] != 900 || *contract.HostMemoryParkedMiB != 4096 {
 		t.Errorf("contract = %+v", contract)
 	}

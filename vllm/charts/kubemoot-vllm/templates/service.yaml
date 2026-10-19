@@ -1,0 +1,20 @@
+{{- $servers := include "kubemoot-vllm.servers" . | fromJsonArray -}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "kubemoot-vllm.fullname" . }}
+  labels:
+    {{- include "kubemoot-vllm.labels" . | nindent 4 }}
+    kubemoot.ai/engine: vllm
+spec:
+  selector:
+    {{- include "kubemoot-vllm.selectorLabels" . | nindent 4 }}
+  # One port per model, sorted by served name from 8000. The operator reads the ports
+  # and asks each one which model it serves, so the order is only for reading.
+  ports:
+    {{- range $i, $s := $servers }}
+    - name: vllm-{{ $i }}
+      port: {{ $s.port }}
+      targetPort: {{ $s.port }}
+      protocol: TCP
+    {{- end }}

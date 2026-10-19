@@ -28,7 +28,8 @@ import (
 	aiv1alpha1 "github.com/kubemoot/kubemoot/operator/api/v1alpha1"
 )
 
-// reconcileVLLM handles a provider of vLLM servers that someone else runs. The
+// reconcileVLLM handles a provider of vLLM servers that someone else runs, listed in
+// spec.servers or found behind the Service spec.serviceRef names. The
 // operator starts nothing and downloads nothing: the provider is Ready when at
 // least one of its servers answers, and each Model on it is Available when its own
 // server does. Version, storage, pod and calibration handling are Ollama's and do
@@ -39,14 +40,17 @@ func (r *ModelProviderReconciler) reconcileVLLM(ctx context.Context, provider *a
 	// Each reconcile publishes only what its own probe read.
 	r.probes.Delete(provider.Name)
 
-	servers := vllmServers(provider)
-	if len(servers) == 0 {
-		return r.updateStatus(ctx, provider, false, "Failed", "spec.vllm.servers must list at least one server")
-	}
-
 	httpClient := r.HTTPClient
 	if httpClient == nil {
 		httpClient = &http.Client{Timeout: 10 * time.Second}
+	}
+
+	if done, result, err := r.discoverServers(ctx, provider, httpClient); done {
+		return result, err
+	}
+	servers := provider.VLLMServers()
+	if len(servers) == 0 {
+		return r.updateStatus(ctx, provider, false, phaseFailed, "a vllm provider needs spec.serviceRef or spec.servers")
 	}
 
 	snap, err := r.probeSnapshot(ctx, provider, httpClient)
@@ -64,10 +68,24 @@ func (r *ModelProviderReconciler) reconcileVLLM(ctx context.Context, provider *a
 	return r.updateStatus(ctx, provider, true, phaseReady, message)
 }
 
-// vllmServers is the servers the provider lists.
-func vllmServers(provider *aiv1alpha1.ModelProvider) []aiv1alpha1.VLLMServer {
-	if provider.Spec.VLLM == nil {
-		return nil
+// discoverServers finds the servers of a provider with a serviceRef and records them
+// in its status. It reports done, with the status already written, when the Service
+// cannot be read or no port reports a model yet; a provider in servers mode is never
+// done here.
+func (r *ModelProviderReconciler) discoverServers(ctx context.Context, provider *aiv1alpha1.ModelProvider, httpClient *http.Client) (bool, ctrl.Result, error) {
+	if provider.Spec.ServiceRef == nil {
+		return false, ctrl.Result{}, nil
 	}
-	return provider.Spec.VLLM.Servers
+	servers, skipped, err := discoverVLLMServers(ctx, r.Client, httpClient, provider)
+	provider.Status.VLLMServers = servers
+	if err != nil {
+		result, err := r.updateStatus(ctx, provider, false, phaseFailed, err.Error())
+		return true, result, err
+	}
+	if len(servers) == 0 {
+		msg := fmt.Sprintf("No port of Service %s reports a model yet (the first start downloads and compiles each model): %v", serviceKey(provider), skipped)
+		result, err := r.updateStatus(ctx, provider, false, statePending, msg)
+		return true, result, err
+	}
+	return false, ctrl.Result{}, nil
 }

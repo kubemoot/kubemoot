@@ -170,11 +170,11 @@ func (f *fakeServer) isAsleep() bool {
 // specOf is a vllm provider spec over the given servers, one per model.
 func specOf(level int, servers map[string]*fakeServer, order ...string) aiv1alpha1.ModelProviderSpec {
 	spec := aiv1alpha1.ModelProviderSpec{
-		Type: aiv1alpha1.ProviderTypeVLLM,
-		VLLM: &aiv1alpha1.VLLMSpec{SleepLevel: level},
+		Type:       aiv1alpha1.ProviderTypeVLLM,
+		SleepLevel: level,
 	}
 	for _, model := range order {
-		spec.VLLM.Servers = append(spec.VLLM.Servers, aiv1alpha1.VLLMServer{Model: model, Endpoint: servers[model].URL})
+		spec.Servers = append(spec.Servers, aiv1alpha1.VLLMServer{Model: model, Endpoint: servers[model].URL})
 	}
 	return spec
 }
@@ -328,7 +328,7 @@ func TestProbeLeavesOutServersThatDoNotAnswer(t *testing.T) {
 	wrong := newFake(t, "other", false)
 	servers := map[string]*fakeServer{qwen14: up, qwen8: down, "third": wrong}
 	spec := specOf(1, servers, qwen14, qwen8)
-	spec.VLLM.Servers = append(spec.VLLM.Servers, aiv1alpha1.VLLMServer{Model: "third", Endpoint: wrong.URL})
+	spec.Servers = append(spec.Servers, aiv1alpha1.VLLMServer{Model: "third", Endpoint: wrong.URL})
 
 	snap := probe(t, spec)
 	if len(snap.ModelStates) != 1 || snap.ModelStates[qwen14] != engine.StateAwake {
@@ -511,7 +511,7 @@ func TestReadyFailsWhenAnotherServersSleepStateCannotBeRead(t *testing.T) {
 func TestEndpointWithTrailingSlash(t *testing.T) {
 	a := newFake(t, qwen14, true)
 	spec := specOf(1, map[string]*fakeServer{qwen14: a}, qwen14)
-	spec.VLLM.Servers[0].Endpoint += "/"
+	spec.Servers[0].Endpoint += "/"
 	if err := New(http.DefaultClient).Ready(context.Background(), spec, qwen14); err != nil {
 		t.Fatal(err)
 	}

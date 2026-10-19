@@ -62,13 +62,12 @@ func ollamaSourceMismatch(src *aiv1alpha1.ModelSource) string {
 	return ""
 }
 
-// vllmSourceMismatch is the mismatch for a vllm provider: anything but a huggingFace source.
+// vllmSourceMismatch is the mismatch for a vllm provider: an ollama source. A
+// vLLM server decides its own weights, so a vllm Model needs no source; a
+// huggingFace one is information about what the server runs.
 func vllmSourceMismatch(src *aiv1alpha1.ModelSource) string {
-	switch {
-	case src != nil && src.Ollama != nil:
-		return "source.ollama does not fit a vllm provider; use source.huggingFace"
-	case src == nil || src.HuggingFace == nil:
-		return "a model on a vllm provider needs source.huggingFace: the vLLM server loads its own weights from a pinned repository"
+	if src != nil && src.Ollama != nil {
+		return "source.ollama does not fit a vllm provider; use source.huggingFace or omit source"
 	}
 	return ""
 }
