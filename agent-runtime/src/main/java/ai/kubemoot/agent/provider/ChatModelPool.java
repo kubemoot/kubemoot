@@ -9,6 +9,7 @@ import jakarta.enterprise.context.ApplicationScoped;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.net.http.HttpClient;
 import java.time.Duration;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
@@ -44,9 +45,7 @@ public class ChatModelPool {
             log.info("Building ChatModel for engine={} endpoint={} model={} think={} (first use)",
                     engine.type(), endpoint, modelName, think);
             return OpenAiChatModel.builder()
-                    // The JDK HTTP client, set explicitly: the native image has no
-                    // HTTP client for LangChain4j to discover through ServiceLoader.
-                    .httpClientBuilder(new JdkHttpClientBuilder())
+                    .httpClientBuilder(httpClient())
                     .baseUrl(engine.chatBaseUrl(endpoint))
                     // Local servers take no key; the client still sends one.
                     .apiKey(NO_API_KEY)
@@ -73,7 +72,7 @@ public class ChatModelPool {
                                                    Boolean think) {
         String key = key(engine, endpoint, modelName, temperature, maxTokens, timeout, think);
         return streamingCache.computeIfAbsent(key, k -> OpenAiStreamingChatModel.builder()
-                .httpClientBuilder(new JdkHttpClientBuilder())
+                .httpClientBuilder(httpClient())
                 .baseUrl(engine.chatBaseUrl(endpoint))
                 .apiKey(NO_API_KEY)
                 .modelName(modelName)
@@ -82,6 +81,24 @@ public class ChatModelPool {
                 .timeout(timeout)
                 .customParameters(engine.thinkingFields(think))
                 .build());
+    }
+
+    /**
+     * The HTTP client every chat model uses: the JDK client, set explicitly because
+     * the native image has no HTTP client for LangChain4j to discover through
+     * ServiceLoader.
+     */
+    static JdkHttpClientBuilder httpClient() {
+        return new JdkHttpClientBuilder().httpClientBuilder(http11());
+    }
+
+    /**
+     * HTTP/1.1 only. The JDK client otherwise asks a plain-HTTP server to upgrade to
+     * HTTP/2 ({@code Upgrade: h2c}), and uvicorn, which serves vLLM and other
+     * OpenAI-compatible servers, refuses the upgrade and drops the request body.
+     */
+    static HttpClient.Builder http11() {
+        return HttpClient.newBuilder().version(HttpClient.Version.HTTP_1_1);
     }
 
     /** Every setting that changes the request; {@code think} is null when the agent leaves the default. */
