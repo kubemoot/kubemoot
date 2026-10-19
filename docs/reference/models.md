@@ -33,7 +33,7 @@ Declares an inference endpoint. The operator discovers GPU capacity (VRAM, loade
 | `vllm.servers` | list | For vllm | The provider's vLLM servers, one per served model (1 to 32). Required for type `vllm` and rejected for any other type. See [vLLM providers](#vllm-providers). |
 | `vllm.servers[].model` | string | Yes, within a server | The served name of the model the server answers to: the `model` of the `Model` on it, and the `--served-model-name` the server runs with. Unique within the provider. |
 | `vllm.servers[].endpoint` | string | Yes, within a server | The server's OpenAI-compatible base URL without `/v1`, for example `http://vllm-qwen3-14b.models:8000`. Must start with `http://` or `https://`. |
-| `vllm.sleepLevel` | int | No | How a server is put to sleep when another model takes the accelerator: `1` parks the weights in host memory (fast to wake), `2` drops them and reloads from disk on wake (holds no host memory). Default `1`. |
+| `vllm.sleepLevel` | int | No | How a server is put to sleep when another model takes the accelerator: `1` parks the weights in host memory (fast to wake), `2` drops them and reloads from disk on wake (holds no host memory). Default `1`. Immutable once set. |
 | `secretRef` | string | No | Reserved for future provider types; not used by `ollama` or `vllm` |
 | `scheduling.weight` | int | No | Preference between providers for reasons other than capacity (higher is preferred); default 100 |
 | `scheduling.memoryMiB` | int | No | Memory budget the fit gate spends when the operator cannot discover one; see below |
@@ -59,7 +59,7 @@ spec:
         endpoint: http://vllm-qwen3-8b.models:8000
 ```
 
-You run the servers; the operator does not start, stop, or restart them. Start each one with `--enable-sleep-mode`, the environment variable `VLLM_SERVER_DEV_MODE=1` (vLLM serves its sleep endpoints only then), and `--served-model-name` set to the `model` listed for it. A server without sleep mode answers 404 on the sleep endpoints and is treated as always awake: it still serves its model, but the provider cannot make it give up the accelerator, so switching to another model on the same provider fails. Change `vllm.sleepLevel` only while every server is awake, because a server wakes by the level the provider names now, not the level it slept at. The operator running the server group itself comes in a later change.
+You run the servers; the operator does not start, stop, or restart them. Start each one with `--enable-sleep-mode`, the environment variable `VLLM_SERVER_DEV_MODE=1` (vLLM serves its sleep endpoints only then), and `--served-model-name` set to the `model` listed for it. A server without sleep mode answers 404 on the sleep endpoints and is treated as always awake: it still serves its model, but the provider cannot make it give up the accelerator, so switching to another model on the same provider fails. `vllm.sleepLevel` cannot be changed once set, because a sleeping server wakes by the level the provider names and that must be the level it slept at; delete and recreate the provider to change it. The operator running the server group itself comes in a later change.
 
 What the operator does with the servers:
 
