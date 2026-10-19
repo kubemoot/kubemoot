@@ -425,7 +425,7 @@ public class ProviderSelector {
 
     /** Recent observed call latency on the provider, or the default when none was observed. */
     double callSeconds(ProviderState p) {
-        double ms = recentLatency.getOrDefault(p.endpoint(), 0.0);
+        double ms = recentLatency.getOrDefault(p.latencyKey(), 0.0);
         return ms > 0 ? ms / 1000.0 : PlacementCostModel.DEFAULT_CALL_SECONDS;
     }
 
@@ -613,7 +613,7 @@ public class ProviderSelector {
         return LoadView.of(
                         p -> ticketManager.activeCountFor(p.name()),
                         p -> ticketManager.activeFootprintFor(p.name()),
-                        p -> recentLatency.getOrDefault(p.endpoint(), 0.0),
+                        p -> recentLatency.getOrDefault(p.latencyKey(), 0.0),
                         this::isCircuitOpen)
                 .withKvCache(p -> ticketManager.activeKvCacheFor(p.name()))
                 .withActiveModels(p -> ticketManager.activeModelsOn(p.name()))       // cold-start convergence
@@ -1117,7 +1117,7 @@ public class ProviderSelector {
      * provider with 3 agents already queued.
      */
     double scoreForRanking(ProviderState state) {
-        double latencyMs = recentLatency.getOrDefault(state.endpoint(), 0.0);
+        double latencyMs = recentLatency.getOrDefault(state.latencyKey(), 0.0);
         double latencyPenalty = (latencyMs / 1000.0) * LATENCY_PENALTY_PER_SECOND;
         return state.saturationRatio() + latencyPenalty;
     }
@@ -1225,6 +1225,13 @@ public class ProviderSelector {
      * subsequent picks prefer alternatives — even when MP state still
      * claims X is warm. Self-correcting against state staleness.
      */
+    public void recordObservedLatencyFor(String providerName, long latencyMs) {
+        readState().stream()
+                .filter(p -> p.name().equals(providerName))
+                .findFirst()
+                .ifPresent(p -> recordObservedLatency(p.latencyKey(), latencyMs));
+    }
+
     public void recordObservedLatency(String endpoint, long latencyMs) {
         if (endpoint == null || endpoint.isEmpty() || latencyMs <= 0) return;
         recentLatency.merge(endpoint, (double) latencyMs,
@@ -1347,8 +1354,23 @@ public class ProviderSelector {
                 n.path("contextLength").asLong(0L),
                 longMapField(n, "loadedModelContextLengths"),
                 speedsField(n),
-                n.path("engine").isTextual() ? n.path("engine").asText() : ""
+                n.path("engine").isTextual() ? n.path("engine").asText() : "",
+                stringMapField(n, "modelEndpoints")
         );
+    }
+
+    /** A JSON object of strings, by key; empty when absent or not an object. Non-text values are skipped. */
+    static Map<String, String> stringMapField(JsonNode n, String field) {
+        Map<String, String> out = new HashMap<>();
+        JsonNode node = n.path(field);
+        if (node.isObject()) {
+            node.fields().forEachRemaining(e -> {
+                if (e.getValue().isTextual()) {
+                    out.put(e.getKey(), e.getValue().asText());
+                }
+            });
+        }
+        return out;
     }
 
     /** The {@code modelSpeeds} object, by model; empty when absent or malformed. */

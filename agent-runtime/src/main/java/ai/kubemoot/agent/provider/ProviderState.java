@@ -78,8 +78,47 @@ public record ProviderState(
         long contextLength,
         Map<String, Long> loadedModelContextLengths,
         Map<String, ModelSpeed> modelSpeeds,
-        String engine
+        String engine,
+        Map<String, String> modelEndpoints
 ) {
+    /**
+     * A state that names no per-model servers: a provider that is one server at
+     * {@link #endpoint}, which is every provider but a vLLM one.
+     */
+    public ProviderState(String name, String endpoint, int maxParallel,
+                         int activeCount, int queueDepth, List<String> loadedModels,
+                         boolean ready, String lastProbedAt, long totalVramMiB,
+                         Map<String, Long> loadedModelFootprintsMiB,
+                         Map<String, Long> availableModelFootprintsMiB,
+                         long contextLength, Map<String, Long> loadedModelContextLengths,
+                         Map<String, ModelSpeed> modelSpeeds, String engine) {
+        this(name, endpoint, maxParallel, activeCount, queueDepth, loadedModels,
+                ready, lastProbedAt, totalVramMiB, loadedModelFootprintsMiB,
+                availableModelFootprintsMiB, contextLength, loadedModelContextLengths, modelSpeeds, engine,
+                Map.of());
+    }
+
+    /**
+     * The server a call for {@code modelName} goes to. A provider that runs one server
+     * per model (vLLM) lists them in {@link #modelEndpoints}, and has no endpoint of its
+     * own; every other provider serves every model at {@link #endpoint}.
+     */
+    public String endpointFor(String modelName) {
+        if (modelName != null && modelEndpoints != null) {
+            String own = modelEndpoints.get(modelName);
+            if (own != null && !own.isBlank()) return own;
+        }
+        return endpoint;
+    }
+
+    /**
+     * The key observed latency is kept under: the provider's endpoint, or its name for a
+     * provider that has no single endpoint (vLLM), so two such providers never share one.
+     */
+    public String latencyKey() {
+        return endpoint == null || endpoint.isBlank() ? name : endpoint;
+    }
+
     /** A state that names no engine type: an Ollama provider published before the type was. */
     public ProviderState(String name, String endpoint, int maxParallel,
                          int activeCount, int queueDepth, List<String> loadedModels,

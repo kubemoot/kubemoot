@@ -1634,10 +1634,10 @@ public class ChatService {
         // This is the trace needed to verify the scheduler keeps oversized models
         // off too-small GPUs; promote from debug so a live run shows every pick.
         log.info("JIT pick: provider={} endpoint={} model={} coldLoadFootprintEstimate={}MiB totalVram={}MiB",
-                ps.name(), ps.endpoint(), modelName, coldLoadFootprintMiB, ps.totalVramMiB());
+                ps.name(), ps.endpointFor(modelName), modelName, coldLoadFootprintMiB, ps.totalVramMiB());
         ChatModel built = chatModelPool.forEndpoint(
                 ps.chatEngine(),
-                ps.endpoint(),
+                ps.endpointFor(modelName),
                 modelName,
                 properties.model().temperature(),
                 properties.model().maxTokens(),
@@ -1649,7 +1649,7 @@ public class ChatService {
                 properties.model().think().orElse(null)
         );
         return new MullingPick(built, ps.name(), java.util.Optional.of(p.ticket()),
-                p.score() != null ? p.score().reasoning() : "", modelName, ps.endpoint(), coldLoadFootprintMiB)
+                p.score() != null ? p.score().reasoning() : "", modelName, ps.endpointFor(modelName), coldLoadFootprintMiB)
                 .withColdLoad(!ps.hasModelLoaded(modelName));
     }
 
@@ -1839,10 +1839,7 @@ public class ChatService {
     private void recordSchedulerOutcome(MullingPick pick, String providerName,
                                         long callDurationMs, boolean callFailed) {
         if (providerSelector != null && providerName != null && !providerName.isEmpty()) {
-            providerSelector.readState().stream()
-                    .filter(p -> p.name().equals(providerName))
-                    .findFirst()
-                    .ifPresent(p -> providerSelector.recordObservedLatency(p.endpoint(), callDurationMs));
+            providerSelector.recordObservedLatencyFor(providerName, callDurationMs);
             // AI Circuit Breaker (Phase A): record success/failure so a wedged
             // provider (HTTP 500 / timeout cluster) is excluded from future picks
             // for CIRCUIT_COOLDOWN. Per-agent local; faster than the operator's
@@ -2016,7 +2013,7 @@ public class ChatService {
                     m -> occupancy, m -> kv, promptTokens, false));
             if (placed.isPresent()) {
                 var p = placed.get();
-                String endpoint = p.pick().provider().endpoint();
+                String endpoint = p.pick().provider().endpointFor(triageModelId);
                 String pickedProvider = p.pick().provider().name();
                 log.info("OUTBOUND inference (triage): agent={} endpoint={} model={} provider={}",
                         properties.agentName(), endpoint, triageModelId, pickedProvider);
@@ -2038,7 +2035,7 @@ public class ChatService {
      */
     private void recordTriageOutcome(TriagePlacement placement, long durMs, boolean ok) {
         if (providerSelector != null && !placement.pickedProvider().isEmpty()) {
-            providerSelector.recordObservedLatency(placement.endpoint(), durMs);
+            providerSelector.recordObservedLatencyFor(placement.pickedProvider(), durMs);
             if (ok) {
                 providerSelector.recordSuccess(placement.pickedProvider());
                 if (ticketManager != null && placement.occupancy() > 0) {
