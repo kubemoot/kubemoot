@@ -248,11 +248,14 @@ answering, which takes minutes on the first start while the weights download and
 compile. A liveness probe reads a heartbeat the launcher touches whenever it makes progress,
 so a launcher that is itself stuck is restarted with the pod.
 
-Two limits follow from never acting on a clock. A sleep or wake that a server never answers
-is waited on without a deadline, so while one is outstanding the launcher does not restart
-other servers that exit, and the liveness probe does not fire because the launcher is still
-polling. A running server that does not report its sleep state is not put to sleep before
-another server starts, so its memory use can make that start fail; the launcher retries.
+The launcher judges a sleep or wake by what the server reports, never by a clock, with one
+safety net. While it waits it watches for any change: a step answered, or, once the steps are
+answered, a different state reported. If nothing at all changes for 30 minutes, it stops recording progress and exits, so
+the liveness probe or the container restart restarts the pod and frees the accelerator. A wait
+that is progressing, such as a slow weight reload, never reaches it. Until then, a wait on a
+server that has not answered holds up restarting other servers that exit. A running server that
+does not report its sleep state is not put to sleep before another server starts, so its memory
+use can make that start fail; the launcher retries.
 
 Set the memory limit above the weights of every model plus `shmSize`; the servers are
 ordered by `servedName`, on ports 8000 and up, and adding or removing a model recreates the

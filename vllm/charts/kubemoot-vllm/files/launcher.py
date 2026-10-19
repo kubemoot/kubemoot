@@ -12,11 +12,14 @@ waking or sleeping it, and a wake or sleep is judged by the state the server rep
 not by a clock. A running server that does not answer is skipped when the others are
 put to sleep and takes the pod out of ready until it answers again.
 
-A wake or sleep that the server never answers is waited on without a deadline, so while
-one is outstanding the launcher does not restart other servers that exit; the heartbeat
-keeps beating, so the liveness probe does not restart the pod either. A running server
-that does not report its sleep state is not put to sleep before a restart, so its memory
-use can make the next server's start fail, which is retried.
+A wake or sleep is waited on without a deadline while anything is changing: a step answered,
+or, once the steps are answered, a different state reported. Only a wait in which nothing at
+all changes for NO_PROGRESS_LIMIT_S (a safety net) is given up (the wait for a server's first
+/health is not bounded, because a first start downloads and compiles for a long time): the launcher
+stops recording progress and exits, so the pod is restarted and the accelerator freed. Until
+then a wait on a server that has not answered holds up restarting other servers that exit.
+A running server that does not report its sleep state is not put to sleep before a restart,
+so its memory use can make the next server's start fail, which is retried.
 
 Each server runs as its own process group and is stopped as a group (the server and its
 engine workers) only when the launcher is stopped or has to restart it after it exited.
@@ -58,10 +61,22 @@ STOP_TIMEOUT_S = 120
 KILL_WAIT_S = 10
 BACKOFF_START_S = 5
 BACKOFF_MAX_S = 60
+# A safety net, not flow control. A wait for a server's state ends on that state; it
+# never ends on a clock while anything is changing. It is given up only when nothing
+# at all has changed for this long: no step answered and the server's reported state
+# the same. The launcher then stops recording progress and raises NoProgress, so the
+# container exits, the pod restarts, and the accelerator is freed. The normal path (any
+# state change, a slow level 2 reload whose steps are answering) never reaches it.
+NO_PROGRESS_LIMIT_S = 1800
 
 
 class Stopping(Exception):
     """The launcher was asked to stop."""
+
+
+class NoProgress(Exception):
+    """A wait for a server's state saw no change at all for NO_PROGRESS_LIMIT_S. Not
+    recoverable: the launcher exits so the pod is restarted."""
 
 
 class ServerExited(Exception):
@@ -130,6 +145,7 @@ class Server:
         self.level, self.stopping = level, stopping
         self.proc = None
         self.last_error = None
+        self.reading = None  # what the last state read said, for the no-progress check
 
     @property
     def url(self):
@@ -188,8 +204,16 @@ class Server:
         server that never answers (for example one started without VLLM_SERVER_DEV_MODE)
         is not waited on silently."""
         try:
-            return self.is_sleeping() == asleep and (asleep or self.healthy())
+            sleeping = self.is_sleeping()
+            self.reading = "asleep" if sleeping else "awake"
+            if sleeping != asleep or asleep:
+                return sleeping == asleep
+            if not self.healthy():
+                self.reading = "awake, /health not answering"
+                return False
+            return True
         except (OSError, RuntimeError, ValueError, http.client.HTTPException) as e:
+            self.reading = "error: %s" % e
             if str(e) != self.last_error:
                 self.last_error = str(e)
                 print("launcher: waiting for %s to report its state: %s" % (self.name, e), flush=True)
@@ -201,23 +225,32 @@ class Server:
         server's process exiting, or on a stop request; never on elapsed time. A level 2
         reload that outlasts any single request therefore succeeds."""
         failures = []
+        answered = []
 
         def send():
             try:
                 for path, body in steps:
                     post(self.url + path, body)
+                    answered.append(path)
             except (OSError, RuntimeError, ValueError, http.client.HTTPException) as e:
                 failures.append(e)
 
         worker = threading.Thread(target=send, daemon=True)
         worker.start()
+        seen, changed_at = None, time.monotonic()
         while True:
-            beat()
             if failures:
                 raise failures[0]
             self.check_alive()
             if not worker.is_alive() and self.reached(asleep):
                 return
+            now = (len(answered), worker.is_alive(), self.reading)
+            if now != seen:
+                seen, changed_at = now, time.monotonic()
+            elif time.monotonic() - changed_at > NO_PROGRESS_LIMIT_S:
+                raise NoProgress("%s: no change in %d s while waiting to be %s"
+                                 % (self.name, NO_PROGRESS_LIMIT_S, "asleep" if asleep else "awake"))
+            beat()
             time.sleep(STATE_POLL_S)
 
     def sleep(self):

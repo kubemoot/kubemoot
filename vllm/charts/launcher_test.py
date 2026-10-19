@@ -71,6 +71,9 @@ class Handler(BaseHTTPRequestHandler):
             record("sleep" + parsed.query.replace("level=", ""))
         elif parsed.path == "/wake_up":
             time.sleep(delay)
+            if os.environ.get("NEVER_WAKE"):
+                record("wake-ignored")
+                return self.reply()  # accepts the request and never changes state
             state["asleep"] = parsed.query == "tags=weights"
             if not state["asleep"]:
                 state["lag_until"] = time.time() + lag
@@ -132,7 +135,7 @@ class LauncherTest(unittest.TestCase):
     def tearDown(self):
         for instance in self.instances:
             instance.stop_all()
-        for key in ("WAKE_DELAY", "WAKE_LAG"):
+        for key in ("WAKE_DELAY", "WAKE_LAG", "NEVER_WAKE"):
             os.environ.pop(key, None)
 
     def install_vllm(self, body):
@@ -472,6 +475,43 @@ class LauncherTest(unittest.TestCase):
         start = time.monotonic()
         instance.servers[0].wake()
         self.assertGreaterEqual(time.monotonic() - start, 1.0)
+        self.assertFalse(instance.servers[0].is_sleeping())
+
+    def test_a_wait_that_makes_no_progress_is_given_up_and_the_heartbeat_stops(self):
+        os.environ["NEVER_WAKE"] = "1"  # the POST is answered 200 and nothing ever changes
+        self.launcher.NO_PROGRESS_LIMIT_S = 1.5
+        instance = self.make(["a"])
+        instance.start_server_asleep(instance.servers[0])
+        start = time.monotonic()
+        with self.assertRaises(self.launcher.NoProgress):
+            instance.servers[0].wake()
+        elapsed = time.monotonic() - start
+        self.assertGreaterEqual(elapsed, 1.5)
+        self.assertLess(elapsed, 6)
+        # No progress is recorded after the launcher gave up.
+        beat_at = os.stat(self.launcher.ALIVE_FILE).st_mtime
+        time.sleep(0.6)
+        self.assertEqual(os.stat(self.launcher.ALIVE_FILE).st_mtime, beat_at)
+
+    def test_no_progress_is_not_swallowed_by_the_recovery_retries(self):
+        os.environ["NEVER_WAKE"] = "1"
+        self.launcher.NO_PROGRESS_LIMIT_S = 1.0
+        instance = self.make(["a", "b"])
+        for s in instance.servers:
+            instance.start_server_asleep(s)
+        self.kill(instance.servers[1])
+        with self.assertRaises(self.launcher.NoProgress):
+            instance.recover_with_backoff(instance.servers[1])
+
+    def test_a_wait_that_keeps_progressing_past_the_limit_is_not_cut_off(self):
+        # Three level 2 steps of 1 s each: 3 s in all, over the 2.5 s limit, but a step
+        # is answered every second, so the wait is always changing.
+        os.environ["WAKE_DELAY"] = "1"
+        self.launcher.NO_PROGRESS_LIMIT_S = 2.5
+        instance = self.make(["a", "b"], level=2)
+        start = time.monotonic()
+        instance.start_all()
+        self.assertGreater(time.monotonic() - start, 3)
         self.assertFalse(instance.servers[0].is_sleeping())
 
     def test_a_wake_ends_with_the_servers_process_exiting(self):
