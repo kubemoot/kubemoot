@@ -33,6 +33,9 @@ touch "$LOG"
 # release-registry reference exists once copied (or planted by a test).
 cat > "${root}/bin/crane" <<'EOF'
 #!/usr/bin/env bash
+# The real tool reads the secret it is given on stdin; a stub that exits first makes a
+# caller's `echo secret | tool` fail with a broken pipe at random.
+case " $* " in *" --password-stdin "*) cat > /dev/null ;; esac
 echo "crane $*" >> "$LOG"
 [ "$1" = "--insecure" ] && shift
 args=("$@"); [ "${args[1]:-}" = "--insecure" ] && args=("${args[0]}" "${args[@]:2}")
@@ -55,6 +58,7 @@ EOF
 # makes cosign not run.
 cat > "${root}/bin/cosign" <<'EOF'
 #!/usr/bin/env bash
+case " $* " in *" --password-stdin "*) cat > /dev/null ;; esac
 echo "cosign $*" >> "$LOG"
 [ -z "${COSIGN_BROKEN:-}" ] || exit 127
 case "$1" in
@@ -74,7 +78,7 @@ EOF
 cat > "${root}/bin/helm" <<EOF
 #!/usr/bin/env bash
 case "\$1" in
-  registry) echo "helm \$*" >> "\$LOG"; exit 0 ;;
+  registry) case " \$* " in *" --password-stdin "*) cat > /dev/null ;; esac; echo "helm \$*" >> "\$LOG"; exit 0 ;;
   push)
     echo "helm \$*" >> "\$LOG"
     [ -z "\${HELM_PUSH_FAIL:-}" ] || exit 1
@@ -532,6 +536,11 @@ for f in $(git ls-files '*values.yaml' | grep -E '^(operator/chart|dashboard/cha
   typed="$(grep -nE "(^|[\"' /])(${images}):[A-Za-z0-9._-]+" "$f" | grep -vE ":(${images}):0\.0\.0([\"' ]|$)|/(${images}):0\.0\.0([\"' ]|$)| (${images}):0\.0\.0([\"' ]|$)" || true)"
   check "${f} types no Kubemoot image version" "" "$typed"
 done
+# A script that sets pipefail must not pipe a secret into a login: a login that exits
+# before reading it would fail the script with a broken pipe (a here-string cannot).
+piped="$(grep -lE '^set -[a-z]*o pipefail|^set -euo pipefail' .github/scripts/*.sh \
+  | grep -v 'test-publish-release\.sh$' | xargs -r grep -nE '\|[^|].*--password-stdin' | grep -vE '^[^:]+:[0-9]+:[[:space:]]*#' || true)"
+check "no pipefail script pipes a secret into a login" "" "$piped"
 # No workflow or script commits: generated code is committed by the developer and checked
 # by ci.yaml, and a docs change reaches kubemoot-docs as a dispatch event.
 commits="$(grep -nE 'git commit|git push.*(origin main|HEAD:main)|\[skip ci\]' .github/workflows/*.yaml .github/scripts/*.sh \

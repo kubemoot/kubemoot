@@ -18,7 +18,9 @@ tgz="${1:?packaged chart path required}"
 : "${GHCR_USERNAME:?GHCR_USERNAME required}"
 : "${GHCR_TOKEN:?GHCR_TOKEN required}"
 
-echo "${GHCR_TOKEN}" | helm registry login "${RELEASE_REGISTRY%%/*}" -u "${GHCR_USERNAME}" --password-stdin
+# A here-string, not a pipe: under pipefail a login that exits before it has read its
+# stdin would make `echo` fail with a broken pipe.
+helm registry login "${RELEASE_REGISTRY%%/*}" -u "${GHCR_USERNAME}" --password-stdin <<<"${GHCR_TOKEN}"
 
 for attempt in 1 2 3; do
   if helm push "${tgz}" "oci://${RELEASE_REGISTRY}/charts"; then
