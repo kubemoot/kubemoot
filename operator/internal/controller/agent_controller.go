@@ -247,6 +247,9 @@ type modelPick struct {
 	// Candidates is the phase's ranked candidate list (ModelID first), handed to
 	// the runtime so its per-call pick can use a warm in-tolerance model.
 	Candidates []modelCandidate
+	// PreferFaster is the rule's preferFaster, handed to the runtime, which applies
+	// it against live measured speeds. 0 is off.
+	PreferFaster int32
 }
 
 // scheduleCandidate is one feasible (Model, ModelProvider) pairing under
@@ -309,12 +312,13 @@ func (r *AgentReconciler) pickModel(ctx context.Context, agent *kubemootv1alpha1
 		reason = fmt.Sprintf("first feasible Model for phase=%s", phase)
 	}
 	return &modelPick{
-		ModelID:    pick.model.Spec.Model,
-		Endpoint:   pick.provider.EndpointFor(pick.model.Spec.Model),
-		Reason:     reason,
-		Model:      pick.model,
-		Provider:   pick.provider,
-		Candidates: rankedCandidates(pick.model.Spec.Model, rule, models.Items, sc),
+		ModelID:      pick.model.Spec.Model,
+		Endpoint:     pick.provider.EndpointFor(pick.model.Spec.Model),
+		Reason:       reason,
+		Model:        pick.model,
+		Provider:     pick.provider,
+		Candidates:   rankedCandidates(pick.model.Spec.Model, rule, models.Items, sc),
+		PreferFaster: preferFasterOf(rule),
 	}, nil
 }
 

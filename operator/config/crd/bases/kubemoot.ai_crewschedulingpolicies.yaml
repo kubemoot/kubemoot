@@ -245,6 +245,19 @@ spec:
                           rule: has(self.selector) || (has(self.expressions) && size(self.expressions)
                             > 0)
                       type: array
+                    preferFaster:
+                      description: |-
+                        PreferFaster, 0 to 100, favors the model measured faster among the models the
+                        rule allows: up to PreferFaster points are added to a candidate in proportion
+                        to its measured generation speed relative to the fastest candidate. Speed is
+                        per provider (calibration, replaced by what crew calls observe), so the agent
+                        runtime applies it on each call against live measurements; the operator only
+                        hands the number over. A candidate with no measured speed gets no points and
+                        is never guessed fast or slow. 0 or unset turns the term off.
+                      format: int32
+                      maximum: 100
+                      minimum: 0
+                      type: integer
                     require:
                       description: |-
                         Require is the hard constraint a Model must satisfy to be feasible

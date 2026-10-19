@@ -119,6 +119,18 @@ type SchedulingRule struct {
 	// +kubebuilder:validation:MaxItems=16
 	RequireExpressions []corev1.NodeSelectorRequirement `json:"requireExpressions,omitempty"`
 
+	// PreferFaster, 0 to 100, favors the model measured faster among the models the
+	// rule allows: up to PreferFaster points are added to a candidate in proportion
+	// to its measured generation speed relative to the fastest candidate. Speed is
+	// per provider (calibration, replaced by what crew calls observe), so the agent
+	// runtime applies it on each call against live measurements; the operator only
+	// hands the number over. A candidate with no measured speed gets no points and
+	// is never guessed fast or slow. 0 or unset turns the term off.
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:validation:Maximum=100
+	PreferFaster int32 `json:"preferFaster,omitempty"`
+
 	// Prefer is the ordered list of soft scheduling preferences. Each entry
 	// adds Weight to the score of any candidate Model whose labels match.
 	// +optional

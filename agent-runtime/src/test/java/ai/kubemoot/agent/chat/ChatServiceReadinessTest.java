@@ -80,7 +80,7 @@ class ChatServiceReadinessTest {
     }
 
     private ChatService service() {
-        var policy = new CandidatePolicy(MAPPER, Optional.empty(), CandidatePolicy.DEFAULT_TOLERANCE);
+        var policy = new CandidatePolicy(MAPPER, Optional.empty(), Optional.empty(), CandidatePolicy.DEFAULT_TOLERANCE, 0L, 0L);
         var mcp = mock(McpClientService.class);
         when(mcp.getToolSpecifications()).thenReturn(Map.of());
         return new ChatService(mock(ChatModel.class), mock(RagClient.class), mcp, mock(DiscussionOrchestrator.class),
@@ -184,7 +184,7 @@ class ChatServiceReadinessTest {
 
     /**
      * Every place ChatService builds a model to send to must be after the readiness step
-     * (ModelReadiness.ensure, in buildScheduledMullingPick and claimTriagePlacement). This
+     * (ModelReadiness.ensure, in buildScheduledMullingPick and scheduledTriage). This
      * counts them so a new call path cannot be added without someone deciding where its
      * readiness step is: the degraded paths below talk to Ollama endpoints only.
      */

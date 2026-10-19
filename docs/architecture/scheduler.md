@@ -119,7 +119,7 @@ The operator publishes each phase's candidate models as a JSON list, preferred m
 [{"model":"qwen3:32b","score":70},{"model":"qwen3:14b","score":60},{"model":"qwen3:8b","score":30}]
 ```
 
-The list holds every Ready `Model` the phase rule's `require` selector admits, one entry per model identifier. `score` is the model's **quality score**: the sum of the rule's matching `prefer` weights, or the `qualityBias` / `latencyClass` contribution when the rule has no `prefer` block. Locality, provider weight, and load penalties are left out, so the score compares models rather than placements. After the preferred model, entries follow by score, then name. Provider readiness and VRAM are not filtered here; the per-call pick reads them live, and the list (and so the Deployment) stays stable while providers come and go.
+The list holds every available model the phase rule's `require` constraints admit, one entry per model identifier. `score` is the model's **quality score**: the sum of the rule's matching `prefer` weights, or the `qualityBias` (model size) and ability contribution when the rule has no `prefer` block. Locality, provider weight, and load penalties are left out, so the score compares models rather than placements. After the preferred model, entries follow by score, then name. Provider readiness and VRAM are not filtered here; the per-call pick reads them live, and the list (and so the Deployment) stays stable while providers come and go.
 
 `CallPlanner.place` makes each placement. It tries, in order:
 
@@ -138,9 +138,19 @@ A call that loses the loading copy's last slot therefore does not load the same 
 
 A warm copy another call plans to unload (see below) does not count as warm.
 
-The tolerance is `KUBEMOOT_MODEL_CANDIDATE_TOLERANCE`, default 10 points. Under `qualityBias`, one `latencyClass` tier is `|bias - 0.5| × 100` points from its neighbour at the extremes (the `medium` tent peaks at bias 0.5), so a balanced crew may use a warm neighbouring tier while a crew with a strong bias keeps its tier. Explicit `prefer` weights usually sit further apart than the tolerance. A crew keeps an agent on one model size by narrowing `require`, widening the `prefer` gap, or setting the tolerance to 0. The runtime reads the mulling list; the triage list is published alongside it, and the triage path places only its bound model.
+The tolerance is `KUBEMOOT_MODEL_CANDIDATE_TOLERANCE`, default 10 points. Under `qualityBias`, one size tier is `|bias - 0.5| × 100` points from its neighbour at the extremes (the `medium` tent peaks at bias 0.5), so a balanced crew may use a warm neighbouring tier while a crew with a strong bias keeps its tier. Explicit `prefer` weights usually sit further apart than the tolerance. A crew keeps an agent on one model size by narrowing `require`, widening the `prefer` gap, or setting the tolerance to 0. The runtime reads the mulling list for mulling calls and the triage list for triage calls.
 
 The ChatModel for the call is built for the model actually picked, and the signal records it as `metadata.model`.
+
+#### Preferring the faster model
+
+A rule may set `preferFaster`, 0 to 100. Speed cannot be a label a crew names, because the same model is fast on one accelerator and slow on another, so the operator hands the number to the runtime (`KUBEMOOT_MODEL_PREFER_FASTER_MULLING` and `KUBEMOOT_MODEL_PREFER_FASTER_TRIAGE`) and the runtime applies it on each call against the speeds the providers publish. A model's speed is the best generation speed, in tokens per second, of any ready provider that has the model: what [calibration](#calibration) measured, replaced by the median of solo crew calls once there are enough of them. For each call the runtime raises every candidate's score by `preferFaster` times its speed over the fastest candidate's speed, so a candidate twice as slow as the fastest earns half the points. The call then prefers the candidate with the highest raised score (the bound model keeps a tie), and the tolerance applies to the raised scores. The placement order above does not change, so a faster candidate that is not loaded and becomes preferred can be loaded instead of a warm, slower one within tolerance; give a rule only as much `preferFaster` as the speed is worth a model load.
+
+A candidate with no measured speed earns no points: it is never guessed fast or slow. With no speed measured for any candidate, or with `preferFaster` unset, the ranking is the operator's, with the bound model preferred. A rule that wants small and quick for triage says `size: small` in `prefer` and a `preferFaster` of, say, 50; the size keeps the choice among small models and the measured speed picks among them.
+
+#### Triage uses the candidate list
+
+A triage call takes the same step as a mulling call, with the triage list: the preferred triage model warm with a free slot, else an in-tolerance candidate that is warm with a free slot or fits free memory now. Triage still never unloads another model to make room, so with no room it runs on the agent's triage endpoint, as before. A bound triage model that moved or went away no longer leaves triage without a model while the cluster has another candidate that qualifies. The signal records the model triage ran on.
 
 #### Waiting for GPU capacity
 
@@ -713,6 +723,7 @@ spec:
         - weight: 100
           selector:
             matchLabels: { kubemoot.ai/size: small }
+      preferFaster: 50            # among the allowed models, favor the one measured faster
   placementPolicy: shadow        # optional; see Placement policy
   topologySpread:
     whenUnsatisfiable: ScheduleAnyway
@@ -743,7 +754,7 @@ rules:
 
 The operators are `In`, `NotIn`, `Exists`, `DoesNotExist`, `Gt` and `Lt`. `Gt` and `Lt` are strict and take one integer, so "at least 16K tokens" is `Gt 16383`. A model without the label fails a `Gt` or `Lt`. The admission webhook rejects an unknown operator, a `Gt` or `Lt` without exactly one integer value, `In` or `NotIn` without values, and `Exists` or `DoesNotExist` with values. A preference term needs a selector or expressions.
 
-Speed is deliberately not a label a rule can name: an absolute threshold is a property of one cluster, and it would put the cluster back into the crew.
+Speed is deliberately not a label a rule can name: an absolute threshold is a property of one cluster, and it would put the cluster back into the crew. `preferFaster: N` on a rule asks for the measured-faster model relatively instead (see [Preferring the faster model](#preferring-the-faster-model)).
 
 #### Portable by default
 
@@ -782,6 +793,7 @@ Filter is pure. No side effects.
 Score is the sum of:
 
 - `prefer` weights - for each `prefer` term whose selector and expressions match the candidate's labels, add `prefer.weight`
+- **Preferred speed** - not scored here: `preferFaster` is applied by the runtime on each call (see [Preferring the faster model](#preferring-the-faster-model))
 - **Quality bias and abilities** - the model-size score from `qualityBias` and the points for the abilities the agent declares (see [Quality bias](#quality-bias)), for a rule with no explicit `prefer` block
 - **Provider weight (phase-aware)** - `ModelProvider.spec.scheduling.weight` (default 100) contributes per phase: mulling adds `+weight` (favors heavy providers); triage adds `-weight` (favors lighter providers). This lets two rigs carrying identically-labeled Models split phase work - a 5090 (`weight=100`) takes mulling, a 4090 (`weight=25`) takes triage - without forcing per-rig labels onto the Models.
 

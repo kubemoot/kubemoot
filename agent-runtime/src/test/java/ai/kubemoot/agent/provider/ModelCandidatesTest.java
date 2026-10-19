@@ -59,8 +59,10 @@ class ModelCandidatesTest {
     @Test
     void candidatePolicy_readsJsonAndTolerance() {
         var policy = new CandidatePolicy(MAPPER,
-                Optional.of("[{\"model\":\"a\",\"score\":70},{\"model\":\"b\",\"score\":55}]"), 15);
-        assertEquals(List.of("b"), policy.mullingAlternatives("a"));
-        assertTrue(new CandidatePolicy(MAPPER, Optional.empty(), 15).mullingAlternatives("a").isEmpty());
+                Optional.of("[{\"model\":\"a\",\"score\":70},{\"model\":\"b\",\"score\":55}]"), Optional.empty(),
+                15, 0, 0);
+        assertEquals(List.of("b"), policy.mullingRanking("a", m -> 0L).alternatives());
+        var none = new CandidatePolicy(MAPPER, Optional.empty(), Optional.empty(), 15, 0, 0);
+        assertTrue(none.mullingRanking("a", m -> 0L).alternatives().isEmpty());
     }
 }
