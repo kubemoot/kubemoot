@@ -109,7 +109,7 @@ public class AlgorithmPlacement implements PlacementPolicy {
         Map<String, ModelDemand> now = demand == null ? Map.of() : demand.snapshot();
         var decision = PlacementCostModel.decide(
                 selector.queueOption(r.acceptable(), r.states(), r.promptTokens()),
-                selector.planEviction(r.preferred(), fp, r.states(), now, r.promptTokens()));
+                selector.planEviction(r.preferred(), fp, releasable(r.states()), now, r.promptTokens()));
         log.info("No accelerator has room for {}: {} (queue={}, eviction={})", r.preferred(), decision.action(),
                 decision.queue().map(q -> q.model() + "@" + q.provider() + " " + Math.round(q.waitSeconds()) + "s").orElse("none"),
                 decision.eviction().map(e -> e.victimModels() + "@" + e.provider() + " " + Math.round(e.costSeconds()) + "s").orElse("none"));
@@ -119,6 +119,11 @@ public class AlgorithmPlacement implements PlacementPolicy {
         return evictAndClaim(r, fp, decision.eviction().orElseThrow());
     }
 
+    /** The providers whose engine the runtime can unload models from; an eviction is planned only on those. */
+    private List<ProviderState> releasable(List<ProviderState> states) {
+        return states.stream().filter(s -> selector.driverFor(s).canRelease()).toList();
+    }
+
     private Optional<Placement> evictAndClaim(PlacementRequest r, long fp, PlacementCostModel.EvictionPlan plan) {
         Optional<Pick> pick = selector.claimWithEvictions(r.preferred(), fp, r.kv().applyAsLong(r.preferred()),
                 plan, r.states());
@@ -126,7 +131,7 @@ public class AlgorithmPlacement implements PlacementPolicy {
             return Optional.empty();
         }
         ProviderState provider = pick.get().provider();
-        EngineDriver driver = selector.driver();
+        EngineDriver driver = selector.driverFor(provider);
         for (String victim : plan.victimModels()) {
             if (!driver.release(provider.endpointFor(victim), victim)) {
                 log.warn("{} did not confirm releasing {}", provider.name(), victim);

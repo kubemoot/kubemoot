@@ -171,7 +171,7 @@ public class CallPlanner {
             drop(previous);
         }
         if (p.coldLoad()) {
-            selector.driver().warm(p.pick().provider().endpointFor(p.model()), p.model());
+            selector.driverFor(p.pick().provider()).warm(p.pick().provider().endpointFor(p.model()), p.model());
         }
         log.info("Planned first call for thread {}: {} on {}{}", threadId, p.model(), p.pick().provider().name(),
                 p.coldLoad() ? " (loading now)" : "");

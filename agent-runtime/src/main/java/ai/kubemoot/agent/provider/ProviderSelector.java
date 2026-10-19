@@ -97,6 +97,9 @@ public class ProviderSelector {
     private final FitPredictor fitPredictor;
     /** The model server's lifecycle driver: concurrency and model-switch costs. */
     private final EngineDriver driver;
+    /** Per-engine drivers that do not load or release models, for engines with no runtime driver. */
+    private final java.util.concurrent.ConcurrentMap<String, EngineDriver> noLifecycle =
+            new java.util.concurrent.ConcurrentHashMap<>();
     /**
      * Default predictor for the static rankCandidates path when no predictor
      * is supplied. v2 uses the learning impl; v1 baseline is reachable by
@@ -498,6 +501,19 @@ public class ProviderSelector {
     /** The lifecycle driver that loads and releases models on providers. */
     public EngineDriver driver() {
         return driver;
+    }
+
+    /**
+     * The driver for one provider, chosen by its engine: the Ollama driver for ollama (or a
+     * state that names no engine), and a driver whose load and release do nothing for any
+     * other engine, so Ollama's endpoints are never called on another engine's server.
+     */
+    public EngineDriver driverFor(ProviderState provider) {
+        if (ChatEngines.isOllama(provider.engine())) {
+            return driver;
+        }
+        String engine = provider.engine().trim().toLowerCase(java.util.Locale.ROOT);
+        return noLifecycle.computeIfAbsent(engine, e -> new NoLifecycleDriver(driver, e));
     }
 
     /** Drops the cached provider-state snapshot so the next read is fresh. */

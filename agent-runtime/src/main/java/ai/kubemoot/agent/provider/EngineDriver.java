@@ -6,7 +6,8 @@ import java.util.List;
  * The model lifecycle actions the scheduler takes on a provider, and how the
  * provider behaves under contention and model switching. The planner and the cost
  * model reason only through this interface: load, release, and wake costs, and a
- * concurrency signal. {@link OllamaDriver} is the implementation.
+ * concurrency signal. {@link OllamaDriver} is the implementation for Ollama;
+ * {@link NoLifecycleDriver} stands in for an engine with no runtime driver.
  */
 public interface EngineDriver {
 
@@ -27,4 +28,13 @@ public interface EngineDriver {
 
     /** Releases a resident model's memory. Returns true when the provider confirmed it. */
     boolean release(String endpoint, String model);
+
+    /**
+     * Whether this driver can free a resident model. A driver that cannot (an engine with
+     * no runtime driver) is never planned an eviction, because the memory would be
+     * recorded as free while the server still holds it.
+     */
+    default boolean canRelease() {
+        return true;
+    }
 }

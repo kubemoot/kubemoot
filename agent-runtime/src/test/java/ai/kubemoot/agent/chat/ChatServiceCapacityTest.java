@@ -72,6 +72,7 @@ class ChatServiceCapacityTest {
         pool = mock(ChatModelPool.class);
         tickets = mock(TicketManager.class);
         when(selector.driver()).thenReturn(new ai.kubemoot.agent.provider.OllamaDriver(null));
+        when(selector.driverFor(any())).thenReturn(new ai.kubemoot.agent.provider.OllamaDriver(null));
     }
 
     /** A provider with the given VRAM, the candidate model resident, the preferred model on disk. */
