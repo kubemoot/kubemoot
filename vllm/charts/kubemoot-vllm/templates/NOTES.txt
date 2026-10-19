@@ -1,0 +1,43 @@
+{{- $servers := include "kubemoot-vllm.servers" . | fromJsonArray -}}
+{{- $name := include "kubemoot-vllm.fullname" . -}}
+kubemoot-vllm is installing {{ len $servers }} vLLM server(s) behind the Service {{ $name }} in the namespace {{ .Release.Namespace }}.
+
+The first start downloads the weights and compiles each model, which takes minutes. Watch it with:
+
+  kubectl -n {{ .Release.Namespace }} logs deploy/{{ $name }} -f
+
+Then tell Kubemoot about it. Create this ModelProvider (change the namespace to the one
+Kubemoot's operator runs in). The operator finds the servers from the Service's ports:
+
+---
+apiVersion: kubemoot.ai/v1alpha1
+kind: ModelProvider
+metadata:
+  name: {{ $name }}
+  namespace: kubemoot
+spec:
+  type: vllm
+  sleepLevel: {{ int .Values.sleepLevel }}
+  serviceRef:
+    name: {{ $name }}
+    namespace: {{ .Release.Namespace }}
+
+And one Model per model, with the labels your crews select models by. spec.model is the
+served name from this release's values; the operator reports a mismatch on the Model if a
+server does not report it.
+{{ range $s := $servers }}
+---
+apiVersion: kubemoot.ai/v1alpha1
+kind: Model
+metadata:
+  name: {{ include "kubemoot-vllm.objectName" $s.name }}
+  namespace: kubemoot
+  labels: {}   # for example family, params, capability/tool-calling, contextWindow, latencyClass
+spec:
+  model: {{ $s.name | quote }}
+  providerRef: {{ $name }}
+  source:
+    huggingFace:
+      repo: {{ $s.repo | quote }}
+      revision: {{ $s.revision | quote }}
+{{ end }}

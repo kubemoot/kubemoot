@@ -1,0 +1,78 @@
+# Release vLLM Chart: the kubemoot-vllm chart release candidate, its version from the tags.
+#
+# The chart references no Kubemoot image, so it releases on its own: when its sources
+# change on main, this workflow packages vllm/charts/kubemoot-vllm from the tip of main,
+# stamps the next vllm-chart-vX.Y.Z-rc.N version read from the git tags
+# (.github/scripts/release-vllm-chart.sh), and pushes it to Harbor. When the latest
+# candidate already has these chart sources, it builds nothing. Git holds 0.0.0 and
+# nothing here commits a version.
+#
+# Chart builds run one at a time.
+name: Release vLLM Chart
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'vllm/charts/kubemoot-vllm/**'
+      - '.github/scripts/release-vllm-chart.sh'
+      - '.github/workflows/release-vllm-chart.yaml'
+  workflow_dispatch:
+    inputs:
+      force_release:
+        description: 'Build a chart candidate even when the latest one is current'
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  chart:
+    runs-on: homelab-runners
+    concurrency:
+      group: vllm-chart
+      cancel-in-progress: false
+    permissions:
+      contents: write   # pushes the chart candidate tag
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          # RELEASE_TOKEN (contents+workflows write) pushes the tag even when main's workflow files changed after this commit; GITHUB_TOKEN is refused there.
+          token: ${{ secrets.RELEASE_TOKEN || github.token }}
+          # Every tag and commit, no file blobs beyond the checkout: the version comes
+          # from the tags.
+          fetch-depth: 0
+          filter: blob:none
+
+      - name: Set up the release helpers
+        uses: kubemoot/release-actions/setup@7accfbc33966d895bab2fc17a2a6c7f2520aaf76 # v0.11.1
+
+      - name: Install Helm
+        uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
+        with:
+          # The Harbor push combination of the chart releases: helm v3.14.0 with
+          # --insecure-skip-tls-verify (newer helm refuses Harbor's http token realm).
+          version: 'v3.14.0'
+
+      - name: Test the chart
+        run: bash vllm/charts/test-kubemoot-vllm.sh
+
+      - name: Package and push the chart candidate
+        env:
+          HARBOR_USERNAME: ${{ secrets.HARBOR_USERNAME }}
+          HARBOR_PASSWORD: ${{ secrets.HARBOR_PASSWORD }}
+          REGISTRY: ${{ vars.REGISTRY }}
+          DRY_RUN: 'false'
+          FORCE: ${{ inputs.force_release || false }}
+        run: |
+          echo "${HARBOR_PASSWORD}" | helm registry login --insecure "${REGISTRY}" -u "${HARBOR_USERNAME}" --password-stdin
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          bash .github/scripts/release-vllm-chart.sh

@@ -1,0 +1,43 @@
+# Two models on one accelerator (a 14B and a 32B, both 4-bit AWQ), for a node with one
+# 32 GB accelerator. Replace the image digest with the vLLM release you run, and the node
+# selector and storage class with your own.
+#
+#   helm install vllm-gpu oci://ghcr.io/kubemoot/charts/kubemoot-vllm \
+#     -n vllm --create-namespace -f two-models.yaml
+template:
+  nodeSelector:
+    kubernetes.io/hostname: gpu-worker
+  tolerations:
+    - {key: nvidia.com/gpu, operator: Equal, value: present, effect: NoSchedule}
+  container:
+    image: vllm/vllm-openai:v0.32.0@sha256:befccf0e7e4089aa23926bb6f887a85c0d46c2a99e6de5c5ffdf5cb7957c5b34
+    resources:
+      requests: {memory: 32Gi, nvidia.com/gpu: 1}
+      limits: {memory: 44Gi, nvidia.com/gpu: 1}
+
+weights:
+  storageClassName: fast
+  size: 100Gi
+
+shmSize: 8Gi
+sleepLevel: 1
+
+models:
+  - servedName: qwen3:14b
+    repo: Qwen/Qwen3-14B-AWQ
+    revision: 31c69efc
+    args:
+      - --gpu-memory-utilization=0.85
+      - --max-model-len=16384
+      - --enable-auto-tool-choice
+      - --tool-call-parser=hermes
+      - --reasoning-parser=qwen3
+  - servedName: qwen3:32b
+    repo: Qwen/Qwen3-32B-AWQ
+    revision: 0499c3ac
+    args:
+      - --gpu-memory-utilization=0.95
+      - --max-model-len=16384
+      - --enable-auto-tool-choice
+      - --tool-call-parser=hermes
+      - --reasoning-parser=qwen3

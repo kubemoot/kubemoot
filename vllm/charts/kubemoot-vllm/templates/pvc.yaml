@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "kubemoot-vllm.fullname" . }}-weights
+  labels:
+    {{- include "kubemoot-vllm.labels" . | nindent 4 }}
+  annotations:
+    # Uninstalling never deletes the downloaded weights.
+    helm.sh/resource-policy: keep
+spec:
+  accessModes: [ReadWriteOnce]
+  {{- with .Values.weights.storageClassName }}
+  storageClassName: {{ . | quote }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.weights.size | quote }}

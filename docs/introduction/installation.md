@@ -151,6 +151,13 @@ in the first place, including VM passthrough, is covered in
    that serves the call, not to the largest GPU in the cluster: a 32B model needs a
    provider whose GPU holds it, and smaller roles land on the smaller GPU.
 
+Install the model server first, then declare the provider. vLLM is currently the
+preferred engine on an accelerator node: install it with the `kubemoot-vllm` chart (or any vLLM
+deployment) and point a `ModelProvider` at its Service with `spec.serviceRef`, as
+[Run vLLM on a GPU node](../../operating/gpu-worker-nodes/#run-vllm-on-a-gpu-node)
+shows. Ollama is the engine of the quickstart and stays supported. The example below
+uses Ollama.
+
 ```yaml
 apiVersion: kubemoot.ai/v1alpha1
 kind: ModelProvider

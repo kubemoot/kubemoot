@@ -44,4 +44,49 @@ out="$(providers \
 [ "$(field "$out" bare .spec.endpoint)" = "http://ollama.bare:11434" ] || fail "endpoint not rendered"
 [ "$(field "$out" bare .metadata.namespace)" = "km" ] || fail "namespace does not default to the release namespace"
 
+
+# vllm providers: serviceRef, servers, and sleepLevel render at the top of the spec,
+# and no endpoint renders.
+values="$(mktemp)"
+trap 'rm -f "$values"' EXIT
+cat >"$values" <<'EOF'
+modelProviders:
+  - name: vllm-gpu
+    type: vllm
+    schedulingWeight: 80
+    serviceRef: {name: vllm-gpu, namespace: vllm}
+  - name: vllm-external
+    type: vllm
+    sleepLevel: 2
+    servers:
+      - {model: "qwen3:14b", endpoint: "http://vllm-14b.models:8000"}
+      - {model: "qwen3:8b", endpoint: "http://vllm-8b.models:8000"}
+  - name: ollama-gpu
+    type: ollama
+    endpoint: http://ollama.gpu:11434
+EOF
+out="$(providers -f "$values" --namespace km)"
+
+[ "$(field "$out" vllm-gpu .spec.type)" = "vllm" ] || fail "vllm type not rendered"
+[ "$(field "$out" vllm-gpu .spec.endpoint)" = "null" ] || fail "a vllm provider rendered an endpoint"
+[ "$(field "$out" vllm-gpu .spec.scheduling.weight)" = "80" ] || fail "schedulingWeight lost on a vllm provider"
+[ "$(field "$out" vllm-gpu .spec.serviceRef.name)" = "vllm-gpu" ] || fail "serviceRef.name not rendered"
+[ "$(field "$out" vllm-gpu .spec.serviceRef.namespace)" = "vllm" ] || fail "serviceRef.namespace not rendered"
+[ "$(field "$out" vllm-gpu .spec.servers)" = "null" ] || fail "a serviceRef provider rendered servers"
+[ "$(field "$out" vllm-gpu .spec.sleepLevel)" = "null" ] || fail "sleepLevel rendered without being set"
+[ "$(field "$out" vllm-gpu .spec.vllm)" = "null" ] || fail "a vllm block rendered; the fields are flat"
+
+[ "$(field "$out" vllm-external .spec.serviceRef)" = "null" ] || fail "a servers provider rendered a serviceRef"
+[ "$(field "$out" vllm-external '.spec.servers | length')" = "2" ] || fail "servers not rendered"
+[ "$(field "$out" vllm-external .spec.servers[1].endpoint)" = "http://vllm-8b.models:8000" ] || fail "server endpoint not rendered"
+[ "$(field "$out" vllm-external '.spec.sleepLevel | tag')" = "!!int" ] || fail "sleepLevel is not an integer"
+[ "$(field "$out" vllm-external .spec.sleepLevel)" = "2" ] || fail "sleepLevel not rendered"
+
+[ "$(field "$out" ollama-gpu .spec.serviceRef)" = "null" ] || fail "an ollama provider rendered a serviceRef"
+[ "$(field "$out" ollama-gpu .spec.endpoint)" = "http://ollama.gpu:11434" ] || fail "an ollama provider lost its endpoint"
+
+# The scheduling crew declares its Ollama-tag model on the ollama provider only.
+models="$(helm template kubemoot-operator "$chart" -f "$values" --namespace km | yq -N 'select(.kind == "Model") | .spec.providerRef')"
+[ "$models" = "ollama-gpu" ] || fail "the scheduling crew's Model should name only the ollama provider, got: $models"
+
 echo "PASS: modelProviders render tests"

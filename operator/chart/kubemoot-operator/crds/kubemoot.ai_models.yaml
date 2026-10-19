@@ -69,8 +69,10 @@ spec:
                   Model is the served name: the name every request uses to ask for this
                   model (e.g., "qwen3:14b"). Where the weights come from is spec.source.
                   For vLLM this is the name the server is started with
-                  (--served-model-name). Ollama serves a model only under its tag, so for
-                  an ollama source it must equal source.ollama.tag.
+                  (--served-model-name); the operator checks it against the served names
+                  the provider's servers report and reports a mismatch on the Model's
+                  ServedNameFound condition. Ollama serves a model only under its tag, so
+                  for an ollama source it must equal source.ollama.tag.
                 type: string
               providerRef:
                 description: ProviderRef references the parent ModelProvider
@@ -88,7 +90,11 @@ spec:
                   provider: ollama for an ollama provider, huggingFace for a vLLM
                   provider. A mismatch is reported on the Model's SourceCompatible
                   condition and nothing is pulled; the operator never guesses or falls
-                  back. When absent the source is an Ollama tag equal to spec.model.
+                  back. When absent the source is an Ollama tag equal to spec.model on an
+                  ollama provider. On a vLLM provider the source is optional: the server
+                  decides its weights, and a huggingFace source is information, compared
+                  with the repository the server reports (ServedRepoMatches condition)
+                  when it reports one; the revision cannot be read from the server.
                 properties:
                   huggingFace:
                     description: HuggingFace names a Hugging Face repository pinned

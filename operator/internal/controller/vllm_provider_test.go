@@ -59,10 +59,10 @@ func (f fakeVLLM) start(t *testing.T, served string) *httptest.Server {
 	t.Helper()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
-		case r.URL.Path == "/health" && f.unhealthy:
+		case r.URL.Path == healthPath && f.unhealthy:
 			w.WriteHeader(http.StatusServiceUnavailable)
-		case r.URL.Path == "/health":
-		case r.URL.Path == "/v1/models":
+		case r.URL.Path == healthPath:
+		case r.URL.Path == vllmModelsPath:
 			_, _ = fmt.Fprintf(w, `{"data":[{"id":%q}]}`, served)
 		case r.URL.Path == "/is_sleeping":
 			_, _ = fmt.Fprintf(w, `{"is_sleeping":%t}`, f.asleep)
@@ -88,8 +88,8 @@ func vllmProvider(servers ...aiv1alpha1.VLLMServer) *aiv1alpha1.ModelProvider {
 	return &aiv1alpha1.ModelProvider{
 		ObjectMeta: metav1.ObjectMeta{Name: vllmProviderName, Namespace: testNS1},
 		Spec: aiv1alpha1.ModelProviderSpec{
-			Type: aiv1alpha1.ProviderTypeVLLM,
-			VLLM: &aiv1alpha1.VLLMSpec{Servers: servers},
+			Type:    aiv1alpha1.ProviderTypeVLLM,
+			Servers: servers,
 		},
 	}
 }
@@ -170,7 +170,7 @@ func TestVLLMProviderReconcilePublishesStatesAndRequestCounts(t *testing.T) {
 // wantStates fails unless the first model is awake and loaded and the second asleep.
 func wantStates(t *testing.T, state bus.ProviderState) {
 	t.Helper()
-	if state.ModelStates[vllmModel14] != "awake" || state.ModelStates[vllmModel8] != "asleep" {
+	if state.ModelStates[vllmModel14] != "awake" || state.ModelStates[vllmModel8] != stateAsleepName {
 		t.Errorf("modelStates = %v", state.ModelStates)
 	}
 	if len(state.LoadedModels) != 1 || state.LoadedModels[0] != vllmModel14 {
@@ -334,7 +334,7 @@ func TestVLLMModelNeverPulls(t *testing.T) {
 		if r.URL.Path == "/api/pull" {
 			pulls++
 		}
-		if r.URL.Path == "/v1/models" {
+		if r.URL.Path == vllmModelsPath {
 			_, _ = fmt.Fprintf(w, `{"data":[{"id":%q}]}`, vllmModel14)
 		}
 	}))
@@ -348,7 +348,7 @@ func TestVLLMModelNeverPulls(t *testing.T) {
 	}
 }
 
-func TestVLLMModelWithoutAServerOrAFittingSourceIsAnError(t *testing.T) {
+func TestVLLMModelWithoutAServerOrWithAnOllamaSourceIsAnErrorButNeedsNoSource(t *testing.T) {
 	srv := fakeVLLM{}.start(t, vllmModel14)
 	provider := vllmProvider(server(vllmModel14, srv.URL))
 
@@ -360,8 +360,8 @@ func TestVLLMModelWithoutAServerOrAFittingSourceIsAnError(t *testing.T) {
 	noSource := vllmModelCR("m2", vllmModel14)
 	noSource.Spec.Source = nil
 	got := reconcileVLLMModelCR(t, noSource, provider.DeepCopy())
-	if got.Status.State != stateError || got.Status.Ready {
-		t.Errorf("no source on vllm: state %q ready %v", got.Status.State, got.Status.Ready)
+	if !got.Status.Ready {
+		t.Errorf("a vLLM server decides its weights, so no source is fine: state %q ready %v", got.Status.State, got.Status.Ready)
 	}
 
 	ollamaSrc := vllmModelCR("m3", vllmModel14)

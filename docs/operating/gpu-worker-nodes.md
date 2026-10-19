@@ -182,9 +182,93 @@ Prometheus. See [Observability](../observability/) and [Models](../../reference/
 
 ## Run vLLM on a GPU node
 
-vLLM is the recommended engine for a model that several agents call at once (see
+vLLM is the currently preferred engine for a model that several agents call at once (see
 [Choosing a Model](../../concepts/choosing-a-model/#the-serving-runtime-is-a-separate-choice)).
-These requirements apply to the node and to the Kubernetes objects around the server:
+Install the model server first, then tell Kubemoot about it: Kubemoot runs no model servers
+itself. Ollama stays the engine of the quickstart.
+
+### Install the servers with the kubemoot-vllm chart
+
+The `kubemoot-vllm` chart installs plain Kubernetes objects and no Kubemoot resources, the
+way a community Ollama chart does. Sleep mode needs one vLLM server per model, and the
+servers share one accelerator, so the chart runs one pod with a server for each model you
+list, a Service with one port per model, and a volume for the weights. Put the pod on the
+GPU node, name the models, and give the chart the image by digest (there is no default tag):
+
+```yaml
+# values.yaml: two models on one accelerator
+template:
+  nodeSelector: {kubernetes.io/hostname: gpu-worker}
+  tolerations:
+    - {key: nvidia.com/gpu, operator: Equal, value: present, effect: NoSchedule}
+  container:
+    image: vllm/vllm-openai:v0.32.0@sha256:befccf0e7e4089aa23926bb6f887a85c0d46c2a99e6de5c5ffdf5cb7957c5b34
+    resources:
+      requests: {memory: 32Gi, nvidia.com/gpu: 1}
+      limits: {memory: 44Gi, nvidia.com/gpu: 1}
+weights: {storageClassName: fast, size: 100Gi}
+shmSize: 8Gi
+sleepLevel: 1
+models:
+  - servedName: qwen3:14b
+    repo: Qwen/Qwen3-14B-AWQ
+    revision: 31c69efc
+    args: [--gpu-memory-utilization=0.85, --max-model-len=16384, --enable-auto-tool-choice, --tool-call-parser=hermes]
+  - servedName: qwen3:32b
+    repo: Qwen/Qwen3-32B-AWQ
+    revision: 0499c3ac
+    args: [--gpu-memory-utilization=0.95, --max-model-len=16384, --enable-auto-tool-choice, --tool-call-parser=hermes]
+```
+
+```bash
+helm install vllm-gpu oci://ghcr.io/kubemoot/charts/kubemoot-vllm -n vllm --create-namespace -f values.yaml
+```
+
+What the values mean:
+
+| Value | What it is |
+|-------|------------|
+| `template` | The pod's `nodeSelector`, `tolerations`, `affinity`, and `imagePullSecrets`, and under `container` the image and `resources`. Name the accelerator in `resources` by its resource name, so any vendor works. |
+| `weights` | A ReadWriteOnce volume (`storageClassName`, `size`) for the downloaded weights and vLLM's compile cache. Helm keeps it when you uninstall, so the weights are never downloaded twice by accident; delete the claim yourself to free the space. |
+| `shmSize` | The memory-backed `/dev/shm` that vLLM's workers share. It counts against the memory limit. Default `8Gi`. |
+| `sleepLevel` | `1` parks sleeping weights in host memory (fast to wake), `2` drops them and reloads from disk. Default `1`. |
+| `models` | One server each: `servedName` (`--served-model-name`), `repo`, `revision`, and the model's own `args` (memory fraction, context length, tool and reasoning parsers). The chart refuses `--model`, `--served-model-name`, `--revision`, `--port`, `--host`, and `--enable-sleep-mode` in `args`, because it sets them. |
+
+The chart starts the servers one at a time in a single container, because each measures
+free accelerator memory when it starts: it starts a server, waits for its `/health`, puts
+it to sleep, starts the next, and wakes the first at the end. A server whose process dies
+is restarted the same way, and each server's log lines carry its model name. The pod is
+ready once every server is up, which takes minutes on the first start while the weights
+download and the models compile. Set the memory limit above the weights of every model plus
+`shmSize`; the servers are ordered by `servedName`, on ports 8000 and up, and adding or
+removing a model recreates the pod. The pod meets the `restricted` Pod Security level except
+`runAsNonRoot`, because the vLLM image runs as root, so its namespace needs `baseline`.
+
+The install notes print the next two steps ready to copy. The first is a ModelProvider that
+names the chart's Service, so you write no endpoints; the operator reads the Service's ports
+and asks each one which model it serves:
+
+```yaml
+apiVersion: kubemoot.ai/v1alpha1
+kind: ModelProvider
+metadata: {name: vllm-gpu-kubemoot-vllm, namespace: kubemoot}
+spec:
+  type: vllm
+  sleepLevel: 1
+  serviceRef: {name: vllm-gpu-kubemoot-vllm, namespace: vllm}
+```
+
+The second is a Model for each model, with the labels your crews select models by. The
+served name is in two places, the chart values and the Model's `model`, and the operator
+reports a mismatch on the Model (`ServedNameFound` is `False`) instead of guessing. See
+[Models](../../reference/models/#vllm-providers) for the fields. The runtime's wake and
+sleep requests, which switch the awake model when a call needs another, come next; until
+then only the first model, by name, is awake.
+
+### Requirements for the node and the server
+
+These apply to the node and to the Kubernetes objects around the server. The chart
+already does the ones marked (chart); any other vLLM deployment must do them itself:
 
 - **Use a driver that supports the CUDA version the image is built on.** The node's
   NVIDIA driver must be new enough for the CUDA version of the model server image. In the
@@ -203,13 +287,13 @@ These requirements apply to the node and to the Kubernetes objects around the se
   crashes at start. On Proxmox, set the CPU type to `host`.
 - **Do not name the Service `vllm`.** Kubernetes injects service-link environment
   variables into pods, and a Service named `vllm` sets `VLLM_PORT=tcp://...`, which stops
-  vLLM. Set `enableServiceLinks: false` on the pod, or name the Service otherwise.
+  vLLM. Set `enableServiceLinks: false` on the pod, or name the Service otherwise (chart).
 - **Size GPU memory for one full request.** A 32B 4-bit model on a 32 GB GPU needs
   `--gpu-memory-utilization 0.95` to leave room for the cache of one 32k-token request.
   Check that the cache holds at least one request at your context length.
-- **Mount a memory-backed `/dev/shm`.** Back it with an `emptyDir` whose `medium` is
+- **Mount a memory-backed `/dev/shm` (chart).** Back it with an `emptyDir` whose `medium` is
   `Memory`.
-- **Enable sleep mode to switch models quickly.** Start each server with
+- **Enable sleep mode to switch models quickly (chart).** Start each server with
   `--enable-sleep-mode` and set `VLLM_SERVER_DEV_MODE=1`. Sleep and wake are development
   endpoints: keep them off any public route and reachable only inside the cluster. See
   [Switching models](../../concepts/choosing-a-model/#switching-models).

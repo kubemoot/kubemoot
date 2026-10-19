@@ -100,7 +100,8 @@ const (
 
 // Status phases and states shared by several resources.
 const (
-	phaseReady = "Ready"
+	phaseReady  = "Ready"
+	phaseFailed = "Failed"
 	// conditionTypeReady is the type of the Ready status condition.
 	conditionTypeReady = "Ready"
 	phaseDeploying     = "Deploying"

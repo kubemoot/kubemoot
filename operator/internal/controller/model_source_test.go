@@ -206,8 +206,8 @@ func TestSourceMismatch(t *testing.T) {
 		"huggingFace on ollama":              {hfSource(sourceTestRevision), aiv1alpha1.ProviderTypeOllama, true},
 		"ollama on a vllm engine":            {ollamaSource(), vllm, true},
 		"huggingFace on vllm":                {hfSource(sourceTestRevision), vllm, false},
-		"absent on vllm":                     {nil, vllm, true},
-		"empty source on vllm":               {&aiv1alpha1.ModelSource{}, vllm, true},
+		"absent on vllm":                     {nil, vllm, false},
+		"empty source on vllm":               {&aiv1alpha1.ModelSource{}, vllm, false},
 		"absent on an unsupported type":      {nil, openai, false},
 		"huggingFace on an unsupported type": {hfSource(sourceTestRevision), openai, false},
 	}

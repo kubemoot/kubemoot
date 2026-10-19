@@ -29,11 +29,13 @@ Declares an inference endpoint. The operator discovers GPU capacity (VRAM, loade
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `type` | string | Yes | The model server's engine type: `ollama` or `vllm`. Any other value, including `openai` and `anthropic`, is rejected at admission: those types are not supported yet. The operator publishes it as `engine` in the provider state, and agents use it to pick the adapter that calls the server through the OpenAI-compatible chat API. See the [measured results](../../concepts/choosing-a-model/#measured-results) for how the two engines compare. |
-| `endpoint` | string | For ollama | API endpoint URL. A `vllm` provider has no single endpoint: it lists one per model in `vllm.servers`. |
-| `vllm.servers` | list | For vllm | The provider's vLLM servers, one per served model (1 to 32). Required for type `vllm` and rejected for any other type. See [vLLM providers](#vllm-providers). |
-| `vllm.servers[].model` | string | Yes, within a server | The served name of the model the server answers to: the `model` of the `Model` on it, and the `--served-model-name` the server runs with. Unique within the provider. |
-| `vllm.servers[].endpoint` | string | Yes, within a server | The server's OpenAI-compatible base URL without `/v1`, for example `http://vllm-qwen3-14b.models:8000`. Must start with `http://` or `https://`. |
-| `vllm.sleepLevel` | int | No | How a server is put to sleep when another model takes the accelerator: `1` parks the weights in host memory (fast to wake), `2` drops them and reloads from disk on wake (holds no host memory). Default `1`. Immutable once set. |
+| `endpoint` | string | For ollama | API endpoint URL. Allowed only on an `ollama` provider: a `vllm` provider names its servers with `serviceRef` or `servers`. |
+| `serviceRef.name` | string | One of serviceRef or servers | For a `vllm` provider: the Service that fronts the vLLM servers, for example the one the `kubemoot-vllm` chart installs. The operator reads the Service's ports and asks each port's `/v1/models` which model it serves, so you write no endpoints. Allowed only on a `vllm` provider. See [vLLM providers](#vllm-providers). |
+| `serviceRef.namespace` | string | No | The Service's namespace. Default: the provider's namespace. |
+| `servers` | list | One of serviceRef or servers | For a `vllm` provider: the vLLM servers, one per served model (1 to 32), for vLLM deployed some other way than behind one Service. Allowed only on a `vllm` provider; set exactly one of `serviceRef` and `servers`. |
+| `servers[].model` | string | Yes, within a server | The served name of the model the server answers to: the `model` of the `Model` on it, and the `--served-model-name` the server runs with. Unique within the provider. |
+| `servers[].endpoint` | string | Yes, within a server | The server's OpenAI-compatible base URL without `/v1`, for example `http://vllm-qwen3-14b.models:8000`. Must start with `http://` or `https://`. |
+| `sleepLevel` | int | No | For a `vllm` provider: how a server is put to sleep when another model takes the accelerator. `1` parks the weights in host memory (fast to wake), `2` drops them and reloads from disk on wake (holds no host memory). Unset means `1`. It cannot change once the provider exists, so it must be the level the servers were installed with. Allowed only on a `vllm` provider. |
 | `secretRef` | string | No | Reserved for future provider types; not used by `ollama` or `vllm` |
 | `scheduling.weight` | int | No | Preference between providers for reasons other than capacity (higher is preferred); default 100 |
 | `scheduling.memoryMiB` | int | No | Memory budget the fit gate spends when the operator cannot discover one; see below |
@@ -41,7 +43,26 @@ Declares an inference endpoint. The operator discovers GPU capacity (VRAM, loade
 
 ### vLLM providers
 
-vLLM serves one model per server, and its sleep mode lets several servers share one accelerator: the servers that are not in use sleep and the one in use is awake. A `vllm` provider therefore describes a set of servers, one OpenAI-compatible endpoint per served model, not one process:
+vLLM serves one model per server, and its sleep mode lets several servers share one accelerator: the servers that are not in use sleep and the one in use is awake. A `vllm` provider therefore describes a set of servers, one OpenAI-compatible endpoint per served model, not one process. You install the model server first, the way you install Ollama, and then point a ModelProvider at it. vLLM is the currently preferred engine for a model that several agents call at once; Ollama stays the engine of the quickstart.
+
+The `kubemoot-vllm` chart installs the servers (see [Run vLLM on a GPU node](../../operating/gpu-worker-nodes/#run-vllm-on-a-gpu-node)); any other vLLM deployment works too. With the chart, the provider names the chart's Service, and the operator finds the servers from its ports:
+
+```yaml
+apiVersion: kubemoot.ai/v1alpha1
+kind: ModelProvider
+metadata:
+  name: vllm-gpu
+spec:
+  type: vllm
+  sleepLevel: 1
+  serviceRef:
+    name: vllm-gpu-kubemoot-vllm
+    namespace: vllm
+```
+
+`helm install` prints this ModelProvider for the release, with a Model for each model, so you copy it rather than type it. The operator records what it found in `status.vllmServers`: each served name and the URL of its port. A port that does not answer yet is left out until it does, and the provider is `Pending` until a port reports a model.
+
+For vLLM deployed another way, list the servers yourself with `servers`, one endpoint per model:
 
 ```yaml
 apiVersion: kubemoot.ai/v1alpha1
@@ -50,16 +71,15 @@ metadata:
   name: vllm-a
 spec:
   type: vllm
-  vllm:
-    sleepLevel: 1
-    servers:
-      - model: qwen3:14b
-        endpoint: http://vllm-qwen3-14b.models:8000
-      - model: qwen3:8b
-        endpoint: http://vllm-qwen3-8b.models:8000
+  sleepLevel: 1
+  servers:
+    - model: qwen3:14b
+      endpoint: http://vllm-qwen3-14b.models:8000
+    - model: qwen3:8b
+      endpoint: http://vllm-qwen3-8b.models:8000
 ```
 
-You run the servers; the operator does not start, stop, or restart them. Start each one with `--enable-sleep-mode`, the environment variable `VLLM_SERVER_DEV_MODE=1` (vLLM serves its sleep endpoints only then), and `--served-model-name` set to the `model` listed for it. A server without sleep mode answers 404 on the sleep endpoints and is treated as always awake: it still serves its model, but the provider cannot make it give up the accelerator, so switching to another model on the same provider fails. `vllm.sleepLevel` cannot be changed once set, because a sleeping server wakes by the level the provider names and that must be the level it slept at; delete and recreate the provider to change it. The operator running the server group itself comes in a later change.
+In both forms you run the servers; the operator does not start, stop, or restart them. A server must run with `--enable-sleep-mode`, the environment variable `VLLM_SERVER_DEV_MODE=1` (vLLM serves its sleep endpoints only then), and `--served-model-name` set to the name its Model uses. A server without sleep mode answers 404 on the sleep endpoints and is treated as always awake: it still serves its model, but the provider cannot make it give up the accelerator, so switching to another model on the same provider fails. `sleepLevel` cannot be changed once the provider exists, because a sleeping server wakes by the level the provider names and that must be the level it slept at; delete and recreate the provider to change it. The runtime's wake and sleep requests, which switch the awake model when a call needs another, come next.
 
 What the operator does with the servers:
 
@@ -75,6 +95,7 @@ An agent that uses a model on a `vllm` provider calls that model's own server wi
 | Field | Source | Description |
 |-------|--------|-------------|
 | `ready` | Operator probe | Endpoint reachable + API responding (for `vllm`, at least one server answering) |
+| `vllmServers` | Operator, from `serviceRef` | For a `vllm` provider with `serviceRef`: each server found, as its served name and URL. Empty with `servers`, where the spec says it. |
 | `capacity.vramTotalMiB` | DCGM Prometheus | Total GPU VRAM |
 | `capacity.vramUsedMiB` | Ollama `/api/ps` | VRAM consumed by loaded models |
 | `capacity.gpuModel` | DCGM metrics | e.g., "NVIDIA GeForce RTX 5090" |
@@ -252,6 +273,25 @@ modelProviders:
 
 `namespace` defaults to the release namespace.
 
+A `vllm` provider has no `endpoint`. Its `serviceRef` (the Service of a vLLM install such
+as `kubemoot-vllm`) or its `servers`, and its `sleepLevel`, are copied into the spec as
+they are:
+
+```yaml
+modelProviders:
+  - name: vllm-gpu
+    type: vllm
+    serviceRef: {name: vllm-gpu-kubemoot-vllm, namespace: vllm}
+  - name: vllm-external
+    type: vllm
+    sleepLevel: 1
+    servers:
+      - {model: "qwen3:14b", endpoint: "http://vllm-14b.models:8000"}
+```
+
+The chart declares no Model for a `vllm` provider, and the scheduling crew's own model is
+left off it for the same reason: it is an Ollama tag.
+
 ## Model
 
 Declares a specific inference model on a provider, **labeled** so the scheduler can select it. The operator pulls the model if needed and tracks its lifecycle.
@@ -278,7 +318,7 @@ Declares a specific inference model on a provider, **labeled** so the scheduler 
 | `huggingFace.revision` | string | Yes, within `huggingFace` | The commit sha the weights are pinned to, 7 to 40 hex characters. A branch or tag name is rejected. |
 | `huggingFace.quantization` | string | No | The quantization of the repository's weights, for example `awq` or `gptq` |
 
-The source must fit the engine of the provider: `ollama` for an ollama provider, `huggingFace` for a vLLM provider. A Model on a `vllm` provider must have a `huggingFace` source; leaving `source` out is a mismatch there, because the absent-source default is an Ollama tag. The operator never guesses or falls back. A source that does not fit is reported on the Model's `SourceCompatible` condition (reason `SourceEngineMismatch`, with a message naming the mismatch), the Model's state is `Error`, and nothing is pulled. A source that fits sets the condition to `True`. `source` cannot be changed after the Model is created, with one exception: an `ollama` source (tag equal to `model`) may be added to a Model that has none, which keeps the same meaning and does not download the weights again. To change anything else, delete and recreate the Model.
+The source must fit the engine of the provider: `ollama` for an ollama provider, `huggingFace` for a vLLM provider. A Model on a `vllm` provider needs no `source`: the server decides its weights. A `huggingFace` source on one is information about what the server runs, and an `ollama` source is a mismatch. The operator never guesses or falls back. A source that does not fit is reported on the Model's `SourceCompatible` condition (reason `SourceEngineMismatch`, with a message naming the mismatch), the Model's state is `Error`, and nothing is pulled. A source that fits sets the condition to `True`. `source` cannot be changed after the Model is created, with one exception: an `ollama` source (tag equal to `model`) may be added to a Model that has none, which keeps the same meaning and does not download the weights again. To change anything else, delete and recreate the Model.
 
 ### Labels (open string set, selected by `CrewSchedulingPolicy`)
 
@@ -297,7 +337,7 @@ The source must fit the engine of the provider: `ollama` for an ollama provider,
 | `state` | `Pending`, `Pulling`, `Available`, `Loaded`, `Error` |
 | `pull` | While `Pulling`: `completedBytes`, `totalBytes` and `percent` of the download. `totalBytes` grows as the registry announces layers. Cleared when the model is on the provider. |
 | `ready` | Model ready for inference |
-| `conditions` | `Ready`, and `SourceCompatible`: whether `source` fits the provider's engine |
+| `conditions` | `Ready`; `SourceCompatible`: whether `source` fits the provider's engine; on a `vllm` provider also `ServedNameFound`: whether the provider's servers report `model` as a served name, and `ServedRepoMatches`: whether the server reports the repository a `huggingFace` source names (present only when the server says) |
 | `endpoint` | Inference endpoint (from provider) |
 | `modelInfo` | Size, parameters, family, quantization, context length, format, digest |
 
@@ -347,7 +387,9 @@ spec:
   quantization: q4_K_M
 ```
 
-A Model for a vLLM provider names its weights with a Hugging Face source, and the served name is the name the vLLM server is started with, so crews and policies that select it by label do not change. The operator downloads and pulls nothing for it: the vLLM server loads its own weights from the repository you started it with. The Model is `Available` when its server answers (state `Loaded` while the server is awake, `Available` while it sleeps, since a sleeping server wakes on demand) and `Pending` while it does not. Its `status.endpoint` is the server's URL. A `model` with no matching entry in the provider's `vllm.servers` is an `Error`. The provider is the `vllm-a` provider from [vLLM providers](#vllm-providers):
+A Model for a vLLM provider needs no source: the vLLM server decides its own weights, and the operator downloads and pulls nothing for it. What the Model must get right is its served name. `model` is the name the server is started with (`--served-model-name`), so crews and policies that select the Model by label do not change when the engine does. The name appears twice, in the install values of the server (`servedName` in the `kubemoot-vllm` chart) and in the Model, and the operator checks them against each other: it asks the provider's servers which names they report, and a `model` no server reports is an `Error` whose `ServedNameFound` condition is `False` with the reason `ServedNameNotReported` and a message that lists the names reported. It never guesses. While the provider has not found its servers yet the Model is `Pending`.
+
+The Model is `Available` when its server answers (state `Loaded` while the server is awake, `Available` while it sleeps, since a sleeping server wakes on demand). Its `status.endpoint` is the server's URL. A `huggingFace` source is optional and informational: when the server reports where it loaded its weights from, the operator compares that repository with `source.huggingFace.repo` and sets the `ServedRepoMatches` condition (`True`, or `False` with the reason `ServedRepoDiffers`) without failing the Model. A server that does not say, or a Model with no source, has no such condition, and the revision cannot be read from the server, so it is never checked. The provider is the `vllm-gpu` provider from [vLLM providers](#vllm-providers):
 
 ```yaml
 apiVersion: kubemoot.ai/v1alpha1
@@ -360,12 +402,7 @@ metadata:
     capability/tool-calling: "true"
 spec:
   model: qwen3:14b
-  providerRef: vllm-a
-  source:
-    huggingFace:
-      repo: Qwen/Qwen3-14B-AWQ
-      revision: 31c69efc
-      quantization: awq
+  providerRef: vllm-gpu
 ```
 
 `kubectl get mdl` (short name: `mdl`).
