@@ -67,7 +67,10 @@ spec:
                     type: boolean
                 type: object
               endpoint:
-                description: Endpoint is the Ollama API endpoint (required)
+                description: |-
+                  Endpoint is the Ollama API endpoint (required for an ollama provider).
+                  A vllm provider has no single endpoint: it names one per served model in
+                  spec.vllm.servers.
                 type: string
               scheduling:
                 description: Scheduling contains optional scheduling preferences for
@@ -95,16 +98,72 @@ spec:
                   not used by ollama
                 type: string
               type:
-                description: Type specifies the provider type. Only ollama is supported
-                  today.
+                description: 'Type specifies the provider type: ollama or vllm.'
                 type: string
                 x-kubernetes-validations:
-                - message: only type ollama is supported today; openai and anthropic
-                    are not supported yet
-                  rule: self == 'ollama'
+                - message: only types ollama and vllm are supported today; openai
+                    and anthropic are not supported yet
+                  rule: self == 'ollama' || self == 'vllm'
+              vllm:
+                description: |-
+                  VLLM describes the vLLM servers of a vllm provider. Required for type
+                  vllm and not allowed for any other type.
+                properties:
+                  servers:
+                    description: |-
+                      Servers lists the provider's vLLM servers, one per served model. The
+                      operator does not start them: each is run by someone else with sleep mode
+                      on (--enable-sleep-mode and VLLM_SERVER_DEV_MODE=1).
+                    items:
+                      description: VLLMServer is one vLLM server and the model it
+                        serves.
+                      properties:
+                        endpoint:
+                          description: |-
+                            Endpoint is the server's OpenAI-compatible base URL, without /v1
+                            (for example http://vllm-qwen3-14b.models:8000).
+                          pattern: ^https?://[^/\s]+.*$
+                          type: string
+                        model:
+                          description: |-
+                            Model is the served name of the model this server answers to: the Model's
+                            spec.model, and the --served-model-name the server runs with.
+                          minLength: 1
+                          type: string
+                      required:
+                      - endpoint
+                      - model
+                      type: object
+                    maxItems: 32
+                    minItems: 1
+                    type: array
+                    x-kubernetes-list-map-keys:
+                    - model
+                    x-kubernetes-list-type: map
+                  sleepLevel:
+                    default: 1
+                    description: |-
+                      SleepLevel is how a server is put to sleep when another model takes the
+                      accelerator: 1 parks the weights in host memory (fast to wake), 2 drops
+                      them and reloads from disk on wake (holds no host memory). Default 1.
+                    enum:
+                    - 1
+                    - 2
+                    type: integer
+                required:
+                - servers
+                type: object
             required:
             - type
             type: object
+            x-kubernetes-validations:
+            - message: a vllm provider needs spec.vllm with its servers
+              rule: self.type != 'vllm' || has(self.vllm)
+            - message: spec.vllm is only for a vllm provider
+              rule: self.type == 'vllm' || !has(self.vllm)
+            - message: 'a vllm provider has no spec.endpoint: list its servers in
+                spec.vllm.servers'
+              rule: self.type != 'vllm' || !has(self.endpoint)
           status:
             description: ModelProviderStatus defines the observed state of ModelProvider.
             properties:

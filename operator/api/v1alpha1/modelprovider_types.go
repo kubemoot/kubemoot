@@ -25,29 +25,41 @@ import (
 // EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
 // NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
 
-// ProviderType defines the type of model provider. Only ollama is supported
-// today; the field stays a plain string so more types can be added later
-// without a breaking schema change.
+// ProviderType defines the type of model provider. ollama and vllm are
+// supported today; the field stays a plain string so more types can be added
+// later without a breaking schema change.
 type ProviderType string
 
 const (
 	ProviderTypeOllama ProviderType = "ollama"
+	ProviderTypeVLLM   ProviderType = "vllm"
 )
 
 // UnsupportedProviderTypeMessage is the admission and status message for any
-// provider type other than ollama. Keep it identical to the XValidation
-// message on ModelProviderSpec.Type (a marker cannot reference a const); the
-// envtest admission test compares this const with the live CRD's error.
-const UnsupportedProviderTypeMessage = "only type ollama is supported today; openai and anthropic are not supported yet"
+// provider type other than ollama and vllm. Keep it identical to the
+// XValidation message on ModelProviderSpec.Type (a marker cannot reference a
+// const); the envtest admission test compares this const with the live CRD's
+// error.
+const UnsupportedProviderTypeMessage = "only types ollama and vllm are supported today; openai and anthropic are not supported yet"
 
 // ModelProviderSpec defines the desired state of ModelProvider.
+// +kubebuilder:validation:XValidation:rule="self.type != 'vllm' || has(self.vllm)",message="a vllm provider needs spec.vllm with its servers"
+// +kubebuilder:validation:XValidation:rule="self.type == 'vllm' || !has(self.vllm)",message="spec.vllm is only for a vllm provider"
+// +kubebuilder:validation:XValidation:rule="self.type != 'vllm' || !has(self.endpoint)",message="a vllm provider has no spec.endpoint: list its servers in spec.vllm.servers"
 type ModelProviderSpec struct {
-	// Type specifies the provider type. Only ollama is supported today.
+	// Type specifies the provider type: ollama or vllm.
 	// +kubebuilder:validation:Required
-	// +kubebuilder:validation:XValidation:rule="self == 'ollama'",message="only type ollama is supported today; openai and anthropic are not supported yet"
+	// +kubebuilder:validation:XValidation:rule="self == 'ollama' || self == 'vllm'",message="only types ollama and vllm are supported today; openai and anthropic are not supported yet"
 	Type ProviderType `json:"type"`
 
-	// Endpoint is the Ollama API endpoint (required)
+	// VLLM describes the vLLM servers of a vllm provider. Required for type
+	// vllm and not allowed for any other type.
+	// +optional
+	VLLM *VLLMSpec `json:"vllm,omitempty"`
+
+	// Endpoint is the Ollama API endpoint (required for an ollama provider).
+	// A vllm provider has no single endpoint: it names one per served model in
+	// spec.vllm.servers.
 	// +optional
 	Endpoint string `json:"endpoint,omitempty"`
 
@@ -62,6 +74,68 @@ type ModelProviderSpec struct {
 	// Calibration controls whether this provider may be probed to measure its models
 	// +optional
 	Calibration *ProviderCalibrationSpec `json:"calibration,omitempty"`
+}
+
+// VLLMSpec describes the vLLM servers behind a vllm provider. vLLM's sleep
+// mode serves one model per server and parks the servers that are not in use,
+// so a provider is a set of servers, not one process.
+type VLLMSpec struct {
+	// Servers lists the provider's vLLM servers, one per served model. The
+	// operator does not start them: each is run by someone else with sleep mode
+	// on (--enable-sleep-mode and VLLM_SERVER_DEV_MODE=1).
+	// +kubebuilder:validation:MinItems=1
+	// +kubebuilder:validation:MaxItems=32
+	// +listType=map
+	// +listMapKey=model
+	Servers []VLLMServer `json:"servers"`
+
+	// SleepLevel is how a server is put to sleep when another model takes the
+	// accelerator: 1 parks the weights in host memory (fast to wake), 2 drops
+	// them and reloads from disk on wake (holds no host memory). Default 1.
+	// +kubebuilder:validation:Enum=1;2
+	// +kubebuilder:default=1
+	// +optional
+	SleepLevel int `json:"sleepLevel,omitempty"`
+}
+
+// VLLMServer is one vLLM server and the model it serves.
+type VLLMServer struct {
+	// Model is the served name of the model this server answers to: the Model's
+	// spec.model, and the --served-model-name the server runs with.
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:MinLength=1
+	Model string `json:"model"`
+
+	// Endpoint is the server's OpenAI-compatible base URL, without /v1
+	// (for example http://vllm-qwen3-14b.models:8000).
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:Pattern=`^https?://[^/\s]+.*$`
+	Endpoint string `json:"endpoint"`
+}
+
+// EndpointFor is the endpoint a request for model goes to: the endpoint of the
+// vLLM server serving it, or spec.endpoint for a provider that is one process.
+// It is empty when a vllm provider has no server for the model.
+func (s *ModelProviderSpec) EndpointFor(model string) string {
+	if s.Type != ProviderTypeVLLM {
+		return s.Endpoint
+	}
+	if s.VLLM != nil {
+		for _, srv := range s.VLLM.Servers {
+			if srv.Model == model {
+				return srv.Endpoint
+			}
+		}
+	}
+	return ""
+}
+
+// SleepLevelOrDefault is the vLLM sleep level, 1 when unset.
+func (s *VLLMSpec) SleepLevelOrDefault() int {
+	if s == nil || s.SleepLevel == 0 {
+		return 1
+	}
+	return s.SleepLevel
 }
 
 // ProviderCalibrationSpec controls calibration of a ModelProvider. To ask for a

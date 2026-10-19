@@ -22,6 +22,7 @@ import (
 	aiv1alpha1 "github.com/kubemoot/kubemoot/operator/api/v1alpha1"
 	"github.com/kubemoot/kubemoot/operator/internal/engine"
 	"github.com/kubemoot/kubemoot/operator/internal/engine/ollama"
+	"github.com/kubemoot/kubemoot/operator/internal/engine/vllm"
 )
 
 var (
@@ -36,6 +37,7 @@ func DefaultEngines() *engine.Registry {
 	defaultEnginesOnce.Do(func() {
 		defaultEngines = engine.NewRegistry()
 		defaultEngines.Register(aiv1alpha1.ProviderTypeOllama, ollama.Factory)
+		defaultEngines.Register(aiv1alpha1.ProviderTypeVLLM, vllm.Factory)
 	})
 	return defaultEngines
 }

@@ -194,18 +194,22 @@ func TestOllamaTag_SelectsSourceTagElseModel(t *testing.T) {
 }
 
 func TestSourceMismatch(t *testing.T) {
-	const vllm = aiv1alpha1.ProviderType("vllm")
+	const vllm = aiv1alpha1.ProviderTypeVLLM
+	const openai = aiv1alpha1.ProviderType("openai")
 	cases := map[string]struct {
 		src      *aiv1alpha1.ModelSource
 		provider aiv1alpha1.ProviderType
 		mismatch bool
 	}{
-		"absent on ollama":        {nil, aiv1alpha1.ProviderTypeOllama, false},
-		"ollama on ollama":        {ollamaSource(), aiv1alpha1.ProviderTypeOllama, false},
-		"huggingFace on ollama":   {hfSource(sourceTestRevision), aiv1alpha1.ProviderTypeOllama, true},
-		"ollama on a vllm engine": {ollamaSource(), vllm, true},
-		"huggingFace on vllm":     {hfSource(sourceTestRevision), vllm, false},
-		"absent on vllm":          {nil, vllm, false},
+		"absent on ollama":                   {nil, aiv1alpha1.ProviderTypeOllama, false},
+		"ollama on ollama":                   {ollamaSource(), aiv1alpha1.ProviderTypeOllama, false},
+		"huggingFace on ollama":              {hfSource(sourceTestRevision), aiv1alpha1.ProviderTypeOllama, true},
+		"ollama on a vllm engine":            {ollamaSource(), vllm, true},
+		"huggingFace on vllm":                {hfSource(sourceTestRevision), vllm, false},
+		"absent on vllm":                     {nil, vllm, true},
+		"empty source on vllm":               {&aiv1alpha1.ModelSource{}, vllm, true},
+		"absent on an unsupported type":      {nil, openai, false},
+		"huggingFace on an unsupported type": {hfSource(sourceTestRevision), openai, false},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
