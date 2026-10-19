@@ -147,6 +147,7 @@ func mergeEntry(provider *aiv1alpha1.ModelProvider, f catalogFacts, m *aiv1alpha
 // overlayModel applies what a Model object declares onto an entry.
 func overlayModel(e *aiv1alpha1.CatalogModel, m *aiv1alpha1.Model) {
 	e.ModelRef = m.Namespace + "/" + m.Name
+	e.VRAMMib = m.Spec.VRAMMib
 	if n, ok := aiv1alpha1.ParseParameterCount(m.Spec.Parameters); ok {
 		e.ParameterCount, e.Source = n, aiv1alpha1.CatalogSourceModel
 	}
@@ -236,7 +237,7 @@ func setCatalogSizeCondition(provider *aiv1alpha1.ModelProvider) {
 	}
 	if len(unknown) > 0 {
 		cond.Status, cond.Reason = metav1.ConditionFalse, reasonSizeUnknown
-		cond.Message = fmt.Sprintf("No size for %s: set spec.parameters on a Model for each", strings.Join(unknown, ", "))
+		cond.Message = fmt.Sprintf("No size for %s: set spec.parameters on a Model for each; a rule that requires a size excludes them", strings.Join(unknown, ", "))
 	}
 	meta.SetStatusCondition(&provider.Status.Conditions, cond)
 }

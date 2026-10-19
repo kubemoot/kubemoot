@@ -546,7 +546,7 @@ spec:
                   model the provider has (downloaded for Ollama, answering for vLLM) merged
                   with the Model objects in the provider's namespace that name it. A Model
                   with spec.disabled is left out; an embedding-only model is never admitted.
-                  Each entry carries the labels the catalog offers for selecting models.
+                  Scheduling rules match each entry's labels.
                 items:
                   description: |-
                     CatalogModel is one model in a cluster's catalog, as a ModelProvider reports
@@ -603,6 +603,12 @@ spec:
                         spec.parameters), ollama-show, ollama-tags, service (the kubemoot-vllm
                         chart's annotation), or none.
                       type: string
+                    vramMib:
+                      description: |-
+                        VRAMMib is the accelerator memory in MiB the Model object declares the model
+                        needs, 0 when none does.
+                      format: int32
+                      type: integer
                   required:
                   - name
                   type: object

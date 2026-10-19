@@ -247,36 +247,37 @@ Favor Apache-2.0, MIT, and comparable permissive terms. Avoid models whose licen
 restrict commercial use, and read the terms on vendor-specific open licenses before
 committing a crew to them.
 
-## Adopting a model is a label change
+## Adopting a model is a catalog entry
 
-Loose coupling means the adoption path does not touch agents:
+Loose coupling means the adoption path touches neither agents nor crews:
 
-1. Make the model available on the provider.
-2. Declare a `Model` CR with labels and a `vramMib` request.
-3. Adjust the crew's `CrewSchedulingPolicy` selectors only if the new model should win a
-   phase it would not otherwise match.
+1. Make the model available on the provider, or list it under the provider in the operator's
+   `modelProviders` values and Kubemoot downloads it onto an Ollama provider.
+2. Check `status.models` on the ModelProvider: the model is in the catalog with a size class,
+   its context window and its abilities, read from the server. For a vLLM model, declare
+   `parameters` and `capabilities` in the `kubemoot-vllm` chart's values (the server cannot
+   report them).
+3. If the engine got something wrong, or you want a label of your own, add a `Model` in the
+   operator's namespace that names the provider and sets `parameters`, `capabilities` or labels.
 
 ```yaml
 apiVersion: kubemoot.ai/v1alpha1
 kind: Model
 metadata:
-  name: candidate-model
+  name: ollama-a-candidate-model
+  namespace: kubemoot            # the operator's namespace: the cluster's catalog
   labels:
-    family: example
-    params: "35B"
-    capability/tool-calling: "true"
-    capability/reasoning: "true"
-    contextWindow: "262144"
-    latencyClass: medium
+    kubemoot.ai/license: apache-2.0
 spec:
   model: example-model:35b
   providerRef: ollama-a
+  parameters: 35B
+  capabilities: [tool-calling, reasoning]
   vramMib: 20480
-  quantization: q4_K_M
 ```
 
-No agent is edited and the crew is not redeployed. The scheduler picks the new binding on
-the next inference call.
+No agent is edited, no crew is touched, and the crew is not redeployed. The agents whose phases
+the model fits better re-bind, and the scheduler places each call on the next inference call.
 
 ## Decide by measurement
 

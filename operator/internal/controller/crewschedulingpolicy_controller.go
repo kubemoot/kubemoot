@@ -19,6 +19,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 )
@@ -62,6 +63,7 @@ func (r *CrewSchedulingPolicyReconciler) Reconcile(ctx context.Context, req ctrl
 		if apierrors.IsNotFound(err) {
 			policy.Status.ValidationError = fmt.Sprintf("referenced MootArchetype %q not found; accepting policy permissively until it exists", archetypeName)
 			policy.Status.LastValidated = nowPtr()
+			r.applyCatalogConditions(ctx, policy)
 			return ctrl.Result{}, r.Status().Update(ctx, policy)
 		}
 		return ctrl.Result{}, err
@@ -69,10 +71,22 @@ func (r *CrewSchedulingPolicyReconciler) Reconcile(ctx context.Context, req ctrl
 
 	policy.Status.ValidationError = policyPhaseValidationError(policy, archetype, archetypeName)
 	policy.Status.LastValidated = nowPtr()
+	r.applyCatalogConditions(ctx, policy)
 	if err := r.Status().Update(ctx, policy); err != nil {
 		log.Error(err, "Failed to update CrewSchedulingPolicy status")
 	}
 	return ctrl.Result{}, nil
+}
+
+// applyCatalogConditions records where the policy's crew gets its models. A Model
+// list that fails leaves the conditions as they were.
+func (r *CrewSchedulingPolicyReconciler) applyCatalogConditions(ctx context.Context, policy *kubemootv1alpha1.CrewSchedulingPolicy) {
+	mode, err := catalogModeOf(ctx, r.Client, policy.Namespace)
+	if err != nil {
+		logf.FromContext(ctx).Error(err, "could not tell where the crew gets its models", "policy", policy.Name)
+		return
+	}
+	setCatalogConditions(policy, mode)
 }
 
 func nowPtr() *metav1.Time {
@@ -84,6 +98,10 @@ func (r *CrewSchedulingPolicyReconciler) SetupWithManager(mgr ctrl.Manager) erro
 	r.Scheme = mgr.GetScheme()
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&kubemootv1alpha1.CrewSchedulingPolicy{}).
+		// The Models a namespace holds decide whether its crew uses them or the
+		// cluster's catalog, so adding or deleting one re-evaluates the policy.
+		Watches(&kubemootv1alpha1.Model{}, enqueuePoliciesOnModelChange(mgr.GetClient()),
+			builder.WithPredicates(modelBindingChanged())).
 		Complete(r)
 }
 

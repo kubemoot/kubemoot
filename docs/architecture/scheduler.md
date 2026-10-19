@@ -492,7 +492,7 @@ calibration replaces the one they drifted from.
 
 `CrewSchedulingPolicy.spec.qualityBias` is a per-capability scalar in `[0.0, 1.0]` that biases model selection between speed (low values) and quality (high values) for `SchedulingRule` entries that omit an explicit `prefer` block. It lets crew authors express *"which kind of work benefits from quality and which benefits from speed"* once, in human terms, instead of hand-weighting selectors for every rule.
 
-Agents declare abstract `capabilities` (e.g. `tool-calling`, `reasoning`); the crew author declares what each capability is worth in quality terms; the scheduler resolves to a concrete `Model` at reconcile time. No agent CR names a model size - the same agent definition deploys against any cluster's `Model` bundle.
+Agents declare abstract `capabilities` (e.g. `tool-calling`, `reasoning`); the crew author declares what each capability is worth in quality terms; the scheduler resolves to a concrete model from the [cluster's catalog](#selecting-from-the-model-catalog) at reconcile time. No agent CR names a model size - the same agent definition deploys against any cluster's models.
 
 ### CSP shape
 
@@ -525,18 +525,24 @@ effective_bias = max(qualityBias[c] for c in agent.spec.capabilities)
 
 **Max combiner**, deliberately conservative - if any of an agent's declared needs says quality matters, the agent gets the quality push.
 
-### Auto-derived score from `latencyClass`
+### Auto-derived score from model size
 
-When a rule has no explicit `prefer` block and the policy has a non-empty `qualityBias` map, the scheduler reads each candidate Model's `latencyClass` label and contributes:
+When a rule has no explicit `prefer` block and the policy has a non-empty `qualityBias` map, the scheduler reads each candidate model's size class (the `kubemoot.ai/size` label every catalog entry carries) and contributes:
 
-| Model `latencyClass` | Contribution to score |
+| Model size | Contribution to score |
 |---|---|
-| `high` | `round(bias × 100)` |
-| `medium` | `50` (neutral pivot) |
-| `low` | `round((1 - bias) × 100)` |
-| (no `latencyClass` label) | `0` (no contribution) |
+| `large` | `round(bias × 100)` |
+| `medium` | `round(100 - abs(bias - 0.5) × 200)`, a tent that peaks at a bias of `0.5` |
+| `small` | `round((1 - bias) × 100)` |
+| (no size) | `0` (no contribution) |
 
-So `bias = 0.7` ranks `high (70) > medium (50) > low (30)`; `bias = 0.3` flips it to `low (70) > medium (50) > high (30)`. On equal scores the Model with the smaller declared `vramMib` wins (a Model that declares none comes after those that do), then the Model name, so a tie never depends on how Models are spelled.
+So `bias = 0.7` ranks `large (70) > medium (60) > small (30)`; `bias = 0.3` flips it to `small (70) > medium (60) > large (30)`. The tent makes the middle tier reachable: at a bias between about a third and two thirds it is the strict winner. On equal scores the Model with the smaller declared `vramMib` wins (a Model that declares none comes after those that do), then the Model name, so a tie never depends on how Models are spelled.
+
+A crew that still ships its own Models (see [Crew-local Models](#crew-local-models-replace-the-catalog)) has Models that carry the older `latencyClass` label and no size. For those, `high` is read as large, `medium` as medium and `low` as small, with the same curves, so such a crew scores as it did (a Model that carries both labels is scored by its size).
+
+### Abilities
+
+Three of an agent's declared capabilities are also model abilities: `tool-calling`, `reasoning` and `vision`. For a crew that selects from the catalog, each ability the agent declares and the candidate model has adds `abilityWeight` points (default 20, `spec.abilityWeight` on the policy, 0 to 100) to the candidate. Twenty is above the runtime's quality tolerance of ten points, so an agent that declares `reasoning` keeps a reasoning model unless one with an equal score is already loaded. An ability is a preference and never a hard need: a hard need is what the rule's `require` says, and the crew scaffold writes `tool-calling` there. Any declared capability, ability or not (`kubernetes`, `observability`), also keys into `qualityBias`, as above. A rule with an explicit `prefer` block gets neither the `qualityBias` score nor the ability score, so an explicit rule is exactly what it says.
 
 ### Override semantics
 
@@ -544,7 +550,7 @@ Explicit `prefer` blocks on a rule always win. The scheduler skips auto-derivati
 
 ### Preference, not requirement
 
-Capability declarations on Agents are **preference-shaping**, never hard gates. An agent declaring a capability that no Model can satisfy still schedules against the best available Model. This trades strict capability matching for observability: misconfigurations surface as visibly wrong model bindings on the dashboard, not as scheduling failures, and the system continues to operate.
+Capability declarations on Agents are **preference-shaping**, never hard gates. An agent declaring a capability that no model can satisfy still schedules against the best available model. This trades strict capability matching for observability: misconfigurations surface as visibly wrong model bindings on the dashboard, not as scheduling failures, and the system continues to operate.
 
 ### Example
 
@@ -552,10 +558,10 @@ A crew of one synthesizing coordinator plus several Toolers (and optionally Anal
 
 | Agent role | Declared capabilities | effective_bias | Likely binding |
 |---|---|---|---|
-| Synthesizing coordinator | `[tool-calling, reasoning]` | max(0.3, 0.7) = 0.7 | `latencyClass: high` Model |
-| Tooler with light analytical scope | `[tool-calling, observability]` | max(0.3, 0.4) = 0.4 | `latencyClass: low` or `medium` Model |
-| Single-shape Tooler | `[tool-calling]` | 0.3 | `latencyClass: low` Model |
-| Analyst | `[reasoning]` | 0.7 | `latencyClass: medium` or `high` Model |
+| Synthesizing coordinator | `[tool-calling, reasoning]` | max(0.3, 0.7) = 0.7 | `large` model |
+| Tooler with light analytical scope | `[tool-calling, observability]` | max(0.3, 0.4) = 0.4 | `small` or `medium` model |
+| Single-shape Tooler | `[tool-calling]` | 0.3 | `small` model |
+| Analyst | `[reasoning]` | 0.7 | `medium` or `large` model |
 
 The synthesizer holds the larger model because *it* declared `reasoning`. Toolers stay on smaller, faster models because they didn't. One heavy model and many light ones co-exist on the same GPU pool without slot starvation under per-provider `num_parallel=1`.
 
@@ -585,7 +591,7 @@ spec:
   vramMib: 20480                # capacity request - used by the filter step
 ```
 
-Labels are an open string set. New capabilities can be introduced without changing the CRD schema. The scheduler validates capability strings against the active `CrewSchedulingPolicy` references but does not constrain the vocabulary.
+Labels are an open string set. New capabilities can be introduced without changing the CRD schema. The scheduler validates capability strings against the active `CrewSchedulingPolicy` references but does not constrain the vocabulary. The example above is a crew's own Model. A crew that selects from the cluster's catalog ships none: the cluster owner keeps the Models, and the labels a rule matches are the ones the [catalog](#the-model-catalog) produces.
 
 ### ModelProvider - capacity-only
 
@@ -637,7 +643,8 @@ truth that tools and the dashboard read.
   constants so a class means the same on every cluster. Total parameters, not active ones: size
   stands for memory and quality tier, and speed is measured separately by calibration. A model
   whose size is unknown stays in the catalog, gets no size label, and is named on the
-  provider's `CatalogSizeKnown` condition.
+  provider's `CatalogSizeKnown` condition. It contributes no size score, and a rule that
+  requires a size excludes it.
 - **Downloads.** A Model in the catalog is also a request to have the model on its provider; the
   Model controller pulls it as it does for any Model, with no crew involved.
 - **Calibration.** The calibration request covers every present catalog model, so a model the
@@ -705,7 +712,7 @@ spec:
       prefer:
         - weight: 100
           selector:
-            matchLabels: { latencyClass: low }
+            matchLabels: { kubemoot.ai/size: small }
   placementPolicy: shadow        # optional; see Placement policy
   topologySpread:
     whenUnsatisfiable: ScheduleAnyway
@@ -714,6 +721,42 @@ spec:
 ```
 
 `require` is hard (no match → Unschedulable). `prefer` is soft (weighted hint to the scorer). Mirrors `nodeSelector` vs `preferredDuringSchedulingIgnoredDuringExecution`.
+
+#### Comparisons
+
+A `LabelSelector` cannot compare numbers, so a rule has a second field of the standard Kubernetes `NodeSelectorRequirement` type, and a preference term has the same one:
+
+```yaml
+rules:
+  - phase: mulling
+    require:
+      matchLabels: { capability/tool-calling: "true" }
+    requireExpressions:               # ANDed with require
+      - { key: kubemoot.ai/context-tokens, operator: Gt, values: ["16383"] }
+    prefer:
+      - weight: 100
+        selector: { matchLabels: { kubemoot.ai/size: large } }
+      - weight: 20
+        expressions:                  # a term may use a selector, expressions, or both
+          - { key: kubemoot.ai/context-tokens, operator: Gt, values: ["32767"] }
+```
+
+The operators are `In`, `NotIn`, `Exists`, `DoesNotExist`, `Gt` and `Lt`. `Gt` and `Lt` are strict and take one integer, so "at least 16K tokens" is `Gt 16383`. A model without the label fails a `Gt` or `Lt`. The admission webhook rejects an unknown operator, a `Gt` or `Lt` without exactly one integer value, `In` or `NotIn` without values, and `Exists` or `DoesNotExist` with values. A preference term needs a selector or expressions.
+
+Speed is deliberately not a label a rule can name: an absolute threshold is a property of one cluster, and it would put the cluster back into the crew.
+
+#### Portable by default
+
+A hard `require` should name only what the crew cannot work without: tool-calling, a context floor. Size and reasoning are wishes, so they belong in `prefer` or in `qualityBias`: a cluster with one small model still runs the crew, on that model. A crew that requires `kubemoot.ai/size: large` cannot be scheduled on that cluster, and the message names the missing label (see [Zero-Match Surface](#zero-match-surface)).
+
+#### Conditions
+
+The policy reports on its status where its crew gets its models:
+
+| Condition | Meaning |
+|---|---|
+| `CatalogMode` | `Cluster` (status `True`) when the crew selects from the catalog; `CrewLocal` (status `False`) while the crew ships Models of its own |
+| `LegacyLatencyClass` | `True` when a rule selects on the `latencyClass` label and the crew uses the catalog. The catalog carries no such label, so the rule matches nothing; select on `kubemoot.ai/size` |
 
 ### MootArchetype - coordination model + phase vocabulary
 
@@ -727,7 +770,7 @@ Three stages, mirroring `kube-scheduler`'s structure.
 
 A candidate `Model` is feasible iff:
 
-- The Model's labels match `rule.require.matchLabels` and all `matchExpressions`
+- The Model's labels match `rule.require` (`matchLabels` and `matchExpressions`) and every `rule.requireExpressions`
 - The Model's `providerRef` resolves to a Ready ModelProvider
 - The Provider has VRAM headroom: `Model.spec.vramMib + eviction_overhead <= Provider.status.capacity.vramTotalMiB`
 - The Provider has parallelism headroom: `Provider.status.capacity.agentCount + 1 <= maxParallel * concurrency_factor`
@@ -738,7 +781,8 @@ Filter is pure. No side effects.
 
 Score is the sum of:
 
-- `prefer.matchLabels` weights - for each `prefer` rule that matches the candidate's labels, add `prefer.weight`
+- `prefer` weights - for each `prefer` term whose selector and expressions match the candidate's labels, add `prefer.weight`
+- **Quality bias and abilities** - the model-size score from `qualityBias` and the points for the abilities the agent declares (see [Quality bias](#quality-bias)), for a rule with no explicit `prefer` block
 - **Provider weight (phase-aware)** - `ModelProvider.spec.scheduling.weight` (default 100) contributes per phase: mulling adds `+weight` (favors heavy providers); triage adds `-weight` (favors lighter providers). This lets two rigs carrying identically-labeled Models split phase work - a 5090 (`weight=100`) takes mulling, a 4090 (`weight=25`) takes triage - without forcing per-rig labels onto the Models.
 
 The score reads only spec-level inputs. Live provider state (loaded models, agent counts) never enters it, because the winner becomes the agent's default endpoint in the pod template and a pick that followed live state would roll the pod whenever a model loaded or unloaded. Where each inference call actually runs is decided per call by the runtime (see [JIT provider selection](#jit-per-call-provider-selection)).
@@ -751,46 +795,23 @@ If `topologySpread` is configured, distribute bindings so that no single `topolo
 
 Write the chosen `(model, provider, endpoint)` into `Agent.status.scheduling` and template the agent's Deployment env vars (`KUBEMOOT_MODEL_MODEL`, `KUBEMOOT_MODEL_ENDPOINT`, `KUBEMOOT_TRIAGE_MODEL_MODEL_ID`, `KUBEMOOT_TRIAGE_MODEL_ENDPOINT`) as the agent's stable default, plus the ranked candidate lists `KUBEMOOT_MODEL_CANDIDATES_MULLING` and `KUBEMOOT_MODEL_CANDIDATES_TRIAGE` described in [Candidate models per call](#candidate-models-per-call).
 
-## Helm-Parameterized Model Bundle
+## Selecting from the model catalog
 
-The same crew chart deploys to clusters with different hardware. The pattern:
+A crew ships no Model objects and names no provider. Its Agents declare abilities, its `CrewSchedulingPolicy` states what each phase needs, and the cluster states what it has: the [model catalog](#the-model-catalog) every ModelProvider publishes. The same crew chart deploys to a cluster with one small CPU model and to one with several accelerators, with the same bytes.
 
 | Layer | Per-cluster? | Carries |
 |---|---|---|
-| Crew chart `values-prod.yaml` | yes | which Models to provision, ModelProvider endpoints, vramMib targets |
-| Crew chart `values-dev.yaml` | yes | smaller Models, CPU-only providers |
-| Crew chart templates | no - same everywhere | Agent CRs, CrewSchedulingPolicy, capability declarations |
+| The cluster's operator values | yes | the model providers, and the catalog Models the owner wants downloaded or labeled |
+| The `kubemoot-vllm` chart values | yes | each vLLM model's parameters and abilities |
+| The crew chart | no, same everywhere | Agents, `CrewSchedulingPolicy`, capability declarations |
 
-Dev bundle:
-```yaml
-models:
-  - name: phi3-mini
-    model: phi3:mini
-    providerRef: cpu-ollama
-    vramMib: 0
-    labels:
-      family: phi3
-      params: "3.8B"
-      capability/tool-calling: "true"
-      latencyClass: low
-```
+Each time the scheduler picks for a phase it builds the candidate set from the catalog entries of the providers the crew can use: those in its own namespace and in the operator's. Only models the provider has now are candidates, and not a model that [calibration](#calibration) found does not fit the provider's memory. A vLLM model whose server is restarting stays a candidate, and a provider that is briefly not ready does not re-bind its agents: readiness is judged again at the next pick and, for each call, by the runtime. Each entry is turned into an in-memory Model value, never stored, so one scorer serves the catalog and a crew's own Models. A provider's catalog change (a model added, removed or relabeled, or the provider deleted) re-evaluates the Agents that can use the provider, so bindings follow the cluster with no edit in any crew's namespace. The score reads only labels and declared weights, so the Deployment does not change while models load and unload.
 
-Prod bundle:
-```yaml
-models:
-  - name: qwen3-32b
-    model: qwen3:32b
-    providerRef: ollama-a
-    vramMib: 20480
-    labels: { family: qwen3, params: "32B", capability/tool-calling: "true", capability/reasoning: "true" }
-  - name: qwen3-14b
-    model: qwen3:14b
-    providerRef: ollama-a
-    vramMib: 9216
-    labels: { family: qwen3, params: "14B", capability/tool-calling: "true" }
-```
+Switching a model server from Ollama to vLLM, adding an accelerator, or moving a model to another accelerator changes the catalog and nothing in the crew's namespace. A catalog change that changes which models a phase may use changes the candidate list in the environment of the affected Agents, which rolls their pods; the crew definition is untouched.
 
-The Agents and the `CrewSchedulingPolicy` are identical across clusters. The capability layer carries through; only the concrete fixtures change.
+### Crew-local Models replace the catalog
+
+A crew that has any Model in its own namespace keeps using exactly those Models and only those, until it deletes them. Replacing rather than merging keeps an unmigrated crew's behavior, and its measured results, the same on the day the catalog exists, and makes migration one act: delete the crew's Models. The `CatalogMode` condition on the crew's policy says which mode it is in, so a crew that is still coupled to its cluster shows in `kubectl get csp -o yaml`. Models in the operator's namespace are the catalog's, not a crew's, so a crew that runs in the operator's namespace selects from the catalog too. The ability score applies only in catalog mode.
 
 ## Zero-Match Surface
 
@@ -811,6 +832,8 @@ status:
       observedAt: "2026-05-15T15:30:00Z"
       crewSchedulingPolicy: homelab-pilot-default
 ```
+
+Against the catalog the message says what the catalog holds and which constraint nothing met, for example `no model in the cluster catalog (3 available) satisfies the require of phase=mulling (kubemoot.ai/size=large); 1 model(s) have no known size (set spec.parameters on a Model)`. An empty catalog says that no provider in the crew's namespace or the operator's reports a model.
 
 No LLM call is attempted. The discussion either degrades to a documented fallback (e.g., the coordinator runs a single-agent path) or surfaces the failure to the user.
 

@@ -16,8 +16,6 @@ import (
 
 	kubemootv1alpha1 "github.com/kubemoot/kubemoot/operator/api/v1alpha1"
 	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/labels"
 )
 
 // Env vars carrying each phase's ranked candidate models to the agent runtime.
@@ -46,27 +44,39 @@ func phaseQualityBias(agent *kubemootv1alpha1.Agent, policy *kubemootv1alpha1.Cr
 }
 
 // modelQualityScore is the policy-driven, provider-independent part of a
-// candidate's score: the matching Prefer weights plus the qualityBias /
-// latencyClass contribution. Locality, provider weight, and load terms are left
+// candidate's score: the matching Prefer weights plus the qualityBias (model size)
+// and ability contributions. Locality, provider weight, and load terms are left
 // out so the score compares models, not placements.
-func modelQualityScore(rule *kubemootv1alpha1.SchedulingRule, m *kubemootv1alpha1.Model, bias float64, haveBias bool) int64 {
-	score, _ := preferRuleScore(rule, m)
-	if haveBias {
-		biasScore, _ := qualityBiasScore(bias, m.Labels)
-		score += biasScore
-	}
+func modelQualityScore(rule *kubemootv1alpha1.SchedulingRule, m *kubemootv1alpha1.Model, sc phaseScoring) int64 {
+	score, _ := policyScore(rule, m, sc)
 	return score
 }
 
-// matchesRequire reports whether the Model satisfies the rule's Require
-// selector. A nil rule or selector admits every Model; a malformed selector
-// admits none (pickModel reports that error on the feasibility pass).
-func matchesRequire(rule *kubemootv1alpha1.SchedulingRule, m *kubemootv1alpha1.Model) bool {
-	if rule == nil || rule.Require == nil {
-		return true
+// policyScore is the one composition of the policy-driven score terms, with a
+// reason token per term: the matching Prefer weights, the qualityBias (model size)
+// contribution, and the ability points. The pick (scoreCandidate) and the candidate
+// list (modelQualityScore) both read it, so they cannot drift apart.
+func policyScore(rule *kubemootv1alpha1.SchedulingRule, m *kubemootv1alpha1.Model, sc phaseScoring) (int64, []string) {
+	score, reasons := preferRuleScore(rule, m)
+	if sc.HaveBias {
+		if biasScore, biasReason := qualityBiasScore(sc.Bias, m.Labels); biasReason != "" {
+			score += biasScore
+			reasons = append(reasons, biasReason)
+		}
 	}
-	sel, err := metav1.LabelSelectorAsSelector(rule.Require)
-	return err == nil && sel.Matches(labels.Set(m.Labels))
+	if abilityScore, abilityReason := sc.abilityScore(m.Labels); abilityReason != "" {
+		score += abilityScore
+		reasons = append(reasons, abilityReason)
+	}
+	return score, reasons
+}
+
+// matchesRequire reports whether the Model satisfies the rule's hard constraints
+// (Require and RequireExpressions). A nil rule admits every Model; a malformed
+// constraint admits none (pickModel reports that error on the feasibility pass).
+func matchesRequire(rule *kubemootv1alpha1.SchedulingRule, m *kubemootv1alpha1.Model) bool {
+	ok, err := requireMatches(rule, m.Labels)
+	return err == nil && ok
 }
 
 // rankedCandidates lists the models an agent may run for a phase: every Ready
@@ -75,14 +85,14 @@ func matchesRequire(rule *kubemootv1alpha1.SchedulingRule, m *kubemootv1alpha1.M
 // by quality score, highest first, then by name. Provider readiness and VRAM are
 // left to the runtime's per-call pick, which reads live provider state, so the
 // list (and the Deployment env) stays stable while providers come and go.
-func rankedCandidates(bound string, rule *kubemootv1alpha1.SchedulingRule, models []kubemootv1alpha1.Model, bias float64, haveBias bool) []modelCandidate {
+func rankedCandidates(bound string, rule *kubemootv1alpha1.SchedulingRule, models []kubemootv1alpha1.Model, sc phaseScoring) []modelCandidate {
 	best := map[string]int64{}
 	for i := range models {
 		m := &models[i]
 		if !m.Status.Ready || !matchesRequire(rule, m) {
 			continue
 		}
-		score := modelQualityScore(rule, m, bias, haveBias)
+		score := modelQualityScore(rule, m, sc)
 		if prev, seen := best[m.Spec.Model]; !seen || score > prev {
 			best[m.Spec.Model] = score
 		}

@@ -148,6 +148,11 @@ type CatalogModel struct {
 	// +optional
 	Capabilities []string `json:"capabilities,omitempty"`
 
+	// VRAMMib is the accelerator memory in MiB the Model object declares the model
+	// needs, 0 when none does.
+	// +optional
+	VRAMMib int32 `json:"vramMib,omitempty"`
+
 	// ModelRef names the Model object that contributed to the entry, as
 	// namespace/name.
 	// +optional

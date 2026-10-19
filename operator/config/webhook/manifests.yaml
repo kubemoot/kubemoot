@@ -70,6 +70,26 @@ webhooks:
     service:
       name: webhook-service
       namespace: system
+      path: /validate-kubemoot-ai-v1alpha1-crewschedulingpolicy
+  failurePolicy: Fail
+  name: vcrewschedulingpolicy.kubemoot.ai
+  rules:
+  - apiGroups:
+    - kubemoot.ai
+    apiVersions:
+    - v1alpha1
+    operations:
+    - CREATE
+    - UPDATE
+    resources:
+    - crewschedulingpolicies
+  sideEffects: None
+- admissionReviewVersions:
+  - v1
+  clientConfig:
+    service:
+      name: webhook-service
+      namespace: system
       path: /validate-kubemoot-ai-v1alpha1-mcpserver
   failurePolicy: Fail
   name: vmcpserver.kubemoot.ai

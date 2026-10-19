@@ -88,14 +88,14 @@ type ModelSpec struct {
 
 	// Capabilities are abilities the engine cannot report: tool-calling,
 	// reasoning, vision. When set they replace what the engine reports, and each
-	// becomes a capability/<name>: "true" label on the catalog entry.
+	// becomes a capability/<name>: "true" label scheduling rules can select on.
 	// +optional
 	// +kubebuilder:validation:MaxItems=16
 	// +listType=set
 	Capabilities []string `json:"capabilities,omitempty"`
 
 	// Disabled keeps the model out of the cluster's model catalog: the operator
-	// downloads nothing for it and calibration skips it. Use it to exclude a model
+	// downloads nothing for it, no crew selects it, and calibration skips it. Use it to exclude a model
 	// the provider has but the cluster owner does not want used.
 	// +optional
 	Disabled bool `json:"disabled,omitempty"`

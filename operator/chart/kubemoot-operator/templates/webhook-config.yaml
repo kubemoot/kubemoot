@@ -66,6 +66,20 @@ webhooks:
     failurePolicy: {{ .Values.webhook.failurePolicy }}
     sideEffects: None
     admissionReviewVersions: ["v1"]
+  - name: vcrewschedulingpolicy.kubemoot.ai
+    clientConfig:
+      service:
+        name: {{ include "kubemoot-operator.fullname" . }}-webhook
+        namespace: {{ .Release.Namespace }}
+        path: /validate-kubemoot-ai-v1alpha1-crewschedulingpolicy
+    rules:
+      - apiGroups: ["kubemoot.ai"]
+        apiVersions: ["v1alpha1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["crewschedulingpolicies"]
+    failurePolicy: {{ .Values.webhook.failurePolicy }}
+    sideEffects: None
+    admissionReviewVersions: ["v1"]
   - name: vragsource.kubemoot.ai
     clientConfig:
       service:

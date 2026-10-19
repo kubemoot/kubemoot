@@ -64,6 +64,19 @@ spec:
               Modeled on Kubernetes Pod scheduling: `require` is hard (no match →
               Unschedulable), `prefer` is soft weighted hints. See kubemoot/docs/scheduler-v2.md.
             properties:
+              abilityWeight:
+                description: |-
+                  AbilityWeight is the points a candidate model earns for each ability
+                  (tool-calling, reasoning, vision) that the agent declares in
+                  spec.capabilities and the model has. Default 20, above the runtime's
+                  default quality tolerance of 10 points, so an agent that declares reasoning
+                  keeps a reasoning model unless one with an equal score is already loaded.
+                  It applies to a rule with no explicit prefer block, and only to a crew that
+                  selects from the cluster's model catalog.
+                format: int32
+                maximum: 100
+                minimum: 0
+                type: integer
               archetypeRef:
                 default: consent-3
                 description: |-
@@ -93,9 +106,12 @@ spec:
                   computes effectiveBias = max(QualityBias[c]) across the agent's
                   declared spec.capabilities, falling back to QualityBias["default"]
                   when no capability is mapped. The effective bias compiles into a
-                  per-Model score against the Model's "latencyClass" label:
-                  high → bias*100, medium → 50, low → (1-bias)*100. Models without
-                  a latencyClass label receive no bias contribution.
+                  per-model score against the model's size class (the kubemoot.ai/size
+                  label in the cluster catalog): large → bias*100, small → (1-bias)*100,
+                  medium → 100 - |bias-0.5|*200. A model with no size contributes
+                  nothing. A crew that still ships its own Models, which carry a
+                  "latencyClass" label instead of a size, is scored by that label:
+                  high is large, medium is medium, low is small.
 
                   Capability declarations are preference-shaping, not hard
                   requirements — agents always schedule against the best available
@@ -127,8 +143,45 @@ spec:
                       items:
                         description: |-
                           PreferenceTerm is a single weighted preference. The scheduler adds Weight to
-                          a Model candidate's score if its labels match Selector.
+                          a Model candidate's score if its labels match Selector and satisfy every one
+                          of Expressions. At least one of the two is required.
                         properties:
+                          expressions:
+                            description: |-
+                              Expressions are comparisons on Model labels, the Kubernetes
+                              NodeSelectorRequirement type, so Gt and Lt are available. All must hold, and
+                              Selector too when it is set, for the term to add its Weight.
+                            items:
+                              description: |-
+                                A node selector requirement is a selector that contains values, a key, and an operator
+                                that relates the key and values.
+                              properties:
+                                key:
+                                  description: The label key that the selector applies
+                                    to.
+                                  type: string
+                                operator:
+                                  description: |-
+                                    Represents a key's relationship to a set of values.
+                                    Valid operators are In, NotIn, Exists, DoesNotExist. Gt, and Lt.
+                                  type: string
+                                values:
+                                  description: |-
+                                    An array of string values. If the operator is In or NotIn,
+                                    the values array must be non-empty. If the operator is Exists or DoesNotExist,
+                                    the values array must be empty. If the operator is Gt or Lt, the values
+                                    array must have a single element, which will be interpreted as an integer.
+                                    This array is replaced during a strategic merge patch.
+                                  items:
+                                    type: string
+                                  type: array
+                                  x-kubernetes-list-type: atomic
+                              required:
+                              - key
+                              - operator
+                              type: object
+                            maxItems: 16
+                            type: array
                           selector:
                             description: |-
                               Selector matches Model labels. The Kubernetes LabelSelector idiom —
@@ -185,9 +238,12 @@ spec:
                             minimum: 1
                             type: integer
                         required:
-                        - selector
                         - weight
                         type: object
+                        x-kubernetes-validations:
+                        - message: a preference needs a selector or expressions
+                          rule: has(self.selector) || (has(self.expressions) && size(self.expressions)
+                            > 0)
                       type: array
                     require:
                       description: |-
@@ -238,6 +294,45 @@ spec:
                           type: object
                       type: object
                       x-kubernetes-map-type: atomic
+                    requireExpressions:
+                      description: |-
+                        RequireExpressions are further hard constraints, ANDed with Require. They are
+                        the Kubernetes NodeSelectorRequirement type, so they add the comparisons a
+                        LabelSelector lacks: Gt and Lt, which compare a label's integer value
+                        strictly (at least 16K tokens of context is key kubemoot.ai/context-tokens,
+                        operator Gt, values ["16383"]). A model without the label fails a Gt or Lt.
+                        The admission webhook rejects an unknown operator and a Gt or Lt without
+                        exactly one integer value.
+                      items:
+                        description: |-
+                          A node selector requirement is a selector that contains values, a key, and an operator
+                          that relates the key and values.
+                        properties:
+                          key:
+                            description: The label key that the selector applies to.
+                            type: string
+                          operator:
+                            description: |-
+                              Represents a key's relationship to a set of values.
+                              Valid operators are In, NotIn, Exists, DoesNotExist. Gt, and Lt.
+                            type: string
+                          values:
+                            description: |-
+                              An array of string values. If the operator is In or NotIn,
+                              the values array must be non-empty. If the operator is Exists or DoesNotExist,
+                              the values array must be empty. If the operator is Gt or Lt, the values
+                              array must have a single element, which will be interpreted as an integer.
+                              This array is replaced during a strategic merge patch.
+                            items:
+                              type: string
+                            type: array
+                            x-kubernetes-list-type: atomic
+                        required:
+                        - key
+                        - operator
+                        type: object
+                      maxItems: 16
+                      type: array
                   required:
                   - phase
                   type: object
@@ -288,8 +383,12 @@ spec:
               the policy.
             properties:
               conditions:
-                description: Conditions represent the latest available observations
-                  of the policy.
+                description: |-
+                  Conditions represent the latest available observations of the policy.
+                  CatalogMode says where the crew's models come from: CrewLocal while the crew
+                  ships Models of its own (it uses only those), Cluster when it selects from
+                  the cluster's model catalog. LegacyLatencyClass is True when a rule selects
+                  on the latencyClass label against the catalog, which carries none.
                 items:
                   description: Condition contains details for one aspect of the current
                     state of this API Resource.
