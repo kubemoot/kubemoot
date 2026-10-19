@@ -26,6 +26,8 @@ models:
   - servedName: qwen3:14b
     repo: Qwen/Qwen3-14B-AWQ
     revision: 31c69efc
+    parameters: 14B
+    capabilities: [tool-calling, reasoning]
     args:
       - --gpu-memory-utilization=0.85
       - --max-model-len=16384
@@ -35,6 +37,8 @@ models:
   - servedName: qwen3:32b
     repo: Qwen/Qwen3-32B-AWQ
     revision: 0499c3ac
+    parameters: 32B
+    capabilities: [tool-calling, reasoning]
     args:
       - --gpu-memory-utilization=0.95
       - --max-model-len=16384

@@ -224,9 +224,11 @@ func calibrationEnabled(p *aiv1alpha1.ModelProvider) bool {
 	return p.Spec.Calibration == nil || p.Spec.Calibration.Enabled == nil || *p.Spec.Calibration.Enabled
 }
 
-// boundModels is the names of every Model that references the provider, as the
-// provider's engine knows them: the Ollama tag for an Ollama provider, the served name
-// (spec.model) for a vLLM one, which has no tag and serves what its servers are named for.
+// boundModels is the names of every enabled Model in any namespace that references
+// the provider (a crew's own Model is measured too, though it is not in the catalog),
+// plus the catalog's present models, as the provider's engine knows them: the Ollama tag
+// for an Ollama provider, the served name (spec.model) for a vLLM one, which has no
+// tag and serves what its servers are named for.
 func (r *ModelProviderReconciler) boundModels(ctx context.Context, p *aiv1alpha1.ModelProvider) ([]string, error) {
 	var models aiv1alpha1.ModelList
 	if err := r.List(ctx, &models); err != nil {
@@ -234,18 +236,30 @@ func (r *ModelProviderReconciler) boundModels(ctx context.Context, p *aiv1alpha1
 	}
 	var out []string
 	for _, m := range models.Items {
-		if m.Spec.ProviderRef != p.Name {
+		if m.Spec.ProviderRef != p.Name || m.Spec.Disabled || !m.DeletionTimestamp.IsZero() {
 			continue
 		}
-		name := m.OllamaTag()
-		if p.Spec.Type == aiv1alpha1.ProviderTypeVLLM {
-			name = m.Spec.Model
-		}
-		if name != "" {
+		if name := catalogModelName(p, &m); name != "" {
 			out = append(out, name)
 		}
 	}
-	return out, nil
+	return withCatalogModels(out, p), nil
+}
+
+// withCatalogModels adds the models the provider's catalog says it has that no
+// Model object named, so a model the cluster adopted by discovery is measured too.
+func withCatalogModels(names []string, p *aiv1alpha1.ModelProvider) []string {
+	have := make(map[string]bool, len(names))
+	for _, n := range names {
+		have[n] = true
+	}
+	for _, e := range p.Status.Models {
+		if e.Present && !have[e.Name] {
+			names = append(names, e.Name)
+			have[e.Name] = true
+		}
+	}
+	return names
 }
 
 // MCPCalibrator starts calibrations by calling the accelerator-mcp core server's

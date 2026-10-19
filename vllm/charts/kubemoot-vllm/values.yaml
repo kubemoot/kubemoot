@@ -53,6 +53,14 @@ sleepLevel: 1
 #                spec.model must equal it; the operator reports a mismatch.
 #   repo         the Hugging Face repository
 #   revision     the commit it is pinned to (--revision)
+#   parameters   optional: the model's total parameter count, such as 14B or 0.5B.
+#                vLLM cannot report it, and Kubemoot derives the model's size class
+#                (small, medium, large) from it; without it the model has no size.
+#   capabilities optional: what the model can do, any of tool-calling, reasoning,
+#                vision. vLLM cannot report these either. Set tool-calling only when
+#                args also turn tool calls on.
+#                Both are published on the Service (annotation kubemoot.ai/models),
+#                which Kubemoot's operator reads, so no Kubemoot Model is needed.
 #   args         this model's own `vllm serve` arguments, one list item per word:
 #                memory fraction, context length, tool and reasoning parsers. The chart
 #                refuses the arguments it sets itself: --model, --served-model-name,
@@ -63,6 +71,8 @@ sleepLevel: 1
 #   - servedName: qwen3:14b
 #     repo: Qwen/Qwen3-14B-AWQ
 #     revision: 31c69efc
+#     parameters: 14B
+#     capabilities: [tool-calling, reasoning]
 #     args:
 #       - --gpu-memory-utilization=0.85
 #       - --max-model-len=16384
@@ -72,6 +82,8 @@ sleepLevel: 1
 #   - servedName: qwen3:32b
 #     repo: Qwen/Qwen3-32B-AWQ
 #     revision: 0499c3ac
+#     parameters: 32B
+#     capabilities: [tool-calling, reasoning]
 #     args:
 #       - --gpu-memory-utilization=0.95
 #       - --max-model-len=16384

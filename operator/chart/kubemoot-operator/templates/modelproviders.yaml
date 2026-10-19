@@ -1,35 +1,79 @@
-{{- range .Values.modelProviders }}
+{{- range $p := .Values.modelProviders }}
+{{- $ns := $p.namespace | default $.Release.Namespace }}
 ---
 apiVersion: kubemoot.ai/v1alpha1
 kind: ModelProvider
 metadata:
-  name: {{ .name }}
-  namespace: {{ .namespace | default $.Release.Namespace }}
+  name: {{ $p.name }}
+  namespace: {{ $ns }}
   labels:
     {{- include "kubemoot-operator.labels" $ | nindent 4 }}
 spec:
-  type: {{ .type }}
-  {{- with .endpoint }}
+  type: {{ $p.type }}
+  {{- with $p.endpoint }}
   endpoint: {{ . }}
   {{- end }}
-  {{- with .serviceRef }}
+  {{- with $p.serviceRef }}
   serviceRef:
     {{- toYaml . | nindent 4 }}
   {{- end }}
-  {{- with .servers }}
+  {{- with $p.servers }}
   servers:
     {{- toYaml . | nindent 4 }}
   {{- end }}
-  {{- with .sleepLevel }}
+  {{- with $p.sleepLevel }}
   sleepLevel: {{ . }}
   {{- end }}
-  {{- if or .schedulingWeight .memoryMiB }}
+  {{- if or $p.schedulingWeight $p.memoryMiB }}
   scheduling:
-    {{- with .schedulingWeight }}
+    {{- with $p.schedulingWeight }}
     weight: {{ . }}
     {{- end }}
-    {{- with .memoryMiB }}
+    {{- with $p.memoryMiB }}
     memoryMiB: {{ . }}
     {{- end }}
   {{- end }}
+{{- /*
+The cluster's model catalog entries for this provider: one Model per models entry,
+in the provider's namespace. Each is a request to have the model on the provider
+(an Ollama provider pulls it) and may add what the engine cannot report.
+*/}}
+{{- $seen := dict }}
+{{- range $m := $p.models }}
+{{- $objName := include "kubemoot-operator.modelObjectName" (list $p.name $m.model) }}
+{{- if hasKey $seen $objName }}
+{{- fail (printf "modelProviders %q: the models %q and %q both render the Model name %q; list only one of them" $p.name (get $seen $objName) $m.model $objName) }}
+{{- end }}
+{{- $_ := set $seen $objName $m.model }}
+---
+apiVersion: kubemoot.ai/v1alpha1
+kind: Model
+metadata:
+  name: {{ $objName }}
+  namespace: {{ $ns }}
+  labels:
+    {{- include "kubemoot-operator.labels" $ | nindent 4 }}
+    {{- with $m.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  model: {{ $m.model | quote }}
+  providerRef: {{ $p.name }}
+  {{- with $m.parameters }}
+  parameters: {{ . | quote }}
+  {{- end }}
+  {{- with $m.capabilities }}
+  capabilities:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  {{- with $m.contextLength }}
+  contextLength: {{ . }}
+  {{- end }}
+  {{- with $m.vramMib }}
+  vramMib: {{ . }}
+  {{- end }}
+  {{- if $m.disabled }}
+  disabled: true
+  {{- end }}
+{{- end }}
 {{- end }}

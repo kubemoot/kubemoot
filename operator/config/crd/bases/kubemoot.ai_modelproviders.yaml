@@ -540,6 +540,76 @@ spec:
               message:
                 description: Message provides additional status information
                 type: string
+              models:
+                description: |-
+                  Models is the provider's part of the cluster's model catalog: every chat
+                  model the provider has (downloaded for Ollama, answering for vLLM) merged
+                  with the Model objects in the provider's namespace that name it. A Model
+                  with spec.disabled is left out; an embedding-only model is never admitted.
+                  Each entry carries the labels the catalog offers for selecting models.
+                items:
+                  description: |-
+                    CatalogModel is one model in a cluster's catalog, as a ModelProvider reports
+                    it: what the provider's engine said about the model merged with the Model
+                    object the cluster owner keeps for it, if any. Labels is what scheduling
+                    rules select on.
+                  properties:
+                    capabilities:
+                      description: Capabilities are the model's abilities (tool-calling,
+                        reasoning, vision).
+                      items:
+                        type: string
+                      type: array
+                    contextLength:
+                      description: ContextLength is the context window in tokens,
+                        0 when unknown.
+                      type: integer
+                    labels:
+                      additionalProperties:
+                        type: string
+                      description: |-
+                        Labels are the effective labels scheduling rules match: the size, context,
+                        family, engine and capability labels plus every label on the Model object.
+                      type: object
+                    modelRef:
+                      description: |-
+                        ModelRef names the Model object that contributed to the entry, as
+                        namespace/name.
+                      type: string
+                    name:
+                      description: |-
+                        Name is the model name on the provider: the Ollama tag, or the vLLM served
+                        name.
+                      type: string
+                    parameterCount:
+                      description: ParameterCount is the total parameter count, 0
+                        when unknown.
+                      format: int64
+                      type: integer
+                    present:
+                      description: |-
+                        Present is true when the provider has the model now: downloaded (Ollama)
+                        or answering (vLLM). An entry that is not present is known from a Model
+                        object only.
+                      type: boolean
+                    size:
+                      description: |-
+                        Size is the size class (small, medium, large), empty when the size is
+                        unknown.
+                      type: string
+                    source:
+                      description: |-
+                        Source says where the parameter count came from: model (a Model's
+                        spec.parameters), ollama-show, ollama-tags, service (the kubemoot-vllm
+                        chart's annotation), or none.
+                      type: string
+                  required:
+                  - name
+                  type: object
+                type: array
+                x-kubernetes-list-map-keys:
+                - name
+                x-kubernetes-list-type: map
               phase:
                 description: Phase is the current phase (Pending, Ready, Failed)
                 type: string

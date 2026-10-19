@@ -142,10 +142,25 @@ grep -q '^  type: vllm$' <<<"$provider" || fail "notes: ModelProvider type"
 grep -q '^  sleepLevel: 1$' <<<"$provider" || fail "notes: sleepLevel must match the release"
 grep -q '^    name: vg-kubemoot-vllm$' <<<"$provider" || fail "notes: serviceRef.name"
 grep -q '^    namespace: vllm$' <<<"$provider" || fail "notes: serviceRef.namespace"
-[ "$(grep -c '^kind: Model$' <<<"$notes")" = "2" ] || fail "notes: one Model skeleton per model"
-grep -q '^  model: "qwen3:32b"$' <<<"$notes" || fail "notes: served name in the Model"
-grep -q '^  providerRef: vg-kubemoot-vllm$' <<<"$notes" || fail "notes: providerRef"
-grep -q 'labels: {}' <<<"$notes" || fail "notes: labels placeholder"
+! grep -q '^kind: Model$' <<<"$notes" || fail "notes: a Model is not needed, the operator reads the Service"
+grep -qF 'qwen3:32b: 32B parameters, tool-calling, reasoning' <<<"$notes" || fail "notes: the declared models are listed"
+
+# ---- the models are declared once: the Service publishes them ----------------
+catalog="$(get "$out" Service '.metadata.annotations["kubemoot.ai/models"]')"
+[ "$(yq -p=json '. | length' <<<"$catalog")" = "2" ] || fail "the models annotation does not list both models"
+[ "$(yq -p=json '.[0].name + " " + .[0].parameters + " " + (.[0].capabilities | join(","))' <<<"$catalog")" = "qwen3:14b 14B tool-calling,reasoning" ] \
+  || fail "first model not published: $catalog"
+[ "$(yq -p=json '.[1].name + " " + .[1].parameters' <<<"$catalog")" = "qwen3:32b 32B" ] || fail "second model not published"
+# A model that declares nothing is listed by name only.
+bare="$(render -f "$more" | yq -N 'select(.kind == "Service") | .metadata.annotations["kubemoot.ai/models"]')"
+[ "$(yq -p=json '.[] | select(.name == "qwen3:8b") | keys | join(",")' <<<"$bare")" = "name" ] || fail "an undeclared model must publish its name only: $bare"
+# Declaring or changing them does not roll the pod: the launcher config does not carry them.
+declared_before="$(get "$out" Deployment '.spec.template.metadata.annotations["checksum/launcher"]')"
+sed_out="$(yq '.models[0].parameters = "15B"' "$example" | render -f /dev/stdin | yq -N 'select(.kind == "Deployment") | .spec.template.metadata.annotations["checksum/launcher"]')"
+[ "$declared_before" = "$sed_out" ] || fail "changing parameters rolled the pod"
+rejects "is not a count such as" -f "$example" --set 'models[0].parameters=big'
+rejects "is not a count such as" -f "$example" --set 'models[0].parameters=14'
+rejects "is not one of tool-calling, reasoning, vision" -f "$example" --set 'models[0].capabilities[0]=flying'
 
 # ---- the launcher ------------------------------------------------------------
 python3 -B -I "$here/launcher_test.py" >/dev/null 2>&1 || { python3 -B -I "$here/launcher_test.py" 2>&1 | tail -30; fail "launcher tests failed"; }

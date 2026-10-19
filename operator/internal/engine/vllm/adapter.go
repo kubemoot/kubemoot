@@ -284,6 +284,9 @@ type ServedModel struct {
 	// Root is where the server loaded the weights from: the Hugging Face
 	// repository, or a path. Empty when the server does not say.
 	Root string
+	// MaxModelLen is the context window in tokens the server runs the model with
+	// (max_model_len); 0 when the server does not say.
+	MaxModelLen int
 }
 
 // ServedModels asks the server at endpoint which models it serves.
@@ -294,8 +297,9 @@ func (a *Adapter) ServedModels(ctx context.Context, endpoint string) ([]ServedMo
 	}
 	var out struct {
 		Data []struct {
-			ID   string `json:"id"`
-			Root string `json:"root"`
+			ID          string `json:"id"`
+			Root        string `json:"root"`
+			MaxModelLen int    `json:"max_model_len"`
 		} `json:"data"`
 	}
 	if err := json.Unmarshal(body, &out); err != nil {
@@ -303,7 +307,7 @@ func (a *Adapter) ServedModels(ctx context.Context, endpoint string) ([]ServedMo
 	}
 	models := make([]ServedModel, 0, len(out.Data))
 	for _, m := range out.Data {
-		models = append(models, ServedModel{ID: m.ID, Root: m.Root})
+		models = append(models, ServedModel{ID: m.ID, Root: m.Root, MaxModelLen: m.MaxModelLen})
 	}
 	return models, nil
 }

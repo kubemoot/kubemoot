@@ -60,10 +60,26 @@ spec:
           spec:
             description: ModelSpec defines the desired state of Model.
             properties:
+              capabilities:
+                description: |-
+                  Capabilities are abilities the engine cannot report: tool-calling,
+                  reasoning, vision. When set they replace what the engine reports, and each
+                  becomes a capability/<name>: "true" label on the catalog entry.
+                items:
+                  type: string
+                maxItems: 16
+                type: array
+                x-kubernetes-list-type: set
               contextLength:
                 description: ContextLength is the maximum context window size (optional
                   override)
                 type: integer
+              disabled:
+                description: |-
+                  Disabled keeps the model out of the cluster's model catalog: the operator
+                  downloads nothing for it and calibration skips it. Use it to exclude a model
+                  the provider has but the cluster owner does not want used.
+                type: boolean
               model:
                 description: |-
                   Model is the served name: the name every request uses to ask for this
@@ -73,6 +89,15 @@ spec:
                   the provider's servers report and reports a mismatch on the Model's
                   ServedNameFound condition. Ollama serves a model only under its tag, so
                   for an ollama source it must equal source.ollama.tag.
+                type: string
+              parameters:
+                description: |-
+                  Parameters is the model's total parameter count, such as "14B", "0.5B" or
+                  "751M". Declare it where the engine cannot report it (vLLM does not) or to
+                  correct a wrong report. The size class (small under 12B, medium from 12B
+                  to under 30B, large from 30B) is derived from it. A kubemoot.ai/size label
+                  on the Model overrides the derived class.
+                pattern: ^[0-9]+(\.[0-9]+)?[KkMmBbTt]$
                 type: string
               providerRef:
                 description: ProviderRef references the parent ModelProvider

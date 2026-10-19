@@ -21,6 +21,18 @@ candidate `Model` CRs by their labels. Because the agent never names
 changing labels and policy - not by editing and redeploying every agent. The same crew
 runs unchanged on different hardware.
 
+## The model catalog
+
+The cluster owns its models, not the crews. Every model server reports the models it has, and
+the cluster owner can add Model objects next to the providers to download a model, to say what
+a server cannot (a vLLM model's parameter count and abilities, which the `kubemoot-vllm` chart
+declares for its own models), to add labels, or to keep a model out. Kubemoot merges the two
+into one **catalog**, published on each ModelProvider, where every model carries labels: a
+**size** (small under 12 billion parameters, medium up to 30 billion, large above), its
+context window, and its abilities such as tool calling and reasoning. Speed is not a label:
+calibration measures it per provider, because the same model is fast on one accelerator and
+slow on another.
+
 ## Just-in-time scheduling
 
 Scheduling happens in two steps. When an agent reconciles, the operator ranks the

@@ -256,6 +256,69 @@ spec:
 
 `kubectl get mdlp` (short name: `mdlp`).
 
+### The model catalog
+
+The cluster's models form one catalog, kept by the cluster owner and discovered from the
+model servers. Each ModelProvider publishes its part of the catalog in `status.models`: every
+chat model the provider has (downloaded on Ollama, answering on vLLM), merged with the Model
+objects in the provider's namespace that name it. The cluster owner keeps those Models in the
+operator's namespace, next to the providers; a crew's namespace holds none.
+
+- A chat model the server reports joins the catalog without a Model object. A model that only
+  embeds is never admitted.
+- A Model with `spec.disabled: true` keeps its model out.
+- Where a Model and the engine both speak, the Model wins: its `parameters`, `contextLength`,
+  `capabilities` and labels replace what the engine reported.
+- A Model whose model the provider does not have is listed with `present: false`. For an
+  Ollama provider the operator downloads it.
+
+Each entry of `status.models`:
+
+| Field | Description |
+|-------|-------------|
+| `name` | The model name on the provider: the Ollama tag, or the vLLM served name |
+| `present` | The provider has the model now |
+| `source` | Where the parameter count came from: `model`, `ollama-show`, `ollama-tags`, `service`, or `none` |
+| `parameterCount` | Total parameters, 0 when unknown |
+| `size` | The size class, empty when unknown |
+| `contextLength` | Context window in tokens |
+| `capabilities` | `tool-calling`, `reasoning`, `vision` |
+| `modelRef` | The Model object that contributed, as `namespace/name` |
+| `labels` | The effective labels: the derived ones above plus the Model's own |
+
+The labels the catalog produces:
+
+| Label | Values | Comes from |
+|-------|--------|------------|
+| `kubemoot.ai/size` | `small`, `medium`, `large` | the parameter count; a `kubemoot.ai/size` label on a Model overrides it |
+| `kubemoot.ai/context-tokens` | integer string | the engine, or the Model's `contextLength` |
+| `kubemoot.ai/family` | for example `qwen3` | Ollama's model details |
+| `kubemoot.ai/engine` | `ollama`, `vllm` | the provider type |
+| `capability/tool-calling`, `capability/reasoning`, `capability/vision` | `"true"` | the engine, or the Model's `capabilities` |
+| anything else | any | the Model's `metadata.labels` |
+
+The size class is the same on every cluster: **small** is under 12 billion parameters,
+**medium** is 12 billion up to but not including 30 billion, **large** is 30 billion and over.
+It counts total parameters, so a mixture-of-experts model with few active parameters is large
+and shows its speed in calibration instead. An entry whose parameter count is unknown has no
+size: the provider's `CatalogSizeKnown` condition is `False` and names the models. Declare
+`spec.parameters` on a Model to fix it. An Ollama server too old to list `capabilities` on
+`/api/show` cannot say that an embedding-only model is one; keep such a model out with a
+Model that sets `disabled: true`.
+
+Where each fact comes from:
+
+| Fact | Ollama | vLLM |
+|------|--------|------|
+| The model exists | `/api/tags` | the servers found through `serviceRef` or `servers` |
+| Parameter count | `/api/show` (`model_info` `general.parameter_count`, else `details.parameter_size`), asked once per model digest | declared: the `kubemoot-vllm` chart's `parameters`, or a Model's `spec.parameters` |
+| Context window | `/api/show` (`model_info`, `<architecture>.context_length`) | `max_model_len` on `/v1/models` |
+| Abilities | `/api/show` `capabilities` (`tools`, `thinking`, `vision`) | declared: the chart's `capabilities`, or a Model's `spec.capabilities` |
+
+Speed and fit are not catalog labels: calibration measures them per provider (see
+[Calibration](#calibration)), because the same model is fast on one accelerator and slow on
+another. Calibration measures every present model in the catalog.
+
 ### From the operator chart
 
 The operator chart can declare ModelProviders from its `modelProviders` values. Each
@@ -295,6 +358,50 @@ modelProviders:
 The chart declares no Model for a `vllm` provider, and the scheduling crew's own model is
 left off it for the same reason: it is an Ollama tag.
 
+A provider entry may list `models`, the cluster's catalog entries for it. Each renders one
+Model in the provider's namespace, named for the provider and the model (`ollama-gpu-qwen3-14b`).
+An Ollama provider downloads each model that is missing. Only `model` is needed for Ollama,
+because the operator reads the size, context window and abilities from the server:
+
+```yaml
+modelProviders:
+  - name: ollama-gpu
+    type: ollama
+    endpoint: http://ollama.ollama:11434
+    models:
+      - model: qwen3:32b
+      - model: qwen3:14b
+      - model: gemma3:4b
+        disabled: true          # keep it out of the catalog
+```
+
+An entry may also set `parameters`, `capabilities`, `contextLength`, `vramMib` and `labels`,
+for what the server cannot report or the owner wants to add (a data-residency label, for
+example). A vLLM model served by the `kubemoot-vllm` chart needs no entry: the chart declares
+its parameters and capabilities (see below).
+
+#### vLLM models declared in the kubemoot-vllm chart
+
+A vLLM model is declared once, in the `kubemoot-vllm` chart that starts its server. Each
+entry of the chart's `models` takes optional `parameters` and `capabilities`:
+
+```yaml
+models:
+  - servedName: qwen3:14b
+    repo: Qwen/Qwen3-14B-AWQ
+    revision: 31c69efc
+    parameters: 14B
+    capabilities: [tool-calling, reasoning]
+    args: [--enable-auto-tool-choice, --tool-call-parser=hermes, --reasoning-parser=qwen3]
+```
+
+The chart publishes them on its Service as the annotation `kubemoot.ai/models`, a JSON list
+of `{name, parameters, capabilities}`. A ModelProvider whose `serviceRef` names that Service
+reads the annotation, so the model joins the catalog with its size and abilities and no Model
+object is needed. Changing them does not restart the servers. A provider that lists its
+`servers` has no Service to read; declare those models with a Model's `spec.parameters` and
+`spec.capabilities`.
+
 ## Model
 
 Declares a specific inference model on a provider, **labeled** so the scheduler can select it. The operator pulls the model if needed and tracks its lifecycle.
@@ -309,6 +416,9 @@ Declares a specific inference model on a provider, **labeled** so the scheduler 
 | `vramMib` | int32 | For GPU providers | Capacity request - used by the scheduler's filter step |
 | `contextLength` | int | No | Override maximum context window |
 | `quantization` | string | No | Quantization method (e.g., `q4_K_M`, `q8_0`) |
+| `parameters` | string | No | The total parameter count, such as `14B`, `0.5B` or `751M`. Declare it where the engine cannot report it (vLLM does not) or to correct a wrong report. The size class in the [model catalog](#the-model-catalog) is derived from it. |
+| `capabilities` | list | No | Abilities the engine cannot report: `tool-calling`, `reasoning`, `vision`. When set they replace what the engine reports. |
+| `disabled` | bool | No | Keep the model out of the catalog. Its state is `Disabled`, the operator downloads nothing for it, and calibration skips it. |
 
 ### Source
 
@@ -337,7 +447,7 @@ The source must fit the engine of the provider: `ollama` for an ollama provider,
 
 | Field | Description |
 |-------|-------------|
-| `state` | `Pending`, `Pulling`, `Available`, `Loaded`, `Error` |
+| `state` | `Pending`, `Pulling`, `Available`, `Loaded`, `Error`, `Disabled` |
 | `pull` | While `Pulling`: `completedBytes`, `totalBytes` and `percent` of the download. `totalBytes` grows as the registry announces layers. Cleared when the model is on the provider. |
 | `ready` | Model ready for inference |
 | `conditions` | `Ready`; `SourceCompatible`: whether `source` fits the provider's engine; on a `vllm` provider also `ServedNameFound`: whether the provider's servers report `model` as a served name, and `ServedRepoMatches`: whether the server reports the repository a `huggingFace` source names (present only when the server says) |

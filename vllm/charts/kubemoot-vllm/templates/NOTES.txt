@@ -7,7 +7,9 @@ The first start downloads the weights and compiles each model, which takes minut
   kubectl -n {{ .Release.Namespace }} logs deploy/{{ $name }} -f
 
 Then tell Kubemoot about it. Create this ModelProvider (change the namespace to the one
-Kubemoot's operator runs in). The operator finds the servers from the Service's ports:
+Kubemoot's operator runs in). The operator finds the servers from the Service's ports and
+reads each model's parameters and capabilities from this release's values, which the chart
+publishes on the Service (the kubemoot.ai/models annotation):
 
 ---
 apiVersion: kubemoot.ai/v1alpha1
@@ -22,22 +24,13 @@ spec:
     name: {{ $name }}
     namespace: {{ .Release.Namespace }}
 
-And one Model per model, with the labels your crews select models by. spec.model is the
-served name from this release's values; the operator reports a mismatch on the Model if a
-server does not report it.
+Every model this release serves joins the cluster's model catalog on its own; a Model object
+is not needed. Models without a parameters value in this release's values have no size
+class:
 {{ range $s := $servers }}
----
-apiVersion: kubemoot.ai/v1alpha1
-kind: Model
-metadata:
-  name: {{ include "kubemoot-vllm.objectName" $s.name }}
-  namespace: kubemoot
-  labels: {}   # for example family, params, capability/tool-calling, contextWindow, latencyClass
-spec:
-  model: {{ $s.name | quote }}
-  providerRef: {{ $name }}
-  source:
-    huggingFace:
-      repo: {{ $s.repo | quote }}
-      revision: {{ $s.revision | quote }}
-{{ end }}
+  {{ $s.name }}: {{ if $s.parameters }}{{ $s.parameters }} parameters{{ else }}no parameters declared{{ end }}{{ if $s.capabilities }}, {{ join ", " $s.capabilities }}{{ end }}
+{{- end }}
+
+To add labels of your own to a model (data residency, license) or to keep one out of the
+catalog, create a Model in Kubemoot's namespace with spec.model set to the served name and
+spec.providerRef set to {{ $name }}.
