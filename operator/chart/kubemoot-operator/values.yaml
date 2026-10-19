@@ -401,11 +401,22 @@ webhook:
 # endpoint} for vLLM deployed another way), and optionally sleepLevel. All three are
 # copied into the ModelProvider spec as they are. The scheduling crew declares no
 # Model on a vllm provider.
+# models (optional): the cluster's model catalog entries for the provider, each rendered as
+# a Model in the provider's namespace: {model, parameters, capabilities, contextLength,
+# vramMib, labels, disabled}. An Ollama provider downloads each model that is missing. Only
+# `model` is needed for Ollama: Kubemoot reads the size, context and abilities from the
+# server. Every chat model a server reports joins the catalog without an entry; add one to
+# have the model downloaded, to declare what the server cannot report, to add labels, or
+# (disabled: true) to keep a model out. A vLLM model needs no entry when it is served by the
+# kubemoot-vllm chart, which declares each model's parameters and capabilities itself.
 # Example:
 #   - name: ollama-gpu
 #     type: ollama
 #     endpoint: http://ollama.ollama:11434
 #     schedulingWeight: 100
+#     models:
+#       - model: qwen3:32b
+#       - model: qwen3:14b
 #   - name: ollama-cpu
 #     type: ollama
 #     endpoint: http://ollama.ollama-cpu:11434

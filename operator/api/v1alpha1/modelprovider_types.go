@@ -253,6 +253,16 @@ type ModelProviderStatus struct {
 	// +optional
 	Message string `json:"message,omitempty"`
 
+	// Models is the provider's part of the cluster's model catalog: every chat
+	// model the provider has (downloaded for Ollama, answering for vLLM) merged
+	// with the Model objects in the provider's namespace that name it. A Model
+	// with spec.disabled is left out; an embedding-only model is never admitted.
+	// Each entry carries the labels the catalog offers for selecting models.
+	// +optional
+	// +listType=map
+	// +listMapKey=name
+	Models []CatalogModel `json:"models,omitempty"`
+
 	// Calibration is what calibration measured on this provider: per model, how
 	// long it takes to load, how fast it processes prompts and generates, and
 	// whether it fits the accelerator. It is recorded through the accelerator-mcp

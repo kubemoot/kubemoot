@@ -335,7 +335,7 @@ func wantedPullKeys(ctx context.Context, c client.Client, self client.Object) (m
 	}
 	for i := range models.Items {
 		m := &models.Items[i]
-		if m.DeletionTimestamp.IsZero() && !isSameObject(self, m) && m.OllamaTag() != "" {
+		if modelWantsPull(m, self) {
 			wanted[pullKey(m.Spec.ProviderRef, m.OllamaTag())] = true
 		}
 	}
@@ -350,6 +350,12 @@ func wantedPullKeys(ctx context.Context, c client.Client, self client.Object) (m
 		}
 	}
 	return wanted, nil
+}
+
+// modelWantsPull reports whether m asks for its Ollama tag to be on its provider: it
+// is not being deleted, not disabled, not self, and has a tag to pull.
+func modelWantsPull(m *aiv1alpha1.Model, self client.Object) bool {
+	return m.DeletionTimestamp.IsZero() && !m.Spec.Disabled && !isSameObject(self, m) && m.OllamaTag() != ""
 }
 
 // isSameObject reports whether a and b are the same kind with the same namespace and name.

@@ -36,6 +36,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
@@ -152,6 +153,10 @@ type ModelProviderReconciler struct {
 	// reads it, by provider name.
 	probes sync.Map
 
+	// shows keeps Ollama's /api/show answer per model digest (endpoint|name|digest),
+	// so a model is shown once, not on every probe.
+	shows sync.Map
+
 	// switches holds how long each model last took to become ready, by provider,
 	// as the model lifecycle server observed it; the state publish carries it.
 	switches switchLog
@@ -267,6 +272,8 @@ func (r *ModelProviderReconciler) reconcileOllama(ctx context.Context, provider 
 	if r.ConfigCache != nil && r.ConfigCache.IsSchedulerEnabled() {
 		r.discoverCapacity(ctx, provider, httpClient)
 	}
+
+	r.discoverOllamaCatalog(ctx, provider, httpClient)
 
 	r.requestCalibration(ctx, provider)
 	r.reviewDrift(ctx, provider)
@@ -888,6 +895,10 @@ func (r *ModelProviderReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		// A provider that names a Service by spec.serviceRef finds its servers
 		// from the Service's ports, so a change to the Service reconciles it.
 		Watches(&corev1.Service{}, handler.EnqueueRequestsFromMapFunc(r.servicesToProviders)).
+		// A provider's catalog merges the Model objects in its namespace that name it,
+		// so adding, changing or removing one reconciles the provider at once.
+		Watches(&aiv1alpha1.Model{}, handler.EnqueueRequestsFromMapFunc(modelToProvider),
+			builder.WithPredicates(modelBindingChanged())).
 		// Reconcile ModelProviders concurrently. Each reconcile blocks on a chain
 		// of HTTP probes (api/version, capacity discovery via api/ps, api/tags, and
 		// Prometheus), each up to the client timeout. With a single worker, a

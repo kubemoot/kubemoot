@@ -6,6 +6,10 @@ metadata:
   labels:
     {{- include "kubemoot-vllm.labels" . | nindent 4 }}
     kubemoot.ai/engine: vllm
+  annotations:
+    # The models and what the values declare about them. Kubemoot's operator reads this
+    # when a ModelProvider names this Service, so a model is declared once, here.
+    kubemoot.ai/models: {{ include "kubemoot-vllm.catalog" . | quote }}
 spec:
   selector:
     {{- include "kubemoot-vllm.selectorLabels" . | nindent 4 }}

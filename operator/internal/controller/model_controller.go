@@ -107,10 +107,8 @@ func (r *ModelReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 
 	log.Info("Reconciling Model", "name", model.Name, "model", model.Spec.Model, "providerRef", model.Spec.ProviderRef)
 
-	// A deleting Model is released before its provider is looked up, so a
-	// provider that is gone or not ready never leaves the finalizer stuck.
-	if !model.DeletionTimestamp.IsZero() {
-		return r.reconcileDeletion(ctx, model)
+	if res, done, err := r.reconcileOutOfService(ctx, model); done {
+		return res, err
 	}
 
 	// Get the referenced ModelProvider (search cluster-wide — providers are
@@ -148,6 +146,24 @@ func (r *ModelReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 	default:
 		return r.updateModelStatus(ctx, model, "Error", false, aiv1alpha1.UnsupportedProviderTypeMessage, nil)
 	}
+}
+
+// reconcileOutOfService handles a Model that needs no provider work. A deleting Model
+// is released before its provider is looked up, so a provider that is gone or not
+// ready never leaves the finalizer stuck. A disabled Model is out of the catalog:
+// nothing is pulled and no agent binds to it; it takes no finalizer, so deleting one
+// that never had it removes no file from the provider. done reports that the Model
+// was handled.
+func (r *ModelReconciler) reconcileOutOfService(ctx context.Context, model *aiv1alpha1.Model) (res ctrl.Result, done bool, err error) {
+	if !model.DeletionTimestamp.IsZero() {
+		res, err = r.reconcileDeletion(ctx, model)
+		return res, true, err
+	}
+	if model.Spec.Disabled {
+		res, err = r.updateModelStatus(ctx, model, stateDisabled, false, "Disabled: kept out of the model catalog", nil)
+		return res, true, err
+	}
+	return ctrl.Result{}, false, nil
 }
 
 // reconcileOllamaModel handles Ollama model reconciliation

@@ -609,7 +609,41 @@ status:
     loadedModels:
       - name: qwen3:32b
         sizeMiB: 18432
+  models:                          # the provider's part of the model catalog
+    - name: qwen3:32b
+      present: true
+      size: large
+      labels: {kubemoot.ai/size: large, capability/tool-calling: "true"}
 ```
+
+#### The model catalog
+
+`status.models` is the provider's part of the cluster's model catalog. The ModelProvider
+reconciler builds it because it already probes the engine and already knows the Models that
+name it: it merges what the engine reports about each model it has with the Model objects in
+the provider's namespace, and publishes the result on the provider. One merge, one published
+truth that tools and the dashboard read.
+
+- **Membership.** Every chat model a server reports joins. A Model with `spec.disabled: true`
+  removes its model; a model that only embeds is never admitted.
+- **Precedence.** A Model object wins over discovery for every field it sets, because the owner
+  is correcting or adding to a probe.
+- **Facts from the engine.** Ollama answers `/api/show` once per model digest (parameter count,
+  context window, abilities); vLLM reports the context window on `/v1/models`, and the
+  parameters and abilities come from the `kubemoot-vllm` chart's annotation on its Service, so
+  a vLLM model is declared once, where its server is started.
+- **Size is a class, not a number.** Small is under 12 billion total parameters, medium is 12
+  billion up to but not including 30 billion, large is 30 billion and over. The boundaries are
+  constants so a class means the same on every cluster. Total parameters, not active ones: size
+  stands for memory and quality tier, and speed is measured separately by calibration. A model
+  whose size is unknown stays in the catalog, gets no size label, and is named on the
+  provider's `CatalogSizeKnown` condition.
+- **Downloads.** A Model in the catalog is also a request to have the model on its provider; the
+  Model controller pulls it as it does for any Model, with no crew involved.
+- **Calibration.** The calibration request covers every present catalog model, so a model the
+  cluster adopted by discovery is measured too.
+
+The label vocabulary the catalog produces is in the [model reference](../../reference/models/#the-model-catalog).
 
 ### Agent - capability-only
 

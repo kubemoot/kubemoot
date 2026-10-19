@@ -76,6 +76,29 @@ type ModelSpec struct {
 	// +optional
 	// +kubebuilder:validation:Minimum=0
 	VRAMMib int32 `json:"vramMib,omitempty"`
+
+	// Parameters is the model's total parameter count, such as "14B", "0.5B" or
+	// "751M". Declare it where the engine cannot report it (vLLM does not) or to
+	// correct a wrong report. The size class (small under 12B, medium from 12B
+	// to under 30B, large from 30B) is derived from it. A kubemoot.ai/size label
+	// on the Model overrides the derived class.
+	// +optional
+	// +kubebuilder:validation:Pattern=`^[0-9]+(\.[0-9]+)?[KkMmBbTt]$`
+	Parameters string `json:"parameters,omitempty"`
+
+	// Capabilities are abilities the engine cannot report: tool-calling,
+	// reasoning, vision. When set they replace what the engine reports, and each
+	// becomes a capability/<name>: "true" label on the catalog entry.
+	// +optional
+	// +kubebuilder:validation:MaxItems=16
+	// +listType=set
+	Capabilities []string `json:"capabilities,omitempty"`
+
+	// Disabled keeps the model out of the cluster's model catalog: the operator
+	// downloads nothing for it and calibration skips it. Use it to exclude a model
+	// the provider has but the cluster owner does not want used.
+	// +optional
+	Disabled bool `json:"disabled,omitempty"`
 }
 
 // ModelSource is where a Model's weights come from. Exactly one field is set.

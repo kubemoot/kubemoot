@@ -89,4 +89,63 @@ out="$(providers -f "$values" --namespace km)"
 models="$(helm template kubemoot-operator "$chart" -f "$values" --namespace km | yq -N 'select(.kind == "Model") | .spec.providerRef')"
 [ "$models" = "ollama-gpu" ] || fail "the scheduling crew's Model should name only the ollama provider, got: $models"
 
+# Catalog models: a models entry renders one Model in the provider's namespace, named
+# for the provider and the model, with only what the entry sets.
+cat >"$values" <<'EOF'
+modelProviders:
+  - name: ollama-gpu
+    type: ollama
+    endpoint: http://ollama.gpu:11434
+    models:
+      - model: qwen3:32b
+      - model: qwen3:14b
+        parameters: 14B
+        capabilities: [tool-calling, reasoning]
+        contextLength: 40960
+        vramMib: 11000
+        labels: {kubemoot.ai/data-residency: on-premises}
+      - model: Gemma3:4B
+        disabled: true
+  - name: vllm-gpu
+    type: vllm
+    namespace: other
+    serviceRef: {name: vllm-gpu, namespace: vllm}
+    models:
+      - model: qwen3:14b
+        labels: {kubemoot.ai/license: apache-2.0}
+  - name: no-models
+    type: ollama
+    endpoint: http://ollama.none:11434
+EOF
+catalog="$(helm template kubemoot-operator "$chart" -f "$values" --namespace km --set schedulingCrew.enabled=false | yq 'select(.kind == "Model")')"
+model() { yq -N "select(.metadata.name == \"$1\") | $2" <<<"$catalog"; }
+[ "$(yq -N '.metadata.name' <<<"$catalog" | sort | tr '\n' ' ')" = "ollama-gpu-gemma3-4b ollama-gpu-qwen3-14b ollama-gpu-qwen3-32b vllm-gpu-qwen3-14b " ] \
+  || fail "unexpected catalog Models: $(yq -N '.metadata.name' <<<"$catalog" | tr '\n' ' ')"
+[ "$(model ollama-gpu-qwen3-32b .spec.providerRef)" = "ollama-gpu" ] || fail "providerRef"
+[ "$(model ollama-gpu-qwen3-32b .metadata.namespace)" = "km" ] || fail "a catalog Model lives in the provider's namespace"
+[ "$(model ollama-gpu-qwen3-32b .spec.model)" = "qwen3:32b" ] || fail "model name"
+[ "$(model ollama-gpu-qwen3-32b .spec.parameters)" = "null" ] || fail "parameters rendered without being set"
+[ "$(model ollama-gpu-qwen3-32b .spec.disabled)" = "null" ] || fail "disabled rendered without being set"
+[ "$(model ollama-gpu-qwen3-14b .spec.parameters)" = "14B" ] || fail "parameters"
+[ "$(model ollama-gpu-qwen3-14b '.spec.capabilities | join(",")')" = "tool-calling,reasoning" ] || fail "capabilities"
+[ "$(model ollama-gpu-qwen3-14b '.spec.contextLength | tag')" = "!!int" ] || fail "contextLength is not an integer"
+[ "$(model ollama-gpu-qwen3-14b '.spec.vramMib')" = "11000" ] || fail "vramMib"
+[ "$(model ollama-gpu-qwen3-14b '.metadata.labels["kubemoot.ai/data-residency"]')" = "on-premises" ] || fail "owner label lost"
+[ "$(model ollama-gpu-gemma3-4b .spec.disabled)" = "true" ] || fail "disabled"
+[ "$(model vllm-gpu-qwen3-14b .metadata.namespace)" = "other" ] || fail "a Model follows its provider's namespace"
+[ "$(model vllm-gpu-qwen3-14b '.metadata.labels["kubemoot.ai/license"]')" = "apache-2.0" ] || fail "label on a vllm catalog Model"
+
+# Two models whose names differ only by punctuation would render one Model name: refused.
+cat >"$values" <<'EOF'
+modelProviders:
+  - name: ollama-gpu
+    type: ollama
+    endpoint: http://ollama.gpu:11434
+    models:
+      - model: "qwen3:14b"
+      - model: "qwen3-14b"
+EOF
+if out="$(helm template kubemoot-operator "$chart" -f "$values" --namespace km 2>&1)"; then fail "colliding Model names were accepted"; fi
+grep -qF 'both render the Model name "ollama-gpu-qwen3-14b"' <<<"$out" || fail "collision message: $out"
+
 echo "PASS: modelProviders render tests"

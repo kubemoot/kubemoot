@@ -64,6 +64,8 @@ func (r *ModelProviderReconciler) reconcileVLLM(ctx context.Context, provider *a
 		r.countAssignedAgents(ctx, provider)
 	}
 
+	r.publishCatalog(ctx, provider, r.vllmFacts(ctx, httpClient, provider, snap))
+
 	// A vLLM provider is calibrated like an Ollama one: accelerator-mcp measures each bound
 	// model through its server, waking a sleeping one through the operator's lifecycle path.
 	r.requestCalibration(ctx, provider)

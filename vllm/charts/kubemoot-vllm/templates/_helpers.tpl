@@ -62,6 +62,16 @@ the chart sets itself.
 {{- end -}}
 {{- end -}}
 {{- end -}}
+{{- if $m.parameters -}}
+{{- if not (regexMatch "^[0-9]+(\\.[0-9]+)?[KkMmBbTt]$" (toString $m.parameters)) -}}
+{{- fail (printf "models[%d] (%s): parameters %q is not a count such as 14B, 0.5B or 751M" $i $m.servedName (toString $m.parameters)) -}}
+{{- end -}}
+{{- end -}}
+{{- range $cap := ($m.capabilities | default list) -}}
+{{- if not (has (toString $cap) (list "tool-calling" "reasoning" "vision")) -}}
+{{- fail (printf "models[%d] (%s): capability %q is not one of tool-calling, reasoning, vision" $i $m.servedName (toString $cap)) -}}
+{{- end -}}
+{{- end -}}
 {{- $_ := set $byName $m.servedName $m -}}
 {{- end -}}
 {{- $out := list -}}
@@ -72,7 +82,25 @@ the chart sets itself.
 {{- range $arg := ($m.args | default list) -}}
 {{- $args = append $args (toString $arg) -}}
 {{- end -}}
-{{- $out = append $out (dict "name" $name "repo" $m.repo "revision" $m.revision "port" $port "args" $args) -}}
+{{- $out = append $out (dict "name" $name "repo" $m.repo "revision" $m.revision "port" $port "args" $args "parameters" ($m.parameters | default "" | toString) "capabilities" ($m.capabilities | default list)) -}}
+{{- end -}}
+{{- toJson $out -}}
+{{- end -}}
+
+{{/*
+What Kubemoot's operator reads from the Service to know each model without a Model
+object: a JSON list of {name, parameters, capabilities}, in served-name order. A model
+declares nothing it did not set. It lives on the Service, not in the launcher's
+ConfigMap, so changing it never rolls the pod.
+*/}}
+{{- define "kubemoot-vllm.catalog" -}}
+{{- $servers := include "kubemoot-vllm.servers" . | fromJsonArray -}}
+{{- $out := list -}}
+{{- range $s := $servers -}}
+{{- $e := dict "name" $s.name -}}
+{{- if $s.parameters -}}{{- $_ := set $e "parameters" $s.parameters -}}{{- end -}}
+{{- if $s.capabilities -}}{{- $_ := set $e "capabilities" $s.capabilities -}}{{- end -}}
+{{- $out = append $out $e -}}
 {{- end -}}
 {{- toJson $out -}}
 {{- end -}}
