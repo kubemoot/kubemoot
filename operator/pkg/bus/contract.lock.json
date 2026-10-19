@@ -1017,6 +1017,12 @@
       "type": "integer",
       "required": true
     },
+    "provider-state.json#/modelEndpoints": {
+      "type": "object"
+    },
+    "provider-state.json#/modelEndpoints{}": {
+      "type": "string"
+    },
     "provider-state.json#/modelSpeeds": {
       "type": "object"
     },
