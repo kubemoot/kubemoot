@@ -77,11 +77,13 @@ func (r *ModelProviderReconciler) discoverServers(ctx context.Context, provider 
 		return false, ctrl.Result{}, nil
 	}
 	servers, skipped, err := discoverVLLMServers(ctx, r.Client, httpClient, provider)
-	provider.Status.VLLMServers = servers
 	if err != nil {
+		// What was found before stays in the status: a Service that cannot be read right
+		// now is not a Service whose servers are gone.
 		result, err := r.updateStatus(ctx, provider, false, phaseFailed, err.Error())
 		return true, result, err
 	}
+	provider.Status.VLLMServers = servers
 	if len(servers) == 0 {
 		msg := fmt.Sprintf("No port of Service %s reports a model yet (the first start downloads and compiles each model): %v", serviceKey(provider), skipped)
 		result, err := r.updateStatus(ctx, provider, false, statePending, msg)

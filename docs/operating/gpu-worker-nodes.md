@@ -236,10 +236,14 @@ What the values mean:
 
 The chart starts the servers one at a time in a single container, because each measures
 free accelerator memory when it starts: it starts a server, waits for its `/health`, puts
-it to sleep, starts the next, and wakes the first at the end. A server whose process dies
-is restarted the same way, and each server's log lines carry its model name. The pod is
-ready once every server is up, which takes minutes on the first start while the weights
-download and the models compile. Set the memory limit above the weights of every model plus
+it to sleep, starts the next, and wakes the first at the end. A server whose process dies,
+or that is running but stops answering `/health` for three checks in a row (it is hung), is
+killed and restarted the same way, with every other server asleep first; a server whose
+`/health` is down is skipped when the others are put to sleep. Each server's log lines carry
+its model name. The pod is ready once every server is up, which takes minutes on the first
+start while the weights download and the models compile, and it is not ready while a server
+is being recovered. A liveness probe reads a heartbeat the launcher touches whenever it makes
+progress, so a launcher that is itself stuck is restarted with the pod. Set the memory limit above the weights of every model plus
 `shmSize`; the servers are ordered by `servedName`, on ports 8000 and up, and adding or
 removing a model recreates the pod. The pod meets the `restricted` Pod Security level except
 `runAsNonRoot`, because the vLLM image runs as root, so its namespace needs `baseline`.

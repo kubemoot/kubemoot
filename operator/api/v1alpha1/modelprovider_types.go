@@ -45,6 +45,7 @@ const UnsupportedProviderTypeMessage = "only types ollama and vllm are supported
 // ModelProviderSpec defines the desired state of ModelProvider. Like a Service, it
 // has a type and flat fields that each apply to some types: endpoint to ollama;
 // serviceRef, servers, and sleepLevel to vllm.
+// +kubebuilder:validation:XValidation:rule="self.type != 'ollama' || has(self.endpoint)",message="an ollama provider needs spec.endpoint"
 // +kubebuilder:validation:XValidation:rule="self.type == 'ollama' || !has(self.endpoint)",message="spec.endpoint is only for an ollama provider; a vllm provider names its servers with spec.serviceRef or spec.servers"
 // +kubebuilder:validation:XValidation:rule="self.type == 'vllm' || !has(self.serviceRef)",message="spec.serviceRef is only for a vllm provider"
 // +kubebuilder:validation:XValidation:rule="self.type == 'vllm' || !has(self.servers)",message="spec.servers is only for a vllm provider"
@@ -236,9 +237,10 @@ type ModelProviderStatus struct {
 	// +optional
 	Capacity *DiscoveredCapacity `json:"capacity,omitempty"`
 
-	// VLLMServers is, for a vllm provider with spec.vllm.serviceRef, the servers
-	// the operator discovered: the served name each port reports on /v1/models
-	// and that port's URL. Empty in servers mode, where spec.vllm.servers says it.
+	// VLLMServers is, for a vllm provider with spec.serviceRef, the servers the
+	// operator discovered: each served name a port reports on /v1/models and that
+	// port's URL. A port that stops answering keeps the servers last found there.
+	// Empty with spec.servers, which says it itself.
 	// +optional
 	VLLMServers []VLLMServer `json:"vllmServers,omitempty"`
 

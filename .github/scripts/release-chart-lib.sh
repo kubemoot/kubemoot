@@ -38,6 +38,15 @@ current_manifest() {
   git tag -l --format='%(contents:body)' "$latest" | sed '/^$/d'
 }
 
+# package_chart_at COMMIT DIR VERSION OUT_DIR: DIR as it is at COMMIT, in a scratch worktree
+# (never committed; git holds 0.0.0), stamped with VERSION and packaged into OUT_DIR. The
+# worktree's path is left in RL_CHECKOUT, so call this directly, not in $(...).
+package_chart_at() {
+  rl_checkout_at "$1"
+  rl_stamp_chart "${RL_CHECKOUT}/$2" "$3"
+  helm package "${RL_CHECKOUT}/$2" --destination "$4" >&2
+}
+
 # push_chart TGZ: the chart to Harbor, three attempts.
 push_chart() {
   local attempt

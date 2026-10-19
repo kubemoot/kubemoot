@@ -111,11 +111,11 @@ func (a *Adapter) Ready(ctx context.Context, spec aiv1alpha1.ModelProviderSpec, 
 		return err
 	}
 	level := spec.SleepLevelOrDefault()
-	for _, other := range serversOf(spec) {
-		if other.Model == model {
-			continue
+	for _, other := range byEndpoint(serversOf(spec)) {
+		if other.endpoint == target.Endpoint {
+			continue // the target's own server, whatever alias it is asked for by
 		}
-		if err := a.sleepIfAwake(ctx, other, level); err != nil {
+		if err := a.sleepIfAwake(ctx, aiv1alpha1.VLLMServer{Model: other.models[0], Endpoint: other.endpoint}, level); err != nil {
 			return err
 		}
 	}
@@ -177,13 +177,21 @@ func (a *Adapter) sleep(ctx context.Context, endpoint string, level int) error {
 	return a.post(ctx, endpoint, fmt.Sprintf("%s?level=%d", pathSleep, level), nil)
 }
 
-// wake brings a sleeping server back. After a level 1 sleep one call restores
-// everything. After a level 2 sleep the weights are gone: restore the weight
-// buffers, reload the weights from disk, then restore the key-value cache.
+// wake brings a sleeping server back. After a level 2 sleep the weights are gone:
+// restore the weight buffers, reload the weights from disk, then restore the
+// key-value cache, in that order. After a level 1 sleep one call restores
+// everything. The kubemoot-vllm chart's launcher wakes the first server it starts
+// the same way (vllm/charts/kubemoot-vllm/files/launcher.py, Server.wake); keep the
+// two in step.
 func (a *Adapter) wake(ctx context.Context, endpoint string, level int) error {
-	if level != 2 {
-		return a.post(ctx, endpoint, pathWakeUp, nil)
+	if level == 2 {
+		return a.wakeAfterLevelTwo(ctx, endpoint)
 	}
+	return a.post(ctx, endpoint, pathWakeUp, nil)
+}
+
+// wakeAfterLevelTwo is the three requests that restore a server that dropped its weights.
+func (a *Adapter) wakeAfterLevelTwo(ctx context.Context, endpoint string) error {
 	steps := []struct {
 		path string
 		body []byte
@@ -292,21 +300,4 @@ func (a *Adapter) ServedModels(ctx context.Context, endpoint string) ([]ServedMo
 		models = append(models, ServedModel{ID: m.ID, Root: m.Root})
 	}
 	return models, nil
-}
-
-// servedNames reads the model ids from a /v1/models answer.
-func servedNames(body []byte) ([]string, error) {
-	var out struct {
-		Data []struct {
-			ID string `json:"id"`
-		} `json:"data"`
-	}
-	if err := json.Unmarshal(body, &out); err != nil {
-		return nil, fmt.Errorf("decode vLLM %s: %w", pathModels, err)
-	}
-	names := make([]string, 0, len(out.Data))
-	for _, m := range out.Data {
-		names = append(names, m.ID)
-	}
-	return names, nil
 }

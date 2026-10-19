@@ -43,7 +43,8 @@ var kvCacheMetrics = []string{"vllm:kv_cache_usage_perc", "vllm:gpu_cache_usage_
 
 // serverProbe is what one server answered. A nil field was not read.
 type serverProbe struct {
-	model string
+	// models are the served names the server answers to (one, or more when it has aliases).
+	models []string
 	// state is empty when the server answered but its sleep state could not be read.
 	state   engine.ModelState
 	running *float64
@@ -64,10 +65,10 @@ func (a *Adapter) Probe(ctx context.Context, spec aiv1alpha1.ModelProviderSpec) 
 	}
 	var probes []serverProbe
 	var errs []error
-	for _, srv := range servers {
-		p, err := a.probeServer(ctx, srv)
+	for _, g := range byEndpoint(servers) {
+		p, err := a.probeServer(ctx, g)
 		if err != nil {
-			errs = append(errs, fmt.Errorf("server for %q: %w", srv.Model, err))
+			errs = append(errs, fmt.Errorf("server for %q: %w", g.models[0], err))
 			continue
 		}
 		probes = append(probes, p)
@@ -78,34 +79,63 @@ func (a *Adapter) Probe(ctx context.Context, spec aiv1alpha1.ModelProviderSpec) 
 	return snapshotOf(probes), nil
 }
 
+// endpointModels is one server and every served name it answers to.
+type endpointModels struct {
+	endpoint string
+	models   []string
+}
+
+// byEndpoint groups the listed servers by endpoint, in first-seen order. A server
+// with several served names (aliases) is listed once per name, and is probed once so
+// its request counts are not added up once per name.
+func byEndpoint(servers []aiv1alpha1.VLLMServer) []endpointModels {
+	var groups []endpointModels
+	index := map[string]int{}
+	for _, srv := range servers {
+		i, ok := index[srv.Endpoint]
+		if !ok {
+			i = len(groups)
+			index[srv.Endpoint] = i
+			groups = append(groups, endpointModels{endpoint: srv.Endpoint})
+		}
+		groups[i].models = append(groups[i].models, srv.Model)
+	}
+	return groups
+}
+
 // probeServer reads one server. It fails when /health does not answer 200, or
-// when /v1/models answers and does not list the model the spec says the server
+// when /v1/models answers and does not list every model the spec says the server
 // serves; sleep state and metrics are best effort.
-func (a *Adapter) probeServer(ctx context.Context, srv aiv1alpha1.VLLMServer) (serverProbe, error) {
-	p := serverProbe{model: srv.Model}
-	if _, err := a.get(ctx, srv.Endpoint, pathHealth); err != nil {
+func (a *Adapter) probeServer(ctx context.Context, g endpointModels) (serverProbe, error) {
+	p := serverProbe{models: g.models}
+	if _, err := a.get(ctx, g.endpoint, pathHealth); err != nil {
 		return p, err
 	}
-	if err := a.checkServes(ctx, srv); err != nil {
+	if err := a.checkServes(ctx, g); err != nil {
 		return p, err
 	}
-	p.state = a.sleepState(ctx, srv.Endpoint)
-	a.readMetrics(ctx, srv.Endpoint, &p)
+	p.state = a.sleepState(ctx, g.endpoint)
+	a.readMetrics(ctx, g.endpoint, &p)
 	return p, nil
 }
 
-// checkServes verifies the served name. A /v1/models that does not answer is not
-// proof of a mismatch, so only a readable list without the name fails.
-func (a *Adapter) checkServes(ctx context.Context, srv aiv1alpha1.VLLMServer) error {
-	body, err := a.get(ctx, srv.Endpoint, pathModels)
+// checkServes verifies the served names. A /v1/models that does not answer is not
+// proof of a mismatch, so only a readable list without a name fails.
+func (a *Adapter) checkServes(ctx context.Context, g endpointModels) error {
+	served, err := a.ServedModels(ctx, g.endpoint)
 	if err != nil {
 		return nil
 	}
-	names, err := servedNames(body)
-	if err != nil || slices.Contains(names, srv.Model) {
-		return nil
+	ids := make([]string, len(served))
+	for i, m := range served {
+		ids[i] = m.ID
 	}
-	return fmt.Errorf("serves %v, not %q: check --served-model-name", names, srv.Model)
+	for _, want := range g.models {
+		if !slices.Contains(ids, want) {
+			return fmt.Errorf("serves %v, not %q: check --served-model-name", ids, want)
+		}
+	}
+	return nil
 }
 
 // sleepState is awake or asleep from /is_sleeping. A server without the sleep
@@ -226,16 +256,7 @@ func snapshotOf(probes []serverProbe) engine.Snapshot {
 	}
 	var running, waiting, usage []float64
 	for _, p := range probes {
-		snap.Available = append(snap.Available, aiv1alpha1.AvailableModel{Name: p.model})
-		switch p.state {
-		case "":
-			snap.LoadedKnown = false
-		case engine.StateAwake:
-			snap.Loaded = append(snap.Loaded, aiv1alpha1.LoadedModel{Name: p.model})
-			snap.ModelStates[p.model] = p.state
-		default:
-			snap.ModelStates[p.model] = p.state
-		}
+		addModels(&snap, p)
 		running = appendIf(running, p.running)
 		waiting = appendIf(waiting, p.waiting)
 		usage = appendIf(usage, p.kvUsage)
@@ -244,6 +265,24 @@ func snapshotOf(probes []serverProbe) engine.Snapshot {
 	snap.RequestsWaiting = wholeCount(sumOrNil(waiting))
 	snap.KVCacheUsage = maxOrNil(usage)
 	return snap
+}
+
+// addModels records each served name of a probed server as available, with the
+// server's state when it could be read.
+func addModels(snap *engine.Snapshot, p serverProbe) {
+	if p.state == "" {
+		snap.LoadedKnown = false
+	}
+	for _, name := range p.models {
+		snap.Available = append(snap.Available, aiv1alpha1.AvailableModel{Name: name})
+		if p.state == "" {
+			continue
+		}
+		snap.ModelStates[name] = p.state
+		if p.state == engine.StateAwake {
+			snap.Loaded = append(snap.Loaded, aiv1alpha1.LoadedModel{Name: name})
+		}
+	}
 }
 
 // appendIf adds v to values when it was read.

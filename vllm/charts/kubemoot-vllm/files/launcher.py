@@ -4,14 +4,20 @@ The chart renders the server list into servers.json and mounts this script
 beside it. All servers share one accelerator, and a vLLM server measures the free
 accelerator memory when it starts, so they start one at a time: start a server,
 wait for /health, put it to sleep, start the next, and wake the first at the end.
-A server whose process dies is restarted the same way, with every other server
-asleep first. Each server runs as its own process group and is stopped as a group
-(the server and its engine workers), and its log lines are prefixed with its
-name. Standard library only.
+A server whose process dies, or that is running but no longer answers /health, is
+killed and restarted the same way, with every other server asleep first. Each
+server runs as its own process group and is stopped as a group (the server and its
+engine workers), and its log lines are prefixed with its name. Standard library only.
+
+The launcher keeps two files for the pod's probes: READY_FILE exists while every
+server is up (it is removed while a server is being recovered), and ALIVE_FILE is
+touched whenever the launcher makes progress, so a launcher that is stuck stops
+touching it and the liveness probe restarts the pod.
 
     python3 launcher.py /launcher/servers.json
 """
 
+import http.client
 import json
 import os
 import signal
@@ -23,10 +29,22 @@ import urllib.error
 import urllib.request
 
 READY_FILE = "/tmp/launcher-ready"
+ALIVE_FILE = "/tmp/launcher-alive"
 POLL_S = 1.0
 HEALTH_POLL_S = 2.0
-REQUEST_TIMEOUT_S = 600
+# A running server whose /health fails this many checks in a row, each given
+# HEALTH_TIMEOUT_S, is hung: it is killed and restarted like a dead one.
+HEALTH_TIMEOUT_S = 10
+HEALTH_FAILURES = 3
+# The pod's termination grace period is 300 s. A stop request can arrive while a
+# request is in flight (up to REQUEST_TIMEOUT_S), after which every server's group is
+# stopped at once: SIGTERM and up to STOP_TIMEOUT_S, then SIGKILL and up to
+# KILL_WAIT_S. The three must fit the period (checked by the tests).
+GRACE_PERIOD_S = 300
+REQUEST_TIMEOUT_S = 120
 STOP_TIMEOUT_S = 120
+KILL_WAIT_S = 10
+HUNG_STOP_TIMEOUT_S = 10
 BACKOFF_START_S = 5
 BACKOFF_MAX_S = 60
 
@@ -39,8 +57,42 @@ class ServerExited(Exception):
     """A server's process ended before it answered /health."""
 
 
-def http(method, url, timeout=REQUEST_TIMEOUT_S, body=None):
-    """The status of one request; an HTTP error answer returns its status, no answer raises."""
+# What a failed attempt to recover a server can raise: the server exiting while it
+# starts, or a server that answers badly or not at all.
+RECOVERABLE = (ServerExited, OSError, RuntimeError, ValueError, http.client.HTTPException)
+
+
+def beat():
+    """Records progress for the liveness probe."""
+    try:
+        with open(ALIVE_FILE, "a", encoding="utf-8"):
+            os.utime(ALIVE_FILE, None)
+    except OSError:
+        pass
+
+
+def set_ready(ready):
+    """Creates or removes the file the readiness probe looks for."""
+    if ready:
+        open(READY_FILE, "w", encoding="utf-8").close()
+        return
+    try:
+        os.remove(READY_FILE)
+    except FileNotFoundError:
+        pass
+
+
+def http_request(method, url, timeout=REQUEST_TIMEOUT_S, body=None):
+    """The status of one request; an HTTP error answer returns its status, no answer raises.
+    Each request is progress for the liveness probe, before it and after it."""
+    beat()
+    try:
+        return _send(method, url, timeout, body)
+    finally:
+        beat()
+
+
+def _send(method, url, timeout, body):
     data = json.dumps(body).encode() if body is not None else None
     headers = {"Content-Type": "application/json"} if data else {}
     request = urllib.request.Request(url, data=data, method=method, headers=headers)
@@ -52,7 +104,7 @@ def http(method, url, timeout=REQUEST_TIMEOUT_S, body=None):
 
 
 def post(url, body=None):
-    status, _ = http("POST", url, body=body)
+    status, _ = http_request("POST", url, body=body)
     if status >= 300:
         raise RuntimeError("POST %s returned %d" % (url, status))
 
@@ -64,6 +116,7 @@ class Server:
         self.name, self.port, self.args = spec["name"], spec["port"], spec["args"]
         self.level, self.stopping = level, stopping
         self.proc = None
+        self.failed_checks = 0
 
     @property
     def url(self):
@@ -73,6 +126,7 @@ class Server:
         return self.proc is not None and self.proc.poll() is None
 
     def start(self):
+        self.failed_checks = 0
         self.proc = subprocess.Popen(
             ["vllm"] + self.args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
             text=True, bufsize=1, start_new_session=True)
@@ -84,22 +138,35 @@ class Server:
                 sys.stdout.write("[%s] %s" % (self.name, line))
                 sys.stdout.flush()
 
+    def healthy(self):
+        """True when /health answers 200 within HEALTH_TIMEOUT_S."""
+        try:
+            return http_request("GET", self.url + "/health", timeout=HEALTH_TIMEOUT_S)[0] == 200
+        except (OSError, http.client.HTTPException):
+            return False
+
+    def hung(self):
+        """True once a running server has failed HEALTH_FAILURES health checks in a row."""
+        if self.healthy():
+            self.failed_checks = 0
+            return False
+        self.failed_checks += 1
+        return self.failed_checks >= HEALTH_FAILURES
+
     def wait_ready(self):
         """Waits until /health answers 200. The process ending is the failure signal, not a clock."""
         while True:
+            beat()
             if self.stopping.is_set():
                 raise Stopping()
             if self.proc.poll() is not None:
                 raise ServerExited("%s exited with %s before it answered /health" % (self.name, self.proc.returncode))
-            try:
-                if http("GET", self.url + "/health", timeout=5)[0] == 200:
-                    return
-            except OSError:
-                pass
+            if self.healthy():
+                return
             time.sleep(HEALTH_POLL_S)
 
     def is_sleeping(self):
-        status, body = http("GET", self.url + "/is_sleeping", timeout=30)
+        status, body = http_request("GET", self.url + "/is_sleeping", timeout=HEALTH_TIMEOUT_S)
         if status != 200:
             raise RuntimeError("%s: /is_sleeping returned %d" % (self.name, status))
         return bool(json.loads(body).get("is_sleeping"))
@@ -108,13 +175,17 @@ class Server:
         post("%s/sleep?level=%d" % (self.url, self.level))
 
     def wake(self):
-        """From level 2 the weights are reloaded before the cache returns."""
-        if self.level == 1:
-            post(self.url + "/wake_up")
+        """Wakes the server. After a level 2 sleep the weights are gone: restore the
+        weight buffers, reload the weights from disk, then restore the key-value
+        cache, in that order. After level 1 one call restores everything. The
+        operator's vLLM adapter wakes a server the same way (operator/internal/engine/
+        vllm/adapter.go, wake); keep the two in step."""
+        if self.level == 2:
+            post(self.url + "/wake_up?tags=weights")
+            post(self.url + "/collective_rpc", {"method": "reload_weights"})
+            post(self.url + "/wake_up?tags=kv_cache")
             return
-        post(self.url + "/wake_up?tags=weights")
-        post(self.url + "/collective_rpc", {"method": "reload_weights"})
-        post(self.url + "/wake_up?tags=kv_cache")
+        post(self.url + "/wake_up")
 
     def _signal(self, sig):
         """Signals the process group; False when the group is already gone."""
@@ -124,25 +195,28 @@ class Server:
         except ProcessLookupError:
             return False
 
-    def _group_gone(self):
-        deadline = time.monotonic() + STOP_TIMEOUT_S
+    def _group_gone(self, timeout):
+        deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
+            beat()
             if self.proc.poll() is not None and not self._signal(0):
                 return True
             time.sleep(0.2)
         return False
 
-    def stop(self):
+    def stop(self, timeout=STOP_TIMEOUT_S):
         """Stops the whole group and waits until every process of it is gone.
 
         The next server measures free accelerator memory when it starts, so every
-        process holding memory must be gone first.
+        process holding memory must be gone first. A stopped process (SIGSTOP) holds a
+        SIGTERM until it continues, so the group is continued first.
         """
         if self.proc is None:
             return
-        if self._signal(signal.SIGTERM) and not self._group_gone():
+        self._signal(signal.SIGCONT)
+        if self._signal(signal.SIGTERM) and not self._group_gone(timeout):
             self._signal(signal.SIGKILL)
-            self._group_gone()
+            self._group_gone(KILL_WAIT_S)
         self.proc = None
 
 
@@ -162,46 +236,73 @@ class Launcher:
         for server in self.servers:
             self.start_server_asleep(server)
         self.servers[0].wake()
-        open(READY_FILE, "w").close()
+        set_ready(True)
+
+    def is_awake(self, server):
+        """True when the server is awake. A server whose /health is down holds nothing
+        that can be put to sleep and counts as not awake (it is restarted in its turn,
+        as the operator's adapter also skips it); one that is healthy but cannot say is
+        an error."""
+        try:
+            return not server.is_sleeping()
+        except (OSError, RuntimeError, ValueError, http.client.HTTPException):
+            if server.healthy():
+                raise
+            return False
 
     def awake_servers(self, besides):
-        return [s for s in self.servers if s is not besides and s.running() and not s.is_sleeping()]
+        return [s for s in self.servers if s is not besides and s.running() and self.is_awake(s)]
 
-    def recover(self, dead):
-        """Restarts a server whose process died, with every other server asleep first.
+    def recover(self, dead, awake, stop_timeout=STOP_TIMEOUT_S):
+        """Restarts a server, with every other server asleep first.
 
-        The one that was awake is woken again afterwards; when the dead server was
-        the awake one, the first server is.
+        `awake` are the servers that were awake before the attempt; the first of them
+        that is still running is woken again afterwards. When none was (the dead server
+        was the awake one) the first running server is.
         """
-        awake = self.awake_servers(dead)
         for server in awake:
-            server.sleep()
-        dead.stop()
+            if server.running() and self.is_awake(server):
+                server.sleep()
+        dead.stop(stop_timeout)
         self.start_server_asleep(dead)
-        # Only a running server can be woken; another dead one is restarted next.
-        (awake or [s for s in self.servers if s.running()])[0].wake()
+        # Only a healthy server can be woken: another hung one is restarted next.
+        healthy = [s for s in self.servers if s.running() and s.healthy()]
+        target = next((s for s in awake if s in healthy), None) or (healthy[0] if healthy else None)
+        if target is None:
+            raise RuntimeError("no healthy server to wake")
+        target.wake()
 
-    def recover_with_backoff(self, dead):
+    def recover_with_backoff(self, dead, stop_timeout=STOP_TIMEOUT_S):
         """Retries recover until it works. A server that exits during the restart, or
-        one that does not answer (a wedged one), fails the attempt, not the launcher."""
+        one that does not answer, fails the attempt, not the launcher."""
+        set_ready(False)
         delay = BACKOFF_START_S
+        awake = None
         while not self.stopping.is_set():
+            beat()
             try:
-                self.recover(dead)
+                if awake is None:
+                    awake = self.awake_servers(dead)
+                self.recover(dead, awake, stop_timeout)
+                set_ready(True)
                 return
-            except (ServerExited, OSError, RuntimeError) as e:
+            except RECOVERABLE as e:
                 print("launcher: %s; retrying in %d s" % (e, delay), flush=True)
-                dead.stop()
+                dead.stop(stop_timeout)
                 self.stopping.wait(delay)
                 delay = min(delay * 2, BACKOFF_MAX_S)
         raise Stopping()
 
     def check_once(self):
-        """Restarts the first server found dead; True when one was."""
+        """Restarts the first server found dead or hung; True when one was."""
         for server in self.servers:
             if not server.running():
                 print("launcher: %s is not running; restarting it" % server.name, flush=True)
                 self.recover_with_backoff(server)
+                return True
+            if server.hung():
+                print("launcher: %s is running but does not answer /health; killing and restarting it" % server.name, flush=True)
+                self.recover_with_backoff(server, HUNG_STOP_TIMEOUT_S)
                 return True
         return False
 
@@ -220,6 +321,7 @@ class Launcher:
         try:
             self.start_all()
             while not self.stopping.is_set():
+                beat()
                 self.check_once()
                 self.stopping.wait(POLL_S)
         except Stopping:

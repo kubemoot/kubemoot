@@ -92,6 +92,12 @@ var _ = Describe("ModelProvider admission", func() {
 		rejected(create(mp), "spec.endpoint is only for an ollama provider")
 	})
 
+	It("rejects an ollama provider without an endpoint", func() {
+		mp := newMP("adm-ollama-no-endpoint", testOllama)
+		mp.Spec.Endpoint = ""
+		rejected(create(mp), "an ollama provider needs spec.endpoint")
+	})
+
 	It("rejects serviceRef, servers, and sleepLevel on an ollama provider", func() {
 		withRef := newMP("adm-ollama-ref", testOllama)
 		withRef.Spec.ServiceRef = &aiv1alpha1.VLLMServiceRef{Name: "x"}

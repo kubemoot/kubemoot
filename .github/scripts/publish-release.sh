@@ -29,6 +29,12 @@
 #      The references go to ${OUT_DIR}/subjects.tsv and the `subjects` output, which
 #      the workflow's attest job records SLSA build provenance for. A signing failure
 #      stops the run before any tag, so no GitHub Release is written.
+#   3b. The kubemoot-vllm chart (vllm/charts/kubemoot-vllm) releases beside it (a chart-only
+#      change waits for the next operator candidate to ship with) when it has a
+#      candidate that is not yet published: the highest vllm-chart-vX.Y.Z-rc.N tag
+#      reachable from the starting point, packaged from that tag's commit stamped with the
+#      final X.Y.Z, pushed, signed, and given the final vllm-chart-vX.Y.Z tag and its own
+#      GitHub Release. It references no Kubemoot image, so it pins nothing.
 #   5. Tags are pushed together (atomic); the release notes go to ${OUT_DIR}/notes.md
 #      and ${OUT_DIR}/releases.tsv names the GitHub Release to write.
 #      ${OUT_DIR}/provenance.tsv maps every signed artifact to that release, which
@@ -57,6 +63,8 @@ shopt -s inherit_errexit
 here="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=/dev/null
 source "${RELEASE_LIB:?RELEASE_LIB must point to release-lib.sh from kubemoot/release-actions}"
+# shellcheck source=/dev/null
+source "$(dirname "${BASH_SOURCE[0]}")/release-chart-lib.sh"
 
 RC_TAG="${RC_TAG:-latest}"
 DRY_RUN="${DRY_RUN:-true}"
@@ -68,12 +76,16 @@ OUT_DIR="$(mkdir -p "${OUT_DIR:-release-files}" && cd "${OUT_DIR:-release-files}
 CHART_PREFIX="operator-chart-v"
 CHART_DIR="operator/chart/kubemoot-operator"
 DASH_DIR="dashboard/charts/kubemoot-dashboard"
+VLLM_PREFIX="vllm-chart-v"
+VLLM_DIR="vllm/charts/kubemoot-vllm"
 CANDIDATE=""
+VLLM_RC=""        # the kubemoot-vllm chart candidate tag this run publishes, if any
+VLLM_FINAL=""     # its final version
+VLLM_SRC=""       # its commit
 
 PLAN_NAMES=()     # image names to publish
 PLAN_RCS=()       # their candidate versions
 
-die() { echo "ERROR: $*" >&2; exit 1; }
 cleanup() {
   rl_remove_worktrees
   [ -z "$CANDIDATE" ] || rm -rf "$(dirname "$CANDIDATE")"
@@ -229,6 +241,44 @@ push_charts() {
   done
 }
 
+# plan_vllm_chart POINT: the kubemoot-vllm chart candidate to publish, if there is one: the
+# latest candidate reachable from POINT whose final version has no tag yet.
+plan_vllm_chart() {
+  local rc final
+  rc=$(rl_latest_rc "$VLLM_PREFIX" "$1")
+  [ -n "$rc" ] || return 0
+  final=$(rl_final_of "${rc#"$VLLM_PREFIX"}")
+  rl_tag_exists "${VLLM_PREFIX}${final}" && return 0
+  VLLM_RC="$rc"
+  VLLM_FINAL="$final"
+  VLLM_SRC=$(git rev-list -n 1 "$rc")
+}
+
+# package_vllm_chart: the planned kubemoot-vllm chart at its candidate's commit, stamped
+# with the final version (git holds 0.0.0), next to the operator chart so push_charts
+# pushes and signs both. It uses its own scratch worktree, so call it after anything that
+# reads RL_CHECKOUT of the operator chart.
+package_vllm_chart() {
+  [ -n "$VLLM_RC" ] || return 0
+  package_chart_at "$VLLM_SRC" "$VLLM_DIR" "$VLLM_FINAL" "$OUT_DIR"
+}
+
+# write_vllm_notes: the notes of the kubemoot-vllm chart's GitHub Release, the changes to
+# the chart since its previous release. Read before this run creates any final tag.
+write_vllm_notes() {
+  [ -n "$VLLM_RC" ] || return 0
+  {
+    echo "kubemoot-vllm chart ${VLLM_FINAL}: vLLM model servers for Kubemoot."
+    echo
+    echo '```bash'
+    echo "helm install vllm-gpu oci://${RELEASE_REGISTRY}/charts/kubemoot-vllm --version ${VLLM_FINAL} \\"
+    echo "  --namespace vllm --create-namespace -f values.yaml"
+    echo '```'
+    echo
+    rl_notes_document "$(rl_latest_final "$VLLM_PREFIX" "$VLLM_SRC")" "$VLLM_SRC" "${VLLM_PREFIX}${VLLM_FINAL}" "$VLLM_DIR"
+  } > "${OUT_DIR}/notes-vllm.md"
+}
+
 # previous_release COMMIT: the release the notes start from; read before this run
 # creates any final tag. Until the first published chart, the last operator release.
 previous_release() {
@@ -259,13 +309,16 @@ write_notes() {
   } > "${OUT_DIR}/notes.md"
 }
 
-# write_provenance_map TAG ASSET: the GitHub Release TAG carries the provenance of every
-# artifact this run signed, as the one asset ASSET.
+# write_provenance_map TAG ASSET [VLLM_TAG VLLM_ASSET]: the GitHub Release TAG carries the
+# provenance of every artifact this run signed, as the one asset ASSET, except the
+# kubemoot-vllm chart, whose provenance goes to its own release VLLM_TAG as VLLM_ASSET.
 write_provenance_map() {
-  local name digest
+  local name digest tag asset
   : > "${OUT_DIR}/provenance.tsv"
   while IFS=$'\t' read -r name digest; do
-    printf '%s\t%s\t%s\t%s\n' "$1" "$2" "$name" "$digest" >> "${OUT_DIR}/provenance.tsv"
+    tag="$1"; asset="$2"
+    if [ -n "${3:-}" ] && [ "${name##*/}" = "${VLLM_DIR##*/}" ]; then tag="$3"; asset="$4"; fi
+    printf '%s\t%s\t%s\t%s\n' "$tag" "$asset" "$name" "$digest" >> "${OUT_DIR}/provenance.tsv"
   done < "${OUT_DIR}/subjects.tsv"
 }
 
@@ -284,11 +337,6 @@ write_dashboard_assets() {
     cp "$f" "${OUT_DIR}/dashboards/"
     printf '%s\t%s\n' "$1" "dashboards/${f##*/}" >> "${OUT_DIR}/assets.tsv"
   done
-}
-
-output() {
-  [ -n "${GITHUB_OUTPUT:-}" ] && echo "$1=$2" >> "$GITHUB_OUTPUT"
-  return 0
 }
 
 main() {
@@ -312,6 +360,8 @@ main() {
   rl_checkout_at "$src"
   package_operator_chart "$RL_CHECKOUT" "$CANDIDATE" "$chart_final"
   write_dashboard_assets "${CHART_PREFIX}${chart_final}"
+  plan_vllm_chart "$point"
+  package_vllm_chart
 
   for i in "${!PLAN_NAMES[@]}"; do
     publish_image "${PLAN_NAMES[$i]}" "${PLAN_RCS[$i]}"
@@ -321,9 +371,19 @@ main() {
 
   rl_make_tag "${CHART_PREFIX}${chart_final}" "$chart_rc"
   write_notes "$src" "$chart_final" "$prev"
+  if [ -n "$VLLM_RC" ]; then
+    rl_make_tag "${VLLM_PREFIX}${VLLM_FINAL}" "$VLLM_RC"
+    write_vllm_notes
+  fi
   rl_push_new_tags
   rl_add_release "${OUT_DIR}" "${CHART_PREFIX}${chart_final}" "Kubemoot ${chart_final}" notes.md
-  write_provenance_map "${CHART_PREFIX}${chart_final}" "kubemoot_${chart_final}.intoto.jsonl"
+  if [ -n "$VLLM_RC" ]; then
+    rl_add_release "${OUT_DIR}" "${VLLM_PREFIX}${VLLM_FINAL}" "kubemoot-vllm chart ${VLLM_FINAL}" notes-vllm.md
+    write_provenance_map "${CHART_PREFIX}${chart_final}" "kubemoot_${chart_final}.intoto.jsonl" \
+      "${VLLM_PREFIX}${VLLM_FINAL}" "kubemoot-vllm_${VLLM_FINAL}.intoto.jsonl"
+  else
+    write_provenance_map "${CHART_PREFIX}${chart_final}" "kubemoot_${chart_final}.intoto.jsonl"
+  fi
   output chart_version "$chart_final"
   output subjects "$(rl_sign_subjects_json)"
 }
