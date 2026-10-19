@@ -62,6 +62,10 @@ const ProviderStateBucket = "kubemoot_provider_state"
 type ProviderState struct {
 	Name     string `json:"name"`
 	Endpoint string `json:"endpoint"`
+	// ModelEndpoints is the server URL for each model, by model, for a provider that
+	// runs one server per model (vLLM); Endpoint is empty then. Absent when every
+	// model is served at Endpoint.
+	ModelEndpoints map[string]string `json:"modelEndpoints,omitempty"`
 	// Engine is the model server's engine type (ModelProvider spec.type); agents
 	// pick how to call the server by it.
 	Engine       string   `json:"engine,omitempty"`
@@ -200,6 +204,8 @@ func (r *ModelProviderReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	switch provider.Spec.Type {
 	case aiv1alpha1.ProviderTypeOllama:
 		return r.reconcileOllama(ctx, provider)
+	case aiv1alpha1.ProviderTypeVLLM:
+		return r.reconcileVLLM(ctx, provider)
 	default:
 		log.Info("Unsupported provider type", "type", provider.Spec.Type)
 		return r.updateStatus(ctx, provider, false, "Unsupported", aiv1alpha1.UnsupportedProviderTypeMessage)
@@ -520,20 +526,30 @@ func (r *ModelProviderReconciler) queryPrometheusLabel(ctx context.Context, http
 // state publish. A reply the adapter could not read leaves the earlier capacity
 // as it was.
 func (r *ModelProviderReconciler) probeEngine(ctx context.Context, provider *aiv1alpha1.ModelProvider, httpClient *http.Client) {
-	log := logf.FromContext(ctx)
+	if _, err := r.probeSnapshot(ctx, provider, httpClient); err != nil {
+		logf.FromContext(ctx).V(1).Info("Engine probe failed", "provider", provider.Name, "error", err)
+	}
+}
 
+// probeSnapshot probes the provider through its engine adapter, applies the
+// snapshot to the provider's capacity (created when absent), and keeps the
+// snapshot for the state publish. It returns the adapter's error when the probe
+// gave no usable answer.
+func (r *ModelProviderReconciler) probeSnapshot(ctx context.Context, provider *aiv1alpha1.ModelProvider, httpClient *http.Client) (engine.Snapshot, error) {
 	adapter, err := r.engines().Adapter(provider.Spec.Type, httpClient)
 	if err != nil {
-		log.V(1).Info("No engine adapter", "provider", provider.Name, "error", err)
-		return
+		return engine.Snapshot{}, err
 	}
-	snap, err := adapter.Probe(ctx, provider.Spec.Endpoint)
+	snap, err := adapter.Probe(ctx, provider.Spec)
 	if err != nil {
-		log.V(1).Info("Engine probe failed", "provider", provider.Name, "error", err)
-		return
+		return engine.Snapshot{}, err
+	}
+	if provider.Status.Capacity == nil {
+		provider.Status.Capacity = &aiv1alpha1.DiscoveredCapacity{}
 	}
 	applySnapshotToCapacity(provider.Status.Capacity, snap)
 	r.probes.Store(provider.Name, snap)
+	return snap, nil
 }
 
 // engines is the registry that picks the adapter for a provider type.
@@ -550,7 +566,9 @@ func (r *ModelProviderReconciler) engines() *engine.Registry {
 func applySnapshotToCapacity(capacity *aiv1alpha1.DiscoveredCapacity, snap engine.Snapshot) {
 	if snap.LoadedKnown {
 		capacity.LoadedModels = snap.Loaded
-		capacity.VRAMUsedMiB = snap.VRAMUsedMiB()
+		if snap.LoadedSizesKnown {
+			capacity.VRAMUsedMiB = snap.VRAMUsedMiB()
+		}
 	}
 	if snap.AvailableKnown {
 		capacity.AvailableModels = snap.Available
@@ -713,6 +731,9 @@ func buildProviderState(provider *aiv1alpha1.ModelProvider) ProviderState {
 		Ready:        provider.Status.Ready,
 		LastProbedAt: time.Now().UTC().Format(time.RFC3339),
 	}
+	if provider.Spec.Type == aiv1alpha1.ProviderTypeVLLM {
+		state.ModelEndpoints = modelEndpoints(provider.Spec.VLLM)
+	}
 	if cap := provider.Status.Capacity; cap != nil {
 		applyCapacityToState(&state, cap)
 	}
@@ -723,6 +744,18 @@ func buildProviderState(provider *aiv1alpha1.ModelProvider) ProviderState {
 		state.MaxParallel = 1 // defensive: agents divide by this
 	}
 	return state
+}
+
+// modelEndpoints maps each served model to its server's endpoint; nil without servers.
+func modelEndpoints(spec *aiv1alpha1.VLLMSpec) map[string]string {
+	if spec == nil || len(spec.Servers) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(spec.Servers))
+	for _, s := range spec.Servers {
+		out[s.Model] = s.Endpoint
+	}
+	return out
 }
 
 // applySnapshotToState copies the fields an engine adapter reports into the

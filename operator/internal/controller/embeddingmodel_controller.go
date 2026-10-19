@@ -95,6 +95,10 @@ func (r *EmbeddingModelReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 			fmt.Sprintf("Waiting for ModelProvider '%s' to be ready", provider.Name))
 	}
 
+	if provider.Spec.Type == kubemootv1alpha1.ProviderTypeVLLM {
+		return r.updateStatus(ctx, embeddingModel, "Error",
+			fmt.Sprintf("ModelProvider '%s' is a vllm provider; an EmbeddingModel needs an ollama provider", provider.Name))
+	}
 	if provider.Spec.Type != kubemootv1alpha1.ProviderTypeOllama {
 		return r.updateStatus(ctx, embeddingModel, "Error", kubemootv1alpha1.UnsupportedProviderTypeMessage)
 	}

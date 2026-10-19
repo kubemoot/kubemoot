@@ -28,18 +28,53 @@ Declares an inference endpoint. The operator discovers GPU capacity (VRAM, loade
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `type` | string | Yes | The model server's engine type. Only `ollama` is supported today. Any other value, including `openai` and `anthropic`, is rejected at admission: those types are not supported yet. The operator publishes it as `engine` in the provider state, and agents use it to pick the adapter that calls the server through the OpenAI-compatible chat API. vLLM provider support is the next step of the model-server work; see the [measured results](../../concepts/choosing-a-model/#measured-results). |
-| `endpoint` | string | For ollama | API endpoint URL |
-| `secretRef` | string | No | Reserved for future provider types; not used by `ollama` |
+| `type` | string | Yes | The model server's engine type: `ollama` or `vllm`. Any other value, including `openai` and `anthropic`, is rejected at admission: those types are not supported yet. The operator publishes it as `engine` in the provider state, and agents use it to pick the adapter that calls the server through the OpenAI-compatible chat API. See the [measured results](../../concepts/choosing-a-model/#measured-results) for how the two engines compare. |
+| `endpoint` | string | For ollama | API endpoint URL. A `vllm` provider has no single endpoint: it lists one per model in `vllm.servers`. |
+| `vllm.servers` | list | For vllm | The provider's vLLM servers, one per served model (1 to 32). Required for type `vllm` and rejected for any other type. See [vLLM providers](#vllm-providers). |
+| `vllm.servers[].model` | string | Yes, within a server | The served name of the model the server answers to: the `model` of the `Model` on it, and the `--served-model-name` the server runs with. Unique within the provider. |
+| `vllm.servers[].endpoint` | string | Yes, within a server | The server's OpenAI-compatible base URL without `/v1`, for example `http://vllm-qwen3-14b.models:8000`. Must start with `http://` or `https://`. |
+| `vllm.sleepLevel` | int | No | How a server is put to sleep when another model takes the accelerator: `1` parks the weights in host memory (fast to wake), `2` drops them and reloads from disk on wake (holds no host memory). Default `1`. |
+| `secretRef` | string | No | Reserved for future provider types; not used by `ollama` or `vllm` |
 | `scheduling.weight` | int | No | Preference between providers for reasons other than capacity (higher is preferred); default 100 |
 | `scheduling.memoryMiB` | int | No | Memory budget the fit gate spends when the operator cannot discover one; see below |
 | `calibration.enabled` | bool | No | Whether this provider may be calibrated (default `true`); see Calibration below |
+
+### vLLM providers
+
+vLLM serves one model per server, and its sleep mode lets several servers share one accelerator: the servers that are not in use sleep and the one in use is awake. A `vllm` provider therefore describes a set of servers, one OpenAI-compatible endpoint per served model, not one process:
+
+```yaml
+apiVersion: kubemoot.ai/v1alpha1
+kind: ModelProvider
+metadata:
+  name: vllm-a
+spec:
+  type: vllm
+  vllm:
+    sleepLevel: 1
+    servers:
+      - model: qwen3:14b
+        endpoint: http://vllm-qwen3-14b.models:8000
+      - model: qwen3:8b
+        endpoint: http://vllm-qwen3-8b.models:8000
+```
+
+You run the servers; the operator does not start, stop, or restart them. Start each one with `--enable-sleep-mode`, the environment variable `VLLM_SERVER_DEV_MODE=1` (vLLM serves its sleep endpoints only then), and `--served-model-name` set to the `model` listed for it. A server without sleep mode answers 404 on the sleep endpoints and is treated as always awake: it still serves its model, but the provider cannot make it give up the accelerator, so switching to another model on the same provider fails. Change `vllm.sleepLevel` only while every server is awake, because a server wakes by the level the provider names now, not the level it slept at. The operator running the server group itself comes in a later change.
+
+What the operator does with the servers:
+
+- **Readiness.** The provider is `Ready` while at least one server answers `/health` and lists its served name on `/v1/models`. The status message says how many answer, for example `1 of 2 vLLM servers answering`. A server that does not answer, or serves a different name than listed, is left out of the published state.
+- **State.** Each server's `/is_sleeping` becomes the model's `modelStates` entry in the provider state, `awake` or `asleep`. A server that answers 404 on the sleep endpoints counts as awake. The awake models are the provider's `loadedModels`.
+- **Load.** `/metrics` supplies `requestsRunning`, `requestsWaiting`, and `kvCacheUsage` (`vllm:num_requests_running`, `vllm:num_requests_waiting`, and the cache gauge `vllm:kv_cache_usage_perc`, or `vllm:gpu_cache_usage_perc` on older servers). The provider state describes the whole provider, so the request counts are summed over its servers and the cache use is the highest of them. A metric a server does not export stays absent; a reported 0 is published as 0.
+- **Switching.** To make a model ready, the adapter puts any other awake server of the provider to sleep, then wakes the model's server. To release a model, it puts that server to sleep. It never restarts a server, because a restart takes 34 to 47 seconds where a wake takes 0.7 to 4.9. At level 2 the wake restores the weight buffers, reloads the weights from disk, then restores the key-value cache, in that order.
+
+An agent that uses a model on a `vllm` provider calls that model's own server with the served name. `ModelProvider.status.capacity` is filled from the same probe (loaded models, no accelerator memory per model); the accelerator total comes from `scheduling.memoryMiB` or DCGM. Calibration, storage, and the Ollama version check do not apply to a `vllm` provider. An `EmbeddingModel` cannot use one.
 
 ### Status
 
 | Field | Source | Description |
 |-------|--------|-------------|
-| `ready` | Operator probe | Endpoint reachable + API responding |
+| `ready` | Operator probe | Endpoint reachable + API responding (for `vllm`, at least one server answering) |
 | `capacity.vramTotalMiB` | DCGM Prometheus | Total GPU VRAM |
 | `capacity.vramUsedMiB` | Ollama `/api/ps` | VRAM consumed by loaded models |
 | `capacity.gpuModel` | DCGM metrics | e.g., "NVIDIA GeForce RTX 5090" |
@@ -243,7 +278,7 @@ Declares a specific inference model on a provider, **labeled** so the scheduler 
 | `huggingFace.revision` | string | Yes, within `huggingFace` | The commit sha the weights are pinned to, 7 to 40 hex characters. A branch or tag name is rejected. |
 | `huggingFace.quantization` | string | No | The quantization of the repository's weights, for example `awq` or `gptq` |
 
-The source must fit the engine of the provider: `ollama` for an ollama provider, `huggingFace` for a vLLM provider. The operator never guesses or falls back. A source that does not fit is reported on the Model's `SourceCompatible` condition (reason `SourceEngineMismatch`, with a message naming the mismatch), the Model's state is `Error`, and nothing is pulled. A source that fits sets the condition to `True`. `source` cannot be changed after the Model is created, with one exception: an `ollama` source (tag equal to `model`) may be added to a Model that has none, which keeps the same meaning and does not download the weights again. To change anything else, delete and recreate the Model.
+The source must fit the engine of the provider: `ollama` for an ollama provider, `huggingFace` for a vLLM provider. A Model on a `vllm` provider must have a `huggingFace` source; leaving `source` out is a mismatch there, because the absent-source default is an Ollama tag. The operator never guesses or falls back. A source that does not fit is reported on the Model's `SourceCompatible` condition (reason `SourceEngineMismatch`, with a message naming the mismatch), the Model's state is `Error`, and nothing is pulled. A source that fits sets the condition to `True`. `source` cannot be changed after the Model is created, with one exception: an `ollama` source (tag equal to `model`) may be added to a Model that has none, which keeps the same meaning and does not download the weights again. To change anything else, delete and recreate the Model.
 
 ### Labels (open string set, selected by `CrewSchedulingPolicy`)
 
@@ -312,7 +347,7 @@ spec:
   quantization: q4_K_M
 ```
 
-A Model for a vLLM provider (coming next) names its weights with a Hugging Face source, and the served name is the name the vLLM server is started with, so crews and policies that select it by label do not change:
+A Model for a vLLM provider names its weights with a Hugging Face source, and the served name is the name the vLLM server is started with, so crews and policies that select it by label do not change. The operator downloads and pulls nothing for it: the vLLM server loads its own weights from the repository you started it with. The Model is `Available` when its server answers (state `Loaded` while the server is awake, `Available` while it sleeps, since a sleeping server wakes on demand) and `Pending` while it does not. Its `status.endpoint` is the server's URL. A `model` with no matching entry in the provider's `vllm.servers` is an `Error`. The provider is the `vllm-a` provider from [vLLM providers](#vllm-providers):
 
 ```yaml
 apiVersion: kubemoot.ai/v1alpha1

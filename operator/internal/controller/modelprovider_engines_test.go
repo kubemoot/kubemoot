@@ -34,15 +34,6 @@ import (
 	"github.com/kubemoot/kubemoot/operator/pkg/bus"
 )
 
-func TestDefaultEnginesRegistersOnlyOllama(t *testing.T) {
-	if _, err := DefaultEngines().Adapter(aiv1alpha1.ProviderTypeOllama, http.DefaultClient); err != nil {
-		t.Errorf("ollama must be registered: %v", err)
-	}
-	if _, err := DefaultEngines().Adapter("vllm", http.DefaultClient); err == nil {
-		t.Error("vllm is not registered yet")
-	}
-}
-
 func TestProbeEngineKeepsTheSnapshotForThePublish(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
@@ -79,7 +70,7 @@ func TestProbeEngineKeepsTheSnapshotForThePublish(t *testing.T) {
 
 func TestProbeEngineUnknownTypeLeavesCapacityAlone(t *testing.T) {
 	provider := &aiv1alpha1.ModelProvider{
-		Spec: aiv1alpha1.ModelProviderSpec{Type: "vllm", Endpoint: "http://x"},
+		Spec: aiv1alpha1.ModelProviderSpec{Type: "bogus", Endpoint: "http://x"},
 		Status: aiv1alpha1.ModelProviderStatus{Capacity: &aiv1alpha1.DiscoveredCapacity{
 			LoadedModels: []aiv1alpha1.LoadedModel{{Name: "earlier-model"}},
 		}},

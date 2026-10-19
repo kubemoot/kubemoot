@@ -320,7 +320,7 @@ func (r *AgentReconciler) pickModel(ctx context.Context, agent *kubemootv1alpha1
 	}
 	return &modelPick{
 		ModelID:    pick.model.Spec.Model,
-		Endpoint:   pick.provider.Spec.Endpoint,
+		Endpoint:   pick.provider.Spec.EndpointFor(pick.model.Spec.Model),
 		Reason:     reason,
 		Model:      pick.model,
 		Provider:   pick.provider,

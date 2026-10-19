@@ -25,6 +25,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	aiv1alpha1 "github.com/kubemoot/kubemoot/operator/api/v1alpha1"
 	"github.com/kubemoot/kubemoot/operator/internal/engine"
 )
 
@@ -37,6 +38,11 @@ const (
 	jsonType = "application/json"
 	modelTag = "qwen3:14b"
 )
+
+// specAt is the spec of an ollama provider at endpoint.
+func specAt(endpoint string) aiv1alpha1.ModelProviderSpec {
+	return aiv1alpha1.ModelProviderSpec{Type: aiv1alpha1.ProviderTypeOllama, Endpoint: endpoint}
+}
 
 // fakeOllama answers /api/ps and /api/tags with the given bodies (a status other
 // than 200 when the body is empty) and records what /api/generate receives.
@@ -74,7 +80,7 @@ func answer(w http.ResponseWriter, body string) {
 
 func TestProbeReportsLoadedAndAvailableStates(t *testing.T) {
 	srv, _ := fakeOllama(t, psBody, tagsBody)
-	snap, err := New(srv.Client()).Probe(context.Background(), srv.URL)
+	snap, err := New(srv.Client()).Probe(context.Background(), specAt(srv.URL))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -91,11 +97,11 @@ func TestProbeReportsLoadedAndAvailableStates(t *testing.T) {
 
 func TestProbeReportsLoadedAndAvailableModels(t *testing.T) {
 	srv, _ := fakeOllama(t, psBody, tagsBody)
-	snap, err := New(srv.Client()).Probe(context.Background(), srv.URL)
+	snap, err := New(srv.Client()).Probe(context.Background(), specAt(srv.URL))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !snap.LoadedKnown || len(snap.Loaded) != 1 || snap.Loaded[0].ContextLength != 8192 {
+	if !snap.LoadedKnown || !snap.LoadedSizesKnown || len(snap.Loaded) != 1 || snap.Loaded[0].ContextLength != 8192 {
 		t.Errorf("Loaded = %+v", snap.Loaded)
 	}
 	if !snap.AvailableKnown || len(snap.Available) != 2 {
@@ -108,7 +114,7 @@ func TestProbeReportsLoadedAndAvailableModels(t *testing.T) {
 
 func TestProbeLeavesEngineMetricsAbsent(t *testing.T) {
 	srv, _ := fakeOllama(t, psBody, tagsBody)
-	snap, err := New(srv.Client()).Probe(context.Background(), srv.URL)
+	snap, err := New(srv.Client()).Probe(context.Background(), specAt(srv.URL))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -120,7 +126,7 @@ func TestProbeLeavesEngineMetricsAbsent(t *testing.T) {
 
 func TestProbeNothingLoadedIsKnownEmpty(t *testing.T) {
 	srv, _ := fakeOllama(t, `{"models":[]}`, tagsBody)
-	snap, err := New(srv.Client()).Probe(context.Background(), srv.URL)
+	snap, err := New(srv.Client()).Probe(context.Background(), specAt(srv.URL))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -134,7 +140,7 @@ func TestProbeNothingLoadedIsKnownEmpty(t *testing.T) {
 
 func TestProbeWithoutPSLeavesStatesUnknown(t *testing.T) {
 	srv, _ := fakeOllama(t, "", tagsBody)
-	snap, err := New(srv.Client()).Probe(context.Background(), srv.URL)
+	snap, err := New(srv.Client()).Probe(context.Background(), specAt(srv.URL))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -148,7 +154,7 @@ func TestProbeWithoutPSLeavesStatesUnknown(t *testing.T) {
 
 func TestProbeWithoutTagsStillReportsAwake(t *testing.T) {
 	srv, _ := fakeOllama(t, psBody, "")
-	snap, err := New(srv.Client()).Probe(context.Background(), srv.URL)
+	snap, err := New(srv.Client()).Probe(context.Background(), specAt(srv.URL))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -160,28 +166,28 @@ func TestProbeWithoutTagsStillReportsAwake(t *testing.T) {
 func TestProbeProviderThatDoesNotAnswer(t *testing.T) {
 	srv, _ := fakeOllama(t, psBody, tagsBody)
 	srv.Close()
-	if _, err := New(srv.Client()).Probe(context.Background(), srv.URL); err == nil {
+	if _, err := New(srv.Client()).Probe(context.Background(), specAt(srv.URL)); err == nil {
 		t.Fatal("a provider that does not answer must fail the probe")
 	}
 }
 
 func TestProbeRefusedBothEndpoints(t *testing.T) {
 	srv, _ := fakeOllama(t, "", "")
-	if _, err := New(srv.Client()).Probe(context.Background(), srv.URL); err == nil {
+	if _, err := New(srv.Client()).Probe(context.Background(), specAt(srv.URL)); err == nil {
 		t.Fatal("both endpoints failing must fail the probe")
 	}
 }
 
 func TestProbeUnreadableAnswer(t *testing.T) {
 	srv, _ := fakeOllama(t, "not json", "not json")
-	if _, err := New(srv.Client()).Probe(context.Background(), srv.URL); err == nil {
+	if _, err := New(srv.Client()).Probe(context.Background(), specAt(srv.URL)); err == nil {
 		t.Fatal("answers that do not decode must fail the probe")
 	}
 }
 
 func TestReadyLoadsWithoutKeepAliveOverride(t *testing.T) {
 	srv, generated := fakeOllama(t, psBody, tagsBody)
-	if err := New(srv.Client()).Ready(context.Background(), srv.URL, modelTag); err != nil {
+	if err := New(srv.Client()).Ready(context.Background(), specAt(srv.URL), modelTag); err != nil {
 		t.Fatal(err)
 	}
 	if len(*generated) != 1 || (*generated)[0]["model"] != modelTag {
@@ -194,7 +200,7 @@ func TestReadyLoadsWithoutKeepAliveOverride(t *testing.T) {
 
 func TestReleaseUnloadsWithKeepAliveZero(t *testing.T) {
 	srv, generated := fakeOllama(t, psBody, tagsBody)
-	if err := New(srv.Client()).Release(context.Background(), srv.URL, modelTag); err != nil {
+	if err := New(srv.Client()).Release(context.Background(), specAt(srv.URL), modelTag); err != nil {
 		t.Fatal(err)
 	}
 	if len(*generated) != 1 || (*generated)[0]["keep_alive"] != float64(0) || (*generated)[0]["model"] != modelTag {
@@ -208,14 +214,14 @@ func TestReadyAndReleaseReportFailure(t *testing.T) {
 	}))
 	defer failing.Close()
 	a := New(failing.Client())
-	if err := a.Ready(context.Background(), failing.URL, modelTag); err == nil {
+	if err := a.Ready(context.Background(), specAt(failing.URL), modelTag); err == nil {
 		t.Error("Ready must fail on a 500")
 	}
-	if err := a.Release(context.Background(), failing.URL, modelTag); err == nil {
+	if err := a.Release(context.Background(), specAt(failing.URL), modelTag); err == nil {
 		t.Error("Release must fail on a 500")
 	}
 	failing.Close()
-	if err := a.Ready(context.Background(), failing.URL, modelTag); err == nil {
+	if err := a.Ready(context.Background(), specAt(failing.URL), modelTag); err == nil {
 		t.Error("Ready must fail when the provider does not answer")
 	}
 }

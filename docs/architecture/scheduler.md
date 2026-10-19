@@ -204,30 +204,41 @@ Every scheduled call reaches the model server through the OpenAI-compatible chat
 - **Where the API lives** on the server. Ollama serves it at the provider endpoint plus `/v1`.
 - **How a request turns thinking off.** Ollama takes `reasoning_effort: none`, because it ignores its native `think` setting on this API. Other OpenAI-compatible servers, such as vLLM and SGLang, take `chat_template_kwargs: {enable_thinking: false}`. Turning thinking on, or leaving the agent's setting unset, sends nothing, because thinking models think by default.
 
-The agent picks the adapter from the `engine` field the operator publishes in the provider state; an absent `engine` selects the Ollama adapter. The `ModelProvider` CRD admits only `type: ollama` today, so every provider is Ollama in practice. Supporting another engine means adding one adapter. Calibration is separate: it measures a provider through `accelerator-mcp`, which still talks to Ollama's own API.
+The agent picks the adapter from the `engine` field the operator publishes in the provider state; an absent `engine` selects the Ollama adapter. The `ModelProvider` CRD admits `type: ollama` and `type: vllm`; a `vllm` provider gets the generic OpenAI-compatible adapter and each of its models is called at that model's own server. Supporting another engine means adding one adapter. Calibration is separate: it measures a provider through `accelerator-mcp`, which still talks to Ollama's own API.
 
 The static fallback model, used when the scheduler cannot place a tool-loop call, still comes from the Quarkus Ollama extension and its `quarkus.langchain4j.ollama.*` settings.
 
 ### The engine adapter seam
 
-The operator does not know how any one model server works. It reaches each provider through an engine adapter, chosen by the provider's `spec.type` from one registry. Ollama is the only engine registered today, and the `ModelProvider` CRD still admits only `type: ollama`. Supporting another engine means writing one adapter and registering it. The agent runtime has a matching seam for the call path (see [ChatModelPool and engine adapters](#chatmodelpool-and-engine-adapters)).
+The operator does not know how any one model server works. It reaches each provider through an engine adapter, chosen by the provider's `spec.type` from one registry. Ollama and vLLM are registered, and the `ModelProvider` CRD admits those two types. Supporting another engine means writing one adapter and registering it. The agent runtime has a matching seam for the call path (see [ChatModelPool and engine adapters](#chatmodelpool-and-engine-adapters)).
 
 An adapter does two things:
 
-- **Probe.** It asks the provider what it holds and how busy it is, and the `ModelProvider` reconciler publishes the answer in the provider state. A probe that fails leaves the provider's last known capacity as it was and publishes none of the adapter's fields, so the state never shows models for a server that stopped answering. A provider that answers only in part publishes what it answered. Whether the provider is ready is decided separately, by its version check.
-- **Act.** It makes a model ready (`ready`) or frees it (`release`). For Ollama, `ready` is the prompt-less load a first request would make, and `release` is `keep_alive: 0`. The scheduler does not call these yet; models still load on demand when a call needs them, and the agent runtime still does the unloading.
+- **Probe.** It asks the provider what it holds and how busy it is, and the `ModelProvider` reconciler publishes the answer in the provider state. A probe that fails leaves the provider's last known capacity as it was and publishes none of the adapter's fields, so the state never shows models for a server that stopped answering. A provider that answers only in part publishes what it answered. Whether an Ollama provider is ready is decided separately, by its version check; a vLLM provider is ready while at least one of its servers answers its probe.
+- **Act.** It makes a model ready (`ready`) or frees it (`release`). For Ollama, `ready` is the prompt-less load a first request would make, and `release` is `keep_alive: 0`. For vLLM, they are sleep and wake (below). The scheduler does not call these yet; models still load on demand when a call needs them, and the agent runtime still does the unloading.
 
-A provider is an address, not a process. It may be one server or a pool of servers behind one endpoint, and nothing in the provider state assumes otherwise.
+An adapter is handed the provider's whole spec, not one address, because a provider is not a process. It may be one server, a pool of servers behind one endpoint, or one server per model, and nothing in the provider state assumes otherwise.
 
 Beyond the fields described above, the provider state carries these optional fields. Each is absent when the provider's engine does not report it, and a reader treats absent as unknown, never as zero.
 
-| Field | Meaning | Ollama |
-|---|---|---|
-| `modelStates` | Each model by name: `awake` (loaded now), `asleep` (parked by the engine and quick to wake), or `available` (the provider has it, not loaded) | Filled from the loaded models (`awake`) and the downloaded ones (`available`); never `asleep` |
-| `requestsRunning`, `requestsWaiting` | Requests the engine is running and holding in its own queue, across the provider | Absent: Ollama exports no metrics, so the agents' tickets keep the live counts |
-| `kvCacheUsage` | Fraction of the engine's key-value cache in use, 0 to 1 | Absent |
-| `switchCostMs` | Observed time to make each model ready, by model, in milliseconds | Absent; the calibrated load time in `modelSpeeds` is the measure |
-| `hostMemoryParkedMiB` | Host memory holding the weights of models the engine put to sleep | Absent |
+| Field | Meaning | Ollama | vLLM |
+|---|---|---|---|
+| `modelStates` | Each model by name: `awake` (loaded now), `asleep` (parked by the engine and quick to wake), or `available` (the provider has it, not loaded) | Filled from the loaded models (`awake`) and the downloaded ones (`available`); never `asleep` | Each answering server's `/is_sleeping`: `awake` or `asleep`; never `available`, because a started server is one or the other |
+| `requestsRunning`, `requestsWaiting` | Requests the engine is running and holding in its own queue, across the provider | Absent: Ollama exports no metrics, so the agents' tickets keep the live counts | From `/metrics`, summed over the provider's servers |
+| `kvCacheUsage` | Fraction of the engine's key-value cache in use, 0 to 1 | Absent | From `/metrics`, the highest over the provider's servers |
+| `switchCostMs` | Observed time to make each model ready, by model, in milliseconds | Absent; the calibrated load time in `modelSpeeds` is the measure | Absent for now |
+| `hostMemoryParkedMiB` | Host memory holding the weights of models the engine put to sleep | Absent | Absent for now |
+| `modelEndpoints` | The server a call for each model goes to, by model, for a provider with one server per model | Absent: every model is at `endpoint` | The server of each model; `endpoint` is empty |
+
+#### vLLM: sleep and wake, never restart
+
+vLLM serves one model per server, so a `vllm` provider lists a server for each served model ([vLLM providers](../../reference/models/#vllm-providers)), and its sleep mode lets those servers share one accelerator. The adapter switches models by sleeping and waking servers and never restarts one: on the measured nodes a restart took 34 to 47 seconds, a level 1 wake 0.7 to 1.3, and a level 2 wake 2.5 to 4.9 (see the [measured results](../../concepts/choosing-a-model/#measured-results)).
+
+- **Probe.** Per server: `/health` (the server is up), `/v1/models` (the served name), `/is_sleeping` (`awake` or `asleep`; a server without the sleep endpoints counts as awake), and `/metrics` for `vllm:num_requests_running`, `vllm:num_requests_waiting`, and the key-value cache gauge. Because the provider state describes the whole provider, the request counts are summed over its servers and the cache use is the highest of them. vLLM has no fixed request slots, so `maxParallel` is not filled from the engine and the request counts and cache use are what show how busy it is.
+- **Ready.** The adapter first puts every other awake server of the provider to sleep at the provider's sleep level, then wakes the model's server. A server that is down (it answers neither its sleep state nor `/health`) holds no accelerator memory and is skipped. An awake server that cannot sleep, or whose sleep state cannot be read while it is up, fails the call, because the accelerator cannot be shown to be free. A model whose own server has no sleep endpoints is always awake, so there is nothing to do for it. At level 1 the wake is one call. At level 2 it is three, in order: restore the weight buffers, reload the weights from disk, restore the key-value cache.
+- **Release.** The adapter puts the model's server to sleep at the provider's sleep level, level 1 by default, which parks the weights in host memory. A server already asleep is left alone.
+
+The operator running the vLLM server group itself comes in a later change; today a `vllm` provider points at servers you run.
 
 ### Bounded retries and failure attribution
 

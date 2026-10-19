@@ -26,9 +26,11 @@ import (
 
 type stubAdapter struct{ client *http.Client }
 
-func (stubAdapter) Probe(context.Context, string) (Snapshot, error) { return Snapshot{}, nil }
-func (stubAdapter) Ready(context.Context, string, string) error     { return nil }
-func (stubAdapter) Release(context.Context, string, string) error   { return nil }
+func (stubAdapter) Probe(context.Context, aiv1alpha1.ModelProviderSpec) (Snapshot, error) {
+	return Snapshot{}, nil
+}
+func (stubAdapter) Ready(context.Context, aiv1alpha1.ModelProviderSpec, string) error   { return nil }
+func (stubAdapter) Release(context.Context, aiv1alpha1.ModelProviderSpec, string) error { return nil }
 
 func TestRegistryReturnsTheRegisteredAdapter(t *testing.T) {
 	reg := NewRegistry()

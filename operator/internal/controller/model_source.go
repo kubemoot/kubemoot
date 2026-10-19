@@ -34,19 +34,41 @@ const (
 )
 
 // sourceMismatch describes why the Model's source does not fit a provider of the
-// given type, or returns "" when it fits. An absent source is an Ollama tag, so
-// it fits an ollama provider. A huggingFace source on a type that is not yet
-// supported is left to the provider-type check, which reports that type.
+// given type, or returns "" when it fits. An ollama provider takes an ollama
+// source, or none (an absent source is an Ollama tag). A vllm provider takes a
+// huggingFace source and nothing else, because its servers load their own
+// weights from a pinned repository. A source on a type that is not supported is
+// left to the provider-type check, which reports that type.
 func sourceMismatch(model *aiv1alpha1.Model, providerType aiv1alpha1.ProviderType) string {
 	src := model.Spec.Source
-	if src == nil {
+	switch providerType {
+	case aiv1alpha1.ProviderTypeOllama:
+		return ollamaSourceMismatch(src)
+	case aiv1alpha1.ProviderTypeVLLM:
+		return vllmSourceMismatch(src)
+	default:
+		if src != nil && src.Ollama != nil {
+			return fmt.Sprintf("source.ollama does not fit a %s provider; use the source for that engine", providerType)
+		}
 		return ""
 	}
-	if src.HuggingFace != nil && providerType == aiv1alpha1.ProviderTypeOllama {
+}
+
+// ollamaSourceMismatch is the mismatch for an ollama provider: only a huggingFace source.
+func ollamaSourceMismatch(src *aiv1alpha1.ModelSource) string {
+	if src != nil && src.HuggingFace != nil {
 		return "source.huggingFace does not fit an ollama provider; use source.ollama or omit source"
 	}
-	if src.Ollama != nil && providerType != aiv1alpha1.ProviderTypeOllama {
-		return fmt.Sprintf("source.ollama does not fit a %s provider; use the source for that engine", providerType)
+	return ""
+}
+
+// vllmSourceMismatch is the mismatch for a vllm provider: anything but a huggingFace source.
+func vllmSourceMismatch(src *aiv1alpha1.ModelSource) string {
+	switch {
+	case src != nil && src.Ollama != nil:
+		return "source.ollama does not fit a vllm provider; use source.huggingFace"
+	case src == nil || src.HuggingFace == nil:
+		return "a model on a vllm provider needs source.huggingFace: the vLLM server loads its own weights from a pinned repository"
 	}
 	return ""
 }

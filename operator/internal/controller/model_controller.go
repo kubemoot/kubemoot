@@ -140,10 +140,14 @@ func (r *ModelReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 		return requeueNow(), nil
 	}
 
-	if provider.Spec.Type != aiv1alpha1.ProviderTypeOllama {
+	switch provider.Spec.Type {
+	case aiv1alpha1.ProviderTypeOllama:
+		return r.reconcileOllamaModel(ctx, model, provider)
+	case aiv1alpha1.ProviderTypeVLLM:
+		return r.reconcileVLLMModel(ctx, model, provider)
+	default:
 		return r.updateModelStatus(ctx, model, "Error", false, aiv1alpha1.UnsupportedProviderTypeMessage, nil)
 	}
-	return r.reconcileOllamaModel(ctx, model, provider)
 }
 
 // reconcileOllamaModel handles Ollama model reconciliation
