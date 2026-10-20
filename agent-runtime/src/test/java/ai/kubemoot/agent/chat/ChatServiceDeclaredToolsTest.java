@@ -103,7 +103,7 @@ class ChatServiceDeclaredToolsTest {
         assertEquals(SEARCH, failure.toolName());
         assertEquals(GATEWAY, failure.lastErrorContent());
         assertTrue(failure.getMessage().contains(SEARCH), failure.getMessage());
-        assertTrue(failure.getMessage().contains(GATEWAY), failure.getMessage());
+        assertFalse(failure.getMessage().contains("http"), "the board message names no address: " + failure.getMessage());
         verify(chatModel, never()).chat(any(ChatRequest.class));
     }
 
@@ -116,7 +116,8 @@ class ChatServiceDeclaredToolsTest {
         var failure = assertThrows(ToolCallFailure.class, () -> service.directChat(question(), true));
 
         assertEquals(ToolCallFailure.FailureType.TOOLS_UNAVAILABLE, failure.failureType());
-        assertTrue(failure.getMessage().contains("gateway unreachable"), failure.getMessage());
+        assertTrue(failure.lastErrorContent().contains("gateway unreachable"), failure.lastErrorContent());
+        assertTrue(failure.lastErrorContent().contains("http://gateway:8080"), failure.lastErrorContent());
         verify(chatModel, never()).chat(any(ChatRequest.class));
     }
 

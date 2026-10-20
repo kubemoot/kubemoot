@@ -201,8 +201,12 @@ them. A model without its tools answers from nothing and invents the result, so 
 answer-anyway agent would turn a broken tool server into a confident, wrong `agree`.
 
 A `failure` also reaches the final answer when other agents did agree. The coordinator's
-synthesis input lists the failures, and the published answer ends with a note naming each
-agent that failed and why, so a partial answer never reads as complete.
+synthesis input counts the failures and names the tools that could not be reached. The
+published answer ends with a short note in user terms, "Some sources could not be reached:
+search_oreilly_content. This answer does not include what they would have provided." The
+note names the missing tools only: never agent names, addresses, or error text, because an
+end user does not see the crew's mechanics. Operators find the agent, the gateway address and
+the error in the failure signal's fields, the logs, and the dashboard.
 
 An infrastructure gap and a specialist gap call for opposite responses - fix a broken
 MCP server versus onboard a new specialist - so keeping them distinct is the point.
