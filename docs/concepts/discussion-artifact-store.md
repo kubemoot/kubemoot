@@ -59,7 +59,8 @@ depending on the agent's network posture.
 Toolers, analysts, and the coordinator can reach NATS directly. They read the
 reference envelope, decide whether the preview suffices, and if not, issue a
 targeted read through the **read-ops MCP service** (`artifact-access` in `mcp`
-mode). That service exposes output-bounded tools that extract only the slice an
+mode; an MCPServer with `kubemootImage: artifactAccess` runs it without naming a version,
+see the [MCPServer guide](../../reference/mcpserver-guide/#run-a-kubemoot-built-server-without-naming-a-version)). That service exposes output-bounded tools that extract only the slice an
 agent needs:
 
 | Tool | What it returns |

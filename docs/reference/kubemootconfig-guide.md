@@ -51,6 +51,8 @@ The singleton must be named `default`. The operator creates it via the Helm char
 | `images.agentRuntime` | string | `ghcr.io/kubemoot/agent-runtime:latest` | Agent deployment image |
 | `images.mcpGateway` | string | `ghcr.io/kubemoot/mcp-gateway:latest` | MCPGateway deployment image |
 | `images.mcpBridge` | string | `ghcr.io/kubemoot/mcp-bridge:latest` | MCP bridge sidecar image |
+| `images.fitnessRunner` | string | `ghcr.io/kubemoot/fitness-runner:latest` | CrewFitness test job image |
+| `images.artifactAccess` | string | none (stamped by the operator chart) | artifact-access image. An MCPServer selects it with `spec.kubemootImage: artifactAccess` instead of naming an image. No default: an unset value leaves such an MCPServer in `Error` rather than floating a tag |
 | `images.doclingServe` | string | `quay.io/docling-project/docling-serve-cpu:latest` | Docling document converter image |
 
 ### Defaults

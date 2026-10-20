@@ -89,15 +89,30 @@ func (r *MCPServerReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	// Check if this is an external MCP server (no deployment needed)
 	if mcpServer.Spec.ExternalEndpoint != "" {
 		log.Info("Reconciling external MCPServer", "name", mcpServer.Name, "endpoint", mcpServer.Spec.ExternalEndpoint)
+		clearImageResolution(mcpServer)
 		return r.reconcileExternalMCPServer(ctx, mcpServer)
 	}
 
-	// Validate that Image is specified for managed MCP servers
-	if mcpServer.Spec.Image == "" {
-		return r.updateStatus(ctx, mcpServer, "Error", false, "Either Image or ExternalEndpoint must be specified")
-	}
+	return r.reconcileManagedMCPServer(ctx, mcpServer)
+}
 
-	log.Info("Reconciling managed MCPServer", "name", mcpServer.Name, "image", mcpServer.Spec.Image)
+// reconcileManagedMCPServer reconciles an image-backed MCPServer: resolves its image,
+// then its Deployment and Service, and reports status.
+func (r *MCPServerReconciler) reconcileManagedMCPServer(ctx context.Context, mcpServer *kubemootv1alpha1.MCPServer) (ctrl.Result, error) {
+	log := logf.FromContext(ctx)
+
+	// Resolve the image: spec.image, or the KubemootConfig image spec.kubemootImage selects
+	res, err := r.resolveMCPServerImage(ctx, mcpServer)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+	if !res.ok() {
+		return r.reconcileUnresolvedImage(ctx, mcpServer, res)
+	}
+	setImageResolvedCondition(mcpServer, res)
+	mcpServer = withResolvedImage(mcpServer, res.Image)
+
+	log.Info("Reconciling managed MCPServer", "name", mcpServer.Name, "image", res.Image)
 
 	// Reconcile Deployment
 	deployment, err := r.reconcileDeployment(ctx, mcpServer)
@@ -898,6 +913,8 @@ func (r *MCPServerReconciler) updateStatusFromDeployment(ctx context.Context, mc
 
 	return r.updateStatus(ctx, mcpServer, phase, ready, message,
 		withEndpoint(endpoint),
+		// mcpServer is the copy withResolvedImage made, so spec.image is the resolved image.
+		withImage(mcpServer.Spec.Image),
 		withReplicas(deployment.Status.Replicas, deployment.Status.AvailableReplicas),
 		withCapabilities(mcpServer.Spec.Capabilities))
 }
@@ -1036,6 +1053,12 @@ type statusOption func(*kubemootv1alpha1.MCPServerStatus)
 func withEndpoint(endpoint string) statusOption {
 	return func(s *kubemootv1alpha1.MCPServerStatus) {
 		s.Endpoint = endpoint
+	}
+}
+
+func withImage(image string) statusOption {
+	return func(s *kubemootv1alpha1.MCPServerStatus) {
+		s.Image = image
 	}
 }
 

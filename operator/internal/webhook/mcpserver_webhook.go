@@ -44,19 +44,26 @@ func (v *MCPServerValidator) ValidateDelete(ctx context.Context, _ *aiv1alpha1.M
 	return nil, nil
 }
 
+// validateMCPServer enforces exactly one of image, kubemootImage, externalEndpoint. The CRD
+// carries the same "at most one" rule in CEL (MCPServerSpec); this adds "at least one".
 func validateMCPServer(server *aiv1alpha1.MCPServer) (admission.Warnings, error) {
-	hasImage := server.Spec.Image != ""
 	hasExternal := server.Spec.ExternalEndpoint != ""
 
-	if hasImage && hasExternal {
-		return nil, fmt.Errorf("image and externalEndpoint are mutually exclusive, set only one")
+	set := 0
+	for _, present := range []bool{server.Spec.Image != "", hasExternal, server.Spec.KubemootImage != ""} {
+		if present {
+			set++
+		}
 	}
-	if !hasImage && !hasExternal {
-		return nil, fmt.Errorf("one of image or externalEndpoint must be set")
+	if set > 1 {
+		return nil, fmt.Errorf("image, kubemootImage, and externalEndpoint are mutually exclusive, set only one")
+	}
+	if set == 0 {
+		return nil, fmt.Errorf("one of image, kubemootImage, or externalEndpoint must be set")
 	}
 
 	if server.Spec.Transport == aiv1alpha1.TransportStdio && hasExternal {
-		return nil, fmt.Errorf("transport stdio requires a managed pod (image), not an externalEndpoint")
+		return nil, fmt.Errorf("transport stdio requires a managed pod (image or kubemootImage), not an externalEndpoint")
 	}
 
 	return nil, nil

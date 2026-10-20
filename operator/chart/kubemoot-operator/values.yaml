@@ -348,6 +348,7 @@ kubemootConfig:
     mcpBridge: mcp-bridge:0.0.0
     discussionGateway: discussion-gateway:0.0.0
     fitnessRunner: fitness-runner:0.0.0
+    artifactAccess: artifact-access:0.0.0
     doclingServe: quay.io/docling-project/docling-serve-cpu:latest
   # Default configurations
   defaults:
