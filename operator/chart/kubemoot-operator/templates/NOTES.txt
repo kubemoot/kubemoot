@@ -1,0 +1,41 @@
+Kubemoot operator installed in the namespace {{ .Release.Namespace }}.
+{{- if .Values.modelServers }}
+
+ModelServers declared by this release:
+{{- range .Values.modelServers }}
+  {{ .name }} ({{ .type }})
+{{- end }}
+{{- else }}
+
+No model server is declared yet. Agents stay Unschedulable until a ModelServer is Ready and
+its models are in the cluster's catalog.
+
+vLLM is the preferred engine for an installation. Install the kubemoot-vllm chart first
+(helm status of that release prints the values it needs), then point a ModelServer at its
+Service, either with the modelServers value of this chart:
+
+  modelServers:
+    - name: vllm-gpu
+      type: vllm
+      sleepLevel: 1
+      serviceRef: {name: kubemoot-vllm, namespace: vllm}
+
+or with a ModelServer manifest of your own. The sleepLevel must equal the one the
+kubemoot-vllm release uses. Every model that release serves joins the catalog on its own.
+
+Ollama is the alternative, and the engine of the quickstart:
+
+  modelServers:
+    - name: ollama-gpu
+      type: ollama
+      endpoint: http://ollama.ollama:11434
+      models:
+        - model: qwen3:14b
+
+Each models entry is downloaded onto the Ollama server and joins the catalog.
+{{- end }}
+
+Crews ship no Models: they select from the catalog by label. See what the cluster holds with
+
+  kubectl get modelservers -n {{ .Release.Namespace }}
+  kubectl get modelservers -n {{ .Release.Namespace }} -o jsonpath='{range .items[*]}{.metadata.name}{": "}{.status.models[*].name}{"\n"}{end}'

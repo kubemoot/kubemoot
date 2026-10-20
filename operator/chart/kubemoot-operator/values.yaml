@@ -108,13 +108,6 @@ health:
 # (see mcpServers below). Opt in only on clusters where every pod is trusted.
 internalAgents:
   enabled: false
-  # Shared model server for internal agents
-  modelServer:
-    name: ollama-gpu
-    endpoint: http://ollama.ollama:11434
-  # Shared model for inference
-  model:
-    name: qwen3:8b
   # MCP Quality Evaluator Agent
   qualityEvaluator:
     enabled: true
@@ -277,22 +270,14 @@ verify:
 # Its model-server-calibrator measures each ModelServer (load time, prompt and
 # generation speed, parallel throughput, fit) through the accelerator-mcp tools and
 # records the results on the server's status.calibration. Ask it with
-# `kmctl conversation ask kubemoot-scheduling "Calibrate ollama-gpu" -n kubemoot-scheduling`.
-# It renders only when modelServers below is not empty: its agents think with one
-# Model per chart-declared ModelServer.
+# `kmctl conversation ask kubemoot-scheduling "Calibrate <server name>" -n kubemoot-scheduling`.
+# It renders only when modelServers below is not empty. It ships no Models: like any
+# crew it selects from the cluster's model catalog, requiring a model that calls
+# tools and preferring a small, fast one. The catalog needs such a model: list one
+# under modelServers[].models, or serve one on a vLLM server.
 schedulingCrew:
   enabled: true
   namespace: kubemoot-scheduling
-  # The small tool-calling model the crew's agents think with. The chart declares one
-  # Model per ModelServer in modelServers below; the scheduler places each call.
-  # Like any Model, it is pulled onto each server that lacks it, and deleting the
-  # Model (disabling the crew, changing this name) removes the model from a server
-  # only when no other Model on that server uses the same tag. Choosing a model other
-  # crews already use costs no extra disk.
-  model:
-    name: qwen3:8b
-    vramMib: 5120
-    contextWindow: "40960"
   gateway:
     resources:
       requests:
@@ -387,10 +372,16 @@ webhook:
   certManager:
     enabled: true
 
-# ModelServers define GPU/inference backends available for scheduling.
-# These are infrastructure resources: agents reference equivalence groups,
-# not servers directly. The scheduler distributes agents across servers.
-# Each entry: name, type, endpoint, optional namespace (default: the release
+# ModelServers declare the inference servers Kubemoot schedules models onto. They are
+# infrastructure: agents never name a server, the scheduler places each call. The
+# list is empty because a chart cannot point at a server that does not exist; install
+# a server first, then list it here.
+#
+# vLLM is the preferred engine for an installation: install the kubemoot-vllm chart
+# first (release name kubemoot-vllm, namespace vllm) and point serviceRef at its
+# Service. Ollama stays supported, and is the engine of the quickstart.
+#
+# Each entry: name, type (vllm or ollama), optional namespace (default: the release
 # namespace), optional schedulingWeight (spec.scheduling.weight) and optional
 # memoryMiB (spec.scheduling.memoryMiB: the memory budget the fit gate spends
 # when the operator cannot discover one, such as the host RAM of a CPU server;
@@ -398,9 +389,9 @@ webhook:
 # A vllm server has no endpoint. It sets exactly one of serviceRef ({name,
 # namespace}: the Service of a vLLM install such as the kubemoot-vllm chart; the
 # operator finds the servers from its ports) or servers (a list of {model,
-# endpoint} for vLLM deployed another way), and optionally sleepLevel. All three are
-# copied into the ModelServer spec as they are. The scheduling crew declares no
-# Model on a vllm server.
+# endpoint} for vLLM deployed another way), and optionally sleepLevel (it must equal
+# the kubemoot-vllm release's sleepLevel). All three are copied into the ModelServer
+# spec as they are. An ollama server sets endpoint.
 # models (optional): the cluster's model catalog entries for the server, each rendered as
 # a Model in the server's namespace: {model, parameters, capabilities, contextLength,
 # vramMib, labels, disabled}. An Ollama server downloads each model that is missing. Only
@@ -409,26 +400,22 @@ webhook:
 # have the model downloaded, to declare what the server cannot report, to add labels, or
 # (disabled: true) to keep a model out. A vLLM model needs no entry when it is served by the
 # kubemoot-vllm chart, which declares each model's parameters and capabilities itself.
+# Crews ship no Models; they select from this catalog by label.
 # Example:
-#   - name: ollama-gpu
-#     type: ollama
-#     endpoint: http://ollama.ollama:11434
-#     schedulingWeight: 100
-#     models:
-#       - model: qwen3:32b
-#       - model: qwen3:14b
-#   - name: ollama-cpu
-#     type: ollama
-#     endpoint: http://ollama.ollama-cpu:11434
-#     memoryMiB: 20480
 #   - name: vllm-gpu
 #     type: vllm
-#     serviceRef: {name: vllm-gpu, namespace: vllm}
+#     sleepLevel: 1
+#     serviceRef: {name: kubemoot-vllm, namespace: vllm}
 #   - name: vllm-external
 #     type: vllm
-#     sleepLevel: 1
 #     servers:
 #       - {model: "qwen3:14b", endpoint: "http://vllm-14b.models:8000"}
+#   - name: ollama-cpu
+#     type: ollama
+#     endpoint: http://ollama.ollama:11434
+#     memoryMiB: 20480
+#     models:
+#       - model: qwen2.5:1.5b
 modelServers: []
 
 # Grafana dashboard provisioning via sidecar ConfigMap discovery

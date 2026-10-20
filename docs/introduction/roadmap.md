@@ -54,29 +54,22 @@ picture.
 
 ## Assessing model servers beyond Ollama
 
-**Today:** Ollama is the only self-hosted model server Kubemoot drives.
-
-**Direction:** we will soon assess other model servers and inference serving platforms,
-such as vLLM, llama.cpp, and llm-d, in the interest of giving crews the best GPU and
-model resources in the shortest time. Beyond the cluster, rented cloud GPUs reached as
-model servers, so a crew can borrow capacity it does not own. Agents never name a
-model server or where it runs, so a crew does not change when the server beneath it
-does.
-
-A spike is planned soon on an engine-state contract for the scheduler. Instead of
-probing Ollama directly, the scheduler will read each model server's live state through
-one contract: requests running and queued, KV cache use, loaded models with their
-context and parallel capacity, and load and unload events. The contract aligns with the
-Kubernetes Gateway API Inference Extension
+**Today:** Kubemoot drives two model servers, vLLM and Ollama. vLLM is the currently
+preferred engine for an installation, because overlapping calls to one model are the normal
+case in a moot (see the [measured results](../../concepts/choosing-a-model/#measured-results)).
+Ollama is the engine of the [quickstart](../quickstart/) and remains supported. The scheduler
+reads each server's live state through one contract: requests running and queued, KV cache
+use, loaded models with their context and parallel capacity, and load and unload events. The
+contract aligns with the Kubernetes Gateway API Inference Extension
 [Model Server Protocol](https://github.com/kubernetes-sigs/gateway-api-inference-extension/blob/main/docs/proposals/003-model-server-protocol/README.md),
-a proposal in the Gateway API Inference Extension project that vLLM implements natively. Each model server gets an adapter
-that fills the contract, Ollama's first.
+and each engine has one adapter that fills it. Agents never name a model server or where it
+runs, so a crew does not change when the server beneath it does.
 
-The spike also tries vLLM as a substitute for Ollama on the tool-calling roles, where
-many agents call the same model at once and vLLM's continuous batching should help. It
-is measured against Ollama before any default changes. The payoff: scheduler decisions
-improve as it sees more state, and changing the model server under a crew becomes a new
-adapter, not a rework.
+**Direction:** assess further model servers and inference serving platforms, such as
+llama.cpp and llm-d, in the interest of giving crews the best accelerator and model resources
+in the shortest time. Beyond the cluster, rented cloud accelerators reached as model
+servers, so a crew can borrow capacity it does not own. Adding an engine means writing one
+adapter, not reworking a crew.
 
 ## MCP sources from public and private registries
 

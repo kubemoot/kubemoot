@@ -170,11 +170,15 @@ If `nvidia.com/gpu` is missing, work from the bottom up:
 Once the node has `nvidia.com/gpu` capacity, the rest follows the pattern in
 [Put a model server on your GPU nodes](../../introduction/installation/#put-a-model-server-on-your-gpu-nodes):
 
-1. Deploy a model server (Ollama) pinned to the GPU node, requesting `nvidia.com/gpu: 1`.
+1. Deploy a model server pinned to the GPU node, requesting `nvidia.com/gpu: 1`. vLLM,
+   installed with the `kubemoot-vllm` chart, is the currently preferred engine
+   ([Run vLLM on a GPU node](#run-vllm-on-a-gpu-node)); Ollama is the supported
+   alternative ([Run Ollama on a GPU node](#run-ollama-on-a-gpu-node)).
 2. Declare one `ModelServer` pointing at that server's Service.
 3. The operator discovers the models, the node, and, when DCGM metrics are available,
-   the GPU model and VRAM from the node. The scheduler then loads and evicts models on
-   that GPU on demand.
+   the GPU model and VRAM from the node. Every chat model the server has joins the
+   cluster's model catalog, and crews select from the catalog by label. The scheduler
+   then loads and evicts models on that GPU on demand.
 
 Two GPU nodes mean two model servers and two ModelServers. To see GPU utilization and
 VRAM in the dashboard, deploy the NVIDIA DCGM exporter and point the operator at your
@@ -182,10 +186,12 @@ Prometheus. See [Observability](../observability/) and [Models](../../reference/
 
 ## Run vLLM on a GPU node
 
-vLLM is the currently preferred engine for a model that several agents call at once (see
-[Choosing a Model](../../concepts/choosing-a-model/#the-serving-runtime-is-a-separate-choice)).
-Install the model server first, then tell Kubemoot about it: Kubemoot runs no model servers
-itself. Ollama stays the engine of the quickstart.
+vLLM is the currently preferred engine for an installation: a moot sends overlapping calls
+to the same model, and in the [measured results](../../concepts/choosing-a-model/#measured-results)
+vLLM served overlapping calls 2.0 to 3.7 times faster than Ollama on the same cards. Install
+the model server first, then tell Kubemoot about it: Kubemoot runs no model servers itself.
+Ollama stays the engine of the quickstart and a supported alternative
+([below](#run-ollama-on-a-gpu-node)).
 
 ### Install the servers with the kubemoot-vllm chart
 
@@ -213,10 +219,14 @@ models:
   - servedName: qwen3:14b
     repo: Qwen/Qwen3-14B-AWQ
     revision: 31c69efc
+    parameters: 14B
+    capabilities: [tool-calling, reasoning]
     args: [--gpu-memory-utilization=0.85, --max-model-len=16384, --enable-auto-tool-choice, --tool-call-parser=hermes]
   - servedName: qwen3:32b
     repo: Qwen/Qwen3-32B-AWQ
     revision: 0499c3ac
+    parameters: 32B
+    capabilities: [tool-calling, reasoning]
     args: [--gpu-memory-utilization=0.95, --max-model-len=16384, --enable-auto-tool-choice, --tool-call-parser=hermes]
 ```
 
@@ -232,7 +242,7 @@ What the values mean:
 | `weights` | A ReadWriteOnce volume (`storageClassName`, `size`) for the downloaded weights and vLLM's compile cache. Helm keeps it when you uninstall, so the weights are never downloaded twice by accident; delete the claim yourself to free the space. |
 | `shmSize` | The memory-backed `/dev/shm` that vLLM's workers share. It counts against the memory limit. Default `8Gi`. |
 | `sleepLevel` | `1` parks sleeping weights in host memory (fast to wake), `2` drops them and reloads from disk. Default `1`. |
-| `models` | One server each: `servedName` (`--served-model-name`), `repo`, `revision`, and the model's own `args` (memory fraction, context length, tool and reasoning parsers). The chart refuses `--model`, `--served-model-name`, `--revision`, `--port`, `--host`, and `--enable-sleep-mode` in `args`, because it sets them. |
+| `models` | One server each: `servedName` (`--served-model-name`), `repo`, `revision`, `parameters` and `capabilities`, and the model's own `args` (memory fraction, context length, tool and reasoning parsers). vLLM cannot report a model's parameter count or abilities, so the chart declares them once and publishes them on its Service; the operator reads them into the model catalog, where `parameters` gives the model its size class and `capabilities` become the labels crews select on. Set `tool-calling` only when `args` also turn tool calls on. The chart refuses `--model`, `--served-model-name`, `--revision`, `--port`, `--host`, and `--enable-sleep-mode` in `args`, because it sets them. |
 
 The chart starts the servers one at a time in a single container, because each measures
 free accelerator memory when it starts: it starts a server, waits for its `/health`, puts
@@ -263,9 +273,9 @@ ordered by `servedName`, on ports 8000 and up, and adding or removing a model re
 pod. The pod meets the `restricted` Pod Security level except `runAsNonRoot`, because the
 vLLM image runs as root, so its namespace needs `baseline`.
 
-The install notes print the next two steps ready to copy. The first is a ModelServer that
-names the chart's Service, so you write no endpoints; the operator reads the Service's ports
-and asks each one which model it serves:
+The install notes print the ModelServer ready to copy. It names the chart's Service, so you
+write no endpoints; the operator reads the Service's ports and asks each one which model it
+serves. Its `sleepLevel` must equal the release's:
 
 ```yaml
 apiVersion: kubemoot.ai/v1alpha1
@@ -277,9 +287,11 @@ spec:
   serviceRef: {name: vllm-gpu-kubemoot-vllm, namespace: vllm}
 ```
 
-The second is a Model for each model, with the labels your crews select models by. The
-served name is in two places, the chart values and the Model's `model`, and the operator
-reports a mismatch on the Model (`ServedNameFound` is `False`) instead of guessing. See
+The operator chart can create the same ModelServer from its `modelServers` values. No Model
+is needed: every model the release serves joins the cluster's model catalog on its own, with
+the size and abilities the release's values declare. Add a Model in the operator's namespace
+only to give a model labels of your own (data residency, license), to correct what the chart
+declares, or to keep a model out of the catalog (`disabled: true`). See
 [Models](../../reference/models/#vllm-servers) for the fields. Every server starts asleep. When a
 call needs a model, the agent runtime asks the operator to wake it, and the operator puts the
 awake one to sleep first, so the first call to a model waits for its wake (seconds).
@@ -322,6 +334,30 @@ already does the ones marked (chart); any other vLLM deployment must do them its
   against the limit.
 - **Allow for start-up time.** From a warm weights volume, start-up took 100 to 220 s,
   mostly CUDA graph capture and compilation. Set probes so Kubernetes waits for it.
+
+## Run Ollama on a GPU node
+
+Ollama is the engine of the [quickstart](../../introduction/quickstart/) and stays supported
+for an installation. It suits a host without the memory to park vLLM weights, many models
+that share a card and are each used now and then, and CPU-only or small setups (see
+[the serving runtime](../../concepts/choosing-a-model/#the-serving-runtime-is-a-separate-choice)).
+Deploy it as an ordinary workload pinned to the GPU node that requests `nvidia.com/gpu`, for
+example with the community [Ollama Helm chart](https://github.com/otwld/ollama-helm), then
+point a `ModelServer` at its Service and list the models the cluster should have. Kubemoot
+downloads each listed model that the server lacks:
+
+```yaml
+# kubemoot-operator values
+modelServers:
+  - name: ollama-gpu
+    type: ollama
+    endpoint: http://ollama.ollama:11434
+    models:
+      - model: qwen3:14b
+```
+
+Only `model` is needed: the operator reads the size, context window and abilities from
+Ollama. Models the server already has join the catalog without an entry.
 
 ## Worked example: Proxmox and Talos
 
@@ -367,7 +403,7 @@ mig:
   strategy: none
 ```
 
-**Kubemoot.** Each GPU worker runs its own Ollama pinned to the node, and each Ollama
+**Kubemoot.** Each GPU worker runs its own model server pinned to the node, and each
 has a `ModelServer`. DCGM metrics tell the operator which GPU and how much VRAM each
 server has, and the scheduler places models across the two on demand.
 

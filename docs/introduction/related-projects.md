@@ -134,24 +134,26 @@ points new users to Microsoft Agent Framework.
 ## Model serving and inference routing
 
 These projects serve models. Kubemoot does not replace them; it sits above a model
-server. Today Ollama is the only model server Kubemoot drives. Reading the state of
-other servers, and the projects below in particular, is under assessment on the
-[Roadmap](../roadmap/) and is not shipped.
+server. Today Kubemoot drives vLLM, which is currently preferred, and Ollama, the engine of
+the quickstart. Reading the state of other servers, and the projects below in particular, is
+under assessment on the [Roadmap](../roadmap/) and is not shipped.
 
 ### Ollama
 
 [Ollama](https://github.com/ollama/ollama) runs open models locally through a REST API,
-powered by the llama.cpp inference engine. It is the model server Kubemoot's reference
-crews use. Ollama serves models; Kubemoot decides which model server and model serve
+powered by the llama.cpp inference engine. It is the model server of the Kubemoot
+quickstart and remains supported. Ollama serves models; Kubemoot decides which model server and model serve
 each inference call and coordinates the agents that use them.
 
 ### vLLM
 
 [vLLM](https://github.com/vllm-project/vllm) is a library for LLM inference and serving.
 Its README lists continuous batching, prefix caching, PagedAttention, distributed
-inference, and an OpenAI-compatible API server. Kubemoot cannot drive vLLM today.
-Trying it as a substitute for Ollama is part of the planned engine-state work on the
-[Roadmap](../roadmap/#assessing-model-servers-beyond-ollama).
+inference, and an OpenAI-compatible API server. Kubemoot drives vLLM through a `vllm`
+ModelServer, and vLLM is currently the preferred engine for an installation (see the
+[measured results](../../concepts/choosing-a-model/#measured-results)). Kubemoot does not
+run vLLM: you install it, for example with the `kubemoot-vllm` chart, and point a
+ModelServer at it.
 
 ### KServe
 
@@ -175,10 +177,9 @@ crews. Assessing llm-d is on the [Roadmap](../roadmap/).
 The [Gateway API Inference Extension](https://gateway-api-inference-extension.sigs.k8s.io/)
 is an official Kubernetes project that makes gateways inference-aware. Its Endpoint
 Picker routes requests using model server metrics such as cache status and adapter
-availability. Kubemoot's planned engine-state contract aligns with its
+availability. Kubemoot's engine-state contract aligns with its
 [Model Server Protocol](https://github.com/kubernetes-sigs/gateway-api-inference-extension/blob/main/docs/proposals/003-model-server-protocol/README.md),
-as described on the [Roadmap](../roadmap/#assessing-model-servers-beyond-ollama). That
-work is not shipped.
+as described on the [Roadmap](../roadmap/#assessing-model-servers-beyond-ollama).
 
 ### KAITO
 

@@ -44,12 +44,25 @@ for ref in $(yq -N 'select(.kind == "Agent" and .metadata.namespace == "kubemoot
 done
 [ "$(get "$out" Skill judge-a-drift .metadata.namespace)" = "$ns" ] || fail "the drift-judgment skill is missing"
 
-# One small Model per ModelServer the chart declares, low latency, tool-calling.
-[ "$(count "$out" '.kind == "Model" and .metadata.namespace == "kubemoot-scheduling"')" = 2 ] \
-  || fail "expected one Model per ModelServer"
-[ "$(get "$out" Model gpu-qwen3-8b .spec.serverRef)" = gpu ] || fail "the gpu Model does not reference its server"
-[ "$(get "$out" Model cpu-qwen3-8b '.metadata.labels["capability/tool-calling"]')" = "true" ] \
-  || fail "the crew's Model is not labeled tool-calling"
+# The crew ships no Models: it selects from the cluster's catalog, requiring tool-calling
+# and preferring small and measured-faster.
+[ "$(count "$out" '.kind == "Model" and .metadata.namespace == "kubemoot-scheduling"')" = 0 ] \
+  || fail "the crew ships Models of its own"
+[ "$(count "$out" '.kind == "Model"')" = 0 ] || fail "the chart renders Models without a models entry"
+policy=CrewSchedulingPolicy
+[ "$(get "$out" $policy kubemoot-scheduling-scheduling '.spec.rules[] | select(.phase == "mulling") | .require.matchLabels["capability/tool-calling"]')" = "true" ] \
+  || fail "mulling does not require tool-calling"
+[ "$(get "$out" $policy kubemoot-scheduling-scheduling '.spec.rules[] | select(.phase == "triage") | .require.matchLabels["capability/tool-calling"]')" = "true" ] \
+  || fail "triage does not require tool-calling"
+[ "$(get "$out" $policy kubemoot-scheduling-scheduling '.spec.rules[] | select(.phase == "triage") | .prefer[0].selector.matchLabels["kubemoot.ai/size"]')" = small ] \
+  || fail "triage does not prefer a small model"
+[ "$(get "$out" $policy kubemoot-scheduling-scheduling '.spec.rules[] | select(.phase == "triage") | .preferFaster')" = 50 ] \
+  || fail "triage does not prefer the faster model"
+[ -n "$(get "$out" $policy kubemoot-scheduling-scheduling '.spec.qualityBias.default // ""')" ] \
+  || fail "mulling has no qualityBias to follow size"
+if get "$out" $policy kubemoot-scheduling-scheduling . | grep -q latencyClass; then
+  fail "the policy selects on the retired latencyClass label"
+fi
 
 # The tools: accelerator-mcp is a core MCP server in the operator's (release)
 # namespace, offered to crews, started by the buildpacks launcher, as a ServiceAccount
@@ -93,11 +106,6 @@ none="$(render)"
 [ "$(count "$none" '.metadata.namespace == "kubemoot-scheduling" or .metadata.name == "kubemoot-scheduling"')" = 0 ] \
   || fail "the crew renders without ModelServers"
 
-# A model name with characters a resource name cannot hold becomes a valid name.
-odd="$(render "${servers[@]}" --set schedulingCrew.model.name=hf.co/Org/Model-X:Q4)"
-name="$(yq -N 'select(.kind == "Model" and .spec.serverRef == "gpu") | .metadata.name' <<<"$odd")"
-[[ "$name" =~ ^[a-z0-9]([a-z0-9-]*[a-z0-9])?$ ]] || fail "invalid Model name: $name"
-
 # Off: nothing of the crew renders.
 off="$(render "${servers[@]}" --set schedulingCrew.enabled=false)"
 [ "$(count "$off" '.metadata.namespace == "kubemoot-scheduling" or .metadata.name == "kubemoot-scheduling"')" = 0 ] \
@@ -114,10 +122,15 @@ for value in acceleratorMcp.enabled=false nats.enabled=false; do
   [ "$(count "$gone" '(.metadata.name | test("accelerator-mcp"))')" = 0 ] || fail "accelerator-mcp renders with $value"
 done
 
-# Another namespace and model are honored.
-other="$(render "${servers[@]}" --set schedulingCrew.namespace=km-sched --set schedulingCrew.model.name=llama3.2:3b)"
+# Another namespace is honored.
+other="$(render "${servers[@]}" --set schedulingCrew.namespace=km-sched)"
 [ "$(get "$other" Crew kubemoot-scheduling .metadata.namespace)" = km-sched ] || fail "namespace value ignored"
 [ "$(crew_env "$other")" = "km-sched/kubemoot-scheduling" ] || fail "the operator is told the wrong crew namespace"
-[ "$(get "$other" Model gpu-llama3-2-3b .spec.model)" = "llama3.2:3b" ] || fail "model value ignored"
+
+# A vLLM server alone is enough: the crew renders with no Model on it.
+vllm="$(render --set 'modelServers[0].name=vllm-gpu' --set 'modelServers[0].type=vllm' \
+  --set 'modelServers[0].serviceRef.name=kubemoot-vllm' --set 'modelServers[0].serviceRef.namespace=vllm')"
+[ "$(get "$vllm" Crew kubemoot-scheduling .metadata.namespace)" = "$ns" ] || fail "the crew does not render on a vLLM server"
+[ "$(count "$vllm" '.kind == "Model"')" = 0 ] || fail "a Model renders for the vLLM server"
 
 echo "PASS: scheduling crew render tests"

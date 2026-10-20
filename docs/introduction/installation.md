@@ -5,8 +5,8 @@ description: "Prerequisites and the Helm install of the Kubemoot operator; other
 ---
 
 This page installs the **Kubemoot operator**: what a cluster needs before it runs, and
-how to install it on your own cluster - the GPU-backed deployment Kubemoot is built
-for. If you want to try the protocol first without a GPU, the
+how to install it on your own cluster - the accelerator-backed deployment Kubemoot is
+built for. If you want to try the protocol first without an accelerator, the
 [Quickstart](../quickstart/) runs a smaller CPU-only trial with its own script and its
 own limits, described below.
 
@@ -26,15 +26,16 @@ its own page:
   is required for the initial install, since Kubemoot installs CRDs and cluster-scoped
   RBAC.
 - **Helm** (v3.8+, for OCI charts). The operator ships only as a Helm chart.
-- **A model server** - at least one GPU-backed inference endpoint that serves the
-  models your crew will use. Kubemoot is built for Ollama today; one or more GPUs are
-  the intended target. A crew composes capability from several small models, so a
-  single modest GPU is enough to start. The GPU must be visible to the worker node,
-  on bare metal or passed through to a VM (see [GPU Worker Nodes](../../operating/gpu-worker-nodes/));
-  running a model server on it is covered in
-  [Put a model server on your GPU nodes](#put-a-model-server-on-your-gpu-nodes) below.
-  [Ollama](https://ollama.com/) can be installed in-cluster with the community
-  [Ollama Helm chart](https://github.com/otwld/ollama-helm).
+- **A model server** - at least one inference server on an accelerator that serves the
+  models your crew will use. vLLM is currently the preferred engine: a moot sends
+  overlapping calls to the same model, and vLLM served those faster than Ollama in the
+  [measured results](../../concepts/choosing-a-model/#measured-results). Install it with
+  the `kubemoot-vllm` chart, as [Install a model server](#install-a-model-server) below
+  shows. [Ollama](https://ollama.com/) stays supported, and is the engine of the
+  [Quickstart](../quickstart/). A crew composes capability from several small models, so a
+  single modest accelerator is enough to start. The accelerator must be visible to the
+  worker node, on bare metal or passed through to a VM (see
+  [GPU Worker Nodes](../../operating/gpu-worker-nodes/)).
 - **NATS JetStream** - the message bus crews deliberate over. It can run in-cluster;
   the operator publishes discussion and event traffic to it. Install it with the
   official [NATS Helm chart](https://docs.nats.io/running-a-nats-service/nats-kubernetes)
@@ -43,16 +44,41 @@ its own page:
   required for a discussion-only crew. See [pgvector](https://github.com/pgvector/pgvector)
   for PostgreSQL with vector search.
 
-## CPU trial vs. GPU deployment
+## CPU trial vs. accelerator deployment
 
-Kubemoot does not require a GPU to run. The [Quickstart](../quickstart/) runs on a
-node with 2 CPUs and 8 GB free and no accelerator, and its
-[CPU trial profile](../quickstart/#the-cpu-trial-profile) table lists what differs from a
-GPU deployment: smaller models, a smaller crew, and slower answers. The rest of this page
-installs the GPU-backed profile.
+Kubemoot does not require an accelerator to run. The [Quickstart](../quickstart/) runs on a
+node with 2 CPUs and 8 GB free and no accelerator, on Ollama, and its
+[CPU trial profile](../quickstart/#the-cpu-trial-profile) table lists what differs from an
+accelerator deployment: smaller models, a smaller crew, and slower answers. The rest of
+this page installs the accelerator-backed profile, on vLLM.
 
 Release images are amd64 only today (see the [Roadmap](../roadmap/)). On an arm64 cluster
 or laptop they run under emulation or fail to start with an exec format error.
+
+## Install a model server
+
+Install the model server before the operator, because the operator is pointed at it. vLLM
+is the currently preferred engine. The `kubemoot-vllm` chart installs it as plain
+Kubernetes objects: one pod on one accelerator that runs a vLLM server for each model you
+list, a Service with a port per model, and a volume for the weights. Describe the pod, the
+volume, and the models in a values file (the full set of values, with the node and memory
+requirements, is in [Run vLLM on a GPU node](../../operating/gpu-worker-nodes/#run-vllm-on-a-gpu-node)):
+
+```bash
+helm install kubemoot-vllm oci://ghcr.io/kubemoot/charts/kubemoot-vllm \
+  --namespace vllm --create-namespace -f values.yaml
+```
+
+Each model's `parameters` and `capabilities` go in those values, because vLLM cannot
+report them. The chart publishes them on its Service, and the operator reads them into the
+cluster's model catalog, so no Model object is needed. The first start downloads the
+weights and compiles each model, which takes minutes.
+
+Ollama is the alternative, and the engine the quickstart uses. It suits CPU-only and
+small setups, and hosts without the memory to park vLLM weights. Deploy it as an ordinary
+workload, for example with the community
+[Ollama Helm chart](https://github.com/otwld/ollama-helm), and point the operator at its
+Service as shown next.
 
 ## Install the operator
 
@@ -76,6 +102,38 @@ helm upgrade --install kubemoot-operator \
 
 The published chart is `oci://ghcr.io/kubemoot/charts/kubemoot-operator`; pass it as
 the chart reference with `--version` for a specific release.
+
+### Point the operator at your model server
+
+The chart's `modelServers` value is empty, because a chart cannot point at a server that
+does not exist. Once your model server is up, list it in a values file. For the vLLM
+release installed above:
+
+```yaml
+# values.yaml for kubemoot-operator
+modelServers:
+  - name: vllm-gpu
+    type: vllm
+    sleepLevel: 1            # the same level as the kubemoot-vllm release
+    serviceRef: {name: kubemoot-vllm, namespace: vllm}
+```
+
+For Ollama, name the endpoint and the models the cluster should have; Kubemoot downloads
+each one the server lacks:
+
+```yaml
+modelServers:
+  - name: ollama-gpu
+    type: ollama
+    endpoint: http://ollama.ollama:11434
+    models:
+      - model: qwen3:14b
+```
+
+Pass the file with `--values values.yaml` to the `helm upgrade --install` above. The chart
+creates a `ModelServer` for each entry, and a `Model` in the operator's namespace for each
+`models` entry. Crews ship no Models: they select from this catalog by label, so changing
+the engine or adding a server changes the catalog and no crew.
 
 ### Optional: the dashboard
 
@@ -124,7 +182,7 @@ You should see the operator pod `Running` and the Kubemoot CRDs registered
 
 ## Put a model server on your GPU nodes
 
-Kubemoot does not install Ollama, and it does not pick GPU nodes for you. The seam is
+Kubemoot does not install model servers, and it does not pick GPU nodes for you. The seam is
 deliberate: placement is yours, capacity is discovered. Getting a GPU into a worker node
 in the first place, including VM passthrough, is covered in
 [GPU Worker Nodes](../../operating/gpu-worker-nodes/).
@@ -135,12 +193,12 @@ in the first place, including VM passthrough, is covered in
    affinity, requesting `nvidia.com/gpu`, with the runtime class your cluster uses for
    NVIDIA. Each such server becomes one ModelServer with its GPU's VRAM, and the scheduler
    places models across the servers, loading and evicting them on demand. The CPU
-   trial runs a single Deployment with no GPU at all.
+   trial runs a single Ollama Deployment with no GPU at all.
 2. **You declare a `ModelServer` per model server.** One manifest for each: the
    type, that server's Service URL, a weight, and, when the host cannot be measured, a
    memory budget. Two GPU nodes, two model servers, two ModelServers. This is the only static
    declaration the operator needs.
-3. **The operator discovers the rest.** It probes the endpoint for available and loaded
+3. **The operator discovers the rest.** It probes the server for available and loaded
    models, follows the Service to its backing pod, records that pod's node, reads
    `OLLAMA_NUM_PARALLEL`, and, when a Prometheus endpoint is configured, queries the
    DCGM metrics for that node to learn the GPU model and its total and used VRAM.
@@ -151,12 +209,10 @@ in the first place, including VM passthrough, is covered in
    that serves the call, not to the largest GPU in the cluster: a 32B model needs a
    server whose GPU holds it, and smaller roles land on the smaller GPU.
 
-Install the model server first, then declare the server. vLLM is currently the
-preferred engine on an accelerator node: install it with the `kubemoot-vllm` chart (or any vLLM
-deployment) and point a `ModelServer` at its Service with `spec.serviceRef`, as
-[Run vLLM on a GPU node](../../operating/gpu-worker-nodes/#run-vllm-on-a-gpu-node)
-shows. Ollama is the engine of the quickstart and stays supported. The example below
-uses Ollama.
+The model server comes first, then the declaration. Besides the chart value shown above, a
+`ModelServer` is an ordinary manifest. The example below declares two Ollama servers; for a
+vLLM server, set `type: vllm` and `serviceRef` instead of `endpoint`, as
+[Run vLLM on a GPU node](../../operating/gpu-worker-nodes/#run-vllm-on-a-gpu-node) shows.
 
 ```yaml
 apiVersion: kubemoot.ai/v1alpha1
@@ -195,8 +251,10 @@ that state looks like saves you from wondering whether the install is broken:
   message such as `Failed to connect to Ollama: ...` until the operator can reach the
   endpoint and parse a version response. Once it can, `status.phase` becomes `Ready`.
 - **`Agent`** reports `status.phase: Unschedulable` and `status.ready: false` with
-  message `no feasible Model for mulling phase` (or a more specific scheduling reason)
-  when no `Model` on a `Ready` `ModelServer` satisfies its declared capabilities. An
+  a message such as `no model in the cluster catalog ... satisfies the require of
+  phase=mulling` (or a more specific scheduling reason) when the model catalog holds no
+  model that satisfies its declared capabilities; an empty catalog says that no server
+  reports a model. An
   unschedulable agent gets **no Deployment at all** - there is no crash-looping pod to
   find, because none was created. The operator keeps retrying on a backoff until a
   server appears.

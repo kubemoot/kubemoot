@@ -1,24 +1,31 @@
 ---
 title: "Quickstart"
 weight: 40
-description: "Try Kubemoot on a laptop, no GPU required, in one script."
+description: "Try Kubemoot on a laptop, no accelerator required, in one script."
 ---
 
 This is a laptop trial: one script takes an empty Kubernetes cluster to a real crew
-answering a real question, on CPU, with no GPU required. It runs the same protocol as
+answering a real question, on CPU, with no accelerator required. It runs the same protocol as
 a production deployment - a coordinator convening a Tooler, signals exchanged over
 NATS, an answer synthesized - just smaller and slower, because it runs on CPU with a
-1-3B model instead of a GPU with a reasoning-sized one. See
-[Installation](../installation/) for the GPU-backed deployment this trial is a preview
-of, and the profile table below for exactly what's smaller and slower.
+1-3B model instead of an accelerator with a reasoning-sized one. The trial uses Ollama,
+which is familiar and runs anywhere; an installation prefers vLLM. See
+[Installation](../installation/) for the accelerator-backed deployment this trial is a
+preview of, and the profile table below for exactly what's smaller and slower.
 
 ## Run it
 
 ```bash
 git clone https://github.com/kubemoot/kubemoot.git && cd kubemoot
+git checkout "$(git describe --tags --abbrev=0 --match 'operator-chart-v[0-9]*' --exclude '*-rc.*')"
 kind create cluster --name kubemoot     # or any cluster your kubectl points at
 ./quickstart/quickstart.sh
 ```
+
+The `git checkout` selects the latest release, so the manifests next to the script are the
+ones written for the chart it installs. The script installs the chart of the release it is
+checked out at; if the quickstart files differ from the latest release, it stops and says
+so instead of installing a chart they may not match.
 
 Needs `kubectl`, `helm`, and `python3`. The script needs a node with 2 CPUs and 8 GB
 free and takes several minutes on a laptop; the model pull and the first discussion
@@ -33,23 +40,24 @@ soon as the cluster is actually ready, not on a guessed clock.
 | Step | What | Why |
 |---|---|---|
 | 1 | NATS with JetStream | Every discussion is carried over NATS; the operator bootstraps its streams. |
-| 2 | Ollama on CPU, pulling `qwen2.5:1.5b` | A small model that runs anywhere, with no GPU. |
-| 3 | The operator Helm chart, minimal profile, with the dashboard on | The dashboard has no login, so it gets no route; the script prints the `kubectl port-forward` command that opens it. Admission webhooks, Grafana dashboards, the internal MCP servers, the NATS MCP server, and the verify runner are off. |
-| 4 | A `ModelServer` pointing at that Ollama | The endpoint the scheduler binds agents to at inference time. |
-| 5 | The `hello` crew: a coordinator plus one Tooler | The smallest crew that actually deliberates; its prompts are ADL rules you can `kubectl apply` and change. |
+| 2 | Ollama on CPU | The model server of the trial: familiar, and it runs anywhere, with no accelerator. |
+| 3 | The operator Helm chart, minimal profile, with the dashboard on, a `ModelServer` for that Ollama, and one model (`qwen2.5:1.5b`) in the cluster's model catalog | The dashboard has no login, so it gets no route; the script prints the `kubectl port-forward` command that opens it. Admission webhooks, Grafana dashboards, the internal MCP servers, the NATS MCP server, and the verify runner are off. The `ModelServer` is the endpoint the scheduler binds agents to at inference time. |
+| 4 | The operator marks the `ModelServer` ready and downloads the model onto it | The model is a catalog entry, not part of the crew: the script waits for the download to finish. |
+| 5 | The `hello` crew: a coordinator plus one Tooler, with no Models of its own | The smallest crew that actually deliberates; its prompts are ADL rules you can `kubectl apply` and change. |
 | 6 | One question through the crew's discussion gateway | The answer comes back as the discussion's synthesis, streamed over Server-Sent Events. |
 
 ## The CPU trial profile
 
-This is what's different about a CPU trial versus a GPU deployment, so you can judge
+This is what's different about a CPU trial versus an accelerator deployment, so you can judge
 Kubemoot's speed and a crew's size by the right yardstick:
 
-| | CPU trial (this script) | GPU deployment |
+| | CPU trial (this script) | Accelerator deployment |
 |---|---|---|
-| Model size | 1-3B parameters (`qwen2.5:1.5b` here) | 8B-32B+ per role, sized to VRAM |
+| Model server | Ollama | vLLM is currently preferred; Ollama is supported |
+| Model size | 1-3B parameters (`qwen2.5:1.5b` here) | 8B-32B+ per role, sized to accelerator memory |
 | Agents per crew | Two (a coordinator plus one Tooler) | As many as the crew's domain needs |
-| Answer latency | Slower, dominated by CPU inference | Faster, bounded by GPU inference |
-| Concurrent discussions | One at a time | Several, bounded by GPU capacity |
+| Answer latency | Slower, dominated by CPU inference | Faster, bounded by accelerator inference |
+| Concurrent discussions | One at a time | Several, bounded by accelerator capacity |
 
 ## What just happened
 
@@ -75,7 +83,8 @@ clock are different.
 ## Then
 
 ```bash
-kubectl get agents,models,crew -n hello
+kubectl get modelservers,models -n kubemoot
+kubectl get agents,crew -n hello
 kubectl edit promptmodule hello-facts-system -n hello   # change a rule, ask again
 ```
 
@@ -92,7 +101,7 @@ across servers, a published dashboard) live in
 ## Next
 
 - [Installation](../installation/) - install the operator on your own cluster with a
-  GPU-backed model server, for real crew work rather than a trial.
+  accelerator-backed model server, for real crew work rather than a trial.
 - [Crews & Agents](../../concepts/crews-and-agents/) - the model you just ran.
 - [The starter crew](../../user-guides/starter-crew/) - scaffold a read-only guide to a
   namespace with `kmctl create`, install it, ask it, and change one of its rules.

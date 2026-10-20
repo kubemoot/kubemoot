@@ -41,17 +41,17 @@ metadata:
 spec:
   crewRef: {{ $crew }}
   archetypeRef: consent-3
-  # The crew's own work is short: plan probes, call tools, report. A fast model serves it.
+  # The crew's own work is short: plan probes, call tools, report. It ships no Models;
+  # it selects from the cluster's catalog. A model that calls tools is required; a
+  # low qualityBias makes mulling follow size toward the small models, and triage asks
+  # for a small model and, among those, the one measured faster.
+  qualityBias:
+    default: "0.2"
   rules:
     - phase: mulling
       require:
         matchLabels:
           capability/tool-calling: "true"
-      prefer:
-        - weight: 100
-          selector:
-            matchLabels:
-              latencyClass: low
     - phase: triage
       require:
         matchLabels:
@@ -60,7 +60,8 @@ spec:
         - weight: 100
           selector:
             matchLabels:
-              latencyClass: low
+              kubemoot.ai/size: small
+      preferFaster: 50
 ---
 apiVersion: kubemoot.ai/v1alpha1
 kind: Agent
@@ -134,26 +135,4 @@ spec:
       kubemoot.ai/tools: accelerators
   resources:
     {{- toYaml .Values.schedulingCrew.gateway.resources | nindent 4 }}
-{{- range .Values.modelServers }}
-{{- /* A vllm server serves Models from a huggingFace source; the crew's model below is an Ollama tag. */ -}}
-{{- if ne .type "vllm" }}
----
-apiVersion: kubemoot.ai/v1alpha1
-kind: Model
-metadata:
-  name: {{ regexReplaceAll "[^a-z0-9-]+" (printf "%s-%s" .name $.Values.schedulingCrew.model.name | lower) "-" | trunc 63 | trimSuffix "-" }}
-  namespace: {{ $ns }}
-  labels:
-    {{- include "kubemoot-operator.labels" $ | nindent 4 }}
-    kubemoot.ai/crew: {{ $crew }}
-    latencyClass: "low"
-    contextWindow: {{ $.Values.schedulingCrew.model.contextWindow | quote }}
-    capability/tool-calling: "true"
-    capability/reasoning: "true"
-spec:
-  model: {{ $.Values.schedulingCrew.model.name | quote }}
-  serverRef: {{ .name | quote }}
-  vramMib: {{ $.Values.schedulingCrew.model.vramMib }}
-{{- end }}
-{{- end }}
 {{- end }}
