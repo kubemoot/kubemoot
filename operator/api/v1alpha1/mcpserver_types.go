@@ -159,16 +159,38 @@ type ToolOverride struct {
 	Parameters map[string]ToolParameterOverride `json:"parameters,omitempty"`
 }
 
+// KubemootImage names an image the operator takes from KubemootConfig
+// spec.images, so an MCPServer can run a Kubemoot-built server without naming
+// a version. Each value is the name of the KubemootConfig field it selects.
+// +kubebuilder:validation:Enum=artifactAccess
+type KubemootImage string
+
+const (
+	// KubemootImageArtifactAccess selects spec.images.artifactAccess: the
+	// read-ops MCP server over the artifact store.
+	KubemootImageArtifactAccess KubemootImage = "artifactAccess"
+)
+
 // MCPServerSpec defines the desired state of MCPServer
+// +kubebuilder:validation:XValidation:rule="(has(self.image) ? 1 : 0) + (has(self.externalEndpoint) ? 1 : 0) + (has(self.kubemootImage) ? 1 : 0) <= 1",message="image, externalEndpoint, and kubemootImage are mutually exclusive, set only one"
 type MCPServerSpec struct {
 	// Image is the container image for the MCP server (for managed/private MCPs)
-	// Either Image or ExternalEndpoint must be specified, but not both
+	// Exactly one of Image, KubemootImage, or ExternalEndpoint must be specified
 	// +optional
 	Image string `json:"image,omitempty"`
 
+	// KubemootImage runs a Kubemoot-built image without naming a version: the
+	// operator uses the matching image from KubemootConfig spec.images, which the
+	// operator chart stamps from the release. Set it instead of Image, so a crew
+	// written as plain manifests never pins or floats a tag. Re-resolved when the
+	// KubemootConfig image changes, which rolls the server to the new image.
+	// Exactly one of Image, KubemootImage, or ExternalEndpoint must be specified
+	// +optional
+	KubemootImage KubemootImage `json:"kubemootImage,omitempty"`
+
 	// ExternalEndpoint is the URL of an external MCP server (for public/community MCPs)
 	// Use this when connecting to pre-existing MCP servers without deploying them
-	// Either Image or ExternalEndpoint must be specified, but not both
+	// Exactly one of Image, KubemootImage, or ExternalEndpoint must be specified
 	// +optional
 	ExternalEndpoint string `json:"externalEndpoint,omitempty"`
 
@@ -319,6 +341,12 @@ type MCPServerStatus struct {
 	// Phase is the current lifecycle phase (Pending, Deploying, Ready, Error)
 	Phase string `json:"phase,omitempty"`
 
+	// Image is the image the server's Deployment runs: spec.image, or the
+	// KubemootConfig image spec.kubemootImage resolved to. Empty for an
+	// external server.
+	// +optional
+	Image string `json:"image,omitempty"`
+
 	// Ready indicates if the MCP server is ready to accept connections
 	Ready bool `json:"ready,omitempty"`
 
@@ -358,7 +386,7 @@ type MCPServerStatus struct {
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
 // +kubebuilder:resource:shortName=mcp
-// +kubebuilder:printcolumn:name="Image",type=string,JSONPath=`.spec.image`,priority=1
+// +kubebuilder:printcolumn:name="Image",type=string,JSONPath=`.status.image`,priority=1
 // +kubebuilder:printcolumn:name="Transport",type=string,JSONPath=`.spec.transport`
 // +kubebuilder:printcolumn:name="Security",type=string,JSONPath=`.spec.securityMode`
 // +kubebuilder:printcolumn:name="Replicas",type=integer,JSONPath=`.status.availableReplicas`

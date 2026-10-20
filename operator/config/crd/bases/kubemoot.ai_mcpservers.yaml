@@ -17,7 +17,7 @@ spec:
   scope: Namespaced
   versions:
   - additionalPrinterColumns:
-    - jsonPath: .spec.image
+    - jsonPath: .status.image
       name: Image
       priority: 1
       type: string
@@ -263,7 +263,7 @@ spec:
                 description: |-
                   ExternalEndpoint is the URL of an external MCP server (for public/community MCPs)
                   Use this when connecting to pre-existing MCP servers without deploying them
-                  Either Image or ExternalEndpoint must be specified, but not both
+                  Exactly one of Image, KubemootImage, or ExternalEndpoint must be specified
                 type: string
               healthPath:
                 description: |-
@@ -274,7 +274,18 @@ spec:
               image:
                 description: |-
                   Image is the container image for the MCP server (for managed/private MCPs)
-                  Either Image or ExternalEndpoint must be specified, but not both
+                  Exactly one of Image, KubemootImage, or ExternalEndpoint must be specified
+                type: string
+              kubemootImage:
+                description: |-
+                  KubemootImage runs a Kubemoot-built image without naming a version: the
+                  operator uses the matching image from KubemootConfig spec.images, which the
+                  operator chart stamps from the release. Set it instead of Image, so a crew
+                  written as plain manifests never pins or floats a tag. Re-resolved when the
+                  KubemootConfig image changes, which rolls the server to the new image.
+                  Exactly one of Image, KubemootImage, or ExternalEndpoint must be specified
+                enum:
+                - artifactAccess
                 type: string
               port:
                 default: 3000
@@ -2298,6 +2309,11 @@ spec:
                 - stdio
                 type: string
             type: object
+            x-kubernetes-validations:
+            - message: image, externalEndpoint, and kubemootImage are mutually exclusive,
+                set only one
+              rule: '(has(self.image) ? 1 : 0) + (has(self.externalEndpoint) ? 1 :
+                0) + (has(self.kubemootImage) ? 1 : 0) <= 1'
           status:
             description: MCPServerStatus defines the observed state of MCPServer
             properties:
@@ -2374,6 +2390,12 @@ spec:
               endpoint:
                 description: Endpoint is the service endpoint for connecting to the
                   MCP server
+                type: string
+              image:
+                description: |-
+                  Image is the image the server's Deployment runs: spec.image, or the
+                  KubemootConfig image spec.kubemootImage resolved to. Empty for an
+                  external server.
                 type: string
               message:
                 description: Message provides additional status information

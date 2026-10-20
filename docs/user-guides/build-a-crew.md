@@ -65,7 +65,9 @@ inline. Write them in ADL (the Architecture Definition Language). See
 
 Add the `MCPServer`s and an `MCPGateway` for the tools your Toolers need
 ([MCP Tools](../../concepts/mcp-tools/)), and `RAGSource`s for knowledge Analysts
-should retrieve. Keep each Tooler's tool set small (~10-15 tools).
+should retrieve. Keep each Tooler's tool set small (~10-15 tools). For a server Kubemoot
+builds, such as the artifact read-ops server, set `kubemootImage` instead of an image so the
+crew never names a version ([example](../../reference/mcpserver-guide/#run-a-kubemoot-built-server-without-naming-a-version)).
 
 ### 5. Package and deploy
 

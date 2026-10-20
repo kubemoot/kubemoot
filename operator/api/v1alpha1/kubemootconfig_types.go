@@ -62,6 +62,14 @@ type ImageConfig struct {
 	// +kubebuilder:default="ghcr.io/kubemoot/fitness-runner:latest"
 	// +optional
 	FitnessRunner string `json:"fitnessRunner,omitempty"`
+
+	// ArtifactAccess is the artifact-access image: the read-ops MCP server a crew
+	// runs (ARTIFACT_MODE=mcp) to read the artifact store when a tool result spills
+	// over the inline limit. An MCPServer selects it with spec.kubemootImage
+	// instead of naming an image. The operator chart stamps it from the release;
+	// there is no default, because a floating tag would break version pinning.
+	// +optional
+	ArtifactAccess string `json:"artifactAccess,omitempty"`
 }
 
 // DefaultConfig defines default configurations for Kubemoot components

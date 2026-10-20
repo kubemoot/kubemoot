@@ -92,7 +92,7 @@ func TestValidateMCPServer(t *testing.T) {
 					ExternalEndpoint: testServerURL,
 				},
 			},
-			wantErr: "image and externalEndpoint are mutually exclusive",
+			wantErr: "image, kubemootImage, and externalEndpoint are mutually exclusive",
 		},
 		{
 			name: "neither image nor externalEndpoint",
@@ -100,7 +100,36 @@ func TestValidateMCPServer(t *testing.T) {
 				ObjectMeta: metav1.ObjectMeta{Name: testResourceName},
 				Spec:       aiv1alpha1.MCPServerSpec{},
 			},
-			wantErr: "one of image or externalEndpoint must be set",
+			wantErr: "one of image, kubemootImage, or externalEndpoint must be set",
+		},
+		{
+			name: "kubemootImage alone is valid",
+			server: &aiv1alpha1.MCPServer{
+				ObjectMeta: metav1.ObjectMeta{Name: testResourceName},
+				Spec:       aiv1alpha1.MCPServerSpec{KubemootImage: aiv1alpha1.KubemootImageArtifactAccess},
+			},
+		},
+		{
+			name: "both image and kubemootImage",
+			server: &aiv1alpha1.MCPServer{
+				ObjectMeta: metav1.ObjectMeta{Name: testResourceName},
+				Spec: aiv1alpha1.MCPServerSpec{
+					Image:         testFetchImage,
+					KubemootImage: aiv1alpha1.KubemootImageArtifactAccess,
+				},
+			},
+			wantErr: "mutually exclusive",
+		},
+		{
+			name: "both externalEndpoint and kubemootImage",
+			server: &aiv1alpha1.MCPServer{
+				ObjectMeta: metav1.ObjectMeta{Name: testResourceName},
+				Spec: aiv1alpha1.MCPServerSpec{
+					ExternalEndpoint: testServerURL,
+					KubemootImage:    aiv1alpha1.KubemootImageArtifactAccess,
+				},
+			},
+			wantErr: "mutually exclusive",
 		},
 		{
 			name: "stdio with externalEndpoint",

@@ -20,6 +20,7 @@ on:
       - Release
       - Release Accelerator MCP
       - Release Agent Runtime
+      - Release Artifact Access
       - Release Crew Liaison
       - Release Dashboard
       - Release Discussion Gateway

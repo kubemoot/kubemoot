@@ -151,7 +151,8 @@ spec:
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `image` | string | | Container image. Either this or `externalEndpoint` required |
+| `image` | string | | Container image. Exactly one of `image`, `kubemootImage`, or `externalEndpoint` is required |
+| `kubemootImage` | enum | | Run a Kubemoot-built image without naming a version: `artifactAccess`. The operator uses the matching `spec.images` entry of [KubemootConfig](../kubemootconfig-guide/). Mutually exclusive with `image` and `externalEndpoint` |
 | `externalEndpoint` | string | | URL of an external MCP server (no deployment created) |
 | `command` | []string | | Override container entrypoint |
 | `args` | []string | | Arguments to the MCP server |
@@ -217,13 +218,14 @@ spec:
 | Field | Type | Description |
 |-------|------|-------------|
 | `phase` | string | `Pending`, `Deploying`, `Ready`, `Error` |
+| `image` | string | The image the Deployment runs: `spec.image`, or the KubemootConfig image `spec.kubemootImage` resolved to |
 | `ready` | bool | Server is accepting connections |
 | `endpoint` | string | Service endpoint URL |
 | `replicas` | int32 | Current ready replicas |
 | `tools` | []MCPTool | Discovered tool names and descriptions |
 | `discoverable` | bool | Registered with at least one gateway |
 | `registeredWith` | []RegistryStatus | Gateway registration details |
-| `conditions` | []Condition | `Ready`, and `CredentialReady` on an external server with `registry.authSecretRef` |
+| `conditions` | []Condition | `Ready`; `ImageResolved` on a managed server (False with the reason when `kubemootImage` cannot resolve); `CredentialReady` on an external server with `registry.authSecretRef` |
 
 ## Examples
 
@@ -317,6 +319,59 @@ spec:
 ```
 
 Note: The github-mcp-server binary is at `/server/github-mcp-server`, not `/github-mcp-server`. The image uses `gcr.io/distroless/base-debian12`.
+
+### Run a Kubemoot-built server without naming a version
+
+A crew written as plain manifests never pins or floats an image tag for a server Kubemoot
+builds. Name it with `kubemootImage` and the operator fills in the image from the release
+that installed it:
+
+```yaml
+apiVersion: kubemoot.ai/v1alpha1
+kind: MCPServer
+metadata:
+  name: artifact-readops-mcp
+  namespace: my-crew
+spec:
+  kubemootImage: artifactAccess   # no image, no tag
+  transport: stdio
+  command: ["/cnb/process/web"]
+  port: 3000
+  replicas: 1
+  env:
+    - name: ARTIFACT_MODE
+      value: "mcp"
+    - name: NATS_URL
+      value: "nats://nats.nats.svc:4222"
+    - name: ARTIFACT_BUCKET
+      value: "kubemoot_discussion_artifacts"
+  capabilities: [data-access, data-analysis]
+  securityContext:
+    readOnlyRootFilesystem: true
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop: [ALL]
+    seccompProfile:
+      type: RuntimeDefault
+```
+
+This is the read-ops server that agents call (`head`, `tail`, `grep`, `select`, `count`,
+`rows`, `jq`) when a tool result is too large to carry in the discussion and spills to the
+artifact store. See [Discussion artifact store](../../concepts/discussion-artifact-store/).
+
+How it behaves:
+
+- `kubemootImage`, `image`, and `externalEndpoint` are mutually exclusive. The CRD rejects
+  a spec that sets more than one, and the admission webhook rejects a spec that sets none.
+- The operator reads the image from `spec.images` of the `default` KubemootConfig, which the
+  operator chart stamps from the release. `status.image` shows the image in use.
+- When the KubemootConfig changes the image (an operator upgrade), the operator updates the
+  Deployment and the pods roll to the new image. Nothing in the crew changes.
+- When the KubemootConfig does not exist, or has no image for that name, the server stays
+  in phase `Error` with `ImageResolved=False` and a message naming what is missing. It
+  recovers on its own once the image appears.
+- The sidecars of an MCPServer (the artifact-access materializer next to the code sandbox)
+  still name their image; `kubemootImage` applies to the server's main container.
 
 ### Connect an external MCP server that needs a key
 
