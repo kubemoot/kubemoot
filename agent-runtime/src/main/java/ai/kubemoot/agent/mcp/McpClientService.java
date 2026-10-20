@@ -314,6 +314,22 @@ public class McpClientService {
     }
 
     /**
+     * Where this agent's tools come from, and why that source could not supply them when it
+     * could not: the gateway's address and its last read error, or the connected direct servers.
+     */
+    public String describeToolSource() {
+        if (!gatewayMode) {
+            return clients.isEmpty() ? "no MCP server is connected"
+                    : "MCP servers " + String.join(", ", clients.keySet());
+        }
+        if (gatewayClient == null || !gatewayClient.isConfigured()) {
+            return "the MCP gateway (no address configured)";
+        }
+        var source = "the MCP gateway at " + gatewayClient.endpoint();
+        return gatewayClient.lastListError().map(error -> source + " (" + error + ")").orElse(source);
+    }
+
+    /**
      * Build LangChain4j ToolSpecification/ToolExecutor pairs for all registered tools.
      * Applies enabledTools/disabledTools filtering.
      */
@@ -324,13 +340,13 @@ public class McpClientService {
 
         if (gatewayMode) {
             for (var entry : gatewayTools.entrySet()) {
-                if (!isToolAllowed(entry.getKey(), enabled, disabled)) continue;
+                if (!isServerToolAllowed(entry.getKey(), enabled, disabled)) continue;
                 var spec = buildToolSpec(entry.getKey(), entry.getValue().description(), entry.getValue().inputSchema());
                 result.put(spec, createToolExecutor(entry.getKey()));
             }
         } else {
             for (var entry : tools.entrySet()) {
-                if (!isToolAllowed(entry.getKey(), enabled, disabled)) continue;
+                if (!isServerToolAllowed(entry.getKey(), enabled, disabled)) continue;
                 var spec = buildToolSpec(entry.getKey(), entry.getValue().description(), entry.getValue().inputSchema());
                 result.put(spec, createToolExecutor(entry.getKey()));
             }
@@ -420,16 +436,12 @@ public class McpClientService {
         };
     }
 
-    static boolean isServerToolAllowed(String toolName, List<String> enabled, List<String> disabled) {
+    /** The one enable/disable rule: an empty enabled list allows every tool not disabled. */
+    public static boolean isServerToolAllowed(String toolName, List<String> enabled, List<String> disabled) {
         if (!enabled.isEmpty() && !enabled.contains(toolName)) {
             return false;
         }
         return !disabled.contains(toolName);
-    }
-
-    private boolean isToolAllowed(String toolName, List<String> enabled, List<String> disabled) {
-        // Single source of truth for the enable/disable filter (see isServerToolAllowed).
-        return isServerToolAllowed(toolName, enabled, disabled);
     }
 
     private static String escape(String text) {

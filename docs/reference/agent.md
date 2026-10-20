@@ -67,6 +67,8 @@ Optional. Whitelist / blacklist of MCP tool names. Resolved by the agent runtime
 
 Set deliberately small. `qwen3:32b` reliably handles ~10-15 tools; beyond that, tool-call reliability drops sharply. The operator injects the resolved list as `KUBEMOOT_ENABLED_TOOLS` / `KUBEMOOT_DISABLED_TOOLS`.
 
+A non-empty `enabledTools` is also a requirement. When a discussion evaluation starts, the agent checks the tools it declared (less any in `disabledTools`) against the tool list it fetched from the gateway. When the declared tools are missing, the agent publishes a `failure` signal instead of calling the model. A `tooler` needs every declared tool. Any other role needs at least one, and runs with the rest. An agent that declares no tools is not checked. See [Bounded Tool Retries and Failure Signals](#bounded-tool-retries-and-failure-signals).
+
 Scheduling tools (`set_reminder`, `schedule_followup`, `list_scheduled`, `cancel_scheduled`) are provided by the `scheduling-mcp` MCP server, see [Agent Self-Scheduling](../architecture/scheduling.md). Add a dedicated Tooler Agent CR for them rather than enabling on every agent.
 
 ### `spec.ragSources[]`
@@ -297,6 +299,8 @@ The tool-calling loop is bounded along three axes so a misbehaving tool can't ha
 - **Iteration cap** (`properties.model().maxToolIterations()`, default 15): if the LLM keeps requesting tools without producing a final answer, the loop aborts.
 
 Any of these aborts publishes a first-class `failure` consensus signal with structured cause metadata (`failureType`, `failedTool`, `lastError`) rather than a generic `stand_aside`. Other failures during mulling (a server timeout, an out-of-memory error, a messaging hiccup, a runtime error) route through the same failure path with heuristic classification (`model_timeout`, `model_oom`, `server_unreachable`, `internal_exception`).
+
+Before the model is called at all, the agent checks that the tools its spec declares are on the tool list it fetched. If the gateway was unreachable, the MCP server was not registered, or the list lacks the declared tools, the agent publishes a `failure` signal with `failureType` `tools_unavailable`, `failedTool` listing the missing tool names, and `lastError` naming the gateway address and the error it returned. The message reads "Tools unavailable: agent library-search declares search_oreilly_content but the tool list from the MCP gateway at http://... does not include it. The model was not called." The model is never asked to answer without the tools its prompt tells it to use, because it would invent the result. The check reads the tool list the runtime already fetched (re-read when it is empty or stale), so it adds no timeout.
 
 Before every turn the loop also checks that the next prompt fits the context window of the server the call runs on. It uses the prompt size the engine reported for the previous turn plus the tool results added since. When the prompt would not fit, the loop fails with `failureType` `CONTEXT_EXCEEDED` rather than send a prompt the engine would cut. See [Scheduler](../architecture/scheduler.md#the-context-window-is-a-hard-constraint).
 

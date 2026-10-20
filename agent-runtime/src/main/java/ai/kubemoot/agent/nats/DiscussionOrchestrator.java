@@ -118,6 +118,8 @@ public class DiscussionOrchestrator {
     private static final int LOG_QUERY_PREVIEW_CHARS = 100;
     // generic content/brief/triage/wisdom snippet shown in logs and the advisory summary.
     private static final int LOG_PREVIEW_CHARS = 200;
+    /** Longest failure reason quoted in the closing note of an answer. */
+    private static final int FAILED_SOURCE_REASON_CHARS = 400;
     // advisory "wisdom" stored in the advisory message content field.
     private static final int ADVISORY_CONTENT_CHARS = 2000;
     // per-agent agree/concern snippet in the review-phase summary.
@@ -2400,7 +2402,24 @@ public class DiscussionOrchestrator {
             publishGapDetected(state.threadId, channel, state.userQuery, Map.of(), gapType);
         }
 
-        return response;
+        return response + failedSourcesNote(state);
+    }
+
+    /**
+     * The closing note for an answer written while agents reported failure: who could not
+     * contribute and why, so the answer never reads as complete when a source was missing.
+     * Empty when no agent failed.
+     */
+    // Visible for testing
+    static String failedSourcesNote(ThreadState state) {
+        if (state.failureSignals.isEmpty()) {
+            return "";
+        }
+        var sb = new StringBuilder("\n\n---\nNot every source answered:");
+        new java.util.TreeMap<>(state.failureSignals).forEach((agent, reason) -> sb.append("\n- ")
+                .append(agent).append(": ").append(truncate(reason, FAILED_SOURCE_REASON_CHARS)));
+        return sb.append("\nThe answer above does not include what these sources would have provided.")
+                .toString();
     }
 
     // Visible for testing
@@ -2887,7 +2906,8 @@ public class DiscussionOrchestrator {
      * Build a signal context preamble for synthesis. Provides structured data
      * so the LLM can evaluate ADL decision rules (e.g., "WHEN 0 toolers contributed").
      */
-    private String buildSignalContext(ThreadState state, long toolerAgrees) {
+    // Visible for testing
+    static String buildSignalContext(ThreadState state, long toolerAgrees) {
         var sb = new StringBuilder();
         sb.append("Discussion signals:\n");
         sb.append("- Tooler agrees: ").append(toolerAgrees);
@@ -2913,6 +2933,12 @@ public class DiscussionOrchestrator {
         sb.append("- Stand-asides: ").append(state.standAsideSignals.size()).append("\n");
         sb.append("- Concerns: ").append(state.concernSignals.size()).append("\n");
         sb.append("- Blocks: ").append(state.blockSignals.size()).append("\n");
+        sb.append("- Failures: ").append(state.failureSignals.size());
+        if (!state.failureSignals.isEmpty()) {
+            sb.append(" (").append(String.join(", ", new java.util.TreeSet<>(state.failureSignals.keySet())))
+                    .append(")");
+        }
+        sb.append("\n");
         sb.append("Original question: \"").append(state.userQuery).append("\"");
         return sb.toString();
     }
