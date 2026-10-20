@@ -190,6 +190,18 @@ A re-list that returns no tools, or fails, keeps the tools already known (a repl
 
 Agents read `GET /admin/tools` when they start and again before an evaluation once their copy is older than 60 seconds (10 seconds while it is empty). A tool that is added, removed, or given a new description or input schema reaches running agents that way, without restarting them.
 
+## Connections to MCP servers
+
+A hosted MCP server's edge closes connections that sit idle, and a request sent on a connection the remote side already closed fails with "Connection reset by peer". The gateway keeps its HTTP connections to MCP servers in one pool that drops a connection before that happens:
+
+| Property | Default | Meaning |
+|----------|---------|---------|
+| `mcp.gateway.connections.max-idle-time` | `15s` | A connection idle this long is closed and never reused |
+| `mcp.gateway.connections.evict-interval` | `10s` | How often the pool looks for connections to close |
+| `mcp.gateway.connections.max-life-time` | `5m` | A connection older than this is closed, however busy |
+
+When a reset still happens, the gateway sends `initialize` and `tools/list` once more on a new connection, because they read state and change nothing. A second reset in a row fails the connect and marks the server `ERROR`. The gateway never sends `tools/call` again after a reset: the server may have received and run the call before the connection dropped, and a second send would run it twice. The caller gets the error and decides.
+
 ## Example
 
 ### Example Gateway
