@@ -53,7 +53,15 @@ func deletionProvider(endpoint string) *aiv1alpha1.ModelProvider {
 	return &aiv1alpha1.ModelProvider{
 		ObjectMeta: metav1.ObjectMeta{Name: delTestProvider, Namespace: "kubemoot-system"},
 		Spec:       aiv1alpha1.ModelProviderSpec{Type: aiv1alpha1.ProviderTypeOllama, Endpoint: endpoint},
+		Status:     aiv1alpha1.ModelProviderStatus{Ready: true},
 	}
+}
+
+// notReady is the provider with its Ollama scaled to zero: the operator has marked it not Ready.
+func notReady(p *aiv1alpha1.ModelProvider) *aiv1alpha1.ModelProvider {
+	p.Status.Ready = false
+	p.Status.Phase = phaseFailed
+	return p
 }
 
 // deleteServer counts calls to Ollama's delete endpoint and answers with status.
@@ -171,5 +179,53 @@ func TestReconcile_DeletingModelWithMissingProviderReleased(t *testing.T) {
 	}
 	if !finalizerGone(t, r, m) {
 		t.Error("a deleting Model whose provider no longer exists must release its finalizer")
+	}
+}
+
+// A provider that is not Ready cannot be asked: the finalizer is released without a
+// delete call, however the server would answer.
+func TestHandleDeletion_ProviderNotReadyReleasesWithoutAskingIt(t *testing.T) {
+	var calls int32
+	srv := deleteServer(http.StatusInternalServerError, &calls)
+	defer srv.Close()
+	m := deletionModel("a", "team-a", delTestProvider, delTestTag, true)
+	r, err := runDeletion(t, srv, notReady(deletionProvider(srv.URL)), m)
+	if err != nil {
+		t.Fatalf("a provider that is not Ready must not hold the finalizer: %v", err)
+	}
+	if calls != 0 {
+		t.Errorf("a provider that is not Ready is not asked; got %d delete calls", calls)
+	}
+	if !finalizerGone(t, r, m) {
+		t.Error("finalizer should be released")
+	}
+}
+
+// A Ready provider is still cleaned up (a failing delete retrying is TestHandleDeletion_DeleteErrorRetried).
+func TestHandleDeletion_ReadyProviderStillCleansUp(t *testing.T) {
+	var calls int32
+	srv := deleteServer(http.StatusOK, &calls)
+	defer srv.Close()
+	m := deletionModel("a", "team-a", delTestProvider, delTestTag, true)
+	r, err := runDeletion(t, srv, deletionProvider(srv.URL), m)
+	if err != nil || calls != 1 || !finalizerGone(t, r, m) {
+		t.Errorf("a Ready provider is asked once and the finalizer released: err=%v calls=%d", err, calls)
+	}
+}
+
+// The reconciler path: a deleting Model whose provider exists but is not Ready, with
+// an unreachable server, completes in one reconcile.
+func TestReconcile_DeletingModelWithProviderNotReadyReleased(t *testing.T) {
+	m := deletionModel("a", "team-a", delTestProvider, delTestTag, true)
+	m.Status.Conditions = []metav1.Condition{{Type: conditionTypeReady, Status: metav1.ConditionFalse, Reason: "Pending",
+		Message: "Waiting for ModelProvider " + delTestProvider + " to be ready"}}
+	p := notReady(deletionProvider("http://127.0.0.1:1"))
+	cl := fake.NewClientBuilder().WithScheme(modelTestScheme(t)).WithObjects(m, p).Build()
+	r := &ModelReconciler{Client: cl}
+	if _, err := r.Reconcile(context.Background(), reconcileRequest(m)); err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+	if !finalizerGone(t, r, m) {
+		t.Error("a deleting Model whose provider is not Ready must release its finalizer")
 	}
 }
