@@ -274,12 +274,14 @@ public class ChatService {
             return;
         }
         String source = mcpClient == null ? "its MCP tool source" : mcpClient.describeToolSource();
+        log.warn("Agent {} lacks declared tools {}: tool list from {}", properties.agentName(),
+                availability.missing(), source);
+        // The source address goes to the log and the failure's lastError, not the board message.
         throw new ToolCallFailure(ToolCallFailure.FailureType.TOOLS_UNAVAILABLE,
                 String.join(",", availability.missing()), source, availability.missing().size(),
                 "Tools unavailable: agent " + properties.agentName() + " declares "
-                        + String.join(", ", availability.missing()) + " but the tool list from " + source
-                        + " does not include " + (availability.missing().size() == 1 ? "it" : "them")
-                        + ". The model was not called.");
+                        + String.join(", ", availability.missing()) + " but the MCP tool source does not offer "
+                        + (availability.missing().size() == 1 ? "it" : "them") + ". The model was not called.");
     }
 
     private ChatResult directAnswer(ChatRequest request, String threadId) {

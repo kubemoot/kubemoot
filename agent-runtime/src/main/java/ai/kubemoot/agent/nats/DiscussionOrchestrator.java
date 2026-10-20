@@ -118,8 +118,8 @@ public class DiscussionOrchestrator {
     private static final int LOG_QUERY_PREVIEW_CHARS = 100;
     // generic content/brief/triage/wisdom snippet shown in logs and the advisory summary.
     private static final int LOG_PREVIEW_CHARS = 200;
-    /** Longest failure reason quoted in the closing note of an answer. */
-    private static final int FAILED_SOURCE_REASON_CHARS = 400;
+    /** A tool name safe to show a user: letters, digits, underscore and hyphen only, so no host, address or error text. */
+    private static final java.util.regex.Pattern SOURCE_NAME = java.util.regex.Pattern.compile("[A-Za-z0-9_-]{1,80}");
     // advisory "wisdom" stored in the advisory message content field.
     private static final int ADVISORY_CONTENT_CHARS = 2000;
     // per-agent agree/concern snippet in the review-phase summary.
@@ -769,6 +769,7 @@ public class DiscussionOrchestrator {
         metrics.setPendingEvaluations(state.pendingEvaluations.size());
         state.waitingAgents.remove(agentName);
         state.failureSignals.put(agentName, content);
+        state.failedSources.addAll(failedSourceNames(msg));
         state.lastSignalReceived = Instant.now();
         log.info("Thread {} — agent {} reported failure: {}",
                 state.threadId, agentName, truncate(content, LOG_PREVIEW_CHARS));
@@ -929,6 +930,7 @@ public class DiscussionOrchestrator {
         state.standAsideSignals.clear();
         state.blockSignals.clear();
         state.failureSignals.clear();
+        state.failedSources.clear();
         state.clearCapacitySignals();
         state.researcherAgents.clear();
         state.pendingEvaluations.clear();
@@ -1374,6 +1376,7 @@ public class DiscussionOrchestrator {
         state.standAsideSignals.clear();
         state.blockSignals.clear();
         state.failureSignals.clear();
+        state.failedSources.clear();
         state.clearCapacitySignals();
         state.researcherAgents.clear();
         state.pendingEvaluations.clear();
@@ -2405,21 +2408,34 @@ public class DiscussionOrchestrator {
         return response + failedSourcesNote(state);
     }
 
+    private static String sortedFailedSources(ThreadState state) {
+        return String.join(", ", new java.util.TreeSet<>(state.failedSources));
+    }
+
+    /** The tool names a failure signal names in {@code metadata.failedTool} (comma-joined), safe to show a user. */
+    // Visible for testing
+    static java.util.List<String> failedSourceNames(JsonNode msg) {
+        String joined = msg == null ? "" : msg.path(FIELD_METADATA).path("failedTool").asText("");
+        return java.util.Arrays.stream(joined.split(","))
+                .map(String::trim)
+                .filter(name -> SOURCE_NAME.matcher(name).matches())
+                .toList();
+    }
+
     /**
-     * The closing note for an answer written while agents reported failure: who could not
-     * contribute and why, so the answer never reads as complete when a source was missing.
-     * Empty when no agent failed.
+     * The closing note for an answer written while agents reported failure, so the answer never
+     * reads as complete when a source was missing. It speaks in user terms: the missing tools
+     * only, with no agent names, addresses or error text (those stay in the failure signal,
+     * the logs and the dashboard). Empty when no agent failed. The one place the wording lives.
      */
     // Visible for testing
     static String failedSourcesNote(ThreadState state) {
         if (state.failureSignals.isEmpty()) {
             return "";
         }
-        var sb = new StringBuilder("\n\n---\nNot every source answered:");
-        new java.util.TreeMap<>(state.failureSignals).forEach((agent, reason) -> sb.append("\n- ")
-                .append(agent).append(": ").append(truncate(reason, FAILED_SOURCE_REASON_CHARS)));
-        return sb.append("\nThe answer above does not include what these sources would have provided.")
-                .toString();
+        String names = state.failedSources.isEmpty() ? "" : ": " + sortedFailedSources(state);
+        return "\n\n---\nSome sources could not be reached" + names
+                + ". This answer does not include what they would have provided.";
     }
 
     // Visible for testing
@@ -2934,9 +2950,8 @@ public class DiscussionOrchestrator {
         sb.append("- Concerns: ").append(state.concernSignals.size()).append("\n");
         sb.append("- Blocks: ").append(state.blockSignals.size()).append("\n");
         sb.append("- Failures: ").append(state.failureSignals.size());
-        if (!state.failureSignals.isEmpty()) {
-            sb.append(" (").append(String.join(", ", new java.util.TreeSet<>(state.failureSignals.keySet())))
-                    .append(")");
+        if (!state.failedSources.isEmpty()) {
+            sb.append(" (sources not reached: ").append(sortedFailedSources(state)).append(")");
         }
         sb.append("\n");
         sb.append("Original question: \"").append(state.userQuery).append("\"");
@@ -3982,6 +3997,8 @@ public class DiscussionOrchestrator {
          * MCP servers or model servers need attention, not new toolers).
          */
         final ConcurrentHashMap<String, String> failureSignals = new ConcurrentHashMap<>();
+        /** Names of the tools failure signals reported missing or failing: what a user can be told. */
+        final java.util.Set<String> failedSources = ConcurrentHashMap.newKeySet();
         /** Agents that stood aside for GPU capacity: agent name to gpu-busy or model-too-large. */
         final ConcurrentHashMap<String, String> capacityStandAsides = new ConcurrentHashMap<>();
         /** Models a model-too-large stand-aside named. */
