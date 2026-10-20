@@ -6,6 +6,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.core.ParameterizedTypeReference;
+import org.springframework.http.MediaType;
 import org.springframework.http.codec.ServerSentEvent;
 import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.reactive.function.client.WebClientRequestException;
@@ -452,8 +453,8 @@ public class McpClientManager {
      */
     private void onConnected(String serverId, ServerRegistration server, List<ToolInfo> tools) {
         if (tools.isEmpty() && !getToolsForServer(serverId).isEmpty()) {
-            log.warn("Reconnected to {} but it listed no tools, keeping the {} known", server.name(),
-                getToolsForServer(serverId).size());
+            reportNoTools(serverId, server, "Reconnected to " + server.name() + " but it listed no tools, keeping the "
+                + getToolsForServer(serverId).size() + " known");
             setStatus(serverId, ServerStatus.ERROR);
             return;
         }
@@ -461,9 +462,20 @@ public class McpClientManager {
         ToolOverrides.warnUnmatched(tools, serverOverrides.get(serverId), server.name());
         toolsListedAt.put(serverId, Instant.now());
         setStatus(serverId, ServerStatus.CONNECTED);
+        if (tools.isEmpty()) {
+            reportNoTools(serverId, server, "Connected to MCP server " + server.name()
+                + " but it lists no tools; check its credentials and URL");
+            return;
+        }
         log.info("Connected to MCP server {} with {} tools", server.name(), tools.size());
         recordFeedback(FeedbackEntry.success(server.name(), serverId, "connect"));
         recordFeedback(FeedbackEntry.success(server.name(), serverId, "discover", tools.size()));
+    }
+
+    /** One report for a server that listed no tools: a warning and a failed-discovery feedback entry. */
+    private void reportNoTools(String serverId, ServerRegistration server, String what) {
+        log.warn("{}; the gateway connects again with the next registration", what);
+        recordFeedback(FeedbackEntry.failure(server.name(), serverId, "discover", "the server lists no tools"));
     }
 
     private Mono<Void> initializeConnection(String serverId) {
@@ -489,23 +501,22 @@ public class McpClientManager {
             .header(ACCEPT_HEADER, ACCEPT_JSON_SSE)
             .bodyValue(initRequest)
             .exchangeToFlux(response -> {
-                // Capture session ID from response headers
+                // A stateless server issues no session id; a stateful one issues it here
                 String sessionId = response.headers().asHttpHeaders().getFirst(MCP_SESSION_HEADER);
                 if (sessionId != null) {
                     serverSessions.put(serverId, sessionId);
-                    log.debug("Captured session ID for {}: {}", serverId, sessionId);
+                    log.debug("Captured session ID for {}", serverId);
                 }
-                return response.bodyToFlux(new ParameterizedTypeReference<ServerSentEvent<String>>() {});
+                return responsePayloads(response);
             })
-            .filter(event -> event.data() != null && !event.data().isEmpty())
             .next()
-            .flatMap(event -> {
+            .flatMap(data -> {
                 try {
-                    McpMessage response = objectMapper.readValue(event.data(), McpMessage.class);
+                    McpMessage response = objectMapper.readValue(data, McpMessage.class);
                     log.debug("Initialize response: {}", response);
                     return Mono.just(response);
                 } catch (Exception e) {
-                    log.warn("Failed to parse SSE event: {}", e.getMessage());
+                    log.warn("Failed to parse initialize response: {}", e.getMessage());
                     return Mono.empty();
                 }
             })
@@ -609,7 +620,7 @@ public class McpClientManager {
             sessionId = sessionId.substring(0, sessionId.indexOf("&"));
         }
         serverSessions.put(serverId, sessionId);
-        log.info("Captured supergateway session ID for {}: {}", server.name(), sessionId);
+        log.info("Captured supergateway session ID for {}", server.name());
     }
 
     private McpMessage parseSseMessage(String data) {
@@ -785,7 +796,7 @@ public class McpClientManager {
         // re-list on the same session must not take an older listing's reply.
         long listId = upstreamIds.incrementAndGet();
         McpMessage listToolsRequest = McpMessage.request(listId, METHOD_TOOLS_LIST, Map.of());
-        log.info("Discovering tools for {} via SSE with session: {}", server.name(), sessionId);
+        log.info("Discovering tools for {} via SSE", server.name());
 
         // POST the request, check for session errors, then wait for SSE response
         return client.post()
@@ -850,6 +861,24 @@ public class McpClientManager {
         return resultObj instanceof Map<?, ?> result && result.get("tools") instanceof List<?>;
     }
 
+    /**
+     * The JSON-RPC payloads of a streamable-HTTP reply. The server chooses per reply:
+     * text/event-stream carries them as events, application/json as the body itself.
+     */
+    private Flux<String> responsePayloads(ClientResponse response) {
+        boolean eventStream = response.headers().contentType()
+            .map(MediaType.TEXT_EVENT_STREAM::isCompatibleWith)
+            .orElse(false);
+        if (eventStream) {
+            return response.bodyToFlux(new ParameterizedTypeReference<ServerSentEvent<String>>() {})
+                .mapNotNull(ServerSentEvent::data)
+                .filter(data -> !data.isEmpty());
+        }
+        return response.bodyToMono(String.class)
+            .filter(body -> !body.isBlank())
+            .flux();
+    }
+
     private Mono<List<ToolInfo>> discoverToolsViaHttp(String serverId, WebClient client,
             ServerRegistration server, boolean allowRetry) {
         McpMessage listToolsRequest = McpMessage.request(upstreamIds.incrementAndGet(), METHOD_TOOLS_LIST, Map.of());
@@ -884,10 +913,9 @@ public class McpClientManager {
                         .then(Mono.just(Collections.<ToolInfo>emptyList()));
                 }
 
-                return response.bodyToFlux(new ParameterizedTypeReference<ServerSentEvent<String>>() {})
-                    .filter(event -> event.data() != null && !event.data().isEmpty())
+                return responsePayloads(response)
                     .next()
-                    .flatMap(event -> parseHttpToolListEvent(event.data(), serverId, server))
+                    .flatMap(data -> parseHttpToolListPayload(data, serverId, server))
                     .defaultIfEmpty(Collections.emptyList());
             })
             .doOnError(e -> log.error("Error discovering tools for {}: {}", serverId, e.getMessage()))
@@ -895,9 +923,9 @@ public class McpClientManager {
     }
 
     /**
-     * Parse a tools/list SSE event payload into a tool list, returning empty on parse failure.
+     * Parse a tools/list reply payload (an SSE event's data or a JSON body) into a tool list, returning empty on parse failure.
      */
-    private Mono<List<ToolInfo>> parseHttpToolListEvent(String data, String serverId, ServerRegistration server) {
+    private Mono<List<ToolInfo>> parseHttpToolListPayload(String data, String serverId, ServerRegistration server) {
         try {
             McpMessage mcpResponse = objectMapper.readValue(data, McpMessage.class);
             return Mono.just(parseToolList(mcpResponse.result(), serverId, server));
@@ -1121,12 +1149,11 @@ public class McpClientManager {
                             "HTTP " + statusCode + ": " + body));
                 }
 
-                return response.bodyToFlux(new ParameterizedTypeReference<ServerSentEvent<String>>() {})
-                    .filter(event -> event.data() != null && !event.data().isEmpty())
+                return responsePayloads(response)
                     .next()
-                    .flatMap(event -> {
+                    .flatMap(data -> {
                         try {
-                            return Mono.just(objectMapper.readValue(event.data(), McpMessage.class));
+                            return Mono.just(objectMapper.readValue(data, McpMessage.class));
                         } catch (Exception e) {
                             return Mono.just(McpMessage.error(request.id(), -32603,
                                 "Failed to parse response: " + e.getMessage()));
