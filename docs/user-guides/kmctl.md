@@ -124,16 +124,14 @@ kmctl create demo
 ending with a letter or digit, at most 36 characters. To give the crew a name people read,
 add `--display-name "Demo Crew"`; it defaults to the Kubernetes name.
 
-On a TTY, `kmctl create` runs interactively: it asks for the display name, discovers
-available ollama servers, lets you select them with a checkbox, and prompts for a model family. Answer the
-prompts and it writes a `demo/` directory:
+On a TTY, `kmctl create` runs interactively: it asks for the display name and how many
+specialists the crew has. Answer the prompts and it writes a `demo/` directory:
 
 ```
 demo/
   crew.yaml
   agents.yaml
   promptmodules.yaml
-  models.yaml
   tools.yaml
   access/
     rbac.yaml
@@ -146,13 +144,23 @@ demo/
 The result is the [starter crew](../starter-crew/): a read-only guide to the namespace it
 is installed into. `--members` (1 to 5) sets how many specialists it has.
 
-To skip interaction in CI or scripts, supply all inputs as flags:
+The crew ships no Model objects and names no model server. Its CrewSchedulingPolicy states
+what the crew needs: every phase requires a model that can call tools, mulling ranks the
+allowed models with `qualityBias`, and triage favors the model calibration measured fastest.
+The scheduler matches those rules against the cluster's
+[model catalog](../../reference/models/#the-model-catalog), so the same crew installs on any
+cluster that has a model that can call tools. Scaffolding needs no cluster; when the current
+cluster's catalog has no such model, `kmctl create` warns. See the catalog with:
+
+```bash
+kmctl model list
+```
+
+To skip interaction in CI or scripts, supply the inputs as flags:
 
 ```bash
 kmctl create demo \
   --members 2 \
-  --servers ollama-gpu \
-  --model-family qwen \
   --no-input
 ```
 
@@ -161,7 +169,7 @@ To scaffold the same crew as a Helm chart instead (`Chart.yaml`, `templates/`, a
 own), add `--chart`:
 
 ```bash
-kmctl create demo --chart --members 2 --model-family qwen --no-input
+kmctl create demo --chart --members 2 --no-input
 ```
 
 A chart deploys with `helm upgrade --install demo demo --namespace demo --create-namespace`
@@ -174,11 +182,11 @@ and the layout its Crew Sources view expects a chart source to have; see
 
 Open the generated directory. Key files:
 
-- `crew.yaml` - the Crew resource; adjust the name and labels.
+- `crew.yaml` - the Crew resource and its CrewSchedulingPolicy, which states what each phase
+  needs from the model catalog.
 - `agents.yaml` - the coordinator and the specialist Agents; review each agent's capabilities.
 - `promptmodules.yaml` - the PromptModules in ADL; this is the main place to shape the
   crew's discussion behaviour.
-- `models.yaml` - the Models the crew's phases select from.
 - `tools.yaml` - the read-only Kubernetes MCP server and the MCPGateway in front of it.
 - `access/rbac.yaml` - the Role the tool server runs with; apply it first with
   `kubectl apply -n <namespace> -f access/`.
@@ -312,8 +320,6 @@ kmctl --context staging info
 ```bash
 kmctl create my-crew \
   --members 3 \
-  --servers ollama-gpu,ollama-gpu-b \
-  --model-family qwen \
   --no-input \
   -o /workspace/crews
 ```
@@ -321,7 +327,7 @@ kmctl create my-crew \
 ### Scaffold as a Helm chart
 
 ```bash
-kmctl create my-crew --chart --display-name "My Crew" --members 2 --model-family qwen --no-input
+kmctl create my-crew --chart --display-name "My Crew" --members 2 --no-input
 helm upgrade --install my-crew my-crew --namespace my-crew --create-namespace
 ```
 
@@ -331,7 +337,24 @@ helm upgrade --install my-crew my-crew --namespace my-crew --create-namespace
 kmctl apply -f my-crew/ --dry-run
 ```
 
-### Inspect the GPU footprint
+### See the model catalog
+
+```bash
+kmctl model list
+```
+
+### Add a model to the catalog
+
+A cluster owner adds a model to the catalog with `kmctl model add`, which writes a Model
+into the namespace of the model server that offers it. On an Ollama model server the operator downloads it; for a vLLM model server,
+declare what the server cannot report:
+
+```bash
+kmctl model add qwen3:14b --model-server ollama-gpu
+kmctl model add qwen3-14b --model-server vllm-gpu --parameters 14B --capabilities tool-calling,reasoning
+```
+
+### Inspect the Model objects and their state
 
 ```bash
 kmctl model footprint
