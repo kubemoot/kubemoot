@@ -66,7 +66,8 @@ vLLM server is placed without a memory total or a measured speed.
 **The operator ranks candidates.** For each phase of an agent (mulling and triage),
 the operator matches the crew's `CrewSchedulingPolicy` against the labels of the models in the
 cluster catalog. A rule's `require` constraints decide which models are allowed at all. Its `prefer` weights,
-or the policy's `qualityBias` when the rule has no `prefer` block, give each allowed
+or the policy's `qualityBias` when the rule has no explicit preference (a `prefer` list or
+`preferFaster`), give each allowed
 model a **quality score**. The best model becomes the agent's **preferred model**, and
 the operator hands the agent the whole ranked list, preferred model first.
 
@@ -102,9 +103,12 @@ score depends on the crew's policy:
   this toward the small models. An agent that declares an ability (`reasoning`, `tool-calling`,
   `vision`) also earns 20 points for each such ability a model has, so it keeps a model with
   the ability unless an equal one is already loaded.
+- A rule that sets `preferFaster` states its own preference, as one with `prefer` weights does:
+  `qualityBias` and the ability points do not apply to it, so a rule that wants just the
+  fastest model sets `preferFaster` and no `prefer`.
 - With explicit `prefer` weights, the gap is the difference between the weights. Weights
   of 100 and 50 are 50 points apart, so the agent keeps the preferred model.
-- Models that score the same (for example, no `prefer` block, no `qualityBias`, and no
+- Models that score the same (for example, no explicit preference, no `qualityBias`, and no
   size) are interchangeable.
 
 To keep an agent on a particular model size, do one of these:

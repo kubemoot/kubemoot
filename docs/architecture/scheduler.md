@@ -119,7 +119,7 @@ The operator publishes each phase's candidate models as a JSON list, preferred m
 [{"model":"qwen3:32b","score":70},{"model":"qwen3:14b","score":60},{"model":"qwen3:8b","score":30}]
 ```
 
-The list holds every available model the phase rule's `require` constraints admit, one entry per model identifier. `score` is the model's **quality score**: the sum of the rule's matching `prefer` weights, or the `qualityBias` (model size) and ability contribution when the rule has no `prefer` block. Locality, provider weight, and load penalties are left out, so the score compares models rather than placements. After the preferred model, entries follow by score, then name. Provider readiness and VRAM are not filtered here; the per-call pick reads them live, and the list (and so the Deployment) stays stable while providers come and go.
+The list holds every available model the phase rule's `require` constraints admit, one entry per model identifier. `score` is the model's **quality score**: the sum of the rule's matching `prefer` weights, or the `qualityBias` (model size) and ability contribution when the rule has no explicit preference (a `prefer` list or `preferFaster`). `preferFaster` is not part of `score`: the runtime applies it on each call. Locality, provider weight, and load penalties are left out, so the score compares models rather than placements. After the preferred model, entries follow by score, then name. Provider readiness and VRAM are not filtered here; the per-call pick reads them live, and the list (and so the Deployment) stays stable while providers come and go.
 
 `CallPlanner.place` makes each placement. It tries, in order:
 
@@ -500,7 +500,7 @@ calibration replaces the one they drifted from.
 
 ### Purpose
 
-`CrewSchedulingPolicy.spec.qualityBias` is a per-capability scalar in `[0.0, 1.0]` that biases model selection between speed (low values) and quality (high values) for `SchedulingRule` entries that omit an explicit `prefer` block. It lets crew authors express *"which kind of work benefits from quality and which benefits from speed"* once, in human terms, instead of hand-weighting selectors for every rule.
+`CrewSchedulingPolicy.spec.qualityBias` is a per-capability scalar in `[0.0, 1.0]` that biases model selection between speed (low values) and quality (high values) for `SchedulingRule` entries that state no explicit preference (no `prefer` list and no `preferFaster`). It lets crew authors express *"which kind of work benefits from quality and which benefits from speed"* once, in human terms, instead of hand-weighting selectors for every rule.
 
 Agents declare abstract `capabilities` (e.g. `tool-calling`, `reasoning`); the crew author declares what each capability is worth in quality terms; the scheduler resolves to a concrete model from the [cluster's catalog](#selecting-from-the-model-catalog) at reconcile time. No agent CR names a model size - the same agent definition deploys against any cluster's models.
 
@@ -516,7 +516,7 @@ spec:
   rules:
     - phase: mulling
       require: { matchLabels: { capability/tool-calling: "true" } }
-      # no explicit prefer block - scheduler auto-derives from qualityBias
+      # no prefer list and no preferFaster - scheduler auto-derives from qualityBias
 ```
 
 Values are strings (the CRD field is `map[string]string`) to avoid CRD float-precision issues. Values that don't parse as floats in `[0.0, 1.0]` are ignored.
@@ -537,7 +537,7 @@ effective_bias = max(qualityBias[c] for c in agent.spec.capabilities)
 
 ### Auto-derived score from model size
 
-When a rule has no explicit `prefer` block and the policy has a non-empty `qualityBias` map, the scheduler reads each candidate model's size class (the `kubemoot.ai/size` label every catalog entry carries) and contributes:
+When a rule has no explicit preference (no `prefer` list and no `preferFaster`) and the policy has a non-empty `qualityBias` map, the scheduler reads each candidate model's size class (the `kubemoot.ai/size` label every catalog entry carries) and contributes:
 
 | Model size | Contribution to score |
 |---|---|
@@ -552,11 +552,11 @@ A crew that still ships its own Models (see [Crew-local Models](#crew-local-mode
 
 ### Abilities
 
-Three of an agent's declared capabilities are also model abilities: `tool-calling`, `reasoning` and `vision`. For a crew that selects from the catalog, each ability the agent declares and the candidate model has adds `abilityWeight` points (default 20, `spec.abilityWeight` on the policy, 0 to 100) to the candidate. Twenty is above the runtime's quality tolerance of ten points, so an agent that declares `reasoning` keeps a reasoning model unless one with an equal score is already loaded. An ability is a preference and never a hard need: a hard need is what the rule's `require` says, and the crew scaffold writes `tool-calling` there. Any declared capability, ability or not (`kubernetes`, `observability`), also keys into `qualityBias`, as above. A rule with an explicit `prefer` block gets neither the `qualityBias` score nor the ability score, so an explicit rule is exactly what it says.
+Three of an agent's declared capabilities are also model abilities: `tool-calling`, `reasoning` and `vision`. For a crew that selects from the catalog, each ability the agent declares and the candidate model has adds `abilityWeight` points (default 20, `spec.abilityWeight` on the policy, 0 to 100) to the candidate. Twenty is above the runtime's quality tolerance of ten points, so an agent that declares `reasoning` keeps a reasoning model unless one with an equal score is already loaded. An ability is a preference and never a hard need: a hard need is what the rule's `require` says, and the crew scaffold writes `tool-calling` there. Any declared capability, ability or not (`kubernetes`, `observability`), also keys into `qualityBias`, as above. A rule with an explicit preference (a `prefer` list or `preferFaster`) gets neither the `qualityBias` score nor the ability score, so an explicit rule is exactly what it says.
 
 ### Override semantics
 
-Explicit `prefer` blocks on a rule always win. The scheduler skips auto-derivation entirely when `len(rule.Prefer) > 0`. Crews with edge-case rules (e.g. "for this phase, force the qwen2.5 family") add a `prefer` block and that rule is unaffected by `qualityBias`.
+Explicit preferences on a rule always win. A rule that has a `prefer` list or sets `preferFaster` states its own preference, and the scheduler skips the `qualityBias` size score and the ability score for it. Crews with edge-case rules (e.g. "for this phase, force the qwen2.5 family") add a `prefer` block and that rule is unaffected by `qualityBias`. A rule that wants just the fastest model sets `preferFaster` and no `prefer`: only the measured speed ranks its candidates. A rule with both behaves as its `prefer` list plus the speed re-rank.
 
 ### Preference, not requirement
 
@@ -794,7 +794,7 @@ Score is the sum of:
 
 - `prefer` weights - for each `prefer` term whose selector and expressions match the candidate's labels, add `prefer.weight`
 - **Preferred speed** - not scored here: `preferFaster` is applied by the runtime on each call (see [Preferring the faster model](#preferring-the-faster-model))
-- **Quality bias and abilities** - the model-size score from `qualityBias` and the points for the abilities the agent declares (see [Quality bias](#quality-bias)), for a rule with no explicit `prefer` block
+- **Quality bias and abilities** - the model-size score from `qualityBias` and the points for the abilities the agent declares (see [Quality bias](#quality-bias)), for a rule with no explicit preference (a `prefer` list or `preferFaster`)
 - **Provider weight (phase-aware)** - `ModelProvider.spec.scheduling.weight` (default 100) contributes per phase: mulling adds `+weight` (favors heavy providers); triage adds `-weight` (favors lighter providers). This lets two rigs carrying identically-labeled Models split phase work - a 5090 (`weight=100`) takes mulling, a 4090 (`weight=25`) takes triage - without forcing per-rig labels onto the Models.
 
 The score reads only spec-level inputs. Live provider state (loaded models, agent counts) never enters it, because the winner becomes the agent's default endpoint in the pod template and a pick that followed live state would roll the pod whenever a model loaded or unloaded. Where each inference call actually runs is decided per call by the runtime (see [JIT provider selection](#jit-per-call-provider-selection)).

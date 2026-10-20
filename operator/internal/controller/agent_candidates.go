@@ -47,11 +47,19 @@ type modelCandidate struct {
 	Score int64  `json:"score"`
 }
 
+// explicitPreference reports whether a rule states its own preference, with a
+// Prefer list or a PreferFaster weight. Such a rule is exactly what it says: the
+// qualityBias size score and the ability score do not apply to it.
+func explicitPreference(rule *kubemootv1alpha1.SchedulingRule) bool {
+	return rule != nil && (len(rule.Prefer) > 0 || rule.PreferFaster > 0)
+}
+
 // phaseQualityBias returns the agent's effective quality bias for a phase rule.
-// It applies only when the rule has no explicit Prefer block (explicit Prefer
-// always wins) and the policy declares a QualityBias map; ok=false otherwise.
+// It applies only when the rule has no explicit preference (a Prefer list or a
+// PreferFaster weight always wins) and the policy declares a QualityBias map;
+// ok=false otherwise.
 func phaseQualityBias(agent *kubemootv1alpha1.Agent, policy *kubemootv1alpha1.CrewSchedulingPolicy, rule *kubemootv1alpha1.SchedulingRule) (float64, bool) {
-	if rule == nil || len(rule.Prefer) > 0 || policy == nil || len(policy.Spec.QualityBias) == 0 {
+	if rule == nil || explicitPreference(rule) || policy == nil || len(policy.Spec.QualityBias) == 0 {
 		return 0, false
 	}
 	return effectiveQualityBias(agent.Spec.Capabilities, policy.Spec.QualityBias)

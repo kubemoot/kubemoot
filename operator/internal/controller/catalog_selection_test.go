@@ -207,7 +207,7 @@ func TestNewPhaseScoringAbilityRules(t *testing.T) {
 	}
 	explicit := newPhaseScoring(agent, nil, &aiv1alpha1.SchedulingRule{Prefer: []aiv1alpha1.PreferenceTerm{{Weight: 1, Selector: &metav1.LabelSelector{}}}}, catalogModeCluster)
 	if len(explicit.Abilities) != 0 {
-		t.Errorf("an explicit prefer block is exactly what it says: %+v", explicit)
+		t.Errorf("an explicit preference is exactly what it says: %+v", explicit)
 	}
 	zero := int32(0)
 	if s, _ := (phaseScoring{Abilities: []string{candReasoning}, AbilityWeight: int64(zero)}).abilityScore(map[string]string{selReasonLabel: valueTrue}); s != 0 {
