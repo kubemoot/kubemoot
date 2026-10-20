@@ -270,12 +270,12 @@ type phaseScoring struct {
 }
 
 // newPhaseScoring derives the scoring of one phase for an agent. The ability term
-// applies only to a crew on the catalog and to a rule with no explicit prefer block,
+// applies only to a crew on the catalog and to a rule with no explicit preference (a prefer list or preferFaster),
 // so an explicit rule is exactly what it says and an unmigrated crew scores as before.
 func newPhaseScoring(agent *aiv1alpha1.Agent, policy *aiv1alpha1.CrewSchedulingPolicy, rule *aiv1alpha1.SchedulingRule, mode string) phaseScoring {
 	bias, have := phaseQualityBias(agent, policy, rule)
 	sc := phaseScoring{Bias: bias, HaveBias: have}
-	if mode != catalogModeCluster || (rule != nil && len(rule.Prefer) > 0) {
+	if mode != catalogModeCluster || explicitPreference(rule) {
 		return sc
 	}
 	sc.Abilities = agentAbilities(agent.Spec.Capabilities)

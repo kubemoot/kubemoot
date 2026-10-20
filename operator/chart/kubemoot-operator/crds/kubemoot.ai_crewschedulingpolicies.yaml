@@ -71,7 +71,8 @@ spec:
                   spec.capabilities and the model has. Default 20, above the runtime's
                   default quality tolerance of 10 points, so an agent that declares reasoning
                   keeps a reasoning model unless one with an equal score is already loaded.
-                  It applies to a rule with no explicit prefer block, and only to a crew that
+                  It applies to a rule with no explicit preference (no prefer list and no
+                  preferFaster), and only to a crew that
                   selects from the cluster's model catalog.
                 format: int32
                 maximum: 100
@@ -102,7 +103,7 @@ spec:
                 description: |-
                   QualityBias is a per-capability scalar in [0.0, 1.0] biasing model
                   selection between speed (low) and quality (high) for SchedulingRules
-                  that have no explicit Prefer block. For each Agent, the scheduler
+                  that state no explicit preference (no Prefer list and no PreferFaster). For each Agent, the scheduler
                   computes effectiveBias = max(QualityBias[c]) across the agent's
                   declared spec.capabilities, falling back to QualityBias["default"]
                   when no capability is mapped. The effective bias compiles into a
@@ -254,6 +255,10 @@ spec:
                         runtime applies it on each call against live measurements; the operator only
                         hands the number over. A candidate with no measured speed gets no points and
                         is never guessed fast or slow. 0 or unset turns the term off.
+
+                        A rule that sets PreferFaster states its own preference, like one with a
+                        prefer list: the qualityBias size score and the ability score do not apply to
+                        it. A rule that wants just the fastest model sets PreferFaster and no prefer.
                       format: int32
                       maximum: 100
                       minimum: 0
