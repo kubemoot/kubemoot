@@ -254,7 +254,7 @@ spec:
   endpoint: http://ollama.ollama-b:11434
 ```
 
-`kubectl get mdlp` (short name: `mdlp`).
+`kubectl get mdls` (short name: `mdls`).
 
 ### The model catalog
 

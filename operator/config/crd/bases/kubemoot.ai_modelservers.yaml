@@ -12,7 +12,7 @@ spec:
     listKind: ModelServerList
     plural: modelservers
     shortNames:
-    - mdlp
+    - mdls
     singular: modelserver
   scope: Namespaced
   versions:
