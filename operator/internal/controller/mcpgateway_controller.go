@@ -957,7 +957,11 @@ func (r *MCPGatewayReconciler) registerMCPServerWithGateway(ctx context.Context,
 
 	adminURL := gatewayRegistrationURL(gateway, impl, port)
 
-	payload := r.buildRegistrationPayload(ctx, impl, mcp)
+	payload := r.buildRegistrationPayload(impl, mcp)
+	credential, err := r.attachRegistrationCredential(ctx, impl, mcp, payload)
+	if err != nil {
+		return fmt.Errorf("not registering MCPServer %s: %w", mcp.Name, err)
+	}
 
 	jsonData, err := json.Marshal(payload)
 	if err != nil {
@@ -988,14 +992,14 @@ func (r *MCPGatewayReconciler) registerMCPServerWithGateway(ctx context.Context,
 
 	// Accept 200, 201, or 409 (already exists)
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusConflict {
-		return fmt.Errorf("failed to register MCP server: %s - %s", resp.Status, string(body))
+		return fmt.Errorf("failed to register MCP server: %s - %s", resp.Status, credential.redact(string(body)))
 	}
 
 	return nil
 }
 
 // buildRegistrationPayload builds the JSON payload for registering an MCPServer with a gateway.
-func (r *MCPGatewayReconciler) buildRegistrationPayload(ctx context.Context, impl kubemootv1alpha1.MCPGatewayImplementation, mcp *kubemootv1alpha1.MCPServer) map[string]interface{} {
+func (r *MCPGatewayReconciler) buildRegistrationPayload(impl kubemootv1alpha1.MCPGatewayImplementation, mcp *kubemootv1alpha1.MCPServer) map[string]interface{} {
 	transport := string(mcp.Spec.Transport)
 	if transport == "" {
 		transport = "sse"
@@ -1012,19 +1016,6 @@ func (r *MCPGatewayReconciler) buildRegistrationPayload(ctx context.Context, imp
 
 	if impl == kubemootv1alpha1.ImplementationKubemoot && len(mcp.Spec.ToolOverrides) > 0 {
 		payload["toolOverrides"] = mcp.Spec.ToolOverrides
-	}
-
-	if impl == kubemootv1alpha1.ImplementationContextForge && mcp.Spec.Registry != nil && mcp.Spec.Registry.AuthSecretRef != "" {
-		secret := &corev1.Secret{}
-		if err := r.Get(ctx, types.NamespacedName{
-			Namespace: mcp.Namespace,
-			Name:      mcp.Spec.Registry.AuthSecretRef,
-		}, secret); err == nil {
-			if token, ok := secret.Data["bearer-token"]; ok {
-				payload["auth_type"] = "bearer"
-				payload["auth_token"] = string(token)
-			}
-		}
 	}
 
 	return payload
@@ -1371,6 +1362,17 @@ func (r *MCPGatewayReconciler) findGatewaysForMCPServer(ctx context.Context, obj
 	return append(requests, gatewayRequests(others, mcp, func(gw kubemootv1alpha1.MCPGateway) *metav1.LabelSelector {
 		return gw.Spec.CoreServerSelector
 	}, false)...)
+}
+
+// findGatewaysForSecret is the gateways of every MCPServer that takes its credential
+// from the Secret.
+func (r *MCPGatewayReconciler) findGatewaysForSecret(ctx context.Context, obj client.Object) []reconcile.Request {
+	servers := secretToMCPServers(ctx, r.Client, obj)
+	requests := make([]reconcile.Request, 0, len(servers))
+	for _, mcp := range servers {
+		requests = append(requests, r.findGatewaysForMCPServer(ctx, &mcp)...)
+	}
+	return requests
 }
 
 // gatewayRequests is a reconcile request for each gateway whose selector (chosen
@@ -2364,6 +2366,12 @@ func (r *MCPGatewayReconciler) SetupWithManager(mgr ctrl.Manager) error {
 			&kubemootv1alpha1.MCPServer{},
 			handler.EnqueueRequestsFromMapFunc(r.findGatewaysForMCPServer),
 			specChangedOnly,
+		).
+		// Watch the Secrets MCPServers take their credential from, so a rotated key is
+		// registered with the gateway without waiting for a spec change.
+		Watches(
+			&corev1.Secret{},
+			handler.EnqueueRequestsFromMapFunc(r.findGatewaysForSecret),
 		).
 		// Watch MCPCatalogs — same spec-change-only filter.
 		Watches(

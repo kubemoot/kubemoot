@@ -6,7 +6,8 @@ public record RegisterServerRequest(
     String name,
     String url,
     String transport,
-    List<ToolOverride> toolOverrides
+    List<ToolOverride> toolOverrides,
+    ServerCredential auth
 ) {
     public RegisterServerRequest {
         if (name == null || name.isBlank()) {
@@ -21,7 +22,11 @@ public record RegisterServerRequest(
         toolOverrides = toolOverrides == null ? List.of() : List.copyOf(toolOverrides);
     }
 
+    public RegisterServerRequest(String name, String url, String transport, List<ToolOverride> toolOverrides) {
+        this(name, url, transport, toolOverrides, null);
+    }
+
     public RegisterServerRequest(String name, String url, String transport) {
-        this(name, url, transport, List.of());
+        this(name, url, transport, List.of(), null);
     }
 }

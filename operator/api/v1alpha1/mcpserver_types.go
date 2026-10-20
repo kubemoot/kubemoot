@@ -115,9 +115,19 @@ type RegistryConfig struct {
 
 	// AuthSecretRef references a secret containing auth credentials for this MCP server
 	// The secret should have a key "bearer-token" or "api-key"
-	// Used when the MCP server requires authentication from the gateway
+	// Used when the MCP server requires authentication from the gateway.
+	// A "bearer-token" is sent as "Authorization: Bearer <token>"; an "api-key" is sent
+	// in the header named by authHeader. When both keys are present, "bearer-token" wins.
 	// +optional
 	AuthSecretRef string `json:"authSecretRef,omitempty"`
+
+	// AuthHeader names the HTTP header that carries the Secret's "api-key" value.
+	// Defaults to X-API-Key. It has no effect on a "bearer-token", which always goes
+	// in the Authorization header.
+	// +kubebuilder:validation:MaxLength=128
+	// +kubebuilder:validation:Pattern=`^[A-Za-z0-9!#$%&'*+.^_|~-]+$`
+	// +optional
+	AuthHeader string `json:"authHeader,omitempty"`
 }
 
 // ToolParameterOverride replaces the description of one tool parameter.

@@ -179,7 +179,8 @@ spec:
 |-------|------|---------|-------------|
 | `enabled` | bool | `true` | Register with matching MCPGateways |
 | `categories` | []string | | Searchable tags for tool discovery |
-| `authSecretRef` | string | | Secret with auth credentials for this server |
+| `authSecretRef` | string | | Secret with the key this server needs: `bearer-token` or `api-key` (see [Connect an external MCP server that needs a key](#connect-an-external-mcp-server-that-needs-a-key)) |
+| `authHeader` | string | `X-API-Key` | Header that carries the Secret's `api-key`; ignored for a `bearer-token` |
 
 ### ToolOverride
 
@@ -222,6 +223,7 @@ spec:
 | `tools` | []MCPTool | Discovered tool names and descriptions |
 | `discoverable` | bool | Registered with at least one gateway |
 | `registeredWith` | []RegistryStatus | Gateway registration details |
+| `conditions` | []Condition | `Ready`, and `CredentialReady` on an external server with `registry.authSecretRef` |
 
 ## Examples
 
@@ -315,6 +317,61 @@ spec:
 ```
 
 Note: The github-mcp-server binary is at `/server/github-mcp-server`, not `/github-mcp-server`. The image uses `gcr.io/distroless/base-debian12`.
+
+### Connect an external MCP server that needs a key
+
+Many hosted MCP servers want a key on every request. Keep the key in a Secret in the
+same namespace as the MCPServer and point `registry.authSecretRef` at it. The operator
+hands the key to the MCPGateway when it registers the server, and the gateway sends it
+as a header on every call to that server (the initialize handshake, tool listing, and
+tool calls) and on no call to any other server.
+
+```yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: example-mcp-auth
+type: Opaque
+stringData:
+  api-key: "<your key>"      # or bearer-token: "<your token>"
+---
+apiVersion: kubemoot.ai/v1alpha1
+kind: MCPServer
+metadata:
+  name: example-search
+spec:
+  externalEndpoint: https://mcp.example.com/api/v1/mcp/
+  transport: http
+  registry:
+    authSecretRef: example-mcp-auth
+    authHeader: X-Example-Key   # only for api-key; defaults to X-API-Key
+```
+
+| Secret key | Header sent |
+|------------|-------------|
+| `bearer-token` | `Authorization: Bearer <token>` |
+| `api-key` | `<authHeader>: <key>`; `authHeader` defaults to `X-API-Key`. Set `authHeader: Authorization` and store the whole value (for example `Token abc`) when the server expects a different scheme |
+
+If both keys are present, `bearer-token` is used. An `externalEndpoint` whose path already
+ends in `/mcp` (with or without a trailing slash) is called at exactly that URL; any other
+streamable HTTP URL gets `/mcp` appended.
+
+The MCPServer reports whether it could read the key in the `CredentialReady` condition.
+A missing Secret (`SecretNotFound`), a Secret with neither key (`KeyMissing`), or an
+invalid header name or multi-line value (`InvalidHeader`) also leaves the server not
+ready, and it is not registered with the gateway until the Secret is fixed. The operator
+watches the Secret, so creating or rotating it needs no other action. If the Secret is later removed or becomes invalid, the gateway keeps the last key it was given until the server is registered again or removed.
+
+How the key is handled:
+
+- It is read from the Secret only when a registration is sent, and never appears in the
+  MCPServer status, events, metrics, logs or error messages.
+- The gateway keeps it in memory only. The gateway's server list and tool endpoints never
+  return it, and a gateway restart waits for the operator to register the server again.
+- The operator registers servers with the gateway over the in-cluster Service. The
+  gateway's admin API has no authentication of its own, so the key travels in plain HTTP
+  inside the cluster, like the other credentials the operator sends to a gateway. Restrict
+  who can reach the gateway Service with a NetworkPolicy where that matters.
 
 ## Troubleshooting
 
