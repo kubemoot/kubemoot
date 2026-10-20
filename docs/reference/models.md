@@ -172,7 +172,8 @@ it was never calibrated, a reset was requested, its engine version changed, or M
 were bound to it that the calibration has not measured. It asks once per need. It
 resumes a calibration that paused as `Waiting` (crew calls took the server, or the
 calibration server stopped mid-run) once no call holds the server, and retries one
-that `Failed` once the server has become ready again after the failure. A need that
+that `Failed` once the server has become ready again after the failure, or once the bus
+is ready if it failed on the bus. A need that
 arrives while a calibration is already running is asked once that run ends. It
 starts calibrations through the `accelerator-mcp` core server once that server is ready
 (see [The scheduling crew](../architecture/scheduler.md#the-scheduling-crew)); the
@@ -190,10 +191,29 @@ fit. A model that does not fit is recorded with `fits: false` and its reason; a 
 recipe could not measure is left out and named in the message; if none could be
 measured, the phase is `Failed`.
 
+**Waiting for the bus.** Calibration reads and writes two NATS KV buckets: the server
+tickets every probe claims and the performance history. On a fresh install the NATS
+bootstrap job that creates them starts together with the operator, so they can be
+missing for a few seconds, and NATS itself can be briefly unreachable. That is a state to
+wait out, not a result about the models: the operator does not start the calibration
+(`Calibrated` is `Unknown`, reason `WaitingForBus`), and a run that meets it mid-way is
+recorded as `Waiting` with `status.calibration.reason: WaitingForBus`, never `Failed`.
+The operator checks again every 30 seconds and starts or resumes the calibration on its
+own when both buckets exist and the server is idle. The 30 seconds only set how soon the
+next look happens; the calibration continues because the bus became ready.
+
+| `Calibrated` condition | When |
+|-------|-------|
+| `True`, reason `Calibrated` | The last run measured at least one model |
+| `Unknown`, reason `WaitingForBus` | NATS is unreachable or a scheduler bucket does not exist yet; nothing is wrong with the server or its models |
+| `False`, reason `Calibrating` or `Waiting` | A run is under way, or paused because crew calls hold the server |
+| `False`, reason `Failed` | No model could be measured; it stays `Failed` until the server, its Models or the reset annotation change, or the server becomes ready again after the failure |
+
 | `status.calibration` field | Description |
 |-------|-------------|
 | `phase` | `Calibrating`, `Calibrated`, `Waiting` (paused because crew calls were using the server), or `Failed` |
 | `message` | What the run measured, or why it paused or failed |
+| `reason` | What a `Waiting` run waits for when it is more than the server being idle: `WaitingForBus` |
 | `engineVersion` | The engine version the results were measured on |
 | `resetToken` | The last reset request acted on, set when the calibration it asked for starts |
 | `completedAt` | When the last calibration finished |

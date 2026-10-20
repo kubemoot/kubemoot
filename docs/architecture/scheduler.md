@@ -466,7 +466,7 @@ makes decisions in it:
 1. The operator sees that a server needs calibrating: it is new, a reset was
    requested, its engine version changed, or Models were bound to it that were never
    measured.
-2. Once the `accelerator-mcp` core server is ready, the operator calls its
+2. Once the `accelerator-mcp` core server and the bus are ready, the operator calls its
    `calibrate_server` tool and records the request in the server's
    `status.calibrationRequest`, so it asks once per need.
 3. The tool runs the recipe in the background, one model at a time: load, two short
@@ -476,6 +476,14 @@ makes decisions in it:
    as `Waiting`; the operator starts it again once no call holds the server. A run
    that `Failed` is started again once the server has become ready after the
    failure.
+5. A scheduler bucket that does not exist yet, or a NATS that cannot be reached, is a
+   state to wait out, not a measurement result: a fresh install starts the operator and
+   the NATS bootstrap job together. The operator does not start the run (the
+   `Calibrated` condition is `Unknown`, reason `WaitingForBus`), and a run that meets it
+   is recorded as `Waiting` with reason `WaitingForBus`, never `Failed`. Calibration
+   writes tickets, so a missing bucket is not read as "no calls hold the server". The
+   operator looks again every 30 seconds and continues as soon as both buckets exist. A
+   run that `Failed` because the model could not be measured stays `Failed`.
 
 This works before any crew runs, including the scheduling crew. The scheduler does not
 read the results yet. Fields and the reset annotation are in the

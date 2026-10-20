@@ -290,6 +290,11 @@ type ModelServerStatus struct {
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
 }
 
+// CalibrationReasonWaitingForBus is the Reason of a calibration that waits for NATS
+// or the scheduler's buckets. It is a state to wait out, not a failure; the
+// calibration resumes by itself when the bus is ready.
+const CalibrationReasonWaitingForBus = "WaitingForBus"
+
 // ServerCalibration is the outcome of calibrating a ModelServer.
 type ServerCalibration struct {
 	// Phase is Calibrating, Calibrated, Waiting (paused because crew calls were
@@ -300,6 +305,12 @@ type ServerCalibration struct {
 	// Message explains the phase
 	// +optional
 	Message string `json:"message,omitempty"`
+
+	// Reason names what a Waiting calibration waits for, when it is more than the
+	// server being idle: WaitingForBus means NATS cannot be reached or a scheduler
+	// bucket has not been created yet. Empty otherwise.
+	// +optional
+	Reason string `json:"reason,omitempty"`
 
 	// EngineVersion is the engine version the results were measured on
 	// +optional

@@ -17,9 +17,12 @@ limitations under the License.
 package nats
 
 import (
+	"errors"
 	"fmt"
 	"testing"
 	"time"
+
+	"github.com/kubemoot/kubemoot/operator/pkg/bus"
 )
 
 // errFmtObjectStore is the shared format string used by the object-store
@@ -132,5 +135,15 @@ func TestNewPublisherEnvFallback(t *testing.T) {
 	// Explicit url argument takes precedence and is also Configured.
 	if p := NewPublisher("nats://override:4222"); !p.Configured() {
 		t.Error("Configured() = false, want true for explicit url")
+	}
+}
+
+// BucketsReady has nothing to wait for without NATS configured, and reports an
+// unreachable server as not ready instead of as empty buckets.
+func TestBucketsReady(t *testing.T) {
+	wantNoErr(t, "BucketsReady() unconfigured", NewPublisher("").BucketsReady("b"))
+	err := NewPublisher("nats://127.0.0.1:1").BucketsReady("b")
+	if !errors.Is(err, bus.ErrNotReady) {
+		t.Errorf("BucketsReady() with NATS unreachable = %v, want bus.ErrNotReady", err)
 	}
 }

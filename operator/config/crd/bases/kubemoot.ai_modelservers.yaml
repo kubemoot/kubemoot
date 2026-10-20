@@ -279,6 +279,12 @@ spec:
                       Phase is Calibrating, Calibrated, Waiting (paused because crew calls were
                       using the server), or Failed
                     type: string
+                  reason:
+                    description: |-
+                      Reason names what a Waiting calibration waits for, when it is more than the
+                      server being idle: WaitingForBus means NATS cannot be reached or a scheduler
+                      bucket has not been created yet. Empty otherwise.
+                    type: string
                   resetToken:
                     description: |-
                       ResetToken is the last kubemoot.ai/calibration-reset value acted on: set when

@@ -407,13 +407,13 @@ func (s *Set) recordCalibration(ctx context.Context, raw json.RawMessage) (any, 
 	if err := s.notDuringAJob(args.Server); err != nil {
 		return nil, err
 	}
-	return s.record(ctx, args.Server, args.Phase, args.Message, models)
+	return s.record(ctx, args.Server, args.Phase, "", args.Message, models)
 }
 
 // record writes a calibration phase and its results on the server. Starting
 // (Calibrating) acts on a pending reset; any other phase ends the calibration and
 // unloads the models its probes loaded.
-func (s *Set) record(ctx context.Context, server, phase, message string,
+func (s *Set) record(ctx context.Context, server, phase, reason, message string,
 	models []aiv1alpha1.ModelCalibration) (map[string]any, error) {
 	p, err := s.Cluster.Server(ctx, server)
 	if err != nil {
@@ -423,7 +423,7 @@ func (s *Set) record(ctx context.Context, server, phase, message string,
 	if err != nil {
 		return nil, fmt.Errorf("forgetting the server's history for the reset: %w", err)
 	}
-	if err := s.Cluster.RecordCalibration(ctx, p, s.apply(phase, message, models)); err != nil {
+	if err := s.Cluster.RecordCalibration(ctx, p, s.apply(phase, reason, message, models)); err != nil {
 		return nil, err
 	}
 	out := map[string]any{fieldServer: p.Name, fieldPhase: phase, "historyForgotten": forgot}
@@ -454,12 +454,13 @@ func (s *Set) forgetOnReset(p *aiv1alpha1.ModelServer, phase string) (bool, erro
 // is acted on once, when a calibration starts: earlier results are cleared and its
 // token recorded, so resuming after a pause does not clear the new results again,
 // and a reset requested during the run stays pending for the next calibration.
-func (s *Set) apply(phase, message string,
+func (s *Set) apply(phase, reason, message string,
 	models []aiv1alpha1.ModelCalibration) func(*aiv1alpha1.ServerCalibration, *aiv1alpha1.ModelServer) {
 	return func(cal *aiv1alpha1.ServerCalibration, p *aiv1alpha1.ModelServer) {
 		now := s.now()
 		cal.Phase = phase
 		cal.Message = message
+		cal.Reason = reason
 		cal.UpdatedAt = &now
 		if phase == PhaseCalibrating && cluster.ResetRequested(p) {
 			cal.Models = nil

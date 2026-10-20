@@ -1,11 +1,14 @@
 package store
 
 import (
+	"errors"
 	"testing"
 	"time"
 
 	"github.com/nats-io/nats-server/v2/server"
 	"github.com/nats-io/nats.go"
+
+	"github.com/kubemoot/kubemoot/operator/pkg/bus"
 )
 
 // natsKV starts an embedded JetStream server with the two buckets and returns the KV over it.
@@ -80,4 +83,19 @@ func TestNATS_aMissingBucketIsAnError(t *testing.T) {
 	check(t, "list", err != nil, err)
 	check(t, "put", kv.PutKVValue("kubemoot_no_such_bucket", "k", nil) != nil, nil)
 	check(t, "delete", kv.DeleteKVKey("kubemoot_no_such_bucket", "k") != nil, nil)
+}
+
+// A bucket that does not exist yet is "the bus is not ready", which callers wait
+// out; it is never read as an empty bucket.
+func TestNATS_aMissingBucketMeansTheBusIsNotReady(t *testing.T) {
+	kv := natsKV(t)
+	_, getErr := kv.GetKVValue("kubemoot_no_such_bucket", "k")
+	_, listErr := kv.ListKVKeys("kubemoot_no_such_bucket")
+	putErr := kv.PutKVValue("kubemoot_no_such_bucket", "k", nil)
+	deleteErr := kv.DeleteKVKey("kubemoot_no_such_bucket", "k")
+	for name, err := range map[string]error{"get": getErr, "list": listErr, "put": putErr, "delete": deleteErr} {
+		check(t, name, errors.Is(err, bus.ErrNotReady), err)
+	}
+	_, err := Tickets{KV: kv, Holder: testHolder, Now: fixedNow}.Others(testServer)
+	check(t, "tickets on an existing bucket are fine", err == nil, err)
 }

@@ -16,9 +16,13 @@ import (
 	"strings"
 
 	"github.com/nats-io/nats.go"
+
+	"github.com/kubemoot/kubemoot/operator/pkg/bus"
 )
 
-// NATS is the KV over a JetStream connection.
+// NATS is the KV over a JetStream connection. A bucket that does not exist yet, or a
+// server that cannot be reached, comes back as an error that wraps bus.ErrNotReady,
+// so callers can wait for the bus instead of reporting a failure.
 type NATS struct {
 	JS nats.JetStreamContext
 }
@@ -27,14 +31,14 @@ type NATS struct {
 func (n NATS) GetKVValue(bucket, key string) ([]byte, error) {
 	kv, err := n.JS.KeyValue(bucket)
 	if err != nil {
-		return nil, err
+		return nil, bus.AsNotReady(err)
 	}
 	entry, err := kv.Get(key)
 	if errors.Is(err, nats.ErrKeyNotFound) {
 		return nil, nil
 	}
 	if err != nil {
-		return nil, err
+		return nil, bus.AsNotReady(err)
 	}
 	return entry.Value(), nil
 }
@@ -43,10 +47,10 @@ func (n NATS) GetKVValue(bucket, key string) ([]byte, error) {
 func (n NATS) PutKVValue(bucket, key string, value []byte) error {
 	kv, err := n.JS.KeyValue(bucket)
 	if err != nil {
-		return err
+		return bus.AsNotReady(err)
 	}
 	_, err = kv.Put(key, value)
-	return err
+	return bus.AsNotReady(err)
 }
 
 // ListKVKeys lists the bucket's keys from the backing stream's subject index,
@@ -56,7 +60,7 @@ func (n NATS) ListKVKeys(bucket string) ([]string, error) {
 	prefix := "$KV." + bucket + "."
 	info, err := n.JS.StreamInfo("KV_"+bucket, &nats.StreamInfoRequest{SubjectsFilter: prefix + ">"})
 	if err != nil {
-		return nil, err
+		return nil, bus.AsNotReady(err)
 	}
 	keys := make([]string, 0, len(info.State.Subjects))
 	for subject := range info.State.Subjects {
@@ -70,7 +74,7 @@ func (n NATS) ListKVKeys(bucket string) ([]string, error) {
 func (n NATS) DeleteKVKey(bucket, key string) error {
 	kv, err := n.JS.KeyValue(bucket)
 	if err != nil {
-		return err
+		return bus.AsNotReady(err)
 	}
-	return kv.Delete(key)
+	return bus.AsNotReady(kv.Delete(key))
 }
