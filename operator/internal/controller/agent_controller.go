@@ -258,7 +258,10 @@ type scheduleCandidate struct {
 	model    *kubemootv1alpha1.Model
 	provider *kubemootv1alpha1.ModelProvider
 	score    int64
-	reason   string
+	// policy is the policy-driven part of score (prefer weights, model size,
+	// abilities), without the provider's weight.
+	policy int64
+	reason string
 }
 
 // candidateBefore orders feasible candidates: the higher score first; on a tie the
@@ -279,6 +282,20 @@ func candidateBefore(a, b scheduleCandidate) bool {
 		return av < bv
 	}
 	return a.model.Name < b.model.Name
+}
+
+// catalogBefore orders candidates from the cluster catalog: the model the policy
+// ranks higher first, whatever provider carries it; the provider's scheduling weight
+// only decides among the same policy score. A provider's weight says which provider to
+// prefer for a model, not how good a model is, and providers a cluster owner sets
+// weights on (a CPU server at 50 beside accelerator servers with none) are not
+// comparable with the policy's points, so adding the two let a weight outrank a model
+// the policy ranked far higher. Ties continue as in candidateBefore.
+func catalogBefore(a, b scheduleCandidate) bool {
+	if a.policy != b.policy {
+		return a.policy > b.policy
+	}
+	return candidateBefore(a, b)
 }
 
 // pickModel runs filter+score for one phase and returns the best feasible pick.
@@ -304,7 +321,11 @@ func (r *AgentReconciler) pickModel(ctx context.Context, agent *kubemootv1alpha1
 		return nil, errors.New(noMatchReason(phase, rule, src, agent.Namespace))
 	}
 
-	sort.SliceStable(feasible, func(i, j int) bool { return candidateBefore(feasible[i], feasible[j]) })
+	before := candidateBefore
+	if src.Mode == catalogModeCluster {
+		before = catalogBefore
+	}
+	sort.SliceStable(feasible, func(i, j int) bool { return before(feasible[i], feasible[j]) })
 	pick := feasible[0]
 
 	reason := pick.reason
@@ -351,10 +372,12 @@ func (r *AgentReconciler) evaluateCandidate(ctx context.Context, agent *kubemoot
 		return scheduleCandidate{}, false, err
 	}
 	score, reasonParts := scoreCandidate(phase, rule, m, prov, sc)
+	policy := score - providerScore(phase, prov)
 	return scheduleCandidate{
 		model:    m,
 		provider: prov,
 		score:    score,
+		policy:   policy,
 		reason:   strings.Join(reasonParts, ","),
 	}, true, nil
 }

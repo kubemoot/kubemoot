@@ -124,4 +124,19 @@ class ModelCandidatesRankTest {
         assertEquals(List.of("t-small"), new CandidatePolicy(MAPPER, Optional.empty(), Optional.empty(), 10, 0, 0).triageRanking("t-small", speed).acceptable().subList(0, 1),
                 "a policy built without a triage list ranks only the bound model");
     }
+
+    /**
+     * Triage with every model scored 0 (a rule with preferFaster alone) and the bound
+     * model the slower of two measured models: the call prefers the measured-faster
+     * model, and the bound model stays an alternative only within the tolerance (here
+     * the default of 10 points: the slower model earns 39 of 50, 11 below).
+     */
+    @Test
+    void thePilotTriageStatePrefersTheMeasuredFasterModelOverTheBoundOne() {
+        var c = candidates("[{\"model\":\"qwen3:32b\",\"score\":0},{\"model\":\"qwen3:14b\",\"score\":0},"
+                + "{\"model\":\"qwen3:8b\",\"score\":0}]");
+        var r = c.rank("qwen3:32b", 10, 50, speeds(Map.of("qwen3:14b", 100L, "qwen3:32b", 78L, "qwen3:8b", 7L)));
+        assertEquals("qwen3:14b", r.preferred());
+        assertTrue(r.alternatives().isEmpty(), "14B earns 50, 32B 39, 8B 4: the 32B is 11 below, outside a tolerance of 10");
+    }
 }
