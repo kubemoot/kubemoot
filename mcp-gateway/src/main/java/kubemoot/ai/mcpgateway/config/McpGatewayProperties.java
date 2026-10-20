@@ -79,6 +79,20 @@ public class McpGatewayProperties {
         private Duration evictInterval = Duration.ofSeconds(10);
         private Duration maxLifeTime = Duration.ofMinutes(5);
 
+        /** Fails startup with the name of the offending key when a limit is not a positive duration. */
+        public void validate() {
+            requirePositive("max-idle-time", maxIdleTime);
+            requirePositive("evict-interval", evictInterval);
+            requirePositive("max-life-time", maxLifeTime);
+        }
+
+        private static void requirePositive(String key, Duration value) {
+            if (value == null || value.isNegative() || value.isZero()) {
+                throw new IllegalStateException("mcp.gateway.connections." + key
+                    + " must be a positive duration, for example 15s, but is " + value);
+            }
+        }
+
         public Duration getMaxIdleTime() {
             return maxIdleTime;
         }

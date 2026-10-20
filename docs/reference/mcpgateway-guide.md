@@ -198,9 +198,11 @@ A hosted MCP server's edge closes connections that sit idle, and a request sent 
 |----------|---------|---------|
 | `mcp.gateway.connections.max-idle-time` | `15s` | A connection idle this long is closed and never reused |
 | `mcp.gateway.connections.evict-interval` | `10s` | How often the pool looks for connections to close |
-| `mcp.gateway.connections.max-life-time` | `5m` | A connection older than this is closed, however busy |
+| `mcp.gateway.connections.max-life-time` | `5m` | A connection older than this is closed instead of being reused |
 
-When a reset still happens, the gateway sends `initialize` and `tools/list` once more on a new connection, because they read state and change nothing. A second reset in a row fails the connect and marks the server `ERROR`. The gateway never sends `tools/call` again after a reset: the server may have received and run the call before the connection dropped, and a second send would run it twice. The caller gets the error and decides.
+Each value must be a positive duration; the gateway refuses to start with the name of the key otherwise.
+
+When a reset still happens on a streamable-http server, the gateway sends `initialize`, `notifications/initialized` and the first `tools/list` once more on a new connection, because they read state and change nothing. Servers reached over SSE or stdio are not retried. A second reset in a row fails the connect and marks the server `ERROR`. The gateway never sends `tools/call` again after a reset: the server may have received and run the call before the connection dropped, and a second send would run it twice. The caller gets the error and decides.
 
 ## Example
 

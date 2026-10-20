@@ -12,6 +12,9 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.web.reactive.function.client.WebClient;
 import reactor.core.publisher.Mono;
+import org.springframework.boot.context.properties.bind.Binder;
+import org.springframework.boot.context.properties.source.MapConfigurationPropertySource;
+import reactor.netty.http.client.PrematureCloseException;
 import reactor.netty.resources.ConnectionProvider;
 
 import java.io.ByteArrayOutputStream;
@@ -89,7 +92,7 @@ class McpClientManagerConnectionResetTest {
     }
 
     @Test
-    void anIdleConnectionIsDroppedFromThePoolBeforeTheNextRequest() throws Exception {
+    void anIdleConnectionIsDroppedFromThePoolBeforeTheNextRequest() {
         var properties = new McpGatewayProperties();
         properties.getConnections().setMaxIdleTime(Duration.ofMillis(300));
         properties.getConnections().setEvictInterval(Duration.ofMillis(100));
@@ -98,7 +101,8 @@ class McpClientManagerConnectionResetTest {
         awaitTrue("connected", () -> manager.getServer(server.id()).status() == ServerStatus.CONNECTED);
         int afterConnect = connectionsAccepted.get();
 
-        Thread.sleep(1200);
+        awaitTrue("the pool closed its idle connection", () -> !sockets.isEmpty()
+            && sockets.stream().allMatch(Socket::isClosed));
         McpMessage reply = call(server);
 
         assertNull(reply.error(), String.valueOf(reply.error()));
@@ -139,9 +143,21 @@ class McpClientManagerConnectionResetTest {
         var server = register();
 
         awaitTrue("connect failed", () -> manager.getServer(server.id()).status() == ServerStatus.ERROR);
-        Thread.sleep(300);
-        assertEquals(2, requests("initialize"), "one send and one more, no third");
+        assertStaysAt(2, () -> requests("initialize"), "one send and one more, no third");
         assertTrue(manager.getToolsForServer(server.id()).isEmpty());
+    }
+
+    @Test
+    void theInitializedNotificationIsSentAgainOnceAfterAReset() {
+        dropsLeft.put("notifications/initialized", new AtomicInteger(1));
+        build(new McpGatewayProperties());
+
+        var server = register();
+
+        awaitTrue("connected with tools", () -> manager.getServer(server.id()).status() == ServerStatus.CONNECTED
+            && !manager.getToolsForServer(server.id()).isEmpty());
+        assertEquals(2, requests("notifications/initialized"));
+        assertEquals(1, requests("initialize"), "the handshake is not started over");
     }
 
     @Test
@@ -162,11 +178,47 @@ class McpClientManagerConnectionResetTest {
     void onlyClosedConnectionFailuresCountAsResets() {
         var reset = new IOException("recvAddress(..) failed with error(-104): Connection reset by peer");
 
-        assertTrue(McpClientManager.isConnectionReset(reset));
-        assertTrue(McpClientManager.isConnectionReset(new RuntimeException("request failed", reset)));
-        assertTrue(McpClientManager.isConnectionReset(new ClosedChannelException()));
-        assertFalse(McpClientManager.isConnectionReset(new IOException("Connection refused")));
-        assertFalse(McpClientManager.isConnectionReset(new IllegalStateException("bad reply")));
+        assertTrue(ConnectionFailures.isConnectionReset(reset));
+        assertTrue(ConnectionFailures.isConnectionReset(new RuntimeException("request failed", reset)));
+        assertTrue(ConnectionFailures.isConnectionReset(new ClosedChannelException()));
+        assertTrue(ConnectionFailures.isConnectionReset(PrematureCloseException.TEST_EXCEPTION));
+        assertTrue(ConnectionFailures.isConnectionReset(
+            new IOException("writev(..) failed with error(-32): Broken pipe")));
+        assertFalse(ConnectionFailures.isConnectionReset(new IOException("Connection refused")));
+        assertFalse(ConnectionFailures.isConnectionReset(new IllegalStateException("bad reply")));
+    }
+
+    @Test
+    void aRefusedConnectionIsNotAReset() {
+        var refused = new RuntimeException("connect failed", new java.net.ConnectException("refused"));
+
+        assertTrue(ConnectionFailures.isConnectRefused(refused));
+        assertFalse(ConnectionFailures.isConnectionReset(refused));
+    }
+
+    @Test
+    void theConnectionKeysBindFromTheirKebabCaseNames() {
+        var source = new MapConfigurationPropertySource(Map.of(
+            "mcp.gateway.connections.max-idle-time", "2s",
+            "mcp.gateway.connections.evict-interval", "500ms",
+            "mcp.gateway.connections.max-life-time", "1m"));
+
+        var bound = new Binder(source).bind("mcp.gateway", McpGatewayProperties.class).get().getConnections();
+
+        assertEquals(Duration.ofSeconds(2), bound.getMaxIdleTime());
+        assertEquals(Duration.ofMillis(500), bound.getEvictInterval());
+        assertEquals(Duration.ofMinutes(1), bound.getMaxLifeTime());
+    }
+
+    @Test
+    void aLimitThatIsNotPositiveFailsStartupNamingTheKey() {
+        var properties = new McpGatewayProperties();
+        properties.getConnections().setEvictInterval(Duration.ZERO);
+
+        var error = org.junit.jupiter.api.Assertions.assertThrows(IllegalStateException.class,
+            () -> new McpConfig(properties).mcpConnectionProvider());
+
+        assertTrue(error.getMessage().contains("mcp.gateway.connections.evict-interval"), error.getMessage());
     }
 
     private void build(McpGatewayProperties properties) {
@@ -276,6 +328,15 @@ class McpClientManagerConnectionResetTest {
             }
         }
         return new String(in.readNBytes(length), StandardCharsets.UTF_8);
+    }
+
+    /** The count stays at the expected value for a window; a count that has not moved is a state, not a delay. */
+    private static void assertStaysAt(int expected, java.util.function.IntSupplier count, String why)
+            throws InterruptedException {
+        for (int i = 0; i < 8; i++) {
+            assertEquals(expected, count.getAsInt(), why);
+            Thread.sleep(50);
+        }
     }
 
     private static void awaitTrue(String what, BooleanSupplier condition) {

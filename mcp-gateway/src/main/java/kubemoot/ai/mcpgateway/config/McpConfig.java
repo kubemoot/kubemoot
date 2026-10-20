@@ -35,6 +35,7 @@ public class McpConfig {
     @Bean(destroyMethod = "dispose")
     public ConnectionProvider mcpConnectionProvider() {
         var connections = properties.getConnections();
+        connections.validate();
         return ConnectionProvider.builder("mcp-gateway")
             .maxIdleTime(connections.getMaxIdleTime())
             .maxLifeTime(connections.getMaxLifeTime())
