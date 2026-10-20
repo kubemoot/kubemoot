@@ -42,11 +42,12 @@ spec:
   crewRef: {{ $crew }}
   archetypeRef: consent-3
   # The crew's own work is short: plan probes, call tools, report. It ships no Models;
-  # it selects from the cluster's catalog. A model that calls tools is required; a
-  # low qualityBias makes mulling follow size toward the small models, and triage asks
-  # for a small model and, among those, the one measured faster.
+  # it selects from the cluster's catalog. Every phase requires a model that calls
+  # tools. Size is no proxy for speed (the only small model on a cluster may run on a
+  # CPU), so triage states one explicit preference, the model measured faster, and
+  # names no size. Mulling follows size through a neutral qualityBias.
   qualityBias:
-    default: "0.2"
+    default: "0.5"
   rules:
     - phase: mulling
       require:
@@ -56,11 +57,6 @@ spec:
       require:
         matchLabels:
           capability/tool-calling: "true"
-      prefer:
-        - weight: 100
-          selector:
-            matchLabels:
-              kubemoot.ai/size: small
       preferFaster: 50
 ---
 apiVersion: kubemoot.ai/v1alpha1

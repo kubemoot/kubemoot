@@ -430,7 +430,7 @@ Kubemoot ships its own crew for scheduling work, `kubemoot-scheduling`, in the o
 chart (`schedulingCrew` values, on by default) and in its own namespace,
 `kubemoot-scheduling`. It is built like any crew: a coordinator, a specialist, ADL
 PromptModules, a Skill, and an MCPGateway. It ships no Models: its policy requires a model
-that calls tools and prefers a small one (a small, measured-faster one in triage), and the
+that calls tools and prefers the measured-faster model in triage, and the
 agents select it from the cluster's model catalog like any crew. Its tools come from `accelerator-mcp`, a core MCP
 server in the operator's namespace (`acceleratorMcp` values) that the crew's gateway
 registers through its `coreServerSelector` (see

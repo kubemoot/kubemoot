@@ -45,7 +45,7 @@ done
 [ "$(get "$out" Skill judge-a-drift .metadata.namespace)" = "$ns" ] || fail "the drift-judgment skill is missing"
 
 # The crew ships no Models: it selects from the cluster's catalog, requiring tool-calling
-# and preferring small and measured-faster.
+# and, in triage, preferring the measured-faster model (no size preference).
 [ "$(count "$out" '.kind == "Model" and .metadata.namespace == "kubemoot-scheduling"')" = 0 ] \
   || fail "the crew ships Models of its own"
 [ "$(count "$out" '.kind == "Model"')" = 0 ] || fail "the chart renders Models without a models entry"
@@ -54,8 +54,10 @@ policy=CrewSchedulingPolicy
   || fail "mulling does not require tool-calling"
 [ "$(get "$out" $policy kubemoot-scheduling-scheduling '.spec.rules[] | select(.phase == "triage") | .require.matchLabels["capability/tool-calling"]')" = "true" ] \
   || fail "triage does not require tool-calling"
-[ "$(get "$out" $policy kubemoot-scheduling-scheduling '.spec.rules[] | select(.phase == "triage") | .prefer[0].selector.matchLabels["kubemoot.ai/size"]')" = small ] \
-  || fail "triage does not prefer a small model"
+[ "$(get "$out" $policy kubemoot-scheduling-scheduling '.spec.rules[] | select(.phase == "triage") | .prefer // "none"')" = none ] \
+  || fail "triage states a size or other preference besides preferFaster"
+[ "$(get "$out" $policy kubemoot-scheduling-scheduling '.spec.rules[] | select(.phase == "triage") | .require.matchLabels | keys | join(",")')" = "capability/tool-calling" ] \
+  || fail "triage requires more than tool-calling"
 [ "$(get "$out" $policy kubemoot-scheduling-scheduling '.spec.rules[] | select(.phase == "triage") | .preferFaster')" = 50 ] \
   || fail "triage does not prefer the faster model"
 [ -n "$(get "$out" $policy kubemoot-scheduling-scheduling '.spec.qualityBias.default // ""')" ] \

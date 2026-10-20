@@ -81,8 +81,9 @@ jobs:
 
       - name: Lint and test the quickstart scripts
         run: |
-          shellcheck -x quickstart/quickstart.sh quickstart/chart-version.sh quickstart/chart-version.test.sh
+          shellcheck -x quickstart/quickstart.sh quickstart/chart-version.sh quickstart/chart-version.test.sh quickstart/quickstart-guard.test.sh
           bash quickstart/chart-version.test.sh
+          bash quickstart/quickstart-guard.test.sh
 
       - name: Build the chart's dashboard subchart
         run: helm dependency build operator/chart/kubemoot-operator
