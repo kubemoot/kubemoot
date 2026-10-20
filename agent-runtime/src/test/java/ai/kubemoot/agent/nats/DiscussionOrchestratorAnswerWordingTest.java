@@ -74,12 +74,29 @@ class DiscussionOrchestratorAnswerWordingTest {
     }
 
     @Test
-    void theOperatorGuidance_livesInTheLogMessage() {
-        String guidance = DiscussionOrchestrator.infrastructureGapGuidance("t1", java.util.Set.of("library-search"));
+    void theOperatorGuidance_isLoggedAndNotPublished() {
+        var logger = org.jboss.logmanager.Logger.getLogger(DiscussionOrchestrator.class.getName());
+        var records = new java.util.ArrayList<String>();
+        var handler = new java.util.logging.Handler() {
+            @Override public void publish(java.util.logging.LogRecord r) {
+                records.add(new java.util.logging.SimpleFormatter().formatMessage(r));
+            }
+            @Override public void flush() { }
+            @Override public void close() { }
+        };
+        logger.addHandler(handler);
+        try {
+            var state = new DiscussionOrchestrator.ThreadState("t1");
+            state.failureSignals.put("library-search", "timed out");
 
-        assertTrue(guidance.contains("Check the failing MCP servers"), guidance);
-        assertTrue(guidance.contains("library-search"), guidance);
-        assertTrue(guidance.contains("dashboard"), guidance);
+            String answer = publish(state, ANSWER);
+
+            assertTrue(records.stream().anyMatch(r -> r.contains("library-search")
+                    && r.contains(DiscussionOrchestrator.OPERATOR_GUIDANCE)), records.toString());
+            assertFalse(answer.contains(DiscussionOrchestrator.OPERATOR_GUIDANCE), answer);
+        } finally {
+            logger.removeHandler(handler);
+        }
     }
 
     @Test
@@ -106,10 +123,11 @@ class DiscussionOrchestratorAnswerWordingTest {
     void aToolerGap_keepsTheOnboardingHintWithoutOperatorWording() {
         var state = new DiscussionOrchestrator.ThreadState("t1");
 
-        String answer = publish(state, "No tooler covers this; you could onboard one.");
+        String response = "No tooler covers this; you could onboard one.";
+        String answer = publish(state, response);
 
         assertTrue(answer.contains("reply: `onboard <domain>`"), answer);
-        assertFalse(OPERATOR_WORDING.matcher(answer.substring(ANSWER.length())).find(), answer);
+        assertFalse(OPERATOR_WORDING.matcher(answer.substring(response.length())).find(), answer);
     }
 
     @Test
