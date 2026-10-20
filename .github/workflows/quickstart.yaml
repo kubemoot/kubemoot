@@ -1,13 +1,23 @@
-# Quickstart: the README's first five minutes, run by CI so it cannot break unnoticed.
-# A GitHub-hosted runner, an empty kind cluster, nothing from the homelab: no Harbor, no
+# Quickstart: the README's first five minutes, checked by CI so it cannot break unnoticed.
+# GitHub-hosted runners, an empty kind cluster, nothing from the homelab: no Harbor, no
 # ARC runner, no cluster secrets.
 #
-# It installs a published chart from the release registry, the way a stranger does, so
-# it tests the exact bytes a stranger pulls. main builds release candidates that live in
-# Harbor only, so there is nothing public to test until a release: Publish Release
-# calls this workflow with the chart it just published, before it writes the GitHub
-# Release. A push that touches only the quickstart runs it against the latest published
-# chart; a dispatch takes any published chart version (empty: the latest).
+# Two checks, because main's release candidates live in Harbor only and a hosted runner
+# cannot reach it:
+#
+#   manifests   every change to the quickstart, the chart or the CRDs: main's own chart
+#               and CRDs against main's own quickstart manifests. It installs the
+#               CRDs of the chart in the checkout on a kind cluster and has the API
+#               server validate everything the quickstart applies and the chart renders
+#               (a server-side dry run), so a breaking API change cannot leave the
+#               manifests and the chart disagreeing. It runs no images.
+#   quickstart  the whole script, end to end, against a published release: the
+#               chart and the images the release pins, with the quickstart files as
+#               they were at that release (the operator-chart-vX.Y.Z tag), the way a
+#               stranger runs them. Publish Release calls this workflow with the chart
+#               it just published, before it writes the GitHub Release. A dispatch takes
+#               any published chart version (empty: the latest), and a weekly schedule
+#               re-tests the latest release.
 name: Quickstart
 
 on:
@@ -18,11 +28,21 @@ on:
         required: false
         default: ''
         type: string
+  pull_request:
+    paths:
+      - 'quickstart/**'
+      - 'operator/chart/**'
+      - 'operator/api/**'
+      - '.github/workflows/quickstart.yaml'
   push:
     branches: [main]
     paths:
       - 'quickstart/**'
+      - 'operator/chart/**'
+      - 'operator/api/**'
       - '.github/workflows/quickstart.yaml'
+  schedule:
+    - cron: '17 6 * * 1'
   workflow_dispatch:
     inputs:
       chart_version:
@@ -32,8 +52,8 @@ on:
         type: string
 
 concurrency:
-  group: quickstart-${{ inputs.chart_version || 'latest' }}
-  cancel-in-progress: true
+  group: quickstart-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
@@ -46,18 +66,64 @@ permissions:
   contents: read
 
 jobs:
-  quickstart:
+  manifests:
+    if: github.event_name == 'pull_request' || github.event_name == 'push'
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 15
     permissions:
       contents: read
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The chart-version tests read the release tags.
+          fetch-depth: 0
 
-      - name: Lint the quickstart script
-        run: shellcheck quickstart/quickstart.sh
+      - name: Lint and test the quickstart scripts
+        run: |
+          shellcheck -x quickstart/quickstart.sh quickstart/chart-version.sh quickstart/chart-version.test.sh
+          bash quickstart/chart-version.test.sh
 
+      - name: Build the chart's dashboard subchart
+        run: helm dependency build operator/chart/kubemoot-operator
+
+      - name: Create kind cluster
+        uses: helm/kind-action@06c1ae10762d3b9c1644e7fe69596ae519e015a2 # v1.15.0
+        with:
+          cluster_name: kubemoot
+
+      - name: Install the checkout's CRDs and validate what the quickstart applies
+        # A server-side dry run runs the CRD schemas and validation rules of the checkout
+        # against the chart's rendered objects (the ModelServer and its catalog Model
+        # included) and the hello crew. A kind that does not exist in the CRDs, or a field
+        # that moved, fails here, on main, before any release.
+        shell: bash
+        run: |
+          set -euo pipefail
+          helm show crds operator/chart/kubemoot-operator | kubectl apply --server-side --force-conflicts -f -
+          kubectl wait --for=condition=Established crd --all --timeout=60s
+          kubectl create namespace kubemoot
+          kubectl create namespace hello
+          helm template kubemoot-operator operator/chart/kubemoot-operator --namespace kubemoot \
+              --values quickstart/operator-values.yaml \
+            | kubectl apply --server-side --dry-run=server -f -
+          kubectl apply --server-side --dry-run=server -n hello \
+            -f quickstart/crew/promptmodules.yaml -f quickstart/crew/agents.yaml -f quickstart/crew/crew.yaml
+
+      - name: The quickstart crew declares no Models
+        run: |
+          if grep -rEl '^kind: Model$' quickstart/crew; then
+            echo "the quickstart crew ships a Model; models belong in the cluster's catalog (operator-values.yaml)"
+            exit 1
+          fi
+
+  quickstart:
+    if: github.event_name != 'pull_request' && github.event_name != 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    steps:
       - name: Log in to the release registry
         if: env.GHCR_TOKEN != ''
         run: |
@@ -80,23 +146,22 @@ jobs:
           echo "ref=$ref" >> "$GITHUB_OUTPUT"
           echo "version=$version" >> "$GITHUB_OUTPUT"
 
+      - name: Checkout the release
+        # The quickstart files of the release being tested, so they match its chart.
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: operator-chart-v${{ steps.chart.outputs.version }}
+
       - name: Create kind cluster
         uses: helm/kind-action@06c1ae10762d3b9c1644e7fe69596ae519e015a2 # v1.15.0
         with:
           cluster_name: kubemoot
 
-      - name: Build the chart's dashboard subchart
-        # Only a checkout install needs it; a published chart carries the subchart.
-        if: steps.chart.outputs.version == ''
-        run: helm dependency build operator/chart/kubemoot-operator
-
       - name: Pull the released images the chart pins and load them into kind
         # The chart names every component image; the quickstart runs up to five of them. kind
         # nodes cannot pull private packages, so the runner pulls and loads them.
         run: |
-          version_args=()
-          [ -n "${{ steps.chart.outputs.version }}" ] && version_args=(--version "${{ steps.chart.outputs.version }}")
-          helm template q "${{ steps.chart.outputs.ref }}" "${version_args[@]}" \
+          helm template q "${{ steps.chart.outputs.ref }}" --version "${{ steps.chart.outputs.version }}" \
               --values quickstart/operator-values.yaml \
             | grep -oE "${RELEASE_REGISTRY}/(kubemoot-operator|agent-runtime|discussion-gateway|crew-liaison|dashboard):[A-Za-z0-9._-]+" \
             | sort -u | tee images.txt

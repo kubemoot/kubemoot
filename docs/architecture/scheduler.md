@@ -429,8 +429,9 @@ depend on themselves to be scheduled.
 Kubemoot ships its own crew for scheduling work, `kubemoot-scheduling`, in the operator
 chart (`schedulingCrew` values, on by default) and in its own namespace,
 `kubemoot-scheduling`. It is built like any crew: a coordinator, a specialist, ADL
-PromptModules, a Skill, an MCPGateway, and one small tool-calling Model per
-ModelServer the chart declares. Its tools come from `accelerator-mcp`, a core MCP
+PromptModules, a Skill, and an MCPGateway. It ships no Models: its policy requires a model
+that calls tools and prefers a small one (a small, measured-faster one in triage), and the
+agents select it from the cluster's model catalog like any crew. Its tools come from `accelerator-mcp`, a core MCP
 server in the operator's namespace (`acceleratorMcp` values) that the crew's gateway
 registers through its `coreServerSelector` (see
 [Core MCP servers](../reference/mcpgateway-guide.md#core-mcp-servers)); other crews may
@@ -450,8 +451,11 @@ The crew does scheduling work the operator hands it; it is not a crew to ask que
 People read calibration where it is recorded: `kmctl model list` and `kmctl model get
 NAME`, and the server page in the dashboard.
 
-Its Models come from the chart's `modelServers` values, so a ModelServer created
-another way needs a Model in `kubemoot-scheduling` for the crew to think with.
+The crew renders when the chart declares at least one ModelServer, and it needs a model
+that calls tools in the catalog: a vLLM model served by the `kubemoot-vllm` chart with the
+`tool-calling` capability, or a model listed under the ModelServer's `models` in the
+chart's `modelServers` values or one the Ollama server already has. Until the catalog has one,
+its agents are `Unschedulable`, as any crew's would be.
 
 ### Calibration
 

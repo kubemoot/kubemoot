@@ -14,10 +14,24 @@ grafana:
 verify:
   enabled: false
 schedulingCrew:
-  enabled: false          # needs chart-declared modelServers; the quickstart adds its server separately
+  enabled: false          # the quickstart does not measure its one CPU server
 acceleratorMcp:
   enabled: false          # the quickstart loads only the core images into kind
 dashboard:
   enabled: true           # a first look at the crew; reach it with kubectl port-forward
   gateway:
     enabled: false        # no route: the dashboard has no authentication, so it stays on the cluster network
+# The quickstart's model server and its one catalog model. Ollama is the quickstart
+# engine (familiar, and it runs on a laptop CPU); an installation on accelerators
+# prefers vLLM (see the installation guide). The operator marks the server Ready once
+# it answers, downloads the model onto it, and adds it to the cluster's model catalog.
+# The crew ships no Models: its agents are scheduled from this catalog.
+modelServers:
+  - name: ollama-local
+    type: ollama
+    endpoint: http://ollama.ollama:11434
+    # A CPU Ollama has no VRAM to discover, so declare the host RAM the fit gate may
+    # spend on models (matches the Deployment's request in ollama.yaml with headroom).
+    memoryMiB: 6144
+    models:
+      - model: qwen2.5:1.5b   # quickstart.sh replaces it when QUICKSTART_MODEL is set

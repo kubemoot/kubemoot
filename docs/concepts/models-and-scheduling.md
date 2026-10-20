@@ -13,7 +13,7 @@ loose model coupling and just-in-time scheduling.
 An `Agent` spec names no model. It declares abstract **capabilities** -
 `tool-calling`, `reasoning`, `kubernetes`, and so on. Concrete models are separate
 resources: a `Model` (an LLM, by capability labels, not a hardcoded name) served by a
-`ModelServer` (a GPU-backed inference endpoint such as Ollama on a particular GPU).
+`ModelServer` (an inference server on an accelerator, such as vLLM, the currently preferred engine, or Ollama).
 
 The match between the two is made by a `CrewSchedulingPolicy`, whose rules select
 candidate `Model` CRs by their labels. Because the agent never names

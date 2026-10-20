@@ -85,9 +85,10 @@ out="$(servers -f "$values" --namespace km)"
 [ "$(field "$out" ollama-gpu .spec.serviceRef)" = "null" ] || fail "an ollama server rendered a serviceRef"
 [ "$(field "$out" ollama-gpu .spec.endpoint)" = "http://ollama.gpu:11434" ] || fail "an ollama server lost its endpoint"
 
-# The scheduling crew declares its Ollama-tag model on the ollama server only.
+# Servers without a models entry render no Model: the scheduling crew ships none
+# either, it selects from the catalog.
 models="$(helm template kubemoot-operator "$chart" -f "$values" --namespace km | yq -N 'select(.kind == "Model") | .spec.serverRef')"
-[ "$models" = "ollama-gpu" ] || fail "the scheduling crew's Model should name only the ollama server, got: $models"
+[ -z "$models" ] || fail "a Model rendered without a models entry, got: $models"
 
 # Catalog models: a models entry renders one Model in the server's namespace, named
 # for the server and the model, with only what the entry sets.
@@ -147,5 +148,18 @@ modelServers:
 EOF
 if out="$(helm template kubemoot-operator "$chart" -f "$values" --namespace km 2>&1)"; then fail "colliding Model names were accepted"; fi
 grep -qF 'both render the Model name "ollama-gpu-qwen3-14b"' <<<"$out" || fail "collision message: $out"
+
+# The install notes lead with vLLM (the preferred engine) and show Ollama as the
+# alternative while no server is declared; they list the servers once there are some.
+notes() { helm install kubemoot-operator "$chart" --dry-run=client --namespace km "$@" | sed -n '/^NOTES:/,$p'; }
+text="$(notes)"
+vllm_at="$(grep -n 'type: vllm' <<<"$text" | head -1 | cut -d: -f1)"
+ollama_at="$(grep -n 'type: ollama' <<<"$text" | head -1 | cut -d: -f1)"
+[ -n "$vllm_at" ] && [ -n "$ollama_at" ] || fail "the notes do not show both engines"
+[ "$vllm_at" -lt "$ollama_at" ] || fail "the notes do not lead with vLLM"
+grep -q 'serviceRef: {name: kubemoot-vllm' <<<"$text" || fail "the notes do not point serviceRef at a kubemoot-vllm release"
+text="$(notes --set 'modelServers[0].name=vllm-gpu' --set 'modelServers[0].type=vllm' --set 'modelServers[0].serviceRef.name=kubemoot-vllm')"
+grep -q 'vllm-gpu (vllm)' <<<"$text" || fail "the notes do not list the declared server"
+if grep -q 'No model server is declared' <<<"$text"; then fail "the notes say no server is declared"; fi
 
 echo "PASS: modelServers render tests"

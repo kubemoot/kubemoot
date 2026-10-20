@@ -7,18 +7,25 @@ footprint that still holds a real consensus discussion:
 | Step | What | Why |
 |---|---|---|
 | 1 | NATS with JetStream (release `nats`, namespace `nats`) | every discussion is carried over NATS; the operator bootstraps its streams |
-| 2 | Ollama on CPU, pulling `qwen2.5:1.5b` | a small model that runs anywhere; swap for a GPU-backed Ollama later |
-| 3 | The operator Helm chart with `operator-values.yaml` | the dashboard is on with no route (the script prints the `kubectl port-forward` that opens it); admission webhooks, Grafana dashboards, the internal MCP servers, the NATS MCP server and the verify runner are off |
-| 4 | A `ModelServer` pointing at that Ollama | the endpoint the scheduler binds agents to at inference time |
-| 5 | The `hello` crew: a coordinator, one Tooler, one `Model`, six `PromptModule`s | the smallest crew that deliberates; prompts are ADL rules you can `kubectl apply` |
+| 2 | Ollama on CPU | the quickstart engine: familiar, and it runs anywhere. An installation on accelerators prefers vLLM (see the installation guide) |
+| 3 | The operator Helm chart with `operator-values.yaml`, which also declares a `ModelServer` for that Ollama and one model, `qwen2.5:1.5b`, in the cluster's model catalog | the dashboard is on with no route (the script prints the `kubectl port-forward` that opens it); admission webhooks, Grafana dashboards, the internal MCP servers, the NATS MCP server and the verify runner are off. The `ModelServer` is the endpoint the scheduler binds agents to at inference time |
+| 4 | The operator marks the `ModelServer` ready and downloads the model onto it | the model is a catalog entry, not part of the crew; the script waits for the download |
+| 5 | The `hello` crew: a coordinator, one Tooler, six `PromptModule`s, and no `Model`s | the smallest crew that deliberates; prompts are ADL rules you can `kubectl apply`. Its agents are scheduled from the catalog |
 | 6 | One question through the crew's discussion gateway | the answer comes back as the discussion's synthesis |
 
 ## Run it
 
 ```bash
+git checkout "$(git describe --tags --abbrev=0 --match 'operator-chart-v[0-9]*' --exclude '*-rc.*')"
 kind create cluster --name kubemoot     # or any cluster your kubectl points at
 ./quickstart/quickstart.sh
 ```
+
+The script installs the published chart of the release it is checked out at, read from the
+git tag (`chart-version.sh`; no version is typed in a file), so the manifests next to it
+and the chart agree. The `git checkout` above selects the latest release. If the quickstart
+files differ from the latest release, as on a branch of `main` that changed them, the script
+stops and says so; set `KUBEMOOT_CHART_VERSION` to a chart you know matches to override.
 
 Needs `kubectl`, `helm`, and `python3`, and a node with 2 CPUs and 8 GB free. Expect
 several minutes on a laptop: the model pull and the first discussion dominate. Release
@@ -29,16 +36,20 @@ fields, never on fixed sleeps; the timeouts are safety nets.
 Rerunning on an existing cluster is fine: every step is an upgrade or a re-apply, and the
 script applies the chart's CRDs itself because `helm upgrade` never updates them.
 
-CI runs this script on a fresh kind cluster every time a release publishes a new
-operator, `agent-runtime`, or `discussion-gateway` image, against the exact images the
-chart pins ([quickstart.yaml](../.github/workflows/quickstart.yaml)). To test images you
-built yourself, load them into the cluster under the chart's registry prefix and run with
-`KUBEMOOT_CHART=operator/chart/kubemoot-operator KUBEMOOT_IMAGE_TAG=<your tag>`.
+CI runs this script on a fresh kind cluster against the exact images a release's chart pins,
+with the quickstart files as they were at that release: when a release publishes, on demand,
+and weekly against the latest release ([quickstart.yaml](../.github/workflows/quickstart.yaml)).
+On every change to the quickstart, the chart, or the CRDs, CI also installs the checkout's own
+CRDs on a kind cluster and has the API server validate the manifests the script applies and
+the chart renders, so the quickstart and the chart on `main` cannot drift apart. To test
+images you built yourself, load them into the cluster under the chart's registry prefix and
+run with `KUBEMOOT_CHART=operator/chart/kubemoot-operator KUBEMOOT_IMAGE_TAG=<your tag>`.
 
 ## Then
 
 ```bash
-kubectl get agents,models,crew -n hello
+kubectl get modelservers,models -n kubemoot
+kubectl get agents,crew -n hello
 kubectl edit promptmodule hello-facts-system -n hello   # change a rule, ask again
 ```
 

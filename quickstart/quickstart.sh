@@ -1,20 +1,26 @@
 #!/usr/bin/env bash
 # Kubemoot quickstart: from an empty cluster to a crew answering a question.
 #
-# Installs NATS, a CPU Ollama with a small model, the operator chart, a ModelServer,
-# and the two-agent "hello" crew; then asks the crew one question and prints the
-# answer. The same script is what CI runs (.github/workflows/quickstart.yaml), so the
-# README and the test cannot drift apart.
+# Installs NATS, a CPU Ollama, the operator chart with a ModelServer for that Ollama
+# and one model in the cluster's catalog, and the two-agent "hello" crew; then asks
+# the crew one question and prints the answer. The crew ships no Models: the operator
+# downloads the catalog model onto the server and the scheduler binds the agents to it.
+# The same script is what CI runs (.github/workflows/quickstart.yaml), so the README
+# and the test cannot drift apart.
 #
 # Requires: kubectl (pointed at the target cluster), helm, python3. Nothing else.
 #
 # Environment (all optional):
 #   KUBEMOOT_CHART          chart to install. A local path in a checkout, or the OCI
 #                           reference of a release (default: the published chart).
-#   KUBEMOOT_CHART_VERSION  chart version when installing from OCI (default: latest).
+#   KUBEMOOT_CHART_VERSION  chart version when installing from OCI. Default: the release
+#                           this checkout belongs to, read from its git tag
+#                           (chart-version.sh); refused when the quickstart files
+#                           changed after that release, because they may not match it.
 #   KUBEMOOT_IMAGE_TAG      tag for locally built images already loaded into the
 #                           cluster (CI: "ci"). Unset means the chart's released images.
-#   QUICKSTART_MODEL        Ollama model for the crew (default: qwen2.5:1.5b).
+#   QUICKSTART_MODEL        Ollama model for the catalog (default: the one in
+#                           operator-values.yaml).
 #   QUESTION                what to ask (default: the capital of France).
 #   EXPECT                  substring the answer must contain (default: Paris).
 #   READY_TIMEOUT           safety net in seconds for each readiness wait (default 900).
@@ -28,7 +34,7 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 KUBEMOOT_CHART="${KUBEMOOT_CHART:-oci://ghcr.io/kubemoot/charts/kubemoot-operator}"
 KUBEMOOT_CHART_VERSION="${KUBEMOOT_CHART_VERSION:-}"
 KUBEMOOT_IMAGE_TAG="${KUBEMOOT_IMAGE_TAG:-}"
-QUICKSTART_MODEL="${QUICKSTART_MODEL:-qwen2.5:1.5b}"
+QUICKSTART_MODEL="${QUICKSTART_MODEL:-}"
 QUESTION="${QUESTION:-What is the capital of France? Answer in one sentence.}"
 EXPECT="${EXPECT:-Paris}"
 READY_TIMEOUT="${READY_TIMEOUT:-900}"
@@ -38,6 +44,9 @@ CREW_NS=hello
 
 need() { command -v "$1" >/dev/null 2>&1 || { echo "quickstart: missing tool: $1" >&2; exit 2; }; }
 need kubectl; need helm; need python3
+
+# shellcheck source-path=SCRIPTDIR source=chart-version.sh
+source "$HERE/chart-version.sh"
 
 step() { printf '\n== %s ==\n' "$*"; }
 
@@ -55,6 +64,15 @@ wait_for() {
   echo "$label ready"
 }
 
+# A published chart must be the one these manifests were written for.
+if [ -z "$KUBEMOOT_CHART_VERSION" ] && [[ "$KUBEMOOT_CHART" == oci://* ]]; then
+  KUBEMOOT_CHART_VERSION="$(release_chart_version "$HERE")" || {
+    echo "quickstart: cannot choose the chart version that matches these manifests" >&2
+    exit 2
+  }
+  echo "chart version $KUBEMOOT_CHART_VERSION (the release this checkout belongs to)"
+fi
+
 printf 'cluster %s\n' "$(kubectl config current-context)"
 kubectl get nodes -o custom-columns='NODE:.metadata.name,CPU:.status.allocatable.cpu,MEMORY:.status.allocatable.memory'
 
@@ -64,16 +82,17 @@ helm repo update nats >/dev/null
 helm upgrade --install nats nats/nats --namespace nats --create-namespace \
   --values "$HERE/nats-values.yaml" --wait --timeout 10m
 
-step "2/6 Ollama on CPU, pulling $QUICKSTART_MODEL"
+step "2/6 Ollama on CPU"
 kubectl apply -f "$HERE/ollama.yaml"
 kubectl rollout status deployment/ollama -n ollama --timeout="${READY_TIMEOUT}s"
-kubectl exec -n ollama deployment/ollama -- ollama pull "$QUICKSTART_MODEL"
 
-step "3/6 Kubemoot operator ($KUBEMOOT_CHART)"
+step "3/6 Kubemoot operator ($KUBEMOOT_CHART), its ModelServer and catalog model"
 # A checkout carries the dashboard as a local subchart that must be built into charts/.
 [ -d "$KUBEMOOT_CHART" ] && helm dependency build "$KUBEMOOT_CHART" >/dev/null
 chart_args=(--namespace kubemoot --create-namespace --values "$HERE/operator-values.yaml" --wait --timeout 10m)
 [ -n "$KUBEMOOT_CHART_VERSION" ] && chart_args+=(--version "$KUBEMOOT_CHART_VERSION")
+# The catalog model is the first models entry of the ModelServer in operator-values.yaml.
+[ -n "$QUICKSTART_MODEL" ] && chart_args+=(--set-string "modelServers[0].models[0].model=$QUICKSTART_MODEL")
 if [ -n "$KUBEMOOT_IMAGE_TAG" ]; then
   # Locally built images, already loaded into the cluster under the chart's default
   # registry prefix. Component images are "name:tag"; the chart adds the registry.
@@ -90,25 +109,17 @@ crd_args=("$KUBEMOOT_CHART"); [ -n "$KUBEMOOT_CHART_VERSION" ] && crd_args+=(--v
 helm show crds "${crd_args[@]}" | kubectl apply --server-side --force-conflicts -f -
 helm upgrade --install kubemoot-operator "$KUBEMOOT_CHART" "${chart_args[@]}"
 
-step "4/6 ModelServer ollama-local"
-kubectl apply -f "$HERE/modelserver.yaml"
+step "4/6 ModelServer ollama-local and its catalog model"
 wait_for "ModelServer ollama-local" "$READY_TIMEOUT" \
   kubectl get modelserver ollama-local -n kubemoot -o jsonpath='{.status.ready}'
+# The operator downloads the model onto the server; the Model is ready once it is there.
+wait_for "catalog model" "$READY_TIMEOUT" \
+  kubectl get models -n kubemoot -o jsonpath='{.items[?(@.spec.serverRef=="ollama-local")].status.ready}'
 
 step "5/6 The hello crew (namespace $CREW_NS)"
 kubectl create namespace "$CREW_NS" --dry-run=client -o yaml | kubectl apply -f -
-# The Model's spec names the quickstart model; keep the manifest and the variable in step.
-python3 - "$HERE/crew/models.yaml" "$QUICKSTART_MODEL" <<'PY' | kubectl apply -n "$CREW_NS" -f -
-import re, sys
-text = open(sys.argv[1]).read()
-out, n = re.subn(r'^(\s*model:\s*).*$', lambda m: f'{m.group(1)}"{sys.argv[2]}"', text, count=1, flags=re.M)
-if n != 1:
-    sys.exit("quickstart: no 'model:' line found in " + sys.argv[1])
-print(out)
-PY
+# The crew ships no Models; its agents are scheduled from the catalog.
 kubectl apply -n "$CREW_NS" -f "$HERE/crew/promptmodules.yaml" -f "$HERE/crew/agents.yaml" -f "$HERE/crew/crew.yaml"
-wait_for "Model" "$READY_TIMEOUT" \
-  kubectl get models -n "$CREW_NS" -o jsonpath='{.items[0].status.ready}'
 wait_for "Crew $CREW" "$READY_TIMEOUT" \
   kubectl get crew "$CREW" -n "$CREW_NS" -o jsonpath='{.status.ready}'
 kubectl rollout status deployment -n "$CREW_NS" -l kubemoot.ai/crew="$CREW" --timeout="${READY_TIMEOUT}s"

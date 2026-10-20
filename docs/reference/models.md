@@ -22,7 +22,7 @@ Agents declare **capabilities**; the scheduler matches them to a `Model` whose l
 
 ## ModelServer
 
-Declares an inference endpoint. The operator discovers GPU capacity (VRAM, loaded models, agent count) via DCGM metrics and Ollama APIs.
+Declares an inference server. The operator discovers accelerator capacity (VRAM, loaded models, agent count) via DCGM metrics and the engine's own APIs (vLLM and Ollama). vLLM is the currently preferred engine; Ollama is the engine of the quickstart and remains supported.
 
 ### Spec
 
@@ -322,9 +322,30 @@ another. Calibration measures every present model in the catalog.
 
 ### From the operator chart
 
-The operator chart can declare ModelServers from its `modelServers` values. Each
-entry renders one ModelServer; `schedulingWeight` and `memoryMiB` render under
-`spec.scheduling` when set:
+The operator chart can declare ModelServers from its `modelServers` values. The list is
+empty by default, because a chart cannot point at a server that does not exist: install the
+model server first, then list it. Each entry renders one ModelServer; `schedulingWeight` and
+`memoryMiB` render under `spec.scheduling` when set. vLLM is the currently preferred engine,
+so the examples lead with it.
+
+A `vllm` ModelServer has no `endpoint`. Its `serviceRef` (the Service of a vLLM install such
+as `kubemoot-vllm`) or its `servers`, and its `sleepLevel`, are copied into the spec as
+they are:
+
+```yaml
+modelServers:
+  - name: vllm-gpu
+    type: vllm
+    serviceRef: {name: kubemoot-vllm, namespace: vllm}   # a kubemoot-vllm release named kubemoot-vllm
+  - name: vllm-external
+    type: vllm
+    sleepLevel: 1
+    servers:
+      - {model: "qwen3:14b", endpoint: "http://vllm-14b.models:8000"}
+```
+
+An `ollama` ModelServer names its `endpoint`. Ollama is the engine of the quickstart and
+remains supported:
 
 ```yaml
 modelServers:
@@ -340,24 +361,10 @@ modelServers:
 
 `namespace` defaults to the release namespace.
 
-A `vllm` ModelServer has no `endpoint`. Its `serviceRef` (the Service of a vLLM install such
-as `kubemoot-vllm`) or its `servers`, and its `sleepLevel`, are copied into the spec as
-they are:
-
-```yaml
-modelServers:
-  - name: vllm-gpu
-    type: vllm
-    serviceRef: {name: vllm-gpu-kubemoot-vllm, namespace: vllm}
-  - name: vllm-external
-    type: vllm
-    sleepLevel: 1
-    servers:
-      - {model: "qwen3:14b", endpoint: "http://vllm-14b.models:8000"}
-```
-
-The chart declares no Model for a `vllm` ModelServer, and the scheduling crew's own model is
-left off it for the same reason: it is an Ollama tag.
+The chart declares no Model for a `vllm` ModelServer: a vLLM server reports every model it
+serves, and the `kubemoot-vllm` chart declares each model's parameters and abilities. The
+scheduling crew the chart renders ships no Model either; like every crew it selects from the
+catalog (see [The scheduling crew](../architecture/scheduler.md#the-scheduling-crew)).
 
 A server entry may list `models`, the cluster's catalog entries for it. Each renders one
 Model in the ModelServer's namespace, named for the server and the model (`ollama-gpu-qwen3-14b`).
@@ -480,7 +487,6 @@ metadata:
     capability/tool-calling: "true"
     capability/reasoning: "true"
     contextWindow: "32768"
-    latencyClass: high
 spec:
   model: qwen3:32b
   serverRef: ollama-a
@@ -496,7 +502,6 @@ metadata:
     params: "8B"
     capability/tool-calling: "true"
     contextWindow: "131072"
-    latencyClass: low
 spec:
   model: qwen3:8b
   serverRef: ollama-b
@@ -608,7 +613,7 @@ spec:
       prefer:
         - weight: 100
           selector:
-            matchLabels: { latencyClass: low }
+            matchLabels: { kubemoot.ai/size: small }
 ```
 
 The scheduler computes a `(model, server, endpoint)` per agent via filter → score → bind and templates the result into the agent's Deployment as `KUBEMOOT_MODEL_MODEL`, `KUBEMOOT_MODEL_ENDPOINT`, `KUBEMOOT_TRIAGE_MODEL_MODEL_ID`, `KUBEMOOT_TRIAGE_MODEL_ENDPOINT`. See [Scheduler](../../architecture/scheduler/) for the algorithm.
@@ -731,16 +736,16 @@ different card.
 
 | Model | Quantization | VRAM | KV Headroom | Fits? | Recommended Labels |
 |-------|-------------|------|-------------|-------|--------------------|
-| Qwen3.6:35b-a3b | Q4_K_M | ~20 GB | ~12 GB | Yes | `family=qwen3.6, params=35B, capability/tool-calling=true, capability/reasoning=true, latencyClass=medium` |
-| Qwen3.6:27b | Q4_K_M | ~17 GB | ~15 GB | Yes | `family=qwen3.6, params=27B, capability/tool-calling=true, latencyClass=medium` |
-| Qwen3:32b | Q4_K_M | ~20 GB | ~12 GB | Yes | `family=qwen3, params=32B, capability/tool-calling=true, capability/reasoning=true, latencyClass=high` |
-| Laguna XS 2.1 | Q4_K_M | ~20 GB | ~12 GB | Yes | `family=laguna, params=33B, capability/tool-calling=true, latencyClass=medium` |
-| Nemotron3:33b | Q4_K_M | ~20 GB | ~12 GB | Yes | `family=nemotron3, params=33B, capability/tool-calling=true, latencyClass=high` |
-| Granite4.1:30b | Q4_K_M | ~18 GB | ~14 GB | Yes | `family=granite4.1, params=30B, capability/tool-calling=true, latencyClass=medium` |
-| Gemma4:31b | Q4_K_M | ~19 GB | ~13 GB | Yes | `family=gemma4, params=31B, capability/tool-calling=true, latencyClass=medium` |
-| LFM2:24b | Q4_K_M | ~14 GB | ~18 GB | Yes | `family=lfm2, params=24B, capability/tool-calling=true, latencyClass=medium` |
-| Qwen3:14b | Q4_K_M | ~9 GB | ~23 GB | Yes | `family=qwen3, params=14B, capability/tool-calling=true, latencyClass=medium` |
-| Qwen3:8b | Q4_K_M | ~5 GB | ~27 GB | Yes | `family=qwen3, params=8B, capability/tool-calling=true, latencyClass=low` |
+| Qwen3.6:35b-a3b | Q4_K_M | ~20 GB | ~12 GB | Yes | `family=qwen3.6, params=35B, capability/tool-calling=true, capability/reasoning=true` |
+| Qwen3.6:27b | Q4_K_M | ~17 GB | ~15 GB | Yes | `family=qwen3.6, params=27B, capability/tool-calling=true` |
+| Qwen3:32b | Q4_K_M | ~20 GB | ~12 GB | Yes | `family=qwen3, params=32B, capability/tool-calling=true, capability/reasoning=true` |
+| Laguna XS 2.1 | Q4_K_M | ~20 GB | ~12 GB | Yes | `family=laguna, params=33B, capability/tool-calling=true` |
+| Nemotron3:33b | Q4_K_M | ~20 GB | ~12 GB | Yes | `family=nemotron3, params=33B, capability/tool-calling=true` |
+| Granite4.1:30b | Q4_K_M | ~18 GB | ~14 GB | Yes | `family=granite4.1, params=30B, capability/tool-calling=true` |
+| Gemma4:31b | Q4_K_M | ~19 GB | ~13 GB | Yes | `family=gemma4, params=31B, capability/tool-calling=true` |
+| LFM2:24b | Q4_K_M | ~14 GB | ~18 GB | Yes | `family=lfm2, params=24B, capability/tool-calling=true` |
+| Qwen3:14b | Q4_K_M | ~9 GB | ~23 GB | Yes | `family=qwen3, params=14B, capability/tool-calling=true` |
+| Qwen3:8b | Q4_K_M | ~5 GB | ~27 GB | Yes | `family=qwen3, params=8B, capability/tool-calling=true` |
 | Any 32B class | Q8_0 | ~35 GB | n/a | No | Exceeds VRAM |
 
 ### RTX 4090 - 24 GB VRAM (`ollama-b`)
@@ -749,15 +754,15 @@ different card.
 
 | Model | Quantization | VRAM | KV Headroom | Fits? | Recommended Labels |
 |-------|-------------|------|-------------|-------|--------------------|
-| Qwen3.6:27b | Q4_K_M | ~17 GB | ~7 GB | Yes | `family=qwen3.6, params=27B, capability/tool-calling=true, latencyClass=medium` |
-| LFM2:24b | Q4_K_M | ~14 GB | ~10 GB | Yes | `family=lfm2, params=24B, capability/tool-calling=true, latencyClass=medium` |
-| Gemma4:12b | Q4_K_M | ~8 GB | ~16 GB | Yes | `family=gemma4, params=12B, capability/tool-calling=true, latencyClass=low` |
-| Qwen3:14b | Q4_K_M | ~9 GB | ~15 GB | Yes | `family=qwen3, params=14B, capability/tool-calling=true, latencyClass=medium` |
-| Qwen3.5:9b | Q4_K_M | ~6 GB | ~18 GB | Yes | `family=qwen3.5, params=9B, capability/tool-calling=true, latencyClass=low` |
-| Granite4.1:8b | Q4_K_M | ~5 GB | ~19 GB | Yes | `family=granite4.1, params=8B, capability/tool-calling=true, latencyClass=low` |
-| LFM2.5:8b | Q4_K_M | ~5 GB | ~19 GB | Yes | `family=lfm2.5, params=8B, capability/tool-calling=true, latencyClass=low` |
-| Qwen3:8b | Q4_K_M | ~5 GB | ~19 GB | Yes | `family=qwen3, params=8B, capability/tool-calling=true, latencyClass=low` |
-| Granite4.1:3b | Q4_K_M | ~2 GB | ~22 GB | Yes | `family=granite4.1, params=3B, capability/tool-calling=true, latencyClass=low` |
+| Qwen3.6:27b | Q4_K_M | ~17 GB | ~7 GB | Yes | `family=qwen3.6, params=27B, capability/tool-calling=true` |
+| LFM2:24b | Q4_K_M | ~14 GB | ~10 GB | Yes | `family=lfm2, params=24B, capability/tool-calling=true` |
+| Gemma4:12b | Q4_K_M | ~8 GB | ~16 GB | Yes | `family=gemma4, params=12B, capability/tool-calling=true` |
+| Qwen3:14b | Q4_K_M | ~9 GB | ~15 GB | Yes | `family=qwen3, params=14B, capability/tool-calling=true` |
+| Qwen3.5:9b | Q4_K_M | ~6 GB | ~18 GB | Yes | `family=qwen3.5, params=9B, capability/tool-calling=true` |
+| Granite4.1:8b | Q4_K_M | ~5 GB | ~19 GB | Yes | `family=granite4.1, params=8B, capability/tool-calling=true` |
+| LFM2.5:8b | Q4_K_M | ~5 GB | ~19 GB | Yes | `family=lfm2.5, params=8B, capability/tool-calling=true` |
+| Qwen3:8b | Q4_K_M | ~5 GB | ~19 GB | Yes | `family=qwen3, params=8B, capability/tool-calling=true` |
+| Granite4.1:3b | Q4_K_M | ~2 GB | ~22 GB | Yes | `family=granite4.1, params=3B, capability/tool-calling=true` |
 | Any 32B class | Q4_K_M | ~20 GB | ~4 GB | Tight | Loads, but too little KV cache for long discussions |
 | Any 24B class | Q8_0 | ~25 GB | n/a | No | Exceeds VRAM |
 
