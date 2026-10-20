@@ -27,16 +27,16 @@ import (
 	kubemootv1alpha1 "github.com/kubemoot/kubemoot/operator/api/v1alpha1"
 )
 
-// phaseModelsReconciler serves one Ready Model on a Ready provider in namespace
+// phaseModelsReconciler serves one Ready Model on a Ready server in namespace
 // "ns", plus any extra objects.
 func phaseModelsReconciler(t *testing.T, extra ...client.Object) *AgentReconciler {
 	t.Helper()
 	scheme := agentReconcileScheme(t)
 	model := candModel("only", candModel14, true, nil)
-	prov := &kubemootv1alpha1.ModelProvider{
-		ObjectMeta: metav1.ObjectMeta{Name: candProvider, Namespace: "ns"},
-		Spec:       kubemootv1alpha1.ModelProviderSpec{Endpoint: testOllamaURL},
-		Status:     kubemootv1alpha1.ModelProviderStatus{Ready: true},
+	prov := &kubemootv1alpha1.ModelServer{
+		ObjectMeta: metav1.ObjectMeta{Name: candServer, Namespace: "ns"},
+		Spec:       kubemootv1alpha1.ModelServerSpec{Endpoint: testOllamaURL},
+		Status:     kubemootv1alpha1.ModelServerStatus{Ready: true},
 	}
 	objs := append([]client.Object{&model, prov}, extra...)
 	cli := fake.NewClientBuilder().WithScheme(scheme).WithObjects(objs...).Build()

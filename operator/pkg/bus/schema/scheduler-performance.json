@@ -1,19 +1,19 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "SchedulerPerformance",
-  "description": "An entry in the kubemoot_scheduler_performance bucket: one agent's recent model requests and capacity waits for one model on one provider, which the scheduler learns from. Key: <provider>.<model>.<agent>, each token escaped. Times are milliseconds; an engine timing the engine did not report is -1.",
+  "description": "An entry in the kubemoot_scheduler_performance bucket: one agent's recent model requests and capacity waits for one model on one server, which the scheduler learns from. Key: <server>.<model>.<agent>, each token escaped. Times are milliseconds; an engine timing the engine did not report is -1.",
   "type": "object",
   "required": [
-    "provider",
+    "server",
     "model",
     "agent",
     "samples",
     "waits"
   ],
   "properties": {
-    "provider": {
+    "server": {
       "type": "string",
-      "description": "The ModelProvider."
+      "description": "The ModelServer."
     },
     "model": {
       "type": "string",
@@ -29,7 +29,7 @@
     },
     "requests": {
       "type": "integer",
-      "description": "Requests this agent has recorded for the model on the provider."
+      "description": "Requests this agent has recorded for the model on the server."
     },
     "failures": {
       "type": "integer",
@@ -59,7 +59,7 @@
               "triage",
               "calibration"
             ],
-            "description": "tool-turn: one model turn of the tool loop. simple: a no-tool call (advisory, synthesis). triage: a triage call. calibration: a probe the scheduler sent to measure the provider, not a crew call."
+            "description": "tool-turn: one model turn of the tool loop. simple: a no-tool call (advisory, synthesis). triage: a triage call. calibration: a probe the scheduler sent to measure the server, not a crew call."
           },
           "ok": {
             "type": "boolean",
@@ -67,7 +67,7 @@
           },
           "coldStart": {
             "type": "boolean",
-            "description": "The model was not resident on the provider when the call was placed."
+            "description": "The model was not resident on the server when the call was placed."
           },
           "promptTokens": {
             "type": "integer",
@@ -95,7 +95,7 @@
           },
           "activeCalls": {
             "type": "integer",
-            "description": "Calls holding a ticket on the provider when the request started, this one included."
+            "description": "Calls holding a ticket on the server when the request started, this one included."
           }
         },
         "additionalProperties": false

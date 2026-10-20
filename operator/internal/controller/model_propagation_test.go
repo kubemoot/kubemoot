@@ -15,7 +15,7 @@ import (
 func mkModel(name, ns string) *kubemootv1alpha1.Model {
 	return &kubemootv1alpha1.Model{
 		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: ns, Labels: map[string]string{testLatencyClass: testLow}},
-		Spec:       kubemootv1alpha1.ModelSpec{Model: "qwen3.5:9b", ProviderRef: testOllamaGPU},
+		Spec:       kubemootv1alpha1.ModelSpec{Model: "qwen3.5:9b", ServerRef: testOllamaGPU},
 	}
 }
 
@@ -58,7 +58,7 @@ func TestModelBindingChangedPredicate(t *testing.T) {
 	if !change(func(m *kubemootv1alpha1.Model) { m.Labels[testLatencyClass] = testHigh }) {
 		t.Error("a relabel must enqueue")
 	}
-	if !change(func(m *kubemootv1alpha1.Model) { m.Spec.ProviderRef = testOllamaRig1 }) {
+	if !change(func(m *kubemootv1alpha1.Model) { m.Spec.ServerRef = testOllamaRig1 }) {
 		t.Error("a spec change must enqueue")
 	}
 	if !change(func(m *kubemootv1alpha1.Model) { now := metav1.Now(); m.DeletionTimestamp = &now }) {

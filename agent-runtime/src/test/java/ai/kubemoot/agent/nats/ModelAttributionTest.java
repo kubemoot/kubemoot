@@ -16,31 +16,31 @@ class ModelAttributionTest {
 
     @Test
     void oneCall_namesItsModelAndListsItAlone() {
-        var meta = ModelAttribution.of(List.of(new ModelUse(ALTERNATIVE, "provider-a")));
+        var meta = ModelAttribution.of(List.of(new ModelUse(ALTERNATIVE, "server-a")));
 
         assertEquals(ALTERNATIVE, meta.get("modelName"));
-        assertEquals(List.of("model-medium@provider-a"), meta.get("modelsUsed"));
+        assertEquals(List.of("model-medium@server-a"), meta.get("modelsUsed"));
     }
 
     @Test
     void callsInTwoPlaces_nameTheLastAndListEachDistinctPlaceInOrder() {
         var meta = ModelAttribution.of(List.of(
-                new ModelUse(PREFERRED, "provider-a"),
-                new ModelUse(ALTERNATIVE, "provider-b"),
-                new ModelUse(ALTERNATIVE, "provider-b")));
+                new ModelUse(PREFERRED, "server-a"),
+                new ModelUse(ALTERNATIVE, "server-b"),
+                new ModelUse(ALTERNATIVE, "server-b")));
 
         assertEquals(ALTERNATIVE, meta.get("modelName"));
-        assertEquals(List.of("model-large@provider-a", "model-medium@provider-b"), meta.get("modelsUsed"));
-        assertEquals("provider-b", ModelAttribution.gpuLabel(List.of(
-                new ModelUse(PREFERRED, "provider-a"), new ModelUse(ALTERNATIVE, "provider-b")), "static"));
+        assertEquals(List.of("model-large@server-a", "model-medium@server-b"), meta.get("modelsUsed"));
+        assertEquals("server-b", ModelAttribution.gpuLabel(List.of(
+                new ModelUse(PREFERRED, "server-a"), new ModelUse(ALTERNATIVE, "server-b")), "static"));
     }
 
     @Test
-    void theSameModelOnTwoProviders_isListedOncePerProvider() {
+    void theSameModelOnTwoServers_isListedOncePerServer() {
         var meta = ModelAttribution.of(List.of(
-                new ModelUse(ALTERNATIVE, "provider-a"), new ModelUse(ALTERNATIVE, "provider-b")));
+                new ModelUse(ALTERNATIVE, "server-a"), new ModelUse(ALTERNATIVE, "server-b")));
 
-        assertEquals(List.of("model-medium@provider-a", "model-medium@provider-b"), meta.get("modelsUsed"));
+        assertEquals(List.of("model-medium@server-a", "model-medium@server-b"), meta.get("modelsUsed"));
     }
 
     @Test
@@ -55,7 +55,7 @@ class ModelAttributionTest {
     void noKnownCall_addsNothing_andKeepsTheFallbackLabel() {
         assertTrue(ModelAttribution.of(null).isEmpty());
         assertTrue(ModelAttribution.of(List.of()).isEmpty());
-        assertTrue(ModelAttribution.of(List.of(new ModelUse(null, "provider-a"))).isEmpty(),
+        assertTrue(ModelAttribution.of(List.of(new ModelUse(null, "server-a"))).isEmpty(),
                 "a call with no model name is not attributed");
         assertEquals("fallback", ModelAttribution.gpuLabel(null, "fallback"));
         assertEquals("fallback", ModelAttribution.gpuLabel(List.of(), "fallback"));
@@ -63,38 +63,38 @@ class ModelAttributionTest {
 
     @Test
     void callsWithoutAModel_areSkipped_andTheLastKnownCallIsNamed() {
-        var uses = Arrays.asList(new ModelUse(PREFERRED, "provider-a"), new ModelUse("", "provider-b"));
+        var uses = Arrays.asList(new ModelUse(PREFERRED, "server-a"), new ModelUse("", "server-b"));
 
         assertEquals(PREFERRED, ModelAttribution.of(uses).get("modelName"));
-        assertEquals("provider-a", ModelAttribution.gpuLabel(uses, "fallback"));
+        assertEquals("server-a", ModelAttribution.gpuLabel(uses, "fallback"));
     }
 
     @Test
-    void chatResult_derivesOneCallFromItsModelAndProvider_andCopiesItsList() {
+    void chatResult_derivesOneCallFromItsModelAndServer_andCopiesItsList() {
         var one = new ai.kubemoot.agent.chat.ChatService.ChatResult("c", "r", ALTERNATIVE, null, 1, 1,
-                "provider-a", "", List.of());
-        assertEquals(List.of(new ModelUse(ALTERNATIVE, "provider-a")), one.modelsUsed());
-        assertEquals(new ModelUse(ALTERNATIVE, "provider-a"), one.lastModelUse());
+                "server-a", "", List.of());
+        assertEquals(List.of(new ModelUse(ALTERNATIVE, "server-a")), one.modelsUsed());
+        assertEquals(new ModelUse(ALTERNATIVE, "server-a"), one.lastModelUse());
 
         var noModel = new ai.kubemoot.agent.chat.ChatService.ChatResult("c", "r", null, null, 1, 1,
-                "provider-a", "", null);
+                "server-a", "", null);
         assertTrue(noModel.modelsUsed().isEmpty(), "no model, no call listed");
         assertTrue(noModel.evicted().isEmpty(), "null evictions become empty");
-        assertEquals(new ModelUse("", "provider-a"), noModel.lastModelUse());
+        assertEquals(new ModelUse("", "server-a"), noModel.lastModelUse());
 
-        var calls = new java.util.ArrayList<>(List.of(new ModelUse(PREFERRED, "provider-a")));
+        var calls = new java.util.ArrayList<>(List.of(new ModelUse(PREFERRED, "server-a")));
         var listed = new ai.kubemoot.agent.chat.ChatService.ChatResult("c", "r", PREFERRED, null, 1, 1,
-                "provider-a", "", List.of(), calls);
-        calls.add(new ModelUse(ALTERNATIVE, "provider-b"));
+                "server-a", "", List.of(), calls);
+        calls.add(new ModelUse(ALTERNATIVE, "server-b"));
         assertEquals(1, listed.modelsUsed().size(), "the result keeps its own copy");
 
         var nullList = new ai.kubemoot.agent.chat.ChatService.ChatResult("c", "r", PREFERRED, null, 1, 1,
-                "provider-a", "", List.of(), null);
+                "server-a", "", List.of(), null);
         assertTrue(nullList.modelsUsed().isEmpty());
     }
 
     @Test
-    void modelUse_labelsWithAndWithoutAProvider_andTreatsNullAsEmpty() {
+    void modelUse_labelsWithAndWithoutAServer_andTreatsNullAsEmpty() {
         assertEquals("m@p", new ModelUse("m", "p").label());
         assertEquals("m", new ModelUse("m", null).label());
         assertEquals("", new ModelUse(null, null).model());

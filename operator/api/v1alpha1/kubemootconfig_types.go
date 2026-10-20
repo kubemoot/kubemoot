@@ -109,7 +109,7 @@ type SchedulerConfig struct {
 	// +optional
 	Strategy string `json:"strategy,omitempty"`
 
-	// ProbeIntervalSeconds is how often to probe providers for capacity. Default 30.
+	// ProbeIntervalSeconds is how often to probe servers for capacity. Default 30.
 	// +kubebuilder:default=30
 	// +optional
 	ProbeIntervalSeconds int `json:"probeIntervalSeconds,omitempty"`

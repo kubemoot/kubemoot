@@ -105,29 +105,29 @@ func (r *ModelReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
-	log.Info("Reconciling Model", "name", model.Name, "model", model.Spec.Model, "providerRef", model.Spec.ProviderRef)
+	log.Info("Reconciling Model", "name", model.Name, "model", model.Spec.Model, "serverRef", model.Spec.ServerRef)
 
 	if res, done, err := r.reconcileOutOfService(ctx, model); done {
 		return res, err
 	}
 
-	// Get the referenced ModelProvider (search cluster-wide — providers are
+	// Get the referenced ModelServer (search cluster-wide — servers are
 	// infrastructure and may be in a different namespace than the Model)
-	provider, err := r.findModelProvider(ctx, model.Spec.ProviderRef)
+	server, err := r.findModelServer(ctx, model.Spec.ServerRef)
 	if err != nil {
-		return r.updateModelStatus(ctx, model, "Error", false, fmt.Sprintf("ModelProvider %s not found", model.Spec.ProviderRef), nil)
+		return r.updateModelStatus(ctx, model, "Error", false, fmt.Sprintf("ModelServer %s not found", model.Spec.ServerRef), nil)
 	}
 
-	// A source that does not fit the provider's engine is reported, never guessed at.
-	if msg := sourceMismatch(model, provider.Spec.Type); msg != "" {
+	// A source that does not fit the server's engine is reported, never guessed at.
+	if msg := sourceMismatch(model, server.Spec.Type); msg != "" {
 		setSourceCondition(model, metav1.ConditionFalse, reasonSourceEngineMismatch, msg)
 		return r.updateModelStatus(ctx, model, stateError, false, msg, nil)
 	}
-	setSourceCondition(model, metav1.ConditionTrue, reasonSourceFitsEngine, "The source fits the provider's engine")
+	setSourceCondition(model, metav1.ConditionTrue, reasonSourceFitsEngine, "The source fits the server's engine")
 
-	// Check if provider is ready
-	if !provider.Status.Ready {
-		return r.updateModelStatus(ctx, model, "Pending", false, fmt.Sprintf("Waiting for ModelProvider %s to be ready", model.Spec.ProviderRef), nil)
+	// Check if server is ready
+	if !server.Status.Ready {
+		return r.updateModelStatus(ctx, model, "Pending", false, fmt.Sprintf("Waiting for ModelServer %s to be ready", model.Spec.ServerRef), nil)
 	}
 
 	// Add finalizer if not present
@@ -138,21 +138,21 @@ func (r *ModelReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 		return requeueNow(), nil
 	}
 
-	switch provider.Spec.Type {
-	case aiv1alpha1.ProviderTypeOllama:
-		return r.reconcileOllamaModel(ctx, model, provider)
-	case aiv1alpha1.ProviderTypeVLLM:
-		return r.reconcileVLLMModel(ctx, model, provider)
+	switch server.Spec.Type {
+	case aiv1alpha1.ServerTypeOllama:
+		return r.reconcileOllamaModel(ctx, model, server)
+	case aiv1alpha1.ServerTypeVLLM:
+		return r.reconcileVLLMModel(ctx, model, server)
 	default:
-		return r.updateModelStatus(ctx, model, "Error", false, aiv1alpha1.UnsupportedProviderTypeMessage, nil)
+		return r.updateModelStatus(ctx, model, "Error", false, aiv1alpha1.UnsupportedServerTypeMessage, nil)
 	}
 }
 
-// reconcileOutOfService handles a Model that needs no provider work. A deleting Model
-// is released before its provider is looked up, so a provider that is gone or not
+// reconcileOutOfService handles a Model that needs no server work. A deleting Model
+// is released before its server is looked up, so a server that is gone or not
 // ready never leaves the finalizer stuck. A disabled Model is out of the catalog:
 // nothing is pulled and no agent binds to it; it takes no finalizer, so deleting one
-// that never had it removes no file from the provider. done reports that the Model
+// that never had it removes no file from the server. done reports that the Model
 // was handled.
 func (r *ModelReconciler) reconcileOutOfService(ctx context.Context, model *aiv1alpha1.Model) (res ctrl.Result, done bool, err error) {
 	if !model.DeletionTimestamp.IsZero() {
@@ -167,7 +167,7 @@ func (r *ModelReconciler) reconcileOutOfService(ctx context.Context, model *aiv1
 }
 
 // reconcileOllamaModel handles Ollama model reconciliation
-func (r *ModelReconciler) reconcileOllamaModel(ctx context.Context, model *aiv1alpha1.Model, provider *aiv1alpha1.ModelProvider) (ctrl.Result, error) {
+func (r *ModelReconciler) reconcileOllamaModel(ctx context.Context, model *aiv1alpha1.Model, server *aiv1alpha1.ModelServer) (ctrl.Result, error) {
 	log := logf.FromContext(ctx)
 
 	httpClient := r.HTTPClient
@@ -176,9 +176,9 @@ func (r *ModelReconciler) reconcileOllamaModel(ctx context.Context, model *aiv1a
 	}
 
 	// Check if model exists locally in Ollama
-	modelInfo, err := r.getOllamaModelInfo(ctx, httpClient, provider.Spec.Endpoint, model.OllamaTag())
+	modelInfo, err := r.getOllamaModelInfo(ctx, httpClient, server.Spec.Endpoint, model.OllamaTag())
 	if err != nil {
-		// The probe failed (provider busy or momentarily unreachable). That is not
+		// The probe failed (server busy or momentarily unreachable). That is not
 		// proof the model is absent, so do not start a pull. Keep the current state
 		// and retry shortly: a model that was already Available stays Available
 		// across a transient blip.
@@ -187,18 +187,18 @@ func (r *ModelReconciler) reconcileOllamaModel(ctx context.Context, model *aiv1a
 	}
 
 	if modelInfo == nil {
-		// Model genuinely absent from the provider — pull it.
+		// Model genuinely absent from the server — pull it.
 		log.Info("Model not found in Ollama, initiating pull", "model", model.OllamaTag())
-		return r.reconcilePull(ctx, httpClient, model, provider)
+		return r.reconcilePull(ctx, httpClient, model, server)
 	}
 
 	// The model is listed, so any finished pull record is stale.
-	r.tracker().forget(pullKey(model.Spec.ProviderRef, model.OllamaTag()))
-	return r.reportOllamaModel(ctx, httpClient, model, provider, modelInfo)
+	r.tracker().forget(pullKey(model.Spec.ServerRef, model.OllamaTag()))
+	return r.reportOllamaModel(ctx, httpClient, model, server, modelInfo)
 }
 
-// reportOllamaModel records a model the provider lists as present.
-func (r *ModelReconciler) reportOllamaModel(ctx context.Context, httpClient *http.Client, model *aiv1alpha1.Model, provider *aiv1alpha1.ModelProvider, modelInfo *OllamaModelInfo) (ctrl.Result, error) {
+// reportOllamaModel records a model the server lists as present.
+func (r *ModelReconciler) reportOllamaModel(ctx context.Context, httpClient *http.Client, model *aiv1alpha1.Model, server *aiv1alpha1.ModelServer, modelInfo *OllamaModelInfo) (ctrl.Result, error) {
 	log := logf.FromContext(ctx)
 
 	// The /api/tags probe already confirmed the model is present, so it is
@@ -208,7 +208,7 @@ func (r *ModelReconciler) reportOllamaModel(ctx context.Context, httpClient *htt
 	// confirmed-present model stuck un-Ready and its agents Unschedulable — the very
 	// bug this change fixes. We report Available and let the periodic requeue upgrade
 	// the label later.
-	loaded, err := r.isModelLoaded(ctx, httpClient, provider.Spec.Endpoint, model.OllamaTag())
+	loaded, err := r.isModelLoaded(ctx, httpClient, server.Spec.Endpoint, model.OllamaTag())
 	if err != nil {
 		log.Error(err, "Failed to check if model is loaded; reporting Available pending re-check", "model", model.OllamaTag())
 	}
@@ -272,22 +272,22 @@ func (r *ModelReconciler) isModelLoaded(ctx context.Context, httpClient *http.Cl
 	return false, nil
 }
 
-// reconcilePull drives the download of a model the provider does not list. The pull
+// reconcilePull drives the download of a model the server does not list. The pull
 // runs in a goroutine that outlives the reconcile, so this returns at once: it starts
 // the pull, reports the progress of a running one, or reports how a finished one
-// ended. A pull is tracked per provider and tag, so a second reconcile (or a second
+// ended. A pull is tracked per server and tag, so a second reconcile (or a second
 // Model with the same tag) never starts a duplicate. After an operator restart the
 // tracker is empty, so a Model still Pulling starts its pull again and Ollama
 // resumes the partial download.
-func (r *ModelReconciler) reconcilePull(ctx context.Context, httpClient *http.Client, model *aiv1alpha1.Model, provider *aiv1alpha1.ModelProvider) (ctrl.Result, error) {
-	key := pullKey(model.Spec.ProviderRef, model.OllamaTag())
+func (r *ModelReconciler) reconcilePull(ctx context.Context, httpClient *http.Client, model *aiv1alpha1.Model, server *aiv1alpha1.ModelServer) (ctrl.Result, error) {
+	key := pullKey(model.Spec.ServerRef, model.OllamaTag())
 	if err := releaseStalePulls(ctx, r.Client, r.tracker(), model, key); err != nil {
 		return ctrl.Result{}, err
 	}
-	step := r.tracker().advance(key, model.UID, newPullStream(provider, model.OllamaTag(), httpClient))
+	step := r.tracker().advance(key, model.UID, newPullStream(server, model.OllamaTag(), httpClient))
 	switch step.phase {
 	case pullSucceeded:
-		return r.reconcileAfterPull(ctx, httpClient, model, provider, "success")
+		return r.reconcileAfterPull(ctx, httpClient, model, server, "success")
 	case pullFailed:
 		return r.updateModelStatus(ctx, model, stateError, false, step.err.Error(), nil)
 	}
@@ -295,22 +295,22 @@ func (r *ModelReconciler) reconcilePull(ctx context.Context, httpClient *http.Cl
 	return r.updateModelStatus(ctx, model, statePulling, false, pullMessage(step.progress), nil)
 }
 
-// providerFreeBytes is the provider's estimated free disk, or 0 when unknown.
-func providerFreeBytes(provider *aiv1alpha1.ModelProvider) int64 {
-	if provider.Status.Storage == nil {
+// serverFreeBytes is the server's estimated free disk, or 0 when unknown.
+func serverFreeBytes(server *aiv1alpha1.ModelServer) int64 {
+	if server.Status.Storage == nil {
 		return 0
 	}
-	return provider.Status.Storage.FreeBytes
+	return server.Status.Storage.FreeBytes
 }
 
-// reconcileAfterPull acts on what the provider lists once a pull has returned 200.
+// reconcileAfterPull acts on what the server lists once a pull has returned 200.
 // A model that is now listed is reported at once. One that is not listed yet stays
 // Pulling, and updateModelStatus polls a Pulling model every 10s, so a pull that
 // reports success without the model ever appearing cannot loop tightly.
-func (r *ModelReconciler) reconcileAfterPull(ctx context.Context, httpClient *http.Client, model *aiv1alpha1.Model, provider *aiv1alpha1.ModelProvider, pullStatus string) (ctrl.Result, error) {
-	modelInfo, err := r.getOllamaModelInfo(ctx, httpClient, provider.Spec.Endpoint, model.OllamaTag())
+func (r *ModelReconciler) reconcileAfterPull(ctx context.Context, httpClient *http.Client, model *aiv1alpha1.Model, server *aiv1alpha1.ModelServer, pullStatus string) (ctrl.Result, error) {
+	modelInfo, err := r.getOllamaModelInfo(ctx, httpClient, server.Spec.Endpoint, model.OllamaTag())
 	if err == nil && modelInfo != nil {
-		return r.reportOllamaModel(ctx, httpClient, model, provider, modelInfo)
+		return r.reportOllamaModel(ctx, httpClient, model, server, modelInfo)
 	}
 	reason := "the model is not listed yet"
 	if err != nil {
@@ -322,23 +322,23 @@ func (r *ModelReconciler) reconcileAfterPull(ctx context.Context, httpClient *ht
 	return r.updateModelStatus(ctx, model, statePulling, false, fmt.Sprintf("Pull reported %q; %s", pullStatus, reason), nil)
 }
 
-// reconcileDeletion looks up the Model's provider and hands the deletion on.
-// A provider that no longer exists has nothing left to clean up.
+// reconcileDeletion looks up the Model's server and hands the deletion on.
+// A server that no longer exists has nothing left to clean up.
 func (r *ModelReconciler) reconcileDeletion(ctx context.Context, model *aiv1alpha1.Model) (ctrl.Result, error) {
-	provider, err := r.findModelProvider(ctx, model.Spec.ProviderRef)
+	server, err := r.findModelServer(ctx, model.Spec.ServerRef)
 	if err != nil {
-		logf.FromContext(ctx).Info("ModelProvider is gone, releasing Model without a model-server delete", "providerRef", model.Spec.ProviderRef)
-		provider = nil
+		logf.FromContext(ctx).Info("ModelServer is gone, releasing Model without a model-server delete", "serverRef", model.Spec.ServerRef)
+		server = nil
 	}
-	return r.handleDeletion(ctx, model, provider)
+	return r.handleDeletion(ctx, model, server)
 }
 
-// handleDeletion removes the model file from the provider unless another Model on
-// the same provider still uses the tag, then releases the finalizer. A failed
-// delete on a Ready provider is returned so the finalizer stays and the deletion
-// retries. A nil provider means it is gone, and a provider that is not Ready cannot
-// be asked (see cleanUpOnProvider); either way only the finalizer is released.
-func (r *ModelReconciler) handleDeletion(ctx context.Context, model *aiv1alpha1.Model, provider *aiv1alpha1.ModelProvider) (ctrl.Result, error) {
+// handleDeletion removes the model file from the server unless another Model on
+// the same server still uses the tag, then releases the finalizer. A failed
+// delete on a Ready server is returned so the finalizer stays and the deletion
+// retries. A nil server means it is gone, and a server that is not Ready cannot
+// be asked (see cleanUpOnServer); either way only the finalizer is released.
+func (r *ModelReconciler) handleDeletion(ctx context.Context, model *aiv1alpha1.Model, server *aiv1alpha1.ModelServer) (ctrl.Result, error) {
 	log := logf.FromContext(ctx)
 
 	if !controllerutil.ContainsFinalizer(model, modelFinalizer) {
@@ -353,7 +353,7 @@ func (r *ModelReconciler) handleDeletion(ctx context.Context, model *aiv1alpha1.
 		return ctrl.Result{}, removeFinalizer(ctx, r.Client, model, modelFinalizer)
 	}
 
-	key := pullKey(model.Spec.ProviderRef, model.OllamaTag())
+	key := pullKey(model.Spec.ServerRef, model.OllamaTag())
 	inUse, err := tagWantedElsewhere(ctx, r.Client, model, key)
 	if err != nil {
 		return ctrl.Result{}, fmt.Errorf("checking other Models for tag %s: %w", model.OllamaTag(), err)
@@ -363,7 +363,7 @@ func (r *ModelReconciler) handleDeletion(ctx context.Context, model *aiv1alpha1.
 		r.tracker().abandon(key)
 	}
 
-	if err := r.cleanUpOnProvider(ctx, model, provider, inUse); err != nil {
+	if err := r.cleanUpOnServer(ctx, model, server, inUse); err != nil {
 		return ctrl.Result{}, err
 	}
 
@@ -375,34 +375,34 @@ func (r *ModelReconciler) handleDeletion(ctx context.Context, model *aiv1alpha1.
 	return ctrl.Result{}, nil
 }
 
-// cleanUpOnProvider removes the Model's file from its provider when the provider can
-// be asked: an Ollama provider that is Ready. A provider that is gone, of another
+// cleanUpOnServer removes the Model's file from its server when the server can
+// be asked: an Ollama server that is Ready. A server that is gone, of another
 // engine, or not Ready (its server scaled to zero, say) cannot be asked, and a
 // finalizer must not wait for it: the Model is released and the file stays on the
-// provider's disk for its owner to remove. A Ready provider whose
-// delete fails is returned, so the deletion retries until the provider answers or
+// server's disk for its owner to remove. A Ready server whose
+// delete fails is returned, so the deletion retries until the server answers or
 // stops being Ready.
-func (r *ModelReconciler) cleanUpOnProvider(ctx context.Context, model *aiv1alpha1.Model, provider *aiv1alpha1.ModelProvider, inUse bool) error {
-	if provider == nil || provider.Spec.Type != aiv1alpha1.ProviderTypeOllama {
+func (r *ModelReconciler) cleanUpOnServer(ctx context.Context, model *aiv1alpha1.Model, server *aiv1alpha1.ModelServer, inUse bool) error {
+	if server == nil || server.Spec.Type != aiv1alpha1.ServerTypeOllama {
 		return nil
 	}
-	if !provider.Status.Ready {
-		logf.FromContext(ctx).Info("ModelProvider is not Ready; releasing the Model without removing its file from the provider",
-			"model", model.OllamaTag(), "provider", provider.Name, "phase", provider.Status.Phase)
+	if !server.Status.Ready {
+		logf.FromContext(ctx).Info("ModelServer is not Ready; releasing the Model without removing its file from the server",
+			"model", model.OllamaTag(), "server", server.Name, "phase", server.Status.Phase)
 		return nil
 	}
-	return r.releaseOllamaModel(ctx, model, provider, inUse)
+	return r.releaseOllamaModel(ctx, model, server, inUse)
 }
 
 // releaseOllamaModel deletes the model file from Ollama unless inUse reports that
-// another Model on the provider uses the same tag.
-func (r *ModelReconciler) releaseOllamaModel(ctx context.Context, model *aiv1alpha1.Model, provider *aiv1alpha1.ModelProvider, inUse bool) error {
+// another Model on the server uses the same tag.
+func (r *ModelReconciler) releaseOllamaModel(ctx context.Context, model *aiv1alpha1.Model, server *aiv1alpha1.ModelServer, inUse bool) error {
 	if inUse {
-		logf.FromContext(ctx).Info("Another Model on the provider uses this tag, keeping it", "model", model.OllamaTag(), "provider", provider.Name)
+		logf.FromContext(ctx).Info("Another Model on the server uses this tag, keeping it", "model", model.OllamaTag(), "server", server.Name)
 		return nil
 	}
-	if err := r.deleteOllamaModel(ctx, provider.Spec.Endpoint, model.OllamaTag()); err != nil {
-		return fmt.Errorf("deleting model %s from provider %s: %w", model.OllamaTag(), provider.Name, err)
+	if err := r.deleteOllamaModel(ctx, server.Spec.Endpoint, model.OllamaTag()); err != nil {
+		return fmt.Errorf("deleting model %s from server %s: %w", model.OllamaTag(), server.Name, err)
 	}
 	return nil
 }
@@ -447,18 +447,18 @@ func (r *ModelReconciler) deleteOllamaModel(ctx context.Context, endpoint, model
 	return nil
 }
 
-// findModelProvider looks up a ModelProvider by name across all namespaces.
-func (r *ModelReconciler) findModelProvider(ctx context.Context, name string) (*aiv1alpha1.ModelProvider, error) {
-	providerList := &aiv1alpha1.ModelProviderList{}
-	if err := r.List(ctx, providerList); err != nil {
-		return nil, fmt.Errorf("failed to list ModelProviders: %w", err)
+// findModelServer looks up a ModelServer by name across all namespaces.
+func (r *ModelReconciler) findModelServer(ctx context.Context, name string) (*aiv1alpha1.ModelServer, error) {
+	serverList := &aiv1alpha1.ModelServerList{}
+	if err := r.List(ctx, serverList); err != nil {
+		return nil, fmt.Errorf("failed to list ModelServers: %w", err)
 	}
-	for i := range providerList.Items {
-		if providerList.Items[i].Name == name {
-			return &providerList.Items[i], nil
+	for i := range serverList.Items {
+		if serverList.Items[i].Name == name {
+			return &serverList.Items[i], nil
 		}
 	}
-	return nil, fmt.Errorf("ModelProvider %q not found in any namespace", name)
+	return nil, fmt.Errorf("ModelServer %q not found in any namespace", name)
 }
 
 // updateModelStatus updates the Model status

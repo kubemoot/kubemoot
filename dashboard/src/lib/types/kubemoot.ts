@@ -9,16 +9,16 @@ export interface Condition {
 	observedGeneration?: number;
 }
 
-// ModelProvider types
-export interface ModelProvider {
+// ModelServer types
+export interface ModelServer {
 	apiVersion: string;
-	kind: 'ModelProvider';
+	kind: 'ModelServer';
 	metadata: K8sMetadata;
-	spec: ModelProviderSpec;
-	status?: ModelProviderStatus;
+	spec: ModelServerSpec;
+	status?: ModelServerStatus;
 }
 
-export interface ModelProviderSpec {
+export interface ModelServerSpec {
 	type: 'ollama';
 	endpoint?: string;
 	secretRef?: string;
@@ -27,16 +27,16 @@ export interface ModelProviderSpec {
 	};
 }
 
-export interface ModelProviderLoadedModel {
+export interface ModelServerLoadedModel {
 	name: string;
 	size?: number;
 	sizeVram?: number;
 	expiresAt?: string;
 }
 
-export interface ModelProviderCapacity {
+export interface ModelServerCapacity {
 	availableModels?: { name: string; sizeBytes?: number }[];
-	loadedModels?: ModelProviderLoadedModel[];
+	loadedModels?: ModelServerLoadedModel[];
 	maxParallel?: number;
 	vramUsedMiB?: number;
 	vramTotalMiB?: number;
@@ -44,7 +44,7 @@ export interface ModelProviderCapacity {
 	lastProbed?: string;
 }
 
-/** What calibration measured for one model on a provider; speeds are tokens per second. */
+/** What calibration measured for one model on a server; speeds are tokens per second. */
 export interface ModelCalibration {
 	model: string;
 	fits: boolean;
@@ -59,8 +59,8 @@ export interface ModelCalibration {
 	calibratedAt?: string;
 }
 
-/** The outcome of calibrating a ModelProvider (status.calibration). */
-export interface ProviderCalibration {
+/** The outcome of calibrating a ModelServer (status.calibration). */
+export interface ServerCalibration {
 	/** Calibrating, Calibrated, Waiting, or Failed. */
 	phase?: string;
 	message?: string;
@@ -71,14 +71,14 @@ export interface ProviderCalibration {
 	models?: ModelCalibration[];
 }
 
-export interface ModelProviderStatus {
+export interface ModelServerStatus {
 	ready?: boolean;
 	phase?: string;
 	message?: string;
 	conditions?: Condition[];
-	capacity?: ModelProviderCapacity;
-	calibration?: ProviderCalibration;
-	providerInfo?: {
+	capacity?: ModelServerCapacity;
+	calibration?: ServerCalibration;
+	serverInfo?: {
 		version?: string;
 		lastChecked?: string;
 		rateLimits?: {
@@ -99,7 +99,7 @@ export interface Model {
 }
 
 export interface ModelSpec {
-	providerRef: string;
+	serverRef: string;
 	model: string;
 	quantization?: string;
 	contextLength?: number;
@@ -133,7 +133,7 @@ export interface EmbeddingModel {
 }
 
 export interface EmbeddingModelSpec {
-	providerRef: string;
+	serverRef: string;
 	model: string;
 	dimensions?: number;
 }
@@ -523,7 +523,7 @@ export interface KubemootConfigSpec {
 		ragIndexer?: string;
 	};
 	defaults?: {
-		modelProvider?: string;
+		modelServer?: string;
 		embeddingModel?: string;
 		vectorStore?: {
 			type?: string;

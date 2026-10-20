@@ -15,7 +15,7 @@ import static org.mockito.Mockito.when;
 
 /**
  * Unit tests for CrewMemoryClient parsing/sanitisation — no NATS. The KV I/O
- * path is a thin adapter (mirrors ProviderSelector) covered by integration
+ * path is a thin adapter (mirrors ServerSelector) covered by integration
  * smoke after deploy; these lock the REMEMBER: directive grammar, key
  * sanitisation, and the no-op-when-NATS-down behaviour.
  */

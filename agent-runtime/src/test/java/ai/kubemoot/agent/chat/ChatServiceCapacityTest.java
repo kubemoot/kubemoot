@@ -3,18 +3,18 @@ package ai.kubemoot.agent.chat;
 import ai.kubemoot.agent.mcp.McpClientService;
 import ai.kubemoot.agent.nats.AgentHeartbeatService;
 import ai.kubemoot.agent.nats.DiscussionOrchestrator;
-import ai.kubemoot.agent.provider.CandidatePolicy;
-import ai.kubemoot.agent.provider.CapacityWait;
-import ai.kubemoot.agent.provider.ChatModelPool;
-import ai.kubemoot.agent.provider.FakeCapacitySignal;
-import ai.kubemoot.agent.provider.GpuCapacityWaiter;
-import ai.kubemoot.agent.provider.NoFitException;
-import ai.kubemoot.agent.provider.Pick;
-import ai.kubemoot.agent.provider.ProviderSelector;
-import ai.kubemoot.agent.provider.ProviderState;
-import ai.kubemoot.agent.provider.RecordingCapacityWait;
-import ai.kubemoot.agent.provider.Ticket;
-import ai.kubemoot.agent.provider.TicketManager;
+import ai.kubemoot.agent.modelserver.CandidatePolicy;
+import ai.kubemoot.agent.modelserver.CapacityWait;
+import ai.kubemoot.agent.modelserver.ChatModelPool;
+import ai.kubemoot.agent.modelserver.FakeCapacitySignal;
+import ai.kubemoot.agent.modelserver.GpuCapacityWaiter;
+import ai.kubemoot.agent.modelserver.NoFitException;
+import ai.kubemoot.agent.modelserver.Pick;
+import ai.kubemoot.agent.modelserver.ServerSelector;
+import ai.kubemoot.agent.modelserver.ServerState;
+import ai.kubemoot.agent.modelserver.RecordingCapacityWait;
+import ai.kubemoot.agent.modelserver.Ticket;
+import ai.kubemoot.agent.modelserver.TicketManager;
 import ai.kubemoot.agent.rag.RagClient;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.langchain4j.data.message.AiMessage;
@@ -46,7 +46,7 @@ import static org.mockito.Mockito.*;
 /**
  * The mulling call's GPU choice: warm candidate models, waiting for capacity
  * when the cluster is busy, and the model-too-large refusal. The scheduler
- * (ProviderSelector) is mocked; ChatService's placement logic is real.
+ * (ServerSelector) is mocked; ChatService's placement logic is real.
  */
 class ChatServiceCapacityTest {
 
@@ -58,31 +58,31 @@ class ChatServiceCapacityTest {
 
     private ChatModel staticModel;
     private McpClientService mcpClient;
-    private ProviderSelector selector;
+    private ServerSelector selector;
     private ChatModelPool pool;
     private TicketManager tickets;
-    private ai.kubemoot.agent.provider.PerformanceHistory history;
+    private ai.kubemoot.agent.modelserver.PerformanceHistory history;
 
     @BeforeEach
     void setUp() {
         staticModel = mock(ChatModel.class);
         mcpClient = mock(McpClientService.class);
         when(mcpClient.getToolSpecifications()).thenReturn(Map.of());
-        selector = mock(ProviderSelector.class);
+        selector = mock(ServerSelector.class);
         pool = mock(ChatModelPool.class);
         tickets = mock(TicketManager.class);
-        when(selector.driver()).thenReturn(new ai.kubemoot.agent.provider.OllamaDriver(null));
-        when(selector.driverFor(any())).thenReturn(new ai.kubemoot.agent.provider.OllamaDriver(null));
+        when(selector.driver()).thenReturn(new ai.kubemoot.agent.modelserver.OllamaDriver(null));
+        when(selector.driverFor(any())).thenReturn(new ai.kubemoot.agent.modelserver.OllamaDriver(null));
     }
 
-    /** A provider with the given VRAM, the candidate model resident, the preferred model on disk. */
-    private static ProviderState provider(long totalVramMiB) {
-        return new ProviderState("ollama-a", EP, 1, 0, 0, List.of(WARM_CANDIDATE), true,
+    /** A server with the given VRAM, the candidate model resident, the preferred model on disk. */
+    private static ServerState server(long totalVramMiB) {
+        return new ServerState("ollama-a", EP, 1, 0, 0, List.of(WARM_CANDIDATE), true,
                 "2026-09-27T00:00:00Z", totalVramMiB, Map.of(WARM_CANDIDATE, 10_000L),
                 Map.of(PREFERRED, 20_000L));
     }
 
-    private static Pick pickOn(ProviderState p) {
+    private static Pick pickOn(ServerState p) {
         return new Pick(p, new Ticket("t-1", p.name(), 512, "test", "2026-09-27T00:00:00Z"));
     }
 
@@ -118,7 +118,7 @@ class ChatServiceCapacityTest {
 
     /** A service whose calls are placed by {@code planner}; null uses the algorithm over {@code selector}. */
     private ChatService service(GpuCapacityWaiter waiter, String candidatesJson,
-                                ai.kubemoot.agent.provider.CallPlanner planner) {
+                                ai.kubemoot.agent.modelserver.CallPlanner planner) {
         var policy = new CandidatePolicy(MAPPER, Optional.ofNullable(candidatesJson), Optional.empty(),
                 CandidatePolicy.DEFAULT_TOLERANCE, 0L, 0L);
         return new ChatService(staticModel, mock(RagClient.class), mcpClient, mock(DiscussionOrchestrator.class),
@@ -136,10 +136,10 @@ class ChatServiceCapacityTest {
                 + "{\"model\":\"" + WARM_CANDIDATE + "\",\"score\":" + candidateScore + "}]";
     }
 
-    /** A provider whose state names another engine is called through that engine's adapter. */
+    /** A server whose state names another engine is called through that engine's adapter. */
     @Test
-    void aProviderOnAnotherEngine_isCalledThroughItsAdapter() {
-        var vllm = new ProviderState("ollama-a", EP, 1, 0, 0, List.of(WARM_CANDIDATE), true,
+    void aServerOnAnotherEngine_isCalledThroughItsAdapter() {
+        var vllm = new ServerState("ollama-a", EP, 1, 0, 0, List.of(WARM_CANDIDATE), true,
                 "2026-10-17T00:00:00Z", 32_768, Map.of(WARM_CANDIDATE, 10_000L), Map.of(PREFERRED, 20_000L),
                 0L, Map.of(), Map.of(), "vllm");
         when(selector.readState()).thenReturn(List.of(vllm));
@@ -147,7 +147,7 @@ class ChatServiceCapacityTest {
         when(selector.pickAndClaimWarm(eq(WARM_CANDIDATE), anyLong(), anyLong(), anyLong()))
                 .thenReturn(Optional.of(pickOn(vllm)));
         var vllmChat = answering("from vllm");
-        when(pool.forEndpoint(eq(ai.kubemoot.agent.provider.ChatEngines.OPENAI_COMPATIBLE), eq(EP), eq(WARM_CANDIDATE),
+        when(pool.forEndpoint(eq(ai.kubemoot.agent.modelserver.ChatEngines.OPENAI_COMPATIBLE), eq(EP), eq(WARM_CANDIDATE),
                 anyDouble(), anyInt(), any(), any())).thenReturn(vllmChat);
 
         var result = service(null, candidates(70, 60)).directChat(request(), true, CapacityWait.NONE);
@@ -157,7 +157,7 @@ class ChatServiceCapacityTest {
 
     @Test
     void warmCandidateWithinTolerance_beatsColdLoadingThePreferredModel() {
-        var rig = provider(32_768);
+        var rig = server(32_768);
         when(selector.readState()).thenReturn(List.of(rig));
         when(selector.pickAndClaimWarm(eq(PREFERRED), anyLong(), anyLong(), anyLong())).thenReturn(Optional.empty());
         when(selector.pickAndClaimWarm(eq(WARM_CANDIDATE), anyLong(), anyLong(), anyLong())).thenReturn(Optional.of(pickOn(rig)));
@@ -169,8 +169,8 @@ class ChatServiceCapacityTest {
         assertEquals("warm answer", result.response());
         assertEquals(WARM_CANDIDATE, result.model(), "the result reports the model the call ran on");
         assertEquals(List.of(new ModelUse(WARM_CANDIDATE, "ollama-a")), result.modelsUsed());
-        assertEquals("ollama-a", result.providerName());
-        verify(pool).forEndpoint(eq(ai.kubemoot.agent.provider.ChatEngines.OLLAMA), eq(EP), eq(WARM_CANDIDATE),
+        assertEquals("ollama-a", result.serverName());
+        verify(pool).forEndpoint(eq(ai.kubemoot.agent.modelserver.ChatEngines.OLLAMA), eq(EP), eq(WARM_CANDIDATE),
                 anyDouble(), anyInt(), any(), any());
         verify(selector, never()).pickAndClaim(anyString(), anyLong(), anyLong(), anyLong());
         verify(tickets).recordResidency("ollama-a", WARM_CANDIDATE, 10_000L);
@@ -178,9 +178,9 @@ class ChatServiceCapacityTest {
     }
 
     @Test
-    void aScheduledCall_recordsEachRequestOnTheProviderItRanOn() {
-        history = mock(ai.kubemoot.agent.provider.PerformanceHistory.class);
-        var rig = provider(32_768);
+    void aScheduledCall_recordsEachRequestOnTheServerItRanOn() {
+        history = mock(ai.kubemoot.agent.modelserver.PerformanceHistory.class);
+        var rig = server(32_768);
         when(selector.readState()).thenReturn(List.of(rig));
         when(selector.pickAndClaimWarm(eq(PREFERRED), anyLong(), anyLong(), anyLong())).thenReturn(Optional.empty());
         when(selector.pickAndClaimWarm(eq(WARM_CANDIDATE), anyLong(), anyLong(), anyLong())).thenReturn(Optional.of(pickOn(rig)));
@@ -189,12 +189,12 @@ class ChatServiceCapacityTest {
 
         service(null, candidates(70, 60)).directChat(request(), true, CapacityWait.NONE);
 
-        var seen = org.mockito.ArgumentCaptor.forClass(ai.kubemoot.agent.provider.CallObservation.class);
+        var seen = org.mockito.ArgumentCaptor.forClass(ai.kubemoot.agent.modelserver.CallObservation.class);
         verify(history).record(seen.capture());
         var o = seen.getValue();
-        assertEquals("ollama-a", o.provider());
+        assertEquals("ollama-a", o.server());
         assertEquals(WARM_CANDIDATE, o.model());
-        assertEquals(ai.kubemoot.agent.provider.CallObservation.KIND_TOOL_TURN, o.kind());
+        assertEquals(ai.kubemoot.agent.modelserver.CallObservation.KIND_TOOL_TURN, o.kind());
         assertTrue(o.ok());
         assertFalse(o.coldStart(), "the candidate was resident when the call was placed");
         assertEquals(10, o.promptTokens());
@@ -203,8 +203,8 @@ class ChatServiceCapacityTest {
 
     @Test
     void aCallPlacedWhereTheModelIsNotResident_isRecordedCold() {
-        history = mock(ai.kubemoot.agent.provider.PerformanceHistory.class);
-        var rig = provider(32_768);
+        history = mock(ai.kubemoot.agent.modelserver.PerformanceHistory.class);
+        var rig = server(32_768);
         when(selector.readState()).thenReturn(List.of(rig));
         when(selector.pickAndClaimWarm(anyString(), anyLong(), anyLong(), anyLong())).thenReturn(Optional.empty());
         when(selector.pickAndClaim(eq(PREFERRED), anyLong(), anyLong(), anyLong())).thenReturn(Optional.of(pickOn(rig)));
@@ -212,7 +212,7 @@ class ChatServiceCapacityTest {
 
         service(null, null).directChat(request(), true, CapacityWait.NONE);
 
-        var seen = org.mockito.ArgumentCaptor.forClass(ai.kubemoot.agent.provider.CallObservation.class);
+        var seen = org.mockito.ArgumentCaptor.forClass(ai.kubemoot.agent.modelserver.CallObservation.class);
         verify(history).record(seen.capture());
         assertEquals(PREFERRED, seen.getValue().model());
         assertTrue(seen.getValue().coldStart());
@@ -220,7 +220,7 @@ class ChatServiceCapacityTest {
 
     @Test
     void warmCandidateOutOfTolerance_keepsThePreferredModel() {
-        var rig = provider(32_768);
+        var rig = server(32_768);
         when(selector.readState()).thenReturn(List.of(rig));
         when(selector.pickAndClaimWarm(anyString(), anyLong(), anyLong(), anyLong())).thenReturn(Optional.empty());
         when(selector.pickAndClaim(eq(PREFERRED), anyLong(), anyLong(), anyLong())).thenReturn(Optional.of(pickOn(rig)));
@@ -236,7 +236,7 @@ class ChatServiceCapacityTest {
 
     @Test
     void preferredModelWarmWithRoom_isUsedEvenWhenACandidateIsAlsoWarm() {
-        var rig = provider(32_768);
+        var rig = server(32_768);
         when(selector.readState()).thenReturn(List.of(rig));
         when(selector.pickAndClaimWarm(eq(PREFERRED), anyLong(), anyLong(), anyLong())).thenReturn(Optional.of(pickOn(rig)));
         poolServes(PREFERRED, answering("preferred answer"));
@@ -249,7 +249,7 @@ class ChatServiceCapacityTest {
 
     @Test
     void modelNoGpuCanHold_standsAsideAsModelTooLarge_withoutWaiting() {
-        when(selector.readState()).thenReturn(List.of(provider(16_384)));
+        when(selector.readState()).thenReturn(List.of(server(16_384)));
         when(selector.pickAndClaimWarm(anyString(), anyLong(), anyLong(), anyLong())).thenReturn(Optional.empty());
         when(selector.pickAndClaim(anyString(), anyLong(), anyLong(), anyLong())).thenReturn(Optional.empty());
         var signal = new FakeCapacitySignal();
@@ -267,8 +267,8 @@ class ChatServiceCapacityTest {
     @Test
     @Timeout(value = 10, unit = TimeUnit.SECONDS)
     void saturatedCluster_waitsThenRunsWhenCapacityArrives() {
-        history = mock(ai.kubemoot.agent.provider.PerformanceHistory.class);
-        var rig = provider(32_768);
+        history = mock(ai.kubemoot.agent.modelserver.PerformanceHistory.class);
+        var rig = server(32_768);
         when(selector.readState()).thenReturn(List.of(rig));
         when(selector.pickAndClaimWarm(anyString(), anyLong(), anyLong(), anyLong())).thenReturn(Optional.empty());
         when(selector.pickAndClaim(eq(PREFERRED), anyLong(), anyLong(), anyLong()))
@@ -289,7 +289,7 @@ class ChatServiceCapacityTest {
 
     @Test
     void saturatedCluster_withoutWaiter_standsAsideGpuBusyAtOnce() {
-        when(selector.readState()).thenReturn(List.of(provider(32_768)));
+        when(selector.readState()).thenReturn(List.of(server(32_768)));
         when(selector.pickAndClaimWarm(anyString(), anyLong(), anyLong(), anyLong())).thenReturn(Optional.empty());
         when(selector.pickAndClaim(anyString(), anyLong(), anyLong(), anyLong())).thenReturn(Optional.empty());
 
@@ -300,10 +300,10 @@ class ChatServiceCapacityTest {
         assertEquals(PREFERRED, nfe.model());
     }
 
-    /** No capacity change can place a model no provider has, so the call fails at once instead of waiting. */
+    /** No capacity change can place a model no server has, so the call fails at once instead of waiting. */
     @Test
-    void modelNoProviderHas_failsWithoutWaiting() {
-        var withoutIt = new ProviderState("ollama-a", EP, 1, 0, 0, List.of(), true,
+    void modelNoServerHas_failsWithoutWaiting() {
+        var withoutIt = new ServerState("ollama-a", EP, 1, 0, 0, List.of(), true,
                 "2026-10-17T00:00:00Z", 32_768, Map.of(), Map.of("other:8b", 5_000L));
         when(selector.readState()).thenReturn(List.of(withoutIt));
         when(selector.pickAndClaimWarm(anyString(), anyLong(), anyLong(), anyLong())).thenReturn(Optional.empty());
@@ -318,7 +318,7 @@ class ChatServiceCapacityTest {
 
     @Test
     void callThatCannotWait_standsAsideGpuBusy_evenWithAWaiter() {
-        when(selector.readState()).thenReturn(List.of(provider(32_768)));
+        when(selector.readState()).thenReturn(List.of(server(32_768)));
         when(selector.pickAndClaimWarm(anyString(), anyLong(), anyLong(), anyLong())).thenReturn(Optional.empty());
         when(selector.pickAndClaim(anyString(), anyLong(), anyLong(), anyLong())).thenReturn(Optional.empty());
 
@@ -330,7 +330,7 @@ class ChatServiceCapacityTest {
 
     @Test
     void planMadeAtSelection_isUsedByTheFirstCall() {
-        var rig = provider(32_768);
+        var rig = server(32_768);
         when(selector.readState()).thenReturn(List.of(rig));
         when(selector.pickAndClaimWarm(anyString(), anyLong(), anyLong(), anyLong())).thenReturn(Optional.empty());
         when(selector.pickAndClaimLoading(anyString(), anyLong(), anyLong(), anyLong())).thenReturn(Optional.empty());
@@ -348,9 +348,9 @@ class ChatServiceCapacityTest {
     }
 
     /** A pick that joined a busy copy without a counted slot, as the weighted cost's queue does. */
-    private static Pick queuedPickOn(ProviderState p) {
+    private static Pick queuedPickOn(ServerState p) {
         return new Pick(p, new Ticket("t-queued", p.name(), 512, "test", "2026-09-27T00:00:00Z"),
-                ai.kubemoot.agent.provider.FitScore.yes(0L, "warm"), true);
+                ai.kubemoot.agent.modelserver.FitScore.yes(0L, "warm"), true);
     }
 
     private static ChatService.ChatRequest onThread(String threadId) {
@@ -359,7 +359,7 @@ class ChatServiceCapacityTest {
 
     @Test
     void queuedPlanMadeAtSelection_isPlacedAgain_andLandsOnAnAlternativeWithAFreeSlot() {
-        var rig = provider(32_768);
+        var rig = server(32_768);
         var queued = queuedPickOn(rig);
         when(selector.readState()).thenReturn(List.of(rig));
         when(selector.pickAndClaimWarm(eq(PREFERRED), anyLong(), anyLong(), anyLong())).thenReturn(Optional.empty());
@@ -375,14 +375,14 @@ class ChatServiceCapacityTest {
         assertEquals("alternative answer", result.response());
         assertEquals(WARM_CANDIDATE, result.model(), "the slot freed after selection is used");
         assertEquals(List.of(new ModelUse(WARM_CANDIDATE, "ollama-a")), result.modelsUsed(),
-                "the result names the model and provider the re-planned call ran on, not the preferred model");
+                "the result names the model and server the re-planned call ran on, not the preferred model");
         verify(tickets).release(queued.ticket());
         verify(selector, times(1)).pickAndClaim(eq(PREFERRED), anyLong(), anyLong(), anyLong());
     }
 
     @Test
     void planOwningASlot_isUsedUnchanged_evenWhenAnAlternativeHasRoomAtCallTime() {
-        var rig = provider(32_768);
+        var rig = server(32_768);
         var owned = pickOn(rig);
         when(selector.readState()).thenReturn(List.of(rig));
         when(selector.pickAndClaimWarm(eq(PREFERRED), anyLong(), anyLong(), anyLong())).thenReturn(Optional.of(owned));
@@ -401,10 +401,10 @@ class ChatServiceCapacityTest {
 
     @Test
     void queuedPlan_withStillNoRoomAtCallTime_queuesAsBefore() {
-        var rig = provider(32_768);
+        var rig = server(32_768);
         var atSelection = queuedPickOn(rig);
         var atCall = new Pick(rig, new Ticket("t-queued-2", rig.name(), 512, "test", "2026-09-27T00:00:00Z"),
-                ai.kubemoot.agent.provider.FitScore.yes(0L, "warm"), true);
+                ai.kubemoot.agent.modelserver.FitScore.yes(0L, "warm"), true);
         when(selector.readState()).thenReturn(List.of(rig));
         when(selector.pickAndClaimWarm(anyString(), anyLong(), anyLong(), anyLong())).thenReturn(Optional.empty());
         when(selector.pickAndClaim(eq(PREFERRED), anyLong(), anyLong(), anyLong()))
@@ -423,7 +423,7 @@ class ChatServiceCapacityTest {
 
     @Test
     void releasePlan_releasesAnUnusedPlan() {
-        var rig = provider(32_768);
+        var rig = server(32_768);
         when(selector.readState()).thenReturn(List.of(rig));
         when(selector.pickAndClaimWarm(eq(PREFERRED), anyLong(), anyLong(), anyLong())).thenReturn(Optional.of(pickOn(rig)));
         var service = service(null, null);
@@ -434,16 +434,16 @@ class ChatServiceCapacityTest {
         verify(tickets, times(1)).release(any());
     }
 
-    /** A provider like {@link #provider} whose models get {@code contextTokens} per request. */
-    private static ProviderState providerWithContext(long totalVramMiB, long contextTokens) {
-        return new ProviderState("ollama-a", EP, 1, 0, 0, List.of(WARM_CANDIDATE), true,
+    /** A server like {@link #server} whose models get {@code contextTokens} per request. */
+    private static ServerState serverWithContext(long totalVramMiB, long contextTokens) {
+        return new ServerState("ollama-a", EP, 1, 0, 0, List.of(WARM_CANDIDATE), true,
                 "2026-09-27T00:00:00Z", totalVramMiB, Map.of(WARM_CANDIDATE, 10_000L),
                 Map.of(PREFERRED, 20_000L), contextTokens, Map.of());
     }
 
     @Test
     void promptLargerThanEveryContext_standsAsidePromptTooLarge_withoutWaiting() {
-        when(selector.readState()).thenReturn(List.of(providerWithContext(32_768, 1_024)));
+        when(selector.readState()).thenReturn(List.of(serverWithContext(32_768, 1_024)));
         var signal = new FakeCapacitySignal();
         var wait = new RecordingCapacityWait();
 
@@ -460,7 +460,7 @@ class ChatServiceCapacityTest {
     void planMadeAtSelection_whoseContextCannotHoldTheRealPrompt_isReleased() {
         // The plan is made for an assumed prompt (~5K tokens) that fits the 8K
         // context; the real prompt (~12K tokens) does not, so the plan is dropped.
-        var rig = providerWithContext(32_768, 8_192);
+        var rig = serverWithContext(32_768, 8_192);
         when(selector.readState()).thenReturn(List.of(rig));
         when(selector.pickAndClaim(eq(PREFERRED), anyLong(), anyLong(), anyLong()))
                 .thenReturn(Optional.of(pickOn(rig)), Optional.empty());
@@ -477,7 +477,7 @@ class ChatServiceCapacityTest {
 
     @Test
     void coordinatorCall_promptLargerThanEveryContext_isRefused_notSentToTheStaticEndpoint() {
-        when(selector.readState()).thenReturn(List.of(providerWithContext(32_768, 1_024)));
+        when(selector.readState()).thenReturn(List.of(serverWithContext(32_768, 1_024)));
 
         var nfe = assertThrows(NoFitException.class,
                 () -> service(null, null).simpleLlmCallWithTokens("system", "q".repeat(20_000)));
@@ -488,7 +488,7 @@ class ChatServiceCapacityTest {
 
     @Test
     void coordinatorCall_everyGpuBusy_stillFallsBackToTheStaticEndpoint() {
-        when(selector.readState()).thenReturn(List.of(providerWithContext(32_768, 32_768)));
+        when(selector.readState()).thenReturn(List.of(serverWithContext(32_768, 32_768)));
         var synthesis = streamingAnswering("synthesis");
         when(pool.streamingForEndpoint(any(), anyString(), anyString(), anyDouble(), anyInt(), any(), any()))
                 .thenReturn(synthesis);
@@ -496,10 +496,10 @@ class ChatServiceCapacityTest {
         var result = service(null, null).simpleLlmCallWithTokens("system", "short");
 
         assertEquals("synthesis", result.text());
-        assertEquals(new ModelUse(PREFERRED, ""), result.modelUse(), "the static endpoint has no provider");
-        // No provider was chosen, so the call goes to the static endpoint, which is Ollama.
+        assertEquals(new ModelUse(PREFERRED, ""), result.modelUse(), "the static endpoint has no server");
+        // No server was chosen, so the call goes to the static endpoint, which is Ollama.
         // The agent's own settings apply: its thinking switch is unset here, so null.
-        verify(pool).streamingForEndpoint(eq(ai.kubemoot.agent.provider.ChatEngines.OLLAMA), anyString(),
+        verify(pool).streamingForEndpoint(eq(ai.kubemoot.agent.modelserver.ChatEngines.OLLAMA), anyString(),
                 eq(PREFERRED), anyDouble(), anyInt(), any(), isNull());
     }
 
@@ -518,13 +518,13 @@ class ChatServiceCapacityTest {
         server.start();
         try {
             String endpoint = "http://127.0.0.1:" + server.getAddress().getPort();
-            var rig = new ProviderState("ollama-b", endpoint, 1, 0, 0, List.of(PREFERRED), true,
+            var rig = new ServerState("ollama-b", endpoint, 1, 0, 0, List.of(PREFERRED), true,
                     "2026-10-17T00:00:00Z", 32_768, Map.of(PREFERRED, 20_000L), Map.of(PREFERRED, 20_000L),
                     32_768, Map.of());
             when(selector.readState()).thenReturn(List.of(rig));
             when(selector.pickAndClaim(eq(PREFERRED), anyLong(), anyLong(), anyLong()))
                     .thenReturn(Optional.of(pickOn(rig)));
-            var realPool = new ai.kubemoot.agent.provider.ChatModelPool();
+            var realPool = new ai.kubemoot.agent.modelserver.ChatModelPool();
             when(pool.streamingForEndpoint(any(), anyString(), anyString(), anyDouble(), anyInt(), any(), any()))
                     .thenAnswer(inv -> realPool.streamingForEndpoint(inv.getArgument(0), inv.getArgument(1),
                             inv.getArgument(2), inv.getArgument(3), inv.getArgument(4), inv.getArgument(5),
@@ -542,7 +542,7 @@ class ChatServiceCapacityTest {
 
     @Test
     void triage_promptLargerThanEveryContext_isRefused() {
-        when(selector.readState()).thenReturn(List.of(providerWithContext(32_768, 1_024)));
+        when(selector.readState()).thenReturn(List.of(serverWithContext(32_768, 1_024)));
 
         var nfe = assertThrows(NoFitException.class,
                 () -> service(null, null).triageChat("system", "c".repeat(20_000)));
@@ -553,22 +553,22 @@ class ChatServiceCapacityTest {
 
     @Test
     void triage_isPlacedByTheConfiguredPolicy_andNeverUnloadsModels() {
-        when(selector.readState()).thenReturn(List.of(providerWithContext(32_768, 32_768)));
-        var asked = new java.util.ArrayList<ai.kubemoot.agent.provider.CallPlanner.PlacementRequest>();
-        ai.kubemoot.agent.provider.PlacementPolicy recording = new ai.kubemoot.agent.provider.PlacementPolicy() {
+        when(selector.readState()).thenReturn(List.of(serverWithContext(32_768, 32_768)));
+        var asked = new java.util.ArrayList<ai.kubemoot.agent.modelserver.CallPlanner.PlacementRequest>();
+        ai.kubemoot.agent.modelserver.PlacementPolicy recording = new ai.kubemoot.agent.modelserver.PlacementPolicy() {
             @Override
-            public ai.kubemoot.agent.provider.PlacementMode mode() {
-                return ai.kubemoot.agent.provider.PlacementMode.LEARNED;
+            public ai.kubemoot.agent.modelserver.PlacementMode mode() {
+                return ai.kubemoot.agent.modelserver.PlacementMode.LEARNED;
             }
 
             @Override
-            public Optional<ai.kubemoot.agent.provider.CallPlanner.Placement> place(
-                    ai.kubemoot.agent.provider.CallPlanner.PlacementRequest r) {
+            public Optional<ai.kubemoot.agent.modelserver.CallPlanner.Placement> place(
+                    ai.kubemoot.agent.modelserver.CallPlanner.PlacementRequest r) {
                 asked.add(r);
                 return Optional.empty();
             }
         };
-        var service = service(null, null, new ai.kubemoot.agent.provider.CallPlanner(selector, tickets, null, recording));
+        var service = service(null, null, new ai.kubemoot.agent.modelserver.CallPlanner(selector, tickets, null, recording));
 
         // With no placement the call goes to the static endpoint, unreachable in a unit test.
         assertThrows(RuntimeException.class, () -> service.triageChat("system", "c".repeat(7_000)));
@@ -582,7 +582,7 @@ class ChatServiceCapacityTest {
 
     @Test
     void triage_passesThePromptSizeToThePlacement() {
-        when(selector.readState()).thenReturn(List.of(providerWithContext(32_768, 32_768)));
+        when(selector.readState()).thenReturn(List.of(serverWithContext(32_768, 32_768)));
         when(selector.pickAndClaim(anyString(), anyLong(), anyLong(), anyLong())).thenReturn(Optional.empty());
 
         // The static triage endpoint is unreachable in a unit test; only the placement matters here.
@@ -592,7 +592,7 @@ class ChatServiceCapacityTest {
     }
 
     @Test
-    void triage_reportsTheTriageModelAndTheProviderThatServedIt() throws Exception {
+    void triage_reportsTheTriageModelAndTheServerThatServedIt() throws Exception {
         var server = com.sun.net.httpserver.HttpServer.create(
                 new java.net.InetSocketAddress("127.0.0.1", 0), 0);
         server.createContext("/v1/chat/completions", exchange -> {
@@ -611,13 +611,13 @@ class ChatServiceCapacityTest {
         server.start();
         try {
             String endpoint = "http://127.0.0.1:" + server.getAddress().getPort();
-            var rig = new ProviderState("ollama-b", endpoint, 1, 0, 0, List.of(PREFERRED), true,
+            var rig = new ServerState("ollama-b", endpoint, 1, 0, 0, List.of(PREFERRED), true,
                     "2026-09-27T00:00:00Z", 32_768, Map.of(PREFERRED, 20_000L), Map.of(PREFERRED, 20_000L),
                     32_768, Map.of());
             when(selector.readState()).thenReturn(List.of(rig));
             when(selector.pickAndClaim(eq(PREFERRED), anyLong(), anyLong(), anyLong()))
                     .thenReturn(Optional.of(pickOn(rig)));
-            var realPool = new ai.kubemoot.agent.provider.ChatModelPool();
+            var realPool = new ai.kubemoot.agent.modelserver.ChatModelPool();
             when(pool.streamingForEndpoint(any(), anyString(), anyString(), anyDouble(), anyInt(), any(), any()))
                     .thenAnswer(inv -> realPool.streamingForEndpoint(inv.getArgument(0), inv.getArgument(1),
                             inv.getArgument(2), inv.getArgument(3), inv.getArgument(4), inv.getArgument(5),
@@ -637,7 +637,7 @@ class ChatServiceCapacityTest {
 
     @Test
     void planAtSelection_isSizedFromTheConversation() {
-        var rig = providerWithContext(32_768, 32_768);
+        var rig = serverWithContext(32_768, 32_768);
         when(selector.readState()).thenReturn(List.of(rig));
         var tokens = org.mockito.ArgumentCaptor.forClass(Long.class);
         when(selector.pickAndClaim(eq(PREFERRED), anyLong(), anyLong(), tokens.capture())).thenReturn(Optional.empty());

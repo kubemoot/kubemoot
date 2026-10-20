@@ -1254,7 +1254,7 @@ class ChatServiceToolLoopTest {
         return resp;
     }
 
-    // ---- the prompt must fit the provider's context window ----
+    // ---- the prompt must fit the server's context window ----
 
     @Test
     void toolLoop_promptLargerThanTheContext_failsWithoutCallingTheModel() {
@@ -1318,7 +1318,7 @@ class ChatServiceToolLoopTest {
                 "the gathered tool output is the contribution");
         assertEquals(500, result.inputTokens());
         assertEquals(20, result.outputTokens());
-        assertEquals("gpu-a", result.providerName());
+        assertEquals("gpu-a", result.serverName());
         assertEquals("test", result.pickReason());
     }
 
@@ -1409,7 +1409,7 @@ class ChatServiceToolLoopTest {
                 chatModel, ragClient, mcpClient, discussionOrchestrator,
                 stubProperties(maxToolIterations, discussRole, computeContract, metricsDrillContract),
                 heartbeatService, objectMapper,
-                // JIT provider selection is null in unit tests — the mulling
+                // JIT server selection is null in unit tests — the mulling
                 // path falls back to the Quarkus-injected static chatModel
                 // (the mock chatModel above). All existing tool-loop assertions
                 // therefore continue to exercise the mock, not a NATS-backed
@@ -1419,7 +1419,7 @@ class ChatServiceToolLoopTest {
                 // skipped in tests (footprint=0 → pickMullingChatModel falls
                 // back to static chatModel anyway, ticket release is no-op).
                 // null OllamaDirectProber = NATS-independent self-fetch skipped
-                // in tests (providerSelector is null so the JIT path never runs).
+                // in tests (serverSelector is null so the JIT path never runs).
                 null, null, null, null, null, null, null, null, null
         );
     }
@@ -1436,7 +1436,7 @@ class ChatServiceToolLoopTest {
             @Override public Optional<String> systemPromptFile() { return Optional.empty(); }
             @Override public Model model() { return new Model() {
                 @Override public String name() { return "default"; }
-                @Override public String provider() { return "ollama"; }
+                @Override public String server() { return "ollama"; }
                 @Override public String model() { return "qwen2.5:32b"; }
                 @Override public String endpoint() { return "http://localhost:11434"; }
                 @Override public double temperature() { return 0.3; }
@@ -1537,13 +1537,13 @@ class ChatServiceToolLoopTest {
     }
 
     @Test
-    void aCallOnTheStaticEndpoint_isNotRecorded_asItRanOnNoKnownProvider() throws Exception {
+    void aCallOnTheStaticEndpoint_isNotRecorded_asItRanOnNoKnownServer() throws Exception {
         when(mcpClient.getToolSpecifications()).thenReturn(Map.of());
         var response = mock(ChatResponse.class);
         when(response.aiMessage()).thenReturn(new AiMessage("answer"));
         when(response.tokenUsage()).thenReturn(new TokenUsage(10, 5));
         when(chatModel.chat(any(ChatRequest.class))).thenReturn(response);
-        var history = mock(ai.kubemoot.agent.provider.PerformanceHistory.class);
+        var history = mock(ai.kubemoot.agent.modelserver.PerformanceHistory.class);
 
         var service = new ChatService(chatModel, ragClient, mcpClient, discussionOrchestrator,
                 stubProperties(3, "tooler", false, false), heartbeatService, objectMapper,

@@ -75,13 +75,13 @@ spec:
                 description: Model is the embedding model name (e.g., nomic-embed-text,
                   text-embedding-3-small)
                 type: string
-              providerRef:
-                description: ProviderRef references the ModelProvider to use for this
+              serverRef:
+                description: ServerRef references the ModelServer to use for this
                   embedding model
                 type: string
             required:
             - model
-            - providerRef
+            - serverRef
             type: object
           status:
             description: EmbeddingModelStatus defines the observed state of EmbeddingModel
@@ -145,7 +145,7 @@ spec:
                 type: array
               endpoint:
                 description: |-
-                  Endpoint is the embedding API endpoint (from the provider)
+                  Endpoint is the embedding API endpoint (from the server)
                   Used by RAGSource to configure the indexer
                 type: string
               message:
@@ -170,7 +170,7 @@ spec:
               pull:
                 description: |-
                   Pull is the download progress while the model is being pulled; it is
-                  cleared once the model is on the provider.
+                  cleared once the model is on the server.
                 properties:
                   completedBytes:
                     description: CompletedBytes is how many bytes of the known layers
@@ -184,7 +184,7 @@ spec:
                     type: integer
                   totalBytes:
                     description: |-
-                      TotalBytes is the combined size of the layers the provider has announced so
+                      TotalBytes is the combined size of the layers the server has announced so
                       far; it can grow while the pull discovers more layers
                     format: int64
                     type: integer

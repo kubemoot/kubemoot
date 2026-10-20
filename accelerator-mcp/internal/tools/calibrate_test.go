@@ -43,22 +43,22 @@ const (
 	large  = "large:70b"
 )
 
-// calibrate calls calibrate_provider and waits for the job it started to end.
+// calibrate calls calibrate_server and waits for the job it started to end.
 func calibrate(t *testing.T, f fixture, args map[string]any) (map[string]any, error) {
 	t.Helper()
-	out, err := call(t, f.set, ToolCalibrateProvider, args)
+	out, err := call(t, f.set, ToolCalibrateServer, args)
 	f.set.Jobs.Wait()
 	return out, err
 }
 
-func TestCalibrateProvider_measuresEachModel_andRecordsTheResults(t *testing.T) {
-	f := newFixture(t, readyProvider())
+func TestCalibrateServer_measuresEachModel_andRecordsTheResults(t *testing.T) {
+	f := newFixture(t, readyServer())
 	f.eng.Sizes[model] = 9_000
 
-	out, err := calibrate(t, f, map[string]any{argProv: gpu})
+	out, err := calibrate(t, f, map[string]any{argServer: gpu})
 	check(t, "started", err == nil && out["started"] == true && len(out["models"].([]any)) == 1, out)
 
-	cal := getProvider(t, f).Status.Calibration
+	cal := getServer(t, f).Status.Calibration
 	check(t, "calibrated", cal.Phase == PhaseCalibrated && cal.CompletedAt != nil && len(cal.Models) == 1, cal)
 	check(t, "every number copied from a probe", fullyMeasured(cal.Models[0]), cal.Models[0])
 	check(t, "the model the recipe loaded is unloaded", slices.Contains(f.eng.Unloads, model), f.eng.Unloads)
@@ -74,19 +74,19 @@ func fullyMeasured(m aiv1alpha1.ModelCalibration) bool {
 	return loaded && speeds && parallel
 }
 
-func TestCalibrateProvider_aModelThatSpills_isRecordedAsNotFitting(t *testing.T) {
-	f := newFixture(t, readyProvider())
+func TestCalibrateServer_aModelThatSpills_isRecordedAsNotFitting(t *testing.T) {
+	f := newFixture(t, readyServer())
 	f.eng.Sizes[model] = 9_000
 	f.eng.VRAMFraction = 0.5
 
-	_, err := calibrate(t, f, map[string]any{argProv: gpu})
-	cal := getProvider(t, f).Status.Calibration
+	_, err := calibrate(t, f, map[string]any{argServer: gpu})
+	cal := getServer(t, f).Status.Calibration
 	check(t, "recorded as not fitting", err == nil && cal.Phase == PhaseCalibrated && len(cal.Models) == 1 &&
 		!cal.Models[0].Fits && cal.Models[0].Reason != "", cal)
 }
 
-func TestCalibrateProvider_pausesAsWaiting_whenCrewCallsTakeTheProvider(t *testing.T) {
-	f := newFixture(t, readyProvider())
+func TestCalibrateServer_pausesAsWaiting_whenCrewCallsTakeTheServer(t *testing.T) {
+	f := newFixture(t, readyServer())
 	f.eng.Sizes[model] = 9_000
 	f.eng.OnGenerate = func(n int) {
 		if n == 1 { // a crew call arrives after the load
@@ -94,38 +94,38 @@ func TestCalibrateProvider_pausesAsWaiting_whenCrewCallsTakeTheProvider(t *testi
 		}
 	}
 
-	_, err := calibrate(t, f, map[string]any{argProv: gpu})
-	cal := getProvider(t, f).Status.Calibration
+	_, err := calibrate(t, f, map[string]any{argServer: gpu})
+	cal := getServer(t, f).Status.Calibration
 	check(t, "waiting", err == nil && cal.Phase == PhaseWaiting && strings.Contains(cal.Message, "crew"), cal)
 	check(t, "the model the recipe loaded is unloaded", slices.Contains(f.eng.Unloads, model), f.eng.Unloads)
 }
 
-func TestCalibrateProvider_failsWhenNothingCanBeMeasured(t *testing.T) {
-	f := newFixture(t, readyProvider())
+func TestCalibrateServer_failsWhenNothingCanBeMeasured(t *testing.T) {
+	f := newFixture(t, readyServer())
 	f.eng.Sizes[model] = 9_000
 	f.eng.Fail = true
 
-	_, err := calibrate(t, f, map[string]any{argProv: gpu})
-	cal := getProvider(t, f).Status.Calibration
+	_, err := calibrate(t, f, map[string]any{argServer: gpu})
+	cal := getServer(t, f).Status.Calibration
 	check(t, "failed", err == nil && cal.Phase == PhaseFailed && strings.Contains(cal.Message, model), cal)
 }
 
-func TestCalibrateProvider_reportsAJobAlreadyRunning(t *testing.T) {
-	f := newFixture(t, readyProvider())
+func TestCalibrateServer_reportsAJobAlreadyRunning(t *testing.T) {
+	f := newFixture(t, readyServer())
 	f.eng.Sizes[model] = 9_000
 	entered, release := blockFirstGenerate(f)
 
-	first, err := call(t, f.set, ToolCalibrateProvider, map[string]any{argProv: gpu})
+	first, err := call(t, f.set, ToolCalibrateServer, map[string]any{argServer: gpu})
 	check(t, "first starts", err == nil && first["started"] == true, first)
 	<-entered
-	second, err := call(t, f.set, ToolCalibrateProvider, map[string]any{argProv: gpu})
+	second, err := call(t, f.set, ToolCalibrateServer, map[string]any{argServer: gpu})
 	check(t, "second reports running", err == nil && second["running"] == true && second["started"] == nil, second)
 	close(release)
 	f.set.Jobs.Wait()
 }
 
-func withAvailable(sizes map[string]int64) *aiv1alpha1.ModelProvider {
-	p := readyProvider()
+func withAvailable(sizes map[string]int64) *aiv1alpha1.ModelServer {
+	p := readyServer()
 	p.Status.Capacity.AvailableModels = nil
 	for name, mib := range sizes {
 		p.Status.Capacity.AvailableModels = append(p.Status.Capacity.AvailableModels,
@@ -134,12 +134,12 @@ func withAvailable(sizes map[string]int64) *aiv1alpha1.ModelProvider {
 	return p
 }
 
-func TestCalibrateProvider_choosesItsTargets(t *testing.T) {
+func TestCalibrateServer_choosesItsTargets(t *testing.T) {
 	sizes := map[string]int64{model: 9_000, small: 800, middle: 2_500, large: 40_000, "tiny:0.5b": 400}
 	bound := &aiv1alpha1.Model{ObjectMeta: metav1.ObjectMeta{Name: "b", Namespace: crewNS},
-		Spec: aiv1alpha1.ModelSpec{ProviderRef: gpu, Model: middle}}
+		Spec: aiv1alpha1.ModelSpec{ServerRef: gpu, Model: middle}}
 	notDownloaded := &aiv1alpha1.Model{ObjectMeta: metav1.ObjectMeta{Name: "n", Namespace: crewNS},
-		Spec: aiv1alpha1.ModelSpec{ProviderRef: gpu, Model: "pending:8b"}}
+		Spec: aiv1alpha1.ModelSpec{ServerRef: gpu, Model: "pending:8b"}}
 
 	cases := []struct {
 		name  string
@@ -149,15 +149,15 @@ func TestCalibrateProvider_choosesItsTargets(t *testing.T) {
 		error string
 	}{
 		{"the models asked for", newFixture(t, withAvailable(sizes)),
-			map[string]any{argProv: gpu, argMods: []string{small, small}}, []any{small}, ""},
+			map[string]any{argServer: gpu, argMods: []string{small, small}}, []any{small}, ""},
 		{"an unknown model asked for", newFixture(t, withAvailable(sizes)),
-			map[string]any{argProv: gpu, argMods: []string{"nope:1b"}}, nil, "downloaded"},
+			map[string]any{argServer: gpu, argMods: []string{"nope:1b"}}, nil, "downloaded"},
 		{"the downloaded bound models", newFixture(t, withAvailable(sizes), bound, notDownloaded),
-			map[string]any{argProv: gpu}, []any{middle}, ""},
+			map[string]any{argServer: gpu}, []any{middle}, ""},
 		{"else the three smallest that fit", newFixture(t, withAvailable(sizes)),
-			map[string]any{argProv: gpu}, []any{"tiny:0.5b", small, middle}, ""},
+			map[string]any{argServer: gpu}, []any{"tiny:0.5b", small, middle}, ""},
 		{"nothing downloaded that fits", newFixture(t, withAvailable(map[string]int64{large: 40_000})),
-			map[string]any{argProv: gpu}, nil, "no downloaded model"},
+			map[string]any{argServer: gpu}, nil, "no downloaded model"},
 	}
 	for _, c := range cases {
 		out, err := calibrate(t, c.f, c.args)
@@ -169,22 +169,22 @@ func TestCalibrateProvider_choosesItsTargets(t *testing.T) {
 	}
 }
 
-func TestCalibrateProvider_refusesAProviderItMayNotProbe(t *testing.T) {
-	notReady := readyProvider()
+func TestCalibrateServer_refusesAServerItMayNotProbe(t *testing.T) {
+	notReady := readyServer()
 	notReady.Status.Ready = false
 	off := false
-	disabled := readyProvider()
+	disabled := readyServer()
 	disabled.Name = gpuB
-	disabled.Spec.Calibration = &aiv1alpha1.ProviderCalibrationSpec{Enabled: &off}
+	disabled.Spec.Calibration = &aiv1alpha1.ServerCalibrationSpec{Enabled: &off}
 	f := newFixture(t, notReady, disabled)
 
-	_, err := calibrate(t, f, map[string]any{argProv: gpu})
+	_, err := calibrate(t, f, map[string]any{argServer: gpu})
 	check(t, "not ready", err != nil && strings.Contains(err.Error(), "not ready"), err)
-	_, err = calibrate(t, f, map[string]any{argProv: gpuB})
+	_, err = calibrate(t, f, map[string]any{argServer: gpuB})
 	check(t, "calibration off", err != nil && strings.Contains(err.Error(), "enabled false"), err)
 	_, err = calibrate(t, f, map[string]any{})
-	check(t, "provider required", err != nil && strings.Contains(err.Error(), "provider"), err)
-	_, err = calibrate(t, f, map[string]any{argProv: gpu, "probe": "load"})
+	check(t, "server required", err != nil && strings.Contains(err.Error(), "server"), err)
+	_, err = calibrate(t, f, map[string]any{argServer: gpu, "probe": "load"})
 	check(t, "unknown argument", err != nil, err)
 }
 
@@ -201,27 +201,27 @@ func blockFirstGenerate(f fixture) (entered chan struct{}, release chan struct{}
 	return entered, release
 }
 
-// While a run is in progress, the tools that would disturb it refuse the provider.
-func TestCalibrateProvider_otherToolsWaitForARun(t *testing.T) {
-	f := newFixture(t, readyProvider())
+// While a run is in progress, the tools that would disturb it refuse the server.
+func TestCalibrateServer_otherToolsWaitForARun(t *testing.T) {
+	f := newFixture(t, readyServer())
 	f.eng.Sizes[model] = 9_000
 	entered, release := blockFirstGenerate(f)
 
-	_, err := call(t, f.set, ToolCalibrateProvider, map[string]any{argProv: gpu})
+	_, err := call(t, f.set, ToolCalibrateServer, map[string]any{argServer: gpu})
 	check(t, "started", err == nil, err)
 	<-entered
-	_, err = call(t, f.set, ToolProbeModel, map[string]string{argProv: gpu, argMod: model, argPr: "load"})
+	_, err = call(t, f.set, ToolProbeModel, map[string]string{argServer: gpu, argMod: model, argPr: "load"})
 	check(t, "probe refused", err != nil && strings.Contains(err.Error(), "in progress"), err)
-	_, err = call(t, f.set, ToolRecordCalibration, map[string]any{argProv: gpu, argPh: PhaseFailed})
+	_, err = call(t, f.set, ToolRecordCalibration, map[string]any{argServer: gpu, argPh: PhaseFailed})
 	check(t, "record refused", err != nil && strings.Contains(err.Error(), "in progress"), err)
 	close(release)
 	f.set.Jobs.Wait()
-	check(t, "the run finished", getProvider(t, f).Status.Calibration.Phase == PhaseCalibrated, nil)
+	check(t, "the run finished", getServer(t, f).Status.Calibration.Phase == PhaseCalibrated, nil)
 }
 
 // A run the server stops before it ends is recorded as Waiting, with the record
 // written after the stop.
-func TestCalibrateProvider_aStoppedServerRecordsTheRunAsWaiting(t *testing.T) {
+func TestCalibrateServer_aStoppedServerRecordsTheRunAsWaiting(t *testing.T) {
 	f := newFixture(t, withAvailable(map[string]int64{model: 9_000, small: 800}))
 	f.eng.Sizes[model] = 9_000
 	f.eng.Sizes[small] = 800
@@ -229,23 +229,23 @@ func TestCalibrateProvider_aStoppedServerRecordsTheRunAsWaiting(t *testing.T) {
 	f.set.Jobs = &Jobs{Base: ctx}
 	f.eng.OnGenerate = func(int) { stop() } // the server stops while the first model is measured
 
-	_, err := call(t, f.set, ToolCalibrateProvider, map[string]any{argProv: gpu, argMods: []string{model, small}})
+	_, err := call(t, f.set, ToolCalibrateServer, map[string]any{argServer: gpu, argMods: []string{model, small}})
 	f.set.Jobs.Wait()
-	cal := getProvider(t, f).Status.Calibration
+	cal := getServer(t, f).Status.Calibration
 	check(t, "waiting after the stop, with the model measured before it", err == nil &&
 		cal.Phase == PhaseWaiting && strings.Contains(cal.Message, "interrupted") && len(cal.Models) == 1, cal)
 }
 
 // The run records Calibrating before the tool returns; when that fails, the tool
 // fails and no run is left behind.
-func TestCalibrateProvider_aStartThatCannotBeRecorded_fails(t *testing.T) {
+func TestCalibrateServer_aStartThatCannotBeRecorded_fails(t *testing.T) {
 	scheme := runtime.NewScheme()
 	if err := aiv1alpha1.AddToScheme(scheme); err != nil {
 		t.Fatal(err)
 	}
 	f := newFixture(t)
-	f.set.Cluster = cluster.Cluster{Client: fake.NewClientBuilder().WithScheme(scheme).WithObjects(readyProvider()).
-		WithStatusSubresource(&aiv1alpha1.ModelProvider{}).
+	f.set.Cluster = cluster.Cluster{Client: fake.NewClientBuilder().WithScheme(scheme).WithObjects(readyServer()).
+		WithStatusSubresource(&aiv1alpha1.ModelServer{}).
 		WithInterceptorFuncs(interceptor.Funcs{
 			SubResourcePatch: func(context.Context, client.Client, string, client.Object, client.Patch,
 				...client.SubResourcePatchOption) error {
@@ -253,32 +253,32 @@ func TestCalibrateProvider_aStartThatCannotBeRecorded_fails(t *testing.T) {
 			},
 		}).Build()}
 
-	_, err := call(t, f.set, ToolCalibrateProvider, map[string]any{argProv: gpu})
+	_, err := call(t, f.set, ToolCalibrateServer, map[string]any{argServer: gpu})
 	f.set.Jobs.Wait()
 	check(t, "the tool fails", err != nil && strings.Contains(err.Error(), "refused"), err)
 	check(t, "no run left behind", !f.set.Jobs.Running(gpu), nil)
 }
 
-func TestCalibrateProvider_withoutAJobsRunner(t *testing.T) {
-	f := newFixture(t, readyProvider())
+func TestCalibrateServer_withoutAJobsRunner(t *testing.T) {
+	f := newFixture(t, readyServer())
 	f.set.Jobs = nil
-	_, err := call(t, f.set, ToolCalibrateProvider, map[string]any{argProv: gpu})
+	_, err := call(t, f.set, ToolCalibrateServer, map[string]any{argServer: gpu})
 	check(t, "refused", errors.Is(err, errNoJobs) || (err != nil && strings.Contains(err.Error(), "jobs runner")), err)
 	check(t, "Running on a nil runner", !f.set.Jobs.Running(gpu), nil)
 }
 
 func TestRecoverInterrupted_marksOnlyCalibratingRunsAsWaiting(t *testing.T) {
-	interrupted := readyProvider()
-	interrupted.Status.Calibration = &aiv1alpha1.ProviderCalibration{Phase: PhaseCalibrating}
-	done := readyProvider()
+	interrupted := readyServer()
+	interrupted.Status.Calibration = &aiv1alpha1.ServerCalibration{Phase: PhaseCalibrating}
+	done := readyServer()
 	done.Name = gpuB
-	done.Status.Calibration = &aiv1alpha1.ProviderCalibration{Phase: PhaseCalibrated}
+	done.Status.Calibration = &aiv1alpha1.ServerCalibration{Phase: PhaseCalibrated}
 	f := newFixture(t, interrupted, done)
 
 	check(t, "recovered", f.set.RecoverInterrupted(context.Background()) == nil, nil)
-	got := getProvider(t, f).Status.Calibration
+	got := getServer(t, f).Status.Calibration
 	check(t, "interrupted run is Waiting", got.Phase == PhaseWaiting && strings.Contains(got.Message, "interrupted"), got)
-	other := &aiv1alpha1.ModelProvider{}
+	other := &aiv1alpha1.ModelServer{}
 	_ = f.client.Get(context.Background(), client.ObjectKey{Namespace: opNS, Name: gpuB}, other)
 	check(t, "a finished run is left alone", other.Status.Calibration.Phase == PhaseCalibrated, other.Status.Calibration)
 }
@@ -286,7 +286,7 @@ func TestRecoverInterrupted_marksOnlyCalibratingRunsAsWaiting(t *testing.T) {
 // history writes one agent's performance entry for model on gpu.
 func history(t *testing.T, f fixture, model string, samples ...bus.SchedulerPerformanceSamplesElem) {
 	t.Helper()
-	raw, _ := json.Marshal(bus.SchedulerPerformance{Provider: gpu, Model: model, Agent: "crew/a", Samples: samples})
+	raw, _ := json.Marshal(bus.SchedulerPerformance{Server: gpu, Model: model, Agent: "crew/a", Samples: samples})
 	key := bus.PerformanceKey(gpu, model, "crew/a")
 	check(t, "history written", f.kv.PutKVValue(store.PerformanceBucket, key, raw) == nil, key)
 }
@@ -297,9 +297,9 @@ func soloCall(at time.Time, tps int64) bus.SchedulerPerformanceSamplesElem {
 }
 
 func TestObservedPerformance_comparesCrewCallsWithTheCalibration(t *testing.T) {
-	p := readyProvider()
+	p := readyServer()
 	done := metav1.NewTime(t0.Add(-time.Hour))
-	p.Status.Calibration = &aiv1alpha1.ProviderCalibration{Phase: PhaseCalibrated, CompletedAt: &done,
+	p.Status.Calibration = &aiv1alpha1.ServerCalibration{Phase: PhaseCalibrated, CompletedAt: &done,
 		Models: []aiv1alpha1.ModelCalibration{{Model: model, Fits: true, GenerateTokensPerSecond: 50}}}
 	f := newFixture(t, p)
 	calls := make([]bus.SchedulerPerformanceSamplesElem, 0, 11)
@@ -310,7 +310,7 @@ func TestObservedPerformance_comparesCrewCallsWithTheCalibration(t *testing.T) {
 	history(t, f, model, calls...)
 	_ = f.kv.PutKVValue(store.TicketsBucket, gpu+"__crew", []byte(`{"holderId":"crew/b"}`))
 
-	out, err := call(t, f.set, ToolObservedPerformance, map[string]string{argProv: gpu})
+	out, err := call(t, f.set, ToolObservedPerformance, map[string]string{argServer: gpu})
 	check(t, "no error", err == nil, err)
 	observed := out["observed"].([]any)[0].(map[string]any)
 	check(t, "solo speed since the calibration", observed["soloTokensPerSecond"] == float64(20) &&
@@ -321,31 +321,31 @@ func TestObservedPerformance_comparesCrewCallsWithTheCalibration(t *testing.T) {
 }
 
 func TestObservedPerformance_failures(t *testing.T) {
-	f := newFixture(t, readyProvider())
+	f := newFixture(t, readyServer())
 	_, err := call(t, f.set, ToolObservedPerformance, map[string]string{})
-	check(t, "provider required", err != nil, err)
-	_, err = call(t, f.set, ToolObservedPerformance, map[string]string{argProv: "nope"})
-	check(t, "unknown provider", err != nil, err)
+	check(t, "server required", err != nil, err)
+	_, err = call(t, f.set, ToolObservedPerformance, map[string]string{argServer: "nope"})
+	check(t, "unknown server", err != nil, err)
 	f.kv.Set(&f.kv.FailList, true)
-	_, err = call(t, f.set, ToolObservedPerformance, map[string]string{argProv: gpu})
+	_, err = call(t, f.set, ToolObservedPerformance, map[string]string{argServer: gpu})
 	check(t, "unreadable history is an error", err != nil && strings.Contains(err.Error(), "history"), err)
 }
 
-func TestObservedPerformance_aProviderNeverCalibrated(t *testing.T) {
-	f := newFixture(t, readyProvider())
+func TestObservedPerformance_aServerNeverCalibrated(t *testing.T) {
+	f := newFixture(t, readyServer())
 	history(t, f, model, soloCall(t0, 20))
-	out, err := call(t, f.set, ToolObservedPerformance, map[string]string{argProv: gpu})
+	out, err := call(t, f.set, ToolObservedPerformance, map[string]string{argServer: gpu})
 	check(t, "observed, nothing to drift from", err == nil && len(out["observed"].([]any)) == 1 &&
 		len(out["drifted"].([]any)) == 0, out)
 }
 
-// vllmProvider is a ready vLLM provider whose one server serves model, which the fake
+// vllmServer is a ready vLLM server whose one vLLM server serves model, which the fake
 // engine plays; the probe asks the engine factory for it by the request's engine type.
 func vllmCalibrationFixture(t *testing.T) fixture {
 	t.Helper()
-	p := &aiv1alpha1.ModelProvider{
+	p := &aiv1alpha1.ModelServer{
 		ObjectMeta: metav1.ObjectMeta{Name: "vllm-rig1", Namespace: opNS},
-		Spec: aiv1alpha1.ModelProviderSpec{Type: aiv1alpha1.ProviderTypeVLLM,
+		Spec: aiv1alpha1.ModelServerSpec{Type: aiv1alpha1.ServerTypeVLLM,
 			Servers: []aiv1alpha1.VLLMServer{{Model: model, Endpoint: "http://vllm-rig1:8000"}}},
 	}
 	p.Status.Ready = true
@@ -367,13 +367,13 @@ func vllmCalibrationFixture(t *testing.T) fixture {
 	return f
 }
 
-func TestCalibrateProvider_aVLLMProviderIsCalibratedLikeAnOllamaOne(t *testing.T) {
+func TestCalibrateServer_aVLLMServerIsCalibratedLikeAnOllamaOne(t *testing.T) {
 	f := vllmCalibrationFixture(t)
 
-	out, err := calibrate(t, f, map[string]any{argProv: "vllm-rig1"})
+	out, err := calibrate(t, f, map[string]any{argServer: "vllm-rig1"})
 	check(t, "started", err == nil && out["started"] == true, out)
 
-	cal := getNamedProvider(t, f, "vllm-rig1").Status.Calibration
+	cal := getNamedServer(t, f, "vllm-rig1").Status.Calibration
 	check(t, "calibrated", cal != nil && cal.Phase == PhaseCalibrated && len(cal.Models) == 1, cal)
 	m := cal.Models[0]
 	check(t, "the speeds modelSpeeds publishes", m.Model == model && m.Fits && m.GenerateTokensPerSecond == 50 &&
@@ -383,9 +383,9 @@ func TestCalibrateProvider_aVLLMProviderIsCalibratedLikeAnOllamaOne(t *testing.T
 	check(t, "the server is put back as it was found", slices.Contains(f.eng.Unloads, model), f.eng.Unloads)
 }
 
-func getNamedProvider(t *testing.T, f fixture, name string) *aiv1alpha1.ModelProvider {
+func getNamedServer(t *testing.T, f fixture, name string) *aiv1alpha1.ModelServer {
 	t.Helper()
-	p := &aiv1alpha1.ModelProvider{}
+	p := &aiv1alpha1.ModelServer{}
 	if err := f.client.Get(context.Background(), client.ObjectKey{Namespace: opNS, Name: name}, p); err != nil {
 		t.Fatal(err)
 	}

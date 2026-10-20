@@ -32,9 +32,9 @@ const (
 )
 
 // aliased is a spec in which one server answers to two names and another to one.
-func aliased(a, b *fakeServer) aiv1alpha1.ModelProviderSpec {
-	return aiv1alpha1.ModelProviderSpec{
-		Type: aiv1alpha1.ProviderTypeVLLM,
+func aliased(a, b *fakeServer) aiv1alpha1.ModelServerSpec {
+	return aiv1alpha1.ModelServerSpec{
+		Type: aiv1alpha1.ServerTypeVLLM,
 		Servers: []aiv1alpha1.VLLMServer{
 			{Model: qwen14, Endpoint: a.URL},
 			{Model: qwen14Alias, Endpoint: a.URL},

@@ -50,7 +50,7 @@ runtime today (see the [Roadmap](docs/introduction/roadmap.md)).
 | `Agent` | One participant: a coordinator, a Tooler, or an Analyst, with declared capabilities and tools - never a hardcoded model name. |
 | `PromptModule` | An agent's behavior, written in ADL (the Architecture Definition Language) and composed by reference. |
 | `MootArchetype` / `CrewSchedulingPolicy` | How a discussion is run: its phases, and the rules that decide who speaks in each. |
-| `Model` / `ModelProvider` | A model, addressed by capability, and the GPU-backed endpoint that serves it. |
+| `Model` / `ModelServer` | A model, addressed by capability, and the GPU-backed endpoint that serves it. |
 | `RAGSource` | A knowledge source that's indexed and made queryable for agents. |
 | `MCPServer` / `MCPGateway` | Tools an agent can call, discovered through a gateway (Model Context Protocol). |
 | `CrewFitness` / `CrewFitnessSuite` | Executable tests that score a crew against ground truth. |
@@ -64,7 +64,7 @@ Because these are CRDs, you author crews with `kubectl apply`, review changes wi
 
 A CPU trial you can run on a laptop, no GPU required: one script installs everything
 on an empty cluster (`kind` works) and has a two-agent crew answer a question over
-NATS, a CPU Ollama with a small model, the operator chart, a `ModelProvider`, and the
+NATS, a CPU Ollama with a small model, the operator chart, a `ModelServer`, and the
 `hello` crew.
 
 ```bash
@@ -78,7 +78,7 @@ red before you see it. Details, options, and what each step creates:
 [quickstart/README.md](quickstart/README.md). For the narrated walkthrough and the CPU
 trial's model/agent/latency profile, see the
 [Quickstart doc](docs/introduction/quickstart.md); for installing the operator on your
-own cluster with a GPU-backed model provider, see
+own cluster with a GPU-backed model server, see
 [Installation](docs/introduction/installation.md).
 
 ## Documentation

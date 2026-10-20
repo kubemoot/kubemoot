@@ -3,16 +3,16 @@ package ai.kubemoot.agent.chat;
 import ai.kubemoot.agent.mcp.McpClientService;
 import ai.kubemoot.agent.nats.AgentHeartbeatService;
 import ai.kubemoot.agent.nats.DiscussionOrchestrator;
-import ai.kubemoot.agent.provider.CandidatePolicy;
-import ai.kubemoot.agent.provider.CapacityWait;
-import ai.kubemoot.agent.provider.ChatModelPool;
-import ai.kubemoot.agent.provider.EngineDriver;
-import ai.kubemoot.agent.provider.ModelNotReadyException;
-import ai.kubemoot.agent.provider.Pick;
-import ai.kubemoot.agent.provider.ProviderSelector;
-import ai.kubemoot.agent.provider.ProviderState;
-import ai.kubemoot.agent.provider.Ticket;
-import ai.kubemoot.agent.provider.TicketManager;
+import ai.kubemoot.agent.modelserver.CandidatePolicy;
+import ai.kubemoot.agent.modelserver.CapacityWait;
+import ai.kubemoot.agent.modelserver.ChatModelPool;
+import ai.kubemoot.agent.modelserver.EngineDriver;
+import ai.kubemoot.agent.modelserver.ModelNotReadyException;
+import ai.kubemoot.agent.modelserver.Pick;
+import ai.kubemoot.agent.modelserver.ServerSelector;
+import ai.kubemoot.agent.modelserver.ServerState;
+import ai.kubemoot.agent.modelserver.Ticket;
+import ai.kubemoot.agent.modelserver.TicketManager;
 import ai.kubemoot.agent.rag.RagClient;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.langchain4j.data.message.AiMessage;
@@ -53,24 +53,24 @@ class ChatServiceReadinessTest {
     private static final String MODEL = "qwen2.5:32b";
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
-    private ProviderSelector selector;
+    private ServerSelector selector;
     private ChatModelPool pool;
     private TicketManager tickets;
     private EngineDriver driver;
-    private ProviderState asleep;
+    private ServerState asleep;
     private Pick pick;
 
     @BeforeEach
     void setUp() {
-        selector = mock(ProviderSelector.class);
+        selector = mock(ServerSelector.class);
         pool = mock(ChatModelPool.class);
         tickets = mock(TicketManager.class);
         driver = mock(EngineDriver.class);
         when(driver.ensureReady(any(), anyString())).thenReturn(true);
         when(selector.driver()).thenReturn(driver);
         when(selector.driverFor(any())).thenReturn(driver);
-        // A vLLM server that is asleep: the provider hosts the model but does not list it as loaded.
-        asleep = new ProviderState("vllm-rig1", "", 1, 0, 0, List.of(), true, "2026-10-19T00:00:00Z", 0L,
+        // A vLLM server that is asleep: the server hosts the model but does not list it as loaded.
+        asleep = new ServerState("vllm-rig1", "", 1, 0, 0, List.of(), true, "2026-10-19T00:00:00Z", 0L,
                 Map.of(), Map.of(MODEL, 0L), 0L, Map.of(), Map.of(), "vllm", Map.of(MODEL, "http://vllm-rig1:8000"));
         pick = new Pick(asleep, new Ticket("t-1", asleep.name(), 512, "test", "2026-10-19T00:00:00Z"));
         when(selector.readState()).thenReturn(List.of(asleep));
@@ -155,7 +155,7 @@ class ChatServiceReadinessTest {
 
     @Test
     void anAwakeModelAsksNothing() {
-        var awake = new ProviderState("vllm-rig1", "", 1, 0, 0, List.of(MODEL), true, "2026-10-19T00:00:00Z", 0L,
+        var awake = new ServerState("vllm-rig1", "", 1, 0, 0, List.of(MODEL), true, "2026-10-19T00:00:00Z", 0L,
                 Map.of(MODEL, 0L), Map.of(), 0L, Map.of(), Map.of(), "vllm", Map.of(MODEL, "http://vllm-rig1:8000"));
         when(selector.readState()).thenReturn(List.of(awake));
         when(selector.pickAndClaim(anyString(), anyLong(), anyLong(), anyLong()))

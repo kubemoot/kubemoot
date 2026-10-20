@@ -8,7 +8,7 @@ End-to-end tests for verifying Kubemoot Operator CRD functionality.
 k8s/tests/
 ├── lib.sh                     # Shared test utilities
 ├── test-all.sh                # Full test suite runner
-├── test-modelprovider.sh      # ModelProvider resource test
+├── test-modelserver.sh      # ModelServer resource test
 ├── test-model.sh              # Model resource test (includes pull/delete)
 ├── test-mcpserver.sh          # MCPServer resource test
 ├── test-embeddingmodel.sh     # EmbeddingModel resource test
@@ -39,10 +39,10 @@ k8s/tests/
 ### Individual Resource Tests
 
 ```bash
-# Test ModelProvider only
-./test-modelprovider.sh
+# Test ModelServer only
+./test-modelserver.sh
 
-# Test Model (includes ModelProvider setup)
+# Test Model (includes ModelServer setup)
 ./test-model.sh
 
 # Test MCPServer
@@ -83,7 +83,7 @@ k8s/tests/
 
 | CRD | Tests |
 |-----|-------|
-| **ModelProvider** | Create, Ready status, Version detection, Conditions, Delete |
+| **ModelServer** | Create, Ready status, Version detection, Conditions, Delete |
 | **Model** | Create, Pull state, Available state, Ollama verification, Metadata, Finalizer cleanup |
 | **MCPServer** | Create, Deployment, Service, Ready status, Connectivity, Owner reference cleanup |
 | **EmbeddingModel** | Create, Available state, Status fields, Ollama verification, Delete |
@@ -101,7 +101,7 @@ When running `test-all.sh`, you'll see a summary like:
   Full Test Suite Results
 ==============================================
 
-  ModelProvider: PASSED
+  ModelServer: PASSED
   Model: PASSED
   MCPServer: PASSED
   EmbeddingModel: PASSED

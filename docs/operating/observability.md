@@ -11,8 +11,8 @@ How to observe what a Kubemoot crew is doing: the data it exposes, the surfaces 
 | Domain | Signals | Where it comes from |
 |--------|---------|---------------------|
 | **Discussions / consensus** | Thread lifecycle, per-agent signals (`triaging`, `evaluating`, `waiting`, `agree`, `concern`, `stand_aside`, `failure`, `block`, `advisory`, `synthesis`), settle decisions, synthesis text | Coordinator + agents publish to NATS `kubemoot.discuss.<namespace>.<crew>.*` |
-| **Agent activity** | Heartbeats while GPU-queued, triage vs evaluation phases, per-call provider attribution (which model/provider/GPU served each call) | Agent runtime signals + metadata |
-| **GPU & scheduling** | Loaded-model footprints, in-flight tickets, provider readiness, total/used VRAM, scheduling decisions | Operator-published provider state (NATS KV) + DCGM |
+| **Agent activity** | Heartbeats while GPU-queued, triage vs evaluation phases, per-call server attribution (which model/server/GPU served each call) | Agent runtime signals + metadata |
+| **GPU & scheduling** | Loaded-model footprints, in-flight tickets, server readiness, total/used VRAM, scheduling decisions | Operator-published server state (NATS KV) + DCGM |
 | **Quality** | MCP tool quality verdicts (hot/failing/out-of-norm) | MCP quality pipeline → `kubemoot.quality.*` |
 | **RAG indexing** | Source indexing progress, chunk/embed status | RAGSource controller |
 | **Fitness** | Per-scenario/iteration pass-rates, assertion results, durations, full conversation transcripts | `CrewFitness` / `CrewFitnessSuite` → XLSX in NATS Object Store |
@@ -86,11 +86,11 @@ Kubemoot ships three dashboards, in a `Kubemoot` folder by default:
 
 - **Kubemoot Overview**: model calls and their duration, agents evaluating, RAG query rates and timings, memory and CPU.
 - **Kubemoot Discussions**: discussion threads, signals, phases, and tokens.
-- **Kubemoot Scheduler**: where agents' model calls run (by provider, model, and kind), cold starts, waits for capacity, generation speed, the placement policy (and, in shadow mode, how often the learned policy agrees), and each provider's calibration, speeds, and drift.
+- **Kubemoot Scheduler**: where agents' model calls run (by server, model, and kind), cold starts, waits for capacity, generation speed, the placement policy (and, in shadow mode, how often the learned policy agrees), and each server's calibration, speeds, and drift.
 
 They are agnostic of any one cluster: every panel picks its Prometheus through a
-data source variable, and namespaces and providers are variables filled from the
-metrics, so nothing names a cluster, provider, or model. Install them the way your
+data source variable, and namespaces and servers are variables filled from the
+metrics, so nothing names a cluster, server, or model. Install them the way your
 Grafana loads dashboards:
 
 | Your Grafana | How |
@@ -99,7 +99,7 @@ Grafana loads dashboards:
 | Is run by the Grafana Operator | Set `grafana.dashboards.grafanaOperator.enabled: true` and `instanceSelector` to match your Grafana; the chart creates a GrafanaDashboard per dashboard. |
 | Anything else | Import each dashboard with Grafana's Import dashboard and pick your Prometheus data source. The JSON files are in the chart's `dashboards/` folder, and releases that list them carry them as assets of the [GitHub Release](https://github.com/kubemoot/kubemoot/releases), byte for byte the chart's files, which are signed with the chart. |
 
-The dashboards fill as the metrics are scraped; the scheduler's provider panels need
+The dashboards fill as the metrics are scraped; the scheduler's server panels need
 the operator's metrics, and its placement panels need the agents'.
 
 ### 2. Logs: structured stdout today; aggregation is a gap
@@ -160,7 +160,7 @@ Stand up a log backend so the already-structured JSON logs are centrally searcha
 
 Make OpenTelemetry the canonical span model for discussions instead of the bespoke signal-reconstructed span graph:
 
-- **Produce** a real OTel trace per discussion: thread = root span; each agent evaluation or mulling step and each tool call = child spans with true start/end, carrying GenAI semantic-convention attributes (`gen_ai.system`, `gen_ai.request.model`, `gen_ai.usage.input_tokens`/`output_tokens`) plus Kubemoot extras (crew, thread, signal, provider, GPU label).
+- **Produce** a real OTel trace per discussion: thread = root span; each agent evaluation or mulling step and each tool call = child spans with true start/end, carrying GenAI semantic-convention attributes (`gen_ai.system`, `gen_ai.request.model`, `gen_ai.usage.input_tokens`/`output_tokens`) plus Kubemoot extras (crew, thread, signal, server, GPU label).
 - **Consume**: the dashboard span graph renders OTel-shaped spans rather than reconstructing from signals; the same trace data also flows to the existing otel-collector → Tempo, and to any OTel-compatible profiler.
 - **Two transports**: live (NATS, keeping the dashboard real-time) plus OTLP batch (for Tempo and the wider ecosystem). Unlocks replaying historical discussions from the trace backend, not just live ones.
 

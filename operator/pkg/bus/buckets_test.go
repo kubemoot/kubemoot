@@ -15,12 +15,12 @@ import (
 	"testing"
 )
 
-func TestProviderTicketPrefix(t *testing.T) {
-	if got := ProviderTicketPrefix("gpu-a"); got != "gpu-a__" {
+func TestServerTicketPrefix(t *testing.T) {
+	if got := ServerTicketPrefix("gpu-a"); got != "gpu-a__" {
 		t.Errorf("prefix: %q", got)
 	}
-	// A provider whose name starts another's must not match the other's tickets.
-	if strings.HasPrefix("gpu-ab__1", ProviderTicketPrefix("gpu-a")) {
+	// A server whose name starts another's must not match the other's tickets.
+	if strings.HasPrefix("gpu-ab__1", ServerTicketPrefix("gpu-a")) {
 		t.Error("gpu-a's prefix matches gpu-ab's tickets")
 	}
 }

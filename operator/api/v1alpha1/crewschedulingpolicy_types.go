@@ -22,7 +22,7 @@ import (
 )
 
 // CrewSchedulingPolicySpec defines the require/prefer rules the Kubemoot
-// scheduler uses to match each discussion phase to a (Model, Provider) binding.
+// scheduler uses to match each discussion phase to a (Model, Server) binding.
 //
 // Modeled on Kubernetes Pod scheduling: `require` is hard (no match →
 // Unschedulable), `prefer` is soft weighted hints. See kubemoot/docs/scheduler-v2.md.
@@ -42,7 +42,7 @@ type CrewSchedulingPolicySpec struct {
 	// +kubebuilder:validation:MinItems=1
 	Rules []SchedulingRule `json:"rules"`
 
-	// TopologySpread distributes phase bindings across providers to avoid
+	// TopologySpread distributes phase bindings across servers to avoid
 	// stacking phases on the same GPU when alternatives exist. Mirrors
 	// Pod TopologySpreadConstraints.
 	// +optional
@@ -123,7 +123,7 @@ type SchedulingRule struct {
 	// PreferFaster, 0 to 100, favors the model measured faster among the models the
 	// rule allows: up to PreferFaster points are added to a candidate in proportion
 	// to its measured generation speed relative to the fastest candidate. Speed is
-	// per provider (calibration, replaced by what crew calls observe), so the agent
+	// per server (calibration, replaced by what crew calls observe), so the agent
 	// runtime applies it on each call against live measurements; the operator only
 	// hands the number over. A candidate with no measured speed gets no points and
 	// is never guessed fast or slow. 0 or unset turns the term off.
@@ -168,13 +168,13 @@ type PreferenceTerm struct {
 
 // TopologySpread distributes phase bindings across a topology key, mirroring
 // Pod TopologySpreadConstraints. Used to avoid stacking multiple phases of the
-// same discussion on the same provider when alternatives are feasible.
+// same discussion on the same server when alternatives are feasible.
 type TopologySpread struct {
-	// TopologyKey identifies the dimension to spread across (e.g., "provider"
+	// TopologyKey identifies the dimension to spread across (e.g., "server"
 	// for "don't put both phases on the same GPU"). The scheduler interprets
-	// this against ModelProvider names by default.
+	// this against ModelServer names by default.
 	// +kubebuilder:validation:Required
-	// +kubebuilder:default=provider
+	// +kubebuilder:default=server
 	TopologyKey string `json:"topologyKey"`
 
 	// PhaseKeys is the set of phase names that participate in spreading.
@@ -227,7 +227,7 @@ type PhaseStatus struct {
 	State string `json:"state"`
 
 	// Reason is a short machine-readable token (Scheduled, NoFeasibleModel,
-	// NoFeasibleProvider, FilteredByCapacity).
+	// NoFeasibleServer, FilteredByCapacity).
 	// +optional
 	Reason string `json:"reason,omitempty"`
 
@@ -251,7 +251,7 @@ type PhaseStatus struct {
 // +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
 
 // CrewSchedulingPolicy expresses how the Kubemoot scheduler should bind each
-// discussion phase to a (Model, Provider) for a given Crew. Pure Kubernetes
+// discussion phase to a (Model, Server) for a given Crew. Pure Kubernetes
 // affinity idiom: require/prefer with LabelSelector matching Model labels.
 //
 // See kubemoot/docs/scheduler-v2.md for the full design.

@@ -1,5 +1,5 @@
 /** Query parameters the models page filters on. */
-const MODEL_FILTER_PARAMS = ['model', 'provider'] as const;
+const MODEL_FILTER_PARAMS = ['model', 'server'] as const;
 
 /**
  * The path and query of `url` with the models page filter removed. Takes any URL-like

@@ -1,12 +1,12 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "ModelLifecycleReply",
-  "description": "The operator's answer to a ModelLifecycleRequest, sent when the provider reports the model in the state asked for, not when the request was accepted.",
+  "description": "The operator's answer to a ModelLifecycleRequest, sent when the server reports the model in the state asked for, not when the request was accepted.",
   "type": "object",
   "required": ["ok"],
   "properties": {
-    "ok": { "type": "boolean", "description": "Whether the provider reports the model in the state asked for." },
-    "state": { "type": "string", "enum": ["awake", "asleep"], "description": "The model's state the provider last reported." },
+    "ok": { "type": "boolean", "description": "Whether the server reports the model in the state asked for." },
+    "state": { "type": "string", "enum": ["awake", "asleep"], "description": "The model's state the server last reported." },
     "switchMs": { "type": "integer", "description": "How long making the model ready took, in milliseconds; 0 when it was already awake or the request was a release." },
     "error": { "type": "string", "description": "Why the request failed, when ok is false." }
   }

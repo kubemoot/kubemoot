@@ -37,24 +37,24 @@ import (
 )
 
 // The lifecycle server answers agents that ask, over NATS request and reply, to make
-// a model ready on a provider or to release it. The engine adapter is the one place
+// a model ready on a server or to release it. The engine adapter is the one place
 // that wakes and sleeps a vLLM server, so the agent runtime carries no second
-// implementation. A reply is sent when the provider reports the model in the state
+// implementation. A reply is sent when the server reports the model in the state
 // asked for, not when the request was accepted.
 
 const (
-	// lifecyclePollInterval is how often the provider is asked for the model's state
+	// lifecyclePollInterval is how often the server is asked for the model's state
 	// while the adapter's call has returned and the state has not yet followed.
 	lifecyclePollInterval = time.Second
-	// lifecycleSafetyLimit ends a request in which the provider never reaches the
+	// lifecycleSafetyLimit ends a request in which the server never reaches the
 	// state asked for. It is a safety net: the normal path ends on the reported state.
 	lifecycleSafetyLimit = 30 * time.Minute
 )
 
-// switchRefresher publishes the provider state after a model changed state, so agents
+// switchRefresher publishes the server state after a model changed state, so agents
 // see the new state without waiting for the next probe.
 type switchRefresher interface {
-	RefreshAfterSwitch(ctx context.Context, provider *aiv1alpha1.ModelProvider, model string, switchMs int64)
+	RefreshAfterSwitch(ctx context.Context, server *aiv1alpha1.ModelServer, model string, switchMs int64)
 }
 
 // subscriber is the slice of the NATS publisher the server uses.
@@ -62,12 +62,12 @@ type subscriber interface {
 	Subscribe(subject string, handler nats.MsgHandler) (*nats.Subscription, error)
 }
 
-// ModelLifecycleServer serves ModelLifecycleRequests on kubemoot.provider.model.*.
+// ModelLifecycleServer serves ModelLifecycleRequests on kubemoot.server.model.*.
 type ModelLifecycleServer struct {
 	Reader     client.Reader
 	Subscriber subscriber
 	Refresher  switchRefresher
-	// Engines picks the adapter by provider type; nil uses DefaultEngines.
+	// Engines picks the adapter by server type; nil uses DefaultEngines.
 	Engines *engine.Registry
 	// HTTPClient reaches the model servers; nil uses a client with no timeout of its
 	// own, because a wake is waited on by state, not by a clock.
@@ -76,7 +76,7 @@ type ModelLifecycleServer struct {
 	PollInterval time.Duration
 	SafetyLimit  time.Duration
 
-	// locks serializes the requests of one provider (a channel of one turn per provider
+	// locks serializes the requests of one server (a channel of one turn per server
 	// name, so a waiter can give up with its context): waking a model first puts the
 	// awake one to sleep, so two requests on one accelerator must not interleave.
 	locks sync.Map
@@ -128,23 +128,23 @@ func (s *ModelLifecycleServer) Handle(ctx context.Context, subject string, data 
 	if req.Model == "" || (req.Action != bus.ModelLifecycleRequestActionReady && req.Action != bus.ModelLifecycleRequestActionRelease) {
 		return failed("the request needs a model and an action of ready or release")
 	}
-	provider, err := s.providerFor(ctx, strings.TrimPrefix(subject, bus.ModelLifecycleSubjectPrefix))
+	server, err := s.serverFor(ctx, strings.TrimPrefix(subject, bus.ModelLifecycleSubjectPrefix))
 	if err != nil {
 		return failed(err.Error())
 	}
-	if provider.Spec.Type != aiv1alpha1.ProviderTypeVLLM {
-		return failed(fmt.Sprintf("provider %s is %q: only engines that put models to sleep take lifecycle requests", provider.Name, provider.Spec.Type))
+	if server.Spec.Type != aiv1alpha1.ServerTypeVLLM {
+		return failed(fmt.Sprintf("server %s is %q: only engines that put models to sleep take lifecycle requests", server.Name, server.Spec.Type))
 	}
-	// The safety limit covers the wait for the provider's lock as well as the work, so a
+	// The safety limit covers the wait for the server's lock as well as the work, so a
 	// request queued behind a stuck wake ends before its asker gives up.
 	ctx, cancel := context.WithTimeout(ctx, s.safetyLimit())
 	defer cancel()
-	release, err := s.lockProvider(ctx, provider.Name)
+	release, err := s.lockServer(ctx, server.Name)
 	if err != nil {
 		return failed(err.Error())
 	}
 	defer release()
-	return s.carryOut(ctx, provider, req)
+	return s.carryOut(ctx, server, req)
 }
 
 func (s *ModelLifecycleServer) safetyLimit() time.Duration {
@@ -154,16 +154,16 @@ func (s *ModelLifecycleServer) safetyLimit() time.Duration {
 	return lifecycleSafetyLimit
 }
 
-// lockProvider waits for the provider's turn, or for ctx. It returns the function that
+// lockServer waits for the server's turn, or for ctx. It returns the function that
 // gives the turn up.
-func (s *ModelLifecycleServer) lockProvider(ctx context.Context, name string) (func(), error) {
+func (s *ModelLifecycleServer) lockServer(ctx context.Context, name string) (func(), error) {
 	slot, _ := s.locks.LoadOrStore(name, make(chan struct{}, 1))
 	turn := slot.(chan struct{})
 	select {
 	case turn <- struct{}{}:
 		return func() { <-turn }, nil
 	case <-ctx.Done():
-		return nil, fmt.Errorf("another request on provider %s did not finish before the safety limit", name)
+		return nil, fmt.Errorf("another request on server %s did not finish before the safety limit", name)
 	}
 }
 
@@ -171,32 +171,32 @@ func failed(msg string) bus.ModelLifecycleReply {
 	return bus.ModelLifecycleReply{Ok: false, Error: msg}
 }
 
-// providerFor finds the ModelProvider whose escaped name is token.
-func (s *ModelLifecycleServer) providerFor(ctx context.Context, token string) (*aiv1alpha1.ModelProvider, error) {
-	list := &aiv1alpha1.ModelProviderList{}
+// serverFor finds the ModelServer whose escaped name is token.
+func (s *ModelLifecycleServer) serverFor(ctx context.Context, token string) (*aiv1alpha1.ModelServer, error) {
+	list := &aiv1alpha1.ModelServerList{}
 	if err := s.Reader.List(ctx, list); err != nil {
-		return nil, fmt.Errorf("listing ModelProviders: %w", err)
+		return nil, fmt.Errorf("listing ModelServers: %w", err)
 	}
 	for i := range list.Items {
 		if bus.KeyToken(list.Items[i].Name) == token {
 			return &list.Items[i], nil
 		}
 	}
-	return nil, fmt.Errorf("no ModelProvider matches the subject token %q", token)
+	return nil, fmt.Errorf("no ModelServer matches the subject token %q", token)
 }
 
 // carryOut makes the model ready or releases it through the engine adapter, then
-// waits for the provider to report the state, and publishes the new state.
-func (s *ModelLifecycleServer) carryOut(ctx context.Context, provider *aiv1alpha1.ModelProvider, req bus.ModelLifecycleRequest) bus.ModelLifecycleReply {
+// waits for the server to report the state, and publishes the new state.
+func (s *ModelLifecycleServer) carryOut(ctx context.Context, server *aiv1alpha1.ModelServer, req bus.ModelLifecycleRequest) bus.ModelLifecycleReply {
 	want := engine.StateAwake
 	if req.Action == bus.ModelLifecycleRequestActionRelease {
 		want = engine.StateAsleep
 	}
-	adapter, err := s.adapterFor(provider.Spec.Type)
+	adapter, err := s.adapterFor(server.Spec.Type)
 	if err != nil {
 		return failed(err.Error())
 	}
-	spec := provider.EffectiveSpec()
+	spec := server.EffectiveSpec()
 
 	state, err := stateOf(ctx, adapter, spec, req.Model)
 	if err != nil {
@@ -217,14 +217,14 @@ func (s *ModelLifecycleServer) carryOut(ctx context.Context, provider *aiv1alpha
 		switchMs = time.Since(started).Milliseconds()
 	}
 	if s.Refresher != nil {
-		s.Refresher.RefreshAfterSwitch(ctx, provider, req.Model, switchMs)
+		s.Refresher.RefreshAfterSwitch(ctx, server, req.Model, switchMs)
 	}
 	return bus.ModelLifecycleReply{Ok: true, State: bus.ModelLifecycleReplyState(want), SwitchMs: switchMs}
 }
 
-// adapterFor is the engine adapter for a provider type, over a client with no timeout of
+// adapterFor is the engine adapter for a server type, over a client with no timeout of
 // its own unless the server was given one: a wake is waited on by state, not by a clock.
-func (s *ModelLifecycleServer) adapterFor(t aiv1alpha1.ProviderType) (engine.Adapter, error) {
+func (s *ModelLifecycleServer) adapterFor(t aiv1alpha1.ServerType) (engine.Adapter, error) {
 	httpClient := s.HTTPClient
 	if httpClient == nil {
 		httpClient = &http.Client{}
@@ -237,33 +237,33 @@ func (s *ModelLifecycleServer) adapterFor(t aiv1alpha1.ProviderType) (engine.Ada
 }
 
 // act asks the adapter to do what the request says.
-func act(ctx context.Context, adapter engine.Adapter, spec aiv1alpha1.ModelProviderSpec, req bus.ModelLifecycleRequest) error {
+func act(ctx context.Context, adapter engine.Adapter, spec aiv1alpha1.ModelServerSpec, req bus.ModelLifecycleRequest) error {
 	if req.Action == bus.ModelLifecycleRequestActionRelease {
 		return adapter.Release(ctx, spec, req.Model)
 	}
 	return adapter.Ready(ctx, spec, req.Model)
 }
 
-// stateOf is the model's state the provider reports now.
-func stateOf(ctx context.Context, adapter engine.Adapter, spec aiv1alpha1.ModelProviderSpec, model string) (engine.ModelState, error) {
+// stateOf is the model's state the server reports now.
+func stateOf(ctx context.Context, adapter engine.Adapter, spec aiv1alpha1.ModelServerSpec, model string) (engine.ModelState, error) {
 	snap, err := adapter.Probe(ctx, spec)
 	if err != nil {
-		return "", fmt.Errorf("probing the provider: %w", err)
+		return "", fmt.Errorf("probing the server: %w", err)
 	}
 	st, ok := snap.ModelStates[model]
 	if !ok {
-		return "", fmt.Errorf("the provider does not report model %q", model)
+		return "", fmt.Errorf("the server does not report model %q", model)
 	}
 	return st, nil
 }
 
-// waitForState polls until the provider reports the state, even though the adapter's call
+// waitForState polls until the server reports the state, even though the adapter's call
 // returned after the server answered: a server may report the old state for a moment
 // after it accepted the change, and the reply is promised on the reported state. The
 // interval paces the reads; it never ends the wait.
-// It polls until the provider reports want for the model. It ends on that
+// It polls until the server reports want for the model. It ends on that
 // state, on a probe that cannot name the model, or on ctx (the safety limit).
-func (s *ModelLifecycleServer) waitForState(ctx context.Context, adapter engine.Adapter, spec aiv1alpha1.ModelProviderSpec, model string, want engine.ModelState) error {
+func (s *ModelLifecycleServer) waitForState(ctx context.Context, adapter engine.Adapter, spec aiv1alpha1.ModelServerSpec, model string, want engine.ModelState) error {
 	every := s.PollInterval
 	if every <= 0 {
 		every = lifecyclePollInterval
@@ -278,20 +278,20 @@ func (s *ModelLifecycleServer) waitForState(ctx context.Context, adapter engine.
 		}
 		select {
 		case <-ctx.Done():
-			return fmt.Errorf("the provider did not report %q as %s before the safety limit", model, want)
+			return fmt.Errorf("the server did not report %q as %s before the safety limit", model, want)
 		case <-time.After(every):
 		}
 	}
 }
 
-// switchLog is the observed time to make each model ready, by provider and model.
+// switchLog is the observed time to make each model ready, by server and model.
 type switchLog struct {
 	mu   sync.Mutex
 	byOf map[string]map[string]int64
 }
 
 // Record keeps the latest observed switch time for the model; a zero is not a switch.
-func (l *switchLog) Record(provider, model string, ms int64) {
+func (l *switchLog) Record(server, model string, ms int64) {
 	if ms <= 0 {
 		return
 	}
@@ -300,47 +300,47 @@ func (l *switchLog) Record(provider, model string, ms int64) {
 	if l.byOf == nil {
 		l.byOf = map[string]map[string]int64{}
 	}
-	if l.byOf[provider] == nil {
-		l.byOf[provider] = map[string]int64{}
+	if l.byOf[server] == nil {
+		l.byOf[server] = map[string]int64{}
 	}
-	l.byOf[provider][model] = ms
+	l.byOf[server][model] = ms
 }
 
-// For is a copy of the provider's observed switch times; nil when there are none.
-func (l *switchLog) For(provider string) map[string]int64 {
+// For is a copy of the server's observed switch times; nil when there are none.
+func (l *switchLog) For(server string) map[string]int64 {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	if len(l.byOf[provider]) == 0 {
+	if len(l.byOf[server]) == 0 {
 		return nil
 	}
-	out := make(map[string]int64, len(l.byOf[provider]))
-	for m, ms := range l.byOf[provider] {
+	out := make(map[string]int64, len(l.byOf[server]))
+	for m, ms := range l.byOf[server] {
 		out[m] = ms
 	}
 	return out
 }
 
-// Forget drops what was observed for a provider that no longer exists.
-func (l *switchLog) Forget(provider string) {
+// Forget drops what was observed for a server that no longer exists.
+func (l *switchLog) Forget(server string) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	delete(l.byOf, provider)
+	delete(l.byOf, server)
 }
 
 // RefreshAfterSwitch records how long the model took to become ready and publishes the
-// provider state read now, so agents see the model awake without waiting for the next
+// server state read now, so agents see the model awake without waiting for the next
 // probe. A failed probe leaves the last published state as it was.
-func (r *ModelProviderReconciler) RefreshAfterSwitch(ctx context.Context, provider *aiv1alpha1.ModelProvider, model string, switchMs int64) {
-	r.switches.Record(provider.Name, model, switchMs)
+func (r *ModelServerReconciler) RefreshAfterSwitch(ctx context.Context, server *aiv1alpha1.ModelServer, model string, switchMs int64) {
+	r.switches.Record(server.Name, model, switchMs)
 	httpClient := r.HTTPClient
 	if httpClient == nil {
 		httpClient = &http.Client{Timeout: 10 * time.Second}
 	}
-	if _, err := r.probeSnapshot(ctx, provider, httpClient); err != nil {
-		logf.FromContext(ctx).V(1).Info("could not refresh the provider state after a switch", "provider", provider.Name, "err", err)
+	if _, err := r.probeSnapshot(ctx, server, httpClient); err != nil {
+		logf.FromContext(ctx).V(1).Info("could not refresh the server state after a switch", "server", server.Name, "err", err)
 		return
 	}
-	r.publishStateToKV(ctx, provider)
+	r.publishStateToKV(ctx, server)
 }
 
 // mergeSwitchCosts adds the observed switch times to what the engine reported.
@@ -358,5 +358,5 @@ func mergeSwitchCosts(reported, observed map[string]int64) map[string]int64 {
 	return out
 }
 
-var _ switchRefresher = (*ModelProviderReconciler)(nil)
+var _ switchRefresher = (*ModelServerReconciler)(nil)
 var _ subscriber = (*kubemootnats.Publisher)(nil)

@@ -121,7 +121,7 @@ spec:
                         type: string
                       probeIntervalSeconds:
                         default: 30
-                        description: ProbeIntervalSeconds is how often to probe providers
+                        description: ProbeIntervalSeconds is how often to probe servers
                           for capacity. Default 30.
                         type: integer
                       prometheusEndpoint:

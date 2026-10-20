@@ -84,11 +84,11 @@ public class DiscussionOrchestrator {
     /** An agent started waiting for GPU capacity. */
     private static final String MSG_WAITING = "waiting";
     /** Stand-aside reason: every GPU that could hold the model stayed busy. */
-    static final String REASON_GPU_BUSY = ai.kubemoot.agent.provider.NoFitException.REASON_GPU_BUSY;
+    static final String REASON_GPU_BUSY = ai.kubemoot.agent.modelserver.NoFitException.REASON_GPU_BUSY;
     /** Stand-aside reason: no GPU can ever hold the model. */
-    static final String REASON_MODEL_TOO_LARGE = ai.kubemoot.agent.provider.NoFitException.REASON_MODEL_TOO_LARGE;
+    static final String REASON_MODEL_TOO_LARGE = ai.kubemoot.agent.modelserver.NoFitException.REASON_MODEL_TOO_LARGE;
     /** Stand-aside reason: the prompt is larger than every GPU's context window for the model. */
-    static final String REASON_PROMPT_TOO_LARGE = ai.kubemoot.agent.provider.NoFitException.REASON_PROMPT_TOO_LARGE;
+    static final String REASON_PROMPT_TOO_LARGE = ai.kubemoot.agent.modelserver.NoFitException.REASON_PROMPT_TOO_LARGE;
     /** The stand-aside reasons that mean the cluster, not the crew, kept an agent out. */
     private static final Set<String> CAPACITY_REASONS =
             Set.of(REASON_GPU_BUSY, REASON_MODEL_TOO_LARGE, REASON_PROMPT_TOO_LARGE);
@@ -782,7 +782,7 @@ public class DiscussionOrchestrator {
         state.pendingEvaluations.put(agentName, triageDeadline);
         metrics.setPendingEvaluations(state.pendingEvaluations.size());
         log.info("Agent {} is triaging on {} (deadline {}s)",
-                agentName, extractProvider(msg), properties.triageModel().timeoutSeconds());
+                agentName, extractServer(msg), properties.triageModel().timeoutSeconds());
     }
 
     // The agent's heartbeat cadence (first beat 15s after evaluating, then every
@@ -804,23 +804,23 @@ public class DiscussionOrchestrator {
     private void handleEvaluatingSignal(ThreadState state, String agentName, JsonNode msg) {
         // Agent has passed triage and is about to call tools — update deadline
         // to the (heartbeat-floored) P90-based evaluation deadline.
-        String provider = extractProvider(msg);
-        int expectedSeconds = latencyTracker.getExpectedSeconds(agentName, provider);
+        String server = extractServer(msg);
+        int expectedSeconds = latencyTracker.getExpectedSeconds(agentName, server);
         long deadline = System.currentTimeMillis() + deadlineWindowMs(expectedSeconds, evalGraceMs);
         state.pendingEvaluations.put(agentName, deadline);
         state.waitingAgents.remove(agentName);
         metrics.evaluatingSignalReceived();
         metrics.setPendingEvaluations(state.pendingEvaluations.size());
         log.info("Agent {} is evaluating on {}, expected deadline in {}s (P90 from history)",
-                agentName, provider, expectedSeconds);
+                agentName, server, expectedSeconds);
     }
 
     private void handleHeartbeatSignal(ThreadState state, String agentName, JsonNode msg) {
         // Agent is still alive (queued on GPU or mid-inference). Refresh deadline
         // so the coordinator doesn't expire it while it waits for GPU access.
         if (state.pendingEvaluations.containsKey(agentName)) {
-            String provider = extractProvider(msg);
-            int expectedSeconds = latencyTracker.getExpectedSeconds(agentName, provider);
+            String server = extractServer(msg);
+            int expectedSeconds = latencyTracker.getExpectedSeconds(agentName, server);
             long deadline = System.currentTimeMillis() + deadlineWindowMs(expectedSeconds, evalGraceMs);
             state.pendingEvaluations.put(agentName, deadline);
             log.info("Agent {} heartbeat — deadline refreshed (P90 {}s, floored to heartbeat cadence)",
@@ -2061,7 +2061,7 @@ public class DiscussionOrchestrator {
 
     /**
      * One completeness re-prompt, or null when its prompt (the conversation plus the
-     * draft plus the missing names) is larger than every provider's context window:
+     * draft plus the missing names) is larger than every server's context window:
      * the draft already in hand is kept rather than lost to a refused retry.
      */
     private ChatService.SimpleLlmResult completenessRetry(String systemPrompt, String conversation,
@@ -2069,8 +2069,8 @@ public class DiscussionOrchestrator {
         try {
             return chatService.simpleLlmCallWithTokens(systemPrompt,
                     completenessReprompt(conversation, draft, missing));
-        } catch (ai.kubemoot.agent.provider.NoFitException nfe) {
-            if (!ai.kubemoot.agent.provider.NoFitException.REASON_PROMPT_TOO_LARGE.equals(nfe.reason())) {
+        } catch (ai.kubemoot.agent.modelserver.NoFitException nfe) {
+            if (!ai.kubemoot.agent.modelserver.NoFitException.REASON_PROMPT_TOO_LARGE.equals(nfe.reason())) {
                 throw nfe;
             }
             log.info("Thread {} - completeness re-prompt does not fit any context window, keeping the draft: {}",
@@ -2535,9 +2535,9 @@ public class DiscussionOrchestrator {
             + "context window any GPU in this cluster gives the coordinator's model, so they are shown "
             + "without a combined answer.\n\n";
 
-    /** True when {@code e} is a refusal because the prompt fits no provider's context window. */
+    /** True when {@code e} is a refusal because the prompt fits no server's context window. */
     static boolean isPromptTooLarge(Throwable e) {
-        return e instanceof ai.kubemoot.agent.provider.NoFitException nfe
+        return e instanceof ai.kubemoot.agent.modelserver.NoFitException nfe
                 && REASON_PROMPT_TOO_LARGE.equals(nfe.reason());
     }
 
@@ -2785,10 +2785,10 @@ public class DiscussionOrchestrator {
     }
 
     /**
-     * Extract the gpuLabel from a signal's metadata — used as the provider key for LatencyTracker.
+     * Extract the gpuLabel from a signal's metadata — used as the server key for LatencyTracker.
      * Falls back to "unknown" if metadata is absent.
      */
-    private static String extractProvider(JsonNode msg) {
+    private static String extractServer(JsonNode msg) {
         if (msg.has(FIELD_METADATA) && msg.get(FIELD_METADATA).has(FIELD_GPU_LABEL)) {
             String label = msg.get(FIELD_METADATA).get(FIELD_GPU_LABEL).asText();
             return label != null && !label.isEmpty() ? label : "unknown";
@@ -2809,8 +2809,8 @@ public class DiscussionOrchestrator {
             if (msg.has(FIELD_METADATA) && msg.get(FIELD_METADATA).has(FIELD_INFERENCE_MS)) {
                 long inferenceMs = msg.get(FIELD_METADATA).get(FIELD_INFERENCE_MS).asLong();
                 if (inferenceMs > 0) {
-                    String provider = extractProvider(msg);
-                    latencyTracker.recordLatency(agentName, provider, inferenceMs);
+                    String server = extractServer(msg);
+                    latencyTracker.recordLatency(agentName, server, inferenceMs);
                 }
             }
         } catch (Exception e) {
@@ -3953,7 +3953,7 @@ public class DiscussionOrchestrator {
          * gap detection treats them differently: many stand-asides + zero
          * agrees suggests a tooler gap (no relevant expertise);
          * many failures + zero agrees suggests an infrastructure gap (the
-         * MCP servers or model providers need attention, not new toolers).
+         * MCP servers or model servers need attention, not new toolers).
          */
         final ConcurrentHashMap<String, String> failureSignals = new ConcurrentHashMap<>();
         /** Agents that stood aside for GPU capacity: agent name to gpu-busy or model-too-large. */

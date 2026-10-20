@@ -17,7 +17,7 @@ resources:
   controller: true
   domain: kubemoot.ai
   group: ai
-  kind: ModelProvider
+  kind: ModelServer
   path: github.com/kubemoot/kubemoot/operator/api/v1alpha1
   version: v1alpha1
 - api:

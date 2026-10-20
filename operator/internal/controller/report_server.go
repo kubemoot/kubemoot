@@ -32,8 +32,8 @@ import (
 	kubemootnats "github.com/kubemoot/kubemoot/operator/internal/nats"
 )
 
-// componentModelProviders names the ModelProvider entry in the component status list.
-const componentModelProviders = "modelproviders"
+// componentModelServers names the ModelServer entry in the component status list.
+const componentModelServers = "modelservers"
 
 var reportLog = logf.Log.WithName("fitness-report")
 
@@ -374,7 +374,7 @@ type ReportServer struct {
 // ComponentStatus is one control-plane component's health, in the spirit of
 // kubectl's (deprecated) componentstatuses but reported by the operator itself —
 // derived from state the operator genuinely owns (its own informers, its NATS
-// connection, ModelProvider CR status), never by dialing hardcoded ports. The
+// connection, ModelServer CR status), never by dialing hardcoded ports. The
 // cardinal rule: never a false negative — a check the operator cannot make
 // reliably is reported neutrally, not as unhealthy.
 type ComponentStatus struct {
@@ -398,15 +398,15 @@ func buildComponentStatuses(ctx context.Context, c client.Client, natsConnected 
 		out = append(out, ComponentStatus{Name: "nats", Healthy: false, Message: "not reachable"})
 	}
 
-	// Model providers — the inference backends the scheduler targets. Readiness
+	// Model servers — the inference backends the scheduler targets. Readiness
 	// comes straight from the CR status the operator maintains.
-	var mps kubemootv1alpha1.ModelProviderList
+	var mps kubemootv1alpha1.ModelServerList
 	switch err := c.List(ctx, &mps); {
 	case err != nil:
-		out = append(out, ComponentStatus{Name: componentModelProviders, Healthy: false, Message: "list failed: " + err.Error()})
+		out = append(out, ComponentStatus{Name: componentModelServers, Healthy: false, Message: "list failed: " + err.Error()})
 	case len(mps.Items) == 0:
-		// No providers configured is a config state, not a failure — neutral.
-		out = append(out, ComponentStatus{Name: componentModelProviders, Healthy: true, Message: "none configured"})
+		// No servers configured is a config state, not a failure — neutral.
+		out = append(out, ComponentStatus{Name: componentModelServers, Healthy: true, Message: "none configured"})
 	default:
 		ready := 0
 		for i := range mps.Items {
@@ -415,7 +415,7 @@ func buildComponentStatuses(ctx context.Context, c client.Client, natsConnected 
 			}
 		}
 		out = append(out, ComponentStatus{
-			Name:    componentModelProviders,
+			Name:    componentModelServers,
 			Healthy: ready > 0,
 			Message: fmt.Sprintf("%d/%d ready", ready, len(mps.Items)),
 		})

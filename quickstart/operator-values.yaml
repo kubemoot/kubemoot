@@ -14,7 +14,7 @@ grafana:
 verify:
   enabled: false
 schedulingCrew:
-  enabled: false          # needs chart-declared modelProviders; the quickstart adds its provider separately
+  enabled: false          # needs chart-declared modelServers; the quickstart adds its server separately
 acceleratorMcp:
   enabled: false          # the quickstart loads only the core images into kind
 dashboard:

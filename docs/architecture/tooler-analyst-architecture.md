@@ -151,7 +151,7 @@ looks like this:
 ### Why Two Phases
 
 Without triage, every candidate agent hits the primary GPU for full inference; under a
-provider that serves one request at a time, that queue grows linearly with crew size
+server that serves one request at a time, that queue grows linearly with crew size
 and the lighter tier sits idle. With triage, the lighter GPU makes the cheap "should I
 contribute?" decision for every candidate first. Most stand aside after a few seconds
 of triage, and only the agents that pass proceed to the expensive tier for full
@@ -172,7 +172,7 @@ the chance to be heard.
 ### Dashboard Visibility
 
 The span graph on the discussions page shows which GPU tier each agent used per
-discussion, colored per provider, alongside each signal. An agent that never reached
+discussion, colored per server, alongside each signal. An agent that never reached
 either tier (filtered before triage) shows no GPU badge at all.
 
 ---

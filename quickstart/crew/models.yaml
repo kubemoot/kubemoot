@@ -1,6 +1,6 @@
 # One small model the crew can run on CPU. Agents never name a model: the scheduler
 # binds them by capability label at inference time, so swapping this for a larger
-# model on a GPU provider is a label-compatible edit here, not an agent change.
+# model on a GPU server is a label-compatible edit here, not an agent change.
 apiVersion: kubemoot.ai/v1alpha1
 kind: Model
 metadata:
@@ -14,4 +14,4 @@ metadata:
     capability/reasoning: "true"
 spec:
   model: "qwen2.5:1.5b"
-  providerRef: "ollama-local"
+  serverRef: "ollama-local"

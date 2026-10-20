@@ -151,7 +151,7 @@ long-lived service, so each RAGSource also gets a query-service Deployment that 
 probes like any other workload. Re-indexing is triggered two ways: `observedGeneration`
 for spec changes and `lastIndexedChecksum` for content changes.
 
-**Embedding models are their own resource.** Chat and embedding models share a provider
+**Embedding models are their own resource.** Chat and embedding models share a server
 but differ in everything else: chat models have load and GPU-residency state and are
 selected through `CrewSchedulingPolicy`; embedding models have dimensions and are
 referenced by name. A single `Model` resource with a `kind` discriminator would make every

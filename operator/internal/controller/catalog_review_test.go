@@ -20,7 +20,7 @@ import (
 // Two Models naming one model: a disabled one speaks for it whatever the list order,
 // so a duplicate never re-admits a model its owner disabled; otherwise the older wins.
 func TestCatalogModelsPicksDeterministicallyAmongDuplicates(t *testing.T) {
-	p := catProviderObj(aiv1alpha1.ProviderTypeOllama)
+	p := catServerObj(aiv1alpha1.ServerTypeOllama)
 	old := catModel("a-old", candModel14, func(m *aiv1alpha1.Model) { m.CreationTimestamp = metav1.NewTime(time.Unix(100, 0)) })
 	newer := catModel("b-new", candModel14, func(m *aiv1alpha1.Model) { m.CreationTimestamp = metav1.NewTime(time.Unix(200, 0)) })
 	off := catModel("c-off", candModel14, func(m *aiv1alpha1.Model) {
@@ -49,7 +49,7 @@ func TestCatalogModelsPicksDeterministicallyAmongDuplicates(t *testing.T) {
 func TestBuildCatalogIgnoresAnInvalidSizeOverride(t *testing.T) {
 	facts := []catalogFacts{{Name: "m", Present: true, ParameterCount: 8_000_000_000}}
 	m := catModel("m", "m", func(m *aiv1alpha1.Model) { m.Labels = map[string]string{aiv1alpha1.LabelSize: "huge"} })
-	e := catEntry(t, buildCatalog(catProviderObj(aiv1alpha1.ProviderTypeOllama), facts, map[string]*aiv1alpha1.Model{"m": m}), "m")
+	e := catEntry(t, buildCatalog(catServerObj(aiv1alpha1.ServerTypeOllama), facts, map[string]*aiv1alpha1.Model{"m": m}), "m")
 	if e.Size != aiv1alpha1.SizeSmall || e.Labels[aiv1alpha1.LabelSize] != aiv1alpha1.SizeSmall {
 		t.Errorf("entry = %+v, want the derived small", e)
 	}
@@ -60,7 +60,7 @@ func TestBuildCatalogIgnoresAnInvalidSizeOverride(t *testing.T) {
 func TestShowCachePrunesAndSkipsEmptyDigests(t *testing.T) {
 	var shows atomic.Int32
 	srv := catalogOllama(t, &shows)
-	r := &ModelProviderReconciler{}
+	r := &ModelServerReconciler{}
 	r.shows.Store(srv.URL+"|removed:1b|old", struct{}{})
 	r.shows.Store("http://other|keep:1b|d", struct{}{})
 	if _, err := r.ollamaFacts(context.Background(), srv.Client(), srv.URL); err != nil {
@@ -75,7 +75,7 @@ func TestShowCachePrunesAndSkipsEmptyDigests(t *testing.T) {
 	if _, ok := r.shows.Load(srv.URL + "|" + candModel14 + "|d14"); !ok {
 		t.Error("a live model must stay cached")
 	}
-	r2 := &ModelProviderReconciler{}
+	r2 := &ModelServerReconciler{}
 	info, ok := r2.showModel(context.Background(), srv.Client(), srv.URL, ollama.ModelInfo{Name: candModel14})
 	if !ok || info.ParameterCount == 0 {
 		t.Fatalf("show = %+v %v", info, ok)
@@ -106,7 +106,7 @@ func TestServedContextsAsksEachEndpointOnce(t *testing.T) {
 // as before.
 func TestModelBecomingDisabledKeepsItsFinalizer(t *testing.T) {
 	scheme := modelTestScheme(t)
-	p := catProviderObj(aiv1alpha1.ProviderTypeOllama)
+	p := catServerObj(aiv1alpha1.ServerTypeOllama)
 	p.Status.Ready = true
 	m := catModel("m", "qwen3:8b", func(m *aiv1alpha1.Model) {
 		m.Spec.Disabled = true
@@ -128,14 +128,14 @@ func TestModelBecomingDisabledKeepsItsFinalizer(t *testing.T) {
 }
 
 // Calibration measures a crew's own Model (any namespace) but not one being deleted;
-// the catalog lists only the provider's namespace.
+// the catalog lists only the server's namespace.
 func TestBoundModelsKeepsCrewLocalModelsThatTheCatalogLeavesOut(t *testing.T) {
-	p := catProviderObj(aiv1alpha1.ProviderTypeOllama)
+	p := catServerObj(aiv1alpha1.ServerTypeOllama)
 	crew := catModel("crew", "crew-model", func(m *aiv1alpha1.Model) { m.Namespace = testPlacementNS })
 	now := metav1.Now()
 	going := catModel("going", "going-model", func(m *aiv1alpha1.Model) { m.DeletionTimestamp = &now; m.Finalizers = []string{"x"} })
 	cli := fake.NewClientBuilder().WithScheme(modelTestScheme(t)).WithObjects(crew, going).Build()
-	r := &ModelProviderReconciler{Client: cli}
+	r := &ModelServerReconciler{Client: cli}
 	got, err := r.boundModels(context.Background(), p)
 	if err != nil {
 		t.Fatal(err)

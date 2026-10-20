@@ -34,7 +34,7 @@ import (
 
 const (
 	// conditionTypeServedNameFound is the Model condition that says whether the
-	// provider's servers report the Model's spec.model as a served name.
+	// server's servers report the Model's spec.model as a served name.
 	conditionTypeServedNameFound = "ServedNameFound"
 	reasonServedNameReported     = "ServedNameReported"
 	reasonServedNameNotReported  = "ServedNameNotReported"
@@ -47,33 +47,33 @@ const (
 	reasonServedRepoDiffers        = "ServedRepoDiffers"
 )
 
-// reconcileVLLMModel reports a Model on a vllm provider. The operator pulls and
+// reconcileVLLMModel reports a Model on a vllm server. The operator pulls and
 // downloads nothing for it: the vLLM server decides its own weights, so the Model
 // is Available when its server answers (Loaded while the server is awake, Available
 // while it sleeps, since a sleeping server wakes on demand) and Pending when it
-// does not. spec.model must equal a served name the provider's servers report; a
+// does not. spec.model must equal a served name the ModelServer's servers report; a
 // name no server reports is an Error, never guessed at.
-func (r *ModelReconciler) reconcileVLLMModel(ctx context.Context, model *aiv1alpha1.Model, provider *aiv1alpha1.ModelProvider) (ctrl.Result, error) {
-	servers := provider.VLLMServers()
+func (r *ModelReconciler) reconcileVLLMModel(ctx context.Context, model *aiv1alpha1.Model, server *aiv1alpha1.ModelServer) (ctrl.Result, error) {
+	servers := server.VLLMServers()
 	if len(servers) == 0 {
-		msg := fmt.Sprintf("Waiting for ModelProvider %s to report its vLLM servers", provider.Name)
+		msg := fmt.Sprintf("Waiting for ModelServer %s to report its vLLM servers", server.Name)
 		return r.updateModelStatus(ctx, model, statePending, false, msg, nil)
 	}
-	endpoint := provider.EndpointFor(model.Spec.Model)
+	endpoint := server.EndpointFor(model.Spec.Model)
 	if endpoint == "" {
-		msg := fmt.Sprintf("ModelProvider %s reports the served names %v, not %q: make spec.model equal the server's served name (--served-model-name)",
-			provider.Name, servedNamesOf(servers), model.Spec.Model)
+		msg := fmt.Sprintf("ModelServer %s reports the served names %v, not %q: make spec.model equal the server's served name (--served-model-name)",
+			server.Name, servedNamesOf(servers), model.Spec.Model)
 		setServedNameCondition(model, metav1.ConditionFalse, reasonServedNameNotReported, msg)
 		return r.updateModelStatus(ctx, model, stateError, false, msg, nil)
 	}
-	setServedNameCondition(model, metav1.ConditionTrue, reasonServedNameReported, "A server of the provider reports this served name")
+	setServedNameCondition(model, metav1.ConditionTrue, reasonServedNameReported, "A vLLM server of the ModelServer reports this served name")
 	model.Status.Endpoint = endpoint
 
 	httpClient := r.HTTPClient
 	if httpClient == nil {
 		httpClient = &http.Client{Timeout: 30 * time.Second}
 	}
-	snap, err := r.probeVLLMServer(ctx, httpClient, provider, model.Spec.Model)
+	snap, err := r.probeVLLMServer(ctx, httpClient, server, model.Spec.Model)
 	if err != nil {
 		msg := fmt.Sprintf("Waiting for the vLLM server at %s to answer: %v", endpoint, err)
 		return r.updateModelStatus(ctx, model, statePending, false, msg, nil)
@@ -150,13 +150,13 @@ func servedRoot(ctx context.Context, httpClient *http.Client, endpoint, model st
 	return ""
 }
 
-// probeVLLMServer probes only the server that serves model, not the whole provider.
-func (r *ModelReconciler) probeVLLMServer(ctx context.Context, httpClient *http.Client, provider *aiv1alpha1.ModelProvider, model string) (engine.Snapshot, error) {
-	adapter, err := DefaultEngines().Adapter(provider.Spec.Type, httpClient)
+// probeVLLMServer probes only the server that serves model, not the whole server.
+func (r *ModelReconciler) probeVLLMServer(ctx context.Context, httpClient *http.Client, server *aiv1alpha1.ModelServer, model string) (engine.Snapshot, error) {
+	adapter, err := DefaultEngines().Adapter(server.Spec.Type, httpClient)
 	if err != nil {
 		return engine.Snapshot{}, err
 	}
-	spec := provider.EffectiveSpec()
+	spec := server.EffectiveSpec()
 	spec.Servers = []aiv1alpha1.VLLMServer{{Model: model, Endpoint: spec.EndpointFor(model)}}
 	return adapter.Probe(ctx, spec)
 }

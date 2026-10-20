@@ -1,13 +1,13 @@
 ---
 title: "GPU Worker Nodes"
-description: "Give Kubernetes worker nodes NVIDIA GPUs, on bare metal or through VM passthrough, so a Kubemoot ModelProvider can use them."
+description: "Give Kubernetes worker nodes NVIDIA GPUs, on bare metal or through VM passthrough, so a Kubemoot ModelServer can use them."
 weight: 4
 ---
 
 Kubemoot schedules models onto GPUs, but it does not create GPU nodes. This page covers
 the general path for making an NVIDIA GPU usable by Kubernetes workloads, whether the
 worker node is a bare-metal machine or a virtual machine, and ends with how a Kubemoot
-`ModelProvider` then uses the node. A short worked example closes the page.
+`ModelServer` then uses the node. A short worked example closes the page.
 
 The end state is one check: the node reports `nvidia.com/gpu` capacity.
 
@@ -171,12 +171,12 @@ Once the node has `nvidia.com/gpu` capacity, the rest follows the pattern in
 [Put a model server on your GPU nodes](../../introduction/installation/#put-a-model-server-on-your-gpu-nodes):
 
 1. Deploy a model server (Ollama) pinned to the GPU node, requesting `nvidia.com/gpu: 1`.
-2. Declare one `ModelProvider` pointing at that server's Service.
+2. Declare one `ModelServer` pointing at that server's Service.
 3. The operator discovers the models, the node, and, when DCGM metrics are available,
    the GPU model and VRAM from the node. The scheduler then loads and evicts models on
    that GPU on demand.
 
-Two GPU nodes mean two model servers and two ModelProviders. To see GPU utilization and
+Two GPU nodes mean two model servers and two ModelServers. To see GPU utilization and
 VRAM in the dashboard, deploy the NVIDIA DCGM exporter and point the operator at your
 Prometheus. See [Observability](../observability/) and [Models](../../reference/models/).
 
@@ -263,13 +263,13 @@ ordered by `servedName`, on ports 8000 and up, and adding or removing a model re
 pod. The pod meets the `restricted` Pod Security level except `runAsNonRoot`, because the
 vLLM image runs as root, so its namespace needs `baseline`.
 
-The install notes print the next two steps ready to copy. The first is a ModelProvider that
+The install notes print the next two steps ready to copy. The first is a ModelServer that
 names the chart's Service, so you write no endpoints; the operator reads the Service's ports
 and asks each one which model it serves:
 
 ```yaml
 apiVersion: kubemoot.ai/v1alpha1
-kind: ModelProvider
+kind: ModelServer
 metadata: {name: vllm-gpu-kubemoot-vllm, namespace: kubemoot}
 spec:
   type: vllm
@@ -280,7 +280,7 @@ spec:
 The second is a Model for each model, with the labels your crews select models by. The
 served name is in two places, the chart values and the Model's `model`, and the operator
 reports a mismatch on the Model (`ServedNameFound` is `False`) instead of guessing. See
-[Models](../../reference/models/#vllm-providers) for the fields. Every server starts asleep. When a
+[Models](../../reference/models/#vllm-servers) for the fields. Every server starts asleep. When a
 call needs a model, the agent runtime asks the operator to wake it, and the operator puts the
 awake one to sleep first, so the first call to a model waits for its wake (seconds).
 
@@ -368,8 +368,8 @@ mig:
 ```
 
 **Kubemoot.** Each GPU worker runs its own Ollama pinned to the node, and each Ollama
-has a `ModelProvider`. DCGM metrics tell the operator which GPU and how much VRAM each
-provider has, and the scheduler places models across the two on demand.
+has a `ModelServer`. DCGM metrics tell the operator which GPU and how much VRAM each
+server has, and the scheduler places models across the two on demand.
 
 Talos documents the extension and operator steps for each of its releases in its
 [NVIDIA GPU guide](https://www.talos.dev/latest/talos-guides/configuration/nvidia-gpu/);
@@ -378,5 +378,5 @@ follow the page that matches your Talos release.
 ## Next
 
 - [Install the Operator](../../introduction/installation/) - prerequisites and the model server step.
-- [Models](../../reference/models/) - `ModelProvider` fields and scheduling.
+- [Models](../../reference/models/) - `ModelServer` fields and scheduling.
 - [Observability](../observability/) - DCGM metrics and the surfaces that show them.

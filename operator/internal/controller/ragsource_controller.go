@@ -1409,7 +1409,7 @@ func (r *RAGSourceReconciler) buildQueryServiceDeployment(ragSource *kubemootv1a
 		env = append(env, corev1.EnvVar{Name: "KUBEMOOT_EMBEDDING_ENDPOINT", Value: embeddingModel.Status.Endpoint})
 	}
 	env = append(env, corev1.EnvVar{Name: "KUBEMOOT_EMBEDDING_MODEL", Value: embeddingModel.Spec.Model})
-	// Determine embedding type from provider (default to ollama)
+	// Determine embedding type from server (default to ollama)
 	embeddingType := "ollama"
 	env = append(env, corev1.EnvVar{Name: "KUBEMOOT_EMBEDDING_TYPE", Value: embeddingType})
 

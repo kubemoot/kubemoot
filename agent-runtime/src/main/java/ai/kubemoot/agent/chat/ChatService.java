@@ -4,12 +4,12 @@ import ai.kubemoot.agent.config.AgentProperties;
 import ai.kubemoot.agent.mcp.McpClientService;
 import ai.kubemoot.agent.nats.AgentHeartbeatService;
 import ai.kubemoot.agent.nats.DiscussionOrchestrator;
-import ai.kubemoot.agent.provider.ChatModelPool;
-import ai.kubemoot.agent.provider.OllamaDirectProber;
-import ai.kubemoot.agent.provider.CallPlanner;
-import ai.kubemoot.agent.provider.ProviderSelector;
-import ai.kubemoot.agent.provider.ProviderState;
-import ai.kubemoot.agent.provider.StreamedChat;
+import ai.kubemoot.agent.modelserver.ChatModelPool;
+import ai.kubemoot.agent.modelserver.OllamaDirectProber;
+import ai.kubemoot.agent.modelserver.CallPlanner;
+import ai.kubemoot.agent.modelserver.ServerSelector;
+import ai.kubemoot.agent.modelserver.ServerState;
+import ai.kubemoot.agent.modelserver.StreamedChat;
 import ai.kubemoot.agent.rag.RagClient;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.langchain4j.agent.tool.ToolSpecification;
@@ -58,37 +58,37 @@ public class ChatService {
     private final Map<String, Conversation> conversations = new ConcurrentHashMap<>();
 
     /**
-     * JIT provider selection (optional — null in unit tests). When present,
-     * the mulling path asks the selector for the freest provider at call
+     * JIT server selection (optional — null in unit tests). When present,
+     * the mulling path asks the selector for the freest server at call
      * time and uses {@link #chatModelPool} to materialise a ChatModel for
      * that endpoint. When null (tests, or when NATS state isn't available
      * yet), mulling falls back to the Quarkus-injected static {@link
      * #chatModel}. See [[Epic - JIT GPU Scheduling]] / Card #2.
      */
-    private final ProviderSelector providerSelector;
+    private final ServerSelector serverSelector;
     private final ChatModelPool chatModelPool;
     /**
      * NATS-independent fallback prober. When the KV bucket yields no footprint
      * for a model (NATS stalled, operator restart window), this prober self-fetches
-     * /api/tags and /api/ps directly from each provider's HTTP endpoint so the
+     * /api/tags and /api/ps directly from each server's HTTP endpoint so the
      * VRAM fit-gate can still refuse oversized models. Null in unit tests that
-     * supply null for providerSelector. See [[JIT Fit-Gate Degraded Mode Can Spill]].
+     * supply null for serverSelector. See [[JIT Fit-Gate Degraded Mode Can Spill]].
      */
     private final OllamaDirectProber directProber;
     /** v2 JIT-scheduling: atomic VRAM-footprint claim/release per call. See docs/scheduler.md. */
-    private final ai.kubemoot.agent.provider.TicketManager ticketManager;
+    private final ai.kubemoot.agent.modelserver.TicketManager ticketManager;
     /**
      * Waits for GPU capacity when every GPU that could hold the model is busy.
      * Null in unit tests that do not exercise waiting: a busy cluster then stands
      * aside at once with reason gpu-busy.
      */
-    private final ai.kubemoot.agent.provider.GpuCapacityWaiter capacityWaiter;
+    private final ai.kubemoot.agent.modelserver.GpuCapacityWaiter capacityWaiter;
     /** Other models a mulling call may use when one is warm with room. Null: bound model only. */
-    private final ai.kubemoot.agent.provider.CandidatePolicy candidatePolicy;
+    private final ai.kubemoot.agent.modelserver.CandidatePolicy candidatePolicy;
     /** Places mulling calls and plans an agent's first call at selection. */
     private final CallPlanner callPlanner;
     /** Records each model request for the scheduler's learned history; null in tests that do not need it. */
-    private final ai.kubemoot.agent.provider.PerformanceHistory performanceHistory;
+    private final ai.kubemoot.agent.modelserver.PerformanceHistory performanceHistory;
 
     /**
      * Crew working memory. Recalled facts are auto-injected into the system
@@ -148,15 +148,15 @@ public class ChatService {
             AgentProperties properties,
             AgentHeartbeatService heartbeatService,
             ObjectMapper objectMapper,
-            ProviderSelector providerSelector,
+            ServerSelector serverSelector,
             ChatModelPool chatModelPool,
             ai.kubemoot.agent.memory.CrewMemoryClient crewMemory,
-            ai.kubemoot.agent.provider.TicketManager ticketManager,
+            ai.kubemoot.agent.modelserver.TicketManager ticketManager,
             OllamaDirectProber directProber,
-            ai.kubemoot.agent.provider.GpuCapacityWaiter capacityWaiter,
-            ai.kubemoot.agent.provider.CandidatePolicy candidatePolicy,
+            ai.kubemoot.agent.modelserver.GpuCapacityWaiter capacityWaiter,
+            ai.kubemoot.agent.modelserver.CandidatePolicy candidatePolicy,
             CallPlanner callPlanner,
-            ai.kubemoot.agent.provider.PerformanceHistory performanceHistory
+            ai.kubemoot.agent.modelserver.PerformanceHistory performanceHistory
     ) {
         this.chatModel = chatModel;
         this.ragClient = ragClient;
@@ -164,7 +164,7 @@ public class ChatService {
         this.properties = properties;
         this.heartbeatService = heartbeatService;
         this.objectMapper = objectMapper;
-        this.providerSelector = providerSelector;
+        this.serverSelector = serverSelector;
         this.chatModelPool = chatModelPool;
         this.crewMemory = crewMemory;
         this.ticketManager = ticketManager;
@@ -172,7 +172,7 @@ public class ChatService {
         this.capacityWaiter = capacityWaiter;
         this.candidatePolicy = candidatePolicy;
         this.callPlanner = callPlanner != null ? callPlanner
-                : new CallPlanner(providerSelector, ticketManager, null);
+                : new CallPlanner(serverSelector, ticketManager, null);
         this.performanceHistory = performanceHistory;
 
         // Triage model: use dedicated endpoint/model if configured, else fall back to primary
@@ -236,7 +236,7 @@ public class ChatService {
      * a downstream board participant will consume it.
      */
     public ChatResult directChat(ChatRequest request, boolean skipRag) {
-        return directChat(request, skipRag, ai.kubemoot.agent.provider.CapacityWait.NONE);
+        return directChat(request, skipRag, ai.kubemoot.agent.modelserver.CapacityWait.NONE);
     }
 
     /**
@@ -245,7 +245,7 @@ public class ChatService {
      * through {@code wait}) instead of standing aside at once.
      */
     public ChatResult directChat(ChatRequest request, boolean skipRag,
-                                 ai.kubemoot.agent.provider.CapacityWait wait) {
+                                 ai.kubemoot.agent.modelserver.CapacityWait wait) {
         boolean toolerRawOutput = "tooler".equals(properties.discuss().role());
         return directLlmCall(request, skipRag, toolerRawOutput, wait);
     }
@@ -260,11 +260,11 @@ public class ChatService {
     }
 
     private ChatResult directLlmCall(ChatRequest request, boolean skipRag, boolean toolerRawOutput) {
-        return directLlmCall(request, skipRag, toolerRawOutput, ai.kubemoot.agent.provider.CapacityWait.NONE);
+        return directLlmCall(request, skipRag, toolerRawOutput, ai.kubemoot.agent.modelserver.CapacityWait.NONE);
     }
 
     private ChatResult directLlmCall(ChatRequest request, boolean skipRag, boolean toolerRawOutput,
-                                     ai.kubemoot.agent.provider.CapacityWait wait) {
+                                     ai.kubemoot.agent.modelserver.CapacityWait wait) {
         var conversation = conversations.computeIfAbsent(request.conversationId(), Conversation::new);
 
         // Query RAG for context (skip in discussion path where thread provides context)
@@ -281,7 +281,7 @@ public class ChatService {
         messages.add(userMessage);
         conversation.addMessage(userMessage);
 
-        // JIT provider selection is hoisted OUT of callWithToolLoop so
+        // JIT server selection is hoisted OUT of callWithToolLoop so
         // observed latency can be recorded in a finally block — including
         // for the failure path. Previous version only recorded on success,
         // so slow-and-failed calls (the most important signal to capture)
@@ -296,14 +296,14 @@ public class ChatService {
         // via real tokenizer comes in Phase D2 (operator /api/show probe).
         int promptCharCount = PromptSize.chars(messages, tools().specs());
         MullingPick pick = pickMullingChatModel(promptCharCount, wait, request.discussionThreadId());
-        String providerName = pick.providerName();
+        String serverName = pick.serverName();
         // Outbound wire trace: the exact model + endpoint this call will send to
-        // Ollama. Pair with OLLAMA_DEBUG on the provider to confirm the wire model
+        // Ollama. Pair with OLLAMA_DEBUG on the server to confirm the wire model
         // matches what the scheduler intended (the 2026-06-11 spill: an 8B agent's
         // request to the 4090 loaded 32B - this line records what we believe we sent).
-        log.info("OUTBOUND inference (tool-loop): agent={} endpoint={} model={} provider={} reason={}",
+        log.info("OUTBOUND inference (tool-loop): agent={} endpoint={} model={} server={} reason={}",
                 properties.agentName(), pick.endpoint(), pick.modelName(),
-                providerName.isEmpty() ? "static" : providerName, pick.pickReason());
+                serverName.isEmpty() ? "static" : serverName, pick.pickReason());
         long callStartMs = System.currentTimeMillis();
         ToolLoopResult loopResult;
         // Stays true for any Throwable escaping the loop (timeouts, 5xx, ToolCallFailure
@@ -311,15 +311,15 @@ public class ChatService {
         boolean callFailed = true;
         try {
             loopResult = callWithToolLoop(messages,
-                    observed(pick, ai.kubemoot.agent.provider.CallObservation.KIND_TOOL_TURN),
-                    providerName, pick.pickReason(), toolerRawOutput, contextLengthOf(pick));
+                    observed(pick, ai.kubemoot.agent.modelserver.CallObservation.KIND_TOOL_TURN),
+                    serverName, pick.pickReason(), toolerRawOutput, contextLengthOf(pick));
             callFailed = false;
         } finally {
             // ALWAYS record observed latency, even on ToolCallFailure -
             // the failed-call duration is exactly the signal we need to
-            // steer subsequent picks away from the bad provider.
+            // steer subsequent picks away from the bad server.
             long callDurationMs = System.currentTimeMillis() - callStartMs;
-            recordSchedulerOutcome(pick, providerName, callDurationMs, callFailed);
+            recordSchedulerOutcome(pick, serverName, callDurationMs, callFailed);
         }
         heartbeatService.recordInference();
 
@@ -333,20 +333,20 @@ public class ChatService {
         conversation.addMessage(new AiMessage(text));
         return new ChatResult(request.conversationId(), text, pick.modelName(), null,
                 loopResult.inputTokens(), loopResult.outputTokens(),
-                providerName, loopResult.pickReason(), pick.evicted(),
-                List.of(new ModelUse(pick.modelName(), providerName)));
+                serverName, loopResult.pickReason(), pick.evicted(),
+                List.of(new ModelUse(pick.modelName(), serverName)));
     }
 
     /**
      * Result of the tool loop including accumulated token counts AND the
-     * provider name the JIT-selector chose for this call. providerName is
+     * server name the JIT-selector chose for this call. serverName is
      * empty when the call fell back to the static Quarkus-injected
      * ChatModel (selector unwired or NATS unavailable). Used by the
-     * caller to attribute the inference to a specific provider in the
-     * agent's outbound signal metadata ([[Per-Call Provider Attribution]]).
+     * caller to attribute the inference to a specific server in the
+     * agent's outbound signal metadata ([[Per-Call Server Attribution]]).
      */
     record ToolLoopResult(String text, long inputTokens, long outputTokens,
-                                   String providerName, String pickReason) {}
+                                   String serverName, String pickReason) {}
 
     // Bounded-retry thresholds for tool failures inside callWithToolLoop.
     // Tunable; revisit when more diverse tool failure modes appear.
@@ -358,7 +358,7 @@ public class ChatService {
      * Wall-clock cap on the entire mulling loop. Bounds total elapsed
      * time across successful-but-slow iterations — the case that
      * iteration-count and per-call-timeout caps miss. Observed
-     * 2026-05-26 in discussion dccdb33f: nvidia-gpu's ProviderSelector
+     * 2026-05-26 in discussion dccdb33f: nvidia-gpu's ServerSelector
      * landed on a cold-model rig1 because rig0 was momentarily
      * saturated; each iteration took ~30-60s; the user waited 10
      * minutes before the final per-call timeout fired. With this cap,
@@ -449,8 +449,8 @@ public class ChatService {
             // Legacy/test entry defaults to reasoning behavior, with no raw output;
             // the tooler raw-output contract is opt-in via the 5-arg overload.
             return callWithToolLoop(messages,
-                    observed(pick, ai.kubemoot.agent.provider.CallObservation.KIND_TOOL_TURN),
-                    pick.providerName(), pick.pickReason(), false, contextLengthOf(pick));
+                    observed(pick, ai.kubemoot.agent.modelserver.CallObservation.KIND_TOOL_TURN),
+                    pick.serverName(), pick.pickReason(), false, contextLengthOf(pick));
         } finally {
             // v2 release safety: this overload is the test/legacy entry
             // point (the primary directLlmCall hoists pickMullingChatModel
@@ -478,21 +478,21 @@ public class ChatService {
      */
     ToolLoopResult callWithToolLoop(List<ChatMessage> messages,
                                      ChatModel modelForThisCall,
-                                     String providerName,
+                                     String serverName,
                                      String pickReason,
                                      boolean toolerRawOutput) {
-        return callWithToolLoop(messages, modelForThisCall, providerName, pickReason, toolerRawOutput, 0L);
+        return callWithToolLoop(messages, modelForThisCall, serverName, pickReason, toolerRawOutput, 0L);
     }
 
     /**
      * {@link #callWithToolLoop(List, ChatModel, String, String, boolean)} against a
-     * provider that gives the model {@code contextLength} tokens per request (zero
+     * server that gives the model {@code contextLength} tokens per request (zero
      * when unknown). Each turn fails with CONTEXT_EXCEEDED instead of sending a
      * prompt the engine would cut.
      */
     ToolLoopResult callWithToolLoop(List<ChatMessage> messages,
                                      ChatModel modelForThisCall,
-                                     String providerName,
+                                     String serverName,
                                      String pickReason,
                                      boolean toolerRawOutput,
                                      long contextLength) {
@@ -512,7 +512,7 @@ public class ChatService {
             // 120s-timeout call that would push past the deadline.
             checkLoopDeadline(loopStartMs, loopDeadlineMs, i);
             var gathered = contributionWhenContextIsFull(state, contextLength, i, toolerRawOutput,
-                    providerName, pickReason);
+                    serverName, pickReason);
             if (gathered.isPresent()) {
                 return gathered.get();
             }
@@ -522,7 +522,7 @@ public class ChatService {
             // If no tool calls, decide the final text (or retry an empty turn).
             if (!aiMessage.hasToolExecutionRequests()) {
                 var done = resolveNoToolResult(aiMessage, state, toolerRawOutput,
-                        providerName, pickReason);
+                        serverName, pickReason);
                 if (done.isPresent()) {
                     return done.get();
                 }
@@ -533,7 +533,7 @@ public class ChatService {
         }
 
         return exhaustedIterationsResult(state, maxIterations, toolerRawOutput,
-                providerName, pickReason);
+                serverName, pickReason);
     }
 
     /** Throw LOOP_TIME_EXCEEDED when the wall-clock deadline has passed. */
@@ -550,7 +550,7 @@ public class ChatService {
     }
 
     /**
-     * Decide what happens when the next prompt would not fit the provider's
+     * Decide what happens when the next prompt would not fit the server's
      * context; empty when it fits (or the context is unknown) and the loop goes on.
      * The engine cuts an oversized prompt without an error, dropping the oldest
      * messages (the question among them), so the prompt is never sent. A tooler
@@ -564,7 +564,7 @@ public class ChatService {
      */
     private java.util.Optional<ToolLoopResult> contributionWhenContextIsFull(
             ToolLoopState state, long contextLength, int iteration, boolean toolerRawOutput,
-            String providerName, String pickReason) {
+            String serverName, String pickReason) {
         if (contextLength <= 0) {
             return java.util.Optional.empty();
         }
@@ -582,24 +582,24 @@ public class ChatService {
             log.info("agent {}: the next prompt (~{} tokens) exceeds the {}-token context; "
                     + "contributing the tool output gathered in {} iterations", properties.agentName(),
                     next, contextLength, iteration);
-            return java.util.Optional.of(rawOutputResult(state, providerName, pickReason));
+            return java.util.Optional.of(rawOutputResult(state, serverName, pickReason));
         }
         throw new ToolCallFailure(ToolCallFailure.FailureType.CONTEXT_EXCEEDED,
                 null, null, iteration,
                 "The next prompt (~" + next + " tokens) exceeds the " + contextLength
-                        + "-token context window of the chosen provider at iteration " + iteration);
+                        + "-token context window of the chosen server at iteration " + iteration);
     }
 
     /**
-     * The context window, in tokens, the picked provider gives the picked model;
-     * zero when the pick is static or the provider publishes no context.
+     * The context window, in tokens, the picked server gives the picked model;
+     * zero when the pick is static or the server publishes no context.
      */
     private long contextLengthOf(MullingPick pick) {
-        if (providerSelector == null || pick.providerName().isEmpty()) {
+        if (serverSelector == null || pick.serverName().isEmpty()) {
             return 0L;
         }
-        return providerSelector.readState().stream()
-                .filter(p -> p.name().equals(pick.providerName()))
+        return serverSelector.readState().stream()
+                .filter(p -> p.name().equals(pick.serverName()))
                 .mapToLong(p -> p.contextLengthFor(pick.modelName()))
                 .findFirst().orElse(0L);
     }
@@ -649,7 +649,7 @@ public class ChatService {
      */
     private java.util.Optional<ToolLoopResult> resolveNoToolResult(
             AiMessage aiMessage, ToolLoopState state, boolean toolerRawOutput,
-            String providerName, String pickReason) {
+            String serverName, String pickReason) {
         // Metrics drill contract runs BEFORE the tooler raw-output return: the
         // metrics toolers post raw output, so their empty-query "unavailable" would
         // otherwise ship without ever trying a discovery pass. A re-prompt returns
@@ -659,7 +659,7 @@ public class ChatService {
             return java.util.Optional.empty();
         }
         if (toolerRawOutput && state.toolsExecuted) {
-            return java.util.Optional.of(toolerRawOutputResult(aiMessage, state, providerName, pickReason));
+            return java.util.Optional.of(toolerRawOutputResult(aiMessage, state, serverName, pickReason));
         }
         // Compute contract: a compute agent must produce its result by RUNNING
         // execute_code, and when the data was spilled to an artifact it must read
@@ -669,7 +669,7 @@ public class ChatService {
             return java.util.Optional.empty();
         }
         // No raw-output contract (or no tools ran): this agent reasons to its own answer.
-        return resolveReasonedText(aiMessage, state, providerName, pickReason);
+        return resolveReasonedText(aiMessage, state, serverName, pickReason);
     }
 
     /**
@@ -678,7 +678,7 @@ public class ChatService {
      * kept as the contribution, and anything else returns the raw tool output.
      */
     private ToolLoopResult toolerRawOutputResult(AiMessage aiMessage, ToolLoopState state,
-                                                 String providerName, String pickReason) {
+                                                 String serverName, String pickReason) {
         // The tooler's OWN judgment of its gather overrides the raw-output
         // contract, so a tool error is never laundered into findings:
         //  - NO_DATA  -> its tools errored / returned nothing usable: a FAILED
@@ -699,9 +699,9 @@ public class ChatService {
         // exactly - so the two ends stay in lockstep.
         if (finalText.startsWith("TOOL_GAP:")) {
             return new ToolLoopResult(finalText,
-                    state.totalInput, state.totalOutput, providerName, pickReason);
+                    state.totalInput, state.totalOutput, serverName, pickReason);
         }
-        return rawOutputResult(state, providerName, pickReason);
+        return rawOutputResult(state, serverName, pickReason);
     }
 
     /**
@@ -710,7 +710,7 @@ public class ChatService {
      * publishes its own instruction prompt as the answer.
      */
     private java.util.Optional<ToolLoopResult> resolveReasonedText(AiMessage aiMessage, ToolLoopState state,
-                                                                   String providerName, String pickReason) {
+                                                                   String serverName, String pickReason) {
         String text = aiMessage.text() != null ? aiMessage.text() : "";
         if (text.isEmpty() && state.emptyNoToolsRetries < EMPTY_NO_TOOLS_MAX_RETRIES) {
             state.emptyNoToolsRetries++;
@@ -725,7 +725,7 @@ public class ChatService {
             text = "";
         }
         return java.util.Optional.of(new ToolLoopResult(text, state.totalInput, state.totalOutput,
-                providerName, pickReason));
+                serverName, pickReason));
     }
 
     /**
@@ -1044,9 +1044,9 @@ public class ChatService {
     }
 
     /** A tooler's contribution: the raw output of the tools it ran, with the loop's token totals. */
-    private static ToolLoopResult rawOutputResult(ToolLoopState state, String providerName, String pickReason) {
+    private static ToolLoopResult rawOutputResult(ToolLoopState state, String serverName, String pickReason) {
         return new ToolLoopResult(state.toolOutput.toString().strip(),
-                state.totalInput, state.totalOutput, providerName, pickReason);
+                state.totalInput, state.totalOutput, serverName, pickReason);
     }
 
     /**
@@ -1056,11 +1056,11 @@ public class ChatService {
      * ITERATIONS_EXHAUSTED.
      */
     private ToolLoopResult exhaustedIterationsResult(ToolLoopState state, int maxIterations,
-            boolean toolerRawOutput, String providerName, String pickReason) {
+            boolean toolerRawOutput, String serverName, String pickReason) {
         if (toolerRawOutput && state.toolsExecuted && state.toolOutput.length() > 0) {
             log.info("iterations-exhausted for tooler {}: posting {} chars of raw tool output as the contribution",
                     properties.agentName(), state.toolOutput.length());
-            return rawOutputResult(state, providerName, pickReason);
+            return rawOutputResult(state, serverName, pickReason);
         }
         log.warn("Tool loop exceeded max iterations for agent {} (no tool output gathered)", properties.agentName());
         throw new ToolCallFailure(
@@ -1194,33 +1194,33 @@ public class ChatService {
 
     /**
      * Result of pickMullingChatModel: the ChatModel to invoke, the name
-     * of the provider it routes to (empty string when falling back to
-     * the static Quarkus-injected chatModel). Carries the providerName
+     * of the server it routes to (empty string when falling back to
+     * the static Quarkus-injected chatModel). Carries the serverName
      * up the call chain so DiscussionSubscriber can include it in the
      * agent's signal metadata for per-call attribution in the dashboard.
-     * See [[Per-Call Provider Attribution]] (Epic - JIT GPU Scheduling).
+     * See [[Per-Call Server Attribution]] (Epic - JIT GPU Scheduling).
      * Tool-loop calls use {@code model}; simple (no-tool) calls stream from
      * {@code endpoint} with the agent's model settings instead.
      */
-    private record MullingPick(ChatModel model, String providerName,
-                                java.util.Optional<ai.kubemoot.agent.provider.Ticket> ticket,
+    private record MullingPick(ChatModel model, String serverName,
+                                java.util.Optional<ai.kubemoot.agent.modelserver.Ticket> ticket,
                                 String pickReason, String modelName, String endpoint,
                                 long occupancyMiB, java.util.List<String> evicted, boolean coldLoad) {
-        MullingPick(ChatModel model, String providerName,
-                    java.util.Optional<ai.kubemoot.agent.provider.Ticket> ticket,
+        MullingPick(ChatModel model, String serverName,
+                    java.util.Optional<ai.kubemoot.agent.modelserver.Ticket> ticket,
                     String pickReason, String modelName, String endpoint, long occupancyMiB) {
-            this(model, providerName, ticket, pickReason, modelName, endpoint, occupancyMiB, java.util.List.of(),
+            this(model, serverName, ticket, pickReason, modelName, endpoint, occupancyMiB, java.util.List.of(),
                     false);
         }
 
         MullingPick withEvicted(java.util.List<String> models) {
-            return new MullingPick(model, providerName, ticket, pickReason, modelName, endpoint, occupancyMiB, models,
+            return new MullingPick(model, serverName, ticket, pickReason, modelName, endpoint, occupancyMiB, models,
                     coldLoad);
         }
 
         /** This pick, marked as placed where the model was not resident. */
         MullingPick withColdLoad(boolean cold) {
-            return new MullingPick(model, providerName, ticket, pickReason, modelName, endpoint, occupancyMiB, evicted,
+            return new MullingPick(model, serverName, ticket, pickReason, modelName, endpoint, occupancyMiB, evicted,
                     cold);
         }
     }
@@ -1230,26 +1230,26 @@ public class ChatService {
      *
      * Resolution order:
      * <ol>
-     *   <li>NATS KV {@code kubemoot_provider_state}: the operator publishes
+     *   <li>NATS KV {@code kubemoot_server_state}: the operator publishes
      *       per-model footprints from /api/ps (loaded) and /api/tags (on-disk).
      *       This is the normal, fast path.</li>
      *   <li>Direct HTTP self-fetch ({@link OllamaDirectProber}): when NATS returns
-     *       nothing (stalled, operator restart window), probe each provider's
+     *       nothing (stalled, operator restart window), probe each server's
      *       /api/ps and /api/tags directly at decision time. This makes the
      *       fit-gate NATS-INDEPENDENT — the 2026-06-14 failure mode (NATS stalled
      *       -> degraded gate -> 32b spilled onto 4090) cannot recur. Prefers an
      *       observed warm footprint (/api/ps) over the on-disk proxy (/api/tags).
      *       See [[JIT Fit-Gate Degraded Mode Can Spill]].</li>
      *   <li>Parameter-count estimate (KvCacheEstimator): when even direct probes
-     *       yield nothing (model not downloaded on any provider), fall back to a
+     *       yield nothing (model not downloaded on any server), fall back to a
      *       rough bytes-per-parameter estimate so a ballpark fit check is possible.</li>
      * </ol>
      *
      * Shared by the mulling and triage paths so BOTH place via the same scheduler.
-     * Returns 0 only when the model is genuinely unknown on every provider AND the
+     * Returns 0 only when the model is genuinely unknown on every server AND the
      * name contains no parseable parameter count.
      */
-    private long resolveOccupancyMiB(java.util.List<ProviderState> states, String modelName) {
+    private long resolveOccupancyMiB(java.util.List<ServerState> states, String modelName) {
         long fp = states.stream()
                 .mapToLong(p -> p.coldLoadFootprintMiB(modelName))
                 .filter(f -> f > 0L)
@@ -1257,7 +1257,7 @@ public class ChatService {
                 .orElse(0L);
         if (fp > 0) return fp;
 
-        // KV returned nothing - self-fetch directly from provider endpoints.
+        // KV returned nothing - self-fetch directly from server endpoints.
         // This is the fix for the NATS-stall degraded path.
         if (directProber != null) {
             String staticEp = properties.model().endpoint();
@@ -1269,12 +1269,12 @@ public class ChatService {
         }
 
         // Last resort: parameter-count estimate from model name.
-        return ai.kubemoot.agent.provider.KvCacheEstimator.estimateColdOccupancyMiB(modelName);
+        return ai.kubemoot.agent.modelserver.KvCacheEstimator.estimateColdOccupancyMiB(modelName);
     }
 
     /**
-     * Pick the ChatModel for THIS mulling call via JIT provider selection and
-     * claim a VRAM ticket on the chosen provider. Falls back to the static
+     * Pick the ChatModel for THIS mulling call via JIT server selection and
+     * claim a VRAM ticket on the chosen server. Falls back to the static
      * Quarkus-injected {@link #chatModel} when the scheduler cannot be consulted
      * (selector/pool/ticket manager unwired, or the model footprint is unknown).
      *
@@ -1293,10 +1293,10 @@ public class ChatService {
      * call). See {@code TicketManager} for the two-layer release guarantee.</p>
      */
     private MullingPick pickMullingChatModel(int promptCharCount) {
-        return pickMullingChatModel(promptCharCount, ai.kubemoot.agent.provider.CapacityWait.NONE, null);
+        return pickMullingChatModel(promptCharCount, ai.kubemoot.agent.modelserver.CapacityWait.NONE, null);
     }
 
-    private MullingPick pickMullingChatModel(int promptCharCount, ai.kubemoot.agent.provider.CapacityWait wait,
+    private MullingPick pickMullingChatModel(int promptCharCount, ai.kubemoot.agent.modelserver.CapacityWait wait,
                                              String threadId) {
         var staticModel = properties.model().model();
         var staticEndpoint = properties.model().endpoint();
@@ -1304,15 +1304,15 @@ public class ChatService {
         // Static-fallback guards (selector/pool unwired, ticket manager unwired,
         // or footprint unknown/unestimable). Resolution order for the footprint
         // is documented on resolveOccupancyMiB; zero means we cannot gate it.
-        var states = (providerSelector != null) ? providerSelector.readState() : null;
+        var states = (serverSelector != null) ? serverSelector.readState() : null;
         long coldLoadFootprintMiB = (states != null) ? placementFootprintMiB(states, staticModel, staticModel) : 0L;
         var fallback = staticFallbackPick(staticModel, staticEndpoint, staticModel, coldLoadFootprintMiB);
         if (fallback.isPresent()) {
             return fallback.get();
         }
-        // staticFallbackPick is always present when providerSelector is null, and
+        // staticFallbackPick is always present when serverSelector is null, and
         // this explicit guard keeps the dereferences below locally provable.
-        if (providerSelector == null) {
+        if (serverSelector == null) {
             return new MullingPick(chatModel, "", java.util.Optional.empty(),
                     STATIC_FALLBACK, staticModel, staticEndpoint, 0L);
         }
@@ -1328,34 +1328,34 @@ public class ChatService {
      * agent, when it still serves the call ({@link #heldStillServes}); otherwise its
      * claim is released and the call is placed against the state read now.
      */
-    private java.util.Optional<MullingPick> heldOrPlaced(String threadId, java.util.List<ProviderState> states,
+    private java.util.Optional<MullingPick> heldOrPlaced(String threadId, java.util.List<ServerState> states,
                                                          int promptCharCount) {
         var held = callPlanner.takeHeld(threadId);
         if (held.isPresent() && heldStillServes(held.get(), states, promptTokens(promptCharCount))) {
             log.info("Using the placement planned at selection: {} on {}", held.get().model(),
-                    held.get().pick().provider().name());
+                    held.get().pick().server().name());
             return java.util.Optional.of(fromPlacement(held.get()));
         }
         held.ifPresent(h -> ticketManager.release(h.pick().ticket()));
         var placed = placeCall(states, promptCharCount);
         held.filter(CallPlanner.Placement::queued).ifPresent(h -> log.info(
-                "Re-planned the queue planned at selection ({} on {}): {}", h.model(), h.pick().provider().name(),
-                placed.map(p -> p.modelName() + " on " + p.providerName()).orElse("no room now, waiting for capacity")));
+                "Re-planned the queue planned at selection ({} on {}): {}", h.model(), h.pick().server().name(),
+                placed.map(p -> p.modelName() + " on " + p.serverName()).orElse("no room now, waiting for capacity")));
         return placed;
     }
 
     /**
-     * A held plan serves the call when its provider is still ready, its context
+     * A held plan serves the call when its server is still ready, its context
      * holds the prompt (the plan was made before the prompt existed), and it owns
      * a call slot or a load it started. A plan that only queued on a busy copy is
      * placed again: the calls that held that copy's slots at selection may have
      * finished, or another model may have room now.
      */
-    private static boolean heldStillServes(CallPlanner.Placement held, java.util.List<ProviderState> states,
+    private static boolean heldStillServes(CallPlanner.Placement held, java.util.List<ServerState> states,
                                            long promptTokens) {
-        String provider = held.pick().provider().name();
-        return !held.queued() && states.stream().anyMatch(p -> p.name().equals(provider) && p.ready()
-                && ai.kubemoot.agent.provider.ContextFit.holds(p, held.model(), promptTokens));
+        String server = held.pick().server().name();
+        return !held.queued() && states.stream().anyMatch(p -> p.name().equals(server) && p.ready()
+                && ai.kubemoot.agent.modelserver.ContextFit.holds(p, held.model(), promptTokens));
     }
 
     /**
@@ -1365,27 +1365,27 @@ public class ChatService {
      * published to the shared demand view while it lasts.
      */
     private MullingPick waitForCapacity(String model, long footprintMiB, int promptCharCount,
-                                        ai.kubemoot.agent.provider.CapacityWait wait) {
-        if (!ProviderSelector.canEverHold(providerSelector.readState(), model, footprintMiB)) {
+                                        ai.kubemoot.agent.modelserver.CapacityWait wait) {
+        if (!ServerSelector.canEverHold(serverSelector.readState(), model, footprintMiB)) {
             log.info("No GPU can hold {} (coldLoad {}MiB) - stand-aside", model, footprintMiB);
-            throw ai.kubemoot.agent.provider.NoFitException.modelTooLarge(model,
+            throw ai.kubemoot.agent.modelserver.NoFitException.modelTooLarge(model,
                     "model=" + model + " coldLoad=" + footprintMiB + "MiB exceeds every GPU's usable VRAM");
         }
-        requireSomeProviderHasIt();
+        requireSomeServerHasIt();
         requireSomeContextHolds(model, promptTokens(promptCharCount));
         String busy = "model=" + model + " coldLoad=" + footprintMiB + "MiB: every GPU that can hold it is busy";
         if (capacityWaiter == null || wait.threadEnded()) {
-            throw ai.kubemoot.agent.provider.NoFitException.gpuBusy(model, busy);
+            throw ai.kubemoot.agent.modelserver.NoFitException.gpuBusy(model, busy);
         }
         callPlanner.waitStarted(model);
         long waitStartMs = System.currentTimeMillis();
         try {
             MullingPick placed = capacityWaiter.await(model, () -> {
-                providerSelector.invalidateCache();
-                return placeCall(providerSelector.readState(), promptCharCount);
+                serverSelector.invalidateCache();
+                return placeCall(serverSelector.readState(), promptCharCount);
             }, wait);
             if (performanceHistory != null) {
-                performanceHistory.recordWait(placed.providerName(), placed.modelName(),
+                performanceHistory.recordWait(placed.serverName(), placed.modelName(),
                         System.currentTimeMillis() - waitStartMs);
             }
             return placed;
@@ -1400,36 +1400,36 @@ public class ChatService {
     }
 
     /**
-     * Fails the call when no ready provider has the model or an acceptable
+     * Fails the call when no ready server has the model or an acceptable
      * alternative, downloaded or loading: an engine loads only what it has, so no
      * capacity change can place the call, and the crew's answer reports the failure.
      */
-    private void requireSomeProviderHasIt() {
-        var states = providerSelector.readState();
+    private void requireSomeServerHasIt() {
+        var states = serverSelector.readState();
         java.util.List<String> models = mullingRanking(states).acceptable();
-        if (!ProviderSelector.someProviderHasAny(states, models, providerSelector::activeModelsOn)) {
-            throw new IllegalStateException("no ready model provider has " + String.join(" or ", models)
+        if (!ServerSelector.someServerHasAny(states, models, serverSelector::activeModelsOn)) {
+            throw new IllegalStateException("no ready model server has " + String.join(" or ", models)
                     + " downloaded");
         }
     }
 
     /**
-     * Stand aside with reason prompt-too-large when no provider can ever run an
+     * Stand aside with reason prompt-too-large when no server can ever run an
      * acceptable model with a context that holds the prompt (VRAM and context
-     * judged for the same provider and model): no capacity change can place it,
+     * judged for the same server and model): no capacity change can place it,
      * and sending it anyway lets the engine drop the question.
      */
     private void requireSomeContextHolds(String model, long promptTokens) {
-        var states = providerSelector.readState();
+        var states = serverSelector.readState();
         java.util.List<String> models = mullingRanking(states).acceptable();
         java.util.function.ToLongFunction<String> footprint = m -> placementFootprintMiB(states, model, m);
-        if (!ai.kubemoot.agent.provider.ContextFit.anyCanRun(states, models, promptTokens, footprint)) {
-            long largest = ai.kubemoot.agent.provider.ContextFit.largestContext(states, models);
+        if (!ai.kubemoot.agent.modelserver.ContextFit.anyCanRun(states, models, promptTokens, footprint)) {
+            long largest = ai.kubemoot.agent.modelserver.ContextFit.largestContext(states, models);
             log.info("Prompt of ~{} tokens exceeds every context window for {} (largest {}) - stand-aside",
                     promptTokens, models, largest);
-            throw ai.kubemoot.agent.provider.NoFitException.promptTooLarge(model,
+            throw ai.kubemoot.agent.modelserver.NoFitException.promptTooLarge(model,
                     "prompt ~" + promptTokens + " tokens exceeds the largest context window (" + largest
-                            + " tokens) any provider gives " + models);
+                            + " tokens) any server gives " + models);
         }
     }
 
@@ -1444,11 +1444,11 @@ public class ChatService {
     }
 
     /**
-     * One placement attempt against the given provider state; empty when no
-     * provider has room right now. {@link CallPlanner#place} decides; with no
-     * provider state (NATS degraded), the direct-probe path decides.
+     * One placement attempt against the given server state; empty when no
+     * server has room right now. {@link CallPlanner#place} decides; with no
+     * server state (NATS degraded), the direct-probe path decides.
      */
-    private java.util.Optional<MullingPick> placeCall(java.util.List<ProviderState> states, int promptCharCount) {
+    private java.util.Optional<MullingPick> placeCall(java.util.List<ServerState> states, int promptCharCount) {
         String preferred = properties.model().model();
         if (states.isEmpty()) {
             return degradedMullingPick(preferred, properties.model().endpoint(),
@@ -1457,7 +1457,7 @@ public class ChatService {
         return callPlanner.place(placementRequest(states, promptCharCount)).map(this::fromPlacement);
     }
 
-    private CallPlanner.PlacementRequest placementRequest(java.util.List<ProviderState> states, int promptCharCount) {
+    private CallPlanner.PlacementRequest placementRequest(java.util.List<ServerState> states, int promptCharCount) {
         String bound = properties.model().model();
         // Phase D: each model's KV-cache need for this call, so the predictor's gate
         // factors in in-flight context-size pressure. Conservative (overestimate).
@@ -1473,10 +1473,10 @@ public class ChatService {
     /**
      * The models this mulling call may use: the bound model and the operator's
      * in-tolerance candidates, re-ranked by the rule's preferFaster against the speeds
-     * the providers report. Without a candidate policy, or without preferFaster, it is
+     * the servers report. Without a candidate policy, or without preferFaster, it is
      * the bound model and its in-tolerance alternatives.
      */
-    private ai.kubemoot.agent.provider.ModelCandidates.Ranking mullingRanking(java.util.List<ProviderState> states) {
+    private ai.kubemoot.agent.modelserver.ModelCandidates.Ranking mullingRanking(java.util.List<ServerState> states) {
         return rankPhase(properties.model().model(), states,
                 candidatePolicy == null ? null : candidatePolicy::mullingRanking);
     }
@@ -1485,12 +1485,12 @@ public class ChatService {
      * One phase's ranking of {@code bound} and its candidates against the speeds in
      * {@code states}; the bound model alone when the phase has no policy ({@code phase} null).
      */
-    private ai.kubemoot.agent.provider.ModelCandidates.Ranking rankPhase(String bound,
-            java.util.List<ProviderState> states,
+    private ai.kubemoot.agent.modelserver.ModelCandidates.Ranking rankPhase(String bound,
+            java.util.List<ServerState> states,
             java.util.function.BiFunction<String, java.util.function.ToLongFunction<String>,
-                    ai.kubemoot.agent.provider.ModelCandidates.Ranking> phase) {
+                    ai.kubemoot.agent.modelserver.ModelCandidates.Ranking> phase) {
         if (phase == null) {
-            return new ai.kubemoot.agent.provider.ModelCandidates.Ranking(bound, java.util.List.of());
+            return new ai.kubemoot.agent.modelserver.ModelCandidates.Ranking(bound, java.util.List.of());
         }
         return phase.apply(bound, m -> measuredSpeed(states, m));
     }
@@ -1500,45 +1500,45 @@ public class ChatService {
      * each model's KV-cache need for a prompt of {@code promptChars} and
      * {@code outputTokens} of output.
      */
-    private CallPlanner.PlacementRequest requestFor(ai.kubemoot.agent.provider.ModelCandidates.Ranking ranking,
-            java.util.List<ProviderState> states, java.util.function.ToLongFunction<String> footprint,
+    private CallPlanner.PlacementRequest requestFor(ai.kubemoot.agent.modelserver.ModelCandidates.Ranking ranking,
+            java.util.List<ServerState> states, java.util.function.ToLongFunction<String> footprint,
             int promptChars, int outputTokens, boolean mayUnload) {
-        long kvTokens = ai.kubemoot.agent.provider.KvCacheEstimator.estimateTokensFromChars(promptChars);
+        long kvTokens = ai.kubemoot.agent.modelserver.KvCacheEstimator.estimateTokensFromChars(promptChars);
         return new CallPlanner.PlacementRequest(ranking.preferred(), ranking.alternatives(), states, footprint,
-                m -> ai.kubemoot.agent.provider.KvCacheEstimator.estimateMiB(m, kvTokens, outputTokens),
+                m -> ai.kubemoot.agent.modelserver.KvCacheEstimator.estimateMiB(m, kvTokens, outputTokens),
                 promptTokens(promptChars), mayUnload);
     }
 
     /**
-     * The best generation speed, in tokens per second, any ready provider that has the
+     * The best generation speed, in tokens per second, any ready server that has the
      * model reports for it: what calibration measured, or what solo crew calls observed
-     * once there are enough. Zero when no provider has measured it, which preferFaster
+     * once there are enough. Zero when no server has measured it, which preferFaster
      * treats as unknown, never as slow.
      */
-    static long measuredSpeed(java.util.List<ProviderState> states, String model) {
+    static long measuredSpeed(java.util.List<ServerState> states, String model) {
         return states.stream()
-                .filter(ProviderState::ready)
+                .filter(ServerState::ready)
                 .filter(p -> p.hasModel(model))
                 .map(p -> p.speedOf(model))
                 .flatMap(java.util.Optional::stream)
-                .mapToLong(ai.kubemoot.agent.provider.ModelSpeed::generateSpeed)
+                .mapToLong(ai.kubemoot.agent.modelserver.ModelSpeed::generateSpeed)
                 .max().orElse(0L);
     }
 
     /**
      * The footprint a placement request carries for {@code model}: the bound model's
-     * resolved occupancy, else what providers report. A model only a provider whose
+     * resolved occupancy, else what servers report. A model only a server whose
      * engine reserved its memory at start hosts (vLLM) has no footprint to report and
      * needs none, so it carries the ticket marker instead of zero, which would leave
-     * that provider out of every placement.
+     * that server out of every placement.
      */
-    private long placementFootprintMiB(java.util.List<ProviderState> states, String preferred, String model) {
+    private long placementFootprintMiB(java.util.List<ServerState> states, String preferred, String model) {
         long fp = model.equals(preferred) ? resolveOccupancyMiB(states, model) : observedFootprintMiB(states, model);
-        return ai.kubemoot.agent.provider.EngineFits.placementFootprintMiB(states, model, fp);
+        return ai.kubemoot.agent.modelserver.EngineFits.placementFootprintMiB(states, model, fp);
     }
 
-    /** A model's KV-published footprint; zero when no provider reports it. */
-    private static long observedFootprintMiB(java.util.List<ProviderState> states, String model) {
+    /** A model's KV-published footprint; zero when no server reports it. */
+    private static long observedFootprintMiB(java.util.List<ServerState> states, String model) {
         return states.stream().mapToLong(p -> p.coldLoadFootprintMiB(model)).max().orElse(0L);
     }
 
@@ -1558,18 +1558,18 @@ public class ChatService {
      * for its candidate models and plan its first mulling call now, claiming the
      * capacity and starting a needed load so it overlaps triage. The plan is sized
      * from what is known at selection (the system prompt, the tool specs and the
-     * conversation), so it lands on a provider whose context holds the first call
+     * conversation), so it lands on a server whose context holds the first call
      * instead of starting a load the real prompt then abandons. Runs on the
      * caller's thread; the discussion subscriber calls it from a worker.
      */
     public void commitToThread(String threadId, long selectedAtMs, String conversation) {
-        if (providerSelector == null || ticketManager == null || chatModelPool == null) {
+        if (serverSelector == null || ticketManager == null || chatModelPool == null) {
             return;
         }
-        java.util.List<String> candidates = mullingRanking(providerSelector.readState()).acceptable();
+        java.util.List<String> candidates = mullingRanking(serverSelector.readState()).acceptable();
         int planChars = planPromptChars(conversation);
         callPlanner.commit(threadId, selectedAtMs, candidates, () -> {
-            var states = providerSelector.readState();
+            var states = serverSelector.readState();
             return states.isEmpty() ? java.util.Optional.empty()
                     : callPlanner.place(placementRequest(states, planChars));
         });
@@ -1601,12 +1601,12 @@ public class ChatService {
      * The static-endpoint fallbacks that precede JIT scheduling. Returns a present
      * MullingPick when the scheduler cannot be consulted: selector/pool unwired
      * (unit tests), ticket manager unwired, or the cold-load footprint is neither
-     * observed on any provider nor estimable from the model name. Empty means the
+     * observed on any server nor estimable from the model name. Empty means the
      * caller should proceed to pickAndClaim with the (positive) footprint.
      */
     private java.util.Optional<MullingPick> staticFallbackPick(String staticModel,
             String staticEndpoint, String modelName, long coldLoadFootprintMiB) {
-        if (providerSelector == null || chatModelPool == null) {
+        if (serverSelector == null || chatModelPool == null) {
             return java.util.Optional.of(new MullingPick(chatModel, "", java.util.Optional.empty(),
                     STATIC_FALLBACK, staticModel, staticEndpoint, 0L));
         }
@@ -1616,7 +1616,7 @@ public class ChatService {
                     STATIC_FALLBACK, staticModel, staticEndpoint, 0L));
         }
         if (coldLoadFootprintMiB <= 0) {
-            // Footprint neither observed on any provider NOR estimable from the
+            // Footprint neither observed on any server NOR estimable from the
             // model name (no parseable parameter count). Only now is the static
             // endpoint the genuine last resort.
             log.warn("Cold-load footprint unknown and unestimable for model {} - {} (degraded).",
@@ -1628,44 +1628,44 @@ public class ChatService {
     }
 
     /**
-     * Why there is no provider state: the NATS read failed (with its error), or the
+     * Why there is no server state: the NATS read failed (with its error), or the
      * bucket had no current entries.
      */
     private String noStateReason() {
-        return providerSelector == null ? "no scheduler"
-                : providerSelector.lastReadError().map(e -> "provider state read failed: " + e)
-                        .orElse("no provider state published");
+        return serverSelector == null ? "no scheduler"
+                : serverSelector.lastReadError().map(e -> "server state read failed: " + e)
+                        .orElse("no server state published");
     }
 
     /**
-     * Placement with no provider state in NATS (degraded window). The direct
+     * Placement with no server state in NATS (degraded window). The direct
      * prober checks each endpoint for one that passes the VRAM fit gate; it is
-     * used when found. Empty when none fits: without provider VRAM data the
+     * used when found. Empty when none fits: without server VRAM data the
      * runtime cannot tell a busy cluster from a model that never fits, so the
-     * caller treats it as busy and waits for provider state to return. With no
+     * caller treats it as busy and waits for server state to return. With no
      * prober, the static endpoint is the last resort. See [[JIT Fit-Gate Degraded
      * Mode Can Spill]].
      */
     private java.util.Optional<MullingPick> degradedMullingPick(String modelName, String staticEndpoint,
                                                                 long coldLoadFootprintMiB) {
         if (directProber == null) {
-            log.debug("No NATS provider state and no directProber - last-resort static endpoint");
+            log.debug("No NATS server state and no directProber - last-resort static endpoint");
             return java.util.Optional.of(new MullingPick(chatModel, "", java.util.Optional.empty(),
                     STATIC_FALLBACK + " (nats degraded)", modelName, staticEndpoint, 0L));
         }
         String fittingEndpoint = directProber.pickFittingEndpoint(
                 java.util.List.of(), staticEndpoint, modelName, coldLoadFootprintMiB);
         if (fittingEndpoint == null) {
-            log.info("No provider state ({}): directProber found no fitting endpoint for {} (coldLoad {}MiB) - waiting for capacity",
+            log.info("No server state ({}): directProber found no fitting endpoint for {} (coldLoad {}MiB) - waiting for capacity",
                     noStateReason(), modelName, coldLoadFootprintMiB);
             return java.util.Optional.empty();
         }
-        log.info("No provider state ({}): fit pick endpoint={} model={} coldLoad={}MiB (direct probe)",
+        log.info("No server state ({}): fit pick endpoint={} model={} coldLoad={}MiB (direct probe)",
                 noStateReason(), fittingEndpoint, modelName, coldLoadFootprintMiB);
-        // Without provider state the engine type is unknown; direct probing finds
+        // Without server state the engine type is unknown; direct probing finds
         // only Ollama servers.
         ChatModel degradedModel = chatModelPool.forEndpoint(
-                ai.kubemoot.agent.provider.ChatEngines.OLLAMA,
+                ai.kubemoot.agent.modelserver.ChatEngines.OLLAMA,
                 fittingEndpoint,
                 modelName,
                 properties.model().temperature(),
@@ -1676,17 +1676,17 @@ public class ChatService {
                 STATIC_FALLBACK + " (nats degraded, fit-gated)", modelName, fittingEndpoint, coldLoadFootprintMiB));
     }
 
-    /** Build the MullingPick for a provider the scheduler chose and a ticket it claimed. */
+    /** Build the MullingPick for a server the scheduler chose and a ticket it claimed. */
     private MullingPick buildScheduledMullingPick(
-            ai.kubemoot.agent.provider.Pick p,
+            ai.kubemoot.agent.modelserver.Pick p,
             String modelName, long coldLoadFootprintMiB) {
-        var ps = p.provider();
-        ai.kubemoot.agent.provider.ModelReadiness.ensure(providerSelector, ticketManager, p, modelName);
-        // INFO (placement visibility): which provider the scheduler chose, the
+        var ps = p.server();
+        ai.kubemoot.agent.modelserver.ModelReadiness.ensure(serverSelector, ticketManager, p, modelName);
+        // INFO (placement visibility): which server the scheduler chose, the
         // model, and the cold-load footprint estimate that drove the fit gate.
         // This is the trace needed to verify the scheduler keeps oversized models
         // off too-small GPUs; promote from debug so a live run shows every pick.
-        log.info("JIT pick: provider={} endpoint={} model={} coldLoadFootprintEstimate={}MiB totalVram={}MiB",
+        log.info("JIT pick: server={} endpoint={} model={} coldLoadFootprintEstimate={}MiB totalVram={}MiB",
                 ps.name(), ps.endpointFor(modelName), modelName, coldLoadFootprintMiB, ps.totalVramMiB());
         ChatModel built = chatModelPool.forEndpoint(
                 ps.chatEngine(),
@@ -1716,7 +1716,7 @@ public class ChatService {
     }
 
     /**
-     * The text and token counts of a no-tool call, and the model and provider it ran
+     * The text and token counts of a no-tool call, and the model and server it ran
      * on ({@code modelUse}, null when the call's placement is not known).
      */
     public record SimpleLlmResult(String text, long inputTokens, long outputTokens, ModelUse modelUse) {
@@ -1741,17 +1741,17 @@ public class ChatService {
         // the scheduler must be the ONLY thing that picks a GPU. This is a
         // no-tools call (coordinator advisory/synthesis), so it does not use
         // callWithToolLoop, but it still asks pickMullingChatModel for the
-        // provider and claims/releases a VRAM ticket so concurrent calls account
+        // server and claims/releases a VRAM ticket so concurrent calls account
         // for each other. See [[JIT is the sole scheduler]].
         int promptChars = (systemPrompt == null ? 0 : systemPrompt.length())
                 + (userPrompt == null ? 0 : userPrompt.length());
         MullingPick pick = pickForSimpleCall(promptChars);
-        String providerName = pick.providerName();
+        String serverName = pick.serverName();
         // Outbound wire trace (no-tools path: advisory/synthesis/triage). Pair with
-        // OLLAMA_DEBUG on the provider to confirm the wire model matches intent.
-        log.info("OUTBOUND inference (simple): agent={} endpoint={} model={} provider={} reason={}",
+        // OLLAMA_DEBUG on the server to confirm the wire model matches intent.
+        log.info("OUTBOUND inference (simple): agent={} endpoint={} model={} server={} reason={}",
                 properties.agentName(), pick.endpoint(), pick.modelName(),
-                providerName.isEmpty() ? "static" : providerName, pick.pickReason());
+                serverName.isEmpty() ? "static" : serverName, pick.pickReason());
         long callStartMs = System.currentTimeMillis();
         // Assume failure and flip to success only after the call returns normally.
         // This records a failed scheduler outcome for ANY throwable (including Error)
@@ -1763,7 +1763,7 @@ public class ChatService {
             return result;
         } finally {
             long callDurationMs = System.currentTimeMillis() - callStartMs;
-            recordSchedulerOutcome(pick, providerName, callDurationMs, callFailed);
+            recordSchedulerOutcome(pick, serverName, callDurationMs, callFailed);
         }
     }
 
@@ -1778,7 +1778,7 @@ public class ChatService {
     }
 
     /**
-     * JIT-pick a provider for a no-tool coordinator call. When every GPU is busy or
+     * JIT-pick a server for a no-tool coordinator call. When every GPU is busy or
      * none can hold the model, the coordinator MUST still complete its
      * synthesis/advisory, so it falls back to the static endpoint the operator
      * assigned: a last resort, never a routine bypass. A prompt larger than every
@@ -1788,11 +1788,11 @@ public class ChatService {
     private MullingPick pickForSimpleCall(int promptChars) {
         try {
             return pickMullingChatModel(promptChars);
-        } catch (ai.kubemoot.agent.provider.NoFitException nfe) {
-            if (ai.kubemoot.agent.provider.NoFitException.REASON_PROMPT_TOO_LARGE.equals(nfe.reason())) {
+        } catch (ai.kubemoot.agent.modelserver.NoFitException nfe) {
+            if (ai.kubemoot.agent.modelserver.NoFitException.REASON_PROMPT_TOO_LARGE.equals(nfe.reason())) {
                 throw nfe;
             }
-            log.info("simpleLlmCall: no provider fit ({}) - falling back to static endpoint", nfe.predictorReason());
+            log.info("simpleLlmCall: no server fit ({}) - falling back to static endpoint", nfe.predictorReason());
             return new MullingPick(chatModel, "", java.util.Optional.empty(),
                     STATIC_FALLBACK + " (no-fit)", properties.model().model(), properties.model().endpoint(), 0L);
         }
@@ -1800,17 +1800,17 @@ public class ChatService {
 
     /** Send a no-tool chat request as a timed stream, record it, and return text + token counts. */
     private SimpleLlmResult invokeSimpleCall(MullingPick pick, List<ChatMessage> messages) {
-        var model = chatModelPool.streamingForEndpoint(engineFor(pick.providerName()), pick.endpoint(),
+        var model = chatModelPool.streamingForEndpoint(engineFor(pick.serverName()), pick.endpoint(),
                 pick.modelName(), properties.model().temperature(), properties.model().maxTokens(),
                 SIMPLE_CALL_TIMEOUT, properties.model().think().orElse(null));
-        var context = callContext(pick.providerName(), pick.modelName(),
-                ai.kubemoot.agent.provider.CallObservation.KIND_SIMPLE, pick.coldLoad());
+        var context = callContext(pick.serverName(), pick.modelName(),
+                ai.kubemoot.agent.modelserver.CallObservation.KIND_SIMPLE, pick.coldLoad());
         lastSimpleCall = LastSimpleCall.NONE;
         var timed = sendTimed(model, messages, SIMPLE_CALL_TIMEOUT, context);
         lastSimpleCall = new LastSimpleCall(timed.firstTokenMs(), pick.coldLoad());
         var usage = timed.response().tokenUsage();
         return new SimpleLlmResult(timed.response().aiMessage().text(), inputTokens(usage), outputTokens(usage),
-                new ModelUse(pick.modelName(), pick.providerName()));
+                new ModelUse(pick.modelName(), pick.serverName()));
     }
 
     /**
@@ -1818,7 +1818,7 @@ public class ChatService {
      * history when {@code context} is set, whether it succeeds or fails.
      */
     private StreamedChat.Timed sendTimed(StreamingChatModel model, List<ChatMessage> messages, Duration timeout,
-                                         ai.kubemoot.agent.provider.CallContext context) {
+                                         ai.kubemoot.agent.modelserver.CallContext context) {
         long start = System.currentTimeMillis();
         StreamedChat.Timed timed = null;
         try {
@@ -1843,19 +1843,19 @@ public class ChatService {
     }
 
     /**
-     * How calls reach the provider's model server, from its engine type in the provider
-     * state; Ollama when no provider was chosen (the static endpoints are Ollama) or its
+     * How calls reach the server's model server, from its engine type in the server
+     * state; Ollama when no server was chosen (the static endpoints are Ollama) or its
      * state is not readable.
      */
-    private ai.kubemoot.agent.provider.ChatEngine engineFor(String providerName) {
-        if (providerSelector == null || providerName == null || providerName.isEmpty()) {
-            return ai.kubemoot.agent.provider.ChatEngines.OLLAMA;
+    private ai.kubemoot.agent.modelserver.ChatEngine engineFor(String serverName) {
+        if (serverSelector == null || serverName == null || serverName.isEmpty()) {
+            return ai.kubemoot.agent.modelserver.ChatEngines.OLLAMA;
         }
-        return providerSelector.readState().stream()
-                .filter(p -> providerName.equals(p.name()))
+        return serverSelector.readState().stream()
+                .filter(p -> serverName.equals(p.name()))
                 .findFirst()
-                .map(ai.kubemoot.agent.provider.ProviderState::chatEngine)
-                .orElse(ai.kubemoot.agent.provider.ChatEngines.OLLAMA);
+                .map(ai.kubemoot.agent.modelserver.ServerState::chatEngine)
+                .orElse(ai.kubemoot.agent.modelserver.ChatEngines.OLLAMA);
     }
 
     /**
@@ -1863,54 +1863,54 @@ public class ChatService {
      * performance history; the bare model when nothing records or the pick is static.
      */
     private ChatModel observed(MullingPick pick, String kind) {
-        var context = callContext(pick.providerName(), pick.modelName(), kind, pick.coldLoad());
+        var context = callContext(pick.serverName(), pick.modelName(), kind, pick.coldLoad());
         return context == null ? pick.model()
-                : new ai.kubemoot.agent.provider.ObservedChatModel(pick.model(), performanceHistory, context);
+                : new ai.kubemoot.agent.modelserver.ObservedChatModel(pick.model(), performanceHistory, context);
     }
 
     /**
      * Where a call is placed, read once as it starts; null when nothing records or no
-     * provider was chosen (the static fallback).
+     * server was chosen (the static fallback).
      */
-    private ai.kubemoot.agent.provider.CallContext callContext(String provider, String model, String kind,
+    private ai.kubemoot.agent.modelserver.CallContext callContext(String server, String model, String kind,
                                                                 boolean coldLoad) {
-        if (performanceHistory == null || provider == null || provider.isEmpty()) {
+        if (performanceHistory == null || server == null || server.isEmpty()) {
             return null;
         }
-        int active = ticketManager == null ? 0 : ticketManager.activeCountFor(provider);
-        return new ai.kubemoot.agent.provider.CallContext(provider, model, kind, coldLoad, active);
+        int active = ticketManager == null ? 0 : ticketManager.activeCountFor(server);
+        return new ai.kubemoot.agent.modelserver.CallContext(server, model, kind, coldLoad, active);
     }
 
     /**
-     * Shared post-call scheduler bookkeeping for the JIT-selected provider:
+     * Shared post-call scheduler bookkeeping for the JIT-selected server:
      * record observed latency, success/failure for the circuit breaker, the
-     * per-(provider, model) outcome EMA, the residency overlay on success, and
+     * per-(server, model) outcome EMA, the residency overlay on success, and
      * finally release the held VRAM ticket. No-op for the static-fallback path
-     * (empty providerName). Extracted from directLlmCall and
+     * (empty serverName). Extracted from directLlmCall and
      * simpleLlmCallWithTokens, which performed the identical sequence.
      */
-    private void recordSchedulerOutcome(MullingPick pick, String providerName,
+    private void recordSchedulerOutcome(MullingPick pick, String serverName,
                                         long callDurationMs, boolean callFailed) {
-        if (providerSelector != null && providerName != null && !providerName.isEmpty()) {
-            providerSelector.recordObservedLatencyFor(providerName, callDurationMs);
+        if (serverSelector != null && serverName != null && !serverName.isEmpty()) {
+            serverSelector.recordObservedLatencyFor(serverName, callDurationMs);
             // AI Circuit Breaker (Phase A): record success/failure so a wedged
-            // provider (HTTP 500 / timeout cluster) is excluded from future picks
+            // server (HTTP 500 / timeout cluster) is excluded from future picks
             // for CIRCUIT_COOLDOWN. Per-agent local; faster than the operator's
             // 30s probe.
             if (callFailed) {
-                providerSelector.recordFailure(providerName);
+                serverSelector.recordFailure(serverName);
             } else {
-                providerSelector.recordSuccess(providerName);
+                serverSelector.recordSuccess(serverName);
             }
-            // FitPredictor v2 learning: feed the per-(provider, model) EMA so the
+            // FitPredictor v2 learning: feed the per-(server, model) EMA so the
             // selector's ranking weighs historical reliability.
-            providerSelector.recordOutcome(providerName, pick.modelName(),
+            serverSelector.recordOutcome(serverName, pick.modelName(),
                     callDurationMs, !callFailed);
             // Residency overlay (anti-thrash): on success the model just ran on
-            // this provider, so it is resident now. Record it immediately so other
+            // this server, so it is resident now. Record it immediately so other
             // agents see it without waiting for the ~30s probe.
             if (!callFailed && ticketManager != null && pick.occupancyMiB() > 0) {
-                ticketManager.recordResidency(providerName, pick.modelName(), pick.occupancyMiB());
+                ticketManager.recordResidency(serverName, pick.modelName(), pick.occupancyMiB());
             }
         }
         // v2 release: drop the held VRAM ticket so the next call sees the freed
@@ -1970,11 +1970,11 @@ public class ChatService {
         // triageEndpoint only when the scheduler cannot decide (NATS down, no fit).
         TriagePlacement placement = pickTriagePlacement(systemPrompt, conversation);
         String endpoint = placement.endpoint();
-        var observedCall = callContext(placement.pickedProvider(), placement.model(),
-                ai.kubemoot.agent.provider.CallObservation.KIND_TRIAGE, placement.coldLoad());
+        var observedCall = callContext(placement.pickedServer(), placement.model(),
+                ai.kubemoot.agent.modelserver.CallObservation.KIND_TRIAGE, placement.coldLoad());
 
         Duration timeout = Duration.ofSeconds(properties.triageModel().timeoutSeconds());
-        var model = chatModelPool.streamingForEndpoint(engineFor(placement.pickedProvider()), endpoint, placement.model(),
+        var model = chatModelPool.streamingForEndpoint(engineFor(placement.pickedServer()), endpoint, placement.model(),
                 TRIAGE_TEMPERATURE, TRIAGE_MAX_TOKENS, timeout, null);
         var messages = new ArrayList<ChatMessage>();
         if (systemPrompt != null && !systemPrompt.isEmpty()) {
@@ -1989,7 +1989,7 @@ public class ChatService {
             var usage = timed.response().tokenUsage();
             ok = true;
             return new SimpleLlmResult(timed.response().aiMessage().text(), inputTokens(usage), outputTokens(usage))
-                    .ranOn(new ModelUse(placement.model(), placement.pickedProvider()));
+                    .ranOn(new ModelUse(placement.model(), placement.pickedServer()));
         } catch (RuntimeException e) {
             throw new java.io.UncheckedIOException("Triage call failed: " + e.getMessage(), new IOException(e));
         } finally {
@@ -1999,13 +1999,13 @@ public class ChatService {
 
     /**
      * JIT placement decision for a triage call: the endpoint to send to, the
-     * chosen provider name (empty when falling back to the static triageEndpoint),
+     * chosen server name (empty when falling back to the static triageEndpoint),
      * the model occupancy used to claim VRAM, and the held ticket. Extracted from
      * triageChatWithTokens so the call body stays under the complexity gate.
      */
-    private record TriagePlacement(String endpoint, String pickedProvider, String model, long occupancy,
-                                   java.util.Optional<ai.kubemoot.agent.provider.Ticket> ticket, boolean coldLoad) {
-        /** The static triage endpoint and the bound triage model, with no provider claimed. */
+    private record TriagePlacement(String endpoint, String pickedServer, String model, long occupancy,
+                                   java.util.Optional<ai.kubemoot.agent.modelserver.Ticket> ticket, boolean coldLoad) {
+        /** The static triage endpoint and the bound triage model, with no server claimed. */
         static TriagePlacement unscheduled(String endpoint, String model, long occupancy) {
             return new TriagePlacement(endpoint, "", model, occupancy, java.util.Optional.empty(), false);
         }
@@ -2013,15 +2013,15 @@ public class ChatService {
 
     /**
      * Places the triage call through the configured placement policy, as mulling
-     * calls are placed. Returns the static triageEndpoint (no provider claimed) when
+     * calls are placed. Returns the static triageEndpoint (no server claimed) when
      * the scheduler is unwired, NATS is down, the footprint is unknown, or no
-     * provider fits.
+     * server fits.
      */
     private TriagePlacement pickTriagePlacement(String systemPrompt, String conversation) {
-        if (providerSelector == null || ticketManager == null) {
+        if (serverSelector == null || ticketManager == null) {
             return TriagePlacement.unscheduled(triageEndpoint, triageModelId, 0L);
         }
-        var states = providerSelector.readState();
+        var states = serverSelector.readState();
         if (states.isEmpty()) {
             return TriagePlacement.unscheduled(triageEndpoint, triageModelId, 0L);
         }
@@ -2041,7 +2041,7 @@ public class ChatService {
      * in-tolerance triage candidates, re-ranked by the rule's preferFaster. Without a
      * candidate policy, or without a candidate list, it is the bound triage model alone.
      */
-    private ai.kubemoot.agent.provider.ModelCandidates.Ranking triageRanking(java.util.List<ProviderState> states) {
+    private ai.kubemoot.agent.modelserver.ModelCandidates.Ranking triageRanking(java.util.List<ServerState> states) {
         return rankPhase(triageModelId, states, candidatePolicy == null ? null : candidatePolicy::triageRanking);
     }
 
@@ -2049,26 +2049,26 @@ public class ChatService {
         return text == null ? 0 : text.length();
     }
 
-    /** Throws NoFitException when no provider's context window can hold the triage prompt. */
-    private void requireTriageContextFits(List<ProviderState> states, List<String> models, long promptTokens) {
-        if (!ai.kubemoot.agent.provider.ContextFit.anyCanHold(states, models, promptTokens)) {
-            throw ai.kubemoot.agent.provider.NoFitException.promptTooLarge(triageModelId,
+    /** Throws NoFitException when no server's context window can hold the triage prompt. */
+    private void requireTriageContextFits(List<ServerState> states, List<String> models, long promptTokens) {
+        if (!ai.kubemoot.agent.modelserver.ContextFit.anyCanHold(states, models, promptTokens)) {
+            throw ai.kubemoot.agent.modelserver.NoFitException.promptTooLarge(triageModelId,
                     "triage prompt ~" + promptTokens + " tokens exceeds the largest context window ("
-                            + ai.kubemoot.agent.provider.ContextFit.largestContext(states, models)
-                            + " tokens) any provider gives " + models);
+                            + ai.kubemoot.agent.modelserver.ContextFit.largestContext(states, models)
+                            + " tokens) any server gives " + models);
         }
     }
 
     /**
-     * Claim a provider for the triage call through the configured placement policy,
+     * Claim a server for the triage call through the configured placement policy,
      * as every other call is placed, or keep the static triageEndpoint when no
-     * provider fits. Triage is short and waits on nothing, so it never unloads idle
+     * server fits. Triage is short and waits on nothing, so it never unloads idle
      * models to make room: it takes the preferred triage model warm with room, else an
      * in-tolerance candidate that is warm or fits now. A queued placement keeps its
      * ticket like any other; recordTriageOutcome releases it.
      */
-    private TriagePlacement claimTriagePlacement(List<ProviderState> states,
-                                                 ai.kubemoot.agent.provider.ModelCandidates.Ranking ranking,
+    private TriagePlacement claimTriagePlacement(List<ServerState> states,
+                                                 ai.kubemoot.agent.modelserver.ModelCandidates.Ranking ranking,
                                                  long occupancy, int promptChars) {
         try {
             var placed = callPlanner.place(requestFor(ranking, states,
@@ -2078,8 +2078,8 @@ public class ChatService {
                 return scheduledTriage(placed.get());
             }
             // pick empty (NoFit/degraded) -> keep the static triageEndpoint
-        } catch (ai.kubemoot.agent.provider.NoFitException nfe) {
-            log.info("triage: no provider fit ({}) - static endpoint", nfe.predictorReason());
+        } catch (ai.kubemoot.agent.modelserver.NoFitException nfe) {
+            log.info("triage: no server fit ({}) - static endpoint", nfe.predictorReason());
         }
         return TriagePlacement.unscheduled(triageEndpoint, triageModelId, occupancy);
     }
@@ -2088,31 +2088,31 @@ public class ChatService {
     private TriagePlacement scheduledTriage(CallPlanner.Placement p) {
         // Same readiness step as every other call: a model asleep on its server is
         // woken by the operator before the request is sent.
-        ai.kubemoot.agent.provider.ModelReadiness.ensure(providerSelector, ticketManager, p.pick(), p.model());
-        String endpoint = p.pick().provider().endpointFor(p.model());
-        String pickedProvider = p.pick().provider().name();
-        log.info("OUTBOUND inference (triage): agent={} endpoint={} model={} provider={}",
-                properties.agentName(), endpoint, p.model(), pickedProvider);
-        return new TriagePlacement(endpoint, pickedProvider, p.model(), p.footprintMiB(),
+        ai.kubemoot.agent.modelserver.ModelReadiness.ensure(serverSelector, ticketManager, p.pick(), p.model());
+        String endpoint = p.pick().server().endpointFor(p.model());
+        String pickedServer = p.pick().server().name();
+        log.info("OUTBOUND inference (triage): agent={} endpoint={} model={} server={}",
+                properties.agentName(), endpoint, p.model(), pickedServer);
+        return new TriagePlacement(endpoint, pickedServer, p.model(), p.footprintMiB(),
                 java.util.Optional.of(p.pick().ticket()), p.coldLoad());
     }
 
     /**
-     * Post-triage-call scheduler bookkeeping for a JIT-selected provider: record
+     * Post-triage-call scheduler bookkeeping for a JIT-selected server: record
      * latency, success/failure for the circuit breaker, residency on success, then
      * release the VRAM ticket. No-op when the static fallback was used (empty
-     * provider name). Extracted from triageChatWithTokens's finally block.
+     * server name). Extracted from triageChatWithTokens's finally block.
      */
     private void recordTriageOutcome(TriagePlacement placement, long durMs, boolean ok) {
-        if (providerSelector != null && !placement.pickedProvider().isEmpty()) {
-            providerSelector.recordObservedLatencyFor(placement.pickedProvider(), durMs);
+        if (serverSelector != null && !placement.pickedServer().isEmpty()) {
+            serverSelector.recordObservedLatencyFor(placement.pickedServer(), durMs);
             if (ok) {
-                providerSelector.recordSuccess(placement.pickedProvider());
+                serverSelector.recordSuccess(placement.pickedServer());
                 if (ticketManager != null && placement.occupancy() > 0) {
-                    ticketManager.recordResidency(placement.pickedProvider(), placement.model(), placement.occupancy());
+                    ticketManager.recordResidency(placement.pickedServer(), placement.model(), placement.occupancy());
                 }
             } else {
-                providerSelector.recordFailure(placement.pickedProvider());
+                serverSelector.recordFailure(placement.pickedServer());
             }
         }
         if (ticketManager != null) {
@@ -2228,13 +2228,13 @@ public class ChatService {
     }
 
     /**
-     * The outcome of a chat turn. {@code model} and {@code providerName} name where
-     * the final inference call ran; {@code modelsUsed} lists the model and provider of
+     * The outcome of a chat turn. {@code model} and {@code serverName} name where
+     * the final inference call ran; {@code modelsUsed} lists the model and server of
      * each call behind the response, in call order.
      */
     public record ChatResult(String conversationId, String response, String model, String threadId,
                               long inputTokens, long outputTokens,
-                              String providerName, String pickReason, List<String> evicted,
+                              String serverName, String pickReason, List<String> evicted,
                               List<ModelUse> modelsUsed) {
         public ChatResult {
             evicted = evicted == null ? List.of() : evicted;
@@ -2242,37 +2242,37 @@ public class ChatService {
         }
         /**
          * Where the final call ran: the last entry of {@code modelsUsed}, or the
-         * result's {@code model} and {@code providerName} when no call is listed.
+         * result's {@code model} and {@code serverName} when no call is listed.
          */
         public ModelUse lastModelUse() {
-            return modelsUsed.isEmpty() ? new ModelUse(model, providerName) : modelsUsed.get(modelsUsed.size() - 1);
+            return modelsUsed.isEmpty() ? new ModelUse(model, serverName) : modelsUsed.get(modelsUsed.size() - 1);
         }
-        /** One call: the model and provider the result names. */
+        /** One call: the model and server the result names. */
         public ChatResult(String conversationId, String response, String model, String threadId,
                           long inputTokens, long outputTokens,
-                          String providerName, String pickReason, List<String> evicted) {
-            this(conversationId, response, model, threadId, inputTokens, outputTokens, providerName, pickReason,
-                    evicted, model == null || model.isEmpty() ? List.of() : List.of(new ModelUse(model, providerName)));
+                          String serverName, String pickReason, List<String> evicted) {
+            this(conversationId, response, model, threadId, inputTokens, outputTokens, serverName, pickReason,
+                    evicted, model == null || model.isEmpty() ? List.of() : List.of(new ModelUse(model, serverName)));
         }
         /** Without evictions: the call needed no model unloaded. */
         public ChatResult(String conversationId, String response, String model, String threadId,
-                          long inputTokens, long outputTokens, String providerName, String pickReason) {
-            this(conversationId, response, model, threadId, inputTokens, outputTokens, providerName, pickReason,
+                          long inputTokens, long outputTokens, String serverName, String pickReason) {
+            this(conversationId, response, model, threadId, inputTokens, outputTokens, serverName, pickReason,
                     List.of());
         }
-        /** Convenience constructor without token counts or provider attribution. */
+        /** Convenience constructor without token counts or server attribution. */
         public ChatResult(String conversationId, String response, String model, String threadId) {
             this(conversationId, response, model, threadId, 0, 0, "", "");
         }
-        /** Convenience constructor without provider attribution (legacy callers; pre-JIT). */
+        /** Convenience constructor without server attribution (legacy callers; pre-JIT). */
         public ChatResult(String conversationId, String response, String model, String threadId,
                           long inputTokens, long outputTokens) {
             this(conversationId, response, model, threadId, inputTokens, outputTokens, "", "");
         }
         /** Convenience constructor without pickReason (callers pre-FitPredictor v2). */
         public ChatResult(String conversationId, String response, String model, String threadId,
-                          long inputTokens, long outputTokens, String providerName) {
-            this(conversationId, response, model, threadId, inputTokens, outputTokens, providerName, "");
+                          long inputTokens, long outputTokens, String serverName) {
+            this(conversationId, response, model, threadId, inputTokens, outputTokens, serverName, "");
         }
     }
 

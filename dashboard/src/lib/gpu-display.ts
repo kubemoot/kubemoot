@@ -1,7 +1,7 @@
-// Maps the provider ids that agents publish in span metadata to the GPU model the
-// operator discovered on each ModelProvider, for display only.
+// Maps the server ids that agents publish in span metadata to the GPU model the
+// operator discovered on each ModelServer, for display only.
 
-interface ProviderLike {
+interface ServerLike {
 	metadata?: { name?: string };
 	spec?: { endpoint?: string };
 	status?: { capacity?: { gpuModel?: string } };
@@ -22,24 +22,24 @@ export function endpointNamespace(endpoint: string): string {
 	return parts.length >= 2 ? parts[1] : parts[0];
 }
 
-/** The ids a provider is published under: its CR name and its endpoint namespace. */
-function providerIds(mp: ProviderLike): string[] {
+/** The ids a server is published under: its CR name and its endpoint namespace. */
+function serverIds(mp: ServerLike): string[] {
 	const endpoint = mp.spec?.endpoint;
 	const ids = [mp.metadata?.name, endpoint ? endpointNamespace(endpoint) : undefined];
 	return ids.filter((id): id is string => !!id);
 }
 
 /**
- * GPU display name keyed by every id a provider is published under: its CR name and
- * its endpoint namespace. Providers without a discovered GPU model are left out.
+ * GPU display name keyed by every id a server is published under: its CR name and
+ * its endpoint namespace. Servers without a discovered GPU model are left out.
  */
-export function buildGpuDisplayMap(providers: ProviderLike[]): Record<string, string> {
+export function buildGpuDisplayMap(servers: ServerLike[]): Record<string, string> {
 	const map: Record<string, string> = {};
-	for (const mp of providers) {
+	for (const mp of servers) {
 		const gpuModel = mp?.status?.capacity?.gpuModel;
 		if (!gpuModel) continue;
 		const display = gpuDisplayName(gpuModel);
-		for (const id of providerIds(mp)) map[id] = display;
+		for (const id of serverIds(mp)) map[id] = display;
 	}
 	return map;
 }

@@ -12,12 +12,12 @@ import (
 type fakeTools struct{}
 
 func (fakeTools) Specifications() []map[string]any {
-	return []map[string]any{{"name": "list_providers"}}
+	return []map[string]any{{"name": "list_servers"}}
 }
 
 func (fakeTools) Call(_ context.Context, name string, _ json.RawMessage) (string, error) {
-	if name == "list_providers" {
-		return `{"providers":[]}`, nil
+	if name == "list_servers" {
+		return `{"servers":[]}`, nil
 	}
 	return "", errors.New("unknown tool")
 }
@@ -46,7 +46,7 @@ func TestServer_speaksTheMCPStdioProtocol(t *testing.T) {
 		`{"jsonrpc":"2.0","id":1,"method":"initialize"}`,
 		`{"jsonrpc":"2.0","method":"notifications/initialized"}`,
 		`{"jsonrpc":"2.0","id":2,"method":"tools/list"}`,
-		`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"list_providers"}}`,
+		`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"list_servers"}}`,
 		`{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"nope"}}`,
 		`{"jsonrpc":"2.0","id":5,"method":"resources/list"}`,
 		`not json`,

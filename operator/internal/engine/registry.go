@@ -27,32 +27,32 @@ import (
 // Factory builds an Adapter that makes its HTTP calls with client.
 type Factory func(client *http.Client) Adapter
 
-// Registry maps a ModelProvider spec.type to the adapter for that engine.
+// Registry maps a ModelServer spec.type to the adapter for that engine.
 type Registry struct {
 	mu        sync.RWMutex
-	factories map[aiv1alpha1.ProviderType]Factory
+	factories map[aiv1alpha1.ServerType]Factory
 }
 
 // NewRegistry returns an empty registry.
 func NewRegistry() *Registry {
-	return &Registry{factories: map[aiv1alpha1.ProviderType]Factory{}}
+	return &Registry{factories: map[aiv1alpha1.ServerType]Factory{}}
 }
 
-// Register adds the factory for a provider type, replacing any earlier one.
-func (r *Registry) Register(t aiv1alpha1.ProviderType, f Factory) {
+// Register adds the factory for a server type, replacing any earlier one.
+func (r *Registry) Register(t aiv1alpha1.ServerType, f Factory) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.factories[t] = f
 }
 
-// Adapter returns the adapter for a provider type, built over client. It fails
+// Adapter returns the adapter for a server type, built over client. It fails
 // for a type no adapter is registered for.
-func (r *Registry) Adapter(t aiv1alpha1.ProviderType, client *http.Client) (Adapter, error) {
+func (r *Registry) Adapter(t aiv1alpha1.ServerType, client *http.Client) (Adapter, error) {
 	r.mu.RLock()
 	f, ok := r.factories[t]
 	r.mu.RUnlock()
 	if !ok {
-		return nil, fmt.Errorf("no engine adapter for provider type %q", t)
+		return nil, fmt.Errorf("no engine adapter for server type %q", t)
 	}
 	return f(client), nil
 }

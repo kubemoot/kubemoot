@@ -1,11 +1,11 @@
 {{- /*
 The scheduling crew: Kubemoot's own crew for scheduling work, in its own namespace.
-Today it has a coordinator and one specialist, the model-provider-calibrator, which
-measures ModelProviders through the accelerator-mcp tools (the core MCP server in
+Today it has a coordinator and one specialist, the model-server-calibrator, which
+measures ModelServers through the accelerator-mcp tools (the core MCP server in
 accelerator-mcp.yaml, reached through the crew's gateway) by the probe plan in its
 skill (scheduling-crew-prompts.yaml).
 */ -}}
-{{- if and .Values.schedulingCrew.enabled .Values.modelProviders }}
+{{- if and .Values.schedulingCrew.enabled .Values.modelServers }}
 {{- $ns := .Values.schedulingCrew.namespace }}
 {{- $crew := include "kubemoot-operator.schedulingCrew" . }}
 apiVersion: v1
@@ -26,7 +26,7 @@ metadata:
   annotations:
     kubemoot.ai/display-name: "Kubemoot scheduling"
 spec:
-  description: "Kubemoot's own scheduling crew: measures the cluster's model providers so the scheduler does not place calls blind."
+  description: "Kubemoot's own scheduling crew: measures the cluster's model servers so the scheduler does not place calls blind."
   discussion:
     enabled: true
 ---
@@ -91,7 +91,7 @@ spec:
 apiVersion: kubemoot.ai/v1alpha1
 kind: Agent
 metadata:
-  name: model-provider-calibrator
+  name: model-server-calibrator
   namespace: {{ $ns }}
   labels:
     {{- include "kubemoot-operator.labels" . | nindent 4 }}
@@ -99,14 +99,14 @@ metadata:
     kubemoot.ai/role: tooler
 spec:
   type: chat
-  description: "Judges calibration drift on ModelProviders: recalibrates when a lasting change made crew calls slower or faster than calibrated, waits when the cause is passing."
-  triageSummary: "Judges a calibration drift the operator reports on a ModelProvider: compares crew calls with the calibration using the accelerator-mcp tools, then recalibrates the drifted models or decides to wait."
+  description: "Judges calibration drift on ModelServers: recalibrates when a lasting change made crew calls slower or faster than calibrated, waits when the cause is passing."
+  triageSummary: "Judges a calibration drift the operator reports on a ModelServer: compares crew calls with the calibration using the accelerator-mcp tools, then recalibrates the drifted models or decides to wait."
   discussRole: tooler
   capabilities: [tool-calling]
   discussChannels: [general]
-  discussKeywords: [calibration, drift, drifted, recalibrate, provider, modelprovider]
-  promptRefs: [scheduling-protocol, scheduling-response-style, model-provider-calibrator-system]
-  enabledTools: [list_providers, provider_state, observed_performance, calibrate_provider]
+  discussKeywords: [calibration, drift, drifted, recalibrate, modelserver]
+  promptRefs: [scheduling-protocol, scheduling-response-style, model-server-calibrator-system]
+  enabledTools: [list_servers, server_state, observed_performance, calibrate_server]
   temperature: "0.1"
   maxTokens: 4096
   deployment:
@@ -134,8 +134,8 @@ spec:
       kubemoot.ai/tools: accelerators
   resources:
     {{- toYaml .Values.schedulingCrew.gateway.resources | nindent 4 }}
-{{- range .Values.modelProviders }}
-{{- /* A vllm provider serves Models from a huggingFace source; the crew's model below is an Ollama tag. */ -}}
+{{- range .Values.modelServers }}
+{{- /* A vllm server serves Models from a huggingFace source; the crew's model below is an Ollama tag. */ -}}
 {{- if ne .type "vllm" }}
 ---
 apiVersion: kubemoot.ai/v1alpha1
@@ -152,7 +152,7 @@ metadata:
     capability/reasoning: "true"
 spec:
   model: {{ $.Values.schedulingCrew.model.name | quote }}
-  providerRef: {{ .name | quote }}
+  serverRef: {{ .name | quote }}
   vramMib: {{ $.Values.schedulingCrew.model.vramMib }}
 {{- end }}
 {{- end }}

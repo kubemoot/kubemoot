@@ -33,15 +33,15 @@ by the runtime today; the one archetype that ships is described in
 ## Which model a signal reports
 
 The scheduler places each inference call when it is made, so a call can run on a
-different model or provider than the one the agent prefers: a warm alternative within
+different model or server than the one the agent prefers: a warm alternative within
 the agent's quality tolerance, or a re-plan when the plan made at selection only
 queued. A signal names where its calls actually ran:
 
 | Field | Meaning |
 |---|---|
 | `metadata.modelName` | The model the last call behind the signal ran on. On `triaging`, the triage model the agent plans to use. On a signal sent before a call completed (`evaluating`, `waiting`, `failure`), the model the agent is configured with. |
-| `metadata.gpuLabel` | The provider the last call ran on, or a label derived from the agent's static endpoint when no provider was picked. |
-| `metadata.modelsUsed` | Each distinct place the calls ran, as `model@provider` in call order (the model alone for the static endpoint). |
+| `metadata.gpuLabel` | The server the last call ran on, or a label derived from the agent's static endpoint when no server was picked. |
+| `metadata.modelsUsed` | Each distinct place the calls ran, as `model@server` in call order (the model alone for the static endpoint). |
 
 ## Stand-asides for GPU capacity
 
@@ -52,7 +52,7 @@ case, where the agent was selected and willing but the cluster could not run it:
 |---|---|
 | `gpu-busy` | Every GPU that can hold the model stayed busy until the discussion ended or the agent's capacity wait reached its safety limit. |
 | `model-too-large` | No GPU in the cluster can ever hold the model (`metadata.model`). |
-| `prompt-too-large` | No provider gives an acceptable model a context window that holds the prompt. The engine would drop the oldest messages, so the agent stands aside instead. |
+| `prompt-too-large` | No server gives an acceptable model a context window that holds the prompt. The engine would drop the oldest messages, so the agent stands aside instead. |
 
 When no agent contributed and at least one stood aside for one of these reasons (or was
 still waiting), the crew's answer says the GPUs were the limit, not the crew's design.
@@ -109,15 +109,15 @@ from it.
 | Discussion thread | `kubemoot.discuss.<namespace>.<crew>.<channel>.<threadId>` | `DiscussionMessage`: `messageId`, `threadId`, `agentName`, `messageType`, `content`, `channel`, `timestamp`, `metadata` |
 | Agent lifecycle | `kubemoot.lifecycle.<namespace>.<crew>.<signal>.<agent>` | `DiscussionMessage` with `waking` or `ready` |
 | Request queue | `kubemoot.request.<namespace>.<crew>` | `DiscussionRequest`: the question for the crew's coordinator |
-| Model lifecycle | `kubemoot.provider.model.<provider>` | `ModelLifecycleRequest`: an agent asks the operator to wake (`ready`) or sleep (`release`) a model on a vLLM provider; the reply is a `ModelLifecycleReply` sent once the provider reports the state |
+| Model lifecycle | `kubemoot.server.model.<server>` | `ModelLifecycleRequest`: an agent asks the operator to wake (`ready`) or sleep (`release`) a model on a vLLM server; the reply is a `ModelLifecycleReply` sent once the server reports the state |
 | Artifact notices | `kubemoot.artifacts.<namespace>.<crew>.<threadId>` | `ArtifactNotice`: a contribution spilled to the artifact store |
 | Direct chat | `kubemoot.chat.<namespace>.<agent>` | `ChatEvent` |
 | Onboarding | `kubemoot.operator.onboarding.deployed`, `.progress`, `.docs-indexed` | `OnboardingDeployed`, `OnboardingProgress`, `OnboardingDocsIndexed` |
 | Discussion stream | `GET /api/v1/discussions/{crew}/{conversationId}/stream` on the gateway | `StreamEvent`, as server-sent events |
 
 The key-value buckets are channels too, addressed as `$KV.<bucket>.<key>`:
-`kubemoot_agent_state` (heartbeats), `kubemoot_provider_state` and
-`kubemoot_provider_tickets` (accelerator capacity and claims), `kubemoot_model_demand`,
+`kubemoot_agent_state` (heartbeats), `kubemoot_server_state` and
+`kubemoot_server_tickets` (accelerator capacity and claims), `kubemoot_model_demand`,
 `kubemoot_scheduler_performance` (what the scheduler observed), `kubemoot_latency`,
 `kubemoot_conversations`, `kubemoot_crew_resumes`, `kubemoot_crew_memory`,
 `kubemoot_scheduled` and `kubemoot_pinned_threads`.

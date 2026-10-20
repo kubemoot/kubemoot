@@ -70,9 +70,9 @@ as `metadata.receipt`: what the thread cost and how it went, from the coordinato
   aside, or failed.
 - **Tokens:** the agents' calls, the coordinator's own calls, and the totals.
 - **Agents:** one line per agent with its last signal, when it came, where its calls ran
-  (`model@provider`), its tokens and time in model calls, how long it waited for an
+  (`model@server`), its tokens and time in model calls, how long it waited for an
   accelerator, and the reason it gave for standing aside or the error it failed with.
-- **Placements:** how many agents' calls ran at each `model@provider`.
+- **Placements:** how many agents' calls ran at each `model@server`.
 
 Times are from when the coordinator received each message, and the receipt is a snapshot
 at the close: a message that arrives after it is not counted. Agents may signal before

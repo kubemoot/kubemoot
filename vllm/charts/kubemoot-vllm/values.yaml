@@ -1,8 +1,8 @@
 # kubemoot-vllm: vLLM model servers for Kubemoot. It installs plain Kubernetes objects
 # (no Kubemoot resources): one pod on one accelerator that runs one `vllm serve` per
 # model, a Service with one port per model, and a volume for the weights. Install it
-# first; then point a ModelProvider at its Service (`helm status` prints the
-# ModelProvider and a Model per model to copy).
+# first; then point a ModelServer at its Service (`helm status` prints the
+# ModelServer and a Model per model to copy).
 #
 # vLLM serves one model per server. The servers here share one accelerator, so only
 # one is awake at a time and the others sleep; Kubemoot wakes the one a call needs.
@@ -44,7 +44,7 @@ shmSize: 8Gi
 
 # How a server is put to sleep when another model takes the accelerator: 1 parks the
 # weights in host memory (fast to wake), 2 drops them and reloads from disk on wake
-# (holds no host memory). The ModelProvider you create must name the same level; it is
+# (holds no host memory). The ModelServer you create must name the same level; it is
 # printed for you.
 sleepLevel: 1
 

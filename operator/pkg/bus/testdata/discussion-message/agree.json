@@ -12,7 +12,7 @@
     "totalTokens": 12901,
     "inferenceStartMs": 1792085958965,
     "modelName": "qwen3:32b",
-    "provider": "ollama-gpu",
+    "server": "ollama-gpu",
     "toolsUsed": [
       "artifact_head",
       "artifact_tail",

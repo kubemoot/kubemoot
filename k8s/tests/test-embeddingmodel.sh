@@ -13,7 +13,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/lib.sh"
 
 TEST_NAME="EmbeddingModel"
-PROVIDER_NAME="test-provider"
+SERVER_NAME="test-server"
 EMBEDDING_MODEL_NAME="test-embedding"
 OLLAMA_EMBEDDING_MODEL="nomic-embed-text"
 
@@ -22,7 +22,7 @@ parse_common_args "$@"
 cleanup() {
     log_info "Cleaning up EmbeddingModel test resources..."
     cleanup_resource embeddingmodel "$EMBEDDING_MODEL_NAME"
-    cleanup_resource modelprovider "$PROVIDER_NAME"
+    cleanup_resource modelserver "$SERVER_NAME"
     log_info "Cleanup complete"
 }
 
@@ -46,31 +46,31 @@ log_section "Pre-flight Checks"
 check_cluster || exit 1
 check_namespace || exit 1
 check_operator || exit 1
-check_crd "modelproviders.kubemoot.ai" || exit 1
+check_crd "modelservers.kubemoot.ai" || exit 1
 check_crd "embeddingmodels.kubemoot.ai" || exit 1
 check_ollama || exit 1
 
 #
-# Setup: Create ModelProvider
+# Setup: Create ModelServer
 #
-log_section "Setup: Create ModelProvider"
+log_section "Setup: Create ModelServer"
 
 cat <<EOF | kubectl apply -f -
 apiVersion: kubemoot.ai/v1alpha1
-kind: ModelProvider
+kind: ModelServer
 metadata:
-  name: $PROVIDER_NAME
+  name: $SERVER_NAME
   namespace: $NAMESPACE
 spec:
   type: ollama
   endpoint: http://ollama.$OLLAMA_NAMESPACE:11434
 EOF
 
-if wait_for "ModelProvider to be ready" \
-    "kubectl get modelprovider $PROVIDER_NAME -n $NAMESPACE -o jsonpath='{.status.ready}' | grep -q 'true'"; then
-    log_ok "ModelProvider is ready"
+if wait_for "ModelServer to be ready" \
+    "kubectl get modelserver $SERVER_NAME -n $NAMESPACE -o jsonpath='{.status.ready}' | grep -q 'true'"; then
+    log_ok "ModelServer is ready"
 else
-    log_fail "ModelProvider setup failed"
+    log_fail "ModelServer setup failed"
     exit 1
 fi
 
@@ -86,7 +86,7 @@ metadata:
   name: $EMBEDDING_MODEL_NAME
   namespace: $NAMESPACE
 spec:
-  providerRef: $PROVIDER_NAME
+  serverRef: $SERVER_NAME
   model: $OLLAMA_EMBEDDING_MODEL
   dimensions: 768
 EOF
@@ -161,12 +161,12 @@ else
 fi
 
 #
-# Cleanup: Delete ModelProvider
+# Cleanup: Delete ModelServer
 #
-log_section "Cleanup: Delete ModelProvider"
+log_section "Cleanup: Delete ModelServer"
 
-kubectl delete modelprovider "$PROVIDER_NAME" -n "$NAMESPACE"
-log_ok "ModelProvider deleted"
+kubectl delete modelserver "$SERVER_NAME" -n "$NAMESPACE"
+log_ok "ModelServer deleted"
 
 # Disable trap since we cleaned up
 trap - EXIT

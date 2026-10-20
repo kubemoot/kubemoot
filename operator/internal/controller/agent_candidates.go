@@ -41,7 +41,7 @@ func preferFasterOf(rule *kubemootv1alpha1.SchedulingRule) int32 {
 }
 
 // modelCandidate is one entry of a phase's candidate list: the model identifier
-// on the provider and its quality score under the crew's scheduling policy.
+// on the server and its quality score under the crew's scheduling policy.
 type modelCandidate struct {
 	Model string `json:"model"`
 	Score int64  `json:"score"`
@@ -65,9 +65,9 @@ func phaseQualityBias(agent *kubemootv1alpha1.Agent, policy *kubemootv1alpha1.Cr
 	return effectiveQualityBias(agent.Spec.Capabilities, policy.Spec.QualityBias)
 }
 
-// modelQualityScore is the policy-driven, provider-independent part of a
+// modelQualityScore is the policy-driven, server-independent part of a
 // candidate's score: the matching Prefer weights plus the qualityBias (model size)
-// and ability contributions. Locality, provider weight, and load terms are left
+// and ability contributions. Locality, server weight, and load terms are left
 // out so the score compares models, not placements.
 func modelQualityScore(rule *kubemootv1alpha1.SchedulingRule, m *kubemootv1alpha1.Model, sc phaseScoring) int64 {
 	score, _ := policyScore(rule, m, sc)
@@ -104,9 +104,9 @@ func matchesRequire(rule *kubemootv1alpha1.SchedulingRule, m *kubemootv1alpha1.M
 // rankedCandidates lists the models an agent may run for a phase: every Ready
 // Model the rule's Require selector admits, one entry per model identifier
 // (keeping its best quality score). The bound model comes first; the rest follow
-// by quality score, highest first, then by name. Provider readiness and VRAM are
-// left to the runtime's per-call pick, which reads live provider state, so the
-// list (and the Deployment env) stays stable while providers come and go.
+// by quality score, highest first, then by name. Server readiness and VRAM are
+// left to the runtime's per-call pick, which reads live server state, so the
+// list (and the Deployment env) stays stable while servers come and go.
 func rankedCandidates(bound string, rule *kubemootv1alpha1.SchedulingRule, models []kubemootv1alpha1.Model, sc phaseScoring) []modelCandidate {
 	best := map[string]int64{}
 	for i := range models {

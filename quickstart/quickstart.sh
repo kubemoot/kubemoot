@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Kubemoot quickstart: from an empty cluster to a crew answering a question.
 #
-# Installs NATS, a CPU Ollama with a small model, the operator chart, a ModelProvider,
+# Installs NATS, a CPU Ollama with a small model, the operator chart, a ModelServer,
 # and the two-agent "hello" crew; then asks the crew one question and prints the
 # answer. The same script is what CI runs (.github/workflows/quickstart.yaml), so the
 # README and the test cannot drift apart.
@@ -90,10 +90,10 @@ crd_args=("$KUBEMOOT_CHART"); [ -n "$KUBEMOOT_CHART_VERSION" ] && crd_args+=(--v
 helm show crds "${crd_args[@]}" | kubectl apply --server-side --force-conflicts -f -
 helm upgrade --install kubemoot-operator "$KUBEMOOT_CHART" "${chart_args[@]}"
 
-step "4/6 ModelProvider ollama-local"
-kubectl apply -f "$HERE/modelprovider.yaml"
-wait_for "ModelProvider ollama-local" "$READY_TIMEOUT" \
-  kubectl get modelprovider ollama-local -n kubemoot -o jsonpath='{.status.ready}'
+step "4/6 ModelServer ollama-local"
+kubectl apply -f "$HERE/modelserver.yaml"
+wait_for "ModelServer ollama-local" "$READY_TIMEOUT" \
+  kubectl get modelserver ollama-local -n kubemoot -o jsonpath='{.status.ready}'
 
 step "5/6 The hello crew (namespace $CREW_NS)"
 kubectl create namespace "$CREW_NS" --dry-run=client -o yaml | kubectl apply -f -

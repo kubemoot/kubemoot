@@ -9,10 +9,10 @@ import java.util.Map;
 
 /**
  * The signal metadata that names where an agent's inference calls ran: the model
- * and provider the scheduler placed each call on, not the model the agent is
+ * and server the scheduler placed each call on, not the model the agent is
  * configured to prefer. When the calls behind one signal ran in more than one
- * place, the signal names the last call's model and provider and lists every
- * distinct model@provider in {@code modelsUsed}. A signal with no known call keeps
+ * place, the signal names the last call's model and server and lists every
+ * distinct model@server in {@code modelsUsed}. A signal with no known call keeps
  * the configured model that {@code DiscussionSubscriber.publishSignal} seeds.
  */
 final class ModelAttribution {
@@ -24,7 +24,7 @@ final class ModelAttribution {
 
     /**
      * {@code modelName} (the last call's model) and {@code modelsUsed} (each distinct
-     * model@provider, in call order); empty when no call with a known model ran.
+     * model@server, in call order); empty when no call with a known model ran.
      */
     static Map<String, Object> of(List<ModelUse> uses) {
         List<ModelUse> known = known(uses);
@@ -38,13 +38,13 @@ final class ModelAttribution {
     }
 
     /**
-     * The provider the last call ran on, or {@code fallback} when no call is known or
-     * the last one went to the static endpoint rather than a picked provider.
+     * The server the last call ran on, or {@code fallback} when no call is known or
+     * the last one went to the static endpoint rather than a picked server.
      */
     static String gpuLabel(List<ModelUse> uses, String fallback) {
         List<ModelUse> known = known(uses);
-        String provider = known.isEmpty() ? null : GpuLabels.fromProvider(last(known).provider());
-        return provider != null ? provider : fallback;
+        String server = known.isEmpty() ? null : GpuLabels.fromServer(last(known).server());
+        return server != null ? server : fallback;
     }
 
     private static List<ModelUse> known(List<ModelUse> uses) {

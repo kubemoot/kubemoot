@@ -75,7 +75,7 @@ echo ""
 
 if [ "$CLEANUP_ONLY" = true ]; then
     echo -e "${BLUE}[INFO]${NC} Running cleanup for all tests..."
-    "$SCRIPT_DIR/test-modelprovider.sh" --cleanup
+    "$SCRIPT_DIR/test-modelserver.sh" --cleanup
     "$SCRIPT_DIR/test-model.sh" --cleanup
     "$SCRIPT_DIR/test-mcpserver.sh" --cleanup
     "$SCRIPT_DIR/test-embeddingmodel.sh" --cleanup
@@ -123,7 +123,7 @@ run_test() {
 #
 # Run individual tests
 #
-run_test "ModelProvider" "test-modelprovider.sh"
+run_test "ModelServer" "test-modelserver.sh"
 
 if [ "$FAST_MODE" = true ]; then
     run_test "Model" "test-model.sh" true
@@ -168,7 +168,7 @@ echo "  Full Test Suite Results"
 echo "==============================================${NC}"
 echo ""
 
-for test_name in "ModelProvider" "Model" "MCPServer" "EmbeddingModel" "RAGSource" "RAGSource-Schedule" "RAG-Query" "RAGSource-QueryService" "Agent" "MCPGateway" "Agent-MCP" "MCPQualityPolicy" "MCPCatalog" "InternalAgents"; do
+for test_name in "ModelServer" "Model" "MCPServer" "EmbeddingModel" "RAGSource" "RAGSource-Schedule" "RAG-Query" "RAGSource-QueryService" "Agent" "MCPGateway" "Agent-MCP" "MCPQualityPolicy" "MCPCatalog" "InternalAgents"; do
     result="${TEST_RESULTS[$test_name]:-UNKNOWN}"
     case $result in
         PASSED)

@@ -29,14 +29,14 @@ const (
 	big   = "big:32b"
 )
 
-// sample is a warm, successful crew call generating at tps with active calls on the provider.
+// sample is a warm, successful crew call generating at tps with active calls on the server.
 func sample(at, tps, active int64) bus.SchedulerPerformanceSamplesElem {
 	return bus.SchedulerPerformanceSamplesElem{At: at, Ok: true, ActiveCalls: active,
 		Kind: bus.SchedulerPerformanceSamplesElemKindToolTurn, OutputTokens: tps, EvalMs: 1000}
 }
 
-func entry(provider, model string, samples ...bus.SchedulerPerformanceSamplesElem) bus.SchedulerPerformance {
-	return bus.SchedulerPerformance{Provider: provider, Model: model, Agent: "crew/a", Samples: samples}
+func entry(server, model string, samples ...bus.SchedulerPerformanceSamplesElem) bus.SchedulerPerformance {
+	return bus.SchedulerPerformance{Server: server, Model: model, Agent: "crew/a", Samples: samples}
 }
 
 func TestObserve_splitsSoloFromSharedCalls_andLeavesOutWhatIsNotComparable(t *testing.T) {
@@ -148,7 +148,7 @@ func TestCalibratedSpeeds(t *testing.T) {
 		t.Errorf("no calibration: %v %d", speeds, since)
 	}
 	done := metav1.NewTime(time.Unix(1700000000, 0))
-	speeds, since = CalibratedSpeeds(&aiv1alpha1.ProviderCalibration{CompletedAt: &done,
+	speeds, since = CalibratedSpeeds(&aiv1alpha1.ServerCalibration{CompletedAt: &done,
 		Models: []aiv1alpha1.ModelCalibration{{Model: small, Fits: true, GenerateTokensPerSecond: 100},
 			{Model: big, Fits: false, GenerateTokensPerSecond: 5}}})
 	if speeds[small] != 100 || len(speeds) != 1 || since != done.UnixMilli() {

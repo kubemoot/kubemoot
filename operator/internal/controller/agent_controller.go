@@ -19,11 +19,11 @@ You may obtain a copy of the License at
 //
 //  1. Resolve the CrewSchedulingPolicy for the agent's crew (if any).
 //  2. For each phase (mulling, triage), filter Models against the policy's
-//     require rules and Model.vramMib vs ModelProvider capacity. Score the
+//     require rules and Model.vramMib vs ModelServer capacity. Score the
 //     feasible set against the prefer rules and pick the highest.
 //  3. Build a policy ConfigMap (system.txt assembled from PromptModule refs)
 //     and a Deployment with KUBEMOOT_* env vars pointing at the chosen
-//     (model, provider, endpoint).
+//     (model, server, endpoint).
 //  4. Update Agent.status with readiness, scheduling decision, and
 //     observed dependencies.
 package controller
@@ -75,23 +75,23 @@ const (
 )
 
 // requeueUnscheduledInterval is how often the reconciler retries when no
-// feasible Model exists yet — typically resolved when a ModelProvider
+// feasible Model exists yet — typically resolved when a ModelServer
 // becomes Ready or a Model CR is created.
 const requeueUnscheduledInterval = 30 * time.Second
 
 // scoreCandidate computes the score and human-readable reason tokens for a
-// (model, provider) candidate under a given phase rule. It composes the
-// policy-driven terms (policyScore) and the provider's phase-aware scheduling weight. Both
-// come from the spec, never from live provider state (loaded models, agent
+// (model, server) candidate under a given phase rule. It composes the
+// policy-driven terms (policyScore) and the server's phase-aware scheduling weight. Both
+// come from the spec, never from live server state (loaded models, agent
 // counts): the pick becomes the agent's default endpoint in the pod template,
 // and a pick that follows live state rolls the pod whenever the state moves.
 // Where each inference call actually runs is decided per call by the runtime.
-func scoreCandidate(phase string, rule *kubemootv1alpha1.SchedulingRule, m *kubemootv1alpha1.Model, prov *kubemootv1alpha1.ModelProvider, sc phaseScoring) (int64, []string) {
+func scoreCandidate(phase string, rule *kubemootv1alpha1.SchedulingRule, m *kubemootv1alpha1.Model, prov *kubemootv1alpha1.ModelServer, sc phaseScoring) (int64, []string) {
 	score, reasonParts := policyScore(rule, m, sc)
 
-	if ps := providerScore(phase, prov); ps != 0 {
+	if ps := serverScore(phase, prov); ps != 0 {
 		score += ps
-		reasonParts = append(reasonParts, fmt.Sprintf("provider%+d", ps))
+		reasonParts = append(reasonParts, fmt.Sprintf("server%+d", ps))
 	}
 	return score, reasonParts
 }
@@ -126,13 +126,13 @@ func isCoordinator(agent *kubemootv1alpha1.Agent) bool {
 	return agent.Spec.DiscussRole == roleCoordinator || agent.Labels[annoRole] == roleCoordinator
 }
 
-// providerScore returns the phase-aware contribution from a ModelProvider's
-// scheduling weight. Mulling adds the weight (favoring heavy providers like
-// a 5090 with weight=100); triage subtracts it (favoring lighter providers
-// like a 4090 with weight=25). Without this term, providers carrying
+// serverScore returns the phase-aware contribution from a ModelServer's
+// scheduling weight. Mulling adds the weight (favoring heavy servers like
+// a 5090 with weight=100); triage subtracts it (favoring lighter servers
+// like a 4090 with weight=25). Without this term, servers carrying
 // identically-labeled Models tie on the prefer rules and the alphabetical
-// Model-name tiebreaker collapses every binding onto a single provider.
-func providerScore(phase string, prov *kubemootv1alpha1.ModelProvider) int64 {
+// Model-name tiebreaker collapses every binding onto a single server.
+func serverScore(phase string, prov *kubemootv1alpha1.ModelServer) int64 {
 	if prov == nil || prov.Spec.Scheduling == nil {
 		return 0
 	}
@@ -156,7 +156,7 @@ const (
 // +kubebuilder:rbac:groups=kubemoot.ai,resources=agents/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=kubemoot.ai,resources=agents/finalizers,verbs=update
 // +kubebuilder:rbac:groups=kubemoot.ai,resources=models,verbs=get;list;watch
-// +kubebuilder:rbac:groups=kubemoot.ai,resources=modelproviders,verbs=get;list;watch
+// +kubebuilder:rbac:groups=kubemoot.ai,resources=modelservers,verbs=get;list;watch
 // +kubebuilder:rbac:groups=kubemoot.ai,resources=crewschedulingpolicies,verbs=get;list;watch
 // +kubebuilder:rbac:groups=kubemoot.ai,resources=mootarchetypes,verbs=get;list;watch
 // +kubebuilder:rbac:groups=kubemoot.ai,resources=promptmodules,verbs=get;list;watch
@@ -221,7 +221,7 @@ func (r *AgentReconciler) pickPhaseModels(ctx context.Context, agent *kubemootv1
 
 // markUnschedulable sets the Agent's status to Unschedulable (using mullingErr's
 // message when present) and requeues for a later retry once a feasible Model or
-// Ready ModelProvider appears.
+// Ready ModelServer appears.
 func (r *AgentReconciler) markUnschedulable(ctx context.Context, agent *kubemootv1alpha1.Agent, mullingErr error) (ctrl.Result, error) {
 	log := logf.FromContext(ctx)
 	agent.Status.Phase = "Unschedulable"
@@ -237,13 +237,13 @@ func (r *AgentReconciler) markUnschedulable(ctx context.Context, agent *kubemoot
 	return ctrl.Result{RequeueAfter: requeueUnscheduledInterval}, nil
 }
 
-// modelPick records the resolved (Model, ModelProvider) for one phase.
+// modelPick records the resolved (Model, ModelServer) for one phase.
 type modelPick struct {
 	ModelID  string
 	Endpoint string
 	Reason   string
 	Model    *kubemootv1alpha1.Model
-	Provider *kubemootv1alpha1.ModelProvider
+	Server   *kubemootv1alpha1.ModelServer
 	// Candidates is the phase's ranked candidate list (ModelID first), handed to
 	// the runtime so its per-call pick can use a warm in-tolerance model.
 	Candidates []modelCandidate
@@ -252,14 +252,14 @@ type modelPick struct {
 	PreferFaster int32
 }
 
-// scheduleCandidate is one feasible (Model, ModelProvider) pairing under
+// scheduleCandidate is one feasible (Model, ModelServer) pairing under
 // consideration during pickModel scoring.
 type scheduleCandidate struct {
-	model    *kubemootv1alpha1.Model
-	provider *kubemootv1alpha1.ModelProvider
-	score    int64
+	model  *kubemootv1alpha1.Model
+	server *kubemootv1alpha1.ModelServer
+	score  int64
 	// policy is the policy-driven part of score (prefer weights, model size,
-	// abilities), without the provider's weight.
+	// abilities), without the server's weight.
 	policy int64
 	reason string
 }
@@ -285,9 +285,9 @@ func candidateBefore(a, b scheduleCandidate) bool {
 }
 
 // catalogBefore orders candidates from the cluster catalog: the model the policy
-// ranks higher first, whatever provider carries it; the provider's scheduling weight
-// only decides among the same policy score. A provider's weight says which provider to
-// prefer for a model, not how good a model is, and providers a cluster owner sets
+// ranks higher first, whatever server carries it; the server's scheduling weight
+// only decides among the same policy score. A server's weight says which server to
+// prefer for a model, not how good a model is, and servers a cluster owner sets
 // weights on (a CPU server at 50 beside accelerator servers with none) are not
 // comparable with the policy's points, so adding the two let a weight outrank a model
 // the policy ranked far higher. Ties continue as in candidateBefore.
@@ -300,7 +300,7 @@ func catalogBefore(a, b scheduleCandidate) bool {
 
 // pickModel runs filter+score for one phase and returns the best feasible pick.
 // The ranking reads only spec-level inputs (see scoreCandidate), so the same
-// Models and providers always yield the same pick and the agent's pod template
+// Models and servers always yield the same pick and the agent's pod template
 // stays put while models load and unload.
 func (r *AgentReconciler) pickModel(ctx context.Context, agent *kubemootv1alpha1.Agent, phase string) (*modelPick, error) {
 	policy, rule := r.findPolicyAndRule(ctx, agent, phase)
@@ -334,17 +334,17 @@ func (r *AgentReconciler) pickModel(ctx context.Context, agent *kubemootv1alpha1
 	}
 	return &modelPick{
 		ModelID:      pick.model.Spec.Model,
-		Endpoint:     pick.provider.EndpointFor(pick.model.Spec.Model),
+		Endpoint:     pick.server.EndpointFor(pick.model.Spec.Model),
 		Reason:       reason,
 		Model:        pick.model,
-		Provider:     pick.provider,
+		Server:       pick.server,
 		Candidates:   rankedCandidates(pick.model.Spec.Model, rule, models.Items, sc),
 		PreferFaster: preferFasterOf(rule),
 	}, nil
 }
 
 // feasibleCandidates filters the Models against the phase's require selector and
-// VRAM capacity, resolves each Model's provider, and scores the survivors. It
+// VRAM capacity, resolves each Model's server, and scores the survivors. It
 // returns the scored candidate set (unsorted) for pickModel to rank. effBias
 // comes from newPhaseScoring.
 func (r *AgentReconciler) feasibleCandidates(ctx context.Context, agent *kubemootv1alpha1.Agent, phase string, rule *kubemootv1alpha1.SchedulingRule, models *kubemootv1alpha1.ModelList, sc phaseScoring) ([]scheduleCandidate, error) {
@@ -364,7 +364,7 @@ func (r *AgentReconciler) feasibleCandidates(ctx context.Context, agent *kubemoo
 
 // evaluateCandidate decides whether a single Model is feasible for the phase and,
 // if so, returns its scored candidate. ok=false means the Model was filtered out
-// (not ready, require-mismatch, no ready provider, or VRAM-too-large). A non-nil
+// (not ready, require-mismatch, no ready server, or VRAM-too-large). A non-nil
 // error is only an invalid require selector (which aborts the whole pick).
 func (r *AgentReconciler) evaluateCandidate(ctx context.Context, agent *kubemootv1alpha1.Agent, phase string, rule *kubemootv1alpha1.SchedulingRule, m *kubemootv1alpha1.Model, sc phaseScoring) (scheduleCandidate, bool, error) {
 	prov, feasible, err := r.candidateFeasible(ctx, agent, phase, rule, m)
@@ -372,22 +372,22 @@ func (r *AgentReconciler) evaluateCandidate(ctx context.Context, agent *kubemoot
 		return scheduleCandidate{}, false, err
 	}
 	score, reasonParts := scoreCandidate(phase, rule, m, prov, sc)
-	policy := score - providerScore(phase, prov)
+	policy := score - serverScore(phase, prov)
 	return scheduleCandidate{
-		model:    m,
-		provider: prov,
-		score:    score,
-		policy:   policy,
-		reason:   strings.Join(reasonParts, ","),
+		model:  m,
+		server: prov,
+		score:  score,
+		policy: policy,
+		reason: strings.Join(reasonParts, ","),
 	}, true, nil
 }
 
 // candidateFeasible applies the feasibility gates for one (Model, phase): the
 // Model must be Ready, satisfy the rule's Require constraints, resolve to a Ready
-// ModelProvider, and fit the provider's VRAM. Returns the resolved provider with
+// ModelServer, and fit the server's VRAM. Returns the resolved server with
 // feasible=true only when every gate passes; a malformed Require selector is the
 // one error (it can't be silently skipped without masking a misconfiguration).
-func (r *AgentReconciler) candidateFeasible(ctx context.Context, agent *kubemootv1alpha1.Agent, phase string, rule *kubemootv1alpha1.SchedulingRule, m *kubemootv1alpha1.Model) (*kubemootv1alpha1.ModelProvider, bool, error) {
+func (r *AgentReconciler) candidateFeasible(ctx context.Context, agent *kubemootv1alpha1.Agent, phase string, rule *kubemootv1alpha1.SchedulingRule, m *kubemootv1alpha1.Model) (*kubemootv1alpha1.ModelServer, bool, error) {
 	if !m.Status.Ready {
 		return nil, false, nil
 	}
@@ -398,30 +398,30 @@ func (r *AgentReconciler) candidateFeasible(ctx context.Context, agent *kubemoot
 	if !matches {
 		return nil, false, nil
 	}
-	prov, ok := r.providerOf(ctx, agent.Namespace, m)
+	prov, ok := r.serverOf(ctx, agent.Namespace, m)
 	if !ok || !prov.Status.Ready {
 		return nil, false, nil
 	}
-	if !modelFitsProvider(m, prov) {
+	if !modelFitsServer(m, prov) {
 		return nil, false, nil
 	}
 	return prov, true, nil
 }
 
-// modelFitsProvider reports whether the Model's declared VRAM fits the provider's
+// modelFitsServer reports whether the Model's declared VRAM fits the server's
 // total VRAM. Unknown VRAM on either side (0) is treated as a fit (not enough
 // information to exclude).
-func modelFitsProvider(m *kubemootv1alpha1.Model, prov *kubemootv1alpha1.ModelProvider) bool {
+func modelFitsServer(m *kubemootv1alpha1.Model, prov *kubemootv1alpha1.ModelServer) bool {
 	if m.Spec.VRAMMib > 0 && prov.Status.Capacity != nil && prov.Status.Capacity.VRAMTotalMiB > 0 {
 		return int64(m.Spec.VRAMMib) <= prov.Status.Capacity.VRAMTotalMiB
 	}
 	return true
 }
 
-// resolveProvider looks up a ModelProvider in the agent's namespace then
-// cluster-wide. Returns (provider, true) on success or (nil, false) if absent.
-func (r *AgentReconciler) resolveProvider(ctx context.Context, namespace, name string) (*kubemootv1alpha1.ModelProvider, bool) {
-	prov := &kubemootv1alpha1.ModelProvider{}
+// resolveServer looks up a ModelServer in the agent's namespace then
+// cluster-wide. Returns (server, true) on success or (nil, false) if absent.
+func (r *AgentReconciler) resolveServer(ctx context.Context, namespace, name string) (*kubemootv1alpha1.ModelServer, bool) {
+	prov := &kubemootv1alpha1.ModelServer{}
 	// Try agent's namespace first.
 	if err := r.Get(ctx, types.NamespacedName{Name: name, Namespace: namespace}, prov); err == nil {
 		return prov, true
@@ -580,10 +580,10 @@ func (r *AgentReconciler) ensureDeployment(ctx context.Context, agent *kubemootv
 	// Independently of the spec hash, check whether Deployment.metadata.Labels
 	// diverge from desired. The spec hash covers Spec.Template.Labels (those
 	// match the pod selector) but NOT the top-level Deployment metadata
-	// labels. countAssignedAgents in ModelProviderReconciler queries on the
+	// labels. countAssignedAgents in ModelServerReconciler queries on the
 	// top-level labels via label selectors — they must reflect the latest
 	// scheduling decision even when no spec change otherwise warrants an
-	// update. The provider bindings are Deployment-only labels, so a changed
+	// update. The server bindings are Deployment-only labels, so a changed
 	// binding is recorded here without touching the pod template.
 	labelsChanged := !maps.Equal(existing.Labels, desired.Labels)
 	// The spec hash covers the pod template + replicas but NOT Spec.Strategy, so a
@@ -754,17 +754,17 @@ func (r *AgentReconciler) resolveDeploymentParams(agent *kubemootv1alpha1.Agent)
 }
 
 // buildDeploymentLabels builds the Deployment labels, including the per-phase
-// provider bindings used by ModelProviderReconciler to count the agents each
-// provider hosts. The provider labels live on the Deployment only: the pod
+// server bindings used by ModelServerReconciler to count the agents each
+// server hosts. The server labels live on the Deployment only: the pod
 // template carries podLabels, so a binding change never rolls the pod. The
 // selector uses neither.
 func buildDeploymentLabels(agent *kubemootv1alpha1.Agent, mulling, triage *modelPick) map[string]string {
 	labelsMap := podLabels(agent)
-	if mulling != nil && mulling.Provider != nil {
-		labelsMap[labelMullingProvider] = mulling.Provider.Name
+	if mulling != nil && mulling.Server != nil {
+		labelsMap[labelMullingServer] = mulling.Server.Name
 	}
-	if triage != nil && triage.Provider != nil {
-		labelsMap[labelTriageProvider] = triage.Provider.Name
+	if triage != nil && triage.Server != nil {
+		labelsMap[labelTriageServer] = triage.Server.Name
 	}
 	return labelsMap
 }
@@ -785,10 +785,10 @@ func podLabels(agent *kubemootv1alpha1.Agent) map[string]string {
 	return labelsMap
 }
 
-// Deployment labels recording which ModelProvider each phase is bound to.
+// Deployment labels recording which ModelServer each phase is bound to.
 const (
-	labelMullingProvider = "kubemoot.ai/mulling-provider"
-	labelTriageProvider  = "kubemoot.ai/triage-provider"
+	labelMullingServer = "kubemoot.ai/mulling-server"
+	labelTriageServer  = "kubemoot.ai/triage-server"
 )
 
 // skillsMountPath is the fixed volume-mount path for the per-crew skills
@@ -1137,7 +1137,7 @@ func (r *AgentReconciler) refreshStatus(ctx context.Context, agent *kubemootv1al
 	agent.Status.Ready = true
 	agent.Status.Endpoint = fmt.Sprintf("http://%s.%s.svc.cluster.local:%d", agent.Name, agent.Namespace, port)
 	agent.Status.Message = fmt.Sprintf("mulling=%s@%s; triage=%s@%s",
-		mulling.ModelID, mulling.Provider.Name, triage.ModelID, triage.Provider.Name)
+		mulling.ModelID, mulling.Server.Name, triage.ModelID, triage.Server.Name)
 	return r.Status().Update(ctx, agent)
 }
 
@@ -1194,12 +1194,12 @@ func (r *AgentReconciler) SetupWithManager(mgr ctrl.Manager) error {
 			enqueueNamespaceAgents[*kubemootv1alpha1.Model](mgr.GetClient(), "Model"),
 			builder.WithPredicates(modelBindingChanged()),
 		).
-		// Re-reconcile the Agents that can use a ModelProvider when its model catalog
-		// changes (a model appears, goes away, is relabeled, or the provider's
+		// Re-reconcile the Agents that can use a ModelServer when its model catalog
+		// changes (a model appears, goes away, is relabeled, or the server's
 		// readiness changes), so bindings follow the cluster's models with no edit in
 		// the crew. See catalog_propagation.go.
 		Watches(
-			&kubemootv1alpha1.ModelProvider{},
+			&kubemootv1alpha1.ModelServer{},
 			enqueueAgentsOnCatalogChange(mgr.GetClient()),
 			builder.WithPredicates(catalogChanged()),
 		).

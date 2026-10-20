@@ -100,9 +100,9 @@ type fakeLifecycle struct {
 	slow    time.Duration
 }
 
-func (l *fakeLifecycle) Ready(_ context.Context, provider, model string) error {
+func (l *fakeLifecycle) Ready(_ context.Context, server, model string) error {
 	l.mu.Lock()
-	l.readied = append(l.readied, provider+"/"+model)
+	l.readied = append(l.readied, server+"/"+model)
 	l.mu.Unlock()
 	time.Sleep(l.slow)
 	if l.err != nil {
@@ -112,13 +112,13 @@ func (l *fakeLifecycle) Ready(_ context.Context, provider, model string) error {
 	return nil
 }
 
-func (l *fakeLifecycle) Release(_ context.Context, provider, model string) error {
-	l.freed = append(l.freed, provider+"/"+model)
+func (l *fakeLifecycle) Release(_ context.Context, server, model string) error {
+	l.freed = append(l.freed, server+"/"+model)
 	return l.err
 }
 
 func vllmOn(srv *httptest.Server, l Lifecycle) VLLMEngine {
-	return VLLMEngine{Endpoint: srv.URL, Provider: "vllm-rig1", Model: vllmModel, Lifecycle: l}
+	return VLLMEngine{Endpoint: srv.URL, Server: "vllm-rig1", Model: vllmModel, Lifecycle: l}
 }
 
 func TestGenerateReadsPromptAndGenerationTimingsFromTheStream(t *testing.T) {

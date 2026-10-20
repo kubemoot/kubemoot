@@ -117,8 +117,8 @@ rules:
   - mcpgateways
   - mcpserverreports
   - mcpservers
-  - modelproviders
   - models
+  - modelservers
   - mootarchetypes
   - notificationsinks
   - ragsources
@@ -145,8 +145,8 @@ rules:
   - mcpgateways/finalizers
   - mcpserverreports/finalizers
   - mcpservers/finalizers
-  - modelproviders/finalizers
   - models/finalizers
+  - modelservers/finalizers
   - mootarchetypes/finalizers
   - notificationsinks/finalizers
   - ragsources/finalizers
@@ -168,8 +168,8 @@ rules:
   - mcpqualitypolicies/status
   - mcpserverreports/status
   - mcpservers/status
-  - modelproviders/status
   - models/status
+  - modelservers/status
   - mootarchetypes/status
   - notificationsinks/status
   - ragsources/status

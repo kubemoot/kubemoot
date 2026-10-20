@@ -70,7 +70,7 @@
 			<div class="sections">
 				<Section title="Spec">
 					<InfoRow label="Model ID" value={model.spec.model} mono />
-					<InfoRow label="Provider Ref" value={model.spec.providerRef} />
+					<InfoRow label="Server Ref" value={model.spec.serverRef} />
 					<InfoRow label="Vector Dimensions" value={model.spec.dimensions} />
 				</Section>
 

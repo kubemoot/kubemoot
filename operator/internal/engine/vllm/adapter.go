@@ -15,11 +15,11 @@ limitations under the License.
 */
 
 // Package vllm is the engine adapter for vLLM servers that someone else runs.
-// vLLM's sleep mode serves one model per server, so a provider is a set of
+// vLLM's sleep mode serves one model per server, so a server is a set of
 // servers: one OpenAI-compatible endpoint per served model, all but one of them
 // asleep on a shared accelerator. The adapter reads each server's /health,
 // /v1/models, /is_sleeping and /metrics, makes a model ready by waking its
-// server (after putting any other awake server of the provider to sleep), and
+// server (after putting any other awake vLLM server of the ModelServer to sleep), and
 // releases a model by putting its server to sleep. It never restarts a server:
 // a restart takes 34 to 47 s where a wake takes 0.7 to 4.9 s.
 package vllm
@@ -54,11 +54,11 @@ const (
 
 // DefaultMaxSequences is vLLM's default ceiling on the sequences one server schedules
 // at once. A server batches requests and has no fixed slots; this is the parallelism
-// the operator publishes for a vLLM provider, so a reader that divides by it does not
+// the operator publishes for a vLLM server, so a reader that divides by it does not
 // serialize the batch.
 const DefaultMaxSequences = 256
 
-// Adapter talks to the vLLM servers of one provider over HTTP.
+// Adapter talks to the vLLM servers of one ModelServer over HTTP.
 type Adapter struct {
 	client *http.Client
 }
@@ -93,12 +93,12 @@ func isNotFound(err error) bool {
 }
 
 // serversOf is the servers the spec lists; none when the spec has no vllm block.
-func serversOf(spec aiv1alpha1.ModelProviderSpec) []aiv1alpha1.VLLMServer {
+func serversOf(spec aiv1alpha1.ModelServerSpec) []aiv1alpha1.VLLMServer {
 	return spec.Servers
 }
 
 // serverFor is the server that serves model.
-func serverFor(spec aiv1alpha1.ModelProviderSpec, model string) (aiv1alpha1.VLLMServer, error) {
+func serverFor(spec aiv1alpha1.ModelServerSpec, model string) (aiv1alpha1.VLLMServer, error) {
 	for _, s := range serversOf(spec) {
 		if s.Model == model {
 			return s, nil
@@ -107,11 +107,11 @@ func serverFor(spec aiv1alpha1.ModelProviderSpec, model string) (aiv1alpha1.VLLM
 	return aiv1alpha1.VLLMServer{}, fmt.Errorf("no vLLM server serves model %q", model)
 }
 
-// Ready wakes the server of model. Any other server of the provider that is
+// Ready wakes the vLLM server of model. Any other vLLM server of the ModelServer that is
 // awake is put to sleep first, so the accelerator has room; a server that does
 // not answer holds nothing and is left alone. A model whose server is already
 // awake, or has no sleep endpoints, needs nothing.
-func (a *Adapter) Ready(ctx context.Context, spec aiv1alpha1.ModelProviderSpec, model string) error {
+func (a *Adapter) Ready(ctx context.Context, spec aiv1alpha1.ModelServerSpec, model string) error {
 	target, err := serverFor(spec, model)
 	if err != nil {
 		return err
@@ -138,9 +138,9 @@ func (a *Adapter) Ready(ctx context.Context, spec aiv1alpha1.ModelProviderSpec, 
 	return a.wake(ctx, target.Endpoint, level)
 }
 
-// Release puts the server of model to sleep at the provider's sleep level. A
+// Release puts the server of model to sleep at the server's sleep level. A
 // server already asleep is left as it is.
-func (a *Adapter) Release(ctx context.Context, spec aiv1alpha1.ModelProviderSpec, model string) error {
+func (a *Adapter) Release(ctx context.Context, spec aiv1alpha1.ModelServerSpec, model string) error {
 	target, err := serverFor(spec, model)
 	if err != nil {
 		return err

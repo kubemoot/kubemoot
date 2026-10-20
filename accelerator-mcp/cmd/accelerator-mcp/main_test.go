@@ -21,7 +21,7 @@ func TestNewToolSet_wiresTheSixTools(t *testing.T) {
 		t.Fatalf("six tools: %v", set.Specifications())
 	}
 	if set.Jobs == nil {
-		t.Fatal("no background jobs runner for calibrate_provider")
+		t.Fatal("no background jobs runner for calibrate_server")
 	}
 	if _, ok := set.Prober.(*probe.Prober); !ok {
 		t.Fatalf("the prober the idle unloader drives: %T", set.Prober)

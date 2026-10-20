@@ -9,7 +9,7 @@ You may obtain a copy of the License at
 */
 
 // Command accelerator-mcp is the stdio MCP server the scheduling crew uses to see
-// and measure the cluster's model providers: list them, read one's live state,
+// and measure the cluster's model servers: list them, read one's live state,
 // probe a model on one, and record a calibration on its status.
 //
 // Configuration via env vars:
@@ -17,7 +17,7 @@ You may obtain a copy of the License at
 //	NATS_URL   NATS server (default nats://nats.nats.svc.cluster.local:4222)
 //
 // The Kubernetes client uses the in-cluster service account (or KUBECONFIG). It
-// needs get and list on modelproviders and models, and patch on modelproviders/status.
+// needs get and list on modelservers and models, and patch on modelservers/status.
 //
 // Reads JSON-RPC messages line by line on stdin and writes responses on stdout.
 package main
@@ -134,7 +134,7 @@ func newToolSet(
 // and put to sleep through the operator, never directly.
 func vllmFor(httpClient *http.Client, lifecycle engine.Lifecycle) func(probe.Request) engine.Engine {
 	return func(req probe.Request) engine.Engine {
-		return engine.VLLMEngine{Endpoint: req.Endpoint, Provider: req.Provider, Model: req.Model,
+		return engine.VLLMEngine{Endpoint: req.Endpoint, Server: req.Server, Model: req.Model,
 			Client: httpClient, Lifecycle: lifecycle}
 	}
 }

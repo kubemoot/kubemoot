@@ -1,5 +1,5 @@
 export { default as ResourceCard } from './ResourceCard.svelte';
-export { default as ModelProviderCard } from './ModelProviderCard.svelte';
+export { default as ModelServerCard } from './ModelServerCard.svelte';
 export { default as ModelCard } from './ModelCard.svelte';
 export { default as EmbeddingModelCard } from './EmbeddingModelCard.svelte';
 export { default as MCPServerCard } from './MCPServerCard.svelte';

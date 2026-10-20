@@ -95,7 +95,7 @@ func Factory(client *http.Client) engine.Adapter {
 // which of the two answered, and Probe fails only when neither did. Ollama
 // exports no request counts or cache use, so those stay unknown, and the agents'
 // tickets keep the live counts.
-func (a *Adapter) Probe(ctx context.Context, spec aiv1alpha1.ModelProviderSpec) (engine.Snapshot, error) {
+func (a *Adapter) Probe(ctx context.Context, spec aiv1alpha1.ModelServerSpec) (engine.Snapshot, error) {
 	endpoint := spec.Endpoint
 	var snap engine.Snapshot
 
@@ -117,14 +117,14 @@ func (a *Adapter) Probe(ctx context.Context, spec aiv1alpha1.ModelProviderSpec) 
 	return snap, nil
 }
 
-// Ready loads model with the provider's default keep-alive, the call a first
+// Ready loads model with the server's default keep-alive, the call a first
 // request would make.
-func (a *Adapter) Ready(ctx context.Context, spec aiv1alpha1.ModelProviderSpec, model string) error {
+func (a *Adapter) Ready(ctx context.Context, spec aiv1alpha1.ModelServerSpec, model string) error {
 	return a.generate(ctx, spec.Endpoint, map[string]any{keyModel: model})
 }
 
 // Release unloads model at once with keep_alive 0.
-func (a *Adapter) Release(ctx context.Context, spec aiv1alpha1.ModelProviderSpec, model string) error {
+func (a *Adapter) Release(ctx context.Context, spec aiv1alpha1.ModelServerSpec, model string) error {
 	return a.generate(ctx, spec.Endpoint, map[string]any{keyModel: model, "keep_alive": 0})
 }
 

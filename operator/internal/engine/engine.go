@@ -15,13 +15,13 @@ limitations under the License.
 */
 
 // Package engine is the seam between the operator and a model server's engine
-// (Ollama and vLLM). An Adapter probes one provider and reports what the published
-// provider-state contract carries, and asks the engine to make a model ready or
+// (Ollama and vLLM). An Adapter probes one server and reports what the published
+// server-state contract carries, and asks the engine to make a model ready or
 // release it. The package holds the interface, the snapshot a probe returns, and
-// the registry that picks an adapter by ModelProvider spec.type; each engine's
+// the registry that picks an adapter by ModelServer spec.type; each engine's
 // adapter lives in its own package below and is registered by the caller.
 //
-// An adapter is given the provider's whole spec, because a provider may be one server,
+// An adapter is given the server's whole spec, because a server may be one server,
 // a pool behind one address, or one server per model; nothing here assumes one process.
 package engine
 
@@ -31,7 +31,7 @@ import (
 	aiv1alpha1 "github.com/kubemoot/kubemoot/operator/api/v1alpha1"
 )
 
-// ModelState is where one model stands on a provider.
+// ModelState is where one model stands on a server.
 type ModelState string
 
 const (
@@ -39,11 +39,11 @@ const (
 	StateAwake ModelState = "awake"
 	// StateAsleep is a model the engine parked and can wake quickly.
 	StateAsleep ModelState = "asleep"
-	// StateAvailable is a model the provider has but has not loaded.
+	// StateAvailable is a model the server has but has not loaded.
 	StateAvailable ModelState = "available"
 )
 
-// Snapshot is what one probe of a provider found. A field the engine does not
+// Snapshot is what one probe of a server found. A field the engine does not
 // report, or could not read this time, is nil or false; that means "unknown",
 // never "none".
 type Snapshot struct {
@@ -54,7 +54,7 @@ type Snapshot struct {
 	// LoadedSizesKnown is true when Loaded carries each model's accelerator memory,
 	// so the accelerator memory in use can be read from it.
 	LoadedSizesKnown bool
-	// Available is the models the provider has downloaded, loaded or not. It is
+	// Available is the models the server has downloaded, loaded or not. It is
 	// meaningful only when AvailableKnown is true.
 	Available      []aiv1alpha1.AvailableModel
 	AvailableKnown bool
@@ -63,11 +63,11 @@ type Snapshot struct {
 	// not tell which models are loaded.
 	ModelStates map[string]ModelState
 	// RequestsRunning and RequestsWaiting are the engine's own request counts. For a
-	// provider of several servers they are summed over the servers that answered.
+	// ModelServer of several vLLM servers they are summed over the vLLM servers that answered.
 	RequestsRunning *int
 	RequestsWaiting *int
 	// KVCacheUsage is the fraction of the engine's key-value cache in use, 0 to 1. For a
-	// provider of several servers it is the highest of the servers that answered: the
+	// ModelServer of several vLLM servers it is the highest of the vLLM servers that answered: the
 	// cache closest to full.
 	KVCacheUsage *float64
 	// SwitchCostMs is the observed time to make each model ready, by model.
@@ -89,13 +89,13 @@ func (s Snapshot) VRAMUsedMiB() int64 {
 // Adapter is how the operator talks to one engine. Implementations are safe for
 // concurrent use.
 type Adapter interface {
-	// Probe asks the provider described by spec what it holds and how busy it is. It
-	// returns an error only when the provider gave no usable answer at all; a
+	// Probe asks the server described by spec what it holds and how busy it is. It
+	// returns an error only when the server gave no usable answer at all; a
 	// partial answer returns a Snapshot with the unread fields unknown.
-	Probe(ctx context.Context, spec aiv1alpha1.ModelProviderSpec) (Snapshot, error)
-	// Ready asks the provider to make model ready to answer. Load on demand stays
+	Probe(ctx context.Context, spec aiv1alpha1.ModelServerSpec) (Snapshot, error)
+	// Ready asks the server to make model ready to answer. Load on demand stays
 	// the rule: callers ask when a call needs the model, never ahead of time.
-	Ready(ctx context.Context, spec aiv1alpha1.ModelProviderSpec, model string) error
-	// Release asks the provider to free what model holds.
-	Release(ctx context.Context, spec aiv1alpha1.ModelProviderSpec, model string) error
+	Ready(ctx context.Context, spec aiv1alpha1.ModelServerSpec, model string) error
+	// Release asks the server to free what model holds.
+	Release(ctx context.Context, spec aiv1alpha1.ModelServerSpec, model string) error
 }

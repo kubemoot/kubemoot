@@ -107,8 +107,8 @@ kubemoot-scheduling
 {{- end }}
 
 {{/*
-A Model object name for a catalog entry: the provider name and the model, such as
-ollama-gpu-qwen3-14b for qwen3:14b on ollama-gpu. Usage: include "..." (list providerName model)
+A Model object name for a catalog entry: the server name and the model, such as
+ollama-gpu-qwen3-14b for qwen3:14b on ollama-gpu. Usage: include "..." (list serverName model)
 */}}
 {{- define "kubemoot-operator.modelObjectName" -}}
 {{- printf "%s-%s" (index . 0) (regexReplaceAll "[^a-z0-9-]+" (lower (index . 1)) "-") | trunc 63 | trimSuffix "-" -}}

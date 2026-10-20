@@ -21,7 +21,7 @@ describe('endpointNamespace', () => {
 });
 
 describe('buildGpuDisplayMap', () => {
-	it('keys the display name by provider name and endpoint namespace', () => {
+	it('keys the display name by server name and endpoint namespace', () => {
 		expect(
 			buildGpuDisplayMap([
 				{
@@ -35,7 +35,7 @@ describe('buildGpuDisplayMap', () => {
 		).toEqual({ 'ollama-gpu': 'RTX 5090', 'ollama-rig1': 'RTX 5090' });
 	});
 
-	it('is empty for no providers', () => {
+	it('is empty for no servers', () => {
 		expect(buildGpuDisplayMap([])).toEqual({});
 	});
 });

@@ -1,5 +1,5 @@
 {
-  "version": "1.0.0",
+  "version": "2.0.0",
   "surface": {
     "agent-activity.json#": {
       "type": "object"
@@ -704,9 +704,6 @@
     "discussion-metadata.json#/primaryChannel": {
       "type": "string"
     },
-    "discussion-metadata.json#/provider": {
-      "type": "string"
-    },
     "discussion-metadata.json#/reason": {
       "type": "string"
     },
@@ -729,6 +726,9 @@
       "type": "array"
     },
     "discussion-metadata.json#/selectedSkills[]": {
+      "type": "string"
+    },
+    "discussion-metadata.json#/server": {
       "type": "string"
     },
     "discussion-metadata.json#/signal": {
@@ -996,163 +996,6 @@
       "type": "string",
       "required": true
     },
-    "provider-state.json#": {
-      "type": "object"
-    },
-    "provider-state.json#/activeCount": {
-      "type": "integer",
-      "required": true
-    },
-    "provider-state.json#/availableModelFootprintsMiB": {
-      "type": "object"
-    },
-    "provider-state.json#/availableModelFootprintsMiB{}": {
-      "type": "integer"
-    },
-    "provider-state.json#/contextLength": {
-      "type": "integer"
-    },
-    "provider-state.json#/endpoint": {
-      "type": "string",
-      "required": true
-    },
-    "provider-state.json#/engine": {
-      "type": "string"
-    },
-    "provider-state.json#/hostMemoryParkedMiB": {
-      "type": "integer"
-    },
-    "provider-state.json#/kvCacheUsage": {
-      "type": "number",
-      "constraints": {
-        "maximum": "1",
-        "minimum": "0"
-      }
-    },
-    "provider-state.json#/lastProbedAt": {
-      "type": "string",
-      "required": true
-    },
-    "provider-state.json#/loadedModelContextLengths": {
-      "type": "object"
-    },
-    "provider-state.json#/loadedModelContextLengths{}": {
-      "type": "integer"
-    },
-    "provider-state.json#/loadedModelFootprintsMiB": {
-      "type": "object"
-    },
-    "provider-state.json#/loadedModelFootprintsMiB{}": {
-      "type": "integer"
-    },
-    "provider-state.json#/loadedModels": {
-      "type": "array"
-    },
-    "provider-state.json#/loadedModels[]": {
-      "type": "string"
-    },
-    "provider-state.json#/maxParallel": {
-      "type": "integer",
-      "required": true
-    },
-    "provider-state.json#/modelEndpoints": {
-      "type": "object"
-    },
-    "provider-state.json#/modelEndpoints{}": {
-      "type": "string"
-    },
-    "provider-state.json#/modelSpeeds": {
-      "type": "object"
-    },
-    "provider-state.json#/modelSpeeds{}": {
-      "type": "object"
-    },
-    "provider-state.json#/modelSpeeds{}/generateTokensPerSecond": {
-      "type": "integer",
-      "required": true
-    },
-    "provider-state.json#/modelSpeeds{}/loadMs": {
-      "type": "integer"
-    },
-    "provider-state.json#/modelSpeeds{}/observedGenerateTokensPerSecond": {
-      "type": "integer"
-    },
-    "provider-state.json#/modelSpeeds{}/observedSamples": {
-      "type": "integer"
-    },
-    "provider-state.json#/modelSpeeds{}/promptTokensPerSecond": {
-      "type": "integer"
-    },
-    "provider-state.json#/modelStates": {
-      "type": "object"
-    },
-    "provider-state.json#/modelStates{}": {
-      "type": "string",
-      "enum": [
-        "asleep",
-        "available",
-        "awake"
-      ]
-    },
-    "provider-state.json#/name": {
-      "type": "string",
-      "required": true
-    },
-    "provider-state.json#/queueDepth": {
-      "type": "integer",
-      "required": true
-    },
-    "provider-state.json#/ready": {
-      "type": "boolean",
-      "required": true
-    },
-    "provider-state.json#/requestsRunning": {
-      "type": "integer"
-    },
-    "provider-state.json#/requestsWaiting": {
-      "type": "integer"
-    },
-    "provider-state.json#/switchCostMs": {
-      "type": "object"
-    },
-    "provider-state.json#/switchCostMs{}": {
-      "type": "integer"
-    },
-    "provider-state.json#/totalVramMiB": {
-      "type": "integer"
-    },
-    "provider-ticket.json#": {
-      "type": "object"
-    },
-    "provider-ticket.json#/claimedAt": {
-      "type": "string"
-    },
-    "provider-ticket.json#/evicts": {
-      "type": "object"
-    },
-    "provider-ticket.json#/evicts{}": {
-      "type": "integer"
-    },
-    "provider-ticket.json#/holderId": {
-      "type": "string"
-    },
-    "provider-ticket.json#/kvCacheFootprintMiB": {
-      "type": "integer"
-    },
-    "provider-ticket.json#/modelFootprintMiB": {
-      "type": "integer",
-      "required": true
-    },
-    "provider-ticket.json#/modelName": {
-      "type": "string"
-    },
-    "provider-ticket.json#/provider": {
-      "type": "string",
-      "required": true
-    },
-    "provider-ticket.json#/ticketId": {
-      "type": "string"
-    },
     "scheduled-record.json#": {
       "type": "object"
     },
@@ -1214,10 +1057,6 @@
       "type": "string",
       "required": true
     },
-    "scheduler-performance.json#/provider": {
-      "type": "string",
-      "required": true
-    },
     "scheduler-performance.json#/requests": {
       "type": "integer"
     },
@@ -1274,6 +1113,10 @@
     "scheduler-performance.json#/samples[]/promptTokens": {
       "type": "integer"
     },
+    "scheduler-performance.json#/server": {
+      "type": "string",
+      "required": true
+    },
     "scheduler-performance.json#/updatedAt": {
       "type": "integer"
     },
@@ -1294,6 +1137,163 @@
     "scheduler-performance.json#/waits[]/ms": {
       "type": "integer",
       "required": true
+    },
+    "server-state.json#": {
+      "type": "object"
+    },
+    "server-state.json#/activeCount": {
+      "type": "integer",
+      "required": true
+    },
+    "server-state.json#/availableModelFootprintsMiB": {
+      "type": "object"
+    },
+    "server-state.json#/availableModelFootprintsMiB{}": {
+      "type": "integer"
+    },
+    "server-state.json#/contextLength": {
+      "type": "integer"
+    },
+    "server-state.json#/endpoint": {
+      "type": "string",
+      "required": true
+    },
+    "server-state.json#/engine": {
+      "type": "string"
+    },
+    "server-state.json#/hostMemoryParkedMiB": {
+      "type": "integer"
+    },
+    "server-state.json#/kvCacheUsage": {
+      "type": "number",
+      "constraints": {
+        "maximum": "1",
+        "minimum": "0"
+      }
+    },
+    "server-state.json#/lastProbedAt": {
+      "type": "string",
+      "required": true
+    },
+    "server-state.json#/loadedModelContextLengths": {
+      "type": "object"
+    },
+    "server-state.json#/loadedModelContextLengths{}": {
+      "type": "integer"
+    },
+    "server-state.json#/loadedModelFootprintsMiB": {
+      "type": "object"
+    },
+    "server-state.json#/loadedModelFootprintsMiB{}": {
+      "type": "integer"
+    },
+    "server-state.json#/loadedModels": {
+      "type": "array"
+    },
+    "server-state.json#/loadedModels[]": {
+      "type": "string"
+    },
+    "server-state.json#/maxParallel": {
+      "type": "integer",
+      "required": true
+    },
+    "server-state.json#/modelEndpoints": {
+      "type": "object"
+    },
+    "server-state.json#/modelEndpoints{}": {
+      "type": "string"
+    },
+    "server-state.json#/modelSpeeds": {
+      "type": "object"
+    },
+    "server-state.json#/modelSpeeds{}": {
+      "type": "object"
+    },
+    "server-state.json#/modelSpeeds{}/generateTokensPerSecond": {
+      "type": "integer",
+      "required": true
+    },
+    "server-state.json#/modelSpeeds{}/loadMs": {
+      "type": "integer"
+    },
+    "server-state.json#/modelSpeeds{}/observedGenerateTokensPerSecond": {
+      "type": "integer"
+    },
+    "server-state.json#/modelSpeeds{}/observedSamples": {
+      "type": "integer"
+    },
+    "server-state.json#/modelSpeeds{}/promptTokensPerSecond": {
+      "type": "integer"
+    },
+    "server-state.json#/modelStates": {
+      "type": "object"
+    },
+    "server-state.json#/modelStates{}": {
+      "type": "string",
+      "enum": [
+        "asleep",
+        "available",
+        "awake"
+      ]
+    },
+    "server-state.json#/name": {
+      "type": "string",
+      "required": true
+    },
+    "server-state.json#/queueDepth": {
+      "type": "integer",
+      "required": true
+    },
+    "server-state.json#/ready": {
+      "type": "boolean",
+      "required": true
+    },
+    "server-state.json#/requestsRunning": {
+      "type": "integer"
+    },
+    "server-state.json#/requestsWaiting": {
+      "type": "integer"
+    },
+    "server-state.json#/switchCostMs": {
+      "type": "object"
+    },
+    "server-state.json#/switchCostMs{}": {
+      "type": "integer"
+    },
+    "server-state.json#/totalVramMiB": {
+      "type": "integer"
+    },
+    "server-ticket.json#": {
+      "type": "object"
+    },
+    "server-ticket.json#/claimedAt": {
+      "type": "string"
+    },
+    "server-ticket.json#/evicts": {
+      "type": "object"
+    },
+    "server-ticket.json#/evicts{}": {
+      "type": "integer"
+    },
+    "server-ticket.json#/holderId": {
+      "type": "string"
+    },
+    "server-ticket.json#/kvCacheFootprintMiB": {
+      "type": "integer"
+    },
+    "server-ticket.json#/modelFootprintMiB": {
+      "type": "integer",
+      "required": true
+    },
+    "server-ticket.json#/modelName": {
+      "type": "string"
+    },
+    "server-ticket.json#/server": {
+      "type": "string",
+      "required": true
+    },
+    "server-ticket.json#/ticketId": {
+      "type": "string"
     },
     "signal-meta.json#": {
       "type": "object"

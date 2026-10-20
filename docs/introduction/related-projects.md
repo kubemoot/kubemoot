@@ -24,9 +24,9 @@ framework for building AI agents. It is a CNCF project under the Apache 2.0 lice
   `kubectl`. An agent in kagent is a system prompt, a set of tools and agents, and an
   LLM configuration. Both connect agents to tools through MCP servers.
 - **Differences:** kagent lists OpenAI, Azure OpenAI, Anthropic, Google Vertex AI, and
-  Ollama as model providers and ships MCP tool servers for Kubernetes, Istio, Helm,
+  Ollama as model servers and ships MCP tool servers for Kubernetes, Istio, Helm,
   Argo, Prometheus, Grafana, and Cilium, and reports OpenTelemetry tracing. Kubemoot's
-  hosted-model providers are not yet implemented (Ollama is the model server today) and
+  hosted-model servers are not yet implemented (Ollama is the model server today) and
   it does not emit OpenTelemetry traces yet, so kagent is the better fit if you want
   agents backed by hosted models, standard tracing, or a ready set of
   cluster-operations tools.

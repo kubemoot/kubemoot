@@ -28,9 +28,9 @@ class KvKeysTest {
         var log = mock(Logger.class);
         var error = new IOException("deliver policy can not be updated [10012]");
 
-        KvKeys.warnReadFailure(log, "kubemoot_provider_state", "provider state", error);
-        KvKeys.warnReadFailure(log, "kubemoot_provider_state", "provider state", error);
-        KvKeys.warnReadFailure(log, "kubemoot_provider_tickets", "tickets", error);
+        KvKeys.warnReadFailure(log, "kubemoot_server_state", "server state", error);
+        KvKeys.warnReadFailure(log, "kubemoot_server_state", "server state", error);
+        KvKeys.warnReadFailure(log, "kubemoot_server_tickets", "tickets", error);
 
         verify(log, times(2)).warn(anyString(), any(), any(), contains("10012"));
         verify(log, times(1)).debug(anyString(), any(), any(), any());
@@ -41,12 +41,12 @@ class KvKeysTest {
         var log = mock(Logger.class);
         var error = new IllegalArgumentException("Key must only contain A-Z, a-z, 0-9");
 
-        KvKeys.warnWriteFailure(log, "kubemoot_provider_tickets", "residency__a__m1", error);
-        KvKeys.warnWriteFailure(log, "kubemoot_provider_tickets", "residency__a__m1", error);
-        KvKeys.warnWriteFailure(log, "kubemoot_provider_tickets", "residency__a__m2", error);
+        KvKeys.warnWriteFailure(log, "kubemoot_server_tickets", "residency__a__m1", error);
+        KvKeys.warnWriteFailure(log, "kubemoot_server_tickets", "residency__a__m1", error);
+        KvKeys.warnWriteFailure(log, "kubemoot_server_tickets", "residency__a__m2", error);
 
-        verify(log).warn(anyString(), eq("residency__a__m1"), eq("kubemoot_provider_tickets"), contains("Key must"));
-        verify(log).warn(anyString(), eq("residency__a__m2"), eq("kubemoot_provider_tickets"), contains("Key must"));
+        verify(log).warn(anyString(), eq("residency__a__m1"), eq("kubemoot_server_tickets"), contains("Key must"));
+        verify(log).warn(anyString(), eq("residency__a__m2"), eq("kubemoot_server_tickets"), contains("Key must"));
         verify(log, times(1)).debug(anyString(), any(), any(), any());
     }
 
@@ -84,16 +84,16 @@ class KvKeysTest {
         var info = mock(io.nats.client.api.StreamInfo.class);
         var state = mock(io.nats.client.api.StreamState.class);
         when(conn.jetStreamManagement()).thenReturn(jsm);
-        when(jsm.getStreamInfo(eq("KV_kubemoot_provider_state"), any())).thenReturn(info);
+        when(jsm.getStreamInfo(eq("KV_kubemoot_server_state"), any())).thenReturn(info);
         when(info.getStreamState()).thenReturn(state);
         when(state.getSubjects()).thenReturn(java.util.List.of(
-                new io.nats.client.api.Subject("$KV.kubemoot_provider_state.ollama-a", 1),
-                new io.nats.client.api.Subject("$KV.kubemoot_provider_state.ollama.b", 1),
+                new io.nats.client.api.Subject("$KV.kubemoot_server_state.ollama-a", 1),
+                new io.nats.client.api.Subject("$KV.kubemoot_server_state.ollama.b", 1),
                 new io.nats.client.api.Subject("$KV.other.x", 1)));
 
-        assertEquals(java.util.List.of("ollama-a", "ollama.b"), KvKeys.list(conn, "kubemoot_provider_state"));
+        assertEquals(java.util.List.of("ollama-a", "ollama.b"), KvKeys.list(conn, "kubemoot_server_state"));
 
         when(state.getSubjects()).thenReturn(null);
-        assertTrue(KvKeys.list(conn, "kubemoot_provider_state").isEmpty(), "an empty stream lists no keys");
+        assertTrue(KvKeys.list(conn, "kubemoot_server_state").isEmpty(), "an empty stream lists no keys");
     }
 }

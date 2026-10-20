@@ -58,13 +58,13 @@
 	async function deleteFromDisk() {
 		if (!model || busy) return;
 		const ok = confirm(
-			`Delete model "${model.spec.model}" from disk on provider "${model.spec.providerRef}"?\n\nThis is destructive - re-pulling can take many minutes. Other Model CRs that reference the same underlying model will also be affected.`
+			`Delete model "${model.spec.model}" from disk on server "${model.spec.serverRef}"?\n\nThis is destructive - re-pulling can take many minutes. Other Model CRs that reference the same underlying model will also be affected.`
 		);
 		if (!ok) return;
 		busy = true;
 		actionError = null;
 		try {
-			const url = `${resolve('/api/kubemoot/modelproviders/[name]/delete', { name: encodeURIComponent(model.spec.providerRef) })}?namespace=${encodeURIComponent(model.metadata.namespace ?? 'kubemoot')}`;
+			const url = `${resolve('/api/kubemoot/modelservers/[name]/delete', { name: encodeURIComponent(model.spec.serverRef) })}?namespace=${encodeURIComponent(model.metadata.namespace ?? 'kubemoot')}`;
 			const res = await fetch(url, {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
@@ -97,7 +97,7 @@
 						<button
 							class="action-btn delete"
 							type="button"
-							title="Delete from disk on the underlying provider (destructive - requires re-pull)"
+							title="Delete from disk on the underlying server (destructive - requires re-pull)"
 							disabled={busy}
 							onclick={deleteFromDisk}
 						>
@@ -117,7 +117,7 @@
 			<div class="sections">
 				<Section title="Spec">
 					<InfoRow label="Model ID" value={model.spec.model} mono />
-					<InfoRow label="Provider Ref" value={model.spec.providerRef} />
+					<InfoRow label="Server Ref" value={model.spec.serverRef} />
 					<InfoRow label="Quantization" value={model.spec.quantization} />
 					<InfoRow label="Context Length" value={model.spec.contextLength} />
 				</Section>

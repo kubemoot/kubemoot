@@ -3,7 +3,7 @@ package ai.kubemoot.agent.nats;
 import ai.kubemoot.agent.chat.ChatService;
 import ai.kubemoot.agent.chat.ModelWarmupService;
 import ai.kubemoot.agent.config.AgentProperties;
-import ai.kubemoot.agent.provider.NoFitException;
+import ai.kubemoot.agent.modelserver.NoFitException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.networknt.schema.Schema;
@@ -102,9 +102,9 @@ class BusContractTest {
     @Test
     void aFindingNamingTheModelsItsCallsRanOnMatchesTheContract() throws Exception {
         var conn = mock(Connection.class);
-        var result = new ChatService.ChatResult("c", "finding", MODEL, "t1", 10, 5, "provider-b", "warm",
-                List.of(), List.of(new ai.kubemoot.agent.chat.ModelUse("other:32b", "provider-a"),
-                        new ai.kubemoot.agent.chat.ModelUse(MODEL, "provider-b")));
+        var result = new ChatService.ChatResult("c", "finding", MODEL, "t1", 10, 5, "server-b", "warm",
+                List.of(), List.of(new ai.kubemoot.agent.chat.ModelUse("other:32b", "server-a"),
+                        new ai.kubemoot.agent.chat.ModelUse(MODEL, "server-b")));
 
         subscriber(conn, mock(ChatService.class)).classifyAndPublishResult(SUBJECT, "t1", result,
                 new DiscussionSubscriber.SignalTiming(100, 1, 10, 5), "4090");
@@ -148,7 +148,7 @@ class BusContractTest {
         var conn = mock(io.nats.client.Connection.class);
         var nats = mock(NatsConnectionProvider.class);
         when(nats.getConnection()).thenReturn(conn);
-        var lifecycle = new ai.kubemoot.agent.provider.NatsModelLifecycle(nats, MAPPER, "pilot-k8s");
+        var lifecycle = new ai.kubemoot.agent.modelserver.NatsModelLifecycle(nats, MAPPER, "pilot-k8s");
         var sent = org.mockito.ArgumentCaptor.forClass(byte[].class);
 
         lifecycle.ready("vllm-rig0", MODEL);
@@ -171,15 +171,15 @@ class BusContractTest {
 
     @Test
     void aSchedulerPerformanceEntryMatchesTheContract() throws Exception {
-        var bucket = new ai.kubemoot.agent.provider.InMemoryKv();
+        var bucket = new ai.kubemoot.agent.modelserver.InMemoryKv();
         var props = mock(AgentProperties.class);
         when(props.agentName()).thenReturn("pilot-k8s");
         when(props.namespace()).thenReturn(java.util.Optional.of("crew-homelab-pilot"));
-        var history = ai.kubemoot.agent.provider.PerformanceHistoryFixtures.direct(
-                bucket.provider(ai.kubemoot.agent.provider.PerformanceHistory.BUCKET), MAPPER, props);
-        long unknown = ai.kubemoot.agent.provider.CallObservation.UNKNOWN;
-        history.record(new ai.kubemoot.agent.provider.CallObservation("ollama-gpu", MODEL,
-                ai.kubemoot.agent.provider.CallObservation.KIND_TOOL_TURN, true, true, 4_000, 200, 9_000,
+        var history = ai.kubemoot.agent.modelserver.PerformanceHistoryFixtures.direct(
+                bucket.server(ai.kubemoot.agent.modelserver.PerformanceHistory.BUCKET), MAPPER, props);
+        long unknown = ai.kubemoot.agent.modelserver.CallObservation.UNKNOWN;
+        history.record(new ai.kubemoot.agent.modelserver.CallObservation("ollama-gpu", MODEL,
+                ai.kubemoot.agent.modelserver.CallObservation.KIND_TOOL_TURN, true, true, 4_000, 200, 9_000,
                 unknown, unknown, unknown, 2, 1_791_000_000_000L));
         history.recordWait("ollama-gpu", MODEL, 12_000);
 

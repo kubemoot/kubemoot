@@ -39,6 +39,6 @@ func TestPerformanceKey(t *testing.T) {
 		t.Errorf("key: %q", key)
 	}
 	if !strings.HasPrefix(key, PerformanceKeyPrefix("gpu-a")) || strings.HasPrefix(key, PerformanceKeyPrefix("gpu")) {
-		t.Errorf("prefix does not pick out exactly the provider's entries: %q", key)
+		t.Errorf("prefix does not pick out exactly the server's entries: %q", key)
 	}
 }

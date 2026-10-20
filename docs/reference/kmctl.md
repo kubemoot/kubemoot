@@ -139,7 +139,7 @@ longest is the tool index Service `<crew>-kubernetes-mcp-tools-query`, which mus
 
 On a TTY, `kmctl create` runs interactively: it asks for the display name first (default:
 `<name>`), then a member count, offers a
-checkbox selection of discovered ollama providers, and lets you choose a model family
+checkbox selection of discovered ollama servers, and lets you choose a model family
 (with a custom-entry and skip option). Pass `--no-input` with explicit flags to make
 it scriptable.
 
@@ -182,11 +182,11 @@ and the layout its Crew Sources view expects a chart source to have.
 |---|---|---|
 | `--display-name "..."` | | The name people read: any one line of text, no line breaks, tabs, or control characters, at most 100 characters (default: `<name>`). Stored as the `kubemoot.ai/display-name` annotation |
 | `--members N` | | Specialists beside the coordinator, 1 to 5 (default: prompted interactively). Size 1 is `workloads`; each larger size adds the next of `events`, `networking`, `config`, and `reviewer` |
-| `--providers a,b` | | Comma-separated list of ollama provider names to target |
+| `--servers a,b` | | Comma-separated list of ollama server names to target |
 | `--model-family` | | Model family hint, e.g. `qwen` |
 | `--no-input` | | Never prompt; inputs not given as flags take their defaults |
 | `--output DIR` | `-o` | Directory to write scaffold output (default: `.`) |
-| `--context` | | Kubeconfig context used to discover model providers (a global `kmctl` flag) |
+| `--context` | | Kubeconfig context used to discover model servers (a global `kmctl` flag) |
 | `--chart` | | Lay the crew out as a Helm chart (`Chart.yaml`, `templates/`, `fitness/`) instead of loose manifests |
 
 **Display name.** `--display-name` is stored as the annotation `kubemoot.ai/display-name` on
@@ -245,10 +245,10 @@ which the Toolers post as artifact pointers.
 
 ```bash
 kmctl create demo
-# Discovering providers...
+# Discovering servers...
 # Display name [demo]: Demo Crew
 # Members [2]: 3
-# Providers: [x] ollama-gpu  [ ] ollama-gpu-b
+# ModelServers: [x] ollama-gpu  [ ] ollama-gpu-b
 # Model family [qwen]: qwen
 # Writing demo/ ...done
 ```
@@ -258,7 +258,7 @@ kmctl create demo
 ```bash
 kmctl create demo \
   --members 3 \
-  --providers ollama-gpu,ollama-gpu-b \
+  --servers ollama-gpu,ollama-gpu-b \
   --model-family qwen \
   --no-input \
   -o /tmp/crews
@@ -421,7 +421,7 @@ kmctl prompt get demo-coordinator-prompt -o yaml
 kmctl model <subcommand> [flags]
 ```
 
-Inspect model provider resources and live GPU state.
+Inspect model server resources and live GPU state.
 
 ### kmctl model list
 
@@ -429,7 +429,7 @@ Inspect model provider resources and live GPU state.
 kmctl model list [-o <format>]
 ```
 
-List all `ModelProvider` resources with connection status and basic metadata.
+List all `ModelServer` resources with connection status and basic metadata.
 
 **Example:**
 
@@ -443,7 +443,7 @@ kmctl model list
 kmctl model get <name> [-o <format>]
 ```
 
-Show details of a single model provider.
+Show details of a single model server.
 
 **Example:**
 
@@ -457,14 +457,14 @@ kmctl model get ollama-gpu -o yaml
 kmctl model footprint [-o <format>]
 ```
 
-Show the resident `Model` resources per provider. This is the live GPU footprint
-view: which models are loaded, on which provider, and how much VRAM they occupy.
+Show the resident `Model` resources per server. This is the live GPU footprint
+view: which models are loaded, on which server, and how much VRAM they occupy.
 
 **Example:**
 
 ```bash
 kmctl model footprint
-# PROVIDER      MODEL            VRAM
+# SERVER      MODEL            VRAM
 # ollama-gpu    qwen3:32b        20.1 GiB
 # ollama-gpu-b  qwen2.5:14b      8.7 GiB
 ```
@@ -479,7 +479,7 @@ kmctl apply -f <file|dir|-> [flags]
 
 Apply Kubemoot CRD manifests using server-side apply. Accepts a file, a directory,
 or `-` for stdin. Accepts only kubemoot.ai resources (Crew, Agent, PromptModule,
-Model, ModelProvider, MCPServer, MCPGateway, RAGSource, KubemootConfig,
+Model, ModelServer, MCPServer, MCPGateway, RAGSource, KubemootConfig,
 CrewSchedulingPolicy, CrewFitnessSuite). Explicitly refuses non-kubemoot.ai kinds
 and directs you to `kubectl apply` for those.
 

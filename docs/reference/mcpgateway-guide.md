@@ -232,7 +232,7 @@ spec:
       database: vectors
       secretRef: pgvector-credentials
     embeddingModel:
-      provider: ollama
+      server: ollama
       endpoint: http://ollama.ollama-a:11434
       model: nomic-embed-text
   metaTools:

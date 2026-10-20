@@ -25,7 +25,7 @@ resources:
 - model_admin_role.yaml
 - model_editor_role.yaml
 - model_viewer_role.yaml
-- modelprovider_admin_role.yaml
-- modelprovider_editor_role.yaml
-- modelprovider_viewer_role.yaml
+- modelserver_admin_role.yaml
+- modelserver_editor_role.yaml
+- modelserver_viewer_role.yaml
 

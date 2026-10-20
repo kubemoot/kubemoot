@@ -107,8 +107,8 @@ func mustAddRunnables(mgr ctrl.Manager, natsPublisher *kubemootnats.Publisher) {
 			Publisher:     natsPublisher,
 			DashboardBase: os.Getenv("KUBEMOOT_DASHBOARD_BASE"),
 		}},
-		// Deletes provider-state entries no ModelProvider owns, once at start.
-		{"provider state sweep", &controller.ProviderStateSweeper{
+		// Deletes server-state entries no ModelServer owns, once at start.
+		{"server state sweep", &controller.ServerStateSweeper{
 			Reader: mgr.GetAPIReader(),
 			Store:  natsPublisher,
 		}},
@@ -133,12 +133,12 @@ func mustAddRunnables(mgr ctrl.Manager, natsPublisher *kubemootnats.Publisher) {
 // NATS to make a model ready (wake its vLLM server) or release it (sleep): the engine
 // adapter is the one place that wakes and sleeps. Leader-elected, so one operator answers.
 func mustAddModelLifecycleServer(
-	mgr ctrl.Manager, natsPublisher *kubemootnats.Publisher, providers *controller.ModelProviderReconciler,
+	mgr ctrl.Manager, natsPublisher *kubemootnats.Publisher, servers *controller.ModelServerReconciler,
 ) {
 	server := &controller.ModelLifecycleServer{
 		Reader:     mgr.GetAPIReader(),
 		Subscriber: natsPublisher,
-		Refresher:  providers,
+		Refresher:  servers,
 	}
 	if err := mgr.Add(server); err != nil {
 		setupLog.Error(err, "unable to register runnable", "runnable", "model lifecycle server")
@@ -354,9 +354,9 @@ func main() {
 	// One pull tracker serves every controller that downloads models, so a tag that
 	// a Model and an EmbeddingModel both name is downloaded once.
 	modelPulls := &controller.PullTracker{}
-	// The ModelProvider reconciler is shared with the model lifecycle server, which
-	// publishes the provider state after a model wakes or sleeps.
-	modelProviders := &controller.ModelProviderReconciler{
+	// The ModelServer reconciler is shared with the model lifecycle server, which
+	// publishes the server state after a model wakes or sleeps.
+	modelServers := &controller.ModelServerReconciler{
 		Client: mgr.GetClient(), Scheme: mgr.GetScheme(), ConfigCache: configCache, NATSPublisher: natsPublisher,
 		Pulls:       modelPulls,
 		Calibration: controller.MCPCalibrator{Client: mgr.GetClient(), Publisher: natsPublisher, Version: buildVersion()},
@@ -366,7 +366,7 @@ func main() {
 		{"KubemootConfig", (&controller.KubemootConfigReconciler{
 			Client: mgr.GetClient(), Scheme: mgr.GetScheme(), ConfigCache: configCache,
 		}).SetupWithManager},
-		{"ModelProvider", modelProviders.SetupWithManager},
+		{"ModelServer", modelServers.SetupWithManager},
 		{"Model", (&controller.ModelReconciler{
 			Client: mgr.GetClient(), Scheme: mgr.GetScheme(), Pulls: modelPulls,
 		}).SetupWithManager},
@@ -420,7 +420,7 @@ func main() {
 	// +kubebuilder:scaffold:builder
 
 	mustAddRunnables(mgr, natsPublisher)
-	mustAddModelLifecycleServer(mgr, natsPublisher, modelProviders)
+	mustAddModelLifecycleServer(mgr, natsPublisher, modelServers)
 
 	// Register validating webhooks
 	if len(f.webhookCertPath) > 0 {
@@ -455,7 +455,7 @@ func buildVersion() string {
 	return "dev"
 }
 
-// driftWatch watches calibrated providers for drift and asks the scheduling crew
+// driftWatch watches calibrated servers for drift and asks the scheduling crew
 // named by KUBEMOOT_SCHEDULING_CREW (namespace/name) to judge it; nil when that is
 // unset or malformed.
 func driftWatch(c ctrlclient.Reader, publisher *kubemootnats.Publisher) controller.DriftWatch {

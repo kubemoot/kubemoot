@@ -70,7 +70,7 @@ func TestAdherenceScore(t *testing.T) {
 		{Type: testFinding, Agent: testK8sAgent, Signal: testAgree},
 		{Type: testSynthesis, Content: "x"},
 		{Type: testDone},
-		{Type: "status", Error: "provider timeout"},
+		{Type: "status", Error: "server timeout"},
 	}
 	if got := adherenceScore(errored); !approx(got, 75) {
 		t.Errorf("errored run adherence = %v, want 75 (error component zeroed)", got)

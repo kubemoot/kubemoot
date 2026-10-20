@@ -170,7 +170,7 @@ A few project rules a reviewer looks for:
 | Item | Convention | Example |
 |------|------------|---------|
 | API group | `kubemoot.ai` | `apiVersion: kubemoot.ai/v1alpha1` |
-| CRD kinds | Singular, CamelCase | `ModelProvider`, `Agent`, `CrewSchedulingPolicy` |
+| CRD kinds | Singular, CamelCase | `ModelServer`, `Agent`, `CrewSchedulingPolicy` |
 | Short names | Lowercase abbreviations, chosen when the CRD is designed | `mdlp`, `mdl`, `emb`, `mcp`, `mcpgw`, `rag`, `csp`, `pm` |
 | Brand names in prose and UI | CrewForge, Homelab Pilot, Kubemoot | "Install Kubemoot" |
 | Names in code and config | Kebab-case identifiers | `vscode-crewforge`, `homelab-pilot`, `kubemoot` |

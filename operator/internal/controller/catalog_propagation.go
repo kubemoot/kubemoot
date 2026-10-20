@@ -15,7 +15,7 @@ limitations under the License.
 */
 
 // catalog_propagation.go wires catalog changes to the objects that depend on them.
-// A provider's catalog change reaches every crew that can use the provider, in any
+// A server's catalog change reaches every crew that can use the server, in any
 // namespace; a change to the Models in a namespace reaches the policies there, whose
 // CatalogMode condition follows them.
 package controller
@@ -39,13 +39,13 @@ import (
 	aiv1alpha1 "github.com/kubemoot/kubemoot/operator/api/v1alpha1"
 )
 
-// catalogDigest summarizes what a provider offers a crew: each candidate model with
+// catalogDigest summarizes what a server offers a crew: each candidate model with
 // its labels and declared memory. It leaves out everything that moves on every probe
-// (loaded models, agent counts) and the provider's readiness, which a single failed
+// (loaded models, agent counts) and the server's readiness, which a single failed
 // probe flips, so reacting to it never rolls an agent pod while models load and
-// unload or a probe blips. A provider that goes away is a delete event, not a digest.
-func catalogDigest(p *aiv1alpha1.ModelProvider) string {
-	candidates := providerCandidates(p)
+// unload or a probe blips. A server that goes away is a delete event, not a digest.
+func catalogDigest(p *aiv1alpha1.ModelServer) string {
+	candidates := serverCandidates(p)
 	parts := make([]string, 0, len(candidates))
 	for _, m := range candidates {
 		keys := make([]string, 0, len(m.Labels))
@@ -59,13 +59,13 @@ func catalogDigest(p *aiv1alpha1.ModelProvider) string {
 	return strings.Join(parts, ";")
 }
 
-// catalogChanged passes the ModelProvider events that can change a binding: a new
-// or removed provider, and an update that changes its catalogDigest.
+// catalogChanged passes the ModelServer events that can change a binding: a new
+// or removed server, and an update that changes its catalogDigest.
 func catalogChanged() predicate.Predicate {
 	return predicate.Funcs{
 		UpdateFunc: func(e event.UpdateEvent) bool {
-			oldP, okOld := e.ObjectOld.(*aiv1alpha1.ModelProvider)
-			newP, okNew := e.ObjectNew.(*aiv1alpha1.ModelProvider)
+			oldP, okOld := e.ObjectOld.(*aiv1alpha1.ModelServer)
+			newP, okNew := e.ObjectNew.(*aiv1alpha1.ModelServer)
 			return okOld && okNew && catalogDigest(oldP) != catalogDigest(newP)
 		},
 		GenericFunc: func(event.GenericEvent) bool { return false },
@@ -73,7 +73,7 @@ func catalogChanged() predicate.Predicate {
 }
 
 // enqueueAgentsOnCatalogChange enqueues the Agents that can select from a changed
-// provider: every Agent when the provider is in the operator's namespace, the
+// server: every Agent when the server is in the operator's namespace, the
 // Agents of its own namespace otherwise. An Agent of a crew that ships its own Models
 // is reconciled too and finds nothing to change; reconciling is idempotent and rolls
 // no pod unless the pick changed.
@@ -83,9 +83,9 @@ func enqueueAgentsOnCatalogChange(cli client.Client) handler.EventHandler {
 	})
 }
 
-// catalogAgentRequests lists the reconcile requests for a changed provider's users.
+// catalogAgentRequests lists the reconcile requests for a changed server's users.
 func catalogAgentRequests(ctx context.Context, cli client.Client, obj client.Object) []reconcile.Request {
-	p, ok := obj.(*aiv1alpha1.ModelProvider)
+	p, ok := obj.(*aiv1alpha1.ModelServer)
 	if !ok {
 		return nil
 	}
@@ -95,7 +95,7 @@ func catalogAgentRequests(ctx context.Context, cli client.Client, obj client.Obj
 	}
 	agents := &aiv1alpha1.AgentList{}
 	if err := cli.List(ctx, agents, opts...); err != nil {
-		logf.FromContext(ctx).Error(err, "catalog propagation: list agents failed", "provider", p.Name)
+		logf.FromContext(ctx).Error(err, "catalog propagation: list agents failed", "server", p.Name)
 		return nil
 	}
 	reqs := make([]reconcile.Request, 0, len(agents.Items))
@@ -103,7 +103,7 @@ func catalogAgentRequests(ctx context.Context, cli client.Client, obj client.Obj
 		reqs = append(reqs, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(&agents.Items[i])})
 	}
 	if len(reqs) > 0 {
-		logf.FromContext(ctx).Info("model catalog changed; enqueueing agent reconciles", "provider", p.Name, "count", len(reqs))
+		logf.FromContext(ctx).Info("model catalog changed; enqueueing agent reconciles", "server", p.Name, "count", len(reqs))
 	}
 	return reqs
 }

@@ -8,7 +8,7 @@ metadata:
     kubemoot.ai/engine: vllm
   annotations:
     # The models and what the values declare about them. Kubemoot's operator reads this
-    # when a ModelProvider names this Service, so a model is declared once, here.
+    # when a ModelServer names this Service, so a model is declared once, here.
     kubemoot.ai/models: {{ include "kubemoot-vllm.catalog" . | quote }}
 spec:
   selector:

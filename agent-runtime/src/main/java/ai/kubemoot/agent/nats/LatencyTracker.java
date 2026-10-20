@@ -13,16 +13,16 @@ import java.util.List;
 /**
  * Self-calibrating latency tracker for discussion evaluation deadlines.
  *
- * Maintains a rolling P90 response time per agent+provider pair, stored in NATS KV
+ * Maintains a rolling P90 response time per agent+server pair, stored in NATS KV
  * (kubemoot_latency bucket, no TTL). Used by DiscussionOrchestrator to set realistic
  * deadlines when an evaluating signal arrives — rather than using fixed heuristics.
  *
- * Key format: latency.<namespace>.<agentName>.<provider> (see {@link CrewScope#latencyKey}).
+ * Key format: latency.<namespace>.<agentName>.<server> (see {@link CrewScope#latencyKey}).
  *
  * Cold start: when fewer than 3 observations exist, returns KUBEMOOT_EVAL_DEFAULT_SECONDS
  * (default 90s) — generous on purpose to avoid cutting off agents early.
  *
- * Provider-keyed: same agent on different hardware (ollama-gpu vs ollama-rig1) gets
+ * Server-keyed: same agent on different hardware (ollama-gpu vs ollama-rig1) gets
  * separate windows so scheduler migrations don't corrupt estimates.
  */
 @ApplicationScoped
@@ -51,53 +51,53 @@ public class LatencyTracker {
 
     /**
      * Record the wall-clock duration from triage pass to terminal signal for this
-     * agent+provider pair. Called by the orchestrator after each terminal signal.
+     * agent+server pair. Called by the orchestrator after each terminal signal.
      *
      * @param agentName  the contributing agent
-     * @param provider   GPU/provider label (e.g., "RTX 5090", "RTX 4090") from signal metadata
+     * @param server   GPU/server label (e.g., "RTX 5090", "RTX 4090") from signal metadata
      * @param durationMs wall-clock milliseconds from evaluation start to terminal signal
      */
-    public void recordLatency(String agentName, String provider, long durationMs) {
+    public void recordLatency(String agentName, String server, long durationMs) {
         if (agentName == null || agentName.isEmpty()) return;
-        String effectiveProvider = provider != null && !provider.isEmpty() ? provider : "unknown";
+        String effectiveServer = server != null && !server.isEmpty() ? server : "unknown";
         try {
-            String key = natsProvider.scope().latencyKey(agentName, effectiveProvider);
+            String key = natsProvider.scope().latencyKey(agentName, effectiveServer);
             AgentLatency latency = loadOrCreate(key);
             latency.add(durationMs, windowSize);
             persist(key, latency);
             log.debug("Recorded latency for {}/{}: {}ms (window={}, p90={}ms)",
-                    agentName, effectiveProvider, durationMs, latency.sampleCount(), (long) latency.p90());
+                    agentName, effectiveServer, durationMs, latency.sampleCount(), (long) latency.p90());
         } catch (Exception e) {
-            log.warn("Failed to record latency for {}/{}: {}", agentName, effectiveProvider, e.getMessage());
+            log.warn("Failed to record latency for {}/{}: {}", agentName, effectiveServer, e.getMessage());
         }
     }
 
     /**
-     * Return the P90 expected duration in seconds for this agent+provider pair.
+     * Return the P90 expected duration in seconds for this agent+server pair.
      * Falls back to defaultSeconds when fewer than MIN_SAMPLES_FOR_P90 observations exist.
      *
      * @param agentName the contributing agent
-     * @param provider  GPU/provider label from signal metadata
+     * @param server  GPU/server label from signal metadata
      * @return expected seconds (P90), or defaultSeconds for cold start
      */
-    public int getExpectedSeconds(String agentName, String provider) {
+    public int getExpectedSeconds(String agentName, String server) {
         if (agentName == null || agentName.isEmpty()) return defaultSeconds;
-        String effectiveProvider = provider != null && !provider.isEmpty() ? provider : "unknown";
+        String effectiveServer = server != null && !server.isEmpty() ? server : "unknown";
         try {
-            String key = natsProvider.scope().latencyKey(agentName, effectiveProvider);
+            String key = natsProvider.scope().latencyKey(agentName, effectiveServer);
             AgentLatency latency = load(key);
             if (latency == null || latency.sampleCount() < MIN_SAMPLES_FOR_P90) {
                 log.debug("Cold start for {}/{} (samples={}) — using default {}s",
-                        agentName, effectiveProvider,
+                        agentName, effectiveServer,
                         latency != null ? latency.sampleCount() : 0,
                         defaultSeconds);
                 return defaultSeconds;
             }
             int seconds = (int) Math.ceil(latency.p90() / 1000.0);
-            log.debug("P90 for {}/{}: {}s (from {} samples)", agentName, effectiveProvider, seconds, latency.sampleCount());
+            log.debug("P90 for {}/{}: {}s (from {} samples)", agentName, effectiveServer, seconds, latency.sampleCount());
             return seconds;
         } catch (Exception e) {
-            log.warn("Failed to load latency for {}/{}: {} — using default", agentName, effectiveProvider, e.getMessage());
+            log.warn("Failed to load latency for {}/{}: {} — using default", agentName, effectiveServer, e.getMessage());
             return defaultSeconds;
         }
     }

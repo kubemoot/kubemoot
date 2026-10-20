@@ -401,7 +401,7 @@ class DiscussionOrchestratorHelpersTest {
         orchestrator.handleAgentSignal(state, "k8s-nodes", "agree", "3 nodes Ready", signal(null, null));
 
         String tooLarge = orchestrator.fallbackAfterSynthesisFailure(state,
-                ai.kubemoot.agent.provider.NoFitException.promptTooLarge("m:32b", "synthesis ~40000 tokens"));
+                ai.kubemoot.agent.modelserver.NoFitException.promptTooLarge("m:32b", "synthesis ~40000 tokens"));
         assertTrue(tooLarge.startsWith(DiscussionOrchestrator.SYNTHESIS_TOO_LARGE_PREFIX), tooLarge);
 
         String ordinary = orchestrator.fallbackAfterSynthesisFailure(state, new IllegalStateException("timeout"));
@@ -412,9 +412,9 @@ class DiscussionOrchestratorHelpersTest {
     @Test
     void isPromptTooLarge_onlyForThatRefusal() {
         assertTrue(DiscussionOrchestrator.isPromptTooLarge(
-                ai.kubemoot.agent.provider.NoFitException.promptTooLarge("m", "d")));
+                ai.kubemoot.agent.modelserver.NoFitException.promptTooLarge("m", "d")));
         assertFalse(DiscussionOrchestrator.isPromptTooLarge(
-                ai.kubemoot.agent.provider.NoFitException.gpuBusy("m", "d")));
+                ai.kubemoot.agent.modelserver.NoFitException.gpuBusy("m", "d")));
         assertFalse(DiscussionOrchestrator.isPromptTooLarge(new IllegalStateException("x")));
         assertFalse(DiscussionOrchestrator.isPromptTooLarge(null));
     }
@@ -436,7 +436,7 @@ class DiscussionOrchestratorHelpersTest {
         var first = new ChatService.SimpleLlmResult("alpha, bravo, charlie, delta, echo", 10, 5);
         when(chat.simpleLlmCallWithTokens(anyString(), anyString()))
                 .thenReturn(first)
-                .thenThrow(ai.kubemoot.agent.provider.NoFitException.promptTooLarge("m", "retry too large"));
+                .thenThrow(ai.kubemoot.agent.modelserver.NoFitException.promptTooLarge("m", "retry too large"));
 
         var result = createOrchestrator("", chat, 2).synthesizeWithCompleteness("sys", NAMESPACES, "t-c");
 
@@ -449,10 +449,10 @@ class DiscussionOrchestratorHelpersTest {
         var chat = mock(ChatService.class);
         when(chat.simpleLlmCallWithTokens(anyString(), anyString()))
                 .thenReturn(new ChatService.SimpleLlmResult("alpha, bravo, charlie, delta, echo", 10, 5))
-                .thenThrow(ai.kubemoot.agent.provider.NoFitException.gpuBusy("m", "busy"));
+                .thenThrow(ai.kubemoot.agent.modelserver.NoFitException.gpuBusy("m", "busy"));
 
         var retrying = createOrchestrator("", chat, 2);
-        assertThrows(ai.kubemoot.agent.provider.NoFitException.class,
+        assertThrows(ai.kubemoot.agent.modelserver.NoFitException.class,
                 () -> retrying.synthesizeWithCompleteness("sys", NAMESPACES, "t-c"));
     }
 
@@ -620,7 +620,7 @@ class DiscussionOrchestratorHelpersTest {
             @Override public Optional<String> systemPromptFile() { return Optional.empty(); }
             @Override public Model model() { return new Model() {
                 @Override public String name() { return "default"; }
-                @Override public String provider() { return "ollama"; }
+                @Override public String server() { return "ollama"; }
                 @Override public String model() { return "qwen2.5:32b"; }
                 @Override public String endpoint() { return "http://localhost:11434"; }
                 @Override public double temperature() { return 0.3; }

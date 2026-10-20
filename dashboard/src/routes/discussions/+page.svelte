@@ -60,9 +60,9 @@
 	let deleteConfirm = $state(false);
 	let showSpanGraph = $state(false);
 	let dashboardVersion = $state('dev');
-	// Provider-id -> discovered GPU model (e.g. "ollama-rig1" -> "RTX 4090"), so the
-	// span graph shows the human GPU name instead of the raw provider id. Sourced
-	// from the operator's DCGM discovery (ModelProvider.status.capacity.gpuModel);
+	// Server-id -> discovered GPU model (e.g. "ollama-rig1" -> "RTX 4090"), so the
+	// span graph shows the human GPU name instead of the raw server id. Sourced
+	// from the operator's DCGM discovery (ModelServer.status.capacity.gpuModel);
 	// no GPU model is hardcoded.
 	let gpuDisplayMap = $state<Record<string, string>>({});
 
@@ -246,12 +246,12 @@
 			const dur = formatDuration(data.endMs - data.startMs) || '-';
 			const inf = data.inferenceMs > 0 ? formatDuration(data.inferenceMs) : '-';
 			const tools = data.tools.size > 0 ? Array.from(data.tools).join(', ') : '-';
-			// Per-call provider attribution wins over reconcile-time gpuLabel
-			// when present - shows the JIT-selected ModelProvider name, the
+			// Per-call server attribution wins over reconcile-time gpuLabel
+			// when present - shows the JIT-selected ModelServer name, the
 			// truth of where this inference actually ran. FitPredictor v2's
 			// pickReason (if present) carries the per-call decision narrative
 			// ("warm, slot 1/2 | SR=0.92 over 23 samples, EMA latency 4200ms").
-			const where = placementOf(data.provider, data.gpu) ?? '-';
+			const where = placementOf(data.server, data.gpu) ?? '-';
 			const why = data.pickReason ? `<br/>_${data.pickReason}_` : '';
 			text += `| ${name} | ${data.signal} | ${where}${why} | ${dur} | ${inf} | ${tools} |\n`;
 		}
@@ -448,12 +448,12 @@
 		}
 	}
 
-	// Build provider-id -> GPU model map from the operator-discovered ModelProvider
+	// Build server-id -> GPU model map from the operator-discovered ModelServer
 	// status. Keys on BOTH the CR name and the endpoint namespace, because span
-	// metadata may carry either form (GpuLabels.fromProvider vs fromEndpoint).
+	// metadata may carry either form (GpuLabels.fromServer vs fromEndpoint).
 	async function loadGpuLabels() {
 		try {
-			const res = await fetch(`${resolve('/api/kubemoot/modelproviders')}?namespace=`);
+			const res = await fetch(`${resolve('/api/kubemoot/modelservers')}?namespace=`);
 			const data = await res.json();
 			const items = Array.isArray(data?.items) ? data.items : [];
 			gpuDisplayMap = buildGpuDisplayMap(items);

@@ -34,7 +34,7 @@ spec:
 | `description` | string | | Purpose of the suite. Shown on the dashboard and in the XLSX Overview tab. |
 | `iterations` | int | required, at least 1 | How many times each script runs. The suite creates `len(scripts) x iterations` runs. |
 | `scripts` | list | required, at least 1 | The scripts to run, in order. Each entry has a `testRef` and exactly one of `testContent` (inline script) or `configMapRef` (ConfigMap holding `<testRef>.adl`). |
-| `concurrency` | int | `1` | Maximum runs in flight at once. Keep it at 1 for baselines: parallel runs share the crew and its model providers, so they measure contention. |
+| `concurrency` | int | `1` | Maximum runs in flight at once. Keep it at 1 for baselines: parallel runs share the crew and its model servers, so they measure contention. |
 | `perIterationTimeout` | duration | `10m` | Wall-clock cap for one iteration. |
 | `artifactRetention` | duration | `168h` | Object Store TTL for the XLSX. |
 | `purgeMemory` | bool | `true` | Clear the crew's working memory once before the first iteration. |

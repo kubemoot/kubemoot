@@ -39,9 +39,9 @@ const (
 	modelTag = "qwen3:14b"
 )
 
-// specAt is the spec of an ollama provider at endpoint.
-func specAt(endpoint string) aiv1alpha1.ModelProviderSpec {
-	return aiv1alpha1.ModelProviderSpec{Type: aiv1alpha1.ProviderTypeOllama, Endpoint: endpoint}
+// specAt is the spec of an ollama server at endpoint.
+func specAt(endpoint string) aiv1alpha1.ModelServerSpec {
+	return aiv1alpha1.ModelServerSpec{Type: aiv1alpha1.ServerTypeOllama, Endpoint: endpoint}
 }
 
 // fakeOllama answers /api/ps and /api/tags with the given bodies (a status other
@@ -163,11 +163,11 @@ func TestProbeWithoutTagsStillReportsAwake(t *testing.T) {
 	}
 }
 
-func TestProbeProviderThatDoesNotAnswer(t *testing.T) {
+func TestProbeServerThatDoesNotAnswer(t *testing.T) {
 	srv, _ := fakeOllama(t, psBody, tagsBody)
 	srv.Close()
 	if _, err := New(srv.Client()).Probe(context.Background(), specAt(srv.URL)); err == nil {
-		t.Fatal("a provider that does not answer must fail the probe")
+		t.Fatal("a server that does not answer must fail the probe")
 	}
 }
 
@@ -222,7 +222,7 @@ func TestReadyAndReleaseReportFailure(t *testing.T) {
 	}
 	failing.Close()
 	if err := a.Ready(context.Background(), specAt(failing.URL), modelTag); err == nil {
-		t.Error("Ready must fail when the provider does not answer")
+		t.Error("Ready must fail when the server does not answer")
 	}
 }
 

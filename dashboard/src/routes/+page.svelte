@@ -12,7 +12,7 @@
 	let counts = $state<ResourceCounts>({
 		nodes: { total: 0, ready: 0 },
 		gpus: { total: 0, ready: 0 },
-		modelproviders: { total: 0, ready: 0 },
+		modelservers: { total: 0, ready: 0 },
 		models: { total: 0, ready: 0 },
 		embeddingmodels: { total: 0, ready: 0 },
 		mcpservers: { total: 0, ready: 0 },
@@ -24,7 +24,7 @@
 	let error = $state<string | null>(null);
 
 	// Control-plane component health, served by the operator's /componentstatuses
-	// (operator self, NATS, model providers). Cluster-scoped, so it isn't filtered
+	// (operator self, NATS, model servers). Cluster-scoped, so it isn't filtered
 	// by the namespace selector. Degrades gracefully when the endpoint is absent.
 	interface ComponentStatus {
 		name: string;
@@ -48,7 +48,7 @@
 
 	// The CRD lists counted on the Overview, in card order after nodes and GPUs.
 	const CRD_PLURALS = [
-		'modelproviders',
+		'modelservers',
 		'models',
 		'embeddingmodels',
 		'mcpservers',
@@ -95,7 +95,7 @@
 	const resourceTypes = [
 		{ key: 'nodes', label: 'Nodes', href: resolve('/nodes'), icon: 'server' },
 		{ key: 'gpus', label: 'GPUs', href: resolve('/nodes'), icon: 'zap' },
-		{ key: 'modelproviders', label: 'Model Providers', href: resolve('/modelproviders'), icon: 'cloud' },
+		{ key: 'modelservers', label: 'Model Servers', href: resolve('/modelservers'), icon: 'cloud' },
 		{ key: 'models', label: 'Models', href: resolve('/models'), icon: 'box' },
 		{ key: 'embeddingmodels', label: 'Embedding Models', href: resolve('/embeddingmodels'), icon: 'layers' },
 		{ key: 'mcpservers', label: 'MCP Servers', href: resolve('/mcpservers'), icon: 'terminal' },

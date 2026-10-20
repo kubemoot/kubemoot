@@ -6,7 +6,7 @@ import { SIGNAL_PRIORITY, messageTimeMs } from '#lib/discussion-spans.js';
 export interface AgentAgg {
 	signal: string;
 	gpu: string;
-	provider: string;
+	server: string;
 	pickReason: string;
 	startMs: number;
 	endMs: number;
@@ -35,9 +35,9 @@ export function newAgentAgg(msg: DiscussionMessage, ts: number): AgentAgg {
 	return {
 		signal: msg.messageType,
 		gpu: meta.gpuLabel || '',
-		provider: meta.provider || '',
+		server: meta.server || '',
 		// FitPredictor v2 reasoning ("warm, slot 1/2 | SR=0.92 ..."), shown as a hover
-		// tooltip on the GPU/provider column rather than a wider table.
+		// tooltip on the GPU/server column rather than a wider table.
 		pickReason: meta.pickReason || '',
 		startMs: ts,
 		endMs: ts,
@@ -49,7 +49,7 @@ export function newAgentAgg(msg: DiscussionMessage, ts: number): AgentAgg {
 /** Folds a later message's placement, timing, and tools into the agent's row. */
 function mergeMetadata(existing: AgentAgg, meta: NonNullable<DiscussionMessage['metadata']>) {
 	if (meta.gpuLabel) existing.gpu = meta.gpuLabel;
-	if (meta.provider) existing.provider = meta.provider;
+	if (meta.server) existing.server = meta.server;
 	if (meta.pickReason) existing.pickReason = meta.pickReason;
 	if (meta.inferenceMs && meta.inferenceMs > existing.inferenceMs)
 		existing.inferenceMs = meta.inferenceMs;
@@ -63,8 +63,8 @@ export function mergeAgentMessage(existing: AgentAgg, msg: DiscussionMessage, ts
 	if (msg.metadata) mergeMetadata(existing, msg.metadata);
 }
 
-// `provider` (e.g. "ollama-gpu", "ollama-rig1") is the JIT-selected ModelProvider
-// name from the agent runtime's ProviderSelector: which provider this agent used for
+// `server` (e.g. "ollama-gpu", "ollama-rig1") is the JIT-selected ModelServer
+// name from the agent runtime's ServerSelector: which server this agent used for
 // this inference. The summary falls back to the static `gpuLabel` when a message
 // lacks it (older messages and stand-aside paths without inference).
 export function aggregateAgents(messages: DiscussionMessage[], t0: number): Map<string, AgentAgg> {

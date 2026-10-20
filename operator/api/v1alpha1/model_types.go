@@ -27,15 +27,15 @@ import (
 // +kubebuilder:validation:XValidation:rule="(has(self.source) == has(oldSelf.source) && (!has(self.source) || self.source == oldSelf.source)) || (!has(oldSelf.source) && has(self.source) && has(self.source.ollama))",message="spec.source is immutable except for adding an ollama source to a Model that has none: delete and recreate the Model to change where its weights come from"
 // +kubebuilder:validation:XValidation:rule="!has(self.source) || !has(self.source.ollama) || self.source.ollama.tag == self.model",message="source.ollama.tag must equal spec.model: Ollama serves a model only under its tag"
 type ModelSpec struct {
-	// ProviderRef references the parent ModelProvider
+	// ServerRef references the parent ModelServer
 	// +kubebuilder:validation:Required
-	ProviderRef string `json:"providerRef"`
+	ServerRef string `json:"serverRef"`
 
 	// Model is the served name: the name every request uses to ask for this
 	// model (e.g., "qwen3:14b"). Where the weights come from is spec.source.
 	// For vLLM this is the name the server is started with
 	// (--served-model-name); the operator checks it against the served names
-	// the provider's servers report and reports a mismatch on the Model's
+	// the ModelServer's servers report and reports a mismatch on the Model's
 	// ServedNameFound condition. Ollama serves a model only under its tag, so
 	// for an ollama source it must equal source.ollama.tag.
 	// +kubebuilder:validation:Required
@@ -45,11 +45,11 @@ type ModelSpec struct {
 	// huggingFace. It cannot change after creation, except that an ollama
 	// source may be added to a Model that has none (its tag equals spec.model,
 	// the same meaning as an absent source). It must fit the engine of the
-	// provider: ollama for an ollama provider, huggingFace for a vLLM
-	// provider. A mismatch is reported on the Model's SourceCompatible
+	// server: ollama for an ollama server, huggingFace for a vLLM
+	// server. A mismatch is reported on the Model's SourceCompatible
 	// condition and nothing is pulled; the operator never guesses or falls
 	// back. When absent the source is an Ollama tag equal to spec.model on an
-	// ollama provider. On a vLLM provider the source is optional: the server
+	// ollama server. On a vLLM server the source is optional: the server
 	// decides its weights, and a huggingFace source is information, compared
 	// with the repository the server reports (ServedRepoMatches condition)
 	// when it reports one; the revision cannot be read from the server.
@@ -65,9 +65,9 @@ type ModelSpec struct {
 	Quantization string `json:"quantization,omitempty"`
 
 	// VRAMMib declares the VRAM footprint (in MiB) this Model needs when
-	// loaded on a Provider. Used by the Scheduler v2 filter step to enforce
-	// capacity: a Model is feasible on a Provider only when
-	// VRAMMib <= ModelProvider.status.capacity.vramTotalMiB after eviction
+	// loaded on a Server. Used by the Scheduler v2 filter step to enforce
+	// capacity: a Model is feasible on a Server only when
+	// VRAMMib <= ModelServer.status.capacity.vramTotalMiB after eviction
 	// of any displaceable resident models. Required for CrewSchedulingPolicy
 	// matching; if unset, the Model is treated as best-fit-unknown and may
 	// be filtered out under strict policies.
@@ -96,7 +96,7 @@ type ModelSpec struct {
 
 	// Disabled keeps the model out of the cluster's model catalog: the operator
 	// downloads nothing for it, no crew selects it, and calibration skips it. Use it to exclude a model
-	// the provider has but the cluster owner does not want used.
+	// the server has but the cluster owner does not want used.
 	// +optional
 	Disabled bool `json:"disabled,omitempty"`
 }
@@ -142,7 +142,7 @@ type HuggingFaceSource struct {
 	Quantization string `json:"quantization,omitempty"`
 }
 
-// OllamaTag is the tag an Ollama provider pulls and serves for this Model:
+// OllamaTag is the tag an Ollama server pulls and serves for this Model:
 // source.ollama.tag when set, else spec.model. It is empty when the source is
 // not an Ollama one, which means there is nothing for Ollama to pull.
 func (m *Model) OllamaTag() string {
@@ -177,7 +177,7 @@ type ModelStatus struct {
 	ModelInfo *ModelInfo `json:"modelInfo,omitempty"`
 
 	// Pull reports download progress while State is Pulling and is cleared
-	// once the model is on the provider.
+	// once the model is on the server.
 	// +optional
 	Pull *PullProgress `json:"pull,omitempty"`
 
@@ -190,13 +190,13 @@ type ModelStatus struct {
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
 }
 
-// PullProgress is the download progress of a model being pulled onto a provider.
+// PullProgress is the download progress of a model being pulled onto a server.
 type PullProgress struct {
 	// CompletedBytes is how many bytes of the known layers have downloaded
 	// +optional
 	CompletedBytes int64 `json:"completedBytes,omitempty"`
 
-	// TotalBytes is the combined size of the layers the provider has announced so
+	// TotalBytes is the combined size of the layers the server has announced so
 	// far; it can grow while the pull discovers more layers
 	// +optional
 	TotalBytes int64 `json:"totalBytes,omitempty"`
@@ -244,7 +244,7 @@ type ModelInfo struct {
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
 // +kubebuilder:resource:shortName=mdl
-// +kubebuilder:printcolumn:name="Provider",type=string,JSONPath=`.spec.providerRef`
+// +kubebuilder:printcolumn:name="Server",type=string,JSONPath=`.spec.serverRef`
 // +kubebuilder:printcolumn:name="Model",type=string,JSONPath=`.spec.model`
 // +kubebuilder:printcolumn:name="State",type=string,JSONPath=`.status.state`
 // +kubebuilder:printcolumn:name="Progress",type=integer,JSONPath=`.status.pull.percent`

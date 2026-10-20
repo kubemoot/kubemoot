@@ -66,7 +66,7 @@ The sidebar groups pages by what they cover. The Topology page exists by URL (`/
 | Top | Overview, Nodes | Counts and health for every resource type; Kubernetes nodes with GPU detection and model-loading state |
 | Messaging | Discussions, Messages | Multi-agent discussion threads with a timeline view; a NATS subject explorer with a live message viewer |
 | Crews | Crews, Agents, Prompts, Memory, Fitness | Crew and agent configuration, PromptModule contents, crew memory, and fitness suite runs |
-| Models | Providers, Models, Embeddings | ModelProvider backends with their calibration (phase and, per model, fit, load time, generation, prompt, and parallel speed), Model state, and EmbeddingModel configuration |
+| Models | ModelServers, Models, Embeddings | ModelServer backends with their calibration (phase and, per model, fit, load time, generation, prompt, and parallel speed), Model state, and EmbeddingModel configuration |
 | MCPs | MCP Servers, MCP Gateways, Quality Policies, Catalogs, Reports | MCPServer instances and tools, gateway routing, quality policies, catalog discovery, and quality verdicts |
 | Knowledge | RAG Sources | RAGSource indexing status with document and chunk counts |
 | System | Config | The `KubemootConfig` cluster singleton |
@@ -89,7 +89,7 @@ The timeline shows the date and time once, when the thread started, and each mes
 - **triage**: from the agent's `triaging` message to its `evaluating` message, or to its signal when it never evaluated
 - **evaluation**: from the agent's `evaluating` message to its signal
 - **inference**: the time spent in model calls. The pale prefix of the bar is the time to first token: the model reading the prompt, plus loading the model when the call was cold (the tooltip then says "including the model load"). Older messages that recorded only a model load time show it as a load.
-- **tokens** in and out, the **model** the call ran on, and the **accelerator** (the ModelProvider) that served it
+- **tokens** in and out, the **model** the call ran on, and the **accelerator** (the ModelServer) that served it
 
 `kmctl conversation` derives triage and evaluation the same way, so the two agree. A thread ends with the time it was answered and a summary of how the answer was made: total time, time to the first signal, the agents the coordinator convened and those that stood aside, each agent's latest signal by kind, agent and coordinator tokens, and the models and accelerators used. A field a message does not carry is left out rather than shown as zero, so older threads show only what they recorded.
 
@@ -128,11 +128,11 @@ The SvelteKit server exposes the JSON and event-stream endpoints the pages use. 
 |----------|--------|---------|
 | `/api/health`, `/api/version` | GET | Health check; dashboard version |
 | `/api/namespaces`, `/api/nodes` | GET | Namespaces; Kubernetes nodes with GPU information |
-| `/api/kubemoot/<plural>` and `/api/kubemoot/<plural>/<name>` | GET | List and detail for `agents`, `crews`, `models`, `modelproviders`, `embeddingmodels`, `mcpservers`, `mcpgateways`, `mcpqualitypolicies`, `mcpcatalogs`, `mcpserverreports`, `ragsources`, `promptmodules`, `crewfitnesses` |
+| `/api/kubemoot/<plural>` and `/api/kubemoot/<plural>/<name>` | GET | List and detail for `agents`, `crews`, `models`, `modelservers`, `embeddingmodels`, `mcpservers`, `mcpgateways`, `mcpqualitypolicies`, `mcpcatalogs`, `mcpserverreports`, `ragsources`, `promptmodules`, `crewfitnesses` |
 | `/api/kubemoot/config`, `/api/kubemoot/system-info`, `/api/kubemoot/topology` | GET | Configuration, system information, agent topology graph |
 | `/api/kubemoot/crewfitnesssuites` | GET | Fitness suites; sub-paths under `<namespace>/<name>/` serve `scores`, `iterations`, `transcript`, and `artifact`; DELETE on `<namespace>/<name>` removes a run; PATCH on `<namespace>/<name>` with `{"action": "pause" \| "resume" \| "stop"}` controls it |
 | `/api/kubemoot/mcpserverreports/<name>` | PATCH | Pin a verdict |
-| `/api/kubemoot/modelproviders/<name>/load`, `/unload`, `/delete` | POST | Model provider actions |
+| `/api/kubemoot/modelservers/<name>/load`, `/unload`, `/delete` | POST | Model server actions |
 | `/api/kubemoot/crew-memory` | GET, POST, DELETE | Crew memory facts |
 | `/api/kubemoot/watch/<plural>` | GET | Kubernetes resource updates as server-sent events |
 | `/api/nats/subscribe?subject=` | GET | Server-sent events for a NATS subject |

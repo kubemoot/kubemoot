@@ -118,11 +118,11 @@ export function signalColor(type: string): string {
 export const NO_ACCELERATOR = 'none';
 
 /**
- * Where a call ran: the ModelProvider that served it, chosen per call, else the
+ * Where a call ran: the ModelServer that served it, chosen per call, else the
  * accelerator the sender reports; undefined when neither is set or it ran on none.
  */
-export function placementOf(provider?: string, gpuLabel?: string): string | undefined {
-	return [provider, gpuLabel].find((p) => !!p && p !== NO_ACCELERATOR);
+export function placementOf(server?: string, gpuLabel?: string): string | undefined {
+	return [server, gpuLabel].find((p) => !!p && p !== NO_ACCELERATOR);
 }
 
 /** When a message was published, in epoch milliseconds; NaN when it carries no timestamp. */

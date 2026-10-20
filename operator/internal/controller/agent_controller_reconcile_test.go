@@ -34,7 +34,7 @@ func agentReconcileScheme(t *testing.T) *runtime.Scheme {
 	return s
 }
 
-// With no Ready Model (and no Ready ModelProvider) in the namespace, pickModel
+// With no Ready Model (and no Ready ModelServer) in the namespace, pickModel
 // finds nothing feasible, so the Agent is marked Unschedulable and requeued for a
 // later retry. Exercises Reconcile's scheduling head: pickModel ->
 // findPolicyAndRule -> feasibleCandidates -> evaluateCandidate ->
@@ -76,10 +76,10 @@ func TestAgentReconcile_UnschedulableWhenNoReadyModel(t *testing.T) {
 	}
 }
 
-// The happy path: a Ready Model whose ProviderRef resolves to a Ready
-// ModelProvider (VRAMMib 0 -> always fits, no scheduling policy -> no require
+// The happy path: a Ready Model whose ServerRef resolves to a Ready
+// ModelServer (VRAMMib 0 -> always fits, no scheduling policy -> no require
 // selector) makes the agent schedulable, so reconcile creates the Deployment and
-// Service. Exercises pickModel's success path, resolveProvider, modelFitsProvider,
+// Service. Exercises pickModel's success path, resolveServer, modelFitsServer,
 // ensurePolicyConfigMap, ensureDeployment (+buildDeployment/env/labels),
 // ensureService, and refreshStatus.
 func TestAgentReconcile_SchedulesAndDeploys(t *testing.T) {
@@ -89,19 +89,19 @@ func TestAgentReconcile_SchedulesAndDeploys(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{Name: "a1", Namespace: testNS1, Labels: map[string]string{labelCrew: "crew1"}},
 		Spec:       kubemootv1alpha1.AgentSpec{Capabilities: []string{testReasoning}},
 	}
-	provider := &kubemootv1alpha1.ModelProvider{
+	server := &kubemootv1alpha1.ModelServer{
 		ObjectMeta: metav1.ObjectMeta{Name: "prov1", Namespace: testNS1},
-		Spec:       kubemootv1alpha1.ModelProviderSpec{Type: kubemootv1alpha1.ProviderTypeOllama, Endpoint: "http://prov1:11434"},
-		Status:     kubemootv1alpha1.ModelProviderStatus{Ready: true},
+		Spec:       kubemootv1alpha1.ModelServerSpec{Type: kubemootv1alpha1.ServerTypeOllama, Endpoint: "http://prov1:11434"},
+		Status:     kubemootv1alpha1.ModelServerStatus{Ready: true},
 	}
 	model := &kubemootv1alpha1.Model{
 		ObjectMeta: metav1.ObjectMeta{Name: "m1", Namespace: testNS1},
-		Spec:       kubemootv1alpha1.ModelSpec{Model: testModelID, ProviderRef: "prov1"},
+		Spec:       kubemootv1alpha1.ModelSpec{Model: testModelID, ServerRef: "prov1"},
 		Status:     kubemootv1alpha1.ModelStatus{Ready: true},
 	}
 	cli := fake.NewClientBuilder().WithScheme(scheme).
-		WithObjects(agent, provider, model).
-		WithStatusSubresource(agent, provider, model).Build()
+		WithObjects(agent, server, model).
+		WithStatusSubresource(agent, server, model).Build()
 	r := &AgentReconciler{Client: cli, Scheme: scheme, ConfigCache: NewConfigCache()}
 	req := ctrl.Request{NamespacedName: types.NamespacedName{Name: "a1", Namespace: testNS1}}
 
@@ -137,25 +137,25 @@ func TestAgentReconcile_NotFoundIsNoOp(t *testing.T) {
 }
 
 // The pod template carries no scheduling output beyond the spec-derived default
-// endpoint: provider bindings sit on the Deployment labels only, so a binding
+// endpoint: server bindings sit on the Deployment labels only, so a binding
 // change updates metadata without changing the template (no pod roll).
-func TestBuildDeployment_PodTemplateOmitsProviderLabels(t *testing.T) {
+func TestBuildDeployment_PodTemplateOmitsServerLabels(t *testing.T) {
 	scheme := agentReconcileScheme(t)
 	r := &AgentReconciler{Client: fake.NewClientBuilder().WithScheme(scheme).Build(), Scheme: scheme, ConfigCache: NewConfigCache()}
 	agent := &kubemootv1alpha1.Agent{ObjectMeta: metav1.ObjectMeta{Name: "a1", Namespace: testNS1, Labels: map[string]string{labelCrew: testCrewA}}}
-	pickOn := func(provider string) *modelPick {
+	pickOn := func(server string) *modelPick {
 		return &modelPick{
 			ModelID:  testModelID,
-			Endpoint: "http://" + provider + ":11434",
-			Provider: &kubemootv1alpha1.ModelProvider{ObjectMeta: metav1.ObjectMeta{Name: provider}},
+			Endpoint: "http://" + server + ":11434",
+			Server:   &kubemootv1alpha1.ModelServer{ObjectMeta: metav1.ObjectMeta{Name: server}},
 		}
 	}
 
 	d := r.buildDeployment(context.Background(), agent, pickOn("rig0"), pickOn("rig1"), "cm", "hash")
-	if d.Labels[labelMullingProvider] != "rig0" || d.Labels[labelTriageProvider] != "rig1" {
+	if d.Labels[labelMullingServer] != "rig0" || d.Labels[labelTriageServer] != "rig1" {
 		t.Errorf("Deployment labels should record the bindings, got %v", d.Labels)
 	}
-	for _, key := range []string{labelMullingProvider, labelTriageProvider} {
+	for _, key := range []string{labelMullingServer, labelTriageServer} {
 		if _, found := d.Spec.Template.Labels[key]; found {
 			t.Errorf("pod template must not carry %s", key)
 		}
@@ -164,15 +164,15 @@ func TestBuildDeployment_PodTemplateOmitsProviderLabels(t *testing.T) {
 		t.Errorf("pod template keeps the identity labels the selector matches, got %v", d.Spec.Template.Labels)
 	}
 
-	// Same endpoint, different recorded provider name: identical template hash.
-	renamed := func(provider string) *modelPick {
-		pick := pickOn(provider)
+	// Same endpoint, different recorded server name: identical template hash.
+	renamed := func(server string) *modelPick {
+		pick := pickOn(server)
 		pick.Endpoint = "http://shared:11434"
 		return pick
 	}
 	first := r.buildDeployment(context.Background(), agent, renamed("rig0"), renamed("rig1"), "cm", "hash")
 	second := r.buildDeployment(context.Background(), agent, renamed("rig8"), renamed("rig9"), "cm", "hash")
 	if computeDeploymentHash(first) != computeDeploymentHash(second) {
-		t.Error("a provider binding change alone must not change the template hash")
+		t.Error("a server binding change alone must not change the template hash")
 	}
 }

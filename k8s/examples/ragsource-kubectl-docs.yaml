@@ -2,7 +2,7 @@
 # Indexes kubectl documentation into pgvector for RAG queries
 #
 # Prerequisites:
-#   - ModelProvider (ollama-local)
+#   - ModelServer (ollama-local)
 #   - EmbeddingModel (nomic-embed)
 #   - PostgreSQL with pgvector extension
 #   - Indexer container image

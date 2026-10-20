@@ -1,13 +1,13 @@
 # Complete Ollama Stack Example
-# Creates a ModelProvider and Model for a working Ollama setup
+# Creates a ModelServer and Model for a working Ollama setup
 #
 # Usage:
 #   kubectl apply -f ollama-complete-stack.yaml
-#   kubectl get modelproviders,models -n kubemoot
+#   kubectl get modelservers,models -n kubemoot
 #   kubectl delete -f ollama-complete-stack.yaml
 ---
 apiVersion: kubemoot.ai/v1alpha1
-kind: ModelProvider
+kind: ModelServer
 metadata:
   name: ollama-local
   namespace: kubemoot
@@ -21,5 +21,5 @@ metadata:
   name: test-model
   namespace: kubemoot
 spec:
-  providerRef: ollama-local
+  serverRef: ollama-local
   model: qwen2:0.5b

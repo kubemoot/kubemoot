@@ -27,7 +27,7 @@ import java.util.Optional;
  *   <li>artifacts {@code kubemoot.artifacts.<ns>.<crew>.<thread>}, objects {@code <ns>/<crew>/<thread>/...}</li>
  *   <li>chat {@code kubemoot.chat.<ns>.<agent>}</li>
  *   <li>KV: resumes {@code <ns>.<crew>}, memory {@code <ns>.<crew>.<topic>.<key>},
- *       agent state {@code <ns>.<agent>}, latency {@code latency.<ns>.<agent>.<provider>}</li>
+ *       agent state {@code <ns>.<agent>}, latency {@code latency.<ns>.<agent>.<server>}</li>
  * </ul>
  */
 public record CrewScope(String namespace, String crew) {
@@ -256,9 +256,9 @@ public record CrewScope(String namespace, String crew) {
         return namespace + DOT + agent;
     }
 
-    /** Key in {@code kubemoot_latency}: {@code latency.<ns>.<agent>.<provider>}. */
-    public String latencyKey(String agent, String provider) {
-        return LATENCY + namespace + DOT + agent + DOT + latencyToken(provider);
+    /** Key in {@code kubemoot_latency}: {@code latency.<ns>.<agent>.<server>}. */
+    public String latencyKey(String agent, String server) {
+        return LATENCY + namespace + DOT + agent + DOT + latencyToken(server);
     }
 
     /** One KV key token: NATS KV keys allow [A-Za-z0-9-_/=.], dots split tokens. */
@@ -267,7 +267,7 @@ public record CrewScope(String namespace, String crew) {
         return s.strip().replaceAll("[^A-Za-z0-9_=-]", "_");
     }
 
-    /** A provider label as a latency key token (spaces, slashes, and dots become underscores). */
+    /** A server label as a latency key token (spaces, slashes, and dots become underscores). */
     static String latencyToken(String value) {
         return value.replace(" ", "_").replace("/", "_").replace(".", "_");
     }

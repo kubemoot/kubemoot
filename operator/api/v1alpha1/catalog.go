@@ -34,7 +34,7 @@ const (
 	LabelContextTokens = "kubemoot.ai/context-tokens"
 	// LabelFamily is the model family the engine reports (for example qwen3).
 	LabelFamily = "kubemoot.ai/family"
-	// LabelEngine is the type of the provider that serves the model.
+	// LabelEngine is the type of the server that serves the model.
 	LabelEngine = "kubemoot.ai/engine"
 	// CapabilityLabelPrefix starts the label of an ability: capability/tool-calling.
 	CapabilityLabelPrefix = "capability/"
@@ -110,16 +110,16 @@ func ParseParameterCount(s string) (int64, bool) {
 	return int64(math.Round(n * unit)), true
 }
 
-// CatalogModel is one model in a cluster's catalog, as a ModelProvider reports
-// it: what the provider's engine said about the model merged with the Model
+// CatalogModel is one model in a cluster's catalog, as a ModelServer reports
+// it: what the server's engine said about the model merged with the Model
 // object the cluster owner keeps for it, if any. Labels is what scheduling
 // rules select on.
 type CatalogModel struct {
-	// Name is the model name on the provider: the Ollama tag, or the vLLM served
+	// Name is the model name on the server: the Ollama tag, or the vLLM served
 	// name.
 	Name string `json:"name"`
 
-	// Present is true when the provider has the model now: downloaded (Ollama)
+	// Present is true when the server has the model now: downloaded (Ollama)
 	// or answering (vLLM). An entry that is not present is known from a Model
 	// object only.
 	// +optional

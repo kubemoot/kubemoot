@@ -40,25 +40,25 @@ import (
 // dead connection; a healthy pull reports progress many times a second.
 const pullStallLimit = 10 * time.Minute
 
-// errNoSpace marks a pull that needs more room than the provider has.
+// errNoSpace marks a pull that needs more room than the server has.
 var errNoSpace = errors.New("not enough free disk")
 
-// pullKey identifies one download: the provider and the model tag. Models that
+// pullKey identifies one download: the server and the model tag. Models that
 // share both share the download.
-func pullKey(providerRef, tag string) string { return providerRef + "/" + tag }
+func pullKey(serverRef, tag string) string { return serverRef + "/" + tag }
 
 // pullState is one pull running outside the reconcile loop, or its outcome.
 type pullState struct {
 	cancel context.CancelFunc
 	owners map[types.UID]bool
-	// provider names the ModelProvider the pull downloads onto.
-	provider string
+	// server names the ModelServer the pull downloads onto.
+	server string
 
 	mu       sync.Mutex
 	layers   map[string]*pullLayer
 	finished bool
 	err      error
-	// freeAtFailure is the provider's free disk when the pull failed for lack of
+	// freeAtFailure is the server's free disk when the pull failed for lack of
 	// space; the pull is tried again once the free disk differs.
 	freeAtFailure int64
 }
@@ -132,7 +132,7 @@ func (p *pullState) outcome() pullOutcome {
 //
 // Ollama has no API that removes the partial files of an unfinished model, and it
 // prunes them only when the server starts. The tracker therefore also remembers the
-// bytes a cancelled or failed pull left on disk, so the provider's free-disk
+// bytes a cancelled or failed pull left on disk, so the server's free-disk
 // estimate can count them until the model server restarts.
 type PullTracker struct {
 	mu        sync.Mutex
@@ -141,10 +141,10 @@ type PullTracker struct {
 	instances map[string]string
 }
 
-// leftover is the partial download a stopped pull left on a provider's disk.
+// leftover is the partial download a stopped pull left on a server's disk.
 type leftover struct {
-	provider string
-	bytes    int64
+	server string
+	bytes  int64
 }
 
 func (t *PullTracker) get(key string) *pullState {
@@ -166,7 +166,7 @@ func (t *PullTracker) ownedBy(owner types.UID) []string {
 	return keys
 }
 
-// forget drops a pull whose model is on the provider, and any partial record. A
+// forget drops a pull whose model is on the server, and any partial record. A
 // pull still running is cancelled.
 func (t *PullTracker) forget(key string) {
 	t.mu.Lock()
@@ -180,7 +180,7 @@ func (t *PullTracker) forget(key string) {
 }
 
 // abandon stops a pull that did not finish and remembers the bytes it downloaded,
-// which stay on the provider's disk as partial files.
+// which stay on the server's disk as partial files.
 func (t *PullTracker) abandon(key string) {
 	t.mu.Lock()
 	p := t.pulls[key]
@@ -190,7 +190,7 @@ func (t *PullTracker) abandon(key string) {
 			if t.leftovers == nil {
 				t.leftovers = map[string]leftover{}
 			}
-			t.leftovers[key] = leftover{provider: p.provider, bytes: completed}
+			t.leftovers[key] = leftover{server: p.server, bytes: completed}
 		}
 	}
 	t.mu.Unlock()
@@ -199,19 +199,19 @@ func (t *PullTracker) abandon(key string) {
 	}
 }
 
-// PartialBytes is the disk the provider holds for unfinished downloads: pulls in
+// PartialBytes is the disk the server holds for unfinished downloads: pulls in
 // progress plus the partial files of stopped ones.
-func (t *PullTracker) PartialBytes(provider string) int64 {
+func (t *PullTracker) PartialBytes(server string) int64 {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	var sum int64
 	for _, l := range t.leftovers {
-		if l.provider == provider {
+		if l.server == server {
 			sum += l.bytes
 		}
 	}
 	for _, p := range t.pulls {
-		if p.provider == provider && !p.succeeded() {
+		if p.server == server && !p.succeeded() {
 			completed, _ := p.totals()
 			sum += completed
 		}
@@ -220,22 +220,22 @@ func (t *PullTracker) PartialBytes(provider string) int64 {
 }
 
 // ServerRestarted records the identity of the model server instance behind a
-// provider (for example its pod UID and restart count) and clears the partial
+// server (for example its pod UID and restart count) and clears the partial
 // files remembered for it when the identity changed, since Ollama removes them
 // when it starts.
-func (t *PullTracker) ServerRestarted(provider, instance string) {
+func (t *PullTracker) ServerRestarted(server, instance string) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	if t.instances == nil {
 		t.instances = map[string]string{}
 	}
-	previous, seen := t.instances[provider]
-	t.instances[provider] = instance
+	previous, seen := t.instances[server]
+	t.instances[server] = instance
 	if !seen || previous == instance {
 		return
 	}
 	for k, l := range t.leftovers {
-		if l.provider == provider {
+		if l.server == server {
 			delete(t.leftovers, k)
 		}
 	}
@@ -260,7 +260,7 @@ type pullStep struct {
 // advance moves the pull for key one step: it reports a pull in progress, how a
 // finished one ended, or starts a pull when none is tracked (or the tracked one
 // failed for lack of space and the free disk has since changed). owner is the UID of
-// the object that asked for the pull; ps.freeBytes is the provider's free disk.
+// the object that asked for the pull; ps.freeBytes is the server's free disk.
 func (t *PullTracker) advance(key string, owner types.UID, ps pullStream) pullStep {
 	if state := t.get(key); state != nil {
 		state.addOwner(owner)
@@ -284,7 +284,7 @@ func (t *PullTracker) consume(key string, state *pullState, free int64) (step pu
 		t.forget(key)
 		return pullStep{phase: pullSucceeded}, true
 	case errors.Is(out.err, errNoSpace) && free != out.freeAtFailure:
-		// The provider's free disk changed since the pull failed, so try again.
+		// The server's free disk changed since the pull failed, so try again.
 		t.abandon(key)
 		return pullStep{}, false
 	case errors.Is(out.err, errNoSpace):
@@ -325,7 +325,7 @@ func tagWantedElsewhere(ctx context.Context, c client.Client, self client.Object
 	return wanted[key], err
 }
 
-// wantedPullKeys lists the provider and tag of every Model and EmbeddingModel not
+// wantedPullKeys lists the server and tag of every Model and EmbeddingModel not
 // being deleted, other than self.
 func wantedPullKeys(ctx context.Context, c client.Client, self client.Object) (map[string]bool, error) {
 	wanted := map[string]bool{}
@@ -336,7 +336,7 @@ func wantedPullKeys(ctx context.Context, c client.Client, self client.Object) (m
 	for i := range models.Items {
 		m := &models.Items[i]
 		if modelWantsPull(m, self) {
-			wanted[pullKey(m.Spec.ProviderRef, m.OllamaTag())] = true
+			wanted[pullKey(m.Spec.ServerRef, m.OllamaTag())] = true
 		}
 	}
 	embeddings := &aiv1alpha1.EmbeddingModelList{}
@@ -346,13 +346,13 @@ func wantedPullKeys(ctx context.Context, c client.Client, self client.Object) (m
 	for i := range embeddings.Items {
 		e := &embeddings.Items[i]
 		if e.DeletionTimestamp.IsZero() && !isSameObject(self, e) {
-			wanted[pullKey(e.Spec.ProviderRef, e.Spec.Model)] = true
+			wanted[pullKey(e.Spec.ServerRef, e.Spec.Model)] = true
 		}
 	}
 	return wanted, nil
 }
 
-// modelWantsPull reports whether m asks for its Ollama tag to be on its provider: it
+// modelWantsPull reports whether m asks for its Ollama tag to be on its server: it
 // is not being deleted, not disabled, not self, and has a tag to pull.
 func modelWantsPull(m *aiv1alpha1.Model, self client.Object) bool {
 	return m.DeletionTimestamp.IsZero() && !m.Spec.Disabled && !isSameObject(self, m) && m.OllamaTag() != ""
@@ -364,7 +364,7 @@ func isSameObject(a, b client.Object) bool {
 		a.GetNamespace() == b.GetNamespace() && a.GetName() == b.GetName()
 }
 
-// releaseStalePulls cancels the pulls self started under a provider or tag other
+// releaseStalePulls cancels the pulls self started under a server or tag other
 // than current, unless another Model or EmbeddingModel still needs them.
 func releaseStalePulls(ctx context.Context, c client.Client, t *PullTracker, self client.Object, current string) error {
 	uid := self.GetUID()
@@ -392,20 +392,20 @@ func abandonIfUnwanted(ctx context.Context, c client.Client, t *PullTracker, sel
 	return nil
 }
 
-// newPullStream is the pull request for tag onto provider.
-func newPullStream(provider *aiv1alpha1.ModelProvider, tag string, httpClient *http.Client) pullStream {
+// newPullStream is the pull request for tag onto server.
+func newPullStream(server *aiv1alpha1.ModelServer, tag string, httpClient *http.Client) pullStream {
 	return pullStream{
-		provider: provider.Name, endpoint: provider.Spec.Endpoint, tag: tag,
-		freeBytes: providerFreeBytes(provider), client: httpClient,
+		server: server.Name, endpoint: server.Spec.Endpoint, tag: tag,
+		freeBytes: serverFreeBytes(server), client: httpClient,
 	}
 }
 
 // pullStream is the pull request, the stream settings and what ends the stream.
 type pullStream struct {
-	provider  string // ModelProvider name, to attribute the disk the pull uses
+	server    string // ModelServer name, to attribute the disk the pull uses
 	endpoint  string
 	tag       string
-	freeBytes int64 // provider free disk when known, otherwise 0
+	freeBytes int64 // server free disk when known, otherwise 0
 	client    *http.Client
 }
 
@@ -423,7 +423,7 @@ func startPull(tracker *PullTracker, key string, owner types.UID, ps pullStream)
 		tracker.pulls = map[string]*pullState{}
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	state := &pullState{cancel: cancel, owners: map[types.UID]bool{owner: true}, provider: ps.provider, layers: map[string]*pullLayer{}}
+	state := &pullState{cancel: cancel, owners: map[types.UID]bool{owner: true}, server: ps.server, layers: map[string]*pullLayer{}}
 	tracker.pulls[key] = state
 	delete(tracker.leftovers, key) // the resumed pull counts the partial files itself
 	go func() {
@@ -480,11 +480,11 @@ func isNoSpaceText(s string) bool {
 func (ps pullStream) noSpaceError(needBytes int64) error {
 	switch {
 	case needBytes > 0 && ps.freeBytes > 0:
-		return fmt.Errorf("%w: %s needs %s more and the provider has %s free", errNoSpace, ps.tag, formatBytes(needBytes), formatBytes(ps.freeBytes))
+		return fmt.Errorf("%w: %s needs %s more and the server has %s free", errNoSpace, ps.tag, formatBytes(needBytes), formatBytes(ps.freeBytes))
 	case ps.freeBytes > 0:
-		return fmt.Errorf("%w: the provider ran out of disk pulling %s (%s free before the pull)", errNoSpace, ps.tag, formatBytes(ps.freeBytes))
+		return fmt.Errorf("%w: the server ran out of disk pulling %s (%s free before the pull)", errNoSpace, ps.tag, formatBytes(ps.freeBytes))
 	default:
-		return fmt.Errorf("%w: the provider ran out of disk pulling %s", errNoSpace, ps.tag)
+		return fmt.Errorf("%w: the server ran out of disk pulling %s", errNoSpace, ps.tag)
 	}
 }
 

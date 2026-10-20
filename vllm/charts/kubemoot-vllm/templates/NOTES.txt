@@ -6,14 +6,14 @@ The first start downloads the weights and compiles each model, which takes minut
 
   kubectl -n {{ .Release.Namespace }} logs deploy/{{ $name }} -f
 
-Then tell Kubemoot about it. Create this ModelProvider (change the namespace to the one
+Then tell Kubemoot about it. Create this ModelServer (change the namespace to the one
 Kubemoot's operator runs in). The operator finds the servers from the Service's ports and
 reads each model's parameters and capabilities from this release's values, which the chart
 publishes on the Service (the kubemoot.ai/models annotation):
 
 ---
 apiVersion: kubemoot.ai/v1alpha1
-kind: ModelProvider
+kind: ModelServer
 metadata:
   name: {{ $name }}
   namespace: kubemoot
@@ -33,4 +33,4 @@ class:
 
 To add labels of your own to a model (data residency, license) or to keep one out of the
 catalog, create a Model in Kubemoot's namespace with spec.model set to the served name and
-spec.providerRef set to {{ $name }}.
+spec.serverRef set to {{ $name }}.

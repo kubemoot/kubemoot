@@ -179,10 +179,10 @@ func (f *fakeServer) isAsleep() bool {
 	return f.sleeping
 }
 
-// specOf is a vllm provider spec over the given servers, one per model.
-func specOf(level int, servers map[string]*fakeServer, order ...string) aiv1alpha1.ModelProviderSpec {
-	spec := aiv1alpha1.ModelProviderSpec{
-		Type:       aiv1alpha1.ProviderTypeVLLM,
+// specOf is a vllm server spec over the given servers, one per model.
+func specOf(level int, servers map[string]*fakeServer, order ...string) aiv1alpha1.ModelServerSpec {
+	spec := aiv1alpha1.ModelServerSpec{
+		Type:       aiv1alpha1.ServerTypeVLLM,
 		SleepLevel: level,
 	}
 	for _, model := range order {
@@ -191,7 +191,7 @@ func specOf(level int, servers map[string]*fakeServer, order ...string) aiv1alph
 	return spec
 }
 
-func probe(t *testing.T, spec aiv1alpha1.ModelProviderSpec) engine.Snapshot {
+func probe(t *testing.T, spec aiv1alpha1.ModelServerSpec) engine.Snapshot {
 	t.Helper()
 	snap, err := New(http.DefaultClient).Probe(context.Background(), spec)
 	if err != nil {
@@ -352,10 +352,10 @@ func TestProbeFailsWhenNoServerAnswers(t *testing.T) {
 	down := newFake(t, qwen14, false)
 	down.unhealthy = true
 	if _, err := New(http.DefaultClient).Probe(context.Background(), specOf(1, map[string]*fakeServer{qwen14: down}, qwen14)); err == nil {
-		t.Error("a provider with no answering server is an error")
+		t.Error("a server with no answering server is an error")
 	}
-	if _, err := New(http.DefaultClient).Probe(context.Background(), aiv1alpha1.ModelProviderSpec{Type: aiv1alpha1.ProviderTypeVLLM}); err == nil {
-		t.Error("a provider that lists no servers is an error")
+	if _, err := New(http.DefaultClient).Probe(context.Background(), aiv1alpha1.ModelServerSpec{Type: aiv1alpha1.ServerTypeVLLM}); err == nil {
+		t.Error("a server that lists no servers is an error")
 	}
 }
 
@@ -416,7 +416,7 @@ func TestReadyLevelTwoWakesInOrder(t *testing.T) {
 	}
 }
 
-func TestReadySleepsOthersAtTheProvidersLevel(t *testing.T) {
+func TestReadySleepsOthersAtTheServersLevel(t *testing.T) {
 	a := newFake(t, qwen14, false)
 	b := newFake(t, qwen8, true)
 	servers := map[string]*fakeServer{qwen14: a, qwen8: b}
@@ -466,7 +466,7 @@ func TestReadyAndReleaseRejectAnUnknownModel(t *testing.T) {
 	}
 }
 
-func TestReleasePutsTheServerToSleepAtTheProvidersLevel(t *testing.T) {
+func TestReleasePutsTheServerToSleepAtTheServersLevel(t *testing.T) {
 	for _, level := range []int{0, 1, 2} {
 		a := newFake(t, qwen14, false)
 		spec := specOf(level, map[string]*fakeServer{qwen14: a}, qwen14)

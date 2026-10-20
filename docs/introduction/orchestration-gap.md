@@ -80,10 +80,10 @@ it the next time.
 Closing the gap means making the workflow itself declarative and operable, the same
 way the rest of a cluster is. Concretely:
 
-- **Model providers as resources** - local model servers declared as resources and
+- **Model servers as resources** - local model servers declared as resources and
   selected per inference call rather than pinned at deploy time. Ollama is the model
   server today; hosted APIs are a [Roadmap](../roadmap/) item.
-- **GPU scheduling** that places each call on a provider with room for it, the way the
+- **GPU scheduling** that places each call on a server with room for it, the way the
   Kubernetes scheduler bin-packs pods onto nodes.
 - **Retrieval as a declared source** that is vectorized and served for you.
 - **Tools behind a managed gateway**, discovered rather than wired in.

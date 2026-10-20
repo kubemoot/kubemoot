@@ -57,7 +57,7 @@ function recordedThread(): DiscussionMessage[] {
 			outputTokens: 678,
 			model: 'qwen3:32b',
 			modelName: 'qwen3:8b',
-			provider: 'ollama-rig1',
+			server: 'ollama-rig1',
 			gpuLabel: 'gpu-0'
 		}),
 		msg('coordinator', 'synthesis', 72_000, {
@@ -102,7 +102,7 @@ describe('signal tables', () => {
 });
 
 describe('placementOf', () => {
-	it('prefers the provider, falls back to the accelerator label, and drops none', () => {
+	it('prefers the server, falls back to the accelerator label, and drops none', () => {
 		expect(placementOf('ollama-rig1', 'gpu-0')).toBe('ollama-rig1');
 		expect(placementOf('', 'gpu-0')).toBe('gpu-0');
 		expect(placementOf('none', 'gpu-0')).toBe('gpu-0');
@@ -134,12 +134,12 @@ describe('isContribution', () => {
 });
 
 describe('metadataStats', () => {
-	it('prefers the model the call ran on and the provider that served it', () => {
+	it('prefers the model the call ran on and the server that served it', () => {
 		const stats = metadataStats(
 			msg('sre', 'agree', 0, {
 				model: 'big',
 				modelName: 'small',
-				provider: 'rig1',
+				server: 'rig1',
 				gpuLabel: 'gpu-0'
 			})
 		);

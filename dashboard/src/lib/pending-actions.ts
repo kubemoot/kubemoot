@@ -1,5 +1,5 @@
-// Model load/unload actions the ModelProviderCard shows as in flight until the
-// ModelProvider status catches up (or the give-up TTL runs out).
+// Model load/unload actions the ModelServerCard shows as in flight until the
+// ModelServer status catches up (or the give-up TTL runs out).
 
 export interface PendingAction {
 	action: 'load' | 'unload';

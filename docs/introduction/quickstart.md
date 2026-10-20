@@ -35,7 +35,7 @@ soon as the cluster is actually ready, not on a guessed clock.
 | 1 | NATS with JetStream | Every discussion is carried over NATS; the operator bootstraps its streams. |
 | 2 | Ollama on CPU, pulling `qwen2.5:1.5b` | A small model that runs anywhere, with no GPU. |
 | 3 | The operator Helm chart, minimal profile, with the dashboard on | The dashboard has no login, so it gets no route; the script prints the `kubectl port-forward` command that opens it. Admission webhooks, Grafana dashboards, the internal MCP servers, the NATS MCP server, and the verify runner are off. |
-| 4 | A `ModelProvider` pointing at that Ollama | The endpoint the scheduler binds agents to at inference time. |
+| 4 | A `ModelServer` pointing at that Ollama | The endpoint the scheduler binds agents to at inference time. |
 | 5 | The `hello` crew: a coordinator plus one Tooler | The smallest crew that actually deliberates; its prompts are ADL rules you can `kubectl apply` and change. |
 | 6 | One question through the crew's discussion gateway | The answer comes back as the discussion's synthesis, streamed over Server-Sent Events. |
 
@@ -86,13 +86,13 @@ against the same cluster upgrades in place rather than failing.
 CI runs this exact script on a fresh `kind` cluster against every release's images, so
 if it breaks, the build is red before you see it. Full details, environment variables,
 and what the script does not cover (RAG sources, MCP tool servers, GPU scheduling
-across providers, a published dashboard) live in
+across servers, a published dashboard) live in
 [quickstart/README.md](https://github.com/kubemoot/kubemoot/blob/main/quickstart/README.md).
 
 ## Next
 
 - [Installation](../installation/) - install the operator on your own cluster with a
-  GPU-backed model provider, for real crew work rather than a trial.
+  GPU-backed model server, for real crew work rather than a trial.
 - [Crews & Agents](../../concepts/crews-and-agents/) - the model you just ran.
 - [The starter crew](../../user-guides/starter-crew/) - scaffold a read-only guide to a
   namespace with `kmctl create`, install it, ask it, and change one of its rules.

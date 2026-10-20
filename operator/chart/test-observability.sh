@@ -68,7 +68,7 @@ for path in sorted(dash_dir.glob("*.json")):
         if uid not in ("${datasource}", "$datasource"):
             problems.append(f"{path.name}: a panel uses datasource {ds!r}, not the datasource variable")
     for e in found["exprs"]:
-        for label, value in re.findall(r'\b(namespace|provider|model|pod|node|instance)\s*=\s*"([^"]*)"', e):
+        for label, value in re.findall(r'\b(namespace|server|model|pod|node|instance)\s*=\s*"([^"]*)"', e):
             problems.append(f"{path.name}: {label}=\"{value}\" is written literally: {e}")
         if re.search(r"ollama-|rig[0-9]|dijure|homelab", e):
             problems.append(f"{path.name}: names a cluster: {e}")

@@ -34,8 +34,8 @@ const fieldModel = "model"
 // Lifecycle makes a model ready or releases it through the operator, the one place
 // that wakes and sleeps a vLLM server. Calibration never wakes a server itself.
 type Lifecycle interface {
-	Ready(ctx context.Context, provider, model string) error
-	Release(ctx context.Context, provider, model string) error
+	Ready(ctx context.Context, server, model string) error
+	Release(ctx context.Context, server, model string) error
 }
 
 // VLLMEngine is the Engine for one vLLM server, which serves one model. It measures
@@ -43,7 +43,7 @@ type Lifecycle interface {
 // sleeping model is woken, and put back to sleep, through the Lifecycle.
 type VLLMEngine struct {
 	Endpoint string
-	Provider string
+	Server   string
 	Model    string
 	Client   *http.Client
 	// Lifecycle asks the operator to wake or sleep the model; nil never wakes.
@@ -108,7 +108,7 @@ func (v VLLMEngine) wake(ctx context.Context, model string) (int64, error) {
 		return 0, fmt.Errorf("%s is asleep and no operator is available to wake it", model)
 	}
 	started := time.Now()
-	if err := v.Lifecycle.Ready(ctx, v.Provider, model); err != nil {
+	if err := v.Lifecycle.Ready(ctx, v.Server, model); err != nil {
 		return 0, fmt.Errorf("waking %s: %w", model, err)
 	}
 	return time.Since(started).Milliseconds(), nil
@@ -129,7 +129,7 @@ func (v VLLMEngine) Unload(ctx context.Context, model string) error {
 	if v.Lifecycle == nil {
 		return errors.New("no operator is available to put the model to sleep")
 	}
-	return v.Lifecycle.Release(ctx, v.Provider, model)
+	return v.Lifecycle.Release(ctx, v.Server, model)
 }
 
 // isSleeping reads /is_sleeping; a server without the sleep endpoints (404) is awake.

@@ -15,9 +15,9 @@ import (
 )
 
 const (
-	provider = "gpu-a"
-	model    = "qwen3:14b"
-	holder   = "kubemoot/accelerator-mcp/pod-a"
+	server = "gpu-a"
+	model  = "qwen3:14b"
+	holder = "kubemoot/accelerator-mcp/pod-a"
 )
 
 var t0 = time.Date(2026, 10, 16, 7, 0, 0, 0, time.UTC)
@@ -37,13 +37,13 @@ func newProber(kv *storetest.MemKV, eng *storetest.Engine, c *clock) *Prober {
 }
 
 func request(kind string) Request {
-	return Request{Provider: provider, Endpoint: "http://gpu-a", Model: model, Kind: kind, MaxParallel: 2,
+	return Request{Server: server, Endpoint: "http://gpu-a", Model: model, Kind: kind, MaxParallel: 2,
 		SizeMiB: 9_000, MemoryMiB: 20_000, Accelerator: true}
 }
 
 func crewTicket(kv *storetest.MemKV, m string) {
-	_ = kv.PutKVValue(store.TicketsBucket, provider+"__crew-1",
-		[]byte(`{"holderId":"crew-ns/agent","provider":"gpu-a","modelName":"`+m+`"}`))
+	_ = kv.PutKVValue(store.TicketsBucket, server+"__crew-1",
+		[]byte(`{"holderId":"crew-ns/agent","server":"gpu-a","modelName":"`+m+`"}`))
 }
 
 func check(t *testing.T, what string, ok bool, got any) {
@@ -62,7 +62,7 @@ func TestLoad_measuresTheColdLoad_andRemembersTheModel(t *testing.T) {
 	check(t, "no error", err == nil, err)
 	check(t, "load", r.Fits && r.LoadMs == 3000 && !r.Busy && r.Resident != nil && r.Resident.VRAMMiB == 9_000, r)
 	check(t, "tickets released", len(kv.Keys(store.TicketsBucket)) == 0, kv.Keys(store.TicketsBucket))
-	check(t, "remembered for Finish", len(p.loaded[provider]) == 1, p.loaded)
+	check(t, "remembered for Finish", len(p.loaded[server]) == 1, p.loaded)
 }
 
 func TestShortLongAndParallel_reportTheirSpeeds(t *testing.T) {
@@ -85,7 +85,7 @@ func TestProbes_recordCalibrationSamples(t *testing.T) {
 	_, _ = p.Probe(context.Background(), request(KindLoad))
 	_, _ = p.Probe(context.Background(), request(KindParallel))
 
-	raw, _ := kv.GetKVValue(store.PerformanceBucket, bus.PerformanceKey(provider, model, holder))
+	raw, _ := kv.GetKVValue(store.PerformanceBucket, bus.PerformanceKey(server, model, holder))
 	var entry bus.SchedulerPerformance
 	_ = json.Unmarshal(raw, &entry)
 	check(t, "three samples", len(entry.Samples) == 3, entry.Samples)
@@ -106,7 +106,7 @@ func TestSpill_onAnAccelerator_isUnfit_butNotOnACPU(t *testing.T) {
 	cpu := request(KindShort)
 	cpu.Accelerator = false
 	r, _ = p.Probe(context.Background(), cpu)
-	check(t, "no spill check on a CPU provider", r.Fits && r.Reason == "", r)
+	check(t, "no spill check on a CPU server", r.Fits && r.Reason == "", r)
 }
 
 func TestRefusals(t *testing.T) {
@@ -145,12 +145,12 @@ func TestAFailingEngine_isAnError_andReleasesTickets(t *testing.T) {
 	check(t, "error", errors.Is(err, storetest.ErrEngine), err)
 	check(t, "tickets released", len(kv.Keys(store.TicketsBucket)) == 0, kv.Keys(store.TicketsBucket))
 
-	raw, _ := kv.GetKVValue(store.PerformanceBucket, bus.PerformanceKey(provider, model, holder))
+	raw, _ := kv.GetKVValue(store.PerformanceBucket, bus.PerformanceKey(server, model, holder))
 	var entry bus.SchedulerPerformance
 	_ = json.Unmarshal(raw, &entry)
 	check(t, "failed requests are recorded without engine timings",
 		entry.Failures == 2 && entry.Samples[0].LoadMs == store.Unknown && entry.Samples[0].EvalMs == store.Unknown, entry)
-	check(t, "a model it tried to load is remembered for Finish", len(p.loaded[provider]) == 1, p.loaded)
+	check(t, "a model it tried to load is remembered for Finish", len(p.loaded[server]) == 1, p.loaded)
 }
 
 func TestFinish_unloadsWhatItLoaded_exceptAModelACrewNowUses(t *testing.T) {
@@ -162,12 +162,12 @@ func TestFinish_unloadsWhatItLoaded_exceptAModelACrewNowUses(t *testing.T) {
 	_, _ = p.Probe(context.Background(), other)
 
 	crewTicket(kv, "qwen3:8b")
-	unloaded, err := p.Finish(context.Background(), provider)
+	unloaded, err := p.Finish(context.Background(), server)
 	check(t, "unloads only the unused one", err == nil && len(unloaded) == 1 && unloaded[0] == model, unloaded)
-	check(t, "keeps the one in use for later", len(p.loaded[provider]) == 1, p.loaded)
+	check(t, "keeps the one in use for later", len(p.loaded[server]) == 1, p.loaded)
 
-	_ = kv.DeleteKVKey(store.TicketsBucket, provider+"__crew-1")
-	unloaded, _ = p.Finish(context.Background(), provider)
+	_ = kv.DeleteKVKey(store.TicketsBucket, server+"__crew-1")
+	unloaded, _ = p.Finish(context.Background(), server)
 	check(t, "a later Finish unloads it", len(unloaded) == 1 && len(p.loaded) == 0, unloaded)
 }
 
@@ -178,15 +178,15 @@ func TestFinish_aTicketReadErrorUnloadsNothing_andAFailedUnloadIsKept(t *testing
 
 	kv.FailGet = true
 	crewTicket(kv, "qwen3:8b")
-	_, err := p.Finish(context.Background(), provider)
+	_, err := p.Finish(context.Background(), server)
 	check(t, "read error", errors.Is(err, storetest.ErrKV) && len(eng.Unloads) == 0, err)
 
 	kv.FailGet = false
-	_ = kv.DeleteKVKey(store.TicketsBucket, provider+"__crew-1")
+	_ = kv.DeleteKVKey(store.TicketsBucket, server+"__crew-1")
 	eng.FailUnload = true
-	unloaded, err := p.Finish(context.Background(), provider)
+	unloaded, err := p.Finish(context.Background(), server)
 	check(t, "unload failed", errors.Is(err, storetest.ErrEngine) && len(unloaded) == 0 &&
-		len(p.loaded[provider]) == 1, unloaded)
+		len(p.loaded[server]) == 1, unloaded)
 }
 
 func TestFinishIdle_unloadsAfterTheIdleTime(t *testing.T) {
@@ -219,7 +219,7 @@ func TestACrewThatClaimsBetweenTheCheckAndTheClaim_stopsTheProbe(t *testing.T) {
 	r, err := p.Probe(context.Background(), request(KindShort))
 	check(t, "busy, nothing sent", err == nil && r.Busy && eng.Generates == 0, r)
 	check(t, "our ticket released", len(kv.Keys(store.TicketsBucket)) == 1, kv.Keys(store.TicketsBucket))
-	check(t, "a model it never loaded is not remembered", len(p.loaded[provider]) == 0, p.loaded)
+	check(t, "a model it never loaded is not remembered", len(p.loaded[server]) == 0, p.loaded)
 }
 
 // blockingEngine holds Generate until release is closed.
@@ -249,7 +249,7 @@ func TestFinish_waitsForAProbeInFlight(t *testing.T) {
 	<-eng.started
 	finished := make(chan []string)
 	go func() {
-		unloaded, _ := p.Finish(context.Background(), provider)
+		unloaded, _ := p.Finish(context.Background(), server)
 		finished <- unloaded
 	}()
 	select {

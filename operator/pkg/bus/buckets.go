@@ -10,9 +10,9 @@ You may obtain a copy of the License at
 
 package bus
 
-// ProviderTicketsBucket is the NATS KV bucket holding ProviderTicket entries.
-const ProviderTicketsBucket = "kubemoot_provider_tickets"
+// ServerTicketsBucket is the NATS KV bucket holding ServerTicket entries.
+const ServerTicketsBucket = "kubemoot_server_tickets"
 
-// ProviderTicketPrefix starts the key of every ticket on the provider; the key is
-// <provider>__<ticketId>.
-func ProviderTicketPrefix(provider string) string { return provider + "__" }
+// ServerTicketPrefix starts the key of every ticket on the server; the key is
+// <server>__<ticketId>.
+func ServerTicketPrefix(server string) string { return server + "__" }

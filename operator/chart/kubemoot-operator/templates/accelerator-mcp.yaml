@@ -1,8 +1,8 @@
 {{- /*
 accelerator-mcp, a core MCP server: one copy in the operator's namespace, offered to
 every crew (kubemoot.ai/core-mcp) and registered by any gateway whose
-coreServerSelector matches. It runs as a ServiceAccount that may read ModelProviders
-and Models and update ModelProvider status, where calibration is recorded.
+coreServerSelector matches. It runs as a ServiceAccount that may read ModelServers
+and Models and update ModelServer status, where calibration is recorded.
 */ -}}
 {{- if and .Values.acceleratorMcp.enabled .Values.nats.enabled }}
 {{- $name := "accelerator-mcp" }}
@@ -22,10 +22,10 @@ metadata:
     {{- include "kubemoot-operator.labels" . | nindent 4 }}
 rules:
   - apiGroups: ["kubemoot.ai"]
-    resources: ["modelproviders", "models"]
+    resources: ["modelservers", "models"]
     verbs: ["get", "list"]
   - apiGroups: ["kubemoot.ai"]
-    resources: ["modelproviders/status"]
+    resources: ["modelservers/status"]
     verbs: ["patch"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
@@ -66,7 +66,7 @@ spec:
   env:
     - name: NATS_URL
       value: {{ .Values.nats.url | quote }}
-  capabilities: [accelerators, calibration, model-providers]
+  capabilities: [accelerators, calibration, model-servers]
   resources:
     {{- toYaml .Values.acceleratorMcp.resources | nindent 4 }}
 {{- end }}

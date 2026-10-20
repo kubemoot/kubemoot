@@ -5,7 +5,7 @@ weight: 1
 
 ## Overview
 
-The Agent CRD declares an LLM-powered agent as a thin, capability-only resource and deploys it as a Kubernetes-native service. The Agent spec carries no model name, no provider, and no GPU hint. Agents declare *what they can do*; the scheduler matches them to a `(model, provider, endpoint)` via `CrewSchedulingPolicy` rules over labeled `Model` CRs.
+The Agent CRD declares an LLM-powered agent as a thin, capability-only resource and deploys it as a Kubernetes-native service. The Agent spec carries no model name, no server, and no GPU hint. Agents declare *what they can do*; the scheduler matches them to a `(model, server, endpoint)` via `CrewSchedulingPolicy` rules over labeled `Model` CRs.
 
 Agents orchestrate:
 - **Models**: LLM inference resolved by the scheduler from `spec.capabilities` + `CrewSchedulingPolicy` (see [scheduler.md](../architecture/scheduler.md))
@@ -104,11 +104,11 @@ The operator sets `imagePullSecrets` from `KubemootConfig.spec.defaults.imagePul
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `phase` | string | `Running` once the Deployment and Service are applied (not a pod-readiness signal); `Unschedulable` when no feasible Model or Ready ModelProvider exists |
+| `phase` | string | `Running` once the Deployment and Service are applied (not a pod-readiness signal); `Unschedulable` when no feasible Model or Ready ModelServer exists |
 | `ready` | bool | True when the scheduler bound a Model and the agent is deployed |
 | `endpoint` | string | Internal service URL (`http://<name>.<namespace>.svc.cluster.local:<port>`, following `spec.deployment.port`) |
 | `availableReplicas` | int32 | Declared, not populated by the controller today |
-| `message` | string | The bound models (`mulling=<model>@<provider>; triage=<model>@<provider>`), or the reason the agent is unschedulable |
+| `message` | string | The bound models (`mulling=<model>@<server>; triage=<model>@<server>`), or the reason the agent is unschedulable |
 | `ragSourceStatus[]` | RAGSourceRefStatus | Declared, not populated by the controller today |
 | `mcpServerStatus[]` | MCPServerRefStatus | Declared, not populated by the controller today |
 
@@ -296,21 +296,21 @@ The tool-calling loop is bounded along three axes so a misbehaving tool can't ha
 - **Total-failure cap** (4): if 4 tool calls across distinct tools all error, the loop aborts - this catches a model spreading its retries across many broken tools rather than one.
 - **Iteration cap** (`properties.model().maxToolIterations()`, default 15): if the LLM keeps requesting tools without producing a final answer, the loop aborts.
 
-Any of these aborts publishes a first-class `failure` consensus signal with structured cause metadata (`failureType`, `failedTool`, `lastError`) rather than a generic `stand_aside`. Other failures during mulling (a provider timeout, an out-of-memory error, a messaging hiccup, a runtime error) route through the same failure path with heuristic classification (`model_timeout`, `model_oom`, `provider_unreachable`, `internal_exception`).
+Any of these aborts publishes a first-class `failure` consensus signal with structured cause metadata (`failureType`, `failedTool`, `lastError`) rather than a generic `stand_aside`. Other failures during mulling (a server timeout, an out-of-memory error, a messaging hiccup, a runtime error) route through the same failure path with heuristic classification (`model_timeout`, `model_oom`, `server_unreachable`, `internal_exception`).
 
-Before every turn the loop also checks that the next prompt fits the context window of the provider the call runs on. It uses the prompt size the engine reported for the previous turn plus the tool results added since. When the prompt would not fit, the loop fails with `failureType` `CONTEXT_EXCEEDED` rather than send a prompt the engine would cut. See [Scheduler](../architecture/scheduler.md#the-context-window-is-a-hard-constraint).
+Before every turn the loop also checks that the next prompt fits the context window of the server the call runs on. It uses the prompt size the engine reported for the previous turn plus the tool results added since. When the prompt would not fit, the loop fails with `failureType` `CONTEXT_EXCEEDED` rather than send a prompt the engine would cut. See [Scheduler](../architecture/scheduler.md#the-context-window-is-a-hard-constraint).
 
-A bounded retry policy on the model call itself keeps a slow provider from silently multiplying its own timeout into a multi-minute hang: one retry, then the call surfaces as failed and the failure path takes over. Heartbeats stop the moment an agent publishes any terminal signal, so a finished agent never keeps looking alive after it's done.
+A bounded retry policy on the model call itself keeps a slow server from silently multiplying its own timeout into a multi-minute hang: one retry, then the call surfaces as failed and the failure path takes over. Heartbeats stop the moment an agent publishes any terminal signal, so a finished agent never keeps looking alive after it's done.
 
 The consensus-protocol semantics of `failure` vs `stand_aside` and the three-tier gap classification (`TOOL_GAP` / `INFRASTRUCTURE_GAP` / `SPECIALIST_GAP`) are documented in [agentic-consensus.md](../architecture/agentic-consensus.md#failure-as-a-first-class-signal).
 
-### JIT Provider Selection (Per-Call)
+### JIT Server Selection (Per-Call)
 
-The agent runtime does not use a single, static endpoint frozen into env vars at reconcile time. Each mulling inference call picks the freest provider at the call boundary from live provider state (read from a shared NATS KV bucket), and falls back to the static reconcile-time endpoint only when that live state is unavailable. The picked provider's name flows through to the agent's signal metadata as `metadata.provider`, surfacing in the dashboard's Agent Summary GPU column as the call's real placement. See [scheduler.md](../architecture/scheduler.md#jit-per-call-provider-selection) for the architectural rationale and the `kube-scheduler` analogy.
+The agent runtime does not use a single, static endpoint frozen into env vars at reconcile time. Each mulling inference call picks the freest server at the call boundary from live server state (read from a shared NATS KV bucket), and falls back to the static reconcile-time endpoint only when that live state is unavailable. The picked server's name flows through to the agent's signal metadata as `metadata.server`, surfacing in the dashboard's Agent Summary GPU column as the call's real placement. See [scheduler.md](../architecture/scheduler.md#jit-per-call-server-selection) for the architectural rationale and the `kube-scheduler` analogy.
 
 The call's model is chosen per call too. The operator publishes the phase's ranked candidate models (`KUBEMOOT_MODEL_CANDIDATES_MULLING`); the runtime uses the preferred model when it is loaded with a free slot, otherwise a loaded candidate within the quality tolerance, otherwise the preferred model under the normal cost ranking. The model the call ran is recorded as `metadata.model`.
 
-When no GPU has room, the agent publishes `waiting` once and retries on every provider-state or ticket change until a GPU frees up. It stands aside with `metadata.reason = "gpu-busy"` if the discussion ends or the wait's safety limit passes first, and with `"model-too-large"` at once when no GPU can ever hold the model. It stands aside with `"prompt-too-large"` at once when no GPU gives an acceptable model a context that holds the prompt. When no GPU has room, the scheduler compares waiting for a loaded copy with unloading idle models that no crew is using or about to use; a call that unloaded models records them as `metadata.evicted`. An agent's first call is planned when the coordinator selects it, so a needed load overlaps triage. See [Models & Scheduling](../concepts/models-and-scheduling.md#when-every-gpu-is-busy).
+When no GPU has room, the agent publishes `waiting` once and retries on every server-state or ticket change until a GPU frees up. It stands aside with `metadata.reason = "gpu-busy"` if the discussion ends or the wait's safety limit passes first, and with `"model-too-large"` at once when no GPU can ever hold the model. It stands aside with `"prompt-too-large"` at once when no GPU gives an acceptable model a context that holds the prompt. When no GPU has room, the scheduler compares waiting for a loaded copy with unloading idle models that no crew is using or about to use; a call that unloaded models records them as `metadata.evicted`. An agent's first call is planned when the coordinator selects it, so a needed load overlaps triage. See [Models & Scheduling](../concepts/models-and-scheduling.md#when-every-gpu-is-busy).
 
 ### Rate Limiting
 
@@ -326,7 +326,7 @@ Each agent writes a liveness record to the `kubemoot_agent_state` NATS KV bucket
 |---|---|
 | `agent` | Agent name |
 | `timestamp` | When the record was written (ISO 8601) |
-| `nats`, `ollama` | Whether the agent reached NATS and its model provider |
+| `nats`, `ollama` | Whether the agent reached NATS and its model server |
 | `model` | Model the agent is configured with |
 | `lastInference` | Time of the last successful inference (omitted until the first one) |
 | `intervalSeconds` | Seconds between this agent's heartbeats |
@@ -478,7 +478,7 @@ Each is fast within its shape because its prompt is small and its tool choice is
 
 ### Right-sized models are a paired benefit of cohesion
 
-Decomposing a god-agent into single-shape Toolers doesn't only sharpen relevance and shorten tool loops - it also unlocks **right-sized model selection**. A Tooler whose job is one tool call plus a paragraph of formatting doesn't need the same reasoning model as a coordinator synthesizing across multiple agent contributions. When every agent in a crew defaults to a single large model, small-shape Toolers pay for capability they never use, and under per-provider `num_parallel=1` they can starve each other on that one model's slot.
+Decomposing a god-agent into single-shape Toolers doesn't only sharpen relevance and shorten tool loops - it also unlocks **right-sized model selection**. A Tooler whose job is one tool call plus a paragraph of formatting doesn't need the same reasoning model as a coordinator synthesizing across multiple agent contributions. When every agent in a crew defaults to a single large model, small-shape Toolers pay for capability they never use, and under per-server `num_parallel=1` they can starve each other on that one model's slot.
 
 The mechanism is `Agent.spec.capabilities` + `CrewSchedulingPolicy.spec.qualityBias` (see [scheduler.md - Quality bias](../architecture/scheduler.md#quality-bias)). The agent declares an abstract capability (`tool-calling` for a simple Tooler; `+reasoning` for a coordinator or Analyst); the crew author declares what each capability is worth in quality terms; the scheduler resolves to a concrete Model at reconcile time. No agent names a model - loose coupling preserved across cluster boundaries.
 

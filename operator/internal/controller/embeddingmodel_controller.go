@@ -82,59 +82,59 @@ func (r *EmbeddingModelReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		return requeueNow(), nil
 	}
 
-	// Fetch the referenced ModelProvider (cluster-wide — providers are infrastructure)
-	provider, err := r.findModelProvider(ctx, embeddingModel.Spec.ProviderRef)
+	// Fetch the referenced ModelServer (cluster-wide — servers are infrastructure)
+	server, err := r.findModelServer(ctx, embeddingModel.Spec.ServerRef)
 	if err != nil {
 		return r.updateStatus(ctx, embeddingModel, "Error",
-			fmt.Sprintf("ModelProvider '%s' not found", embeddingModel.Spec.ProviderRef))
+			fmt.Sprintf("ModelServer '%s' not found", embeddingModel.Spec.ServerRef))
 	}
 
-	// Check if provider is ready
-	if !provider.Status.Ready {
+	// Check if server is ready
+	if !server.Status.Ready {
 		return r.updateStatus(ctx, embeddingModel, "Pending",
-			fmt.Sprintf("Waiting for ModelProvider '%s' to be ready", provider.Name))
+			fmt.Sprintf("Waiting for ModelServer '%s' to be ready", server.Name))
 	}
 
-	if provider.Spec.Type == kubemootv1alpha1.ProviderTypeVLLM {
+	if server.Spec.Type == kubemootv1alpha1.ServerTypeVLLM {
 		return r.updateStatus(ctx, embeddingModel, "Error",
-			fmt.Sprintf("ModelProvider '%s' is a vllm provider; an EmbeddingModel needs an ollama provider", provider.Name))
+			fmt.Sprintf("ModelServer '%s' is a vllm server; an EmbeddingModel needs an ollama server", server.Name))
 	}
-	if provider.Spec.Type != kubemootv1alpha1.ProviderTypeOllama {
-		return r.updateStatus(ctx, embeddingModel, "Error", kubemootv1alpha1.UnsupportedProviderTypeMessage)
+	if server.Spec.Type != kubemootv1alpha1.ServerTypeOllama {
+		return r.updateStatus(ctx, embeddingModel, "Error", kubemootv1alpha1.UnsupportedServerTypeMessage)
 	}
-	return r.reconcileOllamaEmbedding(ctx, embeddingModel, provider)
+	return r.reconcileOllamaEmbedding(ctx, embeddingModel, server)
 }
 
 // reconcileOllamaEmbedding handles Ollama-based embedding models
-func (r *EmbeddingModelReconciler) reconcileOllamaEmbedding(ctx context.Context, embeddingModel *kubemootv1alpha1.EmbeddingModel, provider *kubemootv1alpha1.ModelProvider) (ctrl.Result, error) {
+func (r *EmbeddingModelReconciler) reconcileOllamaEmbedding(ctx context.Context, embeddingModel *kubemootv1alpha1.EmbeddingModel, server *kubemootv1alpha1.ModelServer) (ctrl.Result, error) {
 	httpClient := r.HTTPClient
 	if httpClient == nil {
 		httpClient = &http.Client{Timeout: 30 * time.Second}
 	}
 
-	key := pullKey(embeddingModel.Spec.ProviderRef, embeddingModel.Spec.Model)
+	key := pullKey(embeddingModel.Spec.ServerRef, embeddingModel.Spec.Model)
 	if err := releaseStalePulls(ctx, r.Client, r.tracker(), embeddingModel, key); err != nil {
 		return ctrl.Result{}, err
 	}
 
 	// Check if model exists in Ollama
-	exists, exact, err := r.ollamaModelExists(ctx, httpClient, provider.Spec.Endpoint, embeddingModel.Spec.Model)
+	exists, exact, err := r.ollamaModelExists(ctx, httpClient, server.Spec.Endpoint, embeddingModel.Spec.Model)
 	if err != nil {
 		return r.updateStatus(ctx, embeddingModel, "Error",
 			fmt.Sprintf("Failed to check model: %v", err))
 	}
 
 	if !exists {
-		return r.reconcilePull(ctx, httpClient, embeddingModel, provider)
+		return r.reconcilePull(ctx, httpClient, embeddingModel, server)
 	}
 	if exact {
 		// Only the exact tag ends a pull; a base-name match may be a different tag.
 		r.tracker().forget(key)
 	}
-	return r.reportAvailable(ctx, httpClient, embeddingModel, provider.Spec.Endpoint)
+	return r.reportAvailable(ctx, httpClient, embeddingModel, server.Spec.Endpoint)
 }
 
-// reportAvailable records an embedding model the provider lists as Available.
+// reportAvailable records an embedding model the server lists as Available.
 func (r *EmbeddingModelReconciler) reportAvailable(ctx context.Context, httpClient *http.Client, embeddingModel *kubemootv1alpha1.EmbeddingModel, endpoint string) (ctrl.Result, error) {
 	log := logf.FromContext(ctx)
 
@@ -197,29 +197,29 @@ func (r *EmbeddingModelReconciler) ollamaModelExists(ctx context.Context, httpCl
 	return exists, false, nil
 }
 
-// findModelProvider looks up a ModelProvider by name across all namespaces.
-func (r *EmbeddingModelReconciler) findModelProvider(ctx context.Context, name string) (*kubemootv1alpha1.ModelProvider, error) {
-	providerList := &kubemootv1alpha1.ModelProviderList{}
-	if err := r.List(ctx, providerList); err != nil {
-		return nil, fmt.Errorf("failed to list ModelProviders: %w", err)
+// findModelServer looks up a ModelServer by name across all namespaces.
+func (r *EmbeddingModelReconciler) findModelServer(ctx context.Context, name string) (*kubemootv1alpha1.ModelServer, error) {
+	serverList := &kubemootv1alpha1.ModelServerList{}
+	if err := r.List(ctx, serverList); err != nil {
+		return nil, fmt.Errorf("failed to list ModelServers: %w", err)
 	}
-	for i := range providerList.Items {
-		if providerList.Items[i].Name == name {
-			return &providerList.Items[i], nil
+	for i := range serverList.Items {
+		if serverList.Items[i].Name == name {
+			return &serverList.Items[i], nil
 		}
 	}
-	return nil, fmt.Errorf("ModelProvider %q not found in any namespace", name)
+	return nil, fmt.Errorf("ModelServer %q not found in any namespace", name)
 }
 
-// reconcilePull drives the download of an embedding model the provider does not
+// reconcilePull drives the download of an embedding model the server does not
 // list, on the same background pull the Model controller uses: the reconcile
 // returns at once and reports the progress of the pull.
-func (r *EmbeddingModelReconciler) reconcilePull(ctx context.Context, httpClient *http.Client, embeddingModel *kubemootv1alpha1.EmbeddingModel, provider *kubemootv1alpha1.ModelProvider) (ctrl.Result, error) {
-	key := pullKey(embeddingModel.Spec.ProviderRef, embeddingModel.Spec.Model)
-	step := r.tracker().advance(key, embeddingModel.UID, newPullStream(provider, embeddingModel.Spec.Model, httpClient))
+func (r *EmbeddingModelReconciler) reconcilePull(ctx context.Context, httpClient *http.Client, embeddingModel *kubemootv1alpha1.EmbeddingModel, server *kubemootv1alpha1.ModelServer) (ctrl.Result, error) {
+	key := pullKey(embeddingModel.Spec.ServerRef, embeddingModel.Spec.Model)
+	step := r.tracker().advance(key, embeddingModel.UID, newPullStream(server, embeddingModel.Spec.Model, httpClient))
 	switch step.phase {
 	case pullSucceeded:
-		return r.reportAfterPull(ctx, httpClient, embeddingModel, provider.Spec.Endpoint)
+		return r.reportAfterPull(ctx, httpClient, embeddingModel, server.Spec.Endpoint)
 	case pullFailed:
 		return r.updateStatus(ctx, embeddingModel, "Error", step.err.Error())
 	}
@@ -227,14 +227,14 @@ func (r *EmbeddingModelReconciler) reconcilePull(ctx context.Context, httpClient
 	return r.updateStatus(ctx, embeddingModel, statePulling, pullMessage(step.progress))
 }
 
-// reportAfterPull acts on what the provider lists once a pull has finished: a
+// reportAfterPull acts on what the server lists once a pull has finished: a
 // listed model is reported Available, otherwise the model stays Pulling.
 func (r *EmbeddingModelReconciler) reportAfterPull(ctx context.Context, httpClient *http.Client, embeddingModel *kubemootv1alpha1.EmbeddingModel, endpoint string) (ctrl.Result, error) {
 	if exists, _, err := r.ollamaModelExists(ctx, httpClient, endpoint, embeddingModel.Spec.Model); err == nil && exists {
 		return r.reportAvailable(ctx, httpClient, embeddingModel, endpoint)
 	}
 	return r.updateStatus(ctx, embeddingModel, statePulling,
-		fmt.Sprintf("Pull of %s finished; waiting for the provider to list it", embeddingModel.Spec.Model))
+		fmt.Sprintf("Pull of %s finished; waiting for the server to list it", embeddingModel.Spec.Model))
 }
 
 // getOllamaModelInfo retrieves model metadata from Ollama
@@ -295,7 +295,7 @@ func (r *EmbeddingModelReconciler) handleDeletion(ctx context.Context, embedding
 	// The model stays in Ollama as other consumers may share it. A download still
 	// running is stopped unless another Model or EmbeddingModel wants the tag.
 	if err := abandonIfUnwanted(ctx, r.Client, r.tracker(), embeddingModel,
-		pullKey(embeddingModel.Spec.ProviderRef, embeddingModel.Spec.Model)); err != nil {
+		pullKey(embeddingModel.Spec.ServerRef, embeddingModel.Spec.Model)); err != nil {
 		return ctrl.Result{}, err
 	}
 
