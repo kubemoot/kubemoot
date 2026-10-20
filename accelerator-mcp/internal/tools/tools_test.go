@@ -22,17 +22,17 @@ import (
 )
 
 const (
-	gpu     = "gpu-a"
-	model   = "qwen3:14b"
-	holder  = "kubemoot/accelerator-mcp/pod-a"
-	version = "0.12.0"
+	gpu       = "gpu-a"
+	model     = "qwen3:14b"
+	holder    = "kubemoot/accelerator-mcp/pod-a"
+	version   = "0.12.0"
 	argServer = "server"
-	argPh   = "phase"
-	argFits = "fits"
-	argMod  = "model"
-	argPr   = "probe"
-	argLoad = "loadMs"
-	argMods = "models"
+	argPh     = "phase"
+	argFits   = "fits"
+	argMod    = "model"
+	argPr     = "probe"
+	argLoad   = "loadMs"
+	argMods   = "models"
 )
 
 var t0 = time.Date(2026, 10, 16, 7, 0, 0, 0, time.UTC)
