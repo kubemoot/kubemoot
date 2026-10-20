@@ -2370,7 +2370,8 @@ public class DiscussionOrchestrator {
      * Only TOOLER agrees count — researcher agrees don't prevent gap detection.
      * Appends onboarding hints to the response when a gap is detected.
      */
-    private String detectAndAppendGapHint(ThreadState state, String response,
+    // Visible for testing
+    String detectAndAppendGapHint(ThreadState state, String response,
                                            long toolerAgrees, String channel) {
         var gapType = classifyGap(state, toolerAgrees, response);
 
@@ -2386,26 +2387,24 @@ public class DiscussionOrchestrator {
                       + "You can optionally include a documentation URL: `onboard <domain> <docs-url>`";
             publishGapDetected(state.threadId, channel, state.userQuery, Map.of(), gapType);
         } else if (gapType == GapType.INFRASTRUCTURE_GAP) {
-            // Toolers tried to evaluate but their tools failed. This is
-            // an infrastructure problem (MCP server down, model OOM,
-            // tool-loop iterations exhausted), not a missing tooler.
-            // Tell the user honestly, and surface the failing tools so the
-            // operator can investigate. Do NOT suggest onboarding a new
-            // tooler — that would mask the real problem.
-            response += "\n\n---\n"
-                      + "Toolers for this topic exist but couldn't complete their evaluation"
-                      + " (infrastructure failure — likely MCP tool timeout or model issue).\n"
-                      + "Check operator logs and the failing MCP servers; the discussion timeline"
-                      + " in the dashboard shows each failure's cause.";
-            // Reuse the gap-detected publication path so observers (Onboarding,
-            // future autonomic responders) see the event, with concernSignals
-            // empty since this isn't a missing-coverage gap. Pass gapType so
-            // the log and metadata.reason reflect INFRASTRUCTURE_GAP, not
-            // mislabel as TOOLER_GAP via the old concerns-vs-empty heuristic.
+            // Toolers tried to evaluate but their tools failed: an infrastructure problem
+            // (tool server down, model out of memory, tool-loop iterations exhausted), not a
+            // missing tooler, so no onboarding suggestion. The answer itself says only that
+            // some sources could not be reached (failedSourcesNote below). What an operator
+            // should check goes to the log and the gap-detected signal, never into the answer.
+            log.warn(infrastructureGapGuidance(state.threadId, state.failureSignals.keySet()));
             publishGapDetected(state.threadId, channel, state.userQuery, Map.of(), gapType);
         }
 
         return response + failedSourcesNote(state);
+    }
+
+    /** What an operator should check when toolers could not complete; for the log, never for an answer. */
+    // Visible for testing
+    static String infrastructureGapGuidance(String threadId, java.util.Collection<String> failedAgents) {
+        return "Thread " + threadId + ": infrastructure gap, toolers " + new java.util.TreeSet<>(failedAgents)
+                + " could not complete their evaluation. Check the failing MCP servers and the model servers;"
+                + " the discussion timeline in the dashboard shows each failure's cause.";
     }
 
     private static String sortedFailedSources(ThreadState state) {
