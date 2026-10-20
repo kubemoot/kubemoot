@@ -335,8 +335,9 @@ func (r *ModelReconciler) reconcileDeletion(ctx context.Context, model *aiv1alph
 
 // handleDeletion removes the model file from the provider unless another Model on
 // the same provider still uses the tag, then releases the finalizer. A failed
-// delete is returned so the finalizer stays and the deletion retries. A nil
-// provider means it is gone and only the finalizer is released.
+// delete on a Ready provider is returned so the finalizer stays and the deletion
+// retries. A nil provider means it is gone, and a provider that is not Ready cannot
+// be asked (see cleanUpOnProvider); either way only the finalizer is released.
 func (r *ModelReconciler) handleDeletion(ctx context.Context, model *aiv1alpha1.Model, provider *aiv1alpha1.ModelProvider) (ctrl.Result, error) {
 	log := logf.FromContext(ctx)
 
@@ -362,10 +363,8 @@ func (r *ModelReconciler) handleDeletion(ctx context.Context, model *aiv1alpha1.
 		r.tracker().abandon(key)
 	}
 
-	if provider != nil && provider.Spec.Type == aiv1alpha1.ProviderTypeOllama {
-		if err := r.releaseOllamaModel(ctx, model, provider, inUse); err != nil {
-			return ctrl.Result{}, err
-		}
+	if err := r.cleanUpOnProvider(ctx, model, provider, inUse); err != nil {
+		return ctrl.Result{}, err
 	}
 
 	if err := removeFinalizer(ctx, r.Client, model, modelFinalizer); err != nil {
@@ -374,6 +373,25 @@ func (r *ModelReconciler) handleDeletion(ctx context.Context, model *aiv1alpha1.
 
 	log.Info("Model deleted successfully", "model", model.OllamaTag())
 	return ctrl.Result{}, nil
+}
+
+// cleanUpOnProvider removes the Model's file from its provider when the provider can
+// be asked: an Ollama provider that is Ready. A provider that is gone, of another
+// engine, or not Ready (its server scaled to zero, say) cannot be asked, and a
+// finalizer must not wait for it: the Model is released and the file stays on the
+// provider's disk for its owner to remove. A Ready provider whose
+// delete fails is returned, so the deletion retries until the provider answers or
+// stops being Ready.
+func (r *ModelReconciler) cleanUpOnProvider(ctx context.Context, model *aiv1alpha1.Model, provider *aiv1alpha1.ModelProvider, inUse bool) error {
+	if provider == nil || provider.Spec.Type != aiv1alpha1.ProviderTypeOllama {
+		return nil
+	}
+	if !provider.Status.Ready {
+		logf.FromContext(ctx).Info("ModelProvider is not Ready; releasing the Model without removing its file from the provider",
+			"model", model.OllamaTag(), "provider", provider.Name, "phase", provider.Status.Phase)
+		return nil
+	}
+	return r.releaseOllamaModel(ctx, model, provider, inUse)
 }
 
 // releaseOllamaModel deletes the model file from Ollama unless inUse reports that

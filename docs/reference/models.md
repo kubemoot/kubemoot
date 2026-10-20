@@ -459,7 +459,10 @@ A model the provider does not list is downloaded in the background, so the Model
 reconcile returns at once and deleting or changing other Models is never held up by a
 download. Models with the same tag on the same provider share one download. Deleting
 the last Model that uses a tag cancels its download in progress and removes the
-model from the provider. The partial files of the cancelled download stay on the
+model from the provider. A provider that is not Ready (its server is scaled to zero, say) cannot be asked, so
+the Model is released without removing the file; the file stays on that server's disk for its
+owner to remove. A Ready provider whose delete fails keeps the Model until the delete works or
+the provider stops being Ready. The partial files of the cancelled download stay on the
 provider's disk and are counted in `storage.partialBytes` (see the ModelProvider status). If the operator restarts mid-download, the Model
 stays `Pulling`, the pull starts again, and the provider resumes the partial files.
 A failed download reports `Error` with the reason and is retried.

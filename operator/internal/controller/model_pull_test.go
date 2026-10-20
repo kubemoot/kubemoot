@@ -43,6 +43,7 @@ func absentOllamaModel(endpoint string) (*aiv1alpha1.Model, *aiv1alpha1.ModelPro
 	provider := &aiv1alpha1.ModelProvider{
 		ObjectMeta: metav1.ObjectMeta{Name: testOllamaGPU, Namespace: testKubemoot},
 		Spec:       aiv1alpha1.ModelProviderSpec{Type: aiv1alpha1.ProviderTypeOllama, Endpoint: endpoint},
+		Status:     aiv1alpha1.ModelProviderStatus{Ready: true},
 	}
 	return model, provider
 }
