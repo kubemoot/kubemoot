@@ -22,7 +22,6 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	aiv1alpha1 "github.com/kubemoot/kubemoot/operator/api/v1alpha1"
@@ -48,20 +47,15 @@ func (b *busCalibrator) Idle(string) (bool, error) {
 
 var errNoBucket = fmt.Errorf("%w: reading tickets: %w", bus.ErrNotReady, nats.ErrStreamNotFound)
 
-func busReconciler(t *testing.T, cal Calibrator, p *aiv1alpha1.ModelServer) (*ModelServerReconciler, client.Client) {
+func busReconciler(t *testing.T, cal Calibrator, p *aiv1alpha1.ModelServer) *ModelServerReconciler {
 	t.Helper()
 	scheme := agentReconcileScheme(t)
 	cli := fake.NewClientBuilder().WithScheme(scheme).WithObjects(p).WithStatusSubresource(p).Build()
-	return &ModelServerReconciler{Client: cli, Scheme: scheme, Calibration: cal}, cli
+	return &ModelServerReconciler{Client: cli, Scheme: scheme, Calibration: cal}
 }
 
-func calibratedCondition(t *testing.T, cli client.Client) *metav1.Condition {
-	t.Helper()
-	stored := &aiv1alpha1.ModelServer{}
-	if err := cli.Get(context.Background(), client.ObjectKey{Namespace: defaultOperatorNamespace, Name: calTestServer}, stored); err != nil {
-		t.Fatal(err)
-	}
-	return meta.FindStatusCondition(stored.Status.Conditions, conditionTypeCalibrated)
+func calibratedCondition(p *aiv1alpha1.ModelServer) *metav1.Condition {
+	return meta.FindStatusCondition(p.Status.Conditions, conditionTypeCalibrated)
 }
 
 // A bucket that does not exist yet is a state to wait out: nothing starts, the
@@ -70,19 +64,21 @@ func calibratedCondition(t *testing.T, cli client.Client) *metav1.Condition {
 func TestRequestCalibration_waitsForTheBucketsThenStarts(t *testing.T) {
 	cal := &busCalibrator{busErr: errNoBucket}
 	p := calServer(nil, "0.12.0")
-	r, cli := busReconciler(t, cal, p)
+	r := busReconciler(t, cal, p)
 
-	if got := r.requestCalibration(context.Background(), p); got != aiv1alpha1.CalibrationReasonWaitingForBus {
-		t.Fatalf("waiting reason = %q", got)
+	got := r.requestCalibration(context.Background(), p)
+	if !errors.Is(got.err(), bus.ErrNotReady) {
+		t.Fatalf("waiting cause = %v", got)
 	}
 	if len(cal.started) != 0 || p.Status.CalibrationRequest != nil {
 		t.Errorf("started with no bus: %v %+v", cal.started, p.Status.CalibrationRequest)
 	}
-	assertWaitingForBus(t, calibratedCondition(t, cli))
+	setCalibratedCondition(p, got.err())
+	assertWaitingForBus(t, calibratedCondition(p))
 
 	cal.busErr = nil
-	if got := r.requestCalibration(context.Background(), p); got != "" {
-		t.Errorf("still waiting with the bus ready: %q", got)
+	if got = r.requestCalibration(context.Background(), p); got != nil {
+		t.Errorf("still waiting with the bus ready: %v", got)
 	}
 	if len(cal.started) != 1 || p.Status.CalibrationRequest == nil || p.Status.CalibrationRequest.Key != needKeyNew {
 		t.Errorf("did not start once the buckets appeared: %v %+v", cal.started, p.Status.CalibrationRequest)
@@ -105,26 +101,14 @@ func TestRequestCalibration_resumesWhenNATSComesBack(t *testing.T) {
 		Reason: aiv1alpha1.CalibrationReasonWaitingForBus, UpdatedAt: &paused}, "")
 	p.Status.CalibrationRequest = &aiv1alpha1.CalibrationRequest{Key: needKeyNew, RequestedAt: asked}
 	cal := &busCalibrator{fakeCalibrator: fakeCalibrator{idle: true}, busErr: fmt.Errorf("%w: %w", bus.ErrNotReady, nats.ErrNoServers)}
-	r, _ := busReconciler(t, cal, p)
+	r := busReconciler(t, cal, p)
 
-	if got := r.requestCalibration(context.Background(), p); got != aiv1alpha1.CalibrationReasonWaitingForBus || len(cal.started) != 0 {
-		t.Fatalf("NATS down: reason %q, started %v", got, cal.started)
+	if got := r.requestCalibration(context.Background(), p); !errors.Is(got.err(), bus.ErrNotReady) || len(cal.started) != 0 {
+		t.Fatalf("NATS down: cause %v, started %v", got, cal.started)
 	}
 	cal.busErr = nil
-	if got := r.requestCalibration(context.Background(), p); got != "" || len(cal.started) != 1 {
-		t.Errorf("NATS back: reason %q, started %v", got, cal.started)
-	}
-}
-
-// A server that already holds results keeps its True condition while a newer need waits.
-func TestWaitForBus_keepsACalibratedCondition(t *testing.T) {
-	p := calServer(calibrated("0.12.0", calTestModelA), "0.12.0")
-	meta.SetStatusCondition(&p.Status.Conditions, metav1.Condition{Type: conditionTypeCalibrated,
-		Status: metav1.ConditionTrue, Reason: calibrationPhaseCalibrated})
-	r, cli := busReconciler(t, &busCalibrator{}, p)
-	r.waitForBus(context.Background(), p, errNoBucket)
-	if cond := calibratedCondition(t, cli); cond == nil || cond.Status != metav1.ConditionTrue {
-		t.Errorf("a calibrated server's condition changed: %+v", cond)
+	if got := r.requestCalibration(context.Background(), p); got != nil || len(cal.started) != 1 {
+		t.Errorf("NATS back: cause %v, started %v", got, cal.started)
 	}
 }
 
@@ -160,9 +144,9 @@ func TestRequestCalibration_recoversAFailureCausedByTheBus(t *testing.T) {
 		Message: "no model could be measured: qwen3:8b: reading tickets: nats: stream not found"}, "")
 	p.Status.CalibrationRequest = &aiv1alpha1.CalibrationRequest{Key: needKeyNew, RequestedAt: asked}
 	cal := &busCalibrator{fakeCalibrator: fakeCalibrator{idle: true}}
-	r, _ := busReconciler(t, cal, p)
-	if got := r.requestCalibration(context.Background(), p); got != "" || len(cal.started) != 1 {
-		t.Errorf("did not recalibrate: reason %q, started %v", got, cal.started)
+	r := busReconciler(t, cal, p)
+	if got := r.requestCalibration(context.Background(), p); got != nil || len(cal.started) != 1 {
+		t.Errorf("did not recalibrate: cause %v, started %v", got, cal.started)
 	}
 }
 
@@ -173,20 +157,20 @@ func TestRequestCalibration_aMeasurementFailureStaysFailed(t *testing.T) {
 		Message: "no model could be measured: qwen3:8b: engine returned 500"}, "")
 	p.Status.CalibrationRequest = &aiv1alpha1.CalibrationRequest{Key: needKeyNew, RequestedAt: asked}
 	cal := &busCalibrator{fakeCalibrator: fakeCalibrator{idle: true}}
-	r, _ := busReconciler(t, cal, p)
-	if got := r.requestCalibration(context.Background(), p); got != "" || len(cal.started) != 0 {
-		t.Errorf("a measurement failure was retried: reason %q, started %v", got, cal.started)
+	r := busReconciler(t, cal, p)
+	if got := r.requestCalibration(context.Background(), p); got != nil || len(cal.started) != 0 {
+		t.Errorf("a measurement failure was retried: cause %v, started %v", got, cal.started)
 	}
 }
 
 func TestRetryWhileWaiting(t *testing.T) {
-	if got := retryWhileWaiting(ctrl.Result{RequeueAfter: 5 * time.Minute}, aiv1alpha1.CalibrationReasonWaitingForBus); got.RequeueAfter != calibrationRetry {
+	if got := retryWhileWaiting(ctrl.Result{RequeueAfter: 5 * time.Minute}, &busWait{errNoBucket}); got.RequeueAfter != calibrationRetry {
 		t.Errorf("waiting requeue = %v", got.RequeueAfter)
 	}
-	if got := retryWhileWaiting(ctrl.Result{RequeueAfter: 5 * time.Second}, aiv1alpha1.CalibrationReasonWaitingForBus); got.RequeueAfter != 5*time.Second {
+	if got := retryWhileWaiting(ctrl.Result{RequeueAfter: 5 * time.Second}, &busWait{errNoBucket}); got.RequeueAfter != 5*time.Second {
 		t.Errorf("a sooner requeue was lengthened: %v", got.RequeueAfter)
 	}
-	if got := retryWhileWaiting(ctrl.Result{RequeueAfter: 5 * time.Minute}, ""); got.RequeueAfter != 5*time.Minute {
+	if got := retryWhileWaiting(ctrl.Result{RequeueAfter: 5 * time.Minute}, nil); got.RequeueAfter != 5*time.Minute {
 		t.Errorf("requeue changed with nothing waiting: %v", got.RequeueAfter)
 	}
 }
@@ -215,7 +199,7 @@ func TestRequestCalibration_aBusFailureIsRetriedOnlyOnce(t *testing.T) {
 		Message: "no model could be measured: qwen3:8b: nats: timeout"}, "")
 	p.Status.CalibrationRequest = &aiv1alpha1.CalibrationRequest{Key: needKeyNew, RequestedAt: asked}
 	cal := &busCalibrator{fakeCalibrator: fakeCalibrator{idle: true}}
-	r, _ := busReconciler(t, cal, p)
+	r := busReconciler(t, cal, p)
 	r.requestCalibration(context.Background(), p)
 	if len(cal.started) != 1 || !strings.HasSuffix(p.Status.CalibrationRequest.Reason, busRetryNote) {
 		t.Fatalf("first retry: %v %+v", cal.started, p.Status.CalibrationRequest)
@@ -229,16 +213,84 @@ func TestRequestCalibration_aBusFailureIsRetriedOnlyOnce(t *testing.T) {
 	}
 }
 
-// A WaitingForBus condition the operator set is cleared once the bus holds nothing back.
-func TestRequestCalibration_clearsAStaleBusWait(t *testing.T) {
+// The Calibrated condition has one definition, derived from the calibration record
+// and the bus wait. A server calibrated before stays True while a newer calibration
+// waits for the bus, with a reason that says so.
+func TestCalibratedConditionFor(t *testing.T) {
+	done := metav1.Now()
+	results := &aiv1alpha1.ServerCalibration{Phase: calibrationPhaseCalibrated, CompletedAt: &done}
+	pausedOnBus := &aiv1alpha1.ServerCalibration{Phase: calibrationPhaseWaiting,
+		Reason: aiv1alpha1.CalibrationReasonWaitingForBus, Message: "paused on the bus"}
+	pausedAfterResults := &aiv1alpha1.ServerCalibration{Phase: calibrationPhaseWaiting, CompletedAt: &done,
+		Reason: aiv1alpha1.CalibrationReasonWaitingForBus}
+	cases := []struct {
+		name    string
+		cal     *aiv1alpha1.ServerCalibration
+		waiting error
+		want    metav1.ConditionStatus
+		reason  string
+	}{
+		{"never calibrated, waiting", nil, errNoBucket, metav1.ConditionUnknown, aiv1alpha1.CalibrationReasonWaitingForBus},
+		{"a run paused on the bus", pausedOnBus, nil, metav1.ConditionUnknown, aiv1alpha1.CalibrationReasonWaitingForBus},
+		{"calibrated before, a new need waits", results, errNoBucket, metav1.ConditionTrue, reasonRecalibrationWaitingForBus},
+		{"calibrated before, a rerun paused on the bus", pausedAfterResults, nil, metav1.ConditionTrue, reasonRecalibrationWaitingForBus},
+		{"calibrated", results, nil, metav1.ConditionTrue, calibrationPhaseCalibrated},
+		{"calibrating", &aiv1alpha1.ServerCalibration{Phase: calibrationPhaseCalibrating}, nil, metav1.ConditionFalse, calibrationPhaseCalibrating},
+		{"paused for crew calls", &aiv1alpha1.ServerCalibration{Phase: calibrationPhaseWaiting}, nil, metav1.ConditionFalse, calibrationPhaseWaiting},
+		{"failed", &aiv1alpha1.ServerCalibration{Phase: calibrationPhaseFailed}, nil, metav1.ConditionFalse, calibrationPhaseFailed},
+	}
+	for _, c := range cases {
+		got := calibratedConditionFor(c.cal, c.waiting)
+		if got == nil || got.Status != c.want || got.Reason != c.reason {
+			t.Errorf("%s: %+v, want %s/%s", c.name, got, c.want, c.reason)
+		}
+	}
+	if got := calibratedConditionFor(nil, nil); got != nil {
+		t.Errorf("no record and nothing waiting: %+v", got)
+	}
+}
+
+// The wait message follows the current cause on every reconcile, and the condition
+// goes back to the record's state once the bus is ready.
+func TestSetCalibratedCondition_followsTheCurrentCause(t *testing.T) {
 	p := calServer(nil, "0.12.0")
-	meta.SetStatusCondition(&p.Status.Conditions, metav1.Condition{Type: conditionTypeCalibrated,
+	setCalibratedCondition(p, errNoBucket)
+	first := calibratedCondition(p).Message
+	unreachable := fmt.Errorf("%w: %w", bus.ErrNotReady, nats.ErrNoServers)
+	setCalibratedCondition(p, unreachable)
+	second := calibratedCondition(p).Message
+	if first == second || !strings.Contains(second, nats.ErrNoServers.Error()) || strings.Contains(second, nats.ErrStreamNotFound.Error()) {
+		t.Errorf("the message did not follow the cause:\n%s\n%s", first, second)
+	}
+	setCalibratedCondition(p, nil)
+	if c := calibratedCondition(p); c != nil {
+		t.Errorf("a wait condition outlived the wait: %+v", c)
+	}
+}
+
+// Every status update derives the Calibrated condition, so a stale wait condition is
+// removed or restated on a path that never reaches the calibration step (a server
+// that cannot be reached), and a server with results keeps True.
+func TestUpdateStatus_derivesTheCalibratedCondition(t *testing.T) {
+	stale := calServer(nil, "")
+	meta.SetStatusCondition(&stale.Status.Conditions, metav1.Condition{Type: conditionTypeCalibrated,
 		Status: metav1.ConditionUnknown, Reason: aiv1alpha1.CalibrationReasonWaitingForBus})
-	// The need is already requested and the run is not paused, so nothing is asked.
-	p.Status.CalibrationRequest = &aiv1alpha1.CalibrationRequest{Key: needKeyNew, RequestedAt: metav1.Now()}
-	r, cli := busReconciler(t, &busCalibrator{}, p)
-	r.requestCalibration(context.Background(), p)
-	if c := calibratedCondition(t, cli); c != nil {
-		t.Errorf("stale wait condition kept: %+v", c)
+	r := busReconciler(t, nil, stale)
+	if _, err := r.updateStatus(context.Background(), stale, false, "Failed", "cannot connect"); err != nil {
+		t.Fatal(err)
+	}
+	if c := calibratedCondition(stale); c != nil {
+		t.Errorf("a stale wait condition survived an early return: %+v", c)
+	}
+
+	done := metav1.Now()
+	known := calServer(&aiv1alpha1.ServerCalibration{Phase: calibrationPhaseCalibrated, CompletedAt: &done}, "")
+	r = busReconciler(t, nil, known)
+	if _, err := r.updateStatusWaiting(context.Background(), known, true, phaseReady, "ok", errNoBucket); err != nil {
+		t.Fatal(err)
+	}
+	c := calibratedCondition(known)
+	if c == nil || c.Status != metav1.ConditionTrue || c.Reason != reasonRecalibrationWaitingForBus {
+		t.Errorf("a calibrated server waiting for the bus: %+v", c)
 	}
 }

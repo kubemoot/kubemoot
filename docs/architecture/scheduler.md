@@ -479,7 +479,8 @@ makes decisions in it:
 5. A scheduler bucket that does not exist yet, or a NATS that cannot be reached, is a
    state to wait out, not a measurement result: a fresh install starts the operator and
    the NATS bootstrap job together. The operator does not start the run (the
-   `Calibrated` condition is `Unknown`, reason `WaitingForBus`), and a run that meets it
+   operator sets the `Calibrated` condition: `Unknown`, reason `WaitingForBus`, or `True`,
+   reason `RecalibrationWaitingForBus`, when earlier results stand), and a run that meets it
    is recorded as `Waiting` with reason `WaitingForBus`, never `Failed`. Calibration
    writes tickets, so a missing bucket is not read as "no calls hold the server". The
    operator looks again every 30 seconds and continues as soon as both buckets exist. A

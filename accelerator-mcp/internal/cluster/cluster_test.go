@@ -75,13 +75,6 @@ func TestResetRequested(t *testing.T) {
 	check(t, "already honored", !ResetRequested(p), p)
 }
 
-func TestCondition_followsThePhase(t *testing.T) {
-	check(t, "calibrated", condition(&aiv1alpha1.ServerCalibration{Phase: PhaseCalibrated}).Status ==
-		metav1.ConditionTrue, nil)
-	c := condition(&aiv1alpha1.ServerCalibration{})
-	check(t, "empty phase", c.Status == metav1.ConditionFalse && c.Reason == "Unknown", c)
-}
-
 func TestRecordCalibration_retriesAConflict(t *testing.T) {
 	scheme := runtime.NewScheme()
 	if err := aiv1alpha1.AddToScheme(scheme); err != nil {

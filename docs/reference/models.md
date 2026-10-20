@@ -196,16 +196,21 @@ tickets every probe claims and the performance history. On a fresh install the N
 bootstrap job that creates them starts together with the operator, so they can be
 missing for a few seconds, and NATS itself can be briefly unreachable. That is a state to
 wait out, not a result about the models: the operator does not start the calibration
-(`Calibrated` is `Unknown`, reason `WaitingForBus`), and a run that meets it mid-way is
+(see the `Calibrated` condition below), and a run that meets it mid-way is
 recorded as `Waiting` with `status.calibration.reason: WaitingForBus`, never `Failed`.
 The operator checks again every 30 seconds and starts or resumes the calibration on its
 own when both buckets exist and the server is idle. The 30 seconds only set how soon the
 next look happens; the calibration continues because the bus became ready.
 
+The operator is the only writer of the `Calibrated` condition. It derives it on every
+reconcile from `status.calibration` (which `accelerator-mcp` writes) and its own check
+of the bus, so the condition and its message always follow the current cause.
+
 | `Calibrated` condition | When |
 |-------|-------|
 | `True`, reason `Calibrated` | The last run measured at least one model |
-| `Unknown`, reason `WaitingForBus` | NATS is unreachable or a scheduler bucket does not exist yet; nothing is wrong with the server or its models |
+| `True`, reason `RecalibrationWaitingForBus` | The server was calibrated before and a newer calibration waits for the bus; the earlier results stand and stay in use |
+| `Unknown`, reason `WaitingForBus` | The server was never calibrated and NATS is unreachable or a scheduler bucket does not exist yet; nothing is wrong with the server or its models |
 | `False`, reason `Calibrating` or `Waiting` | A run is under way, or paused because crew calls hold the server |
 | `False`, reason `Failed` | No model could be measured; it stays `Failed` until the server, its Models or the reset annotation change, or the server becomes ready again after the failure |
 
