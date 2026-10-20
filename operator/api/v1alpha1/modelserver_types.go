@@ -610,7 +610,7 @@ type RateLimitInfo struct {
 
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
-// +kubebuilder:resource:shortName=mdlp
+// +kubebuilder:resource:shortName=mdls
 // +kubebuilder:printcolumn:name="Type",type=string,JSONPath=`.spec.type`
 // +kubebuilder:printcolumn:name="Endpoint",type=string,JSONPath=`.spec.endpoint`
 // +kubebuilder:printcolumn:name="Ready",type=boolean,JSONPath=`.status.ready`
