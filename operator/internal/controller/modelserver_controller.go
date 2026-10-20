@@ -278,7 +278,7 @@ func (r *ModelServerReconciler) reconcileOllama(ctx context.Context, server *aiv
 	waiting := r.requestCalibration(ctx, server)
 	r.reviewDrift(ctx, server)
 
-	result, err := r.updateStatus(ctx, server, true, phaseReady, "Connected to Ollama")
+	result, err := r.updateStatusWaiting(ctx, server, true, phaseReady, "Connected to Ollama", waiting.err())
 	return retryWhileWaiting(result, waiting), err
 }
 
@@ -619,7 +619,16 @@ func (r *ModelServerReconciler) countAssignedAgents(ctx context.Context, server 
 
 // updateStatus updates the ModelServer status
 func (r *ModelServerReconciler) updateStatus(ctx context.Context, server *aiv1alpha1.ModelServer, ready bool, phase, message string) (ctrl.Result, error) {
+	return r.updateStatusWaiting(ctx, server, ready, phase, message, nil)
+}
+
+// updateStatusWaiting is updateStatus for a reconcile whose calibration waits for
+// the bus for the given cause (nil when it does not). It derives the Calibrated
+// condition last, after every patch of the reconcile, so every path (including the
+// early returns of an unreachable server) states it from the current record.
+func (r *ModelServerReconciler) updateStatusWaiting(ctx context.Context, server *aiv1alpha1.ModelServer, ready bool, phase, message string, waiting error) (ctrl.Result, error) {
 	log := logf.FromContext(ctx)
+	setCalibratedCondition(server, waiting)
 
 	server.Status.Ready = ready
 	server.Status.Phase = phase

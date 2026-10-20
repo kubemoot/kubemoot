@@ -186,13 +186,8 @@ func TestRecordCalibration_startThenFinish(t *testing.T) {
 	cal := getServer(t, f).Status.Calibration
 	check(t, "status", cal.Phase == PhaseCalibrated && cal.CompletedAt != nil && cal.EngineVersion == version &&
 		len(cal.Models) == 1 && cal.Models[0].LoadMs == 3000 && cal.Models[0].CalibratedAt != nil, cal)
-	var condition *metav1.Condition
-	for i, c := range getServer(t, f).Status.Conditions {
-		if c.Type == cluster.ConditionCalibrated {
-			condition = &getServer(t, f).Status.Conditions[i]
-		}
-	}
-	check(t, "Calibrated condition true", condition != nil && condition.Status == metav1.ConditionTrue, condition)
+	check(t, "the operator owns the Calibrated condition", len(getServer(t, f).Status.Conditions) == 0,
+		getServer(t, f).Status.Conditions)
 }
 
 func TestRecordCalibration_aResetOfScopeAll_forgetsHistory_andHonorsTheToken(t *testing.T) {

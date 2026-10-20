@@ -47,6 +47,8 @@ const (
 	calibrationResetAnnotation = "kubemoot.ai/calibration-reset"
 	calibrationPhaseWaiting    = "Waiting"
 	calibrationPhaseFailed     = "Failed"
+	// calibrationPhaseCalibrating is a run under way.
+	calibrationPhaseCalibrating = "Calibrating"
 	// needKeyNew is the need of a server never calibrated.
 	needKeyNew = "new"
 	// calibrationServer is the core MCP server that calibrates, in the operator's namespace.
@@ -55,8 +57,6 @@ const (
 	calibrationTool = "calibrate_server"
 	// calibrationCallTimeout bounds one request; the tool returns as soon as the job starts.
 	calibrationCallTimeout = 30 * time.Second
-	// conditionTypeCalibrated is the condition that says whether the server is calibrated.
-	conditionTypeCalibrated = "Calibrated"
 	// busRetryNote ends the reason of a request made again after a Failed run whose
 	// message was a NATS error.
 	busRetryNote = " (asked again after a failure on the bus)"
@@ -206,77 +206,63 @@ type Calibrator interface {
 // status with a patch of its own, so a conflict on the reconciler's status update
 // cannot lose it and start the calibration twice. Failures are logged and retried on
 // the next reconcile. A calibration already running is not recorded as this need's:
-// the need is asked again once it ends. It returns the reason the calibration waits
-// for the bus (aiv1alpha1.CalibrationReasonWaitingForBus), or "" when it does not:
-// a missing scheduler bucket or an unreachable NATS is a state to wait out, shown on
-// the Calibrated condition as Unknown, and the caller looks again soon.
-func (r *ModelServerReconciler) requestCalibration(ctx context.Context, p *aiv1alpha1.ModelServer) string {
-	if r.Calibration == nil || !calibrationEnabled(p) {
-		return ""
+// the need is asked again once it ends. It returns why the calibration waits for the
+// bus (the cause wraps bus.ErrNotReady), or nil when it does not: a missing
+// scheduler bucket or an unreachable NATS is a state to wait out, and the caller
+// looks again soon. The server's Calibrated condition is derived from the wait and
+// status.calibration when the reconcile stores its status (see updateStatusWaiting).
+func (r *ModelServerReconciler) requestCalibration(ctx context.Context, p *aiv1alpha1.ModelServer) *busWait {
+	if r.Calibration == nil {
+		return nil
 	}
-	waiting := r.decideCalibration(ctx, p)
-	if waiting == "" {
-		r.clearBusWait(ctx, p)
+	if !calibrationEnabled(p) {
+		return nil
 	}
-	return waiting
+	return r.decideCalibration(ctx, p)
+}
+
+// busWait is a calibration that waits for the bus, and why.
+type busWait struct{ cause error }
+
+// err is the cause, or nil when nothing waits.
+func (w *busWait) err() error {
+	if w == nil {
+		return nil
+	}
+	return w.cause
 }
 
 // decideCalibration is requestCalibration after the checks that it has a
 // calibrator and calibration is on.
-func (r *ModelServerReconciler) decideCalibration(ctx context.Context, p *aiv1alpha1.ModelServer) string {
+func (r *ModelServerReconciler) decideCalibration(ctx context.Context, p *aiv1alpha1.ModelServer) *busWait {
 	log := logf.FromContext(ctx).WithName("calibration")
 	bound, err := r.boundModels(ctx, p)
 	if err != nil {
 		log.Info("could not list Models bound to the server", "server", p.Name, "err", err)
-		return ""
+		return nil
 	}
 	need := needOf(p, bound)
 	ask, err := shouldAsk(p, need, func() (bool, error) { return r.Calibration.Idle(p.Name) })
 	if errors.Is(err, bus.ErrNotReady) {
-		return r.waitForBus(ctx, p, err)
+		return &busWait{err}
 	}
 	if err != nil {
 		log.Info("could not tell whether the server is idle", "server", p.Name, "err", err)
-		return ""
+		return nil
 	}
 	if !ask {
-		return ""
+		return nil
 	}
 	if gate, ok := r.Calibration.(busGate); ok {
 		if err := gate.BusReady(); err != nil {
-			return r.waitForBus(ctx, p, err)
+			return &busWait{err}
 		}
 	}
 	if req := p.Status.CalibrationRequest; req != nil && req.Key == need.Key && failedOnTheBus(p.Status.Calibration, req) {
 		need.Reason += busRetryNote
 	}
 	r.startCalibration(ctx, p, need)
-	return ""
-}
-
-// clearBusWait removes a WaitingForBus condition the operator set once the bus no
-// longer holds the calibration back, and puts back what the calibration record says.
-// A run recorded as waiting for the bus keeps its condition until it resumes.
-func (r *ModelServerReconciler) clearBusWait(ctx context.Context, p *aiv1alpha1.ModelServer) {
-	cond := meta.FindStatusCondition(p.Status.Conditions, conditionTypeCalibrated)
-	if cond == nil || cond.Reason != aiv1alpha1.CalibrationReasonWaitingForBus {
-		return
-	}
-	if cal := p.Status.Calibration; cal != nil && cal.Reason == aiv1alpha1.CalibrationReasonWaitingForBus {
-		return
-	}
-	r.patchStatus(ctx, p, func(s *aiv1alpha1.ModelServerStatus) {
-		meta.RemoveStatusCondition(&s.Conditions, conditionTypeCalibrated)
-		cal := s.Calibration
-		if cal == nil || cal.Phase == "" {
-			return
-		}
-		restored := metav1.Condition{Type: conditionTypeCalibrated, Status: metav1.ConditionFalse, Reason: cal.Phase, Message: cal.Message}
-		if cal.Phase == calibrationPhaseCalibrated {
-			restored.Status = metav1.ConditionTrue
-		}
-		meta.SetStatusCondition(&s.Conditions, restored)
-	})
+	return nil
 }
 
 // startCalibration asks the calibration server to calibrate and records the request.
@@ -310,28 +296,9 @@ type busGate interface {
 	BusReady() error
 }
 
-// waitForBus records, on the Calibrated condition, that the calibration waits for
-// the bus, and returns the reason. A server already calibrated keeps its True
-// condition: its results stand while a newer need waits.
-func (r *ModelServerReconciler) waitForBus(ctx context.Context, p *aiv1alpha1.ModelServer, cause error) string {
-	logf.FromContext(ctx).WithName("calibration").V(1).Info("calibration waits for the bus", "server", p.Name, "why", cause.Error())
-	existing := meta.FindStatusCondition(p.Status.Conditions, conditionTypeCalibrated)
-	if existing != nil && (existing.Status == metav1.ConditionTrue ||
-		(existing.Status == metav1.ConditionUnknown && existing.Reason == aiv1alpha1.CalibrationReasonWaitingForBus)) {
-		return aiv1alpha1.CalibrationReasonWaitingForBus
-	}
-	cond := metav1.Condition{
-		Type: conditionTypeCalibrated, Status: metav1.ConditionUnknown,
-		Reason:  aiv1alpha1.CalibrationReasonWaitingForBus,
-		Message: "waiting for the bus: " + cause.Error() + "; the calibration starts when NATS and its scheduler buckets are ready",
-	}
-	r.patchStatus(ctx, p, func(s *aiv1alpha1.ModelServerStatus) { meta.SetStatusCondition(&s.Conditions, cond) })
-	return aiv1alpha1.CalibrationReasonWaitingForBus
-}
-
 // retryWhileWaiting shortens the requeue of a server whose calibration waits for the bus.
-func retryWhileWaiting(result ctrl.Result, waiting string) ctrl.Result {
-	if waiting != "" && (result.RequeueAfter == 0 || result.RequeueAfter > calibrationRetry) {
+func retryWhileWaiting(result ctrl.Result, waiting *busWait) ctrl.Result {
+	if waiting != nil && (result.RequeueAfter == 0 || result.RequeueAfter > calibrationRetry) {
 		result.RequeueAfter = calibrationRetry
 	}
 	return result

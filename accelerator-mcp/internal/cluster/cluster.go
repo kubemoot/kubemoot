@@ -16,8 +16,6 @@ import (
 	"fmt"
 	"sort"
 
-	"k8s.io/apimachinery/pkg/api/meta"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/util/retry"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -31,9 +29,6 @@ const (
 	AnnotationReset      = "kubemoot.ai/calibration-reset"
 	AnnotationResetScope = "kubemoot.ai/calibration-reset-scope"
 )
-
-// ConditionCalibrated is the ModelServer condition calibration sets.
-const ConditionCalibrated = "Calibrated"
 
 // PhaseCalibrated is the calibration phase of a server whose every model was measured.
 const PhaseCalibrated = "Calibrated"
@@ -108,8 +103,9 @@ func ResetRequested(p *aiv1alpha1.ModelServer) bool {
 	return p.Status.Calibration == nil || token != p.Status.Calibration.ResetToken
 }
 
-// RecordCalibration sets the server's status.calibration and its Calibrated
-// condition, retrying when another writer updated the status first.
+// RecordCalibration sets the server's status.calibration, retrying when another
+// writer updated the status first. It never writes the Calibrated condition: the
+// operator derives that from status.calibration.
 func (c Cluster) RecordCalibration(ctx context.Context, p *aiv1alpha1.ModelServer,
 	update func(*aiv1alpha1.ServerCalibration, *aiv1alpha1.ModelServer)) error {
 	key := types.NamespacedName{Namespace: p.Namespace, Name: p.Name}
@@ -125,29 +121,9 @@ func (c Cluster) RecordCalibration(ctx context.Context, p *aiv1alpha1.ModelServe
 			current.Status.Calibration = &aiv1alpha1.ServerCalibration{}
 		}
 		update(current.Status.Calibration, current)
-		meta.SetStatusCondition(&current.Status.Conditions, condition(current.Status.Calibration))
 		return c.Client.Status().Patch(ctx, current,
 			client.MergeFromWithOptions(original, client.MergeFromWithOptimisticLock{}))
 	})
-}
-
-func condition(cal *aiv1alpha1.ServerCalibration) metav1.Condition {
-	status := metav1.ConditionFalse
-	if cal.Phase == PhaseCalibrated {
-		status = metav1.ConditionTrue
-	}
-	reason := cal.Phase
-	if reason == "" {
-		reason = "Unknown"
-	}
-	if cal.Reason != "" {
-		reason = cal.Reason
-	}
-	// A run that waits for the bus has no verdict yet: Unknown, not False.
-	if cal.Reason == aiv1alpha1.CalibrationReasonWaitingForBus {
-		status = metav1.ConditionUnknown
-	}
-	return metav1.Condition{Type: ConditionCalibrated, Status: status, Reason: reason, Message: cal.Message}
 }
 
 // UsableMemoryMiB is the budget a model must fit on the server, the reserve the
