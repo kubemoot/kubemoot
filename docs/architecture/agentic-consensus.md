@@ -210,8 +210,9 @@ the error in the failure signal's fields, the logs, and the dashboard.
 
 An infrastructure gap adds nothing else to the answer: no onboarding suggestion, since a
 broken tool server needs fixing, not a new tooler, and no instruction to the reader about
-logs or servers. What an operator should check is written to the runtime log, carried in the
-`gap_detected` signal (`gapType` `INFRASTRUCTURE_GAP`), and visible in the dashboard timeline.
+logs or servers. What an operator should check is written to the runtime log. The
+`gap_detected` signal carries `gapType` `INFRASTRUCTURE_GAP` and the failure signals carry each
+failure's cause, both visible in the dashboard timeline.
 
 An infrastructure gap and a specialist gap call for opposite responses - fix a broken
 MCP server versus onboard a new specialist - so keeping them distinct is the point.

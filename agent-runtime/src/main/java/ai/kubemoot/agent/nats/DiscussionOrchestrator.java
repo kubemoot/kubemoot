@@ -47,6 +47,9 @@ import java.util.concurrent.atomic.AtomicReference;
 public class DiscussionOrchestrator {
 
     private static final Logger log = LoggerFactory.getLogger(DiscussionOrchestrator.class);
+    /** What an operator should check when toolers could not complete; for the log, never for an answer. */
+    static final String OPERATOR_GUIDANCE = "Check the failing MCP servers and the model servers;"
+            + " the discussion timeline in the dashboard shows each failure's cause.";
     private static final ObjectMapper mapper = new ObjectMapper();
 
     // JSON field name constants (used in NATS message construction/parsing)
@@ -2392,20 +2395,14 @@ public class DiscussionOrchestrator {
             // missing tooler, so no onboarding suggestion. The answer itself says only that
             // some sources could not be reached (failedSourcesNote below). What an operator
             // should check goes to the log and the gap-detected signal, never into the answer.
-            log.warn(infrastructureGapGuidance(state.threadId, state.failureSignals.keySet()));
+            log.warn("Thread {}: infrastructure gap, toolers {} could not complete their evaluation. {}",
+                    state.threadId, new java.util.TreeSet<>(state.failureSignals.keySet()), OPERATOR_GUIDANCE);
             publishGapDetected(state.threadId, channel, state.userQuery, Map.of(), gapType);
         }
 
         return response + failedSourcesNote(state);
     }
 
-    /** What an operator should check when toolers could not complete; for the log, never for an answer. */
-    // Visible for testing
-    static String infrastructureGapGuidance(String threadId, java.util.Collection<String> failedAgents) {
-        return "Thread " + threadId + ": infrastructure gap, toolers " + new java.util.TreeSet<>(failedAgents)
-                + " could not complete their evaluation. Check the failing MCP servers and the model servers;"
-                + " the discussion timeline in the dashboard shows each failure's cause.";
-    }
 
     private static String sortedFailedSources(ThreadState state) {
         return String.join(", ", new java.util.TreeSet<>(state.failedSources));
