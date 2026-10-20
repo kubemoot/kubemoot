@@ -316,11 +316,21 @@ spec:
                 description: Registry configures how this MCPServer is registered
                   with MCPGateways
                 properties:
+                  authHeader:
+                    description: |-
+                      AuthHeader names the HTTP header that carries the Secret's "api-key" value.
+                      Defaults to X-API-Key. It has no effect on a "bearer-token", which always goes
+                      in the Authorization header.
+                    maxLength: 128
+                    pattern: ^[A-Za-z0-9!#$%&'*+.^_|~-]+$
+                    type: string
                   authSecretRef:
                     description: |-
                       AuthSecretRef references a secret containing auth credentials for this MCP server
                       The secret should have a key "bearer-token" or "api-key"
-                      Used when the MCP server requires authentication from the gateway
+                      Used when the MCP server requires authentication from the gateway.
+                      A "bearer-token" is sent as "Authorization: Bearer <token>"; an "api-key" is sent
+                      in the header named by authHeader. When both keys are present, "bearer-token" wins.
                     type: string
                   categories:
                     description: Categories are searchable tags for tool discovery

@@ -17,7 +17,6 @@ limitations under the License.
 package controller
 
 import (
-	"context"
 	"encoding/json"
 	"testing"
 
@@ -47,7 +46,7 @@ func TestRegistrationPayloadCarriesToolOverrides(t *testing.T) {
 		Parameters:  map[string]kubemootv1alpha1.ToolParameterOverride{"namespace": {Description: "this namespace"}},
 	})
 
-	payload := r.buildRegistrationPayload(context.Background(), kubemootv1alpha1.ImplementationKubemoot, mcp)
+	payload := r.buildRegistrationPayload(kubemootv1alpha1.ImplementationKubemoot, mcp)
 
 	raw, err := json.Marshal(payload)
 	if err != nil {
@@ -73,7 +72,7 @@ func TestRegistrationPayloadCarriesToolOverrides(t *testing.T) {
 
 func TestRegistrationPayloadOmitsOverridesWhenUnset(t *testing.T) {
 	r := &MCPGatewayReconciler{}
-	payload := r.buildRegistrationPayload(context.Background(), kubemootv1alpha1.ImplementationKubemoot, toolOverrideServer())
+	payload := r.buildRegistrationPayload(kubemootv1alpha1.ImplementationKubemoot, toolOverrideServer())
 	if _, ok := payload["toolOverrides"]; ok {
 		t.Errorf("no overrides configured, payload should not carry the key: %v", payload)
 	}
@@ -82,7 +81,7 @@ func TestRegistrationPayloadOmitsOverridesWhenUnset(t *testing.T) {
 func TestRegistrationPayloadSkipsOverridesForContextForge(t *testing.T) {
 	r := &MCPGatewayReconciler{}
 	mcp := toolOverrideServer(kubemootv1alpha1.ToolOverride{Name: toolOverrideTool, Description: "x"})
-	payload := r.buildRegistrationPayload(context.Background(), kubemootv1alpha1.ImplementationContextForge, mcp)
+	payload := r.buildRegistrationPayload(kubemootv1alpha1.ImplementationContextForge, mcp)
 	if _, ok := payload["toolOverrides"]; ok {
 		t.Errorf("ContextForge does not take overrides: %v", payload)
 	}

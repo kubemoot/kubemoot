@@ -19,6 +19,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import kubemoot.ai.mcpgateway.config.McpGatewayProperties;
 import kubemoot.ai.mcpgateway.model.FeedbackEntry;
 import kubemoot.ai.mcpgateway.model.McpMessage;
+import kubemoot.ai.mcpgateway.model.ServerCredential;
 import kubemoot.ai.mcpgateway.model.ServerRegistration;
 import kubemoot.ai.mcpgateway.model.ServerRegistration.ServerStatus;
 import kubemoot.ai.mcpgateway.model.ToolInfo;
@@ -30,6 +31,9 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.TimeoutException;
@@ -69,11 +73,18 @@ public class McpClientManager {
         )
     );
 
+    // A URL that already ends in /mcp (optionally with a slash) is the MCP endpoint itself
+    private static final Pattern MCP_URL_ENDING = Pattern.compile("^(.*?)/mcp(/?)$");
+
     private final McpGatewayProperties properties;
     private final WebClient.Builder webClientBuilder;
     private final ObjectMapper objectMapper;
     private final Map<String, ServerRegistration> servers = new ConcurrentHashMap<>();
     private final Map<String, WebClient> clients = new ConcurrentHashMap<>();
+    // Header a server needs on every call, by server ID. In memory only, never listed or logged.
+    private final Map<String, ServerCredential> credentials = new ConcurrentHashMap<>();
+    // Streamable-HTTP path per server ID, when the registered URL already ends in /mcp
+    private final Map<String, String> mcpPaths = new ConcurrentHashMap<>();
     private final Map<String, List<ToolInfo>> serverTools = new ConcurrentHashMap<>();
     // Description overrides per server ID, applied to every tool list read from that server
     private final Map<String, List<ToolOverride>> serverOverrides = new ConcurrentHashMap<>();
@@ -137,12 +148,20 @@ public class McpClientManager {
 
     public ServerRegistration registerServer(String name, String url, String transport,
                                              List<ToolOverride> toolOverrides) {
+        return registerServer(name, url, transport, toolOverrides, null);
+    }
+
+    public ServerRegistration registerServer(String name, String url, String transport,
+                                             List<ToolOverride> toolOverrides, ServerCredential credential) {
         List<ToolOverride> overrides = toolOverrides == null ? List.of() : toolOverrides;
         // Check if a server with the same name already exists
         ServerRegistration existing = findServerByName(name);
         if (existing != null) {
             // Server already registered - check if URL changed
-            if (existing.url().equals(url)) {
+            if (existing.url().equals(url) && !Objects.equals(credentials.get(existing.id()), credential)) {
+                log.info("Server {} credential changed, re-registering", name);
+                unregisterServer(existing.id());
+            } else if (existing.url().equals(url)) {
                 List<ToolOverride> previous = serverOverrides.put(existing.id(), overrides);
                 if (!overrides.equals(previous)) {
                     log.info("Server {} tool overrides changed", name);
@@ -160,6 +179,9 @@ public class McpClientManager {
         log.info("Registering new MCP server: {} at {}", name, url);
         ServerRegistration registration = ServerRegistration.create(name, url, transport);
         serverOverrides.put(registration.id(), overrides);
+        if (credential != null) {
+            credentials.put(registration.id(), credential);
+        }
         registerServerInternal(registration);
         return registration;
     }
@@ -324,9 +346,22 @@ public class McpClientManager {
     private void registerServerInternal(ServerRegistration registration) {
         servers.put(registration.id(), registration);
 
-        WebClient client = webClientBuilder
-            .baseUrl(registration.url())
-            .build();
+        String baseUrl = registration.url();
+        if (isStreamableHttp(registration.transport())) {
+            Matcher ending = MCP_URL_ENDING.matcher(baseUrl);
+            if (ending.matches()) {
+                baseUrl = ending.group(1);
+                mcpPaths.put(registration.id(), "/mcp" + ending.group(2));
+            }
+        }
+        // A per-server clone, so a default header never reaches another server. Redirects are not
+        // followed (Reactor Netty default), so the header is never re-sent to another host.
+        WebClient.Builder builder = webClientBuilder.clone().baseUrl(baseUrl);
+        ServerCredential credential = credentials.get(registration.id());
+        if (credential != null) {
+            builder.defaultHeaders(headers -> headers.set(credential.header(), credential.value()));
+        }
+        WebClient client = builder.build();
         clients.put(registration.id(), client);
 
         // Start connection attempt
@@ -336,6 +371,8 @@ public class McpClientManager {
     public void unregisterServer(String serverId) {
         servers.remove(serverId);
         clients.remove(serverId);
+        credentials.remove(serverId);
+        mcpPaths.remove(serverId);
         serverTools.remove(serverId);
         serverOverrides.remove(serverId);
         toolsListedAt.remove(serverId);
@@ -444,7 +481,7 @@ public class McpClientManager {
         McpMessage initRequest = McpMessage.request(1, "initialize", MCP_INIT_PARAMS);
 
         // Use transport-specific endpoint
-        String endpoint = getMcpEndpoint(server.transport());
+        String endpoint = getMcpEndpoint(server);
 
         // Streamable-http returns SSE with session ID in header
         return client.post()
@@ -475,10 +512,17 @@ public class McpClientManager {
             .then(Mono.defer(() -> {
                 // Send notifications/initialized to complete the MCP handshake
                 McpMessage initialized = McpMessage.notification(MCP_NOTIFICATION_INITIALIZED);
-                String ep = getMcpEndpoint(server.transport());
+                String ep = getMcpEndpoint(server);
+                // The session the server issued on initialize goes on every later request
+                String session = serverSessions.get(serverId);
                 return client.post()
                     .uri(ep)
                     .header(ACCEPT_HEADER, ACCEPT_JSON_SSE)
+                    .headers(h -> {
+                        if (session != null) {
+                            h.set(MCP_SESSION_HEADER, session);
+                        }
+                    })
                     .bodyValue(initialized)
                     .retrieve()
                     .toBodilessEntity()
@@ -632,11 +676,16 @@ public class McpClientManager {
             });
     }
 
+    private static boolean isStreamableHttp(String transport) {
+        return "http".equalsIgnoreCase(transport) || "streamable-http".equalsIgnoreCase(transport);
+    }
+
     // Get MCP endpoint based on transport type
-    private String getMcpEndpoint(String transport) {
-        // Streamable-http (http) uses /mcp
-        if ("http".equalsIgnoreCase(transport) || "streamable-http".equalsIgnoreCase(transport)) {
-            return "/mcp";
+    private String getMcpEndpoint(ServerRegistration server) {
+        String transport = server.transport();
+        // Streamable-http (http) uses /mcp, or the path the registered URL already ends in
+        if (isStreamableHttp(transport)) {
+            return mcpPaths.getOrDefault(server.id(), "/mcp");
         }
         // Stdio transport uses supergateway which expects /message
         if (TRANSPORT_STDIO.equalsIgnoreCase(transport)) {
@@ -804,7 +853,7 @@ public class McpClientManager {
     private Mono<List<ToolInfo>> discoverToolsViaHttp(String serverId, WebClient client,
             ServerRegistration server, boolean allowRetry) {
         McpMessage listToolsRequest = McpMessage.request(upstreamIds.incrementAndGet(), METHOD_TOOLS_LIST, Map.of());
-        String endpoint = getMcpEndpoint(server.transport());
+        String endpoint = getMcpEndpoint(server);
         String sessionId = serverSessions.get(serverId);
         log.info("Discovering tools for {} via HTTP", server.name());
 
@@ -1043,7 +1092,7 @@ public class McpClientManager {
 
     private Mono<McpMessage> forwardRequestViaHttp(String serverId, WebClient client,
             ServerRegistration server, McpMessage request, boolean allowRetry) {
-        String endpoint = getMcpEndpoint(server.transport());
+        String endpoint = getMcpEndpoint(server);
         String sessionId = serverSessions.get(serverId);
         log.debug("Forwarding request to {} via HTTP", server.name());
 

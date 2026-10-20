@@ -37,6 +37,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
 	kubemootv1alpha1 "github.com/kubemoot/kubemoot/operator/api/v1alpha1"
@@ -159,6 +160,11 @@ func mcpServerProxyPort(mcpServer *kubemootv1alpha1.MCPServer) int32 {
 func (r *MCPServerReconciler) reconcileExternalMCPServer(ctx context.Context, mcpServer *kubemootv1alpha1.MCPServer) (ctrl.Result, error) {
 	// External MCP servers don't need deployment or service
 	// Just set the status with the external endpoint
+	if err := r.checkCredential(ctx, mcpServer); err != nil {
+		return r.updateStatus(ctx, mcpServer, phaseError, false, err.Error(),
+			withEndpoint(mcpServer.Spec.ExternalEndpoint),
+			withCapabilities(mcpServer.Spec.Capabilities))
+	}
 	return r.updateStatus(ctx, mcpServer, phaseReady, true, "External MCP server",
 		withEndpoint(mcpServer.Spec.ExternalEndpoint),
 		withCapabilities(mcpServer.Spec.Capabilities))
@@ -1197,6 +1203,8 @@ func (r *MCPServerReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		For(&kubemootv1alpha1.MCPServer{}).
 		Owns(&appsv1.Deployment{}).
 		Owns(&corev1.Service{}).
+		// Re-check the credential when the Secret that holds it appears or changes.
+		Watches(&corev1.Secret{}, handler.EnqueueRequestsFromMapFunc(r.findMCPServersForSecret)).
 		Named("mcpserver").
 		WithOptions(controller.Options{MaxConcurrentReconciles: 3}).
 		// Re-reconcile every MCPServer when KubemootConfig changes so a
