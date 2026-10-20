@@ -160,7 +160,7 @@ var unrecorded = map[string]bool{
 	"onboarding-docs-indexed.json": true, "onboarding-progress.json": true, "pinned-thread.json": true,
 	"post-discussion-request.json": true, "post-discussion-response.json": true,
 	"model-lifecycle-reply.json": true, "model-lifecycle-request.json": true,
-	"provider-ticket.json": true, "scheduled-record.json": true, "signal-meta.json": true,
+	"server-ticket.json": true, "scheduled-record.json": true, "signal-meta.json": true,
 	"stream-event-base.json": true, "subcommittee.json": true,
 }
 
@@ -226,7 +226,7 @@ var goTypes = map[string]func() any{
 	"discussion-message.json":    func() any { return &bus.DiscussionMessage{} },
 	"artifact-notice.json":       func() any { return &bus.ArtifactNotice{} },
 	"agent-heartbeat.json":       func() any { return &bus.AgentHeartbeat{} },
-	"provider-state.json":        func() any { return &bus.ProviderState{} },
+	"server-state.json":          func() any { return &bus.ServerState{} },
 	"model-demand.json":          func() any { return &bus.ModelDemand{} },
 	"latency-samples.json":       func() any { return &bus.LatencySamples{} },
 	"scheduler-performance.json": func() any { return &bus.SchedulerPerformance{} },

@@ -50,35 +50,35 @@ log_ok "Operator is ready"
 # A Ready pod is not yet a running operator: wait until a Ready pod holds the leader lease
 wait_for_operator_leader || exit 1
 
-# Test 1: ModelProvider
-log_section "Test 1: ModelProvider Quick Check"
+# Test 1: ModelServer
+log_section "Test 1: ModelServer Quick Check"
 
-# A second provider on the endpoint of one the cluster already has Ready, so the check
+# A second server on the endpoint of one the cluster already has Ready, so the check
 # follows the cluster's model servers.
 OLLAMA_ENDPOINT=$(ready_ollama_endpoint)
 if [ -z "$OLLAMA_ENDPOINT" ]; then
-    log_skip "ModelProvider check: no Ready Ollama ModelProvider in $NAMESPACE to share an endpoint with"
+    log_skip "ModelServer check: no Ready Ollama ModelServer in $NAMESPACE to share an endpoint with"
 else
     cat <<EOF | kubectl apply -f -
 apiVersion: kubemoot.ai/v1alpha1
-kind: ModelProvider
+kind: ModelServer
 metadata:
-  name: smoke-test-provider
+  name: smoke-test-server
   namespace: $NAMESPACE
 spec:
   type: ollama
   endpoint: $OLLAMA_ENDPOINT
 EOF
-    log_ok "ModelProvider created on $OLLAMA_ENDPOINT"
+    log_ok "ModelServer created on $OLLAMA_ENDPOINT"
 
-    if wait_for "ModelProvider to be ready" "kubectl get modelprovider -n $NAMESPACE smoke-test-provider -o jsonpath='{.status.phase}' 2>/dev/null | grep -q 'Ready'" 60; then
-        log_ok "ModelProvider is Ready"
+    if wait_for "ModelServer to be ready" "kubectl get modelserver -n $NAMESPACE smoke-test-server -o jsonpath='{.status.phase}' 2>/dev/null | grep -q 'Ready'" 60; then
+        log_ok "ModelServer is Ready"
     else
-        log_fail "ModelProvider did not become Ready"
+        log_fail "ModelServer did not become Ready"
     fi
 
-    kubectl delete modelprovider -n "$NAMESPACE" smoke-test-provider --ignore-not-found &>/dev/null
-    log_ok "ModelProvider cleaned up"
+    kubectl delete modelserver -n "$NAMESPACE" smoke-test-server --ignore-not-found &>/dev/null
+    log_ok "ModelServer cleaned up"
 fi
 
 # Test 2: KubemootConfig exists
@@ -101,7 +101,7 @@ fi
 # Test 3: CRDs installed
 log_section "Test 3: CRD Installation Check"
 
-EXPECTED_CRDS="modelproviders models embeddingmodels mcpservers mcpgateways ragsources agents mcpqualitypolicies mcpcatalogs mcpserverreports kubemootconfigs"
+EXPECTED_CRDS="modelservers models embeddingmodels mcpservers mcpgateways ragsources agents mcpqualitypolicies mcpcatalogs mcpserverreports kubemootconfigs"
 for crd in $EXPECTED_CRDS; do
     if kubectl get crd "${crd}.kubemoot.ai" &>/dev/null; then
         log_ok "CRD '${crd}.kubemoot.ai' installed"

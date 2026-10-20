@@ -1,7 +1,7 @@
 asyncapi: 3.1.0
 info:
   title: Kubemoot bus contract
-  version: 1.0.0
+  version: 2.0.0
   description: |
     The messages agents and Kubemoot exchange over NATS, the key-value entries they
     share, and the event stream the discussion gateway serves. Payloads are JSON
@@ -177,47 +177,47 @@ channels:
       agentHeartbeat:
         $ref: '#/components/messages/AgentHeartbeat'
 
-  providerState:
-    address: $KV.kubemoot_provider_state.{provider}
-    title: KV kubemoot_provider_state
-    description: Each ModelProvider's capacity, written by the operator.
+  serverState:
+    address: $KV.kubemoot_server_state.{server}
+    title: KV kubemoot_server_state
+    description: Each ModelServer's capacity, written by the operator.
     servers:
       - $ref: '#/servers/nats'
     parameters:
-      provider:
-        $ref: '#/components/parameters/provider'
+      server:
+        $ref: '#/components/parameters/server'
     messages:
-      providerState:
-        $ref: '#/components/messages/ProviderState'
+      serverState:
+        $ref: '#/components/messages/ServerState'
 
-  providerModel:
-    address: kubemoot.provider.model.{provider}
+  serverModel:
+    address: kubemoot.server.model.{server}
     title: Model lifecycle request
     description: |
       An agent asks the operator, by NATS request and reply on core NATS, to make a
-      model ready on a provider (wake its vLLM server, putting the awake one on the
+      model ready on a server (wake its vLLM server, putting the awake one on the
       same accelerator to sleep first) or to release it. The operator answers when the
-      provider reports the model in the state asked for. Only engines that put models
-      to sleep take it; Ollama loads on demand and is never asked. The provider token
-      is the ModelProvider name, escaped as a key token is.
+      server reports the model in the state asked for. Only engines that put models
+      to sleep take it; Ollama loads on demand and is never asked. The server token
+      is the ModelServer name, escaped as a key token is.
     servers:
       - $ref: '#/servers/nats'
     parameters:
-      provider:
-        $ref: '#/components/parameters/provider'
+      server:
+        $ref: '#/components/parameters/server'
     messages:
       modelLifecycleRequest:
         $ref: '#/components/messages/ModelLifecycleRequest'
       modelLifecycleReply:
         $ref: '#/components/messages/ModelLifecycleReply'
 
-  providerTickets:
-    address: $KV.kubemoot_provider_tickets.{entry}
-    title: KV kubemoot_provider_tickets
+  serverTickets:
+    address: $KV.kubemoot_server_tickets.{entry}
+    title: KV kubemoot_server_tickets
     description: |
-      Slot and memory claims on providers. Keys are <provider>__<ticketId> for a
-      ticket and residency__<provider>__<model> for a model left loaded. In a
-      residency key the provider and model names keep letters, digits and '-',
+      Slot and memory claims on servers. Keys are <server>__<ticketId> for a
+      ticket and residency__<server>__<model> for a model left loaded. In a
+      residency key the server and model names keep letters, digits and '-',
       and write any other character as '_' and two hex digits ('__' and four
       above U+00FF), so qwen3:14b becomes qwen3_3a14b; a NATS KV key cannot hold
       ':'. Entries expire after 10 minutes.
@@ -227,8 +227,8 @@ channels:
       entry:
         description: The entry key.
     messages:
-      providerTicket:
-        $ref: '#/components/messages/ProviderTicket'
+      serverTicket:
+        $ref: '#/components/messages/ServerTicket'
 
   modelDemand:
     address: $KV.kubemoot_model_demand.{entry}
@@ -251,8 +251,8 @@ channels:
     title: KV kubemoot_scheduler_performance
     description: |
       What the scheduler observed: each agent's recent model requests (tokens,
-      times, outcome, cold start, load on the provider) and capacity waits, per
-      provider and model. Keys are <provider>.<model>.<agent>; each token is
+      times, outcome, cold start, load on the server) and capacity waits, per
+      server and model. Keys are <server>.<model>.<agent>; each token is
       escaped. Entries expire 30 days after their last write.
     servers:
       - $ref: '#/servers/nats'
@@ -264,9 +264,9 @@ channels:
         $ref: '#/components/messages/SchedulerPerformance'
 
   latency:
-    address: $KV.kubemoot_latency.latency.{namespace}.{agent}.{provider}
+    address: $KV.kubemoot_latency.latency.{namespace}.{agent}.{server}
     title: KV kubemoot_latency
-    description: Each agent's recent evaluation latencies per provider.
+    description: Each agent's recent evaluation latencies per server.
     servers:
       - $ref: '#/servers/nats'
     parameters:
@@ -274,8 +274,8 @@ channels:
         $ref: '#/components/parameters/namespace'
       agent:
         $ref: '#/components/parameters/agent'
-      provider:
-        $ref: '#/components/parameters/provider'
+      server:
+        $ref: '#/components/parameters/server'
     messages:
       latencySamples:
         $ref: '#/components/messages/LatencySamples'
@@ -409,8 +409,8 @@ components:
       description: The thread (a UUID).
     agent:
       description: The agent.
-    provider:
-      description: The ModelProvider.
+    server:
+      description: The ModelServer.
 
   messages:
     DiscussionMessage:
@@ -453,11 +453,11 @@ components:
       title: Agent heartbeat
       payload:
         $ref: './agent-heartbeat.json'
-    ProviderState:
-      name: ProviderState
-      title: Provider state
+    ServerState:
+      name: ServerState
+      title: Server state
       payload:
-        $ref: './provider-state.json'
+        $ref: './server-state.json'
     ModelLifecycleRequest:
       name: ModelLifecycleRequest
       title: Model lifecycle request
@@ -468,11 +468,11 @@ components:
       title: Model lifecycle reply
       payload:
         $ref: './model-lifecycle-reply.json'
-    ProviderTicket:
-      name: ProviderTicket
-      title: Provider ticket
+    ServerTicket:
+      name: ServerTicket
+      title: Server ticket
       payload:
-        $ref: './provider-ticket.json'
+        $ref: './server-ticket.json'
     ModelDemand:
       name: ModelDemand
       title: Model demand

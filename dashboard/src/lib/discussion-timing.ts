@@ -99,7 +99,7 @@ export function metadataStats(msg: DiscussionMessage): MessageStats {
 		inputTokens: positive(meta.inputTokens),
 		outputTokens: positive(meta.outputTokens),
 		model: modelOf(meta),
-		accelerator: placementOf(meta.provider, meta.gpuLabel)
+		accelerator: placementOf(meta.server, meta.gpuLabel)
 	};
 }
 

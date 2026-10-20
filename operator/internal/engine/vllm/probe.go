@@ -52,16 +52,16 @@ type serverProbe struct {
 	kvUsage *float64
 }
 
-// Probe reads every server of the provider. A server that does not answer, or
+// Probe reads every vLLM server of the ModelServer. A server that does not answer, or
 // answers for a different model than the spec names, is left out of the
 // snapshot; Probe fails only when no server answered. Request counts are summed
 // over the servers that reported them and cache use is the highest reported, so
-// the snapshot describes the provider, not one server. The adapter reports no
+// the snapshot describes the ModelServer, not one vLLM server. The adapter reports no
 // switch cost and no parked host memory: it has not measured either.
-func (a *Adapter) Probe(ctx context.Context, spec aiv1alpha1.ModelProviderSpec) (engine.Snapshot, error) {
+func (a *Adapter) Probe(ctx context.Context, spec aiv1alpha1.ModelServerSpec) (engine.Snapshot, error) {
 	servers := serversOf(spec)
 	if len(servers) == 0 {
-		return engine.Snapshot{}, errors.New("the vllm provider lists no servers")
+		return engine.Snapshot{}, errors.New("the vllm server lists no servers")
 	}
 	var probes []serverProbe
 	var errs []error
@@ -247,7 +247,7 @@ func sampleValue(m *dto.Metric) (float64, bool) {
 	return 0, false
 }
 
-// snapshotOf assembles the provider snapshot from the servers that answered.
+// snapshotOf assembles the server snapshot from the servers that answered.
 func snapshotOf(probes []serverProbe) engine.Snapshot {
 	snap := engine.Snapshot{
 		ModelStates:    map[string]engine.ModelState{},

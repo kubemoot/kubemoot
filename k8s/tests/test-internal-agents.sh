@@ -14,16 +14,16 @@ cleanup() {
     log_info "Cleanup not needed for internal agents (managed by Helm)"
 }
 
-# Test 1: Check ModelProvider exists
-test_modelprovider() {
-    log_section "Test 1: Checking shared ModelProvider (ollama-gpu)"
+# Test 1: Check ModelServer exists
+test_modelserver() {
+    log_section "Test 1: Checking shared ModelServer (ollama-gpu)"
 
-    if kubectl get modelprovider ollama-gpu -n "${NAMESPACE}" > /dev/null 2>&1; then
-        log_ok "ModelProvider 'ollama-gpu' exists"
+    if kubectl get modelserver ollama-gpu -n "${NAMESPACE}" > /dev/null 2>&1; then
+        log_ok "ModelServer 'ollama-gpu' exists"
 
         # Verify endpoint
         local endpoint
-        endpoint=$(kubectl get modelprovider ollama-gpu -n "${NAMESPACE}" -o jsonpath='{.spec.endpoint}')
+        endpoint=$(kubectl get modelserver ollama-gpu -n "${NAMESPACE}" -o jsonpath='{.spec.endpoint}')
         log_info "Endpoint: ${endpoint}"
 
         if [[ "${endpoint}" == *"ollama"* ]]; then
@@ -32,7 +32,7 @@ test_modelprovider() {
             log_warn "Unexpected endpoint configuration"
         fi
     else
-        log_fail "ModelProvider 'ollama-gpu' not found"
+        log_fail "ModelServer 'ollama-gpu' not found"
         log_info "Internal agents may be disabled in values.yaml"
         return 1
     fi
@@ -45,15 +45,15 @@ test_model() {
     if kubectl get model quality-eval-model -n "${NAMESPACE}" > /dev/null 2>&1; then
         log_ok "Model 'quality-eval-model' exists"
 
-        # Verify provider reference
-        local provider
-        provider=$(kubectl get model quality-eval-model -n "${NAMESPACE}" -o jsonpath='{.spec.providerRef}')
-        log_info "Provider ref: ${provider}"
+        # Verify server reference
+        local server
+        server=$(kubectl get model quality-eval-model -n "${NAMESPACE}" -o jsonpath='{.spec.serverRef}')
+        log_info "Server ref: ${server}"
 
-        if [[ "${provider}" == "ollama-gpu" ]]; then
-            log_ok "Model references correct provider"
+        if [[ "${server}" == "ollama-gpu" ]]; then
+            log_ok "Model references correct server"
         else
-            log_warn "Model references unexpected provider: ${provider}"
+            log_warn "Model references unexpected server: ${server}"
         fi
 
         # Verify model name
@@ -171,7 +171,7 @@ test_helm_labels() {
     local resources_checked=0
     local labels_ok=0
 
-    for kind in "modelprovider/ollama-gpu" "model/quality-eval-model" "agent/mcp-quality-evaluator" "agent/mcp-catalog-discovery"; do
+    for kind in "modelserver/ollama-gpu" "model/quality-eval-model" "agent/mcp-quality-evaluator" "agent/mcp-catalog-discovery"; do
         local managed_by
         managed_by=$(kubectl get "${kind}" -n "${NAMESPACE}" -o jsonpath='{.metadata.labels.app\.kubernetes\.io/managed-by}' 2>/dev/null || echo "")
         resources_checked=$((resources_checked + 1))
@@ -213,10 +213,10 @@ main() {
     check_operator
     check_crd "agents.kubemoot.ai"
     check_crd "models.kubemoot.ai"
-    check_crd "modelproviders.kubemoot.ai"
+    check_crd "modelservers.kubemoot.ai"
 
     # Run tests
-    test_modelprovider
+    test_modelserver
     test_model
     test_quality_evaluator_agent
     test_quality_evaluator_prompts

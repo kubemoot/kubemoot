@@ -17,7 +17,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/lib.sh"
 
 TEST_NAME="RAGSource"
-PROVIDER_NAME="test-provider"
+SERVER_NAME="test-server"
 EMBEDDING_MODEL_NAME="test-embedding"
 RAGSOURCE_NAME="test-ragsource"
 
@@ -27,7 +27,7 @@ cleanup() {
     log_info "Cleaning up RAGSource test resources..."
     cleanup_resource ragsource "$RAGSOURCE_NAME"
     cleanup_resource embeddingmodel "$EMBEDDING_MODEL_NAME"
-    cleanup_resource modelprovider "$PROVIDER_NAME"
+    cleanup_resource modelserver "$SERVER_NAME"
     # Clean up any leftover jobs
     kubectl delete jobs -n "$NAMESPACE" -l "kubemoot.ai/ragsource=$RAGSOURCE_NAME" --ignore-not-found=true 2>/dev/null || true
     log_info "Cleanup complete"
@@ -53,32 +53,32 @@ log_section "Pre-flight Checks"
 check_cluster || exit 1
 check_namespace || exit 1
 check_operator || exit 1
-check_crd "modelproviders.kubemoot.ai" || exit 1
+check_crd "modelservers.kubemoot.ai" || exit 1
 check_crd "embeddingmodels.kubemoot.ai" || exit 1
 check_crd "ragsources.kubemoot.ai" || exit 1
 check_ollama || exit 1
 
 #
-# Setup: Create ModelProvider and EmbeddingModel
+# Setup: Create ModelServer and EmbeddingModel
 #
-log_section "Setup: Create ModelProvider and EmbeddingModel"
+log_section "Setup: Create ModelServer and EmbeddingModel"
 
 cat <<EOF | kubectl apply -f -
 apiVersion: kubemoot.ai/v1alpha1
-kind: ModelProvider
+kind: ModelServer
 metadata:
-  name: $PROVIDER_NAME
+  name: $SERVER_NAME
   namespace: $NAMESPACE
 spec:
   type: ollama
   endpoint: http://ollama.$OLLAMA_NAMESPACE:11434
 EOF
 
-if wait_for "ModelProvider to be ready" \
-    "kubectl get modelprovider $PROVIDER_NAME -n $NAMESPACE -o jsonpath='{.status.ready}' | grep -q 'true'"; then
-    log_ok "ModelProvider is ready"
+if wait_for "ModelServer to be ready" \
+    "kubectl get modelserver $SERVER_NAME -n $NAMESPACE -o jsonpath='{.status.ready}' | grep -q 'true'"; then
+    log_ok "ModelServer is ready"
 else
-    log_fail "ModelProvider setup failed"
+    log_fail "ModelServer setup failed"
     exit 1
 fi
 
@@ -89,7 +89,7 @@ metadata:
   name: $EMBEDDING_MODEL_NAME
   namespace: $NAMESPACE
 spec:
-  providerRef: $PROVIDER_NAME
+  serverRef: $SERVER_NAME
   model: nomic-embed-text
   dimensions: 768
 EOF
@@ -264,8 +264,8 @@ log_section "Cleanup"
 kubectl delete embeddingmodel "$EMBEDDING_MODEL_NAME" -n "$NAMESPACE"
 log_ok "EmbeddingModel deleted"
 
-kubectl delete modelprovider "$PROVIDER_NAME" -n "$NAMESPACE"
-log_ok "ModelProvider deleted"
+kubectl delete modelserver "$SERVER_NAME" -n "$NAMESPACE"
+log_ok "ModelServer deleted"
 
 # Disable trap since we cleaned up
 trap - EXIT

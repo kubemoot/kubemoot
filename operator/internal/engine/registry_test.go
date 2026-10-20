@@ -26,17 +26,17 @@ import (
 
 type stubAdapter struct{ client *http.Client }
 
-func (stubAdapter) Probe(context.Context, aiv1alpha1.ModelProviderSpec) (Snapshot, error) {
+func (stubAdapter) Probe(context.Context, aiv1alpha1.ModelServerSpec) (Snapshot, error) {
 	return Snapshot{}, nil
 }
-func (stubAdapter) Ready(context.Context, aiv1alpha1.ModelProviderSpec, string) error   { return nil }
-func (stubAdapter) Release(context.Context, aiv1alpha1.ModelProviderSpec, string) error { return nil }
+func (stubAdapter) Ready(context.Context, aiv1alpha1.ModelServerSpec, string) error   { return nil }
+func (stubAdapter) Release(context.Context, aiv1alpha1.ModelServerSpec, string) error { return nil }
 
 func TestRegistryReturnsTheRegisteredAdapter(t *testing.T) {
 	reg := NewRegistry()
-	reg.Register(aiv1alpha1.ProviderTypeOllama, func(c *http.Client) Adapter { return stubAdapter{client: c} })
+	reg.Register(aiv1alpha1.ServerTypeOllama, func(c *http.Client) Adapter { return stubAdapter{client: c} })
 	client := &http.Client{}
-	got, err := reg.Adapter(aiv1alpha1.ProviderTypeOllama, client)
+	got, err := reg.Adapter(aiv1alpha1.ServerTypeOllama, client)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -47,8 +47,8 @@ func TestRegistryReturnsTheRegisteredAdapter(t *testing.T) {
 
 func TestRegistryRefusesAnUnknownType(t *testing.T) {
 	reg := NewRegistry()
-	reg.Register(aiv1alpha1.ProviderTypeOllama, func(*http.Client) Adapter { return stubAdapter{} })
-	for _, unknown := range []aiv1alpha1.ProviderType{"vllm", "", "OLLAMA"} {
+	reg.Register(aiv1alpha1.ServerTypeOllama, func(*http.Client) Adapter { return stubAdapter{} })
+	for _, unknown := range []aiv1alpha1.ServerType{"vllm", "", "OLLAMA"} {
 		if _, err := reg.Adapter(unknown, nil); err == nil {
 			t.Errorf("type %q has no adapter and must fail", unknown)
 		}

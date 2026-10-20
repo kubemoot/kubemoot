@@ -685,7 +685,7 @@ public class DiscussionSubscriber {
     }
 
     /**
-     * Run the triage call; the result names the model and provider it ran on. Null,
+     * Run the triage call; the result names the model and server it ran on. Null,
      * after publishing the stand-aside, when the call could not be placed or failed.
      */
     // Visible for testing
@@ -694,7 +694,7 @@ public class DiscussionSubscriber {
         try {
             String triagePrompt = buildTriagePrompt(threadId);
             return chatService.triageChatWithTokens(triagePrompt, conversation);
-        } catch (ai.kubemoot.agent.provider.NoFitException nfe) {
+        } catch (ai.kubemoot.agent.modelserver.NoFitException nfe) {
             // The triage call could not be placed: the same capacity stand-aside as a
             // mulling call, with its reason, so the coordinator can name the cluster.
             handleNoFit(subject, threadId, nfe, 0L, triageStartMs, triageStartMs, triageGpuLabel);
@@ -710,7 +710,7 @@ public class DiscussionSubscriber {
     }
 
     /**
-     * A completed triage call: its reply, its timing, and where it ran (the provider
+     * A completed triage call: its reply, its timing, and where it ran (the server
      * label for gpuLabel and the model metadata from {@link ModelAttribution}).
      */
     record TriageOutcome(String text, SignalTiming timing, String gpuLabel, Map<String, Object> ranOn) {
@@ -795,7 +795,7 @@ public class DiscussionSubscriber {
                                       long triageMs, long triageStartMs, long mullingStartMs, String mullingGpuLabel) {
         if (failure instanceof ToolCallFailure tcf) {
             handleToolCallFailure(subject, threadId, tcf, triageMs, triageStartMs, mullingStartMs, mullingGpuLabel);
-        } else if (failure instanceof ai.kubemoot.agent.provider.NoFitException nfe) {
+        } else if (failure instanceof ai.kubemoot.agent.modelserver.NoFitException nfe) {
             handleNoFit(subject, threadId, nfe, triageMs, triageStartMs, mullingStartMs, mullingGpuLabel);
         } else {
             handleMullingException(subject, threadId, failure, triageMs, triageStartMs, mullingStartMs,
@@ -823,13 +823,13 @@ public class DiscussionSubscriber {
      * {@code metadata.reason} ({@code gpu-busy}: every GPU that could hold the
      * model stayed busy until the thread ended or the capacity wait reached its
      * safety limit; {@code model-too-large}: no GPU can ever hold it;
-     * {@code prompt-too-large}: the prompt exceeds every provider's context) and
+     * {@code prompt-too-large}: the prompt exceeds every server's context) and
      * {@code metadata.model}, so the coordinator and the dashboard can say the
      * cluster, not the crew design, kept this agent out. Distinct from a
      * triage-time stand-aside (nothing to add) and from a failure (something
      * broke during the call).
      */
-    private void handleNoFit(String subject, String threadId, ai.kubemoot.agent.provider.NoFitException nfe,
+    private void handleNoFit(String subject, String threadId, ai.kubemoot.agent.modelserver.NoFitException nfe,
                              long triageMs, long triageStartMs, long mullingStartMs, String mullingGpuLabel) {
         long mullingMs = System.currentTimeMillis() - mullingStartMs;
         long totalMs = triageMs + mullingMs;
@@ -840,18 +840,18 @@ public class DiscussionSubscriber {
     }
 
     // Visible for testing
-    static String noFitContent(ai.kubemoot.agent.provider.NoFitException nfe) {
-        if (ai.kubemoot.agent.provider.NoFitException.REASON_MODEL_TOO_LARGE.equals(nfe.reason())) {
+    static String noFitContent(ai.kubemoot.agent.modelserver.NoFitException nfe) {
+        if (ai.kubemoot.agent.modelserver.NoFitException.REASON_MODEL_TOO_LARGE.equals(nfe.reason())) {
             return "No GPU in this cluster can hold the model " + nfe.model();
         }
-        if (ai.kubemoot.agent.provider.NoFitException.REASON_PROMPT_TOO_LARGE.equals(nfe.reason())) {
+        if (ai.kubemoot.agent.modelserver.NoFitException.REASON_PROMPT_TOO_LARGE.equals(nfe.reason())) {
             return "The prompt is larger than the context window any GPU gives " + nfe.model();
         }
         return "Could not get a GPU: every GPU that can hold " + nfe.model() + " was busy";
     }
 
     // Visible for testing
-    static Map<String, Object> noFitMetadata(ai.kubemoot.agent.provider.NoFitException nfe) {
+    static Map<String, Object> noFitMetadata(ai.kubemoot.agent.modelserver.NoFitException nfe) {
         return Map.of("reason", nfe.reason(),
                 FIELD_MODEL, nfe.model(),
                 "predictorReason", nfe.predictorReason() == null ? "" : nfe.predictorReason());
@@ -871,7 +871,7 @@ public class DiscussionSubscriber {
      * with the thread, {@code waiting} is published when it starts, and
      * {@code evaluating} is published again when capacity arrives.
      */
-    final class ThreadCapacityWait implements ai.kubemoot.agent.provider.CapacityWait {
+    final class ThreadCapacityWait implements ai.kubemoot.agent.modelserver.CapacityWait {
         private final String subject;
         private final String threadId;
         private final String gpuLabel;
@@ -891,7 +891,7 @@ public class DiscussionSubscriber {
         public void onWaiting(String model) {
             publishSignal(subject, threadId, SIGNAL_WAITING, "Waiting for a GPU with room for " + model,
                     SignalTiming.of(0, System.currentTimeMillis()), gpuLabel,
-                    Map.of(FIELD_MODEL, model, "reason", ai.kubemoot.agent.provider.NoFitException.REASON_GPU_BUSY));
+                    Map.of(FIELD_MODEL, model, "reason", ai.kubemoot.agent.modelserver.NoFitException.REASON_GPU_BUSY));
         }
 
         @Override
@@ -933,25 +933,25 @@ public class DiscussionSubscriber {
     }
 
     /**
-     * Build metadata Map carrying the JIT-selected provider name when
-     * present, otherwise empty. Per-Call Provider Attribution (Card #4
-     * of [[Epic - JIT GPU Scheduling]]): surfaces which provider actually
+     * Build metadata Map carrying the JIT-selected server name when
+     * present, otherwise empty. Per-Call Server Attribution (Card #4
+     * of [[Epic - JIT GPU Scheduling]]): surfaces which server actually
      * served THIS inference call so the dashboard timeline can show real
      * per-call GPU usage instead of the static reconcile-time label.
      * Empty result skips the field entirely (omitempty-equivalent).
      */
     // Visible for testing
-    static Map<String, Object> providerAttribution(ChatService.ChatResult result) {
+    static Map<String, Object> serverAttribution(ChatService.ChatResult result) {
         var last = result == null ? null : result.lastModelUse();
-        if (last == null || last.provider().isEmpty()) {
+        if (last == null || last.server().isEmpty()) {
             return null;
         }
         // pickReason carries the predictor's reasoning (e.g. "warm, slot 1/2 |
         // SR=0.92 over 23 samples, EMA latency 4200ms") so the dashboard shows WHY
-        // the selector picked this provider; provider and model name where the
+        // the selector picked this server; server and model name where the
         // final call ran, the same place modelName and modelsUsed report.
         var meta = new HashMap<String, Object>();
-        meta.put("provider", last.provider());
+        meta.put("server", last.server());
         if (!last.model().isEmpty()) {
             meta.put(FIELD_MODEL, last.model());
         }
@@ -992,7 +992,7 @@ public class DiscussionSubscriber {
         } else if (exceptionClass.contains("OutOfMemory")) {
             failureType = "model_oom";
         } else if (message.contains("Connection refused") || message.contains("ConnectException")) {
-            failureType = "provider_unreachable";
+            failureType = "server_unreachable";
         } else {
             failureType = "internal_exception";
         }
@@ -1053,7 +1053,7 @@ public class DiscussionSubscriber {
     }
 
     private ChatService.ChatResult runMullingInference(String conversation, String threadId,
-                                                       ai.kubemoot.agent.provider.CapacityWait wait) {
+                                                       ai.kubemoot.agent.modelserver.CapacityWait wait) {
         // Pass threadId as discussionThreadId so the LLM sees the discussion
         // context in its system prompt — used by scheduler-advisor (and any
         // future MCP) to thread conversational continuity through tool calls.
@@ -1107,7 +1107,7 @@ public class DiscussionSubscriber {
         return MSG_REPLY.equals(msg.messageType) && "human".equals(msg.agentName) && !msg.content.isBlank();
     }
 
-    /** The provider the evaluation's last call ran on, or the fallback when no pick was made. */
+    /** The server the evaluation's last call ran on, or the fallback when no pick was made. */
     private static String jitGpuLabelOr(ChatService.ChatResult result, String fallback) {
         return result == null ? fallback : ModelAttribution.gpuLabel(result.modelsUsed(), fallback);
     }
@@ -1119,12 +1119,12 @@ public class DiscussionSubscriber {
 
     /**
      * The metadata of a finding (agree or concern): where its calls ran
-     * ({@link ModelAttribution}) and the scheduler's pick ({@link #providerAttribution}).
+     * ({@link ModelAttribution}) and the scheduler's pick ({@link #serverAttribution}).
      */
     // Visible for testing
     static Map<String, Object> findingMetadata(ChatService.ChatResult result) {
         var meta = new HashMap<String, Object>(ranOn(result));
-        var pick = providerAttribution(result);
+        var pick = serverAttribution(result);
         if (pick != null) {
             meta.putAll(pick);
         }
@@ -1152,12 +1152,12 @@ public class DiscussionSubscriber {
     void classifyAndPublishResult(String subject, String threadId, ChatService.ChatResult result,
                                   SignalTiming timing, String gpuLabel) {
         // The GPU badge should reflect WHERE this inference actually ran — the
-        // JIT-selected provider — not the agent's static reconcile-time
+        // JIT-selected server — not the agent's static reconcile-time
         // endpoint. Without this, an agent that JIT-picked the 5090 still shows
         // its static 4090 label (observed 2026-05-26, thread 0d310372:
         // obs-metrics ran on rig0/5090 but the dashboard showed 4090). Fall
         // back to the static label when no JIT pick was made (selector unwired
-        // / static fallback). See [[Per-Call Provider Attribution]].
+        // / static fallback). See [[Per-Call Server Attribution]].
         gpuLabel = jitGpuLabelOr(result, gpuLabel);
         var ranOn = ranOn(result);
 
@@ -1565,7 +1565,7 @@ public class DiscussionSubscriber {
      */
     // Visible for testing
     ChatService.ChatResult runMullingInferenceForTest(String conversation, String threadId) {
-        return runMullingInference(conversation, threadId, ai.kubemoot.agent.provider.CapacityWait.NONE);
+        return runMullingInference(conversation, threadId, ai.kubemoot.agent.modelserver.CapacityWait.NONE);
     }
 
     private record ThreadMessage(String agentName, String messageType, String content, Instant timestamp) {}

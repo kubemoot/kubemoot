@@ -336,7 +336,7 @@ public interface AgentProperties {
         String name();
 
         @WithDefault("ollama")
-        String provider();
+        String server();
 
         // The operator always injects the real model via KUBEMOOT_MODEL_MODEL
         // (agent_controller.go), so this default is never used in a deployed

@@ -136,12 +136,12 @@ rejects "models[0].servedName is required" -f "$example" --set 'models[0].served
 
 # ---- the notes print what to create in Kubemoot ------------------------------
 notes="$(helm install vg "$chart" --namespace vllm --dry-run=client -f "$example" | sed -n '/^NOTES:/,$p')"
-provider="$(awk '/^kind: ModelProvider/,/^---$/' <<<"$notes")"
-grep -q '^  name: vg-kubemoot-vllm$' <<<"$provider" || fail "notes: ModelProvider name"
-grep -q '^  type: vllm$' <<<"$provider" || fail "notes: ModelProvider type"
-grep -q '^  sleepLevel: 1$' <<<"$provider" || fail "notes: sleepLevel must match the release"
-grep -q '^    name: vg-kubemoot-vllm$' <<<"$provider" || fail "notes: serviceRef.name"
-grep -q '^    namespace: vllm$' <<<"$provider" || fail "notes: serviceRef.namespace"
+server="$(awk '/^kind: ModelServer/,/^---$/' <<<"$notes")"
+grep -q '^  name: vg-kubemoot-vllm$' <<<"$server" || fail "notes: ModelServer name"
+grep -q '^  type: vllm$' <<<"$server" || fail "notes: ModelServer type"
+grep -q '^  sleepLevel: 1$' <<<"$server" || fail "notes: sleepLevel must match the release"
+grep -q '^    name: vg-kubemoot-vllm$' <<<"$server" || fail "notes: serviceRef.name"
+grep -q '^    namespace: vllm$' <<<"$server" || fail "notes: serviceRef.namespace"
 ! grep -q '^kind: Model$' <<<"$notes" || fail "notes: a Model is not needed, the operator reads the Service"
 grep -qF 'qwen3:32b: 32B parameters, tool-calling, reasoning' <<<"$notes" || fail "notes: the declared models are listed"
 

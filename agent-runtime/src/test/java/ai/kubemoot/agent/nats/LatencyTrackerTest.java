@@ -20,7 +20,7 @@ import static org.mockito.Mockito.*;
  * - P90 calculation correctness and index boundary behaviour
  * - Cold start default when fewer than MIN_SAMPLES observations exist
  * - Sliding window eviction (oldest observation removed when window is full)
- * - Provider-keyed separation (different keys per agent+provider pair)
+ * - Server-keyed separation (different keys per agent+server pair)
  * - NATS KV unavailability — graceful no-op, fallback to default
  */
 class LatencyTrackerTest {
@@ -197,10 +197,10 @@ class LatencyTrackerTest {
         assertDoesNotThrow(() -> tracker.recordLatency("k8sgpt", "RTX 5090", 30_000L));
     }
 
-    // --- Provider-keyed separation ---
+    // --- Server-keyed separation ---
 
     @Test
-    void providerKeyedSeparation_differentProvidersGetDifferentKeys() throws Exception {
+    void serverKeyedSeparation_differentServersGetDifferentKeys() throws Exception {
         when(kv.get(anyString())).thenReturn(null);
 
         tracker.recordLatency("k8sgpt", "RTX 5090", 20_000L);

@@ -23,7 +23,7 @@ import (
 )
 
 const (
-	candProvider  = "ollama"
+	candServer    = "ollama"
 	candLow       = "low"
 	candHigh      = "high"
 	candMedium    = "medium"
@@ -43,7 +43,7 @@ const (
 func candModel(name, modelID string, ready bool, lbls map[string]string) kubemootv1alpha1.Model {
 	return kubemootv1alpha1.Model{
 		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "ns", Labels: lbls},
-		Spec:       kubemootv1alpha1.ModelSpec{Model: modelID, ProviderRef: candProvider},
+		Spec:       kubemootv1alpha1.ModelSpec{Model: modelID, ServerRef: candServer},
 		Status:     kubemootv1alpha1.ModelStatus{Ready: ready},
 	}
 }
@@ -149,10 +149,10 @@ func TestPickModel_PublishesRankedCandidates(t *testing.T) {
 	scheme := agentReconcileScheme(t)
 	high := candModel("big", candModel32, true, map[string]string{latencyClassLabel: candHigh})
 	medium := candModel("mid", candModel14, true, map[string]string{latencyClassLabel: candMedium})
-	prov := &kubemootv1alpha1.ModelProvider{
-		ObjectMeta: metav1.ObjectMeta{Name: candProvider, Namespace: "ns"},
-		Spec:       kubemootv1alpha1.ModelProviderSpec{Endpoint: testOllamaURL},
-		Status:     kubemootv1alpha1.ModelProviderStatus{Ready: true},
+	prov := &kubemootv1alpha1.ModelServer{
+		ObjectMeta: metav1.ObjectMeta{Name: candServer, Namespace: "ns"},
+		Spec:       kubemootv1alpha1.ModelServerSpec{Endpoint: testOllamaURL},
+		Status:     kubemootv1alpha1.ModelServerStatus{Ready: true},
 	}
 	policy := &kubemootv1alpha1.CrewSchedulingPolicy{
 		ObjectMeta: metav1.ObjectMeta{Name: "pol", Namespace: "ns"},

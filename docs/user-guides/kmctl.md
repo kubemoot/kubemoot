@@ -125,7 +125,7 @@ ending with a letter or digit, at most 36 characters. To give the crew a name pe
 add `--display-name "Demo Crew"`; it defaults to the Kubernetes name.
 
 On a TTY, `kmctl create` runs interactively: it asks for the display name, discovers
-available ollama providers, lets you select them with a checkbox, and prompts for a model family. Answer the
+available ollama servers, lets you select them with a checkbox, and prompts for a model family. Answer the
 prompts and it writes a `demo/` directory:
 
 ```
@@ -151,7 +151,7 @@ To skip interaction in CI or scripts, supply all inputs as flags:
 ```bash
 kmctl create demo \
   --members 2 \
-  --providers ollama-gpu \
+  --servers ollama-gpu \
   --model-family qwen \
   --no-input
 ```
@@ -312,7 +312,7 @@ kmctl --context staging info
 ```bash
 kmctl create my-crew \
   --members 3 \
-  --providers ollama-gpu,ollama-gpu-b \
+  --servers ollama-gpu,ollama-gpu-b \
   --model-family qwen \
   --no-input \
   -o /workspace/crews

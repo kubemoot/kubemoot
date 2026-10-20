@@ -12,7 +12,7 @@ CLI is only useful because the controller reconciles the resources they produce.
 ## What it includes
 
 - **The operator** (Go, controller-runtime) - reconciles the Kubemoot CRDs (`Crew`,
-  `Agent`, `Model`, `ModelProvider`, `MCPServer`, `MCPGateway`, `RAGSource`,
+  `Agent`, `Model`, `ModelServer`, `MCPServer`, `MCPGateway`, `RAGSource`,
   `PromptModule`, and the cluster-scoped `KubemootConfig`), and owns lifecycle:
   scheduling, finalizers, namespace and resource cleanup.
 - **The agent runtime** (Java/Quarkus + LangChain4j) - the process each agent runs as,

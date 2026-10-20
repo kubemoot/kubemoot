@@ -78,46 +78,46 @@ func TestApplyCatalogConditionsLeavesThemWhenModelsCannotBeListed(t *testing.T) 
 	}
 }
 
-// providerOf looks a catalog Model's provider up in the Model's own namespace, and a
+// serverOf looks a catalog Model's server up in the Model's own namespace, and a
 // crew's own Model through the usual search, including when the namespaces agree.
-func TestProviderOfResolvesCatalogAndCrewLocalModels(t *testing.T) {
+func TestServerOfResolvesCatalogAndCrewLocalModels(t *testing.T) {
 	scheme := agentReconcileScheme(t)
-	inOp := opProvider(selOllama, aiv1alpha1.ProviderTypeOllama)
-	inCrew := &aiv1alpha1.ModelProvider{ObjectMeta: metav1.ObjectMeta{Name: selCrewProvider, Namespace: selNS}}
+	inOp := opServer(selOllama, aiv1alpha1.ServerTypeOllama)
+	inCrew := &aiv1alpha1.ModelServer{ObjectMeta: metav1.ObjectMeta{Name: selCrewServer, Namespace: selNS}}
 	cli := fake.NewClientBuilder().WithScheme(scheme).WithObjects(inOp, inCrew).Build()
 	r := &AgentReconciler{Client: cli, Scheme: scheme}
 	ctx := context.Background()
 
 	catalogModel := catalogEntryModel(inOp, catEntryOf(selModel8, aiv1alpha1.SizeSmall))
-	if p, ok := r.providerOf(ctx, selNS, &catalogModel); !ok || p.Namespace != selOpNS {
-		t.Errorf("a catalog Model resolves in its provider's namespace: %v %v", p, ok)
+	if p, ok := r.serverOf(ctx, selNS, &catalogModel); !ok || p.Namespace != selOpNS {
+		t.Errorf("a catalog Model resolves in its server's namespace: %v %v", p, ok)
 	}
 	crewModel := candModel("m", candModel14, true, nil)
 	crewModel.Namespace = selNS
-	crewModel.Spec.ProviderRef = selCrewProvider
-	if p, ok := r.providerOf(ctx, selNS, &crewModel); !ok || p.Name != selCrewProvider {
+	crewModel.Spec.ServerRef = selCrewServer
+	if p, ok := r.serverOf(ctx, selNS, &crewModel); !ok || p.Name != selCrewServer {
 		t.Errorf("a crew's Model resolves through the usual search: %v %v", p, ok)
 	}
-	crewModel.Spec.ProviderRef = selOllama
-	if p, ok := r.providerOf(ctx, selNS, &crewModel); !ok || p.Namespace != selOpNS {
-		t.Errorf("a crew's Model may name an operator-namespace provider: %v %v", p, ok)
+	crewModel.Spec.ServerRef = selOllama
+	if p, ok := r.serverOf(ctx, selNS, &crewModel); !ok || p.Namespace != selOpNS {
+		t.Errorf("a crew's Model may name an operator-namespace server: %v %v", p, ok)
 	}
 	missing := catalogEntryModel(inOp, catEntryOf("x", ""))
-	missing.Spec.ProviderRef = rjAbsent
-	if _, ok := r.providerOf(ctx, selNS, &missing); ok {
-		t.Error("an absent provider must not resolve")
+	missing.Spec.ServerRef = rjAbsent
+	if _, ok := r.serverOf(ctx, selNS, &missing); ok {
+		t.Error("an absent server must not resolve")
 	}
 }
 
 // The operator's namespace comes from OPERATOR_NAMESPACE for the catalog and for the
-// provider search alike.
-func TestResolveProviderHonorsTheOperatorNamespace(t *testing.T) {
+// server search alike.
+func TestResolveServerHonorsTheOperatorNamespace(t *testing.T) {
 	t.Setenv("OPERATOR_NAMESPACE", "custom-op")
 	scheme := agentReconcileScheme(t)
-	p := opProvider(selOllama, aiv1alpha1.ProviderTypeOllama)
+	p := opServer(selOllama, aiv1alpha1.ServerTypeOllama)
 	p.Namespace = "custom-op"
 	r := &AgentReconciler{Client: fake.NewClientBuilder().WithScheme(scheme).WithObjects(p).Build(), Scheme: scheme}
-	if got, ok := r.resolveProvider(context.Background(), selNS, selOllama); !ok || got.Namespace != "custom-op" {
-		t.Errorf("provider = %v %v", got, ok)
+	if got, ok := r.resolveServer(context.Background(), selNS, selOllama); !ok || got.Namespace != "custom-op" {
+		t.Errorf("server = %v %v", got, ok)
 	}
 }

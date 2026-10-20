@@ -49,7 +49,7 @@ type CrewFitnessSuiteSpec struct {
 	// Concurrency is the max number of CrewFitness CRs the reconciler
 	// runs in parallel. Default 1 (strictly serial). Keep at 1 for
 	// baseline measurements — concurrent runs share the same crew and
-	// the same Ollama providers, so parallel iterations measure
+	// the same Ollama servers, so parallel iterations measure
 	// contention more than scenario behaviour.
 	// +optional
 	// +kubebuilder:default=1

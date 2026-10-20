@@ -3,7 +3,7 @@
 # It should be run by config/default
 resources:
 - bases/kubemoot.ai_agents.yaml
-- bases/kubemoot.ai_modelproviders.yaml
+- bases/kubemoot.ai_modelservers.yaml
 - bases/kubemoot.ai_models.yaml
 - bases/kubemoot.ai_embeddingmodels.yaml
 - bases/kubemoot.ai_mcpservers.yaml

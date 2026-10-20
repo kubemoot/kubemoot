@@ -43,7 +43,7 @@ func modelTestScheme(t *testing.T) *runtime.Scheme {
 	return s
 }
 
-// A transient provider probe failure (/api/tags returns 500) must NOT trigger a
+// A transient server probe failure (/api/tags returns 500) must NOT trigger a
 // model pull. A pull downloads gigabytes; spurious-pulling on a momentary blip is what left fresh crew
 // Models stuck and their agents Unschedulable. The reconcile must requeue and
 // leave an already-Ready model untouched.
@@ -64,16 +64,16 @@ func TestReconcileOllamaModel_ProbeErrorDoesNotPull(t *testing.T) {
 
 	model := &aiv1alpha1.Model{
 		ObjectMeta: metav1.ObjectMeta{Name: "qwen-8b", Namespace: testCrewNamespace},
-		Spec:       aiv1alpha1.ModelSpec{Model: testModelID, ProviderRef: testOllamaGPU},
+		Spec:       aiv1alpha1.ModelSpec{Model: testModelID, ServerRef: testOllamaGPU},
 		Status:     aiv1alpha1.ModelStatus{State: testConditionAvailable, Ready: true},
 	}
-	provider := &aiv1alpha1.ModelProvider{
+	server := &aiv1alpha1.ModelServer{
 		ObjectMeta: metav1.ObjectMeta{Name: testOllamaGPU, Namespace: testKubemoot},
-		Spec:       aiv1alpha1.ModelProviderSpec{Type: aiv1alpha1.ProviderTypeOllama, Endpoint: srv.URL},
+		Spec:       aiv1alpha1.ModelServerSpec{Type: aiv1alpha1.ServerTypeOllama, Endpoint: srv.URL},
 	}
 
 	r := &ModelReconciler{HTTPClient: srv.Client()}
-	res, err := r.reconcileOllamaModel(context.Background(), model, provider)
+	res, err := r.reconcileOllamaModel(context.Background(), model, server)
 	if err != nil {
 		t.Fatalf("reconcileOllamaModel returned error: %v", err)
 	}
@@ -88,7 +88,7 @@ func TestReconcileOllamaModel_ProbeErrorDoesNotPull(t *testing.T) {
 	}
 }
 
-// When the provider answers and the model is genuinely absent, the reconcile
+// When the server answers and the model is genuinely absent, the reconcile
 // pulls it. This is the legitimate counterpart to the probe-error case above.
 // A TLS server is used deliberately: the default transport would reject the
 // server's self-signed cert, so a passing pull assertion proves the pull
@@ -110,14 +110,14 @@ func TestReconcileOllamaModel_AbsentTriggersPull(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	model, provider := absentOllamaModel(srv.URL)
+	model, server := absentOllamaModel(srv.URL)
 	cl := fake.NewClientBuilder().
 		WithScheme(modelTestScheme(t)).
 		WithObjects(model).
 		WithStatusSubresource(model).
 		Build()
 	r := &ModelReconciler{Client: cl, HTTPClient: srv.Client()}
-	if _, err := r.reconcileOllamaModel(context.Background(), model, provider); err != nil {
+	if _, err := r.reconcileOllamaModel(context.Background(), model, server); err != nil {
 		t.Fatalf("reconcileOllamaModel returned error: %v", err)
 	}
 	eventually(t, "the background pull", func() bool { return atomic.LoadInt32(&pulls) == 1 })

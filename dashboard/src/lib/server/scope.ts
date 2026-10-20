@@ -17,7 +17,7 @@ import { parseChatSubject, parseDiscussSubject } from '#lib/crewScope.js';
 /**
  * namespaced: only namespaces matching the selector.
  * infra: those plus the operator namespace, for the shared infrastructure kinds
- * (model providers, models, embedding models, MCP catalogs and quality policies).
+ * (model servers, models, embedding models, MCP catalogs and quality policies).
  */
 export type ScopeKind = 'namespaced' | 'infra';
 
@@ -143,7 +143,7 @@ export async function guardKeyNamespace(
 
 /** The CRD plurals that are shared infrastructure and stay readable in the operator namespace. */
 export const INFRA_PLURALS: ReadonlySet<string> = new Set([
-	'modelproviders',
+	'modelservers',
 	'models',
 	'embeddingmodels',
 	'mcpcatalogs',

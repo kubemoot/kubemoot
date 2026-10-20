@@ -217,7 +217,7 @@ describe('scoped', () => {
 	});
 
 	it('scopeKindFor marks the infrastructure kinds', () => {
-		for (const p of ['modelproviders', 'models', 'embeddingmodels', 'mcpcatalogs', 'mcpqualitypolicies']) {
+		for (const p of ['modelservers', 'models', 'embeddingmodels', 'mcpcatalogs', 'mcpqualitypolicies']) {
 			expect(scopeKindFor(p)).toBe('infra');
 		}
 		for (const p of ['agents', 'crews', 'mcpservers', 'crewfitnesssuites', 'mcpserverreports']) {

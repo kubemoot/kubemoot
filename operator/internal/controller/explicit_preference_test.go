@@ -56,7 +56,7 @@ func candidateScores(t *testing.T, rule aiv1alpha1.SchedulingRule) map[string]in
 	policy := pilotPolicy()
 	policy.Spec.Rules = []aiv1alpha1.SchedulingRule{rule}
 	r, _ := catalogReconciler(t,
-		opProvider(selOllama, aiv1alpha1.ProviderTypeOllama,
+		opServer(selOllama, aiv1alpha1.ServerTypeOllama,
 			catEntryOf(selModel8, aiv1alpha1.SizeSmall, testToolCalling), catEntryOf(selModel30, aiv1alpha1.SizeLarge, testToolCalling, candReasoning)),
 		policy)
 	pick, err := r.pickModel(context.Background(), pilotAgent(candAgent, candReasoning), phaseMulling)

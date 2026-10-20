@@ -113,11 +113,11 @@ func refService1(ports ...int32) *corev1.Service {
 	return svc
 }
 
-func refProvider() *aiv1alpha1.ModelProvider {
-	return &aiv1alpha1.ModelProvider{
-		ObjectMeta: metav1.ObjectMeta{Name: vllmProviderName, Namespace: testNS1},
-		Spec: aiv1alpha1.ModelProviderSpec{
-			Type:       aiv1alpha1.ProviderTypeVLLM,
+func refServer() *aiv1alpha1.ModelServer {
+	return &aiv1alpha1.ModelServer{
+		ObjectMeta: metav1.ObjectMeta{Name: vllmServerName, Namespace: testNS1},
+		Spec: aiv1alpha1.ModelServerSpec{
+			Type:       aiv1alpha1.ServerTypeVLLM,
 			ServiceRef: &aiv1alpha1.VLLMServiceRef{Name: refService},
 		},
 	}
@@ -132,7 +132,7 @@ func TestDiscoverReadsEachPortsServedNameInPortOrder(t *testing.T) {
 	}
 	// The Service lists its ports out of order.
 	cli := fake.NewClientBuilder().WithScheme(refScheme(t)).WithObjects(refService1(8001, 8000)).Build()
-	servers, skipped, err := discoverVLLMServers(context.Background(), cli, roots.client(), refProvider())
+	servers, skipped, err := discoverVLLMServers(context.Background(), cli, roots.client(), refServer())
 	if err != nil || len(skipped) != 0 {
 		t.Fatalf("err %v skipped %v", err, skipped)
 	}
@@ -148,7 +148,7 @@ func TestDiscoverSkipsPortsThatDoNotAnswerOrRepeatAName(t *testing.T) {
 		8002: vllmServing(t, vllmModel14, "", false), // the same name again
 	}
 	cli := fake.NewClientBuilder().WithScheme(refScheme(t)).WithObjects(refService1(8000, 8001, 8002)).Build()
-	servers, skipped, err := discoverVLLMServers(context.Background(), cli, roots.client(), refProvider())
+	servers, skipped, err := discoverVLLMServers(context.Background(), cli, roots.client(), refServer())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -161,10 +161,10 @@ func TestDiscoverSkipsPortsThatDoNotAnswerOrRepeatAName(t *testing.T) {
 }
 
 // A server that restarts does not answer for a while; its Model must not read as a
-// misnamed one, so the provider keeps what it found at that port before.
+// misnamed one, so the server keeps what it found at that port before.
 func TestDiscoverKeepsTheServerOfAPortThatStopsAnswering(t *testing.T) {
 	roots := servedRoots{8000: vllmServing(t, vllmModel14, "", false)} // 8001 is down
-	p := refProvider()
+	p := refServer()
 	p.Status.VLLMServers = []aiv1alpha1.VLLMServer{
 		{Model: vllmModel14, Endpoint: refEndpointFor(8000)},
 		{Model: vllmModel8, Endpoint: refEndpointFor(8001)},
@@ -187,7 +187,7 @@ func TestDiscoverKeepsTheServerOfAPortThatStopsAnswering(t *testing.T) {
 }
 
 func TestDiscoverUsesTheNamespaceOfTheRef(t *testing.T) {
-	p := refProvider()
+	p := refServer()
 	p.Spec.ServiceRef.Namespace = modelsNamespace
 	svc := refService1(8000)
 	svc.Namespace = modelsNamespace
@@ -205,34 +205,34 @@ func TestDiscoverUsesTheNamespaceOfTheRef(t *testing.T) {
 
 func TestDiscoverFailsWhenTheServiceIsMissing(t *testing.T) {
 	cli := fake.NewClientBuilder().WithScheme(refScheme(t)).Build()
-	if _, _, err := discoverVLLMServers(context.Background(), cli, http.DefaultClient, refProvider()); err == nil {
+	if _, _, err := discoverVLLMServers(context.Background(), cli, http.DefaultClient, refServer()); err == nil {
 		t.Error("a missing Service must be an error")
 	}
 }
 
-// reconcileRef reconciles the serviceRef provider over a Service and fake servers.
-func reconcileRef(t *testing.T, roots servedRoots, ports ...int32) (*aiv1alpha1.ModelProvider, *ModelProviderReconciler) {
+// reconcileRef reconciles the serviceRef server over a Service and fake servers.
+func reconcileRef(t *testing.T, roots servedRoots, ports ...int32) (*aiv1alpha1.ModelServer, *ModelServerReconciler) {
 	t.Helper()
-	p := refProvider()
+	p := refServer()
 	objs := []client.Object{p}
 	if len(ports) > 0 {
 		objs = append(objs, refService1(ports...))
 	}
 	scheme := refScheme(t)
 	cli := fake.NewClientBuilder().WithScheme(scheme).WithObjects(objs...).WithStatusSubresource(p).Build()
-	r := &ModelProviderReconciler{Client: cli, Scheme: scheme, ConfigCache: NewConfigCache(), HTTPClient: roots.client()}
+	r := &ModelServerReconciler{Client: cli, Scheme: scheme, ConfigCache: NewConfigCache(), HTTPClient: roots.client()}
 	key := types.NamespacedName{Name: p.Name, Namespace: p.Namespace}
 	if _, err := r.Reconcile(context.Background(), ctrl.Request{NamespacedName: key}); err != nil {
 		t.Fatalf("reconcile: %v", err)
 	}
-	got := &aiv1alpha1.ModelProvider{}
+	got := &aiv1alpha1.ModelServer{}
 	if err := cli.Get(context.Background(), key, got); err != nil {
 		t.Fatal(err)
 	}
 	return got, r
 }
 
-func TestServiceRefProviderIsReadyAndPublishesTheDiscoveredEndpoints(t *testing.T) {
+func TestServiceRefServerIsReadyAndPublishesTheDiscoveredEndpoints(t *testing.T) {
 	roots := servedRoots{8000: vllmServing(t, vllmModel14, "", false), 8001: vllmServing(t, vllmModel8, "", true)}
 	p, r := reconcileRef(t, roots, 8000, 8001)
 
@@ -248,40 +248,40 @@ func TestServiceRefProviderIsReadyAndPublishesTheDiscoveredEndpoints(t *testing.
 	}
 }
 
-func TestServiceRefProviderIsPendingWhileNoPortReportsAModel(t *testing.T) {
+func TestServiceRefServerIsPendingWhileNoPortReportsAModel(t *testing.T) {
 	p, _ := reconcileRef(t, servedRoots{}, 8000)
 	if p.Status.Ready || p.Status.Phase != statePending || !strings.Contains(p.Status.Message, "reports a model yet") {
 		t.Errorf("status = ready %v %q %q", p.Status.Ready, p.Status.Phase, p.Status.Message)
 	}
 }
 
-func TestServiceRefProviderFailsWithoutItsService(t *testing.T) {
+func TestServiceRefServerFailsWithoutItsService(t *testing.T) {
 	p, _ := reconcileRef(t, servedRoots{})
 	if p.Status.Ready || p.Status.Phase != phaseFailed || !strings.Contains(p.Status.Message, "reading Service") {
 		t.Errorf("status = ready %v %q %q", p.Status.Ready, p.Status.Phase, p.Status.Message)
 	}
 }
 
-func TestServicesMapToTheProvidersThatNameThem(t *testing.T) {
-	other := refProvider()
+func TestServicesMapToTheServersThatNameThem(t *testing.T) {
+	other := refServer()
 	other.Name = testMismatchName
 	other.Spec.ServiceRef.Name = "another-service"
-	servers := vllmProvider(server(vllmModel14, vllmEndpoint14))
+	servers := vllmServer(server(vllmModel14, vllmEndpoint14))
 	servers.Name = "listed"
 	scheme := refScheme(t)
-	cli := fake.NewClientBuilder().WithScheme(scheme).WithObjects(refProvider(), other, servers).Build()
-	r := &ModelProviderReconciler{Client: cli, Scheme: scheme}
-	got := r.servicesToProviders(context.Background(), refService1(8000))
-	if len(got) != 1 || got[0].Name != vllmProviderName {
-		t.Errorf("requests = %v, want only the provider that names the Service", got)
+	cli := fake.NewClientBuilder().WithScheme(scheme).WithObjects(refServer(), other, servers).Build()
+	r := &ModelServerReconciler{Client: cli, Scheme: scheme}
+	got := r.servicesToServers(context.Background(), refService1(8000))
+	if len(got) != 1 || got[0].Name != vllmServerName {
+		t.Errorf("requests = %v, want only the server that names the Service", got)
 	}
 }
 
-// refModel is a Model on the serviceRef provider; repo "" leaves source out.
+// refModel is a Model on the serviceRef server; repo "" leaves source out.
 func refModel(served, repo string) *aiv1alpha1.Model {
 	m := &aiv1alpha1.Model{
 		ObjectMeta: metav1.ObjectMeta{Name: "m", Namespace: testNS1},
-		Spec:       aiv1alpha1.ModelSpec{ProviderRef: vllmProviderName, Model: served},
+		Spec:       aiv1alpha1.ModelSpec{ServerRef: vllmServerName, Model: served},
 	}
 	if repo != "" {
 		m.Spec.Source = &aiv1alpha1.ModelSource{HuggingFace: &aiv1alpha1.HuggingFaceSource{Repo: repo, Revision: vllmRevision}}
@@ -289,14 +289,14 @@ func refModel(served, repo string) *aiv1alpha1.Model {
 	return m
 }
 
-// reconcileRefModel reconciles model against a discovered provider.
+// reconcileRefModel reconciles model against a discovered server.
 func reconcileRefModel(t *testing.T, model *aiv1alpha1.Model, roots servedRoots, ports ...int32) *aiv1alpha1.Model {
 	t.Helper()
-	provider, _ := reconcileRef(t, roots, ports...)
+	server, _ := reconcileRef(t, roots, ports...)
 	scheme := refScheme(t)
 	cli := fake.NewClientBuilder().WithScheme(scheme).WithObjects(model).WithStatusSubresource(model).Build()
 	r := &ModelReconciler{Client: cli, Scheme: scheme, HTTPClient: roots.client()}
-	if _, err := r.reconcileVLLMModel(context.Background(), model, provider); err != nil {
+	if _, err := r.reconcileVLLMModel(context.Background(), model, server); err != nil {
 		t.Fatal(err)
 	}
 	return model
@@ -332,7 +332,7 @@ func TestModelWhoseNameNoServerReportsIsAnErrorNamingTheReportedNames(t *testing
 	}
 }
 
-func TestModelWaitsWhileTheProviderHasNoServers(t *testing.T) {
+func TestModelWaitsWhileTheServerHasNoServers(t *testing.T) {
 	m := reconcileRefModel(t, refModel(vllmModel14, ""), servedRoots{}, 8000)
 	if m.Status.State != statePending || condition(m, "ServedNameFound") != nil {
 		t.Errorf("state %q, want Pending with no verdict on the name yet", m.Status.State)
@@ -369,13 +369,13 @@ func TestSourceRepoIsComparedWithTheRepoTheServerReports(t *testing.T) {
 	}
 }
 
-func TestVLLMModelWithoutASourceFitsAVLLMProviderButAnOllamaSourceDoesNot(t *testing.T) {
-	if msg := sourceMismatch(refModel(vllmModel14, ""), aiv1alpha1.ProviderTypeVLLM); msg != "" {
+func TestVLLMModelWithoutASourceFitsAVLLMServerButAnOllamaSourceDoesNot(t *testing.T) {
+	if msg := sourceMismatch(refModel(vllmModel14, ""), aiv1alpha1.ServerTypeVLLM); msg != "" {
 		t.Errorf("no source on vllm = %q", msg)
 	}
 	m := refModel(vllmModel14, "")
 	m.Spec.Source = &aiv1alpha1.ModelSource{Ollama: &aiv1alpha1.OllamaSource{Tag: vllmModel14}}
-	if msg := sourceMismatch(m, aiv1alpha1.ProviderTypeVLLM); msg == "" {
+	if msg := sourceMismatch(m, aiv1alpha1.ServerTypeVLLM); msg == "" {
 		t.Error("an ollama source on vllm must still be a mismatch")
 	}
 }

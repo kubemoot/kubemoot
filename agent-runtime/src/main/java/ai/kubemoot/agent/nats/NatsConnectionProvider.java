@@ -13,7 +13,7 @@ import java.time.Duration;
 import java.time.Instant;
 
 /**
- * Shared NATS connection provider used by ChatEventPublisher, DiscussionSubscriber,
+ * Shared NATS connection server used by ChatEventPublisher, DiscussionSubscriber,
  * and DiscussionOrchestrator. Lazy connection with retry — no-op when NATS_URL is not set.
  */
 @ApplicationScoped
@@ -40,7 +40,7 @@ public class NatsConnectionProvider {
             // Fails startup when the namespace is unknown: an unscoped subject or key
             // would cross into every other namespace running the same crew name.
             this.scope = CrewScope.fromProperties(properties);
-            log.info("NATS connection provider initialized: {} (scope {})", natsUrl, scope);
+            log.info("NATS connection server initialized: {} (scope {})", natsUrl, scope);
         }
     }
 

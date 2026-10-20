@@ -2,8 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { withoutModelFilter } from './model-filter';
 
 describe('withoutModelFilter', () => {
-	it('drops the model and provider filters and keeps the base path', () => {
-		const url = new URL('https://homelab.example/dashboard/models?model=qwen3%3A8b&provider=gpu-a');
+	it('drops the model and server filters and keeps the base path', () => {
+		const url = new URL('https://homelab.example/dashboard/models?model=qwen3%3A8b&server=gpu-a');
 		expect(withoutModelFilter(url)).toBe('/dashboard/models');
 	});
 
@@ -23,7 +23,7 @@ describe('withoutModelFilter', () => {
 	});
 
 	it('accepts a read-only URL-like value that only offers href', () => {
-		const readonlyUrl = Object.freeze({ href: 'https://homelab.example/dashboard/models?provider=p' });
+		const readonlyUrl = Object.freeze({ href: 'https://homelab.example/dashboard/models?server=p' });
 		expect(withoutModelFilter(readonlyUrl)).toBe('/dashboard/models');
 	});
 });

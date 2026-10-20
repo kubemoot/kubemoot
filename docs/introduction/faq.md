@@ -17,7 +17,7 @@ agent through the [crew liaison](../../integrations/crew-liaison/), the frontier
 at the edge and the private crew on the domain work. We do not claim that a crew of
 small models out-reasons a frontier model; that is not what it is for. What a crew
 does give you is the choice of where the compute is spent: tokens billed by a
-provider, or watts on hardware you run.
+server, or watts on hardware you run.
 
 ## Why Kubernetes, and why an operator rather than a library?
 
@@ -76,7 +76,7 @@ result is a tie with prose on quality and a lead on speed, on a small sample. Se
 A crew deliberates, and consensus takes minutes on smaller systems with GPUs you can
 count on one hand; the [integrations](../../integrations/claude-code/) page shows a
 real three-minute answer. The time is spent in the models and the serving engine, both of which are
-replaceable behind the `ModelProvider` boundary ([Roadmap](../roadmap/)). The ticket
+replaceable behind the `ModelServer` boundary ([Roadmap](../roadmap/)). The ticket
 contract exists because crews take time, and the crew's answer carries its own
 caveats, which is worth the wait more often than a fast confident guess.
 
@@ -89,7 +89,7 @@ answers in tens of seconds rather than minutes. The two profiles are laid out in
 
 ## Can I use hosted model APIs instead of local models?
 
-Not yet. Ollama is the only supported provider type today; `openai` and `anthropic`
+Not yet. Ollama is the only supported server type today; `openai` and `anthropic`
 are not supported yet and the API server rejects them. Cloud and frontier models as crew members is on the
 [Roadmap](../roadmap/), with data handling and cost controls as its prerequisites.
 

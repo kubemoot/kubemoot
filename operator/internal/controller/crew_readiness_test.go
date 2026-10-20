@@ -21,8 +21,8 @@ func TestAssessCrew(t *testing.T) {
 	stuckCoord := agentIn(testRoleCoordinator, agentPhaseUnschedulable, "no feasible Model for mulling phase")
 	newCoord := agentIn(testRoleCoordinator, "", "")
 	tooler := agentIn(testK8sAgent, agentPhaseRunning, "")
-	stuckA := agentIn("obs", agentPhaseUnschedulable, "no ready provider")
-	stuckB := agentIn("gpu", agentPhaseUnschedulable, "no ready provider")
+	stuckA := agentIn("obs", agentPhaseUnschedulable, "no ready server")
+	stuckB := agentIn("gpu", agentPhaseUnschedulable, "no ready server")
 
 	cases := []struct {
 		name        string

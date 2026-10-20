@@ -18,7 +18,7 @@ To see a complete small crew before writing your own, scaffold the
 | `Crew` | The team - groups agents by the `kubemoot.ai/crew` label, enables the discussion gateway, configures working memory. |
 | `Agent` | Each participant: one coordinator, plus Toolers (and optionally Analysts). Declares capabilities, tools, RAG, and prompt refs. |
 | `PromptModule` | Each agent's behavior, written in [ADL](../write-agents-and-adl/) and composed by reference. |
-| `Model` / `ModelProvider` | The models (by capability label) and the GPU-backed endpoints that serve them. |
+| `Model` / `ModelServer` | The models (by capability label) and the GPU-backed endpoints that serve them. |
 | `MCPServer` / `MCPGateway` | The tools Toolers use, reached through the gateway. |
 | `RAGSource` | Knowledge sources, indexed and made queryable. |
 

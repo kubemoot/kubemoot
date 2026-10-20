@@ -23,7 +23,7 @@ import (
 )
 
 // lifecycleTimeout is a safety net longer than the operator's own limit for a wake;
-// the operator replies when the provider reports the state.
+// the operator replies when the server reports the state.
 const lifecycleTimeout = 31 * time.Minute
 
 // requester is the part of a NATS connection a lifecycle request uses.
@@ -39,17 +39,17 @@ type NATSLifecycle struct {
 	Agent string
 }
 
-// Ready asks the operator to make the model ready and returns when the provider reports it awake.
-func (l NATSLifecycle) Ready(ctx context.Context, provider, model string) error {
-	return l.ask(ctx, provider, model, bus.ModelLifecycleRequestActionReady)
+// Ready asks the operator to make the model ready and returns when the server reports it awake.
+func (l NATSLifecycle) Ready(ctx context.Context, server, model string) error {
+	return l.ask(ctx, server, model, bus.ModelLifecycleRequestActionReady)
 }
 
-// Release asks the operator to put the model to sleep and returns when the provider reports it so.
-func (l NATSLifecycle) Release(ctx context.Context, provider, model string) error {
-	return l.ask(ctx, provider, model, bus.ModelLifecycleRequestActionRelease)
+// Release asks the operator to put the model to sleep and returns when the server reports it so.
+func (l NATSLifecycle) Release(ctx context.Context, server, model string) error {
+	return l.ask(ctx, server, model, bus.ModelLifecycleRequestActionRelease)
 }
 
-func (l NATSLifecycle) ask(ctx context.Context, provider, model string, action bus.ModelLifecycleRequestAction) error {
+func (l NATSLifecycle) ask(ctx context.Context, server, model string, action bus.ModelLifecycleRequestAction) error {
 	if l.Conn == nil {
 		return errors.New("NATS is not connected")
 	}
@@ -59,7 +59,7 @@ func (l NATSLifecycle) ask(ctx context.Context, provider, model string, action b
 	}
 	ctx, cancel := context.WithTimeout(ctx, lifecycleTimeout)
 	defer cancel()
-	msg, err := l.Conn.RequestWithContext(ctx, bus.ModelLifecycleSubject(provider), body)
+	msg, err := l.Conn.RequestWithContext(ctx, bus.ModelLifecycleSubject(server), body)
 	if err != nil {
 		return fmt.Errorf("asking the operator to %s %s: %w", action, model, err)
 	}

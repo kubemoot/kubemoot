@@ -89,7 +89,7 @@ hosted API wearing a local-looking name. Read the tag before assuming a model ru
 your hardware.
 
 Routing to a hosted model is a legitimate choice, but it is not supported yet. Ollama is
-the only provider type today, and the API server rejects `openai` and `anthropic`. When
+the only server type today, and the API server rejects `openai` and `anthropic`. When
 hosted models are supported, make the choice deliberately, because it moves inference, and whatever your
 agents read from your cluster, off the premises. If staying local is the point of the
 deployment, the frontier tier is simply not available, and the real question becomes
@@ -100,7 +100,7 @@ genuinely competitive.
 ### The serving runtime is a separate choice
 
 The model and the thing that serves it are different decisions. Kubemoot talks to a
-`ModelProvider`, so the serving runtime is swappable and no crew depends on a particular
+`ModelServer`, so the serving runtime is swappable and no crew depends on a particular
 one. The runtime decides how many calls a card can work on at once, and a moot makes that
 number matter: it fans one question out to several agents, so overlapping calls are the
 normal case.
@@ -217,7 +217,7 @@ accelerator.
 
 To run vLLM on a GPU node, see
 [Run vLLM on a GPU node](../../operating/gpu-worker-nodes/#run-vllm-on-a-gpu-node). For
-which provider types a `ModelProvider` accepts today, see
+which server types a `ModelServer` accepts today, see
 [Models in Kubemoot](../../reference/models/).
 
 ## Match the model to the discussion role
@@ -251,14 +251,14 @@ committing a crew to them.
 
 Loose coupling means the adoption path touches neither agents nor crews:
 
-1. Make the model available on the provider, or list it under the provider in the operator's
-   `modelProviders` values and Kubemoot downloads it onto an Ollama provider.
-2. Check `status.models` on the ModelProvider: the model is in the catalog with a size class,
+1. Make the model available on the server, or list it under the server in the operator's
+   `modelServers` values and Kubemoot downloads it onto an Ollama server.
+2. Check `status.models` on the ModelServer: the model is in the catalog with a size class,
    its context window and its abilities, read from the server. For a vLLM model, declare
    `parameters` and `capabilities` in the `kubemoot-vllm` chart's values (the server cannot
    report them).
 3. If the engine got something wrong, or you want a label of your own, add a `Model` in the
-   operator's namespace that names the provider and sets `parameters`, `capabilities` or labels.
+   operator's namespace that names the server and sets `parameters`, `capabilities` or labels.
 
 ```yaml
 apiVersion: kubemoot.ai/v1alpha1
@@ -270,7 +270,7 @@ metadata:
     kubemoot.ai/license: apache-2.0
 spec:
   model: example-model:35b
-  providerRef: ollama-a
+  serverRef: ollama-a
   parameters: 35B
   capabilities: [tool-calling, reasoning]
   vramMib: 20480

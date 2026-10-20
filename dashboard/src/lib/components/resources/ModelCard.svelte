@@ -30,7 +30,7 @@
 	const statusLabel = $derived(model.status?.state || 'Unknown');
 
 	const deleteUrl = $derived(
-		`${resolve('/api/kubemoot/modelproviders/[name]/delete', { name: encodeURIComponent(model.spec.providerRef) })}?namespace=${encodeURIComponent(model.metadata.namespace ?? 'kubemoot')}`
+		`${resolve('/api/kubemoot/modelservers/[name]/delete', { name: encodeURIComponent(model.spec.serverRef) })}?namespace=${encodeURIComponent(model.metadata.namespace ?? 'kubemoot')}`
 	);
 
 	async function deleteFromDisk(event: Event) {
@@ -38,7 +38,7 @@
 		event.stopPropagation();
 		if (busy) return;
 		const ok = confirm(
-			`Delete model "${model.spec.model}" from disk on provider "${model.spec.providerRef}"?\n\nThis is destructive - re-pulling can take many minutes. Other Model CRs that reference the same underlying model will also be affected.`
+			`Delete model "${model.spec.model}" from disk on server "${model.spec.serverRef}"?\n\nThis is destructive - re-pulling can take many minutes. Other Model CRs that reference the same underlying model will also be affected.`
 		);
 		if (!ok) return;
 		busy = true;
@@ -77,8 +77,8 @@
 				<span class="value mono">{model.spec.model}</span>
 			</div>
 			<div class="row">
-				<span class="label">Provider</span>
-				<span class="value">{model.spec.providerRef}</span>
+				<span class="label">Server</span>
+				<span class="value">{model.spec.serverRef}</span>
 			</div>
 			{#if model.status?.modelInfo?.size}
 				<div class="row">
@@ -103,7 +103,7 @@
 			<button
 				class="action-btn delete"
 				type="button"
-				title="Delete from disk on the underlying provider (destructive - requires re-pull)"
+				title="Delete from disk on the underlying server (destructive - requires re-pull)"
 				disabled={busy}
 				onclick={deleteFromDisk}
 			>

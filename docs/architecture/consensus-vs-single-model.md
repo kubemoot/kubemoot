@@ -53,7 +53,7 @@ Kubemoot's Toolers and Analysts are genuinely peer-parallel: many small models r
 
 ### GPU multiplexing - application layer vs device layer
 
-"Many workloads, few GPUs" gets solved at different altitudes. Kubemoot solves it at the **application/scheduling** layer: just-in-time provider selection picks which model on which GPU at inference time, from live provider state. Device-level approaches (MIG partitions, MPS, time-slicing, GPU operators) solve it at the **hardware/driver** layer by slicing the silicon. These are complementary, not competing - Kubemoot's just-in-time scheduling can run on top of device-partitioned GPUs. The distinction matters because Kubemoot's horizontal design makes GPU multiplexing a first-class scheduling problem rather than an afterthought.
+"Many workloads, few GPUs" gets solved at different altitudes. Kubemoot solves it at the **application/scheduling** layer: just-in-time server selection picks which model on which GPU at inference time, from live server state. Device-level approaches (MIG partitions, MPS, time-slicing, GPU operators) solve it at the **hardware/driver** layer by slicing the silicon. These are complementary, not competing - Kubemoot's just-in-time scheduling can run on top of device-partitioned GPUs. The distinction matters because Kubemoot's horizontal design makes GPU multiplexing a first-class scheduling problem rather than an afterthought.
 
 ### Summary
 

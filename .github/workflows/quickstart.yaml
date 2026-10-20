@@ -137,7 +137,7 @@ jobs:
           mkdir -p diag
           kubectl describe nodes > diag/nodes.txt 2>&1 || true
           kubectl get all -A > diag/all.txt 2>&1 || true
-          kubectl get modelproviders,models,agents,crews,promptmodules -A -o yaml > diag/kubemoot-crs.yaml 2>&1 || true
+          kubectl get modelservers,models,agents,crews,promptmodules -A -o yaml > diag/kubemoot-crs.yaml 2>&1 || true
           kubectl get events -A --sort-by=.lastTimestamp > diag/events.txt 2>&1 || true
           kubectl logs -n kubemoot deployment/kubemoot-operator --tail=-1 > diag/operator.log 2>&1 || true
           kubectl logs -n hello -l kubemoot.ai/crew=hello --all-containers --tail=-1 --prefix > diag/crew.log 2>&1 || true

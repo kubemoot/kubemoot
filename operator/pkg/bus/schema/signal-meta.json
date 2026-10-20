@@ -8,7 +8,7 @@
     "modelsUsed": {
       "type": "array",
       "items": { "type": "string" },
-      "description": "Each distinct place the agent's model calls for the signal ran, as model@provider, in call order."
+      "description": "Each distinct place the agent's model calls for the signal ran, as model@server, in call order."
     },
     "inputTokens": { "type": "integer", "description": "Input tokens of the agent's model calls for the signal." },
     "outputTokens": { "type": "integer", "description": "Output tokens of the agent's model calls for the signal." },

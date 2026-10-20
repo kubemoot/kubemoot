@@ -21,7 +21,7 @@
       "preview": "[proxmox-list-nodes]\n{\n  \"status\": \"online\",\n  \"id\": \"node/rig2\",\n  \"type\": \"node\""
     },
     "modelName": "qwen3:14b",
-    "provider": "ollama-rig1",
+    "server": "ollama-rig1",
     "toolsUsed": [
       "proxmox-list-nodes",
       "proxmox-node-status",

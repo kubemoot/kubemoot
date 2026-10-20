@@ -17,16 +17,16 @@ import (
 )
 
 // PerformanceBucket is the NATS KV bucket holding SchedulerPerformance entries,
-// one per provider, model, and agent.
+// one per server, model, and agent.
 const PerformanceBucket = "kubemoot_scheduler_performance"
 
-// PerformanceKey is the key of one agent's entry for a model on a provider.
-func PerformanceKey(provider, model, agent string) string {
-	return KeyToken(provider) + "." + KeyToken(model) + "." + KeyToken(agent)
+// PerformanceKey is the key of one agent's entry for a model on a server.
+func PerformanceKey(server, model, agent string) string {
+	return KeyToken(server) + "." + KeyToken(model) + "." + KeyToken(agent)
 }
 
-// PerformanceKeyPrefix starts the key of every entry about the provider.
-func PerformanceKeyPrefix(provider string) string { return KeyToken(provider) + "." }
+// PerformanceKeyPrefix starts the key of every entry about the server.
+func PerformanceKeyPrefix(server string) string { return KeyToken(server) + "." }
 
 // KeyToken encodes a free-form name (a model such as qwen3:14b, an agent id) into a
 // NATS KV key token exactly as the agent runtime's ModelKeys.token does: letters,
@@ -53,14 +53,14 @@ func KeyToken(name string) string {
 }
 
 // ModelLifecycleSubjectPrefix starts the NATS subject an agent sends a
-// ModelLifecycleRequest to; the provider's token follows.
-const ModelLifecycleSubjectPrefix = "kubemoot.provider.model."
+// ModelLifecycleRequest to; the server's token follows.
+const ModelLifecycleSubjectPrefix = "kubemoot.server.model."
 
 // ModelLifecycleSubject is the subject of requests to make a model ready on, or
-// release it from, the provider. The token is escaped as KeyToken does, which the
-// agent runtime's ModelKeys.token matches, so a provider name with a dot stays one token.
-func ModelLifecycleSubject(provider string) string {
-	return ModelLifecycleSubjectPrefix + KeyToken(provider)
+// release it from, the server. The token is escaped as KeyToken does, which the
+// agent runtime's ModelKeys.token matches, so a server name with a dot stays one token.
+func ModelLifecycleSubject(server string) string {
+	return ModelLifecycleSubjectPrefix + KeyToken(server)
 }
 
 func isLetterOrDigit(u uint16) bool {

@@ -40,8 +40,8 @@
 				<span class="value mono">{model.spec.model}</span>
 			</div>
 			<div class="row">
-				<span class="label">Provider</span>
-				<span class="value">{model.spec.providerRef}</span>
+				<span class="label">Server</span>
+				<span class="value">{model.spec.serverRef}</span>
 			</div>
 			{#if model.status?.modelInfo?.dimensions || model.spec.dimensions}
 				<div class="row">

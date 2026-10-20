@@ -88,7 +88,7 @@ class DiscussionReceiptTest {
     }
 
     @Test
-    void placements_countAgentsPerModelAndProvider() throws Exception {
+    void placements_countAgentsPerModelAndServer() throws Exception {
         JsonNode places = fullThread().build(MAPPER, at(217_000), 2, 0, 0).path("placements");
         assertEquals(2, places.size());
         assertEquals("qwen3:14b@ollama-rig1", places.get(0).path("place").asText());

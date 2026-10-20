@@ -21,7 +21,7 @@ tool orchestration all live in one application's runtime and coordinate through 
 in-memory state. Kubemoot takes the opposite approach. Each agent is an independent
 Kubernetes pod, and agents never call each other directly - they coordinate entirely by
 publishing to NATS JetStream. The LLM library inside each agent pod does one narrow
-job: it wraps the HTTP call to the model provider and formats tool specifications for
+job: it wraps the HTTP call to the model server and formats tool specifications for
 the model. The phased protocol, the consensus signals, gap detection, and onboarding are
 Kubemoot's own code running over NATS, not framework machinery.
 
@@ -34,7 +34,7 @@ This distribution has consequences worth naming plainly:
 | Resource limits | One shared memory pool | Per-agent CPU/memory limits |
 | Deployment | Redeploy the whole process for any agent change | Update one agent's image or prompt independently |
 | State durability | In-memory, lost on crash | NATS JetStream retention; a discussion survives a coordinator restart |
-| Observability | Shared logs, hard to attribute | Per-agent logs and per-call provider attribution |
+| Observability | Shared logs, hard to attribute | Per-agent logs and per-call server attribution |
 
 The tradeoff is real: a message bus makes agents coordinate by explicit signal instead
 of shared context, which is more moving parts than one process reasoning over one
@@ -181,7 +181,7 @@ signal: gap detection would propose onboarding a new specialist when the real pr
 is a broken MCP server, the dashboard would show "agent declined" when the truth is
 "agent's tool broke," and quality metrics couldn't tell "no relevant expertise" from
 "the expertise exists but its tooling failed." A `failure` signal carries a cause
-(a tool timeout, a model error, a provider that couldn't be reached, and similar
+(a tool timeout, a model error, a server that couldn't be reached, and similar
 categories) so downstream consumers can branch on root cause instead of parsing
 free-form error text.
 
@@ -262,9 +262,9 @@ legitimately land after the `REVIEW` phase's own marker and before `SYNTHESIZING
 without being an ordering bug; a late agree that arrives after synthesis has begun is
 the one case that isn't incorporated, because the thread has moved on.
 
-Model selection for each individual inference call, including which GPU or provider
+Model selection for each individual inference call, including which GPU or server
 serves it, is decided separately at the moment the call is made - the mechanics and
-the reasoning live in [Scheduler](../scheduler/#jit-per-call-provider-selection).
+the reasoning live in [Scheduler](../scheduler/#jit-per-call-server-selection).
 
 ## Roles inside a discussion
 
@@ -332,6 +332,6 @@ surfaces render.
 - [Tooler-Analyst Architecture](../tooler-analyst-architecture/) - why the two roles
   are split and how the crew grows to fill a gap.
 - [Scheduler](../scheduler/) - how an individual inference call picks its model and
-  provider.
+  server.
 - [Onboarding Guide](../../operating/onboarding-guide/) - the operational detail behind
   capability-gap-driven onboarding.

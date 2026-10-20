@@ -75,7 +75,7 @@
 
 				{#if config.spec.defaults}
 					<Section title="Defaults">
-						<InfoRow label="Model Provider" value={config.spec.defaults.modelProvider} />
+						<InfoRow label="Model Server" value={config.spec.defaults.modelServer} />
 						<InfoRow label="Embedding Model" value={config.spec.defaults.embeddingModel} />
 						{#if config.spec.defaults.vectorStore}
 							<InfoRow label="Vector Store Type" value={config.spec.defaults.vectorStore.type} />

@@ -34,18 +34,18 @@ import (
 	aiv1alpha1 "github.com/kubemoot/kubemoot/operator/api/v1alpha1"
 )
 
-// absentOllamaModel is a Model with no status yet and its Ollama provider at endpoint.
-func absentOllamaModel(endpoint string) (*aiv1alpha1.Model, *aiv1alpha1.ModelProvider) {
+// absentOllamaModel is a Model with no status yet and its Ollama server at endpoint.
+func absentOllamaModel(endpoint string) (*aiv1alpha1.Model, *aiv1alpha1.ModelServer) {
 	model := &aiv1alpha1.Model{
 		ObjectMeta: metav1.ObjectMeta{Name: "qwen-8b", Namespace: testCrewNamespace},
-		Spec:       aiv1alpha1.ModelSpec{Model: testModelID, ProviderRef: testOllamaGPU},
+		Spec:       aiv1alpha1.ModelSpec{Model: testModelID, ServerRef: testOllamaGPU},
 	}
-	provider := &aiv1alpha1.ModelProvider{
+	server := &aiv1alpha1.ModelServer{
 		ObjectMeta: metav1.ObjectMeta{Name: testOllamaGPU, Namespace: testKubemoot},
-		Spec:       aiv1alpha1.ModelProviderSpec{Type: aiv1alpha1.ProviderTypeOllama, Endpoint: endpoint},
-		Status:     aiv1alpha1.ModelProviderStatus{Ready: true},
+		Spec:       aiv1alpha1.ModelServerSpec{Type: aiv1alpha1.ServerTypeOllama, Endpoint: endpoint},
+		Status:     aiv1alpha1.ModelServerStatus{Ready: true},
 	}
-	return model, provider
+	return model, server
 }
 
 const (
@@ -122,28 +122,28 @@ func eventually(t *testing.T, what string, cond func() bool) {
 }
 
 type pullHarness struct {
-	t        *testing.T
-	f        *fakeOllama
-	r        *ModelReconciler
-	model    *aiv1alpha1.Model
-	provider *aiv1alpha1.ModelProvider
+	t      *testing.T
+	f      *fakeOllama
+	r      *ModelReconciler
+	model  *aiv1alpha1.Model
+	server *aiv1alpha1.ModelServer
 }
 
 func newPullHarness(t *testing.T, f *fakeOllama, free int64) *pullHarness {
 	t.Helper()
-	model, provider := absentOllamaModel(f.srv.URL)
+	model, server := absentOllamaModel(f.srv.URL)
 	model.Finalizers = []string{modelFinalizer}
 	if free > 0 {
-		provider.Status.Storage = &aiv1alpha1.ProviderStorage{FreeBytes: free}
+		server.Status.Storage = &aiv1alpha1.ServerStorage{FreeBytes: free}
 	}
-	cl := fake.NewClientBuilder().WithScheme(modelTestScheme(t)).WithObjects(model, provider).WithStatusSubresource(model).Build()
-	return &pullHarness{t: t, f: f, model: model, provider: provider,
+	cl := fake.NewClientBuilder().WithScheme(modelTestScheme(t)).WithObjects(model, server).WithStatusSubresource(model).Build()
+	return &pullHarness{t: t, f: f, model: model, server: server,
 		r: &ModelReconciler{Client: cl, HTTPClient: f.srv.Client()}}
 }
 
 func (h *pullHarness) reconcile() time.Duration {
 	h.t.Helper()
-	res, err := h.r.reconcileOllamaModel(context.Background(), h.model, h.provider)
+	res, err := h.r.reconcileOllamaModel(context.Background(), h.model, h.server)
 	if err != nil {
 		h.t.Fatalf("reconcileOllamaModel: %v", err)
 	}
@@ -151,7 +151,7 @@ func (h *pullHarness) reconcile() time.Duration {
 }
 
 func (h *pullHarness) tracked() *pullState {
-	return h.r.tracker().get(pullKey(h.model.Spec.ProviderRef, h.model.Spec.Model))
+	return h.r.tracker().get(pullKey(h.model.Spec.ServerRef, h.model.Spec.Model))
 }
 
 func (h *pullHarness) waitFinished() {
@@ -363,7 +363,7 @@ func TestPull_NoSpaceRetriesOnlyWhenFreeDiskChanges(t *testing.T) {
 	if n := atomic.LoadInt32(&h.f.pulls); n != 1 {
 		t.Fatalf("pulls = %d while the free disk is unchanged, want 1", n)
 	}
-	h.provider.Status.Storage.FreeBytes = 5000
+	h.server.Status.Storage.FreeBytes = 5000
 	h.reconcile()
 	eventually(t, "the retry after the disk grew", func() bool { return atomic.LoadInt32(&h.f.pulls) == 2 })
 }
@@ -407,7 +407,7 @@ func TestPull_DeletionCancelsRunningPullAndReleases(t *testing.T) {
 
 	now := metav1.Now()
 	h.model.DeletionTimestamp = &now
-	if _, err := h.r.handleDeletion(context.Background(), h.model, h.provider); err != nil {
+	if _, err := h.r.handleDeletion(context.Background(), h.model, h.server); err != nil {
 		t.Fatalf("handleDeletion: %v", err)
 	}
 	eventually(t, "the in-flight pull to be cancelled", cancelled.Load)
@@ -439,7 +439,7 @@ func TestPull_DeletionKeepsPullSharedWithAnotherModel(t *testing.T) {
 
 	now := metav1.Now()
 	h.model.DeletionTimestamp = &now
-	if _, err := h.r.handleDeletion(context.Background(), h.model, h.provider); err != nil {
+	if _, err := h.r.handleDeletion(context.Background(), h.model, h.server); err != nil {
 		t.Fatalf("handleDeletion: %v", err)
 	}
 	if h.tracked() == nil || cancelled.Load() {
@@ -531,7 +531,7 @@ func TestPull_ChangingTheTagCancelsTheOldPull(t *testing.T) {
 	h.model.UID = "uid-1" // the fake client resets the UID on a status write
 	h.reconcile()
 	eventually(t, "the old pull to be cancelled", cancelled.Load)
-	if h.r.tracker().get(pullKey(h.model.Spec.ProviderRef, testModelID)) != nil {
+	if h.r.tracker().get(pullKey(h.model.Spec.ServerRef, testModelID)) != nil {
 		t.Error("the pull for the old tag must leave the tracker")
 	}
 }

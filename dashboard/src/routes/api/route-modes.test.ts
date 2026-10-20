@@ -35,9 +35,9 @@ const WRITE_ROUTES = [
 	['DELETE', './kubemoot/crew-memory/+server.ts'],
 	['POST', './discussions/pin/+server.ts'],
 	['DELETE', './discussions/pin/+server.ts'],
-	['POST', './kubemoot/modelproviders/[name]/load/+server.ts'],
-	['POST', './kubemoot/modelproviders/[name]/unload/+server.ts'],
-	['POST', './kubemoot/modelproviders/[name]/delete/+server.ts'],
+	['POST', './kubemoot/modelservers/[name]/load/+server.ts'],
+	['POST', './kubemoot/modelservers/[name]/unload/+server.ts'],
+	['POST', './kubemoot/modelservers/[name]/delete/+server.ts'],
 	['PATCH', './kubemoot/crewfitnesssuites/[namespace]/[name]/+server.ts'],
 	['DELETE', './kubemoot/crewfitnesssuites/[namespace]/[name]/+server.ts'],
 	['PATCH', './kubemoot/mcpserverreports/[name]/+server.ts']

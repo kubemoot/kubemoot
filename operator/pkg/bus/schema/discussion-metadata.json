@@ -19,7 +19,7 @@
     "modelsUsed": {
       "type": "array",
       "items": { "type": "string" },
-      "description": "Each distinct place the model calls behind an agent signal ran, as model@provider (the model alone when the call went to the agent's static endpoint), in call order. Sent with modelName when the calls ran."
+      "description": "Each distinct place the model calls behind an agent signal ran, as model@server (the model alone when the call went to the agent's static endpoint), in call order. Sent with modelName when the calls ran."
     },
     "model": {
       "type": "string",
@@ -27,15 +27,15 @@
     },
     "gpuLabel": {
       "type": "string",
-      "description": "The accelerator the sender ran on, such as a ModelProvider name; none when it ran on none."
+      "description": "The accelerator the sender ran on, such as a ModelServer name; none when it ran on none."
     },
-    "provider": {
+    "server": {
       "type": "string",
-      "description": "The ModelProvider that served an agent's call, chosen when the call was made."
+      "description": "The ModelServer that served an agent's call, chosen when the call was made."
     },
     "pickReason": {
       "type": "string",
-      "description": "Why the scheduler picked the provider, as text."
+      "description": "Why the scheduler picked the server, as text."
     },
     "evicted": {
       "type": "array",
@@ -92,7 +92,7 @@
     },
     "failureType": {
       "type": "string",
-      "description": "The kind of failure on a failure signal, such as same_tool_repeated, too_many_tool_failures, iterations_exhausted, loop_time_exceeded, model_timeout, model_oom, provider_unreachable, internal_exception or evaluation_timeout."
+      "description": "The kind of failure on a failure signal, such as same_tool_repeated, too_many_tool_failures, iterations_exhausted, loop_time_exceeded, model_timeout, model_oom, server_unreachable, internal_exception or evaluation_timeout."
     },
     "failedTool": {
       "type": "string",
@@ -307,7 +307,7 @@
         },
         "placements": {
           "type": "array",
-          "description": "How many agents' calls ran at each model@provider.",
+          "description": "How many agents' calls ran at each model@server.",
           "items": { "$ref": "#/definitions/ReceiptPlacement" }
         }
       },
@@ -326,7 +326,7 @@
           "description": "Its last terminal signal in the round; contribution counts as agree and decline as stand_aside."
         },
         "atMs": { "type": "integer", "description": "From the thread's start to that signal." },
-        "models": { "type": "array", "items": { "type": "string" }, "description": "Where its calls ran, as model@provider, from the signal's modelsUsed." },
+        "models": { "type": "array", "items": { "type": "string" }, "description": "Where its calls ran, as model@server, from the signal's modelsUsed." },
         "inputTokens": { "type": "integer", "description": "Input tokens of its calls over the round; 0 when not reported." },
         "outputTokens": { "type": "integer", "description": "Output tokens of its calls; 0 when not reported." },
         "inferenceMs": { "type": "integer", "description": "Time in model calls; 0 when not reported." },
@@ -338,10 +338,10 @@
     "ReceiptPlacement": {
       "title": "ReceiptPlacement",
       "type": "object",
-      "description": "A model@provider and how many agents' calls ran there.",
+      "description": "A model@server and how many agents' calls ran there.",
       "required": ["place", "agents"],
       "properties": {
-        "place": { "type": "string", "description": "model@provider, or the model alone for a static endpoint." },
+        "place": { "type": "string", "description": "model@server, or the model alone for a static endpoint." },
         "agents": { "type": "integer", "description": "Agents with at least one call there." }
       },
       "additionalProperties": false

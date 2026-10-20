@@ -46,25 +46,25 @@ func TestAgentReconciler_ImagePullSecrets(t *testing.T) {
 	}
 }
 
-func TestProviderScore(t *testing.T) {
-	withWeight := func(w int) *kubemootv1alpha1.ModelProvider {
-		return &kubemootv1alpha1.ModelProvider{
-			Spec: kubemootv1alpha1.ModelProviderSpec{
-				Scheduling: &kubemootv1alpha1.ProviderScheduling{Weight: w},
+func TestServerScore(t *testing.T) {
+	withWeight := func(w int) *kubemootv1alpha1.ModelServer {
+		return &kubemootv1alpha1.ModelServer{
+			Spec: kubemootv1alpha1.ModelServerSpec{
+				Scheduling: &kubemootv1alpha1.ServerScheduling{Weight: w},
 			},
 		}
 	}
-	noScheduling := &kubemootv1alpha1.ModelProvider{
-		Spec: kubemootv1alpha1.ModelProviderSpec{},
+	noScheduling := &kubemootv1alpha1.ModelServer{
+		Spec: kubemootv1alpha1.ModelServerSpec{},
 	}
 
 	tests := []struct {
-		name     string
-		phase    string
-		provider *kubemootv1alpha1.ModelProvider
-		want     int64
+		name   string
+		phase  string
+		server *kubemootv1alpha1.ModelServer
+		want   int64
 	}{
-		{"nil provider returns 0", phaseMulling, nil, 0},
+		{"nil server returns 0", phaseMulling, nil, 0},
 		{"no scheduling block returns 0", phaseMulling, noScheduling, 0},
 		{"mulling adds heavy-rig weight", phaseMulling, withWeight(100), 100},
 		{"mulling adds light-rig weight", phaseMulling, withWeight(25), 25},
@@ -75,9 +75,9 @@ func TestProviderScore(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			got := providerScore(tc.phase, tc.provider)
+			got := serverScore(tc.phase, tc.server)
 			if got != tc.want {
-				t.Errorf("providerScore(%q, %+v) = %d; want %d", tc.phase, tc.provider, got, tc.want)
+				t.Errorf("serverScore(%q, %+v) = %d; want %d", tc.phase, tc.server, got, tc.want)
 			}
 		})
 	}
@@ -192,52 +192,52 @@ func assertCrewGateway(t *testing.T, got crewGatewayResult, want crewGatewayWant
 	}
 }
 
-// TestProviderScoreFlipsTiebreaker pins the homelab production scenario:
+// TestServerScoreFlipsTiebreaker pins the homelab production scenario:
 // rig0 (weight=100) and rig1 (weight=25) carry identically-labeled Models,
-// so the prefer-rule scores tie. Provider weight must break the tie so
+// so the prefer-rule scores tie. Server weight must break the tie so
 // mulling picks the heavy rig and triage picks the light rig.
-func TestProviderScoreFlipsTiebreaker(t *testing.T) {
-	rig0 := &kubemootv1alpha1.ModelProvider{
-		Spec: kubemootv1alpha1.ModelProviderSpec{
-			Scheduling: &kubemootv1alpha1.ProviderScheduling{Weight: 100},
+func TestServerScoreFlipsTiebreaker(t *testing.T) {
+	rig0 := &kubemootv1alpha1.ModelServer{
+		Spec: kubemootv1alpha1.ModelServerSpec{
+			Scheduling: &kubemootv1alpha1.ServerScheduling{Weight: 100},
 		},
 	}
-	rig1 := &kubemootv1alpha1.ModelProvider{
-		Spec: kubemootv1alpha1.ModelProviderSpec{
-			Scheduling: &kubemootv1alpha1.ProviderScheduling{Weight: 25},
+	rig1 := &kubemootv1alpha1.ModelServer{
+		Spec: kubemootv1alpha1.ModelServerSpec{
+			Scheduling: &kubemootv1alpha1.ServerScheduling{Weight: 25},
 		},
 	}
 
 	// Mulling: 32B-on-each scores prefer+100 from labels (qwen3, 32B).
 	const preferMulling32B int64 = 100
-	if providerScore(phaseMulling, rig0)+preferMulling32B <= providerScore(phaseMulling, rig1)+preferMulling32B {
-		t.Error("mulling: rig0 should outscore rig1 after provider weight is applied")
+	if serverScore(phaseMulling, rig0)+preferMulling32B <= serverScore(phaseMulling, rig1)+preferMulling32B {
+		t.Error("mulling: rig0 should outscore rig1 after server weight is applied")
 	}
 
 	// Triage: 8B-on-each scores prefer+160 from labels (latencyClass=low + params=8B).
 	const preferTriage8B int64 = 160
-	if providerScore(phaseTriage, rig1)+preferTriage8B <= providerScore(phaseTriage, rig0)+preferTriage8B {
-		t.Error("triage: rig1 should outscore rig0 after provider weight is applied (inverted)")
+	if serverScore(phaseTriage, rig1)+preferTriage8B <= serverScore(phaseTriage, rig0)+preferTriage8B {
+		t.Error("triage: rig1 should outscore rig0 after server weight is applied (inverted)")
 	}
 }
 
-// TestModelFitsProvider pins the VRAM feasibility gate extracted from
-// evaluateCandidate: a Model fits when its declared VRAM is <= the provider's
+// TestModelFitsServer pins the VRAM feasibility gate extracted from
+// evaluateCandidate: a Model fits when its declared VRAM is <= the server's
 // total, and unknown VRAM (0 on either side) is treated as a fit.
-func TestModelFitsProvider(t *testing.T) {
+func TestModelFitsServer(t *testing.T) {
 	mk := func(modelVRAM int32, provVRAM int64) bool {
 		m := &kubemootv1alpha1.Model{Spec: kubemootv1alpha1.ModelSpec{VRAMMib: modelVRAM}}
-		prov := &kubemootv1alpha1.ModelProvider{}
+		prov := &kubemootv1alpha1.ModelServer{}
 		if provVRAM > 0 {
 			prov.Status.Capacity = &kubemootv1alpha1.DiscoveredCapacity{VRAMTotalMiB: provVRAM}
 		}
-		return modelFitsProvider(m, prov)
+		return modelFitsServer(m, prov)
 	}
 	if !mk(8000, 24000) {
-		t.Error("8000 MiB model should fit a 24000 MiB provider")
+		t.Error("8000 MiB model should fit a 24000 MiB server")
 	}
 	if mk(32000, 24000) {
-		t.Error("32000 MiB model should NOT fit a 24000 MiB provider")
+		t.Error("32000 MiB model should NOT fit a 24000 MiB server")
 	}
 	if !mk(24000, 24000) {
 		t.Error("exact fit (24000 == 24000) should be allowed")
@@ -246,7 +246,7 @@ func TestModelFitsProvider(t *testing.T) {
 		t.Error("unknown model VRAM (0) should be treated as a fit")
 	}
 	if !mk(32000, 0) {
-		t.Error("unknown provider VRAM (0) should be treated as a fit")
+		t.Error("unknown server VRAM (0) should be treated as a fit")
 	}
 }
 

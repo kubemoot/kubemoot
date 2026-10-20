@@ -32,14 +32,14 @@ import (
 )
 
 const (
-	delTestProvider = "gpu-ollama"
-	delTestTag      = "qwen3:8b"
+	delTestServer = "gpu-ollama"
+	delTestTag    = "qwen3:8b"
 )
 
-func deletionModel(name, ns, providerRef, tag string, deleting bool) *aiv1alpha1.Model {
+func deletionModel(name, ns, serverRef, tag string, deleting bool) *aiv1alpha1.Model {
 	m := &aiv1alpha1.Model{
 		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: ns, UID: types.UID(ns + "-" + name)},
-		Spec:       aiv1alpha1.ModelSpec{ProviderRef: providerRef, Model: tag},
+		Spec:       aiv1alpha1.ModelSpec{ServerRef: serverRef, Model: tag},
 	}
 	if deleting {
 		now := metav1.Now()
@@ -49,16 +49,16 @@ func deletionModel(name, ns, providerRef, tag string, deleting bool) *aiv1alpha1
 	return m
 }
 
-func deletionProvider(endpoint string) *aiv1alpha1.ModelProvider {
-	return &aiv1alpha1.ModelProvider{
-		ObjectMeta: metav1.ObjectMeta{Name: delTestProvider, Namespace: "kubemoot-system"},
-		Spec:       aiv1alpha1.ModelProviderSpec{Type: aiv1alpha1.ProviderTypeOllama, Endpoint: endpoint},
-		Status:     aiv1alpha1.ModelProviderStatus{Ready: true},
+func deletionServer(endpoint string) *aiv1alpha1.ModelServer {
+	return &aiv1alpha1.ModelServer{
+		ObjectMeta: metav1.ObjectMeta{Name: delTestServer, Namespace: "kubemoot-system"},
+		Spec:       aiv1alpha1.ModelServerSpec{Type: aiv1alpha1.ServerTypeOllama, Endpoint: endpoint},
+		Status:     aiv1alpha1.ModelServerStatus{Ready: true},
 	}
 }
 
-// notReady is the provider with its Ollama scaled to zero: the operator has marked it not Ready.
-func notReady(p *aiv1alpha1.ModelProvider) *aiv1alpha1.ModelProvider {
+// notReady is the server with its Ollama scaled to zero: the operator has marked it not Ready.
+func notReady(p *aiv1alpha1.ModelServer) *aiv1alpha1.ModelServer {
 	p.Status.Ready = false
 	p.Status.Phase = phaseFailed
 	return p
@@ -74,12 +74,12 @@ func deleteServer(status int, calls *int32) *httptest.Server {
 	}))
 }
 
-func runDeletion(t *testing.T, srv *httptest.Server, provider *aiv1alpha1.ModelProvider, deleting *aiv1alpha1.Model, others ...client.Object) (*ModelReconciler, error) {
+func runDeletion(t *testing.T, srv *httptest.Server, server *aiv1alpha1.ModelServer, deleting *aiv1alpha1.Model, others ...client.Object) (*ModelReconciler, error) {
 	t.Helper()
 	objs := append([]client.Object{deleting}, others...)
 	cl := fake.NewClientBuilder().WithScheme(modelTestScheme(t)).WithObjects(objs...).Build()
 	r := &ModelReconciler{Client: cl, HTTPClient: srv.Client()}
-	_, err := r.handleDeletion(context.Background(), deleting, provider)
+	_, err := r.handleDeletion(context.Background(), deleting, server)
 	return r, err
 }
 
@@ -94,9 +94,9 @@ func TestHandleDeletion_SharedTagKept(t *testing.T) {
 	var calls int32
 	srv := deleteServer(http.StatusOK, &calls)
 	defer srv.Close()
-	m := deletionModel("a", "team-a", delTestProvider, delTestTag, true)
-	other := deletionModel("b", "team-b", delTestProvider, delTestTag, false)
-	r, err := runDeletion(t, srv, deletionProvider(srv.URL), m, other)
+	m := deletionModel("a", "team-a", delTestServer, delTestTag, true)
+	other := deletionModel("b", "team-b", delTestServer, delTestTag, false)
+	r, err := runDeletion(t, srv, deletionServer(srv.URL), m, other)
 	if err != nil {
 		t.Fatalf("handleDeletion: %v", err)
 	}
@@ -112,11 +112,11 @@ func TestHandleDeletion_SoleTagDeleted(t *testing.T) {
 	var calls int32
 	srv := deleteServer(http.StatusOK, &calls)
 	defer srv.Close()
-	m := deletionModel("a", "team-a", delTestProvider, delTestTag, true)
-	otherTag := deletionModel("b", "team-b", delTestProvider, "other:1b", false)
-	otherProvider := deletionModel("c", "team-c", "second-provider", delTestTag, false)
-	alsoDeleting := deletionModel("d", "team-d", delTestProvider, delTestTag, true)
-	r, err := runDeletion(t, srv, deletionProvider(srv.URL), m, otherTag, otherProvider, alsoDeleting)
+	m := deletionModel("a", "team-a", delTestServer, delTestTag, true)
+	otherTag := deletionModel("b", "team-b", delTestServer, "other:1b", false)
+	otherServer := deletionModel("c", "team-c", "second-server", delTestTag, false)
+	alsoDeleting := deletionModel("d", "team-d", delTestServer, delTestTag, true)
+	r, err := runDeletion(t, srv, deletionServer(srv.URL), m, otherTag, otherServer, alsoDeleting)
 	if err != nil {
 		t.Fatalf("handleDeletion: %v", err)
 	}
@@ -132,8 +132,8 @@ func TestHandleDeletion_DeleteErrorRetried(t *testing.T) {
 	var calls int32
 	srv := deleteServer(http.StatusInternalServerError, &calls)
 	defer srv.Close()
-	m := deletionModel("a", "team-a", delTestProvider, delTestTag, true)
-	r, err := runDeletion(t, srv, deletionProvider(srv.URL), m)
+	m := deletionModel("a", "team-a", delTestServer, delTestTag, true)
+	r, err := runDeletion(t, srv, deletionServer(srv.URL), m)
 	if err == nil {
 		t.Fatal("a failed model-server delete must be returned so the deletion retries")
 	}
@@ -146,86 +146,86 @@ func TestHandleDeletion_NotFoundOnServerIsDone(t *testing.T) {
 	var calls int32
 	srv := deleteServer(http.StatusNotFound, &calls)
 	defer srv.Close()
-	m := deletionModel("a", "team-a", delTestProvider, delTestTag, true)
-	r, err := runDeletion(t, srv, deletionProvider(srv.URL), m)
+	m := deletionModel("a", "team-a", delTestServer, delTestTag, true)
+	r, err := runDeletion(t, srv, deletionServer(srv.URL), m)
 	if err != nil || !finalizerGone(t, r, m) {
 		t.Errorf("a model the server no longer has should release the finalizer; err=%v", err)
 	}
 }
 
-func TestHandleDeletion_ProviderGone(t *testing.T) {
+func TestHandleDeletion_ServerGone(t *testing.T) {
 	var calls int32
 	srv := deleteServer(http.StatusOK, &calls)
 	defer srv.Close()
-	m := deletionModel("a", "team-a", delTestProvider, delTestTag, true)
+	m := deletionModel("a", "team-a", delTestServer, delTestTag, true)
 	r, err := runDeletion(t, srv, nil, m)
 	if err != nil {
 		t.Fatalf("handleDeletion: %v", err)
 	}
 	if calls != 0 {
-		t.Errorf("no provider means no delete call; got %d", calls)
+		t.Errorf("no server means no delete call; got %d", calls)
 	}
 	if !finalizerGone(t, r, m) {
-		t.Error("finalizer should be released when the provider is gone")
+		t.Error("finalizer should be released when the server is gone")
 	}
 }
 
-func TestReconcile_DeletingModelWithMissingProviderReleased(t *testing.T) {
-	m := deletionModel("a", "team-a", delTestProvider, delTestTag, true)
+func TestReconcile_DeletingModelWithMissingServerReleased(t *testing.T) {
+	m := deletionModel("a", "team-a", delTestServer, delTestTag, true)
 	cl := fake.NewClientBuilder().WithScheme(modelTestScheme(t)).WithObjects(m).Build()
 	r := &ModelReconciler{Client: cl}
 	if _, err := r.Reconcile(context.Background(), reconcileRequest(m)); err != nil {
 		t.Fatalf("Reconcile: %v", err)
 	}
 	if !finalizerGone(t, r, m) {
-		t.Error("a deleting Model whose provider no longer exists must release its finalizer")
+		t.Error("a deleting Model whose server no longer exists must release its finalizer")
 	}
 }
 
-// A provider that is not Ready cannot be asked: the finalizer is released without a
+// A server that is not Ready cannot be asked: the finalizer is released without a
 // delete call, however the server would answer.
-func TestHandleDeletion_ProviderNotReadyReleasesWithoutAskingIt(t *testing.T) {
+func TestHandleDeletion_ServerNotReadyReleasesWithoutAskingIt(t *testing.T) {
 	var calls int32
 	srv := deleteServer(http.StatusInternalServerError, &calls)
 	defer srv.Close()
-	m := deletionModel("a", "team-a", delTestProvider, delTestTag, true)
-	r, err := runDeletion(t, srv, notReady(deletionProvider(srv.URL)), m)
+	m := deletionModel("a", "team-a", delTestServer, delTestTag, true)
+	r, err := runDeletion(t, srv, notReady(deletionServer(srv.URL)), m)
 	if err != nil {
-		t.Fatalf("a provider that is not Ready must not hold the finalizer: %v", err)
+		t.Fatalf("a server that is not Ready must not hold the finalizer: %v", err)
 	}
 	if calls != 0 {
-		t.Errorf("a provider that is not Ready is not asked; got %d delete calls", calls)
+		t.Errorf("a server that is not Ready is not asked; got %d delete calls", calls)
 	}
 	if !finalizerGone(t, r, m) {
 		t.Error("finalizer should be released")
 	}
 }
 
-// A Ready provider is still cleaned up (a failing delete retrying is TestHandleDeletion_DeleteErrorRetried).
-func TestHandleDeletion_ReadyProviderStillCleansUp(t *testing.T) {
+// A Ready server is still cleaned up (a failing delete retrying is TestHandleDeletion_DeleteErrorRetried).
+func TestHandleDeletion_ReadyServerStillCleansUp(t *testing.T) {
 	var calls int32
 	srv := deleteServer(http.StatusOK, &calls)
 	defer srv.Close()
-	m := deletionModel("a", "team-a", delTestProvider, delTestTag, true)
-	r, err := runDeletion(t, srv, deletionProvider(srv.URL), m)
+	m := deletionModel("a", "team-a", delTestServer, delTestTag, true)
+	r, err := runDeletion(t, srv, deletionServer(srv.URL), m)
 	if err != nil || calls != 1 || !finalizerGone(t, r, m) {
-		t.Errorf("a Ready provider is asked once and the finalizer released: err=%v calls=%d", err, calls)
+		t.Errorf("a Ready server is asked once and the finalizer released: err=%v calls=%d", err, calls)
 	}
 }
 
-// The reconciler path: a deleting Model whose provider exists but is not Ready, with
+// The reconciler path: a deleting Model whose server exists but is not Ready, with
 // an unreachable server, completes in one reconcile.
-func TestReconcile_DeletingModelWithProviderNotReadyReleased(t *testing.T) {
-	m := deletionModel("a", "team-a", delTestProvider, delTestTag, true)
+func TestReconcile_DeletingModelWithServerNotReadyReleased(t *testing.T) {
+	m := deletionModel("a", "team-a", delTestServer, delTestTag, true)
 	m.Status.Conditions = []metav1.Condition{{Type: conditionTypeReady, Status: metav1.ConditionFalse, Reason: "Pending",
-		Message: "Waiting for ModelProvider " + delTestProvider + " to be ready"}}
-	p := notReady(deletionProvider("http://127.0.0.1:1"))
+		Message: "Waiting for ModelServer " + delTestServer + " to be ready"}}
+	p := notReady(deletionServer("http://127.0.0.1:1"))
 	cl := fake.NewClientBuilder().WithScheme(modelTestScheme(t)).WithObjects(m, p).Build()
 	r := &ModelReconciler{Client: cl}
 	if _, err := r.Reconcile(context.Background(), reconcileRequest(m)); err != nil {
 		t.Fatalf("Reconcile: %v", err)
 	}
 	if !finalizerGone(t, r, m) {
-		t.Error("a deleting Model whose provider is not Ready must release its finalizer")
+		t.Error("a deleting Model whose server is not Ready must release its finalizer")
 	}
 }

@@ -37,9 +37,9 @@ func TestAVLLMProbeUsesItsOwnEngine_andFinishReleasesThroughTheEngineThatWokeIt(
 	check(t, "no error", err == nil && r.Fits, err)
 	check(t, "the engine chosen by the request served it", len(asked) == 1 && vllm.Generates == 1 && ollama.Generates == 0,
 		asked)
-	check(t, "remembered for Finish", len(p.loaded[provider]) == 1, p.loaded)
+	check(t, "remembered for Finish", len(p.loaded[server]) == 1, p.loaded)
 
-	unloaded, err := p.Finish(context.Background(), provider)
+	unloaded, err := p.Finish(context.Background(), server)
 	check(t, "finish", err == nil && len(unloaded) == 1, err)
 	check(t, "the server is put back through the engine that woke it, not the Ollama client",
 		len(vllm.Unloads) == 1 && len(ollama.Unloads) == 0, vllm.Unloads)

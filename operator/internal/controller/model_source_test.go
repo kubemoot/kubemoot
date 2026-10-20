@@ -56,7 +56,7 @@ var _ = Describe("Model spec.source admission", func() {
 		return &aiv1alpha1.Model{
 			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: metav1.NamespaceDefault},
 			Spec: aiv1alpha1.ModelSpec{
-				ProviderRef: "adm-provider", Model: "qwen3:14b", Source: src,
+				ServerRef: "adm-server", Model: "qwen3:14b", Source: src,
 			},
 		}
 	}
@@ -194,16 +194,16 @@ func TestOllamaTag_SelectsSourceTagElseModel(t *testing.T) {
 }
 
 func TestSourceMismatch(t *testing.T) {
-	const vllm = aiv1alpha1.ProviderTypeVLLM
-	const openai = aiv1alpha1.ProviderType("openai")
+	const vllm = aiv1alpha1.ServerTypeVLLM
+	const openai = aiv1alpha1.ServerType("openai")
 	cases := map[string]struct {
 		src      *aiv1alpha1.ModelSource
-		provider aiv1alpha1.ProviderType
+		server   aiv1alpha1.ServerType
 		mismatch bool
 	}{
-		"absent on ollama":                   {nil, aiv1alpha1.ProviderTypeOllama, false},
-		"ollama on ollama":                   {ollamaSource(), aiv1alpha1.ProviderTypeOllama, false},
-		"huggingFace on ollama":              {hfSource(sourceTestRevision), aiv1alpha1.ProviderTypeOllama, true},
+		"absent on ollama":                   {nil, aiv1alpha1.ServerTypeOllama, false},
+		"ollama on ollama":                   {ollamaSource(), aiv1alpha1.ServerTypeOllama, false},
+		"huggingFace on ollama":              {hfSource(sourceTestRevision), aiv1alpha1.ServerTypeOllama, true},
 		"ollama on a vllm engine":            {ollamaSource(), vllm, true},
 		"huggingFace on vllm":                {hfSource(sourceTestRevision), vllm, false},
 		"absent on vllm":                     {nil, vllm, false},
@@ -214,7 +214,7 @@ func TestSourceMismatch(t *testing.T) {
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			m := &aiv1alpha1.Model{Spec: aiv1alpha1.ModelSpec{Model: testModelID, Source: tc.src}}
-			msg := sourceMismatch(m, tc.provider)
+			msg := sourceMismatch(m, tc.server)
 			if (msg != "") != tc.mismatch {
 				t.Errorf("sourceMismatch = %q, want mismatch=%v", msg, tc.mismatch)
 			}
@@ -223,15 +223,15 @@ func TestSourceMismatch(t *testing.T) {
 }
 
 // reconcileWithSource reconciles one Model carrying src against a Ready ollama
-// provider and returns the Model as stored afterwards, with the fake server.
+// server and returns the Model as stored afterwards, with the fake server.
 func reconcileWithSource(t *testing.T, src *aiv1alpha1.ModelSource) (*aiv1alpha1.Model, *fakeOllama) {
 	t.Helper()
 	f := newFakeOllama(t, func(w http.ResponseWriter, _ *http.Request) { emit(w, `{"status":"success"}`) })
-	model, provider := absentOllamaModel(f.srv.URL)
+	model, server := absentOllamaModel(f.srv.URL)
 	model.Spec.Source = src
-	provider.Status.Ready = true
+	server.Status.Ready = true
 	cl := fake.NewClientBuilder().WithScheme(modelTestScheme(t)).
-		WithObjects(model, provider).WithStatusSubresource(model, provider).Build()
+		WithObjects(model, server).WithStatusSubresource(model, server).Build()
 	r := &ModelReconciler{Client: cl, HTTPClient: f.srv.Client()}
 
 	key := types.NamespacedName{Name: model.Name, Namespace: model.Namespace}
@@ -248,7 +248,7 @@ func reconcileWithSource(t *testing.T, src *aiv1alpha1.ModelSource) (*aiv1alpha1
 	return got, f
 }
 
-// A huggingFace source on an ollama provider is reported on the Model and nothing
+// A huggingFace source on an ollama server is reported on the Model and nothing
 // is pulled, no finalizer is added, and the operator does not fall back to spec.model.
 func TestReconcile_SourceMismatchReportedAndNothingPulled(t *testing.T) {
 	got, f := reconcileWithSource(t, hfSource(sourceTestRevision))
@@ -320,20 +320,20 @@ func TestPull_UsesSourceTagWhenSetElseModel(t *testing.T) {
 			if got := pulled.snapshot()[0]; got != tc.want {
 				t.Errorf("pulled %q, want %q", got, tc.want)
 			}
-			if h.r.tracker().get(pullKey(h.model.Spec.ProviderRef, tc.want)) == nil {
+			if h.r.tracker().get(pullKey(h.model.Spec.ServerRef, tc.want)) == nil {
 				t.Errorf("pull is not tracked under the tag %q", tc.want)
 			}
 		})
 	}
 }
 
-// The mismatch is knowable from the spec, so it is reported even while the provider
+// The mismatch is knowable from the spec, so it is reported even while the server
 // is not Ready yet.
-func TestReconcile_SourceMismatchReportedBeforeProviderReady(t *testing.T) {
-	model, provider := absentOllamaModel("http://unused.invalid")
+func TestReconcile_SourceMismatchReportedBeforeServerReady(t *testing.T) {
+	model, server := absentOllamaModel("http://unused.invalid")
 	model.Spec.Source = hfSource(sourceTestRevision)
 	cl := fake.NewClientBuilder().WithScheme(modelTestScheme(t)).
-		WithObjects(model, provider).WithStatusSubresource(model, provider).Build()
+		WithObjects(model, server).WithStatusSubresource(model, server).Build()
 	r := &ModelReconciler{Client: cl}
 
 	key := types.NamespacedName{Name: model.Name, Namespace: model.Namespace}

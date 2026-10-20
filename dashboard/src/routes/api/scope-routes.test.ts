@@ -128,7 +128,7 @@ describe('scoped dashboard', () => {
 
 		it('lets an infrastructure kind watch the operator namespace', async () => {
 			mocks.crdWatchResponse.mockReturnValue(new Response('stream'));
-			const res = await call(watchGET, { params: { plural: 'modelproviders' }, url: urlOf('/api/kubemoot/watch/modelproviders?namespace=kubemoot') });
+			const res = await call(watchGET, { params: { plural: 'modelservers' }, url: urlOf('/api/kubemoot/watch/modelservers?namespace=kubemoot') });
 			expect(res.status).toBe(200);
 		});
 	});

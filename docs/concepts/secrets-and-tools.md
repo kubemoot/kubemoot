@@ -64,7 +64,7 @@ This is the top priority on the [roadmap](../../introduction/roadmap/).
    `use` check, and its RBAC bounds the tool. Every other tool runs as a ServiceAccount
    with no permissions and no mounted token.
 6. **Egress per tool.** A NetworkPolicy per MCPServer limits where a tool can connect,
-   so the mail tool reaches only the mail provider.
+   so the mail tool reaches only the mail server.
 
 Narrow token scopes and human confirmation for actions with side effects complete the
 picture. Later steps add a secret store such as OpenBao with External Secrets Operator

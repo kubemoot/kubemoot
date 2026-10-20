@@ -15,7 +15,7 @@ import java.util.List;
  * Measures the prompt the engine receives for a chat request: every message's
  * text, the tool calls the model made and their results, and the tool
  * specifications sent alongside. A tool loop's prompt grows with each tool
- * result, so the size is estimated before every turn, not only when the provider
+ * result, so the size is estimated before every turn, not only when the server
  * is chosen.
  */
 final class PromptSize {

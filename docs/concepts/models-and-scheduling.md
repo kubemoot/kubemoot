@@ -13,27 +13,27 @@ loose model coupling and just-in-time scheduling.
 An `Agent` spec names no model. It declares abstract **capabilities** -
 `tool-calling`, `reasoning`, `kubernetes`, and so on. Concrete models are separate
 resources: a `Model` (an LLM, by capability labels, not a hardcoded name) served by a
-`ModelProvider` (a GPU-backed inference endpoint such as Ollama on a particular GPU).
+`ModelServer` (a GPU-backed inference endpoint such as Ollama on a particular GPU).
 
 The match between the two is made by a `CrewSchedulingPolicy`, whose rules select
 candidate `Model` CRs by their labels. Because the agent never names
-`qwen3:8b` (or any model), you can swap models, add a provider, or re-tier a crew by
+`qwen3:8b` (or any model), you can swap models, add a server, or re-tier a crew by
 changing labels and policy - not by editing and redeploying every agent. The same crew
 runs unchanged on different hardware.
 
 ## The model catalog
 
 The cluster owns its models, not the crews. Every model server reports the models it has, and
-the cluster owner can add Model objects next to the providers to download a model, to say what
+the cluster owner can add Model objects next to the servers to download a model, to say what
 a server cannot (a vLLM model's parameter count and abilities, which the `kubemoot-vllm` chart
 declares for its own models), to add labels, or to keep a model out. Kubemoot merges the two
-into one **catalog**, published on each ModelProvider, where every model carries labels: a
+into one **catalog**, published on each ModelServer, where every model carries labels: a
 **size** (small under 12 billion parameters, medium up to 30 billion, large above), its
 context window, and its abilities such as tool calling and reasoning. Speed is not a label:
-calibration measures it per provider, because the same model is fast on one accelerator and
+calibration measures it per server, because the same model is fast on one accelerator and
 slow on another.
 
-A crew ships no Model objects and names no provider. Its policy asks for what each phase needs
+A crew ships no Model objects and names no server. Its policy asks for what each phase needs
 (tool calling is a hard need; a size and reasoning are wishes) and the scheduler matches that
 against the catalog. Switching a model server from Ollama to vLLM, adding an accelerator, or
 moving a model to another accelerator changes the catalog and nothing in the crew's namespace.
@@ -43,7 +43,7 @@ A crew that still ships Models of its own uses only those until it deletes them.
 
 Scheduling happens in two steps. When an agent reconciles, the operator ranks the
 `Model`s its phase may use. At each inference call, the agent runtime reads live
-provider state (which models are loaded, which GPUs have free slots and free memory)
+server state (which models are loaded, which GPUs have free slots and free memory)
 from a shared store and decides which model and which GPU serve that call. This
 matters because GPU inference, model loading, and pod scheduling all have unpredictable
 latency: a static binding made at deploy time would be wrong as soon as load shifted.
@@ -56,9 +56,9 @@ system waits on the state transition rather than failing or requiring a manual w
 Ollama loads a model on demand, so the scheduler asks whether the model fits an
 accelerator's memory and whether a parallel slot is free. vLLM reserves its memory when
 its server starts and batches requests, so for it the questions are different: does the
-provider host the model, and does the engine have room (no waiting requests, a key-value
+server host the model, and does the engine have room (no waiting requests, a key-value
 cache that is not nearly full). The runtime asks the engine's own question for each
-provider, so one crew can use Ollama and vLLM providers side by side, and a model on a
+server, so one crew can use Ollama and vLLM servers side by side, and a model on a
 vLLM server is placed without a memory total or a measured speed.
 
 ## How a model is chosen
@@ -71,7 +71,7 @@ or the policy's `qualityBias` when the rule has no explicit preference (a `prefe
 model a **quality score**. The best model becomes the agent's **preferred model**, and
 the operator hands the agent the whole ranked list, preferred model first.
 
-A rule may also ask for the faster model with `preferFaster`. Speed is measured per provider, because the same model is fast on one accelerator and slow on another, so the runtime applies it on each call: it adds up to that many points to each candidate in proportion to its measured speed relative to the fastest candidate, and prefers the best of the raised scores. A model nobody has measured gets no points. Triage uses its own candidate list the same way, and still never loads or unloads a model to make room.
+A rule may also ask for the faster model with `preferFaster`. Speed is measured per server, because the same model is fast on one accelerator and slow on another, so the runtime applies it on each call: it adds up to that many points to each candidate in proportion to its measured speed relative to the fastest candidate, and prefers the best of the raised scores. A model nobody has measured gets no points. Triage uses its own candidate list the same way, and still never loads or unloads a model to make room.
 
 **The runtime picks per call.** At each call the runtime works down this order and
 takes the first that succeeds:
@@ -87,7 +87,7 @@ takes the first that succeeds:
    load it onto a GPU with enough free memory.
 
 If none of these has room, the agent waits (see below). The model a call actually ran
-on is recorded on its signal as `metadata.model`, next to `metadata.provider`.
+on is recorded on its signal as `metadata.model`, next to `metadata.server`.
 
 ### The quality tolerance
 
@@ -168,7 +168,7 @@ When neither way forward helps right away, or waiting is the cheaper one, the ag
 - It publishes a `waiting` signal once, naming the model it waits for. CrewForge, Homelab
   Pilot, and the discussion stream show it as "waiting for a GPU with room for
   `<model>`".
-- The wait is driven by state, not a timer. The agent tries again each time provider
+- The wait is driven by state, not a timer. The agent tries again each time server
   state or the in-flight calls change: a call finishes and frees a slot, or another
   agent's unload frees memory. When a retry succeeds, the agent publishes `evaluating`
   and carries on as usual.
@@ -217,7 +217,7 @@ next.
 | `waiting` signal, "waiting for a GPU with room for `<model>`" | Every GPU that can hold the model is busy. The agent is queued on cluster state. | Nothing. It proceeds when capacity frees up. |
 | `stand_aside` with reason `gpu-busy` | The agent waited but no GPU had room before the discussion ended or the safety limit passed. | Ask again when the cluster is quieter, add GPU capacity, or add a smaller `Model` the policy can pick. |
 | `stand_aside` with reason `model-too-large` | No GPU in the cluster can hold the model. | Add a smaller `Model` that satisfies the rule, or a GPU with more memory. |
-| `stand_aside` with reason `prompt-too-large` | The prompt is larger than the per-request context every suitable provider gives the model. | Raise `OLLAMA_CONTEXT_LENGTH` on a provider (trading against `OLLAMA_NUM_PARALLEL`), or use a model with a larger context. |
+| `stand_aside` with reason `prompt-too-large` | The prompt is larger than the per-request context every suitable server gives the model. | Raise `OLLAMA_CONTEXT_LENGTH` on a server (trading against `OLLAMA_NUM_PARALLEL`), or use a model with a larger context. |
 | `stand_aside` with no reason | The agent had nothing to add. | Normal crew behavior. |
 
 When no agent contributed and at least one of them could not get a GPU, the crew's
@@ -233,7 +233,7 @@ about cluster capacity. It does not mean the crew's agents, prompts, or tools ar
 
 ## Several crews at once
 
-All crews in a cluster share the same provider state, reservations, and demand view,
+All crews in a cluster share the same server state, reservations, and demand view,
 so their calls account for each other.
 
 - **Warm reuse across crews is expected.** A model one crew loaded serves another

@@ -33,38 +33,38 @@ import (
 )
 
 type embeddingPullHarness struct {
-	t        *testing.T
-	f        *fakeOllama
-	r        *EmbeddingModelReconciler
-	em       *aiv1alpha1.EmbeddingModel
-	provider *aiv1alpha1.ModelProvider
+	t      *testing.T
+	f      *fakeOllama
+	r      *EmbeddingModelReconciler
+	em     *aiv1alpha1.EmbeddingModel
+	server *aiv1alpha1.ModelServer
 }
 
 func newEmbeddingPullHarness(t *testing.T, f *fakeOllama, free int64) *embeddingPullHarness {
 	t.Helper()
-	_, provider := absentOllamaModel(f.srv.URL)
-	provider.Status.Ready = true
+	_, server := absentOllamaModel(f.srv.URL)
+	server.Status.Ready = true
 	if free > 0 {
-		provider.Status.Storage = &aiv1alpha1.ProviderStorage{FreeBytes: free}
+		server.Status.Storage = &aiv1alpha1.ServerStorage{FreeBytes: free}
 	}
 	em := &aiv1alpha1.EmbeddingModel{
 		ObjectMeta: metav1.ObjectMeta{Name: "nomic", Namespace: testCrewNamespace, UID: "emb-uid", Finalizers: []string{embeddingModelFinalizer}},
-		Spec:       aiv1alpha1.EmbeddingModelSpec{Model: testModelID, ProviderRef: testOllamaGPU},
+		Spec:       aiv1alpha1.EmbeddingModelSpec{Model: testModelID, ServerRef: testOllamaGPU},
 	}
-	cl := fake.NewClientBuilder().WithScheme(modelTestScheme(t)).WithObjects(em, provider).WithStatusSubresource(em, &aiv1alpha1.Model{}).Build()
-	return &embeddingPullHarness{t: t, f: f, em: em, provider: provider,
+	cl := fake.NewClientBuilder().WithScheme(modelTestScheme(t)).WithObjects(em, server).WithStatusSubresource(em, &aiv1alpha1.Model{}).Build()
+	return &embeddingPullHarness{t: t, f: f, em: em, server: server,
 		r: &EmbeddingModelReconciler{Client: cl, HTTPClient: f.srv.Client()}}
 }
 
 func (h *embeddingPullHarness) reconcile() {
 	h.t.Helper()
-	if _, err := h.r.reconcileOllamaEmbedding(context.Background(), h.em, h.provider); err != nil {
+	if _, err := h.r.reconcileOllamaEmbedding(context.Background(), h.em, h.server); err != nil {
 		h.t.Fatalf("reconcileOllamaEmbedding: %v", err)
 	}
 }
 
 func (h *embeddingPullHarness) tracked() *pullState {
-	return h.r.tracker().get(pullKey(h.em.Spec.ProviderRef, h.em.Spec.Model))
+	return h.r.tracker().get(pullKey(h.em.Spec.ServerRef, h.em.Spec.Model))
 }
 
 func TestEmbeddingPull_StartsInBackgroundAndReportsProgress(t *testing.T) {
@@ -108,7 +108,7 @@ func TestEmbeddingPull_CompletionReportsAvailableAndClearsPull(t *testing.T) {
 	eventually(t, "the pull to finish", func() bool { s := h.tracked(); return s != nil && s.outcome().finished })
 
 	h.reconcile() // the pull outcome is consumed
-	h.reconcile() // the provider lists the model
+	h.reconcile() // the server lists the model
 	if !h.em.Status.Ready || h.em.Status.State != stateAvailable {
 		t.Fatalf("status = %q ready=%v, want Available ready", h.em.Status.State, h.em.Status.Ready)
 	}
@@ -157,7 +157,7 @@ func TestEmbeddingPull_ModelAlreadyPresentDoesNotPull(t *testing.T) {
 	h := newEmbeddingPullHarness(t, f, 0)
 	h.reconcile()
 	if n := atomic.LoadInt32(&f.pulls); n != 0 {
-		t.Errorf("pulls = %d for a model the provider lists, want 0", n)
+		t.Errorf("pulls = %d for a model the server lists, want 0", n)
 	}
 	if !h.em.Status.Ready {
 		t.Errorf("status = %q, want Available", h.em.Status.State)
@@ -179,7 +179,7 @@ func TestEmbeddingPull_SharesOnePullWithAModelOfTheSameTag(t *testing.T) {
 
 	h.reconcile()
 	eventually(t, "the pull request", func() bool { return atomic.LoadInt32(&f.pulls) == 1 })
-	if _, err := mr.reconcileOllamaModel(context.Background(), model, h.provider); err != nil {
+	if _, err := mr.reconcileOllamaModel(context.Background(), model, h.server); err != nil {
 		t.Fatalf("reconcile Model: %v", err)
 	}
 	if n := atomic.LoadInt32(&f.pulls); n != 1 {
@@ -204,7 +204,7 @@ func TestEmbeddingPull_DeletionCancelsAnUnwantedPull(t *testing.T) {
 	if h.tracked() != nil {
 		t.Error("the cancelled pull must leave the tracker")
 	}
-	if got := h.r.tracker().PartialBytes(h.provider.Name); got != 500 {
+	if got := h.r.tracker().PartialBytes(h.server.Name); got != 500 {
 		t.Errorf("PartialBytes = %d, want the 500 bytes the cancelled pull left", got)
 	}
 	got := &aiv1alpha1.EmbeddingModel{}
@@ -252,12 +252,12 @@ func TestEmbeddingPull_BaseNameMatchDoesNotCancelAPullOfAnotherTag(t *testing.T)
 	defer close(release)
 	var cancelled atomic.Bool
 	f := newFakeOllama(t, blockedPull(halfDone, release, &cancelled))
-	f.present.Store(true) // the provider lists testModelID
+	f.present.Store(true) // the server lists testModelID
 	h := newEmbeddingPullHarness(t, f, 0)
 	base := strings.Split(testModelID, ":")[0]
 	h.em.Spec.Model = base + ":other-tag"
-	key := pullKey(h.em.Spec.ProviderRef, h.em.Spec.Model)
-	startPull(h.r.tracker(), key, h.em.UID, newPullStream(h.provider, h.em.Spec.Model, f.srv.Client()))
+	key := pullKey(h.em.Spec.ServerRef, h.em.Spec.Model)
+	startPull(h.r.tracker(), key, h.em.UID, newPullStream(h.server, h.em.Spec.Model, f.srv.Client()))
 	eventually(t, "the pull request", func() bool { return atomic.LoadInt32(&f.pulls) == 1 })
 
 	h.reconcile() // lists only testModelID: a base-name match, not the exact tag
@@ -287,7 +287,7 @@ func TestEmbeddingPull_ChangingTheTagCancelsTheOldPull(t *testing.T) {
 	h.em.UID = "emb-uid" // the fake client resets the UID on a status write
 	h.reconcile()
 	eventually(t, "the old pull to be cancelled", cancelled.Load)
-	if h.r.tracker().get(pullKey(h.em.Spec.ProviderRef, testModelID)) != nil {
+	if h.r.tracker().get(pullKey(h.em.Spec.ServerRef, testModelID)) != nil {
 		t.Error("the pull for the old tag must leave the tracker")
 	}
 }

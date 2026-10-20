@@ -61,7 +61,7 @@ public class ToolCallFailure extends RuntimeException {
         GATHER_FAILED,
         /**
          * The next prompt of the tool loop would not fit the context window the
-         * chosen provider gives the model. The engine would cut it without an
+         * chosen server gives the model. The engine would cut it without an
          * error, dropping the oldest messages (the question among them), so the
          * loop fails visibly instead.
          */

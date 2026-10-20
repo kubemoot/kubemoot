@@ -19,17 +19,17 @@
 	});
 
 	const modelFilter = $derived(page.url.searchParams.get('model') ?? '');
-	const providerFilter = $derived(page.url.searchParams.get('provider') ?? '');
+	const serverFilter = $derived(page.url.searchParams.get('server') ?? '');
 
 	const visibleModels = $derived(
 		live.items.filter((m) => {
 			if (modelFilter && m.spec.model !== modelFilter) return false;
-			if (providerFilter && m.spec.providerRef !== providerFilter) return false;
+			if (serverFilter && m.spec.serverRef !== serverFilter) return false;
 			return true;
 		})
 	);
 
-	const filterActive = $derived(modelFilter !== '' || providerFilter !== '');
+	const filterActive = $derived(modelFilter !== '' || serverFilter !== '');
 
 	function clearFilter() {
 		goto(withoutModelFilter(page.url), { replace: true, reset: false });
@@ -37,7 +37,7 @@
 
 </script>
 
-<ResourceList title="Models" count={visibleModels.length} loading={live.loading} error={live.error} helpText="Models represent LLM chat models managed by the operator. The operator ensures models are pulled and available on the provider. GPU load state is shown on the Model Providers page.">
+<ResourceList title="Models" count={visibleModels.length} loading={live.loading} error={live.error} helpText="Models represent LLM chat models managed by the operator. The operator ensures models are pulled and available on the server. GPU load state is shown on the Model Servers page.">
 	{#snippet children()}
 		{#if filterActive}
 			<div class="filter-bar">
@@ -45,8 +45,8 @@
 				{#if modelFilter}
 					<span class="filter-chip">model = <code>{modelFilter}</code></span>
 				{/if}
-				{#if providerFilter}
-					<span class="filter-chip">provider = <code>{providerFilter}</code></span>
+				{#if serverFilter}
+					<span class="filter-chip">server = <code>{serverFilter}</code></span>
 				{/if}
 				<button class="clear-btn" type="button" onclick={clearFilter}>Clear</button>
 			</div>

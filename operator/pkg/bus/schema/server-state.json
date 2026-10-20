@@ -1,0 +1,69 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ServerState",
+  "description": "A ModelServer's capacity as the operator last probed it, in the kubemoot_server_state bucket, key <server>.",
+  "type": "object",
+  "required": ["name", "endpoint", "maxParallel", "activeCount", "queueDepth", "ready", "lastProbedAt"],
+  "properties": {
+    "name": { "type": "string", "description": "The ModelServer." },
+    "endpoint": { "type": "string", "description": "Its model server URL. Empty for a ModelServer that runs one vLLM server per model; those are listed in modelEndpoints." },
+    "modelEndpoints": {
+      "type": "object",
+      "additionalProperties": { "type": "string" },
+      "description": "The server URL a call for each model goes to, by model, for a ModelServer that runs one vLLM server per model. Absent means every model is served at endpoint."
+    },
+    "engine": { "type": "string", "description": "Its model server's engine type, from ModelServer spec.type (for example ollama); absent means ollama. Agents pick how to call the server by it." },
+    "maxParallel": { "type": "integer", "description": "How many calls it serves at once; at least 1. An engine that batches requests (vLLM) has no fixed slots: it publishes the engine's ceiling on concurrently scheduled sequences, and readers judge its room by requestsWaiting and kvCacheUsage, not by this number." },
+    "activeCount": { "type": "integer", "description": "Calls in progress. The operator writes 0; tickets carry the live count." },
+    "queueDepth": { "type": "integer", "description": "Calls waiting. The operator writes 0." },
+    "loadedModels": { "type": "array", "items": { "type": "string" }, "description": "Models loaded now." },
+    "ready": { "type": "boolean", "description": "Whether the server answered its probe." },
+    "lastProbedAt": { "type": "string", "description": "When the operator wrote this entry, RFC 3339 in UTC. Readers treat an entry older than five minutes as stale." },
+    "totalVramMiB": { "type": "integer", "description": "Accelerator memory in MiB." },
+    "loadedModelFootprintsMiB": {
+      "type": "object",
+      "additionalProperties": { "type": "integer" },
+      "description": "Memory each loaded model takes, in MiB, by model."
+    },
+    "availableModelFootprintsMiB": {
+      "type": "object",
+      "additionalProperties": { "type": "integer" },
+      "description": "Size of each model the server has but has not loaded, in MiB, by model."
+    },
+    "contextLength": { "type": "integer", "description": "The server's default context window, in tokens." },
+    "loadedModelContextLengths": {
+      "type": "object",
+      "additionalProperties": { "type": "integer" },
+      "description": "The context window each loaded model runs with, in tokens, by model."
+    },
+    "modelStates": {
+      "type": "object",
+      "additionalProperties": { "type": "string", "enum": ["awake", "asleep", "available"] },
+      "description": "Where each model stands on the server, by model: awake (loaded and answering now), asleep (parked by the engine and quick to wake, for engines that sleep models), or available (the server has it but it is not loaded). Ollama fills it from its loaded and downloaded models; engines that sleep models fill asleep from the server. Absent means the server did not report states; readers then use loadedModels. Describes a server that may be a pool of servers, not one process."
+    },
+    "requestsRunning": { "type": "integer", "goJSONSchema": { "pointer": true }, "description": "Requests the engine is running now, across the whole server. Filled by engines that export it (the Model Server Protocol metrics); Ollama exports none, so it is absent and the tickets carry the live count." },
+    "requestsWaiting": { "type": "integer", "goJSONSchema": { "pointer": true }, "description": "Requests the engine holds in its own queue, across the whole server. Filled by engines that export it; absent for Ollama." },
+    "kvCacheUsage": { "type": "number", "minimum": 0, "maximum": 1, "goJSONSchema": { "pointer": true }, "description": "Fraction of the engine's key-value cache in use, 0 to 1, across the whole server. Filled by engines that export it; absent for Ollama, which does not." },
+    "switchCostMs": {
+      "type": "object",
+      "additionalProperties": { "type": "integer" },
+      "description": "How long the server last took to make each model ready, in milliseconds, by model, as observed (a load, or a wake from sleep). Absent means not observed; the calibrated loadMs in modelSpeeds is the fallback."
+    },
+    "hostMemoryParkedMiB": { "type": "integer", "goJSONSchema": { "pointer": true }, "description": "Host memory in MiB holding the weights of models the engine has put to sleep. Filled by engines that park weights in host memory; absent for Ollama." },
+    "modelSpeeds": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["generateTokensPerSecond"],
+        "properties": {
+          "loadMs": { "type": "integer", "description": "How long the engine took to load the model when calibrated, in milliseconds; 0 when not measured." },
+          "promptTokensPerSecond": { "type": "integer", "description": "Prompt processing speed calibration measured; 0 when not measured." },
+          "generateTokensPerSecond": { "type": "integer", "description": "Generation speed of one request calibration measured." },
+          "observedGenerateTokensPerSecond": { "type": "integer", "description": "Median generation speed of warm crew calls that ran alone on the server since the calibration; 0 with too few such calls to trust." },
+          "observedSamples": { "type": "integer", "description": "How many such calls the observed median is over." }
+        }
+      },
+      "description": "What each model costs on the server, by model: what calibration measured, and how fast crew calls have run since. Only models calibration found to fit."
+    }
+  }
+}

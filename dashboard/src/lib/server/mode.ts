@@ -7,7 +7,7 @@
 //   KUBEMOOT_DASHBOARD_NAMESPACE_SELECTOR=<label selector>   (e.g. kubemoot.ai/workshop-team=true)
 //       Only namespaces matching the selector are shown. Empty means all namespaces.
 //   KUBEMOOT_DASHBOARD_INFRA_NAMESPACE=<namespace>            (default: kubemoot)
-//       The operator namespace. Infrastructure kinds (model providers, models,
+//       The operator namespace. Infrastructure kinds (model servers, models,
 //       embedding models, MCP catalogs and quality policies) stay readable there
 //       when a selector is set.
 

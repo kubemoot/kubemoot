@@ -43,7 +43,7 @@ type fakeAdapter struct {
 	hold      time.Duration
 }
 
-func (f *fakeAdapter) Probe(_ context.Context, _ aiv1alpha1.ModelProviderSpec) (engine.Snapshot, error) {
+func (f *fakeAdapter) Probe(_ context.Context, _ aiv1alpha1.ModelServerSpec) (engine.Snapshot, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.probeErr != nil {
@@ -82,7 +82,7 @@ func (f *fakeAdapter) change(model string, to engine.ModelState) error {
 	return nil
 }
 
-func (f *fakeAdapter) Ready(_ context.Context, _ aiv1alpha1.ModelProviderSpec, model string) error {
+func (f *fakeAdapter) Ready(_ context.Context, _ aiv1alpha1.ModelServerSpec, model string) error {
 	f.mu.Lock()
 	f.readied = append(f.readied, model)
 	err := f.readyErr
@@ -93,7 +93,7 @@ func (f *fakeAdapter) Ready(_ context.Context, _ aiv1alpha1.ModelProviderSpec, m
 	return f.change(model, engine.StateAwake)
 }
 
-func (f *fakeAdapter) Release(_ context.Context, _ aiv1alpha1.ModelProviderSpec, model string) error {
+func (f *fakeAdapter) Release(_ context.Context, _ aiv1alpha1.ModelServerSpec, model string) error {
 	f.mu.Lock()
 	f.released = append(f.released, model)
 	f.mu.Unlock()
@@ -105,25 +105,25 @@ type recordingRefresher struct {
 	calls []int64
 }
 
-func (r *recordingRefresher) RefreshAfterSwitch(_ context.Context, _ *aiv1alpha1.ModelProvider, _ string, ms int64) {
+func (r *recordingRefresher) RefreshAfterSwitch(_ context.Context, _ *aiv1alpha1.ModelServer, _ string, ms int64) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.calls = append(r.calls, ms)
 }
 
-const lifecycleProvider = "vllm-rig0"
+const lifecycleServerName = "vllm-rig0"
 
-func lifecycleServer(t *testing.T, adapter *fakeAdapter, providers ...*aiv1alpha1.ModelProvider) (*ModelLifecycleServer, *recordingRefresher) {
+func lifecycleServer(t *testing.T, adapter *fakeAdapter, servers ...*aiv1alpha1.ModelServer) (*ModelLifecycleServer, *recordingRefresher) {
 	t.Helper()
 	scheme := agentReconcileScheme(t)
 	builder := fake.NewClientBuilder().WithScheme(scheme)
-	for _, p := range providers {
+	for _, p := range servers {
 		builder = builder.WithObjects(p)
 	}
 	registry := engine.NewRegistry()
 	factory := func(*http.Client) engine.Adapter { return adapter }
-	registry.Register(aiv1alpha1.ProviderTypeVLLM, factory)
-	registry.Register(aiv1alpha1.ProviderTypeOllama, factory)
+	registry.Register(aiv1alpha1.ServerTypeVLLM, factory)
+	registry.Register(aiv1alpha1.ServerTypeOllama, factory)
 	ref := &recordingRefresher{}
 	return &ModelLifecycleServer{
 		Reader: builder.Build(), Refresher: ref, Engines: registry,
@@ -131,10 +131,10 @@ func lifecycleServer(t *testing.T, adapter *fakeAdapter, providers ...*aiv1alpha
 	}, ref
 }
 
-func namedProvider(name string, typ aiv1alpha1.ProviderType) *aiv1alpha1.ModelProvider {
-	return &aiv1alpha1.ModelProvider{
+func namedServer(name string, typ aiv1alpha1.ServerType) *aiv1alpha1.ModelServer {
+	return &aiv1alpha1.ModelServer{
 		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: testNS1},
-		Spec:       aiv1alpha1.ModelProviderSpec{Type: typ},
+		Spec:       aiv1alpha1.ModelServerSpec{Type: typ},
 	}
 }
 
@@ -147,7 +147,7 @@ func request(t *testing.T, action bus.ModelLifecycleRequestAction, model string)
 	return raw
 }
 
-var lifecycleSubject = bus.ModelLifecycleSubject(lifecycleProvider)
+var lifecycleSubject = bus.ModelLifecycleSubject(lifecycleServerName)
 
 func asleepAwake() *fakeAdapter {
 	return &fakeAdapter{states: map[string]engine.ModelState{vllmModel14: engine.StateAsleep, "qwen3:32b": engine.StateAwake}}
@@ -156,7 +156,7 @@ func asleepAwake() *fakeAdapter {
 func TestReadyWakesAnAsleepModelAndRepliesOnceItIsAwake(t *testing.T) {
 	adapter := asleepAwake()
 	adapter.lagProbes = 3 // the server reports asleep for a few probes after the wake was answered
-	s, ref := lifecycleServer(t, adapter, namedProvider(lifecycleProvider, aiv1alpha1.ProviderTypeVLLM))
+	s, ref := lifecycleServer(t, adapter, namedServer(lifecycleServerName, aiv1alpha1.ServerTypeVLLM))
 	reply := s.Handle(context.Background(), lifecycleSubject, request(t, bus.ModelLifecycleRequestActionReady, vllmModel14))
 	if !reply.Ok || reply.State != bus.ModelLifecycleReplyStateAwake {
 		t.Fatalf("reply = %+v", reply)
@@ -171,7 +171,7 @@ func TestReadyWakesAnAsleepModelAndRepliesOnceItIsAwake(t *testing.T) {
 
 func TestReadyOnAnAwakeModelDoesNothing(t *testing.T) {
 	adapter := asleepAwake()
-	s, ref := lifecycleServer(t, adapter, namedProvider(lifecycleProvider, aiv1alpha1.ProviderTypeVLLM))
+	s, ref := lifecycleServer(t, adapter, namedServer(lifecycleServerName, aiv1alpha1.ServerTypeVLLM))
 	reply := s.Handle(context.Background(), lifecycleSubject, request(t, bus.ModelLifecycleRequestActionReady, "qwen3:32b"))
 	if !reply.Ok || reply.SwitchMs != 0 || len(adapter.readied) != 0 || len(ref.calls) != 0 {
 		t.Errorf("reply %+v readied %v published %v", reply, adapter.readied, ref.calls)
@@ -180,7 +180,7 @@ func TestReadyOnAnAwakeModelDoesNothing(t *testing.T) {
 
 func TestReleasePutsAnAwakeModelToSleep(t *testing.T) {
 	adapter := asleepAwake()
-	s, _ := lifecycleServer(t, adapter, namedProvider(lifecycleProvider, aiv1alpha1.ProviderTypeVLLM))
+	s, _ := lifecycleServer(t, adapter, namedServer(lifecycleServerName, aiv1alpha1.ServerTypeVLLM))
 	reply := s.Handle(context.Background(), lifecycleSubject, request(t, bus.ModelLifecycleRequestActionRelease, "qwen3:32b"))
 	if !reply.Ok || reply.State != bus.ModelLifecycleReplyStateAsleep || reply.SwitchMs != 0 {
 		t.Fatalf("reply = %+v", reply)
@@ -197,19 +197,19 @@ func TestReleasePutsAnAwakeModelToSleep(t *testing.T) {
 func TestRequestsThatCannotBeServedAreRefusedWithAReason(t *testing.T) {
 	adapter := asleepAwake()
 	s, _ := lifecycleServer(t, adapter,
-		namedProvider(lifecycleProvider, aiv1alpha1.ProviderTypeVLLM),
-		namedProvider("ollama-cpu", aiv1alpha1.ProviderTypeOllama))
+		namedServer(lifecycleServerName, aiv1alpha1.ServerTypeVLLM),
+		namedServer("ollama-cpu", aiv1alpha1.ServerTypeOllama))
 	good := request(t, bus.ModelLifecycleRequestActionReady, vllmModel14)
 	cases := map[string]struct {
 		subject string
 		body    []byte
 	}{
-		"malformed body":   {lifecycleSubject, []byte("{")},
-		"no model":         {lifecycleSubject, request(t, bus.ModelLifecycleRequestActionReady, "")},
-		"unknown action":   {lifecycleSubject, []byte(`{"action":"reboot","model":"m"}`)},
-		"unknown provider": {bus.ModelLifecycleSubject("nope"), good},
-		"ollama provider":  {bus.ModelLifecycleSubject("ollama-cpu"), good},
-		"unknown model":    {lifecycleSubject, request(t, bus.ModelLifecycleRequestActionReady, "other")},
+		"malformed body": {lifecycleSubject, []byte("{")},
+		"no model":       {lifecycleSubject, request(t, bus.ModelLifecycleRequestActionReady, "")},
+		"unknown action": {lifecycleSubject, []byte(`{"action":"reboot","model":"m"}`)},
+		"unknown server": {bus.ModelLifecycleSubject("nope"), good},
+		"ollama server":  {bus.ModelLifecycleSubject("ollama-cpu"), good},
+		"unknown model":  {lifecycleSubject, request(t, bus.ModelLifecycleRequestActionReady, "other")},
 	}
 	for name, c := range cases {
 		reply := s.Handle(context.Background(), c.subject, c.body)
@@ -225,21 +225,21 @@ func TestRequestsThatCannotBeServedAreRefusedWithAReason(t *testing.T) {
 func TestAnAdapterFailureIsTheReply(t *testing.T) {
 	adapter := asleepAwake()
 	adapter.readyErr = errors.New("putting \"qwen3:32b\" to sleep: POST /sleep returned 500")
-	s, ref := lifecycleServer(t, adapter, namedProvider(lifecycleProvider, aiv1alpha1.ProviderTypeVLLM))
+	s, ref := lifecycleServer(t, adapter, namedServer(lifecycleServerName, aiv1alpha1.ServerTypeVLLM))
 	reply := s.Handle(context.Background(), lifecycleSubject, request(t, bus.ModelLifecycleRequestActionReady, vllmModel14))
 	if reply.Ok || reply.Error != adapter.readyErr.Error() || len(ref.calls) != 0 {
 		t.Errorf("reply %+v published %v", reply, ref.calls)
 	}
 	adapter.probeErr = errors.New("no server answered")
 	if r := s.Handle(context.Background(), lifecycleSubject, request(t, bus.ModelLifecycleRequestActionReady, vllmModel14)); r.Ok {
-		t.Errorf("a provider that cannot be probed cannot be asked: %+v", r)
+		t.Errorf("a server that cannot be probed cannot be asked: %+v", r)
 	}
 }
 
-func TestAProviderThatNeverReportsTheStateEndsAtTheSafetyLimit(t *testing.T) {
+func TestAServerThatNeverReportsTheStateEndsAtTheSafetyLimit(t *testing.T) {
 	adapter := asleepAwake()
 	adapter.lagProbes = 1 << 30 // the state never follows the action
-	s, ref := lifecycleServer(t, adapter, namedProvider(lifecycleProvider, aiv1alpha1.ProviderTypeVLLM))
+	s, ref := lifecycleServer(t, adapter, namedServer(lifecycleServerName, aiv1alpha1.ServerTypeVLLM))
 	start := time.Now()
 	reply := s.Handle(context.Background(), lifecycleSubject, request(t, bus.ModelLifecycleRequestActionReady, vllmModel14))
 	if reply.Ok || len(ref.calls) != 0 {
@@ -250,10 +250,10 @@ func TestAProviderThatNeverReportsTheStateEndsAtTheSafetyLimit(t *testing.T) {
 	}
 }
 
-func TestRequestsOnOneProviderNeverInterleave(t *testing.T) {
+func TestRequestsOnOneServerNeverInterleave(t *testing.T) {
 	adapter := asleepAwake()
 	adapter.hold = 30 * time.Millisecond
-	s, _ := lifecycleServer(t, adapter, namedProvider(lifecycleProvider, aiv1alpha1.ProviderTypeVLLM))
+	s, _ := lifecycleServer(t, adapter, namedServer(lifecycleServerName, aiv1alpha1.ServerTypeVLLM))
 	var wg sync.WaitGroup
 	for _, m := range []string{vllmModel14, "qwen3:32b", vllmModel14} {
 		wg.Add(1)
@@ -268,16 +268,16 @@ func TestRequestsOnOneProviderNeverInterleave(t *testing.T) {
 	}
 }
 
-func TestTheProviderIsFoundByItsEscapedNameNotItsNamespace(t *testing.T) {
+func TestTheServerIsFoundByItsEscapedNameNotItsNamespace(t *testing.T) {
 	adapter := asleepAwake()
-	s, _ := lifecycleServer(t, adapter, namedProvider("vllm.rig0", aiv1alpha1.ProviderTypeVLLM))
+	s, _ := lifecycleServer(t, adapter, namedServer("vllm.rig0", aiv1alpha1.ServerTypeVLLM))
 	reply := s.Handle(context.Background(), bus.ModelLifecycleSubject("vllm.rig0"), request(t, bus.ModelLifecycleRequestActionReady, vllmModel14))
 	if !reply.Ok {
 		t.Errorf("a name with a dot is one subject token: %+v", reply)
 	}
 }
 
-func TestSwitchTimesAreKeptPerProviderAndMergedIntoThePublishedState(t *testing.T) {
+func TestSwitchTimesAreKeptPerServerAndMergedIntoThePublishedState(t *testing.T) {
 	var l switchLog
 	l.Record("a", "m1", 900)
 	l.Record("a", "m2", 0) // an already-awake model is not a switch
@@ -294,13 +294,13 @@ func TestSwitchTimesAreKeptPerProviderAndMergedIntoThePublishedState(t *testing.
 	}
 	l.Forget("a")
 	if l.For("a") != nil || l.For("b")["m1"] != 4100 {
-		t.Error("Forget must drop one provider only")
+		t.Error("Forget must drop one server only")
 	}
 }
 
 func TestRefreshAfterSwitchRecordsTheCostForThePublishedState(t *testing.T) {
-	r := &ModelProviderReconciler{}
-	p := vllmProvider()
+	r := &ModelServerReconciler{}
+	p := vllmServer()
 	srv := fakeVLLM{metrics: vllmMetrics(0, 0, 0)}.start(t, vllmModel14)
 	p.Spec.Servers = []aiv1alpha1.VLLMServer{server(vllmModel14, srv.URL)}
 	r.RefreshAfterSwitch(context.Background(), p, vllmModel14, 1234)
@@ -312,12 +312,12 @@ func TestRefreshAfterSwitchRecordsTheCostForThePublishedState(t *testing.T) {
 func TestARequestQueuedBehindAStuckWakeEndsAtTheSafetyLimit(t *testing.T) {
 	adapter := asleepAwake()
 	adapter.hold = 2 * time.Second // the first wake outlasts the 300 ms safety limit
-	s, _ := lifecycleServer(t, adapter, namedProvider(lifecycleProvider, aiv1alpha1.ProviderTypeVLLM))
+	s, _ := lifecycleServer(t, adapter, namedServer(lifecycleServerName, aiv1alpha1.ServerTypeVLLM))
 	first := make(chan bus.ModelLifecycleReply, 1)
 	go func() {
 		first <- s.Handle(context.Background(), lifecycleSubject, request(t, bus.ModelLifecycleRequestActionReady, vllmModel14))
 	}()
-	time.Sleep(50 * time.Millisecond) // the first request holds the provider's turn
+	time.Sleep(50 * time.Millisecond) // the first request holds the server's turn
 	start := time.Now()
 	queued := s.Handle(context.Background(), lifecycleSubject, request(t, bus.ModelLifecycleRequestActionRelease, "qwen3:32b"))
 	if queued.Ok || time.Since(start) > time.Second {
@@ -329,7 +329,7 @@ func TestARequestQueuedBehindAStuckWakeEndsAtTheSafetyLimit(t *testing.T) {
 func TestTwoRequestsToWakeTheSameModelWakeItOnce(t *testing.T) {
 	adapter := asleepAwake()
 	adapter.hold = 50 * time.Millisecond
-	s, ref := lifecycleServer(t, adapter, namedProvider(lifecycleProvider, aiv1alpha1.ProviderTypeVLLM))
+	s, ref := lifecycleServer(t, adapter, namedServer(lifecycleServerName, aiv1alpha1.ServerTypeVLLM))
 	replies := make(chan bus.ModelLifecycleReply, 2)
 	for range 2 {
 		go func() {

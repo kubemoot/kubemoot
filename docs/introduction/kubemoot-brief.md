@@ -38,7 +38,7 @@ one - portable across clusters and runnable on commodity or local GPUs.
 | **Crew** | A group of agents that deliberate together. |
 | **Agent** | One participant: a `coordinator`, a `Tooler`, or an `Analyst`, with declared capabilities and tools. |
 | **PromptModule** | An agent's behavior, written in ADL (the Architecture Definition Language); composed by reference. |
-| **Model** / **ModelProvider** | A model (by capability, not a hardcoded name) and the GPU-backed endpoint that serves it. |
+| **Model** / **ModelServer** | A model (by capability, not a hardcoded name) and the GPU-backed endpoint that serves it. |
 | **RAGSource** | A knowledge source that's indexed and made queryable for agents. |
 | **MCPServer** / **MCPGateway** | Tools an agent can call, discovered through a gateway (Model Context Protocol). |
 | **CrewFitness** / **CrewFitnessSuite** | Executable tests that score a crew against ground truth. |
@@ -62,7 +62,7 @@ Because these are CRDs, you author crews with `kubectl apply`, review changes wi
 The **operator** (a Kubernetes controller) reconciles the resources above; the
 **agent runtime** hosts each agent; **NATS JetStream** carries the discussion; an
 **MCP gateway** brokers tools. You bring a Kubernetes cluster and at least one
-GPU-backed model provider.
+GPU-backed model server.
 
 ## Next
 

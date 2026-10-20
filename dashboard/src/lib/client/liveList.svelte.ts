@@ -10,7 +10,7 @@ export type LivePlural =
 	| 'mcpgateways'
 	| 'mcpqualitypolicies'
 	| 'mcpservers'
-	| 'modelproviders'
+	| 'modelservers'
 	| 'models'
 	| 'promptmodules'
 	| 'ragsources';

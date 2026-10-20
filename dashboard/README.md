@@ -13,7 +13,7 @@ Gateway exposes it on. See [Dashboard](../docs/operating/dashboard.md) for the d
 - **Overview Dashboard**: Summary of all Kubemoot resources with health status
 - **Node View**: Cluster nodes with GPU detection and resource info
 - **CRD Views**: List and detail views for all 8 Kubemoot CRDs:
-  - ModelProviders
+  - ModelServers
   - Models
   - EmbeddingModels
   - MCPServers
@@ -89,7 +89,7 @@ docker run -p 3000:3000 kubemoot-dashboard
 
 ### Kubemoot CRDs
 All endpoints support `?namespace=` query parameter:
-- `GET /dashboard/api/kubemoot/modelproviders[/name]`
+- `GET /dashboard/api/kubemoot/modelservers[/name]`
 - `GET /dashboard/api/kubemoot/models[/name]`
 - `GET /dashboard/api/kubemoot/embeddingmodels[/name]`
 - `GET /dashboard/api/kubemoot/mcpservers[/name]`
@@ -127,7 +127,7 @@ rules:
 | `APP_VERSION` | Version displayed in UI | From VERSION file |
 | `KUBEMOOT_DASHBOARD_READ_ONLY` | `true` refuses every request that is not GET, HEAD or OPTIONS with 403, and hides the write controls | `false` |
 | `KUBEMOOT_DASHBOARD_NAMESPACE_SELECTOR` | Label selector (for example `kubemoot.ai/workshop-team=true`); only matching namespaces are shown, resolved against the live cluster | empty (all namespaces) |
-| `KUBEMOOT_DASHBOARD_INFRA_NAMESPACE` | With a selector set, the operator namespace whose model providers, models, embedding models, MCP catalogs and quality policies stay visible | `kubemoot` |
+| `KUBEMOOT_DASHBOARD_INFRA_NAMESPACE` | With a selector set, the operator namespace whose model servers, models, embedding models, MCP catalogs and quality policies stay visible | `kubemoot` |
 
 ### Read-only, namespace-scoped mode
 

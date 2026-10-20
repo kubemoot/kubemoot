@@ -323,7 +323,7 @@ class DiscussionSubscriberSkillsTest {
             @Override public Optional<String> systemPromptFile() { return Optional.empty(); }
             @Override public Model model() { return new Model() {
                 @Override public String name() { return "default"; }
-                @Override public String provider() { return "ollama"; }
+                @Override public String server() { return "ollama"; }
                 @Override public String model() { return "qwen3:8b"; }
                 @Override public String endpoint() { return "http://localhost:11434"; }
                 @Override public double temperature() { return 0.3; }

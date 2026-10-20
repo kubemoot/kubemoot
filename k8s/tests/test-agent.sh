@@ -54,12 +54,12 @@ check_ollama || exit 1
 #
 log_section "Test 1: Create Model for Agent"
 
-# First ensure ModelProvider exists
-if ! kubectl get modelprovider ollama-local -n "$NAMESPACE" >/dev/null 2>&1; then
-    log_info "Creating ModelProvider for test..."
+# First ensure ModelServer exists
+if ! kubectl get modelserver ollama-local -n "$NAMESPACE" >/dev/null 2>&1; then
+    log_info "Creating ModelServer for test..."
     cat <<EOF | kubectl apply -f -
 apiVersion: kubemoot.ai/v1alpha1
-kind: ModelProvider
+kind: ModelServer
 metadata:
   name: ollama-local
   namespace: $NAMESPACE
@@ -77,7 +77,7 @@ metadata:
   name: $MODEL_NAME
   namespace: $NAMESPACE
 spec:
-  providerRef: ollama-local
+  serverRef: ollama-local
   model: qwen2:0.5b
 EOF
 

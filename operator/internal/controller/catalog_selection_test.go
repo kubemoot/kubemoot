@@ -24,17 +24,17 @@ const (
 	selModel8  = "qwen3:8b"
 	selModel30 = "qwen3:30b"
 
-	selToolLabel    = "capability/tool-calling"
-	selReasonLabel  = "capability/reasoning"
-	selBogus        = "Bogus"
-	selK8s          = "kubernetes"
-	selOwnProvider  = "own-provider"
-	selCrewProvider = "crew-provider"
+	selToolLabel   = "capability/tool-calling"
+	selReasonLabel = "capability/reasoning"
+	selBogus       = "Bogus"
+	selK8s         = "kubernetes"
+	selOwnServer   = "own-server"
+	selCrewServer  = "crew-server"
 )
 
-// catEntryOf is a catalog entry the way the provider reconciler publishes one.
+// catEntryOf is a catalog entry the way the server reconciler publishes one.
 func catEntryOf(name, size string, abilities ...string) aiv1alpha1.CatalogModel {
-	lbls := map[string]string{aiv1alpha1.LabelEngine: candProvider}
+	lbls := map[string]string{aiv1alpha1.LabelEngine: candServer}
 	if size != "" {
 		lbls[aiv1alpha1.LabelSize] = size
 	}
@@ -44,13 +44,13 @@ func catEntryOf(name, size string, abilities ...string) aiv1alpha1.CatalogModel 
 	return aiv1alpha1.CatalogModel{Name: name, Present: true, Size: size, Capabilities: abilities, Labels: lbls}
 }
 
-func opProvider(name string, typ aiv1alpha1.ProviderType, entries ...aiv1alpha1.CatalogModel) *aiv1alpha1.ModelProvider {
-	p := &aiv1alpha1.ModelProvider{
+func opServer(name string, typ aiv1alpha1.ServerType, entries ...aiv1alpha1.CatalogModel) *aiv1alpha1.ModelServer {
+	p := &aiv1alpha1.ModelServer{
 		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: selOpNS},
-		Spec:       aiv1alpha1.ModelProviderSpec{Type: typ, Endpoint: "http://" + name + ":11434"},
-		Status:     aiv1alpha1.ModelProviderStatus{Ready: true, Models: entries},
+		Spec:       aiv1alpha1.ModelServerSpec{Type: typ, Endpoint: "http://" + name + ":11434"},
+		Status:     aiv1alpha1.ModelServerStatus{Ready: true, Models: entries},
 	}
-	if typ == aiv1alpha1.ProviderTypeVLLM {
+	if typ == aiv1alpha1.ServerTypeVLLM {
 		p.Spec.Endpoint = ""
 		p.Spec.Servers = nil
 		p.Spec.ServiceRef = &aiv1alpha1.VLLMServiceRef{Name: name}
@@ -272,16 +272,16 @@ func TestSelectsOnLabelFindsEveryPlace(t *testing.T) {
 
 // ---- catalog candidates -----------------------------------------------------
 
-func TestProviderCandidatesSkipAbsentAndNonFittingModels(t *testing.T) {
-	p := opProvider(selOllama, aiv1alpha1.ProviderTypeOllama, catEntryOf(selModel8, aiv1alpha1.SizeSmall), catEntryOf(candModel14, aiv1alpha1.SizeMedium), catEntryOf("gone", ""))
+func TestServerCandidatesSkipAbsentAndNonFittingModels(t *testing.T) {
+	p := opServer(selOllama, aiv1alpha1.ServerTypeOllama, catEntryOf(selModel8, aiv1alpha1.SizeSmall), catEntryOf(candModel14, aiv1alpha1.SizeMedium), catEntryOf("gone", ""))
 	p.Status.Models[2].Present = false
-	p.Status.Calibration = &aiv1alpha1.ProviderCalibration{Models: []aiv1alpha1.ModelCalibration{{Model: candModel14, Fits: false}, {Model: selModel8, Fits: true}}}
-	got := providerCandidates(p)
+	p.Status.Calibration = &aiv1alpha1.ServerCalibration{Models: []aiv1alpha1.ModelCalibration{{Model: candModel14, Fits: false}, {Model: selModel8, Fits: true}}}
+	got := serverCandidates(p)
 	if len(got) != 1 || got[0].Spec.Model != selModel8 {
 		t.Fatalf("candidates = %+v, want only the small model", got)
 	}
 	m := got[0]
-	if m.Namespace != selOpNS || m.Spec.ProviderRef != selOllama || !m.Status.Ready || m.Labels[aiv1alpha1.LabelSize] != aiv1alpha1.SizeSmall {
+	if m.Namespace != selOpNS || m.Spec.ServerRef != selOllama || !m.Status.Ready || m.Labels[aiv1alpha1.LabelSize] != aiv1alpha1.SizeSmall {
 		t.Errorf("candidate = %+v", m)
 	}
 }
@@ -290,7 +290,7 @@ func TestModelSourceCrewLocalReplacesTheCatalogAndFlipsWhenDropped(t *testing.T)
 	scheme := agentReconcileScheme(t)
 	local := candModel("own", candModel14, true, nil)
 	local.Namespace = selNS
-	cli := fake.NewClientBuilder().WithScheme(scheme).WithObjects(&local, opProvider(selOllama, aiv1alpha1.ProviderTypeOllama, catEntryOf(selModel8, aiv1alpha1.SizeSmall))).Build()
+	cli := fake.NewClientBuilder().WithScheme(scheme).WithObjects(&local, opServer(selOllama, aiv1alpha1.ServerTypeOllama, catEntryOf(selModel8, aiv1alpha1.SizeSmall))).Build()
 	r := &AgentReconciler{Client: cli, Scheme: scheme}
 	src, err := r.modelSource(context.Background(), selNS)
 	if err != nil || src.Mode != catalogModeCrewLocal || len(src.Models) != 1 || src.Models[0].Spec.Model != candModel14 {
@@ -335,7 +335,7 @@ func TestNoMatchReasonNamesWhatIsMissing(t *testing.T) {
 	if got := noMatchReason(phaseMulling, rule, local, selNS); got != "no Ready Model matches phase=mulling require selectors" {
 		t.Errorf("crew-local with a require keeps the old message, got %q", got)
 	}
-	if got := noMatchReason(phaseMulling, nil, local, selNS); got != "no Ready Model with a Ready ModelProvider in namespace crew-ns" {
+	if got := noMatchReason(phaseMulling, nil, local, selNS); got != "no Ready Model with a Ready ModelServer in namespace crew-ns" {
 		t.Errorf("crew-local without a require keeps the old message, got %q", got)
 	}
 	exprRule := &aiv1alpha1.SchedulingRule{RequireExpressions: []corev1.NodeSelectorRequirement{{Key: selCtxKey, Operator: corev1.NodeSelectorOpGt, Values: []string{"16383"}}}}
@@ -347,7 +347,7 @@ func TestNoMatchReasonNamesWhatIsMissing(t *testing.T) {
 // ---- propagation ------------------------------------------------------------
 
 func TestCatalogDigestIgnoresProbeNoiseButSeesLabelsAndReadiness(t *testing.T) {
-	base := opProvider(selOllama, aiv1alpha1.ProviderTypeOllama, catEntryOf(selModel8, aiv1alpha1.SizeSmall))
+	base := opServer(selOllama, aiv1alpha1.ServerTypeOllama, catEntryOf(selModel8, aiv1alpha1.SizeSmall))
 	noisy := base.DeepCopy()
 	noisy.Status.Capacity = &aiv1alpha1.DiscoveredCapacity{VRAMUsedMiB: 9000, AgentCount: 3}
 	if catalogDigest(base) != catalogDigest(noisy) {
@@ -362,9 +362,9 @@ func TestCatalogDigestIgnoresProbeNoiseButSeesLabelsAndReadiness(t *testing.T) {
 	bigger := base.DeepCopy()
 	bigger.Status.Models[0].VRAMMib = 24000
 	if catalogDigest(base) != catalogDigest(notReady) {
-		t.Error("one failed probe flips readiness; it must not change the digest or the pods bound to the provider would roll twice")
+		t.Error("one failed probe flips readiness; it must not change the digest or the pods bound to the server would roll twice")
 	}
-	for name, p := range map[string]*aiv1alpha1.ModelProvider{"relabeled": relabeled, "absent": absent, "vram": bigger} {
+	for name, p := range map[string]*aiv1alpha1.ModelServer{"relabeled": relabeled, "absent": absent, "vram": bigger} {
 		if catalogDigest(base) == catalogDigest(p) {
 			t.Errorf("%s must change the digest", name)
 		}
@@ -378,19 +378,19 @@ func TestCatalogDigestIgnoresProbeNoiseButSeesLabelsAndReadiness(t *testing.T) {
 	}
 }
 
-func TestCatalogAgentRequestsReachCrewsByProviderNamespace(t *testing.T) {
+func TestCatalogAgentRequestsReachCrewsByServerNamespace(t *testing.T) {
 	scheme := agentReconcileScheme(t)
 	mk := func(ns, name string) *aiv1alpha1.Agent {
 		return &aiv1alpha1.Agent{ObjectMeta: metav1.ObjectMeta{Namespace: ns, Name: name}}
 	}
 	cli := fake.NewClientBuilder().WithScheme(scheme).WithObjects(mk(selNS, "a"), mk("other-ns", "b"), mk(selOpNS, "c")).Build()
-	cluster := opProvider(selOllama, aiv1alpha1.ProviderTypeOllama)
+	cluster := opServer(selOllama, aiv1alpha1.ServerTypeOllama)
 	if got := catalogAgentRequests(context.Background(), cli, cluster); len(got) != 3 {
-		t.Errorf("a provider in the operator's namespace reaches every crew, got %d", len(got))
+		t.Errorf("a server in the operator's namespace reaches every crew, got %d", len(got))
 	}
-	local := &aiv1alpha1.ModelProvider{ObjectMeta: metav1.ObjectMeta{Namespace: selNS, Name: selOwnProvider}}
+	local := &aiv1alpha1.ModelServer{ObjectMeta: metav1.ObjectMeta{Namespace: selNS, Name: selOwnServer}}
 	if got := catalogAgentRequests(context.Background(), cli, local); len(got) != 1 || got[0].Namespace != selNS {
-		t.Errorf("a crew's own provider reaches only that namespace, got %+v", got)
+		t.Errorf("a crew's own server reaches only that namespace, got %+v", got)
 	}
 	if got := catalogAgentRequests(context.Background(), cli, &aiv1alpha1.Agent{}); got != nil {
 		t.Errorf("a non-provider maps to %+v", got)

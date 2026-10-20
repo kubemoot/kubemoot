@@ -16,16 +16,16 @@
 		userQuery?: string;
 		version?: string;
 		crew?: string;
-		// Maps a published provider id (ModelProvider CR name or its endpoint
+		// Maps a published server id (ModelServer CR name or its endpoint
 		// namespace, e.g. "ollama-gpu" / "ollama-rig1") to the operator-discovered
-		// GPU model (DCGM, e.g. "RTX 5090"). The agent publishes a stable provider
+		// GPU model (DCGM, e.g. "RTX 5090"). The agent publishes a stable server
 		// id in span metadata; this resolves it to the human GPU name for display
-		// only. Empty map (or unknown id) falls back to the raw provider id.
+		// only. Empty map (or unknown id) falls back to the raw server id.
 		gpuDisplayMap?: Record<string, string>;
 	} = $props();
 
-	// Resolve a published provider-id gpuLabel to the discovered GPU model name
-	// for display. Falls back to the raw label when the provider is unknown.
+	// Resolve a published server-id gpuLabel to the discovered GPU model name
+	// for display. Falls back to the raw label when the server is unknown.
 	function gpuName(label: string | undefined): string {
 		if (!label) return '';
 		return gpuDisplayMap[label] ?? label;

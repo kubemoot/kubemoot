@@ -54,14 +54,14 @@ func catalogReconciler(t *testing.T, objs ...client.Object) (*AgentReconciler, c
 // A crew with no Models binds from the cluster catalog.
 func TestPickModelFromTheCatalogWhenTheCrewShipsNoModels(t *testing.T) {
 	r, _ := catalogReconciler(t,
-		opProvider(selOllama, aiv1alpha1.ProviderTypeOllama, catEntryOf(selModel8, aiv1alpha1.SizeSmall, testToolCalling)),
+		opServer(selOllama, aiv1alpha1.ServerTypeOllama, catEntryOf(selModel8, aiv1alpha1.SizeSmall, testToolCalling)),
 		pilotPolicy(), pilotAgent(candAgent))
 	pick, err := r.pickModel(context.Background(), pilotAgent(candAgent), phaseMulling)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if pick.ModelID != selModel8 || pick.Provider.Name != selOllama || pick.Provider.Namespace != selOpNS {
-		t.Errorf("pick = %s on %s/%s", pick.ModelID, pick.Provider.Namespace, pick.Provider.Name)
+	if pick.ModelID != selModel8 || pick.Server.Name != selOllama || pick.Server.Namespace != selOpNS {
+		t.Errorf("pick = %s on %s/%s", pick.ModelID, pick.Server.Namespace, pick.Server.Name)
 	}
 	if pick.Endpoint != "http://ollama-gpu:11434" {
 		t.Errorf("endpoint = %q", pick.Endpoint)
@@ -73,13 +73,13 @@ func TestPickModelFromTheCatalogWhenTheCrewShipsNoModels(t *testing.T) {
 func TestPickModelCrewLocalModelsReplaceTheCatalog(t *testing.T) {
 	own := candModel("own", candModel14, true, map[string]string{selToolLabel: valueTrue})
 	own.Namespace = selNS
-	ownProvider := &aiv1alpha1.ModelProvider{
-		ObjectMeta: metav1.ObjectMeta{Name: candProvider, Namespace: selNS},
-		Spec:       aiv1alpha1.ModelProviderSpec{Type: aiv1alpha1.ProviderTypeOllama, Endpoint: testOllamaURL},
-		Status:     aiv1alpha1.ModelProviderStatus{Ready: true},
+	ownServer := &aiv1alpha1.ModelServer{
+		ObjectMeta: metav1.ObjectMeta{Name: candServer, Namespace: selNS},
+		Spec:       aiv1alpha1.ModelServerSpec{Type: aiv1alpha1.ServerTypeOllama, Endpoint: testOllamaURL},
+		Status:     aiv1alpha1.ModelServerStatus{Ready: true},
 	}
-	r, cli := catalogReconciler(t, &own, ownProvider,
-		opProvider(selOllama, aiv1alpha1.ProviderTypeOllama, catEntryOf("llama3.3:70b", aiv1alpha1.SizeLarge, testToolCalling)),
+	r, cli := catalogReconciler(t, &own, ownServer,
+		opServer(selOllama, aiv1alpha1.ServerTypeOllama, catEntryOf("llama3.3:70b", aiv1alpha1.SizeLarge, testToolCalling)),
 		pilotPolicy())
 	pick, err := r.pickModel(context.Background(), pilotAgent(candAgent, candReasoning), phaseMulling)
 	if err != nil || pick.ModelID != candModel14 {
@@ -99,8 +99,8 @@ func TestPickModelCrewLocalModelsReplaceTheCatalog(t *testing.T) {
 func TestPickModelFollowsTheCatalogMulling(t *testing.T) {
 	small := catEntryOf(selModel8, aiv1alpha1.SizeSmall, testToolCalling)
 	large := catEntryOf(selModel30, aiv1alpha1.SizeLarge, testToolCalling, candReasoning)
-	provider := opProvider(selOllama, aiv1alpha1.ProviderTypeOllama, small)
-	r, cli := catalogReconciler(t, provider, pilotPolicy())
+	server := opServer(selOllama, aiv1alpha1.ServerTypeOllama, small)
+	r, cli := catalogReconciler(t, server, pilotPolicy())
 	agent := pilotAgent(candAgent, candReasoning)
 	ctx := context.Background()
 
@@ -116,8 +116,8 @@ func TestPickModelFollowsTheCatalogMulling(t *testing.T) {
 		t.Fatal("with one small model both phases use it")
 	}
 
-	provider.Status.Models = []aiv1alpha1.CatalogModel{small, large}
-	if err := cli.Update(ctx, provider); err != nil {
+	server.Status.Models = []aiv1alpha1.CatalogModel{small, large}
+	if err := cli.Update(ctx, server); err != nil {
 		t.Fatal(err)
 	}
 	if got := pickOf(phaseMulling); got != selModel30 {
@@ -127,8 +127,8 @@ func TestPickModelFollowsTheCatalogMulling(t *testing.T) {
 		t.Errorf("triage = %s, want to stay on the small model", got)
 	}
 
-	provider.Status.Models = []aiv1alpha1.CatalogModel{small}
-	if err := cli.Update(ctx, provider); err != nil {
+	server.Status.Models = []aiv1alpha1.CatalogModel{small}
+	if err := cli.Update(ctx, server); err != nil {
 		t.Fatal(err)
 	}
 	if got := pickOf(phaseMulling); got != selModel8 {
@@ -141,7 +141,7 @@ func TestPickModelFollowsTheCatalogMulling(t *testing.T) {
 func TestPickModelAbilityPreferenceIsSoft(t *testing.T) {
 	plain := catEntryOf("a-plain", aiv1alpha1.SizeMedium, testToolCalling)
 	thinker := catEntryOf("z-thinker", aiv1alpha1.SizeMedium, testToolCalling, candReasoning)
-	r, _ := catalogReconciler(t, opProvider(selOllama, aiv1alpha1.ProviderTypeOllama, plain, thinker), pilotPolicy())
+	r, _ := catalogReconciler(t, opServer(selOllama, aiv1alpha1.ServerTypeOllama, plain, thinker), pilotPolicy())
 	pick, err := r.pickModel(context.Background(), pilotAgent(candAgent, candReasoning), phaseMulling)
 	if err != nil || pick.ModelID != "z-thinker" {
 		t.Fatalf("pick = %+v err %v, want the reasoning model", pick, err)
@@ -151,7 +151,7 @@ func TestPickModelAbilityPreferenceIsSoft(t *testing.T) {
 		t.Fatalf("pick = %+v err %v, want the first by name when nothing is declared", pick, err)
 	}
 	// With only the non-reasoning model the agent still schedules: abilities are not hard needs.
-	r2, _ := catalogReconciler(t, opProvider(selOllama, aiv1alpha1.ProviderTypeOllama, plain), pilotPolicy())
+	r2, _ := catalogReconciler(t, opServer(selOllama, aiv1alpha1.ServerTypeOllama, plain), pilotPolicy())
 	if pick, err := r2.pickModel(context.Background(), pilotAgent(candAgent, candReasoning), phaseMulling); err != nil || pick.ModelID != "a-plain" {
 		t.Fatalf("pick = %+v err %v, want the only model", pick, err)
 	}
@@ -166,7 +166,7 @@ func TestPickModelRequireExpressionsFilterByContext(t *testing.T) {
 	unknown := catEntryOf("unknown-context", aiv1alpha1.SizeLarge, testToolCalling)
 	policy := pilotPolicy()
 	policy.Spec.Rules[0].RequireExpressions = []corev1.NodeSelectorRequirement{{Key: selCtxKey, Operator: corev1.NodeSelectorOpGt, Values: []string{"16383"}}}
-	r, _ := catalogReconciler(t, opProvider(selOllama, aiv1alpha1.ProviderTypeOllama, short, long, unknown), policy)
+	r, _ := catalogReconciler(t, opServer(selOllama, aiv1alpha1.ServerTypeOllama, short, long, unknown), policy)
 	pick, err := r.pickModel(context.Background(), pilotAgent(candAgent), phaseMulling)
 	if err != nil || pick.ModelID != "long" || len(pick.Candidates) != 1 {
 		t.Fatalf("pick = %+v err %v, want only the model with enough context", pick, err)
@@ -179,7 +179,7 @@ func TestPickModelZeroMatchMessageNamesTheMissingSize(t *testing.T) {
 	policy := pilotPolicy()
 	policy.Spec.Rules[0].Require = &metav1.LabelSelector{MatchLabels: map[string]string{aiv1alpha1.LabelSize: aiv1alpha1.SizeLarge}}
 	r, _ := catalogReconciler(t,
-		opProvider(selOllama, aiv1alpha1.ProviderTypeOllama, catEntryOf(selModel8, aiv1alpha1.SizeSmall), catEntryOf("mystery", "")), policy)
+		opServer(selOllama, aiv1alpha1.ServerTypeOllama, catEntryOf(selModel8, aiv1alpha1.SizeSmall), catEntryOf("mystery", "")), policy)
 	_, err := r.pickModel(context.Background(), pilotAgent(candAgent), phaseMulling)
 	if err == nil {
 		t.Fatal("want unschedulable")
@@ -191,10 +191,10 @@ func TestPickModelZeroMatchMessageNamesTheMissingSize(t *testing.T) {
 	}
 }
 
-// A model calibration found does not fit the provider is not a candidate.
+// A model calibration found does not fit the server is not a candidate.
 func TestPickModelSkipsModelsThatDoNotFit(t *testing.T) {
-	p := opProvider(selOllama, aiv1alpha1.ProviderTypeOllama, catEntryOf("big", aiv1alpha1.SizeLarge, testToolCalling), catEntryOf("fits", aiv1alpha1.SizeSmall, testToolCalling))
-	p.Status.Calibration = &aiv1alpha1.ProviderCalibration{Models: []aiv1alpha1.ModelCalibration{{Model: "big", Fits: false}}}
+	p := opServer(selOllama, aiv1alpha1.ServerTypeOllama, catEntryOf("big", aiv1alpha1.SizeLarge, testToolCalling), catEntryOf("fits", aiv1alpha1.SizeSmall, testToolCalling))
+	p.Status.Calibration = &aiv1alpha1.ServerCalibration{Models: []aiv1alpha1.ModelCalibration{{Model: "big", Fits: false}}}
 	r, _ := catalogReconciler(t, p, pilotPolicy())
 	pick, err := r.pickModel(context.Background(), pilotAgent(candAgent, candReasoning), phaseMulling)
 	if err != nil || pick.ModelID != "fits" {
@@ -258,23 +258,23 @@ func requireSameVersions(t *testing.T, before, after map[string]string) {
 	}
 }
 
-// requireBoundTo fails unless the agent's Deployment records both phases on provider.
-func requireBoundTo(t *testing.T, cli client.Client, provider string) {
+// requireBoundTo fails unless the agent's Deployment records both phases on server.
+func requireBoundTo(t *testing.T, cli client.Client, server string) {
 	t.Helper()
 	dep := &appsv1.Deployment{}
 	mustGet(t, cli, types.NamespacedName{Name: candAgent, Namespace: selNS}, dep)
-	if dep.Labels[labelMullingProvider] != provider || dep.Labels[labelTriageProvider] != provider {
-		t.Errorf("bound mulling=%q triage=%q, want %s", dep.Labels[labelMullingProvider], dep.Labels[labelTriageProvider], provider)
+	if dep.Labels[labelMullingServer] != server || dep.Labels[labelTriageServer] != server {
+		t.Errorf("bound mulling=%q triage=%q, want %s", dep.Labels[labelMullingServer], dep.Labels[labelTriageServer], server)
 	}
 }
 
-// Portability: switching the provider behind a catalog model from Ollama to vLLM
+// Portability: switching the server behind a catalog model from Ollama to vLLM
 // (same model name, different engine and endpoint) re-binds every agent and changes
 // nothing the crew author owns in the crew's namespace.
-func TestPortabilitySwappingTheProviderBehindACatalogModelLeavesTheCrewUntouched(t *testing.T) {
+func TestPortabilitySwappingTheServerBehindACatalogModelLeavesTheCrewUntouched(t *testing.T) {
 	ctx := context.Background()
 	entry := catEntryOf(candModel14, aiv1alpha1.SizeMedium, testToolCalling, candReasoning)
-	ollamaP := opProvider(selOllama, aiv1alpha1.ProviderTypeOllama, entry)
+	ollamaP := opServer(selOllama, aiv1alpha1.ServerTypeOllama, entry)
 	secret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "crew-secret", Namespace: selNS}}
 	prompt := &aiv1alpha1.PromptModule{ObjectMeta: metav1.ObjectMeta{Name: "pilot-system", Namespace: selNS}}
 	r, cli := catalogReconciler(t, ollamaP, pilotPolicy(), secret, prompt, pilotAgent(candAgent, candReasoning))
@@ -288,12 +288,12 @@ func TestPortabilitySwappingTheProviderBehindACatalogModelLeavesTheCrewUntouched
 	mustGet(t, cli, req.NamespacedName, agentBefore)
 	requireBoundTo(t, cli, selOllama)
 
-	// The cluster owner swaps the engine: the Ollama provider goes, a vLLM provider
+	// The cluster owner swaps the engine: the Ollama server goes, a vLLM server
 	// serving the same model name comes. Nothing in the crew's namespace is touched.
 	if err := cli.Delete(ctx, ollamaP); err != nil {
 		t.Fatal(err)
 	}
-	if err := cli.Create(ctx, opProvider(selVLLM, aiv1alpha1.ProviderTypeVLLM, entry)); err != nil {
+	if err := cli.Create(ctx, opServer(selVLLM, aiv1alpha1.ServerTypeVLLM, entry)); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := r.Reconcile(ctx, req); err != nil {

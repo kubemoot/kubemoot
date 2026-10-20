@@ -369,9 +369,9 @@ spec:
     - reasoning
 ```
 
-The scheduler matches capabilities to a concrete model and provider at reconcile time
+The scheduler matches capabilities to a concrete model and server at reconcile time
 via `CrewSchedulingPolicy`, from the cluster's model catalog. A crew ships no `Model`
-objects and names no provider - loose coupling is preserved so the same crew chart runs
+objects and names no server - loose coupling is preserved so the same crew chart runs
 on a different cluster with different hardware, and switching the cluster from one model
 server to another needs no change to the crew. The policy states what each phase needs:
 tool calling as a hard need (`require`), and a size or reasoning as a wish (`prefer`, or
@@ -494,7 +494,7 @@ Before deploying a crew:
 - [ ] The coordinator has an `advisory-prompt` module instructing it on additive briefs.
 - [ ] Analyst and coordinator RAGSources have low `topK` (2-3 per source).
 - [ ] No model names appear anywhere in Agent specs - capabilities only.
-- [ ] The crew ships no `Model` objects and no `providerRef`; its `CrewSchedulingPolicy` requires only what it cannot work without.
+- [ ] The crew ships no `Model` objects and no `serverRef`; its `CrewSchedulingPolicy` requires only what it cannot work without.
 - [ ] No cluster-specific labels, node names, or topology are baked into prompt text.
 
 ---

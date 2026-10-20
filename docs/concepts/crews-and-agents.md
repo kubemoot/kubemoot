@@ -50,9 +50,9 @@ security boundary today (see
 ## Agent
 
 An `Agent` declares one participant as a thin, **capability-only** resource. The spec
-carries no model name, no provider, and no GPU hint - an agent declares *what it can
+carries no model name, no server, and no GPU hint - an agent declares *what it can
 do* (`spec.capabilities`, e.g. `tool-calling`, `reasoning`, `kubernetes`) and the
-scheduler matches it to a concrete `(model, provider, endpoint)` at decision time. An
+scheduler matches it to a concrete `(model, server, endpoint)` at decision time. An
 agent composes five things:
 
 - **Models** - resolved by the scheduler from the agent's capabilities, never named

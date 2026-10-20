@@ -84,7 +84,7 @@ spec:
             - name: NATS_URL
               value: {{ .Values.nats.url | quote }}
             {{- end }}
-            {{- if and .Values.schedulingCrew.enabled .Values.modelProviders }}
+            {{- if and .Values.schedulingCrew.enabled .Values.modelServers }}
             # The crew the operator asks to judge calibration drift (scheduling-crew.yaml).
             - name: KUBEMOOT_SCHEDULING_CREW
               value: {{ printf "%s/%s" .Values.schedulingCrew.namespace (include "kubemoot-operator.schedulingCrew" .) | quote }}

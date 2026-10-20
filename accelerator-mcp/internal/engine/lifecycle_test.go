@@ -44,7 +44,7 @@ func TestTheLifecycleAsksTheOperatorOnTheSubjectAgentsUse(t *testing.T) {
 	if err := l.Ready(context.Background(), "vllm.rig1", "qwen3:14b"); err != nil {
 		t.Fatal(err)
 	}
-	if conn.subject != bus.ModelLifecycleSubject("vllm.rig1") || conn.subject != "kubemoot.provider.model.vllm_2erig1" {
+	if conn.subject != bus.ModelLifecycleSubject("vllm.rig1") || conn.subject != "kubemoot.server.model.vllm_2erig1" {
 		t.Errorf("subject = %q", conn.subject)
 	}
 	if conn.request.Action != bus.ModelLifecycleRequestActionReady || conn.request.Model != "qwen3:14b" ||

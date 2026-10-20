@@ -1,7 +1,7 @@
 import { getCustomObjectsApi } from './client.js';
 import { setHeaderOptions } from '@kubernetes/client-node/dist/middleware.js';
 import type {
-	ModelProvider,
+	ModelServer,
 	Model,
 	EmbeddingModel,
 	MCPServer,
@@ -24,7 +24,7 @@ const VERSION = 'v1alpha1';
 
 // CRD resource definitions
 export const KUBEMOOT_CRDS = {
-	modelproviders: { plural: 'modelproviders', kind: 'ModelProvider' },
+	modelservers: { plural: 'modelservers', kind: 'ModelServer' },
 	models: { plural: 'models', kind: 'Model' },
 	embeddingmodels: { plural: 'embeddingmodels', kind: 'EmbeddingModel' },
 	mcpservers: { plural: 'mcpservers', kind: 'MCPServer' },
@@ -154,16 +154,16 @@ async function getClusterCRD<T>(plural: string, name: string): Promise<T> {
 	return result as T;
 }
 
-// ModelProvider functions
-export async function listModelProviders(namespace: string): Promise<KubemootList<ModelProvider>> {
+// ModelServer functions
+export async function listModelServers(namespace: string): Promise<KubemootList<ModelServer>> {
 	if (namespace === '') {
-		return listClusterCRD<ModelProvider>('modelproviders');
+		return listClusterCRD<ModelServer>('modelservers');
 	}
-	return listNamespacedCRD<ModelProvider>('modelproviders', namespace);
+	return listNamespacedCRD<ModelServer>('modelservers', namespace);
 }
 
-export async function getModelProvider(namespace: string, name: string): Promise<ModelProvider> {
-	return getNamespacedCRD<ModelProvider>('modelproviders', namespace, name);
+export async function getModelServer(namespace: string, name: string): Promise<ModelServer> {
+	return getNamespacedCRD<ModelServer>('modelservers', namespace, name);
 }
 
 // Model functions

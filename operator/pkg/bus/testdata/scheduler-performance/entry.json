@@ -1,5 +1,5 @@
 {
-  "provider": "ollama-gpu",
+  "server": "ollama-gpu",
   "model": "qwen3:14b",
   "agent": "crew-homelab-pilot/kubernetes-specialist",
   "updatedAt": 1791000000000,

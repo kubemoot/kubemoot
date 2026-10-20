@@ -28,17 +28,17 @@ import (
 	"github.com/kubemoot/kubemoot/accelerator-mcp/internal/probe"
 )
 
-// ToolCalibrateProvider runs the calibration recipe on a provider in the background.
-const ToolCalibrateProvider = "calibrate_provider"
+// ToolCalibrateServer runs the calibration recipe on a server in the background.
+const ToolCalibrateServer = "calibrate_server"
 
 // ToolObservedPerformance compares crew calls since the calibration with it.
 const ToolObservedPerformance = "observed_performance"
 
 // defaultTargets is how many of the smallest downloaded models a calibration
-// measures when no Model binds any to the provider.
+// measures when no Model binds any to the server.
 const defaultTargets = 3
 
-// Jobs runs calibrations in the background, at most one per provider.
+// Jobs runs calibrations in the background, at most one per server.
 type Jobs struct {
 	// Base is the context jobs run under: the server's lifetime, not a tool call's.
 	Base context.Context
@@ -48,14 +48,14 @@ type Jobs struct {
 	wg      sync.WaitGroup
 }
 
-// start runs prepare and then, in the background, job for provider, unless a job
+// start runs prepare and then, in the background, job for server, unless a job
 // is already running for it (false, nil). A prepare error is returned and nothing runs.
-func (j *Jobs) start(provider string, prepare func() error, job func(context.Context)) (bool, error) {
-	if !j.claim(provider) {
+func (j *Jobs) start(server string, prepare func() error, job func(context.Context)) (bool, error) {
+	if !j.claim(server) {
 		return false, nil
 	}
 	if err := prepare(); err != nil {
-		j.release(provider)
+		j.release(server)
 		return false, err
 	}
 	j.wg.Add(1)
@@ -65,56 +65,56 @@ func (j *Jobs) start(provider string, prepare func() error, job func(context.Con
 	}
 	go func() {
 		defer j.wg.Done()
-		defer j.release(provider)
+		defer j.release(server)
 		job(base)
 	}()
 	return true, nil
 }
 
-func (j *Jobs) claim(provider string) bool {
+func (j *Jobs) claim(server string) bool {
 	j.mu.Lock()
 	defer j.mu.Unlock()
 	if j.running == nil {
 		j.running = map[string]bool{}
 	}
-	if j.running[provider] {
+	if j.running[server] {
 		return false
 	}
-	j.running[provider] = true
+	j.running[server] = true
 	return true
 }
 
-func (j *Jobs) release(provider string) {
+func (j *Jobs) release(server string) {
 	j.mu.Lock()
 	defer j.mu.Unlock()
-	delete(j.running, provider)
+	delete(j.running, server)
 }
 
-// Running reports whether a job is running for provider.
-func (j *Jobs) Running(provider string) bool {
+// Running reports whether a job is running for server.
+func (j *Jobs) Running(server string) bool {
 	if j == nil {
 		return false
 	}
 	j.mu.Lock()
 	defer j.mu.Unlock()
-	return j.running[provider]
+	return j.running[server]
 }
 
 // Wait blocks until every running job has ended.
 func (j *Jobs) Wait() { j.wg.Wait() }
 
 type calibrateArgs struct {
-	Provider string   `json:"provider"`
-	Models   []string `json:"models"`
+	Server string   `json:"server"`
+	Models []string `json:"models"`
 }
 
 // errNoJobs is a tool set built without a jobs runner.
-var errNoJobs = errors.New("calibrate_provider is not available: no jobs runner")
+var errNoJobs = errors.New("calibrate_server is not available: no jobs runner")
 
-// calibrateProvider records Calibrating on the provider, then runs the recipe in
+// calibrateServer records Calibrating on the server, then runs the recipe in
 // the background and returns at once with the models it will measure, or reports
 // a calibration already running.
-func (s *Set) calibrateProvider(ctx context.Context, raw json.RawMessage) (any, error) {
+func (s *Set) calibrateServer(ctx context.Context, raw json.RawMessage) (any, error) {
 	if s.Jobs == nil {
 		return nil, errNoJobs
 	}
@@ -122,10 +122,10 @@ func (s *Set) calibrateProvider(ctx context.Context, raw json.RawMessage) (any, 
 	if err := parse(raw, &args); err != nil {
 		return nil, err
 	}
-	if err := required(fieldProvider, args.Provider); err != nil {
+	if err := required(fieldServer, args.Server); err != nil {
 		return nil, err
 	}
-	p, err := s.Cluster.Provider(ctx, args.Provider)
+	p, err := s.Cluster.Server(ctx, args.Server)
 	if err != nil {
 		return nil, err
 	}
@@ -147,25 +147,25 @@ func (s *Set) calibrateProvider(ctx context.Context, raw json.RawMessage) (any, 
 		return nil, fmt.Errorf("starting the calibration: %w", err)
 	}
 	if !started {
-		return map[string]any{fieldProvider: name, "running": true}, nil
+		return map[string]any{fieldServer: name, "running": true}, nil
 	}
-	return map[string]any{fieldProvider: name, "started": true, fieldModels: targets}, nil
+	return map[string]any{fieldServer: name, "started": true, fieldModels: targets}, nil
 }
 
-// calibratable refuses a provider that is not ready or has calibration turned off.
-func calibratable(p *aiv1alpha1.ModelProvider) error {
+// calibratable refuses a server that is not ready or has calibration turned off.
+func calibratable(p *aiv1alpha1.ModelServer) error {
 	if !p.Status.Ready {
-		return fmt.Errorf("provider %s is not ready", p.Name)
+		return fmt.Errorf("server %s is not ready", p.Name)
 	}
 	if !cluster.CalibrationEnabled(p) {
-		return fmt.Errorf("provider %s has spec.calibration.enabled false", p.Name)
+		return fmt.Errorf("server %s has spec.calibration.enabled false", p.Name)
 	}
 	return nil
 }
 
 // targets is the models to measure: those asked for, else the downloaded models
-// that Models bind to the provider, else the smallest downloaded models that fit.
-func (s *Set) targets(ctx context.Context, p *aiv1alpha1.ModelProvider, asked []string) ([]string, error) {
+// that Models bind to the server, else the smallest downloaded models that fit.
+func (s *Set) targets(ctx context.Context, p *aiv1alpha1.ModelServer, asked []string) ([]string, error) {
 	if len(asked) > 0 {
 		for _, m := range asked {
 			if _, ok := sizeOf(p, m); !ok {
@@ -204,8 +204,8 @@ func dedupe(models []string) []string {
 }
 
 // smallestFitting is up to n downloaded models, smallest first, that fit the
-// provider's memory budget (any size when the budget is unknown).
-func smallestFitting(p *aiv1alpha1.ModelProvider, n int) []string {
+// server's memory budget (any size when the budget is unknown).
+func smallestFitting(p *aiv1alpha1.ModelServer, n int) []string {
 	models := available(p)
 	slices.SortStableFunc(models, func(a, b availableModel) int { return cmp.Compare(a.SizeMiB, b.SizeMiB) })
 	budget := cluster.UsableMemoryMiB(p)
@@ -222,23 +222,23 @@ func smallestFitting(p *aiv1alpha1.ModelProvider, n int) []string {
 }
 
 // runRecipe measures each target in turn and records the outcome: Calibrated, or
-// Waiting when crew calls took the provider or the server is stopping (with the
+// Waiting when crew calls took the server or the server is stopping (with the
 // results so far), or Failed when no model could be measured.
-func (s *Set) runRecipe(ctx context.Context, provider string, targets []string) {
+func (s *Set) runRecipe(ctx context.Context, server string, targets []string) {
 	var results []aiv1alpha1.ModelCalibration
 	var failures []string
 	for _, model := range targets {
 		if ctx.Err() != nil {
-			s.finishRecipe(ctx, provider, PhaseWaiting, interruptedMessage, results)
+			s.finishRecipe(ctx, server, PhaseWaiting, interruptedMessage, results)
 			return
 		}
-		result, err := s.measure(ctx, provider, model)
+		result, err := s.measure(ctx, server, model)
 		if err != nil && ctx.Err() != nil {
-			s.finishRecipe(ctx, provider, PhaseWaiting, interruptedMessage, results)
+			s.finishRecipe(ctx, server, PhaseWaiting, interruptedMessage, results)
 			return
 		}
 		if errors.Is(err, errBusy) {
-			s.finishRecipe(ctx, provider, PhaseWaiting, "paused: crew calls are using the provider", results)
+			s.finishRecipe(ctx, server, PhaseWaiting, "paused: crew calls are using the server", results)
 			return
 		}
 		if err != nil {
@@ -248,34 +248,34 @@ func (s *Set) runRecipe(ctx context.Context, provider string, targets []string) 
 		results = append(results, result)
 	}
 	if len(results) == 0 {
-		s.finishRecipe(ctx, provider, PhaseFailed, "no model could be measured: "+strings.Join(failures, "; "), nil)
+		s.finishRecipe(ctx, server, PhaseFailed, "no model could be measured: "+strings.Join(failures, "; "), nil)
 		return
 	}
 	message := fmt.Sprintf("measured %d of %d models", len(results), len(targets))
 	if len(failures) > 0 {
 		message += "; not measured: " + strings.Join(failures, "; ")
 	}
-	s.finishRecipe(ctx, provider, PhaseCalibrated, message, results)
+	s.finishRecipe(ctx, server, PhaseCalibrated, message, results)
 }
 
 // finishRecipe records how a run ended. It is written even while the server stops,
 // so a run never stays Calibrating with no job behind it.
-func (s *Set) finishRecipe(ctx context.Context, provider, phase, message string,
+func (s *Set) finishRecipe(ctx context.Context, server, phase, message string,
 	results []aiv1alpha1.ModelCalibration) {
-	if _, err := s.record(context.WithoutCancel(ctx), provider, phase, message, results); err != nil {
-		log.Printf("calibration of %s ended %s but could not be recorded: %v", provider, phase, err)
+	if _, err := s.record(context.WithoutCancel(ctx), server, phase, message, results); err != nil {
+		log.Printf("calibration of %s ended %s but could not be recorded: %v", server, phase, err)
 	}
 }
 
-// errBusy is a probe that found crew calls holding the provider.
-var errBusy = errors.New("crew calls are using the provider")
+// errBusy is a probe that found crew calls holding the server.
+var errBusy = errors.New("crew calls are using the server")
 
 // measure runs the recipe on one model: load, two short requests, a long prompt,
-// and, when the provider runs requests together, a parallel batch. Every number is
+// and, when the server runs requests together, a parallel batch. Every number is
 // copied from a probe: generation speed from the second (warm) short request,
 // prompt speed from the long prompt.
-func (s *Set) measure(ctx context.Context, provider, model string) (aiv1alpha1.ModelCalibration, error) {
-	p, err := s.Cluster.Provider(ctx, provider)
+func (s *Set) measure(ctx context.Context, server, model string) (aiv1alpha1.ModelCalibration, error) {
+	p, err := s.Cluster.Server(ctx, server)
 	if err != nil {
 		return aiv1alpha1.ModelCalibration{}, err
 	}
@@ -304,18 +304,18 @@ func (s *Set) measure(ctx context.Context, provider, model string) (aiv1alpha1.M
 }
 
 // interruptedMessage explains a run the server stopped before it ended.
-const interruptedMessage = "interrupted: the calibration server stopped; it resumes when the provider is idle"
+const interruptedMessage = "interrupted: the calibration server stopped; it resumes when the server is idle"
 
-// RecoverInterrupted records Waiting on every provider left Calibrating, since
+// RecoverInterrupted records Waiting on every server left Calibrating, since
 // this server runs every calibration job and none runs at startup; the operator
-// resumes them when the provider is idle. Call it before serving.
+// resumes them when the server is idle. Call it before serving.
 func (s *Set) RecoverInterrupted(ctx context.Context) error {
-	providers, err := s.Cluster.Providers(ctx)
+	servers, err := s.Cluster.Servers(ctx)
 	if err != nil {
 		return err
 	}
 	var errs []error
-	for _, p := range providers {
+	for _, p := range servers {
 		if p.Status.Calibration == nil || p.Status.Calibration.Phase != PhaseCalibrating {
 			continue
 		}
@@ -326,22 +326,22 @@ func (s *Set) RecoverInterrupted(ctx context.Context) error {
 	return errors.Join(errs...)
 }
 
-// requestFor is a probe of model on the provider, with the provider's limits.
-func requestFor(p *aiv1alpha1.ModelProvider, model, kind string) probe.Request {
+// requestFor is a probe of model on the server, with the server's limits.
+func requestFor(p *aiv1alpha1.ModelServer, model, kind string) probe.Request {
 	size, _ := sizeOf(p, model)
 	engineType := ""
 	if cluster.IsVLLM(p) {
 		engineType = string(p.Spec.Type)
 	}
 	return probe.Request{
-		Provider: p.Name, Endpoint: p.EndpointFor(model), Model: model, Kind: kind, EngineType: engineType,
+		Server: p.Name, Endpoint: p.EndpointFor(model), Model: model, Kind: kind, EngineType: engineType,
 		MaxParallel: cluster.MaxParallel(p), SizeMiB: size,
 		MemoryMiB: cluster.UsableMemoryMiB(p), Accelerator: cluster.HasAccelerator(p),
 	}
 }
 
-// probeOnce sends one probe; a busy provider is errBusy.
-func (s *Set) probeOnce(ctx context.Context, p *aiv1alpha1.ModelProvider, model, kind string) (probe.Result, error) {
+// probeOnce sends one probe; a busy server is errBusy.
+func (s *Set) probeOnce(ctx context.Context, p *aiv1alpha1.ModelServer, model, kind string) (probe.Result, error) {
 	r, err := s.Prober.Probe(ctx, requestFor(p, model, kind))
 	if err == nil && r.Busy {
 		err = errBusy
@@ -373,17 +373,17 @@ func fillStep(result *aiv1alpha1.ModelCalibration, kind string, r probe.Result) 
 }
 
 // observedPerformance shows, per model, how fast crew calls generated on the
-// provider since its calibration, alone and alongside other calls, beside the
+// server since its calibration, alone and alongside other calls, beside the
 // calibrated speed, and which models drifted by the operator's rule.
 func (s *Set) observedPerformance(ctx context.Context, raw json.RawMessage) (any, error) {
-	var args providerArgs
+	var args serverArgs
 	if err := parse(raw, &args); err != nil {
 		return nil, err
 	}
-	if err := required(fieldProvider, args.Provider); err != nil {
+	if err := required(fieldServer, args.Server); err != nil {
 		return nil, err
 	}
-	p, err := s.Cluster.Provider(ctx, args.Provider)
+	p, err := s.Cluster.Server(ctx, args.Server)
 	if err != nil {
 		return nil, err
 	}
@@ -393,12 +393,12 @@ func (s *Set) observedPerformance(ctx context.Context, raw json.RawMessage) (any
 	}
 	others, err := s.Tickets.Others(p.Name)
 	if err != nil {
-		return nil, fmt.Errorf("reading the provider's tickets: %w", err)
+		return nil, fmt.Errorf("reading the server's tickets: %w", err)
 	}
 	calibrated, since := perf.CalibratedSpeeds(p.Status.Calibration)
 	observed := perf.Observe(entries, p.Name, since)
 	return map[string]any{
-		fieldProvider: p.Name,
+		fieldServer:   p.Name,
 		"calibration": p.Status.Calibration,
 		"callsNow":    others,
 		"observed":    observed,

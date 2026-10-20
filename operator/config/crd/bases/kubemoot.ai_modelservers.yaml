@@ -1,0 +1,717 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.22.0
+  name: modelservers.kubemoot.ai
+spec:
+  group: kubemoot.ai
+  names:
+    kind: ModelServer
+    listKind: ModelServerList
+    plural: modelservers
+    shortNames:
+    - mdlp
+    singular: modelserver
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .spec.type
+      name: Type
+      type: string
+    - jsonPath: .spec.endpoint
+      name: Endpoint
+      type: string
+    - jsonPath: .status.ready
+      name: Ready
+      type: boolean
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: ModelServer is the Schema for the modelservers API.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: |-
+              ModelServerSpec defines the desired state of ModelServer. Like a Service, it
+              has a type and flat fields that each apply to some types: endpoint to ollama;
+              serviceRef, servers, and sleepLevel to vllm.
+            properties:
+              calibration:
+                description: Calibration controls whether this server may be probed
+                  to measure its models
+                properties:
+                  enabled:
+                    default: true
+                    description: |-
+                      Enabled allows calibration probes on this server (the default). When false,
+                      the accelerator-mcp probe_model tool refuses the server: use it for an
+                      accelerator whose probe calls cost money and are not wanted.
+                    type: boolean
+                type: object
+              endpoint:
+                description: |-
+                  Endpoint is the Ollama API endpoint (required for an ollama server, and
+                  allowed only there). A vllm server has no single endpoint: its servers
+                  come from serviceRef or servers.
+                type: string
+              scheduling:
+                description: Scheduling contains optional scheduling preferences for
+                  this server
+                properties:
+                  memoryMiB:
+                    description: |-
+                      MemoryMiB is the memory budget for model residency that the fit gate may
+                      spend on this server: VRAM on a GPU host, the host RAM the server may use
+                      on a CPU host. It applies when the operator cannot discover the budget (no
+                      DCGM metrics, scheduler disabled, or a CPU server); a discovered value wins.
+                      Unset leaves the budget unknown, and agents refuse cold loads on this server.
+                    format: int64
+                    minimum: 0
+                    type: integer
+                  weight:
+                    default: 100
+                    description: |-
+                      Weight is a scheduling preference (higher = preferred). Default 100.
+                      Use to prefer one server over another for non-capacity reasons.
+                    type: integer
+                type: object
+              secretRef:
+                description: SecretRef is reserved for future server types and is
+                  not used by ollama
+                type: string
+              servers:
+                description: |-
+                  Servers (vllm only) lists the server's vLLM servers, one per served model,
+                  for vLLM deployed some other way than behind one Service. The operator does
+                  not start them: each is run with sleep mode on (--enable-sleep-mode and
+                  VLLM_SERVER_DEV_MODE=1). Exactly one of serviceRef or servers.
+                items:
+                  description: VLLMServer is one vLLM server and the model it serves.
+                  properties:
+                    endpoint:
+                      description: |-
+                        Endpoint is the server's OpenAI-compatible base URL, without /v1
+                        (for example http://vllm-qwen3-14b.models:8000).
+                      pattern: ^https?://[^/\s]+.*$
+                      type: string
+                    model:
+                      description: |-
+                        Model is the served name of the model this server answers to: the Model's
+                        spec.model, and the --served-model-name the server runs with.
+                      minLength: 1
+                      type: string
+                  required:
+                  - endpoint
+                  - model
+                  type: object
+                maxItems: 32
+                minItems: 1
+                type: array
+                x-kubernetes-list-map-keys:
+                - model
+                x-kubernetes-list-type: map
+              serviceRef:
+                description: |-
+                  ServiceRef (vllm only) names the Service that fronts the vLLM servers, for
+                  example the one the kubemoot-vllm chart installs. The operator reads the
+                  Service's ports and asks each port's /v1/models which model it serves, so no
+                  endpoints are written by hand. Exactly one of serviceRef or servers.
+                properties:
+                  name:
+                    description: Name is the Service's name.
+                    minLength: 1
+                    type: string
+                  namespace:
+                    description: 'Namespace is the Service''s namespace. Default:
+                      the server''s namespace.'
+                    type: string
+                required:
+                - name
+                type: object
+              sleepLevel:
+                description: |-
+                  SleepLevel (vllm only) is how a server is put to sleep when another model
+                  takes the accelerator: 1 parks the weights in host memory (fast to wake), 2
+                  drops them and reloads from disk on wake (holds no host memory). Unset means
+                  1. It cannot change once the server exists, because a sleeping server wakes
+                  by the level the server names, and that must be the level it slept at; to
+                  change it, delete and recreate the server.
+                enum:
+                - 1
+                - 2
+                type: integer
+              type:
+                description: 'Type specifies the server type: ollama or vllm.'
+                type: string
+                x-kubernetes-validations:
+                - message: only types ollama and vllm are supported today; openai
+                    and anthropic are not supported yet
+                  rule: self == 'ollama' || self == 'vllm'
+            required:
+            - type
+            type: object
+            x-kubernetes-validations:
+            - message: an ollama server needs spec.endpoint
+              rule: self.type != 'ollama' || has(self.endpoint)
+            - message: spec.endpoint is only for an ollama server; a vllm server names
+                its servers with spec.serviceRef or spec.servers
+              rule: self.type == 'ollama' || !has(self.endpoint)
+            - message: spec.serviceRef is only for a vllm server
+              rule: self.type == 'vllm' || !has(self.serviceRef)
+            - message: spec.servers is only for a vllm server
+              rule: self.type == 'vllm' || !has(self.servers)
+            - message: spec.sleepLevel is only for a vllm server
+              rule: self.type == 'vllm' || !has(self.sleepLevel)
+            - message: a vllm server sets exactly one of spec.serviceRef (discover
+                the servers from a Service) or spec.servers (list them)
+              rule: self.type != 'vllm' || (has(self.serviceRef) != has(self.servers))
+            - message: 'spec.sleepLevel is immutable: delete and recreate the server
+                to change it'
+              rule: '(has(self.sleepLevel) ? self.sleepLevel : 1) == (has(oldSelf.sleepLevel)
+                ? oldSelf.sleepLevel : 1)'
+          status:
+            description: ModelServerStatus defines the observed state of ModelServer.
+            properties:
+              calibration:
+                description: |-
+                  Calibration is what calibration measured on this server: per model, how
+                  long it takes to load, how fast it processes prompts and generates, and
+                  whether it fits the accelerator. It is recorded through the accelerator-mcp
+                  tools; the scheduler does not read it yet
+                properties:
+                  completedAt:
+                    description: CompletedAt is when the last calibration finished
+                    format: date-time
+                    type: string
+                  engineVersion:
+                    description: EngineVersion is the engine version the results were
+                      measured on
+                    type: string
+                  message:
+                    description: Message explains the phase
+                    type: string
+                  models:
+                    description: Models holds one result per model calibrated
+                    items:
+                      description: |-
+                        ModelCalibration is what calibration measured for one model on a server.
+                        Speeds are tokens per second, rounded down.
+                      properties:
+                        calibratedAt:
+                          description: CalibratedAt is when this model was measured
+                          format: date-time
+                          type: string
+                        contextLength:
+                          description: ContextLength is the context the engine gives
+                            the model, in tokens
+                          type: integer
+                        fits:
+                          description: |-
+                            Fits is false when the model does not fit the server's memory: it would
+                            spill to the CPU, or it is larger than the memory budget
+                          type: boolean
+                        generateTokensPerSecond:
+                          description: GenerateTokensPerSecond is how fast one request
+                            generates
+                          format: int64
+                          type: integer
+                        loadMs:
+                          description: LoadMs is how long the engine took to load
+                            the model, in milliseconds
+                          format: int64
+                          type: integer
+                        model:
+                          description: Model is the model name on the server, such
+                            as qwen3:14b
+                          type: string
+                        parallelGenerateTokensPerSecond:
+                          description: |-
+                            ParallelGenerateTokensPerSecond is the total generation speed with
+                            ParallelRequests running together
+                          format: int64
+                          type: integer
+                        parallelRequests:
+                          description: ParallelRequests is how many requests ran together
+                            for the parallel measure
+                          type: integer
+                        promptTokensPerSecond:
+                          description: PromptTokensPerSecond is how fast the model
+                            processes a long prompt
+                          format: int64
+                          type: integer
+                        reason:
+                          description: Reason explains a model that does not fit or
+                            could not be measured
+                          type: string
+                        residentMiB:
+                          description: ResidentMiB is the accelerator memory the model
+                            took once loaded
+                          format: int64
+                          type: integer
+                      required:
+                      - fits
+                      - model
+                      type: object
+                    type: array
+                  phase:
+                    description: |-
+                      Phase is Calibrating, Calibrated, Waiting (paused because crew calls were
+                      using the server), or Failed
+                    type: string
+                  resetToken:
+                    description: |-
+                      ResetToken is the last kubemoot.ai/calibration-reset value acted on: set when
+                      the calibration it asked for starts
+                    type: string
+                  updatedAt:
+                    description: UpdatedAt is when the calibration was last recorded,
+                      in any phase
+                    format: date-time
+                    type: string
+                type: object
+              calibrationDrift:
+                description: |-
+                  CalibrationDrift lists the models whose crew calls, running alone on the
+                  server, generated much slower or faster than calibration measured. The
+                  operator asks the scheduling crew once per drift to judge whether to
+                  recalibrate; it is cleared once the speeds agree again
+                properties:
+                  askedAt:
+                    description: AskedAt is when the scheduling crew was asked to
+                      judge it
+                    format: date-time
+                    type: string
+                  detectedAt:
+                    description: DetectedAt is when the operator first saw it
+                    format: date-time
+                    type: string
+                  key:
+                    description: 'Key names this drift: the models and the calibration
+                      they drifted from'
+                    type: string
+                  models:
+                    description: Models are the models that drifted
+                    items:
+                      description: ModelDrift is one model's calibrated and observed
+                        generation speed.
+                      properties:
+                        calibratedTokensPerSecond:
+                          description: CalibratedTokensPerSecond is the generation
+                            speed calibration measured
+                          format: int64
+                          type: integer
+                        model:
+                          description: Model is the model name on the server
+                          type: string
+                        observedTokensPerSecond:
+                          description: |-
+                            ObservedTokensPerSecond is the median generation speed of warm crew calls
+                            that ran alone on the server since the calibration
+                          format: int64
+                          type: integer
+                        samples:
+                          description: Samples is how many such calls the median is
+                            over
+                          type: integer
+                      required:
+                      - calibratedTokensPerSecond
+                      - model
+                      - observedTokensPerSecond
+                      - samples
+                      type: object
+                    type: array
+                required:
+                - detectedAt
+                - key
+                - models
+                type: object
+              calibrationRequest:
+                description: |-
+                  CalibrationRequest is the operator's last request to calibrate this server,
+                  made through the accelerator-mcp core server. The operator asks once per need
+                  (a new server, a reset, a changed engine, newly bound models), and again for
+                  the same need only after the calibration paused as Waiting and the server
+                  fell idle
+                properties:
+                  key:
+                    description: |-
+                      Key names the need asked about, such as new, reset/<token>, engine/<version>,
+                      or models/<digest>
+                    type: string
+                  reason:
+                    description: Reason is the need in words
+                    type: string
+                  requestedAt:
+                    description: RequestedAt is when the request was made
+                    format: date-time
+                    type: string
+                required:
+                - key
+                - requestedAt
+                type: object
+              capacity:
+                description: Capacity contains discovered capacity information for
+                  scheduling
+                properties:
+                  agentCount:
+                    description: |-
+                      AgentCount is the total number of agent-phase bindings on this server
+                      (mulling + triage summed), for status readers and the dashboard. The
+                      scheduler does not read it.
+                    type: integer
+                  availableModels:
+                    description: |-
+                      AvailableModels lists models downloaded on the server (from /api/tags)
+                      with their on-disk sizes. The JIT scheduler uses SizeBytes as a cold-load
+                      footprint proxy when no loaded-model observation exists yet.
+                    items:
+                      description: |-
+                        AvailableModel represents a model downloaded on a server (from /api/tags).
+                        Carries the on-disk size so the JIT scheduler can compute a cold-load
+                        footprint estimate before the model is ever loaded into VRAM.
+                      properties:
+                        name:
+                          description: Name is the model identifier (e.g. "qwen3:32b")
+                          type: string
+                        sizeBytes:
+                          description: |-
+                            SizeBytes is the on-disk model size in bytes (from /api/tags .size).
+                            Used as a proxy for VRAM cold-load footprint when no server has yet
+                            loaded the model and no /api/ps size_vram observation exists.
+                          format: int64
+                          type: integer
+                      required:
+                      - name
+                      type: object
+                    type: array
+                  contextLength:
+                    description: |-
+                      ContextLength is the context window, in tokens, the engine gives each
+                      request, discovered from OLLAMA_CONTEXT_LENGTH on the Ollama pod. Zero
+                      when the engine chooses its own default; the context each loaded model
+                      actually runs with is on LoadedModels.
+                    type: integer
+                  gpuModel:
+                    description: GPUModel discovered from DCGM metrics (e.g., "NVIDIA
+                      GeForce RTX 5090")
+                    type: string
+                  lastProbed:
+                    description: LastProbed is when capacity was last discovered
+                    format: date-time
+                    type: string
+                  loadedModels:
+                    description: LoadedModels from /api/ps with VRAM details
+                    items:
+                      description: LoadedModel represents a model currently loaded
+                        in the server
+                      properties:
+                        contextLength:
+                          description: |-
+                            ContextLength is the context window, in tokens, each request to this
+                            loaded model gets (from /api/ps context_length). A prompt larger than
+                            this is cut by the engine, not rejected.
+                          type: integer
+                        name:
+                          description: Name is the model identifier
+                          type: string
+                        size:
+                          description: Size is the total model size in bytes
+                          format: int64
+                          type: integer
+                        sizeVram:
+                          description: SizeVRAM is the VRAM used by this model in
+                            bytes (from /api/ps)
+                          format: int64
+                          type: integer
+                      required:
+                      - name
+                      type: object
+                    type: array
+                  maxParallel:
+                    description: MaxParallel discovered from OLLAMA_NUM_PARALLEL env
+                      var on the Ollama pod
+                    type: integer
+                  mullingAgentCount:
+                    description: |-
+                      MullingAgentCount is the number of agents whose mulling phase binds to
+                      this server (kubemoot.ai/mulling-server label on the Agent's
+                      Deployment matches this server's name). Observability only; it does
+                      not feed model selection.
+                    type: integer
+                  nodeName:
+                    description: NodeName is the Kubernetes node hosting the Ollama
+                      pod
+                    type: string
+                  triageAgentCount:
+                    description: |-
+                      TriageAgentCount is the number of agents whose triage phase binds to
+                      this server (kubemoot.ai/triage-server label). Observability only; it does not
+                      feed model selection.
+                    type: integer
+                  vramTotalMiB:
+                    description: VRAMTotalMiB discovered from DCGM_FI_DEV_FB_TOTAL
+                      via Prometheus
+                    format: int64
+                    type: integer
+                  vramUsedMiB:
+                    description: VRAMUsedMiB from sum of loaded model size_vram via
+                      /api/ps
+                    format: int64
+                    type: integer
+                type: object
+              conditions:
+                description: Conditions represent the latest available observations
+                items:
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: |-
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                type: array
+              message:
+                description: Message provides additional status information
+                type: string
+              models:
+                description: |-
+                  Models is the server's part of the cluster's model catalog: every chat
+                  model the server has (downloaded for Ollama, answering for vLLM) merged
+                  with the Model objects in the server's namespace that name it. A Model
+                  with spec.disabled is left out; an embedding-only model is never admitted.
+                  Scheduling rules match each entry's labels.
+                items:
+                  description: |-
+                    CatalogModel is one model in a cluster's catalog, as a ModelServer reports
+                    it: what the server's engine said about the model merged with the Model
+                    object the cluster owner keeps for it, if any. Labels is what scheduling
+                    rules select on.
+                  properties:
+                    capabilities:
+                      description: Capabilities are the model's abilities (tool-calling,
+                        reasoning, vision).
+                      items:
+                        type: string
+                      type: array
+                    contextLength:
+                      description: ContextLength is the context window in tokens,
+                        0 when unknown.
+                      type: integer
+                    labels:
+                      additionalProperties:
+                        type: string
+                      description: |-
+                        Labels are the effective labels scheduling rules match: the size, context,
+                        family, engine and capability labels plus every label on the Model object.
+                      type: object
+                    modelRef:
+                      description: |-
+                        ModelRef names the Model object that contributed to the entry, as
+                        namespace/name.
+                      type: string
+                    name:
+                      description: |-
+                        Name is the model name on the server: the Ollama tag, or the vLLM served
+                        name.
+                      type: string
+                    parameterCount:
+                      description: ParameterCount is the total parameter count, 0
+                        when unknown.
+                      format: int64
+                      type: integer
+                    present:
+                      description: |-
+                        Present is true when the server has the model now: downloaded (Ollama)
+                        or answering (vLLM). An entry that is not present is known from a Model
+                        object only.
+                      type: boolean
+                    size:
+                      description: |-
+                        Size is the size class (small, medium, large), empty when the size is
+                        unknown.
+                      type: string
+                    source:
+                      description: |-
+                        Source says where the parameter count came from: model (a Model's
+                        spec.parameters), ollama-show, ollama-tags, service (the kubemoot-vllm
+                        chart's annotation), or none.
+                      type: string
+                    vramMib:
+                      description: |-
+                        VRAMMib is the accelerator memory in MiB the Model object declares the model
+                        needs, 0 when none does.
+                      format: int32
+                      type: integer
+                  required:
+                  - name
+                  type: object
+                type: array
+                x-kubernetes-list-map-keys:
+                - name
+                x-kubernetes-list-type: map
+              phase:
+                description: Phase is the current phase (Pending, Ready, Failed)
+                type: string
+              ready:
+                description: Ready indicates if the server is ready
+                type: boolean
+              serverInfo:
+                description: ServerInfo contains metadata discovered after connecting
+                properties:
+                  lastChecked:
+                    description: LastChecked is when the server was last verified
+                    type: string
+                  rateLimits:
+                    description: RateLimits shows current rate limit info (for cloud
+                      providers)
+                    properties:
+                      requestsPerMinute:
+                        description: RequestsPerMinute is the allowed requests per
+                          minute
+                        type: integer
+                      requestsRemaining:
+                        description: RequestsRemaining is remaining requests in current
+                          window
+                        type: integer
+                      tokensPerMinute:
+                        description: TokensPerMinute is the allowed tokens per minute
+                        type: integer
+                    type: object
+                  version:
+                    description: Version is the server API version
+                    type: string
+                type: object
+              storage:
+                description: |-
+                  Storage is the disk the server keeps its models on, when the operator
+                  can find the volume behind the Ollama pod
+                properties:
+                  freeBytes:
+                    description: FreeBytes is TotalBytes minus ModelBytes and PartialBytes,
+                      never below zero
+                    format: int64
+                    type: integer
+                  lastProbed:
+                    description: LastProbed is when the storage was last measured
+                    format: date-time
+                    type: string
+                  modelBytes:
+                    description: ModelBytes is the sum of the sizes of the models
+                      the server lists
+                    format: int64
+                    type: integer
+                  partialBytes:
+                    description: |-
+                      PartialBytes is the disk held by downloads that have not finished: pulls in
+                      progress, and the partial files a cancelled or failed pull leaves behind
+                      until the model server restarts. Ollama lists none of it, so the operator
+                      counts it from the pulls it ran.
+                    format: int64
+                    type: integer
+                  totalBytes:
+                    description: TotalBytes is the declared capacity of the volume
+                    format: int64
+                    type: integer
+                  volume:
+                    description: Volume names the backing volume, for example "pvc/ollama-data"
+                    type: string
+                type: object
+              vllmServers:
+                description: |-
+                  VLLMServers is, for a vllm server with spec.serviceRef, the servers the
+                  operator discovered: each served name a port reports on /v1/models and that
+                  port's URL. A port that stops answering keeps the servers last found there.
+                  Empty with spec.servers, which says it itself.
+                items:
+                  description: VLLMServer is one vLLM server and the model it serves.
+                  properties:
+                    endpoint:
+                      description: |-
+                        Endpoint is the server's OpenAI-compatible base URL, without /v1
+                        (for example http://vllm-qwen3-14b.models:8000).
+                      pattern: ^https?://[^/\s]+.*$
+                      type: string
+                    model:
+                      description: |-
+                        Model is the served name of the model this server answers to: the Model's
+                        spec.model, and the --served-model-name the server runs with.
+                      minLength: 1
+                      type: string
+                  required:
+                  - endpoint
+                  - model
+                  type: object
+                type: array
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

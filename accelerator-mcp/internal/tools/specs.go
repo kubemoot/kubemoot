@@ -12,60 +12,60 @@ package tools
 
 // Specifications lists the tools with their JSON input schemas, for tools/list.
 func (s *Set) Specifications() []map[string]any {
-	providerProp := stringProp("The ModelProvider's name, as list_providers shows it.")
+	serverProp := stringProp("The ModelServer's name, as list_servers shows it.")
 	return []map[string]any{
-		spec(ToolListProviders,
-			"List the cluster's model providers: readiness, engine and version, memory "+
+		spec(ToolListServers,
+			"List the cluster's model servers: readiness, engine and version, memory "+
 				"(total and the budget a model must fit), whether it is an accelerator, how many "+
 				"requests run together, the calibration status, and any reset a person requested.",
 			object(nil, map[string]any{})),
-		spec(ToolProviderState,
-			"Show one provider now: the models loaded and how much of each is on the accelerator, "+
+		spec(ToolServerState,
+			"Show one server now: the models loaded and how much of each is on the accelerator, "+
 				"how many other calls hold it, the models those calls use, the models downloaded with "+
 				"their sizes, and the models Model resources bind to it.",
-			object([]string{fieldProvider}, map[string]any{fieldProvider: providerProp})),
+			object([]string{fieldServer}, map[string]any{fieldServer: serverProp})),
 		spec(ToolProbeModel,
-			"Send one calibration probe to a model on a provider and return the engine's timings. "+
+			"Send one calibration probe to a model on a server and return the engine's timings. "+
 				"load: load the model and report the load time, its memory, and whether it spills to the CPU. "+
 				"short: a short request, for generation speed. long: a long prompt, for prompt speed. "+
-				"parallel: as many short requests as the provider runs together, for total speed. "+
+				"parallel: as many short requests as the server runs together, for total speed. "+
 				"The probe claims tickets like any call. It sends nothing and returns busy: true while other "+
-				"calls hold the provider, and refuses a model larger than the provider's memory budget.",
-			object([]string{fieldProvider, fieldModel, fieldProbe}, map[string]any{
-				fieldProvider: providerProp,
-				fieldModel:    stringProp("The model name on the provider, such as qwen3:14b."),
-				"probe":       enumProp("Which probe to send.", "load", "short", "long", "parallel"),
+				"calls hold the server, and refuses a model larger than the server's memory budget.",
+			object([]string{fieldServer, fieldModel, fieldProbe}, map[string]any{
+				fieldServer: serverProp,
+				fieldModel:  stringProp("The model name on the server, such as qwen3:14b."),
+				"probe":     enumProp("Which probe to send.", "load", "short", "long", "parallel"),
 			})),
-		spec(ToolCalibrateProvider,
-			"Calibrate a provider: in the background, measure each model with the fixed recipe (load, two "+
-				"short requests, a long prompt, and a parallel batch when the provider runs requests together) "+
-				"and record the results on the provider. Returns at once with the models it will measure. "+
-				"Without models it measures the downloaded models that Model resources bind to the provider, "+
-				"else the three smallest that fit. It pauses as Waiting when crew calls take the provider. "+
-				"Follow progress with list_providers.",
-			object([]string{fieldProvider}, map[string]any{
-				fieldProvider: providerProp,
+		spec(ToolCalibrateServer,
+			"Calibrate a server: in the background, measure each model with the fixed recipe (load, two "+
+				"short requests, a long prompt, and a parallel batch when the server runs requests together) "+
+				"and record the results on the server. Returns at once with the models it will measure. "+
+				"Without models it measures the downloaded models that Model resources bind to the server, "+
+				"else the three smallest that fit. It pauses as Waiting when crew calls take the server. "+
+				"Follow progress with list_servers.",
+			object([]string{fieldServer}, map[string]any{
+				fieldServer: serverProp,
 				fieldModels: map[string]any{
 					fieldType:        "array",
-					fieldDescription: "Optional: the models to measure, by name on the provider.",
+					fieldDescription: "Optional: the models to measure, by name on the server.",
 					"items":          map[string]any{fieldType: typeString},
 				},
 			})),
 		spec(ToolObservedPerformance,
-			"Compare crew calls on a provider since its calibration with what the calibration measured: per "+
+			"Compare crew calls on a server since its calibration with what the calibration measured: per "+
 				"model, the median generation speed of warm calls that ran alone and of calls that ran alongside "+
 				"others, the medians of the earlier and later half of the calls alone, sample counts, failures, the "+
-				"time span, the most calls seen at once, callsNow (calls by other holders on the provider now), and "+
+				"time span, the most calls seen at once, callsNow (calls by other holders on the server now), and "+
 				"which models drifted by the operator's rule (stated in driftRule).",
-			object([]string{fieldProvider}, map[string]any{fieldProvider: providerProp})),
+			object([]string{fieldServer}, map[string]any{fieldServer: serverProp})),
 		spec(ToolRecordCalibration,
-			"Record a calibration on the provider's status. Phase Calibrating marks the start (and, for a "+
-				"reset of scope all, forgets the provider's performance history). Calibrated, Waiting (paused "+
+			"Record a calibration on the server's status. Phase Calibrating marks the start (and, for a "+
+				"reset of scope all, forgets the server's performance history). Calibrated, Waiting (paused "+
 				"for crew calls), and Failed record the per-model results and unload the models the probes loaded.",
-			object([]string{fieldProvider, fieldPhase}, map[string]any{
-				fieldProvider: providerProp,
-				fieldPhase:    enumProp("The calibration phase.", PhaseCalibrating, PhaseCalibrated, PhaseWaiting, PhaseFailed),
-				"message":     stringProp("A short explanation shown on the provider."),
+			object([]string{fieldServer, fieldPhase}, map[string]any{
+				fieldServer: serverProp,
+				fieldPhase:  enumProp("The calibration phase.", PhaseCalibrating, PhaseCalibrated, PhaseWaiting, PhaseFailed),
+				"message":   stringProp("A short explanation shown on the server."),
 				fieldModels: map[string]any{
 					fieldType:        "array",
 					fieldDescription: "Per-model results; each replaces an earlier result for the same model.",
@@ -80,7 +80,7 @@ func modelResultSchema() map[string]any {
 	return object([]string{fieldModel, "fits"}, map[string]any{
 		fieldModel: stringProp("The model name."),
 		"fits": map[string]any{fieldType: "boolean",
-			fieldDescription: "False when it does not fit the provider's memory or spills to the CPU."},
+			fieldDescription: "False when it does not fit the server's memory or spills to the CPU."},
 		"reason":                          stringProp("Why it does not fit or could not be measured."),
 		"loadMs":                          integer("Load time in milliseconds."),
 		"residentMiB":                     integer("Memory it took once loaded."),

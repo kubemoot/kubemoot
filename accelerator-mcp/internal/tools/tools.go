@@ -9,7 +9,7 @@ You may obtain a copy of the License at
 */
 
 // Package tools is the accelerator MCP tool set: read what the cluster's model
-// providers are and hold, probe a model on one, and record a calibration.
+// servers are and hold, probe a model on one, and record a calibration.
 package tools
 
 import (
@@ -32,15 +32,15 @@ import (
 
 // Tool names, as MCP clients call them.
 const (
-	ToolListProviders     = "list_providers"
-	ToolProviderState     = "provider_state"
+	ToolListServers       = "list_servers"
+	ToolServerState       = "server_state"
 	ToolProbeModel        = "probe_model"
 	ToolRecordCalibration = "record_calibration"
 )
 
 // Argument and schema field names used in more than one place.
 const (
-	fieldProvider    = "provider"
+	fieldServer      = "server"
 	fieldModel       = "model"
 	fieldPhase       = "phase"
 	fieldProbe       = "probe"
@@ -50,7 +50,7 @@ const (
 	typeString       = "string"
 )
 
-// resetScopeAll is the reset scope that also forgets the provider's performance history.
+// resetScopeAll is the reset scope that also forgets the server's performance history.
 const resetScopeAll = "all"
 
 // Calibration phases record_calibration accepts.
@@ -63,17 +63,17 @@ const (
 
 // Cluster is what the tools read and write in Kubernetes.
 type Cluster interface {
-	Providers(ctx context.Context) ([]aiv1alpha1.ModelProvider, error)
-	Provider(ctx context.Context, name string) (*aiv1alpha1.ModelProvider, error)
-	BoundModels(ctx context.Context, provider string) ([]string, error)
-	RecordCalibration(ctx context.Context, p *aiv1alpha1.ModelProvider,
-		update func(*aiv1alpha1.ProviderCalibration, *aiv1alpha1.ModelProvider)) error
+	Servers(ctx context.Context) ([]aiv1alpha1.ModelServer, error)
+	Server(ctx context.Context, name string) (*aiv1alpha1.ModelServer, error)
+	BoundModels(ctx context.Context, server string) ([]string, error)
+	RecordCalibration(ctx context.Context, p *aiv1alpha1.ModelServer,
+		update func(*aiv1alpha1.ServerCalibration, *aiv1alpha1.ModelServer)) error
 }
 
 // Prober runs probes and unloads what they loaded.
 type Prober interface {
 	Probe(ctx context.Context, req probe.Request) (probe.Result, error)
-	Finish(ctx context.Context, provider string) ([]string, error)
+	Finish(ctx context.Context, server string) ([]string, error)
 }
 
 // Set is the tool set.
@@ -84,7 +84,7 @@ type Set struct {
 	History store.History
 	Engine  func(endpoint string) engine.Engine
 	Now     func() time.Time
-	// Jobs runs calibrate_provider recipes in the background.
+	// Jobs runs calibrate_server recipes in the background.
 	Jobs *Jobs
 }
 
@@ -93,16 +93,16 @@ func (s *Set) Call(ctx context.Context, name string, args json.RawMessage) (stri
 	var out any
 	var err error
 	switch name {
-	case ToolListProviders:
-		out, err = s.listProviders(ctx)
-	case ToolProviderState:
-		out, err = s.providerState(ctx, args)
+	case ToolListServers:
+		out, err = s.listServers(ctx)
+	case ToolServerState:
+		out, err = s.serverState(ctx, args)
 	case ToolProbeModel:
 		out, err = s.probeModel(ctx, args)
 	case ToolRecordCalibration:
 		out, err = s.recordCalibration(ctx, args)
-	case ToolCalibrateProvider:
-		out, err = s.calibrateProvider(ctx, args)
+	case ToolCalibrateServer:
+		out, err = s.calibrateServer(ctx, args)
 	case ToolObservedPerformance:
 		out, err = s.observedPerformance(ctx, args)
 	default:
@@ -115,22 +115,22 @@ func (s *Set) Call(ctx context.Context, name string, args json.RawMessage) (stri
 	return string(raw), err
 }
 
-// providerSummary is one provider in list_providers.
-type providerSummary struct {
-	Name          string                          `json:"name"`
-	Namespace     string                          `json:"namespace"`
-	Ready         bool                            `json:"ready"`
-	Engine        string                          `json:"engine"`
-	EngineVersion string                          `json:"engineVersion,omitempty"`
-	MemoryMiB     int64                           `json:"memoryMiB"`
-	UsableMiB     int64                           `json:"usableMiB"`
-	Accelerator   bool                            `json:"accelerator"`
-	Calibrate     bool                            `json:"calibrationEnabled"`
-	MaxParallel   int                             `json:"maxParallel"`
-	ContextLength int                             `json:"contextLength,omitempty"`
-	Calibration   *aiv1alpha1.ProviderCalibration `json:"calibration,omitempty"`
-	Drift         *aiv1alpha1.CalibrationDrift    `json:"calibrationDrift,omitempty"`
-	ResetRequest  *resetRequest                   `json:"resetRequested,omitempty"`
+// serverSummary is one server in list_servers.
+type serverSummary struct {
+	Name          string                        `json:"name"`
+	Namespace     string                        `json:"namespace"`
+	Ready         bool                          `json:"ready"`
+	Engine        string                        `json:"engine"`
+	EngineVersion string                        `json:"engineVersion,omitempty"`
+	MemoryMiB     int64                         `json:"memoryMiB"`
+	UsableMiB     int64                         `json:"usableMiB"`
+	Accelerator   bool                          `json:"accelerator"`
+	Calibrate     bool                          `json:"calibrationEnabled"`
+	MaxParallel   int                           `json:"maxParallel"`
+	ContextLength int                           `json:"contextLength,omitempty"`
+	Calibration   *aiv1alpha1.ServerCalibration `json:"calibration,omitempty"`
+	Drift         *aiv1alpha1.CalibrationDrift  `json:"calibrationDrift,omitempty"`
+	ResetRequest  *resetRequest                 `json:"resetRequested,omitempty"`
 }
 
 type resetRequest struct {
@@ -138,20 +138,20 @@ type resetRequest struct {
 	Scope string `json:"scope"`
 }
 
-func (s *Set) listProviders(ctx context.Context) (any, error) {
-	providers, err := s.Cluster.Providers(ctx)
+func (s *Set) listServers(ctx context.Context) (any, error) {
+	servers, err := s.Cluster.Servers(ctx)
 	if err != nil {
 		return nil, err
 	}
-	out := make([]providerSummary, 0, len(providers))
-	for i := range providers {
-		out = append(out, summarize(&providers[i]))
+	out := make([]serverSummary, 0, len(servers))
+	for i := range servers {
+		out = append(out, summarize(&servers[i]))
 	}
-	return map[string]any{"providers": out}, nil
+	return map[string]any{"servers": out}, nil
 }
 
-func summarize(p *aiv1alpha1.ModelProvider) providerSummary {
-	sum := providerSummary{
+func summarize(p *aiv1alpha1.ModelServer) serverSummary {
+	sum := serverSummary{
 		Name: p.Name, Namespace: p.Namespace, Ready: p.Status.Ready, Engine: string(p.Spec.Type),
 		MemoryMiB: cluster.TotalMemoryMiB(p), UsableMiB: cluster.UsableMemoryMiB(p),
 		Accelerator: cluster.HasAccelerator(p), MaxParallel: cluster.MaxParallel(p),
@@ -159,8 +159,8 @@ func summarize(p *aiv1alpha1.ModelProvider) providerSummary {
 		Calibration: p.Status.Calibration,
 		Drift:       p.Status.CalibrationDrift,
 	}
-	if p.Status.ProviderInfo != nil {
-		sum.EngineVersion = p.Status.ProviderInfo.Version
+	if p.Status.ServerInfo != nil {
+		sum.EngineVersion = p.Status.ServerInfo.Version
 	}
 	if p.Status.Capacity != nil {
 		sum.ContextLength = p.Status.Capacity.ContextLength
@@ -172,15 +172,15 @@ func summarize(p *aiv1alpha1.ModelProvider) providerSummary {
 	return sum
 }
 
-func scopeOf(p *aiv1alpha1.ModelProvider) string {
+func scopeOf(p *aiv1alpha1.ModelServer) string {
 	if p.Annotations[cluster.AnnotationResetScope] == resetScopeAll {
 		return resetScopeAll
 	}
 	return "calibration"
 }
 
-type providerArgs struct {
-	Provider string `json:"provider"`
+type serverArgs struct {
+	Server string `json:"server"`
 }
 
 // parse decodes the arguments strictly: an unknown field is an error, as the
@@ -204,15 +204,15 @@ func required(name, value string) error {
 	return nil
 }
 
-func (s *Set) providerState(ctx context.Context, raw json.RawMessage) (any, error) {
-	var args providerArgs
+func (s *Set) serverState(ctx context.Context, raw json.RawMessage) (any, error) {
+	var args serverArgs
 	if err := parse(raw, &args); err != nil {
 		return nil, err
 	}
-	if err := required(fieldProvider, args.Provider); err != nil {
+	if err := required(fieldServer, args.Server); err != nil {
 		return nil, err
 	}
-	p, err := s.Cluster.Provider(ctx, args.Provider)
+	p, err := s.Cluster.Server(ctx, args.Server)
 	if err != nil {
 		return nil, err
 	}
@@ -224,7 +224,7 @@ func (s *Set) providerState(ctx context.Context, raw json.RawMessage) (any, erro
 	inUse, _ := s.Tickets.ModelsInUse(p.Name)
 	bound, _ := s.Cluster.BoundModels(ctx, p.Name)
 	return map[string]any{
-		fieldProvider: summarize(p),
+		fieldServer:   summarize(p),
 		"loaded":      loadedModels(loaded),
 		"otherCalls":  others,
 		"modelsInUse": keysOf(inUse),
@@ -254,7 +254,7 @@ type availableModel struct {
 	SizeMiB int64  `json:"sizeMiB"`
 }
 
-func available(p *aiv1alpha1.ModelProvider) []availableModel {
+func available(p *aiv1alpha1.ModelServer) []availableModel {
 	out := []availableModel{}
 	if p.Status.Capacity == nil {
 		return out
@@ -275,9 +275,9 @@ func keysOf(set map[string]bool) []string {
 }
 
 type probeArgs struct {
-	Provider string `json:"provider"`
-	Model    string `json:"model"`
-	Probe    string `json:"probe"`
+	Server string `json:"server"`
+	Model  string `json:"model"`
+	Probe  string `json:"probe"`
 }
 
 func (s *Set) probeModel(ctx context.Context, raw json.RawMessage) (any, error) {
@@ -285,24 +285,24 @@ func (s *Set) probeModel(ctx context.Context, raw json.RawMessage) (any, error) 
 	if err := parse(raw, &args); err != nil {
 		return nil, err
 	}
-	needed := map[string]string{fieldProvider: args.Provider, fieldModel: args.Model, fieldProbe: args.Probe}
+	needed := map[string]string{fieldServer: args.Server, fieldModel: args.Model, fieldProbe: args.Probe}
 	for name, value := range needed {
 		if err := required(name, value); err != nil {
 			return nil, err
 		}
 	}
-	p, err := s.Cluster.Provider(ctx, args.Provider)
+	p, err := s.Cluster.Server(ctx, args.Server)
 	if err != nil {
 		return nil, err
 	}
 	if !p.Status.Ready {
-		return nil, fmt.Errorf("provider %s is not ready", p.Name)
+		return nil, fmt.Errorf("server %s is not ready", p.Name)
 	}
 	if !cluster.CalibrationEnabled(p) {
-		return nil, fmt.Errorf("provider %s has spec.calibration.enabled false", p.Name)
+		return nil, fmt.Errorf("server %s has spec.calibration.enabled false", p.Name)
 	}
 	if _, ok := sizeOf(p, args.Model); !ok {
-		return nil, fmt.Errorf("%s has not reported %s among its downloaded models; provider_state lists them",
+		return nil, fmt.Errorf("%s has not reported %s among its downloaded models; server_state lists them",
 			p.Name, args.Model)
 	}
 	if err := s.notDuringAJob(p.Name); err != nil {
@@ -311,18 +311,18 @@ func (s *Set) probeModel(ctx context.Context, raw json.RawMessage) (any, error) 
 	return s.Prober.Probe(ctx, requestFor(p, args.Model, args.Probe))
 }
 
-// notDuringAJob refuses a tool that would disturb a calibrate_provider run: a
+// notDuringAJob refuses a tool that would disturb a calibrate_server run: a
 // probe or a record unloading its model would make the next measurement cold.
-func (s *Set) notDuringAJob(provider string) error {
-	if s.Jobs.Running(provider) {
-		return fmt.Errorf("a calibrate_provider run is in progress on %s; list_providers shows when it ends", provider)
+func (s *Set) notDuringAJob(server string) error {
+	if s.Jobs.Running(server) {
+		return fmt.Errorf("a calibrate_server run is in progress on %s; list_servers shows when it ends", server)
 	}
 	return nil
 }
 
-// sizeOf is the model's size on disk as the provider reports it; false when the
-// provider has not reported the model, so the memory check cannot be made.
-func sizeOf(p *aiv1alpha1.ModelProvider, model string) (int64, bool) {
+// sizeOf is the model's size on disk as the server reports it; false when the
+// server has not reported the model, so the memory check cannot be made.
+func sizeOf(p *aiv1alpha1.ModelServer, model string) (int64, bool) {
 	for _, m := range available(p) {
 		if m.Model == model {
 			return m.SizeMiB, true
@@ -332,10 +332,10 @@ func sizeOf(p *aiv1alpha1.ModelProvider, model string) (int64, bool) {
 }
 
 type recordArgs struct {
-	Provider string        `json:"provider"`
-	Phase    string        `json:"phase"`
-	Message  string        `json:"message"`
-	Models   []modelResult `json:"models"`
+	Server  string        `json:"server"`
+	Phase   string        `json:"phase"`
+	Message string        `json:"message"`
+	Models  []modelResult `json:"models"`
 }
 
 // modelResult is one model's result as the agent reports it; fits is required.
@@ -394,7 +394,7 @@ func (s *Set) recordCalibration(ctx context.Context, raw json.RawMessage) (any, 
 	if err := parse(raw, &args); err != nil {
 		return nil, err
 	}
-	if err := required(fieldProvider, args.Provider); err != nil {
+	if err := required(fieldServer, args.Server); err != nil {
 		return nil, err
 	}
 	if !validPhase(args.Phase) {
@@ -404,29 +404,29 @@ func (s *Set) recordCalibration(ctx context.Context, raw json.RawMessage) (any, 
 	if err != nil {
 		return nil, err
 	}
-	if err := s.notDuringAJob(args.Provider); err != nil {
+	if err := s.notDuringAJob(args.Server); err != nil {
 		return nil, err
 	}
-	return s.record(ctx, args.Provider, args.Phase, args.Message, models)
+	return s.record(ctx, args.Server, args.Phase, args.Message, models)
 }
 
-// record writes a calibration phase and its results on the provider. Starting
+// record writes a calibration phase and its results on the server. Starting
 // (Calibrating) acts on a pending reset; any other phase ends the calibration and
 // unloads the models its probes loaded.
-func (s *Set) record(ctx context.Context, provider, phase, message string,
+func (s *Set) record(ctx context.Context, server, phase, message string,
 	models []aiv1alpha1.ModelCalibration) (map[string]any, error) {
-	p, err := s.Cluster.Provider(ctx, provider)
+	p, err := s.Cluster.Server(ctx, server)
 	if err != nil {
 		return nil, err
 	}
 	forgot, err := s.forgetOnReset(p, phase)
 	if err != nil {
-		return nil, fmt.Errorf("forgetting the provider's history for the reset: %w", err)
+		return nil, fmt.Errorf("forgetting the server's history for the reset: %w", err)
 	}
 	if err := s.Cluster.RecordCalibration(ctx, p, s.apply(phase, message, models)); err != nil {
 		return nil, err
 	}
-	out := map[string]any{fieldProvider: p.Name, fieldPhase: phase, "historyForgotten": forgot}
+	out := map[string]any{fieldServer: p.Name, fieldPhase: phase, "historyForgotten": forgot}
 	if phase != PhaseCalibrating {
 		unloaded, err := s.Prober.Finish(ctx, p.Name)
 		out["unloaded"] = unloaded
@@ -437,10 +437,10 @@ func (s *Set) record(ctx context.Context, provider, phase, message string,
 	return out, nil
 }
 
-// forgetOnReset forgets the provider's performance history when a calibration
+// forgetOnReset forgets the server's performance history when a calibration
 // starts on a reset whose scope is all. A failure is returned before anything is
 // recorded, so the reset stays pending.
-func (s *Set) forgetOnReset(p *aiv1alpha1.ModelProvider, phase string) (bool, error) {
+func (s *Set) forgetOnReset(p *aiv1alpha1.ModelServer, phase string) (bool, error) {
 	if phase != PhaseCalibrating || !cluster.ResetRequested(p) || scopeOf(p) != resetScopeAll {
 		return false, nil
 	}
@@ -455,8 +455,8 @@ func (s *Set) forgetOnReset(p *aiv1alpha1.ModelProvider, phase string) (bool, er
 // token recorded, so resuming after a pause does not clear the new results again,
 // and a reset requested during the run stays pending for the next calibration.
 func (s *Set) apply(phase, message string,
-	models []aiv1alpha1.ModelCalibration) func(*aiv1alpha1.ProviderCalibration, *aiv1alpha1.ModelProvider) {
-	return func(cal *aiv1alpha1.ProviderCalibration, p *aiv1alpha1.ModelProvider) {
+	models []aiv1alpha1.ModelCalibration) func(*aiv1alpha1.ServerCalibration, *aiv1alpha1.ModelServer) {
+	return func(cal *aiv1alpha1.ServerCalibration, p *aiv1alpha1.ModelServer) {
 		now := s.now()
 		cal.Phase = phase
 		cal.Message = message
@@ -468,8 +468,8 @@ func (s *Set) apply(phase, message string,
 		cal.Models = merge(cal.Models, models, now)
 		if phase == PhaseCalibrated {
 			cal.CompletedAt = &now
-			if p.Status.ProviderInfo != nil {
-				cal.EngineVersion = p.Status.ProviderInfo.Version
+			if p.Status.ServerInfo != nil {
+				cal.EngineVersion = p.Status.ServerInfo.Version
 			}
 		}
 	}

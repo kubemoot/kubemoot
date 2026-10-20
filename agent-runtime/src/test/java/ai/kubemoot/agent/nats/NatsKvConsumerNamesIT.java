@@ -86,19 +86,19 @@ class NatsKvConsumerNamesIT {
         }
     };
 
-    private static ai.kubemoot.agent.provider.NatsCapacityWatch capacityWatch(Connection c) {
-        var provider = org.mockito.Mockito.mock(NatsConnectionProvider.class);
-        org.mockito.Mockito.when(provider.getConnection()).thenReturn(c);
-        return new ai.kubemoot.agent.provider.NatsCapacityWatch(provider);
+    private static ai.kubemoot.agent.modelserver.NatsCapacityWatch capacityWatch(Connection c) {
+        var server = org.mockito.Mockito.mock(NatsConnectionProvider.class);
+        org.mockito.Mockito.when(server.getConnection()).thenReturn(c);
+        return new ai.kubemoot.agent.modelserver.NatsCapacityWatch(server);
     }
 
     @Test
     void keysAndWatchInOneProcess_bothSucceedRepeatedly() throws Exception {
         try (Connection c = Nats.connect(url)) {
-            KeyValue state = bucket(c, "kubemoot_provider_state");
-            bucket(c, "kubemoot_provider_tickets");
+            KeyValue state = bucket(c, "kubemoot_server_state");
+            bucket(c, "kubemoot_server_tickets");
             for (int i = 0; i < 25; i++) {
-                assertEquals(java.util.List.of("p1"), KvKeys.list(c, "kubemoot_provider_state"));
+                assertEquals(java.util.List.of("p1"), KvKeys.list(c, "kubemoot_server_state"));
                 assertFalse(state.keys().isEmpty());
                 assertTrue(capacityWatch(c).ensureWatching());
             }
@@ -115,9 +115,9 @@ class NatsKvConsumerNamesIT {
         Field seq = NUID.class.getDeclaredField("seq");
         seq.setAccessible(true);
         try (Connection podA = Nats.connect(url); Connection podB = Nats.connect(url)) {
-            KeyValue a = bucket(podA, "kubemoot_provider_state");
-            bucket(podA, "kubemoot_provider_tickets");
-            KeyValue b = podB.keyValue("kubemoot_provider_state");
+            KeyValue a = bucket(podA, "kubemoot_server_state");
+            bucket(podA, "kubemoot_server_tickets");
+            KeyValue b = podB.keyValue("kubemoot_server_state");
 
             long snapshot = seq.getLong(global);
             a.watchAll(NOOP, KeyValueWatchOption.UPDATES_ONLY, KeyValueWatchOption.META_ONLY);
@@ -126,7 +126,7 @@ class NatsKvConsumerNamesIT {
             assertEquals(10012, collision.getApiErrorCode(), "the failure seen in the cluster");
 
             seq.setLong(global, snapshot);
-            assertEquals(java.util.List.of("p1"), KvKeys.list(podB, "kubemoot_provider_state"),
+            assertEquals(java.util.List.of("p1"), KvKeys.list(podB, "kubemoot_server_state"),
                     "the subject index needs no consumer");
             seq.setLong(global, snapshot);
             assertTrue(capacityWatch(podB).ensureWatching(), "a per-process prefix keeps watch names distinct");

@@ -33,7 +33,7 @@ import (
 // on the GPUs is the exclusive concern of the JIT scheduler, which weighs the
 // best model per inference and tracks residency in its own state. A fitness run
 // evicting models directly via Ollama would bypass that accounting (leaving the
-// scheduler with a stale view) and, because providers are cluster-shared, would
+// scheduler with a stale view) and, because servers are cluster-shared, would
 // also disturb every other crew's resident models. Cold-start convergence is the
 // system's job: a cold start must perform as well as a warm one.
 func (r *CrewFitnessSuiteReconciler) coldStart(ctx context.Context, suite *kubemootv1alpha1.CrewFitnessSuite) {

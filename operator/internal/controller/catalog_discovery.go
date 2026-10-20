@@ -71,7 +71,7 @@ func parseDeclaredModels(value string) map[string]declaredModel {
 // ollamaFacts lists the models an Ollama server has and what it says about each.
 // /api/show runs once per model digest; its answer is kept in r.shows. A model
 // whose /api/show fails keeps what /api/tags says.
-func (r *ModelProviderReconciler) ollamaFacts(ctx context.Context, httpClient *http.Client, endpoint string) ([]catalogFacts, error) {
+func (r *ModelServerReconciler) ollamaFacts(ctx context.Context, httpClient *http.Client, endpoint string) ([]catalogFacts, error) {
 	tags, err := ollama.ListTags(ctx, httpClient, endpoint)
 	if err != nil {
 		return nil, err
@@ -94,7 +94,7 @@ func showKey(endpoint string, t ollama.ModelInfo) string {
 
 // pruneShows forgets the shown models of the endpoint that the server no longer
 // lists (a removed or re-pulled model), so the cache holds only what is live.
-func (r *ModelProviderReconciler) pruneShows(endpoint string, live map[string]bool) {
+func (r *ModelServerReconciler) pruneShows(endpoint string, live map[string]bool) {
 	r.shows.Range(func(k, _ any) bool {
 		key := k.(string)
 		if strings.HasPrefix(key, endpoint+"|") && !live[key] {
@@ -106,7 +106,7 @@ func (r *ModelProviderReconciler) pruneShows(endpoint string, live map[string]bo
 
 // showModel is /api/show for one downloaded model, from the cache when the digest
 // has been shown before.
-func (r *ModelProviderReconciler) showModel(ctx context.Context, httpClient *http.Client, endpoint string, t ollama.ModelInfo) (ollama.ShowInfo, bool) {
+func (r *ModelServerReconciler) showModel(ctx context.Context, httpClient *http.Client, endpoint string, t ollama.ModelInfo) (ollama.ShowInfo, bool) {
 	key := showKey(endpoint, t)
 	if cached, ok := r.shows.Load(key); ok {
 		return cached.(ollama.ShowInfo), true
@@ -151,22 +151,22 @@ func factsFromOllama(t ollama.ModelInfo, info ollama.ShowInfo, haveShow bool) ca
 	return f
 }
 
-// vllmFacts is what the provider's vLLM servers say about their models: each
+// vllmFacts is what the server's vLLM servers say about their models: each
 // served name, present when the probe found it answering, with the context window
 // the server reports and the parameters and abilities the Service declares.
-func (r *ModelProviderReconciler) vllmFacts(ctx context.Context, httpClient *http.Client, provider *aiv1alpha1.ModelProvider, snap engine.Snapshot) []catalogFacts {
-	declared := r.declaredVLLMModels(ctx, provider)
+func (r *ModelServerReconciler) vllmFacts(ctx context.Context, httpClient *http.Client, server *aiv1alpha1.ModelServer, snap engine.Snapshot) []catalogFacts {
+	declared := r.declaredVLLMModels(ctx, server)
 	// A server that is restarting does not answer, but its model has not gone: a model
 	// stays present while it was present before, so a restart does not drop it from the
 	// catalog and roll the pods bound to it. A server that never answered is not present.
 	answering := map[string]bool{}
-	for _, e := range provider.Status.Models {
+	for _, e := range server.Status.Models {
 		answering[e.Name] = e.Present
 	}
 	for _, a := range snap.Available {
 		answering[a.Name] = true
 	}
-	servers := provider.VLLMServers()
+	servers := server.VLLMServers()
 	contexts := servedContexts(ctx, httpClient, servers)
 	facts := make([]catalogFacts, 0, len(servers))
 	for _, srv := range servers {
@@ -182,15 +182,15 @@ func (r *ModelProviderReconciler) vllmFacts(ctx context.Context, httpClient *htt
 	return facts
 }
 
-// declaredVLLMModels reads the models annotation of the Service a vllm provider
-// names with spec.serviceRef; a provider that lists its servers, or a Service that
+// declaredVLLMModels reads the models annotation of the Service a vllm server
+// names with spec.serviceRef; a server that lists its servers, or a Service that
 // cannot be read, declares nothing.
-func (r *ModelProviderReconciler) declaredVLLMModels(ctx context.Context, provider *aiv1alpha1.ModelProvider) map[string]declaredModel {
-	if provider.Spec.ServiceRef == nil {
+func (r *ModelServerReconciler) declaredVLLMModels(ctx context.Context, server *aiv1alpha1.ModelServer) map[string]declaredModel {
+	if server.Spec.ServiceRef == nil {
 		return map[string]declaredModel{}
 	}
 	svc := &corev1.Service{}
-	if err := r.Get(ctx, serviceKey(provider), svc); err != nil {
+	if err := r.Get(ctx, serviceKey(server), svc); err != nil {
 		return map[string]declaredModel{}
 	}
 	return parseDeclaredModels(svc.Annotations[AnnotationVLLMModels])
@@ -220,36 +220,36 @@ func servedContexts(ctx context.Context, httpClient *http.Client, servers []aiv1
 	return out
 }
 
-// publishCatalog sets provider.Status.Models from the engine's facts and the
-// provider's Model objects, and records whether every entry has a size. Callers
+// publishCatalog sets server.Status.Models from the engine's facts and the
+// server's Model objects, and records whether every entry has a size. Callers
 // skip it when the engine did not answer, which leaves the earlier catalog as it was.
-func (r *ModelProviderReconciler) publishCatalog(ctx context.Context, provider *aiv1alpha1.ModelProvider, facts []catalogFacts) {
+func (r *ModelServerReconciler) publishCatalog(ctx context.Context, server *aiv1alpha1.ModelServer, facts []catalogFacts) {
 	var all aiv1alpha1.ModelList
 	if err := r.List(ctx, &all); err != nil {
-		logf.FromContext(ctx).Info("could not list Models for the catalog", "provider", provider.Name, "err", err)
+		logf.FromContext(ctx).Info("could not list Models for the catalog", "server", server.Name, "err", err)
 		return
 	}
-	provider.Status.Models = buildCatalog(provider, facts, catalogModels(provider, all.Items))
-	setCatalogSizeCondition(provider)
+	server.Status.Models = buildCatalog(server, facts, catalogModels(server, all.Items))
+	setCatalogSizeCondition(server)
 }
 
-// discoverOllamaCatalog publishes the catalog of an Ollama provider. An Ollama that
+// discoverOllamaCatalog publishes the catalog of an Ollama server. An Ollama that
 // does not list its models right now leaves the earlier catalog in place.
-func (r *ModelProviderReconciler) discoverOllamaCatalog(ctx context.Context, provider *aiv1alpha1.ModelProvider, httpClient *http.Client) {
-	facts, err := r.ollamaFacts(ctx, httpClient, provider.Spec.Endpoint)
+func (r *ModelServerReconciler) discoverOllamaCatalog(ctx context.Context, server *aiv1alpha1.ModelServer, httpClient *http.Client) {
+	facts, err := r.ollamaFacts(ctx, httpClient, server.Spec.Endpoint)
 	if err != nil {
-		logf.FromContext(ctx).V(1).Info("could not list the Ollama models for the catalog", "provider", provider.Name, "error", err)
+		logf.FromContext(ctx).V(1).Info("could not list the Ollama models for the catalog", "server", server.Name, "error", err)
 		return
 	}
-	r.publishCatalog(ctx, provider, facts)
+	r.publishCatalog(ctx, server, facts)
 }
 
-// modelToProvider maps a Model to the ModelProvider it names in its own namespace,
-// the provider whose catalog the Model belongs to.
-func modelToProvider(_ context.Context, obj client.Object) []reconcile.Request {
+// modelToServer maps a Model to the ModelServer it names in its own namespace,
+// the server whose catalog the Model belongs to.
+func modelToServer(_ context.Context, obj client.Object) []reconcile.Request {
 	m, ok := obj.(*aiv1alpha1.Model)
-	if !ok || m.Spec.ProviderRef == "" {
+	if !ok || m.Spec.ServerRef == "" {
 		return nil
 	}
-	return []reconcile.Request{{NamespacedName: types.NamespacedName{Namespace: m.Namespace, Name: m.Spec.ProviderRef}}}
+	return []reconcile.Request{{NamespacedName: types.NamespacedName{Namespace: m.Namespace, Name: m.Spec.ServerRef}}}
 }

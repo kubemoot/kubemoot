@@ -27,7 +27,7 @@ describe('aggregateAgents', () => {
 		expect(rows.get('sre')).toEqual({
 			signal: 'advisory',
 			gpu: 'g1',
-			provider: '',
+			server: '',
 			pickReason: '',
 			startMs: 500,
 			endMs: 500,
@@ -38,7 +38,7 @@ describe('aggregateAgents', () => {
 
 	it('defaults the metadata fields when a message has none', () => {
 		const row = aggregateAgents([msg('sre', 'stand_aside', 0)], T0).get('sre');
-		expect(row).toMatchObject({ gpu: '', provider: '', pickReason: '', inferenceMs: 0 });
+		expect(row).toMatchObject({ gpu: '', server: '', pickReason: '', inferenceMs: 0 });
 		expect(row?.tools.size).toBe(0);
 	});
 
@@ -47,7 +47,7 @@ describe('aggregateAgents', () => {
 			[
 				msg('sre', 'agree', 1000, { gpuLabel: 'g1', inferenceMs: 900, toolsUsed: ['a'] }),
 				msg('sre', 'advisory', 200, {
-					provider: 'ollama-gpu',
+					server: 'ollama-gpu',
 					pickReason: 'warm',
 					inferenceMs: 100
 				}),
@@ -59,7 +59,7 @@ describe('aggregateAgents', () => {
 		expect(row).toMatchObject({
 			signal: 'concern',
 			gpu: 'g2',
-			provider: 'ollama-gpu',
+			server: 'ollama-gpu',
 			pickReason: 'warm',
 			startMs: 200,
 			endMs: 4000,

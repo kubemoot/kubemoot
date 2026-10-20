@@ -34,8 +34,8 @@ import (
 )
 
 const (
-	gwTestNS       = "crew-ns"
-	gwTestProvider = "prov1"
+	gwTestNS     = "crew-ns"
+	gwTestServer = "prov1"
 )
 
 func mkGateway(name, ns string) *kubemootv1alpha1.MCPGateway {
@@ -122,16 +122,16 @@ var _ = Describe("Agent controller and a gateway created after its agents", func
 		namespace := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{GenerateName: "gw-after-agents-"}}
 		Expect(k8sClient.Create(ctx, namespace)).To(Succeed())
 		ns := namespace.Name
-		provider := &kubemootv1alpha1.ModelProvider{
-			ObjectMeta: metav1.ObjectMeta{Name: gwTestProvider, Namespace: ns},
-			Spec:       kubemootv1alpha1.ModelProviderSpec{Type: kubemootv1alpha1.ProviderTypeOllama, Endpoint: "http://prov1:11434"},
+		server := &kubemootv1alpha1.ModelServer{
+			ObjectMeta: metav1.ObjectMeta{Name: gwTestServer, Namespace: ns},
+			Spec:       kubemootv1alpha1.ModelServerSpec{Type: kubemootv1alpha1.ServerTypeOllama, Endpoint: "http://prov1:11434"},
 		}
-		Expect(k8sClient.Create(ctx, provider)).To(Succeed())
-		provider.Status.Ready = true
-		Expect(k8sClient.Status().Update(ctx, provider)).To(Succeed())
+		Expect(k8sClient.Create(ctx, server)).To(Succeed())
+		server.Status.Ready = true
+		Expect(k8sClient.Status().Update(ctx, server)).To(Succeed())
 		model := &kubemootv1alpha1.Model{
 			ObjectMeta: metav1.ObjectMeta{Name: "m1", Namespace: ns},
-			Spec:       kubemootv1alpha1.ModelSpec{Model: testModelID, ProviderRef: gwTestProvider},
+			Spec:       kubemootv1alpha1.ModelSpec{Model: testModelID, ServerRef: gwTestServer},
 		}
 		Expect(k8sClient.Create(ctx, model)).To(Succeed())
 		model.Status.Ready = true

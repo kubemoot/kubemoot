@@ -38,7 +38,7 @@ const (
 	oldServed = "old"
 )
 
-func TestServiceKeyDefaultsToTheProvidersNamespace(t *testing.T) {
+func TestServiceKeyDefaultsToTheServersNamespace(t *testing.T) {
 	cases := map[string]struct {
 		ref  aiv1alpha1.VLLMServiceRef
 		want types.NamespacedName
@@ -49,7 +49,7 @@ func TestServiceKeyDefaultsToTheProvidersNamespace(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			p := refProvider()
+			p := refServer()
 			p.Spec.ServiceRef = &tc.ref
 			if got := serviceKey(p); got != tc.want {
 				t.Errorf("serviceKey = %v, want %v", got, tc.want)
@@ -166,7 +166,7 @@ func TestDiscoverVLLMServersTable(t *testing.T) {
 			svc := refService1()
 			svc.Spec.Ports = tc.ports
 			cli := fake.NewClientBuilder().WithScheme(refScheme(t)).WithObjects(svc).Build()
-			p := refProvider()
+			p := refServer()
 			p.Status.VLLMServers = tc.before
 			got, _, err := discoverVLLMServers(context.Background(), cli, tc.roots(t).client(), p)
 			if err != nil {
@@ -181,17 +181,17 @@ func TestDiscoverVLLMServersTable(t *testing.T) {
 
 // A Service that cannot be read right now has not lost its servers.
 func TestServiceReadErrorKeepsTheServersFoundBefore(t *testing.T) {
-	p := refProvider()
+	p := refServer()
 	known := []aiv1alpha1.VLLMServer{{Model: vllmModel14, Endpoint: refEndpointFor(8000)}}
 	p.Status.VLLMServers = known
 	scheme := refScheme(t)
 	cli := fake.NewClientBuilder().WithScheme(scheme).WithObjects(p).WithStatusSubresource(p).Build() // no Service
-	r := &ModelProviderReconciler{Client: cli, Scheme: scheme, ConfigCache: NewConfigCache(), HTTPClient: servedRoots{}.client()}
+	r := &ModelServerReconciler{Client: cli, Scheme: scheme, ConfigCache: NewConfigCache(), HTTPClient: servedRoots{}.client()}
 	key := types.NamespacedName{Name: p.Name, Namespace: p.Namespace}
 	if _, err := r.Reconcile(context.Background(), ctrl.Request{NamespacedName: key}); err != nil {
 		t.Fatal(err)
 	}
-	got := &aiv1alpha1.ModelProvider{}
+	got := &aiv1alpha1.ModelServer{}
 	if err := cli.Get(context.Background(), key, got); err != nil {
 		t.Fatal(err)
 	}
@@ -204,7 +204,7 @@ func TestServiceReadErrorKeepsTheServersFoundBefore(t *testing.T) {
 }
 
 func TestPortsOfAnotherNamespaceServiceAreReadFromThatNamespace(t *testing.T) {
-	p := refProvider()
+	p := refServer()
 	p.Spec.ServiceRef.Namespace = modelsNamespace
 	svc := &corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{Name: refService, Namespace: modelsNamespace},

@@ -43,12 +43,12 @@ else
     fail "Coordinator deployment rollout not healthy"
 fi
 
-# 5. At least one ModelProvider ready
-READY_PROVIDERS=$(kubectl -n "$NS" get modelprovider -o jsonpath='{range .items[*]}{.status.ready}{"\n"}{end}' 2>/dev/null | grep -c true || true)
-if [ "$READY_PROVIDERS" -ge 1 ]; then
-    pass "ModelProvider(s) ready: $READY_PROVIDERS"
+# 5. At least one ModelServer ready
+READY_SERVERS=$(kubectl -n "$NS" get modelserver -o jsonpath='{range .items[*]}{.status.ready}{"\n"}{end}' 2>/dev/null | grep -c true || true)
+if [ "$READY_SERVERS" -ge 1 ]; then
+    pass "ModelServer(s) ready: $READY_SERVERS"
 else
-    fail "No ModelProviders ready"
+    fail "No ModelServers ready"
 fi
 
 # 6. NATS pod running

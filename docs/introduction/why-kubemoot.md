@@ -86,7 +86,7 @@ be **operable infrastructure**.
 ## What it is not
 
 Kubemoot is a young, independent open-source project. It assumes Kubernetes and at
-least one GPU-backed model provider, and it is built for multi-step, judgment-bearing
+least one GPU-backed model server, and it is built for multi-step, judgment-bearing
 questions - not for trivial single-shot calls where a deliberating committee is
 overkill.
 

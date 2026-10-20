@@ -3,15 +3,15 @@ package ai.kubemoot.agent.chat;
 import ai.kubemoot.agent.mcp.McpClientService;
 import ai.kubemoot.agent.nats.AgentHeartbeatService;
 import ai.kubemoot.agent.nats.DiscussionOrchestrator;
-import ai.kubemoot.agent.provider.CandidatePolicy;
-import ai.kubemoot.agent.provider.CapacityWait;
-import ai.kubemoot.agent.provider.ChatModelPool;
-import ai.kubemoot.agent.provider.ModelSpeed;
-import ai.kubemoot.agent.provider.Pick;
-import ai.kubemoot.agent.provider.ProviderSelector;
-import ai.kubemoot.agent.provider.ProviderState;
-import ai.kubemoot.agent.provider.Ticket;
-import ai.kubemoot.agent.provider.TicketManager;
+import ai.kubemoot.agent.modelserver.CandidatePolicy;
+import ai.kubemoot.agent.modelserver.CapacityWait;
+import ai.kubemoot.agent.modelserver.ChatModelPool;
+import ai.kubemoot.agent.modelserver.ModelSpeed;
+import ai.kubemoot.agent.modelserver.Pick;
+import ai.kubemoot.agent.modelserver.ServerSelector;
+import ai.kubemoot.agent.modelserver.ServerState;
+import ai.kubemoot.agent.modelserver.Ticket;
+import ai.kubemoot.agent.modelserver.TicketManager;
 import ai.kubemoot.agent.rag.RagClient;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.langchain4j.data.message.AiMessage;
@@ -45,7 +45,7 @@ import static org.mockito.Mockito.when;
  * The candidate list at work in the runtime: the mulling call and the triage call both
  * choose among the operator's candidates, favoring the model measured faster when the
  * rule asks for it ({@code preferFaster}), and triage never loads or evicts to do so.
- * The scheduler (ProviderSelector) is mocked; ChatService's choice is real.
+ * The scheduler (ServerSelector) is mocked; ChatService's choice is real.
  */
 class ChatServiceCandidateRankingTest {
 
@@ -55,18 +55,18 @@ class ChatServiceCandidateRankingTest {
     private static final String EP = "http://ollama-a:11434";
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
-    private ProviderSelector selector;
+    private ServerSelector selector;
     private ChatModelPool pool;
     private TicketManager tickets;
-    private ProviderState rig;
+    private ServerState rig;
     private Pick fastPick;
 
     @BeforeEach
     void setUp() {
-        selector = mock(ProviderSelector.class);
+        selector = mock(ServerSelector.class);
         pool = mock(ChatModelPool.class);
         tickets = mock(TicketManager.class);
-        var driver = new ai.kubemoot.agent.provider.OllamaDriver(null);
+        var driver = new ai.kubemoot.agent.modelserver.OllamaDriver(null);
         when(selector.driver()).thenReturn(driver);
         when(selector.driverFor(any())).thenReturn(driver);
         rig = rig(Map.of(BOUND, speed(20), FAST, speed(60)));
@@ -80,9 +80,9 @@ class ChatServiceCandidateRankingTest {
         return new ModelSpeed(1_000, 500, generateTokensPerSecond, 0, 0);
     }
 
-    /** One provider that has the fast model loaded and the bound model on disk. */
-    private static ProviderState rig(Map<String, ModelSpeed> speeds) {
-        return new ProviderState("ollama-a", EP, 1, 0, 0, List.of(FAST), true, "2026-10-19T00:00:00Z", 32_768,
+    /** One server that has the fast model loaded and the bound model on disk. */
+    private static ServerState rig(Map<String, ModelSpeed> speeds) {
+        return new ServerState("ollama-a", EP, 1, 0, 0, List.of(FAST), true, "2026-10-19T00:00:00Z", 32_768,
                 Map.of(FAST, 6_000L), Map.of(BOUND, 20_000L), 0L, Map.of(), speeds);
     }
 
@@ -200,17 +200,17 @@ class ChatServiceCandidateRankingTest {
     // ---- measured speed --------------------------------------------------------
 
     @Test
-    void measuredSpeedIsTheBestSpeedAReadyProviderThatHasTheModelReports() {
+    void measuredSpeedIsTheBestSpeedAReadyServerThatHasTheModelReports() {
         var slow = rig(Map.of(FAST, speed(30)));
-        var observed = new ProviderState("ollama-b", EP, 1, 0, 0, List.of(FAST), true, "t", 32_768,
+        var observed = new ServerState("ollama-b", EP, 1, 0, 0, List.of(FAST), true, "t", 32_768,
                 Map.of(FAST, 6_000L), Map.of(), 0L, Map.of(), Map.of(FAST, new ModelSpeed(1, 1, 40, 90, 12)));
-        var notReady = new ProviderState("ollama-c", EP, 1, 0, 0, List.of(FAST), false, "t", 32_768,
+        var notReady = new ServerState("ollama-c", EP, 1, 0, 0, List.of(FAST), false, "t", 32_768,
                 Map.of(FAST, 6_000L), Map.of(), 0L, Map.of(), Map.of(FAST, speed(500)));
-        var withoutTheModel = new ProviderState("ollama-d", EP, 1, 0, 0, List.of(), true, "t", 32_768,
+        var withoutTheModel = new ServerState("ollama-d", EP, 1, 0, 0, List.of(), true, "t", 32_768,
                 Map.of(), Map.of(), 0L, Map.of(), Map.of(FAST, speed(900)));
 
         assertEquals(90, ChatService.measuredSpeed(List.of(slow, observed, notReady, withoutTheModel), FAST),
-                "observed solo speed replaces the calibrated one; a provider not ready or without the model is ignored");
+                "observed solo speed replaces the calibrated one; a server not ready or without the model is ignored");
         assertEquals(0, ChatService.measuredSpeed(List.of(slow), "never-measured"));
         assertEquals(0, ChatService.measuredSpeed(List.of(), FAST));
         assertTrue(ChatService.measuredSpeed(List.of(rig(Map.of())), FAST) == 0, "no speeds published is unmeasured");

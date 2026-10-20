@@ -284,7 +284,7 @@ class DiscussionSubscriberHelpersTest {
             @Override public Optional<String> systemPromptFile() { return Optional.empty(); }
             @Override public Model model() { return new Model() {
                 @Override public String name() { return "default"; }
-                @Override public String provider() { return "ollama"; }
+                @Override public String server() { return "ollama"; }
                 @Override public String model() { return "qwen2.5:32b"; }
                 @Override public String endpoint() { return "http://localhost:11434"; }
                 @Override public double temperature() { return 0.3; }
@@ -378,7 +378,7 @@ class DiscussionSubscriberHelpersTest {
 
     @Test
     void noFit_gpuBusy_contentAndMetadataNameTheReasonAndModel() {
-        var nfe = ai.kubemoot.agent.provider.NoFitException.gpuBusy("qwen3:14b", "wait limit");
+        var nfe = ai.kubemoot.agent.modelserver.NoFitException.gpuBusy("qwen3:14b", "wait limit");
         assertEquals("Could not get a GPU: every GPU that can hold qwen3:14b was busy",
                 DiscussionSubscriber.noFitContent(nfe));
         var meta = DiscussionSubscriber.noFitMetadata(nfe);
@@ -389,7 +389,7 @@ class DiscussionSubscriberHelpersTest {
 
     @Test
     void noFit_promptTooLarge_contentAndMetadataNameTheReasonAndModel() {
-        var nfe = ai.kubemoot.agent.provider.NoFitException.promptTooLarge("m:14b", "prompt ~20000 tokens");
+        var nfe = ai.kubemoot.agent.modelserver.NoFitException.promptTooLarge("m:14b", "prompt ~20000 tokens");
         assertEquals("The prompt is larger than the context window any GPU gives m:14b",
                 DiscussionSubscriber.noFitContent(nfe));
         assertEquals("prompt-too-large", DiscussionSubscriber.noFitMetadata(nfe).get("reason"));
@@ -398,22 +398,22 @@ class DiscussionSubscriberHelpersTest {
 
     @Test
     void noFit_modelTooLarge_contentAndMetadataNameTheReasonAndModel() {
-        var nfe = ai.kubemoot.agent.provider.NoFitException.modelTooLarge("qwen3:235b", "too big");
+        var nfe = ai.kubemoot.agent.modelserver.NoFitException.modelTooLarge("qwen3:235b", "too big");
         assertEquals("No GPU in this cluster can hold the model qwen3:235b", DiscussionSubscriber.noFitContent(nfe));
         assertEquals("model-too-large", DiscussionSubscriber.noFitMetadata(nfe).get("reason"));
     }
 
     @Test
-    void providerAttribution_carriesTheModelTheCallRanOn() {
+    void serverAttribution_carriesTheModelTheCallRanOn() {
         var result = new ChatService.ChatResult("c", "answer", "qwen3:14b", null, 1, 1, "ollama-a", "warm");
-        var meta = DiscussionSubscriber.providerAttribution(result);
-        assertEquals("ollama-a", meta.get("provider"));
+        var meta = DiscussionSubscriber.serverAttribution(result);
+        assertEquals("ollama-a", meta.get("server"));
         assertEquals("qwen3:14b", meta.get("model"));
         assertEquals("warm", meta.get("pickReason"));
         var evicting = new ChatService.ChatResult("c", "answer", "qwen3:32b", null, 1, 1, "ollama-a", "cold",
                 List.of("qwen3:8b"));
-        assertEquals(List.of("qwen3:8b"), DiscussionSubscriber.providerAttribution(evicting).get("evicted"));
-        assertNull(DiscussionSubscriber.providerAttribution(
+        assertEquals(List.of("qwen3:8b"), DiscussionSubscriber.serverAttribution(evicting).get("evicted"));
+        assertNull(DiscussionSubscriber.serverAttribution(
                 new ChatService.ChatResult("c", "answer", "qwen3:14b", null, 1, 1, "", "")),
                 "the static fallback has no JIT attribution");
     }
@@ -445,7 +445,7 @@ class DiscussionSubscriberHelpersTest {
         var sub = createSubscriberWithConnection(conn);
         // The stub agent is configured with qwen2.5:32b; the call was re-planned elsewhere.
         var result = new ChatService.ChatResult("c", "the finding", "alt-model:14b", "t1", 100, 20,
-                "provider-b", "re-planned");
+                "server-b", "re-planned");
 
         sub.classifyAndPublishResult(SUBJECT_T1, "t1", result,
                 new DiscussionSubscriber.SignalTiming(500, 1, 100, 20), "static-label");
@@ -454,8 +454,8 @@ class DiscussionSubscriberHelpersTest {
         assertEquals("agree", msg.path("messageType").asText());
         var meta = msg.path("metadata");
         assertEquals("alt-model:14b", meta.path("modelName").asText());
-        assertEquals("provider-b", meta.path("gpuLabel").asText());
-        assertEquals(List.of("alt-model:14b@provider-b"), modelsUsed(msg));
+        assertEquals("server-b", meta.path("gpuLabel").asText());
+        assertEquals(List.of("alt-model:14b@server-b"), modelsUsed(msg));
         assertEquals(100, meta.path("inputTokens").asLong(), "token counts are unchanged");
         assertEquals(20, meta.path("outputTokens").asLong());
     }
@@ -465,30 +465,30 @@ class DiscussionSubscriberHelpersTest {
         var conn = mock(Connection.class);
         var sub = createSubscriberWithConnection(conn);
         var result = new ChatService.ChatResult("c", "the finding", "second:8b", "t1", 1, 1,
-                "provider-b", "", List.of(), List.of(
-                        new ai.kubemoot.agent.chat.ModelUse("first:32b", "provider-a"),
-                        new ai.kubemoot.agent.chat.ModelUse("second:8b", "provider-b")));
+                "server-b", "", List.of(), List.of(
+                        new ai.kubemoot.agent.chat.ModelUse("first:32b", "server-a"),
+                        new ai.kubemoot.agent.chat.ModelUse("second:8b", "server-b")));
 
         sub.classifyAndPublishResult(SUBJECT_T1, "t1", result, DiscussionSubscriber.SignalTiming.NONE, "static");
 
         var msg = published(conn, 1).get(0);
         assertEquals("second:8b", msg.path("metadata").path("modelName").asText());
-        assertEquals("provider-b", msg.path("metadata").path("gpuLabel").asText());
-        assertEquals(List.of("first:32b@provider-a", "second:8b@provider-b"), modelsUsed(msg));
+        assertEquals("server-b", msg.path("metadata").path("gpuLabel").asText());
+        assertEquals(List.of("first:32b@server-a", "second:8b@server-b"), modelsUsed(msg));
         assertEquals("second:8b", msg.path("metadata").path("model").asText());
-        assertEquals("provider-b", msg.path("metadata").path("provider").asText());
+        assertEquals("server-b", msg.path("metadata").path("server").asText());
     }
 
     @Test
-    void providerAttribution_readsTheLastCall_evenWhenTheResultFieldsDisagree() {
-        var result = new ChatService.ChatResult("c", "r", "stale:32b", "t1", 1, 1, "stale-provider", "",
-                List.of(), List.of(new ai.kubemoot.agent.chat.ModelUse("last:8b", "provider-b")));
+    void serverAttribution_readsTheLastCall_evenWhenTheResultFieldsDisagree() {
+        var result = new ChatService.ChatResult("c", "r", "stale:32b", "t1", 1, 1, "stale-server", "",
+                List.of(), List.of(new ai.kubemoot.agent.chat.ModelUse("last:8b", "server-b")));
 
         var meta = DiscussionSubscriber.findingMetadata(result);
 
         assertEquals("last:8b", meta.get("modelName"));
         assertEquals("last:8b", meta.get("model"));
-        assertEquals("provider-b", meta.get("provider"));
+        assertEquals("server-b", meta.get("server"));
     }
 
     @Test
@@ -503,7 +503,7 @@ class DiscussionSubscriberHelpersTest {
                     {"messageId": "m-c", "threadId": "t1", "agentName": "coordinator",
                      "messageType": "thread_close", "content": ""}""");
             return new ChatService.SimpleLlmResult("CONTRIBUTE", 5, 1,
-                    new ai.kubemoot.agent.chat.ModelUse("triage-model:4b", "provider-c"));
+                    new ai.kubemoot.agent.chat.ModelUse("triage-model:4b", "server-c"));
         });
 
         sub.evaluateSelected(SUBJECT_T1, "t1", "conversation", true);
@@ -514,7 +514,7 @@ class DiscussionSubscriberHelpersTest {
         var standAside = msgs.get(1);
         assertEquals("stand_aside", standAside.path("messageType").asText());
         assertEquals("triage-model:4b", standAside.path("metadata").path("modelName").asText());
-        assertEquals("provider-c", standAside.path("metadata").path("gpuLabel").asText());
+        assertEquals("server-c", standAside.path("metadata").path("gpuLabel").asText());
         verify(chat, never()).directChat(any(), anyBoolean(), any());
     }
 
@@ -523,7 +523,7 @@ class DiscussionSubscriberHelpersTest {
         var conn = mock(Connection.class);
         var sub = createSubscriberWithConnection(conn);
         var result = new ChatService.ChatResult("c", "NOTHING_TO_ADD", "alt-model:14b", "t1", 1, 1,
-                "provider-b", "");
+                "server-b", "");
 
         sub.classifyAndPublishResult(SUBJECT_T1, "t1", result, DiscussionSubscriber.SignalTiming.NONE, "static");
 
@@ -548,14 +548,14 @@ class DiscussionSubscriberHelpersTest {
     }
 
     @Test
-    void triage_reportsTheTriageModelAndTheProviderItRanOn() throws Exception {
+    void triage_reportsTheTriageModelAndTheServerItRanOn() throws Exception {
         var conn = mock(Connection.class);
         var chat = mock(ChatService.class);
         when(chat.getToolNames()).thenReturn(List.of());
         when(chat.getTriageModelId()).thenReturn("triage-model:4b");
         when(chat.getTriageEndpoint()).thenReturn("http://ollama.static-ns:11434");
         when(chat.triageChatWithTokens(anyString(), anyString())).thenReturn(new ChatService.SimpleLlmResult(
-                "NOTHING_TO_ADD", 50, 2, new ai.kubemoot.agent.chat.ModelUse("triage-model:4b", "provider-c")));
+                "NOTHING_TO_ADD", 50, 2, new ai.kubemoot.agent.chat.ModelUse("triage-model:4b", "server-c")));
         var sub = createSubscriberWithConnection(conn, chat);
 
         sub.evaluateSelected(SUBJECT_T1, "t1", "conversation", false);
@@ -567,8 +567,8 @@ class DiscussionSubscriberHelpersTest {
         var standAside = msgs.get(1);
         assertEquals("stand_aside", standAside.path("messageType").asText());
         assertEquals("triage-model:4b", standAside.path("metadata").path("modelName").asText());
-        assertEquals("provider-c", standAside.path("metadata").path("gpuLabel").asText());
-        assertEquals(List.of("triage-model:4b@provider-c"), modelsUsed(standAside));
+        assertEquals("server-c", standAside.path("metadata").path("gpuLabel").asText());
+        assertEquals(List.of("triage-model:4b@server-c"), modelsUsed(standAside));
     }
 
     @Test
@@ -596,7 +596,7 @@ class DiscussionSubscriberHelpersTest {
         var chat = mock(ChatService.class);
         when(chat.getToolNames()).thenReturn(List.of());
         when(chat.triageChatWithTokens(anyString(), anyString())).thenThrow(
-                ai.kubemoot.agent.provider.NoFitException.promptTooLarge("m:8b", "triage prompt ~9000 tokens"));
+                ai.kubemoot.agent.modelserver.NoFitException.promptTooLarge("m:8b", "triage prompt ~9000 tokens"));
         var sub = createSubscriberWithConnection(conn, chat);
 
         assertNull(sub.runTriage("kubemoot.discuss.ns-a.nocrew.general.t1", "t1", "conversation", "4090",

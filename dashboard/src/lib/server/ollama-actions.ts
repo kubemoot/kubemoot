@@ -1,5 +1,5 @@
-// Server-side helpers that talk to an Ollama ModelProvider directly,
-// driving the model lifecycle the dashboard ModelProviderCard exposes.
+// Server-side helpers that talk to an Ollama ModelServer directly,
+// driving the model lifecycle the dashboard ModelServerCard exposes.
 //
 // Three lifecycle actions:
 //   - load:   POST /api/generate with a tiny prompt and num_predict=1.
@@ -11,16 +11,16 @@
 //             disk. Loaded/Cached → Not present. Destructive: recovery
 //             requires re-pulling the model (potentially many GB).
 //
-// The endpoint URL is taken from ModelProvider.spec.endpoint as-is. The
+// The endpoint URL is taken from ModelServer.spec.endpoint as-is. The
 // helper appends the appropriate path per action.
 
-import { getModelProvider } from '#lib/server/k8s/index.js';
+import { getModelServer } from '#lib/server/k8s/index.js';
 import { trimTrailingSlashes } from '#lib/text-utils.js';
 
 export type OllamaAction = 'load' | 'unload' | 'delete';
 
 export interface OllamaActionResult {
-	provider: string;
+	server: string;
 	model: string;
 	action: OllamaAction;
 	durationMs: number;
@@ -30,16 +30,16 @@ export interface OllamaActionResult {
 const ACTION_TIMEOUT_MS = 90_000;
 
 /**
- * Resolve a ModelProvider's HTTP endpoint to the Ollama base URL.
- * Returns null if the provider is not Ollama-typed or has no endpoint.
+ * Resolve a ModelServer's HTTP endpoint to the Ollama base URL.
+ * Returns null if the server is not Ollama-typed or has no endpoint.
  */
 export async function resolveOllamaEndpoint(
 	namespace: string,
-	providerName: string
+	serverName: string
 ): Promise<string | null> {
-	const provider = await getModelProvider(namespace, providerName);
-	if (provider.spec.type !== 'ollama') return null;
-	const endpoint = provider.spec.endpoint;
+	const server = await getModelServer(namespace, serverName);
+	if (server.spec.type !== 'ollama') return null;
+	const endpoint = server.spec.endpoint;
 	if (!endpoint) return null;
 	return trimTrailingSlashes(endpoint);
 }
@@ -98,7 +98,7 @@ export async function executeOllamaAction(
 		const durationMs = Date.now() - start;
 		const parsed = safeParseJson(text);
 		const loadDurationMs = extractLoadDurationMs(parsed);
-		return { provider: endpoint, model, action, durationMs, loadDurationMs };
+		return { server: endpoint, model, action, durationMs, loadDurationMs };
 	} finally {
 		clearTimeout(timer);
 	}

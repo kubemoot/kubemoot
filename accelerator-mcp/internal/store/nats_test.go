@@ -60,15 +60,15 @@ func TestNATS_getPutListDelete(t *testing.T) {
 func TestNATS_ticketsOverARealBucket(t *testing.T) {
 	kv := natsKV(t)
 	tickets := Tickets{KV: kv, Holder: testHolder, Now: fixedNow}
-	key, err := tickets.Claim(testProvider, testModel, 512)
+	key, err := tickets.Claim(testServer, testModel, 512)
 	check(t, "claim", err == nil, err)
-	_ = kv.PutKVValue(TicketsBucket, testProvider+"__crew", []byte(`{"holderId":"crew/agent","modelName":"qwen3:8b"}`))
+	_ = kv.PutKVValue(TicketsBucket, testServer+"__crew", []byte(`{"holderId":"crew/agent","modelName":"qwen3:8b"}`))
 
-	others, err := tickets.Others(testProvider)
+	others, err := tickets.Others(testServer)
 	check(t, "others", err == nil && others == 1, others)
 	tickets.Release(key)
-	tickets.Release(testProvider + "__crew")
-	others, err = tickets.Others(testProvider)
+	tickets.Release(testServer + "__crew")
+	others, err = tickets.Others(testServer)
 	check(t, "a deleted ticket no longer counts", err == nil && others == 0, others)
 }
 

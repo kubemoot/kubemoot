@@ -9,7 +9,7 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
-/** Scope resolution in the shared NATS provider; no NATS server is contacted. */
+/** Scope resolution in the shared NATS server; no NATS server is contacted. */
 class NatsConnectionProviderTest {
 
     private static AgentProperties props(String natsUrl, String namespace, String crew) {
@@ -25,14 +25,14 @@ class NatsConnectionProviderTest {
 
     @Test
     void configured_scopeCarriesNamespaceAndCrew() {
-        var provider = new NatsConnectionProvider(props("nats://nats:4222", "team-a", "homelab-pilot"));
-        assertEquals(CrewScope.of("team-a", "homelab-pilot"), provider.scope());
+        var server = new NatsConnectionProvider(props("nats://nats:4222", "team-a", "homelab-pilot"));
+        assertEquals(CrewScope.of("team-a", "homelab-pilot"), server.scope());
     }
 
     @Test
     void notConfigured_hasNoScope() {
-        var provider = new NatsConnectionProvider(props(null, "team-a", "homelab-pilot"));
-        assertFalse(provider.isConfigured());
-        assertThrows(IllegalStateException.class, provider::scope);
+        var server = new NatsConnectionProvider(props(null, "team-a", "homelab-pilot"));
+        assertFalse(server.isConfigured());
+        assertThrows(IllegalStateException.class, server::scope);
     }
 }

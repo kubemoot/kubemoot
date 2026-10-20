@@ -31,8 +31,8 @@ import (
 )
 
 const (
-	partialProvider = "gpu"
-	partialKey      = "gpu/m"
+	partialServer = "gpu"
+	partialKey    = "gpu/m"
 )
 
 // startBlockedPull starts a tracked pull that has downloaded 500 of 1000 bytes and
@@ -42,7 +42,7 @@ func startBlockedPull(t *testing.T, tracker *PullTracker) (cancelled *atomic.Boo
 	gate := make(chan struct{})
 	cancelled = &atomic.Bool{}
 	f := newFakeOllama(t, blockedPull(halfDone, gate, cancelled))
-	startPull(tracker, partialKey, "uid", pullStream{provider: partialProvider, endpoint: f.srv.URL, tag: testModelID, client: f.srv.Client()})
+	startPull(tracker, partialKey, "uid", pullStream{server: partialServer, endpoint: f.srv.URL, tag: testModelID, client: f.srv.Client()})
 	eventually(t, "progress", func() bool { completed, _ := tracker.get(partialKey).totals(); return completed == 500 })
 	return cancelled, func() { close(gate) }
 }
@@ -51,11 +51,11 @@ func TestPartialBytes_RunningPullCounts(t *testing.T) {
 	var tracker PullTracker
 	_, release := startBlockedPull(t, &tracker)
 	defer release()
-	if got := tracker.PartialBytes(partialProvider); got != 500 {
+	if got := tracker.PartialBytes(partialServer); got != 500 {
 		t.Errorf("PartialBytes = %d for a pull with 500 bytes down, want 500", got)
 	}
 	if got := tracker.PartialBytes(testMismatchName); got != 0 {
-		t.Errorf("PartialBytes(other provider) = %d, want 0", got)
+		t.Errorf("PartialBytes(other server) = %d, want 0", got)
 	}
 }
 
@@ -68,7 +68,7 @@ func TestPartialBytes_AbandonedPullLeavesItsBytes(t *testing.T) {
 	if tracker.get(partialKey) != nil {
 		t.Error("an abandoned pull must leave the tracker")
 	}
-	if got := tracker.PartialBytes(partialProvider); got != 500 {
+	if got := tracker.PartialBytes(partialServer); got != 500 {
 		t.Errorf("PartialBytes = %d after a cancel, want the 500 bytes left on disk", got)
 	}
 }
@@ -79,21 +79,21 @@ func TestPartialBytes_ForgetAndRestartClearThem(t *testing.T) {
 	defer release()
 	tracker.abandon(partialKey)
 	tracker.forget(partialKey)
-	if got := tracker.PartialBytes(partialProvider); got != 0 {
+	if got := tracker.PartialBytes(partialServer); got != 0 {
 		t.Errorf("PartialBytes = %d after forget, want 0", got)
 	}
 
-	tracker.leftovers = map[string]leftover{partialKey: {provider: partialProvider, bytes: 700}}
-	tracker.ServerRestarted(partialProvider, "pod-a/0")
-	if got := tracker.PartialBytes(partialProvider); got != 700 {
+	tracker.leftovers = map[string]leftover{partialKey: {server: partialServer, bytes: 700}}
+	tracker.ServerRestarted(partialServer, "pod-a/0")
+	if got := tracker.PartialBytes(partialServer); got != 700 {
 		t.Errorf("PartialBytes = %d on first sight of the server, want 700 kept", got)
 	}
-	tracker.ServerRestarted(partialProvider, "pod-a/0")
-	if got := tracker.PartialBytes(partialProvider); got != 700 {
+	tracker.ServerRestarted(partialServer, "pod-a/0")
+	if got := tracker.PartialBytes(partialServer); got != 700 {
 		t.Errorf("PartialBytes = %d for the same server instance, want 700 kept", got)
 	}
-	tracker.ServerRestarted(partialProvider, "pod-a/1")
-	if got := tracker.PartialBytes(partialProvider); got != 0 {
+	tracker.ServerRestarted(partialServer, "pod-a/1")
+	if got := tracker.PartialBytes(partialServer); got != 0 {
 		t.Errorf("PartialBytes = %d after the server restarted, want 0 (Ollama prunes partials on start)", got)
 	}
 }
@@ -107,7 +107,7 @@ func TestPartialBytes_ResumedPullTakesOverTheLeftover(t *testing.T) {
 
 	_, release2 := startBlockedPull(t, &tracker)
 	defer release2()
-	if got := tracker.PartialBytes(partialProvider); got != 500 {
+	if got := tracker.PartialBytes(partialServer); got != 500 {
 		t.Errorf("PartialBytes = %d with the leftover and the resumed pull, want 500 counted once", got)
 	}
 }
@@ -118,10 +118,10 @@ func TestPartialBytes_FinishedPullLeavesNothing(t *testing.T) {
 		emit(w, halfDone)
 		emit(w, `{"status":"success"}`)
 	})
-	startPull(&tracker, partialKey, "uid", pullStream{provider: partialProvider, endpoint: f.srv.URL, tag: testModelID, client: f.srv.Client()})
+	startPull(&tracker, partialKey, "uid", pullStream{server: partialServer, endpoint: f.srv.URL, tag: testModelID, client: f.srv.Client()})
 	eventually(t, "the pull to finish", func() bool { return tracker.get(partialKey).outcome().finished })
 	tracker.abandon(partialKey)
-	if got := tracker.PartialBytes(partialProvider); got != 0 {
+	if got := tracker.PartialBytes(partialServer); got != 0 {
 		t.Errorf("PartialBytes = %d for a pull that succeeded, want 0", got)
 	}
 }
@@ -136,11 +136,11 @@ func TestPartialBytes_ModelDeletedMidPullCountsTowardStorage(t *testing.T) {
 
 	now := metav1.Now()
 	h.model.DeletionTimestamp = &now
-	if _, err := h.r.handleDeletion(context.Background(), h.model, h.provider); err != nil {
+	if _, err := h.r.handleDeletion(context.Background(), h.model, h.server); err != nil {
 		t.Fatalf("handleDeletion: %v", err)
 	}
 	eventually(t, "the pull to be cancelled", cancelled.Load)
-	if got := h.r.tracker().PartialBytes(h.provider.Name); got != 500 {
+	if got := h.r.tracker().PartialBytes(h.server.Name); got != 500 {
 		t.Errorf("PartialBytes = %d after the Model was deleted mid-pull, want the 500 bytes left behind", got)
 	}
 }
@@ -152,7 +152,7 @@ func TestPartialBytes_SharedTagKeepsNoLeftoverWhileWanted(t *testing.T) {
 	h := newPullHarness(t, newFakeOllama(t, blockedPull(halfDone, release, &cancelled)), 0)
 	em := &aiv1alpha1.EmbeddingModel{
 		ObjectMeta: metav1.ObjectMeta{Name: "emb", Namespace: testCrewNamespace},
-		Spec:       aiv1alpha1.EmbeddingModelSpec{Model: testModelID, ProviderRef: testOllamaGPU},
+		Spec:       aiv1alpha1.EmbeddingModelSpec{Model: testModelID, ServerRef: testOllamaGPU},
 	}
 	if err := h.r.Create(context.Background(), em); err != nil {
 		t.Fatalf("create EmbeddingModel: %v", err)
@@ -162,7 +162,7 @@ func TestPartialBytes_SharedTagKeepsNoLeftoverWhileWanted(t *testing.T) {
 
 	now := metav1.Now()
 	h.model.DeletionTimestamp = &now
-	if _, err := h.r.handleDeletion(context.Background(), h.model, h.provider); err != nil {
+	if _, err := h.r.handleDeletion(context.Background(), h.model, h.server); err != nil {
 		t.Fatalf("handleDeletion: %v", err)
 	}
 	if h.tracked() == nil || cancelled.Load() {
@@ -179,24 +179,24 @@ func TestDiscoverStorage_PartialDownloadsReduceFreeDisk(t *testing.T) {
 	pod := ollamaPod([]corev1.Volume{claimVolume()}, []corev1.VolumeMount{{Name: storageData, MountPath: storageMount}})
 	pod.UID = "pod-1"
 	cl := fake.NewClientBuilder().WithScheme(modelTestScheme(t)).WithObjects(pod, claim("10Gi"), endpointSlice()).WithStatusSubresource(pod).Build()
-	tracker := &PullTracker{leftovers: map[string]leftover{partialKey: {provider: "gpu", bytes: 2 * gib}}}
-	r := &ModelProviderReconciler{Client: cl, Pulls: tracker}
-	provider := storageProvider(srv)
-	provider.Spec.Endpoint = "http://ollama." + storageNS + ":11434"
+	tracker := &PullTracker{leftovers: map[string]leftover{partialKey: {server: "gpu", bytes: 2 * gib}}}
+	r := &ModelServerReconciler{Client: cl, Pulls: tracker}
+	server := storageServer(srv)
+	server.Spec.Endpoint = "http://ollama." + storageNS + ":11434"
 	httpClient := &http.Client{Transport: redirectTo(srv)}
 
-	r.discoverStorage(context.Background(), provider, httpClient)
-	got := provider.Status.Storage
+	r.discoverStorage(context.Background(), server, httpClient)
+	got := server.Status.Storage
 	if got == nil || got.PartialBytes != 2*gib || got.ModelBytes != gib || got.FreeBytes != 7*gib {
 		t.Fatalf("storage = %+v, want 2Gi partial, 1Gi models, 7Gi free", got)
 	}
 
-	pod.Status.ContainerStatuses = []corev1.ContainerStatus{{Name: candProvider, RestartCount: 1}}
+	pod.Status.ContainerStatuses = []corev1.ContainerStatus{{Name: candServer, RestartCount: 1}}
 	if err := cl.Status().Update(context.Background(), pod); err != nil {
 		t.Fatalf("update pod: %v", err)
 	}
-	r.discoverStorage(context.Background(), provider, httpClient)
-	got = provider.Status.Storage
+	r.discoverStorage(context.Background(), server, httpClient)
+	got = server.Status.Storage
 	if got.PartialBytes != 0 || got.FreeBytes != 9*gib {
 		t.Errorf("storage = %+v after an Ollama restart, want the partial files gone and 9Gi free", got)
 	}
@@ -208,10 +208,10 @@ func TestPartialBytes_SucceededPullIsNotCountedTwice(t *testing.T) {
 		emit(w, halfDone)
 		emit(w, `{"status":"success"}`)
 	})
-	startPull(&tracker, partialKey, "uid", pullStream{provider: partialProvider, endpoint: f.srv.URL, tag: testModelID, client: f.srv.Client()})
+	startPull(&tracker, partialKey, "uid", pullStream{server: partialServer, endpoint: f.srv.URL, tag: testModelID, client: f.srv.Client()})
 	eventually(t, "the pull to finish", func() bool { return tracker.get(partialKey).outcome().finished })
-	if got := tracker.PartialBytes(partialProvider); got != 0 {
-		t.Errorf("PartialBytes = %d for a finished pull the provider already lists, want 0", got)
+	if got := tracker.PartialBytes(partialServer); got != 0 {
+		t.Errorf("PartialBytes = %d for a finished pull the server already lists, want 0", got)
 	}
 }
 

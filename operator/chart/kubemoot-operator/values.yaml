@@ -108,8 +108,8 @@ health:
 # (see mcpServers below). Opt in only on clusters where every pod is trusted.
 internalAgents:
   enabled: false
-  # Shared model provider for internal agents
-  modelProvider:
+  # Shared model server for internal agents
+  modelServer:
     name: ollama-gpu
     endpoint: http://ollama.ollama:11434
   # Shared model for inference
@@ -274,20 +274,20 @@ verify:
   deployJobs: false
 
 # The scheduling crew: Kubemoot's own crew for scheduling work, in its own namespace.
-# Its model-provider-calibrator measures each ModelProvider (load time, prompt and
+# Its model-server-calibrator measures each ModelServer (load time, prompt and
 # generation speed, parallel throughput, fit) through the accelerator-mcp tools and
-# records the results on the provider's status.calibration. Ask it with
+# records the results on the server's status.calibration. Ask it with
 # `kmctl conversation ask kubemoot-scheduling "Calibrate ollama-gpu" -n kubemoot-scheduling`.
-# It renders only when modelProviders below is not empty: its agents think with one
-# Model per chart-declared ModelProvider.
+# It renders only when modelServers below is not empty: its agents think with one
+# Model per chart-declared ModelServer.
 schedulingCrew:
   enabled: true
   namespace: kubemoot-scheduling
   # The small tool-calling model the crew's agents think with. The chart declares one
-  # Model per ModelProvider in modelProviders below; the scheduler places each call.
-  # Like any Model, it is pulled onto each provider that lacks it, and deleting the
-  # Model (disabling the crew, changing this name) removes the model from a provider
-  # only when no other Model on that provider uses the same tag. Choosing a model other
+  # Model per ModelServer in modelServers below; the scheduler places each call.
+  # Like any Model, it is pulled onto each server that lacks it, and deleting the
+  # Model (disabling the crew, changing this name) removes the model from a server
+  # only when no other Model on that server uses the same tag. Choosing a model other
   # crews already use costs no extra disk.
   model:
     name: qwen3:8b
@@ -303,9 +303,9 @@ schedulingCrew:
         memory: 1Gi
 
 # accelerator-mcp - a core MCP server: one copy in the operator's namespace that any
-# crew's gateway may register (coreServerSelector). It lists ModelProviders, reads their
+# crew's gateway may register (coreServerSelector). It lists ModelServers, reads their
 # live state, probes their models, and records calibration on their status. The
-# scheduling crew's calibrator uses it. Needs NATS (provider tickets and history).
+# scheduling crew's calibrator uses it. Needs NATS (server tickets and history).
 acceleratorMcp:
   enabled: true
   image: accelerator-mcp:0.0.0
@@ -387,23 +387,23 @@ webhook:
   certManager:
     enabled: true
 
-# ModelProviders define GPU/inference backends available for scheduling.
+# ModelServers define GPU/inference backends available for scheduling.
 # These are infrastructure resources: agents reference equivalence groups,
-# not providers directly. The scheduler distributes agents across providers.
+# not servers directly. The scheduler distributes agents across servers.
 # Each entry: name, type, endpoint, optional namespace (default: the release
 # namespace), optional schedulingWeight (spec.scheduling.weight) and optional
 # memoryMiB (spec.scheduling.memoryMiB: the memory budget the fit gate spends
 # when the operator cannot discover one, such as the host RAM of a CPU server;
-# unset there, agents refuse cold loads on that provider).
-# A vllm provider has no endpoint. It sets exactly one of serviceRef ({name,
+# unset there, agents refuse cold loads on that server).
+# A vllm server has no endpoint. It sets exactly one of serviceRef ({name,
 # namespace}: the Service of a vLLM install such as the kubemoot-vllm chart; the
 # operator finds the servers from its ports) or servers (a list of {model,
 # endpoint} for vLLM deployed another way), and optionally sleepLevel. All three are
-# copied into the ModelProvider spec as they are. The scheduling crew declares no
-# Model on a vllm provider.
-# models (optional): the cluster's model catalog entries for the provider, each rendered as
-# a Model in the provider's namespace: {model, parameters, capabilities, contextLength,
-# vramMib, labels, disabled}. An Ollama provider downloads each model that is missing. Only
+# copied into the ModelServer spec as they are. The scheduling crew declares no
+# Model on a vllm server.
+# models (optional): the cluster's model catalog entries for the server, each rendered as
+# a Model in the server's namespace: {model, parameters, capabilities, contextLength,
+# vramMib, labels, disabled}. An Ollama server downloads each model that is missing. Only
 # `model` is needed for Ollama: Kubemoot reads the size, context and abilities from the
 # server. Every chat model a server reports joins the catalog without an entry; add one to
 # have the model downloaded, to declare what the server cannot report, to add labels, or
@@ -429,7 +429,7 @@ webhook:
 #     sleepLevel: 1
 #     servers:
 #       - {model: "qwen3:14b", endpoint: "http://vllm-14b.models:8000"}
-modelProviders: []
+modelServers: []
 
 # Grafana dashboard provisioning via sidecar ConfigMap discovery
 grafana:

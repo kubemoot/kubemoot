@@ -6,13 +6,13 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 
 /**
- * GpuLabels returns a provider IDENTIFIER derived from the endpoint/name, with no
+ * GpuLabels returns a server IDENTIFIER derived from the endpoint/name, with no
  * hardcoded GPU-model or cluster-topology assumptions.
  */
 class GpuLabelsTest {
 
     @Test
-    void endpointMapsToNamespaceProviderId() {
+    void endpointMapsToNamespaceServerId() {
         // host "ollama.ollama-rig1" -> namespace component "ollama-rig1".
         assertEquals("ollama-rig1",
                 GpuLabels.fromEndpoint("http://ollama.ollama-rig1:11434"));
@@ -28,8 +28,8 @@ class GpuLabelsTest {
 
     @Test
     void nullOrBlankEndpointFallsBackToGenericLabel() {
-        assertEquals("provider", GpuLabels.fromEndpoint(null));
-        assertEquals("provider", GpuLabels.fromEndpoint(""));
+        assertEquals("server", GpuLabels.fromEndpoint(null));
+        assertEquals("server", GpuLabels.fromEndpoint(""));
     }
 
     @Test
@@ -37,20 +37,20 @@ class GpuLabelsTest {
         assertEquals("some-other-service", GpuLabels.fromEndpoint("http://some-other-service:8080"));
     }
 
-    // --- fromProvider: the CR name IS the provider identifier ---
+    // --- fromServer: the CR name IS the server identifier ---
 
     @Test
-    void providerNameReturnedAsIs() {
-        assertEquals("ollama-gpu", GpuLabels.fromProvider("ollama-gpu"));
-        assertEquals("ollama-rig1", GpuLabels.fromProvider("ollama-rig1"));
-        assertEquals("any-future-provider", GpuLabels.fromProvider("any-future-provider"));
+    void serverNameReturnedAsIs() {
+        assertEquals("ollama-gpu", GpuLabels.fromServer("ollama-gpu"));
+        assertEquals("ollama-rig1", GpuLabels.fromServer("ollama-rig1"));
+        assertEquals("any-future-provider", GpuLabels.fromServer("any-future-provider"));
     }
 
     @Test
-    void emptyOrNullProviderReturnsNull_soCallerKeepsStaticLabel() {
+    void emptyOrNullServerReturnsNull_soCallerKeepsStaticLabel() {
         // null/empty = no JIT pick (selector unwired / static fallback); the
         // caller must keep its endpoint-derived label rather than mislabel.
-        assertNull(GpuLabels.fromProvider(null));
-        assertNull(GpuLabels.fromProvider(""));
+        assertNull(GpuLabels.fromServer(null));
+        assertNull(GpuLabels.fromServer(""));
     }
 }

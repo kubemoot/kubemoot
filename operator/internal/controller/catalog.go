@@ -14,9 +14,9 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-// catalog.go builds the cluster's model catalog. A ModelProvider publishes its
+// catalog.go builds the cluster's model catalog. A ModelServer publishes its
 // part of it in status.models: what its engine reports about the models it has,
-// merged with the Model objects in the provider's namespace that name them. The
+// merged with the Model objects in the server's namespace that name them. The
 // merge is pure so every rule of it is a unit test.
 package controller
 
@@ -33,14 +33,14 @@ import (
 )
 
 const (
-	// conditionTypeCatalogSizeKnown is the ModelProvider condition that says
-	// whether every model in the provider's catalog has a size class.
+	// conditionTypeCatalogSizeKnown is the ModelServer condition that says
+	// whether every model in the server's catalog has a size class.
 	conditionTypeCatalogSizeKnown = "CatalogSizeKnown"
 	reasonAllSizesKnown           = "AllSizesKnown"
 	reasonSizeUnknown             = "SizeUnknown"
 )
 
-// catalogFacts is what a provider's engine said about one model.
+// catalogFacts is what a server's engine said about one model.
 type catalogFacts struct {
 	Name    string
 	Present bool
@@ -54,25 +54,25 @@ type catalogFacts struct {
 	Embedding bool
 }
 
-// catalogModelName is the name a Model's model has on the provider's engine: the
-// Ollama tag for an ollama provider, the served name for a vLLM one.
-func catalogModelName(provider *aiv1alpha1.ModelProvider, m *aiv1alpha1.Model) string {
-	if provider.Spec.Type == aiv1alpha1.ProviderTypeVLLM {
+// catalogModelName is the name a Model's model has on the server's engine: the
+// Ollama tag for an ollama server, the served name for a vLLM one.
+func catalogModelName(server *aiv1alpha1.ModelServer, m *aiv1alpha1.Model) string {
+	if server.Spec.Type == aiv1alpha1.ServerTypeVLLM {
 		return m.Spec.Model
 	}
 	return m.OllamaTag()
 }
 
-// catalogModels are the Model objects that belong to the provider's catalog:
-// those in the provider's namespace that name it and are not being deleted.
-func catalogModels(provider *aiv1alpha1.ModelProvider, all []aiv1alpha1.Model) map[string]*aiv1alpha1.Model {
+// catalogModels are the Model objects that belong to the server's catalog:
+// those in the server's namespace that name it and are not being deleted.
+func catalogModels(server *aiv1alpha1.ModelServer, all []aiv1alpha1.Model) map[string]*aiv1alpha1.Model {
 	out := map[string]*aiv1alpha1.Model{}
 	for i := range all {
 		m := &all[i]
-		if m.Namespace != provider.Namespace || m.Spec.ProviderRef != provider.Name || !m.DeletionTimestamp.IsZero() {
+		if m.Namespace != server.Namespace || m.Spec.ServerRef != server.Name || !m.DeletionTimestamp.IsZero() {
 			continue
 		}
-		if name := catalogModelName(provider, m); name != "" && catalogModelBefore(m, out[name]) {
+		if name := catalogModelName(server, m); name != "" && catalogModelBefore(m, out[name]) {
 			out[name] = m
 		}
 	}
@@ -95,12 +95,12 @@ func catalogModelBefore(m, chosen *aiv1alpha1.Model) bool {
 	return m.Name < chosen.Name
 }
 
-// buildCatalog merges what the engine reported (facts) with the provider's Model
-// objects into the provider's catalog entries, sorted by name. The Model wins
+// buildCatalog merges what the engine reported (facts) with the server's Model
+// objects into the server's catalog entries, sorted by name. The Model wins
 // wherever it speaks; a disabled Model removes its model; an embedding-only model
 // is never admitted. A model that has a Model object but is not reported is
 // listed as not present.
-func buildCatalog(provider *aiv1alpha1.ModelProvider, facts []catalogFacts, models map[string]*aiv1alpha1.Model) []aiv1alpha1.CatalogModel {
+func buildCatalog(server *aiv1alpha1.ModelServer, facts []catalogFacts, models map[string]*aiv1alpha1.Model) []aiv1alpha1.CatalogModel {
 	byName := map[string]catalogFacts{}
 	for _, f := range facts {
 		byName[f.Name] = f
@@ -116,7 +116,7 @@ func buildCatalog(provider *aiv1alpha1.ModelProvider, facts []catalogFacts, mode
 		if f.Embedding || (m != nil && m.Spec.Disabled) {
 			continue
 		}
-		out = append(out, mergeEntry(provider, f, m))
+		out = append(out, mergeEntry(server, f, m))
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return out
@@ -124,7 +124,7 @@ func buildCatalog(provider *aiv1alpha1.ModelProvider, facts []catalogFacts, mode
 
 // mergeEntry is the catalog entry for one model: the engine's facts overlaid by
 // the Model object m, if any.
-func mergeEntry(provider *aiv1alpha1.ModelProvider, f catalogFacts, m *aiv1alpha1.Model) aiv1alpha1.CatalogModel {
+func mergeEntry(server *aiv1alpha1.ModelServer, f catalogFacts, m *aiv1alpha1.Model) aiv1alpha1.CatalogModel {
 	e := aiv1alpha1.CatalogModel{
 		Name:           f.Name,
 		Present:        f.Present,
@@ -139,7 +139,7 @@ func mergeEntry(provider *aiv1alpha1.ModelProvider, f catalogFacts, m *aiv1alpha
 	if m != nil {
 		overlayModel(&e, m)
 	}
-	e.Labels = entryLabels(provider, f.Family, &e, m)
+	e.Labels = entryLabels(server, f.Family, &e, m)
 	e.Size = e.Labels[aiv1alpha1.LabelSize]
 	return e
 }
@@ -162,8 +162,8 @@ func overlayModel(e *aiv1alpha1.CatalogModel, m *aiv1alpha1.Model) {
 // entryLabels are the labels scheduling rules match for an entry: the derived
 // ones, then every label on the Model object (so the owner's label wins, the size
 // override included).
-func entryLabels(provider *aiv1alpha1.ModelProvider, family string, e *aiv1alpha1.CatalogModel, m *aiv1alpha1.Model) map[string]string {
-	labels := map[string]string{aiv1alpha1.LabelEngine: string(provider.Spec.Type)}
+func entryLabels(server *aiv1alpha1.ModelServer, family string, e *aiv1alpha1.CatalogModel, m *aiv1alpha1.Model) map[string]string {
+	labels := map[string]string{aiv1alpha1.LabelEngine: string(server.Spec.Type)}
 	if size := aiv1alpha1.SizeClassFor(e.ParameterCount); size != "" {
 		labels[aiv1alpha1.LabelSize] = size
 	}
@@ -225,10 +225,10 @@ func entriesWithoutSize(entries []aiv1alpha1.CatalogModel) []string {
 	return names
 }
 
-// setCatalogSizeCondition records on the provider whether every catalog entry has
+// setCatalogSizeCondition records on the server whether every catalog entry has
 // a size, naming the ones that do not so the owner can declare spec.parameters.
-func setCatalogSizeCondition(provider *aiv1alpha1.ModelProvider) {
-	unknown := entriesWithoutSize(provider.Status.Models)
+func setCatalogSizeCondition(server *aiv1alpha1.ModelServer) {
+	unknown := entriesWithoutSize(server.Status.Models)
 	cond := metav1.Condition{
 		Type:    conditionTypeCatalogSizeKnown,
 		Status:  metav1.ConditionTrue,
@@ -239,5 +239,5 @@ func setCatalogSizeCondition(provider *aiv1alpha1.ModelProvider) {
 		cond.Status, cond.Reason = metav1.ConditionFalse, reasonSizeUnknown
 		cond.Message = fmt.Sprintf("No size for %s: set spec.parameters on a Model for each; a rule that requires a size excludes them", strings.Join(unknown, ", "))
 	}
-	meta.SetStatusCondition(&provider.Status.Conditions, cond)
+	meta.SetStatusCondition(&server.Status.Conditions, cond)
 }

@@ -26,7 +26,7 @@ import java.util.regex.Pattern;
  * the operator's nats-streams-job). Keys are namespace- and crew-scoped:
  * {@code <namespace>.<crew>.<topic>.<key>} (see
  * {@link ai.kubemoot.agent.nats.CrewScope#memoryKey}). Values are JSON {@code {value, learnedBy,
- * learnedAt}}. NATS KV is the existing persistent-state backbone (provider
+ * learnedAt}}. NATS KV is the existing persistent-state backbone (server
  * state, agent state) — it survives pod restarts and needs no PVC, unlike a
  * file-backed memory server. See tasks/notes/Crew Working Memory.md.
  *
@@ -44,7 +44,7 @@ import java.util.regex.Pattern;
  *
  * <p>Native-safe: reads via {@code mapper.readTree()} (never {@code readValue}
  * of a record — fails silently in GraalVM native). Degrades to no-op when NATS
- * is unavailable, exactly like {@link ai.kubemoot.agent.provider.ProviderSelector}.
+ * is unavailable, exactly like {@link ai.kubemoot.agent.modelserver.ServerSelector}.
  */
 @ApplicationScoped
 public class CrewMemoryClient {

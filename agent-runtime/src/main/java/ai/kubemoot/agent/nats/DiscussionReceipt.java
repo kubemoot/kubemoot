@@ -242,7 +242,7 @@ final class DiscussionReceipt {
         return line;
     }
 
-    /** How many agents' calls ran at each model@provider. */
+    /** How many agents' calls ran at each model@server. */
     private ArrayNode placements(ObjectMapper mapper) {
         Map<String, Integer> counts = new TreeMap<>();
         agents.values().forEach(a -> a.models.forEach(m -> counts.merge(m, 1, Integer::sum)));

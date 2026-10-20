@@ -6,5 +6,5 @@ metadata:
   name: qwen2-small
   namespace: kubemoot
 spec:
-  providerRef: ollama-local
+  serverRef: ollama-local
   model: qwen2:0.5b

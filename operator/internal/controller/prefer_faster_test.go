@@ -48,7 +48,7 @@ func TestPickModelCarriesTheRulesPreferFaster(t *testing.T) {
 	policy := pilotPolicy()
 	policy.Spec.Rules[1].PreferFaster = 60
 	r, _ := catalogReconciler(t,
-		opProvider(selOllama, aiv1alpha1.ProviderTypeOllama, catEntryOf(selModel8, aiv1alpha1.SizeSmall, testToolCalling)), policy)
+		opServer(selOllama, aiv1alpha1.ServerTypeOllama, catEntryOf(selModel8, aiv1alpha1.SizeSmall, testToolCalling)), policy)
 	agent := pilotAgent(candAgent)
 	mulling, err := r.pickModel(context.Background(), agent, phaseMulling)
 	if err != nil || mulling.PreferFaster != 0 {

@@ -29,7 +29,7 @@
 		{ href: resolve('/promptmodules'), label: 'Prompts', icon: 'align-left' },
 		{ href: resolve('/crew-memory'), label: 'Memory', icon: 'database' },
 		{ href: resolve('/fitness'), label: 'Fitness', icon: 'activity' },
-		{ href: resolve('/modelproviders'), label: 'Providers', icon: 'cloud', section: 'Models' },
+		{ href: resolve('/modelservers'), label: 'Servers', icon: 'cloud', section: 'Models' },
 		{ href: resolve('/models'), label: 'Models', icon: 'box' },
 		{ href: resolve('/embeddingmodels'), label: 'Embeddings', icon: 'layers' },
 		{ href: resolve('/mcpservers'), label: 'MCP Servers', icon: 'terminal', section: 'MCPs' },

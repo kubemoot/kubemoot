@@ -27,52 +27,52 @@ import (
 
 const (
 	// conditionTypeSourceCompatible is the Model condition that says whether
-	// spec.source fits the engine of the Model's provider.
+	// spec.source fits the engine of the Model's server.
 	conditionTypeSourceCompatible = "SourceCompatible"
 	reasonSourceEngineMismatch    = "SourceEngineMismatch"
 	reasonSourceFitsEngine        = "SourceFitsEngine"
 )
 
-// sourceMismatch describes why the Model's source does not fit a provider of the
-// given type, or returns "" when it fits. An ollama provider takes an ollama
-// source, or none (an absent source is an Ollama tag). A vllm provider takes a
+// sourceMismatch describes why the Model's source does not fit a server of the
+// given type, or returns "" when it fits. An ollama server takes an ollama
+// source, or none (an absent source is an Ollama tag). A vllm server takes a
 // huggingFace source and nothing else, because its servers load their own
 // weights from a pinned repository. A source on a type that is not supported is
-// left to the provider-type check, which reports that type.
-func sourceMismatch(model *aiv1alpha1.Model, providerType aiv1alpha1.ProviderType) string {
+// left to the server-type check, which reports that type.
+func sourceMismatch(model *aiv1alpha1.Model, serverType aiv1alpha1.ServerType) string {
 	src := model.Spec.Source
-	switch providerType {
-	case aiv1alpha1.ProviderTypeOllama:
+	switch serverType {
+	case aiv1alpha1.ServerTypeOllama:
 		return ollamaSourceMismatch(src)
-	case aiv1alpha1.ProviderTypeVLLM:
+	case aiv1alpha1.ServerTypeVLLM:
 		return vllmSourceMismatch(src)
 	default:
 		if src != nil && src.Ollama != nil {
-			return fmt.Sprintf("source.ollama does not fit a %s provider; use the source for that engine", providerType)
+			return fmt.Sprintf("source.ollama does not fit a %s server; use the source for that engine", serverType)
 		}
 		return ""
 	}
 }
 
-// ollamaSourceMismatch is the mismatch for an ollama provider: only a huggingFace source.
+// ollamaSourceMismatch is the mismatch for an ollama server: only a huggingFace source.
 func ollamaSourceMismatch(src *aiv1alpha1.ModelSource) string {
 	if src != nil && src.HuggingFace != nil {
-		return "source.huggingFace does not fit an ollama provider; use source.ollama or omit source"
+		return "source.huggingFace does not fit an ollama server; use source.ollama or omit source"
 	}
 	return ""
 }
 
-// vllmSourceMismatch is the mismatch for a vllm provider: an ollama source. A
+// vllmSourceMismatch is the mismatch for a vllm server: an ollama source. A
 // vLLM server decides its own weights, so a vllm Model needs no source; a
 // huggingFace one is information about what the server runs.
 func vllmSourceMismatch(src *aiv1alpha1.ModelSource) string {
 	if src != nil && src.Ollama != nil {
-		return "source.ollama does not fit a vllm provider; use source.huggingFace or omit source"
+		return "source.ollama does not fit a vllm server; use source.huggingFace or omit source"
 	}
 	return ""
 }
 
-// setSourceCondition records on the Model whether its source fits its provider.
+// setSourceCondition records on the Model whether its source fits its server.
 func setSourceCondition(model *aiv1alpha1.Model, status metav1.ConditionStatus, reason, message string) {
 	meta.SetStatusCondition(&model.Status.Conditions, metav1.Condition{
 		Type:               conditionTypeSourceCompatible,

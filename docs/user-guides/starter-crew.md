@@ -65,7 +65,7 @@ with `kubectl apply -n <ns> -f access/` beside the RBAC, because `kmctl apply` t
 
 ## Walkthrough
 
-You need a cluster with the Kubemoot operator and a model provider (see
+You need a cluster with the Kubemoot operator and a model server (see
 [Installation](../../introduction/installation/)), plus `kmctl` and `helm` on your PATH.
 
 ### 1. Create it

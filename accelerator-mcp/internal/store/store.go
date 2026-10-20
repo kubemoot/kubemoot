@@ -9,8 +9,8 @@ You may obtain a copy of the License at
 */
 
 // Package store reads and writes the scheduler's NATS KV buckets in the formats
-// the bus contract defines (operator/pkg/bus): call tickets on a provider
-// (ProviderTicket) and the performance history (SchedulerPerformance). The agent
+// the bus contract defines (operator/pkg/bus): call tickets on a server
+// (ServerTicket) and the performance history (SchedulerPerformance). The agent
 // runtime writes the same formats (TicketManager, PerformanceHistory).
 package store
 
@@ -36,29 +36,29 @@ type KV interface {
 
 // Buckets the agent runtime reads; the operator's streams job creates them.
 const (
-	TicketsBucket     = bus.ProviderTicketsBucket
+	TicketsBucket     = bus.ServerTicketsBucket
 	PerformanceBucket = bus.PerformanceBucket
 )
 
-// Tickets claims and releases call tickets on a provider (key <provider>__<ticketId>),
-// so agents count these calls against the provider's slots and memory.
+// Tickets claims and releases call tickets on a server (key <server>__<ticketId>),
+// so agents count these calls against the server's slots and memory.
 type Tickets struct {
 	KV     KV
 	Holder string
 	Now    func() time.Time
 }
 
-// othersOn lists the tickets on the provider held by anyone but this holder. A
+// othersOn lists the tickets on the server held by anyone but this holder. A
 // ticket that cannot be read is an error; one that cannot be parsed counts as
-// someone else's, so an odd entry never makes a busy provider look idle.
-func (t Tickets) othersOn(provider string) ([]bus.ProviderTicket, error) {
+// someone else's, so an odd entry never makes a busy server look idle.
+func (t Tickets) othersOn(server string) ([]bus.ServerTicket, error) {
 	keys, err := t.KV.ListKVKeys(TicketsBucket)
 	if err != nil {
 		return nil, err
 	}
-	var out []bus.ProviderTicket
+	var out []bus.ServerTicket
 	for _, key := range keys {
-		if !strings.HasPrefix(key, bus.ProviderTicketPrefix(provider)) {
+		if !strings.HasPrefix(key, bus.ServerTicketPrefix(server)) {
 			continue
 		}
 		raw, err := t.KV.GetKVValue(TicketsBucket, key)
@@ -68,9 +68,9 @@ func (t Tickets) othersOn(provider string) ([]bus.ProviderTicket, error) {
 		if raw == nil {
 			continue // released since the listing
 		}
-		var ticket bus.ProviderTicket
+		var ticket bus.ServerTicket
 		if json.Unmarshal(raw, &ticket) != nil {
-			out = append(out, bus.ProviderTicket{Provider: provider})
+			out = append(out, bus.ServerTicket{Server: server})
 			continue
 		}
 		if ticket.HolderID != t.Holder {
@@ -80,15 +80,15 @@ func (t Tickets) othersOn(provider string) ([]bus.ProviderTicket, error) {
 	return out, nil
 }
 
-// Others counts the tickets on the provider held by anyone but this holder.
-func (t Tickets) Others(provider string) (int, error) {
-	others, err := t.othersOn(provider)
+// Others counts the tickets on the server held by anyone but this holder.
+func (t Tickets) Others(server string) (int, error) {
+	others, err := t.othersOn(server)
 	return len(others), err
 }
 
-// ModelsInUse is the set of models other holders' tickets on the provider name.
-func (t Tickets) ModelsInUse(provider string) (map[string]bool, error) {
-	others, err := t.othersOn(provider)
+// ModelsInUse is the set of models other holders' tickets on the server name.
+func (t Tickets) ModelsInUse(server string) (map[string]bool, error) {
+	others, err := t.othersOn(server)
 	if err != nil {
 		return nil, err
 	}
@@ -101,11 +101,11 @@ func (t Tickets) ModelsInUse(provider string) (map[string]bool, error) {
 	return inUse, nil
 }
 
-// Claim writes a ticket for one request of model on provider and returns its key.
-func (t Tickets) Claim(provider, model string, footprintMiB int64) (string, error) {
-	ticket := bus.ProviderTicket{
+// Claim writes a ticket for one request of model on server and returns its key.
+func (t Tickets) Claim(server, model string, footprintMiB int64) (string, error) {
+	ticket := bus.ServerTicket{
 		TicketID:          uuid.NewString(),
-		Provider:          provider,
+		Server:            server,
 		ModelName:         model,
 		ModelFootprintMiB: footprintMiB,
 		HolderID:          t.Holder,
@@ -115,7 +115,7 @@ func (t Tickets) Claim(provider, model string, footprintMiB int64) (string, erro
 	if err != nil {
 		return "", err
 	}
-	key := bus.ProviderTicketPrefix(provider) + ticket.TicketID
+	key := bus.ServerTicketPrefix(server) + ticket.TicketID
 	return key, t.KV.PutKVValue(TicketsBucket, key, raw)
 }
 
@@ -137,7 +137,7 @@ const KindCalibration = bus.SchedulerPerformanceSamplesElemKindCalibration
 type Sample = bus.SchedulerPerformanceSamplesElem
 
 // History appends samples to the scheduler's performance history under this
-// holder's own key, <provider>.<model>.<agent>; one writer per key, as in the agent
+// holder's own key, <server>.<model>.<agent>; one writer per key, as in the agent
 // runtime, so the read-modify-write needs no compare-and-set.
 type History struct {
 	KV    KV
@@ -145,14 +145,14 @@ type History struct {
 	Now   func() time.Time
 }
 
-// Record adds samples to the entry for provider and model, keeping the latest
+// Record adds samples to the entry for server and model, keeping the latest
 // MaxSamples. A stored entry that cannot be read is an error, so a stored history
 // is never replaced by an empty one; an entry that cannot be parsed is rebuilt.
-func (h History) Record(provider, model string, samples []Sample) error {
+func (h History) Record(server, model string, samples []Sample) error {
 	if len(samples) == 0 {
 		return nil
 	}
-	key := bus.PerformanceKey(provider, model, h.Agent)
+	key := bus.PerformanceKey(server, model, h.Agent)
 	raw, err := h.KV.GetKVValue(PerformanceBucket, key)
 	if err != nil {
 		return fmt.Errorf("reading %s: %w", key, err)
@@ -161,7 +161,7 @@ func (h History) Record(provider, model string, samples []Sample) error {
 	if raw == nil || json.Unmarshal(raw, &entry) != nil {
 		entry = bus.SchedulerPerformance{}
 	}
-	entry.Provider, entry.Model, entry.Agent = provider, model, h.Agent
+	entry.Server, entry.Model, entry.Agent = server, model, h.Agent
 	for _, s := range samples {
 		entry.Requests++
 		if !s.Ok {
@@ -183,18 +183,18 @@ func (h History) Record(provider, model string, samples []Sample) error {
 	return h.KV.PutKVValue(PerformanceBucket, key, out)
 }
 
-// Of reads every agent's performance history for the provider.
-func (h History) Of(provider string) ([]bus.SchedulerPerformance, error) {
-	return perf.ReadHistory(h.KV, provider)
+// Of reads every agent's performance history for the server.
+func (h History) Of(server string) ([]bus.SchedulerPerformance, error) {
+	return perf.ReadHistory(h.KV, server)
 }
 
-// Forget deletes every agent's performance history for the provider.
-func (h History) Forget(provider string) error {
+// Forget deletes every agent's performance history for the server.
+func (h History) Forget(server string) error {
 	keys, err := h.KV.ListKVKeys(PerformanceBucket)
 	if err != nil {
 		return err
 	}
-	prefix := bus.PerformanceKeyPrefix(provider)
+	prefix := bus.PerformanceKeyPrefix(server)
 	for _, key := range keys {
 		if strings.HasPrefix(key, prefix) {
 			if err := h.KV.DeleteKVKey(PerformanceBucket, key); err != nil {

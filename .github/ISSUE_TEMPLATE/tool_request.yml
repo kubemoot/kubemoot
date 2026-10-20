@@ -1,11 +1,11 @@
 name: Tool or integration request
-description: An MCP server or model provider Kubemoot should connect to.
+description: An MCP server or model server Kubemoot should connect to.
 labels:
   - enhancement
 body:
   - type: markdown
     attributes:
-      value: "Use this form for a new MCP server or model provider integration. An improvement to something that exists belongs in Feature request, and a broken integration in Bug report. Crews that use the tool belong in [kubemoot/crews](https://github.com/kubemoot/crews/issues/new/choose)."
+      value: "Use this form for a new MCP server or model server integration. An improvement to something that exists belongs in Feature request, and a broken integration in Bug report. Crews that use the tool belong in [kubemoot/crews](https://github.com/kubemoot/crews/issues/new/choose)."
   - type: checkboxes
     id: searched
     attributes:
@@ -19,7 +19,7 @@ body:
       label: What kind of integration
       options:
         - MCP server
-        - Model provider
+        - Model server
         - Other
     validations:
       required: true

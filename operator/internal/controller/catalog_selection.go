@@ -15,7 +15,7 @@ limitations under the License.
 */
 
 // catalog_selection.go lets a crew choose its models from the cluster's catalog.
-// An Agent's phase rules are matched against the catalog entries every provider
+// An Agent's phase rules are matched against the catalog entries every server
 // publishes, unless the crew still ships Models of its own, in which case it uses
 // exactly those. Both sources reach the scoring code as Model values, so one
 // scorer serves both.
@@ -57,7 +57,7 @@ type modelSource struct {
 	// Mode is catalogModeCrewLocal or catalogModeCluster.
 	Mode string
 	// Models are the candidates: the crew's own Models, or one in-memory Model per
-	// available catalog entry. A catalog Model lives in its provider's namespace.
+	// available catalog entry. A catalog Model lives in its server's namespace.
 	Models []aiv1alpha1.Model
 }
 
@@ -105,18 +105,18 @@ func crewLocalModels(ctx context.Context, c client.Reader, namespace string) ([]
 	return out, nil
 }
 
-// catalogCandidates turns the entries of the providers a crew can use (those in its
+// catalogCandidates turns the entries of the servers a crew can use (those in its
 // own namespace and in the operator's) into candidate Models: only models the
-// provider has now, and not ones calibration found do not fit.
+// server has now, and not ones calibration found do not fit.
 func (r *AgentReconciler) catalogCandidates(ctx context.Context, namespace string) ([]aiv1alpha1.Model, error) {
 	var out []aiv1alpha1.Model
 	for _, ns := range catalogNamespaces(namespace) {
-		providers := &aiv1alpha1.ModelProviderList{}
-		if err := r.List(ctx, providers, client.InNamespace(ns)); err != nil {
-			return nil, fmt.Errorf("listing ModelProviders: %w", err)
+		servers := &aiv1alpha1.ModelServerList{}
+		if err := r.List(ctx, servers, client.InNamespace(ns)); err != nil {
+			return nil, fmt.Errorf("listing ModelServers: %w", err)
 		}
-		for i := range providers.Items {
-			out = append(out, providerCandidates(&providers.Items[i])...)
+		for i := range servers.Items {
+			out = append(out, serverCandidates(&servers.Items[i])...)
 		}
 	}
 	sort.Slice(out, func(i, j int) bool {
@@ -125,7 +125,7 @@ func (r *AgentReconciler) catalogCandidates(ctx context.Context, namespace strin
 	return out, nil
 }
 
-// catalogNamespaces are the namespaces whose providers a crew in namespace may
+// catalogNamespaces are the namespaces whose servers a crew in namespace may
 // use: its own, then the operator's.
 func catalogNamespaces(namespace string) []string {
 	if op := operatorNamespace(); op != namespace {
@@ -134,9 +134,9 @@ func catalogNamespaces(namespace string) []string {
 	return []string{namespace}
 }
 
-// providerCandidates are the in-memory Models for the available entries of one
-// provider's catalog.
-func providerCandidates(p *aiv1alpha1.ModelProvider) []aiv1alpha1.Model {
+// serverCandidates are the in-memory Models for the available entries of one
+// server's catalog.
+func serverCandidates(p *aiv1alpha1.ModelServer) []aiv1alpha1.Model {
 	var out []aiv1alpha1.Model
 	for _, e := range p.Status.Models {
 		if !e.Present || calibrationSaysNoFit(p, e.Name) {
@@ -149,8 +149,8 @@ func providerCandidates(p *aiv1alpha1.ModelProvider) []aiv1alpha1.Model {
 
 // catalogEntryModel is a catalog entry as a Model value, never stored, so the
 // scoring code that takes a Model serves the catalog as it is. Its namespace is the
-// provider's, which is how the scheduler finds the provider again.
-func catalogEntryModel(p *aiv1alpha1.ModelProvider, e aiv1alpha1.CatalogModel) aiv1alpha1.Model {
+// server's, which is how the scheduler finds the server again.
+func catalogEntryModel(p *aiv1alpha1.ModelServer, e aiv1alpha1.CatalogModel) aiv1alpha1.Model {
 	lbls := make(map[string]string, len(e.Labels))
 	for k, v := range e.Labels {
 		lbls[k] = v
@@ -162,7 +162,7 @@ func catalogEntryModel(p *aiv1alpha1.ModelProvider, e aiv1alpha1.CatalogModel) a
 			Labels:    lbls,
 		},
 		Spec: aiv1alpha1.ModelSpec{
-			ProviderRef:   p.Name,
+			ServerRef:     p.Name,
 			Model:         e.Name,
 			ContextLength: e.ContextLength,
 			VRAMMib:       e.VRAMMib,
@@ -172,8 +172,8 @@ func catalogEntryModel(p *aiv1alpha1.ModelProvider, e aiv1alpha1.CatalogModel) a
 }
 
 // calibrationSaysNoFit reports whether calibration measured the model on the
-// provider and found it does not fit the accelerator's memory.
-func calibrationSaysNoFit(p *aiv1alpha1.ModelProvider, model string) bool {
+// server and found it does not fit the accelerator's memory.
+func calibrationSaysNoFit(p *aiv1alpha1.ModelServer, model string) bool {
 	if p.Status.Calibration == nil {
 		return false
 	}
@@ -185,18 +185,18 @@ func calibrationSaysNoFit(p *aiv1alpha1.ModelProvider, model string) bool {
 	return false
 }
 
-// providerOf resolves the provider of a candidate Model: the provider's own
+// serverOf resolves the server of a candidate Model: the server's own
 // namespace for a catalog Model (it lives there), the usual search for a crew's own.
-func (r *AgentReconciler) providerOf(ctx context.Context, namespace string, m *aiv1alpha1.Model) (*aiv1alpha1.ModelProvider, bool) {
+func (r *AgentReconciler) serverOf(ctx context.Context, namespace string, m *aiv1alpha1.Model) (*aiv1alpha1.ModelServer, bool) {
 	if m.Namespace != "" && m.Namespace != namespace {
-		prov := &aiv1alpha1.ModelProvider{}
-		key := client.ObjectKey{Namespace: m.Namespace, Name: m.Spec.ProviderRef}
+		prov := &aiv1alpha1.ModelServer{}
+		key := client.ObjectKey{Namespace: m.Namespace, Name: m.Spec.ServerRef}
 		if err := r.Get(ctx, key, prov); err != nil {
 			return nil, false
 		}
 		return prov, true
 	}
-	return r.resolveProvider(ctx, namespace, m.Spec.ProviderRef)
+	return r.resolveServer(ctx, namespace, m.Spec.ServerRef)
 }
 
 // ---- matching -------------------------------------------------------------
@@ -326,10 +326,10 @@ func noMatchReason(phase string, rule *aiv1alpha1.SchedulingRule, src modelSourc
 		if rule != nil && (rule.Require != nil || len(rule.RequireExpressions) > 0) {
 			return fmt.Sprintf("no Ready Model matches phase=%s require selectors", phase)
 		}
-		return fmt.Sprintf("no Ready Model with a Ready ModelProvider in namespace %s", namespace)
+		return fmt.Sprintf("no Ready Model with a Ready ModelServer in namespace %s", namespace)
 	}
 	if len(src.Models) == 0 {
-		return fmt.Sprintf("the cluster's model catalog has no available model for phase=%s: no ModelProvider in namespace %s or %s reports one", phase, namespace, operatorNamespace())
+		return fmt.Sprintf("the cluster's model catalog has no available model for phase=%s: no ModelServer in namespace %s or %s reports one", phase, namespace, operatorNamespace())
 	}
 	msg := fmt.Sprintf("no model in the cluster catalog (%d available) satisfies the require of phase=%s%s", len(src.Models), phase, describeRequire(rule))
 	if unsized := unsizedCount(src.Models); unsized > 0 && requiresSize(rule) {

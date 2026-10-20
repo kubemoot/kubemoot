@@ -15,10 +15,10 @@ import (
 	aiv1alpha1 "github.com/kubemoot/kubemoot/operator/api/v1alpha1"
 )
 
-// An Ollama provider publishes its catalog on reconcile: the models Ollama has,
-// sized from /api/show, merged with the Model object next to the provider, with the
+// An Ollama server publishes its catalog on reconcile: the models Ollama has,
+// sized from /api/show, merged with the Model object next to the server, with the
 // embedding model left out and a disabled model removed.
-func TestModelProviderReconcilePublishesTheCatalog(t *testing.T) {
+func TestModelServerReconcilePublishesTheCatalog(t *testing.T) {
 	var shows atomic.Int32
 	inner := catalogOllama(t, &shows)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -31,16 +31,16 @@ func TestModelProviderReconcilePublishesTheCatalog(t *testing.T) {
 	defer srv.Close()
 
 	scheme := refScheme(t)
-	p := catProviderObj(aiv1alpha1.ProviderTypeOllama)
+	p := catServerObj(aiv1alpha1.ServerTypeOllama)
 	p.Spec.Endpoint = srv.URL
 	off := catModel("o-gemma", "gemma3:4b", func(m *aiv1alpha1.Model) { m.Spec.Disabled = true })
 	extra := catModel("o-qwen", candModel14, func(m *aiv1alpha1.Model) { m.Labels = map[string]string{"kubemoot.ai/license": "apache-2.0"} })
 	cli := fake.NewClientBuilder().WithScheme(scheme).WithObjects(p, off, extra).WithStatusSubresource(p, off, extra).Build()
-	r := &ModelProviderReconciler{Client: cli, Scheme: scheme, ConfigCache: NewConfigCache(), HTTPClient: srv.Client()}
+	r := &ModelServerReconciler{Client: cli, Scheme: scheme, ConfigCache: NewConfigCache(), HTTPClient: srv.Client()}
 	if _, err := r.Reconcile(context.Background(), ctrl.Request{NamespacedName: types.NamespacedName{Name: p.Name, Namespace: p.Namespace}}); err != nil {
 		t.Fatal(err)
 	}
-	got := &aiv1alpha1.ModelProvider{}
+	got := &aiv1alpha1.ModelServer{}
 	if err := cli.Get(context.Background(), types.NamespacedName{Name: p.Name, Namespace: p.Namespace}, got); err != nil {
 		t.Fatal(err)
 	}
@@ -64,7 +64,7 @@ func TestModelReconcileDisabledIsNotReadyAndPullsNothing(t *testing.T) {
 	}))
 	defer srv.Close()
 	scheme := modelTestScheme(t)
-	p := catProviderObj(aiv1alpha1.ProviderTypeOllama)
+	p := catServerObj(aiv1alpha1.ServerTypeOllama)
 	p.Spec.Endpoint = srv.URL
 	p.Status.Ready = true
 	m := catModel("off", "qwen3:8b", func(m *aiv1alpha1.Model) { m.Spec.Disabled = true })
@@ -92,7 +92,7 @@ func TestWantedPullKeysSkipsDisabledModels(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !wanted[pullKey(catProvider, "a")] || wanted[pullKey(catProvider, "b")] {
+	if !wanted[pullKey(catServer, "a")] || wanted[pullKey(catServer, "b")] {
 		t.Errorf("wanted = %v", wanted)
 	}
 }
@@ -100,12 +100,12 @@ func TestWantedPullKeysSkipsDisabledModels(t *testing.T) {
 // Calibration measures the catalog's present models as well as the Models bound by
 // an object, and not a disabled Model.
 func TestBoundModelsIncludesTheCatalogAndSkipsDisabled(t *testing.T) {
-	p := catProviderObj(aiv1alpha1.ProviderTypeOllama)
+	p := catServerObj(aiv1alpha1.ServerTypeOllama)
 	p.Status.Models = []aiv1alpha1.CatalogModel{{Name: "found", Present: true}, {Name: "bound", Present: true}}
 	bound := catModel("bound", "bound", nil)
 	off := catModel("off", "off", func(m *aiv1alpha1.Model) { m.Spec.Disabled = true })
 	cli := fake.NewClientBuilder().WithScheme(modelTestScheme(t)).WithObjects(bound, off).Build()
-	r := &ModelProviderReconciler{Client: cli}
+	r := &ModelServerReconciler{Client: cli}
 	got, err := r.boundModels(context.Background(), p)
 	if err != nil {
 		t.Fatal(err)

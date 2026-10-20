@@ -4,7 +4,7 @@
 
 	interface Props {
 		stats: MessageStats;
-		/** Provider id to the hardware it runs on, shown on hover beside the provider name. */
+		/** Server id to the hardware it runs on, shown on hover beside the server name. */
 		acceleratorNames?: Record<string, string>;
 	}
 

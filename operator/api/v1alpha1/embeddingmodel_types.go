@@ -22,9 +22,9 @@ import (
 
 // EmbeddingModelSpec defines the desired state of EmbeddingModel
 type EmbeddingModelSpec struct {
-	// ProviderRef references the ModelProvider to use for this embedding model
+	// ServerRef references the ModelServer to use for this embedding model
 	// +kubebuilder:validation:Required
-	ProviderRef string `json:"providerRef"`
+	ServerRef string `json:"serverRef"`
 
 	// Model is the embedding model name (e.g., nomic-embed-text, text-embedding-3-small)
 	// +kubebuilder:validation:Required
@@ -63,7 +63,7 @@ type EmbeddingModelStatus struct {
 	// Ready indicates if the embedding model is ready for use
 	Ready bool `json:"ready,omitempty"`
 
-	// Endpoint is the embedding API endpoint (from the provider)
+	// Endpoint is the embedding API endpoint (from the server)
 	// Used by RAGSource to configure the indexer
 	Endpoint string `json:"endpoint,omitempty"`
 
@@ -72,7 +72,7 @@ type EmbeddingModelStatus struct {
 	ModelInfo *EmbeddingModelInfo `json:"modelInfo,omitempty"`
 
 	// Pull is the download progress while the model is being pulled; it is
-	// cleared once the model is on the provider.
+	// cleared once the model is on the server.
 	// +optional
 	Pull *PullProgress `json:"pull,omitempty"`
 

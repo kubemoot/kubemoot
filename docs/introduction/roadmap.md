@@ -45,7 +45,7 @@ process does. The design uses Kubernetes mechanisms and invents nothing new:
 - Only tools that call the Kubernetes API reference an admin-made ServiceAccount, behind
   the same `use` check. Every other tool runs as a ServiceAccount with no permissions
   and no mounted token.
-- An egress policy per tool, so the mail tool reaches only the mail provider.
+- An egress policy per tool, so the mail tool reaches only the mail server.
 
 Later steps add a secret store such as OpenBao with External Secrets Operator for
 rotation, short-lived credentials, and audit, and per-user OAuth for assistants that act
@@ -59,7 +59,7 @@ picture.
 **Direction:** we will soon assess other model servers and inference serving platforms,
 such as vLLM, llama.cpp, and llm-d, in the interest of giving crews the best GPU and
 model resources in the shortest time. Beyond the cluster, rented cloud GPUs reached as
-model providers, so a crew can borrow capacity it does not own. Agents never name a
+model servers, so a crew can borrow capacity it does not own. Agents never name a
 model server or where it runs, so a crew does not change when the server beneath it
 does.
 
@@ -179,7 +179,7 @@ backend-agnostic contract: in comes the question, the agent's role, and the avai
 tools; out comes a signal, a rationale, and evidence. Behind that contract could sit the
 native agent (the default, open source, minimal VRAM and startup cost), an external agent
 process supplied and licensed by the user, or a raw local model reached through a model
-provider. The principle is the same one applied to tools: build natively against open
+server. The principle is the same one applied to tools: build natively against open
 standards, adopt open standards such as MCP directly, and keep any specific product
 swappable behind a contract rather than load-bearing. The core must run with no
 dependency on a proprietary agent product, and an external backend stays optional and

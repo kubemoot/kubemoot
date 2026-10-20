@@ -68,7 +68,7 @@ func ollamaFactsByName(t *testing.T) map[string]catalogFacts {
 	t.Helper()
 	var shows atomic.Int32
 	srv := catalogOllama(t, &shows)
-	r := &ModelProviderReconciler{}
+	r := &ModelServerReconciler{}
 	facts, err := r.ollamaFacts(context.Background(), srv.Client(), srv.URL)
 	if err != nil {
 		t.Fatal(err)
@@ -106,7 +106,7 @@ func TestOllamaFactsFlagTheEmbeddingModel(t *testing.T) {
 func TestOllamaFactsShowRunsOncePerDigest(t *testing.T) {
 	var shows atomic.Int32
 	srv := catalogOllama(t, &shows)
-	r := &ModelProviderReconciler{}
+	r := &ModelServerReconciler{}
 	for range 3 {
 		if _, err := r.ollamaFacts(context.Background(), srv.Client(), srv.URL); err != nil {
 			t.Fatal(err)
@@ -122,7 +122,7 @@ func TestOllamaFactsShowRunsOncePerDigest(t *testing.T) {
 func TestOllamaFactsErrorsWhenTagsDoNotAnswer(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusBadGateway) }))
 	defer srv.Close()
-	r := &ModelProviderReconciler{}
+	r := &ModelServerReconciler{}
 	if _, err := r.ollamaFacts(context.Background(), srv.Client(), srv.URL); err == nil {
 		t.Error("expected an error")
 	}
@@ -159,9 +159,9 @@ func TestParseDeclaredModels(t *testing.T) {
 	}
 }
 
-// vllmCatalogFixture is a vllm provider with a serviceRef whose Service carries the
+// vllmCatalogFixture is a vllm server with a serviceRef whose Service carries the
 // kubemoot-vllm chart's models annotation, and the fake servers behind its ports.
-func vllmCatalogFixture(t *testing.T, annotation string) (*ModelProviderReconciler, *aiv1alpha1.ModelProvider, *http.Client) {
+func vllmCatalogFixture(t *testing.T, annotation string) (*ModelServerReconciler, *aiv1alpha1.ModelServer, *http.Client) {
 	t.Helper()
 	srv14 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = fmt.Fprint(w, `{"data":[{"id":"qwen3:14b","max_model_len":16384}]}`)
@@ -172,9 +172,9 @@ func vllmCatalogFixture(t *testing.T, annotation string) (*ModelProviderReconcil
 		svc.Annotations = map[string]string{AnnotationVLLMModels: annotation}
 	}
 	cli := fake.NewClientBuilder().WithScheme(refScheme(t)).WithObjects(svc).Build()
-	p := refProvider()
+	p := refServer()
 	p.Status.VLLMServers = []aiv1alpha1.VLLMServer{{Model: candModel14, Endpoint: fmt.Sprintf(refEndpoint, 8000)}}
-	return &ModelProviderReconciler{Client: cli}, p, servedRoots{8000: srv14}.client()
+	return &ModelServerReconciler{Client: cli}, p, servedRoots{8000: srv14}.client()
 }
 
 func TestVLLMFactsReadTheServiceAnnotationAndServerContext(t *testing.T) {
@@ -199,9 +199,9 @@ func TestVLLMFactsWithoutAnAnnotationHaveNoSize(t *testing.T) {
 	}
 }
 
-func TestVLLMFactsOfAServersProviderDeclareNothing(t *testing.T) {
-	r := &ModelProviderReconciler{Client: fake.NewClientBuilder().WithScheme(refScheme(t)).Build()}
-	p := &aiv1alpha1.ModelProvider{Spec: aiv1alpha1.ModelProviderSpec{Type: aiv1alpha1.ProviderTypeVLLM,
+func TestVLLMFactsOfAServersServerDeclareNothing(t *testing.T) {
+	r := &ModelServerReconciler{Client: fake.NewClientBuilder().WithScheme(refScheme(t)).Build()}
+	p := &aiv1alpha1.ModelServer{Spec: aiv1alpha1.ModelServerSpec{Type: aiv1alpha1.ServerTypeVLLM,
 		Servers: []aiv1alpha1.VLLMServer{{Model: "m", Endpoint: "http://127.0.0.1:1"}}}}
 	facts := r.vllmFacts(context.Background(), http.DefaultClient, p, engine.Snapshot{})
 	if len(facts) != 1 || facts[0].Name != "m" || facts[0].ParameterCount != 0 {
@@ -209,13 +209,13 @@ func TestVLLMFactsOfAServersProviderDeclareNothing(t *testing.T) {
 	}
 }
 
-func TestPublishCatalogMergesModelsInTheProvidersNamespaceOnly(t *testing.T) {
+func TestPublishCatalogMergesModelsInTheServersNamespaceOnly(t *testing.T) {
 	scheme := refScheme(t)
 	inCatalog := catModel("o-gemma", "gemma3:4b", func(m *aiv1alpha1.Model) { m.Spec.Parameters = "4B" })
 	crewLocal := catModel("crew", candModel14, func(m *aiv1alpha1.Model) { m.Namespace = testPlacementNS; m.Spec.Disabled = true })
 	cli := fake.NewClientBuilder().WithScheme(scheme).WithObjects(inCatalog, crewLocal).Build()
-	r := &ModelProviderReconciler{Client: cli}
-	p := catProviderObj(aiv1alpha1.ProviderTypeOllama)
+	r := &ModelServerReconciler{Client: cli}
+	p := catServerObj(aiv1alpha1.ServerTypeOllama)
 	r.publishCatalog(context.Background(), p, []catalogFacts{
 		{Name: candModel14, Present: true, ParameterCount: 14_800_000_000},
 		{Name: "gemma3:4b", Present: true},
@@ -232,8 +232,8 @@ func TestPublishCatalogMergesModelsInTheProvidersNamespaceOnly(t *testing.T) {
 }
 
 func TestPublishCatalogLeavesTheEarlierCatalogWhenModelsCannotBeListed(t *testing.T) {
-	r := &ModelProviderReconciler{Client: failingLister{}}
-	p := catProviderObj(aiv1alpha1.ProviderTypeOllama)
+	r := &ModelServerReconciler{Client: failingLister{}}
+	p := catServerObj(aiv1alpha1.ServerTypeOllama)
 	p.Status.Models = []aiv1alpha1.CatalogModel{{Name: earlierEntry}}
 	r.publishCatalog(context.Background(), p, []catalogFacts{{Name: "newly-found"}})
 	if len(p.Status.Models) != 1 || p.Status.Models[0].Name != earlierEntry {
@@ -251,8 +251,8 @@ func (failingLister) List(context.Context, client.ObjectList, ...client.ListOpti
 func TestDiscoverOllamaCatalogKeepsTheEarlierCatalogWhenOllamaDoesNotAnswer(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusBadGateway) }))
 	defer srv.Close()
-	r := &ModelProviderReconciler{Client: fake.NewClientBuilder().WithScheme(refScheme(t)).Build()}
-	p := catProviderObj(aiv1alpha1.ProviderTypeOllama)
+	r := &ModelServerReconciler{Client: fake.NewClientBuilder().WithScheme(refScheme(t)).Build()}
+	p := catServerObj(aiv1alpha1.ServerTypeOllama)
 	p.Spec.Endpoint = srv.URL
 	p.Status.Models = []aiv1alpha1.CatalogModel{{Name: earlierEntry}}
 	r.discoverOllamaCatalog(context.Background(), p, srv.Client())
@@ -261,22 +261,22 @@ func TestDiscoverOllamaCatalogKeepsTheEarlierCatalogWhenOllamaDoesNotAnswer(t *t
 	}
 }
 
-func TestModelToProviderMapsToTheProviderInTheModelsNamespace(t *testing.T) {
+func TestModelToServerMapsToTheServerInTheModelsNamespace(t *testing.T) {
 	m := catModel("m", "x", nil)
-	reqs := modelToProvider(context.Background(), m)
-	if len(reqs) != 1 || reqs[0].Namespace != catNS || reqs[0].Name != catProvider {
+	reqs := modelToServer(context.Background(), m)
+	if len(reqs) != 1 || reqs[0].Namespace != catNS || reqs[0].Name != catServer {
 		t.Errorf("requests = %+v", reqs)
 	}
-	if got := modelToProvider(context.Background(), &corev1.Pod{}); got != nil {
+	if got := modelToServer(context.Background(), &corev1.Pod{}); got != nil {
 		t.Errorf("a non-Model maps to %+v", got)
 	}
-	if got := modelToProvider(context.Background(), &aiv1alpha1.Model{}); got != nil {
-		t.Errorf("a Model without providerRef maps to %+v", got)
+	if got := modelToServer(context.Background(), &aiv1alpha1.Model{}); got != nil {
+		t.Errorf("a Model without serverRef maps to %+v", got)
 	}
 }
 
 func TestWithCatalogModelsAddsPresentCatalogEntriesOnce(t *testing.T) {
-	p := catProviderObj(aiv1alpha1.ProviderTypeOllama)
+	p := catServerObj(aiv1alpha1.ServerTypeOllama)
 	p.Status.Models = []aiv1alpha1.CatalogModel{{Name: "a", Present: true}, {Name: "b", Present: true}, {Name: "absent-model", Present: false}}
 	got := withCatalogModels([]string{"a"}, p)
 	if !slices.Equal(got, []string{"a", "b"}) {

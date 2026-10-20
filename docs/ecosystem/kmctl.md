@@ -53,14 +53,14 @@ Crew manifest, a coordinator and 1 to 5 specialist Agents with PromptModules in 
 read-only Kubernetes MCP server behind an MCPGateway, a CrewSchedulingPolicy, a starter
 CrewFitnessSuite that passes on a fresh install, and a README. The crew is a read-only
 guide to its own namespace; see [The starter crew](../../user-guides/starter-crew/). On a TTY it runs
-interactively, discovering available ollama providers and letting you select them.
+interactively, discovering available ollama servers and letting you select them.
 Pass `--no-input` with explicit flags to make it scriptable. Think of it like
 `helm create`: the output is a starting point to customise, not a finished product.
 
 **Prompt and model inspection.** `kmctl prompt list` and `kmctl prompt get <name>`
 surface PromptModule resources. Use `-o yaml` to read the full ADL content.
-`kmctl model list` and `kmctl model get <name>` show model provider resources.
-`kmctl model footprint` shows the resident Model resources per provider, giving a
+`kmctl model list` and `kmctl model get <name>` show model server resources.
+`kmctl model footprint` shows the resident Model resources per server, giving a
 live view of the GPU footprint.
 
 **Manifest management.** `kmctl apply -f` and `kmctl delete` are CRD-only

@@ -1,6 +1,6 @@
 # A CPU-only Ollama for the quickstart. No GPU, no persistent volume: the model is
 # pulled once per cluster lifetime, which is what a quickstart wants. For a lasting
-# install, run Ollama wherever your GPU is and point the ModelProvider at it.
+# install, run Ollama wherever your GPU is and point the ModelServer at it.
 apiVersion: v1
 kind: Namespace
 metadata:
@@ -37,7 +37,7 @@ spec:
               cpu: 500m       # a scheduling floor only; no CPU limit, so inference uses every idle core
               memory: 3Gi
             limits:
-              memory: 6Gi     # the ModelProvider declares this as its memory budget
+              memory: 6Gi     # the ModelServer declares this as its memory budget
           readinessProbe:
             httpGet:
               path: /api/version

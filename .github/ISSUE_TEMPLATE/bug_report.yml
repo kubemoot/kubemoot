@@ -64,9 +64,9 @@ body:
     validations:
       required: true
   - type: input
-    id: model-provider
+    id: model-server
     attributes:
-      label: Model provider and models
+      label: Model server and models
       description: Leave blank if the bug has nothing to do with inference.
       placeholder: For example Ollama serving the models you use
     validations:
