@@ -13,6 +13,7 @@ public class McpGatewayProperties {
     private List<ServerConfig> servers = new ArrayList<>();
     private ToolIndex toolIndex = new ToolIndex();
     private MetaTools metaTools = new MetaTools();
+    private Connections connections = new Connections();
     /**
      * Safety net: a connected server whose tool list is older than this is re-listed when
      * the operator next re-registers it. The primary signals are a lost session and the
@@ -26,6 +27,14 @@ public class McpGatewayProperties {
 
     public void setToolListMaxAge(Duration toolListMaxAge) {
         this.toolListMaxAge = toolListMaxAge;
+    }
+
+    public Connections getConnections() {
+        return connections;
+    }
+
+    public void setConnections(Connections connections) {
+        this.connections = connections;
     }
 
     public int getPort() {
@@ -58,6 +67,41 @@ public class McpGatewayProperties {
 
     public void setMetaTools(MetaTools metaTools) {
         this.metaTools = metaTools;
+    }
+
+    /**
+     * The pool of HTTP connections the gateway keeps open to MCP servers. A hosted server's
+     * edge closes idle connections, so the pool drops its own first: a request never starts on
+     * a connection the remote side already closed.
+     */
+    public static class Connections {
+        private Duration maxIdleTime = Duration.ofSeconds(15);
+        private Duration evictInterval = Duration.ofSeconds(10);
+        private Duration maxLifeTime = Duration.ofMinutes(5);
+
+        public Duration getMaxIdleTime() {
+            return maxIdleTime;
+        }
+
+        public void setMaxIdleTime(Duration maxIdleTime) {
+            this.maxIdleTime = maxIdleTime;
+        }
+
+        public Duration getEvictInterval() {
+            return evictInterval;
+        }
+
+        public void setEvictInterval(Duration evictInterval) {
+            this.evictInterval = evictInterval;
+        }
+
+        public Duration getMaxLifeTime() {
+            return maxLifeTime;
+        }
+
+        public void setMaxLifeTime(Duration maxLifeTime) {
+            this.maxLifeTime = maxLifeTime;
+        }
     }
 
     public static class ServerConfig {

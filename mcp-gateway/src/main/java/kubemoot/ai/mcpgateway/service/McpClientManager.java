@@ -16,6 +16,8 @@ import reactor.core.publisher.Mono;
 import reactor.core.publisher.MonoSink;
 import reactor.core.publisher.Sinks;
 import reactor.core.Disposable;
+import reactor.netty.http.client.PrematureCloseException;
+import reactor.util.retry.Retry;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import kubemoot.ai.mcpgateway.config.McpGatewayProperties;
 import kubemoot.ai.mcpgateway.model.FeedbackEntry;
@@ -26,6 +28,8 @@ import kubemoot.ai.mcpgateway.model.ServerRegistration.ServerStatus;
 import kubemoot.ai.mcpgateway.model.ToolInfo;
 import kubemoot.ai.mcpgateway.model.ToolOverride;
 
+import java.io.IOException;
+import java.nio.channels.ClosedChannelException;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -478,6 +482,28 @@ public class McpClientManager {
         recordFeedback(FeedbackEntry.failure(server.name(), serverId, "discover", "the server lists no tools"));
     }
 
+    /**
+     * A request that finds its connection closed by the remote side is sent once more on a new
+     * connection. Only initialize and tools/list use this: they read state and change nothing, so
+     * a second send is harmless. tools/call does not: the server may have received and run the
+     * call before the connection dropped, and a second send would run it twice. A second
+     * reset in a row is reported as the error it is.
+     */
+    private static final Retry RETRY_ONCE_ON_RESET = Retry.max(1)
+        .filter(McpClientManager::isConnectionReset)
+        .onRetryExhaustedThrow((spec, signal) -> signal.failure());
+
+    /** True when the failure, or a cause of it, is a connection the remote side closed or reset. */
+    static boolean isConnectionReset(Throwable failure) {
+        for (Throwable t = failure; t != null; t = t.getCause()) {
+            if (t instanceof PrematureCloseException || t instanceof ClosedChannelException
+                || (t instanceof IOException && String.valueOf(t.getMessage()).contains("Connection reset"))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     private Mono<Void> initializeConnection(String serverId) {
         WebClient client = clients.get(serverId);
         ServerRegistration server = servers.get(serverId);
@@ -510,6 +536,7 @@ public class McpClientManager {
                 return responsePayloads(response);
             })
             .next()
+            .retryWhen(RETRY_ONCE_ON_RESET)
             .flatMap(data -> {
                 try {
                     McpMessage response = objectMapper.readValue(data, McpMessage.class);
@@ -918,6 +945,7 @@ public class McpClientManager {
                     .flatMap(data -> parseHttpToolListPayload(data, serverId, server))
                     .defaultIfEmpty(Collections.emptyList());
             })
+            .retryWhen(RETRY_ONCE_ON_RESET)
             .doOnError(e -> log.error("Error discovering tools for {}: {}", serverId, e.getMessage()))
             .onErrorReturn(Collections.emptyList());
     }
