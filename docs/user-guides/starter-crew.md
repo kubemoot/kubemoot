@@ -25,6 +25,7 @@ answers from what it found. It never changes anything.
 | Tools | One Kubernetes MCP server in read-only mode, behind an MCPGateway. Each specialist enables only the tools for its slice. |
 | Access | A namespaced `Role` with `get`, `list`, and `watch`, and no Secret access. |
 | Prompts | ADL PromptModules, one per specialist, plus the coordinator's and the shared discussion rules. |
+| Models | None of its own. Its CrewSchedulingPolicy requires a model that can call tools in every phase; mulling ranks the allowed models with `qualityBias` and triage favors the fastest. The scheduler matches that against the cluster's [model catalog](../../reference/models/#the-model-catalog). |
 | Scope | By default the crew reads only its own namespace and names it in every answer. `access.clusterWide: true` widens it to the whole cluster; see [What it can read](#what-it-can-read). |
 | Fitness | 3 scenarios at size 1, up to 7 at size 5. They pass on a fresh install and ground on the crew's own pods. |
 
@@ -53,7 +54,7 @@ has the same "What it can read" section.
 
 | File | Holds |
 |---|---|
-| `templates/crew.yaml` (bundle: `crew.yaml`) | The Crew, with the `kubemoot.ai/display-name` annotation |
+| `templates/crew.yaml` (bundle: `crew.yaml`) | The Crew, with the `kubemoot.ai/display-name` annotation, and its CrewSchedulingPolicy |
 | `templates/fitness-scenarios.yaml` (bundle: `access/fitness-scenarios.yaml`) | The ConfigMap `<crew>-fitness`, built from the files in `fitness/` |
 | `fitness/` | The scenario files and the suite you run yourself |
 
@@ -65,13 +66,15 @@ with `kubectl apply -n <ns> -f access/` beside the RBAC, because `kmctl apply` t
 
 ## Walkthrough
 
-You need a cluster with the Kubemoot operator and a model server (see
-[Installation](../../introduction/installation/)), plus `kmctl` and `helm` on your PATH.
+You need a cluster with the Kubemoot operator and a model server whose catalog has a model
+that can call tools (see [Installation](../../introduction/installation/)), plus `kmctl` and
+`helm` on your PATH. `kmctl model list` shows the catalog, and `kmctl create` warns when it
+has no such model.
 
 ### 1. Create it
 
 ```bash
-kmctl create hello --chart --members 1 --model-family qwen --no-input
+kmctl create hello --chart --members 1 --no-input
 cd hello
 ```
 

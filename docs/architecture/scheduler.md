@@ -448,8 +448,8 @@ record calibrations: the core opt-in is its only access boundary.
   with the tools.
 
 The crew does scheduling work the operator hands it; it is not a crew to ask questions.
-People read calibration where it is recorded: `kmctl model list` and `kmctl model get
-NAME`, and the server page in the dashboard.
+People read calibration where it is recorded: `kmctl model server list` and `kmctl model
+server get NAME`, and the server page in the dashboard.
 
 The crew renders when the chart declares at least one ModelServer, and it needs a model
 that calls tools in the catalog: a vLLM model served by the `kubemoot-vllm` chart with the

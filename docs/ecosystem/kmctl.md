@@ -52,16 +52,20 @@ Endpoint, Age (agent).
 Crew manifest, a coordinator and 1 to 5 specialist Agents with PromptModules in ADL, a
 read-only Kubernetes MCP server behind an MCPGateway, a CrewSchedulingPolicy, a starter
 CrewFitnessSuite that passes on a fresh install, and a README. The crew is a read-only
-guide to its own namespace; see [The starter crew](../../user-guides/starter-crew/). On a TTY it runs
-interactively, discovering available ollama servers and letting you select them.
+guide to its own namespace; see [The starter crew](../../user-guides/starter-crew/). It ships
+no models and names no model server: its CrewSchedulingPolicy states what the crew needs,
+and the scheduler matches that against the cluster's model catalog. On a TTY it asks for
+the display name and the number of specialists.
 Pass `--no-input` with explicit flags to make it scriptable. Think of it like
 `helm create`: the output is a starting point to customise, not a finished product.
 
 **Prompt and model inspection.** `kmctl prompt list` and `kmctl prompt get <name>`
 surface PromptModule resources. Use `-o yaml` to read the full ADL content.
-`kmctl model list` and `kmctl model get <name>` show model server resources.
-`kmctl model footprint` shows the resident Model resources per server, giving a
-live view of the GPU footprint.
+`kmctl model list` shows the cluster's model catalog: every model each model server
+offers, with its size, abilities, and context window. Cluster owners add a model to the
+catalog with `kmctl model add`. `kmctl model server list` and `kmctl model server get <name>`
+show the model servers and what calibration measured. `kmctl model footprint` lists the
+Model objects and their state on their model servers.
 
 **Manifest management.** `kmctl apply -f` and `kmctl delete` are CRD-only
 server-side-apply wrappers. They accept Crew, Agent, PromptModule, and the rest of

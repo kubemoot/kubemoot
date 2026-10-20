@@ -138,14 +138,24 @@ longest is the tool index Service `<crew>-kubernetes-mcp-tools-query`, which mus
 `--display-name` sets the name people read.
 
 On a TTY, `kmctl create` runs interactively: it asks for the display name first (default:
-`<name>`), then a member count, offers a
-checkbox selection of discovered ollama servers, and lets you choose a model family
-(with a custom-entry and skip option). Pass `--no-input` with explicit flags to make
-it scriptable.
+`<name>`), then the number of specialists. Pass `--no-input` with explicit flags to make it
+scriptable.
+
+**Models.** The crew ships no `Model` objects and names no model server. Its
+`CrewSchedulingPolicy` states what the crew needs: every phase requires a model that can
+call tools (`capability/tool-calling: "true"`), mulling ranks the allowed models by
+`qualityBias` (which reads the `kubemoot.ai/size` label), and triage sets `preferFaster: 50`
+to favor the model calibration measured fastest. The scheduler matches those rules against
+the cluster's [model catalog](../models/#the-model-catalog), so the same crew installs on any
+cluster with a model that can call tools. Scaffolding needs no cluster. When the current
+cluster can be read, `kmctl create` reads its catalog and warns when no model in it can call
+tools; such a crew applies Ready but stays Unschedulable until a model server offers one.
+See [kmctl model list](#kmctl-model-list).
 
 Output is written to `<output>/<name>/` and includes:
 
-- A `Crew` manifest, a `CrewSchedulingPolicy`, and the `Model` resources the crew selects from
+- A `Crew` manifest and a `CrewSchedulingPolicy` that states what the crew needs from the
+  cluster's model catalog
 - A coordinator `Agent` and N specialist `Agent` resources (see `--members`)
 - `PromptModule` resources in ADL for the coordinator and each specialist
 - One Kubernetes `MCPServer` in read-only mode and the `MCPGateway` the agents reach it through
@@ -166,7 +176,8 @@ demo/
     crew.yaml
     agents.yaml
     promptmodules.yaml
-    models.yaml
+    tools.yaml
+    rbac.yaml
     fitness-scenarios.yaml
   fitness/
     fitness.yaml
@@ -182,11 +193,9 @@ and the layout its Crew Sources view expects a chart source to have.
 |---|---|---|
 | `--display-name "..."` | | The name people read: any one line of text, no line breaks, tabs, or control characters, at most 100 characters (default: `<name>`). Stored as the `kubemoot.ai/display-name` annotation |
 | `--members N` | | Specialists beside the coordinator, 1 to 5 (default: prompted interactively). Size 1 is `workloads`; each larger size adds the next of `events`, `networking`, `config`, and `reviewer` |
-| `--servers a,b` | | Comma-separated list of ollama server names to target |
-| `--model-family` | | Model family hint, e.g. `qwen` |
 | `--no-input` | | Never prompt; inputs not given as flags take their defaults |
 | `--output DIR` | `-o` | Directory to write scaffold output (default: `.`) |
-| `--context` | | Kubeconfig context used to discover model servers (a global `kmctl` flag) |
+| `--context` | | Kubeconfig context whose model catalog is checked for a model that can call tools (a global `kmctl` flag) |
 | `--chart` | | Lay the crew out as a Helm chart (`Chart.yaml`, `templates/`, `fitness/`) instead of loose manifests |
 
 **Display name.** `--display-name` is stored as the annotation `kubemoot.ai/display-name` on
@@ -245,12 +254,9 @@ which the Toolers post as artifact pointers.
 
 ```bash
 kmctl create demo
-# Discovering servers...
-# Display name [demo]: Demo Crew
-# Members [2]: 3
-# ModelServers: [x] ollama-gpu  [ ] ollama-gpu-b
-# Model family [qwen]: qwen
-# Writing demo/ ...done
+# Display name, the name people read (any text): Demo Crew
+# How many specialists beside the coordinator (1-5)? 3
+# Scaffolded crew "demo" (3 specialist(s) beside the coordinator) in ./demo: ...
 ```
 
 **Example (scripted):**
@@ -258,24 +264,23 @@ kmctl create demo
 ```bash
 kmctl create demo \
   --members 3 \
-  --servers ollama-gpu,ollama-gpu-b \
-  --model-family qwen \
   --no-input \
   -o /tmp/crews
-# Wrote /tmp/crews/demo/
+# Scaffolded crew "demo" (3 specialist(s) beside the coordinator) in /tmp/crews/demo: ...
 ```
 
 **Example (as a Helm chart):**
 
 ```bash
-kmctl create demo --chart --members 2 --model-family qwen --no-input
-# Scaffolded crew "demo" (2 tooler(s)) in ./demo:
+kmctl create demo --chart --members 2 --no-input
+# Scaffolded crew "demo" (2 specialist(s) beside the coordinator) in ./demo:
 #   demo/Chart.yaml
 #   demo/values.yaml
 #   demo/templates/crew.yaml
 #   demo/templates/agents.yaml
 #   demo/templates/promptmodules.yaml
-#   demo/templates/models.yaml
+#   demo/templates/tools.yaml
+#   demo/templates/rbac.yaml
 #   demo/templates/fitness-scenarios.yaml
 #   demo/fitness/fitness.yaml
 #   demo/README.md
@@ -421,52 +426,114 @@ kmctl prompt get demo-coordinator-prompt -o yaml
 kmctl model <subcommand> [flags]
 ```
 
-Inspect model server resources and live GPU state.
+Read the cluster's model catalog and its model servers. Crews ship no models; they select
+from the catalog by label. See [the model catalog](../models/#the-model-catalog).
 
 ### kmctl model list
 
 ```
-kmctl model list [-o <format>]
+kmctl model list [-n <namespace>] [-o <format>]
 ```
 
-List all `ModelServer` resources with connection status and basic metadata.
+List the cluster's model catalog, one row per model per model server, as each ModelServer
+reports it in `status.models`. It reads the model servers in every namespace, or only the
+namespace `-n` names; `-o yaml|json|kyaml` prints the entries as a list.
+
+| Column | Description |
+|---|---|
+| `MODEL` | The model name on the server: the Ollama tag or the vLLM served name |
+| `SERVER` | The ModelServer that offers it |
+| `SIZE` | `small`, `medium`, `large`, or `unknown` until the parameter count is known |
+| `ABILITIES` | `tool-calling`, `reasoning`, `vision` |
+| `CONTEXT` | The context window in tokens |
+| `PRESENT` | `no` for a model the cluster owner asked for that the server does not have yet |
+
+When no model in the catalog can call tools, it warns: a crew that requires one, as every
+crew `kmctl create` scaffolds does, applies Ready but stays Unschedulable until a model
+server offers one.
 
 **Example:**
 
 ```bash
 kmctl model list
+# MODEL      SERVER      SIZE     ABILITIES               CONTEXT   PRESENT
+# qwen3:14b  vllm-gpu    medium   tool-calling            40960     yes
+# qwen3:8b   ollama-gpu  small    reasoning,tool-calling  40960     yes
 ```
 
-### kmctl model get
+### kmctl model add
 
 ```
-kmctl model get <name> [-o <format>]
+kmctl model add <model> --model-server <name> [--parameters <count>] [--capabilities <list>] [--dry-run]
 ```
 
-Show details of a single model server.
+Add a model to the cluster's model catalog: the cluster owner's command. It writes a
+`Model` into the namespace of the model server `--model-server` names. `<model>` is the name
+requests use: the Ollama tag (`qwen3:14b`) or the vLLM served name. On an Ollama model server
+the operator downloads the model. A vLLM model server serves what it was started with; add
+its models to say what they are.
+
+The Model is named after the model server and the model, such as `ollama-gpu-qwen3-14b-<hash>`,
+with a short hash added when the model name holds characters a Kubernetes name cannot. Adding
+the same model again updates it. Without `-n`, the model server must be in exactly one
+namespace. `kmctl model list` shows the entry once the operator has merged it.
+
+| Flag | Description |
+|---|---|
+| `--model-server NAME` | The model server that offers the model (required) |
+| `--parameters COUNT` | The total parameter count, such as `14B` or `0.5B`, which sets the size class: small under 12B, medium from 12B to under 30B, large from 30B. A vLLM model server cannot report it |
+| `--capabilities LIST` | Abilities the model server cannot report: `tool-calling`, `reasoning`, `vision`. They replace what it reports |
+| `--dry-run` | Submit a server-side dry run without persisting |
+
+**Examples:**
+
+```bash
+kmctl model add qwen3:14b --model-server ollama-gpu
+kmctl model add qwen3-14b --model-server vllm-gpu --parameters 14B --capabilities tool-calling,reasoning
+kmctl model add qwen3:8b --model-server ollama-gpu --dry-run
+```
+
+### kmctl model server list
+
+```
+kmctl model server list [-n <namespace> | -A] [-o <format>]
+```
+
+List the `ModelServer` resources: `NAME`, `TYPE`, `ENDPOINT`, `READY`, `CALIBRATION` (the
+calibration phase), and `AGE`.
+
+### kmctl model server get
+
+```
+kmctl model server get <name> [-o <format>]
+```
+
+Show one model server and what calibration measured, one row per model.
 
 **Example:**
 
 ```bash
-kmctl model get ollama-gpu -o yaml
+kmctl model server get ollama-gpu
+# Calibration: Calibrated, measured 2 of 2 models, engine <version>, completed <time>
+#
+# MODEL      FITS  LOAD   GENERATE   PROMPT       PARALLEL       MEMORY    REASON
+# qwen3:14b  yes   2.5s   86 tok/s   6313 tok/s   2 x 162 tok/s  13839 MiB
+# qwen3:8b   yes   3.1s   152 tok/s  11748 tok/s  2 x 241 tok/s  9475 MiB
 ```
 
 ### kmctl model footprint
 
 ```
-kmctl model footprint [-o <format>]
+kmctl model footprint [-n <namespace> | -A] [-o <format>]
 ```
 
-Show the resident `Model` resources per server. This is the live GPU footprint
-view: which models are loaded, on which server, and how much VRAM they occupy.
+List the `Model` objects and their state on their model servers: `NAME`, `SERVER`, `MODEL`,
+`STATE`, `SIZE`, and `AGE`.
 
 **Example:**
 
 ```bash
-kmctl model footprint
-# SERVER      MODEL            VRAM
-# ollama-gpu    qwen3:32b        20.1 GiB
-# ollama-gpu-b  qwen2.5:14b      8.7 GiB
+kmctl model footprint -A
 ```
 
 ---
