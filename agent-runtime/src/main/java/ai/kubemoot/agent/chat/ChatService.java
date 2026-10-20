@@ -247,7 +247,39 @@ public class ChatService {
     public ChatResult directChat(ChatRequest request, boolean skipRag,
                                  ai.kubemoot.agent.modelserver.CapacityWait wait) {
         boolean toolerRawOutput = "tooler".equals(properties.discuss().role());
+        requireDeclaredTools(toolerRawOutput);
         return directLlmCall(request, skipRag, toolerRawOutput, wait);
+    }
+
+    /**
+     * Fail before any model call when the tools this agent's spec declares are not on the tool
+     * list the runtime fetched: a model asked to use tools it was not given answers from nothing.
+     * The failure reaches the board as a failure signal naming the missing tools and their source.
+     * A tooler needs every declared tool; any other role needs at least one (see
+     * {@link ToolAvailability}). An agent that declares no tools is not checked.
+     */
+    private void requireDeclaredTools(boolean tooler) {
+        var enabled = properties.enabledTools().orElse(List.of());
+        if (enabled.isEmpty()) {
+            return;
+        }
+        refreshTools();
+        var availability = ToolAvailability.of(enabled, properties.disabledTools().orElse(List.of()),
+                tools().specs().stream().map(ToolSpecification::name).toList());
+        if (!availability.unmet(tooler)) {
+            if (availability.anyMissing()) {
+                log.warn("Agent {} continues without declared tools {}", properties.agentName(),
+                        availability.missing());
+            }
+            return;
+        }
+        String source = mcpClient == null ? "its MCP tool source" : mcpClient.describeToolSource();
+        throw new ToolCallFailure(ToolCallFailure.FailureType.TOOLS_UNAVAILABLE,
+                String.join(",", availability.missing()), source, availability.missing().size(),
+                "Tools unavailable: agent " + properties.agentName() + " declares "
+                        + String.join(", ", availability.missing()) + " but the tool list from " + source
+                        + " does not include " + (availability.missing().size() == 1 ? "it" : "them")
+                        + ". The model was not called.");
     }
 
     private ChatResult directAnswer(ChatRequest request, String threadId) {

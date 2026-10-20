@@ -1,6 +1,7 @@
 package ai.kubemoot.agent.gateway;
 
 import ai.kubemoot.agent.config.AgentProperties;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -14,6 +15,7 @@ import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * Client for interacting with the MCP Gateway.
@@ -32,6 +34,8 @@ public class GatewayClient {
     private final HttpClient httpClient;
     private final ObjectMapper mapper;
     private final String endpoint;
+    /** Why the last tool-list read failed; null when it succeeded. */
+    private volatile String lastListError;
 
     public GatewayClient(AgentProperties properties, ObjectMapper mapper) {
         this.gatewayConfig = properties.gateway();
@@ -57,6 +61,19 @@ public class GatewayClient {
         return endpoint != null && !endpoint.isEmpty();
     }
 
+    /** The gateway's address, empty when none is configured. */
+    public String endpoint() {
+        return endpoint == null ? "" : endpoint;
+    }
+
+    /**
+     * Why the most recent {@link #listTools()} could not read the gateway (it answers an
+     * error with an empty list), or empty when that read worked.
+     */
+    public Optional<String> lastListError() {
+        return Optional.ofNullable(lastListError);
+    }
+
     /**
      * List all tools available through the gateway.
      *
@@ -74,27 +91,41 @@ public class GatewayClient {
                     .build();
 
             var response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-            var root = mapper.readTree(response.body());
-            var toolsNode = root.path("tools");
-            if (toolsNode.isMissingNode() || !toolsNode.isArray()) {
-                return List.of();
+            if (response.statusCode() < 200 || response.statusCode() >= 300) {
+                return listFailed("gateway answered HTTP " + response.statusCode(), null);
             }
-            var out = new java.util.ArrayList<ToolInfo>(toolsNode.size());
-            for (var t : toolsNode) {
-                out.add(new ToolInfo(
-                        t.path("name").asText(""),
-                        t.path("description").asText(""),
-                        t.path("inputSchema").isMissingNode() ? null : t.get("inputSchema")));
-            }
+            var out = parseTools(mapper.readTree(response.body()));
+            lastListError = null;
             return out;
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            log.error("Failed to list gateway tools", e);
-            return List.of();
+            return listFailed("gateway unreachable: interrupted", e);
         } catch (Exception e) {
-            log.error("Failed to list gateway tools", e);
+            return listFailed("gateway unreachable: " + e.getClass().getSimpleName()
+                    + (e.getMessage() == null ? "" : " " + e.getMessage()), e);
+        }
+    }
+
+    /** Remember why the read failed and answer with the empty list callers already expect. */
+    private List<ToolInfo> listFailed(String reason, Exception cause) {
+        lastListError = reason;
+        log.error("Failed to list gateway tools: {}", reason, cause);
+        return List.of();
+    }
+
+    private static List<ToolInfo> parseTools(JsonNode root) {
+        var toolsNode = root.path("tools");
+        if (toolsNode.isMissingNode() || !toolsNode.isArray()) {
             return List.of();
         }
+        var out = new java.util.ArrayList<ToolInfo>(toolsNode.size());
+        for (var t : toolsNode) {
+            out.add(new ToolInfo(
+                    t.path("name").asText(""),
+                    t.path("description").asText(""),
+                    t.path("inputSchema").isMissingNode() ? null : t.get("inputSchema")));
+        }
+        return out;
     }
 
     /**

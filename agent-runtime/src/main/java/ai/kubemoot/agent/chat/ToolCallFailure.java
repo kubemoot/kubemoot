@@ -65,7 +65,16 @@ public class ToolCallFailure extends RuntimeException {
          * error, dropping the oldest messages (the question among them), so the
          * loop fails visibly instead.
          */
-        CONTEXT_EXCEEDED
+        CONTEXT_EXCEEDED,
+        /**
+         * The tools the agent's spec declares were not on the gateway's (or servers')
+         * tool list when the evaluation began: the gateway was unreachable, the MCP
+         * server was not registered, or the list lacked them. The model is not called
+         * without them, because it would answer from nothing and invent the result.
+         * For this type {@code toolName} lists the missing tools, comma-joined, and
+         * {@code lastErrorContent} describes the tool source (gateway address and its error).
+         */
+        TOOLS_UNAVAILABLE
     }
 
     private final FailureType failureType;

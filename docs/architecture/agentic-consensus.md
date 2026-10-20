@@ -194,6 +194,16 @@ agent agreed:
 | Infrastructure gap | Zero agrees, one or more agents reported `failure` | An agent exists for this domain, but its tools or model are broken right now. |
 | Specialist gap | Zero agrees, only `stand_aside` signals | No agent on the crew has relevant expertise at all. |
 
+An agent whose declared tools are not available is a failure too. When the gateway cannot
+be reached, or its tool list lacks a tool the agent's spec enables, the agent publishes
+`failure` naming the missing tools and the gateway rather than calling its model without
+them. A model without its tools answers from nothing and invents the result, so an
+answer-anyway agent would turn a broken tool server into a confident, wrong `agree`.
+
+A `failure` also reaches the final answer when other agents did agree. The coordinator's
+synthesis input lists the failures, and the published answer ends with a note naming each
+agent that failed and why, so a partial answer never reads as complete.
+
 An infrastructure gap and a specialist gap call for opposite responses - fix a broken
 MCP server versus onboard a new specialist - so keeping them distinct is the point.
 

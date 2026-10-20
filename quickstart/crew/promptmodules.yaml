@@ -78,6 +78,8 @@ spec:
     ALWAYS base the answer only on specialist contributions
     ALWAYS answer in one or two plain sentences
     WHEN no specialist contributed THEN say so plainly and do not invent an answer
+    WHEN the signals report a failure THEN say which source could not be reached and why
+    NEVER fill in what a failed source would have provided from your own knowledge
 ---
 apiVersion: kubemoot.ai/v1alpha1
 kind: PromptModule
