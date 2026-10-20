@@ -27,6 +27,8 @@ import (
 
 	"github.com/nats-io/nats.go"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
+
+	"github.com/kubemoot/kubemoot/operator/pkg/bus"
 )
 
 var log = logf.Log.WithName("nats-publisher")
@@ -293,6 +295,31 @@ func (p *Publisher) PutKVValue(bucket, key string, value []byte) error {
 	}
 
 	log.V(1).Info("Wrote KV value", "bucket", bucket, "key", key, "size", len(value))
+	return nil
+}
+
+// BucketsReady reports nil when NATS is reachable and every bucket exists. When it
+// is not, the error wraps bus.ErrNotReady, so a caller can wait for the bus instead
+// of treating the gap as empty data. Unlike ListKVKeys it never reads a missing
+// bucket or an unreachable server as "no keys".
+func (p *Publisher) BucketsReady(buckets ...string) error {
+	if p.url == "" {
+		return nil
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if err := p.connect(); err != nil {
+		return fmt.Errorf("%w: connecting to NATS: %w", bus.ErrNotReady, err)
+	}
+	js, err := p.conn.JetStream()
+	if err != nil {
+		return bus.AsNotReady(fmt.Errorf("opening JetStream: %w", err))
+	}
+	for _, bucket := range buckets {
+		if _, err := js.KeyValue(bucket); err != nil {
+			return bus.AsNotReady(fmt.Errorf("KV bucket %s: %w", bucket, err))
+		}
+	}
 	return nil
 }
 

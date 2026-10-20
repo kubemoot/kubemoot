@@ -30,6 +30,9 @@ type MemKV struct {
 	FailPut    bool
 	FailList   bool
 	FailDelete bool
+	// ListErr, when set, is what ListKVKeys returns instead of ErrKV, to stand in for
+	// a bucket that does not exist or a NATS that cannot be reached.
+	ListErr error
 }
 
 // ErrKV is the error a failing MemKV operation returns.
@@ -63,6 +66,9 @@ func (m *MemKV) PutKVValue(bucket, key string, value []byte) error {
 func (m *MemKV) ListKVKeys(bucket string) ([]string, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if m.ListErr != nil {
+		return nil, m.ListErr
+	}
 	if m.FailList {
 		return nil, ErrKV
 	}

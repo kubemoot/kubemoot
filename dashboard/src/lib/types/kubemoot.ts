@@ -64,6 +64,8 @@ export interface ServerCalibration {
 	/** Calibrating, Calibrated, Waiting, or Failed. */
 	phase?: string;
 	message?: string;
+	/** What a Waiting calibration waits for beyond an idle server, such as WaitingForBus. */
+	reason?: string;
 	engineVersion?: string;
 	resetToken?: string;
 	completedAt?: string;

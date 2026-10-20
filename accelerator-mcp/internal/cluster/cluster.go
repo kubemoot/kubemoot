@@ -140,6 +140,13 @@ func condition(cal *aiv1alpha1.ServerCalibration) metav1.Condition {
 	if reason == "" {
 		reason = "Unknown"
 	}
+	if cal.Reason != "" {
+		reason = cal.Reason
+	}
+	// A run that waits for the bus has no verdict yet: Unknown, not False.
+	if cal.Reason == aiv1alpha1.CalibrationReasonWaitingForBus {
+		status = metav1.ConditionUnknown
+	}
 	return metav1.Condition{Type: ConditionCalibrated, Status: status, Reason: reason, Message: cal.Message}
 }
 

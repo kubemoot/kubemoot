@@ -275,10 +275,11 @@ func (r *ModelServerReconciler) reconcileOllama(ctx context.Context, server *aiv
 
 	r.discoverOllamaCatalog(ctx, server, httpClient)
 
-	r.requestCalibration(ctx, server)
+	waiting := r.requestCalibration(ctx, server)
 	r.reviewDrift(ctx, server)
 
-	return r.updateStatus(ctx, server, true, phaseReady, "Connected to Ollama")
+	result, err := r.updateStatus(ctx, server, true, phaseReady, "Connected to Ollama")
+	return retryWhileWaiting(result, waiting), err
 }
 
 // discoverCapacity probes the Ollama pod and Prometheus for capacity information

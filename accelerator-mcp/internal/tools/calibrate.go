@@ -22,6 +22,7 @@ import (
 	"sync"
 
 	aiv1alpha1 "github.com/kubemoot/kubemoot/operator/api/v1alpha1"
+	"github.com/kubemoot/kubemoot/operator/pkg/bus"
 	"github.com/kubemoot/kubemoot/operator/pkg/perf"
 
 	"github.com/kubemoot/kubemoot/accelerator-mcp/internal/cluster"
@@ -139,7 +140,7 @@ func (s *Set) calibrateServer(ctx context.Context, raw json.RawMessage) (any, er
 	name := p.Name
 	started, err := s.Jobs.start(name,
 		func() error {
-			_, err := s.record(ctx, name, PhaseCalibrating, "calibrating "+strings.Join(targets, ", "), nil)
+			_, err := s.record(ctx, name, PhaseCalibrating, "", "calibrating "+strings.Join(targets, ", "), nil)
 			return err
 		},
 		func(jobCtx context.Context) { s.runRecipe(jobCtx, name, targets) })
@@ -223,22 +224,29 @@ func smallestFitting(p *aiv1alpha1.ModelServer, n int) []string {
 
 // runRecipe measures each target in turn and records the outcome: Calibrated, or
 // Waiting when crew calls took the server or the server is stopping (with the
-// results so far), or Failed when no model could be measured.
+// results so far), or Failed when no model could be measured. A bus that is not
+// ready (NATS unreachable, a scheduler bucket not created yet) is Waiting with the
+// reason WaitingForBus, never Failed: nothing was learned about the models.
 func (s *Set) runRecipe(ctx context.Context, server string, targets []string) {
 	var results []aiv1alpha1.ModelCalibration
 	var failures []string
 	for _, model := range targets {
 		if ctx.Err() != nil {
-			s.finishRecipe(ctx, server, PhaseWaiting, interruptedMessage, results)
+			s.finishRecipe(ctx, server, PhaseWaiting, "", interruptedMessage, results)
 			return
 		}
 		result, err := s.measure(ctx, server, model)
 		if err != nil && ctx.Err() != nil {
-			s.finishRecipe(ctx, server, PhaseWaiting, interruptedMessage, results)
+			s.finishRecipe(ctx, server, PhaseWaiting, "", interruptedMessage, results)
 			return
 		}
 		if errors.Is(err, errBusy) {
-			s.finishRecipe(ctx, server, PhaseWaiting, "paused: crew calls are using the server", results)
+			s.finishRecipe(ctx, server, PhaseWaiting, "", "paused: crew calls are using the server", results)
+			return
+		}
+		if errors.Is(err, bus.ErrNotReady) {
+			s.finishRecipe(ctx, server, PhaseWaiting, aiv1alpha1.CalibrationReasonWaitingForBus,
+				busNotReadyMessage(err), results)
 			return
 		}
 		if err != nil {
@@ -248,23 +256,30 @@ func (s *Set) runRecipe(ctx context.Context, server string, targets []string) {
 		results = append(results, result)
 	}
 	if len(results) == 0 {
-		s.finishRecipe(ctx, server, PhaseFailed, "no model could be measured: "+strings.Join(failures, "; "), nil)
+		s.finishRecipe(ctx, server, PhaseFailed, "", "no model could be measured: "+strings.Join(failures, "; "), nil)
 		return
 	}
 	message := fmt.Sprintf("measured %d of %d models", len(results), len(targets))
 	if len(failures) > 0 {
 		message += "; not measured: " + strings.Join(failures, "; ")
 	}
-	s.finishRecipe(ctx, server, PhaseCalibrated, message, results)
+	s.finishRecipe(ctx, server, PhaseCalibrated, "", message, results)
 }
 
 // finishRecipe records how a run ended. It is written even while the server stops,
 // so a run never stays Calibrating with no job behind it.
-func (s *Set) finishRecipe(ctx context.Context, server, phase, message string,
+func (s *Set) finishRecipe(ctx context.Context, server, phase, reason, message string,
 	results []aiv1alpha1.ModelCalibration) {
-	if _, err := s.record(context.WithoutCancel(ctx), server, phase, message, results); err != nil {
+	if _, err := s.record(context.WithoutCancel(ctx), server, phase, reason, message, results); err != nil {
 		log.Printf("calibration of %s ended %s but could not be recorded: %v", server, phase, err)
 	}
+}
+
+// busNotReadyMessage explains a run paused because the scheduler's buckets are not
+// there yet or NATS cannot be reached; the run resumes when the bus is ready.
+func busNotReadyMessage(err error) string {
+	return "waiting for the bus: " + err.Error() +
+		"; the calibration resumes when NATS and its scheduler buckets are ready"
 }
 
 // errBusy is a probe that found crew calls holding the server.
@@ -319,7 +334,7 @@ func (s *Set) RecoverInterrupted(ctx context.Context) error {
 		if p.Status.Calibration == nil || p.Status.Calibration.Phase != PhaseCalibrating {
 			continue
 		}
-		if _, err := s.record(ctx, p.Name, PhaseWaiting, interruptedMessage, nil); err != nil {
+		if _, err := s.record(ctx, p.Name, PhaseWaiting, "", interruptedMessage, nil); err != nil {
 			errs = append(errs, fmt.Errorf("%s: %w", p.Name, err))
 		}
 	}
