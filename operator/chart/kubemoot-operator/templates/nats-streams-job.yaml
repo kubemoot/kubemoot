@@ -150,6 +150,17 @@ spec:
               # models, or agents not seen for 30 days.
               nats kv add kubemoot_scheduler_performance --ttl=720h --history=1 --max-value-size=32768 -s "$NATS_URL" 2>/dev/null || true
 
+              # Retired buckets. Nothing reads them. Remove each when it exists
+              # (absent is fine), and only these two by name.
+              for old in kubemoot_provider_state kubemoot_provider_tickets; do
+                if nats kv info "$old" -s "$NATS_URL" >/dev/null 2>&1; then
+                  echo "Removing retired KV bucket $old"
+                  nats kv del "$old" --force -s "$NATS_URL" || echo "Could not remove $old; continuing" >&2
+                else
+                  echo "Retired KV bucket $old is not present"
+                fi
+              done
+
               echo "NATS JetStream bootstrap complete."
               nats stream ls -s "$NATS_URL"
               nats kv ls -s "$NATS_URL"

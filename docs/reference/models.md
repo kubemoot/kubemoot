@@ -812,14 +812,13 @@ The kind `ModelProvider` is now `ModelServer`. The rename is clean: there is no 
 | `accelerator-mcp` tools `list_providers`, `provider_state`, `calibrate_provider` | `list_servers`, `server_state`, `calibrate_server` |
 | Dashboard pages and API under `modelproviders` | `modelservers` |
 
-The bus contract is a new major version because the bucket, subject and field names changed; the agent runtime and the operator must run the same release.
+The bus contract is a new major version because the bucket, subject and field names changed; the agent runtime and the operator must run the same release. The upgrade removes the retired NATS buckets `kubemoot_provider_state` and `kubemoot_provider_tickets` by itself: the chart's NATS bootstrap job deletes those two buckets when they exist and touches no other bucket. A cluster that uses an external NATS (`nats.enabled` false) keeps them until you run `nats kv del <bucket> -f` for each.
 
 To move a cluster:
 
 1. In your manifests and Helm values, rename the kind, `providerRef` to `serverRef`, and `modelProviders` to `modelServers`. Apply the `ModelServer` objects before the `Model` objects that name them.
 2. Upgrade the operator chart. The chart applies the new CRDs. Leave the old `modelproviders.kubemoot.ai` CRD installed until the upgrade finishes, because Helm removes the `ModelProvider` objects an earlier release rendered by kind, and that needs the CRD.
-3. Delete the old CRD, which also deletes any `ModelProvider` object still in the cluster (none carries a finalizer): `kubectl delete crd modelproviders.kubemoot.ai`.
-4. Remove the old NATS buckets, which nothing reads any more: `nats kv del kubemoot_provider_state -f` and `nats kv del kubemoot_provider_tickets -f`.
+3. After the upgrade completes, delete the old CRD once, which also deletes any `ModelProvider` object still in the cluster (none carries a finalizer): `kubectl delete crd modelproviders.kubemoot.ai`.
 
 ## Related
 
