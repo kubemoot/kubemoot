@@ -1,7 +1,7 @@
 package ai.kubemoot.agent.modelserver;
 
 import ai.kubemoot.agent.nats.KvKeys;
-import ai.kubemoot.agent.nats.NatsConnectionProvider;
+import ai.kubemoot.agent.nats.NatsLink;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
@@ -80,12 +80,12 @@ public class TicketManager {
     /** Hex chars of a random UUID used as the holder-id suffix when HOSTNAME is unset. */
     private static final int HOLDER_ID_SUFFIX_CHARS = 8;
 
-    private final NatsConnectionProvider natsProvider;
+    private final NatsLink natsProvider;
     private final ObjectMapper objectMapper;
     private final String holderId;
 
     @Inject
-    public TicketManager(NatsConnectionProvider natsProvider, ObjectMapper objectMapper) {
+    public TicketManager(NatsLink natsProvider, ObjectMapper objectMapper) {
         this.natsProvider = natsProvider;
         this.objectMapper = objectMapper;
         // Holder id identifies this agent process for debugging and (future)

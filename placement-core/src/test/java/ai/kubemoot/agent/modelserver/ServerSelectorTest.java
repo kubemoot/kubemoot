@@ -1151,7 +1151,7 @@ class ServerSelectorTest {
     void readStateFailure_isReportedAndKeptApartFromAnEmptyBucket() throws Exception {
         var conn = org.mockito.Mockito.mock(io.nats.client.Connection.class);
         var jsm = org.mockito.Mockito.mock(io.nats.client.JetStreamManagement.class);
-        var nats = org.mockito.Mockito.mock(ai.kubemoot.agent.nats.NatsConnectionProvider.class);
+        var nats = org.mockito.Mockito.mock(ai.kubemoot.agent.nats.NatsLink.class);
         org.mockito.Mockito.when(nats.isAvailable()).thenReturn(true);
         org.mockito.Mockito.when(nats.getConnection()).thenReturn(conn);
         org.mockito.Mockito.when(conn.jetStreamManagement()).thenReturn(jsm);
@@ -1171,7 +1171,7 @@ class ServerSelectorTest {
 
     @Test
     void readStateWithNatsDown_saysSo_ratherThanReportingAStaleError() {
-        var nats = org.mockito.Mockito.mock(ai.kubemoot.agent.nats.NatsConnectionProvider.class);
+        var nats = org.mockito.Mockito.mock(ai.kubemoot.agent.nats.NatsLink.class);
         var sel = new ServerSelector(nats, new com.fasterxml.jackson.databind.ObjectMapper(), null, null, null);
         assertTrue(sel.readState().isEmpty());
         assertEquals("NATS unavailable", sel.lastReadError().orElseThrow());

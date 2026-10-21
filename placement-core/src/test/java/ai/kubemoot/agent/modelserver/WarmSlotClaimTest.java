@@ -1,6 +1,6 @@
 package ai.kubemoot.agent.modelserver;
 
-import ai.kubemoot.agent.nats.NatsConnectionProvider;
+import ai.kubemoot.agent.nats.NatsLink;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.RepeatedTest;
 import org.junit.jupiter.api.Test;
@@ -145,7 +145,7 @@ class WarmSlotClaimTest {
 
     @Test
     void claimSlot_emptyWhenNatsIsUnavailable() {
-        var down = new TicketManager(mock(NatsConnectionProvider.class), new ObjectMapper());
+        var down = new TicketManager(mock(NatsLink.class), new ObjectMapper());
         assertTrue(down.claimSlot(GPU, 512, 0, 5_000, BIG_MODEL, ahead -> true).isEmpty());
     }
 
@@ -201,7 +201,7 @@ class WarmSlotClaimTest {
     @Test
     void claimLoad_withoutAModelName_isAPlainClaim_andNeedsNats() {
         assertTrue(tickets(new InMemoryKv()).claimLoad(GPU, 512, 0, 5_000, null, java.util.Set.of(GPU)).isPresent());
-        var down = new TicketManager(mock(NatsConnectionProvider.class), new ObjectMapper());
+        var down = new TicketManager(mock(NatsLink.class), new ObjectMapper());
         assertTrue(down.claimLoad(GPU, 512, 0, 5_000, BIG_MODEL, java.util.Set.of(GPU)).isEmpty());
     }
 

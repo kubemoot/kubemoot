@@ -2,7 +2,7 @@ package ai.kubemoot.agent.modelserver;
 
 import ai.kubemoot.agent.config.AgentProperties;
 import ai.kubemoot.agent.nats.KvKeys;
-import ai.kubemoot.agent.nats.NatsConnectionProvider;
+import ai.kubemoot.agent.nats.NatsLink;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
@@ -69,7 +69,7 @@ public class PerformanceHistory {
     static final String F_REQUESTS = "requests";
     static final String F_FAILURES = "failures";
 
-    private final NatsConnectionProvider natsProvider;
+    private final NatsLink natsProvider;
     private final ObjectMapper mapper;
     private final String agentId;
     private final Executor writer;
@@ -87,13 +87,13 @@ public class PerformanceHistory {
     private final SchedulerMetrics metrics;
 
     @Inject
-    public PerformanceHistory(NatsConnectionProvider natsProvider, ObjectMapper mapper, AgentProperties properties,
+    public PerformanceHistory(NatsLink natsProvider, ObjectMapper mapper, AgentProperties properties,
                               SchedulerMetrics metrics) {
         this(natsProvider, mapper, properties, null, metrics);
     }
 
     /** {@code writer} runs each write on one thread at a time; null uses the background writer. */
-    PerformanceHistory(NatsConnectionProvider natsProvider, ObjectMapper mapper, AgentProperties properties,
+    PerformanceHistory(NatsLink natsProvider, ObjectMapper mapper, AgentProperties properties,
                        Executor writer, SchedulerMetrics metrics) {
         this.metrics = metrics;
         this.natsProvider = natsProvider;

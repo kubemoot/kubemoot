@@ -2,7 +2,7 @@ package ai.kubemoot.agent.modelserver;
 
 import ai.kubemoot.agent.config.AgentProperties;
 import ai.kubemoot.agent.nats.KvKeys;
-import ai.kubemoot.agent.nats.NatsConnectionProvider;
+import ai.kubemoot.agent.nats.NatsLink;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
@@ -70,7 +70,7 @@ public class DemandBoard {
     private static final String F_LAST_USED = "lastUsedAt";
     private static final String F_EXPIRES = "expiresAt";
 
-    private final NatsConnectionProvider natsProvider;
+    private final NatsLink natsProvider;
     private final ObjectMapper mapper;
     private final String agentId;
     private final String crew;
@@ -79,7 +79,7 @@ public class DemandBoard {
     private final AtomicReference<Cached> cache = new AtomicReference<>();
 
     @Inject
-    public DemandBoard(NatsConnectionProvider natsProvider, ObjectMapper mapper, AgentProperties properties) {
+    public DemandBoard(NatsLink natsProvider, ObjectMapper mapper, AgentProperties properties) {
         this.natsProvider = natsProvider;
         this.mapper = mapper;
         String ns = properties.namespace().orElse("");

@@ -1,6 +1,6 @@
 package ai.kubemoot.agent.modelserver;
 
-import ai.kubemoot.agent.nats.NatsConnectionProvider;
+import ai.kubemoot.agent.nats.NatsLink;
 import io.nats.client.Connection;
 import io.nats.client.api.KeyValueEntry;
 import io.nats.client.api.KeyValueWatchOption;
@@ -28,7 +28,7 @@ public class NatsCapacityWatch implements CapacitySignal {
 
     private static final Logger log = LoggerFactory.getLogger(NatsCapacityWatch.class);
 
-    private final NatsConnectionProvider natsProvider;
+    private final NatsLink natsProvider;
     /** Guards the version counter; watch callbacks take only this lock. */
     private final Object monitor = new Object();
     /** Guards watch setup, kept apart from {@link #monitor} so a callback never waits on setup. */
@@ -38,7 +38,7 @@ public class NatsCapacityWatch implements CapacitySignal {
     private volatile boolean watching;
 
     @Inject
-    public NatsCapacityWatch(NatsConnectionProvider natsProvider) {
+    public NatsCapacityWatch(NatsLink natsProvider) {
         this.natsProvider = natsProvider;
     }
 

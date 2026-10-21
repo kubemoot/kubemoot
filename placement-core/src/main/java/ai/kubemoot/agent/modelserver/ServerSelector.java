@@ -1,6 +1,6 @@
 package ai.kubemoot.agent.modelserver;
 
-import ai.kubemoot.agent.nats.NatsConnectionProvider;
+import ai.kubemoot.agent.nats.NatsLink;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.nats.client.Connection;
@@ -91,7 +91,7 @@ public class ServerSelector {
         }
     }
 
-    private final NatsConnectionProvider natsProvider;
+    private final NatsLink natsProvider;
     private final ObjectMapper objectMapper;
     private final TicketManager ticketManager;
     private final FitPredictor fitPredictor;
@@ -191,7 +191,7 @@ public class ServerSelector {
             new java.util.concurrent.ConcurrentHashMap<>();
 
     @Inject
-    public ServerSelector(NatsConnectionProvider natsProvider,
+    public ServerSelector(NatsLink natsProvider,
                             ObjectMapper objectMapper,
                             TicketManager ticketManager,
                             FitPredictor fitPredictor,
