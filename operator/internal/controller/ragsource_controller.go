@@ -54,6 +54,15 @@ import (
 
 const ragSourceFinalizer = "kubemoot.ai/ragsource-finalizer"
 
+// The annotations the indexer writes on its Job when it finishes, and the status it reports.
+const (
+	annotationJobStatus    = "kubemoot.ai/status"
+	annotationJobChecksum  = "kubemoot.ai/checksum"
+	annotationJobDocuments = "kubemoot.ai/document-count"
+	annotationJobChunks    = "kubemoot.ai/chunk-count"
+	jobStatusIndexed       = "indexed"
+)
+
 // RAGSourceReconciler reconciles a RAGSource object
 type RAGSourceReconciler struct {
 	client.Client
@@ -135,18 +144,12 @@ func (r *RAGSourceReconciler) invalidScheduleMessage(ragSource *kubemootv1alpha1
 
 // reconcileIndexingState handles delay checking, indexing triggers, job monitoring, and vector store verification.
 func (r *RAGSourceReconciler) reconcileIndexingState(ctx context.Context, ragSource *kubemootv1alpha1.RAGSource, embeddingModel *kubemootv1alpha1.EmbeddingModel) (ctrl.Result, error) {
-	// Check if we're in the initial delay period
-	delayActive, remaining, err := r.checkDelayPeriod(ctx, ragSource)
-	if err != nil {
-		return r.updateStatus(ctx, ragSource, "Error", false, err.Error())
+	if res, held, err := r.holdForInitialDelay(ctx, ragSource); held {
+		return res, err
 	}
-	if delayActive {
-		ragSource.Status.Phase = "Pending"
-		ragSource.Status.Message = fmt.Sprintf("Waiting for initial delay (until %s)", ragSource.Status.DelayUntil.Format(time.RFC3339))
-		if err := r.Status().Update(ctx, ragSource); err != nil {
-			return ctrl.Result{}, err
-		}
-		return ctrl.Result{RequeueAfter: remaining}, nil
+
+	if res, handled, err := r.reconcileIndexBinding(ctx, ragSource, embeddingModel); handled {
+		return res, err
 	}
 
 	if r.needsIndexing(ragSource) {
@@ -167,6 +170,25 @@ func (r *RAGSourceReconciler) reconcileIndexingState(ctx context.Context, ragSou
 
 	return r.updateStatus(ctx, ragSource, phaseReady, true,
 		fmt.Sprintf("Indexed %d documents", ragSource.Status.IndexingStats.DocumentCount))
+}
+
+// holdForInitialDelay reports held, with the reconcile's result, while the RAGSource is
+// inside its initial delay period or its delay cannot be read.
+func (r *RAGSourceReconciler) holdForInitialDelay(ctx context.Context, ragSource *kubemootv1alpha1.RAGSource) (ctrl.Result, bool, error) {
+	delayActive, remaining, err := r.checkDelayPeriod(ctx, ragSource)
+	if err != nil {
+		res, err := r.updateStatus(ctx, ragSource, "Error", false, err.Error())
+		return res, true, err
+	}
+	if !delayActive {
+		return ctrl.Result{}, false, nil
+	}
+	ragSource.Status.Phase = "Pending"
+	ragSource.Status.Message = fmt.Sprintf("Waiting for initial delay (until %s)", ragSource.Status.DelayUntil.Format(time.RFC3339))
+	if err := r.Status().Update(ctx, ragSource); err != nil {
+		return ctrl.Result{}, true, err
+	}
+	return ctrl.Result{RequeueAfter: remaining}, true, nil
 }
 
 // resolveEmbeddingModel finds the EmbeddingModel by name in the same namespace, falling back to cluster-wide.
@@ -432,6 +454,8 @@ func (r *RAGSourceReconciler) runIndexingJob(ctx context.Context, ragSource *kub
 		return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
 	}
 
+	recordFirstBuild(ragSource, embeddingModel)
+
 	// Generate job name
 	jobName := fmt.Sprintf("%s-indexer-%d", ragSource.Name, time.Now().Unix())
 
@@ -463,15 +487,33 @@ func (r *RAGSourceReconciler) runIndexingJob(ctx context.Context, ragSource *kub
 			fmt.Sprintf("Failed to create indexing job: %v", err))
 	}
 
-	// Update status to indexing
+	if err := r.recordJobStarted(ctx, ragSource, jobName); err != nil {
+		return ctrl.Result{}, err
+	}
+
+	// Requeue to check job status
+	return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
+}
+
+// recordJobStarted writes the Indexing status for a job just created.
+func (r *RAGSourceReconciler) recordJobStarted(ctx context.Context, ragSource *kubemootv1alpha1.RAGSource, jobName string) error {
 	ragSource.Status.Phase = phaseIndexing
-	ragSource.Status.Ready = false
+	// A new index built beside a serving one leaves readers on the serving one.
+	ragSource.Status.Ready = rebuilding(ragSource)
 	ragSource.Status.LastJobName = jobName
 	ragSource.Status.Message = fmt.Sprintf("Indexing job %s started", jobName)
+	if rebuilding(ragSource) {
+		ragSource.Status.Message = fmt.Sprintf("Building a new index in collection %s with %s; readers stay on %s until it is complete",
+			ragSource.Status.Building.Collection, ragSource.Status.Building.Model, ragSource.Status.Index.Collection)
+	}
 
+	conditionStatus := metav1.ConditionFalse
+	if ragSource.Status.Ready {
+		conditionStatus = metav1.ConditionTrue
+	}
 	condition := metav1.Condition{
 		Type:               conditionTypeReady,
-		Status:             metav1.ConditionFalse,
+		Status:             conditionStatus,
 		Reason:             phaseIndexing,
 		Message:            ragSource.Status.Message,
 		LastTransitionTime: metav1.Now(),
@@ -479,12 +521,11 @@ func (r *RAGSourceReconciler) runIndexingJob(ctx context.Context, ragSource *kub
 	meta.SetStatusCondition(&ragSource.Status.Conditions, condition)
 
 	if err := r.Status().Update(ctx, ragSource); err != nil {
-		log.Error(err, "Failed to update RAGSource status")
-		return ctrl.Result{}, err
+		logf.FromContext(ctx).Error(err, "Failed to update RAGSource status")
+		return err
 	}
 
-	// Requeue to check job status
-	return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
+	return nil
 }
 
 // findActiveJob returns the first active (not complete, not failed) job from the list, or nil.
@@ -510,7 +551,7 @@ func (r *RAGSourceReconciler) buildIndexingJob(ragSource *kubemootv1alpha1.RAGSo
 		labelName:      ragSource.Name,
 		labelInstance:  jobName,
 		labelManagedBy: managedByValue,
-		labelComponent: "indexer",
+		labelComponent: componentIndexer,
 		labelRAGSource: ragSource.Name,
 	}
 
@@ -572,7 +613,7 @@ func (r *RAGSourceReconciler) buildIndexingJob(ragSource *kubemootv1alpha1.RAGSo
 
 	// Build container spec
 	container := corev1.Container{
-		Name:      "indexer",
+		Name:      componentIndexer,
 		Image:     r.getIndexerImage(ragSource),
 		Env:       env,
 		Resources: resources,
@@ -710,27 +751,30 @@ func (r *RAGSourceReconciler) buildIndexerEnv(ragSource *kubemootv1alpha1.RAGSou
 
 // buildIndexerCoreEnv builds common env vars: source type, vector store, embedding, checksum, force-reindex.
 func (r *RAGSourceReconciler) buildIndexerCoreEnv(ragSource *kubemootv1alpha1.RAGSource, embeddingModel *kubemootv1alpha1.EmbeddingModel) []corev1.EnvVar {
+	target := jobTarget(ragSource, embeddingModel)
 	env := []corev1.EnvVar{
 		{Name: "KUBEMOOT_SOURCE_TYPE", Value: string(ragSource.Spec.Source.Type)},
-		{Name: "KUBEMOOT_VECTORSTORE_TYPE", Value: string(ragSource.Spec.VectorStore.Type)},
-		{Name: "KUBEMOOT_VECTORSTORE_ENDPOINT", Value: r.buildJDBCUrl(ragSource.Spec.VectorStore.Endpoint)},
-		{Name: "KUBEMOOT_VECTORSTORE_COLLECTION", Value: ragSource.Spec.VectorStore.Collection},
-		{Name: "KUBEMOOT_VECTORSTORE_DIMENSIONS", Value: fmt.Sprintf("%d", ragSource.Spec.VectorStore.Dimensions)},
-		{Name: "KUBEMOOT_EMBEDDING_MODEL", Value: embeddingModel.Spec.Model},
+		{Name: envVectorstoreType, Value: string(ragSource.Spec.VectorStore.Type)},
+		{Name: envVectorstoreEndpoint, Value: r.buildJDBCUrl(ragSource.Spec.VectorStore.Endpoint)},
+		{Name: envVectorstoreCollection, Value: target.Collection},
+		{Name: envVectorstoreDimensions, Value: fmt.Sprintf("%d", target.Dimensions)},
+		{Name: "KUBEMOOT_EMBEDDING_MODEL", Value: target.Model},
 	}
 
-	if ragSource.Status.LastIndexedChecksum != "" {
+	// A new collection is empty, so it is always indexed in full.
+	building := rebuilding(ragSource)
+	if ragSource.Status.LastIndexedChecksum != "" && !building {
 		env = append(env, corev1.EnvVar{Name: "KUBEMOOT_LAST_CHECKSUM", Value: ragSource.Status.LastIndexedChecksum})
 	}
 
 	forceReindex := valueFalse
-	if ragSource.Spec.Indexer != nil && ragSource.Spec.Indexer.ForceReindex {
+	if building || (ragSource.Spec.Indexer != nil && ragSource.Spec.Indexer.ForceReindex) {
 		forceReindex = valueTrue
 	}
 	env = append(env, corev1.EnvVar{Name: "KUBEMOOT_FORCE_REINDEX", Value: forceReindex})
 
-	if embeddingModel.Status.Endpoint != "" {
-		env = append(env, corev1.EnvVar{Name: "KUBEMOOT_EMBEDDING_ENDPOINT", Value: embeddingModel.Status.Endpoint})
+	if target.Endpoint != "" {
+		env = append(env, corev1.EnvVar{Name: "KUBEMOOT_EMBEDDING_ENDPOINT", Value: target.Endpoint})
 	}
 
 	return env
@@ -1038,6 +1082,9 @@ func (r *RAGSourceReconciler) checkJobStatus(ctx context.Context, ragSource *kub
 		case batchv1.JobFailed:
 			if condition.Status == corev1.ConditionTrue {
 				log.Info("Indexing job failed", "job", job.Name, "reason", condition.Reason)
+				if rebuilding(ragSource) {
+					return r.failBuild(ctx, ragSource, condition.Message)
+				}
 				return r.updateStatus(ctx, ragSource, "Error", false,
 					fmt.Sprintf("Indexing job failed: %s", condition.Message))
 			}
@@ -1069,9 +1116,15 @@ func (r *RAGSourceReconciler) handleJobSuccess(ctx context.Context, ragSource *k
 
 	// Handle "unchanged" status - source hasn't changed, no indexing performed
 	if jobStatus == "unchanged" {
+		if rebuilding(ragSource) {
+			return r.failBuild(ctx, ragSource, "the indexer skipped the new collection as unchanged")
+		}
 		log.Info("Source unchanged, indexing skipped")
 		return r.handleIndexingSkipped(ctx, ragSource, now)
 	}
+
+	// The new index is complete: readers move to it and the old one is retired.
+	promoteBuild(ragSource)
 
 	// Update checksum if provided (for "indexed" status)
 	if checksum != "" {
@@ -1118,15 +1171,15 @@ func parseJobAnnotations(job *batchv1.Job) (string, string, int32, int32) {
 	if job.Annotations == nil {
 		return "", "", 0, 0
 	}
-	jobStatus := job.Annotations["kubemoot.ai/status"]
-	checksum := job.Annotations["kubemoot.ai/checksum"]
+	jobStatus := job.Annotations[annotationJobStatus]
+	checksum := job.Annotations[annotationJobChecksum]
 	var documentCount, chunkCount int32
-	if docStr := job.Annotations["kubemoot.ai/document-count"]; docStr != "" {
+	if docStr := job.Annotations[annotationJobDocuments]; docStr != "" {
 		if count, err := strconv.ParseInt(docStr, 10, 32); err == nil {
 			documentCount = int32(count)
 		}
 	}
-	if chunkStr := job.Annotations["kubemoot.ai/chunk-count"]; chunkStr != "" {
+	if chunkStr := job.Annotations[annotationJobChunks]; chunkStr != "" {
 		if count, err := strconv.ParseInt(chunkStr, 10, 32); err == nil {
 			chunkCount = int32(count)
 		}
@@ -1314,7 +1367,8 @@ func embeddingEndpointPredicate() predicate.Predicate {
 		UpdateFunc: func(e event.UpdateEvent) bool {
 			o, ok1 := e.ObjectOld.(*kubemootv1alpha1.EmbeddingModel)
 			n, ok2 := e.ObjectNew.(*kubemootv1alpha1.EmbeddingModel)
-			return !ok1 || !ok2 || o.Status.Ready != n.Status.Ready || o.Status.Endpoint != n.Status.Endpoint
+			return !ok1 || !ok2 || o.Status.Ready != n.Status.Ready || o.Status.Endpoint != n.Status.Endpoint ||
+				o.Status.BoundServer != n.Status.BoundServer || embeddingDimensions(o) != embeddingDimensions(n)
 		},
 	}
 }
@@ -1420,15 +1474,19 @@ func (r *RAGSourceReconciler) buildQueryServiceDeployment(ragSource *kubemootv1a
 	image := r.getQueryServiceImage(ragSource)
 	topK := r.getQueryServiceTopK(ragSource)
 
+	// Readers use the index that is complete, embedding a question the way that
+	// index's vectors were made.
+	serving := servingIndex(ragSource, embeddingModel)
+
 	// Build environment variables
 	env := []corev1.EnvVar{
 		// New-style variables (preferred)
 		{Name: "KUBEMOOT_RAGSOURCE_NAME", Value: ragSource.Name},
 		{Name: "KUBEMOOT_RAGSOURCE_NAMESPACE", Value: ragSource.Namespace},
-		{Name: "KUBEMOOT_VECTORSTORE_TYPE", Value: string(ragSource.Spec.VectorStore.Type)},
-		{Name: "KUBEMOOT_VECTORSTORE_ENDPOINT", Value: ragSource.Spec.VectorStore.Endpoint},
-		{Name: "KUBEMOOT_VECTORSTORE_COLLECTION", Value: ragSource.Spec.VectorStore.Collection},
-		{Name: "KUBEMOOT_VECTORSTORE_DIMENSIONS", Value: fmt.Sprintf("%d", ragSource.Spec.VectorStore.Dimensions)},
+		{Name: envVectorstoreType, Value: string(ragSource.Spec.VectorStore.Type)},
+		{Name: envVectorstoreEndpoint, Value: ragSource.Spec.VectorStore.Endpoint},
+		{Name: envVectorstoreCollection, Value: serving.Collection},
+		{Name: envVectorstoreDimensions, Value: fmt.Sprintf("%d", serving.Dimensions)},
 		{Name: "KUBEMOOT_QUERY_PORT", Value: fmt.Sprintf("%d", port)},
 		{Name: "KUBEMOOT_DEFAULT_TOP_K", Value: fmt.Sprintf("%d", topK)},
 		// Legacy variables (for backwards compatibility)
@@ -1436,19 +1494,18 @@ func (r *RAGSourceReconciler) buildQueryServiceDeployment(ragSource *kubemootv1a
 		{Name: "KUBEMOOT_DB_PORT", Value: r.extractPort(ragSource.Spec.VectorStore.Endpoint)},
 		{Name: "KUBEMOOT_DB_NAME", Value: r.extractDBName(ragSource.Spec.VectorStore.Endpoint)},
 		{Name: "KUBEMOOT_DB_USER", Value: r.extractUser(ragSource.Spec.VectorStore.Endpoint)},
-		{Name: "KUBEMOOT_COLLECTION", Value: ragSource.Spec.VectorStore.Collection},
+		{Name: "KUBEMOOT_COLLECTION", Value: serving.Collection},
 		{Name: "KUBEMOOT_TOP_K", Value: fmt.Sprintf("%d", topK)},
 		{Name: envPort, Value: fmt.Sprintf("%d", port)},
 	}
 
 	// Add embedding configuration from EmbeddingModel
-	if embeddingModel.Status.Endpoint != "" {
-		env = append(env, corev1.EnvVar{Name: "KUBEMOOT_EMBEDDING_ENDPOINT", Value: embeddingModel.Status.Endpoint})
+	if serving.Endpoint != "" {
+		env = append(env, corev1.EnvVar{Name: "KUBEMOOT_EMBEDDING_ENDPOINT", Value: serving.Endpoint})
 	}
-	env = append(env, corev1.EnvVar{Name: "KUBEMOOT_EMBEDDING_MODEL", Value: embeddingModel.Spec.Model})
-	// Determine embedding type from server (default to ollama)
-	embeddingType := "ollama"
-	env = append(env, corev1.EnvVar{Name: "KUBEMOOT_EMBEDDING_TYPE", Value: embeddingType})
+	env = append(env, corev1.EnvVar{Name: "KUBEMOOT_EMBEDDING_MODEL", Value: serving.Model})
+	// Every engine serves the OpenAI-compatible embeddings API.
+	env = append(env, corev1.EnvVar{Name: "KUBEMOOT_EMBEDDING_TYPE", Value: "openai"})
 
 	// Add database credentials from secret
 	if ragSource.Spec.VectorStore.SecretRef != "" {
