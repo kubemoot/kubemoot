@@ -602,6 +602,7 @@ public class DiscussionOrchestrator {
             observeForReceipt(state, agentName, messageType, msg, messageRecord.timestamp());
 
             trackThreadStart(state, msg, messageType, channel);
+            takeUpExternalThreadStart(state, msg, agentName, messageType);
 
             // External dashboard controls (stop / pause / resume) short-circuit.
             if (handleExternalControl(state, threadId, agentName, messageType)) return;
@@ -649,6 +650,30 @@ public class DiscussionOrchestrator {
             state.userQuery = extractUserQuery(msg);
             state.primaryChannel = channel.equals(CHANNEL_BROADCAST) ? CHANNEL_GENERAL : channel;
         }
+    }
+
+    /**
+     * A thread_start that another publisher put on the bus (the dashboard's New
+     * Discussion form publishes one as "human") moves the thread from SUBMITTED to
+     * ADVISORY, the same edge {@link #orchestrate} takes for a question it starts
+     * itself. Without it the thread waits in SUBMITTED, which has no automatic edge.
+     * The coordinator's own thread_start finds its thread already past SUBMITTED.
+     */
+    private void takeUpExternalThreadStart(ThreadState state, JsonNode msg, String agentName,
+            String messageType) {
+        if (!MSG_THREAD_START.equals(messageType) || properties.agentName().equals(agentName)
+                || state.phase != Phase.SUBMITTED) {
+            return;
+        }
+        JsonNode meta = msg.path(FIELD_METADATA);
+        String crew = JsonFields.text(meta, "crew", properties.crew().orElse(null));
+        state.crew = crew == null || crew.isBlank() ? null : crew;
+        String conversationId = JsonFields.text(meta, "conversationId");
+        state.conversationId = conversationId.isBlank() ? null : conversationId;
+        state.phase = Phase.ADVISORY;
+        state.phaseStarted = Instant.now();
+        metrics.threadStarted();
+        log.info("Thread {} started by {} -> ADVISORY phase", state.threadId, agentName);
     }
 
     /**
