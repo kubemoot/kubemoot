@@ -183,8 +183,8 @@ func (r *AgentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 	}
 
 	policyCMName := agent.Name + "-policy"
-	if err := r.ensurePolicyConfigMap(ctx, agent, policyCMName); err != nil {
-		log.Error(err, "Failed to ensure policy ConfigMap")
+	if stop, err := r.ensureAgentConfig(ctx, agent, mullingPick, triagePick, policyCMName); stop {
+		return ctrl.Result{}, err
 	}
 
 	// Publish the crew's agent resumes for embedding-based triage selection
@@ -606,6 +606,9 @@ func (r *AgentReconciler) ensureDeployment(ctx context.Context, agent *kubemootv
 }
 
 func (r *AgentReconciler) buildDeployment(ctx context.Context, agent *kubemootv1alpha1.Agent, mulling, triage *modelPick, policyCMName, promptHash string) *appsv1.Deployment {
+	if usesSidecar(agent) {
+		return r.buildSidecarDeployment(ctx, agent, mulling, triage, policyCMName, promptHash)
+	}
 	replicas, port, image, serviceAccountName := r.resolveDeploymentParams(agent)
 	env := r.buildEnvVars(ctx, agent, mulling, triage, port)
 	labelsMap := buildDeploymentLabels(agent, mulling, triage)
