@@ -6,6 +6,7 @@ package main
 import (
 	"context"
 	"flag"
+	"fmt"
 	"log/slog"
 	"os"
 	"os/signal"
@@ -18,7 +19,7 @@ import (
 
 func main() {
 	path := flag.String("config", mesh.ContractDir+"/"+mesh.ContractFile, "contract.yaml")
-	httpAddr := flag.String("http-addr", "", "pod-facing listener: health, metrics (default :8080)")
+	httpAddr := flag.String("http-addr", "", "pod-facing listener: health, metrics (default: the contract's httpPort, else :8080)")
 	flag.Parse()
 	log := slog.New(slog.NewJSONHandler(os.Stderr, nil))
 	data, err := os.ReadFile(*path)
@@ -33,6 +34,9 @@ func main() {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	if *httpAddr == "" && contract.HTTPPort > 0 {
+		*httpAddr = fmt.Sprintf(":%d", contract.HTTPPort)
+	}
 	a := app.New(contract, app.Options{HTTPAddr: *httpAddr, Log: log})
 	if err := a.Start(ctx); err != nil {
 		log.Error("sidecar did not start", "error", err)

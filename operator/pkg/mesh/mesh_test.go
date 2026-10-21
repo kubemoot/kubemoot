@@ -66,6 +66,7 @@ func TestParseRefusesWhatTheSidecarCannotServe(t *testing.T) {
 		"a channel with a space":      func(c *mesh.Contract) { c.Identity.Channels = []string{"a b"} },
 		"no NATS URL":                 func(c *mesh.Contract) { c.Bus.NATSURL = "" },
 		"a consumer without a stream": func(c *mesh.Contract) { c.Bus.Stream = "" },
+		"a port out of range":         func(c *mesh.Contract) { c.HTTPPort = 70000 },
 		"a negative progress ack":     func(c *mesh.Contract) { c.Bus.ProgressAckSeconds = -1 },
 		"a turn URL that is not http": func(c *mesh.Contract) { c.Turn.URL = "ftp://x" },
 		"no concurrency":              func(c *mesh.Contract) { c.Turn.Concurrency = 0 },

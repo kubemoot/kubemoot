@@ -76,15 +76,17 @@ const (
 
 // Contract is the whole contract.yaml.
 type Contract struct {
-	ContractVersion string         `json:"contractVersion"`
-	Identity        Identity       `json:"identity"`
-	Bus             Bus            `json:"bus"`
-	Turn            Turn           `json:"turn"`
-	Models          Models         `json:"models"`
-	Placement       Placement      `json:"placement"`
-	Tools           Tools          `json:"tools"`
-	Policy          *Policy        `json:"policy,omitempty"`
-	Observability   *Observability `json:"observability,omitempty"`
+	ContractVersion string `json:"contractVersion"`
+	// HTTPPort is the pod-facing port of the sidecar (health, metrics, chat). Zero means DefaultHTTPPort.
+	HTTPPort      int            `json:"httpPort,omitempty"`
+	Identity      Identity       `json:"identity"`
+	Bus           Bus            `json:"bus"`
+	Turn          Turn           `json:"turn"`
+	Models        Models         `json:"models"`
+	Placement     Placement      `json:"placement"`
+	Tools         Tools          `json:"tools"`
+	Policy        *Policy        `json:"policy,omitempty"`
+	Observability *Observability `json:"observability,omitempty"`
 }
 
 // Identity says who the agent is on the bus. Namespace, crew and agent scope every subject and
