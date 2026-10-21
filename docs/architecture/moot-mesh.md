@@ -162,9 +162,12 @@ closes that gap with identity, not with a network wall:
   Agent spec has no field for the runtime class yet.
 
 Minting the per-agent NATS users is not built yet (see
-[What is not built yet](#what-is-not-built-yet)). Until it is, the sidecar connects
-anonymously: the contract's `bus.credentialsDir` names where it looks for
-credentials, and the operator does not set that field yet.
+[What is not built yet](#what-is-not-built-yet)). The two ends of the credential path
+exist: the operator mounts an optional Secret named `<agent>-nats` into the sidecar
+only, and sets the contract's `bus.credentialsDir` to where it lands. The sidecar
+reads a `creds` file, or a `user` and `password`, from it. With no Secret the
+directory is empty and the sidecar connects anonymously, which is how a cluster
+without NATS accounts runs today.
 
 ## Observability
 
@@ -178,6 +181,11 @@ and its tool calls.
 When the contract names a collector (`observability.otlpEndpoint`, set from the
 KubemootConfig's `defaults.otelCollectorEndpoint`), the sidecar exports spans over OTLP/HTTP.
 With no collector, trace context still flows; nothing is exported.
+
+Metrics are served on the sidecar port at `/metrics`. The chart keeps the existing
+agent PodMonitor for legacy pods and adds a second one for pods labelled
+`kubemoot.ai/harness-mode: sidecar`, so each kind of pod is scraped at its own path
+with the same `crew` and `agent` relabelings.
 
 Prometheus metrics are served on the sidecar port at `/metrics`. The scheduler
 series keep the names agent-runtime uses, so existing dashboards keep working:
@@ -221,9 +229,6 @@ as the client. A harness author implements a standard agent card and
 - **Learned placement policies.** The contract names the placement policies
   (algorithm, learned, shadow). Learned and shadow policies are not built.
 - **`/debug/turns`.** A view of recent turns on the sidecar port does not exist yet.
-- **Scraping.** The chart's agent PodMonitor reads `/q/metrics`, which the sidecar
-  does not serve. A sidecar-mode agent's `/metrics` needs your own scrape
-  configuration.
 
 ## Related
 
