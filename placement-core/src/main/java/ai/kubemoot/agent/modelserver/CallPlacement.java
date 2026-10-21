@@ -22,6 +22,8 @@ public interface CallPlacement {
      * One placement attempt; empty when no server has room and waiting is the better choice. The
      * placement carries its {@link PlacementDecision}. The caller gives the claimed ticket back
      * with {@link #releaseTicket}.
+     *
+     * @throws PlacementUnavailableException when a remote placement cannot be reached
      */
     Optional<CallPlanner.Placement> place(CallPlanner.PlacementRequest request);
 
@@ -65,4 +67,13 @@ public interface CallPlacement {
 
     /** The server failed the caller before a call could start (for example the model would not wake). */
     void recordFailure(String server);
+
+    /**
+     * The server this placement last chose for {@code model}, for a caller that must place a call
+     * without it (see {@link PlacementUnavailableException}). Empty when none is known, and always
+     * empty for in-process placement, which is never unavailable.
+     */
+    default Optional<String> lastKnownServer(String model) {
+        return Optional.empty();
+    }
 }

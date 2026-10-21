@@ -550,7 +550,8 @@ public class TicketManager {
     // legal NATS KV key character, so it is stored as "qwen3_3a14b". The document carries
     // the model name itself; nothing parses it back from the key. The store's expiry reaps a
     // residency entry that stops being refreshed (model idled out or evicted).
-    static final String RESIDENCY_PREFIX = "residency__";
+    /** The key prefix of residency entries, apart from the per-call tickets. */
+    public static final String RESIDENCY_PREFIX = "residency__";
 
     /** The key prefix every residency entry on {@code server} starts with. */
     static String residencyPrefix(String server) {

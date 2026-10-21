@@ -66,8 +66,8 @@ public class ServerSelector {
 
     private static final Logger log = LoggerFactory.getLogger(ServerSelector.class);
 
-    /** NATS KV bucket name — must match operator's ServerStateBucket constant. */
-    static final String STATE_BUCKET = "kubemoot_server_state";
+    /** The NATS KV bucket the operator publishes each ModelServer's state in; must match the operator's ServerStateBucket. */
+    public static final String STATE_BUCKET = "kubemoot_server_state";
 
     /** In-memory cache TTL for KV reads to absorb burst load. */
     private static final Duration CACHE_TTL = Duration.ofMillis(200);
@@ -1281,6 +1281,23 @@ public class ServerSelector {
     public void recordOutcome(String server, String modelName, long latencyMs, boolean success) {
         FitPredictor fp = (fitPredictor == null) ? DEFAULT_PREDICTOR : fitPredictor;
         fp.recordOutcome(server, modelName, latencyMs, success);
+    }
+
+    /**
+     * A finished call: its latency on {@code server}, the circuit breaker (a wedged server is
+     * excluded from future picks for a cooldown), and, when {@code model} is not null, the
+     * per-(server, model) outcome history that ranking weighs.
+     */
+    public void recordCallOutcome(String server, String model, long durationMs, boolean ok) {
+        recordObservedLatencyFor(server, durationMs);
+        if (ok) {
+            recordSuccess(server);
+        } else {
+            recordFailure(server);
+        }
+        if (model != null) {
+            recordOutcome(server, model, durationMs, ok);
+        }
     }
 
     /**
