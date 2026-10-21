@@ -98,7 +98,7 @@ class DemandBoardTest {
         when(props.agentName()).thenReturn("a");
         when(props.namespace()).thenReturn(Optional.empty());
         when(props.crew()).thenReturn(Optional.empty());
-        var nats = mock(ai.kubemoot.agent.nats.NatsConnectionProvider.class);
+        var nats = mock(ai.kubemoot.agent.nats.NatsLink.class);
         var agent = new DemandBoard(nats, MAPPER, props);
         agent.intend("t", List.of("m"));
         agent.recordUse("m");

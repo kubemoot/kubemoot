@@ -17,7 +17,7 @@ import java.time.Instant;
  * and DiscussionOrchestrator. Lazy connection with retry — no-op when NATS_URL is not set.
  */
 @ApplicationScoped
-public class NatsConnectionProvider {
+public class NatsConnectionProvider implements NatsLink {
 
     private static final Logger log = LoggerFactory.getLogger(NatsConnectionProvider.class);
     private static final int MAX_INITIAL_RETRIES = 5;
@@ -60,12 +60,14 @@ public class NatsConnectionProvider {
         return !natsUrl.isEmpty();
     }
 
+    @Override
     public boolean isAvailable() {
         if (!isConfigured()) return false;
         var conn = getConnection();
         return conn != null && conn.getStatus() == Connection.Status.CONNECTED;
     }
 
+    @Override
     public synchronized Connection getConnection() {
         if (!isConfigured()) return null;
 

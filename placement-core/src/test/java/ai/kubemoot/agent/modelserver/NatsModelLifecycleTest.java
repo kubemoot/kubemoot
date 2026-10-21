@@ -1,6 +1,6 @@
 package ai.kubemoot.agent.modelserver;
 
-import ai.kubemoot.agent.nats.NatsConnectionProvider;
+import ai.kubemoot.agent.nats.NatsLink;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.nats.client.Connection;
@@ -34,7 +34,7 @@ class NatsModelLifecycleTest {
     }
 
     private static NatsModelLifecycle over(Connection conn) {
-        NatsConnectionProvider nats = mock(NatsConnectionProvider.class);
+        NatsLink nats = mock(NatsLink.class);
         when(nats.getConnection()).thenReturn(conn);
         return new NatsModelLifecycle(nats, JSON, "analyst", Duration.ofSeconds(5));
     }

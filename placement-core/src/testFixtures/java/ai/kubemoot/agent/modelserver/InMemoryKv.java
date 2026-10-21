@@ -1,6 +1,6 @@
 package ai.kubemoot.agent.modelserver;
 
-import ai.kubemoot.agent.nats.NatsConnectionProvider;
+import ai.kubemoot.agent.nats.NatsLink;
 import io.nats.client.Connection;
 import io.nats.client.KeyValue;
 import io.nats.client.api.KeyValueEntry;
@@ -84,7 +84,7 @@ public final class InMemoryKv {
      * A connection server whose connection serves this bucket under {@code name},
      * with the backing stream's subject index listing the current keys.
      */
-    public NatsConnectionProvider server(String name) {
+    public NatsLink server(String name) {
         try {
             var conn = mock(Connection.class);
             when(conn.keyValue(name)).thenReturn(kv);
@@ -92,7 +92,7 @@ public final class InMemoryKv {
             when(conn.jetStreamManagement()).thenReturn(jsm);
             when(jsm.getStreamInfo(eq("KV_" + name), any(io.nats.client.api.StreamInfoOptions.class)))
                     .thenAnswer(inv -> streamInfo(name));
-            var server = mock(NatsConnectionProvider.class);
+            var server = mock(NatsLink.class);
             when(server.isAvailable()).thenReturn(true);
             when(server.getConnection()).thenReturn(conn);
             return server;

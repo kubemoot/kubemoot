@@ -1,6 +1,6 @@
 package ai.kubemoot.agent.modelserver;
 
-import ai.kubemoot.agent.nats.NatsConnectionProvider;
+import ai.kubemoot.agent.nats.NatsLink;
 import io.nats.client.Connection;
 import io.nats.client.KeyValue;
 import io.nats.client.api.KeyValueEntry;
@@ -21,8 +21,8 @@ import static org.mockito.Mockito.*;
 /** The KV-watch-backed capacity signal: watch setup, version bumps, and waiting for a change. */
 class NatsCapacityWatchTest {
 
-    private static NatsConnectionProvider serverWith(Connection conn) {
-        var server = mock(NatsConnectionProvider.class);
+    private static NatsLink serverWith(Connection conn) {
+        var server = mock(NatsLink.class);
         when(server.getConnection()).thenReturn(conn);
         return server;
     }

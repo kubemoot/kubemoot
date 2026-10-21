@@ -1,6 +1,6 @@
 package ai.kubemoot.agent.modelserver;
 
-import ai.kubemoot.agent.nats.NatsConnectionProvider;
+import ai.kubemoot.agent.nats.NatsLink;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
@@ -41,16 +41,16 @@ public final class NatsModelLifecycle implements ModelLifecycle {
     static final String NO_ANSWER = "the operator did not answer before the safety limit";
     static final String NOT_LISTENING = "no operator is listening for model lifecycle requests";
 
-    private final NatsConnectionProvider nats;
+    private final NatsLink nats;
     private final ObjectMapper mapper;
     private final String agent;
     private final Duration timeout;
 
-    public NatsModelLifecycle(NatsConnectionProvider nats, ObjectMapper mapper, String agent) {
+    public NatsModelLifecycle(NatsLink nats, ObjectMapper mapper, String agent) {
         this(nats, mapper, agent, SAFETY_TIMEOUT);
     }
 
-    NatsModelLifecycle(NatsConnectionProvider nats, ObjectMapper mapper, String agent, Duration timeout) {
+    NatsModelLifecycle(NatsLink nats, ObjectMapper mapper, String agent, Duration timeout) {
         this.nats = nats;
         this.mapper = mapper;
         this.agent = agent;

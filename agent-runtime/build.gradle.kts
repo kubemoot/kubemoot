@@ -70,6 +70,10 @@ dependencies {
     implementation("io.modelcontextprotocol.sdk:mcp-core:2.0.1")
     implementation("io.modelcontextprotocol.sdk:mcp-json-jackson2:2.0.1")
 
+    // Placement: tickets, server selection and placement policies, shared with the placement
+    // service. Its CDI beans are indexed through quarkus.index-dependency in application.properties.
+    implementation("ai.kubemoot:placement-core")
+
     // NATS - publish chat events to NATS JetStream
     implementation("io.nats:jnats:2.26.3")
 
@@ -89,6 +93,7 @@ dependencies {
     // in an in-cluster build pod (.github/workflows/ci-agent-runtime.yaml).
 
     // Testing
+    testImplementation(testFixtures("ai.kubemoot:placement-core"))
     testImplementation("io.quarkus:quarkus-junit5")
     testImplementation("io.rest-assured:rest-assured")
     testImplementation("org.mockito:mockito-core")
