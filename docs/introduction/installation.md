@@ -135,6 +135,21 @@ creates a `ModelServer` for each entry, and a `Model` in the operator's namespac
 `models` entry. Crews ship no Models: they select from this catalog by label, so changing
 the engine or adding a server changes the catalog and no crew.
 
+### Optional: a placement service for sidecar agents
+
+Agents that run a harness behind a [Moot Mesh sidecar](../../architecture/moot-mesh/)
+ask a placement service where each model call runs. Point the operator at it with
+one value:
+
+```yaml
+placementService:
+  url: "http://<placement-service-host>:<port>"
+```
+
+The value reaches each sidecar as `placement.serviceURL` in the agent's contract. Left
+empty, which is the default, every sidecar uses the model server its Agent was bound to
+and no call is placed afresh. Agents without a harness block are not affected.
+
 ### Optional: the dashboard
 
 The operator chart carries the [dashboard](../../operating/dashboard/) as an optional

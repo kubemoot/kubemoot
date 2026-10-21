@@ -92,13 +92,102 @@ Standard Kubernetes deployment overrides.
 | Field | Type | Description |
 |-------|------|-------------|
 | `replicas` | int32 | Default: 1 |
-| `image` | string | Override agent-runtime image. Defaults to `KubemootConfig.spec.images.agentRuntime` |
-| `port` | int32 | HTTP API port. Default: 8080 |
+| `image` | string | Override agent-runtime image. Defaults to `KubemootConfig.spec.images.agentRuntime`. In sidecar mode it names the harness when `spec.harness.image` is unset |
+| `port` | int32 | HTTP API port. Default: 8080. In sidecar mode it is the sidecar's port, which the Service targets |
 | `resources` | ResourceRequirements | CPU/memory limits |
 | `env` | []EnvVar | Additional env vars - useful for `KUBEMOOT_GATEWAY_ENABLED=false` on coordinator, longer timeouts, etc. |
 | `serviceAccountName` | string | Pod service account |
 
 The operator sets `imagePullSecrets` from `KubemootConfig.spec.defaults.imagePullSecrets` - no per-agent override needed. That field is empty by default (public images need no pull secret); set it on KubemootConfig if you point `global.imageRegistry` at a private mirror.
+
+### `spec.harness`
+Names the program that does the agent's reasoning and how its pod joins the table. Without the block the agent is a legacy agent-runtime pod, as it has always been. With `mode: sidecar` the pod runs the harness beside a [Moot Mesh sidecar](../../architecture/moot-mesh/) that owns the bus, model placement, and tool access. To decide which mode fits, see [Choosing a harness mode](../../user-guides/build-a-crew/#choosing-a-harness-mode).
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `name` | string | | The harness's name. Shown on the dashboard and carried on every signal as `metadata.harness`. |
+| `mode` | enum | `legacy` | `legacy` runs agent-runtime alone. `sidecar` runs the harness beside the Moot Mesh sidecar. |
+| `image` | string | | The harness image. Pin anything Kubemoot did not build by digest. In sidecar mode it is required unless `spec.deployment.image` names the harness. |
+| `port` | int32 | `9000` | Where the harness serves the turn (A2A) inside the pod. It must differ from the sidecar's port, `spec.deployment.port`. |
+| `protocol` | enum | `a2a` | How the sidecar hands the harness a turn. Only `a2a` exists. |
+| `profile` | enum | `v1` | The Kubemoot turn profile the harness implements. |
+| `concurrency` | int32 | `1` | How many turns the harness runs at once. Above 1 is allowed in sidecar mode only, and the harness must send the per-turn key on every model and tool call. |
+| `nativeTools` | enum | `none` | What the harness's own built-in tools may do: `none`, `declared`, or `all`. See below. |
+| `command` | []string | | Overrides the image's entrypoint. |
+| `args` | []string | | Arguments for the harness container. |
+| `env` | []EnvVar | | Extra environment for the harness container, set after the variables the mesh sets. |
+| `resources` | ResourceRequirements | | CPU and memory for the harness container. |
+
+**`nativeTools`.** `none` turns the harness's own tools off, so the only tools it can use are the ones at the tools door. `declared` allows the built-ins the crew author reviewed and declared. `all` leaves every built-in on. Anything but `none` is a deliberate choice: it is shown on the dashboard and recorded on the Deployment in the `kubemoot.ai/native-tools` annotation. The sidecar hands the value to the harness image in `KUBEMOOT_NATIVE_TOOLS`; the image applies it. The sidecar cannot see what a harness does with its own shell or file access, so the setting is a statement about the harness, not an enforcement by the mesh.
+
+**Validation.** The CRD rejects a sidecar-mode Agent without an image (`harness.image` or `deployment.image`), `concurrency` above 1 outside sidecar mode, and `nativeTools` other than `none` outside sidecar mode. The operator checks two more things when it builds the pod and reports them in the Agent's status (`phase: Error`, with the reason in `message`):
+
+- The Agent carries the `kubemoot.ai/crew` label. Every bus subject is scoped by crew.
+- `harness.port` and `deployment.port` differ. The sidecar listens on `deployment.port` (default 8080), the harness on `harness.port`.
+
+```yaml
+apiVersion: kubemoot.ai/v1alpha1
+kind: Agent
+metadata:
+  name: reviewer
+  namespace: crew-my-crew
+  labels:
+    kubemoot.ai/crew: my-crew
+spec:
+  capabilities: [reasoning]
+  discussRole: tooler
+  promptRefs: [reviewer-system]
+  harness:
+    name: my-harness
+    mode: sidecar
+    image: registry.example.com/my-harness@sha256:...
+    nativeTools: none
+```
+
+#### What the operator builds in sidecar mode
+
+- **A contract ConfigMap**, `<agent>-contract`, holding `contract.yaml` (fields below). The sidecar reads it at start. A change to the contract rolls the pod.
+- **The pod.** The harness is the one regular container, named `agent`. The sidecar is added as a native sidecar (an init container with `restartPolicy: Always`). The pod carries the label `kubemoot.ai/harness-mode: sidecar`, and the Deployment carries that label and the `kubemoot.ai/native-tools` annotation. The pod has no service account token.
+- **The Service.** It targets the sidecar port, `spec.deployment.port`.
+- **A durable JetStream consumer** for the agent, named `sidecar-<namespace>-<crew>-<agent>`, filtered to the broadcast channel and the channels the agent lists in `spec.discussChannels`. The sidecar binds it by name.
+
+The harness container receives these environment variables. It learns two loopback URLs and its own port, and nothing about NATS, the gateway, or the cluster.
+
+| Variable | Value |
+|----------|-------|
+| `KUBEMOOT_MODEL_URL` | `http://127.0.0.1:8081/v1`, the OpenAI-compatible model door |
+| `KUBEMOOT_TOOLS_URL` | `http://127.0.0.1:8082/mcp`, the MCP tools door |
+| `KUBEMOOT_TURN_PORT` | The port the harness serves the turn on (`harness.port`) |
+| `KUBEMOOT_NATIVE_TOOLS` | `none`, `declared`, or `all` |
+
+#### `contract.yaml`
+
+The contract is the one file the sidecar needs. The operator writes it and the sidecar refuses a file it does not fully understand: an unknown field or a version it does not speak is an error, not a guess. `contractVersion` follows the major version of the bus contract the sidecar serves.
+
+| Field | Meaning |
+|-------|---------|
+| `contractVersion` | The contract file's version. |
+| `identity.namespace`, `identity.crew`, `identity.agent` | Who the agent is on the bus. Each is a single NATS subject token (no dot, wildcard, or space) and scopes every subject and key the sidecar builds. |
+| `identity.role` | The agent's discussion role. |
+| `identity.channels` | The channels the agent listens on besides `broadcast`, which every agent has. |
+| `identity.triageSummary` | The agent's one-line summary used in triage. |
+| `identity.harness` | The harness name, carried on every signal. |
+| `bus.natsURL` | Where the sidecar reaches NATS. |
+| `bus.stream`, `bus.consumer` | The durable consumer the operator created. Set together or not at all. With none, the sidecar subscribes on core NATS. |
+| `bus.progressAckSeconds` | How often the sidecar tells JetStream a message is still being worked. A quarter of the consumer's acknowledgement wait when unset. |
+| `bus.credentialsDir` | Where the sidecar finds its own NATS credentials. Absent means an anonymous connection. |
+| `turn.url` | The harness's A2A root, for example `http://127.0.0.1:9000`. |
+| `turn.concurrency` | How many turns may run at once. At least 1. |
+| `turn.deadlineSeconds` | The safety net for one turn. The normal path ends on state. |
+| `models.aliases.<alias>.candidates` | The acceptable models for the alias, preferred first. A `default` alias is required; the operator also writes `triage`. |
+| `models.aliases.<alias>.fallback` | The `server`, `endpoint`, and `model` the operator bound, used when the placement service cannot be reached. |
+| `placement.policy` | The placement policy the crew resolved. |
+| `placement.serviceURL` | The placement service. Empty means every call uses the alias's fallback. See the operator chart value `placementService.url` in [Install the Operator](../../introduction/installation/#optional-a-placement-service-for-sidecar-agents). |
+| `tools.gateway` | The crew's MCP gateway. Empty means the agent has no tools. |
+| `tools.enabled`, `tools.disabled` | The agent's `enabledTools` and `disabledTools`. |
+| `tools.nativeTools` | Recorded for the dashboard and the receipt. |
+| `policy.systemPromptFile`, `policy.skillsDir` | Where the assembled instructions and the crew's skills are mounted. |
+| `observability.otlpEndpoint` | An OTLP/HTTP collector for spans. Empty turns export off; trace context still flows. |
 
 ---
 
@@ -667,6 +756,7 @@ curl -X POST http://k8s-workloads.crew-homelab-pilot:8080/chat \
 - [scheduler.md](../architecture/scheduler.md) - Scheduler design (CRD surface, filter/score/bind)
 - [models.md](models.md) - Model catalog and Model CRD reference
 - [agentic-consensus.md](../architecture/agentic-consensus.md) - Discussion protocol semantics
+- [The Moot Mesh](../architecture/moot-mesh.md) - The sidecar behind `spec.harness`
 - [skill.md](skill.md) - Skill CRD reference: crew-level procedures the coordinator selects on demand
 - `chart/kubemoot-operator/templates/mootarchetypes.yaml` - built-in `consent-3` MootArchetype
 - `homelab-pilot/charts/homelab-pilot-crew/templates/` - example Agent CRs for the Homelab Pilot crew

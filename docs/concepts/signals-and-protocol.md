@@ -44,6 +44,27 @@ queued. A signal names where its calls actually ran:
 | `metadata.modelsUsed` | Each distinct place the calls ran, as `model@server` in call order (the model alone for the static endpoint). |
 | `metadata.placementCalls` | The same calls with their placement: the policy, the reason, the options weighed, the predicted completion time and what the call measured. The coordinator copies them to the thread's receipt; see [Reading a placement decision](../../architecture/scheduler/#reading-a-placement-decision). |
 
+## What a signal reports about the turn
+
+A signal sent for an agent running behind a [Moot Mesh sidecar](../../architecture/moot-mesh/)
+carries a few more facts, all measured or recorded by the sidecar and all optional:
+
+| Field | Meaning |
+|---|---|
+| `metadata.harness` | The name of the harness that produced the contribution. |
+| `metadata.harnessImage` | The harness image, by digest when known. |
+| `metadata.turnMs` | Milliseconds from handing the turn to the harness to its reply. |
+| `metadata.evidence` | What the harness says its answer rests on, as it reported it. |
+| `metadata.toolsCalled` | The tools the harness called during the turn, as counted at the sidecar's tools door. |
+
+`metadata.toolsUsed` keeps its meaning: the tools the agent has enabled, what it
+could call. `toolsCalled` is what it did call.
+
+A message can also carry `traceparent` and `tracestate`, the W3C Trace Context of the
+span that published it, so one trace follows a question across the crew. The same
+value travels in the `traceparent` header of the NATS message. Both fields are
+optional, and a writer that has no trace context omits them.
+
 ## Stand-asides for GPU capacity
 
 A stand-aside usually means the agent had nothing to add. Three reasons mark a different
@@ -107,7 +128,7 @@ from it.
 
 | Channel | Address | Payload |
 |---|---|---|
-| Discussion thread | `kubemoot.discuss.<namespace>.<crew>.<channel>.<threadId>` | `DiscussionMessage`: `messageId`, `threadId`, `agentName`, `messageType`, `content`, `channel`, `timestamp`, `metadata` |
+| Discussion thread | `kubemoot.discuss.<namespace>.<crew>.<channel>.<threadId>` | `DiscussionMessage`: `messageId`, `threadId`, `agentName`, `messageType`, `content`, `channel`, `timestamp`, `traceparent`, `tracestate`, `metadata` |
 | Agent lifecycle | `kubemoot.lifecycle.<namespace>.<crew>.<signal>.<agent>` | `DiscussionMessage` with `waking` or `ready` |
 | Request queue | `kubemoot.request.<namespace>.<crew>` | `DiscussionRequest`: the question for the crew's coordinator |
 | Model lifecycle | `kubemoot.server.model.<server>` | `ModelLifecycleRequest`: an agent asks the operator to wake (`ready`) or sleep (`release`) a model on a vLLM server; the reply is a `ModelLifecycleReply` sent once the server reports the state |
