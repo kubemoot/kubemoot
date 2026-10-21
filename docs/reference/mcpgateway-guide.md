@@ -190,6 +190,26 @@ A re-list that returns no tools, or fails, keeps the tools already known (a repl
 
 Agents read `GET /admin/tools` when they start and again before an evaluation once their copy is older than 60 seconds (10 seconds while it is empty). A tool that is added, removed, or given a new description or input schema reaches running agents that way, without restarting them.
 
+## Tool Argument Types
+
+A model often sends an argument in the wrong JSON type: a number as a string (`"n_items": "8"`) or a list as one comma-separated string (`"content_types": "books,videos,courses"`). A tool server that validates its input rejects the call, the agent retries, and the repeated error text crowds the context. The gateway knows each tool's input schema from `tools/list`, so before it forwards a `tools/call` it converts an argument to the type the schema declares when the conversion loses nothing:
+
+| Schema wants | Value sent | Forwarded as |
+|--------------|-----------|--------------|
+| `integer` | a numeric string such as `"8"` or `"8.0"`, or an integral decimal such as `8.0` | the integer `8` |
+| `number` | a numeric string such as `"0.25"` | the number `0.25` |
+| `boolean` | `"true"` or `"false"` in any letter case | the boolean |
+| array of strings (items have no `format`, `enum` or `const`) | a comma-separated string `"a, b"` | `["a", "b"]` |
+| array | a single value | a one-item array, the item itself coerced to the item type |
+
+Objects and arrays are walked recursively, so nested properties and array items are converted by their own schemas. An optional parameter declared as `anyOf` or `oneOf` of one type and `null` is treated as that type. A schema that resolves no type (a `$ref`, an `allOf`, or an `anyOf` with more than one non-null branch) is not converted. Whitespace around each item is trimmed when a string is split.
+
+Everything else is sent as the model wrote it and the tool server's error comes back unchanged: a decimal for an integer (`"8.5"`), a number that would lose precision, `"yes"` or `"1"` for a boolean, an empty string, a string that starts with `[` or `{`, a list with an empty element (`"a,,b"`), and a value that matches no declared type. A property the schema does not declare is not touched. A property marked `writeOnly`, `format: password`, `secret: true` or `x-secret: true` is never converted, and neither is anything inside it.
+
+The conversion applies to every route into a tool server (the MCP endpoint and `POST /tools/{name}/call`), because it runs where the gateway forwards the call. Each conversion is logged at debug with the tool and field name (for example `opts.deep`, or `tags[]` for an array item) and never the value.
+
+The MCP Java SDK and the JSON Schema validator it uses (networknt) only validate arguments; the validator's loose-type mode accepts a mismatched type without changing the value that is sent, so the tool server would still reject it. The gateway keeps the conversion in `ToolArgumentCoercion`.
+
 ## Connections to MCP servers
 
 A hosted MCP server's edge closes connections that sit idle, and a request sent on a connection the remote side already closed fails with "Connection reset by peer". The gateway keeps its HTTP connections to MCP servers in one pool that drops a connection before that happens:
