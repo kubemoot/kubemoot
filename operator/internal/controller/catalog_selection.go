@@ -172,7 +172,8 @@ func catalogEntryModel(p *aiv1alpha1.ModelServer, e aiv1alpha1.CatalogModel) aiv
 }
 
 // calibrationSaysNoFit reports whether calibration measured the model on the
-// server and found it does not fit the accelerator's memory.
+// server and found it does not fit the accelerator's memory. A skipped or failed
+// entry keeps Fits true: nothing was learned about its memory.
 func calibrationSaysNoFit(p *aiv1alpha1.ModelServer, model string) bool {
 	if p.Status.Calibration == nil {
 		return false

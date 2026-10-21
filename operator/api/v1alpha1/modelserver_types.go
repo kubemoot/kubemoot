@@ -381,6 +381,47 @@ type ModelDrift struct {
 	Samples int `json:"samples"`
 }
 
+// The Status of a ModelCalibration.
+const (
+	ModelCalibrationMeasured = "Measured"
+	ModelCalibrationSkipped  = "Skipped"
+	ModelCalibrationFailed   = "Failed"
+)
+
+// PresentCatalogModels is the names of the models the server's catalog says it has.
+func (p *ModelServer) PresentCatalogModels() []string {
+	var out []string
+	for _, m := range p.Status.Models {
+		if m.Present {
+			out = append(out, m.Name)
+		}
+	}
+	return out
+}
+
+// IsDownloaded reports whether the server has reported the model among the models it
+// has on disk (status.capacity.availableModels).
+func (p *ModelServer) IsDownloaded(model string) bool {
+	if p.Status.Capacity == nil {
+		return false
+	}
+	for _, m := range p.Status.Capacity.AvailableModels {
+		if m.Name == model {
+			return true
+		}
+	}
+	return false
+}
+
+// Resolved reports whether calibration has an answer for the model: it was measured,
+// or skipped because calibration does not apply. A model that Failed has none.
+func (m ModelCalibration) Resolved() bool { return m.Status != ModelCalibrationFailed }
+
+// HasSpeeds reports whether the entry carries measured speeds.
+func (m ModelCalibration) HasSpeeds() bool {
+	return m.Status == "" || m.Status == ModelCalibrationMeasured
+}
+
 // ModelCalibration is what calibration measured for one model on a server.
 // Speeds are tokens per second, rounded down.
 type ModelCalibration struct {
@@ -420,9 +461,16 @@ type ModelCalibration struct {
 	// +optional
 	ParallelGenerateTokensPerSecond int64 `json:"parallelGenerateTokensPerSecond,omitempty"`
 
-	// Reason explains a model that does not fit or could not be measured
+	// Reason explains a model that does not fit, was skipped, or could not be measured
 	// +optional
 	Reason string `json:"reason,omitempty"`
+
+	// Status is Measured (the default when empty), Skipped (calibration does not
+	// apply to the model, such as an embedding model), or Failed (a model that
+	// chats could not be measured; Reason says why)
+	// +kubebuilder:validation:Enum=Measured;Skipped;Failed
+	// +optional
+	Status string `json:"status,omitempty"`
 
 	// CalibratedAt is when this model was measured
 	// +optional

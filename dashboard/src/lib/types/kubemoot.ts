@@ -49,6 +49,8 @@ export interface ModelCalibration {
 	model: string;
 	fits: boolean;
 	reason?: string;
+	/** Measured (the default), Skipped (calibration does not apply), or Failed. */
+	status?: string;
 	loadMs?: number;
 	residentMiB?: number;
 	contextLength?: number;

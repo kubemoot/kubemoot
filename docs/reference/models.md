@@ -172,8 +172,7 @@ it was never calibrated, a reset was requested, its engine version changed, or M
 were bound to it that the calibration has not measured. It asks once per need. It
 resumes a calibration that paused as `Waiting` (crew calls took the server, or the
 calibration server stopped mid-run) once no call holds the server, and retries one
-that `Failed` once the server has become ready again after the failure, or once the bus
-is ready if it failed on the bus. A need that
+that `Failed` once the server has become ready again after the failure. A need that
 arrives while a calibration is already running is asked once that run ends. It
 starts calibrations through the `accelerator-mcp` core server once that server is ready
 (see [The scheduling crew](../architecture/scheduler.md#the-scheduling-crew)); the
@@ -186,10 +185,27 @@ background, with no model making decisions: for each model, load it, send two sh
 requests, a long prompt, and, when the server runs requests together, a parallel batch.
 Each number is copied from one probe: generation speed from the second (warm) short
 request, prompt speed from the long prompt. Without a list of models it measures the
-downloaded models that Model resources bind to the server, else the three smallest that
-fit. A model that does not fit is recorded with `fits: false` and its reason; a model the
-recipe could not measure is left out and named in the message; if none could be
-measured, the phase is `Failed`.
+downloaded models that Model resources bind to the server together with the models the
+server's catalog lists as present, else the three smallest that fit. A model that does
+not fit is recorded with `fits: false` and its reason.
+
+Each model is measured on its own, and every model gets a result in
+`status.calibration.models[]`, with a `status`:
+
+- `Measured`: the numbers below. This is the default when `status` is empty.
+- `Skipped`: calibration does not apply. An embedding model (the engine lists
+  `embedding` and not `completion` for it) cannot be asked to generate, so it is never
+  loaded or sent a request, and it is not a failure. The `reason` says why.
+- `Failed`: a model that chats could not be measured; the `reason` is the error.
+
+One model's failure never stops the others. The phase follows the results: `Calibrated`
+when every model that chats was measured (also when there is nothing to measure because
+the server has only embedding models), `Failed` when a model that chats could not be
+measured, with the others' results kept. A `Failed` run with results stays `Failed`
+until the server, its Models or the reset annotation change, or the server becomes ready
+again after the failure. A `Failed` record with no per-model results and the summary "no model
+could be measured" stopped before it learned anything about the models (the recipe now
+records every model it tries), and the operator asks again once the server is idle.
 
 **Waiting for the bus.** Calibration reads and writes two NATS KV buckets: the server
 tickets every probe claims and the performance history. On a fresh install the NATS
@@ -208,11 +224,11 @@ of the bus, so the condition and its message always follow the current cause.
 
 | `Calibrated` condition | When |
 |-------|-------|
-| `True`, reason `Calibrated` | The last run measured at least one model |
+| `True`, reason `Calibrated` | The last run measured every model that chats (embedding models are skipped) |
 | `True`, reason `RecalibrationWaitingForBus` | The server was calibrated before and a newer calibration waits for the bus; the earlier results stand and stay in use |
 | `Unknown`, reason `WaitingForBus` | The server was never calibrated and NATS is unreachable or a scheduler bucket does not exist yet; nothing is wrong with the server or its models |
 | `False`, reason `Calibrating` or `Waiting` | A run is under way, or paused because crew calls hold the server |
-| `False`, reason `Failed` | No model could be measured; it stays `Failed` until the server, its Models or the reset annotation change, or the server becomes ready again after the failure |
+| `False`, reason `Failed` | A model that chats could not be measured; it stays `Failed` until the server, its Models or the reset annotation change, or the server becomes ready again after the failure |
 
 | `status.calibration` field | Description |
 |-------|-------------|
@@ -223,7 +239,7 @@ of the bus, so the condition and its message always follow the current cause.
 | `resetToken` | The last reset request acted on, set when the calibration it asked for starts |
 | `completedAt` | When the last calibration finished |
 | `updatedAt` | When the calibration was last recorded, in any phase |
-| `models[]` | Per model: `fits`, `reason`, `loadMs`, `residentMiB`, `contextLength`, `promptTokensPerSecond`, `generateTokensPerSecond`, `parallelRequests`, `parallelGenerateTokensPerSecond`, `calibratedAt` |
+| `models[]` | Per model: `status` (`Measured`, `Skipped` or `Failed`), `fits`, `reason`, `loadMs`, `residentMiB`, `contextLength`, `promptTokensPerSecond`, `generateTokensPerSecond`, `parallelRequests`, `parallelGenerateTokensPerSecond`, `calibratedAt` |
 
 The tools keep calibration out of a crew's way. A probe sends nothing while other calls
 hold the server, claims tickets for its own requests like any call, refuses a model the

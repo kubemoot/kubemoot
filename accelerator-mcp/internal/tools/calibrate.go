@@ -180,7 +180,7 @@ func (s *Set) targets(ctx context.Context, p *aiv1alpha1.ModelServer, asked []st
 		return nil, err
 	}
 	var downloaded []string
-	for _, m := range dedupe(bound) {
+	for _, m := range dedupe(append(bound, presentCatalog(p)...)) {
 		if _, ok := sizeOf(p, m); ok {
 			downloaded = append(downloaded, m)
 		}
@@ -192,6 +192,13 @@ func (s *Set) targets(ctx context.Context, p *aiv1alpha1.ModelServer, asked []st
 		return smallest, nil
 	}
 	return nil, fmt.Errorf("%s has no downloaded model that fits its memory to calibrate", p.Name)
+}
+
+// presentCatalog is the models the server's catalog says it has, so a model no Model
+// object names is measured too, as the operator counts it when it decides a
+// calibration is needed. Embedding models are not in the catalog; measure skips them.
+func presentCatalog(p *aiv1alpha1.ModelServer) []string {
+	return p.PresentCatalogModels()
 }
 
 func dedupe(models []string) []string {
@@ -222,48 +229,83 @@ func smallestFitting(p *aiv1alpha1.ModelServer, n int) []string {
 	return out
 }
 
-// runRecipe measures each target in turn and records the outcome: Calibrated, or
-// Waiting when crew calls took the server or the server is stopping (with the
-// results so far), or Failed when no model could be measured. A bus that is not
-// ready (NATS unreachable, a scheduler bucket not created yet) is Waiting with the
-// reason WaitingForBus, never Failed: nothing was learned about the models.
+// runRecipe measures each target in turn, each on its own: one model's failure never
+// stops the others. It records a result per model (Measured, Skipped as not
+// applicable, or Failed with its reason) and the outcome: Calibrated when every model
+// that chats was measured, Failed when one genuinely could not be, or Waiting when
+// crew calls took the server, the server is stopping, or the bus is not ready (NATS
+// unreachable, a scheduler bucket not created yet; reason WaitingForBus, never
+// Failed: nothing was learned about the models), with the results so far.
 func (s *Set) runRecipe(ctx context.Context, server string, targets []string) {
 	var results []aiv1alpha1.ModelCalibration
-	var failures []string
 	for _, model := range targets {
-		if ctx.Err() != nil {
-			s.finishRecipe(ctx, server, PhaseWaiting, "", interruptedMessage, results)
-			return
-		}
-		result, err := s.measure(ctx, server, model)
-		if err != nil && ctx.Err() != nil {
-			s.finishRecipe(ctx, server, PhaseWaiting, "", interruptedMessage, results)
-			return
-		}
-		if errors.Is(err, errBusy) {
-			s.finishRecipe(ctx, server, PhaseWaiting, "", "paused: crew calls are using the server", results)
-			return
-		}
-		if errors.Is(err, bus.ErrNotReady) {
-			s.finishRecipe(ctx, server, PhaseWaiting, aiv1alpha1.CalibrationReasonWaitingForBus,
-				busNotReadyMessage(err), results)
+		result, err := s.measureUnlessStopped(ctx, server, model)
+		if reason, message, paused := pauseOf(ctx, err); paused {
+			s.finishRecipe(ctx, server, PhaseWaiting, reason, message, results)
 			return
 		}
 		if err != nil {
-			failures = append(failures, fmt.Sprintf("%s: %v", model, err))
-			continue
+			result = aiv1alpha1.ModelCalibration{Model: model, Fits: true,
+				Status: aiv1alpha1.ModelCalibrationFailed, Reason: err.Error()}
 		}
 		results = append(results, result)
 	}
-	if len(results) == 0 {
-		s.finishRecipe(ctx, server, PhaseFailed, "", "no model could be measured: "+strings.Join(failures, "; "), nil)
-		return
+	phase, message := concludeRecipe(results)
+	s.finishRecipe(ctx, server, phase, "", message, results)
+}
+
+// measureUnlessStopped measures the model, or reports the stop when the server is
+// already stopping.
+func (s *Set) measureUnlessStopped(ctx context.Context, server, model string) (aiv1alpha1.ModelCalibration, error) {
+	if err := ctx.Err(); err != nil {
+		return aiv1alpha1.ModelCalibration{}, err
 	}
-	message := fmt.Sprintf("measured %d of %d models", len(results), len(targets))
-	if len(failures) > 0 {
-		message += "; not measured: " + strings.Join(failures, "; ")
+	return s.measure(ctx, server, model)
+}
+
+// pauseOf says whether a run must pause (as Waiting) instead of going on, with the
+// wait reason and message: the server is stopping, crew calls hold the server, or
+// the bus is not ready.
+func pauseOf(ctx context.Context, err error) (reason, message string, paused bool) {
+	switch {
+	case err != nil && ctx.Err() != nil:
+		return "", interruptedMessage, true
+	case errors.Is(err, errBusy):
+		return "", "paused: crew calls are using the server", true
+	case errors.Is(err, bus.ErrNotReady):
+		return aiv1alpha1.CalibrationReasonWaitingForBus, busNotReadyMessage(err), true
 	}
-	s.finishRecipe(ctx, server, PhaseCalibrated, "", message, results)
+	return "", "", false
+}
+
+// concludeRecipe is the phase and message of a finished run from its per-model
+// results: Failed when any model that chats could not be measured, else Calibrated
+// (also when every model was skipped and there was nothing to measure).
+func concludeRecipe(results []aiv1alpha1.ModelCalibration) (phase, message string) {
+	var measured int
+	var failed, skipped []string
+	for _, r := range results {
+		switch r.Status {
+		case aiv1alpha1.ModelCalibrationFailed:
+			failed = append(failed, r.Model+": "+r.Reason)
+		case aiv1alpha1.ModelCalibrationSkipped:
+			skipped = append(skipped, r.Model)
+		default:
+			measured++
+		}
+	}
+	note := ""
+	if len(skipped) > 0 {
+		note = "; skipped, not applicable: " + strings.Join(skipped, ", ")
+	}
+	if len(failed) > 0 {
+		return PhaseFailed, fmt.Sprintf("could not measure %d of %d models that chat (%d measured): %s%s",
+			len(failed), len(failed)+measured, measured, strings.Join(failed, "; "), note)
+	}
+	if measured == 0 {
+		return PhaseCalibrated, "no model that chats to measure" + note
+	}
+	return PhaseCalibrated, fmt.Sprintf("measured %d of %d models that chat%s", measured, measured, note)
 }
 
 // finishRecipe records how a run ended. It is written even while the server stops,
@@ -294,12 +336,28 @@ func (s *Set) measure(ctx context.Context, server, model string) (aiv1alpha1.Mod
 	if err != nil {
 		return aiv1alpha1.ModelCalibration{}, err
 	}
+	only, checkErr := s.Prober.EmbeddingOnly(ctx, requestFor(p, model, probe.KindLoad))
+	if checkErr == nil && only {
+		return aiv1alpha1.ModelCalibration{Model: model, Fits: true, Status: aiv1alpha1.ModelCalibrationSkipped,
+			Reason: embeddingSkipReason}, nil
+	}
+	result, err := s.measureChat(ctx, p, model)
+	if err != nil && checkErr != nil {
+		err = fmt.Errorf("%w (could not check whether it is an embedding model: %v)", err, checkErr)
+	}
+	return result, err
+}
+
+// measureChat runs the recipe on a model that is taken to chat.
+func (s *Set) measureChat(ctx context.Context, p *aiv1alpha1.ModelServer,
+	model string) (aiv1alpha1.ModelCalibration, error) {
 	run := func(kind string) (probe.Result, error) { return s.probeOnce(ctx, p, model, kind) }
 	load, err := run(probe.KindLoad)
 	if err != nil {
 		return aiv1alpha1.ModelCalibration{}, err
 	}
-	result := aiv1alpha1.ModelCalibration{Model: model, Fits: load.Fits, Reason: load.Reason, LoadMs: load.LoadMs}
+	result := aiv1alpha1.ModelCalibration{Model: model, Fits: load.Fits, Reason: load.Reason, LoadMs: load.LoadMs,
+		Status: aiv1alpha1.ModelCalibrationMeasured}
 	if !load.Fits {
 		return result, nil
 	}
@@ -317,6 +375,10 @@ func (s *Set) measure(ctx context.Context, server, model string) (aiv1alpha1.Mod
 	}
 	return result, nil
 }
+
+// embeddingSkipReason is why calibration skips an embedding model: it cannot be asked
+// to generate, so there is no generation speed to measure and nothing is wrong.
+const embeddingSkipReason = "embedding model: generation speed does not apply"
 
 // interruptedMessage explains a run the server stopped before it ended.
 const interruptedMessage = "interrupted: the calibration server stopped; it resumes when the server is idle"

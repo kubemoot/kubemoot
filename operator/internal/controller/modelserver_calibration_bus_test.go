@@ -14,6 +14,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -112,22 +113,24 @@ func TestRequestCalibration_resumesWhenNATSComesBack(t *testing.T) {
 	}
 }
 
-// A Failed calibration is retried when it failed on the bus, and stays Failed when
-// the models could not be measured.
-func TestShouldAsk_distinguishesABusFailureFromAMeasurementFailure(t *testing.T) {
+// A Failed calibration with no per-model results stopped before it learned anything
+// about the models and is asked again; one with results stays Failed.
+func TestShouldAsk_retriesAFailureWithoutResults_notOneWithResults(t *testing.T) {
 	asked := metav1.NewTime(time.Now().Add(-time.Hour))
 	failedAt := metav1.NewTime(time.Now().Add(-30 * time.Minute))
 	cases := []struct {
-		name, message string
-		want          bool
+		name    string
+		message string
+		models  []aiv1alpha1.ModelCalibration
+		want    bool
 	}{
-		{"the bucket did not exist", "no model could be measured: qwen3:8b: reading tickets: nats: stream not found", true},
-		{"NATS was unreachable", "no model could be measured: qwen3:8b: reading tickets: nats: timeout", true},
-		{"the engine failed", "no model could be measured: qwen3:8b: engine returned 500", false},
-		{"the model does not fit", "no model could be measured: qwen3:8b: out of memory", false},
+		{"stopped at the first model, nothing recorded", legacyFailureSummary + calEmbedModel + ": status 400", nil, true},
+		{"nothing recorded, another kind of message", "something else", nil, false},
+		{"a chat model failed with its reason recorded", legacyFailureSummary + "x", []aiv1alpha1.ModelCalibration{failedModel()}, false},
 	}
 	for _, c := range cases {
-		p := calServer(&aiv1alpha1.ServerCalibration{Phase: calibrationPhaseFailed, UpdatedAt: &failedAt, Message: c.message}, "")
+		p := calServer(&aiv1alpha1.ServerCalibration{Phase: calibrationPhaseFailed, UpdatedAt: &failedAt,
+			Message: c.message, Models: c.models}, "")
 		p.Status.CalibrationRequest = &aiv1alpha1.CalibrationRequest{Key: needKeyNew, RequestedAt: asked}
 		got, err := shouldAsk(p, calibrationNeed{Key: needKeyNew}, func() (bool, error) { return true, nil })
 		if err != nil || got != c.want {
@@ -136,30 +139,21 @@ func TestShouldAsk_distinguishesABusFailureFromAMeasurementFailure(t *testing.T)
 	}
 }
 
-// A calibration that Failed with a NATS error is asked again by itself, once.
-func TestRequestCalibration_recoversAFailureCausedByTheBus(t *testing.T) {
+// The retry waits for the server to be idle and for the bus.
+func TestRequestCalibration_recoversAFailureWithoutResults(t *testing.T) {
 	asked := metav1.NewTime(time.Now().Add(-time.Hour))
 	failedAt := metav1.NewTime(time.Now().Add(-30 * time.Minute))
 	p := calServer(&aiv1alpha1.ServerCalibration{Phase: calibrationPhaseFailed, UpdatedAt: &failedAt,
-		Message: "no model could be measured: qwen3:8b: reading tickets: nats: stream not found"}, "")
+		Message: "no model could be measured: " + calEmbedModel + ": POST /api/generate: status 400"}, "")
 	p.Status.CalibrationRequest = &aiv1alpha1.CalibrationRequest{Key: needKeyNew, RequestedAt: asked}
-	cal := &busCalibrator{fakeCalibrator: fakeCalibrator{idle: true}}
+	cal := &busCalibrator{fakeCalibrator: fakeCalibrator{idle: true}, busErr: errNoBucket}
 	r := busReconciler(t, cal, p)
+	if got := r.requestCalibration(context.Background(), p); got == nil || len(cal.started) != 0 {
+		t.Fatalf("started with the bus down: %v %v", got, cal.started)
+	}
+	cal.busErr = nil
 	if got := r.requestCalibration(context.Background(), p); got != nil || len(cal.started) != 1 {
 		t.Errorf("did not recalibrate: cause %v, started %v", got, cal.started)
-	}
-}
-
-func TestRequestCalibration_aMeasurementFailureStaysFailed(t *testing.T) {
-	asked := metav1.NewTime(time.Now().Add(-time.Hour))
-	failedAt := metav1.NewTime(time.Now().Add(-30 * time.Minute))
-	p := calServer(&aiv1alpha1.ServerCalibration{Phase: calibrationPhaseFailed, UpdatedAt: &failedAt,
-		Message: "no model could be measured: qwen3:8b: engine returned 500"}, "")
-	p.Status.CalibrationRequest = &aiv1alpha1.CalibrationRequest{Key: needKeyNew, RequestedAt: asked}
-	cal := &busCalibrator{fakeCalibrator: fakeCalibrator{idle: true}}
-	r := busReconciler(t, cal, p)
-	if got := r.requestCalibration(context.Background(), p); got != nil || len(cal.started) != 0 {
-		t.Errorf("a measurement failure was retried: cause %v, started %v", got, cal.started)
 	}
 }
 
@@ -187,29 +181,6 @@ func TestMCPCalibrator_unreachableNATSIsNotReady(t *testing.T) {
 	}
 	if err := (MCPCalibrator{}).BusReady(); err != nil {
 		t.Errorf("BusReady without NATS configured: %v", err)
-	}
-}
-
-// The retry of a bus failure is once per request: a second Failed under the retry
-// mark stays Failed, so it cannot loop.
-func TestRequestCalibration_aBusFailureIsRetriedOnlyOnce(t *testing.T) {
-	asked := metav1.NewTime(time.Now().Add(-time.Hour))
-	failedAt := metav1.NewTime(time.Now().Add(-30 * time.Minute))
-	p := calServer(&aiv1alpha1.ServerCalibration{Phase: calibrationPhaseFailed, UpdatedAt: &failedAt,
-		Message: "no model could be measured: qwen3:8b: nats: timeout"}, "")
-	p.Status.CalibrationRequest = &aiv1alpha1.CalibrationRequest{Key: needKeyNew, RequestedAt: asked}
-	cal := &busCalibrator{fakeCalibrator: fakeCalibrator{idle: true}}
-	r := busReconciler(t, cal, p)
-	r.requestCalibration(context.Background(), p)
-	if len(cal.started) != 1 || !strings.HasSuffix(p.Status.CalibrationRequest.Reason, busRetryNote) {
-		t.Fatalf("first retry: %v %+v", cal.started, p.Status.CalibrationRequest)
-	}
-	failedAgain := metav1.NewTime(time.Now().Add(time.Minute))
-	p.Status.Calibration = &aiv1alpha1.ServerCalibration{Phase: calibrationPhaseFailed, UpdatedAt: &failedAgain,
-		Message: "no model could be measured: qwen3:8b: nats: timeout"}
-	r.requestCalibration(context.Background(), p)
-	if len(cal.started) != 1 {
-		t.Errorf("retried a second time: %v", cal.started)
 	}
 }
 
@@ -292,5 +263,40 @@ func TestUpdateStatus_derivesTheCalibratedCondition(t *testing.T) {
 	c := calibratedCondition(known)
 	if c == nil || c.Status != metav1.ConditionTrue || c.Reason != reasonRecalibrationWaitingForBus {
 		t.Errorf("a calibrated server waiting for the bus: %+v", c)
+	}
+}
+
+// The retry of a Failed run with no results happens once per request: a second such
+// failure under the mark stays Failed, so it cannot loop.
+func TestRequestCalibration_aFailureWithoutResultsIsRetriedOnlyOnce(t *testing.T) {
+	asked := metav1.NewTime(time.Now().Add(-time.Hour))
+	failedAt := metav1.NewTime(time.Now().Add(-30 * time.Minute))
+	summary := legacyFailureSummary + calEmbedModel + ": status 400"
+	p := calServer(&aiv1alpha1.ServerCalibration{Phase: calibrationPhaseFailed, UpdatedAt: &failedAt, Message: summary}, "")
+	p.Status.CalibrationRequest = &aiv1alpha1.CalibrationRequest{Key: needKeyNew, RequestedAt: asked}
+	cal := &busCalibrator{fakeCalibrator: fakeCalibrator{idle: true}}
+	r := busReconciler(t, cal, p)
+	r.requestCalibration(context.Background(), p)
+	if len(cal.started) != 1 || !strings.HasSuffix(p.Status.CalibrationRequest.Reason, retryNote) {
+		t.Fatalf("first retry: %v %+v", cal.started, p.Status.CalibrationRequest)
+	}
+	failedAgain := metav1.NewTime(time.Now().Add(time.Minute))
+	p.Status.Calibration = &aiv1alpha1.ServerCalibration{Phase: calibrationPhaseFailed, UpdatedAt: &failedAgain, Message: summary}
+	r.requestCalibration(context.Background(), p)
+	if len(cal.started) != 1 {
+		t.Errorf("retried a second time: %v", cal.started)
+	}
+}
+
+// The operator expects the models the calibration server measures: those on disk.
+func TestDownloadedOnly(t *testing.T) {
+	p := calServer(nil, "")
+	names := []string{calChatModel, calEmbedModel}
+	if got := downloadedOnly(p, names); !slices.Equal(got, names) {
+		t.Errorf("a server that reported no models changed the list: %v", got)
+	}
+	p.Status.Capacity = &aiv1alpha1.DiscoveredCapacity{AvailableModels: []aiv1alpha1.AvailableModel{{Name: calChatModel}}}
+	if got := downloadedOnly(p, names); !slices.Equal(got, []string{calChatModel}) {
+		t.Errorf("a model not on disk was kept: %v", got)
 	}
 }

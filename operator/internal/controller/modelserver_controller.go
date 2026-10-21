@@ -949,7 +949,7 @@ func modelSpeeds(cal *aiv1alpha1.ServerCalibration, observed []perf.Observation)
 	}
 	out := map[string]ModelSpeed{}
 	for _, m := range cal.Models {
-		if !m.Fits || m.GenerateTokensPerSecond <= 0 {
+		if !m.Fits || !m.HasSpeeds() || m.GenerateTokensPerSecond <= 0 {
 			continue
 		}
 		speed := ModelSpeed{LoadMs: m.LoadMs, PromptTokensPerSecond: m.PromptTokensPerSecond,

@@ -57,9 +57,9 @@ const (
 	calibrationTool = "calibrate_server"
 	// calibrationCallTimeout bounds one request; the tool returns as soon as the job starts.
 	calibrationCallTimeout = 30 * time.Second
-	// busRetryNote ends the reason of a request made again after a Failed run whose
-	// message was a NATS error.
-	busRetryNote = " (asked again after a failure on the bus)"
+	// retryNote ends the reason of a request made again after a Failed run that
+	// recorded no result for any model; the request is made again only once.
+	retryNote = " (asked again after a failure with no results)"
 	// calibrationRetry is how often a server whose calibration waits for the bus is
 	// looked at again. The wait ends when the bus is ready; this only sets how soon
 	// the next look happens, since nothing signals a bucket appearing.
@@ -105,7 +105,17 @@ func pendingReset(p *aiv1alpha1.ModelServer) string {
 
 // neverCalibrated reports a server with no calibration results and none completed.
 func neverCalibrated(cal *aiv1alpha1.ServerCalibration) bool {
-	return cal == nil || (len(cal.Models) == 0 && cal.CompletedAt == nil)
+	return cal == nil || (!anyResolved(cal.Models) && cal.CompletedAt == nil)
+}
+
+// anyResolved reports whether any model has an answer (measured or skipped).
+func anyResolved(models []aiv1alpha1.ModelCalibration) bool {
+	for _, m := range models {
+		if m.Resolved() {
+			return true
+		}
+	}
+	return false
 }
 
 func engineVersion(p *aiv1alpha1.ModelServer) string {
@@ -119,7 +129,7 @@ func engineVersion(p *aiv1alpha1.ModelServer) string {
 func uncalibrated(cal *aiv1alpha1.ServerCalibration, bound []string) []string {
 	measured := map[string]bool{}
 	for _, m := range cal.Models {
-		measured[m.Model] = true
+		measured[m.Model] = m.Resolved()
 	}
 	var missing []string
 	for _, m := range bound {
@@ -149,7 +159,7 @@ func shouldAsk(p *aiv1alpha1.ModelServer, need calibrationNeed, idle func() (boo
 	if recoveredSinceFailure(p, req.RequestedAt) {
 		return true, nil
 	}
-	if failedOnTheBus(p.Status.Calibration, req) {
+	if failedWithoutResults(p.Status.Calibration, req) {
 		return idle()
 	}
 	if !pausedSince(p.Status.Calibration, req.RequestedAt) {
@@ -169,18 +179,23 @@ func recoveredSinceFailure(p *aiv1alpha1.ModelServer, requested metav1.Time) boo
 	return p.Status.Ready && ready != nil && ready.LastTransitionTime.After(cal.UpdatedAt.Time)
 }
 
-// failedOnTheBus reports a calibration that Failed after the request because of the
-// bus, not the models: its message carries a NATS client error, which all start
-// with "nats: " (for example "nats: stream not found" when a scheduler bucket did not
-// exist yet). That says nothing about whether the models can be measured, so it is
-// asked again once the bus is ready and the server idle. A Failed calibration with
-// any other message stays Failed until the server, its models, or the reset
-// annotation change. The retry happens once per request: the request it starts is
-// marked busRetryNote, and a second Failed under that mark stays Failed.
-func failedOnTheBus(cal *aiv1alpha1.ServerCalibration, req *aiv1alpha1.CalibrationRequest) bool {
+// legacyFailureSummary starts the message of a Failed run that recorded no result for
+// any model: the one-line summary written when the recipe gave up after the first
+// failure (a NATS error, or an embedding model it could not generate with).
+const legacyFailureSummary = "no model could be measured: "
+
+// failedWithoutResults reports a calibration that Failed after the request with that
+// summary and no per-model results. The recipe now records a result for every model it
+// tries (measured, skipped, or failed with its reason), so such a record stopped before
+// it learned about the models and says nothing about whether they can be measured: it
+// is asked again once the server is idle. A Failed run with results stays Failed until
+// the server, its models, or the reset annotation change, or the server becomes ready
+// again after the failure. The retry happens once per request: the request it makes is
+// marked retryNote, and a second such failure under that mark stays Failed.
+func failedWithoutResults(cal *aiv1alpha1.ServerCalibration, req *aiv1alpha1.CalibrationRequest) bool {
 	return cal != nil && cal.Phase == calibrationPhaseFailed && cal.UpdatedAt != nil &&
-		cal.UpdatedAt.After(req.RequestedAt.Time) && strings.Contains(cal.Message, "nats: ") &&
-		!strings.HasSuffix(req.Reason, busRetryNote)
+		cal.UpdatedAt.After(req.RequestedAt.Time) && len(cal.Models) == 0 &&
+		strings.HasPrefix(cal.Message, legacyFailureSummary) && !strings.HasSuffix(req.Reason, retryNote)
 }
 
 // pausedSince reports whether the calibration was recorded as Waiting after the
@@ -241,7 +256,7 @@ func (r *ModelServerReconciler) decideCalibration(ctx context.Context, p *aiv1al
 		log.Info("could not list Models bound to the server", "server", p.Name, "err", err)
 		return nil
 	}
-	need := needOf(p, bound)
+	need := needOf(p, downloadedOnly(p, bound))
 	ask, err := shouldAsk(p, need, func() (bool, error) { return r.Calibration.Idle(p.Name) })
 	if errors.Is(err, bus.ErrNotReady) {
 		return &busWait{err}
@@ -258,8 +273,8 @@ func (r *ModelServerReconciler) decideCalibration(ctx context.Context, p *aiv1al
 			return &busWait{err}
 		}
 	}
-	if req := p.Status.CalibrationRequest; req != nil && req.Key == need.Key && failedOnTheBus(p.Status.Calibration, req) {
-		need.Reason += busRetryNote
+	if req := p.Status.CalibrationRequest; req != nil && req.Key == need.Key && failedWithoutResults(p.Status.Calibration, req) {
+		need.Reason += retryNote
 	}
 	r.startCalibration(ctx, p, need)
 	return nil
@@ -337,13 +352,29 @@ func withCatalogModels(names []string, p *aiv1alpha1.ModelServer) []string {
 	for _, n := range names {
 		have[n] = true
 	}
-	for _, e := range p.Status.Models {
-		if e.Present && !have[e.Name] {
-			names = append(names, e.Name)
-			have[e.Name] = true
+	for _, name := range p.PresentCatalogModels() {
+		if !have[name] {
+			names = append(names, name)
+			have[name] = true
 		}
 	}
 	return names
+}
+
+// downloadedOnly keeps the models the server has on disk, since the calibration
+// server measures only those. A server that has reported no models leaves the list
+// as it is.
+func downloadedOnly(p *aiv1alpha1.ModelServer, names []string) []string {
+	if p.Status.Capacity == nil || len(p.Status.Capacity.AvailableModels) == 0 {
+		return names
+	}
+	var out []string
+	for _, n := range names {
+		if p.IsDownloaded(n) {
+			out = append(out, n)
+		}
+	}
+	return out
 }
 
 // MCPCalibrator starts calibrations by calling the accelerator-mcp core server's

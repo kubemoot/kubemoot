@@ -261,14 +261,24 @@ spec:
                           format: int64
                           type: integer
                         reason:
-                          description: Reason explains a model that does not fit or
-                            could not be measured
+                          description: Reason explains a model that does not fit,
+                            was skipped, or could not be measured
                           type: string
                         residentMiB:
                           description: ResidentMiB is the accelerator memory the model
                             took once loaded
                           format: int64
                           type: integer
+                        status:
+                          description: |-
+                            Status is Measured (the default when empty), Skipped (calibration does not
+                            apply to the model, such as an embedding model), or Failed (a model that
+                            chats could not be measured; Reason says why)
+                          enum:
+                          - Measured
+                          - Skipped
+                          - Failed
+                          type: string
                       required:
                       - fits
                       - model

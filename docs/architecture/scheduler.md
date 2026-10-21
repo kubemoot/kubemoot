@@ -471,7 +471,11 @@ makes decisions in it:
    `status.calibrationRequest`, so it asks once per need.
 3. The tool runs the recipe in the background, one model at a time: load, two short
    requests, a long prompt, and a parallel batch when the server runs requests
-   together. It writes the results to the server's `status.calibration`.
+   together. It writes the results to the server's `status.calibration`. Each model is
+   measured on its own and gets a result: measured, skipped as not applicable (an
+   embedding model cannot generate, so it is never sent a request), or failed with its
+   reason. One model's failure does not stop the others; the run is `Calibrated` when
+   every model that chats was measured, `Failed` when one could not be.
 4. If crew calls take the server, or the server stops mid-run, the run is recorded
    as `Waiting`; the operator starts it again once no call holds the server. A run
    that `Failed` is started again once the server has become ready after the
