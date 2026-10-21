@@ -68,6 +68,10 @@ metadata:
 spec:
   type: ollama
   endpoint: $OLLAMA_ENDPOINT
+  # The check only needs the server to become Ready; a calibration would load models
+  # on the shared endpoint and be cut short when the server is deleted below.
+  calibration:
+    enabled: false
 EOF
     log_ok "ModelServer created on $OLLAMA_ENDPOINT"
 
