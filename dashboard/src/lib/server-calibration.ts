@@ -5,6 +5,8 @@ import type { ModelCalibration, ServerCalibration } from '#lib/types/kubemoot.js
 /** One model's calibration as the server page shows it. */
 export interface CalibrationRow {
 	model: string;
+	/** Whether the model was measured, skipped as not applicable, or could not be measured. */
+	outcome: 'measured' | 'skipped' | 'failed';
 	fits: boolean;
 	/** Load time, such as "2.9 s". */
 	load: string;
@@ -21,6 +23,20 @@ export interface CalibrationRow {
 }
 
 const NONE = '-';
+
+/** The outcome a model's status stands for; an empty or unknown status is a measurement. */
+function outcomeOf(status: unknown): CalibrationRow['outcome'] {
+	if (status === 'Skipped') return 'skipped';
+	if (status === 'Failed') return 'failed';
+	return 'measured';
+}
+
+/** The reason to show: the one calibration gave, else what the outcome implies. */
+function reasonOf(m: ModelCalibration, outcome: CalibrationRow['outcome']): string {
+	if (m.reason) return m.reason;
+	if (outcome === 'failed') return 'Could not be measured';
+	return outcome === 'measured' && m.fits !== true ? 'Does not fit' : '';
+}
 
 function positive(n: unknown): n is number {
 	return typeof n === 'number' && Number.isFinite(n) && n > 0;
@@ -48,21 +64,29 @@ function parallel(m: ModelCalibration): string {
 	return `${m.parallelRequests} x ${tokensPerSecond(m.parallelGenerateTokensPerSecond)}`;
 }
 
+/** A skipped or failed model has no figures; they stay empty however the entry was filled. */
+function rowOf(m: ModelCalibration): CalibrationRow {
+	const outcome = outcomeOf(m.status);
+	const measured = outcome === 'measured';
+	return {
+		model: m.model,
+		outcome,
+		fits: m.fits === true,
+		load: measured ? loadTime(m.loadMs) : NONE,
+		generate: measured ? tokensPerSecond(m.generateTokensPerSecond) : NONE,
+		prompt: measured ? tokensPerSecond(m.promptTokensPerSecond) : NONE,
+		parallel: measured ? parallel(m) : NONE,
+		resident: measured ? memory(m.residentMiB) : NONE,
+		reason: reasonOf(m, outcome)
+	};
+}
+
 /** The rows for a calibration, sorted by model name; none when there is no calibration. */
 export function calibrationRows(cal: ServerCalibration | undefined | null): CalibrationRow[] {
 	const models = Array.isArray(cal?.models) ? cal.models : [];
 	return models
 		.filter((m) => m && typeof m.model === 'string' && m.model !== '')
-		.map((m) => ({
-			model: m.model,
-			fits: m.fits === true,
-			load: loadTime(m.loadMs),
-			generate: tokensPerSecond(m.generateTokensPerSecond),
-			prompt: tokensPerSecond(m.promptTokensPerSecond),
-			parallel: parallel(m),
-			resident: memory(m.residentMiB),
-			reason: m.reason || (m.fits === true ? '' : 'Does not fit')
-		}))
+		.map((m) => rowOf(m))
 		.sort((a, b) => a.model.localeCompare(b.model));
 }
 

@@ -147,15 +147,21 @@
 											<tr>
 												<td class="mono">
 													{row.model}
-													{#if row.fits && row.reason}<div class="model-meta">{row.reason}</div>{/if}
+													{#if row.outcome === 'measured' && row.fits && row.reason}<div class="model-meta">{row.reason}</div>{/if}
 												</td>
 												<td>{row.fits ? 'yes' : 'no'}</td>
-												<td>{row.load}</td>
-												{#if row.fits}
-													<td>{row.generate}</td><td>{row.prompt}</td>
-													<td>{row.parallel}</td><td>{row.resident}</td>
+												{#if row.outcome !== 'measured'}
+													<td colspan="5" class="model-meta">
+														<strong>{row.outcome}</strong>{row.reason ? `: ${row.reason}` : ''}
+													</td>
 												{:else}
-													<td colspan="4" class="model-meta">{row.reason}</td>
+													<td>{row.load}</td>
+													{#if row.fits}
+														<td>{row.generate}</td><td>{row.prompt}</td>
+														<td>{row.parallel}</td><td>{row.resident}</td>
+													{:else}
+														<td colspan="4" class="model-meta">{row.reason}</td>
+													{/if}
 												{/if}
 											</tr>
 										{/each}
