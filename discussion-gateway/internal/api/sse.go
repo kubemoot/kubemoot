@@ -446,7 +446,7 @@ func translateAndEmit(data bus.DiscussionMessage, emit func(SSEEvent)) {
 	case msgSynthesis:
 		emit(sseEvent(bus.StreamEventBase{Type: msgSynthesis, Content: data.Content}))
 	case msgThreadClose:
-		emit(sseEvent(bus.StreamEventBase{Type: eventDone}))
+		emit(sseEvent(doneEvent(data)))
 	case msgAdvisoryReady, msgTriageResult:
 		if e, ok := subcommitteeEvent(data); ok {
 			emit(e)
@@ -458,6 +458,16 @@ func translateAndEmit(data bus.DiscussionMessage, emit func(SSEEvent)) {
 			emit(e)
 		}
 	}
+}
+
+// doneEvent is the event for a closed thread. It carries the receipt of the closing
+// message, when there is one, exactly as the coordinator wrote it.
+func doneEvent(data bus.DiscussionMessage) bus.StreamEventBase {
+	done := bus.StreamEventBase{Type: eventDone}
+	if receipt, ok := data.Metadata[metaReceipt].(map[string]interface{}); ok && len(receipt) > 0 {
+		done.Receipt = receipt
+	}
+	return done
 }
 
 // phaseEvent maps an agent's progress signals to a phase event: waking, ready,

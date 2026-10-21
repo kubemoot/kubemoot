@@ -1,6 +1,7 @@
 package api
 
 import (
+	"encoding/json"
 	"reflect"
 	"sort"
 	"time"
@@ -21,6 +22,8 @@ const (
 	metaReason         = "reason"
 	metaInputTokens    = "inputTokens"
 	metaOutputTokens   = "outputTokens"
+	metaReceipt        = "receipt"
+	metaPlacementCalls = "placementCalls"
 )
 
 // Where a subcommittee event comes from.
@@ -44,11 +47,31 @@ func signalMetaOf(data bus.DiscussionMessage) *bus.SignalMeta {
 		FailureCount: metaInt(data, "failureCount"),
 		LastError:    metaString(data, "lastError"),
 		Artifact:     artifactRefOf(data),
+
+		PlacementCalls: placementCallsOf(data),
 	}
 	if reflect.ValueOf(m).IsZero() {
 		return nil
 	}
 	return &m
+}
+
+// placementCallsOf reads metadata.placementCalls, the model calls the scheduler placed
+// for the signal; nil when there are none or they are not in the contract's shape.
+func placementCallsOf(data bus.DiscussionMessage) []bus.PlacementCall {
+	raw, ok := data.Metadata[metaPlacementCalls].([]interface{})
+	if !ok || len(raw) == 0 {
+		return nil
+	}
+	encoded, err := json.Marshal(raw)
+	if err != nil {
+		return nil
+	}
+	var calls []bus.PlacementCall
+	if err := json.Unmarshal(encoded, &calls); err != nil {
+		return nil
+	}
+	return calls
 }
 
 // artifactRefOf reads metadata.artifact, the reference an agent adds when it spills a

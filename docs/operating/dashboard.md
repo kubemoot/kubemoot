@@ -93,6 +93,16 @@ The timeline shows the date and time once, when the thread started, and each mes
 
 `kmctl conversation` derives triage and evaluation the same way, so the two agree. A thread ends with the time it was answered and a summary of how the answer was made: total time, time to the first signal, the agents the coordinator convened and those that stood aside, each agent's latest signal by kind, agent and coordinator tokens, and the models and accelerators used. A field a message does not carry is left out rather than shown as zero, so older threads show only what they recorded.
 
+When the coordinator closes a thread, a **Placement** panel follows the summary. It lists every model call the scheduler placed, in call order, and shows what the scheduler predicted against what the call measured. A line above the rows gives the number of calls, how many each policy placed, and the mean absolute error of the predicted totals. Each row shows:
+
+- the agent (or the coordinator), the phase of the thread the call belonged to, and the model and accelerator it ran on as `model@server`
+- the policy that placed it as a badge: **learned** (the scheduler's learned history), **algorithm** (the built-in rules), or **shadow** (the algorithm placed it while the learned policy only recorded what it would have chosen)
+- a **cold start** badge when the model had to be loaded, and the reason the scheduler gave
+- the predicted and measured total time, with the signed error and the relative error; a positive error means the call took longer than predicted. When the call measured a time to first token, that is compared the same way
+- "no prediction" for a call the scheduler made no prediction for, such as a shadow call
+
+Select **alternatives considered** on a row to see the other placements the scheduler weighed, each with its predicted total split into waiting, loading, reading the prompt and generating, and whether it was warm and could start at once. A thread whose receipt carries no placement calls shows no panel.
+
 ### Messages
 
 A general NATS subject explorer. Subscribe to any subject pattern (for example `kubemoot.chat.>` or `kubemoot.operator.>`), watch JSON payloads as they arrive, and publish to arbitrary subjects. It is useful for debugging agent communication and operator events.
