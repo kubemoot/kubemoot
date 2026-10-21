@@ -70,6 +70,10 @@ metrics:
       release: kube-prometheus-stack
 ```
 
+The agents' PodMonitor adds a `crew` and an `agent` label to every series, from the
+pod's `kubemoot.ai/crew` and `kubemoot.ai/agent` labels; the `namespace` label comes
+from the scrape.
+
 For the operator's HTTPS endpoint the chart also creates a metrics reader: a
 ServiceAccount allowed to read `/metrics` only, whose token the operator's PodMonitor
 presents. The operator serves its metrics with a self-signed certificate, so that
@@ -89,8 +93,9 @@ Kubemoot ships three dashboards, in a `Kubemoot` folder by default:
 - **Kubemoot Scheduler**: where agents' model calls run (by server, model, and kind), cold starts, waits for capacity, generation speed, the placement policy (and, in shadow mode, how often the learned policy agrees), and each server's calibration, speeds, and drift.
 
 They are agnostic of any one cluster: every panel picks its Prometheus through a
-data source variable, and namespaces and servers are variables filled from the
-metrics, so nothing names a cluster, server, or model. Install them the way your
+data source variable, and namespaces, crews, and servers are variables filled from
+the metrics, so nothing names a cluster, crew, server, or model. The Overview and
+Discussions dashboards filter their agent panels by crew. Install them the way your
 Grafana loads dashboards:
 
 | Your Grafana | How |

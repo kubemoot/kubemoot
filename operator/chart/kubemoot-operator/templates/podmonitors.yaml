@@ -31,6 +31,13 @@ spec:
       {{- with .Values.metrics.podMonitor.interval }}
       interval: {{ . }}
       {{- end }}
+      # Every series carries the crew and the agent that produced it, so a dashboard
+      # can filter by crew.
+      relabelings:
+        - sourceLabels: [__meta_kubernetes_pod_label_kubemoot_ai_crew]
+          targetLabel: crew
+        - sourceLabels: [__meta_kubernetes_pod_label_kubemoot_ai_agent]
+          targetLabel: agent
 ---
 apiVersion: monitoring.coreos.com/v1
 kind: PodMonitor
