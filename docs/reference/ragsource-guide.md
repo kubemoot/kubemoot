@@ -160,6 +160,14 @@ small controller, makes `RAGSource.spec.embeddingModelRef` type-safe (a RAGSourc
 point at a chat model), and lets you change the embedding model, and re-index, independently
 of inference models. See [Models](../models/).
 
+**An EmbeddingModel names the model, not the server.** Stored vectors match only the
+model that made them, so the EmbeddingModel pins the model (and its dimensions). Leave
+`serverRef` out and the operator binds it to a ModelServer that has the model; the
+indexer Job and the query service take the bound server's endpoint from the
+EmbeddingModel's `status.endpoint`. When the cluster owner moves the embedding model to
+another server, the EmbeddingModel re-binds, the RAGSource's query service gets the new
+endpoint, and no crew changes. The vectors stay valid because the model is the same.
+
 ## Source Types
 
 ### Git (`type: git`)

@@ -135,6 +135,7 @@ func factsFromOllama(t ollama.ModelInfo, info ollama.ShowInfo, haveShow bool) ca
 		f.ContextLength = info.ContextLength
 		f.Capabilities = info.Capabilities
 		f.Embedding = info.Embedding
+		f.EmbeddingDimensions = info.EmbeddingLength
 		f.ParameterCount = info.ParameterCount
 		if f.ParameterCount == 0 {
 			f.ParameterCount, _ = aiv1alpha1.ParseParameterCount(info.ParameterSize)
@@ -230,6 +231,7 @@ func (r *ModelServerReconciler) publishCatalog(ctx context.Context, server *aiv1
 		return
 	}
 	server.Status.Models = buildCatalog(server, facts, catalogModels(server, all.Items))
+	server.Status.EmbeddingModels = buildEmbeddingCatalog(facts)
 	setCatalogSizeCondition(server)
 }
 

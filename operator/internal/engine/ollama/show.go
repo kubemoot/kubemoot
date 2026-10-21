@@ -20,6 +20,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"math"
 	"net/http"
 
 	aiv1alpha1 "github.com/kubemoot/kubemoot/operator/api/v1alpha1"
@@ -51,6 +52,9 @@ type ShowInfo struct {
 	Family string
 	// ContextLength is <architecture>.context_length from model_info, 0 when absent.
 	ContextLength int
+	// EmbeddingLength is <architecture>.embedding_length from model_info: the
+	// vector size of an embedding model, 0 when absent.
+	EmbeddingLength int32
 	// Capabilities are the abilities in Kubemoot's names (tool-calling,
 	// reasoning, vision), sorted as the engine lists them.
 	Capabilities []string
@@ -105,6 +109,7 @@ func showInfoOf(r showResponse) ShowInfo {
 	}
 	if arch, ok := r.ModelInfo["general.architecture"].(string); ok && arch != "" {
 		info.ContextLength = int(int64Of(r.ModelInfo[arch+".context_length"]))
+		info.EmbeddingLength = int32(max(0, min(int64Of(r.ModelInfo[arch+".embedding_length"]), math.MaxInt32)))
 	}
 	info.Capabilities, info.Embedding = abilitiesOf(r.Capabilities)
 	return info

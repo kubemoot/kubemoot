@@ -109,3 +109,15 @@ func TestInt64OfRejectsNonNumbers(t *testing.T) {
 		t.Errorf("int64Of(41) = %d", got)
 	}
 }
+
+func TestShowReadsTheEmbeddingLength(t *testing.T) {
+	srv := showServer(t, http.StatusOK, `{"model_info":{"general.architecture":"bert","bert.embedding_length":1024},"capabilities":["embedding"]}`, nil)
+	info, err := Show(context.Background(), srv.Client(), srv.URL, "m")
+	if err != nil || info.EmbeddingLength != 1024 || !info.Embedding {
+		t.Errorf("info = %+v err = %v, want embedding length 1024", info, err)
+	}
+	none := showServer(t, http.StatusOK, `{"model_info":{"general.architecture":"bert"}}`, nil)
+	if info, err := Show(context.Background(), none.Client(), none.URL, "m"); err != nil || info.EmbeddingLength != 0 {
+		t.Errorf("info = %+v err = %v, want no embedding length when absent", info, err)
+	}
+}

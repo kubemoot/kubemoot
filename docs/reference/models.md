@@ -346,7 +346,8 @@ size: the server's `CatalogSizeKnown` condition is `False` and names the models,
 no size score to `qualityBias`, and a rule that requires a size excludes it. Declare
 `spec.parameters` on a Model to fix it. An Ollama server too old to list `capabilities` on
 `/api/show` cannot say that an embedding-only model is one; keep such a model out with a
-Model that sets `disabled: true`.
+Model that sets `disabled: true`. Embedding-only models are never catalog entries; they are
+listed in `status.embeddingModels` for [EmbeddingModel](#embeddingmodel) binding.
 
 Where each fact comes from:
 
@@ -580,9 +581,9 @@ Declares an embedding model for RAGSource indexing. Not consumed by chat agents;
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `serverRef` | string | (required) | Name of the ModelServer CR |
-| `model` | string | (required) | Model name (e.g., `nomic-embed-text`, `text-embedding-3-small`) |
-| `dimensions` | int32 | 768 | Vector dimension size |
+| `model` | string | (required) | Model name (e.g., `nomic-embed-text`). A crew names the model, never the server: stored vectors match only the model that made them. |
+| `dimensions` | int32 | 768 | Vector dimension size. A server that reports a different size for the model is not bound. |
+| `serverRef` | string | (none) | Name of the ModelServer CR to pin the model to. Leave it out and the cluster's catalog supplies a server (see Binding below). |
 | `batchSize` | int32 | 32 | Max texts per embedding request |
 
 ### Status
@@ -592,8 +593,38 @@ Declares an embedding model for RAGSource indexing. Not consumed by chat agents;
 | `state` | `Pending`, `Pulling`, `Available`, `Error` |
 | `pull` | While `Pulling`: `completedBytes`, `totalBytes` and `percent` of the download, as on a Model. Cleared when the model is on the server. |
 | `ready` | Model ready for embedding |
-| `endpoint` | Embedding API endpoint (from server) |
+| `boundServer` | The ModelServer that serves the model: `spec.serverRef` when set, otherwise the server the operator bound it to. Empty while none has it. |
+| `endpoint` | Embedding API endpoint (from the bound server). RAGSource indexers, query services and the MCP gateway tool index read this, not the spec. |
+| `conditions` | `Ready`, and `Bound`: `True` with the server named, or `False` with reason `NoServer` naming the model and what the cluster owner can add |
 | `modelInfo` | Dimensions, max input tokens, family |
+
+### Binding
+
+An EmbeddingModel with no `serverRef` binds to a ready `ollama` ModelServer whose
+`status.embeddingModels` lists its model. Ollama reports the `embedding` capability from
+`/api/show`; the operator keeps those models out of `status.models` (the chat catalog that
+scheduling rules match) and lists them, with the vector size the engine reports, in
+`status.embeddingModels`. When several servers qualify, the operator chooses in this order:
+
+1. a server that has the model now, before one that is only declared to hold it;
+2. the server the model is already bound to, so a second server does not move it;
+3. namespace, then name, so the choice does not depend on list order.
+
+A server that reports a vector size other than `spec.dimensions` is skipped, and the
+`NoServer` message names it. The model name stays in the crew because the same model on
+any server makes the same vectors; switching the embedding server is a change to the
+cluster (add the model to another ModelServer, remove it from the old one), never to the
+crew. The EmbeddingModel re-binds when the bound server is removed, is not ready, or stops
+listing the model, and the new endpoint reaches RAGSources (their query services and the
+next indexing job) through `status.endpoint`.
+
+If no server has the model, the `Bound` condition is `False` with reason `NoServer` and
+says which model is missing. A model is downloaded only where the cluster owner asked for
+it: a Model object (`kmctl model add`) in a ModelServer's namespace that names the model on
+that server is the same request it is for a chat model, and the operator pulls it there and
+binds to it. Without one, the condition tells the owner to pull the model onto a server or
+add that Model. With `serverRef` set nothing changes: the model is looked up on that
+server and downloaded there when missing, as for a crew-local Model.
 
 An embedding model the server does not list is downloaded in the background on the
 same pull a Model uses, so the reconcile returns at once, a Model and an EmbeddingModel
@@ -601,6 +632,18 @@ with the same tag on the same server share one download, and deleting the last o
 wants the tag cancels it.
 
 ### Example
+
+```yaml
+apiVersion: kubemoot.ai/v1alpha1
+kind: EmbeddingModel
+metadata:
+  name: nomic-embed
+spec:
+  model: nomic-embed-text
+  dimensions: 768
+```
+
+Pinned to one server (crew-local, like a crew's own Models):
 
 ```yaml
 apiVersion: kubemoot.ai/v1alpha1

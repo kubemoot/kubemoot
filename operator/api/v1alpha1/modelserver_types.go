@@ -263,6 +263,15 @@ type ModelServerStatus struct {
 	// +listMapKey=name
 	Models []CatalogModel `json:"models,omitempty"`
 
+	// EmbeddingModels are the embedding-only models the server has downloaded,
+	// as its engine reports them (Ollama lists the embedding capability in
+	// /api/show). An EmbeddingModel without a serverRef binds to a ready server
+	// that lists its model here.
+	// +optional
+	// +listType=map
+	// +listMapKey=name
+	EmbeddingModels []EmbeddingCatalogModel `json:"embeddingModels,omitempty"`
+
 	// Calibration is what calibration measured on this server: per model, how
 	// long it takes to load, how fast it processes prompts and generates, and
 	// whether it fits the accelerator. It is recorded through the accelerator-mcp

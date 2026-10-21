@@ -41,7 +41,7 @@
 			</div>
 			<div class="row">
 				<span class="label">Server</span>
-				<span class="value">{model.spec.serverRef}</span>
+				<span class="value">{model.status?.boundServer || model.spec.serverRef || 'none yet'}</span>
 			</div>
 			{#if model.status?.modelInfo?.dimensions || model.spec.dimensions}
 				<div class="row">

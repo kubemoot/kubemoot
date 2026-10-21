@@ -70,13 +70,14 @@
 			<div class="sections">
 				<Section title="Spec">
 					<InfoRow label="Model ID" value={model.spec.model} mono />
-					<InfoRow label="Server Ref" value={model.spec.serverRef} />
+					<InfoRow label="Server Ref" value={model.spec.serverRef ?? 'from the catalog'} />
 					<InfoRow label="Vector Dimensions" value={model.spec.dimensions} />
 				</Section>
 
 				<Section title="Status">
 					<InfoRow label="Ready" value={model.status?.ready ? 'Yes' : 'No'} />
 					<InfoRow label="State" value={model.status?.state} />
+					<InfoRow label="Bound Server" value={model.status?.boundServer} />
 					<InfoRow label="Endpoint" value={model.status?.endpoint} mono />
 					<InfoRow label="Message" value={model.status?.message} />
 				</Section>

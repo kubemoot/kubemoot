@@ -1,5 +1,6 @@
 # EmbeddingModel example using nomic-embed-text
-# Requires: ModelServer pointing to Ollama
+# Requires: a ModelServer pointing to Ollama that has nomic-embed-text, or a Model
+# (kmctl model add) that asks for it on one
 #
 # Usage:
 #   kubectl apply -f embeddingmodel-nomic.yaml
@@ -12,8 +13,10 @@ metadata:
   name: nomic-embed
   namespace: kubemoot
 spec:
-  # Reference to ModelServer for Ollama
-  serverRef: ollama-local
+  # serverRef is optional. Leave it out and the operator binds the model to a ready
+  # ModelServer whose catalog lists it (status.boundServer); set it to pin the model
+  # to one ModelServer.
+  # serverRef: ollama-local
 
   # Embedding model name
   model: nomic-embed-text

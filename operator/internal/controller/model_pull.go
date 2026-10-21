@@ -345,8 +345,8 @@ func wantedPullKeys(ctx context.Context, c client.Client, self client.Object) (m
 	}
 	for i := range embeddings.Items {
 		e := &embeddings.Items[i]
-		if e.DeletionTimestamp.IsZero() && !isSameObject(self, e) {
-			wanted[pullKey(e.Spec.ServerRef, e.Spec.Model)] = true
+		if server := e.BoundServerName(); server != "" && e.DeletionTimestamp.IsZero() && !isSameObject(self, e) {
+			wanted[pullKey(server, e.Spec.Model)] = true
 		}
 	}
 	return wanted, nil
