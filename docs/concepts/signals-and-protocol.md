@@ -40,7 +40,7 @@ queued. A signal names where its calls actually ran:
 | Field | Meaning |
 |---|---|
 | `metadata.modelName` | The model the last call behind the signal ran on. On `triaging`, the triage model the agent plans to use. On a signal sent before a call completed (`evaluating`, `waiting`, `failure`), the model the agent is configured with. |
-| `metadata.gpuLabel` | The server the last call ran on, or a label derived from the agent's static endpoint when no server was picked. |
+| `metadata.gpuLabel` | The server the last call ran on, or a label derived from the agent's static endpoint when no server was picked. Signals sent before a call is placed (triaging, evaluating, waiting, heartbeat) carry none, because the scheduler picks the server when the call is made. |
 | `metadata.modelsUsed` | Each distinct place the calls ran, as `model@server` in call order (the model alone for the static endpoint). |
 
 ## Stand-asides for GPU capacity

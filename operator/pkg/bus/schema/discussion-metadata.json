@@ -27,7 +27,7 @@
     },
     "gpuLabel": {
       "type": "string",
-      "description": "The accelerator the sender ran on, such as a ModelServer name; none when it ran on none."
+      "description": "The accelerator the sender ran on, such as a ModelServer name; none when it ran on none. Absent on a signal sent before the sender's call is placed (triaging, evaluating, waiting, heartbeat): the scheduler picks the server when the call is made."
     },
     "server": {
       "type": "string",
