@@ -253,6 +253,8 @@ func copyThrough(w http.ResponseWriter, resp *http.Response) usage {
 			w.Header()[k] = v
 		}
 	}
+	w.Header().Set("Content-Type", replyContentType(resp))
+	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.WriteHeader(resp.StatusCode)
 	rc := http.NewResponseController(w)
 	tap := &usageTap{}
@@ -269,6 +271,15 @@ func copyThrough(w http.ResponseWriter, resp *http.Response) usage {
 		}
 	}
 	return tap.result()
+}
+
+// replyContentType is the only two types the model door relays: a stream or JSON. A reply of any other
+// type is labelled JSON, so the door never serves an upstream body as a browser-renderable page.
+func replyContentType(resp *http.Response) string {
+	if strings.HasPrefix(strings.ToLower(resp.Header.Get("Content-Type")), "text/event-stream") {
+		return "text/event-stream"
+	}
+	return "application/json"
 }
 
 // hopByHop reports a header that describes one connection and must not be passed on, with Content-Length,

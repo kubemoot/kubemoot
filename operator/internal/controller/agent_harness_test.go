@@ -346,7 +346,7 @@ func TestReconcileRefusesAnInvalidAgentInItsStatus(t *testing.T) {
 	deps := &appsv1.DeploymentList{}
 	_ = cli.List(context.Background(), deps, client.InNamespace(testNS1))
 	harnessFacts{
-		jsonKeyPhase:  {got.Status.Phase, "Error"},
+		jsonKeyPhase:  {got.Status.Phase, phaseError},
 		"ready":       {got.Status.Ready, false},
 		"names label": {strings.Contains(got.Status.Message, labelCrew), true},
 		"deployments": {len(deps.Items), 0},

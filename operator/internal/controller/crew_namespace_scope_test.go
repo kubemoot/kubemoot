@@ -197,7 +197,7 @@ func TestReconcileRejectsCrewNameThatIsNotOneSubjectToken(t *testing.T) {
 	if err := cli.Get(context.Background(), key, got); err != nil {
 		t.Fatal(err)
 	}
-	if got.Status.Phase != "Error" {
+	if got.Status.Phase != phaseError {
 		t.Errorf("phase = %q, want Error", got.Status.Phase)
 	}
 }

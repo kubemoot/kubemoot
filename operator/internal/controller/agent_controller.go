@@ -584,8 +584,23 @@ func (r *AgentReconciler) ensureDeployment(ctx context.Context, agent *kubemootv
 	if err != nil {
 		return err
 	}
-	currentHash := existing.Annotations[deploymentHashAnnotation]
 	desiredHash := computeDeploymentHash(desired)
+	if !deploymentNeedsUpdate(existing, desired, desiredHash) {
+		return nil
+	}
+	existing.Spec = desired.Spec
+	existing.Labels = desired.Labels
+	if existing.Annotations == nil {
+		existing.Annotations = map[string]string{}
+	}
+	existing.Annotations[deploymentHashAnnotation] = desiredHash
+	syncNativeToolsAnnotation(existing, desired)
+	return r.Update(ctx, existing)
+}
+
+// deploymentNeedsUpdate reports whether the live Deployment differs from the desired one.
+func deploymentNeedsUpdate(existing, desired *appsv1.Deployment, desiredHash string) bool {
+	currentHash := existing.Annotations[deploymentHashAnnotation]
 	// Independently of the spec hash, check whether Deployment.metadata.Labels
 	// diverge from desired. The spec hash covers Spec.Template.Labels (those
 	// match the pod selector) but NOT the top-level Deployment metadata
@@ -602,17 +617,7 @@ func (r *AgentReconciler) ensureDeployment(ctx context.Context, agent *kubemootv
 	// never needlessly updated.
 	strategyChanged := desired.Spec.Strategy.Type != "" &&
 		existing.Spec.Strategy.Type != desired.Spec.Strategy.Type
-	if currentHash == desiredHash && !labelsChanged && !strategyChanged {
-		return nil
-	}
-	existing.Spec = desired.Spec
-	existing.Labels = desired.Labels
-	if existing.Annotations == nil {
-		existing.Annotations = map[string]string{}
-	}
-	existing.Annotations[deploymentHashAnnotation] = desiredHash
-	syncNativeToolsAnnotation(existing, desired)
-	return r.Update(ctx, existing)
+	return currentHash != desiredHash || labelsChanged || strategyChanged
 }
 
 // syncNativeToolsAnnotation makes the native-tools annotation follow the Agent: set in sidecar
