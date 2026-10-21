@@ -182,9 +182,68 @@ class BusContractTest {
                 ai.kubemoot.agent.modelserver.CallObservation.KIND_TOOL_TURN, true, true, 4_000, 200, 9_000,
                 unknown, unknown, unknown, 2, 1_791_000_000_000L));
         history.recordWait("ollama-gpu", MODEL, 12_000);
+        history.record(new ai.kubemoot.agent.modelserver.CallObservation("ollama-gpu", MODEL,
+                ai.kubemoot.agent.modelserver.CallObservation.KIND_SIMPLE, true, false, 4_000, 200, 9_000,
+                unknown, unknown, unknown, 2, 1_791_000_010_000L, 2_500), placedCall());
 
         assertEquals(1, bucket.data.size());
         assertConforms("scheduler-performance.json", MAPPER.readTree(bucket.data.values().iterator().next()));
+    }
+
+    /** A placed call that has run: shadow-placed, one alternative with a prediction and one without. */
+    private static ai.kubemoot.agent.modelserver.PlacedCall placedCall() {
+        var decision = new ai.kubemoot.agent.modelserver.PlacementDecision("shadow",
+                "warm, slot 1/2; learned policy would choose " + MODEL + "@ollama-cpu",
+                List.of(new ai.kubemoot.agent.modelserver.PlacementDecision.Alternative("ollama-cpu", MODEL, true, true,
+                                new ai.kubemoot.agent.modelserver.LearnedPlacement.Prediction(0, 0, 4, 60)),
+                        new ai.kubemoot.agent.modelserver.PlacementDecision.Alternative("rig", "other-model", false,
+                                false, null)),
+                new ai.kubemoot.agent.modelserver.LearnedPlacement.Prediction(0.5, 2.0, 1.0, 3.0));
+        var call = new ai.kubemoot.agent.modelserver.PlacedCall("ollama-gpu", MODEL, decision);
+        call.waited(1_200);
+        call.observe(new ai.kubemoot.agent.modelserver.CallObservation("ollama-gpu", MODEL,
+                ai.kubemoot.agent.modelserver.CallObservation.KIND_SIMPLE, true, true, 800, 120, 8_000, -1, -1, -1, 1,
+                1_791_000_000_000L, 4_000));
+        return call;
+    }
+
+    @Test
+    void aSignalCarryingPlacedCallsMatchesTheContract() throws Exception {
+        var signal = MAPPER.createObjectNode();
+        signal.put("messageId", "m");
+        signal.put("threadId", "t");
+        signal.put("agentName", "pilot-k8s");
+        signal.put("messageType", "agree");
+        signal.put("content", "ok");
+        var meta = signal.putObject("metadata");
+        meta.put("signal", "agree");
+        meta.putArray("placementCalls").add(MAPPER.valueToTree(placedCall().snapshot(true)));
+        assertConforms(MESSAGE, signal);
+    }
+
+    @Test
+    void aReceiptListingPlacedCallsMatchesTheContract() throws Exception {
+        var r = DiscussionReceiptTest.fullThread();
+        var agentSignal = MAPPER.createObjectNode();
+        agentSignal.putObject("metadata").putArray("placementCalls")
+                .add(MAPPER.valueToTree(placedCall().snapshot(true)));
+        r.observe("pve", "agree", agentSignal, Instant.parse("2026-10-16T04:03:00Z"));
+        var coordinatorCall = (com.fasterxml.jackson.databind.node.ObjectNode) MAPPER.valueToTree(
+                placedCall().snapshot(true));
+        coordinatorCall.put("agent", "homelab-coordinator");
+        coordinatorCall.put("phase", "synthesis");
+        r.recordCall(coordinatorCall);
+
+        var receipt = r.build(MAPPER, Instant.parse("2026-10-16T04:03:37Z"), 2, 11_170, 2_108);
+        assertEquals(2, receipt.path("calls").size());
+        var close = MAPPER.createObjectNode();
+        close.put("messageId", "m");
+        close.put("threadId", "t");
+        close.put("agentName", "homelab-coordinator");
+        close.put("messageType", "thread_close");
+        close.put("content", "");
+        close.putObject("metadata").set("receipt", receipt);
+        assertConforms(MESSAGE, close);
     }
 
     @Test

@@ -108,7 +108,10 @@ class PlacementPolicyTest {
         var policy = new FixedPolicy(Optional.of(placed));
         var planner = new CallPlanner(mock(ServerSelector.class), mock(TicketManager.class), null, policy);
 
-        assertSame(placed, planner.place(request()).orElseThrow());
+        var result = planner.place(request()).orElseThrow();
+        assertSame(placed.pick(), result.pick(), "the planner places where the policy placed");
+        assertNotNull(result.decision(), "and says which policy placed the call");
+        assertEquals(PlacementDecision.ALGORITHM, result.decision().policy());
         assertEquals(1, policy.calls.get());
         assertEquals(PlacementMode.ALGORITHM, planner.mode());
     }
@@ -128,7 +131,10 @@ class PlacementPolicyTest {
         var learned = new LearnedPlacement(fallback);
 
         assertTrue(learned.propose(request()).isEmpty());
-        assertSame(placed, learned.place(request()).orElseThrow());
+        var result = learned.place(request()).orElseThrow();
+        assertSame(placed.pick(), result.pick());
+        assertEquals(PlacementDecision.ALGORITHM, result.decision().policy(), "the fallback placed it");
+        assertTrue(result.decision().reason().contains("no opinion"), result.decision().reason());
         assertEquals(1, fallback.calls.get());
     }
 

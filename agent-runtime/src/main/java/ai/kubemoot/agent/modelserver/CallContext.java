@@ -5,11 +5,17 @@ package ai.kubemoot.agent.modelserver;
  * path sends it, whether the model was resident there when the call was placed, and
  * how many calls held a ticket on the server when it started (this one included).
  */
-public record CallContext(String server, String model, String kind, boolean coldStart, int activeCalls) {
+public record CallContext(String server, String model, String kind, boolean coldStart, int activeCalls,
+                          PlacedCall call) {
+
+    /** A context for a call with no placement decision to score. */
+    public CallContext(String server, String model, String kind, boolean coldStart, int activeCalls) {
+        this(server, model, kind, coldStart, activeCalls, null);
+    }
 
     /** This context with {@code coldStart} replaced. */
     public CallContext withColdStart(boolean cold) {
-        return cold == coldStart ? this : new CallContext(server, model, kind, cold, activeCalls);
+        return cold == coldStart ? this : new CallContext(server, model, kind, cold, activeCalls, call);
     }
 
     /**
@@ -31,7 +37,7 @@ public record CallContext(String server, String model, String kind, boolean cold
         long generate = ok && outputTokens >= MIN_TIMED_TOKENS ? timed.generateMs() : CallObservation.UNKNOWN;
         long prompt = ok && !coldStart ? timed.firstTokenMs() : CallObservation.UNKNOWN;
         return new CallObservation(server, model, kind, ok, coldStart, promptTokens, outputTokens, timed.totalMs(),
-                CallObservation.UNKNOWN, prompt, generate, activeCalls, atMs);
+                CallObservation.UNKNOWN, prompt, generate, activeCalls, atMs, ok ? timed.firstTokenMs() : CallObservation.UNKNOWN);
     }
 
     /** The observation of one request sent in this context; engine timings unknown. */

@@ -111,4 +111,52 @@ class DiscussionReceiptWiringTest {
         assertDoesNotThrow(() -> quiet.publishThreadClose(THREAD, "kubernetes"));
         verify(conn, never()).publish(anyString(), any(byte[].class));
     }
+
+    private static ChatService.SimpleLlmResult placedResult(String policy) {
+        var call = new ai.kubemoot.agent.modelserver.PlacedCall("gpu-a", "qwen3:14b",
+                new ai.kubemoot.agent.modelserver.PlacementDecision(policy, "because", null, null));
+        return new ChatService.SimpleLlmResult("answer", 10, 5,
+                new ai.kubemoot.agent.chat.ModelUse("qwen3:14b", "gpu-a", call));
+    }
+
+    @Test
+    void theCoordinatorsPlacedSynthesisCalls_reachTheReceiptWithTheirPhase() {
+        var chat = mock(ChatService.class);
+        when(chat.simpleLlmCallWithTokens(anyString(), anyString())).thenReturn(placedResult("learned"));
+        var nats = mock(NatsConnectionProvider.class);
+        when(nats.getConnection()).thenReturn(conn);
+        when(nats.scope()).thenReturn(new CrewScope("crew-ns", "demo"));
+        var orch = new DiscussionOrchestrator(nats, DiscussionOrchestratorTest.stubProperties("kubernetes"), chat,
+                mock(DiscussionMetrics.class), mock(LatencyTracker.class),
+                mock(ai.kubemoot.agent.rag.ResumeSearchClient.class));
+        orch.handleMessage("{\"messageId\":\"m1\",\"threadId\":\"" + THREAD + "\",\"agentName\":\"human\","
+                + "\"messageType\":\"thread_start\",\"content\":\"\",\"channel\":\"kubernetes\"}");
+
+        orch.synthesizeWithCompleteness("sys", "conversation", THREAD);
+
+        JsonNode calls = orch.receiptFor(orch.threadForTest(THREAD)).path("calls");
+        assertEquals(1, calls.size());
+        assertEquals("synthesis", calls.get(0).path("phase").asText());
+        assertEquals("learned", calls.get(0).path("policy").asText());
+        assertFalse(calls.get(0).path("agent").asText().isEmpty(), "named for the coordinator");
+    }
+
+    @Test
+    void aCoordinatorCallTheSchedulerDidNotPlace_orOfAThreadNotKnown_isLeftOut() {
+        var chat = mock(ChatService.class);
+        when(chat.simpleLlmCallWithTokens(anyString(), anyString())).thenReturn(
+                new ChatService.SimpleLlmResult("answer", 10, 5, new ai.kubemoot.agent.chat.ModelUse("m", "")));
+        var nats = mock(NatsConnectionProvider.class);
+        when(nats.getConnection()).thenReturn(conn);
+        var orch = new DiscussionOrchestrator(nats, DiscussionOrchestratorTest.stubProperties("kubernetes"), chat,
+                mock(DiscussionMetrics.class), mock(LatencyTracker.class),
+                mock(ai.kubemoot.agent.rag.ResumeSearchClient.class));
+        orch.handleMessage("{\"messageId\":\"m1\",\"threadId\":\"" + THREAD + "\",\"agentName\":\"human\","
+                + "\"messageType\":\"thread_start\",\"content\":\"\",\"channel\":\"kubernetes\"}");
+
+        orch.synthesizeWithCompleteness("sys", "conversation", THREAD);
+        assertDoesNotThrow(() -> orch.synthesizeWithCompleteness("sys", "conversation", "no-such-thread"));
+
+        assertFalse(orch.receiptFor(orch.threadForTest(THREAD)).has("calls"));
+    }
 }

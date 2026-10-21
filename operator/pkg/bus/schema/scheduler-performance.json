@@ -101,6 +101,11 @@
         "additionalProperties": false
       }
     },
+    "predictions": {
+      "type": "array",
+      "description": "The most recent placements of this model on this server that predicted a completion time, with what the first request then measured, oldest first. They carry no reason and no alternatives, so the history stays small; the discussion receipt keeps those.",
+      "items": { "$ref": "placement-call.json" }
+    },
     "waits": {
       "type": "array",
       "description": "The most recent waits for capacity that ended with a call placed here, oldest first.",

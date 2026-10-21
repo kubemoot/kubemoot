@@ -221,4 +221,76 @@ class DiscussionReceiptTest {
         assertEquals(0, a.path("inputTokens").asLong());
         assertEquals(0, out.path("placements").size());
     }
+
+    // ---- placed calls ----
+
+    private static String callJson(long at, String model, String server, String policy) {
+        return "{\"phase\":\"evaluation\",\"kind\":\"tool-turn\",\"at\":" + at + ",\"model\":\"" + model
+                + "\",\"server\":\"" + server + "\",\"policy\":\"" + policy + "\",\"reason\":\"predicted 2.9s\","
+                + "\"predicted\":{\"waitMs\":0,\"loadMs\":0,\"promptMs\":600,\"generateMs\":2300,\"totalMs\":2900},"
+                + "\"actual\":{\"ok\":true,\"totalMs\":3400,\"inputTokens\":640,\"outputTokens\":190,\"requests\":1}}";
+    }
+
+    @Test
+    void placedCalls_comeFromTheAgentsSignals_namedForTheAgent_inTheOrderTheyStarted() throws Exception {
+        var r = new DiscussionReceipt(T0);
+        JsonNode pveSignal = signal("{\"placementCalls\":[" + callJson(3_000, "m", "gpu", "learned") + ","
+                + callJson(1_000, "m", "gpu", "algorithm") + "]}");
+        r.observe("pve", "agree", pveSignal, at(5_000));
+        r.observe("k8s", "stand_aside", signal("{\"placementCalls\":[" + callJson(2_000, "n", "cpu", "shadow") + "]}"),
+                at(6_000));
+
+        JsonNode calls = r.build(MAPPER, at(9_000), 2, 0, 0).path("calls");
+
+        assertEquals(3, calls.size());
+        assertEquals(1_000, calls.get(0).path("at").asLong());
+        assertEquals("pve", calls.get(0).path("agent").asText());
+        assertEquals("algorithm", calls.get(0).path("policy").asText());
+        assertEquals("k8s", calls.get(1).path("agent").asText());
+        assertEquals("shadow", calls.get(1).path("policy").asText());
+        assertEquals(3_000, calls.get(2).path("at").asLong());
+        assertEquals(2_900, calls.get(2).path("predicted").path("totalMs").asLong());
+        assertFalse(pveSignal.path("metadata").path("placementCalls").get(0).has("agent"), "the signal is not changed");
+    }
+
+    @Test
+    void theCoordinatorsCallsAreListedWithTheirPhase() throws Exception {
+        var r = new DiscussionReceipt(T0);
+        var call = (com.fasterxml.jackson.databind.node.ObjectNode) MAPPER.readTree(callJson(500, "m", "gpu", "learned"));
+        call.put("agent", "coordinator");
+        call.put("phase", "advisory");
+        r.recordCall(call);
+        r.recordCall(null);
+
+        JsonNode calls = r.build(MAPPER, at(9_000), 0, 0, 0).path("calls");
+
+        assertEquals(1, calls.size());
+        assertEquals("coordinator", calls.get(0).path("agent").asText());
+        assertEquals("advisory", calls.get(0).path("phase").asText());
+    }
+
+    @Test
+    void aCallWithNoStartTimeGoesLast_andSomethingThatIsNotACallIsIgnored() throws Exception {
+        var r = new DiscussionReceipt(T0);
+        r.observe("a", "agree", signal("{\"placementCalls\":[{\"model\":\"m\",\"server\":\"s\",\"policy\":\"algorithm\"},"
+                + callJson(100, "m", "s", "learned") + ",\"junk\",7]}"), at(1_000));
+
+        JsonNode calls = r.build(MAPPER, at(2_000), 0, 0, 0).path("calls");
+
+        assertEquals(2, calls.size());
+        assertEquals("learned", calls.get(0).path("policy").asText());
+        assertEquals("algorithm", calls.get(1).path("policy").asText());
+    }
+
+    @Test
+    void withoutPlacedCalls_thereIsNoCallsField_andANewRoundForgetsTheOldOnes() throws Exception {
+        var r = new DiscussionReceipt(T0);
+        assertFalse(r.build(MAPPER, at(1_000), 0, 0, 0).has("calls"));
+
+        r.observe("a", "agree", signal("{\"placementCalls\":[" + callJson(1, "m", "s", "learned") + "]}"), at(500));
+        assertTrue(r.build(MAPPER, at(1_000), 0, 0, 0).has("calls"));
+
+        r.startRound(at(2_000));
+        assertFalse(r.build(MAPPER, at(3_000), 0, 0, 0).has("calls"));
+    }
 }

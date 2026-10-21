@@ -73,6 +73,10 @@ as `metadata.receipt`: what the thread cost and how it went, from the coordinato
   (`model@server`), its tokens and time in model calls, how long it waited for an
   accelerator, and the reason it gave for standing aside or the error it failed with.
 - **Placements:** how many agents' calls ran at each `model@server`.
+- **Calls:** every model call the scheduler placed, the coordinator's and the agents',
+  each with the policy that placed it, the reason, the other servers it weighed, the
+  completion time it predicted and what the call measured. See
+  [Reading a placement decision](../../architecture/scheduler/#reading-a-placement-decision).
 
 Times are from when the coordinator received each message, and the receipt is a snapshot
 at the close: a message that arrives after it is not counted. Agents may signal before

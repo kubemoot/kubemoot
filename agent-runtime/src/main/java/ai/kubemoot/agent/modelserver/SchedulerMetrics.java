@@ -2,6 +2,7 @@ package ai.kubemoot.agent.modelserver;
 
 import ai.kubemoot.agent.config.AgentProperties;
 import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.DistributionSummary;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
 import io.micrometer.core.instrument.composite.CompositeMeterRegistry;
@@ -12,9 +13,10 @@ import java.time.Duration;
 
 /**
  * The scheduler's metrics: every model call this agent made and every wait for
- * capacity, by placement policy, server, and model. Each metric carries a
- * description, which Prometheus serves as its HELP text. The timers publish
- * histogram buckets, so percentiles can be computed across agents.
+ * capacity, by placement policy, server, and model, and how far each placement's
+ * predicted completion time was from the call it placed. Each metric carries a
+ * description, which Prometheus serves as its HELP text. The timers and summaries
+ * publish histogram buckets, so percentiles can be computed across agents.
  */
 @ApplicationScoped
 public class SchedulerMetrics {
@@ -24,6 +26,16 @@ public class SchedulerMetrics {
     static final String GENERATED_TOKENS = "kubemoot_scheduler_generated_tokens";
     static final String GENERATE_SECONDS = "kubemoot_scheduler_generate_seconds";
     static final String WAIT_SECONDS = "kubemoot_scheduler_capacity_wait_seconds";
+    static final String PREDICTION_ERROR_SECONDS = "kubemoot_scheduler_prediction_error_seconds";
+    static final String PREDICTION_RELATIVE_ERROR = "kubemoot_scheduler_prediction_relative_error";
+
+    /** Bucket bounds, in seconds, for the absolute prediction error. */
+    static final double[] ERROR_SECONDS_BUCKETS = {0.1, 0.25, 0.5, 1, 2, 5, 10, 30, 60, 120, 300};
+    /** Bucket bounds for the relative prediction error: the error over the measured time. */
+    static final double[] RELATIVE_ERROR_BUCKETS = {0.05, 0.1, 0.2, 0.35, 0.5, 0.75, 1, 2, 5, 10};
+    /** The two times a prediction is scored on. */
+    static final String PART_TOTAL = "total";
+    static final String PART_FIRST_TOKEN = "first_token";
 
     /** Bucket bounds for the call and wait timers: model calls take from a second to minutes. */
     static final Duration[] BUCKETS = {
@@ -31,6 +43,7 @@ public class SchedulerMetrics {
             Duration.ofSeconds(20), Duration.ofSeconds(30), Duration.ofSeconds(60), Duration.ofSeconds(120),
             Duration.ofSeconds(300), Duration.ofSeconds(600)};
 
+    private static final String POLICY = "policy";
     private static final String SERVER = "server";
     private static final String MODEL = "model";
 
@@ -71,7 +84,7 @@ public class SchedulerMetrics {
         Counter.builder(CALLS)
                 .description("Model calls this agent made, by placement policy, server, model, call kind "
                         + "(tool-turn, simple, triage), whether the model had to load, and outcome")
-                .tag("policy", policy).tag(SERVER, o.server()).tag(MODEL, o.model()).tag("kind", kind)
+                .tag(POLICY, policy).tag(SERVER, o.server()).tag(MODEL, o.model()).tag("kind", kind)
                 .tag("start", o.coldStart() ? "cold" : "warm").tag("outcome", o.ok() ? "ok" : "failed")
                 .register(registry).increment();
     }
@@ -95,6 +108,40 @@ public class SchedulerMetrics {
                         + "generated tokens over it is the generation speed")
                 .tag(SERVER, o.server()).tag(MODEL, o.model())
                 .register(registry).increment(o.evalMs() / 1000.0);
+    }
+
+    /**
+     * Records how far a placement's prediction was from the first request of the call
+     * it placed: the absolute and the relative error of the completion time, and, for a
+     * streamed request, of the time to the first token. The policy is the one that
+     * placed this call, so the error of the learned policy's predictions is comparable
+     * with the same predictions under the algorithm.
+     */
+    public void predictionError(PlacedCall.Score s) {
+        if (s == null || !CallObservation.names(s.server(), s.model())) {
+            return;
+        }
+        recordError(s, PART_TOTAL, s.totalAbsMs(), s.totalRelative());
+        if (s.hasFirstToken()) {
+            recordError(s, PART_FIRST_TOKEN, s.firstTokenAbsMs(), s.firstTokenRelative());
+        }
+    }
+
+    private void recordError(PlacedCall.Score s, String part, long absMs, double relative) {
+        DistributionSummary.builder(PREDICTION_ERROR_SECONDS)
+                .description("Absolute error of the predicted completion time against the first request of the "
+                        + "call it placed, by the policy that placed the call, server, model, and part "
+                        + "(total: the whole request; first_token: the time to the first streamed token)")
+                .baseUnit("seconds")
+                .tag(POLICY, s.policy()).tag(SERVER, s.server()).tag(MODEL, s.model()).tag("part", part)
+                .serviceLevelObjectives(ERROR_SECONDS_BUCKETS)
+                .register(registry).record(absMs / 1000.0);
+        DistributionSummary.builder(PREDICTION_RELATIVE_ERROR)
+                .description("Relative error of the predicted completion time: the absolute error over the "
+                        + "measured time, by the policy that placed the call, server, model, and part")
+                .tag(POLICY, s.policy()).tag(SERVER, s.server()).tag(MODEL, s.model()).tag("part", part)
+                .serviceLevelObjectives(RELATIVE_ERROR_BUCKETS)
+                .register(registry).record(relative);
     }
 
     /** Records that a call waited {@code waitMs} for capacity and was then placed on {@code server}. */

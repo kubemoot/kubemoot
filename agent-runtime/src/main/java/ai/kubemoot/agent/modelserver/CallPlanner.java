@@ -86,8 +86,23 @@ public class CallPlanner {
         }
     }
 
-    /** A claimed placement. {@code evicted} lists the models unloaded to make room. */
-    public record Placement(Pick pick, String model, long footprintMiB, List<String> evicted) {
+    /**
+     * A claimed placement. {@code evicted} lists the models unloaded to make room;
+     * {@code decision} says which policy placed it, why, and what it predicted (null
+     * until {@link CallPlanner#place} sets it).
+     */
+    public record Placement(Pick pick, String model, long footprintMiB, List<String> evicted,
+                            PlacementDecision decision) {
+        /** A placement whose decision is not explained yet. */
+        public Placement(Pick pick, String model, long footprintMiB, List<String> evicted) {
+            this(pick, model, footprintMiB, evicted, null);
+        }
+
+        /** This placement with {@code explained} as its decision. */
+        public Placement withDecision(PlacementDecision explained) {
+            return new Placement(pick, model, footprintMiB, evicted, explained);
+        }
+
         /**
          * True when the placement joined a busy copy without a counted call slot (a
          * fallback queue), as opposed to a slot it holds or a load it starts.
@@ -117,9 +132,27 @@ public class CallPlanner {
         this(selector, tickets, demand, new AlgorithmPlacement(selector, tickets, demand));
     }
 
-    /** One placement attempt; empty when no server has room and waiting is the better choice. */
+    /**
+     * One placement attempt; empty when no server has room and waiting is the better
+     * choice. The placement carries its {@link PlacementDecision}: the policy that
+     * placed it, its reason, the alternatives and the predicted completion time. A
+     * policy other than the learned one is explained from a survey of the servers
+     * read before the claim, so a prediction exists whichever policy places the call.
+     */
     public Optional<Placement> place(PlacementRequest r) {
-        return policy.place(r);
+        PlacementMode mode = policy.mode();
+        Optional<PlacementSurvey.Survey> survey = mode == PlacementMode.LEARNED ? Optional.empty() : surveyOf(r);
+        return policy.place(r).map(p -> PlacementDecisions.explained(p, survey, mode));
+    }
+
+    /** The survey of the servers for {@code r}; a failure to survey never affects placement. */
+    private Optional<PlacementSurvey.Survey> surveyOf(PlacementRequest r) {
+        try {
+            return PlacementSurvey.of(selector, r);
+        } catch (RuntimeException e) {
+            log.debug("Surveying the servers for {} failed: {}", r.preferred(), e.getMessage());
+            return Optional.empty();
+        }
     }
 
     /** The placement mode in use. */

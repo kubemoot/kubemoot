@@ -7,6 +7,8 @@ import java.util.Arrays;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class ModelAttributionTest {
@@ -98,5 +100,46 @@ class ModelAttributionTest {
         assertEquals("m@p", new ModelUse("m", "p").label());
         assertEquals("m", new ModelUse("m", null).label());
         assertEquals("", new ModelUse(null, null).model());
+    }
+
+    private static ModelUse placed(String model, String server, String policy) {
+        var call = new ai.kubemoot.agent.modelserver.PlacedCall(server, model,
+                new ai.kubemoot.agent.modelserver.PlacementDecision(policy, "because", null, null));
+        return new ModelUse(model, server, call);
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void placedCalls_areReportedInCallOrder_andUnplacedCallsAreLeftOut() {
+        var meta = ModelAttribution.of(List.of(placed(PREFERRED, "server-a", "learned"),
+                new ModelUse(ALTERNATIVE, "server-b"), placed(ALTERNATIVE, "server-b", "algorithm")));
+
+        var calls = (List<java.util.Map<String, Object>>) meta.get("placementCalls");
+        assertEquals(2, calls.size());
+        assertEquals("learned", calls.get(0).get("policy"));
+        assertEquals("because", calls.get(0).get("reason"));
+        assertEquals("algorithm", calls.get(1).get("policy"));
+    }
+
+    @Test
+    void noPlacedCall_addsNoPlacementCalls() {
+        assertFalse(ModelAttribution.of(List.of(new ModelUse(PREFERRED, "server-a"))).containsKey("placementCalls"));
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void anEarlierCallIsPutFirst_andACallThatWasNotPlacedChangesNothing() {
+        var meta = ModelAttribution.of(List.of(placed(PREFERRED, "server-a", "algorithm")));
+
+        var withTriage = ModelAttribution.withEarlierCall(meta, placed(ALTERNATIVE, "server-b", "learned"));
+
+        var calls = (List<java.util.Map<String, Object>>) withTriage.get("placementCalls");
+        assertEquals(2, calls.size());
+        assertEquals("learned", calls.get(0).get("policy"));
+        assertEquals(1, ((List<?>) meta.get("placementCalls")).size(), "the metadata given is not changed");
+        assertSame(meta, ModelAttribution.withEarlierCall(meta, new ModelUse(ALTERNATIVE, "server-b")));
+        assertSame(meta, ModelAttribution.withEarlierCall(meta, null));
+        assertEquals(1, ((List<?>) ModelAttribution.withEarlierCall(java.util.Map.of(),
+                placed(ALTERNATIVE, "server-b", "learned")).get("placementCalls")).size());
     }
 }

@@ -162,6 +162,9 @@ public class DiscussionSubscriber {
     private final ConcurrentHashMap<String, List<String>> threadSelectedSkills = new ConcurrentHashMap<>();
     private final Set<String> processedMessages = ConcurrentHashMap.newKeySet();
     private final Set<String> closedThreads = ConcurrentHashMap.newKeySet();
+
+    /** The triage call of each thread this agent went on to evaluate, so its placement rides on the evaluation's signal. */
+    private final Map<String, ai.kubemoot.agent.chat.ModelUse> triageUses = new ConcurrentHashMap<>();
     /** Wake-ups for agents waiting for GPU capacity, run when their thread ends. */
     private final ConcurrentHashMap<String, List<Runnable>> threadEndWakers = new ConcurrentHashMap<>();
     // Ensure the artifact Object Store bucket once per process (idempotent create).
@@ -630,6 +633,7 @@ public class DiscussionSubscriber {
             // Whatever the outcome (answered, stood aside, failed), a plan made at
             // selection that the first call did not use is released here.
             chatService.releasePlan(threadId);
+            triageUses.remove(threadId);
         }
     }
 
@@ -673,6 +677,9 @@ public class DiscussionSubscriber {
 
             if (standsAsideAfterTriage(subject, threadId, outcome, explicitlySelected)) return;
 
+            if (triage.modelUse() != null) {
+                triageUses.put(threadId, triage.modelUse());
+            }
             runMullingPhase(subject, threadId, conversation, outcome.timing().inferenceMs(), triageStartMs);
 
         } catch (Exception e) {
@@ -1163,7 +1170,8 @@ public class DiscussionSubscriber {
         // back to the static label when no JIT pick was made (selector unwired
         // / static fallback). See [[Per-Call Server Attribution]].
         gpuLabel = jitGpuLabelOr(result, gpuLabel);
-        var ranOn = ranOn(result);
+        var triageUse = triageUses.remove(threadId);
+        var ranOn = ModelAttribution.withEarlierCall(ranOn(result), triageUse);
 
         if (hasNoContributionToPublish(threadId, result)) {
             publishSignal(subject, threadId, SIGNAL_STAND_ASIDE, "", timing, gpuLabel, ranOn);
@@ -1181,7 +1189,8 @@ public class DiscussionSubscriber {
         if (content.startsWith("TOOL_GAP:")) {
             String toolNeed = content.substring("TOOL_GAP:".length()).trim();
             log.info("Agent {} reported tool gap for thread {}: {}", properties.agentName(), threadId, toolNeed);
-            publishSignal(subject, threadId, "concern", toolNeed, timing, gpuLabel, findingMetadata(result));
+            publishSignal(subject, threadId, "concern", toolNeed, timing, gpuLabel,
+                    ModelAttribution.withEarlierCall(findingMetadata(result), triageUse));
             return;
         }
 
@@ -1196,7 +1205,8 @@ public class DiscussionSubscriber {
             return;
         }
 
-        publishSignal(subject, threadId, SIGNAL_AGREE, content, timing, gpuLabel, findingMetadata(result));
+        publishSignal(subject, threadId, SIGNAL_AGREE, content, timing, gpuLabel,
+                ModelAttribution.withEarlierCall(findingMetadata(result), triageUse));
     }
 
     // The agent's view of the thread. DiscussionOrchestrator.threadLabel labels the

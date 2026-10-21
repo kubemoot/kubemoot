@@ -398,8 +398,46 @@ Every scheduled model request is recorded so the scheduler can learn from what i
 - **One key per server, model, and agent:** `<server>.<model>.<agent>`, each token escaped. Each agent writes only its own key, so writes need no compare-and-set; a reader folds every agent's key for a server and model.
 - **Each request records:** which path sent it (`tool-turn`, `simple`, `triage`), the outcome, whether the model was cold on the server when the call was placed, prompt and generated tokens, the duration the agent measured, the number of calls holding a ticket on the server when it started, and the call's timings. Triage, advisory, and synthesis calls are streamed and timed on any engine: the time to first token (reading the prompt, plus loading the model when the call was cold) and the generation time after it. Prompt time is recorded only for warm calls, and generation time only for replies of at least 8 tokens, so a cold load or a very short reply does not skew the history. Token usage comes from the stream's final chunk. Other calls carry tokens and duration, and the timings are `-1`.
 - **Each wait records:** how long a call waited for capacity before it was placed on that server.
-- **Bounded:** each key keeps its last 32 requests and 16 waits, with lifetime request and failure counts.
+- **Each prediction records:** a placement that predicted a completion time keeps that prediction beside what its first request then measured, as a `predictions` list (below).
+- **Bounded:** each key keeps its last 32 requests, 16 waits and 32 predictions, with lifetime request and failure counts.
 - **Never in the way:** writes run on one background thread with a bounded queue and are dropped when the queue is full or NATS is down; a request is never slowed or failed by recording it.
+
+### Prediction error
+
+Whichever policy places a call, the scheduler predicts when that call would finish on the server it chose, from the same speeds the learned policy uses, and compares the prediction with what the call measured. This is how you see whether the predictions get better as the history grows, and how the learned policy's predictions compare with the algorithm's placements on the same crew.
+
+- **What is predicted:** the wait for a slot, the load, the prompt and the generation, and their sum, read before the call is claimed. A server whose speeds for the model are not measured has no prediction, so a call placed there is recorded but not scored.
+- **What is scored:** the first request the placement sends, the one the prediction describes. A tool loop that takes several turns on the server counts its later requests but scores only the first. A request that failed is not scored. The measured time runs from sending the request to its reply, so a cold load inside the request is part of it.
+- **The time to the first token** is scored too for the calls that stream (advisory, synthesis and triage calls): the predicted wait, load and prompt against the measured time to the first token.
+- **Where it is kept:** the `predictions` list of the `kubemoot_scheduler_performance` entry for the server and model, newest last, without the reason and the options so the entry stays small; and the discussion receipt, which keeps all of it (below).
+
+The agents export it as Prometheus metrics, by `policy` (the policy that placed the call: `learned`, `algorithm` or `shadow`), `server`, `model` and `part` (`total` or `first_token`):
+
+| Metric | What it is |
+|---|---|
+| `kubemoot_scheduler_prediction_error_seconds` | Absolute error in seconds, as a histogram. The mean error is `_sum` over `_count`. |
+| `kubemoot_scheduler_prediction_relative_error` | The absolute error over the measured time, as a histogram. A value of 0.2 means the prediction was off by a fifth of the call's time. |
+
+Plot `rate(..._sum[1h]) / rate(..._count[1h])` per server and model: a falling line is a prediction that improves with history. Compare it by `policy` to see how well the learned prediction describes the calls the algorithm placed.
+
+### Reading a placement decision
+
+Every model call the scheduler places is explained without reading logs. The coordinator lists the calls of a thread in `metadata.receipt.calls` of its `thread_close` message, the agents report theirs in `metadata.placementCalls` of their signals, and the dashboard and `kmctl conversation placements` show them. One call carries:
+
+| Field | Meaning |
+|---|---|
+| `agent`, `phase` | Who made the call, and where in the thread: `advisory`, `selection` and `synthesis` are the coordinator's, `triage` is an agent deciding whether it has anything to add, `evaluation` is an agent's work on the question. |
+| `model`, `server`, `coldStart` | Where it ran, and whether the model had to be loaded there. |
+| `policy` | Who placed it. `learned`: the learned policy chose the server. `algorithm`: the algorithm placed it, because it is the configured policy or because the learned policy had no opinion. `shadow`: the algorithm placed it while the learned policy only recorded its choice. |
+| `reason` | The policy's own explanation. For the learned policy, the predicted parts of the chosen server. For the algorithm, the fit explanation of the server it picked, the models it unloaded to make room and whether the call joined a busy copy; under `shadow` and when the learned policy deferred, also what the learned policy thought (it agrees, it would choose another server, its choice has to wait for a slot, or it has no opinion because a server's speeds are not measured). |
+| `alternatives` | The other servers that could have run the model, with whether the model was loaded there, whether a slot was free, and their predicted completion time by part. A server with no prediction was not measured. |
+| `predicted` | The chosen server's predicted wait, load, prompt, generation and total, in milliseconds. Absent when its speeds are not measured. |
+| `actual` | What the first request measured: whether it completed, the wait for capacity before the call was placed, the time to the first token (streamed calls only), the total, the tokens in and out, and how many requests the placement sent. |
+| `error` | The prediction against the measurement: the absolute and signed difference of the total in milliseconds (positive when the call took longer than predicted), and the absolute error over the measured time. For a streamed call, the same for the time to the first token. |
+
+Read a row from the left: the reason says why this server, the alternatives say what else was weighed, and predicted against actual says whether the scheduler was right. The prediction is read just before the call is claimed, from the state of the servers then. A call planned at selection (the plan made so a load overlaps the agent's triage) starts its load and takes its slot at that point, so its prediction leaves out the wait and the load and says so in the reason; the measured time starts when the agent sends its first request.
+
+Two limits to know. A call whose model has no measured speeds on the chosen server carries no prediction, so it appears in the list but not in the error metric. And a receipt written by agents that predate this record has no `calls`, which the dashboard and kmctl say plainly.
 
 ## How the scheduler thinks: one decision, four speeds
 

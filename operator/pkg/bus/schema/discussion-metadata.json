@@ -245,6 +245,11 @@
       "type": "boolean",
       "description": "Set when a scheduled message starts a new thread because it could not continue its source thread."
     },
+    "placementCalls": {
+      "type": "array",
+      "items": { "$ref": "placement-call.json" },
+      "description": "The model calls behind an agent signal, in call order, each with where the scheduler placed it, why, what it predicted and what the call measured. Sent with modelsUsed when the calls ran."
+    },
     "receipt": {
       "$ref": "#/definitions/DiscussionReceipt",
       "description": "On thread_close, what the thread cost and how it went."
@@ -309,6 +314,11 @@
           "type": "array",
           "description": "How many agents' calls ran at each model@server.",
           "items": { "$ref": "#/definitions/ReceiptPlacement" }
+        },
+        "calls": {
+          "type": "array",
+          "description": "Every model call the scheduler placed in the round, the coordinator's and the agents', in the order they started. Each says where it ran, which policy placed it and why, the options it weighed, what was predicted, and what was measured. Absent when no call reported its placement.",
+          "items": { "$ref": "placement-call.json" }
         }
       },
       "additionalProperties": false
