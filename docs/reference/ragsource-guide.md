@@ -1,12 +1,12 @@
 ---
 title: "RAGSource Guide"
-description: "RAGSource manages a retrieval knowledge source end to end: cloning documents, chunking, embedding with Ollama, storing in pgvector, and verifying the index."
+description: "RAGSource manages a retrieval knowledge source end to end: cloning documents, chunking, embedding through a model server, storing in pgvector, and verifying the index."
 weight: 4
 ---
 
 ## Overview
 
-RAGSource is a Kubemoot CRD that manages the complete lifecycle of Retrieval-Augmented Generation knowledge sources. It automates: cloning source documents, chunking, embedding via Ollama, storing vectors in pgvector, deploying a query service, and continuously verifying data integrity.
+RAGSource is a Kubemoot CRD that manages the complete lifecycle of Retrieval-Augmented Generation knowledge sources. It automates: cloning source documents, chunking, embedding through a model server, storing vectors in pgvector, deploying a query service, and continuously verifying data integrity.
 
 The operator follows the Kubernetes reconciler contract: compare desired state (the RAGSource spec) against observed state (what's actually in the vector store), and reconcile the difference.
 
@@ -18,7 +18,7 @@ RAGSource CR
     ├─── Indexer Job (Java/Spring Boot)
     │       ├── Clone git repo / fetch documents
     │       ├── Chunk documents (TokenTextSplitter)
-    │       ├── Generate embeddings (Ollama nomic-embed)
+    │       ├── Generate embeddings (model server, /v1/embeddings)
     │       └── Store vectors in pgvector (Spring AI schema: data_{collection})
     │
     ├─── Query Service (Python/FastAPI)
@@ -165,8 +165,39 @@ model that made them, so the EmbeddingModel pins the model (and its dimensions).
 `serverRef` out and the operator binds it to a ModelServer that has the model; the
 indexer Job and the query service take the bound server's endpoint from the
 EmbeddingModel's `status.endpoint`. When the cluster owner moves the embedding model to
-another server, the EmbeddingModel re-binds, the RAGSource's query service gets the new
-endpoint, and no crew changes. The vectors stay valid because the model is the same.
+another server, the EmbeddingModel re-binds and no crew changes. The same model on another
+engine can make slightly different vectors, so the RAGSource builds a new index beside the
+old one and moves readers over when it is complete (see
+[When the embedding model changes](#when-the-embedding-model-changes)).
+
+## When the embedding model changes
+
+`status.index` records what produced the index readers use: the collection it is stored in,
+the embedding model, the server that served it, the endpoint and the vector size. The query
+service reads that collection and embeds a question through that endpoint, so a reader never
+compares vectors from two different embedding models.
+
+When the EmbeddingModel is served another way (another model, another server or another
+vector size, for example after a move from an Ollama server to a vLLM server), the operator
+treats it like changed source data and rebuilds on its own:
+
+1. It builds a new index in a new collection (`status.building`), indexing everything again,
+   beside the current one. Readers stay on the current index and the RAGSource stays `Ready`.
+2. When the build is complete, `status.index` becomes the new index and the query service
+   moves to it.
+3. When the query service has finished replacing its pods and reads only the new collection,
+   a cleanup Job deletes the old collection (`status.retiredCollections` lists what waits).
+
+A build that fails leaves the current index serving, says so in `status.message` and is
+tried again. If the binding changes again while a build runs, the half-built index is
+discarded and a new build starts. A server that only moves to another endpoint, with the
+same model and vector size, does not rebuild. The tool index of an MCPGateway is a
+RAGSource, so it follows the same rules. Keep the old embedding server running until the
+RAGSource reports the new index, because the query service needs it to embed questions for
+the old one.
+
+A RAGSource indexed before the status carried `index` is recorded as produced by the
+embedding model it uses now.
 
 ## Source Types
 
@@ -271,7 +302,7 @@ The indexer (`kubemoot/indexer/`) is a Spring Boot application that:
 1. **Clones** the git repository using JGit
 2. **Loads** documents from configured paths, filtering by `includePatterns`
 3. **Chunks** text using Spring AI's `TokenTextSplitter` (512 chars, 50 overlap default)
-4. **Embeds** chunks by calling Ollama's embedding API (model: `nomic-embed-text`)
+4. **Embeds** chunks by calling the OpenAI-compatible `/v1/embeddings` API of the EmbeddingModel's server (Ollama and vLLM both serve it) and scales each vector to unit length
 5. **Stores** vectors in pgvector using Spring AI's `PgVectorStore` (table: `data_{collection}`)
 
 For document source types, step 2 includes calling the docling-serve sidecar to convert rich documents to markdown first.
@@ -292,11 +323,12 @@ The controller passes configuration to the indexer job via environment variables
 | `KUBEMOOT_VECTORSTORE_COLLECTION` | Collection name (becomes table `data_{name}`) |
 | `KUBEMOOT_VECTORSTORE_USER` | DB username (from secret) |
 | `KUBEMOOT_VECTORSTORE_PASSWORD` | DB password (from secret) |
-| `KUBEMOOT_EMBEDDING_ENDPOINT` | Ollama endpoint |
+| `KUBEMOOT_EMBEDDING_ENDPOINT` | Embedding server base URL (the EmbeddingModel's `status.endpoint`) |
 | `KUBEMOOT_EMBEDDING_MODEL` | Embedding model name |
 | `KUBEMOOT_CHUNK_SIZE` | Chunk size in characters |
 | `KUBEMOOT_CHUNK_OVERLAP` | Chunk overlap in characters |
 | `KUBEMOOT_FORCE_REINDEX` | Bypass checksum check |
+| `KUBEMOOT_DROP_COLLECTIONS` | Collections to delete instead of indexing (the cleanup Job, see below) |
 
 ## Query Service
 
@@ -447,7 +479,7 @@ kubectl logs job/kubectl-reference-indexer-<timestamp>
 Common causes:
 - Indexer image not pullable (check `imagePullSecrets`)
 - Git clone fails (check URL, branch, credentials)
-- Ollama unreachable (check embedding endpoint)
+- Embedding server unreachable (check the EmbeddingModel's `status.endpoint`)
 - pgvector connection refused (check endpoint, credentials)
 
 ### Query service returns null documents
@@ -483,4 +515,4 @@ sources, roughly how dense the chunking is) as the useful signal, not the exact 
 | prometheus-reference | prometheus/docs | ~100 | 334 |
 | proxmox-reference | proxmox/pve-docs | ~10 | 5 |
 
-All use Ollama `nomic-embed-text` for embeddings and pgvector for storage, with vector store verification running every 5 minutes.
+All use the `nomic-embed-text` embedding model and pgvector for storage, with vector store verification running every 5 minutes.

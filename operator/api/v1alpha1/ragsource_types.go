@@ -442,12 +442,57 @@ type RAGSourceStatus struct {
 	// +optional
 	LastIndexedChecksum string `json:"lastIndexedChecksum,omitempty"`
 
+	// Index is the index readers query: the collection it is stored in and what
+	// produced its vectors. The query service reads this collection and embeds a
+	// question with this model through this endpoint, so a reader never compares
+	// vectors from two different embedding models.
+	// +optional
+	Index *IndexProvenance `json:"index,omitempty"`
+
+	// Building is the index the operator is building beside Index because the
+	// EmbeddingModel is now served another way. Readers stay on Index until this
+	// one is complete, then Index takes its place.
+	// +optional
+	Building *IndexProvenance `json:"building,omitempty"`
+
+	// RetiredCollections are collections no reader uses any more, waiting for the
+	// operator to delete them once the query service reads Index.
+	// +optional
+	RetiredCollections []string `json:"retiredCollections,omitempty"`
+
 	// Message provides additional status information
 	Message string `json:"message,omitempty"`
 
 	// Conditions represent the latest available observations
 	// +optional
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
+}
+
+// IndexProvenance records what produced an index.
+type IndexProvenance struct {
+	// Collection is where the index is stored in the vector store.
+	Collection string `json:"collection"`
+
+	// Base is spec.vectorStore.collection when the index was built. A rebuild
+	// stores its index in a collection named from it.
+	// +optional
+	Base string `json:"base,omitempty"`
+
+	// Model is the embedding model name the vectors came from.
+	Model string `json:"model"`
+
+	// Server is the ModelServer that served the embedding model.
+	// +optional
+	Server string `json:"server,omitempty"`
+
+	// Endpoint is where the embedding model was reached. It follows the server
+	// if the server moves, without changing the index.
+	// +optional
+	Endpoint string `json:"endpoint,omitempty"`
+
+	// Dimensions is the vector size.
+	// +optional
+	Dimensions int32 `json:"dimensions,omitempty"`
 }
 
 // +kubebuilder:object:root=true

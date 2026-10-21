@@ -671,6 +671,42 @@ spec:
           status:
             description: RAGSourceStatus defines the observed state of RAGSource
             properties:
+              building:
+                description: |-
+                  Building is the index the operator is building beside Index because the
+                  EmbeddingModel is now served another way. Readers stay on Index until this
+                  one is complete, then Index takes its place.
+                properties:
+                  base:
+                    description: |-
+                      Base is spec.vectorStore.collection when the index was built. A rebuild
+                      stores its index in a collection named from it.
+                    type: string
+                  collection:
+                    description: Collection is where the index is stored in the vector
+                      store.
+                    type: string
+                  dimensions:
+                    description: Dimensions is the vector size.
+                    format: int32
+                    type: integer
+                  endpoint:
+                    description: |-
+                      Endpoint is where the embedding model was reached. It follows the server
+                      if the server moves, without changing the index.
+                    type: string
+                  model:
+                    description: Model is the embedding model name the vectors came
+                      from.
+                    type: string
+                  server:
+                    description: Server is the ModelServer that served the embedding
+                      model.
+                    type: string
+                required:
+                - collection
+                - model
+                type: object
               conditions:
                 description: Conditions represent the latest available observations
                 items:
@@ -734,6 +770,43 @@ spec:
                   If set and in the future, indexing will not start until this time
                 format: date-time
                 type: string
+              index:
+                description: |-
+                  Index is the index readers query: the collection it is stored in and what
+                  produced its vectors. The query service reads this collection and embeds a
+                  question with this model through this endpoint, so a reader never compares
+                  vectors from two different embedding models.
+                properties:
+                  base:
+                    description: |-
+                      Base is spec.vectorStore.collection when the index was built. A rebuild
+                      stores its index in a collection named from it.
+                    type: string
+                  collection:
+                    description: Collection is where the index is stored in the vector
+                      store.
+                    type: string
+                  dimensions:
+                    description: Dimensions is the vector size.
+                    format: int32
+                    type: integer
+                  endpoint:
+                    description: |-
+                      Endpoint is where the embedding model was reached. It follows the server
+                      if the server moves, without changing the index.
+                    type: string
+                  model:
+                    description: Model is the embedding model name the vectors came
+                      from.
+                    type: string
+                  server:
+                    description: Server is the ModelServer that served the embedding
+                      model.
+                    type: string
+                required:
+                - collection
+                - model
+                type: object
               indexingStats:
                 description: IndexingStats contains statistics from the last indexing
                   run
@@ -788,6 +861,13 @@ spec:
               ready:
                 description: Ready indicates if the RAG source is ready for queries
                 type: boolean
+              retiredCollections:
+                description: |-
+                  RetiredCollections are collections no reader uses any more, waiting for the
+                  operator to delete them once the query service reads Index.
+                items:
+                  type: string
+                type: array
               topics:
                 description: |-
                   Topics are keywords extracted from the indexed content.
