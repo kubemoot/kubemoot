@@ -185,6 +185,9 @@ public class DiscussionOrchestrator {
     private static final String FIELD_BRIEF = "brief";
 
     // Additional field name constants (NATS message metadata keys)
+    private static final String FIELD_CREW = "crew";
+    private static final String FIELD_NAMESPACE = "namespace";
+    private static final String FIELD_CONVERSATION_ID = "conversationId";
     private static final String FIELD_USER_QUERY = "userQuery";
     private static final String FIELD_PRIMARY_CHANNEL = "primaryChannel";
     private static final String FIELD_CONVERSATION_CONTEXT = "conversationContext";
@@ -533,7 +536,7 @@ public class DiscussionOrchestrator {
         metadata.put(FIELD_USER_QUERY, userQuery);
         metadata.put(FIELD_PRIMARY_CHANNEL, primaryChannel);
         if (conversationId != null) {
-            metadata.put("conversationId", conversationId);
+            metadata.put(FIELD_CONVERSATION_ID, conversationId);
         }
         if (!conversationContext.isEmpty()) {
             metadata.put(FIELD_CONVERSATION_CONTEXT, conversationContext);
@@ -541,7 +544,7 @@ public class DiscussionOrchestrator {
                     threadId, conversationContext.size(), truncate(conversationId, LOG_ID_PREVIEW_CHARS));
         }
         if (crew != null && !crew.isEmpty()) {
-            metadata.put("crew", crew);
+            metadata.put(FIELD_CREW, crew);
         }
         // Crew chart version (provenance): which crew VERSION produced this thread.
         // Absent for hand-applied crews with no chart version.
@@ -557,9 +560,14 @@ public class DiscussionOrchestrator {
         conn.publish(broadcastSubject, threadStartPayload);
         conn.flush(Duration.ofSeconds(2));
 
+        enterAdvisory(state);
+        log.info("Thread {} → ADVISORY phase (reasoning select+brief will run in transitionToEvaluating)", threadId);
+    }
+
+    /** The one SUBMITTED to ADVISORY edge, shared by a question this coordinator starts and one it takes up. */
+    private static void enterAdvisory(ThreadState state) {
         state.phase = Phase.ADVISORY;
         state.phaseStarted = Instant.now();
-        log.info("Thread {} → ADVISORY phase (reasoning select+brief will run in transitionToEvaluating)", threadId);
     }
 
     /**
@@ -666,14 +674,33 @@ public class DiscussionOrchestrator {
             return;
         }
         JsonNode meta = msg.path(FIELD_METADATA);
-        String crew = JsonFields.text(meta, "crew", properties.crew().orElse(null));
+        if (!addressedToThisCrew(meta)) {
+            log.debug("Thread {} thread_start from {} is for another crew or namespace; ignored",
+                    state.threadId, agentName);
+            return;
+        }
+        if (state.userQuery == null || state.userQuery.isBlank()) {
+            log.debug("Thread {} thread_start from {} has a blank question; ignored", state.threadId, agentName);
+            return;
+        }
+        String crew = JsonFields.text(meta, FIELD_CREW, natsProvider.scope().crew());
         state.crew = crew == null || crew.isBlank() ? null : crew;
-        String conversationId = JsonFields.text(meta, "conversationId");
+        String conversationId = JsonFields.text(meta, FIELD_CONVERSATION_ID);
         state.conversationId = conversationId.isBlank() ? null : conversationId;
-        state.phase = Phase.ADVISORY;
-        state.phaseStarted = Instant.now();
+        enterAdvisory(state);
         metrics.threadStarted();
         log.info("Thread {} started by {} -> ADVISORY phase", state.threadId, agentName);
+    }
+
+    /** A thread_start naming a crew or namespace other than this coordinator's is not ours. */
+    private boolean addressedToThisCrew(JsonNode meta) {
+        CrewScope scope = natsProvider.scope();
+        return matchesOrAbsent(JsonFields.text(meta, FIELD_CREW), scope.crew())
+                && matchesOrAbsent(JsonFields.text(meta, FIELD_NAMESPACE), scope.namespace());
+    }
+
+    private static boolean matchesOrAbsent(String claimed, String own) {
+        return claimed.isBlank() || own == null || claimed.equals(own);
     }
 
     /**
