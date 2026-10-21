@@ -25,6 +25,11 @@ spec:
     matchLabels:
       app.kubernetes.io/part-of: kubemoot
       app.kubernetes.io/component: agent
+    # An agent in sidecar mode is scraped below, at the Moot Mesh sidecar's /metrics.
+    matchExpressions:
+      - key: kubemoot.ai/harness-mode
+        operator: NotIn
+        values: [sidecar]
   podMetricsEndpoints:
     - port: http
       path: /q/metrics
@@ -33,6 +38,38 @@ spec:
       {{- end }}
       # Every series carries the crew and the agent that produced it, so a dashboard
       # can filter by crew.
+      relabelings:
+        - sourceLabels: [__meta_kubernetes_pod_label_kubemoot_ai_crew]
+          targetLabel: crew
+        - sourceLabels: [__meta_kubernetes_pod_label_kubemoot_ai_agent]
+          targetLabel: agent
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: {{ include "kubemoot-operator.fullname" . }}-agent-sidecars
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "kubemoot-operator.labels" . | nindent 4 }}
+    {{- with .Values.metrics.podMonitor.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  # The Moot Mesh sidecar of an agent in sidecar mode serves the agent's metrics, under the
+  # names the agent runtime uses, on its own port.
+  namespaceSelector:
+    any: true
+  selector:
+    matchLabels:
+      app.kubernetes.io/part-of: kubemoot
+      app.kubernetes.io/component: agent
+      kubemoot.ai/harness-mode: sidecar
+  podMetricsEndpoints:
+    - port: http
+      path: /metrics
+      {{- with .Values.metrics.podMonitor.interval }}
+      interval: {{ . }}
+      {{- end }}
       relabelings:
         - sourceLabels: [__meta_kubernetes_pod_label_kubemoot_ai_crew]
           targetLabel: crew

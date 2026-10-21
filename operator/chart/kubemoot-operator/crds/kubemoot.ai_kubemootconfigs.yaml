@@ -179,6 +179,13 @@ spec:
                     description: AgentRuntime is the default agent runtime image for
                       Agent deployments
                     type: string
+                  agentSidecar:
+                    default: ghcr.io/kubemoot/agent-sidecar:latest
+                    description: |-
+                      AgentSidecar is the Moot Mesh sidecar image the operator adds to the pod of an Agent
+                      whose harness mode is sidecar. The chart stamps it from the release; a floating tag
+                      would break version pinning.
+                    type: string
                   artifactAccess:
                     description: |-
                       ArtifactAccess is the artifact-access image: the read-ops MCP server a crew

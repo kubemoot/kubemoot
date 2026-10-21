@@ -238,6 +238,11 @@ internalAgents:
 # with JetStream enabled (the quickstart installs the upstream nats chart as release
 # "nats" in namespace "nats"). The chart bootstraps the streams and KV buckets with a
 # post-install Job.
+# The placement service that Moot Mesh sidecars (Agent harness mode sidecar) ask where each
+# model call runs. Empty: every sidecar uses the model server its Agent was bound to.
+placementService:
+  url: ""
+
 nats:
   enabled: true
   url: "nats://nats.nats.svc.cluster.local:4222"
@@ -378,6 +383,7 @@ kubemootConfig:
     indexer: indexer:0.0.0
     queryService: query-service:0.0.0
     agentRuntime: agent-runtime:0.0.0
+    agentSidecar: agent-sidecar:0.0.0
     mcpGateway: mcp-gateway:0.0.0
     mcpBridge: mcp-bridge:0.0.0
     discussionGateway: discussion-gateway:0.0.0

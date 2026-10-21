@@ -84,6 +84,12 @@ spec:
             - name: NATS_URL
               value: {{ .Values.nats.url | quote }}
             {{- end }}
+            {{- with .Values.placementService.url }}
+            # The placement service the Moot Mesh sidecars call for every model call. Empty
+            # leaves each sidecar on the model server its Agent was bound to.
+            - name: PLACEMENT_SERVICE_URL
+              value: {{ . | quote }}
+            {{- end }}
             {{- if and .Values.schedulingCrew.enabled .Values.modelServers }}
             # The crew the operator asks to judge calibration drift (scheduling-crew.yaml).
             - name: KUBEMOOT_SCHEDULING_CREW

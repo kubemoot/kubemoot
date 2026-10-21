@@ -133,6 +133,14 @@ ag='select(.kind == "PodMonitor" and .metadata.name == "t-kubemoot-operator-agen
   || fail "agent series do not carry a crew label from the pod's kubemoot.ai/crew label"
 [ "$(yq -N "$ag | select(.targetLabel == \"agent\") | .sourceLabels[0]" <<<"$pm")" = "__meta_kubernetes_pod_label_kubemoot_ai_agent" ] \
   || fail "agent series do not carry an agent label from the pod's kubemoot.ai/agent label"
+# An agent in sidecar mode is scraped at the Moot Mesh sidecar's /metrics; every other agent keeps /q/metrics.
+[ "$(yq -N 'select(.kind == "PodMonitor" and .metadata.name == "t-kubemoot-operator-agents") | .spec.selector.matchExpressions[0] | .key + " " + .operator + " " + .values[0]' <<<"$pm")" = "kubemoot.ai/harness-mode NotIn sidecar" ] \
+  || fail "the legacy agents monitor must leave out sidecar-mode pods"
+sc='select(.kind == "PodMonitor" and .metadata.name == "t-kubemoot-operator-agent-sidecars")'
+[ "$(yq -N "$sc | .spec.podMetricsEndpoints[0].path" <<<"$pm")" = "/metrics" ] || fail "sidecar-mode agents are not scraped at /metrics"
+[ "$(yq -N "$sc | .spec.selector.matchLabels[\"kubemoot.ai/harness-mode\"]" <<<"$pm")" = "sidecar" ] || fail "the sidecar monitor must select sidecar-mode pods"
+[ "$(yq -N "$sc | .spec.podMetricsEndpoints[0].relabelings[] | select(.targetLabel == \"agent\") | .sourceLabels[0]" <<<"$pm")" = "__meta_kubernetes_pod_label_kubemoot_ai_agent" ] \
+  || fail "sidecar-mode series do not carry the agent label"
 op='select(.kind == "PodMonitor" and .metadata.name == "t-kubemoot-operator-operator")'
 [ "$(yq -N "$op | .spec.podMetricsEndpoints[0].scheme" <<<"$pm")" = "https" ] || fail "the operator serves metrics over HTTPS"
 [ "$(yq -N "$op | .spec.podMetricsEndpoints[0].authorization.credentials.name" <<<"$pm")" = "t-kubemoot-operator-metrics-reader" ] \

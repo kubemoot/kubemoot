@@ -16,7 +16,7 @@ out="$(config_images)"
 # Every Kubemoot-built image is pinned to an explicit tag (0.0.0 in git, stamped at
 # release), never latest. artifactAccess is how a crew's read-ops MCPServer runs the
 # artifact-access image without naming a version.
-for key in indexer queryService agentRuntime mcpGateway mcpBridge discussionGateway fitnessRunner artifactAccess; do
+for key in indexer queryService agentRuntime agentSidecar mcpGateway mcpBridge discussionGateway fitnessRunner artifactAccess; do
   value="$(yq -N ".$key" <<<"$out")"
   [ -n "$value" ] && [ "$value" != null ] || fail "KubemootConfig spec.images.$key is not rendered"
   case "$value" in *:latest) fail "spec.images.$key floats: $value" ;; esac
@@ -29,5 +29,12 @@ done
 mirrored="$(config_images --set global.imageRegistry=harbor.example/kubemoot | yq -N .artifactAccess)"
 [ "$mirrored" = "harbor.example/kubemoot/artifact-access:0.0.0" ] \
   || fail "artifactAccess ignores global.imageRegistry: $mirrored"
+
+# The placement service reaches the operator only when the chart names it.
+placement_env() { helm template kubemoot-operator "$chart" --namespace kubemoot "$@" \
+  | yq -N 'select(.kind == "Deployment") | .spec.template.spec.containers[0].env[] | select(.name == "PLACEMENT_SERVICE_URL") | .value'; }
+[ -z "$(placement_env)" ] || fail "PLACEMENT_SERVICE_URL is set without a placementService.url"
+[ "$(placement_env --set placementService.url=http://placement:8080)" = "http://placement:8080" ] \
+  || fail "placementService.url does not reach the operator as PLACEMENT_SERVICE_URL"
 
 echo "all KubemootConfig image render tests passed"
