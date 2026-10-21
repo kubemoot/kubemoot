@@ -692,4 +692,35 @@ class ChatServiceCapacityTest {
         assertTrue(sizes.get(3) <= sizes.get(0), "an empty conversation plans no more than a short one: " + sizes);
         assertTrue(sizes.get(1) >= 20_000, "a 70,000-character conversation plans ~20K tokens: " + sizes);
     }
+
+    @Test
+    void aCallIsPlannedWithWhatTheAgentsCallsOfItsKindHaveGenerated() {
+        history = mock(ai.kubemoot.agent.modelserver.PerformanceHistory.class);
+        when(history.expectedOutputTokens(PREFERRED, "triage")).thenReturn(250L);
+        when(history.expectedOutputTokens(PREFERRED, "tool-turn")).thenReturn(900L);
+        when(selector.readState()).thenReturn(List.of(serverWithContext(32_768, 32_768)));
+        var asked = new java.util.ArrayList<ai.kubemoot.agent.modelserver.CallPlanner.PlacementRequest>();
+        var recording = new ai.kubemoot.agent.modelserver.PlacementPolicy() {
+            @Override
+            public ai.kubemoot.agent.modelserver.PlacementMode mode() {
+                return ai.kubemoot.agent.modelserver.PlacementMode.ALGORITHM;
+            }
+
+            @Override
+            public Optional<ai.kubemoot.agent.modelserver.CallPlanner.Placement> place(
+                    ai.kubemoot.agent.modelserver.CallPlanner.PlacementRequest r) {
+                asked.add(r);
+                return Optional.empty();
+            }
+        };
+        var service = service(null, null, new ai.kubemoot.agent.modelserver.CallPlanner(selector, tickets, null, recording));
+
+        assertThrows(RuntimeException.class, () -> service.triageChat("system", "c".repeat(700)));
+        assertThrows(RuntimeException.class, () -> service.directChat(request(), true, CapacityWait.NONE));
+
+        assertEquals(List.of(250L, 900L), asked.stream()
+                .map(r -> r.outputTokens().applyAsLong(PREFERRED)).sorted().toList(),
+                "triage and the tool loop each plan the length of their own kind");
+        assertEquals(0L, asked.get(0).outputTokens().applyAsLong("a model with no history"));
+    }
 }

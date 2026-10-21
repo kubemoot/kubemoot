@@ -34,10 +34,27 @@ public record CallContext(String server, String model, String kind, boolean cold
      */
     public CallObservation streamed(boolean ok, long atMs, StreamedChat.Timed timed, long promptTokens,
                                     long outputTokens) {
-        long generate = ok && outputTokens >= MIN_TIMED_TOKENS ? timed.generateMs() : CallObservation.UNKNOWN;
-        long prompt = ok && !coldStart ? timed.firstTokenMs() : CallObservation.UNKNOWN;
+        boolean timedStream = ok && deliveredItsTokens(timed, outputTokens);
+        long generate = timedStream && outputTokens >= MIN_TIMED_TOKENS ? timed.generateMs() : CallObservation.UNKNOWN;
+        long prompt = timedStream && !coldStart ? timed.firstTokenMs() : CallObservation.UNKNOWN;
         return new CallObservation(server, model, kind, ok, coldStart, promptTokens, outputTokens, timed.totalMs(),
-                CallObservation.UNKNOWN, prompt, generate, activeCalls, atMs, ok ? timed.firstTokenMs() : CallObservation.UNKNOWN);
+                CallObservation.UNKNOWN, prompt, generate, activeCalls, atMs,
+                timedStream ? timed.firstTokenMs() : CallObservation.UNKNOWN);
+    }
+
+    /**
+     * True when the stream delivered at least four fifths of the tokens the call
+     * generated, or when its chunks were not counted. A model that reasons before it
+     * answers can keep the reasoning out of the stream: its first delivered token then
+     * arrives only after the reasoning is generated, so the time to it is no measure of
+     * reading the prompt, and the generation time after it covers only the answer's
+     * tokens while the token count includes the reasoning. Such a call's timings would
+     * overstate the generation speed several times over, so they are not recorded; its
+     * duration and token counts still are.
+     */
+    static boolean deliveredItsTokens(StreamedChat.Timed timed, long outputTokens) {
+        return timed.chunks() == StreamedChat.UNKNOWN_CHUNKS || outputTokens <= 0
+                || timed.chunks() * 5 >= outputTokens * 4;
     }
 
     /** The observation of one request sent in this context; engine timings unknown. */

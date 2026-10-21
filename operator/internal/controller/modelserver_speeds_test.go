@@ -30,22 +30,20 @@ func TestModelSpeeds(t *testing.T) {
 		{Model: calTestModelA, SoloSamples: perf.MinSamples, SoloTokensPerSecond: 220},
 		{Model: calTestModelB, SoloSamples: perf.MinSamples - 1, SoloTokensPerSecond: 10},
 	}
-	got := modelSpeeds(cal, observed)
+	got := modelSpeeds(cal, observed, map[string][]perf.LoadFactor{
+		calTestModelA: {{ActiveCalls: 3, Factor: 1.4, Samples: 9}}})
 	if len(got) != 2 {
 		t.Fatalf("only fitting, measured models: %+v", got)
 	}
 	a := got[calTestModelA]
-	if a != (ModelSpeed{LoadMs: 2892, PromptTokensPerSecond: 15162, GenerateTokensPerSecond: 235,
-		ObservedGenerateTokensPerSecond: 220, ObservedSamples: perf.MinSamples}) {
-		t.Errorf("%s: %+v", calTestModelA, a)
-	}
+	checkSpeedOfA(t, a)
 	if b := got[calTestModelB]; b.ObservedGenerateTokensPerSecond != 0 || b.ObservedSamples != 0 {
 		t.Errorf("too few observed calls should not be published: %+v", b)
 	}
-	if modelSpeeds(nil, observed) != nil {
+	if modelSpeeds(nil, observed, nil) != nil {
 		t.Error("no calibration, no speeds")
 	}
-	if modelSpeeds(&aiv1alpha1.ServerCalibration{}, nil) != nil {
+	if modelSpeeds(&aiv1alpha1.ServerCalibration{}, nil, nil) != nil {
 		t.Error("a calibration with no models publishes no speeds")
 	}
 }
@@ -55,7 +53,8 @@ func TestModelSpeeds(t *testing.T) {
 func TestServerStateModelSpeedsMatchTheContract(t *testing.T) {
 	state := ServerState{Name: calTestServer, ModelSpeeds: map[string]ModelSpeed{
 		calTestModelA: {LoadMs: 1, PromptTokensPerSecond: 2, GenerateTokensPerSecond: 3,
-			ObservedGenerateTokensPerSecond: 4, ObservedSamples: 5},
+			ObservedGenerateTokensPerSecond: 4, ObservedSamples: 5,
+			LoadFactors: []perf.LoadFactor{{ActiveCalls: 5, Factor: 1.25, Samples: 9}}},
 	}}
 	raw, err := json.Marshal(state)
 	if err != nil {
@@ -69,5 +68,27 @@ func TestServerStateModelSpeedsMatchTheContract(t *testing.T) {
 	if s.LoadMs != 1 || s.PromptTokensPerSecond != 2 || s.GenerateTokensPerSecond != 3 ||
 		s.ObservedGenerateTokensPerSecond != 4 || s.ObservedSamples != 5 {
 		t.Errorf("decoded: %+v from %s", s, raw)
+	}
+	checkDecodedLoadFactors(t, s.LoadFactors, raw)
+}
+
+// checkDecodedLoadFactors fails unless the contract's load factors are the one the operator published.
+func checkDecodedLoadFactors(t *testing.T, got []bus.ServerStateModelSpeedsValueLoadFactorsElem, raw []byte) {
+	t.Helper()
+	if len(got) != 1 || got[0].ActiveCalls != 5 || got[0].Factor != 1.25 || got[0].Samples != 9 {
+		t.Errorf("load factors decoded: %+v from %s", got, raw)
+	}
+}
+
+// checkSpeedOfA fails unless the speed is model A's calibrated and observed speeds, with the one load
+// factor the test gave it.
+func checkSpeedOfA(t *testing.T, speed ModelSpeed) {
+	t.Helper()
+	if speed.LoadMs != 2892 || speed.PromptTokensPerSecond != 15162 || speed.GenerateTokensPerSecond != 235 ||
+		speed.ObservedGenerateTokensPerSecond != 220 || speed.ObservedSamples != perf.MinSamples {
+		t.Errorf("%s: %+v", calTestModelA, speed)
+	}
+	if len(speed.LoadFactors) != 1 || speed.LoadFactors[0].Factor != 1.4 || speed.LoadFactors[0].ActiveCalls != 3 {
+		t.Errorf("load factors: %+v", speed.LoadFactors)
 	}
 }

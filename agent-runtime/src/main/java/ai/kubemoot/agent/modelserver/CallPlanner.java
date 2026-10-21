@@ -61,11 +61,20 @@ public class CallPlanner {
      * name; {@code promptTokens} is the prompt's estimated size, which the chosen
      * server's context must hold (zero when unknown). {@code mayUnload} false
      * means the call never unloads idle models to make room: it is placed only
-     * where it fits now, or not at all.
+     * where it fits now, or not at all. {@code outputTokens} gives, per model name,
+     * the tokens the call is expected to generate (from what the agent's calls of
+     * this kind generated lately; 0 when unknown, which plans the default length).
      */
     public record PlacementRequest(String preferred, List<String> alternatives, List<ServerState> states,
                                    ToLongFunction<String> footprint, ToLongFunction<String> kv,
-                                   long promptTokens, boolean mayUnload) {
+                                   long promptTokens, boolean mayUnload, ToLongFunction<String> outputTokens) {
+        /** A request that plans the generation at the default length. */
+        public PlacementRequest(String preferred, List<String> alternatives, List<ServerState> states,
+                                ToLongFunction<String> footprint, ToLongFunction<String> kv,
+                                long promptTokens, boolean mayUnload) {
+            this(preferred, alternatives, states, footprint, kv, promptTokens, mayUnload, m -> 0L);
+        }
+
         /** A request that may unload idle models when nothing fits. */
         public PlacementRequest(String preferred, List<String> alternatives, List<ServerState> states,
                                 ToLongFunction<String> footprint, ToLongFunction<String> kv, long promptTokens) {

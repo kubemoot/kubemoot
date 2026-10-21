@@ -339,10 +339,11 @@ For each server that can take the call now, the learned policy predicts when the
 would finish:
 
 - the wait for a slot, when the copy there is busy (from the calls in flight and the
-  server's recent call time);
+  server's recent call time), plus, on a server that runs calls side by side, the
+  slowdown from the calls it is already running (below);
 - plus the load time, when the model is not warm there;
 - plus the prompt tokens over the server's prompt speed for the model;
-- plus a fixed expected output over its generation speed.
+- plus the output the call is expected to generate over the server's generation speed.
 
 It takes the soonest. A fast accelerator wins by default; a slower server, such as a
 CPU, wins only when the fast ones are busy enough that it finishes first, and a long
@@ -352,9 +353,28 @@ call type or a server.
 The speeds come from each ModelServer's calibration and, once enough crew calls have
 run alone on the server since (as many as the drift rule needs), their observed
 generation speed replaces the calibrated one; the operator publishes both with the
-server's live state (`modelSpeeds`). The expected output is the same fixed length
-for every option, so options compare by speed; the wait for a slot comes from the
-server's recent call time.
+server's live state (`modelSpeeds`). Observed speed counts only calls whose stream
+delivered the tokens it timed (see Performance history), so a model that reasons out
+of sight cannot make a server look several times faster than it is.
+
+The expected output is what the agent's own calls of the same kind (`tool-turn`,
+`simple` or `triage`) on the same model generated lately: the median of the last 16,
+once there are at least 3, kept by the agent runtime and read back from its stored
+history after a restart. Until then the call is planned at a default length. Every
+option of a call is planned with the same length, so options compare by speed, and
+the figure follows the agent: a triage call that produces a few hundred tokens and a
+tool loop turn that produces a thousand are planned as such.
+
+**Calls sharing a server.** An engine that batches, such as vLLM, takes a call at once
+whatever else it is running, and each call then runs slower. The operator measures
+this from the history: it divides each crew call's time by the time its tokens take at
+the calibrated speeds, takes the median per number of calls on the server as the call
+started (1, 2, 3 to 4, 5 to 8, 9 or more), and publishes each level's median over the
+solo median as `loadFactors` in `modelSpeeds`, never below a lower level's factor. A
+level needs at least 5 calls, and the solo calls it is compared with need 5 too. The
+prediction multiplies the prompt and generation time by the factor of the level the
+call would run at and counts the added time in the wait. A server with no free slot
+makes the call wait instead, and the wait covers it.
 
 The policy keeps the crew's model choice: it places the preferred model on its soonest
 server, and considers an alternative only when the preferred model has no option at
@@ -396,7 +416,7 @@ The operator resolves crew, then realm, then `algorithm`, and passes the result 
 Every scheduled model request is recorded so the scheduler can learn from what it observed instead of from configured values. The agent runtime writes the NATS KV bucket `kubemoot_scheduler_performance` (created by the operator's streams job, TTL 30 days); its schema is `SchedulerPerformance` in the bus contract.
 
 - **One key per server, model, and agent:** `<server>.<model>.<agent>`, each token escaped. Each agent writes only its own key, so writes need no compare-and-set; a reader folds every agent's key for a server and model.
-- **Each request records:** which path sent it (`tool-turn`, `simple`, `triage`), the outcome, whether the model was cold on the server when the call was placed, prompt and generated tokens, the duration the agent measured, the number of calls holding a ticket on the server when it started, and the call's timings. Triage, advisory, and synthesis calls are streamed and timed on any engine: the time to first token (reading the prompt, plus loading the model when the call was cold) and the generation time after it. Prompt time is recorded only for warm calls, and generation time only for replies of at least 8 tokens, so a cold load or a very short reply does not skew the history. Token usage comes from the stream's final chunk. Other calls carry tokens and duration, and the timings are `-1`.
+- **Each request records:** which path sent it (`tool-turn`, `simple`, `triage`), the outcome, whether the model was cold on the server when the call was placed, prompt and generated tokens, the duration the agent measured, the number of calls holding a ticket on the server when it started, and the call's timings. Triage, advisory, and synthesis calls are streamed and timed on any engine: the time to first token (reading the prompt, plus loading the model when the call was cold) and the generation time after it. Prompt time is recorded only for warm calls, and generation time only for replies of at least 8 tokens, so a cold load or a very short reply does not skew the history. A stream that delivers fewer than four fifths of the tokens the call generated carries a model that reasons out of the stream: its first delivered token comes after the reasoning, and the time after it covers only the answer's tokens. Such a call keeps its duration and token counts, and its prompt time, generation time and first-token time are `-1`. Token usage comes from the stream's final chunk. Other calls carry tokens and duration, and the timings are `-1`.
 - **Each wait records:** how long a call waited for capacity before it was placed on that server.
 - **Each prediction records:** a placement that predicted a completion time keeps that prediction beside what its first request then measured, as a `predictions` list (below).
 - **Bounded:** each key keeps its last 32 requests, 16 waits and 32 predictions, with lifetime request and failure counts.
@@ -408,7 +428,7 @@ Whichever policy places a call, the scheduler predicts when that call would fini
 
 - **What is predicted:** the wait for a slot, the load, the prompt and the generation, and their sum, read before the call is claimed. A server whose speeds for the model are not measured has no prediction, so a call placed there is recorded but not scored.
 - **What is scored:** the first request the placement sends, the one the prediction describes. A tool loop that takes several turns on the server counts its later requests but scores only the first. A request that failed is not scored. The measured time runs from sending the request to its reply, so a cold load inside the request is part of it.
-- **The time to the first token** is scored too for the calls that stream (advisory, synthesis and triage calls): the predicted wait, load and prompt against the measured time to the first token.
+- **The time to the first token** is scored too for the calls that stream (advisory, synthesis and triage calls), when the stream delivered its tokens: the predicted wait, load and prompt against the measured time to the first token. A tool loop turn is not streamed and a model that reasons out of the stream has no first token that means reading the prompt, so those calls show no first-token figure. Their total is still scored.
 - **Where it is kept:** the `predictions` list of the `kubemoot_scheduler_performance` entry for the server and model, newest last, without the reason and the options so the entry stays small; and the discussion receipt, which keeps all of it (below).
 
 The agents export it as Prometheus metrics, by `policy` (the policy that placed the call: `learned`, `algorithm` or `shadow`), `server`, `model` and `part` (`total` or `first_token`):
@@ -430,8 +450,8 @@ Every model call the scheduler places is explained without reading logs. The coo
 | `model`, `server`, `coldStart` | Where it ran, and whether the model had to be loaded there. |
 | `policy` | Who placed it. `learned`: the learned policy chose the server. `algorithm`: the algorithm placed it, because it is the configured policy or because the learned policy had no opinion. `shadow`: the algorithm placed it while the learned policy only recorded its choice. |
 | `reason` | The policy's own explanation. For the learned policy, the predicted parts of the chosen server. For the algorithm, the fit explanation of the server it picked, the models it unloaded to make room and whether the call joined a busy copy; under `shadow` and when the learned policy deferred, also what the learned policy thought (it agrees, it would choose another server, its choice has to wait for a slot, or it has no opinion because a server's speeds are not measured). |
-| `alternatives` | The other servers that could have run the model, with whether the model was loaded there, whether a slot was free, and their predicted completion time by part. A server with no prediction was not measured. |
-| `predicted` | The chosen server's predicted wait, load, prompt, generation and total, in milliseconds. Absent when its speeds are not measured. |
+| `alternatives` | The other servers that could have run the model, then the other models the agent accepts on the servers that have them (named in `model`), with whether the model was loaded there, whether a slot was free, and their predicted completion time by part. The learned policy keeps the crew's model, so the other models are shown for comparison only. A server with no prediction was not measured. |
+| `predicted` | The chosen server's predicted wait (the wait for a slot plus the slowdown from the calls already sharing the server), load, prompt, generation, time to the first token and total, in milliseconds. Absent when its speeds are not measured. |
 | `actual` | What the first request measured: whether it completed, the wait for capacity before the call was placed, the time to the first token (streamed calls only), the total, the tokens in and out, and how many requests the placement sent. |
 | `error` | The prediction against the measurement: the absolute and signed difference of the total in milliseconds (positive when the call took longer than predicted), and the absolute error over the measured time. For a streamed call, the same for the time to the first token. |
 

@@ -569,7 +569,12 @@ public class ServerSelector {
      * (resident or loading), whether the server has a slot free now, and the
      * expected wait for one when it has not (0 when it has).
      */
-    public record Option(ServerState server, boolean warm, boolean freeSlot, double waitSeconds) {
+    public record Option(ServerState server, boolean warm, boolean freeSlot, double waitSeconds, int activeCalls) {
+        /** An option on a server with no calls counted. */
+        public Option(ServerState server, boolean warm, boolean freeSlot, double waitSeconds) {
+            this(server, warm, freeSlot, waitSeconds, 0);
+        }
+
         /** True when the call starts now: a free slot, on a warm copy or for a cold load. */
         public boolean startsNow() {
             return freeSlot;
@@ -595,7 +600,7 @@ public class ServerSelector {
             boolean free = engineDriver.hasFreeCapacity(c.server(), c.activeCount());
             double wait = free ? 0.0
                     : engineDriver.expectedWaitSeconds(c.server(), elapsedSeconds(c.server(), now), callSeconds(c.server()));
-            out.add(new Option(c.server(), c.warm(), free, wait));
+            out.add(new Option(c.server(), c.warm(), free, wait, c.activeCount()));
         }
         return out;
     }
@@ -1463,7 +1468,8 @@ public class ServerSelector {
                 if (m.isObject()) {
                     out.put(e.getKey(), new ModelSpeed(m.path("loadMs").asLong(0L),
                             m.path("promptTokensPerSecond").asLong(0L), m.path("generateTokensPerSecond").asLong(0L),
-                            m.path("observedGenerateTokensPerSecond").asLong(0L), m.path("observedSamples").asInt(0)));
+                            m.path("observedGenerateTokensPerSecond").asLong(0L), m.path("observedSamples").asInt(0),
+                            ModelSpeed.loadFactors(m.path("loadFactors"))));
                 }
             });
         }
