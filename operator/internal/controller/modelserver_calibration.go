@@ -184,17 +184,18 @@ func recoveredSinceFailure(p *aiv1alpha1.ModelServer, requested metav1.Time) boo
 // failure (a NATS error, or an embedding model it could not generate with).
 const legacyFailureSummary = "no model could be measured: "
 
-// failedWithoutResults reports a calibration that Failed after the request with that
-// summary and no per-model results. The recipe now records a result for every model it
-// tries (measured, skipped, or failed with its reason), so such a record stopped before
-// it learned about the models and says nothing about whether they can be measured: it
-// is asked again once the server is idle. A Failed run with results stays Failed until
-// the server, its models, or the reset annotation change, or the server becomes ready
-// again after the failure. The retry happens once per request: the request it makes is
-// marked retryNote, and a second such failure under that mark stays Failed.
+// failedWithoutResults reports a calibration that Failed with that summary and no
+// per-model results. The recipe now records a result for every model it tries
+// (measured, skipped, or failed with its reason), so such a record stopped before it
+// learned about the models and says nothing about whether they can be measured: it is
+// asked again once the server is idle. A Failed run with results stays Failed until the
+// server, its models, or the reset annotation change, or the server becomes ready again
+// after the failure. The retry happens once per request: the request it makes is marked
+// retryNote, and a second such failure under that mark stays Failed. Times are not
+// compared with the request's: a run that fails at once is recorded in the same second
+// the request is stamped, and the mark alone bounds the retry.
 func failedWithoutResults(cal *aiv1alpha1.ServerCalibration, req *aiv1alpha1.CalibrationRequest) bool {
-	return cal != nil && cal.Phase == calibrationPhaseFailed && cal.UpdatedAt != nil &&
-		cal.UpdatedAt.After(req.RequestedAt.Time) && len(cal.Models) == 0 &&
+	return cal != nil && cal.Phase == calibrationPhaseFailed && len(cal.Models) == 0 &&
 		strings.HasPrefix(cal.Message, legacyFailureSummary) && !strings.HasSuffix(req.Reason, retryNote)
 }
 
