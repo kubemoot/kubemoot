@@ -196,6 +196,7 @@ public class DiscussionOrchestrator {
     // Metadata key constants (NATS message metadata)
     private static final String FIELD_GPU_LABEL = "gpuLabel";
     private static final String FIELD_MODEL_NAME = "modelName";
+    private static final String UNKNOWN_SERVER = "unknown";
     // Token-count map keys (input/output) used in the synthesis token report
     private static final String TOKENS_IN = "in";
     private static final String TOKENS_OUT = "out";
@@ -237,6 +238,12 @@ public class DiscussionOrchestrator {
     private final ChatService chatService;
     private final DiscussionMetrics metrics;
     private final LatencyTracker latencyTracker;
+    /**
+     * The server each agent's last timed call ran on, from its terminal signals. The
+     * signals sent before a call (evaluating, heartbeat) name no server, so the
+     * deadline for the next call looks up the latency of the server the last one used.
+     */
+    private final Map<String, String> lastServerByAgent = new ConcurrentHashMap<>();
     private final ResumeSearchClient resumeSearchClient;
     private final boolean coordinator;
     // When the crew declares any analyst-role agent, the coordinator must run the
@@ -787,8 +794,8 @@ public class DiscussionOrchestrator {
                 + (properties.triageModel().timeoutSeconds() * 1000L);
         state.pendingEvaluations.put(agentName, triageDeadline);
         metrics.setPendingEvaluations(state.pendingEvaluations.size());
-        log.info("Agent {} is triaging on {} (deadline {}s)",
-                agentName, extractServer(msg), properties.triageModel().timeoutSeconds());
+        log.info("Agent {} is triaging (deadline {}s)",
+                agentName, properties.triageModel().timeoutSeconds());
     }
 
     // The agent's heartbeat cadence (first beat 15s after evaluating, then every
@@ -810,7 +817,7 @@ public class DiscussionOrchestrator {
     private void handleEvaluatingSignal(ThreadState state, String agentName, JsonNode msg) {
         // Agent has passed triage and is about to call tools — update deadline
         // to the (heartbeat-floored) P90-based evaluation deadline.
-        String server = extractServer(msg);
+        String server = expectedServer(agentName, msg);
         int expectedSeconds = latencyTracker.getExpectedSeconds(agentName, server);
         long deadline = System.currentTimeMillis() + deadlineWindowMs(expectedSeconds, evalGraceMs);
         state.pendingEvaluations.put(agentName, deadline);
@@ -825,7 +832,7 @@ public class DiscussionOrchestrator {
         // Agent is still alive (queued on GPU or mid-inference). Refresh deadline
         // so the coordinator doesn't expire it while it waits for GPU access.
         if (state.pendingEvaluations.containsKey(agentName)) {
-            String server = extractServer(msg);
+            String server = expectedServer(agentName, msg);
             int expectedSeconds = latencyTracker.getExpectedSeconds(agentName, server);
             long deadline = System.currentTimeMillis() + deadlineWindowMs(expectedSeconds, evalGraceMs);
             state.pendingEvaluations.put(agentName, deadline);
@@ -2822,9 +2829,19 @@ public class DiscussionOrchestrator {
     private static String extractServer(JsonNode msg) {
         if (msg.has(FIELD_METADATA) && msg.get(FIELD_METADATA).has(FIELD_GPU_LABEL)) {
             String label = msg.get(FIELD_METADATA).get(FIELD_GPU_LABEL).asText();
-            return label != null && !label.isEmpty() ? label : "unknown";
+            return label != null && !label.isEmpty() ? label : UNKNOWN_SERVER;
         }
-        return "unknown";
+        return UNKNOWN_SERVER;
+    }
+
+    /**
+     * The server whose latency history sets an agent's deadline: the one the signal
+     * names, else the one the agent's last timed call ran on, else "unknown".
+     */
+    // Visible for testing
+    String expectedServer(String agentName, JsonNode msg) {
+        String named = extractServer(msg);
+        return UNKNOWN_SERVER.equals(named) ? lastServerByAgent.getOrDefault(agentName, UNKNOWN_SERVER) : named;
     }
 
     /**
@@ -2842,6 +2859,9 @@ public class DiscussionOrchestrator {
                 if (inferenceMs > 0) {
                     String server = extractServer(msg);
                     latencyTracker.recordLatency(agentName, server, inferenceMs);
+                    if (!UNKNOWN_SERVER.equals(server)) {
+                        lastServerByAgent.put(agentName, server);
+                    }
                 }
             }
         } catch (Exception e) {

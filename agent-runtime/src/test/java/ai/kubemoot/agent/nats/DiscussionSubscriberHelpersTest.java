@@ -564,11 +564,37 @@ class DiscussionSubscriberHelpersTest {
         assertEquals("triaging", msgs.get(0).path("messageType").asText());
         assertEquals("triage-model:4b", msgs.get(0).path("metadata").path("modelName").asText(),
                 "before triage runs, the signal names the triage model, not the mulling model");
+        assertTrue(msgs.get(0).path("metadata").path("gpuLabel").isMissingNode(),
+                "before triage is placed, the signal names no accelerator: " + msgs.get(0));
         var standAside = msgs.get(1);
         assertEquals("stand_aside", standAside.path("messageType").asText());
         assertEquals("triage-model:4b", standAside.path("metadata").path("modelName").asText());
         assertEquals("server-c", standAside.path("metadata").path("gpuLabel").asText());
         assertEquals(List.of("triage-model:4b@server-c"), modelsUsed(standAside));
+    }
+
+    @Test
+    void evaluating_namesNoAcceleratorUntilTheCallRan() throws Exception {
+        var conn = mock(Connection.class);
+        var chat = mock(ChatService.class);
+        when(chat.getToolNames()).thenReturn(List.of());
+        when(chat.getTriageEndpoint()).thenReturn("http://ollama.static-ns:11434");
+        when(chat.triageChatWithTokens(anyString(), anyString())).thenReturn(new ChatService.SimpleLlmResult(
+                "CONTRIBUTE", 5, 1, new ai.kubemoot.agent.chat.ModelUse("triage-model:4b", "server-c")));
+        when(chat.directChat(any(), anyBoolean(), any())).thenReturn(new ChatService.ChatResult("c", "an answer",
+                "alt-model:14b", "t1", 1, 1, "server-b", ""));
+        var sub = createSubscriberWithConnection(conn, chat);
+
+        sub.evaluateSelected(SUBJECT_T1, "t1", "conversation", false);
+
+        var msgs = published(conn, 3);
+        assertEquals(List.of("triaging", "evaluating", "agree"),
+                msgs.stream().map(m -> m.path("messageType").asText()).toList());
+        assertTrue(msgs.get(0).path("metadata").path("gpuLabel").isMissingNode(), msgs.get(0).toString());
+        assertTrue(msgs.get(1).path("metadata").path("gpuLabel").isMissingNode(),
+                "the evaluating signal precedes the call, so it names no accelerator: " + msgs.get(1));
+        assertEquals("server-b", msgs.get(2).path("metadata").path("gpuLabel").asText(),
+                "the finding names the server the call ran on");
     }
 
     @Test
@@ -644,7 +670,7 @@ class DiscussionSubscriberHelpersTest {
     void capacityWait_publishesWaitingWithModelAndReason() throws Exception {
         var conn = mock(Connection.class);
         var sub = createSubscriberWithConnection(conn);
-        var wait = sub.new ThreadCapacityWait("kubemoot.discuss.ns-a.nocrew.general.t1", "t1", "5090");
+        var wait = sub.new ThreadCapacityWait("kubemoot.discuss.ns-a.nocrew.general.t1", "t1");
 
         wait.onWaiting("qwen3:14b");
 
@@ -653,6 +679,7 @@ class DiscussionSubscriberHelpersTest {
         var msg = new com.fasterxml.jackson.databind.ObjectMapper().readTree(payload.getValue());
         assertEquals("waiting", msg.path("messageType").asText());
         assertEquals("qwen3:14b", msg.path("metadata").path("model").asText());
+        assertTrue(msg.path("metadata").path("gpuLabel").isMissingNode(), "no accelerator while waiting: " + msg);
         assertEquals("gpu-busy", msg.path("metadata").path("reason").asText());
     }
 
@@ -660,7 +687,7 @@ class DiscussionSubscriberHelpersTest {
     void capacityWait_publishesEvaluatingWhenCapacityArrives() throws Exception {
         var conn = mock(Connection.class);
         var sub = createSubscriberWithConnection(conn);
-        var wait = sub.new ThreadCapacityWait("kubemoot.discuss.ns-a.nocrew.general.t1", "t1", "5090");
+        var wait = sub.new ThreadCapacityWait("kubemoot.discuss.ns-a.nocrew.general.t1", "t1");
 
         wait.onCapacity("qwen3:14b");
 
@@ -669,12 +696,14 @@ class DiscussionSubscriberHelpersTest {
         var msg = new com.fasterxml.jackson.databind.ObjectMapper().readTree(payload.getValue());
         assertEquals("evaluating", msg.path("messageType").asText());
         assertEquals("qwen3:14b", msg.path("metadata").path("model").asText());
+        assertTrue(msg.path("metadata").path("gpuLabel").isMissingNode(),
+                "the call is not placed yet, so no accelerator: " + msg);
     }
 
     @Test
     void capacityWait_endsAndWakesWhenTheThreadSynthesizes() {
         var sub = createSubscriber("test-agent");
-        var wait = sub.new ThreadCapacityWait("kubemoot.discuss.ns-a.nocrew.general.t1", "t1", "5090");
+        var wait = sub.new ThreadCapacityWait("kubemoot.discuss.ns-a.nocrew.general.t1", "t1");
         var woken = new java.util.concurrent.atomic.AtomicInteger();
         wait.wakeOnEnd(woken::incrementAndGet);
         assertFalse(wait.threadEnded());
@@ -693,7 +722,7 @@ class DiscussionSubscriberHelpersTest {
         sub.handleMessageForTest("kubemoot.discuss.ns-a.nocrew.general.t2", """
                 {"messageId": "m-2", "threadId": "t2", "agentName": "coordinator",
                  "messageType": "thread_close", "content": ""}""");
-        var wait = sub.new ThreadCapacityWait("kubemoot.discuss.ns-a.nocrew.general.t2", "t2", "5090");
+        var wait = sub.new ThreadCapacityWait("kubemoot.discuss.ns-a.nocrew.general.t2", "t2");
         var woken = new java.util.concurrent.atomic.AtomicInteger();
 
         wait.wakeOnEnd(woken::incrementAndGet);

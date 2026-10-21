@@ -71,7 +71,7 @@ class BusContractTest {
     @Test
     void capacitySignalsMatchTheContract() throws Exception {
         var conn = mock(Connection.class);
-        var wait = subscriber(conn, mock(ChatService.class)).new ThreadCapacityWait(SUBJECT, "t1", "5090");
+        var wait = subscriber(conn, mock(ChatService.class)).new ThreadCapacityWait(SUBJECT, "t1");
 
         wait.onWaiting(MODEL);
         wait.onCapacity(MODEL);

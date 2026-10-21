@@ -55,6 +55,12 @@ public class DiscussionSubscriber {
     private static final String SIGNAL_WAITING = "waiting";
     private static final String SIGNAL_EVALUATING = "evaluating";
     /**
+     * The accelerator label of a signal sent before its inference call is placed.
+     * The scheduler picks the server when the call is made, so the signal names none;
+     * the signals sent after the call name the server it ran on.
+     */
+    static final String NOT_PLACED = "";
+    /**
      * First-class consensus signal for "agent tried to evaluate but couldn't
      * complete due to infrastructure failure" (MCP tool timeout, model OOM,
      * etc.). Distinct from stand_aside (which is "agent chose not to weigh
@@ -656,7 +662,7 @@ public class DiscussionSubscriber {
             commitToThread(threadId, conversation);
             String triageGpuLabel = GpuLabels.fromEndpoint(chatService.getTriageEndpoint());
             publishSignal(subject, threadId, "triaging", "Queued for triage assessment",
-                    SignalTiming.of(0, System.currentTimeMillis()), triageGpuLabel, plannedTriageModel());
+                    SignalTiming.of(0, System.currentTimeMillis()), NOT_PLACED, plannedTriageModel());
 
             long triageStartMs = System.currentTimeMillis();
             ChatService.SimpleLlmResult triage = runTriage(subject, threadId, conversation, triageGpuLabel,
@@ -759,18 +765,18 @@ public class DiscussionSubscriber {
         String mullingGpuLabel = GpuLabels.fromEndpoint(ollamaBaseUrl);
 
         publishSignal(subject, threadId, SIGNAL_EVALUATING, "Running tool-calling evaluation",
-                SignalTiming.of(triageMs, triageStartMs), mullingGpuLabel);
+                SignalTiming.of(triageMs, triageStartMs), NOT_PLACED);
         log.info("Agent {} passed triage ({}ms), running full evaluation for thread {} (gpu={})",
                 properties.agentName(), triageMs, threadId, mullingGpuLabel);
 
-        var heartbeat = startHeartbeat(subject, threadId, mullingGpuLabel);
+        var heartbeat = startHeartbeat(subject, threadId);
 
         long mullingStartMs = System.currentTimeMillis();
         ChatService.ChatResult result = null;
         boolean failed = false;
         try {
             result = runMullingInference(conversation, threadId,
-                    new ThreadCapacityWait(subject, threadId, mullingGpuLabel));
+                    new ThreadCapacityWait(subject, threadId));
         } catch (Exception e) {
             failed = true;
             handleMullingFailure(subject, threadId, e, triageMs, triageStartMs, mullingStartMs, mullingGpuLabel);
@@ -874,12 +880,10 @@ public class DiscussionSubscriber {
     final class ThreadCapacityWait implements ai.kubemoot.agent.modelserver.CapacityWait {
         private final String subject;
         private final String threadId;
-        private final String gpuLabel;
 
-        ThreadCapacityWait(String subject, String threadId, String gpuLabel) {
+        ThreadCapacityWait(String subject, String threadId) {
             this.subject = subject;
             this.threadId = threadId;
-            this.gpuLabel = gpuLabel;
         }
 
         @Override
@@ -890,14 +894,14 @@ public class DiscussionSubscriber {
         @Override
         public void onWaiting(String model) {
             publishSignal(subject, threadId, SIGNAL_WAITING, "Waiting for a GPU with room for " + model,
-                    SignalTiming.of(0, System.currentTimeMillis()), gpuLabel,
+                    SignalTiming.of(0, System.currentTimeMillis()), NOT_PLACED,
                     Map.of(FIELD_MODEL, model, "reason", ai.kubemoot.agent.modelserver.NoFitException.REASON_GPU_BUSY));
         }
 
         @Override
         public void onCapacity(String model) {
             publishSignal(subject, threadId, SIGNAL_EVALUATING, "Running tool-calling evaluation",
-                    SignalTiming.of(0, System.currentTimeMillis()), gpuLabel, Map.of(FIELD_MODEL, model));
+                    SignalTiming.of(0, System.currentTimeMillis()), NOT_PLACED, Map.of(FIELD_MODEL, model));
         }
 
         @Override
@@ -1032,7 +1036,7 @@ public class DiscussionSubscriber {
                 SignalTiming.of(totalMs, triageStartMs), gpuLabel, failureMeta);
     }
 
-    private java.util.concurrent.ScheduledFuture<?> startHeartbeat(String subject, String threadId, String mullingGpuLabel) {
+    private java.util.concurrent.ScheduledFuture<?> startHeartbeat(String subject, String threadId) {
         var heartbeatRef = new java.util.concurrent.atomic.AtomicReference<java.util.concurrent.ScheduledFuture<?>>();
         heartbeatRef.set(scheduler.scheduleAtFixedRate(() -> {
             try {
@@ -1044,7 +1048,7 @@ public class DiscussionSubscriber {
                 }
                 log.info("Publishing discussion heartbeat for {} on thread {}", properties.agentName(), threadId);
                 publishSignal(subject, threadId, "heartbeat", "Queued or running inference",
-                        SignalTiming.NONE, mullingGpuLabel);
+                        SignalTiming.NONE, NOT_PLACED);
             } catch (Exception e) {
                 log.warn("Heartbeat publish failed for {} on thread {}: {}", properties.agentName(), threadId, e.getMessage());
             }
@@ -1291,7 +1295,9 @@ public class DiscussionSubscriber {
             // The configured model until a call has run; extraMetadata names the
             // model the calls ran on (ModelAttribution) once they have.
             metadata.put(ModelAttribution.FIELD_MODEL_NAME, properties.model().model());
-            metadata.put("gpuLabel", gpuLabel);
+            if (gpuLabel != null && !gpuLabel.isEmpty()) {
+                metadata.put("gpuLabel", gpuLabel);
+            }
             metadata.put("inferenceMs", timing.inferenceMs());
             metadata.put("inferenceStartMs", timing.inferenceStartMs());
             metadata.put("inputTokens", timing.inputTokens());
