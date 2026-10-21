@@ -594,6 +594,53 @@ class DiscussionOrchestratorHelpersTest {
         assertEquals(List.of("runbook"), meta.get("selectedSkills"));
     }
 
+    // --- where the advisory call ran ---
+
+    @Test
+    void advisoryReadyMetadata_namesTheModelAndServerTheAdvisoryCallRanOn() {
+        var state = new DiscussionOrchestrator.ThreadState("t1");
+        state.advisoryModelUse = new ai.kubemoot.agent.chat.ModelUse("alt-model:14b", "server-b");
+
+        var meta = orchestrator.advisoryReadyMetadata(state, List.of(), "");
+
+        assertEquals("alt-model:14b", meta.get("modelName"));
+        assertEquals("server-b", meta.get("gpuLabel"));
+        assertEquals(List.of("alt-model:14b@server-b"), meta.get("modelsUsed"));
+    }
+
+    @Test
+    void advisoryReadyMetadata_withoutAKnownCall_keepsTheConfiguredModelAndEndpointLabel() {
+        var state = new DiscussionOrchestrator.ThreadState("t1");
+
+        var meta = orchestrator.advisoryReadyMetadata(state, List.of(), "");
+
+        assertEquals("qwen2.5:32b", meta.get("modelName"));
+        assertEquals("localhost", meta.get("gpuLabel"));
+        assertFalse(meta.containsKey("modelsUsed"));
+    }
+
+    @Test
+    void putRanOn_aCallOnTheStaticEndpoint_keepsTheEndpointLabel() {
+        var meta = new java.util.HashMap<String, Object>();
+
+        orchestrator.putRanOn(meta, new ai.kubemoot.agent.chat.ModelUse("qwen2.5:32b", ""));
+
+        assertEquals("localhost", meta.get("gpuLabel"));
+        assertEquals("qwen2.5:32b", meta.get("modelName"));
+        assertEquals(List.of("qwen2.5:32b"), meta.get("modelsUsed"));
+    }
+
+    @Test
+    void putRanOn_aCallWithNoModel_keepsTheConfiguredModel() {
+        var meta = new java.util.HashMap<String, Object>();
+
+        orchestrator.putRanOn(meta, new ai.kubemoot.agent.chat.ModelUse("", "server-b"));
+
+        assertEquals("qwen2.5:32b", meta.get("modelName"));
+        assertEquals("localhost", meta.get("gpuLabel"));
+        assertFalse(meta.containsKey("modelsUsed"));
+    }
+
     // --- Helper ---
 
     private DiscussionOrchestrator createOrchestrator(String channels) {
