@@ -118,7 +118,7 @@ class ChatServiceCapacityTest {
 
     /** A service whose calls are placed by {@code planner}; null uses the algorithm over {@code selector}. */
     private ChatService service(GpuCapacityWaiter waiter, String candidatesJson,
-                                ai.kubemoot.agent.modelserver.CallPlanner planner) {
+                                ai.kubemoot.agent.modelserver.CallPlacement planner) {
         var policy = new CandidatePolicy(MAPPER, Optional.ofNullable(candidatesJson), Optional.empty(),
                 CandidatePolicy.DEFAULT_TOLERANCE, 0L, 0L);
         return new ChatService(staticModel, mock(RagClient.class), mcpClient, mock(DiscussionOrchestrator.class),
@@ -722,5 +722,76 @@ class ChatServiceCapacityTest {
                 .map(r -> r.outputTokens().applyAsLong(PREFERRED)).sorted().toList(),
                 "triage and the tool loop each plan the length of their own kind");
         assertEquals(0L, asked.get(0).outputTokens().applyAsLong("a model with no history"));
+    }
+
+    // ---- the placement service cannot answer ----
+
+    /** A placement that cannot reach the service, and last placed the preferred model on {@code lastKnown}. */
+    private static ai.kubemoot.agent.modelserver.CallPlacement unreachableService(String lastKnown) {
+        var placement = mock(ai.kubemoot.agent.modelserver.CallPlacement.class);
+        when(placement.place(any())).thenThrow(new ai.kubemoot.agent.modelserver.PlacementUnavailableException(
+                "placement service unreachable: connection refused"));
+        when(placement.lastKnownServer(PREFERRED)).thenReturn(Optional.ofNullable(lastKnown));
+        return placement;
+    }
+
+    @Test
+    void serviceDown_theCallRunsOnTheLastKnownServer_andSaysSo() {
+        var rig = new ServerState("ollama-a", EP, 1, 0, 0, List.of(PREFERRED), true, "2026-09-27T00:00:00Z",
+                32_768, Map.of(PREFERRED, 20_000L), Map.of());
+        when(selector.readState()).thenReturn(List.of(rig));
+        poolServes(PREFERRED, answering("from the last-known server"));
+        var placement = unreachableService("ollama-a");
+
+        var result = service(null, null, placement).directChat(request(), true, CapacityWait.NONE);
+
+        assertEquals("from the last-known server", result.response());
+        assertEquals("ollama-a", result.serverName());
+        assertTrue(result.pickReason().startsWith("placement service unavailable (degraded)"),
+                "the signal says the call was placed without the service, was " + result.pickReason());
+        assertTrue(result.pickReason().contains("last-known server ollama-a"));
+        verify(placement, never()).releaseTicket(any());
+        verifyNoInteractions(staticModel);
+    }
+
+    @Test
+    void serviceDown_withNoLastKnownServer_theCallRunsOnTheDeclaredEndpoint_andSaysSo() {
+        staticModel = answering("from the declared server");
+        when(selector.readState()).thenReturn(List.of(server(32_768)));
+        var placement = unreachableService(null);
+
+        var result = service(null, null, placement).directChat(request(), true, CapacityWait.NONE);
+
+        assertEquals("from the declared server", result.response());
+        assertEquals("", result.serverName());
+        assertTrue(result.pickReason().contains("placement service unavailable (degraded)"));
+        assertTrue(result.pickReason().contains("declared server"));
+    }
+
+    @Test
+    void serviceDown_aLastKnownServerThatIsGoneIsNotUsed() {
+        staticModel = answering("from the declared server");
+        var elsewhere = new ServerState("ollama-b", EP, 1, 0, 0, List.of(PREFERRED), true, "2026-09-27T00:00:00Z",
+                32_768, Map.of(PREFERRED, 20_000L), Map.of());
+        when(selector.readState()).thenReturn(List.of(elsewhere));
+        var placement = unreachableService("ollama-a");
+
+        var result = service(null, null, placement).directChat(request(), true, CapacityWait.NONE);
+
+        assertEquals("", result.serverName());
+        assertTrue(result.pickReason().contains("declared server"));
+    }
+
+    @Test
+    void serviceDown_theOutcomeOfTheDegradedCallIsStillReported() {
+        var rig = new ServerState("ollama-a", EP, 1, 0, 0, List.of(PREFERRED), true, "2026-09-27T00:00:00Z",
+                32_768, Map.of(PREFERRED, 20_000L), Map.of());
+        when(selector.readState()).thenReturn(List.of(rig));
+        poolServes(PREFERRED, answering("ok"));
+        var placement = unreachableService("ollama-a");
+
+        service(null, null, placement).directChat(request(), true, CapacityWait.NONE);
+
+        verify(placement).recordOutcome(eq("ollama-a"), eq(PREFERRED), anyLong(), eq(true));
     }
 }
