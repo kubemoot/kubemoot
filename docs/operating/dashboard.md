@@ -66,7 +66,7 @@ The sidebar groups pages by what they cover. The Topology page exists by URL (`/
 | Top | Overview, Nodes | Counts and health for every resource type; Kubernetes nodes with GPU detection and model-loading state |
 | Messaging | Discussions, Messages | Multi-agent discussion threads with a timeline view; a NATS subject explorer with a live message viewer |
 | Crews | Crews, Agents, Prompts, Memory, Fitness | Crew and agent configuration, PromptModule contents, crew memory, and fitness suite runs |
-| Models | ModelServers, Models, Embeddings | ModelServer backends with their calibration (phase and, per model, fit, load time, generation, prompt, and parallel speed), Model state, and EmbeddingModel configuration |
+| Models | ModelServers, Models, Embeddings | ModelServer backends with their calibration (phase and, per model, fit, load time, generation, prompt, and parallel speed; an embedding model shows as skipped and a model that could not be measured as failed, each with its reason and no speeds), Model state, and EmbeddingModel configuration |
 | MCPs | MCP Servers, MCP Gateways, Quality Policies, Catalogs, Reports | MCPServer instances and tools, gateway routing, quality policies, catalog discovery, and quality verdicts |
 | Knowledge | RAG Sources | RAGSource indexing status with document and chunk counts |
 | System | Config | The `KubemootConfig` cluster singleton |

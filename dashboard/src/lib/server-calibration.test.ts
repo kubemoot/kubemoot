@@ -89,3 +89,42 @@ describe('calibrationBadge', () => {
 		expect(calibrationBadge('Bogus')).toBe('unknown');
 	});
 });
+
+describe('calibrationRows with skipped and failed models', () => {
+	const rows = calibrationRows({
+		phase: 'Failed',
+		models: [
+			{ model: 'qwen3:8b', fits: true, status: 'Measured', loadMs: 3119, generateTokensPerSecond: 152 },
+			{ model: 'nomic-embed-text:latest', fits: true, status: 'Skipped',
+				reason: 'embedding model: generation speed does not apply' },
+			{ model: 'broken:1b', fits: true, status: 'Failed', reason: 'POST /api/generate: status 500' },
+			{ model: 'quiet:1b', fits: true, status: 'Failed' }
+		]
+	});
+	const byModel = (name: string) => rows.find((r) => r.model === name)!;
+
+	it('marks the outcome of each model', () => {
+		expect(byModel('qwen3:8b').outcome).toBe('measured');
+		expect(byModel('nomic-embed-text:latest').outcome).toBe('skipped');
+		expect(byModel('broken:1b').outcome).toBe('failed');
+	});
+
+	it('keeps the reason of a skipped or failed model', () => {
+		expect(byModel('nomic-embed-text:latest').reason).toContain('embedding model');
+		expect(byModel('broken:1b').reason).toContain('status 500');
+		expect(byModel('quiet:1b').reason).toBe('Could not be measured');
+	});
+
+	it('shows no figures for a skipped or failed model, even if the entry carries some', () => {
+		const odd = calibrationRows({
+			models: [{ model: 'x', fits: true, status: 'Skipped', loadMs: 5000, generateTokensPerSecond: 99,
+				residentMiB: 900, parallelRequests: 2, parallelGenerateTokensPerSecond: 50 }]
+		})[0];
+		expect([odd.load, odd.generate, odd.prompt, odd.parallel, odd.resident]).toEqual(['-', '-', '-', '-', '-']);
+	});
+
+	it('treats an entry without a status as measured', () => {
+		expect(calibrationRows({ models: [{ model: 'old', fits: true, generateTokensPerSecond: 40 }] })[0])
+			.toMatchObject({ outcome: 'measured', generate: '40 tok/s' });
+	});
+});
