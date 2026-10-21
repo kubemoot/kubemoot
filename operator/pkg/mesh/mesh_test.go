@@ -16,15 +16,19 @@ import (
 	"testing"
 	"time"
 
+	"github.com/kubemoot/kubemoot/operator/internal/crewscope"
+	"github.com/kubemoot/kubemoot/operator/pkg/bus"
 	"github.com/kubemoot/kubemoot/operator/pkg/mesh"
 )
+
+const general = "general"
 
 func valid() mesh.Contract {
 	return mesh.Contract{
 		ContractVersion: mesh.ContractVersion,
 		Identity: mesh.Identity{Namespace: "homelab", Crew: "homelab-pilot", Agent: "notes-reader",
-			Role: "tooler", Channels: []string{"general"}, Harness: "goose"},
-		Bus:  mesh.Bus{NATSURL: "nats://nats:4222", Stream: mesh.DiscussStream, Consumer: "sidecar-homelab-homelab-pilot-notes-reader"},
+			Role: "tooler", Channels: []string{general}, Harness: "goose"},
+		Bus:  mesh.Bus{NATSURL: "nats://nats:4222", Stream: bus.DiscussStream, Consumer: "sidecar-homelab-homelab-pilot-notes-reader"},
 		Turn: mesh.Turn{URL: "http://127.0.0.1:9000", Concurrency: 1, DeadlineSeconds: 300},
 		Models: mesh.Models{Aliases: map[string]mesh.Alias{
 			"default": {Candidates: []string{"qwen3:14b"}, Fallback: &mesh.Endpoint{Server: "gpu1", Endpoint: "http://ollama:11434", Model: "qwen3:14b"}},
@@ -55,6 +59,10 @@ func TestParseRefusesWhatTheSidecarCannotServe(t *testing.T) {
 		"a namespace with a dot":      func(c *mesh.Contract) { c.Identity.Namespace = "a.b" },
 		"a missing crew":              func(c *mesh.Contract) { c.Identity.Crew = "" },
 		"a wildcard agent":            func(c *mesh.Contract) { c.Identity.Agent = "*" },
+		"a repeated channel":          func(c *mesh.Contract) { c.Identity.Channels = []string{"a", "a"} },
+		"the broadcast channel":       func(c *mesh.Contract) { c.Identity.Channels = []string{"broadcast"} },
+		"an empty candidate":          func(c *mesh.Contract) { c.Models.Aliases["triage"] = mesh.Alias{Candidates: []string{""}} },
+		"a dotted alias name":         func(c *mesh.Contract) { c.Models.Aliases["a.b"] = mesh.Alias{Candidates: []string{"m"}} },
 		"a channel with a space":      func(c *mesh.Contract) { c.Identity.Channels = []string{"a b"} },
 		"no NATS URL":                 func(c *mesh.Contract) { c.Bus.NATSURL = "" },
 		"a consumer without a stream": func(c *mesh.Contract) { c.Bus.Stream = "" },
@@ -70,7 +78,7 @@ func TestParseRefusesWhatTheSidecarCannotServe(t *testing.T) {
 		"a bad placement URL":    func(c *mesh.Contract) { c.Placement.ServiceURL = "placement" },
 		"a bad gateway URL":      func(c *mesh.Contract) { c.Tools.Gateway = "gw" },
 		"an unknown nativeTools": func(c *mesh.Contract) { c.Tools.NativeTools = "some" },
-		"a bad OTLP endpoint":    func(c *mesh.Contract) { c.Observability.OTLPEndpoint = "collector" },
+		"a bad OTLP endpoint":    func(c *mesh.Contract) { c.Observability = &mesh.Observability{OTLPEndpoint: "collector"} },
 	}
 	for name, mutate := range cases {
 		c := valid()
@@ -117,7 +125,7 @@ func TestDefaults(t *testing.T) {
 		t.Errorf("deadline = %v", got)
 	}
 	// The default progress ack must leave room for several beats inside the operator's AckWait.
-	if mesh.DefaultProgressAck*3 >= 120*time.Second {
+	if mesh.DefaultProgressAck*3 >= mesh.ConsumerAckWait {
 		t.Errorf("progress ack %v is too slow for a 120 s AckWait", mesh.DefaultProgressAck)
 	}
 }
@@ -125,14 +133,14 @@ func TestDefaults(t *testing.T) {
 func TestNamesFollowTheBusContract(t *testing.T) {
 	id := valid().Identity
 	for got, want := range map[string]string{
-		id.DiscussSubject("general", "t1"):  "kubemoot.discuss.homelab.homelab-pilot.general.t1",
+		id.DiscussSubject(general, "t1"):    "kubemoot.discuss.homelab.homelab-pilot.general.t1",
 		id.DiscussWildcard():                "kubemoot.discuss.homelab.homelab-pilot.>",
 		id.LifecycleSubject("ready"):        "kubemoot.lifecycle.homelab.homelab-pilot.ready.notes-reader",
 		id.ArtifactSubject("t1"):            "kubemoot.artifacts.homelab.homelab-pilot.t1",
 		id.ArtifactKey("t1", "agree", "u1"): "homelab/homelab-pilot/t1/notes-reader/agree-u1",
 		id.HeartbeatKey():                   "homelab.notes-reader",
 		id.LatencyKey("gpu1"):               "latency.homelab.notes-reader.gpu1",
-		mesh.ConsumerName(id):               "sidecar-homelab-homelab-pilot-notes-reader",
+		id.ConsumerName():                   "sidecar-homelab-homelab-pilot-notes-reader",
 	} {
 		if got != want {
 			t.Errorf("got %q, want %q", got, want)
@@ -170,5 +178,64 @@ func TestPermissionsScopeASidecarToItsOwnAgent(t *testing.T) {
 	other.Agent = "other"
 	if slices.Equal(p.Publish, other.Permissions().Publish) {
 		t.Error("two agents got the same publish permissions")
+	}
+}
+
+func TestTheContractVersionIsTheBusMajor(t *testing.T) {
+	if major, _, _ := strings.Cut(bus.ContractVersion, "."); major != mesh.ContractVersion {
+		t.Errorf("contract.yaml version %q, bus contract %q", mesh.ContractVersion, bus.ContractVersion)
+	}
+}
+
+func TestSubjectsMatchTheOperatorsCrewScope(t *testing.T) {
+	scope, err := crewscope.New("homelab", "homelab-pilot")
+	if err != nil {
+		t.Fatal(err)
+	}
+	id := valid().Identity
+	if got, want := id.DiscussSubject(general, "t1"), scope.DiscussSubject("general", "t1"); got != want {
+		t.Errorf("mesh %q, crewscope %q", got, want)
+	}
+	for _, bad := range []string{"", "a.b", "a*", "a>", "a b"} {
+		_, err := crewscope.New(bad, "crew")
+		if (mesh.ValidToken("x", bad) == nil) != (err == nil) {
+			t.Errorf("token %q is judged differently", bad)
+		}
+	}
+}
+
+func TestLatencyKeyEncodesTheServerName(t *testing.T) {
+	id := valid().Identity
+	if got := id.LatencyKey("gpu.1:x"); got != "latency.homelab.notes-reader.gpu_2e1_3ax" {
+		t.Errorf("latency key %q", got)
+	}
+}
+
+func TestEachChannelFiltersOnce(t *testing.T) {
+	id := valid().Identity
+	id.Channels = []string{general, general, "broadcast"}
+	if f := id.DiscussFilters(); len(f) != 2 {
+		t.Errorf("want broadcast and general once each, got %v", f)
+	}
+}
+
+func TestTheAckPermissionIsThisAgentsConsumerOnly(t *testing.T) {
+	p := valid().Identity.Permissions()
+	if !slices.Contains(p.Publish, "$JS.ACK.KUBEMOOT_DISCUSS.sidecar-homelab-homelab-pilot-notes-reader.>") {
+		t.Errorf("publish lacks the consumer-scoped ack: %v", p.Publish)
+	}
+	for _, s := range p.Publish {
+		if s == "$JS.ACK.>" || s == "$JS.API.>" {
+			t.Errorf("permission %q reaches other consumers", s)
+		}
+	}
+	other := valid().Identity
+	other.Crew = "other"
+	for _, a := range p.Publish {
+		for _, b := range other.Permissions().Publish {
+			if a == b && strings.Contains(a, "homelab-pilot") {
+				t.Errorf("a different crew shares %q", a)
+			}
+		}
 	}
 }

@@ -35,7 +35,7 @@ const DiscussionSubjectWildcard = "kubemoot.discuss.>"
 
 // DiscussStreamName is the JetStream stream holding discussion messages.
 // Used for the dispatcher's durable consumer binding.
-const DiscussStreamName = "KUBEMOOT_DISCUSS"
+const DiscussStreamName = bus.DiscussStream
 
 // DispatcherDurableName is the JetStream consumer name. MUST be stable
 // across operator pod restarts so the consumer's delivery position
