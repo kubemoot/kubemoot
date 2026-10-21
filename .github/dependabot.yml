@@ -46,6 +46,7 @@ updates:
   - package-ecosystem: gomod
     directories:
       - "/accelerator-mcp"
+      - "/agent-sidecar"
       - "/artifact-access"
       - "/code-sandbox"
       - "/crew-liaison"

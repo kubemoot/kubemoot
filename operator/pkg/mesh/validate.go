@@ -29,6 +29,8 @@ const (
 	DefaultProgressAck = ConsumerAckWait / 4
 	// DefaultAlias is the model alias a harness gets when it names none the contract knows.
 	DefaultAlias = "default"
+	// TriageAlias is the alias for the small model that triage calls use.
+	TriageAlias = "triage"
 )
 
 // Validate checks the whole contract and reports every problem it finds, so an operator or a
