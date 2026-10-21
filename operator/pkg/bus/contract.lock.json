@@ -1408,6 +1408,23 @@
       "type": "integer",
       "required": true
     },
+    "server-state.json#/modelSpeeds{}/loadFactors": {
+      "type": "array"
+    },
+    "server-state.json#/modelSpeeds{}/loadFactors[]": {
+      "type": "object"
+    },
+    "server-state.json#/modelSpeeds{}/loadFactors[]/activeCalls": {
+      "type": "integer",
+      "required": true
+    },
+    "server-state.json#/modelSpeeds{}/loadFactors[]/factor": {
+      "type": "number",
+      "required": true
+    },
+    "server-state.json#/modelSpeeds{}/loadFactors[]/samples": {
+      "type": "integer"
+    },
     "server-state.json#/modelSpeeds{}/loadMs": {
       "type": "integer"
     },

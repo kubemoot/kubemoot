@@ -58,6 +58,9 @@ public class PerformanceHistory {
     static final int MAX_SAMPLES = 32;
     static final int MAX_WAITS = 16;
     static final int MAX_PREDICTIONS = 32;
+    /** After a failed read of the stored history, how long before the next call tries again. */
+    static final long SEED_RETRY_MS = 30_000L;
+    private static final String CALIBRATION = "calibration";
     private static final int QUEUE_CAPACITY = 256;
 
     static final String F_SAMPLES = "samples";
@@ -73,6 +76,13 @@ public class PerformanceHistory {
     /** This agent's entries, by key; loaded from the bucket on first use after a restart. Writer thread only. */
     private final Map<String, ObjectNode> entries = new HashMap<>();
     private final AtomicLong dropped = new AtomicLong();
+    /** What this agent's calls have been generating, per model and kind. */
+    private final OutputLengths outputLengths = new OutputLengths();
+    /** When the agent's stored history was last asked to be read for output lengths; 0 before the first time. */
+    private final AtomicLong lengthsAskedAt = new AtomicLong();
+    /** True once the stored history has been read into the output lengths. */
+    private final java.util.concurrent.atomic.AtomicBoolean lengthsSeeded =
+            new java.util.concurrent.atomic.AtomicBoolean();
     /** Exports each recorded call and wait as metrics. */
     private final SchedulerMetrics metrics;
 
@@ -106,6 +116,62 @@ public class PerformanceHistory {
         return dropped.get();
     }
 
+    /**
+     * The tokens this agent's calls of {@code kind} on {@code model} have been
+     * generating, as the median of the last few; 0 when there are too few to say. Until
+     * the agent's stored history has been read into them, which the first call after a
+     * restart asks for on the background writer (and asks for again every
+     * {@value #SEED_RETRY_MS} ms if that did not happen), a restarted agent plans from
+     * what it generated since.
+     */
+    public long expectedOutputTokens(String model, String kind) {
+        long now = System.currentTimeMillis();
+        long asked = lengthsAskedAt.get();
+        if (!lengthsSeeded.get() && now - asked >= SEED_RETRY_MS && lengthsAskedAt.compareAndSet(asked, now)) {
+            writer.execute(this::seedOutputLengths);
+        }
+        return outputLengths.expected(model, kind);
+    }
+
+    /** Reads this agent's stored requests into the output lengths, behind any call recorded since. */
+    private void seedOutputLengths() {
+        KeyValue kv = bucket();
+        if (kv == null) {
+            return;
+        }
+        String suffix = "." + ModelKeys.token(agentId);
+        List<JsonNode> mine = new ArrayList<>();
+        try {
+            for (String key : kv.keys()) {
+                JsonNode n = key.endsWith(suffix) ? get(kv, key) : null;
+                if (n != null) {
+                    mine.add(n);
+                }
+            }
+        } catch (Exception e) {
+            log.debug("Reading {} for output lengths failed: {}", BUCKET, e.getMessage());
+            return;
+        }
+        replayInto(mine);
+        lengthsSeeded.set(true);
+    }
+
+    /** Feeds the successful requests of {@code entries}, newest first, to the output lengths as older history. */
+    private void replayInto(List<JsonNode> entries) {
+        record Past(long at, String model, String kind, long tokens) {}
+        List<Past> past = new ArrayList<>();
+        for (JsonNode entry : entries) {
+            for (JsonNode s : entry.path(F_SAMPLES)) {
+                if (s.path("ok").asBoolean(false) && !CALIBRATION.equals(s.path("kind").asText())) {
+                    past.add(new Past(s.path("at").asLong(0), entry.path("model").asText(""),
+                            s.path("kind").asText(""), s.path("outputTokens").asLong(0)));
+                }
+            }
+        }
+        past.sort(java.util.Comparator.comparingLong(Past::at).reversed());
+        past.forEach(p -> outputLengths.addOlder(p.model(), p.kind(), p.tokens()));
+    }
+
     private void drop(String why) {
         long n = dropped.incrementAndGet();
         log.debug("Dropped a performance history write ({}); {} dropped so far", why, n);
@@ -129,6 +195,9 @@ public class PerformanceHistory {
             return;
         }
         metrics.call(o);
+        if (o.ok()) {
+            outputLengths.add(o.model(), o.kind(), o.outputTokens());
+        }
         List<Item> items = new ArrayList<>();
         items.add(new Item(F_SAMPLES, sample(o), MAX_SAMPLES));
         try {

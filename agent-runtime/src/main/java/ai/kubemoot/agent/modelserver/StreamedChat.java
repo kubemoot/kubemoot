@@ -22,8 +22,8 @@ import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * One chat call sent as a stream and timed: how long until the first token came
- * back (of any kind: text, thinking, or a tool call) and how long the whole reply
- * took. Any OpenAI-compatible server streams, so these timings are the same on
+ * back (of any kind: text, thinking, or a tool call), how many text and thinking
+ * chunks came, and how long the whole reply took. Any OpenAI-compatible server streams, so these timings are the same on
  * every engine. Time to the first token covers reading the prompt, plus loading
  * the model when the call was cold; the rest is generation.
  *
@@ -33,13 +33,27 @@ import java.util.concurrent.atomic.AtomicReference;
  */
 public final class StreamedChat {
 
-    /** The reply, the milliseconds to its first token, and its total milliseconds. */
-    public record Timed(ChatResponse response, long firstTokenMs, long totalMs) {
+    /**
+     * The reply, the milliseconds to its first token, its total milliseconds, and how
+     * many text and thinking chunks arrived ({@value #UNKNOWN_CHUNKS} when not counted).
+     * A server streams about one chunk per token, so far fewer chunks than generated
+     * tokens means the model generated tokens the stream never delivered: reasoning
+     * the server keeps out of the stream.
+     */
+    public record Timed(ChatResponse response, long firstTokenMs, long totalMs, long chunks) {
+        /** A reply whose chunks were not counted. */
+        public Timed(ChatResponse response, long firstTokenMs, long totalMs) {
+            this(response, firstTokenMs, totalMs, UNKNOWN_CHUNKS);
+        }
+
         /** Milliseconds spent generating after the first token. */
         public long generateMs() {
             return Math.max(totalMs - firstTokenMs, 0L);
         }
     }
+
+    /** The chunk count of a reply that was not counted. */
+    public static final long UNKNOWN_CHUNKS = -1L;
 
     /** Extra wait beyond the model's own HTTP timeout before giving up on a stream. */
     static final Duration GRACE = Duration.ofSeconds(5);
@@ -53,13 +67,14 @@ public final class StreamedChat {
      */
     public static Timed send(StreamingChatModel model, ChatRequest request, Duration timeout) {
         long start = System.currentTimeMillis();
-        var handler = new Handler(start, new AtomicLong(-1L), new AtomicReference<>(), new CompletableFuture<>());
+        var handler = new Handler(start, new AtomicLong(-1L), new AtomicReference<>(), new CompletableFuture<>(),
+                new AtomicLong());
         model.chat(request, handler);
         try {
             ChatResponse response = handler.done().get(timeout.plus(GRACE).toMillis(), TimeUnit.MILLISECONDS);
             long total = System.currentTimeMillis() - start;
             long first = handler.firstAt().get();
-            return new Timed(response, first < 0 ? total : first, total);
+            return new Timed(response, first < 0 ? total : first, total, handler.chunks().get());
         } catch (ExecutionException e) {
             handler.cancel();
             throw e.getCause() instanceof RuntimeException r ? r : new IllegalStateException(e.getCause());
@@ -78,7 +93,8 @@ public final class StreamedChat {
      * on the whole reply or an error.
      */
     private record Handler(long start, AtomicLong firstAt, AtomicReference<StreamingHandle> handle,
-                           CompletableFuture<ChatResponse> done) implements StreamingChatResponseHandler {
+                           CompletableFuture<ChatResponse> done, AtomicLong chunks)
+            implements StreamingChatResponseHandler {
 
         private void mark(StreamingHandle h) {
             handle.compareAndSet(null, h);
@@ -95,11 +111,13 @@ public final class StreamedChat {
 
         @Override
         public void onPartialResponse(PartialResponse response, PartialResponseContext context) {
+            chunks.incrementAndGet();
             mark(context.streamingHandle());
         }
 
         @Override
         public void onPartialThinking(PartialThinking thinking, PartialThinkingContext context) {
+            chunks.incrementAndGet();
             mark(context.streamingHandle());
         }
 

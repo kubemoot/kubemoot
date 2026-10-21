@@ -98,6 +98,7 @@ class StreamedChatTest {
         assertEquals(timed.totalMs(), timed.firstTokenMs() + timed.generateMs());
         assertEquals(25, timed.response().tokenUsage().inputTokenCount());
         assertEquals(2, timed.response().tokenUsage().outputTokenCount());
+        assertEquals(2, timed.chunks(), "one chunk per delivered token");
         var sent = new ObjectMapper().readTree(body.get());
         assertTrue(sent.path("stream").asBoolean(), "the request asks for a stream");
         assertTrue(sent.path("stream_options").path("include_usage").asBoolean(),
@@ -178,5 +179,42 @@ class StreamedChatTest {
                 .streamed(true, 0L, timed, 25, CallContext.MIN_TIMED_TOKENS - 1);
         assertEquals(CallObservation.UNKNOWN, shortReply.evalMs(),
                 "a short reply's rate would be overstated: its first token is not timed as generation");
+    }
+
+    @Test
+    void aModelThatReasonsOutOfSightGeneratesTokensItNeverDelivers_soItsTimingsAreNotRecorded() {
+        // 258 tokens generated, 2 delivered: the first delivered token came after the reasoning.
+        var hidden = new StreamedChat.Timed(null, 4_415, 4_477, 2);
+        var obs = new CallContext("p", "m", CallObservation.KIND_TRIAGE, false, 3).streamed(true, 0L, hidden, 1_413, 258);
+
+        assertEquals(CallObservation.UNKNOWN, obs.evalMs(), "62 ms over 258 tokens would read as 4,000 tokens per second");
+        assertEquals(CallObservation.UNKNOWN, obs.promptEvalMs(), "the wait was reasoning, not reading the prompt");
+        assertEquals(CallObservation.UNKNOWN, obs.firstTokenMs());
+        assertEquals(4_477, obs.durationMs(), "the duration and the tokens are still true");
+        assertEquals(258, obs.outputTokens());
+    }
+
+    @Test
+    void aStreamThatDeliveredItsTokensIsTimed_andSoIsOneWhoseChunksWereNotCounted() {
+        var delivered = new CallContext("p", "m", CallObservation.KIND_SIMPLE, false, 1)
+                .streamed(true, 0L, new StreamedChat.Timed(null, 400, 1_400, 48), 25, 50);
+        assertEquals(1_000, delivered.evalMs());
+        assertEquals(400, delivered.firstTokenMs());
+
+        var uncounted = new CallContext("p", "m", CallObservation.KIND_SIMPLE, false, 1)
+                .streamed(true, 0L, new StreamedChat.Timed(null, 400, 1_400), 25, 50);
+        assertEquals(1_000, uncounted.evalMs());
+
+        assertTrue(CallContext.deliveredItsTokens(new StreamedChat.Timed(null, 1, 2, 80), 100), "exactly four fifths");
+        assertFalse(CallContext.deliveredItsTokens(new StreamedChat.Timed(null, 1, 2, 79), 100));
+        assertTrue(CallContext.deliveredItsTokens(new StreamedChat.Timed(null, 1, 2, 0), 0), "no tokens to account for");
+    }
+
+    @Test
+    void aFailedStreamHasNoTimings() {
+        var failed = new CallContext("p", "m", CallObservation.KIND_SIMPLE, false, 1)
+                .streamed(false, 0L, new StreamedChat.Timed(null, 400, 1_400, 48), 25, 50);
+        assertEquals(CallObservation.UNKNOWN, failed.firstTokenMs());
+        assertEquals(CallObservation.UNKNOWN, failed.evalMs());
     }
 }

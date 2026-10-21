@@ -19,6 +19,7 @@ import (
 	"cmp"
 	"encoding/json"
 	"fmt"
+	"math"
 	"slices"
 	"sort"
 	"strings"
@@ -202,7 +203,7 @@ func generateSpeed(s bus.SchedulerPerformanceSamplesElem) (int64, bool) {
 	return s.OutputTokens * 1000 / s.EvalMs, true
 }
 
-func median(values []int64) int64 {
+func median[T int64 | float64](values []T) T {
 	if len(values) == 0 {
 		return 0
 	}
@@ -237,6 +238,110 @@ func Drifted(calibrated map[string]int64, observed []Observation) []ModelDrift {
 		if ratio < MinRatio || ratio > MaxRatio {
 			out = append(out, ModelDrift{Model: o.Model, CalibratedTokensPerSecond: want,
 				ObservedTokensPerSecond: o.SoloTokensPerSecond, Samples: o.SoloSamples})
+		}
+	}
+	return out
+}
+
+// Speeds are a model's calibrated speeds, in tokens per second.
+type Speeds struct {
+	PromptTokensPerSecond   int64
+	GenerateTokensPerSecond int64
+}
+
+// LoadFactor is how much longer calls took, at the median, once at least ActiveCalls
+// calls held the server as they started (themselves included), than calls that ran alone,
+// over Samples calls.
+type LoadFactor struct {
+	ActiveCalls int64   `json:"activeCalls"`
+	Factor      float64 `json:"factor"`
+	Samples     int     `json:"samples"`
+}
+
+// MinLoadSamples is the fewest calls a load level needs, and the solo calls it is compared
+// with, for its factor to be published.
+const MinLoadSamples = 5
+
+// loadLevels are the lowest numbers of calls on the server at which each level starts.
+var loadLevels = []int64{1, 2, 3, 5, 9}
+
+// Contention is, per model, how much slower crew calls ran as more calls shared the
+// server. Each call's time is divided by the time its tokens would take at the model's
+// calibrated speeds, so calls of different lengths compare; a level's factor is its median
+// over the median of the calls that ran alone. A level without enough calls, or a model
+// without enough solo calls or calibrated speeds, publishes nothing, and a factor never
+// falls below the one of a lower level. Calibration probes, cold starts, failed calls and
+// calls that started before since (epoch milliseconds) are left out.
+func Contention(entries []bus.SchedulerPerformance, server string, since int64,
+	speeds map[string]Speeds) map[string][]LoadFactor {
+	out := map[string][]LoadFactor{}
+	for model, byLevel := range loadRatios(entries, server, since, speeds) {
+		if factors := loadFactors(byLevel); len(factors) > 0 {
+			out[model] = factors
+		}
+	}
+	return out
+}
+
+// loadRatios are the load ratios of the crew calls on server, per model and load level.
+func loadRatios(entries []bus.SchedulerPerformance, server string, since int64,
+	speeds map[string]Speeds) map[string][][]float64 {
+	ratios := map[string][][]float64{}
+	for _, e := range entries {
+		sp, ok := speeds[e.Model]
+		if e.Server != server || !ok || sp.PromptTokensPerSecond <= 0 || sp.GenerateTokensPerSecond <= 0 {
+			continue
+		}
+		for _, s := range e.Samples {
+			r, level, ok := loadRatio(s, sp, since)
+			if !ok {
+				continue
+			}
+			if ratios[e.Model] == nil {
+				ratios[e.Model] = make([][]float64, len(loadLevels))
+			}
+			ratios[e.Model][level] = append(ratios[e.Model][level], r)
+		}
+	}
+	return ratios
+}
+
+// loadRatio is a crew call's time over the time its tokens take at the calibrated speeds,
+// and the load level it ran at; false for a call that tells nothing about load.
+func loadRatio(s bus.SchedulerPerformanceSamplesElem, sp Speeds, since int64) (float64, int, bool) {
+	if !s.Ok || s.ColdStart || s.At < since || s.DurationMs <= 0 || s.ActiveCalls < 1 ||
+		s.Kind == bus.SchedulerPerformanceSamplesElemKindCalibration {
+		return 0, 0, false
+	}
+	modeled := float64(s.PromptTokens)/float64(sp.PromptTokensPerSecond) +
+		float64(s.OutputTokens)/float64(sp.GenerateTokensPerSecond)
+	if modeled <= 0 {
+		return 0, 0, false
+	}
+	level := 0
+	for i, from := range loadLevels {
+		if s.ActiveCalls >= from {
+			level = i
+		}
+	}
+	return float64(s.DurationMs) / 1000 / modeled, level, true
+}
+
+// loadFactors are the published factors of the levels above the solo one.
+func loadFactors(byLevel [][]float64) []LoadFactor {
+	if len(byLevel[0]) < MinLoadSamples {
+		return nil
+	}
+	solo := median(byLevel[0])
+	var out []LoadFactor
+	floor := 1.0
+	for i := 1; i < len(loadLevels); i++ {
+		if len(byLevel[i]) < MinLoadSamples {
+			continue
+		}
+		floor = max(floor, math.Round(median(byLevel[i])/solo*100)/100)
+		if floor > 1.0 {
+			out = append(out, LoadFactor{ActiveCalls: loadLevels[i], Factor: floor, Samples: len(byLevel[i])})
 		}
 	}
 	return out

@@ -125,6 +125,9 @@ type ModelSpeed struct {
 	GenerateTokensPerSecond         int64 `json:"generateTokensPerSecond"`
 	ObservedGenerateTokensPerSecond int64 `json:"observedGenerateTokensPerSecond,omitempty"`
 	ObservedSamples                 int   `json:"observedSamples,omitempty"`
+	// LoadFactors is how much longer crew calls took as more of them shared the
+	// server (see perf.Contention); absent with too few calls to tell.
+	LoadFactors []perf.LoadFactor `json:"loadFactors,omitempty"`
 }
 
 // ModelServerReconciler reconciles a ModelServer object
@@ -681,7 +684,8 @@ func (r *ModelServerReconciler) updateStatusWaiting(ctx context.Context, server 
 // methods no-op, which leaves agents on whatever they were previously
 // configured against (legacy single-endpoint env vars).
 func (r *ModelServerReconciler) publishStateToKV(ctx context.Context, server *aiv1alpha1.ModelServer) {
-	speeds := modelSpeeds(server.Status.Calibration, r.observed(ctx, server))
+	observed, load := r.observed(ctx, server)
+	speeds := modelSpeeds(server.Status.Calibration, observed, load)
 	recordServerMetrics(server, speeds)
 	if r.NATSPublisher == nil {
 		return
@@ -921,25 +925,39 @@ func (r *ModelServerReconciler) SetupWithManager(mgr ctrl.Manager) error {
 
 // observed is what crew calls showed for each model on the server since its
 // calibration; none when the history cannot be read or there is no calibration.
-func (r *ModelServerReconciler) observed(ctx context.Context, server *aiv1alpha1.ModelServer) []perf.Observation {
+func (r *ModelServerReconciler) observed(ctx context.Context,
+	server *aiv1alpha1.ModelServer) ([]perf.Observation, map[string][]perf.LoadFactor) {
 	cal := server.Status.Calibration
 	if r.NATSPublisher == nil || !r.NATSPublisher.Configured() || cal == nil ||
 		cal.Phase != calibrationPhaseCalibrated || cal.CompletedAt == nil {
-		return nil
+		return nil, nil
 	}
 	entries, err := perf.ReadHistory(r.NATSPublisher, server.Name)
 	if err != nil {
 		logf.FromContext(ctx).V(1).Info("could not read the performance history", "server", server.Name, "err", err)
-		return nil
+		return nil, nil
 	}
 	_, since := perf.CalibratedSpeeds(cal)
-	return perf.Observe(entries, server.Name, since)
+	return perf.Observe(entries, server.Name, since), perf.Contention(entries, server.Name, since, calibratedSpeeds(cal))
 }
 
-// modelSpeeds is, for each model calibration found to fit, its calibrated costs and
-// the observed generation speed of solo crew calls once there are enough of them to
-// trust (perf.MinSamples).
-func modelSpeeds(cal *aiv1alpha1.ServerCalibration, observed []perf.Observation) map[string]ModelSpeed {
+// calibratedSpeeds are the prompt and generation speeds of each model calibration found to fit.
+func calibratedSpeeds(cal *aiv1alpha1.ServerCalibration) map[string]perf.Speeds {
+	out := map[string]perf.Speeds{}
+	for _, m := range cal.Models {
+		if m.Fits && m.HasSpeeds() {
+			out[m.Model] = perf.Speeds{PromptTokensPerSecond: m.PromptTokensPerSecond,
+				GenerateTokensPerSecond: m.GenerateTokensPerSecond}
+		}
+	}
+	return out
+}
+
+// modelSpeeds is, for each model calibration found to fit, its calibrated costs, the
+// observed generation speed of solo crew calls once there are enough of them to trust
+// (perf.MinSamples), and how much slower calls ran as more shared the server.
+func modelSpeeds(cal *aiv1alpha1.ServerCalibration, observed []perf.Observation,
+	load map[string][]perf.LoadFactor) map[string]ModelSpeed {
 	if cal == nil {
 		return nil
 	}
@@ -953,7 +971,7 @@ func modelSpeeds(cal *aiv1alpha1.ServerCalibration, observed []perf.Observation)
 			continue
 		}
 		speed := ModelSpeed{LoadMs: m.LoadMs, PromptTokensPerSecond: m.PromptTokensPerSecond,
-			GenerateTokensPerSecond: m.GenerateTokensPerSecond}
+			GenerateTokensPerSecond: m.GenerateTokensPerSecond, LoadFactors: load[m.Model]}
 		if o, ok := seen[m.Model]; ok && o.SoloSamples >= perf.MinSamples {
 			speed.ObservedGenerateTokensPerSecond, speed.ObservedSamples = o.SoloTokensPerSecond, o.SoloSamples
 		}

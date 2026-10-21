@@ -25,7 +25,12 @@ final class PlacementSurvey {
     }
 
     /** The options of the first model, in the request's order, that has any. */
-    record Survey(String model, List<Surveyed> options) {
+    record Survey(String model, List<Surveyed> options, List<Surveyed> elsewhere) {
+
+        /** A survey of one model. */
+        Survey(String model, List<Surveyed> options) {
+            this(model, options, List.of());
+        }
 
         /**
          * The option predicted to finish soonest; empty when there is none or when any
@@ -46,17 +51,22 @@ final class PlacementSurvey {
 
         /** The option of {@code model} on {@code server}, when this survey weighed it. */
         Optional<Surveyed> of(String chosenModel, String server) {
-            if (!model.equals(chosenModel)) {
-                return Optional.empty();
-            }
-            return options.stream().filter(s -> s.server().equals(server)).findFirst();
+            return everything().filter(s -> s.model().equals(chosenModel) && s.server().equals(server)).findFirst();
         }
 
-        /** The options other than {@code chosenModel} on {@code server}, as alternatives. */
+        private java.util.stream.Stream<Surveyed> everything() {
+            return java.util.stream.Stream.concat(options.stream(), elsewhere.stream());
+        }
+
+        /**
+         * Every option other than {@code chosenModel} on {@code server}, as alternatives:
+         * the other servers of the model, then the other acceptable models, which the
+         * learned policy weighs for the explanation only (it keeps the crew's model).
+         */
         List<PlacementDecision.Alternative> alternativesTo(String chosenModel, String server) {
             List<PlacementDecision.Alternative> out = new ArrayList<>();
-            for (Surveyed s : options) {
-                boolean chosen = model.equals(chosenModel) && s.server().equals(server);
+            for (Surveyed s : everything().toList()) {
+                boolean chosen = s.model().equals(chosenModel) && s.server().equals(server);
                 if (!chosen) {
                     out.add(new PlacementDecision.Alternative(s.server(), s.model(), s.option().warm(),
                             s.option().startsNow(), s.prediction().orElse(null)));
@@ -75,23 +85,40 @@ final class PlacementSurvey {
         if (selector == null) {
             return Optional.empty();
         }
+        String first = null;
+        List<Surveyed> options = List.of();
+        List<Surveyed> elsewhere = new ArrayList<>();
         for (String model : request.acceptable()) {
-            long fp = request.footprint().applyAsLong(model);
-            List<ServerSelector.Option> options = fp <= 0 ? List.of()
-                    : selector.options(model, fp, request.kv().applyAsLong(model), request.promptTokens());
-            if (!options.isEmpty()) {
-                return Optional.of(new Survey(model, surveyed(model, options, request.promptTokens())));
+            List<Surveyed> surveyed = surveyedOptions(selector, request, model);
+            if (surveyed.isEmpty()) {
+                continue;
+            }
+            if (first == null) {
+                first = model;
+                options = surveyed;
+            } else {
+                elsewhere.addAll(surveyed);
             }
         }
-        return Optional.empty();
+        return first == null ? Optional.empty() : Optional.of(new Survey(first, options, elsewhere));
+    }
+
+    /** The options of {@code model} that run now or soon, with their predictions; empty when it has none. */
+    private static List<Surveyed> surveyedOptions(ServerSelector selector, PlacementRequest request, String model) {
+        long fp = request.footprint().applyAsLong(model);
+        List<ServerSelector.Option> options = fp <= 0 ? List.of()
+                : selector.options(model, fp, request.kv().applyAsLong(model), request.promptTokens());
+        return options.isEmpty() ? List.of()
+                : surveyed(model, options, request.promptTokens(), request.outputTokens().applyAsLong(model));
     }
 
     /** The options on servers that have the model (loaded or downloaded); others cannot serve the call. */
-    private static List<Surveyed> surveyed(String model, List<ServerSelector.Option> options, long promptTokens) {
+    private static List<Surveyed> surveyed(String model, List<ServerSelector.Option> options, long promptTokens,
+                                           long outputTokens) {
         List<Surveyed> out = new ArrayList<>();
         for (ServerSelector.Option o : options) {
             if (o.server().hasModel(model)) {
-                out.add(new Surveyed(model, o, LearnedPlacement.predict(o, model, promptTokens)));
+                out.add(new Surveyed(model, o, LearnedPlacement.predict(o, model, promptTokens, outputTokens)));
             }
         }
         return out;

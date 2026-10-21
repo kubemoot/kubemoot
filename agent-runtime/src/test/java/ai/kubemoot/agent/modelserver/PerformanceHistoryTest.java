@@ -413,4 +413,94 @@ class PerformanceHistoryTest {
         assertEquals(1_200, warm.promptEvalMs());
         assertEquals(CallObservation.UNKNOWN, call(true, false, 1).firstTokenMs());
     }
+
+    // ---- output lengths ----
+
+    private static CallObservation callOf(String kind, long outputTokens, boolean ok) {
+        return new CallObservation(SERVER, MODEL, kind, ok, false, 1000, outputTokens, 5_000, -1, -1, -1, 1, 2_000L);
+    }
+
+    @Test
+    void expectedOutputTokens_followsWhatThisAgentsCallsGenerated() {
+        var h = history(new InMemoryKv().server(PerformanceHistory.BUCKET), "a");
+        for (long t : new long[] {500, 700, 600}) {
+            h.record(callOf(CallObservation.KIND_SIMPLE, t, true));
+        }
+        h.record(callOf(CallObservation.KIND_SIMPLE, 9_000, false));
+        h.record(callOf(CallObservation.KIND_TRIAGE, 250, true));
+
+        assertEquals(600, h.expectedOutputTokens(MODEL, CallObservation.KIND_SIMPLE), "a failed call is not a length");
+        assertEquals(0, h.expectedOutputTokens(MODEL, CallObservation.KIND_TRIAGE), "one call is too few");
+        assertEquals(0, h.expectedOutputTokens("other", CallObservation.KIND_SIMPLE));
+    }
+
+    @Test
+    void afterARestart_theAgentPlansFromWhatItGeneratedBefore() throws Exception {
+        var bucket = new InMemoryKv();
+        var before = history(bucket.server(PerformanceHistory.BUCKET), "a");
+        for (long t : new long[] {800, 900, 1_000}) {
+            before.record(callOf(CallObservation.KIND_TOOL_TURN, t, true));
+        }
+        var other = history(bucket.server(PerformanceHistory.BUCKET), "b");
+        for (long t : new long[] {10, 10, 10}) {
+            other.record(callOf(CallObservation.KIND_TOOL_TURN, t, true));
+        }
+
+        var restarted = history(bucket.server(PerformanceHistory.BUCKET), "a");
+
+        assertEquals(900, restarted.expectedOutputTokens(MODEL, CallObservation.KIND_TOOL_TURN),
+                "its own calls only, not another agent's");
+    }
+
+    @Test
+    void withoutTheBucket_thereIsNoLength_andTheReadIsTriedAgainLater() {
+        var nats = mock(NatsConnectionProvider.class);
+        when(nats.getConnection()).thenReturn(null);
+        var h = history(nats, "a");
+
+        assertEquals(0, h.expectedOutputTokens(MODEL, CallObservation.KIND_SIMPLE));
+        assertEquals(0, h.expectedOutputTokens(MODEL, CallObservation.KIND_SIMPLE), "no read storm while it is down");
+    }
+
+    @Test
+    void storedHistoryReadAfterNewerCallsGoesBehindThem() throws Exception {
+        var bucket = new InMemoryKv();
+        var before = history(bucket.server(PerformanceHistory.BUCKET), "a");
+        for (int i = 0; i < 20; i++) {
+            before.record(new CallObservation(SERVER, MODEL, CallObservation.KIND_SIMPLE, true, false, 10, 100, 1_000,
+                    -1, -1, -1, 1, 1_000L + i));
+        }
+        // The restarted agent's writer is held back, as a busy background thread would be.
+        var queued = new java.util.ArrayList<Runnable>();
+        var props = mock(AgentProperties.class);
+        when(props.agentName()).thenReturn("a");
+        when(props.namespace()).thenReturn(Optional.of("crew-ns"));
+        var restarted = new PerformanceHistory(bucket.server(PerformanceHistory.BUCKET), MAPPER, props, queued::add,
+                SchedulerMetrics.none());
+        assertEquals(0, restarted.expectedOutputTokens(MODEL, CallObservation.KIND_SIMPLE));
+        for (int i = 0; i < 16; i++) {
+            restarted.record(new CallObservation(SERVER, MODEL, CallObservation.KIND_SIMPLE, true, false, 10, 900,
+                    1_000, -1, -1, -1, 1, 5_000L + i));
+        }
+
+        queued.forEach(Runnable::run);
+
+        assertEquals(900, restarted.expectedOutputTokens(MODEL, CallObservation.KIND_SIMPLE),
+                "the sixteen newest calls are the window, whatever was read after them");
+    }
+
+    @Test
+    void aReadThatNeverRan_isAskedForAgain() {
+        var dropped = new java.util.ArrayList<Runnable>();
+        var props = mock(AgentProperties.class);
+        when(props.agentName()).thenReturn("a");
+        when(props.namespace()).thenReturn(Optional.of("crew-ns"));
+        var h = new PerformanceHistory(new InMemoryKv().server(PerformanceHistory.BUCKET), MAPPER, props,
+                dropped::add, SchedulerMetrics.none());
+
+        h.expectedOutputTokens(MODEL, CallObservation.KIND_SIMPLE);
+        h.expectedOutputTokens(MODEL, CallObservation.KIND_SIMPLE);
+
+        assertEquals(1, dropped.size(), "asked once, not on every call");
+    }
 }

@@ -41,9 +41,10 @@ public class LearnedPlacement implements PlacementPolicy {
     private static final Logger log = LoggerFactory.getLogger(LearnedPlacement.class);
 
     /**
-     * Output tokens a call is planned to generate. Every option of a call is planned
-     * with the same length, so it scales the generation term evenly and the ranking
-     * follows each server's generation speed.
+     * Output tokens a call is planned to generate when nothing is known of what the
+     * agent's calls generate. Every option of a call is planned with the same length,
+     * so it scales the generation term evenly and the ranking follows each server's
+     * generation speed.
      */
     static final long EXPECTED_OUTPUT_TOKENS = 256;
 
@@ -141,6 +142,18 @@ public class LearnedPlacement implements PlacementPolicy {
      * guessed fast.
      */
     static Optional<Prediction> predict(ServerSelector.Option o, String model, long promptTokens) {
+        return predict(o, model, promptTokens, 0L);
+    }
+
+    /**
+     * {@link #predict(ServerSelector.Option, String, long)} for a call expected to
+     * generate {@code outputTokens} (0 plans {@link #EXPECTED_OUTPUT_TOKENS}). On a
+     * server with a free slot, other calls sharing it slow this one down: the model's
+     * load factor for the calls it would run among stretches the prompt and the
+     * generation, and the stretch is counted in the wait. A server without a free
+     * slot makes the call wait instead, which the wait already covers.
+     */
+    static Optional<Prediction> predict(ServerSelector.Option o, String model, long promptTokens, long outputTokens) {
         Optional<ModelSpeed> speed = o.server().speedOf(model);
         if (speed.isEmpty() || speed.get().generateSpeed() <= 0 || speed.get().promptTokensPerSecond() <= 0) {
             return Optional.empty();
@@ -148,7 +161,8 @@ public class LearnedPlacement implements PlacementPolicy {
         ModelSpeed s = speed.get();
         double load = o.warm() ? 0.0 : o.server().switchSeconds(model).orElse(s.loadMs() / 1000.0);
         double prompt = Math.max(promptTokens, 0L) / (double) s.promptTokensPerSecond();
-        double generate = EXPECTED_OUTPUT_TOKENS / (double) s.generateSpeed();
-        return Optional.of(new Prediction(Math.max(o.waitSeconds(), 0.0), load, prompt, generate));
+        double generate = (outputTokens > 0 ? outputTokens : EXPECTED_OUTPUT_TOKENS) / (double) s.generateSpeed();
+        double sharing = o.freeSlot() ? (prompt + generate) * (s.slowdown(o.activeCalls() + 1L) - 1.0) : 0.0;
+        return Optional.of(new Prediction(Math.max(o.waitSeconds(), 0.0) + sharing, load, prompt, generate));
     }
 }

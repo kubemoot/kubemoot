@@ -60,7 +60,20 @@
           "promptTokensPerSecond": { "type": "integer", "description": "Prompt processing speed calibration measured; 0 when not measured." },
           "generateTokensPerSecond": { "type": "integer", "description": "Generation speed of one request calibration measured." },
           "observedGenerateTokensPerSecond": { "type": "integer", "description": "Median generation speed of warm crew calls that ran alone on the server since the calibration; 0 with too few such calls to trust." },
-          "observedSamples": { "type": "integer", "description": "How many such calls the observed median is over." }
+          "observedSamples": { "type": "integer", "description": "How many such calls the observed median is over." },
+          "loadFactors": {
+            "type": "array",
+            "description": "How much longer crew calls took as more of them shared the server, from the calls since the calibration; absent with too few calls to tell. Each level applies to every call that starts among at least that many calls on the server (itself included), up to the next level.",
+            "items": {
+              "type": "object",
+              "required": ["activeCalls", "factor"],
+              "properties": {
+                "activeCalls": { "type": "integer", "description": "The lowest number of calls on the server, the call itself included, the factor applies at." },
+                "factor": { "type": "number", "description": "How many times as long calls took, at the median, as calls that ran alone, with their tokens measured at the calibrated speeds. Never below the factor of a lower level." },
+                "samples": { "type": "integer", "description": "How many calls the median is over." }
+              }
+            }
+          }
         }
       },
       "description": "What each model costs on the server, by model: what calibration measured, and how fast crew calls have run since. Only models calibration found to fit."

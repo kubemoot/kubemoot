@@ -477,4 +477,142 @@ class LearnedPlacementTest {
         assertEquals(GPU, decisions.get(0).learned().server(), "the learned policy predicts the GPU finishes first");
         assertEquals(ShadowPlacement.Agreement.DIFFER, decisions.get(0).agreement());
     }
+
+    // ---- what the call is expected to generate, and the calls sharing the server ----
+
+    private static final ModelSpeed SHARED_SPEED = new ModelSpeed(0, 1_000, 100, 0, 0, List.of(
+            new ModelSpeed.LoadFactor(2, 1.1), new ModelSpeed.LoadFactor(5, 1.5)));
+
+    private ServerState sharedServer() {
+        return server(GPU, List.of(SMALL), Map.of(SMALL, SHARED_SPEED));
+    }
+
+    @Test
+    void theGenerationIsPlannedWithTheLengthTheAgentsCallsHaveHad() {
+        var option = idle(sharedServer(), true);
+
+        var planned = LearnedPlacement.predict(option, SMALL, 1_000, 900).orElseThrow();
+        var byDefault = LearnedPlacement.predict(option, SMALL, 1_000).orElseThrow();
+
+        assertEquals(9.0, planned.generate(), 1e-9, "900 tokens at 100 per second");
+        assertEquals(LearnedPlacement.EXPECTED_OUTPUT_TOKENS / 100.0, byDefault.generate(), 1e-9);
+        assertEquals(1.0, planned.prompt(), 1e-9);
+    }
+
+    @Test
+    void callsSharingTheServerStretchTheCall_andTheStretchIsInTheWait() {
+        var option = new ServerSelector.Option(sharedServer(), true, true, 0.0, 5);
+
+        var p = LearnedPlacement.predict(option, SMALL, 1_000, 900).orElseThrow();
+
+        // Six calls would share it (five held plus this one): 1.5 times the 1 s prompt and 9 s generation.
+        assertEquals(5.0, p.queue(), 1e-9);
+        assertEquals(15.0, p.total(), 1e-9);
+        assertEquals(0.0, LearnedPlacement.predict(new ServerSelector.Option(sharedServer(), true, true, 0.0, 0),
+                SMALL, 1_000, 900).orElseThrow().queue(), 1e-9, "alone: no stretch");
+    }
+
+    @Test
+    void theStretchIsTheHighestLevelReached_notTheNearest() {
+        var one = new ServerSelector.Option(sharedServer(), true, true, 0.0, 1);   // two calls: 1.1
+        var four = new ServerSelector.Option(sharedServer(), true, true, 0.0, 3);  // four calls: still 1.1
+
+        assertEquals(1.0, LearnedPlacement.predict(one, SMALL, 1_000, 900).orElseThrow().queue(), 1e-9);
+        assertEquals(1.0, LearnedPlacement.predict(four, SMALL, 1_000, 900).orElseThrow().queue(), 1e-9);
+        assertEquals(1.0, SHARED_SPEED.slowdown(1));
+        assertEquals(1.1, SHARED_SPEED.slowdown(4));
+        assertEquals(1.5, SHARED_SPEED.slowdown(50));
+        assertEquals(1.0, GPU_SPEED.slowdown(50), "a model with no load factors is never stretched");
+    }
+
+    @Test
+    void aServerWithNoFreeSlotMakesTheCallWaitInsteadOfSharing() {
+        var queued = new ServerSelector.Option(sharedServer(), true, false, 12.0, 8);
+
+        var p = LearnedPlacement.predict(queued, SMALL, 1_000, 900).orElseThrow();
+
+        assertEquals(12.0, p.queue(), 1e-9, "the slot wait only: sharing would count the queue twice");
+    }
+
+    @Test
+    void theRequestsExpectedOutputReachesEveryOptionOfTheModel() {
+        var cpuOption = idle(cpuWarm, true);
+        var selector = new FixedSelector(Map.of(SMALL, List.of(cpuOption, idle(gpuWarm, true))));
+        var request = new PlacementRequest(SMALL, List.of(), List.of(), m -> SMALL_MIB, m -> 0L, 100L, true, m -> 500L);
+
+        var survey = PlacementSurvey.of(selector, request).orElseThrow();
+
+        assertEquals(500 / 235.0, survey.of(SMALL, GPU).orElseThrow().prediction().orElseThrow().generate(), 1e-9);
+    }
+
+    @Test
+    void theOtherAcceptableModelsAreAlternatives_butTheCrewsModelIsStillTheOneChosen() {
+        ServerState fastOther = server(GPU, List.of(OTHER), Map.of(OTHER, new ModelSpeed(1, 99_999, 999, 0, 0)));
+        var selector = new FixedSelector(Map.of(SMALL, List.of(idle(cpuWarm, true)), OTHER, List.of(idle(fastOther, true))));
+
+        var placed = new LearnedPlacement(new Fallback(), selector).place(request(100)).orElseThrow();
+
+        assertEquals(SMALL, placed.model(), "the learned policy keeps the crew's model");
+        var alternatives = placed.decision().alternatives();
+        assertEquals(1, alternatives.size());
+        assertEquals(OTHER, alternatives.get(0).model());
+        assertEquals(GPU, alternatives.get(0).server());
+        assertNotNull(alternatives.get(0).predicted(), "what the other model would have cost is shown");
+    }
+
+    @Test
+    void anAlgorithmPlacementOnAnotherAcceptableModelStillGetsItsPrediction() {
+        ServerState gpuOther = server(GPU, List.of(OTHER), Map.of(OTHER, new ModelSpeed(1, 8_000, 130, 0, 0)));
+        var selector = new FixedSelector(Map.of(SMALL, List.of(idle(cpuWarm, true)), OTHER, List.of(idle(gpuOther, true))));
+        var policy = new PlacementPolicy() {
+            @Override
+            public PlacementMode mode() {
+                return PlacementMode.ALGORITHM;
+            }
+
+            @Override
+            public Optional<Placement> place(PlacementRequest r) {
+                return Optional.of(new Placement(new Pick(gpuOther, null, FitScore.yes(0, "warm")), OTHER, 9_000, List.of()));
+            }
+        };
+
+        var d = new CallPlanner(selector, null, null, policy).place(request(100)).orElseThrow().decision();
+
+        assertNotNull(d.predicted());
+        assertEquals(CPU, d.alternatives().get(0).server());
+    }
+
+    @Test
+    void serverStateParsesLoadFactors_andIgnoresWhatIsMalformed() throws Exception {
+        ObjectMapper json = new ObjectMapper();
+        var speeds = ServerSelector.speedsField(json.readTree("""
+                {"modelSpeeds":{"qwen3:32b":{"generateTokensPerSecond":78,"promptTokensPerSecond":3171,
+                 "loadFactors":[{"activeCalls":2,"factor":1.07,"samples":30},{"activeCalls":9,"factor":1.74},
+                 {"activeCalls":1,"factor":3.0},{"activeCalls":5,"factor":0},{"activeCalls":"x"},"junk"]},
+                 "bare":{"generateTokensPerSecond":5,"loadFactors":"none"}}}"""));
+
+        var factors = speeds.get("qwen3:32b").loadFactors();
+        assertEquals(List.of(new ModelSpeed.LoadFactor(2, 1.07), new ModelSpeed.LoadFactor(9, 1.74)), factors,
+                "level 1 is the baseline, and a factor of zero or a level that is not a number says nothing");
+        assertEquals(1.74, speeds.get("qwen3:32b").slowdown(12));
+        assertTrue(speeds.get("bare").loadFactors().isEmpty());
+        assertTrue(new ModelSpeed(1, 2, 3, 4, 5).loadFactors().isEmpty());
+        assertEquals(new ModelSpeed(1, 2, 3, 4, 5), new ModelSpeed(1, 2, 3, 4, 5, null));
+    }
+
+    @Test
+    void everyAcceptableModelIsSurveyedOnce() {
+        var asked = new ArrayList<String>();
+        var counting = new FixedSelector(Map.of(SMALL, List.of(idle(cpuWarm, true)), OTHER, List.of(idle(gpuWarm, true)))) {
+            @Override
+            public List<Option> options(String model, long fp, long kv, long promptTokens) {
+                asked.add(model);
+                return super.options(model, fp, kv, promptTokens);
+            }
+        };
+
+        PlacementSurvey.of(counting, request(100)).orElseThrow();
+
+        assertEquals(List.of(SMALL, OTHER), asked);
+    }
 }

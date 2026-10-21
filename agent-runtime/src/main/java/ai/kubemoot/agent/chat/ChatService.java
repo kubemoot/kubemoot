@@ -6,6 +6,7 @@ import ai.kubemoot.agent.nats.AgentHeartbeatService;
 import ai.kubemoot.agent.nats.DiscussionOrchestrator;
 import ai.kubemoot.agent.modelserver.ChatModelPool;
 import ai.kubemoot.agent.modelserver.OllamaDirectProber;
+import ai.kubemoot.agent.modelserver.CallObservation;
 import ai.kubemoot.agent.modelserver.CallPlanner;
 import ai.kubemoot.agent.modelserver.ServerSelector;
 import ai.kubemoot.agent.modelserver.ServerState;
@@ -329,7 +330,8 @@ public class ChatService {
         // KV pressure. Crude chars/4 with a safety pad; tighter accuracy
         // via real tokenizer comes in Phase D2 (operator /api/show probe).
         int promptCharCount = PromptSize.chars(messages, tools().specs());
-        MullingPick pick = pickMullingChatModel(promptCharCount, wait, request.discussionThreadId());
+        MullingPick pick = pickMullingChatModel(promptCharCount, wait, request.discussionThreadId(),
+                CallObservation.KIND_TOOL_TURN);
         String serverName = pick.serverName();
         // Outbound wire trace: the exact model + endpoint this call will send to
         // Ollama. Pair with OLLAMA_DEBUG on the server to confirm the wire model
@@ -345,7 +347,7 @@ public class ChatService {
         boolean callFailed = true;
         try {
             loopResult = callWithToolLoop(messages,
-                    observed(pick, ai.kubemoot.agent.modelserver.CallObservation.KIND_TOOL_TURN),
+                    observed(pick, CallObservation.KIND_TOOL_TURN),
                     serverName, pick.pickReason(), toolerRawOutput, contextLengthOf(pick));
             callFailed = false;
         } finally {
@@ -478,12 +480,12 @@ public class ChatService {
      * still get JIT selection via this overload.
      */
     ToolLoopResult callWithToolLoop(List<ChatMessage> messages) {
-        MullingPick pick = pickMullingChatModel(PromptSize.chars(messages, tools().specs()));
+        MullingPick pick = pickMullingChatModel(PromptSize.chars(messages, tools().specs()), CallObservation.KIND_TOOL_TURN);
         try {
             // Legacy/test entry defaults to reasoning behavior, with no raw output;
             // the tooler raw-output contract is opt-in via the 5-arg overload.
             return callWithToolLoop(messages,
-                    observed(pick, ai.kubemoot.agent.modelserver.CallObservation.KIND_TOOL_TURN),
+                    observed(pick, CallObservation.KIND_TOOL_TURN),
                     pick.serverName(), pick.pickReason(), false, contextLengthOf(pick));
         } finally {
             // v2 release safety: this overload is the test/legacy entry
@@ -1333,12 +1335,12 @@ public class ChatService {
      * <p>Ticket release is the caller's responsibility (try/finally around the
      * call). See {@code TicketManager} for the two-layer release guarantee.</p>
      */
-    private MullingPick pickMullingChatModel(int promptCharCount) {
-        return pickMullingChatModel(promptCharCount, ai.kubemoot.agent.modelserver.CapacityWait.NONE, null);
+    private MullingPick pickMullingChatModel(int promptCharCount, String kind) {
+        return pickMullingChatModel(promptCharCount, ai.kubemoot.agent.modelserver.CapacityWait.NONE, null, kind);
     }
 
     private MullingPick pickMullingChatModel(int promptCharCount, ai.kubemoot.agent.modelserver.CapacityWait wait,
-                                             String threadId) {
+                                             String threadId, String kind) {
         var staticModel = properties.model().model();
         var staticEndpoint = properties.model().endpoint();
 
@@ -1357,9 +1359,9 @@ public class ChatService {
             return new MullingPick(chatModel, "", java.util.Optional.empty(),
                     STATIC_FALLBACK, staticModel, staticEndpoint, 0L);
         }
-        var placed = heldOrPlaced(threadId, states, promptCharCount);
+        var placed = heldOrPlaced(threadId, states, promptCharCount, kind);
         MullingPick pick = placed.isPresent() ? placed.get()
-                : waitForCapacity(staticModel, coldLoadFootprintMiB, promptCharCount, wait);
+                : waitForCapacity(staticModel, coldLoadFootprintMiB, promptCharCount, wait, kind);
         callPlanner.callStarted(threadId, pick.modelName());
         return pick;
     }
@@ -1370,7 +1372,7 @@ public class ChatService {
      * claim is released and the call is placed against the state read now.
      */
     private java.util.Optional<MullingPick> heldOrPlaced(String threadId, java.util.List<ServerState> states,
-                                                         int promptCharCount) {
+                                                         int promptCharCount, String kind) {
         var held = callPlanner.takeHeld(threadId);
         if (held.isPresent() && heldStillServes(held.get(), states, promptTokens(promptCharCount))) {
             log.info("Using the placement planned at selection: {} on {}", held.get().model(),
@@ -1380,7 +1382,7 @@ public class ChatService {
                     : planned.withCall(planned.call().plannedAtSelection()));
         }
         held.ifPresent(h -> ticketManager.release(h.pick().ticket()));
-        var placed = placeCall(states, promptCharCount);
+        var placed = placeCall(states, promptCharCount, kind);
         held.filter(CallPlanner.Placement::queued).ifPresent(h -> log.info(
                 "Re-planned the queue planned at selection ({} on {}): {}", h.model(), h.pick().server().name(),
                 placed.map(p -> p.modelName() + " on " + p.serverName()).orElse("no room now, waiting for capacity")));
@@ -1408,7 +1410,7 @@ public class ChatService {
      * published to the shared demand view while it lasts.
      */
     private MullingPick waitForCapacity(String model, long footprintMiB, int promptCharCount,
-                                        ai.kubemoot.agent.modelserver.CapacityWait wait) {
+                                        ai.kubemoot.agent.modelserver.CapacityWait wait, String kind) {
         if (!ServerSelector.canEverHold(serverSelector.readState(), model, footprintMiB)) {
             log.info("No GPU can hold {} (coldLoad {}MiB) - stand-aside", model, footprintMiB);
             throw ai.kubemoot.agent.modelserver.NoFitException.modelTooLarge(model,
@@ -1425,7 +1427,7 @@ public class ChatService {
         try {
             MullingPick placed = capacityWaiter.await(model, () -> {
                 serverSelector.invalidateCache();
-                return placeCall(serverSelector.readState(), promptCharCount);
+                return placeCall(serverSelector.readState(), promptCharCount, kind);
             }, wait);
             long waitedMs = System.currentTimeMillis() - waitStartMs;
             if (placed.call() != null) {
@@ -1494,21 +1496,23 @@ public class ChatService {
      * server has room right now. {@link CallPlanner#place} decides; with no
      * server state (NATS degraded), the direct-probe path decides.
      */
-    private java.util.Optional<MullingPick> placeCall(java.util.List<ServerState> states, int promptCharCount) {
+    private java.util.Optional<MullingPick> placeCall(java.util.List<ServerState> states, int promptCharCount,
+                                                      String kind) {
         String preferred = properties.model().model();
         if (states.isEmpty()) {
             return degradedMullingPick(preferred, properties.model().endpoint(),
                     resolveOccupancyMiB(states, preferred));
         }
-        return callPlanner.place(placementRequest(states, promptCharCount)).map(this::fromPlacement);
+        return callPlanner.place(placementRequest(states, promptCharCount, kind)).map(this::fromPlacement);
     }
 
-    private CallPlanner.PlacementRequest placementRequest(java.util.List<ServerState> states, int promptCharCount) {
+    private CallPlanner.PlacementRequest placementRequest(java.util.List<ServerState> states, int promptCharCount,
+                                                          String kind) {
         String bound = properties.model().model();
         // Phase D: each model's KV-cache need for this call, so the predictor's gate
         // factors in in-flight context-size pressure. Conservative (overestimate).
         return requestFor(mullingRanking(states), states, m -> placementFootprintMiB(states, bound, m),
-                promptCharCount, properties.model().maxTokens(), true);
+                promptCharCount, properties.model().maxTokens(), true, kind);
     }
 
     private MullingPick fromPlacement(CallPlanner.Placement p) {
@@ -1549,11 +1553,20 @@ public class ChatService {
      */
     private CallPlanner.PlacementRequest requestFor(ai.kubemoot.agent.modelserver.ModelCandidates.Ranking ranking,
             java.util.List<ServerState> states, java.util.function.ToLongFunction<String> footprint,
-            int promptChars, int outputTokens, boolean mayUnload) {
+            int promptChars, int outputTokens, boolean mayUnload, String kind) {
         long kvTokens = ai.kubemoot.agent.modelserver.KvCacheEstimator.estimateTokensFromChars(promptChars);
         return new CallPlanner.PlacementRequest(ranking.preferred(), ranking.alternatives(), states, footprint,
                 m -> ai.kubemoot.agent.modelserver.KvCacheEstimator.estimateMiB(m, kvTokens, outputTokens),
-                promptTokens(promptChars), mayUnload);
+                promptTokens(promptChars), mayUnload, expectedOutput(kind));
+    }
+
+    /**
+     * What this agent's calls of {@code kind} on a model have generated lately, by model
+     * name, for the placement to plan the generation with; 0 for a model it has no
+     * history of.
+     */
+    private java.util.function.ToLongFunction<String> expectedOutput(String kind) {
+        return m -> performanceHistory == null ? 0L : performanceHistory.expectedOutputTokens(m, kind);
     }
 
     /**
@@ -1618,7 +1631,7 @@ public class ChatService {
         callPlanner.commit(threadId, selectedAtMs, candidates, () -> {
             var states = serverSelector.readState();
             return states.isEmpty() ? java.util.Optional.empty()
-                    : callPlanner.place(placementRequest(states, planChars));
+                    : callPlanner.place(placementRequest(states, planChars, CallObservation.KIND_TOOL_TURN));
         });
     }
 
@@ -1834,7 +1847,7 @@ public class ChatService {
      */
     private MullingPick pickForSimpleCall(int promptChars) {
         try {
-            return pickMullingChatModel(promptChars);
+            return pickMullingChatModel(promptChars, CallObservation.KIND_SIMPLE);
         } catch (ai.kubemoot.agent.modelserver.NoFitException nfe) {
             if (ai.kubemoot.agent.modelserver.NoFitException.REASON_PROMPT_TOO_LARGE.equals(nfe.reason())) {
                 throw nfe;
@@ -1851,7 +1864,7 @@ public class ChatService {
                 pick.modelName(), properties.model().temperature(), properties.model().maxTokens(),
                 SIMPLE_CALL_TIMEOUT, properties.model().think().orElse(null));
         var context = callContext(pick.serverName(), pick.modelName(),
-                ai.kubemoot.agent.modelserver.CallObservation.KIND_SIMPLE, pick.coldLoad(), pick.call());
+                CallObservation.KIND_SIMPLE, pick.coldLoad(), pick.call());
         lastSimpleCall = LastSimpleCall.NONE;
         var timed = sendTimed(model, messages, SIMPLE_CALL_TIMEOUT, context);
         lastSimpleCall = new LastSimpleCall(timed.firstTokenMs(), pick.coldLoad());
@@ -2019,7 +2032,7 @@ public class ChatService {
         TriagePlacement placement = pickTriagePlacement(systemPrompt, conversation);
         String endpoint = placement.endpoint();
         var observedCall = callContext(placement.pickedServer(), placement.model(),
-                ai.kubemoot.agent.modelserver.CallObservation.KIND_TRIAGE, placement.coldLoad(), placement.call());
+                CallObservation.KIND_TRIAGE, placement.coldLoad(), placement.call());
 
         Duration timeout = Duration.ofSeconds(properties.triageModel().timeoutSeconds());
         var model = chatModelPool.streamingForEndpoint(engineFor(placement.pickedServer()), endpoint, placement.model(),
@@ -2122,7 +2135,7 @@ public class ChatService {
         try {
             var placed = callPlanner.place(requestFor(ranking, states,
                     m -> m.equals(triageModelId) ? occupancy : placementFootprintMiB(states, triageModelId, m),
-                    promptChars, 2048, false));
+                    promptChars, 2048, false, CallObservation.KIND_TRIAGE));
             if (placed.isPresent()) {
                 return scheduledTriage(placed.get());
             }

@@ -13,6 +13,7 @@ package perf
 import (
 	"encoding/json"
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -185,5 +186,120 @@ func TestReadHistory(t *testing.T) {
 	got, err := ReadHistory(kv, gpu)
 	if err != nil || len(got) != 1 || got[0].Model != small {
 		t.Errorf("history: %+v %v", got, err)
+	}
+}
+
+// call is a warm, successful crew call of 1000 prompt and 100 output tokens that took ms, with
+// active calls on the server as it started. At 1000 and 100 tokens per second its modeled time is
+// 2 seconds.
+func call(at, ms, active int64) bus.SchedulerPerformanceSamplesElem {
+	return bus.SchedulerPerformanceSamplesElem{At: at, Ok: true, ActiveCalls: active, DurationMs: ms,
+		PromptTokens: 1000, OutputTokens: 100, Kind: bus.SchedulerPerformanceSamplesElemKindToolTurn}
+}
+
+func repeat(n int, s bus.SchedulerPerformanceSamplesElem) []bus.SchedulerPerformanceSamplesElem {
+	out := make([]bus.SchedulerPerformanceSamplesElem, n)
+	for i := range out {
+		out[i] = s
+		out[i].At += int64(i)
+	}
+	return out
+}
+
+var calibrated = map[string]Speeds{small: {PromptTokensPerSecond: 1000, GenerateTokensPerSecond: 100}}
+
+func TestContention_isHowMuchLongerCallsTookAsMoreSharedTheServer(t *testing.T) {
+	samples := slices.Concat(
+		repeat(6, call(100, 2000, 1)),
+		repeat(6, call(200, 2200, 2)),
+		repeat(6, call(300, 3000, 6)),
+		repeat(6, call(400, 4000, 12)),
+	)
+
+	got := Contention([]bus.SchedulerPerformance{entry(gpu, small, samples...)}, gpu, 0, calibrated)[small]
+
+	want := []LoadFactor{{2, 1.1, 6}, {5, 1.5, 6}, {9, 2.0, 6}}
+	if len(got) != len(want) {
+		t.Fatalf("got %+v, want %+v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("level %d: got %+v, want %+v", i, got[i], want[i])
+		}
+	}
+}
+
+func TestContention_isComparedWithSoloCallsOfTheSameModelNotWithTheCalibrationAlone(t *testing.T) {
+	// Every call takes twice as long as modeled (hidden reasoning, say), alone or not: no load effect.
+	samples := slices.Concat(
+		repeat(6, call(100, 4000, 1)),
+		repeat(6, call(200, 4000, 6)),
+	)
+
+	if got := Contention([]bus.SchedulerPerformance{entry(gpu, small, samples...)}, gpu, 0, calibrated); len(got) != 0 {
+		t.Errorf("a constant offset is not load: %+v", got)
+	}
+}
+
+func TestContention_publishesNothingItCannotTrust(t *testing.T) {
+	cold := call(100, 9000, 1)
+	cold.ColdStart = true
+	failed := call(100, 9000, 1)
+	failed.Ok = false
+	probe := call(100, 9000, 1)
+	probe.Kind = bus.SchedulerPerformanceSamplesElemKindCalibration
+	empty := call(100, 9000, 1)
+	empty.PromptTokens, empty.OutputTokens = 0, 0
+	noDuration := call(100, 0, 1)
+	before := call(1, 9000, 1)
+	solo := repeat(MinLoadSamples, call(100, 2000, 1))
+	few := repeat(MinLoadSamples-1, call(200, 5000, 3))
+
+	cases := map[string][]bus.SchedulerPerformance{
+		"too few solo calls": {entry(gpu, small, append(repeat(MinLoadSamples-1, call(100, 2000, 1)),
+			repeat(MinLoadSamples, call(200, 5000, 3))...)...)},
+		"too few calls at the level": {entry(gpu, small, append(solo, few...)...)},
+		"another server":             {entry("other", small, append(solo, repeat(MinLoadSamples, call(200, 5000, 3))...)...)},
+		"no calibrated speeds":       {entry(gpu, big, append(solo, repeat(MinLoadSamples, call(200, 5000, 3))...)...)},
+	}
+	for name, bad := range map[string]bus.SchedulerPerformanceSamplesElem{
+		"cold": cold, "failed": failed, "probe": probe, "empty": empty, "no duration": noDuration, "before": before} {
+		bad.ActiveCalls = 3
+		if bad.At > 1 {
+			bad.At = 200
+		}
+		cases["only calls that tell nothing at the level: "+name] = []bus.SchedulerPerformance{
+			entry(gpu, small, append(append([]bus.SchedulerPerformanceSamplesElem{}, solo...), repeat(MinLoadSamples, bad)...)...)}
+	}
+	for name, entries := range cases {
+		if got := Contention(entries, gpu, 10, calibrated); len(got) != 0 {
+			t.Errorf("%s: %+v", name, got)
+		}
+	}
+	if got := Contention(nil, gpu, 0, calibrated); len(got) != 0 {
+		t.Errorf("no history: %+v", got)
+	}
+	if got := Contention(cases["too few solo calls"], gpu, 0, map[string]Speeds{small: {}}); len(got) != 0 {
+		t.Errorf("speeds of zero: %+v", got)
+	}
+}
+
+func TestContention_aFactorNeverFallsBelowALowerLevelsAndNeverBelowOne(t *testing.T) {
+	samples := slices.Concat(
+		repeat(6, call(100, 2000, 1)),
+		repeat(6, call(200, 3000, 2)),
+		repeat(6, call(300, 2400, 3)),
+		repeat(6, call(400, 1600, 6)),
+	)
+
+	got := Contention([]bus.SchedulerPerformance{entry(gpu, small, samples...)}, gpu, 0, calibrated)[small]
+
+	for _, f := range got {
+		if f.Factor < 1.5 {
+			t.Errorf("a higher level published %+v below the lower level's 1.5", f)
+		}
+	}
+	if len(got) == 0 || got[0].ActiveCalls != 2 || got[0].Factor != 1.5 {
+		t.Errorf("got %+v", got)
 	}
 }
