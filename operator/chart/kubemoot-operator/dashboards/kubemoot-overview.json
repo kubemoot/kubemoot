@@ -79,7 +79,7 @@
       "title": "Model Calls",
       "targets": [
         {
-          "expr": "sum by (namespace) (rate(kubemoot_scheduler_calls_total{namespace=~\"$namespace\"}[5m]))",
+          "expr": "sum by (namespace) (rate(kubemoot_scheduler_calls_total{namespace=~\"$namespace\", crew=~\"$crew\"}[5m]))",
           "legendFormat": "{{namespace}}",
           "refId": "A"
         }
@@ -133,7 +133,7 @@
       "title": "Model Call Duration p95",
       "targets": [
         {
-          "expr": "histogram_quantile(0.95, sum by (le, namespace) (rate(kubemoot_scheduler_call_seconds_bucket{namespace=~\"$namespace\"}[5m])))",
+          "expr": "histogram_quantile(0.95, sum by (le, namespace) (rate(kubemoot_scheduler_call_seconds_bucket{namespace=~\"$namespace\", crew=~\"$crew\"}[5m])))",
           "legendFormat": "{{namespace}}",
           "refId": "A"
         }
@@ -191,7 +191,7 @@
       "title": "Agents Evaluating",
       "targets": [
         {
-          "expr": "sum(kubemoot_discussion_pending_evaluations{namespace=~\"$namespace\"})",
+          "expr": "sum(kubemoot_discussion_pending_evaluations{namespace=~\"$namespace\", crew=~\"$crew\"})",
           "legendFormat": "evaluating",
           "refId": "A"
         }
@@ -634,6 +634,34 @@
           "refId": "namespaces"
         },
         "definition": "label_values({__name__=~\"kubemoot_.+\"}, namespace)",
+        "includeAll": true,
+        "multi": true,
+        "allValue": ".*",
+        "refresh": 2,
+        "sort": 1,
+        "current": {
+          "selected": true,
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        }
+      },
+      {
+        "name": "crew",
+        "label": "Crew",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${datasource}"
+        },
+        "query": {
+          "query": "label_values(kubemoot_discussion_threads_total{namespace=~\"$namespace\"}, crew)",
+          "refId": "crews"
+        },
+        "definition": "label_values(kubemoot_discussion_threads_total{namespace=~\"$namespace\"}, crew)",
         "includeAll": true,
         "multi": true,
         "allValue": ".*",

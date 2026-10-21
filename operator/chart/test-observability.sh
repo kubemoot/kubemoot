@@ -67,6 +67,14 @@ for path in sorted(dash_dir.glob("*.json")):
         uid = ds.get("uid") if isinstance(ds, dict) else ds
         if uid not in ("${datasource}", "$datasource"):
             problems.append(f"{path.name}: a panel uses datasource {ds!r}, not the datasource variable")
+    # A dashboard with a crew filter applies it to every agent metric it queries.
+    if "crew" in names:
+        for e in found["exprs"]:
+            for sel in re.findall(r"\bkubemoot_(?:discussion|scheduler)_[a-z0-9_]+(?:\{[^}]*\})?", e):
+                if 'crew=~"$crew"' not in sel:
+                    problems.append(f"{path.name}: an agent metric ignores the crew filter: {sel}")
+    elif path.name in ("kubemoot-discussions.json", "kubemoot-overview.json"):
+        problems.append(f"{path.name}: no crew variable")
     for e in found["exprs"]:
         for label, value in re.findall(r'\b(namespace|server|model|pod|node|instance)\s*=\s*"([^"]*)"', e):
             problems.append(f"{path.name}: {label}=\"{value}\" is written literally: {e}")
@@ -120,6 +128,11 @@ pm="$(render --api-versions monitoring.coreos.com/v1/PodMonitor --set metrics.po
   || fail "agents in every crew namespace must be scraped"
 [ "$(yq -N 'select(.kind == "PodMonitor" and .metadata.name == "t-kubemoot-operator-query-services") | .spec.selector.matchLabels["app.kubernetes.io/component"]' <<<"$pm")" = "query-service" ] \
   || fail "the RAG query services are not scraped"
+ag='select(.kind == "PodMonitor" and .metadata.name == "t-kubemoot-operator-agents") | .spec.podMetricsEndpoints[0].relabelings[]'
+[ "$(yq -N "$ag | select(.targetLabel == \"crew\") | .sourceLabels[0]" <<<"$pm")" = "__meta_kubernetes_pod_label_kubemoot_ai_crew" ] \
+  || fail "agent series do not carry a crew label from the pod's kubemoot.ai/crew label"
+[ "$(yq -N "$ag | select(.targetLabel == \"agent\") | .sourceLabels[0]" <<<"$pm")" = "__meta_kubernetes_pod_label_kubemoot_ai_agent" ] \
+  || fail "agent series do not carry an agent label from the pod's kubemoot.ai/agent label"
 op='select(.kind == "PodMonitor" and .metadata.name == "t-kubemoot-operator-operator")'
 [ "$(yq -N "$op | .spec.podMetricsEndpoints[0].scheme" <<<"$pm")" = "https" ] || fail "the operator serves metrics over HTTPS"
 [ "$(yq -N "$op | .spec.podMetricsEndpoints[0].authorization.credentials.name" <<<"$pm")" = "t-kubemoot-operator-metrics-reader" ] \
