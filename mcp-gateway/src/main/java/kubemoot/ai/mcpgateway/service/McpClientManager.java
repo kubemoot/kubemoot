@@ -956,9 +956,11 @@ public class McpClientManager {
      * across the gateway, and the reply carries the caller's id again: callers choose
      * ids independently (a timestamp, or a client's own counter starting at 1), and a
      * backend that sees two in-flight requests with one id on a session answers only
-     * one of them.
+     * one of them. A tools/call has its argument values coerced to the tool's declared
+     * input schema types first (see {@link ToolArgumentCoercion}).
      */
-    public Mono<McpMessage> forwardRequest(String serverId, McpMessage request) {
+    public Mono<McpMessage> forwardRequest(String serverId, McpMessage original) {
+        McpMessage request = ToolArgumentCoercion.coerceCall(original, serverTools.get(serverId));
         Object callerId = request.id();
         if (callerId == null) {
             return forwardRequestInternal(serverId, request, true);

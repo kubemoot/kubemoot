@@ -36,5 +36,10 @@ public record McpMessage(
         return new McpMessage(jsonrpc, newId, method, params, result, error);
     }
 
+    /** The same message with different params. */
+    public McpMessage withParams(Map<String, Object> newParams) {
+        return new McpMessage(jsonrpc, id, method, newParams, result, error);
+    }
+
     public record McpError(int code, String message, Object data) {}
 }
