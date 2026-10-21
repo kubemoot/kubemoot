@@ -5,6 +5,7 @@ import asyncio
 import importlib.util
 import unittest
 from pathlib import Path
+from typing import ClassVar
 from unittest import mock
 
 import httpx
@@ -177,3 +178,68 @@ class QueryTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class RecordingEmbeddingClient:
+    """An httpx.AsyncClient stand-in that records the embedding request and answers with a
+    fixed, unnormalized vector the way vLLM does."""
+
+    calls: ClassVar[list] = []
+
+    def __init__(self, *args, **kwargs):
+        """Accept and ignore the arguments the real client takes."""
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *exc):
+        return False
+
+    async def post(self, url, headers=None, json=None):
+        type(self).calls.append((url, json))
+        request = httpx.Request("POST", url)
+        return httpx.Response(200, json={"data": [{"embedding": [3.0, 0.0, 4.0]}]}, request=request)
+
+    async def get(self, url):
+        type(self).calls.append((url, None))
+        return httpx.Response(200, json={"data": []}, request=httpx.Request("GET", url))
+
+
+class EmbeddingTest(unittest.TestCase):
+    def setUp(self):
+        RecordingEmbeddingClient.calls = []
+
+    def test_l2_normalize_scales_to_unit_length(self):
+        self.assertEqual(qs.l2_normalize([3.0, 0.0, 4.0]), [0.6, 0.0, 0.8])
+
+    def test_l2_normalize_leaves_a_zero_vector_alone(self):
+        self.assertEqual(qs.l2_normalize([0.0, 0.0]), [0.0, 0.0])
+        self.assertEqual(qs.l2_normalize([]), [])
+
+    def test_embeds_through_the_openai_compatible_api_and_normalizes(self):
+        with mock.patch.object(qs.httpx, "AsyncClient", RecordingEmbeddingClient):
+            vector = run(qs.get_embedding("hello"))
+        url, body = RecordingEmbeddingClient.calls[0]
+        self.assertTrue(url.endswith("/v1/embeddings"), url)
+        self.assertEqual(body["input"], "hello")
+        self.assertEqual(vector, [0.6, 0.0, 0.8])
+
+    def test_ready_checks_the_embedding_server_on_the_openai_models_route(self):
+        with (
+            mock.patch.object(qs, "get_db_connection"),
+            mock.patch.object(qs.httpx, "AsyncClient", RecordingEmbeddingClient),
+        ):
+            run(qs.ready())
+        self.assertTrue(RecordingEmbeddingClient.calls[0][0].endswith("/v1/models"))
+
+    def test_an_embedding_server_error_is_not_swallowed(self):
+        class Refusing(RecordingEmbeddingClient):
+            async def post(self, url, headers=None, json=None):
+                request = httpx.Request("POST", url)
+                return httpx.Response(400, json={"error": "no"}, request=request)
+
+        with (
+            mock.patch.object(qs.httpx, "AsyncClient", Refusing),
+            self.assertRaises(httpx.HTTPStatusError),
+        ):
+            run(qs.get_embedding("hello"))

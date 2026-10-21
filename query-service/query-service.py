@@ -5,6 +5,7 @@ Auto-deployed by the operator for each RAGSource.
 """
 
 import logging
+import math
 import os
 import time
 from contextlib import asynccontextmanager
@@ -79,7 +80,6 @@ COLLECTION = os.environ.get("KUBEMOOT_VECTORSTORE_COLLECTION",
                             os.environ.get("KUBEMOOT_COLLECTION", "default"))
 DIMENSIONS = int(os.environ.get("KUBEMOOT_VECTORSTORE_DIMENSIONS", "768"))
 
-EMBEDDING_TYPE = os.environ.get("KUBEMOOT_EMBEDDING_TYPE", "ollama")
 EMBEDDING_ENDPOINT = os.environ.get("KUBEMOOT_EMBEDDING_ENDPOINT", "http://localhost:11434")
 EMBEDDING_MODEL = os.environ.get("KUBEMOOT_EMBEDDING_MODEL", "nomic-embed-text")
 
@@ -159,27 +159,18 @@ def get_db_connection():
         return db_conn
 
 
-async def get_embedding_ollama(text: str) -> list[float]:
-    """Get embedding from Ollama."""
-    async with httpx.AsyncClient(timeout=60.0) as client:
-        response = await client.post(
-            f"{EMBEDDING_ENDPOINT}/api/embed",
-            json={"model": EMBEDDING_MODEL, "input": text}
-        )
-        response.raise_for_status()
-        data = response.json()
-        # Ollama returns embeddings in 'embeddings' array
-        if "embeddings" in data and len(data["embeddings"]) > 0:
-            return data["embeddings"][0]
-        # Fallback for older API format
-        elif "embedding" in data:
-            return data["embedding"]
-        else:
-            raise ValueError(f"Unexpected Ollama response format: {data.keys()}")
+def l2_normalize(vector: list[float]) -> list[float]:
+    """Scale a vector to unit length. Servers differ (Ollama answers unit vectors,
+    vLLM the raw model output); a zero vector has no direction and is returned as is."""
+    norm = math.sqrt(sum(x * x for x in vector))
+    if norm == 0:
+        return vector
+    return [x / norm for x in vector]
 
 
-async def get_embedding_openai(text: str) -> list[float]:
-    """Get embedding from OpenAI-compatible API."""
+async def get_embedding(text: str) -> list[float]:
+    """Embed text through the OpenAI-compatible /v1/embeddings API every model server
+    serves (Ollama, vLLM), as a unit-length vector."""
     api_key = os.environ.get("KUBEMOOT_EMBEDDING_API_KEY", "")
     async with httpx.AsyncClient(timeout=60.0) as client:
         headers = {}
@@ -192,18 +183,7 @@ async def get_embedding_openai(text: str) -> list[float]:
         )
         response.raise_for_status()
         data = response.json()
-        return data["data"][0]["embedding"]
-
-
-async def get_embedding(text: str) -> list[float]:
-    """Get embedding based on configured provider."""
-    if EMBEDDING_TYPE == "ollama":
-        return await get_embedding_ollama(text)
-    elif EMBEDDING_TYPE in ("openai", "vllm"):
-        return await get_embedding_openai(text)
-    else:
-        # Default to Ollama format
-        return await get_embedding_ollama(text)
+        return l2_normalize(data["data"][0]["embedding"])
 
 
 @asynccontextmanager
@@ -213,7 +193,7 @@ async def lifespan(app: FastAPI):
     logger.info("  Vector Store: %s @ %s:%s/%s", VECTORSTORE_TYPE,
                 db_config['host'], db_config['port'], db_config['dbname'])
     logger.info("  Collection: %s", COLLECTION)
-    logger.info("  Embedding: %s/%s @ %s", EMBEDDING_TYPE, EMBEDDING_MODEL, EMBEDDING_ENDPOINT)
+    logger.info("  Embedding: %s @ %s", EMBEDDING_MODEL, EMBEDDING_ENDPOINT)
     logger.info("  Default Top-K: %s", DEFAULT_TOP_K)
 
     # Test database connection
@@ -283,7 +263,7 @@ async def health():
         status="healthy",
         ragsource=RAGSOURCE_NAME,
         vectorstore=f"{VECTORSTORE_TYPE}:{COLLECTION}",
-        embedding=f"{EMBEDDING_TYPE}/{EMBEDDING_MODEL}",
+        embedding=EMBEDDING_MODEL,
     )
 
 
@@ -303,10 +283,7 @@ async def ready():
     # Check embedding service
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:
-            if EMBEDDING_TYPE == "ollama":
-                response = await client.get(f"{EMBEDDING_ENDPOINT}/api/tags")
-            else:
-                response = await client.get(f"{EMBEDDING_ENDPOINT}/v1/models")
+            response = await client.get(f"{EMBEDDING_ENDPOINT}/v1/models")
             response.raise_for_status()
     except httpx.HTTPError as e:
         errors.append(f"embedding: {e}")
@@ -459,7 +436,7 @@ async def info():
             "dimensions": DIMENSIONS,
         },
         "embedding": {
-            "type": EMBEDDING_TYPE,
+            "type": "openai",
             "endpoint": EMBEDDING_ENDPOINT,
             "model": EMBEDDING_MODEL,
         },

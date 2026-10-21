@@ -24,4 +24,11 @@ class IndexerConfigTest {
         assertTrue(included(config, "material/order-service.adl"), "an .adl file below it");
         assertTrue(included(config, "material/adl-well-formed.md"), "markdown as before");
     }
+
+    @Test
+    void dropCollectionsIsEmptyWhenUnset() {
+        IndexerConfig unset = mock(IndexerConfig.class, withSettings().defaultAnswer(CALLS_REAL_METHODS));
+
+        assertTrue(unset.dropCollections().isEmpty());
+    }
 }
