@@ -478,6 +478,10 @@ export interface DiscussionMetadata {
 	 */
 	toolsUsed?: string[];
 	/**
+	 * The tools the agent's harness called during the turn, as the sidecar counted them at the tools door. toolsUsed lists what the agent could call; this lists what it did.
+	 */
+	toolsCalled?: string[];
+	/**
 	 * Why: on stand_aside and waiting, gpu-busy, model-too-large or prompt-too-large; on gap_detected, the gap in words; on stop_requested, manual_stop; on a scheduled message, the reason it was scheduled.
 	 */
 	reason?: string;

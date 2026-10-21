@@ -82,6 +82,11 @@
       "items": { "type": "string" },
       "description": "The tools the agent has enabled, sent with agree. It lists what the agent could call, not the calls it made."
     },
+    "toolsCalled": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "The tools the agent's harness called during the turn, as the sidecar counted them at the tools door. toolsUsed lists what the agent could call; this lists what it did."
+    },
     "reason": {
       "type": "string",
       "description": "Why: on stand_aside and waiting, gpu-busy, model-too-large or prompt-too-large; on gap_detected, the gap in words; on stop_requested, manual_stop; on a scheduled message, the reason it was scheduled."

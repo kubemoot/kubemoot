@@ -27,7 +27,7 @@ type Permissions struct {
 
 // Permissions returns the subjects the sidecar of this agent needs. The set follows what the
 // sidecar does: it signals on its crew's discussion subjects, announces itself on the
-// lifecycle subjects, spills artifacts, writes its heartbeat and latency keys, asks the
+// lifecycle subjects, spills artifacts, writes its heartbeat key, asks the
 // operator to wake a model, and uses the JetStream API to bind its consumer, acknowledge
 // messages and reach the KV and Object Store buckets it writes.
 func (i Identity) Permissions() Permissions {
@@ -38,15 +38,15 @@ func (i Identity) Permissions() Permissions {
 			fmt.Sprintf("kubemoot.artifacts.%s.%s.*", i.Namespace, i.Crew),
 			bus.ModelLifecycleSubjectPrefix + ">",
 			fmt.Sprintf("$KV.%s.%s", AgentStateBucket, i.HeartbeatKey()),
-			fmt.Sprintf("$KV.%s.latency.%s.%s.>", LatencyBucket, i.Namespace, i.Agent),
 			// Object Store chunks are named by a random id, so the bucket cannot be narrowed per agent.
 			fmt.Sprintf("$O.%s.>", ArtifactBucket),
 			// Acknowledgements, and the API calls that bind the consumer and the buckets.
 			fmt.Sprintf("$JS.ACK.%s.%s.>", bus.DiscussStream, i.ConsumerName()),
 			fmt.Sprintf("$JS.API.CONSUMER.INFO.%s.%s", bus.DiscussStream, i.ConsumerName()),
 			fmt.Sprintf("$JS.API.STREAM.INFO.KV_%s", AgentStateBucket),
-			fmt.Sprintf("$JS.API.STREAM.INFO.KV_%s", LatencyBucket),
 			fmt.Sprintf("$JS.API.STREAM.INFO.OBJ_%s", ArtifactBucket),
+			// The first spill creates the bucket when nothing has yet.
+			fmt.Sprintf("$JS.API.STREAM.CREATE.OBJ_%s", ArtifactBucket),
 		},
 		Subscribe: []string{
 			// Replies, and the push consumer's delivery subject, which is an inbox.
