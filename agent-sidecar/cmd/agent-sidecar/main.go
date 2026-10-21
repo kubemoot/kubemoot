@@ -19,7 +19,8 @@ import (
 
 func main() {
 	path := flag.String("config", mesh.ContractDir+"/"+mesh.ContractFile, "contract.yaml")
-	httpAddr := flag.String("http-addr", "", "pod-facing listener: health, metrics (default: the contract's httpPort, else :8080)")
+	httpAddr := flag.String("http-addr", "",
+		"pod-facing listener: health, metrics (default: the contract's httpPort, else :8080)")
 	flag.Parse()
 	log := slog.New(slog.NewJSONHandler(os.Stderr, nil))
 	data, err := os.ReadFile(*path)

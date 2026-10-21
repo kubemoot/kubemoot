@@ -295,7 +295,7 @@ func TestEmbeddingBinding_ExplicitServerRefMissingIsAnError(t *testing.T) {
 
 	got := h.reconcile()
 
-	if got.Status.State != "Error" || got.Status.Ready {
+	if got.Status.State != phaseError || got.Status.Ready {
 		t.Errorf("status = %+v, want Error", got.Status)
 	}
 	if c := boundCondition(t, got); c.Status != metav1.ConditionFalse || c.Reason != reasonServerGone {
