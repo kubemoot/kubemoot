@@ -794,6 +794,12 @@
     "discussion-metadata.json#/toolGapConcerns{}": {
       "type": "string"
     },
+    "discussion-metadata.json#/toolsCalled": {
+      "type": "array"
+    },
+    "discussion-metadata.json#/toolsCalled[]": {
+      "type": "string"
+    },
     "discussion-metadata.json#/toolsUsed": {
       "type": "array"
     },

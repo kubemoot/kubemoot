@@ -397,6 +397,11 @@ type DiscussionMetadata struct {
 	// call, not the calls it made.
 	ToolsUsed []string `json:"toolsUsed,omitempty"`
 
+	// The tools the agent's harness called during the turn, as the sidecar counted
+	// them at the tools door. toolsUsed lists what the agent could call; this lists
+	// what it did.
+	ToolsCalled []string `json:"toolsCalled,omitempty"`
+
 	// Why: on stand_aside and waiting, gpu-busy, model-too-large or prompt-too-large;
 	// on gap_detected, the gap in words; on stop_requested, manual_stop; on a
 	// scheduled message, the reason it was scheduled.

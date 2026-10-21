@@ -139,7 +139,6 @@ func TestNamesFollowTheBusContract(t *testing.T) {
 		id.ArtifactSubject("t1"):            "kubemoot.artifacts.homelab.homelab-pilot.t1",
 		id.ArtifactKey("t1", "agree", "u1"): "homelab/homelab-pilot/t1/notes-reader/agree-u1",
 		id.HeartbeatKey():                   "homelab.notes-reader",
-		id.LatencyKey("gpu1"):               "latency.homelab.notes-reader.gpu1",
 		id.ConsumerName():                   "sidecar-homelab-homelab-pilot-notes-reader",
 	} {
 		if got != want {
@@ -201,13 +200,6 @@ func TestSubjectsMatchTheOperatorsCrewScope(t *testing.T) {
 		if (mesh.ValidToken("x", bad) == nil) != (err == nil) {
 			t.Errorf("token %q is judged differently", bad)
 		}
-	}
-}
-
-func TestLatencyKeyEncodesTheServerName(t *testing.T) {
-	id := valid().Identity
-	if got := id.LatencyKey("gpu.1:x"); got != "latency.homelab.notes-reader.gpu_2e1_3ax" {
-		t.Errorf("latency key %q", got)
 	}
 }
 

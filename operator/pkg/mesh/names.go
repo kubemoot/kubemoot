@@ -14,8 +14,6 @@ import (
 	"fmt"
 	"slices"
 	"strings"
-
-	"github.com/kubemoot/kubemoot/operator/pkg/bus"
 )
 
 // The names the sidecar uses on the bus. The formats are the bus contract's (asyncapi.yaml);
@@ -23,8 +21,6 @@ import (
 const (
 	// AgentStateBucket is the KV bucket holding each agent's liveness heartbeat.
 	AgentStateBucket = "kubemoot_agent_state"
-	// LatencyBucket is the KV bucket holding each agent's turn latency samples.
-	LatencyBucket = "kubemoot_latency"
 	// ArtifactBucket is the Object Store bucket holding spilled contributions.
 	ArtifactBucket = "kubemoot_discussion_artifacts"
 	// BroadcastChannel is the channel the coordinator's steps go to.
@@ -82,12 +78,6 @@ func (i Identity) ArtifactKey(threadID, signal, id string) string {
 
 // HeartbeatKey is the kubemoot_agent_state key <namespace>.<agent>.
 func (i Identity) HeartbeatKey() string { return i.Namespace + "." + i.Agent }
-
-// LatencyKey is the kubemoot_latency key latency.<namespace>.<agent>.<server>; the server name
-// is encoded as a key token the way the agent runtime does.
-func (i Identity) LatencyKey(server string) string {
-	return fmt.Sprintf("latency.%s.%s.%s", i.Namespace, i.Agent, bus.KeyToken(server))
-}
 
 // ConsumerName is the name of the agent's durable JetStream consumer. A durable name cannot
 // hold a dot, a wildcard, a space or a slash; the identity's tokens hold none, so joining them
