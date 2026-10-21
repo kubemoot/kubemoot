@@ -10,7 +10,7 @@ import java.util.concurrent.atomic.AtomicInteger;
  * A {@link MirrorBucket} in a map. {@link #watch} replays what the bucket holds (and the removal
  * markers) and then reports every later write, as the NATS watch does. Writes can be made to fail.
  */
-final class FakeMirrorBucket implements MirrorBucket {
+class FakeMirrorBucket implements MirrorBucket {
 
     final Map<String, byte[]> entries = new LinkedHashMap<>();
     private final Map<String, Long> createdAt = new LinkedHashMap<>();

@@ -66,6 +66,10 @@ case "$cfg" in ""|null) ;; *) fail "agentsUse without enabled still points agent
 out="$(render --set placementService.enabled=true --set placementService.agentsUse=true --set placementService.url=http://example:9)"
 [ "$(yq -N 'select(.kind == "KubemootConfig") | .spec.defaults.scheduler.placementService.url' <<<"$out")" = "http://example:9" ] || fail "url override"
 
+# The leader bucket's TTL follows placementService.leaseSeconds.
+out="$(helm template t "$chart" --show-only templates/nats-streams-job.yaml --set placementService.leaseSeconds=30)"
+grep -q 'kv add kubemoot_placement_leader --ttl=30s ' <<<"$out" || fail "leader bucket TTL ignores leaseSeconds"
+
 # A private mirror prefixes the image like every other Kubemoot image.
 out="$(render --set placementService.enabled=true --set global.imageRegistry=harbor.example/kubemoot)"
 [ "$(pick Deployment "$c.image" "$out")" = "harbor.example/kubemoot/placement-service:0.0.0" ] || fail "image ignores global.imageRegistry"

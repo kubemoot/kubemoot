@@ -152,8 +152,9 @@ spec:
 
               # kubemoot_placement_leader - the placement service's leader lease. The
               # leader renews its key within the TTL; if it stops, the key expires and
-              # a standby takes over. history=1, small values (the holder identity).
-              nats kv add kubemoot_placement_leader --ttl=15s --history=1 --max-value-size=1024 -s "$NATS_URL" 2>/dev/null || true
+              # a standby takes over. history=1, small values (the holder identity). The TTL is
+              # placementService.leaseSeconds; nats kv add leaves an existing bucket as it is.
+              nats kv add kubemoot_placement_leader --ttl={{ int (.Values.placementService.leaseSeconds | default 15) }}s --history=1 --max-value-size=1024 -s "$NATS_URL" 2>/dev/null || true
 
               # Retired buckets. Nothing reads them. Remove each when it exists
               # (absent is fine), and only these two by name.

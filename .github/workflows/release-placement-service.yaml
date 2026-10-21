@@ -60,9 +60,13 @@ jobs:
 
       - name: Install crane
         if: steps.version.outputs.release_created == 'true'
+        env:
+          CRANE_VERSION: v0.20.2
+          CRANE_SHA256: c14340087103ba9dadf61d45acd20675490fd0ccbd56ac7901fc1b502137f44b
         run: |
-          curl -sL https://github.com/google/go-containerregistry/releases/download/v0.20.2/go-containerregistry_Linux_x86_64.tar.gz | tar -xzf - crane
-          sudo mv crane /usr/local/bin/
+          curl -fsSL -o crane.tar.gz "https://github.com/google/go-containerregistry/releases/download/${CRANE_VERSION}/go-containerregistry_Linux_x86_64.tar.gz"
+          echo "${CRANE_SHA256}  crane.tar.gz" | sha256sum -c -
+          tar -xzf crane.tar.gz crane && sudo mv crane /usr/local/bin/ && rm crane.tar.gz
 
       - name: Retag image with version
         if: steps.version.outputs.release_created == 'true'
