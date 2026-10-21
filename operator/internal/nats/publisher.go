@@ -29,6 +29,7 @@ import (
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
 	"github.com/kubemoot/kubemoot/operator/pkg/bus"
+	"github.com/kubemoot/kubemoot/operator/pkg/mesh"
 )
 
 var log = logf.Log.WithName("nats-publisher")
@@ -160,7 +161,7 @@ func (p *Publisher) EnsureConsumer(stream, consumerName string, filterSubjects [
 		DeliverPolicy:     nats.DeliverNewPolicy,
 		DeliverSubject:    nats.NewInbox(), // Push consumer — agent-runtime uses js.subscribe()
 		AckPolicy:         nats.AckExplicitPolicy,
-		AckWait:           120 * time.Second,
+		AckWait:           mesh.ConsumerAckWait,
 		MaxDeliver:        3,
 		InactiveThreshold: 24 * time.Hour,
 		FilterSubjects:    filterSubjects,

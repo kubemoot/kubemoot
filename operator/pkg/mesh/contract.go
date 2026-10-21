@@ -14,10 +14,8 @@ You may obtain a copy of the License at
 // the sidecar needs. The operator and the sidecar import this one definition, so the file's
 // shape has a single source.
 //
-// The package holds data types, their validation, and pure functions over them, and no other
-// behavior, so it has no abstractions to offer its importers; like the bus contract it is kept
-// stable by versioning (ContractVersion), not by interfaces. It imports no Kubernetes library,
-// so the sidecar binary does not carry one.
+// The package holds data types, their validation, and pure functions over them. It imports no
+// Kubernetes library, so the sidecar binary does not carry one.
 package mesh
 
 import (
@@ -78,15 +76,15 @@ const (
 
 // Contract is the whole contract.yaml.
 type Contract struct {
-	ContractVersion string        `json:"contractVersion"`
-	Identity        Identity      `json:"identity"`
-	Bus             Bus           `json:"bus"`
-	Turn            Turn          `json:"turn"`
-	Models          Models        `json:"models"`
-	Placement       Placement     `json:"placement"`
-	Tools           Tools         `json:"tools"`
-	Policy          Policy        `json:"policy,omitempty"`
-	Observability   Observability `json:"observability,omitempty"`
+	ContractVersion string         `json:"contractVersion"`
+	Identity        Identity       `json:"identity"`
+	Bus             Bus            `json:"bus"`
+	Turn            Turn           `json:"turn"`
+	Models          Models         `json:"models"`
+	Placement       Placement      `json:"placement"`
+	Tools           Tools          `json:"tools"`
+	Policy          *Policy        `json:"policy,omitempty"`
+	Observability   *Observability `json:"observability,omitempty"`
 }
 
 // Identity says who the agent is on the bus. Namespace, crew and agent scope every subject and

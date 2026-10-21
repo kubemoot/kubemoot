@@ -10,6 +10,9 @@ You may obtain a copy of the License at
 
 package bus
 
+// DiscussStream is the JetStream stream that holds every discussion subject.
+const DiscussStream = "KUBEMOOT_DISCUSS"
+
 // ServerTicketsBucket is the NATS KV bucket holding ServerTicket entries.
 const ServerTicketsBucket = "kubemoot_server_tickets"
 

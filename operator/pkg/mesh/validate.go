@@ -14,17 +14,21 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"slices"
 	"strings"
 	"time"
 )
 
 // Defaults the accessors apply to fields the file leaves at zero.
 const (
-	// DefaultProgressAck is a quarter of the operator's consumer AckWait (120 s), so a live turn
-	// reports progress several times before JetStream would deliver its message again.
-	DefaultProgressAck = 30 * time.Second
-	// DefaultConcurrency is one turn at a time.
-	DefaultConcurrency = 1
+	// ConsumerAckWait is the AckWait of every agent's durable consumer; the operator creates
+	// the consumers with it.
+	ConsumerAckWait = 120 * time.Second
+	// DefaultProgressAck is a quarter of ConsumerAckWait, so a live turn reports progress
+	// several times before JetStream would deliver its message again.
+	DefaultProgressAck = ConsumerAckWait / 4
+	// DefaultAlias is the model alias a harness gets when it names none the contract knows.
+	DefaultAlias = "default"
 )
 
 // Validate checks the whole contract and reports every problem it finds, so an operator or a
@@ -39,24 +43,30 @@ func (c Contract) Validate() error {
 	return errors.Join(errs...)
 }
 
-// validToken reports whether s is one NATS subject and key token: not empty, no separator,
-// wildcard or space.
-func validToken(field, s string) error {
+// ValidToken reports whether s is one NATS subject and key token: not empty, no separator,
+// wildcard or space. The operator's crewscope uses the same rule.
+func ValidToken(field, s string) error {
 	if s == "" {
 		return fmt.Errorf("%s is required", field)
 	}
 	if strings.ContainsAny(s, ".*> \t\r\n") {
-		return fmt.Errorf("%s %q must be one NATS token (no dot, wildcard or space)", field, s)
+		return fmt.Errorf("%s %q is not a single NATS subject token", field, s)
 	}
 	return nil
 }
 
 func (i Identity) validate() error {
 	errs := make([]error, 0, 3+len(i.Channels))
-	errs = append(errs, validToken("identity.namespace", i.Namespace), validToken("identity.crew", i.Crew),
-		validToken("identity.agent", i.Agent))
+	errs = append(errs, ValidToken("identity.namespace", i.Namespace), ValidToken("identity.crew", i.Crew),
+		ValidToken("identity.agent", i.Agent))
+	seen := map[string]bool{BroadcastChannel: true}
 	for _, ch := range i.Channels {
-		errs = append(errs, validToken("identity.channels entry", ch))
+		errs = append(errs, ValidToken("identity.channels entry", ch))
+		if seen[ch] {
+			errs = append(errs, fmt.Errorf("identity.channels lists %q twice, or lists %s, which every agent has",
+				ch, BroadcastChannel))
+		}
+		seen[ch] = true
 	}
 	return errors.Join(errs...)
 }
@@ -107,12 +117,12 @@ func (t Turn) validate() error {
 func (t Turn) Deadline() time.Duration { return time.Duration(t.DeadlineSeconds) * time.Second }
 
 func (m Models) validate() error {
-	if _, ok := m.Aliases["default"]; !ok {
+	if _, ok := m.Aliases[DefaultAlias]; !ok {
 		return errors.New("models.aliases needs a default alias")
 	}
 	var errs []error
 	for name, a := range m.Aliases {
-		errs = append(errs, a.validate("models.aliases."+name))
+		errs = append(errs, ValidToken("models.aliases name", name), a.validate("models.aliases."+name))
 	}
 	return errors.Join(errs...)
 }
@@ -121,6 +131,9 @@ func (a Alias) validate(field string) error {
 	var errs []error
 	if len(a.Candidates) == 0 {
 		errs = append(errs, fmt.Errorf("%s.candidates needs at least one model", field))
+	}
+	if slices.Contains(a.Candidates, "") {
+		errs = append(errs, fmt.Errorf("%s.candidates holds an empty model name", field))
 	}
 	if f := a.Fallback; f != nil && (f.Server == "" || f.Endpoint == "" || f.Model == "") {
 		errs = append(errs, fmt.Errorf("%s.fallback needs server, endpoint and model", field))
@@ -148,8 +161,8 @@ func (t Tools) validate() error {
 	return errors.Join(errs...)
 }
 
-func (o Observability) validate() error {
-	if o.OTLPEndpoint == "" {
+func (o *Observability) validate() error {
+	if o == nil || o.OTLPEndpoint == "" {
 		return nil
 	}
 	return validURL("observability.otlpEndpoint", o.OTLPEndpoint)

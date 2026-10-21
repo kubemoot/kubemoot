@@ -23,6 +23,8 @@ package crewscope
 import (
 	"fmt"
 	"strings"
+
+	"github.com/kubemoot/kubemoot/operator/pkg/mesh"
 )
 
 // NamespaceEnv is the environment variable the operator sets from the downward
@@ -53,7 +55,7 @@ func New(namespace, crew string) (Scope, error) {
 
 // DiscussSubject is kubemoot.discuss.<ns>.<crew>.<channel>.<thread>.
 func (s Scope) DiscussSubject(channel, thread string) string {
-	return fmt.Sprintf("%s.%s.%s.%s.%s", subjectDiscuss, s.Namespace, s.Crew, channel, thread)
+	return mesh.Identity{Namespace: s.Namespace, Crew: s.Crew}.DiscussSubject(channel, thread)
 }
 
 // ResumeKey is the kubemoot_crew_resumes key <ns>.<crew>.
@@ -174,12 +176,4 @@ func underscore(s string) string {
 }
 
 // validToken rejects a value that is empty or would not be exactly one NATS token.
-func validToken(what, v string) error {
-	if v == "" {
-		return fmt.Errorf("%s is required", what)
-	}
-	if strings.ContainsAny(v, ".*> \t\r\n") {
-		return fmt.Errorf("%s %q is not a single NATS subject token", what, v)
-	}
-	return nil
-}
+func validToken(what, v string) error { return mesh.ValidToken(what, v) }

@@ -12,14 +12,15 @@ package mesh
 
 import (
 	"fmt"
+	"slices"
 	"strings"
+
+	"github.com/kubemoot/kubemoot/operator/pkg/bus"
 )
 
 // The names the sidecar uses on the bus. The formats are the bus contract's (asyncapi.yaml);
 // the operator's internal/crewscope builds the same subjects for its own use.
 const (
-	// DiscussStream is the JetStream stream that holds every discussion subject.
-	DiscussStream = "KUBEMOOT_DISCUSS"
 	// AgentStateBucket is the KV bucket holding each agent's liveness heartbeat.
 	AgentStateBucket = "kubemoot_agent_state"
 	// LatencyBucket is the KV bucket holding each agent's turn latency samples.
@@ -42,26 +43,24 @@ func (i Identity) DiscussWildcard() string {
 
 // DiscussFilters are the subjects the agent's durable consumer filters on: the broadcast
 // channel and each channel the agent listens on.
+// Each channel appears once: JetStream refuses a consumer whose filters overlap.
 func (i Identity) DiscussFilters() []string {
 	out := make([]string, 0, 1+len(i.Channels))
-	out = append(out, fmt.Sprintf("kubemoot.discuss.%s.%s.%s.>", i.Namespace, i.Crew, BroadcastChannel))
-	for _, ch := range i.Channels {
-		out = append(out, fmt.Sprintf("kubemoot.discuss.%s.%s.%s.>", i.Namespace, i.Crew, ch))
+	for _, ch := range append([]string{BroadcastChannel}, i.Channels...) {
+		if f := i.channelFilter(ch); !slices.Contains(out, f) {
+			out = append(out, f)
+		}
 	}
 	return out
 }
 
+func (i Identity) channelFilter(channel string) string {
+	return fmt.Sprintf("kubemoot.discuss.%s.%s.%s.>", i.Namespace, i.Crew, channel)
+}
+
 // Listens reports whether the agent listens on a channel: broadcast, or one it declares.
 func (i Identity) Listens(channel string) bool {
-	if channel == BroadcastChannel {
-		return true
-	}
-	for _, ch := range i.Channels {
-		if ch == channel {
-			return true
-		}
-	}
-	return false
+	return channel == BroadcastChannel || slices.Contains(i.Channels, channel)
 }
 
 // LifecycleSubject is kubemoot.lifecycle.<namespace>.<crew>.<signal>.<agent>, for the waking
@@ -84,15 +83,15 @@ func (i Identity) ArtifactKey(threadID, signal, id string) string {
 // HeartbeatKey is the kubemoot_agent_state key <namespace>.<agent>.
 func (i Identity) HeartbeatKey() string { return i.Namespace + "." + i.Agent }
 
-// LatencyKey is the kubemoot_latency key latency.<namespace>.<agent>.<server>, with the server
-// already encoded as a key token.
-func (i Identity) LatencyKey(serverToken string) string {
-	return fmt.Sprintf("latency.%s.%s.%s", i.Namespace, i.Agent, serverToken)
+// LatencyKey is the kubemoot_latency key latency.<namespace>.<agent>.<server>; the server name
+// is encoded as a key token the way the agent runtime does.
+func (i Identity) LatencyKey(server string) string {
+	return fmt.Sprintf("latency.%s.%s.%s", i.Namespace, i.Agent, bus.KeyToken(server))
 }
 
 // ConsumerName is the name of the agent's durable JetStream consumer. A durable name cannot
 // hold a dot, a wildcard, a space or a slash; the identity's tokens hold none, so joining them
 // with hyphens is enough.
-func ConsumerName(i Identity) string {
+func (i Identity) ConsumerName() string {
 	return strings.Join([]string{"sidecar", i.Namespace, i.Crew, i.Agent}, "-")
 }

@@ -65,6 +65,7 @@ import (
 	"github.com/kubemoot/kubemoot/operator/internal/crewscope"
 	kubemootnats "github.com/kubemoot/kubemoot/operator/internal/nats"
 	"github.com/kubemoot/kubemoot/operator/internal/scheduler/record"
+	"github.com/kubemoot/kubemoot/operator/pkg/bus"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 )
 
@@ -76,7 +77,7 @@ const Bucket = record.Bucket
 
 // DiscussStreamName is the JetStream stream holding discussion messages.
 // The scheduler checks for source-thread existence before firing inline.
-const DiscussStreamName = "KUBEMOOT_DISCUSS"
+const DiscussStreamName = bus.DiscussStream
 
 // Poller runs the scheduling loop. Construct via New() and add to the
 // controller-runtime Manager via mgr.Add().

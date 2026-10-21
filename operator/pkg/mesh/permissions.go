@@ -10,7 +10,11 @@ You may obtain a copy of the License at
 
 package mesh
 
-import "fmt"
+import (
+	"fmt"
+
+	"github.com/kubemoot/kubemoot/operator/pkg/bus"
+)
 
 // Permissions are the NATS subjects one agent's sidecar may publish to and subscribe to. A
 // per-agent NATS user with exactly these permissions holds its own signals, its own heartbeat
@@ -32,13 +36,14 @@ func (i Identity) Permissions() Permissions {
 			i.DiscussWildcard(),
 			fmt.Sprintf("kubemoot.lifecycle.%s.%s.*.%s", i.Namespace, i.Crew, i.Agent),
 			fmt.Sprintf("kubemoot.artifacts.%s.%s.*", i.Namespace, i.Crew),
-			"kubemoot.server.model.>",
+			bus.ModelLifecycleSubjectPrefix + ">",
 			fmt.Sprintf("$KV.%s.%s", AgentStateBucket, i.HeartbeatKey()),
 			fmt.Sprintf("$KV.%s.latency.%s.%s.>", LatencyBucket, i.Namespace, i.Agent),
+			// Object Store chunks are named by a random id, so the bucket cannot be narrowed per agent.
 			fmt.Sprintf("$O.%s.>", ArtifactBucket),
 			// Acknowledgements, and the API calls that bind the consumer and the buckets.
-			"$JS.ACK.>",
-			fmt.Sprintf("$JS.API.CONSUMER.INFO.%s.%s", DiscussStream, ConsumerName(i)),
+			fmt.Sprintf("$JS.ACK.%s.%s.>", bus.DiscussStream, i.ConsumerName()),
+			fmt.Sprintf("$JS.API.CONSUMER.INFO.%s.%s", bus.DiscussStream, i.ConsumerName()),
 			fmt.Sprintf("$JS.API.STREAM.INFO.KV_%s", AgentStateBucket),
 			fmt.Sprintf("$JS.API.STREAM.INFO.KV_%s", LatencyBucket),
 			fmt.Sprintf("$JS.API.STREAM.INFO.OBJ_%s", ArtifactBucket),
