@@ -265,12 +265,13 @@ spec:
       port: 5432
       database: vectors
       secretRef: pgvector-credentials
-    embeddingModel:
-      model: nomic-embed-text   # names the model only; the cluster supplies the server
+    embeddingModelRef: nomic-embed   # the EmbeddingModel resource; its bound server supplies the endpoint
   metaTools:
     enabled: true
     maxResultsPerSearch: 10
 ```
+
+`toolIndex.embeddingModelRef` names the `EmbeddingModel` resource the tool index embeds with (in the gateway's namespace, else cluster-wide). The operator takes the endpoint from that resource's `status.endpoint`, so the gateway names no server. Without it, `toolIndex.embeddingModel.model` names the resource, then the KubemootConfig default. The gateway's `ToolIndexEmbeddingResolved` condition is `False` and names the missing resource and the field that named it when no such `EmbeddingModel` exists. Changing the ref on a gateway whose tool index exists updates its RAGSource, which re-indexes the tool index once.
 
 ### Gateway with Credential Policies
 

@@ -153,6 +153,10 @@ func (r *MCPGatewayReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 func (r *MCPGatewayReconciler) reconcileGatewayPreReqs(ctx context.Context, gateway *kubemootv1alpha1.MCPGateway) (ctrl.Result, bool) {
 	log := logf.FromContext(ctx)
 
+	if gateway.Spec.ToolIndex != nil {
+		r.recordToolIndexEmbedding(ctx, gateway)
+	}
+
 	if gateway.Spec.Registries != nil && len(gateway.Spec.Registries.Sources) > 0 {
 		ragSourceReady, err := r.ensureToolIndexRAGSource(ctx, gateway)
 		if err != nil {
@@ -489,8 +493,11 @@ func (r *MCPGatewayReconciler) ensureToolIndexRAGSource(ctx context.Context, gat
 		return false, err
 	}
 
-	// RAGSource already exists - check status
+	// RAGSource already exists - follow the embedding model the gateway names, then check status
 	if err == nil {
+		if err := r.syncToolIndexEmbeddingRef(ctx, gateway, ragSource); err != nil {
+			return false, err
+		}
 		return syncToolIndexStatus(ctx, gateway, ragSource), nil
 	}
 
@@ -575,10 +582,7 @@ func (r *MCPGatewayReconciler) buildToolIndexRAGSource(gateway *kubemootv1alpha1
 	vectorStoreConfig := buildToolIndexVectorStore(gateway)
 
 	// Determine embedding model reference (name of an EmbeddingModel CR)
-	embeddingModelRef := r.ConfigCache.GetEmbeddingModel()
-	if gateway.Spec.ToolIndex != nil && gateway.Spec.ToolIndex.EmbeddingModel.Model != "" {
-		embeddingModelRef = gateway.Spec.ToolIndex.EmbeddingModel.Model
-	}
+	embeddingModelRef := toolIndexEmbeddingRef(gateway, r.ConfigCache.GetEmbeddingModel())
 
 	// Build indexer config
 	indexerConfig := buildToolIndexIndexerConfig(gateway)

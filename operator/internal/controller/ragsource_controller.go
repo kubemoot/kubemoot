@@ -172,22 +172,13 @@ func (r *RAGSourceReconciler) reconcileIndexingState(ctx context.Context, ragSou
 // resolveEmbeddingModel finds the EmbeddingModel by name in the same namespace, falling back to cluster-wide.
 // Returns (model, nil) when found and ready, (nil, nil) when found but not ready, or (nil, error) when not found.
 func (r *RAGSourceReconciler) resolveEmbeddingModel(ctx context.Context, ragSource *kubemootv1alpha1.RAGSource) (*kubemootv1alpha1.EmbeddingModel, error) {
-	embeddingModel := &kubemootv1alpha1.EmbeddingModel{}
-	err := r.Get(ctx, types.NamespacedName{
-		Name:      ragSource.Spec.EmbeddingModelRef,
-		Namespace: ragSource.Namespace,
-	}, embeddingModel)
-
+	embeddingModel, err := findEmbeddingModel(ctx, r.Client, ragSource.Namespace, ragSource.Spec.EmbeddingModelRef)
 	if err != nil {
-		if !errors.IsNotFound(err) {
-			return nil, err
-		}
-		// Fall back: search all namespaces
-		embeddingModel = r.findEmbeddingModelClusterWide(ragSource.Spec.EmbeddingModelRef)
-		if embeddingModel == nil {
-			return nil, fmt.Errorf("EmbeddingModel '%s' not found in namespace '%s' or cluster-wide",
-				ragSource.Spec.EmbeddingModelRef, ragSource.Namespace)
-		}
+		return nil, err
+	}
+	if embeddingModel == nil {
+		return nil, fmt.Errorf("EmbeddingModel '%s' not found in namespace '%s' or cluster-wide",
+			ragSource.Spec.EmbeddingModelRef, ragSource.Namespace)
 	}
 
 	if !embeddingModel.Status.Ready {
@@ -196,18 +187,27 @@ func (r *RAGSourceReconciler) resolveEmbeddingModel(ctx context.Context, ragSour
 	return embeddingModel, nil
 }
 
-// findEmbeddingModelClusterWide searches all namespaces for an EmbeddingModel by name.
-func (r *RAGSourceReconciler) findEmbeddingModelClusterWide(name string) *kubemootv1alpha1.EmbeddingModel {
+// findEmbeddingModel finds the EmbeddingModel by name in the namespace, else
+// anywhere in the cluster. It returns nil without an error when there is none.
+func findEmbeddingModel(ctx context.Context, c client.Reader, namespace, name string) (*kubemootv1alpha1.EmbeddingModel, error) {
+	em := &kubemootv1alpha1.EmbeddingModel{}
+	err := c.Get(ctx, types.NamespacedName{Namespace: namespace, Name: name}, em)
+	if err == nil {
+		return em, nil
+	}
+	if !errors.IsNotFound(err) {
+		return nil, err
+	}
 	list := &kubemootv1alpha1.EmbeddingModelList{}
-	if err := r.List(context.Background(), list); err != nil {
-		return nil
+	if err := c.List(ctx, list); err != nil {
+		return nil, err
 	}
 	for i := range list.Items {
 		if list.Items[i].Name == name {
-			return &list.Items[i]
+			return &list.Items[i], nil
 		}
 	}
-	return nil
+	return nil, nil
 }
 
 // forceFullIndex makes the next indexing job index everything instead of

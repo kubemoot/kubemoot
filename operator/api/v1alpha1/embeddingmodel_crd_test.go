@@ -69,7 +69,14 @@ func TestModelServerCRDListsEmbeddingModels(t *testing.T) {
 func TestMCPGatewayToolIndexDoesNotRequireAnEmbeddingEndpoint(t *testing.T) {
 	crd := loadCRD(t, "..", "..", "config", "crd", "bases", "kubemoot.ai_mcpgateways.yaml")
 	spec := crd.Spec.Versions[0].Schema.OpenAPIV3Schema.Properties["spec"]
-	embedding := spec.Properties["toolIndex"].Properties["embeddingModel"]
+	toolIndex := spec.Properties["toolIndex"]
+	if _, ok := toolIndex.Properties["embeddingModelRef"]; !ok {
+		t.Error("toolIndex.embeddingModelRef is missing")
+	}
+	if slices.Contains(toolIndex.Required, "embeddingModel") {
+		t.Errorf("toolIndex requires %v; embeddingModelRef alone must be enough", toolIndex.Required)
+	}
+	embedding := toolIndex.Properties["embeddingModel"]
 	if slices.Contains(embedding.Required, "endpoint") {
 		t.Errorf("toolIndex.embeddingModel requires %v; the endpoint comes from the EmbeddingModel's bound server", embedding.Required)
 	}
