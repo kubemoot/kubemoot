@@ -137,7 +137,8 @@ export interface EmbeddingModel {
 }
 
 export interface EmbeddingModelSpec {
-	serverRef: string;
+	/** Optional: left out, the operator binds a server that has the model (status.boundServer). */
+	serverRef?: string;
 	model: string;
 	dimensions?: number;
 }
@@ -146,6 +147,7 @@ export interface EmbeddingModelStatus {
 	ready?: boolean;
 	state?: 'Pending' | 'Pulling' | 'Available' | 'Loaded' | 'Error';
 	message?: string;
+	boundServer?: string;
 	endpoint?: string;
 	conditions?: Condition[];
 	modelInfo?: {

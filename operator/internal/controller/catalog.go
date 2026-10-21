@@ -52,6 +52,8 @@ type catalogFacts struct {
 	Family         string
 	// Embedding is true for a model that only embeds; it never joins the catalog.
 	Embedding bool
+	// EmbeddingDimensions is the vector size of an embedding model, 0 when unknown.
+	EmbeddingDimensions int32
 }
 
 // catalogModelName is the name a Model's model has on the server's engine: the
@@ -211,6 +213,20 @@ func normalizeAbilities(in []string) []string {
 		}
 	}
 	sort.Strings(out)
+	return out
+}
+
+// buildEmbeddingCatalog lists the embedding-only models the engine reported as
+// present, sorted by name. They are not catalog entries for chat scheduling; an
+// EmbeddingModel without a serverRef binds through this list.
+func buildEmbeddingCatalog(facts []catalogFacts) []aiv1alpha1.EmbeddingCatalogModel {
+	var out []aiv1alpha1.EmbeddingCatalogModel
+	for _, f := range facts {
+		if f.Embedding && f.Present {
+			out = append(out, aiv1alpha1.EmbeddingCatalogModel{Name: f.Name, Dimensions: f.EmbeddingDimensions})
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return out
 }
 

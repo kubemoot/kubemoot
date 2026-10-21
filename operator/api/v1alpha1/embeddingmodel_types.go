@@ -22,9 +22,12 @@ import (
 
 // EmbeddingModelSpec defines the desired state of EmbeddingModel
 type EmbeddingModelSpec struct {
-	// ServerRef references the ModelServer to use for this embedding model
-	// +kubebuilder:validation:Required
-	ServerRef string `json:"serverRef"`
+	// ServerRef pins this embedding model to one ModelServer. Leave it out and
+	// the operator binds the model to a ready ModelServer whose catalog lists it
+	// with the embedding capability, so the crew names the model and the cluster
+	// supplies the server. The bound server is in status.boundServer.
+	// +optional
+	ServerRef string `json:"serverRef,omitempty"`
 
 	// Model is the embedding model name (e.g., nomic-embed-text, text-embedding-3-small)
 	// +kubebuilder:validation:Required
@@ -41,6 +44,16 @@ type EmbeddingModelSpec struct {
 	// +kubebuilder:default=32
 	// +optional
 	BatchSize int32 `json:"batchSize,omitempty"`
+}
+
+// BoundServerName is the name of the ModelServer that serves the embedding model:
+// spec.serverRef when set, otherwise the server the operator bound it to, or ""
+// while none has the model.
+func (e *EmbeddingModel) BoundServerName() string {
+	if e.Spec.ServerRef != "" {
+		return e.Spec.ServerRef
+	}
+	return e.Status.BoundServer
 }
 
 // EmbeddingModelInfo contains metadata about the embedding model
@@ -62,6 +75,12 @@ type EmbeddingModelStatus struct {
 
 	// Ready indicates if the embedding model is ready for use
 	Ready bool `json:"ready,omitempty"`
+
+	// BoundServer is the ModelServer that serves this embedding model: spec.serverRef
+	// when set, otherwise the server the operator bound it to. Empty while no
+	// server has the model.
+	// +optional
+	BoundServer string `json:"boundServer,omitempty"`
 
 	// Endpoint is the embedding API endpoint (from the server)
 	// Used by RAGSource to configure the indexer
@@ -88,6 +107,7 @@ type EmbeddingModelStatus struct {
 // +kubebuilder:subresource:status
 // +kubebuilder:resource:shortName=emb
 // +kubebuilder:printcolumn:name="Model",type=string,JSONPath=`.spec.model`
+// +kubebuilder:printcolumn:name="Server",type=string,JSONPath=`.status.boundServer`
 // +kubebuilder:printcolumn:name="Dimensions",type=integer,JSONPath=`.spec.dimensions`
 // +kubebuilder:printcolumn:name="Ready",type=boolean,JSONPath=`.status.ready`
 // +kubebuilder:printcolumn:name="State",type=string,JSONPath=`.status.state`

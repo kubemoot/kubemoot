@@ -544,7 +544,10 @@ spec:
                         description: Dimensions is the embedding vector size
                         type: integer
                       endpoint:
-                        description: Endpoint is the embedding API endpoint
+                        description: |-
+                          Endpoint is the embedding API endpoint. The tool index reads the endpoint of
+                          the EmbeddingModel named by model (its status.endpoint), so leave this out
+                          and the cluster's catalog supplies the server.
                         type: string
                       model:
                         default: nomic-embed-text
@@ -557,8 +560,6 @@ spec:
                         - ollama
                         - openai
                         type: string
-                    required:
-                    - endpoint
                     type: object
                   vectorStore:
                     description: VectorStore configures the vector database backend

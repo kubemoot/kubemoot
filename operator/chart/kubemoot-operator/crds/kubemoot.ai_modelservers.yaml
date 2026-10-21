@@ -553,6 +553,35 @@ spec:
                   - type
                   type: object
                 type: array
+              embeddingModels:
+                description: |-
+                  EmbeddingModels are the embedding-only models the server has downloaded,
+                  as its engine reports them (Ollama lists the embedding capability in
+                  /api/show). An EmbeddingModel without a serverRef binds to a ready server
+                  that lists its model here.
+                items:
+                  description: |-
+                    EmbeddingCatalogModel is an embedding model a ModelServer has, as its engine
+                    reports it. Embedding-only models stay out of ModelServer.status.models, which
+                    scheduling rules match for chat; an EmbeddingModel without a serverRef binds to
+                    a server through this list.
+                  properties:
+                    dimensions:
+                      description: Dimensions is the vector size the engine reports,
+                        0 when it does not.
+                      format: int32
+                      type: integer
+                    name:
+                      description: Name is the model name on the server (the Ollama
+                        tag).
+                      type: string
+                  required:
+                  - name
+                  type: object
+                type: array
+                x-kubernetes-list-map-keys:
+                - name
+                x-kubernetes-list-type: map
               message:
                 description: Message provides additional status information
                 type: string

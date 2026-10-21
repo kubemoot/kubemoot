@@ -266,9 +266,7 @@ spec:
       database: vectors
       secretRef: pgvector-credentials
     embeddingModel:
-      server: ollama
-      endpoint: http://ollama.ollama-a:11434
-      model: nomic-embed-text
+      model: nomic-embed-text   # names the model only; the cluster supplies the server
   metaTools:
     enabled: true
     maxResultsPerSearch: 10

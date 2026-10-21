@@ -216,8 +216,11 @@ type GatewayEmbeddingModelConfig struct {
 	// +optional
 	Provider string `json:"provider,omitempty"`
 
-	// Endpoint is the embedding API endpoint
-	Endpoint string `json:"endpoint"`
+	// Endpoint is the embedding API endpoint. The tool index reads the endpoint of
+	// the EmbeddingModel named by model (its status.endpoint), so leave this out
+	// and the cluster's catalog supplies the server.
+	// +optional
+	Endpoint string `json:"endpoint,omitempty"`
 
 	// Model is the embedding model name
 	// +kubebuilder:default="nomic-embed-text"

@@ -18,7 +18,6 @@ package controller
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"strings"
@@ -28,11 +27,14 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
 	kubemootv1alpha1 "github.com/kubemoot/kubemoot/operator/api/v1alpha1"
+	"github.com/kubemoot/kubemoot/operator/internal/engine/ollama"
 )
 
 const embeddingModelFinalizer = "kubemoot.ai/embeddingmodel-finalizer"
@@ -82,17 +84,9 @@ func (r *EmbeddingModelReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		return requeueNow(), nil
 	}
 
-	// Fetch the referenced ModelServer (cluster-wide — servers are infrastructure)
-	server, err := r.findModelServer(ctx, embeddingModel.Spec.ServerRef)
-	if err != nil {
-		return r.updateStatus(ctx, embeddingModel, "Error",
-			fmt.Sprintf("ModelServer '%s' not found", embeddingModel.Spec.ServerRef))
-	}
-
-	// Check if server is ready
-	if !server.Status.Ready {
-		return r.updateStatus(ctx, embeddingModel, "Pending",
-			fmt.Sprintf("Waiting for ModelServer '%s' to be ready", server.Name))
+	server, result, err := r.resolveServer(ctx, embeddingModel)
+	if server == nil {
+		return result, err
 	}
 
 	if server.Spec.Type == kubemootv1alpha1.ServerTypeVLLM {
@@ -105,6 +99,53 @@ func (r *EmbeddingModelReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	return r.reconcileOllamaEmbedding(ctx, embeddingModel, server)
 }
 
+// resolveServer finds the ModelServer that serves the embedding model: the one
+// spec.serverRef names, or, with no serverRef, one the catalog supplies. It returns
+// a nil server with the reconcile result when none can serve it yet.
+func (r *EmbeddingModelReconciler) resolveServer(ctx context.Context, em *kubemootv1alpha1.EmbeddingModel) (*kubemootv1alpha1.ModelServer, ctrl.Result, error) {
+	if em.Spec.ServerRef == "" {
+		return r.resolveCatalogServer(ctx, em)
+	}
+	server, err := r.findModelServer(ctx, em.Spec.ServerRef)
+	if err != nil {
+		message := fmt.Sprintf("ModelServer '%s' not found", em.Spec.ServerRef)
+		recordBound(em, "", reasonServerGone, message)
+		result, err := r.updateStatus(ctx, em, "Error", message)
+		return nil, result, err
+	}
+	recordBound(em, server.Name, reasonBoundRef, fmt.Sprintf("Using ModelServer %s named by spec.serverRef", server.Name))
+	if !server.Status.Ready {
+		result, err := r.updateStatus(ctx, em, statePending, fmt.Sprintf("Waiting for ModelServer '%s' to be ready", server.Name))
+		return nil, result, err
+	}
+	return server, ctrl.Result{}, nil
+}
+
+// resolveCatalogServer binds an EmbeddingModel with no serverRef to a ready server
+// whose catalog lists the model. With none, the Bound condition is False
+// (NoServer) naming the model, and the endpoint is cleared so a consumer does not
+// keep using a server the model has left.
+func (r *EmbeddingModelReconciler) resolveCatalogServer(ctx context.Context, em *kubemootv1alpha1.EmbeddingModel) (*kubemootv1alpha1.ModelServer, ctrl.Result, error) {
+	server, message, err := r.bindEmbeddingServer(ctx, em)
+	if err != nil {
+		return nil, ctrl.Result{}, err
+	}
+	if server == nil {
+		recordBound(em, "", reasonNoServer, message)
+		em.Status.Endpoint = ""
+		if err := releaseStalePulls(ctx, r.Client, r.tracker(), em, ""); err != nil {
+			return nil, ctrl.Result{}, err
+		}
+		result, err := r.updateStatus(ctx, em, statePending, message)
+		return nil, result, err
+	}
+	if previous := em.Status.BoundServer; previous != server.Name {
+		logf.FromContext(ctx).Info("Binding EmbeddingModel to ModelServer", "model", em.Spec.Model, "from", previous, "to", server.Name)
+	}
+	recordBound(em, server.Name, reasonBoundCatalog, fmt.Sprintf("Bound to ModelServer %s/%s, which has embedding model %s", server.Namespace, server.Name, em.Spec.Model))
+	return server, ctrl.Result{}, nil
+}
+
 // reconcileOllamaEmbedding handles Ollama-based embedding models
 func (r *EmbeddingModelReconciler) reconcileOllamaEmbedding(ctx context.Context, embeddingModel *kubemootv1alpha1.EmbeddingModel, server *kubemootv1alpha1.ModelServer) (ctrl.Result, error) {
 	httpClient := r.HTTPClient
@@ -112,7 +153,7 @@ func (r *EmbeddingModelReconciler) reconcileOllamaEmbedding(ctx context.Context,
 		httpClient = &http.Client{Timeout: 30 * time.Second}
 	}
 
-	key := pullKey(embeddingModel.Spec.ServerRef, embeddingModel.Spec.Model)
+	key := pullKey(server.Name, embeddingModel.Spec.Model)
 	if err := releaseStalePulls(ctx, r.Client, r.tracker(), embeddingModel, key); err != nil {
 		return ctrl.Result{}, err
 	}
@@ -124,8 +165,13 @@ func (r *EmbeddingModelReconciler) reconcileOllamaEmbedding(ctx context.Context,
 			fmt.Sprintf("Failed to check model: %v", err))
 	}
 
+	if !exact && embeddingModel.Spec.ServerRef == "" {
+		// A model bound from the catalog is the exact tag or it is not on the server: a
+		// different tag of the same name makes different vectors.
+		exists = false
+	}
 	if !exists {
-		return r.reconcilePull(ctx, httpClient, embeddingModel, server)
+		return r.pullOrWait(ctx, httpClient, embeddingModel, server)
 	}
 	if exact {
 		// Only the exact tag ends a pull; a base-name match may be a different tag.
@@ -134,12 +180,27 @@ func (r *EmbeddingModelReconciler) reconcileOllamaEmbedding(ctx context.Context,
 	return r.reportAvailable(ctx, httpClient, embeddingModel, server.Spec.Endpoint)
 }
 
+// pullOrWait downloads the model onto the server when the cluster owner allows it
+// there. A catalog-bound model the server no longer lists, and no Model asks for,
+// waits for the catalog to catch up, which re-binds it.
+func (r *EmbeddingModelReconciler) pullOrWait(ctx context.Context, httpClient *http.Client, em *kubemootv1alpha1.EmbeddingModel, server *kubemootv1alpha1.ModelServer) (ctrl.Result, error) {
+	allowed, err := r.embeddingPullAllowed(ctx, em, server)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+	if !allowed {
+		return r.updateStatus(ctx, em, statePending,
+			fmt.Sprintf("ModelServer %s no longer lists %s; waiting for the catalog to bind another server", server.Name, em.Spec.Model))
+	}
+	return r.reconcilePull(ctx, httpClient, em, server)
+}
+
 // reportAvailable records an embedding model the server lists as Available.
 func (r *EmbeddingModelReconciler) reportAvailable(ctx context.Context, httpClient *http.Client, embeddingModel *kubemootv1alpha1.EmbeddingModel, endpoint string) (ctrl.Result, error) {
 	log := logf.FromContext(ctx)
 
 	// Model exists - get info and mark as available
-	modelInfo, err := r.getOllamaModelInfo(httpClient, endpoint, embeddingModel.Spec.Model)
+	modelInfo, err := r.getOllamaModelInfo(ctx, httpClient, endpoint, embeddingModel.Spec.Model)
 	if err != nil {
 		log.Error(err, "Failed to get model info, continuing anyway")
 	}
@@ -187,7 +248,7 @@ func (r *EmbeddingModelReconciler) ollamaModelExists(ctx context.Context, httpCl
 		return false, false, err
 	}
 	for _, m := range models {
-		if m.Name == modelName {
+		if latestTag(m.Name) == latestTag(modelName) {
 			return true, true, nil
 		}
 		if strings.Split(m.Name, ":")[0] == strings.Split(modelName, ":")[0] {
@@ -215,7 +276,7 @@ func (r *EmbeddingModelReconciler) findModelServer(ctx context.Context, name str
 // list, on the same background pull the Model controller uses: the reconcile
 // returns at once and reports the progress of the pull.
 func (r *EmbeddingModelReconciler) reconcilePull(ctx context.Context, httpClient *http.Client, embeddingModel *kubemootv1alpha1.EmbeddingModel, server *kubemootv1alpha1.ModelServer) (ctrl.Result, error) {
-	key := pullKey(embeddingModel.Spec.ServerRef, embeddingModel.Spec.Model)
+	key := pullKey(server.Name, embeddingModel.Spec.Model)
 	step := r.tracker().advance(key, embeddingModel.UID, newPullStream(server, embeddingModel.Spec.Model, httpClient))
 	switch step.phase {
 	case pullSucceeded:
@@ -238,48 +299,12 @@ func (r *EmbeddingModelReconciler) reportAfterPull(ctx context.Context, httpClie
 }
 
 // getOllamaModelInfo retrieves model metadata from Ollama
-func (r *EmbeddingModelReconciler) getOllamaModelInfo(httpClient *http.Client, endpoint, modelName string) (*kubemootv1alpha1.EmbeddingModelInfo, error) {
-	reqBody := fmt.Sprintf(`{"name": "%s"}`, modelName)
-	resp, err := httpClient.Post(
-		fmt.Sprintf("%s/api/show", endpoint),
-		"application/json",
-		strings.NewReader(reqBody),
-	)
+func (r *EmbeddingModelReconciler) getOllamaModelInfo(ctx context.Context, httpClient *http.Client, endpoint, modelName string) (*kubemootv1alpha1.EmbeddingModelInfo, error) {
+	shown, err := ollama.Show(ctx, httpClient, endpoint, modelName)
 	if err != nil {
 		return nil, err
 	}
-	defer func() { _ = resp.Body.Close() }()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("unexpected status: %d", resp.StatusCode)
-	}
-
-	var result struct {
-		Details struct {
-			Family            string   `json:"family"`
-			ParameterSize     string   `json:"parameter_size"`
-			QuantizationLevel string   `json:"quantization_level"`
-			Families          []string `json:"families"`
-		} `json:"details"`
-		ModelInfo map[string]interface{} `json:"model_info"`
-	}
-
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return nil, err
-	}
-
-	info := &kubemootv1alpha1.EmbeddingModelInfo{
-		Family: result.Details.Family,
-	}
-
-	// Try to extract embedding dimension from model_info
-	if dim, ok := result.ModelInfo["embedding_length"]; ok {
-		if dimFloat, ok := dim.(float64); ok {
-			info.Dimensions = int32(dimFloat)
-		}
-	}
-
-	return info, nil
+	return &kubemootv1alpha1.EmbeddingModelInfo{Family: shown.Family, Dimensions: shown.EmbeddingLength}, nil
 }
 
 // handleDeletion handles EmbeddingModel deletion
@@ -294,9 +319,11 @@ func (r *EmbeddingModelReconciler) handleDeletion(ctx context.Context, embedding
 
 	// The model stays in Ollama as other consumers may share it. A download still
 	// running is stopped unless another Model or EmbeddingModel wants the tag.
-	if err := abandonIfUnwanted(ctx, r.Client, r.tracker(), embeddingModel,
-		pullKey(embeddingModel.Spec.ServerRef, embeddingModel.Spec.Model)); err != nil {
-		return ctrl.Result{}, err
+	if server := embeddingModel.BoundServerName(); server != "" {
+		if err := abandonIfUnwanted(ctx, r.Client, r.tracker(), embeddingModel,
+			pullKey(server, embeddingModel.Spec.Model)); err != nil {
+			return ctrl.Result{}, err
+		}
 	}
 
 	// Remove finalizer
@@ -344,5 +371,10 @@ func (r *EmbeddingModelReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&kubemootv1alpha1.EmbeddingModel{}).
 		Named("embeddingmodel").
+		// A ModelServer that gains, loses or stops listing an embedding model
+		// re-binds the EmbeddingModels that choose their server from the catalog.
+		Watches(&kubemootv1alpha1.ModelServer{},
+			handler.EnqueueRequestsFromMapFunc(r.enqueueUnboundEmbeddingModels),
+			builder.WithPredicates(modelServerEmbeddingPredicate())).
 		Complete(r)
 }

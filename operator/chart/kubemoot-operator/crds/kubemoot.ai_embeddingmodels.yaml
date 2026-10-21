@@ -20,6 +20,9 @@ spec:
     - jsonPath: .spec.model
       name: Model
       type: string
+    - jsonPath: .status.boundServer
+      name: Server
+      type: string
     - jsonPath: .spec.dimensions
       name: Dimensions
       type: integer
@@ -76,16 +79,24 @@ spec:
                   text-embedding-3-small)
                 type: string
               serverRef:
-                description: ServerRef references the ModelServer to use for this
-                  embedding model
+                description: |-
+                  ServerRef pins this embedding model to one ModelServer. Leave it out and
+                  the operator binds the model to a ready ModelServer whose catalog lists it
+                  with the embedding capability, so the crew names the model and the cluster
+                  supplies the server. The bound server is in status.boundServer.
                 type: string
             required:
             - model
-            - serverRef
             type: object
           status:
             description: EmbeddingModelStatus defines the observed state of EmbeddingModel
             properties:
+              boundServer:
+                description: |-
+                  BoundServer is the ModelServer that serves this embedding model: spec.serverRef
+                  when set, otherwise the server the operator bound it to. Empty while no
+                  server has the model.
+                type: string
               conditions:
                 description: Conditions represent the latest available observations
                 items:

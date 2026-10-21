@@ -21,6 +21,7 @@ To see a complete small crew before writing your own, scaffold the
 | `Model` / `ModelServer` | The models (by capability label) and the GPU-backed endpoints that serve them. |
 | `MCPServer` / `MCPGateway` | The tools Toolers use, reached through the gateway. |
 | `RAGSource` | Knowledge sources, indexed and made queryable. |
+| `EmbeddingModel` | The embedding model a RAGSource indexes with. It names the model and its dimensions, never a server. |
 
 ## Steps
 
@@ -65,7 +66,10 @@ inline. Write them in ADL (the Architecture Definition Language). See
 
 Add the `MCPServer`s and an `MCPGateway` for the tools your Toolers need
 ([MCP Tools](../../concepts/mcp-tools/)), and `RAGSource`s for knowledge Analysts
-should retrieve. Keep each Tooler's tool set small (~10-15 tools). For a server Kubemoot
+should retrieve. A RAGSource names an `EmbeddingModel`, and an `EmbeddingModel` names the
+model (`nomic-embed-text`) and its `dimensions`, with no `serverRef`: stored vectors match
+only the model that made them, so the crew pins the model, and the cluster supplies a server
+that has it ([binding](../../reference/models/#binding)). Keep each Tooler's tool set small (~10-15 tools). For a server Kubemoot
 builds, such as the artifact read-ops server, set `kubemootImage` instead of an image so the
 crew never names a version ([example](../../reference/mcpserver-guide/#run-a-kubemoot-built-server-without-naming-a-version)).
 

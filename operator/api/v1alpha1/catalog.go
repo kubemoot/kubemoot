@@ -163,3 +163,16 @@ type CatalogModel struct {
 	// +optional
 	Labels map[string]string `json:"labels,omitempty"`
 }
+
+// EmbeddingCatalogModel is an embedding model a ModelServer has, as its engine
+// reports it. Embedding-only models stay out of ModelServer.status.models, which
+// scheduling rules match for chat; an EmbeddingModel without a serverRef binds to
+// a server through this list.
+type EmbeddingCatalogModel struct {
+	// Name is the model name on the server (the Ollama tag).
+	Name string `json:"name"`
+
+	// Dimensions is the vector size the engine reports, 0 when it does not.
+	// +optional
+	Dimensions int32 `json:"dimensions,omitempty"`
+}

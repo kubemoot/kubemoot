@@ -40,9 +40,14 @@ import (
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/event"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	kubemootv1alpha1 "github.com/kubemoot/kubemoot/operator/api/v1alpha1"
 )
@@ -1279,7 +1284,39 @@ func (r *RAGSourceReconciler) SetupWithManager(mgr ctrl.Manager) error {
 				func() client.ObjectList { return &kubemootv1alpha1.RAGSourceList{} },
 				"ragsource"),
 		).
+		// A rebound EmbeddingModel (a new endpoint) reaches the query service and the
+		// next indexing job at once instead of at the next scheduled reconcile.
+		Watches(&kubemootv1alpha1.EmbeddingModel{},
+			handler.EnqueueRequestsFromMapFunc(r.ragSourcesOfEmbeddingModel),
+			builder.WithPredicates(embeddingEndpointPredicate())).
 		Complete(r)
+}
+
+// ragSourcesOfEmbeddingModel maps an EmbeddingModel to the RAGSources that name it.
+func (r *RAGSourceReconciler) ragSourcesOfEmbeddingModel(ctx context.Context, obj client.Object) []reconcile.Request {
+	var list kubemootv1alpha1.RAGSourceList
+	if err := r.List(ctx, &list); err != nil {
+		return nil
+	}
+	var reqs []reconcile.Request
+	for i := range list.Items {
+		if list.Items[i].Spec.EmbeddingModelRef == obj.GetName() {
+			reqs = append(reqs, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(&list.Items[i])})
+		}
+	}
+	return reqs
+}
+
+// embeddingEndpointPredicate passes an EmbeddingModel update that changes whether it
+// is ready or where it is served from.
+func embeddingEndpointPredicate() predicate.Predicate {
+	return predicate.Funcs{
+		UpdateFunc: func(e event.UpdateEvent) bool {
+			o, ok1 := e.ObjectOld.(*kubemootv1alpha1.EmbeddingModel)
+			n, ok2 := e.ObjectNew.(*kubemootv1alpha1.EmbeddingModel)
+			return !ok1 || !ok2 || o.Status.Ready != n.Status.Ready || o.Status.Endpoint != n.Status.Endpoint
+		},
+	}
 }
 
 // ============================================================================

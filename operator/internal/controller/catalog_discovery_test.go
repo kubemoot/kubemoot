@@ -26,7 +26,7 @@ const (
 	showQwen14   = `{"details":{"family":"qwen3","parameter_size":"14.8B"},
  "model_info":{"general.architecture":"qwen3","general.parameter_count":14768307200,"qwen3.context_length":40960},
  "capabilities":["completion","tools","thinking"]}`
-	showEmbed = `{"details":{"family":"nomic-bert","parameter_size":"137M"},"model_info":{},"capabilities":["embedding"]}`
+	showEmbed = `{"details":{"family":"nomic-bert","parameter_size":"137M"},"model_info":{"general.architecture":"nomic-bert","nomic-bert.embedding_length":768},"capabilities":["embedding"]}`
 	tagsBody  = `{"models":[
  {"name":"qwen3:14b","digest":"d14","size":9000,"details":{"family":"qwen3","parameter_size":"14.8B"}},
  {"name":"gemma3:4b","digest":"d4","size":3000,"details":{"family":"gemma3","parameter_size":"4.3B"}},
@@ -100,6 +100,36 @@ func TestOllamaFactsFallBackToTagsWhenShowFails(t *testing.T) {
 func TestOllamaFactsFlagTheEmbeddingModel(t *testing.T) {
 	if e := ollamaFactsByName(t)[mpEmbedModel]; !e.Embedding {
 		t.Errorf("the embedding model must be flagged: %+v", e)
+	}
+}
+
+func TestOllamaFactsReadTheEmbeddingDimensions(t *testing.T) {
+	facts := ollamaFactsByName(t)
+	if e := facts[mpEmbedModel]; e.EmbeddingDimensions != 768 {
+		t.Errorf("embedding dimensions = %d, want 768", e.EmbeddingDimensions)
+	}
+	list := make([]catalogFacts, 0, len(facts))
+	for _, f := range facts {
+		list = append(list, f)
+	}
+	got := buildEmbeddingCatalog(list)
+	if len(got) != 1 || got[0].Name != mpEmbedModel || got[0].Dimensions != 768 {
+		t.Errorf("embedding catalog = %+v, want only the embedder with 768 dimensions (chat models stay out)", got)
+	}
+}
+
+func TestBuildEmbeddingCatalogSkipsAbsentAndOrdersByName(t *testing.T) {
+	got := buildEmbeddingCatalog([]catalogFacts{
+		{Name: "z-embed", Present: true, Embedding: true},
+		{Name: "gone-embed", Present: false, Embedding: true},
+		{Name: "a-embed", Present: true, Embedding: true, EmbeddingDimensions: 1024},
+		{Name: "chat", Present: true},
+	})
+	if len(got) != 2 || got[0].Name != "a-embed" || got[0].Dimensions != 1024 || got[1].Name != "z-embed" {
+		t.Errorf("embedding catalog = %+v", got)
+	}
+	if buildEmbeddingCatalog(nil) != nil {
+		t.Error("no facts must give no embedding models")
 	}
 }
 
