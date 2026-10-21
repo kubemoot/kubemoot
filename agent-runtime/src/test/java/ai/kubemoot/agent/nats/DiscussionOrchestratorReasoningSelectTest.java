@@ -109,6 +109,23 @@ class DiscussionOrchestratorReasoningSelectTest {
     }
 
     @Test
+    void runReasoningSelectBrief_recordsTheModelAndServerTheCallRanOn() {
+        String llmResponse = """
+                {"selected": ["k8s-metrics"], "brief": "Check pods_top.", "technologies": ["kubernetes"]}
+                """;
+        when(chatService.simpleLlmCallWithTokens(any(), anyString()))
+                .thenReturn(new ChatService.SimpleLlmResult(llmResponse, 10, 5,
+                        new ai.kubemoot.agent.chat.ModelUse("alt-model:14b", "server-b")));
+        var state = new DiscussionOrchestrator.ThreadState("thread-use");
+        state.userQuery = "q";
+        orchestrator.loadKnownAgentNamesForTest(List.of("k8s-metrics"));
+
+        orchestrator.runReasoningSelectBrief(state, SAMPLE_RESUMES);
+
+        assertEquals(new ai.kubemoot.agent.chat.ModelUse("alt-model:14b", "server-b"), state.advisoryModelUse);
+    }
+
+    @Test
     void runReasoningSelectBrief_withMarkdownFences_stripsAndParses() {
         String llmResponse = """
                 ```json

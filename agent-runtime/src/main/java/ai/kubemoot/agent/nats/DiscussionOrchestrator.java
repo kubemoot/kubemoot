@@ -1,6 +1,7 @@
 package ai.kubemoot.agent.nats;
 
 import ai.kubemoot.agent.chat.ChatService;
+import ai.kubemoot.agent.chat.ModelUse;
 import ai.kubemoot.agent.config.AgentProperties;
 import ai.kubemoot.agent.rag.ResumeSearchClient;
 import ai.kubemoot.agent.util.GpuLabels;
@@ -1261,6 +1262,7 @@ public class DiscussionOrchestrator {
      * each path is its own helper.
      */
     private void runAdvisoryGeneration(ThreadState state) {
+        state.advisoryModelUse = null;
         try {
             // Pre-filter, then reason: the resume vector search ranks the crew by
             // similarity to the question and returns the top-K; the coordinator reasons
@@ -1308,7 +1310,7 @@ public class DiscussionOrchestrator {
                     state.primaryChannel);
 
             publishAdvisory(state.threadId, outcome.technologies(), outcome.layers(), outcome.wisdom(),
-                    outcome.inferenceMs());
+                    outcome.inferenceMs(), state.advisoryModelUse);
             // advisory_ready triggers tooler evaluation (includes innerCircle)
             publishAdvisoryReady(state, outcome.technologies(), outcome.wisdom());
             resetEvaluationClock(state);
@@ -1354,6 +1356,7 @@ public class DiscussionOrchestrator {
                 ? chatService.triageChatWithTokens(systemPrompt, advisoryPrompt)
                 : chatService.simpleLlmCallWithTokens(systemPrompt, advisoryPrompt);
         long inferenceMs = System.currentTimeMillis() - inferenceStart;
+        state.advisoryModelUse = advisoryResult.modelUse();
         state.advisoryInputTokens = advisoryResult.inputTokens();
         state.advisoryOutputTokens = advisoryResult.outputTokens();
 
@@ -1503,6 +1506,7 @@ public class DiscussionOrchestrator {
             // not the triage model, so the coordinator has full reasoning capacity.
             var result = chatService.simpleLlmCallWithTokens(systemPrompt, prompt);
             long inferenceMs = System.currentTimeMillis() - inferenceStart;
+            state.advisoryModelUse = result.modelUse();
 
             String response = result.text();
             if (response == null || response.isEmpty()) {
@@ -1711,7 +1715,7 @@ public class DiscussionOrchestrator {
     }
 
     private void publishAdvisory(String threadId, List<String> technologies, List<String> layers,
-                                  String wisdom, long inferenceMs) {
+                                  String wisdom, long inferenceMs, ModelUse ranOn) {
         try {
             var conn = natsProvider.getConnection();
             if (conn == null) return;
@@ -1723,8 +1727,7 @@ public class DiscussionOrchestrator {
             metadata.put(FIELD_INFERENCE_MS, inferenceMs);
             // Surface coordinator GPU + model so the dashboard timeline can
             // render the same colored badge it does for toolers.
-            metadata.put(FIELD_GPU_LABEL, GpuLabels.fromEndpoint(properties.model().endpoint()));
-            metadata.put(FIELD_MODEL_NAME, properties.model().model());
+            putRanOn(metadata, ranOn);
             putFirstToken(metadata, chatService.lastSimpleCall());
 
             var advisory = Map.of(
@@ -1782,8 +1785,7 @@ public class DiscussionOrchestrator {
         var metadata = new HashMap<String, Object>();
         metadata.put(FIELD_USER_QUERY, state.userQuery);
         metadata.put(FIELD_PRIMARY_CHANNEL, state.primaryChannel);
-        metadata.put(FIELD_GPU_LABEL, GpuLabels.fromEndpoint(properties.model().endpoint()));
-        metadata.put(FIELD_MODEL_NAME, properties.model().model());
+        putRanOn(metadata, state.advisoryModelUse);
         if (!technologies.isEmpty()) {
             metadata.put(FIELD_TECHNOLOGIES, technologies);
         }
@@ -1971,7 +1973,7 @@ public class DiscussionOrchestrator {
         // no-op (no second LLM call), so its near-zero synthesisCompleted is expected,
         // not an anomaly.
         publishAdvisory(state.threadId, reasoning.technologies(), List.of(),
-                reasoning.brief(), reasoning.inferenceMs());
+                reasoning.brief(), reasoning.inferenceMs(), state.advisoryModelUse);
         completeSynthesisPhase(state, channel, reasoning.brief(), Instant.now());
     }
 
@@ -4037,6 +4039,8 @@ public class DiscussionOrchestrator {
         // Token tracking for coordinator LLM calls
         volatile long advisoryInputTokens;
         volatile long advisoryOutputTokens;
+        // Where the advisory call ran; null until it has.
+        volatile ModelUse advisoryModelUse;
         volatile long triageInputTokens;
         volatile long triageOutputTokens;
         volatile long synthesisInputTokens;
@@ -4240,6 +4244,20 @@ public class DiscussionOrchestrator {
         }
         sb.append("--- Current question ---\n\n");
         return sb.toString();
+    }
+
+    /**
+     * Names where the coordinator's advisory call ran: the model and server the
+     * scheduler placed it on. Without a known call, the coordinator's configured model
+     * and the accelerator of its configured endpoint.
+     */
+    // Visible for testing
+    void putRanOn(Map<String, Object> metadata, ModelUse ranOn) {
+        List<ModelUse> uses = ranOn == null ? List.of() : List.of(ranOn);
+        metadata.put(FIELD_GPU_LABEL,
+                ModelAttribution.gpuLabel(uses, GpuLabels.fromEndpoint(properties.model().endpoint())));
+        metadata.put(FIELD_MODEL_NAME, properties.model().model());
+        metadata.putAll(ModelAttribution.of(uses));
     }
 
     /**
