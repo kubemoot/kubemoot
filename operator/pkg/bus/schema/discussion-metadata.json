@@ -94,6 +94,23 @@
       "type": "string",
       "description": "The kind of failure on a failure signal, such as same_tool_repeated, too_many_tool_failures, iterations_exhausted, loop_time_exceeded, model_timeout, model_oom, server_unreachable, internal_exception or evaluation_timeout."
     },
+    "harness": {
+      "type": "string",
+      "description": "The name of the harness that produced the contribution, on a signal an agent's Moot Mesh sidecar sent for it."
+    },
+    "harnessImage": {
+      "type": "string",
+      "description": "The image, by digest when known, of the harness that produced the contribution."
+    },
+    "turnMs": {
+      "type": "integer",
+      "description": "Milliseconds from handing the turn to the harness to its reply, measured by the sidecar."
+    },
+    "evidence": {
+      "type": "array",
+      "items": { "$ref": "#/definitions/Evidence" },
+      "description": "What the harness says its answer rests on, as it reported it."
+    },
     "failedTool": {
       "type": "string",
       "description": "The tool that failed, on a failure signal."
@@ -355,6 +372,14 @@
         "agents": { "type": "integer", "description": "Agents with at least one call there." }
       },
       "additionalProperties": false
+    },
+    "Evidence": {
+      "title": "Evidence",
+      "type": "object",
+      "properties": {
+        "tool": { "type": "string", "description": "The tool the evidence came from." },
+        "note": { "type": "string", "description": "What it showed." }
+      }
     },
     "TokenTotals": {
       "title": "TokenTotals",

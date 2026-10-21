@@ -1,5 +1,5 @@
 {
-  "version": "2.0.0",
+  "version": "2.1.0",
   "surface": {
     "agent-activity.json#": {
       "type": "object"
@@ -337,6 +337,12 @@
     "discussion-message.json#/timestamp": {
       "type": "string"
     },
+    "discussion-message.json#/traceparent": {
+      "type": "string"
+    },
+    "discussion-message.json#/tracestate": {
+      "type": "string"
+    },
     "discussion-metadata.json#": {
       "type": "object"
     },
@@ -512,6 +518,15 @@
       "type": "integer",
       "required": true
     },
+    "discussion-metadata.json#/definitions/Evidence": {
+      "type": "object"
+    },
+    "discussion-metadata.json#/definitions/Evidence/note": {
+      "type": "string"
+    },
+    "discussion-metadata.json#/definitions/Evidence/tool": {
+      "type": "string"
+    },
     "discussion-metadata.json#/definitions/ReceiptAgent": {
       "type": "object",
       "constraints": {
@@ -618,6 +633,12 @@
     "discussion-metadata.json#/evicted[]": {
       "type": "string"
     },
+    "discussion-metadata.json#/evidence": {
+      "type": "array"
+    },
+    "discussion-metadata.json#/evidence[]": {
+      "ref": "#/definitions/Evidence"
+    },
     "discussion-metadata.json#/exceptionClass": {
       "type": "string"
     },
@@ -645,6 +666,12 @@
       ]
     },
     "discussion-metadata.json#/gpuLabel": {
+      "type": "string"
+    },
+    "discussion-metadata.json#/harness": {
+      "type": "string"
+    },
+    "discussion-metadata.json#/harnessImage": {
       "type": "string"
     },
     "discussion-metadata.json#/inferenceMs": {
@@ -782,6 +809,9 @@
     },
     "discussion-metadata.json#/triageConfidence": {
       "type": "number"
+    },
+    "discussion-metadata.json#/turnMs": {
+      "type": "integer"
     },
     "discussion-metadata.json#/userQuery": {
       "type": "string"

@@ -388,6 +388,14 @@ export interface DiscussionMessage {
 	 * When the message was published, RFC 3339 in UTC. Java writers send nanosecond precision, Go writers whole seconds.
 	 */
 	timestamp?: string;
+	/**
+	 * W3C Trace Context traceparent of the span that published the message, so a trace follows a question across agents. Optional; also sent as the traceparent NATS header.
+	 */
+	traceparent?: string;
+	/**
+	 * W3C Trace Context tracestate that goes with traceparent.
+	 */
+	tracestate?: string;
 	metadata?: DiscussionMetadata;
 }
 /**
@@ -481,6 +489,22 @@ export interface DiscussionMetadata {
 	 * The kind of failure on a failure signal, such as same_tool_repeated, too_many_tool_failures, iterations_exhausted, loop_time_exceeded, model_timeout, model_oom, server_unreachable, internal_exception or evaluation_timeout.
 	 */
 	failureType?: string;
+	/**
+	 * The name of the harness that produced the contribution, on a signal an agent's Moot Mesh sidecar sent for it.
+	 */
+	harness?: string;
+	/**
+	 * The image, by digest when known, of the harness that produced the contribution.
+	 */
+	harnessImage?: string;
+	/**
+	 * Milliseconds from handing the turn to the harness to its reply, measured by the sidecar.
+	 */
+	turnMs?: number;
+	/**
+	 * What the harness says its answer rests on, as it reported it.
+	 */
+	evidence?: Evidence[];
 	/**
 	 * The tool that failed, on a failure signal.
 	 */
@@ -652,6 +676,20 @@ export interface TokenCount {
 	 * Output tokens.
 	 */
 	out: number;
+}
+/**
+ * This interface was referenced by `DiscussionMetadata`'s JSON-Schema
+ * via the `definition` "Evidence".
+ */
+export interface Evidence {
+	/**
+	 * The tool the evidence came from.
+	 */
+	tool?: string;
+	/**
+	 * What it showed.
+	 */
+	note?: string;
 }
 /**
  * This interface was referenced by `DiscussionMetadata`'s JSON-Schema
