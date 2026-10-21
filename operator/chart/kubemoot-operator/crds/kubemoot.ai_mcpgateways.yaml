@@ -536,8 +536,9 @@ spec:
                     description: Collection is the name of the vector store collection/table
                     type: string
                   embeddingModel:
-                    description: EmbeddingModel configures the model for generating
-                      embeddings
+                    description: |-
+                      EmbeddingModel configures the model for generating embeddings. Without
+                      embeddingModelRef, model also names the EmbeddingModel resource to use.
                     properties:
                       dimensions:
                         default: 768
@@ -561,6 +562,14 @@ spec:
                         - openai
                         type: string
                     type: object
+                  embeddingModelRef:
+                    description: |-
+                      EmbeddingModelRef names the EmbeddingModel resource the tool index embeds
+                      with (in the gateway's namespace, else cluster-wide). The operator reads the
+                      endpoint from that resource's status, so the gateway names no server. When it
+                      is empty the resource is found by embeddingModel.model, then by the
+                      KubemootConfig default.
+                    type: string
                   vectorStore:
                     description: VectorStore configures the vector database backend
                     properties:
@@ -593,7 +602,6 @@ spec:
                     - secretRef
                     type: object
                 required:
-                - embeddingModel
                 - vectorStore
                 type: object
             type: object

@@ -177,8 +177,18 @@ type ToolIndexConfig struct {
 	// VectorStore configures the vector database backend
 	VectorStore GatewayVectorStoreConfig `json:"vectorStore"`
 
-	// EmbeddingModel configures the model for generating embeddings
-	EmbeddingModel GatewayEmbeddingModelConfig `json:"embeddingModel"`
+	// EmbeddingModelRef names the EmbeddingModel resource the tool index embeds
+	// with (in the gateway's namespace, else cluster-wide). The operator reads the
+	// endpoint from that resource's status, so the gateway names no server. When it
+	// is empty the resource is found by embeddingModel.model, then by the
+	// KubemootConfig default.
+	// +optional
+	EmbeddingModelRef string `json:"embeddingModelRef,omitempty"`
+
+	// EmbeddingModel configures the model for generating embeddings. Without
+	// embeddingModelRef, model also names the EmbeddingModel resource to use.
+	// +optional
+	EmbeddingModel GatewayEmbeddingModelConfig `json:"embeddingModel,omitempty"`
 
 	// Collection is the name of the vector store collection/table
 	// +kubebuilder:default="mcp_tools"
