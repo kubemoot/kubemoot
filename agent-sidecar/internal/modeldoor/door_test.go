@@ -21,28 +21,45 @@ type fakePlacer struct {
 	mu       sync.Mutex
 	endpoint string
 	err      error
+	queued   string // when set, the placer reports a wait with this reason
+	degraded bool
 	asked    []placement.Request
 	released []string
+	reports  []placement.Release
 }
 
-func (f *fakePlacer) Place(_ context.Context, r placement.Request) (placement.Reply, error) {
+func (f *fakePlacer) Place(_ context.Context, r placement.Request, onQueued func(string)) (placement.Reply, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.asked = append(f.asked, r)
+	if f.queued != "" && onQueued != nil {
+		onQueued(f.queued)
+	}
 	if f.err != nil {
 		return placement.Reply{}, f.err
 	}
-	return placement.Reply{Server: "gpu-1", Endpoint: f.endpoint, Model: realModel, Reason: "warm", Ticket: "tk1"}, nil
+	rep := placement.Reply{Server: "gpu-1", Endpoint: f.endpoint, Model: realModel, Reason: "warm", Ticket: "tk1",
+		Queued: f.queued != "", Degraded: f.degraded}
+	if f.degraded {
+		rep.Ticket = ""
+	}
+	return rep, nil
 }
 
-func (f *fakePlacer) Release(_ context.Context, t string) error {
+func (f *fakePlacer) Release(_ context.Context, r placement.Release) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.released = append(f.released, t)
+	f.released = append(f.released, r.Ticket)
+	f.reports = append(f.reports, r)
 	return nil
 }
 
-const realModel = "real-model"
+const (
+	realModel    = "real-model"
+	threadNine   = "thread-9"
+	aliasDefault = "default"
+	aliasTriage  = "triage"
+)
 
 func (f *fakePlacer) askedFirst() placement.Request {
 	f.mu.Lock()
@@ -56,12 +73,12 @@ func (f *fakePlacer) releasedTickets() []string {
 	return append([]string(nil), f.released...)
 }
 
-// waitReleased waits for n releases: a ticket is released as the handler returns, which can be just
+// waitReleased waits for the first release: a ticket is released as the handler returns, which can be just
 // after the client has the whole reply.
-func (f *fakePlacer) waitReleased(t *testing.T, n int) []string {
+func (f *fakePlacer) waitReleased(t *testing.T) []string {
 	t.Helper()
 	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) && len(f.releasedTickets()) < n {
+	for time.Now().Before(deadline) && len(f.releasedTickets()) < 1 {
 		time.Sleep(5 * time.Millisecond)
 	}
 	return f.releasedTickets()
@@ -74,7 +91,7 @@ func newDoor(t *testing.T, upstream http.Handler, placerErr error) (*httptest.Se
 	placer := &fakePlacer{endpoint: up.URL, err: placerErr}
 	reg := turn.NewRegistry()
 	door := httptest.NewServer(New(Config{Crew: "c", Agent: "a", Phase: "EVALUATING",
-		Aliases: map[string][]string{"default": {realModel, "backup"}, "triage": {"small"}}}, placer, reg))
+		Aliases: map[string][]string{aliasDefault: {realModel, "backup"}, aliasTriage: {"small"}}}, placer, reg, nil))
 	t.Cleanup(door.Close)
 	return door, placer, reg
 }
@@ -100,7 +117,7 @@ func jsonUpstream(seen *map[string]any) http.Handler {
 func TestAliasIsRewrittenAndTicketReleased(t *testing.T) {
 	var seen map[string]any
 	door, placer, reg := newDoor(t, jsonUpstream(&seen), nil)
-	meter := reg.Open("k1")
+	meter := reg.Open("k1", turn.Info{ThreadID: threadNine})
 	resp := post(t, door.URL, "k1", `{"model":"triage","messages":[]}`)
 	defer func() { _ = resp.Body.Close() }()
 	if seen["model"] != realModel {
@@ -109,7 +126,7 @@ func TestAliasIsRewrittenAndTicketReleased(t *testing.T) {
 	if got := placer.askedFirst().Models; len(got) != 1 || got[0] != "small" {
 		t.Fatalf("alias triage should ask for [small], asked %v", got)
 	}
-	if got := placer.waitReleased(t, 1); len(got) != 1 || got[0] != "tk1" {
+	if got := placer.waitReleased(t); len(got) != 1 || got[0] != "tk1" {
 		t.Fatalf("ticket not released: %v", got)
 	}
 	snap := meter.Snapshot()
@@ -187,7 +204,7 @@ func TestStreamingIsNotBuffered(t *testing.T) {
 		_, _ = fmt.Fprint(w, "data: {\"choices\":[],\"usage\":{\"prompt_tokens\":4,\"completion_tokens\":6}}\n\ndata: [DONE]\n\n")
 	})
 	door, placer, reg := newDoor(t, up, nil)
-	meter := reg.Open("ks")
+	meter := reg.Open("ks", turn.Info{})
 	resp := post(t, door.URL, "ks", `{"model":"default","stream":true}`)
 	defer func() { _ = resp.Body.Close() }()
 	line := make(chan string, 1)
@@ -206,7 +223,7 @@ func TestStreamingIsNotBuffered(t *testing.T) {
 	}
 	close(release)
 	_, _ = io.Copy(io.Discard, resp.Body)
-	if len(placer.waitReleased(t, 1)) != 1 {
+	if len(placer.waitReleased(t)) != 1 {
 		t.Fatal("ticket not released after the stream ended")
 	}
 	if got := meter.Snapshot()["outputTokens"]; got != int64(6) {

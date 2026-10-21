@@ -47,7 +47,7 @@ func gateway(t *testing.T) *httptest.Server {
 
 func connect(t *testing.T, cfg Config, reg *turn.Registry) *mcp.ClientSession {
 	t.Helper()
-	door := httptest.NewServer(New(cfg, reg).Handler())
+	door := httptest.NewServer(New(cfg, reg, nil).Handler())
 	t.Cleanup(door.Close)
 	client := mcp.NewClient(&mcp.Implementation{Name: "test-harness", Version: "1"}, nil)
 	sess, err := client.Connect(context.Background(), &mcp.StreamableClientTransport{Endpoint: door.URL}, nil)
@@ -100,7 +100,7 @@ func TestAHarnessCannotCallAToolItWasNotOffered(t *testing.T) {
 func TestCallsAreCountedAndFailuresNamed(t *testing.T) {
 	gw := gateway(t)
 	reg := turn.NewRegistry()
-	meter := reg.Open("only-turn")
+	meter := reg.Open("only-turn", turn.Info{})
 	s := connect(t, Config{Gateway: gw.URL, Enabled: []string{toolTime, toolFetch}}, reg)
 	ok, err := s.CallTool(context.Background(), &mcp.CallToolParams{Name: toolTime, Arguments: map[string]any{}})
 	if err != nil || ok.IsError {
@@ -114,8 +114,8 @@ func TestCallsAreCountedAndFailuresNamed(t *testing.T) {
 	if snap["failedTool"] != toolFetch || snap["failureCount"] != 1 {
 		t.Fatalf("meter %v", snap)
 	}
-	if used, _ := snap["toolsUsed"].([]string); len(used) != 2 {
-		t.Fatalf("toolsUsed %v", snap["toolsUsed"])
+	if used, _ := snap["toolsCalled"].([]string); len(used) != 2 {
+		t.Fatalf("toolsCalled %v", snap["toolsCalled"])
 	}
 }
 
@@ -123,7 +123,7 @@ func TestCallsAreCountedAndFailuresNamed(t *testing.T) {
 // initialize negotiated and without relying on a session. The door is stateless, so it answers.
 func TestAnotherSDKsStatelessToolsListIsAnswered(t *testing.T) {
 	gw := gateway(t)
-	door := httptest.NewServer(New(Config{Gateway: gw.URL, Enabled: []string{toolFetch}}, turn.NewRegistry()).Handler())
+	door := httptest.NewServer(New(Config{Gateway: gw.URL, Enabled: []string{toolFetch}}, turn.NewRegistry(), nil).Handler())
 	defer door.Close()
 	req, _ := http.NewRequest(http.MethodPost, door.URL, strings.NewReader(`{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}`))
 	req.Header.Set("Content-Type", "application/json")

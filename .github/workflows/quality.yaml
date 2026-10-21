@@ -34,6 +34,7 @@ jobs:
           cache-dependency-path: |
             operator/go.sum
             mcp-bridge/go.sum
+            agent-sidecar/go.sum
             fitness-runner/go.sum
             discussion-gateway/go.sum
             artifact-access/go.sum
@@ -50,6 +51,11 @@ jobs:
 
       - name: MCP Bridge tests with coverage
         working-directory: mcp-bridge
+        run: go test -coverprofile=cover.out ./...
+        continue-on-error: true
+
+      - name: Agent Sidecar tests with coverage
+        working-directory: agent-sidecar
         run: go test -coverprofile=cover.out ./...
         continue-on-error: true
 
