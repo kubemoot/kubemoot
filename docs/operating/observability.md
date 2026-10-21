@@ -37,7 +37,8 @@ carries a description (its `# HELP` line):
 
 | Component | Where | How |
 |---|---|---|
-| Agents (every crew) | port `http` (8080), `/q/metrics` | plain HTTP |
+| Agents in legacy mode (the default) | port `http` (8080), `/q/metrics` | plain HTTP |
+| Agents with `spec.harness.mode: sidecar` | the sidecar, port `http` (8080), `/metrics` | plain HTTP |
 | RAG query services | port `http` (8000), `/metrics` | plain HTTP |
 | Operator | port `metrics` (8080), `/metrics` | HTTPS; the caller needs permission to `get` the non-resource URL `/metrics` |
 
