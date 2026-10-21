@@ -171,7 +171,93 @@ type RAGAutoDiscoverConfig struct {
 	TopK int32 `json:"topK,omitempty"`
 }
 
+// HarnessMode says how an agent's pod joins the table.
+type HarnessMode string
+
+const (
+	// HarnessModeLegacy runs the agent runtime alone, with its own NATS and scheduling code.
+	HarnessModeLegacy HarnessMode = "legacy"
+	// HarnessModeSidecar runs the harness beside a Moot Mesh sidecar that owns the bus, the
+	// model placement and the tool access.
+	HarnessModeSidecar HarnessMode = "sidecar"
+)
+
+// HarnessSpec names the program that does an agent's reasoning and how it sits at the table.
+// Without it the agent is a legacy agent-runtime pod, exactly as before.
+type HarnessSpec struct {
+	// Name is the harness's name, shown on the dashboard and on every signal it produces.
+	// +optional
+	Name string `json:"name,omitempty"`
+
+	// Mode is legacy (the agent runtime alone) or sidecar (the harness beside a Moot Mesh
+	// sidecar).
+	// +kubebuilder:validation:Enum=legacy;sidecar
+	// +kubebuilder:default=legacy
+	// +optional
+	Mode HarnessMode `json:"mode,omitempty"`
+
+	// Image is the harness image, pinned by digest for anything not built by Kubemoot. In
+	// sidecar mode it is required unless spec.deployment.image names the harness.
+	// +optional
+	Image string `json:"image,omitempty"`
+
+	// Port is where the harness serves the turn (A2A) inside the pod. It must differ from
+	// the sidecar's port, spec.deployment.port.
+	// +kubebuilder:default=9000
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=65535
+	// +optional
+	Port int32 `json:"port,omitempty"`
+
+	// Protocol is how the sidecar hands the harness a turn. Only a2a exists today; the field
+	// lets a second protocol arrive without a break.
+	// +kubebuilder:validation:Enum=a2a
+	// +kubebuilder:default=a2a
+	// +optional
+	Protocol string `json:"protocol,omitempty"`
+
+	// Profile is the Kubemoot turn profile the harness implements.
+	// +kubebuilder:validation:Enum=v1
+	// +kubebuilder:default=v1
+	// +optional
+	Profile string `json:"profile,omitempty"`
+
+	// Concurrency is how many turns the harness runs at once. Above 1 the harness must send
+	// the per-turn key on every model and tool call, so it is allowed in sidecar mode only.
+	// +kubebuilder:default=1
+	// +kubebuilder:validation:Minimum=1
+	// +optional
+	Concurrency int32 `json:"concurrency,omitempty"`
+
+	// NativeTools says what the harness's own built-in tools may do: none (the default, only
+	// the Moot Mesh tools remain), declared (built-ins the crew author reviewed) or all.
+	// Anything but none is a deliberate choice and is shown on the dashboard.
+	// +kubebuilder:validation:Enum=none;declared;all
+	// +kubebuilder:default=none
+	// +optional
+	NativeTools string `json:"nativeTools,omitempty"`
+
+	// Command overrides the harness image's entrypoint.
+	// +optional
+	Command []string `json:"command,omitempty"`
+
+	// Args are the harness container's arguments.
+	// +optional
+	Args []string `json:"args,omitempty"`
+
+	// Env is extra environment for the harness container.
+	// +optional
+	Env []corev1.EnvVar `json:"env,omitempty"`
+
+	// Resources are the harness container's resource requirements.
+	// +optional
+	Resources *corev1.ResourceRequirements `json:"resources,omitempty"`
+}
+
 // AgentSpec defines the desired state of Agent
+// +kubebuilder:validation:XValidation:rule="!has(self.harness) || self.harness.mode != 'sidecar' || has(self.harness.image) || (has(self.deployment) && has(self.deployment.image))",message="harness.mode sidecar needs the harness image: set harness.image or deployment.image"
+// +kubebuilder:validation:XValidation:rule="!has(self.harness) || !has(self.harness.concurrency) || self.harness.concurrency <= 1 || self.harness.mode == 'sidecar'",message="harness.concurrency above 1 needs harness.mode sidecar"
+// +kubebuilder:validation:XValidation:rule="!has(self.harness) || !has(self.harness.nativeTools) || self.harness.nativeTools == 'none' || self.harness.mode == 'sidecar'",message="harness.nativeTools other than none needs harness.mode sidecar"
 type AgentSpec struct {
 	// Type is the agent type (chat, task, workflow)
 	// +kubebuilder:validation:Enum=chat;task;workflow
@@ -292,6 +378,11 @@ type AgentSpec struct {
 	// Deployment defines how the agent is deployed
 	// +optional
 	Deployment *DeploymentConfig `json:"deployment,omitempty"`
+
+	// Harness names the program that does this agent's reasoning and how the pod joins the
+	// table. Absent means the agent runtime in legacy mode.
+	// +optional
+	Harness *HarnessSpec `json:"harness,omitempty"`
 }
 
 // AgentStatus defines the observed state of Agent

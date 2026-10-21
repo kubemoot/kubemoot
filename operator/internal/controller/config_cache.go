@@ -35,6 +35,7 @@ const (
 	FallbackIndexerImage           = "ghcr.io/kubemoot/indexer:latest"
 	FallbackQueryServiceImage      = "ghcr.io/kubemoot/query-service:latest"
 	FallbackAgentRuntimeImage      = "ghcr.io/kubemoot/agent-runtime:latest"
+	FallbackAgentSidecarImage      = "ghcr.io/kubemoot/agent-sidecar:latest"
 	FallbackMcpGatewayImage        = "ghcr.io/kubemoot/mcp-gateway:latest"
 	FallbackMcpBridgeImage         = "ghcr.io/kubemoot/mcp-bridge:latest"
 	FallbackDiscussionGatewayImage = "ghcr.io/kubemoot/discussion-gateway:latest"
@@ -108,6 +109,16 @@ func (c *ConfigCache) GetAgentRuntimeImage() string {
 		return c.config.Spec.Images.AgentRuntime
 	}
 	return FallbackAgentRuntimeImage
+}
+
+// GetAgentSidecarImage returns the Moot Mesh sidecar image from config or fallback
+func (c *ConfigCache) GetAgentSidecarImage() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if c.config != nil && c.config.Spec.Images.AgentSidecar != "" {
+		return c.config.Spec.Images.AgentSidecar
+	}
+	return FallbackAgentSidecarImage
 }
 
 // GetMcpGatewayImage returns the MCP gateway image from config or fallback

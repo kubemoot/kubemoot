@@ -38,6 +38,13 @@ type ImageConfig struct {
 	// +optional
 	AgentRuntime string `json:"agentRuntime,omitempty"`
 
+	// AgentSidecar is the Moot Mesh sidecar image the operator adds to the pod of an Agent
+	// whose harness mode is sidecar. The chart stamps it from the release; a floating tag
+	// would break version pinning.
+	// +kubebuilder:default="ghcr.io/kubemoot/agent-sidecar:latest"
+	// +optional
+	AgentSidecar string `json:"agentSidecar,omitempty"`
+
 	// McpGateway is the default MCP Gateway image
 	// +kubebuilder:default="ghcr.io/kubemoot/mcp-gateway:latest"
 	// +optional

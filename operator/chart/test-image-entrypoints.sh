@@ -35,7 +35,7 @@ grep -qx -- '--health-probe-bind-address=:8081' <<<"$args" || fail "the operator
 # No Kubemoot-built image in the chart is started by a root-level binary path. The
 # buildpacks launcher /cnb/process/web is allowed: a stdio MCPServer must name it so
 # mcp-bridge can start the binary.
-kubemoot_cmds="$(yq -N '.. | select(has("image") and has("command")) | select(.image | test("kubemoot|/(crew-liaison|kubemoot-operator|mcp-bridge|discussion-gateway|fitness-runner|scheduling-mcp|artifact-access|accelerator-mcp):")) | .command[] | select(. != "/cnb/process/web")' <<<"$out")"
+kubemoot_cmds="$(yq -N '.. | select(has("image") and has("command")) | select(.image | test("kubemoot|/(crew-liaison|kubemoot-operator|mcp-bridge|discussion-gateway|fitness-runner|agent-sidecar|scheduling-mcp|artifact-access|accelerator-mcp):")) | .command[] | select(. != "/cnb/process/web")' <<<"$out")"
 [ -z "$kubemoot_cmds" ] || fail "a Kubemoot image is started by an explicit command: ${kubemoot_cmds}"
 
 if [ "$failures" -gt 0 ]; then
