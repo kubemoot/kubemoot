@@ -249,12 +249,7 @@ func (r *AgentReconciler) ensureAgentConfig(ctx context.Context, agent *kubemoot
 func (r *AgentReconciler) reconcileHarness(ctx context.Context, agent *kubemootv1alpha1.Agent, mulling, triage *modelPick) (stop bool, err error) {
 	data, invalid := r.sidecarContractData(ctx, agent, mulling, triage)
 	if invalid != nil {
-		agent.Status.Phase = "Error"
-		agent.Status.Ready = false
-		agent.Status.Message = invalid.Error()
-		if uerr := r.Status().Update(ctx, agent); uerr != nil && !apierrors.IsNotFound(uerr) {
-			logf.FromContext(ctx).Error(uerr, "Failed to record the harness error in the Agent status")
-		}
+		r.recordHarnessError(ctx, agent, invalid)
 		return true, nil
 	}
 	if err := r.ensureContractConfigMap(ctx, agent, data); err != nil {
@@ -266,10 +261,23 @@ func (r *AgentReconciler) reconcileHarness(ctx context.Context, agent *kubemootv
 	return false, nil
 }
 
+// recordHarnessError marks the Agent Error with the reason in its status message.
+func (r *AgentReconciler) recordHarnessError(ctx context.Context, agent *kubemootv1alpha1.Agent, reason error) {
+	agent.Status.Phase = "Error"
+	agent.Status.Ready = false
+	agent.Status.Message = reason.Error()
+	if uerr := r.Status().Update(ctx, agent); uerr != nil && !apierrors.IsNotFound(uerr) {
+		logf.FromContext(ctx).Error(uerr, "Failed to record the harness error in the Agent status")
+	}
+}
+
+// applySidecar joins a pod template to the mesh; a variable so a test can make it fail.
+var applySidecar = mesh.ApplySidecar
+
 // buildSidecarDeployment builds the Deployment of a sidecar-mode Agent: the harness container
 // alone with the mesh patch applied, and none of the legacy runtime's environment, policy
 // mount or cluster credentials.
-func (r *AgentReconciler) buildSidecarDeployment(ctx context.Context, agent *kubemootv1alpha1.Agent, mulling, triage *modelPick, policyCMName, promptHash string) *appsv1.Deployment {
+func (r *AgentReconciler) buildSidecarDeployment(ctx context.Context, agent *kubemootv1alpha1.Agent, mulling, triage *modelPick, policyCMName, promptHash string) (*appsv1.Deployment, error) {
 	h := agent.Spec.Harness
 	replicas, _, _, serviceAccountName := r.resolveDeploymentParams(agent)
 	container := corev1.Container{
@@ -292,8 +300,8 @@ func (r *AgentReconciler) buildSidecarDeployment(ctx context.Context, agent *kub
 	if data, err := r.sidecarContractData(ctx, agent, mulling, triage); err == nil {
 		tmpl.Annotations[contractHashAnnotation] = hashString(data)
 	}
-	if err := mesh.ApplySidecar(&tmpl, harnessContainerName, r.sidecarPatch(agent, policyCMName)); err != nil {
-		logf.FromContext(ctx).Error(err, "Could not join the pod to the Moot Mesh")
+	if err := applySidecar(&tmpl, harnessContainerName, r.sidecarPatch(agent, policyCMName)); err != nil {
+		return nil, fmt.Errorf("joining the pod to the Moot Mesh: %w", err)
 	}
 	d := &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{
@@ -307,7 +315,7 @@ func (r *AgentReconciler) buildSidecarDeployment(ctx context.Context, agent *kub
 		},
 	}
 	d.Annotations[deploymentHashAnnotation] = computeDeploymentHash(d)
-	return d
+	return d, nil
 }
 
 // sidecarDeploymentLabels are the Deployment labels of a sidecar-mode Agent: the legacy ones

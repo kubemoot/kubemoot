@@ -84,7 +84,15 @@ func harnessReconciler(t *testing.T, objs ...client.Object) (*AgentReconciler, c
 func buildSidecarPod(t *testing.T, agent *kubemootv1alpha1.Agent) *appsv1.Deployment {
 	t.Helper()
 	r, _ := harnessReconciler(t)
-	return r.buildDeployment(context.Background(), agent, harnessPick(testModelID, "rig0"), harnessPick("qwen3:4b", "rig1"), "notes-reader-policy", "h1")
+	mulling, triage := harnessPick(testModelID, "rig0"), harnessPick("qwen3:4b", "rig1")
+	if !usesSidecar(agent) {
+		return r.buildDeployment(context.Background(), agent, mulling, triage, "notes-reader-policy", "h1")
+	}
+	d, err := r.buildSidecarDeployment(context.Background(), agent, mulling, triage, "notes-reader-policy", "h1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return d
 }
 
 func envNames(c corev1.Container) []string {
@@ -393,5 +401,30 @@ func TestAConsumerFailureNeverFailsTheReconcile(t *testing.T) {
 	stop, err := r.reconcileHarness(context.Background(), sidecarAgent(), harnessPick(testModelID, "rig0"), harnessPick(testModelID, "rig0"))
 	if stop || err != nil {
 		t.Errorf("no publisher is a no-op, got stop=%v err=%v", stop, err)
+	}
+}
+
+func TestAMeshPatchFailureFailsTheReconcile_andMarksTheAgentError(t *testing.T) {
+	agent := sidecarAgent()
+	r, cli := harnessReconciler(t, agent)
+	orig := applySidecar
+	applySidecar = func(*corev1.PodTemplateSpec, string, mesh.SidecarPatch) error {
+		return errors.New("no harness container")
+	}
+	t.Cleanup(func() { applySidecar = orig })
+
+	err := r.ensureDeployment(context.Background(), agent, harnessPick(testModelID, "rig0"), harnessPick(testModelID, "rig0"), "policy")
+	if err == nil || !strings.Contains(err.Error(), "no harness container") {
+		t.Fatalf("ensureDeployment err = %v, want the mesh patch failure", err)
+	}
+	got := &kubemootv1alpha1.Agent{}
+	if gerr := cli.Get(context.Background(), client.ObjectKeyFromObject(agent), got); gerr != nil {
+		t.Fatal(gerr)
+	}
+	if got.Status.Phase != "Error" || !strings.Contains(got.Status.Message, "Moot Mesh") {
+		t.Errorf("status = %q %q, want Error naming the mesh", got.Status.Phase, got.Status.Message)
+	}
+	if derr := cli.Get(context.Background(), client.ObjectKeyFromObject(agent), &appsv1.Deployment{}); derr == nil {
+		t.Error("a Deployment was created despite the failure")
 	}
 }
