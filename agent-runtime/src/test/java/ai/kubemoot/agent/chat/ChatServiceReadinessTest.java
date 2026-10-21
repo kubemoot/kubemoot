@@ -197,8 +197,9 @@ class ChatServiceReadinessTest {
         long readinessSteps = Pattern.compile("ModelReadiness\\.ensure\\(").matcher(source).results().count();
         assertEquals(2, readinessSteps, "the scheduled mulling pick and the triage placement each wake a model");
         // scheduled mulling pick (forEndpoint), its no-tool send and triage (streamingForEndpoint),
-        // and the degraded Ollama-only direct-probe pick (forEndpoint).
-        assertEquals(4, builds, "a new place that builds a chat model needs a ModelReadiness.ensure before it, "
+        // the degraded Ollama-only direct-probe pick (forEndpoint), and the last-known server used when the
+        // placement service is down (only a server that already has the model loaded, so nothing to wake).
+        assertEquals(5, builds, "a new place that builds a chat model needs a ModelReadiness.ensure before it, "
                 + "or a reason it only reaches Ollama");
     }
 }

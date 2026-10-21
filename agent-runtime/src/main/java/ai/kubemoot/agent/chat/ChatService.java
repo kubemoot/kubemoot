@@ -10,6 +10,7 @@ import ai.kubemoot.agent.modelserver.CallObservation;
 import ai.kubemoot.agent.modelserver.CallPlacement;
 import ai.kubemoot.agent.modelserver.CallPlanner;
 import ai.kubemoot.agent.modelserver.PlacementFeasibility;
+import ai.kubemoot.agent.modelserver.PlacementUnavailableException;
 import ai.kubemoot.agent.modelserver.ServerSelector;
 import ai.kubemoot.agent.modelserver.ServerState;
 import ai.kubemoot.agent.modelserver.StreamedChat;
@@ -1359,11 +1360,42 @@ public class ChatService {
             return new MullingPick(chatModel, "", java.util.Optional.empty(),
                     STATIC_FALLBACK, staticModel, staticEndpoint, 0L);
         }
-        var placed = heldOrPlaced(threadId, states, promptCharCount, kind);
-        MullingPick pick = placed.isPresent() ? placed.get()
-                : waitForCapacity(staticModel, coldLoadFootprintMiB, promptCharCount, wait, kind);
+        MullingPick pick;
+        try {
+            var placed = heldOrPlaced(threadId, states, promptCharCount, kind);
+            pick = placed.isPresent() ? placed.get()
+                    : waitForCapacity(staticModel, coldLoadFootprintMiB, promptCharCount, wait, kind);
+        } catch (PlacementUnavailableException e) {
+            pick = placementUnavailablePick(e, staticModel, staticEndpoint, states);
+        }
         callPlanner.callStarted(threadId, pick.modelName());
         return pick;
+    }
+
+    /**
+     * The call's placement when the placement service cannot answer: the last server it chose for the
+     * model when that server is still ready with the model, else the crew's declared endpoint. The call
+     * holds no ticket, and its {@code pickReason} says it was placed without the service, so the
+     * agent's signal reports the degraded placement and it is never silent.
+     */
+    private MullingPick placementUnavailablePick(PlacementUnavailableException e, String model,
+                                                 String declaredEndpoint, java.util.List<ServerState> states) {
+        String why = "placement service unavailable (degraded): " + e.getMessage();
+        var lastKnown = chatModelPool == null ? java.util.Optional.<ServerState>empty()
+                : callPlanner.lastKnownServer(model).flatMap(name -> states.stream()
+                        .filter(st -> st.name().equals(name) && st.ready() && st.hasModelLoaded(model)).findFirst());
+        if (lastKnown.isPresent()) {
+            ServerState ps = lastKnown.get();
+            log.warn("{}; placing {} on the last-known server {}", why, model, ps.name());
+            ChatModel built = chatModelPool.forEndpoint(ps.chatEngine(), ps.endpointFor(model), model,
+                    properties.model().temperature(), properties.model().maxTokens(),
+                    java.time.Duration.ofMinutes(5), properties.model().think().orElse(null));
+            return new MullingPick(built, ps.name(), java.util.Optional.empty(),
+                    why + "; used the last-known server " + ps.name(), model, ps.endpointFor(model), 0L);
+        }
+        log.warn("{}; placing {} on the declared endpoint {}", why, model, declaredEndpoint);
+        return new MullingPick(chatModel, "", java.util.Optional.empty(),
+                why + "; used the declared server", model, declaredEndpoint, 0L);
     }
 
     /**
@@ -2104,6 +2136,8 @@ public class ChatService {
             // pick empty (NoFit/degraded) -> keep the static triageEndpoint
         } catch (ai.kubemoot.agent.modelserver.NoFitException nfe) {
             log.info("triage: no server fit ({}) - static endpoint", nfe.predictorReason());
+        } catch (PlacementUnavailableException e) {
+            log.warn("triage: placement service unavailable ({}) - declared endpoint", e.getMessage());
         }
         return TriagePlacement.unscheduled(triageEndpoint, triageModelId, occupancy);
     }
