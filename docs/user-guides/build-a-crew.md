@@ -91,12 +91,67 @@ prompts. A crew should discover those at runtime and keep them in working memory
 the same crew chart runs unchanged on another cluster. See the working-memory section
 of the [Crew CRD reference](../../reference/crew/).
 
+## Choosing a harness mode
+
+An agent's reasoning runs in a **harness**. Each `Agent` picks one of two modes in
+`spec.harness.mode`:
+
+| Mode | What runs | When to pick it |
+|---|---|---|
+| `legacy` (default) | The agent-runtime that ships with Kubemoot, alone in the agent container. It talks to NATS, the model servers, and the gateway itself. | Every agent in the guides above. It is today's default and needs no `harness` block. |
+| `sidecar` | Your harness image beside a [Moot Mesh sidecar](../../architecture/moot-mesh/). The sidecar owns the bus, model placement, and tool access; the harness serves one A2A endpoint and calls two loopback URLs. | You want a different harness at the table: an agent framework, a command-line coding agent behind a thin shim, or code you wrote. |
+
+Sidecar mode ships opt-in. Legacy stays the default, and a crew can mix both modes.
+Set the fields under [`spec.harness`](../../reference/agent/#specharness).
+
+### What a harness must do
+
+A harness joins the table at one of three levels. Each adds to the one before it.
+
+| Level | The harness |
+|---|---|
+| **Voice** | Serves its agent card at `/.well-known/agent-card.json` and answers A2A `SendMessage` on `KUBEMOOT_TURN_PORT`. Calls the model at `KUBEMOOT_MODEL_URL`, naming an alias (`default` or `triage`) as the model and sending the per-turn key from the turn as the API key. |
+| **Worker** | Also uses the tools at `KUBEMOOT_TOOLS_URL` and returns the structured reply: a data part with a `signal` (`agree`, `concern`, `block`, or `stand_aside`), `content`, `reason`, and `evidence`. A plain text answer counts as agree. |
+| **Good guest** | Also streams status while it works, cancels the work when the turn is canceled (the thread closed or a person pressed Stop), and propagates the W3C trace context it receives onto the model and tool calls it makes. |
+
+A voice-level harness is enough to take part. The higher levels give the crew
+better evidence, a faster stop, and traces that follow the question through the
+harness.
+
+If the harness fails, times out, or returns nothing, the sidecar publishes a
+`failure` signal for it. A harness never needs to catch its own errors to keep the
+crew informed.
+
+### Native tools
+
+Many harnesses ship their own tools: a shell, file access, a browser. The Moot Mesh
+cannot see what a harness does with them, so `spec.harness.nativeTools` states the
+choice:
+
+- `none` (default): the harness uses only the tools at the tools door, where the
+  agent's `enabledTools` and `disabledTools` apply and every call is counted.
+- `declared`: the built-ins you reviewed and declared stay on.
+- `all`: every built-in stays on.
+
+Anything but `none` is a deliberate decision and is shown on the dashboard. The
+sidecar can limit and count the tools it serves. It cannot limit a shell the harness
+runs itself, so choose `declared` or `all` only for a harness you trust, and consider
+running an untrusted one under a sandbox runtime class.
+
+### Tool names and ADL
+
+A harness may add its own prefix to the tool names it shows its model. Write ADL
+prompts so they tolerate it: refer to a tool by what it does, or match on the end of
+the name, rather than requiring an exact string. See
+[Write Agents & ADL](../write-agents-and-adl/).
+
 ## Next
 
 - [Compose a Crew](../compose-a-crew/) - decide which Toolers and Analysts to include,
   write resumes the coordinator can reason over, and ground the coordinator so it
   routes questions intelligently and writes helpful advisory briefs.
 - [Write Agents & ADL](../write-agents-and-adl/) - define behavior.
+- [The Moot Mesh](../../architecture/moot-mesh/) - how a sidecar-mode harness joins the table.
 - [Define Fitness Functions](../define-fitness-functions/) - measure the crew.
 - [Onboard MCP Tools](../onboard-mcp-tools/) - add capabilities.
 - [Develop a crew in VS Code](../../ecosystem/crewforge/develop-a-crew/) - do this same

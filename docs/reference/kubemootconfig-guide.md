@@ -33,7 +33,7 @@ KubemootConfigReconciler
 ConfigCache (thread-safe, in-memory)
     │
     ├── RAGSourceReconciler     → indexer, queryService, doclingServe images
-    ├── AgentReconciler         → agentRuntime image
+    ├── AgentReconciler         → agentRuntime and agentSidecar images
     ├── MCPServerReconciler     → mcpBridge image
     └── MCPGatewayReconciler    → mcpGateway image
 ```
@@ -49,6 +49,7 @@ The singleton must be named `default`. The operator creates it via the Helm char
 | `images.indexer` | string | `ghcr.io/kubemoot/indexer:latest` | RAGSource indexer job image |
 | `images.queryService` | string | `ghcr.io/kubemoot/query-service:latest` | RAGSource query service image |
 | `images.agentRuntime` | string | `ghcr.io/kubemoot/agent-runtime:latest` | Agent deployment image |
+| `images.agentSidecar` | string | `ghcr.io/kubemoot/agent-sidecar:latest` | [Moot Mesh](../../architecture/moot-mesh/) sidecar image, added to the pod of an Agent whose `spec.harness.mode` is `sidecar`. The operator chart stamps a pinned tag from the release |
 | `images.mcpGateway` | string | `ghcr.io/kubemoot/mcp-gateway:latest` | MCPGateway deployment image |
 | `images.mcpBridge` | string | `ghcr.io/kubemoot/mcp-bridge:latest` | MCP bridge sidecar image |
 | `images.fitnessRunner` | string | `ghcr.io/kubemoot/fitness-runner:latest` | CrewFitness test job image |
@@ -63,7 +64,7 @@ The singleton must be named `default`. The operator creates it via the Helm char
 | `defaults.vectorStoreType` | enum | `pgvector` | Default vector store: `pgvector`, `qdrant`, `milvus`, `chroma` |
 | `defaults.vectorStoreEndpoint` | string | | Default vector store endpoint for tool indexing. When empty, MCPServer tool indexing is disabled |
 | `defaults.embeddingModel` | string | `nomic-embed` | Default EmbeddingModel CR name for RAGSources |
-| `defaults.otelCollectorEndpoint` | string | | Default OpenTelemetry collector for all agents |
+| `defaults.otelCollectorEndpoint` | string | | Default OpenTelemetry collector for all agents. Moot Mesh sidecars export spans to it over OTLP/HTTP |
 
 ## Status
 
