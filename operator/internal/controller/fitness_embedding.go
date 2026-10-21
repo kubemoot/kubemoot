@@ -23,68 +23,46 @@ You may obtain a copy of the License at
 package controller
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
-	"fmt"
 	"math"
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/kubemoot/kubemoot/operator/internal/embedding"
 )
 
-// embedder turns text into a vector. Implemented by ollamaEmbedder; faked in tests.
+// embedder turns text into a vector. Implemented by serverEmbedder; faked in tests.
 type embedder interface {
 	Embed(ctx context.Context, text string) ([]float64, error)
 }
 
-// ollamaEmbedder calls an Ollama-compatible /api/embeddings endpoint (the
-// endpoint + model come from a ready EmbeddingModel CR).
-type ollamaEmbedder struct {
-	url    string
-	model  string
-	client *http.Client
+// serverEmbedder calls the OpenAI-compatible /v1/embeddings API of the server an
+// EmbeddingModel is bound to (the endpoint and model come from a ready
+// EmbeddingModel CR), whatever engine serves it.
+type serverEmbedder struct {
+	endpoint string
+	model    string
+	client   *http.Client
 }
 
-func newOllamaEmbedder(endpoint, model string) *ollamaEmbedder {
+func newServerEmbedder(endpoint, model string) *serverEmbedder {
 	if model == "" {
 		model = "nomic-embed-text"
 	}
-	return &ollamaEmbedder{
-		url:    strings.TrimRight(endpoint, "/") + "/api/embeddings",
-		model:  model,
-		client: &http.Client{Timeout: 30 * time.Second},
-	}
+	return &serverEmbedder{endpoint: endpoint, model: model, client: &http.Client{Timeout: 30 * time.Second}}
 }
 
-func (o *ollamaEmbedder) Embed(ctx context.Context, text string) ([]float64, error) {
-	body, err := json.Marshal(map[string]string{"model": o.model, "prompt": text})
+func (o *serverEmbedder) Embed(ctx context.Context, text string) ([]float64, error) {
+	v, err := embedding.Embed(ctx, o.client, o.endpoint, o.model, text)
 	if err != nil {
 		return nil, err
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, o.url, bytes.NewReader(body))
-	if err != nil {
-		return nil, err
+	out := make([]float64, len(v))
+	for i, x := range v {
+		out[i] = float64(x)
 	}
-	req.Header.Set("Content-Type", "application/json")
-	resp, err := o.client.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("embeddings endpoint returned %d", resp.StatusCode)
-	}
-	var parsed struct {
-		Embedding []float64 `json:"embedding"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&parsed); err != nil {
-		return nil, err
-	}
-	if len(parsed.Embedding) == 0 {
-		return nil, fmt.Errorf("embeddings endpoint returned an empty vector")
-	}
-	return parsed.Embedding, nil
+	return out, nil
 }
 
 // cosineVec is cosine similarity between two equal-length vectors (0 on

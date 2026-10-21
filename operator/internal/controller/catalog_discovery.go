@@ -172,12 +172,14 @@ func (r *ModelServerReconciler) vllmFacts(ctx context.Context, httpClient *http.
 	facts := make([]catalogFacts, 0, len(servers))
 	for _, srv := range servers {
 		f := catalogFacts{Name: srv.Model, Present: answering[srv.Model], ContextLength: contexts[srv.Model], Source: aiv1alpha1.CatalogSourceNone}
-		if d, ok := declared[srv.Model]; ok {
+		d, ok := declared[srv.Model]
+		if ok {
 			f.Capabilities = d.Capabilities
 			if n, ok := aiv1alpha1.ParseParameterCount(d.Parameters); ok {
 				f.ParameterCount, f.Source = n, aiv1alpha1.CatalogSourceService
 			}
 		}
+		r.applyServedKind(ctx, httpClient, server, &f, srv.Endpoint, d)
 		facts = append(facts, f)
 	}
 	return facts

@@ -160,6 +160,10 @@ type ModelServerReconciler struct {
 	// so a model is shown once, not on every probe.
 	shows sync.Map
 
+	// servedKinds keeps whether a vLLM served model embeds (endpoint|name), so a
+	// model is asked once while it stays on the server.
+	servedKinds sync.Map
+
 	// switches holds how long each model last took to become ready, by server,
 	// as the model lifecycle server observed it; the state publish carries it.
 	switches switchLog
