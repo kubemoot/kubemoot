@@ -89,14 +89,44 @@ func (r *EmbeddingModelReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		return result, err
 	}
 
-	if server.Spec.Type == kubemootv1alpha1.ServerTypeVLLM {
-		return r.updateStatus(ctx, embeddingModel, "Error",
-			fmt.Sprintf("ModelServer '%s' is a vllm server; an EmbeddingModel needs an ollama server", server.Name))
+	return r.reconcileOnServer(ctx, embeddingModel, server)
+}
+
+// reconcileOnServer reports the embedding model Available. A server that holds
+// downloaded model files (Ollama) is asked directly, because only it can tell a model
+// it has from one its catalog still lists, and it can download a missing one. Any
+// other server serves the models it was started with, so the model is Available
+// when the server's catalog lists it as an embedding model.
+func (r *EmbeddingModelReconciler) reconcileOnServer(ctx context.Context, em *kubemootv1alpha1.EmbeddingModel, server *kubemootv1alpha1.ModelServer) (ctrl.Result, error) {
+	if managesModelFiles(server) {
+		return r.reconcileOllamaEmbedding(ctx, em, server)
 	}
-	if server.Spec.Type != kubemootv1alpha1.ServerTypeOllama {
-		return r.updateStatus(ctx, embeddingModel, "Error", kubemootv1alpha1.UnsupportedServerTypeMessage)
+	listed, mismatch := serverEmbeds(server, em)
+	switch {
+	case listed:
+		return r.reportServed(ctx, em, server)
+	case mismatch != "":
+		return r.updateStatus(ctx, em, "Error", mismatch)
 	}
-	return r.reconcileOllamaEmbedding(ctx, embeddingModel, server)
+	return r.updateStatus(ctx, em, statePending,
+		fmt.Sprintf("ModelServer %s does not serve %s as an embedding model; serve it there and the catalog lists it", server.Name, em.Spec.Model))
+}
+
+// reportServed records an embedding model the server's catalog lists as Available,
+// with the vector size the catalog reports.
+func (r *EmbeddingModelReconciler) reportServed(ctx context.Context, em *kubemootv1alpha1.EmbeddingModel, server *kubemootv1alpha1.ModelServer) (ctrl.Result, error) {
+	key := pullKey(server.Name, em.Spec.Model)
+	if err := releaseStalePulls(ctx, r.Client, r.tracker(), em, key); err != nil {
+		return ctrl.Result{}, err
+	}
+	r.tracker().forget(key)
+	info := &kubemootv1alpha1.EmbeddingModelInfo{Dimensions: em.Spec.Dimensions}
+	for _, e := range server.Status.EmbeddingModels {
+		if latestTag(e.Name) == latestTag(em.Spec.Model) && e.Dimensions > 0 {
+			info.Dimensions = e.Dimensions
+		}
+	}
+	return r.markAvailable(ctx, em, server.EndpointFor(em.Spec.Model), info)
 }
 
 // resolveServer finds the ModelServer that serves the embedding model: the one
@@ -197,42 +227,36 @@ func (r *EmbeddingModelReconciler) pullOrWait(ctx context.Context, httpClient *h
 
 // reportAvailable records an embedding model the server lists as Available.
 func (r *EmbeddingModelReconciler) reportAvailable(ctx context.Context, httpClient *http.Client, embeddingModel *kubemootv1alpha1.EmbeddingModel, endpoint string) (ctrl.Result, error) {
-	log := logf.FromContext(ctx)
-
 	// Model exists - get info and mark as available
 	modelInfo, err := r.getOllamaModelInfo(ctx, httpClient, endpoint, embeddingModel.Spec.Model)
 	if err != nil {
-		log.Error(err, "Failed to get model info, continuing anyway")
+		logf.FromContext(ctx).Error(err, "Failed to get model info, continuing anyway")
+		// Use spec dimensions if we couldn't get info
+		modelInfo = &kubemootv1alpha1.EmbeddingModelInfo{Dimensions: embeddingModel.Spec.Dimensions}
 	}
+	return r.markAvailable(ctx, embeddingModel, endpoint, modelInfo)
+}
 
-	// Update status with model info
+// markAvailable writes the Available status: the endpoint a consumer embeds through
+// and the model's info.
+func (r *EmbeddingModelReconciler) markAvailable(ctx context.Context, embeddingModel *kubemootv1alpha1.EmbeddingModel, endpoint string, info *kubemootv1alpha1.EmbeddingModelInfo) (ctrl.Result, error) {
 	embeddingModel.Status.State = stateAvailable
 	embeddingModel.Status.Ready = true
 	embeddingModel.Status.Message = fmt.Sprintf("Embedding model %s is available", embeddingModel.Spec.Model)
 	embeddingModel.Status.Endpoint = endpoint // Set endpoint for RAGSource to use
 	embeddingModel.Status.Pull = nil
+	embeddingModel.Status.ModelInfo = info
 
-	if modelInfo != nil {
-		embeddingModel.Status.ModelInfo = modelInfo
-	} else {
-		// Use spec dimensions if we couldn't get info
-		embeddingModel.Status.ModelInfo = &kubemootv1alpha1.EmbeddingModelInfo{
-			Dimensions: embeddingModel.Spec.Dimensions,
-		}
-	}
-
-	// Set condition
-	condition := metav1.Condition{
+	meta.SetStatusCondition(&embeddingModel.Status.Conditions, metav1.Condition{
 		Type:               conditionTypeReady,
 		Status:             metav1.ConditionTrue,
 		Reason:             stateAvailable,
 		Message:            embeddingModel.Status.Message,
 		LastTransitionTime: metav1.Now(),
-	}
-	meta.SetStatusCondition(&embeddingModel.Status.Conditions, condition)
+	})
 
 	if err := r.Status().Update(ctx, embeddingModel); err != nil {
-		log.Error(err, "Failed to update EmbeddingModel status")
+		logf.FromContext(ctx).Error(err, "Failed to update EmbeddingModel status")
 		return ctrl.Result{}, err
 	}
 

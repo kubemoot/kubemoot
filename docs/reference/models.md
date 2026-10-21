@@ -89,7 +89,7 @@ What the operator does with the vLLM servers:
 - **Placement.** An agent places a call on a `vllm` ModelServer that hosts the model, awake or asleep. The ModelServer needs no accelerator memory total and no per-model footprint: each vLLM server reserved its memory when it started. It has room while it holds no waiting request and its key-value cache is not nearly full; the number of calls in flight does not limit it, because they join the engine's batch. `maxParallel` is published as the engine's ceiling on concurrent sequences rather than one slot. See [How placement treats each engine](../../architecture/scheduler/#how-placement-treats-each-engine).
 - **Switching.** An agent asks the operator over NATS before a call to a model that is not awake (see [Waking and sleeping over NATS](../../architecture/scheduler/#waking-and-sleeping-over-nats)), and the operator replies when the ModelServer reports the state. The chart's launcher wakes nothing: every vLLM server starts asleep. To make a model ready, the adapter puts any other awake vLLM server of the ModelServer to sleep, then wakes the model's vLLM server. To release a model, it puts that vLLM server to sleep. It never restarts a vLLM server, because a restart takes 34 to 47 seconds where a wake takes 0.7 to 4.9. At level 2 the wake restores the weight buffers, reloads the weights from disk, then restores the key-value cache, in that order.
 
-An agent that uses a model on a `vllm` ModelServer calls that model's own vLLM server with the served name. `ModelServer.status.capacity` is filled from the same probe (loaded models, no accelerator memory per model); the accelerator total comes from `scheduling.memoryMiB` or DCGM. Storage and the Ollama version check do not apply to a `vllm` ModelServer; it is calibrated like an Ollama one (see Calibration below). An `EmbeddingModel` cannot use one.
+An agent that uses a model on a `vllm` ModelServer calls that model's own vLLM server with the served name. `ModelServer.status.capacity` is filled from the same probe (loaded models, no accelerator memory per model); the accelerator total comes from `scheduling.memoryMiB` or DCGM. Storage and the Ollama version check do not apply to a `vllm` ModelServer; it is calibrated like an Ollama one (see Calibration below). A `vllm` ModelServer can also serve embedding models; see [Embedding models on any server](#binding).
 
 ### Status
 
@@ -347,7 +347,14 @@ no size score to `qualityBias`, and a rule that requires a size excludes it. Dec
 `spec.parameters` on a Model to fix it. An Ollama server too old to list `capabilities` on
 `/api/show` cannot say that an embedding-only model is one; keep such a model out with a
 Model that sets `disabled: true`. Embedding-only models are never catalog entries; they are
-listed in `status.embeddingModels` for [EmbeddingModel](#embeddingmodel) binding.
+listed in `status.embeddingModels` for [EmbeddingModel](#embeddingmodel) binding. Every
+engine fills both lists the same way: a model is a chat model or an embedding model, and the
+list it appears in says which. An Ollama server reads the kind from `capabilities` on
+`/api/show`. A `vllm` server does not say which kind a served model is on `/v1/models`, so
+the operator asks the model once for an embedding of a short text on `/v1/embeddings`: a
+vector means an embedding model (and its length is the vector size), a refusal means a chat
+model. A model that the Service's models annotation declares with the `embedding` ability is
+an embedding model without being asked.
 
 Where each fact comes from:
 
@@ -600,23 +607,36 @@ Declares an embedding model for RAGSource indexing. Not consumed by chat agents;
 
 ### Binding
 
-An EmbeddingModel with no `serverRef` binds to a ready `ollama` ModelServer whose
-`status.embeddingModels` lists its model. Ollama reports the `embedding` capability from
-`/api/show`; the operator keeps those models out of `status.models` (the chat catalog that
-scheduling rules match) and lists them, with the vector size the engine reports, in
-`status.embeddingModels`. When several servers qualify, the operator chooses in this order:
+An EmbeddingModel with no `serverRef` binds to a ready ModelServer of any engine whose
+`status.embeddingModels` lists its model; no engine type is checked. An embedding model is a
+model: the same ModelServer serves chat models and embedding models, and there is no
+separate kind of server for either. Ollama reports the `embedding` capability from
+`/api/show`; a `vllm` server is asked (see the catalog above). The operator keeps embedding
+models out of `status.models` (the chat catalog that scheduling rules match) and lists them,
+with the vector size the engine reports, in `status.embeddingModels`. When several servers
+qualify, the operator chooses in this order:
 
 1. a server that has the model now, before one that is only declared to hold it;
 2. the server the model is already bound to, so a second server does not move it;
 3. namespace, then name, so the choice does not depend on list order.
 
 A server that reports a vector size other than `spec.dimensions` is skipped, and the
-`NoServer` message names it. The model name stays in the crew because the same model on
-any server makes the same vectors; switching the embedding server is a change to the
+`NoServer` message names it. The model name stays in the crew; switching the embedding server is a change to the
 cluster (add the model to another ModelServer, remove it from the old one), never to the
 crew. The EmbeddingModel re-binds when the bound server is removed, is not ready, or stops
-listing the model, and the new endpoint reaches RAGSources (their query services and the
-next indexing job) through `status.endpoint`.
+listing the model. A new binding reaches RAGSources through `status.boundServer` and
+`status.endpoint`, and each RAGSource rebuilds its index when the model is served another
+way (see [When the embedding model changes](../ragsource-guide/#when-the-embedding-model-changes)).
+
+Every consumer embeds through the OpenAI-compatible `/v1/embeddings` API at
+`status.endpoint`, which Ollama and vLLM both serve, and scales each vector to unit length,
+because servers differ in whether they do (Ollama answers unit vectors, vLLM the raw model
+output). The same model on two engines gives slightly different vectors, which is why a
+binding change rebuilds the index.
+
+A `vllm` server serves the models it was started with and has nothing to download. An
+EmbeddingModel that names one explicitly (`serverRef`) waits in `Pending` until the server's
+catalog lists the model as an embedding model; a chat-only server never binds.
 
 If no server has the model, the `Bound` condition is `False` with reason `NoServer` and
 says which model is missing. A model is downloaded only where the cluster owner asked for

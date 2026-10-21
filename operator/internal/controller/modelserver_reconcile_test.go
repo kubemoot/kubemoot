@@ -14,6 +14,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	kubemootv1alpha1 "github.com/kubemoot/kubemoot/operator/api/v1alpha1"
@@ -144,7 +145,7 @@ func TestEmbeddingModelReconcile_UnsupportedServerType(t *testing.T) {
 	if err := cli.Get(context.Background(), types.NamespacedName{Name: em.Name, Namespace: em.Namespace}, got); err != nil {
 		t.Fatal(err)
 	}
-	if got.Status.Ready || got.Status.Message != kubemootv1alpha1.UnsupportedServerTypeMessage {
-		t.Errorf("want not Ready with the unsupported-type message, got ready=%v message=%q", got.Status.Ready, got.Status.Message)
+	if got.Status.Ready || !strings.Contains(got.Status.Message, "does not serve") {
+		t.Errorf("want not Ready because the server does not serve the model, got ready=%v message=%q", got.Status.Ready, got.Status.Message)
 	}
 }

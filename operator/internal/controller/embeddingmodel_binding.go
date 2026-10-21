@@ -80,6 +80,13 @@ func serverEmbeds(server *aiv1alpha1.ModelServer, em *aiv1alpha1.EmbeddingModel)
 	return false, ""
 }
 
+// managesModelFiles reports whether the server holds downloaded model files the
+// operator can list and add to (Ollama). A vLLM server serves the model it was
+// started with and has nothing to download.
+func managesModelFiles(server *aiv1alpha1.ModelServer) bool {
+	return server.Spec.Type == aiv1alpha1.ServerTypeOllama
+}
+
 // serverDeclares reports whether a Model object on the server asks for the model
 // to be on it: the cluster owner's consent to download it there. It uses the
 // catalog's own rule for which Model speaks for a model, so a disabled Model
@@ -93,8 +100,8 @@ func serverDeclares(server *aiv1alpha1.ModelServer, tag string, models []aiv1alp
 	return false
 }
 
-// embeddingCandidates are the ready Ollama servers that have the embedding model
-// or are declared to hold it, in the order the operator prefers them: a server that
+// embeddingCandidates are the ready servers, of any engine, that have the embedding model
+// or, where the engine downloads models, are declared to hold it, in the order the operator prefers them: a server that
 // lists the model now comes before one that is only declared; among equals, the
 // server the model is already bound to stays first (so a second server does not
 // move it), then namespace and name. The second return value explains each server
@@ -104,7 +111,7 @@ func embeddingCandidates(em *aiv1alpha1.EmbeddingModel, servers []aiv1alpha1.Mod
 	var skipped []string
 	for i := range servers {
 		s := &servers[i]
-		if s.Spec.Type != aiv1alpha1.ServerTypeOllama || !s.Status.Ready || !s.DeletionTimestamp.IsZero() {
+		if !s.Status.Ready || !s.DeletionTimestamp.IsZero() {
 			continue
 		}
 		listed, mismatch := serverEmbeds(s, em)
@@ -113,7 +120,7 @@ func embeddingCandidates(em *aiv1alpha1.EmbeddingModel, servers []aiv1alpha1.Mod
 			out = append(out, embeddingCandidate{server: s, present: true})
 		case mismatch != "":
 			skipped = append(skipped, mismatch)
-		case serverDeclares(s, em.Spec.Model, models):
+		case managesModelFiles(s) && serverDeclares(s, em.Spec.Model, models):
 			out = append(out, embeddingCandidate{server: s})
 		}
 	}
@@ -139,7 +146,7 @@ func embeddingCandidateBefore(em *aiv1alpha1.EmbeddingModel, a, b embeddingCandi
 
 // noServerMessage tells the cluster owner what to add when no server has the model.
 func noServerMessage(em *aiv1alpha1.EmbeddingModel, skipped []string) string {
-	msg := fmt.Sprintf("No ready ModelServer has embedding model %s. Pull it onto an Ollama server, or add a Model for %s to the server that should hold it (kmctl model add) and the operator downloads it there",
+	msg := fmt.Sprintf("No ready ModelServer has embedding model %s. Serve it from a ModelServer (the catalog lists it once the server answers), or add a Model for %s to a server that downloads models (kmctl model add) and the operator downloads it there",
 		em.Spec.Model, em.Spec.Model)
 	if len(skipped) > 0 {
 		msg += "; skipped for vector size: " + strings.Join(skipped, "; ")
@@ -200,6 +207,8 @@ func embeddingRelevantChange(oldS, newS *aiv1alpha1.ModelServer) bool {
 	return oldS.Status.Ready != newS.Status.Ready ||
 		oldS.Spec.Endpoint != newS.Spec.Endpoint ||
 		oldS.Spec.Type != newS.Spec.Type ||
+		!reflect.DeepEqual(oldS.Spec.Servers, newS.Spec.Servers) ||
+		!reflect.DeepEqual(oldS.Status.VLLMServers, newS.Status.VLLMServers) ||
 		!reflect.DeepEqual(oldS.Status.EmbeddingModels, newS.Status.EmbeddingModels)
 }
 

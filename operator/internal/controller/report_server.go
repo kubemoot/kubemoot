@@ -190,7 +190,7 @@ func resolveEmbedder(ctx context.Context, c client.Client) embedder {
 	for i := range list.Items {
 		em := &list.Items[i]
 		if em.Status.Ready && em.Status.Endpoint != "" {
-			return newOllamaEmbedder(em.Status.Endpoint, em.Spec.Model)
+			return newServerEmbedder(em.Status.Endpoint, em.Spec.Model)
 		}
 	}
 	return nil

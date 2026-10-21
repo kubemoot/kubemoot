@@ -359,15 +359,25 @@ func TestEmbeddingBinding_DimensionMismatchIsNotBound(t *testing.T) {
 	}
 }
 
-func TestEmbeddingCandidates_SkipsVLLMAndUnknownDimensionsStillBind(t *testing.T) {
+func TestEmbeddingCandidates_AnEngineThatListsTheModelBindsAndUnknownDimensionsStillBind(t *testing.T) {
 	em := unboundEmbedding()
 	vllm := embedServer("a-vllm", "http://v", true)
 	vllm.Spec.Type = aiv1alpha1.ServerTypeVLLM
 	unknown := embedServer("b-unknown", "http://u", true)
 	unknown.Status.EmbeddingModels[0].Dimensions = 0
 	cands, skipped := embeddingCandidates(em, []aiv1alpha1.ModelServer{*vllm, *unknown}, nil)
-	if len(cands) != 1 || cands[0].server.Name != "b-unknown" || len(skipped) != 0 {
-		t.Errorf("candidates = %+v skipped = %v, want only b-unknown", cands, skipped)
+	if len(cands) != 2 || cands[0].server.Name != "a-vllm" || cands[1].server.Name != "b-unknown" || len(skipped) != 0 {
+		t.Errorf("candidates = %+v skipped = %v, want a-vllm then b-unknown", cands, skipped)
+	}
+}
+
+func TestEmbeddingCandidates_AVLLMServerDoesNotBindByADeclaredModel(t *testing.T) {
+	em := unboundEmbedding()
+	vllm := embedServer("a-vllm", "http://v", false) // its catalog does not list the model
+	vllm.Spec.Type = aiv1alpha1.ServerTypeVLLM
+	cands, _ := embeddingCandidates(em, []aiv1alpha1.ModelServer{*vllm}, []aiv1alpha1.Model{*embedModelFor("a-vllm")})
+	if len(cands) != 0 {
+		t.Errorf("candidates = %+v, want none: a vLLM server has nothing to download", cands)
 	}
 }
 
