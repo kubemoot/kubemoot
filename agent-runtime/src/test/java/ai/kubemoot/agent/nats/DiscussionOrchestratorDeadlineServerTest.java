@@ -29,7 +29,7 @@ class DiscussionOrchestratorDeadlineServerTest {
 
     @BeforeEach
     void setUp() {
-        // Build minimal orchestrator for testing parseTriageResult()
+        // Build a minimal orchestrator
         var natsProvider = mock(NatsConnectionProvider.class);
         var chatService = mock(ChatService.class);
         var properties = mock(AgentProperties.class);
@@ -104,5 +104,37 @@ class DiscussionOrchestratorDeadlineServerTest {
         assertEquals("server-c", orchestrator.expectedServer("k8s-nodes",
                 signal("{\"metadata\": {\"gpuLabel\": \"server-c\"}}")),
                 "a signal that names its server is looked up as named");
+    }
+
+    @Test
+    void aTerminalSignalWithNoEvaluatingBefore_doesNotRememberItsServer() {
+        var state = new DiscussionOrchestrator.ThreadState("t1");
+
+        orchestrator.handleAgentSignal(state, "k8s-nodes", "stand_aside", "", signal(RAN_ON_SERVER_B));
+
+        assertEquals("unknown", orchestrator.expectedServer("k8s-nodes", signal(NO_SERVER)));
+    }
+
+    @Test
+    void aTerminalSignalNamingNoServer_keepsTheServerAlreadyRemembered() {
+        var state = new DiscussionOrchestrator.ThreadState("t1");
+        orchestrator.handleAgentSignal(state, "k8s-nodes", "evaluating", "", signal(NO_SERVER));
+        orchestrator.handleAgentSignal(state, "k8s-nodes", "stand_aside", "", signal(RAN_ON_SERVER_B));
+        orchestrator.handleAgentSignal(state, "k8s-nodes", "evaluating", "", signal(NO_SERVER));
+        orchestrator.handleAgentSignal(state, "k8s-nodes", "stand_aside", "",
+                signal("{\"metadata\": {\"inferenceMs\": 4000}}"));
+
+        assertEquals("server-b", orchestrator.expectedServer("k8s-nodes", signal(NO_SERVER)));
+    }
+
+    @Test
+    void aTerminalSignalWithNoInferenceTime_doesNotRememberItsServer() {
+        var state = new DiscussionOrchestrator.ThreadState("t1");
+        orchestrator.handleAgentSignal(state, "k8s-nodes", "evaluating", "", signal(NO_SERVER));
+
+        orchestrator.handleAgentSignal(state, "k8s-nodes", "stand_aside", "",
+                signal("{\"metadata\": {\"gpuLabel\": \"server-b\"}}"));
+
+        assertEquals("unknown", orchestrator.expectedServer("k8s-nodes", signal(NO_SERVER)));
     }
 }

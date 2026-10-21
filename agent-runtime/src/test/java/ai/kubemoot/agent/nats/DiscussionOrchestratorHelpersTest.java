@@ -631,6 +631,17 @@ class DiscussionOrchestratorHelpersTest {
     }
 
     @Test
+    void putRanOn_noCall_keepsTheConfiguredModelAndEndpointLabel() {
+        var meta = new java.util.HashMap<String, Object>();
+
+        orchestrator.putRanOn(meta, null);
+
+        assertEquals("qwen2.5:32b", meta.get("modelName"));
+        assertEquals("localhost", meta.get("gpuLabel"));
+        assertFalse(meta.containsKey("modelsUsed"));
+    }
+
+    @Test
     void putRanOn_aCallWithNoModel_keepsTheConfiguredModel() {
         var meta = new java.util.HashMap<String, Object>();
 
