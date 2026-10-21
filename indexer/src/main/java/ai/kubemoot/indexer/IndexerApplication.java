@@ -1,6 +1,7 @@
 package ai.kubemoot.indexer;
 
 import ai.kubemoot.indexer.config.IndexerConfig;
+import ai.kubemoot.indexer.service.CollectionDropper;
 import ai.kubemoot.indexer.service.IndexerService;
 import ai.kubemoot.indexer.service.IndexerService.IndexResult;
 import org.slf4j.Logger;
@@ -42,8 +43,13 @@ public class IndexerApplication {
     }
 
     @Bean
-    CommandLineRunner run(IndexerService indexerService, IndexerConfig config) {
+    CommandLineRunner run(IndexerService indexerService, IndexerConfig config, CollectionDropper dropper) {
         return args -> {
+            if (!config.dropCollections().isEmpty()) {
+                dropper.drop(config.dropCollections(), config.vectorstoreCollection());
+                return;
+            }
+
             long startTime = System.currentTimeMillis();
 
             logger.info("=".repeat(50));

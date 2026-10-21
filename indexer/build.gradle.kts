@@ -42,7 +42,7 @@ dependencies {
     implementation("org.springframework.boot:spring-boot-starter-webflux")
 
     // Spring AI - Embeddings
-    implementation("org.springframework.ai:spring-ai-starter-model-ollama")
+    implementation("org.springframework.ai:spring-ai-starter-model-openai")
 
     // Spring AI - Vector Stores
     implementation("org.springframework.ai:spring-ai-starter-vector-store-pgvector")
