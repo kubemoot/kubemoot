@@ -60,6 +60,14 @@
       "type": "string",
       "description": "When the message was published, RFC 3339 in UTC. Java writers send nanosecond precision, Go writers whole seconds."
     },
+    "traceparent": {
+      "type": "string",
+      "description": "W3C Trace Context traceparent of the span that published the message, so a trace follows a question across agents. Optional; also sent as the traceparent NATS header."
+    },
+    "tracestate": {
+      "type": "string",
+      "description": "W3C Trace Context tracestate that goes with traceparent."
+    },
     "metadata": {
       "$ref": "discussion-metadata.json",
       "goJSONSchema": {

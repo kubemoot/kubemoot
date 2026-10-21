@@ -274,6 +274,14 @@ type DiscussionMessage struct {
 	// precision, Go writers whole seconds.
 	Timestamp string `json:"timestamp,omitempty"`
 
+	// W3C Trace Context traceparent of the span that published the message, so a
+	// trace follows a question across agents. Optional; also sent as the traceparent
+	// NATS header.
+	Traceparent string `json:"traceparent,omitempty"`
+
+	// W3C Trace Context tracestate that goes with traceparent.
+	Tracestate string `json:"tracestate,omitempty"`
+
 	// Metadata corresponds to the JSON schema field "metadata".
 	Metadata DiscussionMessageMetadata `json:"metadata,omitempty"`
 }
@@ -402,6 +410,20 @@ type DiscussionMetadata struct {
 	// model_timeout, model_oom, server_unreachable, internal_exception or
 	// evaluation_timeout.
 	FailureType string `json:"failureType,omitempty"`
+
+	// The name of the harness that produced the contribution, on a signal an agent's
+	// Moot Mesh sidecar sent for it.
+	Harness string `json:"harness,omitempty"`
+
+	// The image, by digest when known, of the harness that produced the contribution.
+	HarnessImage string `json:"harnessImage,omitempty"`
+
+	// Milliseconds from handing the turn to the harness to its reply, measured by the
+	// sidecar.
+	TurnMs int64 `json:"turnMs,omitempty"`
+
+	// What the harness says its answer rests on, as it reported it.
+	Evidence []Evidence `json:"evidence,omitempty"`
 
 	// The tool that failed, on a failure signal.
 	FailedTool string `json:"failedTool,omitempty"`
@@ -673,6 +695,14 @@ type DiscussionRequest struct {
 type ErrorResponse struct {
 	// What went wrong.
 	Error string `json:"error"`
+}
+
+type Evidence struct {
+	// The tool the evidence came from.
+	Tool string `json:"tool,omitempty"`
+
+	// What it showed.
+	Note string `json:"note,omitempty"`
 }
 
 // An agent's recent evaluation latencies on one server, in the kubemoot_latency
@@ -1613,4 +1643,4 @@ type TriageChoice struct {
 }
 
 // ContractVersion is the version of the bus contract these types describe.
-const ContractVersion = "2.0.0"
+const ContractVersion = "2.1.0"

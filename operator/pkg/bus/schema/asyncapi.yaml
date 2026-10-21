@@ -1,7 +1,7 @@
 asyncapi: 3.1.0
 info:
   title: Kubemoot bus contract
-  version: 2.0.0
+  version: 2.1.0
   description: |
     The messages agents and Kubemoot exchange over NATS, the key-value entries they
     share, and the event stream the discussion gateway serves. Payloads are JSON
