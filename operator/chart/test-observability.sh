@@ -73,7 +73,7 @@ for path in sorted(dash_dir.glob("*.json")):
             for sel in re.findall(r"\bkubemoot_(?:discussion|scheduler)_[a-z0-9_]+(?:\{[^}]*\})?", e):
                 if 'crew=~"$crew"' not in sel:
                     problems.append(f"{path.name}: an agent metric ignores the crew filter: {sel}")
-    elif path.name in ("kubemoot-discussions.json", "kubemoot-overview.json"):
+    elif path.name in ("kubemoot-discussions.json", "kubemoot-overview.json", "kubemoot-scheduler.json"):
         problems.append(f"{path.name}: no crew variable")
     for e in found["exprs"]:
         for label, value in re.findall(r'\b(namespace|server|model|pod|node|instance)\s*=\s*"([^"]*)"', e):
