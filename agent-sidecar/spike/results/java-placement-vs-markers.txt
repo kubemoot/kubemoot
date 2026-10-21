@@ -1,0 +1,16 @@
+# native image of the existing placement code, tickets bucket TTL 10m, sequential place+release through the sidecar
+round 1: delete markers in the bucket before the round: 45
+non-200 replies: 0 of 40
+total       n=40 p50=651.971ms p95=949.139ms p99=1202.713ms max=1482.684ms
+round 2: delete markers in the bucket before the round: 85
+non-200 replies: 0 of 40
+total       n=40 p50=915.765ms p95=1205.349ms p99=1213.101ms max=1291.787ms
+round 3: delete markers in the bucket before the round: 125
+non-200 replies: 0 of 40
+total       n=40 p50=1224.013ms p95=1539.961ms p99=1727.414ms max=1800.249ms
+round 4: delete markers in the bucket before the round: 165
+non-200 replies: 0 of 40
+total       n=40 p50=1279.875ms p95=1701.494ms p99=1707.907ms max=1856.163ms
+round 5: delete markers in the bucket before the round: 205
+non-200 replies: 0 of 40
+total       n=40 p50=1733.230ms p95=2196.322ms p99=2203.667ms max=2626.928ms

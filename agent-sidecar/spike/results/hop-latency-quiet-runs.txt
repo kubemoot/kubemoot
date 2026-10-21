@@ -1,0 +1,63 @@
+=== repeat 1
+-- direct (c=1)
+non-200 replies: 0 of 2300
+total       n=2000 p50=0.532ms p95=1.094ms p99=2.207ms max=8.724ms
+-- sidecar bound (sidecar hop) (c=1)
+non-200 replies: 0 of 2300
+total       n=2000 p50=1.442ms p95=3.014ms p99=6.178ms max=17.614ms
+-- sidecar + static service (+ service hop) (c=1)
+non-200 replies: 0 of 2300
+total       n=2000 p50=2.828ms p95=5.348ms p99=7.917ms max=21.424ms
+-- sidecar + Go in-memory service (+ state work) (c=1)
+non-200 replies: 0 of 2300
+total       n=2000 p50=3.382ms p95=10.386ms p99=16.029ms max=52.123ms
+=== repeat 2
+-- direct (c=1)
+non-200 replies: 0 of 2300
+total       n=2000 p50=0.562ms p95=1.139ms p99=2.292ms max=9.119ms
+-- sidecar bound (sidecar hop) (c=1)
+non-200 replies: 0 of 2300
+total       n=2000 p50=1.452ms p95=9.612ms p99=16.916ms max=38.567ms
+-- sidecar + static service (+ service hop) (c=1)
+non-200 replies: 0 of 2300
+total       n=2000 p50=3.286ms p95=14.005ms p99=24.466ms max=70.516ms
+-- sidecar + Go in-memory service (+ state work) (c=1)
+non-200 replies: 0 of 2300
+total       n=2000 p50=3.216ms p95=7.496ms p99=12.765ms max=27.962ms
+=== repeat 3
+-- direct (c=1)
+non-200 replies: 0 of 2300
+total       n=2000 p50=0.568ms p95=1.589ms p99=4.082ms max=10.432ms
+-- sidecar bound (sidecar hop) (c=1)
+non-200 replies: 0 of 2300
+total       n=2000 p50=1.229ms p95=2.093ms p99=3.198ms max=5.305ms
+-- sidecar + static service (+ service hop) (c=1)
+non-200 replies: 0 of 2300
+total       n=2000 p50=2.816ms p95=5.134ms p99=8.066ms max=15.655ms
+-- sidecar + Go in-memory service (+ state work) (c=1)
+non-200 replies: 0 of 2300
+total       n=2000 p50=3.788ms p95=11.057ms p99=17.874ms max=33.324ms
+=== concurrency 8
+-- direct (c=8)
+non-200 replies: 0 of 2300
+total       n=2000 p50=0.714ms p95=3.641ms p99=6.165ms max=12.249ms
+-- sidecar bound (c=8)
+non-200 replies: 0 of 2300
+total       n=2000 p50=4.548ms p95=16.444ms p99=25.249ms max=38.304ms
+-- sidecar + static service (c=8)
+non-200 replies: 0 of 2300
+total       n=2000 p50=8.435ms p95=30.435ms p99=49.359ms max=84.963ms
+-- sidecar + Go in-memory service (c=8)
+non-200 replies: 0 of 2300
+total       n=2000 p50=7.663ms p95=26.592ms p99=44.998ms max=71.868ms
+=== resident memory of the Go processes after the runs
+agent-sidecar pid 733140 VmRSS:	 20528 kB
+agent-sidecar pid 733146 VmRSS:	 20472 kB
+agent-sidecar pid 733151 VmRSS:	 13448 kB
+agent-sidecar pid 733156 VmRSS:	 20696 kB
+placement-go pid 733083 VmRSS:	 16792 kB
+placement-go pid 733084 VmRSS:	 17148 kB
+fakemodel pid 733079 VmRSS:	 16044 kB
+fakemodel pid 733080 VmRSS:	 13552 kB
+fakemodel pid 733081 VmRSS:	 13324 kB
+hello-harness pid 733085 VmRSS:	 9540 kB

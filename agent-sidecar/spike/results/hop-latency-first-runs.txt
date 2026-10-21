@@ -1,0 +1,50 @@
+== direct: client -> model server (c=1)
+non-200 replies: 0 of 1800
+total       n=1500 p50=0.567ms p95=1.079ms p99=2.058ms max=14.954ms
+== sidecar, bound placement (sidecar hop only) (c=1)
+non-200 replies: 0 of 1800
+total       n=1500 p50=1.471ms p95=2.564ms p99=4.984ms max=15.475ms
+== sidecar + static placement service (sidecar hop + service hop, no KV) (c=1)
+non-200 replies: 0 of 1800
+total       n=1500 p50=2.615ms p95=6.263ms p99=10.416ms max=37.817ms
+== sidecar + Go placement service (service does KV ticket work) (c=1)
+non-200 replies: 921 of 1800
+total       n=1500 p50=6.782ms p95=10.806ms p99=112.738ms max=262.180ms
+== direct: client -> model server (noise check) (c=1)
+non-200 replies: 0 of 1800
+total       n=1500 p50=0.440ms p95=0.602ms p99=0.714ms max=3.634ms
+== direct: client -> model server (c=8)
+non-200 replies: 0 of 1800
+total       n=1500 p50=0.502ms p95=1.487ms p99=2.715ms max=4.531ms
+== sidecar, bound placement (sidecar hop only) (c=8)
+non-200 replies: 0 of 1800
+total       n=1500 p50=1.904ms p95=4.473ms p99=5.887ms max=9.762ms
+== sidecar + static placement service (sidecar hop + service hop, no KV) (c=8)
+non-200 replies: 0 of 1800
+total       n=1500 p50=3.439ms p95=5.114ms p99=6.120ms max=8.344ms
+== sidecar + Go placement service (service does KV ticket work) (c=8)
+non-200 replies: 1411 of 1800
+total       n=1500 p50=10.517ms p95=117.344ms p99=285.843ms max=679.683ms
+== direct: client -> model server (noise check) (c=8)
+non-200 replies: 0 of 1800
+total       n=1500 p50=0.431ms p95=1.331ms p99=2.142ms max=4.263ms
+== streaming, first byte (c=1)
+== direct (c=1)
+non-200 replies: 0 of 1800
+total       n=1500 p50=0.510ms p95=0.756ms p99=0.968ms max=7.099ms
+first-byte  n=1500 p50=0.435ms p95=0.598ms p99=0.738ms max=7.068ms
+== sidecar bound (c=1)
+non-200 replies: 0 of 1800
+total       n=1500 p50=1.112ms p95=1.511ms p99=2.043ms max=57.337ms
+first-byte  n=1500 p50=1.029ms p95=1.395ms p99=1.836ms max=57.285ms
+== sidecar + static service (c=1)
+non-200 replies: 0 of 1800
+total       n=1500 p50=2.502ms p95=3.311ms p99=4.334ms max=13.831ms
+first-byte  n=1500 p50=1.817ms p95=2.455ms p99=3.417ms max=12.845ms
+== native Java placement service (the existing placement code), KV ticket work
+== sidecar + native Java placement service (c=1)
+non-200 replies: 0 of 900
+total       n=600 p50=247.496ms p95=357.968ms p99=393.515ms max=460.416ms
+== sidecar + native Java placement service (c=4)
+non-200 replies: 0 of 900
+total       n=600 p50=406.992ms p95=594.383ms p99=1039.433ms max=2701.619ms

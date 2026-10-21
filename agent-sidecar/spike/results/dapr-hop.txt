@@ -1,0 +1,15 @@
+=== repeat 1
+-- direct to the app
+non-200 replies: 0 of 2300
+total       n=2000 p50=0.246ms p95=3.198ms p99=10.446ms max=26.097ms
+-- through daprd service invocation (HTTP)
+non-200 replies: 0 of 2300
+total       n=2000 p50=2.276ms p95=12.042ms p99=20.588ms max=91.371ms
+=== repeat 2
+-- direct to the app
+non-200 replies: 0 of 2300
+total       n=2000 p50=0.299ms p95=2.441ms p99=7.596ms max=20.303ms
+-- through daprd service invocation (HTTP)
+non-200 replies: 0 of 2300
+total       n=2000 p50=1.446ms p95=2.520ms p99=4.469ms max=16.378ms
+daprd VmRSS:	 68032 kB after the runs
