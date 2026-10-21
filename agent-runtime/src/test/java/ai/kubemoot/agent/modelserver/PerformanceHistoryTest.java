@@ -454,7 +454,7 @@ class PerformanceHistoryTest {
 
     @Test
     void withoutTheBucket_thereIsNoLength_andTheReadIsTriedAgainLater() {
-        var nats = mock(NatsConnectionProvider.class);
+        var nats = mock(NatsLink.class);
         when(nats.getConnection()).thenReturn(null);
         var h = history(nats, "a");
 
