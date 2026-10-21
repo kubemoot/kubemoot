@@ -9,6 +9,8 @@ on:
     branches: [main]
     paths:
       - 'agent-runtime/**'
+      - 'placement-core/**'
+      - 'placement-service/**'
       - 'config/checkstyle/**'
       - '.github/scripts/check-native-libs.sh'
       - '.github/workflows/ci-agent-runtime.yaml'

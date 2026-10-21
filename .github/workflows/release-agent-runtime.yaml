@@ -6,6 +6,10 @@ on:
     paths:
       - 'agent-runtime/**'
       - '!agent-runtime/**.md'
+      - 'placement-core/**'
+      - '!placement-core/**.md'
+      - 'placement-service/**'
+      - '!placement-service/**.md'
       - '.github/scripts/check-native-libs.sh'
       - '.github/workflows/ci-agent-runtime.yaml'
   workflow_dispatch:

@@ -59,6 +59,8 @@ run_bootstrap
 [ ! -e "$work/kv/kubemoot_provider_tickets" ] || fail "kubemoot_provider_tickets was not removed"
 [ -e "$work/kv/kubemoot_server_tickets" ] || fail "kubemoot_server_tickets was not created"
 [ -e "$work/kv/unrelated_bucket" ] || fail "an unrelated bucket was removed"
+[ -e "$work/kv/kubemoot_placement_leader" ] || fail "kubemoot_placement_leader was not created"
+grep -q '^kv add kubemoot_placement_leader --ttl=15s --history=1 --max-value-size=1024 ' "$work/log" || fail "the leader bucket has the wrong settings"
 grep -q '^kv del kubemoot_provider_state --force' "$work/log" || fail "kv del ran without --force"
 grep -q "Removing retired KV bucket kubemoot_provider_state" "$work/out" || fail "the removal was not logged"
 [ "$(grep -c '^kv del ' "$work/log")" = "2" ] || fail "kv del ran other than twice: $(grep '^kv del ' "$work/log")"

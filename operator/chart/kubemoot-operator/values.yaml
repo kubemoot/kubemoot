@@ -332,6 +332,38 @@ liaison:
       memory: 32Mi
       ephemeral-storage: 16Mi
 
+# Placement service: the one writer that decides where each model call runs and owns
+# tickets. Off by default. Replicas elect a leader through NATS; only the leader is
+# Ready (standbys are Running, not Ready, by design). No Kubernetes API access.
+placementService:
+  enabled: false
+  # Turns agents onto the service: the KubemootConfig carries
+  # defaults.scheduler.placementService. Off, agents place in-process.
+  agentsUse: false
+  # Base URL agents call; empty means the in-cluster Service on port 8080.
+  url: ""
+  replicaCount: 2
+  image: placement-service:0.0.0
+  leaseSeconds: 15
+  ticketTtlSeconds: 600
+  # Optional NATS credentials from an existing Secret (NATS_USER, NATS_PASSWORD).
+  nats:
+    existingSecret: ""
+    userKey: user
+    passwordKey: password
+  resources:
+    requests:
+      cpu: 20m
+      memory: 64Mi
+      ephemeral-storage: 16Mi
+    limits:
+      memory: 192Mi
+      ephemeral-storage: 32Mi
+  nodeSelector: {}
+  tolerations: []
+  # Replaces the default soft anti-affinity on hostname when set.
+  affinity: {}
+
 kubemootConfig:
   # Whether to create the default KubemootConfig singleton
   create: true

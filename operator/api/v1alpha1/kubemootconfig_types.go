@@ -136,6 +136,25 @@ type SchedulerConfig struct {
 	// +kubebuilder:default=algorithm
 	// +optional
 	PlacementPolicy string `json:"placementPolicy,omitempty"`
+
+	// PlacementService points agents at the placement service. When enabled,
+	// agents call the service at its URL for placement and ticket ownership;
+	// when off (the default), agents place in-process.
+	// +optional
+	PlacementService *PlacementServiceConfig `json:"placementService,omitempty"`
+}
+
+// PlacementServiceConfig configures agent use of the placement service.
+type PlacementServiceConfig struct {
+	// Enabled makes agents call the placement service. Default false.
+	// +optional
+	Enabled bool `json:"enabled,omitempty"`
+
+	// URL is the placement service base URL, for example
+	// http://placement-service.kubemoot-system.svc:8080. Agents get no
+	// service setting when it is empty.
+	// +optional
+	URL string `json:"url,omitempty"`
 }
 
 // KubemootConfigSpec defines the desired state of KubemootConfig

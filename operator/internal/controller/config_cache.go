@@ -251,6 +251,21 @@ func (c *ConfigCache) GetSchedulerConfig() *kubemootv1alpha1.SchedulerConfig {
 	return nil
 }
 
+// GetPlacementServiceURL returns the placement service URL when the realm has
+// the service enabled, or "" when it is off or has no URL.
+func (c *ConfigCache) GetPlacementServiceURL() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if c.config == nil || c.config.Spec.Defaults.Scheduler == nil {
+		return ""
+	}
+	ps := c.config.Spec.Defaults.Scheduler.PlacementService
+	if ps == nil || !ps.Enabled {
+		return ""
+	}
+	return ps.URL
+}
+
 // GetPlacementPolicy returns the realm's default placement policy, or "" when unset.
 func (c *ConfigCache) GetPlacementPolicy() string {
 	c.mu.RLock()

@@ -1,0 +1,100 @@
+name: Release Placement Service
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'placement-service/**'
+      - '!placement-service/**.md'
+      - 'placement-core/**'
+      - '!placement-core/**.md'
+      - 'config/checkstyle/**'
+      - '.github/scripts/check-native-libs.sh'
+      - '.github/workflows/ci-placement-service.yaml'
+  workflow_dispatch:
+    inputs:
+      force_release:
+        description: 'Force a release even if no conventional commits found'
+        required: false
+        default: 'false'
+        type: boolean
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  REGISTRY: ${{ vars.REGISTRY }}
+  IMAGE_NAME: kubemoot/placement-service
+
+permissions:
+  contents: read
+
+jobs:
+  ci:
+    uses: ./.github/workflows/ci-placement-service.yaml
+    secrets: inherit
+
+  release:
+    needs: ci
+    runs-on: homelab-runners
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # RELEASE_TOKEN (contents+workflows write) pushes even when main's workflow files changed after this commit; GITHUB_TOKEN is refused there.
+          token: ${{ secrets.RELEASE_TOKEN || github.token }}
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Calculate the release candidate version
+        id: version
+        uses: kubemoot/release-actions/release-candidate-version@6ba4d559b8ec0fe5b57b101eb7831ab48289c036 # v0.10.2
+        with:
+          tag_prefix: "placement-service-v"
+          force: ${{ inputs.force_release }}
+
+      - name: Install crane
+        if: steps.version.outputs.release_created == 'true'
+        run: |
+          curl -sL https://github.com/google/go-containerregistry/releases/download/v0.20.2/go-containerregistry_Linux_x86_64.tar.gz | tar -xzf - crane
+          sudo mv crane /usr/local/bin/
+
+      - name: Retag image with version
+        if: steps.version.outputs.release_created == 'true'
+        env:
+          HARBOR_USERNAME: ${{ secrets.HARBOR_USERNAME }}
+          HARBOR_PASSWORD: ${{ secrets.HARBOR_PASSWORD }}
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          SHA="${{ github.sha }}"
+          FULL_IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}"
+
+          echo "${HARBOR_PASSWORD}" | crane auth login --insecure ${{ env.REGISTRY }} -u "${HARBOR_USERNAME}" --password-stdin
+
+          if crane manifest --insecure "${FULL_IMAGE}:${SHA}" >/dev/null 2>&1; then
+            echo "Copying ${FULL_IMAGE}:${SHA} -> ${FULL_IMAGE}:${VERSION}"
+            crane copy --insecure "${FULL_IMAGE}:${SHA}" "${FULL_IMAGE}:${VERSION}"
+          elif crane manifest --insecure "${FULL_IMAGE}:latest" >/dev/null 2>&1; then
+            echo "Copying ${FULL_IMAGE}:latest -> ${FULL_IMAGE}:${VERSION}"
+            crane copy --insecure "${FULL_IMAGE}:latest" "${FULL_IMAGE}:${VERSION}"
+          fi
+
+      - name: Create and push tag
+        if: steps.version.outputs.release_created == 'true'
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          TAG="placement-service-v$VERSION"
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          if ! git rev-parse "$TAG" >/dev/null 2>&1; then
+            echo "Creating tag: $TAG"
+            git tag -a "$TAG" -m "Release candidate Placement Service $TAG"
+            git push origin "$TAG"
+          fi

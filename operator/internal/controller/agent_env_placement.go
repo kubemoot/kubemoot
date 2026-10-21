@@ -21,6 +21,10 @@ import (
 // decides where its model calls run.
 const envSchedulerPlacementPolicy = "KUBEMOOT_SCHEDULER_PLACEMENT_POLICY"
 
+// envPlacementServiceURL tells the agent runtime to call the placement service
+// at this URL. It is absent when agents place in-process.
+const envPlacementServiceURL = "KUBEMOOT_PLACEMENT_SERVICE_URL"
+
 // defaultPlacementPolicy applies when neither the crew nor the realm sets one.
 const defaultPlacementPolicy = "algorithm"
 
@@ -63,4 +67,17 @@ func (r *AgentReconciler) placementPolicyEnvVar(ctx context.Context, agent *kube
 		Name:  envSchedulerPlacementPolicy,
 		Value: resolvePlacementPolicy(r.crewPlacementOverride(ctx, agent), realm),
 	}
+}
+
+// placementServiceEnvVars returns the placement service URL env var when the
+// realm enables the service with a URL, and nothing otherwise.
+func (r *AgentReconciler) placementServiceEnvVars() []corev1.EnvVar {
+	if r.ConfigCache == nil {
+		return nil
+	}
+	url := r.ConfigCache.GetPlacementServiceURL()
+	if url == "" {
+		return nil
+	}
+	return []corev1.EnvVar{{Name: envPlacementServiceURL, Value: url}}
 }

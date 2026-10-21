@@ -119,6 +119,23 @@ spec:
                         - learned
                         - shadow
                         type: string
+                      placementService:
+                        description: |-
+                          PlacementService points agents at the placement service. When enabled,
+                          agents call the service at its URL for placement and ticket ownership;
+                          when off (the default), agents place in-process.
+                        properties:
+                          enabled:
+                            description: Enabled makes agents call the placement service.
+                              Default false.
+                            type: boolean
+                          url:
+                            description: |-
+                              URL is the placement service base URL, for example
+                              http://placement-service.kubemoot-system.svc:8080. Agents get no
+                              service setting when it is empty.
+                            type: string
+                        type: object
                       probeIntervalSeconds:
                         default: 30
                         description: ProbeIntervalSeconds is how often to probe servers

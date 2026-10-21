@@ -75,6 +75,8 @@ updates:
       - "/agent-runtime"
       - "/indexer"
       - "/mcp-gateway"
+      - "/placement-core"
+      - "/placement-service"
     schedule:
       interval: weekly
     groups:

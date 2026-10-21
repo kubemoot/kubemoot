@@ -1,0 +1,176 @@
+# POLICY: Unit tests and image builds ONLY. No integration tests.
+# Integration tests require a running cluster and must run AFTER Flux
+# reconciliation - not during the CI/CD build pipeline.
+name: CI Placement Service
+
+on:
+  workflow_call:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'placement-service/**'
+      - 'placement-core/**'
+      - 'config/checkstyle/**'
+      - '.github/scripts/check-native-libs.sh'
+      - '.github/workflows/ci-placement-service.yaml'
+  workflow_dispatch:
+    inputs:
+      native_check:
+        description: 'Build and start the native image on the homelab runners without pushing it (for a branch before merge)'
+        required: false
+        default: false
+        type: boolean
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  REGISTRY: ${{ vars.REGISTRY }}
+  IMAGE_NAME: kubemoot/placement-service
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    # Pull requests (including forks) run on GitHub-hosted runners; the self-hosted
+    # cluster runners take push, dispatch, and workflow_call runs from main only.
+    runs-on: ${{ github.event_name == 'pull_request' && 'ubuntu-latest' || 'homelab-runners' }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up JDK 25
+        uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        with:
+          java-version: '25'
+          distribution: 'temurin'
+          cache: 'gradle'
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x placement-core/gradlew placement-service/gradlew
+
+      # The shared library has its own build; it is tested here too because the service
+      # packages it.
+      - name: Build and test placement-core
+        working-directory: placement-core
+        run: ./gradlew build
+
+      - name: Build and test
+        working-directory: placement-service
+        run: ./gradlew build
+
+  build-image:
+    # Runs in parallel with test - pushes SHA-tagged image only.
+    # The release job gates on ALL CI jobs passing before creating
+    # the version tag that Flux deploys. A failed test means the
+    # SHA-tagged image sits unused in Harbor.
+    # A dispatch with native_check builds the same native binary and starts it
+    # instead of pushing: nothing reaches Harbor and no tag is created.
+    runs-on: homelab-runners
+    if: github.event_name != 'pull_request'
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up GraalVM Community 25
+        uses: graalvm/setup-graalvm@27b360dbb857524eaf0b4c4cef364d38e5b4f173 # v1.6.7
+        with:
+          java-version: '25'
+          distribution: 'graalvm-community'
+          cache: 'gradle'
+          native-image-job-reports: 'false'
+
+      - name: Install native toolchain
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq gcc zlib1g-dev
+
+      - name: Grant execute permission for gradlew
+        working-directory: placement-service
+        run: chmod +x gradlew
+
+      - name: Install kubectl and crane
+        if: ${{ !inputs.native_check }}
+        env:
+          KUBECTL_VERSION: v1.37.1
+          KUBECTL_SHA256: 65691ff77eb6fa44c908b77a1082c9f092c3b9733b5cefabec0d1104890e21a8
+          CRANE_VERSION: v0.20.2
+          CRANE_SHA256: c14340087103ba9dadf61d45acd20675490fd0ccbd56ac7901fc1b502137f44b
+        run: |
+          curl -fsSLO "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl"
+          echo "${KUBECTL_SHA256}  kubectl" | sha256sum -c -
+          chmod +x kubectl && sudo mv kubectl /usr/local/bin/
+          curl -fsSL -o crane.tar.gz "https://github.com/google/go-containerregistry/releases/download/${CRANE_VERSION}/go-containerregistry_Linux_x86_64.tar.gz"
+          echo "${CRANE_SHA256}  crane.tar.gz" | sha256sum -c -
+          tar -xzf crane.tar.gz crane && sudo mv crane /usr/local/bin/ && rm crane.tar.gz
+
+      - name: Build native binary
+        working-directory: placement-service
+        run: |
+          ./gradlew quarkusBuild \
+            -Dquarkus.native.enabled=true \
+            -Dquarkus.native.container-build=false \
+            -Dquarkus.package.jar.enabled=false
+
+      - name: Start the native binary (native check)
+        if: ${{ inputs.native_check }}
+        timeout-minutes: 3
+        working-directory: placement-service
+        env:
+          QUARKUS_HTTP_PORT: '18080'
+        # Checks what native compilation can break (startup, reflection, JSON), not NATS
+        # connectivity: liveness does not depend on NATS or on holding the lease.
+        run: |
+          runner=(build/*-runner)
+          "./${runner[0]}" > runner.log 2>&1 &
+          pid=$!
+          until curl -sf "http://localhost:${QUARKUS_HTTP_PORT}/q/health/live" >/dev/null; do
+            if ! kill -0 "${pid}" 2>/dev/null; then
+              echo "::error::The native binary exited during startup"
+              cat runner.log
+              exit 1
+            fi
+            sleep 1
+          done
+          kill "${pid}"
+          cat runner.log
+          echo "Native binary started and answered /q/health/live."
+
+      - name: Set up the build helpers
+        if: ${{ !inputs.native_check }}
+        uses: kubemoot/release-actions/setup@7accfbc33966d895bab2fc17a2a6c7f2520aaf76 # v0.11.1
+
+      # The run image must hold every shared library the binary links against; the image
+      # would build and push without one and the pod would fail at startup. The
+      # check reads the run image pin from BUILD_IMAGE_DIR, set by the step above.
+      - name: Check the binary's libraries against the run image
+        if: ${{ !inputs.native_check }}
+        run: |
+          runners=(placement-service/build/*-runner)
+          [ "${#runners[@]}" -eq 1 ] || { echo "want one native binary, found: ${runners[*]}"; exit 1; }
+          .github/scripts/check-native-libs.sh "${runners[0]}" run-tiny
+
+      # The Procfile buildpack packages the binary built and checked above as it is; with
+      # BP_DIRECT_PROCESS the launcher runs it without a shell. main pushes :<sha>, which
+      # the release retags, and :latest; any other ref pushes only :branch-<sha>
+      # (build-image-buildpacks.sh decides the tags per ref).
+      - name: Build and push with Paketo buildpacks
+        if: ${{ !inputs.native_check }}
+        env:
+          REGISTRY_HOST_IP: ${{ vars.REGISTRY_HOST_IP }}
+          SHA: ${{ github.sha }}
+        run: |
+          app="${RUNNER_TEMP}/placement-service-app"
+          mkdir -p "${app}"
+          cp placement-service/build/*-runner "${app}/application"
+          cp placement-service/src/main/buildpacks/Procfile "${app}/Procfile"
+          "${BUILD_IMAGE_DIR}/build-image-buildpacks.sh" \
+            --pod "buildpacks-placement-service-${SHA:0:8}-${GITHUB_RUN_NUMBER}-${GITHUB_RUN_ATTEMPT}" \
+            --sha "${SHA}" --ref "${GITHUB_REF}" \
+            --builder builder-java-tiny --run-image run-tiny \
+            --buildpack paketo-buildpacks/procfile --buildpack paketo-buildpacks/image-labels \
+            --env BP_DIRECT_PROCESS=true \
+            --env BP_OCI_SOURCE=https://github.com/kubemoot/kubemoot \
+            --env BP_OCI_LICENSES=Apache-2.0 \
+            --env "BP_OCI_REVISION=${SHA}" \
+            "${app}" "${REGISTRY}/${IMAGE_NAME}"
