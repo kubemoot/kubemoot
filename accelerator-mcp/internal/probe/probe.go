@@ -154,6 +154,16 @@ func (p *Prober) Probe(ctx context.Context, req Request) (Result, error) {
 	return result, p.probe(ctx, eng, req, wasLoaded, &result)
 }
 
+// EmbeddingOnly reports whether the engine says the model only embeds, so it has
+// nothing to calibrate. An engine that cannot say reports false.
+func (p *Prober) EmbeddingOnly(ctx context.Context, req Request) (bool, error) {
+	checker, ok := p.engineFor(req).(engine.EmbeddingChecker)
+	if !ok {
+		return false, nil
+	}
+	return checker.EmbeddingOnly(ctx, req.Model)
+}
+
 // refuse reports a probe that must not be sent: an unknown kind, a model larger
 // than the budget, or a server other calls are using.
 func (p *Prober) refuse(req Request, result *Result) (bool, error) {

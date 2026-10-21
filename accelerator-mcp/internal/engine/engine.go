@@ -29,6 +29,12 @@ type Engine interface {
 	Unload(ctx context.Context, model string) error
 }
 
+// EmbeddingChecker is an Engine that can say a model only embeds, so it cannot be
+// asked to generate. An engine without it reports no such models.
+type EmbeddingChecker interface {
+	EmbeddingOnly(ctx context.Context, model string) (bool, error)
+}
+
 // Reply is one request's outcome as the engine timed it. Times are milliseconds.
 type Reply struct {
 	LoadMs       int64
@@ -108,6 +114,24 @@ func (o OllamaEngine) Loaded(ctx context.Context) ([]Resident, error) {
 			ContextLength: m.ContextLength})
 	}
 	return residents, nil
+}
+
+// EmbeddingOnly asks /api/show whether the model lists the "embedding" capability
+// and not "completion". An Ollama that lists no capabilities cannot say, so such a
+// model reports false.
+func (o OllamaEngine) EmbeddingOnly(ctx context.Context, model string) (bool, error) {
+	var out struct {
+		Capabilities []string `json:"capabilities"`
+	}
+	if err := o.post(ctx, "/api/show", map[string]any{fieldModel: model}, &out); err != nil {
+		return false, err
+	}
+	var completion, embedding bool
+	for _, c := range out.Capabilities {
+		completion = completion || c == "completion"
+		embedding = embedding || c == "embedding"
+	}
+	return embedding && !completion, nil
 }
 
 // Unload asks Ollama to drop the model now (keep_alive 0).

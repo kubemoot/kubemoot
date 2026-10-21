@@ -74,6 +74,8 @@ type Cluster interface {
 type Prober interface {
 	Probe(ctx context.Context, req probe.Request) (probe.Result, error)
 	Finish(ctx context.Context, server string) ([]string, error)
+	// EmbeddingOnly reports whether the engine says the model only embeds.
+	EmbeddingOnly(ctx context.Context, req probe.Request) (bool, error)
 }
 
 // Set is the tool set.
@@ -343,6 +345,7 @@ type modelResult struct {
 	Model                           string `json:"model"`
 	Fits                            *bool  `json:"fits"`
 	Reason                          string `json:"reason"`
+	Status                          string `json:"status"`
 	LoadMs                          int64  `json:"loadMs"`
 	ResidentMiB                     int64  `json:"residentMiB"`
 	ContextLength                   int    `json:"contextLength"`
@@ -361,8 +364,13 @@ func (m modelResult) calibration() (aiv1alpha1.ModelCalibration, error) {
 		m.ParallelGenerateTokensPerSecond, int64(m.ContextLength), int64(m.ParallelRequests)) < 0 {
 		return aiv1alpha1.ModelCalibration{}, fmt.Errorf("%s: measurements cannot be negative", m.Model)
 	}
+	switch m.Status {
+	case "", aiv1alpha1.ModelCalibrationMeasured, aiv1alpha1.ModelCalibrationSkipped, aiv1alpha1.ModelCalibrationFailed:
+	default:
+		return aiv1alpha1.ModelCalibration{}, fmt.Errorf("%s: status must be Measured, Skipped, or Failed", m.Model)
+	}
 	return aiv1alpha1.ModelCalibration{
-		Model: m.Model, Fits: *m.Fits, Reason: m.Reason, LoadMs: m.LoadMs, ResidentMiB: m.ResidentMiB,
+		Model: m.Model, Fits: *m.Fits, Reason: m.Reason, Status: m.Status, LoadMs: m.LoadMs, ResidentMiB: m.ResidentMiB,
 		ContextLength: m.ContextLength, PromptTokensPerSecond: m.PromptTokensPerSecond,
 		GenerateTokensPerSecond: m.GenerateTokensPerSecond, ParallelRequests: m.ParallelRequests,
 		ParallelGenerateTokensPerSecond: m.ParallelGenerateTokensPerSecond,

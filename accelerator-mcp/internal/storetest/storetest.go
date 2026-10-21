@@ -126,10 +126,16 @@ type Engine struct {
 	Sizes        map[string]int64
 	VRAMFraction float64
 	Fail         bool
-	FailUnload   bool
-	OnGenerate   func(n int)
-	Generates    int
-	Unloads      []string
+	// FailModels makes Generate fail for just these models.
+	FailModels map[string]bool
+	// EmbeddingErr makes EmbeddingOnly fail.
+	EmbeddingErr error
+	// Embedding names the models that only embed.
+	Embedding  map[string]bool
+	FailUnload bool
+	OnGenerate func(n int)
+	Generates  int
+	Unloads    []string
 }
 
 // NewEngine returns an Engine with nothing loaded that keeps models whole on the accelerator.
@@ -141,7 +147,7 @@ func NewEngine() *Engine {
 func (e *Engine) Generate(_ context.Context, model, prompt string, maxTokens int) (engine.Reply, error) {
 	e.mu.Lock()
 	e.Generates++
-	n, hook, fail := e.Generates, e.OnGenerate, e.Fail
+	n, hook, fail := e.Generates, e.OnGenerate, e.Fail || e.FailModels[model]
 	_, wasLoaded := e.Resident[model]
 	if !fail && !wasLoaded {
 		size := e.Sizes[model]
@@ -161,6 +167,16 @@ func (e *Engine) Generate(_ context.Context, model, prompt string, maxTokens int
 		reply.LoadMs = 3000
 	}
 	return reply, nil
+}
+
+// EmbeddingOnly reports the models listed in Embedding.
+func (e *Engine) EmbeddingOnly(_ context.Context, model string) (bool, error) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.EmbeddingErr != nil {
+		return false, e.EmbeddingErr
+	}
+	return e.Embedding[model], nil
 }
 
 // Loaded lists the resident models.

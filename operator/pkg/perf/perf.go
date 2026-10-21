@@ -66,7 +66,7 @@ func CalibratedSpeeds(cal *aiv1alpha1.ServerCalibration) (map[string]int64, int6
 		return speeds, 0
 	}
 	for _, m := range cal.Models {
-		if m.Fits {
+		if m.Fits && m.HasSpeeds() {
 			speeds[m.Model] = m.GenerateTokensPerSecond
 		}
 	}
