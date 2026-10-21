@@ -206,8 +206,12 @@ public class Leadership {
         if (!leader) {
             return;
         }
-        leader = false;
-        callbacks.demoted(false);
+        // The drain runs while this replica still counts as leader, so the fenced mirror writes the queue.
+        try {
+            callbacks.demoted(false);
+        } finally {
+            leader = false;
+        }
         try {
             if (store != null) {
                 store.release(revision);

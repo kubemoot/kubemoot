@@ -344,6 +344,8 @@ placementService:
   url: ""
   replicaCount: 2
   image: placement-service:0.0.0
+  # Also the TTL of the kubemoot_placement_leader bucket. An existing bucket keeps its TTL
+  # (the stream job only creates missing buckets); delete the bucket to apply a new value.
   leaseSeconds: 15
   ticketTtlSeconds: 600
   # Optional NATS credentials from an existing Secret (NATS_USER, NATS_PASSWORD).

@@ -130,7 +130,7 @@ class LeadershipTest {
         bucket = new FakeLeaseBucket(nanos);
     }
 
-    private Leadership replica(String name, Recorder recorder) {
+    private Leadership replica(String name, Leadership.Callbacks recorder) {
         var l = new Leadership(ServiceSettings.forTest(name, LEASE, Duration.ofMinutes(10)),
                 bucket::storeFor, nanos::get);
         l.register(recorder);
@@ -264,6 +264,43 @@ class LeadershipTest {
         a.tick();
         a.shutdown();
         assertEquals(List.of("elected", "demoted:clean"), r.events);
+    }
+
+    @Test
+    void aCleanShutdownWritesTheQueuedMirrorOps_throughTheRealLeaderFence() throws Exception {
+        var mirrorBucket = new FakeMirrorBucket() {
+            @Override
+            public synchronized void put(String key, byte[] value) throws Exception {
+                Thread.sleep(5);
+                super.put(key, value);
+            }
+        };
+        var table = new TicketTable(600_000, System::currentTimeMillis);
+        var mirror = new TicketMirror(table, () -> mirrorBucket, new com.fasterxml.jackson.databind.ObjectMapper(),
+                1_200_000, System::currentTimeMillis);
+        table.addListener(mirror);
+        var a = replica("a", new Leadership.Callbacks() {
+            @Override
+            public void elected() throws Exception {
+                mirror.start(Duration.ofSeconds(2));
+                table.activate();
+            }
+
+            @Override
+            public void demoted(boolean leaseLost) {
+                mirror.stop(leaseLost ? Duration.ZERO : Duration.ofSeconds(5));
+            }
+        });
+        mirror.fenceWith(a::isLeader);
+        a.tick();
+        var tickets = new ai.kubemoot.agent.modelserver.TicketManager(table, new com.fasterxml.jackson.databind.ObjectMapper());
+        var claimed = new ArrayList<String>();
+        for (int i = 0; i < 40; i++) {
+            claimed.add(tickets.claim("rig0", 1, 0, 1_000_000, "m" + i).orElseThrow().keyName());
+        }
+        a.shutdown();
+        assertTrue(mirrorBucket.entries.keySet().containsAll(claimed), "every queued claim is written during the drain");
+        assertFalse(a.isLeader());
     }
 
     @Test
