@@ -17,6 +17,7 @@ class ModelReadinessTest {
     private final TicketManager tickets = mock(TicketManager.class);
     private final ServerSelector selector = spy(
             new ServerSelector(null, new ObjectMapper(), tickets, null, new OllamaDriver(null)));
+    private final CallPlacement placement = new CallPlanner(selector, tickets, null);
 
     private static ServerState vllm(boolean awake) {
         return new ServerState("vllm-rig1", "", 1, 0, 0, awake ? List.of(MODEL) : List.of(), true, "", 0L,
@@ -49,7 +50,7 @@ class ModelReadinessTest {
     void anAsleepModelIsWokenThroughTheOperator_andTheStateCacheIsDropped() {
         Operator operator = new Operator();
         selector.useLifecycle(operator);
-        ModelReadiness.ensure(selector, tickets, pick(vllm(false)), MODEL);
+        ModelReadiness.ensure(selector, placement, pick(vllm(false)), MODEL);
         assertEquals(List.of("ready vllm-rig1"), operator.asked);
         verify(selector).invalidateCache();
         verify(tickets, never()).release(any());
@@ -59,7 +60,7 @@ class ModelReadinessTest {
     void anAwakeModelAsksNothing() {
         Operator operator = new Operator();
         selector.useLifecycle(operator);
-        ModelReadiness.ensure(selector, tickets, pick(vllm(true)), MODEL);
+        ModelReadiness.ensure(selector, placement, pick(vllm(true)), MODEL);
         assertTrue(operator.asked.isEmpty());
         verify(selector, never()).invalidateCache();
     }
@@ -72,7 +73,7 @@ class ModelReadinessTest {
         Pick p = pick(vllm(false));
 
         IllegalStateException e = assertThrows(IllegalStateException.class,
-                () -> ModelReadiness.ensure(selector, tickets, p, MODEL));
+                () -> ModelReadiness.ensure(selector, placement, p, MODEL));
 
         assertTrue(e.getMessage().contains("the server has no sleep mode"), e.getMessage());
         verify(tickets, times(1)).release(p.ticket());
@@ -84,13 +85,13 @@ class ModelReadinessTest {
     void ollamaLoadsOnDemand_nothingIsAskedAndTheCacheStays() {
         ServerState ollama = new ServerState("ollama-cpu", "http://cpu:11434", 1, 0, 0, List.of(), true, "",
                 0L, Map.of());
-        ModelReadiness.ensure(selector, tickets, pick(ollama), MODEL);
+        ModelReadiness.ensure(selector, placement, pick(ollama), MODEL);
         verify(selector, never()).invalidateCache();
         verify(tickets, never()).release(any());
     }
 
     @Test
     void withoutASelectorThereIsNothingToAsk() {
-        assertDoesNotThrow(() -> ModelReadiness.ensure(null, tickets, pick(vllm(false)), MODEL));
+        assertDoesNotThrow(() -> ModelReadiness.ensure(null, placement, pick(vllm(false)), MODEL));
     }
 }

@@ -1,6 +1,5 @@
 package ai.kubemoot.agent.modelserver;
 
-import ai.kubemoot.agent.config.AgentProperties;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -62,11 +61,7 @@ class CallPlannerTest {
     }
 
     private DemandBoard demandOn(InMemoryKv bucket, String agent) {
-        var props = mock(AgentProperties.class);
-        when(props.agentName()).thenReturn(agent);
-        when(props.namespace()).thenReturn(Optional.of("ns"));
-        when(props.crew()).thenReturn(Optional.of("crew"));
-        return new DemandBoard(bucket.server(DemandBoard.BUCKET), new ObjectMapper(), props);
+        return new DemandBoard(bucket.server(DemandBoard.BUCKET), new ObjectMapper(), new AgentIdentity("ns", agent, "crew"));
     }
 
     @Test

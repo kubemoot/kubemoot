@@ -1,6 +1,5 @@
 package ai.kubemoot.agent.modelserver;
 
-import ai.kubemoot.agent.config.AgentProperties;
 import ai.kubemoot.agent.nats.KvKeys;
 import ai.kubemoot.agent.nats.NatsLink;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -79,12 +78,11 @@ public class DemandBoard {
     private final AtomicReference<Cached> cache = new AtomicReference<>();
 
     @Inject
-    public DemandBoard(NatsLink natsProvider, ObjectMapper mapper, AgentProperties properties) {
+    public DemandBoard(NatsLink natsProvider, ObjectMapper mapper, AgentIdentity identity) {
         this.natsProvider = natsProvider;
         this.mapper = mapper;
-        String ns = properties.namespace().orElse("");
-        this.agentId = ns + "/" + properties.agentName();
-        this.crew = ns + "/" + properties.crew().orElse("");
+        this.agentId = identity.agentId();
+        this.crew = identity.crewId();
     }
 
     // ---- writes ----

@@ -1,7 +1,7 @@
 package ai.kubemoot.agent.modelserver;
 
 import ai.kubemoot.agent.config.AgentProperties;
-import ai.kubemoot.agent.nats.NatsConnectionProvider;
+import ai.kubemoot.agent.nats.NatsLink;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.langchain4j.data.message.AiMessage;
@@ -25,11 +25,11 @@ class PerformanceHistoryTest {
     private static final String SERVER = "gpu-a";
     private static final String MODEL = "qwen3:14b";
 
-    private static PerformanceHistory history(NatsConnectionProvider nats, String agent) {
+    private static PerformanceHistory history(NatsLink nats, String agent) {
         return history(nats, agent, SchedulerMetrics.none());
     }
 
-    private static PerformanceHistory history(NatsConnectionProvider nats, String agent, SchedulerMetrics metrics) {
+    private static PerformanceHistory history(NatsLink nats, String agent, SchedulerMetrics metrics) {
         var props = mock(AgentProperties.class);
         when(props.agentName()).thenReturn(agent);
         when(props.namespace()).thenReturn(Optional.of("crew-ns"));
@@ -152,7 +152,7 @@ class PerformanceHistoryTest {
 
     @Test
     void withoutNats_recordingAndReadingDoNothing() {
-        var nats = mock(NatsConnectionProvider.class);
+        var nats = mock(NatsLink.class);
         var h = history(nats, "a");
         assertDoesNotThrow(() -> h.record(call(true, false, 1)));
         assertTrue(h.entriesFor(SERVER, MODEL).isEmpty());

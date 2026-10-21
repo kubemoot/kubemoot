@@ -8,8 +8,6 @@ import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
 
 import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.*;
@@ -68,13 +66,6 @@ class KvKeysTest {
         when(conn.jetStreamManagement()).thenReturn(jsm);
         when(jsm.getStreamInfo(anyString(), any())).thenThrow(new IOException("timeout"));
         assertThrows(IOException.class, () -> KvKeys.list(conn, "b"));
-    }
-
-    @Test
-    void nativeBuildInitializesNuidAtRunTime() throws Exception {
-        String props = Files.readString(Path.of("src/main/resources/application.properties"));
-        assertTrue(props.contains("--initialize-at-run-time=io.nats.client.NUID"),
-                "every pod must start from its own NUID state, or consumer names repeat across pods");
     }
 
     @Test

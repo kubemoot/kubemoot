@@ -1,40 +1,28 @@
 package ai.kubemoot.agent.modelserver;
 
-import ai.kubemoot.agent.config.AgentProperties;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
-import jakarta.enterprise.context.ApplicationScoped;
-import jakarta.enterprise.inject.Produces;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.Locale;
 import java.util.function.Consumer;
 
-/** Builds the placement policy this agent's configuration selects. */
-@ApplicationScoped
-public class PlacementPolicies {
+/** Builds the placement policy a configuration value selects. */
+public final class PlacementPolicies {
 
     private static final Logger log = LoggerFactory.getLogger(PlacementPolicies.class);
 
     /** Counts shadow decisions by how the learned choice compared with the algorithm's. */
     static final String METRIC_SHADOW_DECISIONS = "kubemoot_scheduler_shadow_decisions_total";
 
-    @Produces
-    @ApplicationScoped
-    PlacementPolicy placementPolicy(ServerSelector selector, TicketManager tickets, DemandBoard demand,
-                                    AgentProperties props, MeterRegistry registry) {
-        PlacementPolicy policy = create(props.scheduler().placementPolicy(),
-                new AlgorithmPlacement(selector, tickets, demand), selector, shadowRecorder(registry));
-        log.info("Placement policy: {}", policy.mode().configName());
-        return policy;
-    }
+    private PlacementPolicies() {}
 
     /**
      * The policy for {@code configured}; an unknown value selects the algorithm, so a
      * typo never leaves an agent without placement.
      */
-    static PlacementPolicy create(String configured, PlacementPolicy algorithm, ServerSelector selector,
+    public static PlacementPolicy create(String configured, PlacementPolicy algorithm, ServerSelector selector,
                                   Consumer<ShadowPlacement.Decision> recorder) {
         PlacementMode mode = PlacementMode.parse(configured).orElseGet(() -> {
             log.warn("Unknown placement policy '{}', using algorithm", configured);
@@ -48,7 +36,7 @@ public class PlacementPolicies {
     }
 
     /** Logs each shadow decision and counts it by agreement; a call retried while waiting counts per attempt. */
-    static Consumer<ShadowPlacement.Decision> shadowRecorder(MeterRegistry registry) {
+    public static Consumer<ShadowPlacement.Decision> shadowRecorder(MeterRegistry registry) {
         return d -> {
             ShadowPlacement.Agreement agreement = d.agreement();
             // A difference is what a shadow run is for, so it logs at INFO; agreement at DEBUG.
