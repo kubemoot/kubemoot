@@ -9,6 +9,7 @@ import ai.kubemoot.agent.modelserver.OllamaDirectProber;
 import ai.kubemoot.agent.modelserver.CallObservation;
 import ai.kubemoot.agent.modelserver.CallPlacement;
 import ai.kubemoot.agent.modelserver.CallPlanner;
+import ai.kubemoot.agent.modelserver.PlacementFeasibility;
 import ai.kubemoot.agent.modelserver.ServerSelector;
 import ai.kubemoot.agent.modelserver.ServerState;
 import ai.kubemoot.agent.modelserver.StreamedChat;
@@ -1410,13 +1411,7 @@ public class ChatService {
      */
     private MullingPick waitForCapacity(String model, long footprintMiB, int promptCharCount,
                                         ai.kubemoot.agent.modelserver.CapacityWait wait, String kind) {
-        if (!ServerSelector.canEverHold(serverSelector.readState(), model, footprintMiB)) {
-            log.info("No GPU can hold {} (coldLoad {}MiB) - stand-aside", model, footprintMiB);
-            throw ai.kubemoot.agent.modelserver.NoFitException.modelTooLarge(model,
-                    "model=" + model + " coldLoad=" + footprintMiB + "MiB exceeds every GPU's usable VRAM");
-        }
-        requireSomeServerHasIt();
-        requireSomeContextHolds(model, promptTokens(promptCharCount));
+        requireFeasible(model, footprintMiB, promptTokens(promptCharCount));
         String busy = "model=" + model + " coldLoad=" + footprintMiB + "MiB: every GPU that can hold it is busy";
         if (capacityWaiter == null || wait.threadEnded()) {
             throw ai.kubemoot.agent.modelserver.NoFitException.gpuBusy(model, busy);
@@ -1447,37 +1442,18 @@ public class ChatService {
     }
 
     /**
-     * Fails the call when no ready server has the model or an acceptable
-     * alternative, downloaded or loading: an engine loads only what it has, so no
-     * capacity change can place the call, and the crew's answer reports the failure.
+     * Refuses a call that no wait can place: a model no accelerator can ever hold or a prompt no
+     * context window holds stands aside, and a model no ready server has downloaded fails the
+     * call (an engine loads only what it has). See {@link PlacementFeasibility}.
      */
-    private void requireSomeServerHasIt() {
+    private void requireFeasible(String model, long footprintMiB, long promptTokens) {
         var states = serverSelector.readState();
-        java.util.List<String> models = mullingRanking(states).acceptable();
-        if (!ServerSelector.someServerHasAny(states, models, serverSelector::activeModelsOn)) {
-            throw new IllegalStateException("no ready model server has " + String.join(" or ", models)
-                    + " downloaded");
-        }
-    }
-
-    /**
-     * Stand aside with reason prompt-too-large when no server can ever run an
-     * acceptable model with a context that holds the prompt (VRAM and context
-     * judged for the same server and model): no capacity change can place it,
-     * and sending it anyway lets the engine drop the question.
-     */
-    private void requireSomeContextHolds(String model, long promptTokens) {
-        var states = serverSelector.readState();
-        java.util.List<String> models = mullingRanking(states).acceptable();
         java.util.function.ToLongFunction<String> footprint = m -> placementFootprintMiB(states, model, m);
-        if (!ai.kubemoot.agent.modelserver.ContextFit.anyCanRun(states, models, promptTokens, footprint)) {
-            long largest = ai.kubemoot.agent.modelserver.ContextFit.largestContext(states, models);
-            log.info("Prompt of ~{} tokens exceeds every context window for {} (largest {}) - stand-aside",
-                    promptTokens, models, largest);
-            throw ai.kubemoot.agent.modelserver.NoFitException.promptTooLarge(model,
-                    "prompt ~" + promptTokens + " tokens exceeds the largest context window (" + largest
-                            + " tokens) any server gives " + models);
-        }
+        PlacementFeasibility.refusal(states, model, footprintMiB, mullingRanking(states).acceptable(),
+                promptTokens, footprint, serverSelector::activeModelsOn).ifPresent(refusal -> {
+                    log.info("Placement refused ({}): {}", refusal.code(), refusal.detail());
+                    throw refusal.toException();
+                });
     }
 
     /**

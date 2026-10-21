@@ -6,6 +6,7 @@ import io.nats.client.api.KeyValueEntry;
 import io.nats.client.api.KeyValueWatchOption;
 import io.nats.client.api.KeyValueWatcher;
 import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.enterprise.inject.Typed;
 import jakarta.inject.Inject;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -24,6 +25,7 @@ import java.util.List;
  * They carry metadata only (no values) and skip the initial replay.</p>
  */
 @ApplicationScoped
+@Typed(NatsCapacityWatch.class)
 public class NatsCapacityWatch implements CapacitySignal {
 
     private static final Logger log = LoggerFactory.getLogger(NatsCapacityWatch.class);

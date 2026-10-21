@@ -1,6 +1,7 @@
 package ai.kubemoot.agent.modelserver;
 
 import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.enterprise.inject.Typed;
 import jakarta.inject.Inject;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -32,6 +33,7 @@ import java.util.function.ToLongFunction;
  * is selected for a live thread. Demand forecasts only order victims.</p>
  */
 @ApplicationScoped
+@Typed(CallPlanner.class)
 public class CallPlanner implements CallPlacement {
 
     private static final Logger log = LoggerFactory.getLogger(CallPlanner.class);
@@ -50,6 +52,7 @@ public class CallPlanner implements CallPlacement {
      * dropped at once instead of holding a claim until {@link #HOLD_TTL}.
      */
     private final Map<String, Long> settled = new ConcurrentHashMap<>();
+    private volatile boolean closed;
     private final ScheduledExecutorService timers = Executors.newSingleThreadScheduledExecutor(r -> {
         Thread t = new Thread(r, "call-planner-hold-expiry");
         t.setDaemon(true);
@@ -87,7 +90,8 @@ public class CallPlanner implements CallPlacement {
             this(preferred, alternatives, states, footprint, kv, 0L);
         }
 
-        List<String> acceptable() {
+        /** The preferred model, then the alternatives. */
+        public List<String> acceptable() {
             List<String> all = new ArrayList<>();
             all.add(preferred);
             all.addAll(alternatives);
@@ -192,7 +196,7 @@ public class CallPlanner implements CallPlacement {
     public void commit(String threadId, long selectedAtMs, List<String> candidates,
                        Supplier<Optional<Placement>> planner) {
         pruneSettled();
-        if (isSettledSince(threadId, selectedAtMs)) {
+        if (closed || isSettledSince(threadId, selectedAtMs)) {
             return;
         }
         if (demand != null) {
@@ -327,17 +331,8 @@ public class CallPlanner implements CallPlacement {
 
     @Override
     public void recordOutcome(String server, String model, long durationMs, boolean ok) {
-        if (selector == null || server == null || server.isEmpty()) {
-            return;
-        }
-        selector.recordObservedLatencyFor(server, durationMs);
-        if (ok) {
-            selector.recordSuccess(server);
-        } else {
-            selector.recordFailure(server);
-        }
-        if (model != null) {
-            selector.recordOutcome(server, model, durationMs, ok);
+        if (selector != null && server != null && !server.isEmpty()) {
+            selector.recordCallOutcome(server, model, durationMs, ok);
         }
     }
 
@@ -346,6 +341,21 @@ public class CallPlanner implements CallPlacement {
         if (selector != null) {
             selector.recordFailure(server);
         }
+    }
+
+    /**
+     * Releases every plan still held and stops the expiry timer. A planner that is closed makes no
+     * further plans; placing a call on it still works.
+     */
+    public void close() {
+        closed = true;
+        held.keySet().forEach(this::release);
+        timers.shutdownNow();
+    }
+
+    /** How many threads have a plan held now. */
+    public int heldCount() {
+        return held.size();
     }
 
     // Visible for testing

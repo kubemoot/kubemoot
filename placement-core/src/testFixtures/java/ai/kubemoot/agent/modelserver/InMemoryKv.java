@@ -100,4 +100,29 @@ public final class InMemoryKv {
             throw new IllegalStateException(e);
         }
     }
+
+    /**
+     * A connection server whose connection serves several buckets, each as the in-memory bucket
+     * under its name in {@code buckets}.
+     */
+    public static NatsLink link(Map<String, InMemoryKv> buckets) {
+        try {
+            var conn = mock(Connection.class);
+            var jsm = mock(io.nats.client.JetStreamManagement.class);
+            when(conn.jetStreamManagement()).thenReturn(jsm);
+            for (var e : buckets.entrySet()) {
+                String name = e.getKey();
+                InMemoryKv bucket = e.getValue();
+                when(conn.keyValue(name)).thenReturn(bucket.kv);
+                when(jsm.getStreamInfo(eq("KV_" + name), any(io.nats.client.api.StreamInfoOptions.class)))
+                        .thenAnswer(inv -> bucket.streamInfo(name));
+            }
+            var server = mock(NatsLink.class);
+            when(server.isAvailable()).thenReturn(true);
+            when(server.getConnection()).thenReturn(conn);
+            return server;
+        } catch (Exception e) {
+            throw new IllegalStateException(e);
+        }
+    }
 }
