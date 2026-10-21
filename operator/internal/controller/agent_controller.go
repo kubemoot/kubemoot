@@ -563,7 +563,16 @@ func (r *AgentReconciler) ensureDeployment(ctx context.Context, agent *kubemootv
 	if err != nil {
 		return fmt.Errorf("assembling system prompt for deployment hash: %w", err)
 	}
-	desired := r.buildDeployment(ctx, agent, mulling, triage, policyCMName, hashString(systemTxt))
+	var desired *appsv1.Deployment
+	if usesSidecar(agent) {
+		desired, err = r.buildSidecarDeployment(ctx, agent, mulling, triage, policyCMName, hashString(systemTxt))
+		if err != nil {
+			r.recordHarnessError(ctx, agent, err)
+			return err
+		}
+	} else {
+		desired = r.buildDeployment(ctx, agent, mulling, triage, policyCMName, hashString(systemTxt))
+	}
 	if err := controllerutil.SetControllerReference(agent, desired, r.Scheme); err != nil {
 		return fmt.Errorf("setting owner ref on Deployment: %w", err)
 	}
@@ -617,9 +626,6 @@ func syncNativeToolsAnnotation(existing, desired *appsv1.Deployment) {
 }
 
 func (r *AgentReconciler) buildDeployment(ctx context.Context, agent *kubemootv1alpha1.Agent, mulling, triage *modelPick, policyCMName, promptHash string) *appsv1.Deployment {
-	if usesSidecar(agent) {
-		return r.buildSidecarDeployment(ctx, agent, mulling, triage, policyCMName, promptHash)
-	}
 	replicas, port, image, serviceAccountName := r.resolveDeploymentParams(agent)
 	env := r.buildEnvVars(ctx, agent, mulling, triage, port)
 	labelsMap := buildDeploymentLabels(agent, mulling, triage)
