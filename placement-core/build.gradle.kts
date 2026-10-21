@@ -50,6 +50,7 @@ dependencies {
 
     testFixturesApi("io.nats:jnats:2.26.3")
     testFixturesApi("com.fasterxml.jackson.core:jackson-databind")
+    testFixturesApi("org.mockito:mockito-core")
 
     testImplementation("org.junit.jupiter:junit-jupiter")
     testImplementation("org.mockito:mockito-core")

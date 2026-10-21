@@ -98,7 +98,7 @@ public class PerformanceHistory {
         this.metrics = metrics;
         this.natsProvider = natsProvider;
         this.mapper = mapper;
-        this.agentId = properties.namespace().orElse("") + "/" + properties.agentName();
+        this.agentId = new AgentIdentity(properties.namespace().orElse(""), properties.agentName(), "").agentId();
         this.writer = writer != null ? writer : backgroundWriter();
     }
 

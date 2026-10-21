@@ -18,7 +18,7 @@ public final class ModelReadiness {
      *
      * @throws IllegalStateException when the server could not make the model ready
      */
-    public static void ensure(ServerSelector selector, TicketManager tickets, Pick pick, String model) {
+    public static void ensure(ServerSelector selector, CallPlacement placement, Pick pick, String model) {
         ServerState server = pick.server();
         if (selector == null || server.hasModelLoaded(model)) {
             return;
@@ -28,8 +28,8 @@ public final class ModelReadiness {
                 selector.invalidateCache();
             }
         } catch (ModelNotReadyException e) {
-            tickets.release(pick.ticket());
-            selector.recordFailure(server.name());
+            placement.releaseTicket(pick.ticket());
+            placement.recordFailure(server.name());
             throw new IllegalStateException(e.getMessage(), e);
         }
     }

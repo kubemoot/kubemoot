@@ -7,6 +7,7 @@ import ai.kubemoot.agent.nats.DiscussionOrchestrator;
 import ai.kubemoot.agent.modelserver.ChatModelPool;
 import ai.kubemoot.agent.modelserver.OllamaDirectProber;
 import ai.kubemoot.agent.modelserver.CallObservation;
+import ai.kubemoot.agent.modelserver.CallPlacement;
 import ai.kubemoot.agent.modelserver.CallPlanner;
 import ai.kubemoot.agent.modelserver.ServerSelector;
 import ai.kubemoot.agent.modelserver.ServerState;
@@ -87,7 +88,7 @@ public class ChatService {
     /** Other models a mulling call may use when one is warm with room. Null: bound model only. */
     private final ai.kubemoot.agent.modelserver.CandidatePolicy candidatePolicy;
     /** Places mulling calls and plans an agent's first call at selection. */
-    private final CallPlanner callPlanner;
+    private final CallPlacement callPlanner;
     /** Records each model request for the scheduler's learned history; null in tests that do not need it. */
     private final ai.kubemoot.agent.modelserver.PerformanceHistory performanceHistory;
 
@@ -156,7 +157,7 @@ public class ChatService {
             OllamaDirectProber directProber,
             ai.kubemoot.agent.modelserver.GpuCapacityWaiter capacityWaiter,
             ai.kubemoot.agent.modelserver.CandidatePolicy candidatePolicy,
-            CallPlanner callPlanner,
+            CallPlacement callPlanner,
             ai.kubemoot.agent.modelserver.PerformanceHistory performanceHistory
     ) {
         this.chatModel = chatModel;
@@ -492,9 +493,7 @@ public class ChatService {
             // point (the primary directLlmCall hoists pickMullingChatModel
             // for latency capture). Still drop the ticket on every path
             // so callers via this overload don't leak VRAM reservations.
-            if (ticketManager != null) {
-                pick.ticket().ifPresent(ticketManager::release);
-            }
+            pick.ticket().ifPresent(callPlanner::releaseTicket);
         }
     }
 
@@ -1381,7 +1380,7 @@ public class ChatService {
             return java.util.Optional.of(planned.call() == null ? planned
                     : planned.withCall(planned.call().plannedAtSelection()));
         }
-        held.ifPresent(h -> ticketManager.release(h.pick().ticket()));
+        held.ifPresent(h -> callPlanner.releaseTicket(h.pick().ticket()));
         var placed = placeCall(states, promptCharCount, kind);
         held.filter(CallPlanner.Placement::queued).ifPresent(h -> log.info(
                 "Re-planned the queue planned at selection ({} on {}): {}", h.model(), h.pick().server().name(),
@@ -1628,10 +1627,10 @@ public class ChatService {
         }
         java.util.List<String> candidates = mullingRanking(serverSelector.readState()).acceptable();
         int planChars = planPromptChars(conversation);
-        callPlanner.commit(threadId, selectedAtMs, candidates, () -> {
+        callPlanner.commitPlan(threadId, selectedAtMs, candidates, () -> {
             var states = serverSelector.readState();
             return states.isEmpty() ? java.util.Optional.empty()
-                    : callPlanner.place(placementRequest(states, planChars, CallObservation.KIND_TOOL_TURN));
+                    : java.util.Optional.of(placementRequest(states, planChars, CallObservation.KIND_TOOL_TURN));
         });
     }
 
@@ -1741,7 +1740,7 @@ public class ChatService {
             ai.kubemoot.agent.modelserver.Pick p,
             String modelName, long coldLoadFootprintMiB) {
         var ps = p.server();
-        ai.kubemoot.agent.modelserver.ModelReadiness.ensure(serverSelector, ticketManager, p, modelName);
+        ai.kubemoot.agent.modelserver.ModelReadiness.ensure(serverSelector, callPlanner, p, modelName);
         // INFO (placement visibility): which server the scheduler chose, the
         // model, and the cold-load footprint estimate that drove the fit gate.
         // This is the trace needed to verify the scheduler keeps oversized models
@@ -1938,7 +1937,7 @@ public class ChatService {
         if (performanceHistory == null || server == null || server.isEmpty()) {
             return null;
         }
-        int active = ticketManager == null ? 0 : ticketManager.activeCountFor(server);
+        int active = callPlanner.activeCountFor(server);
         return new ai.kubemoot.agent.modelserver.CallContext(server, model, kind, coldLoad, active, call);
     }
 
@@ -1952,35 +1951,22 @@ public class ChatService {
      */
     private void recordSchedulerOutcome(MullingPick pick, String serverName,
                                         long callDurationMs, boolean callFailed) {
-        if (serverSelector != null && serverName != null && !serverName.isEmpty()) {
-            serverSelector.recordObservedLatencyFor(serverName, callDurationMs);
-            // AI Circuit Breaker (Phase A): record success/failure so a wedged
-            // server (HTTP 500 / timeout cluster) is excluded from future picks
-            // for CIRCUIT_COOLDOWN. Per-agent local; faster than the operator's
-            // 30s probe.
-            if (callFailed) {
-                serverSelector.recordFailure(serverName);
-            } else {
-                serverSelector.recordSuccess(serverName);
-            }
-            // FitPredictor v2 learning: feed the per-(server, model) EMA so the
-            // selector's ranking weighs historical reliability.
-            serverSelector.recordOutcome(serverName, pick.modelName(),
-                    callDurationMs, !callFailed);
-            // Residency overlay (anti-thrash): on success the model just ran on
-            // this server, so it is resident now. Record it immediately so other
-            // agents see it without waiting for the ~30s probe.
-            if (!callFailed && ticketManager != null && pick.occupancyMiB() > 0) {
-                ticketManager.recordResidency(serverName, pick.modelName(), pick.occupancyMiB());
+        if (serverName != null && !serverName.isEmpty()) {
+            // Observed latency, the circuit breaker (a wedged server is excluded from future picks
+            // for a cooldown, faster than the operator's 30s probe) and the per-(server, model)
+            // outcome history the ranking weighs.
+            callPlanner.recordOutcome(serverName, pick.modelName(), callDurationMs, !callFailed);
+            // Residency overlay (anti-thrash): on success the model just ran on this server, so it
+            // is resident now. Record it immediately so other agents see it without waiting for
+            // the ~30s probe.
+            if (!callFailed && pick.occupancyMiB() > 0) {
+                callPlanner.recordResidency(serverName, pick.modelName(), pick.occupancyMiB());
             }
         }
-        // v2 release: drop the held VRAM ticket so the next call sees the freed
-        // budget. Fires on EVERY path because the bucket TTL is only the safety
-        // net; the finally-block delete is the fast reclaim. See docs/scheduler.md
-        // "two-layer release guarantee".
-        if (ticketManager != null) {
-            pick.ticket().ifPresent(ticketManager::release);
-        }
+        // Drop the held ticket so the next call sees the freed budget. Fires on EVERY path because
+        // the store's expiry is only the safety net; the release is the fast reclaim. See
+        // docs/architecture/scheduler.md "two-layer release guarantee".
+        pick.ticket().ifPresent(callPlanner::releaseTicket);
     }
 
     /** Extract the text payload of a chat message, or null when it carries none. */
@@ -2150,7 +2136,7 @@ public class ChatService {
     private TriagePlacement scheduledTriage(CallPlanner.Placement p) {
         // Same readiness step as every other call: a model asleep on its server is
         // woken by the operator before the request is sent.
-        ai.kubemoot.agent.modelserver.ModelReadiness.ensure(serverSelector, ticketManager, p.pick(), p.model());
+        ai.kubemoot.agent.modelserver.ModelReadiness.ensure(serverSelector, callPlanner, p.pick(), p.model());
         String endpoint = p.pick().server().endpointFor(p.model());
         String pickedServer = p.pick().server().name();
         log.info("OUTBOUND inference (triage): agent={} endpoint={} model={} server={}",
@@ -2167,20 +2153,14 @@ public class ChatService {
      * server name). Extracted from triageChatWithTokens's finally block.
      */
     private void recordTriageOutcome(TriagePlacement placement, long durMs, boolean ok) {
-        if (serverSelector != null && !placement.pickedServer().isEmpty()) {
-            serverSelector.recordObservedLatencyFor(placement.pickedServer(), durMs);
-            if (ok) {
-                serverSelector.recordSuccess(placement.pickedServer());
-                if (ticketManager != null && placement.occupancy() > 0) {
-                    ticketManager.recordResidency(placement.pickedServer(), placement.model(), placement.occupancy());
-                }
-            } else {
-                serverSelector.recordFailure(placement.pickedServer());
+        if (!placement.pickedServer().isEmpty()) {
+            // Triage feeds the server's latency and circuit breaker, not the per-model outcome history.
+            callPlanner.recordOutcome(placement.pickedServer(), null, durMs, ok);
+            if (ok && placement.occupancy() > 0) {
+                callPlanner.recordResidency(placement.pickedServer(), placement.model(), placement.occupancy());
             }
         }
-        if (ticketManager != null) {
-            placement.ticket().ifPresent(ticketManager::release);
-        }
+        placement.ticket().ifPresent(callPlanner::releaseTicket);
     }
 
     /** True when a triage model endpoint distinct from the primary model is configured. */

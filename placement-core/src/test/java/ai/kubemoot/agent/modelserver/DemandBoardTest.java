@@ -1,6 +1,5 @@
 package ai.kubemoot.agent.modelserver;
 
-import ai.kubemoot.agent.config.AgentProperties;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
@@ -17,11 +16,7 @@ class DemandBoardTest {
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
     private static DemandBoard board(InMemoryKv bucket, String agent) {
-        var props = mock(AgentProperties.class);
-        when(props.agentName()).thenReturn(agent);
-        when(props.namespace()).thenReturn(Optional.of("crew-ns"));
-        when(props.crew()).thenReturn(Optional.of("pilot"));
-        return new DemandBoard(bucket.server(DemandBoard.BUCKET), MAPPER, props);
+        return new DemandBoard(bucket.server(DemandBoard.BUCKET), MAPPER, new AgentIdentity("crew-ns", agent, "pilot"));
     }
 
     @Test
@@ -94,12 +89,8 @@ class DemandBoardTest {
 
     @Test
     void unavailableBucket_isEmptyAndSilent() {
-        var props = mock(AgentProperties.class);
-        when(props.agentName()).thenReturn("a");
-        when(props.namespace()).thenReturn(Optional.empty());
-        when(props.crew()).thenReturn(Optional.empty());
         var nats = mock(ai.kubemoot.agent.nats.NatsLink.class);
-        var agent = new DemandBoard(nats, MAPPER, props);
+        var agent = new DemandBoard(nats, MAPPER, new AgentIdentity(null, "a", null));
         agent.intend("t", List.of("m"));
         agent.recordUse("m");
         assertTrue(agent.snapshot().isEmpty());

@@ -32,7 +32,7 @@ import java.util.function.ToLongFunction;
  * is selected for a live thread. Demand forecasts only order victims.</p>
  */
 @ApplicationScoped
-public class CallPlanner {
+public class CallPlanner implements CallPlacement {
 
     private static final Logger log = LoggerFactory.getLogger(CallPlanner.class);
 
@@ -148,6 +148,7 @@ public class CallPlanner {
      * policy other than the learned one is explained from a survey of the servers
      * read before the claim, so a prediction exists whichever policy places the call.
      */
+    @Override
     public Optional<Placement> place(PlacementRequest r) {
         PlacementMode mode = policy.mode();
         Optional<PlacementSurvey.Survey> survey = mode == PlacementMode.LEARNED ? Optional.empty() : surveyOf(r);
@@ -165,6 +166,7 @@ public class CallPlanner {
     }
 
     /** The placement mode in use. */
+    @Override
     public PlacementMode mode() {
         return policy.mode();
     }
@@ -220,6 +222,7 @@ public class CallPlanner {
     }
 
     /** The plan held for this thread's first call, handed over once; the caller owns its ticket. */
+    @Override
     public Optional<Placement> takeHeld(String threadId) {
         Held h = threadId == null ? null : held.remove(threadId);
         if (h == null) {
@@ -230,6 +233,7 @@ public class CallPlanner {
     }
 
     /** The agent stood aside or the thread ended: release any held claim and clear its intents. */
+    @Override
     public void release(String threadId) {
         if (threadId == null) {
             return;
@@ -251,6 +255,7 @@ public class CallPlanner {
     }
 
     /** A call started on {@code model}: the agent's intents are fulfilled, and the use is recorded. */
+    @Override
     public void callStarted(String threadId, String model) {
         if (threadId != null) {
             settled.put(threadId, System.currentTimeMillis());
@@ -279,7 +284,8 @@ public class CallPlanner {
         settled.values().removeIf(at -> at < cutoff);
     }
 
-    /** This agent started waiting for a GPU for {@code model}. */
+    /** This agent started waiting for an accelerator for {@code model}. */
+    @Override
     public void waitStarted(String model) {
         if (demand != null) {
             demand.waitStarted(model);
@@ -287,9 +293,58 @@ public class CallPlanner {
     }
 
     /** This agent's wait for {@code model} ended. */
+    @Override
     public void waitEnded(String model) {
         if (demand != null) {
             demand.waitEnded(model);
+        }
+    }
+
+    @Override
+    public void commitPlan(String threadId, long selectedAtMs, List<String> candidates,
+                           Supplier<Optional<PlacementRequest>> request) {
+        commit(threadId, selectedAtMs, candidates, () -> request.get().flatMap(this::place));
+    }
+
+    @Override
+    public void releaseTicket(Ticket ticket) {
+        if (tickets != null) {
+            tickets.release(ticket);
+        }
+    }
+
+    @Override
+    public void recordResidency(String server, String model, long footprintMiB) {
+        if (tickets != null) {
+            tickets.recordResidency(server, model, footprintMiB);
+        }
+    }
+
+    @Override
+    public int activeCountFor(String server) {
+        return tickets == null ? 0 : tickets.activeCountFor(server);
+    }
+
+    @Override
+    public void recordOutcome(String server, String model, long durationMs, boolean ok) {
+        if (selector == null || server == null || server.isEmpty()) {
+            return;
+        }
+        selector.recordObservedLatencyFor(server, durationMs);
+        if (ok) {
+            selector.recordSuccess(server);
+        } else {
+            selector.recordFailure(server);
+        }
+        if (model != null) {
+            selector.recordOutcome(server, model, durationMs, ok);
+        }
+    }
+
+    @Override
+    public void recordFailure(String server) {
+        if (selector != null) {
+            selector.recordFailure(server);
         }
     }
 
