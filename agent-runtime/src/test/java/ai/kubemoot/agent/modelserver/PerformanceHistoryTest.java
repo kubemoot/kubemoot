@@ -285,7 +285,7 @@ class PerformanceHistoryTest {
     @Test
     void observedModel_aRecordingFailure_neverReachesTheCaller() {
         var h = mock(PerformanceHistory.class);
-        doThrow(new IllegalStateException("broken")).when(h).record(any());
+        doThrow(new IllegalStateException("broken")).when(h).record(any(), any());
         var delegate = mock(ChatModel.class);
         var response = ChatResponse.builder().aiMessage(AiMessage.from("ok")).build();
         when(delegate.chat(any(ChatRequest.class))).thenReturn(response);
@@ -304,5 +304,113 @@ class PerformanceHistoryTest {
         assertEquals(3, o.activeCalls());
         assertEquals(70L, o.durationMs());
         assertEquals(CallObservation.UNKNOWN, o.evalMs());
+    }
+
+    // ---- prediction error ----
+
+    private static PlacedCall placed(LearnedPlacement.Prediction predicted) {
+        return new PlacedCall(SERVER, MODEL, new PlacementDecision(PlacementDecision.LEARNED, "a long reason",
+                java.util.List.of(new PlacementDecision.Alternative("other", MODEL, true, true, null)), predicted));
+    }
+
+    private static final LearnedPlacement.Prediction SIX_AND_A_HALF = new LearnedPlacement.Prediction(0.5, 2.0, 1.0, 3.0);
+
+    @Test
+    void aScoredCall_keepsItsPredictionBesideWhatItMeasured_andReachesTheMetrics() throws Exception {
+        var registry = new io.micrometer.core.instrument.simple.SimpleMeterRegistry();
+        var bucket = new InMemoryKv();
+        var h = history(bucket.server(PerformanceHistory.BUCKET), "a", new SchedulerMetrics(registry, "learned"));
+
+        h.record(call(true, true, 8_000), placed(SIX_AND_A_HALF));
+
+        JsonNode e = stored(bucket, "a");
+        assertEquals(1, e.path(PerformanceHistory.F_SAMPLES).size());
+        JsonNode p = e.path(PerformanceHistory.F_PREDICTIONS).get(0);
+        assertEquals("learned", p.path("policy").asText());
+        assertEquals(6_500, p.path("predicted").path("totalMs").asLong());
+        assertEquals(8_000, p.path("actual").path("totalMs").asLong());
+        assertEquals(1_500, p.path("error").path("totalAbsMs").asLong());
+        assertFalse(p.has("reason"), "the stored form is compact");
+        assertFalse(p.has("alternatives"));
+        assertEquals(1.5, registry.find(SchedulerMetrics.PREDICTION_ERROR_SECONDS).tag("policy", "learned")
+                .tag("part", "total").summary().totalAmount(), 1e-9);
+    }
+
+    @Test
+    void predictions_areBounded_oldestFirst() throws Exception {
+        var bucket = new InMemoryKv();
+        var h = history(bucket.server(PerformanceHistory.BUCKET), "a");
+        for (int i = 0; i < PerformanceHistory.MAX_PREDICTIONS + 3; i++) {
+            h.record(call(true, false, 1_000 + i), placed(SIX_AND_A_HALF));
+        }
+
+        JsonNode list = stored(bucket, "a").path(PerformanceHistory.F_PREDICTIONS);
+        assertEquals(PerformanceHistory.MAX_PREDICTIONS, list.size());
+        assertEquals(1_003, list.get(0).path("actual").path("totalMs").asLong());
+    }
+
+    @Test
+    void aCallWithoutAPredictionOrAFailedFirstRequest_addsNoPrediction() throws Exception {
+        var bucket = new InMemoryKv();
+        var h = history(bucket.server(PerformanceHistory.BUCKET), "a");
+
+        h.record(call(true, false, 100), null);
+        h.record(call(true, false, 100), placed(null));
+        h.record(call(false, false, 100), placed(SIX_AND_A_HALF));
+
+        JsonNode e = stored(bucket, "a");
+        assertEquals(3, e.path(PerformanceHistory.F_SAMPLES).size());
+        assertFalse(e.has(PerformanceHistory.F_PREDICTIONS));
+    }
+
+    @Test
+    void anEntryStoredBeforePredictionsExisted_isExtended() throws Exception {
+        var bucket = new InMemoryKv();
+        bucket.data.put(PerformanceHistory.key(SERVER, MODEL, "crew-ns/a"), ("{\"server\":\"" + SERVER
+                + "\",\"model\":\"" + MODEL + "\",\"agent\":\"crew-ns/a\",\"samples\":[],\"waits\":[],"
+                + "\"requests\":4,\"failures\":1}").getBytes(java.nio.charset.StandardCharsets.UTF_8));
+
+        history(bucket.server(PerformanceHistory.BUCKET), "a").record(call(true, false, 900), placed(SIX_AND_A_HALF));
+
+        JsonNode e = stored(bucket, "a");
+        assertEquals(5, e.path("requests").asLong());
+        assertEquals(1, e.path(PerformanceHistory.F_PREDICTIONS).size());
+    }
+
+    @Test
+    void observedModel_scoresTheFirstRequestOfThePlacementOnly() throws Exception {
+        var bucket = new InMemoryKv();
+        var h = history(bucket.server(PerformanceHistory.BUCKET), "a");
+        var delegate = mock(ChatModel.class);
+        var response = ChatResponse.builder().aiMessage(AiMessage.from("ok"))
+                .tokenUsage(new TokenUsage(800, 50)).build();
+        when(delegate.chat(any(ChatRequest.class))).thenReturn(response);
+        var call = placed(SIX_AND_A_HALF);
+        var ctx = new CallContext(SERVER, MODEL, CallObservation.KIND_TOOL_TURN, true, 3, call);
+        var model = new ObservedChatModel(delegate, h, ctx);
+
+        model.chat(request());
+        model.chat(request());
+        model.chat(request());
+
+        JsonNode e = stored(bucket, "a");
+        assertEquals(3, e.path(PerformanceHistory.F_SAMPLES).size());
+        assertEquals(1, e.path(PerformanceHistory.F_PREDICTIONS).size());
+        @SuppressWarnings("unchecked")
+        var actual = (java.util.Map<String, Object>) call.snapshot(false).get("actual");
+        assertEquals(3, actual.get("requests"));
+    }
+
+    @Test
+    void aStreamedObservationCarriesTheTimeToTheFirstToken_whetherOrNotTheModelWasCold() {
+        var timed = new StreamedChat.Timed(null, 1_200, 5_000);
+        var cold = new CallContext(SERVER, MODEL, CallObservation.KIND_SIMPLE, true, 1).streamed(true, 0L, timed, 10, 50);
+        var warm = new CallContext(SERVER, MODEL, CallObservation.KIND_SIMPLE, false, 1).streamed(true, 0L, timed, 10, 50);
+
+        assertEquals(1_200, cold.firstTokenMs(), "a cold request's first token includes the load");
+        assertEquals(CallObservation.UNKNOWN, cold.promptEvalMs());
+        assertEquals(1_200, warm.firstTokenMs());
+        assertEquals(1_200, warm.promptEvalMs());
+        assertEquals(CallObservation.UNKNOWN, call(true, false, 1).firstTokenMs());
     }
 }

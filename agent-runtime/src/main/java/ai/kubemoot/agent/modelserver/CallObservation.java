@@ -21,11 +21,21 @@ package ai.kubemoot.agent.modelserver;
  * @param evalMs       generation time the engine reported
  * @param activeCalls  calls holding a ticket on the server when the call started, this one included
  * @param atMs         when the request started, epoch milliseconds
+ * @param firstTokenMs time from sending a streamed request to its first token, whether or not
+ *                     the model had to load first; {@value #UNKNOWN} for a request that is not streamed
  */
 public record CallObservation(String server, String model, String kind, boolean ok, boolean coldStart,
                               long promptTokens, long outputTokens, long durationMs,
                               long loadMs, long promptEvalMs, long evalMs,
-                              int activeCalls, long atMs) {
+                              int activeCalls, long atMs, long firstTokenMs) {
+
+    /** An observation of a request that was not streamed: no time to the first token. */
+    public CallObservation(String server, String model, String kind, boolean ok, boolean coldStart,
+                           long promptTokens, long outputTokens, long durationMs,
+                           long loadMs, long promptEvalMs, long evalMs, int activeCalls, long atMs) {
+        this(server, model, kind, ok, coldStart, promptTokens, outputTokens, durationMs, loadMs, promptEvalMs,
+                evalMs, activeCalls, atMs, UNKNOWN);
+    }
 
     /** An engine timing that was not reported. */
     public static final long UNKNOWN = -1L;

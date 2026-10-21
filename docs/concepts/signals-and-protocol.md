@@ -42,6 +42,7 @@ queued. A signal names where its calls actually ran:
 | `metadata.modelName` | The model the last call behind the signal ran on. On `triaging`, the triage model the agent plans to use. On a signal sent before a call completed (`evaluating`, `waiting`, `failure`), the model the agent is configured with. On the coordinator's `advisory` and `advisory_ready`, the model its advisory call ran on. |
 | `metadata.gpuLabel` | The server the last call ran on, or a label derived from the agent's static endpoint when no server was picked. The coordinator's `advisory` and `advisory_ready` name the server of the advisory call. Signals sent before a call is placed (triaging, evaluating, waiting, heartbeat) carry none, because the scheduler picks the server when the call is made. |
 | `metadata.modelsUsed` | Each distinct place the calls ran, as `model@server` in call order (the model alone for the static endpoint). |
+| `metadata.placementCalls` | The same calls with their placement: the policy, the reason, the options weighed, the predicted completion time and what the call measured. The coordinator copies them to the thread's receipt; see [Reading a placement decision](../../architecture/scheduler/#reading-a-placement-decision). |
 
 ## Stand-asides for GPU capacity
 

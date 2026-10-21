@@ -403,6 +403,12 @@
     "discussion-metadata.json#/definitions/DiscussionReceipt/agents[]": {
       "ref": "#/definitions/ReceiptAgent"
     },
+    "discussion-metadata.json#/definitions/DiscussionReceipt/calls": {
+      "type": "array"
+    },
+    "discussion-metadata.json#/definitions/DiscussionReceipt/calls[]": {
+      "ref": "placement-call.json"
+    },
     "discussion-metadata.json#/definitions/DiscussionReceipt/consensus": {
       "type": "object",
       "required": true,
@@ -698,6 +704,12 @@
     "discussion-metadata.json#/pickReason": {
       "type": "string"
     },
+    "discussion-metadata.json#/placementCalls": {
+      "type": "array"
+    },
+    "discussion-metadata.json#/placementCalls[]": {
+      "ref": "placement-call.json"
+    },
     "discussion-metadata.json#/predictorReason": {
       "type": "string"
     },
@@ -975,6 +987,183 @@
       "type": "string",
       "required": true
     },
+    "placement-call.json#": {
+      "type": "object",
+      "constraints": {
+        "additionalProperties": "false"
+      }
+    },
+    "placement-call.json#/actual": {
+      "ref": "#/definitions/PlacementActual"
+    },
+    "placement-call.json#/agent": {
+      "type": "string"
+    },
+    "placement-call.json#/alternatives": {
+      "type": "array"
+    },
+    "placement-call.json#/alternatives[]": {
+      "ref": "#/definitions/PlacementOption"
+    },
+    "placement-call.json#/at": {
+      "type": "integer"
+    },
+    "placement-call.json#/coldStart": {
+      "type": "boolean"
+    },
+    "placement-call.json#/definitions/PlacementActual": {
+      "type": "object",
+      "constraints": {
+        "additionalProperties": "false"
+      }
+    },
+    "placement-call.json#/definitions/PlacementActual/firstTokenMs": {
+      "type": "integer"
+    },
+    "placement-call.json#/definitions/PlacementActual/inputTokens": {
+      "type": "integer",
+      "required": true
+    },
+    "placement-call.json#/definitions/PlacementActual/ok": {
+      "type": "boolean",
+      "required": true
+    },
+    "placement-call.json#/definitions/PlacementActual/outputTokens": {
+      "type": "integer",
+      "required": true
+    },
+    "placement-call.json#/definitions/PlacementActual/requests": {
+      "type": "integer",
+      "required": true
+    },
+    "placement-call.json#/definitions/PlacementActual/totalMs": {
+      "type": "integer",
+      "required": true
+    },
+    "placement-call.json#/definitions/PlacementActual/waitMs": {
+      "type": "integer"
+    },
+    "placement-call.json#/definitions/PlacementError": {
+      "type": "object",
+      "constraints": {
+        "additionalProperties": "false"
+      }
+    },
+    "placement-call.json#/definitions/PlacementError/firstTokenAbsMs": {
+      "type": "integer"
+    },
+    "placement-call.json#/definitions/PlacementError/firstTokenRelative": {
+      "type": "number"
+    },
+    "placement-call.json#/definitions/PlacementError/totalAbsMs": {
+      "type": "integer",
+      "required": true
+    },
+    "placement-call.json#/definitions/PlacementError/totalRelative": {
+      "type": "number",
+      "required": true
+    },
+    "placement-call.json#/definitions/PlacementError/totalSignedMs": {
+      "type": "integer",
+      "required": true
+    },
+    "placement-call.json#/definitions/PlacementOption": {
+      "type": "object",
+      "constraints": {
+        "additionalProperties": "false"
+      }
+    },
+    "placement-call.json#/definitions/PlacementOption/model": {
+      "type": "string"
+    },
+    "placement-call.json#/definitions/PlacementOption/predicted": {
+      "ref": "#/definitions/PlacementPrediction"
+    },
+    "placement-call.json#/definitions/PlacementOption/server": {
+      "type": "string",
+      "required": true
+    },
+    "placement-call.json#/definitions/PlacementOption/startsNow": {
+      "type": "boolean",
+      "required": true
+    },
+    "placement-call.json#/definitions/PlacementOption/warm": {
+      "type": "boolean",
+      "required": true
+    },
+    "placement-call.json#/definitions/PlacementPrediction": {
+      "type": "object",
+      "constraints": {
+        "additionalProperties": "false"
+      }
+    },
+    "placement-call.json#/definitions/PlacementPrediction/firstTokenMs": {
+      "type": "integer"
+    },
+    "placement-call.json#/definitions/PlacementPrediction/generateMs": {
+      "type": "integer",
+      "required": true
+    },
+    "placement-call.json#/definitions/PlacementPrediction/loadMs": {
+      "type": "integer",
+      "required": true
+    },
+    "placement-call.json#/definitions/PlacementPrediction/promptMs": {
+      "type": "integer",
+      "required": true
+    },
+    "placement-call.json#/definitions/PlacementPrediction/totalMs": {
+      "type": "integer",
+      "required": true
+    },
+    "placement-call.json#/definitions/PlacementPrediction/waitMs": {
+      "type": "integer",
+      "required": true
+    },
+    "placement-call.json#/error": {
+      "ref": "#/definitions/PlacementError"
+    },
+    "placement-call.json#/kind": {
+      "type": "string",
+      "enum": [
+        "simple",
+        "tool-turn",
+        "triage"
+      ]
+    },
+    "placement-call.json#/model": {
+      "type": "string",
+      "required": true
+    },
+    "placement-call.json#/phase": {
+      "type": "string",
+      "enum": [
+        "advisory",
+        "evaluation",
+        "selection",
+        "synthesis",
+        "triage"
+      ]
+    },
+    "placement-call.json#/policy": {
+      "type": "string",
+      "enum": [
+        "algorithm",
+        "learned",
+        "shadow"
+      ],
+      "required": true
+    },
+    "placement-call.json#/predicted": {
+      "ref": "#/definitions/PlacementPrediction"
+    },
+    "placement-call.json#/reason": {
+      "type": "string"
+    },
+    "placement-call.json#/server": {
+      "type": "string",
+      "required": true
+    },
     "post-discussion-request.json#": {
       "type": "object"
     },
@@ -1056,6 +1245,12 @@
     "scheduler-performance.json#/model": {
       "type": "string",
       "required": true
+    },
+    "scheduler-performance.json#/predictions": {
+      "type": "array"
+    },
+    "scheduler-performance.json#/predictions[]": {
+      "ref": "placement-call.json"
     },
     "scheduler-performance.json#/requests": {
       "type": "integer"
@@ -1331,6 +1526,12 @@
     "signal-meta.json#/outputTokens": {
       "type": "integer"
     },
+    "signal-meta.json#/placementCalls": {
+      "type": "array"
+    },
+    "signal-meta.json#/placementCalls[]": {
+      "ref": "placement-call.json"
+    },
     "signal-meta.json#/toolsUsed": {
       "type": "array"
     },
@@ -1369,6 +1570,12 @@
     },
     "stream-event-base.json#/reason": {
       "type": "string"
+    },
+    "stream-event-base.json#/receipt": {
+      "type": "object",
+      "constraints": {
+        "additionalProperties": "true"
+      }
     },
     "stream-event-base.json#/signal": {
       "type": "string"

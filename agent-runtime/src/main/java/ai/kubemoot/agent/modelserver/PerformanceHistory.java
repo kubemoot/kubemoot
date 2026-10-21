@@ -18,6 +18,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.Executor;
 import java.util.concurrent.ThreadPoolExecutor;
@@ -27,15 +28,18 @@ import java.util.concurrent.atomic.AtomicLong;
 /**
  * The scheduler's record of what it observed, in the NATS KV bucket {@value #BUCKET}:
  * for each server and model, the recent model requests (tokens, times, outcome,
- * cold start, load on the server) and the waits for capacity that ended there.
+ * cold start, load on the server), the waits for capacity that ended there, and
+ * the recent placements that predicted a completion time, each beside what its first
+ * request measured.
  *
  * <p>The accelerator-mcp server writes calibration samples to the same bucket in
  * the same format (bus schema SchedulerPerformance), as kind {@code calibration}.</p>
  *
  * <p>Each agent writes only its own key, {@code <server>.<model>.<agent>}, so
  * writes need no compare-and-set; a reader folds every agent's key for a server
- * and model. Each key keeps the last {@value #MAX_SAMPLES} requests and
- * {@value #MAX_WAITS} waits, so the history is bounded, and the bucket's TTL
+ * and model. Each key keeps the last {@value #MAX_SAMPLES} requests,
+ * {@value #MAX_WAITS} waits and {@value #MAX_PREDICTIONS} predictions, so the history
+ * is bounded, and the bucket's TTL
  * removes keys for servers, models, or agents that are gone.</p>
  *
  * <p>Recording never blocks or fails a call: writes run on one background thread
@@ -53,10 +57,12 @@ public class PerformanceHistory {
 
     static final int MAX_SAMPLES = 32;
     static final int MAX_WAITS = 16;
+    static final int MAX_PREDICTIONS = 32;
     private static final int QUEUE_CAPACITY = 256;
 
     static final String F_SAMPLES = "samples";
     static final String F_WAITS = "waits";
+    static final String F_PREDICTIONS = "predictions";
     static final String F_REQUESTS = "requests";
     static final String F_FAILURES = "failures";
 
@@ -109,11 +115,32 @@ public class PerformanceHistory {
 
     /** Records one model request; ignored when it names no server or model. */
     public void record(CallObservation o) {
+        record(o, null);
+    }
+
+    /**
+     * Records one model request of {@code call}, the placement that sent it. The call's
+     * first request is scored against the placement's prediction: the error goes to the
+     * metrics, and the prediction beside what the request measured is kept with the
+     * request. A null {@code call} records the request alone.
+     */
+    public void record(CallObservation o, PlacedCall call) {
         if (o == null || !o.attributable()) {
             return;
         }
         metrics.call(o);
-        writer.execute(() -> append(o.server(), o.model(), F_SAMPLES, sample(o), MAX_SAMPLES, !o.ok()));
+        List<Item> items = new ArrayList<>();
+        items.add(new Item(F_SAMPLES, sample(o), MAX_SAMPLES));
+        try {
+            Optional<PlacedCall.Score> score = call == null ? Optional.empty() : call.observe(o);
+            score.ifPresent(s -> {
+                metrics.predictionError(s);
+                items.add(new Item(F_PREDICTIONS, mapper.valueToTree(call.snapshot(false)), MAX_PREDICTIONS));
+            });
+        } catch (RuntimeException e) {
+            log.debug("Scoring the prediction of a {} request on {} failed: {}", o.model(), o.server(), e.getMessage());
+        }
+        writer.execute(() -> append(o.server(), o.model(), items, !o.ok()));
     }
 
     /**
@@ -134,7 +161,7 @@ public class PerformanceHistory {
         ObjectNode w = mapper.createObjectNode();
         w.put("at", System.currentTimeMillis() - waitMs);
         w.put("ms", waitMs);
-        writer.execute(() -> append(server, model, F_WAITS, w, MAX_WAITS, false));
+        writer.execute(() -> append(server, model, List.of(new Item(F_WAITS, w, MAX_WAITS)), false));
     }
 
     private ObjectNode sample(CallObservation o) {
@@ -153,7 +180,10 @@ public class PerformanceHistory {
         return s;
     }
 
-    private void append(String server, String model, String field, ObjectNode item, int max, boolean failed) {
+    /** One item to add to a list of an entry, and how many items that list keeps. */
+    private record Item(String field, JsonNode node, int max) {}
+
+    private void append(String server, String model, List<Item> items, boolean failed) {
         try {
             String key = key(server, model, agentId);
             KeyValue kv = bucket();
@@ -162,12 +192,10 @@ public class PerformanceHistory {
                 drop("NATS is unavailable");
                 return;
             }
-            ArrayNode list = (ArrayNode) entry.get(field);
-            list.add(item);
-            while (list.size() > max) {
-                list.remove(0);
+            for (Item item : items) {
+                add(entry, item);
             }
-            if (F_SAMPLES.equals(field)) {
+            if (items.stream().anyMatch(i -> F_SAMPLES.equals(i.field()))) {
                 entry.put(F_REQUESTS, entry.path(F_REQUESTS).asLong(0) + 1);
                 entry.put(F_FAILURES, entry.path(F_FAILURES).asLong(0) + (failed ? 1 : 0));
             }
@@ -175,6 +203,16 @@ public class PerformanceHistory {
             put(kv, key, entry);
         } catch (RuntimeException e) {
             log.warn("Recording performance for {} on {} failed: {}", model, server, e.getMessage());
+        }
+    }
+
+    /** Adds {@code item} to its list in the entry, dropping the oldest items beyond the list's size. */
+    private static void add(ObjectNode entry, Item item) {
+        JsonNode existing = entry.get(item.field());
+        ArrayNode list = existing instanceof ArrayNode a ? a : entry.putArray(item.field());
+        list.add(item.node());
+        while (list.size() > item.max()) {
+            list.remove(0);
         }
     }
 

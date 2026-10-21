@@ -753,4 +753,56 @@ class DiscussionSubscriberHelpersTest {
         assertEquals(0L, timed.inputTokens());
         assertEquals(0L, timed.outputTokens());
     }
+
+    private static com.fasterxml.jackson.databind.JsonNode lastPublished(Connection conn) throws Exception {
+        var payload = ArgumentCaptor.forClass(byte[].class);
+        verify(conn, atLeastOnce()).publish(anyString(), payload.capture());
+        return new com.fasterxml.jackson.databind.ObjectMapper().readTree(payload.getValue());
+    }
+
+    private static ai.kubemoot.agent.chat.ModelUse placedUse(String model, String server, String policy) {
+        var call = new ai.kubemoot.agent.modelserver.PlacedCall(server, model,
+                new ai.kubemoot.agent.modelserver.PlacementDecision(policy, "because " + policy, null, null));
+        return new ai.kubemoot.agent.chat.ModelUse(model, server, call);
+    }
+
+    @Test
+    void aTriageStandAside_reportsThePlacementOfItsTriageCall() throws Exception {
+        var conn = mock(Connection.class);
+        var chat = mock(ChatService.class);
+        when(chat.getToolNames()).thenReturn(List.of());
+        when(chat.triageChatWithTokens(anyString(), anyString())).thenReturn(new ChatService.SimpleLlmResult(
+                "NOTHING_TO_ADD", 50, 2, placedUse("triage-model:4b", "server-c", "learned")));
+        var sub = createSubscriberWithConnection(conn, chat);
+
+        sub.evaluateSelected(SUBJECT_T1, "t1", "conversation", false);
+
+        var calls = published(conn, 2).get(1).path("metadata").path("placementCalls");
+        assertEquals(1, calls.size());
+        assertEquals("learned", calls.get(0).path("policy").asText());
+        assertEquals("triage-model:4b", calls.get(0).path("model").asText());
+    }
+
+    @Test
+    void anAgentThatGoesOnAfterTriage_reportsItsTriageCallBeforeItsEvaluation() throws Exception {
+        var conn = mock(Connection.class);
+        var chat = mock(ChatService.class);
+        when(chat.getToolNames()).thenReturn(List.of());
+        when(chat.triageChatWithTokens(anyString(), anyString())).thenReturn(new ChatService.SimpleLlmResult(
+                "CONTRIBUTE", 50, 2, placedUse("triage-model:4b", "server-c", "algorithm")));
+        var evaluation = new ChatService.ChatResult("c", "the finding", "qwen:14b", "t1", 10, 5, "server-b", "",
+                List.of(), List.of(placedUse("qwen:14b", "server-b", "learned")));
+        when(chat.directChat(any(), anyBoolean(), any())).thenReturn(evaluation);
+        var sub = createSubscriberWithConnection(conn, chat);
+
+        sub.evaluateSelected(SUBJECT_T1, "t1", "conversation", true);
+
+        var agree = lastPublished(conn);
+        assertEquals("agree", agree.path("messageType").asText());
+        var calls = agree.path("metadata").path("placementCalls");
+        assertEquals(2, calls.size());
+        assertEquals("triage-model:4b", calls.get(0).path("model").asText(), "the triage call comes first");
+        assertEquals("learned", calls.get(1).path("policy").asText());
+        assertEquals(List.of("qwen:14b@server-b"), modelsUsed(agree), "the evaluation's own places are unchanged");
+    }
 }

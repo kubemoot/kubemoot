@@ -2,6 +2,8 @@ package ai.kubemoot.agent.modelserver;
 
 import ai.kubemoot.agent.modelserver.CallPlanner.Placement;
 import ai.kubemoot.agent.modelserver.CallPlanner.PlacementRequest;
+import ai.kubemoot.agent.modelserver.PlacementSurvey.Survey;
+import ai.kubemoot.agent.modelserver.PlacementSurvey.Surveyed;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -52,8 +54,9 @@ public class LearnedPlacement implements PlacementPolicy {
     record Ranked(String model, ServerSelector.Option option, Prediction prediction) {}
 
     /** The predicted seconds to finish, by part. */
-    record Prediction(double queue, double load, double prompt, double generate) {
-        double total() {
+    public record Prediction(double queue, double load, double prompt, double generate) {
+        /** Seconds to finish: every part. */
+        public double total() {
             return queue + load + prompt + generate;
         }
 
@@ -93,21 +96,28 @@ public class LearnedPlacement implements PlacementPolicy {
 
     @Override
     public Optional<Placement> place(PlacementRequest request) {
-        Optional<Ranked> best = best(request).filter(r -> r.option().startsNow());
+        Optional<Survey> survey = PlacementSurvey.of(selector, request);
+        Optional<Surveyed> best = survey.flatMap(Survey::soonest).filter(s -> s.option().startsNow());
         if (best.isEmpty()) {
-            return fallback.place(request);
+            return placeByFallback(request, survey);
         }
-        Ranked r = best.get();
+        Surveyed r = best.get();
         long fp = request.footprint().applyAsLong(r.model());
-        Optional<Pick> pick = selector.pickAndClaimOn(r.option().server().name(), startOf(r.option()), r.model(),
+        Optional<Pick> pick = selector.pickAndClaimOn(r.server(), startOf(r.option()), r.model(),
                 fp, request.kv().applyAsLong(r.model()), request.promptTokens());
         if (pick.isEmpty()) {
-            log.debug("Learned choice {} on {} was taken; the fallback places the call", r.model(),
-                    r.option().server().name());
-            return fallback.place(request);
+            log.debug("Learned choice {} on {} was taken; the fallback places the call", r.model(), r.server());
+            return placeByFallback(request, survey);
         }
-        log.info("Learned placement: {} on {}, {}", r.model(), r.option().server().name(), r.prediction().explain());
-        return Optional.of(new Placement(pick.get(), r.model(), fp, List.of()));
+        Prediction prediction = r.prediction().orElseThrow();
+        log.info("Learned placement: {} on {}, {}", r.model(), r.server(), prediction.explain());
+        return Optional.of(new Placement(pick.get(), r.model(), fp, List.of(),
+                PlacementDecisions.learned(r, survey.orElseThrow())));
+    }
+
+    /** The fallback's placement, explained with what this policy thought of the call. */
+    private Optional<Placement> placeByFallback(PlacementRequest request, Optional<Survey> survey) {
+        return fallback.place(request).map(p -> PlacementDecisions.explained(p, survey, PlacementMode.LEARNED));
     }
 
     /** How the call starts on an option it can start on now. */
@@ -121,41 +131,8 @@ public class LearnedPlacement implements PlacementPolicy {
      * its options is on a server that has it, or when no model has an option.
      */
     Optional<Ranked> best(PlacementRequest request) {
-        if (selector == null) {
-            return Optional.empty();
-        }
-        for (String model : request.acceptable()) {
-            long fp = request.footprint().applyAsLong(model);
-            List<ServerSelector.Option> options = fp <= 0 ? List.of()
-                    : selector.options(model, fp, request.kv().applyAsLong(model), request.promptTokens());
-            if (!options.isEmpty()) {
-                return soonest(model, options, request.promptTokens());
-            }
-        }
-        return Optional.empty();
-    }
-
-    /**
-     * The soonest of the options on servers that have the model (loaded or
-     * downloaded); empty when any of those is unmeasured. A server without the
-     * model cannot serve the call, so it is neither an option nor a reason for no
-     * opinion.
-     */
-    static Optional<Ranked> soonest(String model, List<ServerSelector.Option> options, long promptTokens) {
-        Ranked best = null;
-        for (ServerSelector.Option o : options) {
-            if (!o.server().hasModel(model)) {
-                continue;
-            }
-            Optional<Prediction> p = predict(o, model, promptTokens);
-            if (p.isEmpty()) {
-                return Optional.empty();
-            }
-            if (best == null || p.get().total() < best.prediction().total()) {
-                best = new Ranked(model, o, p.get());
-            }
-        }
-        return Optional.ofNullable(best);
+        return PlacementSurvey.of(selector, request).flatMap(Survey::soonest)
+                .map(s -> new Ranked(s.model(), s.option(), s.prediction().orElseThrow()));
     }
 
     /**

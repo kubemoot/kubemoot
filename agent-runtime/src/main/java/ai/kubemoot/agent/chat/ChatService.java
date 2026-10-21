@@ -368,7 +368,7 @@ public class ChatService {
         return new ChatResult(request.conversationId(), text, pick.modelName(), null,
                 loopResult.inputTokens(), loopResult.outputTokens(),
                 serverName, loopResult.pickReason(), pick.evicted(),
-                List.of(new ModelUse(pick.modelName(), serverName)));
+                List.of(new ModelUse(pick.modelName(), serverName, pick.call())));
     }
 
     /**
@@ -1239,23 +1239,30 @@ public class ChatService {
     private record MullingPick(ChatModel model, String serverName,
                                 java.util.Optional<ai.kubemoot.agent.modelserver.Ticket> ticket,
                                 String pickReason, String modelName, String endpoint,
-                                long occupancyMiB, java.util.List<String> evicted, boolean coldLoad) {
+                                long occupancyMiB, java.util.List<String> evicted, boolean coldLoad,
+                                ai.kubemoot.agent.modelserver.PlacedCall call) {
         MullingPick(ChatModel model, String serverName,
                     java.util.Optional<ai.kubemoot.agent.modelserver.Ticket> ticket,
                     String pickReason, String modelName, String endpoint, long occupancyMiB) {
             this(model, serverName, ticket, pickReason, modelName, endpoint, occupancyMiB, java.util.List.of(),
-                    false);
+                    false, null);
         }
 
         MullingPick withEvicted(java.util.List<String> models) {
             return new MullingPick(model, serverName, ticket, pickReason, modelName, endpoint, occupancyMiB, models,
-                    coldLoad);
+                    coldLoad, call);
         }
 
         /** This pick, marked as placed where the model was not resident. */
         MullingPick withColdLoad(boolean cold) {
             return new MullingPick(model, serverName, ticket, pickReason, modelName, endpoint, occupancyMiB, evicted,
-                    cold);
+                    cold, call);
+        }
+
+        /** This pick, following {@code placed} from its placement decision to the call's measurements. */
+        MullingPick withCall(ai.kubemoot.agent.modelserver.PlacedCall placed) {
+            return new MullingPick(model, serverName, ticket, pickReason, modelName, endpoint, occupancyMiB, evicted,
+                    coldLoad, placed);
         }
     }
 
@@ -1368,7 +1375,9 @@ public class ChatService {
         if (held.isPresent() && heldStillServes(held.get(), states, promptTokens(promptCharCount))) {
             log.info("Using the placement planned at selection: {} on {}", held.get().model(),
                     held.get().pick().server().name());
-            return java.util.Optional.of(fromPlacement(held.get()));
+            var planned = fromPlacement(held.get());
+            return java.util.Optional.of(planned.call() == null ? planned
+                    : planned.withCall(planned.call().plannedAtSelection()));
         }
         held.ifPresent(h -> ticketManager.release(h.pick().ticket()));
         var placed = placeCall(states, promptCharCount);
@@ -1418,9 +1427,12 @@ public class ChatService {
                 serverSelector.invalidateCache();
                 return placeCall(serverSelector.readState(), promptCharCount);
             }, wait);
+            long waitedMs = System.currentTimeMillis() - waitStartMs;
+            if (placed.call() != null) {
+                placed.call().waited(waitedMs);
+            }
             if (performanceHistory != null) {
-                performanceHistory.recordWait(placed.serverName(), placed.modelName(),
-                        System.currentTimeMillis() - waitStartMs);
+                performanceHistory.recordWait(placed.serverName(), placed.modelName(), waitedMs);
             }
             return placed;
         } catch (RuntimeException e) {
@@ -1500,7 +1512,8 @@ public class ChatService {
     }
 
     private MullingPick fromPlacement(CallPlanner.Placement p) {
-        MullingPick pick = buildScheduledMullingPick(p.pick(), p.model(), p.footprintMiB());
+        MullingPick pick = buildScheduledMullingPick(p.pick(), p.model(), p.footprintMiB())
+                .withCall(ai.kubemoot.agent.modelserver.PlacedCall.of(p));
         return p.evicted().isEmpty() ? pick : pick.withEvicted(p.evicted());
     }
 
@@ -1838,13 +1851,13 @@ public class ChatService {
                 pick.modelName(), properties.model().temperature(), properties.model().maxTokens(),
                 SIMPLE_CALL_TIMEOUT, properties.model().think().orElse(null));
         var context = callContext(pick.serverName(), pick.modelName(),
-                ai.kubemoot.agent.modelserver.CallObservation.KIND_SIMPLE, pick.coldLoad());
+                ai.kubemoot.agent.modelserver.CallObservation.KIND_SIMPLE, pick.coldLoad(), pick.call());
         lastSimpleCall = LastSimpleCall.NONE;
         var timed = sendTimed(model, messages, SIMPLE_CALL_TIMEOUT, context);
         lastSimpleCall = new LastSimpleCall(timed.firstTokenMs(), pick.coldLoad());
         var usage = timed.response().tokenUsage();
         return new SimpleLlmResult(timed.response().aiMessage().text(), inputTokens(usage), outputTokens(usage),
-                new ModelUse(pick.modelName(), pick.serverName()));
+                new ModelUse(pick.modelName(), pick.serverName(), pick.call()));
     }
 
     /**
@@ -1863,7 +1876,7 @@ public class ChatService {
                 performanceHistory.record(timed == null
                         ? context.measured(false, start, System.currentTimeMillis() - start, 0L, 0L)
                         : context.streamed(true, start, timed, inputTokens(timed.response().tokenUsage()),
-                                outputTokens(timed.response().tokenUsage())));
+                                outputTokens(timed.response().tokenUsage())), context.call());
             }
         }
     }
@@ -1897,7 +1910,7 @@ public class ChatService {
      * performance history; the bare model when nothing records or the pick is static.
      */
     private ChatModel observed(MullingPick pick, String kind) {
-        var context = callContext(pick.serverName(), pick.modelName(), kind, pick.coldLoad());
+        var context = callContext(pick.serverName(), pick.modelName(), kind, pick.coldLoad(), pick.call());
         return context == null ? pick.model()
                 : new ai.kubemoot.agent.modelserver.ObservedChatModel(pick.model(), performanceHistory, context);
     }
@@ -1907,12 +1920,13 @@ public class ChatService {
      * server was chosen (the static fallback).
      */
     private ai.kubemoot.agent.modelserver.CallContext callContext(String server, String model, String kind,
-                                                                boolean coldLoad) {
+                                                                boolean coldLoad,
+                                                                ai.kubemoot.agent.modelserver.PlacedCall call) {
         if (performanceHistory == null || server == null || server.isEmpty()) {
             return null;
         }
         int active = ticketManager == null ? 0 : ticketManager.activeCountFor(server);
-        return new ai.kubemoot.agent.modelserver.CallContext(server, model, kind, coldLoad, active);
+        return new ai.kubemoot.agent.modelserver.CallContext(server, model, kind, coldLoad, active, call);
     }
 
     /**
@@ -2005,7 +2019,7 @@ public class ChatService {
         TriagePlacement placement = pickTriagePlacement(systemPrompt, conversation);
         String endpoint = placement.endpoint();
         var observedCall = callContext(placement.pickedServer(), placement.model(),
-                ai.kubemoot.agent.modelserver.CallObservation.KIND_TRIAGE, placement.coldLoad());
+                ai.kubemoot.agent.modelserver.CallObservation.KIND_TRIAGE, placement.coldLoad(), placement.call());
 
         Duration timeout = Duration.ofSeconds(properties.triageModel().timeoutSeconds());
         var model = chatModelPool.streamingForEndpoint(engineFor(placement.pickedServer()), endpoint, placement.model(),
@@ -2023,7 +2037,7 @@ public class ChatService {
             var usage = timed.response().tokenUsage();
             ok = true;
             return new SimpleLlmResult(timed.response().aiMessage().text(), inputTokens(usage), outputTokens(usage))
-                    .ranOn(new ModelUse(placement.model(), placement.pickedServer()));
+                    .ranOn(new ModelUse(placement.model(), placement.pickedServer(), placement.call()));
         } catch (RuntimeException e) {
             throw new java.io.UncheckedIOException("Triage call failed: " + e.getMessage(), new IOException(e));
         } finally {
@@ -2038,10 +2052,11 @@ public class ChatService {
      * triageChatWithTokens so the call body stays under the complexity gate.
      */
     private record TriagePlacement(String endpoint, String pickedServer, String model, long occupancy,
-                                   java.util.Optional<ai.kubemoot.agent.modelserver.Ticket> ticket, boolean coldLoad) {
+                                   java.util.Optional<ai.kubemoot.agent.modelserver.Ticket> ticket, boolean coldLoad,
+                                   ai.kubemoot.agent.modelserver.PlacedCall call) {
         /** The static triage endpoint and the bound triage model, with no server claimed. */
         static TriagePlacement unscheduled(String endpoint, String model, long occupancy) {
-            return new TriagePlacement(endpoint, "", model, occupancy, java.util.Optional.empty(), false);
+            return new TriagePlacement(endpoint, "", model, occupancy, java.util.Optional.empty(), false, null);
         }
     }
 
@@ -2128,7 +2143,8 @@ public class ChatService {
         log.info("OUTBOUND inference (triage): agent={} endpoint={} model={} server={}",
                 properties.agentName(), endpoint, p.model(), pickedServer);
         return new TriagePlacement(endpoint, pickedServer, p.model(), p.footprintMiB(),
-                java.util.Optional.of(p.pick().ticket()), p.coldLoad());
+                java.util.Optional.of(p.pick().ticket()), p.coldLoad(),
+                ai.kubemoot.agent.modelserver.PlacedCall.of(p));
     }
 
     /**

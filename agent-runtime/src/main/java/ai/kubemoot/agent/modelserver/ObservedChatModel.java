@@ -75,10 +75,11 @@ public final class ObservedChatModel implements ChatModel {
     private void record(ChatResponse response, boolean coldNow, long start) {
         try {
             TokenUsage usage = response == null ? null : response.tokenUsage();
-            history.record(context.withColdStart(coldNow).measured(response != null, start,
+            CallContext sent = context.withColdStart(coldNow);
+            history.record(sent.measured(response != null, start,
                     System.currentTimeMillis() - start,
                     tokens(usage == null ? null : usage.inputTokenCount()),
-                    tokens(usage == null ? null : usage.outputTokenCount())));
+                    tokens(usage == null ? null : usage.outputTokenCount())), sent.call());
         } catch (RuntimeException e) {
             log.debug("Recording a {} request on {} failed: {}", context.model(), context.server(), e.getMessage());
         }

@@ -127,6 +127,10 @@ class ChatServiceCapacityTest {
                 waiter, policy, planner, history);
     }
 
+    private static List<String> labels(List<ModelUse> uses) {
+        return uses.stream().map(ModelUse::label).toList();
+    }
+
     private static ChatService.ChatRequest request() {
         return new ChatService.ChatRequest("conv-gpu", "What is using the GPU?");
     }
@@ -168,7 +172,9 @@ class ChatServiceCapacityTest {
 
         assertEquals("warm answer", result.response());
         assertEquals(WARM_CANDIDATE, result.model(), "the result reports the model the call ran on");
-        assertEquals(List.of(new ModelUse(WARM_CANDIDATE, "ollama-a")), result.modelsUsed());
+        assertEquals(List.of(WARM_CANDIDATE + "@ollama-a"), labels(result.modelsUsed()));
+        assertEquals("algorithm", result.modelsUsed().get(0).call().policy(),
+                "the call carries the placement that put it on the server");
         assertEquals("ollama-a", result.serverName());
         verify(pool).forEndpoint(eq(ai.kubemoot.agent.modelserver.ChatEngines.OLLAMA), eq(EP), eq(WARM_CANDIDATE),
                 anyDouble(), anyInt(), any(), any());
@@ -190,7 +196,7 @@ class ChatServiceCapacityTest {
         service(null, candidates(70, 60)).directChat(request(), true, CapacityWait.NONE);
 
         var seen = org.mockito.ArgumentCaptor.forClass(ai.kubemoot.agent.modelserver.CallObservation.class);
-        verify(history).record(seen.capture());
+        verify(history).record(seen.capture(), any());
         var o = seen.getValue();
         assertEquals("ollama-a", o.server());
         assertEquals(WARM_CANDIDATE, o.model());
@@ -199,6 +205,35 @@ class ChatServiceCapacityTest {
         assertFalse(o.coldStart(), "the candidate was resident when the call was placed");
         assertEquals(10, o.promptTokens());
         assertEquals(2, o.activeCalls());
+    }
+
+    @Test
+    void aScheduledCall_isFollowedFromItsPlacementToWhatItMeasured() {
+        var props = mock(ai.kubemoot.agent.config.AgentProperties.class);
+        when(props.agentName()).thenReturn("a");
+        when(props.namespace()).thenReturn(Optional.of("crew-ns"));
+        var bucket = new ai.kubemoot.agent.modelserver.InMemoryKv();
+        history = ai.kubemoot.agent.modelserver.PerformanceHistoryFixtures.direct(
+                bucket.server(ai.kubemoot.agent.modelserver.PerformanceHistory.BUCKET), MAPPER, props);
+        var rig = server(32_768);
+        when(selector.readState()).thenReturn(List.of(rig));
+        when(selector.pickAndClaimWarm(eq(PREFERRED), anyLong(), anyLong(), anyLong())).thenReturn(Optional.empty());
+        when(selector.pickAndClaimWarm(eq(WARM_CANDIDATE), anyLong(), anyLong(), anyLong())).thenReturn(Optional.of(pickOn(rig)));
+        poolServes(WARM_CANDIDATE, answering("warm answer"));
+
+        var result = service(null, candidates(70, 60)).directChat(request(), true, CapacityWait.NONE);
+
+        var call = result.modelsUsed().get(0).call().snapshot(true);
+        assertEquals("algorithm", call.get("policy"));
+        assertEquals("tool-turn", call.get("kind"));
+        assertEquals(WARM_CANDIDATE, call.get("model"));
+        assertEquals("ollama-a", call.get("server"));
+        @SuppressWarnings("unchecked")
+        var actual = (java.util.Map<String, Object>) call.get("actual");
+        assertEquals(true, actual.get("ok"));
+        assertEquals(10L, actual.get("inputTokens"));
+        assertEquals(1, actual.get("requests"));
+        assertFalse(call.containsKey("predicted"), "no server speeds are known here, so nothing was predicted");
     }
 
     @Test
@@ -213,7 +248,7 @@ class ChatServiceCapacityTest {
         service(null, null).directChat(request(), true, CapacityWait.NONE);
 
         var seen = org.mockito.ArgumentCaptor.forClass(ai.kubemoot.agent.modelserver.CallObservation.class);
-        verify(history).record(seen.capture());
+        verify(history).record(seen.capture(), any());
         assertEquals(PREFERRED, seen.getValue().model());
         assertTrue(seen.getValue().coldStart());
     }
@@ -374,7 +409,7 @@ class ChatServiceCapacityTest {
 
         assertEquals("alternative answer", result.response());
         assertEquals(WARM_CANDIDATE, result.model(), "the slot freed after selection is used");
-        assertEquals(List.of(new ModelUse(WARM_CANDIDATE, "ollama-a")), result.modelsUsed(),
+        assertEquals(List.of(WARM_CANDIDATE + "@ollama-a"), labels(result.modelsUsed()),
                 "the result names the model and server the re-planned call ran on, not the preferred model");
         verify(tickets).release(queued.ticket());
         verify(selector, times(1)).pickAndClaim(eq(PREFERRED), anyLong(), anyLong(), anyLong());
@@ -627,7 +662,8 @@ class ChatServiceCapacityTest {
 
             assertEquals("CONTRIBUTE", result.text());
             assertEquals(7, result.inputTokens());
-            assertEquals(new ModelUse(PREFERRED, "ollama-b"), result.modelUse());
+            assertEquals(PREFERRED + "@ollama-b", result.modelUse().label());
+            assertEquals("algorithm", result.modelUse().call().policy(), "triage is placed and explained like any call");
             assertEquals(PREFERRED, service(null, null).getTriageModelId(),
                     "with no triage model configured, triage runs on the agent's model");
         } finally {

@@ -41,7 +41,7 @@ class LearnedPlacementTest {
     }
 
     /** A selector whose options are fixed and whose claims are recorded. */
-    private static final class FixedSelector extends ServerSelector {
+    private static class FixedSelector extends ServerSelector {
         final Map<String, List<Option>> options;
         final List<String> claims = new ArrayList<>();
         boolean refuse;
@@ -242,6 +242,160 @@ class LearnedPlacementTest {
         var warm = LearnedPlacement.predict(idle(gpuWarm, true), SMALL, -5).orElseThrow();
         assertEquals(0.0, warm.load());
         assertEquals(0.0, warm.prompt(), "a negative prompt size counts as none");
+    }
+
+    // ---- the decision each placement carries ----
+
+    /** A policy that places on a fixed server with the algorithm's fit explanation. */
+    private static final class Placing implements PlacementPolicy {
+        final PlacementMode mode;
+        final ServerState on;
+
+        Placing(PlacementMode mode, ServerState on) {
+            this.mode = mode;
+            this.on = on;
+        }
+
+        @Override
+        public PlacementMode mode() {
+            return mode;
+        }
+
+        @Override
+        public Optional<Placement> place(PlacementRequest request) {
+            return Optional.of(new Placement(new Pick(on, null, FitScore.yes(0, "warm, slot 1/2")), SMALL, SMALL_MIB,
+                    List.of()));
+        }
+    }
+
+    @Test
+    void aLearnedPlacementCarriesItsPredictionItsReasonAndTheOtherOptions() {
+        var selector = new FixedSelector(Map.of(SMALL, List.of(idle(cpuWarm, true), idle(gpuCold, false))));
+
+        PlacementDecision d = new LearnedPlacement(new Fallback(), selector).place(request(500)).orElseThrow().decision();
+
+        assertEquals(PlacementDecision.LEARNED, d.policy());
+        assertTrue(d.reason().startsWith("predicted "), d.reason());
+        assertEquals(2.892, d.predicted().load(), 1e-9, "a cold start predicts the load");
+        assertEquals(1, d.alternatives().size());
+        var cpu = d.alternatives().get(0);
+        assertEquals(CPU, cpu.server());
+        assertTrue(cpu.warm() && cpu.startsNow());
+        assertTrue(cpu.predicted().total() > d.predicted().total(), "the CPU would have finished later");
+    }
+
+    @Test
+    void whenTheLearnedChoiceHasToWaitTheAlgorithmsPlacementSaysSo() {
+        var selector = new FixedSelector(Map.of(SMALL, List.of(idle(cpuWarm, true), busy(gpuWarm, 5))));
+
+        PlacementDecision d = new LearnedPlacement(new Placing(PlacementMode.ALGORITHM, cpuWarm), selector)
+                .place(request(200)).orElseThrow().decision();
+
+        assertEquals(PlacementDecision.ALGORITHM, d.policy());
+        assertTrue(d.reason().startsWith("warm, slot 1/2"), d.reason());
+        assertTrue(d.reason().contains("has to wait for a slot"), d.reason());
+        assertNotNull(d.predicted(), "the CPU's own prediction is kept for scoring");
+        assertEquals(1, d.alternatives().size());
+        assertEquals(GPU, d.alternatives().get(0).server());
+    }
+
+    @Test
+    void whenTheLearnedPolicyHasNoOpinionTheDecisionSaysWhy() {
+        ServerState unmeasured = server("new-gpu", List.of(SMALL), Map.of());
+        var selector = new FixedSelector(Map.of(SMALL, List.of(idle(unmeasured, true), idle(cpuWarm, true))));
+
+        PlacementDecision d = new LearnedPlacement(new Placing(PlacementMode.ALGORITHM, cpuWarm), selector)
+                .place(request(100)).orElseThrow().decision();
+
+        assertEquals(PlacementDecision.ALGORITHM, d.policy());
+        assertTrue(d.reason().contains("no opinion"), d.reason());
+        assertNotNull(d.predicted(), "the measured CPU still has a prediction");
+        assertNull(d.alternatives().get(0).predicted(), "the unmeasured server has none");
+    }
+
+    @Test
+    void whenTheLearnedChoiceWasTakenFirstTheDecisionSaysWhich() {
+        var lost = new FixedSelector(Map.of(SMALL, List.of(idle(gpuWarm, true), idle(cpuWarm, true))));
+        lost.refuse = true;
+
+        PlacementDecision d = new LearnedPlacement(new Placing(PlacementMode.ALGORITHM, cpuWarm), lost)
+                .place(request(100)).orElseThrow().decision();
+
+        assertTrue(d.reason().contains("was taken first"), d.reason());
+        assertTrue(d.reason().contains(SMALL + "@" + GPU), d.reason());
+    }
+
+    @Test
+    void theCallPlannerExplainsAnAlgorithmPlacementWithoutChangingIt() {
+        var selector = new FixedSelector(Map.of(SMALL, List.of(idle(cpuWarm, true), idle(gpuWarm, true))));
+        var planner = new CallPlanner(selector, null, null, new Placing(PlacementMode.ALGORITHM, cpuWarm));
+
+        Placement placed = planner.place(request(200)).orElseThrow();
+
+        assertEquals(CPU, placed.pick().server().name(), "the explanation never moves the call");
+        PlacementDecision d = placed.decision();
+        assertEquals(PlacementDecision.ALGORITHM, d.policy());
+        assertEquals("warm, slot 1/2", d.reason(), "the algorithm's reason, with nothing about the learned policy");
+        assertEquals(LearnedPlacement.predict(idle(cpuWarm, true), SMALL, 200).orElseThrow(), d.predicted());
+        assertEquals(GPU, d.alternatives().get(0).server());
+    }
+
+    @Test
+    void underShadowTheDecisionIsLabeledAndNamesWhatTheLearnedPolicyWouldChoose() {
+        var selector = new FixedSelector(Map.of(SMALL, List.of(idle(cpuWarm, true), idle(gpuWarm, true))));
+        var planner = new CallPlanner(selector, null, null, new Placing(PlacementMode.SHADOW, cpuWarm));
+
+        PlacementDecision d = planner.place(request(200)).orElseThrow().decision();
+
+        assertEquals(PlacementDecision.SHADOW, d.policy());
+        assertTrue(d.reason().contains("learned policy would choose " + SMALL + "@" + GPU), d.reason());
+    }
+
+    @Test
+    void underShadowAgreementIsSaid() {
+        var selector = new FixedSelector(Map.of(SMALL, List.of(idle(cpuWarm, true), idle(gpuWarm, true))));
+        var planner = new CallPlanner(selector, null, null, new Placing(PlacementMode.SHADOW, gpuWarm));
+
+        assertTrue(planner.place(request(200)).orElseThrow().decision().reason().contains("learned policy agrees"));
+    }
+
+    @Test
+    void aFailureToSurveyLeavesThePlacementWithoutAPrediction() {
+        var broken = new FixedSelector(Map.of()) {
+            @Override
+            public List<Option> options(String model, long fp, long kv, long promptTokens) {
+                throw new IllegalStateException("state unreadable");
+            }
+        };
+        var planner = new CallPlanner(broken, null, null, new Placing(PlacementMode.ALGORITHM, cpuWarm));
+
+        PlacementDecision d = planner.place(request(100)).orElseThrow().decision();
+
+        assertNull(d.predicted());
+        assertTrue(d.alternatives().isEmpty());
+        assertEquals("warm, slot 1/2", d.reason());
+    }
+
+    @Test
+    void aPlacementOnAServerTheSurveyDidNotWeighHasNoPrediction() {
+        ServerState other = server("other", List.of(SMALL), Map.of(SMALL, GPU_SPEED));
+        var selector = new FixedSelector(Map.of(SMALL, List.of(idle(gpuWarm, true))));
+        var planner = new CallPlanner(selector, null, null, new Placing(PlacementMode.ALGORITHM, other));
+
+        assertNull(planner.place(request(100)).orElseThrow().decision().predicted());
+    }
+
+    @Test
+    void theAlgorithmsReasonNamesWhatItUnloadedAndWhenTheCallQueued() {
+        var unloaded = new Placement(new Pick(cpuWarm, null, FitScore.yes(0, "cold-load fits")), SMALL, 1,
+                List.of(OTHER));
+        assertEquals("cold-load fits; unloaded " + OTHER + " to make room", PlacementDecisions.algorithmReason(unloaded));
+
+        var queued = new Placement(new Pick(cpuWarm, null, FitScore.yes(0, "warm"), true), SMALL, 1, List.of());
+        assertEquals("warm; joined a busy copy and may wait for a slot", PlacementDecisions.algorithmReason(queued));
+
+        var unexplained = new Placement(new Pick(cpuWarm, null, null, false), SMALL, 1, List.of());
+        assertEquals("placed by the algorithm", PlacementDecisions.algorithmReason(unexplained));
     }
 
     // ---- the selector's side, with real tickets ----

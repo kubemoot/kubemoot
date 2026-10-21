@@ -1,0 +1,124 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "PlacementCall",
+  "description": "One model call the scheduler placed: where it ran, which policy placed it and why, the options it weighed, what the placement predicted, and what the call measured. It rides on an agent's signal metadata (placementCalls), on the discussion receipt (calls), and, without the reason and the options, in the scheduler performance history (predictions). Times are milliseconds. Prediction and actual describe the first request sent in the placement, the one the prediction was made for; later requests of a tool loop count in actual.requests only.",
+  "type": "object",
+  "required": ["model", "server", "policy"],
+  "properties": {
+    "agent": {
+      "type": "string",
+      "description": "The agent that made the call, or the coordinator for its own calls. Set on the discussion receipt."
+    },
+    "phase": {
+      "type": "string",
+      "enum": ["advisory", "selection", "triage", "evaluation", "synthesis"],
+      "description": "Where in the thread the call happened. advisory, selection and synthesis are the coordinator's calls; triage is an agent deciding whether it has something to add; evaluation is an agent's work on the question."
+    },
+    "kind": {
+      "type": "string",
+      "enum": ["tool-turn", "simple", "triage"],
+      "description": "Which path sent the call: tool-turn is a model turn of the tool loop, simple a call with no tools, triage a triage call."
+    },
+    "at": {
+      "type": "integer",
+      "description": "When the first request was sent, epoch milliseconds."
+    },
+    "model": {
+      "type": "string",
+      "description": "The model the call ran on."
+    },
+    "server": {
+      "type": "string",
+      "description": "The ModelServer the call ran on."
+    },
+    "coldStart": {
+      "type": "boolean",
+      "description": "The model was not resident on the server when the call was placed."
+    },
+    "policy": {
+      "type": "string",
+      "enum": ["learned", "algorithm", "shadow"],
+      "description": "Who placed the call. learned: the learned policy chose the server from predicted completion time. algorithm: the hand-written algorithm placed it (it is the configured policy, or the learned policy had no opinion). shadow: the algorithm placed it while the learned policy only recorded what it would have chosen."
+    },
+    "reason": {
+      "type": "string",
+      "description": "Why this placement, as the policy gave it: for the learned policy the predicted parts of the chosen option, for the algorithm the fit explanation of the server it picked. Under shadow, both, with the learned choice."
+    },
+    "alternatives": {
+      "type": "array",
+      "description": "The other servers that could have run the model, with their predictions when the server's speeds were measured. Absent when the placement did not weigh options.",
+      "items": { "$ref": "#/definitions/PlacementOption" }
+    },
+    "predicted": {
+      "$ref": "#/definitions/PlacementPrediction"
+    },
+    "actual": {
+      "$ref": "#/definitions/PlacementActual"
+    },
+    "error": {
+      "$ref": "#/definitions/PlacementError"
+    }
+  },
+  "additionalProperties": false,
+  "definitions": {
+    "PlacementPrediction": {
+      "title": "PlacementPrediction",
+      "type": "object",
+      "description": "The completion time the placement predicted for a call, by part, from the state of the servers just before the call was claimed. The total is the sum of the parts; a call that has to start without waiting predicts a wait of 0. A call planned at selection is predicted without the wait and load that overlapped the agent's triage.",
+      "required": ["waitMs", "loadMs", "promptMs", "generateMs", "totalMs"],
+      "properties": {
+        "waitMs": { "type": "integer", "description": "The wait for a free slot on the server." },
+        "loadMs": { "type": "integer", "description": "Loading the model, 0 when it is resident." },
+        "promptMs": { "type": "integer", "description": "Reading the prompt, from the measured prompt speed." },
+        "generateMs": { "type": "integer", "description": "Generating the planned output, from the measured generation speed." },
+        "totalMs": { "type": "integer", "description": "The predicted completion time of the call." },
+        "firstTokenMs": { "type": "integer", "description": "The predicted time to the first token: the wait, the load and reading the prompt. Absent in records written before it existed." }
+      },
+      "additionalProperties": false
+    },
+    "PlacementOption": {
+      "title": "PlacementOption",
+      "type": "object",
+      "description": "One server the model could have run on.",
+      "required": ["server", "warm", "startsNow"],
+      "properties": {
+        "server": { "type": "string", "description": "The ModelServer." },
+        "model": { "type": "string", "description": "The model considered there when it differs from the chosen call's model." },
+        "warm": { "type": "boolean", "description": "A copy of the model was resident or loading there." },
+        "startsNow": { "type": "boolean", "description": "The server had a free slot, so the call would start at once." },
+        "predicted": { "$ref": "#/definitions/PlacementPrediction" }
+      },
+      "additionalProperties": false
+    },
+    "PlacementActual": {
+      "title": "PlacementActual",
+      "type": "object",
+      "description": "What the first request of the placement measured. A request that failed has ok false and no first token.",
+      "required": ["ok", "totalMs", "inputTokens", "outputTokens", "requests"],
+      "properties": {
+        "ok": { "type": "boolean", "description": "The request completed." },
+        "waitMs": { "type": "integer", "description": "How long the call waited for capacity before it was placed; 0 when it was placed at once." },
+        "firstTokenMs": { "type": "integer", "description": "From sending the request to its first streamed token. Absent for a request that is not streamed." },
+        "totalMs": { "type": "integer", "description": "From sending the request to the reply or the failure." },
+        "inputTokens": { "type": "integer", "description": "Prompt tokens; 0 when not reported." },
+        "outputTokens": { "type": "integer", "description": "Generated tokens; 0 when not reported." },
+        "requests": { "type": "integer", "description": "How many requests the placement sent: more than one when a tool loop took several turns on the server." }
+      },
+      "additionalProperties": false
+    },
+    "PlacementError": {
+      "title": "PlacementError",
+      "type": "object",
+      "description": "How far the prediction was from the first request. Absolute is in milliseconds, relative is the absolute error over the actual time. Present only for a request that completed and had a prediction.",
+      "required": ["totalAbsMs", "totalRelative", "totalSignedMs"],
+      "properties": {
+        "totalAbsMs": { "type": "integer", "description": "The absolute difference between predicted and actual completion time." },
+        "totalRelative": { "type": "number", "description": "totalAbsMs over the actual completion time." },
+        "totalSignedMs": { "type": "integer", "description": "Actual minus predicted: positive when the call took longer than predicted." },
+        "firstTokenAbsMs": { "type": "integer", "description": "The absolute difference between the predicted time to the first token (wait, load and prompt) and the measured one. Present for streamed requests." },
+        "firstTokenRelative": { "type": "number", "description": "firstTokenAbsMs over the measured time to the first token." }
+      },
+      "additionalProperties": false
+    }
+  }
+}

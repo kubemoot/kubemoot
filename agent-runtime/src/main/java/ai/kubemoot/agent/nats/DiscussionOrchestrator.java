@@ -100,6 +100,10 @@ public class DiscussionOrchestrator {
     private static final String MSG_ADVISORY_READY = "advisory_ready";
     private static final String MSG_REVIEW_READY = "review_ready";
     private static final String MSG_SYNTHESIS = "synthesis";
+    /** The phases of a thread that the receipt names the coordinator's placed calls by. */
+    private static final String PHASE_ADVISORY = MSG_ADVISORY;
+    private static final String PHASE_SELECTION = "selection";
+    private static final String PHASE_SYNTHESIS = MSG_SYNTHESIS;
     private static final String MSG_THREAD_CLOSE = "thread_close";
     private static final String MSG_STOP_REQUESTED = "stop_requested";
     private static final String MSG_THREAD_PAUSE = "thread_pause";
@@ -1357,6 +1361,7 @@ public class DiscussionOrchestrator {
                 : chatService.simpleLlmCallWithTokens(systemPrompt, advisoryPrompt);
         long inferenceMs = System.currentTimeMillis() - inferenceStart;
         state.advisoryModelUse = advisoryResult.modelUse();
+        recordPlacedCall(state, PHASE_ADVISORY, advisoryResult);
         state.advisoryInputTokens = advisoryResult.inputTokens();
         state.advisoryOutputTokens = advisoryResult.outputTokens();
 
@@ -1507,6 +1512,7 @@ public class DiscussionOrchestrator {
             var result = chatService.simpleLlmCallWithTokens(systemPrompt, prompt);
             long inferenceMs = System.currentTimeMillis() - inferenceStart;
             state.advisoryModelUse = result.modelUse();
+            recordPlacedCall(state, PHASE_ADVISORY, result);
 
             String response = result.text();
             if (response == null || response.isEmpty()) {
@@ -2049,6 +2055,7 @@ public class DiscussionOrchestrator {
     ChatService.SimpleLlmResult synthesizeWithCompleteness(String systemPrompt,
             String conversation, String threadId) {
         var result = chatService.simpleLlmCallWithTokens(systemPrompt, conversation);
+        recordPlacedCall(threads.get(threadId), PHASE_SYNTHESIS, result);
         int maxRetries = properties.discuss().synthesisCompletenessRetries();
         if (maxRetries <= 0) {
             return result;
@@ -2067,6 +2074,7 @@ public class DiscussionOrchestrator {
             if (retry == null) {
                 break;
             }
+            recordPlacedCall(threads.get(threadId), PHASE_SYNTHESIS, retry);
             int retryMissing = missingNames(expected, retry.text()).size();
             if (retryMissing < bestMissing) {
                 best = retry;
@@ -3203,6 +3211,21 @@ public class DiscussionOrchestrator {
         }
     }
 
+    /**
+     * Lists a call the coordinator made in the thread's receipt, with its placement,
+     * when the scheduler placed it. A missing thread or call is ignored.
+     */
+    private void recordPlacedCall(ThreadState state, String phase, ChatService.SimpleLlmResult result) {
+        var use = result == null ? null : result.modelUse();
+        if (state == null || use == null || use.call() == null) {
+            return;
+        }
+        ObjectNode call = mapper.valueToTree(use.call().snapshot(true));
+        call.put("agent", properties.agentName());
+        call.put("phase", phase);
+        state.receipt.recordCall(call);
+    }
+
     /** The thread's receipt as of now, with the coordinator's own tokens and how many agents it selected. */
     // Visible for testing
     ObjectNode receiptFor(ThreadState state) {
@@ -3331,6 +3354,7 @@ public class DiscussionOrchestrator {
     }
 
     private void recordTriageMetrics(ThreadState state, ChatService.SimpleLlmResult triageResult, long triageMs) {
+        recordPlacedCall(state, PHASE_SELECTION, triageResult);
         state.triageInputTokens = triageResult.inputTokens();
         state.triageOutputTokens = triageResult.outputTokens();
         metrics.triageCompleted(Duration.ofMillis(triageMs), 0);

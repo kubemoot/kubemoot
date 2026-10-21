@@ -67,6 +67,7 @@ class SchedulerMetricsTest {
         scheduler.call(call(CallObservation.KIND_TOOL_TURN, true, false, 10, 100));
         scheduler.waited("p", "m", 10);
         scheduler.waitedUnplaced("m", 10);
+        scheduler.predictionError(score("learned", 500));
         PlacementPolicies.shadowRecorder(registry).accept(new ShadowPlacement.Decision("m", null, null));
         var discussion = new DiscussionMetrics(registry);
         discussion.threadStarted();
@@ -98,6 +99,7 @@ class SchedulerMetricsTest {
         metrics.call(call(CallObservation.KIND_TRIAGE, false, true, 0, CallObservation.UNKNOWN));
         metrics.waited("ollama-gpu", "qwen3:8b", 3_000);
         metrics.waitedUnplaced("qwen3:8b", 60_000);
+        metrics.predictionError(score("learned", 500));
         PlacementPolicies.shadowRecorder(registry).accept(new ShadowPlacement.Decision("m", null, null));
         var discussion = new DiscussionMetrics(registry);
         discussion.threadCompleted(Duration.ofSeconds(40));
@@ -108,15 +110,63 @@ class SchedulerMetricsTest {
                 "kubemoot_scheduler_call_seconds_sum", "kubemoot_scheduler_call_seconds_bucket",
                 "kubemoot_scheduler_generated_tokens_total", "kubemoot_scheduler_generate_seconds_total",
                 "kubemoot_scheduler_capacity_wait_seconds_bucket", "kubemoot_scheduler_shadow_decisions_total",
+                "kubemoot_scheduler_prediction_error_seconds_bucket", "kubemoot_scheduler_prediction_error_seconds_count",
+                "kubemoot_scheduler_prediction_error_seconds_sum", "kubemoot_scheduler_prediction_relative_error_bucket",
                 "kubemoot_discussion_thread_duration_seconds_bucket", "kubemoot_discussion_phase_duration_seconds_bucket")) {
             assertTrue(scrape.contains("\n" + series + "{"), "missing " + series);
         }
         for (String name : List.of("kubemoot_scheduler_calls_total", "kubemoot_scheduler_call_seconds",
-                "kubemoot_scheduler_capacity_wait_seconds", "kubemoot_discussion_phase_duration_seconds")) {
+                "kubemoot_scheduler_capacity_wait_seconds", "kubemoot_scheduler_prediction_error_seconds",
+                "kubemoot_scheduler_prediction_relative_error", "kubemoot_discussion_phase_duration_seconds")) {
             assertTrue(scrape.contains("# HELP " + name + " ") && !scrape.contains("# HELP " + name + " \n"),
                     "no HELP text for " + name);
         }
         assertTrue(scrape.contains("# HELP kubemoot_discussion_phase_duration_seconds Discussion phase duration, by phase"),
                 "the phases share one description");
+    }
+
+    /** A scored prediction: 6.5 s predicted, 8 s measured, with a first token 500 ms off when {@code firstTokenAbsMs} is set. */
+    private static PlacedCall.Score score(String policy, long firstTokenAbsMs) {
+        return new PlacedCall.Score(policy, "ollama-gpu", "qwen3:8b", "simple", 6_500, 8_000, 1_500, 1_500,
+                0.1875, firstTokenAbsMs, firstTokenAbsMs < 0 ? 0.0 : 0.125);
+    }
+
+    @Test
+    void aPredictionErrorIsRecordedByThePolicyThatPlacedTheCall_serverModelAndPart() {
+        var registry = new SimpleMeterRegistry();
+        var metrics = new SchedulerMetrics(registry, "shadow");
+
+        metrics.predictionError(score("learned", 500));
+
+        var total = registry.find(SchedulerMetrics.PREDICTION_ERROR_SECONDS).tags("policy", "learned",
+                "server", "ollama-gpu", "model", "qwen3:8b", "part", "total").summary();
+        assertNotNull(total, "the tag is the placing policy, not the configured one");
+        assertEquals(1, total.count());
+        assertEquals(1.5, total.totalAmount(), 1e-9);
+        var relative = registry.find(SchedulerMetrics.PREDICTION_RELATIVE_ERROR).tags("part", "total").summary();
+        assertEquals(0.1875, relative.totalAmount(), 1e-9);
+        var firstToken = registry.find(SchedulerMetrics.PREDICTION_ERROR_SECONDS).tag("part", "first_token").summary();
+        assertEquals(0.5, firstToken.totalAmount(), 1e-9);
+    }
+
+    @Test
+    void aRequestThatWasNotStreamedScoresTheTotalOnly() {
+        var registry = new SimpleMeterRegistry();
+
+        new SchedulerMetrics(registry, "learned").predictionError(score("algorithm", -1));
+
+        assertNotNull(registry.find(SchedulerMetrics.PREDICTION_ERROR_SECONDS).tag("part", "total").summary());
+        assertNull(registry.find(SchedulerMetrics.PREDICTION_ERROR_SECONDS).tag("part", "first_token").summary());
+    }
+
+    @Test
+    void aPredictionErrorWithoutAServerOrModelIsIgnored() {
+        var registry = new SimpleMeterRegistry();
+        var metrics = new SchedulerMetrics(registry, "learned");
+
+        metrics.predictionError(null);
+        metrics.predictionError(new PlacedCall.Score("learned", "", "m", "simple", 1, 1, 0, 0, 0, -1, 0));
+
+        assertTrue(registry.getMeters().isEmpty());
     }
 }

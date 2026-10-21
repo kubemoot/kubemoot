@@ -29,6 +29,11 @@ import java.util.TreeMap;
  * signal; its wait is the time from its first {@code waiting} message to its next
  * {@code evaluating} or terminal signal. Messages may arrive on several NATS
  * dispatcher threads, so every method is synchronized.</p>
+ *
+ * <p>Every model call the scheduler placed in the round is listed in {@code calls}
+ * with its placement: an agent's from the {@code placementCalls} of its signals, the
+ * coordinator's from {@link #recordCall}. Each says where it ran, which policy placed
+ * it and why, the options weighed, what was predicted and what the call measured.</p>
  */
 final class DiscussionReceipt {
 
@@ -52,6 +57,7 @@ final class DiscussionReceipt {
     private final Map<String, AgentLine> agents = new HashMap<>();
     private final Map<String, Instant> waitingSince = new HashMap<>();
     private final Map<String, Long> waitMs = new HashMap<>();
+    private final List<ObjectNode> calls = new ArrayList<>();
 
     /** One agent's part in the round, added up over its terminal signals. */
     private static final class AgentLine {
@@ -86,6 +92,17 @@ final class DiscussionReceipt {
         agents.clear();
         waitingSince.clear();
         waitMs.clear();
+        calls.clear();
+    }
+
+    /**
+     * Takes in a model call the coordinator placed, as a {@code placement-call}
+     * object that names its agent and phase. A null call is ignored.
+     */
+    synchronized void recordCall(ObjectNode call) {
+        if (call != null) {
+            calls.add(call);
+        }
     }
 
     /** Takes in one message of the thread, received at {@code at}. */
@@ -125,12 +142,22 @@ final class DiscussionReceipt {
             line.outputTokens += meta.path("outputTokens").asLong(0);
             line.inferenceMs += meta.path("inferenceMs").asLong(0);
             meta.path("modelsUsed").forEach(m -> line.models.add(m.asText()));
+            meta.path("placementCalls").forEach(c -> observeCall(agent, c));
         }
         if (firstSignalAt == null) {
             firstSignalAt = at;
         }
         if (lastSignalAt == null || at.isAfter(lastSignalAt)) {
             lastSignalAt = at;
+        }
+    }
+
+    /** Keeps a copy of an agent's placed call, named for the agent. */
+    private void observeCall(String agent, JsonNode call) {
+        if (call instanceof ObjectNode placed) {
+            ObjectNode copy = placed.deepCopy();
+            copy.put("agent", agent);
+            calls.add(copy);
         }
     }
 
@@ -174,7 +201,23 @@ final class DiscussionReceipt {
         tokens.put("in", agentTokens.in() + coordinatorIn);
         tokens.put("out", agentTokens.out() + coordinatorOut);
         r.set("placements", placements(mapper));
+        if (!calls.isEmpty()) {
+            r.set("calls", callsInOrder(mapper));
+        }
         return r;
+    }
+
+    /** The placed calls in the order they started; a call with no start time goes last. */
+    private ArrayNode callsInOrder(ObjectMapper mapper) {
+        List<ObjectNode> ordered = new ArrayList<>(calls);
+        ordered.sort((a, b) -> Long.compare(startOf(a), startOf(b)));
+        ArrayNode out = mapper.createArrayNode();
+        ordered.forEach(c -> out.add(c.deepCopy()));
+        return out;
+    }
+
+    private static long startOf(ObjectNode call) {
+        return call.path("at").asLong(Long.MAX_VALUE);
     }
 
     private ObjectNode phases(ObjectMapper mapper, Instant settled) {

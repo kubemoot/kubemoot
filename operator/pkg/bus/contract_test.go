@@ -158,6 +158,7 @@ var unrecorded = map[string]bool{
 	"chat-event.json": true, "crew-memory-fact.json": true, "discussion-metadata.json": true,
 	"discussion-request.json": true, "error-response.json": true, "onboarding-deployed.json": true,
 	"onboarding-docs-indexed.json": true, "onboarding-progress.json": true, "pinned-thread.json": true,
+	"placement-call.json":          true,
 	"post-discussion-request.json": true, "post-discussion-response.json": true,
 	"model-lifecycle-reply.json": true, "model-lifecycle-request.json": true,
 	"server-ticket.json": true, "scheduled-record.json": true, "signal-meta.json": true,

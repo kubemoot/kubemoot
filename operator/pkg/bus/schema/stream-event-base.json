@@ -33,6 +33,11 @@
       "description": "The busy agents, on activity."
     },
     "at": { "type": "string", "description": "When an activity event was taken, RFC 3339 in UTC." },
+    "receipt": {
+      "type": "object",
+      "description": "On done, the DiscussionReceipt of discussion-metadata.json exactly as the thread_close message carried it: what the thread cost and how it went, including every model call the scheduler placed with its prediction and what the call measured. Absent when the closing message carried none.",
+      "additionalProperties": true
+    },
     "timestamp": {
       "type": "string",
       "description": "When the discussion message behind the event was published, RFC 3339 in UTC. Events the gateway makes up itself carry none."
