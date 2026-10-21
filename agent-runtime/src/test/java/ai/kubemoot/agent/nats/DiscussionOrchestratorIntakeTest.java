@@ -52,10 +52,10 @@ class DiscussionOrchestratorIntakeTest {
 
     @Test
     void theThreadStartsCrewAndConversation_areKept() {
-        send("human", "thread_start", "{\"crew\":\"oguide\",\"conversationId\":\"c-1\"}");
+        send("human", "thread_start", "{\"crew\":\"demo\",\"conversationId\":\"c-1\"}");
 
         var state = orchestrator.threadForTest(THREAD);
-        assertEquals("oguide", state.crew);
+        assertEquals("demo", state.crew);
         assertEquals("c-1", state.conversationId);
     }
 
@@ -94,6 +94,54 @@ class DiscussionOrchestratorIntakeTest {
     @Test
     void anotherMessageType_leavesANewThreadSubmitted() {
         send("k8s", "agree", null);
+
+        assertEquals(Phase.SUBMITTED, orchestrator.threadForTest(THREAD).phase);
+        verify(metrics, never()).threadStarted();
+    }
+
+    @Test
+    void theSamePayloadDeliveredTwice_startsTheThreadOnce() {
+        send("human", "thread_start", null);
+        send("human", "thread_start", null);
+
+        assertEquals(Phase.ADVISORY, orchestrator.threadForTest(THREAD).phase);
+        verify(metrics, times(1)).threadStarted();
+    }
+
+    @Test
+    void theCoordinatorsOwnEcho_afterOrchestrateStartedTheThread_doesNothing() {
+        send("k8s", "agree", null);
+        var state = orchestrator.threadForTest(THREAD);
+        state.phase = Phase.ADVISORY;
+        String self = DiscussionOrchestratorTest.stubProperties("general").agentName();
+
+        send(self, "thread_start", null);
+
+        assertEquals(Phase.ADVISORY, state.phase);
+        verify(metrics, never()).threadStarted();
+    }
+
+    @Test
+    void aThreadStartForAnotherCrew_isIgnored() {
+        send("human", "thread_start", "{\"crew\":\"other-crew\"}");
+
+        assertEquals(Phase.SUBMITTED, orchestrator.threadForTest(THREAD).phase);
+        verify(metrics, never()).threadStarted();
+    }
+
+    @Test
+    void aThreadStartForAnotherNamespace_isIgnored() {
+        send("human", "thread_start", "{\"crew\":\"demo\",\"namespace\":\"other-ns\"}");
+
+        assertEquals(Phase.SUBMITTED, orchestrator.threadForTest(THREAD).phase);
+        verify(metrics, never()).threadStarted();
+    }
+
+    @Test
+    void aThreadStartWithABlankQuestion_doesNotAdvance() {
+        orchestrator.handleMessage("{\"messageId\":\"m-blank\",\"threadId\":\"" + THREAD
+                + "\",\"agentName\":\"human\",\"messageType\":\"thread_start\",\"content\":\"  \","
+                + "\"channel\":\"general\"}");
 
         assertEquals(Phase.SUBMITTED, orchestrator.threadForTest(THREAD).phase);
         verify(metrics, never()).threadStarted();
