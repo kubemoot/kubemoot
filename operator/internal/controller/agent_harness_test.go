@@ -56,10 +56,10 @@ func sidecarAgent() *kubemootv1alpha1.Agent {
 	return &kubemootv1alpha1.Agent{
 		ObjectMeta: metav1.ObjectMeta{Name: testAgentName, Namespace: testNS1, Labels: map[string]string{labelCrew: testCrewA}},
 		Spec: kubemootv1alpha1.AgentSpec{
-			DiscussRole: "tooler", DiscussChannels: []string{"general"}, TriageSummary: "Reads notes.",
+			DiscussRole: "tooler", DiscussChannels: []string{identityChannel}, TriageSummary: "Reads notes.",
 			EnabledTools: []string{testToolFetch}, DisabledTools: []string{"shell_exec"},
 			Harness: &kubemootv1alpha1.HarnessSpec{
-				Name: "goose", Mode: kubemootv1alpha1.HarnessModeSidecar, Image: testHarnessImage,
+				Name: identityHarnessName, Mode: kubemootv1alpha1.HarnessModeSidecar, Image: testHarnessImage,
 				Env: []corev1.EnvVar{{Name: "GOOSE_MODE", Value: "headless"}},
 			},
 		},
@@ -216,11 +216,12 @@ func TestTheContractRoundTripsAndCarriesTheAgent(t *testing.T) {
 	id, def := c.Identity, c.Models.Aliases[meshcontract.DefaultAlias]
 	harnessFacts{
 		"identity": {id, meshcontract.Identity{Namespace: testNS1, Crew: testCrewA, Agent: testAgentName, Role: "tooler",
-			Channels: []string{"general"}, TriageSummary: "Reads notes.", Harness: "goose"}},
+			Channels: []string{identityChannel}, TriageSummary: "Reads notes.", Harness: identityHarnessName}},
 		"stream":          {c.Bus.Stream, bus.DiscussStream},
 		"consumer":        {c.Bus.Consumer, id.ConsumerName()},
 		"nats url set":    {c.Bus.NATSURL != "", true},
 		"credentials dir": {c.Bus.CredentialsDir, meshcontract.NATSCredentialsDir},
+		"http port":       {c.HTTPPort, int(meshcontract.DefaultHTTPPort)},
 		"default models":  {def.Candidates, []string{testModelID, "qwen3:4b"}},
 		"default floor":   {*def.Fallback, meshcontract.Endpoint{Server: "rig0", Endpoint: "http://rig0:11434", Model: testModelID}},
 		"triage server":   {c.Models.Aliases["triage"].Fallback.Server, "rig1"},

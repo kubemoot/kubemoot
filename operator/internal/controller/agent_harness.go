@@ -90,6 +90,9 @@ func validateSidecarAgent(agent *kubemootv1alpha1.Agent) error {
 	if agent.Labels[labelCrew] == "" {
 		errs = append(errs, fmt.Errorf("harness mode sidecar needs the %s label: the sidecar scopes every subject by crew", labelCrew))
 	}
+	if isCoordinator(agent) {
+		errs = append(errs, errors.New("a crew's coordinator runs in legacy mode: its consensus state machine is not a harness seat"))
+	}
 	if harnessImage(agent) == "" {
 		errs = append(errs, errors.New("harness mode sidecar needs harness.image or deployment.image"))
 	}
@@ -118,11 +121,7 @@ func aliasFor(pick *modelPick) meshcontract.Alias {
 // buildContract is the contract.yaml content for a sidecar-mode Agent.
 func (r *AgentReconciler) buildContract(ctx context.Context, agent *kubemootv1alpha1.Agent, mulling, triage *modelPick) meshcontract.Contract {
 	h := agent.Spec.Harness
-	id := meshcontract.Identity{
-		Namespace: agent.Namespace, Crew: agent.Labels[labelCrew], Agent: agent.Name,
-		Role: agent.Spec.DiscussRole, Channels: agent.Spec.DiscussChannels,
-		TriageSummary: agent.Spec.TriageSummary, Harness: h.Name,
-	}
+	id := agentIdentity(agent)
 	concurrency := int(h.Concurrency)
 	if concurrency < 1 {
 		concurrency = 1
@@ -130,6 +129,7 @@ func (r *AgentReconciler) buildContract(ctx context.Context, agent *kubemootv1al
 	c := meshcontract.Contract{
 		ContractVersion: meshcontract.ContractVersion,
 		Identity:        id,
+		HTTPPort:        int(sidecarHTTPPort(agent)),
 		Bus: meshcontract.Bus{NATSURL: agentNATSURL(), Stream: bus.DiscussStream, Consumer: id.ConsumerName(),
 			CredentialsDir: meshcontract.NATSCredentialsDir},
 		Turn: meshcontract.Turn{
@@ -175,6 +175,19 @@ func (r *AgentReconciler) sidecarContractData(ctx context.Context, agent *kubemo
 	return string(data), nil
 }
 
+// agentIdentity is who the agent is on the bus. The contract and the durable consumer both come
+// from it, so they cannot name different consumers.
+func agentIdentity(agent *kubemootv1alpha1.Agent) meshcontract.Identity {
+	id := meshcontract.Identity{
+		Namespace: agent.Namespace, Crew: agent.Labels[labelCrew], Agent: agent.Name,
+		Role: agent.Spec.DiscussRole, Channels: agent.Spec.DiscussChannels, TriageSummary: agent.Spec.TriageSummary,
+	}
+	if agent.Spec.Harness != nil {
+		id.Harness = agent.Spec.Harness.Name
+	}
+	return id
+}
+
 func contractConfigMapName(agent *kubemootv1alpha1.Agent) string { return agent.Name + "-contract" }
 
 // ensureContractConfigMap writes the Agent's contract.yaml ConfigMap.
@@ -213,9 +226,7 @@ type consumerEnsurer interface {
 // failure is logged and never fails the reconcile: the sidecar subscribes on core NATS until the
 // consumer exists, and the next reconcile tries again.
 func ensureSidecarConsumer(ctx context.Context, e consumerEnsurer, agent *kubemootv1alpha1.Agent) {
-	id := meshcontract.Identity{
-		Namespace: agent.Namespace, Crew: agent.Labels[labelCrew], Agent: agent.Name, Channels: agent.Spec.DiscussChannels,
-	}
+	id := agentIdentity(agent)
 	if err := e.EnsureConsumer(bus.DiscussStream, id.ConsumerName(), id.DiscussFilters()); err != nil {
 		logf.FromContext(ctx).Info("Could not ensure the sidecar's JetStream consumer", "consumer", id.ConsumerName(), "error", err.Error())
 	}
@@ -281,8 +292,9 @@ func (r *AgentReconciler) buildSidecarDeployment(ctx context.Context, agent *kub
 	if data, err := r.sidecarContractData(ctx, agent, mulling, triage); err == nil {
 		tmpl.Annotations[contractHashAnnotation] = hashString(data)
 	}
-	// ApplySidecar fails only when the harness container is missing, which this function just built.
-	_ = mesh.ApplySidecar(&tmpl, harnessContainerName, r.sidecarPatch(agent, policyCMName))
+	if err := mesh.ApplySidecar(&tmpl, harnessContainerName, r.sidecarPatch(agent, policyCMName)); err != nil {
+		logf.FromContext(ctx).Error(err, "Could not join the pod to the Moot Mesh")
+	}
 	d := &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: agent.Name, Namespace: agent.Namespace, Labels: sidecarDeploymentLabels(agent, mulling, triage),

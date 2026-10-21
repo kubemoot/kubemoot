@@ -602,7 +602,18 @@ func (r *AgentReconciler) ensureDeployment(ctx context.Context, agent *kubemootv
 		existing.Annotations = map[string]string{}
 	}
 	existing.Annotations[deploymentHashAnnotation] = desiredHash
+	syncNativeToolsAnnotation(existing, desired)
 	return r.Update(ctx, existing)
+}
+
+// syncNativeToolsAnnotation makes the native-tools annotation follow the Agent: set in sidecar
+// mode, gone in legacy mode.
+func syncNativeToolsAnnotation(existing, desired *appsv1.Deployment) {
+	if v, ok := desired.Annotations[annoNativeTools]; ok {
+		existing.Annotations[annoNativeTools] = v
+		return
+	}
+	delete(existing.Annotations, annoNativeTools)
 }
 
 func (r *AgentReconciler) buildDeployment(ctx context.Context, agent *kubemootv1alpha1.Agent, mulling, triage *modelPick, policyCMName, promptHash string) *appsv1.Deployment {

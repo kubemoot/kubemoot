@@ -40,6 +40,9 @@ func (c Contract) Validate() error {
 	if c.ContractVersion != ContractVersion {
 		errs = append(errs, fmt.Errorf("contractVersion %q: this sidecar serves %q", c.ContractVersion, ContractVersion))
 	}
+	if c.HTTPPort < 0 || c.HTTPPort > 65535 {
+		errs = append(errs, fmt.Errorf("httpPort %d is not a port", c.HTTPPort))
+	}
 	errs = append(errs, c.Identity.validate(), c.Bus.validate(), c.Turn.validate(),
 		c.Models.validate(), c.Placement.validate(), c.Tools.validate(), c.Observability.validate())
 	return errors.Join(errs...)
