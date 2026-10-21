@@ -150,6 +150,11 @@ spec:
               # models, or agents not seen for 30 days.
               nats kv add kubemoot_scheduler_performance --ttl=720h --history=1 --max-value-size=32768 -s "$NATS_URL" 2>/dev/null || true
 
+              # kubemoot_placement_leader - the placement service's leader lease. The
+              # leader renews its key within the TTL; if it stops, the key expires and
+              # a standby takes over. history=1, small values (the holder identity).
+              nats kv add kubemoot_placement_leader --ttl=15s --history=1 --max-value-size=1024 -s "$NATS_URL" 2>/dev/null || true
+
               # Retired buckets. Nothing reads them. Remove each when it exists
               # (absent is fine), and only these two by name.
               for old in kubemoot_provider_state kubemoot_provider_tickets; do

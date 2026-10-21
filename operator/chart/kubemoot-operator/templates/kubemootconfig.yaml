@@ -23,18 +23,24 @@ spec:
     {{- end }}
     vectorStoreType: {{ .Values.kubemootConfig.defaults.vectorStoreType | quote }}
     embeddingModel: {{ .Values.kubemootConfig.defaults.embeddingModel | quote }}
-    {{- if .Values.kubemootConfig.defaults.scheduler }}
+    {{- if or .Values.kubemootConfig.defaults.scheduler (and .Values.placementService.enabled .Values.placementService.agentsUse) }}
     scheduler:
-      enabled: {{ .Values.kubemootConfig.defaults.scheduler.enabled | default false }}
-      strategy: {{ .Values.kubemootConfig.defaults.scheduler.strategy | default "spread" | quote }}
-      probeIntervalSeconds: {{ .Values.kubemootConfig.defaults.scheduler.probeIntervalSeconds | default 30 }}
-      placementPolicy: {{ .Values.kubemootConfig.defaults.scheduler.placementPolicy | default "algorithm" | quote }}
-      {{- if .Values.kubemootConfig.defaults.scheduler.prometheusEndpoint }}
-      prometheusEndpoint: {{ .Values.kubemootConfig.defaults.scheduler.prometheusEndpoint | quote }}
+      {{- $sched := .Values.kubemootConfig.defaults.scheduler | default dict }}
+      enabled: {{ $sched.enabled | default false }}
+      strategy: {{ $sched.strategy | default "spread" | quote }}
+      probeIntervalSeconds: {{ $sched.probeIntervalSeconds | default 30 }}
+      placementPolicy: {{ $sched.placementPolicy | default "algorithm" | quote }}
+      {{- if $sched.prometheusEndpoint }}
+      prometheusEndpoint: {{ $sched.prometheusEndpoint | quote }}
       {{- end }}
-      {{- if .Values.kubemootConfig.defaults.scheduler.modelEquivalence }}
+      {{- if $sched.modelEquivalence }}
       modelEquivalence:
-        {{- toYaml .Values.kubemootConfig.defaults.scheduler.modelEquivalence | nindent 8 }}
+        {{- toYaml $sched.modelEquivalence | nindent 8 }}
+      {{- end }}
+      {{- if and .Values.placementService.enabled .Values.placementService.agentsUse }}
+      placementService:
+        enabled: true
+        url: {{ .Values.placementService.url | default (printf "http://%s-placement-service.%s.svc:8080" (include "kubemoot-operator.fullname" .) .Release.Namespace) | quote }}
       {{- end }}
     {{- end }}
 {{- end }}

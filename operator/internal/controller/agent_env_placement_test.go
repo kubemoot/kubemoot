@@ -111,3 +111,66 @@ func TestPolicyAppliesTo(t *testing.T) {
 		t.Fatal("a policy without crewRef applies to every crew")
 	}
 }
+
+const testPlacementServiceURL = "http://placement-service.kubemoot-system.svc:8080"
+
+func placementServiceConfig(enabled bool, url string) *kubemootv1alpha1.KubemootConfig {
+	return &kubemootv1alpha1.KubemootConfig{Spec: kubemootv1alpha1.KubemootConfigSpec{
+		Defaults: kubemootv1alpha1.DefaultConfig{Scheduler: &kubemootv1alpha1.SchedulerConfig{
+			PlacementService: &kubemootv1alpha1.PlacementServiceConfig{Enabled: enabled, URL: url},
+		}},
+	}}
+}
+
+func TestPlacementServiceEnv_AbsentByDefault(t *testing.T) {
+	r := &AgentReconciler{ConfigCache: NewConfigCache()}
+	if got := r.placementServiceEnvVars(); len(got) != 0 {
+		t.Fatalf("no config: got %v", got)
+	}
+	r.ConfigCache.Update(&kubemootv1alpha1.KubemootConfig{Spec: kubemootv1alpha1.KubemootConfigSpec{
+		Defaults: kubemootv1alpha1.DefaultConfig{Scheduler: &kubemootv1alpha1.SchedulerConfig{}},
+	}})
+	if got := r.placementServiceEnvVars(); len(got) != 0 {
+		t.Fatalf("scheduler without placementService: got %v", got)
+	}
+	if got := (&AgentReconciler{}).placementServiceEnvVars(); len(got) != 0 {
+		t.Fatalf("no cache: got %v", got)
+	}
+}
+
+func TestPlacementServiceEnv_OnWithURL(t *testing.T) {
+	r := &AgentReconciler{ConfigCache: NewConfigCache()}
+	r.ConfigCache.Update(placementServiceConfig(true, testPlacementServiceURL))
+	got := r.placementServiceEnvVars()
+	if len(got) != 1 || got[0].Name != envPlacementServiceURL || got[0].Value != testPlacementServiceURL {
+		t.Fatalf("got %v", got)
+	}
+}
+
+func TestPlacementServiceEnv_OnWithEmptyURLOrOffWithURL(t *testing.T) {
+	r := &AgentReconciler{ConfigCache: NewConfigCache()}
+	r.ConfigCache.Update(placementServiceConfig(true, ""))
+	if got := r.placementServiceEnvVars(); len(got) != 0 {
+		t.Fatalf("enabled with empty url: got %v", got)
+	}
+	r.ConfigCache.Update(placementServiceConfig(false, testPlacementServiceURL))
+	if got := r.placementServiceEnvVars(); len(got) != 0 {
+		t.Fatalf("disabled with url: got %v", got)
+	}
+}
+
+func TestPlacementServiceEnv_ConfigUpdateFlips(t *testing.T) {
+	r := &AgentReconciler{ConfigCache: NewConfigCache()}
+	r.ConfigCache.Update(placementServiceConfig(false, testPlacementServiceURL))
+	if len(r.placementServiceEnvVars()) != 0 {
+		t.Fatal("expected absent while off")
+	}
+	r.ConfigCache.Update(placementServiceConfig(true, testPlacementServiceURL))
+	if len(r.placementServiceEnvVars()) != 1 {
+		t.Fatal("expected present after enabling")
+	}
+	r.ConfigCache.Update(placementServiceConfig(false, testPlacementServiceURL))
+	if len(r.placementServiceEnvVars()) != 0 {
+		t.Fatal("expected absent after disabling")
+	}
+}

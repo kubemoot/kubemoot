@@ -802,6 +802,7 @@ func (r *AgentReconciler) buildEnvVars(ctx context.Context, agent *kubemootv1alp
 	env := baseAgentEnvVars(agent, crew, mulling, triage, port)
 	env = append(env, candidateEnvVars(mulling, triage)...)
 	env = append(env, r.placementPolicyEnvVar(ctx, agent))
+	env = append(env, r.placementServiceEnvVars()...)
 	env = append(env, agentModelEnvVars(agent)...)
 	env = append(env, agentDiscussRelevanceEnvVars(agent)...)
 	env = append(env, r.agentDiscussRoleEnvVars(ctx, agent, crew)...)

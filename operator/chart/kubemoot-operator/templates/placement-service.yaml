@@ -1,0 +1,225 @@
+{{- /*
+Placement service: the single writer that decides where each model call runs and owns
+the tickets. Replicas elect one leader through the kubemoot_placement_leader NATS KV
+bucket (created by nats-streams-job.yaml). Only the leader reports Ready, so the Service
+routes to the leader alone; standby replicas are Running but not Ready by design.
+
+Rollout: maxUnavailable 1 keeps Helm's wait satisfied by the leader alone (replicas 2
+needs one available), and lets a rolling update remove the old leader before the new
+pod is Ready. The PodDisruptionBudget also allows one pod to go, so a node drain never
+blocks.
+
+No Role or ClusterRole is rendered: the service never calls the Kubernetes API. Leadership
+and state live in NATS, so the ServiceAccount carries no permissions and the pod gets no
+API token.
+*/ -}}
+{{- if .Values.placementService.enabled }}
+{{- $name := printf "%s-placement-service" (include "kubemoot-operator.fullname" .) }}
+{{- $ps := .Values.placementService }}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ $name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "kubemoot-operator.labels" . | nindent 4 }}
+    app.kubernetes.io/component: placement-service
+automountServiceAccountToken: false
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "kubemoot-operator.labels" . | nindent 4 }}
+    app.kubernetes.io/component: placement-service
+spec:
+  replicas: {{ $ps.replicaCount }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 1
+  selector:
+    matchLabels:
+      {{- include "kubemoot-operator.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: placement-service
+  template:
+    metadata:
+      labels:
+        {{- include "kubemoot-operator.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: placement-service
+    spec:
+      {{- with (include "kubemoot-operator.pullSecrets" . | fromYamlArray) }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ $name }}
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      {{- with $ps.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $ps.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- if $ps.affinity }}
+      affinity:
+        {{- toYaml $ps.affinity | nindent 8 }}
+      {{- else }}
+      # Prefer one replica per node so a node loss leaves a standby to take over.
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                topologyKey: kubernetes.io/hostname
+                labelSelector:
+                  matchLabels:
+                    {{- include "kubemoot-operator.selectorLabels" . | nindent 20 }}
+                    app.kubernetes.io/component: placement-service
+      {{- end }}
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              {{- include "kubemoot-operator.selectorLabels" . | nindent 14 }}
+              app.kubernetes.io/component: placement-service
+      containers:
+        - name: placement-service
+          image: {{ include "kubemoot-operator.image" (dict "root" . "image" $ps.image) | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          env:
+            - name: NATS_URL
+              value: {{ .Values.nats.url | quote }}
+            {{- if $ps.nats.existingSecret }}
+            - name: NATS_USER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $ps.nats.existingSecret }}
+                  key: {{ $ps.nats.userKey }}
+                  optional: true
+            - name: NATS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $ps.nats.existingSecret }}
+                  key: {{ $ps.nats.passwordKey }}
+                  optional: true
+            {{- end }}
+            - name: KUBEMOOT_PLACEMENT_LEASE_SECONDS
+              value: {{ $ps.leaseSeconds | quote }}
+            - name: KUBEMOOT_PLACEMENT_TICKET_TTL_SECONDS
+              value: {{ $ps.ticketTtlSeconds | quote }}
+            # The pod name is this replica's leader identity.
+            - name: HOSTNAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+          # Liveness never depends on leadership: a standby is alive.
+          startupProbe:
+            httpGet:
+              path: /q/health/live
+              port: http
+            periodSeconds: 2
+            failureThreshold: 30
+          livenessProbe:
+            httpGet:
+              path: /q/health/live
+              port: http
+            periodSeconds: 10
+            failureThreshold: 3
+          # Ready only on the leader.
+          readinessProbe:
+            httpGet:
+              path: /q/health/ready
+              port: http
+            periodSeconds: 3
+            failureThreshold: 2
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+          resources:
+            {{- toYaml $ps.resources | nindent 12 }}
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 16Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "kubemoot-operator.labels" . | nindent 4 }}
+    app.kubernetes.io/component: placement-service
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+      protocol: TCP
+  selector:
+    {{- include "kubemoot-operator.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: placement-service
+---
+# maxUnavailable 1 (not minAvailable) so a node drain can always evict the leader or
+# a standby; the other replica takes over within the lease.
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ $name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "kubemoot-operator.labels" . | nindent 4 }}
+    app.kubernetes.io/component: placement-service
+spec:
+  maxUnavailable: 1
+  selector:
+    matchLabels:
+      {{- include "kubemoot-operator.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: placement-service
+{{- if and .Values.metrics.enabled .Values.metrics.podMonitor.enabled (.Capabilities.APIVersions.Has "monitoring.coreos.com/v1/PodMonitor") }}
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: {{ $name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "kubemoot-operator.labels" . | nindent 4 }}
+    {{- with .Values.metrics.podMonitor.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "kubemoot-operator.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: placement-service
+  podMetricsEndpoints:
+    - port: http
+      path: /q/metrics
+      {{- with .Values.metrics.podMonitor.interval }}
+      interval: {{ . }}
+      {{- end }}
+{{- end }}
+{{- end }}

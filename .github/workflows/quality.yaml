@@ -90,6 +90,16 @@ jobs:
         run: ./gradlew test jacocoTestReport
         continue-on-error: true
 
+      - name: Placement Core tests with coverage
+        working-directory: placement-core
+        run: ./gradlew test jacocoTestReport
+        continue-on-error: true
+
+      - name: Placement Service tests with coverage
+        working-directory: placement-service
+        run: ./gradlew test jacocoTestReport
+        continue-on-error: true
+
       - name: MCP Gateway tests with coverage
         working-directory: mcp-gateway
         run: ./gradlew test jacocoTestReport
@@ -104,6 +114,8 @@ jobs:
       - name: Create Java binaries dirs
         run: |
           mkdir -p agent-runtime/build/classes/java/main
+          mkdir -p placement-core/build/classes/java/main
+          mkdir -p placement-service/build/classes/java/main
           mkdir -p mcp-gateway/build/classes/java/main
           mkdir -p indexer/build/classes/java/main
 
