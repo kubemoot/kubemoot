@@ -130,7 +130,8 @@ func (r *AgentReconciler) buildContract(ctx context.Context, agent *kubemootv1al
 	c := meshcontract.Contract{
 		ContractVersion: meshcontract.ContractVersion,
 		Identity:        id,
-		Bus:             meshcontract.Bus{NATSURL: agentNATSURL(), Stream: bus.DiscussStream, Consumer: id.ConsumerName()},
+		Bus: meshcontract.Bus{NATSURL: agentNATSURL(), Stream: bus.DiscussStream, Consumer: id.ConsumerName(),
+			CredentialsDir: meshcontract.NATSCredentialsDir},
 		Turn: meshcontract.Turn{
 			URL:         fmt.Sprintf("http://127.0.0.1:%d", harnessPort(h)),
 			Concurrency: concurrency, DeadlineSeconds: turnDeadlineSeconds,
