@@ -7,7 +7,8 @@
 	import type { Thread } from '#lib/stores/index.js';
 	import { discussSubject, tryCrewScope, type CrewScope } from '#lib/crewScope.js';
 	import { crewEntry, crewLabel, crewTooltip } from '#lib/crew-display-name.js';
-	import { DiscussionSpanGraph, MessageStatsLine, ThreadSummaryPanel } from '#lib/components/discussions/index.js';
+	import { DiscussionSpanGraph, MessageStatsLine, PlacementPanel, ThreadSummaryPanel } from '#lib/components/discussions/index.js';
+	import { placementCallsOf } from '#lib/placement-panel.js';
 	import { formatTimestamp, messageStats, summarizeThread } from '#lib/discussion-timing.js';
 	import { formatDuration, formatElapsed } from '#lib/duration-format.js';
 	import { SYNTHESIS_COLLAPSE_CHARS, artifactKey, artifactHref } from '#lib/discussion-artifacts.js';
@@ -104,6 +105,7 @@
 	// Per-message elapsed time, step durations, tokens and placement, and the thread's
 	// summary, derived from the selected thread's messages as they arrive.
 	const selectedStats = $derived(messageStats(selectedThread?.messages ?? []));
+	const selectedPlacementCalls = $derived(placementCallsOf(selectedThread?.messages ?? []));
 	const selectedSummary = $derived(
 		selectedThread ? summarizeThread(selectedThread.messages, selectedStats) : null
 	);
@@ -814,6 +816,9 @@
 					{/each}
 					{#if selectedSummary && (selectedSummary.endedAt || selectedSummary.participants.length > 0)}
 						<ThreadSummaryPanel summary={selectedSummary} {agentLabel} />
+					{/if}
+					{#if selectedPlacementCalls.length > 0}
+						<PlacementPanel calls={selectedPlacementCalls} {agentLabel} />
 					{/if}
 				</div>
 

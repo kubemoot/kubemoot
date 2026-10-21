@@ -624,6 +624,7 @@ Alias: `conv`
 kmctl conversation ask <crew> "<message>" [-n <namespace>] [-o full|plain|json|quiet] [-q] [--conversation-id <id>]
 kmctl conversation watch <crew> <conversation-id> [-n <namespace>] [-o full|plain|json|quiet] [-q]
 kmctl conversation list <crew> [-n <namespace>] [-o yaml|json|kyaml]
+kmctl conversation placements <crew> <conversation-id> [-n <namespace>] [-o table|yaml|json|kyaml] [--timeout <duration>]
 kmctl conversation artifact <crew> <key> [-n <namespace>] [-f <file>]
 ```
 
@@ -762,6 +763,39 @@ kmctl conversation list homelab-pilot -n crew-homelab-pilot
 # CONVERSATION ID                        LAST TURN              TURNS   FIRST QUESTION
 # 6733c361-aa0c-4bde-85c6-e143af23b251   2026-10-15T09:12:40Z   2       Describe the proxmox nodes.
 ```
+
+### kmctl conversation placements
+
+```
+kmctl conversation placements <crew> <conversation-id> [-n <namespace>] [-o table|yaml|json|kyaml] [--timeout <duration>]
+```
+
+Show where the scheduler placed each model call of the conversation's latest turn and
+why. It reads the receipt that the crew's coordinator puts on the turn's closing
+message (see [Reading a placement decision](../../architecture/scheduler/#reading-a-placement-decision)),
+so the discussion gateway must forward the receipt on its closing event. A turn that has
+closed replays from the discussion stream; for a turn still running the command waits
+until it closes, up to `--timeout` (default 2 minutes). The conversation ID may be a
+unique prefix.
+
+The table has one row per call: the agent, the phase, the model and accelerator it
+ran on as `model@server`, the policy that placed it (`learned`, `algorithm` or
+`shadow`), the predicted and the measured time, and the error, measured minus
+predicted, so positive means the call took longer than predicted. Below it, each call
+gives the reason for its placement and the other servers the scheduler weighed, with
+their predicted times. The last line counts the calls per policy and gives the mean
+absolute error over the calls that have a prediction.
+
+```bash
+kmctl conversation placements homelab-pilot 6733c -n crew-homelab-pilot
+# #   AGENT                   PHASE        PLACEMENT                     POLICY      PREDICTED   ACTUAL   ERROR
+# 1   coordinator             advisory     qwen3:14b@ollama-gpu          learned     2.9s        3.4s     +500ms (15%)
+# 2   kubernetes-specialist   evaluation   qwen3:14b@ollama-gpu (cold)   algorithm   11.4s       13.8s    +2.4s (17%)
+```
+
+`-o json`, `-o yaml` and `-o kyaml` print `conversationId`, `crew`, `calls` (the calls
+exactly as the receipt carried them) and `summary`. A receipt without placement calls
+prints one line saying so, and `calls` is an empty list in the structured formats.
 
 ### Short conversation IDs and completion
 

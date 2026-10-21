@@ -13,6 +13,9 @@ import (
 // agentNameKey is the key of an agent's name in triage_result metadata.
 const agentNameKey = "name"
 
+// keyTotalMs is the key of a total time in a receipt and in a placement call.
+const keyTotalMs = "totalMs"
+
 // emitted translates one message and returns the single event it produced.
 func emitted(t *testing.T, m bus.DiscussionMessage) SSEEvent {
 	t.Helper()
@@ -154,5 +157,59 @@ func TestToFloatReadsJSONNumbersOnly(t *testing.T) {
 	}
 	if toFloat("2") != 0 || toFloat(nil) != 0 {
 		t.Error("a non-number is zero")
+	}
+}
+
+func TestFindingCarriesThePlacementOfItsCalls(t *testing.T) {
+	meta := agreeMetadata()
+	meta[metaPlacementCalls] = []interface{}{map[string]interface{}{
+		"phase": "evaluation", "kind": "tool-turn", metaModel: actModel, "server": testGPU, "policy": "learned",
+		"reason":    "predicted 2.9s (wait 0.0, load 0.0, prompt 0.6, generate 2.3)",
+		"predicted": map[string]interface{}{"waitMs": 0, "loadMs": 0, "promptMs": 600, "generateMs": 2300, keyTotalMs: 2900},
+		"actual":    map[string]interface{}{"ok": true, keyTotalMs: 3400, "inputTokens": 640, "outputTokens": 190, "requests": 1},
+	}}
+	e := emitted(t, bus.DiscussionMessage{MessageType: signalAgree, AgentName: testAgent, Content: "x", Metadata: meta})
+	if e.SignalMeta == nil || len(e.PlacementCalls) != 1 {
+		t.Fatalf("want one placement call, got %+v", e.SignalMeta)
+	}
+	call := e.PlacementCalls[0]
+	if call.Policy != "learned" || call.Server != testGPU || call.Predicted == nil || call.Predicted.TotalMs != 2900 ||
+		call.Actual == nil || call.Actual.TotalMs != 3400 {
+		t.Fatalf("placement call not carried: %+v", call)
+	}
+}
+
+func TestPlacementCallsInAnUnexpectedShapeAreLeftOut(t *testing.T) {
+	for name, raw := range map[string]interface{}{
+		"not a list":    "x",
+		"empty list":    []interface{}{},
+		"wrong element": []interface{}{"x"},
+		"wrong field":   []interface{}{map[string]interface{}{metaModel: 7}},
+	} {
+		meta := agreeMetadata()
+		meta[metaPlacementCalls] = raw
+		e := emitted(t, bus.DiscussionMessage{MessageType: signalAgree, AgentName: testAgent, Content: "x", Metadata: meta})
+		if e.SignalMeta == nil || e.PlacementCalls != nil {
+			t.Errorf("%s: want no placement calls, got %+v", name, e.SignalMeta)
+		}
+	}
+}
+
+func TestDoneCarriesTheReceiptOfTheClosingMessage(t *testing.T) {
+	receipt := map[string]interface{}{keyTotalMs: float64(42000), "calls": []interface{}{map[string]interface{}{metaModel: "m"}}}
+	e := emitted(t, bus.DiscussionMessage{MessageType: msgThreadClose, Metadata: map[string]interface{}{metaReceipt: receipt}})
+	if e.Type != eventDone || !reflect.DeepEqual(map[string]interface{}(e.Receipt), receipt) {
+		t.Fatalf("done event %+v does not carry the receipt", e.StreamEventBase)
+	}
+	for name, meta := range map[string]map[string]interface{}{
+		"no metadata":   nil,
+		"no receipt":    {"totalTokens": float64(3)},
+		"not an object": {metaReceipt: "x"},
+		"empty":         {metaReceipt: map[string]interface{}{}},
+	} {
+		e := emitted(t, bus.DiscussionMessage{MessageType: msgThreadClose, Metadata: meta})
+		if e.Type != eventDone || e.Receipt != nil {
+			t.Errorf("%s: want a done event without a receipt, got %+v", name, e.StreamEventBase)
+		}
 	}
 }
