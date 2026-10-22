@@ -135,20 +135,25 @@ creates a `ModelServer` for each entry, and a `Model` in the operator's namespac
 `models` entry. Crews ship no Models: they select from this catalog by label, so changing
 the engine or adding a server changes the catalog and no crew.
 
-### Optional: a placement service for sidecar agents
+### Optional: a placement service
 
-Agents that run a harness behind a [Moot Mesh sidecar](../../architecture/moot-mesh/)
-ask a placement service where each model call runs. Point the operator at it with
-one value:
+The placement service is the one writer that decides where each model call runs. It
+picks the model and the accelerator at the moment of the call and owns the call
+tickets. Agents that run a harness behind a [Moot Mesh sidecar](../../architecture/moot-mesh/)
+ask it where each call runs, and an agent runtime can use it in place of placing calls
+in its own process. The chart ships it off by default. Turn it on with two values:
 
 ```yaml
 placementService:
-  url: "http://<placement-service-host>:<port>"
+  enabled: true      # deploy the service: two replicas, only the leader is Ready
+  agentsUse: true    # point agents at it
 ```
 
-The value reaches each sidecar as `placement.serviceURL` in the agent's contract. Left
-empty, which is the default, every sidecar uses the model server its Agent was bound to
-and no call is placed afresh. Agents without a harness block are not affected.
+`placementService.url` overrides the address agents call; empty means the in-cluster
+Service on port 8080. The value reaches each sidecar as `placement.serviceURL` in the
+agent's contract. With the service off, every sidecar uses the model server its Agent
+was bound to and no call is placed afresh, and an agent runtime places calls in its own
+process. Agents without a harness block are not affected by sidecar placement.
 
 ### Optional: the dashboard
 

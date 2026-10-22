@@ -182,7 +182,7 @@ The contract is the one file the sidecar needs. The operator writes it and the s
 | `models.aliases.<alias>.candidates` | The acceptable models for the alias, preferred first. A `default` alias is required; the operator also writes `triage`. |
 | `models.aliases.<alias>.fallback` | The `server`, `endpoint`, and `model` the operator bound, used when the placement service cannot be reached. |
 | `placement.policy` | The placement policy the crew resolved. |
-| `placement.serviceURL` | The placement service. Empty means every call uses the alias's fallback. See the operator chart value `placementService.url` in [Install the Operator](../../introduction/installation/#optional-a-placement-service-for-sidecar-agents). |
+| `placement.serviceURL` | The placement service. Empty means every call uses the alias's fallback. See the operator chart value `placementService` in [Install the Operator](../../introduction/installation/#optional-a-placement-service). |
 | `tools.gateway` | The crew's MCP gateway. Empty means the agent has no tools. |
 | `tools.enabled`, `tools.disabled` | The agent's `enabledTools` and `disabledTools`. |
 | `tools.nativeTools` | Recorded for the dashboard and the receipt. |

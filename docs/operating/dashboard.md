@@ -86,6 +86,8 @@ The sidebar shows the dashboard's version under the logo. A release candidate (`
 
 A two-panel thread viewer. The left panel lists threads, newest first, each tagged with its crew and channel. The right panel shows the message timeline for the selected thread: the question, each agent's contribution, and the synthesis. Recent threads are replayed from the JetStream history on page load, and new messages arrive live.
 
+The conversation view shows the question, a **subcommittee line** naming the agents the coordinator convened with a short reason for each, every agent's position, and the synthesis. Token counts, timings, the triage result, the thread close, placement, and work after the answer sit in a **debug layer** that is off by default. The bug icon in the thread toolbar turns it on and off; its tooltip says how much more it shows, and the dashboard remembers the choice per viewer. The rest of this section describes what the layer shows.
+
 The timeline shows the date and time once, when the thread started, and each message after that as the time since the start, such as `+1m12s`; hover over it for the exact time. Each agent's contribution shows what its messages carry:
 
 - **triage**: from the agent's `triaging` message to its `evaluating` message, or to its signal when it never evaluated

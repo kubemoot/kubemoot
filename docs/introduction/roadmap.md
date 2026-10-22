@@ -52,18 +52,21 @@ rotation, short-lived credentials, and audit, and per-user OAuth for assistants 
 for one person. See [Secrets and tools](../../concepts/secrets-and-tools/) for the full
 picture.
 
-## Assessing model servers beyond Ollama
+## More model servers and leased accelerators
 
-**Today:** Kubemoot drives two model servers, vLLM and Ollama. vLLM is the currently
-preferred engine for an installation, because overlapping calls to one model are the normal
-case in a moot (see the [measured results](../../concepts/choosing-a-model/#measured-results)).
-Ollama is the engine of the [quickstart](../quickstart/) and remains supported. The scheduler
-reads each server's live state through one contract: requests running and queued, KV cache
-use, loaded models with their context and parallel capacity, and load and unload events. The
-contract aligns with the Kubernetes Gateway API Inference Extension
+**Today:** Kubemoot drives two model servers, vLLM and Ollama, declared as `ModelServer`
+resources. vLLM is the default engine for an installation, because overlapping calls to one
+model are the normal case in a moot (see the [measured results](../../concepts/choosing-a-model/#measured-results)),
+and it switches between models on one accelerator with sleep and wake. Ollama stays a
+supported engine and is the engine of the [quickstart](../quickstart/). Calibration measures
+each server's speeds for the scheduler. The scheduler reads each server's live state through
+one contract: requests running and queued, KV cache use, loaded models with their context and
+parallel capacity, and load and unload events. The contract aligns with the Kubernetes Gateway
+API Inference Extension
 [Model Server Protocol](https://github.com/kubernetes-sigs/gateway-api-inference-extension/blob/main/docs/proposals/003-model-server-protocol/README.md),
 and each engine has one adapter that fills it. Agents never name a model server or where it
-runs, so a crew does not change when the server beneath it does.
+runs, so a crew does not change when the server beneath it does. See the
+[ModelServer reference](../../reference/models/).
 
 **Direction:** assess further model servers and inference serving platforms, such as
 llama.cpp and llm-d, in the interest of giving crews the best accelerator and model resources
@@ -108,12 +111,12 @@ declaration keeps a type, with the standard API as the default.
 
 ## Model choices for the reference crews
 
-**Today:** the reference crews run open-weight Qwen3 models served by Ollama: an
+**Today:** the reference crews run open-weight Qwen3 models: an
 8B-class model for specialists and triage on a 24 GB GPU, and a 32B model for
 coordination and synthesis on a 32 GB GPU. Kubemoot itself is model-agnostic: an agent
 declares a capability, and the scheduler matches it to a Model resource, so no agent
 spec names a model, and changing models is a change to Model resources, not to crews.
-Any model Ollama serves with tool calling can be used. Qwen was chosen for the
+Any model a ModelServer serves with tool calling can be used. Qwen was chosen for the
 reference crews for strong tool calling at sizes that fit 24 GB and 32 GB consumer
 GPUs, and its Apache 2.0 license.
 
@@ -161,8 +164,10 @@ hypotheses the fitness harness will test before anything is claimed:
 
 ## Agent backends behind the moot
 
-**Today:** the Kubemoot agent runtime, a native thin agent, is the only backend that runs
-an agent's turn.
+**Today:** the Kubemoot agent runtime, a native thin agent, is the default backend that
+runs an agent's turn. An Agent can instead run a harness of your own behind the
+[Moot Mesh](../../architecture/moot-mesh/) sidecar, which gives the harness the bus, the
+model door, and the tools door through three loopback addresses.
 
 **Direction:** the moot is Kubemoot's differentiator: the coordinator convenes a
 subcommittee, agents deliberate by signal, the coordinator synthesizes. What runs one
@@ -176,8 +181,10 @@ server. The principle is the same one applied to tools: build natively against o
 standards, adopt open standards such as MCP directly, and keep any specific product
 swappable behind a contract rather than load-bearing. The core must run with no
 dependency on a proprietary agent product, and an external backend stays optional and
-never bundled. The contract itself, a Go interface and an adapter registry in the
-operator, is not built.
+never bundled. The Moot Mesh turn door is that contract for harnesses that run beside a sidecar; the
+open parts are listed in [What is not built yet](../../architecture/moot-mesh/#what-is-not-built-yet),
+and backends reached without a sidecar, such as a raw model behind a model server, remain
+a direction.
 
 ## Cloud and frontier models at the table
 
