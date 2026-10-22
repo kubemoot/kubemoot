@@ -212,7 +212,7 @@ func containsString(list []string, s string) bool {
 
 func TestTheContractRoundTripsAndCarriesTheAgent(t *testing.T) {
 	r, _ := harnessReconciler(t)
-	t.Setenv(envPlacementServiceURL, "http://placement.kubemoot:8080")
+	r.ConfigCache.Update(placementServiceConfig(true, "http://placement.kubemoot:8080"))
 	data, err := r.sidecarContractData(context.Background(), sidecarAgent(), harnessPick(testModelID, "rig0"), harnessPick("qwen3:4b", "rig1"))
 	if err != nil {
 		t.Fatal(err)
@@ -244,7 +244,6 @@ func TestTheContractRoundTripsAndCarriesTheAgent(t *testing.T) {
 }
 
 func TestThePlacementServiceIsLeftOutWhenTheOperatorHasNone(t *testing.T) {
-	t.Setenv(envPlacementServiceURL, "")
 	r, _ := harnessReconciler(t)
 	data, err := r.sidecarContractData(context.Background(), sidecarAgent(), harnessPick(testModelID, "rig0"), harnessPick(testModelID, "rig0"))
 	if err != nil {

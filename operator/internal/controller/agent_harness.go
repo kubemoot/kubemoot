@@ -14,7 +14,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -44,11 +43,17 @@ const (
 	contractHashAnnotation = "kubemoot.ai/contract-hash"
 	// turnDeadlineSeconds is the safety net for one turn; the normal path ends on state.
 	turnDeadlineSeconds = 300
-	// envPlacementServiceURL names the operator's placement service setting.
-	envPlacementServiceURL = "PLACEMENT_SERVICE_URL"
 	// defaultHarnessPort is where a harness serves the turn when the Agent names no port.
 	defaultHarnessPort = meshcontract.DefaultTurnPort
 )
+
+// placementServiceURL returns the realm's placement service URL, empty when agents place in-process.
+func (r *AgentReconciler) placementServiceURL() string {
+	if vars := r.placementServiceEnvVars(); len(vars) > 0 {
+		return vars[0].Value
+	}
+	return ""
+}
 
 // usesSidecar reports whether the Agent's harness runs beside a Moot Mesh sidecar. An Agent
 // without a harness block is a legacy agent-runtime pod.
@@ -140,7 +145,7 @@ func (r *AgentReconciler) buildContract(ctx context.Context, agent *kubemootv1al
 			meshcontract.DefaultAlias: aliasFor(mulling), "triage": aliasFor(triage),
 		}},
 		Placement: meshcontract.Placement{
-			Policy: r.placementPolicyEnvVar(ctx, agent).Value, ServiceURL: os.Getenv(envPlacementServiceURL),
+			Policy: r.placementPolicyEnvVar(ctx, agent).Value, ServiceURL: r.placementServiceURL(),
 		},
 		Tools: meshcontract.Tools{
 			Enabled: agent.Spec.EnabledTools, Disabled: agent.Spec.DisabledTools,
