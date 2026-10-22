@@ -86,11 +86,11 @@ func TestIdenticalReadOnlyCallIsAnsweredFromTheTurn(t *testing.T) {
 	}
 }
 
-func TestAnIdempotentToolIsReusedToo(t *testing.T) {
+func TestAnIdempotentOnlyToolIsNotReused(t *testing.T) {
 	gw, calls := countingGateway(t)
 	s := openTurn(t, turn.NewRegistry(), gw.URL)
 	callText(t, s, toolIdem, nil)
-	if got := callText(t, s, toolIdem, nil); got != reusedNote || calls(toolIdem) != 1 {
+	if got := callText(t, s, toolIdem, nil); got == reusedNote || calls(toolIdem) != 2 {
 		t.Fatalf("got %q after %d calls", got, calls(toolIdem))
 	}
 }
@@ -138,12 +138,41 @@ func TestACallWithNoOpenTurnIsNeverReused(t *testing.T) {
 }
 
 func TestCallKeyIgnoresKeyOrderAndFallsBackOnBadJSON(t *testing.T) {
-	a := callKey("t", json.RawMessage(`{"a":1,"b":2}`))
-	b := callKey("t", json.RawMessage(`{ "b":2, "a":1 }`))
-	if a != b || a == callKey("u", json.RawMessage(`{"a":1,"b":2}`)) {
+	a := callKey("s", "t", json.RawMessage(`{"a":1,"b":2}`))
+	b := callKey("s", "t", json.RawMessage(`{ "b":2, "a":1 }`))
+	if a != b || a == callKey("s", "u", json.RawMessage(`{"a":1,"b":2}`)) {
 		t.Fatalf("keys %q %q", a, b)
 	}
-	if callKey("t", json.RawMessage(`not json`)) == callKey("t", nil) {
+	if callKey("s", "t", json.RawMessage(`not json`)) == callKey("s", "t", nil) {
 		t.Fatal("unparseable arguments must still key apart from none")
+	}
+}
+
+func TestCallKeySeparatesServers(t *testing.T) {
+	args := json.RawMessage(`{"a":1}`)
+	if callKey("s1", "t", args) == callKey("s2", "t", args) {
+		t.Fatal("the same tool name on two servers must key apart")
+	}
+}
+
+func TestADuplicateToolNameIsNeverReused(t *testing.T) {
+	var n atomic.Int32
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /tools", func(w http.ResponseWriter, _ *http.Request) {
+		ro := map[string]any{annReadOnly: true}
+		_ = json.NewEncoder(w).Encode(map[string]any{keyTools: []map[string]any{
+			{keyName: toolSearch, "serverId": "s1", "annotations": ro},
+			{keyName: toolSearch, "serverId": "s2", "annotations": ro},
+		}})
+	})
+	mux.HandleFunc("POST /tools/{name}/call", func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = fmt.Fprintf(w, `{"isError":false,"content":"result %d"}`, n.Add(1))
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	s := openTurn(t, turn.NewRegistry(), srv.URL)
+	callText(t, s, toolSearch, nil)
+	if got := callText(t, s, toolSearch, nil); got == reusedNote || n.Load() != 2 {
+		t.Fatalf("got %q after %d calls", got, n.Load())
 	}
 }

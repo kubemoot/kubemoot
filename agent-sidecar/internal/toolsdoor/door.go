@@ -64,6 +64,7 @@ func (c Config) MissingDeclared(listed []GatewayTool) []string {
 // GatewayTool is one entry of the gateway's tool list.
 type GatewayTool struct {
 	Name        string         `json:"name"`
+	ServerID    string         `json:"serverId,omitempty"`
 	Description string         `json:"description"`
 	InputSchema map[string]any `json:"inputSchema"`
 	// Annotations are the tool's MCP annotations (readOnlyHint, idempotentHint), when the gateway
@@ -71,24 +72,33 @@ type GatewayTool struct {
 	Annotations map[string]any `json:"annotations,omitempty"`
 }
 
-// Reusable reports whether an identical repeat call returns the same result and changes nothing:
-// the tool declares readOnlyHint or idempotentHint as true.
+// Reusable reports whether an identical repeat call returns the same result: the tool declares
+// readOnlyHint as true. idempotentHint is not enough, it promises no extra effect, not the same result.
 func (t GatewayTool) Reusable() bool {
-	return t.Annotations["readOnlyHint"] == true || t.Annotations["idempotentHint"] == true
+	return t.Annotations["readOnlyHint"] == true
 }
 
 // reusedNote is what the model reads in place of a repeated call's result.
 const reusedNote = "This exact call already returned the result above in this turn; it was not called again."
 
-// callKey identifies a call by tool and arguments. Arguments are decoded and re-encoded so key
-// order and spacing do not make two identical calls look different.
-func callKey(name string, args json.RawMessage) string {
+// callKey identifies a call by server, tool and arguments. Arguments are decoded and re-encoded so
+// key order and spacing do not make two identical calls look different.
+func callKey(serverID, name string, args json.RawMessage) string {
 	var canon any
 	if len(args) == 0 || json.Unmarshal(args, &canon) != nil {
-		return name + "\x00" + string(args)
+		return serverID + "\x00" + name + "\x00" + string(args)
 	}
 	norm, _ := json.Marshal(canon)
-	return name + "\x00" + string(norm)
+	return serverID + "\x00" + name + "\x00" + string(norm)
+}
+
+// nameCounts counts how often each tool name appears in the tool list.
+func nameCounts(tools []GatewayTool) map[string]int {
+	n := map[string]int{}
+	for _, t := range tools {
+		n[t.Name]++
+	}
+	return n
 }
 
 // Door builds the MCP handler.
@@ -115,12 +125,13 @@ func (d *Door) Handler() http.Handler {
 		if err != nil {
 			return srv
 		}
+		names := nameCounts(tools)
 		for _, t := range tools {
 			if !d.cfg.Allowed(t.Name) {
 				continue
 			}
 			tool := &mcp.Tool{Name: t.Name, Description: t.Description, InputSchema: schemaOf(t)}
-			srv.AddTool(tool, d.callHandler(t.Name, key, t.Reusable()))
+			srv.AddTool(tool, d.callHandler(t.Name, key, t.ServerID, t.Reusable() && names[t.Name] == 1))
 		}
 		return srv
 	}, &mcp.StreamableHTTPOptions{Stateless: true})
@@ -142,7 +153,7 @@ func bearerKey(r *http.Request) string {
 	return ""
 }
 
-func (d *Door) callHandler(name, key string, reusable bool) mcp.ToolHandler {
+func (d *Door) callHandler(name, key, serverID string, reusable bool) mcp.ToolHandler {
 	return func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		if !d.cfg.Allowed(name) {
 			d.count("denied")
@@ -153,15 +164,15 @@ func (d *Door) callHandler(name, key string, reusable bool) mcp.ToolHandler {
 			d.count("no_turn")
 			return nil, fmt.Errorf("tool %q was called outside a turn", name)
 		}
-		return d.run(ctx, meter, name, req.Params.Arguments, reusable)
+		return d.run(ctx, meter, name, req.Params.Arguments, serverID, reusable)
 	}
 }
 
 // run answers a repeat of a reusable call from the turn, and otherwise calls the gateway and
 // records the outcome on the turn.
 func (d *Door) run(ctx context.Context, meter *turn.Meter, name string, args json.RawMessage,
-	reusable bool) (*mcp.CallToolResult, error) {
-	ck := callKey(name, args)
+	serverID string, reusable bool) (*mcp.CallToolResult, error) {
+	ck := callKey(serverID, name, args)
 	if _, seen := answeredIn(meter, reusable, ck); seen {
 		d.count("reused")
 		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: reusedNote}}}, nil

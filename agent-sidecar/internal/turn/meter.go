@@ -41,6 +41,7 @@ type Meter struct {
 	waited       bool
 	degraded     bool
 	answered     map[string]string
+	answeredKeys []string // oldest first
 }
 
 // NewMeter returns an empty meter for a turn.
@@ -85,6 +86,9 @@ func (m *Meter) Answered(key string) (string, bool) {
 	return text, ok
 }
 
+// maxAnswered bounds the results one turn keeps; the oldest are dropped first.
+const maxAnswered = 64
+
 // Remember keeps the result of a finished call for the rest of this turn, so an identical call
 // can be answered without running again. The results live and die with the turn's meter.
 func (m *Meter) Remember(key, text string) {
@@ -92,6 +96,13 @@ func (m *Meter) Remember(key, text string) {
 	defer m.mu.Unlock()
 	if m.answered == nil {
 		m.answered = map[string]string{}
+	}
+	if _, held := m.answered[key]; !held {
+		m.answeredKeys = append(m.answeredKeys, key)
+		if len(m.answeredKeys) > maxAnswered {
+			delete(m.answered, m.answeredKeys[0])
+			m.answeredKeys = m.answeredKeys[1:]
+		}
 	}
 	m.answered[key] = text
 }

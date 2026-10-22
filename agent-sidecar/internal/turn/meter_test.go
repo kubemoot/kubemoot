@@ -1,6 +1,7 @@
 package turn
 
 import (
+	"fmt"
 	"slices"
 	"testing"
 	"time"
@@ -105,5 +106,18 @@ func TestAMeterAnswersARememberedCallOnlyWithinItsTurn(t *testing.T) {
 	}
 	if _, ok := NewMeter(Info{}).Answered("k"); ok {
 		t.Fatal("another turn's meter must not see it")
+	}
+}
+
+func TestRememberKeepsAtMostMaxAnsweredAndDropsTheOldest(t *testing.T) {
+	m := &Meter{}
+	for i := 0; i <= maxAnswered; i++ {
+		m.Remember(fmt.Sprint("k", i), "v")
+	}
+	if _, ok := m.Answered("k0"); ok {
+		t.Fatal("the oldest result should have been dropped")
+	}
+	if _, ok := m.Answered(fmt.Sprint("k", maxAnswered)); !ok || len(m.answered) != maxAnswered {
+		t.Fatalf("newest missing or map holds %d", len(m.answered))
 	}
 }
