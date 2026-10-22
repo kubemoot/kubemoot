@@ -46,10 +46,10 @@ func TestAgentIdentityNamesTheConsumerAndTheHarness(t *testing.T) {
 }
 
 func TestACoordinatorCannotRunInSidecarMode(t *testing.T) {
-	if err := validateSidecarAgent(identityAgent(identityRole)); err != nil {
+	if err := validateSidecarAgent(identityAgent(identityRole), testHarnessImage); err != nil {
 		t.Fatalf("a tooler is valid: %v", err)
 	}
-	err := validateSidecarAgent(identityAgent(roleCoordinator))
+	err := validateSidecarAgent(identityAgent(roleCoordinator), testHarnessImage)
 	if err == nil || !strings.Contains(err.Error(), "coordinator") {
 		t.Fatalf("a coordinator in sidecar mode must be refused: %v", err)
 	}

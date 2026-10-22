@@ -218,6 +218,13 @@ spec:
                     description: FitnessRunner is the default fitness runner image
                       for CrewFitness test jobs
                     type: string
+                  harnessGoose:
+                    default: ghcr.io/kubemoot/harness-goose:latest
+                    description: |-
+                      HarnessGoose is the harness-goose image: the harness shim and the goose binary. An Agent
+                      whose harness is named goose and sets no image of its own runs it. The chart stamps it
+                      from the release; a floating tag would break version pinning.
+                    type: string
                   indexer:
                     default: ghcr.io/kubemoot/indexer:latest
                     description: Indexer is the default indexer image for RAGSource

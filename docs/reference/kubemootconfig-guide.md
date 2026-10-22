@@ -50,6 +50,7 @@ The singleton must be named `default`. The operator creates it via the Helm char
 | `images.queryService` | string | `ghcr.io/kubemoot/query-service:latest` | RAGSource query service image |
 | `images.agentRuntime` | string | `ghcr.io/kubemoot/agent-runtime:latest` | Agent deployment image |
 | `images.agentSidecar` | string | `ghcr.io/kubemoot/agent-sidecar:latest` | [Moot Mesh](../../architecture/moot-mesh/) sidecar image, added to the pod of an Agent whose `spec.harness.mode` is `sidecar`. The operator chart stamps a pinned tag from the release |
+| `images.harnessGoose` | string | `ghcr.io/kubemoot/harness-goose:latest` | The [goose seat](../../architecture/the-harness-seam/) image: the harness shim and the goose binary. An Agent whose `spec.harness.name` is `goose` and that names no image runs it. The operator chart stamps a pinned tag from the release |
 | `images.mcpGateway` | string | `ghcr.io/kubemoot/mcp-gateway:latest` | MCPGateway deployment image |
 | `images.mcpBridge` | string | `ghcr.io/kubemoot/mcp-bridge:latest` | MCP bridge sidecar image |
 | `images.fitnessRunner` | string | `ghcr.io/kubemoot/fitness-runner:latest` | CrewFitness test job image |

@@ -265,3 +265,21 @@ func TestConfigCache_IsSchedulerEnabled(t *testing.T) {
 		t.Error("expected true when enabled")
 	}
 }
+
+func TestConfigCache_HarnessImage(t *testing.T) {
+	cache := NewConfigCache()
+	if got := cache.GetHarnessImage(HarnessNameGoose); got != FallbackHarnessGooseImage {
+		t.Errorf("fallback = %q", got)
+	}
+	for _, name := range []string{"", "opencode", "Goose"} {
+		if got := cache.GetHarnessImage(name); got != "" {
+			t.Errorf("harness %q got image %q, want none", name, got)
+		}
+	}
+	cache.Update(&kubemootv1alpha1.KubemootConfig{Spec: kubemootv1alpha1.KubemootConfigSpec{
+		Images: kubemootv1alpha1.ImageConfig{HarnessGoose: "custom/harness-goose:v1"},
+	}})
+	if got := cache.GetHarnessImage(HarnessNameGoose); got != "custom/harness-goose:v1" {
+		t.Errorf("configured = %q", got)
+	}
+}

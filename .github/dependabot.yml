@@ -25,6 +25,7 @@ updates:
       - "/arc-runner-image"
       - "/code-sandbox"
       - "/dashboard"
+      - "/harness-shim"
       - "/k8s/tests"
       - "/query-service"
     schedule:
@@ -52,6 +53,7 @@ updates:
       - "/crew-liaison"
       - "/discussion-gateway"
       - "/fitness-runner"
+      - "/harness-shim"
       - "/mcp-bridge"
       - "/operator"
       - "/scheduling-mcp"

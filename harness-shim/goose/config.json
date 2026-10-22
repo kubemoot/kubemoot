@@ -1,0 +1,22 @@
+{
+  "name": "harness-goose",
+  "argv": [
+    "/usr/local/bin/goose", "run", "--no-session", "--max-turns", "12",
+    "[none]--no-profile",
+    "--output-format", "json",
+    "--with-streamable-http-extension", "{{toolsURL}}",
+    "-t", "{{prompt}}"
+  ],
+  "env": [
+    "GOOSE_PROVIDER=openai",
+    "GOOSE_MODEL=default",
+    "GOOSE_MODE=auto",
+    "GOOSE_DISABLE_KEYRING=1",
+    "OPENAI_HOST={{modelHost}}",
+    "OPENAI_BASE_PATH=v1/chat/completions",
+    "OPENAI_API_KEY={{turnKey}}"
+  ],
+  "output": "goose-json",
+  "maxDeadlineSeconds": 900,
+  "maxConcurrent": 4
+}

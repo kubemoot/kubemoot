@@ -16,7 +16,7 @@ out="$(config_images)"
 # Every Kubemoot-built image is pinned to an explicit tag (0.0.0 in git, stamped at
 # release), never latest. artifactAccess is how a crew's read-ops MCPServer runs the
 # artifact-access image without naming a version.
-for key in indexer queryService agentRuntime agentSidecar mcpGateway mcpBridge discussionGateway fitnessRunner artifactAccess; do
+for key in indexer queryService agentRuntime agentSidecar harnessGoose mcpGateway mcpBridge discussionGateway fitnessRunner artifactAccess; do
   value="$(yq -N ".$key" <<<"$out")"
   [ -n "$value" ] && [ "$value" != null ] || fail "KubemootConfig spec.images.$key is not rendered"
   case "$value" in *:latest) fail "spec.images.$key floats: $value" ;; esac

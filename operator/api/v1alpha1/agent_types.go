@@ -197,7 +197,8 @@ type HarnessSpec struct {
 	Mode HarnessMode `json:"mode,omitempty"`
 
 	// Image is the harness image, pinned by digest for anything not built by Kubemoot. In
-	// sidecar mode it is required unless spec.deployment.image names the harness.
+	// sidecar mode it is required unless spec.deployment.image names the harness or the
+	// harness is named goose, whose image comes from KubemootConfig spec.images.harnessGoose.
 	// +optional
 	Image string `json:"image,omitempty"`
 
@@ -255,7 +256,7 @@ type HarnessSpec struct {
 }
 
 // AgentSpec defines the desired state of Agent
-// +kubebuilder:validation:XValidation:rule="!has(self.harness) || self.harness.mode != 'sidecar' || has(self.harness.image) || (has(self.deployment) && has(self.deployment.image))",message="harness.mode sidecar needs the harness image: set harness.image or deployment.image"
+// +kubebuilder:validation:XValidation:rule="!has(self.harness) || self.harness.mode != 'sidecar' || has(self.harness.image) || (has(self.harness.name) && self.harness.name == 'goose') || (has(self.deployment) && has(self.deployment.image))",message="harness.mode sidecar needs the harness image: set harness.image or deployment.image, or name the harness goose"
 // +kubebuilder:validation:XValidation:rule="!has(self.harness) || !has(self.harness.concurrency) || self.harness.concurrency <= 1 || self.harness.mode == 'sidecar'",message="harness.concurrency above 1 needs harness.mode sidecar"
 // +kubebuilder:validation:XValidation:rule="!has(self.harness) || !has(self.harness.nativeTools) || self.harness.nativeTools == 'none' || self.harness.mode == 'sidecar'",message="harness.nativeTools other than none needs harness.mode sidecar"
 type AgentSpec struct {

@@ -33,6 +33,7 @@ import (
 
 const (
 	testHarnessImage = "ghcr.io/example/harness@sha256:abc"
+	testGooseImage   = "reg/harness-goose:1.2.3"
 	testAgentName    = "notes-reader"
 	testToolFetch    = "fetch"
 	testBadAgent     = "bad"
@@ -271,7 +272,7 @@ func TestAChangeToTheContractRollsThePod(t *testing.T) {
 func TestASidecarAgentThatCannotBeBuiltIsRefusedWithReasons(t *testing.T) {
 	cases := map[string]func(*kubemootv1alpha1.Agent){
 		"no crew label": func(a *kubemootv1alpha1.Agent) { a.Labels = nil },
-		"no image":      func(a *kubemootv1alpha1.Agent) { a.Spec.Harness.Image = "" },
+		"no image":      func(a *kubemootv1alpha1.Agent) { a.Spec.Harness.Image, a.Spec.Harness.Name = "", "no-built-in-image" },
 		"the same port": func(a *kubemootv1alpha1.Agent) { a.Spec.Harness.Port = 8080 },
 		"the deployment's port": func(a *kubemootv1alpha1.Agent) {
 			a.Spec.Deployment = &kubemootv1alpha1.DeploymentConfig{Image: "x", Port: 9000}
@@ -425,5 +426,49 @@ func TestAMeshPatchFailureFailsTheReconcile_andMarksTheAgentError(t *testing.T) 
 	}
 	if derr := cli.Get(context.Background(), client.ObjectKeyFromObject(agent), &appsv1.Deployment{}); derr == nil {
 		t.Error("a Deployment was created despite the failure")
+	}
+}
+
+func TestHarnessImageDefaultsByHarnessName(t *testing.T) {
+	r, _ := harnessReconciler(t)
+	r.ConfigCache.Update(&kubemootv1alpha1.KubemootConfig{Spec: kubemootv1alpha1.KubemootConfigSpec{
+		Images: kubemootv1alpha1.ImageConfig{HarnessGoose: testGooseImage},
+	}})
+	agentWith := func(h kubemootv1alpha1.HarnessSpec, dep *kubemootv1alpha1.DeploymentConfig) *kubemootv1alpha1.Agent {
+		a := sidecarAgent()
+		a.Spec.Harness, a.Spec.Deployment = &h, dep
+		return a
+	}
+	sidecar := kubemootv1alpha1.HarnessModeSidecar
+	cases := map[string]struct {
+		agent *kubemootv1alpha1.Agent
+		want  string
+	}{
+		"goose takes the Kubemoot image":     {agentWith(kubemootv1alpha1.HarnessSpec{Name: HarnessNameGoose, Mode: sidecar}, nil), testGooseImage},
+		"its own image wins":                 {agentWith(kubemootv1alpha1.HarnessSpec{Name: HarnessNameGoose, Mode: sidecar, Image: testHarnessImage}, nil), testHarnessImage},
+		"the deployment image wins":          {agentWith(kubemootv1alpha1.HarnessSpec{Name: HarnessNameGoose, Mode: sidecar}, &kubemootv1alpha1.DeploymentConfig{Image: "dep/img:1"}), "dep/img:1"},
+		"another harness has no default":     {agentWith(kubemootv1alpha1.HarnessSpec{Name: "opencode", Mode: sidecar}, nil), ""},
+		"an empty deployment image is unset": {agentWith(kubemootv1alpha1.HarnessSpec{Name: HarnessNameGoose, Mode: sidecar}, &kubemootv1alpha1.DeploymentConfig{}), testGooseImage},
+	}
+	for name, c := range cases {
+		if got := r.harnessImage(c.agent); got != c.want {
+			t.Errorf("%s: %q, want %q", name, got, c.want)
+		}
+	}
+	if err := validateSidecarAgent(cases["another harness has no default"].agent, ""); err == nil {
+		t.Error("a harness with no image anywhere was accepted")
+	}
+	noCache := &AgentReconciler{}
+	if got := noCache.harnessImage(cases["goose takes the Kubemoot image"].agent); got != FallbackHarnessGooseImage {
+		t.Errorf("no cache: %q", got)
+	}
+}
+
+func TestAGooseAgentWithoutAnImageRunsTheKubemootBuiltOne(t *testing.T) {
+	a := sidecarAgent()
+	a.Spec.Harness.Name, a.Spec.Harness.Image = HarnessNameGoose, ""
+	d := buildSidecarPod(t, a)
+	if got := d.Spec.Template.Spec.Containers[0].Image; got != FallbackHarnessGooseImage {
+		t.Fatalf("harness image = %q", got)
 	}
 }

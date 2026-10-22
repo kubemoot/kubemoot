@@ -381,6 +381,7 @@ kubemootConfig:
     queryService: query-service:0.0.0
     agentRuntime: agent-runtime:0.0.0
     agentSidecar: agent-sidecar:0.0.0
+    harnessGoose: harness-goose:0.0.0
     mcpGateway: mcp-gateway:0.0.0
     mcpBridge: mcp-bridge:0.0.0
     discussionGateway: discussion-gateway:0.0.0

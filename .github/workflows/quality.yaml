@@ -59,6 +59,11 @@ jobs:
         run: go test -coverprofile=cover.out ./...
         continue-on-error: true
 
+      - name: Harness Shim tests with coverage
+        working-directory: harness-shim
+        run: go test -coverprofile=cover.out ./...
+        continue-on-error: true
+
       - name: Fitness Runner tests with coverage
         working-directory: fitness-runner
         run: go test -coverprofile=cover.out ./...

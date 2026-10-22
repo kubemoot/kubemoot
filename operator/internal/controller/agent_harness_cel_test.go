@@ -71,6 +71,13 @@ var _ = Describe("Agent harness validation", func() {
 		Expect(err).NotTo(HaveOccurred())
 	})
 
+	It("accepts sidecar mode for a harness named goose with no image, which takes the Kubemoot-built one", func() {
+		_, err := create("cel-sidecar-goose", harness(kubemootv1alpha1.HarnessSpec{
+			Name: HarnessNameGoose, Mode: kubemootv1alpha1.HarnessModeSidecar,
+		}))
+		Expect(err).NotTo(HaveOccurred())
+	})
+
 	It("rejects sidecar mode with no image anywhere", func() {
 		_, err := create("cel-sidecar-no-image", harness(kubemootv1alpha1.HarnessSpec{Mode: kubemootv1alpha1.HarnessModeSidecar}))
 		Expect(apierrors.IsInvalid(err)).To(BeTrue(), "got %v", err)
