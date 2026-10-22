@@ -66,6 +66,29 @@ type GatewayTool struct {
 	Name        string         `json:"name"`
 	Description string         `json:"description"`
 	InputSchema map[string]any `json:"inputSchema"`
+	// Annotations are the tool's MCP annotations (readOnlyHint, idempotentHint), when the gateway
+	// passes them on. A tool without them is never answered from an earlier call.
+	Annotations map[string]any `json:"annotations,omitempty"`
+}
+
+// Reusable reports whether an identical repeat call returns the same result and changes nothing:
+// the tool declares readOnlyHint or idempotentHint as true.
+func (t GatewayTool) Reusable() bool {
+	return t.Annotations["readOnlyHint"] == true || t.Annotations["idempotentHint"] == true
+}
+
+// reusedNote is what the model reads in place of a repeated call's result.
+const reusedNote = "This exact call already returned the result above in this turn; it was not called again."
+
+// callKey identifies a call by tool and arguments. Arguments are decoded and re-encoded so key
+// order and spacing do not make two identical calls look different.
+func callKey(name string, args json.RawMessage) string {
+	var canon any
+	if len(args) == 0 || json.Unmarshal(args, &canon) != nil {
+		return name + "\x00" + string(args)
+	}
+	norm, _ := json.Marshal(canon)
+	return name + "\x00" + string(norm)
 }
 
 // Door builds the MCP handler.
@@ -97,7 +120,7 @@ func (d *Door) Handler() http.Handler {
 				continue
 			}
 			tool := &mcp.Tool{Name: t.Name, Description: t.Description, InputSchema: schemaOf(t)}
-			srv.AddTool(tool, d.callHandler(t.Name, key))
+			srv.AddTool(tool, d.callHandler(t.Name, key, t.Reusable()))
 		}
 		return srv
 	}, &mcp.StreamableHTTPOptions{Stateless: true})
@@ -119,7 +142,7 @@ func bearerKey(r *http.Request) string {
 	return ""
 }
 
-func (d *Door) callHandler(name, key string) mcp.ToolHandler {
+func (d *Door) callHandler(name, key string, reusable bool) mcp.ToolHandler {
 	return func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		if !d.cfg.Allowed(name) {
 			d.count("denied")
@@ -130,17 +153,40 @@ func (d *Door) callHandler(name, key string) mcp.ToolHandler {
 			d.count("no_turn")
 			return nil, fmt.Errorf("tool %q was called outside a turn", name)
 		}
-		text, failed, err := d.call(ctx, name, req.Params.Arguments, requesterMeta(meter))
-		if meter != nil {
-			meter.ToolCall(name, failed || err != nil)
-		}
-		ok := !failed && err == nil
-		d.count(obs.Result(ok))
-		if err != nil {
-			return nil, err
-		}
-		return &mcp.CallToolResult{IsError: failed, Content: []mcp.Content{&mcp.TextContent{Text: text}}}, nil
+		return d.run(ctx, meter, name, req.Params.Arguments, reusable)
 	}
+}
+
+// run answers a repeat of a reusable call from the turn, and otherwise calls the gateway and
+// records the outcome on the turn.
+func (d *Door) run(ctx context.Context, meter *turn.Meter, name string, args json.RawMessage,
+	reusable bool) (*mcp.CallToolResult, error) {
+	ck := callKey(name, args)
+	if _, seen := answeredIn(meter, reusable, ck); seen {
+		d.count("reused")
+		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: reusedNote}}}, nil
+	}
+	text, failed, err := d.call(ctx, name, args, requesterMeta(meter))
+	ok := !failed && err == nil
+	if meter != nil {
+		meter.ToolCall(name, !ok)
+		if reusable && ok {
+			meter.Remember(ck, text)
+		}
+	}
+	d.count(obs.Result(ok))
+	if err != nil {
+		return nil, err
+	}
+	return &mcp.CallToolResult{IsError: failed, Content: []mcp.Content{&mcp.TextContent{Text: text}}}, nil
+}
+
+// answeredIn returns the result the turn already holds for the call, only for a reusable tool.
+func answeredIn(meter *turn.Meter, reusable bool, key string) (string, bool) {
+	if meter == nil || !reusable {
+		return "", false
+	}
+	return meter.Answered(key)
 }
 
 // Missing implements the bus's tool guard: the declared tools the gateway does not list. A gateway

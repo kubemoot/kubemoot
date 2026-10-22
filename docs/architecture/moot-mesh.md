@@ -121,6 +121,14 @@ When the turn carries the requester's `requestDate` and `timeZone`, the sidecar
 passes them to the tools in the call's `_meta`, so a tool computes "today" for the
 person who asked.
 
+A model sometimes sends the same call again and again in one turn. When a tool declares
+`readOnlyHint` or `idempotentHint` as true in its MCP annotations, the sidecar answers an
+identical repeat (same tool, same arguments) from the result the turn already received,
+without calling the tool again, and tells the model in one line that the call already
+returned the result above. A tool that declares neither hint is always called, a changed
+argument is a new call, a failed call is never kept, and nothing is reused across turns.
+The gateway passes each tool's annotations on in its tool list.
+
 ## The pod
 
 A sidecar-mode agent pod has two containers:

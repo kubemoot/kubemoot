@@ -17,7 +17,7 @@ The module imports the operator's bus contract (`operator/pkg/bus`) and the cont
 | `internal/app` | Wires the contract, the NATS connection with the agent's own credentials, the doors, readiness (state: NATS connected and the harness card answering) and shutdown |
 | `internal/a2a` | The turn door: the official `a2a-go` v2 client over the HTTP+JSON binding, the Kubemoot turn profile, the table that turns a harness reply into a signal |
 | `internal/modeldoor` | The model door: OpenAI-compatible, `model` is an alias, each call placed by the placement service, streamed back unbuffered, measured, ticket released |
-| `internal/toolsdoor` | The tools door: stateless MCP over streamable HTTP, allow-list enforced on list and on call, requester date and time zone in `_meta` |
+| `internal/toolsdoor` | The tools door: stateless MCP over streamable HTTP, allow-list enforced on list and on call, requester date and time zone in `_meta`, identical repeat calls to read-only or idempotent tools answered from the turn |
 | `internal/placement` | The placement service client, the bound-server floor, and the degraded fallback |
 | `internal/bus` | Admission, the durable consumer binding with progress acks, the turn, signals, heartbeat, artifact spill, lifecycle |
 | `internal/turn` | What the sidecar measures per turn, keyed by the per-turn key the harness sends as its API key |

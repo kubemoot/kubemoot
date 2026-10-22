@@ -88,4 +88,15 @@ class ToolOverridesTest {
         List<ToolInfo> result = ToolOverrides.apply(List.of(podsList()), List.of(override));
         assertEquals("d", result.get(0).description());
     }
+
+    @Test
+    void keepsTheToolAnnotations() {
+        Map<String, Object> annotations = Map.of("readOnlyHint", true);
+        ToolInfo tool = new ToolInfo("search", "d", Map.of("type", "object"), "id", "k8s", annotations);
+
+        ToolInfo result = ToolOverrides.apply(List.of(tool), List.of(new ToolOverride("search", "new", Map.of()))).get(0);
+
+        assertEquals("new", result.description());
+        assertEquals(annotations, result.annotations());
+    }
 }

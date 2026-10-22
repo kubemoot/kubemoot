@@ -93,3 +93,17 @@ func TestRegistryAttributesByKeyOrToTheSingleOpenTurn(t *testing.T) {
 		t.Fatal("closed turn still found")
 	}
 }
+
+func TestAMeterAnswersARememberedCallOnlyWithinItsTurn(t *testing.T) {
+	m := NewMeter(Info{})
+	if _, ok := m.Answered("k"); ok {
+		t.Fatal("a new turn holds no results")
+	}
+	m.Remember("k", "result")
+	if got, ok := m.Answered("k"); !ok || got != "result" {
+		t.Fatalf("got %q %v", got, ok)
+	}
+	if _, ok := NewMeter(Info{}).Answered("k"); ok {
+		t.Fatal("another turn's meter must not see it")
+	}
+}
