@@ -1387,8 +1387,8 @@ public class DiscussionOrchestrator {
      * Publish the one-line subcommittee message naming the agents the coordinator convened
      * and a short reason each. Sent only when a selection exists; a failure to publish never
      * blocks the discussion.
+     * Visible for testing.
      */
-    // Visible for testing
     void publishSubcommittee(ThreadState state) {
         try {
             var circle = state.innerCircle;

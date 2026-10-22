@@ -696,8 +696,11 @@
 								<rect x="1" y="12" width="7" height="3" rx="1" fill="currentColor" opacity="0.4" />
 							</svg>
 						</button>
-						<button class="action-btn" class:active-toggle={$showDebugDetail} onclick={() => showDebugDetail.toggle()} title={debugToggleTitle($showDebugDetail, debugCount)} aria-pressed={$showDebugDetail}>
-							<span aria-hidden="true">🐞</span>
+						<button class="action-btn" class:active-toggle={$showDebugDetail} onclick={() => showDebugDetail.toggle()} title={debugToggleTitle($showDebugDetail, debugCount)} aria-label="Show debug detail" aria-pressed={$showDebugDetail}>
+							<svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+								<ellipse cx="8" cy="9.5" rx="3" ry="4" fill="currentColor" opacity="0.8" />
+								<path d="M5 6.5L3 4.5M11 6.5L13 4.5M5 9.5H2M11 9.5H14M5.5 12.5L3.5 14.5M10.5 12.5L12.5 14.5M6.5 5.5C6.5 4 7 3 8 3S9.5 4 9.5 5.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" />
+							</svg>
 						</button>
 						<button class="action-btn" onclick={copyThread} title="Copy thread to clipboard">
 							{copiedThread ? '✓' : '📋'}
