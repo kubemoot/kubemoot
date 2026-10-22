@@ -122,11 +122,13 @@ passes them to the tools in the call's `_meta`, so a tool computes "today" for t
 person who asked.
 
 A model sometimes sends the same call again and again in one turn. When a tool declares
-`readOnlyHint` or `idempotentHint` as true in its MCP annotations, the sidecar answers an
-identical repeat (same tool, same arguments) from the result the turn already received,
+`readOnlyHint` as true in its MCP annotations, the sidecar answers an
+identical repeat (same server, same tool, same arguments) from the result the turn already received,
 without calling the tool again, and tells the model in one line that the call already
-returned the result above. A tool that declares neither hint is always called, a changed
-argument is a new call, a failed call is never kept, and nothing is reused across turns.
+returned the result above. A tool that does not declare `readOnlyHint` (`idempotentHint` alone is not enough, it
+promises no extra effect, not the same result) is always called, as is a tool whose name
+the tool list repeats, a changed
+argument is a new call, a failed call is never kept, nothing is reused across turns, and a turn keeps at most 64 results, the oldest dropped first.
 The gateway passes each tool's annotations on in its tool list.
 
 ## The pod
