@@ -61,6 +61,8 @@ The dashboard has no login of its own, whether or not the chart publishes the ro
 
 The sidebar groups pages by what they cover. The Topology page exists by URL (`/topology`) without a sidebar entry.
 
+The sidebar shows the dashboard's version under the logo. A release candidate (`X.Y.Z-rc.N`) carries an RC badge beside it; a published release shows none.
+
 | Section | Pages | Shows |
 |---------|-------|-------|
 | Top | Overview, Nodes | Counts and health for every resource type; Kubernetes nodes with GPU detection and model-loading state |
