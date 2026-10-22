@@ -25,9 +25,11 @@ import (
 	"net/http"
 	"time"
 
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/client-go/tools/events"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
@@ -45,6 +47,14 @@ type ModelReconciler struct {
 	client.Client
 	Scheme     *runtime.Scheme
 	HTTPClient *http.Client
+
+	// APIReader reads straight from the API server, bypassing the informer cache.
+	// A deletion that follows a cached "server not found" is confirmed through it.
+	// Nil falls back to Client.
+	APIReader client.Reader
+
+	// Recorder emits events on a Model the operator removes. Nil emits none.
+	Recorder events.EventRecorder
 
 	// Pulls tracks the downloads this process has started. The operator shares one
 	// tracker between the controllers that download models; a reconciler without
@@ -92,6 +102,7 @@ type OllamaDeleteRequest struct {
 }
 
 // +kubebuilder:rbac:groups=kubemoot.ai,resources=models,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups="",resources=events,verbs=create;patch
 // +kubebuilder:rbac:groups=kubemoot.ai,resources=models/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=kubemoot.ai,resources=models/finalizers,verbs=update
 
@@ -159,14 +170,43 @@ func (r *ModelReconciler) reconcileMissingServer(ctx context.Context, model *aiv
 		return ctrl.Result{}, err
 	}
 	if model.Labels[annoAutoProvisioned] == "true" {
-		logf.FromContext(ctx).Info("Removing auto-provisioned Model whose ModelServer is gone", "model", model.Name, "serverRef", model.Spec.ServerRef)
-		return ctrl.Result{}, client.IgnoreNotFound(r.Delete(ctx, model))
+		return r.removeOrphan(ctx, model)
 	}
 	msg := fmt.Sprintf("ModelServer %s not found", model.Spec.ServerRef)
 	if model.Spec.ServerRef == "" {
 		msg = "Model names no ModelServer (spec.serverRef is empty)"
 	}
 	return r.updateModelStatus(ctx, model, phaseError, false, msg, nil)
+}
+
+// removeOrphan deletes an auto-provisioned Model after an uncached read confirms
+// its server is absent. A server the cache missed keeps the Model; a failed read
+// is returned for a retry. An empty serverRef names no server, so it needs no read.
+func (r *ModelReconciler) removeOrphan(ctx context.Context, model *aiv1alpha1.Model) (ctrl.Result, error) {
+	if ref := model.Spec.ServerRef; ref != "" {
+		reader := r.APIReader
+		if reader == nil {
+			reader = r.Client
+		}
+		servers := &aiv1alpha1.ModelServerList{}
+		if err := reader.List(ctx, servers); err != nil {
+			return ctrl.Result{}, fmt.Errorf("failed to confirm ModelServer %q is absent: %w", ref, err)
+		}
+		for i := range servers.Items {
+			if servers.Items[i].Name == ref {
+				return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
+			}
+		}
+	}
+	reason := fmt.Sprintf("ModelServer %q does not exist", model.Spec.ServerRef)
+	if model.Spec.ServerRef == "" {
+		reason = "Model names no ModelServer (spec.serverRef is empty)"
+	}
+	if r.Recorder != nil {
+		r.Recorder.Eventf(model, nil, corev1.EventTypeNormal, "RemovingOrphan", "Delete", "Removing auto-provisioned Model: %s", reason)
+	}
+	logf.FromContext(ctx).Info("Removing auto-provisioned Model whose ModelServer is gone", "model", model.Name, "serverRef", model.Spec.ServerRef)
+	return ctrl.Result{}, client.IgnoreNotFound(r.Delete(ctx, model))
 }
 
 // reconcileOutOfService handles a Model that needs no server work. A deleting Model

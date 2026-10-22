@@ -18,9 +18,12 @@ package controller
 
 import (
 	"context"
+	stderrors "errors"
+	"strings"
 	"testing"
 
 	"k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/client-go/tools/events"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
@@ -102,5 +105,79 @@ func TestReconcile_AutoProvisionedModelOnExistingServerIsKept(t *testing.T) {
 	}
 	if !modelExists(t, cl, m) {
 		t.Error("an auto-provisioned Model whose server exists must be kept")
+	}
+}
+
+type failingReader struct{ client.Reader }
+
+func (failingReader) List(context.Context, client.ObjectList, ...client.ListOption) error {
+	return stderrors.New("api unavailable")
+}
+
+func orphanReconciler(t *testing.T, m *aiv1alpha1.Model, reader client.Reader, rec *events.FakeRecorder) (*ModelReconciler, client.Client) {
+	cl := fake.NewClientBuilder().WithScheme(modelTestScheme(t)).WithObjects(m).WithStatusSubresource(m).Build()
+	return &ModelReconciler{Client: cl, APIReader: reader, Recorder: rec}, cl
+}
+
+func TestReconcile_OrphanKeptWhenAPIReaderFindsServerTheCacheMissed(t *testing.T) {
+	m := orphanModel("auto-x", "ollama-gpu", true)
+	s := deletionServer("http://127.0.0.1:1")
+	s.Name = "ollama-gpu"
+	live := fake.NewClientBuilder().WithScheme(modelTestScheme(t)).WithObjects(s).Build()
+	rec := events.NewFakeRecorder(5)
+	r, cl := orphanReconciler(t, m, live, rec)
+	if _, err := r.Reconcile(context.Background(), ctrl.Request{NamespacedName: client.ObjectKeyFromObject(m)}); err != nil {
+		t.Fatal(err)
+	}
+	if !modelExists(t, cl, m) {
+		t.Error("a server present via the API reader must keep the Model")
+	}
+	if len(rec.Events) != 0 {
+		t.Error("no event is expected when the Model is kept")
+	}
+}
+
+func TestReconcile_OrphanKeptAndErrorReturnedWhenReadFails(t *testing.T) {
+	m := orphanModel("auto-x", "ollama-gpu", true)
+	r, cl := orphanReconciler(t, m, failingReader{}, events.NewFakeRecorder(5))
+	if _, err := r.Reconcile(context.Background(), ctrl.Request{NamespacedName: client.ObjectKeyFromObject(m)}); err == nil {
+		t.Error("a failed read must be returned for a retry")
+	}
+	if !modelExists(t, cl, m) {
+		t.Error("a failed read must keep the Model")
+	}
+}
+
+func TestReconcile_OrphanLabelOtherThanTrueIsKept(t *testing.T) {
+	m := orphanModel("auto-x", "", false)
+	m.Labels = map[string]string{annoAutoProvisioned: "false"}
+	r, cl := orphanReconciler(t, m, nil, events.NewFakeRecorder(5))
+	if _, err := r.Reconcile(context.Background(), ctrl.Request{NamespacedName: client.ObjectKeyFromObject(m)}); err != nil {
+		t.Fatal(err)
+	}
+	if !modelExists(t, cl, m) {
+		t.Error("a label value other than true must keep the Model")
+	}
+}
+
+func TestReconcile_OrphanRemovalEmitsEventNamingReason(t *testing.T) {
+	for ref, want := range map[string]string{"": "spec.serverRef is empty", "absent-srv": `"absent-srv" does not exist`} {
+		m := orphanModel("auto-x", ref, true)
+		rec := events.NewFakeRecorder(5)
+		r, cl := orphanReconciler(t, m, nil, rec)
+		if _, err := r.Reconcile(context.Background(), ctrl.Request{NamespacedName: client.ObjectKeyFromObject(m)}); err != nil {
+			t.Fatal(err)
+		}
+		if modelExists(t, cl, m) {
+			t.Errorf("serverRef %q: Model must be removed", ref)
+		}
+		select {
+		case ev := <-rec.Events:
+			if !strings.Contains(ev, want) {
+				t.Errorf("serverRef %q: event %q lacks %q", ref, ev, want)
+			}
+		default:
+			t.Errorf("serverRef %q: no event emitted", ref)
+		}
 	}
 }

@@ -368,7 +368,8 @@ func main() {
 		}).SetupWithManager},
 		{"ModelServer", modelServers.SetupWithManager},
 		{"Model", (&controller.ModelReconciler{
-			Client: mgr.GetClient(), Scheme: mgr.GetScheme(), Pulls: modelPulls,
+			Client: mgr.GetClient(), APIReader: mgr.GetAPIReader(), Scheme: mgr.GetScheme(), Pulls: modelPulls,
+			Recorder: mgr.GetEventRecorder("model-controller"),
 		}).SetupWithManager},
 		{"MCPServer", (&controller.MCPServerReconciler{
 			Client: mgr.GetClient(), Scheme: mgr.GetScheme(), ConfigCache: configCache, NATSPublisher: natsPublisher,
