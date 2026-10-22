@@ -6,6 +6,7 @@ import ai.kubemoot.agent.config.AgentProperties;
 import ai.kubemoot.agent.modelserver.NoFitException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.networknt.schema.InputFormat;
 import com.networknt.schema.Schema;
 import com.networknt.schema.SchemaLocation;
 import com.networknt.schema.SchemaRegistry;
@@ -287,7 +288,7 @@ class BusContractTest {
 
         JsonNode unknownType = MAPPER.readTree("""
                 {"messageId": "m", "threadId": "t", "agentName": "a", "messageType": "shrug"}""");
-        assertFalse(schema(MESSAGE).validate(unknownType).isEmpty(), "an unknown messageType passed");
+        assertFalse(schema(MESSAGE).validate(unknownType.toString(), InputFormat.JSON).isEmpty(), "an unknown messageType passed");
     }
 
     private static Schema schema(String file) {
@@ -296,7 +297,7 @@ class BusContractTest {
 
     /** Asserts that node matches the schema in file and carries only declared fields. */
     private static void assertConforms(String file, JsonNode node) throws IOException {
-        var errors = schema(file).validate(node);
+        var errors = schema(file).validate(node.toString(), InputFormat.JSON);
         assertTrue(errors.isEmpty(), file + ": " + errors + " in " + node);
         Set<String> extra = undeclared(file, node);
         assertTrue(extra.isEmpty(), file + ": undeclared fields " + extra + " in " + node);
