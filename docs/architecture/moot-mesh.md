@@ -236,8 +236,6 @@ as the client. A harness author implements a standard agent card and
 - **The injection webhook.** The mesh patch that adds the sidecar is one function the
   Agent controller calls for pods Kubemoot builds. A mutating webhook that joins
   pods Kubemoot did not build to the mesh is planned.
-- **Learned placement policies.** The contract names the placement policies
-  (algorithm, learned, shadow). Learned and shadow policies are not built.
 - **`/debug/turns`.** A view of recent turns on the sidecar port does not exist yet.
 
 ## Related

@@ -138,7 +138,7 @@ The coordinator sends the `subcommittee` message once per thread, after it selec
 
 ## Agent Span Graph
 
-The dashboard's span graph visualizes each agent's participation timeline with split bars showing overhead (queue/triage) vs inference time. Each agent's row names the server (or accelerator) its calls ran on and, on hover, the model. Colors are assigned dynamically from message metadata. Legend:
+The dashboard's span graph visualizes each agent's participation timeline with split bars showing overhead (queue/triage) vs inference time. Each agent's row names the server (or accelerator) its calls ran on and the model, in the row tooltip and in the badge shown on hover. Colors are assigned dynamically from message metadata. Legend:
 
 | Element | Description |
 |---------|-------------|

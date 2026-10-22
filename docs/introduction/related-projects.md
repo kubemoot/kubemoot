@@ -179,7 +179,7 @@ is an official Kubernetes project that makes gateways inference-aware. Its Endpo
 Picker routes requests using model server metrics such as cache status and adapter
 availability. Kubemoot's engine-state contract aligns with its
 [Model Server Protocol](https://github.com/kubernetes-sigs/gateway-api-inference-extension/blob/main/docs/proposals/003-model-server-protocol/README.md),
-as described on the [Roadmap](../roadmap/#assessing-model-servers-beyond-ollama).
+as described on the [Roadmap](../roadmap/#more-model-servers-and-leased-accelerators).
 
 ### KAITO
 
