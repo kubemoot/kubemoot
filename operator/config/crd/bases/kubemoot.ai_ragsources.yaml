@@ -850,8 +850,8 @@ spec:
                 format: int64
                 type: integer
               phase:
-                description: Phase is the current phase (Pending, Indexing, Ready,
-                  Error)
+                description: Phase is the current phase (Pending, Queued, Indexing,
+                  Ready, Error)
                 type: string
               queryEndpoint:
                 description: |-

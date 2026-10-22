@@ -110,6 +110,14 @@ type DefaultConfig struct {
 	// Scheduler configures the GPU-aware agent scheduler
 	// +optional
 	Scheduler *SchedulerConfig `json:"scheduler,omitempty"`
+
+	// MaxIndexBuildsPerServer is the most RAGSource index builds that run at once against
+	// one embedding server. Further builds wait in the Queued phase and start when a
+	// build on that server finishes.
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:default=2
+	// +optional
+	MaxIndexBuildsPerServer int32 `json:"maxIndexBuildsPerServer,omitempty"`
 }
 
 // SchedulerConfig configures the GPU-aware agent scheduling system

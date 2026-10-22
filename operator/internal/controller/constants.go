@@ -107,6 +107,7 @@ const (
 	conditionTypeReady = "Ready"
 	phaseDeploying     = "Deploying"
 	phaseIndexing      = "Indexing"
+	phaseQueued        = "Queued"
 	statePending       = "Pending"
 	stateAvailable     = "Available"
 	statePulling       = "Pulling"

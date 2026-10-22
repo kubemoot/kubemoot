@@ -247,6 +247,11 @@ func (r *RAGSourceReconciler) needsIndexing(ragSource *kubemootv1alpha1.RAGSourc
 		return false
 	}
 
+	// A build waiting for a slot on the embedding server starts when one is free
+	if ragSource.Status.Phase == phaseQueued {
+		return true
+	}
+
 	// Always index if never indexed (after delay check)
 	if ragSource.Status.IndexingStats == nil || ragSource.Status.IndexingStats.LastIndexed == nil {
 		return true
@@ -434,24 +439,8 @@ func (r *RAGSourceReconciler) getIndexerImage(ragSource *kubemootv1alpha1.RAGSou
 func (r *RAGSourceReconciler) runIndexingJob(ctx context.Context, ragSource *kubemootv1alpha1.RAGSource, embeddingModel *kubemootv1alpha1.EmbeddingModel) (ctrl.Result, error) {
 	log := logf.FromContext(ctx)
 
-	// Check if there's already an active job for this RAGSource
-	existingJobs := &batchv1.JobList{}
-	if err := r.List(ctx, existingJobs,
-		client.InNamespace(ragSource.Namespace),
-		client.MatchingLabels{labelRAGSource: ragSource.Name}); err != nil {
-		return ctrl.Result{}, err
-	}
-
-	// Check for an active (running) job — don't create a new one if found
-	if activeJob := findActiveJob(existingJobs); activeJob != nil {
-		log.Info("Found active indexing job, waiting for completion", "job", activeJob.Name)
-		ragSource.Status.LastJobName = activeJob.Name
-		ragSource.Status.Phase = phaseIndexing
-		ragSource.Status.Message = fmt.Sprintf("Indexing job %s in progress", activeJob.Name)
-		if err := r.Status().Update(ctx, ragSource); err != nil {
-			return ctrl.Result{}, err
-		}
-		return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
+	if res, held, err := r.holdIndexing(ctx, ragSource, embeddingModel); held || err != nil {
+		return res, err
 	}
 
 	recordFirstBuild(ragSource, embeddingModel)
@@ -492,6 +481,38 @@ func (r *RAGSourceReconciler) runIndexingJob(ctx context.Context, ragSource *kub
 	}
 
 	// Requeue to check job status
+	return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
+}
+
+// holdIndexing reports held, with the reconcile's result, while a Job already indexes this
+// RAGSource or the embedding server has no free build slot.
+func (r *RAGSourceReconciler) holdIndexing(ctx context.Context, ragSource *kubemootv1alpha1.RAGSource, embeddingModel *kubemootv1alpha1.EmbeddingModel) (ctrl.Result, bool, error) {
+	existingJobs := &batchv1.JobList{}
+	if err := r.List(ctx, existingJobs,
+		client.InNamespace(ragSource.Namespace),
+		client.MatchingLabels{labelRAGSource: ragSource.Name}); err != nil {
+		return ctrl.Result{}, true, err
+	}
+
+	// An active (running) job means no new one is created
+	if activeJob := findActiveJob(existingJobs); activeJob != nil {
+		res, err := r.watchActiveJob(ctx, ragSource, activeJob)
+		return res, true, err
+	}
+
+	queued, err := r.queueForSlot(ctx, ragSource, embeddingModel)
+	return ctrl.Result{RequeueAfter: indexSlotPoll}, queued, err
+}
+
+// watchActiveJob records the Job already indexing this RAGSource and waits for it.
+func (r *RAGSourceReconciler) watchActiveJob(ctx context.Context, ragSource *kubemootv1alpha1.RAGSource, activeJob *batchv1.Job) (ctrl.Result, error) {
+	logf.FromContext(ctx).Info("Found active indexing job, waiting for completion", "job", activeJob.Name)
+	ragSource.Status.LastJobName = activeJob.Name
+	ragSource.Status.Phase = phaseIndexing
+	ragSource.Status.Message = fmt.Sprintf("Indexing job %s in progress", activeJob.Name)
+	if err := r.Status().Update(ctx, ragSource); err != nil {
+		return ctrl.Result{}, err
+	}
 	return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
 }
 
@@ -547,13 +568,7 @@ func hasIndexerServiceAccount(ragSource *kubemootv1alpha1.RAGSource) bool {
 
 // buildIndexingJob creates the Job spec for indexing
 func (r *RAGSourceReconciler) buildIndexingJob(ragSource *kubemootv1alpha1.RAGSource, embeddingModel *kubemootv1alpha1.EmbeddingModel, jobName string) *batchv1.Job {
-	labels := map[string]string{
-		labelName:      ragSource.Name,
-		labelInstance:  jobName,
-		labelManagedBy: managedByValue,
-		labelComponent: componentIndexer,
-		labelRAGSource: ragSource.Name,
-	}
+	labels := indexingJobLabels(ragSource, embeddingModel, jobName)
 
 	// Build environment variables for the indexer
 	env := r.buildIndexerEnv(ragSource, embeddingModel)
@@ -754,6 +769,11 @@ func (r *RAGSourceReconciler) buildIndexerCoreEnv(ragSource *kubemootv1alpha1.RA
 
 	if target.Endpoint != "" {
 		env = append(env, corev1.EnvVar{Name: "KUBEMOOT_EMBEDDING_ENDPOINT", Value: target.Endpoint})
+	}
+
+	// The indexer sends the server this many texts per request.
+	if embeddingModel.Spec.BatchSize > 0 {
+		env = append(env, corev1.EnvVar{Name: "KUBEMOOT_EMBEDDING_BATCH_SIZE", Value: fmt.Sprintf("%d", embeddingModel.Spec.BatchSize)})
 	}
 
 	return env
@@ -1283,7 +1303,7 @@ func (r *RAGSourceReconciler) updateStatus(ctx context.Context, ragSource *kubem
 
 	// Requeue based on phase
 	switch phase {
-	case phaseIndexing:
+	case phaseIndexing, phaseQueued:
 		return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
 	case "Error":
 		return ctrl.Result{RequeueAfter: 60 * time.Second}, nil

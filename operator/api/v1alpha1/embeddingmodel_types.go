@@ -41,7 +41,7 @@ type EmbeddingModelSpec struct {
 
 	// BatchSize is the maximum number of texts to embed in a single request
 	// +kubebuilder:validation:Minimum=1
-	// +kubebuilder:default=32
+	// +kubebuilder:default=8
 	// +optional
 	BatchSize int32 `json:"batchSize,omitempty"`
 }

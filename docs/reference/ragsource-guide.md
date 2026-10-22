@@ -295,6 +295,48 @@ RAGSource Created/Updated
   Requeue for next reconcile (5 min default or scheduled)
 ```
 
+### Build slots per embedding server
+
+Several RAGSources often share one embedding server, and a binding change rebuilds all of
+them at once. A CPU server cannot embed that much in parallel: requests slow down until they
+time out and the rebuilds never finish. The operator therefore runs at most
+`spec.defaults.maxIndexBuildsPerServer` index builds at a time against one embedding server
+(default `2`, a positive integer in the cluster `KubemootConfig`; a value below 1 is ignored).
+
+A RAGSource that finds every slot taken goes to phase `Queued`, and `status.message` says how
+many builds the server is running. A RAGSource that already serves an index stays `Ready`
+while its new index waits. Whether a slot is free is decided from the indexing Jobs that
+exist (each carries the label `kubemoot.ai/embedding-server`, the namespace and name of the
+bound ModelServer): a Queued RAGSource starts as soon as fewer Jobs than the limit are
+running on that server. A Job that completed or failed holds no slot. An EmbeddingModel with
+no bound server is not limited.
+
+```yaml
+apiVersion: kubemoot.ai/v1alpha1
+kind: KubemootConfig
+metadata:
+  name: default
+spec:
+  defaults:
+    maxIndexBuildsPerServer: 2
+```
+
+### Embedding requests
+
+The indexer sends the embedding server at most `batchSize` texts per request, taken from the
+EmbeddingModel's `spec.batchSize` (default `8`; the operator passes it as
+`KUBEMOOT_EMBEDDING_BATCH_SIZE`, and the indexer uses 8 when it is not set). Small requests keep
+each call short on a slow server. The client waits up to `KUBEMOOT_EMBEDDING_TIMEOUT` for one
+request (default `300s`, sized for CPU servers); the timeout is a safety net, not flow control.
+
+### Resuming a rebuild
+
+A run that fails starts the source over: the indexer embeds every chunk again, because it
+writes all chunks in one transaction and does not check which chunk ids already exist.
+Chunk ids are deterministic (`ChunkIds`), so a repeated run overwrites the same rows rather than
+adding copies, but it does not skip the chunks already stored. Resuming from the chunks already
+embedded is not implemented.
+
 ### Indexer Internals (Java)
 
 The indexer (`kubemoot/indexer/`) is a Spring Boot application that:
@@ -325,6 +367,8 @@ The controller passes configuration to the indexer job via environment variables
 | `KUBEMOOT_VECTORSTORE_PASSWORD` | DB password (from secret) |
 | `KUBEMOOT_EMBEDDING_ENDPOINT` | Embedding server base URL (the EmbeddingModel's `status.endpoint`) |
 | `KUBEMOOT_EMBEDDING_MODEL` | Embedding model name |
+| `KUBEMOOT_EMBEDDING_BATCH_SIZE` | Texts per embedding request (the EmbeddingModel's `spec.batchSize`; indexer default 8) |
+| `KUBEMOOT_EMBEDDING_TIMEOUT` | Time one embedding request may take (indexer default `300s`; not set by the operator) |
 | `KUBEMOOT_CHUNK_SIZE` | Chunk size in characters |
 | `KUBEMOOT_CHUNK_OVERLAP` | Chunk overlap in characters |
 | `KUBEMOOT_FORCE_REINDEX` | Bypass checksum check |
@@ -480,6 +524,7 @@ Common causes:
 - Indexer image not pullable (check `imagePullSecrets`)
 - Git clone fails (check URL, branch, credentials)
 - Embedding server unreachable (check the EmbeddingModel's `status.endpoint`)
+- Phase `Queued` is not stuck: the embedding server is running its limit of index builds (see Build slots per embedding server)
 - pgvector connection refused (check endpoint, credentials)
 
 ### Query service returns null documents

@@ -93,6 +93,15 @@ spec:
                       type: object
                       x-kubernetes-map-type: atomic
                     type: array
+                  maxIndexBuildsPerServer:
+                    default: 2
+                    description: |-
+                      MaxIndexBuildsPerServer is the most RAGSource index builds that run at once against
+                      one embedding server. Further builds wait in the Queued phase and start when a
+                      build on that server finishes.
+                    format: int32
+                    minimum: 1
+                    type: integer
                   otelCollectorEndpoint:
                     description: |-
                       OTelCollectorEndpoint is the default OpenTelemetry collector endpoint for all agents

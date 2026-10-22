@@ -43,6 +43,8 @@ const (
 	FallbackFitnessRunnerImage     = "ghcr.io/kubemoot/fitness-runner:latest"
 	FallbackVectorStoreType        = "pgvector"
 	FallbackEmbeddingModel         = "nomic-embed"
+	// FallbackMaxIndexBuildsPerServer is how many index builds one embedding server runs at once.
+	FallbackMaxIndexBuildsPerServer int32 = 2
 )
 
 // ConfigCache provides thread-safe access to the KubemootConfig
@@ -202,6 +204,17 @@ func (c *ConfigCache) GetImagePullSecrets() []corev1.LocalObjectReference {
 	// No fallback: the public registry needs no pull secret. A private mirror
 	// declares its secret in KubemootConfig.spec.defaults.imagePullSecrets.
 	return nil
+}
+
+// GetMaxIndexBuildsPerServer returns how many index builds may run at once against one
+// embedding server, from config or fallback
+func (c *ConfigCache) GetMaxIndexBuildsPerServer() int32 {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if c.config != nil && c.config.Spec.Defaults.MaxIndexBuildsPerServer > 0 {
+		return c.config.Spec.Defaults.MaxIndexBuildsPerServer
+	}
+	return FallbackMaxIndexBuildsPerServer
 }
 
 // GetVectorStoreType returns the default vector store type from config or fallback

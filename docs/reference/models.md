@@ -596,7 +596,7 @@ Declares an embedding model for RAGSource indexing. Not consumed by chat agents;
 | `model` | string | (required) | Model name (e.g., `nomic-embed-text`). A crew names the model, never the server: stored vectors match only the model that made them. |
 | `dimensions` | int32 | 768 | Vector dimension size. A server that reports a different size for the model is not bound. |
 | `serverRef` | string | (none) | Name of the ModelServer CR to pin the model to. Leave it out and the cluster's catalog supplies a server (see Binding below). |
-| `batchSize` | int32 | 32 | Max texts per embedding request |
+| `batchSize` | int32 | 8 | Max texts per embedding request; the indexer splits larger inputs into requests of this size |
 
 ### Status
 
