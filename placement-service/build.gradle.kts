@@ -43,7 +43,7 @@ dependencies {
     // Placement: tickets, server selection and placement policies, shared with agent-runtime.
     // Its CDI beans are indexed through quarkus.index-dependency in application.properties.
     implementation("ai.kubemoot:placement-core")
-    implementation("io.nats:jnats:2.26.3")
+    implementation("io.nats:jnats:2.26.4")
 
     // Observability
     implementation("io.quarkus:quarkus-micrometer-registry-prometheus")
