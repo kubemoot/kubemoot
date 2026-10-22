@@ -59,6 +59,8 @@ public class CapacityVersion implements TicketTable.Listener {
                 wakePending.set(false);
                 long now = version.get();
                 for (CompletableFuture<Long> w : waiters) {
+                    // Leave the set first: a caller released by the completion sees the wait already closed.
+                    waiters.remove(w);
                     w.complete(now);
                 }
             });
