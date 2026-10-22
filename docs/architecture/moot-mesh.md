@@ -131,6 +131,59 @@ the tool list repeats, a changed
 argument is a new call, a failed call is never kept, nothing is reused across turns, and a turn keeps at most 64 results, the oldest dropped first.
 The gateway passes each tool's annotations on in its tool list.
 
+## The goose seat
+
+[goose](https://github.com/aaif-goose/goose) is the first external harness at the
+table. Its image, `harness-goose`, holds the goose binary and the
+[harness shim](../the-harness-seam/), and Kubemoot builds and releases it, so an
+Agent names it with one line. To seat an agent as goose, declare the harness block:
+
+```yaml
+apiVersion: kubemoot.ai/v1alpha1
+kind: Agent
+metadata:
+  name: notes-reader
+  labels:
+    kubemoot.ai/crew: homelab-pilot
+spec:
+  discussRole: tooler
+  discussChannels: [general]
+  enabledTools: [time_get_current_time]
+  capabilities: [tool-calling]
+  harness:
+    name: goose
+    mode: sidecar
+    nativeTools: none
+```
+
+`harness.image` is left out: with `name: goose` the operator runs the image
+`images.harnessGoose` names on the [KubemootConfig](../../reference/kubemootconfig-guide/),
+a pinned tag the chart stamps from the release. Set `harness.image` to run another
+build of the shim and goose.
+
+**The shim's role.** goose is a command-line program; it does not serve A2A. The
+shim in the harness container serves the agent card and `SendMessage` on the
+harness port. For each turn it runs `goose run` with the model door as goose's
+OpenAI-compatible provider, the tools door as goose's MCP extension, the turn key
+as the API key, and the requester's time zone in `TZ`. It returns goose's last
+answer as the turn's result. A turn that exceeds the deadline the sidecar sent, or
+that the sidecar cancels, has its goose process and children killed.
+
+**What `nativeTools` does for goose.** goose ships built-in tools of its own: a
+shell, file editing, and more. With `nativeTools: none`, the default, the image
+starts goose without its default profile, so the only tools the model sees are the
+ones at the tools door, which the sidecar filters by `enabledTools` and
+`disabledTools`. With `declared` or `all` goose starts with its full default
+profile; goose cannot narrow its built-ins to a reviewed list, so these two modes
+behave the same. The sidecar cannot see what goose does with its own shell, so
+`declared` and `all` are a deliberate choice that the dashboard shows. See the
+[Agent reference](../../reference/agent/#specharness).
+
+**Tool names.** goose names an MCP extension from its URL, so a tool at the tools
+door reaches the model with a prefix, for example
+`127_0_0_1_8082_mcp__time_get_current_time`. A prompt that names a tool must
+tolerate the prefix.
+
 ## The pod
 
 A sidecar-mode agent pod has two containers:
@@ -243,4 +296,5 @@ as the client. A harness author implements a standard agent card and
 - [Agent reference: `spec.harness`](../../reference/agent/#specharness) - the fields and the contract file.
 - [Build a Crew: Choosing a harness mode](../../user-guides/build-a-crew/#choosing-a-harness-mode) - when to use it and what a harness must do.
 - [The Table and the Harnesses](../../concepts/the-table-and-the-harnesses/) - where harnesses sit in a crew.
+- [The Harness Seam and the Shim](../the-harness-seam/) - how goose and other command-line harnesses take a seat.
 - [Signals & Protocol](../../concepts/signals-and-protocol/) - the signals the sidecar publishes.

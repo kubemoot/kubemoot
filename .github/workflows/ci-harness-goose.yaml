@@ -1,0 +1,71 @@
+name: CI Harness Goose
+
+on:
+  workflow_call:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'harness-shim/**'
+      # The conformance test drives the shim with the sidecar's own turn client.
+      - 'agent-sidecar/internal/a2a/**'
+      - '.golangci.yml'
+      - '.github/scripts/golangci-lint.sh'
+      - 'operator/Makefile'
+      - '.github/workflows/build-dockerfile-image.yaml'
+  workflow_dispatch:
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    # Pull requests (including forks) run on GitHub-hosted runners; the self-hosted
+    # cluster runners take push, dispatch, and workflow_call runs from main only.
+    runs-on: ${{ github.event_name == 'pull_request' && 'ubuntu-latest' || 'homelab-runners' }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: harness-shim/go.mod
+          # The shim has no dependencies; the conformance test builds in the sidecar module.
+          cache-dependency-path: agent-sidecar/go.sum
+
+      - name: Check go.mod is tidy
+        working-directory: harness-shim
+        env:
+          GOTOOLCHAIN: local
+        run: go mod tidy -diff
+
+      - name: Vet
+        working-directory: harness-shim
+        run: go vet ./...
+
+      - name: Lint
+        working-directory: harness-shim
+        run: ../.github/scripts/golangci-lint.sh
+
+      - name: Run tests
+        working-directory: harness-shim
+        run: go test ./...
+
+      # The shim, with a fake goose, answers the sidecar's real A2A client.
+      - name: Run the conformance test against the sidecar's turn client
+        working-directory: agent-sidecar
+        run: go test -run 'TheHarnessShim' ./internal/a2a/
+
+  # The image is the shim plus the pinned goose release; the Dockerfile verifies the
+  # release's sha256 and builds the shim.
+  build-image:
+    needs: test
+    if: github.event_name != 'pull_request'
+    uses: ./.github/workflows/build-dockerfile-image.yaml
+    with:
+      name: harness-goose
+      context: harness-shim

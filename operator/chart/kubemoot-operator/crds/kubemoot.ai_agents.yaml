@@ -575,7 +575,8 @@ spec:
                   image:
                     description: |-
                       Image is the harness image, pinned by digest for anything not built by Kubemoot. In
-                      sidecar mode it is required unless spec.deployment.image names the harness.
+                      sidecar mode it is required unless spec.deployment.image names the harness or the
+                      harness is named goose, whose image comes from KubemootConfig spec.images.harnessGoose.
                     type: string
                   mode:
                     default: legacy
@@ -841,9 +842,10 @@ spec:
             type: object
             x-kubernetes-validations:
             - message: 'harness.mode sidecar needs the harness image: set harness.image
-                or deployment.image'
+                or deployment.image, or name the harness goose'
               rule: '!has(self.harness) || self.harness.mode != ''sidecar'' || has(self.harness.image)
-                || (has(self.deployment) && has(self.deployment.image))'
+                || (has(self.harness.name) && self.harness.name == ''goose'') || (has(self.deployment)
+                && has(self.deployment.image))'
             - message: harness.concurrency above 1 needs harness.mode sidecar
               rule: '!has(self.harness) || !has(self.harness.concurrency) || self.harness.concurrency
                 <= 1 || self.harness.mode == ''sidecar'''

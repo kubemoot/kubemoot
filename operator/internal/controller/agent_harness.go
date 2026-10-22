@@ -47,6 +47,9 @@ const (
 	defaultHarnessPort = meshcontract.DefaultTurnPort
 )
 
+// HarnessNameGoose is the harness name whose image Kubemoot builds (harness-goose).
+const HarnessNameGoose = "goose"
+
 // placementServiceURL returns the realm's placement service URL, empty when agents place in-process.
 func (r *AgentReconciler) placementServiceURL() string {
 	if vars := r.placementServiceEnvVars(); len(vars) > 0 {
@@ -69,15 +72,22 @@ func harnessPort(h *kubemootv1alpha1.HarnessSpec) int32 {
 	return defaultHarnessPort
 }
 
-// harnessImage is the harness image: harness.image, else the deployment's image.
-func harnessImage(agent *kubemootv1alpha1.Agent) string {
+// harnessImage is the harness image: harness.image, else the deployment's image, else the image
+// Kubemoot builds for the harness's name (KubemootConfig spec.images).
+func (r *AgentReconciler) harnessImage(agent *kubemootv1alpha1.Agent) string {
 	if agent.Spec.Harness.Image != "" {
 		return agent.Spec.Harness.Image
 	}
-	if agent.Spec.Deployment != nil {
+	if agent.Spec.Deployment != nil && agent.Spec.Deployment.Image != "" {
 		return agent.Spec.Deployment.Image
 	}
-	return ""
+	if r.ConfigCache == nil {
+		if agent.Spec.Harness.Name == HarnessNameGoose {
+			return FallbackHarnessGooseImage
+		}
+		return ""
+	}
+	return r.ConfigCache.GetHarnessImage(agent.Spec.Harness.Name)
 }
 
 // sidecarHTTPPort is the sidecar's pod-facing port, which the Service targets.
@@ -90,7 +100,7 @@ func sidecarHTTPPort(agent *kubemootv1alpha1.Agent) int32 {
 
 // validateSidecarAgent reports why a sidecar-mode Agent cannot be built. The crew label is
 // required because every bus subject is scoped by it.
-func validateSidecarAgent(agent *kubemootv1alpha1.Agent) error {
+func validateSidecarAgent(agent *kubemootv1alpha1.Agent, image string) error {
 	var errs []error
 	if agent.Labels[labelCrew] == "" {
 		errs = append(errs, fmt.Errorf("harness mode sidecar needs the %s label: the sidecar scopes every subject by crew", labelCrew))
@@ -98,8 +108,8 @@ func validateSidecarAgent(agent *kubemootv1alpha1.Agent) error {
 	if isCoordinator(agent) {
 		errs = append(errs, errors.New("a crew's coordinator runs in legacy mode: its consensus state machine is not a harness seat"))
 	}
-	if harnessImage(agent) == "" {
-		errs = append(errs, errors.New("harness mode sidecar needs harness.image or deployment.image"))
+	if image == "" {
+		errs = append(errs, errors.New("harness mode sidecar needs harness.image or deployment.image, or a harness named goose"))
 	}
 	if hp, sp := harnessPort(agent.Spec.Harness), sidecarHTTPPort(agent); hp == sp {
 		errs = append(errs, fmt.Errorf("harness.port and deployment.port are both %d: the sidecar and the harness need different ports", hp))
@@ -170,7 +180,7 @@ func (r *AgentReconciler) buildContract(ctx context.Context, agent *kubemootv1al
 // sidecarContractData validates a sidecar-mode Agent and renders its contract.yaml. An error
 // here is a fault in the Agent, not a transient failure.
 func (r *AgentReconciler) sidecarContractData(ctx context.Context, agent *kubemootv1alpha1.Agent, mulling, triage *modelPick) (string, error) {
-	if err := validateSidecarAgent(agent); err != nil {
+	if err := validateSidecarAgent(agent, r.harnessImage(agent)); err != nil {
 		return "", err
 	}
 	data, err := r.buildContract(ctx, agent, mulling, triage).Marshal()
@@ -286,7 +296,7 @@ func (r *AgentReconciler) buildSidecarDeployment(ctx context.Context, agent *kub
 	h := agent.Spec.Harness
 	replicas, _, _, serviceAccountName := r.resolveDeploymentParams(agent)
 	container := corev1.Container{
-		Name: harnessContainerName, Image: harnessImage(agent), ImagePullPolicy: corev1.PullIfNotPresent,
+		Name: harnessContainerName, Image: r.harnessImage(agent), ImagePullPolicy: corev1.PullIfNotPresent,
 		Command: h.Command, Args: h.Args, Env: append([]corev1.EnvVar(nil), h.Env...),
 		SecurityContext: mesh.Hardened(),
 	}

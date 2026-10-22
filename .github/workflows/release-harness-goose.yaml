@@ -1,0 +1,96 @@
+name: Release Harness Goose
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'harness-shim/**'
+      - '!harness-shim/**.md'
+      - '.github/scripts/retag-image.sh'
+      - '.github/workflows/build-dockerfile-image.yaml'
+      - '.github/workflows/ci-harness-goose.yaml'
+  workflow_dispatch:
+    inputs:
+      force_release:
+        description: 'Force a release even if no conventional commits found'
+        required: false
+        default: 'false'
+        type: boolean
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  REGISTRY: ${{ vars.REGISTRY }}
+  IMAGE_NAME: kubemoot/harness-goose
+
+permissions:
+  contents: read
+
+jobs:
+  ci:
+    uses: ./.github/workflows/ci-harness-goose.yaml
+    secrets: inherit
+
+  release:
+    needs: ci
+    runs-on: homelab-runners
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # RELEASE_TOKEN (contents+workflows write) pushes even when main's workflow files changed after this commit; GITHUB_TOKEN is refused there.
+          token: ${{ secrets.RELEASE_TOKEN || github.token }}
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Calculate the release candidate version
+        id: version
+        uses: kubemoot/release-actions/release-candidate-version@7accfbc33966d895bab2fc17a2a6c7f2520aaf76 # v0.11.1
+        with:
+          tag_prefix: "harness-goose-v"
+          force: ${{ inputs.force_release }}
+
+      - name: Install crane
+        if: steps.version.outputs.release_created == 'true'
+        env:
+          CRANE_VERSION: v0.20.2
+          CRANE_SHA256: c14340087103ba9dadf61d45acd20675490fd0ccbd56ac7901fc1b502137f44b
+        run: |
+          curl -fsSL -o crane.tar.gz "https://github.com/google/go-containerregistry/releases/download/${CRANE_VERSION}/go-containerregistry_Linux_x86_64.tar.gz"
+          echo "${CRANE_SHA256}  crane.tar.gz" | sha256sum -c -
+          tar -xzf crane.tar.gz crane && sudo mv crane /usr/local/bin/ && rm crane.tar.gz
+
+      - name: Retag image with version
+        if: steps.version.outputs.release_created == 'true'
+        env:
+          HARBOR_USERNAME: ${{ secrets.HARBOR_USERNAME }}
+          HARBOR_PASSWORD: ${{ secrets.HARBOR_PASSWORD }}
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          SHA="${{ github.sha }}"
+          FULL_IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}"
+
+          echo "${HARBOR_PASSWORD}" | crane auth login --insecure ${{ env.REGISTRY }} -u "${HARBOR_USERNAME}" --password-stdin
+
+          .github/scripts/retag-image.sh "${FULL_IMAGE}" "${SHA}" "${VERSION}"
+
+      - name: Create and push tag
+        if: steps.version.outputs.release_created == 'true'
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          TAG="harness-goose-v$VERSION"
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          if ! git rev-parse "$TAG" >/dev/null 2>&1; then
+            echo "Creating tag: $TAG"
+            git tag -a "$TAG" -m "Release candidate Harness Goose $TAG"
+            git push origin "$TAG"
+          fi

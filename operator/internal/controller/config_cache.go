@@ -36,6 +36,7 @@ const (
 	FallbackQueryServiceImage      = "ghcr.io/kubemoot/query-service:latest"
 	FallbackAgentRuntimeImage      = "ghcr.io/kubemoot/agent-runtime:latest"
 	FallbackAgentSidecarImage      = "ghcr.io/kubemoot/agent-sidecar:latest"
+	FallbackHarnessGooseImage      = "ghcr.io/kubemoot/harness-goose:latest"
 	FallbackMcpGatewayImage        = "ghcr.io/kubemoot/mcp-gateway:latest"
 	FallbackMcpBridgeImage         = "ghcr.io/kubemoot/mcp-bridge:latest"
 	FallbackDiscussionGatewayImage = "ghcr.io/kubemoot/discussion-gateway:latest"
@@ -111,6 +112,20 @@ func (c *ConfigCache) GetAgentRuntimeImage() string {
 		return c.config.Spec.Images.AgentRuntime
 	}
 	return FallbackAgentRuntimeImage
+}
+
+// GetHarnessImage returns the image Kubemoot builds for a named harness, from config or fallback.
+// It is empty for a harness Kubemoot ships no image for.
+func (c *ConfigCache) GetHarnessImage(name string) string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if name != HarnessNameGoose {
+		return ""
+	}
+	if c.config != nil && c.config.Spec.Images.HarnessGoose != "" {
+		return c.config.Spec.Images.HarnessGoose
+	}
+	return FallbackHarnessGooseImage
 }
 
 // GetAgentSidecarImage returns the Moot Mesh sidecar image from config or fallback

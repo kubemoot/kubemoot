@@ -11,6 +11,7 @@ spec:
     queryService: {{ include "kubemoot-operator.image" (dict "root" $ "image" .Values.kubemootConfig.images.queryService) | quote }}
     agentRuntime: {{ include "kubemoot-operator.image" (dict "root" $ "image" .Values.kubemootConfig.images.agentRuntime) | quote }}
     agentSidecar: {{ include "kubemoot-operator.image" (dict "root" $ "image" .Values.kubemootConfig.images.agentSidecar) | quote }}
+    harnessGoose: {{ include "kubemoot-operator.image" (dict "root" $ "image" .Values.kubemootConfig.images.harnessGoose) | quote }}
     mcpGateway: {{ include "kubemoot-operator.image" (dict "root" $ "image" .Values.kubemootConfig.images.mcpGateway) | quote }}
     mcpBridge: {{ include "kubemoot-operator.image" (dict "root" $ "image" .Values.kubemootConfig.images.mcpBridge) | quote }}
     discussionGateway: {{ include "kubemoot-operator.image" (dict "root" $ "image" .Values.kubemootConfig.images.discussionGateway) | quote }}

@@ -107,7 +107,7 @@ Names the program that does the agent's reasoning and how its pod joins the tabl
 |-------|------|---------|-------------|
 | `name` | string | | The harness's name. Shown on the dashboard and carried on every signal as `metadata.harness`. |
 | `mode` | enum | `legacy` | `legacy` runs agent-runtime alone. `sidecar` runs the harness beside the Moot Mesh sidecar. |
-| `image` | string | | The harness image. Pin anything Kubemoot did not build by digest. In sidecar mode it is required unless `spec.deployment.image` names the harness. |
+| `image` | string | | The harness image. Pin anything Kubemoot did not build by digest. In sidecar mode it is required unless `spec.deployment.image` names the harness or `name` is `goose`, which defaults to `KubemootConfig.spec.images.harnessGoose`. |
 | `port` | int32 | `9000` | Where the harness serves the turn (A2A) inside the pod. It must differ from the sidecar's port, `spec.deployment.port`. |
 | `protocol` | enum | `a2a` | How the sidecar hands the harness a turn. Only `a2a` exists. |
 | `profile` | enum | `v1` | The Kubemoot turn profile the harness implements. |
@@ -120,7 +120,7 @@ Names the program that does the agent's reasoning and how its pod joins the tabl
 
 **`nativeTools`.** `none` turns the harness's own tools off, so the only tools it can use are the ones at the tools door. `declared` allows the built-ins the crew author reviewed and declared. `all` leaves every built-in on. Anything but `none` is a deliberate choice: it is shown on the dashboard and recorded on the Deployment in the `kubemoot.ai/native-tools` annotation. The sidecar hands the value to the harness image in `KUBEMOOT_NATIVE_TOOLS`; the image applies it. The sidecar cannot see what a harness does with its own shell or file access, so the setting is a statement about the harness, not an enforcement by the mesh.
 
-**Validation.** The CRD rejects a sidecar-mode Agent without an image (`harness.image` or `deployment.image`), `concurrency` above 1 outside sidecar mode, and `nativeTools` other than `none` outside sidecar mode. The operator checks two more things when it builds the pod and reports them in the Agent's status (`phase: Error`, with the reason in `message`):
+**Validation.** The CRD rejects a sidecar-mode Agent without an image (`harness.image`, `deployment.image`, or the name `goose`), `concurrency` above 1 outside sidecar mode, and `nativeTools` other than `none` outside sidecar mode. The operator checks two more things when it builds the pod and reports them in the Agent's status (`phase: Error`, with the reason in `message`):
 
 - The Agent carries the `kubemoot.ai/crew` label. Every bus subject is scoped by crew.
 - `harness.port` and `deployment.port` differ. The sidecar listens on `deployment.port` (default 8080), the harness on `harness.port`.

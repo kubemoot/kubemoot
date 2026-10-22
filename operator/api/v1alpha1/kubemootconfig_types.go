@@ -45,6 +45,13 @@ type ImageConfig struct {
 	// +optional
 	AgentSidecar string `json:"agentSidecar,omitempty"`
 
+	// HarnessGoose is the harness-goose image: the harness shim and the goose binary. An Agent
+	// whose harness is named goose and sets no image of its own runs it. The chart stamps it
+	// from the release; a floating tag would break version pinning.
+	// +kubebuilder:default="ghcr.io/kubemoot/harness-goose:latest"
+	// +optional
+	HarnessGoose string `json:"harnessGoose,omitempty"`
+
 	// McpGateway is the default MCP Gateway image
 	// +kubebuilder:default="ghcr.io/kubemoot/mcp-gateway:latest"
 	// +optional

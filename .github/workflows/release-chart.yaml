@@ -25,6 +25,7 @@ on:
       - Release Dashboard
       - Release Discussion Gateway
       - Release Fitness Runner
+      - Release Harness Goose
       - Release Indexer
       - Release MCP Bridge
       - Release MCP Gateway
