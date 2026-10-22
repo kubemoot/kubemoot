@@ -15,6 +15,19 @@ RUN apt-get update \
 
 COPY --from=kubectl /bin/kubectl /usr/local/bin/kubectl
 
+# The nats CLI asks a crew a question over the bus in the smoke test. Pinned by version
+# and checked against the SHA256SUMS entry for the linux-amd64 archive of that release.
+ARG NATS_CLI_VERSION=0.5.0
+ARG NATS_CLI_SHA256=d9fc93e9e9ab0310deff7e719a8a0da6f9d66f26d473f039aaee70155507aecc
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends unzip \
+    && curl -fsSL -o /tmp/nats.zip "https://github.com/nats-io/natscli/releases/download/v${NATS_CLI_VERSION}/nats-${NATS_CLI_VERSION}-linux-amd64.zip" \
+    && echo "${NATS_CLI_SHA256}  /tmp/nats.zip" | sha256sum -c - \
+    && unzip -j /tmp/nats.zip "nats-${NATS_CLI_VERSION}-linux-amd64/nats" -d /usr/local/bin \
+    && chmod 0755 /usr/local/bin/nats \
+    && apt-get purge -y unzip && apt-get autoremove -y \
+    && rm -rf /tmp/nats.zip /var/lib/apt/lists/*
+
 # Copy all test scripts
 COPY *.sh /tests/
 
