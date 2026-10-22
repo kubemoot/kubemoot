@@ -93,3 +93,15 @@ export function crewTooltip(
 	if (namespace) parts.push(`namespace ${namespace}`);
 	return parts.length > 0 ? parts.join(', ') : undefined;
 }
+
+/**
+ * The text of a crew's entry in the Crew picker: the name people read, the technical
+ * name when it differs, and the namespace, so two crews with one name in two
+ * namespaces can be told apart.
+ */
+export function pickerLabel(entry: CrewEntry): string {
+	const label = entryLabel(entry);
+	const hint = technicalNameHint(label, entry.crew);
+	const named = hint ? `${label} (${hint})` : label;
+	return entry.namespace ? `${named} [${entry.namespace}]` : named;
+}

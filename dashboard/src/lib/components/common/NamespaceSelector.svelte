@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { namespace } from '#lib/stores/index.js';
-	import { entryLabel, technicalNameHint, type CrewEntry } from '#lib/crew-display-name.js';
+	import { entryLabel, pickerLabel, technicalNameHint, type CrewEntry } from '#lib/crew-display-name.js';
 
 	interface Props {
 		crews: CrewEntry[];
@@ -39,7 +39,7 @@
 				{#each crews as c (c.namespace)}
 					{@const label = entryLabel(c)}
 					{@const hint = technicalNameHint(label, c.crew)}
-					<option value={c.namespace} title={hint}>{label}{hint ? ` (${hint})` : ''}</option>
+					<option value={c.namespace} title={hint}>{pickerLabel(c)}</option>
 				{/each}
 			{/if}
 		</select>
