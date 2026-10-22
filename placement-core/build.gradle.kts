@@ -39,7 +39,7 @@ dependencies {
     testFixturesApi(platform("${quarkusPlatformGroupId}:${quarkusPlatformArtifactId}:${quarkusPlatformVersion}"))
 
     api("com.fasterxml.jackson.core:jackson-databind")
-    api("io.nats:jnats:2.26.3")
+    api("io.nats:jnats:2.26.4")
     api("io.micrometer:micrometer-core")
     api("org.slf4j:slf4j-api")
 
@@ -48,7 +48,7 @@ dependencies {
     compileOnly("jakarta.inject:jakarta.inject-api")
     compileOnly("org.eclipse.microprofile.config:microprofile-config-api")
 
-    testFixturesApi("io.nats:jnats:2.26.3")
+    testFixturesApi("io.nats:jnats:2.26.4")
     testFixturesApi("com.fasterxml.jackson.core:jackson-databind")
     testFixturesApi("org.mockito:mockito-core")
 

@@ -67,15 +67,15 @@ dependencies {
     // mcp-core with the Jackson 2 binding instead of the `mcp` bundle, which brings
     // Jackson 3 and a YAML stack: the agent keeps the one Jackson that Quarkus manages
     // and the native image carries no second JSON library.
-    implementation("io.modelcontextprotocol.sdk:mcp-core:2.0.1")
-    implementation("io.modelcontextprotocol.sdk:mcp-json-jackson2:2.0.1")
+    implementation("io.modelcontextprotocol.sdk:mcp-core:2.1.0")
+    implementation("io.modelcontextprotocol.sdk:mcp-json-jackson2:2.1.0")
 
     // Placement: tickets, server selection and placement policies, shared with the placement
     // service. Its CDI beans are indexed through quarkus.index-dependency in application.properties.
     implementation("ai.kubemoot:placement-core")
 
     // NATS - publish chat events to NATS JetStream
-    implementation("io.nats:jnats:2.26.3")
+    implementation("io.nats:jnats:2.26.4")
 
     // Observability
     implementation("io.quarkus:quarkus-micrometer-registry-prometheus")
@@ -98,7 +98,7 @@ dependencies {
     testImplementation("io.rest-assured:rest-assured")
     testImplementation("org.mockito:mockito-core")
     // Validates what the runtime writes on the bus against operator/pkg/bus/schema.
-    testImplementation("com.networknt:json-schema-validator:2.0.7")
+    testImplementation("com.networknt:json-schema-validator:3.0.8")
 }
 
 tasks.withType<Test> {
