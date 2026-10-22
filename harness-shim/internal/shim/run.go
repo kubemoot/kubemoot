@@ -32,24 +32,30 @@ type Runner struct {
 // NewRunner returns a Runner for a validated configuration.
 func NewRunner(cfg Config, env Environment) *Runner { return &Runner{cfg: cfg, env: env} }
 
-func (r *Runner) replacer(t Turn, promptFile string) *strings.Replacer {
-	return strings.NewReplacer(
-		"{{promptFile}}", promptFile, "{{prompt}}", t.Prompt(),
-		"{{question}}", t.Question, "{{instructions}}", t.Instructions,
+// shimPairs are the placeholders whose values come from the shim's own environment and the turn's
+// private directory. They are the only ones an argv element may use.
+func (r *Runner) shimPairs(promptFile string) []string {
+	return []string{
+		"{{promptFile}}", promptFile,
 		"{{modelURL}}", r.env.ModelURL, "{{modelHost}}", strings.TrimSuffix(strings.TrimSuffix(r.env.ModelURL, "/"), "/v1"),
-		"{{toolsURL}}", r.env.ToolsURL, "{{turnKey}}", t.TurnKey, "{{timeZone}}", t.TimeZone,
-		"{{now}}", t.Now, "{{nativeTools}}", r.env.NativeTools,
-	)
+		"{{toolsURL}}", r.env.ToolsURL, "{{nativeTools}}", r.env.NativeTools,
+	}
 }
 
-// Argv expands the configured command for a turn with no prompt file. A leading [mode,mode] keeps
-// the element only when the native-tools mode is one of them.
-func (r *Runner) Argv(t Turn) []string { return r.argv(t, "") }
+// envReplacer also expands the request-derived placeholders, which only env entries may use.
+func (r *Runner) envReplacer(t Turn, promptFile string) *strings.Replacer {
+	return strings.NewReplacer(append(r.shimPairs(promptFile),
+		"{{prompt}}", t.Prompt(), "{{question}}", t.Question, "{{instructions}}", t.Instructions,
+		"{{turnKey}}", t.TurnKey, "{{timeZone}}", t.TimeZone, "{{now}}", t.Now,
+	)...)
+}
 
-// argv expands the command; {{promptFile}} becomes promptFile, the file holding the turn's prompt,
-// so the prompt never travels in the process list.
-func (r *Runner) argv(t Turn, promptFile string) []string {
-	repl := r.replacer(t, promptFile)
+// Argv expands the configured command with a prompt file path. It sees no turn: the command line
+// is built only from configuration and shim-controlled values. A leading [mode,mode] keeps the
+// element only when the native-tools mode is one of them. {{promptFile}} is the file holding the
+// turn's prompt, so the prompt never travels in the process list.
+func (r *Runner) Argv(promptFile string) []string {
+	repl := strings.NewReplacer(r.shimPairs(promptFile)...)
 	out := make([]string, 0, len(r.cfg.Argv))
 	for _, a := range r.cfg.Argv {
 		if kept, rest := r.applyCondition(a); kept {
@@ -79,7 +85,7 @@ func (r *Runner) applyCondition(a string) (bool, string) {
 // own, HOME as the private turn directory, the Moot Mesh variables for this turn, then the
 // configured entries. Nothing else of the shim's environment reaches the command.
 func (r *Runner) Environ(t Turn, home string) []string {
-	repl := r.replacer(t, filepath.Join(home, promptFileName))
+	repl := r.envReplacer(t, filepath.Join(home, promptFileName))
 	env := []string{
 		"HOME=" + home,
 		"KUBEMOOT_MODEL_URL=" + r.env.ModelURL, "KUBEMOOT_TOOLS_URL=" + r.env.ToolsURL,
@@ -113,8 +119,8 @@ func (r *Runner) Run(ctx context.Context, t Turn) (string, error) {
 	if err := os.WriteFile(promptFile, []byte(t.Prompt()), 0o600); err != nil {
 		return "", err
 	}
-	argv := r.argv(t, promptFile)
-	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...) //nolint:gosec // the command is the operator's configuration
+	argv := r.Argv(promptFile)
+	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
 	cmd.Env = r.Environ(t, home)
 	cmd.Dir = home
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}

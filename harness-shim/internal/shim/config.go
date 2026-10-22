@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 )
@@ -25,10 +26,12 @@ const (
 type Config struct {
 	// Name is the agent card's name.
 	Name string `json:"name"`
-	// Argv is the command and its arguments. Every element goes through Expand; an element that
-	// starts with [mode,mode] is kept only when KUBEMOOT_NATIVE_TOOLS is one of the modes.
+	// Argv is the command and its arguments. Elements may use only {{promptFile}}, {{toolsURL}},
+	// {{modelURL}}, {{modelHost}} and {{nativeTools}}, and argv[0] is an absolute path. An element
+	// that starts with [mode,mode] is kept only when KUBEMOOT_NATIVE_TOOLS is one of the modes.
 	Argv []string `json:"argv"`
-	// Env is extra KEY=VALUE entries for the command, expanded like Argv.
+	// Env is extra KEY=VALUE entries for the command, expanded like Argv; they may also use
+	// {{turnKey}}, {{timeZone}}, {{now}}, {{prompt}}, {{question}} and {{instructions}}.
 	Env []string `json:"env"`
 	// Output names how the command's stdout becomes the answer: text or goose-json.
 	Output string `json:"output"`
@@ -79,9 +82,7 @@ func LoadConfig(path string) (Config, error) {
 // Validate reports why a configuration cannot run turns.
 func (c *Config) Validate() error {
 	var errs []error
-	if len(c.Argv) == 0 || strings.TrimSpace(c.Argv[0]) == "" {
-		errs = append(errs, errors.New("argv names no command"))
-	}
+	errs = append(errs, c.validateArgv()...)
 	switch c.Output {
 	case "", OutputText, OutputGooseJSON:
 	default:
@@ -91,6 +92,29 @@ func (c *Config) Validate() error {
 		errs = append(errs, errors.New("maxConcurrent and maxDeadlineSeconds cannot be negative"))
 	}
 	return errors.Join(errs...)
+}
+
+// requestPlaceholders carry values derived from the request; only env entries may use them.
+var requestPlaceholders = []string{
+	"{{prompt}}", "{{question}}", "{{instructions}}", "{{turnKey}}", "{{timeZone}}", "{{now}}",
+}
+
+func (c *Config) validateArgv() []error {
+	if len(c.Argv) == 0 || strings.TrimSpace(c.Argv[0]) == "" {
+		return []error{errors.New("argv names no command")}
+	}
+	var errs []error
+	if !filepath.IsAbs(c.Argv[0]) {
+		errs = append(errs, fmt.Errorf("argv[0] %q is not an absolute path", c.Argv[0]))
+	}
+	for i, a := range c.Argv {
+		for _, p := range requestPlaceholders {
+			if strings.Contains(a, p) {
+				errs = append(errs, fmt.Errorf("argv[%d] uses %s, a request-derived value; only env entries may", i, p))
+			}
+		}
+	}
+	return errs
 }
 
 func (c *Config) concurrency() int {

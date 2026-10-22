@@ -21,7 +21,8 @@ const (
 	modeNone    = "none"
 	modeAll     = "all"
 	keyDeadline = "deadlineSeconds"
-	gooseCmd    = "goose"
+	promptTag   = "{{promptFile}}"
+	gooseCmd    = "/usr/local/bin/goose"
 	subRun      = "run"
 )
 
@@ -134,7 +135,7 @@ func TestTheCommandGetsAPrivateHomeThatIsRemoved(t *testing.T) {
 }
 
 func TestTheQuestionAndInstructionsReachTheCommand(t *testing.T) {
-	_, ts := newTestServer(t, Config{Argv: []string{binSh, "-c", `printf '%s' "$1"`, "sh", "{{prompt}}"}}, testEnv)
+	_, ts := newTestServer(t, Config{Argv: sh(`printf '%s' "$P"`), Env: []string{"P={{prompt}}"}}, testEnv)
 	_, r := post(t, ts.URL+"/message:send", body("Is it Tuesday?", map[string]any{
 		"instructions": "Be brief.", "now": "2026-10-20T10:00:00Z", "timeZone": "Mars/Base",
 		"thread": []any{map[string]any{"agent": "a", "type": "agree", "content": "yes"}}}))
@@ -269,8 +270,8 @@ func TestAHungUpCallerKillsTheCommand(t *testing.T) {
 }
 
 func TestAStuckTurnDoesNotBlockASecondOne(t *testing.T) {
-	script := `if [ "$1" = stuck ]; then sleep 60; else echo fast; fi`
-	_, ts := newTestServer(t, Config{Argv: []string{binSh, "-c", script, "sh", "{{question}}"}, MaxConcurrent: 2}, testEnv)
+	script := `if [ "$Q" = stuck ]; then sleep 60; else echo fast; fi`
+	_, ts := newTestServer(t, Config{Argv: sh(script), Env: []string{"Q={{question}}"}, MaxConcurrent: 2}, testEnv)
 	stuckDone := make(chan struct{})
 	go func() {
 		post(t, ts.URL+"/message:send", body("stuck", map[string]any{keyDeadline: 3}))
@@ -320,24 +321,24 @@ func TestOnlyPostIsAcceptedOnSend(t *testing.T) {
 }
 
 func TestArgvConditionsFollowTheNativeToolsMode(t *testing.T) {
-	cfg := Config{Argv: []string{gooseCmd, subRun, "[none]--no-profile", "[declared,all]--with-builtin", "-t", "{{question}}"}}
+	cfg := Config{Argv: []string{gooseCmd, subRun, "[none]--no-profile", "[declared,all]--with-builtin", "-t", promptTag}}
 	cases := map[string][]string{
-		modeNone:   {gooseCmd, subRun, "--no-profile", "-t", "q"},
-		"declared": {gooseCmd, subRun, "--with-builtin", "-t", "q"},
-		modeAll:    {gooseCmd, subRun, "--with-builtin", "-t", "q"},
+		modeNone:   {gooseCmd, subRun, "--no-profile", "-t", "pf"},
+		"declared": {gooseCmd, subRun, "--with-builtin", "-t", "pf"},
+		modeAll:    {gooseCmd, subRun, "--with-builtin", "-t", "pf"},
 	}
 	for mode, want := range cases {
 		env := testEnv
 		env.NativeTools = mode
-		if got := NewRunner(cfg, env).Argv(Turn{Question: "q"}); !slices.Equal(got, want) {
+		if got := NewRunner(cfg, env).Argv("pf"); !slices.Equal(got, want) {
 			t.Errorf("%s: %v want %v", mode, got, want)
 		}
 	}
 }
 
 func TestModelHostDropsTheV1Suffix(t *testing.T) {
-	r := NewRunner(Config{Argv: []string{"x", "{{modelHost}}"}}, testEnv)
-	if got := r.Argv(Turn{})[1]; got != "http://127.0.0.1:8081" {
+	r := NewRunner(Config{Argv: []string{"/x", "{{modelHost}}"}}, testEnv)
+	if got := r.Argv("")[1]; got != "http://127.0.0.1:8081" {
 		t.Fatalf("modelHost = %q", got)
 	}
 }
@@ -358,13 +359,14 @@ func TestEnvironmentDefaults(t *testing.T) {
 func TestConfigValidation(t *testing.T) {
 	for name, c := range map[string]Config{
 		"no command": {}, "blank command": {Argv: []string{" "}}, "bad output": {Argv: []string{"x"}, Output: "xml"},
+		"relative command": {Argv: []string{"goose"}}, "request value in argv": {Argv: []string{"/x", "{{turnKey}}"}},
 		"negative": {Argv: []string{"x"}, MaxConcurrent: -1},
 	} {
 		if c.Validate() == nil {
 			t.Errorf("%s was accepted", name)
 		}
 	}
-	good := Config{Argv: []string{"x"}, Output: OutputGooseJSON}
+	good := Config{Argv: []string{"/x"}, Output: OutputGooseJSON}
 	if err := good.Validate(); err != nil {
 		t.Fatal(err)
 	}
@@ -377,10 +379,10 @@ func TestLoadConfig(t *testing.T) {
 		_ = os.WriteFile(p, []byte(s), 0o600)
 		return p
 	}
-	if c, err := LoadConfig(write("ok.json", `{"argv":["goose"],"output":"goose-json","maxConcurrent":2}`)); err != nil || c.MaxConcurrent != 2 {
+	if c, err := LoadConfig(write("ok.json", `{"argv":["/bin/goose"],"output":"goose-json","maxConcurrent":2}`)); err != nil || c.MaxConcurrent != 2 {
 		t.Fatalf("%+v %v", c, err)
 	}
-	for name, s := range map[string]string{"bad.json": `{`, "unknown.json": `{"argv":["x"],"surprise":1}`, "empty.json": `{}`} {
+	for name, s := range map[string]string{"bad.json": `{`, "unknown.json": `{"argv":["/x"],"surprise":1}`, "empty.json": `{}`, "turnkey.json": `{"argv":["/x","--k={{turnKey}}"]}`} {
 		if _, err := LoadConfig(write(name, s)); err == nil {
 			t.Errorf("%s was accepted", name)
 		}

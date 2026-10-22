@@ -40,7 +40,7 @@ func startShim(t *testing.T) string {
 		t.Fatal(err)
 	}
 	cfg := map[string]any{
-		"argv":   []string{script, "run", "[none]--no-profile", "-t", "{{prompt}}"},
+		"argv":   []string{script, "run", "[none]--no-profile", "-i", "{{promptFile}}"},
 		"env":    []string{"OPENAI_HOST={{modelHost}}", "OPENAI_API_KEY={{turnKey}}"},
 		"output": "goose-json",
 	}
