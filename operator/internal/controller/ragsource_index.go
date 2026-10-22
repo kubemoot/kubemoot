@@ -145,10 +145,15 @@ func recordFirstBuild(rs *kubemootv1alpha1.RAGSource, em *kubemootv1alpha1.Embed
 }
 
 // servingIndex is the index readers use: the recorded one, or, before any index is
-// complete, what the RAGSource would build first.
+// complete, what the RAGSource would build first. A recorded index made by the
+// binding as it is now is reached at the server's current endpoint.
 func servingIndex(rs *kubemootv1alpha1.RAGSource, em *kubemootv1alpha1.EmbeddingModel) kubemootv1alpha1.IndexProvenance {
 	if rs.Status.Index != nil {
-		return *rs.Status.Index
+		serving := *rs.Status.Index
+		if want := desiredIndex(rs, em); sameProducer(serving, want) {
+			serving.Endpoint = want.Endpoint
+		}
+		return serving
 	}
 	return desiredIndex(rs, em)
 }
@@ -341,6 +346,10 @@ func (r *RAGSourceReconciler) reconcileRetired(ctx context.Context, rs *kubemoot
 	if !r.readersMoved(ctx, rs, rs.Status.Index.Collection) {
 		return ctrl.Result{}, nil
 	}
+	running, err := r.indexerPodsRunning(ctx, rs)
+	if err != nil || running {
+		return ctrl.Result{}, err
+	}
 	job, err := r.cleanupJob(ctx, rs)
 	if err != nil {
 		return ctrl.Result{}, err
@@ -349,6 +358,18 @@ func (r *RAGSourceReconciler) reconcileRetired(ctx context.Context, rs *kubemoot
 		return r.startCleanup(ctx, rs)
 	}
 	return r.finishCleanup(ctx, rs, job)
+}
+
+// indexerPodsRunning reports whether any indexing pod of the RAGSource still exists.
+// A pod of a deleted job can recreate a collection, so none may remain before the
+// retired collections are dropped.
+func (r *RAGSourceReconciler) indexerPodsRunning(ctx context.Context, rs *kubemootv1alpha1.RAGSource) (bool, error) {
+	var pods corev1.PodList
+	if err := r.List(ctx, &pods, client.InNamespace(rs.Namespace),
+		client.MatchingLabels{labelRAGSource: rs.Name, labelComponent: componentIndexer}); err != nil {
+		return false, err
+	}
+	return len(pods.Items) > 0, nil
 }
 
 // cleanupJob is the RAGSource's cleanup Job, nil when there is none.
@@ -417,8 +438,7 @@ func (r *RAGSourceReconciler) buildCleanupJob(rs *kubemootv1alpha1.RAGSource, na
 	env = append(env, secrets...)
 	backoff := int32(2)
 	ttl := int32(3600)
-	nonRoot, noEscalate, uid := true, false, int64(1000)
-	seccomp := corev1.SeccompProfile{Type: corev1.SeccompProfileTypeRuntimeDefault}
+	podSpec := hardenedPodSpec(componentIndexer, r.getIndexerImage(rs), env, r.ConfigCache.GetImagePullSecrets())
 	return &batchv1.Job{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: name, Namespace: rs.Namespace, Labels: labels,
@@ -429,20 +449,28 @@ func (r *RAGSourceReconciler) buildCleanupJob(rs *kubemootv1alpha1.RAGSource, na
 			TTLSecondsAfterFinished: &ttl,
 			Template: corev1.PodTemplateSpec{
 				ObjectMeta: metav1.ObjectMeta{Labels: labels},
-				Spec: corev1.PodSpec{
-					RestartPolicy:    corev1.RestartPolicyNever,
-					ImagePullSecrets: r.ConfigCache.GetImagePullSecrets(),
-					SecurityContext:  &corev1.PodSecurityContext{RunAsNonRoot: &nonRoot, SeccompProfile: &seccomp},
-					Containers: []corev1.Container{{
-						Name: componentIndexer, Image: r.getIndexerImage(rs), Env: env,
-						SecurityContext: &corev1.SecurityContext{
-							RunAsNonRoot: &nonRoot, AllowPrivilegeEscalation: &noEscalate, RunAsUser: &uid, RunAsGroup: &uid,
-							SeccompProfile: &seccomp,
-							Capabilities:   &corev1.Capabilities{Drop: []corev1.Capability{dropAllCapability}},
-						},
-					}},
-				},
+				Spec:       podSpec,
 			},
 		},
+	}
+}
+
+// hardenedPodSpec is the restricted-PSS pod spec of a one-container indexer Job:
+// non-root, no privilege escalation, all capabilities dropped, runtime-default seccomp.
+func hardenedPodSpec(name, image string, env []corev1.EnvVar, pullSecrets []corev1.LocalObjectReference) corev1.PodSpec {
+	nonRoot, noEscalate, uid := true, false, int64(1000)
+	seccomp := corev1.SeccompProfile{Type: corev1.SeccompProfileTypeRuntimeDefault}
+	return corev1.PodSpec{
+		RestartPolicy:    corev1.RestartPolicyNever,
+		ImagePullSecrets: pullSecrets,
+		SecurityContext:  &corev1.PodSecurityContext{RunAsNonRoot: &nonRoot, SeccompProfile: &seccomp},
+		Containers: []corev1.Container{{
+			Name: name, Image: image, Env: env,
+			SecurityContext: &corev1.SecurityContext{
+				RunAsNonRoot: &nonRoot, AllowPrivilegeEscalation: &noEscalate, RunAsUser: &uid, RunAsGroup: &uid,
+				SeccompProfile: &seccomp,
+				Capabilities:   &corev1.Capabilities{Drop: []corev1.Capability{dropAllCapability}},
+			},
+		}},
 	}
 }

@@ -18,6 +18,7 @@ package controller
 
 import (
 	"context"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -464,5 +465,68 @@ func TestIndexNamesAndBindingComparison(t *testing.T) {
 	}
 	if !strings.HasPrefix(n1, "docs_") || strings.ContainsAny(n1, "-. ") {
 		t.Errorf("collection name %q must be a safe table suffix", n1)
+	}
+}
+
+func TestQueryServiceGetsAMovedEndpointInTheSameReconcile(t *testing.T) {
+	h := newIndexHarness(t, idxOldServer, "http://ollama-new:11434", 768)
+	ctx := context.Background()
+
+	if err := h.r.ensureQueryService(ctx, h.rag, h.em); err != nil {
+		t.Fatal(err)
+	}
+	h.reconcile()
+
+	var dep appsv1.Deployment
+	if err := h.c.Get(ctx, client.ObjectKey{Namespace: idxNS, Name: queryServiceDeploymentName(h.rag)}, &dep); err != nil {
+		t.Fatal(err)
+	}
+	got := ""
+	for _, e := range dep.Spec.Template.Spec.Containers[0].Env {
+		if e.Name == "KUBEMOOT_EMBEDDING_ENDPOINT" {
+			got = e.Value
+		}
+	}
+	if got != "http://ollama-new:11434" {
+		t.Errorf("query service endpoint = %q, want the moved server's endpoint on the first reconcile", got)
+	}
+}
+
+func TestOldIndexIsKeptWhileAnIndexerPodStillRuns(t *testing.T) {
+	h := retiredHarness(t, func(r *kubemootv1alpha1.RAGSource) *appsv1.Deployment { return readerDeployment(r, "docs_new", true) })
+	pod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "indexer-pod", Namespace: idxNS,
+		Labels: map[string]string{labelRAGSource: h.rag.Name, labelComponent: componentIndexer}}}
+	if err := h.c.Create(context.Background(), pod); err != nil {
+		t.Fatal(err)
+	}
+
+	h.reconcile()
+	if len(h.jobs(componentIndexCleanup)) != 0 {
+		t.Fatal("an indexer pod could recreate the table, so nothing may be deleted yet")
+	}
+
+	if err := h.c.Delete(context.Background(), pod); err != nil {
+		t.Fatal(err)
+	}
+	h.reconcile()
+	if len(h.jobs(componentIndexCleanup)) != 1 {
+		t.Errorf("cleanup jobs = %d, want one once no indexer pod remains", len(h.jobs(componentIndexCleanup)))
+	}
+}
+
+func TestCleanupAndIndexingJobsShareTheHardenedPodSpec(t *testing.T) {
+	h := newIndexHarness(t, idxOldServer, idxOldURL, 768)
+	h.rag.Status.RetiredCollections = []string{idxCollection}
+	cleanup := h.r.buildCleanupJob(h.rag, "c").Spec.Template.Spec
+	indexing := h.r.buildIndexingJob(h.rag, h.em, "i").Spec.Template.Spec
+
+	if !reflect.DeepEqual(cleanup.SecurityContext, indexing.SecurityContext) ||
+		!reflect.DeepEqual(cleanup.Containers[0].SecurityContext, indexing.Containers[0].SecurityContext) {
+		t.Error("the two jobs must run with the same pod and container security context")
+	}
+	sc := cleanup.Containers[0].SecurityContext
+	if sc.AllowPrivilegeEscalation == nil || *sc.AllowPrivilegeEscalation || sc.RunAsNonRoot == nil || !*sc.RunAsNonRoot ||
+		sc.Capabilities == nil || len(sc.Capabilities.Drop) != 1 {
+		t.Errorf("container security context = %+v, want hardened", sc)
 	}
 }
