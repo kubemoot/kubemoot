@@ -18,14 +18,19 @@ package controller
 
 import (
 	"context"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 
 	kubemootv1alpha1 "github.com/kubemoot/kubemoot/operator/api/v1alpha1"
 )
@@ -163,6 +168,92 @@ func TestQueuedRebuildKeepsServingTheCurrentIndex(t *testing.T) {
 	}
 	if !rag.Status.Ready {
 		t.Error("readers stay on the serving index, so the RAGSource stays Ready")
+	}
+}
+
+func TestQueuedServingSourceStaysReady(t *testing.T) {
+	rag, em := slotRAGSource(), slotEmbeddingModel(slotServer, 0)
+	rag.Status.Ready = true
+	rag.Status.Index = &kubemootv1alpha1.IndexProvenance{Collection: slotRAGName}
+	r, _ := slotReconciler(t, 1, rag, em, slotJob("a", false))
+
+	if queued, err := r.queueForSlot(context.Background(), rag, em); !queued || err != nil {
+		t.Fatalf("queued=%v err=%v, want queued", queued, err)
+	}
+	if !rag.Status.Ready {
+		t.Error("a scheduled re-index of a serving source must stay Ready")
+	}
+	cond := meta.FindStatusCondition(rag.Status.Conditions, conditionTypeReady)
+	if cond == nil || cond.Status != metav1.ConditionTrue {
+		t.Errorf("Ready condition = %v, want True", cond)
+	}
+}
+
+func TestQueuedNeverServedSourceIsNotReady(t *testing.T) {
+	rag, em := slotRAGSource(), slotEmbeddingModel(slotServer, 0)
+	r, _ := slotReconciler(t, 1, rag, em, slotJob("a", false))
+	if _, err := r.queueForSlot(context.Background(), rag, em); err != nil || rag.Status.Ready {
+		t.Errorf("err=%v ready=%v, want not ready", err, rag.Status.Ready)
+	}
+}
+
+func TestQueuedRetryReDerivesTheFullIndexAfterDataLoss(t *testing.T) {
+	query := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"stats":{"document_count":0}}`))
+	}))
+	defer query.Close()
+	rag, em := slotRAGSource(), slotEmbeddingModel(slotServer, 0)
+	now := metav1.NewTime(time.Now())
+	rag.Status = kubemootv1alpha1.RAGSourceStatus{
+		Phase: phaseQueued, QueryEndpoint: query.URL, LastIndexedChecksum: testChecksum,
+		IndexingStats: &kubemootv1alpha1.IndexingStats{LastIndexed: &now},
+	}
+	r, _ := slotReconciler(t, 1, rag, em, slotJob("a", false), slotJob("b", true))
+	r.HTTPClient = query.Client()
+	if !r.mustIndexEverything(context.Background(), rag) {
+		t.Error("a queued retry must force a full index when the store is empty")
+	}
+	rag.Status.Phase = phaseReady
+	if r.mustIndexEverything(context.Background(), rag) {
+		t.Error("a healthy scheduled build keeps skipping unchanged content")
+	}
+}
+
+func TestFinishedJobEnqueuesQueuedSourcesOnItsServer(t *testing.T) {
+	queued, em := slotRAGSource(), slotEmbeddingModel(slotServer, 0)
+	queued.Status.Phase = phaseQueued
+	queued.Spec.EmbeddingModelRef = FallbackEmbeddingModel
+	other := slotRAGSource()
+	other.Name = "idle"
+	other.Status.Phase = phaseReady
+	other.Spec.EmbeddingModelRef = FallbackEmbeddingModel
+	otherServer := slotRAGSource()
+	otherServer.Name = "on-gpu-server"
+	otherServer.Spec.EmbeddingModelRef = "other-model"
+	otherServer.Status.Phase = phaseQueued
+	em2 := slotEmbeddingModel("gpu-vllm", 0)
+	em2.Name = "other-model"
+	r, _ := slotReconciler(t, 1, queued, other, otherServer, em, em2)
+
+	reqs := r.queuedRAGSourcesOfJob(context.Background(), slotJob("a", true))
+	if len(reqs) != 1 || reqs[0].Name != slotRAGName {
+		t.Fatalf("requests = %v, want only %s", reqs, slotRAGName)
+	}
+	if got := r.queuedRAGSourcesOfJob(context.Background(), &batchv1.Job{}); got != nil {
+		t.Errorf("a Job with no server label maps to nothing, got %v", got)
+	}
+}
+
+func TestIndexSlotFreedPredicate(t *testing.T) {
+	p := indexSlotFreedPredicate()
+	if p.Update(event.UpdateEvent{ObjectNew: slotJob("a", false)}) {
+		t.Error("a running Job frees nothing")
+	}
+	if !p.Update(event.UpdateEvent{ObjectNew: slotJob("a", true)}) {
+		t.Error("a completed Job frees a slot")
+	}
+	if p.Create(event.CreateEvent{Object: slotJob("a", true)}) {
+		t.Error("a created Job frees nothing")
 	}
 }
 

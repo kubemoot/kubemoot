@@ -13,6 +13,8 @@ import org.springframework.core.env.MapPropertySource;
 import org.springframework.core.env.PropertySource;
 import org.springframework.core.env.StandardEnvironment;
 import org.springframework.core.io.ClassPathResource;
+import org.springframework.ai.model.openai.autoconfigure.OpenAiAutoConfigurationUtil;
+import org.springframework.ai.model.openai.autoconfigure.OpenAiCommonProperties;
 import org.springframework.ai.model.openai.autoconfigure.OpenAiEmbeddingProperties;
 
 import java.io.IOException;
@@ -167,6 +169,32 @@ class NormalizingEmbeddingModelTest {
 
         assertEquals(Duration.ofMinutes(5), byDefault.getTimeout());
         assertEquals(Duration.ofSeconds(90), configured.getTimeout());
+    }
+
+    @Test
+    void theConfiguredTimeoutIsTheOneTheClientIsBuiltWith() throws IOException {
+        OpenAiEmbeddingProperties configured = binderWith(Map.of("KUBEMOOT_EMBEDDING_TIMEOUT", "90s"))
+            .bind("spring.ai.openai.embedding", OpenAiEmbeddingProperties.class).get();
+
+        assertEquals(Duration.ofSeconds(90),
+            OpenAiAutoConfigurationUtil.resolveCommonProperties(new OpenAiCommonProperties(), configured).getTimeout());
+    }
+
+    @Test
+    void aMissingResultIndexFallsBackToThePosition() {
+        Embedding first = mock(Embedding.class);
+        Embedding second = mock(Embedding.class);
+        when(first.getOutput()).thenReturn(new float[] {3f, 4f});
+        when(second.getOutput()).thenReturn(new float[] {0f, 2f});
+        when(first.getIndex()).thenReturn(null);
+        when(second.getIndex()).thenReturn(null);
+        when(delegate.call(any(EmbeddingRequest.class))).thenReturn(new EmbeddingResponse(List.of(first, second)));
+
+        EmbeddingResponse out = new NormalizingEmbeddingModel(delegate, 8)
+            .call(new EmbeddingRequest(List.of("a", "b"), null));
+
+        assertEquals(0, out.getResults().get(0).getIndex());
+        assertEquals(1, out.getResults().get(1).getIndex());
     }
 
     @Test
