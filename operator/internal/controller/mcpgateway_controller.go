@@ -65,6 +65,8 @@ const (
 // MCPGatewayReconciler reconciles a MCPGateway object
 type MCPGatewayReconciler struct {
 	client.Client
+	// APIReader reads straight from the API server, bypassing the cache (admin token Secret)
+	APIReader     client.Reader
 	Scheme        *runtime.Scheme
 	HTTPClient    *http.Client
 	ConfigCache   *ConfigCache
@@ -144,10 +146,22 @@ func (r *MCPGatewayReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	r.scrapeGatewayFeedback(ctx, gateway)
 
 	// Register MCPServers with gateway (if gateway is ready)
-	registeredServers := r.syncMCPServerRegistrations(ctx, gateway, mcpServers)
+	return r.registerAndReport(ctx, gateway, deployment, mcpServers)
+}
 
-	// Update status based on deployment state
+// registerAndReport registers the MCPServers and reports status from the deployment state.
+func (r *MCPGatewayReconciler) registerAndReport(ctx context.Context, gateway *kubemootv1alpha1.MCPGateway, deployment *appsv1.Deployment, mcpServers []kubemootv1alpha1.MCPServer) (ctrl.Result, error) {
+	registeredServers, err := r.syncMCPServerRegistrations(ctx, gateway, mcpServers)
+	if err != nil {
+		return r.failRegistration(ctx, gateway, err)
+	}
 	return r.updateStatusFromDeployment(ctx, gateway, deployment, registeredServers)
+}
+
+// failRegistration records that registration could not authenticate and requeues.
+func (r *MCPGatewayReconciler) failRegistration(ctx context.Context, gateway *kubemootv1alpha1.MCPGateway, cause error) (ctrl.Result, error) {
+	_, _ = r.updateStatus(ctx, gateway, "Error", false, fmt.Sprintf("Failed to read the admin token: %v", cause))
+	return ctrl.Result{}, cause
 }
 
 // reconcileGatewayPreReqs handles tool index RAGSource and dynamic MCPServer reconciliation.
@@ -202,6 +216,9 @@ func (r *MCPGatewayReconciler) reconcileDeployment(ctx context.Context, gateway 
 
 	// Build desired deployment
 	desiredDeployment := r.buildDeployment(gateway)
+	if err := r.stampAdminTokenHash(ctx, gateway, desiredDeployment); err != nil {
+		return nil, fmt.Errorf("admin access: %w", err)
+	}
 
 	if errors.IsNotFound(err) {
 		log.Info("Creating Gateway Deployment", "name", gateway.Name)
@@ -877,13 +894,13 @@ func (r *MCPGatewayReconciler) getAdminAPIToken(ctx context.Context, gateway *ku
 // syncMCPServerRegistrations syncs MCPServer registrations with gateway, handling
 // adds, removes, and servers whose endpoint changed. It returns the endpoint each
 // registered server was registered with, by name.
-func (r *MCPGatewayReconciler) syncMCPServerRegistrations(ctx context.Context, gateway *kubemootv1alpha1.MCPGateway, mcpServers []kubemootv1alpha1.MCPServer) map[string]string {
+func (r *MCPGatewayReconciler) syncMCPServerRegistrations(ctx context.Context, gateway *kubemootv1alpha1.MCPGateway, mcpServers []kubemootv1alpha1.MCPServer) (map[string]string, error) {
 	log := logf.FromContext(ctx)
 
 	// Get bearer token for Admin API
 	bearerToken, err := r.getAdminAPIToken(ctx, gateway)
 	if err != nil {
-		log.Error(err, "Failed to get Admin API token, continuing without auth")
+		return nil, fmt.Errorf("reading the admin token, not registering without it: %w", err)
 	}
 
 	port := gatewayAdminPort(gateway)
@@ -922,7 +939,7 @@ func (r *MCPGatewayReconciler) syncMCPServerRegistrations(ctx context.Context, g
 		registered[name] = mcp.Status.Endpoint
 	}
 
-	return registered
+	return registered, nil
 }
 
 // unregisterMovedMCPServers unregisters each current server whose endpoint differs

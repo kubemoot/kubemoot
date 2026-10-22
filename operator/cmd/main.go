@@ -394,7 +394,8 @@ func main() {
 			Client: mgr.GetClient(),
 		}).SetupWithManager},
 		{"MCPGateway", (&controller.MCPGatewayReconciler{
-			Client: mgr.GetClient(), Scheme: mgr.GetScheme(), ConfigCache: configCache, NATSPublisher: natsPublisher,
+			Client: mgr.GetClient(), APIReader: mgr.GetAPIReader(), Scheme: mgr.GetScheme(),
+			ConfigCache: configCache, NATSPublisher: natsPublisher,
 		}).SetupWithManager},
 		{"Crew", (&controller.CrewReconciler{
 			Client: mgr.GetClient(), Scheme: mgr.GetScheme(), ConfigCache: configCache, NATSPublisher: natsPublisher,

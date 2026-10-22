@@ -19,6 +19,7 @@ import (
 	"sync"
 	"testing"
 
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
@@ -59,6 +60,7 @@ func coreReconciler(t *testing.T, objs ...client.Object) *MCPGatewayReconciler {
 	t.Helper()
 	t.Setenv("OPERATOR_NAMESPACE", coreTestOperatorNS)
 	scheme := agentReconcileScheme(t)
+	_ = corev1.AddToScheme(scheme)
 	return &MCPGatewayReconciler{Client: fake.NewClientBuilder().WithScheme(scheme).WithObjects(objs...).Build(), Scheme: scheme}
 }
 
@@ -214,9 +216,12 @@ func (rt *recordingTransport) RoundTrip(req *http.Request) (*http.Response, erro
 // a core server of the same name) is unregistered and registered again.
 func TestSyncMCPServerRegistrations_EndpointChange(t *testing.T) {
 	rt := &recordingTransport{}
-	r := coreReconciler(t)
-	r.HTTPClient = &http.Client{Transport: rt}
 	gw := coreGateway(coreTestCrewNS, "gw", crewSelector, everyCore)
+	r := coreReconciler(t, &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: gatewayAdminSecretName(gw), Namespace: gw.Namespace},
+		Data:       map[string][]byte{gatewayAdminTokenKey: []byte("tok")},
+	})
+	r.HTTPClient = &http.Client{Transport: rt}
 	gw.Status.MCPServers = []string{coreTestTools, "own-mcp"}
 	gw.Status.MCPServerEndpoints = map[string]string{
 		coreTestTools: "http://" + coreTestTools + "." + coreTestOperatorNS + ":8080",
@@ -226,7 +231,10 @@ func TestSyncMCPServerRegistrations_EndpointChange(t *testing.T) {
 		*coreServer(coreTestCrewNS, coreTestTools, true, crewLabel), // now the crew's own
 		*coreServer(coreTestCrewNS, "own-mcp", true, crewLabel),     // unchanged
 	}
-	got := r.syncMCPServerRegistrations(context.Background(), gw, servers)
+	got, err := r.syncMCPServerRegistrations(context.Background(), gw, servers)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	if got[coreTestTools] != servers[0].Status.Endpoint || got["own-mcp"] != servers[1].Status.Endpoint {
 		t.Errorf("registered endpoints: %v", got)
