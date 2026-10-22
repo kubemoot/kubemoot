@@ -43,6 +43,8 @@ type vllmEmbedServer struct {
 	srv   *httptest.Server
 	calls atomic.Int32
 	down  atomic.Bool
+	// refuse makes every model answer 400, as vLLM does while a model is loading.
+	refuse atomic.Bool
 }
 
 func newVLLMEmbedServer(t *testing.T) *vllmEmbedServer {
@@ -61,6 +63,8 @@ func newVLLMEmbedServer(t *testing.T) *vllmEmbedServer {
 		switch {
 		case v.down.Load():
 			w.WriteHeader(http.StatusServiceUnavailable)
+		case v.refuse.Load():
+			w.WriteHeader(http.StatusBadRequest)
 		case body.Model == anyEmbedModel:
 			_, _ = w.Write([]byte(`{"data":[{"embedding":[3,0,4]}]}`))
 		default:
@@ -106,10 +110,24 @@ func TestVLLMFactsListEmbeddingModelsWithTheirKindAndSize(t *testing.T) {
 func TestVLLMFactsAskEachModelOnce(t *testing.T) {
 	v := newVLLMEmbedServer(t)
 	r := &ModelServerReconciler{}
-	vllmFactsFor(t, r, v, nil, anyEmbedModel, anyChatModel)
-	vllmFactsFor(t, r, v, nil, anyEmbedModel, anyChatModel)
-	if got := v.calls.Load(); got != 2 {
-		t.Errorf("embedding calls = %d, want 2 (one per model, not one per probe)", got)
+	for range 4 {
+		vllmFactsFor(t, r, v, nil, anyEmbedModel, anyChatModel)
+	}
+	if got := v.calls.Load(); got != 3 {
+		t.Errorf("embedding calls = %d, want 3 (one for the embedding model, two to settle the chat model, then none)", got)
+	}
+}
+
+func TestVLLMFactsDoNotPinAModelAsChatOnOneRefusal(t *testing.T) {
+	v := newVLLMEmbedServer(t)
+	r := &ModelServerReconciler{}
+	v.refuse.Store(true) // the model is still loading
+	if e := vllmFactsFor(t, r, v, nil, anyEmbedModel)[anyEmbedModel]; e.Embedding {
+		t.Fatalf("facts = %+v, want not embedding while the refusal lasts", e)
+	}
+	v.refuse.Store(false)
+	if e := vllmFactsFor(t, r, v, nil, anyEmbedModel)[anyEmbedModel]; !e.Embedding || e.EmbeddingDimensions == 0 {
+		t.Errorf("facts = %+v, want the model found once it answers after a single refusal", e)
 	}
 }
 
