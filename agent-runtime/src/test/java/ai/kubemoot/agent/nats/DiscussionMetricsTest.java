@@ -21,6 +21,19 @@ class DiscussionMetricsTest {
     }
 
     @Test
+    void everySeriesExistsAtZeroBeforeAnyThread() {
+        assertEquals(0, counter("kubemoot_discussion_threads_total", "state", "started"));
+        assertEquals(0, counter("kubemoot_discussion_gaps_total", "type", "tool"));
+        assertNotNull(registry.find("kubemoot_discussion_pending_evaluations").gauge());
+        assertNotNull(registry.find("kubemoot_discussion_thread_duration_seconds").timer());
+    }
+
+    @Test
+    void theBeanIsCreatedAtStartupSoAnIdleAgentExportsItsSeries() {
+        assertNotNull(DiscussionMetrics.class.getAnnotation(io.quarkus.runtime.Startup.class));
+    }
+
+    @Test
     void threadLifecycleCounters() {
         metrics.threadStarted();
         metrics.threadStarted();

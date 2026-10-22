@@ -5,6 +5,7 @@ import io.micrometer.core.instrument.DistributionSummary;
 import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
+import io.quarkus.runtime.Startup;
 import jakarta.enterprise.context.ApplicationScoped;
 
 import java.time.Duration;
@@ -15,7 +16,12 @@ import java.util.concurrent.atomic.AtomicInteger;
  * Prometheus metrics for the consensus discussion system.
  *
  * Exposed at /q/metrics. All metrics are prefixed with "kubemoot_discussion_".
+ *
+ * <p>Created at startup: a normal-scoped bean is built on its first call, so without
+ * {@code @Startup} an agent exports no discussion series until its first thread, and a
+ * dashboard shows no data for an idle crew.
  */
+@Startup
 @ApplicationScoped
 public class DiscussionMetrics {
 
