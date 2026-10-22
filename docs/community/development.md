@@ -126,6 +126,14 @@ cd k8s/tests
 ./test-all.sh       # full suite
 ```
 
+The smoke test also asks a question. It finds a Ready crew (and skips with "no crew
+present, skipped" when there is none), publishes one short question on the crew's bus
+subject and one on its request queue, and waits for the coordinator's `synthesis` on each
+thread. A crew that stays silent fails the test with the thread id and the last message
+seen. The wait ends when the answer arrives; `ASK_TIMEOUT` (480 seconds by default) is a
+safety net. The post-deploy Integration Test runs this after every operator chart release,
+so a Ready crew that never answers can not pass.
+
 See `k8s/tests/README.md` for what each test covers.
 
 ## Other repositories

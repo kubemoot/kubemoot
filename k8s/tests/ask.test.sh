@@ -1,0 +1,71 @@
+#!/usr/bin/env bash
+# Tests for the pure helpers in lib-ask.sh.
+# Usage: bash k8s/tests/ask.test.sh   (exit 0 = all passed)
+set -euo pipefail
+
+# shellcheck source=k8s/tests/lib-ask.sh
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib-ask.sh"
+failures=0
+check() {
+  local name="$1" want="$2" got="$3"
+  if [ "$want" = "$got" ]; then
+    echo "ok   ${name}"
+  else
+    echo "FAIL ${name}: want [${want}] got [${got}]"
+    failures=$((failures + 1))
+  fi
+}
+
+crews='{"items":[
+ {"metadata":{"namespace":"a","name":"x"},"status":{"phase":"Degraded"}},
+ {"metadata":{"namespace":"b","name":"y"},"status":{"phase":"Ready"}},
+ {"metadata":{"namespace":"c","name":"z"},"status":{"phase":"Ready"}}]}'
+check "first Ready crew" "b y" "$(printf '%s' "$crews" | first_ready_crew)"
+check "no crew when none is Ready" "" \
+  "$(printf '%s' '{"items":[{"metadata":{"namespace":"a","name":"x"},"status":{}}]}' | first_ready_crew)"
+check "no crew from an empty list" "" "$(printf '%s' '{"items":[]}' | first_ready_crew)"
+check "no crew from no output" "" "$(printf '' | first_ready_crew)"
+
+check "thread start fields" "human thread_start general t1 n1 c1" \
+  "$(thread_start_json t1 m1 n1 c1 'hi' | jq -r '[.agentName,.messageType,.channel,.threadId,.metadata.namespace,.metadata.crew]|join(" ")')"
+check "thread start keeps a quote in the question" 'say "hi"' \
+  "$(thread_start_json t1 m1 n1 c1 'say "hi"' | jq -r .content)"
+check "request has every required field" "true" \
+  "$(request_json k n1 c1 'q' | jq '[.message,.conversationId,.namespace,.crew,.timestamp,.use_rag,.use_tools]|all(. != null)')"
+check "request timestamp is RFC 3339" "true" \
+  "$(request_json k n1 c1 'q' | jq '.timestamp|test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:]{8}Z$")')"
+
+log=$(mktemp)
+trap 'rm -f "$log"' EXIT
+printf '%s\n' \
+  'not json' \
+  '{"threadId":"t1","messageType":"thread_start","agentName":"human","content":"Smoke check k1"}' \
+  '{"threadId":"t1","messageType":"proposal","agentName":"a1","content":"x"}' \
+  '{"threadId":"t2","messageType":"synthesis","agentName":"coord","content":"other thread"}' >"$log"
+has_synthesis "$log" t1 && r=yes || r=no
+check "no synthesis on a thread that has none" "no" "$r"
+printf '%s\n' '{"threadId":"t1","messageType":"synthesis","agentName":"coord","content":"done"}' >>"$log"
+has_synthesis "$log" t1 && r=yes || r=no
+check "synthesis on the thread" "yes" "$r"
+has_synthesis "$log" t3 && r=yes || r=no
+check "synthesis on another thread does not count" "no" "$r"
+has_synthesis /nonexistent t1 && r=yes || r=no
+check "missing capture file is no answer" "no" "$r"
+check "thread found by marker" "t1" "$(thread_for_marker "$log" k1)"
+check "no thread for an unseen marker" "" "$(thread_for_marker "$log" k9)"
+check "last message on the thread" "synthesis from coord" "$(last_message_on "$log" t1)"
+check "last message when the thread is silent" "no message seen on the thread" "$(last_message_on "$log" t9)"
+
+sleep 30 &
+pid=$!
+wait_until true "$pid" 5 && r=0 || r=$?
+check "wait ends at once when the state holds" "0" "$r"
+wait_until false "$pid" 1 && r=0 || r=$?
+check "wait gives up at the safety timeout" "1" "$r"
+kill "$pid" 2>/dev/null || true
+wait "$pid" 2>/dev/null || true
+wait_until false "$pid" 5 && r=0 || r=$?
+check "wait reports a dead capture process" "2" "$r"
+
+[ "$failures" -eq 0 ] || { echo "${failures} failed"; exit 1; }
+echo "all passed"

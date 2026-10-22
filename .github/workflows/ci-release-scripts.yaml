@@ -18,6 +18,8 @@ on:
       - 'k8s/tests/job/**'
       - 'k8s/tests/lib.sh'
       - 'k8s/tests/lib.test.sh'
+      - 'k8s/tests/lib-ask.sh'
+      - 'k8s/tests/ask.test.sh'
       - '**/go.mod'
       - '**/osv-scanner.toml'
   push:
@@ -35,6 +37,8 @@ on:
       - 'k8s/tests/job/**'
       - 'k8s/tests/lib.sh'
       - 'k8s/tests/lib.test.sh'
+      - 'k8s/tests/lib-ask.sh'
+      - 'k8s/tests/ask.test.sh'
       - '**/go.mod'
       - '**/osv-scanner.toml'
 
@@ -56,7 +60,7 @@ jobs:
       - name: Set up the release helpers
         uses: kubemoot/release-actions/setup@7accfbc33966d895bab2fc17a2a6c7f2520aaf76 # v0.11.1
       - name: Shellcheck
-        run: shellcheck -x .github/scripts/*.sh k8s/tests/job/*.sh k8s/tests/lib.test.sh
+        run: shellcheck -x .github/scripts/*.sh k8s/tests/job/*.sh k8s/tests/lib.test.sh k8s/tests/lib-ask.sh k8s/tests/ask.test.sh
       - name: Tests
         run: |
           bash .github/scripts/test-publish-release.sh
@@ -69,5 +73,6 @@ jobs:
           bash .github/scripts/test-java-toolchain-version.sh
           bash k8s/tests/job/run.test.sh
           bash k8s/tests/lib.test.sh
+          bash k8s/tests/ask.test.sh
           bash .github/scripts/test-osv-ignores.sh --self
           bash .github/scripts/test-osv-ignores.sh

@@ -6,6 +6,7 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/lib.sh"
+source "${SCRIPT_DIR}/lib-ask.sh"
 
 NAMESPACE="${NAMESPACE:-kubemoot}"
 TEST_NAME="Smoke Test"
@@ -113,6 +114,32 @@ for crd in $EXPECTED_CRDS; do
         log_fail "CRD '${crd}.kubemoot.ai' missing"
     fi
 done
+
+# Test 4: a crew answers a question
+log_section "Test 4: Crew Answers a Question"
+
+# A Ready crew that never answers must fail here, so the check asks a real question over
+# the bus (the dashboard's path) and through the request queue (the API's path) and waits
+# for the coordinator's synthesis. The wait ends on that message; ASK_TIMEOUT is only the
+# safety net.
+ASK_TIMEOUT="${ASK_TIMEOUT:-480}"
+NATS_URL="${NATS_URL:-nats://nats.nats.svc.cluster.local:4222}"
+CREW_TARGET=$(kubectl get crews -A -o json 2>/dev/null | first_ready_crew)
+if [ -z "$CREW_TARGET" ]; then
+    log_skip "Crew answer check: no crew present, skipped"
+elif ! command -v nats &>/dev/null; then
+    log_fail "Crew answer check: the nats CLI is not installed, so the crew cannot be asked"
+else
+    read -r CREW_NS CREW_NAME <<<"$CREW_TARGET"
+    log_info "Asking crew $CREW_NS/$CREW_NAME over $NATS_URL"
+    for how in bus queue; do
+        if result=$(ask_crew "$how" "$CREW_NS" "$CREW_NAME" "$NATS_URL" "$ASK_TIMEOUT"); then
+            log_ok "Crew $CREW_NS/$CREW_NAME answered a question by the $how: $result"
+        else
+            log_fail "Crew $CREW_NS/$CREW_NAME did not answer a question by the $how: $result"
+        fi
+    done
+fi
 
 # Results
 exit_with_results
