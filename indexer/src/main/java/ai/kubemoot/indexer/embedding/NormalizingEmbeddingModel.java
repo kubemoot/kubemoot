@@ -56,9 +56,13 @@ public class NormalizingEmbeddingModel implements EmbeddingModel {
     }
 
     private static EmbeddingResponse normalized(EmbeddingResponse response, int offset) {
-        List<Embedding> results = response.getResults().stream()
-            .map(e -> new Embedding(Vectors.l2Normalize(e.getOutput()), offset + e.getIndex(), e.getMetadata()))
-            .toList();
+        List<Embedding> source = response.getResults();
+        List<Embedding> results = new ArrayList<>(source.size());
+        for (int position = 0; position < source.size(); position++) {
+            Embedding e = source.get(position);
+            int index = e.getIndex() != null ? e.getIndex() : position;
+            results.add(new Embedding(Vectors.l2Normalize(e.getOutput()), offset + index, e.getMetadata()));
+        }
         return new EmbeddingResponse(results, response.getMetadata());
     }
 

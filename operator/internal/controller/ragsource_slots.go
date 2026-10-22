@@ -27,7 +27,10 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	kubemootv1alpha1 "github.com/kubemoot/kubemoot/operator/api/v1alpha1"
 )
@@ -127,7 +130,7 @@ func (r *RAGSourceReconciler) recordQueued(ctx context.Context, rs *kubemootv1al
 		return nil
 	}
 	rs.Status.Phase = phaseQueued
-	rs.Status.Ready = rebuilding(rs)
+	rs.Status.Ready = rs.Status.Ready || rs.Status.Index != nil
 	rs.Status.Message = message
 	status := metav1.ConditionFalse
 	if rs.Status.Ready {
@@ -141,4 +144,48 @@ func (r *RAGSourceReconciler) recordQueued(ctx context.Context, rs *kubemootv1al
 		LastTransitionTime: metav1.Now(),
 	})
 	return r.Status().Update(ctx, rs)
+}
+
+// queuedRAGSourcesOfJob maps an indexing Job to the Queued RAGSources waiting on the
+// embedding server the Job embeds through.
+func (r *RAGSourceReconciler) queuedRAGSourcesOfJob(ctx context.Context, obj client.Object) []reconcile.Request {
+	key := obj.GetLabels()[labelEmbeddingServer]
+	if key == "" {
+		return nil
+	}
+	var list kubemootv1alpha1.RAGSourceList
+	if err := r.List(ctx, &list); err != nil {
+		return nil
+	}
+	var reqs []reconcile.Request
+	for i := range list.Items {
+		rs := &list.Items[i]
+		if rs.Status.Phase != phaseQueued {
+			continue
+		}
+		em, err := findEmbeddingModel(ctx, r.Client, rs.Namespace, rs.Spec.EmbeddingModelRef)
+		if err != nil || em == nil || embeddingServerKey(em) != key {
+			continue
+		}
+		reqs = append(reqs, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(rs)})
+	}
+	return reqs
+}
+
+// indexSlotFreedPredicate passes the events that free a build slot: an indexing Job
+// that completes or fails, or is deleted while running.
+func indexSlotFreedPredicate() predicate.Predicate {
+	return predicate.Funcs{
+		CreateFunc:  func(event.CreateEvent) bool { return false },
+		GenericFunc: func(event.GenericEvent) bool { return false },
+		DeleteFunc:  func(event.DeleteEvent) bool { return true },
+		UpdateFunc: func(e event.UpdateEvent) bool {
+			job, ok := e.ObjectNew.(*batchv1.Job)
+			if !ok {
+				return false
+			}
+			complete, failed := jobConditions(job)
+			return complete || failed
+		},
+	}
 }

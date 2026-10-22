@@ -153,7 +153,7 @@ func (r *RAGSourceReconciler) reconcileIndexingState(ctx context.Context, ragSou
 	}
 
 	if r.needsIndexing(ragSource) {
-		if ragSource.Generation != ragSource.Status.ObservedGeneration {
+		if r.mustIndexEverything(ctx, ragSource) {
 			forceFullIndex(ragSource)
 		}
 		return r.runIndexingJob(ctx, ragSource, embeddingModel)
@@ -170,6 +170,17 @@ func (r *RAGSourceReconciler) reconcileIndexingState(ctx context.Context, ragSou
 
 	return r.updateStatus(ctx, ragSource, phaseReady, true,
 		fmt.Sprintf("Indexed %d documents", ragSource.Status.IndexingStats.DocumentCount))
+}
+
+// mustIndexEverything is true when the next build has to write every document: the spec
+// changed, or the vector store of a build that waited in the queue is found empty. The
+// state is read again on every attempt, so a wait in the queue never loses the need.
+func (r *RAGSourceReconciler) mustIndexEverything(ctx context.Context, ragSource *kubemootv1alpha1.RAGSource) bool {
+	if ragSource.Generation != ragSource.Status.ObservedGeneration {
+		return true
+	}
+	return ragSource.Status.Phase == phaseQueued && ragSource.Status.QueryEndpoint != "" &&
+		r.verifyVectorStore(ctx, ragSource)
 }
 
 // holdForInitialDelay reports held, with the reconcile's result, while the RAGSource is
@@ -1341,6 +1352,11 @@ func (r *RAGSourceReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Watches(&kubemootv1alpha1.EmbeddingModel{},
 			handler.EnqueueRequestsFromMapFunc(r.ragSourcesOfEmbeddingModel),
 			builder.WithPredicates(embeddingEndpointPredicate())).
+		// A finished indexing Job frees a slot on its embedding server: the RAGSources
+		// queued on that server start at once instead of at the next poll.
+		Watches(&batchv1.Job{},
+			handler.EnqueueRequestsFromMapFunc(r.queuedRAGSourcesOfJob),
+			builder.WithPredicates(indexSlotFreedPredicate())).
 		Complete(r)
 }
 
