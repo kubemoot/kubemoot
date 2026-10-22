@@ -645,24 +645,12 @@ func (r *RAGSourceReconciler) buildIndexingJob(ragSource *kubemootv1alpha1.RAGSo
 	container.Env = env
 	container.VolumeMounts = volumeMounts
 
-	// Security context for restricted PSS compliance
-	runAsNonRoot := true
-	allowPrivilegeEscalation := false
-	runAsUser := int64(1000)
-	runAsGroup := int64(1000)
-	seccompProfile := corev1.SeccompProfile{
-		Type: corev1.SeccompProfileTypeRuntimeDefault,
-	}
-	container.SecurityContext = &corev1.SecurityContext{
-		RunAsNonRoot:             &runAsNonRoot,
-		AllowPrivilegeEscalation: &allowPrivilegeEscalation,
-		RunAsUser:                &runAsUser,
-		RunAsGroup:               &runAsGroup,
-		SeccompProfile:           &seccompProfile,
-		Capabilities: &corev1.Capabilities{
-			Drop: []corev1.Capability{dropAllCapability},
-		},
-	}
+	podSpec := hardenedPodSpec(componentIndexer, container.Image, container.Env, r.ConfigCache.GetImagePullSecrets())
+	hardened := podSpec.Containers[0]
+	hardened.Resources = container.Resources
+	hardened.VolumeMounts = container.VolumeMounts
+	podSpec.Containers[0] = hardened
+	podSpec.Volumes = volumes
 
 	job := &batchv1.Job{
 		ObjectMeta: metav1.ObjectMeta{
@@ -677,16 +665,7 @@ func (r *RAGSourceReconciler) buildIndexingJob(ragSource *kubemootv1alpha1.RAGSo
 				ObjectMeta: metav1.ObjectMeta{
 					Labels: labels,
 				},
-				Spec: corev1.PodSpec{
-					RestartPolicy:    corev1.RestartPolicyNever,
-					Containers:       []corev1.Container{container},
-					Volumes:          volumes,
-					ImagePullSecrets: r.ConfigCache.GetImagePullSecrets(),
-					SecurityContext: &corev1.PodSecurityContext{
-						RunAsNonRoot:   &runAsNonRoot,
-						SeccompProfile: &seccompProfile,
-					},
-				},
+				Spec: podSpec,
 			},
 		},
 	}
