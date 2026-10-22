@@ -7,6 +7,7 @@ import {
 	crewTechnicalHint,
 	crewTooltip,
 	entryLabel,
+	pickerLabel,
 	technicalNameHint,
 	type CrewEntry,
 	type CrewNameSource
@@ -160,5 +161,23 @@ describe('crewTooltip', () => {
 	it('is undefined when there is nothing to add', () => {
 		expect(crewTooltip(entries, undefined, 'homelab-pilot')).toBeUndefined();
 		expect(crewTooltip(entries, '', 'homelab-pilot')).toBeUndefined();
+	});
+});
+
+describe('pickerLabel', () => {
+	it('adds the namespace so equal names in two namespaces differ', () => {
+		const a: CrewEntry = { namespace: 'a-ns', crew: 'platform-ops', displayName: 'platform-ops' };
+		const b: CrewEntry = { namespace: 'b-ns', crew: 'platform-ops', displayName: 'platform-ops' };
+		expect(pickerLabel(a)).toBe('platform-ops [a-ns]');
+		expect(pickerLabel(a)).not.toBe(pickerLabel(b));
+	});
+
+	it('keeps the technical name hint when the display name differs', () => {
+		const e: CrewEntry = { namespace: 'ns', crew: 'platform-ops', displayName: 'Platform Ops' };
+		expect(pickerLabel(e)).toBe('Platform Ops (platform-ops) [ns]');
+	});
+
+	it('omits the namespace when it is empty and falls back to the technical name', () => {
+		expect(pickerLabel({ namespace: '', crew: 'lab-ops', displayName: '' })).toBe('lab-ops');
 	});
 });

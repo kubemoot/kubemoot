@@ -671,7 +671,7 @@
 			{#if selectedThread}
 				<div class="thread-detail-header">
 					{#if selectedThread.crew}
-						<span class="crew-badge" title={crewTooltip($crewDirectory, selectedThread.namespace, selectedThread.crew)}>{crewLabel($crewDirectory, selectedThread.namespace, selectedThread.crew)}</span>
+						<span class="crew-badge" title={crewTooltip($crewDirectory, selectedThread.namespace, selectedThread.crew)}>{$namespace === '' && selectedThread.namespace ? `${selectedThread.namespace}/` : ''}{crewLabel($crewDirectory, selectedThread.namespace, selectedThread.crew)}</span>
 					{/if}
 					{#if selectedThread.crewVersion}
 						<span class="crew-version-badge" title="Crew chart version">v{selectedThread.crewVersion}</span>

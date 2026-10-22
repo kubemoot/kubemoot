@@ -13,7 +13,7 @@ describe('NamespaceSelector', () => {
 		const { container } = render(NamespaceSelector, { props: { crews } });
 		const [option] = crewOptions(container);
 		expect(option.value).toBe('pilot');
-		expect(option.textContent).toBe('Homelab Pilot (homelab-pilot)');
+		expect(option.textContent).toBe('Homelab Pilot (homelab-pilot) [pilot]');
 		expect(option.title).toBe('homelab-pilot');
 	});
 
@@ -24,9 +24,23 @@ describe('NamespaceSelector', () => {
 		];
 		const { container } = render(NamespaceSelector, { props: { crews } });
 		const options = crewOptions(container);
-		expect(options.map((o) => o.textContent)).toEqual(['homelab-health-guide', 'lab-ops']);
+		expect(options.map((o) => o.textContent)).toEqual(['homelab-health-guide [guide]', 'lab-ops [blank]']);
 		expect(options.map((o) => o.value)).toEqual(['guide', 'blank']);
 		expect(options.every((o) => !o.hasAttribute('title'))).toBe(true);
+	});
+
+	it('tells apart two crews with one name in two namespaces', () => {
+		const crews: CrewEntry[] = [
+			{ namespace: 'gav-platform-ops', crew: 'platform-ops', displayName: 'platform-ops' },
+			{ namespace: 'otters-platform-ops', crew: 'platform-ops', displayName: 'platform-ops' }
+		];
+		const { container } = render(NamespaceSelector, { props: { crews } });
+		const options = crewOptions(container);
+		expect(options.map((o) => o.textContent)).toEqual([
+			'platform-ops [gav-platform-ops]',
+			'platform-ops [otters-platform-ops]'
+		]);
+		expect(new Set(options.map((o) => o.textContent)).size).toBe(2);
 	});
 
 	it('shows only All crews when there are no crews', () => {
