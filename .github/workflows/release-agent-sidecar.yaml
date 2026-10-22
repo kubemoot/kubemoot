@@ -11,6 +11,7 @@ on:
       - '.github/scripts/retag-image.sh'
       - '.github/scripts/go-build-static.sh'
       - '.github/workflows/build-go-binary-image.yaml'
+      - '.github/workflows/ci-agent-sidecar.yaml'
   workflow_dispatch:
     inputs:
       force_release:
