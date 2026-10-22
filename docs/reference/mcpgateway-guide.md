@@ -39,6 +39,8 @@ The `kubemoot` gateway serves two ports.
 | Tool port (`spec.port`, 8080) | Tool calls, the MCP endpoints, and the read-only tool lists `GET /admin/tools`, `GET /admin/servers/{id}/tools` and `GET /admin/search/tools` | Every pod, as before. Agents and their sidecars read the tool list here |
 | Admin port (8081) | Registration and removal of MCP servers (`POST /admin/servers`, `DELETE /admin/servers/{id}`), the server list, and the feedback scrape (`/admin/feedback`) | The operator only |
 
+`/mcp/messages` stays on the tool port by design: tool calls are the crew's normal path. Admin paths are normalized before they are matched (decoded, slashes collapsed, path parameters and trailing slash removed), and ambiguous encodings are refused with 400.
+
 An external MCP server's API key travels in a registration, so the registration routes are not served on the tool port at all (they answer 404 there). On the admin port every request needs `Authorization: Bearer <token>`; a missing or wrong token gets 401, and the token is compared in constant time and never logged.
 
 The operator generates the token, one per MCPGateway:
@@ -47,7 +49,7 @@ The operator generates the token, one per MCPGateway:
 - The Secret is mounted into the gateway as `MCP_GATEWAY_ADMIN_TOKEN` (with `MCP_GATEWAY_ADMIN_PORT`), and the operator presents it on every registration, removal and feedback call.
 - The operator also creates a NetworkPolicy `<gateway>-admin` that admits the tool port to every caller and the admin port to the operator pod only. Enforcement needs a CNI that implements NetworkPolicy; the token protects the port either way.
 
-To rotate the token, delete the Secret and restart the gateway Deployment: the operator creates a new Secret, and the gateway reads it at start. If you set `spec.port` to 8081, the admin port moves to 8082.
+To rotate the token, delete the Secret: the operator creates a new one, and because a short fingerprint of the token (never the token) sits on the pod template as an annotation, the gateway pods roll onto it. The operator sends no registration request while it cannot read the token, and retries. If you set `spec.port` to 8081, the admin port moves to 8082.
 
 Existing gateways need no action. On the first reconcile after the operator upgrade, the operator adds the Secret, the NetworkPolicy, the admin port on the Deployment and Service, and the gateway pods roll to the image that serves the admin port. Run the operator and the gateway image from the same release; an older gateway image does not serve the admin port, so registration fails until it is replaced. The ContextForge implementation keeps its own single port and `adminAPISecretRef` token.
 
@@ -122,7 +124,7 @@ Credential policies define how dynamically discovered MCP servers get authentica
 | `phase` | string | `Pending`, `Deploying`, `Indexing`, `Ready`, `Error` |
 | `ready` | bool | Gateway accepting connections |
 | `endpoint` | string | Gateway service URL |
-| `adminEndpoint` | string | Admin API URL on the admin port (if enabled); reachable by the operator only |
+| `adminEndpoint` | string | Admin API URL on the admin port (if enabled); reachable by the operator only, it needs the bearer token and is not browser-reachable |
 | `registeredServers` | int | Count of registered MCPServers |
 | `mcpServers` | []string | Names of registered servers |
 | `toolIndex` | ToolIndexStatus | Tool index readiness and count |

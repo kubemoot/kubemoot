@@ -40,26 +40,85 @@ public class AdminAccessFilter extends OncePerRequestFilter {
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain chain)
             throws ServletException, IOException {
-        String path = request.getServletPath();
+        String path = normalize(request);
+        if (path == null) {
+            response.sendError(HttpServletResponse.SC_BAD_REQUEST);
+            return;
+        }
         boolean adminPath = path.equals(ADMIN_PREFIX) || path.startsWith(ADMIN_PREFIX + "/");
         boolean onAdminPort = adminPort > 0 && request.getLocalPort() == adminPort;
-
         if (onAdminPort) {
-            if (!adminPath) {
-                response.sendError(HttpServletResponse.SC_NOT_FOUND);
-            } else if (!authorized(request)) {
-                response.setHeader("WWW-Authenticate", "Bearer");
-                response.sendError(HttpServletResponse.SC_UNAUTHORIZED);
-            } else {
-                chain.doFilter(request, response);
-            }
-            return;
-        }
-        if (adminPath && !isOpenRead(request.getMethod(), path)) {
+            serveAdminPort(request, response, chain, adminPath);
+        } else if (adminPath && !isOpenRead(request.getMethod(), path)) {
             response.sendError(HttpServletResponse.SC_NOT_FOUND);
-            return;
+        } else {
+            chain.doFilter(request, response);
         }
-        chain.doFilter(request, response);
+    }
+
+    private void serveAdminPort(HttpServletRequest request, HttpServletResponse response, FilterChain chain,
+            boolean adminPath) throws ServletException, IOException {
+        if (!adminPath) {
+            response.sendError(HttpServletResponse.SC_NOT_FOUND);
+        } else if (!authorized(request)) {
+            response.setHeader("WWW-Authenticate", "Bearer");
+            response.sendError(HttpServletResponse.SC_UNAUTHORIZED);
+        } else {
+            chain.doFilter(request, response);
+        }
+    }
+
+    /**
+     * The path the request will be routed by: servlet path plus path info, decoded once,
+     * with path parameters removed, slashes collapsed and the trailing slash dropped.
+     * Returns null for an ambiguous path (encoded slash, backslash, dot segments, control
+     * characters, or a second layer of encoding), which is refused.
+     */
+    static String normalize(HttpServletRequest request) {
+        String raw = request.getRequestURI();
+        if (raw == null) {
+            return null;
+        }
+        String context = request.getContextPath();
+        if (context != null && !context.isEmpty() && raw.startsWith(context)) {
+            raw = raw.substring(context.length());
+        }
+        if (hasAmbiguousEncoding(raw)) {
+            return null;
+        }
+        String decoded;
+        try {
+            decoded = java.net.URLDecoder.decode(raw.replace("+", "%2B"), StandardCharsets.UTF_8);
+        } catch (IllegalArgumentException e) {
+            return null;
+        }
+        return collapse(decoded);
+    }
+
+    private static boolean hasAmbiguousEncoding(String raw) {
+        String lower = raw.toLowerCase(java.util.Locale.ROOT);
+        return lower.contains("%2f") || lower.contains("%5c") || lower.contains("%25") || raw.indexOf('\\') >= 0;
+    }
+
+    /** Drops path parameters, empty segments and the trailing slash; null on dot or control segments. */
+    private static String collapse(String decoded) {
+        StringBuilder out = new StringBuilder();
+        for (String segment : decoded.split("/", -1)) {
+            int param = segment.indexOf(';');
+            String clean = param >= 0 ? segment.substring(0, param) : segment;
+            if (isForbiddenSegment(clean)) {
+                return null;
+            }
+            if (!clean.isEmpty()) {
+                out.append('/').append(clean);
+            }
+        }
+        return out.length() == 0 ? "/" : out.toString();
+    }
+
+    private static boolean isForbiddenSegment(String segment) {
+        return segment.equals(".") || segment.equals("..")
+                || segment.chars().anyMatch(c -> c < 0x20 || c == 0x7f);
     }
 
     /** The tool lists agents read; nothing that changes or consumes state. */

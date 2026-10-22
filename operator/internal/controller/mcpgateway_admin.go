@@ -19,15 +19,19 @@ package controller
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"fmt"
 
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
@@ -49,6 +53,8 @@ const (
 	controlPlaneLabel        = "control-plane"
 	controllerManagerValue   = "controller-manager"
 	namespaceNameLabel       = "kubernetes.io/metadata.name"
+	adminTokenHashAnnotation = "kubemoot.ai/admin-token-hash"
+	adminTokenHashLen        = 16
 )
 
 // gatewayImplementation returns the implementation of a gateway, defaulting to Kubemoot.
@@ -112,12 +118,27 @@ func generateAdminToken() (string, error) {
 	return base64.RawURLEncoding.EncodeToString(raw), nil
 }
 
+// secretReader reads through the uncached API reader when one is set, so a token Secret
+// the cache has not seen yet is never mistaken for a missing one.
+func (r *MCPGatewayReconciler) secretReader() client.Reader {
+	if r.APIReader != nil {
+		return r.APIReader
+	}
+	return r.Client
+}
+
+// adminTokenHash is a short fingerprint of the token (never the token) for the pod template.
+func adminTokenHash(token string) string {
+	sum := sha256.Sum256([]byte(token))
+	return hex.EncodeToString(sum[:])[:adminTokenHashLen]
+}
+
 // ensureAdminTokenSecret creates the gateway's admin token Secret once and reuses it on
 // every later reconcile. The Secret is owned by the MCPGateway.
 func (r *MCPGatewayReconciler) ensureAdminTokenSecret(ctx context.Context, gateway *kubemootv1alpha1.MCPGateway) error {
 	key := types.NamespacedName{Namespace: gateway.Namespace, Name: gatewayAdminSecretName(gateway)}
 	existing := &corev1.Secret{}
-	err := r.Get(ctx, key, existing)
+	err := r.secretReader().Get(ctx, key, existing)
 	if err == nil && len(existing.Data[gatewayAdminTokenKey]) > 0 {
 		return nil
 	}
@@ -144,6 +165,7 @@ func (r *MCPGatewayReconciler) fillAdminToken(ctx context.Context, secret *corev
 }
 
 // createAdminTokenSecret writes the gateway's admin token Secret, owned by the MCPGateway.
+// When another reconcile created it first, the existing token is kept.
 func (r *MCPGatewayReconciler) createAdminTokenSecret(ctx context.Context, gateway *kubemootv1alpha1.MCPGateway, key types.NamespacedName, token string) error {
 	secret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{Name: key.Name, Namespace: key.Namespace, Labels: gatewayLabels(gateway)},
@@ -153,10 +175,19 @@ func (r *MCPGatewayReconciler) createAdminTokenSecret(ctx context.Context, gatew
 	if err := controllerutil.SetControllerReference(gateway, secret, r.Scheme); err != nil {
 		return err
 	}
-	if err := r.Create(ctx, secret); err != nil && !errors.IsAlreadyExists(err) {
+	log := logf.FromContext(ctx)
+	err := r.Create(ctx, secret)
+	if err == nil {
+		log.Info("Created the gateway admin token Secret", "secret", key.Name)
+		return nil
+	}
+	if !errors.IsAlreadyExists(err) {
 		return err
 	}
-	logf.FromContext(ctx).Info("Created the gateway admin token Secret", "secret", key.Name)
+	if _, readErr := r.kubemootAdminToken(ctx, gateway); readErr != nil {
+		return fmt.Errorf("the admin token Secret already exists but cannot be used: %w", readErr)
+	}
+	log.Info("The gateway admin token Secret already exists, using its token", "secret", key.Name)
 	return nil
 }
 
@@ -173,7 +204,7 @@ func gatewayLabels(gateway *kubemootv1alpha1.MCPGateway) map[string]string {
 // kubemootAdminToken reads the generated admin token the operator presents to the gateway.
 func (r *MCPGatewayReconciler) kubemootAdminToken(ctx context.Context, gateway *kubemootv1alpha1.MCPGateway) (string, error) {
 	secret := &corev1.Secret{}
-	if err := r.Get(ctx, types.NamespacedName{Namespace: gateway.Namespace, Name: gatewayAdminSecretName(gateway)}, secret); err != nil {
+	if err := r.secretReader().Get(ctx, types.NamespacedName{Namespace: gateway.Namespace, Name: gatewayAdminSecretName(gateway)}, secret); err != nil {
 		return "", fmt.Errorf("failed to get the gateway admin token secret: %w", err)
 	}
 	token := secret.Data[gatewayAdminTokenKey]
@@ -235,4 +266,22 @@ func (r *MCPGatewayReconciler) reconcileAdminAccess(ctx context.Context, gateway
 	}
 	existing.Spec = desired.Spec
 	return r.Update(ctx, existing)
+}
+
+// stampAdminTokenHash puts a fingerprint of the token on the pod template, so a Secret that
+// was recreated or refilled rolls the gateway pods onto the new token.
+func (r *MCPGatewayReconciler) stampAdminTokenHash(ctx context.Context, gateway *kubemootv1alpha1.MCPGateway, deployment *appsv1.Deployment) error {
+	if !gatewayHasAdminPort(gateway) {
+		return nil
+	}
+	token, err := r.kubemootAdminToken(ctx, gateway)
+	if err != nil {
+		return err
+	}
+	tmpl := &deployment.Spec.Template
+	if tmpl.Annotations == nil {
+		tmpl.Annotations = map[string]string{}
+	}
+	tmpl.Annotations[adminTokenHashAnnotation] = adminTokenHash(token)
+	return nil
 }

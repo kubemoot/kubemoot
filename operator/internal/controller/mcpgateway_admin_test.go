@@ -20,9 +20,13 @@ import (
 	"context"
 	"io"
 	"net/http"
+	"os"
 	"strings"
 	"sync"
 	"testing"
+
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
@@ -255,7 +259,9 @@ func TestOperatorCallsAdminRoutesOnTheAdminPortWithTheToken(t *testing.T) {
 	mcp.Status.Endpoint = "http://" + adminTestToolsMCP + ".crew-a:8080"
 	ctx := context.Background()
 
-	r.syncMCPServerRegistrations(ctx, gw, []kubemootv1alpha1.MCPServer{*mcp})
+	if _, err := r.syncMCPServerRegistrations(ctx, gw, []kubemootv1alpha1.MCPServer{*mcp}); err != nil {
+		t.Fatal(err)
+	}
 	r.scrapeGatewayFeedback(ctx, gw)
 	if err := r.unregisterMCPServer(ctx, gw, "gone", 8081, "tok-123"); err != nil {
 		t.Fatal(err)
@@ -271,5 +277,92 @@ func TestOperatorCallsAdminRoutesOnTheAdminPortWithTheToken(t *testing.T) {
 		if call.auth != "Bearer tok-123" {
 			t.Errorf("%s %s sent auth %q", call.method, call.url, call.auth)
 		}
+	}
+}
+
+func tokenSecret(token string) *corev1.Secret {
+	return &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: adminTestSecret, Namespace: adminTestNS},
+		Data:       map[string][]byte{gatewayAdminTokenKey: []byte(token)},
+	}
+}
+
+func TestChangedTokenChangesThePodTemplateAnnotation(t *testing.T) {
+	r := adminTestReconciler(t, nil, tokenSecret("first-token"))
+	gw := adminTestGW()
+	ctx := context.Background()
+
+	stamp := func() string {
+		d := r.buildDeployment(gw)
+		if err := r.stampAdminTokenHash(ctx, gw, d); err != nil {
+			t.Fatal(err)
+		}
+		return d.Spec.Template.Annotations[adminTokenHashAnnotation]
+	}
+	first := stamp()
+	if len(first) != adminTokenHashLen || strings.Contains(first, "first-token") {
+		t.Fatalf("annotation %q is not a short hash", first)
+	}
+	if stamp() != first {
+		t.Error("the annotation changed without the token changing")
+	}
+	secret := readAdminSecret(t, r)
+	secret.Data[gatewayAdminTokenKey] = []byte("second-token")
+	if err := r.Update(ctx, secret); err != nil {
+		t.Fatal(err)
+	}
+	if stamp() == first {
+		t.Error("a new token did not change the annotation")
+	}
+}
+
+func TestSyncWithoutReadableTokenSendsNothing(t *testing.T) {
+	rec := &recorder{}
+	r := adminTestReconciler(t, rec)
+	mcp := &kubemootv1alpha1.MCPServer{ObjectMeta: metav1.ObjectMeta{Name: adminTestToolsMCP, Namespace: adminTestNS}}
+	mcp.Status.Endpoint = "http://" + adminTestToolsMCP + ".crew-a:8080"
+
+	got, err := r.syncMCPServerRegistrations(context.Background(), adminTestGW(), []kubemootv1alpha1.MCPServer{*mcp})
+	if err == nil {
+		t.Fatal("expected an error when the token cannot be read")
+	}
+	if got != nil || len(rec.calls) != 0 {
+		t.Errorf("requests were sent without a token: %+v", rec.calls)
+	}
+}
+
+// staleReader reports NotFound once, as a cache that has not seen a new Secret would.
+type staleReader struct {
+	client.Reader
+	missed bool
+}
+
+func (s *staleReader) Get(ctx context.Context, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+	if !s.missed {
+		s.missed = true
+		return apierrors.NewNotFound(schema.GroupResource{Resource: "secrets"}, key.Name)
+	}
+	return s.Reader.Get(ctx, key, obj, opts...)
+}
+
+func TestAlreadyExistsKeepsTheExistingToken(t *testing.T) {
+	r := adminTestReconciler(t, nil, tokenSecret("winner-token"))
+	r.APIReader = &staleReader{Reader: r.Client}
+
+	if err := r.ensureAdminTokenSecret(context.Background(), adminTestGW()); err != nil {
+		t.Fatal(err)
+	}
+	if got := string(readAdminSecret(t, r).Data[gatewayAdminTokenKey]); got != "winner-token" {
+		t.Errorf("existing token was replaced: %q", got)
+	}
+}
+
+func TestOperatorChartSetsOperatorNamespace(t *testing.T) {
+	data, err := os.ReadFile("../../chart/kubemoot-operator/templates/deployment.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), "name: OPERATOR_NAMESPACE") || !strings.Contains(string(data), "fieldPath: metadata.namespace") {
+		t.Error("the chart does not set OPERATOR_NAMESPACE from the pod namespace")
 	}
 }

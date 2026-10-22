@@ -24,6 +24,7 @@ class AdminAccessFilterTest {
     private Result run(AdminAccessFilter f, String method, String path, int port, String auth) throws Exception {
         MockHttpServletRequest request = new MockHttpServletRequest(method, path);
         request.setServletPath(path);
+        request.setRequestURI(path);
         request.setLocalPort(port);
         if (auth != null) {
             request.addHeader("Authorization", auth);
@@ -101,5 +102,52 @@ class AdminAccessFilterTest {
         assertTrue(AdminAccessFilter.isOpenRead("GET", "/admin/servers/abc/tools"));
         assertFalse(AdminAccessFilter.isOpenRead("GET", "/admin/servers/abc/tools/extra"));
         assertFalse(AdminAccessFilter.isOpenRead("HEAD", "/admin/tools"));
+    }
+
+    @Test
+    void variantsOfMutatingAdminPathsAreNotOpenOnTheToolPort() throws Exception {
+        String[] paths = {"/admin/servers/", "//admin/servers", "/admin/servers;x=1", "/admin;x=1/servers",
+                "/admin//servers", "/%61dmin/servers", "/admin/tools/", "/admin/tools;x=1", "//admin/tools",
+                "/ADMIN/servers".toLowerCase(), "/admin/servers/a/"};
+        for (String path : paths) {
+            if (path.equals("/admin/tools/") || path.equals("/admin/tools;x=1") || path.equals("//admin/tools")) {
+                assertTrue(run(filter, "GET", path, TOOLS, null).passed(), path);
+                assertEquals(404, run(filter, "POST", path, TOOLS, null).status(), path);
+            } else {
+                assertEquals(404, run(filter, "GET", path, TOOLS, null).status(), path);
+                assertEquals(404, run(filter, "POST", path, TOOLS, "Bearer " + TOKEN).status(), path);
+            }
+        }
+    }
+
+    @Test
+    void ambiguousEncodingsAreRejectedOnBothPorts() throws Exception {
+        String[] paths = {"/admin/%2e%2e/servers", "/admin/%2E%2E/servers", "/admin/..;/servers", "/admin/./servers",
+                "/admin%2fservers", "/admin%2Fservers", "/admin%5cservers", "/admin/%252e%252e/servers",
+                "/admin/servers%00", "/admin/%2e%2e%2fservers", "/tools/../admin/servers"};
+        for (String path : paths) {
+            assertEquals(400, run(filter, "POST", path, TOOLS, "Bearer " + TOKEN).status(), path);
+            assertEquals(400, run(filter, "POST", path, ADMIN, "Bearer " + TOKEN).status(), path);
+        }
+    }
+
+    @Test
+    void headAndOptionsOnMutatingRoutesAreNotServedOnTheToolPort() throws Exception {
+        for (String method : new String[] {"HEAD", "OPTIONS"}) {
+            assertEquals(404, run(filter, method, "/admin/servers", TOOLS, null).status(), method);
+            assertEquals(404, run(filter, method, "/admin/servers/", TOOLS, null).status(), method);
+            assertEquals(404, run(filter, method, "//admin/servers", TOOLS, null).status(), method);
+            assertEquals(404, run(filter, method, "/admin/tools", TOOLS, null).status(), method);
+        }
+    }
+
+    @Test
+    void adminPortNormalizesBeforeAuthorizing() throws Exception {
+        assertEquals(401, run(filter, "POST", "//admin/servers", ADMIN, null).status());
+        assertEquals(401, run(filter, "POST", "/admin/servers;x=1", ADMIN, null).status());
+        assertEquals(401, run(filter, "HEAD", "/admin/servers/", ADMIN, null).status());
+        assertEquals(401, run(filter, "OPTIONS", "/admin/servers", ADMIN, null).status());
+        assertTrue(run(filter, "POST", "//admin/servers/", ADMIN, "Bearer " + TOKEN).passed());
+        assertEquals(404, run(filter, "GET", "//tools", ADMIN, "Bearer " + TOKEN).status());
     }
 }
