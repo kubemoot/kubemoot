@@ -17,8 +17,9 @@ limitations under the License.
 // catalog_vllm_kind.go tells a vLLM served model that embeds from one that chats.
 // vLLM's /v1/models does not say which a model is, so the operator asks the model
 // itself: a model served for embeddings answers /v1/embeddings with a vector, a chat
-// model refuses it. The answer also gives the vector size. A model's answer is kept
-// until the model leaves the server, so a model is asked once, not on every probe.
+// model refuses it. The answer also gives the vector size. A model that embeds is kept
+// until it leaves the server; a model that does not is kept once two asks in a row
+// say so, so a model is not asked on every probe.
 package controller
 
 import (
@@ -49,23 +50,40 @@ func (r *ModelServerReconciler) applyServedKind(ctx context.Context, httpClient 
 	key := endpoint + "|" + f.Name
 	if !f.Present {
 		r.servedKinds.Delete(key)
+		r.doubtedKinds.Delete(key)
 		return
 	}
 	kind, ok := r.servedKinds.Load(key)
 	if !ok {
-		probed, definite := probeServedKind(ctx, httpClient, endpoint, f.Name)
-		if !definite {
-			probed = previousKind(server, f.Name)
-		} else {
-			r.servedKinds.Store(key, probed)
-		}
-		kind = probed
+		kind = r.askServedKind(ctx, httpClient, server, endpoint, f.Name, key)
 	}
 	k := kind.(servedKind)
 	if slices.Contains(declared.Capabilities, capabilityEmbedding) && !k.embedding {
 		k.embedding = true
 	}
 	f.Embedding, f.EmbeddingDimensions = k.embedding, k.dimensions
+}
+
+// askServedKind asks the model whether it embeds and keeps a definite answer. A
+// refusal is kept only when the next ask refuses too: a model that is still loading
+// can answer 400 or 404 once and embed a moment later.
+func (r *ModelServerReconciler) askServedKind(ctx context.Context, httpClient *http.Client, server *aiv1alpha1.ModelServer, endpoint, name, key string) servedKind {
+	probed, definite := probeServedKind(ctx, httpClient, endpoint, name)
+	switch {
+	case !definite:
+		return previousKind(server, name)
+	case probed.embedding:
+		r.doubtedKinds.Delete(key)
+		r.servedKinds.Store(key, probed)
+	default:
+		if _, doubted := r.doubtedKinds.Load(key); doubted {
+			r.doubtedKinds.Delete(key)
+			r.servedKinds.Store(key, probed)
+		} else {
+			r.doubtedKinds.Store(key, true)
+		}
+	}
+	return probed
 }
 
 // probeServedKind asks the model for an embedding of a short text. definite is false

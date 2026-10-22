@@ -164,6 +164,10 @@ type ModelServerReconciler struct {
 	// model is asked once while it stays on the server.
 	servedKinds sync.Map
 
+	// doubtedKinds holds the models (endpoint|name) refused once as embedding
+	// models; a second refusal in a row makes the answer final.
+	doubtedKinds sync.Map
+
 	// switches holds how long each model last took to become ready, by server,
 	// as the model lifecycle server observed it; the state publish carries it.
 	switches switchLog
