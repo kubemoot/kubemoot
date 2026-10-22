@@ -208,7 +208,7 @@ var _ = Describe("Crew Controller", func() {
 			nsName := "crew-no-optin-ns-test"
 			Expect(k8sClient.Create(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{
 				Name:   nsName,
-				Labels: map[string]string{crewLabelKey: crewName, testLabelManagedBy: "kubemoot-operator"},
+				Labels: map[string]string{labelCrew: crewName, testLabelManagedBy: "kubemoot-operator"},
 			}})).To(Succeed())
 			crew := &aiv1alpha1.Crew{
 				ObjectMeta: metav1.ObjectMeta{
@@ -244,7 +244,7 @@ var _ = Describe("Crew Controller", func() {
 			newReconciler().reconcileNamespaceLabel(ctx, crew)
 			got := &corev1.Namespace{}
 			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "kube-system"}, got)).To(Succeed())
-			Expect(got.Labels).NotTo(HaveKey(crewLabelKey))
+			Expect(got.Labels).NotTo(HaveKey(labelCrew))
 		})
 
 		It("should delete namespace when kubemoot.ai/crew label is present", func() {
@@ -254,7 +254,7 @@ var _ = Describe("Crew Controller", func() {
 				ObjectMeta: metav1.ObjectMeta{
 					Name: nsName,
 					Labels: map[string]string{
-						crewLabelKey:          testCrewManagedDelete,
+						labelCrew:             testCrewManagedDelete,
 						managedNamespaceLabel: managedNamespaceOptIn,
 						testLabelManagedBy:    "kubemoot-operator",
 					},
@@ -346,7 +346,7 @@ var _ = Describe("Crew Controller", func() {
 			// Verify namespace was labeled
 			updatedNs := &corev1.Namespace{}
 			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: nsName}, updatedNs)).To(Succeed())
-			Expect(updatedNs.Labels[crewLabelKey]).To(Equal(testCrewLabelTest))
+			Expect(updatedNs.Labels[labelCrew]).To(Equal(testCrewLabelTest))
 			Expect(updatedNs.Labels[testLabelManagedBy]).To(Equal("kubemoot-operator"))
 
 			// Cleanup: remove finalizer and delete
@@ -395,7 +395,7 @@ var _ = Describe("Crew Controller", func() {
 			// Verify namespace was NOT labeled
 			updatedNs := &corev1.Namespace{}
 			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: nsName}, updatedNs)).To(Succeed())
-			Expect(updatedNs.Labels[crewLabelKey]).To(BeEmpty())
+			Expect(updatedNs.Labels[labelCrew]).To(BeEmpty())
 
 			// Cleanup
 			crewObj := &aiv1alpha1.Crew{}

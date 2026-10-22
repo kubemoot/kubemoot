@@ -24,7 +24,7 @@ import (
 
 func skillCR(name, crew string, order int32) *kubemootv1alpha1.Skill {
 	return &kubemootv1alpha1.Skill{
-		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "ns", Labels: map[string]string{crewLabelKey: crew}},
+		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "ns", Labels: map[string]string{labelCrew: crew}},
 		Spec:       kubemootv1alpha1.SkillSpec{Description: name + " desc", Content: name + " body", Order: order},
 	}
 }
@@ -35,7 +35,7 @@ func TestSkillReconcile_AddsFinalizerThenSyncs(t *testing.T) {
 	scheme := gatewayScheme(t)
 	skill := skillCR(testAlpha, testCrewA, 1)
 	coord := &kubemootv1alpha1.Agent{
-		ObjectMeta: metav1.ObjectMeta{Name: testCoord, Namespace: "ns", Labels: map[string]string{crewLabelKey: testCrewA}},
+		ObjectMeta: metav1.ObjectMeta{Name: testCoord, Namespace: "ns", Labels: map[string]string{labelCrew: testCrewA}},
 		Spec:       kubemootv1alpha1.AgentSpec{DiscussRole: roleCoordinator},
 	}
 	cli := fake.NewClientBuilder().WithScheme(scheme).WithObjects(skill, coord).Build()

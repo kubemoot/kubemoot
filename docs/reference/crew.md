@@ -130,7 +130,8 @@ and pods. The operator does this two ways: it adds the Crew as an owner of each 
 so garbage collection cascades, and the Crew finalizer deletes any member Agents still
 present, which covers Agents created before the owner reference existed. Agents of another
 Crew and Agents without the label are left alone. The finalizer also removes the Crew's
-cluster RBAC and working memory.
+cluster RBAC and working memory. This includes Agents a Helm release manages: they return on
+the next Helm upgrade.
 
 ## Storage
 

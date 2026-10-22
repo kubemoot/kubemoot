@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -53,7 +54,6 @@ const crewMemoryBucket = crewmemory.Bucket
 const (
 	crewFinalizer       = "kubemoot.ai/crew-finalizer"
 	crewGatewayPort     = int32(8080)
-	crewLabelKey        = labelCrew
 	manageNamespaceAnno = "kubemoot.ai/manage-namespace"
 )
 
@@ -68,7 +68,7 @@ type CrewReconciler struct {
 // +kubebuilder:rbac:groups=kubemoot.ai,resources=crews,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=kubemoot.ai,resources=crews/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=kubemoot.ai,resources=crews/finalizers,verbs=update
-// +kubebuilder:rbac:groups=kubemoot.ai,resources=agents,verbs=get;list;watch
+// +kubebuilder:rbac:groups=kubemoot.ai,resources=agents,verbs=get;list;watch;patch;delete
 // +kubebuilder:rbac:groups=apps,resources=deployments,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=core,resources=services,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=core,resources=serviceaccounts,verbs=get;list;watch;create;update;patch;delete
@@ -142,14 +142,14 @@ func (r *CrewReconciler) reconcileNamespaceLabel(ctx context.Context, crew *kube
 	if err := r.Get(ctx, types.NamespacedName{Name: crew.Namespace}, ns); err != nil {
 		return
 	}
-	if ns.Labels != nil && ns.Labels[crewLabelKey] == crew.Name {
+	if ns.Labels != nil && ns.Labels[labelCrew] == crew.Name {
 		return
 	}
 
 	if ns.Labels == nil {
 		ns.Labels = map[string]string{}
 	}
-	ns.Labels[crewLabelKey] = crew.Name
+	ns.Labels[labelCrew] = crew.Name
 	ns.Labels[labelManagedBy] = managedByValue
 	if err := r.Update(ctx, ns); err != nil {
 		logf.FromContext(ctx).Error(err, "Failed to label namespace")
@@ -166,8 +166,8 @@ func (r *CrewReconciler) replicateImagePullSecrets(ctx context.Context, crew *ku
 
 // discoverAgents lists agents belonging to this crew and identifies the coordinator.
 func (r *CrewReconciler) discoverAgents(ctx context.Context, crew *kubemootv1alpha1.Crew) (kubemootv1alpha1.AgentList, string, error) {
-	var agents kubemootv1alpha1.AgentList
-	if err := r.List(ctx, &agents, client.InNamespace(crew.Namespace), client.MatchingLabels{crewLabelKey: crew.Name}); err != nil {
+	agents, err := r.listCrewAgents(ctx, crew)
+	if err != nil {
 		return agents, "", err
 	}
 
@@ -234,7 +234,10 @@ func (r *CrewReconciler) setDiscussionEndpoint(crew *kubemootv1alpha1.Crew) {
 }
 
 func (r *CrewReconciler) handleDeletion(ctx context.Context, crew *kubemootv1alpha1.Crew) (ctrl.Result, error) {
-	r.deleteCrewAgents(ctx, crew)
+	if err := r.deleteCrewAgents(ctx, crew); err != nil {
+		logf.FromContext(ctx).Error(err, "Failed to delete Crew agents; keeping finalizer", "crew", crew.Name)
+		return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
+	}
 	r.deleteClusterRBAC(ctx, crew)
 	r.removeNamespaceCrew(ctx, crew)
 	r.deleteManagedNamespace(ctx, crew)
@@ -654,7 +657,7 @@ func (r *CrewReconciler) buildLabels(crew *kubemootv1alpha1.Crew) map[string]str
 		labelInstance:  crew.Name,
 		labelManagedBy: managedByValue,
 		labelComponent: "discussion-gateway",
-		crewLabelKey:   crew.Name,
+		labelCrew:      crew.Name,
 	}
 }
 

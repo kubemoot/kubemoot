@@ -21,7 +21,7 @@ func nsWith(name string, labels map[string]string) *corev1.Namespace {
 func TestNamespaceDeletableForCrew(t *testing.T) {
 	t.Setenv("OPERATOR_NAMESPACE", testKubemoot)
 	optIn := func(crew string) map[string]string {
-		return map[string]string{crewLabelKey: crew, managedNamespaceLabel: managedNamespaceOptIn}
+		return map[string]string{labelCrew: crew, managedNamespaceLabel: managedNamespaceOptIn}
 	}
 	terminating := nsWith("team-a", optIn("c1"))
 	now := metav1.Now()
@@ -35,10 +35,10 @@ func TestNamespaceDeletableForCrew(t *testing.T) {
 	}{
 		{"opted-in namespace is deletable", nsWith("team-a", optIn("c1")), "c1", true},
 		{"no labels", nsWith("team-a", nil), "c1", false},
-		{"operator crew label alone is not consent", nsWith("team-a", map[string]string{crewLabelKey: "c1", labelManagedBy: managedByValue}), "c1", false},
+		{"operator crew label alone is not consent", nsWith("team-a", map[string]string{labelCrew: "c1", labelManagedBy: managedByValue}), "c1", false},
 		{"opt-in label without crew label", nsWith("team-a", map[string]string{managedNamespaceLabel: managedNamespaceOptIn}), "c1", false},
 		{"opted in for another crew", nsWith("team-a", optIn("c2")), "c1", false},
-		{"opt-in label with wrong value", nsWith("team-a", map[string]string{crewLabelKey: "c1", managedNamespaceLabel: "no"}), "c1", false},
+		{"opt-in label with wrong value", nsWith("team-a", map[string]string{labelCrew: "c1", managedNamespaceLabel: "no"}), "c1", false},
 		{"already terminating", terminating, "c1", false},
 		{testKubeSystemNS, nsWith(testKubeSystemNS, optIn("c1")), "c1", false},
 		{"kube-public", nsWith("kube-public", optIn("c1")), "c1", false},
@@ -57,7 +57,7 @@ func TestNamespaceDeletableForCrew(t *testing.T) {
 func TestSystemNamespacesNeverDeletable(t *testing.T) {
 	t.Setenv("OPERATOR_NAMESPACE", testKubemoot)
 	for _, name := range []string{testKubeSystemNS, "kube-public", "kube-node-lease", testDefaultNS} {
-		ns := nsWith(name, map[string]string{crewLabelKey: "c1", managedNamespaceLabel: managedNamespaceOptIn})
+		ns := nsWith(name, map[string]string{labelCrew: "c1", managedNamespaceLabel: managedNamespaceOptIn})
 		if namespaceDeletableForCrew(ns, "c1") {
 			t.Fatalf("%s must never be deletable", name)
 		}
@@ -76,7 +76,7 @@ func TestIsProtectedNamespaceFollowsOperatorNamespace(t *testing.T) {
 
 func TestIsManagedNamespaceRequiresCrewAnnotation(t *testing.T) {
 	t.Setenv("OPERATOR_NAMESPACE", testKubemoot)
-	ns := nsWith("team-a", map[string]string{crewLabelKey: "c1", managedNamespaceLabel: managedNamespaceOptIn})
+	ns := nsWith("team-a", map[string]string{labelCrew: "c1", managedNamespaceLabel: managedNamespaceOptIn})
 	r := &CrewReconciler{}
 	crew := &kubemootv1alpha1.Crew{ObjectMeta: metav1.ObjectMeta{Name: "c1", Namespace: "team-a"}}
 	if r.isManagedNamespace(ns, crew) {

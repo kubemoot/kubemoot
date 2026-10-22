@@ -11,7 +11,7 @@ import (
 
 func agentIn(name, phase, message string) kubemootv1alpha1.Agent {
 	return kubemootv1alpha1.Agent{
-		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: testCrewNamespace, Labels: map[string]string{crewLabelKey: "x"}},
+		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: testCrewNamespace, Labels: map[string]string{labelCrew: "x"}},
 		Status:     kubemootv1alpha1.AgentStatus{Phase: phase, Message: message},
 	}
 }

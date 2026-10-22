@@ -106,7 +106,7 @@ func phaseOrPending(phase string) string {
 // crew's readiness follows its agents' phases without waiting for a requeue.
 func enqueueCrewForAgent() handler.EventHandler {
 	return handler.EnqueueRequestsFromMapFunc(func(_ context.Context, obj client.Object) []reconcile.Request {
-		crewName := obj.GetLabels()[crewLabelKey]
+		crewName := obj.GetLabels()[labelCrew]
 		if crewName == "" {
 			return nil
 		}

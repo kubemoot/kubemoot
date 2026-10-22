@@ -52,12 +52,12 @@ func mapSpecialistToCoordinatorRequests(ctx context.Context, cli client.Client, 
 	if !ok || agent.Spec.DiscussRole == roleCoordinator {
 		return nil
 	}
-	crew := agent.Labels[crewLabelKey]
+	crew := agent.Labels[labelCrew]
 	if crew == "" {
 		return nil
 	}
 	agents := &kubemootv1alpha1.AgentList{}
-	if err := cli.List(ctx, agents, client.InNamespace(agent.Namespace), client.MatchingLabels{crewLabelKey: crew}); err != nil {
+	if err := cli.List(ctx, agents, client.InNamespace(agent.Namespace), client.MatchingLabels{labelCrew: crew}); err != nil {
 		logf.FromContext(ctx).Error(err, "resume propagation: list agents failed", "agent", agent.Name)
 		return nil
 	}
