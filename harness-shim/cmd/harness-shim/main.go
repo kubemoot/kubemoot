@@ -25,9 +25,12 @@ func serve(cfgPath string) error {
 	if err != nil {
 		return err
 	}
+	if err := shim.BecomeSubreaper(); err != nil {
+		slog.Warn("cannot become a subreaper; orphans are reaped only as PID 1", "error", err)
+	}
 	env := shim.EnvironmentFrom(os.Getenv)
 	s := shim.NewServer(cfg, shim.NewRunner(cfg, env), "http://127.0.0.1:"+env.Port)
-	srv := &http.Server{Addr: ":" + env.Port, Handler: s.Handler(), ReadHeaderTimeout: 5 * time.Second}
+	srv := &http.Server{Addr: "127.0.0.1:" + env.Port, Handler: s.Handler(), ReadHeaderTimeout: 5 * time.Second}
 	slog.Info("harness-shim listening", "addr", srv.Addr, "command", cfg.Argv[0])
 	return srv.ListenAndServe()
 }

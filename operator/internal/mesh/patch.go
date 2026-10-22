@@ -47,9 +47,6 @@ const (
 	EnvNativeTools = "KUBEMOOT_NATIVE_TOOLS"
 )
 
-// agentCardPath is where an A2A harness serves its card; the harness is ready when it answers.
-const agentCardPath = "/.well-known/agent-card.json"
-
 // SidecarPatch is everything the patch needs. It holds no controller state, so any caller that
 // can name these values can join a pod to the mesh.
 type SidecarPatch struct {
@@ -192,9 +189,9 @@ func hardened(readOnlyRoot bool) *corev1.SecurityContext {
 	}
 }
 
-// Hardened is the security context the Agent controller gives a harness: the mesh's, except
-// that a harness may write to its own root file system (its home directory, caches).
-func Hardened() *corev1.SecurityContext { return hardened(false) }
+// Hardened is the security context the Agent controller gives a harness: the mesh's, with a
+// read-only root file system. A harness writes only to the emptyDir at /tmp.
+func Hardened() *corev1.SecurityContext { return hardened(true) }
 
 func patchHarness(c *corev1.Container, p SidecarPatch) {
 	native := p.NativeTools
@@ -213,8 +210,9 @@ func patchHarness(c *corev1.Container, p SidecarPatch) {
 	if !slices.ContainsFunc(c.Ports, func(cp corev1.ContainerPort) bool { return cp.ContainerPort == p.TurnPort }) {
 		c.Ports = append(c.Ports, corev1.ContainerPort{Name: "turn", ContainerPort: p.TurnPort, Protocol: corev1.ProtocolTCP})
 	}
-	// A harness is ready when it answers its agent card, however its image defines readiness.
-	c.ReadinessProbe = httpProbe(agentCardPath, intstr.FromInt32(p.TurnPort), 5)
+	// The harness listens on loopback, which the kubelet cannot probe. The sidecar's readiness
+	// covers it: the sidecar is ready only once the harness has answered its agent card.
+	c.ReadinessProbe = nil
 }
 
 // setEnv sets one variable, replacing an earlier one of the same name.

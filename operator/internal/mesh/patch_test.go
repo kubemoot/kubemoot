@@ -158,8 +158,7 @@ func TestTheHarnessGetsLoopbackURLsAndNoClusterAddresses(t *testing.T) {
 			EnvModelURL: "http://127.0.0.1:8081/v1", EnvToolsURL: "http://127.0.0.1:8082/mcp",
 			EnvTurnPort: "9000", EnvNativeTools: "declared", "EXTRA": "1", "KEEP": "me"}},
 		"env entries":     {len(h.Env), 6},
-		"readiness path":  {h.ReadinessProbe.HTTPGet.Path, "/.well-known/agent-card.json"},
-		"readiness port":  {h.ReadinessProbe.HTTPGet.Port.IntValue(), 9000},
+		"readiness":       {h.ReadinessProbe == nil, true},
 		"turn port":       {h.Ports[len(h.Ports)-1].ContainerPort, int32(9000)},
 		"harness volumes": {len(h.VolumeMounts), 0},
 	}.check(t)
@@ -212,9 +211,9 @@ func TestAMissingHarnessContainerIsAnErrorAndLeavesThePodAlone(t *testing.T) {
 	}
 }
 
-func TestAHarnessMayWriteToItsRootFileSystemButNothingElseIsLoosened(t *testing.T) {
+func TestAHarnessHasAReadOnlyRootFileSystemAndNothingElseIsLoosened(t *testing.T) {
 	s := Hardened()
-	if *s.ReadOnlyRootFilesystem || !*s.RunAsNonRoot || *s.AllowPrivilegeEscalation || s.Capabilities.Drop[0] != "ALL" {
+	if !*s.ReadOnlyRootFilesystem || !*s.RunAsNonRoot || *s.AllowPrivilegeEscalation || s.Capabilities.Drop[0] != "ALL" {
 		t.Errorf("harness security context = %+v", s)
 	}
 }

@@ -36,3 +36,18 @@ func TestTheGooseConfigurationIsValidAndFollowsNativeTools(t *testing.T) {
 		}
 	}
 }
+
+// The prompt reaches goose through a file, never through the process list.
+func TestTheGooseConfigurationPassesThePromptAsAFile(t *testing.T) {
+	cfg, err := LoadConfig("../../goose/config.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	argv := NewRunner(cfg, testEnv).argv(Turn{Question: "secret"}, "/turn/prompt.txt")
+	if i := slices.Index(argv, "-i"); i < 0 || argv[i+1] != "/turn/prompt.txt" {
+		t.Errorf("the prompt must come from a file (-i): %v", argv)
+	}
+	if slices.Contains(argv, "-t") || slices.Contains(argv, "secret") {
+		t.Errorf("the prompt is in argv: %v", argv)
+	}
+}
