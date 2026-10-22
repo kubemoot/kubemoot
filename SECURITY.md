@@ -15,7 +15,7 @@ install it anywhere that holds data or credentials you care about.
 ### In-cluster endpoints are unauthenticated
 
 Most in-cluster endpoints accept requests without authentication: the NATS message bus,
-the dashboard, the MCP bridge in front of every MCP server, the MCP gateway admin API,
+the dashboard, the MCP bridge in front of every MCP server,
 an agent's chat endpoint, the discussion gateway, and the operator's report server. The
 crew liaison accepts an optional bearer token; with no token set it is open to the
 cluster. No NetworkPolicy ships for these endpoints, so the effective boundary is
@@ -23,6 +23,11 @@ cluster. No NetworkPolicy ships for these endpoints, so the effective boundary i
 discussion gateway, and restrict who can run pods in namespaces that host Kubemoot.
 Whether the dashboard chart publishes a Gateway route is a chart value
 (`gateway.enabled`); the application has no authentication either way.
+
+The MCP gateway's registration API is the exception. It runs on its own port, requires a
+bearer token the operator generates per MCPGateway, and a NetworkPolicy the operator
+creates admits only the operator to that port. Agents keep the tool port and the
+read-only tool list.
 
 ### NATS has no authentication
 

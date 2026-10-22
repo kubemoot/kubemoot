@@ -17,6 +17,7 @@ import (
 	kubemootv1alpha1 "github.com/kubemoot/kubemoot/operator/api/v1alpha1"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	networkingv1 "k8s.io/api/networking/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -31,7 +32,7 @@ func gatewayScheme(t *testing.T) *runtime.Scheme {
 	t.Helper()
 	s := runtime.NewScheme()
 	for _, add := range []func(*runtime.Scheme) error{
-		kubemootv1alpha1.AddToScheme, appsv1.AddToScheme, corev1.AddToScheme,
+		kubemootv1alpha1.AddToScheme, appsv1.AddToScheme, corev1.AddToScheme, networkingv1.AddToScheme,
 	} {
 		if err := add(s); err != nil {
 			t.Fatalf("add to scheme: %v", err)
