@@ -51,7 +51,7 @@ jobs:
 
       - name: Calculate the release candidate version
         id: version
-        uses: kubemoot/release-actions/release-candidate-version@6ba4d559b8ec0fe5b57b101eb7831ab48289c036 # v0.10.2
+        uses: kubemoot/release-actions/release-candidate-version@7accfbc33966d895bab2fc17a2a6c7f2520aaf76 # v0.11.1
         with:
           tag_prefix: "mcp-bridge-v"
           force: ${{ inputs.force_release }}
