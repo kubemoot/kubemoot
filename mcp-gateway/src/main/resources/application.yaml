@@ -14,6 +14,12 @@ server:
 mcp:
   gateway:
     port: ${SERVER_PORT:8080}
+    # Registration and the other mutating /admin routes are served on their own port, and only
+    # to a caller that presents the bearer token. The operator sets both. With no admin port the
+    # routes are not served; with no token every request on that port is refused.
+    admin:
+      port: ${MCP_GATEWAY_ADMIN_PORT:0}
+      token: ${MCP_GATEWAY_ADMIN_TOKEN:}
     # Pre-configured backend MCP servers (optional)
     # Add servers here or register dynamically via REST API
     servers: []

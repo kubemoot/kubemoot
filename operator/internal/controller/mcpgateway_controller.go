@@ -30,6 +30,7 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	networkingv1 "k8s.io/api/networking/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -84,7 +85,8 @@ type MCPGatewayReconciler struct {
 // +kubebuilder:rbac:groups=apps,resources=deployments,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=batch,resources=jobs,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=core,resources=services,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=core,resources=secrets,verbs=get;list;watch
+// +kubebuilder:rbac:groups=core,resources=secrets,verbs=get;list;watch;create;update
+// +kubebuilder:rbac:groups=networking.k8s.io,resources=networkpolicies,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=core,resources=configmaps,verbs=get;list;watch
 
 // Reconcile handles MCPGateway reconciliation
@@ -182,6 +184,11 @@ func (r *MCPGatewayReconciler) reconcileGatewayPreReqs(ctx context.Context, gate
 func (r *MCPGatewayReconciler) reconcileDeployment(ctx context.Context, gateway *kubemootv1alpha1.MCPGateway) (*appsv1.Deployment, error) {
 	log := logf.FromContext(ctx)
 
+	// The admin token and the NetworkPolicy exist before the gateway that reads them starts
+	if err := r.reconcileAdminAccess(ctx, gateway); err != nil {
+		return nil, fmt.Errorf("admin access: %w", err)
+	}
+
 	deployment := &appsv1.Deployment{}
 	deploymentName := types.NamespacedName{
 		Name:      gateway.Name,
@@ -260,7 +267,18 @@ func (r *MCPGatewayReconciler) buildDeployment(gateway *kubemootv1alpha1.MCPGate
 		Type: corev1.SeccompProfileTypeRuntimeDefault,
 	}
 
+	if gatewayHasAdminPort(gateway) {
+		env = append(env, gatewayAdminEnv(gateway)...)
+	}
+
 	container := buildGatewayContainer(gateway, image, probePath, port, env, runAsNonRoot, seccompProfile)
+	if gatewayHasAdminPort(gateway) {
+		container.Ports = append(container.Ports, corev1.ContainerPort{
+			Name:          portNameAdmin,
+			ContainerPort: gatewayAdminPort(gateway),
+			Protocol:      corev1.ProtocolTCP,
+		})
+	}
 
 	// Image pull secrets - use spec if provided, otherwise fall back to KubemootConfig
 	imagePullSecrets := r.gatewayImagePullSecrets(gateway)
@@ -681,10 +699,7 @@ func (r *MCPGatewayReconciler) reconcileService(ctx context.Context, gateway *ku
 		return nil, err
 	}
 
-	port := defaultGatewayPort
-	if gateway.Spec.Port != 0 {
-		port = gateway.Spec.Port
-	}
+	port := gatewayToolPort(gateway)
 
 	objLabels := map[string]string{
 		labelName:      gateway.Name,
@@ -711,6 +726,15 @@ func (r *MCPGatewayReconciler) reconcileService(ctx context.Context, gateway *ku
 			},
 			Type: corev1.ServiceTypeClusterIP,
 		},
+	}
+	if gatewayHasAdminPort(gateway) {
+		adminPort := gatewayAdminPort(gateway)
+		desiredService.Spec.Ports = append(desiredService.Spec.Ports, corev1.ServicePort{
+			Name:       portNameAdmin,
+			Port:       adminPort,
+			TargetPort: intstr.FromInt32(adminPort),
+			Protocol:   corev1.ProtocolTCP,
+		})
 	}
 
 	if errors.IsNotFound(err) {
@@ -827,6 +851,9 @@ func readyServers(servers []kubemootv1alpha1.MCPServer) []kubemootv1alpha1.MCPSe
 
 // getAdminAPIToken retrieves the bearer token for Admin API from secret
 func (r *MCPGatewayReconciler) getAdminAPIToken(ctx context.Context, gateway *kubemootv1alpha1.MCPGateway) (string, error) {
+	if gatewayHasAdminPort(gateway) {
+		return r.kubemootAdminToken(ctx, gateway)
+	}
 	if gateway.Spec.ContextForge == nil || gateway.Spec.ContextForge.AdminAPISecretRef == "" {
 		return "", nil // No auth required
 	}
@@ -859,10 +886,7 @@ func (r *MCPGatewayReconciler) syncMCPServerRegistrations(ctx context.Context, g
 		log.Error(err, "Failed to get Admin API token, continuing without auth")
 	}
 
-	port := defaultGatewayPort
-	if gateway.Spec.Port != 0 {
-		port = gateway.Spec.Port
-	}
+	port := gatewayAdminPort(gateway)
 
 	// Build set of MCPServers that should be registered
 	currentServers := make(map[string]*kubemootv1alpha1.MCPServer)
@@ -1075,9 +1099,11 @@ func (r *MCPGatewayReconciler) unregisterMCPServer(ctx context.Context, gateway 
 func (r *MCPGatewayReconciler) scrapeGatewayFeedback(ctx context.Context, gateway *kubemootv1alpha1.MCPGateway) {
 	log := logf.FromContext(ctx)
 
-	port := defaultGatewayPort
-	if gateway.Spec.Port != 0 {
-		port = gateway.Spec.Port
+	port := gatewayAdminPort(gateway)
+	bearerToken, err := r.getAdminAPIToken(ctx, gateway)
+	if err != nil {
+		log.V(1).Info("No admin token for the feedback scrape", "error", err)
+		return
 	}
 
 	feedbackURL := fmt.Sprintf("http://%s.%s.svc:%d/admin/feedback", gateway.Name, gateway.Namespace, port)
@@ -1088,6 +1114,9 @@ func (r *MCPGatewayReconciler) scrapeGatewayFeedback(ctx context.Context, gatewa
 	if err != nil {
 		log.V(1).Info("Failed to create feedback request", "error", err)
 		return
+	}
+	if bearerToken != "" {
+		req.Header.Set("Authorization", "Bearer "+bearerToken)
 	}
 
 	resp, err := httpClient.Do(req)
@@ -1243,7 +1272,7 @@ func (r *MCPGatewayReconciler) updateStatusFromDeployment(ctx context.Context, g
 	endpoint := fmt.Sprintf("http://%s.%s.svc:%d", gateway.Name, gateway.Namespace, port)
 	adminEndpoint := ""
 	if gateway.Spec.AdminUIEnabled() {
-		adminEndpoint = fmt.Sprintf("http://%s.%s.svc:%d/admin", gateway.Name, gateway.Namespace, port)
+		adminEndpoint = fmt.Sprintf("http://%s.%s.svc:%d/admin", gateway.Name, gateway.Namespace, gatewayAdminPort(gateway))
 	}
 
 	return r.updateStatus(ctx, gateway, phase, ready, message,
@@ -2363,6 +2392,7 @@ func (r *MCPGatewayReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		For(&kubemootv1alpha1.MCPGateway{}).
 		Owns(&appsv1.Deployment{}).
 		Owns(&corev1.Service{}).
+		Owns(&networkingv1.NetworkPolicy{}).
 		Owns(&kubemootv1alpha1.RAGSource{}).
 		// Watch MCPServers and trigger gateway reconciliation — but only
 		// on spec changes, not status updates (see comment above).
