@@ -399,7 +399,7 @@ type IndexingStats struct {
 
 // RAGSourceStatus defines the observed state of RAGSource
 type RAGSourceStatus struct {
-	// Phase is the current phase (Pending, Indexing, Ready, Error)
+	// Phase is the current phase (Pending, Queued, Indexing, Ready, Error)
 	Phase string `json:"phase,omitempty"`
 
 	// Ready indicates if the RAG source is ready for queries

@@ -61,7 +61,7 @@ spec:
             description: EmbeddingModelSpec defines the desired state of EmbeddingModel
             properties:
               batchSize:
-                default: 32
+                default: 8
                 description: BatchSize is the maximum number of texts to embed in
                   a single request
                 format: int32

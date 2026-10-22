@@ -31,6 +31,8 @@ import java.util.List;
  *   KUBEMOOT_VECTORSTORE_DIMENSIONS - Embedding dimensions (default: 768)
  *   KUBEMOOT_EMBEDDING_ENDPOINT   - Embedding server base URL; it serves /v1/embeddings (Ollama, vLLM)
  *   KUBEMOOT_EMBEDDING_MODEL      - Embedding model name
+ *   KUBEMOOT_EMBEDDING_BATCH_SIZE - Inputs per embeddings request (default: 8)
+ *   KUBEMOOT_EMBEDDING_TIMEOUT    - Time one embeddings request may take, e.g. 300s (default: 300s)
  *   KUBEMOOT_DROP_COLLECTIONS     - Comma-separated collections to delete instead of indexing
  *   KUBEMOOT_CHUNK_SIZE           - Chunk size in characters (default: 512)
  *   KUBEMOOT_CHUNK_OVERLAP        - Chunk overlap in characters (default: 50)
