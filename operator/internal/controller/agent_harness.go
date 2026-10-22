@@ -47,6 +47,12 @@ const (
 	defaultHarnessPort = meshcontract.DefaultTurnPort
 )
 
+// harnessTmpVolume is the emptyDir mounted at /tmp in the harness container.
+const harnessTmpVolume = "harness-tmp"
+
+// harnessTmpDir is where it is mounted.
+const harnessTmpDir = "/tmp"
+
 // HarnessNameGoose is the harness name whose image Kubemoot builds (harness-goose).
 const HarnessNameGoose = "goose"
 
@@ -299,6 +305,8 @@ func (r *AgentReconciler) buildSidecarDeployment(ctx context.Context, agent *kub
 		Name: harnessContainerName, Image: r.harnessImage(agent), ImagePullPolicy: corev1.PullIfNotPresent,
 		Command: h.Command, Args: h.Args, Env: append([]corev1.EnvVar(nil), h.Env...),
 		SecurityContext: mesh.Hardened(),
+		// The root file system is read-only; the harness writes its turn directories and caches here.
+		VolumeMounts: []corev1.VolumeMount{{Name: harnessTmpVolume, MountPath: harnessTmpDir}},
 	}
 	if h.Resources != nil {
 		container.Resources = *h.Resources
@@ -310,6 +318,7 @@ func (r *AgentReconciler) buildSidecarDeployment(ctx context.Context, agent *kub
 		Spec: corev1.PodSpec{
 			ServiceAccountName: serviceAccountName, ImagePullSecrets: r.imagePullSecrets(),
 			Containers: []corev1.Container{container},
+			Volumes:    []corev1.Volume{{Name: harnessTmpVolume, VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}}},
 		},
 	}
 	if data, err := r.sidecarContractData(ctx, agent, mulling, triage); err == nil {

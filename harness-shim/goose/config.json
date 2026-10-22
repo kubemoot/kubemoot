@@ -5,7 +5,7 @@
     "[none]--no-profile",
     "--output-format", "json",
     "--with-streamable-http-extension", "{{toolsURL}}",
-    "-t", "{{prompt}}"
+    "-i", "{{promptFile}}"
   ],
   "env": [
     "GOOSE_PROVIDER=openai",

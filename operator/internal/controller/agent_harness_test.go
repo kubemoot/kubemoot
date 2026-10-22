@@ -117,6 +117,9 @@ func TestSidecarModeBuildsTheHarnessBesideANativeSidecar(t *testing.T) {
 		"sidecar name":      {sc.Name, mesh.SidecarContainerName},
 		"sidecar image":     {sc.Image, FallbackAgentSidecarImage},
 		"sidecar mounts":    {len(sc.VolumeMounts), 4},
+		"harness read-only": {*spec.Containers[0].SecurityContext.ReadOnlyRootFilesystem, true},
+		"harness tmp mount": {spec.Containers[0].VolumeMounts[0].MountPath, harnessTmpDir},
+		"harness tmp empty": {spec.Volumes[0].EmptyDir != nil && spec.Volumes[0].Name == spec.Containers[0].VolumeMounts[0].Name, true},
 		"token":             {*spec.AutomountServiceAccountToken, false},
 		"pod label":         {d.Spec.Template.Labels[labelHarnessMode], "sidecar"},
 		"deploy label":      {d.Labels[labelHarnessMode], "sidecar"},
@@ -138,8 +141,8 @@ func TestSidecarModeHarnessSeesNoBusNoPolicyNoCredentials(t *testing.T) {
 	if !reflect.DeepEqual(envNames(h), want) {
 		t.Errorf("harness env = %v, want %v", envNames(h), want)
 	}
-	if len(h.VolumeMounts) != 0 {
-		t.Errorf("the harness mounts %+v", h.VolumeMounts)
+	if len(h.VolumeMounts) != 1 || h.VolumeMounts[0].MountPath != harnessTmpDir {
+		t.Errorf("the harness mounts %+v, want only /tmp", h.VolumeMounts)
 	}
 }
 

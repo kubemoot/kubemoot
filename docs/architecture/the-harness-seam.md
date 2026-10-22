@@ -95,18 +95,23 @@ The shim reads a JSON configuration file. For goose the image ships this:
 {
   "argv": ["/usr/local/bin/goose", "run", "--no-session", "[none]--no-profile",
            "--output-format", "json", "--with-streamable-http-extension", "{{toolsURL}}",
-           "-t", "{{prompt}}"],
+           "-i", "{{promptFile}}"],
   "env": ["GOOSE_PROVIDER=openai", "OPENAI_HOST={{modelHost}}", "OPENAI_API_KEY={{turnKey}}"],
   "output": "goose-json"
 }
 ```
 
-- `argv` and `env` take the placeholders `{{prompt}}`, `{{question}}`,
+- `argv` and `env` take the placeholders `{{promptFile}}` (the path of a file in the
+  turn's private directory that holds the prompt; prefer it, since an argument shows
+  in the process list), `{{prompt}}`, `{{question}}`,
   `{{instructions}}`, `{{modelURL}}`, `{{modelHost}}`, `{{toolsURL}}`, `{{turnKey}}`,
   `{{timeZone}}`, and `{{now}}`.
 - An `argv` element that starts with `[none]` or `[declared,all]` is kept only when
   `nativeTools` is one of the listed modes. This is how a harness image turns its
   built-in tools off for `nativeTools: none`.
+- The command runs with an allowlisted environment (`PATH`, `LANG`, `TZ`, a private
+  `HOME`, and the mesh variables), and the shim keeps at most 1 MiB of each output
+  stream. The shim listens on loopback only; the sidecar reaches it there.
 - `output` is `text` (the command's whole output) or `goose-json`.
 
 To seat another command-line harness, such as opencode or `claude -p`, build an
