@@ -408,6 +408,17 @@ func (p *ModelServer) PresentCatalogModels() []string {
 	return out
 }
 
+// IsEmbeddingModel reports whether the server's catalog lists the model as embedding
+// only (status.embeddingModels), whatever the engine type.
+func (p *ModelServer) IsEmbeddingModel(model string) bool {
+	for _, m := range p.Status.EmbeddingModels {
+		if m.Name == model {
+			return true
+		}
+	}
+	return false
+}
+
 // IsDownloaded reports whether the server has reported the model among the models it
 // has on disk (status.capacity.availableModels).
 func (p *ModelServer) IsDownloaded(model string) bool {

@@ -154,6 +154,38 @@ func TestCalibrateServer_anEmbeddingCheckThatFails_fallsBackToMeasuring(t *testi
 		strings.Contains(resultOf(cal, model).Reason, "could not check"), cal)
 }
 
+// A vLLM server serving only an embedding model is Calibrated with the model skipped.
+func TestCalibrateServer_catalogEmbeddingModelOnly_isSkipped(t *testing.T) {
+	p := withAvailable(map[string]int64{embedModel: 300})
+	p.Spec.Type = aiv1alpha1.ServerTypeVLLM
+	p.Status.EmbeddingModels = []aiv1alpha1.EmbeddingCatalogModel{{Name: embedModel}}
+	f := newFixture(t, p)
+	f.eng.Sizes[embedModel] = 300
+
+	_, err := calibrate(t, f, map[string]any{argServer: gpu})
+	cal := getServer(t, f).Status.Calibration
+	check(t, "calibrated, skipped", err == nil && cal.Phase == PhaseCalibrated && len(cal.Models) == 1 &&
+		cal.Models[0].Status == aiv1alpha1.ModelCalibrationSkipped &&
+		strings.Contains(cal.Message, "no model that chats"), cal)
+	check(t, "nothing was sent", f.eng.Generates == 0, f.eng.Generates)
+}
+
+// A mixed vLLM server: the chat model is measured, the catalog embedding model skipped.
+func TestCalibrateServer_catalogEmbeddingModelMixed_measuresOnlyChat(t *testing.T) {
+	p := withAvailable(map[string]int64{model: 9_000, embedModel: 300})
+	p.Spec.Type = aiv1alpha1.ServerTypeVLLM
+	p.Status.Models = []aiv1alpha1.CatalogModel{{Name: model, Present: true}}
+	p.Status.EmbeddingModels = []aiv1alpha1.EmbeddingCatalogModel{{Name: embedModel}}
+	f := newFixture(t, p)
+	f.eng.Sizes[model], f.eng.Sizes[embedModel] = 9_000, 300
+
+	_, err := calibrate(t, f, map[string]any{argServer: gpu, argMods: []string{model, embedModel}})
+	cal := getServer(t, f).Status.Calibration
+	check(t, "calibrated", err == nil && cal.Phase == PhaseCalibrated, cal)
+	check(t, "chat measured", resultOf(cal, model).Status == aiv1alpha1.ModelCalibrationMeasured, cal)
+	check(t, "embedding skipped", resultOf(cal, embedModel).Status == aiv1alpha1.ModelCalibrationSkipped, cal)
+}
+
 // record_calibration accepts a per-model status and refuses an unknown one.
 func TestRecordCalibration_acceptsAModelStatus(t *testing.T) {
 	f := newFixture(t, readyServer())
