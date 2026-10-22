@@ -19,12 +19,13 @@
     },
     "messageType": {
       "type": "string",
-      "description": "What the message is. Agents send waking, ready, triaging, evaluating, waiting, heartbeat, and the terminal signals agree, concern, stand_aside and failure. The coordinator sends thread_start, advisory, advisory_ready, triage_result, review_ready, gap_detected, synthesis and thread_close, and failure on behalf of an agent that missed its deadline. Onboarding agents send proposal. People send thread_start, reply, thread_pause, thread_resume and stop_requested; the scheduler sends reminder. block is a consensus signal readers handle that no shipped agent sends.",
+      "description": "What the message is. Agents send waking, ready, triaging, evaluating, waiting, heartbeat, and the terminal signals agree, concern, stand_aside and failure. The coordinator sends thread_start, advisory, advisory_ready, triage_result, subcommittee, review_ready, gap_detected, synthesis and thread_close, and failure on behalf of an agent that missed its deadline. Onboarding agents send proposal. People send thread_start, reply, thread_pause, thread_resume and stop_requested; the scheduler sends reminder. block is a consensus signal readers handle that no shipped agent sends.",
       "enum": [
         "thread_start",
         "advisory",
         "advisory_ready",
         "triage_result",
+        "subcommittee",
         "review_ready",
         "gap_detected",
         "synthesis",

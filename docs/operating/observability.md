@@ -123,9 +123,17 @@ the operator's metrics, and its placement panels need the agents'.
 
 Two of the three pillars (logs, spans) have gaps; see [Future work](#future-work).
 
+## Conversation View and Debug Layer
+
+The dashboard's Discussions page shows the conversation: the question, the coordinator's one-line subcommittee message (which agents it convened and a short reason each, taken from the crew capability catalog), the agents' positions, and the answer. The thread counts as complete for the person when the answer is delivered; the status reads Answered at the synthesis.
+
+Token counts, per-message timings, the thread summary, the placement panel, the triage result, the `thread_close` message, and anything agents send after the answer (learning, memory journaling, metrics) sit in a debug layer. The bug button in the thread header turns it on; it is off by default and the choice is remembered in the browser. Nothing is removed from the thread, the debug layer only shows more of it. Messages after the answer carry an "after the answer" note.
+
+The coordinator sends the `subcommittee` message once per thread, after it selects the agents; its `metadata.convened` lists each agent's `name` and `reason`.
+
 ## Agent Span Graph
 
-The dashboard's span graph visualizes each agent's participation timeline with split bars showing overhead (queue/triage) vs inference time. GPU colors are assigned dynamically from message metadata. Legend:
+The dashboard's span graph visualizes each agent's participation timeline with split bars showing overhead (queue/triage) vs inference time. Each agent's row names the server (or accelerator) its calls ran on and, on hover, the model. Colors are assigned dynamically from message metadata. Legend:
 
 | Element | Description |
 |---------|-------------|

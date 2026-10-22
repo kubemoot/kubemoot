@@ -166,3 +166,24 @@ describe('threadStartMs', () => {
 		expect(threadStartMs([later, msg('b', 'agree', 1000)])).toBe(T0 + 2000);
 	});
 });
+
+describe('buildAgentSpans placement and model', () => {
+	it('names the server and model an agent span ran on', () => {
+		const [span] = buildAgentSpans([
+			msg('k8s', 'agree', 1000, { server: 'vllm-rig0', model: 'qwen3-32b' })
+		]);
+		expect(span.gpuLabel).toBe('vllm-rig0');
+		expect(span.model).toBe('qwen3-32b');
+	});
+
+	it('falls back to the accelerator label when no server is reported', () => {
+		const [span] = buildAgentSpans([msg('k8s', 'agree', 1000, { gpuLabel: 'ollama-rig1' })]);
+		expect(span.gpuLabel).toBe('ollama-rig1');
+		expect(span.model).toBeUndefined();
+	});
+
+	it('shows no placement for a call that ran on none', () => {
+		const [span] = buildAgentSpans([msg('k8s', 'agree', 1000, { gpuLabel: 'none' })]);
+		expect(span.gpuLabel).toBeUndefined();
+	});
+});

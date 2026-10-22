@@ -1,0 +1,15 @@
+{
+  "messageId": "7d1f6a52-2c0e-4b0e-9a55-6f2f0f3c8a11",
+  "channel": "broadcast",
+  "threadId": "33627b88-c58c-4017-a483-119d2e45c712",
+  "timestamp": "2026-10-22T14:02:11.120Z",
+  "content": "Convened 2 agents: k8s-namespaces (Lists and describes namespaces), k8s-workloads (Reports workloads per namespace)",
+  "metadata": {
+    "convened": [
+      { "name": "k8s-namespaces", "reason": "Lists and describes namespaces" },
+      { "name": "k8s-workloads", "reason": "Reports workloads per namespace" }
+    ]
+  },
+  "agentName": "homelab-coordinator",
+  "messageType": "subcommittee"
+}

@@ -1367,6 +1367,7 @@ public class DiscussionOrchestrator {
 
             publishAdvisory(state.threadId, outcome.technologies(), outcome.layers(), outcome.wisdom(),
                     outcome.inferenceMs(), state.advisoryModelUse);
+            publishSubcommittee(state);
             // advisory_ready triggers tooler evaluation (includes innerCircle)
             publishAdvisoryReady(state, outcome.technologies(), outcome.wisdom());
             resetEvaluationClock(state);
@@ -1379,6 +1380,34 @@ public class DiscussionOrchestrator {
             // toolers get a full evaluation window.
             publishAdvisoryReady(state, List.of(), "Advisory generation failed");
             resetEvaluationClock(state);
+        }
+    }
+
+    /**
+     * Publish the one-line subcommittee message naming the agents the coordinator convened
+     * and a short reason each. Sent only when a selection exists; a failure to publish never
+     * blocks the discussion.
+     */
+    // Visible for testing
+    void publishSubcommittee(ThreadState state) {
+        try {
+            var circle = state.innerCircle;
+            var conn = natsProvider.getConnection();
+            if (conn == null || circle == null || circle.isEmpty()) return;
+            var members = SubcommitteeLine.members(mapper, new java.util.TreeSet<>(circle), loadCrewResumes());
+            var message = Map.of(
+                    FIELD_MESSAGE_ID, UUID.randomUUID().toString(),
+                    FIELD_THREAD_ID, state.threadId,
+                    FIELD_AGENT_NAME, properties.agentName(),
+                    FIELD_MESSAGE_TYPE, SubcommitteeLine.MESSAGE_TYPE,
+                    FIELD_CONTENT, SubcommitteeLine.content(members),
+                    FIELD_CHANNEL, CHANNEL_BROADCAST,
+                    FIELD_TIMESTAMP, Instant.now().toString(),
+                    FIELD_METADATA, SubcommitteeLine.metadata(members)
+            );
+            conn.publish(broadcastSubject(state.crew, state.threadId), mapper.writeValueAsBytes(message));
+        } catch (Exception e) {
+            log.warn("Failed to publish subcommittee for thread {}: {}", state.threadId, e.getMessage());
         }
     }
 
