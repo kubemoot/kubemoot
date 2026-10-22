@@ -75,6 +75,11 @@ The agents' PodMonitor adds a `crew` and an `agent` label to every series, from 
 pod's `kubemoot.ai/crew` and `kubemoot.ai/agent` labels; the `namespace` label comes
 from the scrape.
 
+Every agent registers its `kubemoot_discussion_*` series when it starts, at zero, so the
+Discussions dashboard shows each crew before its first question. The
+`kubemoot_scheduler_*` series carry the server and model of a call, so they appear with
+the agent's first call.
+
 For the operator's HTTPS endpoint the chart also creates a metrics reader: a
 ServiceAccount allowed to read `/metrics` only, whose token the operator's PodMonitor
 presents. The operator serves its metrics with a self-signed certificate, so that
