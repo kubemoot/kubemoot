@@ -44,6 +44,7 @@ final class FakePlacementServer implements AutoCloseable {
     final List<Seen> requests = new CopyOnWriteArrayList<>();
     private final Map<String, Function<Seen, Reply>> routes = new ConcurrentHashMap<>();
     private volatile CountDownLatch arrivals = new CountDownLatch(0);
+    private volatile CountDownLatch received = new CountDownLatch(0);
 
     FakePlacementServer() throws IOException {
         server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
@@ -75,6 +76,12 @@ final class FakePlacementServer implements AutoCloseable {
         return arrivals;
     }
 
+    /** The next {@code n} requests are counted down on the returned latch as soon as they arrive, before any hold. */
+    CountDownLatch expectArrivals(int n) {
+        received = new CountDownLatch(n);
+        return received;
+    }
+
     List<Seen> seen(String method, String pathPrefix) {
         return requests.stream().filter(s -> s.method().equals(method) && s.pathAndQuery().startsWith(pathPrefix))
                 .toList();
@@ -86,6 +93,7 @@ final class FakePlacementServer implements AutoCloseable {
         String uri = ex.getRequestURI().toString();
         Seen seen = new Seen(ex.getRequestMethod(), uri, body);
         requests.add(seen);
+        received.countDown();
         Function<Seen, Reply> route = routes.get(ex.getRequestMethod() + " " + ex.getRequestURI().getPath());
         Reply reply = route == null ? Reply.json(404, "{\"code\":\"unknown\"}") : route.apply(seen);
         try {

@@ -86,19 +86,30 @@ public final class PlacementClient {
                 .POST(HttpRequest.BodyPublishers.ofString(body.toString(), StandardCharsets.UTF_8)).build();
         CompletableFuture<HttpResponse<String>> raw =
                 http.sendAsync(req, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
-        CompletableFuture<Answer> result = raw.handle((resp, error) -> {
-            if (error != null) {
-                throw failed(error);
-            }
-            return answer(resp);
-        });
-        // Cancelling the answer closes the request.
+        // A plain future of our own: the JDK's future type does not report a cancel the way callers expect,
+        // so cancellation is wired to the request explicitly.
+        CompletableFuture<Answer> result = new CompletableFuture<>();
+        raw.whenComplete((resp, error) -> complete(result, resp, error));
         result.whenComplete((v, e) -> {
             if (result.isCancelled()) {
                 raw.cancel(true);
             }
         });
         return result;
+    }
+
+    private void complete(CompletableFuture<Answer> result, HttpResponse<String> resp, Throwable error) {
+        if (result.isDone()) {
+            return;
+        }
+        try {
+            if (error != null) {
+                throw failed(error);
+            }
+            result.complete(answer(resp));
+        } catch (RuntimeException e) {
+            result.completeExceptionally(e);
+        }
     }
 
     /** True while the client is not trying, after a failure. */

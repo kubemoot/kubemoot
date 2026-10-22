@@ -112,10 +112,13 @@ class PlacementClientTest {
     void anAbandonedWaitClosesItsRequest() throws Exception {
         server.on("POST", "/placement/v1/capacity/await", new FakePlacementServer.Reply(200, "{}", 5_000));
         var c = client(server.url(), Duration.ofSeconds(10));
+        var arrived = server.expectArrivals(1);
         var pending = c.postAsync("/placement/v1/capacity/await", M.createObjectNode(), Duration.ofSeconds(10));
+        assertTrue(arrived.await(5, java.util.concurrent.TimeUnit.SECONDS), "the request reached the server");
         assertFalse(pending.isDone());
         pending.cancel(true);
         assertTrue(pending.isCancelled());
+        assertFalse(c.open(), "abandoning a wait is not an outage");
     }
 
     @Test
