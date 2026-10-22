@@ -1,5 +1,6 @@
 package ai.kubemoot.agent.nats;
 
+import ai.kubemoot.agent.requester.Requester;
 import ai.kubemoot.agent.config.AgentProperties;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -254,7 +255,8 @@ public class RequestQueueConsumer {
             // orchestrate() is bounded by the orchestrator's watchdog: it always
             // returns within the hard ceiling (force-closing a stuck discussion),
             // so the consumer thread can never block here indefinitely.
-            var result = orchestrator.orchestrate(request.message(), request.conversationId(), request.crew());
+            var result = orchestrator.orchestrate(request.message(), request.conversationId(), request.crew(),
+                    request.requester());
             // An interrupted orchestrate() returns null; one that finished returns a result
             // and is acked even when shutdown began meanwhile, so it is not answered twice.
             if (result == null && stopping()) {
@@ -344,7 +346,8 @@ public class RequestQueueConsumer {
                 node.path("crew").asText(),
                 node.path("timestamp").asText(),
                 node.path("use_rag").asBoolean(true),
-                node.path("use_tools").asBoolean(true)
+                node.path("use_tools").asBoolean(true),
+                Requester.fromJson(node).orElse(null)
         );
     }
 
@@ -354,6 +357,7 @@ public class RequestQueueConsumer {
             String crew,
             String timestamp,
             boolean useRag,
-            boolean useTools
+            boolean useTools,
+            Requester requester
     ) {}
 }

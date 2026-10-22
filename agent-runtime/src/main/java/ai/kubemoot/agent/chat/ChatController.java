@@ -1,5 +1,6 @@
 package ai.kubemoot.agent.chat;
 
+import ai.kubemoot.agent.requester.Requester;
 import ai.kubemoot.agent.config.AgentProperties;
 import ai.kubemoot.agent.mcp.McpClientService;
 import ai.kubemoot.agent.nats.ChatEventPublisher;
@@ -45,7 +46,9 @@ public class ChatController {
     @POST
     @Path("/chat")
     public ChatResponse chat(ChatRequest request) {
-        var serviceRequest = new ChatService.ChatRequest(request.conversationId(), request.message(), request.crew());
+        var requester = Requester.of(request.timeZone(), request.localDateTime()).orElse(null);
+        var serviceRequest = new ChatService.ChatRequest(request.conversationId(), request.message(), request.crew(),
+                null, null, requester);
         var result = chatService.chat(serviceRequest);
 
         chatEventPublisher.publishChatEvent(
@@ -87,7 +90,12 @@ public class ChatController {
         return Response.noContent().build();
     }
 
-    public record ChatRequest(String conversationId, String message, String crew) {}
+    public record ChatRequest(String conversationId, String message, String crew,
+                              String timeZone, String localDateTime) {
+        public ChatRequest(String conversationId, String message, String crew) {
+            this(conversationId, message, crew, null, null);
+        }
+    }
     public record ChatResponse(String conversationId, String response, String model, String threadId,
                                 long inputTokens, long outputTokens) {}
     public record HealthResponse(boolean healthy, boolean ollama, boolean natsConnected,

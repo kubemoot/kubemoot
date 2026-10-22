@@ -252,6 +252,58 @@ func TestPostDiscussionReturnsRequestedAt(t *testing.T) {
 	}
 }
 
+// queuedRequest posts a question with the given body and returns the request the gateway queued.
+func queuedRequest(t *testing.T, body string) bus.DiscussionRequest {
+	t.Helper()
+	nc, js := jetStreamServer(t)
+	srv := gatewayServer(t, nc)
+	resp, err := http.Post(srv.URL+"/api/v1/discussions/pilot", mimeJSON, strings.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusAccepted {
+		t.Fatalf("status %d for %s", resp.StatusCode, body)
+	}
+	stream, err := js.Stream(context.Background(), "KUBEMOOT_REQUEST")
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := stream.GetMsg(context.Background(), 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var queued bus.DiscussionRequest
+	if err := json.Unmarshal(raw.Data, &queued); err != nil {
+		t.Fatal(err)
+	}
+	return queued
+}
+
+// The person's time zone and local time travel from the POST to the queued request.
+func TestPostDiscussionQueuesTheRequestersZoneAndLocalTime(t *testing.T) {
+	got := queuedRequest(t, `{"message":"hi","timeZone":"America/Los_Angeles","localDateTime":"2026-10-24T09:15:00"}`)
+	if got.TimeZone != "America/Los_Angeles" || got.LocalDateTime != "2026-10-24T09:15:00" {
+		t.Fatalf("got zone %q, local %q", got.TimeZone, got.LocalDateTime)
+	}
+}
+
+// A client that sends neither behaves as before: the queued request carries neither.
+func TestPostDiscussionWithoutAZoneQueuesNone(t *testing.T) {
+	got := queuedRequest(t, `{"message":"hi"}`)
+	if got.TimeZone != "" || got.LocalDateTime != "" {
+		t.Fatalf("got zone %q, local %q, want none", got.TimeZone, got.LocalDateTime)
+	}
+}
+
+// The gateway forwards what the client sent; the agent that reads it ignores a value it cannot use.
+func TestPostDiscussionStillQueuesWhenTheZoneIsNotAZone(t *testing.T) {
+	got := queuedRequest(t, `{"message":"hi","timeZone":"Mars/Base","localDateTime":"soon"}`)
+	if got.Message != "hi" {
+		t.Fatalf("question not queued: %+v", got)
+	}
+}
+
 func TestReadyFollowsTheNATSConnection(t *testing.T) {
 	nc, _ := jetStreamServer(t)
 	if code := readyStatus(t, nc); code != http.StatusOK {

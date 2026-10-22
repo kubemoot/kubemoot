@@ -678,4 +678,26 @@ class DiscussionOrchestratorReasoningSelectTest {
         assertEquals("homelab-pilot", md.get("crew"));
         assertFalse(md.containsKey("crewVersion"), "no version key when the crew carries no chart version");
     }
+
+    // --- The requester's time zone and local date-time ride in thread_start metadata ---
+
+    @Test
+    void threadStartMetadata_carriesTheRequester_whenGiven() {
+        var requester = ai.kubemoot.agent.requester.Requester.of("America/Los_Angeles", "2026-10-24T09:00:00")
+                .orElseThrow();
+
+        var md = orchestrator.buildThreadStartMetadata(
+                "q", "general", "conv-1", List.of(), "homelab-pilot", "thread-z", requester);
+
+        assertEquals(java.util.Map.of("timeZone", "America/Los_Angeles", "localDateTime", "2026-10-24T09:00:00"),
+                md.get("requester"));
+    }
+
+    @Test
+    void threadStartMetadata_omitsTheRequester_whenAbsent() {
+        var md = orchestrator.buildThreadStartMetadata(
+                "q", "general", "conv-1", List.of(), "homelab-pilot", "thread-w", null);
+
+        assertFalse(md.containsKey("requester"));
+    }
 }

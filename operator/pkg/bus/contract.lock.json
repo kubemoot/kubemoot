@@ -610,6 +610,15 @@
       "type": "string",
       "required": true
     },
+    "discussion-metadata.json#/definitions/Requester": {
+      "type": "object"
+    },
+    "discussion-metadata.json#/definitions/Requester/localDateTime": {
+      "type": "string"
+    },
+    "discussion-metadata.json#/definitions/Requester/timeZone": {
+      "type": "string"
+    },
     "discussion-metadata.json#/definitions/TokenCount": {
       "type": "object"
     },
@@ -770,6 +779,9 @@
     "discussion-metadata.json#/replayOf": {
       "type": "string"
     },
+    "discussion-metadata.json#/requester": {
+      "ref": "#/definitions/Requester"
+    },
     "discussion-metadata.json#/role": {
       "type": "string"
     },
@@ -854,6 +866,9 @@
       "type": "string",
       "required": true
     },
+    "discussion-request.json#/localDateTime": {
+      "type": "string"
+    },
     "discussion-request.json#/message": {
       "type": "string",
       "required": true
@@ -861,6 +876,9 @@
     "discussion-request.json#/namespace": {
       "type": "string",
       "required": true
+    },
+    "discussion-request.json#/timeZone": {
+      "type": "string"
     },
     "discussion-request.json#/timestamp": {
       "type": "string",
@@ -1224,9 +1242,15 @@
     "post-discussion-request.json#/conversationId": {
       "type": "string"
     },
+    "post-discussion-request.json#/localDateTime": {
+      "type": "string"
+    },
     "post-discussion-request.json#/message": {
       "type": "string",
       "required": true
+    },
+    "post-discussion-request.json#/timeZone": {
+      "type": "string"
     },
     "post-discussion-response.json#": {
       "type": "object"

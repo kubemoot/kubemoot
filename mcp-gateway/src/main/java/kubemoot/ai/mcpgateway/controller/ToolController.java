@@ -78,7 +78,7 @@ public class ToolController {
             return Mono.just(new ToolCallResponse(true, "Tool not found: " + toolName));
         }
 
-        return forwardToolCall(serverId, toolName, arguments);
+        return forwardToolCall(serverId, toolName, arguments, request.meta());
     }
 
     // Prometheus instant-query tool whose optional `time` arg the models frequently
@@ -129,12 +129,9 @@ public class ToolController {
      * Build an MCP request, forward it to the backend server, and map the
      * response (or error) into a ToolCallResponse.
      */
-    private Mono<ToolCallResponse> forwardToolCall(String serverId, String toolName, Map<String, Object> arguments) {
-        McpMessage mcpRequest = McpMessage.request(
-            System.currentTimeMillis(),
-            "tools/call",
-            Map.of("name", toolName, "arguments", arguments)
-        );
+    private Mono<ToolCallResponse> forwardToolCall(String serverId, String toolName, Map<String, Object> arguments,
+                                                   Map<String, Object> meta) {
+        McpMessage mcpRequest = McpMessage.toolsCall(System.currentTimeMillis(), toolName, arguments, meta);
 
         return clientManager.forwardRequest(serverId, mcpRequest)
             .map(ToolController::toToolCallResponse)
@@ -204,7 +201,12 @@ public class ToolController {
     }
 
     // Request/Response DTOs
-    public record ToolCallRequest(Map<String, Object> arguments) {}
+    public record ToolCallRequest(Map<String, Object> arguments,
+                                  @com.fasterxml.jackson.annotation.JsonProperty("_meta") Map<String, Object> meta) {
+        public ToolCallRequest(Map<String, Object> arguments) {
+            this(arguments, null);
+        }
+    }
     public record ToolCallResponse(boolean isError, String content) {}
     public record ToolListResponse(int count, List<ToolInfo> tools) {}
 }

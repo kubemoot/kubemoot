@@ -143,6 +143,10 @@
       "type": "string",
       "description": "The person's question, on thread_start, advisory_ready and review_ready."
     },
+    "requester": {
+      "$ref": "#/definitions/Requester",
+      "description": "Where and when the person asking is, as their client reported it, on thread_start. Agents pass it to every tool call of the thread as the MCP request's _meta. Absent when the client sent none."
+    },
     "primaryChannel": {
       "type": "string",
       "description": "The channel the thread is answered on."
@@ -389,6 +393,15 @@
       "properties": {
         "tool": { "type": "string", "description": "The tool the evidence came from." },
         "note": { "type": "string", "description": "What it showed." }
+      }
+    },
+    "Requester": {
+      "title": "Requester",
+      "type": "object",
+      "description": "The person's time zone and local date-time, as their client reported them. A server may run in another time zone, so a tool that needs today's date reads this and not its own clock. Either field may be absent; a value that is not a known IANA zone or not an ISO local date-time is ignored by readers.",
+      "properties": {
+        "timeZone": { "type": "string", "description": "The IANA time zone name, such as America/Los_Angeles." },
+        "localDateTime": { "type": "string", "description": "The person's local date and time when they asked, ISO 8601 without an offset, such as 2026-10-24T09:15:00. The date part is the date that matters most." }
       }
     },
     "TokenTotals": {

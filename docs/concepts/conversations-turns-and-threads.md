@@ -120,6 +120,19 @@ parameter) and receives only what it missed. If the coordinator is replaced whil
 works on a question, its successor starts the question again on a new thread, and the
 stream announces it with a second `thread_found`; the earlier thread will not close.
 
+### The requester's date and time zone
+
+A server can run in another time zone than the person asking, so a turn carries where the person is. A client sends the person's IANA time zone and local date and time with the question:
+
+| Where | Field | Example |
+|-------|-------|---------|
+| `POST /api/v1/discussions/{crew}` body | `timeZone`, `localDateTime` (both optional) | `America/Los_Angeles`, `2026-10-24T09:15:00` |
+| `thread_start` metadata (a client that publishes the thread itself) | `requester.timeZone`, `requester.localDateTime` | the same values |
+
+`localDateTime` is ISO 8601 local time without an offset; its date part is the date that matters most. The dashboard sends the browser's zone and clock, and `kmctl conversation ask` sends the machine's. The gateway queues the two values with the request, the coordinator puts them in the `requester` object of the `thread_start` metadata, and every agent keeps them for the life of the thread. A value that is not a known IANA zone or not an ISO local date-time is dropped, so a bad value behaves like an absent one, and a client that sends neither behaves as before. The fields are additive in the [bus contract](../signals-and-protocol/#the-bus-contract) (`PostDiscussionRequest`, `DiscussionRequest`, and `Requester` in `DiscussionMetadata`).
+
+Agents pass the requester to every tool call of the thread as the MCP request's `_meta`; see [Request metadata](../../reference/mcpgateway-guide/#request-metadata-_meta) and [how a tool reads the requester's date](../../user-guides/onboard-mcp-tools/#read-the-requesters-date-in-a-tool).
+
 ### Activity on the stream
 
 Some steps run for minutes without a new phase event: a model loading onto a GPU, an

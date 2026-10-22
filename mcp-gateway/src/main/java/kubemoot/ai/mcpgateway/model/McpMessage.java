@@ -19,6 +19,22 @@ public record McpMessage(
         return new McpMessage(JSON_RPC_VERSION, id, method, params, null, null);
     }
 
+    /**
+     * A tools/call request. The caller's {@code _meta} (MCP's per-request metadata, such as
+     * the requester's time zone and date) rides in the params unchanged; a call without one
+     * carries no {@code _meta}.
+     */
+    public static McpMessage toolsCall(Object id, String toolName, Map<String, Object> arguments,
+                                       Map<String, Object> meta) {
+        var params = new java.util.LinkedHashMap<String, Object>();
+        params.put("name", toolName);
+        params.put("arguments", arguments);
+        if (meta != null && !meta.isEmpty()) {
+            params.put("_meta", meta);
+        }
+        return request(id, "tools/call", params);
+    }
+
     public static McpMessage notification(String method) {
         return new McpMessage(JSON_RPC_VERSION, null, method, null, null, null);
     }

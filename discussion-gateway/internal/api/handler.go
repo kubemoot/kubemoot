@@ -138,6 +138,8 @@ func (h *Handler) postDiscussion(w http.ResponseWriter, r *http.Request) {
 		Timestamp:      time.Now().UTC().Format(time.RFC3339),
 		UseRag:         true,
 		UseTools:       true,
+		TimeZone:       req.TimeZone,
+		LocalDateTime:  req.LocalDateTime,
 	})
 
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)

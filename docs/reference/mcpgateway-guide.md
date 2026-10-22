@@ -210,6 +210,20 @@ The conversion applies to every route into a tool server (the MCP endpoint and `
 
 The MCP Java SDK and the JSON Schema validator it uses (networknt) only validate arguments; the validator's loose-type mode accepts a mismatched type without changing the value that is sent, so the tool server would still reject it. The gateway keeps the conversion in `ToolArgumentCoercion`.
 
+## Request metadata (_meta)
+
+MCP's `tools/call` carries per-request metadata in `params._meta`. The gateway forwards it to the tool server unchanged, on every route into a tool server: the MCP endpoint forwards the `_meta` the caller sent, and `POST /tools/{name}/call` takes an optional `_meta` object next to `arguments`. A call without `_meta` forwards none, as before. The gateway does not read, validate, or add to the values.
+
+Agents use it to give a tool the requester's date and time zone:
+
+| `_meta` key | Value |
+|-------------|-------|
+| `timeZone` | the requester's IANA time zone, such as `America/Los_Angeles` |
+| `localDateTime` | the requester's local date and time, ISO 8601 without an offset |
+| `requestDate` | the requester's date, `YYYY-MM-DD` |
+
+A key is present only when the requester's client sent it (and `requestDate` whenever either of the others is). A tool that needs "today" should read it from here and not from its own clock; see [Read the requester's date in a tool](../../user-guides/onboard-mcp-tools/#read-the-requesters-date-in-a-tool).
+
 ## Connections to MCP servers
 
 A hosted MCP server's edge closes connections that sit idle, and a request sent on a connection the remote side already closed fails with "Connection reset by peer". The gateway keeps its HTTP connections to MCP servers in one pool that drops a connection before that happens:

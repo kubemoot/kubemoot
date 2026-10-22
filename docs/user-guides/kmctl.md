@@ -231,6 +231,8 @@ so no extra port-forwarding is required. Add `--quiet` to print only the final a
 and `--conversation-id <id>` (the ID the first `ask` prints) to continue the same
 conversation.
 
+`ask` also sends this machine's time zone and local date and time with the question, so the crew's tools use your date and not the date where the cluster runs. kmctl reads the zone from `TZ`, then `/etc/localtime`, then `/etc/timezone`; when none names a known zone it sends the local date and time alone.
+
 ### 7. Run the fitness suite
 
 ```bash

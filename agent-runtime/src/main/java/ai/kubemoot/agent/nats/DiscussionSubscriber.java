@@ -1,5 +1,6 @@
 package ai.kubemoot.agent.nats;
 
+import ai.kubemoot.agent.requester.Requester;
 import ai.kubemoot.agent.chat.ChatService;
 import ai.kubemoot.agent.chat.ToolCallFailure;
 import ai.kubemoot.agent.config.AgentProperties;
@@ -158,6 +159,8 @@ public class DiscussionSubscriber {
     private final ConcurrentHashMap<String, List<?>> threadConversationContext = new ConcurrentHashMap<>();
     // The user's question per thread, from its thread_start, for knowledge retrieval.
     private final ConcurrentHashMap<String, String> threadQuestions = new ConcurrentHashMap<>();
+    // The requester's time zone and local date-time per thread, from its thread_start, for tool calls.
+    private final ConcurrentHashMap<String, Requester> threadRequesters = new ConcurrentHashMap<>();
     /** Selected skill names broadcast by the coordinator in advisory_ready, keyed by threadId. */
     private final ConcurrentHashMap<String, List<String>> threadSelectedSkills = new ConcurrentHashMap<>();
     private final Set<String> processedMessages = ConcurrentHashMap.newKeySet();
@@ -516,10 +519,22 @@ public class DiscussionSubscriber {
             extractTechnologies(meta, threadId);
             extractConversationContext(meta, threadId);
             extractSelectedSkills(meta, threadId);
+            extractRequester(meta, threadId);
         } catch (Exception ignored) {
             // Metadata is best-effort enrichment; a malformed message must not
             // abort message handling, so parse failures are silently skipped.
         }
+    }
+
+    /** Keeps the thread's requester when the message carries a usable one; an invalid value is ignored. */
+    private void extractRequester(JsonNode meta, String threadId) {
+        Requester.fromJson(meta.get(Requester.METADATA_KEY))
+                .ifPresent(requester -> threadRequesters.putIfAbsent(threadId, requester));
+    }
+
+    /** The requester of the thread, or null when its client sent none. Visible for testing. */
+    Requester requesterFor(String threadId) {
+        return threadRequesters.get(threadId);
     }
 
     private void extractTechnologies(JsonNode meta, String threadId) {
@@ -1076,7 +1091,8 @@ public class DiscussionSubscriber {
         // to what it was before skills were introduced.
         String skillContext = skillBodyLoader.load(threadSelectedSkills.get(threadId));
         String message = skillContext.isEmpty() ? conversation : skillContext + conversation;
-        var request = new ChatService.ChatRequest(threadId, message, null, threadId, retrievalQueryFor(threadId));
+        var request = new ChatService.ChatRequest(threadId, message, null, threadId, retrievalQueryFor(threadId),
+                requesterFor(threadId));
         return chatService.directChat(request, false, wait);
     }
 
@@ -1549,6 +1565,7 @@ public class DiscussionSubscriber {
             threadConversationContext.clear();
             threadSelectedSkills.clear();
             threadQuestions.clear();
+            threadRequesters.clear();
             threadEndWakers.clear();
         }
     }
