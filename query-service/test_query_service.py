@@ -3,6 +3,7 @@ embedding service replaced by mocks."""
 
 import asyncio
 import importlib.util
+import json
 import unittest
 from pathlib import Path
 from typing import ClassVar
@@ -211,6 +212,13 @@ class EmbeddingTest(unittest.TestCase):
 
     def test_l2_normalize_scales_to_unit_length(self):
         self.assertEqual(qs.l2_normalize([3.0, 0.0, 4.0]), [0.6, 0.0, 0.8])
+
+    def test_l2_normalize_matches_the_shared_golden_vector(self):
+        golden = json.loads((Path(__file__).parent.parent / "testdata" / "normalization-vector.json").read_text())
+        got = qs.l2_normalize([float(x) for x in golden["input"]])
+        self.assertEqual(len(got), len(golden["expected"]))
+        for g, e in zip(got, golden["expected"], strict=True):
+            self.assertAlmostEqual(g, e, places=6)
 
     def test_l2_normalize_leaves_a_zero_vector_alone(self):
         self.assertEqual(qs.l2_normalize([0.0, 0.0]), [0.0, 0.0])

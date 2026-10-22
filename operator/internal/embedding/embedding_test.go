@@ -18,10 +18,12 @@ package embedding
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"math"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"testing"
 )
 
@@ -94,5 +96,28 @@ func TestNormalizeZeroVectorUnchanged(t *testing.T) {
 	v := Normalize([]float32{0, 0, 0})
 	if v[0] != 0 || v[1] != 0 || v[2] != 0 {
 		t.Fatalf("zero vector changed: %v", v)
+	}
+}
+
+func TestNormalizeMatchesTheSharedGoldenVector(t *testing.T) {
+	raw, err := os.ReadFile("../../../testdata/normalization-vector.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var golden struct {
+		Input    []float32 `json:"input"`
+		Expected []float32 `json:"expected"`
+	}
+	if err := json.Unmarshal(raw, &golden); err != nil {
+		t.Fatal(err)
+	}
+	got := Normalize(golden.Input)
+	if len(got) != len(golden.Expected) {
+		t.Fatalf("length = %d, want %d", len(got), len(golden.Expected))
+	}
+	for i := range got {
+		if math.Abs(float64(got[i]-golden.Expected[i])) > 1e-6 {
+			t.Errorf("component %d = %v, want %v", i, got[i], golden.Expected[i])
+		}
 	}
 }
