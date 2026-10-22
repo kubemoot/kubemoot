@@ -76,4 +76,16 @@ class McpClientServiceRequesterTest {
         }
         assertTrue(metaSent().isEmpty());
     }
+
+    @Test
+    void mergeKeepsExistingEntriesAndTheRequesterWinsOnConflict() {
+        var merged = McpClientService.mergeRequesterMeta(
+                Map.of("progressToken", "p", "timeZone", "UTC"), Map.of("timeZone", "Europe/Paris"));
+        assertEquals(Map.of("progressToken", "p", "timeZone", "Europe/Paris"), merged);
+    }
+
+    @Test
+    void mergeToleratesNoExistingMeta() {
+        assertEquals(Map.of("timeZone", "UTC"), McpClientService.mergeRequesterMeta(null, Map.of("timeZone", "UTC")));
+    }
 }

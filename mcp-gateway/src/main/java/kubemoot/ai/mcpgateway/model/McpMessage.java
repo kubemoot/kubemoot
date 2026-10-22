@@ -2,6 +2,7 @@ package kubemoot.ai.mcpgateway.model;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
 
+import java.util.LinkedHashMap;
 import java.util.Map;
 
 @JsonInclude(JsonInclude.Include.NON_NULL)
@@ -25,12 +26,13 @@ public record McpMessage(
      * carries no {@code _meta}.
      */
     public static McpMessage toolsCall(Object id, String toolName, Map<String, Object> arguments,
-                                       Map<String, Object> meta) {
-        var params = new java.util.LinkedHashMap<String, Object>();
+                                       Object meta) {
+        var params = new LinkedHashMap<String, Object>();
         params.put("name", toolName);
         params.put("arguments", arguments);
-        if (meta != null && !meta.isEmpty()) {
-            params.put("_meta", meta);
+        var forwarded = RequesterMeta.sanitize(meta);
+        if (!forwarded.isEmpty()) {
+            params.put("_meta", forwarded);
         }
         return request(id, "tools/call", params);
     }

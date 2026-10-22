@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"regexp"
 	"strings"
 	"time"
 
@@ -100,6 +101,46 @@ func (h *Handler) readyHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+const (
+	maxTimeZoneLength      = 64
+	maxLocalDateTimeLength = 32
+	localDateTimeLayout    = "2006-01-02T15:04:05"
+)
+
+var (
+	// zoneShape is the character set of an IANA zone id; the agent checks the id against its zone database.
+	zoneShape = regexp.MustCompile(`^[A-Za-z0-9_+/-]+$`)
+	// localDateTimeShape is an ISO local date-time with a four-digit year and no offset.
+	localDateTimeShape = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d{1,9})?)?$`)
+)
+
+// validateRequester returns why the requester's zone or local date-time is unusable, or "" when each
+// is absent or well formed.
+func validateRequester(timeZone, localDateTime string) string {
+	if timeZone != "" && (len(timeZone) > maxTimeZoneLength || !zoneShape.MatchString(timeZone)) {
+		return "invalid timeZone"
+	}
+	if localDateTime == "" {
+		return ""
+	}
+	if len(localDateTime) > maxLocalDateTimeLength || !localDateTimeShape.MatchString(localDateTime) {
+		return "invalid localDateTime"
+	}
+	// The layout accepts a missing seconds part and fractional seconds as given.
+	if _, err := time.Parse(localDateTimeLayout, padSeconds(localDateTime)); err != nil {
+		return "invalid localDateTime"
+	}
+	return ""
+}
+
+// padSeconds adds ":00" to a date-time that omits seconds, so one layout parses every accepted shape.
+func padSeconds(localDateTime string) string {
+	if len(localDateTime) == len("2006-01-02T15:04") {
+		return localDateTime + ":00"
+	}
+	return localDateTime
+}
+
 func (h *Handler) postDiscussion(w http.ResponseWriter, r *http.Request) {
 	scope, ok := h.scopeFor(w, r.PathValue("crew"))
 	if !ok {
@@ -114,6 +155,11 @@ func (h *Handler) postDiscussion(w http.ResponseWriter, r *http.Request) {
 	}
 	if strings.TrimSpace(req.Message) == "" {
 		httpError(w, http.StatusBadRequest, "message is required")
+		return
+	}
+
+	if msg := validateRequester(req.TimeZone, req.LocalDateTime); msg != "" {
+		httpError(w, http.StatusBadRequest, msg)
 		return
 	}
 

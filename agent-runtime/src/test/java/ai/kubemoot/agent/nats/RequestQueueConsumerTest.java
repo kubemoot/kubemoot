@@ -190,7 +190,7 @@ class RequestQueueConsumerTest {
 
         consumer.processMessage(msg);
 
-        verify(orch, times(1)).orchestrate("hi", "c1", "demo");
+        verify(orch, times(1)).orchestrate("hi", "c1", "demo", null);
         verify(msg, times(1)).ackSync(any(Duration.class));
         verify(msg, never()).term();
     }
@@ -201,7 +201,7 @@ class RequestQueueConsumerTest {
     @Test
     void processMessageReturnsTheRequestWhenShutdownInterruptsIt() throws Exception {
         var orch = mock(DiscussionOrchestrator.class);
-        when(orch.orchestrate(anyString(), anyString(), anyString())).thenAnswer(inv -> {
+        when(orch.orchestrate(anyString(), anyString(), anyString(), any())).thenAnswer(inv -> {
             Thread.currentThread().interrupt();
             return null;
         });
@@ -237,7 +237,7 @@ class RequestQueueConsumerTest {
     @Test
     void processMessageAcksADiscussionThatFinishedAsShutdownBegan() throws Exception {
         var orch = mock(DiscussionOrchestrator.class);
-        when(orch.orchestrate(anyString(), anyString(), anyString()))
+        when(orch.orchestrate(anyString(), anyString(), anyString(), any()))
                 .thenReturn(new DiscussionOrchestrator.OrchestrateResult("t1", "answer"));
         var consumer = coordinatorConsumer(orch);
         consumer.onShutdown(null);
@@ -251,7 +251,7 @@ class RequestQueueConsumerTest {
 
     private static DiscussionOrchestrator orchestratorThatThrows() {
         var orch = mock(DiscussionOrchestrator.class);
-        when(orch.orchestrate(anyString(), anyString(), anyString()))
+        when(orch.orchestrate(anyString(), anyString(), anyString(), any()))
                 .thenThrow(new RuntimeException("orchestrate boom"));
         return orch;
     }
