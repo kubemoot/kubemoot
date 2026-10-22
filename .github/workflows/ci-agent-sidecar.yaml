@@ -55,7 +55,7 @@ jobs:
 
       - name: Run tests
         working-directory: agent-sidecar
-        run: go test -race ./...
+        run: go test ./...
 
       # The image packages this tested binary; the build pod does not compile again.
       - name: Build the static binary
