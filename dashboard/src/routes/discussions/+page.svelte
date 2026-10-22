@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { currentRequester } from '#lib/requester.js';
 	import { onMount } from 'svelte';
 	import { resolve } from '$app/paths';
 	import { marked } from 'marked';
@@ -180,7 +181,7 @@
 				content: newQuery.trim(),
 				channel: newChannel,
 				timestamp: new Date().toISOString(),
-				metadata: { userQuery: newQuery.trim() }
+				metadata: { userQuery: newQuery.trim(), requester: currentRequester() }
 			};
 			// Optimistic: show message immediately
 			addDiscussionMessage(msg, subject);
@@ -407,6 +408,7 @@
 				timestamp: new Date().toISOString(),
 				metadata: {
 					userQuery: original.userQuery,
+					requester: currentRequester(),
 					replayOf: original.threadId
 				}
 			};

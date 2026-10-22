@@ -1,5 +1,6 @@
 package ai.kubemoot.agent.nats;
 
+import ai.kubemoot.agent.requester.Requester;
 import ai.kubemoot.agent.chat.ChatService;
 import ai.kubemoot.agent.chat.ModelUse;
 import ai.kubemoot.agent.config.AgentProperties;
@@ -453,6 +454,16 @@ public class DiscussionOrchestrator {
     public record OrchestrateResult(String threadId, String response) {}
 
     public OrchestrateResult orchestrate(String userQuery, String conversationId, String crew) {
+        return orchestrate(userQuery, conversationId, crew, null);
+    }
+
+    /**
+     * {@link #orchestrate(String, String, String)} for a question whose requester (time zone
+     * and local date-time, as the client reported them) travels on the thread to every agent;
+     * null when the client sent none.
+     */
+    public OrchestrateResult orchestrate(String userQuery, String conversationId, String crew,
+                                         Requester requester) {
         if (!isEnabled()) return null;
 
         Connection conn = natsProvider.getConnection();
@@ -473,7 +484,8 @@ public class DiscussionOrchestrator {
         try {
             var state = initThreadState(threadId, userQuery, primaryChannel, conversationId, crew);
             var conversationContext = buildConversationContext(conversationId);
-            var metadata = buildThreadStartMetadata(userQuery, primaryChannel, conversationId, conversationContext, crew, threadId);
+            var metadata = buildThreadStartMetadata(userQuery, primaryChannel, conversationId, conversationContext,
+                    crew, threadId, requester);
 
             var threadStartPayload = mapper.writeValueAsBytes(Map.of(
                     FIELD_MESSAGE_ID, UUID.randomUUID().toString(),
@@ -532,6 +544,14 @@ public class DiscussionOrchestrator {
     Map<String, Object> buildThreadStartMetadata(String userQuery, String primaryChannel,
                                                           String conversationId, List<?> conversationContext,
                                                           String crew, String threadId) {
+        return buildThreadStartMetadata(userQuery, primaryChannel, conversationId, conversationContext, crew,
+                threadId, null);
+    }
+
+    // Visible for testing
+    Map<String, Object> buildThreadStartMetadata(String userQuery, String primaryChannel,
+                                                          String conversationId, List<?> conversationContext,
+                                                          String crew, String threadId, Requester requester) {
         var metadata = new HashMap<String, Object>();
         metadata.put(FIELD_USER_QUERY, userQuery);
         metadata.put(FIELD_PRIMARY_CHANNEL, primaryChannel);
@@ -545,6 +565,9 @@ public class DiscussionOrchestrator {
         }
         if (crew != null && !crew.isEmpty()) {
             metadata.put(FIELD_CREW, crew);
+        }
+        if (requester != null) {
+            metadata.put(Requester.METADATA_KEY, requester.toBusMetadata());
         }
         // Crew chart version (provenance): which crew VERSION produced this thread.
         // Absent for hand-applied crews with no chart version.

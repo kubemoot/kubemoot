@@ -244,9 +244,12 @@ public class McpClientService {
         }
 
         log.debug("Calling tool {} on server {}", actualToolName, serverName);
-        var result = client.callTool(McpSchema.CallToolRequest.builder(actualToolName)
-                .arguments(arguments)
-                .build());
+        var request = McpSchema.CallToolRequest.builder(actualToolName).arguments(arguments);
+        var meta = requesterMeta();
+        if (!meta.isEmpty()) {
+            request.meta(meta);
+        }
+        var result = client.callTool(request.build());
         return toToolResult(toolName, result);
     }
 
@@ -265,6 +268,13 @@ public class McpClientService {
         return new ToolResult(toolName, !failed, content, failed ? content : null);
     }
 
+    /** The MCP {@code _meta} of a tool call: the requester of the running turn, empty when it has none. */
+    private static Map<String, Object> requesterMeta() {
+        return ai.kubemoot.agent.requester.RequesterScope.current()
+                .<Map<String, Object>>map(ai.kubemoot.agent.requester.Requester::toolMeta)
+                .orElse(Map.of());
+    }
+
     private ToolResult callToolViaGateway(String toolName, Map<String, Object> arguments) {
         if (gatewayClient == null || !gatewayClient.isConfigured()) {
             return new ToolResult(toolName, false, null, "Gateway client not available");
@@ -273,7 +283,7 @@ public class McpClientService {
         log.debug("Calling tool {} via gateway REST API", toolName);
 
         try {
-            var result = gatewayClient.callTool(toolName, arguments);
+            var result = gatewayClient.callTool(toolName, arguments, requesterMeta());
             if (result == null) {
                 return new ToolResult(toolName, false, null, "Gateway returned null response");
             }

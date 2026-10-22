@@ -1,5 +1,7 @@
 package ai.kubemoot.agent.chat;
 
+import ai.kubemoot.agent.requester.Requester;
+import ai.kubemoot.agent.requester.RequesterScope;
 import ai.kubemoot.agent.config.AgentProperties;
 import ai.kubemoot.agent.mcp.McpClientService;
 import ai.kubemoot.agent.nats.AgentHeartbeatService;
@@ -199,7 +201,8 @@ public class ChatService {
     public ChatResult chat(ChatRequest request) {
         // For coordinators with discussion enabled, try async collaboration first
         if (discussionOrchestrator != null && discussionOrchestrator.isEnabled()) {
-            var orchestrateResult = discussionOrchestrator.orchestrate(request.message(), request.conversationId(), request.crew());
+            var orchestrateResult = discussionOrchestrator.orchestrate(request.message(), request.conversationId(), request.crew(),
+                    request.requester());
             if (orchestrateResult != null && orchestrateResult.response() != null) {
                 return new ChatResult(request.conversationId(), orchestrateResult.response(),
                         properties.model().model(), orchestrateResult.threadId());
@@ -348,7 +351,7 @@ public class ChatService {
         // Stays true for any Throwable escaping the loop (timeouts, 5xx, ToolCallFailure
         // with an infrastructure cause, or an Error): the circuit-breaker input.
         boolean callFailed = true;
-        try {
+        try (var requesterScope = RequesterScope.bind(request.requester())) {
             loopResult = callWithToolLoop(messages,
                     observed(pick, CallObservation.KIND_TOOL_TURN),
                     serverName, pick.pickReason(), toolerRawOutput, contextLengthOf(pick));
@@ -2255,18 +2258,23 @@ public class ChatService {
      * A chat turn. retrievalQuery, when set, is what knowledge retrieval and crew memory
      * search with instead of the whole message: inside a discussion the message is the
      * formatted thread (brief, other agents' responses), while the user's question is
-     * what the documents should match.
+     * what the documents should match. requester, when set, is the person's time zone and
+     * local date-time; every tool call of the turn carries it.
      */
     public record ChatRequest(String conversationId, String message, String crew, String discussionThreadId,
-                              String retrievalQuery) {
+                              String retrievalQuery, Requester requester) {
+        public ChatRequest(String conversationId, String message, String crew, String discussionThreadId,
+                           String retrievalQuery) {
+            this(conversationId, message, crew, discussionThreadId, retrievalQuery, null);
+        }
         public ChatRequest(String conversationId, String message, String crew, String discussionThreadId) {
-            this(conversationId, message, crew, discussionThreadId, null);
+            this(conversationId, message, crew, discussionThreadId, null, null);
         }
         public ChatRequest(String conversationId, String message, String crew) {
-            this(conversationId, message, crew, null, null);
+            this(conversationId, message, crew, null, null, null);
         }
         public ChatRequest(String conversationId, String message) {
-            this(conversationId, message, null, null, null);
+            this(conversationId, message, null, null, null, null);
         }
         public ChatRequest {
             if (conversationId == null || conversationId.isEmpty()) {

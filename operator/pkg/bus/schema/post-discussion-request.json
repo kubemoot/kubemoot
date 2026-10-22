@@ -6,6 +6,8 @@
   "required": ["message"],
   "properties": {
     "message": { "type": "string", "description": "The question; must not be blank." },
-    "conversationId": { "type": "string", "description": "The conversation to continue. Without it, the gateway starts a new one." }
+    "conversationId": { "type": "string", "description": "The conversation to continue. Without it, the gateway starts a new one." },
+    "timeZone": { "type": "string", "description": "The person's IANA time zone, such as America/Los_Angeles. Tools that need today's date read it instead of the server's clock. Optional; an unknown zone is ignored." },
+    "localDateTime": { "type": "string", "description": "The person's local date and time when they asked, ISO 8601 without an offset, such as 2026-10-24T09:15:00. Optional; an unreadable value is ignored." }
   }
 }

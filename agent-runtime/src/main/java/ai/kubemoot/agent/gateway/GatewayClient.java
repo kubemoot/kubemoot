@@ -142,10 +142,18 @@ public class GatewayClient {
      * which fails silently with a null-message NPE in native builds.
      */
     public ToolCallResult callTool(String toolName, Map<String, Object> arguments) {
+        return callTool(toolName, arguments, Map.of());
+    }
+
+    /**
+     * Calls the tool with the MCP per-request metadata ({@code _meta}) the gateway forwards
+     * to the tool's server; an empty map sends none.
+     */
+    public ToolCallResult callTool(String toolName, Map<String, Object> arguments, Map<String, Object> meta) {
         log.debug("Calling tool {} via gateway with arguments: {}", toolName, arguments);
 
         try {
-            var body = mapper.writeValueAsString(Map.of("arguments", arguments));
+            var body = mapper.writeValueAsString(callBody(arguments, meta));
             var request = HttpRequest.newBuilder()
                     .uri(URI.create(endpoint + "/tools/" + toolName + "/call"))
                     .timeout(DEFAULT_TIMEOUT)
@@ -178,6 +186,16 @@ public class GatewayClient {
             String detail = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
             return new ToolCallResult(toolName, false, null, "Gateway error: " + detail);
         }
+    }
+
+    /** The JSON body of a tool call: the arguments, and {@code _meta} when there is any. */
+    static Map<String, Object> callBody(Map<String, Object> arguments, Map<String, Object> meta) {
+        var body = new java.util.LinkedHashMap<String, Object>();
+        body.put("arguments", arguments);
+        if (meta != null && !meta.isEmpty()) {
+            body.put("_meta", meta);
+        }
+        return body;
     }
 
     public String getEndpoint() {

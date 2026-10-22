@@ -21,6 +21,7 @@ public class ToolRouter {
     private static final String FIELD_NAME = "name";
     private static final String FIELD_LIST_CHANGED = "listChanged";
     private static final String FIELD_ARGUMENTS = "arguments";
+    private static final String FIELD_META = "_meta";
 
     private final McpClientManager clientManager;
     private final MetaToolsService metaToolsService;
@@ -126,11 +127,8 @@ public class ToolRouter {
         }
 
         // Forward the request to the appropriate backend server
-        McpMessage forwardRequest = McpMessage.request(
-            request.id(),
-            "tools/call",
-            Map.of(FIELD_NAME, toolName, FIELD_ARGUMENTS, arguments)
-        );
+        McpMessage forwardRequest = McpMessage.toolsCall(request.id(), toolName, arguments,
+            params.get(FIELD_META) instanceof Map ? (Map<String, Object>) params.get(FIELD_META) : null);
 
         return clientManager.forwardRequest(serverId, forwardRequest);
     }

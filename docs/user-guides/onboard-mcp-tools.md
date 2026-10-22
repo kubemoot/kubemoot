@@ -57,6 +57,26 @@ RTFM agents are off by default and the chart creates no `Agent` for them. For th
 configuration, and troubleshooting, see the
 [Onboarding Guide](../../operating/onboarding-guide/).
 
+## Read the requester's date in a tool
+
+A tool server can run in another time zone than the person asking. A tool whose answer depends on the date ("recent", "next", "as of") should use the requester's date, which every `tools/call` carries in `params._meta` when the client sent one:
+
+```json
+{"method": "tools/call",
+ "params": {"name": "find_released", "arguments": {"topic": "kubernetes"},
+            "_meta": {"timeZone": "America/Los_Angeles",
+                      "localDateTime": "2026-10-24T09:15:00",
+                      "requestDate": "2026-10-24"}}}
+```
+
+Read it in this order, and ignore a value you cannot parse:
+
+1. `requestDate`, as the date.
+2. `timeZone`, with the date now in that zone.
+3. The tool's own default zone, which the crew chart configures. A request without `_meta` behaves this way.
+
+State the date and zone the tool used in its result, so a reader can see which "today" applied. The date matters more than the time of day. Never take the date from a tool argument the model fills in. The Time MCP server answers in its server's zone; use it only when the requester's date does not matter.
+
 ## Which path to use
 
 - **Declare directly** when you know the tool and want it deterministically present -

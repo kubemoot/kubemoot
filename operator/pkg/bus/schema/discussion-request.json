@@ -32,6 +32,14 @@
     "use_tools": {
       "type": "boolean",
       "description": "Whether the crew may use tools. The coordinator reads it and does not act on it."
+    },
+    "timeZone": {
+      "type": "string",
+      "description": "The person's IANA time zone, from the request that queued the question. Absent when the client sent none."
+    },
+    "localDateTime": {
+      "type": "string",
+      "description": "The person's local date and time when they asked, ISO 8601 without an offset. Absent when the client sent none."
     }
   }
 }
