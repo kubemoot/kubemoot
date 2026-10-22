@@ -81,3 +81,10 @@ func TestAvailableModelUnmarshal_Invalid(t *testing.T) {
 		t.Error("expected error decoding a bare number into AvailableModel, got nil")
 	}
 }
+
+func TestIsEmbeddingModel(t *testing.T) {
+	p := &ModelServer{Status: ModelServerStatus{EmbeddingModels: []EmbeddingCatalogModel{{Name: "embed"}}}}
+	if !p.IsEmbeddingModel("embed") || p.IsEmbeddingModel("chat") || p.IsEmbeddingModel("") {
+		t.Error("IsEmbeddingModel must match only catalog embedding models")
+	}
+}

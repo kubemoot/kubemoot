@@ -336,7 +336,7 @@ func (s *Set) measure(ctx context.Context, server, model string) (aiv1alpha1.Mod
 	if err != nil {
 		return aiv1alpha1.ModelCalibration{}, err
 	}
-	only, checkErr := s.Prober.EmbeddingOnly(ctx, requestFor(p, model, probe.KindLoad))
+	only, checkErr := s.embeddingOnly(ctx, p, model)
 	if checkErr == nil && only {
 		return aiv1alpha1.ModelCalibration{Model: model, Fits: true, Status: aiv1alpha1.ModelCalibrationSkipped,
 			Reason: embeddingSkipReason}, nil
@@ -346,6 +346,15 @@ func (s *Set) measure(ctx context.Context, server, model string) (aiv1alpha1.Mod
 		err = fmt.Errorf("%w (could not check whether it is an embedding model: %v)", err, checkErr)
 	}
 	return result, err
+}
+
+// embeddingOnly is the one decision of which models do not chat: the server's own
+// catalog lists the model as embedding only (any engine), else the engine says so.
+func (s *Set) embeddingOnly(ctx context.Context, p *aiv1alpha1.ModelServer, model string) (bool, error) {
+	if p.IsEmbeddingModel(model) {
+		return true, nil
+	}
+	return s.Prober.EmbeddingOnly(ctx, requestFor(p, model, probe.KindLoad))
 }
 
 // measureChat runs the recipe on a model that is taken to chat.
