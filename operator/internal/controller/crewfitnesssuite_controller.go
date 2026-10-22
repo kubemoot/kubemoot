@@ -40,6 +40,7 @@ package controller
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"time"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -65,6 +66,17 @@ type CrewFitnessSuiteReconciler struct {
 	NATSPublisher *kubemootnats.Publisher
 	// artifacts replaces NATSPublisher as the artifact object store in tests.
 	artifacts objectStore
+	// judgeClient replaces the default judge dispatch client in tests, so a
+	// pass never depends on the host's network or DNS.
+	judgeClient *http.Client
+}
+
+// judgeHTTPClient returns the client the judge pass dispatches with.
+func (r *CrewFitnessSuiteReconciler) judgeHTTPClient() *http.Client {
+	if r.judgeClient != nil {
+		return r.judgeClient
+	}
+	return newJudgeHTTPClient()
 }
 
 // store returns the artifact object store, or nil when none is configured.

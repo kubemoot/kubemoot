@@ -13,6 +13,8 @@ package controller
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"net/http"
 	"strings"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -49,6 +51,14 @@ func statusTranscript(assertions ...string) []byte {
 		`],"events":[{"type":"synthesis","content":"answer"},{"type":"done"}]}`)
 }
 
+// unreachableJudge is a judge client whose every dispatch fails at once, so a pass
+// that reaches the judge crew leaves the scenario pending without a network lookup.
+func unreachableJudge() *http.Client {
+	return &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+		return nil, fmt.Errorf("judge crew unreachable in this test")
+	})}
+}
+
 // Envtest coverage for the results the operator puts on CrewFitnessSuite
 // status: status.judge (the deferred judge pass) and status.scenarios (the
 // per-scenario rollup). The object store is an in-memory fake; the judge crew
@@ -60,7 +70,7 @@ var _ = Describe("CrewFitnessSuite results in status", func() {
 	var store *lockedStore
 
 	reconciler := func() *CrewFitnessSuiteReconciler {
-		return &CrewFitnessSuiteReconciler{Client: k8sClient, Scheme: k8sClient.Scheme(), artifacts: store}
+		return &CrewFitnessSuiteReconciler{Client: k8sClient, Scheme: k8sClient.Scheme(), artifacts: store, judgeClient: unreachableJudge()}
 	}
 	key := func(name string) types.NamespacedName {
 		return types.NamespacedName{Name: name, Namespace: namespace}

@@ -650,7 +650,7 @@ func (r *CrewFitnessSuiteReconciler) deferredJudgeWorker(suite *kubemootv1alpha1
 		prefix:    prefix,
 		cache:     loadDeferredCache(r.store(), prefix), // resume any prior checkpoint
 		endpoints: map[string]string{},
-		hc:        newJudgeHTTPClient(),
+		hc:        r.judgeHTTPClient(),
 		log:       log,
 	}
 
