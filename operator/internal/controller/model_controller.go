@@ -115,7 +115,7 @@ func (r *ModelReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 	// infrastructure and may be in a different namespace than the Model)
 	server, err := r.findModelServer(ctx, model.Spec.ServerRef)
 	if err != nil {
-		return r.updateModelStatus(ctx, model, "Error", false, fmt.Sprintf("ModelServer %s not found", model.Spec.ServerRef), nil)
+		return r.reconcileMissingServer(ctx, model, err)
 	}
 
 	// A source that does not fit the server's engine is reported, never guessed at.
@@ -144,8 +144,29 @@ func (r *ModelReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 	case aiv1alpha1.ServerTypeVLLM:
 		return r.reconcileVLLMModel(ctx, model, server)
 	default:
-		return r.updateModelStatus(ctx, model, "Error", false, aiv1alpha1.UnsupportedServerTypeMessage, nil)
+		return r.updateModelStatus(ctx, model, phaseError, false, aiv1alpha1.UnsupportedServerTypeMessage, nil)
 	}
+}
+
+// reconcileMissingServer handles a Model whose server is unnamed or does not
+// exist. An auto-provisioned Model is removed, since nothing it could run on is
+// left and the operator provisions again against an existing server when a crew
+// needs the model. A Model a person wrote is only reported in its status. A
+// failure to list the servers is returned for a retry, never read as a missing
+// server.
+func (r *ModelReconciler) reconcileMissingServer(ctx context.Context, model *aiv1alpha1.Model, err error) (ctrl.Result, error) {
+	if !errors.Is(err, errModelServerNotFound) {
+		return ctrl.Result{}, err
+	}
+	if model.Labels[annoAutoProvisioned] == "true" {
+		logf.FromContext(ctx).Info("Removing auto-provisioned Model whose ModelServer is gone", "model", model.Name, "serverRef", model.Spec.ServerRef)
+		return ctrl.Result{}, client.IgnoreNotFound(r.Delete(ctx, model))
+	}
+	msg := fmt.Sprintf("ModelServer %s not found", model.Spec.ServerRef)
+	if model.Spec.ServerRef == "" {
+		msg = "Model names no ModelServer (spec.serverRef is empty)"
+	}
+	return r.updateModelStatus(ctx, model, phaseError, false, msg, nil)
 }
 
 // reconcileOutOfService handles a Model that needs no server work. A deleting Model
@@ -447,6 +468,9 @@ func (r *ModelReconciler) deleteOllamaModel(ctx context.Context, endpoint, model
 	return nil
 }
 
+// errModelServerNotFound reports that no ModelServer has the requested name.
+var errModelServerNotFound = errors.New("not found in any namespace")
+
 // findModelServer looks up a ModelServer by name across all namespaces.
 func (r *ModelReconciler) findModelServer(ctx context.Context, name string) (*aiv1alpha1.ModelServer, error) {
 	serverList := &aiv1alpha1.ModelServerList{}
@@ -458,7 +482,7 @@ func (r *ModelReconciler) findModelServer(ctx context.Context, name string) (*ai
 			return &serverList.Items[i], nil
 		}
 	}
-	return nil, fmt.Errorf("ModelServer %q not found in any namespace", name)
+	return nil, fmt.Errorf("ModelServer %q: %w", name, errModelServerNotFound)
 }
 
 // updateModelStatus updates the Model status
