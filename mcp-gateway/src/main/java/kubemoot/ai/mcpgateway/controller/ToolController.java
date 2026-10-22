@@ -137,7 +137,7 @@ public class ToolController {
         );
 
         return clientManager.forwardRequest(serverId, mcpRequest)
-            .map(this::toToolCallResponse)
+            .map(ToolController::toToolCallResponse)
             .onErrorResume(e -> {
                 log.error("Tool call failed: {}", e.getMessage());
                 return Mono.just(new ToolCallResponse(true, "Error: " + e.getMessage()));
@@ -147,14 +147,19 @@ public class ToolController {
     /**
      * Map a backend MCP response into a ToolCallResponse, surfacing any error.
      */
-    private ToolCallResponse toToolCallResponse(McpMessage response) {
+    static ToolCallResponse toToolCallResponse(McpMessage response) {
         if (response.error() != null) {
             return new ToolCallResponse(true, response.error().message());
         }
 
-        // Extract content from MCP response
+        // Extract content from MCP response; the upstream isError flag passes through
         String content = extractContent(response.result());
-        return new ToolCallResponse(false, content);
+        return new ToolCallResponse(upstreamIsError(response.result()), content);
+    }
+
+    /** True only when the upstream result carries {@code isError: true}. */
+    private static boolean upstreamIsError(Object result) {
+        return result instanceof Map<?, ?> resultMap && Boolean.TRUE.equals(resultMap.get("isError"));
     }
 
     /**

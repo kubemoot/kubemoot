@@ -1,5 +1,6 @@
 package kubemoot.ai.mcpgateway.controller;
 
+import kubemoot.ai.mcpgateway.model.McpMessage;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -7,6 +8,7 @@ import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Focused unit tests for {@link ToolController#extractContent(Object)}.
@@ -99,5 +101,40 @@ class ToolControllerTest {
         Map<String, Object> listArgs = Map.of("filter_pattern", "apiserver", "time", "now()");
         assertEquals(listArgs, ToolController.sanitizeArguments("list_metrics", listArgs),
                 "non-query tools are untouched");
+    }
+
+    private static Map<String, Object> result(String text, Object isError) {
+        Map<String, Object> r = new java.util.HashMap<>();
+        r.put("content", List.of(Map.of("type", "text", "text", text)));
+        if (isError != null) {
+            r.put("isError", isError);
+        }
+        return r;
+    }
+
+    @Test
+    void upstreamIsErrorTruePassesThrough() {
+        var out = ToolController.toToolCallResponse(McpMessage.response(1, result("Input validation error: n_items", true)));
+        assertTrue(out.isError());
+        assertEquals("Input validation error: n_items", out.content());
+    }
+
+    @Test
+    void jsonRpcErrorIsAnErrorWithTheUpstreamMessage() {
+        var out = ToolController.toToolCallResponse(McpMessage.error(1, -32602, "Invalid params"));
+        assertTrue(out.isError());
+        assertEquals("Invalid params", out.content());
+    }
+
+    @Test
+    void normalResultIsNotAnError() {
+        assertFalse(ToolController.toToolCallResponse(McpMessage.response(1, result("ok", null))).isError());
+        assertFalse(ToolController.toToolCallResponse(McpMessage.response(1, result("ok", false))).isError());
+    }
+
+    @Test
+    void nonBooleanIsErrorIsNotTreatedAsAnError() {
+        assertFalse(ToolController.toToolCallResponse(McpMessage.response(1, result("ok", "true"))).isError());
+        assertFalse(ToolController.toToolCallResponse(McpMessage.response(1, "plain")).isError());
     }
 }
