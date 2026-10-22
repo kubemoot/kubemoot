@@ -40,6 +40,7 @@ type Meter struct {
 	noFitKind    string
 	waited       bool
 	degraded     bool
+	answered     map[string]string
 }
 
 // NewMeter returns an empty meter for a turn.
@@ -74,6 +75,25 @@ func (m *Meter) ToolCall(name string, failed bool) {
 		m.failures++
 		m.failedTool = name
 	}
+}
+
+// Answered returns the result this turn already received for the call key, if any.
+func (m *Meter) Answered(key string) (string, bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	text, ok := m.answered[key]
+	return text, ok
+}
+
+// Remember keeps the result of a finished call for the rest of this turn, so an identical call
+// can be answered without running again. The results live and die with the turn's meter.
+func (m *Meter) Remember(key, text string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.answered == nil {
+		m.answered = map[string]string{}
+	}
+	m.answered[key] = text
 }
 
 // Waiting tells the turn's owner, once, that the turn waits for capacity or runs degraded.

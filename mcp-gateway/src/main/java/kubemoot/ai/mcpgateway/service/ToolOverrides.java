@@ -67,7 +67,7 @@ final class ToolOverrides {
     private static ToolInfo applyOne(ToolInfo tool, ToolOverride override) {
         String description = override.description() != null ? override.description() : tool.description();
         return new ToolInfo(tool.name(), description, applyParameters(tool, override.parameters()),
-            tool.serverId(), tool.serverName());
+            tool.serverId(), tool.serverName(), tool.annotations());
     }
 
     private static Map<String, Object> applyParameters(ToolInfo tool, Map<String, ParameterOverride> params) {

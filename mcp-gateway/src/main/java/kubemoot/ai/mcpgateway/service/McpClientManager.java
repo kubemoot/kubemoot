@@ -745,8 +745,16 @@ public class McpClientManager {
             toolMap.get(FIELD_INPUT_SCHEMA) instanceof Map ?
                 (Map<String, Object>) toolMap.get(FIELD_INPUT_SCHEMA) : Map.of(),
             serverId,
-            server.name()
+            server.name(),
+            annotationsOf(toolMap)
         );
+    }
+
+    /** The tool's MCP annotations as the server sent them, or null when it sent none. */
+    @SuppressWarnings("unchecked")
+    static Map<String, Object> annotationsOf(Map<String, Object> toolMap) {
+        Object annotations = toolMap.get("annotations");
+        return annotations instanceof Map<?, ?> m && !m.isEmpty() ? (Map<String, Object>) m : null;
     }
 
     /**

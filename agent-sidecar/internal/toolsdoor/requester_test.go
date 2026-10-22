@@ -32,7 +32,7 @@ func newRecordingGateway(t *testing.T) *recordingGateway {
 	g := &recordingGateway{}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /tools", func(w http.ResponseWriter, _ *http.Request) {
-		_ = json.NewEncoder(w).Encode(map[string]any{"tools": []map[string]any{{keyName: toolTime}}})
+		_ = json.NewEncoder(w).Encode(map[string]any{keyTools: []map[string]any{{keyName: toolTime}}})
 	})
 	mux.HandleFunc("POST /tools/{name}/call", func(w http.ResponseWriter, r *http.Request) {
 		raw, _ := io.ReadAll(r.Body)

@@ -18,6 +18,7 @@ import (
 const (
 	keyDescription = "description"
 	keyName        = "name"
+	keyTools       = "tools"
 	toolFetch      = "fetch"
 	toolShell      = "shell_exec"
 	toolTime       = "time_get_current_time"
@@ -27,7 +28,7 @@ func gateway(t *testing.T) *httptest.Server {
 	t.Helper()
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /tools", func(w http.ResponseWriter, _ *http.Request) {
-		_ = json.NewEncoder(w).Encode(map[string]any{"count": 3, "tools": []map[string]any{
+		_ = json.NewEncoder(w).Encode(map[string]any{"count": 3, keyTools: []map[string]any{
 			{keyName: toolTime, keyDescription: "time"},
 			{keyName: toolFetch, keyDescription: toolFetch},
 			{keyName: toolShell, keyDescription: toolShell},
