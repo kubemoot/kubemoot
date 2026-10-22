@@ -115,6 +115,7 @@ func (r *CrewReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 		return r.updateStatus(ctx, crew, "Error", false, fmt.Sprintf("Failed to list agents: %v", err))
 	}
 
+	r.adoptCrewAgents(ctx, crew, agents.Items)
 	crew.Status.AgentCount = int32(len(agents.Items))
 	crew.Status.CoordinatorRef = coordinatorName
 
@@ -233,6 +234,7 @@ func (r *CrewReconciler) setDiscussionEndpoint(crew *kubemootv1alpha1.Crew) {
 }
 
 func (r *CrewReconciler) handleDeletion(ctx context.Context, crew *kubemootv1alpha1.Crew) (ctrl.Result, error) {
+	r.deleteCrewAgents(ctx, crew)
 	r.deleteClusterRBAC(ctx, crew)
 	r.removeNamespaceCrew(ctx, crew)
 	r.deleteManagedNamespace(ctx, crew)
