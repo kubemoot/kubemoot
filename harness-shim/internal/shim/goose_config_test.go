@@ -15,7 +15,7 @@ func TestTheGooseConfigurationIsValidAndFollowsNativeTools(t *testing.T) {
 		t.Fatalf("output = %q", cfg.Output)
 	}
 	turn := Turn{Question: "q", TurnKey: "k"}
-	none := NewRunner(cfg, testEnv).Argv(turn)
+	none := NewRunner(cfg, testEnv).Argv("pf")
 	if !slices.Contains(none, "--no-profile") {
 		t.Errorf("nativeTools none must pass --no-profile: %v", none)
 	}
@@ -25,7 +25,7 @@ func TestTheGooseConfigurationIsValidAndFollowsNativeTools(t *testing.T) {
 	for _, mode := range []string{"declared", modeAll} {
 		env := testEnv
 		env.NativeTools = mode
-		if slices.Contains(NewRunner(cfg, env).Argv(turn), "--no-profile") {
+		if slices.Contains(NewRunner(cfg, env).Argv("pf"), "--no-profile") {
 			t.Errorf("nativeTools %s still passes --no-profile", mode)
 		}
 	}
@@ -43,7 +43,7 @@ func TestTheGooseConfigurationPassesThePromptAsAFile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	argv := NewRunner(cfg, testEnv).argv(Turn{Question: "secret"}, "/turn/prompt.txt")
+	argv := NewRunner(cfg, testEnv).Argv("/turn/prompt.txt")
 	if i := slices.Index(argv, "-i"); i < 0 || argv[i+1] != "/turn/prompt.txt" {
 		t.Errorf("the prompt must come from a file (-i): %v", argv)
 	}

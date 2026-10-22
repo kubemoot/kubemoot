@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -30,7 +31,7 @@ func TestThePromptReachesTheCommandInAFileAndNeverInArgv(t *testing.T) {
 	for name, q := range prompts {
 		t.Run(name, func(t *testing.T) {
 			// $# is 1: only the file name is an argument.
-			cfg := Config{Argv: []string{binSh, "-c", `test "$#" = 1 && /bin/cat "$1"`, "sh", "{{promptFile}}"}}
+			cfg := Config{Argv: []string{binSh, "-c", `test "$#" = 1 && /bin/cat "$1"`, "sh", promptTag}}
 			got, err := runTurn(t, cfg, Turn{Question: q})
 			if err != nil {
 				t.Fatal(err)
@@ -108,5 +109,29 @@ func TestAnOrphanedDescendantIsKilledAndReapedWhenTheCommandExits(t *testing.T) 
 	// A reaped process has no /proc entry; a zombie would still have one.
 	if _, err := os.Stat("/proc/" + pid); err == nil {
 		t.Fatalf("process %s is still in the process table", pid)
+	}
+}
+
+// Hostile request values reach the environment only; the command line holds none of them.
+func TestRequestValuesReachTheEnvironmentAndNeverArgv(t *testing.T) {
+	turn := Turn{Question: "q;id", Instructions: "$(id)", TurnKey: "k;touch x", TimeZone: "; rm -rf /", Now: "`id`"}
+	cfg := Config{
+		Argv: []string{"/bin/goose", "--tools", "{{toolsURL}}", "-i", "{{promptFile}}"},
+		Env:  []string{"K={{turnKey}}", "Z={{timeZone}}", "N={{now}}"},
+	}
+	r := NewRunner(cfg, testEnv)
+	argv := r.Argv("/h/prompt.txt")
+	for _, a := range argv {
+		for _, v := range []string{turn.Question, turn.Instructions, turn.TurnKey, turn.TimeZone, turn.Now} {
+			if strings.Contains(a, v) {
+				t.Errorf("argv element %q carries %q", a, v)
+			}
+		}
+	}
+	env := r.Environ(turn, "/h")
+	for _, want := range []string{"K=k;touch x", "Z=; rm -rf /", "N=`id`"} {
+		if !slices.Contains(env, want) {
+			t.Errorf("environment lacks %q", want)
+		}
 	}
 }

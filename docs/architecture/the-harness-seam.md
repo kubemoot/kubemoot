@@ -101,11 +101,13 @@ The shim reads a JSON configuration file. For goose the image ships this:
 }
 ```
 
-- `argv` and `env` take the placeholders `{{promptFile}}` (the path of a file in the
-  turn's private directory that holds the prompt; prefer it, since an argument shows
-  in the process list), `{{prompt}}`, `{{question}}`,
-  `{{instructions}}`, `{{modelURL}}`, `{{modelHost}}`, `{{toolsURL}}`, `{{turnKey}}`,
-  `{{timeZone}}`, and `{{now}}`.
+- `argv` takes only values the shim controls: `{{promptFile}}` (the path of a file in the
+  turn's private directory that holds the prompt; an argument would show in the process
+  list), `{{modelURL}}`, `{{modelHost}}`, `{{toolsURL}}` and `{{nativeTools}}`. `argv[0]`
+  is an absolute path. A config that puts a request-derived placeholder in `argv` is
+  rejected at load time.
+- `env` takes those and the request-derived ones: `{{prompt}}`, `{{question}}`,
+  `{{instructions}}`, `{{turnKey}}`, `{{timeZone}}` and `{{now}}`.
 - An `argv` element that starts with `[none]` or `[declared,all]` is kept only when
   `nativeTools` is one of the listed modes. This is how a harness image turns its
   built-in tools off for `nativeTools: none`.
