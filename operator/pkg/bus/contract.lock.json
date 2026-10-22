@@ -315,6 +315,7 @@
         "review_ready",
         "stand_aside",
         "stop_requested",
+        "subcommittee",
         "synthesis",
         "thread_close",
         "thread_pause",
@@ -370,6 +371,12 @@
     "discussion-metadata.json#/consentAck": {
       "type": "boolean"
     },
+    "discussion-metadata.json#/convened": {
+      "type": "array"
+    },
+    "discussion-metadata.json#/convened[]": {
+      "ref": "#/definitions/ConvenedAgent"
+    },
     "discussion-metadata.json#/conversationContext": {
       "type": "array"
     },
@@ -384,6 +391,17 @@
     },
     "discussion-metadata.json#/crewVersion": {
       "type": "string"
+    },
+    "discussion-metadata.json#/definitions/ConvenedAgent": {
+      "type": "object"
+    },
+    "discussion-metadata.json#/definitions/ConvenedAgent/name": {
+      "type": "string",
+      "required": true
+    },
+    "discussion-metadata.json#/definitions/ConvenedAgent/reason": {
+      "type": "string",
+      "required": true
     },
     "discussion-metadata.json#/definitions/ConversationTurn": {
       "type": "object"

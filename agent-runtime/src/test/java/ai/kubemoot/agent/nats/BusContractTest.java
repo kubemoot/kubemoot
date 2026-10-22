@@ -247,6 +247,19 @@ class BusContractTest {
     }
 
     @Test
+    void aSubcommitteeMessageMatchesTheContract() throws Exception {
+        var members = SubcommitteeLine.members(MAPPER, List.of("pve"), "[{\"name\":\"pve\",\"description\":\"Lists nodes.\"}]");
+        var msg = MAPPER.createObjectNode();
+        msg.put("messageId", "m");
+        msg.put("threadId", "t");
+        msg.put("agentName", "homelab-coordinator");
+        msg.put("messageType", SubcommitteeLine.MESSAGE_TYPE);
+        msg.put("content", SubcommitteeLine.content(members));
+        msg.set("metadata", MAPPER.valueToTree(SubcommitteeLine.metadata(members)));
+        assertConforms(MESSAGE, msg);
+    }
+
+    @Test
     void aThreadCloseCarryingAReceiptMatchesTheContract() throws Exception {
         var receipt = DiscussionReceiptTest.fullThread().build(MAPPER, Instant.parse("2026-10-16T04:03:37Z"),
                 2, 11_170, 2_108);

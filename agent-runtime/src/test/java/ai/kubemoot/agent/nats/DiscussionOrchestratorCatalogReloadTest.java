@@ -117,4 +117,31 @@ class DiscussionOrchestratorCatalogReloadTest {
         when(properties.crew()).thenReturn(Optional.empty());
         assertNull(orchestrator.loadCrewResumes());
     }
+
+    @Test
+    void theSubcommitteeMessageNamesTheConvenedAgents() throws Exception {
+        kvHolds(ONE_AGENT, 1);
+        var conn = natsProvider.getConnection();
+        var state = new DiscussionOrchestrator.ThreadState("t1");
+        state.innerCircle = new java.util.HashSet<>(List.of("k8s-nodes"));
+
+        orchestrator.publishSubcommittee(state);
+
+        var payload = org.mockito.ArgumentCaptor.forClass(byte[].class);
+        verify(conn).publish(anyString(), payload.capture());
+        var msg = new com.fasterxml.jackson.databind.ObjectMapper().readTree(payload.getValue());
+        assertEquals("subcommittee", msg.path("messageType").asText());
+        assertEquals("k8s-nodes", msg.path("metadata").path("convened").path(0).path("name").asText());
+        assertTrue(msg.path("content").asText().startsWith("Convened 1 agent: k8s-nodes (nodes)"));
+    }
+
+    @Test
+    void noSubcommitteeMessageIsSentWithoutASelection() throws Exception {
+        var conn = natsProvider.getConnection();
+        var state = new DiscussionOrchestrator.ThreadState("t1");
+
+        orchestrator.publishSubcommittee(state);
+
+        verify(conn, never()).publish(anyString(), any(byte[].class));
+    }
 }

@@ -205,6 +205,11 @@
       "items": { "$ref": "#/definitions/TriageChoice" },
       "description": "The agents a triage_result selects, each with its confidence and reason."
     },
+    "convened": {
+      "type": "array",
+      "items": { "$ref": "#/definitions/ConvenedAgent" },
+      "description": "The agents a subcommittee message names, each with a short reason."
+    },
     "overallConfidence": {
       "type": "number",
       "description": "The coordinator's confidence in a triage_result as a whole."
@@ -408,6 +413,15 @@
       "properties": {
         "query": { "type": "string", "description": "The question of an earlier turn." },
         "response": { "type": "string", "description": "The answer of an earlier turn, truncated." }
+      }
+    },
+    "ConvenedAgent": {
+      "title": "ConvenedAgent",
+      "type": "object",
+      "required": ["name", "reason"],
+      "properties": {
+        "name": { "type": "string", "description": "The agent." },
+        "reason": { "type": "string", "description": "A short reason the coordinator convened the agent." }
       }
     },
     "TriageChoice": {

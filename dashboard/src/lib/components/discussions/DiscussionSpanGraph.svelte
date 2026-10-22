@@ -1,7 +1,7 @@
 <script lang="ts">
 	import type { DiscussionMessage } from '#lib/types/kubemoot.js';
 	import { showStandAsides } from '#lib/stores/index.js';
-	import { buildAgentSpans, type AgentSpan } from '#lib/discussion-spans.js';
+	import { buildAgentSpans, placementOf, type AgentSpan } from '#lib/discussion-spans.js';
 
 	let {
 		messages = [],
@@ -66,7 +66,7 @@
 		const map: Record<string, string> = {};
 		let idx = 0;
 		for (const msg of messages) {
-			const label = msg.metadata?.gpuLabel;
+			const label = placementOf(msg.metadata?.server, msg.metadata?.gpuLabel);
 			if (label && !(label in map)) {
 				map[label] = gpuColorPalette[idx % gpuColorPalette.length];
 				idx++;
@@ -347,8 +347,8 @@
 			{#if span.gpuLabel}
 				{@const badgeColor = gpuColors[span.gpuLabel] || '#6b7280'}
 				{@const badgeText = gpuName(span.gpuLabel).replace('RTX ', '')}
-				{#if span.pickReason}
-					<title>{span.pickReason}</title>
+				{#if span.pickReason || span.model}
+					<title>{[span.model, span.pickReason].filter(Boolean).join(' | ')}</title>
 				{/if}
 				<rect
 					x={LABEL_WIDTH - 42}
@@ -378,8 +378,8 @@
 				onmouseleave={() => { hoveredAgent = null; }}
 				style="cursor: default;"
 			>
-				{#if span.pickReason}
-					<title>{span.pickReason}</title>
+				{#if span.pickReason || span.model}
+					<title>{[span.model, span.pickReason].filter(Boolean).join(' | ')}</title>
 				{/if}
 				{#if span.isHuman}
 					<!-- Human: point marker -->
@@ -511,7 +511,7 @@
 				{/each}
 
 				<!-- Tool badges and inference info on hover -->
-				{#if isHovered && (span.toolsUsed.length > 0 || span.inferenceMs > 0)}
+				{#if isHovered && (span.toolsUsed.length > 0 || span.inferenceMs > 0 || span.model)}
 					<foreignObject
 						x={barStartX}
 						y={barY + BAR_HEIGHT + 2}
@@ -519,6 +519,9 @@
 						height="20"
 					>
 						<div class="tool-badges-row" xmlns="http://www.w3.org/1999/xhtml">
+							{#if span.model}
+								<span class="span-tool-badge">{span.model}{span.gpuLabel ? ` on ${gpuName(span.gpuLabel)}` : ''}</span>
+							{/if}
 							{#each span.toolsUsed as tool}
 								<span class="span-tool-badge">{tool}</span>
 							{/each}

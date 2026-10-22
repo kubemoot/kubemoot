@@ -88,7 +88,10 @@ export interface AgentSpan {
 	isHuman: boolean;
 	toolsUsed: string[];
 	messages: DiscussionMessage[];
+	/** Where the agent's calls ran: the ModelServer, else the accelerator label it reports. */
 	gpuLabel?: string;
+	/** The model the agent's latest call ran on. */
+	model?: string;
 	/** FitPredictor v2 per-call reasoning ("warm, slot 1/2 | SR=0.92 ..."). */
 	pickReason?: string;
 	inferenceMs: number;
@@ -167,7 +170,7 @@ export function primarySignal(msgs: DiscussionMessage[]): string {
 }
 
 /** The last set value of a metadata field across the messages. */
-function lastMeta<K extends 'gpuLabel' | 'pickReason'>(
+function lastMeta<K extends 'gpuLabel' | 'pickReason' | 'server' | 'model'>(
 	msgs: DiscussionMessage[],
 	key: K
 ): MessageMeta[K] | undefined {
@@ -238,7 +241,8 @@ function agentSpan(agent: string, data: AgentMessages, t0: number): AgentSpan {
 		isHuman,
 		toolsUsed: toolsUsed(data.msgs),
 		messages: data.msgs,
-		gpuLabel: lastMeta(data.msgs, 'gpuLabel'),
+		gpuLabel: placementOf(lastMeta(data.msgs, 'server'), lastMeta(data.msgs, 'gpuLabel')),
+		model: lastMeta(data.msgs, 'model'),
 		pickReason: lastMeta(data.msgs, 'pickReason'),
 		inferenceMs: maxMeta(data.msgs, 'inferenceMs'),
 		inferenceStartMs: firstInferenceStart(data.msgs),

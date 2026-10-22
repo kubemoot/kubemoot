@@ -3,11 +3,12 @@
 	import { resolve } from '$app/paths';
 	import { marked } from 'marked';
 	import type { DiscussionMessage } from '#lib/types/kubemoot.js';
-	import { crewDirectory, threads, sortedThreads, discussionsConnected, historyLoaded, initDiscussions, addDiscussionMessage, removeThread, pinnedThreadIds, loadPinnedThreads, pinThread, unpinThread, showStandAsides, namespace, threadScope, readOnly } from '#lib/stores/index.js';
+	import { crewDirectory, threads, sortedThreads, discussionsConnected, historyLoaded, initDiscussions, addDiscussionMessage, removeThread, pinnedThreadIds, loadPinnedThreads, pinThread, unpinThread, showStandAsides, showDebugDetail, namespace, threadScope, readOnly } from '#lib/stores/index.js';
 	import type { Thread } from '#lib/stores/index.js';
 	import { discussSubject, tryCrewScope, type CrewScope } from '#lib/crewScope.js';
 	import { crewEntry, crewLabel, crewTooltip } from '#lib/crew-display-name.js';
 	import { DiscussionSpanGraph, MessageStatsLine, PlacementPanel, ThreadSummaryPanel } from '#lib/components/discussions/index.js';
+	import { debugMessageCount, visibleMessages, afterAnswerMessages } from '#lib/conversation-view.js';
 	import { placementCallsOf } from '#lib/placement-panel.js';
 	import { formatTimestamp, messageStats, summarizeThread } from '#lib/discussion-timing.js';
 	import { formatDuration, formatElapsed } from '#lib/duration-format.js';
@@ -77,6 +78,7 @@
 		thread_start: 'Started',
 		advisory: 'Advisory',
 		advisory_ready: 'Evaluate',
+		subcommittee: 'Subcommittee',
 		review_ready: 'Review',
 		agree: 'Agree',
 		concern: 'Concern',
@@ -109,6 +111,20 @@
 	const selectedSummary = $derived(
 		selectedThread ? summarizeThread(selectedThread.messages, selectedStats) : null
 	);
+
+	const timelineMessages = $derived(
+		visibleMessages(selectedThread?.messages ?? [], $showDebugDetail).filter(
+			(m) => $showStandAsides || m.messageType !== 'stand_aside'
+		)
+	);
+	const debugCount = $derived(debugMessageCount(selectedThread?.messages ?? []));
+	const afterAnswer = $derived(afterAnswerMessages(selectedThread?.messages ?? []));
+
+	function debugToggleTitle(on: boolean, hidden: number): string {
+		if (on) return 'Hide debug detail';
+		const more = hidden > 0 ? `${hidden} more messages, ` : '';
+		return `Show debug detail (${more}timings, tokens, placement)`;
+	}
 
 	/** An agent's name as the timeline shows it. */
 	function agentLabel(agent: string): string {
@@ -680,6 +696,9 @@
 								<rect x="1" y="12" width="7" height="3" rx="1" fill="currentColor" opacity="0.4" />
 							</svg>
 						</button>
+						<button class="action-btn" class:active-toggle={$showDebugDetail} onclick={() => showDebugDetail.toggle()} title={debugToggleTitle($showDebugDetail, debugCount)} aria-pressed={$showDebugDetail}>
+							<span aria-hidden="true">🐞</span>
+						</button>
 						<button class="action-btn" onclick={copyThread} title="Copy thread to clipboard">
 							{copiedThread ? '✓' : '📋'}
 						</button>
@@ -749,7 +768,7 @@
 				{/if}
 
 				<div class="message-timeline" bind:this={timelineEl}>
-					{#each selectedThread.messages.filter((m) => $showStandAsides || m.messageType !== 'stand_aside') as msg, msgIdx}
+					{#each timelineMessages as msg, msgIdx}
 						{@const stats = selectedStats.get(msg) ?? {}}
 						<div
 							class="message-card {msg.messageType}"
@@ -762,6 +781,7 @@
 							class:block={msg.messageType === 'block'}
 							class:proposal={msg.messageType === 'proposal'}
 							class:human={msg.agentName === 'human'}
+							class:after-answer={afterAnswer.has(msg)}
 						>
 							<div class="message-header">
 								<span class="agent-name" class:human-name={msg.agentName === 'human'}>
@@ -773,7 +793,12 @@
 								{#if msg.messageType === 'stand_aside' && msg.metadata?.reason}
 									<span class="decline-reason">({msg.metadata.reason})</span>
 								{/if}
-								<span class="message-time" title={formatTimestamp(msg.timestamp)}>{formatElapsed(stats.elapsedMs)}</span>
+								{#if afterAnswer.has(msg)}
+									<span class="after-answer-note" title="Sent after the answer was delivered">after the answer</span>
+								{/if}
+								{#if $showDebugDetail}
+									<span class="message-time" title={formatTimestamp(msg.timestamp)}>{formatElapsed(stats.elapsedMs)}</span>
+								{/if}
 							</div>
 							{#if (msg.messageType === 'advisory' || msg.messageType === 'advisory_ready') && msg.metadata?.technologies && msg.metadata.technologies.length > 0}
 								<div class="tech-badges">
@@ -811,13 +836,15 @@
 									{/if}
 								</div>
 							{/if}
-							<MessageStatsLine {stats} acceleratorNames={gpuDisplayMap} />
+							{#if $showDebugDetail}
+								<MessageStatsLine {stats} acceleratorNames={gpuDisplayMap} />
+							{/if}
 						</div>
 					{/each}
-					{#if selectedSummary && (selectedSummary.endedAt || selectedSummary.participants.length > 0)}
+					{#if $showDebugDetail && selectedSummary && (selectedSummary.endedAt || selectedSummary.participants.length > 0)}
 						<ThreadSummaryPanel summary={selectedSummary} {agentLabel} />
 					{/if}
-					{#if selectedPlacementCalls.length > 0}
+					{#if $showDebugDetail && selectedPlacementCalls.length > 0}
 						<PlacementPanel calls={selectedPlacementCalls} {agentLabel} />
 					{/if}
 				</div>
@@ -1280,6 +1307,21 @@
 		flex-wrap: wrap;
 		gap: 0.375rem;
 		margin-top: 0.5rem;
+	}
+
+	.after-answer-note {
+		font-size: 0.65rem;
+		color: var(--color-text-muted);
+		font-style: italic;
+	}
+
+	.message-card.after-answer {
+		opacity: 0.7;
+	}
+
+	.message-card.subcommittee {
+		padding-top: 0.375rem;
+		padding-bottom: 0.375rem;
 	}
 
 	.triage-agent-badge {
