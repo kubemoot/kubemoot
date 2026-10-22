@@ -149,7 +149,7 @@ func TestListCrewSkills(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      testHomelabCoordinator,
 			Namespace: testCrewNamespace,
-			Labels:    map[string]string{crewLabelKey: testCrewName},
+			Labels:    map[string]string{labelCrew: testCrewName},
 		},
 		Spec: kubemootv1alpha1.AgentSpec{DiscussRole: testRoleCoordinator},
 	}

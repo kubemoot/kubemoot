@@ -57,7 +57,7 @@ func mkResumeAgent(ns, name, crew, role string, opts func(*kubemootv1alpha1.Agen
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
 			Namespace: ns,
-			Labels:    map[string]string{crewLabelKey: crew},
+			Labels:    map[string]string{labelCrew: crew},
 		},
 		Spec: kubemootv1alpha1.AgentSpec{DiscussRole: role, Description: name + " desc"},
 	}

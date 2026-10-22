@@ -68,7 +68,7 @@ func TestAgentEnvCarriesNamespaceFromDownwardAPI(t *testing.T) {
 	r := &AgentReconciler{Client: cli}
 	pick := &modelPick{ModelID: testModelID, Endpoint: testOllamaURL}
 	agent := &kubemootv1alpha1.Agent{ObjectMeta: metav1.ObjectMeta{
-		Name: "a", Namespace: testNamespaceA, Labels: map[string]string{crewLabelKey: testCrewPilot},
+		Name: "a", Namespace: testNamespaceA, Labels: map[string]string{labelCrew: testCrewPilot},
 	}}
 	env := r.buildEnvVars(context.Background(), agent, pick, pick, 8080)
 	assertNamespaceFieldRef(t, env)
@@ -166,7 +166,7 @@ func TestReconcileHTTPRouteRewritesNamespacedPrefix(t *testing.T) {
 func TestDiscoverAgentsStaysInTheCrewNamespace(t *testing.T) {
 	mk := func(ns, name string) *kubemootv1alpha1.Agent {
 		return &kubemootv1alpha1.Agent{ObjectMeta: metav1.ObjectMeta{
-			Name: name, Namespace: ns, Labels: map[string]string{crewLabelKey: testCrewPilot},
+			Name: name, Namespace: ns, Labels: map[string]string{labelCrew: testCrewPilot},
 		}}
 	}
 	cli := fake.NewClientBuilder().WithScheme(scopeTestScheme(t)).
@@ -219,7 +219,7 @@ func TestBindsServiceAccount(t *testing.T) {
 
 func TestCoordinatorScope(t *testing.T) {
 	labeled := &kubemootv1alpha1.Agent{ObjectMeta: metav1.ObjectMeta{
-		Name: "c", Namespace: testNamespaceA, Labels: map[string]string{crewLabelKey: testCrewPilot},
+		Name: "c", Namespace: testNamespaceA, Labels: map[string]string{labelCrew: testCrewPilot},
 	}}
 	s, err := coordinatorScope(labeled)
 	if err != nil || s.ResumeKey() != "team-a.pilot" || s.ResumeCollection() != "crew_team_a_pilot_resumes" {
@@ -231,7 +231,7 @@ func TestCoordinatorScope(t *testing.T) {
 		t.Errorf("unlabeled falls back to the namespace: %+v %v", s, err)
 	}
 	dotted := &kubemootv1alpha1.Agent{ObjectMeta: metav1.ObjectMeta{
-		Name: "c", Namespace: testNamespaceA, Labels: map[string]string{crewLabelKey: testDottedName},
+		Name: "c", Namespace: testNamespaceA, Labels: map[string]string{labelCrew: testDottedName},
 	}}
 	if _, err := coordinatorScope(dotted); err == nil {
 		t.Error("a dotted crew label must be rejected")

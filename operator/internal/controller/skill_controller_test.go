@@ -48,7 +48,7 @@ func mkSkill(name, crew string, order int32, desc, content string) *kubemootv1al
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
 			Namespace: testCrewNamespace,
-			Labels:    map[string]string{crewLabelKey: crew},
+			Labels:    map[string]string{labelCrew: crew},
 		},
 		Spec: kubemootv1alpha1.SkillSpec{
 			Description: desc,
@@ -83,7 +83,7 @@ func TestSkillConfigMap_Create(t *testing.T) {
 	if !strings.Contains(cm.Data["skills-index.txt"], "gpu-basics: GPU diagnostics") {
 		t.Errorf("skills-index.txt missing entry: %q", cm.Data["skills-index.txt"])
 	}
-	if cm.Labels[crewLabelKey] != testCrewName {
+	if cm.Labels[labelCrew] != testCrewName {
 		t.Errorf("ConfigMap missing crew label, got: %v", cm.Labels)
 	}
 }
@@ -134,8 +134,8 @@ func TestSkillConfigMap_EmptyCrewLabel(t *testing.T) {
 
 	// The Reconcile function bails out before syncSkillConfigMap when the
 	// crew label is missing. Simulate by inspecting what Reconcile does:
-	// it reads skill.Labels[crewLabelKey] and returns early if empty.
-	crewName := unlabeled.Labels[crewLabelKey]
+	// it reads skill.Labels[labelCrew] and returns early if empty.
+	crewName := unlabeled.Labels[labelCrew]
 	if crewName != "" {
 		// If this branch is hit the test setup is wrong.
 		t.Fatal("expected unlabeled skill to have no crew label")
@@ -212,7 +212,7 @@ func TestSkillReconcile_LastSkillDeletion(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{
 			Name:              testSkillGPUBasics,
 			Namespace:         testCrewNamespace,
-			Labels:            map[string]string{crewLabelKey: testCrewName},
+			Labels:            map[string]string{labelCrew: testCrewName},
 			Finalizers:        []string{skillFinalizer},
 			DeletionTimestamp: &now,
 		},
@@ -230,7 +230,7 @@ func TestSkillReconcile_LastSkillDeletion(t *testing.T) {
 			Labels: map[string]string{
 				labelManagedBy: managedByValue,
 				labelComponent: testSkills,
-				crewLabelKey:   testCrewName,
+				labelCrew:      testCrewName,
 			},
 		},
 		Data: map[string]string{
@@ -285,7 +285,7 @@ func TestSkillReconcile_CoordinatorPoolHashChanges(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      testHomelabCoordinator,
 			Namespace: testCrewNamespace,
-			Labels:    map[string]string{crewLabelKey: testCrewName},
+			Labels:    map[string]string{labelCrew: testCrewName},
 		},
 		Spec: kubemootv1alpha1.AgentSpec{DiscussRole: roleCoordinator},
 	}

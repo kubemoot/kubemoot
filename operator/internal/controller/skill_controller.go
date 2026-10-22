@@ -67,7 +67,7 @@ func (r *SkillReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
-	crewName := skill.Labels[crewLabelKey]
+	crewName := skill.Labels[labelCrew]
 	if crewName == "" {
 		log.V(1).Info("Skill has no crew label; skipping ConfigMap sync", "skill", skill.Name)
 		return ctrl.Result{}, nil
@@ -124,7 +124,7 @@ func (r *SkillReconciler) syncSkillConfigMap(ctx context.Context, crewName, name
 	cmLabels := map[string]string{
 		labelManagedBy: managedByValue,
 		labelComponent: skillsComponent,
-		crewLabelKey:   crewName,
+		labelCrew:      crewName,
 	}
 
 	existing := &corev1.ConfigMap{}
@@ -174,7 +174,7 @@ func (r *SkillReconciler) listSortedSkills(ctx context.Context, namespace, crewN
 	list := &kubemootv1alpha1.SkillList{}
 	if err := r.List(ctx, list,
 		client.InNamespace(namespace),
-		client.MatchingLabels{crewLabelKey: crewName},
+		client.MatchingLabels{labelCrew: crewName},
 	); err != nil {
 		return nil, err
 	}
@@ -276,7 +276,7 @@ func (r *SkillReconciler) enqueueCoordinators(ctx context.Context, crewName, nam
 	agents := &kubemootv1alpha1.AgentList{}
 	if err := r.List(ctx, agents,
 		client.InNamespace(namespace),
-		client.MatchingLabels{crewLabelKey: crewName},
+		client.MatchingLabels{labelCrew: crewName},
 	); err != nil {
 		log.V(1).Info("enqueueCoordinators: list agents failed", "error", err)
 		return

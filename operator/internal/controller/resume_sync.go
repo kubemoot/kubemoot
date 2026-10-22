@@ -53,7 +53,6 @@ import (
 )
 
 const (
-	// crewLabelKey is declared in crew_controller.go (= labelCrew).
 	triageSummaryAnno = "kubemoot.ai/triage-summary"
 	resumeKVBucket    = "kubemoot_crew_resumes"
 	resumeQueryPort   = 8000
@@ -111,7 +110,7 @@ func (r *AgentReconciler) syncCrewResumes(ctx context.Context, coordinator *kube
 // coordinatorScope is the coordinator's namespace and crew: the crew label, or
 // the namespace when the label is absent.
 func coordinatorScope(coordinator *kubemootv1alpha1.Agent) (crewscope.Scope, error) {
-	crewName := coordinator.Labels[crewLabelKey]
+	crewName := coordinator.Labels[labelCrew]
 	if crewName == "" {
 		crewName = coordinator.Namespace
 	}
@@ -184,7 +183,7 @@ func (r *AgentReconciler) compileCrewResumes(ctx context.Context, coordinator *k
 	agentList := &kubemootv1alpha1.AgentList{}
 	listOpts := []client.ListOption{client.InNamespace(coordinator.Namespace)}
 	if crewName != "" && crewName != coordinator.Namespace {
-		listOpts = append(listOpts, client.MatchingLabels{crewLabelKey: crewName})
+		listOpts = append(listOpts, client.MatchingLabels{labelCrew: crewName})
 	}
 	if err := r.List(ctx, agentList, listOpts...); err != nil {
 		log.Info("Failed to list agents for crew resumes", "error", err)
@@ -294,7 +293,7 @@ func (r *AgentReconciler) listCrewSkills(ctx context.Context, coordinator *kubem
 	skillList := &kubemootv1alpha1.SkillList{}
 	listOpts := []client.ListOption{client.InNamespace(coordinator.Namespace)}
 	if crewName != "" && crewName != coordinator.Namespace {
-		listOpts = append(listOpts, client.MatchingLabels{crewLabelKey: crewName})
+		listOpts = append(listOpts, client.MatchingLabels{labelCrew: crewName})
 	}
 	if err := r.List(ctx, skillList, listOpts...); err != nil {
 		log.V(1).Info("listCrewSkills: list failed (Skill CRD may not be installed)", "error", err)
@@ -413,7 +412,7 @@ func (r *AgentReconciler) createOrUpdateResumeRAGSource(ctx context.Context, coo
 				Labels: map[string]string{
 					labelManagedBy:                managedByValue,
 					"app.kubernetes.io/component": "resume-rag",
-					crewLabelKey:                  crewName,
+					labelCrew:                     crewName,
 				},
 			},
 			Spec: desiredSpec,

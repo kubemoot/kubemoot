@@ -80,8 +80,8 @@ func TestCrewBuildLabels(t *testing.T) {
 	if labels[labelComponent] != "discussion-gateway" {
 		t.Errorf("expected discussion-gateway, got %s", labels[labelComponent])
 	}
-	if labels[crewLabelKey] != testAlpha {
-		t.Errorf("expected alpha, got %s", labels[crewLabelKey])
+	if labels[labelCrew] != testAlpha {
+		t.Errorf("expected alpha, got %s", labels[labelCrew])
 	}
 }
 
@@ -104,8 +104,8 @@ func TestCrewBuildLabels_DifferentNames(t *testing.T) {
 			if labels[labelName] != tt.expectedGW {
 				t.Errorf("expected %s, got %s", tt.expectedGW, labels[labelName])
 			}
-			if labels[crewLabelKey] != tt.expectedCrew {
-				t.Errorf("expected %s, got %s", tt.expectedCrew, labels[crewLabelKey])
+			if labels[labelCrew] != tt.expectedCrew {
+				t.Errorf("expected %s, got %s", tt.expectedCrew, labels[labelCrew])
 			}
 		})
 	}

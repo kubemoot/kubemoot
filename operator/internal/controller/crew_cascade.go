@@ -18,8 +18,10 @@ package controller
 
 import (
 	"context"
+	"fmt"
 
 	"k8s.io/apimachinery/pkg/api/errors"
+	utilerrors "k8s.io/apimachinery/pkg/util/errors"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
@@ -43,7 +45,7 @@ func (r *CrewReconciler) adoptCrewAgents(ctx context.Context, crew *kubemootv1al
 			log.Error(err, "Failed to build owner reference", "agent", agent.Name)
 			continue
 		}
-		if err := r.Patch(ctx, agent, client.MergeFrom(base)); err != nil && !errors.IsNotFound(err) {
+		if err := r.Patch(ctx, agent, client.MergeFromWithOptions(base, client.MergeFromWithOptimisticLock{})); err != nil && !errors.IsNotFound(err) {
 			log.Error(err, "Failed to set Crew owner reference on Agent", "agent", agent.Name)
 		}
 	}
@@ -58,19 +60,27 @@ func hasOwnerUID(agent *kubemootv1alpha1.Agent, crew *kubemootv1alpha1.Crew) boo
 	return false
 }
 
+// listCrewAgents lists the Agents in the Crew's namespace that carry the Crew's label.
+func (r *CrewReconciler) listCrewAgents(ctx context.Context, crew *kubemootv1alpha1.Crew) (kubemootv1alpha1.AgentList, error) {
+	var agents kubemootv1alpha1.AgentList
+	err := r.List(ctx, &agents, client.InNamespace(crew.Namespace), client.MatchingLabels{labelCrew: crew.Name})
+	return agents, err
+}
+
 // deleteCrewAgents deletes every Agent in the Crew's namespace that carries the
 // Crew's label, which covers Agents created before the owner reference existed.
-// Agents of other crews and Agents without the label are never listed.
-func (r *CrewReconciler) deleteCrewAgents(ctx context.Context, crew *kubemootv1alpha1.Crew) {
-	log := logf.FromContext(ctx)
-	var agents kubemootv1alpha1.AgentList
-	if err := r.List(ctx, &agents, client.InNamespace(crew.Namespace), client.MatchingLabels{crewLabelKey: crew.Name}); err != nil {
-		log.Error(err, "Failed to list Crew agents for deletion", "crew", crew.Name)
-		return
+// Agents of other crews and Agents without the label are never listed. A List or
+// Delete failure is returned so the caller keeps the finalizer and retries.
+func (r *CrewReconciler) deleteCrewAgents(ctx context.Context, crew *kubemootv1alpha1.Crew) error {
+	agents, err := r.listCrewAgents(ctx, crew)
+	if err != nil {
+		return err
 	}
+	var errs []error
 	for i := range agents.Items {
 		if err := r.Delete(ctx, &agents.Items[i]); err != nil && !errors.IsNotFound(err) {
-			log.Error(err, "Failed to delete Crew agent", "agent", agents.Items[i].Name)
+			errs = append(errs, fmt.Errorf("delete agent %s: %w", agents.Items[i].Name, err))
 		}
 	}
+	return utilerrors.NewAggregate(errs)
 }

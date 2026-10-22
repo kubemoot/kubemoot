@@ -49,5 +49,5 @@ func namespaceDeletableForCrew(ns *corev1.Namespace, crewName string) bool {
 	if isProtectedNamespace(ns.Name) || !ns.DeletionTimestamp.IsZero() {
 		return false
 	}
-	return ns.Labels[crewLabelKey] == crewName && ns.Labels[managedNamespaceLabel] == managedNamespaceOptIn
+	return ns.Labels[labelCrew] == crewName && ns.Labels[managedNamespaceLabel] == managedNamespaceOptIn
 }
