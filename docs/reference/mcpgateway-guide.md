@@ -212,7 +212,7 @@ The MCP Java SDK and the JSON Schema validator it uses (networknt) only validate
 
 ## Request metadata (_meta)
 
-MCP's `tools/call` carries per-request metadata in `params._meta`. The gateway forwards it to the tool server unchanged, on every route into a tool server: the MCP endpoint forwards the `_meta` the caller sent, and `POST /tools/{name}/call` takes an optional `_meta` object next to `arguments`. A call without `_meta` forwards none, as before. The gateway does not read, validate, or add to the values.
+MCP's `tools/call` carries per-request metadata in `params._meta`. The gateway forwards only the three requester keys listed below, on every route into a tool server: the MCP endpoint reads them from the `_meta` the caller sent, and `POST /tools/{name}/call` takes an optional `_meta` object next to `arguments`. It re-validates each value (`timeZone` must be a known IANA zone id of at most 64 characters, `localDateTime` an ISO local date-time with a four-digit year and no offset, `requestDate` an ISO date) and drops every other key and every value that fails its check, so a caller cannot pass other fields to a tool through `_meta`. A call with nothing left to forward carries no `_meta`. The gateway does not add values.
 
 Agents use it to give a tool the requester's date and time zone:
 

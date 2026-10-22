@@ -16,6 +16,7 @@ import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.LinkedHashMap;
 
 /**
  * Client for interacting with the MCP Gateway.
@@ -190,7 +191,7 @@ public class GatewayClient {
 
     /** The JSON body of a tool call: the arguments, and {@code _meta} when there is any. */
     static Map<String, Object> callBody(Map<String, Object> arguments, Map<String, Object> meta) {
-        var body = new java.util.LinkedHashMap<String, Object>();
+        var body = new LinkedHashMap<String, Object>();
         body.put("arguments", arguments);
         if (meta != null && !meta.isEmpty()) {
             body.put("_meta", meta);

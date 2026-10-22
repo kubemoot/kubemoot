@@ -296,11 +296,35 @@ func TestPostDiscussionWithoutAZoneQueuesNone(t *testing.T) {
 	}
 }
 
-// The gateway forwards what the client sent; the agent that reads it ignores a value it cannot use.
-func TestPostDiscussionStillQueuesWhenTheZoneIsNotAZone(t *testing.T) {
-	got := queuedRequest(t, `{"message":"hi","timeZone":"Mars/Base","localDateTime":"soon"}`)
-	if got.Message != "hi" {
-		t.Fatalf("question not queued: %+v", got)
+// A zone or local time that is not well formed is refused, not queued.
+func TestPostDiscussionRefusesBadZoneAndLocalTime(t *testing.T) {
+	cases := map[string]string{
+		"zone with spaces":    `{"message":"hi","timeZone":"Mars Base"}`,
+		"over-long zone":      `{"message":"hi","timeZone":"America/` + strings.Repeat("x", 80) + `"}`,
+		"not a date":          `{"message":"hi","localDateTime":"soon"}`,
+		"five-digit year":     `{"message":"hi","localDateTime":"12345-01-01T00:00:00"}`,
+		"impossible date":     `{"message":"hi","localDateTime":"2026-13-45T00:00:00"}`,
+		"over-long date-time": `{"message":"hi","localDateTime":"2026-10-24T09:00:00.` + strings.Repeat("1", 40) + `"}`,
+	}
+	nc, _ := jetStreamServer(t)
+	srv := gatewayServer(t, nc)
+	for name, body := range cases {
+		resp, err := http.Post(srv.URL+"/api/v1/discussions/pilot", mimeJSON, strings.NewReader(body))
+		if err != nil {
+			t.Fatal(err)
+		}
+		_ = resp.Body.Close()
+		if resp.StatusCode != http.StatusBadRequest {
+			t.Errorf("%s: status %d, want 400", name, resp.StatusCode)
+		}
+	}
+}
+
+// A well-formed zone without a local time, and a local time without seconds, are both accepted.
+func TestPostDiscussionAcceptsPartialRequester(t *testing.T) {
+	got := queuedRequest(t, `{"message":"hi","timeZone":"Etc/GMT+5","localDateTime":"2026-10-24T09:15"}`)
+	if got.TimeZone != "Etc/GMT+5" || got.LocalDateTime != "2026-10-24T09:15" {
+		t.Fatalf("got zone %q, local %q", got.TimeZone, got.LocalDateTime)
 	}
 }
 

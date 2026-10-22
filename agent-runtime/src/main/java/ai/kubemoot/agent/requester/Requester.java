@@ -29,6 +29,8 @@ public record Requester(String timeZone, String localDateTime) {
     /** Only in tool metadata: the requester's date, derived so a tool need not parse a date-time. */
     public static final String FIELD_REQUEST_DATE = "requestDate";
 
+    private static final int MIN_YEAR = 0;
+    private static final int MAX_YEAR = 9999;
     private static final Set<String> ZONES = ZoneId.getAvailableZoneIds();
 
     /** The requester for these client values, or empty when neither is usable. */
@@ -49,7 +51,7 @@ public record Requester(String timeZone, String localDateTime) {
     /** The requester's date: from their local date-time, else today in their zone, else null. */
     public String requestDate() {
         if (localDateTime != null) {
-            return localDateTime.substring(0, 10);
+            return LocalDateTime.parse(localDateTime).toLocalDate().toString();
         }
         return timeZone == null ? null : LocalDate.now(ZoneId.of(timeZone)).toString();
     }
@@ -94,8 +96,11 @@ public record Requester(String timeZone, String localDateTime) {
             return null;
         }
         try {
-            return LocalDateTime.parse(value.trim()).truncatedTo(ChronoUnit.SECONDS)
-                    .format(DateTimeFormatter.ISO_LOCAL_DATE_TIME);
+            LocalDateTime parsed = LocalDateTime.parse(value.trim());
+            if (parsed.getYear() < MIN_YEAR || parsed.getYear() > MAX_YEAR) {
+                return null;
+            }
+            return parsed.truncatedTo(ChronoUnit.SECONDS).format(DateTimeFormatter.ISO_LOCAL_DATE_TIME);
         } catch (DateTimeParseException e) {
             return null;
         }

@@ -1,5 +1,6 @@
 package kubemoot.ai.mcpgateway.controller;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.web.bind.annotation.*;
@@ -202,7 +203,7 @@ public class ToolController {
 
     // Request/Response DTOs
     public record ToolCallRequest(Map<String, Object> arguments,
-                                  @com.fasterxml.jackson.annotation.JsonProperty("_meta") Map<String, Object> meta) {
+                                  @JsonProperty("_meta") Map<String, Object> meta) {
         public ToolCallRequest(Map<String, Object> arguments) {
             this(arguments, null);
         }

@@ -73,4 +73,15 @@ class RequesterTest {
         var node = MAPPER.readTree("{\"timeZone\":\"Europe/Paris\",\"localDateTime\":\"2026-10-24T18:00:00\"}");
         assertEquals("Europe/Paris", Requester.fromJson(node).orElseThrow().timeZone());
     }
+
+    @Test
+    void aFiveDigitYearIsRejected() {
+        assertTrue(Requester.of(null, "+12345-01-01T00:00:00").isEmpty());
+        assertTrue(Requester.of(null, "-0001-01-01T00:00:00").isEmpty());
+    }
+
+    @Test
+    void requestDateIsTheDatePartOfTheLocalDateTime() {
+        assertEquals("0999-03-04", Requester.of(null, "0999-03-04T10:00").orElseThrow().requestDate());
+    }
 }

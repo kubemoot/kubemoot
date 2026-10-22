@@ -14,6 +14,8 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.*;
+import ai.kubemoot.agent.requester.Requester;
+import java.util.Map;
 
 /**
  * Tests for the coordinator reasoning select+brief path in DiscussionOrchestrator.
@@ -683,13 +685,13 @@ class DiscussionOrchestratorReasoningSelectTest {
 
     @Test
     void threadStartMetadata_carriesTheRequester_whenGiven() {
-        var requester = ai.kubemoot.agent.requester.Requester.of("America/Los_Angeles", "2026-10-24T09:00:00")
+        var requester = Requester.of("America/Los_Angeles", "2026-10-24T09:00:00")
                 .orElseThrow();
 
         var md = orchestrator.buildThreadStartMetadata(
                 "q", "general", "conv-1", List.of(), "homelab-pilot", "thread-z", requester);
 
-        assertEquals(java.util.Map.of("timeZone", "America/Los_Angeles", "localDateTime", "2026-10-24T09:00:00"),
+        assertEquals(Map.of("timeZone", "America/Los_Angeles", "localDateTime", "2026-10-24T09:00:00"),
                 md.get("requester"));
     }
 

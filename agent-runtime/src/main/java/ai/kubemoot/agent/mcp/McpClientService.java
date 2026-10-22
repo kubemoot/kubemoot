@@ -2,6 +2,8 @@ package ai.kubemoot.agent.mcp;
 
 import ai.kubemoot.agent.config.AgentProperties;
 import ai.kubemoot.agent.gateway.GatewayClient;
+import ai.kubemoot.agent.requester.Requester;
+import ai.kubemoot.agent.requester.RequesterScope;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.langchain4j.agent.tool.ToolExecutionRequest;
 import dev.langchain4j.agent.tool.ToolSpecification;
@@ -245,7 +247,7 @@ public class McpClientService {
 
         log.debug("Calling tool {} on server {}", actualToolName, serverName);
         var request = McpSchema.CallToolRequest.builder(actualToolName).arguments(arguments);
-        var meta = requesterMeta();
+        var meta = mergeRequesterMeta(null, requesterMeta());
         if (!meta.isEmpty()) {
             request.meta(meta);
         }
@@ -270,9 +272,19 @@ public class McpClientService {
 
     /** The MCP {@code _meta} of a tool call: the requester of the running turn, empty when it has none. */
     private static Map<String, Object> requesterMeta() {
-        return ai.kubemoot.agent.requester.RequesterScope.current()
-                .<Map<String, Object>>map(ai.kubemoot.agent.requester.Requester::toolMeta)
+        return RequesterScope.current()
+                .<Map<String, Object>>map(Requester::toolMeta)
                 .orElse(Map.of());
+    }
+
+    /** {@code existing} {@code _meta} entries with the requester's added; the requester's keys win. */
+    static Map<String, Object> mergeRequesterMeta(Map<String, Object> existing, Map<String, Object> requester) {
+        var merged = new LinkedHashMap<String, Object>();
+        if (existing != null) {
+            merged.putAll(existing);
+        }
+        merged.putAll(requester);
+        return merged;
     }
 
     private ToolResult callToolViaGateway(String toolName, Map<String, Object> arguments) {

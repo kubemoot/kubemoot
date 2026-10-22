@@ -128,7 +128,7 @@ public class ToolRouter {
 
         // Forward the request to the appropriate backend server
         McpMessage forwardRequest = McpMessage.toolsCall(request.id(), toolName, arguments,
-            params.get(FIELD_META) instanceof Map ? (Map<String, Object>) params.get(FIELD_META) : null);
+            params.get(FIELD_META));
 
         return clientManager.forwardRequest(serverId, forwardRequest);
     }
