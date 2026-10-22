@@ -18,7 +18,7 @@ ARG GOOSE_SHA256=fade147bd5ebc020ecea05453b0905397f1ebb01ee3de2f3678570c5c3502ed
 RUN [ "$(uname -m)" = "x86_64" ] || { echo "the goose release asset is amd64 only" >&2; exit 1; } \
  && wget -q -O /tmp/goose.tar.gz "https://github.com/aaif-goose/goose/releases/download/v${GOOSE_VERSION}/goose-x86_64-unknown-linux-musl.tar.gz" \
  && echo "${GOOSE_SHA256}  /tmp/goose.tar.gz" | sha256sum -c - \
- && mkdir /out && tar -xzf /tmp/goose.tar.gz -C /out goose \
+ && mkdir /out && tar -xzf /tmp/goose.tar.gz -C /out ./goose \
  && /out/goose --version
 
 FROM docker.io/library/alpine:3.23@sha256:21f3e19bafab57a9ff7aa9dd571dac72f868370472c10f450cc0416cc1aca553
