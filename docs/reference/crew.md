@@ -122,6 +122,16 @@ that label; a namespaced Crew author cannot, and the operator never writes it. T
 never deletes `kube-system`, `default`, `kube-public`, `kube-node-lease`, or its own
 namespace, whatever the annotation and labels say.
 
+## What deleting a Crew removes
+
+Deleting a Crew deletes every Agent in its namespace that carries the label
+`kubemoot.ai/crew: <crew name>`, and Kubernetes then removes each Agent's Deployment, Service,
+and pods. The operator does this two ways: it adds the Crew as an owner of each member Agent,
+so garbage collection cascades, and the Crew finalizer deletes any member Agents still
+present, which covers Agents created before the owner reference existed. Agents of another
+Crew and Agents without the label are left alone. The finalizer also removes the Crew's
+cluster RBAC and working memory.
+
 ## Storage
 
 Working memory lives in the NATS KV bucket `kubemoot_crew_memory` (provisioned by the operator's nats-streams-job). Keys are namespace-and-crew-scoped: `<namespace>.<crew>.<topic>.<key>`; values carry `value`, `learnedBy`, `learnedAt`, `usedAt`. The agent-runtime reads/writes it directly (`CrewMemoryClient`), native-safe via `readTree`, degrading to a no-op when NATS is unavailable.
