@@ -504,6 +504,11 @@ The source must fit the engine of the server: `ollama` for an ollama server, `hu
 | `endpoint` | Inference endpoint (from server) |
 | `modelInfo` | Size, parameters, family, quantization, context length, format, digest |
 
+A Model whose `serverRef` is empty or names a ModelServer that does not exist is
+`Error`. If the operator provisioned the Model (label `kubemoot.ai/auto-provisioned: "true"`),
+it removes the Model, since nothing is left for it to run on. A Model you wrote is
+kept and only reported in its status.
+
 A model the server does not list is downloaded in the background, so the Model
 reconcile returns at once and deleting or changing other Models is never held up by a
 download. Models with the same tag on the same server share one download. Deleting
