@@ -245,3 +245,16 @@ func TestReadDeferredScores(t *testing.T) {
 		t.Errorf("readDeferredScores returned %+v", scores)
 	}
 }
+
+// judgeHTTPClient returns the injected client when set and a fresh default
+// (no total timeout) otherwise.
+func TestJudgeHTTPClientPrefersTheInjectedClient(t *testing.T) {
+	injected := &http.Client{}
+	if got := (&CrewFitnessSuiteReconciler{judgeClient: injected}).judgeHTTPClient(); got != injected {
+		t.Fatal("the injected client must be used")
+	}
+	def := (&CrewFitnessSuiteReconciler{}).judgeHTTPClient()
+	if def == nil || def.Timeout != 0 {
+		t.Fatalf("default client must exist with no total timeout, got %+v", def)
+	}
+}
