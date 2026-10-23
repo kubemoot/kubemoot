@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"io"
 	"iter"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -147,6 +148,7 @@ type rig struct {
 	harness *realHarness
 	got     chan kbus.DiscussionMessage
 	raw     chan []byte
+	logs    *syncBuf
 }
 
 // newRig starts a sidecar on a real NATS server with a real A2A harness behind it.
@@ -173,7 +175,8 @@ func startRig(t *testing.T, url string, nc *nats.Conn, mutate func(*mesh.Contrac
 	if mutate != nil {
 		mutate(&c)
 	}
-	a := app.New(c, app.Options{HTTPAddr: ephemeral, ModelAddr: ephemeral, ToolsAddr: ephemeral,
+	logs := &syncBuf{}
+	a := app.New(c, app.Options{Log: slog.New(slog.NewTextHandler(logs, nil)), HTTPAddr: ephemeral, ModelAddr: ephemeral, ToolsAddr: ephemeral,
 		ObserveEvery: 100 * time.Millisecond, HeartbeatEvery: 200 * time.Millisecond})
 	ctx, cancel := context.WithCancel(context.Background())
 	if err := a.Start(ctx); err != nil {
@@ -181,7 +184,7 @@ func startRig(t *testing.T, url string, nc *nats.Conn, mutate func(*mesh.Contrac
 	}
 	t.Cleanup(func() { cancel(); a.Stop() })
 	h.modelURL, h.toolsURL = "http://"+a.Addrs().Model+"/v1", "http://"+a.Addrs().Tools+"/mcp"
-	r := &rig{app: a, nc: nc, url: url, harness: h, got: make(chan kbus.DiscussionMessage, 64), raw: make(chan []byte, 64)}
+	r := &rig{app: a, nc: nc, url: url, logs: logs, harness: h, got: make(chan kbus.DiscussionMessage, 64), raw: make(chan []byte, 64)}
 	if _, err := nc.Subscribe("kubemoot.discuss.>", func(m *nats.Msg) {
 		var msg kbus.DiscussionMessage
 		if json.Unmarshal(m.Data, &msg) == nil && msg.AgentName == agent {

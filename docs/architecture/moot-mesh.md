@@ -50,10 +50,26 @@ delivery of a turn that already ran is recognized and dropped.
 **A rolling update never deadlocks on the consumer.** The consumer has one active
 subscription at a time, as it does for the Java agent runtime, so the pod being
 replaced keeps answering every message until it ends. The new pod's sidecar does not
-exit when the consumer is still bound or not yet created: it retries with a growing
-wait (up to five seconds) while it reports ready, so the new pod becomes ready, the
-old pod is removed, and the new sidecar binds. Messages sent in between wait in the
-consumer; none is lost and none is answered by both pods.
+exit when the consumer is still bound or not yet created: it stays ready and retries
+with a growing wait (up to five seconds), and logs the wait again every minute. The
+new pod becomes ready, the old pod is removed, and the new sidecar binds. A
+subscription that is lost later (the operator deleted and made the consumer again) is
+bound again the same way. A misconfiguration that waiting cannot cure (no JetStream, a
+missing stream, a permission the pod lacks) still fails the sidecar, so it crash-loops
+visibly.
+
+Delivery across the handover is at least once. A turn cut because the sidecar is
+shutting down is given back to the consumer and answered by the next pod; a turn cut
+because its thread ended is acknowledged and dropped. A message the old pod received
+but had not acknowledged is delivered again after the acknowledgement wait, possibly
+after newer messages, and the new pod starts with no memory of what the old one
+answered, so a turn answered but not yet acknowledged can be answered a second time.
+
+**Not subscribed is visible.** A sidecar waiting for its consumer is ready (the pod
+must be, or the rollout stalls) but is not receiving the discussion. It says so in
+four places: the `/readyz` body reads `ready: subscribed=false`, the gauge
+`kubemoot_sidecar_subscribed` is 0, the heartbeat reports `nats` false, and the
+crew is told `waking` but not `ready`. Each flips when the sidecar binds.
 
 **Every published message is a bus-contract message.** The sidecar builds its
 messages from the types generated from the [bus contract](../../concepts/signals-and-protocol/#the-bus-contract),

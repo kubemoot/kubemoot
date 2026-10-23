@@ -30,6 +30,7 @@ type Metrics struct {
 	progressAcks prometheus.Counter
 	deliveries   *prometheus.CounterVec
 	doorRequests *prometheus.CounterVec
+	subscribed   prometheus.Gauge
 	policy       string
 }
 
@@ -59,7 +60,9 @@ func New(l Labels, policy string) *Metrics {
 		"Bus messages received, by what became of them: turn, duplicate, not_selected, ignored", "result")
 	m.doorRequests = counter(c, "kubemoot_sidecar_door_requests_total",
 		"Requests to the model and tools doors, by door and result", "door", "result")
-	m.Registry.MustRegister(m.calls, m.callSeconds, m.genTokens, m.waitSeconds, m.turns, m.turnSeconds,
+	m.subscribed = prometheus.NewGauge(prometheus.GaugeOpts{Name: "kubemoot_sidecar_subscribed",
+		Help: "1 while the sidecar receives the crew's discussion, 0 while it waits for its consumer", ConstLabels: c})
+	m.Registry.MustRegister(m.subscribed, m.calls, m.callSeconds, m.genTokens, m.waitSeconds, m.turns, m.turnSeconds,
 		m.signals, m.progressAcks, m.deliveries, m.doorRequests)
 	return m
 }
@@ -136,3 +139,12 @@ func (m *Metrics) Delivery(result string) { m.deliveries.WithLabelValues(result)
 
 // Door counts a request to a door by result.
 func (m *Metrics) Door(door, result string) { m.doorRequests.WithLabelValues(door, result).Inc() }
+
+// Subscribed records whether the sidecar receives the crew's discussion.
+func (m *Metrics) Subscribed(on bool) {
+	v := 0.0
+	if on {
+		v = 1
+	}
+	m.subscribed.Set(v)
+}

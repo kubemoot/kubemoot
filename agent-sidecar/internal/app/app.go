@@ -49,14 +49,14 @@ type App struct {
 	placer  placement.Placer
 	aliases map[string][]string
 
-	natsUp, harnessUp atomic.Bool
-	failed            chan struct{}
-	failOnce          sync.Once
-	failErr           atomic.Pointer[error]
-	servers           []*http.Server
-	addrs             Addrs
-	cancel            context.CancelFunc
-	wg                sync.WaitGroup
+	natsUp, harnessUp, subscribed atomic.Bool
+	failed                        chan struct{}
+	failOnce                      sync.Once
+	failErr                       atomic.Pointer[error]
+	servers                       []*http.Server
+	addrs                         Addrs
+	cancel                        context.CancelFunc
+	wg                            sync.WaitGroup
 }
 
 // Addrs are the addresses the listeners bound.
@@ -107,6 +107,10 @@ func (a *App) Addrs() Addrs { return a.addrs }
 // Ready is the pod's readiness: connected to NATS and the harness's card answering. It is state,
 // read from the connection and the card; no timer gates it.
 func (a *App) Ready() bool { return a.natsUp.Load() && a.harnessUp.Load() }
+
+// Subscribed reports whether the sidecar receives the crew's discussion. It is not part of
+// readiness: a new pod must become ready while the pod it replaces still holds the consumer.
+func (a *App) Subscribed() bool { return a.subscribed.Load() }
 
 // Start binds the listeners, sets up tracing, connects to NATS, finds the harness and starts the
 // bus side. It returns once the doors are listening; connection and discovery continue in the
@@ -249,6 +253,7 @@ func (a *App) readyz(w http.ResponseWriter, _ *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusOK)
+	_, _ = fmt.Fprintf(w, "ready: subscribed=%t\n", a.subscribed.Load())
 }
 
 // chatNotServed answers direct chat until the sidecar serves it; the Service points at this port.
@@ -281,23 +286,27 @@ func (a *App) connectAndRun(ctx context.Context, tools *toolsdoor.Door) {
 		a.fatal(fmt.Errorf("the bus side did not start: %w", err))
 		return
 	}
-	defer run.Wait()
-	a.goRun(func() { a.holdSubscription(ctx, run) })
+	held := make(chan struct{})
+	a.goRun(func() { defer close(held); a.holdSubscription(ctx, run) })
 	life := &bus.Lifecycle{Pub: pub, Ready: a.Ready, NATS: a.natsUp.Load, Harness: a.harnessUp.Load,
-		LastInference: a.reg.LastCall, Poll: 500 * time.Millisecond, Beat: a.o.HeartbeatEvery, Log: a.log}
+		Subscribed: a.subscribed.Load, LastInference: a.reg.LastCall, Poll: 500 * time.Millisecond, Beat: a.o.HeartbeatEvery, Log: a.log}
 	life.Run(ctx)
+	<-held // unsubscribed before Wait, so no message starts a turn after it
+	run.Wait()
 }
 
-// holdSubscription subscribes to the crew's discussion and keeps the subscription until ctx ends. A
-// consumer still bound by the pod being replaced is waited for, never a failure: readiness does not
-// depend on the subscription, so the new pod becomes ready, the old one is removed, and this binds.
+// holdSubscription keeps the subscription to the crew's discussion until ctx ends. A consumer still
+// bound by the pod being replaced is waited for, never a failure: readiness does not depend on the
+// subscription, so the new pod becomes ready, the old one is removed, and this binds. Only a
+// misconfiguration that waiting cannot cure fails the sidecar.
 func (a *App) holdSubscription(ctx context.Context, run *bus.Runner) {
-	sub := run.SubscribeWhenFree(ctx)
-	if sub == nil {
-		return
+	err := run.Hold(ctx, func(on bool) {
+		a.subscribed.Store(on)
+		a.met.Subscribed(on)
+	})
+	if err != nil {
+		a.fatal(fmt.Errorf("no subscription to the crew's discussion: %w", err))
 	}
-	<-ctx.Done()
-	_ = sub.Unsubscribe()
 }
 
 // connect keeps trying until NATS answers; the connection state feeds readiness.
