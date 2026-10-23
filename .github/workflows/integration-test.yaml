@@ -4,6 +4,11 @@ on:
   repository_dispatch:
     types: [flux-reconciliation]
   workflow_dispatch:
+    inputs:
+      smoke_crew:
+        description: "Crew the smoke test asks, as <namespace>/<crew>; empty picks a Ready crew that holds discussions"
+        required: false
+        default: ""
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
@@ -87,6 +92,7 @@ jobs:
         env:
           REGISTRY: ${{ vars.REGISTRY }}
           TEST_RUNNER: ${{ github.event.client_payload.test_runner }}
+          SMOKE_CREW: ${{ inputs.smoke_crew }}
         run: |
           # shellcheck source=/dev/null
           source "${RELEASE_LIB}"
@@ -97,6 +103,7 @@ jobs:
           pin="test-runner:${TEST_RUNNER}"
           echo "test-runner: ${REGISTRY}/kubemoot/${pin}"
           sed -e "s#image: ghcr.io/kubemoot/test-runner:.*#image: ${REGISTRY}/kubemoot/${pin}#" \
+              -e "s#^\( *value: \)\"\"\( *\)\$#\1\"${SMOKE_CREW}\"#" \
               -e 's#^      serviceAccountName: kubemoot-verify-runner$#&\n      imagePullSecrets:\n        - name: harbor-pull-secret#' \
               k8s/tests/job/job-smoke.yaml | kubectl create -f -
 

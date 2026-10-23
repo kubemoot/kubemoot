@@ -2,10 +2,45 @@
 # Helpers for the smoke test's "ask a crew a question" check. Sourced by test-smoke.sh;
 # the pure functions are tested by ask.test.sh. Needs jq (and, to talk to the bus, nats).
 
-# First Ready crew from `kubectl get crews -A -o json` on stdin, as "<namespace> <crew>".
-# Prints nothing when no crew is Ready.
-first_ready_crew() {
-    jq -r '[.items[]? | select(.status.phase == "Ready")][0] // empty | "\(.metadata.namespace) \(.metadata.name)"'
+# First Ready crew that holds discussions, as "<namespace> <crew>". Reads `kubectl get crews -A
+# -o json` on stdin; the file named by $1 holds `kubectl get agents -A -o json`. A crew holds
+# discussions when an Agent it owns has discussRole coordinator (the operator sets
+# KUBEMOOT_DISCUSS_COORDINATOR from it) and lists the general channel in discussChannels
+# (KUBEMOOT_DISCUSS_CHANNELS); without both the runtime never orchestrates a thread.
+# Prints nothing when no Ready crew qualifies.
+first_discussion_crew() {
+    jq -r --slurpfile agents "$1" '
+        [$agents[0].items[]? | select(.spec.discussRole == "coordinator"
+            and ((.spec.discussChannels // []) | index("general")))
+         | .metadata.namespace as $ns | (.metadata.ownerReferences // [])[]
+         | select(.kind == "Crew") | "\($ns)/\(.name)"] as $ok
+        | [.items[]? | select(.status.phase == "Ready")
+            | select("\(.metadata.namespace)/\(.metadata.name)" as $k | $ok | index($k))][0]
+        // empty | "\(.metadata.namespace) \(.metadata.name)"'
+}
+
+# The crew to ask, as "<namespace> <crew>". SMOKE_CREW=<namespace>/<crew> wins when set;
+# otherwise the first Ready discussion crew. Args: crews_json_file agents_json_file
+pick_crew() {
+    if [ -n "${SMOKE_CREW:-}" ]; then
+        echo "${SMOKE_CREW%%/*} ${SMOKE_CREW#*/}"
+    else
+        first_discussion_crew "$2" <"$1"
+    fi
+}
+
+# The message the dashboard's Stop button sends. Args: threadId namespace crew
+stop_json() {
+    jq -cn --arg t "$1" --arg m "stop-$RANDOM$RANDOM" \
+        '{messageId: $m, threadId: $t, agentName: "human", messageType: "stop_requested",
+          content: "Smoke check ended without an answer", channel: "general",
+          timestamp: (now | strftime("%Y-%m-%dT%H:%M:%SZ")), metadata: {reason: "manual_stop"}}'
+}
+
+# Close a thread nobody answered, so a failed run leaves no active thread behind.
+# Args: url namespace crew threadId
+stop_thread() {
+    nats pub -s "$1" "kubemoot.discuss.${2}.${3}.general.${4}" "$(stop_json "$4" "$2" "$3")" >/dev/null 2>&1 || true
 }
 
 # The question a person asks in the dashboard: a thread_start on the crew's general channel.
@@ -86,6 +121,7 @@ ask_crew() {
     if [ "$rc" = 0 ]; then
         wait_until "has_synthesis '$log' '$thread'" "$sub" "$timeout" || rc=$?
     fi
+    case "$rc" in 1|2) case "$thread" in "("*|"") ;; *) stop_thread "$url" "$ns" "$crew" "$thread" ;; esac ;; esac
     kill "$sub" 2>/dev/null || true
     case "$rc" in
         0) echo "answered on thread ${thread}" ;;
