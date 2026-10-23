@@ -19,6 +19,8 @@ import (
 	kubemootv1alpha1 "github.com/kubemoot/kubemoot/operator/api/v1alpha1"
 )
 
+const testClaimName = "claim-a"
+
 func rl(cpu, mem string) corev1.ResourceList {
 	out := corev1.ResourceList{}
 	if cpu != "" {
@@ -94,11 +96,63 @@ func TestPartialOverrideMergesPerResource(t *testing.T) {
 	wantQty(t, "limit", got.Limits, corev1.ResourceMemory, "200Mi")     // agent layer
 }
 
-func TestRequestAboveLimitIsLoweredToTheLimit(t *testing.T) {
+func TestRequestAboveInheritedLimitRaisesTheLimit(t *testing.T) {
+	cases := map[string]struct {
+		config, agent *corev1.ResourceRequirements
+	}{
+		"agent layer":  {agent: &corev1.ResourceRequirements{Requests: rl("", "512Mi")}},
+		"config layer": {config: &corev1.ResourceRequirements{Requests: rl("", "512Mi")}},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			r, _ := harnessReconciler(t)
+			if tc.config != nil {
+				withConfigDefault(r, tc.config)
+			}
+			got := r.agentContainerResources("", tc.agent)
+			wantQty(t, "request", got.Requests, corev1.ResourceMemory, "512Mi")
+			wantQty(t, "limit", got.Limits, corev1.ResourceMemory, "512Mi")
+		})
+	}
+}
+
+func TestRequestAndLimitInOneLayerConflictLowersTheRequest(t *testing.T) {
+	r, _ := harnessReconciler(t)
+	got := r.agentContainerResources("", &corev1.ResourceRequirements{Requests: rl("", "512Mi"), Limits: rl("", "64Mi")})
+	wantQty(t, "request", got.Requests, corev1.ResourceMemory, "64Mi")
+	wantQty(t, "limit", got.Limits, corev1.ResourceMemory, "64Mi")
+}
+
+func TestLimitOnlyBelowInheritedRequestKeepsAValidPod(t *testing.T) {
 	r, _ := harnessReconciler(t)
 	got := r.agentContainerResources("", &corev1.ResourceRequirements{Limits: rl("", "64Mi")})
 	wantQty(t, "request", got.Requests, corev1.ResourceMemory, "64Mi")
 	wantQty(t, "limit", got.Limits, corev1.ResourceMemory, "64Mi")
+}
+
+func TestZeroLimitIsIgnored(t *testing.T) {
+	r, _ := harnessReconciler(t)
+	got := r.agentContainerResources("", &corev1.ResourceRequirements{Requests: rl("", "128Mi"), Limits: rl("", "0")})
+	wantQty(t, "request", got.Requests, corev1.ResourceMemory, "128Mi")
+	wantQty(t, "limit", got.Limits, corev1.ResourceMemory, "256Mi")
+}
+
+func TestNilRequestsAndLimitsMapsAreSafe(t *testing.T) {
+	r, _ := harnessReconciler(t)
+	got := r.agentContainerResources("", &corev1.ResourceRequirements{})
+	wantQty(t, "request", got.Requests, corev1.ResourceMemory, "96Mi")
+	withConfigDefault(r, &corev1.ResourceRequirements{Limits: rl("1", "")})
+	got = r.agentContainerResources("", &corev1.ResourceRequirements{Limits: rl("", "")})
+	wantQty(t, "limit", got.Limits, corev1.ResourceCPU, "1")
+}
+
+func TestClaimsMergeByName(t *testing.T) {
+	r, _ := harnessReconciler(t)
+	withConfigDefault(r, &corev1.ResourceRequirements{Claims: []corev1.ResourceClaim{{Name: testClaimName, Request: "a"}, {Name: "nic"}}})
+	got := r.agentContainerResources("", &corev1.ResourceRequirements{Claims: []corev1.ResourceClaim{{Name: testClaimName, Request: "b"}}})
+	if len(got.Claims) != 2 || got.Claims[0].Name != testClaimName || got.Claims[0].Request != "b" || got.Claims[1].Name != "nic" {
+		t.Errorf("claims = %+v, want claim-a (request b) and nic once each", got.Claims)
+	}
 }
 
 func TestGooseHarnessHasItsOwnBuiltinDefault(t *testing.T) {
@@ -119,8 +173,8 @@ func TestMergeDoesNotMutateTheCachedConfig(t *testing.T) {
 	wantQty(t, "source request", cfg.Requests, corev1.ResourceCPU, "50m")
 }
 
-// qosClass mirrors the Kubernetes rule over the pod's containers and init containers.
-func qosClass(spec corev1.PodSpec) corev1.PodQOSClass {
+// approxQOSClass approximates the Kubernetes QoS rule over the pod's containers and init containers.
+func approxQOSClass(spec corev1.PodSpec) corev1.PodQOSClass {
 	all := append(append([]corev1.Container{}, spec.InitContainers...), spec.Containers...)
 	anySet, guaranteed := false, true
 	for _, c := range all {
@@ -148,8 +202,8 @@ func TestLegacyAgentPodIsBurstable(t *testing.T) {
 	agent.Spec.Harness = nil
 	spec := buildSidecarPod(t, agent).Spec.Template.Spec
 	c := spec.Containers[0]
-	if c.Name != harnessContainerName || qosClass(spec) != corev1.PodQOSBurstable {
-		t.Errorf("container %q QoS %s, want agent Burstable", c.Name, qosClass(spec))
+	if c.Name != harnessContainerName || approxQOSClass(spec) != corev1.PodQOSBurstable {
+		t.Errorf("container %q QoS %s, want agent Burstable", c.Name, approxQOSClass(spec))
 	}
 	wantQty(t, "request", c.Resources.Requests, corev1.ResourceCPU, "25m")
 	wantQty(t, "request", c.Resources.Requests, corev1.ResourceMemory, "96Mi")
@@ -168,7 +222,7 @@ func TestSidecarPodKeepsSidecarResourcesAndIsBurstable(t *testing.T) {
 	wantQty(t, "sidecar limit", sc.Resources.Limits, corev1.ResourceMemory, "64Mi")
 	h := spec.Containers[0]
 	wantQty(t, "harness request", h.Resources.Requests, corev1.ResourceMemory, "96Mi")
-	if got := qosClass(spec); got != corev1.PodQOSBurstable {
+	if got := approxQOSClass(spec); got != corev1.PodQOSBurstable {
 		t.Errorf("QoS = %s, want Burstable", got)
 	}
 }
