@@ -569,7 +569,7 @@ public class ChatService {
                 continue; // empty turn: retry budget consumed, loop again
             }
 
-            executeToolCalls(aiMessage, state, contextLength);
+            executeToolCalls(aiMessage, state);
         }
 
         return exhaustedIterationsResult(state, maxIterations, toolerRawOutput,
@@ -614,7 +614,7 @@ public class ChatService {
             return java.util.Optional.empty();
         }
         if (toolerRawOutput && state.toolsExecuted && state.toolOutput.length() > 0) {
-            if (state.totalToolFailures + state.oversizedResults >= state.toolCalls) {
+            if (state.totalToolFailures >= state.toolCalls) {
                 throw new ToolCallFailure(ToolCallFailure.FailureType.GATHER_FAILED, null, null, iteration,
                         "every tool call failed and the next prompt (~" + next + " tokens) exceeds the "
                                 + contextLength + "-token context window");
@@ -995,23 +995,13 @@ public class ChatService {
         return answer.equals("NO_DATA") || answer.equals("TOOL_GAP");
     }
 
-    /**
-     * Execute every tool call in the turn, accumulating output and enforcing failure caps.
-     * A result too large for the room left in the context window is replaced by a tool error
-     * telling the model to ask for less; the model then corrects itself in the same loop.
-     */
-    private void executeToolCalls(AiMessage aiMessage, ToolLoopState state, long contextLength) {
-        long promptTokens = contextLength <= 0 ? 0 : PromptSize.nextPromptTokens(state.allMessages,
-                tools().specs(), state.lastPromptTokens, state.lastReplyTokens, state.messagesAtLastCall,
-                charsPerToken);
-        var budget = new ToolResultBudget(contextLength, promptTokens, charsPerToken);
+    /** Execute every tool call in the turn, accumulating output and enforcing failure caps. */
+    private void executeToolCalls(AiMessage aiMessage, ToolLoopState state) {
         for (var toolRequest : aiMessage.toolExecutionRequests()) {
             var executor = findExecutor(toolRequest.name());
-            String raw = executor != null
+            String result = executor != null
                     ? executor.execute(toolRequest, null)
                     : "{\"error\": \"Unknown tool: " + toolRequest.name() + "\"}";
-            var admitted = budget.admit(toolRequest.name(), raw);
-            String result = admitted.text();
             state.allMessages.add(new ToolExecutionResultMessage(
                     toolRequest.id(), toolRequest.name(), result));
             state.toolsExecuted = true;
@@ -1022,26 +1012,8 @@ public class ChatService {
             // downstream discussion/synthesis context.
             state.toolOutput.append("[").append(toolRequest.name()).append("]\n")
                     .append(truncate(result, MAX_TOOL_RESULT_CHARS)).append("\n\n");
-            if (admitted.replaced()) {
-                recordOversizedResult(toolRequest.name(), admitted, contextLength, state);
-            } else {
-                recordToolFailure(toolRequest.name(), result, state);
-            }
+            recordToolFailure(toolRequest.name(), result, state);
         }
-    }
-
-    /**
-     * Log a result replaced for its size. It counts as a tool call that returned an error
-     * (so a gather where every call failed still fails) but not toward the same-tool and
-     * total failure caps: several large lists in one turn are the model's first try and
-     * must leave it a turn to ask for less.
-     */
-    private void recordOversizedResult(String toolName, ToolResultBudget.Admission admitted,
-                                       long contextLength, ToolLoopState state) {
-        state.oversizedResults++;
-        log.info("agent {}: tool '{}' result (~{} tokens) does not fit the {} tokens left of the {}-token "
-                + "context; replaced with an error asking for less", properties.agentName(), toolName,
-                admitted.resultTokens(), admitted.roomTokens(), contextLength);
     }
 
     /**
@@ -1151,7 +1123,6 @@ public class ChatService {
         long totalOutput = 0;
         final Map<String, Integer> perToolFailures = new java.util.HashMap<>();
         int totalToolFailures = 0;
-        int oversizedResults = 0;
         boolean toolsExecuted = false;
         int toolCalls = 0;
         final StringBuilder toolOutput = new StringBuilder();
