@@ -13,10 +13,10 @@ export interface CrewRemovalTarget {
 
 /** The confirmation prompt: it names the crew and says what goes with it. */
 export function removalPrompt(target: CrewRemovalTarget): string {
-	const agents =
-		target.agentCount === undefined
-			? 'its Agents'
-			: `its ${target.agentCount} ${target.agentCount === 1 ? 'Agent' : 'Agents'}`;
+	let agents = 'its Agents';
+	if (target.agentCount !== undefined) {
+		agents = `its ${target.agentCount} ${target.agentCount === 1 ? 'Agent' : 'Agents'}`;
+	}
 	return `Remove crew ${target.label}? ${agents} and its open discussions are removed with it. This cannot be undone.`;
 }
 

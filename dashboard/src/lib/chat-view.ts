@@ -90,6 +90,7 @@ export function chatTurns(messages: DiscussionMessage[]): ChatTurn[] {
 	const turns: ChatTurn[] = [];
 	let round: DiscussionMessage[] = [];
 	let asked: string | undefined;
+	const answers: { turn: ChatTurn; answer: DiscussionMessage; round: DiscussionMessage[]; asked?: string }[] = [];
 	for (const msg of messages) {
 		if (isPersonTurn(msg)) {
 			round = [];
@@ -104,13 +105,14 @@ export function chatTurns(messages: DiscussionMessage[]): ChatTurn[] {
 		}
 		round.push(msg);
 		if (!isAnswer(msg)) continue;
-		turns.push({
-			id: msg.messageId,
-			from: 'crew',
-			text: msg.content,
-			timestamp: msg.timestamp,
-			details: { elapsedMs: elapsedBetween(asked, msg.timestamp), ...roundTokens(round, msg) }
-		});
+		const turn: ChatTurn = { id: msg.messageId, from: 'crew', text: msg.content ?? '', timestamp: msg.timestamp };
+		turns.push(turn);
+		// The round keeps filling after the answer (the coordinator's thread_close follows
+		// it), so the details are worked out once every message is in.
+		answers.push({ turn, answer: msg, round, asked });
+	}
+	for (const { turn, answer, round: rounded, asked: from } of answers) {
+		turn.details = { elapsedMs: elapsedBetween(from, answer.timestamp), ...roundTokens(rounded, answer) };
 	}
 	return turns;
 }

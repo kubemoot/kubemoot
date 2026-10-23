@@ -83,6 +83,14 @@ describe('chatTurns', () => {
 		expect(turns[1].details?.elapsedMs).toBe(2_000);
 	});
 
+	it('shows an answer that has no content as empty text', () => {
+		const turns = chatTurns([
+			msg('human', 'thread_start', '00:00'),
+			msg('coordinator', 'synthesis', '00:02', { content: undefined })
+		]);
+		expect(turns[1].text).toBe('');
+	});
+
 	it('leaves elapsed undefined for a bad timestamp', () => {
 		const turns = chatTurns([
 			msg('human', 'thread_start', '00:00', { timestamp: 'nope' }),
