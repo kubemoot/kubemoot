@@ -409,6 +409,61 @@ func (p *Publisher) PurgeKVPrefix(bucket, prefix string) (int, error) {
 	return deleted, nil
 }
 
+// PurgeSubject removes every message on the stream whose subject matches the
+// filter (wildcards allowed). Unlike the best-effort helpers it returns every
+// failure so a caller can retry. No-op when NATS is not configured; a missing
+// stream is not an error.
+func (p *Publisher) PurgeSubject(stream, filter string) error {
+	if p.url == "" {
+		return nil
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	if err := p.connect(); err != nil {
+		return err
+	}
+	js, err := p.conn.JetStream()
+	if err != nil {
+		return err
+	}
+	if err := js.PurgeStream(stream, &nats.StreamPurgeRequest{Subject: filter}); err != nil && !errors.Is(err, nats.ErrStreamNotFound) {
+		return fmt.Errorf("purge %s %s: %w", stream, filter, err)
+	}
+	log.Info("Purged stream subject", "stream", stream, "filter", filter)
+	return nil
+}
+
+// DeleteKVKeys deletes the exact keys from a bucket and returns every failure so
+// a caller can retry. No-op when NATS is not configured; a missing bucket or key
+// is not an error.
+func (p *Publisher) DeleteKVKeys(bucket string, keys []string) error {
+	if p.url == "" || len(keys) == 0 {
+		return nil
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	if err := p.connect(); err != nil {
+		return err
+	}
+	js, err := p.conn.JetStream()
+	if err != nil {
+		return err
+	}
+	kv, err := js.KeyValue(bucket)
+	if err != nil {
+		return nil // bucket does not exist: nothing to delete
+	}
+	var errs []error
+	for _, key := range keys {
+		if err := kv.Delete(key); err != nil && !errors.Is(err, nats.ErrKeyNotFound) {
+			errs = append(errs, fmt.Errorf("delete %s/%s: %w", bucket, key, err))
+		}
+	}
+	return errors.Join(errs...)
+}
+
 // Subscribe registers a handler for messages on a subject (or wildcard).
 // Returns the subscription the caller should Drain/Unsubscribe on shutdown.
 // Returns (nil, nil) when NATS is not configured — callers should treat the
