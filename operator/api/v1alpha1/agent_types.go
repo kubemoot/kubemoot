@@ -128,7 +128,10 @@ type DeploymentConfig struct {
 	// +optional
 	Image string `json:"image,omitempty"`
 
-	// Resources defines resource requirements
+	// Resources are the agent container's resource requirements. Each resource named here
+	// replaces the same resource from KubemootConfig spec.defaults.agentResources and from
+	// the operator's built-in default (requests cpu 25m and memory 96Mi, limit memory 256Mi);
+	// resources not named keep that default.
 	// +optional
 	Resources *corev1.ResourceRequirements `json:"resources,omitempty"`
 
@@ -250,7 +253,10 @@ type HarnessSpec struct {
 	// +optional
 	Env []corev1.EnvVar `json:"env,omitempty"`
 
-	// Resources are the harness container's resource requirements.
+	// Resources are the harness container's resource requirements. Each resource named here
+	// replaces the same resource from KubemootConfig spec.defaults.agentResources and from
+	// the built-in default for the harness (see spec.deployment.resources); resources not named
+	// keep that default.
 	// +optional
 	Resources *corev1.ResourceRequirements `json:"resources,omitempty"`
 }

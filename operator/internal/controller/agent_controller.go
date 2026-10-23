@@ -725,9 +725,11 @@ func (r *AgentReconciler) buildDeployment(ctx context.Context, agent *kubemootv1
 		d.Spec.Strategy = appsv1.DeploymentStrategy{Type: appsv1.RecreateDeploymentStrategyType}
 	}
 
-	if agent.Spec.Deployment != nil && agent.Spec.Deployment.Resources != nil {
-		d.Spec.Template.Spec.Containers[0].Resources = *agent.Spec.Deployment.Resources
+	var override *corev1.ResourceRequirements
+	if agent.Spec.Deployment != nil {
+		override = agent.Spec.Deployment.Resources
 	}
+	d.Spec.Template.Spec.Containers[0].Resources = r.agentContainerResources("", override)
 	// Prompt hash on the pod template: changing it rolls the pod (agents cache
 	// the system prompt at startup) and feeds computeDeploymentHash so a
 	// PromptModule-only edit triggers a Deployment update.

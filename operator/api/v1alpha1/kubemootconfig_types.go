@@ -125,6 +125,13 @@ type DefaultConfig struct {
 	// +kubebuilder:default=2
 	// +optional
 	MaxIndexBuildsPerServer int32 `json:"maxIndexBuildsPerServer,omitempty"`
+
+	// AgentResources is the default resource requirements for the agent container of every
+	// Agent (the agent runtime, or the harness in sidecar mode). It is merged per resource
+	// name over the operator's built-in default and under an Agent's own
+	// spec.deployment.resources (legacy mode) or spec.harness.resources (sidecar mode).
+	// +optional
+	AgentResources *corev1.ResourceRequirements `json:"agentResources,omitempty"`
 }
 
 // SchedulerConfig configures the GPU-aware agent scheduling system

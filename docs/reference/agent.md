@@ -94,7 +94,7 @@ Standard Kubernetes deployment overrides.
 | `replicas` | int32 | Default: 1 |
 | `image` | string | Override agent-runtime image. Defaults to `KubemootConfig.spec.images.agentRuntime`. In sidecar mode it names the harness when `spec.harness.image` is unset |
 | `port` | int32 | HTTP API port. Default: 8080. In sidecar mode it is the sidecar's port, which the Service targets |
-| `resources` | ResourceRequirements | CPU/memory limits |
+| `resources` | ResourceRequirements | CPU and memory for the `agent` container. See [Resources](#resources) |
 | `env` | []EnvVar | Additional env vars - useful for `KUBEMOOT_GATEWAY_ENABLED=false` on coordinator, longer timeouts, etc. |
 | `serviceAccountName` | string | Pod service account |
 
@@ -116,7 +116,7 @@ Names the program that does the agent's reasoning and how its pod joins the tabl
 | `command` | []string | | Overrides the image's entrypoint. |
 | `args` | []string | | Arguments for the harness container. |
 | `env` | []EnvVar | | Extra environment for the harness container, set after the variables the mesh sets. |
-| `resources` | ResourceRequirements | | CPU and memory for the harness container. |
+| `resources` | ResourceRequirements | | CPU and memory for the harness container. See [Resources](#resources). |
 
 **`nativeTools`.** `none` turns the harness's own tools off, so the only tools it can use are the ones at the tools door. `declared` allows the built-ins the crew author reviewed and declared. `all` leaves every built-in on. Anything but `none` is a deliberate choice: it is shown on the dashboard and recorded on the Deployment in the `kubemoot.ai/native-tools` annotation. The sidecar hands the value to the harness image in `KUBEMOOT_NATIVE_TOOLS`; the image applies it. The sidecar cannot see what a harness does with its own shell or file access, so the setting is a statement about the harness, not an enforcement by the mesh.
 
@@ -190,6 +190,27 @@ The contract is the one file the sidecar needs. The operator writes it and the s
 | `observability.otlpEndpoint` | An OTLP/HTTP collector for spans. Empty turns export off; trace context still flows. |
 
 ---
+
+### Resources
+
+Every agent pod sets resources on its `agent` container, so the pod is never BestEffort (first to be evicted under node pressure). With the Moot Mesh sidecar, which keeps its own requests of 25m CPU and 32Mi and limits of 250m CPU and 64Mi, the pod is Burstable.
+
+The container's resources come from three layers, highest first:
+
+1. The Agent: `spec.deployment.resources` (legacy mode) or `spec.harness.resources` (sidecar mode).
+2. `KubemootConfig` `spec.defaults.agentResources`.
+3. The operator's built-in default.
+
+| Harness | Requests | Limits |
+|---------|----------|--------|
+| Agent runtime and any harness but goose | cpu `25m`, memory `96Mi` | memory `256Mi` |
+| `goose` | cpu `100m`, memory `256Mi` | memory `1Gi` |
+
+The layers merge per resource name, not as a whole. A layer replaces only the requests and limits it names, so an Agent that sets only `limits.memory: 512Mi` keeps the default CPU and memory requests. If a request ends up above the limit of the same resource, the request is lowered to the limit.
+
+The defaults carry no CPU limit on purpose. A CPU limit pauses the container whenever it uses its quota within a scheduling window, and an agent mostly orchestrates inference calls and waits, so the pauses add latency to short bursts. The CPU request still protects the agent's share on a busy node. Memory keeps a limit because it cannot be reclaimed. Set `limits.cpu` on an Agent or in the KubemootConfig default if your cluster requires one.
+
+The native agent runtime peaks near 65Mi of memory and 0.02 cores in the homelab. The goose harness container idles near 5Mi, but it runs `goose run` for each request, so its default is larger; raise it for a goose seat that loads many extensions.
 
 ## Status Fields
 
