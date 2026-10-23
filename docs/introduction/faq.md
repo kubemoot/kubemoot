@@ -31,13 +31,13 @@ with `kubectl apply` as the interface. See
 
 Use them when an in-process library fits: one application, a notebook, a prototype.
 Kubemoot is for crews that run as shared platform services with tenancy, GitOps, and
-GPUs to schedule. Different job; see [Why Kubemoot](../why-kubemoot/).
+accelerators to schedule. Different job; see [Why Kubemoot](../why-kubemoot/).
 
 ## How is Kubemoot different from kagent?
 
 Both declare agents as Kubernetes resources. kagent is the more mature choice for
 agents backed by hosted models and for a ready set of cluster-operations tools.
-Kubemoot adds a consensus protocol between agents, GPU-aware scheduling of each
+Kubemoot adds a consensus protocol between agents, accelerator-aware scheduling of each
 inference call, and fitness functions that score a crew. See
 [Related Projects](../related-projects/) for kagent and other neighbors.
 
@@ -45,7 +45,7 @@ inference call, and fitness functions that score a crew. See
 
 They are neighbors, not substitutes. Both address very large numbers of agents:
 density, isolation, and fast resume. Kubemoot's bottleneck today is placing and loading
-models across a few GPUs, which neither addresses, and its agent pods already start
+models across a few accelerators, which neither addresses, and its agent pods already start
 quickly. Agent Sandbox overlaps with the code sandbox the compute agent uses, and
 evaluating it there is on the [Roadmap](../roadmap/#evaluating-agent-sandbox-for-code-execution).
 Background: [Kubernetes Podcast episode 268, "Agent Sandbox and Lovable"](https://kubernetespodcast.com/episode/268-lovable/) and [episode 272, "Agent Substrate"](https://kubernetespodcast.com/episode/272-agent-substrate/), with Tim Hockin and Brandon Royal.
@@ -73,23 +73,23 @@ result is a tie with prose on quality and a lead on speed, on a small sample. Se
 
 ## Isn't it slow?
 
-A crew deliberates, and consensus takes minutes on smaller systems with GPUs you can
+A crew deliberates, and consensus takes minutes on smaller systems with accelerators you can
 count on one hand; the [integrations](../../integrations/claude-code/) page shows a
 real three-minute answer. The time is spent in the models and the serving engine, both of which are
 replaceable behind the `ModelServer` boundary ([Roadmap](../roadmap/)). The ticket
 contract exists because crews take time, and the crew's answer carries its own
 caveats, which is worth the wait more often than a fast confident guess.
 
-## Do I need a GPU?
+## Do I need an accelerator?
 
 Not to try it: the [Quickstart](../quickstart/) runs a real two-agent discussion on a
-2-CPU laptop with a small model. Yes for useful crews: larger models, more agents,
+2-CPU laptop with a small model. Yes for useful crews, on a GPU or another accelerator: larger models, more agents,
 answers in tens of seconds rather than minutes. The two profiles are laid out in
 [Installation](../installation/).
 
 ## Can I use hosted model APIs instead of local models?
 
-Not yet. The supported server types are `vllm` (currently preferred) and `ollama`; `openai` and `anthropic`
+Not yet. The supported server types are `vllm` (the default engine) and `ollama`; `openai` and `anthropic`
 are not supported yet and the API server rejects them. Cloud and frontier models as crew members is on the
 [Roadmap](../roadmap/), with data handling and cost controls as its prerequisites.
 

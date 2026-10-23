@@ -1,7 +1,7 @@
 ---
 title: "Models & Scheduling"
 weight: 40
-description: "Loose model coupling and just-in-time GPU scheduling."
+description: "Loose model coupling and just-in-time accelerator scheduling."
 ---
 
 Kubemoot composes capability from **many small models** rather than one large one,
@@ -43,9 +43,9 @@ A crew that still ships Models of its own uses only those until it deletes them.
 
 Scheduling happens in two steps. When an agent reconciles, the operator ranks the
 `Model`s its phase may use. At each inference call, the agent runtime reads live
-server state (which models are loaded, which GPUs have free slots and free memory)
-from a shared store and decides which model and which GPU serve that call. This
-matters because GPU inference, model loading, and pod scheduling all have unpredictable
+server state (which models are loaded, which accelerators have free slots and free memory)
+from a shared store and decides which model and which accelerator serve that call. This
+matters because accelerator inference, model loading, and pod scheduling all have unpredictable
 latency: a static binding made at deploy time would be wrong as soon as load shifted.
 
 Cold start is treated the same as warm start: if a model isn't resident yet, the
@@ -76,15 +76,15 @@ A rule may also ask for the faster model with `preferFaster`. Speed is measured 
 **The runtime picks per call.** At each call the runtime works down this order and
 takes the first that succeeds:
 
-1. The preferred model, if a GPU already has it loaded with a free slot.
-2. Another candidate that a GPU already has loaded with a free slot, if its quality
+1. The preferred model, if an accelerator already has it loaded with a free slot.
+2. Another candidate that an accelerator already has loaded with a free slot, if its quality
    score is within the **quality tolerance** of the preferred model's score. Using it
    costs no model load and evicts nothing, so it is preferred over loading the
    preferred model from scratch.
 3. A candidate within the quality tolerance that another agent is loading right now:
    the call joins that copy instead of loading a second model.
 4. The preferred model under the normal cost ranking: queue behind a loaded copy, or
-   load it onto a GPU with enough free memory.
+   load it onto an accelerator with enough free memory.
 
 If none of these has room, the agent waits (see below). The model a call actually ran
 on is recorded on its signal as `metadata.model`, next to `metadata.server`.
@@ -122,17 +122,17 @@ To keep an agent on a particular model size, do one of these:
   `spec.deployment.env`). `0` allows only candidates that score the same as the
   preferred model.
 
-## When every GPU is busy
+## When every accelerator is busy
 
-A GPU has room for a call when the model is loaded there with a free slot, or when the
-model fits in the GPU's free memory next to the models already loaded. When no GPU has
+A accelerator has room for a call when the model is loaded there with a free slot, or when the
+model fits in the accelerator's free memory next to the models already loaded. When no accelerator has
 room, the scheduler compares two ways forward and takes the cheaper one:
 
 - **Wait for a loaded copy.** If the requested model, or a candidate within the quality
   tolerance, is already loaded somewhere but busy, the scheduler estimates when that
   copy frees up, from the calls running on it and how long calls there usually take.
   Waiting needs no load and unloads nothing.
-- **Unload idle models and load.** On a GPU that could hold the model, the scheduler
+- **Unload idle models and load.** On an accelerator that could hold the model, the scheduler
   can unload models that are loaded but not in use. The cost is the time to load the
   requested model, plus, for each model unloaded, the time it would take to bring it
   back, weighted by how likely it is to be needed again soon. A large model is slow to
@@ -146,7 +146,7 @@ copy, or a model to unload that is small or that nobody needs.
 
 Every crew's agents share one view of demand for each model:
 
-- **Waiting**: agents waiting for a GPU for that model right now. A model agents wait
+- **Waiting**: agents waiting for an accelerator for that model right now. A model agents wait
   for is never unloaded unless every choice has agents waiting for it.
 - **About to request**: agents a coordinator just selected for a discussion, which name
   the model among their candidates. They will call within seconds.
@@ -176,14 +176,14 @@ When neither way forward helps right away, or waiting is the cheaper one, the ag
   timeout by default (90 seconds), or `KUBEMOOT_DISCUSS_GPU_WAIT_LIMIT_SECONDS` on the
   agent. A wait also ends when the discussion itself ends. Either way the agent stands
   aside with the reason `gpu-busy`. The limit is a safety net; the normal end of a wait
-  is a GPU with room.
+  is an accelerator with room.
 
-If no GPU in the cluster has enough memory to ever hold the model, waiting cannot help.
+If no accelerator in the cluster has enough memory to ever hold the model, waiting cannot help.
 The agent stands aside at once with the reason `model-too-large`.
 
 The context window is a second limit of the same kind. An engine does not reject a prompt
 larger than its per-request context; it drops the oldest messages, the question among them.
-When no GPU gives a suitable model a context that holds the prompt, the agent stands aside
+When no accelerator gives a suitable model a context that holds the prompt, the agent stands aside
 at once with the reason `prompt-too-large`. See
 [Scheduler](../architecture/scheduler.md#the-context-window-is-a-hard-constraint).
 
@@ -192,9 +192,9 @@ at once with the reason `prompt-too-large`. See
 Kubemoot plans an agent's model the moment the coordinator selects it for a
 discussion, not when the agent finally calls. The selected agent will call within
 seconds, so the scheduler places its first call right away: it picks the model and the
-GPU, reserves the capacity, and if the model is not loaded yet, starts loading it. The
+accelerator, reserves the capacity, and if the model is not loaded yet, starts loading it. The
 load then runs while the agent triages the question and builds its prompt. When the
-agent calls, it uses the planned GPU, or plans again if the cluster changed meanwhile.
+agent calls, it uses the planned accelerator, or plans again if the cluster changed meanwhile.
 If the agent stands aside or the discussion ends first, the reservation is released.
 
 A discussion's agents are placed together. Agents that can use the same model converge
@@ -206,21 +206,21 @@ visible to all of them.
 
 Kubemoot loads a model only for an agent that a coordinator has selected for a live
 discussion. It never preloads a model because it might be needed, and it never pins a
-model to a GPU. Forecasts of demand only decide what to keep and where to load when an
-agent actually needs a GPU. A GPU held for a guess starves the agent that actually asks
+model to an accelerator. Forecasts of demand only decide what to keep and where to load when an
+agent actually needs an accelerator. A accelerator held for a guess starves the agent that actually asks
 next.
 
 ## What the messages mean
 
 | What you see | Meaning | What to do |
 |---|---|---|
-| `waiting` signal, "waiting for a GPU with room for `<model>`" | Every GPU that can hold the model is busy. The agent is queued on cluster state. | Nothing. It proceeds when capacity frees up. |
-| `stand_aside` with reason `gpu-busy` | The agent waited but no GPU had room before the discussion ended or the safety limit passed. | Ask again when the cluster is quieter, add GPU capacity, or add a smaller `Model` the policy can pick. |
-| `stand_aside` with reason `model-too-large` | No GPU in the cluster can hold the model. | Add a smaller `Model` that satisfies the rule, or a GPU with more memory. |
+| `waiting` signal, "waiting for a GPU with room for `<model>`" | Every accelerator that can hold the model is busy. The agent is queued on cluster state. | Nothing. It proceeds when capacity frees up. |
+| `stand_aside` with reason `gpu-busy` | The agent waited but no accelerator had room before the discussion ended or the safety limit passed. | Ask again when the cluster is quieter, add accelerator capacity, or add a smaller `Model` the policy can pick. |
+| `stand_aside` with reason `model-too-large` | No accelerator in the cluster can hold the model. | Add a smaller `Model` that satisfies the rule, or an accelerator with more memory. |
 | `stand_aside` with reason `prompt-too-large` | The prompt is larger than the per-request context every suitable server gives the model. | Raise `OLLAMA_CONTEXT_LENGTH` on a server (trading against `OLLAMA_NUM_PARALLEL`), or use a model with a larger context. |
 | `stand_aside` with no reason | The agent had nothing to add. | Normal crew behavior. |
 
-When no agent contributed and at least one of them could not get a GPU, the crew's
+When no agent contributed and at least one of them could not get an accelerator, the crew's
 answer says so instead of suggesting the crew lacks coverage:
 
 > The crew's agents could not get a GPU: every GPU was busy with other work, so none of
@@ -237,7 +237,7 @@ All crews in a cluster share the same server state, reservations, and demand vie
 so their calls account for each other.
 
 - **Warm reuse across crews is expected.** A model one crew loaded serves another
-  crew's calls on the same GPU when that model is a candidate for both.
+  crew's calls on the same accelerator when that model is a candidate for both.
 - **Unloading respects every crew.** A model another crew is waiting for, about to use,
   or uses often is the last to be unloaded.
 - **Waits grow with load.** With more concurrent calls, slots fill and agents wait
@@ -248,42 +248,42 @@ so their calls account for each other.
 
 ### Example: two crews ask at once
 
-A cluster has two GPUs. GPU 1 (32 GiB) has `qwen3:14b` loaded with one free slot.
-GPU 2 (24 GiB) has `qwen3:8b` loaded and is busy with another crew's call. Two crews
+A cluster has two accelerators. Accelerator 1 (32 GiB) has `qwen3:14b` loaded with one free slot.
+Accelerator 2 (24 GiB) has `qwen3:8b` loaded and is busy with another crew's call. Two crews
 ask a question at the same moment, and each coordinator selects its agents.
 
 1. Crew A's analyst prefers `qwen3:32b` (bias 0.7: `qwen3:32b` scores 70, `qwen3:14b`
    60, `qwen3:8b` 30). `qwen3:32b` is not loaded anywhere. `qwen3:14b` is loaded on
-   GPU 1 with a free slot and scores within 10 points, so the analyst's plan takes that
+   Accelerator 1 with a free slot and scores within 10 points, so the analyst's plan takes that
    slot the moment it is selected. No model loads.
 2. Crew B's rules-keeper prefers `qwen3:14b` and has no candidate within tolerance.
-   `qwen3:14b` is loaded on GPU 1, so its call queues behind the analyst's call on that
+   `qwen3:14b` is loaded on Accelerator 1, so its call queues behind the analyst's call on that
    copy instead of loading a second copy.
 3. Crew B's researcher prefers `qwen3:32b` with a strong quality bias (0.9), so
-   `qwen3:14b` (20 points below) is out of tolerance. `qwen3:32b` is not loaded, GPU 1
-   has no free memory beside `qwen3:14b`, and GPU 2 is busy. The scheduler weighs its
-   options on GPU 1:
+   `qwen3:14b` (20 points below) is out of tolerance. `qwen3:32b` is not loaded, Accelerator 1
+   has no free memory beside `qwen3:14b`, and Accelerator 2 is busy. The scheduler weighs its
+   options on Accelerator 1:
    - While the analyst and the rules-keeper are using `qwen3:14b`, it cannot be
      unloaded. The researcher publishes `waiting`.
    - When their calls finish and no agent is waiting for or about to use `qwen3:14b`,
      unloading it is cheap: the researcher's retry unloads the idle `qwen3:14b` and
-     loads `qwen3:32b` onto GPU 1.
+     loads `qwen3:32b` onto Accelerator 1.
    - If other agents are waiting for `qwen3:14b`, or were just selected to use it, it
      stays loaded, and the researcher keeps waiting until memory frees up elsewhere or
      the safety limit passes and it stands aside with `gpu-busy`.
 
-If no GPU in the cluster could hold `qwen3:32b` at all, the researcher would have stood
+If no accelerator in the cluster could hold `qwen3:32b` at all, the researcher would have stood
 aside with `model-too-large` without waiting.
 
 The same comparison protects a large model from a small one's rush. If the researcher
-had instead wanted `qwen3:14b` while GPU 1 held a warm `qwen3:32b` that crews use
-regularly, and `qwen3:14b` were loaded on GPU 2 with one call about to finish, the
-researcher would wait a few seconds for GPU 2 rather than unload `qwen3:32b`.
+had instead wanted `qwen3:14b` while Accelerator 1 held a warm `qwen3:32b` that crews use
+regularly, and `qwen3:14b` were loaded on Accelerator 2 with one call about to finish, the
+researcher would wait a few seconds for Accelerator 2 rather than unload `qwen3:32b`.
 
 ## Which models to actually pick
 
 Loose coupling decides *how* a model is bound. It does not decide *which* model belongs
-in which role, or what fits the GPU memory you have. For the selection framework - why
-tool-calling fidelity outranks coding benchmarks, how to budget VRAM, why mixture-of-experts
+in which role, or what fits the accelerator memory you have. For the selection framework - why
+tool-calling fidelity outranks coding benchmarks, how to budget accelerator memory, why mixture-of-experts
 models size by total parameters, and how to match model size to discussion role - see
 [Choosing a Model](../choosing-a-model/).

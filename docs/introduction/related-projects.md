@@ -74,8 +74,8 @@ the agent framework.
   [scale to zero](../roadmap/#scale-to-zero) direction pursues a similar saving for idle
   agents with a different mechanism.
 - **Differences:** Agent Substrate targets very large numbers of agents running on far fewer pods.
-  Kubemoot runs a handful of crews today. Its bottleneck is GPU model scheduling, placing
-  and loading models across a few GPUs, which Substrate does not address. Kubemoot's
+  Kubemoot runs a handful of crews today. Its bottleneck is accelerator model scheduling, placing
+  and loading models across a few accelerators, which Substrate does not address. Kubemoot's
   agent runtime is LangChain4j compiled to a GraalVM native image, so agent pods start
   quickly compared with a model load, and pod startup is not the problem Substrate
   solves for Kubemoot today. Substrate does not replace crews, consensus, ADL
@@ -186,8 +186,8 @@ as described on the [Roadmap](../roadmap/#more-model-servers-and-leased-accelera
 [KAITO](https://github.com/kaito-project/kaito) is an operator suite that automates LLM
 inference, fine-tuning, and RAG engine deployment in a Kubernetes cluster, including
 automatic GPU node provisioning. It solves how models get deployed onto GPUs. Kubemoot
-schedules inference onto model servers that already run and does not provision GPU
-nodes.
+schedules inference onto model servers that already run and does not provision
+accelerator nodes.
 
 ## MCP gateways and tool infrastructure
 

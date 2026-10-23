@@ -168,7 +168,7 @@ If `nvidia.com/gpu` is missing, work from the bottom up:
 ## How Kubemoot uses the node
 
 Once the node has `nvidia.com/gpu` capacity, the rest follows the pattern in
-[Put a model server on your GPU nodes](../../introduction/installation/#put-a-model-server-on-your-gpu-nodes):
+[Put a model server on your accelerator nodes](../../introduction/installation/#put-a-model-server-on-your-accelerator-nodes):
 
 1. Deploy a model server pinned to the GPU node, requesting `nvidia.com/gpu: 1`. vLLM,
    installed with the `kubemoot-vllm` chart, is the currently preferred engine

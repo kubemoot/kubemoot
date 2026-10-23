@@ -27,7 +27,7 @@ its own page:
   RBAC.
 - **Helm** (v3.8+, for OCI charts). The operator ships only as a Helm chart.
 - **A model server** - at least one inference server on an accelerator that serves the
-  models your crew will use. vLLM is currently the preferred engine: a moot sends
+  models your crew will use. vLLM is the default engine: a moot sends
   overlapping calls to the same model, and vLLM served those faster than Ollama in the
   [measured results](../../concepts/choosing-a-model/#measured-results). Install it with
   the `kubemoot-vllm` chart, as [Install a model server](#install-a-model-server) below
@@ -58,7 +58,7 @@ or laptop they run under emulation or fail to start with an exec format error.
 ## Install a model server
 
 Install the model server before the operator, because the operator is pointed at it. vLLM
-is the currently preferred engine. The `kubemoot-vllm` chart installs it as plain
+is the default engine. The `kubemoot-vllm` chart installs it as plain
 Kubernetes objects: one pod on one accelerator that runs a vLLM server for each model you
 list, a Service with a port per model, and a volume for the weights. Describe the pod, the
 volume, and the models in a values file (the full set of values, with the node and memory
@@ -200,34 +200,35 @@ You should see the operator pod `Running` and the Kubemoot CRDs registered
 (`crews`, `agents`, `models`, `modelservers`, `mcpservers`, `mcpgateways`,
 `ragsources`, `promptmodules`, and the cluster-scoped `kubemootconfig`).
 
-## Put a model server on your GPU nodes
+## Put a model server on your accelerator nodes
 
-Kubemoot does not install model servers, and it does not pick GPU nodes for you. The seam is
-deliberate: placement is yours, capacity is discovered. Getting a GPU into a worker node
+Kubemoot does not install model servers, and it does not pick accelerator nodes for you. The seam is
+deliberate: placement is yours, capacity is discovered. Getting an accelerator into a worker node
 in the first place, including VM passthrough, is covered in
 [GPU Worker Nodes](../../operating/gpu-worker-nodes/).
 
-1. **You run a model server per GPU worker node.** A common topology is a worker node
-   per GPU, and a cluster scales by adding such nodes. For every GPU node, deploy its own
+1. **You run a model server per accelerator worker node.** A common topology is a worker node
+   per accelerator, and a cluster scales by adding such nodes. For every accelerator node, deploy its own
    Ollama (or other server) as an ordinary workload pinned to that node by node
-   affinity, requesting `nvidia.com/gpu`, with the runtime class your cluster uses for
-   NVIDIA. Each such server becomes one ModelServer with its GPU's VRAM, and the scheduler
+   affinity, requesting the accelerator resource your device plugin exposes (for
+   NVIDIA GPUs, `nvidia.com/gpu` with the runtime class your cluster uses). Each such server becomes one ModelServer with its accelerator's memory, and the scheduler
    places models across the servers, loading and evicting them on demand. The CPU
-   trial runs a single Ollama Deployment with no GPU at all.
+   trial runs a single Ollama Deployment with no accelerator at all.
 2. **You declare a `ModelServer` per model server.** One manifest for each: the
    type, that server's Service URL, a weight, and, when the host cannot be measured, a
-   memory budget. Two GPU nodes, two model servers, two ModelServers. This is the only static
+   memory budget. Two accelerator nodes, two model servers, two ModelServers. This is the only static
    declaration the operator needs.
 3. **The operator discovers the rest.** It probes the server for available and loaded
    models, follows the Service to its backing pod, records that pod's node, reads
    `OLLAMA_NUM_PARALLEL`, and, when a Prometheus endpoint is configured, queries the
-   DCGM metrics for that node to learn the GPU model and its total and used VRAM.
+   DCGM metrics for that node to learn the GPU model and its total and used VRAM (NVIDIA
+   GPUs; other accelerators use the memory budget).
    Without DCGM, `spec.scheduling.memoryMiB` is the budget.
 4. **Agents choose a server per call.** At each inference call the runtime fits the
    model it needs against every ready server's discovered headroom and picks one. So
-   "sized to VRAM" in the table above means sized to the VRAM discovered on the server
-   that serves the call, not to the largest GPU in the cluster: a 32B model needs a
-   server whose GPU holds it, and smaller roles land on the smaller GPU.
+   "sized to accelerator memory" in the table above means sized to the memory discovered on the server
+   that serves the call, not to the largest accelerator in the cluster: a 32B model needs a
+   server whose accelerator holds it, and smaller roles land on the smaller one.
 
 The model server comes first, then the declaration. Besides the chart value shown above, a
 `ModelServer` is an ordinary manifest. The example below declares two Ollama servers; for a
@@ -238,7 +239,7 @@ vLLM server, set `type: vllm` and `serviceRef` instead of `endpoint`, as
 apiVersion: kubemoot.ai/v1alpha1
 kind: ModelServer
 metadata:
-  name: ollama-gpu-a          # the Ollama pinned to GPU worker node A
+  name: ollama-gpu-a          # the Ollama pinned to accelerator worker node A
   namespace: kubemoot
 spec:
   type: ollama
@@ -249,7 +250,7 @@ spec:
 apiVersion: kubemoot.ai/v1alpha1
 kind: ModelServer
 metadata:
-  name: ollama-gpu-b          # the Ollama pinned to GPU worker node B
+  name: ollama-gpu-b          # the Ollama pinned to accelerator worker node B
   namespace: kubemoot
 spec:
   type: ollama

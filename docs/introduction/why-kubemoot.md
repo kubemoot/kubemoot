@@ -13,13 +13,13 @@ that fits*, *what it solves*, and *how it differs*.
 
 Kubemoot began as a small agent system to help with observability, security, and
 administration on one homelab cluster, and grew into a general way to run crews of
-agents on Kubernetes. Today it works well on local clusters with a couple of GPUs or
-more, running open models you serve yourself.
+agents on Kubernetes. Today it works well on local clusters with a couple of accelerators
+or more, running open models you serve yourself.
 
 The core does not change as it grows: agents around a table, each bringing its own
 expertise and tools, deliberating until the crew settles on an answer. What can
 change is who sits at the table and what powers them. The [Roadmap](../roadmap/)
-describes directions such as rented cloud GPUs for capacity a cluster does not own,
+describes directions such as rented cloud accelerators for capacity a cluster does not own,
 and hosted frontier models joining local agents as voices in the same discussion.
 Those are directions, not features; this page describes what Kubemoot is today.
 
@@ -28,7 +28,7 @@ Those are directions, not features; this page describes what Kubemoot is today.
 - **Platform and infrastructure teams** who want agentic AI to live where the rest
   of their workloads do - Kubernetes - with the same reconciliation, scheduling,
   RBAC, and observability they already operate.
-- **Teams running on their own GPUs** (commodity or local), who would rather compose
+- **Teams running on their own accelerators** (commodity or local), who would rather compose
   capability from many small open models than depend on a single hosted frontier
   model.
 - **People who need answers they can trust and re-check** - where a crew's quality
@@ -43,11 +43,11 @@ be **operable infrastructure**.
 1. **The orchestration gap.** Agent frameworks are excellent for prototyping but leave
    deployment, scaling, and operations to you. Kubemoot makes crews, agents, prompts,
    and models **first-class Kubernetes resources** - reconciled by an operator, with
-   GPU-aware scheduling, an MCP tool gateway, and live observability. See
+   accelerator-aware scheduling, an MCP tool gateway, and live observability. See
    [The Orchestration Gap](../orchestration-gap/).
 2. **Frontier-model dependency.** Instead of routing everything through one large
    hosted model, Kubemoot composes capability **horizontally** from many small models
-   scheduled just-in-time across the GPUs you have - portable across clusters, no
+   scheduled just-in-time across the accelerators you have - portable across clusters, no
    single-vendor dependency.
 3. **Opaque quality.** Crew behavior is measured by **fitness functions** -
    reference-grounded, fabrication-aware scenarios - so you can track whether a change
@@ -69,14 +69,14 @@ be **operable infrastructure**.
 - **vs. other Kubernetes-native agent projects such as kagent** - these also declare
   agents as Kubernetes resources. What Kubemoot adds today is a deliberation protocol
   between agents (consensus signals and a coordinator that synthesizes the answer),
-  GPU-aware scheduling that picks a model server per inference call, and executable
+  accelerator-aware scheduling that picks a model server per inference call, and executable
   fitness functions that score a crew over time. See
   [Related Projects](../related-projects/) for a fuller comparison.
 - **vs. model-serving layers such as KServe, llm-d, and vLLM** - those serve models;
   Kubemoot sits above them: it schedules each inference call onto a model server it can
-  read state from. It drives vLLM, which is currently preferred, and Ollama, the engine of the quickstart; reading engine
+  read state from. It drives vLLM, the default engine, and Ollama, the engine of the quickstart; reading engine
   state from other servers is on the [Roadmap](../roadmap/). See [Related Projects](../related-projects/).
-- **vs. hosted agent platforms** - it runs on **your** infrastructure and GPUs, stays
+- **vs. hosted agent platforms** - it runs on **your** infrastructure and accelerators, stays
   portable across clusters, and keeps your data and models in your control.
 - **vs. agent harnesses such as Claude Code** - not a competitor but a table they can
   use. A harness can ask a whole crew a question as one of its tools through the
@@ -86,7 +86,7 @@ be **operable infrastructure**.
 ## What it is not
 
 Kubemoot is a young, independent open-source project. It assumes Kubernetes and at
-least one GPU-backed model server, and it is built for multi-step, judgment-bearing
+least one accelerator-backed model server, and it is built for multi-step, judgment-bearing
 questions - not for trivial single-shot calls where a deliberating committee is
 overkill.
 
