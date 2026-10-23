@@ -823,4 +823,10 @@ class DiscussionSubscriberHelpersTest {
         assertEquals("server_unreachable", DiscussionSubscriber.classifyException("x.Y", "Connection refused"));
         assertEquals("internal_exception", DiscussionSubscriber.classifyException("x.Y", "HTTP 400: bad schema"));
     }
+
+    @Test
+    void classifyException_contextRejectionWinsOverATimeoutMatch() {
+        assertEquals("context_exceeded", DiscussionSubscriber.classifyException("x.TimeoutException",
+                "Timed out after: This model's maximum context length is 32768 tokens"));
+    }
 }

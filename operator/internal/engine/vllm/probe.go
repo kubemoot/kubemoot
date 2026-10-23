@@ -45,7 +45,8 @@ var kvCacheMetrics = []string{"vllm:kv_cache_usage_perc", "vllm:gpu_cache_usage_
 type serverProbe struct {
 	// models are the served names the server answers to (one, or more when it has aliases).
 	models []string
-	// contexts is the context window of each served name /v1/models reported one for.
+	// contexts is the window /v1/models gave each served name (0 when it listed the name
+	// without one); nil when /v1/models could not be read.
 	contexts map[string]int
 	// state is empty when the server answered but its sleep state could not be read.
 	state   engine.ModelState
@@ -118,7 +119,7 @@ func (a *Adapter) probeServer(ctx context.Context, g endpointModels) (serverProb
 		if err := checkServes(served, g); err != nil {
 			return p, err
 		}
-		p.contexts = contextsOf(served, g.models)
+		p.contexts = ServedContexts(served, g.models)
 	}
 	p.state = a.sleepState(ctx, g.endpoint)
 	a.readMetrics(ctx, g.endpoint, &p)
@@ -139,22 +140,6 @@ func checkServes(served []ServedModel, g endpointModels) error {
 		}
 	}
 	return nil
-}
-
-// contextsOf is the window /v1/models reports for each of the wanted names; a name
-// whose entry carries no max_model_len is left out.
-func contextsOf(served []ServedModel, wanted []string) map[string]int {
-	var out map[string]int
-	for _, m := range served {
-		if m.MaxModelLen <= 0 || !slices.Contains(wanted, m.ID) {
-			continue
-		}
-		if out == nil {
-			out = map[string]int{}
-		}
-		out[m.ID] = m.MaxModelLen
-	}
-	return out
 }
 
 // sleepState is awake or asleep from /is_sleeping. A server without the sleep

@@ -58,8 +58,53 @@ func TestProbeLeavesOutAModelWhoseServerReportsNoWindow(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !maps.Equal(snap.ContextLengths, map[string]int{qwen14: 32768}) {
-		t.Errorf("context lengths = %v, want only %s", snap.ContextLengths, qwen14)
+	if !maps.Equal(snap.ContextLengths, map[string]int{qwen14: 32768, qwen8: 0}) {
+		t.Errorf("context lengths = %v, want %s asked and given none", snap.ContextLengths, qwen8)
+	}
+}
+
+func TestProbeTreatsANegativeWindowAsNone(t *testing.T) {
+	a := newFake(t, qwen14, false)
+	a.maxModelLen = -1
+	b := newFake(t, qwen8, false)
+	b.maxModelLen = 8192
+	snap, err := New(http.DefaultClient).Probe(context.Background(), twoServers(a, b))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !maps.Equal(snap.ContextLengths, map[string]int{qwen14: 0, qwen8: 8192}) {
+		t.Errorf("context lengths = %v", snap.ContextLengths)
+	}
+}
+
+func TestProbeReportsNothingForAServerWhoseModelsListFails(t *testing.T) {
+	a := newFake(t, qwen14, false)
+	a.maxModelLen = 32768
+	a.modelsStatus = http.StatusInternalServerError
+	b := newFake(t, qwen8, false)
+	b.maxModelLen = 8192
+	snap, err := New(http.DefaultClient).Probe(context.Background(), twoServers(a, b))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !maps.Equal(snap.ContextLengths, map[string]int{qwen8: 8192}) {
+		t.Errorf("a server that could not be asked must be absent: %v", snap.ContextLengths)
+	}
+	if snap.ModelStates[qwen14] == "" {
+		t.Errorf("the failing list must not drop the server from the probe: %v", snap.ModelStates)
+	}
+}
+
+func TestServedContexts(t *testing.T) {
+	served := []ServedModel{{ID: "a", MaxModelLen: 100}, {ID: "b"}, {ID: "c", MaxModelLen: -5}}
+	if got := ServedContexts(served, nil); !maps.Equal(got, map[string]int{"a": 100, "b": 0, "c": 0}) {
+		t.Errorf("all = %v", got)
+	}
+	if got := ServedContexts(served, []string{"a", "z"}); !maps.Equal(got, map[string]int{"a": 100}) {
+		t.Errorf("wanted = %v", got)
+	}
+	if got := ServedContexts(nil, nil); len(got) != 0 {
+		t.Errorf("none served = %v", got)
 	}
 }
 
@@ -72,7 +117,7 @@ func TestProbeReportsTheWindowOfEveryAlias(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !maps.Equal(snap.ContextLengths, map[string]int{qwen14: 8192, qwen14Alias: 8192}) {
+	if !maps.Equal(snap.ContextLengths, map[string]int{qwen14: 8192, qwen14Alias: 8192, qwen8: 0}) {
 		t.Errorf("context lengths = %v", snap.ContextLengths)
 	}
 }
