@@ -65,13 +65,23 @@ The sidebar shows the dashboard's version under the logo. A release candidate (`
 
 | Section | Pages | Shows |
 |---------|-------|-------|
-| Top | Overview, Nodes | Counts and health for every resource type; Kubernetes nodes with GPU detection and model-loading state |
+| Top | Overview, Nodes | Ready-of-total counts for nodes, GPUs, crews, and every other resource type (a tile shows a small spinner until its first count arrives, never a zero); Kubernetes nodes with GPU detection and model-loading state |
 | Messaging | Discussions, Messages | Multi-agent discussion threads with a timeline view; a NATS subject explorer with a live message viewer |
 | Crews | Crews, Agents, Prompts, Memory, Fitness | Crew and agent configuration, PromptModule contents, crew memory, and fitness suite runs |
-| Models | ModelServers, Models, Embeddings | ModelServer backends with their calibration (phase and, per model, fit, load time, generation, prompt, and parallel speed; an embedding model shows as skipped and a model that could not be measured as failed, each with its reason and no speeds), Model state, and EmbeddingModel configuration |
+| Models | ModelServers, Models, Embeddings | ModelServer backends with their calibration (phase and, per model, fit, load time, generation, prompt, and parallel speed; an embedding model shows as skipped and a model that could not be measured as failed, each with its reason and no speeds), Model state, and EmbeddingModel configuration. The Models page also lists each ModelServer's catalog (the models a crew selects by label), because crews ship no Model resources |
 | MCPs | MCP Servers, MCP Gateways, Quality Policies, Catalogs, Reports | MCPServer instances and tools, gateway routing, quality policies, catalog discovery, and quality verdicts |
 | Knowledge | RAG Sources | RAGSource indexing status with document and chunk counts |
 | System | Config | The `KubemootConfig` cluster singleton |
+
+### Refresh and resource views
+
+Pages refresh on a timer. A page shows its loading indicator only until its first data arrives; a later refresh runs in the background and swaps the new values in place, and a refresh that fails keeps the last data on screen.
+
+Every page that shows one custom resource (a crew, agent, PromptModule, model server, MCP server, and so on) ends with a collapsed **YAML** section. It shows the resource read-only, without `managedFields`, with a **Copy** button.
+
+An MCP server reached with a key shows **key from Secret `<name>`** (from `registry.authSecretRef`). The dashboard names the Secret and never reads or shows its value.
+
+The Kubemoot logo and **Powered by Kubemoot** open [kubemoot.org](https://kubemoot.org) in a new tab.
 
 ### Status colors
 

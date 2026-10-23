@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { errorOnFailure, loadingOnStart } from '#lib/client/refresh-state.js';
 	import { onMount } from 'svelte';
 	import { resolve } from '$app/paths';
 	import { namespace, refreshTrigger } from '#lib/stores/index.js';
@@ -8,6 +9,7 @@
 
 	let nodes = $state<TopologyNode[]>([]);
 	let edges = $state<TopologyEdge[]>([]);
+	let loaded = false;
 	let loading = $state(true);
 	let error = $state<string | null>(null);
 
@@ -18,7 +20,7 @@
 	}
 
 	async function fetchTopology() {
-		loading = true;
+		loading = loadingOnStart(loaded);
 		error = null;
 		try {
 			const res = await fetch(`${resolve('/api/kubemoot/topology')}?namespace=${$namespace}`);
@@ -30,8 +32,9 @@
 			nodes = data.nodes || [];
 			edges = data.edges || [];
 		} catch (e) {
-			error = e instanceof Error ? e.message : 'Failed to fetch topology';
+			error = errorOnFailure(loaded, e, 'Failed to fetch topology');
 		} finally {
+			loaded = loaded || error === null;
 			loading = false;
 		}
 	}

@@ -3,23 +3,15 @@
 	import { onMount } from 'svelte';
 	import { resolve } from '$app/paths';
 	import { namespace, refreshTrigger } from '#lib/stores/index.js';
-	import { StatusBadge } from '#lib/components/common/index.js';
+	import { StatusBadge, LoadingSpinner } from '#lib/components/common/index.js';
 	import { nodeCounts, readyCount, type CountEntry } from '#lib/overview-counts.js';
 	import { readyCountStatus } from '#lib/resource-status.js';
 
 	type ResourceCounts = Record<string, CountEntry>;
 
-	let counts = $state<ResourceCounts>({
-		nodes: { total: 0, ready: 0 },
-		gpus: { total: 0, ready: 0 },
-		modelservers: { total: 0, ready: 0 },
-		models: { total: 0, ready: 0 },
-		embeddingmodels: { total: 0, ready: 0 },
-		mcpservers: { total: 0, ready: 0 },
-		mcpgateways: { total: 0, ready: 0 },
-		ragsources: { total: 0, ready: 0 },
-		agents: { total: 0, ready: 0 }
-	});
+	// null until the first fetch lands: a zero would be a false value. Later
+	// refreshes swap the numbers in place.
+	let counts = $state<ResourceCounts | null>(null);
 
 	let error = $state<string | null>(null);
 
@@ -48,6 +40,7 @@
 
 	// The CRD lists counted on the Overview, in card order after nodes and GPUs.
 	const CRD_PLURALS = [
+		'crews',
 		'modelservers',
 		'models',
 		'embeddingmodels',
@@ -95,6 +88,7 @@
 	const resourceTypes = [
 		{ key: 'nodes', label: 'Nodes', href: resolve('/nodes'), icon: 'server' },
 		{ key: 'gpus', label: 'GPUs', href: resolve('/nodes'), icon: 'zap' },
+		{ key: 'crews', label: 'Crews', href: resolve('/crews'), icon: 'users' },
 		{ key: 'modelservers', label: 'Model Servers', href: resolve('/modelservers'), icon: 'cloud' },
 		{ key: 'models', label: 'Models', href: resolve('/models'), icon: 'box' },
 		{ key: 'embeddingmodels', label: 'Embedding Models', href: resolve('/embeddingmodels'), icon: 'layers' },
@@ -142,20 +136,28 @@
 
 	<div class="grid">
 		{#each resourceTypes as resource}
-			{@const c = counts[resource.key]}
+			{@const c = counts?.[resource.key]}
 			<a href={resource.href} class="card">
 				<div class="card-header">
 					<span class="card-label">{resource.label}</span>
-					<StatusBadge
-						status={readyCountStatus(c.ready, c.total)}
-						label={`${c.ready}/${c.total}`}
-						size="sm"
-					/>
+					{#if c}
+						<StatusBadge
+							status={readyCountStatus(c.ready, c.total)}
+							label={`${c.ready}/${c.total}`}
+							size="sm"
+						/>
+					{/if}
 				</div>
-				<div class="card-count">{c.total}</div>
-				<div class="card-footer">
-					{c.ready} ready
-				</div>
+				{#if c}
+					<div class="card-count">{c.total}</div>
+					<div class="card-footer">
+						{c.ready} ready
+					</div>
+				{:else}
+					<div class="card-count card-loading" role="status" aria-label="Loading {resource.label}">
+						<LoadingSpinner size="sm" />
+					</div>
+				{/if}
 			</a>
 		{/each}
 	</div>
@@ -285,6 +287,12 @@
 		font-weight: 700;
 		color: var(--color-text);
 		line-height: 1;
+	}
+
+	.card-loading {
+		min-height: 2.5rem;
+		display: flex;
+		align-items: center;
 	}
 
 	.card-footer {

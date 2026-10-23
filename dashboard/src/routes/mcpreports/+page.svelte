@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { errorOnFailure, loadingOnStart } from '#lib/client/refresh-state.js';
 	import { reportComparator } from '#lib/mcp-report-sort.js';
 	import { onMount } from 'svelte';
 	import { resolve } from '$app/paths';
@@ -8,6 +9,7 @@
 	import type { MCPServerReport } from '#lib/types/kubemoot.js';
 
 	let reports = $state<MCPServerReport[]>([]);
+	let loaded = false;
 	let loading = $state(true);
 	let error = $state<string | null>(null);
 	let expandedReport = $state<string | null>(null);
@@ -19,7 +21,7 @@
 	let sortBy = $state('lastTested');
 
 	async function fetchReports() {
-		loading = true;
+		loading = loadingOnStart(loaded);
 		error = null;
 		try {
 			const res = await fetch(resolve('/api/kubemoot/mcpserverreports'));
@@ -27,8 +29,9 @@
 			if (data.error) throw new Error(data.error);
 			reports = data.items || [];
 		} catch (e) {
-			error = e instanceof Error ? e.message : 'Failed to fetch reports';
+			error = errorOnFailure(loaded, e, 'Failed to fetch reports');
 		} finally {
+			loaded = loaded || error === null;
 			loading = false;
 		}
 	}

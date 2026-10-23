@@ -3,6 +3,7 @@
 	import { resolve } from '$app/paths';
 	import SystemInfoPopover from '#lib/components/common/SystemInfoPopover.svelte';
 	import KubemootLogo from './KubemootLogo.svelte';
+	import { KUBEMOOT_SITE } from '#lib/brand-links.js';
 	import { isReleaseCandidate } from '#lib/release-candidate.js';
 
 	const githubUrl = 'https://github.com/kubemoot/kubemoot';
@@ -131,9 +132,15 @@
 	</ul>
 
 	<div class="sidebar-footer">
-		<span class="powered-by" title={'AI can make mistakes.\nVerify important info.'}>
+		<a
+			class="powered-by"
+			href={KUBEMOOT_SITE}
+			target="_blank"
+			rel="noopener noreferrer"
+			title={'AI can make mistakes.\nVerify important info.'}
+		>
 			Powered by Kubemoot
-		</span>
+		</a>
 	</div>
 </nav>
 
@@ -264,7 +271,12 @@
 	.powered-by {
 		font-size: 0.7rem;
 		color: var(--color-text-muted);
-		cursor: help;
+		text-decoration: none;
+	}
+
+	.powered-by:hover {
+		color: var(--color-text);
+		text-decoration: underline;
 	}
 
 </style>

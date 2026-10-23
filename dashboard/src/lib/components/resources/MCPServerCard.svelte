@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { authDisplay } from '#lib/mcp-auth.js';
 	import { readinessStatus } from '#lib/resource-status.js';
 	import { resolve } from '$app/paths';
 	import type { MCPServer } from '#lib/types/kubemoot.js';
@@ -15,6 +16,7 @@
 
 	const statusLabel = $derived(server.status?.phase || 'Unknown');
 	const toolCount = $derived(server.status?.tools?.length || 0);
+	const auth = $derived(authDisplay(server.spec));
 </script>
 
 <ResourceCard
@@ -43,6 +45,12 @@
 				<div class="row">
 					<span class="label">Endpoint</span>
 					<span class="value mono">{server.status.endpoint}</span>
+				</div>
+			{/if}
+			{#if auth}
+				<div class="row">
+					<span class="label">Auth</span>
+					<span class="value">{auth}</span>
 				</div>
 			{/if}
 			<div class="row">

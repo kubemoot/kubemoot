@@ -10,3 +10,4 @@ export { default as RAGSourceCard } from './RAGSourceCard.svelte';
 export { default as AgentCard } from './AgentCard.svelte';
 export { default as MCPServerReportCard } from './MCPServerReportCard.svelte';
 export { default as NodeCard } from './NodeCard.svelte';
+export { default as CatalogModelCard } from './CatalogModelCard.svelte';

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { errorOnFailure, loadingOnStart } from '#lib/client/refresh-state.js';
 	import { onMount } from 'svelte';
 	import { resolve } from '$app/paths';
 	import { refreshTrigger, showStandAsides } from '#lib/stores/index.js';
@@ -7,11 +8,12 @@
 	import type { KubemootConfig } from '#lib/types/kubemoot.js';
 
 	let config = $state<KubemootConfig | null>(null);
+	let loaded = false;
 	let loading = $state(true);
 	let error = $state<string | null>(null);
 
 	async function fetchConfig() {
-		loading = true;
+		loading = loadingOnStart(loaded);
 		error = null;
 
 		try {
@@ -20,8 +22,9 @@
 			// Get the first (and typically only) KubemootConfig
 			config = data.items?.[0] || null;
 		} catch (e) {
-			error = e instanceof Error ? e.message : 'Failed to fetch Kubemoot config';
+			error = errorOnFailure(loaded, e, 'Failed to fetch Kubemoot config');
 		} finally {
+			loaded = loaded || error === null;
 			loading = false;
 		}
 	}
@@ -38,7 +41,7 @@
 	const status = $derived(config?.status?.ready ? 'success' : 'pending');
 </script>
 
-<DetailPanel title="Kubemoot Config" subtitle="Cluster-scoped configuration" {loading} {error}>
+<DetailPanel title="Kubemoot Config" subtitle="Cluster-scoped configuration" {loading} {error} resource={config}>
 	{#snippet header()}
 		<div class="header-content">
 			<div class="title-section">

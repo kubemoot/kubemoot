@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { YamlView } from '#lib/components/common/index.js';
+	import { errorOnFailure, loadingOnStart } from '#lib/client/refresh-state.js';
 	import { resolve } from '$app/paths';
 	import { page } from '$app/state';
 	import type { Crew, Agent } from '#lib/types/kubemoot.js';
@@ -26,6 +28,7 @@
 	let crew = $state<Crew | null>(null);
 	let agents = $state<Agent[]>([]);
 	let resumeModel = $state<ResumeModel | null>(null);
+	let loaded = false;
 	let loading = $state(true);
 	let agentsLoading = $state(false);
 	let error = $state<string | null>(null);
@@ -37,7 +40,7 @@
 	});
 
 	async function fetchCrew(ns: string, name: string) {
-		loading = true;
+		loading = loadingOnStart(loaded);
 		error = null;
 		try {
 			const res = await fetch(`${resolve('/api/kubemoot/crews/[name]', { name })}?namespace=${ns}`);
@@ -46,8 +49,9 @@
 			crew = data;
 			loadCrewChildren(crew?.metadata.namespace ?? ns, crew?.metadata.name ?? name);
 		} catch (e) {
-			error = e instanceof Error ? e.message : 'Failed to fetch crew';
+			error = errorOnFailure(loaded, e, 'Failed to fetch crew');
 		} finally {
+			loaded = loaded || error === null;
 			loading = false;
 		}
 	}
@@ -239,6 +243,7 @@
 			</table>
 		</div>
 	{/if}
+	<YamlView resource={crew} />
 {/if}
 
 <style>

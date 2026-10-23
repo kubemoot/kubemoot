@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { errorOnFailure, loadingOnStart } from '#lib/client/refresh-state.js';
 	import { readinessStatus } from '#lib/resource-status.js';
 	import { onMount } from 'svelte';
 	import { page } from '$app/state';
@@ -9,6 +10,7 @@
 	import type { MCPGateway } from '#lib/types/kubemoot.js';
 
 	let gateway = $state<MCPGateway | null>(null);
+	let loaded = false;
 	let loading = $state(true);
 	let error = $state<string | null>(null);
 
@@ -16,7 +18,7 @@
 	const ns = $derived(page.url.searchParams.get('namespace') || $namespace);
 
 	async function fetchGateway() {
-		loading = true;
+		loading = loadingOnStart(loaded);
 		error = null;
 
 		try {
@@ -24,8 +26,9 @@
 			if (!res.ok) throw new Error('MCP gateway not found');
 			gateway = await res.json();
 		} catch (e) {
-			error = e instanceof Error ? e.message : 'Failed to fetch MCP gateway';
+			error = errorOnFailure(loaded, e, 'Failed to fetch MCP gateway');
 		} finally {
+			loaded = loaded || error === null;
 			loading = false;
 		}
 	}
@@ -43,7 +46,7 @@
 	const status = $derived(readinessStatus(gateway?.status));
 </script>
 
-<DetailPanel title={name} subtitle="MCPGateway" {loading} {error}>
+<DetailPanel title={name} subtitle="MCPGateway" {loading} {error} resource={gateway}>
 	{#snippet header()}
 		<div class="header-content">
 			<div class="title-section">

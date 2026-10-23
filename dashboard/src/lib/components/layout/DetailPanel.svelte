@@ -1,17 +1,20 @@
 <script lang="ts">
 	import type { Snippet } from 'svelte';
+	import YamlView from '../common/YamlView.svelte';
 
 	interface Props {
 		title?: string;
 		subtitle?: string;
 		loading?: boolean;
 		error?: string | null;
+		/** The custom resource this page shows; adds the read-only YAML view. */
+		resource?: { metadata?: Record<string, unknown> } | null;
 		children: Snippet;
 		header?: Snippet;
 		actions?: Snippet;
 	}
 
-	let { title, subtitle, loading = false, error = null, children, header, actions }: Props = $props();
+	let { title, subtitle, loading = false, error = null, children, header, actions, resource = null }: Props = $props();
 </script>
 
 <div class="detail-panel">
@@ -50,6 +53,7 @@
 			</div>
 		{:else}
 			{@render children()}
+			<YamlView {resource} />
 		{/if}
 	</div>
 </div>

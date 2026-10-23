@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { YamlView } from '#lib/components/common/index.js';
+	import { errorOnFailure, loadingOnStart } from '#lib/client/refresh-state.js';
 	import { yesNo } from '#lib/resource-status.js';
 	import { onMount } from 'svelte';
 	import { page } from '$app/state';
@@ -8,6 +10,7 @@
 
 	let module = $state<PromptModule | null>(null);
 	let referencingAgents = $state<Agent[]>([]);
+	let loaded = false;
 	let loading = $state(true);
 	let error = $state<string | null>(null);
 
@@ -15,7 +18,7 @@
 	const ns = $derived(page.url.searchParams.get('namespace') || $namespace || 'kubemoot');
 
 	async function fetchModule() {
-		loading = true;
+		loading = loadingOnStart(loaded);
 		error = null;
 		try {
 			const res = await fetch(`${resolve('/api/kubemoot/promptmodules/[name]', { name })}?namespace=${ns}`);
@@ -24,8 +27,9 @@
 			module = data;
 			fetchReferencingAgents(module?.metadata.namespace ?? ns, name);
 		} catch (e) {
-			error = e instanceof Error ? e.message : 'Failed to fetch prompt module';
+			error = errorOnFailure(loaded, e, 'Failed to fetch prompt module');
 		} finally {
+			loaded = loaded || error === null;
 			loading = false;
 		}
 	}
@@ -100,6 +104,7 @@
 			</tbody>
 		</table>
 	{/if}
+	<YamlView resource={module} />
 {/if}
 
 <style>

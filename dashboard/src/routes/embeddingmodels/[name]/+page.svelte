@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { errorOnFailure, loadingOnStart } from '#lib/client/refresh-state.js';
 	import { onMount } from 'svelte';
 	import { page } from '$app/state';
 	import { resolve } from '$app/paths';
@@ -8,6 +9,7 @@
 	import type { EmbeddingModel } from '#lib/types/kubemoot.js';
 
 	let model = $state<EmbeddingModel | null>(null);
+	let loaded = false;
 	let loading = $state(true);
 	let error = $state<string | null>(null);
 
@@ -15,7 +17,7 @@
 	const ns = $derived(page.url.searchParams.get('namespace') || $namespace);
 
 	async function fetchModel() {
-		loading = true;
+		loading = loadingOnStart(loaded);
 		error = null;
 
 		try {
@@ -23,8 +25,9 @@
 			if (!res.ok) throw new Error('Embedding model not found');
 			model = await res.json();
 		} catch (e) {
-			error = e instanceof Error ? e.message : 'Failed to fetch embedding model';
+			error = errorOnFailure(loaded, e, 'Failed to fetch embedding model');
 		} finally {
+			loaded = loaded || error === null;
 			loading = false;
 		}
 	}
@@ -52,7 +55,7 @@
 	);
 </script>
 
-<DetailPanel title={name} subtitle="EmbeddingModel" {loading} {error}>
+<DetailPanel title={name} subtitle="EmbeddingModel" {loading} {error} resource={model}>
 	{#snippet header()}
 		<div class="header-content">
 			<div class="title-section">
