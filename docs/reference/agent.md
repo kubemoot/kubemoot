@@ -206,11 +206,16 @@ The container's resources come from three layers, highest first:
 | Agent runtime and any harness but goose | cpu `25m`, memory `96Mi` | memory `256Mi` |
 | `goose` | cpu `100m`, memory `256Mi` | memory `1Gi` |
 
-The layers merge per resource name, not as a whole. A layer replaces only the requests and limits it names, so an Agent that sets only `limits.memory: 512Mi` keeps the default CPU and memory requests. If a request ends up above the limit of the same resource, the request is lowered to the limit.
+The layers merge per resource name, not as a whole. A layer replaces only the requests and limits it names, so an Agent that sets only `limits.memory: 512Mi` keeps the default CPU and memory requests. `KubemootConfig` `spec.defaults.agentResources` applies on top of every harness's built-in default, goose included, so a default set there replaces the goose built-in for the resources it names. Two rules keep the pod valid without lowering what you asked for:
+
+- A layer that sets a request above the inherited limit, without setting that limit, raises the limit to the request. An Agent with `requests.memory: 512Mi` ends up with a 512Mi limit, not 256Mi.
+- A layer that sets a limit below an inherited request lowers that request to the limit. A layer that sets both, with the request above the limit, has its request lowered to its own limit.
+
+A limit of `0` is ignored, and resource claims merge by name with the later layer winning. Because layers only add or replace, you cannot remove a default limit (such as the memory limit) by leaving it out; set a larger one instead.
 
 The defaults carry no CPU limit on purpose. A CPU limit pauses the container whenever it uses its quota within a scheduling window, and an agent mostly orchestrates inference calls and waits, so the pauses add latency to short bursts. The CPU request still protects the agent's share on a busy node. Memory keeps a limit because it cannot be reclaimed. Set `limits.cpu` on an Agent or in the KubemootConfig default if your cluster requires one.
 
-The native agent runtime peaks near 65Mi of memory and 0.02 cores in the homelab. The goose harness container idles near 5Mi, but it runs `goose run` for each request, so its default is larger; raise it for a goose seat that loads many extensions.
+The goose harness runs `goose run` for each request, so its default is larger than the agent runtime's; raise it for a goose seat that loads many extensions.
 
 ## Status Fields
 

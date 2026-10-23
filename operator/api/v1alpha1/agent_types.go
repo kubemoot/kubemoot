@@ -130,8 +130,8 @@ type DeploymentConfig struct {
 
 	// Resources are the agent container's resource requirements. Each resource named here
 	// replaces the same resource from KubemootConfig spec.defaults.agentResources and from
-	// the operator's built-in default (requests cpu 25m and memory 96Mi, limit memory 256Mi);
-	// resources not named keep that default.
+	// the operator's built-in default; resources not named keep that default. The defaults
+	// and the merge rules are in docs/reference/agent.md (Resources).
 	// +optional
 	Resources *corev1.ResourceRequirements `json:"resources,omitempty"`
 
