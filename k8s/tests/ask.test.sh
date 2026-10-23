@@ -16,15 +16,26 @@ check() {
   fi
 }
 
-crews='{"items":[
- {"metadata":{"namespace":"a","name":"x"},"status":{"phase":"Degraded"}},
- {"metadata":{"namespace":"b","name":"y"},"status":{"phase":"Ready"}},
- {"metadata":{"namespace":"c","name":"z"},"status":{"phase":"Ready"}}]}'
-check "first Ready crew" "b y" "$(printf '%s' "$crews" | first_ready_crew)"
-check "no crew when none is Ready" "" \
-  "$(printf '%s' '{"items":[{"metadata":{"namespace":"a","name":"x"},"status":{}}]}' | first_ready_crew)"
-check "no crew from an empty list" "" "$(printf '%s' '{"items":[]}' | first_ready_crew)"
-check "no crew from no output" "" "$(printf '' | first_ready_crew)"
+ready() { printf '{"metadata":{"namespace":"%s","name":"%s"},"status":{"phase":"%s"}}' "$1" "$2" "${3:-Ready}"; }
+agent() { # namespace crew role channels-json
+  printf '{"metadata":{"namespace":"%s","ownerReferences":[{"kind":"Crew","name":"%s"}]},"spec":{"discussRole":"%s","discussChannels":%s}}' "$1" "$2" "$3" "$4"
+}
+crews="{\"items\":[$(ready a x Degraded),$(ready grade g),$(ready pilot p),$(ready other o)]}"
+agents_file=$(mktemp)
+printf '{"items":[%s,%s,%s,%s]}' \
+  "$(agent grade g coordinator '[]')" "$(agent pilot p coordinator '["kubernetes","general"]')" \
+  "$(agent other o tooler '["general"]')" "$(agent a x coordinator '["general"]')" >"$agents_file"
+check "crew without discussion channels is skipped" "pilot p" "$(printf '%s' "$crews" | first_discussion_crew "$agents_file")"
+printf '{"items":[%s]}' "$(agent grade g coordinator '["library"]')" >"$agents_file"
+check "no crew when no coordinator has the general channel" "" "$(printf '%s' "$crews" | first_discussion_crew "$agents_file")"
+printf '{"items":[]}' >"$agents_file"
+check "no crew when there are no agents" "" "$(printf '%s' "$crews" | first_discussion_crew "$agents_file")"
+printf '%s' "$crews" >"$agents_file.crews"
+check "SMOKE_CREW is honored" "ns1 c1" "$(SMOKE_CREW=ns1/c1 pick_crew "$agents_file.crews" "$agents_file")"
+check "SMOKE_CREW unset uses the rule" "" "$(unset SMOKE_CREW; pick_crew "$agents_file.crews" "$agents_file")"
+rm -f "$agents_file.crews"
+check "stop message is a manual stop on the thread" "stop_requested human t1 general manual_stop" \
+  "$(stop_json t1 n1 c1 | jq -r '[.messageType,.agentName,.threadId,.channel,.metadata.reason]|join(" ")')"
 
 check "thread start fields" "human thread_start general t1 n1 c1" \
   "$(thread_start_json t1 m1 n1 c1 'hi' | jq -r '[.agentName,.messageType,.channel,.threadId,.metadata.namespace,.metadata.crew]|join(" ")')"
@@ -36,7 +47,7 @@ check "request timestamp is RFC 3339" "true" \
   "$(request_json k n1 c1 'q' | jq '.timestamp|test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:]{8}Z$")')"
 
 log=$(mktemp)
-trap 'rm -f "$log"' EXIT
+trap 'rm -f "$log" "$agents_file"' EXIT
 printf '%s\n' \
   'not json' \
   '{"threadId":"t1","messageType":"thread_start","agentName":"human","content":"Smoke check k1"}' \
@@ -66,6 +77,19 @@ kill "$pid" 2>/dev/null || true
 wait "$pid" 2>/dev/null || true
 wait_until false "$pid" 5 && r=0 || r=$?
 check "wait reports a dead capture process" "2" "$r"
+
+# A question that gets no synthesis closes its thread. Fake nats: sub stays silent, pub is recorded.
+pubs=$(mktemp)
+nats() { case "$1" in sub) exec sleep 20 ;; pub) printf '%s %s\n' "$4" "$5" >>"$pubs" ;; esac; }
+ask_crew bus ns1 c1 nats://x 1 >/dev/null && r=0 || r=$?
+check "unanswered question reports a timeout" "1" "$r"
+check "cleanup stop goes to the thread's subject on timeout" "1" \
+  "$(grep -c '^kubemoot.discuss.ns1.c1.general.smoke.* {.*"stop_requested"' "$pubs")"
+: >"$pubs"
+nats() { case "$1" in sub) exec sleep 20 ;; pub) return 1 ;; esac; }
+ask_crew bus ns1 c1 nats://x 1 >/dev/null && r=0 || r=$?
+check "no cleanup when the publish itself failed" "3" "$r"
+rm -f "$pubs"
 
 [ "$failures" -eq 0 ] || { echo "${failures} failed"; exit 1; }
 echo "all passed"

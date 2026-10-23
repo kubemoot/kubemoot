@@ -124,9 +124,16 @@ log_section "Test 4: Crew Answers a Question"
 # safety net.
 ASK_TIMEOUT="${ASK_TIMEOUT:-480}"
 NATS_URL="${NATS_URL:-nats://nats.nats.svc.cluster.local:4222}"
-CREW_TARGET=$(kubectl get crews -A -o json 2>/dev/null | first_ready_crew)
+# Ask a crew that holds discussions (declared state: see first_discussion_crew), or the one
+# SMOKE_CREW=<namespace>/<crew> names.
+CREWS_JSON=$(mktemp)
+AGENTS_JSON=$(mktemp)
+kubectl get crews -A -o json >"$CREWS_JSON" 2>/dev/null || true
+kubectl get agents -A -o json >"$AGENTS_JSON" 2>/dev/null || true
+CREW_TARGET=$(pick_crew "$CREWS_JSON" "$AGENTS_JSON")
+rm -f "$CREWS_JSON" "$AGENTS_JSON"
 if [ -z "$CREW_TARGET" ]; then
-    log_skip "Crew answer check: no crew present, skipped"
+    log_skip "Crew answer check: no Ready crew holds discussions on the general channel (set SMOKE_CREW=<namespace>/<crew> to choose one), skipped"
 elif ! command -v nats &>/dev/null; then
     log_fail "Crew answer check: the nats CLI is not installed, so the crew cannot be asked"
 else

@@ -21,6 +21,9 @@ spec:
       containers:
         - name: test
           image: ghcr.io/kubemoot/test-runner:0.0.0
+          env:
+            - name: SMOKE_CREW  # optional <namespace>/<crew> to ask; the workflow fills it in
+              value: ""
           command: ["/bin/bash", "-c"]
           args:
             - |
