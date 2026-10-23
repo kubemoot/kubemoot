@@ -81,8 +81,12 @@ export interface SignalMarker {
 export interface AgentSpan {
 	agent: string;
 	displayName: string;
+	/** Milliseconds from the thread start to the agent's first timed message; 0 when {@link timed} is false. */
 	startMs: number;
+	/** Milliseconds from the thread start to the agent's last timed message; 0 when {@link timed} is false. */
 	endMs: number;
+	/** Whether any of the agent's messages carries a timestamp, so start and end are known. */
+	timed: boolean;
 	primarySignal: string;
 	color: string;
 	isHuman: boolean;
@@ -133,23 +137,36 @@ export function messageTimeMs(msg: DiscussionMessage): number {
 	return msg.timestamp ? new Date(msg.timestamp).getTime() : Number.NaN;
 }
 
-/** When the thread started: its thread_start, else its first message, in epoch milliseconds. */
+/**
+ * When the thread started, in epoch milliseconds: its thread_start, else its first
+ * message, else the earliest message that carries a timestamp. NaN when none does.
+ */
 export function threadStartMs(messages: DiscussionMessage[]): number {
 	const start = messages.find((m) => m.messageType === 'thread_start') ?? messages[0];
-	return messageTimeMs(start);
+	const direct = messageTimeMs(start);
+	if (Number.isFinite(direct)) return direct;
+	const known = messages.map(messageTimeMs).filter(Number.isFinite);
+	return known.length > 0 ? Math.min(...known) : Number.NaN;
 }
 
 function groupByAgent(messages: DiscussionMessage[], t0: number): Map<string, AgentMessages> {
 	const byAgent = new Map<string, AgentMessages>();
 	for (const msg of messages) {
 		const ts = messageTimeMs(msg) - t0;
+		const known = Number.isFinite(ts);
 		const existing = byAgent.get(msg.agentName);
-		if (existing) {
-			existing.msgs.push(msg);
+		if (!existing) {
+			byAgent.set(msg.agentName, {
+				msgs: [msg],
+				minMs: known ? ts : Number.POSITIVE_INFINITY,
+				maxMs: known ? ts : Number.NEGATIVE_INFINITY
+			});
+			continue;
+		}
+		existing.msgs.push(msg);
+		if (known) {
 			existing.minMs = Math.min(existing.minMs, ts);
 			existing.maxMs = Math.max(existing.maxMs, ts);
-		} else {
-			byAgent.set(msg.agentName, { msgs: [msg], minMs: ts, maxMs: ts });
 		}
 	}
 	return byAgent;
@@ -220,7 +237,12 @@ function toolsUsed(msgs: DiscussionMessage[]): string[] {
 /** Markers for the marker signals other than the agent's primary signal. */
 function signalMarkers(msgs: DiscussionMessage[], t0: number, primary: string): SignalMarker[] {
 	return msgs
-		.filter((m) => MARKER_SIGNALS.has(m.messageType) && m.messageType !== primary)
+		.filter(
+			(m) =>
+				MARKER_SIGNALS.has(m.messageType) &&
+				m.messageType !== primary &&
+				Number.isFinite(messageTimeMs(m) - t0)
+		)
 		.map((m) => ({
 			ms: messageTimeMs(m) - t0,
 			type: m.messageType,
@@ -231,11 +253,13 @@ function signalMarkers(msgs: DiscussionMessage[], t0: number, primary: string): 
 function agentSpan(agent: string, data: AgentMessages, t0: number): AgentSpan {
 	const primary = primarySignal(data.msgs);
 	const isHuman = agent === 'human';
+	const timed = Number.isFinite(data.minMs) && Number.isFinite(data.maxMs);
 	return {
 		agent,
 		displayName: isHuman ? 'You' : agent.replace('homelab-', ''),
-		startMs: data.minMs,
-		endMs: data.maxMs,
+		startMs: timed ? data.minMs : 0,
+		endMs: timed ? data.maxMs : 0,
+		timed,
 		primarySignal: primary,
 		color: signalColor(primary),
 		isHuman,

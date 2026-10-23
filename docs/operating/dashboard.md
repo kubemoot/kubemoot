@@ -107,6 +107,18 @@ When the coordinator closes a thread, a **Placement** panel follows the summary.
 
 Select **alternatives considered** on a row to see the other placements the scheduler weighed, each with its predicted total split into waiting, loading, reading the prompt and generating, and whether it was warm and could start at once. A thread whose receipt carries no placement calls shows no panel.
 
+The thread toolbar and the thread list share their actions, and every action's tooltip says what it is for:
+
+- **Delete** is one trash-can icon in both places. It asks Yes or No in the page, then removes the discussion from the timeline and purges its messages; this cannot be undone. In the list the icon sits in the bottom-right corner of a tile on hover, clear of the status text.
+- **Pin** marks a discussion you want to find again. The pin is stored in the `kubemoot_pinned_threads` bucket, so it stays after a reload and shows in other browsers. A pin does not stop a delete.
+- **New discussion** is enabled only when one crew is selected in the top bar, because a discussion is asked of a single crew. With All crews selected the button is disabled and its tooltip says to pick a crew.
+
+The span graph draws one bar per agent from its first to its last message. A thread started straight on the bus, such as a smoke test, may carry messages with no timestamp. The graph draws the agents whose start and end are known and labels each of the others "no timing recorded" instead of drawing a bar.
+
+### Memory
+
+Shows the working memory of the crew selected in the top bar, the same crew picker the Discussions page uses. Working memory is what a crew has learned about the cluster and keeps between discussions, stored as facts with a topic, a key and a value; the least recently used are dropped over time. With All crews selected the page asks you to pick a crew. A crew with no facts shows an empty state that explains this. **Add or update a fact** enables Save once a crew is selected and the topic, key and value are filled in; until then the line under the form says what is missing. Saving an existing topic and key updates that fact.
+
 ### Messages
 
 A general NATS subject explorer. Subscribe to any subject pattern (for example `kubemoot.chat.>` or `kubemoot.operator.>`), watch JSON payloads as they arrive, and publish to arbitrary subjects. It is useful for debugging agent communication and operator events.

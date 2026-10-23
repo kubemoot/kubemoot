@@ -8,7 +8,7 @@
 	import type { Thread } from '#lib/stores/index.js';
 	import { discussSubject, tryCrewScope, type CrewScope } from '#lib/crewScope.js';
 	import { crewEntry, crewLabel, crewTooltip } from '#lib/crew-display-name.js';
-	import { DiscussionSpanGraph, MessageStatsLine, PlacementPanel, ThreadSummaryPanel } from '#lib/components/discussions/index.js';
+	import { DeleteDiscussion, DiscussionSpanGraph, MessageStatsLine, PlacementPanel, ThreadSummaryPanel } from '#lib/components/discussions/index.js';
 	import { debugMessageCount, visibleMessages, afterAnswerMessages } from '#lib/conversation-view.js';
 	import { placementCallsOf } from '#lib/placement-panel.js';
 	import { formatTimestamp, messageStats, summarizeThread } from '#lib/discussion-timing.js';
@@ -17,6 +17,7 @@
 	import { aggregateAgents, type AgentAgg } from '#lib/discussion-agent-summary.js';
 	import { placementOf, threadStartMs as messagesStartMs } from '#lib/discussion-spans.js';
 	import { buildGpuDisplayMap } from '#lib/gpu-display.js';
+	import * as tips from '#lib/discussion-actions.js';
 
 	// Configure marked for safe inline rendering
 	marked.setOptions({ breaks: true, gfm: true });
@@ -432,13 +433,9 @@
 		}
 	}
 
-	// Per-row remove from the list (mirrors the Fitness page ✕). Confirms, then
+	// Per-row remove from the list; the DeleteDiscussion component confirms first, then
 	// removeThread drops it from the timeline and purges its messages from NATS.
-	async function removeDiscussion(threadId: string, e: Event) {
-		e.stopPropagation();
-		if (!confirm('Remove this discussion?\n\nIt is deleted from the timeline and its messages are purged. This cannot be undone.')) {
-			return;
-		}
+	async function removeDiscussion(threadId: string) {
 		if (selectedThreadId === threadId) selectedThreadId = null;
 		if ($pinnedThreadIds.has(threadId)) await unpinThread(threadId);
 		await removeThread(threadId);
@@ -575,7 +572,7 @@
 		<h1>Agent Discussions</h1>
 		<div class="header-actions">
 			{#if !$readOnly}
-				<button class="new-btn" onclick={() => (showNewForm = !showNewForm)}>
+				<button class="new-btn" onclick={() => (showNewForm = !showNewForm)} disabled={!tips.canStartDiscussion(selectedScope)} title={tips.newDiscussionTooltip(selectedScope)}>
 					{showNewForm ? 'Cancel' : '+ New Discussion'}
 				</button>
 			{/if}
@@ -655,12 +652,9 @@
 						</div>
 					</button>
 					{#if !$readOnly}
-						<button
-							class="del-thread"
-							title="Remove this discussion (deletes from the timeline and purges its messages)"
-							aria-label="Remove discussion"
-							onclick={(e) => removeDiscussion(thread.threadId, e)}
-						>✕</button>
+						<div class="del-thread">
+							<DeleteDiscussion layout="popover" onconfirm={() => removeDiscussion(thread.threadId)} />
+						</div>
 					{/if}
 					</div>
 				{/each}
@@ -691,7 +685,7 @@
 						<span class="human-badge">Human-initiated</span>
 					{/if}
 					<div class="thread-actions">
-						<button class="action-btn" class:active-toggle={showSpanGraph} onclick={() => { showSpanGraph = !showSpanGraph; }} title="Toggle span graph">
+						<button class="action-btn" class:active-toggle={showSpanGraph} onclick={() => { showSpanGraph = !showSpanGraph; }} title={tips.SPAN_GRAPH_TOOLTIP} aria-label="Toggle span graph">
 							<svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
 								<rect x="1" y="2" width="10" height="3" rx="1" fill="currentColor" opacity="0.8" />
 								<rect x="1" y="7" width="14" height="3" rx="1" fill="currentColor" opacity="0.6" />
@@ -704,7 +698,7 @@
 								<path d="M5 6.5L3 4.5M11 6.5L13 4.5M5 9.5H2M11 9.5H14M5.5 12.5L3.5 14.5M10.5 12.5L12.5 14.5M6.5 5.5C6.5 4 7 3 8 3S9.5 4 9.5 5.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" />
 							</svg>
 						</button>
-						<button class="action-btn" onclick={copyThread} title="Copy thread to clipboard">
+						<button class="action-btn" onclick={copyThread} title={tips.COPY_THREAD_TOOLTIP} aria-label="Copy thread">
 							{copiedThread ? '✓' : '📋'}
 						</button>
 						{#if !$readOnly}
@@ -712,44 +706,37 @@
 							class="action-btn"
 							class:active-toggle={$pinnedThreadIds.has(selectedThread.threadId)}
 							onclick={togglePin}
-							title={$pinnedThreadIds.has(selectedThread.threadId) ? 'Unpin thread' : 'Pin thread (protects from delete)'}
+							title={tips.pinTooltip($pinnedThreadIds.has(selectedThread.threadId))}
+							aria-label={$pinnedThreadIds.has(selectedThread.threadId) ? 'Unpin thread' : 'Pin thread'}
 						>
 							{$pinnedThreadIds.has(selectedThread.threadId) ? '📌' : '📍'}
 						</button>
 						{#if selectedThread.status === 'open'}
 							{#if isThreadPaused(selectedThread)}
-								<button class="action-btn" onclick={resumeThread} disabled={sending} title="Resume paused discussion">
+								<button class="action-btn" onclick={resumeThread} disabled={sending} title={tips.RESUME_TOOLTIP} aria-label="Resume discussion">
 									▶️
 								</button>
 							{:else}
-								<button class="action-btn" onclick={pauseThread} disabled={sending} title="Pause discussion - suspends settle timer">
+								<button class="action-btn" onclick={pauseThread} disabled={sending} title={tips.PAUSE_TOOLTIP} aria-label="Pause discussion">
 									⏸️
 								</button>
 							{/if}
-							<button class="action-btn" onclick={stopThread} disabled={sending} title="Stop discussion now - coordinator synthesizes with current signals">
+							<button class="action-btn" onclick={stopThread} disabled={sending} title={tips.STOP_TOOLTIP} aria-label="Stop discussion">
 								⏹️
 							</button>
 						{/if}
 						{#if selectedThread.status !== 'open'}
-							<button class="action-btn" onclick={replayThread} disabled={sending} title="Replay this question as a new discussion">
+							<button class="action-btn" onclick={replayThread} disabled={sending} title={tips.REPLAY_TOOLTIP} aria-label="Replay discussion">
 								🔁
 							</button>
 						{/if}
-						{#if !deleteConfirm}
-							<button class="action-btn danger" onclick={() => { deleteConfirm = true; }} title="Delete thread (Del)">
-								🗑️
-							</button>
-						{:else}
-							<span class="delete-prompt">Delete?</span>
-							<button class="action-btn-text yes" onclick={deleteThread}>Yes</button>
-							<button class="action-btn-text no" onclick={() => { deleteConfirm = false; }}>No</button>
-						{/if}
+						<DeleteDiscussion bind:confirming={deleteConfirm} onconfirm={deleteThread} />
 						{/if}
 					</div>
 				</div>
 				<div class="thread-query-full" title={selectedThread.threadId}>
 					<span>{selectedThread.userQuery}</span>
-					<button class="thread-id-copy" onclick={copyThreadId} title="Copy thread ID">
+					<button class="thread-id-copy" onclick={copyThreadId} title={tips.COPY_ID_TOOLTIP}>
 						{copiedThreadId ? '✓' : '#'}
 					</button>
 				</div>
@@ -1059,27 +1046,21 @@
 	.thread-row {
 		position: relative;
 	}
+	/* Bottom-right corner, beside the timestamp row's end, clear of the status text
+	   in the header. The meta row reserves its width so nothing sits under it. */
 	.del-thread {
 		position: absolute;
-		top: 0.4rem;
+		bottom: 0.35rem;
 		right: 0.4rem;
-		background: none;
-		border: none;
-		color: var(--color-text-muted, #888);
-		cursor: pointer;
-		font-size: 0.85rem;
-		line-height: 1;
-		padding: 0.1rem 0.3rem;
-		border-radius: 4px;
 		opacity: 0;
 		transition: opacity 0.12s;
 	}
-	.thread-row:hover .del-thread {
+	.thread-row:hover .del-thread,
+	.del-thread:focus-within {
 		opacity: 1;
 	}
-	.del-thread:hover {
-		color: #e5534b;
-		background: var(--color-bg-secondary);
+	.thread-row :global(.thread-meta) {
+		padding-right: 1.75rem;
 	}
 
 	.thread-header {

@@ -95,7 +95,7 @@
 		hideNoWorkAgents ? spans.filter((s) => !isNoWork(s)) : spans
 	);
 
-	const maxMs = $derived(Math.max(...visibleSpans.map((s) => s.endMs), 1000));
+	const maxMs = $derived(Math.max(...visibleSpans.filter((s) => s.timed).map((s) => s.endMs), 1000));
 
 	const ticks = $derived.by(() => {
 		const maxSec = maxMs / 1000;
@@ -371,6 +371,18 @@
 				>{badgeText}</text>
 			{/if}
 
+			{#if !span.timed}
+				<!-- No message of this agent carries a timestamp: nothing to place on the axis -->
+				<text
+					x={LABEL_WIDTH + PADDING_LEFT}
+					y={y + ROW_HEIGHT / 2}
+					dominant-baseline="central"
+					fill="#9ca3af"
+					font-size="10"
+					font-style="italic"
+					font-family="ui-monospace, monospace"
+				>{span.messages.length} message{span.messages.length === 1 ? '' : 's'}, no timing recorded</text>
+			{:else}
 			<!-- eslint-disable-next-line svelte/valid-compile -->
 			<!-- svelte-ignore a11y_no_static_element_interactions -->
 			<g
@@ -532,6 +544,7 @@
 					</foreignObject>
 				{/if}
 			</g>
+			{/if}
 		{/each}
 	</svg>
 
