@@ -130,7 +130,14 @@ and pods. The operator does this two ways: it adds the Crew as an owner of each 
 so garbage collection cascades, and the Crew finalizer deletes any member Agents still
 present, which covers Agents created before the owner reference existed. Agents of another
 Crew and Agents without the label are left alone. The finalizer also removes the Crew's
-cluster RBAC and working memory. This includes Agents a Helm release manages: they return on
+cluster RBAC and working memory.
+
+The finalizer also closes the Crew's discussions by purging every message under
+`kubemoot.discuss.<namespace>.<crew>.>` from the `KUBEMOOT_DISCUSS` stream and deleting the
+liveness heartbeats of its Agents from `kubemoot_agent_state`. The subjects are namespace
+scoped, so a Crew of the same name in another namespace keeps its threads. If NATS is
+unreachable the finalizer stays, the Crew shows a `DiscussionPurgeFailed` warning event, and
+the operator retries until the purge succeeds. This includes Agents a Helm release manages: they return on
 the next Helm upgrade.
 
 ## Storage

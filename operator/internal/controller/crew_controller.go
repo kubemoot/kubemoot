@@ -34,6 +34,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
+	"k8s.io/client-go/tools/events"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -63,8 +64,13 @@ type CrewReconciler struct {
 	Scheme        *runtime.Scheme
 	ConfigCache   *ConfigCache
 	NATSPublisher *kubemootnats.Publisher
+	// Recorder emits events on a Crew whose deletion cleanup fails. Nil emits none.
+	Recorder events.EventRecorder
+	// bus replaces NATSPublisher for discussion-state cleanup in tests.
+	bus crewDiscussionBus
 }
 
+// +kubebuilder:rbac:groups="",resources=events,verbs=create;patch
 // +kubebuilder:rbac:groups=kubemoot.ai,resources=crews,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=kubemoot.ai,resources=crews/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=kubemoot.ai,resources=crews/finalizers,verbs=update
@@ -234,8 +240,14 @@ func (r *CrewReconciler) setDiscussionEndpoint(crew *kubemootv1alpha1.Crew) {
 }
 
 func (r *CrewReconciler) handleDeletion(ctx context.Context, crew *kubemootv1alpha1.Crew) (ctrl.Result, error) {
+	agentNames := r.crewAgentNames(ctx, crew)
 	if err := r.deleteCrewAgents(ctx, crew); err != nil {
 		logf.FromContext(ctx).Error(err, "Failed to delete Crew agents; keeping finalizer", "crew", crew.Name)
+		return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
+	}
+	if err := r.purgeCrewDiscussions(ctx, crew, agentNames); err != nil {
+		logf.FromContext(ctx).Error(err, "Failed to purge Crew discussion state; keeping finalizer", "crew", crew.Name)
+		r.recordDeletionFailure(crew, err)
 		return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
 	}
 	r.deleteClusterRBAC(ctx, crew)

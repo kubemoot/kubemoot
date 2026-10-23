@@ -221,3 +221,87 @@ var _ = Describe("hasOwnerUID", func() {
 		Expect(hasOwnerUID(agent, crew)).To(BeTrue())
 	})
 })
+
+var _ = Describe("Crew deletion discussion purge", func() {
+	ctx := context.Background()
+	const (
+		ns           = "default"
+		natsDownCrew = "nats-down-crew"
+	)
+	newAgent := func(name string, labels map[string]string) {
+		Expect(k8sClient.Create(ctx, &aiv1alpha1.Agent{
+			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: ns, Labels: labels},
+			Spec:       aiv1alpha1.AgentSpec{Capabilities: []string{candReasoning}},
+		})).To(Succeed())
+	}
+	reconcileCrew := func(r *CrewReconciler, name string) {
+		_, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: name, Namespace: ns}})
+		Expect(err).NotTo(HaveOccurred())
+	}
+
+	{
+		It("purges only the crew's scoped subjects and its agents' heartbeats", func() {
+			crew := &aiv1alpha1.Crew{
+				ObjectMeta: metav1.ObjectMeta{Name: "purge-crew", Namespace: ns},
+				Spec:       aiv1alpha1.CrewSpec{Description: "purge"},
+			}
+			Expect(k8sClient.Create(ctx, crew)).To(Succeed())
+			newAgent("purge-member", map[string]string{labelCrew: "purge-crew"})
+			newAgent("purge-other", map[string]string{labelCrew: "other-crew"})
+
+			fake := &fakeDiscussionBus{}
+			r := &CrewReconciler{Client: k8sClient, Scheme: k8sClient.Scheme(), ConfigCache: NewConfigCache(), bus: fake}
+			reconcileCrew(r, "purge-crew")
+			Expect(k8sClient.Delete(ctx, crew)).To(Succeed())
+			reconcileCrew(r, "purge-crew")
+
+			Expect(fake.purged).To(Equal([]string{"KUBEMOOT_DISCUSS kubemoot.discuss.default.purge-crew.>"}))
+			Expect(fake.deleted).To(Equal([]string{"kubemoot_agent_state/default.purge-member"}))
+		})
+
+		It("keeps the finalizer and requeues when NATS fails, then finishes once it recovers", func() {
+			crew := &aiv1alpha1.Crew{
+				ObjectMeta: metav1.ObjectMeta{Name: natsDownCrew, Namespace: ns},
+				Spec:       aiv1alpha1.CrewSpec{Description: "nats down"},
+			}
+			Expect(k8sClient.Create(ctx, crew)).To(Succeed())
+			fake := &fakeDiscussionBus{purgeErr: fmt.Errorf("nats unreachable")}
+			r := &CrewReconciler{Client: k8sClient, Scheme: k8sClient.Scheme(), ConfigCache: NewConfigCache(), bus: fake}
+			reconcileCrew(r, natsDownCrew)
+			Expect(k8sClient.Delete(ctx, crew)).To(Succeed())
+
+			res, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: natsDownCrew, Namespace: ns}})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(res.RequeueAfter).To(BeNumerically(">", 0))
+			got := &aiv1alpha1.Crew{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: natsDownCrew, Namespace: ns}, got)).To(Succeed())
+			Expect(got.Finalizers).To(ContainElement(crewFinalizer))
+
+			fake.purgeErr = nil
+			reconcileCrew(r, natsDownCrew)
+			err = k8sClient.Get(ctx, types.NamespacedName{Name: natsDownCrew, Namespace: ns}, got)
+			Expect(errors.IsNotFound(err)).To(BeTrue(), "finalizer should release once NATS recovers")
+		})
+	}
+})
+
+type fakeDiscussionBus struct {
+	purgeErr error
+	purged   []string
+	deleted  []string
+}
+
+func (f *fakeDiscussionBus) PurgeSubject(stream, filter string) error {
+	if f.purgeErr != nil {
+		return f.purgeErr
+	}
+	f.purged = append(f.purged, stream+" "+filter)
+	return nil
+}
+
+func (f *fakeDiscussionBus) DeleteKVKeys(bucket string, keys []string) error {
+	for _, k := range keys {
+		f.deleted = append(f.deleted, bucket+"/"+k)
+	}
+	return nil
+}

@@ -104,6 +104,8 @@ func assertNoOpKVReads(t *testing.T, p *Publisher) {
 	if n, err := p.PurgeKVPrefix("b", "pre"); n != 0 || err != nil {
 		t.Errorf("PurgeKVPrefix() = (%d, %v), want (0, nil)", n, err)
 	}
+	wantNoErr(t, "PurgeSubject()", p.PurgeSubject("S", "kubemoot.discuss.ns.crew.>"))
+	wantNoErr(t, "DeleteKVKeys()", p.DeleteKVKeys("b", []string{"k"}))
 }
 
 func assertNoOpObjectStore(t *testing.T, p *Publisher) {
