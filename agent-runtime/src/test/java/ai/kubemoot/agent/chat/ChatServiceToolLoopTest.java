@@ -1289,75 +1289,118 @@ class ChatServiceToolLoopTest {
         verifyNoInteractions(chatModel);
     }
 
-    @Test
-    void toolLoop_toolResultsThatOutgrowTheContext_failBeforeTheNextTurn() {
-        var toolSpec = ToolSpecification.builder().name("get_pods").description("List pods").build();
+    // ---- a tool result too large for the room left is replaced by an error ----
+
+    /** Runs a tool loop where the model calls resources_list {@code calls} times in its first turn. */
+    private ChatService.ToolLoopResult runBudgetLoop(boolean tooler, long window, int calls,
+            List<String> results, List<ChatResponse> laterTurns) {
+        var toolSpec = ToolSpecification.builder().name("resources_list").description("List").build();
         var toolExecutor = mock(ToolExecutor.class);
-        when(toolExecutor.execute(any(), any())).thenReturn("p".repeat(40_000));
+        when(toolExecutor.execute(any(), any())).thenReturn(results.get(0),
+                results.subList(1, results.size()).toArray(new String[0]));
         when(mcpClient.getToolSpecifications()).thenReturn(Map.of(toolSpec, toolExecutor));
-        var call = ToolExecutionRequest.builder().id("c1").name("get_pods").arguments("{}").build();
+        var requests = new java.util.ArrayList<ToolExecutionRequest>();
+        for (int i = 0; i < calls; i++) {
+            requests.add(ToolExecutionRequest.builder().id("c" + i).name("resources_list")
+                    .arguments("{}").build());
+        }
         var first = mock(ChatResponse.class);
-        when(first.aiMessage()).thenReturn(AiMessage.from(List.of(call)));
+        when(first.aiMessage()).thenReturn(AiMessage.from(requests));
         when(first.tokenUsage()).thenReturn(new TokenUsage(500, 20));
-        when(chatModel.chat(any(ChatRequest.class))).thenReturn(first);
-        var service = createService(5);
+        when(chatModel.chat(any(ChatRequest.class))).thenReturn(first, laterTurns.toArray(new ChatResponse[0]));
         var messages = new java.util.ArrayList<dev.langchain4j.data.message.ChatMessage>(List.of(
-                dev.langchain4j.data.message.UserMessage.from("list pods")));
+                dev.langchain4j.data.message.UserMessage.from("list workloads")));
+        return createService(8).callWithToolLoop(messages, chatModel, "vllm-rig1", "test", tooler, window);
+    }
 
-        var failure = assertThrows(ToolCallFailure.class,
-                () -> service.callWithToolLoop(messages, chatModel, "gpu-a", "test", false, 8_192));
+    private static ChatResponse reply(AiMessage message) {
+        var response = mock(ChatResponse.class);
+        when(response.aiMessage()).thenReturn(message);
+        when(response.tokenUsage()).thenReturn(new TokenUsage(900, 20));
+        return response;
+    }
 
-        assertEquals(ToolCallFailure.FailureType.CONTEXT_EXCEEDED, failure.failureType());
-        verify(chatModel, times(1)).chat(any(ChatRequest.class));
+    private List<String> toolResultsSentOnTurn(int turn) {
+        var captor = org.mockito.ArgumentCaptor.forClass(ChatRequest.class);
+        verify(chatModel, atLeast(turn)).chat(captor.capture());
+        return captor.getAllValues().get(turn - 1).messages().stream()
+                .filter(m -> m instanceof dev.langchain4j.data.message.ToolExecutionResultMessage)
+                .map(m -> ((dev.langchain4j.data.message.ToolExecutionResultMessage) m).text())
+                .toList();
     }
 
     @Test
-    void toolLoop_toolerWhoseResultsFillTheContext_contributesWhatItGathered() {
-        var toolSpec = ToolSpecification.builder().name("get_pods").description("List pods").build();
-        var toolExecutor = mock(ToolExecutor.class);
-        when(toolExecutor.execute(any(), any())).thenReturn("pod-" + "p".repeat(40_000));
-        when(mcpClient.getToolSpecifications()).thenReturn(Map.of(toolSpec, toolExecutor));
-        var call = ToolExecutionRequest.builder().id("c1").name("get_pods").arguments("{}").build();
-        var first = mock(ChatResponse.class);
-        when(first.aiMessage()).thenReturn(AiMessage.from(List.of(call)));
-        when(first.tokenUsage()).thenReturn(new TokenUsage(500, 20));
-        when(chatModel.chat(any(ChatRequest.class))).thenReturn(first);
-        var service = createService(5);
-        var messages = new java.util.ArrayList<dev.langchain4j.data.message.ChatMessage>(List.of(
-                dev.langchain4j.data.message.UserMessage.from("list pods")));
+    void toolResultBudget_resultThatFits_isKept() {
+        var result = runBudgetLoop(false, 32_768, 1, List.of("{\"items\": \"" + "a".repeat(4_000) + "\"}"),
+                List.of(reply(new AiMessage("answer"))));
 
-        var result = assertDoesNotThrow(() -> service.callWithToolLoop(messages, chatModel, "gpu-a", "test",
-                true, 8_192));
-
-        verify(chatModel, times(1)).chat(any(ChatRequest.class));
-        verify(toolExecutor, times(1)).execute(any(), any());
-        assertTrue(result.text().contains("get_pods") && result.text().contains("pod-ppp"),
-                "the gathered tool output is the contribution");
-        assertEquals(500, result.inputTokens());
-        assertEquals(20, result.outputTokens());
-        assertEquals("gpu-a", result.serverName());
-        assertEquals("test", result.pickReason());
+        assertEquals("answer", result.text());
+        var sent = toolResultsSentOnTurn(2);
+        assertEquals(1, sent.size());
+        assertTrue(sent.get(0).startsWith("{\"items\""), "the result is sent as the tool returned it");
     }
 
     @Test
-    void toolLoop_toolerWhoseEveryToolFailed_reportsAFailedGather_notErrorTextAsData() {
-        var toolSpec = ToolSpecification.builder().name("get_pods").description("List pods").build();
-        var toolExecutor = mock(ToolExecutor.class);
-        when(toolExecutor.execute(any(), any())).thenReturn("{\"error\": \"" + "x".repeat(40_000) + "\"}");
-        when(mcpClient.getToolSpecifications()).thenReturn(Map.of(toolSpec, toolExecutor));
-        var call = ToolExecutionRequest.builder().id("c1").name("get_pods").arguments("{}").build();
-        var first = mock(ChatResponse.class);
-        when(first.aiMessage()).thenReturn(AiMessage.from(List.of(call)));
-        when(first.tokenUsage()).thenReturn(new TokenUsage(500, 20));
-        when(chatModel.chat(any(ChatRequest.class))).thenReturn(first);
-        var service = createService(5);
-        var messages = new java.util.ArrayList<dev.langchain4j.data.message.ChatMessage>(List.of(
-                dev.langchain4j.data.message.UserMessage.from("list pods")));
+    void toolResultBudget_resultOverTheRoomLeft_isReplacedWithAnErrorNamingTheTool() {
+        runBudgetLoop(false, 8_192, 1, List.of("x".repeat(100_000)), List.of(reply(new AiMessage("answer"))));
 
-        var failure = assertThrows(ToolCallFailure.class,
-                () -> service.callWithToolLoop(messages, chatModel, "gpu-a", "test", true, 8_192));
+        var sent = toolResultsSentOnTurn(2);
+        assertEquals(1, sent.size());
+        assertTrue(sent.get(0).startsWith("{\"error\":"), sent.get(0));
+        assertTrue(sent.get(0).contains("resources_list"), sent.get(0));
+        assertTrue(sent.get(0).contains("label selector"), sent.get(0));
+        assertFalse(sent.get(0).contains("xxxxxxxxxx"), "the oversized content is not kept, not even a part");
+    }
 
-        assertEquals(ToolCallFailure.FailureType.GATHER_FAILED, failure.failureType());
+    @Test
+    void toolResultBudget_parallelCalls_firstFitsLaterOverflowIsReplaced() {
+        // About 4,000 tokens each at 3.5 characters per token; about 6,600 tokens are free.
+        var big = "{\"items\": \"" + "b".repeat(14_000) + "\"}";
+        runBudgetLoop(false, 8_192, 2, List.of(big, big), List.of(reply(new AiMessage("answer"))));
+
+        var sent = toolResultsSentOnTurn(2);
+        assertEquals(2, sent.size());
+        assertEquals(big, sent.get(0));
+        assertTrue(sent.get(1).startsWith("{\"error\":"), sent.get(1));
+    }
+
+    @Test
+    void toolResultBudget_fourOversizedCallsInOneTurn_doNotTripTheFailureCaps() {
+        var big = "c".repeat(100_000);
+        var result = runBudgetLoop(false, 8_192, 4, List.of(big, big, big, big),
+                List.of(reply(new AiMessage("answer"))));
+
+        assertEquals("answer", result.text());
+        assertEquals(4, toolResultsSentOnTurn(2).stream().filter(t -> t.startsWith("{\"error\":")).count());
+    }
+
+    @Test
+    void toolResultBudget_unknownWindow_keepsEveryResult() {
+        var big = "d".repeat(400_000);
+        runBudgetLoop(false, 0, 2, List.of(big, big), List.of(reply(new AiMessage("answer"))));
+
+        assertEquals(List.of(big, big), toolResultsSentOnTurn(2));
+    }
+
+    @Test
+    void toolResultBudget_toolerRawOutput_doesNotPostTheOversizedResult() {
+        var result = runBudgetLoop(true, 8_192, 1, List.of("pod-" + "p".repeat(100_000)),
+                List.of(reply(new AiMessage("done"))));
+
+        assertFalse(result.text().contains("pppppppppp"), "the oversized result is not posted raw");
+        assertTrue(result.text().contains("resources_list"), result.text());
+    }
+
+    @Test
+    void toolResultBudget_modelAsksForLessAfterTheError_theSameLoopSucceeds() {
+        var narrow = ToolExecutionRequest.builder().id("n1").name("resources_list")
+                .arguments("{\"namespace\":\"kubemoot\"}").build();
+        var result = runBudgetLoop(false, 8_192, 1, List.of("z".repeat(100_000), "{\"items\": []}"),
+                List.of(reply(AiMessage.from(List.of(narrow))), reply(new AiMessage("answer"))));
+
+        assertEquals("answer", result.text());
+        verify(chatModel, times(3)).chat(any(ChatRequest.class));
+        assertEquals("{\"items\": []}", toolResultsSentOnTurn(3).get(1));
     }
 
     @Test
