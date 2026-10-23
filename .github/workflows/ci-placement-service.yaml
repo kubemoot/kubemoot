@@ -138,7 +138,7 @@ jobs:
 
       - name: Set up the build helpers
         if: ${{ !inputs.native_check }}
-        uses: kubemoot/release-actions/setup@7accfbc33966d895bab2fc17a2a6c7f2520aaf76 # v0.11.1
+        uses: kubemoot/release-actions/setup@b78d1a218811e2a0376eed26240451b2f353f367 # v0.11.4
 
       # The run image must hold every shared library the binary links against; the image
       # would build and push without one and the pod would fail at startup. The
