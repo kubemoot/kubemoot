@@ -16,7 +16,7 @@ LlamaIndex, an SDK), point it at a model, add a retriever and a few tools, and i
 works on your laptop against test data. Then it has to run for real, and a different
 set of questions starts:
 
-- Which GPU does it run on, and what happens when several requests arrive at once?
+- Which accelerator does it run on, and what happens when several requests arrive at once?
 - Where does the vector index live, and who keeps it current?
 - How do you stand up a second and third agent without each one re-implementing model
   access, retrieval, and tool plumbing?
@@ -31,7 +31,7 @@ A handful of agents running for real need, at minimum:
 
 - **Model access that is not one hardcoded endpoint** - model servers behind a single
   abstraction, chosen per call as load and availability shift.
-- **GPU scheduling that understands model memory.** A 24 GB card can hold a 7B and an
+- **Accelerator scheduling that understands model memory.** A 24 GB card can hold a 7B and an
   8B model at once, or a single larger model; which combination is loaded depends on
   what is being asked right now. That decision belongs at the moment of inference, not
   baked into a Deployment at deploy time.
@@ -54,7 +54,7 @@ at *serve this model*.
 
 They are not built for the layer above it: a multi-step, multi-model **workflow**.
 Serving answers "how do I host one model?" It does not answer "how do I run a crew of
-small models that call tools, retrieve from RAG, share GPUs just-in-time, coordinate
+small models that call tools, retrieve from RAG, share accelerators just-in-time, coordinate
 with each other, and produce an answer I can measure?" That orchestration is left to
 application code, so it gets written again, in Python, for the next project.
 
@@ -67,7 +67,7 @@ application code, so it gets written again, in Python, for the next project.
   ???  agentic workflow orchestration    <- unfilled
   ---------------------------------------
   Kubernetes + model serving
-  (Deployments, KServe, vLLM, GPUs)      <- where a model is hosted
+  (Deployments, KServe, vLLM, accelerators) <- where a model is hosted
 ```
 
 Frameworks give you the agent. Kubernetes and the serving platforms give you a hosted
@@ -81,9 +81,9 @@ Closing the gap means making the workflow itself declarative and operable, the s
 way the rest of a cluster is. Concretely:
 
 - **Model servers as resources** - local model servers declared as resources and
-  selected per inference call rather than pinned at deploy time. Ollama is the model
-  server today; hosted APIs are a [Roadmap](../roadmap/) item.
-- **GPU scheduling** that places each call on a server with room for it, the way the
+  selected per inference call rather than pinned at deploy time. vLLM (the default) and Ollama are the
+  supported model servers; hosted APIs are a [Roadmap](../roadmap/) item.
+- **Accelerator scheduling** that places each call on a server with room for it, the way the
   Kubernetes scheduler bin-packs pods onto nodes.
 - **Retrieval as a declared source** that is vectorized and served for you.
 - **Tools behind a managed gateway**, discovered rather than wired in.

@@ -9,7 +9,7 @@ answering a real question, on CPU, with no accelerator required. It runs the sam
 a production deployment - a coordinator convening a Tooler, signals exchanged over
 NATS, an answer synthesized - just smaller and slower, because it runs on CPU with a
 1-3B model instead of an accelerator with a reasoning-sized one. The trial uses Ollama,
-which is familiar and runs anywhere; an installation prefers vLLM. See
+which is familiar and runs anywhere; an installation defaults to vLLM. See
 [Installation](../installation/) for the accelerator-backed deployment this trial is a
 preview of, and the profile table below for exactly what's smaller and slower.
 
@@ -53,7 +53,7 @@ Kubemoot's speed and a crew's size by the right yardstick:
 
 | | CPU trial (this script) | Accelerator deployment |
 |---|---|---|
-| Model server | Ollama | vLLM is currently preferred; Ollama is supported |
+| Model server | Ollama | vLLM is the default; Ollama is supported |
 | Model size | 1-3B parameters (`qwen2.5:1.5b` here) | 8B-32B+ per role, sized to accelerator memory |
 | Agents per crew | Two (a coordinator plus one Tooler) | As many as the crew's domain needs |
 | Answer latency | Slower, dominated by CPU inference | Faster, bounded by accelerator inference |
@@ -66,7 +66,7 @@ asked it a question. Under the hood the coordinator selected the one Tooler that
 the question, the Tooler answered from its own knowledge, and the answer was **settled by the crew**
 rather than asserted by one model - see
 [consensus signal](../../concepts/signals-and-protocol/) for what that means. This is
-the same protocol a GPU deployment runs; only the model size, the crew size, and the
+the same protocol an accelerator deployment runs; only the model size, the crew size, and the
 clock are different.
 
 ## Troubleshooting
@@ -94,7 +94,7 @@ against the same cluster upgrades in place rather than failing.
 
 CI runs this exact script on a fresh `kind` cluster against every release's images, so
 if it breaks, the build is red before you see it. Full details, environment variables,
-and what the script does not cover (RAG sources, MCP tool servers, GPU scheduling
+and what the script does not cover (RAG sources, MCP tool servers, accelerator scheduling
 across servers, a published dashboard) live in
 [quickstart/README.md](https://github.com/kubemoot/kubemoot/blob/main/quickstart/README.md).
 

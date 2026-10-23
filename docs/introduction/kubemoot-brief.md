@@ -29,7 +29,7 @@ leaves room for; the runtime fixes the orchestration in code today, so the
 deliberation *goal* stays constant and the structure does not yet vary.
 
 Capability is composed **horizontally** from many small models rather than one large
-one - portable across clusters and runnable on commodity or local GPUs.
+one - portable across clusters and runnable on commodity, local, or leased accelerators.
 
 ## Building blocks (all Kubernetes resources)
 
@@ -38,7 +38,7 @@ one - portable across clusters and runnable on commodity or local GPUs.
 | **Crew** | A group of agents that deliberate together. |
 | **Agent** | One participant: a `coordinator`, a `Tooler`, or an `Analyst`, with declared capabilities and tools. |
 | **PromptModule** | An agent's behavior, written in ADL (the Architecture Definition Language); composed by reference. |
-| **Model** / **ModelServer** | A model (by capability, not a hardcoded name) and the GPU-backed endpoint that serves it. |
+| **Model** / **ModelServer** | A model (by capability, not a hardcoded name) and the accelerator-backed endpoint that serves it. |
 | **RAGSource** | A knowledge source that's indexed and made queryable for agents. |
 | **MCPServer** / **MCPGateway** | Tools an agent can call, discovered through a gateway (Model Context Protocol). |
 | **CrewFitness** / **CrewFitnessSuite** | Executable tests that score a crew against ground truth. |
@@ -53,7 +53,7 @@ Because these are CRDs, you author crews with `kubectl apply`, review changes wi
    the message bus (NATS).
 3. Toolers triage, then evaluate, calling their MCP tools and publishing findings with
    consensus signals. Analysts reason over the gathered data in the REVIEW phase.
-   Models are scheduled **just in time** onto available GPUs.
+   Models are scheduled **just in time** onto available accelerators.
 4. When the signals settle, the coordinator synthesizes the answer and the thread
    closes. Failure is surfaced as signal, never hidden.
 
@@ -62,7 +62,7 @@ Because these are CRDs, you author crews with `kubectl apply`, review changes wi
 The **operator** (a Kubernetes controller) reconciles the resources above; the
 **agent runtime** hosts each agent; **NATS JetStream** carries the discussion; an
 **MCP gateway** brokers tools. You bring a Kubernetes cluster and at least one
-GPU-backed model server.
+accelerator-backed model server.
 
 ## Next
 

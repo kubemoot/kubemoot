@@ -112,8 +112,8 @@ declaration keeps a type, with the standard API as the default.
 ## Model choices for the reference crews
 
 **Today:** the reference crews run open-weight Qwen3 models: an
-8B-class model for specialists and triage on a 24 GB GPU, and a 32B model for
-coordination and synthesis on a 32 GB GPU. Kubemoot itself is model-agnostic: an agent
+8B-class model for specialists and triage on a 24 GB accelerator, and a 32B model for
+coordination and synthesis on a 32 GB accelerator. Kubemoot itself is model-agnostic: an agent
 declares a capability, and the scheduler matches it to a Model resource, so no agent
 spec names a model, and changing models is a change to Model resources, not to crews.
 Any model a ModelServer serves with tool calling can be used. Qwen was chosen for the
@@ -175,7 +175,7 @@ agent's turn (call a model, call a tool, produce a signal) is a separate concern
 capable runtimes already handle well. The moot should talk to an agent through a thin,
 backend-agnostic contract: in comes the question, the agent's role, and the available
 tools; out comes a signal, a rationale, and evidence. Behind that contract could sit the
-native agent (the default, open source, minimal VRAM and startup cost), an external agent
+native agent (the default, open source, minimal memory and startup cost), an external agent
 process supplied and licensed by the user, or a raw local model reached through a model
 server. The principle is the same one applied to tools: build natively against open
 standards, adopt open standards such as MCP directly, and keep any specific product
