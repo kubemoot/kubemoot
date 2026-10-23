@@ -63,8 +63,10 @@ type fakeServer struct {
 	// aliases are further ids /v1/models lists, as a server started with several
 	// --served-model-name values does.
 	aliases []string
-	metrics string
-	log     []string
+	// maxModelLen, when set, is the max_model_len /v1/models lists for every id.
+	maxModelLen int
+	metrics     string
+	log         []string
 }
 
 // newFake starts a server serving model; asleep says whether it starts asleep.
@@ -94,9 +96,17 @@ func (f *fakeServer) handle(w http.ResponseWriter, r *http.Request) {
 func (f *fakeServer) aliasEntries() string {
 	var out string
 	for _, id := range f.aliases {
-		out += fmt.Sprintf(`,{"id":%q}`, id)
+		out += "," + f.entry(id)
 	}
 	return out
+}
+
+// entry is one /v1/models entry, with the window when the fake has one.
+func (f *fakeServer) entry(id string) string {
+	if f.maxModelLen > 0 {
+		return fmt.Sprintf(`{"id":%q,"max_model_len":%d}`, id, f.maxModelLen)
+	}
+	return fmt.Sprintf(`{"id":%q}`, id)
 }
 
 // record appends the request, with its body when it has one, to the log.
@@ -115,7 +125,7 @@ func (f *fakeServer) read(w http.ResponseWriter, r *http.Request) {
 	case r.URL.Path == pathHealth && f.unhealthy:
 		w.WriteHeader(http.StatusServiceUnavailable)
 	case r.URL.Path == pathModels:
-		_, _ = fmt.Fprintf(w, `{"data":[{"id":%q}%s]}`, f.served, f.aliasEntries())
+		_, _ = fmt.Fprintf(w, `{"data":[%s%s]}`, f.entry(f.served), f.aliasEntries())
 	case r.URL.Path == pathIsSleeping:
 		f.readSleeping(w, r)
 	case r.URL.Path == pathMetrics && f.metrics != "":

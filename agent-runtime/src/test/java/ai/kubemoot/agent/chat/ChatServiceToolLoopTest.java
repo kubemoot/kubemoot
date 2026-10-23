@@ -1273,6 +1273,23 @@ class ChatServiceToolLoopTest {
     }
 
     @Test
+    void toolLoop_windowPublishedForAVllmModel_stopsAnOversizedPromptBeforeSending() {
+        long window = 32_768; // what the operator publishes for a vLLM model
+        when(mcpClient.getToolSpecifications()).thenReturn(Map.of());
+        var service = createService(3);
+        var messages = new java.util.ArrayList<dev.langchain4j.data.message.ChatMessage>(List.of(
+                dev.langchain4j.data.message.SystemMessage.from("system"),
+                dev.langchain4j.data.message.UserMessage.from("q".repeat(200_000))));
+
+        var failure = assertThrows(ToolCallFailure.class,
+                () -> service.callWithToolLoop(messages, chatModel, "vllm-rig1", "test", false, window));
+
+        assertEquals(ToolCallFailure.FailureType.CONTEXT_EXCEEDED, failure.failureType());
+        assertTrue(failure.getMessage().contains("32768-token context window"), failure.getMessage());
+        verifyNoInteractions(chatModel);
+    }
+
+    @Test
     void toolLoop_toolResultsThatOutgrowTheContext_failBeforeTheNextTurn() {
         var toolSpec = ToolSpecification.builder().name("get_pods").description("List pods").build();
         var toolExecutor = mock(ToolExecutor.class);

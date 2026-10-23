@@ -101,8 +101,10 @@ type ServerState struct {
 	// per model once it loads. Agents skip a server whose context cannot hold a
 	// call's prompt, because the engine cuts an oversized prompt without error.
 	ContextLength int `json:"contextLength,omitempty"`
-	// LoadedModelContextLengths maps loaded model name to the context window, in
-	// tokens, each request to it gets (from Ollama /api/ps context_length).
+	// LoadedModelContextLengths maps model name to the context window, in tokens,
+	// each request to it gets: from Ollama /api/ps context_length for a loaded
+	// model, and from vLLM /v1/models max_model_len (else the calibrated window)
+	// for every model a vLLM server serves.
 	LoadedModelContextLengths map[string]int `json:"loadedModelContextLengths,omitempty"`
 	// ModelSpeeds is what each model calibration found to fit costs on the
 	// server: its calibrated load time, prompt and generation speed, and the
@@ -702,9 +704,12 @@ func (r *ModelServerReconciler) publishStateToKV(ctx context.Context, server *ai
 
 	state := buildServerState(server)
 	state.ModelSpeeds = speeds
+	var reported map[string]int
 	if snap, ok := r.probes.Load(server.Name); ok {
 		applySnapshotToState(&state, snap.(engine.Snapshot))
+		reported = snap.(engine.Snapshot).ContextLengths
 	}
+	applyContextWindows(&state, server, reported)
 	state.SwitchCostMs = mergeSwitchCosts(state.SwitchCostMs, r.switches.For(server.Name))
 
 	payload, err := json.Marshal(state)

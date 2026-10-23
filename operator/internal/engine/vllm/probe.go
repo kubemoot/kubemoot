@@ -45,6 +45,8 @@ var kvCacheMetrics = []string{"vllm:kv_cache_usage_perc", "vllm:gpu_cache_usage_
 type serverProbe struct {
 	// models are the served names the server answers to (one, or more when it has aliases).
 	models []string
+	// contexts is the context window of each served name /v1/models reported one for.
+	contexts map[string]int
 	// state is empty when the server answered but its sleep state could not be read.
 	state   engine.ModelState
 	running *float64
@@ -111,21 +113,22 @@ func (a *Adapter) probeServer(ctx context.Context, g endpointModels) (serverProb
 	if _, err := a.get(ctx, g.endpoint, pathHealth); err != nil {
 		return p, err
 	}
-	if err := a.checkServes(ctx, g); err != nil {
-		return p, err
+	served, err := a.ServedModels(ctx, g.endpoint)
+	if err == nil {
+		if err := checkServes(served, g); err != nil {
+			return p, err
+		}
+		p.contexts = contextsOf(served, g.models)
 	}
 	p.state = a.sleepState(ctx, g.endpoint)
 	a.readMetrics(ctx, g.endpoint, &p)
 	return p, nil
 }
 
-// checkServes verifies the served names. A /v1/models that does not answer is not
-// proof of a mismatch, so only a readable list without a name fails.
-func (a *Adapter) checkServes(ctx context.Context, g endpointModels) error {
-	served, err := a.ServedModels(ctx, g.endpoint)
-	if err != nil {
-		return nil
-	}
+// checkServes verifies the served names against a readable /v1/models list; a
+// list that did not answer is not proof of a mismatch, so only a readable list
+// without a name fails.
+func checkServes(served []ServedModel, g endpointModels) error {
 	ids := make([]string, len(served))
 	for i, m := range served {
 		ids[i] = m.ID
@@ -136,6 +139,22 @@ func (a *Adapter) checkServes(ctx context.Context, g endpointModels) error {
 		}
 	}
 	return nil
+}
+
+// contextsOf is the window /v1/models reports for each of the wanted names; a name
+// whose entry carries no max_model_len is left out.
+func contextsOf(served []ServedModel, wanted []string) map[string]int {
+	var out map[string]int
+	for _, m := range served {
+		if m.MaxModelLen <= 0 || !slices.Contains(wanted, m.ID) {
+			continue
+		}
+		if out == nil {
+			out = map[string]int{}
+		}
+		out[m.ID] = m.MaxModelLen
+	}
+	return out
 }
 
 // sleepState is awake or asleep from /is_sleeping. A server without the sleep
@@ -257,6 +276,7 @@ func snapshotOf(probes []serverProbe) engine.Snapshot {
 	var running, waiting, usage []float64
 	for _, p := range probes {
 		addModels(&snap, p)
+		addContexts(&snap, p)
 		running = appendIf(running, p.running)
 		waiting = appendIf(waiting, p.waiting)
 		usage = appendIf(usage, p.kvUsage)
@@ -282,6 +302,16 @@ func addModels(snap *engine.Snapshot, p serverProbe) {
 		if p.state == engine.StateAwake {
 			snap.Loaded = append(snap.Loaded, aiv1alpha1.LoadedModel{Name: name})
 		}
+	}
+}
+
+// addContexts records the window each of a probed server's models runs with.
+func addContexts(snap *engine.Snapshot, p serverProbe) {
+	for name, window := range p.contexts {
+		if snap.ContextLengths == nil {
+			snap.ContextLengths = map[string]int{}
+		}
+		snap.ContextLengths[name] = window
 	}
 }
 
