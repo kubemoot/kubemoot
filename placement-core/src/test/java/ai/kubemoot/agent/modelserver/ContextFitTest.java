@@ -118,6 +118,16 @@ class ContextFitTest {
         assertEquals(0, ServerSelector.fromJson(new ObjectMapper().readTree("{}")).contextLengthFor(MODEL));
     }
 
+    @Test
+    void fromJson_vllmServerPublishesEachModelsOwnWindow() throws Exception {
+        var json = "{\"name\":\"vllm-rig1\",\"engine\":\"vllm\",\"contextLength\":0,"
+                + "\"loadedModelContextLengths\":{\"qwen3:14b\":32768,\"qwen3:32b\":16384}}";
+        var s = ServerSelector.fromJson(new ObjectMapper().readTree(json));
+        assertEquals(32_768, s.contextLengthFor("qwen3:14b"));
+        assertEquals(16_384, s.contextLengthFor("qwen3:32b"));
+        assertEquals(0, s.contextLengthFor("unlisted:8b"), "a model the server does not list has no known window");
+    }
+
     // ---- the selector ----
 
     private static ServerSelector selectorOver(List<ServerState> states, TicketManager tickets) {

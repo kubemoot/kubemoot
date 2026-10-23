@@ -114,6 +114,8 @@ An agent that uses a model on a `vllm` ModelServer calls that model's own vLLM s
 | `storage.partialBytes` | Operator | Disk held by downloads that have not finished: pulls in progress and the partial files a cancelled or failed pull left behind |
 | `storage.freeBytes` | Operator | `totalBytes` minus `modelBytes` and `partialBytes`, an estimate of the free disk |
 
+For a `vllm` ModelServer the operator publishes each served model's window in the server state from `max_model_len` on `/v1/models`, falling back to the calibrated `contextLength`; agents use it to stop a prompt the server would reject.
+
 `storage` is reported whether or not the scheduler is enabled. It is absent when the
 volume cannot be sized (for example a `hostPath` or an `emptyDir` without a limit).
 `freeBytes` is an estimate: layers shared between models are counted once per model.

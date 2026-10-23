@@ -70,6 +70,10 @@ type Snapshot struct {
 	// ModelServer of several vLLM servers it is the highest of the vLLM servers that answered: the
 	// cache closest to full.
 	KVCacheUsage *float64
+	// ContextLengths is the context window in tokens each served model gets per
+	// request, by model name. A model the engine did not report a window for is
+	// absent, which means "unknown", never "none".
+	ContextLengths map[string]int
 	// SwitchCostMs is the observed time to make each model ready, by model.
 	SwitchCostMs map[string]int64
 	// HostMemoryParkedMiB is the host memory holding the weights of sleeping models.
