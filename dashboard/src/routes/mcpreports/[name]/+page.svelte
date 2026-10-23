@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { YamlView } from '#lib/components/common/index.js';
+	import { errorOnFailure, loadingOnStart } from '#lib/client/refresh-state.js';
 	import { onMount } from 'svelte';
 	import { page } from '$app/state';
 	import { resolve } from '$app/paths';
@@ -6,6 +8,7 @@
 	import type { MCPServerReport } from '#lib/types/kubemoot.js';
 
 	let report = $state<MCPServerReport | null>(null);
+	let loaded = false;
 	let loading = $state(true);
 	let error = $state<string | null>(null);
 	let editing = $state(false);
@@ -17,7 +20,7 @@
 	const namespace = $derived(page.url.searchParams.get('namespace') || $nsStore);
 
 	async function fetchReport() {
-		loading = true;
+		loading = loadingOnStart(loaded);
 		error = null;
 		try {
 			const res = await fetch(`${resolve('/api/kubemoot/mcpserverreports/[name]', { name })}?namespace=${namespace}`);
@@ -25,8 +28,9 @@
 			if (data.error) throw new Error(data.error);
 			report = data;
 		} catch (e) {
-			error = e instanceof Error ? e.message : 'Failed to fetch report';
+			error = errorOnFailure(loaded, e, 'Failed to fetch report');
 		} finally {
+			loaded = loaded || error === null;
 			loading = false;
 		}
 	}
@@ -231,6 +235,7 @@
 			</div>
 		</div>
 	{/if}
+	<YamlView resource={report} />
 </div>
 
 <style>

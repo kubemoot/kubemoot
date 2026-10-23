@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { errorOnFailure, loadingOnStart } from '#lib/client/refresh-state.js';
 	import { onMount } from 'svelte';
 	import { resolve } from '$app/paths';
 	import { refreshTrigger } from '#lib/stores/index.js';
@@ -7,11 +8,12 @@
 	import type { NodeWithGPU } from '#lib/types/k8s.js';
 
 	let nodes = $state<NodeWithGPU[]>([]);
+	let loaded = false;
 	let loading = $state(true);
 	let error = $state<string | null>(null);
 
 	async function fetchNodes() {
-		loading = true;
+		loading = loadingOnStart(loaded);
 		error = null;
 
 		try {
@@ -19,8 +21,9 @@
 			const data = await res.json();
 			nodes = data.nodes || [];
 		} catch (e) {
-			error = e instanceof Error ? e.message : 'Failed to fetch nodes';
+			error = errorOnFailure(loaded, e, 'Failed to fetch nodes');
 		} finally {
+			loaded = loaded || error === null;
 			loading = false;
 		}
 	}

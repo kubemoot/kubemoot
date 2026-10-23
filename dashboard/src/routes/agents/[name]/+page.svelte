@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { errorOnFailure, loadingOnStart } from '#lib/client/refresh-state.js';
 	import { readinessStatus } from '#lib/resource-status.js';
 	import { onMount } from 'svelte';
 	import { page } from '$app/state';
@@ -14,6 +15,7 @@
 
 	let agent = $state<Agent | null>(null);
 	let heartbeat = $state<AgentHeartbeat | null>(null);
+	let loaded = false;
 	let loading = $state(true);
 	let error = $state<string | null>(null);
 	let mcpServerTools = $state<Map<string, MCPTool[]>>(new Map());
@@ -26,7 +28,7 @@
 	const ns = $derived(page.url.searchParams.get('namespace') || $namespace);
 
 	async function fetchAgent() {
-		loading = true;
+		loading = loadingOnStart(loaded);
 		error = null;
 
 		try {
@@ -48,8 +50,9 @@
 			// Fetch assembled system prompt from the agent's policy ConfigMap
 			fetchAssembledPrompt();
 		} catch (e) {
-			error = e instanceof Error ? e.message : 'Failed to fetch agent';
+			error = errorOnFailure(loaded, e, 'Failed to fetch agent');
 		} finally {
+			loaded = loaded || error === null;
 			loading = false;
 		}
 	}
@@ -128,7 +131,7 @@
 	});
 </script>
 
-<DetailPanel title={name} subtitle="Agent" {loading} {error}>
+<DetailPanel title={name} subtitle="Agent" {loading} {error} resource={agent}>
 	{#snippet header()}
 		<div class="header-content">
 			<div class="title-section">

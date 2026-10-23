@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { errorOnFailure, loadingOnStart } from '#lib/client/refresh-state.js';
 	import { onMount } from 'svelte';
 	import { resolve } from '$app/paths';
 	import { crewDirectory, namespace, refreshTrigger } from '#lib/stores/index.js';
@@ -6,11 +7,12 @@
 	import type { CrewFitness } from '#lib/types/kubemoot.js';
 
 	let tests = $state<CrewFitness[]>([]);
+	let loaded = false;
 	let loading = $state(true);
 	let error = $state<string | null>(null);
 
 	async function fetchTests() {
-		loading = true;
+		loading = loadingOnStart(loaded);
 		error = null;
 		try {
 			const res = await fetch(`${resolve('/api/kubemoot/crewfitnesses')}?namespace=${$namespace}`);
@@ -19,8 +21,9 @@
 				(b.metadata.creationTimestamp ?? '').localeCompare(a.metadata.creationTimestamp ?? '')
 			);
 		} catch (e) {
-			error = e instanceof Error ? e.message : 'Failed to fetch fitness tests';
+			error = errorOnFailure(loaded, e, 'Failed to fetch fitness tests');
 		} finally {
+			loaded = loaded || error === null;
 			loading = false;
 		}
 	}

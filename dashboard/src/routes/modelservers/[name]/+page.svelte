@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { errorOnFailure, loadingOnStart } from '#lib/client/refresh-state.js';
 	import { readinessStatus } from '#lib/resource-status.js';
 	import { onMount } from 'svelte';
 	import { page } from '$app/state';
@@ -12,6 +13,7 @@
 	import { formatTimestamp } from '#lib/discussion-timing.js';
 
 	let server = $state<ModelServer | null>(null);
+	let loaded = false;
 	let loading = $state(true);
 	let error = $state<string | null>(null);
 
@@ -19,7 +21,7 @@
 	const ns = $derived(page.url.searchParams.get('namespace') || $namespace);
 
 	async function fetchServer() {
-		loading = true;
+		loading = loadingOnStart(loaded);
 		error = null;
 
 		try {
@@ -27,8 +29,9 @@
 			if (!res.ok) throw new Error('Server not found');
 			server = await res.json();
 		} catch (e) {
-			error = e instanceof Error ? e.message : 'Failed to fetch server';
+			error = errorOnFailure(loaded, e, 'Failed to fetch server');
 		} finally {
+			loaded = loaded || error === null;
 			loading = false;
 		}
 	}
@@ -64,7 +67,7 @@
 	}
 </script>
 
-<DetailPanel title={name} subtitle="Model Server" {loading} {error}>
+<DetailPanel title={name} subtitle="Model Server" {loading} {error} resource={server}>
 	{#snippet header()}
 		<div class="header-content">
 			<div class="title-section">

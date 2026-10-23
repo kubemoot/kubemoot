@@ -4,10 +4,11 @@
 	import { page } from '$app/state';
 	import { namespace } from '#lib/stores/index.js';
 	import { ResourceList } from '#lib/components/layout/index.js';
-	import { ModelCard } from '#lib/components/resources/index.js';
-	import type { Model } from '#lib/types/kubemoot.js';
+	import { ModelCard, CatalogModelCard } from '#lib/components/resources/index.js';
+	import type { Model, ModelServer } from '#lib/types/kubemoot.js';
 	import { LiveList } from '#lib/client/liveList.svelte.js';
 	import { withoutModelFilter } from '#lib/model-filter.js';
+	import { catalogEntries, filterCatalog } from '#lib/model-catalog.js';
 
 	const live = new LiveList<Model>('models');
 	onMount(() => {
@@ -16,6 +17,15 @@
 	});
 	$effect(() => {
 		live.setNamespace($namespace);
+	});
+
+	// Crews ship no Model resources; the models a crew can select are the catalogs the
+	// model servers report. Servers belong to the cluster, not to a crew, so they are
+	// listed across all namespaces whatever crew is selected.
+	const servers = new LiveList<ModelServer>('modelservers');
+	onMount(() => {
+		servers.start('');
+		return () => servers.stop();
 	});
 
 	const modelFilter = $derived(page.url.searchParams.get('model') ?? '');
@@ -29,6 +39,9 @@
 		})
 	);
 
+	const visibleCatalog = $derived(filterCatalog(catalogEntries(servers.items), modelFilter, serverFilter));
+	const total = $derived(visibleModels.length + visibleCatalog.length);
+
 	const filterActive = $derived(modelFilter !== '' || serverFilter !== '');
 
 	function clearFilter() {
@@ -37,7 +50,7 @@
 
 </script>
 
-<ResourceList title="Models" count={visibleModels.length} loading={live.loading} error={live.error} helpText="Models represent LLM chat models managed by the operator. The operator ensures models are pulled and available on the server. GPU load state is shown on the Model Servers page.">
+<ResourceList title="Models" count={total} loading={live.loading || servers.loading} error={live.error && servers.error} helpText="Models represent LLM chat models managed by the operator. The operator ensures models are pulled and available on the server. GPU load state is shown on the Model Servers page.">
 	{#snippet children()}
 		{#if filterActive}
 			<div class="filter-bar">
@@ -53,6 +66,9 @@
 		{/if}
 		{#each visibleModels as model (model.metadata.namespace + '/' + model.metadata.name)}
 			<ModelCard {model} showNamespace={$namespace === ''} onAction={() => live.refresh()} />
+		{/each}
+		{#each visibleCatalog as entry (entry.namespace + '/' + entry.server + '/' + entry.model.name)}
+			<CatalogModelCard {entry} showNamespace={$namespace === ''} />
 		{/each}
 	{/snippet}
 

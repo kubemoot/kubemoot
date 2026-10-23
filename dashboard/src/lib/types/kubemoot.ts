@@ -19,7 +19,7 @@ export interface ModelServer {
 }
 
 export interface ModelServerSpec {
-	type: 'ollama';
+	type: 'ollama' | 'vllm';
 	endpoint?: string;
 	secretRef?: string;
 	scheduling?: {
@@ -75,7 +75,21 @@ export interface ServerCalibration {
 	models?: ModelCalibration[];
 }
 
+/** One model in a ModelServer's catalog (status.models), the models crews select by label. */
+export interface CatalogModel {
+	name: string;
+	/** Whether the server has the model available right now. */
+	present?: boolean;
+	size?: string;
+	contextLength?: number;
+	parameterCount?: number;
+	capabilities?: string[];
+	labels?: Record<string, string>;
+	source?: string;
+}
+
 export interface ModelServerStatus {
+	models?: CatalogModel[];
 	ready?: boolean;
 	phase?: string;
 	message?: string;

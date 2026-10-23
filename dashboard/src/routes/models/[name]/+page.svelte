@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { errorOnFailure, loadingOnStart } from '#lib/client/refresh-state.js';
 	import { onMount } from 'svelte';
 	import { page } from '$app/state';
 	import { resolve } from '$app/paths';
@@ -8,6 +9,7 @@
 	import type { Model } from '#lib/types/kubemoot.js';
 
 	let model = $state<Model | null>(null);
+	let loaded = false;
 	let loading = $state(true);
 	let error = $state<string | null>(null);
 	let busy = $state(false);
@@ -17,7 +19,7 @@
 	const ns = $derived(page.url.searchParams.get('namespace') || $namespace);
 
 	async function fetchModel() {
-		loading = true;
+		loading = loadingOnStart(loaded);
 		error = null;
 
 		try {
@@ -25,8 +27,9 @@
 			if (!res.ok) throw new Error('Model not found');
 			model = await res.json();
 		} catch (e) {
-			error = e instanceof Error ? e.message : 'Failed to fetch model';
+			error = errorOnFailure(loaded, e, 'Failed to fetch model');
 		} finally {
+			loaded = loaded || error === null;
 			loading = false;
 		}
 	}
@@ -83,7 +86,7 @@
 	}
 </script>
 
-<DetailPanel title={name} subtitle="Model" {loading} {error}>
+<DetailPanel title={name} subtitle="Model" {loading} {error} resource={model}>
 	{#snippet header()}
 		<div class="header-content">
 			<div class="title-section">
