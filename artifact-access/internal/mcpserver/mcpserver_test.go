@@ -125,7 +125,7 @@ func TestJqHandler(t *testing.T) {
 
 func TestSelectHandler(t *testing.T) {
 	s := newServer(map[string]string{"k": "name,ns\npod,default\n"})
-	_, out, err := s.selectCSV(context.Background(), nil, selectIn{Key: "k", Columns: []string{"ns"}})
+	_, out, err := s.selectColumns(context.Background(), nil, selectIn{Key: "k", Columns: []string{"ns"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -165,9 +165,9 @@ func TestMCPBuilds(t *testing.T) {
 	}
 }
 
-func TestDelimiterOrComma(t *testing.T) {
+func TestDelimiterOrAuto(t *testing.T) {
 	if delimiterOrAuto("") != 0 {
-		t.Fatal("empty must default to comma")
+		t.Fatal("empty must mean auto-detect")
 	}
 	if delimiterOrAuto(";") != ';' {
 		t.Fatal("first rune used")
@@ -222,7 +222,7 @@ func TestSelectAndJqHandlersOnToolerFormats(t *testing.T) {
 		"table": "NAME  STATUS\nweb  Running\n",
 		"yaml":  "kind: Pod\nmetadata:\n  name: web\n",
 	})
-	_, out, err := s.selectCSV(context.Background(), nil, selectIn{Key: "table", Columns: []string{"status"}})
+	_, out, err := s.selectColumns(context.Background(), nil, selectIn{Key: "table", Columns: []string{"status"}})
 	if err != nil || out.Output != "STATUS\nRunning\n" {
 		t.Fatalf("select %q %v", out.Output, err)
 	}

@@ -21,7 +21,6 @@ import (
 	"io"
 	"regexp"
 	"strings"
-	"unicode"
 )
 
 // maxLineBytes bounds a single line the scanner will accept (defensive against a
@@ -177,52 +176,12 @@ func CountData(r io.Reader) (int64, error) {
 	var rows int64
 	for sc.Scan() {
 		line := strings.TrimSpace(sc.Text())
-		if line == "" || isSectionMarker(line) || looksLikeHeader(line) {
+		if skippable(line) || looksLikeHeader(line) {
 			continue
 		}
 		rows++
 	}
 	return rows, sc.Err()
-}
-
-// isSectionMarker reports whether a line is a tool-section marker: a single
-// bracketed token like "[resources_list]" with no inner brackets. A tooler emits
-// it before a table; it is never a data row.
-func isSectionMarker(line string) bool {
-	return len(line) >= 2 && line[0] == '[' && line[len(line)-1] == ']' &&
-		!strings.ContainsAny(line[1:len(line)-1], "[]")
-}
-
-// looksLikeHeader reports whether a line is a column-header row: two or more
-// whitespace-separated tokens, every one all-uppercase (e.g.
-// "APIVERSION KIND NAME STATUS AGE LABELS"). Data rows carry lowercase names and
-// TitleCase kinds (e.g. "v1 Namespace arc-runners"), so they do not match.
-func looksLikeHeader(line string) bool {
-	fields := strings.Fields(line)
-	if len(fields) < 2 {
-		return false
-	}
-	for _, f := range fields {
-		if !isUpperToken(f) {
-			return false
-		}
-	}
-	return true
-}
-
-// isUpperToken reports whether a token has at least one letter and every letter
-// is uppercase. "APIVERSION" and "AGE" qualify; "v1" and "Namespace" do not.
-func isUpperToken(s string) bool {
-	hasLetter := false
-	for _, r := range s {
-		if unicode.IsLetter(r) {
-			hasLetter = true
-			if !unicode.IsUpper(r) {
-				return false
-			}
-		}
-	}
-	return hasLetter
 }
 
 // positionReserve is the room Rows keeps under maxBytes for its position line, so a

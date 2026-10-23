@@ -68,10 +68,10 @@ agent needs:
 | `head` | First N lines of the object. |
 | `tail` | Last N lines. |
 | `grep` | Lines matching a pattern. |
-| `select` | Named column projection for tables: kubectl-style tables (columns split on two or more spaces or a tab) and CSV. Column names match without regard to case. |
+| `select` | Named column projection for tables: kubectl-style tables and CSV, detected from the header (a comma or quote means CSV; columns split on a tab, two or more spaces, or uppercase tokens mean a table; a blank table cell keeps its column). Column names match without regard to case. |
 | `count` | Row count (no data transfer). |
 | `rows` | Rows at a given offset/limit. |
-| `jq` | A JQ expression applied to a JSON or YAML object. A multi-document YAML file or a stream of JSON values runs the expression once per document. |
+| `jq` | A JQ expression applied to a JSON or YAML object. A multi-document YAML file or a stream of JSON values runs the expression once per document. A leading `[tool]` marker line is ignored; YAML timestamps and mapping keys keep their written text, and integers keep full precision. |
 
 Each tool is output-bounded: it returns only the filtered slice, never the whole
 object, so the LLM context receives only what it asked for.

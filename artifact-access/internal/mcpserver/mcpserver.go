@@ -35,7 +35,7 @@ type Server struct {
 	Fetcher store.Getter
 	// MaxOutputBytes is the per-tool output cap in bytes; <= 0 disables capping.
 	MaxOutputBytes int
-	// JqMaxInputBytes caps the JSON input jq will parse; <= 0 disables the cap.
+	// JqMaxInputBytes caps the JSON or YAML input jq will parse; <= 0 disables the cap.
 	JqMaxInputBytes int64
 }
 
@@ -77,7 +77,7 @@ func (s *Server) MCP() *mcp.Server {
 		Description: "Project named columns (names match case-insensitively) from a table artifact with a header " +
 			"row: a kubectl-style table such as resources_list output (columns split on 2+ spaces) or CSV " +
 			"(set delimiter for a non-comma separator). An error lists the header's columns. " +
-			"Not for JSON or YAML: use artifact_jq."}, s.selectCSV)
+			"Not for JSON or YAML: use artifact_jq."}, s.selectColumns)
 	mcp.AddTool(srv, &mcp.Tool{Name: "artifact_jq",
 		Description: "Run a jq program over a JSON or YAML artifact, including multi-document YAML such as " +
 			"resources_get output (the program runs once per document; input size capped). " +
@@ -111,7 +111,7 @@ type rowsIn struct {
 type selectIn struct {
 	Key       string   `json:"key" jsonschema:"the object key, exactly as on the artifact reference"`
 	Columns   []string `json:"columns" jsonschema:"column names to project, in output order"`
-	Delimiter string   `json:"delimiter,omitempty" jsonschema:"single-char field delimiter (default comma)"`
+	Delimiter string   `json:"delimiter,omitempty" jsonschema:"single-char; omit to auto-detect table or CSV"`
 }
 type jqIn struct {
 	Key     string `json:"key" jsonschema:"the object key, exactly as on the artifact reference"`
@@ -151,7 +151,9 @@ func (s *Server) rows(ctx context.Context, _ *mcp.CallToolRequest, in rowsIn) (*
 	})
 }
 
-func (s *Server) selectCSV(ctx context.Context, _ *mcp.CallToolRequest, in selectIn) (*mcp.CallToolResult, Out, error) {
+func (s *Server) selectColumns(
+	ctx context.Context, _ *mcp.CallToolRequest, in selectIn,
+) (*mcp.CallToolResult, Out, error) {
 	return s.read(ctx, in.Key, func(r io.Reader) (string, error) {
 		return readops.Select(r, in.Columns, delimiterOrAuto(in.Delimiter), s.MaxOutputBytes)
 	})

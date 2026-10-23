@@ -7,8 +7,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"regexp"
 	"strings"
+	"unicode"
 )
 
 // sniffBytes is how much of the artifact Select looks at to tell a table from CSV.
@@ -19,18 +19,15 @@ const sniffBytes = 64 * 1024
 const maxListedColumns = 20
 
 var (
-	// tableSplit splits a kubectl-style table row: columns are separated by a tab or a
-	// run of two or more spaces, so a single space stays inside a cell ("Not Ready").
-	tableSplit = regexp.MustCompile(`\t+| {2,}`)
-
 	errNoColumns = errors.New("no columns requested")
 	errEmpty     = errors.New("the artifact is empty")
 )
 
 // Select projects the named columns from a tabular artifact with a header row and
 // returns them as CSV. With no delimiter it detects the shape from the header: a
-// header that has columns separated by two or more spaces or a tab is a kubectl-style
-// table (what the Kubernetes tools store); anything else is CSV. A delimiter forces
+// header with a comma or a quote is CSV; a header with two or more columns (tabs, runs
+// of two or more spaces, or uppercase tokens) is a kubectl-style table, which is what
+// the Kubernetes tools store; anything else is single-column CSV. A delimiter forces
 // CSV with that separator. Column names match case-insensitively. Output is bounded
 // by maxBytes.
 func Select(r io.Reader, columns []string, delimiter rune, maxBytes int) (string, error) {
@@ -46,30 +43,30 @@ func Select(r io.Reader, columns []string, delimiter rune, maxBytes int) (string
 	if !ok {
 		return "", errEmpty
 	}
-	if isTableLine(line) {
-		return selectTable(br, columns, maxBytes)
+	if shape, isTable := detectTable(line); isTable {
+		return selectTable(br, shape, columns, maxBytes)
 	}
 	return SelectCSV(br, columns, 0, maxBytes)
 }
 
+// detectTable parses a first line as a table header unless it looks like CSV.
+func detectTable(line string) (*tableShape, bool) {
+	if strings.ContainsAny(line, ",\"") {
+		return nil, false
+	}
+	return parseTableHeader(line)
+}
+
 // firstDataLine returns the first line that is neither blank nor a tool-section
-// marker such as "[resources_list]".
+// marker such as "[resources_list]", without its trailing line break.
 func firstDataLine(b []byte) (string, bool) {
 	for _, l := range bytes.Split(b, []byte("\n")) {
-		line := strings.TrimSpace(string(l))
-		if line != "" && !isSectionMarker(line) {
+		line := strings.TrimRight(string(l), "\r")
+		if !skippable(line) {
 			return line, true
 		}
 	}
 	return "", false
-}
-
-func isTableLine(line string) bool {
-	return tableSplit.MatchString(strings.TrimSpace(line))
-}
-
-func splitTableRow(line string) []string {
-	return tableSplit.Split(strings.TrimSpace(line), -1)
 }
 
 // rowSink writes CSV records into a builder and reports when the byte budget is hit.
@@ -100,53 +97,35 @@ func (s *rowSink) write(rec []string) error {
 	return s.w.Error()
 }
 
-// selectTable projects columns from a whitespace-aligned table, skipping blank lines,
-// tool-section markers, and a header row repeated for a later section.
-func selectTable(r io.Reader, columns []string, maxBytes int) (string, error) {
+// selectTable projects columns from a table whose header is the first data line,
+// skipping blank lines, tool-section markers, and a header repeated for a later
+// section.
+func selectTable(r io.Reader, shape *tableShape, columns []string, maxBytes int) (string, error) {
+	idx, err := columnIndexes(shape.header, columns)
+	if err != nil {
+		return "", err
+	}
+	sink := newRowSink(0, maxBytes)
+	if err := sink.write(project(shape.header, idx)); err != nil {
+		return "", err
+	}
 	sc := newScanner(r)
+	headerSeen := false
 	var headerLine string
-	var sink *rowSink
-	var idx []int
-	for sc.Scan() && (sink == nil || !sink.full()) {
-		line := strings.TrimSpace(sc.Text())
-		if line == "" || isSectionMarker(line) || line == headerLine {
+	for sc.Scan() && !sink.full() {
+		line := strings.TrimRight(sc.Text(), " \t\r")
+		if skippable(line) || (headerSeen && line == headerLine) {
 			continue
 		}
-		var err error
-		if sink == nil {
-			headerLine = line
-			sink, idx, err = startTable(line, columns, maxBytes)
-		} else {
-			err = sink.write(project(splitTableRow(line), idx))
+		if !headerSeen {
+			headerSeen, headerLine = true, line
+			continue
 		}
-		if err != nil {
+		if err := sink.write(project(shape.row(line), idx)); err != nil {
 			return "", err
 		}
 	}
-	return finish(sink, sc.Err())
-}
-
-// finish returns the sink's CSV, or the scan error, or errEmpty when no header came.
-func finish(sink *rowSink, scanErr error) (string, error) {
-	if scanErr != nil {
-		return "", scanErr
-	}
-	if sink == nil {
-		return "", errEmpty
-	}
-	return sink.sb.String(), nil
-}
-
-// startTable resolves the requested columns against the header line and writes the
-// output's header row.
-func startTable(headerLine string, columns []string, maxBytes int) (*rowSink, []int, error) {
-	header := splitTableRow(headerLine)
-	idx, err := columnIndexes(header, columns)
-	if err != nil {
-		return nil, nil, err
-	}
-	sink := newRowSink(0, maxBytes)
-	return sink, idx, sink.write(project(header, idx))
+	return sink.sb.String(), sc.Err()
 }
 
 // SelectCSV projects the named columns from CSV input that has a header row,
@@ -161,12 +140,16 @@ func SelectCSV(r io.Reader, columns []string, delimiter rune, maxBytes int) (str
 		cr.Comma = delimiter
 	}
 	cr.FieldsPerRecord = -1 // tolerate ragged rows
+	cr.TrimLeadingSpace = delimiter == 0 || !unicode.IsSpace(delimiter)
 	header, err := cr.Read()
 	if errors.Is(err, io.EOF) {
 		return "", errEmpty
 	}
 	if err != nil {
 		return "", fmt.Errorf("read header: %w", err)
+	}
+	for i, h := range header {
+		header[i] = strings.TrimSpace(h)
 	}
 	idx, err := columnIndexes(header, columns)
 	if err != nil {
