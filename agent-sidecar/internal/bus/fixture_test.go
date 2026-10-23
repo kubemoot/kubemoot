@@ -104,6 +104,7 @@ type pod struct {
 	tools    *fakeTools
 	planner  *fakePlanner
 	metrics  *obs.Metrics
+	sub      *nats.Subscription
 }
 
 // deliveries is how many bus messages the sidecar counted with the given result.
@@ -205,6 +206,7 @@ func newPodWith(t *testing.T, ctx context.Context, o options,
 	if err != nil {
 		t.Fatal(err)
 	}
+	p.sub = sub
 	t.Cleanup(func() { _ = sub.Unsubscribe() })
 	return p
 }
