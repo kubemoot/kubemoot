@@ -608,15 +608,16 @@ public class ChatService {
         if (contextLength <= 0) {
             return java.util.Optional.empty();
         }
-        long next = state.nextPromptTokens(tools().specs(), charsPerToken);
+        long next = PromptSize.nextPromptTokens(state.allMessages, tools().specs(),
+                state.lastPromptTokens, state.lastReplyTokens, state.messagesAtLastCall, charsPerToken);
         if (next <= contextLength) {
             return java.util.Optional.empty();
         }
-        if (toolerRawOutput && state.toolsExecuted) {
-            if (everyToolCallFailed(state)) {
+        if (toolerRawOutput && state.toolsExecuted && state.toolOutput.length() > 0) {
+            if (state.totalToolFailures + state.oversizedResults >= state.toolCalls) {
                 throw new ToolCallFailure(ToolCallFailure.FailureType.GATHER_FAILED, null, null, iteration,
-                        "every tool call failed or was replaced for its size and the next prompt (~" + next
-                                + " tokens) exceeds the " + contextLength + "-token context window");
+                        "every tool call failed and the next prompt (~" + next + " tokens) exceeds the "
+                                + contextLength + "-token context window");
             }
             log.info("agent {}: the next prompt (~{} tokens) exceeds the {}-token context; "
                     + "contributing the tool output gathered in {} iterations", properties.agentName(),
@@ -739,9 +740,6 @@ public class ChatService {
         if (finalText.startsWith("TOOL_GAP:")) {
             return new ToolLoopResult(finalText,
                     state.totalInput, state.totalOutput, serverName, pickReason);
-        }
-        if (noRealResultAfterReplacement(state)) {
-            throw gatherFailed(state, 0);
         }
         return rawOutputResult(state, serverName, pickReason);
     }
@@ -1003,32 +1001,32 @@ public class ChatService {
      * telling the model to ask for less; the model then corrects itself in the same loop.
      */
     private void executeToolCalls(AiMessage aiMessage, ToolLoopState state, long contextLength) {
-        long promptTokens = contextLength <= 0 ? 0 : state.nextPromptTokens(tools().specs(), charsPerToken);
+        long promptTokens = contextLength <= 0 ? 0 : PromptSize.nextPromptTokens(state.allMessages,
+                tools().specs(), state.lastPromptTokens, state.lastReplyTokens, state.messagesAtLastCall,
+                charsPerToken);
         var budget = new ToolResultBudget(contextLength, promptTokens, charsPerToken);
         for (var toolRequest : aiMessage.toolExecutionRequests()) {
             var executor = findExecutor(toolRequest.name());
             String raw = executor != null
                     ? executor.execute(toolRequest, null)
-                    : ToolResultBudget.errorJson("Unknown tool: " + toolRequest.name());
+                    : "{\"error\": \"Unknown tool: " + toolRequest.name() + "\"}";
             var admitted = budget.admit(toolRequest.name(), raw);
             String result = admitted.text();
             state.allMessages.add(new ToolExecutionResultMessage(
                     toolRequest.id(), toolRequest.name(), result));
             state.toolsExecuted = true;
             state.toolCalls++;
-            if (admitted.replaced()) {
-                // A replaced result says nothing about the data, so it neither arms the metrics
-                // drill nor satisfies the compute contract, and it is not part of the tooler's output.
-                recordOversizedResult(toolRequest.name(), admitted, contextLength, state);
-                continue;
-            }
             recordReadAndMetricSignals(toolRequest.name(), toolRequest.arguments(), result, state);
             // Accumulate the raw output as the tooler's contribution. Cap each
             // result so a pathologically large tool response cannot blow the
             // downstream discussion/synthesis context.
             state.toolOutput.append("[").append(toolRequest.name()).append("]\n")
                     .append(truncate(result, MAX_TOOL_RESULT_CHARS)).append("\n\n");
-            recordToolFailure(toolRequest.name(), result, state);
+            if (admitted.replaced()) {
+                recordOversizedResult(toolRequest.name(), admitted, contextLength, state);
+            } else {
+                recordToolFailure(toolRequest.name(), result, state);
+            }
         }
     }
 
@@ -1113,23 +1111,6 @@ public class ChatService {
         }
     }
 
-    /** True when tools ran and every call either returned an error or was replaced for its size. */
-    private static boolean everyToolCallFailed(ToolLoopState state) {
-        return state.toolCalls > 0 && state.totalToolFailures + state.oversizedResults >= state.toolCalls;
-    }
-
-    /** True when a size replacement left the tooler with no real tool result: every call erred or was replaced. */
-    private static boolean noRealResultAfterReplacement(ToolLoopState state) {
-        return state.oversizedResults > 0 && everyToolCallFailed(state);
-    }
-
-    /** Fail the gather of a tooler that has no real tool result to contribute. */
-    private static ToolCallFailure gatherFailed(ToolLoopState state, int iteration) {
-        return new ToolCallFailure(ToolCallFailure.FailureType.GATHER_FAILED, null, null, iteration,
-                "every tool call failed (" + state.totalToolFailures + " errors, " + state.oversizedResults
-                        + " results too large for the context window); no tool output to contribute");
-    }
-
     /** A tooler's contribution: the raw output of the tools it ran, with the loop's token totals. */
     private static ToolLoopResult rawOutputResult(ToolLoopState state, String serverName, String pickReason) {
         return new ToolLoopResult(state.toolOutput.toString().strip(),
@@ -1144,9 +1125,6 @@ public class ChatService {
      */
     private ToolLoopResult exhaustedIterationsResult(ToolLoopState state, int maxIterations,
             boolean toolerRawOutput, String serverName, String pickReason) {
-        if (toolerRawOutput && noRealResultAfterReplacement(state)) {
-            throw gatherFailed(state, maxIterations);
-        }
         if (toolerRawOutput && state.toolsExecuted && state.toolOutput.length() > 0) {
             log.info("iterations-exhausted for tooler {}: posting {} chars of raw tool output as the contribution",
                     properties.agentName(), state.toolOutput.length());
@@ -1206,12 +1184,6 @@ public class ChatService {
 
         ToolLoopState(List<ChatMessage> messages) {
             this.allMessages = new ArrayList<>(messages);
-        }
-
-        /** Estimated tokens of the next prompt: the engine's last report plus what was added since. */
-        long nextPromptTokens(List<dev.langchain4j.agent.tool.ToolSpecification> specs, CharsPerToken ratio) {
-            return PromptSize.nextPromptTokens(allMessages, specs, lastPromptTokens, lastReplyTokens,
-                    messagesAtLastCall, ratio);
         }
 
         void recordTurn(dev.langchain4j.model.output.TokenUsage usage) {
