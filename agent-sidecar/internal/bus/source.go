@@ -37,6 +37,18 @@ func (d delivery) term() {
 	}
 }
 
+// delivered is how many times the server has delivered the message; zero on core NATS.
+func (d delivery) delivered() uint64 {
+	if d.msg == nil {
+		return 0
+	}
+	md, err := d.msg.Metadata()
+	if err != nil {
+		return 0
+	}
+	return md.NumDelivered
+}
+
 // nak asks for the message again after a delay, for a turn whose signal could not be published.
 func (d delivery) nak(delay time.Duration) {
 	if d.msg != nil {

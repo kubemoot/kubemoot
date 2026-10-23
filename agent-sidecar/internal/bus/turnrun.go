@@ -19,9 +19,10 @@ import (
 )
 
 const (
-	failureTools    = "tools_unavailable"
-	failureDeadline = "loop_time_exceeded"
-	heartbeatText   = "Queued or running inference"
+	failureTools       = "tools_unavailable"
+	failureDeadline    = "loop_time_exceeded"
+	failureInterrupted = "interrupted"
+	heartbeatText      = "Queued or running inference"
 )
 
 // turnRun is one turn from admission to the terminal signal.
@@ -67,12 +68,55 @@ func (t *turnRun) run() {
 	t.finish(out, span)
 }
 
+// defaultMaxDeliver is the operator's MaxDeliver for every agent's consumer
+// (operator/internal/nats/publisher.go). A message delivered this many times is dropped by the
+// server when it is given back, so it cannot be given back again.
+const defaultMaxDeliver = 3
+
+func (r *Runner) maxDeliver() int {
+	if r.MaxDeliver > 0 {
+		return r.MaxDeliver
+	}
+	return defaultMaxDeliver
+}
+
 // settleStopped settles a turn that was ended from outside. When its thread ended nobody waits for
 // the message, so it is acknowledged. When the sidecar is shutting down the thread is still open, so
-// the message is given back and the next pod to bind the consumer gets it.
+// the message is given back and the next pod to bind the consumer gets it; on its last delivery
+// the server would drop a give-back silently, so the thread is told the turn was interrupted.
 func (t *turnRun) settleStopped() {
-	if t.r.base.Err() != nil {
-		t.d.nak(0)
+	switch {
+	case t.r.base.Err() == nil:
+		t.d.ack()
+	case t.d.delivered() >= uint64(t.r.maxDeliver()):
+		t.interrupted()
+	default:
+		t.giveBack()
+	}
+}
+
+// giveBack returns the message to the consumer unworked. The admission forgets it, so a delivery
+// to this same runner is judged afresh and not dropped as a duplicate, and the wait keeps the
+// server from handing it straight back to a pod that is leaving.
+func (t *turnRun) giveBack() { t.r.giveBack(t.d, t.msg) }
+
+func (r *Runner) giveBack(d delivery, msg kbus.DiscussionMessage) {
+	r.admit.Forget(msg.MessageID, msg.ThreadID)
+	d.nak(r.nakDelay())
+}
+
+// interrupted tells the thread a turn was cut by shutdown with no delivery left, as a failure
+// signal on a context of its own because the turn's context has ended, then acknowledges. If the
+// signal cannot be published the message is given back after all.
+func (t *turnRun) interrupted() {
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(t.ctx), 5*time.Second)
+	defer cancel()
+	md := map[string]any{"failureType": failureInterrupted,
+		"lastError": "the agent's pod was replaced while the turn ran, and the message has no deliveries left"}
+	err := t.r.Pub.Signal(ctx, t.thread, kbus.DiscussionMessageMessageType(a2a.SignalFailure),
+		"The turn was interrupted by a restart of the agent.", md)
+	if err != nil {
+		t.giveBack()
 		return
 	}
 	t.d.ack()
@@ -237,8 +281,7 @@ func (t *turnRun) finish(out a2a.Outcome, span trace.Span) {
 	err := t.r.Pub.Signal(t.ctx, t.thread, kbus.DiscussionMessageMessageType(out.Signal), content, md)
 	if err != nil {
 		t.r.Log.Warn("terminal signal not published; asking for the message again", "thread", t.thread.ID, "error", err)
-		t.r.admit.Forget(t.msg.MessageID, t.msg.ThreadID)
-		t.d.nak(t.r.nakDelay())
+		t.giveBack()
 		return
 	}
 	t.d.ack()

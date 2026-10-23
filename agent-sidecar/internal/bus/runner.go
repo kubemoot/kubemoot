@@ -70,6 +70,8 @@ type Runner struct {
 	NakDelay time.Duration
 	// WarnEvery is how often the wait for the consumer is logged again; zero means a minute.
 	WarnEvery time.Duration
+	// MaxDeliver is the consumer's delivery limit; zero means the operator's 3.
+	MaxDeliver int
 
 	admit *Admission
 	once  sync.Once
@@ -173,7 +175,7 @@ func (r *Runner) start(d delivery, msg kbus.DiscussionMessage) {
 	t.ctx, t.cancel = context.WithCancel(r.traceContext(d, msg))
 	if !r.admitTurn() {
 		t.cancel()
-		d.nak(0)
+		r.giveBack(d, msg)
 		return
 	}
 	r.register(msg.ThreadID, &t.running)

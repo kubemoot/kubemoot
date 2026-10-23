@@ -1,6 +1,7 @@
 package bus
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"testing"
@@ -33,6 +34,32 @@ func TestOnlyAnUnavailableConsumerIsWaitedFor(t *testing.T) {
 	for _, err := range fatal {
 		if isWaitable(err) {
 			t.Errorf("%v should end the wait", err)
+		}
+	}
+}
+
+// Only the consumer being gone, or made again with another delivery subject, is a loss; a failure
+// to ask is not.
+func TestOnlyAMovedConsumerIsALostSubscription(t *testing.T) {
+	same := &nats.ConsumerInfo{Config: nats.ConsumerConfig{DeliverSubject: "_INBOX.a"}}
+	again := &nats.ConsumerInfo{Config: nats.ConsumerConfig{DeliverSubject: "_INBOX.b"}}
+	cases := []struct {
+		name string
+		ci   *nats.ConsumerInfo
+		err  error
+		lost bool
+	}{
+		{"unchanged", same, nil, false},
+		{"made again", again, nil, true},
+		{"gone", nil, nats.ErrConsumerNotFound, true},
+		{"timeout", nil, nats.ErrTimeout, false},
+		{"no responders", nil, nats.ErrNoResponders, false},
+		{"deadline", nil, context.DeadlineExceeded, false},
+		{"canceled", nil, context.Canceled, false},
+	}
+	for _, c := range cases {
+		if got := movedOn(c.ci, c.err, "_INBOX.a"); got != c.lost {
+			t.Errorf("%s: lost=%t, want %t", c.name, got, c.lost)
 		}
 	}
 }
