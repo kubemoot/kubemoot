@@ -68,13 +68,22 @@ agent needs:
 | `head` | First N lines of the object. |
 | `tail` | Last N lines. |
 | `grep` | Lines matching a pattern. |
-| `select` | Named column projection for CSV objects. |
+| `select` | Named column projection for tables: kubectl-style tables (columns split on two or more spaces or a tab) and CSV. Column names match without regard to case. |
 | `count` | Row count (no data transfer). |
 | `rows` | Rows at a given offset/limit. |
-| `jq` | A JQ expression applied to a JSON object. |
+| `jq` | A JQ expression applied to a JSON or YAML object. A multi-document YAML file or a stream of JSON values runs the expression once per document. |
 
 Each tool is output-bounded: it returns only the filtered slice, never the whole
 object, so the LLM context receives only what it asked for.
+
+An object holds the raw output of the tool that produced it, so pick the read tool
+by format. The Kubernetes list tools (`resources_list`) store a kubectl-style table:
+use `select`, `grep`, `rows`, or `count`. Single-object tools (`resources_get`) store
+YAML and metrics tools store JSON: use `jq`. `jq` on a table or plain text, and
+`select` on JSON, YAML, or text, fail with an error that names the tool that fits.
+A `select` error lists the header's columns. A `key` that does not exist fails with
+a message to copy the `key` from the artifact reference exactly; a placeholder such
+as `<key>` or a shortened name is the usual cause.
 
 The discipline is "sip, don't slurp": never pull a whole blob into memory or into
 an LLM context window. A `grep` for a pod name, a `select` for two columns, or a

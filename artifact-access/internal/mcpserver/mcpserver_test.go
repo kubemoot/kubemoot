@@ -8,6 +8,8 @@ import (
 	"testing"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+
+	"github.com/kubemoot/kubemoot/artifact-access/internal/store"
 )
 
 type fakeFetcher struct {
@@ -21,7 +23,7 @@ func (f fakeFetcher) Get(_ context.Context, key string) (io.ReadCloser, error) {
 	}
 	s, ok := f.data[key]
 	if !ok {
-		return nil, fmt.Errorf("no such key %q", key)
+		return nil, fmt.Errorf("%w: no such key %q", store.ErrNotFound, key)
 	}
 	return io.NopCloser(strings.NewReader(s)), nil
 }
@@ -164,10 +166,10 @@ func TestMCPBuilds(t *testing.T) {
 }
 
 func TestDelimiterOrComma(t *testing.T) {
-	if delimiterOrComma("") != ',' {
+	if delimiterOrAuto("") != 0 {
 		t.Fatal("empty must default to comma")
 	}
-	if delimiterOrComma(";") != ';' {
+	if delimiterOrAuto(";") != ';' {
 		t.Fatal("first rune used")
 	}
 }
@@ -202,5 +204,30 @@ func TestLargePageKeepsItsPosition(t *testing.T) {
 	}
 	if len(lines)-1 != b-a+1 || total != 5000 {
 		t.Fatalf("returned %d lines, position says %d-%d of %d", len(lines)-1, a, b, total)
+	}
+}
+
+func TestMissingKeyPointsAtReferenceLine(t *testing.T) {
+	s := newServer(map[string]string{"real/key": "a\n"})
+	for _, key := range []string{"<key>", "storage-classes"} {
+		_, _, err := s.count(context.Background(), nil, keyIn{Key: key})
+		if err == nil || !strings.Contains(err.Error(), "was not found") || !strings.Contains(err.Error(), "reference line") {
+			t.Fatalf("key %q: %v", key, err)
+		}
+	}
+}
+
+func TestSelectAndJqHandlersOnToolerFormats(t *testing.T) {
+	s := newServer(map[string]string{
+		"table": "NAME  STATUS\nweb  Running\n",
+		"yaml":  "kind: Pod\nmetadata:\n  name: web\n",
+	})
+	_, out, err := s.selectCSV(context.Background(), nil, selectIn{Key: "table", Columns: []string{"status"}})
+	if err != nil || out.Output != "STATUS\nRunning\n" {
+		t.Fatalf("select %q %v", out.Output, err)
+	}
+	_, out, err = s.jq(context.Background(), nil, jqIn{Key: "yaml", Program: ".metadata.name"})
+	if err != nil || out.Output != "\"web\"\n" {
+		t.Fatalf("jq %q %v", out.Output, err)
 	}
 }

@@ -6,6 +6,7 @@ require (
 	github.com/itchyny/gojq v0.12.19
 	github.com/modelcontextprotocol/go-sdk v1.8.0
 	github.com/nats-io/nats.go v1.54.0
+	gopkg.in/yaml.v3 v3.0.1
 )
 
 require (
