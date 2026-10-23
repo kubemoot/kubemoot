@@ -1,617 +1,298 @@
 <script lang="ts">
-	import { onMount, onDestroy } from 'svelte';
+	import { onMount, tick } from 'svelte';
 	import { resolve } from '$app/paths';
-	import { get } from 'svelte/store';
-	import { namespace, readOnly, scoped } from '#lib/stores/index.js';
-	import { CHAT_ALL, DISCUSS_ALL, chatNamespaceFilter, chatSubject, discussNamespaceFilter, isNamespace } from '#lib/crewScope.js';
+	import { marked } from 'marked';
+	import { currentRequester } from '#lib/requester.js';
+	import type { DiscussionMessage } from '#lib/types/kubemoot.js';
+	import {
+		crewDirectory,
+		threads,
+		sortedThreads,
+		initDiscussions,
+		addDiscussionMessage,
+		removeThread,
+		showChatDetails,
+		namespace,
+		threadScope,
+		readOnly
+	} from '#lib/stores/index.js';
+	import { discussSubject, tryCrewScope, type CrewScope } from '#lib/crewScope.js';
+	import { crewEntry, crewLabel } from '#lib/crew-display-name.js';
+	import { canSend, chatAsText, chatTurns, crewThreads, detailsLine } from '#lib/chat-view.js';
+	import { formatTimestamp } from '#lib/discussion-timing.js';
 
-	interface NatsMessage {
-		subject: string;
-		data: string;
-		timestamp: Date;
-	}
+	marked.setOptions({ breaks: true, gfm: true });
 
-	let messages = $state<NatsMessage[]>([]);
-	let connectionStatus = $state<'disconnected' | 'connecting' | 'connected' | 'error'>(
-		'disconnected'
+	// The crew picker is the top-bar "Crew:" selector, the same one Discussions uses.
+	const selectedScope = $derived<CrewScope | null>(
+		$namespace === '' ? null : tryCrewScope($namespace, crewEntry($crewDirectory, $namespace)?.crew)
 	);
-	let connectionError = $state<string | null>(null);
-	// A scoped dashboard serves only chat and discussion subjects (they carry the namespace).
-	let selectedChannel = $state(get(scoped) ? DISCUSS_ALL : 'kubemoot.>');
-	let customSubject = $state('');
-	let composeText = $state('');
-	// Chat subjects are kubemoot.chat.<namespace>.<agent>; default to the selected
-	// crew namespace, or `default` when all crews are shown.
-	const initialNamespace = get(namespace);
-	let publishSubject = $state(chatSubject(isNamespace(initialNamespace) ? initialNamespace : 'default', 'admin'));
-	let messagesContainer: HTMLDivElement;
-
-	const channels = [
-		{ subject: 'kubemoot.>', label: 'All Kubemoot Events' },
-		{ subject: 'kubemoot.chronicle.>', label: 'Chronicle Events' },
-		{ subject: 'kubemoot.quality.>', label: 'Quality Verdicts' },
-		{ subject: CHAT_ALL, label: 'Chat Messages' },
-		{ subject: DISCUSS_ALL, label: 'Discussion Threads' },
-		{ subject: 'kubemoot.operator.>', label: 'Operator Events' },
-		{ subject: 'kubemoot.gateway.>', label: 'Gateway Feedback' }
-	];
-
-	const visibleChannels = $derived(
-		$scoped ? channels.filter((c) => c.subject === CHAT_ALL || c.subject === DISCUSS_ALL) : channels
+	const chats = $derived(
+		crewThreads($sortedThreads, selectedScope).filter((t) => chatTurns(t.messages).length > 0)
 	);
 
-	// Namespace-scoped channels for the crew selected in the top bar.
-	const scopedChannels = $derived(
-		isNamespace($namespace)
-			? [
-					{ subject: chatNamespaceFilter($namespace), label: `Chat in ${$namespace}` },
-					{ subject: discussNamespaceFilter($namespace), label: `Discussions in ${$namespace}` }
-				]
-			: []
+	let selectedThreadId = $state<string | null>(null);
+	const selected = $derived(selectedThreadId ? $threads.get(selectedThreadId) : undefined);
+	const turns = $derived(selected ? chatTurns(selected.messages) : []);
+
+	let draft = $state('');
+	let sending = $state(false);
+	let channel = $state('general');
+	let deleteConfirm = $state(false);
+	let copied = $state(false);
+	let timelineEl = $state<HTMLElement | null>(null);
+
+	const sendable = $derived(
+		canSend({ scope: selectedScope, text: draft, sending, readOnly: $readOnly })
 	);
 
-	let eventSource: EventSource | null = null;
-	let reconnectAttempts = 0;
-	let reconnectTimeout: ReturnType<typeof setTimeout> | null = null;
-
-	function connect() {
-		connectionStatus = 'connecting';
-		connectionError = null;
-
-		// Clean up previous connection
-		if (reconnectTimeout) {
-			clearTimeout(reconnectTimeout);
-			reconnectTimeout = null;
-		}
-		if (eventSource) {
-			eventSource.close();
-			eventSource = null;
-		}
-
-		// Connect via SSE through the server-side proxy
-		const url = `${resolve('/api/nats/subscribe')}?subject=${encodeURIComponent(selectedChannel)}`;
-		eventSource = new EventSource(url);
-
-		eventSource.onmessage = (event) => {
-			try {
-				const payload = JSON.parse(event.data);
-
-				if (payload.type === 'connected') {
-					connectionStatus = 'connected';
-					reconnectAttempts = 0;
-					return;
-				}
-
-				if (payload.type === 'error') {
-					connectionStatus = 'error';
-					connectionError = payload.error;
-					return;
-				}
-
-				if (payload.type === 'message') {
-					messages = [
-						...messages,
-						{
-							subject: payload.subject,
-							data: payload.data,
-							timestamp: new Date(payload.timestamp)
-						}
-					];
-					// Auto-scroll
-					requestAnimationFrame(() => {
-						if (messagesContainer) {
-							messagesContainer.scrollTop = messagesContainer.scrollHeight;
-						}
-					});
-				}
-			} catch {
-				// Ignore parse errors
-			}
-		};
-
-		eventSource.onerror = () => {
-			eventSource?.close();
-			eventSource = null;
-
-			// Auto-retry with exponential backoff (1s, 2s, 4s, 8s, 16s max)
-			if (reconnectAttempts < 5) {
-				connectionStatus = 'connecting';
-				connectionError = `Reconnecting (attempt ${reconnectAttempts + 1})...`;
-				const delay = Math.min(1000 * Math.pow(2, reconnectAttempts), 16000);
-				reconnectTimeout = setTimeout(() => {
-					reconnectAttempts++;
-					connect();
-				}, delay);
-			} else {
-				connectionStatus = 'error';
-				connectionError = 'Connection lost after 5 retries';
-				reconnectAttempts = 0;
-			}
-		};
+	function selectChat(threadId: string | null) {
+		selectedThreadId = threadId;
+		deleteConfirm = false;
 	}
 
-	function changeChannel(subject: string) {
-		selectedChannel = subject;
-		messages = [];
-		connect();
-	}
-
-	function subscribeCustom() {
-		if (customSubject.trim()) {
-			selectedChannel = customSubject.trim();
-			messages = [];
-			connect();
-			customSubject = '';
-		}
-	}
-
-	async function publishMessage() {
-		if (!composeText.trim()) return;
-
-		const payload = JSON.stringify({
-			from: 'admin',
-			message: composeText.trim(),
-			timestamp: new Date().toISOString()
+	async function publish(subject: string, msg: DiscussionMessage) {
+		const res = await fetch(resolve('/api/nats/publish'), {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({ subject, data: JSON.stringify(msg) })
 		});
+		if (!res.ok) throw new Error('Failed to publish');
+	}
 
-		try {
-			const res = await fetch(resolve('/api/nats/publish'), {
-				method: 'POST',
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ subject: publishSubject, data: payload })
-			});
-
-			if (!res.ok) {
-				const err = await res.json();
-				console.error('Publish failed:', err.error);
+	// A new conversation starts a thread (thread_start on the crew's discuss subject, as
+	// New discussion does); a message in an open conversation is a reply on its thread.
+	function outgoing(scope: CrewScope, text: string): { subject: string; msg: DiscussionMessage } {
+		const base = {
+			messageId: crypto.randomUUID(),
+			agentName: 'human',
+			content: text,
+			timestamp: new Date().toISOString()
+		};
+		if (selected) {
+			const threadScopeOf = threadScope(selected) ?? scope;
+			return {
+				subject: discussSubject(threadScopeOf, selected.channel, selected.threadId),
+				msg: { ...base, threadId: selected.threadId, messageType: 'reply', channel: selected.channel }
+			};
+		}
+		const threadId = crypto.randomUUID();
+		return {
+			subject: discussSubject(scope, channel, threadId),
+			msg: {
+				...base,
+				threadId,
+				messageType: 'thread_start',
+				channel,
+				metadata: { userQuery: text, requester: currentRequester() }
 			}
-
-			composeText = '';
-		} catch (e) {
-			console.error('Publish error:', e);
-		}
+		};
 	}
 
-	function formatData(data: string): string {
+	async function send() {
+		if (!sendable || !selectedScope) return;
+		sending = true;
 		try {
-			return JSON.stringify(JSON.parse(data), null, 2);
-		} catch {
-			return data;
+			const { subject, msg } = outgoing(selectedScope, draft.trim());
+			addDiscussionMessage(msg, subject);
+			selectedThreadId = msg.threadId;
+			await publish(subject, msg);
+			draft = '';
+			await tick();
+			if (timelineEl) timelineEl.scrollTop = timelineEl.scrollHeight;
+		} catch (e) {
+			console.error('Failed to send message:', e);
+		} finally {
+			sending = false;
 		}
 	}
 
-	function clearMessages() {
-		messages = [];
+	async function copyChat() {
+		await navigator.clipboard.writeText(chatAsText(turns, $showChatDetails));
+		copied = true;
+		setTimeout(() => {
+			copied = false;
+		}, 2000);
+	}
+
+	async function deleteChat() {
+		if (!selected) return;
+		const id = selected.threadId;
+		await removeThread(id);
+		deleteConfirm = false;
+		selectedThreadId = chats.find((t) => t.threadId !== id)?.threadId ?? null;
+	}
+
+	function preview(threadId: string, fallback: string): string {
+		const first = $threads.get(threadId);
+		return chatTurns(first?.messages ?? [])[0]?.text || fallback;
+	}
+
+	async function loadChannel() {
+		try {
+			const res = await fetch(resolve('/api/kubemoot/channels'));
+			const data = await res.json();
+			if (data.channels?.length > 0) channel = data.channels[0].name;
+		} catch {
+			// The default channel stays.
+		}
 	}
 
 	onMount(() => {
-		connect();
-	});
-
-	onDestroy(() => {
-		if (reconnectTimeout) {
-			clearTimeout(reconnectTimeout);
-			reconnectTimeout = null;
-		}
-		if (eventSource) {
-			eventSource.close();
-			eventSource = null;
-		}
+		initDiscussions();
+		loadChannel();
 	});
 </script>
 
 <div class="messages-page">
 	<div class="sidebar-panel">
 		<div class="panel-header">
-			<h2>Channels</h2>
-			<div
-				class="connection-status"
-				class:connected={connectionStatus === 'connected'}
-				class:error={connectionStatus === 'error'}
-			>
-				<span class="status-dot"></span>
-				{connectionStatus}
-			</div>
+			<h2>Conversations</h2>
+			{#if !$readOnly}
+				<button class="new-btn" onclick={() => selectChat(null)} title="Start a new conversation with the selected crew">+ New</button>
+			{/if}
 		</div>
-
-		{#if connectionError}
-			<div class="connection-error">{connectionError}</div>
+		{#if chats.length === 0}
+			<p class="hint">No conversations{selectedScope ? ' with this crew' : ''} yet.</p>
 		{/if}
-
-		<div class="channel-list">
-			{#each [...visibleChannels, ...scopedChannels] as channel (channel.subject)}
-				<button
-					class="channel-btn"
-					class:active={selectedChannel === channel.subject}
-					onclick={() => changeChannel(channel.subject)}
-				>
-					{channel.label}
-					<span class="channel-subject">{channel.subject}</span>
-				</button>
-			{/each}
-		</div>
-
-		<div class="custom-sub">
-			<input
-				type="text"
-				bind:value={customSubject}
-				placeholder="Custom subject..."
-				onkeydown={(e) => e.key === 'Enter' && subscribeCustom()}
-			/>
-			<button onclick={subscribeCustom}>Sub</button>
-		</div>
-
-		{#if connectionStatus === 'disconnected' || connectionStatus === 'error'}
-			<button class="reconnect-btn" onclick={connect}>Reconnect</button>
-		{/if}
+		{#each chats as t (t.threadId)}
+			<button class="chat-row" class:active={t.threadId === selectedThreadId} onclick={() => selectChat(t.threadId)}>
+				<span class="chat-preview">{preview(t.threadId, t.userQuery)}</span>
+				<span class="chat-meta">
+					{#if $namespace === '' && t.namespace}<span class="crew-badge">{crewLabel($crewDirectory, t.namespace, t.crew)}</span>{/if}
+					<span>{formatTimestamp(t.startedAt)}</span>
+				</span>
+			</button>
+		{/each}
 	</div>
 
 	<div class="main-panel">
 		<div class="main-header">
 			<h1>Messages</h1>
 			<div class="header-controls">
-				<span class="msg-count">{messages.length} messages</span>
-				<span class="current-sub">Subscribed: <code>{selectedChannel}</code></span>
-				<button class="clear-btn" onclick={clearMessages}>Clear</button>
+				<label class="details-toggle" title="Show how long each answer took and the tokens it used">
+					<input type="checkbox" checked={$showChatDetails} onchange={() => showChatDetails.toggle()} />
+					Details
+				</label>
+				{#if selected}
+					<a class="action-btn" href="{resolve('/discussions')}?thread={selected.threadId}" title="Open this thread in Discussions to see the agents' internal discussion">Discussion</a>
+					<button class="action-btn" onclick={copyChat} title="Copy this conversation to the clipboard">{copied ? '✓' : '📋'}</button>
+					{#if !$readOnly}
+						{#if !deleteConfirm}
+							<button class="action-btn danger" onclick={() => { deleteConfirm = true; }} title="Delete this conversation (removes its thread and purges its messages)">🗑️</button>
+						{:else}
+							<span class="delete-prompt">Delete?</span>
+							<button class="action-btn-text yes" onclick={deleteChat}>Yes</button>
+							<button class="action-btn-text no" onclick={() => { deleteConfirm = false; }}>No</button>
+						{/if}
+					{/if}
+				{/if}
 			</div>
 		</div>
 
-		<div class="messages-timeline" bind:this={messagesContainer}>
-			{#if messages.length === 0}
+		<div class="chat-timeline" bind:this={timelineEl}>
+			{#if !selected}
 				<div class="empty-state">
-					{#if connectionStatus === 'connected'}
-						<p>Listening on <code>{selectedChannel}</code>...</p>
-						<p class="hint">Messages will appear here in real-time.</p>
-					{:else}
-						<p>Not connected to NATS.</p>
-					{/if}
+					<p>{selectedScope ? 'Start a conversation with this crew below.' : 'Select a crew in the top bar to chat with it.'}</p>
 				</div>
 			{:else}
-				{#each messages as msg}
-					<div class="message">
-						<div class="message-header">
-							<span class="message-subject">{msg.subject}</span>
-							<span class="message-time">{msg.timestamp.toLocaleTimeString()}</span>
+				{#each turns as turn (turn.id)}
+					<div class="bubble {turn.from}">
+						<div class="bubble-head">
+							<span class="who">{turn.from === 'you' ? 'You' : crewLabel($crewDirectory, selected.namespace, selected.crew) || 'Crew'}</span>
+							<span class="when">{formatTimestamp(turn.timestamp)}</span>
 						</div>
-						<pre class="message-data">{formatData(msg.data)}</pre>
+						{#if turn.from === 'crew'}
+							<div class="markdown">{@html marked.parse(turn.text)}</div>
+							{#if $showChatDetails && detailsLine(turn.details)}
+								<div class="answer-details">{detailsLine(turn.details)}</div>
+							{/if}
+						{:else}
+							<div class="plain">{turn.text}</div>
+						{/if}
 					</div>
 				{/each}
+				{#if selected.status === 'open'}
+					<div class="waiting">The crew is working on an answer...</div>
+				{/if}
 			{/if}
 		</div>
 
 		{#if !$readOnly}
-		<div class="compose-bar">
-			<div class="compose-subject">
-				<label for="pub-subject">Publish to:</label>
-				<input id="pub-subject" type="text" bind:value={publishSubject} />
+			<div class="compose-bar">
+				<textarea
+					rows="2"
+					bind:value={draft}
+					placeholder={selectedScope ? 'Message the crew...' : 'Select a crew to send a message'}
+					disabled={!selectedScope}
+					onkeydown={(e) => {
+						if (e.key === 'Enter' && !e.shiftKey) {
+							e.preventDefault();
+							send();
+						}
+					}}
+				></textarea>
+				<button onclick={send} disabled={!sendable} title={selectedScope ? 'Send to the crew' : 'Select a crew first'}>Send</button>
 			</div>
-			<div class="compose-input">
-				<input
-					type="text"
-					bind:value={composeText}
-					placeholder="Type a message..."
-					onkeydown={(e) => e.key === 'Enter' && publishMessage()}
-					disabled={connectionStatus !== 'connected'}
-				/>
-				<button
-					onclick={publishMessage}
-					disabled={connectionStatus !== 'connected' || !composeText.trim()}
-				>
-					Send
-				</button>
-			</div>
-		</div>
 		{/if}
 	</div>
 </div>
 
 <style>
-	.messages-page {
-		display: flex;
-		height: 100%;
-		overflow: hidden;
-	}
-
+	.messages-page { display: flex; height: 100%; overflow: hidden; }
 	.sidebar-panel {
-		width: 240px;
-		border-right: 1px solid var(--color-border);
-		display: flex;
-		flex-direction: column;
-		padding: 1rem;
-		flex-shrink: 0;
-		overflow-y: auto;
+		width: 260px; border-right: 1px solid var(--color-border); display: flex;
+		flex-direction: column; padding: 1rem; flex-shrink: 0; overflow-y: auto; gap: 0.4rem;
 	}
+	.panel-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem; }
+	.panel-header h2 { font-size: 0.9rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--color-text-muted); }
+	.new-btn, .compose-bar button {
+		background: var(--color-primary); color: #fff; border: none; border-radius: 0.3rem;
+		padding: 0.3rem 0.75rem; cursor: pointer; font-size: 0.8rem;
+	}
+	.compose-bar button:disabled { opacity: 0.5; cursor: not-allowed; }
+	.hint { color: var(--color-text-muted); font-size: 0.85rem; }
+	.chat-row {
+		display: flex; flex-direction: column; gap: 0.2rem; text-align: left; background: none;
+		border: 1px solid transparent; border-radius: 0.4rem; padding: 0.5rem; cursor: pointer; color: var(--color-text);
+	}
+	.chat-row:hover { background: var(--color-bg-tertiary); }
+	.chat-row.active { background: var(--color-bg-tertiary); border-color: var(--color-primary); }
+	.chat-preview { font-size: 0.85rem; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2; -webkit-box-orient: vertical; }
+	.chat-meta { display: flex; gap: 0.5rem; font-size: 0.7rem; color: var(--color-text-muted); }
+	.crew-badge { font-family: var(--font-mono); }
 
-	.panel-header {
-		display: flex;
-		justify-content: space-between;
-		align-items: center;
-		margin-bottom: 1rem;
-	}
-
-	.panel-header h2 {
-		font-size: 0.9rem;
-		font-weight: 600;
-		margin: 0;
-	}
-
-	.connection-status {
-		display: flex;
-		align-items: center;
-		gap: 0.35rem;
-		font-size: 0.7rem;
-		color: var(--color-text-muted);
-	}
-
-	.status-dot {
-		width: 8px;
-		height: 8px;
-		border-radius: 50%;
-		background: var(--color-text-muted);
-	}
-
-	.connection-status.connected .status-dot {
-		background: #22c55e;
-	}
-	.connection-status.error .status-dot {
-		background: #ef4444;
-	}
-
-	.connection-error {
-		font-size: 0.75rem;
-		color: #ef4444;
-		margin-bottom: 0.5rem;
-		padding: 0.5rem;
-		background: rgba(239, 68, 68, 0.1);
-		border-radius: 4px;
-	}
-
-	.channel-list {
-		display: flex;
-		flex-direction: column;
-		gap: 0.25rem;
-		flex: 1;
-	}
-
-	.channel-btn {
-		display: flex;
-		flex-direction: column;
-		gap: 0.1rem;
-		padding: 0.5rem 0.75rem;
-		border: none;
-		border-radius: 6px;
-		background: none;
-		color: var(--color-text-muted);
-		cursor: pointer;
-		text-align: left;
-		font-size: 0.8rem;
-	}
-
-	.channel-btn:hover {
-		background: var(--color-bg-tertiary);
-		color: var(--color-text);
-	}
-	.channel-btn.active {
-		background: var(--color-primary);
-		color: white;
-	}
-
-	.channel-subject {
-		font-size: 0.65rem;
-		font-family: monospace;
-		opacity: 0.7;
-	}
-
-	.custom-sub {
-		display: flex;
-		gap: 0.25rem;
-		margin-top: 0.75rem;
-	}
-
-	.custom-sub input {
-		flex: 1;
-		padding: 0.35rem 0.5rem;
-		background: var(--color-bg);
-		color: var(--color-text);
-		border: 1px solid var(--color-border);
-		border-radius: 4px;
-		font-size: 0.75rem;
-	}
-
-	.custom-sub button {
-		padding: 0.35rem 0.5rem;
-		background: var(--color-bg-secondary);
-		color: var(--color-text);
-		border: 1px solid var(--color-border);
-		border-radius: 4px;
-		font-size: 0.75rem;
-		cursor: pointer;
-	}
-
-	.reconnect-btn {
-		margin-top: 0.5rem;
-		padding: 0.4rem;
-		background: var(--color-primary);
-		color: white;
-		border: none;
-		border-radius: 4px;
-		font-size: 0.8rem;
-		cursor: pointer;
-	}
-
-	.main-panel {
-		flex: 1;
-		display: flex;
-		flex-direction: column;
-		overflow: hidden;
-	}
-
+	.main-panel { flex: 1; display: flex; flex-direction: column; min-width: 0; }
 	.main-header {
-		display: flex;
-		justify-content: space-between;
-		align-items: center;
-		padding: 1rem 1.5rem;
-		border-bottom: 1px solid var(--color-border);
+		display: flex; justify-content: space-between; align-items: center; gap: 1rem;
+		padding: 0.75rem 1rem; border-bottom: 1px solid var(--color-border);
 	}
-
-	.main-header h1 {
-		font-size: 1.1rem;
-		font-weight: 600;
-		margin: 0;
+	.main-header h1 { font-size: 1.25rem; font-weight: 600; }
+	.header-controls { display: flex; align-items: center; gap: 0.5rem; }
+	.details-toggle { display: flex; align-items: center; gap: 0.3rem; font-size: 0.8rem; color: var(--color-text-muted); cursor: pointer; }
+	.action-btn, .action-btn-text {
+		background: none; border: 1px solid var(--color-border); border-radius: 0.3rem;
+		padding: 0.15rem 0.5rem; cursor: pointer; color: var(--color-text-muted); font-size: 0.8rem; text-decoration: none;
 	}
+	.action-btn:hover { border-color: var(--color-primary); text-decoration: none; }
+	.action-btn.danger:hover { border-color: var(--color-error); }
+	.action-btn-text.yes { color: var(--color-error); border-color: var(--color-error); }
+	.delete-prompt { font-size: 0.8rem; color: var(--color-error); }
 
-	.header-controls {
-		display: flex;
-		align-items: center;
-		gap: 1rem;
-		font-size: 0.75rem;
-		color: var(--color-text-muted);
-	}
+	.chat-timeline { flex: 1; overflow-y: auto; padding: 1rem; display: flex; flex-direction: column; gap: 0.75rem; }
+	.empty-state { margin: auto; color: var(--color-text-muted); }
+	.bubble { max-width: 75%; border-radius: 0.6rem; padding: 0.6rem 0.9rem; border: 1px solid var(--color-border); }
+	.bubble.you { align-self: flex-end; background: var(--color-bg-tertiary); }
+	.bubble.crew { align-self: flex-start; background: var(--color-bg-secondary); }
+	.bubble-head { display: flex; gap: 0.75rem; font-size: 0.7rem; color: var(--color-text-muted); margin-bottom: 0.3rem; }
+	.who { font-weight: 600; }
+	.plain { white-space: pre-wrap; overflow-wrap: anywhere; }
+	.answer-details { margin-top: 0.4rem; font-size: 0.72rem; color: var(--color-text-muted); font-family: var(--font-mono); }
+	.waiting { color: var(--color-text-muted); font-size: 0.85rem; align-self: flex-start; }
 
-	.current-sub code {
-		font-size: 0.7rem;
-		background: var(--color-bg-secondary);
-		padding: 0.15rem 0.35rem;
-		border-radius: 3px;
-	}
-
-	.clear-btn {
-		padding: 0.25rem 0.5rem;
-		background: var(--color-bg-secondary);
-		color: var(--color-text);
-		border: 1px solid var(--color-border);
-		border-radius: 4px;
-		font-size: 0.7rem;
-		cursor: pointer;
-	}
-
-	.messages-timeline {
-		flex: 1;
-		overflow-y: auto;
-		padding: 1rem 1.5rem;
-		display: flex;
-		flex-direction: column;
-		gap: 0.5rem;
-	}
-
-	.empty-state {
-		display: flex;
-		flex-direction: column;
-		align-items: center;
-		justify-content: center;
-		height: 100%;
-		color: var(--color-text-muted);
-		font-size: 0.9rem;
-	}
-
-	.empty-state code {
-		background: var(--color-bg-secondary);
-		padding: 0.1rem 0.3rem;
-		border-radius: 3px;
-		font-size: 0.8rem;
-	}
-
-	.hint {
-		font-size: 0.75rem;
-		margin-top: 0.25rem;
-	}
-
-	.message {
-		background: var(--color-bg-secondary);
-		border: 1px solid var(--color-border);
-		border-radius: 6px;
-		padding: 0.5rem 0.75rem;
-	}
-
-	.message-header {
-		display: flex;
-		justify-content: space-between;
-		margin-bottom: 0.35rem;
-	}
-
-	.message-subject {
-		font-size: 0.75rem;
-		font-weight: 600;
-		color: var(--color-primary);
-		font-family: monospace;
-	}
-
-	.message-time {
-		font-size: 0.7rem;
-		color: var(--color-text-muted);
-	}
-
-	.message-data {
-		font-size: 0.75rem;
-		font-family: monospace;
-		background: var(--color-bg);
-		padding: 0.5rem;
-		border-radius: 4px;
-		margin: 0;
-		white-space: pre-wrap;
-		word-break: break-word;
-		max-height: 200px;
-		overflow-y: auto;
-	}
-
-	.compose-bar {
-		border-top: 1px solid var(--color-border);
-		padding: 0.75rem 1.5rem;
-		display: flex;
-		flex-direction: column;
-		gap: 0.5rem;
-	}
-
-	.compose-subject {
-		display: flex;
-		align-items: center;
-		gap: 0.5rem;
-		font-size: 0.75rem;
-	}
-
-	.compose-subject label {
-		color: var(--color-text-muted);
-		white-space: nowrap;
-	}
-
-	.compose-subject input {
-		flex: 1;
-		padding: 0.3rem 0.5rem;
-		background: var(--color-bg);
-		color: var(--color-text);
-		border: 1px solid var(--color-border);
-		border-radius: 4px;
-		font-size: 0.75rem;
-		font-family: monospace;
-	}
-
-	.compose-input {
-		display: flex;
-		gap: 0.5rem;
-	}
-
-	.compose-input input {
-		flex: 1;
-		padding: 0.5rem 0.75rem;
-		background: var(--color-bg);
-		color: var(--color-text);
-		border: 1px solid var(--color-border);
-		border-radius: 6px;
-		font-size: 0.85rem;
-	}
-
-	.compose-input button {
-		padding: 0.5rem 1rem;
-		background: var(--color-primary);
-		color: white;
-		border: none;
-		border-radius: 6px;
-		font-size: 0.85rem;
-		cursor: pointer;
-	}
-
-	.compose-input button:disabled {
-		opacity: 0.5;
-		cursor: not-allowed;
+	.compose-bar { display: flex; gap: 0.5rem; padding: 0.75rem 1rem; border-top: 1px solid var(--color-border); align-items: flex-end; }
+	.compose-bar textarea {
+		flex: 1; resize: none; background: var(--color-bg-secondary); color: var(--color-text);
+		border: 1px solid var(--color-border); border-radius: 0.4rem; padding: 0.5rem; font: inherit;
 	}
 </style>

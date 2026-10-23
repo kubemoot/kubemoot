@@ -554,6 +554,8 @@
 		fetch(resolve('/api/version')).then(r => r.json()).then(d => { dashboardVersion = d.version || 'dev'; }).catch(() => {});
 		// Keyboard shortcuts for delete confirmation
 		window.addEventListener('keydown', handleGlobalKeydown);
+		// A link from Messages opens its thread: /discussions?thread=<id>
+		selectedThreadId = new URLSearchParams(location.search).get('thread') ?? selectedThreadId;
 		// Auto-select first thread once history loads (if nothing selected)
 		const unsub = sortedThreads.subscribe((sorted) => {
 			if (sorted.length > 0 && !selectedThreadId) {

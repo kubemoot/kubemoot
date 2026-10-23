@@ -40,6 +40,7 @@ const WRITE_ROUTES = [
 	['POST', './kubemoot/modelservers/[name]/delete/+server.ts'],
 	['PATCH', './kubemoot/crewfitnesssuites/[namespace]/[name]/+server.ts'],
 	['DELETE', './kubemoot/crewfitnesssuites/[namespace]/[name]/+server.ts'],
+	['DELETE', './kubemoot/crews/[name]/+server.ts'],
 	['PATCH', './kubemoot/mcpserverreports/[name]/+server.ts']
 ] as const;
 

@@ -3,7 +3,8 @@
 	import { crewDisplayName, crewTechnicalHint } from '#lib/crew-display-name.js';
 	import { onMount } from 'svelte';
 	import { resolve } from '$app/paths';
-	import { namespace } from '#lib/stores/index.js';
+	import { namespace, readOnly } from '#lib/stores/index.js';
+	import { removalPrompt, removalTooltip, removeCrew } from '#lib/crew-removal.js';
 	import type { Crew } from '#lib/types/kubemoot.js';
 	import { LiveList } from '#lib/client/liveList.svelte.js';
 
@@ -15,6 +16,25 @@
 	$effect(() => {
 		live.setNamespace($namespace);
 	});
+
+	// The crew awaiting an in-page confirmation (key namespace/name), and the last failure.
+	let confirming = $state<string | null>(null);
+	let removing = $state(false);
+	let removeError = $state<string | null>(null);
+
+	async function confirmRemove(crew: Crew) {
+		removing = true;
+		removeError = null;
+		const url = resolve('/api/kubemoot/crews/[name]', { name: crew.metadata.name });
+		const result = await removeCrew(fetch, url, crew.metadata.namespace);
+		removing = false;
+		if (result.ok) {
+			confirming = null;
+			live.refresh();
+		} else {
+			removeError = result.error;
+		}
+	}
 </script>
 
 <div class="page-header">
@@ -29,6 +49,9 @@
 {:else if live.items.length === 0}
 	<p class="status-msg">No crews found in namespace <code>{$namespace}</code></p>
 {:else}
+	{#if removeError}
+		<p class="status-msg error">{removeError}</p>
+	{/if}
 	<div class="crew-grid">
 		{#each live.items as crew (crew.metadata.namespace + '/' + crew.metadata.name)}
 			{@const status = crew.status}
@@ -37,6 +60,8 @@
 			{@const discussing = !!status?.discussionEndpoint}
 			{@const version = chartVersion(crew.metadata.labels)}
 			{@const technical = crewTechnicalHint(crew)}
+			{@const key = crew.metadata.namespace + '/' + crew.metadata.name}
+			<div class="crew-item">
 			<a href="{resolve('/crews/[name]', { name: crew.metadata.name })}?namespace={crew.metadata.namespace}" class="crew-card" class:ready class:discussing>
 				<div class="card-top">
 					<div class="crew-names">
@@ -83,6 +108,18 @@
 					{/if}
 				</div>
 			</a>
+			{#if !$readOnly}
+				<div class="crew-actions">
+					{#if confirming === key}
+						<span class="remove-prompt">{removalPrompt({ label: crewDisplayName(crew), namespace: crew.metadata.namespace, name: crew.metadata.name, agentCount: status?.agentCount })}</span>
+						<button class="action-btn-text yes" disabled={removing} onclick={() => confirmRemove(crew)}>Yes</button>
+						<button class="action-btn-text no" disabled={removing} onclick={() => { confirming = null; }}>No</button>
+					{:else}
+						<button class="action-btn danger" title={removalTooltip(crewDisplayName(crew))} aria-label="Remove crew" onclick={() => { confirming = key; removeError = null; }}>🗑️</button>
+					{/if}
+				</div>
+			{/if}
+			</div>
 		{/each}
 	</div>
 {/if}
@@ -106,6 +143,14 @@
 		gap: 1rem;
 	}
 
+	.crew-item { display: flex; flex-direction: column; gap: 0.4rem; }
+	.crew-item .crew-card { flex: 1; }
+	.crew-actions { display: flex; align-items: center; justify-content: flex-end; gap: 0.4rem; flex-wrap: wrap; }
+	.remove-prompt { font-size: 0.8rem; color: var(--color-error); flex: 1 1 100%; }
+	.action-btn { background: none; border: 1px solid var(--color-border); border-radius: 0.3rem; padding: 0.15rem 0.45rem; cursor: pointer; color: var(--color-text-muted); }
+	.action-btn.danger:hover { border-color: var(--color-error); }
+	.action-btn-text { background: none; border: 1px solid var(--color-border); border-radius: 0.3rem; padding: 0.15rem 0.6rem; cursor: pointer; font-size: 0.8rem; color: var(--color-text); }
+	.action-btn-text.yes { color: var(--color-error); border-color: var(--color-error); }
 	.crew-card {
 		background: var(--color-bg-secondary);
 		border: 1px solid var(--color-border);

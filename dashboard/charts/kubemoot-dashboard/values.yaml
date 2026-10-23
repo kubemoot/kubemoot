@@ -61,6 +61,11 @@ rbac:
       - apiGroups: ["kubemoot.ai"]
         resources: ["crewfitnesssuites"]
         verbs: ["delete", "patch"]
+      # Remove a crew from the Crews page. Deletes the Crew object only; the
+      # operator's finalizer and owner refs remove its Agents and discussions.
+      - apiGroups: ["kubemoot.ai"]
+        resources: ["crews"]
+        verbs: ["delete"]
 
 # Service configuration
 service:
