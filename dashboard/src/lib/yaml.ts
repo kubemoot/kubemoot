@@ -2,12 +2,17 @@
 // Kubernetes JSON holds (objects, arrays, strings, numbers, booleans, null).
 
 const PLAIN_SAFE = /^[A-Za-z0-9_./][A-Za-z0-9_./ -]*$/;
-const RESERVED = /^(true|false|null|yes|no|on|off|~|[-+]?[0-9.]+(e[-+]?[0-9]+)?|0x[0-9a-f]+)$/i;
+const RESERVED_WORD = /^(true|false|null|yes|no|on|off|~|0x[0-9a-f]+)$/i;
+const RESERVED_NUMBER = /^[-+]?[\d.]+(e[-+]?\d+)?$/i;
+
+function isReserved(value: string): boolean {
+	return RESERVED_WORD.test(value) || RESERVED_NUMBER.test(value);
+}
 
 function scalar(value: string | number | boolean | null): string {
 	if (value === null) return 'null';
 	if (typeof value !== 'string') return String(value);
-	if (value !== '' && PLAIN_SAFE.test(value) && !value.endsWith(' ') && !RESERVED.test(value)) return value;
+	if (value !== '' && PLAIN_SAFE.test(value) && !value.endsWith(' ') && !isReserved(value)) return value;
 	return JSON.stringify(value);
 }
 
@@ -48,9 +53,15 @@ export function toYaml(value: unknown): string {
 	return lines(value, '').join('\n') + '\n';
 }
 
+/** Any Kubernetes object with optional metadata, whatever its typed metadata interface. */
+export interface YamlResource {
+	metadata?: object;
+}
+
 /** A resource as it should be shown: without the bookkeeping fields that bury the spec. */
-export function displayResource<T extends { metadata?: Record<string, unknown> }>(resource: T): T {
+export function displayResource<T extends YamlResource>(resource: T): T {
 	if (!resource.metadata || !('managedFields' in resource.metadata)) return resource;
-	const { managedFields: _managedFields, ...metadata } = resource.metadata;
+	const metadata: Record<string, unknown> = { ...resource.metadata };
+	delete metadata.managedFields;
 	return { ...resource, metadata };
 }
