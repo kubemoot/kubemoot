@@ -70,8 +70,12 @@ sidecar so that a bridge failure restarts the bridge alone, and so that the star
 holds the main container back until the HTTP/SSE endpoint is ready. It runs in one of two
 modes: *shell mode* (`sh -c "exec <cmd> < /pipes/stdin > /pipes/stdout"`) for images with
 a shell, and *exec mode* for distroless and scratch images, where the bridge copies itself
-into the shared volume and starts the server with `dup2` and `exec`. Pipe overflow is
-handled with a 16 MB buffer and graceful recovery. The cost is one extra container and
+into the shared volume and starts the server with `dup2` and `exec`. A tool reply larger than
+1 MiB is not delivered: the bridge discards it as it streams, answers the calling agent
+right away with an error that asks for a smaller result, and keeps serving later
+messages. The limit follows from the model context window, about 128 KB of text, so a
+larger result is unusable to an agent. Set `KUBEMOOT_MCP_BRIDGE_MAX_REPLY_BYTES` on the
+bridge container to change it. The cost is one extra container and
 an `emptyDir` per stdio server.
 
 ### Bridge Probes and the MCP Initialize Handshake
