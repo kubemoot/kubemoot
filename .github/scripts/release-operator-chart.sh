@@ -5,8 +5,11 @@
 # Kubemoot image tag in their values. Component releases build and tag their images
 # only; this script packages the chart from HEAD (the tip of main in CI) in a scratch
 # worktree, never committed, stamped with:
-#   chart version     the next operator-chart-vX.Y.Z-rc.N after the latest candidate,
-#                     or X.Y.(Z+1)-rc.0 once that candidate's X.Y.Z is published
+#   chart version     the next operator-chart-vX.Y.Z-rc.N: X.Y.Z is one conventional-
+#                     commit bump (feat minor, fix patch, ! major held at 0.x as the
+#                     next minor) past the last final chart tag, from the commits that
+#                     touch the two chart directories; N counts up until X.Y.Z is
+#                     published, then the next bump is computed from the commits after it
 #   appVersion        the latest operator candidate vX.Y.Z-rc.N (the operator image)
 #   dashboard         the subchart's version and appVersion (the dashboard image): the
 #                     latest dashboard-vX.Y.Z-rc.N
@@ -50,6 +53,8 @@ rl_is_dry || : "${REGISTRY:?REGISTRY required}"
 CHART_PREFIX="operator-chart-v"
 CHART_DIR="operator/chart/kubemoot-operator"
 DASH_DIR="dashboard/charts/kubemoot-dashboard"
+# shellcheck disable=SC2034 # read by release-chart-lib.sh
+CHART_PATHS=("$CHART_DIR" "$DASH_DIR")
 
 trap rl_remove_worktrees EXIT
 

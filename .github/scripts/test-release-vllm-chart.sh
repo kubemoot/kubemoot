@@ -61,6 +61,16 @@ tag "$repo" vllm-chart-v0.1.0
 rm -f "$repo/output"
 check "a published final starts the next patch" "0.1.1-rc.0" "$(dry "$repo")"
 
+# A feat commit to the chart after the final bumps the minor; a commit elsewhere does not.
+git -C "$repo" -c user.name=t -c user.email=t@example.com commit -q --allow-empty -m "chore: elsewhere"
+rm -f "$repo/output"
+check "a commit outside the chart is a patch rebuild" "0.1.1-rc.0" "$(dry "$repo")"
+echo "x: 1" >> "$repo/vllm/charts/kubemoot-vllm/values.yaml"
+git -C "$repo" add vllm
+git -C "$repo" -c user.name=t -c user.email=t@example.com commit -q -m "feat: a new value"
+rm -f "$repo/output"
+check "a feat commit to the chart bumps the minor" "0.2.0-rc.0" "$(dry "$repo")"
+
 # A candidate with the same chart sources is current; FORCE builds anyway.
 repo="$(new_repo current)"
 tree="$(git -C "$repo" rev-parse HEAD:vllm/charts/kubemoot-vllm)"

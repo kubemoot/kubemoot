@@ -3,7 +3,8 @@
 # release-vllm-chart.sh): the next candidate version from the tags, the manifest a
 # candidate tag records, and the claim of a version by tag followed by the push to
 # Harbor. Source it after release-lib.sh of kubemoot/release-actions; it needs
-# CHART_PREFIX (the candidate tag prefix, such as operator-chart-v) set by the caller,
+# CHART_PREFIX (the candidate tag prefix, such as operator-chart-v) and CHART_PATHS (an
+# array of the paths whose commits version the chart) set by the caller,
 # and REGISTRY for a push.
 
 die() { echo "ERROR: $*" >&2; exit 1; }
@@ -14,20 +15,13 @@ output() {
   return 0
 }
 
-# next_chart_version COMMIT [FIRST]: the version after the latest chart candidate
-# reachable from COMMIT. With no candidate yet it is FIRST, or an error when the caller
-# gives none.
+# next_chart_version COMMIT [FIRST]: the next chart candidate, from the conventional
+# commits since the last final chart tag that touch CHART_PATHS (rl_next_chart_version
+# of kubemoot/release-actions). With no chart final yet it continues the latest
+# candidate's X.Y.Z, or starts at FIRST, or fails when the caller gives none.
 next_chart_version() {
-  local latest current published=false
-  latest=$(rl_latest_rc "$CHART_PREFIX" "$1")
-  if [ -z "$latest" ]; then
-    [ -n "${2:-}" ] || die "no ${CHART_PREFIX}X.Y.Z-rc.N tag reachable from $1 to count from"
-    echo "$2"
-    return 0
-  fi
-  current="${latest#"$CHART_PREFIX"}"
-  rl_tag_exists "${CHART_PREFIX}$(rl_final_of "$current")" && published=true
-  rl_next_chart_rc "$current" "$published"
+  rl_next_chart_version "$CHART_PREFIX" "$1" false "${2:-}" "${CHART_PATHS[@]}" \
+    || die "cannot compute the next ${CHART_PREFIX}X.Y.Z-rc.N from $1"
 }
 
 # current_manifest COMMIT: the manifest recorded by the latest chart candidate, if any.
