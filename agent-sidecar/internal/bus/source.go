@@ -72,3 +72,39 @@ func (r *Runner) Subscribe(ctx context.Context) (*nats.Subscription, error) {
 		r.handle(delivery{subject: m.Subject, data: m.Data, hdr: m.Header, msg: m})
 	}, nats.Bind(r.Bus.Stream, r.Bus.Consumer), nats.ManualAck())
 }
+
+// Backoff bounds for SubscribeWhenFree: the wait doubles from the first to the second.
+const (
+	subscribeRetryFirst = 250 * time.Millisecond
+	subscribeRetryMax   = 5 * time.Second
+)
+
+// SubscribeWhenFree is Subscribe that waits its turn. The operator's consumer is a push consumer
+// with one subscription at a time, the same single-subscriber rule the Java agent-runtime lives
+// by, so during a rolling update the old pod keeps the consumer and answers every message until it
+// ends. The new pod retries with a growing wait and binds the moment the old pod lets go;
+// messages sent in between wait in the consumer, so none is lost and none is answered by both
+// pods. It returns nil once ctx ends.
+func (r *Runner) SubscribeWhenFree(ctx context.Context) *nats.Subscription {
+	r.setup()
+	wait, last := subscribeRetryFirst, ""
+	for {
+		sub, err := r.Subscribe(ctx)
+		if err == nil {
+			if last != "" {
+				r.Log.Info("subscribed to the crew's discussion", "consumer", r.Bus.Consumer)
+			}
+			return sub
+		}
+		if err.Error() != last {
+			last = err.Error()
+			r.Log.Warn("not subscribed to the crew's discussion yet; retrying", "consumer", r.Bus.Consumer, "error", err)
+		}
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-time.After(wait):
+		}
+		wait = min(wait*2, subscribeRetryMax)
+	}
+}

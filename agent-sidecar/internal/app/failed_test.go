@@ -9,23 +9,19 @@ import (
 	"github.com/kubemoot/kubemoot/agent-sidecar/internal/bustest"
 )
 
-// A sidecar that cannot bind its consumer consumes nothing; it must say so and leave rotation, so the
-// container is restarted, instead of reporting ready.
-func TestASidecarThatCannotBindItsConsumerFailsInsteadOfStayingReady(t *testing.T) {
+// A consumer still bound by the pod being replaced, or not yet created by the operator, is waited
+// for: the sidecar stays up and ready (a rollout needs the new pod ready before the old one goes)
+// and is not failed, so the container is not restarted into a crash loop.
+func TestASidecarThatCannotBindItsConsumerYetWaitsInsteadOfFailing(t *testing.T) {
 	url := bustest.Server(t)
 	nc := bustest.Connect(t, url)
 	js := bustest.JetStream(t, nc)
 	bustest.DiscussStream(t, js) // the stream exists; the operator has not created the consumer
 	r := startRig(t, url, nc, func(c *mesh.Contract) { c.Bus.Consumer = "not-created-yet" })
+	r.waitReady(t)
 	select {
 	case <-r.app.Failed():
-	case <-time.After(15 * time.Second):
-		t.Fatal("the sidecar kept running with no subscription")
-	}
-	if r.app.Ready() {
-		t.Error("a sidecar with no subscription must not be ready")
-	}
-	if r.app.Err() == nil {
-		t.Error("the reason is kept")
+		t.Fatalf("the sidecar gave up waiting for its consumer: %v", r.app.Err())
+	case <-time.After(1500 * time.Millisecond):
 	}
 }

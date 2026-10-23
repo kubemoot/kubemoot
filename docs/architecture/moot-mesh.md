@@ -47,6 +47,14 @@ progress to JetStream on a fixed beat (a quarter of that wait by default), so a
 turn that outlasts the wait is not redelivered while it is alive. A duplicate
 delivery of a turn that already ran is recognized and dropped.
 
+**A rolling update never deadlocks on the consumer.** The consumer has one active
+subscription at a time, as it does for the Java agent runtime, so the pod being
+replaced keeps answering every message until it ends. The new pod's sidecar does not
+exit when the consumer is still bound or not yet created: it retries with a growing
+wait (up to five seconds) while it reports ready, so the new pod becomes ready, the
+old pod is removed, and the new sidecar binds. Messages sent in between wait in the
+consumer; none is lost and none is answered by both pods.
+
 **Every published message is a bus-contract message.** The sidecar builds its
 messages from the types generated from the [bus contract](../../concepts/signals-and-protocol/#the-bus-contract),
 and its tests validate them against the schema. A harness written in any language
@@ -199,7 +207,7 @@ The probes are separate by design:
 | Probe | What it checks |
 |---|---|
 | Sidecar startup | A TCP connect to the sidecar port. It passes when the sidecar listens, so the pod never waits on the harness. |
-| Sidecar readiness (`/readyz`) | State: NATS is connected and the harness card answers. A restarting harness takes the pod out of rotation without restarting the sidecar. |
+| Sidecar readiness (`/readyz`) | State: NATS is connected and the harness card answers. A restarting harness takes the pod out of rotation without restarting the sidecar. It does not wait for the bus subscription, so a new pod can become ready while the old pod still holds the consumer. |
 | Sidecar liveness (`/healthz`) | The sidecar process is up. |
 | Harness readiness | The harness answers its agent card, however its image defines readiness. |
 

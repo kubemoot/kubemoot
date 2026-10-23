@@ -78,8 +78,8 @@ func New(c mesh.Contract, o Options) *App {
 			c.Placement.Policy)}
 }
 
-// Failed is closed when the sidecar cannot do its job after it started (no subscription to the bus, for
-// instance). The pod is then not ready, and the caller should exit so the kubelet restarts the container.
+// Failed is closed when the sidecar cannot do its job after it started (NATS cannot be reached, or the bus side
+// cannot start). The pod is then not ready, and the caller should exit so the kubelet restarts the container.
 func (a *App) Failed() <-chan struct{} { return a.failed }
 
 // Err is why the sidecar failed, once Failed is closed.
@@ -282,15 +282,22 @@ func (a *App) connectAndRun(ctx context.Context, tools *toolsdoor.Door) {
 		return
 	}
 	defer run.Wait()
-	sub, err := run.Subscribe(ctx)
-	if err != nil {
-		a.fatal(fmt.Errorf("no subscription to the crew's discussion: %w", err))
-		return
-	}
-	defer func() { _ = sub.Unsubscribe() }()
+	a.goRun(func() { a.holdSubscription(ctx, run) })
 	life := &bus.Lifecycle{Pub: pub, Ready: a.Ready, NATS: a.natsUp.Load, Harness: a.harnessUp.Load,
 		LastInference: a.reg.LastCall, Poll: 500 * time.Millisecond, Beat: a.o.HeartbeatEvery, Log: a.log}
 	life.Run(ctx)
+}
+
+// holdSubscription subscribes to the crew's discussion and keeps the subscription until ctx ends. A
+// consumer still bound by the pod being replaced is waited for, never a failure: readiness does not
+// depend on the subscription, so the new pod becomes ready, the old one is removed, and this binds.
+func (a *App) holdSubscription(ctx context.Context, run *bus.Runner) {
+	sub := run.SubscribeWhenFree(ctx)
+	if sub == nil {
+		return
+	}
+	<-ctx.Done()
+	_ = sub.Unsubscribe()
 }
 
 // connect keeps trying until NATS answers; the connection state feeds readiness.
