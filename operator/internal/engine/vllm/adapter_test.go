@@ -65,8 +65,10 @@ type fakeServer struct {
 	aliases []string
 	// maxModelLen, when set, is the max_model_len /v1/models lists for every id.
 	maxModelLen int
-	metrics     string
-	log         []string
+	// modelsStatus, when set, is the status /v1/models answers with.
+	modelsStatus int
+	metrics      string
+	log          []string
 }
 
 // newFake starts a server serving model; asleep says whether it starts asleep.
@@ -103,7 +105,7 @@ func (f *fakeServer) aliasEntries() string {
 
 // entry is one /v1/models entry, with the window when the fake has one.
 func (f *fakeServer) entry(id string) string {
-	if f.maxModelLen > 0 {
+	if f.maxModelLen != 0 {
 		return fmt.Sprintf(`{"id":%q,"max_model_len":%d}`, id, f.maxModelLen)
 	}
 	return fmt.Sprintf(`{"id":%q}`, id)
@@ -124,6 +126,8 @@ func (f *fakeServer) read(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case r.URL.Path == pathHealth && f.unhealthy:
 		w.WriteHeader(http.StatusServiceUnavailable)
+	case r.URL.Path == pathModels && f.modelsStatus != 0:
+		w.WriteHeader(f.modelsStatus)
 	case r.URL.Path == pathModels:
 		_, _ = fmt.Fprintf(w, `{"data":[%s%s]}`, f.entry(f.served), f.aliasEntries())
 	case r.URL.Path == pathIsSleeping:

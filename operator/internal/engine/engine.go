@@ -71,8 +71,8 @@ type Snapshot struct {
 	// cache closest to full.
 	KVCacheUsage *float64
 	// ContextLengths is the context window in tokens each served model gets per
-	// request, by model name. A model the engine did not report a window for is
-	// absent, which means "unknown", never "none".
+	// request, by model name. A model present with 0 was asked about and the engine
+	// gave no window; a model absent could not be asked (its server did not answer).
 	ContextLengths map[string]int
 	// SwitchCostMs is the observed time to make each model ready, by model.
 	SwitchCostMs map[string]int64

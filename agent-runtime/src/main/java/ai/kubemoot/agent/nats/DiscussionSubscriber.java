@@ -995,10 +995,15 @@ public class DiscussionSubscriber {
      * GapDetector understand. Ollama timeouts surface through Vert.x as a
      * ProcessingException with a "timeout period of X" message; an engine that rejects
      * a prompt larger than its window (vLLM answers HTTP 400 "maximum context length")
-     * is the same failure the context guard reports as context_exceeded.
+     * is the same failure the context guard reports as context_exceeded, and wins over a
+     * timeout match because it names the cause. Only exceptions from the model call reach
+     * this method: a failed tool call comes back as an error result string, never thrown.
      */
     // Visible for testing
     static String classifyException(String exceptionClass, String message) {
+        if (isContextRejection(message)) {
+            return "context_exceeded";
+        }
         if (message.contains("timeout period of") || message.contains("Timed out")
                 || exceptionClass.contains("Timeout")) {
             return "model_timeout";
@@ -1008,9 +1013,6 @@ public class DiscussionSubscriber {
         }
         if (message.contains("Connection refused") || message.contains("ConnectException")) {
             return "server_unreachable";
-        }
-        if (isContextRejection(message)) {
-            return "context_exceeded";
         }
         return "internal_exception";
     }

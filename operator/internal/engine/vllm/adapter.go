@@ -32,6 +32,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"slices"
 	"strings"
 
 	aiv1alpha1 "github.com/kubemoot/kubemoot/operator/api/v1alpha1"
@@ -310,4 +311,19 @@ func (a *Adapter) ServedModels(ctx context.Context, endpoint string) ([]ServedMo
 		models = append(models, ServedModel{ID: m.ID, Root: m.Root, MaxModelLen: m.MaxModelLen})
 	}
 	return models, nil
+}
+
+// ServedContexts is the context window of each served name in served, by name,
+// limited to the names in wanted (all of them when wanted is nil). A name the server
+// listed without a usable max_model_len is present with 0: the server was asked
+// and does not say. A name the server did not list is absent.
+func ServedContexts(served []ServedModel, wanted []string) map[string]int {
+	out := make(map[string]int, len(served))
+	for _, m := range served {
+		if wanted != nil && !slices.Contains(wanted, m.ID) {
+			continue
+		}
+		out[m.ID] = max(m.MaxModelLen, 0)
+	}
+	return out
 }

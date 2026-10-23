@@ -20,36 +20,57 @@ import (
 	aiv1alpha1 "github.com/kubemoot/kubemoot/operator/api/v1alpha1"
 )
 
-// applyContextWindows publishes the context window of each model the engine
-// serves. The engine's own report (snapshot) comes first because it is live; a
-// vLLM model the engine did not report falls back to the window calibration
-// measured. A window already published from another source (Ollama /api/ps) is
-// never replaced. For a vLLM server, when every published window is the same, that window is also
-// the server-wide ContextLength, which covers a model the agent has no entry for.
+// applyContextWindows publishes the context window of each model a vLLM server
+// serves. The engine's own report (reported, from /v1/models) is the source. A
+// model the engine was asked about and gave no window for publishes none, because
+// a calibrated window can be stale. Only a model whose server could not be asked
+// at all (absent from reported) falls back to the window calibration measured.
+// The server-wide ContextLength is set only when every served model has a window
+// and they are all the same, so a model without one never inherits another's.
+// Other engines publish their windows elsewhere and are left alone.
 func applyContextWindows(state *ServerState, server *aiv1alpha1.ModelServer, reported map[string]int) {
-	for model, window := range reported {
-		setContextWindow(state, model, window)
-	}
 	if server.Spec.Type != aiv1alpha1.ServerTypeVLLM {
 		return
 	}
-	if server.Status.Calibration != nil {
-		for _, m := range server.Status.Calibration.Models {
-			setContextWindow(state, m.Model, m.ContextLength)
+	calibrated := calibratedWindows(server)
+	served := servedModelNames(server)
+	for _, model := range served {
+		window, asked := reported[model]
+		if !asked {
+			window = calibrated[model]
 		}
+		setContextWindow(state, model, window)
 	}
 	if state.ContextLength <= 0 {
-		state.ContextLength = commonWindow(state.LoadedModelContextLengths)
+		state.ContextLength = commonWindow(state.LoadedModelContextLengths, served)
 	}
 }
 
-// setContextWindow records window for model unless one is already published or
-// the window is unknown (zero or less).
+// servedModelNames is every served name of the server's vLLM servers.
+func servedModelNames(server *aiv1alpha1.ModelServer) []string {
+	servers := server.VLLMServers()
+	names := make([]string, 0, len(servers))
+	for _, s := range servers {
+		names = append(names, s.Model)
+	}
+	return names
+}
+
+// calibratedWindows is the window calibration measured for each model.
+func calibratedWindows(server *aiv1alpha1.ModelServer) map[string]int {
+	out := map[string]int{}
+	if server.Status.Calibration == nil {
+		return out
+	}
+	for _, m := range server.Status.Calibration.Models {
+		out[m.Model] = m.ContextLength
+	}
+	return out
+}
+
+// setContextWindow records window for model; an unknown window (zero or less) records nothing.
 func setContextWindow(state *ServerState, model string, window int) {
 	if window <= 0 {
-		return
-	}
-	if _, known := state.LoadedModelContextLengths[model]; known {
 		return
 	}
 	if state.LoadedModelContextLengths == nil {
@@ -58,12 +79,13 @@ func setContextWindow(state *ServerState, model string, window int) {
 	state.LoadedModelContextLengths[model] = window
 }
 
-// commonWindow is the window every model shares; zero when there are none or
-// they differ.
-func commonWindow(windows map[string]int) int {
+// commonWindow is the one window every named model has; zero when there are none,
+// when any model has no window, or when they differ.
+func commonWindow(windows map[string]int, models []string) int {
 	common := 0
-	for _, w := range windows {
-		if common != 0 && w != common {
+	for _, m := range models {
+		w := windows[m]
+		if w <= 0 || (common != 0 && w != common) {
 			return 0
 		}
 		common = w
