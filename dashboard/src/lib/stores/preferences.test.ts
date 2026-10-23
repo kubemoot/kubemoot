@@ -1,6 +1,6 @@
 import { describe, it, expect, afterEach, vi } from 'vitest';
 import { get } from 'svelte/store';
-import { readBoolPref, writeBoolPref, showDebugDetail } from './preferences';
+import { readBoolPref, writeBoolPref, showDebugDetail, showChatDetails } from './preferences';
 
 function stubStorage(impl: Partial<Storage>) {
 	vi.stubGlobal('localStorage', impl);
@@ -70,5 +70,32 @@ describe('showDebugDetail', () => {
 		expect(get(showDebugDetail)).toBe(true);
 		showDebugDetail.set(false);
 		expect(get(showDebugDetail)).toBe(false);
+	});
+});
+
+describe('showChatDetails', () => {
+	it('defaults to off', () => {
+		expect(get(showChatDetails)).toBe(false);
+	});
+
+	it('is remembered per viewer under its own key', () => {
+		const setItem = vi.fn();
+		stubStorage({ setItem });
+		showChatDetails.set(true);
+		expect(get(showChatDetails)).toBe(true);
+		expect(setItem).toHaveBeenCalledWith('kubemoot-dashboard-show-chat-details', 'true');
+		showChatDetails.set(false);
+	});
+
+	it('still toggles when storage throws', () => {
+		stubStorage({
+			setItem: () => {
+				throw new Error('blocked');
+			}
+		});
+		showChatDetails.toggle();
+		expect(get(showChatDetails)).toBe(true);
+		showChatDetails.toggle();
+		expect(get(showChatDetails)).toBe(false);
 	});
 });

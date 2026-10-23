@@ -66,7 +66,7 @@ The sidebar shows the dashboard's version under the logo. A release candidate (`
 | Section | Pages | Shows |
 |---------|-------|-------|
 | Top | Overview, Nodes | Ready-of-total counts for nodes, GPUs, crews, and every other resource type (a tile shows a small spinner until its first count arrives, never a zero); Kubernetes nodes with GPU detection and model-loading state |
-| Messaging | Discussions, Messages | Multi-agent discussion threads with a timeline view; a NATS subject explorer with a live message viewer |
+| Messaging | Discussions, Messages | Multi-agent discussion threads with a timeline view; your chat with a crew |
 | Crews | Crews, Agents, Prompts, Memory, Fitness | Crew and agent configuration, PromptModule contents, crew memory, and fitness suite runs |
 | Models | ModelServers, Models, Embeddings | ModelServer backends with their calibration (phase and, per model, fit, load time, generation, prompt, and parallel speed; an embedding model shows as skipped and a model that could not be measured as failed, each with its reason and no speeds), Model state, and EmbeddingModel configuration. The Models page also lists each ModelServer's catalog (the models a crew selects by label), because crews ship no Model resources |
 | MCPs | MCP Servers, MCP Gateways, Quality Policies, Catalogs, Reports | MCPServer instances and tools, gateway routing, quality policies, catalog discovery, and quality verdicts |
@@ -131,7 +131,17 @@ Shows the working memory of the crew selected in the top bar, the same crew pick
 
 ### Messages
 
-A general NATS subject explorer. Subscribe to any subject pattern (for example `kubemoot.chat.>` or `kubemoot.operator.>`), watch JSON payloads as they arrive, and publish to arbitrary subjects. It is useful for debugging agent communication and operator events.
+Your chat with a crew. The crew picker is the same **Crew** selector in the top bar that Discussions uses; sending stays disabled until one crew is selected. The left panel lists your conversations with that crew, and the right panel shows them as a chat: your messages and the crew's answers (the synthesis on each thread). A follow-up goes into the same conversation as a reply on the same thread. Nothing of the agents' internal discussion appears here; the **Discussion** link beside an answer opens its thread in Discussions, which shows the consensus messages and statistics.
+
+A new conversation sends a `thread_start` on the crew's discuss subject, the same message **New discussion** sends.
+
+The **Details** toggle is off by default and the dashboard remembers the choice per viewer. When it is on, each answer shows the time from your question to the answer and the tokens used: the agents' tokens plus the coordinator's. A figure the thread did not record is left out.
+
+The toolbar copies the conversation to the clipboard and deletes it (removing its thread and purging its messages) after an in-page confirmation. A read-only dashboard hides sending and deleting. To watch raw NATS subjects, use `kmctl` or the NATS tooling directly.
+
+### Crews
+
+One card per crew, linking to the crew's detail page. The trash icon on a card removes the crew after an in-page confirmation that names the crew and says what goes with it: its Agents and its open discussions, which the operator removes through its finalizer and owner references. The dashboard deletes the Crew object only (`DELETE /api/kubemoot/crews/<name>?namespace=`). The dashboard does not add crews; create them with CrewForge or `kmctl`.
 
 ### Reports
 
@@ -152,6 +162,7 @@ The chart creates a `ClusterRole` (`kubemoot-dashboard-reader`) with these grant
 | `configmaps` | get, list | Agent prompt bundles for the Agent detail page |
 | `deployments` (apps) | get, list, watch | Operator version in the system-info popover |
 | All `kubemoot.ai` resources | get, list, watch | Every Kubemoot page |
+| `crews` | delete | The Crews page "remove crew" action |
 | `crewfitnesssuites` | delete, patch | The Fitness page "remove run" action, and its Pause, Resume, and Stop actions |
 
 The dashboard never reads or displays Secret values. The container runs as a non-root user with a read-only root filesystem.
@@ -165,6 +176,7 @@ The SvelteKit server exposes the JSON and event-stream endpoints the pages use. 
 | `/api/health`, `/api/version` | GET | Health check; dashboard version |
 | `/api/namespaces`, `/api/nodes` | GET | Namespaces; Kubernetes nodes with GPU information |
 | `/api/kubemoot/<plural>` and `/api/kubemoot/<plural>/<name>` | GET | List and detail for `agents`, `crews`, `models`, `modelservers`, `embeddingmodels`, `mcpservers`, `mcpgateways`, `mcpqualitypolicies`, `mcpcatalogs`, `mcpserverreports`, `ragsources`, `promptmodules`, `crewfitnesses` |
+| `/api/kubemoot/crews/<name>?namespace=` | DELETE | Remove a crew (the Crew object only) |
 | `/api/kubemoot/config`, `/api/kubemoot/system-info`, `/api/kubemoot/topology` | GET | Configuration, system information, agent topology graph |
 | `/api/kubemoot/crewfitnesssuites` | GET | Fitness suites; sub-paths under `<namespace>/<name>/` serve `scores`, `iterations`, `transcript`, and `artifact`; DELETE on `<namespace>/<name>` removes a run; PATCH on `<namespace>/<name>` with `{"action": "pause" \| "resume" \| "stop"}` controls it |
 | `/api/kubemoot/mcpserverreports/<name>` | PATCH | Pin a verdict |

@@ -296,6 +296,19 @@ export async function getCrew(namespace: string, name: string): Promise<Crew> {
 	return getNamespacedCRD<Crew>('crews', namespace, name);
 }
 
+// deleteCrew removes the Crew object only. The operator's finalizer and owner
+// refs remove its Agents and open discussions.
+export async function deleteCrew(namespace: string, name: string): Promise<unknown> {
+	const api = getCustomObjectsApi();
+	return api.deleteNamespacedCustomObject({
+		group: GROUP,
+		version: VERSION,
+		namespace,
+		plural: 'crews',
+		name
+	});
+}
+
 // CrewFitness functions
 export async function listCrewFitnesses(namespace: string): Promise<KubemootList<CrewFitness>> {
 	if (namespace === '') {

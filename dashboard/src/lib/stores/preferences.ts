@@ -58,3 +58,7 @@ export const showStandAsides = createBoolPref(STAND_ASIDE_KEY, false);
 // predictions and the work after the answer sit in a debug layer the viewer opens on
 // purpose. Default OFF; the choice is remembered per viewer.
 export const showDebugDetail = createBoolPref('kubemoot-dashboard-show-debug-detail', false);
+
+// The Messages chat can show, under each answer, how long it took and the tokens it
+// used. Default OFF; the choice is remembered per viewer.
+export const showChatDetails = createBoolPref('kubemoot-dashboard-show-chat-details', false);
