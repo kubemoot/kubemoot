@@ -991,6 +991,35 @@ public class DiscussionSubscriber {
     }
 
     /**
+     * Map an unexpected mulling exception to a failureType bucket the dashboard and
+     * GapDetector understand. Ollama timeouts surface through Vert.x as a
+     * ProcessingException with a "timeout period of X" message; an engine that rejects
+     * a prompt larger than its window (vLLM answers HTTP 400 "maximum context length")
+     * is the same failure the context guard reports as context_exceeded.
+     */
+    // Visible for testing
+    static String classifyException(String exceptionClass, String message) {
+        if (message.contains("timeout period of") || message.contains("Timed out")
+                || exceptionClass.contains("Timeout")) {
+            return "model_timeout";
+        }
+        if (exceptionClass.contains("OutOfMemory")) {
+            return "model_oom";
+        }
+        if (message.contains("Connection refused") || message.contains("ConnectException")) {
+            return "server_unreachable";
+        }
+        if (isContextRejection(message)) {
+            return "context_exceeded";
+        }
+        return "internal_exception";
+    }
+
+    private static boolean isContextRejection(String message) {
+        return message.contains("maximum context length") || message.contains("context_length_exceeded");
+    }
+
+    /**
      * Publish a {@link #SIGNAL_FAILURE} signal for an unexpected
      * exception thrown during mulling — HTTP timeout (Ollama call
      * exceeded its window), processing exception, OOM, etc. Distinct
@@ -1008,20 +1037,7 @@ public class DiscussionSubscriber {
                                            long totalMs, long triageStartMs, String gpuLabel) {
         String exceptionClass = e.getClass().getName();
         String message = e.getMessage() != null ? e.getMessage() : exceptionClass;
-        // Heuristic classification — keep simple, expand as observed
-        // failure modes accumulate. Ollama timeout via Vertx surfaces
-        // as ProcessingException with "timeout period of X" message.
-        String failureType;
-        if (message.contains("timeout period of") || message.contains("Timed out")
-                || exceptionClass.contains("Timeout")) {
-            failureType = "model_timeout";
-        } else if (exceptionClass.contains("OutOfMemory")) {
-            failureType = "model_oom";
-        } else if (message.contains("Connection refused") || message.contains("ConnectException")) {
-            failureType = "server_unreachable";
-        } else {
-            failureType = "internal_exception";
-        }
+        String failureType = classifyException(exceptionClass, message);
         var meta = new HashMap<String, Object>();
         meta.put("failureType", failureType);
         meta.put("exceptionClass", exceptionClass);

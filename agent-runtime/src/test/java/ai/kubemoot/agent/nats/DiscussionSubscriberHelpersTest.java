@@ -805,4 +805,22 @@ class DiscussionSubscriberHelpersTest {
         assertEquals("learned", calls.get(1).path("policy").asText());
         assertEquals(List.of("qwen:14b@server-b"), modelsUsed(agree), "the evaluation's own places are unchanged");
     }
+
+    @Test
+    void classifyException_vllmContextRejectionIsContextExceeded() {
+        String vllm = "HTTP 400: This model's maximum context length is 32768 tokens. "
+                + "However, your prompt contains at least 32769 input tokens";
+        assertEquals("context_exceeded", DiscussionSubscriber.classifyException(
+                "dev.langchain4j.exception.InvalidRequestException", vllm));
+        assertEquals("context_exceeded", DiscussionSubscriber.classifyException(
+                "dev.langchain4j.exception.InvalidRequestException", "{\"code\":\"context_length_exceeded\"}"));
+    }
+
+    @Test
+    void classifyException_otherFailuresKeepTheirBuckets() {
+        assertEquals("model_timeout", DiscussionSubscriber.classifyException("x.Y", "timeout period of 120000ms"));
+        assertEquals("model_oom", DiscussionSubscriber.classifyException("java.lang.OutOfMemoryError", "heap"));
+        assertEquals("server_unreachable", DiscussionSubscriber.classifyException("x.Y", "Connection refused"));
+        assertEquals("internal_exception", DiscussionSubscriber.classifyException("x.Y", "HTTP 400: bad schema"));
+    }
 }
