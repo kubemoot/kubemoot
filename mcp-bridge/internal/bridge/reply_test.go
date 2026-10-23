@@ -1,10 +1,12 @@
 package bridge
 
 import (
+	"bufio"
 	"bytes"
 	"encoding/json"
 	"log"
 	"os"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -35,6 +37,11 @@ func replyOfSize(idJSON string, n int) string {
 	tail := `"}}`
 	return head + strings.Repeat("x", n-len(head)-len(tail)) + tail
 }
+
+const (
+	truncatedResult = `{"result":{"aaaa":"bbb`
+	abc             = "abc"
+)
 
 const normalReply = `{"jsonrpc":"2.0","id":9,"result":"ok"}`
 
@@ -152,23 +159,133 @@ func TestReadStdoutPipe_NonJSONLoggedTruncated(t *testing.T) {
 
 func TestResponseID(t *testing.T) {
 	cases := map[string]struct {
-		in   string
-		want string
-		ok   bool
+		head, tail string
+		want       string
+		ok         bool
 	}{
-		"number":       {`{"jsonrpc":"2.0","id":12,"result":{"a":`, "12", true},
-		"string":       {`{"id":"kmb-3","jsonrpc":"2.0","result":`, `"kmb-3"`, true},
-		"null id":      {`{"jsonrpc":"2.0","id":null,"result":1}`, "", false},
-		"method":       {`{"jsonrpc":"2.0","method":"x","id":3`, "", false},
-		"result first": {`{"result":{"aaaa":"bbb`, "", false},
-		"not object":   {`[1,2`, "", false},
-		"empty":        {``, "", false},
+		"number":         {`{"jsonrpc":"2.0","id":12,"result":{"a":`, "", "12", true},
+		"string":         {`{"id":"kmb-3","jsonrpc":"2.0","result":`, "", `"kmb-3"`, true},
+		"escaped quote":  {`{"jsonrpc":"2.0","id":"a\"b","result":`, "", `"a\"b"`, true},
+		"negative":       {`{"id":-4,"result":`, "", "-4", true},
+		"float":          {`{"id":1.5,"result":`, "", "1.5", true},
+		"null id":        {`{"jsonrpc":"2.0","id":null,"result":1}`, "", "", false},
+		"object id":      {`{"id":{"a":1},"result":1}`, "", "", false},
+		"boolean id":     {`{"id":true,"result":1}`, "", "", false},
+		"method":         {`{"jsonrpc":"2.0","method":"x","id":3`, `,"id":3}`, "", false},
+		"result first":   {truncatedResult, `xxx"},"jsonrpc":"2.0","id":7}`, "7", true},
+		"tail string":    {truncatedResult, `x"},"id":"q\"r"}`, `"q\"r"`, true},
+		"tail nested id": {truncatedResult, `xxx","id":7}}`, "", false},
+		"not object":     {`[1,2`, ``, "", false},
+		"empty":          {``, ``, "", false},
 	}
 	for name, c := range cases {
-		id, ok := responseID([]byte(c.in))
+		id, ok := responseID([]byte(c.head), []byte(c.tail))
 		if ok != c.ok || (ok && string(id) != c.want) {
 			t.Errorf("%s: got %s %v, want %s %v", name, id, ok, c.want, c.ok)
 		}
+	}
+}
+
+func TestReadStdoutPipe_IDAfterOverCapResult(t *testing.T) {
+	for _, id := range []string{"7", `"a\"b"`, "-3", "1.5"} {
+		b, ch := newTestBridge()
+		over := `{"result":{"d":"` + strings.Repeat("x", testCap+10) + `"},"jsonrpc":"2.0","id":` + id + `}`
+		if err := b.readStdoutPipe(strings.NewReader(over+"\n"+normalReply+"\n"), testCap); err != nil {
+			t.Fatal(err)
+		}
+		got := drain(ch)
+		if len(got) != 2 {
+			t.Fatalf("id %s: got %d messages", id, len(got))
+		}
+		assertOversizedError(t, got[0], id)
+	}
+}
+
+func TestReadStdoutPipe_CapBoundaryTerminators(t *testing.T) {
+	cases := []struct {
+		name, term string
+		size       int
+		rejected   bool
+	}{
+		{"LF at cap", "\n", testCap, false},
+		{"LF over cap", "\n", testCap + 1, true},
+		{"CRLF at cap", "\r\n", testCap, false},
+		{"CRLF over cap", "\r\n", testCap + 1, true},
+		{"EOF at cap", "", testCap, false},
+		{"EOF over cap", "", testCap + 1, true},
+	}
+	for _, c := range cases {
+		b, ch := newTestBridge()
+		line := replyOfSize("1", c.size)
+		if err := b.readStdoutPipe(strings.NewReader(line+c.term), testCap); err != nil {
+			t.Fatalf("%s: %v", c.name, err)
+		}
+		got := drain(ch)
+		if len(got) != 1 {
+			t.Fatalf("%s: got %d messages", c.name, len(got))
+		}
+		if c.rejected {
+			assertOversizedError(t, got[0], "1")
+		} else if got[0] != line {
+			t.Errorf("%s: line altered or rejected: %.100s", c.name, got[0])
+		}
+	}
+}
+
+func TestReadBoundedLine(t *testing.T) {
+	const max = 10
+	cases := []struct {
+		name, in string
+		line     string
+		size     int // 0 when the line is returned
+	}{
+		{"short", abc + "\n", abc, 0},
+		{"crlf", abc + "\r\n", abc, 0},
+		{"at cap", "0123456789\r\n", "0123456789", 0},
+		{"over cap", "0123456789A\n", "", 11},
+		{"over cap crlf", "0123456789A\r\n", "", 11},
+		{"over cap no newline", strings.Repeat("y", 3*readChunkBytes), "", 3 * readChunkBytes},
+	}
+	for _, c := range cases {
+		line, over, _ := readBoundedLine(bufio.NewReaderSize(strings.NewReader(c.in), readChunkBytes), max)
+		if c.size == 0 {
+			if over != nil || string(line) != c.line {
+				t.Errorf("%s: got %q %+v", c.name, line, over)
+			}
+			continue
+		}
+		if over == nil || over.size != c.size {
+			t.Errorf("%s: over = %+v, want size %d", c.name, over, c.size)
+		}
+	}
+}
+
+func TestReadBoundedLine_KeepsHeadAndTail(t *testing.T) {
+	in := "HEAD" + strings.Repeat("m", 3*readChunkBytes) + "TAIL\r\n"
+	_, over, _ := readBoundedLine(bufio.NewReaderSize(strings.NewReader(in), readChunkBytes), 100)
+	if over == nil || !strings.HasPrefix(string(over.head), "HEAD") || !strings.HasSuffix(string(over.tail), "TAIL") {
+		t.Fatalf("head or tail wrong: %+v", over)
+	}
+	if len(over.head) > idPrefixBytes || len(over.tail) > idPrefixBytes {
+		t.Errorf("head %d or tail %d over %d", len(over.head), len(over.tail), idPrefixBytes)
+	}
+	if over.size != len(in)-2 {
+		t.Errorf("size = %d, want %d", over.size, len(in)-2)
+	}
+}
+
+func TestFirstAndLastBytes(t *testing.T) {
+	b := []byte("abcdef")
+	if string(firstBytes(b, 3)) != "abc" || string(firstBytes(b, 99)) != "abcdef" || len(firstBytes(nil, 3)) != 0 {
+		t.Error("firstBytes")
+	}
+	if string(lastBytes(b, 3)) != "def" || string(lastBytes(b, 99)) != "abcdef" || len(lastBytes(nil, 3)) != 0 {
+		t.Error("lastBytes")
+	}
+	f := firstBytes(b, 3)
+	f[0] = 'Z'
+	if b[0] != 'a' {
+		t.Error("firstBytes aliases its input")
 	}
 }
 
@@ -194,13 +311,13 @@ func TestMaxReplyBytesFromEnv(t *testing.T) {
 func TestReadStdoutPipe_OverCapDoesNotBufferTheLine(t *testing.T) {
 	b, _ := newTestBridge()
 	over := []byte(replyOfSize("1", 20*1024*1024) + "\n")
-	var before, after runtimeMem
-	before.read()
+	var before, after runtime.MemStats
+	runtime.ReadMemStats(&before)
 	if err := b.readStdoutPipe(bytes.NewReader(over), testCap); err != nil {
 		t.Fatal(err)
 	}
-	after.read()
-	if grown := after.total - before.total; grown > 4*testCap+1<<20 {
+	runtime.ReadMemStats(&after)
+	if grown := after.TotalAlloc - before.TotalAlloc; grown > 4*testCap+1<<20 {
 		t.Errorf("allocated %d bytes reading a 20 MB line with a %d byte cap", grown, testCap)
 	}
 }

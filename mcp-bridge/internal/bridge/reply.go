@@ -8,6 +8,7 @@ import (
 	"io"
 	"log"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
 )
@@ -51,6 +52,13 @@ func maxReplyBytesFromEnv() int {
 	return n
 }
 
+// oversizedLine describes a reply line that was discarded: its first and last
+// bytes (where a JSON-RPC id is found) and its length without the terminator.
+type oversizedLine struct {
+	head, tail []byte
+	size       int
+}
+
 // readStdoutPipe reads newline-delimited JSON-RPC messages from the stdout pipe
 // and broadcasts them to SSE clients. A line longer than maxBytes is discarded as
 // it streams, never buffered past maxBytes, and the waiting caller is answered
@@ -58,10 +66,10 @@ func maxReplyBytesFromEnv() int {
 func (b *Bridge) readStdoutPipe(r io.Reader, maxBytes int) error {
 	reader := bufio.NewReaderSize(r, readChunkBytes)
 	for {
-		line, prefix, err := readBoundedLine(reader, maxBytes)
+		line, over, err := readBoundedLine(reader, maxBytes)
 		switch {
-		case prefix != nil:
-			b.rejectOversized(prefix, maxBytes)
+		case over != nil:
+			b.rejectOversized(*over, maxBytes)
 		case len(line) > 0:
 			b.handleLine(line)
 		}
@@ -74,37 +82,66 @@ func (b *Bridge) readStdoutPipe(r io.Reader, maxBytes int) error {
 	}
 }
 
-// readBoundedLine reads up to the next newline. When the line is within maxBytes
-// it is returned. When it is longer, the rest is read and thrown away and only
-// the start of the line is returned as prefix.
-func readBoundedLine(r *bufio.Reader, maxBytes int) (line, prefix []byte, err error) {
+// readBoundedLine reads up to the next newline. A line whose content, without a
+// trailing \r\n or \n, is within maxBytes is returned. A longer line is read to
+// its end and thrown away; only its head, tail and size are returned.
+func readBoundedLine(r *bufio.Reader, maxBytes int) (line []byte, over *oversizedLine, err error) {
 	var buf []byte
-	oversized := false
+	var o *oversizedLine
 	for {
 		chunk, rerr := r.ReadSlice('\n')
-		if !oversized {
-			if len(buf)+len(chunk) > maxBytes+1 {
-				oversized = true
-				prefix = append([]byte(nil), firstBytes(buf, chunk, idPrefixBytes)...)
+		if o != nil {
+			o.size += len(chunk)
+			o.tail = appendTail(o.tail, chunk, idPrefixBytes)
+		} else {
+			buf = append(buf, chunk...)
+			// Room for a \r\n terminator; past it the content is surely over the cap.
+			if len(buf) > maxBytes+2 {
+				o = &oversizedLine{head: firstBytes(buf, idPrefixBytes), tail: lastBytes(buf, idPrefixBytes), size: len(buf)}
 				buf = nil
-			} else {
-				buf = append(buf, chunk...)
 			}
 		}
 		if rerr == bufio.ErrBufferFull {
 			continue
 		}
-		if oversized {
-			return nil, prefix, rerr
+		if o == nil {
+			buf = trimTerminator(buf)
+			if len(buf) > maxBytes {
+				o = &oversizedLine{head: firstBytes(buf, idPrefixBytes), tail: lastBytes(buf, idPrefixBytes), size: len(buf)}
+				return nil, o, rerr
+			}
+			return buf, nil, rerr
 		}
-		return bytes.TrimRight(buf, "\r\n"), nil, rerr
+		trimmed := trimTerminator(o.tail)
+		o.size -= len(o.tail) - len(trimmed)
+		o.tail = trimmed
+		return nil, o, rerr
 	}
 }
 
-// firstBytes returns up to n bytes taken from buf followed by chunk.
-func firstBytes(buf, chunk []byte, n int) []byte {
-	joined := append(append(make([]byte, 0, n), buf[:min(len(buf), n)]...), chunk[:min(len(chunk), n-min(len(buf), n))]...)
-	return joined
+// trimTerminator removes one trailing \n, then one trailing \r.
+func trimTerminator(b []byte) []byte {
+	b = bytes.TrimSuffix(b, []byte("\n"))
+	return bytes.TrimSuffix(b, []byte("\r"))
+}
+
+// firstBytes returns a copy of up to the first n bytes of b.
+func firstBytes(b []byte, n int) []byte {
+	return append([]byte(nil), b[:min(len(b), n)]...)
+}
+
+// appendTail returns the last n bytes of tail followed by chunk, copying at most
+// n bytes however large the chunk is.
+func appendTail(tail, chunk []byte, n int) []byte {
+	if len(chunk) >= n {
+		return lastBytes(chunk, n)
+	}
+	return lastBytes(append(tail, chunk...), n)
+}
+
+// lastBytes returns a copy of up to the last n bytes of b.
+func lastBytes(b []byte, n int) []byte {
+	return append([]byte(nil), b[max(0, len(b)-n):]...)
 }
 
 // handleLine validates one reply line and routes it to its SSE session.
@@ -135,15 +172,17 @@ func (b *Bridge) route(line []byte) {
 }
 
 // rejectOversized answers the caller of a discarded reply with a JSON-RPC error
-// carrying the same id, routed like a normal reply. Without an id in the prefix
-// there is nobody to answer and the reply is only logged.
-func (b *Bridge) rejectOversized(prefix []byte, maxBytes int) {
-	id, ok := responseID(prefix)
+// carrying the same id, routed like a normal reply. Without an id there is nobody
+// to answer and the reply is only logged.
+func (b *Bridge) rejectOversized(o oversizedLine, maxBytes int) {
+	id, ok := responseID(o.head, o.tail)
 	if !ok {
-		log.Printf("Discarded an MCP server message over %d bytes with no reply id; starts: %s", maxBytes, logPrefix(prefix))
+		log.Printf("Discarded an MCP server message of %d bytes (limit %d) with no reply id; starts: %s",
+			o.size, maxBytes, logPrefix(o.head))
 		return
 	}
-	log.Printf("Discarded an MCP server reply over %d bytes (id %s); answering the caller with an error", maxBytes, id)
+	log.Printf("Discarded an MCP server reply of %d bytes (limit %d, id %s); answering the caller with an error",
+		o.size, maxBytes, id)
 	b.route(oversizedError(id, maxBytes))
 }
 
@@ -159,29 +198,60 @@ func oversizedError(id json.RawMessage, maxBytes int) []byte {
 	return out
 }
 
-// responseID reads the id of a JSON-RPC response from the start of its line. The
-// id precedes the result in a response, so the bounded prefix holds it. Only
-// string and number ids are accepted, and a message with a method is not a reply.
-func responseID(prefix []byte) (json.RawMessage, bool) {
-	dec := json.NewDecoder(bytes.NewReader(prefix))
-	if tok, err := dec.Token(); err != nil || tok != json.Delim('{') {
+// trailingID matches a top-level id that ends a JSON-RPC object. A nested id is
+// followed by more closing braces, so it does not match.
+var trailingID = regexp.MustCompile(`,\s*"id"\s*:\s*("(?:[^"\\]|\\.)*"|-?[0-9][0-9.eE+-]*)\s*\}\s*$`)
+
+// responseID finds the id of a JSON-RPC response from the head of its line, where
+// serializers that write the id first put it, or from the tail, where serializers
+// that write the result first put it. Only string and number ids are accepted, and
+// a message with a method is not a reply.
+func responseID(head, tail []byte) (json.RawMessage, bool) {
+	id, state := headID(head)
+	switch state {
+	case idFound:
+		return id, validID(id)
+	case idNotReply:
 		return nil, false
+	}
+	m := trailingID.FindSubmatch(tail)
+	if m == nil {
+		return nil, false
+	}
+	return json.RawMessage(m[1]), validID(m[1])
+}
+
+const (
+	idUnknown = iota
+	idFound
+	idNotReply
+)
+
+// headID reads top-level keys from the possibly truncated start of a message
+// until it reaches the id, a method, or a value too large to skip.
+func headID(head []byte) (json.RawMessage, int) {
+	dec := json.NewDecoder(bytes.NewReader(head))
+	if tok, err := dec.Token(); err != nil || tok != json.Delim('{') {
+		return nil, idNotReply
 	}
 	for dec.More() {
 		keyTok, err := dec.Token()
 		key, isKey := keyTok.(string)
-		if err != nil || !isKey || key == "method" {
-			return nil, false
+		if err != nil || !isKey {
+			return nil, idUnknown
+		}
+		if key == "method" {
+			return nil, idNotReply
 		}
 		var val json.RawMessage
 		if dec.Decode(&val) != nil {
-			return nil, false
+			return nil, idUnknown
 		}
 		if key == "id" {
-			return val, validID(val)
+			return val, idFound
 		}
 	}
-	return nil, false
+	return nil, idUnknown
 }
 
 // validID reports whether raw is a JSON string or number.
