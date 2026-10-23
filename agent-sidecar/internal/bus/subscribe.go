@@ -3,6 +3,7 @@ package bus
 import (
 	"context"
 	"errors"
+	"math/rand/v2"
 	"strings"
 	"time"
 
@@ -23,11 +24,14 @@ func nextWait(d time.Duration) time.Duration { return min(d*2, retryMax) }
 
 // waitable errors say the consumer is not available yet, which another pod ending or the operator
 // creating it will fix. Anything else (no JetStream, a missing stream, a permission the pod lacks)
-// is a misconfiguration that waiting does not cure.
+// is a misconfiguration that waiting does not cure. No-responders is waited for as well, since the
+// JetStream API is briefly unanswered during a server restart; the wait is logged every minute.
 var waitable = []error{nats.ErrConsumerNotFound, nats.ErrTimeout,
 	nats.ErrNoResponders, nats.ErrDisconnected, nats.ErrConnectionReconnecting}
 
 // alreadyBound is the text nats.go gives, without a sentinel, when the consumer has a subscription.
+// The tests that bind a second subscriber against a real server pin this text: if a nats.go
+// upgrade changes it, they fail instead of the sidecar crash-looping during a rollout.
 const alreadyBound = "consumer is already bound to a subscription"
 
 func isWaitable(err error) bool {
@@ -102,31 +106,41 @@ func (r *Runner) awaitBind(ctx context.Context) (*nats.Subscription, error) {
 }
 
 // watch returns when ctx ends or the subscription is lost: closed, or the consumer it was bound to
-// is gone or was made again with another delivery subject.
+// is gone or was made again with another delivery subject. It looks on a jittered beat, so pods
+// that started together do not ask the server together.
 func (r *Runner) watch(ctx context.Context, sub *nats.Subscription) {
-	tick := time.NewTicker(watchEvery)
-	defer tick.Stop()
 	for {
 		select {
 		case <-ctx.Done():
 			return
-		case <-tick.C:
-			if !sub.IsValid() || r.consumerMoved(sub) {
+		case <-time.After(watchEvery + rand.N(watchEvery/4)):
+			if !sub.IsValid() || r.consumerMoved(ctx, sub) {
 				return
 			}
 		}
 	}
 }
 
-// consumerMoved is true when the operator's consumer no longer delivers to sub. A failure to ask is
-// not a loss: the connection's own state covers that.
-func (r *Runner) consumerMoved(sub *nats.Subscription) bool {
+// consumerMoved is true when the operator's consumer no longer delivers to sub. The question ends
+// with ctx, so a shutdown during a NATS outage is not held up, and a failure to ask is not a loss.
+func (r *Runner) consumerMoved(ctx context.Context, sub *nats.Subscription) bool {
 	if r.Bus.Consumer == "" || r.JS == nil {
 		return false
 	}
-	ci, err := r.JS.ConsumerInfo(r.Bus.Stream, r.Bus.Consumer)
+	ctx, cancel := context.WithTimeout(ctx, watchEvery)
+	defer cancel()
+	ci, err := r.JS.ConsumerInfo(r.Bus.Stream, r.Bus.Consumer, nats.Context(ctx))
+	return movedOn(ci, err, sub.Subject)
+}
+
+// movedOn decides from the answer about the consumer whether a subscription on subject lost it.
+// A consumer that is gone is a loss; so is one made again, which has a new delivery subject (the
+// server refuses to change the delivery subject of a consumer that is bound, so a different subject
+// always means a different consumer). Any other error, a timeout or no responders, says nothing
+// about the subscription.
+func movedOn(ci *nats.ConsumerInfo, err error, subject string) bool {
 	if err != nil {
 		return errors.Is(err, nats.ErrConsumerNotFound)
 	}
-	return ci.Config.DeliverSubject != sub.Subject
+	return ci.Config.DeliverSubject != subject
 }

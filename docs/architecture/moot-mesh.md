@@ -59,7 +59,7 @@ missing stream, a permission the pod lacks) still fails the sidecar, so it crash
 visibly.
 
 Delivery across the handover is at least once. A turn cut because the sidecar is
-shutting down is given back to the consumer and answered by the next pod; a turn cut
+shutting down is given back to the consumer, after a short delay so it does not return to the pod that is leaving, and answered by the next pod. A turn on its last delivery (the consumer allows three) is reported to the thread as a `failure` of type `interrupted`, because the server would drop a give-back silently; a turn cut
 because its thread ended is acknowledged and dropped. A message the old pod received
 but had not acknowledged is delivered again after the acknowledgement wait, possibly
 after newer messages, and the new pod starts with no memory of what the old one
@@ -68,8 +68,10 @@ answered, so a turn answered but not yet acknowledged can be answered a second t
 **Not subscribed is visible.** A sidecar waiting for its consumer is ready (the pod
 must be, or the rollout stalls) but is not receiving the discussion. It says so in
 four places: the `/readyz` body reads `ready: subscribed=false`, the gauge
-`kubemoot_sidecar_subscribed` is 0, the heartbeat reports `nats` false, and the
-crew is told `waking` but not `ready`. Each flips when the sidecar binds.
+`kubemoot_sidecar_subscribed` is 0, the log repeats the wait every minute, and the
+crew is told `waking` but not `ready`. Each flips when the sidecar binds. The
+heartbeat's `nats` flag stays the connection, so the agent does not look degraded
+for the length of a rollout.
 
 **Every published message is a bus-contract message.** The sidecar builds its
 messages from the types generated from the [bus contract](../../concepts/signals-and-protocol/#the-bus-contract),

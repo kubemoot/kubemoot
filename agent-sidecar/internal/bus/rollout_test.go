@@ -298,8 +298,8 @@ func TestATurnCutByShutdownIsAnsweredByTheNextPod(t *testing.T) {
 	}
 }
 
-// The crew is told ready only once the sidecar receives its discussion, and the heartbeat says
-// the same through its NATS flag.
+// The crew is told ready only once the sidecar receives its discussion; the heartbeat's NATS flag
+// stays the connection, so the agent does not look degraded for a whole rollout.
 func TestReadyIsAnnouncedOnlyOnceSubscribed(t *testing.T) {
 	p := newPod(t, options{}, answer("x"))
 	life := make(chan kbus.DiscussionMessage, 4)
@@ -322,8 +322,8 @@ func TestReadyIsAnnouncedOnlyOnceSubscribed(t *testing.T) {
 	if m := <-life; m.MessageType != kbus.DiscussionMessageMessageTypeWaking {
 		t.Fatalf("first signal %s", m.MessageType)
 	}
-	if nats := heartbeatNATS(t, p); nats {
-		t.Error("the heartbeat reports NATS while not subscribed")
+	if !heartbeatNATS(t, p) {
+		t.Error("the heartbeat's NATS flag is the connection, not the subscription")
 	}
 	select {
 	case m := <-life:
@@ -359,5 +359,59 @@ func heartbeatNATS(t *testing.T, p *pod) bool {
 			t.Fatal("no heartbeat written")
 		}
 		time.Sleep(20 * time.Millisecond)
+	}
+}
+
+// A turn cut by shutdown is judged afresh when the server delivers it again to the same runner: it
+// is not dropped as a duplicate of a message that was never answered.
+func TestAGivenBackTurnIsNotADuplicateWhenItComesBackToTheSameRunner(t *testing.T) {
+	ctx, shutdown := context.WithCancel(context.Background())
+	started := make(chan struct{})
+	var once sync.Once
+	p := newPodWith(t, ctx, options{consumer: true}, func(c context.Context, _ *sdk.Message, _ *turn.Meter) (a2a.Result, error) {
+		once.Do(func() { close(started) })
+		<-c.Done()
+		return a2a.Result{}, c.Err()
+	})
+	p.advisory(t, "bounce", agent)
+	<-started
+	shutdown()
+	p.runner.Wait() // the subscription is still bound, so the server hands the message back to this runner
+	deadline := time.Now().Add(waitFor)
+	for p.deliveries(t, "turn") < 2 {
+		if time.Now().After(deadline) {
+			t.Fatalf("the redelivered turn was not judged afresh: %v duplicates", p.deliveries(t, "duplicate"))
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if d := p.deliveries(t, "duplicate"); d != 0 {
+		t.Fatalf("the given-back turn was dropped as a duplicate %v times", d)
+	}
+}
+
+// With no delivery left a give-back would be dropped by the server, so the thread is told instead.
+func TestATurnCutByShutdownOnItsLastDeliveryIsReportedInterrupted(t *testing.T) {
+	p := newPod(t, options{consumer: true}, answer("older"))
+	_ = p.sub.Unsubscribe()
+	n := newerPod(p, func(c context.Context, _ *sdk.Message, _ *turn.Meter) (a2a.Result, error) {
+		<-c.Done()
+		return a2a.Result{}, c.Err()
+	})
+	n.r.MaxDeliver = 1
+	ctx, shutdown := context.WithCancel(context.Background())
+	t.Cleanup(shutdown)
+	n.hold(ctx)
+	if !n.next(t) {
+		t.Fatal("not subscribed")
+	}
+	p.advisory(t, "last", agent)
+	for n.turns.Load() == 0 {
+		time.Sleep(10 * time.Millisecond)
+	}
+	shutdown()
+	n.r.Wait()
+	m := p.nextOf(t, kbus.DiscussionMessageMessageTypeFailure)
+	if m.Metadata["failureType"] != "interrupted" || m.ThreadID != "last" {
+		t.Fatalf("%+v", m)
 	}
 }
