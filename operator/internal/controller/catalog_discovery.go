@@ -214,9 +214,9 @@ func servedContexts(ctx context.Context, httpClient *http.Client, servers []aiv1
 		if err != nil {
 			continue
 		}
-		for _, m := range served {
-			if m.MaxModelLen > 0 {
-				out[m.ID] = m.MaxModelLen
+		for id, window := range vllm.ServedContexts(served, nil) {
+			if window > 0 {
+				out[id] = window
 			}
 		}
 	}
