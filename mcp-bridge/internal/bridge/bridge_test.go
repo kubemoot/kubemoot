@@ -1,7 +1,6 @@
 package bridge
 
 import (
-	"bytes"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -141,54 +140,6 @@ func TestReadStdoutPipe_SkipsEmptyAndNonJSON(t *testing.T) {
 
 	if len(received) != 1 {
 		t.Fatalf("expected 1 message, got %d", len(received))
-	}
-}
-
-func TestReadStdoutPipe_OversizedMessageRecovery(t *testing.T) {
-	b := New("/tmp", 8080, "/healthz")
-
-	ch := make(chan []byte, 64)
-	b.clientMu.Lock()
-	b.clients["test"] = ch
-	b.clientMu.Unlock()
-
-	// readStdoutPipe initialises bufio.Scanner with `Buffer(make([]byte, 64*1024), maxBytes)`.
-	// Go's Scanner ignores `maxBytes` when it's smaller than the initial buffer
-	// capacity — the effective ceiling is max(maxBytes, cap(initialBuf)) = 64 KiB.
-	// To exercise the ErrTooLong recovery path the test must provide a line
-	// LARGER than the initial buffer AND set maxBytes below the oversized line
-	// length. 80 KiB max + a 100 KiB oversized line satisfies both constraints
-	// without ballooning test memory.
-	maxBytes := 80 * 1024
-	oversized := `{"data":"` + strings.Repeat("x", 100*1024) + `"}`
-	normal := `{"jsonrpc":"2.0","id":1,"result":"ok"}`
-
-	// Build input: normal message, then oversized, then another normal message.
-	// The oversized message should be skipped and both normal messages received.
-	var buf bytes.Buffer
-	buf.WriteString(normal + "\n")
-	buf.WriteString(oversized + "\n")
-	buf.WriteString(normal + "\n")
-
-	err := b.readStdoutPipe(&buf, maxBytes)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	close(ch)
-	var received []string
-	for msg := range ch {
-		received = append(received, string(msg))
-	}
-
-	// Should have received both normal messages; the oversized one is skipped
-	if len(received) != 2 {
-		t.Fatalf("expected 2 messages after overflow recovery, got %d", len(received))
-	}
-	for i, msg := range received {
-		if msg != normal {
-			t.Errorf("message %d: expected normal JSON-RPC message, got first 80 chars: %.80s", i, msg)
-		}
 	}
 }
 

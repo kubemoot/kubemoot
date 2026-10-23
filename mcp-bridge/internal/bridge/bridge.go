@@ -1,13 +1,11 @@
 package bridge
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -86,6 +84,9 @@ type Bridge struct {
 	clients  map[string]chan []byte
 	msgID    atomic.Int64
 	router   *router
+
+	// Largest reply, in bytes, the bridge will carry from the MCP server.
+	maxReplyBytes int
 }
 
 // New creates a new Bridge instance.
@@ -96,6 +97,8 @@ func New(pipeDir string, port int, healthPath string) *Bridge {
 		healthPath: healthPath,
 		clients:    make(map[string]chan []byte),
 		router:     newRouter(),
+
+		maxReplyBytes: maxReplyBytesFromEnv(),
 	}
 }
 
@@ -263,13 +266,8 @@ func (b *Bridge) pipeSession(ctx context.Context) error {
 	log.Printf("MCP server connected via pipes; bridge initiating MCP handshake")
 
 	// Read JSON-RPC messages from stdout pipe and broadcast to SSE clients.
-	// The initial buffer is 64KB; it grows on demand up to the 16MB cap.
-	// 16MB handles very large MCP tool responses (e.g. Prometheus metrics metadata
-	// listings can exceed 4MB on a busy cluster with many exporters).
-	// Using a small initial size avoids reserving 16MB per sidecar pod at startup.
-	const scannerMaxBytes = 16 * 1024 * 1024 // 16MB cap
-
-	err := b.readStdoutPipe(stdoutFile, scannerMaxBytes)
+	// A reply larger than maxReplyBytes is discarded while it streams in.
+	err := b.readStdoutPipe(stdoutFile, b.maxReplyBytes)
 
 	b.pipeMu.Lock()
 	b.stdin = nil
@@ -279,52 +277,6 @@ func (b *Bridge) pipeSession(ctx context.Context) error {
 		return err
 	}
 	return fmt.Errorf("MCP server disconnected (EOF)")
-}
-
-// readStdoutPipe reads newline-delimited JSON-RPC messages from the stdout pipe
-// and broadcasts them to SSE clients. It handles bufio.ErrTooLong as a recoverable
-// error - oversized messages are logged and skipped without ending the session.
-func (b *Bridge) readStdoutPipe(r io.Reader, maxBytes int) error {
-	scanner := bufio.NewScanner(r)
-	scanner.Buffer(make([]byte, 64*1024), maxBytes)
-
-	for scanner.Scan() {
-		line := scanner.Bytes()
-		if len(line) == 0 {
-			continue
-		}
-
-		if !json.Valid(line) {
-			log.Printf("Non-JSON output from MCP server (skipping): %s", line)
-			continue
-		}
-
-		// Inspect the JSON-RPC response: if its ID matches a pending
-		// `initialize` request AND it carries a `result` (not an error),
-		// the MCP server has completed its handshake and is ready to
-		// serve tool calls. Flip `initialized` so /readyz returns 200.
-		// Best-effort: parse failures fall through to broadcast normally.
-		b.maybeMarkInitialized(line)
-
-		session, data, drop := b.router.inbound(line)
-		if drop {
-			log.Printf("Dropping a reply for a session that has disconnected")
-			continue
-		}
-		b.deliver(session, append([]byte(nil), data...))
-	}
-
-	if err := scanner.Err(); err != nil {
-		if errors.Is(err, bufio.ErrTooLong) {
-			log.Printf("WARNING: MCP server response exceeded %d MB buffer, skipping oversized message", maxBytes/(1024*1024))
-			// Recover by creating a new scanner and continuing to read.
-			// The oversized line has been consumed from the reader; the next
-			// line should be a normal-sized JSON-RPC message.
-			return b.readStdoutPipe(r, maxBytes)
-		}
-		return fmt.Errorf("reading stdout pipe: %w", err)
-	}
-	return nil
 }
 
 // deliver sends a message to one session, or to every session when session is

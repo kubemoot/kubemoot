@@ -97,6 +97,14 @@ No sidecar restart required. The bridge survives MCP server restarts, and SSE cl
 stay connected across them. A client whose event buffer is full when the notification is
 sent misses it; the gateway's periodic re-list (`mcp.gateway.tool-list-max-age`) catches that.
 
+## Reply size limit
+
+A JSON-RPC reply line from the MCP server larger than 1 MiB (default) is discarded while it
+streams in, so the sidecar never holds it in memory. The bridge answers the waiting caller
+at once with a JSON-RPC error (code -32000) carrying the same id, telling the model to ask
+for less (filter, select, a shorter range), and then keeps serving. A reply with no readable
+id is logged and dropped. Set `KUBEMOOT_MCP_BRIDGE_MAX_REPLY_BYTES` to change the limit.
+
 ## Building
 
 The image is built by CI/CD on push to `main` (see `.github/workflows/ci-mcp-bridge.yaml`).
