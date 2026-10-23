@@ -187,3 +187,39 @@ describe('buildAgentSpans placement and model', () => {
 		expect(span.gpuLabel).toBeUndefined();
 	});
 });
+
+describe('buildAgentSpans without signal timings', () => {
+	const untimed = (agent: string, type: string): DiscussionMessage => ({
+		...msg(agent, type, 0),
+		timestamp: undefined
+	});
+
+	it('draws known spans and flags the rest, with no NaN', () => {
+		const spans = buildAgentSpans([
+			untimed('human', 'thread_start'),
+			msg('coordinator', 'agree', 2000),
+			msg('coordinator', 'synthesis', 5000),
+			untimed('smoke-agent', 'agree')
+		]);
+		const coordinator = spans.find((s) => s.agent === 'coordinator')!;
+		expect(coordinator.timed).toBe(true);
+		expect(coordinator.endMs - coordinator.startMs).toBe(3000);
+		const smoke = spans.find((s) => s.agent === 'smoke-agent')!;
+		expect(smoke.timed).toBe(false);
+		for (const s of spans) {
+			expect(Number.isNaN(s.startMs)).toBe(false);
+			expect(Number.isNaN(s.endMs)).toBe(false);
+			for (const m of s.signalMarkers) expect(Number.isNaN(m.ms)).toBe(false);
+		}
+	});
+
+	it('marks every span untimed when no message has a timestamp', () => {
+		const spans = buildAgentSpans([untimed('human', 'thread_start'), untimed('coordinator', 'synthesis')]);
+		expect(spans.map((s) => s.timed)).toEqual([false, false]);
+		expect(spans.every((s) => s.startMs === 0 && s.endMs === 0)).toBe(true);
+	});
+
+	it('falls back to the earliest known timestamp for the thread start', () => {
+		expect(threadStartMs([untimed('human', 'thread_start'), msg('a', 'agree', 4000)])).toBe(T0 + 4000);
+	});
+});
