@@ -3,8 +3,9 @@
 #
 # Git holds 0.0.0 in vllm/charts/kubemoot-vllm/Chart.yaml. The chart references no
 # Kubemoot image (the vLLM image is set by whoever installs it, pinned by digest), so its
-# only version is its own: the next vllm-chart-vX.Y.Z-rc.N after the latest candidate, or
-# X.Y.(Z+1)-rc.0 once that candidate's X.Y.Z is published, or 0.1.0-rc.0 for the first.
+# only version is its own: the next vllm-chart-vX.Y.Z-rc.N, one conventional-commit bump
+# past the last final chart tag from the commits that touch the chart, or the latest
+# candidate's X.Y.Z (0.1.0 for the first) while no final exists.
 # The chart is packaged from HEAD (the tip of main in CI) in a scratch worktree, stamped,
 # and never committed.
 #
@@ -40,6 +41,8 @@ rl_is_dry || : "${REGISTRY:?REGISTRY required}"
 # shellcheck disable=SC2034 # read by release-chart-lib.sh
 CHART_PREFIX="vllm-chart-v"
 CHART_DIR="vllm/charts/kubemoot-vllm"
+# shellcheck disable=SC2034 # read by release-chart-lib.sh
+CHART_PATHS=("$CHART_DIR")
 FIRST_VERSION="0.1.0-rc.0"
 
 trap rl_remove_worktrees EXIT

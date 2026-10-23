@@ -244,7 +244,7 @@ check "with that candidate" 1 \
 echo "# a template" > "$chart/templates/notes.txt"
 git add "$chart/templates/notes.txt"; git commit -q -m "feat: chart notes"
 DRY_RUN=true run_chart source && status=0 || status=$?
-check "a chart source change builds a chart" "0|0.92.582-rc.2" "${status}|$(gh_out source chart_version)"
+check "a feat to the chart sources starts the next minor" "0|0.93.0-rc.0" "${status}|$(gh_out source chart_version)"
 git reset -q --hard "$c3"
 
 # 5. Unexpected inputs.
@@ -276,7 +276,7 @@ check "no dashboard candidate fails" 1 "$status"
   git -c user.name=test -c user.email=test@example.com tag -a dashboard-v0.50.1-rc.0 -m rc
   DRY_RUN=true OUT_DIR="${root}/chart-nochart" bash "${here}/release-operator-chart.sh" > "${root}/chart-nochart.log" 2>&1
 ) && status=0 || status=$?
-check "no chart candidate to count from fails" "1|1" "${status}|$(grep -c 'no operator-chart-v' "${root}/chart-nochart.log")"
+check "no chart candidate to count from fails" "1|1" "${status}|$(grep -c 'no final operator-chart-v' "${root}/chart-nochart.log")"
 (
   cd "${root}/bare-tags"
   unset REGISTRY
