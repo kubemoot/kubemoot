@@ -26,7 +26,7 @@
 		removing = true;
 		removeError = null;
 		const url = resolve('/api/kubemoot/crews/[name]', { name: crew.metadata.name });
-		const result = await removeCrew(fetch, url, crew.metadata.namespace);
+		const result = await removeCrew(fetch, url, crew.metadata.namespace ?? '');
 		removing = false;
 		if (result.ok) {
 			confirming = null;
@@ -111,7 +111,7 @@
 			{#if !$readOnly}
 				<div class="crew-actions">
 					{#if confirming === key}
-						<span class="remove-prompt">{removalPrompt({ label: crewDisplayName(crew), namespace: crew.metadata.namespace, name: crew.metadata.name, agentCount: status?.agentCount })}</span>
+						<span class="remove-prompt">{removalPrompt({ label: crewDisplayName(crew), namespace: crew.metadata.namespace ?? '', name: crew.metadata.name, agentCount: status?.agentCount })}</span>
 						<button class="action-btn-text yes" disabled={removing} onclick={() => confirmRemove(crew)}>Yes</button>
 						<button class="action-btn-text no" disabled={removing} onclick={() => { confirming = null; }}>No</button>
 					{:else}

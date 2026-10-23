@@ -159,7 +159,7 @@
 			<button class="chat-row" class:active={t.threadId === selectedThreadId} onclick={() => selectChat(t.threadId)}>
 				<span class="chat-preview">{preview(t.threadId, t.userQuery)}</span>
 				<span class="chat-meta">
-					{#if $namespace === '' && t.namespace}<span class="crew-badge">{crewLabel($crewDirectory, t.namespace, t.crew)}</span>{/if}
+					{#if $namespace === '' && t.namespace}<span class="crew-badge">{crewLabel($crewDirectory, t.namespace, t.crew ?? '')}</span>{/if}
 					<span>{formatTimestamp(t.startedAt)}</span>
 				</span>
 			</button>
@@ -199,7 +199,7 @@
 				{#each turns as turn (turn.id)}
 					<div class="bubble {turn.from}">
 						<div class="bubble-head">
-							<span class="who">{turn.from === 'you' ? 'You' : crewLabel($crewDirectory, selected.namespace, selected.crew) || 'Crew'}</span>
+							<span class="who">{turn.from === 'you' ? 'You' : crewLabel($crewDirectory, selected.namespace, selected.crew ?? '') || 'Crew'}</span>
 							<span class="when">{formatTimestamp(turn.timestamp)}</span>
 						</div>
 						{#if turn.from === 'crew'}
