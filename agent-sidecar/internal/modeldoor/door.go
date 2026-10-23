@@ -194,7 +194,6 @@ func (d *Door) forward(w http.ResponseWriter, r *http.Request, c *call, placed p
 	status, u, err := d.send(w, r, c, placed)
 	took := time.Since(started)
 	ok := err == nil && status < http.StatusBadRequest
-	d.release(placed, ok, u, took)
 	if c.meter != nil {
 		reason := placed.Reason
 		if err != nil {
@@ -207,6 +206,8 @@ func (d *Door) forward(w http.ResponseWriter, r *http.Request, c *call, placed p
 			Cold: placed.ColdLoad, OK: ok, Duration: took, OutputTokens: u.completion})
 		d.metrics.Door("model", obs.Result(ok))
 	}
+	// Released last, so a call is counted by the time its ticket is free.
+	d.release(placed, ok, u, took)
 }
 
 // send forwards the request to the placed server and copies the reply through. It returns the
