@@ -1,9 +1,9 @@
 <script lang="ts">
-	import { displayResource, toYaml } from '#lib/yaml.js';
+	import { displayResource, toYaml, type YamlResource } from '#lib/yaml.js';
 
 	interface Props {
 		/** The custom resource to show; nothing renders until it has loaded. */
-		resource: { metadata?: Record<string, unknown> } | null | undefined;
+		resource: YamlResource | null | undefined;
 	}
 
 	let { resource }: Props = $props();

@@ -9,7 +9,7 @@ function server(name: string, models: { name: string }[] | undefined): ModelServ
 		metadata: { name, namespace: 'kubemoot' },
 		spec: { type: 'vllm' },
 		status: models ? { models } : undefined
-	} as ModelServer;
+	};
 }
 
 describe('catalogEntries', () => {

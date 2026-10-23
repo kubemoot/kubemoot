@@ -31,6 +31,12 @@ describe('displayResource', () => {
 		const out = displayResource({ metadata: { name: 'a', managedFields: [{}] } });
 		expect(out.metadata).toEqual({ name: 'a' });
 	});
+	it('accepts a typed object whose metadata is an interface and leaves the input intact', () => {
+		interface Meta { name: string; managedFields?: unknown[] }
+		const r: { metadata?: Meta; spec: number } = { metadata: { name: 'a', managedFields: [{}] }, spec: 1 };
+		expect(displayResource(r)).toEqual({ metadata: { name: 'a' }, spec: 1 });
+		expect(r.metadata?.managedFields).toHaveLength(1);
+	});
 	it('returns the resource unchanged without managedFields', () => {
 		const r = { metadata: { name: 'a' } };
 		expect(displayResource(r)).toBe(r);

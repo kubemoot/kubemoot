@@ -1,6 +1,7 @@
 <script lang="ts">
 	import type { Snippet } from 'svelte';
 	import YamlView from '../common/YamlView.svelte';
+	import type { YamlResource } from '#lib/yaml.js';
 
 	interface Props {
 		title?: string;
@@ -8,7 +9,7 @@
 		loading?: boolean;
 		error?: string | null;
 		/** The custom resource this page shows; adds the read-only YAML view. */
-		resource?: { metadata?: Record<string, unknown> } | null;
+		resource?: YamlResource | null;
 		children: Snippet;
 		header?: Snippet;
 		actions?: Snippet;
