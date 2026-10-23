@@ -65,6 +65,7 @@ The singleton must be named `default`. The operator creates it via the Helm char
 | `defaults.vectorStoreType` | enum | `pgvector` | Default vector store: `pgvector`, `qdrant`, `milvus`, `chroma` |
 | `defaults.vectorStoreEndpoint` | string | | Default vector store endpoint for tool indexing. When empty, MCPServer tool indexing is disabled |
 | `defaults.embeddingModel` | string | `nomic-embed` | Default EmbeddingModel CR name for RAGSources |
+| `defaults.agentResources` | ResourceRequirements | requests cpu `25m`, memory `96Mi`; limit memory `256Mi` (goose: `100m`/`256Mi`, limit `1Gi`) | Default resources for the agent container of every Agent. Merged per resource name over the built-in default and under the Agent's own `spec.deployment.resources` or `spec.harness.resources`. No CPU limit by default. See [Agent resources](agent.md#resources) |
 | `defaults.otelCollectorEndpoint` | string | | Default OpenTelemetry collector for all agents. Moot Mesh sidecars export spans to it over OTLP/HTTP |
 
 ## Status

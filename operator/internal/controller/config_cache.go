@@ -221,6 +221,17 @@ func (c *ConfigCache) GetImagePullSecrets() []corev1.LocalObjectReference {
 	return nil
 }
 
+// GetAgentResources returns a copy of the KubemootConfig default resources for agent
+// containers; nil when none are configured.
+func (c *ConfigCache) GetAgentResources() *corev1.ResourceRequirements {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if c.config == nil || c.config.Spec.Defaults.AgentResources == nil {
+		return nil
+	}
+	return c.config.Spec.Defaults.AgentResources.DeepCopy()
+}
+
 // GetMaxIndexBuildsPerServer returns how many index builds may run at once against one
 // embedding server, from config or fallback
 func (c *ConfigCache) GetMaxIndexBuildsPerServer() int32 {

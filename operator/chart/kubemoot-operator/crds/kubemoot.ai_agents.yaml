@@ -252,7 +252,11 @@ spec:
                     format: int32
                     type: integer
                   resources:
-                    description: Resources defines resource requirements
+                    description: |-
+                      Resources are the agent container's resource requirements. Each resource named here
+                      replaces the same resource from KubemootConfig spec.defaults.agentResources and from
+                      the operator's built-in default (requests cpu 25m and memory 96Mi, limit memory 256Mi);
+                      resources not named keep that default.
                     properties:
                       claims:
                         description: |-
@@ -627,7 +631,11 @@ spec:
                     - a2a
                     type: string
                   resources:
-                    description: Resources are the harness container's resource requirements.
+                    description: |-
+                      Resources are the harness container's resource requirements. Each resource named here
+                      replaces the same resource from KubemootConfig spec.defaults.agentResources and from
+                      the built-in default for the harness (see spec.deployment.resources); resources not named
+                      keep that default.
                     properties:
                       claims:
                         description: |-

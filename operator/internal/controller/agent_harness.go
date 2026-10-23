@@ -308,9 +308,7 @@ func (r *AgentReconciler) buildSidecarDeployment(ctx context.Context, agent *kub
 		// The root file system is read-only; the harness writes its turn directories and caches here.
 		VolumeMounts: []corev1.VolumeMount{{Name: harnessTmpVolume, MountPath: harnessTmpDir}},
 	}
-	if h.Resources != nil {
-		container.Resources = *h.Resources
-	}
+	container.Resources = r.agentContainerResources(h.Name, h.Resources)
 	labels := podLabels(agent)
 	labels[labelHarnessMode] = string(kubemootv1alpha1.HarnessModeSidecar)
 	tmpl := corev1.PodTemplateSpec{
