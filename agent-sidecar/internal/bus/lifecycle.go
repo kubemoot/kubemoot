@@ -16,6 +16,9 @@ type Lifecycle struct {
 	Pub *Publisher
 	// Ready reports readiness; NATS and Harness are the two facts it is made of, for the heartbeat.
 	Ready, NATS, Harness func() bool
+	// Subscribed reports whether the sidecar receives the crew's discussion; nil means it always does.
+	// The crew is told ready only once it does, and the heartbeat reports NATS only while it does.
+	Subscribed func() bool
 	// LastInference reports when the last model call finished; the zero time means none yet.
 	LastInference func() time.Time
 	// Poll is how often readiness is observed; Beat is the heartbeat interval.
@@ -45,7 +48,7 @@ func (l *Lifecycle) Run(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-poll.C:
-			now := l.Ready()
+			now := l.Ready() && l.subscribed()
 			if now && !wasReady {
 				l.announce(ctx, kbus.DiscussionMessageMessageTypeReady)
 			}
@@ -63,7 +66,7 @@ func (l *Lifecycle) announce(ctx context.Context, signal kbus.DiscussionMessageM
 }
 
 func (l *Lifecycle) heartbeat() {
-	h := Heartbeat{NATS: l.NATS(), HarnessReady: l.Harness(), Interval: l.Beat}
+	h := Heartbeat{NATS: l.NATS() && l.subscribed(), HarnessReady: l.Harness(), Interval: l.Beat}
 	if l.LastInference != nil {
 		h.LastInference = l.LastInference()
 	}
@@ -71,3 +74,5 @@ func (l *Lifecycle) heartbeat() {
 		l.Log.Warn("heartbeat not written", "error", err)
 	}
 }
+
+func (l *Lifecycle) subscribed() bool { return l.Subscribed == nil || l.Subscribed() }

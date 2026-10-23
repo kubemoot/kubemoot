@@ -68,6 +68,8 @@ type Runner struct {
 	// NakDelay is how long JetStream waits before delivering again a message whose terminal signal
 	// could not be published; zero means 5 s.
 	NakDelay time.Duration
+	// WarnEvery is how often the wait for the consumer is logged again; zero means a minute.
+	WarnEvery time.Duration
 
 	admit *Admission
 	once  sync.Once
@@ -77,6 +79,7 @@ type Runner struct {
 
 	mu     sync.Mutex
 	active map[string][]*running
+	closed bool // Wait began: a message arriving now starts no turn
 }
 
 // running is one turn in flight, reachable by thread so a stop can end it.
@@ -168,8 +171,12 @@ func (r *Runner) handle(d delivery) {
 func (r *Runner) start(d delivery, msg kbus.DiscussionMessage) {
 	t := &turnRun{r: r, d: d, msg: msg, thread: Thread{ID: msg.ThreadID, Channel: msg.Channel}}
 	t.ctx, t.cancel = context.WithCancel(r.traceContext(d, msg))
+	if !r.admitTurn() {
+		t.cancel()
+		d.nak(0)
+		return
+	}
 	r.register(msg.ThreadID, &t.running)
-	r.wg.Add(1)
 	go func() {
 		defer r.wg.Done()
 		stop := r.keepAlive(d)
@@ -179,8 +186,25 @@ func (r *Runner) start(d delivery, msg kbus.DiscussionMessage) {
 	}()
 }
 
-// Wait blocks until every turn in flight has ended; the context given to Subscribe ending cancels them.
-func (r *Runner) Wait() { r.wg.Wait() }
+// admitTurn counts a turn in flight, unless Wait has begun.
+func (r *Runner) admitTurn() bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.closed {
+		return false
+	}
+	r.wg.Add(1)
+	return true
+}
+
+// Wait blocks until every turn in flight has ended; the context given to Subscribe or Hold ending
+// cancels them. A message that arrives after Wait began is given back to the consumer unworked.
+func (r *Runner) Wait() {
+	r.mu.Lock()
+	r.closed = true
+	r.mu.Unlock()
+	r.wg.Wait()
+}
 
 // traceContext continues the trace of the message: from its NATS header, else from its body fields.
 func (r *Runner) traceContext(d delivery, msg kbus.DiscussionMessage) context.Context {

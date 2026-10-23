@@ -47,7 +47,7 @@ func (t *turnRun) run() {
 	defer span.End()
 	t.ctx = ctx
 	if !t.acquire() {
-		t.d.ack()
+		t.settleStopped()
 		return
 	}
 	defer func() { <-t.r.sem }()
@@ -61,10 +61,21 @@ func (t *turnRun) run() {
 	out := t.work()
 	stopBeats()
 	if t.stopped() {
-		t.d.ack()
+		t.settleStopped()
 		return
 	}
 	t.finish(out, span)
+}
+
+// settleStopped settles a turn that was ended from outside. When its thread ended nobody waits for
+// the message, so it is acknowledged. When the sidecar is shutting down the thread is still open, so
+// the message is given back and the next pod to bind the consumer gets it.
+func (t *turnRun) settleStopped() {
+	if t.r.base.Err() != nil {
+		t.d.nak(0)
+		return
+	}
+	t.d.ack()
 }
 
 // acquire takes a turn slot. A turn that has to wait for one says so on the bus, so the coordinator
