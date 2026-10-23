@@ -26,18 +26,26 @@ import (
 	aiv1alpha1 "github.com/kubemoot/kubemoot/operator/api/v1alpha1"
 )
 
+// slowPullState records what the slow Ollama saw of a download: that it began, and
+// that the operator cancelled it.
+type slowPullState struct {
+	started   atomic.Bool
+	cancelled atomic.Bool
+}
+
 // slowPullOllama is an Ollama server with no models whose downloads never finish
-// until the test ends; it records a download the operator cancels.
-func slowPullOllama(t *testing.T, cancelled *atomic.Bool) *httptest.Server {
+// until the test ends; it records a download starting and one the operator cancels.
+func slowPullOllama(t *testing.T, seen *slowPullState) *httptest.Server {
 	t.Helper()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case testPathAPITags:
 			_, _ = w.Write([]byte(`{"models":[]}`))
 		case testPathAPIPull:
+			seen.started.Store(true)
 			emit(w, halfDone)
 			<-r.Context().Done()
-			cancelled.Store(true)
+			seen.cancelled.Store(true)
 		default:
 			http.NotFound(w, r)
 		}
@@ -47,22 +55,25 @@ func slowPullOllama(t *testing.T, cancelled *atomic.Bool) *httptest.Server {
 }
 
 // startDeclaredPull binds the model to a server a Model declares and waits for the
-// download to be under way.
-func startDeclaredPull(t *testing.T, cancelled *atomic.Bool) (*bindHarness, *aiv1alpha1.Model) {
+// download to be under way on the server. The first reconcile returns before the
+// request reaches the server, and a download cancelled before then is never seen
+// by it, so the wait is on the server having started the download.
+func startDeclaredPull(t *testing.T, seen *slowPullState) (*bindHarness, *aiv1alpha1.Model) {
 	t.Helper()
-	slow := slowPullOllama(t, cancelled)
+	slow := slowPullOllama(t, seen)
 	ask := embedModelFor("a-slow")
 	h := newBindHarness(t, unboundEmbedding(), embedServer("a-slow", slow.URL, false), ask)
 	got := h.reconcile()
 	if got.Status.State != statePulling || got.Status.Pull == nil {
 		t.Fatalf("status = %+v, want Pulling with progress", got.Status)
 	}
+	eventually(t, "the download to start on the server", seen.started.Load)
 	return h, ask
 }
 
 func TestEmbeddingBinding_RebindReleasesThePullOnTheServerItLeft(t *testing.T) {
-	var cancelled atomic.Bool
-	h, ask := startDeclaredPull(t, &cancelled)
+	var seen slowPullState
+	h, ask := startDeclaredPull(t, &seen)
 	has := newEmbedOllama(t, true)
 	if err := h.r.Create(context.Background(), embedServer("b-has", has.srv.URL, true)); err != nil {
 		t.Fatal(err)
@@ -76,15 +87,15 @@ func TestEmbeddingBinding_RebindReleasesThePullOnTheServerItLeft(t *testing.T) {
 	if got.Status.BoundServer != "b-has" || got.Status.Pull != nil || !got.Status.Ready {
 		t.Errorf("status = %+v, want bound to b-has, ready, with no pull progress", got.Status)
 	}
-	eventually(t, "the download on the server the model left to be cancelled", cancelled.Load)
+	eventually(t, "the download on the server the model left to be cancelled", seen.cancelled.Load)
 	if h.r.tracker().get(pullKey("a-slow", embedTestModel)) != nil {
 		t.Error("the pull on the old server is still tracked")
 	}
 }
 
 func TestEmbeddingBinding_NoServerReleasesTheUnwantedPull(t *testing.T) {
-	var cancelled atomic.Bool
-	h, ask := startDeclaredPull(t, &cancelled)
+	var seen slowPullState
+	h, ask := startDeclaredPull(t, &seen)
 	if err := h.r.Delete(context.Background(), ask); err != nil {
 		t.Fatal(err)
 	}
@@ -94,7 +105,7 @@ func TestEmbeddingBinding_NoServerReleasesTheUnwantedPull(t *testing.T) {
 	if got.Status.BoundServer != "" || got.Status.Ready {
 		t.Errorf("status = %+v, want unbound once no Model asks for the model", got.Status)
 	}
-	eventually(t, "the unwanted download to be cancelled", cancelled.Load)
+	eventually(t, "the unwanted download to be cancelled", seen.cancelled.Load)
 }
 
 func TestEmbeddingBinding_ADifferentTagOfTheNameIsNotTheModel(t *testing.T) {
