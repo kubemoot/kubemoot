@@ -52,6 +52,43 @@ rotation, short-lived credentials, and audit, and per-user OAuth for assistants 
 for one person. See [Secrets and tools](../../concepts/secrets-and-tools/) for the full
 picture.
 
+## Agents on Agent Substrate
+
+This is a direction, not a commitment, and both projects are pre-1.0.
+
+**Today:** every agent runs as its own Deployment, and the only isolation is the pod.
+Agents are idle almost all the time between questions, and each still holds its memory.
+
+**Direction:** run agents on [Agent Substrate](../related-projects/#agent-substrate)
+([source](https://github.com/agent-substrate/substrate), Apache-2.0, pre-1.0, applied to
+the CNCF Sandbox) as an optional place to run them. Substrate packs many mostly idle
+agents onto a shared pool of worker pods, suspends and resumes an agent in under a
+second, and isolates each with gVisor or a microVM. An actor is any OCI image. What it
+would change for Kubemoot:
+
+- Idle agents cost little. Scale to zero without a pod cold start (see
+  [Scale to zero](#scale-to-zero)).
+- Isolation for every agent seat, not only the code sandbox.
+- Any harness or user image at the table, since an actor is any image.
+- Cheap idle crews for workshops and for many teams, each in its own namespace.
+
+It would not change model or accelerator scheduling. Substrate does not place models, so
+that stays Kubemoot's. Deployments stay the default.
+
+Three things stand between Kubemoot and Substrate:
+
+- **Agents listen on NATS; Substrate wakes an actor over HTTP.** Addressed: the
+  [Moot Mesh](../../architecture/moot-mesh/) sidecar, opt-in per agent, stays on the bus
+  and calls its agent over HTTP, which is the shape Substrate needs.
+- **The coordinator holds discussion state in memory.** Open: a coordinator that
+  resumes from the discussion log, so suspending it loses no discussion.
+- **Agents hold model-server slots.** Addressed: the placement service now hands them
+  out, so a suspended agent holds none.
+
+The next step is a spike that runs one reference-crew specialist as a Substrate actor.
+It measures resume time, idle memory, and time per answer, and checks gVisor on Talos
+and Substrate networking beside Cilium.
+
 ## More model servers and leased accelerators
 
 **Today:** Kubemoot drives two model servers, vLLM and Ollama, declared as `ModelServer`
@@ -292,15 +329,20 @@ files a skill carries, and a bundled script a skill may run in the sandbox, so a
 agent can reach for code as a tool rather than being limited to predefined read-only
 functions.
 
-## Evaluating Agent Sandbox for code execution
+## Isolation for code execution
 
 **Today:** the compute agent runs the code it writes in Kubemoot's own `code-sandbox`
 MCP server, where the pod is the sandbox: no credentials, network limited by a network
 policy where the crew ships one (the reference crew charts do).
 
-**Direction:** evaluate [Agent Sandbox](../related-projects/#agent-sandbox), now stable at
-v1.x, as the isolation layer for code execution in place of Kubemoot's own sandbox
-setup. This is a direction under evaluation, not a commitment. Background: [Kubernetes Podcast episode 272, "Agent Substrate"](https://kubernetespodcast.com/episode/272-agent-substrate/).
+**Direction:** the first step is a gVisor runtime class for the pods that run generated
+code, a stronger boundary than the shared host kernel. [Agent Sandbox](../related-projects/#agent-sandbox)
+(a Kubernetes SIG project, release 1.0 with `v1beta1` APIs) with a warm pool fits the
+compute agent's disposable runs: claim a ready sandbox, run, delete. Isolating the
+agents themselves is a different job, and
+[Agents on Agent Substrate](#agents-on-agent-substrate) is the path for it. This is a
+direction, not a commitment. Background: [Kubernetes Podcast episode 272, "Agent Substrate"](https://kubernetespodcast.com/episode/272-agent-substrate/),
+on Agent Substrate.
 
 ## The liaison for every agent harness
 
@@ -321,8 +363,15 @@ before it can take part. The operator chart carries a `scaleToZero` toggle, off 
 default. The operator does not yet create any autoscaling resources, so nothing scales
 agents to zero.
 
-**Direction:** [KEDA](https://keda.sh) (Kubernetes Event-Driven Autoscaling) as the
-mechanism. Idle agents scale to zero on message-bus consumer lag through KEDA's
+**Direction:** a choice of mechanism for agents, with KEDA fitting tool servers and
+gateways either way:
+
+- **KEDA on message-bus consumer lag.** Costs a pod cold start on wake.
+- **Agent Substrate suspend and resume.** Wakes an agent in under a second with no pod
+  start. See [Agents on Agent Substrate](#agents-on-agent-substrate).
+
+The KEDA path, in detail: [KEDA](https://keda.sh) (Kubernetes Event-Driven Autoscaling).
+Idle agents scale to zero on message-bus consumer lag through KEDA's
 [NATS JetStream scaler](https://keda.sh/docs/scalers/nats-jetstream/) and wake when a
 discussion starts, and the operator creates and owns a `ScaledObject` beside each agent
 Deployment. The reasoning:
