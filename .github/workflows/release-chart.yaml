@@ -20,6 +20,7 @@ on:
       - Release
       - Release Accelerator MCP
       - Release Agent Runtime
+      - Release Agent Sidecar
       - Release Artifact Access
       - Release Crew Liaison
       - Release Dashboard
@@ -29,6 +30,7 @@ on:
       - Release Indexer
       - Release MCP Bridge
       - Release MCP Gateway
+      - Release Placement Service
       - Release Query Service
       - Release Test Runner
     types: [completed]
