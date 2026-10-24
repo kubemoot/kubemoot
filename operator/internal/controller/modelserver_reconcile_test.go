@@ -52,10 +52,8 @@ func reconcileMP(t *testing.T, p *kubemootv1alpha1.ModelServer) *kubemootv1alpha
 	return got
 }
 
-// An Ollama server whose /api/version answers 200 reconciles to Ready. The
-// scheduler is disabled (default ConfigCache), so the HTTP capacity probing is
-// skipped. Covers Reconcile's ollama dispatch, reconcileOllama connectivity, and
-// updateStatus.
+// An Ollama server whose /api/version answers 200 reconciles to Ready. Covers
+// Reconcile's ollama dispatch, reconcileOllama connectivity, and updateStatus.
 func TestModelServerReconcile_OllamaReady(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte(`{"version":"0.3.0"}`))
@@ -147,5 +145,61 @@ func TestEmbeddingModelReconcile_UnsupportedServerType(t *testing.T) {
 	}
 	if got.Status.Ready || !strings.Contains(got.Status.Message, "does not serve") {
 		t.Errorf("want not Ready because the server does not serve the model, got ready=%v message=%q", got.Status.Ready, got.Status.Message)
+	}
+}
+
+// With the scheduler setting off (the chart's default, and the quickstart's), an Ollama
+// server still reports the models it holds, because agents place every call against
+// that list: a server with no list is never a candidate and every call is refused.
+func TestModelServerReconcile_OllamaReportsItsModelsWithTheSchedulerOff(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case testPathAPITags:
+			_, _ = w.Write([]byte(`{"models":[{"name":"qwen2.5:1.5b","size":986061892}]}`))
+		case testPathAPIPS:
+			_, _ = w.Write([]byte(`{"models":[]}`))
+		default:
+			_, _ = w.Write([]byte(`{"version":"0.34.4"}`))
+		}
+	}))
+	defer srv.Close()
+	got := reconcileMP(t, &kubemootv1alpha1.ModelServer{
+		ObjectMeta: metav1.ObjectMeta{Name: testOllamaGPU, Namespace: testNS1},
+		Spec:       kubemootv1alpha1.ModelServerSpec{Type: kubemootv1alpha1.ServerTypeOllama, Endpoint: srv.URL},
+	})
+	if got.Status.Capacity == nil {
+		t.Fatal("capacity was not discovered with the scheduler setting off")
+	}
+	found := false
+	for _, m := range got.Status.Capacity.AvailableModels {
+		if m.Name == "qwen2.5:1.5b" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("available models = %+v, want qwen2.5:1.5b", got.Status.Capacity.AvailableModels)
+	}
+}
+
+// A server that holds no models reports an empty list, not an error.
+func TestModelServerReconcile_OllamaWithNoModelsStaysReady(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case testPathAPITags, testPathAPIPS:
+			_, _ = w.Write([]byte(`{"models":[]}`))
+		default:
+			_, _ = w.Write([]byte(`{"version":"0.34.4"}`))
+		}
+	}))
+	defer srv.Close()
+	got := reconcileMP(t, &kubemootv1alpha1.ModelServer{
+		ObjectMeta: metav1.ObjectMeta{Name: testOllamaGPU, Namespace: testNS1},
+		Spec:       kubemootv1alpha1.ModelServerSpec{Type: kubemootv1alpha1.ServerTypeOllama, Endpoint: srv.URL},
+	})
+	if !got.Status.Ready {
+		t.Errorf("a reachable server with no models must stay Ready, status=%+v", got.Status)
+	}
+	if got.Status.Capacity == nil || len(got.Status.Capacity.AvailableModels) != 0 {
+		t.Errorf("want an empty available list, got %+v", got.Status.Capacity)
 	}
 }

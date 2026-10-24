@@ -37,7 +37,7 @@ import (
 func TestProbeEngineKeepsTheSnapshotForThePublish(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case "/api/ps":
+		case testPathAPIPS:
 			_, _ = w.Write([]byte(`{"models":[{"name":"m:14b","size_vram":1048576}]}`))
 		case testPathAPITags:
 			_, _ = w.Write([]byte(`{"models":[{"name":"m:14b","size":2097152},{"name":"o:8b","size":1048576}]}`))
