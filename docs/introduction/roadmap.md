@@ -82,8 +82,9 @@ Three things stand between Kubemoot and Substrate:
   and calls its agent over HTTP, which is the shape Substrate needs.
 - **The coordinator holds discussion state in memory.** Open: a coordinator that
   resumes from the discussion log, so suspending it loses no discussion.
-- **Agents hold model-server slots.** Addressed: the placement service now hands them
-  out, so a suspended agent holds none.
+- **Agents hold model-server slots.** Partly addressed: the placement service, opt-in,
+  hands slots out per call instead of each agent holding them; the spike checks that a
+  suspended agent holds none.
 
 The next step is a spike that runs one reference-crew specialist as a Substrate actor.
 It measures resume time, idle memory, and time per answer, and checks gVisor on Talos
