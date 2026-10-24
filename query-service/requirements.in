@@ -5,7 +5,7 @@
 # (Python 3.14, the image's Python). Dependabot updates both.
 
 # Web framework
-fastapi>=0.149.0,<0.150.0
+fastapi>=0.159.1,<0.160.0
 uvicorn[standard]>=0.54.0,<0.55.0
 
 # HTTP client for embedding calls
