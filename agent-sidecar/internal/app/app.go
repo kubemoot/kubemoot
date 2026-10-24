@@ -289,7 +289,8 @@ func (a *App) connectAndRun(ctx context.Context, tools *toolsdoor.Door) {
 	held := make(chan struct{})
 	a.goRun(func() { defer close(held); a.holdSubscription(ctx, run) })
 	life := &bus.Lifecycle{Pub: pub, Ready: a.Ready, NATS: a.natsUp.Load, Harness: a.harnessUp.Load,
-		Subscribed: a.subscribed.Load, LastInference: a.reg.LastCall, Poll: 500 * time.Millisecond, Beat: a.o.HeartbeatEvery, Log: a.log}
+		Subscribed: a.subscribed.Load, LastInference: a.reg.LastCall,
+		Poll: 500 * time.Millisecond, Beat: a.o.HeartbeatEvery, Log: a.log}
 	life.Run(ctx)
 	<-held // unsubscribed before Wait, so no message starts a turn after it
 	run.Wait()
