@@ -40,7 +40,7 @@ framework for building AI agents. It is a CNCF project under the Apache 2.0 lice
 ### Agent Sandbox
 
 [Agent Sandbox](https://github.com/kubernetes-sigs/agent-sandbox) is a Kubernetes SIG
-Apps project (not a CNCF project) with a stable v1.0 release and a `v1beta1` API. It
+Apps project (not a CNCF project). It has a 1.0 release, but its APIs are still `v1beta1`. It
 provides a `Sandbox` custom resource for isolated, stateful, singleton pods with a
 stable identity, persistent storage, and pause and resume. Extensions add
 `SandboxTemplate`, `SandboxClaim`, and `SandboxWarmPool` for templated, claimable, and
@@ -53,16 +53,17 @@ Kubernetes `RuntimeClass`. It ships Go and Python SDKs and an optional Sandbox R
   model-written code, with stronger isolation and a standard resource.
 - **Differences:** Agent Sandbox is a workload primitive. It does not define agents,
   prompts, models, or how agents work together, so it does not replace crews,
-  consensus, ADL governance, or fitness. Kubemoot does not use it today. Evaluating it
-  as the isolation layer for the code sandbox is a direction on the
-  [Roadmap](../roadmap/#evaluating-agent-sandbox-for-code-execution).
+  consensus, ADL governance, or fitness. Kubemoot does not use it today. A gVisor
+  runtime class for the code sandbox is the first step, and Agent Sandbox with a warm
+  pool fits its disposable runs, a direction on the
+  [Roadmap](../roadmap/#isolation-for-code-execution).
 - **Background:** [Kubernetes Podcast episode 268, "Agent Sandbox and Lovable"](https://kubernetespodcast.com/episode/268-lovable/).
 
 ### Agent Substrate
 
 [Agent Substrate](https://github.com/agent-substrate/substrate) is a standalone,
-Google-originated project (not a CNCF project and not part of Kubernetes SIGs). It is pre-1.0, with no
-compatibility guarantees. Because agents are idle most of the time, it multiplexes many
+Google-originated Apache-2.0 project (not part of Kubernetes SIGs; it has applied to the
+CNCF Sandbox). It is pre-1.0, with no compatibility guarantees. Because agents are idle most of the time, it multiplexes many
 agent "actors" onto a smaller set of worker pods. An actor's full state, memory and
 filesystem, is checkpointed when it goes idle and restored in well under a second when
 it is needed, which allows high oversubscription. An Envoy-based router parks requests
@@ -70,20 +71,20 @@ for a suspended actor until it resumes. `WorkerPool` and `ActorTemplate` resourc
 declare the pools and actors, isolation is gVisor or a microVM, and it is agnostic to
 the agent framework.
 
-- **Overlap:** running very many mostly-idle agents densely. Kubemoot's
+- **Overlap:** running many mostly-idle agents densely. Kubemoot's
   [scale to zero](../roadmap/#scale-to-zero) direction pursues a similar saving for idle
-  agents with a different mechanism.
-- **Differences:** Agent Substrate targets very large numbers of agents running on far fewer pods.
-  Kubemoot runs a handful of crews today. Its bottleneck is accelerator model scheduling, placing
-  and loading models across a few accelerators, which Substrate does not address. Kubemoot's
-  agent runtime is LangChain4j compiled to a GraalVM native image, so agent pods start
-  quickly compared with a model load, and pod startup is not the problem Substrate
-  solves for Kubemoot today. Substrate does not replace crews, consensus, ADL
-  governance, or fitness. It stays here to revisit after it reaches a stable release.
+  agents, and Substrate is one of the two mechanisms it weighs.
+- **Differences:** Substrate packs agents onto worker pods and wakes them over HTTP;
+  it does not place models or accelerators, which stays Kubemoot's job, and it does not
+  replace crews, consensus, ADL governance, or fitness.
+- **Direction:** running agents on Substrate as an optional place beside Deployments is a
+  direction on the [Roadmap](../roadmap/#agents-on-agent-substrate), not a commitment.
+  Kubemoot does not run on it today.
 - **Background:** [Kubernetes Podcast episode 272, "Agent Substrate"](https://kubernetespodcast.com/episode/272-agent-substrate/).
 
-Both projects solve for very large numbers of agents: density, isolation, and fast
-resume. That is a later concern for Kubemoot, not a current one. Agent Sandbox is covered in [Kubernetes Podcast episode 268](https://kubernetespodcast.com/episode/268-lovable/) and Agent Substrate in [episode 272](https://kubernetespodcast.com/episode/272-agent-substrate/).
+Both projects address density, isolation, and fast resume, and they solve different
+problems: Agent Sandbox gives one isolated, stateful pod per sandbox, and Substrate
+packs many idle agents onto a shared pool of workers. Agent Sandbox is covered in [Kubernetes Podcast episode 268](https://kubernetespodcast.com/episode/268-lovable/) and Agent Substrate in [episode 272](https://kubernetespodcast.com/episode/272-agent-substrate/).
 
 ## In-process multi-agent frameworks
 
