@@ -84,7 +84,7 @@ func TestQueryDCGMMetrics(t *testing.T) {
 
 func TestDiscoverLoadedModels(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/api/ps" {
+		if r.URL.Path != testPathAPIPS {
 			w.WriteHeader(http.StatusNotFound)
 			return
 		}

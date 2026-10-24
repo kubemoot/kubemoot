@@ -39,7 +39,7 @@ func catalogOllama(t *testing.T, shows *atomic.Int32) *httptest.Server {
 	t.Helper()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case "/api/tags":
+		case testPathAPITags:
 			_, _ = w.Write([]byte(tagsBody))
 		case "/api/show":
 			shows.Add(1)

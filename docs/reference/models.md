@@ -142,8 +142,8 @@ model, because the engine would silently drop the oldest messages instead of rej
 On Ollama the total KV cache scales with `OLLAMA_NUM_PARALLEL` times
 `OLLAMA_CONTEXT_LENGTH`, so a GPU trades parallel slots against per-request context.
 
-Discovery needs the scheduler enabled and, for VRAM, DCGM metrics in Prometheus. A
-server the operator cannot measure (a CPU Ollama, or a GPU host without DCGM)
+Discovery always runs, because agents place every call against the models it finds; VRAM
+needs DCGM metrics in Prometheus. A server the operator cannot measure (a CPU Ollama, or a GPU host without DCGM)
 declares its budget instead:
 
 ```yaml

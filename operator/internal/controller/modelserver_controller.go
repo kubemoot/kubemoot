@@ -281,10 +281,9 @@ func (r *ModelServerReconciler) reconcileOllama(ctx context.Context, server *aiv
 
 	r.discoverStorage(ctx, server, httpClient)
 
-	// Discover capacity when scheduler is enabled
-	if r.ConfigCache != nil && r.ConfigCache.IsSchedulerEnabled() {
-		r.discoverCapacity(ctx, server, httpClient)
-	}
+	// Agents place every call against the server state this publishes, so the models the
+	// server holds are discovered whether or not the scheduler setting is on.
+	r.discoverCapacity(ctx, server, httpClient)
 
 	r.discoverOllamaCatalog(ctx, server, httpClient)
 
