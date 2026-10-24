@@ -3,7 +3,7 @@ module github.com/kubemoot/kubemoot/agent-sidecar
 go 1.27.2
 
 require (
-	github.com/a2aproject/a2a-go/v2 v2.6.0
+	github.com/a2aproject/a2a-go/v2 v2.7.0
 	github.com/google/uuid v1.6.0
 	github.com/kubemoot/kubemoot/operator v0.0.0
 	github.com/modelcontextprotocol/go-sdk v1.8.0
