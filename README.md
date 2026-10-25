@@ -96,7 +96,7 @@ own cluster with a GPU-backed model server, see
   `MCPServer`, `MCPGateway`, `RAGSource`, models) and the `kmctl` CLI.
 - [Architecture](docs/architecture/) - the scheduler, the Tooler/Analyst split,
   scheduling of reminders and follow-ups, and consensus internals.
-- [Questions](docs/introduction/faq.md) and [Roadmap](https://kubemoot.org/docs/introduction/roadmap/):
+- [Questions](https://kubemoot.org/docs/introduction/faq/) and [Roadmap](https://kubemoot.org/docs/introduction/roadmap/):
   the short answers, and the major directions.
 - [Community](https://kubemoot.org/docs/community/) - contributing, governance, code of conduct, security, and releases.
 
