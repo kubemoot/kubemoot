@@ -40,7 +40,7 @@ A **moot** is an assembly that reaches a decision by deliberation. In Kubemoot:
 
 A `MootArchetype` names a discussion's phase vocabulary and signals. The consensus
 flow above is the one archetype that ships; its orchestration is fixed in the
-runtime today (see the [Roadmap](docs/introduction/roadmap.md)).
+runtime today (see the [Roadmap](https://kubemoot.org/docs/introduction/roadmap/)).
 
 ## Building blocks (all Kubernetes resources)
 
@@ -96,7 +96,7 @@ own cluster with a GPU-backed model server, see
   `MCPServer`, `MCPGateway`, `RAGSource`, models) and the `kmctl` CLI.
 - [Architecture](docs/architecture/) - the scheduler, the Tooler/Analyst split,
   scheduling of reminders and follow-ups, and consensus internals.
-- [Questions](docs/introduction/faq.md) and [Roadmap](docs/introduction/roadmap.md):
+- [Questions](docs/introduction/faq.md) and [Roadmap](https://kubemoot.org/docs/introduction/roadmap/):
   the short answers, and the major directions.
 - [Community](https://kubemoot.org/docs/community/) - contributing, governance, code of conduct, security, and releases.
 

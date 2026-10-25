@@ -90,5 +90,5 @@ before enabling the sandbox.
 
 - The API group `kubemoot.ai/v1alpha1` can change between releases.
 - Release images are `amd64` only today. See the
-  [Roadmap](https://github.com/kubemoot/kubemoot/blob/main/docs/introduction/roadmap.md).
+  [Roadmap](https://kubemoot.org/docs/introduction/roadmap/).
 - Base and third-party images are referenced by tag, some of them `latest`; not all are pinned by digest.
