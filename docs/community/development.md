@@ -144,8 +144,9 @@ The smoke test also checks a ModelServer of any engine. It takes the first Ready
 vLLM or Ollama (one without a `secretRef` first), and checks what every engine supports: the
 operator published the server as Ready, and the server answers its models list at
 `<endpoint>/v1/models`. For a vLLM server the endpoint is the first one it serves. The check
-creates nothing. It fails when the namespace has ModelServers and none is Ready, and skips when
-it has none.
+creates nothing. It fails when the ModelServers cannot be listed, or exist and none is Ready, and
+skips when the namespace has none. A server with a `secretRef` is checked for Ready only; its models
+list is not requested, since the check sends no credentials.
 
 See `k8s/tests/README.md` for what each test covers.
 

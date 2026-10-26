@@ -32,15 +32,15 @@ vllm_only=$(items "$(ms vllm-sleepy vllm false '"servers":[{"model":"a","endpoin
   "$(ms vllm-listed vllm true '"servers":[{"model":"q","endpoint":"http://vllm-q.models:8000"},{"model":"r","endpoint":"http://r:8000"}]')")
 vllm_discovered=$(items "$(ms vllm-svc vllm true '"serviceRef":{"name":"kubemoot-vllm"}' '"vllmServers":[{"model":"q","endpoint":"http://found.models:8000"}]')")
 
-check "Ollama-only cluster: the Ready Ollama server" "ollama-cpu ollama http://ollama.cpu:11434" \
+check "Ollama-only cluster: the Ready Ollama server" "ollama-cpu ollama http://ollama.cpu:11434 open" \
   "$(first_ready_server <<<"$ollama_only")"
-check "vLLM-only cluster: the Ready vLLM server's first endpoint" "vllm-listed vllm http://vllm-q.models:8000" \
+check "vLLM-only cluster: the Ready vLLM server's first endpoint" "vllm-listed vllm http://vllm-q.models:8000 open" \
   "$(first_ready_server <<<"$vllm_only")"
-check "vLLM server found through serviceRef uses the discovered endpoint" "vllm-svc vllm http://found.models:8000" \
+check "vLLM server found through serviceRef uses the discovered endpoint" "vllm-svc vllm http://found.models:8000 open" \
   "$(first_ready_server <<<"$vllm_discovered")"
-check "a server without a secretRef is preferred" "plain ollama http://plain:11434" \
+check "a server without a secretRef is preferred" "plain ollama http://plain:11434 open" \
   "$(first_ready_server <<<"$(items "$(ms locked ollama true '"endpoint":"http://locked:11434","secretRef":"k"')" "$(ms plain ollama true '"endpoint":"http://plain:11434"')")")"
-check "a Ready server with a secretRef is still picked when it is the only one" "locked ollama http://locked:11434" \
+check "a Ready server with a secretRef is still picked when it is the only one" "locked ollama http://locked:11434 secret" \
   "$(first_ready_server <<<"$(items "$(ms locked ollama true '"endpoint":"http://locked:11434","secretRef":"k"')")")"
 check "nothing when no server is Ready" "" \
   "$(first_ready_server <<<"$(items "$(ms a ollama false '"endpoint":"http://a:11434"')")")"
@@ -61,7 +61,8 @@ check "a body without data is not a models list" "" "$(models_list_count <<<'{"e
 # The check itself, with kubectl and the models request replaced by stubs.
 STUB_SERVERS='{"items":[]}'
 STUB_MODELS='{"data":[{"id":"m"}]}'
-kubectl() { printf '%s' "$STUB_SERVERS"; }
+STUB_KUBECTL_FAIL=""
+kubectl() { [ -z "$STUB_KUBECTL_FAIL" ] || { echo "$STUB_KUBECTL_FAIL" >&2; return 1; }; printf '%s' "$STUB_SERVERS"; }
 fetch_models_list() { [ -n "$STUB_MODELS" ] && printf '%s' "$STUB_MODELS"; }
 run_check() { # servers-json models-body -> "passed failed skipped"
   TESTS_PASSED=0 TESTS_FAILED=0 TESTS_SKIPPED=0
@@ -75,6 +76,17 @@ check "check fails when the server answers no models list" "1 1 0" "$(run_check 
 check "check fails when the server answers a body that is not a list" "1 1 0" "$(run_check "$ollama_only" '{"error":"x"}')"
 check "check fails when servers exist and none is Ready" "0 1 0" \
   "$(run_check "$(items "$(ms a ollama false '"endpoint":"http://a:11434"')")" '{"data":[]}')"
+locked_only=$(items "$(ms locked ollama true '"endpoint":"http://locked:11434","secretRef":"k"')")
+fetched=0
+fetch_models_list() { fetched=$((fetched + 1)); printf '%s' "$STUB_MODELS"; }
+check "a server with a secretRef passes Ready and skips the models list" "1 0 1" "$(run_check "$locked_only" '{"data":[]}')"
+fetch_models_list() { [ -n "$STUB_MODELS" ] && printf '%s' "$STUB_MODELS"; }
+check "the models list is not requested for a secretRef server" "0" "$fetched"
+check "check fails when the ModelServers cannot be listed" "0 1 0" \
+  "$(STUB_KUBECTL_FAIL='Error from server (Forbidden)' run_check "$ollama_only" '{"data":[]}')"
+STUB_KUBECTL_FAIL='Error from server (Forbidden)'
+check "the listing error is in the failure" "1" "$(modelserver_smoke_check | grep -c 'Forbidden')"
+STUB_KUBECTL_FAIL=""
 check "check skips when there are no servers" "0 0 1" "$(run_check '{"items":[]}' '')"
 
 [ "$failures" -eq 0 ] || { echo "${failures} failed"; exit 1; }
