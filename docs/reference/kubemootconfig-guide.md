@@ -124,6 +124,20 @@ secretReplication:
     - shared-credentials
 ```
 
+## Secret use grants
+
+The chart value `security.secretUseGrants` installs ValidatingAdmissionPolicies that reject
+an MCPServer or Agent referencing a Secret or ServiceAccount the requester holds no `use`
+grant on. The grant, the rejection message and the exempt cases are in
+[Secrets and tools](../../concepts/secrets-and-tools/).
+
+| Value | Default | Meaning |
+|-------|---------|---------|
+| `security.secretUseGrants.enabled` | `false` | Install the policies and their bindings. Needs Kubernetes 1.30 or later. |
+| `security.secretUseGrants.exemptUsers` | `[]` | User names the check skips, as the API server names them. The operator's ServiceAccount is always skipped. |
+| `security.secretUseGrants.validationActions` | `["Deny"]` | `Deny` rejects. `["Audit", "Warn"]` records and warns without rejecting. |
+| `security.secretUseGrants.namespaceSelector` | `{}` | Label selector limiting the check to matching namespaces; empty means every namespace. |
+
 ## Caching
 
 The operator keeps a thread-safe, in-memory cache of the `default` KubemootConfig's

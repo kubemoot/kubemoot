@@ -168,7 +168,7 @@ spec:
 | `replicas` | int32 | 2 | Number of pod replicas |
 | `env` | []EnvVar | | Environment variables |
 | `secretRef` | string | | Secret name for env vars (envFrom); see [Secrets and tools](../../concepts/secrets-and-tools/) |
-| `secretVolumes` | []SecretVolume | | Secrets mounted as files |
+| `secretVolumes` | []SecretVolume | | Secrets mounted as files; every Secret, `env` secret reference and `serviceAccountName` needs the requester's `use` grant when `security.secretUseGrants.enabled` is on, see [Secrets and tools](../../concepts/secrets-and-tools/) |
 | `emptyDirVolumes` | []EmptyDirVolume | | EmptyDir volumes (override baked-in configs) |
 | `resources` | ResourceRequirements | | CPU/memory requests and limits |
 | `capabilities` | []string | | Declared capabilities (informational) |

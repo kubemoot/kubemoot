@@ -61,6 +61,26 @@ proxyInjection:
 secretReplication:
   allowedSourceNamespaces: []
 
+# Security hardening for what crews may reference.
+security:
+  # Secret use grants (off by default). When enabled, a ValidatingAdmissionPolicy rejects an
+  # MCPServer or Agent that references a Secret (env secretKeyRef, secretRef, secretVolumes,
+  # registry.authSecretRef, sidecar env and envFrom) or a ServiceAccount unless whoever
+  # creates or changes it holds the custom verb "use" on that exact object. Grant it with a
+  # Role (verb use, resources secrets or serviceaccounts, resourceNames) bound to whoever
+  # applies the crew; docs/concepts/secrets-and-tools.md has the example. Needs Kubernetes
+  # 1.30 or later (ValidatingAdmissionPolicy GA, CEL authorizer). The operator's own
+  # ServiceAccount is always exempt.
+  secretUseGrants:
+    enabled: false
+    # Further users to skip, as the API server names them (for example a break-glass admin
+    # that is not in system:masters). Cluster admins already pass: their RBAC allows every verb.
+    exemptUsers: []
+    # Deny rejects. Use ["Audit", "Warn"] to see what would be rejected before enforcing.
+    validationActions: ["Deny"]
+    # Limit enforcement to namespaces matching this label selector (default: every namespace).
+    namespaceSelector: {}
+
 # Gateway API configuration for crew discussion HTTPRoutes
 gateway:
   enabled: false

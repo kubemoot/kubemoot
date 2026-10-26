@@ -96,7 +96,7 @@ Standard Kubernetes deployment overrides.
 | `port` | int32 | HTTP API port. Default: 8080. In sidecar mode it is the sidecar's port, which the Service targets |
 | `resources` | ResourceRequirements | CPU and memory for the `agent` container. See [Resources](#resources) |
 | `env` | []EnvVar | Additional env vars - useful for `KUBEMOOT_GATEWAY_ENABLED=false` on coordinator, longer timeouts, etc. |
-| `serviceAccountName` | string | Pod service account |
+| `serviceAccountName` | string | Pod service account; needs the requester's `use` grant when `security.secretUseGrants.enabled` is on. An Agent that names none gets no mounted token, see [Secrets and tools](../../concepts/secrets-and-tools/) |
 
 The operator sets `imagePullSecrets` from `KubemootConfig.spec.defaults.imagePullSecrets` - no per-agent override needed. That field is empty by default (public images need no pull secret); set it on KubemootConfig if you point `global.imageRegistry` at a private mirror.
 
