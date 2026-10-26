@@ -325,9 +325,16 @@ var _ = Describe("Secret use grants", Ordered, func() {
 		It("admits what would be rejected and warns about it", func() {
 			warnings := &collectedWarnings{}
 			author := asUserWith(grantsAuthor, warnings)
-			Eventually(func() string {
+			// A Deny binding removed by the previous context can still be cached for a moment, so a
+			// Forbidden answer means "not settled yet"; the spec waits for the Audit binding to take
+			// over (a create that succeeds with a warning) and fails on any other error.
+			Eventually(func(g Gomega) string {
 				m := mcp(kubemootv1alpha1.MCPServerSpec{SecretRef: "audit-secret"})
-				Expect(author.Create(ctx, m)).To(Succeed(), "Audit and Warn must never reject")
+				err := author.Create(ctx, m)
+				if apierrors.IsForbidden(err) {
+					return "still denying: " + err.Error()
+				}
+				g.Expect(err).NotTo(HaveOccurred(), "Audit and Warn must never reject")
 				_ = k8sClient.Delete(ctx, m)
 				return warnings.joined()
 			}, "30s", "250ms").Should(ContainSubstring("secrets/audit-secret"))
@@ -366,8 +373,26 @@ func installUseGrants(extraArgs ...string) []*unstructured.Unstructured {
 	return objs
 }
 
+// removeUseGrants deletes the objects and waits until the policy no longer denies, so the next
+// spec starts from a settled API server.
 func removeUseGrants(objs []*unstructured.Unstructured) {
 	for _, o := range objs {
 		_ = k8sClient.Delete(ctx, o)
 	}
+	Eventually(func() error {
+		probe := &kubemootv1alpha1.MCPServer{
+			ObjectMeta: metav1.ObjectMeta{Name: "gone-" + fmt.Sprint(len(objs)), Namespace: grantsNamespace},
+			Spec:       kubemootv1alpha1.MCPServerSpec{Image: grantsImage, Transport: kubemootv1alpha1.TransportHTTP, SecretRef: csProbe},
+		}
+		c := rest.CopyConfig(cfg)
+		c.Impersonate = rest.ImpersonationConfig{UserName: grantsAuthor}
+		cl, err := client.New(c, client.Options{Scheme: scheme.Scheme})
+		if err != nil {
+			return err
+		}
+		if err = cl.Create(ctx, probe); err == nil {
+			_ = k8sClient.Delete(ctx, probe)
+		}
+		return err
+	}, "30s", "250ms").Should(Succeed())
 }

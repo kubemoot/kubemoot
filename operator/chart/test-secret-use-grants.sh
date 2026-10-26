@@ -65,7 +65,8 @@ out="$(render rel --namespace ops --set security.secretUseGrants.enabled=true --
 
 # A user name with a quote cannot break out of the CEL list.
 out="$(render rel --set security.secretUseGrants.enabled=true --set 'security.secretUseGrants.exemptUsers={a"b}')"
-yq -N 'select(.kind == "ValidatingAdmissionPolicy") | .spec.matchConditions[0].expression' <<<"$out" | grep -q 'a\\"b' \
-  || fail "a quote in an exempt user was not escaped"
+# (Capture first: grep -q on a pipe can close it early and fail the pipeline under pipefail.)
+cond="$(yq -N 'select(.kind == "ValidatingAdmissionPolicy") | .spec.matchConditions[0].expression' <<<"$out")"
+grep -qF 'a\"b' <<<"$cond" || fail "a quote in an exempt user was not escaped: $cond"
 
 echo "secret use grant render tests passed"
