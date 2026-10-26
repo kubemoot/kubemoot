@@ -687,7 +687,9 @@ func (r *AgentReconciler) buildDeployment(ctx context.Context, agent *kubemootv1
 				ObjectMeta: metav1.ObjectMeta{Labels: podLabels(agent)},
 				Spec: corev1.PodSpec{
 					ServiceAccountName: serviceAccountName,
-					ImagePullSecrets:   r.imagePullSecrets(),
+					// An agent calls no Kubernetes API; only a named ServiceAccount keeps a token.
+					AutomountServiceAccountToken: automountTokenFor(serviceAccountName),
+					ImagePullSecrets:             r.imagePullSecrets(),
 					Containers: []corev1.Container{{
 						Name:            "agent",
 						Image:           image,

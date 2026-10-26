@@ -175,6 +175,13 @@ func TestHarnessCommandArgsAndResourcesPassThrough(t *testing.T) {
 	}
 }
 
+func requireNoToken(t *testing.T, got *bool) {
+	t.Helper()
+	if got == nil || *got {
+		t.Errorf("a pod without a ServiceAccount must not mount a token, got %v", got)
+	}
+}
+
 // A legacy agent builds exactly as before: no sidecar, no mesh label, the runtime's own
 // environment and policy mount. An explicit legacy harness block builds the same pod as none.
 func TestLegacyModeIsUnchanged(t *testing.T) {
@@ -188,9 +195,11 @@ func TestLegacyModeIsUnchanged(t *testing.T) {
 		t.Error("an explicit legacy harness block changed the pod")
 	}
 	spec := a.Spec.Template.Spec
-	if len(spec.InitContainers) != 0 || spec.AutomountServiceAccountToken != nil {
-		t.Errorf("a legacy pod got mesh parts: %+v", spec)
+	if len(spec.InitContainers) != 0 {
+		t.Errorf("a legacy pod got mesh parts: %+v", spec.InitContainers)
 	}
+	// An agent with no ServiceAccount calls no Kubernetes API, so it gets no token (pod_token.go).
+	requireNoToken(t, spec.AutomountServiceAccountToken)
 	if _, ok := a.Spec.Template.Labels[labelHarnessMode]; ok {
 		t.Error("a legacy pod carries the mesh label")
 	}
