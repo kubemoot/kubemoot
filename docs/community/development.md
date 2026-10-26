@@ -111,7 +111,8 @@ npm run check     # svelte-check
 **Quickstart smoke test.** For any change to the kubemoot repo, run the quickstart on an
 empty `kind` cluster. It installs the operator, a small CPU model, and a two-agent
 crew, asks the crew a question, and checks that an answer comes back. CI runs the same
-script against every release's images.
+script against every release's images, and Publish Release runs it end to end on the release
+candidate before it publishes anything: a candidate that fails the quickstart is not published.
 
 ```bash
 kind create cluster --name kubemoot
@@ -156,7 +157,7 @@ make hooks      # install the pre-commit gate (gofmt and lint)
 **crews.** Each subdirectory is an independently versioned Helm chart. To add a crew,
 create `<your-crew>/` with `Chart.yaml`, `values.yaml`, `templates/`, and a `fitness/`
 directory of scenarios, then add a release workflow modeled on an existing one under
-`.github/workflows/`. A merge to main builds a release candidate and pushes it to the maintainers' registry; the Publish Release workflow publishes the final chart to GHCR and creates the GitHub Release.
+`.github/workflows/`. A merge to main builds a release candidate and pushes it to the maintainers' registry; the Publish Release workflow runs the quickstart on that candidate, then publishes the final chart to GHCR and creates the GitHub Release.
 
 **Documentation.** Each component's reference docs live in that component's `docs/`
 directory. The site is built from the `kubemoot-docs` repo with Hugo; `npm install`

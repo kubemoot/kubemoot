@@ -2,7 +2,7 @@
 # GitHub-hosted runners, an empty kind cluster, nothing from the homelab: no Harbor, no
 # ARC runner, no cluster secrets.
 #
-# Two checks, because main's release candidates live in Harbor only and a hosted runner
+# Three checks, because main's release candidates live in Harbor only and a hosted runner
 # cannot reach it:
 #
 #   manifests   every change to the quickstart, the chart or the CRDs: main's own chart
@@ -18,6 +18,17 @@
 #               it just published, before it writes the GitHub Release. A dispatch takes
 #               any published chart version (empty: the latest), and a weekly schedule
 #               re-tests the latest release.
+#   candidate   the same end-to-end run against the release candidate Publish Release is
+#               about to publish, BEFORE it publishes anything (the quickstart job above
+#               only sees a release after it is public). A homelab runner reaches Harbor,
+#               so it exports the candidate chart and the component images the quickstart
+#               runs (.github/scripts/export-quickstart-candidate.sh) as a workflow
+#               artifact; this hosted job loads them into kind under the references the
+#               chart uses and runs the quickstart, with the quickstart files of the
+#               candidate's commit. Publish Release copies those very images by digest and
+#               packages the chart from that commit, so the bytes tested are the bytes
+#               published, and a failure stops the release before any image or chart is
+#               public. Only Publish Release calls it (candidate_tag).
 name: Quickstart
 
 on:
@@ -25,6 +36,16 @@ on:
     inputs:
       chart_version:
         description: 'Published chart version to test. Empty: the latest published chart.'
+        required: false
+        default: ''
+        type: string
+      candidate_tag:
+        description: 'Test the release candidate with this operator-chart-vX.Y.Z-rc.N tag, exported as the artifact named by candidate_artifact, instead of a published chart.'
+        required: false
+        default: ''
+        type: string
+      candidate_artifact:
+        description: 'Name of the workflow artifact that holds the exported candidate (with candidate_tag).'
         required: false
         default: ''
         type: string
@@ -52,7 +73,7 @@ on:
         type: string
 
 concurrency:
-  group: quickstart-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  group: quickstart-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}-${{ inputs.candidate_tag }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
@@ -135,7 +156,19 @@ jobs:
         id: chart
         env:
           CHART_VERSION: ${{ inputs.chart_version }}
+          CANDIDATE_TAG: ${{ inputs.candidate_tag }}
         run: |
+          if [ -n "$CANDIDATE_TAG" ]; then
+            # The candidate chart is a file the export step downloads below; no version
+            # is passed for a local file, and the quickstart files come from the candidate's tag.
+            echo "Testing the release candidate $CANDIDATE_TAG"
+            {
+              echo "ref=${GITHUB_WORKSPACE}/candidate/chart.tgz"
+              echo "version="
+              echo "checkout=${CANDIDATE_TAG}"
+            } >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           ref="oci://${RELEASE_REGISTRY}/charts/kubemoot-operator"
           version="${CHART_VERSION}"
           if [ -z "$version" ]; then
@@ -144,14 +177,24 @@ jobs:
           fi
           [ -n "$version" ] || { echo "no published chart found at $ref"; exit 1; }
           echo "Testing $ref $version"
-          echo "ref=$ref" >> "$GITHUB_OUTPUT"
-          echo "version=$version" >> "$GITHUB_OUTPUT"
+          {
+            echo "ref=$ref"
+            echo "version=$version"
+            echo "checkout=operator-chart-v${version}"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Checkout the release
-        # The quickstart files of the release being tested, so they match its chart.
+        # The quickstart files of the release (or candidate) being tested, so they match its chart.
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: operator-chart-v${{ steps.chart.outputs.version }}
+          ref: ${{ steps.chart.outputs.checkout }}
+
+      - name: Download the exported candidate
+        if: inputs.candidate_tag != ''
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: ${{ inputs.candidate_artifact }}
+          path: candidate
 
       - name: Create kind cluster
         uses: helm/kind-action@1544676c07bb3570fcb70166beaa07c4528fd4aa # v1.15.1
@@ -159,6 +202,7 @@ jobs:
           cluster_name: kubemoot
 
       - name: Pull the released images the chart pins and load them into kind
+        if: inputs.candidate_tag == ''
         # The chart names every component image; the quickstart runs up to five of them. kind
         # nodes cannot pull private packages, so the runner pulls and loads them.
         run: |
@@ -176,6 +220,20 @@ jobs:
             docker pull "$image"
             kind load docker-image "$image" --name kubemoot
           done < images.txt
+
+      - name: Load the candidate images into kind
+        # Each tarball was pulled from Harbor; it is loaded under the reference the chart
+        # runs (images.tsv), so the chart needs no change and the nodes pull nothing.
+        if: inputs.candidate_tag != ''
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp candidate/images.txt images.txt
+          while IFS=$'\t' read -r tarball harbor ref; do
+            docker load --input "candidate/${tarball}"
+            docker tag "$harbor" "$ref"
+            kind load docker-image "$ref" --name kubemoot
+          done < candidate/images.tsv
 
       - name: Run the quickstart
         # Explicit bash: the default shell has no pipefail, and the tee would hide a failure.

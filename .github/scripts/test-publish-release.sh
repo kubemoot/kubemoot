@@ -545,7 +545,7 @@ check "no pipefail script pipes a secret into a login" "" "$piped"
 # by ci.yaml, and a docs change reaches kubemoot-docs as a dispatch event.
 commits="$(grep -nE 'git commit|git push.*(origin main|HEAD:main)|\[skip ci\]' .github/workflows/*.yaml .github/scripts/*.sh \
   | grep -vE '^[^:]+:[0-9]+:[[:space:]]*(#|echo )' | cut -d: -f1 | sort -u \
-  | grep -vxE '\.github/scripts/test-publish-release\.sh' || true)"
+  | grep -vxE '\.github/scripts/test-(publish-release|export-quickstart-candidate)\.sh' || true)"
 check "no workflow or script commits to main" "" "$commits"
 # kubemoot-docs' Release Docs Site listens for exactly this event type; a dispatch with
 # no listener succeeds and builds nothing.
@@ -555,6 +555,9 @@ check "a docs change dispatches kubemoot-docs-changed" "1" \
 # with the finals just published.
 check "a published release dispatches kubemoot-published to the crews" "1|1" \
   "$(grep -cE '^[[:space:]]+repository: kubemoot/crews$' .github/workflows/publish-release.yaml)|$(grep -cE '^[[:space:]]+event-type: kubemoot-published$' .github/workflows/publish-release.yaml)"
+# Publishing takes the candidate the quickstart passed, and needs that pass.
+check "publish releases the candidate the quickstart tested" "1|1" \
+  "$(grep -cE '^[[:space:]]+needs: \[candidate, quickstart-candidate\]$' .github/workflows/publish-release.yaml)|$(grep -cE 'RC_TAG: \$\{\{ needs\.candidate\.outputs\.rc_tag \}\}' .github/workflows/publish-release.yaml)"
 check "no workflow writes a chart file" "" \
   "$(grep -nE '(sed|yq).*(Chart|values)\.yaml' .github/workflows/*.yaml | grep -v 'integration-test' || true)"
 

@@ -7,6 +7,13 @@
 # all together, and with them the kubemoot-vllm chart when it has a candidate that is
 # not yet published (signed and attested like the operator chart, with its own tag
 # vllm-chart-vX.Y.Z and its own GitHub Release):
+#   candidate   exports the candidate (operator chart and the component images the
+#               quickstart runs) from Harbor as a workflow artifact, and fixes which
+#               candidate this run publishes (.github/scripts/export-quickstart-candidate.sh)
+#   quickstart-candidate
+#               runs the end-to-end quickstart on a fresh kind cluster against that
+#               exported candidate, the bytes publish is about to copy. publish needs it,
+#               so a candidate that fails the quickstart is never published
 #   publish     copies each image by digest to the release registry under its final
 #               version, packages the chart with the final version and the finals of the
 #               images the candidate chart in Harbor ran, pushes it to Harbor and the
@@ -15,7 +22,8 @@
 #               final versions (.github/scripts/publish-release.sh)
 #   attest      records SLSA build provenance for each signed image and the chart, in
 #               the release registry and the repository's attestations
-#   quickstart  runs the quickstart against the chart just published
+#   quickstart  runs the quickstart against the chart just published (a second check, of
+#               what the public registry serves)
 #   release     writes the GitHub Release from the conventional commits since the
 #               previous release, with the provenance of every artifact the release
 #               signed attached as kubemoot_<version>.intoto.jsonl: created as a draft,
@@ -23,7 +31,8 @@
 #               published (.github/scripts/create-github-releases.sh)
 #   crews       asks kubemoot/crews to build new crew candidates, which take the finals
 #               just published (repository_dispatch kubemoot-published)
-# The default is a dry run: it plans, reads the registries, packages the charts, and
+# The candidate and quickstart-candidate jobs also run in a dry run, so the approval to
+# publish comes with the quickstart's verdict on the candidate. The default is a dry run: it plans, reads the registries, packages the charts, and
 # shows the release notes in the run summary, and publishes nothing. It signs nothing
 # either, but checks that cosign runs and that the job can mint the OIDC token the
 # signatures need, and prints the identity they will carry.
@@ -69,9 +78,76 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
+  # Harbor is reachable only in-cluster, so the candidate is exported on a homelab runner
+  # and tested on a hosted one. Publishing then takes the candidate tag fixed here, so a
+  # newer candidate that lands meanwhile is not published untested.
+  candidate:
+    if: github.ref == 'refs/heads/main'
+    runs-on: homelab-runners
+    outputs:
+      rc_tag: ${{ steps.export.outputs.rc_tag }}
+      chart_version: ${{ steps.export.outputs.chart_version }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          filter: blob:none
+          persist-credentials: false
+
+      - name: Install crane
+        run: |
+          curl -sL https://github.com/google/go-containerregistry/releases/download/v0.20.2/go-containerregistry_Linux_x86_64.tar.gz | tar -xzf - crane
+          sudo mv crane /usr/local/bin/
+
+      - name: Install Helm
+        uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
+        with:
+          version: 'v3.14.0'
+
+      - name: Set up the release helpers
+        uses: kubemoot/release-actions/setup@7accfbc33966d895bab2fc17a2a6c7f2520aaf76 # v0.11.1
+
+      - name: Test the export script
+        run: bash .github/scripts/test-export-quickstart-candidate.sh
+
+      - name: Log in to Harbor
+        env:
+          REGISTRY: ${{ vars.REGISTRY }}
+          HARBOR_USERNAME: ${{ secrets.HARBOR_USERNAME }}
+          HARBOR_PASSWORD: ${{ secrets.HARBOR_PASSWORD }}
+        run: |
+          echo "${HARBOR_PASSWORD}" | crane auth login --insecure "${REGISTRY}" -u "${HARBOR_USERNAME}" --password-stdin
+          echo "${HARBOR_PASSWORD}" | helm registry login --insecure "${REGISTRY}" -u "${HARBOR_USERNAME}" --password-stdin
+
+      - name: Export the candidate
+        id: export
+        env:
+          RC_TAG: ${{ inputs.rc_tag }}
+          REGISTRY: ${{ vars.REGISTRY }}
+          OUT_DIR: quickstart-candidate
+        run: bash .github/scripts/export-quickstart-candidate.sh
+
+      - name: Keep the candidate for the quickstart
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: quickstart-candidate
+          path: quickstart-candidate/
+          if-no-files-found: error
+          retention-days: 1
+
+  quickstart-candidate:
+    needs: candidate
+    uses: ./.github/workflows/quickstart.yaml
+    with:
+      candidate_tag: ${{ needs.candidate.outputs.rc_tag }}
+      candidate_artifact: quickstart-candidate
+    secrets: inherit
+
   publish:
     # Harbor is reachable only in-cluster, so publishing runs on the homelab runners,
-    # and only from main.
+    # and only from main, and only a candidate the quickstart passed.
+    needs: [candidate, quickstart-candidate]
     if: github.ref == 'refs/heads/main'
     runs-on: homelab-runners
     permissions:
@@ -129,7 +205,8 @@ jobs:
       - name: Publish
         id: publish
         env:
-          RC_TAG: ${{ inputs.rc_tag }}
+          # The candidate the quickstart passed, not "latest" again.
+          RC_TAG: ${{ needs.candidate.outputs.rc_tag }}
           DRY_RUN: ${{ inputs.dry_run }}
           REGISTRY: ${{ vars.REGISTRY }}
           RELEASE_REGISTRY: ${{ vars.RELEASE_REGISTRY }}
