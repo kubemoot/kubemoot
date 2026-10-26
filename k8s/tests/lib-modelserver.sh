@@ -2,11 +2,12 @@
 # Helpers for the smoke test's ModelServer check. Sourced by test-smoke.sh after lib.sh (the
 # log_* functions and $NAMESPACE); tested by lib.test.sh. Needs jq and curl.
 
-# The first Ready ModelServer of any engine that has an address, as "<name> <type> <url>".
+# The first Ready ModelServer of any engine that has an address, as "<name> <type> <url> <auth>"
+# where auth is "secret" when the server has a secretRef and "open" when it has none.
 # Reads `kubectl get modelservers -o json` on stdin. The address is spec.endpoint for an
 # Ollama server and the first served endpoint for a vLLM server (spec.servers, or the ones
 # the operator found from spec.serviceRef). A server without a secretRef is preferred, since
-# the check sends no credentials. Prints nothing when no Ready server has an address.
+# the check sends no credentials, and the probe skips one that has a secretRef. Prints nothing when no Ready server has an address.
 first_ready_server() {
     jq -r '
         def url: if .spec.type == "vllm"
@@ -15,7 +16,7 @@ first_ready_server() {
         [.items[]? | select(.status.phase == "Ready" and .status.ready == true)
             | {n: .metadata.name, t: .spec.type, u: url, s: ((.spec.secretRef // "") != "")}
             | select(.u != "")]
-        | sort_by(.s) | .[0] // empty | "\(.n) \(.t) \(.u)"'
+        | sort_by(.s) | .[0] // empty | "\(.n) \(.t) \(.u) \(if .s then "secret" else "open" end)"'
 }
 
 # The number of ModelServers in `kubectl get modelservers -o json` on stdin.
@@ -35,11 +36,15 @@ fetch_models_list() {
 }
 
 # The ModelServer check every engine can pass: some ModelServer is Ready, it answers its
-# models list, and the operator published it as Ready. Fails when ModelServers exist and
-# none is Ready, and skips when the namespace has none.
+# models list, and the operator published it as Ready. Fails when ModelServers cannot be listed,
+# or exist and none is Ready; skips when the namespace has none, and skips the models list of a
+# server that needs credentials.
 modelserver_smoke_check() {
-    local json count picked name type url body models
-    json=$(kubectl get modelservers -n "$NAMESPACE" -o json 2>/dev/null || echo '{"items":[]}')
+    local json count picked name type url auth body models
+    if ! json=$(kubectl get modelservers -n "$NAMESPACE" -o json 2>&1); then
+        log_fail "ModelServer check: cannot list ModelServers in $NAMESPACE: ${json}"
+        return 0
+    fi
     count=$(count_servers <<<"$json")
     if [ "$count" -eq 0 ]; then
         log_skip "ModelServer check: no ModelServer in $NAMESPACE"
@@ -50,8 +55,12 @@ modelserver_smoke_check() {
         log_fail "ModelServer check: $count ModelServer(s) in $NAMESPACE and none is Ready with an address"
         return 0
     fi
-    read -r name type url <<<"$picked"
+    read -r name type url auth <<<"$picked"
     log_ok "ModelServer $name ($type) is Ready and the operator published it as Ready"
+    if [ "$auth" = secret ]; then
+        log_skip "ModelServer $name needs credentials (secretRef), so its models list is not probed"
+        return 0
+    fi
     if body=$(fetch_models_list "$url") && models=$(models_list_count <<<"$body"); then
         log_ok "ModelServer $name answers its models list at $url ($models models)"
     else
