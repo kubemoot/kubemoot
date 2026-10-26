@@ -49,6 +49,12 @@ on:
         required: false
         default: ''
         type: string
+    secrets:
+      GHCR_USERNAME:
+        description: 'Credentials for the release registry, needed only while its packages are private.'
+        required: false
+      GHCR_TOKEN:
+        required: false
   pull_request:
     paths:
       - 'quickstart/**'
@@ -189,9 +195,20 @@ jobs:
         with:
           ref: ${{ steps.chart.outputs.checkout }}
 
+      - name: Checkout the shared scripts
+        # The release being tested may predate them, so they come from the commit this run
+        # started on, next to the release's files.
+        if: inputs.candidate_tag == ''
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          path: .ci
+          sparse-checkout: .github/scripts
+          persist-credentials: false
+
       - name: Download the exported candidate
         if: inputs.candidate_tag != ''
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: ${{ inputs.candidate_artifact }}
           path: candidate
@@ -203,19 +220,16 @@ jobs:
 
       - name: Pull the released images the chart pins and load them into kind
         if: inputs.candidate_tag == ''
-        # The chart names every component image; the quickstart runs up to five of them. kind
-        # nodes cannot pull private packages, so the runner pulls and loads them.
+        # The chart names every component image; the quickstart runs up to five of them. The
+        # list and the check that the core three are pinned are one script, shared with the
+        # candidate export (a chart released before the dashboard subchart has no dashboard
+        # image). kind nodes cannot pull private packages, so the runner pulls and loads them.
+        shell: bash
         run: |
+          set -euo pipefail
           helm template q "${{ steps.chart.outputs.ref }}" --version "${{ steps.chart.outputs.version }}" \
               --values quickstart/operator-values.yaml \
-            | grep -oE "${RELEASE_REGISTRY}/(kubemoot-operator|agent-runtime|discussion-gateway|crew-liaison|dashboard):[A-Za-z0-9._-]+" \
-            | sort -u | tee images.txt
-          # The core three must be pinned; the dashboard and liaison are pulled when the
-          # chart being tested pins them (a chart released before the dashboard subchart
-          # has no dashboard image).
-          for core in kubemoot-operator agent-runtime discussion-gateway; do
-            grep -q "/${core}:" images.txt || { echo "the chart pins no ${core} image:"; cat images.txt; exit 1; }
-          done
+            | bash .ci/.github/scripts/quickstart-images.sh | tee images.txt
           while read -r image; do
             docker pull "$image"
             kind load docker-image "$image" --name kubemoot
@@ -223,16 +237,21 @@ jobs:
 
       - name: Load the candidate images into kind
         # Each tarball was pulled from Harbor; it is loaded under the reference the chart
-        # runs (images.tsv), so the chart needs no change and the nodes pull nothing.
+        # runs (images.tsv), so the chart needs no change and the nodes pull nothing. A
+        # digest-pinned reference cannot be a docker tag, so its archive is imported as it is.
         if: inputs.candidate_tag != ''
         shell: bash
         run: |
           set -euo pipefail
           cp candidate/images.txt images.txt
-          while IFS=$'\t' read -r tarball harbor ref; do
-            docker load --input "candidate/${tarball}"
-            docker tag "$harbor" "$ref"
-            kind load docker-image "$ref" --name kubemoot
+          while IFS=$'\t' read -r tarball ref; do
+            case "$ref" in
+              *@*) kind load image-archive "candidate/${tarball}" --name kubemoot ;;
+              *)
+                loaded="$(docker load --input "candidate/${tarball}" | sed -n 's/^Loaded image: //p' | head -n 1)"
+                docker tag "$loaded" "$ref"
+                kind load docker-image "$ref" --name kubemoot ;;
+            esac
           done < candidate/images.tsv
 
       - name: Run the quickstart

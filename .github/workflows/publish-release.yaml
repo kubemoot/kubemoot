@@ -32,7 +32,13 @@
 #   crews       asks kubemoot/crews to build new crew candidates, which take the finals
 #               just published (repository_dispatch kubemoot-published)
 # The candidate and quickstart-candidate jobs also run in a dry run, so the approval to
-# publish comes with the quickstart's verdict on the candidate. The default is a dry run: it plans, reads the registries, packages the charts, and
+# publish comes with the quickstart's verdict on the candidate. The exported candidate is
+# a workflow artifact kept for 1 day (the images of an unpublished candidate are
+# downloadable by anyone who can read the run, so it is not kept longer), overwritten by a
+# rerun of the candidate job. "Re-run failed jobs" after a quickstart-candidate failure
+# reuses the artifact while it exists; after a day, or when the cause was in the exported
+# bytes, re-run all jobs or dispatch again, which exports the candidate afresh.
+# The default is a dry run: it plans, reads the registries, packages the charts, and
 # shows the release notes in the run summary, and publishes nothing. It signs nothing
 # either, but checks that cosign runs and that the job can mint the OIDC token the
 # signatures need, and prints the identity they will carry.
@@ -96,9 +102,7 @@ jobs:
           persist-credentials: false
 
       - name: Install crane
-        run: |
-          curl -sL https://github.com/google/go-containerregistry/releases/download/v0.20.2/go-containerregistry_Linux_x86_64.tar.gz | tar -xzf - crane
-          sudo mv crane /usr/local/bin/
+        run: bash .github/scripts/install-crane.sh
 
       - name: Install Helm
         uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
@@ -106,10 +110,13 @@ jobs:
           version: 'v3.14.0'
 
       - name: Set up the release helpers
-        uses: kubemoot/release-actions/setup@7accfbc33966d895bab2fc17a2a6c7f2520aaf76 # v0.11.1
+        uses: kubemoot/release-actions/setup@b78d1a218811e2a0376eed26240451b2f353f367 # v0.11.4
 
-      - name: Test the export script
-        run: bash .github/scripts/test-export-quickstart-candidate.sh
+      - name: Test the export scripts
+        run: |
+          bash .github/scripts/test-quickstart-images.sh
+          bash .github/scripts/test-export-quickstart-candidate.sh
+          bash .github/scripts/test-install-crane.sh
 
       - name: Log in to Harbor
         env:
@@ -129,11 +136,12 @@ jobs:
         run: bash .github/scripts/export-quickstart-candidate.sh
 
       - name: Keep the candidate for the quickstart
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: quickstart-candidate
           path: quickstart-candidate/
           if-no-files-found: error
+          overwrite: true
           retention-days: 1
 
   quickstart-candidate:
@@ -142,7 +150,9 @@ jobs:
     with:
       candidate_tag: ${{ needs.candidate.outputs.rc_tag }}
       candidate_artifact: quickstart-candidate
-    secrets: inherit
+    secrets:
+      GHCR_USERNAME: ${{ secrets.GHCR_USERNAME }}
+      GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
 
   publish:
     # Harbor is reachable only in-cluster, so publishing runs on the homelab runners,
@@ -168,9 +178,7 @@ jobs:
           filter: blob:none
 
       - name: Install crane
-        run: |
-          curl -sL https://github.com/google/go-containerregistry/releases/download/v0.20.2/go-containerregistry_Linux_x86_64.tar.gz | tar -xzf - crane
-          sudo mv crane /usr/local/bin/
+        run: bash .github/scripts/install-crane.sh
 
       - name: Install Helm
         uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
@@ -188,6 +196,7 @@ jobs:
       - name: Test the release scripts
         run: |
           bash .github/scripts/test-publish-release.sh
+          bash .github/scripts/test-install-crane.sh
 
       - name: Log in to the registries
         env:
@@ -290,7 +299,9 @@ jobs:
     uses: ./.github/workflows/quickstart.yaml
     with:
       chart_version: ${{ needs.publish.outputs.chart_version }}
-    secrets: inherit
+    secrets:
+      GHCR_USERNAME: ${{ secrets.GHCR_USERNAME }}
+      GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
 
   release:
     needs: [publish, attest, quickstart]

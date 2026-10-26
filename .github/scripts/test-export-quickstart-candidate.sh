@@ -105,7 +105,8 @@ check "one tarball per distinct component image, none for standalone images" "4"
 check "an image is pulled from Harbor under its own tag" "1" "$(grep -c '^crane pull --insecure --platform linux/amd64 harbor.test/kubemoot/agent-runtime:0.94.1-rc.3 ' "$LOG")"
 check "an image the quickstart does not run is not pulled" "0" "$(grep -c code-sandbox "$LOG")"
 check "the map names the reference the chart uses" "1" \
-  "$(grep -cP '^images/\d+\.tar\tharbor.test/kubemoot/dashboard:0.94.1-rc.1\tghcr.io/kubemoot/dashboard:0.94.1-rc.1$' "${root}/export/images.tsv")"
+  "$(grep -cP '^images/\d+\.tar\tghcr.io/kubemoot/dashboard:0.94.1-rc.1$' "${root}/export/images.tsv")"
+check "the exported map holds no Harbor host" "0" "$(grep -c harbor.test "${root}/export/images.tsv" "${root}/export/images.txt" | awk -F: '{s+=$2} END {print s+0}')"
 check "the quickstart values of the candidate decide the images (dashboard on)" "1" "$(grep -c dashboard "${root}/export/images.txt")"
 
 check "an exact candidate tag exports that candidate" "0" "$(run operator-chart-v0.94.1-rc.3)"
@@ -113,19 +114,29 @@ check "a tag that is not a candidate fails" "1" "$(run operator-chart-v9.9.9)"
 check "an image missing from Harbor fails" "1" "$(CRANE_MISSING=discussion-gateway run latest)"
 check "the failure names the missing image" "1" "$(grep -c 'cannot pull harbor.test/kubemoot/discussion-gateway:0.94.1-rc.3' "${root}/out")"
 
+# A chart that pins agent-runtime by digest is pulled by digest and keeps its reference.
+dg=$(printf 'b%.0s' {1..64})
+sed -i "s|agent-runtime:0.94.1-rc.3|agent-runtime@sha256:${dg}|" "$chart/templates/all.yaml"
+git commit -q -am "fix: pin the runtime by digest"; git tag operator-chart-v0.94.1-rc.4
+"$real_helm" package "$chart" --version 0.94.1-rc.4 --destination "$HARBOR_STATE" >/dev/null
+git push -q origin main --tags 2>/dev/null; git fetch -q origin
+check "a digest-pinned chart exports" "0" "$(run latest)"
+check "the digest-pinned image is pulled from Harbor by digest" "1" "$(grep -c "^crane pull --insecure --platform linux/amd64 harbor.test/kubemoot/agent-runtime@sha256:${dg} " "$LOG")"
+check "the map keeps the digest reference" "1" "$(grep -c "ghcr.io/kubemoot/agent-runtime@sha256:${dg}\$" "${root}/export/images.tsv")"
+
 # A chart that pins no agent-runtime is refused.
 sed -i '/agent-runtime/d' "$chart/templates/all.yaml"
-git commit -q -am "fix: drop the runtime"; git tag operator-chart-v0.94.1-rc.4
-"$real_helm" package "$chart" --version 0.94.1-rc.4 --destination "$HARBOR_STATE" >/dev/null
+git commit -q -am "fix: drop the runtime"; git tag operator-chart-v0.94.1-rc.5
+"$real_helm" package "$chart" --version 0.94.1-rc.5 --destination "$HARBOR_STATE" >/dev/null
 git push -q origin main --tags 2>/dev/null; git fetch -q origin
 check "a chart without a core image is refused" "1" "$(run latest)"
 check "the refusal names the core image" "1" "$(grep -c 'pins no agent-runtime image' "${root}/out")"
 
 # A candidate tag whose chart is not in Harbor fails.
-git commit -q --allow-empty -m "fix: unbuilt"; git tag operator-chart-v0.94.1-rc.5
+git commit -q --allow-empty -m "fix: unbuilt"; git tag operator-chart-v0.94.1-rc.6
 git push -q origin main --tags 2>/dev/null; git fetch -q origin
 check "a candidate whose chart is not in Harbor fails" "1" "$(run latest)"
-check "the failure says the chart is missing from Harbor" "1" "$(grep -c 'cannot read the candidate operator chart 0.94.1-rc.5 from Harbor' "${root}/out")"
+check "the failure says the chart is missing from Harbor" "1" "$(grep -c 'cannot read the candidate operator chart 0.94.1-rc.6 from Harbor' "${root}/out")"
 
 [ "$failures" -eq 0 ] || { echo "${failures} failed"; exit 1; }
 echo "all passed"
