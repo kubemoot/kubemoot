@@ -13,6 +13,19 @@ which is familiar and runs anywhere; an installation defaults to vLLM. See
 [Installation](../installation/) for the accelerator-backed deployment this trial is a
 preview of, and the profile table below for exactly what's smaller and slower.
 
+New to Kubernetes, or unsure where each piece runs? Read
+[How the Pieces Fit Together](../how-the-pieces-fit-together/) first.
+
+## Prerequisites
+
+- `kubectl`, `helm`, and `python3`.
+- A node with 2 CPUs and 8 GB free.
+- **`amd64` (x86-64) nodes.** `amd64` is the processor family of Intel and AMD PCs;
+  `arm64` is the family of the Raspberry Pi and Apple silicon. Kubemoot's release images
+  are `amd64` only today, so on an `arm64` node the image pulls but the
+  container does not start: the pod shows `Error` or `CrashLoopBackOff`, and its log
+  (`kubectl logs`) says `exec format error`. The [Roadmap](../roadmap/#images-for-arm64) tracks `arm64` images.
+
 ## Run it
 
 ```bash
@@ -27,11 +40,8 @@ ones written for the chart it installs. The script installs the chart of the rel
 checked out at; if the quickstart files differ from the latest release, it stops and says
 so instead of installing a chart they may not match.
 
-Needs `kubectl`, `helm`, and `python3`. The script needs a node with 2 CPUs and 8 GB
-free and takes several minutes on a laptop; the model pull and the first discussion
-dominate. Release images are amd64 only today (see the [Roadmap](../roadmap/)), so on
-an arm64 machine such as Apple Silicon the images run under emulation or fail to
-start with an exec format error. Every wait polls
+The script takes several minutes on a laptop; the model pull and the first discussion
+dominate. Every wait polls
 a Kubernetes status field rather than sleeping a fixed time, so the script finishes as
 soon as the cluster is actually ready, not on a guessed clock.
 
