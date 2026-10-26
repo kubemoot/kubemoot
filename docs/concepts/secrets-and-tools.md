@@ -1,7 +1,7 @@
 ---
 title: "Secrets and tools"
 weight: 55
-description: "Why the model never holds a secret, how credentials reach tools today, and the per-tool grant design that is the top roadmap priority."
+description: "Why the model never holds a secret, how credentials reach tools, and how the use grant and its admission check decide who may reference which Secret."
 ---
 
 A tool that sends mail, queries a database, or calls an API needs a credential. Kubemoot
@@ -31,20 +31,122 @@ Secrets in its own namespace:
 Only the MCPServer pod receives the credential. Agent pods do not get it through these
 fields, so the principle holds for the prompt path.
 
-What is not enforced yet is who may reference which Secret. The operator mounts any
-Secret the MCPServer names, and the MCPServer validation does not check that the author
-may read it. A crew author who can create an MCPServer can have the operator mount any
-Secret in that namespace into a pod they control. The `serviceAccountName` field works
-the same way: the server runs as any ServiceAccount the author names. Agent pods run as
-the namespace `default` ServiceAccount unless the Agent sets another.
+Without the use-grant check below, nothing decides who may reference which Secret. The
+operator mounts any Secret the MCPServer names, and the MCPServer validation does not check
+that the author may read it. A crew author who can create an MCPServer can have the operator
+mount any Secret in that namespace into a pod they control. The `serviceAccountName` field
+works the same way: the server runs as any ServiceAccount the author names. Agent pods run
+as the namespace `default` ServiceAccount unless the Agent sets another, and an Agent's
+`env`, `memory.secretRef` and ServiceAccount are open in the same way.
 
-Inside a namespace, then, anyone who can create an MCPServer is trusted with every
-Secret there. Namespaces remain the isolation boundary between crews.
+With the check off, anyone who can create an MCPServer is trusted with every Secret in its
+namespace. Namespaces remain the isolation boundary between crews.
+
+## Granting `use` on a Secret
+
+`use` is a custom verb. It is not `get`: holding it lets someone point an MCPServer at the
+Secret, and does not let them read its value. An admin grants it on one named Secret with an
+ordinary Role, and binds the Role to whoever applies the crew (with Flux, the ServiceAccount
+Flux applies that namespace as):
+
+```yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: use-mail-credentials
+  namespace: crew-mooty
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["use"]
+    resourceNames: ["mail-credentials"]
+  # Only for a tool that calls the Kubernetes API: name the ServiceAccount it runs as.
+  - apiGroups: [""]
+    resources: ["serviceaccounts"]
+    verbs: ["use"]
+    resourceNames: ["kubernetes-mcp"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: use-mail-credentials
+  namespace: crew-mooty
+subjects:
+  - kind: ServiceAccount
+    name: flux-crew-mooty
+    namespace: crew-mooty
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: use-mail-credentials
+```
+
+A Role without `resourceNames` grants `use` on every Secret in the namespace; name each
+Secret instead. The grant says nothing about reading, so the author still has no `get` or
+`list` on Secrets.
+
+## The admission check
+
+The operator chart ships two ValidatingAdmissionPolicies, one for MCPServer and one for
+Agent, behind a flag that is off by default:
+
+```yaml
+security:
+  secretUseGrants:
+    enabled: true
+```
+
+The policies need Kubernetes 1.30 or later (ValidatingAdmissionPolicy is generally available
+and the CEL `authorizer` is present). When the flag is on, a create or update is rejected
+unless the requester holds `use` on every Secret and ServiceAccount it references:
+
+- MCPServer: `env[].valueFrom.secretKeyRef`, `secretRef`, `secretVolumes`,
+  `registry.authSecretRef`, the `env` and `envFrom` of every `sidecars` container, and
+  `serviceAccountName`.
+- Agent: `deployment.env` and `harness.env` secret references, `memory.secretRef`, and
+  `deployment.serviceAccountName`.
+
+A rejection names the field and the objects the grant is needed on:
+
+```text
+MCPServer spec.secretRef: crew-author needs the verb "use" on every one of: secrets/mail-credentials.
+Ask an admin for a Role with that verb and resourceNames.
+```
+
+Behaviour to know:
+
+- Cluster admins pass without a grant, because their RBAC allows every verb. The operator's
+  own ServiceAccount is exempt, so MCPServers the operator creates itself (from an
+  MCPGateway credential policy) are not checked, so whoever may edit an MCPGateway is trusted
+  with the Secrets its policies name; add other trusted identities to
+  `security.secretUseGrants.exemptUsers`.
+- An update that leaves `spec` unchanged passes, so the operator's finalizer and metadata
+  writes never fail. Turning the flag on does not touch existing resources; an existing
+  MCPServer is checked the next time its spec changes.
+- The `default` ServiceAccount is not a reference: an MCPServer or Agent that names no
+  ServiceAccount runs as it anyway.
+- The message lists every Secret in the failing field, not only the missing one, because
+  the authorizer is not available when Kubernetes builds the message.
+- To try the policy first, set `security.secretUseGrants.validationActions` to
+  `["Audit", "Warn"]`: requests pass and the API server records and warns. To limit it to
+  some namespaces, set `security.secretUseGrants.namespaceSelector`.
+- Other Kubemoot kinds that reference Secrets (MCPGateway, MCPCatalog, ModelServer,
+  RAGSource) are not covered by this check; they are infrastructure resources an admin
+  creates.
+
+## Pods get no ServiceAccount token by default
+
+The operator sets `automountServiceAccountToken: false` on the pods it builds for an Agent
+or an MCPServer that names no ServiceAccount. These pods call no Kubernetes API, so a
+RoleBinding added later to the namespace `default` ServiceAccount cannot arm them. A pod
+whose spec names a ServiceAccount keeps the Kubernetes default, because that account exists
+to call the API and its RBAC bounds the pod. This is not behind a flag.
 
 ## Target design
 
 Closing the gap uses Kubernetes authorization and admission, with nothing new invented.
-This is the top priority on the [roadmap](../../introduction/roadmap/).
+Steps 2 and 3 are built behind the `security.secretUseGrants.enabled` chart flag, described
+above. The rest is on the [roadmap](../../introduction/roadmap/).
 
 1. **Admin-owned Secrets.** An admin creates each Secret in the crew namespace. Crew
    authors have no `get` or `list` on Secrets.
@@ -71,8 +173,9 @@ picture. Later steps add a secret store such as OpenBao with External Secrets Op
 for rotation, short-lived credentials, and audit, and per-user OAuth for assistants that
 act on behalf of one person.
 
-## What to do until then
+## What to do without the check
 
+- Turn on `security.secretUseGrants.enabled` and grant `use` per Secret.
 - Keep credentials in the namespace of the crew that uses them, and give each crew its
   own namespace.
 - Limit who can create MCPServers and Agents in a namespace to people you would trust
