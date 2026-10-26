@@ -84,6 +84,9 @@ func ApplySidecar(tmpl *corev1.PodTemplateSpec, harnessContainer string, p Sidec
 	if idx < 0 {
 		return fmt.Errorf("the pod has no container named %q to join to the mesh", harnessContainer)
 	}
+	// Always off, whatever ServiceAccount the pod names: a mesh pod reaches everything through the
+	// sidecar. (Plain Agent and MCPServer pods keep a token only when they name an account;
+	// see automountTokenFor in the controller package.)
 	tmpl.Spec.AutomountServiceAccountToken = new(bool)
 	tmpl.Spec.Volumes = append(tmpl.Spec.Volumes, volumes(p)...)
 	tmpl.Spec.InitContainers = append(tmpl.Spec.InitContainers, sidecarContainer(p))
