@@ -54,7 +54,7 @@ Every change ships with tests. Run the suite for the component you touched.
 cd operator
 make generate manifests   # generate code and CRD manifests
 make build                # build the operator
-make test                 # unit tests (Go envtest)
+make test                 # unit tests (Go envtest; needs helm on PATH to render the chart's use-grant policies)
 make lint                 # golangci-lint
 ```
 

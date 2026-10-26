@@ -41,6 +41,9 @@ jobs:
           go-version-file: operator/go.mod
           cache-dependency-path: operator/go.sum
 
+      # The operator tests render the chart's use-grant policies with helm.
+      - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
+
       - name: Check go.mod and go.sum are tidy
         working-directory: operator
         env:

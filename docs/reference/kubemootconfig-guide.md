@@ -135,7 +135,7 @@ grant on. The grant, the rejection message and the exempt cases are in
 |-------|---------|---------|
 | `security.secretUseGrants.enabled` | `false` | Install the policies and their bindings. Needs Kubernetes 1.30 or later. |
 | `security.secretUseGrants.exemptUsers` | `[]` | User names the check skips, as the API server names them. The operator's ServiceAccount is always skipped. |
-| `security.secretUseGrants.validationActions` | `["Deny"]` | `Deny` rejects. `["Audit", "Warn"]` records and warns without rejecting. |
+| `security.secretUseGrants.validationActions` | `["Deny"]` | `Deny` rejects. `["Audit", "Warn"]` records and warns without rejecting; use it first when rolling out. |
 | `security.secretUseGrants.namespaceSelector` | `{}` | Label selector limiting the check to matching namespaces; empty means every namespace. |
 
 ## Caching

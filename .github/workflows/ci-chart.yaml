@@ -52,6 +52,8 @@ jobs:
         run: operator/chart/test-nats-bootstrap.sh
       - name: Placement service render tests
         run: operator/chart/test-placement-service.sh
+      - name: Secret use grant render tests
+        run: operator/chart/test-secret-use-grants.sh
       - name: Observability tests (dashboards and scraping)
         run: operator/chart/test-observability.sh
       - name: kubemoot-vllm chart and launcher tests

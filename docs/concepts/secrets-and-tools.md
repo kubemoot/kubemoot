@@ -118,21 +118,41 @@ Behaviour to know:
 - Cluster admins pass without a grant, because their RBAC allows every verb. The operator's
   own ServiceAccount is exempt, so MCPServers the operator creates itself (from an
   MCPGateway credential policy) are not checked, so whoever may edit an MCPGateway is trusted
-  with the Secrets its policies name; add other trusted identities to
+  with the Secrets its policies name. Add other trusted identities to
   `security.secretUseGrants.exemptUsers`.
 - An update that leaves `spec` unchanged passes, so the operator's finalizer and metadata
   writes never fail. Turning the flag on does not touch existing resources; an existing
-  MCPServer is checked the next time its spec changes.
-- The `default` ServiceAccount is not a reference: an MCPServer or Agent that names no
-  ServiceAccount runs as it anyway.
+  MCPServer is checked the next time its spec changes. The check then covers the whole spec:
+  an author without `use` on a Secret the resource already references cannot change any part
+  of that spec until an admin grants `use` on it, or changes it themselves.
+- Naming the `default` ServiceAccount is not a reference: a pod that names no ServiceAccount
+  runs as it anyway, so the policy and the operator treat `serviceAccountName: default` the
+  same as leaving it out.
+- The Kubernetes MCP server's own ServiceAccount (`kubemoot-kubernetes-mcp`) can create and
+  update MCPServers and Agents for onboarding. With the flag on, the chart grants it `use` on
+  its own ServiceAccount only. It holds no grant on any Secret, so an MCPServer it creates
+  that carries a Secret, or another ServiceAccount, is denied by design; an admin applies
+  those.
 - The message lists every Secret in the failing field, not only the missing one, because
   the authorizer is not available when Kubernetes builds the message.
-- To try the policy first, set `security.secretUseGrants.validationActions` to
-  `["Audit", "Warn"]`: requests pass and the API server records and warns. To limit it to
-  some namespaces, set `security.secretUseGrants.namespaceSelector`.
 - Other Kubemoot kinds that reference Secrets (MCPGateway, MCPCatalog, ModelServer,
   RAGSource) are not covered by this check; they are infrastructure resources an admin
   creates.
+
+### Rolling it out
+
+The policies fail closed (`failurePolicy: Fail`): if Kubernetes cannot evaluate one, writes
+to MCPServers and Agents are refused. Roll out in two steps:
+
+1. Install with `security.secretUseGrants.validationActions: ["Audit", "Warn"]`. Nothing is
+   rejected; the API server warns the requester and records an audit annotation for every
+   request the policy would deny. Grant `use` where the warnings show a need, including to
+   the identity Flux applies each crew namespace as.
+2. Set `validationActions` back to `["Deny"]`.
+
+To limit the check to some namespaces, set `security.secretUseGrants.namespaceSelector`.
+The policies need Kubernetes 1.30 or later. The operator tests apply them to the Kubernetes
+version the operator builds against.
 
 ## Pods get no ServiceAccount token by default
 
@@ -140,7 +160,8 @@ The operator sets `automountServiceAccountToken: false` on the pods it builds fo
 or an MCPServer that names no ServiceAccount. These pods call no Kubernetes API, so a
 RoleBinding added later to the namespace `default` ServiceAccount cannot arm them. A pod
 whose spec names a ServiceAccount keeps the Kubernetes default, because that account exists
-to call the API and its RBAC bounds the pod. This is not behind a flag.
+to call the API and its RBAC bounds the pod. This is not behind a flag, and it changes the pod
+template: upgrading restarts every Agent and MCPServer pod that names no ServiceAccount, once.
 
 ## Target design
 
