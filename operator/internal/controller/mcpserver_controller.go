@@ -315,6 +315,7 @@ func (r *MCPServerReconciler) buildDeployment(mcpServer *kubemootv1alpha1.MCPSer
 					Volumes:                       volumes,
 					TerminationGracePeriodSeconds: int64Ptr(30),
 					ServiceAccountName:            mcpServer.Spec.ServiceAccountName,
+					AutomountServiceAccountToken:  automountTokenFor(mcpServer.Spec.ServiceAccountName),
 					SecurityContext: &corev1.PodSecurityContext{
 						RunAsNonRoot:   boolPtr(strictSecurity),
 						SeccompProfile: &seccompProfile,
