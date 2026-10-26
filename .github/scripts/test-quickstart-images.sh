@@ -4,7 +4,7 @@
 set -euo pipefail
 
 here="$(cd "$(dirname "$0")" && pwd)"
-# shellcheck source=quickstart-images.sh
+# shellcheck source=/dev/null
 source "${here}/quickstart-images.sh"
 failures=0
 check() {
