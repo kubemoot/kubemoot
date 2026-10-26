@@ -71,6 +71,7 @@ jobs:
           bash .github/scripts/test-release-vllm-chart.sh
           bash .github/scripts/test-go-build-static.sh
           bash .github/scripts/test-retag-image.sh
+          bash .github/scripts/test-release-status.sh
           bash .github/scripts/test-export-quickstart-candidate.sh
           bash .github/scripts/test-quickstart-images.sh
           bash .github/scripts/test-install-crane.sh

@@ -29,8 +29,14 @@
 #               signed attached as kubemoot_<version>.intoto.jsonl: created as a draft,
 #               given the file, then published, since releases are immutable once
 #               published (.github/scripts/create-github-releases.sh)
-#   crews       asks kubemoot/crews to build new crew candidates, which take the finals
-#               just published (repository_dispatch kubemoot-published)
+#   dispatch    asks kubemoot/crews, kubemoot/kmctl and kubemoot/vscode-crewforge to build
+#               new candidates, which take the finals just published (repository_dispatch
+#               kubemoot-published); publishing them stays a Publish Release run in each
+#   release-status
+#               writes the release status of the six public repositories to the run summary
+#               and warns for each one that still holds unpublished breaking changes
+#               (.github/scripts/release-status.sh); the clients still do right after the
+#               dispatch, until their own Publish Release runs
 # The candidate and quickstart-candidate jobs also run in a dry run, so the approval to
 # publish comes with the quickstart's verdict on the candidate. The exported candidate is
 # a workflow artifact kept for 1 day (the images of an unpublished candidate are
@@ -197,6 +203,7 @@ jobs:
         run: |
           bash .github/scripts/test-publish-release.sh
           bash .github/scripts/test-install-crane.sh
+          bash .github/scripts/test-release-status.sh
 
       - name: Log in to the registries
         env:
@@ -333,19 +340,57 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: bash .github/scripts/create-github-releases.sh release-files provenance
 
-  # The crew charts take Kubemoot's latest finals when a candidate is built, so a new
-  # Kubemoot release asks the crews for new candidates. Only a GitHub API call, with
-  # RELEASE_TOKEN (contents write on kubemoot/crews); the job's own token needs nothing.
-  crews:
+  # The crew charts, kmctl and CrewForge take Kubemoot's latest finals when a candidate is
+  # built, so a new Kubemoot release asks each for a new candidate. Only a GitHub API call,
+  # with RELEASE_TOKEN (contents write on each repository); the job's own token needs nothing.
+  # Publishing those candidates is a Publish Release run in each repository.
+  dispatch:
     needs: [publish, release]
     if: ${{ !inputs.dry_run }}
     runs-on: ubuntu-latest
     permissions: {}
+    strategy:
+      fail-fast: false
+      matrix:
+        repository: [crews, kmctl, vscode-crewforge]
     steps:
-      - name: Dispatch the crew candidate builds
+      - name: Dispatch the candidate build
         uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
         with:
           token: ${{ secrets.RELEASE_TOKEN }}
-          repository: kubemoot/crews
+          repository: kubemoot/${{ matrix.repository }}
           event-type: kubemoot-published
           client-payload: '{"chart_version": "${{ needs.publish.outputs.chart_version }}"}'
+
+  # The release status of the six public repositories, in the run summary. Report only: the
+  # clients hold unpublished breaking changes until their own Publish Release runs, so a
+  # failure here would fail every release. Each such repository gets a warning annotation
+  # and the summary names it; a release is done when scripts/release-status.sh of the
+  # umbrella repository exits 0. Runs in a dry run too, showing what is still unpublished.
+  release-status:
+    needs: [publish, dispatch]
+    if: ${{ !cancelled() && needs.publish.result == 'success' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout the release scripts
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          sparse-checkout: .github/scripts
+          persist-credentials: false
+
+      - name: Release status to the run summary
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          status=0
+          report="$(bash .github/scripts/release-status.sh --markdown)" || status=$?
+          {
+            echo '### Release status of the public repositories'
+            echo
+            echo "$report"
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ "$status" -ne 0 ]; then
+            echo "::warning title=Unpublished breaking changes::A public repository holds unpublished breaking changes; see the run summary. Publish it with the release."
+          fi
