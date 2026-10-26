@@ -189,20 +189,6 @@ check_pgvector() {
 # Ollama helpers
 #
 
-# Prints the endpoint of the first Ready Ollama ModelServer, from lines of
-# "<type> <ready> <endpoint>" on stdin; prints nothing when there is none.
-first_ready_ollama_endpoint() {
-    awk '$1 == "ollama" && $2 == "true" && $3 != "" { print $3; exit }'
-}
-
-# The endpoint of a Ready Ollama ModelServer in $NAMESPACE, so a test can point at
-# the model server the cluster runs instead of naming one.
-ready_ollama_endpoint() {
-    kubectl get modelservers -n "$NAMESPACE" \
-        -o jsonpath='{range .items[*]}{.spec.type} {.status.ready} {.spec.endpoint}{"\n"}{end}' 2>/dev/null \
-        | first_ready_ollama_endpoint
-}
-
 ollama_has_model() {
     local model="$1"
     kubectl exec -n "$OLLAMA_NAMESPACE" deploy/ollama -- ollama list 2>/dev/null | grep -q "^${model}"
