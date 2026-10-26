@@ -8,7 +8,9 @@ This page installs the **Kubemoot operator**: what a cluster needs before it run
 how to install it on your own cluster - the accelerator-backed deployment Kubemoot is
 built for. If you want to try the protocol first without an accelerator, the
 [Quickstart](../quickstart/) runs a smaller CPU-only trial with its own script and its
-own limits, described below.
+own limits, described below. To see where the operator, the model server, and your
+machines sit in a cluster before you start, read
+[How the Pieces Fit Together](../how-the-pieces-fit-together/).
 
 The operator is one part of the ecosystem. The others install separately, each from
 its own page:
@@ -22,6 +24,11 @@ its own page:
 
 ## Prerequisites
 
+- **`amd64` (x86-64) nodes.** `amd64` is the processor family of Intel and AMD PCs;
+  `arm64` is the family of the Raspberry Pi and Apple silicon. Kubemoot's release images
+  are `amd64` only today, so on an `arm64` node the image pulls but the
+  container does not start: the pod shows `Error` or `CrashLoopBackOff`, and its log
+  (`kubectl logs`) says `exec format error`. The [Roadmap](../roadmap/#images-for-arm64) tracks `arm64` images.
 - **A Kubernetes cluster** (v1.30+) and `kubectl` configured against it. Cluster-admin
   is required for the initial install, since Kubemoot installs CRDs and cluster-scoped
   RBAC.
@@ -52,8 +59,6 @@ node with 2 CPUs and 8 GB free and no accelerator, on Ollama, and its
 accelerator deployment: smaller models, a smaller crew, and slower answers. The rest of
 this page installs the accelerator-backed profile, on vLLM.
 
-Release images are amd64 only today (see the [Roadmap](../roadmap/)). On an arm64 cluster
-or laptop they run under emulation or fail to start with an exec format error.
 
 ## Install a model server
 
