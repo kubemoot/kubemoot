@@ -139,6 +139,13 @@ does not stay active. The wait ends when the answer arrives; `ASK_TIMEOUT` (480 
 default) is a safety net. The post-deploy Integration Test runs this after every operator
 chart release, so a Ready crew that never answers can not pass.
 
+The smoke test also checks a ModelServer of any engine. It takes the first Ready ModelServer,
+vLLM or Ollama (one without a `secretRef` first), and checks what every engine supports: the
+operator published the server as Ready, and the server answers its models list at
+`<endpoint>/v1/models`. For a vLLM server the endpoint is the first one it serves. The check
+creates nothing. It fails when the namespace has ModelServers and none is Ready, and skips when
+it has none.
+
 See `k8s/tests/README.md` for what each test covers.
 
 ## Other repositories

@@ -7,6 +7,7 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/lib.sh"
 source "${SCRIPT_DIR}/lib-ask.sh"
+source "${SCRIPT_DIR}/lib-modelserver.sh"
 
 NAMESPACE="${NAMESPACE:-kubemoot}"
 TEST_NAME="Smoke Test"
@@ -52,39 +53,11 @@ log_ok "Operator is ready"
 wait_for_operator_leader || exit 1
 
 # Test 1: ModelServer
-log_section "Test 1: ModelServer Quick Check"
+log_section "Test 1: ModelServer Check"
 
-# A second server on the endpoint of one the cluster already has Ready, so the check
-# follows the cluster's model servers.
-OLLAMA_ENDPOINT=$(ready_ollama_endpoint)
-if [ -z "$OLLAMA_ENDPOINT" ]; then
-    log_skip "ModelServer check: no Ready Ollama ModelServer in $NAMESPACE to share an endpoint with"
-else
-    cat <<EOF | kubectl apply -f -
-apiVersion: kubemoot.ai/v1alpha1
-kind: ModelServer
-metadata:
-  name: smoke-test-server
-  namespace: $NAMESPACE
-spec:
-  type: ollama
-  endpoint: $OLLAMA_ENDPOINT
-  # The check only needs the server to become Ready; a calibration would load models
-  # on the shared endpoint and be cut short when the server is deleted below.
-  calibration:
-    enabled: false
-EOF
-    log_ok "ModelServer created on $OLLAMA_ENDPOINT"
-
-    if wait_for "ModelServer to be ready" "kubectl get modelserver -n $NAMESPACE smoke-test-server -o jsonpath='{.status.phase}' 2>/dev/null | grep -q 'Ready'" 60; then
-        log_ok "ModelServer is Ready"
-    else
-        log_fail "ModelServer did not become Ready"
-    fi
-
-    kubectl delete modelserver -n "$NAMESPACE" smoke-test-server --ignore-not-found &>/dev/null
-    log_ok "ModelServer cleaned up"
-fi
+# Any Ready ModelServer, vLLM or Ollama: Ready as the operator published it, and it answers
+# its models list. The check changes nothing in the cluster.
+modelserver_smoke_check
 
 # Test 2: KubemootConfig exists
 log_section "Test 2: KubemootConfig Check"
