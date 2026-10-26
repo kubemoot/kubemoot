@@ -558,6 +558,29 @@ check "a published release dispatches kubemoot-published to the crews" "1|1" \
 # Publishing takes the candidate the quickstart passed, and needs that pass.
 check "publish releases the candidate the quickstart tested" "1|1" \
   "$(grep -cE '^[[:space:]]+needs: \[candidate, quickstart-candidate\]$' .github/workflows/publish-release.yaml)|$(grep -cE 'RC_TAG: \$\{\{ needs\.candidate\.outputs\.rc_tag \}\}' .github/workflows/publish-release.yaml)"
+# The quickstart gate: the shape of the jobs, not only their presence.
+job_block() { awk -v j="  $1:" '$0 == j {on=1; print; next} on && /^  [a-z][a-z-]*:/ {exit} on' .github/workflows/publish-release.yaml; }
+check "the candidate job runs on the homelab runner, from main only" "1|1" \
+  "$(job_block candidate | grep -cE "^    if: github.ref == 'refs/heads/main'$")|$(job_block candidate | grep -cE '^    runs-on: homelab-runners$')"
+check "the candidate job runs in a dry run too" "0" "$(job_block candidate | grep -c 'dry_run')"
+check "quickstart-candidate follows the candidate and runs in a dry run too" "1|0" \
+  "$(job_block quickstart-candidate | grep -cE '^    needs: candidate$')|$(job_block quickstart-candidate | grep -c 'dry_run')"
+# shellcheck disable=SC2016  # the pattern is literal workflow text
+check "quickstart-candidate hands the quickstart the candidate and only the registry secrets" "1|1|1|0" \
+  "$(job_block quickstart-candidate | grep -c 'candidate_tag: \${{ needs.candidate.outputs.rc_tag }}')|$(job_block quickstart-candidate | grep -c 'GHCR_USERNAME')|$(job_block quickstart-candidate | grep -c 'GHCR_TOKEN')|$(job_block quickstart-candidate | grep -c 'inherit')"
+check "publish runs from main after the quickstart on the candidate" "1|1" \
+  "$(job_block publish | grep -cE "^    if: github.ref == 'refs/heads/main'$")|$(job_block publish | grep -cE '^    needs: \[candidate, quickstart-candidate\]$')"
+check "the post-publish quickstart still runs after publish, not in a dry run" "1|1" \
+  "$(job_block quickstart | grep -cE '^    needs: publish$')|$(job_block quickstart | grep -cE '^    if: \$\{\{ !inputs.dry_run \}\}$')"
+check "the GitHub Release still waits for the post-publish quickstart" "1" \
+  "$(job_block release | grep -cE '^    needs: \[publish, attest, quickstart\]$')"
+check "the exported candidate is kept one day and overwritten" "1|1" \
+  "$(job_block candidate | grep -c 'retention-days: 1$')|$(job_block candidate | grep -c 'overwrite: true')"
+check "quickstart.yaml: two steps only for a candidate, two only for a published chart" "2|2" \
+  "$(grep -c "if: inputs.candidate_tag != ''" .github/workflows/quickstart.yaml)|$(grep -c "if: inputs.candidate_tag == ''" .github/workflows/quickstart.yaml)"
+check "no workflow passes every secret to a called workflow" "" "$(grep -n 'secrets: inherit' .github/workflows/publish-release.yaml .github/workflows/quickstart.yaml || true)"
+check "the release workflows use one pin for the artifact actions and the release helpers" "1|1|1" \
+  "$(grep -ohE 'actions/upload-artifact@[0-9a-f]{40}' .github/workflows/publish-release.yaml | sort -u | wc -l | tr -d ' ')|$(grep -ohE 'actions/download-artifact@[0-9a-f]{40}' .github/workflows/publish-release.yaml .github/workflows/quickstart.yaml | sort -u | wc -l | tr -d ' ')|$(grep -ohE 'release-actions/setup@[0-9a-f]{40}' .github/workflows/publish-release.yaml | sort -u | wc -l | tr -d ' ')"
 check "no workflow writes a chart file" "" \
   "$(grep -nE '(sed|yq).*(Chart|values)\.yaml' .github/workflows/*.yaml | grep -v 'integration-test' || true)"
 

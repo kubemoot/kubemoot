@@ -70,6 +70,8 @@ jobs:
           bash .github/scripts/test-go-build-static.sh
           bash .github/scripts/test-retag-image.sh
           bash .github/scripts/test-export-quickstart-candidate.sh
+          bash .github/scripts/test-quickstart-images.sh
+          bash .github/scripts/test-install-crane.sh
           bash .github/scripts/test-check-chart-triggers.sh
           bash .github/scripts/test-check-native-libs.sh
           bash .github/scripts/test-java-toolchain-version.sh

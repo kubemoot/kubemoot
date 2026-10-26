@@ -8,7 +8,8 @@
 # exactly as publish-release.sh does, and writes into OUT_DIR:
 #   chart.tgz    the candidate operator chart, pulled from Harbor
 #   images/N.tar each Kubemoot component image the quickstart runs, pulled from Harbor
-#   images.tsv   "<tarball>\t<Harbor reference>\t<reference the chart uses>" per image
+#   images.tsv   "<tarball>\t<reference the chart uses>" per image (no Harbor host: the
+#                artifact of a public repository is downloadable)
 # The hosted job loads each tarball under the reference the chart uses, so the chart runs
 # unchanged. The step outputs rc_tag (the candidate's tag) and chart_version. Publish
 # Release publishes that rc_tag, not "latest", so a candidate that lands after this check
@@ -30,27 +31,16 @@ source "${RELEASE_LIB:?RELEASE_LIB must point to release-lib.sh from kubemoot/re
 source "${here}/release-chart-lib.sh"
 
 CHART_PREFIX="operator-chart-v"
-# The component images the quickstart can run; the first three are always pinned.
-COMPONENTS="kubemoot-operator|agent-runtime|discussion-gateway|crew-liaison|dashboard"
-CORE_COMPONENTS="kubemoot-operator agent-runtime discussion-gateway"
+# shellcheck source=/dev/null
+source "${here}/quickstart-images.sh"
 
-# candidate_images: the component images in rendered manifests on stdin, one reference per
-# distinct image, as the chart names it (its registry prefix included).
-candidate_images() {
-  grep -oE "[A-Za-z0-9._:/-]+/(${COMPONENTS}):[A-Za-z0-9._-]+" | sort -u
-}
-
-# require_core: fail unless the image list on stdin holds the core components.
-require_core() {
-  local list core
-  list="$(cat)"
-  for core in ${CORE_COMPONENTS}; do
-    grep -q "/${core}:" <<<"$list" || die "the candidate chart pins no ${core} image"
-  done
+# harbor_ref NAME TAG DIGEST: where Harbor holds the image (by digest when the chart pins one).
+harbor_ref() {
+  if [ -n "$3" ]; then echo "${REGISTRY}/kubemoot/${1}@${3}"; else echo "${REGISTRY}/kubemoot/${1}:${2}"; fi
 }
 
 main() {
-  local out="${OUT_DIR:-quickstart-candidate}" point chart_rc version rendered ref name tag n=0
+  local out="${OUT_DIR:-quickstart-candidate}" point chart_rc version rendered ref source_ref n=0
   : "${REGISTRY:?REGISTRY required}"
   mkdir -p "${out}/images"
   out="$(cd "$out" && pwd)"
@@ -69,15 +59,15 @@ main() {
   # The quickstart's own values, as of the candidate's commit, decide which images run.
   rendered="$(helm template q "${out}/chart.tgz" --values <(git show "${chart_rc}:quickstart/operator-values.yaml"))" \
     || die "cannot render the candidate chart"
-  candidate_images <<<"$rendered" | tee "${out}/images.txt" | require_core
+  quickstart_images <<<"$rendered" | quickstart_require_core > "${out}/images.txt"
 
   : > "${out}/images.tsv"
   while read -r ref; do
     n=$((n + 1))
-    name="${ref##*/}"; tag="${name#*:}"; name="${name%%:*}"
-    crane pull --insecure --platform linux/amd64 "${REGISTRY}/kubemoot/${name}:${tag}" "${out}/images/${n}.tar" \
-      || die "cannot pull ${REGISTRY}/kubemoot/${name}:${tag} from Harbor"
-    printf 'images/%s.tar\t%s\t%s\n' "$n" "${REGISTRY}/kubemoot/${name}:${tag}" "$ref" >> "${out}/images.tsv"
+    source_ref="$(harbor_ref "$(image_name "$ref")" "$(image_tag "$ref")" "$(image_digest "$ref")")"
+    crane pull --insecure --platform linux/amd64 "$source_ref" "${out}/images/${n}.tar" \
+      || die "cannot pull ${source_ref} from Harbor"
+    printf 'images/%s.tar\t%s\n' "$n" "$ref" >> "${out}/images.tsv"
   done < "${out}/images.txt"
 
   output rc_tag "$chart_rc"
