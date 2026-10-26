@@ -165,7 +165,7 @@ make hooks      # install the pre-commit gate (gofmt and lint)
 **crews.** Each subdirectory is an independently versioned Helm chart. To add a crew,
 create `<your-crew>/` with `Chart.yaml`, `values.yaml`, `templates/`, and a `fitness/`
 directory of scenarios, then add a release workflow modeled on an existing one under
-`.github/workflows/`. A merge to main builds a release candidate and pushes it to the maintainers' registry; the Publish Release workflow runs the quickstart on that candidate, then publishes the final chart to GHCR, creates the GitHub Release, and asks the crews, kmctl, and CrewForge to build candidates against the new release. Its run summary lists the release status of the six public repositories.
+`.github/workflows/`. A merge to main builds a release candidate and pushes it to the maintainers' registry; the Publish Release workflow runs the quickstart on that candidate, then publishes the final chart to GHCR, creates the GitHub Release, and asks the crews and kmctl to build candidates against the new release. Its run summary lists the release status of the six public repositories, and warns about any that hold unpublished breaking changes (CrewForge among them, until its own Publish Release runs).
 
 **Documentation.** Each component's reference docs live in that component's `docs/`
 directory. The site is built from the `kubemoot-docs` repo with Hugo; `npm install`

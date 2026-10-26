@@ -6,9 +6,15 @@
 # dispatches the clients, and puts the output in its run summary; the umbrella repository's
 # scripts/release-status.sh is the same check for a person at a terminal.
 #
+# This is the one implementation; the umbrella repository's scripts/release-status.sh runs it.
+#
 # Usage: release-status.sh [--markdown] [repo ...]   (default: the six public repositories)
-# Needs gh (authenticated) and git. Exit 1 when any repository has unpublished breaking
-# changes. --markdown prints a list for a GitHub step summary.
+# Needs gh (authenticated) and git. --markdown prints a list for a GitHub step summary.
+# A repository that has never been released (the API answers 404) is reported as such and is
+# not a failure. Any other API or git error is reported as "UNKNOWN" for that repository: the
+# check could not tell.
+# Exit status, as bits: 1 = a repository holds unpublished breaking changes; 2 = the check
+# failed for a repository (UNKNOWN); 3 = both; 0 = every repository reported cleanly.
 # Tested by test-release-status.sh.
 set -euo pipefail
 
@@ -50,20 +56,49 @@ emit_breaking() {
   if $markdown; then printf '  - UNPUBLISHED BREAKING: %s\n' "$1"; else printf '    UNPUBLISHED BREAKING: %s\n' "$1"; fi
 }
 
+# gh_read ROUTE JQ: the API answer on stdout. Fails with the error text on stderr, and with
+# status 44 when the API answered 404.
+gh_read() {
+  local err rc=0
+  err="$(mktemp)"
+  gh api "$1" -q "$2" 2>"$err" || rc=$?
+  if [ "$rc" -ne 0 ]; then
+    if grep -qE 'HTTP 404|Not Found' "$err"; then rc=44; fi
+    head -n 1 "$err" >&2
+    rm -f "$err"
+    return "$rc"
+  fi
+  rm -f "$err"
+}
+
+# unknown REPO WHAT DETAIL: report a repository the check could not read.
+unknown() {
+  emit "${1}: UNKNOWN, could not read ${2}: ${3:-no detail}"
+}
+
+# status_of REPO: prints the repository's line. Returns 1 for unpublished breaking changes,
+# 2 when the check could not read the repository, 0 otherwise.
 status_of() {
-  local repo="$1" latest compare ahead subjects user bang rc line
-  latest="$(gh api "repos/${OWNER}/${repo}/releases/latest" -q .tag_name 2>/dev/null || true)"
-  if [ -z "$latest" ]; then
+  local repo="$1" latest compare ahead subjects user bang rc line err rc_status=0
+  latest="$(gh_read "repos/${OWNER}/${repo}/releases/latest" .tag_name 2>"${work}/err")" || rc_status=$?
+  err="$(cat "${work}/err")"
+  if [ "$rc_status" -eq 44 ]; then
     emit "${repo}: no published release"
     return 0
+  elif [ "$rc_status" -ne 0 ] || [ -z "$latest" ]; then
+    unknown "$repo" "the latest release" "${err:-empty answer}"
+    return 2
   fi
-  compare="$(gh api "repos/${OWNER}/${repo}/compare/${latest}...main" \
-    -q '[.ahead_by, ([.commits[].commit.message | split("\n")[0] + (if test("(^|\n)BREAKING[ -]CHANGE") then " [BREAKING CHANGE in the body]" else "" end)]|join("\n"))]|@tsv' 2>/dev/null || true)"
+  compare="$(gh_read "repos/${OWNER}/${repo}/compare/${latest}...main" \
+    '[.ahead_by, ([.commits[].commit.message | split("\n")[0] + (if test("(^|\n)BREAKING[ -]CHANGE") then " [BREAKING CHANGE in the body]" else "" end)]|join("\n"))]|@tsv' \
+    2>"${work}/err")" || { unknown "$repo" "the commits since ${latest}" "$(cat "${work}/err")"; return 2; }
   ahead="${compare%%$'\t'*}"
   subjects="$(printf '%s' "${compare#*$'\t'}" | sed 's/\\n/\n/g')"
   user="$(count_user_facing <<<"$subjects")"
   bang="$(breaking_subjects <<<"$subjects")"
-  rc="$(git ls-remote --tags --refs "https://github.com/${OWNER}/${repo}" 2>/dev/null | newest_candidate "$latest" || true)"
+  rc="$(git ls-remote --tags --refs "https://github.com/${OWNER}/${repo}" 2>"${work}/err")" \
+    || { unknown "$repo" "the tags" "$(head -n 1 "${work}/err")"; return 2; }
+  rc="$(newest_candidate "$latest" <<<"$rc")"
   emit "${repo}: released ${latest}; main is ${ahead:-?} commit(s) ahead, ${user} user-facing; newest candidate ${rc:-none}"
   if [ -n "$bang" ]; then
     while IFS= read -r line; do emit_breaking "$line"; done <<<"$bang"
@@ -71,13 +106,22 @@ status_of() {
   fi
 }
 
-breaking=0
+work="$(mktemp -d)"
+trap 'rm -rf "$work"' EXIT
+
+result=0
 for repo in "${repos[@]}"; do
-  status_of "$repo" || breaking=1
+  rc=0
+  status_of "$repo" || rc=$?
+  result=$((result | rc))
 done
 
-if [ "$breaking" -ne 0 ]; then
+if [ $((result & 1)) -ne 0 ]; then
   echo
   echo "Some repositories hold unpublished breaking changes: publish them with the release."
-  exit 1
 fi
+if [ $((result & 2)) -ne 0 ]; then
+  echo
+  echo "The check could not read some repositories (UNKNOWN above): their status is not known."
+fi
+exit "$result"

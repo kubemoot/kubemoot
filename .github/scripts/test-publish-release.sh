@@ -551,10 +551,10 @@ check "no workflow or script commits to main" "" "$commits"
 # no listener succeeds and builds nothing.
 check "a docs change dispatches kubemoot-docs-changed" "1" \
   "$(grep -cE '^[[:space:]]+event-type: kubemoot-docs-changed$' .github/workflows/trigger-docs-rebuild.yaml)"
-# The release workflows of the crews, kmctl and CrewForge listen for exactly this event and
+# The release workflows of the crews and kmctl listen for exactly this event and
 # build new candidates with the finals just published.
-check "a published release dispatches kubemoot-published to the crews, kmctl and CrewForge" "1|1" \
-  "$(grep -cE '^[[:space:]]+repository: \[crews, kmctl, vscode-crewforge\]$' .github/workflows/publish-release.yaml)|$(grep -cE '^[[:space:]]+event-type: kubemoot-published$' .github/workflows/publish-release.yaml)"
+check "a published release dispatches kubemoot-published to the crews and kmctl" "1|1" \
+  "$(grep -cE '^[[:space:]]+repository: \[crews, kmctl\]$' .github/workflows/publish-release.yaml)|$(grep -cE '^[[:space:]]+event-type: kubemoot-published$' .github/workflows/publish-release.yaml)"
 # Publishing takes the candidate the quickstart passed, and needs that pass.
 check "publish releases the candidate the quickstart tested" "1|1" \
   "$(grep -cE '^[[:space:]]+needs: \[candidate, quickstart-candidate\]$' .github/workflows/publish-release.yaml)|$(grep -cE 'RC_TAG: \$\{\{ needs\.candidate\.outputs\.rc_tag \}\}' .github/workflows/publish-release.yaml)"
@@ -574,6 +574,8 @@ check "the post-publish quickstart still runs after publish, not in a dry run" "
   "$(job_block quickstart | grep -cE '^    needs: publish$')|$(job_block quickstart | grep -cE '^    if: \$\{\{ !inputs.dry_run \}\}$')"
 check "the GitHub Release still waits for the post-publish quickstart" "1" \
   "$(job_block release | grep -cE '^    needs: \[publish, attest, quickstart\]$')"
+check "the release status job reports and never fails the release" "1|1|1" \
+  "$(job_block release-status | grep -cE '^    needs: \[publish, dispatch\]$')|$(job_block release-status | grep -c 'Release status check failed')|$(job_block release-status | grep -c 'Unpublished breaking changes')"
 check "the exported candidate is kept one day and overwritten" "1|1" \
   "$(job_block candidate | grep -c 'retention-days: 1$')|$(job_block candidate | grep -c 'overwrite: true')"
 check "quickstart.yaml: two steps only for a candidate, two only for a published chart" "2|2" \

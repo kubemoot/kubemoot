@@ -29,7 +29,7 @@
 #               signed attached as kubemoot_<version>.intoto.jsonl: created as a draft,
 #               given the file, then published, since releases are immutable once
 #               published (.github/scripts/create-github-releases.sh)
-#   dispatch    asks kubemoot/crews, kubemoot/kmctl and kubemoot/vscode-crewforge to build
+#   dispatch    asks kubemoot/crews and kubemoot/kmctl to build
 #               new candidates, which take the finals just published (repository_dispatch
 #               kubemoot-published); publishing them stays a Publish Release run in each
 #   release-status
@@ -340,10 +340,12 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: bash .github/scripts/create-github-releases.sh release-files provenance
 
-  # The crew charts, kmctl and CrewForge take Kubemoot's latest finals when a candidate is
+  # The crew charts and kmctl take Kubemoot's latest finals when a candidate is
   # built, so a new Kubemoot release asks each for a new candidate. Only a GitHub API call,
   # with RELEASE_TOKEN (contents write on each repository); the job's own token needs nothing.
-  # Publishing those candidates is a Publish Release run in each repository.
+  # Publishing those candidates is a Publish Release run in each repository. CrewForge is
+  # not dispatched: it has no build-time Kubemoot dependency (no chart or image to stamp),
+  # so a forced candidate would rebuild the same code; the release status below reports it.
   dispatch:
     needs: [publish, release]
     if: ${{ !inputs.dry_run }}
@@ -352,7 +354,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        repository: [crews, kmctl, vscode-crewforge]
+        repository: [crews, kmctl]
     steps:
       - name: Dispatch the candidate build
         uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
@@ -391,6 +393,10 @@ jobs:
             echo
             echo "$report"
           } >> "$GITHUB_STEP_SUMMARY"
-          if [ "$status" -ne 0 ]; then
+          # Exit bits of release-status.sh: 1 unpublished breaking changes, 2 the check failed.
+          if [ $((status & 1)) -ne 0 ]; then
             echo "::warning title=Unpublished breaking changes::A public repository holds unpublished breaking changes; see the run summary. Publish it with the release."
+          fi
+          if [ $((status & 2)) -ne 0 ]; then
+            echo "::warning title=Release status check failed::The release status of a public repository could not be read (UNKNOWN in the run summary); its status is not known."
           fi
