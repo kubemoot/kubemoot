@@ -9,6 +9,7 @@ package mcpserver
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"strconv"
@@ -34,7 +35,7 @@ type Server struct {
 	Fetcher store.Getter
 	// MaxOutputBytes is the per-tool output cap in bytes; <= 0 disables capping.
 	MaxOutputBytes int
-	// JqMaxInputBytes caps the JSON input jq will parse; <= 0 disables the cap.
+	// JqMaxInputBytes caps the JSON or YAML input jq will parse; <= 0 disables the cap.
 	JqMaxInputBytes int64
 }
 
@@ -73,9 +74,14 @@ func (s *Server) MCP() *mcp.Server {
 			"pass a larger limit, or 0 for the rest of the artifact, to read more in " +
 			"one call (output is capped at 64 KB)."}, s.rows)
 	mcp.AddTool(srv, &mcp.Tool{Name: "artifact_select",
-		Description: "Project named columns from a CSV artifact with a header row."}, s.selectCSV)
+		Description: "Project named columns (names match case-insensitively) from a table artifact with a header " +
+			"row: a kubectl-style table such as resources_list output (columns split on 2+ spaces) or CSV " +
+			"(set delimiter for a non-comma separator). An error lists the header's columns. " +
+			"Not for JSON or YAML: use artifact_jq."}, s.selectColumns)
 	mcp.AddTool(srv, &mcp.Tool{Name: "artifact_jq",
-		Description: "Run a jq program over a JSON artifact (input size capped)."}, s.jq)
+		Description: "Run a jq program over a JSON or YAML artifact, including multi-document YAML such as " +
+			"resources_get output (the program runs once per document; input size capped). " +
+			"Not for tables or plain text: use artifact_select, artifact_grep or artifact_rows."}, s.jq)
 	return srv
 }
 
@@ -90,25 +96,25 @@ type tailIn struct {
 	Lines int    `json:"lines,omitempty" jsonschema:"how many lines (default 20)"`
 }
 type grepIn struct {
-	Key     string `json:"key" jsonschema:"the artifact object key"`
+	Key     string `json:"key" jsonschema:"the object key, exactly as on the artifact reference"`
 	Pattern string `json:"pattern" jsonschema:"an RE2 regular expression"`
 	Max     int    `json:"max,omitempty" jsonschema:"max matching lines (default 100)"`
 }
 type keyIn struct {
-	Key string `json:"key" jsonschema:"the artifact object key"`
+	Key string `json:"key" jsonschema:"the object key, exactly as on the artifact reference"`
 }
 type rowsIn struct {
-	Key   string `json:"key" jsonschema:"the artifact object key"`
+	Key   string `json:"key" jsonschema:"the object key, exactly as on the artifact reference"`
 	Start int    `json:"start,omitempty" jsonschema:"0-based first line (default 0)"`
 	Limit int    `json:"limit,omitempty" jsonschema:"how many lines (default 100)"`
 }
 type selectIn struct {
-	Key       string   `json:"key" jsonschema:"the artifact object key"`
+	Key       string   `json:"key" jsonschema:"the object key, exactly as on the artifact reference"`
 	Columns   []string `json:"columns" jsonschema:"column names to project, in output order"`
-	Delimiter string   `json:"delimiter,omitempty" jsonschema:"single-char field delimiter (default comma)"`
+	Delimiter string   `json:"delimiter,omitempty" jsonschema:"single-char; omit to auto-detect table or CSV"`
 }
 type jqIn struct {
-	Key     string `json:"key" jsonschema:"the artifact object key"`
+	Key     string `json:"key" jsonschema:"the object key, exactly as on the artifact reference"`
 	Program string `json:"program" jsonschema:"a jq program, e.g. .items[].name"`
 }
 
@@ -145,9 +151,11 @@ func (s *Server) rows(ctx context.Context, _ *mcp.CallToolRequest, in rowsIn) (*
 	})
 }
 
-func (s *Server) selectCSV(ctx context.Context, _ *mcp.CallToolRequest, in selectIn) (*mcp.CallToolResult, Out, error) {
+func (s *Server) selectColumns(
+	ctx context.Context, _ *mcp.CallToolRequest, in selectIn,
+) (*mcp.CallToolResult, Out, error) {
 	return s.read(ctx, in.Key, func(r io.Reader) (string, error) {
-		return readops.SelectCSV(r, in.Columns, delimiterOrComma(in.Delimiter), s.MaxOutputBytes)
+		return readops.Select(r, in.Columns, delimiterOrAuto(in.Delimiter), s.MaxOutputBytes)
 	})
 }
 
@@ -168,7 +176,7 @@ func (s *Server) read(
 	}
 	rc, err := s.Fetcher.Get(ctx, key)
 	if err != nil {
-		return nil, Out{}, fmt.Errorf("fetch %s: %w", key, err)
+		return nil, Out{}, fetchError(key, err)
 	}
 	defer func() { _ = rc.Close() }()
 
@@ -178,6 +186,16 @@ func (s *Server) read(
 	}
 	text = s.capOutput(text)
 	return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: text}}}, Out{Output: text}, nil
+}
+
+// fetchError turns a failed fetch into a message the model can act on. A missing key
+// is almost always a placeholder or a guessed name, so it points at the reference line.
+func fetchError(key string, err error) error {
+	if errors.Is(err, store.ErrNotFound) {
+		return fmt.Errorf("artifact key %q was not found; pass the \"key\" value exactly as it "+
+			"appears on the artifact reference line (not a placeholder like <key>, a tool name, or a shortened name)", key)
+	}
+	return fmt.Errorf("fetch %s: %w", key, err)
 }
 
 // capOutput bounds a result so a read-op can never flood the model context. It cuts
@@ -206,10 +224,11 @@ func orDefault(v, def int) int {
 	return v
 }
 
-// delimiterOrComma returns the first rune of d, or comma when d is empty.
-func delimiterOrComma(d string) rune {
+// delimiterOrAuto returns the first rune of d, or 0 when d is empty so the read-op
+// detects a table or CSV from the header.
+func delimiterOrAuto(d string) rune {
 	if d == "" {
-		return ','
+		return 0
 	}
 	return []rune(d)[0]
 }

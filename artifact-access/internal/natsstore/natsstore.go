@@ -12,11 +12,14 @@ package natsstore
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
+
+	"github.com/kubemoot/kubemoot/artifact-access/internal/store"
 )
 
 // Store is the read interface to an Object Store bucket. It holds only config; each
@@ -54,6 +57,9 @@ func (s *Store) Get(ctx context.Context, key string) (io.ReadCloser, error) {
 	res, err := obs.Get(ctx, key)
 	if err != nil {
 		nc.Close()
+		if errors.Is(err, jetstream.ErrObjectNotFound) {
+			return nil, fmt.Errorf("%w: %w", store.ErrNotFound, err)
+		}
 		return nil, err
 	}
 	return &connBoundResult{res: res, nc: nc}, nil

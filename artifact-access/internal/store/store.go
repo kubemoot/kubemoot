@@ -7,8 +7,12 @@ package store
 
 import (
 	"context"
+	"errors"
 	"io"
 )
+
+// ErrNotFound is wrapped by a Getter when no object exists under the key.
+var ErrNotFound = errors.New("artifact not found")
 
 // Getter streams an object's bytes by key. The returned reader must be closed.
 type Getter interface {

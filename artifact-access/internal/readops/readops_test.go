@@ -120,7 +120,7 @@ func TestRows(t *testing.T) {
 
 func TestSelectCSV(t *testing.T) {
 	csvIn := "name,ns,age\npod-a,default,3\npod-b,kube-system,7\n"
-	got, err := SelectCSV(strings.NewReader(csvIn), []string{"ns", "name"}, 0, big)
+	got, err := SelectCSV(strings.NewReader(csvIn), []string{"ns", colName}, 0, big)
 	if err != nil {
 		t.Fatal(err)
 	}
