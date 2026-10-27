@@ -314,6 +314,17 @@ spec:
                           More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
                         type: object
                     type: object
+                  runtimeClassName:
+                    description: |-
+                      RuntimeClassName is the Kubernetes RuntimeClass the agent's pod runs under, for
+                      example gvisor. Unset, the pod takes KubemootConfig spec.defaults.agentRuntimeClassName;
+                      set to the empty string, the pod runs under the node's default runtime whatever the
+                      realm default is. The named RuntimeClass and the runtime behind it (such as gVisor on
+                      the nodes) are installed by the cluster owner; while the class does not exist the
+                      operator holds the Deployment and reports RuntimeClassAvailable=False in status.conditions.
+                    maxLength: 253
+                    pattern: ^([a-z0-9]([-a-z0-9.]*[a-z0-9])?)?$
+                    type: string
                   serviceAccountName:
                     description: ServiceAccountName is the service account for the
                       agent
@@ -1041,8 +1052,10 @@ spec:
                 description: Message provides additional status information
                 type: string
               phase:
-                description: Phase is the current phase (Pending, Deploying, Running,
-                  Error)
+                description: |-
+                  Phase is the current phase: Running once the Deployment and Service are applied,
+                  Unschedulable when no feasible Model exists, Pending while the RuntimeClass the pods
+                  ask for does not exist, Error when the harness spec cannot be built.
                 type: string
               ragSourceStatus:
                 description: RAGSourceStatus summarizes the status of referenced RAG

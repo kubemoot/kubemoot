@@ -132,6 +132,16 @@ type DefaultConfig struct {
 	// spec.deployment.resources (legacy mode) or spec.harness.resources (sidecar mode).
 	// +optional
 	AgentResources *corev1.ResourceRequirements `json:"agentResources,omitempty"`
+
+	// AgentRuntimeClassName is the default Kubernetes RuntimeClass for the pods of every
+	// Agent, for example gvisor. Empty, the pods set no runtimeClassName and run under the
+	// node's default runtime. An Agent's own spec.deployment.runtimeClassName wins, and an
+	// explicit empty string there turns the default off for that Agent. The class and its
+	// runtime are installed by the cluster owner; see concepts/isolation in the docs.
+	// +kubebuilder:validation:MaxLength=253
+	// +kubebuilder:validation:Pattern=`^([a-z0-9]([-a-z0-9.]*[a-z0-9])?)?$`
+	// +optional
+	AgentRuntimeClassName string `json:"agentRuntimeClassName,omitempty"`
 }
 
 // SchedulerConfig configures the GPU-aware agent scheduling system

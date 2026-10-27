@@ -315,8 +315,9 @@ func (r *AgentReconciler) buildSidecarDeployment(ctx context.Context, agent *kub
 		ObjectMeta: metav1.ObjectMeta{Labels: labels, Annotations: map[string]string{promptHashAnnotation: promptHash}},
 		Spec: corev1.PodSpec{
 			ServiceAccountName: serviceAccountName, ImagePullSecrets: r.imagePullSecrets(),
-			Containers: []corev1.Container{container},
-			Volumes:    []corev1.Volume{{Name: harnessTmpVolume, VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}}},
+			RuntimeClassName: r.podRuntimeClass(agent),
+			Containers:       []corev1.Container{container},
+			Volumes:          []corev1.Volume{{Name: harnessTmpVolume, VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}}},
 		},
 	}
 	if data, err := r.sidecarContractData(ctx, agent, mulling, triage); err == nil {

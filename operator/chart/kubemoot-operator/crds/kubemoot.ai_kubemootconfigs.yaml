@@ -131,6 +131,16 @@ spec:
                           More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
                         type: object
                     type: object
+                  agentRuntimeClassName:
+                    description: |-
+                      AgentRuntimeClassName is the default Kubernetes RuntimeClass for the pods of every
+                      Agent, for example gvisor. Empty, the pods set no runtimeClassName and run under the
+                      node's default runtime. An Agent's own spec.deployment.runtimeClassName wins, and an
+                      explicit empty string there turns the default off for that Agent. The class and its
+                      runtime are installed by the cluster owner; see concepts/isolation in the docs.
+                    maxLength: 253
+                    pattern: ^([a-z0-9]([-a-z0-9.]*[a-z0-9])?)?$
+                    type: string
                   embeddingModel:
                     default: nomic-embed
                     description: EmbeddingModel is the default EmbeddingModel CR name

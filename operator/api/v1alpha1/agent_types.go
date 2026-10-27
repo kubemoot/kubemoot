@@ -143,6 +143,17 @@ type DeploymentConfig struct {
 	// +optional
 	ServiceAccountName string `json:"serviceAccountName,omitempty"`
 
+	// RuntimeClassName is the Kubernetes RuntimeClass the agent's pod runs under, for
+	// example gvisor. Unset, the pod takes KubemootConfig spec.defaults.agentRuntimeClassName;
+	// set to the empty string, the pod runs under the node's default runtime whatever the
+	// realm default is. The named RuntimeClass and the runtime behind it (such as gVisor on
+	// the nodes) are installed by the cluster owner; while the class does not exist the
+	// operator holds the Deployment and reports RuntimeClassAvailable=False in status.conditions.
+	// +kubebuilder:validation:MaxLength=253
+	// +kubebuilder:validation:Pattern=`^([a-z0-9]([-a-z0-9.]*[a-z0-9])?)?$`
+	// +optional
+	RuntimeClassName *string `json:"runtimeClassName,omitempty"`
+
 	// Port is the HTTP port for the agent API
 	// +kubebuilder:default=8080
 	// +optional
@@ -402,7 +413,9 @@ type AgentSpec struct {
 
 // AgentStatus defines the observed state of Agent
 type AgentStatus struct {
-	// Phase is the current phase (Pending, Deploying, Running, Error)
+	// Phase is the current phase: Running once the Deployment and Service are applied,
+	// Unschedulable when no feasible Model exists, Pending while the RuntimeClass the pods
+	// ask for does not exist, Error when the harness spec cannot be built.
 	Phase string `json:"phase,omitempty"`
 
 	// Ready indicates if the agent is ready to accept requests
