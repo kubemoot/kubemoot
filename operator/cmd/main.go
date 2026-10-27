@@ -48,6 +48,7 @@ import (
 	"github.com/kubemoot/kubemoot/operator/internal/controller"
 	"github.com/kubemoot/kubemoot/operator/internal/crewmemory"
 	kubemootnats "github.com/kubemoot/kubemoot/operator/internal/nats"
+	"github.com/kubemoot/kubemoot/operator/internal/netpol"
 	"github.com/kubemoot/kubemoot/operator/internal/notifications"
 	kubemootscheduler "github.com/kubemoot/kubemoot/operator/internal/scheduler"
 	kubemootwebhook "github.com/kubemoot/kubemoot/operator/internal/webhook"
@@ -349,6 +350,8 @@ func main() {
 	natsPublisher := kubemootnats.NewPublisher("")
 	defer natsPublisher.Close()
 
+	netPol := newNetPolicySync(mgr)
+
 	// KubemootConfig controller is listed first to populate the cache before others start.
 	// Registration order is preserved from the original setup sequence.
 	// One pull tracker serves every controller that downloads models, so a tag that
@@ -373,6 +376,7 @@ func main() {
 		}).SetupWithManager},
 		{"MCPServer", (&controller.MCPServerReconciler{
 			Client: mgr.GetClient(), Scheme: mgr.GetScheme(), ConfigCache: configCache, NATSPublisher: natsPublisher,
+			NetPol: netPol,
 		}).SetupWithManager},
 		{"EmbeddingModel", (&controller.EmbeddingModelReconciler{
 			Client: mgr.GetClient(), Scheme: mgr.GetScheme(), Pulls: modelPulls,
@@ -382,7 +386,7 @@ func main() {
 			HTTPClient: &http.Client{Timeout: 10 * time.Second},
 		}).SetupWithManager},
 		{"Agent", (&controller.AgentReconciler{
-			Client: mgr.GetClient(), ConfigCache: configCache, NATSPublisher: natsPublisher,
+			Client: mgr.GetClient(), ConfigCache: configCache, NATSPublisher: natsPublisher, NetPol: netPol,
 		}).SetupWithManager},
 		{"Skill", (&controller.SkillReconciler{
 			Client: mgr.GetClient(), Scheme: mgr.GetScheme(), NATSPublisher: natsPublisher,
@@ -395,11 +399,11 @@ func main() {
 		}).SetupWithManager},
 		{"MCPGateway", (&controller.MCPGatewayReconciler{
 			Client: mgr.GetClient(), APIReader: mgr.GetAPIReader(), Scheme: mgr.GetScheme(),
-			ConfigCache: configCache, NATSPublisher: natsPublisher,
+			ConfigCache: configCache, NATSPublisher: natsPublisher, NetPol: netPol,
 		}).SetupWithManager},
 		{"Crew", (&controller.CrewReconciler{
 			Client: mgr.GetClient(), Scheme: mgr.GetScheme(), ConfigCache: configCache, NATSPublisher: natsPublisher,
-			Recorder: mgr.GetEventRecorder("crew-controller"),
+			Recorder: mgr.GetEventRecorder("crew-controller"), NetPol: netPol,
 		}).SetupWithManager},
 		{"MCPCatalog", (&controller.MCPCatalogReconciler{
 			Client: mgr.GetClient(), Scheme: mgr.GetScheme(),
@@ -417,7 +421,7 @@ func main() {
 			Client: mgr.GetClient(), Scheme: mgr.GetScheme(),
 		}).SetupWithManager},
 		{"Namespace", (&controller.NamespaceReconciler{
-			Client: mgr.GetClient(), ConfigCache: configCache,
+			Client: mgr.GetClient(), ConfigCache: configCache, NetPol: netPol,
 		}).SetupWithManager},
 	})
 	// +kubebuilder:scaffold:builder
@@ -446,6 +450,22 @@ func main() {
 	if err := mgr.Start(ctrl.SetupSignalHandler()); err != nil {
 		setupLog.Error(err, "problem running manager")
 		os.Exit(1)
+	}
+}
+
+// newNetPolicySync reads the network policy setting from the environment and returns the
+// applier every controller shares. With the flag off it still removes the policies the
+// operator generated earlier, and creates none.
+func newNetPolicySync(mgr ctrl.Manager) *controller.NetPolicySync {
+	cfg, warnings := netpol.ConfigFromEnv(os.Getenv)
+	for _, w := range warnings {
+		setupLog.Info("network policy setting ignored", "reason", w)
+	}
+	setupLog.Info("network policies", "enabled", cfg.Enabled, "ingress", cfg.Ingress,
+		"egress", string(cfg.Egress), "cilium", string(cfg.Cilium))
+	return &controller.NetPolicySync{
+		Client: mgr.GetClient(), Scheme: mgr.GetScheme(), Config: cfg,
+		CiliumInstalled: controller.CiliumKindInstalled(mgr.GetRESTMapper()),
 	}
 }
 

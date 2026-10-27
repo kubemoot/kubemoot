@@ -71,6 +71,9 @@ type MCPGatewayReconciler struct {
 	HTTPClient    *http.Client
 	ConfigCache   *ConfigCache
 	NATSPublisher *kubemootnats.Publisher
+	// NetPol narrows the gateway's tool port to the crew's namespace when the network
+	// policy flag is on. Nil leaves the tool port open to every pod.
+	NetPol *NetPolicySync
 }
 
 // +kubebuilder:rbac:groups=kubemoot.ai,resources=mcpgateways,verbs=get;list;watch;create;update;patch;delete

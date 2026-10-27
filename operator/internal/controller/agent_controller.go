@@ -44,6 +44,7 @@ import (
 	kubemootnats "github.com/kubemoot/kubemoot/operator/internal/nats"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	networkingv1 "k8s.io/api/networking/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -65,6 +66,9 @@ type AgentReconciler struct {
 	// selection (resume_sync.go). Nil in tests / when NATS is unconfigured — the
 	// resume sync is a no-op and the agent-runtime degrades to keyword selection.
 	NATSPublisher *kubemootnats.Publisher
+	// NetPol applies the egress policy generated for an Agent that declares egress.
+	// Nil generates none.
+	NetPol *NetPolicySync
 }
 
 // Phase names — the consent-3 archetype's phases. CrewSchedulingPolicy
@@ -198,6 +202,10 @@ func (r *AgentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 	}
 	if err := r.ensureService(ctx, agent); err != nil {
 		log.Error(err, "Failed to ensure Service")
+		return ctrl.Result{}, err
+	}
+	if err := r.reconcileNetworkPolicies(ctx, agent, mullingPick, triagePick); err != nil {
+		log.Error(err, "Failed to reconcile network policies")
 		return ctrl.Result{}, err
 	}
 	if err := r.refreshStatus(ctx, agent, mullingPick, triagePick); err != nil && !apierrors.IsNotFound(err) {
@@ -1109,11 +1117,7 @@ func (r *AgentReconciler) findCrewGateway(ctx context.Context, namespace string)
 	if gw == nil {
 		return "", 0, false
 	}
-	p := gw.Spec.Port
-	if p == 0 {
-		p = 8080
-	}
-	return gw.Name, p, true
+	return gw.Name, gatewayToolPort(gw), true
 }
 
 // ensureService creates or updates a ClusterIP Service for the agent.
@@ -1190,6 +1194,7 @@ func (r *AgentReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Owns(&appsv1.Deployment{}).
 		Owns(&corev1.Service{}).
 		Owns(&corev1.ConfigMap{}).
+		Owns(&networkingv1.NetworkPolicy{}).
 		// Re-reconcile every Agent when KubemootConfig changes so an
 		// agentRuntime image bump (e.g. via chart upgrade) propagates
 		// to the Deployment spec without per-Agent annotation or

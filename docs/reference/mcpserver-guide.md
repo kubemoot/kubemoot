@@ -177,6 +177,7 @@ spec:
 | `serviceAccountName` | string | | K8s service account (needed for cluster access); see [Secrets and tools](../../concepts/secrets-and-tools/) |
 | `registry` | RegistryConfig | | Gateway registration settings |
 | `toolOverrides` | []ToolOverride | | Corrected tool and parameter descriptions served to agents |
+| `egress` | EgressRules | | Where the server may connect. With `security.networkPolicies` on, a server that sets it is restricted to DNS plus this list; see ### EgressRules |
 
 ### RegistryConfig
 
@@ -209,6 +210,29 @@ spec:
           description: Boolean true lists releases in every namespace.
 ```
 
+### EgressRules
+
+Optional. It has an effect only when the chart value `security.networkPolicies.egress.mode`
+is `Declared`; a server without `egress` is never restricted. The same type is used by
+[Agent](../agent/#specegress). What each CNI enforces is in [Network policies](../../concepts/network-policies/).
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `allowedHosts` | []string | | DNS names the server may reach: `api.example.com`, or `*.example.com` (wildcard in the leftmost label only). Lower case, no scheme, port, or path. Enforced on Cilium; elsewhere the server may reach the internet outside the private ranges |
+| `allowedCIDRs` | []EgressCIDR | | Address ranges (`cidr`, and `except` ranges inside it). Enforced on every CNI that enforces NetworkPolicy |
+| `ports` | []int32 | `[443]` | TCP ports allowed to the hosts and ranges, 1 to 65535 |
+| `apiServer` | bool | `false` | Allow the Kubernetes API server, for a tool that talks to the cluster |
+
+```yaml
+spec:
+  egress:
+    allowedHosts: ["smtp.example.com"]
+    ports: [587]
+```
+
+With the flag on, the operator also generates `km-mcp-<name>-ingress`, which admits only the
+crew's gateway and the operator to the server's port.
+
 ### ProxyInjectionConfig
 
 | Field | Type | Default | Description |
@@ -229,7 +253,7 @@ spec:
 | `tools` | []MCPTool | Discovered tool names and descriptions |
 | `discoverable` | bool | Registered with at least one gateway |
 | `registeredWith` | []RegistryStatus | Gateway registration details |
-| `conditions` | []Condition | `Ready`; `ImageResolved` on a managed server (False with the reason when `kubemootImage` cannot resolve); `CredentialReady` on an external server with `registry.authSecretRef` |
+| `conditions` | []Condition | `Ready`; `ImageResolved` on a managed server (False with the reason when `kubemootImage` cannot resolve); `CredentialReady` on an external server with `registry.authSecretRef`; `EgressEnforced` when the server sets `egress` and the operator generates network policies (False with reason `FQDNNotSupported` when the CNI cannot enforce `allowedHosts`) |
 
 ## Examples
 

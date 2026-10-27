@@ -103,6 +103,34 @@ spec:
             - name: SECRET_SOURCE_NAMESPACES
               value: {{ join "," . | quote }}
             {{- end }}
+            {{- with .Values.security.networkPolicies }}
+            {{- if .enabled }}
+            # Network policies the operator generates (security.networkPolicies). With the
+            # flag off none of these are set and the operator only removes what it generated.
+            - name: KUBEMOOT_NETPOL_ENABLED
+              value: "true"
+            - name: KUBEMOOT_NETPOL_INGRESS
+              value: {{ .ingress | quote }}
+            - name: KUBEMOOT_NETPOL_EGRESS_MODE
+              value: {{ .egress.mode | quote }}
+            - name: KUBEMOOT_NETPOL_CILIUM
+              value: {{ .cilium | quote }}
+            - name: KUBEMOOT_NETPOL_DNS_NAMESPACE
+              value: {{ .dns.namespace | quote }}
+            - name: KUBEMOOT_NETPOL_DNS_LABELS
+              value: {{ include "kubemoot-operator.labelList" .dns.podLabels | quote }}
+            - name: KUBEMOOT_NETPOL_METRICS_NAMESPACE
+              value: {{ .metricsScraper.namespace | quote }}
+            - name: KUBEMOOT_NETPOL_METRICS_LABELS
+              value: {{ include "kubemoot-operator.labelList" .metricsScraper.podLabels | quote }}
+            - name: KUBEMOOT_NETPOL_TRUSTED_INGRESS_NAMESPACES
+              value: {{ join "," .trustedIngressNamespaces | quote }}
+            - name: KUBEMOOT_NETPOL_CONTROL_PLANE_CIDRS
+              value: {{ join "," .controlPlaneCIDRs | quote }}
+            - name: KUBEMOOT_NETPOL_CLUSTER_CIDRS
+              value: {{ join "," .clusterCIDRs | quote }}
+            {{- end }}
+            {{- end }}
             {{- if .Values.gateway.enabled }}
             - name: GATEWAY_NAME
               value: {{ .Values.gateway.name | quote }}

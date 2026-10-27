@@ -5,12 +5,15 @@ import (
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
+	networkingv1 "k8s.io/api/networking/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
+
+	"github.com/kubemoot/kubemoot/operator/internal/netpol"
 )
 
 // NamespaceReconciler watches namespaces labeled kubemoot.ai/crew and replicates
@@ -19,6 +22,8 @@ import (
 type NamespaceReconciler struct {
 	client.Client
 	ConfigCache *ConfigCache
+	// NetPol applies the namespace baseline network policies. Nil generates none.
+	NetPol *NetPolicySync
 }
 
 // +kubebuilder:rbac:groups=core,resources=namespaces,verbs=get;list;watch
@@ -35,6 +40,11 @@ func (r *NamespaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	// Skip namespaces being deleted
 	if !ns.DeletionTimestamp.IsZero() {
 		return ctrl.Result{}, nil
+	}
+
+	// A namespace that lost the crew label keeps no generated policies.
+	if !hasCrewLabel(ns) {
+		return ctrl.Result{}, r.reconcileBaseline(ctx, ns)
 	}
 
 	log.Info("Reconciling crew namespace for secret replication")
@@ -55,8 +65,25 @@ func (r *NamespaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		}
 	}
 
+	if err := r.reconcileBaseline(ctx, ns); err != nil {
+		return ctrl.Result{}, err
+	}
+
 	// Source Secret changes arrive through the Secret watch; the resync is a safety net.
 	return ctrl.Result{RequeueAfter: 5 * time.Minute}, nil
+}
+
+// reconcileBaseline applies the default-deny ingress policy and the crew-internal allow to
+// a crew namespace. The operator's own namespace is left to the chart.
+func (r *NamespaceReconciler) reconcileBaseline(ctx context.Context, ns *corev1.Namespace) error {
+	if r.NetPol == nil {
+		return nil
+	}
+	var objects []client.Object
+	if ns.Name != operatorNamespace() && hasCrewLabel(ns) {
+		objects = netpol.Baseline(r.NetPol.Resolved(), ns.Name)
+	}
+	return r.NetPol.Apply(ctx, ns, ns.Name, objects)
 }
 
 func (r *NamespaceReconciler) SetupWithManager(mgr ctrl.Manager) error {
@@ -66,7 +93,7 @@ func (r *NamespaceReconciler) SetupWithManager(mgr ctrl.Manager) error {
 			return hasCrewLabel(e.Object)
 		},
 		UpdateFunc: func(e event.UpdateEvent) bool {
-			return hasCrewLabel(e.ObjectNew)
+			return hasCrewLabel(e.ObjectNew) || hasCrewLabel(e.ObjectOld)
 		},
 		DeleteFunc: func(e event.DeleteEvent) bool {
 			return false // No action on namespace deletion
@@ -78,6 +105,7 @@ func (r *NamespaceReconciler) SetupWithManager(mgr ctrl.Manager) error {
 
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&corev1.Namespace{}, builder.WithPredicates(crewLabelPredicate)).
+		Owns(&networkingv1.NetworkPolicy{}).
 		// A change to a source Secret re-reconciles the crew namespaces that replicate it.
 		Watches(&corev1.Secret{}, enqueueNamespacesForSecret(mgr.GetClient(), r.ConfigCache),
 			builder.WithPredicates(sourceSecretPredicate())).

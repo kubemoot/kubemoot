@@ -26,6 +26,7 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	networkingv1 "k8s.io/api/networking/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -43,6 +44,7 @@ import (
 	kubemootv1alpha1 "github.com/kubemoot/kubemoot/operator/api/v1alpha1"
 	"github.com/kubemoot/kubemoot/operator/internal/crewscope"
 	kubemootnats "github.com/kubemoot/kubemoot/operator/internal/nats"
+	"github.com/kubemoot/kubemoot/operator/internal/netpol"
 )
 
 const maxReportTrials = 20
@@ -55,6 +57,8 @@ type MCPServerReconciler struct {
 	Scheme        *runtime.Scheme
 	ConfigCache   *ConfigCache
 	NATSPublisher *kubemootnats.Publisher
+	// NetPol applies the network policies generated for the server. Nil generates none.
+	NetPol *NetPolicySync
 }
 
 // +kubebuilder:rbac:groups=kubemoot.ai,resources=mcpservers,verbs=get;list;watch;create;update;patch;delete
@@ -90,6 +94,10 @@ func (r *MCPServerReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	if mcpServer.Spec.ExternalEndpoint != "" {
 		log.Info("Reconciling external MCPServer", "name", mcpServer.Name, "endpoint", mcpServer.Spec.ExternalEndpoint)
 		clearImageResolution(mcpServer)
+		if err := r.NetPol.Apply(ctx, mcpServer, mcpServer.Namespace, nil); err != nil {
+			return ctrl.Result{}, err
+		}
+		meta.RemoveStatusCondition(&mcpServer.Status.Conditions, netpol.ConditionEgressEnforced)
 		return r.reconcileExternalMCPServer(ctx, mcpServer)
 	}
 
@@ -127,6 +135,10 @@ func (r *MCPServerReconciler) reconcileManagedMCPServer(ctx context.Context, mcp
 		if _, err := r.reconcileService(ctx, mcpServer); err != nil {
 			return r.updateStatus(ctx, mcpServer, "Error", false, fmt.Sprintf("Failed to reconcile service: %v", err))
 		}
+	}
+
+	if err := r.reconcileNetworkPolicies(ctx, mcpServer); err != nil {
+		return r.updateStatus(ctx, mcpServer, "Error", false, fmt.Sprintf("Failed to reconcile network policies: %v", err))
 	}
 
 	// Update status based on deployment state
@@ -169,6 +181,28 @@ func mcpServerProxyPort(mcpServer *kubemootv1alpha1.MCPServer) int32 {
 		return mcpServer.Spec.ProxyInjection.Port
 	}
 	return int32(8080)
+}
+
+// mcpServerServicePort is the port the server's Service exposes: the bridge port for a
+// stdio server with proxy injection, else spec.port (3000 when unset).
+func mcpServerServicePort(mcpServer *kubemootv1alpha1.MCPServer) int32 {
+	if mcpServer.Spec.Transport == kubemootv1alpha1.TransportStdio && mcpServerProxyEnabled(mcpServer) {
+		return mcpServerProxyPort(mcpServer)
+	}
+	if mcpServer.Spec.Port != 0 {
+		return mcpServer.Spec.Port
+	}
+	return int32(3000)
+}
+
+// mcpServerPodLabels are the labels on the server's pods and the Service selector.
+func mcpServerPodLabels(mcpServer *kubemootv1alpha1.MCPServer) map[string]string {
+	return map[string]string{
+		labelName:      boundedName(mcpServer.Name),
+		labelInstance:  boundedName(mcpServer.Name),
+		labelManagedBy: managedByValue,
+		labelComponent: componentMCPServer,
+	}
 }
 
 // reconcileExternalMCPServer handles external MCP servers (no deployment needed)
@@ -274,12 +308,7 @@ func (r *MCPServerReconciler) buildDeployment(mcpServer *kubemootv1alpha1.MCPSer
 		port = mcpServer.Spec.Port
 	}
 
-	labels := map[string]string{
-		labelName:      boundedName(mcpServer.Name),
-		labelInstance:  boundedName(mcpServer.Name),
-		labelManagedBy: managedByValue,
-		labelComponent: componentMCPServer,
-	}
+	labels := mcpServerPodLabels(mcpServer)
 
 	container := buildMCPServerContainer(mcpServer, port)
 	strictSecurity := mcpServer.Spec.SecurityMode == kubemootv1alpha1.SecurityModeStrict
@@ -796,22 +825,8 @@ func (r *MCPServerReconciler) reconcileService(ctx context.Context, mcpServer *k
 		return nil, err
 	}
 
-	port := int32(3000)
-	if mcpServer.Spec.Port != 0 {
-		port = mcpServer.Spec.Port
-	}
-
-	// For stdio transport with proxy injection, use the proxy port
-	if mcpServer.Spec.Transport == kubemootv1alpha1.TransportStdio && mcpServerProxyEnabled(mcpServer) {
-		port = mcpServerProxyPort(mcpServer)
-	}
-
-	labels := map[string]string{
-		labelName:      boundedName(mcpServer.Name),
-		labelInstance:  boundedName(mcpServer.Name),
-		labelManagedBy: managedByValue,
-		labelComponent: componentMCPServer,
-	}
+	port := mcpServerServicePort(mcpServer)
+	labels := mcpServerPodLabels(mcpServer)
 
 	desiredService := &corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{
@@ -1227,6 +1242,7 @@ func (r *MCPServerReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		For(&kubemootv1alpha1.MCPServer{}).
 		Owns(&appsv1.Deployment{}).
 		Owns(&corev1.Service{}).
+		Owns(&networkingv1.NetworkPolicy{}).
 		// Re-check the credential when the Secret that holds it appears or changes.
 		Watches(&corev1.Secret{}, handler.EnqueueRequestsFromMapFunc(r.findMCPServersForSecret)).
 		Named("mcpserver").

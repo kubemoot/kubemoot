@@ -385,6 +385,72 @@ spec:
                   (advisory inputs only, excluded from settle triggers), "coordinator"
                   (drives the phase state machine). Free-form string.
                 type: string
+              egress:
+                description: |-
+                  Egress declares extra destinations this agent may reach, for a harness that
+                  browses or calls an API. When the operator generates network policies, an agent
+                  that sets it is restricted to the message bus, the crew's tool gateway, its model
+                  servers, its RAG sources, and the placement service, plus this list. An agent
+                  without it is not restricted.
+                properties:
+                  allowedCIDRs:
+                    description: |-
+                      AllowedCIDRs are address ranges the workload may reach. Every CNI that enforces
+                      NetworkPolicy enforces these.
+                    items:
+                      description: EgressCIDR is an address range a workload may reach,
+                        less the ranges in Except.
+                      properties:
+                        cidr:
+                          description: CIDR is the range, for example 203.0.113.0/24.
+                          maxLength: 64
+                          type: string
+                          x-kubernetes-validations:
+                          - message: cidr must be a valid CIDR
+                            rule: isCIDR(self)
+                        except:
+                          description: Except lists ranges inside CIDR that stay blocked.
+                          items:
+                            maxLength: 64
+                            type: string
+                            x-kubernetes-validations:
+                            - message: except entries must be valid CIDRs
+                              rule: isCIDR(self)
+                          maxItems: 16
+                          type: array
+                      required:
+                      - cidr
+                      type: object
+                    maxItems: 64
+                    type: array
+                  allowedHosts:
+                    description: |-
+                      AllowedHosts are DNS names the workload may reach: "api.example.com", or a wildcard
+                      in the leftmost label only, "*.example.com". No scheme, port, or path. Lower case.
+                      A cluster with Cilium enforces host names; any other cluster allows the internet
+                      outside the cluster's private ranges and reports EgressEnforced=False.
+                    items:
+                      maxLength: 253
+                      pattern: ^(\*\.)?[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$
+                      type: string
+                    maxItems: 64
+                    type: array
+                  apiServer:
+                    description: |-
+                      APIServer allows the workload to reach the Kubernetes API server. Set it on a tool
+                      server that talks to the cluster, such as the Kubernetes MCP server.
+                    type: boolean
+                  ports:
+                    description: Ports are the TCP ports allowed to the hosts and
+                      ranges above. Default [443].
+                    items:
+                      format: int32
+                      maximum: 65535
+                      minimum: 1
+                      type: integer
+                    maxItems: 16
+                    type: array
+                type: object
               enabledTools:
                 description: |-
                   EnabledTools is the allow-list of MCP tools this agent may invoke.

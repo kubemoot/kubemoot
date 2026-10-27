@@ -1,0 +1,159 @@
+---
+title: "Network policies"
+weight: 56
+description: "How the operator generates NetworkPolicy objects for a crew: default-deny ingress, an allow for each tool server, and outbound rules for the workloads that declare them."
+---
+
+A tool server does not check who calls it. The MCP bridge in front of a stdio server
+accepts any connection, so the network is the only gate. When you turn the feature on, the
+operator generates the policies that make the crew's gateway the only caller of each tool
+server, and it can limit where a tool server or an agent connects to.
+
+Kubemoot builds no policy engine for this. It writes standard `NetworkPolicy` objects, and
+`CiliumNetworkPolicy` objects where the cluster runs Cilium and a rule needs something a
+`NetworkPolicy` cannot say.
+
+## Turn it on
+
+The feature is off by default. It is a chart value on the operator chart:
+
+```yaml
+security:
+  networkPolicies:
+    enabled: true
+```
+
+The cluster needs a CNI that enforces `NetworkPolicy`. The value is cluster-wide: a crew
+author cannot turn it off for one crew, so a crew cannot weaken a platform policy. The full
+list of values is in the [KubemootConfig and chart guide](../../reference/kubemootconfig-guide/#network-policies).
+
+With the flag off the operator creates nothing. When you turn it off after it was on, the
+operator deletes the objects it generated and nothing else.
+
+## What the operator generates
+
+Every generated object is named `km-...`, carries the label
+`kubemoot.ai/generated-by: network-policy`, and has an owner reference to the object it
+was generated for, so deleting that object deletes its policies. The operator never changes
+or deletes a policy that lacks the label. If a hand-written policy already has the name the
+operator wants, the operator reports an error and leaves it alone.
+
+| For | Objects | Why |
+|-----|---------|-----|
+| Each crew namespace (a namespace labeled `kubemoot.ai/crew`) | `km-default-deny`, `km-crew-internal` | Every pod refuses ingress unless a policy admits it. The pods of the namespace, the operator, and the metrics scraper may reach every pod that is not a tool server or a tool gateway. |
+| Each MCPServer with a pod | `km-mcp-<name>-ingress` | Only the crew's gateway and the operator reach the server, on its port (the bridge port for a stdio server). A shared server in the operator namespace admits the gateway of every crew namespace. |
+| Each MCPGateway | the `<gateway>-admin` policy (created for every gateway while the flag is on) | The tool port admits the crew's namespace, the operator, and the metrics scraper instead of every pod. The admin port stays operator only. |
+| Each Crew with a discussion gateway | `km-crew-<crew>-gateway-ingress`, and on Cilium `km-crew-<crew>-gateway-entities` | Callers from outside the namespace reach the gateway on port 8080: the namespaces in `spec.network.allowedIngress`, the Gateway API proxy, and the API server's service proxy used by `kubectl ask` and kmctl. |
+| Each MCPServer or Agent with `spec.egress` | `km-mcp-<name>-egress` or `km-agent-<name>-egress`, and on Cilium the same name with `-fqdn` | Outbound rules, described below. |
+
+An MCPServer with `externalEndpoint` has no pod and gets no policy.
+
+The operator's own namespace is not covered by the generated default-deny. Tool servers
+there are protected one by one by their `km-mcp-<name>-ingress` policy.
+
+### What this means for your own pods
+
+`km-default-deny` applies to every pod in a crew namespace, including pods Kubemoot did not
+create, such as a web server that fronts the crew. Those pods need their own allow policy
+for the callers they expect. The pods of the namespace can reach each other through
+`km-crew-internal`, but a caller from another namespace, or from the Gateway API proxy,
+needs a policy you write (or, for a crew's discussion gateway, `spec.network.allowedIngress`).
+
+Probes from the kubelet come from the node. Most CNIs, including Cilium, always allow them.
+A CNI that blocks node-to-pod traffic needs a rule for the node, which Kubemoot does not
+generate.
+
+## Outbound rules
+
+Outbound rules apply only to a workload that sets `spec.egress`, and only when the chart sets
+`security.networkPolicies.egress.mode: Declared`. A workload without `spec.egress` is not
+restricted, so turning the mode on cannot break a working crew.
+
+A workload with `spec.egress` may reach:
+
+- DNS (the chart value `dns` says where it runs).
+- For an Agent: the message bus, the crew's MCP gateway, every model server the agent can be
+  placed on, the query service of each RAG source it names, the placement service, and the
+  telemetry collector. The operator reads these from the same settings it gives the agent,
+  so a crew author never lists them.
+- What `spec.egress` declares: `allowedHosts`, `allowedCIDRs`, `ports` (default 443), and
+  for a tool server `apiServer: true` to reach the Kubernetes API server.
+
+Everything else is blocked.
+
+### Host names and the CNI
+
+A `NetworkPolicy` can name an address range but not a host name. What happens to
+`allowedHosts` depends on the CNI:
+
+| | Any CNI that enforces NetworkPolicy | Cilium |
+|---|---|---|
+| Ingress policies (default-deny, tool server, gateway tool port) | Enforced | Enforced |
+| Gateway API proxy and API server proxy to the discussion gateway | Enforced from `trustedIngressNamespaces` and `controlPlaneCIDRs` | Enforced with no setting: entities `ingress`, `kube-apiserver`, `remote-node` |
+| Outbound to address ranges, namespaces, and pods | Enforced | Enforced |
+| Outbound to the API server | Enforced from the `kubernetes` EndpointSlice | Enforced with the `kube-apiserver` entity |
+| Outbound to a host name | Not enforceable | Enforced with `toFQDNs` and the DNS proxy |
+
+When the cluster cannot enforce a host name, the operator still protects the cluster. The
+workload may reach every address outside the private ranges (10.0.0.0/8, 172.16.0.0/12,
+192.168.0.0/16, 100.64.0.0/10, link local, loopback, and the IPv6 equivalents) and outside the
+pod and service ranges you list in `clusterCIDRs`, on the ports it declared. The tool works
+and cannot reach other pods or services in the cluster. This is weaker than a host rule: any
+internet address on those ports is reachable. The MCPServer or Agent reports it:
+
+```yaml
+status:
+  conditions:
+    - type: EgressEnforced
+      status: "False"
+      reason: FQDNNotSupported
+```
+
+`EgressEnforced` is `True` when every declared rule is enforced, and absent when the
+workload declares no egress. Cilium is found by the presence of the `CiliumNetworkPolicy`
+kind when the operator starts, so restart the operator after installing Cilium. Set
+`security.networkPolicies.cilium` to `on` or `off` to decide yourself.
+
+A URL the operator hands an agent, such as a model server endpoint, is read as a cluster
+Service when its host is `name.namespace` or `name.namespace.svc`, and as a name outside the
+cluster otherwise. The rule uses the port in the URL; a Service whose port differs from the
+port its pods listen on needs that pod port declared.
+
+Hosts are matched as written. A host that resolves to a cluster address is allowed by a
+Cilium host rule, so declare hosts that live outside the cluster.
+
+## What is not covered
+
+- A mode that denies all outbound traffic unless declared (`Deny`) is a possible later
+  option. The only egress mode today is `Declared`.
+- The RAG indexer and fitness Jobs are not restricted.
+- Control per host and per HTTP path is outside what a `NetworkPolicy` or a host rule can
+  express. It belongs to a gateway that sees the request.
+- The operator namespace has no generated default-deny.
+
+## Example
+
+A mail tool that may reach one provider:
+
+```yaml
+apiVersion: kubemoot.ai/v1alpha1
+kind: MCPServer
+metadata:
+  name: mail
+spec:
+  image: registry.example.com/mail-mcp:1.0
+  port: 3000
+  egress:
+    allowedHosts: ["smtp.example.com"]
+    ports: [587]
+```
+
+With the flag on, the operator creates `km-mcp-mail-ingress` (only the crew gateway and the
+operator reach port 3000) and `km-mcp-mail-egress` (DNS, plus the provider: a host rule on Cilium,
+the internet fallback elsewhere).
+
+List what the operator generated:
+
+```bash
+kubectl get networkpolicy,ciliumnetworkpolicy -A -l kubemoot.ai/generated-by=network-policy
+```

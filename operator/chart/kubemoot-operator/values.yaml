@@ -81,6 +81,42 @@ security:
     # Limit enforcement to namespaces matching this label selector (default: every namespace).
     namespaceSelector: {}
 
+  # Network policies the operator generates (off by default). When enabled, the operator
+  # makes a default-deny ingress policy in every crew namespace (a namespace labeled
+  # kubemoot.ai/crew), admits only the crew's gateway and the operator to each tool server,
+  # narrows each crew gateway's tool port to its namespace, and, with egress.mode Declared,
+  # restricts the outbound traffic of each MCPServer and Agent that sets spec.egress. Every
+  # generated object carries the label kubemoot.ai/generated-by=network-policy and an owner
+  # reference; turning the flag off deletes exactly those objects and nothing hand-written.
+  # Needs a CNI that enforces NetworkPolicy. docs/concepts/network-policies.md lists what
+  # each CNI enforces.
+  networkPolicies:
+    enabled: false
+    # The ingress set. Applies only with enabled: true.
+    ingress: true
+    egress:
+      # Off: no egress policy. Declared: restrict only the workloads that set spec.egress.
+      mode: "Off"
+    # auto emits CiliumNetworkPolicy objects when that kind is installed (host name rules and
+    # the entities a NetworkPolicy cannot name); on always emits them; off never does.
+    cilium: auto
+    # Where name resolution runs, allowed from every workload that has an egress policy.
+    dns:
+      namespace: kube-system
+      podLabels:
+        k8s-app: kube-dns
+    # The metrics scraper, admitted to the pods it scrapes. Leave namespace empty for none.
+    metricsScraper:
+      namespace: ""
+      podLabels: {}
+    # Without Cilium: namespaces of the Gateway API proxy pods, admitted to the discussion
+    # gateways, and source ranges of the API server's service proxy (kubectl ask, kmctl).
+    trustedIngressNamespaces: []
+    controlPlaneCIDRs: []
+    # Pod and service ranges that are not private addresses. Without Cilium, a declared host
+    # lets a workload reach the internet outside the private ranges; these stay blocked too.
+    clusterCIDRs: []
+
 # Gateway API configuration for crew discussion HTTPRoutes
 gateway:
   enabled: false

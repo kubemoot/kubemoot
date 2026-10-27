@@ -113,3 +113,15 @@ ollama-gpu-qwen3-14b for qwen3:14b on ollama-gpu. Usage: include "..." (list ser
 {{- define "kubemoot-operator.modelObjectName" -}}
 {{- printf "%s-%s" (index . 0) (regexReplaceAll "[^a-z0-9-]+" (lower (index . 1)) "-") | trunc 63 | trimSuffix "-" -}}
 {{- end }}
+
+{{/*
+A label map as "key=value,key=value", sorted by key, for the operator environment.
+Usage: include "kubemoot-operator.labelList" $map
+*/}}
+{{- define "kubemoot-operator.labelList" -}}
+{{- $out := list -}}
+{{- range $k, $v := (. | default dict) -}}
+{{- $out = append $out (printf "%s=%v" $k $v) -}}
+{{- end -}}
+{{- join "," $out -}}
+{{- end }}

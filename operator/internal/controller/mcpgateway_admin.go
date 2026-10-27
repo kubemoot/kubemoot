@@ -36,6 +36,7 @@ import (
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
 	kubemootv1alpha1 "github.com/kubemoot/kubemoot/operator/api/v1alpha1"
+	"github.com/kubemoot/kubemoot/operator/internal/netpol"
 )
 
 // The Kubemoot gateway serves registration and the other mutating admin routes on their
@@ -220,6 +221,24 @@ func (r *MCPGatewayReconciler) buildAdminNetworkPolicy(gateway *kubemootv1alpha1
 	tcp := corev1.ProtocolTCP
 	toolPort := intstr.FromInt32(gatewayToolPort(gateway))
 	adminPort := intstr.FromInt32(gatewayAdminPort(gateway))
+	toolRule := networkingv1.NetworkPolicyIngressRule{Ports: []networkingv1.NetworkPolicyPort{{Protocol: &tcp, Port: &toolPort}}}
+	if r.NetPol != nil {
+		// Under the network policy flag the tool port admits the crew's namespace, the
+		// operator, and the metrics scraper instead of every pod.
+		if cfg := r.NetPol.Resolved(); cfg.IngressOn() {
+			toolRule = netpol.GatewayToolPort(cfg, gatewayToolPort(gateway))
+		}
+	}
+	rules := []networkingv1.NetworkPolicyIngressRule{toolRule}
+	if gatewayHasAdminPort(gateway) {
+		rules = append(rules, networkingv1.NetworkPolicyIngressRule{
+			From: []networkingv1.NetworkPolicyPeer{{
+				NamespaceSelector: &metav1.LabelSelector{MatchLabels: map[string]string{namespaceNameLabel: operatorNamespace()}},
+				PodSelector:       &metav1.LabelSelector{MatchLabels: map[string]string{controlPlaneLabel: controllerManagerValue}},
+			}},
+			Ports: []networkingv1.NetworkPolicyPort{{Protocol: &tcp, Port: &adminPort}},
+		})
+	}
 	return &networkingv1.NetworkPolicy{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      gateway.Name + "-admin",
@@ -229,28 +248,38 @@ func (r *MCPGatewayReconciler) buildAdminNetworkPolicy(gateway *kubemootv1alpha1
 		Spec: networkingv1.NetworkPolicySpec{
 			PodSelector: metav1.LabelSelector{MatchLabels: gatewayLabels(gateway)},
 			PolicyTypes: []networkingv1.PolicyType{networkingv1.PolicyTypeIngress},
-			Ingress: []networkingv1.NetworkPolicyIngressRule{
-				{Ports: []networkingv1.NetworkPolicyPort{{Protocol: &tcp, Port: &toolPort}}},
-				{
-					From: []networkingv1.NetworkPolicyPeer{{
-						NamespaceSelector: &metav1.LabelSelector{MatchLabels: map[string]string{namespaceNameLabel: operatorNamespace()}},
-						PodSelector:       &metav1.LabelSelector{MatchLabels: map[string]string{controlPlaneLabel: controllerManagerValue}},
-					}},
-					Ports: []networkingv1.NetworkPolicyPort{{Protocol: &tcp, Port: &adminPort}},
-				},
-			},
+			Ingress:     rules,
 		},
 	}
+}
+
+// toolPortNarrowed reports whether the network policy flag narrows the gateway tool port.
+func (r *MCPGatewayReconciler) toolPortNarrowed() bool {
+	return r.NetPol != nil && r.NetPol.Resolved().IngressOn()
+}
+
+// removeToolPortPolicy deletes the tool port policy of a gateway that has no admin port,
+// which the operator creates only while the network policy flag is on.
+func (r *MCPGatewayReconciler) removeToolPortPolicy(ctx context.Context, gateway *kubemootv1alpha1.MCPGateway) error {
+	existing := &networkingv1.NetworkPolicy{}
+	err := r.Get(ctx, types.NamespacedName{Namespace: gateway.Namespace, Name: gateway.Name + "-admin"}, existing)
+	if err != nil || !metav1.IsControlledBy(existing, gateway) {
+		return client.IgnoreNotFound(err)
+	}
+	return client.IgnoreNotFound(r.Delete(ctx, existing))
 }
 
 // reconcileAdminAccess creates the admin token Secret and the NetworkPolicy that keeps the
 // admin port to the operator. It does nothing for an implementation without an admin port.
 func (r *MCPGatewayReconciler) reconcileAdminAccess(ctx context.Context, gateway *kubemootv1alpha1.MCPGateway) error {
-	if !gatewayHasAdminPort(gateway) {
-		return nil
+	hasAdmin := gatewayHasAdminPort(gateway)
+	if !hasAdmin && !r.toolPortNarrowed() {
+		return r.removeToolPortPolicy(ctx, gateway)
 	}
-	if err := r.ensureAdminTokenSecret(ctx, gateway); err != nil {
-		return err
+	if hasAdmin {
+		if err := r.ensureAdminTokenSecret(ctx, gateway); err != nil {
+			return err
+		}
 	}
 	desired := r.buildAdminNetworkPolicy(gateway)
 	existing := &networkingv1.NetworkPolicy{}
