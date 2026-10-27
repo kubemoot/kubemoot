@@ -78,7 +78,7 @@ case, where the agent was selected and willing but the cluster could not run it:
 
 When no agent contributed and at least one stood aside for one of these reasons (or was
 still waiting), the crew's answer says the GPUs were the limit, not the crew's design.
-See [Models & Scheduling](../models-and-scheduling/#when-every-gpu-is-busy).
+See [Models & Scheduling](../models-and-scheduling/#when-every-accelerator-is-busy).
 
 ## Discussion phases
 
