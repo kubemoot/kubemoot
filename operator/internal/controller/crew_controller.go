@@ -114,7 +114,9 @@ func (r *CrewReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 		return r.updateStatus(ctx, crew, "Error", false, fmt.Sprintf("Crew name cannot scope NATS subjects: %v", err))
 	}
 
-	r.reconcileNamespaceLabel(ctx, crew)
+	if err := r.reconcileNamespaceLabel(ctx, crew); err != nil {
+		return ctrl.Result{}, err
+	}
 	if err := r.reconcileNetworkPolicies(ctx, crew); err != nil {
 		return r.updateStatus(ctx, crew, "Error", false, fmt.Sprintf("Failed to reconcile network policies: %v", err))
 	}
@@ -163,17 +165,17 @@ func (r *CrewReconciler) reconcileNetworkPolicies(ctx context.Context, crew *kub
 // kubemoot.ai/managed-namespace=true, which only a Namespace-level author can set.
 // Protected namespaces are never labeled. Crews in shared namespaces (e.g.,
 // kubemoot) omit this annotation and are unaffected.
-func (r *CrewReconciler) reconcileNamespaceLabel(ctx context.Context, crew *kubemootv1alpha1.Crew) {
+func (r *CrewReconciler) reconcileNamespaceLabel(ctx context.Context, crew *kubemootv1alpha1.Crew) error {
 	if !crewRequestsNamespaceManagement(crew) || isProtectedNamespace(crew.Namespace) {
-		return
+		return nil
 	}
 
 	ns := &corev1.Namespace{}
 	if err := r.Get(ctx, types.NamespacedName{Name: crew.Namespace}, ns); err != nil {
-		return
+		return client.IgnoreNotFound(err)
 	}
 	if ns.Labels != nil && ns.Labels[labelCrew] == crew.Name {
-		return
+		return nil
 	}
 
 	if ns.Labels == nil {
@@ -181,9 +183,8 @@ func (r *CrewReconciler) reconcileNamespaceLabel(ctx context.Context, crew *kube
 	}
 	ns.Labels[labelCrew] = crew.Name
 	ns.Labels[labelManagedBy] = managedByValue
-	if err := r.Update(ctx, ns); err != nil {
-		logf.FromContext(ctx).Error(err, "Failed to label namespace")
-	}
+	// A failed write (a conflict with the namespace reconciler, for one) requeues the Crew.
+	return r.Update(ctx, ns)
 }
 
 // replicateImagePullSecrets ensures image pull secrets exist in the crew namespace.

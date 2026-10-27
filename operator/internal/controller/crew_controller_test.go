@@ -241,7 +241,7 @@ var _ = Describe("Crew Controller", func() {
 					Annotations: map[string]string{manageNamespaceAnno: manageNamespaceRequested},
 				},
 			}
-			newReconciler().reconcileNamespaceLabel(ctx, crew)
+			Expect(newReconciler().reconcileNamespaceLabel(ctx, crew)).To(Succeed())
 			got := &corev1.Namespace{}
 			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "kube-system"}, got)).To(Succeed())
 			Expect(got.Labels).NotTo(HaveKey(labelCrew))

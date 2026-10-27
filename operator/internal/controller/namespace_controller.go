@@ -13,6 +13,7 @@ import (
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
+	kubemootv1alpha1 "github.com/kubemoot/kubemoot/operator/api/v1alpha1"
 	"github.com/kubemoot/kubemoot/operator/internal/netpol"
 )
 
@@ -24,9 +25,11 @@ type NamespaceReconciler struct {
 	ConfigCache *ConfigCache
 	// NetPol applies the namespace baseline network policies. Nil generates none.
 	NetPol *NetPolicySync
+	// APIReader reads without the cache. Nil reads through the cache only.
+	APIReader client.Reader
 }
 
-// +kubebuilder:rbac:groups=core,resources=namespaces,verbs=get;list;watch
+// +kubebuilder:rbac:groups=core,resources=namespaces,verbs=get;list;watch;update;patch
 // +kubebuilder:rbac:groups=core,resources=secrets,verbs=get;list;watch;create;update
 
 func (r *NamespaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -48,7 +51,18 @@ func (r *NamespaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	}
 
 	log.Info("Reconciling crew namespace for secret replication")
+	r.replicateSecrets(ctx, ns)
 
+	if err := r.reconcileBaseline(ctx, ns); err != nil {
+		return ctrl.Result{}, err
+	}
+
+	// Source Secret changes arrive through the Secret watch; the resync is a safety net.
+	return ctrl.Result{RequeueAfter: 5 * time.Minute}, nil
+}
+
+// replicateSecrets copies the image pull secrets and the secrets the namespace lists into it.
+func (r *NamespaceReconciler) replicateSecrets(ctx context.Context, ns *corev1.Namespace) {
 	// Replicate image pull secrets from KubemootConfig
 	for _, ref := range r.ConfigCache.GetImagePullSecrets() {
 		replicateSecret(ctx, r.Client, ref.Name, ns.Name)
@@ -64,26 +78,50 @@ func (r *NamespaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 			replicateSecretFrom(ctx, r.Client, ref.Name, ref.Namespace, ns.Name)
 		}
 	}
-
-	if err := r.reconcileBaseline(ctx, ns); err != nil {
-		return ctrl.Result{}, err
-	}
-
-	// Source Secret changes arrive through the Secret watch; the resync is a safety net.
-	return ctrl.Result{RequeueAfter: 5 * time.Minute}, nil
 }
 
 // reconcileBaseline applies the default-deny ingress policy and the crew-internal allow to
-// a crew namespace. The operator's own namespace is left to the chart.
+// a crew namespace: one that carries the crew label and holds at least one Crew. A
+// namespace without a Crew keeps no generated policies, and the crew label the operator
+// set on it is removed. The operator's own namespace is left to the chart.
 func (r *NamespaceReconciler) reconcileBaseline(ctx context.Context, ns *corev1.Namespace) error {
+	holdsCrew, err := namespaceHoldsCrew(ctx, r, ns.Name)
+	if err != nil {
+		return err
+	}
 	if r.NetPol == nil {
 		return nil
 	}
+	if !holdsCrew && r.NetPol.Config.Enabled {
+		if err := r.clearStaleCrewLabel(ctx, ns); err != nil {
+			return err
+		}
+	}
 	var objects []client.Object
-	if ns.Name != operatorNamespace() && hasCrewLabel(ns) {
+	if holdsCrew && ns.Name != operatorNamespace() && hasCrewLabel(ns) {
 		objects = netpol.Baseline(r.NetPol.Resolved(), ns.Name)
 	}
 	return r.NetPol.Apply(ctx, ns, ns.Name, objects)
+}
+
+// clearStaleCrewLabel removes the crew label from a namespace that holds no Crew, when the
+// operator set it (the managed-by label says so). A label a person set is left alone.
+func (r *NamespaceReconciler) clearStaleCrewLabel(ctx context.Context, ns *corev1.Namespace) error {
+	if ns.Labels[labelManagedBy] != managedByValue || !hasCrewLabel(ns) || isProtectedNamespace(ns.Name) {
+		return nil
+	}
+	// The cached Crew list may lag a Crew created a moment ago; confirm against the API server.
+	if r.APIReader != nil {
+		holdsCrew, err := namespaceHoldsCrew(ctx, r.APIReader, ns.Name)
+		if err != nil || holdsCrew {
+			return err
+		}
+	}
+	// The lock makes a concurrent label write by the Crew reconciler a conflict, which requeues.
+	patch := client.MergeFromWithOptions(ns.DeepCopy(), client.MergeFromWithOptimisticLock{})
+	delete(ns.Labels, labelCrew)
+	delete(ns.Labels, labelManagedBy)
+	return client.IgnoreNotFound(r.Patch(ctx, ns, patch))
 }
 
 func (r *NamespaceReconciler) SetupWithManager(mgr ctrl.Manager) error {
@@ -106,6 +144,8 @@ func (r *NamespaceReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&corev1.Namespace{}, builder.WithPredicates(crewLabelPredicate)).
 		Owns(&networkingv1.NetworkPolicy{}).
+		// The first Crew of a namespace creates its baseline; the last Crew's deletion removes it.
+		Watches(&kubemootv1alpha1.Crew{}, enqueueCrewNamespace(), builder.WithPredicates(crewLifecyclePredicate())).
 		// A change to a source Secret re-reconciles the crew namespaces that replicate it.
 		Watches(&corev1.Secret{}, enqueueNamespacesForSecret(mgr.GetClient(), r.ConfigCache),
 			builder.WithPredicates(sourceSecretPredicate())).

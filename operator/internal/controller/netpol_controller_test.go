@@ -26,6 +26,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	aiv1alpha1 "github.com/kubemoot/kubemoot/operator/api/v1alpha1"
@@ -70,7 +71,20 @@ func npGenerated(ctx context.Context, namespace string) map[string]networkingv1.
 
 func npNamespace(ctx context.Context, name string) {
 	ns := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: name, Labels: map[string]string{netpol.LabelCrew: name}}}
-	Expect(k8sClient.Create(ctx, ns)).To(Succeed())
+	Expect(client.IgnoreAlreadyExists(k8sClient.Create(ctx, ns))).To(Succeed())
+}
+
+// npCrew creates a Crew, so the namespace holds one.
+func npCrew(ctx context.Context, namespace, name string) *aiv1alpha1.Crew {
+	crew := &aiv1alpha1.Crew{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace}}
+	Expect(k8sClient.Create(ctx, crew)).To(Succeed())
+	return crew
+}
+
+func npReconcileNamespace(ctx context.Context, name string) {
+	nsr := &NamespaceReconciler{Client: k8sClient, ConfigCache: NewConfigCache(), NetPol: npSync(npConfig(true), false)}
+	_, err := nsr.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: name}})
+	Expect(err).NotTo(HaveOccurred())
 }
 
 func npHandWritten(ctx context.Context, namespace, name string) {
@@ -140,6 +154,7 @@ var _ = Describe("Generated network policies", func() {
 	Context("with the flag on", func() {
 		It("creates the namespace baseline, owned by the namespace", func() {
 			npNamespace(ctx, "np-base")
+			npCrew(ctx, "np-base", "base")
 			nsr := &NamespaceReconciler{Client: k8sClient, ConfigCache: NewConfigCache(), NetPol: npSync(npConfig(true), false)}
 			_, err := nsr.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: "np-base"}})
 			Expect(err).NotTo(HaveOccurred())
@@ -226,6 +241,7 @@ var _ = Describe("Generated network policies", func() {
 
 		It("refuses to overwrite a hand-written policy of the same name", func() {
 			npNamespace(ctx, "np-clash")
+			npCrew(ctx, "np-clash", "clash")
 			npHandWritten(ctx, "np-clash", "km-default-deny")
 			nsr := &NamespaceReconciler{Client: k8sClient, ConfigCache: NewConfigCache(), NetPol: npSync(npConfig(true), false)}
 			_, err := nsr.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: "np-clash"}})
@@ -254,6 +270,7 @@ var _ = Describe("Generated network policies", func() {
 	Context("when a namespace loses the crew label", func() {
 		It("removes the baseline", func() {
 			npNamespace(ctx, "np-unlabel")
+			npCrew(ctx, "np-unlabel", "unlabel")
 			nsr := &NamespaceReconciler{Client: k8sClient, ConfigCache: NewConfigCache(), NetPol: npSync(npConfig(true), false)}
 			req := reconcile.Request{NamespacedName: types.NamespacedName{Name: "np-unlabel"}}
 			_, err := nsr.Reconcile(ctx, req)
@@ -270,9 +287,150 @@ var _ = Describe("Generated network policies", func() {
 		})
 	})
 
+	Context("which namespaces count as crew namespaces", func() {
+		const operatorSet = "np-stale-operator"
+
+		labeledBy := func(ctx context.Context, name string, labels map[string]string) {
+			ns := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: name, Labels: labels}}
+			Expect(k8sClient.Create(ctx, ns)).To(Succeed())
+		}
+
+		crewLabels := func(name string) map[string]string {
+			return map[string]string{netpol.LabelCrew: name, labelManagedBy: managedByValue}
+		}
+
+		It("generates nothing in a labeled namespace that holds no Crew", func() {
+			labeledBy(ctx, "np-nocrew", map[string]string{netpol.LabelCrew: "gone"})
+			npHandWritten(ctx, "np-nocrew", npHandWrote)
+			npReconcileNamespace(ctx, "np-nocrew")
+
+			Expect(npGenerated(ctx, "np-nocrew")).To(BeEmpty())
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Namespace: "np-nocrew", Name: npHandWrote}, &networkingv1.NetworkPolicy{})).To(Succeed())
+		})
+
+		It("clears a crew label the operator set when no Crew is left, and keeps one a person set", func() {
+			labeledBy(ctx, operatorSet, crewLabels("demo"))
+			labeledBy(ctx, "np-stale-person", map[string]string{netpol.LabelCrew: "demo"})
+			npReconcileNamespace(ctx, operatorSet)
+			npReconcileNamespace(ctx, "np-stale-person")
+
+			ns := &corev1.Namespace{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: operatorSet}, ns)).To(Succeed())
+			Expect(ns.Labels).NotTo(HaveKey(netpol.LabelCrew))
+			Expect(ns.Labels).NotTo(HaveKey(labelManagedBy))
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "np-stale-person"}, ns)).To(Succeed())
+			Expect(ns.Labels).To(HaveKey(netpol.LabelCrew))
+		})
+
+		It("leaves the crew label alone while the flag is off", func() {
+			labeledBy(ctx, "np-flag-off-label", crewLabels("demo"))
+			nsr := &NamespaceReconciler{Client: k8sClient, ConfigCache: NewConfigCache(), NetPol: npSync(npConfig(false), false)}
+			_, err := nsr.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: "np-flag-off-label"}})
+			Expect(err).NotTo(HaveOccurred())
+
+			ns := &corev1.Namespace{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "np-flag-off-label"}, ns)).To(Succeed())
+			Expect(ns.Labels).To(HaveKey(netpol.LabelCrew))
+		})
+
+		It("keeps the label when the API server shows a Crew the cache has not seen yet", func() {
+			labeledBy(ctx, "np-lag", crewLabels("lag"))
+			npCrew(ctx, "np-lag", "lag")
+			nsr := &NamespaceReconciler{
+				Client: noCrewsSeen{k8sClient}, APIReader: k8sClient,
+				ConfigCache: NewConfigCache(), NetPol: npSync(npConfig(true), false),
+			}
+			_, err := nsr.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: "np-lag"}})
+			Expect(err).NotTo(HaveOccurred())
+
+			ns := &corev1.Namespace{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "np-lag"}, ns)).To(Succeed())
+			Expect(ns.Labels).To(HaveKey(netpol.LabelCrew))
+		})
+
+		It("keeps the crew label the operator set while a Crew exists", func() {
+			labeledBy(ctx, "np-keep", crewLabels("keep"))
+			npCrew(ctx, "np-keep", "keep")
+			npReconcileNamespace(ctx, "np-keep")
+
+			ns := &corev1.Namespace{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "np-keep"}, ns)).To(Succeed())
+			Expect(ns.Labels).To(HaveKey(netpol.LabelCrew))
+		})
+
+		It("generates the set when a Crew appears and removes it when the last Crew is deleted", func() {
+			labeledBy(ctx, "np-life", map[string]string{netpol.LabelCrew: "first"})
+			npHandWritten(ctx, "np-life", npHandWrote)
+			npReconcileNamespace(ctx, "np-life")
+			Expect(npGenerated(ctx, "np-life")).To(BeEmpty())
+
+			first := npCrew(ctx, "np-life", "first")
+			second := npCrew(ctx, "np-life", "second")
+			npReconcileNamespace(ctx, "np-life")
+			Expect(npGenerated(ctx, "np-life")).To(HaveKey("km-default-deny"))
+			Expect(npGenerated(ctx, "np-life")).To(HaveKey("km-crew-internal"))
+
+			Expect(k8sClient.Delete(ctx, first)).To(Succeed())
+			npReconcileNamespace(ctx, "np-life")
+			Expect(npGenerated(ctx, "np-life")).To(HaveLen(2), "one Crew is still there")
+
+			Expect(k8sClient.Delete(ctx, second)).To(Succeed())
+			npReconcileNamespace(ctx, "np-life")
+			Expect(npGenerated(ctx, "np-life")).To(BeEmpty())
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Namespace: "np-life", Name: npHandWrote}, &networkingv1.NetworkPolicy{})).To(Succeed())
+		})
+
+		It("does not give an unlabeled namespace with a Crew a default-deny", func() {
+			Expect(k8sClient.Create(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "np-shared"}})).To(Succeed())
+			npCrew(ctx, "np-shared", "shared")
+			npReconcileNamespace(ctx, "np-shared")
+			Expect(npGenerated(ctx, "np-shared")).To(BeEmpty())
+		})
+
+		It("maps a Crew to its namespace and passes only creation and deletion", func() {
+			crew := &aiv1alpha1.Crew{ObjectMeta: metav1.ObjectMeta{Name: "c", Namespace: "np-map"}}
+			Expect(crewNamespaceRequests(crew)).To(Equal([]reconcile.Request{{NamespacedName: types.NamespacedName{Name: "np-map"}}}))
+			pred := crewLifecyclePredicate()
+			Expect(pred.Create(event.CreateEvent{Object: crew})).To(BeTrue())
+			Expect(pred.Delete(event.DeleteEvent{Object: crew})).To(BeTrue())
+			Expect(pred.Update(event.UpdateEvent{ObjectOld: crew, ObjectNew: crew})).To(BeFalse())
+		})
+
+		It("lets a shared tool server admit the gateways of namespaces that hold a Crew, and no others", func() {
+			npNamespace(ctx, npOperatorNS)
+			labeledBy(ctx, "np-x-crew", map[string]string{netpol.LabelCrew: "x"})
+			labeledBy(ctx, "np-x-empty", map[string]string{netpol.LabelCrew: "gone"})
+			crew := npCrew(ctx, "np-x-crew", "x")
+			npMCPServer(ctx, npOperatorNS, "shared-tool", nil)
+			r := &MCPServerReconciler{Client: k8sClient, Scheme: k8sClient.Scheme(), ConfigCache: NewConfigCache(), NetPol: npSync(npConfig(true), false)}
+			npReconcileMCPServer(ctx, r, npOperatorNS, "shared-tool")
+
+			gatewayNamespaces := func() []string {
+				p := npGenerated(ctx, npOperatorNS)["km-mcp-shared-tool-ingress"]
+				Expect(p.Spec.Ingress).NotTo(BeEmpty())
+				for _, peer := range p.Spec.Ingress[0].From {
+					if peer.NamespaceSelector != nil && len(peer.NamespaceSelector.MatchExpressions) > 0 {
+						return peer.NamespaceSelector.MatchExpressions[0].Values
+					}
+				}
+				return nil
+			}
+			Expect(gatewayNamespaces()).To(ContainElement("np-x-crew"))
+			Expect(gatewayNamespaces()).NotTo(ContainElement("np-x-empty"))
+
+			Expect(k8sClient.Delete(ctx, crew)).To(Succeed())
+			npReconcileMCPServer(ctx, r, npOperatorNS, "shared-tool")
+			Expect(gatewayNamespaces()).NotTo(ContainElement("np-x-crew"))
+
+			Expect(sharedMCPServerRequests(ctx, k8sClient)).To(ContainElement(
+				reconcile.Request{NamespacedName: types.NamespacedName{Namespace: npOperatorNS, Name: "shared-tool"}}))
+		})
+	})
+
 	Context("turning the flag off", func() {
 		It("deletes only the generated objects", func() {
 			npNamespace(ctx, npToggleNS)
+			npCrew(ctx, npToggleNS, "toggle")
 			npHandWritten(ctx, npToggleNS, npHandWrote)
 			npMCPServer(ctx, npToggleNS, npMail, &aiv1alpha1.EgressRules{AllowedCIDRs: []aiv1alpha1.EgressCIDR{{CIDR: npCIDR}}})
 			nsr := &NamespaceReconciler{Client: k8sClient, ConfigCache: NewConfigCache(), NetPol: npSync(npConfig(true), false)}
@@ -470,4 +628,14 @@ func installCiliumCRD(ctx context.Context) bool {
 		return k8sClient.List(ctx, list, client.InNamespace("default"))
 	}, "30s", "250ms").Should(Succeed())
 	return true
+}
+
+// noCrewsSeen is a client whose cache has not seen any Crew yet.
+type noCrewsSeen struct{ client.Client }
+
+func (c noCrewsSeen) List(ctx context.Context, list client.ObjectList, opts ...client.ListOption) error {
+	if _, ok := list.(*aiv1alpha1.CrewList); ok {
+		return nil
+	}
+	return c.Client.List(ctx, list, opts...)
 }

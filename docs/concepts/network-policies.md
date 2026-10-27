@@ -40,13 +40,21 @@ operator wants, the operator reports an error and leaves it alone.
 
 | For | Objects | Why |
 |-----|---------|-----|
-| Each crew namespace (a namespace labeled `kubemoot.ai/crew`) | `km-default-deny`, `km-crew-internal` | Every pod refuses ingress unless a policy admits it. The pods of the namespace, the operator, and the metrics scraper may reach every pod that is not a tool server or a tool gateway. |
-| Each MCPServer with a pod | `km-mcp-<name>-ingress` | Only the crew's gateway and the operator reach the server, on its port (the bridge port for a stdio server). A shared server in the operator namespace admits the gateway of every crew namespace. |
+| Each crew namespace (a namespace labeled `kubemoot.ai/crew` that holds at least one `Crew`) | `km-default-deny`, `km-crew-internal` | Every pod refuses ingress unless a policy admits it. The pods of the namespace, the operator, and the metrics scraper may reach every pod that is not a tool server or a tool gateway. |
+| Each MCPServer with a pod | `km-mcp-<name>-ingress` | Only the crew's gateway and the operator reach the server, on its port (the bridge port for a stdio server). A shared server in the operator namespace admits the gateway of every namespace that holds a `Crew`. |
 | Each MCPGateway | the `<gateway>-admin` policy (created for every gateway while the flag is on) | The tool port admits the crew's namespace, the operator, and the metrics scraper instead of every pod. The admin port stays operator only. |
 | Each Crew with a discussion gateway | `km-crew-<crew>-gateway-ingress`, and on Cilium `km-crew-<crew>-gateway-entities` | Callers from outside the namespace reach the gateway on port 8080: the namespaces in `spec.network.allowedIngress`, the Gateway API proxy, and the API server's service proxy used by `kubectl ask` and kmctl. |
 | Each MCPServer or Agent with `spec.egress` | `km-mcp-<name>-egress` or `km-agent-<name>-egress`, and on Cilium the same name with `-fqdn` | Outbound rules, described below. |
 
 An MCPServer with `externalEndpoint` has no pod and gets no policy.
+
+A namespace that carries the label but holds no `Crew` gets no generated policies, and the
+operator removes the ones it generated when the last `Crew` there is deleted (a `Crew` that
+is still being finalized counts until it is gone). The operator watches `Crew` creation and
+deletion, so this follows the event and not a timer. With the feature on, a crew label that
+the operator set (the namespace also carries `app.kubernetes.io/managed-by:
+kubemoot-operator`) is removed from a namespace without a `Crew`; a label you set yourself
+stays. A hand-written policy is never touched.
 
 The operator's own namespace is not covered by the generated default-deny. Tool servers
 there are protected one by one by their `km-mcp-<name>-ingress` policy.
