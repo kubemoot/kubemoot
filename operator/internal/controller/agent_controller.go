@@ -45,6 +45,7 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
+	nodev1 "k8s.io/api/node/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -169,6 +170,7 @@ const (
 // +kubebuilder:rbac:groups=apps,resources=deployments,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=core,resources=services,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=core,resources=configmaps,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=node.k8s.io,resources=runtimeclasses,verbs=get;list;watch
 
 func (r *AgentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := logf.FromContext(ctx)
@@ -178,6 +180,10 @@ func (r *AgentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 		if apierrors.IsNotFound(err) {
 			return ctrl.Result{}, nil
 		}
+		return ctrl.Result{}, err
+	}
+
+	if err := r.syncRuntimeClassCondition(ctx, agent); err != nil {
 		return ctrl.Result{}, err
 	}
 
@@ -200,15 +206,21 @@ func (r *AgentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 		log.Error(err, "Failed to ensure Deployment")
 		return ctrl.Result{}, err
 	}
+	return r.finishReconcile(ctx, agent, mullingPick, triagePick)
+}
+
+// finishReconcile applies the Service and the network policies, then records the Agent's status.
+func (r *AgentReconciler) finishReconcile(ctx context.Context, agent *kubemootv1alpha1.Agent, mulling, triage *modelPick) (ctrl.Result, error) {
+	log := logf.FromContext(ctx)
 	if err := r.ensureService(ctx, agent); err != nil {
 		log.Error(err, "Failed to ensure Service")
 		return ctrl.Result{}, err
 	}
-	if err := r.reconcileNetworkPolicies(ctx, agent, mullingPick, triagePick); err != nil {
+	if err := r.reconcileNetworkPolicies(ctx, agent, mulling, triage); err != nil {
 		log.Error(err, "Failed to reconcile network policies")
 		return ctrl.Result{}, err
 	}
-	if err := r.refreshStatus(ctx, agent, mullingPick, triagePick); err != nil && !apierrors.IsNotFound(err) {
+	if err := r.refreshStatus(ctx, agent, mulling, triage); err != nil && !apierrors.IsNotFound(err) {
 		log.Error(err, "Failed to refresh Agent status")
 	}
 	return ctrl.Result{}, nil
@@ -563,6 +575,10 @@ func (r *AgentReconciler) assembleSystemPrompt(ctx context.Context, agent *kubem
 
 // ensureDeployment creates or updates the agent's Deployment.
 func (r *AgentReconciler) ensureDeployment(ctx context.Context, agent *kubemootv1alpha1.Agent, mulling, triage *modelPick, policyCMName string) error {
+	if _, held := runtimeClassHold(agent); held {
+		// The RuntimeClass the pods ask for does not exist; an existing Deployment is left as it is.
+		return nil
+	}
 	// Assemble the system prompt so its hash can ride in the pod template; a
 	// PromptModule edit then changes the hash -> rolls the pod (agents cache the
 	// prompt at startup). Same assembly function as ensurePolicyConfigMap, so the
@@ -695,6 +711,7 @@ func (r *AgentReconciler) buildDeployment(ctx context.Context, agent *kubemootv1
 				ObjectMeta: metav1.ObjectMeta{Labels: podLabels(agent)},
 				Spec: corev1.PodSpec{
 					ServiceAccountName: serviceAccountName,
+					RuntimeClassName:   r.podRuntimeClass(agent),
 					// An agent calls no Kubernetes API; only a named ServiceAccount keeps a token.
 					AutomountServiceAccountToken: automountTokenFor(serviceAccountName),
 					ImagePullSecrets:             r.imagePullSecrets(),
@@ -1172,6 +1189,11 @@ func (r *AgentReconciler) refreshStatus(ctx context.Context, agent *kubemootv1al
 	agent.Status.Endpoint = fmt.Sprintf("http://%s.%s.svc.cluster.local:%d", agent.Name, agent.Namespace, port)
 	agent.Status.Message = fmt.Sprintf("mulling=%s@%s; triage=%s@%s",
 		mulling.ModelID, mulling.Server.Name, triage.ModelID, triage.Server.Name)
+	if msg, held := runtimeClassHold(agent); held {
+		agent.Status.Phase = phasePending
+		agent.Status.Ready = false
+		agent.Status.Message = msg
+	}
 	return r.Status().Update(ctx, agent)
 }
 
@@ -1261,6 +1283,14 @@ func (r *AgentReconciler) SetupWithManager(mgr ctrl.Manager) error {
 			&kubemootv1alpha1.MCPGateway{},
 			enqueueNamespaceAgents[*kubemootv1alpha1.MCPGateway](mgr.GetClient(), "MCPGateway"),
 			builder.WithPredicates(gatewayWiringChanged()),
+		).
+		// Re-reconcile the Agents that ask for a RuntimeClass when it is created or
+		// deleted, so the RuntimeClassAvailable condition and the held Deployment follow
+		// the cluster with no timer. See agent_runtimeclass.go.
+		Watches(
+			&nodev1.RuntimeClass{},
+			r.runtimeClassWatch(),
+			builder.WithPredicates(runtimeClassAppearsOrGoes()),
 		).
 		Complete(r)
 }

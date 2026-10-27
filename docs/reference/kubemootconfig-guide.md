@@ -66,6 +66,7 @@ The singleton must be named `default`. The operator creates it via the Helm char
 | `defaults.vectorStoreEndpoint` | string | | Default vector store endpoint for tool indexing. When empty, MCPServer tool indexing is disabled |
 | `defaults.embeddingModel` | string | `nomic-embed` | Default EmbeddingModel CR name for RAGSources |
 | `defaults.agentResources` | ResourceRequirements | requests cpu `25m`, memory `96Mi`; limit memory `256Mi` (goose: `100m`/`256Mi`, limit `1Gi`) | Default resources for the agent container of every Agent. Merged per resource name over the built-in default and under the Agent's own `spec.deployment.resources` or `spec.harness.resources`. No CPU limit by default. See [Agent resources](agent.md#resources) |
+| `defaults.agentRuntimeClassName` | string | | Default RuntimeClass for the pods of every Agent, for example `gvisor`. Empty means the pods set no `runtimeClassName`. An Agent's `spec.deployment.runtimeClassName` wins, and `""` there turns the default off for that Agent. Covers Agent pods only. See [Isolation](../../concepts/isolation/) |
 | `defaults.otelCollectorEndpoint` | string | | Default OpenTelemetry collector for all agents. Moot Mesh sidecars export spans to it over OTLP/HTTP |
 
 ## Status

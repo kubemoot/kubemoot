@@ -96,6 +96,7 @@ Standard Kubernetes deployment overrides.
 | `port` | int32 | HTTP API port. Default: 8080. In sidecar mode it is the sidecar's port, which the Service targets |
 | `resources` | ResourceRequirements | CPU and memory for the `agent` container. See [Resources](#resources) |
 | `env` | []EnvVar | Additional env vars - useful for `KUBEMOOT_GATEWAY_ENABLED=false` on coordinator, longer timeouts, etc. |
+| `runtimeClassName` | string | Kubernetes RuntimeClass for the pod, for example `gvisor`. Unset, the pod takes `KubemootConfig.spec.defaults.agentRuntimeClassName`; set to `""`, the pod uses the node's default runtime whatever the realm default is. While the class does not exist the operator holds the Deployment and reports `RuntimeClassAvailable=False`. See [Isolation](../../concepts/isolation/) |
 | `serviceAccountName` | string | Pod service account; needs the requester's `use` grant when `security.secretUseGrants.enabled` is on. An Agent that names none gets no mounted token, see [Secrets and tools](../../concepts/secrets-and-tools/) |
 
 The operator sets `imagePullSecrets` from `KubemootConfig.spec.defaults.imagePullSecrets` - no per-agent override needed. That field is empty by default (public images need no pull secret); set it on KubemootConfig if you point `global.imageRegistry` at a private mirror.
@@ -235,10 +236,11 @@ The goose harness runs `goose run` for each request, so its default is larger th
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `phase` | string | `Running` once the Deployment and Service are applied (not a pod-readiness signal); `Unschedulable` when no feasible Model or Ready ModelServer exists |
+| `phase` | string | `Running` once the Deployment and Service are applied (not a pod-readiness signal); `Unschedulable` when no feasible Model or Ready ModelServer exists; `Pending` while the requested RuntimeClass does not exist |
 | `ready` | bool | True when the scheduler bound a Model and the agent is deployed |
 | `endpoint` | string | Internal service URL (`http://<name>.<namespace>.svc.cluster.local:<port>`, following `spec.deployment.port`) |
 | `availableReplicas` | int32 | Declared, not populated by the controller today |
+| `conditions[]` | Condition | `RuntimeClassAvailable` is present only when the pod asks for a RuntimeClass: `True` when the class exists, `False` (reason `RuntimeClassMissing`) when it does not. See [Isolation](../../concepts/isolation/) |
 | `message` | string | The bound models (`mulling=<model>@<server>; triage=<model>@<server>`), or the reason the agent is unschedulable |
 | `ragSourceStatus[]` | RAGSourceRefStatus | Declared, not populated by the controller today |
 | `mcpServerStatus[]` | MCPServerRefStatus | Declared, not populated by the controller today |

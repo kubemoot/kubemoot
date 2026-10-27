@@ -232,6 +232,17 @@ func (c *ConfigCache) GetAgentResources() *corev1.ResourceRequirements {
 	return c.config.Spec.Defaults.AgentResources.DeepCopy()
 }
 
+// GetAgentRuntimeClassName returns the KubemootConfig default RuntimeClass for agent pods;
+// empty when none is configured.
+func (c *ConfigCache) GetAgentRuntimeClassName() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if c.config == nil {
+		return ""
+	}
+	return c.config.Spec.Defaults.AgentRuntimeClassName
+}
+
 // GetMaxIndexBuildsPerServer returns how many index builds may run at once against one
 // embedding server, from config or fallback
 func (c *ConfigCache) GetMaxIndexBuildsPerServer() int32 {
