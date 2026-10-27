@@ -41,6 +41,7 @@ const (
 	npToggleNS   = "np-toggle"
 	npDocs       = "docs"
 	npHandWrote  = "km-hand-written"
+	npGone       = "gone"
 )
 
 func npConfig(enabled bool) netpol.Config {
@@ -300,7 +301,7 @@ var _ = Describe("Generated network policies", func() {
 		}
 
 		It("generates nothing in a labeled namespace that holds no Crew", func() {
-			labeledBy(ctx, "np-nocrew", map[string]string{netpol.LabelCrew: "gone"})
+			labeledBy(ctx, "np-nocrew", map[string]string{netpol.LabelCrew: npGone})
 			npHandWritten(ctx, "np-nocrew", npHandWrote)
 			npReconcileNamespace(ctx, "np-nocrew")
 
@@ -399,7 +400,7 @@ var _ = Describe("Generated network policies", func() {
 		It("lets a shared tool server admit the gateways of namespaces that hold a Crew, and no others", func() {
 			npNamespace(ctx, npOperatorNS)
 			labeledBy(ctx, "np-x-crew", map[string]string{netpol.LabelCrew: "x"})
-			labeledBy(ctx, "np-x-empty", map[string]string{netpol.LabelCrew: "gone"})
+			labeledBy(ctx, "np-x-empty", map[string]string{netpol.LabelCrew: npGone})
 			crew := npCrew(ctx, "np-x-crew", "x")
 			npMCPServer(ctx, npOperatorNS, "shared-tool", nil)
 			r := &MCPServerReconciler{Client: k8sClient, Scheme: k8sClient.Scheme(), ConfigCache: NewConfigCache(), NetPol: npSync(npConfig(true), false)}

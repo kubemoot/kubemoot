@@ -25,6 +25,7 @@ import (
 const (
 	testNS           = "crew-a"
 	testOperator     = "kubemoot"
+	testAlpha        = "alpha"
 	testDNS          = "kube-system"
 	testScraperNS    = "obs"
 	testCIDR         = "203.0.113.0/24"
@@ -212,12 +213,12 @@ func TestMCPServerIngress(t *testing.T) {
 }
 
 func TestMCPServerIngressSharedServerAdmitsNamespacesThatHoldACrew(t *testing.T) {
-	server := MCPServer{PodName: "github", Namespace: testOperator, Port: 8080, CrewNamespaces: []string{"zeta", "alpha"}}
+	server := MCPServer{PodName: "github", Namespace: testOperator, Port: 8080, CrewNamespaces: []string{"zeta", testAlpha}}
 	p := asPolicy(t, MCPServerIngress(testConfig(), server)[0])
 	eq(t, "peer count", len(p.Spec.Ingress[0].From), 2)
 	gw := p.Spec.Ingress[0].From[0]
 	eq(t, "crew namespaces, sorted", gw.NamespaceSelector.MatchExpressions, []metav1.LabelSelectorRequirement{{
-		Key: namespaceNameLabel, Operator: metav1.LabelSelectorOpIn, Values: []string{"alpha", "zeta"},
+		Key: namespaceNameLabel, Operator: metav1.LabelSelectorOpIn, Values: []string{testAlpha, "zeta"},
 	}})
 	eq(t, "gateway pods", gw.PodSelector.MatchLabels, map[string]string{labelComponent: ComponentMCPGateway})
 }
@@ -231,7 +232,7 @@ func TestMCPServerIngressSharedServerWithNoCrewAdmitsOnlyTheOperator(t *testing.
 }
 
 func TestMCPServerIngressIgnoresCrewNamespacesOutsideTheOperatorNamespace(t *testing.T) {
-	server := MCPServer{PodName: "mail", Namespace: testNS, Port: 3000, CrewNamespaces: []string{"alpha"}}
+	server := MCPServer{PodName: "mail", Namespace: testNS, Port: 3000, CrewNamespaces: []string{testAlpha}}
 	p := asPolicy(t, MCPServerIngress(testConfig(), server)[0])
 	eq(t, "the crew's own gateway only", p.Spec.Ingress[0].From[0],
 		networkingv1.NetworkPolicyPeer{PodSelector: podsWith(map[string]string{labelComponent: ComponentMCPGateway})})
