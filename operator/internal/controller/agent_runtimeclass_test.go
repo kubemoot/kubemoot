@@ -340,9 +340,15 @@ var _ = Describe("Agent controller and a missing RuntimeClass", func() {
 		Eventually(condition, "10s").ShouldNot(BeNil())
 		Expect(condition().Status).To(Equal(metav1.ConditionFalse))
 		Expect(condition().Message).To(ContainSubstring(class))
-		got := &kubemootv1alpha1.Agent{}
-		Expect(k8sClient.Get(ctx, key, got)).To(Succeed())
-		Expect(got.Status.Phase).To(Equal(phasePending))
+		// The condition is saved first and the phase in the reconcile's closing status write, so the
+		// phase is awaited as its own state instead of being read the moment the condition shows.
+		Eventually(func() string {
+			got := &kubemootv1alpha1.Agent{}
+			if err := k8sClient.Get(ctx, key, got); err != nil {
+				return ""
+			}
+			return got.Status.Phase
+		}, "10s").Should(Equal(phasePending))
 		err = k8sClient.Get(ctx, key, &appsv1.Deployment{})
 		Expect(apierrors.IsNotFound(err)).To(BeTrue(), "the Deployment is held while the class is missing")
 
