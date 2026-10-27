@@ -45,6 +45,9 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y make
 
+      # The operator tests render the chart's use-grant policies with helm.
+      - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
+
       - name: Operator tests with coverage
         working-directory: operator
         run: make test
