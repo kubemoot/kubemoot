@@ -11,6 +11,8 @@ You may obtain a copy of the License at
 package netpol
 
 import (
+	"slices"
+
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -128,11 +130,14 @@ type MCPServer struct {
 	Namespace string
 	// Port is the port the server (or the bridge, for stdio) listens on.
 	Port int32
+	// CrewNamespaces are the namespaces that hold a Crew. Only a server in the operator
+	// namespace uses them: it admits the gateway of each of these namespaces.
+	CrewNamespaces []string
 }
 
 // MCPServerIngress admits the crew's gateway and the operator to a tool server on its
 // port. A tool server in the operator namespace is shared: it admits the gateway of every
-// crew namespace.
+// namespace that holds a Crew, and of none when no namespace does.
 func MCPServerIngress(c Config, s MCPServer) []client.Object {
 	if !c.IngressOn() {
 		return nil
@@ -144,20 +149,29 @@ func MCPServerIngress(c Config, s MCPServer) []client.Object {
 	}}, networkingv1.PolicyTypeIngress)
 
 	gateway := podsWith(map[string]string{labelComponent: ComponentMCPGateway})
-	gatewayPeer := networkingv1.NetworkPolicyPeer{PodSelector: gateway}
+	gatewayPeers := []networkingv1.NetworkPolicyPeer{{PodSelector: gateway}}
 	if s.Namespace == c.OperatorNamespace {
-		gatewayPeer = networkingv1.NetworkPolicyPeer{
-			NamespaceSelector: &metav1.LabelSelector{MatchExpressions: []metav1.LabelSelectorRequirement{{
-				Key: LabelCrew, Operator: metav1.LabelSelectorOpExists,
-			}}},
-			PodSelector: gateway,
-		}
+		gatewayPeers = crewGatewayPeers(s.CrewNamespaces, gateway)
 	}
 	policy.Spec.Ingress = []networkingv1.NetworkPolicyIngressRule{{
-		From:  []networkingv1.NetworkPolicyPeer{gatewayPeer, c.operatorPeer()},
+		From:  append(gatewayPeers, c.operatorPeer()),
 		Ports: tcpPorts(s.Port),
 	}}
 	return []client.Object{policy}
+}
+
+// crewGatewayPeers selects the gateway pods of the named namespaces. With no namespace
+// it selects nothing: a selector that lists no value would be invalid.
+func crewGatewayPeers(namespaces []string, gateway *metav1.LabelSelector) []networkingv1.NetworkPolicyPeer {
+	if len(namespaces) == 0 {
+		return nil
+	}
+	return []networkingv1.NetworkPolicyPeer{{
+		NamespaceSelector: &metav1.LabelSelector{MatchExpressions: []metav1.LabelSelectorRequirement{{
+			Key: namespaceNameLabel, Operator: metav1.LabelSelectorOpIn, Values: slices.Sorted(slices.Values(namespaces)),
+		}}},
+		PodSelector: gateway,
+	}}
 }
 
 // GatewayProxy describes a crew's discussion gateway for the policy that lets callers

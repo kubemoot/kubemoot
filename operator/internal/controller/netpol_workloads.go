@@ -37,9 +37,16 @@ func (r *MCPServerReconciler) reconcileNetworkPolicies(ctx context.Context, mcpS
 	cfg := r.NetPol.Resolved()
 	var objects []client.Object
 	if shouldCreateMCPServerService(mcpServer) {
-		objects = netpol.MCPServerIngress(cfg, netpol.MCPServer{
+		server := netpol.MCPServer{
 			PodName: boundedName(mcpServer.Name), Namespace: mcpServer.Namespace, Port: mcpServerServicePort(mcpServer),
-		})
+		}
+		if mcpServer.Namespace == cfg.OperatorNamespace {
+			var err error
+			if server.CrewNamespaces, err = crewNamespaces(ctx, r.Client); err != nil {
+				return err
+			}
+		}
+		objects = netpol.MCPServerIngress(cfg, server)
 	}
 	workload := netpol.Workload{
 		Name: "mcp-" + boundedName(mcpServer.Name), Namespace: mcpServer.Namespace,

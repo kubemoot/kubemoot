@@ -35,6 +35,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -1245,6 +1246,8 @@ func (r *MCPServerReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Owns(&networkingv1.NetworkPolicy{}).
 		// Re-check the credential when the Secret that holds it appears or changes.
 		Watches(&corev1.Secret{}, handler.EnqueueRequestsFromMapFunc(r.findMCPServersForSecret)).
+		// A shared server's ingress names the namespaces that hold a Crew.
+		Watches(&kubemootv1alpha1.Crew{}, enqueueSharedMCPServers(mgr.GetClient()), builder.WithPredicates(crewLifecyclePredicate())).
 		Named("mcpserver").
 		WithOptions(controller.Options{MaxConcurrentReconciles: 3}).
 		// Re-reconcile every MCPServer when KubemootConfig changes so a

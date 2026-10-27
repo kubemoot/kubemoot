@@ -211,13 +211,30 @@ func TestMCPServerIngress(t *testing.T) {
 	eq(t, "port", rule.Ports[0].Port.IntVal, int32(3000))
 }
 
-func TestMCPServerIngressSharedServerAdmitsEveryCrew(t *testing.T) {
-	p := asPolicy(t, MCPServerIngress(testConfig(), MCPServer{PodName: "github", Namespace: testOperator, Port: 8080})[0])
+func TestMCPServerIngressSharedServerAdmitsNamespacesThatHoldACrew(t *testing.T) {
+	server := MCPServer{PodName: "github", Namespace: testOperator, Port: 8080, CrewNamespaces: []string{"zeta", "alpha"}}
+	p := asPolicy(t, MCPServerIngress(testConfig(), server)[0])
+	eq(t, "peer count", len(p.Spec.Ingress[0].From), 2)
 	gw := p.Spec.Ingress[0].From[0]
-	eq(t, "crew namespaces", gw.NamespaceSelector.MatchExpressions, []metav1.LabelSelectorRequirement{{
-		Key: LabelCrew, Operator: metav1.LabelSelectorOpExists,
+	eq(t, "crew namespaces, sorted", gw.NamespaceSelector.MatchExpressions, []metav1.LabelSelectorRequirement{{
+		Key: namespaceNameLabel, Operator: metav1.LabelSelectorOpIn, Values: []string{"alpha", "zeta"},
 	}})
 	eq(t, "gateway pods", gw.PodSelector.MatchLabels, map[string]string{labelComponent: ComponentMCPGateway})
+}
+
+func TestMCPServerIngressSharedServerWithNoCrewAdmitsOnlyTheOperator(t *testing.T) {
+	server := MCPServer{PodName: "github", Namespace: testOperator, Port: 8080}
+	p := asPolicy(t, MCPServerIngress(testConfig(), server)[0])
+	from := p.Spec.Ingress[0].From
+	eq(t, "peer count", len(from), 1)
+	eq(t, "the operator", from[0].NamespaceSelector.MatchLabels, map[string]string{namespaceNameLabel: testOperator})
+}
+
+func TestMCPServerIngressIgnoresCrewNamespacesOutsideTheOperatorNamespace(t *testing.T) {
+	server := MCPServer{PodName: "mail", Namespace: testNS, Port: 3000, CrewNamespaces: []string{"alpha"}}
+	p := asPolicy(t, MCPServerIngress(testConfig(), server)[0])
+	eq(t, "the crew's own gateway only", p.Spec.Ingress[0].From[0],
+		networkingv1.NetworkPolicyPeer{PodSelector: podsWith(map[string]string{labelComponent: ComponentMCPGateway})})
 }
 
 func TestMCPServerIngressUsesTheBoundedPodName(t *testing.T) {

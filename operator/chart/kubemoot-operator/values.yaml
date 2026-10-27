@@ -83,7 +83,7 @@ security:
 
   # Network policies the operator generates (off by default). When enabled, the operator
   # makes a default-deny ingress policy in every crew namespace (a namespace labeled
-  # kubemoot.ai/crew), admits only the crew's gateway and the operator to each tool server,
+  # kubemoot.ai/crew that holds a Crew), admits only the crew's gateway and the operator to each tool server,
   # narrows each crew gateway's tool port to its namespace, and, with egress.mode Declared,
   # restricts the outbound traffic of each MCPServer and Agent that sets spec.egress. Every
   # generated object carries the label kubemoot.ai/generated-by=network-policy and an owner

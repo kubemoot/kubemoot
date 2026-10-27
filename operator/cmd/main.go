@@ -421,7 +421,7 @@ func main() {
 			Client: mgr.GetClient(), Scheme: mgr.GetScheme(),
 		}).SetupWithManager},
 		{"Namespace", (&controller.NamespaceReconciler{
-			Client: mgr.GetClient(), ConfigCache: configCache, NetPol: netPol,
+			Client: mgr.GetClient(), ConfigCache: configCache, NetPol: netPol, APIReader: mgr.GetAPIReader(),
 		}).SetupWithManager},
 	})
 	// +kubebuilder:scaffold:builder
