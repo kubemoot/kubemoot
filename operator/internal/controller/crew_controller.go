@@ -24,6 +24,7 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	networkingv1 "k8s.io/api/networking/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -45,6 +46,7 @@ import (
 	"github.com/kubemoot/kubemoot/operator/internal/crewmemory"
 	"github.com/kubemoot/kubemoot/operator/internal/crewscope"
 	kubemootnats "github.com/kubemoot/kubemoot/operator/internal/nats"
+	"github.com/kubemoot/kubemoot/operator/internal/netpol"
 )
 
 // crewMemoryBucket is the NATS KV bucket holding crew working memory; keys are
@@ -66,6 +68,8 @@ type CrewReconciler struct {
 	NATSPublisher *kubemootnats.Publisher
 	// Recorder emits events on a Crew whose deletion cleanup fails. Nil emits none.
 	Recorder events.EventRecorder
+	// NetPol applies the network policy of the crew's discussion gateway. Nil generates none.
+	NetPol *NetPolicySync
 	// bus replaces NATSPublisher for discussion-state cleanup in tests.
 	bus crewDiscussionBus
 }
@@ -111,6 +115,9 @@ func (r *CrewReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 	}
 
 	r.reconcileNamespaceLabel(ctx, crew)
+	if err := r.reconcileNetworkPolicies(ctx, crew); err != nil {
+		return r.updateStatus(ctx, crew, "Error", false, fmt.Sprintf("Failed to reconcile network policies: %v", err))
+	}
 	provenance := crewProvenance(crew)
 	r.reconcileNamespaceCrews(ctx, crew, provenance)
 	recordCrewRevision(crew, provenance, metav1.Now())
@@ -131,6 +138,23 @@ func (r *CrewReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 
 	a := assessCrew(agents.Items, coordinatorName)
 	return r.updateStatus(ctx, crew, a.phase, a.ready, a.message)
+}
+
+// reconcileNetworkPolicies applies the policy that admits callers from outside the
+// namespace to the crew's discussion gateway, or removes it when the crew runs no gateway.
+func (r *CrewReconciler) reconcileNetworkPolicies(ctx context.Context, crew *kubemootv1alpha1.Crew) error {
+	if r.NetPol == nil {
+		return nil
+	}
+	var objects []client.Object
+	if crew.Spec.Discussion != nil && crew.Spec.Discussion.IsEnabled() {
+		g := netpol.GatewayProxy{Crew: crew.Name, Namespace: crew.Namespace}
+		if crew.Spec.Network != nil {
+			g.Allowed = crew.Spec.Network.AllowedIngress
+		}
+		objects = netpol.DiscussionGatewayIngress(r.NetPol.Resolved(), g)
+	}
+	return r.NetPol.Apply(ctx, crew, crew.Namespace, objects)
 }
 
 // reconcileNamespaceLabel records the Crew on its namespace when the Crew CR
@@ -706,6 +730,7 @@ func (r *CrewReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Owns(&appsv1.Deployment{}).
 		Owns(&corev1.Service{}).
 		Owns(&corev1.ServiceAccount{}).
+		Owns(&networkingv1.NetworkPolicy{}).
 		// A crew's readiness is derived from its agents' phases.
 		Watches(&kubemootv1alpha1.Agent{}, enqueueCrewForAgent()).
 		// Re-reconcile every Crew when KubemootConfig changes so a

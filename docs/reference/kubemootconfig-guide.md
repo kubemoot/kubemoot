@@ -138,6 +138,25 @@ grant on. The grant, the rejection message and the exempt cases are in
 | `security.secretUseGrants.validationActions` | `["Deny"]` | `Deny` rejects. `["Audit", "Warn"]` records and warns without rejecting; use it first when rolling out. |
 | `security.secretUseGrants.namespaceSelector` | `{}` | Label selector limiting the check to matching namespaces; empty means every namespace. |
 
+## Network policies
+
+The chart value `security.networkPolicies` makes the operator generate NetworkPolicy objects
+for crew namespaces, tool servers, gateways, and the workloads that declare `spec.egress`.
+It is cluster-wide: there is no per-crew switch. What is generated and what each CNI
+enforces are in [Network policies](../../concepts/network-policies/).
+
+| Value | Default | Meaning |
+|-------|---------|---------|
+| `security.networkPolicies.enabled` | `false` | Master switch. Off creates nothing and deletes only the objects the operator generated (label `kubemoot.ai/generated-by=network-policy`). Needs a CNI that enforces NetworkPolicy. |
+| `security.networkPolicies.ingress` | `true` | The ingress set, with `enabled`. |
+| `security.networkPolicies.egress.mode` | `Off` | `Off`, or `Declared` to restrict only the MCPServers and Agents that set `spec.egress`. |
+| `security.networkPolicies.cilium` | `auto` | `auto` emits CiliumNetworkPolicy objects when that kind is installed (read when the operator starts); `on` always; `off` never. |
+| `security.networkPolicies.dns` | `kube-system`, `k8s-app=kube-dns` | Namespace and pod labels of cluster DNS. |
+| `security.networkPolicies.metricsScraper` | none | Namespace and pod labels of the metrics scraper, admitted to the pods it scrapes. |
+| `security.networkPolicies.trustedIngressNamespaces` | `[]` | Without Cilium: namespaces of the Gateway API proxy pods, admitted to the discussion gateways. |
+| `security.networkPolicies.controlPlaneCIDRs` | `[]` | Without Cilium: source ranges of the API server's service proxy (`kubectl ask`, kmctl). |
+| `security.networkPolicies.clusterCIDRs` | `[]` | Pod and service ranges that are not private addresses; the fallback for undeclared host enforcement keeps them blocked. |
+
 ## Caching
 
 The operator keeps a thread-safe, in-memory cache of the `default` KubemootConfig's

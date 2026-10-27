@@ -94,6 +94,17 @@ rules:
   - update
   - watch
 - apiGroups:
+  - cilium.io
+  resources:
+  - ciliumnetworkpolicies
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+- apiGroups:
   - discovery.k8s.io
   resources:
   - endpointslices

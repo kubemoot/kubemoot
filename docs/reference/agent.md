@@ -100,6 +100,20 @@ Standard Kubernetes deployment overrides.
 
 The operator sets `imagePullSecrets` from `KubemootConfig.spec.defaults.imagePullSecrets` - no per-agent override needed. That field is empty by default (public images need no pull secret); set it on KubemootConfig if you point `global.imageRegistry` at a private mirror.
 
+### `spec.egress`
+Optional extra destinations the agent may reach, for a harness that browses or calls an API.
+It has an effect only when the operator generates network policies with
+`security.networkPolicies.egress.mode: Declared`. An agent that sets it is restricted to DNS,
+the message bus, the crew's tool gateway, the model servers it can be placed on, the query
+service of its RAG sources, the placement service, and the telemetry collector (the operator
+derives these), plus what `egress` lists. An agent without `egress` is not restricted.
+
+The fields are the same as an MCPServer's `egress`: `allowedHosts`, `allowedCIDRs`, `ports`
+(default 443). See [EgressRules](../mcpserver-guide/#egressrules). The agent reports
+`EgressEnforced` in `status.conditions`; it is False with reason `FQDNNotSupported` when the
+CNI cannot enforce host names. What each CNI enforces is in
+[Network policies](../../concepts/network-policies/).
+
 ### `spec.harness`
 Names the program that does the agent's reasoning and how its pod joins the table. Without the block the agent is a legacy agent-runtime pod, as it has always been. With `mode: sidecar` the pod runs the harness beside a [Moot Mesh sidecar](../../architecture/moot-mesh/) that owns the bus, model placement, and tool access. To decide which mode fits, see [Choosing a harness mode](../../user-guides/build-a-crew/#choosing-a-harness-mode).
 

@@ -154,6 +154,12 @@ To limit the check to some namespaces, set `security.secretUseGrants.namespaceSe
 The policies need Kubernetes 1.30 or later. The operator tests apply them to the Kubernetes
 version the operator builds against.
 
+## Limiting where a tool can connect
+
+A credential is only as safe as the places its tool can send it. An MCPServer can declare
+the hosts it may reach with `spec.egress`, and the operator can generate the network
+policies that enforce it. See [Network policies](../network-policies/).
+
 ## Pods get no ServiceAccount token by default
 
 The operator sets `automountServiceAccountToken: false` on the pods it builds for an Agent

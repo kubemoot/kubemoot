@@ -390,6 +390,14 @@ type AgentSpec struct {
 	// table. Absent means the agent runtime in legacy mode.
 	// +optional
 	Harness *HarnessSpec `json:"harness,omitempty"`
+
+	// Egress declares extra destinations this agent may reach, for a harness that
+	// browses or calls an API. When the operator generates network policies, an agent
+	// that sets it is restricted to the message bus, the crew's tool gateway, its model
+	// servers, its RAG sources, and the placement service, plus this list. An agent
+	// without it is not restricted.
+	// +optional
+	Egress *EgressRules `json:"egress,omitempty"`
 }
 
 // AgentStatus defines the observed state of Agent

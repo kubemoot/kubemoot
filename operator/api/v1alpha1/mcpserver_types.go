@@ -304,6 +304,12 @@ type MCPServerSpec struct {
 	// +kubebuilder:validation:MaxItems=64
 	// +optional
 	ToolOverrides []ToolOverride `json:"toolOverrides,omitempty"`
+
+	// Egress declares where this server may connect (hosts, address ranges, the API
+	// server). When the operator generates network policies, a server that sets it is
+	// restricted to the defaults plus this list; a server without it is not restricted.
+	// +optional
+	Egress *EgressRules `json:"egress,omitempty"`
 }
 
 // RegistryStatus tracks registration state with an MCPGateway

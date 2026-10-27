@@ -49,6 +49,11 @@ type CrewSpec struct {
 	// runtime (e.g. discovered label/topology mappings) and recalls later.
 	// +optional
 	Memory *CrewMemoryConfig `json:"memory,omitempty"`
+
+	// Network configures who may reach the crew's discussion gateway when the operator
+	// generates network policies.
+	// +optional
+	Network *CrewNetwork `json:"network,omitempty"`
 }
 
 // CrewMemoryConfig governs a crew's working-memory storage, injection, and GC.

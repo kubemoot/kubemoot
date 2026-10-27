@@ -54,6 +54,7 @@ Because the domain is the crew's, a crew must be **portable** across clusters - 
 | `description` | string | Human-readable purpose |
 | `discussion` | object | Discussion gateway config (`enabled`, `resources`) - the HTTP entry point for external clients |
 | `memory` | object | Crew working-memory policy - see below |
+| `network.allowedIngress` | []LabelSelector | Namespace selectors whose pods may reach the crew's discussion gateway when the operator generates network policies, for example the namespace of the web server that fronts the crew. See [Network policies](../../concepts/network-policies/) |
 
 ## Working Memory
 
