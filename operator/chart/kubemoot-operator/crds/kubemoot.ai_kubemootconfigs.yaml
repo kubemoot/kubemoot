@@ -72,10 +72,12 @@ spec:
                     description: |-
                       QueryEngine is the engine that answers workspace_query on every MCPServer that
                       selects spec.kubemootImage artifactAccess. none (the default) offers no query
-                      tool. The operator sets ARTIFACT_QUERY_ENGINE on those servers; a server that
-                      sets the variable itself keeps its own value.
+                      tool; sqlite runs in the artifact-access process and is the recommended engine;
+                      duckdb needs its program on the image. The operator sets ARTIFACT_QUERY_ENGINE on
+                      those servers; a server that sets the variable itself keeps its own value.
                     enum:
                     - none
+                    - sqlite
                     - duckdb
                     type: string
                 type: object

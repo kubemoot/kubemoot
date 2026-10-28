@@ -19,13 +19,30 @@ func sqliteService(t *testing.T, files map[string]string) *Service {
 
 func TestCheckSelectAcceptsOneSelect(t *testing.T) {
 	ok := []string{
-		"SELECT 1", "select 1;", "  SELECT 1 ;; ", "WITH a AS (SELECT 1) SELECT * FROM a", "VALUES (1)",
+		selectOne, "select 1;", "  SELECT 1 ;; ", "WITH a AS (SELECT 1) SELECT * FROM a", "VALUES (1)",
 		"SELECT ';' AS semi", `SELECT "a;b" FROM t`, "SELECT 1 -- DROP TABLE t; \n", "SELECT /* ; DROP */ 1",
 		"SELECT 'it''s; fine'", "SELECT [a;b] FROM t", "SELECT (1)", "-- lead\nSELECT 1",
 	}
 	for _, q := range ok {
-		if err := checkSelect(q); err != nil {
+		if _, err := checkSelect(q); err != nil {
 			t.Errorf("%q must pass: %v", q, err)
+		}
+	}
+}
+
+func TestCheckSelectCutsAtTheTerminator(t *testing.T) {
+	cases := map[string]string{
+		"SELECT 1;":                              selectOne,
+		"  SELECT 1 ; -- note":                   "SELECT 1",
+		"SELECT 1; /* later */":                  "SELECT 1",
+		"SELECT ';' AS s; \n":                    "SELECT ';' AS s",
+		"SELECT 1 -- keep; this\n":               "SELECT 1 -- keep; this",
+		"WITH a AS (SELECT 1) SELECT * FROM a;;": "WITH a AS (SELECT 1) SELECT * FROM a",
+	}
+	for in, want := range cases {
+		got, err := checkSelect(in)
+		if err != nil || got != want {
+			t.Errorf("checkSelect(%q) = %q, %v; want %q", in, got, err, want)
 		}
 	}
 }
@@ -37,7 +54,7 @@ func TestCheckSelectRefusesEverythingElse(t *testing.T) {
 		"SELECT (1", "SELECT 1\x00", "'x'", "EXPLAIN SELECT 1", "1) ; " + dropT + "; (",
 	}
 	for _, q := range notReadOnly {
-		if err := checkSelect(q); !errors.Is(err, ErrNotReadOnly) {
+		if _, err := checkSelect(q); !errors.Is(err, ErrNotReadOnly) {
 			t.Errorf("%q: want ErrNotReadOnly, got %v", q, err)
 		}
 	}
@@ -45,11 +62,11 @@ func TestCheckSelectRefusesEverythingElse(t *testing.T) {
 
 func TestCheckSelectRefusesUnterminatedText(t *testing.T) {
 	for _, q := range []string{"SELECT 'open", "SELECT /* open", `SELECT "open`, "SELECT [open"} {
-		if err := checkSelect(q); err == nil || errors.Is(err, ErrNotReadOnly) {
+		if _, err := checkSelect(q); err == nil || errors.Is(err, ErrNotReadOnly) {
 			t.Errorf("%q: want an invalid SQL error, got %v", q, err)
 		}
 	}
-	if err := checkSelect("SELECT " + strings.Repeat("1,", maxSQLBytes)); err == nil {
+	if _, err := checkSelect("SELECT " + strings.Repeat("1,", maxSQLBytes)); err == nil {
 		t.Error("an oversized query must be refused")
 	}
 }
@@ -269,5 +286,96 @@ func TestEnginesDescribeTheirDialect(t *testing.T) {
 	}
 	if h := (&Service{Engine: &fakeEngine{}}).Hint(); h != "" {
 		t.Errorf("an engine with no hint gave %q", h)
+	}
+}
+
+func TestSQLiteKeepsEveryCSVHeaderInPlace(t *testing.T) {
+	cases := []struct{ csv, want string }{
+		{"a,a,b\n1,2,\n3,4,5\n", "a | a_2 | b\n1 | 2 | \n3 | 4 | 5\n(2 rows)\n"},
+		{",col1\n7,8\n", "col1 | col1_2\n7 | 8\n(1 row)\n"},
+		{"\ufeffid,name\n1,x\n", "id | name\n1 | x\n(1 row)\n"},
+		{"A,a\n1,2\n", "A | a_2\n1 | 2\n(1 row)\n"},
+	}
+	for _, c := range cases {
+		got, err := runRelation(t, c.csv, KindCSV, "SELECT * FROM t")
+		if err != nil || got != c.want {
+			t.Errorf("%q: got %q, %v; want %q", c.csv, got, err, c.want)
+		}
+	}
+}
+
+func TestSQLiteLoadsMoreRowsThanOneBatch(t *testing.T) {
+	var b strings.Builder
+	b.WriteString("n,tag\n")
+	rows := insertBatch*3 + 7
+	for i := 1; i <= rows; i++ {
+		b.WriteString(strconv.Itoa(i) + ",x\n")
+	}
+	got, err := runRelation(t, b.String(), KindCSV, "SELECT count(*) AS c, sum(n) AS s, min(n) AS lo, max(n) AS hi FROM t")
+	want := "c | s | lo | hi\n" + strconv.Itoa(rows) + " | " + strconv.Itoa(rows*(rows+1)/2) + " | 1 | " + strconv.Itoa(rows) + "\n(1 row)\n"
+	if err != nil || got != want {
+		t.Fatalf("got %q, %v; want %q", got, err, want)
+	}
+}
+
+func TestSQLiteRunsAStatementFollowedByAComment(t *testing.T) {
+	s := sqliteService(t, map[string]string{"k": jsonOneA})
+	got := query(t, s, map[string]string{"t": "k"}, "SELECT a FROM t; -- that is all")
+	if want := "a\n1\n(1 row)\n"; got != want {
+		t.Fatalf("got %q", got)
+	}
+}
+
+// One query that builds many mid-size values stays under every per-value limit, so
+// the watch on the process's memory is what stops it.
+func TestSQLiteMemoryWatchStopsAQueryThatGrowsTheProcess(t *testing.T) {
+	if _, ok := residentBytes(); !ok {
+		t.Skip("process size is not readable here")
+	}
+	s := sqliteService(t, map[string]string{"k": jsonOneA})
+	s.Limits.MemoryLimit = "64MB"
+	s.Limits.Timeout = 30 * time.Second
+	start := time.Now()
+	_, err := s.Query(context.Background(), map[string]string{"t": "k"},
+		"WITH RECURSIVE c(x) AS (SELECT 1 UNION ALL SELECT x + 1 FROM c WHERE x < 400) "+
+			"SELECT x, hex(randomblob(4000000)) AS h FROM c ORDER BY h")
+	if !errors.Is(err, errMemory) && (err == nil || !strings.Contains(err.Error(), "more memory")) {
+		t.Fatalf("want the memory error, got %v", err)
+	}
+	if elapsed := time.Since(start); elapsed > 10*time.Second {
+		t.Fatalf("the query ran for %s before it was stopped", elapsed)
+	}
+}
+
+func TestSQLiteQuerySlotsAreReleasedAndBounded(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+	var releases []func()
+	for i := 0; i < maxConcurrentQueries; i++ {
+		release, err := acquireSlot(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		releases = append(releases, release)
+	}
+	if _, err := acquireSlot(ctx); err == nil {
+		t.Fatal("a query beyond the slot count must wait, then give up with its context")
+	}
+	for _, release := range releases {
+		release()
+	}
+	release, err := acquireSlot(context.Background())
+	if err != nil {
+		t.Fatalf("slots were not released: %v", err)
+	}
+	release()
+}
+
+func TestWatchMemoryDoesNothingForNoLimit(t *testing.T) {
+	ctx, stop := watchMemory(context.Background(), 0)
+	defer stop()
+	time.Sleep(3 * memoryPoll)
+	if ctx.Err() != nil {
+		t.Fatalf("a zero limit must not cancel: %v", ctx.Err())
 	}
 }

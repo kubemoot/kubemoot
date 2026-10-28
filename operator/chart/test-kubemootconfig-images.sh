@@ -42,14 +42,16 @@ placement_env() { helm template kubemoot-operator "$chart" --namespace kubemoot 
 query_engine() { helm template kubemoot-operator "$chart" --namespace kubemoot "$@" \
   | yq -N 'select(.kind == "KubemootConfig") | .spec.artifacts.queryEngine'; }
 [ "$(query_engine)" = "none" ] || fail "artifacts.queryEngine should default to none"
-[ "$(query_engine --set artifacts.queryEngine=duckdb)" = "duckdb" ] \
-  || fail "artifacts.queryEngine=duckdb does not reach KubemootConfig"
+for engine in sqlite duckdb; do
+  [ "$(query_engine --set artifacts.queryEngine=$engine)" = "$engine" ] \
+    || fail "artifacts.queryEngine=$engine does not reach KubemootConfig"
+done
 # The engines the chart accepts are the engines the KubemootConfig CRD accepts.
 crd_engines="$(yq -N '.spec.versions[0].schema.openAPIV3Schema.properties.spec.properties.artifacts.properties.queryEngine.enum | join(",")' \
   "$chart/crds/kubemoot.ai_kubemootconfigs.yaml")"
-[ "$crd_engines" = "none,duckdb" ] || fail "CRD queryEngine enum is $crd_engines, the chart accepts none,duckdb"
-if helm template kubemoot-operator "$chart" --namespace kubemoot --set artifacts.queryEngine=sqlite >/dev/null 2>&1; then
-  fail "artifacts.queryEngine=sqlite should fail the render"
+[ "$crd_engines" = "none,sqlite,duckdb" ] || fail "CRD queryEngine enum is $crd_engines, the chart accepts none,sqlite,duckdb"
+if helm template kubemoot-operator "$chart" --namespace kubemoot --set artifacts.queryEngine=oracle >/dev/null 2>&1; then
+  fail "artifacts.queryEngine=oracle should fail the render"
 fi
 
 echo "all KubemootConfig image render tests passed"

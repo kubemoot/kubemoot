@@ -90,10 +90,12 @@ arithmetic and the agent reads a short table of rows.
 
 The tool is off by default. The operator chart value `artifacts.queryEngine` chooses the
 engine: `none` (the default) offers no `workspace_query` and the service behaves as
-before; `duckdb` offers it. The engine sits behind a seam: the artifacts stay in the
-NATS object store, artifact-access materializes them as files under `/artifacts`, and
-the engine reads those files. Another engine can replace DuckDB through the chart
-value without a change to crews or prompts.
+before; `sqlite` (the recommended engine) and `duckdb` offer it. See
+[Query engines](#query-engines) for why and when. The engine sits behind a seam: the
+artifacts stay in the NATS object store, artifact-access materializes them as files
+under `/artifacts`, and the engine reads those files. Another engine can replace these
+through the chart value without a change to crews or prompts. The engines speak their
+own SQL; the tool description tells the model which one it has.
 
 | Input | Meaning |
 |-------|---------|
@@ -120,28 +122,44 @@ extension):
 | Content | Table |
 |---------|-------|
 | A JSON list of objects | One row per object, one column per key. |
-| A JSON object with an `items` list (`kubectl get -o json`) | One row per item; nested objects are read as `status.phase`. |
+| A JSON object with an `items` list (`kubectl get -o json`) | One row per item. |
 | A `kubectl get` table | One row per line, columns named by the header. |
 | YAML (several documents become a list) | Read as JSON. |
 | A Markdown pipe table | One row per table row. |
 | CSV with a header row | One row per line. |
 | Anything else | One row per line, columns `line_no` and `line`. |
 
+A column whose every value is a number is stored as numbers, so `sum`, `avg` and
+`ORDER BY` work on it (`RESTARTS` of a kubectl table, a Markdown count column).
+A nested object or list in JSON or YAML is read per engine. In SQLite it is a text
+column holding JSON: `status->>'phase'` reads a field, `json_array_length(tags)` counts
+a list. In DuckDB it is a struct: `status.phase`. A JSON `true` or `false` is `1` or `0`
+in SQLite and a boolean in DuckDB.
+
 Markdown beyond pipe tables is read as lines of text. DuckDB's Markdown reader is a
 community extension that downloads at run time, which a server with no network cannot do.
 
 Limits and safety:
 
-- **Read-only.** The SQL must parse as exactly one `SELECT`. Writes, `COPY`, `ATTACH`,
-  `INSTALL`, `SET`, `PRAGMA` and a second statement are refused.
-- **Only the named artifacts.** Each query runs in its own short-lived process with an
-  in-memory database. External access is off, so a path outside the named artifacts
-  (`/etc/passwd`, another artifact) and any `http`, `https` or `s3` address are
-  refused, extensions cannot load or download, and the configuration is locked before
-  the query runs.
-- **Bounded.** A query that runs past the time limit (10 seconds by default) is killed.
-  The engine's memory is capped (256 MB by default), an artifact over 32 MiB is
-  refused, and the result is cut at the row limit and at the tool output cap.
+- **Read-only.** The SQL must be exactly one `SELECT` (or `WITH` or `VALUES`). Writes,
+  `ATTACH`, `PRAGMA`, `VACUUM`, `COPY`, `INSTALL`, `SET` and a second statement are
+  refused before the engine sees them. The query then runs as a sub-select of a wrapper
+  query, so no other statement can be spelled around it. SQLite adds a connection set
+  to query-only with `ATTACH` switched off; DuckDB locks its configuration.
+- **Only the named artifacts.** Each query gets its own in-memory database holding only
+  the tables it names. SQLite has extension loading disabled and no file or network
+  functions. DuckDB runs in its own short-lived process with external access
+  off, so a path outside the named artifacts (`/etc/passwd`, another artifact) and any
+  `http`, `https` or `s3` address are refused and extensions cannot load or download.
+- **Bounded.** A query that runs past the time limit (10 seconds by default) is stopped.
+  An artifact over 32 MiB is refused, and the result is cut at the row limit and at
+  the tool output cap. DuckDB's memory is capped at the memory setting (256 MB by
+  default). The pure-Go SQLite build has no heap limit of its own, so artifact-access
+  watches the size of its process: a query that grows it by more than the memory
+  setting is stopped, a single value cannot exceed a quarter of the setting, and at
+  most two SQLite queries run at once. The watch reads `/proc`; where that is
+  unavailable the time limit and the value ceiling still apply. Give the pod a
+  container memory limit as the last bound.
 - **Errors say what to fix.** A missing artifact, an unknown column or a refused
   statement comes back as a tool error naming the cause.
 
@@ -149,16 +167,56 @@ The service reads these variables; the chart value sets only the engine.
 
 | Variable | Default | Meaning |
 |----------|---------|---------|
-| `ARTIFACT_QUERY_ENGINE` | `none` | `none` or `duckdb`. The operator sets it from the KubemootConfig `spec.artifacts.queryEngine` unless the MCPServer sets it. |
+| `ARTIFACT_QUERY_ENGINE` | `none` | `none`, `sqlite` or `duckdb`. The operator sets it from the KubemootConfig `spec.artifacts.queryEngine` unless the MCPServer sets it. |
 | `ARTIFACT_DUCKDB_BIN` | `duckdb` | The `duckdb` program. The artifact-access image that serves `duckdb` must carry it; when it is missing the service logs the reason and offers no query tool. |
 | `ARTIFACT_QUERY_TIMEOUT` | `10s` | Time limit per query. |
 | `ARTIFACT_QUERY_MAX_ROWS` | `100` | Rows per result. |
-| `ARTIFACT_QUERY_MEMORY` | `256MB` | Engine memory limit. |
+| `ARTIFACT_QUERY_MEMORY` | `256MB` | DuckDB memory limit. For SQLite, the growth of the process that stops a query, and a quarter of it is the ceiling on any one value. |
 | `ARTIFACT_QUERY_MAX_ARTIFACT_BYTES` | `33554432` | Largest artifact a query may read. |
 | `ARTIFACT_DIR` | `/artifacts` | Where artifacts are materialized; the server needs a writable volume there. |
 
 An artifact the sandbox sidecar has not materialized yet is fetched from the object store
 on first use.
+
+#### Query engines
+
+`sqlite` is the recommended engine and `duckdb` is the option for large data.
+
+**Why SQLite is the recommended engine.**
+
+- It runs inside the artifact-access process. There is no extra image, no extra process
+  to start and no program to install, and it needs a few MB of memory.
+- SQLite is public domain and written in C. Kubemoot uses a pure-Go translation of it,
+  so artifact-access stays a single static binary on its existing image.
+- "Lite" means embedded and serverless, not limited. SQLite is the most widely deployed
+  database engine, and it has full SQL: joins, grouping, window functions, common table
+  expressions and JSON functions.
+- Workspace data is capped in size and is usually kilobytes. For that, both engines
+  answer in milliseconds; with DuckDB the start of its process dominates the time.
+
+**When DuckDB fits.**
+
+- DuckDB is a column store, built for analytical scans over large tables, and it reads
+  JSON and CSV files directly.
+- It is a C library and a separate program, so the artifact-access image must carry the
+  `duckdb` program. When `duckdb` is chosen and the program is missing, artifact-access
+  logs why and offers no query tool.
+- Choose it when artifacts are large (many thousands of rows and up) and queries scan
+  them whole.
+
+Measured with the same kind of query on both, a group-by over a JSON list:
+
+| Case | SQLite, in the artifact-access process | DuckDB, separate process |
+|------|----------------------------------------|--------------------------|
+| `SELECT 1` | about 3 MB more than an idle process, 1 to 2 ms | 42 MiB peak, 0.07 s |
+| 50 rows | about 3 MB more, 1 to 2 ms | 45 MiB peak, 0.07 s |
+| 200,000 rows, about 14 MB | about 30 MB more, 1.3 s | 127 MiB peak, 0.24 s |
+
+SQLite figures are the added peak resident memory of a process running the query
+in-process, over the same process idle (about 9 MB). DuckDB figures are the peak resident
+memory of its whole process. SQLite loads the file into a table before it queries, so its
+time grows with the size of the artifact. DuckDB scans the file as it queries and is
+faster on the large case.
 
 ### Compute sandbox agents (materialised to disk)
 

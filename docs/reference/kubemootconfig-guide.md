@@ -73,7 +73,7 @@ The singleton must be named `default`. The operator creates it via the Helm char
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `artifacts.queryEngine` | enum | `none` | The engine behind the `workspace_query` tool of the [artifact-access](../../concepts/discussion-artifact-store/#query-with-sql) read-ops server: `none` offers no query tool and changes nothing, `duckdb` offers it. The operator sets `ARTIFACT_QUERY_ENGINE` on every MCPServer that selects `spec.kubemootImage: artifactAccess`; a server that sets the variable itself keeps its own value. The operator chart sets it from the value `artifacts.queryEngine`. The artifact-access image must carry the `duckdb` program for `duckdb`; without it the server logs why and offers no query tool |
+| `artifacts.queryEngine` | enum | `none` | The engine behind the `workspace_query` tool of the [artifact-access](../../concepts/discussion-artifact-store/#query-with-sql) read-ops server. `none` offers no query tool and changes nothing. `sqlite` is the recommended engine: it runs inside the artifact-access process, so nothing is added to the image, and it answers small artifacts in milliseconds with a few MB of memory. `duckdb` is the option for large data: it is faster on large scans, but the artifact-access image must carry the `duckdb` program, and without it the server logs why and offers no query tool. See [Query engines](../../concepts/discussion-artifact-store/#query-engines). The operator sets `ARTIFACT_QUERY_ENGINE` on every MCPServer that selects `spec.kubemootImage: artifactAccess`; a server that sets the variable itself keeps its own value. The operator chart sets it from the value `artifacts.queryEngine` |
 
 ## Status
 

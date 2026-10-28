@@ -60,6 +60,14 @@ type Engine interface {
 	Query(ctx context.Context, rels []Relation, sql string, lim Limits) (Result, error)
 }
 
+// capErrorText cuts an engine message to a length a model can read.
+func capErrorText(msg string) string {
+	if len(msg) > maxErrorText {
+		return msg[:maxErrorText] + "..."
+	}
+	return msg
+}
+
 var (
 	// ErrNotReadOnly means the SQL is not exactly one SELECT statement.
 	ErrNotReadOnly = errors.New("only one read-only SELECT query is allowed")

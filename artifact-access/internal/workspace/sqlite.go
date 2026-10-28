@@ -26,8 +26,9 @@ const (
 // Read-only is enforced in layers: the text must be one SELECT (checkSelect), it
 // runs as a sub-select of a wrapper query so no other statement can be spelled,
 // the connection is set query_only, ATTACH is switched off by a zero limit, and
-// the build has no extension loading and no file functions. Memory is bounded by a
-// ceiling on any one value and the query is interrupted when its context ends.
+// the build has no extension loading and no file functions. The query is interrupted
+// when its context ends, and a watch on the process's memory stops it once the
+// process has grown by the memory limit (see watchMemory).
 type SQLite struct{}
 
 // Hint describes how nested JSON is read in this engine's SQL.
@@ -38,15 +39,22 @@ func (SQLite) Hint() string {
 
 // Query runs sql over rels.
 func (SQLite) Query(ctx context.Context, rels []Relation, query string, lim Limits) (Result, error) {
-	if err := checkSelect(query); err != nil {
+	query, err := checkSelect(query)
+	if err != nil {
 		return Result{}, err
 	}
-	query = strings.TrimRight(strings.TrimSpace(query), "; \t\r\n")
 	if lim.Timeout > 0 {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, lim.Timeout)
 		defer cancel()
 	}
+	release, err := acquireSlot(ctx)
+	if err != nil {
+		return Result{}, sqliteError(ctx, err)
+	}
+	defer release()
+	ctx, stopWatch := watchMemory(ctx, heapBytes(lim.MemoryLimit))
+	defer stopWatch()
 	db, conn, err := openMemory(ctx, lim)
 	if err != nil {
 		return Result{}, err
@@ -92,7 +100,7 @@ func openMemory(ctx context.Context, lim Limits) (*sql.DB, *sql.Conn, error) {
 	}
 	// This SQLite build does not enforce a heap limit, so memory is bounded by the
 	// artifact size cap, by a ceiling on the size of any one string, blob or row (a
-	// quarter of the memory limit), by the row limit and by the timeout.
+	// quarter of the memory limit), and by watchMemory and the timeout.
 	limits := map[int]int{
 		sqlite3.SQLITE_LIMIT_SQL_LENGTH: maxSQLBytes * 2,
 		sqlite3.SQLITE_LIMIT_LENGTH:     int(min(heapBytes(lim.MemoryLimit)/4, 1<<30)),
@@ -169,8 +177,6 @@ func cellText(v any) string {
 		return strconv.FormatInt(x, 10)
 	case float64:
 		return strconv.FormatFloat(x, 'g', -1, 64)
-	case bool:
-		return strconv.FormatBool(x)
 	}
 	return fmt.Sprint(v)
 }
@@ -180,14 +186,11 @@ func sqliteError(ctx context.Context, err error) error {
 	switch {
 	case errors.Is(ctx.Err(), context.DeadlineExceeded):
 		return ErrTimeout
-	case strings.Contains(err.Error(), "out of memory"), strings.Contains(err.Error(), "too big"):
+	case errors.Is(context.Cause(ctx), errMemory), strings.Contains(err.Error(), "out of memory"),
+		strings.Contains(err.Error(), "too big"):
 		return errors.New("the query used more memory than allowed; select fewer columns or rows")
 	}
-	msg := err.Error()
-	if len(msg) > maxErrorText {
-		msg = msg[:maxErrorText] + "..."
-	}
-	return errors.New(msg)
+	return errors.New(capErrorText(err.Error()))
 }
 
 // heapBytes reads a limit such as "256MB" or "1GiB"; an unreadable value gives the default.
