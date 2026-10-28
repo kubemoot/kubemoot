@@ -69,6 +69,12 @@ The singleton must be named `default`. The operator creates it via the Helm char
 | `defaults.agentRuntimeClassName` | string | | Default RuntimeClass for the pods of every Agent, for example `gvisor`. Empty means the pods set no `runtimeClassName`. An Agent's `spec.deployment.runtimeClassName` wins, and `""` there turns the default off for that Agent. Covers Agent pods only. See [Isolation](../../concepts/isolation/) |
 | `defaults.otelCollectorEndpoint` | string | | Default OpenTelemetry collector for all agents. Moot Mesh sidecars export spans to it over OTLP/HTTP |
 
+### Artifacts
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `artifacts.queryEngine` | enum | `none` | The engine behind the `workspace_query` tool of the [artifact-access](../../concepts/discussion-artifact-store/#query-with-sql) read-ops server: `none` offers no query tool and changes nothing, `duckdb` offers it. The operator sets `ARTIFACT_QUERY_ENGINE` on every MCPServer that selects `spec.kubemootImage: artifactAccess`; a server that sets the variable itself keeps its own value. The operator chart sets it from the value `artifacts.queryEngine`. The artifact-access image must carry the `duckdb` program for `duckdb`; without it the server logs why and offers no query tool |
+
 ## Status
 
 | Field | Type | Description |

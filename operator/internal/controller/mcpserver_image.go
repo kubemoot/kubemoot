@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 
+	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -47,6 +48,9 @@ type imageResolution struct {
 	Image   string
 	Reason  string
 	Message string
+	// QueryEngine is the artifact query engine KubemootConfig asks the server to run;
+	// empty when the server does not select the artifact-access image.
+	QueryEngine kubemootv1alpha1.ArtifactQueryEngine
 }
 
 // ok reports whether an image was resolved.
@@ -96,7 +100,32 @@ func (r *MCPServerReconciler) resolveMCPServerImage(ctx context.Context, mcpServ
 			Message: fmt.Sprintf("KubemootConfig %q has no spec.images.%s; install the operator chart release that stamps it", DefaultKubemootConfigName, name),
 		}, nil
 	}
-	return imageResolution{Image: image, Reason: reasonImageFromKubemootConfig, Message: fmt.Sprintf("spec.images.%s of KubemootConfig %q", name, DefaultKubemootConfigName)}, nil
+	res := imageResolution{Image: image, Reason: reasonImageFromKubemootConfig, Message: fmt.Sprintf("spec.images.%s of KubemootConfig %q", name, DefaultKubemootConfigName)}
+	if name == kubemootv1alpha1.KubemootImageArtifactAccess {
+		res.QueryEngine = cfg.Spec.Artifacts.QueryEngine
+	}
+	return res, nil
+}
+
+// artifactQueryEngineEnv is the variable artifact-access reads to choose its query engine.
+const artifactQueryEngineEnv = "ARTIFACT_QUERY_ENGINE"
+
+// withQueryEngineEnv returns mcpServer with ARTIFACT_QUERY_ENGINE set to the engine
+// KubemootConfig asks for. Nothing is added for none or an unset engine, so a server
+// behaves as it did before the setting existed, and a server that sets the variable
+// itself keeps its value. The original is left alone.
+func withQueryEngineEnv(mcpServer *kubemootv1alpha1.MCPServer, engine kubemootv1alpha1.ArtifactQueryEngine) *kubemootv1alpha1.MCPServer {
+	if engine == "" || engine == kubemootv1alpha1.ArtifactQueryEngineNone {
+		return mcpServer
+	}
+	for _, e := range mcpServer.Spec.Env {
+		if e.Name == artifactQueryEngineEnv {
+			return mcpServer
+		}
+	}
+	out := mcpServer.DeepCopy()
+	out.Spec.Env = append(out.Spec.Env, corev1.EnvVar{Name: artifactQueryEngineEnv, Value: string(engine)})
+	return out
 }
 
 // withResolvedImage returns a copy of mcpServer whose spec.image is the resolved

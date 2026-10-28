@@ -205,6 +205,33 @@ type KubemootConfigSpec struct {
 	// Defaults defines default configurations for Kubemoot components
 	// +optional
 	Defaults DefaultConfig `json:"defaults,omitempty"`
+
+	// Artifacts configures the discussion's shared artifacts.
+	// +optional
+	Artifacts ArtifactsConfig `json:"artifacts,omitempty"`
+}
+
+// ArtifactQueryEngine names the engine behind the artifact-access workspace_query tool.
+// +kubebuilder:validation:Enum=none;duckdb
+type ArtifactQueryEngine string
+
+const (
+	// ArtifactQueryEngineNone offers no query tool; artifact-access behaves as before.
+	ArtifactQueryEngineNone ArtifactQueryEngine = "none"
+	// ArtifactQueryEngineDuckDB runs read-only SQL over artifacts with DuckDB. The
+	// artifact-access image must carry the duckdb program.
+	ArtifactQueryEngineDuckDB ArtifactQueryEngine = "duckdb"
+)
+
+// ArtifactsConfig configures the artifact query seam.
+type ArtifactsConfig struct {
+	// QueryEngine is the engine that answers workspace_query on every MCPServer that
+	// selects spec.kubemootImage artifactAccess. none (the default) offers no query
+	// tool. The operator sets ARTIFACT_QUERY_ENGINE on those servers; a server that
+	// sets the variable itself keeps its own value.
+	// +kubebuilder:default=none
+	// +optional
+	QueryEngine ArtifactQueryEngine `json:"queryEngine,omitempty"`
 }
 
 // KubemootConfigStatus defines the observed state of KubemootConfig

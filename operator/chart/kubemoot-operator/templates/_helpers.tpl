@@ -125,3 +125,14 @@ Usage: include "kubemoot-operator.labelList" $map
 {{- end -}}
 {{- join "," $out -}}
 {{- end }}
+
+{{/*
+The artifact query engine, none or duckdb; any other value fails the render.
+*/}}
+{{- define "kubemoot-operator.artifactQueryEngine" -}}
+{{- $engine := (.Values.artifacts | default dict).queryEngine | default "none" -}}
+{{- if not (has $engine (list "none" "duckdb")) -}}
+{{- fail (printf "artifacts.queryEngine must be none or duckdb, got %q" $engine) -}}
+{{- end -}}
+{{- $engine -}}
+{{- end }}

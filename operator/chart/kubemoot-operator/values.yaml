@@ -305,6 +305,14 @@ nats:
     enabled: false   # an MCPServer that lets agents inspect NATS; opt in per cluster
     image: ghcr.io/sinadarbouy/mcp-nats:0.1.4
 
+# The engine behind the artifact-access workspace_query tool: read-only SQL over the
+# artifacts of a discussion. none (the default) offers no query tool and artifact-access
+# behaves as before. duckdb runs queries with DuckDB; the artifact-access image that
+# serves it must carry the duckdb program (see docs/concepts/discussion-artifact-store.md).
+# Every MCPServer that selects kubemootImage artifactAccess gets ARTIFACT_QUERY_ENGINE.
+artifacts:
+  queryEngine: none   # none | duckdb
+
 # Scale-to-zero configuration for KEDA-based agent autoscaling
 scaleToZero:
   enabled: false  # Enable when KEDA is deployed
