@@ -55,6 +55,11 @@ func (r *MCPServerReconciler) reconcileNetworkPolicies(ctx context.Context, mcpS
 	if err := r.NetPol.attachAPIServer(ctx, cfg, &workload); err != nil {
 		return err
 	}
+	if cfg.EgressOn() {
+		if err := r.NetPol.attachDeclaredDestinations(ctx, &workload); err != nil {
+			return err
+		}
+	}
 	egress := netpol.Egress(cfg, workload)
 	setEgressCondition(&mcpServer.Status.Conditions, mcpServer.Generation, egress.Status)
 	return r.NetPol.Apply(ctx, mcpServer, mcpServer.Namespace, append(objects, egress.Objects...))

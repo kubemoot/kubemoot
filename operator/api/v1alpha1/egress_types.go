@@ -35,6 +35,29 @@ type EgressCIDR struct {
 	Except []string `json:"except,omitempty"`
 }
 
+// EgressService is an in-cluster Service a workload may reach. The operator reads the
+// Service, and the rule it writes names the Service's namespace and pod selector and the
+// port its pods listen on, which every CNI that enforces NetworkPolicy understands.
+type EgressService struct {
+	// Namespace is the Service's namespace. Empty means the workload's own namespace.
+	// +kubebuilder:validation:MaxLength=63
+	// +optional
+	Namespace string `json:"namespace,omitempty"`
+
+	// Name is the Service's name.
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=63
+	Name string `json:"name"`
+
+	// Ports are the Service ports allowed, as the Service lists them (the port clients
+	// dial, not the pod port). Empty allows every TCP port of the Service.
+	// +kubebuilder:validation:MaxItems=16
+	// +kubebuilder:validation:items:Minimum=1
+	// +kubebuilder:validation:items:Maximum=65535
+	// +optional
+	Ports []int32 `json:"ports,omitempty"`
+}
+
 // EgressRules declares where a workload may connect. When the operator's network policy
 // flag is on and a workload sets egress, the operator restricts that workload's outbound
 // traffic to what Kubemoot always allows (DNS, the message bus, the crew's tool gateway,
@@ -50,6 +73,14 @@ type EgressRules struct {
 	// +optional
 	AllowedHosts []string `json:"allowedHosts,omitempty"`
 
+	// AllowedServices are Services inside the cluster the workload may reach. Use it for an
+	// in-cluster destination in place of allowedHosts: a NetworkPolicy cannot name a host,
+	// and a CNI that translates a Service to its pods before it applies policy can miss a
+	// host rule. The Service must have a pod selector.
+	// +kubebuilder:validation:MaxItems=32
+	// +optional
+	AllowedServices []EgressService `json:"allowedServices,omitempty"`
+
 	// AllowedCIDRs are address ranges the workload may reach. Every CNI that enforces
 	// NetworkPolicy enforces these.
 	// +kubebuilder:validation:MaxItems=64
@@ -62,6 +93,12 @@ type EgressRules struct {
 	// +kubebuilder:validation:items:Maximum=65535
 	// +optional
 	Ports []int32 `json:"ports,omitempty"`
+
+	// Bus allows the workload to reach the message bus (NATS), at the address the operator
+	// itself is configured with. An Agent always reaches the bus; set it on a tool server
+	// that reads or writes the bus, such as one that reads artifacts.
+	// +optional
+	Bus bool `json:"bus,omitempty"`
 
 	// APIServer allows the workload to reach the Kubernetes API server. Set it on a tool
 	// server that talks to the cluster, such as the Kubernetes MCP server.

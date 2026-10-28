@@ -105,10 +105,58 @@ A workload with `spec.egress` may reach:
   placed on, the query service of each RAG source it names, the placement service, and the
   telemetry collector. The operator reads these from the same settings it gives the agent,
   so a crew author never lists them.
-- What `spec.egress` declares: `allowedHosts`, `allowedCIDRs`, `ports` (default 443), and
-  for a tool server `apiServer: true` to reach the Kubernetes API server.
+- What `spec.egress` declares: `allowedServices` for Services inside the cluster,
+  `allowedHosts` and `allowedCIDRs` for destinations outside it, `ports` (default 443) for
+  those hosts and ranges, `bus: true` for a tool server that uses the message bus, and
+  `apiServer: true` for a tool server that talks to the Kubernetes API server.
 
 Everything else is blocked.
+
+### The message bus for a tool server
+
+An agent always reaches the bus. A tool server reaches it only when its `egress` sets
+`bus: true`. The operator does not guess which tool servers use the bus: the bus carries no
+limit on subjects at the network layer, so reaching it is a capability, and a tool server
+that does not need it (a Proxmox or Prometheus tool) should not have it. The address is the
+one the operator itself is configured with (the chart value `nats.url`), so a crew never
+writes it and a move of the bus changes one value.
+
+```yaml
+spec:
+  egress:
+    bus: true
+```
+
+### Services inside the cluster
+
+A destination inside the cluster is declared as a Service, not as a host name:
+
+```yaml
+spec:
+  egress:
+    allowedServices:
+      - namespace: observability
+        name: kube-prometheus-stack-prometheus
+        ports: [9090]
+```
+
+The operator reads the Service and writes a standard `NetworkPolicy` rule for the Service's
+namespace and pod selector, on the port its pods listen on (the target port, because
+Cilium and kube-proxy translate a Service address to a pod before policy applies, so a rule
+on the Service port or on a name would not match). Because the rule is plain
+`NetworkPolicy`, it behaves the same on every CNI. `namespace` defaults to the workload's
+own; empty `ports` allows every TCP port of the Service.
+
+A Service that does not exist, has no pod selector, does not list a requested port, or has a
+named target port with no endpoint yet gets no rule, and the workload reports
+`EgressEnforced: False` with reason `ServiceNotResolved` and the reason in the message. The
+operator watches Services, so the rule appears when the Service does. A Service without a
+pod selector cannot be turned into pods; declare its addresses with `allowedCIDRs`.
+
+The query service and the placement service of an agent are read the same way. The query
+service rule uses the port of its real Service (the RAGSource's `spec.queryService.port`,
+default 8000); the placement service is optional (chart value `placementService`), so an
+agent gets an allow for it only while a Service exists behind the URL in the KubemootConfig.
 
 ### Host names and the CNI
 
@@ -148,8 +196,14 @@ Service when its host is `name.namespace` or `name.namespace.svc`, and as a name
 cluster otherwise. The rule uses the port in the URL; a Service whose port differs from the
 port its pods listen on needs that pod port declared.
 
-Hosts are matched as written. A host that resolves to a cluster address is allowed by a
-Cilium host rule, so declare hosts that live outside the cluster.
+Hosts are matched as written. Cilium translates a Service to its pods before it applies
+policy, so a host rule for a name inside the cluster may not match; declare in-cluster
+destinations with `allowedServices` and keep `allowedHosts` for names outside the cluster.
+
+Outbound to the API server needs no address from you. On Cilium the rule is the
+`kube-apiserver` entity. On any other CNI it is built from the `kubernetes` EndpointSlice in
+the `default` namespace, which lists the control plane node addresses and port (for example
+6443), not the Service address 10.96.0.1:443 that clients dial.
 
 ## What is not covered
 

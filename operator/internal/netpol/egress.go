@@ -31,6 +31,8 @@ const (
 	ConditionEgressEnforced = "EgressEnforced"
 	// ReasonEnforced means every declared rule is enforced.
 	ReasonEnforced = "Enforced"
+	// ReasonServiceNotResolved means a declared Service could not be turned into a rule.
+	ReasonServiceNotResolved = "ServiceNotResolved"
 	// ReasonFQDNNotSupported means the cluster's CNI cannot enforce host names, so the
 	// declared hosts are allowed as the internet outside the cluster.
 	ReasonFQDNNotSupported = "FQDNNotSupported"
@@ -55,6 +57,11 @@ type Workload struct {
 	Defaults []Dest
 	// APIServer is where the API server listens, for a cluster without Cilium.
 	APIServer []APIServerEndpoint
+	// Services are the resolved destinations of spec.egress.allowedServices.
+	Services []Dest
+	// Unresolved describes each allowed Service that could not be resolved; the status
+	// reports it and the workload gets no rule for that Service.
+	Unresolved []string
 }
 
 // EgressStatus is what the egress policy enforces, for the EgressEnforced condition.
@@ -105,7 +112,19 @@ func Egress(c Config, w Workload) EgressResult {
 	case w.Rules.APIServer && c.UseCilium:
 		out = append(out, ciliumEgress(c, w, nil))
 	}
-	return EgressResult{Objects: out, Status: status}
+	return EgressResult{Objects: out, Status: withUnresolved(status, w.Unresolved)}
+}
+
+// withUnresolved folds the Services that could not be resolved into the status.
+func withUnresolved(st EgressStatus, unresolved []string) EgressStatus {
+	if len(unresolved) == 0 {
+		return st
+	}
+	msg := "not enforced: " + strings.Join(unresolved, "; ")
+	if !st.Enforced {
+		msg += "; " + st.Message
+	}
+	return EgressStatus{Applicable: true, Reason: ReasonServiceNotResolved, Message: msg}
 }
 
 // egressPlan collects the destinations of one workload before they become rules.
@@ -124,7 +143,7 @@ type clusterDest struct {
 
 func newEgressPlan(w Workload) *egressPlan {
 	p := &egressPlan{index: map[string]*clusterDest{}, hosts: map[string]map[int32]bool{}}
-	for _, d := range w.Defaults {
+	for _, d := range append(append([]Dest(nil), w.Defaults...), w.Services...) {
 		p.add(d)
 	}
 	p.ports = declaredPorts(w.Rules)
@@ -181,6 +200,9 @@ func (p *egressPlan) addCluster(d Dest) {
 	}
 	if len(d.PodLabels) > 0 {
 		peer.PodSelector = podsWith(d.PodLabels)
+	} else if d.SameNamespace {
+		// A peer needs a selector; an empty pod selector is every pod of the policy's namespace.
+		peer.PodSelector = &metav1.LabelSelector{}
 	}
 	key := fmt.Sprintf("%s|%v|%v", d.Namespace, d.SameNamespace, d.PodLabels)
 	cd := p.index[key]

@@ -1217,6 +1217,9 @@ func (r *AgentReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Owns(&corev1.Service{}).
 		Owns(&corev1.ConfigMap{}).
 		Owns(&networkingv1.NetworkPolicy{}).
+		// A query service, placement service or named Service appearing or changing updates
+		// the egress rule built from it.
+		Watches(&corev1.Service{}, enqueueAgentsForService(mgr.GetClient())).
 		// Re-reconcile every Agent when KubemootConfig changes so an
 		// agentRuntime image bump (e.g. via chart upgrade) propagates
 		// to the Deployment spec without per-Agent annotation or
