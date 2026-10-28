@@ -12,6 +12,9 @@ const (
 	csvAB         = "a,b\n1,2\n"
 	mustBeLetters = "must be letters"
 	badKey        = "bad key"
+	insertT       = "INSERT INTO t VALUES (1)"
+	dropT         = "DROP TABLE t"
+	mem256        = "256MB"
 )
 
 const kubectlPods = `NAMESPACE     NAME          READY   STATUS    RESTARTS   AGE

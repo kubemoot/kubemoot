@@ -62,6 +62,17 @@ func (s *Service) Query(ctx context.Context, artifacts map[string]string, sql st
 	return Render(res), nil
 }
 
+// hinter is implemented by an engine that tells the model how its SQL differs.
+type hinter interface{ Hint() string }
+
+// Hint is one sentence on the engine's SQL dialect, for the tool description.
+func (s *Service) Hint() string {
+	if h, ok := s.Engine.(hinter); ok {
+		return h.Hint()
+	}
+	return ""
+}
+
 func checkRequest(artifacts map[string]string, sql string) error {
 	if strings.TrimSpace(sql) == "" {
 		return errors.New("sql is required")

@@ -268,12 +268,22 @@ func TestFromEnvOffersNothingByDefault(t *testing.T) {
 
 func TestFromEnvRefusesUnknownEngineAndMissingProgram(t *testing.T) {
 	for _, m := range []map[string]string{
-		{EnvEngine: "sqlite"},
+		{EnvEngine: "oracle"},
 		{EnvEngine: EngineDuckDB, EnvDuckDBBin: "/no/such/duckdb"},
 	} {
 		if s, err := FromEnv(envFrom(m), mapStore{}, "/artifacts"); s != nil || err == nil {
 			t.Errorf("%v: want an error, got %v %v", m, s, err)
 		}
+	}
+}
+
+func TestFromEnvSQLiteNeedsNoProgram(t *testing.T) {
+	s, err := FromEnv(envFrom(map[string]string{EnvEngine: EngineSQLite}), mapStore{}, "/artifacts")
+	if err != nil || s == nil {
+		t.Fatalf("sqlite: %v %v", s, err)
+	}
+	if _, ok := s.Engine.(SQLite); !ok {
+		t.Fatalf("engine = %T, want SQLite", s.Engine)
 	}
 }
 
