@@ -886,12 +886,21 @@ public class ChatService {
      *  compute agent must compute over lives in a materialized artifact file. */
     private static boolean inputReferencesArtifact(ToolLoopState state) {
         for (var msg : state.allMessages) {
-            String text = messageText(msg);
+            String text = inputMessageText(msg);
             if (text != null && text.contains(ARTIFACT_MARKER)) {
                 return true;
             }
         }
         return false;
+    }
+
+    /** Text of a message that can carry discussion input. The system prompt is
+     *  excluded: the compute prompt module documents the marker format with an example
+     *  ("[ARTIFACT key=&lt;key&gt; ..."), and counting that as a real spill made every
+     *  compute turn look artifact-backed, so a question that carries its own inputs
+     *  could never satisfy the contract. */
+    private static String inputMessageText(ChatMessage msg) {
+        return msg instanceof SystemMessage ? null : messageText(msg);
     }
 
     /** Exact /artifacts/&lt;key&gt; paths named by spill markers in the input, so the
@@ -901,7 +910,7 @@ public class ChatService {
     static java.util.List<String> artifactPathsInInput(java.util.List<ChatMessage> messages) {
         var paths = new java.util.LinkedHashSet<String>();
         for (var msg : messages) {
-            String text = messageText(msg);
+            String text = inputMessageText(msg);
             if (text == null) {
                 continue;
             }

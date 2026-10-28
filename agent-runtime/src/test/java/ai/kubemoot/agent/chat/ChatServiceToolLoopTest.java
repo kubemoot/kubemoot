@@ -1051,6 +1051,49 @@ class ChatServiceToolLoopTest {
     }
 
     @Test
+    void artifactPathsInInput_ignoresSystemPromptMarkerExample() {
+        // The compute prompt documents the marker format ("[ARTIFACT key=<key> ..."); that
+        // example is not a spill and must not yield a bogus /artifacts/<key> path.
+        var system = dev.langchain4j.data.message.SystemMessage.from(
+                "a contribution may carry \"[ARTIFACT key=<key> bytes=<n> ...]\"");
+        var user = dev.langchain4j.data.message.UserMessage.from("Sum the squares from 1 to 10.");
+        assertTrue(ChatService.artifactPathsInInput(java.util.List.of(system, user)).isEmpty());
+    }
+
+    @Test
+    void computeContract_selfContainedQuestion_systemPromptMarkerExample_accepted(
+            @org.junit.jupiter.api.io.TempDir java.nio.file.Path dir) throws java.io.IOException {
+        // The system prompt names the marker format, but no input carries a spill. A question
+        // that states its own inputs and runs execute_code (no /artifacts/ read) is accepted
+        // on the first answer, with no re-prompt.
+        var promptFile = dir.resolve("prompt.txt");
+        java.nio.file.Files.writeString(promptFile,
+                "marker form: [ARTIFACT key=<key> bytes=<n> ...] read it with the read-ops tools");
+        var toolSpec = ToolSpecification.builder().name("execute_code").description("run code").build();
+        var exec = mock(ToolExecutor.class);
+        when(exec.execute(any(), any())).thenReturn("{\"stdout\": \"43289913723294\"}");
+        when(mcpClient.getToolSpecifications()).thenReturn(Map.of(toolSpec, exec));
+        var codeCall = mock(ChatResponse.class);
+        when(codeCall.aiMessage()).thenReturn(AiMessage.from(List.of(ToolExecutionRequest.builder()
+                .id("e1").name("execute_code").arguments("{\"code\":\"print(sum(i*i for i in range(1,100001) if i%7==0 and i%11))\"}").build())));
+        when(codeCall.tokenUsage()).thenReturn(new TokenUsage(50, 10));
+        var answer = mock(ChatResponse.class);
+        when(answer.aiMessage()).thenReturn(new AiMessage("43289913723294"));
+        when(answer.tokenUsage()).thenReturn(new TokenUsage(40, 8));
+        when(chatModel.chat(any(ChatRequest.class))).thenReturn(codeCall, answer);
+        when(ragClient.queryForContext(anyString())).thenReturn("");
+
+        var props = spy(stubProperties(10, "analyst", true, true));
+        doReturn(Optional.of(promptFile.toString())).when(props).systemPromptFile();
+        var service = new ChatService(chatModel, ragClient, mcpClient, discussionOrchestrator, props,
+                heartbeatService, objectMapper, null, null, null, null, null, null, null, null, null);
+        var result = service.directChat(new ChatService.ChatRequest("c-cc12",
+                "Compute the sum of squares of integers 1..100000 divisible by 7 but not 11"), false);
+        assertEquals("43289913723294", result.response());
+        verify(chatModel, times(2)).chat(any(ChatRequest.class)); // no re-prompt
+    }
+
+    @Test
     void artifactPathsInInput_extractsKeyBeforeBytes() {
         var msg = dev.langchain4j.data.message.UserMessage.from(
                 "x [ARTIFACT key=k1 bytes=6032 - full data materialized at /artifacts/k1]");
