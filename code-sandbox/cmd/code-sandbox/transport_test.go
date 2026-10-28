@@ -33,6 +33,43 @@ func TestParseTransport(t *testing.T) {
 	}
 }
 
+func TestParsePort(t *testing.T) {
+	cases := []struct {
+		in      string
+		want    int
+		wantErr bool
+	}{
+		{"", defaultPort, false},
+		{"8080", 8080, false},
+		{"1", 1, false},
+		{"65535", 65535, false},
+		{"0", 0, true},
+		{"-1", 0, true},
+		{"65536", 0, true},
+		{"abc", 0, true},
+		{"80x", 0, true},
+		{" 80", 0, true},
+	}
+	for _, c := range cases {
+		got, err := parsePort(c.in)
+		if (err != nil) != c.wantErr || got != c.want {
+			t.Errorf("parsePort(%q) = %d, %v; want %d, error=%v", c.in, got, err, c.want, c.wantErr)
+		}
+	}
+}
+
+func TestListenPortChecksPortOnlyInHTTPMode(t *testing.T) {
+	if _, err := listenPort(transportHTTP, "abc"); err == nil {
+		t.Error("http mode must reject an invalid PORT")
+	}
+	if got, err := listenPort(transportHTTP, ""); err != nil || got != defaultPort {
+		t.Errorf("http unset = %d, %v", got, err)
+	}
+	if got, err := listenPort(transportStdio, "abc"); err != nil || got != defaultPort {
+		t.Errorf("stdio ignores PORT, got %d, %v", got, err)
+	}
+}
+
 func TestServeListenerServesThenStops(t *testing.T) {
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
