@@ -11,6 +11,10 @@ a program reads under `/artifacts`.
 
 ## Why a sandbox
 
+The concepts page, [Code sandbox](https://kubemoot.org/docs/concepts/code-sandbox/),
+explains the why, the compute contract, and how to run the pod under a sandboxed
+runtime with `spec.runtimeClassName`. This README is the component reference.
+
 Language models are unreliable at counting, summing, sorting, and filtering,
 especially small local models reading long lists. Asked how many pods are
 running in each namespace over a long listing, a model gives a confident,

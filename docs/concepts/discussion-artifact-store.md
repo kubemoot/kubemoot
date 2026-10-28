@@ -93,8 +93,8 @@ back, and the sandbox described below runs the program and returns the number
 the compute agent reports. The runtime enforces the contract: a compute agent
 may not state a number that did not come from running code.
 
-The compute sandbox is
-[`code-sandbox`](https://github.com/kubemoot/kubemoot/blob/main/code-sandbox/README.md),
+The compute sandbox is the [code sandbox](../code-sandbox/)
+([`code-sandbox`](https://github.com/kubemoot/kubemoot/blob/main/code-sandbox/README.md) in the repository),
 an MCP stdio server that exposes `execute_code` and `validate_code` for Python
 (standard library only) or bash. The pod is the sandbox: it holds no credentials
 and its egress is limited by the crew's network policy, so it must not reach NATS
