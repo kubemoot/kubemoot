@@ -575,7 +575,7 @@ func (r *AgentReconciler) assembleSystemPrompt(ctx context.Context, agent *kubem
 
 // ensureDeployment creates or updates the agent's Deployment.
 func (r *AgentReconciler) ensureDeployment(ctx context.Context, agent *kubemootv1alpha1.Agent, mulling, triage *modelPick, policyCMName string) error {
-	if _, held := runtimeClassHold(agent); held {
+	if _, held := runtimeClassHold(agent.Status.Conditions); held {
 		// The RuntimeClass the pods ask for does not exist; an existing Deployment is left as it is.
 		return nil
 	}
@@ -1189,7 +1189,7 @@ func (r *AgentReconciler) refreshStatus(ctx context.Context, agent *kubemootv1al
 	agent.Status.Endpoint = fmt.Sprintf("http://%s.%s.svc.cluster.local:%d", agent.Name, agent.Namespace, port)
 	agent.Status.Message = fmt.Sprintf("mulling=%s@%s; triage=%s@%s",
 		mulling.ModelID, mulling.Server.Name, triage.ModelID, triage.Server.Name)
-	if msg, held := runtimeClassHold(agent); held {
+	if msg, held := runtimeClassHold(agent.Status.Conditions); held {
 		agent.Status.Phase = phasePending
 		agent.Status.Ready = false
 		agent.Status.Message = msg

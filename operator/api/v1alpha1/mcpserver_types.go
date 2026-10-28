@@ -292,6 +292,16 @@ type MCPServerSpec struct {
 	// +optional
 	ServiceAccountName string `json:"serviceAccountName,omitempty"`
 
+	// RuntimeClassName is the Kubernetes RuntimeClass the MCP server's pod runs under, for
+	// example gvisor. Unset or empty, the pod sets no runtimeClassName and uses the node's
+	// default runtime. The named RuntimeClass and the runtime behind it (such as gVisor on the
+	// nodes) are installed by the cluster owner; while the class does not exist the operator
+	// holds the Deployment and reports RuntimeClassAvailable=False in status.conditions.
+	// +kubebuilder:validation:MaxLength=253
+	// +kubebuilder:validation:Pattern=`^([a-z0-9]([-a-z0-9.]*[a-z0-9])?)?$`
+	// +optional
+	RuntimeClassName *string `json:"runtimeClassName,omitempty"`
+
 	// Registry configures how this MCPServer is registered with MCPGateways
 	// +optional
 	Registry *RegistryConfig `json:"registry,omitempty"`

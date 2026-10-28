@@ -1,7 +1,7 @@
 ---
 title: "Isolation"
 weight: 57
-description: "How to run agent pods under a sandboxing runtime such as gVisor with a Kubernetes RuntimeClass, why it is optional, and what the RuntimeClassAvailable condition says."
+description: "How to run agent and MCP server pods under a sandboxing runtime such as gVisor with a Kubernetes RuntimeClass, why it is optional, and what the RuntimeClassAvailable condition says."
 ---
 
 An agent that calls tools or runs generated code should not be able to reach the host
@@ -10,7 +10,7 @@ the node uses to start it. A runtime such as [gVisor](https://gvisor.dev) puts a
 kernel between the agent and the host.
 
 Kubemoot builds no sandbox. It sets the standard `runtimeClassName` field on the pods it
-creates for Agents and leaves the runtime to the cluster.
+creates for Agents and MCP servers and leaves the runtime to the cluster.
 
 ## It is optional
 
@@ -70,5 +70,12 @@ not replaced until the class exists again.
 
 ## What it covers
 
-Today the setting applies to the pods the operator creates for Agents. MCP server pods, the
-code sandbox, and the gateways do not use it yet.
+The setting applies to the pods the operator creates for Agents and for MCP servers. An MCP
+server sets its own class with `spec.runtimeClassName`, described in the
+[MCPServer reference](../../reference/mcpserver-guide/). There is no realm default for MCP
+servers, so each server that should run sandboxed names the class. The same
+`RuntimeClassAvailable` condition and the same hold apply to an MCPServer whose class is
+missing, with the phase `Pending`.
+
+The [code sandbox](../code-sandbox/) is the MCP server that benefits most, because it runs
+code a model wrote. The gateways do not use the setting yet.

@@ -161,7 +161,7 @@ func rcSync(t *testing.T, agent *kubemootv1alpha1.Agent, realm string, objs ...*
 	if err := cli.Get(context.Background(), types.NamespacedName{Name: agent.Name, Namespace: agent.Namespace}, stored); err != nil {
 		t.Fatal(err)
 	}
-	_, held := runtimeClassHold(stored)
+	_, held := runtimeClassHold(stored.Status.Conditions)
 	return held, stored
 }
 
