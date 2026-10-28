@@ -989,7 +989,7 @@ func agentDiscussRelevanceEnvVars(agent *kubemootv1alpha1.Agent) []corev1.EnvVar
 // orchestrator/subscriber bail out at startup and no discussion happens.
 func (r *AgentReconciler) agentDiscussRoleEnvVars(ctx context.Context, agent *kubemootv1alpha1.Agent, crew string) []corev1.EnvVar {
 	var env []corev1.EnvVar
-	if agent.Spec.DiscussRole == "coordinator" {
+	if agent.Spec.DiscussRole == roleCoordinator {
 		env = append(env,
 			corev1.EnvVar{Name: "KUBEMOOT_DISCUSS_COORDINATOR", Value: valueTrue},
 			corev1.EnvVar{Name: "KUBEMOOT_DISCUSS_TOOLER", Value: valueFalse},
