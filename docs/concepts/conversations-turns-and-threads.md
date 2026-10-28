@@ -246,6 +246,8 @@ same permission (`services/proxy` in the crew's namespace).
 
 ## Related
 
+- [Agent Context](../agent-context/) - what the conversation and the thread contribute to an
+  agent's model context.
 - [The Moot - Consensus Model](../consensus-model/) - how a discussion is organized and settles.
 - [Crews & Agents](../crews-and-agents/) - the team a conversation talks to.
 - [Signals & Protocol](../signals-and-protocol/) - the messages exchanged on a thread.
