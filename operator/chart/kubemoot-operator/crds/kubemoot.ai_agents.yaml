@@ -446,10 +446,54 @@ spec:
                       type: string
                     maxItems: 64
                     type: array
+                  allowedServices:
+                    description: |-
+                      AllowedServices are Services inside the cluster the workload may reach. Use it for an
+                      in-cluster destination in place of allowedHosts: a NetworkPolicy cannot name a host,
+                      and a CNI that translates a Service to its pods before it applies policy can miss a
+                      host rule. The Service must have a pod selector.
+                    items:
+                      description: |-
+                        EgressService is an in-cluster Service a workload may reach. The operator reads the
+                        Service, and the rule it writes names the Service's namespace and pod selector and the
+                        port its pods listen on, which every CNI that enforces NetworkPolicy understands.
+                      properties:
+                        name:
+                          description: Name is the Service's name.
+                          maxLength: 63
+                          minLength: 1
+                          type: string
+                        namespace:
+                          description: Namespace is the Service's namespace. Empty
+                            means the workload's own namespace.
+                          maxLength: 63
+                          type: string
+                        ports:
+                          description: |-
+                            Ports are the Service ports allowed, as the Service lists them (the port clients
+                            dial, not the pod port). Empty allows every TCP port of the Service.
+                          items:
+                            format: int32
+                            maximum: 65535
+                            minimum: 1
+                            type: integer
+                          maxItems: 16
+                          type: array
+                      required:
+                      - name
+                      type: object
+                    maxItems: 32
+                    type: array
                   apiServer:
                     description: |-
                       APIServer allows the workload to reach the Kubernetes API server. Set it on a tool
                       server that talks to the cluster, such as the Kubernetes MCP server.
+                    type: boolean
+                  bus:
+                    description: |-
+                      Bus allows the workload to reach the message bus (NATS), at the address the operator
+                      itself is configured with. An Agent always reaches the bus; set it on a tool server
+                      that reads or writes the bus, such as one that reads artifacts.
                     type: boolean
                   ports:
                     description: Ports are the TCP ports allowed to the hosts and

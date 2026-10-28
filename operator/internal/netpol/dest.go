@@ -77,6 +77,36 @@ func destsFromOne(raw string) []Dest {
 	return []Dest{{Host: host, Port: port}}
 }
 
+// ServiceRef is a cluster Service named by a URL host.
+type ServiceRef struct {
+	Namespace string
+	Name      string
+	Port      int32
+}
+
+// ServiceFromURL reads the cluster Service a URL names: a host of the form
+// name.namespace, name.namespace.svc, or name.namespace.svc.<domain>, or a single label,
+// which is a Service in defaultNamespace. It reports false for a URL that names an
+// address or a host outside the cluster, or that has no usable port.
+func ServiceFromURL(raw, defaultNamespace string) (ServiceRef, bool) {
+	u, err := url.Parse(raw)
+	if err != nil || u.Hostname() == "" || net.ParseIP(u.Hostname()) != nil {
+		return ServiceRef{}, false
+	}
+	port, ok := urlPort(u)
+	if !ok {
+		return ServiceRef{}, false
+	}
+	labels := strings.Split(strings.ToLower(u.Hostname()), ".")
+	switch {
+	case len(labels) == 1:
+		return ServiceRef{Namespace: defaultNamespace, Name: labels[0], Port: port}, true
+	case len(labels) == 2 || labels[2] == "svc":
+		return ServiceRef{Namespace: labels[1], Name: labels[0], Port: port}, true
+	}
+	return ServiceRef{}, false
+}
+
 func urlPort(u *url.URL) (int32, bool) {
 	if p := u.Port(); p != "" {
 		n, err := strconv.ParseInt(p, 10, 32)

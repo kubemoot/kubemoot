@@ -1282,6 +1282,8 @@ func (r *MCPServerReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Owns(&networkingv1.NetworkPolicy{}).
 		// Re-check the credential when the Secret that holds it appears or changes.
 		Watches(&corev1.Secret{}, handler.EnqueueRequestsFromMapFunc(r.findMCPServersForSecret)).
+		// A Service an egress block names appearing or changing updates the rule built from it.
+		Watches(&corev1.Service{}, enqueueMCPServersForService(mgr.GetClient())).
 		// A shared server's ingress names the namespaces that hold a Crew.
 		Watches(&kubemootv1alpha1.Crew{}, enqueueSharedMCPServers(mgr.GetClient()), builder.WithPredicates(crewLifecyclePredicate())).
 		// Re-reconcile the MCP servers that ask for a RuntimeClass when it is created or

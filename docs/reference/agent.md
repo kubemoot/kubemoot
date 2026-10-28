@@ -109,10 +109,14 @@ the message bus, the crew's tool gateway, the model servers it can be placed on,
 service of its RAG sources, the placement service, and the telemetry collector (the operator
 derives these), plus what `egress` lists. An agent without `egress` is not restricted.
 
-The fields are the same as an MCPServer's `egress`: `allowedHosts`, `allowedCIDRs`, `ports`
-(default 443). See [EgressRules](../mcpserver-guide/#egressrules). The agent reports
+The fields are the same as an MCPServer's `egress`: `allowedHosts`, `allowedServices`,
+`allowedCIDRs`, `ports` (default 443). `bus` has no effect on an agent, which always reaches
+the bus. The query service and the placement service are read from their Services; the
+placement service gets no allow when no Service exists behind its configured URL, and the
+condition says so. See [EgressRules](../mcpserver-guide/#egressrules). The agent reports
 `EgressEnforced` in `status.conditions`; it is False with reason `FQDNNotSupported` when the
-CNI cannot enforce host names. What each CNI enforces is in
+CNI cannot enforce host names, and with reason `ServiceNotResolved` when a Service it needs
+does not exist yet. What each CNI enforces is in
 [Network policies](../../concepts/network-policies/).
 
 ### `spec.harness`

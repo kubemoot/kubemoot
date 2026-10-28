@@ -220,8 +220,10 @@ is `Declared`; a server without `egress` is never restricted. The same type is u
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `allowedHosts` | []string | | DNS names the server may reach: `api.example.com`, or `*.example.com` (wildcard in the leftmost label only). Lower case, no scheme, port, or path. Enforced on Cilium; elsewhere the server may reach the internet outside the private ranges |
+| `allowedServices` | []EgressService | | Services inside the cluster the server may reach, each `{namespace, name, ports}`. `namespace` defaults to the server's own; `ports` are the ports the Service lists (empty means every TCP port). The operator reads the Service and writes a rule for its namespace, its pod selector and the port its pods listen on, so it works on every CNI. The Service needs a pod selector. Use this, not `allowedHosts`, for a destination inside the cluster |
 | `allowedCIDRs` | []EgressCIDR | | Address ranges (`cidr`, and `except` ranges inside it). Enforced on every CNI that enforces NetworkPolicy |
 | `ports` | []int32 | `[443]` | TCP ports allowed to the hosts and ranges, 1 to 65535 |
+| `bus` | bool | `false` | Allow the message bus (NATS), at the address the operator itself is configured with (the chart value `nats.url`). Set it on a tool server that reads or writes the bus, such as one that reads artifacts. An Agent always reaches the bus |
 | `apiServer` | bool | `false` | Allow the Kubernetes API server, for a tool that talks to the cluster |
 
 ```yaml
@@ -229,6 +231,18 @@ spec:
   egress:
     allowedHosts: ["smtp.example.com"]
     ports: [587]
+```
+
+A tool server that queries Prometheus in the cluster and reads artifacts from the bus:
+
+```yaml
+spec:
+  egress:
+    bus: true
+    allowedServices:
+      - namespace: observability
+        name: kube-prometheus-stack-prometheus
+        ports: [9090]
 ```
 
 With the flag on, the operator also generates `km-mcp-<name>-ingress`, which admits only the
@@ -254,7 +268,7 @@ crew's gateway and the operator to the server's port.
 | `tools` | []MCPTool | Discovered tool names and descriptions |
 | `discoverable` | bool | Registered with at least one gateway |
 | `registeredWith` | []RegistryStatus | Gateway registration details |
-| `conditions` | []Condition | `Ready`; `ImageResolved` on a managed server (False with the reason when `kubemootImage` cannot resolve); `CredentialReady` on an external server with `registry.authSecretRef`; `EgressEnforced` when the server sets `egress` and the operator generates network policies (False with reason `FQDNNotSupported` when the CNI cannot enforce `allowedHosts`); `RuntimeClassAvailable` on a managed server that asks for a RuntimeClass (`True` when the class exists, `False` with reason `RuntimeClassMissing` and phase `Pending` when it does not) |
+| `conditions` | []Condition | `Ready`; `ImageResolved` on a managed server (False with the reason when `kubemootImage` cannot resolve); `CredentialReady` on an external server with `registry.authSecretRef`; `EgressEnforced` when the server sets `egress` and the operator generates network policies (False with reason `FQDNNotSupported` when the CNI cannot enforce `allowedHosts`, or `ServiceNotResolved` when an `allowedServices` entry has no Service, no pod selector or no matching port yet); `RuntimeClassAvailable` on a managed server that asks for a RuntimeClass (`True` when the class exists, `False` with reason `RuntimeClassMissing` and phase `Pending` when it does not) |
 
 ## Examples
 
