@@ -2682,6 +2682,11 @@ func (in *MCPServerSpec) DeepCopyInto(out *MCPServerSpec) {
 		*out = make([]string, len(*in))
 		copy(*out, *in)
 	}
+	if in.RuntimeClassName != nil {
+		in, out := &in.RuntimeClassName, &out.RuntimeClassName
+		*out = new(string)
+		**out = **in
+	}
 	if in.Registry != nil {
 		in, out := &in.Registry, &out.Registry
 		*out = new(RegistryConfig)

@@ -175,6 +175,7 @@ spec:
 | `healthPath` | string | | HTTP health check path (TCP probe if unset) |
 | `readinessPath` | string | | HTTP readiness path (falls back to healthPath) |
 | `serviceAccountName` | string | | K8s service account (needed for cluster access); see [Secrets and tools](../../concepts/secrets-and-tools/) |
+| `runtimeClassName` | string | | Kubernetes RuntimeClass for the pod, for example `gvisor`. Empty or unset, the pod sets no `runtimeClassName` and uses the node's default runtime. There is no realm default. While the class does not exist the operator holds the Deployment and reports `RuntimeClassAvailable=False`. See [Isolation](../../concepts/isolation/) and the [code sandbox](../../concepts/code-sandbox/) |
 | `registry` | RegistryConfig | | Gateway registration settings |
 | `toolOverrides` | []ToolOverride | | Corrected tool and parameter descriptions served to agents |
 | `egress` | EgressRules | | Where the server may connect. With `security.networkPolicies` on, a server that sets it is restricted to DNS plus this list; see ### EgressRules |
@@ -253,7 +254,7 @@ crew's gateway and the operator to the server's port.
 | `tools` | []MCPTool | Discovered tool names and descriptions |
 | `discoverable` | bool | Registered with at least one gateway |
 | `registeredWith` | []RegistryStatus | Gateway registration details |
-| `conditions` | []Condition | `Ready`; `ImageResolved` on a managed server (False with the reason when `kubemootImage` cannot resolve); `CredentialReady` on an external server with `registry.authSecretRef`; `EgressEnforced` when the server sets `egress` and the operator generates network policies (False with reason `FQDNNotSupported` when the CNI cannot enforce `allowedHosts`) |
+| `conditions` | []Condition | `Ready`; `ImageResolved` on a managed server (False with the reason when `kubemootImage` cannot resolve); `CredentialReady` on an external server with `registry.authSecretRef`; `EgressEnforced` when the server sets `egress` and the operator generates network policies (False with reason `FQDNNotSupported` when the CNI cannot enforce `allowedHosts`); `RuntimeClassAvailable` on a managed server that asks for a RuntimeClass (`True` when the class exists, `False` with reason `RuntimeClassMissing` and phase `Pending` when it does not) |
 
 ## Examples
 

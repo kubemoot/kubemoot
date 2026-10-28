@@ -36,8 +36,9 @@ import (
 )
 
 const (
-	// ConditionRuntimeClassAvailable is the Agent condition that says whether the RuntimeClass the
-	// agent's pod asks for exists in the cluster. It is absent when the pod asks for none.
+	// ConditionRuntimeClassAvailable is the Agent and MCPServer condition that says whether the
+	// RuntimeClass the workload's pod asks for exists in the cluster. It is absent when the pod
+	// asks for none.
 	ConditionRuntimeClassAvailable = "RuntimeClassAvailable"
 
 	reasonRuntimeClassFound   = "RuntimeClassFound"
@@ -61,44 +62,55 @@ func (r *AgentReconciler) agentRuntimeClassName(agent *kubemootv1alpha1.Agent) s
 
 // podRuntimeClass is the pod spec value for the Agent: nil when the Agent asks for no class.
 func (r *AgentReconciler) podRuntimeClass(agent *kubemootv1alpha1.Agent) *string {
-	if name := r.agentRuntimeClassName(agent); name != "" {
-		return &name
-	}
-	return nil
+	return runtimeClassPtr(r.agentRuntimeClassName(agent))
 }
 
-// syncRuntimeClassCondition keeps the RuntimeClassAvailable condition true to the cluster and
-// writes it to the Agent's status when it changed, so the condition is recorded whatever the
-// rest of the reconcile does. With no class asked for the condition is removed. With the class
-// present it is True. With the class missing it is False, and ensureDeployment holds the
-// Deployment (pods that name an unknown RuntimeClass are rejected at creation, so a Deployment
-// would only fail with events). The RuntimeClass watch re-reconciles the Agent when the class
-// appears or goes.
+// runtimeClassPtr is the pod spec value for a resolved class name: nil for the empty name.
+func runtimeClassPtr(name string) *string {
+	if name == "" {
+		return nil
+	}
+	return &name
+}
+
+// syncRuntimeClassCondition keeps the Agent's RuntimeClassAvailable condition true to the
+// cluster. ensureDeployment holds the Deployment while the condition is False. See
+// syncRuntimeClassConditionFor.
 func (r *AgentReconciler) syncRuntimeClassCondition(ctx context.Context, agent *kubemootv1alpha1.Agent) error {
-	name := r.agentRuntimeClassName(agent)
+	return syncRuntimeClassConditionFor(ctx, r.Client, agent, &agent.Status.Conditions, r.agentRuntimeClassName(agent))
+}
+
+// syncRuntimeClassConditionFor keeps the RuntimeClassAvailable condition of a workload (an
+// Agent or an MCPServer) true to the cluster and writes it to the object's status when it
+// changed, so the condition is recorded whatever the rest of the reconcile does. With no class
+// asked for (name is empty) the condition is removed. With the class present it is True. With
+// the class missing it is False, and the reconciler holds the Deployment (pods that name an
+// unknown RuntimeClass are rejected at creation, so a Deployment would only fail with events).
+// The RuntimeClass watch re-reconciles the workload when the class appears or goes.
+func syncRuntimeClassConditionFor(ctx context.Context, c client.Client, obj client.Object, conditions *[]metav1.Condition, name string) error {
 	var changed bool
 	if name == "" {
-		changed = meta.RemoveStatusCondition(&agent.Status.Conditions, ConditionRuntimeClassAvailable)
+		changed = meta.RemoveStatusCondition(conditions, ConditionRuntimeClassAvailable)
 	} else {
-		cond, err := r.runtimeClassCondition(ctx, agent, name)
+		cond, err := runtimeClassCondition(ctx, c, obj, name)
 		if err != nil {
 			return err
 		}
-		changed = meta.SetStatusCondition(&agent.Status.Conditions, cond)
+		changed = meta.SetStatusCondition(conditions, cond)
 	}
 	if !changed {
 		return nil
 	}
-	if err := r.Status().Update(ctx, agent); err != nil && !apierrors.IsNotFound(err) {
-		return fmt.Errorf("recording the RuntimeClass condition in the Agent status: %w", err)
+	if err := c.Status().Update(ctx, obj); err != nil && !apierrors.IsNotFound(err) {
+		return fmt.Errorf("recording the RuntimeClass condition in the status: %w", err)
 	}
 	return nil
 }
 
 // runtimeClassCondition looks the class up and builds the condition that describes it.
-func (r *AgentReconciler) runtimeClassCondition(ctx context.Context, agent *kubemootv1alpha1.Agent, name string) (metav1.Condition, error) {
-	cond := metav1.Condition{Type: ConditionRuntimeClassAvailable, ObservedGeneration: agent.Generation}
-	err := r.Get(ctx, types.NamespacedName{Name: name}, &nodev1.RuntimeClass{})
+func runtimeClassCondition(ctx context.Context, c client.Reader, obj client.Object, name string) (metav1.Condition, error) {
+	cond := metav1.Condition{Type: ConditionRuntimeClassAvailable, ObservedGeneration: obj.GetGeneration()}
+	err := c.Get(ctx, types.NamespacedName{Name: name}, &nodev1.RuntimeClass{})
 	switch {
 	case err == nil:
 		cond.Status, cond.Reason = metav1.ConditionTrue, reasonRuntimeClassFound
@@ -107,18 +119,18 @@ func (r *AgentReconciler) runtimeClassCondition(ctx context.Context, agent *kube
 		cond.Status, cond.Reason = metav1.ConditionFalse, reasonRuntimeClassMissing
 		cond.Message = fmt.Sprintf("RuntimeClass %q does not exist; the Deployment is held until it does. "+
 			"Install the runtime on the nodes and create the RuntimeClass, or clear runtimeClassName.", name)
-		logf.FromContext(ctx).Info("Agent asks for a RuntimeClass that does not exist; holding its Deployment",
-			"agent", agent.Name, "namespace", agent.Namespace, "runtimeClass", name)
+		logf.FromContext(ctx).Info("Workload asks for a RuntimeClass that does not exist; holding its Deployment",
+			"name", obj.GetName(), "namespace", obj.GetNamespace(), "runtimeClass", name)
 	default:
 		return cond, err
 	}
 	return cond, nil
 }
 
-// runtimeClassHold reports whether the Agent's Deployment is held for a missing RuntimeClass,
-// with the message that says why.
-func runtimeClassHold(agent *kubemootv1alpha1.Agent) (message string, held bool) {
-	cond := meta.FindStatusCondition(agent.Status.Conditions, ConditionRuntimeClassAvailable)
+// runtimeClassHold reports whether a workload's Deployment is held for a missing RuntimeClass,
+// from its status conditions, with the message that says why.
+func runtimeClassHold(conditions []metav1.Condition) (message string, held bool) {
+	cond := meta.FindStatusCondition(conditions, ConditionRuntimeClassAvailable)
 	if cond == nil || cond.Status != metav1.ConditionFalse {
 		return "", false
 	}
@@ -127,19 +139,32 @@ func runtimeClassHold(agent *kubemootv1alpha1.Agent) (message string, held bool)
 
 // runtimeClassRequests maps a changed RuntimeClass to the Agents whose pods ask for it.
 func (r *AgentReconciler) runtimeClassRequests(ctx context.Context, obj client.Object) []reconcile.Request {
+	return runtimeClassRequestsFor(ctx, r.Client, obj, &kubemootv1alpha1.AgentList{}, func(o client.Object) string {
+		agent, _ := o.(*kubemootv1alpha1.Agent)
+		return r.agentRuntimeClassName(agent)
+	})
+}
+
+// runtimeClassRequestsFor maps a changed RuntimeClass to the items of list whose pods ask for
+// it; requested names the class an item asks for.
+func runtimeClassRequestsFor(ctx context.Context, c client.Reader, obj client.Object, list client.ObjectList, requested func(client.Object) string) []reconcile.Request {
 	rc, ok := obj.(*nodev1.RuntimeClass)
 	if !ok {
 		return nil
 	}
-	agents := &kubemootv1alpha1.AgentList{}
-	if err := r.List(ctx, agents); err != nil {
-		logf.FromContext(ctx).Error(err, "RuntimeClass propagation: list agents failed", "runtimeClass", rc.Name)
+	if err := c.List(ctx, list); err != nil {
+		logf.FromContext(ctx).Error(err, "RuntimeClass propagation: list failed", "runtimeClass", rc.Name)
+		return nil
+	}
+	items, err := meta.ExtractList(list)
+	if err != nil {
+		logf.FromContext(ctx).Error(err, "RuntimeClass propagation: reading the list failed", "runtimeClass", rc.Name)
 		return nil
 	}
 	var reqs []reconcile.Request
-	for i := range agents.Items {
-		if r.agentRuntimeClassName(&agents.Items[i]) == rc.Name {
-			reqs = append(reqs, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(&agents.Items[i])})
+	for _, item := range items {
+		if o, isObj := item.(client.Object); isObj && requested(o) == rc.Name {
+			reqs = append(reqs, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(o)})
 		}
 	}
 	return reqs

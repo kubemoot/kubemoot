@@ -27,6 +27,7 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
+	nodev1 "k8s.io/api/node/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -41,6 +42,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	kubemootv1alpha1 "github.com/kubemoot/kubemoot/operator/api/v1alpha1"
 	"github.com/kubemoot/kubemoot/operator/internal/crewscope"
@@ -70,6 +72,7 @@ type MCPServerReconciler struct {
 // +kubebuilder:rbac:groups=apps,resources=deployments,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=core,resources=services,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=core,resources=secrets,verbs=get;list;watch
+// +kubebuilder:rbac:groups=node.k8s.io,resources=runtimeclasses,verbs=get;list;watch
 
 // Reconcile handles MCPServer reconciliation
 func (r *MCPServerReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -99,6 +102,7 @@ func (r *MCPServerReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 			return ctrl.Result{}, err
 		}
 		meta.RemoveStatusCondition(&mcpServer.Status.Conditions, netpol.ConditionEgressEnforced)
+		meta.RemoveStatusCondition(&mcpServer.Status.Conditions, ConditionRuntimeClassAvailable)
 		return r.reconcileExternalMCPServer(ctx, mcpServer)
 	}
 
@@ -119,9 +123,24 @@ func (r *MCPServerReconciler) reconcileManagedMCPServer(ctx context.Context, mcp
 		return r.reconcileUnresolvedImage(ctx, mcpServer, res)
 	}
 	setImageResolvedCondition(mcpServer, res)
+
+	// A RuntimeClass the pods ask for that does not exist holds the Deployment; the
+	// RuntimeClass watch re-reconciles when it appears. The sync writes the status, and the
+	// response resets the object's spec, so it runs on the object the user owns, before the
+	// copy that carries the resolved image is made.
+	if err := syncRuntimeClassConditionFor(ctx, r.Client, mcpServer, &mcpServer.Status.Conditions, mcpRuntimeClassName(mcpServer)); err != nil {
+		return ctrl.Result{}, err
+	}
 	mcpServer = withResolvedImage(mcpServer, res.Image)
 
 	log.Info("Reconciling managed MCPServer", "name", mcpServer.Name, "image", res.Image)
+
+	if msg, held := runtimeClassHold(mcpServer.Status.Conditions); held {
+		return r.updateStatus(ctx, mcpServer, phasePending, false, msg,
+			withEndpoint(buildMCPServerEndpoint(mcpServer)),
+			withImage(mcpServer.Spec.Image),
+			withCapabilities(mcpServer.Spec.Capabilities))
+	}
 
 	// Reconcile Deployment
 	deployment, err := r.reconcileDeployment(ctx, mcpServer)
@@ -345,6 +364,7 @@ func (r *MCPServerReconciler) buildDeployment(mcpServer *kubemootv1alpha1.MCPSer
 					Volumes:                       volumes,
 					TerminationGracePeriodSeconds: int64Ptr(30),
 					ServiceAccountName:            mcpServer.Spec.ServiceAccountName,
+					RuntimeClassName:              runtimeClassPtr(mcpRuntimeClassName(mcpServer)),
 					AutomountServiceAccountToken:  automountTokenFor(mcpServer.Spec.ServiceAccountName),
 					SecurityContext: &corev1.PodSecurityContext{
 						RunAsNonRoot:   boolPtr(strictSecurity),
@@ -357,6 +377,22 @@ func (r *MCPServerReconciler) buildDeployment(mcpServer *kubemootv1alpha1.MCPSer
 	}
 
 	return deployment
+}
+
+// mcpRuntimeClassName is the RuntimeClass an MCPServer's pod asks for; empty means none.
+func mcpRuntimeClassName(mcpServer *kubemootv1alpha1.MCPServer) string {
+	if mcpServer.Spec.RuntimeClassName == nil {
+		return ""
+	}
+	return *mcpServer.Spec.RuntimeClassName
+}
+
+// runtimeClassRequests maps a changed RuntimeClass to the MCP servers whose pods ask for it.
+func (r *MCPServerReconciler) runtimeClassRequests(ctx context.Context, obj client.Object) []reconcile.Request {
+	return runtimeClassRequestsFor(ctx, r.Client, obj, &kubemootv1alpha1.MCPServerList{}, func(o client.Object) string {
+		mcpServer, _ := o.(*kubemootv1alpha1.MCPServer)
+		return mcpRuntimeClassName(mcpServer)
+	})
 }
 
 // emptyDirVolumeName is the deterministic pod-volume name for the i-th
@@ -1248,6 +1284,10 @@ func (r *MCPServerReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Watches(&corev1.Secret{}, handler.EnqueueRequestsFromMapFunc(r.findMCPServersForSecret)).
 		// A shared server's ingress names the namespaces that hold a Crew.
 		Watches(&kubemootv1alpha1.Crew{}, enqueueSharedMCPServers(mgr.GetClient()), builder.WithPredicates(crewLifecyclePredicate())).
+		// Re-reconcile the MCP servers that ask for a RuntimeClass when it is created or
+		// deleted. See agent_runtimeclass.go.
+		Watches(&nodev1.RuntimeClass{}, handler.EnqueueRequestsFromMapFunc(r.runtimeClassRequests),
+			builder.WithPredicates(runtimeClassAppearsOrGoes())).
 		Named("mcpserver").
 		WithOptions(controller.Options{MaxConcurrentReconciles: 3}).
 		// Re-reconcile every MCPServer when KubemootConfig changes so a
