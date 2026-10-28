@@ -998,14 +998,9 @@ func (r *AgentReconciler) agentDiscussRoleEnvVars(ctx context.Context, agent *ku
 		// DiscussionOrchestrator vector pre-filter (resume_sync.go provisions the
 		// per-crew RAGSource + query service crew-<crew>-resumes-query). Absent
 		// endpoint → agent-runtime falls back to keyword self-selection.
-		crewName := crew
-		if crewName == "" {
-			crewName = agent.Namespace
-		}
-		resumeQuerySvc := resumeRAGSourceName(crewName) + "-query"
 		env = append(env, corev1.EnvVar{
 			Name:  "KUBEMOOT_RESUME_SEARCH_ENDPOINT",
-			Value: fmt.Sprintf("http://%s.%s:%d", resumeQuerySvc, agent.Namespace, resumeQueryPort),
+			Value: resumeSearchEndpoint(agent, crew),
 		})
 		// If the crew declares any analyst-role agent, the coordinator must run
 		// the REVIEW phase (where analysts self-select) rather than taking the

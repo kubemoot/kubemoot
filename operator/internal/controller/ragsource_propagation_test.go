@@ -22,7 +22,11 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/event"
 )
 
-const ragPropNS = "team-prop"
+const (
+	ragPropNS       = "team-prop"
+	resumeTestCrew  = "resume-crew"
+	resumeOtherCrew = "other-resume-crew"
+)
 
 func mkAgentWithRAG(name string, refs ...string) *kubemootv1alpha1.Agent {
 	a := &kubemootv1alpha1.Agent{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: ragPropNS}}
@@ -120,5 +124,27 @@ func TestQueryServiceEnabled(t *testing.T) {
 		if got := queryServiceEnabled(rs); got != c.want {
 			t.Errorf("%s: got %v, want %v", name, got, c.want)
 		}
+	}
+}
+
+// TestResumeRAGSourceEnqueuesTheCoordinator: the coordinator calls its crew resume query
+// service without naming it in spec.ragSources, so that RAGSource (added or changed)
+// reconciles the coordinator and no other agent.
+func TestResumeRAGSourceEnqueuesTheCoordinator(t *testing.T) {
+	scheme := runtime.NewScheme()
+	if err := kubemootv1alpha1.AddToScheme(scheme); err != nil {
+		t.Fatalf("add scheme: %v", err)
+	}
+	coordinator := mkAgentWithRAG("lead")
+	coordinator.Spec.DiscussRole = roleCoordinator
+	coordinator.Labels = map[string]string{labelCrew: resumeTestCrew}
+	otherCrew := mkAgentWithRAG("other-lead")
+	otherCrew.Spec.DiscussRole = roleCoordinator
+	otherCrew.Labels = map[string]string{labelCrew: resumeOtherCrew}
+	cli := fake.NewClientBuilder().WithScheme(scheme).WithObjects(coordinator, otherCrew, mkAgentWithRAG("specialist")).Build()
+
+	got := mapRAGSourceToAgentRequests(context.Background(), cli, mkRAGSource(resumeRAGSourceName(resumeTestCrew), "http://x:8000"))
+	if len(got) != 1 || got[0].Name != "lead" {
+		t.Errorf("want only the pilot coordinator, got %v", got)
 	}
 }

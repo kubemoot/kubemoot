@@ -53,7 +53,7 @@ func (r *AgentReconciler) attachAgentDestinations(ctx context.Context, agent *ku
 }
 
 // agentEgressDefaults are the destinations an agent always reaches: the message bus, the
-// crew's tool gateway, every model server it may be placed on, its RAG query services, the
+// crew's tool gateway, every model server it may be placed on, its RAG query services (and, for a coordinator, the resume query service), the
 // placement service, and the telemetry collector. The query and placement services are read
 // from their Services, so the rule carries the pods and port the Service really routes to.
 // The placement service is optional: with no Service behind the configured URL there is
@@ -128,17 +128,29 @@ func (r *AgentReconciler) modelServerEndpoints(ctx context.Context, namespace st
 	return out
 }
 
-// queryServiceDests are the destinations of the query services of the RAG sources the agent
-// names, taken from each query Service. A Service that does not exist yet falls back to the
-// endpoint the RAGSource reports, which is the port the RAGSource controller is about to
-// create it with.
+// queryServiceEndpoints are the query services an agent is configured to call, the same
+// ones buildEnvVars gives it: the endpoint of each RAG source it names and, for a
+// coordinator, the crew's resume query service.
+func (r *AgentReconciler) queryServiceEndpoints(ctx context.Context, agent *kubemootv1alpha1.Agent) []string {
+	var out []string
+	for _, ref := range agent.Spec.RAGSources {
+		if endpoint, ok := r.ragQueryEndpointFor(ctx, ref.Name, agent.Namespace); ok {
+			out = append(out, endpoint)
+		}
+	}
+	if agent.Spec.DiscussRole == roleCoordinator {
+		out = append(out, resumeSearchEndpoint(agent, agent.Labels[labelCrew]))
+	}
+	return out
+}
+
+// queryServiceDests are the destinations of the query services the agent is configured to
+// call, taken from each query Service. A Service that does not exist yet falls back to the
+// endpoint in the agent's configuration, which is the port the RAGSource controller is
+// about to create it with.
 func (r *AgentReconciler) queryServiceDests(ctx context.Context, agent *kubemootv1alpha1.Agent) ([]netpol.Dest, error) {
 	var out []netpol.Dest
-	for _, ref := range agent.Spec.RAGSources {
-		endpoint, ok := r.ragQueryEndpointFor(ctx, ref.Name, agent.Namespace)
-		if !ok {
-			continue
-		}
+	for _, endpoint := range r.queryServiceEndpoints(ctx, agent) {
 		found, reason, err := r.NetPol.serviceURLDestsAnyPort(ctx, endpoint, agent.Namespace)
 		if err != nil {
 			return nil, err
