@@ -76,6 +76,8 @@ the time limit ends it.
 | `EXECUTION_TIMEOUT` | `30` | Seconds a program may run |
 | `MAX_OUTPUT_BYTES` | `65536` | Cap on each of stdout and stderr |
 | `SANDBOX_TMPDIR` | the OS default | Where run directories are created |
+| `MCP_TRANSPORT` | `stdio` | `stdio` or `http`. Use `http` for new installs. |
+| `PORT` | `3000` | The listening port when the transport is `http` |
 
 These are environment variables on the sandbox container. The component reference is the
 [code-sandbox README](https://github.com/kubemoot/kubemoot/blob/main/code-sandbox/README.md).
@@ -96,9 +98,24 @@ kind: MCPServer
 metadata:
   name: code-sandbox
 spec:
-  # image, transport, and the artifact-access sidecar as in your crew
+  # image and the artifact-access sidecar as in your crew
+  transport: http
+  port: 3000
+  healthPath: /healthz
+  readinessPath: /readyz
+  env:
+    - name: MCP_TRANSPORT
+      value: http
   runtimeClassName: gvisor
 ```
+
+Under a sandboxed runtime the sandbox must use `transport: http`. In `stdio` mode the operator
+adds the mcp-bridge sidecar, which talks to the server over named pipes in a volume the two
+containers share. gVisor does not share those pipes between containers, so the bridged
+sandbox crash-loops. With `http` the sandbox serves MCP itself over Streamable HTTP at `/mcp`,
+the operator adds no bridge, and the gateway calls it directly. The same applies to any MCP
+server: third-party stdio servers behind the bridge do not run under gVisor without
+node-level containerd configuration, so run sandboxed only servers that speak HTTP.
 
 Setting it is optional. Left unset, the pod carries no `runtimeClassName` and runs under the
 node's default runtime, so a plain kind cluster with default settings keeps working with no
