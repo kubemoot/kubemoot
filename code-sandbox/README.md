@@ -68,7 +68,7 @@ give it an explicit command (`/usr/bin/tini -s -- /usr/local/bin/code-sandbox`).
 | `MAX_OUTPUT_BYTES` | `65536` | cap on each of stdout and stderr |
 | `SANDBOX_TMPDIR` | OS default | where run directories are created |
 | `MCP_TRANSPORT` | `stdio` | `stdio` or `http`; any other value stops the server at start |
-| `PORT` | `3000` | the listening port, in `http` mode only |
+| `PORT` | `3000` | the listening port, in `http` mode only; a value that is not a number from 1 to 65535 stops the server at start |
 
 ## Transports
 

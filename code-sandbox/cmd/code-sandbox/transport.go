@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -18,6 +19,7 @@ const (
 	transportHTTP  = "http"
 
 	defaultPort     = 3000
+	maxPort         = 65535
 	shutdownTimeout = 5 * time.Second
 	headerTimeout   = 10 * time.Second
 )
@@ -31,6 +33,26 @@ func parseTransport(v string) (string, error) {
 		return transportHTTP, nil
 	}
 	return "", fmt.Errorf("unknown MCP_TRANSPORT %q: use %q or %q", v, transportStdio, transportHTTP)
+}
+
+// parsePort validates the PORT value for http mode; empty means defaultPort.
+func parsePort(v string) (int, error) {
+	if v == "" {
+		return defaultPort, nil
+	}
+	p, err := strconv.Atoi(v)
+	if err != nil || p < 1 || p > maxPort {
+		return 0, fmt.Errorf("invalid PORT %q: use a number from 1 to %d", v, maxPort)
+	}
+	return p, nil
+}
+
+// listenPort is the port to serve on: PORT in http mode, unused in stdio mode.
+func listenPort(transport, v string) (int, error) {
+	if transport != transportHTTP {
+		return defaultPort, nil
+	}
+	return parsePort(v)
 }
 
 // serve runs the MCP server on the chosen transport until ctx ends.

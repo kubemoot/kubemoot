@@ -29,12 +29,15 @@ func main() {
 	if err != nil {
 		log.Fatalf("code-sandbox: %v", err)
 	}
+	port, err := listenPort(transport, os.Getenv("PORT"))
+	if err != nil {
+		log.Fatalf("code-sandbox: %v", err)
+	}
 	r := &runner.Runner{
 		Timeout:   time.Duration(envInt("EXECUTION_TIMEOUT", defaultTimeoutSeconds)) * time.Second,
 		MaxOutput: envInt("MAX_OUTPUT_BYTES", defaultMaxOutputBytes),
 		TempDir:   os.Getenv("SANDBOX_TMPDIR"),
 	}
-	port := envInt("PORT", defaultPort)
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 	log.Printf("code-sandbox up: languages=%v timeout=%s maxOutput=%d transport=%s port=%d",

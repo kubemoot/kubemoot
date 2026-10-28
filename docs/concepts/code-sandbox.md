@@ -77,7 +77,7 @@ the time limit ends it.
 | `MAX_OUTPUT_BYTES` | `65536` | Cap on each of stdout and stderr |
 | `SANDBOX_TMPDIR` | the OS default | Where run directories are created |
 | `MCP_TRANSPORT` | `stdio` | `stdio` or `http`. Use `http` for new installs. |
-| `PORT` | `3000` | The listening port when the transport is `http` |
+| `PORT` | `3000` | The listening port when the transport is `http`; an invalid value stops the server at start |
 
 These are environment variables on the sandbox container. The component reference is the
 [code-sandbox README](https://github.com/kubemoot/kubemoot/blob/main/code-sandbox/README.md).
