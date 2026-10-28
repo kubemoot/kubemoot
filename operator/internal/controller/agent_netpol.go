@@ -133,10 +133,8 @@ func (r *AgentReconciler) modelServerEndpoints(ctx context.Context, namespace st
 // coordinator, the crew's resume query service.
 func (r *AgentReconciler) queryServiceEndpoints(ctx context.Context, agent *kubemootv1alpha1.Agent) []string {
 	var out []string
-	for _, ref := range agent.Spec.RAGSources {
-		if endpoint, ok := r.ragQueryEndpointFor(ctx, ref.Name, agent.Namespace); ok {
-			out = append(out, endpoint)
-		}
+	for _, t := range r.ragQueryTargets(ctx, agent) {
+		out = append(out, t.Endpoint)
 	}
 	if agent.Spec.DiscussRole == roleCoordinator {
 		out = append(out, resumeSearchEndpoint(agent, agent.Labels[labelCrew]))

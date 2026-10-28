@@ -28,18 +28,32 @@ const defaultQueryServicePort int32 = 8000
 // agent's order. A RAGSource whose query service is switched off has no endpoint to
 // query and is left out.
 func (r *AgentReconciler) ragSourceEnvVars(ctx context.Context, agent *kubemootv1alpha1.Agent) []corev1.EnvVar {
-	refs := byPriority(agent.Spec.RAGSources)
-	env := make([]corev1.EnvVar, 0, 3*len(refs))
-	index := 0
-	for _, ref := range refs {
-		endpoint, ok := r.ragQueryEndpointFor(ctx, ref.Name, agent.Namespace)
-		if !ok {
-			continue
-		}
-		env = append(env, ragSourceEnv(index, ref, endpoint)...)
-		index++
+	targets := r.ragQueryTargets(ctx, agent)
+	env := make([]corev1.EnvVar, 0, 3*len(targets))
+	for i, t := range targets {
+		env = append(env, ragSourceEnv(i, t.Ref, t.Endpoint)...)
 	}
 	return env
+}
+
+// ragQueryTarget is one RAG source the agent queries and the endpoint it queries.
+type ragQueryTarget struct {
+	Ref      kubemootv1alpha1.RAGSourceRef
+	Endpoint string
+}
+
+// ragQueryTargets is the one list of RAG query services an agent is configured with,
+// highest priority first. The env (ragSourceEnvVars) and the egress rule
+// (queryServiceEndpoints) both read it, so what the agent is told to call and what its
+// egress allows cannot differ.
+func (r *AgentReconciler) ragQueryTargets(ctx context.Context, agent *kubemootv1alpha1.Agent) []ragQueryTarget {
+	var out []ragQueryTarget
+	for _, ref := range byPriority(agent.Spec.RAGSources) {
+		if endpoint, ok := r.ragQueryEndpointFor(ctx, ref.Name, agent.Namespace); ok {
+			out = append(out, ragQueryTarget{Ref: ref, Endpoint: endpoint})
+		}
+	}
+	return out
 }
 
 // byPriority returns the references sorted by descending priority, keeping the

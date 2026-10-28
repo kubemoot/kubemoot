@@ -102,9 +102,10 @@ A workload with `spec.egress` may reach:
 
 - DNS (the chart value `dns` says where it runs).
 - For an Agent: the message bus, the crew's MCP gateway, every model server the agent can be
-  placed on, the query service of each RAG source in its `spec.ragSources`, the crew resume query service when it is the coordinator, the placement service, and the
-  telemetry collector. The operator reads these from the same settings it gives the agent,
-  so a crew author never lists them.
+  placed on, the query service of each RAG source in its `spec.ragSources`, the crew resume
+  query service when it is the coordinator, the placement service, and the telemetry
+  collector. The operator reads these from the same settings it gives the agent, so a crew
+  author never lists them.
 - What `spec.egress` declares: `allowedServices` for Services inside the cluster,
   `allowedHosts` and `allowedCIDRs` for destinations outside it, `ports` (default 443) for
   those hosts and ranges, `bus: true` for a tool server that uses the message bus, and
@@ -157,9 +158,10 @@ The query services and the placement service of an agent are read the same way. 
 services are the ones the operator hands the agent as endpoints: one per RAG source in
 `spec.ragSources`, and for the coordinator the crew resume query service
 (`KUBEMOOT_RESUME_SEARCH_ENDPOINT`). A query service the agent is not configured with gets no
-rule. Each query service rule uses the port of its real Service (the RAGSource's `spec.queryService.port`,
-default 8000); the placement service is optional (chart value `placementService`), so an
-agent gets an allow for it only while a Service exists behind the URL in the KubemootConfig.
+rule. Each query service rule uses the port of its real Service (the RAGSource's
+`spec.queryService.port`, default 8000); the placement service is optional (chart value
+`placementService`), so an agent gets an allow for it only while a Service exists behind the
+URL in the KubemootConfig.
 
 ### Host names and the CNI
 
