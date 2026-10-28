@@ -170,10 +170,7 @@ func engineError(stderr string, runErr error) error {
 		strings.Contains(text, "not in the list of allowed") {
 		return fmt.Errorf("%w (%s)", ErrRefused, firstLine(text))
 	}
-	if len(text) > maxErrorText {
-		text = text[:maxErrorText] + "..."
-	}
-	return errors.New(text)
+	return errors.New(capErrorText(text))
 }
 
 // cleanEngineText drops the parts of the program's message that mislead a model: its

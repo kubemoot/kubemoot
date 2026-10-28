@@ -16,8 +16,14 @@ import (
 	"strings"
 )
 
-// maxColumns keeps a table well under SQLite's own column limit.
-const maxColumns = 500
+const (
+	// maxColumns keeps a table well under SQLite's own column limit.
+	maxColumns = 500
+	// insertBatch is how many rows one INSERT statement carries, and maxVariables is
+	// the most values a statement may bind.
+	insertBatch  = 200
+	maxVariables = 30000
+)
 
 var (
 	intCell  = regexp.MustCompile(`^-?(?:0|[1-9]\d*)$`)
@@ -58,9 +64,8 @@ type rowSource interface {
 
 func insertAll(ctx context.Context, conn *sql.Conn, table string, cols []string, src rowSource) error {
 	names := make([]string, len(cols))
-	marks := make([]string, len(cols))
 	for i, c := range cols {
-		names[i], marks[i] = ident(c), "?"
+		names[i] = ident(c)
 	}
 	create := fmt.Sprintf("CREATE TABLE %s (%s)", ident(table), strings.Join(names, ", "))
 	if _, err := conn.ExecContext(ctx, create); err != nil {
@@ -71,19 +76,59 @@ func insertAll(ctx context.Context, conn *sql.Conn, table string, cols []string,
 		return err
 	}
 	defer func() { _ = tx.Rollback() }()
-	stmt, err := tx.PrepareContext(ctx, fmt.Sprintf("INSERT INTO %s VALUES (%s)", ident(table), strings.Join(marks, ", ")))
-	if err != nil {
+	b := &batcher{ctx: ctx, tx: tx, table: ident(table), width: len(cols), per: min(insertBatch, maxVariables/len(cols))}
+	if err := src.rows(cols, b.add); err != nil {
 		return err
 	}
-	defer func() { _ = stmt.Close() }()
-	err = src.rows(cols, func(row []any) error {
-		_, err := stmt.ExecContext(ctx, row...)
-		return err
-	})
-	if err != nil {
+	if err := b.flush(); err != nil {
 		return err
 	}
 	return tx.Commit()
+}
+
+// batcher inserts rows several at a time, which is much faster than one statement per row.
+type batcher struct {
+	ctx   context.Context
+	tx    *sql.Tx
+	table string
+	width int
+	per   int
+	args  []any
+	full  *sql.Stmt
+}
+
+func (b *batcher) add(row []any) error {
+	b.args = append(b.args, row...)
+	if len(b.args) < b.per*b.width {
+		return nil
+	}
+	if b.full == nil {
+		stmt, err := b.tx.PrepareContext(b.ctx, b.insertSQL(b.per))
+		if err != nil {
+			return err
+		}
+		b.full = stmt
+	}
+	_, err := b.full.ExecContext(b.ctx, b.args...)
+	b.args = b.args[:0]
+	return err
+}
+
+// flush inserts the rows left over after the last full batch.
+func (b *batcher) flush() error {
+	if b.full != nil {
+		_ = b.full.Close()
+	}
+	if len(b.args) == 0 {
+		return nil
+	}
+	_, err := b.tx.ExecContext(b.ctx, b.insertSQL(len(b.args)/b.width), b.args...)
+	return err
+}
+
+func (b *batcher) insertSQL(rows int) string {
+	group := "(" + strings.TrimSuffix(strings.Repeat("?,", b.width), ",") + ")"
+	return "INSERT INTO " + b.table + " VALUES " + strings.TrimSuffix(strings.Repeat(group+",", rows), ",")
 }
 
 // columnSet collects column names in the order first seen. SQLite treats names
@@ -103,16 +148,23 @@ func (c *columnSet) add(key string) {
 	if _, ok := c.byKey[key]; ok {
 		return
 	}
-	col := key
-	if col == "" {
-		col = "col"
+	c.byKey[key] = c.addPositional(key)
+}
+
+// addPositional appends a column for a header that must keep its place: a repeated or
+// empty name is made unique instead of merged, so the column count equals the width.
+func (c *columnSet) addPositional(name string) string {
+	base := name
+	if base == "" {
+		base = "col"
 	}
+	col := base
 	for n := 2; c.lower[strings.ToLower(col)]; n++ {
-		col = fmt.Sprintf("%s_%d", key, n)
+		col = fmt.Sprintf("%s_%d", base, n)
 	}
 	c.lower[strings.ToLower(col)] = true
-	c.byKey[key] = col
 	c.names = append(c.names, col)
+	return col
 }
 
 // jsonSource reads a JSON list of objects, a single object, or (items) the "items"
@@ -319,11 +371,11 @@ func (c csvSource) columns() ([]string, error) {
 		}
 		first = false
 		for i, h := range rec {
-			name := strings.TrimSpace(h)
+			name := strings.TrimSpace(strings.TrimPrefix(h, "\ufeff"))
 			if name == "" {
 				name = "col" + strconv.Itoa(i+1)
 			}
-			set.add(name)
+			set.addPositional(name)
 		}
 		return nil
 	})

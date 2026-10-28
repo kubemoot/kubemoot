@@ -9,41 +9,43 @@ import (
 // and VALUES) and refuses everything else. It reads the text as SQLite does: string
 // literals, quoted names and comments hide any semicolon or keyword inside them.
 // Trailing semicolons are allowed; a second statement, an unbalanced parenthesis (an
-// attempt to close the wrapper query) and a NUL byte are not.
-func checkSelect(query string) error {
+// attempt to close the wrapper query) and a NUL byte are not. It returns the statement
+// cut at its first terminating semicolon, so only that text is run.
+func checkSelect(query string) (string, error) {
 	if len(query) > maxSQLBytes {
-		return fmt.Errorf("the query is over %d bytes", maxSQLBytes)
+		return "", fmt.Errorf("the query is over %d bytes", maxSQLBytes)
 	}
 	if strings.ContainsRune(query, 0) {
-		return fmt.Errorf("%w: the query holds a NUL byte", ErrNotReadOnly)
+		return "", fmt.Errorf("%w: the query holds a NUL byte", ErrNotReadOnly)
 	}
-	words, err := scanSQL(query)
+	words, end, err := scanSQL(query)
 	if err != nil {
-		return err
+		return "", err
 	}
 	if len(words) == 0 {
-		return fmt.Errorf("%w: the query is empty", ErrNotReadOnly)
+		return "", fmt.Errorf("%w: the query is empty", ErrNotReadOnly)
 	}
 	switch words[0] {
 	case "SELECT", "WITH", "VALUES":
-		return nil
+		return strings.TrimSpace(query[:end]), nil
 	}
-	return ErrNotReadOnly
+	return "", ErrNotReadOnly
 }
 
-// scanSQL walks the text and returns its first keyword. It reports an error for a
-// second statement, unbalanced parentheses and an unterminated literal or comment.
-func scanSQL(query string) ([]string, error) {
-	s := &sqlScanner{src: query}
+// scanSQL walks the text and returns its first keyword and where the statement ends.
+// It reports an error for a second statement, unbalanced parentheses and an
+// unterminated literal or comment.
+func scanSQL(query string) ([]string, int, error) {
+	s := &sqlScanner{src: query, end: len(query)}
 	for s.pos < len(s.src) {
 		if err := s.step(); err != nil {
-			return nil, err
+			return nil, 0, err
 		}
 	}
 	if s.depth != 0 {
-		return nil, fmt.Errorf("%w: unbalanced parentheses", ErrNotReadOnly)
+		return nil, 0, fmt.Errorf("%w: unbalanced parentheses", ErrNotReadOnly)
 	}
-	return s.words, nil
+	return s.words, s.end, nil
 }
 
 type sqlScanner struct {
@@ -52,6 +54,7 @@ type sqlScanner struct {
 	depth int
 	words []string
 	ended bool // a semicolon ended the statement
+	end   int  // where the statement ends: the first terminating semicolon
 }
 
 // step consumes one token.
@@ -63,6 +66,9 @@ func (s *sqlScanner) step() error {
 	case c == '-' || c == '/':
 		return s.comment()
 	case c == ';':
+		if !s.ended {
+			s.end = s.pos
+		}
 		s.ended = true
 		s.pos++
 	case c == '(' || c == ')':

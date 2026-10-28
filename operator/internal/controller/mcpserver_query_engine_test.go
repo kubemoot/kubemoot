@@ -55,9 +55,11 @@ func TestWithQueryEngineEnv(t *testing.T) {
 		}
 	}
 
-	got := withQueryEngineEnv(plain, kubemootv1alpha1.ArtifactQueryEngineDuckDB)
-	if v, ok := queryEngineEnv(got.Spec.Env); !ok || v != duckdbEngine {
-		t.Errorf("duckdb must set %s, env = %v", artifactQueryEngineEnv, got.Spec.Env)
+	for _, engine := range []kubemootv1alpha1.ArtifactQueryEngine{kubemootv1alpha1.ArtifactQueryEngineSQLite, kubemootv1alpha1.ArtifactQueryEngineDuckDB} {
+		got := withQueryEngineEnv(plain, engine)
+		if v, ok := queryEngineEnv(got.Spec.Env); !ok || v != string(engine) {
+			t.Errorf("%s must set %s, env = %v", engine, artifactQueryEngineEnv, got.Spec.Env)
+		}
 	}
 	if _, ok := queryEngineEnv(plain.Spec.Env); ok {
 		t.Error("the server the user owns must not be changed")
@@ -101,6 +103,7 @@ func TestReconcileSetsTheQueryEngineOnTheDeployment(t *testing.T) {
 		want   string
 		set    bool
 	}{
+		{"sqlite", kubemootv1alpha1.ArtifactQueryEngineSQLite, string(kubemootv1alpha1.ArtifactQueryEngineSQLite), true},
 		{"duckdb", kubemootv1alpha1.ArtifactQueryEngineDuckDB, duckdbEngine, true},
 		{coreTestNone, kubemootv1alpha1.ArtifactQueryEngineNone, "", false},
 		{"unset", "", "", false},
