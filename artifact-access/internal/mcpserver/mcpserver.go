@@ -36,6 +36,14 @@ type Server struct {
 	MaxOutputBytes int
 	// JqMaxInputBytes caps the JSON input jq will parse; <= 0 disables the cap.
 	JqMaxInputBytes int64
+	// Query answers workspace_query. When nil the tool is not offered.
+	Query Querier
+}
+
+// Querier runs read-only SQL over named artifacts and returns the rendered rows.
+// artifacts maps a table name to an artifact object key.
+type Querier interface {
+	Query(ctx context.Context, artifacts map[string]string, sql string) (string, error)
 }
 
 // New builds a Server with sane defaults around the given fetcher.
@@ -76,8 +84,18 @@ func (s *Server) MCP() *mcp.Server {
 		Description: "Project named columns from a CSV artifact with a header row."}, s.selectCSV)
 	mcp.AddTool(srv, &mcp.Tool{Name: "artifact_jq",
 		Description: "Run a jq program over a JSON artifact (input size capped)."}, s.jq)
+	if s.Query != nil {
+		mcp.AddTool(srv, &mcp.Tool{Name: "workspace_query", Description: queryDescription}, s.query)
+	}
 	return srv
 }
+
+const queryDescription = "Run one read-only SQL SELECT over artifacts. Give artifacts as a map " +
+	"from a table name you choose to an artifact key, and write the SQL against those table names. " +
+	"Reads JSON lists, kubectl get -o json output (one row per item), kubectl tables, YAML, Markdown " +
+	"tables, CSV, and any other text (columns line_no, line). Use it to count, filter, sort, group " +
+	"and total instead of doing it by eye. Rows come back as 'a | b' lines, at most 100, with a " +
+	"row count line. No writes, no files outside the named artifacts, no network."
 
 // --- tool inputs ---
 
@@ -106,6 +124,10 @@ type selectIn struct {
 	Key       string   `json:"key" jsonschema:"the artifact object key"`
 	Columns   []string `json:"columns" jsonschema:"column names to project, in output order"`
 	Delimiter string   `json:"delimiter,omitempty" jsonschema:"single-char field delimiter (default comma)"`
+}
+type queryIn struct {
+	Artifacts map[string]string `json:"artifacts" jsonschema:"table name you choose, mapped to the artifact key"`
+	SQL       string            `json:"sql" jsonschema:"one SELECT over those table names"`
 }
 type jqIn struct {
 	Key     string `json:"key" jsonschema:"the artifact object key"`
@@ -157,6 +179,20 @@ func (s *Server) jq(ctx context.Context, _ *mcp.CallToolRequest, in jqIn) (*mcp.
 	})
 }
 
+func (s *Server) query(ctx context.Context, _ *mcp.CallToolRequest, in queryIn) (*mcp.CallToolResult, Out, error) {
+	text, err := s.Query.Query(ctx, in.Artifacts, in.SQL)
+	if err != nil {
+		return nil, Out{}, err
+	}
+	return s.result(text)
+}
+
+// result caps the text and wraps it as a tool result.
+func (s *Server) result(text string) (*mcp.CallToolResult, Out, error) {
+	text = s.capOutput(text)
+	return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: text}}}, Out{Output: text}, nil
+}
+
 // read fetches the keyed object once, runs the read-op, and wraps the capped slice
 // as a tool result. A nil key or a fetch/read error is returned as a tool error so
 // the model can see it and self-correct (the SDK marks IsError).
@@ -176,8 +212,7 @@ func (s *Server) read(
 	if err != nil {
 		return nil, Out{}, err
 	}
-	text = s.capOutput(text)
-	return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: text}}}, Out{Output: text}, nil
+	return s.result(text)
 }
 
 // capOutput bounds a result so a read-op can never flood the model context. It cuts

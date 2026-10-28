@@ -30,6 +30,7 @@ import (
 	"github.com/kubemoot/kubemoot/artifact-access/internal/mcpserver"
 	"github.com/kubemoot/kubemoot/artifact-access/internal/natsstore"
 	"github.com/kubemoot/kubemoot/artifact-access/internal/scope"
+	"github.com/kubemoot/kubemoot/artifact-access/internal/workspace"
 )
 
 func env(key, def string) string {
@@ -125,8 +126,19 @@ func runMCP(ctx context.Context, store *natsstore.Store, bucket string) {
 	ctx, stop := signal.NotifyContext(ctx, syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
+	srv := mcpserver.New(store)
+	// workspace_query is offered only when ARTIFACT_QUERY_ENGINE asks for an engine;
+	// an engine that cannot start leaves the other tools working and says why.
+	switch q, err := workspace.FromEnv(os.Getenv, store, env("ARTIFACT_DIR", "/artifacts")); {
+	case err != nil:
+		log.Printf("workspace_query is not offered: %v", err)
+	case q != nil:
+		srv.Query = q
+		log.Printf("workspace_query offered: engine=%s", env(workspace.EnvEngine, workspace.EngineNone))
+	}
+
 	log.Printf("artifact-access[mcp] up: bucket=%s (stdio)", bucket)
-	if err := mcpserver.New(store).MCP().Run(ctx, &mcp.StdioTransport{}); err != nil {
+	if err := srv.MCP().Run(ctx, &mcp.StdioTransport{}); err != nil {
 		log.Fatalf("mcp server: %v", err)
 	}
 	log.Print("shutting down")
