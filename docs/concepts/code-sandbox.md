@@ -26,16 +26,19 @@ answer. A count a program printed is.
 
 ## How data reaches it
 
-The sandbox has no network path to the places data lives, so the data comes to it:
+The container that runs programs has no network path to the places data lives, so the data
+comes to it:
 
 1. A tooler agent fetches the data from the live system and spills it to the crew's
    [artifact store](../discussion-artifact-store/), passing a reference on the bus.
-2. The artifact-access materializer, a sidecar in the sandbox pod, fetches the referenced
-   objects from the store and writes them to a shared volume under `/artifacts`.
+2. The artifact-access materializer, a sidecar in the sandbox pod, reads the referenced
+   objects from the store over the message bus and writes them to a shared volume under
+   `/artifacts`.
 3. The compute agent's program reads those files and computes over them locally.
 
-The sandbox never talks to the bus or the store itself. Data goes in the program's code or in
-a file under `/artifacts`, never through stdin.
+The materializer is the only part of the pod that talks to the bus. The sandbox container
+that runs programs holds no bus credentials and talks to nothing itself. Programs see only
+`/artifacts`. Data goes in the program's code or in a file there, never through stdin.
 
 ## How a run is contained
 
@@ -44,7 +47,8 @@ The sandbox runs code a model wrote, so every run is locked down.
 - **No credentials and no Kubernetes access.** The pod holds no secrets and no service
   account token. It only computes over data already handed to it.
 - **Limited egress.** With [network policies](../network-policies/) on, the crew's policy
-  limits what the pod can reach. It has no route to the bus or to external services.
+  limits the pod's outbound traffic to the message bus, which the materializer sidecar uses
+  to stage artifacts. The pod has no route to external services.
 - **A fresh temporary directory.** Each run starts in a new directory, which is also its
   `HOME`, and the directory is removed afterwards.
 - **No stdin.** A read returns end of input at once, so a program that expects piped data
