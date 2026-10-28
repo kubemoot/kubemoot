@@ -131,7 +131,7 @@ func (r *MCPServerReconciler) reconcileManagedMCPServer(ctx context.Context, mcp
 	if err := syncRuntimeClassConditionFor(ctx, r.Client, mcpServer, &mcpServer.Status.Conditions, mcpRuntimeClassName(mcpServer)); err != nil {
 		return ctrl.Result{}, err
 	}
-	mcpServer = withQueryEngineEnv(withResolvedImage(mcpServer, res.Image), res.QueryEngine)
+	mcpServer = withQueryWorkspace(withQueryEngineEnv(withResolvedImage(mcpServer, res.Image), res.QueryEngine), res.QueryEngine)
 
 	log.Info("Reconciling managed MCPServer", "name", mcpServer.Name, "image", res.Image)
 

@@ -110,22 +110,80 @@ func (r *MCPServerReconciler) resolveMCPServerImage(ctx context.Context, mcpServ
 // artifactQueryEngineEnv is the variable artifact-access reads to choose its query engine.
 const artifactQueryEngineEnv = "ARTIFACT_QUERY_ENGINE"
 
+// hasEnv reports whether env sets the variable name.
+func hasEnv(env []corev1.EnvVar, name string) bool {
+	for _, e := range env {
+		if e.Name == name {
+			return true
+		}
+	}
+	return false
+}
+
+// queryEngineOn reports whether engine asks for a query engine, as opposed to none or unset.
+func queryEngineOn(engine kubemootv1alpha1.ArtifactQueryEngine) bool {
+	return engine != "" && engine != kubemootv1alpha1.ArtifactQueryEngineNone
+}
+
 // withQueryEngineEnv returns mcpServer with ARTIFACT_QUERY_ENGINE set to the engine
 // KubemootConfig asks for. Nothing is added for none or an unset engine, so a server
 // behaves as it did before the setting existed, and a server that sets the variable
 // itself keeps its value. The original is left alone.
 func withQueryEngineEnv(mcpServer *kubemootv1alpha1.MCPServer, engine kubemootv1alpha1.ArtifactQueryEngine) *kubemootv1alpha1.MCPServer {
-	if engine == "" || engine == kubemootv1alpha1.ArtifactQueryEngineNone {
+	if !queryEngineOn(engine) || hasEnv(mcpServer.Spec.Env, artifactQueryEngineEnv) {
 		return mcpServer
-	}
-	for _, e := range mcpServer.Spec.Env {
-		if e.Name == artifactQueryEngineEnv {
-			return mcpServer
-		}
 	}
 	out := mcpServer.DeepCopy()
 	out.Spec.Env = append(out.Spec.Env, corev1.EnvVar{Name: artifactQueryEngineEnv, Value: string(engine)})
 	return out
+}
+
+const (
+	// artifactWorkspaceDir is where artifact-access materializes the artifacts a query
+	// names (its ARTIFACT_DIR default) and the engine keeps its scratch files.
+	artifactWorkspaceDir = "/artifacts"
+
+	// artifactWorkspaceSizeLimit bounds the workspace emptyDir. A query names at most 8
+	// artifacts of at most 32 MiB each (256 MiB), and the DuckDB engine may spill up to
+	// 512 MiB of temporary data, so 768 MiB is the most one query writes; 1Gi leaves
+	// headroom for a query that overlaps a slow cleanup. The kubelet evicts a pod that
+	// exceeds it, so a runaway query cannot fill the node.
+	artifactWorkspaceSizeLimit = "1Gi"
+
+	// tmpDirEnv is the variable Go and the engines read for scratch space; the root
+	// filesystem of a hardened pod has no writable /tmp.
+	tmpDirEnv = "TMPDIR"
+)
+
+// withQueryWorkspace returns mcpServer with a size-limited emptyDir at /artifacts and
+// TMPDIR pointing at it, so a pod with a read-only root filesystem has a writable,
+// bounded place for the materialized artifacts and the engine's scratch files. It
+// reuses the EmptyDirVolumes path the code sandbox uses. Nothing is added for none or
+// an unset engine, a volume the server already mounts at /artifacts is kept, and a
+// TMPDIR the server sets itself wins. The original is left alone.
+func withQueryWorkspace(mcpServer *kubemootv1alpha1.MCPServer, engine kubemootv1alpha1.ArtifactQueryEngine) *kubemootv1alpha1.MCPServer {
+	if !queryEngineOn(engine) {
+		return mcpServer
+	}
+	out := mcpServer.DeepCopy()
+	if !mountsPath(out.Spec.EmptyDirVolumes, artifactWorkspaceDir) {
+		out.Spec.EmptyDirVolumes = append(out.Spec.EmptyDirVolumes,
+			kubemootv1alpha1.EmptyDirVolume{MountPath: artifactWorkspaceDir, SizeLimit: artifactWorkspaceSizeLimit})
+	}
+	if !hasEnv(out.Spec.Env, tmpDirEnv) {
+		out.Spec.Env = append(out.Spec.Env, corev1.EnvVar{Name: tmpDirEnv, Value: artifactWorkspaceDir})
+	}
+	return out
+}
+
+// mountsPath reports whether one of the emptyDir volumes is mounted at path.
+func mountsPath(vols []kubemootv1alpha1.EmptyDirVolume, path string) bool {
+	for _, v := range vols {
+		if v.MountPath == path {
+			return true
+		}
+	}
+	return false
 }
 
 // withResolvedImage returns a copy of mcpServer whose spec.image is the resolved

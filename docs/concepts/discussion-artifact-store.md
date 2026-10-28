@@ -178,6 +178,19 @@ The service reads these variables; the chart value sets only the engine.
 An artifact the sandbox sidecar has not materialized yet is fetched from the object store
 on first use.
 
+#### Workspace directory
+
+When the engine is `sqlite` or `duckdb`, the operator gives the MCPServer pod an
+`emptyDir` mounted at `/artifacts` with a size limit of 1Gi, and sets `TMPDIR=/artifacts`,
+so a pod with a read-only root filesystem has a writable place for the materialized
+artifacts and the engine's scratch files (the DuckDB program's home and temporary
+directory). One query names at most 8 artifacts of at most 32 MiB each and DuckDB may spill
+up to 512 MiB, so 1Gi holds the most one query writes; the kubelet evicts a pod that
+exceeds it. With `none` nothing is added. A volume the MCPServer already mounts at
+`/artifacts`, or a `TMPDIR` it sets, is kept. Raising
+`ARTIFACT_QUERY_MAX_ARTIFACT_BYTES` raises what a query writes, so declare a larger
+`/artifacts` `emptyDirVolumes` entry with it.
+
 #### Query engines
 
 `sqlite` is the recommended engine and `duckdb` is the option for large data.
