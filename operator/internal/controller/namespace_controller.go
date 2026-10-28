@@ -81,33 +81,44 @@ func (r *NamespaceReconciler) replicateSecrets(ctx context.Context, ns *corev1.N
 }
 
 // reconcileBaseline applies the default-deny ingress policy and the crew-internal allow to
-// a crew namespace: one that carries the crew label and holds at least one Crew. A
-// namespace without a Crew keeps no generated policies, and the crew label the operator
-// set on it is removed. The operator's own namespace is left to the chart.
+// every namespace that holds at least one Crew, however the Crew was created. With the
+// feature on, the operator puts the crew label on such a namespace when it has none, and
+// removes a label it set once the last Crew is gone, so the label always matches the set of
+// namespaces the baseline covers. A namespace without a Crew keeps no generated policies.
+// The operator's own namespace is left to the chart.
 func (r *NamespaceReconciler) reconcileBaseline(ctx context.Context, ns *corev1.Namespace) error {
-	holdsCrew, err := namespaceHoldsCrew(ctx, r, ns.Name)
-	if err != nil {
-		return err
-	}
 	if r.NetPol == nil {
 		return nil
 	}
-	if !holdsCrew && r.NetPol.Config.Enabled {
-		if err := r.clearStaleCrewLabel(ctx, ns); err != nil {
+	crewName, err := firstCrewIn(ctx, r, ns.Name)
+	if err != nil {
+		return err
+	}
+	if r.NetPol.Config.Enabled {
+		if err := r.syncCrewLabel(ctx, ns, crewName); err != nil {
 			return err
 		}
 	}
 	var objects []client.Object
-	if holdsCrew && ns.Name != operatorNamespace() && hasCrewLabel(ns) {
+	if crewName != "" && ns.Name != operatorNamespace() && hasCrewLabel(ns) {
 		objects = netpol.Baseline(r.NetPol.Resolved(), ns.Name)
 	}
 	return r.NetPol.Apply(ctx, ns, ns.Name, objects)
 }
 
+// syncCrewLabel labels a namespace that holds a Crew (crewName is the first one) and
+// clears the label the operator set on a namespace that holds none.
+func (r *NamespaceReconciler) syncCrewLabel(ctx context.Context, ns *corev1.Namespace, crewName string) error {
+	if crewName == "" {
+		return r.clearStaleCrewLabel(ctx, ns)
+	}
+	return ensureCrewLabel(ctx, r.Client, ns, crewName)
+}
+
 // clearStaleCrewLabel removes the crew label from a namespace that holds no Crew, when the
-// operator set it (the managed-by label says so). A label a person set is left alone.
+// operator set it (see operatorSetCrewLabel). A label a person or a crew chart set is left alone.
 func (r *NamespaceReconciler) clearStaleCrewLabel(ctx context.Context, ns *corev1.Namespace) error {
-	if ns.Labels[labelManagedBy] != managedByValue || !hasCrewLabel(ns) || isProtectedNamespace(ns.Name) {
+	if !operatorSetCrewLabel(ns) || !hasCrewLabel(ns) || isProtectedNamespace(ns.Name) {
 		return nil
 	}
 	// The cached Crew list may lag a Crew created a moment ago; confirm against the API server.
@@ -119,8 +130,7 @@ func (r *NamespaceReconciler) clearStaleCrewLabel(ctx context.Context, ns *corev
 	}
 	// The lock makes a concurrent label write by the Crew reconciler a conflict, which requeues.
 	patch := client.MergeFromWithOptions(ns.DeepCopy(), client.MergeFromWithOptimisticLock{})
-	delete(ns.Labels, labelCrew)
-	delete(ns.Labels, labelManagedBy)
+	unmarkCrewLabel(ns)
 	return client.IgnoreNotFound(r.Patch(ctx, ns, patch))
 }
 

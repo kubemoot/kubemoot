@@ -268,8 +268,8 @@ var _ = Describe("Generated network policies", func() {
 		})
 	})
 
-	Context("when a namespace loses the crew label", func() {
-		It("removes the baseline", func() {
+	Context("when a namespace that holds a Crew loses the crew label", func() {
+		It("gets the label and the baseline back", func() {
 			npNamespace(ctx, "np-unlabel")
 			npCrew(ctx, "np-unlabel", "unlabel")
 			nsr := &NamespaceReconciler{Client: k8sClient, ConfigCache: NewConfigCache(), NetPol: npSync(npConfig(true), false)}
@@ -284,7 +284,9 @@ var _ = Describe("Generated network policies", func() {
 			Expect(k8sClient.Update(ctx, ns)).To(Succeed())
 			_, err = nsr.Reconcile(ctx, req)
 			Expect(err).NotTo(HaveOccurred())
-			Expect(npGenerated(ctx, "np-unlabel")).To(BeEmpty())
+			Expect(npGenerated(ctx, "np-unlabel")).To(HaveLen(2))
+			Expect(k8sClient.Get(ctx, req.NamespacedName, ns)).To(Succeed())
+			Expect(ns.Labels).To(HaveKey(netpol.LabelCrew))
 		})
 	})
 
@@ -381,11 +383,11 @@ var _ = Describe("Generated network policies", func() {
 			Expect(k8sClient.Get(ctx, types.NamespacedName{Namespace: "np-life", Name: npHandWrote}, &networkingv1.NetworkPolicy{})).To(Succeed())
 		})
 
-		It("does not give an unlabeled namespace with a Crew a default-deny", func() {
+		It("gives an unlabeled namespace with a Crew the label and a default-deny", func() {
 			Expect(k8sClient.Create(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "np-shared"}})).To(Succeed())
 			npCrew(ctx, "np-shared", "shared")
 			npReconcileNamespace(ctx, "np-shared")
-			Expect(npGenerated(ctx, "np-shared")).To(BeEmpty())
+			Expect(npGenerated(ctx, "np-shared")).To(HaveKey("km-default-deny"))
 		})
 
 		It("maps a Crew to its namespace and passes only creation and deletion", func() {

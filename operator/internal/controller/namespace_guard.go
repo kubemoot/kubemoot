@@ -51,3 +51,40 @@ func namespaceDeletableForCrew(ns *corev1.Namespace, crewName string) bool {
 	}
 	return ns.Labels[labelCrew] == crewName && ns.Labels[managedNamespaceLabel] == managedNamespaceOptIn
 }
+
+// annoCrewLabelBy on a Namespace records that the operator set its crew label, so the
+// operator removes it again when the last Crew goes. A label set by a person or a crew
+// chart has no such record and is never removed.
+const annoCrewLabelBy = "kubemoot.ai/crew-label-by"
+
+// operatorSetCrewLabel reports whether the operator set the namespace's crew label. The
+// managed-by label is how earlier releases recorded it.
+func operatorSetCrewLabel(ns *corev1.Namespace) bool {
+	return ns.Annotations[annoCrewLabelBy] == managedByValue || ns.Labels[labelManagedBy] == managedByValue
+}
+
+// markCrewLabel sets the crew label to crewName and records that the operator set it. A
+// managed-by label already on the namespace (Helm's, for a chart-made namespace) stays.
+func markCrewLabel(ns *corev1.Namespace, crewName string) {
+	if ns.Labels == nil {
+		ns.Labels = map[string]string{}
+	}
+	if ns.Annotations == nil {
+		ns.Annotations = map[string]string{}
+	}
+	ns.Labels[labelCrew] = crewName
+	if _, ok := ns.Labels[labelManagedBy]; !ok {
+		ns.Labels[labelManagedBy] = managedByValue
+	}
+	ns.Annotations[annoCrewLabelBy] = managedByValue
+}
+
+// unmarkCrewLabel removes what markCrewLabel set, and the managed-by label only when it is
+// the operator's.
+func unmarkCrewLabel(ns *corev1.Namespace) {
+	delete(ns.Labels, labelCrew)
+	delete(ns.Annotations, annoCrewLabelBy)
+	if ns.Labels[labelManagedBy] == managedByValue {
+		delete(ns.Labels, labelManagedBy)
+	}
+}

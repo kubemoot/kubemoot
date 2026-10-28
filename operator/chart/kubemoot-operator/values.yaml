@@ -334,6 +334,14 @@ verify:
 schedulingCrew:
   enabled: true
   namespace: kubemoot-scheduling
+  # Namespaces whose pods may reach the crew's discussion gateway when
+  # security.networkPolicies is on (the Crew's spec.network.allowedIngress). Each entry is a
+  # namespace selector, for example the web server that lists every Crew and calls the one
+  # you pick:
+  #   allowedIngress:
+  #     - matchLabels: {kubernetes.io/metadata.name: homelab-pilot}
+  # Empty adds no network key to the Crew.
+  allowedIngress: []
   gateway:
     resources:
       requests:
