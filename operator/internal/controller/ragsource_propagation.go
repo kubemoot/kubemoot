@@ -72,7 +72,7 @@ func mapRAGSourceToAgentRequests(ctx context.Context, cli client.Client, obj cli
 	reqs := make([]reconcile.Request, 0)
 	for i := range agents.Items {
 		a := &agents.Items[i]
-		if referencesRAGSource(a, rs.Name) {
+		if referencesRAGSource(a, rs.Name) || isResumeSourceOf(a, rs.Name) {
 			reqs = append(reqs, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(a)})
 		}
 	}
@@ -80,6 +80,15 @@ func mapRAGSourceToAgentRequests(ctx context.Context, cli client.Client, obj cli
 		log.Info("RAGSource changed; enqueueing agent reconciles", "ragSource", rs.Name, "count", len(reqs))
 	}
 	return reqs
+}
+
+// isResumeSourceOf reports whether the RAGSource is the resume source of the coordinator's
+// crew, which the coordinator calls without naming it in spec.ragSources.
+func isResumeSourceOf(agent *kubemootv1alpha1.Agent, name string) bool {
+	if agent.Spec.DiscussRole != roleCoordinator {
+		return false
+	}
+	return name == resumeRAGSourceName(stringOrDefault(agent.Labels[labelCrew], agent.Namespace))
 }
 
 // referencesRAGSource reports whether the agent lists the named RAGSource in spec.ragSources.

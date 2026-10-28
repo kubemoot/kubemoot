@@ -123,6 +123,13 @@ func resumeRAGSourceName(crewName string) string {
 	return fmt.Sprintf("crew-%s-resumes", crewName)
 }
 
+// resumeSearchEndpoint is the URL of the crew's resume query service, which the
+// coordinator is given as KUBEMOOT_RESUME_SEARCH_ENDPOINT and its egress allows. crew
+// is the crew label; an empty one means the agent's namespace is the crew.
+func resumeSearchEndpoint(agent *kubemootv1alpha1.Agent, crew string) string {
+	return fmt.Sprintf("http://%s-query.%s:%d", resumeRAGSourceName(stringOrDefault(crew, agent.Namespace)), agent.Namespace, resumeQueryPort)
+}
+
 // resumesUnchanged reports whether the resume RAGSource already carries hash and
 // reads the crew's scoped key into its scoped collection. A RAGSource with the
 // same content under an old key or collection still needs its spec rewritten.
