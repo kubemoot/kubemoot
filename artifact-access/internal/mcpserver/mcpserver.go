@@ -44,6 +44,8 @@ type Server struct {
 // artifacts maps a table name to an artifact object key.
 type Querier interface {
 	Query(ctx context.Context, artifacts map[string]string, sql string) (string, error)
+	// Hint is one sentence on the engine's SQL dialect, added to the tool description.
+	Hint() string
 }
 
 // New builds a Server with sane defaults around the given fetcher.
@@ -85,7 +87,7 @@ func (s *Server) MCP() *mcp.Server {
 	mcp.AddTool(srv, &mcp.Tool{Name: "artifact_jq",
 		Description: "Run a jq program over a JSON artifact (input size capped)."}, s.jq)
 	if s.Query != nil {
-		mcp.AddTool(srv, &mcp.Tool{Name: "workspace_query", Description: queryDescription}, s.query)
+		mcp.AddTool(srv, &mcp.Tool{Name: "workspace_query", Description: queryDescription + " " + s.Query.Hint()}, s.query)
 	}
 	return srv
 }

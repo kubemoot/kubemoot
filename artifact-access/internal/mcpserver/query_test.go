@@ -23,6 +23,8 @@ func (f *fakeQuerier) Query(_ context.Context, artifacts map[string]string, sql 
 	return f.out, f.err
 }
 
+func (f *fakeQuerier) Hint() string { return "The SQL is fake." }
+
 // toolNames lists the tools a client sees on a connected server.
 func toolNames(t *testing.T, s *Server) []string {
 	t.Helper()
@@ -110,5 +112,30 @@ func TestQueryHandlerCapsALargeResult(t *testing.T) {
 	_, out, err := s.query(context.Background(), nil, queryIn{SQL: selectOne})
 	if err != nil || !strings.Contains(out.Output, "truncated") {
 		t.Fatalf("out = %q err = %v", out.Output, err)
+	}
+}
+
+func TestQueryToolDescriptionCarriesTheEngineHint(t *testing.T) {
+	s := newServer(nil)
+	s.Query = &fakeQuerier{}
+	ctx := context.Background()
+	serverT, clientT := mcp.NewInMemoryTransports()
+	ss, err := s.MCP().Connect(ctx, serverT, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = ss.Close() }()
+	cs, err := mcp.NewClient(&mcp.Implementation{Name: "test", Version: "v1"}, nil).Connect(ctx, clientT, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = cs.Close() }()
+	for tool, err := range cs.Tools(ctx, nil) {
+		if err != nil {
+			t.Fatal(err)
+		}
+		if tool.Name == "workspace_query" && !strings.Contains(tool.Description, "The SQL is fake.") {
+			t.Fatalf("description lacks the engine hint: %q", tool.Description)
+		}
 	}
 }

@@ -20,7 +20,9 @@ const (
 
 	// EngineNone is the default: the query tool is not offered.
 	EngineNone = "none"
-	// EngineDuckDB runs queries with DuckDB.
+	// EngineSQLite runs queries with SQLite inside the artifact-access process.
+	EngineSQLite = "sqlite"
+	// EngineDuckDB runs queries with DuckDB in a separate program.
 	EngineDuckDB = "duckdb"
 
 	defaultTimeout          = 10 * time.Second
@@ -38,12 +40,9 @@ func FromEnv(getenv func(string) string, fetcher store.Getter, dir string) (*Ser
 	if engine == EngineNone {
 		return nil, nil
 	}
-	if engine != EngineDuckDB {
-		return nil, fmt.Errorf("%s=%q: want %s or %s", EnvEngine, engine, EngineNone, EngineDuckDB)
-	}
-	bin, err := exec.LookPath(orDefault(getenv(EnvDuckDBBin), "duckdb"))
+	eng, err := newEngine(engine, getenv)
 	if err != nil {
-		return nil, fmt.Errorf("%s=%s needs the duckdb program: %w", EnvEngine, engine, err)
+		return nil, err
 	}
 	lim, err := limitsFromEnv(getenv)
 	if err != nil {
@@ -54,8 +53,24 @@ func FromEnv(getenv func(string) string, fetcher store.Getter, dir string) (*Ser
 		return nil, err
 	}
 	return &Service{
-		Store: fetcher, Dir: dir, Engine: DuckDB{Bin: bin}, Limits: lim, MaxArtifactBytes: int64(maxBytes),
+		Store: fetcher, Dir: dir, Engine: eng, Limits: lim, MaxArtifactBytes: int64(maxBytes),
 	}, nil
+}
+
+// newEngine builds the named engine. SQLite is part of this program; DuckDB needs its
+// program on the image.
+func newEngine(engine string, getenv func(string) string) (Engine, error) {
+	switch engine {
+	case EngineSQLite:
+		return SQLite{}, nil
+	case EngineDuckDB:
+		bin, err := exec.LookPath(orDefault(getenv(EnvDuckDBBin), "duckdb"))
+		if err != nil {
+			return nil, fmt.Errorf("%s=%s needs the duckdb program: %w", EnvEngine, engine, err)
+		}
+		return DuckDB{Bin: bin}, nil
+	}
+	return nil, fmt.Errorf("%s=%q: want %s, %s or %s", EnvEngine, engine, EngineNone, EngineSQLite, EngineDuckDB)
 }
 
 func limitsFromEnv(getenv func(string) string) (Limits, error) {
