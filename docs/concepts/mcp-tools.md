@@ -50,3 +50,6 @@ Applying it and wiring the new server to a Tooler agent are manual steps today. 
 [MCPGateway](../../reference/mcpgateway-guide/) references for the specs. Discovering servers
 from public and private registries is on the
 [Roadmap](../../introduction/roadmap/#mcp-sources-from-public-and-private-registries).
+
+For how tool definitions and results fit among the other parts of an agent's context, see
+[Agent Context](../agent-context/#tools).

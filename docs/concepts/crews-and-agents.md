@@ -66,7 +66,9 @@ agent composes five things:
   [ADL](../agent-definition-language/)) referenced by `spec.promptRefs`. Prompt
   text always lives in PromptModules, never inline.
 
-See the [Agent CRD reference](../../reference/agent/) for the full spec.
+See the [Agent CRD reference](../../reference/agent/) for the full spec, and
+[Agent Context](../agent-context/) for everything that reaches an agent's model
+context: instructions, the discussion thread, tools, workspace, memory, and knowledge.
 
 ## Agent roles
 

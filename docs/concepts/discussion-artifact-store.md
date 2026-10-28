@@ -295,6 +295,8 @@ provide precise retrieval tools so agents fetch only what they need.
 
 ## Related
 
+- [Agent Context](../agent-context/) - where the workspace sits among the other parts of
+  an agent's context, and the planned rename from artifact to workspace.
 - [Conversations, Turns & Threads](../conversations-turns-and-threads/) - the
   thread whose lifecycle governs artifact GC layer 1.
 - [Signals & Protocol](../signals-and-protocol/) - the discussion messages that
