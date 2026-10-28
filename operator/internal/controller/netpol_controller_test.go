@@ -168,12 +168,15 @@ var _ = Describe("Generated network policies", func() {
 			}
 		})
 
-		It("leaves the operator namespace to the chart", func() {
+		// Shared tool servers live in the operator namespace and get their own generated
+		// policies there, whichever spec ran first; the chart owns only the namespace baseline.
+		It("leaves the operator namespace baseline to the chart", func() {
 			npNamespace(ctx, npOperatorNS)
-			nsr := &NamespaceReconciler{Client: k8sClient, ConfigCache: NewConfigCache(), NetPol: npSync(npConfig(true), false)}
-			_, err := nsr.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: npOperatorNS}})
-			Expect(err).NotTo(HaveOccurred())
-			Expect(npGenerated(ctx, npOperatorNS)).To(BeEmpty())
+			crew := npCrew(ctx, npOperatorNS, "np-operator-crew")
+			DeferCleanup(func() { Expect(client.IgnoreNotFound(k8sClient.Delete(ctx, crew))).To(Succeed()) })
+			npReconcileNamespace(ctx, npOperatorNS)
+			Expect(npGenerated(ctx, npOperatorNS)).NotTo(HaveKey("km-default-deny"))
+			Expect(npGenerated(ctx, npOperatorNS)).NotTo(HaveKey("km-crew-internal"))
 		})
 
 		It("creates ingress and the egress fallback for an MCPServer and reports EgressEnforced=False", func() {

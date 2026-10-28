@@ -21,6 +21,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	aiv1alpha1 "github.com/kubemoot/kubemoot/operator/api/v1alpha1"
@@ -51,6 +52,8 @@ func esService(ctx context.Context, namespace, name string, selector map[string]
 		Spec:       corev1.ServiceSpec{Selector: selector, Ports: []corev1.ServicePort{port}},
 	}
 	Expect(k8sClient.Create(ctx, svc)).To(Succeed())
+	// A Service in a namespace other specs share (the operator namespace) must not outlive its spec.
+	DeferCleanup(func() { Expect(client.IgnoreNotFound(k8sClient.Delete(ctx, svc))).To(Succeed()) })
 }
 
 // esRulesOnPort are the egress rules of the policy that allow the port.
