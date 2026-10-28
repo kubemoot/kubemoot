@@ -36,6 +36,15 @@ for the full design.
 | `ARTIFACT_DIR` | `/artifacts` | where objects are materialized |
 | `ARTIFACT_SUBJECT` | `kubemoot.artifacts.>` | subject carrying reference envelopes |
 
+## Query tool (off by default)
+
+With `ARTIFACT_QUERY_ENGINE=duckdb` the MCP service also offers `workspace_query`: one
+read-only SQL `SELECT` over named artifacts, with a time limit, a row limit, no network
+and no files outside the named artifacts. `internal/workspace` holds it; the engine sits
+behind its `Engine` interface. The `duckdb` program must be on `PATH` (or at
+`ARTIFACT_DUCKDB_BIN`). The variables and the table rules are in
+[`docs/concepts/discussion-artifact-store.md`](../docs/concepts/discussion-artifact-store.md#query-with-sql).
+
 ## Test
 
     go test ./...

@@ -94,7 +94,7 @@ const queryDescription = "Run one read-only SQL SELECT over artifacts. Give arti
 	"from a table name you choose to an artifact key, and write the SQL against those table names. " +
 	"Reads JSON lists, kubectl get -o json output (one row per item), kubectl tables, YAML, Markdown " +
 	"tables, CSV, and any other text (columns line_no, line). Use it to count, filter, sort, group " +
-	"and total instead of doing it by eye. Rows come back as 'a | b' lines, at most 100, with a " +
+	"and total instead of doing it by eye. Rows come back as 'a | b' lines, cut at a row limit, with a " +
 	"row count line. No writes, no files outside the named artifacts, no network."
 
 // --- tool inputs ---

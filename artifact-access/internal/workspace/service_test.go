@@ -106,6 +106,8 @@ func TestServiceRefusesBadRequests(t *testing.T) {
 		{"traversal key", map[string]string{"t": "../../etc/passwd"}, selectOne, badKey},
 		{"absolute key", map[string]string{"t": "/etc/passwd"}, selectOne, badKey},
 		{"empty key", map[string]string{"t": ""}, selectOne, badKey},
+		{"another query's work files", map[string]string{"t": ".query-123/x.csv"}, selectOne, badKey},
+		{"names that differ only by case", map[string]string{"Pods": "k", tblPods: "k"}, selectOne, "same name"},
 	}
 	for _, tc := range cases {
 		_, err := s.Query(context.Background(), tc.artifacts, tc.sql)

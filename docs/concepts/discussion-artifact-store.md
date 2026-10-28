@@ -81,6 +81,85 @@ an LLM context window. A `grep` for a pod name, a `select` for two columns, or a
 `jq` path expression is always cheaper than a full fetch, and keeps the context
 tight enough for reliable reasoning.
 
+### Query with SQL
+
+Counting, filtering, grouping and totalling are exact work that a model does badly by
+eye. The optional `workspace_query` tool of the same read-ops service runs one
+read-only SQL `SELECT` over the artifacts an agent names, so the database does the
+arithmetic and the agent reads a short table of rows.
+
+The tool is off by default. The operator chart value `artifacts.queryEngine` chooses the
+engine: `none` (the default) offers no `workspace_query` and the service behaves as
+before; `duckdb` offers it. The engine sits behind a seam: the artifacts stay in the
+NATS object store, artifact-access materializes them as files under `/artifacts`, and
+the engine reads those files. Another engine can replace DuckDB through the chart
+value without a change to crews or prompts.
+
+| Input | Meaning |
+|-------|---------|
+| `artifacts` | A map from a table name you choose to an artifact key. Up to 8 per query. A name is letters, digits and underscores. |
+| `sql` | One `SELECT` (or `WITH ... SELECT`) over those table names. |
+
+The result is plain text a small model reads easily: a header line, one `a | b` line per
+row, then `(N rows)`. A result longer than the row limit (100 by default) is cut and
+says so.
+
+```
+artifacts: {"pods": "default/pilot/t1/k8s/pods_list-1"}
+sql: SELECT "STATUS", count(*) AS n FROM pods GROUP BY 1 ORDER BY 1
+
+STATUS | n
+Pending | 1
+Running | 2
+(2 rows)
+```
+
+How each artifact becomes a table, decided from its content (object keys carry no file
+extension):
+
+| Content | Table |
+|---------|-------|
+| A JSON list of objects | One row per object, one column per key. |
+| A JSON object with an `items` list (`kubectl get -o json`) | One row per item; nested objects are read as `status.phase`. |
+| A `kubectl get` table | One row per line, columns named by the header. |
+| YAML (several documents become a list) | Read as JSON. |
+| A Markdown pipe table | One row per table row. |
+| CSV with a header row | One row per line. |
+| Anything else | One row per line, columns `line_no` and `line`. |
+
+Markdown beyond pipe tables is read as lines of text. DuckDB's Markdown reader is a
+community extension that downloads at run time, which a server with no network cannot do.
+
+Limits and safety:
+
+- **Read-only.** The SQL must parse as exactly one `SELECT`. Writes, `COPY`, `ATTACH`,
+  `INSTALL`, `SET`, `PRAGMA` and a second statement are refused.
+- **Only the named artifacts.** Each query runs in its own short-lived process with an
+  in-memory database. External access is off, so a path outside the named artifacts
+  (`/etc/passwd`, another artifact) and any `http`, `https` or `s3` address are
+  refused, extensions cannot load or download, and the configuration is locked before
+  the query runs.
+- **Bounded.** A query that runs past the time limit (10 seconds by default) is killed.
+  The engine's memory is capped (256 MB by default), an artifact over 32 MiB is
+  refused, and the result is cut at the row limit and at the tool output cap.
+- **Errors say what to fix.** A missing artifact, an unknown column or a refused
+  statement comes back as a tool error naming the cause.
+
+The service reads these variables; the chart value sets only the engine.
+
+| Variable | Default | Meaning |
+|----------|---------|---------|
+| `ARTIFACT_QUERY_ENGINE` | `none` | `none` or `duckdb`. The operator sets it from the KubemootConfig `spec.artifacts.queryEngine` unless the MCPServer sets it. |
+| `ARTIFACT_DUCKDB_BIN` | `duckdb` | The `duckdb` program. The artifact-access image that serves `duckdb` must carry it; when it is missing the service logs the reason and offers no query tool. |
+| `ARTIFACT_QUERY_TIMEOUT` | `10s` | Time limit per query. |
+| `ARTIFACT_QUERY_MAX_ROWS` | `100` | Rows per result. |
+| `ARTIFACT_QUERY_MEMORY` | `256MB` | Engine memory limit. |
+| `ARTIFACT_QUERY_MAX_ARTIFACT_BYTES` | `33554432` | Largest artifact a query may read. |
+| `ARTIFACT_DIR` | `/artifacts` | Where artifacts are materialized; the server needs a writable volume there. |
+
+An artifact the sandbox sidecar has not materialized yet is fetched from the object store
+on first use.
+
 ### Compute sandbox agents (materialised to disk)
 
 Counting, summing, sorting, and filtering are unreliable when a model performs

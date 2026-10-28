@@ -201,6 +201,35 @@ func TestQueryCannotCloseTheWrapper(t *testing.T) {
 	}
 }
 
+// The shell treats a line that starts with a dot as a command only at the start of
+// an input; text inside a query must never run one.
+func TestQueryRunsNoShellCommandFromTheSQLText(t *testing.T) {
+	s := newService(t, map[string]string{"k": jsonOneA})
+	marker := filepath.Join(t.TempDir(), "marker")
+	for _, sql := range []string{
+		"SELECT 'a\n.shell touch " + marker + "\nb' AS x",
+		"SELECT 1 -- note\n.shell touch " + marker,
+		"SELECT 1\n.system touch " + marker,
+		"SELECT 1\n.read " + marker,
+	} {
+		_, _ = s.Query(context.Background(), map[string]string{"t": "k"}, sql)
+		if _, err := os.Stat(marker); err == nil {
+			t.Fatalf("%q ran a shell command", sql)
+		}
+	}
+	got := query(t, s, map[string]string{"t": "k"}, "SELECT 'x\n.shell id' AS v")
+	if !strings.Contains(got, ".shell id") {
+		t.Fatalf("a string literal must come back as text, got %q", got)
+	}
+}
+
+func TestQueryRefusesANulByte(t *testing.T) {
+	s := newService(t, map[string]string{"k": jsonOneA})
+	if _, err := s.Query(context.Background(), map[string]string{"t": "k"}, "SELECT 1\x00; DROP VIEW t"); err == nil {
+		t.Fatal("a NUL byte in the SQL must not pass")
+	}
+}
+
 func TestQueryRefusesFilesOutsideTheNamedArtifacts(t *testing.T) {
 	s := newService(t, map[string]string{"k": jsonOneA, "other": `[{"secret":1}]`})
 	otherPath := filepath.Join(s.Dir, "other")

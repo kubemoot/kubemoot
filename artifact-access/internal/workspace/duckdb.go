@@ -94,6 +94,7 @@ func queryArgs(rels []Relation, sql string, lim Limits) []string {
 	stmts = append(stmts,
 		fmt.Sprintf("SET threads=%d", engineThreads),
 		fmt.Sprintf("SET memory_limit=%s", quote(lim.MemoryLimit)),
+		"SET max_temp_directory_size='512MB'",
 		fmt.Sprintf("SET allowed_paths=[%s]", strings.Join(paths, ",")),
 		"SET enable_external_access=false",
 		"SET autoload_known_extensions=false",

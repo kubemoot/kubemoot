@@ -18,6 +18,8 @@ spec:
     fitnessRunner: {{ include "kubemoot-operator.image" (dict "root" $ "image" .Values.kubemootConfig.images.fitnessRunner) | quote }}
     artifactAccess: {{ include "kubemoot-operator.image" (dict "root" $ "image" .Values.kubemootConfig.images.artifactAccess) | quote }}
     doclingServe: {{ include "kubemoot-operator.image" (dict "root" $ "image" .Values.kubemootConfig.images.doclingServe) | quote }}
+  artifacts:
+    queryEngine: {{ include "kubemoot-operator.artifactQueryEngine" . | quote }}
   defaults:
     {{- with (include "kubemoot-operator.pullSecrets" . | fromYamlArray) }}
     imagePullSecrets:

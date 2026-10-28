@@ -72,10 +72,17 @@ func checkRequest(artifacts map[string]string, sql string) error {
 	if len(artifacts) > MaxArtifacts {
 		return fmt.Errorf("at most %d artifacts per query, got %d", MaxArtifacts, len(artifacts))
 	}
+	seen := make(map[string]string, len(artifacts))
 	for name := range artifacts {
 		if !tableName.MatchString(name) {
 			return fmt.Errorf("table name %q must be letters, digits and underscores, not starting with a digit", name)
 		}
+		// The engine treats table names without regard to case.
+		lower := strings.ToLower(name)
+		if other, dup := seen[lower]; dup {
+			return fmt.Errorf("table names %q and %q are the same name; use distinct names", other, name)
+		}
+		seen[lower] = name
 	}
 	return nil
 }
@@ -124,8 +131,8 @@ func (s *Service) relation(ctx context.Context, name, key, workDir string) (Rela
 // materialized returns the local file for key, materializing it when absent.
 func (s *Service) materialized(ctx context.Context, key string) (string, error) {
 	path, err := artifact.LocalPath(s.Dir, key)
-	if err != nil {
-		return "", fmt.Errorf("bad key %q: %w", key, err)
+	if err != nil || strings.HasPrefix(key, workDirPrefix) {
+		return "", fmt.Errorf("bad key %q: %w", key, artifact.ErrUnsafeKey)
 	}
 	if info, err := os.Stat(path); err == nil && info.Mode().IsRegular() {
 		return path, nil
