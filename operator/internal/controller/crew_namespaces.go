@@ -14,6 +14,7 @@ import (
 	"context"
 	"slices"
 
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/event"
@@ -27,11 +28,38 @@ import (
 
 // namespaceHoldsCrew reports whether the namespace holds at least one Crew.
 func namespaceHoldsCrew(ctx context.Context, cli client.Reader, namespace string) (bool, error) {
+	first, err := firstCrewIn(ctx, cli, namespace)
+	return first != "", err
+}
+
+// firstCrewIn returns the name of the first Crew in the namespace by name, or "" when it
+// holds none.
+func firstCrewIn(ctx context.Context, cli client.Reader, namespace string) (string, error) {
 	crews := &kubemootv1alpha1.CrewList{}
-	if err := cli.List(ctx, crews, client.InNamespace(namespace), client.Limit(1)); err != nil {
-		return false, err
+	if err := cli.List(ctx, crews, client.InNamespace(namespace)); err != nil {
+		return "", err
 	}
-	return len(crews.Items) > 0, nil
+	first := ""
+	for i := range crews.Items {
+		if name := crews.Items[i].Name; first == "" || name < first {
+			first = name
+		}
+	}
+	return first, nil
+}
+
+// ensureCrewLabel puts the crew label on a namespace that holds a Crew (crewName is the
+// first one) and has no label, and records that the operator set it. A namespace that has
+// the label, is protected, or holds no Crew is left alone. The lock turns a concurrent write
+// by another reconcile into a conflict, which requeues, so the first writer's value stands
+// and the label never flaps.
+func ensureCrewLabel(ctx context.Context, cli client.Client, ns *corev1.Namespace, crewName string) error {
+	if crewName == "" || hasCrewLabel(ns) || isProtectedNamespace(ns.Name) {
+		return nil
+	}
+	patch := client.MergeFromWithOptions(ns.DeepCopy(), client.MergeFromWithOptimisticLock{})
+	markCrewLabel(ns, crewName)
+	return cli.Patch(ctx, ns, patch)
 }
 
 // crewNamespaces lists, sorted, the namespaces that hold at least one Crew.

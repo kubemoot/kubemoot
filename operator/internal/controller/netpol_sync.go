@@ -42,6 +42,12 @@ type NetPolicySync struct {
 	CiliumInstalled func() bool
 }
 
+// GeneratesPolicies reports whether generated network policies are on. A nil NetPolicySync
+// is off.
+func (s *NetPolicySync) GeneratesPolicies() bool {
+	return s != nil && s.Config.Enabled
+}
+
 // Resolved is the config with the Cilium decision made: on and off are taken as set, and
 // auto follows whether the kind is installed.
 func (s *NetPolicySync) Resolved() netpol.Config {

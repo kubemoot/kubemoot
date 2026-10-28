@@ -129,6 +129,13 @@ other="$(render "${servers[@]}" --set schedulingCrew.namespace=km-sched)"
 [ "$(get "$other" Crew kubemoot-scheduling .metadata.namespace)" = km-sched ] || fail "namespace value ignored"
 [ "$(crew_env "$other")" = "km-sched/kubemoot-scheduling" ] || fail "the operator is told the wrong crew namespace"
 
+# allowedIngress: unset renders no network key; set renders the selector on the Crew.
+[ "$(get "$out" Crew kubemoot-scheduling '.spec | has("network")')" = false ] || fail "the Crew has a network key without allowedIngress"
+admitted="$(render "${servers[@]}" --set 'schedulingCrew.allowedIngress[0].matchLabels.kubernetes\.io/metadata\.name=homelab-pilot')"
+[ "$(get "$admitted" Crew kubemoot-scheduling '.spec.network.allowedIngress[0].matchLabels["kubernetes.io/metadata.name"]')" = homelab-pilot ] \
+  || fail "allowedIngress is not rendered on the Crew"
+[ "$(get "$admitted" Crew kubemoot-scheduling '.spec.network.allowedIngress | length')" = 1 ] || fail "allowedIngress renders the wrong number of selectors"
+
 # A vLLM server alone is enough: the crew renders with no Model on it.
 vllm="$(render --set 'modelServers[0].name=vllm-gpu' --set 'modelServers[0].type=vllm' \
   --set 'modelServers[0].serviceRef.name=kubemoot-vllm' --set 'modelServers[0].serviceRef.namespace=vllm')"

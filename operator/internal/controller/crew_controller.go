@@ -159,14 +159,22 @@ func (r *CrewReconciler) reconcileNetworkPolicies(ctx context.Context, crew *kub
 	return r.NetPol.Apply(ctx, crew, crew.Namespace, objects)
 }
 
-// reconcileNamespaceLabel records the Crew on its namespace when the Crew CR
-// requests namespace management via the kubemoot.ai/manage-namespace annotation.
-// The label is bookkeeping: deletion also requires the namespace to carry
+// reconcileNamespaceLabel puts the crew label on the namespace of a Crew, so the
+// namespace is selected by the network policy baseline and by the cross-namespace
+// allows. While generated network policies are on it runs for every Crew, however it was
+// created, and never overwrites a label that is there (the same rule the namespace
+// reconciler follows), so Crews from several sources do not rewrite each other's value.
+// With them off it runs only for a Crew that asks for namespace management (the
+// kubemoot.ai/manage-namespace annotation) and records that Crew on the namespace. The
+// label is bookkeeping: deletion also requires the namespace to carry
 // kubemoot.ai/managed-namespace=true, which only a Namespace-level author can set.
-// Protected namespaces are never labeled. Crews in shared namespaces (e.g.,
-// kubemoot) omit this annotation and are unaffected.
+// Protected namespaces are never labeled.
 func (r *CrewReconciler) reconcileNamespaceLabel(ctx context.Context, crew *kubemootv1alpha1.Crew) error {
-	if !crewRequestsNamespaceManagement(crew) || isProtectedNamespace(crew.Namespace) {
+	if isProtectedNamespace(crew.Namespace) {
+		return nil
+	}
+	generated := r.NetPol.GeneratesPolicies()
+	if !generated && !crewRequestsNamespaceManagement(crew) {
 		return nil
 	}
 
@@ -174,10 +182,22 @@ func (r *CrewReconciler) reconcileNamespaceLabel(ctx context.Context, crew *kube
 	if err := r.Get(ctx, types.NamespacedName{Name: crew.Namespace}, ns); err != nil {
 		return client.IgnoreNotFound(err)
 	}
-	if ns.Labels != nil && ns.Labels[labelCrew] == crew.Name {
+	if generated {
+		crewName, err := firstCrewIn(ctx, r, crew.Namespace)
+		if err != nil {
+			return err
+		}
+		return ensureCrewLabel(ctx, r.Client, ns, crewName)
+	}
+	return r.recordManagedCrew(ctx, ns, crew)
+}
+
+// recordManagedCrew sets the crew label on a namespace to the Crew that asked for its
+// management, replacing another value.
+func (r *CrewReconciler) recordManagedCrew(ctx context.Context, ns *corev1.Namespace, crew *kubemootv1alpha1.Crew) error {
+	if ns.Labels[labelCrew] == crew.Name {
 		return nil
 	}
-
 	if ns.Labels == nil {
 		ns.Labels = map[string]string{}
 	}

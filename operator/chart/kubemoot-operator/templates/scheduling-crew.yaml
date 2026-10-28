@@ -29,6 +29,11 @@ spec:
   description: "Kubemoot's own scheduling crew: measures the cluster's model servers so the scheduler does not place calls blind."
   discussion:
     enabled: true
+  {{- with .Values.schedulingCrew.allowedIngress }}
+  network:
+    allowedIngress:
+      {{- toYaml . | nindent 6 }}
+  {{- end }}
 ---
 apiVersion: kubemoot.ai/v1alpha1
 kind: CrewSchedulingPolicy

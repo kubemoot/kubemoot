@@ -157,6 +157,7 @@ enforces are in [Network policies](../../concepts/network-policies/).
 | `security.networkPolicies.trustedIngressNamespaces` | `[]` | Without Cilium: namespaces of the Gateway API proxy pods, admitted to the discussion gateways. |
 | `security.networkPolicies.controlPlaneCIDRs` | `[]` | Without Cilium: source ranges of the API server's service proxy (`kubectl ask`, kmctl). |
 | `security.networkPolicies.clusterCIDRs` | `[]` | Pod and service ranges that are not private addresses; the fallback for undeclared host enforcement keeps them blocked. |
+| `schedulingCrew.allowedIngress` | `[]` | Namespace selectors copied to the scheduling crew's `spec.network.allowedIngress`, so a web server in another namespace that lists the crews can reach its discussion gateway, for example `- matchLabels: {kubernetes.io/metadata.name: homelab-pilot}`. Empty leaves the `network` key off the Crew. |
 
 ## Caching
 
