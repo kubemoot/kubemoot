@@ -1,7 +1,8 @@
-// Command code-sandbox is an MCP stdio server that runs short Python or bash
-// programs for an agent. It is meant to run in a pod that is itself the sandbox:
-// no credentials, no network except what the pod's policy allows, and a shared
-// /artifacts directory holding the data the program reads.
+// Command code-sandbox is an MCP server, over stdio or Streamable HTTP, that
+// runs short Python or bash programs for an agent. It is meant to run in a pod
+// that is itself the sandbox: no credentials, no network except what the pod's
+// policy allows, and a shared /artifacts directory holding the data the program
+// reads.
 package main
 
 import (
@@ -13,8 +14,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/modelcontextprotocol/go-sdk/mcp"
-
 	"github.com/kubemoot/kubemoot/code-sandbox/internal/runner"
 	"github.com/kubemoot/kubemoot/code-sandbox/internal/server"
 )
@@ -25,20 +24,22 @@ const (
 )
 
 func main() {
-	log.SetOutput(os.Stderr) // stdout carries the MCP protocol
+	log.SetOutput(os.Stderr) // in stdio mode stdout carries the MCP protocol
+	transport, err := parseTransport(os.Getenv("MCP_TRANSPORT"))
+	if err != nil {
+		log.Fatalf("code-sandbox: %v", err)
+	}
 	r := &runner.Runner{
 		Timeout:   time.Duration(envInt("EXECUTION_TIMEOUT", defaultTimeoutSeconds)) * time.Second,
 		MaxOutput: envInt("MAX_OUTPUT_BYTES", defaultMaxOutputBytes),
 		TempDir:   os.Getenv("SANDBOX_TMPDIR"),
 	}
-	srv, err := (&server.Server{Runner: r}).MCP()
-	if err != nil {
-		log.Fatalf("code-sandbox: %v", err)
-	}
+	port := envInt("PORT", defaultPort)
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
-	log.Printf("code-sandbox up: languages=%v timeout=%s maxOutput=%d (stdio)", runner.Names(), r.Timeout, r.MaxOutput)
-	if err := srv.Run(ctx, &mcp.StdioTransport{}); err != nil && ctx.Err() == nil {
+	log.Printf("code-sandbox up: languages=%v timeout=%s maxOutput=%d transport=%s port=%d",
+		runner.Names(), r.Timeout, r.MaxOutput, transport, port)
+	if err := serve(ctx, transport, &server.Server{Runner: r}, port); err != nil && ctx.Err() == nil {
 		log.Fatalf("code-sandbox: %v", err)
 	}
 }

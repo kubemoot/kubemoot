@@ -77,5 +77,11 @@ servers, so each server that should run sandboxed names the class. The same
 `RuntimeClassAvailable` condition and the same hold apply to an MCPServer whose class is
 missing, with the phase `Pending`.
 
+Stdio MCP servers reach the gateway through the operator's mcp-bridge sidecar, which uses named
+pipes in a volume shared between containers. gVisor does not share those pipes across
+containers, so a bridged stdio server does not run under it without node-level containerd
+configuration. Run sandboxed MCP servers with `transport: http`.
+
 The [code sandbox](../code-sandbox/) is the MCP server that benefits most, because it runs
-code a model wrote. The gateways do not use the setting yet.
+code a model wrote. It serves MCP over HTTP itself (`MCP_TRANSPORT=http`), so it runs under a
+sandboxed runtime. The gateways do not use the setting yet.

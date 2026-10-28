@@ -1,6 +1,6 @@
 # code-sandbox
 
-An MCP stdio server that runs short programs for an agent: the compute tooler
+An MCP server, over stdio or Streamable HTTP, that runs short programs for an agent: the compute tooler
 writes Python or bash, the sandbox runs it, and the agent gets stdout, stderr,
 and the exit code back. Counting, sorting, and arithmetic come from running
 code, not from the model reading a list.
@@ -67,6 +67,26 @@ give it an explicit command (`/usr/bin/tini -s -- /usr/local/bin/code-sandbox`).
 | `EXECUTION_TIMEOUT` | `30` | seconds a program may run |
 | `MAX_OUTPUT_BYTES` | `65536` | cap on each of stdout and stderr |
 | `SANDBOX_TMPDIR` | OS default | where run directories are created |
+| `MCP_TRANSPORT` | `stdio` | `stdio` or `http`; any other value stops the server at start |
+| `PORT` | `3000` | the listening port, in `http` mode only |
+
+## Transports
+
+| transport | how the server is reached | when to use it |
+|-----------|---------------------------|----------------|
+| `http` | MCP Streamable HTTP at `/mcp` on `PORT`; `/healthz` and `/readyz` answer 200 | Always, for new installs. Required under a sandboxed runtime such as gVisor. |
+| `stdio` (default) | the operator's mcp-bridge sidecar talks to the server over named pipes | Existing deployments; nothing to change. |
+
+Under a sandboxed runtime such as gVisor, a named pipe in an `emptyDir` shared between
+containers is not visible across them, so the bridged stdio sandbox crash-loops. In `http`
+mode there is no bridge and no pipe: the server listens itself.
+
+For an MCPServer, set `transport: http`, `port` to the same value as `PORT`, and the
+environment variable `MCP_TRANSPORT=http`. The operator then adds no bridge sidecar, creates a
+Service on `port`, and registers `http://<name>.<namespace>:<port>` with the gateway, which
+calls `/mcp`. Set `healthPath: /healthz` and `readinessPath: /readyz` for HTTP probes; without
+them the operator probes the TCP port. The container then runs the image entrypoint (or the
+MCPServer's `command`); the artifact-access sidecar and the `/artifacts` volume work the same.
 
 ## Test
 
