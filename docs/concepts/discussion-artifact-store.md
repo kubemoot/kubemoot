@@ -96,11 +96,11 @@ may not state a number that did not come from running code.
 The compute sandbox is the [code sandbox](../code-sandbox/)
 ([`code-sandbox`](https://github.com/kubemoot/kubemoot/blob/main/code-sandbox/README.md) in the repository),
 an MCP stdio server that exposes `execute_code` and `validate_code` for Python
-(standard library only) or bash. The pod is the sandbox: it holds no credentials
-and its egress is limited by the crew's network policy, so it must not reach NATS
-or external services directly. A **materializer sidecar** (the same
-`artifact-access` binary in its default mode) fetches referenced objects from the
-store and writes them into a shared local volume under `/artifacts`. The sandbox
+(standard library only) or bash. The pod is the sandbox: the container that runs
+programs holds no credentials and talks to nothing itself, and the crew's network policy
+limits the pod's egress to the message bus. A **materializer sidecar** (the same
+`artifact-access` binary in its default mode) is the only part of the pod that reads
+NATS. It fetches referenced objects from the store and writes them into a shared local volume under `/artifacts`. The sandbox
 reads the materialised file and computes over it locally, then publishes its
 result through the normal discussion signal path.
 
