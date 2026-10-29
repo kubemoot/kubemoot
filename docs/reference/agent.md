@@ -725,6 +725,10 @@ PromptModule is a CRD for reusable prompt fragments composed into agent system p
 | `content` | string | (required) | The prompt text (ADL format recommended) |
 | `order` | int32 | 100 | Ordering when composed (lower = earlier in system prompt) |
 
+### Placeholders in content
+
+The text `${agent.tools}` in `content` is replaced by the agent runtime with the names of the tools that agent registered, so a shared module can list an agent's tools without naming tools other agents lack. See [Placeholders](adl-reference.md#placeholders). The operator does not resolve it: the registered set is known only at runtime.
+
 ### Status
 
 | Field | Type | Description |

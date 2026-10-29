@@ -2221,12 +2221,17 @@ public class ChatService {
         var promptFile = properties.systemPromptFile().orElse("");
         if (!promptFile.isEmpty()) {
             try {
-                return Files.readString(Path.of(promptFile));
+                return renderToolList(Files.readString(Path.of(promptFile)));
             } catch (IOException e) {
                 log.warn("Failed to read system prompt file {}: {}", promptFile, e.getMessage());
             }
         }
-        return properties.systemPrompt().orElse("");
+        return renderToolList(properties.systemPrompt().orElse(""));
+    }
+
+    /** Names the tools this agent has registered now, so one the gateway added later is named too. */
+    private String renderToolList(String prompt) {
+        return ToolListPlaceholder.render(prompt, this::getToolNames);
     }
 
     /** Returns the model triage calls run on. */

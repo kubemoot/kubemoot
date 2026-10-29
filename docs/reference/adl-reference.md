@@ -44,6 +44,32 @@ NEVER include internal directives in the user-facing answer.
 ASSERT the brief is additive guidance only.
 ```
 
+### Placeholders
+
+A module can name the agent's own tools without hardcoding them. A shared module is
+given to many agents with different tool sets, so a tool name written into it is wrong
+for every agent that does not have that tool, and the agent is invited to call a tool
+that does not exist.
+
+| Placeholder | Replaced with |
+|---|---|
+| `${agent.tools}` | The names of the tools this agent registered from its gateway, sorted and separated by commas, or `none` when it has no tools. |
+
+```text
+ASSERT the tools you have are: ${agent.tools}. Call only these.
+WHEN you need a list of objects THEN use your list tool from that set.
+```
+
+The agent runtime replaces the placeholder each time it builds the system prompt, from
+the tool set it holds at that moment. A tool the gateway gains or loses after the agent
+started shows up in the next prompt, with no restart. The list carries names only: each
+tool already reaches the model with its description in the tool definitions of the same
+request, so repeating descriptions would spend prompt budget on text the model has.
+
+A module without the placeholder is unchanged. A runtime that predates the placeholder
+leaves the text `${agent.tools}` in the prompt, so write the sentence around it to read
+sensibly with the token in place and put the rule itself in terms of tool kinds.
+
 ### Memory directives
 
 An agent may emit a `REMEMBER:` line to write a fact to its working memory (for example

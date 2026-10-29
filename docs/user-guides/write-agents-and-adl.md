@@ -157,6 +157,10 @@ Shared modules (10, 20) keep crew-wide conventions in one place; the per-agent m
 (30) carries that agent's specific behavior. The composed text is mounted into the
 agent at runtime.
 
+Write a shared module in terms of tool kinds ("your list tool") and let the runtime name
+the real tools: put `${agent.tools}` where the module lists tools, and each agent sees
+only the tools it has. See [Placeholders](../reference/adl-reference.md#placeholders).
+
 ## Workflow
 
 1. Write each module as a `PromptModule` CR with ADL `content`.
