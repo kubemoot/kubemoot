@@ -129,6 +129,18 @@ extension):
 | CSV with a header row | One row per line. |
 | Anything else | One row per line, columns `line_no` and `line`. |
 
+A tooler agent's contribution is its raw tool output, which the agent runtime writes as
+one section per tool call: a `[tool_name]` line, the result, then a blank line. A query
+reads such an artifact one section at a time, so a kubectl table or a JSON result behind
+a `[pods_list]` line is read as the table or the JSON it is. Sections of the same
+format and columns (the same tool called twice) are the rows of one table, the name you
+chose. A section with other columns is its own table, `name_2`, `name_3` and so on, in
+order of appearance. When a table is made of several sections, a note after the rows
+names the tools behind it. An artifact whose sections are all prose is read as one text. A
+result the runtime cut at its size limit loses its last partial row (a JSON list keeps
+its complete items), and a note says so. An artifact that does not start with a
+`[tool_name]` line is read as above.
+
 A column whose every value is a number is stored as numbers, so `sum`, `avg` and
 `ORDER BY` work on it (`RESTARTS` of a kubectl table, a Markdown count column).
 A nested object or list in JSON or YAML is read per engine. In SQLite it is a text

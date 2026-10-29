@@ -270,7 +270,7 @@ func eachItem(dec *json.Decoder, fn func(map[string]any) error) error {
 		if err != nil {
 			return fmt.Errorf("read JSON: %w", err)
 		}
-		if key != "items" {
+		if key != itemsKey {
 			var skip json.RawMessage
 			if err := dec.Decode(&skip); err != nil {
 				return fmt.Errorf("read JSON: %w", err)

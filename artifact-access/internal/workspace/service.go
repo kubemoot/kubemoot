@@ -51,7 +51,7 @@ func (s *Service) Query(ctx context.Context, artifacts map[string]string, sql st
 	}
 	defer func() { _ = os.RemoveAll(workDir) }()
 
-	rels, err := s.relations(ctx, artifacts, workDir)
+	rels, notes, err := s.relations(ctx, artifacts, workDir)
 	if err != nil {
 		return "", err
 	}
@@ -59,7 +59,17 @@ func (s *Service) Query(ctx context.Context, artifacts map[string]string, sql st
 	if err != nil {
 		return "", err
 	}
-	return Render(res), nil
+	return Render(res) + renderNotes(notes), nil
+}
+
+// renderNotes puts what the model should know about how artifacts were read after
+// the rows, one line each.
+func renderNotes(notes []string) string {
+	var b strings.Builder
+	for _, n := range notes {
+		b.WriteString("note: " + n + "\n")
+	}
+	return b.String()
 }
 
 // hinter is implemented by an engine that tells the model how its SQL differs.
@@ -98,45 +108,52 @@ func checkRequest(artifacts map[string]string, sql string) error {
 	return nil
 }
 
-// relations makes one Relation per named artifact, in name order.
-func (s *Service) relations(ctx context.Context, artifacts map[string]string, workDir string) ([]Relation, error) {
+// relations makes the Relations for the named artifacts, in name order, and the
+// notes on how any of them was read. An artifact is usually one Relation; a tooler's
+// artifact with sections of different shapes is several (see prepareSections).
+func (s *Service) relations(ctx context.Context, artifacts map[string]string,
+	workDir string) ([]Relation, []string, error) {
 	names := make([]string, 0, len(artifacts))
+	taken := make(map[string]bool, len(artifacts))
 	for name := range artifacts {
 		names = append(names, name)
+		taken[strings.ToLower(name)] = true
 	}
 	sort.Strings(names)
-	rels := make([]Relation, 0, len(names))
+	var rels []Relation
+	var notes []string
 	for _, name := range names {
-		rel, err := s.relation(ctx, name, artifacts[name], workDir)
+		r, n, err := s.relation(ctx, name, artifacts[name], workDir, taken)
 		if err != nil {
-			return nil, fmt.Errorf("artifact %q: %w", name, err)
+			return nil, nil, fmt.Errorf("artifact %q: %w", name, err)
 		}
-		rels = append(rels, rel)
+		rels = append(rels, r...)
+		notes = append(notes, n...)
 	}
-	return rels, nil
+	return rels, notes, nil
 }
 
 // relation finds the artifact's file under Dir, fetching it first when it is not
 // there yet, and prepares it for the engine.
-func (s *Service) relation(ctx context.Context, name, key, workDir string) (Relation, error) {
+func (s *Service) relation(ctx context.Context, name, key, workDir string,
+	taken map[string]bool) ([]Relation, []string, error) {
 	path, err := s.materialized(ctx, key)
 	if err != nil {
-		return Relation{}, err
+		return nil, nil, err
 	}
 	info, err := os.Stat(path)
 	if err != nil {
-		return Relation{}, err
+		return nil, nil, err
 	}
 	if s.MaxArtifactBytes > 0 && info.Size() > s.MaxArtifactBytes {
-		return Relation{}, fmt.Errorf("the artifact is %d bytes, over the %d byte limit for queries",
+		return nil, nil, fmt.Errorf("the artifact is %d bytes, over the %d byte limit for queries",
 			info.Size(), s.MaxArtifactBytes)
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return Relation{}, err
+		return nil, nil, err
 	}
-	rel, _, err := Prepare(name, path, data, workDir)
-	return rel, err
+	return PrepareArtifact(name, path, data, workDir, taken)
 }
 
 // materialized returns the local file for key, materializing it when absent.
