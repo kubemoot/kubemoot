@@ -3,6 +3,7 @@ package ai.kubemoot.agent.nats;
 import ai.kubemoot.agent.requester.Requester;
 import ai.kubemoot.agent.chat.ChatService;
 import ai.kubemoot.agent.chat.ModelUse;
+import ai.kubemoot.agent.chat.ToolListPlaceholder;
 import ai.kubemoot.agent.config.AgentProperties;
 import ai.kubemoot.agent.rag.ResumeSearchClient;
 import ai.kubemoot.agent.util.GpuLabels;
@@ -3092,7 +3093,11 @@ public class DiscussionOrchestrator {
      * Load system prompt from file (composed by operator from PromptModules).
      * Cached after first successful read.
      */
-    private String loadSystemPrompt() {
+    String loadSystemPrompt() {
+        return ToolListPlaceholder.render(loadRawSystemPrompt(), chatService::getToolNames);
+    }
+
+    private String loadRawSystemPrompt() {
         if (systemPromptCache != null) return systemPromptCache;
 
         var promptFile = properties.systemPromptFile().orElse("");
