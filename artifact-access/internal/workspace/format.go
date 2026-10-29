@@ -29,6 +29,9 @@ const (
 	FormatText          Format = "text"
 )
 
+// itemsKey is the list a kubectl List object holds its objects in.
+const itemsKey = "items"
+
 const sniffLines = 5
 
 var (
@@ -144,6 +147,28 @@ func Prepare(name, src string, data []byte, workDir string) (Relation, Format, e
 	format := Detect(data)
 	rel, err := preparers[format](name, src, data, workDir)
 	return rel, format, err
+}
+
+// PrepareArtifact makes the relations a query reads for one named artifact, with
+// notes for the model on how it was read. An artifact made of a tooler's output
+// sections (see splitSections) is read one section at a time; any other artifact is
+// one relation. taken holds the lower-case table names the caller already uses, and
+// receives the extra names this artifact takes.
+func PrepareArtifact(name, src string, data []byte, workDir string,
+	taken map[string]bool) ([]Relation, []string, error) {
+	if secs, ok := splitSections(data); ok {
+		rels, notes, err := prepareSections(name, secs, workDir, taken)
+		if err == nil {
+			return rels, notes, nil
+		}
+		if !errors.Is(err, errAllText) {
+			rel, _, perr := Prepare(name, src, data, workDir)
+			note := "the tool sections could not be read one by one (" + err.Error() + "); read as one text"
+			return []Relation{rel}, []string{note}, perr
+		}
+	}
+	rel, _, err := Prepare(name, src, data, workDir)
+	return []Relation{rel}, nil, err
 }
 
 func prepareJSON(name, src string, data []byte, _ string) (Relation, error) {
@@ -319,7 +344,7 @@ func hasItemsList(data []byte) bool {
 		if err := dec.Decode(&raw); err != nil {
 			return false
 		}
-		if key == "items" {
+		if key == itemsKey {
 			return len(raw) > 0 && raw[0] == '['
 		}
 	}
