@@ -23,6 +23,12 @@ Treating **failure as signal** is deliberate. An agent that fails a tool call or
 cannot reach a source says so, so the coordinator can route around it, rather than
 standing aside silently and letting the crew mistake "no answer" for "no objection."
 
+A Tooler that posts raw tool output as its contribution never posts errors as data:
+when every tool call it made returned an error (a structured error, or a short
+plain-text message such as `failed to list pods`), it publishes `failure` with the
+failed tools and their error text instead of an `agree`. When at least one call
+returned data, the output is posted as before, failed sections included.
+
 Additional protocol signals facilitate the discussion itself - `triaging`,
 `evaluating`, `waiting`, `advisory`, `proposal`. An agent publishes `waiting`
 (with `metadata.model` and `metadata.reason: gpu-busy`) once when every GPU that can
