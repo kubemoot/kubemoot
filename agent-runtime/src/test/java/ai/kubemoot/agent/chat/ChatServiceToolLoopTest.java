@@ -345,11 +345,12 @@ class ChatServiceToolLoopTest {
         when(ragClient.queryForContext(anyString())).thenReturn("");
 
         var service = createService(5);
-        var result = service.directChat(new ChatService.ChatRequest("conv-4", "use fake tool"), false);
-
-        // New contract: the unknown-tool error result is posted as the raw output.
-        assertTrue(result.response().contains("Unknown tool"),
-                "raw output carries the error JSON, got: " + result.response());
+        // The unknown-tool error is the only result a tooler gathered: a failed gather
+        // carrying the error text, not error JSON posted as data.
+        var thrown = assertThrows(ToolCallFailure.class, () ->
+                service.directChat(new ChatService.ChatRequest("conv-4", "use fake tool"), false));
+        assertEquals(ToolCallFailure.FailureType.GATHER_FAILED, thrown.failureType());
+        assertTrue(thrown.getMessage().contains("Unknown tool"), thrown.getMessage());
         verify(chatModel, times(2)).chat(any(ChatRequest.class));
     }
 
@@ -1449,6 +1450,157 @@ class ChatServiceToolLoopTest {
         service.callWithToolLoop(messages, chatModel, "gpu-a", "test", false, 0);
         service.callWithToolLoop(messages, chatModel, "gpu-a", "test", false, 32_768);
         verify(chatModel, times(2)).chat(any(ChatRequest.class));
+    }
+
+    // ---- failed gather: a tooler whose every tool call failed posts no data ----
+
+    private static final String POD_LIST_ERROR =
+            "failed to list pods in namespace all: namespaces \"all\" not found";
+
+    /** Stubs one tool answering the given results in order (the last repeats), and the model's turns. */
+    private void stubToolerLoop(String toolName, List<String> results, AiMessage... turns) {
+        var spec = ToolSpecification.builder().name(toolName).build();
+        var executor = mock(ToolExecutor.class);
+        var first = results.get(0);
+        var rest = results.subList(1, results.size()).toArray(new String[0]);
+        when(executor.execute(any(), any())).thenReturn(first, rest);
+        when(mcpClient.getToolSpecifications()).thenReturn(Map.of(spec, executor));
+        var responses = new ChatResponse[turns.length];
+        for (int i = 0; i < turns.length; i++) {
+            responses[i] = mock(ChatResponse.class);
+            when(responses[i].aiMessage()).thenReturn(turns[i]);
+            when(responses[i].tokenUsage()).thenReturn(new TokenUsage(100, 20));
+        }
+        var firstResponse = responses[0];
+        var restResponses = java.util.Arrays.copyOfRange(responses, 1, responses.length);
+        when(chatModel.chat(any(ChatRequest.class))).thenReturn(firstResponse, restResponses);
+        when(ragClient.queryForContext(anyString())).thenReturn("");
+    }
+
+    private static AiMessage callOf(String toolName) {
+        return AiMessage.from(List.of(ToolExecutionRequest.builder()
+                .id("c-" + toolName).name(toolName).arguments("{}").build()));
+    }
+
+    private ToolCallFailure askToolerExpectingFailure(int maxIterations) {
+        var service = createService(maxIterations);
+        return assertThrows(ToolCallFailure.class, () ->
+                service.directChat(new ChatService.ChatRequest("conv-gf", "how many pods?"), false));
+    }
+
+    @Test
+    void directChat_toolerEveryToolErrored_finalTextWithoutSentinel_throwsGatherFailed() {
+        stubToolerLoop("pods_list_in_namespace", List.of(POD_LIST_ERROR),
+                callOf("pods_list_in_namespace"), new AiMessage("Here are the pods."));
+        var thrown = askToolerExpectingFailure(10);
+        assertEquals(ToolCallFailure.FailureType.GATHER_FAILED, thrown.failureType());
+        assertTrue(thrown.getMessage().contains("pods_list_in_namespace")
+                && thrown.getMessage().contains("namespaces \"all\" not found"),
+                "the reason carries the tool and its error text, got: " + thrown.getMessage());
+        assertEquals("pods_list_in_namespace", thrown.toolName());
+    }
+
+    @Test
+    void directChat_toolerEveryToolErrored_iterationsExhausted_throwsGatherFailed() {
+        // A tool that answers plain error text on every call never trips the per-tool
+        // failure caps, so the loop runs out of iterations; the gather still fails.
+        stubToolerLoop("pods_list_in_namespace", List.of(POD_LIST_ERROR),
+                callOf("pods_list_in_namespace"));
+        var thrown = askToolerExpectingFailure(3);
+        assertEquals(ToolCallFailure.FailureType.GATHER_FAILED, thrown.failureType());
+        assertEquals(3, thrown.failureCount(), "one entry per failed call");
+        assertTrue(thrown.getMessage().contains("not found"), thrown.getMessage());
+    }
+
+    @Test
+    void directChat_toolerEveryToolErrored_wrapperShapedError_throwsGatherFailed() {
+        stubToolerLoop("get_pods", List.of("{\"error\": \"connection refused\"}"),
+                callOf("get_pods"), new AiMessage("done"));
+        var thrown = askToolerExpectingFailure(10);
+        assertEquals(ToolCallFailure.FailureType.GATHER_FAILED, thrown.failureType());
+        assertTrue(thrown.getMessage().contains("connection refused"), thrown.getMessage());
+    }
+
+    @Test
+    void directChat_toolerEveryToolErrored_reasonIsTruncated() {
+        String longError = "Error: " + "x".repeat(900);
+        stubToolerLoop("get_pods", List.of(longError),
+                callOf("get_pods"), callOf("get_pods"), callOf("get_pods"), new AiMessage("done"));
+        var thrown = askToolerExpectingFailure(10);
+        // the "every tool call failed" lead plus the 1000-char cap and its truncation marker
+        assertTrue(thrown.getMessage().length() <= 1100, "length " + thrown.getMessage().length());
+        assertTrue(thrown.getMessage().contains("[truncated]"));
+    }
+
+    @Test
+    void directChat_toolerMixedErrorAndGoodResults_postsOutputKeepingFailedSection() {
+        stubToolerLoop("get_pods", List.of(POD_LIST_ERROR, "{\"pods\": [\"nginx\"]}"),
+                callOf("get_pods"), callOf("get_pods"), new AiMessage("done"));
+        var service = createService(10);
+        var result = service.directChat(new ChatService.ChatRequest("conv-mix", "pods?"), false);
+        assertTrue(result.response().contains("nginx"), result.response());
+        assertTrue(result.response().contains("not found"),
+                "the failed section stays in the posted output, got: " + result.response());
+    }
+
+    @Test
+    void directChat_toolerMixedResults_iterationsExhausted_postsOutput() {
+        stubToolerLoop("get_pods", List.of(POD_LIST_ERROR, "{\"pods\": [\"nginx\"]}"),
+                callOf("get_pods"));
+        var service = createService(3);
+        var result = service.directChat(new ChatService.ChatRequest("conv-mix2", "pods?"), false);
+        assertTrue(result.response().contains("nginx"), result.response());
+    }
+
+    @Test
+    void directChat_toolerAllGoodResults_postsOutput() {
+        stubToolerLoop("get_pods", List.of("{\"pods\": [\"nginx\"]}"),
+                callOf("get_pods"), new AiMessage("done"));
+        var service = createService(10);
+        var result = service.directChat(new ChatService.ChatRequest("conv-good", "pods?"), false);
+        assertTrue(result.response().contains("nginx"), result.response());
+    }
+
+    @Test
+    void directChat_toolerAllErrorsButDeclaresToolGap_keepsToolGap() {
+        stubToolerLoop("get_pods", List.of(POD_LIST_ERROR),
+                callOf("get_pods"), new AiMessage("TOOL_GAP: need an all-namespaces pod listing tool"));
+        var service = createService(10);
+        var result = service.directChat(new ChatService.ChatRequest("conv-gap", "pods?"), false);
+        assertTrue(result.response().startsWith("TOOL_GAP:"), result.response());
+    }
+
+    @Test
+    void directChat_toolerAllErrorsAndDeclaresNoData_usesItsOwnReason() {
+        stubToolerLoop("get_pods", List.of(POD_LIST_ERROR),
+                callOf("get_pods"), new AiMessage("NO_DATA: the namespace does not exist"));
+        var thrown = askToolerExpectingFailure(10);
+        assertEquals(ToolCallFailure.FailureType.GATHER_FAILED, thrown.failureType());
+        assertTrue(thrown.getMessage().contains("the namespace does not exist"), thrown.getMessage());
+    }
+
+    @Test
+    void isGatherErrorResult_recognizesErrorsByWrapperAndByText() {
+        assertTrue(ChatService.isGatherErrorResult("{\"error\": \"boom\"}"));
+        assertTrue(ChatService.isGatherErrorResult("  Error: boom"));
+        assertTrue(ChatService.isGatherErrorResult("failed to list pods: forbidden"));
+        assertTrue(ChatService.isGatherErrorResult("Bad Request"));
+        assertTrue(ChatService.isGatherErrorResult("Unknown tool: nope"));
+    }
+
+    @Test
+    void isGatherErrorResult_dataIsNotAnError() {
+        assertFalse(ChatService.isGatherErrorResult(null));
+        assertFalse(ChatService.isGatherErrorResult(""));
+        assertFalse(ChatService.isGatherErrorResult("{\"items\": []}"));
+        assertFalse(ChatService.isGatherErrorResult("[]"));
+        assertFalse(ChatService.isGatherErrorResult("Error rate 0.2%"));
+        assertFalse(ChatService.isGatherErrorResult("errors: 0"));
+        assertFalse(ChatService.isGatherErrorResult("Not found in cache, 3 pods running"));
+        assertFalse(ChatService.isGatherErrorResult("NAME READY STATUS\nnginx 1/1 Running"));
+        assertFalse(ChatService.isGatherErrorResult("{\"message\": \"error budget is 3 percent\"}"));
+        assertFalse(ChatService.isGatherErrorResult("Error: " + "x".repeat(2000)),
+                "a long result is data even when it opens with an error word");
     }
 
     private ChatService createService(int maxToolIterations) {

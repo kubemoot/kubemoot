@@ -741,7 +741,25 @@ public class ChatService {
             return new ToolLoopResult(finalText,
                     state.totalInput, state.totalOutput, serverName, pickReason);
         }
+        throwIfEveryToolFailed(state);
         return rawOutputResult(state, serverName, pickReason);
+    }
+
+    /**
+     * A tooler whose every tool result was an error has no findings: raise
+     * GATHER_FAILED, carrying each failed tool and its error text, rather than posting
+     * the errors as data. A mix of good and failed results does not raise; the failed
+     * sections stay in the posted output.
+     */
+    private static void throwIfEveryToolFailed(ToolLoopState state) {
+        if (!state.everyToolFailed()) {
+            return;
+        }
+        String reason = "every tool call failed, so there is no data: "
+                + truncate(String.join("; ", state.failedCalls), MAX_GATHER_FAILED_REASON_CHARS);
+        throw new ToolCallFailure(ToolCallFailure.FailureType.GATHER_FAILED,
+                String.join(",", new java.util.LinkedHashSet<>(state.failedTools)),
+                state.lastFailedResult, state.failedCalls.size(), reason);
     }
 
     /**
@@ -1021,6 +1039,7 @@ public class ChatService {
             // downstream discussion/synthesis context.
             state.toolOutput.append("[").append(toolRequest.name()).append("]\n")
                     .append(truncate(result, MAX_TOOL_RESULT_CHARS)).append("\n\n");
+            state.recordGatherResult(toolRequest.name(), result);
             recordToolFailure(toolRequest.name(), result, state);
         }
     }
@@ -1109,6 +1128,7 @@ public class ChatService {
         if (toolerRawOutput && state.toolsExecuted && state.toolOutput.length() > 0) {
             log.info("iterations-exhausted for tooler {}: posting {} chars of raw tool output as the contribution",
                     properties.agentName(), state.toolOutput.length());
+            throwIfEveryToolFailed(state);
             return rawOutputResult(state, serverName, pickReason);
         }
         log.warn("Tool loop exceeded max iterations for agent {} (no tool output gathered)", properties.agentName());
@@ -1132,6 +1152,10 @@ public class ChatService {
         long totalOutput = 0;
         final Map<String, Integer> perToolFailures = new java.util.HashMap<>();
         int totalToolFailures = 0;
+        // Every tool call's outcome as "tool: error text", for the failed-gather rule.
+        final List<String> failedCalls = new ArrayList<>();
+        final List<String> failedTools = new ArrayList<>();
+        String lastFailedResult = null;
         boolean toolsExecuted = false;
         int toolCalls = 0;
         final StringBuilder toolOutput = new StringBuilder();
@@ -1164,6 +1188,21 @@ public class ChatService {
 
         ToolLoopState(List<ChatMessage> messages) {
             this.allMessages = new ArrayList<>(messages);
+        }
+
+        /** Note one tool result; an error result (see isGatherErrorResult) is kept with its text. */
+        void recordGatherResult(String toolName, String result) {
+            if (isGatherErrorResult(result)) {
+                failedTools.add(toolName);
+                failedCalls.add(toolName + ": " + truncate(result == null ? "" : result.strip(),
+                        MAX_GATHER_ERROR_CHARS));
+                lastFailedResult = result;
+            }
+        }
+
+        /** True when tools ran and every result was an error: the gather produced no data. */
+        boolean everyToolFailed() {
+            return toolCalls > 0 && failedCalls.size() == toolCalls;
         }
 
         void recordTurn(dev.langchain4j.model.output.TokenUsage usage) {
@@ -1233,6 +1272,33 @@ public class ChatService {
         if (result == null) return false;
         String trimmed = result.stripLeading();
         return trimmed.startsWith("{\"error\":") || trimmed.startsWith("{ \"error\":");
+    }
+
+    /** Longest error text kept per failed call in a failed-gather reason. */
+    private static final int MAX_GATHER_ERROR_CHARS = 300;
+    /** Longest failed-gather reason, all failed calls together. */
+    private static final int MAX_GATHER_FAILED_REASON_CHARS = 1000;
+    /** A result longer than this is data, not a bare error message, whatever it starts with. */
+    private static final int MAX_ERROR_TEXT_CHARS = 1000;
+    /** Openings of a plain-text tool error (lower case); data is JSON or a table and starts otherwise. */
+    private static final List<String> ERROR_TEXT_PREFIXES = List.of(
+            "error:", "error calling ", "error executing ", "failed to ", "failed:", "unknown tool",
+            "tool not found", "bad request", "forbidden", "unauthorized", "not found:", "unable to ",
+            "gateway error", "gateway returned http");
+
+    /**
+     * True when a tool result is an error for the failed-gather rule: the structured
+     * {@code {"error": ...}} wrapper, or a short plain-text message that opens with a
+     * known error phrase (an MCP server may report a failure as bare text). Longer
+     * results and JSON or table data are never errors. Used only to decide whether a
+     * tooler gathered anything; the per-tool failure caps keep the stricter wrapper test.
+     */
+    static boolean isGatherErrorResult(String result) {
+        if (result == null) return false;
+        if (isToolErrorResult(result)) return true;
+        String t = result.strip().toLowerCase(java.util.Locale.ROOT);
+        return !t.isEmpty() && t.length() <= MAX_ERROR_TEXT_CHARS
+                && ERROR_TEXT_PREFIXES.stream().anyMatch(t::startsWith);
     }
 
     private static String truncateErrorForLog(String result) {
