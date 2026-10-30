@@ -83,10 +83,52 @@ tight enough for reliable reasoning.
 
 ### Query with SQL
 
-Counting, filtering, grouping and totalling are exact work that a model does badly by
-eye. The optional `workspace_query` tool of the same read-ops service runs one
-read-only SQL `SELECT` over the artifacts an agent names, so the database does the
-arithmetic and the agent reads a short table of rows.
+`workspace_query` gives every agent one query language, SQL, for reading the evidence a
+discussion has already gathered. Toolers call tools and post the results, and a large
+result becomes an artifact in the discussion's workspace. Those artifacts arrive in many
+formats: `kubectl` text tables, JSON (`kubectl -o json`, search results), YAML, Markdown
+tables, CSV, and a tooler's raw output made of one `[tool]` section per call. With
+`workspace_query` an agent counts, filters, groups, sorts and totals any of them without
+choosing a tool for the format.
+
+A call works in four steps:
+
+1. The agent names the artifacts as table names and writes one `SELECT`.
+2. The read-ops service detects each artifact's format and turns it into a table: columns
+   from a `kubectl` table's headers, keys from JSON items, a tooler's sections read one by
+   one (see [How each artifact becomes a table](#how-each-artifact-becomes-a-table)).
+3. It loads the tables into a new in-memory SQLite database, runs the read-only
+   `SELECT`, and returns the rows.
+4. It discards the database.
+
+```
+artifacts: {"pods": "<key>"}
+sql: SELECT namespace, COUNT(*) FROM pods GROUP BY namespace ORDER BY 2 DESC LIMIT 5
+```
+
+**Why one language.** Without it, an agent chooses among format-specific read tools
+(`select` reads CSV only, `jq` reads JSON only, and so on) or writes code for the
+compute sandbox. With it, the counting is done by a deterministic engine instead of the
+model, and models write SQL well. The read-ops tools above remain available for
+fetching a slice of an object.
+
+**What it does not do.** It reads only artifacts already in the workspace. It does not
+reach the cluster, Prometheus or any other source, so it counts exactly what the toolers
+gathered, and incomplete data stays incomplete. It runs one `SELECT`, with no writes,
+no files outside the named artifacts and no network ([Limits and safety](#limits-and-safety)).
+
+#### What persists
+
+| Thing | Persists? |
+|-------|-----------|
+| The artifact in the NATS object store (`kubemoot_discussion_artifacts`) | Yes. This is the only persistence for artifacts, until [garbage collection](#garbage-collection) removes it. |
+| The files under `/artifacts` | No. A local copy that artifact-access reads from. It is lost with the pod and fetched again from the store on next use ([Workspace directory](#workspace-directory)). |
+| The SQLite database | No. It exists for one query. |
+
+SQLite stores nothing. Crew memory is separate and lives in NATS KV; see
+[Agent Context](../agent-context/#memory).
+
+#### Configuration
 
 The tool is on by default, backed by SQLite. The operator chart value
 `artifacts.queryEngine` chooses the engine: `sqlite` (the default) and `duckdb` offer
@@ -99,10 +141,9 @@ no CPU or memory request or limit of the artifact-access pod: an MCPServer that 
 [MCPServer reference](../../reference/mcpserver-guide/)), which hold the growth the memory watch allows for one query. The
 only addition is the 1Gi `/artifacts` volume described below. If you set `spec.resources`
 yourself, keep the memory limit above the memory setting plus the base process. See
-[Query engines](#query-engines) for why and when. The engine sits behind a seam: the
-artifacts stay in the NATS object store, artifact-access materializes them as files
-under `/artifacts`, and the engine reads those files. Another engine can replace these
-through the chart value without a change to crews or prompts. The engines speak their
+[Query engines](#query-engines) for why and when. The engine sits behind a seam:
+another engine can replace these through the chart value without a change to crews or
+prompts. The engines speak their
 own SQL; the tool description tells the model which one it has.
 
 | Input | Meaning |
@@ -124,8 +165,9 @@ Running | 2
 (2 rows)
 ```
 
-How each artifact becomes a table, decided from its content (object keys carry no file
-extension):
+#### How each artifact becomes a table
+
+The format is decided from the content (object keys carry no file extension):
 
 | Content | Table |
 |---------|-------|
@@ -159,7 +201,7 @@ in SQLite and a boolean in DuckDB.
 Markdown beyond pipe tables is read as lines of text. DuckDB's Markdown reader is a
 community extension that downloads at run time, which a server with no network cannot do.
 
-Limits and safety:
+#### Limits and safety
 
 - **Read-only.** The SQL must be exactly one `SELECT` (or `WITH` or `VALUES`). Writes,
   `ATTACH`, `PRAGMA`, `VACUUM`, `COPY`, `INSTALL`, `SET` and a second statement are
@@ -219,6 +261,8 @@ exceeds it. With `none` nothing is added. A volume the MCPServer already mounts 
 
 - It runs inside the artifact-access process. There is no extra image, no extra process
   to start and no program to install, and it needs a few MB of memory.
+- Its database is a new in-memory one for each query and holds nothing afterward; see
+  [What persists](#what-persists).
 - SQLite is public domain and written in C. Kubemoot uses a pure-Go translation of it,
   so artifact-access stays a single static binary on its existing image.
 - "Lite" means embedded and serverless, not limited. SQLite is the most widely deployed
