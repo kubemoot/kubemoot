@@ -207,6 +207,7 @@ type KubemootConfigSpec struct {
 	Defaults DefaultConfig `json:"defaults,omitempty"`
 
 	// Artifacts configures the discussion's shared artifacts.
+	// +kubebuilder:default={}
 	// +optional
 	Artifacts ArtifactsConfig `json:"artifacts,omitempty"`
 }
@@ -216,7 +217,7 @@ type KubemootConfigSpec struct {
 type ArtifactQueryEngine string
 
 const (
-	// ArtifactQueryEngineNone offers no query tool; artifact-access behaves as before.
+	// ArtifactQueryEngineNone offers no query tool; artifact-access offers no workspace_query.
 	ArtifactQueryEngineNone ArtifactQueryEngine = "none"
 	// ArtifactQueryEngineSQLite runs read-only SQL over artifacts with SQLite inside the
 	// artifact-access process. It needs nothing added to the image.
@@ -229,11 +230,11 @@ const (
 // ArtifactsConfig configures the artifact query seam.
 type ArtifactsConfig struct {
 	// QueryEngine is the engine that answers workspace_query on every MCPServer that
-	// selects spec.kubemootImage artifactAccess. none (the default) offers no query
-	// tool; sqlite runs in the artifact-access process and is the recommended engine;
-	// duckdb needs its program on the image. The operator sets ARTIFACT_QUERY_ENGINE on
-	// those servers; a server that sets the variable itself keeps its own value.
-	// +kubebuilder:default=none
+	// selects spec.kubemootImage artifactAccess. sqlite (the default, also when
+	// unset) runs in the artifact-access process and needs nothing added to the image;
+	// duckdb needs its program on the image; none offers no query tool.
+	// The operator sets ARTIFACT_QUERY_ENGINE on those servers; a server that sets the variable itself keeps its own value.
+	// +kubebuilder:default=sqlite
 	// +optional
 	QueryEngine ArtifactQueryEngine `json:"queryEngine,omitempty"`
 }

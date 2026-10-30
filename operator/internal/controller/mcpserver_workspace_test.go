@@ -129,7 +129,7 @@ func TestReconcileGivesTheReadOpsServerAWritableWorkspace(t *testing.T) {
 		{"sqlite", kubemootv1alpha1.ArtifactQueryEngineSQLite, true},
 		{"duckdb", kubemootv1alpha1.ArtifactQueryEngineDuckDB, true},
 		{coreTestNone, kubemootv1alpha1.ArtifactQueryEngineNone, false},
-		{"unset", "", false},
+		{"unset", "", true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

@@ -130,7 +130,7 @@ Usage: include "kubemoot-operator.labelList" $map
 The artifact query engine, none, sqlite or duckdb; any other value fails the render.
 */}}
 {{- define "kubemoot-operator.artifactQueryEngine" -}}
-{{- $engine := (.Values.artifacts | default dict).queryEngine | default "none" -}}
+{{- $engine := (.Values.artifacts | default dict).queryEngine | default "sqlite" -}}
 {{- if not (has $engine (list "none" "sqlite" "duckdb")) -}}
 {{- fail (printf "artifacts.queryEngine must be none, sqlite or duckdb, got %q" $engine) -}}
 {{- end -}}

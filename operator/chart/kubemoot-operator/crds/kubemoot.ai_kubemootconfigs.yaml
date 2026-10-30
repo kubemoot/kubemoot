@@ -65,16 +65,17 @@ spec:
             description: KubemootConfigSpec defines the desired state of KubemootConfig
             properties:
               artifacts:
+                default: {}
                 description: Artifacts configures the discussion's shared artifacts.
                 properties:
                   queryEngine:
-                    default: none
+                    default: sqlite
                     description: |-
                       QueryEngine is the engine that answers workspace_query on every MCPServer that
-                      selects spec.kubemootImage artifactAccess. none (the default) offers no query
-                      tool; sqlite runs in the artifact-access process and is the recommended engine;
-                      duckdb needs its program on the image. The operator sets ARTIFACT_QUERY_ENGINE on
-                      those servers; a server that sets the variable itself keeps its own value.
+                      selects spec.kubemootImage artifactAccess. sqlite (the default, also when
+                      unset) runs in the artifact-access process and needs nothing added to the image;
+                      duckdb needs its program on the image; none offers no query tool.
+                      The operator sets ARTIFACT_QUERY_ENGINE on those servers; a server that sets the variable itself keeps its own value.
                     enum:
                     - none
                     - sqlite

@@ -55,10 +55,14 @@ func TestWithQueryEngineEnv(t *testing.T) {
 		}
 	}
 
-	for _, engine := range []kubemootv1alpha1.ArtifactQueryEngine{kubemootv1alpha1.ArtifactQueryEngineSQLite, kubemootv1alpha1.ArtifactQueryEngineDuckDB} {
+	want := map[kubemootv1alpha1.ArtifactQueryEngine]string{
+		kubemootv1alpha1.ArtifactQueryEngineSQLite: string(kubemootv1alpha1.ArtifactQueryEngineSQLite),
+		kubemootv1alpha1.ArtifactQueryEngineDuckDB: duckdbEngine,
+	}
+	for engine, value := range want {
 		got := withQueryEngineEnv(plain, engine)
-		if v, ok := queryEngineEnv(got.Spec.Env); !ok || v != string(engine) {
-			t.Errorf("%s must set %s, env = %v", engine, artifactQueryEngineEnv, got.Spec.Env)
+		if v, ok := queryEngineEnv(got.Spec.Env); !ok || v != value {
+			t.Errorf("engine %q must set %s=%s, env = %v", engine, artifactQueryEngineEnv, value, got.Spec.Env)
 		}
 	}
 	if _, ok := queryEngineEnv(plain.Spec.Env); ok {
@@ -69,6 +73,29 @@ func TestWithQueryEngineEnv(t *testing.T) {
 	own.Spec.Env = []corev1.EnvVar{{Name: artifactQueryEngineEnv, Value: string(kubemootv1alpha1.ArtifactQueryEngineNone)}}
 	if v, _ := queryEngineEnv(withQueryEngineEnv(own, kubemootv1alpha1.ArtifactQueryEngineDuckDB).Spec.Env); v != string(kubemootv1alpha1.ArtifactQueryEngineNone) {
 		t.Errorf("a value the server sets itself must win, got %q", v)
+	}
+}
+
+func TestEffectiveQueryEngine(t *testing.T) {
+	cases := map[kubemootv1alpha1.ArtifactQueryEngine]kubemootv1alpha1.ArtifactQueryEngine{
+		"":                                       kubemootv1alpha1.ArtifactQueryEngineSQLite,
+		kubemootv1alpha1.ArtifactQueryEngineNone: kubemootv1alpha1.ArtifactQueryEngineNone,
+		kubemootv1alpha1.ArtifactQueryEngineSQLite: kubemootv1alpha1.ArtifactQueryEngineSQLite,
+		kubemootv1alpha1.ArtifactQueryEngineDuckDB: kubemootv1alpha1.ArtifactQueryEngineDuckDB,
+	}
+	for in, want := range cases {
+		if got := effectiveQueryEngine(in); got != want {
+			t.Errorf("effectiveQueryEngine(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+func TestResolveReadsAnUnsetEngineAsSQLite(t *testing.T) {
+	cfg := configWithQueryEngine("")
+	r := &MCPServerReconciler{Client: fake.NewClientBuilder().WithScheme(gatewayScheme(t)).WithObjects(cfg).Build()}
+	got, err := r.resolveMCPServerImage(context.Background(), readOpsServer())
+	if err != nil || got.QueryEngine != kubemootv1alpha1.ArtifactQueryEngineSQLite {
+		t.Fatalf("unset engine resolved to %q, err %v", got.QueryEngine, err)
 	}
 }
 
@@ -106,7 +133,7 @@ func TestReconcileSetsTheQueryEngineOnTheDeployment(t *testing.T) {
 		{"sqlite", kubemootv1alpha1.ArtifactQueryEngineSQLite, string(kubemootv1alpha1.ArtifactQueryEngineSQLite), true},
 		{"duckdb", kubemootv1alpha1.ArtifactQueryEngineDuckDB, duckdbEngine, true},
 		{coreTestNone, kubemootv1alpha1.ArtifactQueryEngineNone, "", false},
-		{"unset", "", "", false},
+		{"unset", "", string(kubemootv1alpha1.ArtifactQueryEngineSQLite), true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
