@@ -306,14 +306,13 @@ nats:
     image: ghcr.io/sinadarbouy/mcp-nats:0.1.4
 
 # The engine behind the artifact-access workspace_query tool: read-only SQL over the
-# artifacts of a discussion. none (the default) offers no query tool and artifact-access
-# behaves as before. sqlite runs queries inside the artifact-access process (the
-# recommended engine, nothing to add to the image). duckdb runs them with the duckdb
+# artifacts of a discussion. sqlite (the default) runs queries inside the artifact-access process
+# (pure Go, nothing to add to the image). none offers no query tool. duckdb runs them with the duckdb
 # program, which the artifact-access image must carry. See
 # docs/concepts/discussion-artifact-store.md.
 # Every MCPServer that selects kubemootImage artifactAccess gets ARTIFACT_QUERY_ENGINE.
 artifacts:
-  queryEngine: none   # none | sqlite | duckdb
+  queryEngine: sqlite   # sqlite | duckdb | none
 
 # Scale-to-zero configuration for KEDA-based agent autoscaling
 scaleToZero:

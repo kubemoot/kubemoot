@@ -37,15 +37,21 @@ placement_env() { helm template kubemoot-operator "$chart" --namespace kubemoot 
 [ "$(placement_env --set placementService.url=http://placement:8080)" = "http://placement:8080" ] \
   || fail "placementService.url does not reach the operator as PLACEMENT_SERVICE_URL"
 
-# The artifact query engine defaults to none (no query tool), takes duckdb, and refuses
-# any other value at render time.
+# The artifact query engine defaults to sqlite, takes duckdb, takes none (no query tool),
+# and refuses any other value at render time.
 query_engine() { helm template kubemoot-operator "$chart" --namespace kubemoot "$@" \
   | yq -N 'select(.kind == "KubemootConfig") | .spec.artifacts.queryEngine'; }
-[ "$(query_engine)" = "none" ] || fail "artifacts.queryEngine should default to none"
-for engine in sqlite duckdb; do
+[ "$(query_engine)" = "sqlite" ] || fail "artifacts.queryEngine should default to sqlite"
+for engine in sqlite duckdb none; do
   [ "$(query_engine --set artifacts.queryEngine=$engine)" = "$engine" ] \
     || fail "artifacts.queryEngine=$engine does not reach KubemootConfig"
 done
+# The CRD defaults the field the same way, also when spec.artifacts is absent.
+crd_artifacts=".spec.versions[0].schema.openAPIV3Schema.properties.spec.properties.artifacts"
+[ "$(yq -N "$crd_artifacts.properties.queryEngine.default" "$chart/crds/kubemoot.ai_kubemootconfigs.yaml")" = "sqlite" ] \
+  || fail "CRD queryEngine default is not sqlite"
+[ "$(yq -N "$crd_artifacts.default | tag" "$chart/crds/kubemoot.ai_kubemootconfigs.yaml")" = "!!map" ] \
+  || fail "CRD artifacts has no object default, so an absent artifacts would skip the queryEngine default"
 # The engines the chart accepts are the engines the KubemootConfig CRD accepts.
 crd_engines="$(yq -N '.spec.versions[0].schema.openAPIV3Schema.properties.spec.properties.artifacts.properties.queryEngine.enum | join(",")' \
   "$chart/crds/kubemoot.ai_kubemootconfigs.yaml")"

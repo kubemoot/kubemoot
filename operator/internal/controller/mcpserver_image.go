@@ -102,7 +102,7 @@ func (r *MCPServerReconciler) resolveMCPServerImage(ctx context.Context, mcpServ
 	}
 	res := imageResolution{Image: image, Reason: reasonImageFromKubemootConfig, Message: fmt.Sprintf("spec.images.%s of KubemootConfig %q", name, DefaultKubemootConfigName)}
 	if name == kubemootv1alpha1.KubemootImageArtifactAccess {
-		res.QueryEngine = cfg.Spec.Artifacts.QueryEngine
+		res.QueryEngine = effectiveQueryEngine(cfg.Spec.Artifacts.QueryEngine)
 	}
 	return res, nil
 }
@@ -120,13 +120,27 @@ func hasEnv(env []corev1.EnvVar, name string) bool {
 	return false
 }
 
-// queryEngineOn reports whether engine asks for a query engine, as opposed to none or unset.
+// effectiveQueryEngine returns the engine a KubemootConfig asks for. An unset engine
+// is sqlite, the default; none is the explicit way to turn the query tool off. The API
+// default covers a config the apiserver defaulted; this covers one that reaches the
+// controller without it.
+func effectiveQueryEngine(engine kubemootv1alpha1.ArtifactQueryEngine) kubemootv1alpha1.ArtifactQueryEngine {
+	if engine == "" {
+		return kubemootv1alpha1.ArtifactQueryEngineSQLite
+	}
+	return engine
+}
+
+// queryEngineOn reports whether a resolved engine asks for a query engine. The
+// resolution has already read an unset KubemootConfig value as sqlite, so the empty
+// engine here belongs to a server that does not select the artifact-access image.
 func queryEngineOn(engine kubemootv1alpha1.ArtifactQueryEngine) bool {
 	return engine != "" && engine != kubemootv1alpha1.ArtifactQueryEngineNone
 }
 
 // withQueryEngineEnv returns mcpServer with ARTIFACT_QUERY_ENGINE set to the engine
-// KubemootConfig asks for. Nothing is added for none or an unset engine, so a server
+// KubemootConfig asks for, as resolved by resolveMCPServerImage. Nothing is added for none or
+// for a server that does not select the artifact-access image, so a server
 // behaves as it did before the setting existed, and a server that sets the variable
 // itself keeps its value. The original is left alone.
 func withQueryEngineEnv(mcpServer *kubemootv1alpha1.MCPServer, engine kubemootv1alpha1.ArtifactQueryEngine) *kubemootv1alpha1.MCPServer {
@@ -159,7 +173,7 @@ const (
 // TMPDIR pointing at it, so a pod with a read-only root filesystem has a writable,
 // bounded place for the materialized artifacts and the engine's scratch files. It
 // reuses the EmptyDirVolumes path the code sandbox uses. Nothing is added for none or
-// an unset engine, a volume the server already mounts at /artifacts is kept, and a
+// no engine, a volume the server already mounts at /artifacts is kept, and a
 // TMPDIR the server sets itself wins. The original is left alone.
 func withQueryWorkspace(mcpServer *kubemootv1alpha1.MCPServer, engine kubemootv1alpha1.ArtifactQueryEngine) *kubemootv1alpha1.MCPServer {
 	if !queryEngineOn(engine) {

@@ -88,9 +88,17 @@ eye. The optional `workspace_query` tool of the same read-ops service runs one
 read-only SQL `SELECT` over the artifacts an agent names, so the database does the
 arithmetic and the agent reads a short table of rows.
 
-The tool is off by default. The operator chart value `artifacts.queryEngine` chooses the
-engine: `none` (the default) offers no `workspace_query` and the service behaves as
-before; `sqlite` (the recommended engine) and `duckdb` offer it. See
+The tool is on by default, backed by SQLite. The operator chart value
+`artifacts.queryEngine` chooses the engine: `sqlite` (the default) and `duckdb` offer
+`workspace_query`; `none` turns it off and the service offers no query tool. A KubemootConfig written by hand that leaves out
+`spec.artifacts.queryEngine`, or the whole `artifacts` object, also gets `sqlite`. To turn
+the tool off, set `artifacts.queryEngine: none` in the chart values (or
+`spec.artifacts.queryEngine: none` in the KubemootConfig). Turning the engine on changes
+no CPU or memory request or limit of the artifact-access pod: an MCPServer that sets no
+`spec.resources` keeps the operator's default MCPServer resources (see the
+[MCPServer reference](../../reference/mcpserver-guide/)), which hold the growth the memory watch allows for one query. The
+only addition is the 1Gi `/artifacts` volume described below. If you set `spec.resources`
+yourself, keep the memory limit above the memory setting plus the base process. See
 [Query engines](#query-engines) for why and when. The engine sits behind a seam: the
 artifacts stay in the NATS object store, artifact-access materializes them as files
 under `/artifacts`, and the engine reads those files. Another engine can replace these
@@ -179,7 +187,7 @@ The service reads these variables; the chart value sets only the engine.
 
 | Variable | Default | Meaning |
 |----------|---------|---------|
-| `ARTIFACT_QUERY_ENGINE` | `none` | `none`, `sqlite` or `duckdb`. The operator sets it from the KubemootConfig `spec.artifacts.queryEngine` unless the MCPServer sets it. |
+| `ARTIFACT_QUERY_ENGINE` | `none` | `none`, `sqlite` or `duckdb`. The service itself defaults to `none` when run on its own; the operator sets it from the KubemootConfig `spec.artifacts.queryEngine` (`sqlite` when unset) unless the MCPServer sets it. |
 | `ARTIFACT_DUCKDB_BIN` | `duckdb` | The `duckdb` program. The artifact-access image that serves `duckdb` must carry it; when it is missing the service logs the reason and offers no query tool. |
 | `ARTIFACT_QUERY_TIMEOUT` | `10s` | Time limit per query. |
 | `ARTIFACT_QUERY_MAX_ROWS` | `100` | Rows per result. |
