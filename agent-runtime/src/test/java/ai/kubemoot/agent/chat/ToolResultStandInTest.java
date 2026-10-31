@@ -67,4 +67,15 @@ class ToolResultStandInTest {
     void size_isCountedInBytesNotCharacters() {
         assertTrue(ToolResultStandIn.of("t", "\u00e9\u00e9").contains("Size: 4 bytes"));
     }
+
+    @Test
+    void summaryOnly_hasTheSizeAndTheAdviceButNoHead() {
+        String summary = ToolResultStandIn.of("pods_list", "line one\nline two\n", false);
+
+        assertTrue(summary.contains("Size: 18 bytes, 2 lines."), summary);
+        assertFalse(summary.contains("line one"), summary);
+        assertFalse(summary.contains("First "), summary);
+        assertTrue(summary.contains("If this is the data you asked for, stop"), summary);
+        assertTrue(summary.length() < ToolResultStandIn.of("pods_list", "line one\nline two\n").length());
+    }
 }

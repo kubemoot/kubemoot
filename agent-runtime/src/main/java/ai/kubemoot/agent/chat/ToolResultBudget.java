@@ -9,7 +9,9 @@ package ai.kubemoot.agent.chat;
  * that reads results itself gets a tool error telling it to ask for less; a tooler
  * whose raw output is its contribution gets a {@link ToolResultStandIn}, since the
  * crew receives the full result and the tooler's model only decides what to call
- * next. A window of zero or less means the window is unknown, and every result is
+ * next; when less than twice the reply reserve is left in the window, that stand-in drops the
+ * head lines and keeps only the one-line summary, so more calls fit before the tooler has to
+ * stop. A window of zero or less means the window is unknown, and every result is
  * admitted.
  */
 final class ToolResultBudget {
@@ -28,12 +30,14 @@ final class ToolResultBudget {
 
     private final boolean known;
     private final CharsPerToken ratio;
+    private final long replyReserve;
     private long room;
 
     ToolResultBudget(long contextLength, long promptTokens, CharsPerToken ratio) {
         this.known = contextLength > 0;
         this.ratio = ratio;
-        this.room = contextLength - promptTokens - replyReserve(contextLength);
+        this.replyReserve = replyReserve(contextLength);
+        this.room = contextLength - promptTokens - replyReserve;
     }
 
     /** Tokens kept free for the model's reply in a window of {@code contextLength} tokens. */
@@ -80,7 +84,7 @@ final class ToolResultBudget {
             return new Admission(result, false, tokens, available);
         }
         String replacement = keptForTheCrew
-                ? ToolResultStandIn.of(toolName, result)
+                ? ToolResultStandIn.of(toolName, result, room >= replyReserve)
                 : errorFor(toolName, tokens, available);
         room -= tokens(length(toolName) + replacement.length());
         return new Admission(replacement, true, tokens, available);

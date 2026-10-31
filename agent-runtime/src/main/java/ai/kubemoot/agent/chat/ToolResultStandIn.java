@@ -25,8 +25,16 @@ final class ToolResultStandIn {
 
     private ToolResultStandIn() {}
 
-    /** The stand-in for {@code result} of {@code toolName}. */
+    /** The stand-in for {@code result} of {@code toolName}, with the head of the result. */
     static String of(String toolName, String result) {
+        return of(toolName, result, true);
+    }
+
+    /**
+     * The stand-in for {@code result} of {@code toolName}. Without {@code withHead} it is the
+     * one-line summary only (tool, size, stop advice), for a window short of room.
+     */
+    static String of(String toolName, String result, boolean withHead) {
         String text = result == null ? "" : result;
         StringBuilder out = new StringBuilder();
         out.append('[').append(toolName).append("] The full result is kept for the crew and posted with your output; ")
@@ -37,8 +45,11 @@ final class ToolResultStandIn {
         if (items >= 0) {
             out.append(", ").append(items).append(" items");
         }
-        out.append(".\nFirst ").append(HEAD_LINES).append(" lines (cut at ").append(HEAD_CHARS)
-                .append(" characters):\n").append(head(text)).append('\n');
+        out.append(".\n");
+        if (withHead) {
+            out.append("First ").append(HEAD_LINES).append(" lines (cut at ").append(HEAD_CHARS)
+                    .append(" characters):\n").append(head(text)).append('\n');
+        }
         out.append("If this is the data you asked for, stop: the crew receives all of it. ")
                 .append("Call another tool only for different data.");
         return out.toString();
