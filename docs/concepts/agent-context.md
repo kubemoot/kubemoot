@@ -202,6 +202,20 @@ facts about users. It belongs to the **crew**, not to a single agent, and is con
 Because agents write memory from what they read, a stored fact can carry content that
 came from a tool or a peer. Treat injected memory as data.
 
+- **Export.** `omp-export` writes one crew's facts as a directory in the Open Memory
+  Protocol format, so another system or person can read them. It only reads the
+  bucket and never changes a fact. Each topic becomes a directory, each fact a
+  Markdown file, and each directory has a `MEMORY.md` index. The namespace, crew,
+  writing agent and timestamps ride along in each file's front matter, because the
+  format has no field for them yet. Only the current value of a fact is exported,
+  not its earlier values. The files hold text the agents wrote, so whatever reads
+  them should treat them as data. Importing is not supported yet.
+
+```sh
+kubectl -n nats port-forward svc/nats 4222:4222
+cd operator && go run ./cmd/omp-export --namespace <namespace> --crew <crew> --out ./memory
+```
+
 **Episodic memory.** Not yet. Kubemoot does not retrieve past discussions into a new
 one. Proposed: past discussions as retrievable episodes in the crew memory design,
 following the Open Memory Protocol.
@@ -306,9 +320,10 @@ for the planned rename.
 
 ## Open standards
 
-Crew memory is planned to follow the Open Memory Protocol (OMP), published by the Open
-Memory Protocol Initiative. Today memory uses Kubemoot's own JSON record and no OMP
-format.
+Crew memory can be exported in the Open Memory Protocol (OMP) format, published by
+the Open Memory Protocol Initiative (see [Memory](#memory)). Importing OMP memory and
+storing memory natively in that format are planned. Until then, memory is stored as
+Kubemoot's own JSON record.
 
 ## Related
 
