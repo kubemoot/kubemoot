@@ -134,6 +134,20 @@ class ChatServiceToolLoopTest {
         assertEquals(ToolCallFailure.FailureType.LOOP_TIME_EXCEEDED.name(), "LOOP_TIME_EXCEEDED");
     }
 
+
+    /** A model that asks for {@code toolName} on every turn, with different arguments each time. */
+    private void modelCallsToolEveryTurn(String toolName, TokenUsage usage) {
+        var seq = new java.util.concurrent.atomic.AtomicInteger();
+        when(chatModel.chat(any(ChatRequest.class))).thenAnswer(inv -> {
+            var response = mock(ChatResponse.class);
+            when(response.aiMessage()).thenReturn(AiMessage.from(List.of(ToolExecutionRequest.builder()
+                    .id("call-" + seq.get()).name(toolName).arguments("{\"page\":" + seq.incrementAndGet() + "}")
+                    .build())));
+            when(response.tokenUsage()).thenReturn(usage);
+            return response;
+        });
+    }
+
     @Test
     void directChat_toolLoop_iterationsExhausted_withTools_returnsRawOutput() {
         // Setup: one tool that the AI keeps calling with SUCCESSFUL results
@@ -144,16 +158,7 @@ class ChatServiceToolLoopTest {
         when(mcpClient.getToolSpecifications()).thenReturn(Map.of(toolSpec, toolExecutor));
 
         // AI always requests a tool call, never returning text
-        var toolRequest = ToolExecutionRequest.builder()
-                .id("call-loop")
-                .name("search")
-                .arguments("{}")
-                .build();
-        var aiWithTool = AiMessage.from(List.of(toolRequest));
-        var response = mock(ChatResponse.class);
-        when(response.aiMessage()).thenReturn(aiWithTool);
-        when(response.tokenUsage()).thenReturn(new TokenUsage(100, 20));
-        when(chatModel.chat(any(ChatRequest.class))).thenReturn(response);
+        modelCallsToolEveryTurn("search", new TokenUsage(100, 20));
         when(ragClient.queryForContext(anyString())).thenReturn("");
 
         int maxIterations = 3;
@@ -181,14 +186,8 @@ class ChatServiceToolLoopTest {
         when(toolExecutor.execute(any(), any())).thenReturn("{\"vms\":[{\"name\":\"k8s-1\",\"node\":\"rig0\"}]}");
         when(mcpClient.getToolSpecifications()).thenReturn(Map.of(toolSpec, toolExecutor));
 
-        var toolReq = AiMessage.from(List.of(ToolExecutionRequest.builder()
-                .id("c").name("list_vms").arguments("{}").build()));
-        var toolResp = mock(ChatResponse.class);
-        when(toolResp.aiMessage()).thenReturn(toolReq);
-        when(toolResp.tokenUsage()).thenReturn(new TokenUsage(50, 10));
-
         int maxIterations = 3;
-        when(chatModel.chat(any(ChatRequest.class))).thenReturn(toolResp);
+        modelCallsToolEveryTurn("list_vms", new TokenUsage(50, 10));
         when(ragClient.queryForContext(anyString())).thenReturn("");
 
         var service = createService(maxIterations);
@@ -1333,75 +1332,265 @@ class ChatServiceToolLoopTest {
         verifyNoInteractions(chatModel);
     }
 
-    @Test
-    void toolLoop_toolResultsThatOutgrowTheContext_failBeforeTheNextTurn() {
-        var toolSpec = ToolSpecification.builder().name("get_pods").description("List pods").build();
+    // ---- a tool result too large for the room left in the window ----
+
+    private static final String ERROR_PREFIX = "{\"error\":";
+
+    /** Runs a tool loop where the model calls resources_list {@code calls} times in its first turn. */
+    private ChatService.ToolLoopResult runBudgetLoop(boolean tooler, long window, int calls,
+            List<String> results, List<ChatResponse> laterTurns) {
+        var toolSpec = ToolSpecification.builder().name("resources_list").description("List").build();
         var toolExecutor = mock(ToolExecutor.class);
-        when(toolExecutor.execute(any(), any())).thenReturn("p".repeat(40_000));
+        when(toolExecutor.execute(any(), any())).thenReturn(results.get(0),
+                results.subList(1, results.size()).toArray(new String[0]));
         when(mcpClient.getToolSpecifications()).thenReturn(Map.of(toolSpec, toolExecutor));
-        var call = ToolExecutionRequest.builder().id("c1").name("get_pods").arguments("{}").build();
+        var requests = new java.util.ArrayList<ToolExecutionRequest>();
+        for (int i = 0; i < calls; i++) {
+            requests.add(ToolExecutionRequest.builder().id("c" + i).name("resources_list")
+                    .arguments("{\"i\":" + i + "}").build());
+        }
         var first = mock(ChatResponse.class);
-        when(first.aiMessage()).thenReturn(AiMessage.from(List.of(call)));
+        when(first.aiMessage()).thenReturn(AiMessage.from(requests));
         when(first.tokenUsage()).thenReturn(new TokenUsage(500, 20));
-        when(chatModel.chat(any(ChatRequest.class))).thenReturn(first);
-        var service = createService(5);
+        when(chatModel.chat(any(ChatRequest.class))).thenReturn(first, laterTurns.toArray(new ChatResponse[0]));
         var messages = new java.util.ArrayList<dev.langchain4j.data.message.ChatMessage>(List.of(
-                dev.langchain4j.data.message.UserMessage.from("list pods")));
+                dev.langchain4j.data.message.UserMessage.from("list workloads")));
+        return createService(8).callWithToolLoop(messages, chatModel, "vllm-rig1", "test", tooler, window);
+    }
+
+    private static ChatResponse reply(AiMessage message) {
+        var response = mock(ChatResponse.class);
+        when(response.aiMessage()).thenReturn(message);
+        when(response.tokenUsage()).thenReturn(new TokenUsage(900, 20));
+        return response;
+    }
+
+    private List<String> toolResultsSentOnTurn(int turn) {
+        var captor = org.mockito.ArgumentCaptor.forClass(ChatRequest.class);
+        verify(chatModel, atLeast(turn)).chat(captor.capture());
+        return captor.getAllValues().get(turn - 1).messages().stream()
+                .filter(m -> m instanceof dev.langchain4j.data.message.ToolExecutionResultMessage)
+                .map(m -> ((dev.langchain4j.data.message.ToolExecutionResultMessage) m).text())
+                .toList();
+    }
+
+    /** A pods_list-shaped result of about {@code items} * 330 characters, one pod per line. */
+    private static String podList(int items) {
+        var out = new StringBuilder("{\"items\": [\n");
+        for (int i = 0; i < items; i++) {
+            out.append("{\"metadata\":{\"name\":\"pod-").append(i).append("\",\"namespace\":\"ns-").append(i % 7)
+                    .append("\"},\"status\":{\"phase\":\"Running\",\"detail\":\"").append("d".repeat(240))
+                    .append("\"}}").append(i < items - 1 ? ",\n" : "\n");
+        }
+        return out.append("]}").toString();
+    }
+
+    @Test
+    void toolerLargeResult_modelSeesAStandIn_theContributionKeepsTheFullResult() {
+        String pods = podList(330); // about 100 KB, over a 32,768-token window
+        var result = runBudgetLoop(true, 32_768, 1, List.of(pods), List.of(reply(new AiMessage("done"))));
+
+        var sent = toolResultsSentOnTurn(2);
+        assertEquals(1, sent.size());
+        assertTrue(sent.get(0).startsWith("[resources_list] The full result is kept for the crew"), sent.get(0));
+        assertTrue(sent.get(0).contains("330 items"), sent.get(0));
+        assertTrue(sent.get(0).contains("pod-0"), "the head shows the first lines");
+        assertFalse(sent.get(0).contains("pod-329"), "the model does not see the tail");
+        assertTrue(sent.get(0).length() < 3_000, "the stand-in is short: " + sent.get(0).length());
+        assertTrue(result.text().contains(pods), "the contribution is the whole result");
+        assertTrue(result.text().startsWith("[resources_list]\n"));
+    }
+
+    @Test
+    void toolerSmallResult_isShownToTheModelAsReturned() {
+        String small = "{\"items\": [{\"metadata\":{\"name\":\"nginx\"}}]}";
+        var result = runBudgetLoop(true, 32_768, 1, List.of(small), List.of(reply(new AiMessage("done"))));
+
+        assertEquals(List.of(small), toolResultsSentOnTurn(2));
+        assertTrue(result.text().contains(small));
+    }
+
+    @Test
+    void toolerExemption_theSameResultIsAnErrorForAnAgentThatReadsItItself() {
+        String pods = podList(330);
+        runBudgetLoop(false, 32_768, 1, List.of(pods), List.of(reply(new AiMessage("answer"))));
+
+        var sent = toolResultsSentOnTurn(2);
+        assertTrue(sent.get(0).startsWith(ERROR_PREFIX), sent.get(0));
+        assertTrue(sent.get(0).contains("label selector"), sent.get(0));
+        assertFalse(sent.get(0).contains("pod-0"), "no part of the oversized result is kept");
+    }
+
+    @Test
+    void modelReadResultThatFits_isKept() {
+        var result = runBudgetLoop(false, 32_768, 1, List.of("{\"items\": \"" + "a".repeat(4_000) + "\"}"),
+                List.of(reply(new AiMessage("answer"))));
+
+        assertEquals("answer", result.text());
+        assertTrue(toolResultsSentOnTurn(2).get(0).startsWith("{\"items\""));
+    }
+
+    @Test
+    void modelReadParallelCalls_firstFitsLaterOverflowIsReplaced() {
+        // About 4,700 tokens each at 3 characters per token; about 6,100 tokens are free.
+        var big = "{\"items\": \"" + "b".repeat(14_000) + "\"}";
+        runBudgetLoop(false, 8_192, 2, List.of(big, big), List.of(reply(new AiMessage("answer"))));
+
+        var sent = toolResultsSentOnTurn(2);
+        assertEquals(big, sent.get(0));
+        assertTrue(sent.get(1).startsWith(ERROR_PREFIX), sent.get(1));
+    }
+
+    @Test
+    void modelReadOversizedResultsInOneTurn_doNotTripTheFailureCaps() {
+        var big = "c".repeat(100_000);
+        var result = runBudgetLoop(false, 8_192, 4, List.of(big, big, big, big),
+                List.of(reply(new AiMessage("answer"))));
+
+        assertEquals("answer", result.text());
+        assertEquals(4, toolResultsSentOnTurn(2).stream().filter(t -> t.startsWith(ERROR_PREFIX)).count());
+    }
+
+    @Test
+    void unknownWindow_keepsEveryResultForBothKindsOfAgent() {
+        var big = "d".repeat(400_000);
+        runBudgetLoop(false, 0, 2, List.of(big, big), List.of(reply(new AiMessage("answer"))));
+
+        assertEquals(List.of(big, big), toolResultsSentOnTurn(2));
+    }
+
+    @Test
+    void modelAsksForLessAfterTheError_theSameLoopSucceeds() {
+        var narrow = ToolExecutionRequest.builder().id("n1").name("resources_list")
+                .arguments("{\"namespace\":\"kubemoot\"}").build();
+        var result = runBudgetLoop(false, 8_192, 1, List.of("z".repeat(100_000), "{\"items\": []}"),
+                List.of(reply(AiMessage.from(List.of(narrow))), reply(new AiMessage("answer"))));
+
+        assertEquals("answer", result.text());
+        verify(chatModel, times(3)).chat(any(ChatRequest.class));
+        assertEquals("{\"items\": []}", toolResultsSentOnTurn(3).get(1));
+    }
+
+    @Test
+    void identicalCall_runsTwice_thenIsRefused_andTheAgentFailsWhenItKeepsRepeating() {
+        var toolSpec = ToolSpecification.builder().name("resources_list").description("List").build();
+        var toolExecutor = mock(ToolExecutor.class);
+        when(toolExecutor.execute(any(), any())).thenReturn("x".repeat(100_000));
+        when(mcpClient.getToolSpecifications()).thenReturn(Map.of(toolSpec, toolExecutor));
+        var call = ToolExecutionRequest.builder().id("c1").name("resources_list")
+                .arguments("{\"kind\":\"Pod\",\"all\":true}").build();
+        var repeating = reply(AiMessage.from(List.of(call)));
+        when(chatModel.chat(any(ChatRequest.class))).thenReturn(repeating);
+        var service = createService(9);
+        var messages = new java.util.ArrayList<dev.langchain4j.data.message.ChatMessage>(List.of(
+                dev.langchain4j.data.message.UserMessage.from("list workloads")));
 
         var failure = assertThrows(ToolCallFailure.class,
-                () -> service.callWithToolLoop(messages, chatModel, "gpu-a", "test", false, 8_192));
+                () -> service.callWithToolLoop(messages, chatModel, "vllm-rig1", "test", false, 8_192));
 
-        assertEquals(ToolCallFailure.FailureType.CONTEXT_EXCEEDED, failure.failureType());
-        verify(chatModel, times(1)).chat(any(ChatRequest.class));
+        assertEquals(ToolCallFailure.FailureType.SAME_TOOL_REPEATED, failure.failureType());
+        verify(toolExecutor, times(ToolCallRepeatGuard.MAX_IDENTICAL_CALLS)).execute(any(), any());
+        verify(chatModel, times(ToolCallRepeatGuard.MAX_IDENTICAL_CALLS + ChatService.MAX_SAME_TOOL_FAILURES))
+                .chat(any(ChatRequest.class));
     }
 
     @Test
-    void toolLoop_toolerWhoseResultsFillTheContext_contributesWhatItGathered() {
-        var toolSpec = ToolSpecification.builder().name("get_pods").description("List pods").build();
+    void identicalCall_aToolerStopsGatheringAndContributesWhatItHas() {
+        var toolSpec = ToolSpecification.builder().name("resources_list").description("List").build();
         var toolExecutor = mock(ToolExecutor.class);
-        when(toolExecutor.execute(any(), any())).thenReturn("pod-" + "p".repeat(40_000));
+        when(toolExecutor.execute(any(), any())).thenReturn("{\"items\": [\"only-pod\"]}");
         when(mcpClient.getToolSpecifications()).thenReturn(Map.of(toolSpec, toolExecutor));
-        var call = ToolExecutionRequest.builder().id("c1").name("get_pods").arguments("{}").build();
-        var first = mock(ChatResponse.class);
-        when(first.aiMessage()).thenReturn(AiMessage.from(List.of(call)));
-        when(first.tokenUsage()).thenReturn(new TokenUsage(500, 20));
-        when(chatModel.chat(any(ChatRequest.class))).thenReturn(first);
-        var service = createService(5);
+        var call = ToolExecutionRequest.builder().id("c1").name("resources_list").arguments("{}").build();
+        var repeating = reply(AiMessage.from(List.of(call)));
+        when(chatModel.chat(any(ChatRequest.class))).thenReturn(repeating);
+        var service = createService(9);
+        var messages = new java.util.ArrayList<dev.langchain4j.data.message.ChatMessage>(List.of(
+                dev.langchain4j.data.message.UserMessage.from("list workloads")));
+
+        var result = service.callWithToolLoop(messages, chatModel, "vllm-rig1", "test", true, 32_768);
+
+        verify(toolExecutor, times(ToolCallRepeatGuard.MAX_IDENTICAL_CALLS)).execute(any(), any());
+        assertTrue(result.text().contains("only-pod"));
+        assertFalse(result.text().contains("You already called"), "the refusal is not data");
+    }
+
+    private static ToolExecutionRequest request(String id, String tool, String args) {
+        return ToolExecutionRequest.builder().id(id).name(tool).arguments(args).build();
+    }
+
+    @Test
+    void toolerWithAnEarlierFailure_thenARefusedRepeat_stopsAndPostsWhatItGathered() {
+        var toolSpec = ToolSpecification.builder().name("flaky").description("Flaky").build();
+        var toolExecutor = mock(ToolExecutor.class);
+        when(toolExecutor.execute(any(), any())).thenReturn("{\"error\": \"boom\"}", "good-data");
+        when(mcpClient.getToolSpecifications()).thenReturn(Map.of(toolSpec, toolExecutor));
+        var turn1 = reply(AiMessage.from(List.of(request("a", "flaky", "{\"n\":1}"))));
+        var turn2 = reply(AiMessage.from(List.of(request("b", "flaky", "{\"n\":2}"))));
+        var repeat = reply(AiMessage.from(List.of(request("c", "flaky", "{\"n\":2}"))));
+        when(chatModel.chat(any(ChatRequest.class))).thenReturn(turn1, turn2, repeat);
+        var messages = new java.util.ArrayList<dev.langchain4j.data.message.ChatMessage>(List.of(
+                dev.langchain4j.data.message.UserMessage.from("q")));
+
+        var result = createService(9).callWithToolLoop(messages, chatModel, "s", "test", true, 32_768);
+
+        assertTrue(result.text().contains("good-data"), result.text());
+        assertFalse(result.text().contains("You already called"));
+        verify(toolExecutor, times(3)).execute(any(), any());
+    }
+
+    @Test
+    void toolerWithGoodCallsAndRefusedRepeatsInOneTurn_isNotAFailedGather() {
+        var toolSpec = ToolSpecification.builder().name("resources_list").description("List").build();
+        var toolExecutor = mock(ToolExecutor.class);
+        when(toolExecutor.execute(any(), any())).thenReturn("good-data");
+        when(mcpClient.getToolSpecifications()).thenReturn(Map.of(toolSpec, toolExecutor));
+        var same = new java.util.ArrayList<ToolExecutionRequest>();
+        for (int i = 0; i < 4; i++) {
+            same.add(request("r" + i, "resources_list", "{\"k\":1}"));
+        }
+        var oneTurn = reply(AiMessage.from(same));
+        when(chatModel.chat(any(ChatRequest.class))).thenReturn(oneTurn);
+        var messages = new java.util.ArrayList<dev.langchain4j.data.message.ChatMessage>(List.of(
+                dev.langchain4j.data.message.UserMessage.from("q")));
+
+        var result = createService(9).callWithToolLoop(messages, chatModel, "s", "test", true, 8_192);
+
+        assertTrue(result.text().contains("good-data"), result.text());
+        verify(toolExecutor, times(ToolCallRepeatGuard.MAX_IDENTICAL_CALLS)).execute(any(), any());
+    }
+
+    @Test
+    void toolerIterationsExhaustedWithLargeResults_stillPostsEveryFullResult() {
+        var toolSpec = ToolSpecification.builder().name("pods_list").description("List").build();
+        var toolExecutor = mock(ToolExecutor.class);
+        String page1 = podList(330);
+        String page2 = podList(331);
+        when(toolExecutor.execute(any(), any())).thenReturn(page1, page2);
+        when(mcpClient.getToolSpecifications()).thenReturn(Map.of(toolSpec, toolExecutor));
+        modelCallsToolEveryTurn("pods_list", new TokenUsage(100, 20));
         var messages = new java.util.ArrayList<dev.langchain4j.data.message.ChatMessage>(List.of(
                 dev.langchain4j.data.message.UserMessage.from("list pods")));
 
-        var result = assertDoesNotThrow(() -> service.callWithToolLoop(messages, chatModel, "gpu-a", "test",
-                true, 8_192));
+        var result = createService(2).callWithToolLoop(messages, chatModel, "vllm-rig1", "test", true, 32_768);
 
-        verify(chatModel, times(1)).chat(any(ChatRequest.class));
-        verify(toolExecutor, times(1)).execute(any(), any());
-        assertTrue(result.text().contains("get_pods") && result.text().contains("pod-ppp"),
-                "the gathered tool output is the contribution");
-        assertEquals(500, result.inputTokens());
-        assertEquals(20, result.outputTokens());
-        assertEquals("gpu-a", result.serverName());
-        assertEquals("test", result.pickReason());
+        assertTrue(result.text().contains(page1) && result.text().contains(page2));
+        verify(chatModel, times(2)).chat(any(ChatRequest.class));
     }
 
     @Test
-    void toolLoop_toolerWhoseEveryToolFailed_reportsAFailedGather_notErrorTextAsData() {
+    void toolerWhoseLargeResultIsAnError_failsTheGatherInsteadOfPostingErrorText() {
         var toolSpec = ToolSpecification.builder().name("get_pods").description("List pods").build();
         var toolExecutor = mock(ToolExecutor.class);
         when(toolExecutor.execute(any(), any())).thenReturn("{\"error\": \"" + "x".repeat(40_000) + "\"}");
         when(mcpClient.getToolSpecifications()).thenReturn(Map.of(toolSpec, toolExecutor));
-        var call = ToolExecutionRequest.builder().id("c1").name("get_pods").arguments("{}").build();
-        var first = mock(ChatResponse.class);
-        when(first.aiMessage()).thenReturn(AiMessage.from(List.of(call)));
-        when(first.tokenUsage()).thenReturn(new TokenUsage(500, 20));
-        when(chatModel.chat(any(ChatRequest.class))).thenReturn(first);
-        var service = createService(5);
+        modelCallsToolEveryTurn("get_pods", new TokenUsage(500, 20));
         var messages = new java.util.ArrayList<dev.langchain4j.data.message.ChatMessage>(List.of(
                 dev.langchain4j.data.message.UserMessage.from("list pods")));
 
         var failure = assertThrows(ToolCallFailure.class,
-                () -> service.callWithToolLoop(messages, chatModel, "gpu-a", "test", true, 8_192));
+                () -> createService(5).callWithToolLoop(messages, chatModel, "gpu-a", "test", true, 8_192));
 
-        assertEquals(ToolCallFailure.FailureType.GATHER_FAILED, failure.failureType());
+        assertEquals(ToolCallFailure.FailureType.SAME_TOOL_REPEATED, failure.failureType());
     }
 
     @Test
@@ -1420,9 +1609,9 @@ class ChatServiceToolLoopTest {
 
     @Test
     void toolLoop_promptThatFits_isNotRefusedByAPaddedEstimate() {
-        // ~30,000 characters of prose is about 8,600 tokens at 3.5 characters per
-        // token, inside a 9,000-token context; the 25%-padded VRAM estimate (~9,400)
-        // would have refused it.
+        // 24,000 characters count as 8,000 tokens at the 3 characters per token the
+        // estimate never goes under, inside a 9,000-token context; the 25%-padded VRAM
+        // estimate (~10,000) would have refused it.
         when(mcpClient.getToolSpecifications()).thenReturn(Map.of());
         var response = mock(ChatResponse.class);
         when(response.aiMessage()).thenReturn(new AiMessage("answer"));
@@ -1430,7 +1619,7 @@ class ChatServiceToolLoopTest {
         when(chatModel.chat(any(ChatRequest.class))).thenReturn(response);
         var service = createService(3);
 
-        service.callWithToolLoop(List.of(dev.langchain4j.data.message.UserMessage.from("w".repeat(30_000))),
+        service.callWithToolLoop(List.of(dev.langchain4j.data.message.UserMessage.from("w".repeat(24_000))),
                 chatModel, "gpu-a", "test", false, 9_000);
 
         verify(chatModel, times(1)).chat(any(ChatRequest.class));
@@ -1477,9 +1666,12 @@ class ChatServiceToolLoopTest {
         when(ragClient.queryForContext(anyString())).thenReturn("");
     }
 
+    private static final java.util.concurrent.atomic.AtomicInteger CALL_SEQ = new java.util.concurrent.atomic.AtomicInteger();
+
+    /** A call of {@code toolName} whose arguments differ from every earlier call, so it is not a repeat. */
     private static AiMessage callOf(String toolName) {
         return AiMessage.from(List.of(ToolExecutionRequest.builder()
-                .id("c-" + toolName).name(toolName).arguments("{}").build()));
+                .id("c-" + toolName).name(toolName).arguments("{\"n\":" + CALL_SEQ.incrementAndGet() + "}").build()));
     }
 
     private ToolCallFailure askToolerExpectingFailure(int maxIterations) {
@@ -1505,6 +1697,7 @@ class ChatServiceToolLoopTest {
         // A tool that answers plain error text on every call never trips the per-tool
         // failure caps, so the loop runs out of iterations; the gather still fails.
         stubToolerLoop("pods_list_in_namespace", List.of(POD_LIST_ERROR),
+                callOf("pods_list_in_namespace"), callOf("pods_list_in_namespace"),
                 callOf("pods_list_in_namespace"));
         var thrown = askToolerExpectingFailure(3);
         assertEquals(ToolCallFailure.FailureType.GATHER_FAILED, thrown.failureType());

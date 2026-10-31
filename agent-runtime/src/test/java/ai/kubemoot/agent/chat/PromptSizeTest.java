@@ -49,7 +49,8 @@ class PromptSizeTest {
     void nextPromptTokens_withoutAReportedTurn_estimatesTheWholePromptWithTheRatio() {
         var messages = loopMessages();
         var ratio = new CharsPerToken();
-        assertEquals(ratio.tokens(PromptSize.chars(messages, List.of())),
+        assertEquals(ratio.tokens(PromptSize.chars(messages, List.of()))
+                        + messages.size() * PromptSize.MESSAGE_OVERHEAD_TOKENS,
                 PromptSize.nextPromptTokens(messages, List.of(), 0, 0, 0, ratio));
     }
 
@@ -60,7 +61,8 @@ class PromptSizeTest {
         // The engine reported a 30,000-token prompt and a 50-token reply when the
         // message list ended at the AI tool call (3 messages); the tool result came after.
         long next = PromptSize.nextPromptTokens(messages, List.of(), 30_000, 50, 3, ratio);
-        assertEquals(30_000 + 50 + ratio.tokens(PromptSize.chars(messages.get(3))), next);
+        assertEquals(30_000 + 50 + ratio.tokens(PromptSize.chars(messages.get(3)))
+                + PromptSize.MESSAGE_OVERHEAD_TOKENS, next);
     }
 
     @Test
@@ -70,14 +72,16 @@ class PromptSizeTest {
         var messages = loopMessages();
         var ratio = new CharsPerToken();
         long next = PromptSize.nextPromptTokens(messages, List.of(), 5, 1, 3, ratio);
-        assertEquals(5 + 1 + ratio.tokens(PromptSize.chars(messages.get(3))), next);
+        assertEquals(5 + 1 + ratio.tokens(PromptSize.chars(messages.get(3)))
+                + PromptSize.MESSAGE_OVERHEAD_TOKENS, next);
     }
 
     @Test
     void nextPromptTokens_ignoresAStaleMessageIndex() {
         var messages = loopMessages();
         var ratio = new CharsPerToken();
-        assertEquals(ratio.tokens(PromptSize.chars(messages, List.of())),
+        assertEquals(ratio.tokens(PromptSize.chars(messages, List.of()))
+                        + messages.size() * PromptSize.MESSAGE_OVERHEAD_TOKENS,
                 PromptSize.nextPromptTokens(messages, List.of(), 5, 1, 99, ratio));
     }
 
@@ -99,5 +103,30 @@ class PromptSizeTest {
         int withSchema = PromptSize.chars(List.of(), List.of(withParams));
         assertTrue(withSchema > bare + "namespace".length() + "the namespace to list".length(),
                 "the schema's property names and descriptions are sent, so they count: " + withSchema);
+    }
+
+    @Test
+    void nextPromptTokens_countsTheTemplateOverheadOfEveryMessageAdded() {
+        var messages = loopMessages();
+        var ratio = new CharsPerToken();
+        long oneAdded = PromptSize.nextPromptTokens(messages, List.of(), 1_000, 0, 3, ratio);
+        long noneAdded = PromptSize.nextPromptTokens(messages.subList(0, 3), List.of(), 1_000, 0, 3, ratio);
+
+        assertEquals(1_000, noneAdded);
+        assertEquals(1_000 + ratio.tokens(RESULT.length() + "pods_list".length())
+                + PromptSize.MESSAGE_OVERHEAD_TOKENS, oneAdded);
+    }
+
+    @Test
+    void nextPromptTokens_estimatesJsonDenseTextAboveTheMeasuredProseRatio() {
+        var ratio = new CharsPerToken();
+        ratio.observe(40_000, 10_000); // a mostly prose prompt measured 4 characters per token
+        var messages = new ArrayList<ChatMessage>();
+        messages.add(UserMessage.from("{\"a\":1,".repeat(3_000)));
+
+        long estimate = PromptSize.nextPromptTokens(messages, List.of(), 0, 0, 0, ratio);
+
+        assertTrue(estimate >= PromptSize.chars(messages, List.of()) / 3,
+                "counted at no more than 3 characters per token: " + estimate);
     }
 }

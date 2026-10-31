@@ -18,6 +18,13 @@ final class CharsPerToken {
     /** Weight of the newest measurement. */
     static final double ALPHA = 0.3;
 
+    /**
+     * Characters per token no estimate goes above. JSON and YAML tool output runs
+     * near 3, so text is never counted as fewer tokens than this, even when the
+     * measured ratio (taken over mostly prose prompts) is higher.
+     */
+    static final double DENSE = 3.0;
+
     /** Measurements outside this range are not a prompt the engine tokenized normally. */
     static final double MIN = 1.0;
     static final double MAX = 8.0;
@@ -40,13 +47,22 @@ final class CharsPerToken {
         }
     }
 
-    /** The current ratio. */
+    /** The ratio the estimate uses: the measured ratio, or {@link #DENSE} when that is higher. */
+    double estimateRatio() {
+        return Math.min(ratio, DENSE);
+    }
+
+    /** The current measured ratio. */
     double ratio() {
         return ratio;
     }
 
-    /** Estimated tokens in {@code chars} characters of prompt. */
+    /**
+     * Estimated tokens in {@code chars} characters of prompt, counted at the denser of the
+     * measured ratio and {@link #DENSE} (the larger token count), so the estimate never
+     * runs under what the engine counts for dense text.
+     */
     long tokens(long chars) {
-        return chars <= 0 ? 0 : (long) Math.ceil(chars / ratio);
+        return chars <= 0 ? 0 : (long) Math.ceil(chars / estimateRatio());
     }
 }
