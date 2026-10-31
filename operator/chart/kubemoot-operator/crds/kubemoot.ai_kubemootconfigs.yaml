@@ -93,6 +93,14 @@ spec:
                       KUBEMOOT_COORDINATOR_EVENT_LOG on the coordinator Agents; an Agent that sets the
                       variable itself in spec.deployment.env keeps its own value.
                     type: boolean
+                  resume:
+                    description: |-
+                      Resume makes a restarted coordinator pick up the threads it had in flight: it rebuilds
+                      each from its decision log, reads the messages that arrived while it was down, and
+                      carries on from the last decision. Requires EventLog. Default false. The operator sets
+                      KUBEMOOT_COORDINATOR_RESUME on the coordinator Agents; an Agent that sets the variable
+                      itself in spec.deployment.env keeps its own value.
+                    type: boolean
                 type: object
               defaults:
                 description: Defaults defines default configurations for Kubemoot

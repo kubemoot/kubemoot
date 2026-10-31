@@ -225,6 +225,14 @@ type CoordinatorConfig struct {
 	// variable itself in spec.deployment.env keeps its own value.
 	// +optional
 	EventLog bool `json:"eventLog,omitempty"`
+
+	// Resume makes a restarted coordinator pick up the threads it had in flight: it rebuilds
+	// each from its decision log, reads the messages that arrived while it was down, and
+	// carries on from the last decision. Requires EventLog. Default false. The operator sets
+	// KUBEMOOT_COORDINATOR_RESUME on the coordinator Agents; an Agent that sets the variable
+	// itself in spec.deployment.env keeps its own value.
+	// +optional
+	Resume bool `json:"resume,omitempty"`
 }
 
 // ArtifactQueryEngine names the engine behind the artifact-access workspace_query tool.

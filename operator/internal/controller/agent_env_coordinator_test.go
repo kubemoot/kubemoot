@@ -17,6 +17,14 @@ import (
 func coordinatorEventLogEnv(t *testing.T, coordinator *kubemootv1alpha1.CoordinatorConfig,
 	agentEnv ...corev1.EnvVar) []string {
 	t.Helper()
+	return coordinatorEnvValues(t, envCoordinatorEventLog, coordinator, agentEnv...)
+}
+
+// coordinatorEnvValues builds the env of a coordinator Agent in a realm with the given
+// coordinator block and returns every value of the variable called name.
+func coordinatorEnvValues(t *testing.T, name string, coordinator *kubemootv1alpha1.CoordinatorConfig,
+	agentEnv ...corev1.EnvVar) []string {
+	t.Helper()
 	scheme := runtime.NewScheme()
 	if err := kubemootv1alpha1.AddToScheme(scheme); err != nil {
 		t.Fatalf("add scheme: %v", err)
@@ -36,7 +44,7 @@ func coordinatorEventLogEnv(t *testing.T, coordinator *kubemootv1alpha1.Coordina
 
 	var values []string
 	for _, e := range r.buildEnvVars(context.Background(), coord, pick, pick, 8080) {
-		if e.Name == envCoordinatorEventLog {
+		if e.Name == name {
 			values = append(values, e.Value)
 		}
 	}
@@ -97,5 +105,49 @@ func TestConfigCache_CoordinatorEventLogIsOffWithoutAConfigOrABlock(t *testing.T
 	cache.Update(&kubemootv1alpha1.KubemootConfig{})
 	if cache.GetCoordinatorEventLog() {
 		t.Fatal("a config with no coordinator block must report the log off")
+	}
+}
+
+func TestCoordinatorResumeEnv_AbsentUnlessTheRealmTurnsItOn(t *testing.T) {
+	if got := coordinatorEnvValues(t, envCoordinatorResume, nil); len(got) != 0 {
+		t.Fatalf("no coordinator block: want no variable, got %v", got)
+	}
+	if got := coordinatorEnvValues(t, envCoordinatorResume,
+		&kubemootv1alpha1.CoordinatorConfig{EventLog: true}); len(got) != 0 {
+		t.Fatalf("resume false: want no variable, got %v", got)
+	}
+}
+
+func TestCoordinatorResumeEnv_SetOnTheCoordinatorWhenTheRealmTurnsItOn(t *testing.T) {
+	got := coordinatorEnvValues(t, envCoordinatorResume,
+		&kubemootv1alpha1.CoordinatorConfig{EventLog: true, Resume: true})
+	if len(got) != 1 || got[0] != valueTrue {
+		t.Fatalf("want KUBEMOOT_COORDINATOR_RESUME=true once, got %v", got)
+	}
+}
+
+func TestCoordinatorResumeEnv_TheAgentsOwnValueComesLastAndWins(t *testing.T) {
+	got := coordinatorEnvValues(t, envCoordinatorResume,
+		&kubemootv1alpha1.CoordinatorConfig{EventLog: true, Resume: true},
+		corev1.EnvVar{Name: envCoordinatorResume, Value: valueFalse})
+	if len(got) != 2 || got[len(got)-1] != valueFalse {
+		t.Fatalf("the Agent's own env must follow the realm's so it wins, got %v", got)
+	}
+}
+
+func TestConfigCache_CoordinatorResumeIsOffWithoutAConfigOrABlock(t *testing.T) {
+	cache := NewConfigCache()
+	if cache.GetCoordinatorResume() {
+		t.Fatal("an empty cache must report resume off")
+	}
+	cache.Update(&kubemootv1alpha1.KubemootConfig{Spec: kubemootv1alpha1.KubemootConfigSpec{
+		Coordinator: &kubemootv1alpha1.CoordinatorConfig{EventLog: true}}})
+	if cache.GetCoordinatorResume() {
+		t.Fatal("a config that leaves resume off must report it off")
+	}
+	cache.Update(&kubemootv1alpha1.KubemootConfig{Spec: kubemootv1alpha1.KubemootConfigSpec{
+		Coordinator: &kubemootv1alpha1.CoordinatorConfig{Resume: true}}})
+	if !cache.GetCoordinatorResume() {
+		t.Fatal("resume true must be reported")
 	}
 }
