@@ -6,13 +6,11 @@ import io.nats.client.Connection;
 import io.nats.client.JetStreamApiException;
 import io.nats.client.JetStreamOptions;
 import io.nats.client.PublishOptions;
-import io.nats.client.api.MessageInfo;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.time.Duration;
-import java.util.Optional;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
@@ -23,8 +21,8 @@ import java.util.concurrent.atomic.AtomicLong;
  * another writer got there first.
  *
  * <p>A refusal for a wrong last sequence is {@code FENCED}; anything else that fails is
- * {@code FAILED} and nothing is thrown. A {@code FAILED} publish that timed out may have
- * been stored: the recorder asks {@link #last} before it treats a later refusal as a fence.
+ * {@code FAILED} and nothing is thrown. A {@code FAILED} publish may have been stored (a
+ * timeout); the recorder stops appending to that thread, so it is never mistaken for a fence.
  */
 final class NatsCoordinatorEventLog implements CoordinatorEventLog {
 
@@ -66,22 +64,6 @@ final class NatsCoordinatorEventLog implements CoordinatorEventLog {
                     : failed(event, e.getMessage(), e);
         } catch (IOException | RuntimeException e) {
             return failed(event, e.getMessage(), e);
-        }
-    }
-
-    @Override
-    public Optional<LastMessage> last(String subject) {
-        Connection conn = natsProvider.getConnection();
-        if (conn == null) {
-            return Optional.empty();
-        }
-        try {
-            MessageInfo info = conn.jetStreamManagement().getLastMessage(CrewScope.COORDINATOR_STREAM, subject);
-            CoordinatorEvent stored = CoordinatorEvent.parse(mapper, info.getData());
-            return stored == null ? Optional.empty() : Optional.of(new LastMessage(info.getSeq(), stored.eventId()));
-        } catch (IOException | JetStreamApiException | RuntimeException e) {
-            log.debug("Could not read the last coordinator event on {}: {}", subject, e.getMessage());
-            return Optional.empty();
         }
     }
 

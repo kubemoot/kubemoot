@@ -32,7 +32,6 @@ public class DiscussionMetrics {
     private static final String METRIC_PHASE_DURATION = "kubemoot_discussion_phase_duration_seconds";
     private static final String METRIC_TOKENS_TOTAL = "kubemoot_discussion_tokens_total";
     private static final String METRIC_COORDINATOR_TOKENS = "kubemoot_discussion_coordinator_tokens_total";
-    private static final String METRIC_LOG_APPENDS = "kubemoot_coordinator_log_appends_total";
     private static final String METRIC_LOG_CHECKS = "kubemoot_coordinator_log_checks_total";
 
     /**
@@ -47,10 +46,8 @@ public class DiscussionMetrics {
             METRIC_PHASE_DURATION, "Discussion phase duration, by phase (triage, advisory, evaluation, synthesis)",
             METRIC_TOKENS_TOTAL, "Model tokens agents used in discussions, by direction (input, output)",
             METRIC_COORDINATOR_TOKENS, "Model tokens the coordinator used, by direction (input, output)",
-            METRIC_LOG_APPENDS, "Coordinator log events that were not stored, by result: lost (the log could "
-                    + "not be reached) or fenced (another writer owns the thread)",
-            METRIC_LOG_CHECKS, "Comparisons of a closed thread's coordinator log with its live state, by result: "
-                    + "match or mismatch");
+            METRIC_LOG_CHECKS, "Closed threads' coordinator logs, by result: match or mismatch with the live "
+                    + "state, or unlogged (an append failed, so the log is incomplete and was not compared); one per close");
 
     /** Bucket bounds for the duration timers: from a second to a long discussion. */
     private static final Duration[] BUCKETS = {
@@ -111,10 +108,9 @@ public class DiscussionMetrics {
     private final AtomicInteger pendingEvaluationsGauge = new AtomicInteger(0);
 
     // Coordinator log
-    private final Counter logLost;
+    private final Counter logAppendFailures;
     private final Counter logFenced;
-    private final Counter logMatch;
-    private final Counter logMismatch;
+    private final Counter threadsUnlogged;
 
     public DiscussionMetrics(MeterRegistry registry) {
         this.registry = registry;
@@ -161,10 +157,19 @@ public class DiscussionMetrics {
         evaluationTimeouts = Counter.builder("kubemoot_discussion_evaluation_timeouts_total")
                 .description("Agents that timed out in pending evaluation (synthesized stand_aside)")
                 .register(registry);
-        logLost = counter(METRIC_LOG_APPENDS, TAG_RESULT, "lost");
-        logFenced = counter(METRIC_LOG_APPENDS, TAG_RESULT, "fenced");
-        logMatch = counter(METRIC_LOG_CHECKS, TAG_RESULT, "match");
-        logMismatch = counter(METRIC_LOG_CHECKS, TAG_RESULT, "mismatch");
+        logAppendFailures = Counter.builder("kubemoot_coordinator_log_append_failures_total")
+                .description("Coordinator log appends that failed (the log could not be reached or refused the event)")
+                .register(registry);
+        logFenced = Counter.builder("kubemoot_coordinator_log_fenced_total")
+                .description("Coordinator log appends refused because another writer owns the thread")
+                .register(registry);
+        // Register every series now so each is exported at 0 before its first count.
+        for (String result : new String[] {"match", "mismatch", "unlogged"}) {
+            counter(METRIC_LOG_CHECKS, TAG_RESULT, result);
+        }
+        threadsUnlogged = Counter.builder("kubemoot_coordinator_threads_unlogged_total")
+                .description("Threads whose coordinator log is incomplete after a failed append: not resumable")
+                .register(registry);
         Gauge.builder("kubemoot_discussion_pending_evaluations", pendingEvaluationsGauge, AtomicInteger::get)
                 .description("Current number of agents with an active evaluating signal across all threads")
                 .register(registry);
@@ -265,9 +270,14 @@ public class DiscussionMetrics {
 
     // --- Coordinator log ---
 
-    /** An event the coordinator meant to write was not stored: the log could not be reached. */
-    public void logEventLost() {
-        logLost.increment();
+    /** An append failed: the log could not be reached or refused the event. */
+    public void logAppendFailed() {
+        logAppendFailures.increment();
+    }
+
+    /** A thread's log became incomplete: it is not resumable and no more is appended to it. */
+    public void threadUnlogged() {
+        threadsUnlogged.increment();
     }
 
     /** An append was refused because another writer owns the thread. */
@@ -275,9 +285,9 @@ public class DiscussionMetrics {
         logFenced.increment();
     }
 
-    /** A closed thread's log was compared with its live state; {@code matched} says they agreed. */
-    public void logChecked(boolean matched) {
-        (matched ? logMatch : logMismatch).increment();
+    /** A closed thread's log was checked; {@code result} is {@code match}, {@code mismatch} or {@code unlogged}. */
+    public void logChecked(String result) {
+        registry.counter(METRIC_LOG_CHECKS, TAG_RESULT, result).increment();
     }
 
     // --- Helpers ---

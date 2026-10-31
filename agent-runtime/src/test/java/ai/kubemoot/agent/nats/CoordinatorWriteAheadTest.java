@@ -45,7 +45,7 @@ class CoordinatorWriteAheadTest extends CoordinatorThreadTestBase {
         settle(t, EVALUATION_TO_REVIEW);
         send(t, "k8s-analyst", "agree", "checked", null);
         settle(t, REVIEW_TO_SYNTHESIS);
-        awaitTypes(t, 1, CLOSE_BY_DIRECT_ANSWER);
+        awaitClosed(t);
     }
 
     /** A thread the coordinator answers itself: the advisory step ends in a close. */
@@ -53,7 +53,15 @@ class CoordinatorWriteAheadTest extends CoordinatorThreadTestBase {
         selection = SELECT_NONE;
         start(t);
         orchestrator.checkThreadTransition(orchestrator.threadForTest(t), Instant.now());
-        awaitTypes(t, 1, CLOSE_BY_DIRECT_ANSWER);
+        awaitClosed(t);
+    }
+
+    /** The close is on the bus and, while the thread is logged, in the log. */
+    private void awaitClosed(String t) throws InterruptedException {
+        await(() -> !publishedOfType("thread_close").isEmpty()
+                && (orchestrator.threadForTest(t).trace.unlogged()
+                || forThread(t).stream().anyMatch(e -> e.type().equals(CLOSE_BY_DIRECT_ANSWER))),
+                "thread " + t + " did not close, got " + timeline);
     }
 
     private int at(String entry) {
@@ -88,34 +96,36 @@ class CoordinatorWriteAheadTest extends CoordinatorThreadTestBase {
     }
 
     @Test
-    void aFailedAppendOfTheBriefPublishesNoBriefAndDoesNotTellTheToolers() throws Exception {
+    void aFailedAppendOfTheBriefStillPublishesItMarksTheThreadUnloggedAndAppendsNothingMore() throws Exception {
         eventLog.failEventsOfType("subcommittee_convened");
         start("t-brief");
         orchestrator.checkThreadTransition(orchestrator.threadForTest("t-brief"), Instant.now());
-        awaitRefused("subcommittee_convened");
-        Thread.sleep(200);
+        awaitPublished("advisory_ready");
 
-        assertTrue(publishedOfType("advisory").isEmpty(), "no brief");
-        assertTrue(publishedOfType("subcommittee").isEmpty());
-        assertTrue(publishedOfType("advisory_ready").isEmpty(), "no signal to the toolers");
-        assertFalse(eventLog.types().contains("evaluation_started"));
-        assertEquals(1, eventLog.counted("kubemoot_coordinator_log_appends_total", "lost"));
+        assertFalse(publishedOfType("advisory").isEmpty(), "the log is down, the crew is not silenced");
+        assertFalse(publishedOfType("subcommittee").isEmpty());
+        assertTrue(orchestrator.threadForTest("t-brief").trace.unlogged());
+        assertEquals(List.of("thread_opened", "phase_entered", "phase_entered"), eventLog.types(),
+                "nothing is appended after the failed event");
+        assertEquals(1, eventLog.counted("kubemoot_coordinator_log_append_failures_total"));
+        assertEquals(1, eventLog.counted("kubemoot_coordinator_threads_unlogged_total"));
+        assertNull(publishedOfType("advisory_ready").get(0).streamId(), "no event, so a random id and no stream id");
     }
 
     @Test
-    void aFailedAppendOfTheRosterPublishesNoEvaluationSignal() throws Exception {
+    void aFailedAppendOfTheRosterStillTellsTheToolersAndStopsLogging() throws Exception {
         eventLog.failEventsOfType("evaluation_started");
         start("t-ready");
         orchestrator.checkThreadTransition(orchestrator.threadForTest("t-ready"), Instant.now());
-        awaitRefused("evaluation_started");
-        Thread.sleep(200);
+        awaitPublished("advisory_ready");
 
-        assertTrue(publishedOfType("advisory_ready").isEmpty());
-        assertFalse(publishedOfType("advisory").isEmpty(), "the brief was logged, so it went out");
+        assertTrue(orchestrator.threadForTest("t-ready").trace.unlogged());
+        assertFalse(publishedOfType("advisory").isEmpty());
+        assertTrue(publishedOfType("advisory").get(0).messageId().contains("/msg/"), "the brief was logged: derived id");
     }
 
     @Test
-    void aFailedAppendOfTheReviewRosterPublishesNoReviewSignalButTheThreadStillFinishes() throws Exception {
+    void aFailedAppendOfTheReviewRosterStillWakesTheAnalysts() throws Exception {
         String t = "t-review";
         start(t);
         advanceThroughAdvisory(t);
@@ -124,24 +134,24 @@ class CoordinatorWriteAheadTest extends CoordinatorThreadTestBase {
         send(t, "k8s-workloads", "agree", "12 pods", null);
 
         orchestrator.checkThreadTransition(orchestrator.threadForTest(t), Instant.now().plusSeconds(60));
-        awaitRefused("review_started");
+        awaitPublished("review_ready");
 
-        assertTrue(publishedOfType("review_ready").isEmpty());
-        assertEquals("REVIEW", orchestrator.threadForTest(t).phase.name(), "the phase machine still moved on");
+        assertTrue(orchestrator.threadForTest(t).trace.unlogged());
+        assertEquals("REVIEW", orchestrator.threadForTest(t).phase.name());
     }
 
     @Test
-    void aFailedAppendOfTheAnswerPublishesNoAnswerButTheThreadStillEndsAndTheAskerGetsIt() throws Exception {
+    void aFailedAppendOfTheAnswerStillPublishesItAndEndsTheThread() throws Exception {
         eventLog.failEventsOfType("synthesis_done");
         var asker = orchestrator.registerPendingForTest("t-nolog");
 
         runDirectThread("t-nolog");
 
-        assertTrue(publishedOfType("synthesis").isEmpty(), "nothing is on the bus that is not in the log");
-        assertEquals(1, publishedOfType("thread_close").stream().map(Published::messageId).distinct().count(),
-                "thread_close still goes out so agents stop heartbeating on a thread that is over");
-        assertEquals("Four.", asker.get(5, java.util.concurrent.TimeUnit.SECONDS), "the asker gets the answer");
-        assertEquals("CLOSED", orchestrator.threadForTest("t-nolog").phase.name(), "the thread is never failed over the log");
+        assertFalse(publishedOfType("synthesis").isEmpty(), "the log is down, the answer is not held back");
+        assertFalse(publishedOfType("thread_close").isEmpty());
+        assertEquals("Four.", asker.get(5, java.util.concurrent.TimeUnit.SECONDS));
+        assertEquals("CLOSED", orchestrator.threadForTest("t-nolog").phase.name());
+        assertFalse(publishedOfType("synthesis").get(0).messageId().contains("/msg/"), "no event, so a random id");
     }
 
     // --- 2. derived message ids ---
@@ -214,7 +224,7 @@ class CoordinatorWriteAheadTest extends CoordinatorThreadTestBase {
         assertNotEquals("CLOSED", state.phase.name());
         assertTrue(publishedOfType("synthesis").isEmpty(), "a deposed coordinator publishes no answer");
         assertTrue(publishedOfType("thread_close").isEmpty());
-        assertEquals(1, eventLog.counted("kubemoot_coordinator_log_appends_total", "fenced"));
+        assertEquals(1, eventLog.counted("kubemoot_coordinator_log_fenced_total"));
     }
 
     @Test
@@ -288,16 +298,17 @@ class CoordinatorWriteAheadTest extends CoordinatorThreadTestBase {
     }
 
     @Test
-    void aThreadWhoseLogLostAnEventIsCountedAsAMismatchAndStillCloses() throws Exception {
-        eventLog.failEventsOfType("signal_applied");
+    void aThreadWhoseLogFailedIsCountedUnloggedNotComparedAndStillCloses() throws Exception {
+        eventLog.failEventsOfType("synthesis_started");
 
-        runFullThread("t-mismatch");
-        awaitChecked("mismatch");
+        runFullThread("t-unlogged");
+        awaitChecked("unlogged");
 
-        assertEquals(1, eventLog.counted("kubemoot_coordinator_log_checks_total", "mismatch"));
         assertEquals(0, eventLog.counted("kubemoot_coordinator_log_checks_total", "match"));
-        assertEquals("CLOSED", orchestrator.threadForTest("t-mismatch").phase.name());
-        assertFalse(publishedOfType("synthesis").isEmpty(), "a mismatch never fails the thread");
+        assertEquals(0, eventLog.counted("kubemoot_coordinator_log_checks_total", "mismatch"));
+        assertEquals("CLOSED", orchestrator.threadForTest("t-unlogged").phase.name());
+        assertFalse(publishedOfType("synthesis").isEmpty());
+        assertFalse(eventLog.types().contains("thread_closed"), "nothing is appended after the failed event");
     }
 
     @Test
@@ -321,10 +332,6 @@ class CoordinatorWriteAheadTest extends CoordinatorThreadTestBase {
     /** The check at close runs just after the close event is written. */
     private void awaitChecked(String result) throws InterruptedException {
         await(() -> eventLog.counted("kubemoot_coordinator_log_checks_total", result) >= 1, "no " + result + " check");
-    }
-
-    private void awaitRefused(String type) throws InterruptedException {
-        await(() -> eventLog.refusedTypes().contains(type), "no refused " + type);
     }
 
     private void awaitPublished(String type) throws InterruptedException {

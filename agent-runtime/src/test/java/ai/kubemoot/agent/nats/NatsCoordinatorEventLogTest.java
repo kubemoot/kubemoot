@@ -118,34 +118,6 @@ class NatsCoordinatorEventLogTest {
     }
 
     @Test
-    void theLastMessageOfASubjectIsReadFromTheStream() throws Exception {
-        var management = mock(io.nats.client.JetStreamManagement.class);
-        var info = mock(io.nats.client.api.MessageInfo.class);
-        var conn = mock(Connection.class);
-        var json = MAPPER.writeValueAsBytes(event().toJson(MAPPER));
-        when(info.getSeq()).thenReturn(9L);
-        when(info.getData()).thenReturn(json);
-        when(management.getLastMessage(CrewScope.COORDINATOR_STREAM, SUBJECT)).thenReturn(info);
-        when(conn.jetStreamManagement()).thenReturn(management);
-        when(provider.getConnection()).thenReturn(conn);
-
-        assertEquals(java.util.Optional.of(new CoordinatorEventLog.LastMessage(9, "t1/opened")), log.last(SUBJECT));
-    }
-
-    @Test
-    void theLastMessageIsEmptyWhenTheStreamCannotBeRead() throws Exception {
-        var management = mock(io.nats.client.JetStreamManagement.class);
-        var conn = mock(Connection.class);
-        when(management.getLastMessage(any(String.class), any(String.class))).thenThrow(new IOException("down"));
-        when(conn.jetStreamManagement()).thenReturn(management);
-        when(provider.getConnection()).thenReturn(conn);
-
-        assertEquals(java.util.Optional.empty(), log.last(SUBJECT));
-        when(provider.getConnection()).thenReturn(null);
-        assertEquals(java.util.Optional.empty(), log.last(SUBJECT));
-    }
-
-    @Test
     void withoutAConnectionTheAppendFailsAndNothingThrows() {
         when(provider.getConnection()).thenReturn(null);
 

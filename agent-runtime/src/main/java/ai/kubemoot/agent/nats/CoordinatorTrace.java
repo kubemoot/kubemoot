@@ -28,7 +28,7 @@ final class CoordinatorTrace {
     private boolean overflowed;
     private final List<CoordinatorEvent> kept = new ArrayList<>();
     private final Map<String, String> lastEventIds = new ConcurrentHashMap<>();
-    private final List<CoordinatorEvent> unsure = new ArrayList<>();
+    private volatile String unloggedAt;
 
     /**
      * Held while an event is built and handed to the log, so the events of one thread
@@ -72,7 +72,6 @@ final class CoordinatorTrace {
     /** Records an event the log acknowledged at {@code sequence}. */
     void appended(CoordinatorEvent event, long sequence) {
         synchronized (lock) {
-            unsure.clear();
             lastSequence = sequence;
             lastEventIds.put(event.type(), event.eventId());
             if (kept.size() < MAX_KEPT_EVENTS) {
@@ -83,18 +82,24 @@ final class CoordinatorTrace {
         }
     }
 
-    /** An append failed without the log saying whether the event was stored. */
-    void unsure(CoordinatorEvent event) {
+    /**
+     * An append failed: the thread's log is incomplete from {@code eventId} on, so no later
+     * event is appended (it would mislead a resume) and the thread is not resumable.
+     * Returns true for the first call only, so the loss is reported once per thread.
+     */
+    boolean markUnlogged(String eventId) {
         synchronized (lock) {
-            unsure.add(event);
+            if (unloggedAt != null) {
+                return false;
+            }
+            unloggedAt = eventId;
+            return true;
         }
     }
 
-    /** The events whose append failed since the last acknowledged one (they may have been stored). */
-    List<CoordinatorEvent> unsureEvents() {
-        synchronized (lock) {
-            return List.copyOf(unsure);
-        }
+    /** True once an append failed for this thread. */
+    boolean unlogged() {
+        return unloggedAt != null;
     }
 
     /** The id of the event of {@code type} written last, or null when none was. */
