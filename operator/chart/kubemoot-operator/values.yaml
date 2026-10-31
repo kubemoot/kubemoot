@@ -324,8 +324,13 @@ nats:
 # state when the thread closes. It flows to the KubemootConfig and from there to the
 # KUBEMOOT_COORDINATOR_EVENT_LOG variable of every coordinator Agent; an Agent that sets the
 # variable in spec.deployment.env keeps its own value. Off by default.
+# resume makes a restarted coordinator pick up the threads it had in flight: it rebuilds each
+# from its log, reads the messages that arrived while it was down, and carries on from the
+# last decision. It needs eventLog (the chart refuses resume without it), and it flows to
+# KUBEMOOT_COORDINATOR_RESUME the same way. Run one coordinator replica. Off by default.
 coordinator:
   eventLog: false
+  resume: false
 
 # The engine behind the artifact-access workspace_query tool: read-only SQL over the
 # artifacts of a discussion. sqlite (the default) runs queries inside the artifact-access process

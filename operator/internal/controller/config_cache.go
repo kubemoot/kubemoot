@@ -334,6 +334,13 @@ func (c *ConfigCache) GetCoordinatorEventLog() bool {
 	return c.config != nil && c.config.Spec.Coordinator != nil && c.config.Spec.Coordinator.EventLog
 }
 
+// GetCoordinatorResume reports whether the realm lets a restarted coordinator resume its threads.
+func (c *ConfigCache) GetCoordinatorResume() bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.config != nil && c.config.Spec.Coordinator != nil && c.config.Spec.Coordinator.Resume
+}
+
 // GetPlacementPolicy returns the realm's default placement policy, or "" when unset.
 func (c *ConfigCache) GetPlacementPolicy() string {
 	c.mu.RLock()

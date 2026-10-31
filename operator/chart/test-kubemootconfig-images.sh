@@ -48,6 +48,20 @@ coordinator_log() { helm template kubemoot-operator "$chart" --namespace kubemoo
   "$chart/crds/kubemoot.ai_kubemootconfigs.yaml")" = "boolean" ] \
   || fail "the KubemootConfig CRD has no boolean spec.coordinator.eventLog"
 
+# Resume is off unless the chart turns it on, reaches the KubemootConfig, needs the log, and
+# the CRD has the field.
+coordinator_resume() { helm template kubemoot-operator "$chart" --namespace kubemoot "$@" \
+  | yq -N 'select(.kind == "KubemootConfig") | .spec.coordinator.resume'; }
+[ "$(coordinator_resume)" = "false" ] || fail "coordinator.resume should default to false"
+[ "$(coordinator_resume --set coordinator.eventLog=true --set coordinator.resume=true)" = "true" ] \
+  || fail "coordinator.resume=true does not reach KubemootConfig"
+if helm template kubemoot-operator "$chart" --namespace kubemoot --set coordinator.resume=true >/dev/null 2>&1; then
+  fail "coordinator.resume=true without coordinator.eventLog should be refused"
+fi
+[ "$(yq -N '.spec.versions[0].schema.openAPIV3Schema.properties.spec.properties.coordinator.properties.resume.type' \
+  "$chart/crds/kubemoot.ai_kubemootconfigs.yaml")" = "boolean" ] \
+  || fail "the KubemootConfig CRD has no boolean spec.coordinator.resume"
+
 # The artifact query engine defaults to sqlite, takes duckdb, takes none (no query tool),
 # and refuses any other value at render time.
 query_engine() { helm template kubemoot-operator "$chart" --namespace kubemoot "$@" \

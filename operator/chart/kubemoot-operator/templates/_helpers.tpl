@@ -129,6 +129,14 @@ Usage: include "kubemoot-operator.labelList" $map
 {{/*
 The artifact query engine, none, sqlite or duckdb; any other value fails the render.
 */}}
+{{- define "kubemoot-operator.coordinatorResume" -}}
+{{- $coordinator := .Values.coordinator | default dict -}}
+{{- if and $coordinator.resume (not $coordinator.eventLog) -}}
+{{- fail "coordinator.resume needs coordinator.eventLog: a coordinator resumes a thread from its decision log" -}}
+{{- end -}}
+{{- $coordinator.resume | default false -}}
+{{- end }}
+
 {{- define "kubemoot-operator.artifactQueryEngine" -}}
 {{- $engine := (.Values.artifacts | default dict).queryEngine | default "sqlite" -}}
 {{- if not (has $engine (list "none" "sqlite" "duckdb")) -}}
