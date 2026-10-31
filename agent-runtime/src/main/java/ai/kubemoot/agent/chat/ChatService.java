@@ -368,9 +368,14 @@ public class ChatService {
         // Persist any REMEMBER: directives the agent emitted (durable facts it
         // learned this turn) to crew working memory, and strip them from the
         // user-facing text — they are control directives, not content.
-        String text = crewMemory != null
-                ? crewMemory.persistFromResponse(loopResult.text(), properties.agentName())
-                : loopResult.text();
+        String text = loopResult.text();
+        if (crewMemory != null) {
+            // Facts come only from what the model itself wrote, never from tool output.
+            crewMemory.persistDirectives(loopResult.modelText(), properties.agentName());
+            if (!loopResult.contributionIsToolOutput()) {
+                text = crewMemory.stripDirectives(text);
+            }
+        }
 
         conversation.addMessage(new AiMessage(text));
         return new ChatResult(request.conversationId(), text, pick.modelName(), null,
@@ -386,9 +391,14 @@ public class ChatService {
      * ChatModel (selector unwired or NATS unavailable). Used by the
      * caller to attribute the inference to a specific server in the
      * agent's outbound signal metadata ([[Per-Call Server Attribution]]).
+     *
+     * <p>{@code modelText} is everything the model itself wrote across the loop
+     * (every assistant turn, never a tool result); crew-memory directives are
+     * read from it. {@code contributionIsToolOutput} is true when {@code text}
+     * is the raw tool output, which must reach the crew byte-identical.
      */
-    record ToolLoopResult(String text, long inputTokens, long outputTokens,
-                                   String serverName, String pickReason) {}
+    record ToolLoopResult(String text, String modelText, boolean contributionIsToolOutput,
+                          long inputTokens, long outputTokens, String serverName, String pickReason) {}
 
     // Bounded-retry thresholds for tool failures inside callWithToolLoop.
     // Tunable; revisit when more diverse tool failure modes appear.
@@ -806,7 +816,7 @@ public class ChatService {
         // DiscussionSubscriber's classifier, which also matches "TOOL_GAP:"
         // exactly - so the two ends stay in lockstep.
         if (finalText.startsWith("TOOL_GAP:")) {
-            return new ToolLoopResult(finalText,
+            return new ToolLoopResult(finalText, state.modelText(), false,
                     state.totalInput, state.totalOutput, serverName, pickReason);
         }
         throwIfEveryToolFailed(state);
@@ -850,8 +860,8 @@ public class ChatService {
                     properties.agentName());
             text = "";
         }
-        return java.util.Optional.of(new ToolLoopResult(text, state.totalInput, state.totalOutput,
-                serverName, pickReason));
+        return java.util.Optional.of(new ToolLoopResult(text, state.modelText(), false,
+                state.totalInput, state.totalOutput, serverName, pickReason));
     }
 
     /**
@@ -1241,7 +1251,7 @@ public class ChatService {
 
     /** A tooler's contribution: the raw output of the tools it ran, with the loop's token totals. */
     private static ToolLoopResult rawOutputResult(ToolLoopState state, String serverName, String pickReason) {
-        return new ToolLoopResult(state.toolOutput.toString().strip(),
+        return new ToolLoopResult(state.toolOutput.toString().strip(), state.modelText(), true,
                 state.totalInput, state.totalOutput, serverName, pickReason);
     }
 
@@ -1276,6 +1286,7 @@ public class ChatService {
      */
     private static final class ToolLoopState {
         final List<ChatMessage> allMessages;
+        private final int inputMessages;
         long totalInput = 0;
         long totalOutput = 0;
         final Map<String, Integer> perToolFailures = new java.util.HashMap<>();
@@ -1319,6 +1330,21 @@ public class ChatService {
 
         ToolLoopState(List<ChatMessage> messages) {
             this.allMessages = new ArrayList<>(messages);
+            this.inputMessages = messages.size();
+        }
+
+        /**
+         * The text of every assistant turn this loop produced (not the prompt, not
+         * tool results), so a directive written beside a tool call is not lost.
+         */
+        String modelText() {
+            StringBuilder sb = new StringBuilder();
+            for (ChatMessage m : allMessages.subList(inputMessages, allMessages.size())) {
+                if (m instanceof AiMessage ai && ai.text() != null && !ai.text().isEmpty()) {
+                    sb.append(ai.text()).append('\n');
+                }
+            }
+            return sb.toString();
         }
 
         /** Note one tool result; an error result (see isGatherErrorResult) is kept with its text. */

@@ -186,7 +186,10 @@ facts about users. It belongs to the **crew**, not to a single agent, and is con
 
 - **Write.** When an agent resolves a durable fact, it ends a line of its answer with
   `REMEMBER: <topic> | <key> | <value>`. The runtime parses the line, stores the fact,
-  and strips the line from the answer the user sees.
+  and strips the line from the answer the user sees. Only an agent's own text can write
+  crew memory, including a line a tooler writes beside a tool call or after its tools ran.
+  A `REMEMBER:` line inside a tool result never does, and a tooler's posted tool output
+  is never changed.
 - **Storage.** Facts live in the NATS KV bucket `kubemoot_crew_memory` under the key
   `<namespace>.<crew>.<topic>.<key>`. Each value is a JSON record with `value`,
   `learnedBy`, `learnedAt` and `usedAt`.
