@@ -30,8 +30,7 @@ const Bucket = "kubemoot_crew_memory"
 
 // KV is the subset of the NATS publisher the migration uses.
 type KV interface {
-	ListKVKeys(bucket string) ([]string, error)
-	GetKVValue(bucket, key string) ([]byte, error)
+	Reader
 	PutKVValue(bucket, key string, value []byte) error
 	DeleteKVKey(bucket, key string) error
 }
