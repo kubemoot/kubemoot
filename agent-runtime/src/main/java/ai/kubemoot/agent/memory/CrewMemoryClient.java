@@ -189,21 +189,36 @@ public class CrewMemoryClient {
      * directives, not user-facing content). No-op when NATS is unavailable.
      */
     public String persistFromResponse(String response, String learnedBy) {
+        persistDirectives(response, learnedBy);
+        return stripDirectives(response);
+    }
+
+    /**
+     * Persist the {@code REMEMBER:} directives found in text the agent itself
+     * wrote. Callers must never pass tool output: that would let tool data write
+     * crew memory. Returns the number stored; no-op when memory is disabled.
+     */
+    public int persistDirectives(String agentText, String learnedBy) {
+        if (!enabled || agentText == null || !agentText.contains("REMEMBER:")) {
+            return 0;
+        }
+        Matcher m = REMEMBER_LINE.matcher(agentText);
+        int count = 0;
+        while (m.find()) {
+            remember(m.group(1), m.group(2), m.group(3), learnedBy);
+            count++;
+        }
+        if (count > 0) {
+            log.info("Persisted {} crew-memory fact(s) from {}", count, learnedBy);
+        }
+        return count;
+    }
+
+    /** The text without its {@code REMEMBER:} lines (control directives, not content). */
+    public String stripDirectives(String response) {
         if (response == null || response.isEmpty() || !response.contains("REMEMBER:")) {
             return response;
         }
-        if (enabled) {
-            Matcher m = REMEMBER_LINE.matcher(response);
-            int count = 0;
-            while (m.find()) {
-                remember(m.group(1), m.group(2), m.group(3), learnedBy);
-                count++;
-            }
-            if (count > 0) {
-                log.info("Persisted {} crew-memory fact(s) from {}", count, learnedBy);
-            }
-        }
-        // Always strip the directives from user-facing text, even if disabled.
         return REMEMBER_LINE.matcher(response).replaceAll("").strip();
     }
 

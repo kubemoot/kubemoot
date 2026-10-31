@@ -70,6 +70,20 @@ class CrewMemoryClientTest {
     }
 
     @Test
+    void persistDirectives_nullAndNoDirective_storeNothing() {
+        var c = clientWithoutNats();
+        assertEquals(0, c.persistDirectives(null, "a"));
+        assertEquals(0, c.persistDirectives("no directive here", "a"));
+    }
+
+    @Test
+    void stripDirectives_removesOnlyDirectiveLines() {
+        var c = clientWithoutNats();
+        assertEquals("kept", c.stripDirectives("kept\nREMEMBER: t | k | v"));
+        assertNull(c.stripDirectives(null));
+    }
+
+    @Test
     void persistFromResponse_noDirective_returnsUnchanged() {
         var c = clientWithoutNats();
         String resp = "GPU on rig0 is at 0% utilization.";
