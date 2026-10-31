@@ -20,6 +20,13 @@ import java.util.List;
  */
 final class PromptSize {
 
+    /**
+     * Tokens the chat template adds around each message (role markers and separators),
+     * which the message text does not show. Counted per message so a prompt made of many
+     * short tool results is not estimated under what the engine counts.
+     */
+    static final int MESSAGE_OVERHEAD_TOKENS = 8;
+
     private PromptSize() {}
 
     /** Characters the engine receives for {@code messages} plus {@code specs}. */
@@ -58,19 +65,26 @@ final class PromptSize {
      * Estimated tokens in the next prompt of a tool loop. When the engine reported
      * the previous turn's prompt and reply sizes, those are exact (the prompt size
      * counts a reused prefix too), so only the messages added since are estimated.
-     * Otherwise the whole prompt is estimated with {@code ratio}.
+     * Otherwise the whole prompt is estimated with {@code ratio}. Either way each
+     * estimated message also counts {@link #MESSAGE_OVERHEAD_TOKENS}.
      */
     static long nextPromptTokens(List<ChatMessage> messages, List<ToolSpecification> specs,
                                  long lastPromptTokens, long lastReplyTokens, int messagesAtLastCall,
                                  CharsPerToken ratio) {
         if (lastPromptTokens <= 0 || messagesAtLastCall > messages.size()) {
-            return ratio.tokens(chars(messages, specs));
+            return ratio.tokens(chars(messages, specs)) + overhead(messages.size());
         }
+        var addedMessages = messages.subList(messagesAtLastCall, messages.size());
         long added = 0;
-        for (ChatMessage m : messages.subList(messagesAtLastCall, messages.size())) {
+        for (ChatMessage m : addedMessages) {
             added += chars(m);
         }
-        return lastPromptTokens + Math.max(lastReplyTokens, 0) + ratio.tokens(added);
+        return lastPromptTokens + Math.max(lastReplyTokens, 0) + ratio.tokens(added)
+                + overhead(addedMessages.size());
+    }
+
+    private static long overhead(int messageCount) {
+        return (long) messageCount * MESSAGE_OVERHEAD_TOKENS;
     }
 
     private static int userChars(UserMessage um) {

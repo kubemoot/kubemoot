@@ -569,7 +569,13 @@ public class ChatService {
                 continue; // empty turn: retry budget consumed, loop again
             }
 
-            executeToolCalls(aiMessage, state);
+            executeToolCalls(aiMessage, state, contextLength, toolerRawOutput);
+            if (toolerStopsAfterRefusedRepeat(state, toolerRawOutput)) {
+                throwIfEveryToolFailed(state);
+                log.info("agent {}: a tool call repeated with the same arguments; contributing the tool output "
+                        + "gathered in {} iterations", properties.agentName(), i + 1);
+                return rawOutputResult(state, serverName, pickReason);
+            }
         }
 
         return exhaustedIterationsResult(state, maxIterations, toolerRawOutput,
@@ -1022,26 +1028,86 @@ public class ChatService {
         return answer.equals("NO_DATA") || answer.equals("TOOL_GAP");
     }
 
-    /** Execute every tool call in the turn, accumulating output and enforcing failure caps. */
-    private void executeToolCalls(AiMessage aiMessage, ToolLoopState state) {
+    /**
+     * Execute every tool call in the turn, accumulating output and enforcing failure caps.
+     * A call that already ran twice with the same arguments is refused. A result too large
+     * for the room left in the context window is shown to the model as a stand-in (a tooler,
+     * whose full result still goes to the crew) or as an error asking for less (any other agent).
+     */
+    private void executeToolCalls(AiMessage aiMessage, ToolLoopState state, long contextLength,
+                                  boolean toolerRawOutput) {
+        long promptTokens = contextLength <= 0 ? 0 : PromptSize.nextPromptTokens(state.allMessages,
+                tools().specs(), state.lastPromptTokens, state.lastReplyTokens, state.messagesAtLastCall,
+                charsPerToken);
+        var budget = new ToolResultBudget(contextLength, promptTokens, charsPerToken);
         for (var toolRequest : aiMessage.toolExecutionRequests()) {
-            var executor = findExecutor(toolRequest.name());
-            String result = executor != null
-                    ? executor.execute(toolRequest, null)
-                    : "{\"error\": \"Unknown tool: " + toolRequest.name() + "\"}";
-            state.allMessages.add(new ToolExecutionResultMessage(
-                    toolRequest.id(), toolRequest.name(), result));
-            state.toolsExecuted = true;
-            state.toolCalls++;
-            recordReadAndMetricSignals(toolRequest.name(), toolRequest.arguments(), result, state);
-            // Accumulate the raw output as the tooler's contribution. Cap each
-            // result so a pathologically large tool response cannot blow the
-            // downstream discussion/synthesis context.
-            state.toolOutput.append("[").append(toolRequest.name()).append("]\n")
-                    .append(truncate(result, MAX_TOOL_RESULT_CHARS)).append("\n\n");
-            state.recordGatherResult(toolRequest.name(), result);
-            recordToolFailure(toolRequest.name(), result, state);
+            if (state.repeatGuard.refuses(toolRequest.name(), toolRequest.arguments())) {
+                refuseRepeatedCall(toolRequest, state, toolerRawOutput);
+            } else {
+                executeToolCall(toolRequest, state, budget, toolerRawOutput, contextLength);
+            }
         }
+    }
+
+    private void executeToolCall(dev.langchain4j.agent.tool.ToolExecutionRequest toolRequest, ToolLoopState state,
+                                 ToolResultBudget budget, boolean toolerRawOutput, long contextLength) {
+        var executor = findExecutor(toolRequest.name());
+        String raw = executor != null
+                ? executor.execute(toolRequest, null)
+                : ToolResultBudget.errorJson("Unknown tool: " + toolRequest.name());
+        var admitted = budget.admit(toolRequest.name(), raw, toolerRawOutput);
+        state.allMessages.add(new ToolExecutionResultMessage(
+                toolRequest.id(), toolRequest.name(), admitted.text()));
+        state.toolsExecuted = true;
+        state.toolCalls++;
+        if (admitted.replaced()) {
+            log.info("agent {}: tool '{}' result (~{} tokens) does not fit the {} tokens left of the {}-token "
+                    + "context; the model sees {}", properties.agentName(), toolRequest.name(),
+                    admitted.resultTokens(), admitted.roomTokens(), contextLength,
+                    toolerRawOutput ? "a stand-in and the crew gets the full result" : "an error asking for less");
+        }
+        // A tooler's contribution is the full result, whatever its model was shown. Any other
+        // agent has only what its model saw, so a replaced result counts as an error there.
+        String kept = toolerRawOutput ? raw : admitted.text();
+        if (admitted.replaced() && !toolerRawOutput) {
+            appendToolOutput(state, toolRequest.name(), kept);
+            state.recordGatherResult(toolRequest.name(), kept);
+            return;
+        }
+        recordReadAndMetricSignals(toolRequest.name(), toolRequest.arguments(), raw, state);
+        appendToolOutput(state, toolRequest.name(), kept);
+        state.recordGatherResult(toolRequest.name(), raw);
+        recordToolFailure(toolRequest.name(), raw, state);
+    }
+
+    /** Accumulate one result as the tooler's contribution, capped so a pathological response stays bounded. */
+    private static void appendToolOutput(ToolLoopState state, String toolName, String text) {
+        state.toolOutput.append("[").append(toolName).append("]\n")
+                .append(truncate(text, MAX_TOOL_RESULT_CHARS)).append("\n\n");
+    }
+
+    /**
+     * Answer an identical repeat with an error. A tooler only notes the refusal (it then stops
+     * gathering and posts what it has, so the refusal is not data and not a tool failure). Any
+     * other agent counts it as a failed call, so a model that keeps repeating fails visibly.
+     */
+    private void refuseRepeatedCall(dev.langchain4j.agent.tool.ToolExecutionRequest toolRequest,
+                                    ToolLoopState state, boolean toolerRawOutput) {
+        String refusal = ToolCallRepeatGuard.refusal(toolRequest.name());
+        state.allMessages.add(new ToolExecutionResultMessage(toolRequest.id(), toolRequest.name(), refusal));
+        state.repeatRefused = true;
+        log.info("agent {}: tool '{}' called again with the same arguments; refused",
+                properties.agentName(), toolRequest.name());
+        if (!toolerRawOutput) {
+            state.toolCalls++;
+            state.recordGatherResult(toolRequest.name(), refusal);
+            recordToolFailure(toolRequest.name(), refusal, state);
+        }
+    }
+
+    /** A tooler with output in hand stops gathering once its model repeats an identical call. */
+    private static boolean toolerStopsAfterRefusedRepeat(ToolLoopState state, boolean toolerRawOutput) {
+        return toolerRawOutput && state.repeatRefused && state.toolOutput.length() > 0;
     }
 
     /**
@@ -1152,6 +1218,9 @@ public class ChatService {
         long totalOutput = 0;
         final Map<String, Integer> perToolFailures = new java.util.HashMap<>();
         int totalToolFailures = 0;
+        // Identical calls seen in this evaluation, and whether one was refused.
+        final ToolCallRepeatGuard repeatGuard = new ToolCallRepeatGuard();
+        boolean repeatRefused = false;
         // Every tool call's outcome as "tool: error text", for the failed-gather rule.
         final List<String> failedCalls = new ArrayList<>();
         final List<String> failedTools = new ArrayList<>();
@@ -1212,14 +1281,12 @@ public class ChatService {
         }
     }
 
-    /** Per-tool-result cap, large enough to hold a full cluster resource list (a
-     *  namespace or deployment listing runs well past the old 6000-char value, which
-     *  silently dropped the tail of such lists). The spill writes the whole contribution
-     *  to an object-store file and leaves only a marker on the bus, and the synthesizer
-     *  reads that file back under its own cap, so the context is bounded downstream;
-     *  this cap only needs to be large enough not to lose real tool output before it is
-     *  written. A read failure / pathological response is still bounded by this value. */
-    private static final int MAX_TOOL_RESULT_CHARS = 50_000;
+    /** Per-tool-result cap on a tooler's contribution. The tooler's model never reads the
+     *  full result (it sees a stand-in when the result is large), and the spill writes the
+     *  whole contribution to an object-store file leaving only a marker on the bus, so the
+     *  cap only bounds a pathological response; a cluster-wide pod or resource list must
+     *  arrive whole, because counts and rankings are computed over all of it. */
+    private static final int MAX_TOOL_RESULT_CHARS = 1_000_000;
 
     /** Truncate s to max chars, appending an ellipsis marker when cut. */
     static String truncate(String s, int max) {

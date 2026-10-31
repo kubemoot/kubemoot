@@ -623,7 +623,7 @@ class ChatServiceCapacityTest {
         // The static triage endpoint is unreachable in a unit test; only the placement matters here.
         assertThrows(RuntimeException.class, () -> service(null, null).triageChat("system", "c".repeat(7_000)));
 
-        verify(selector).pickAndClaim(eq(PREFERRED), anyLong(), anyLong(), eq(2_002L));
+        verify(selector).pickAndClaim(eq(PREFERRED), anyLong(), anyLong(), eq(2_336L));
     }
 
     @Test
@@ -688,7 +688,7 @@ class ChatServiceCapacityTest {
         var sizes = tokens.getAllValues();
         assertEquals(4, sizes.size(), sizes.toString());
         assertTrue(sizes.get(0) < 1_000, "a short conversation plans a small prompt: " + sizes);
-        assertEquals(4_572L, sizes.get(2), "an unknown conversation plans the 16,000-character default");
+        assertEquals(5_334L, sizes.get(2), "an unknown conversation plans the 16,000-character default");
         assertTrue(sizes.get(3) <= sizes.get(0), "an empty conversation plans no more than a short one: " + sizes);
         assertTrue(sizes.get(1) >= 20_000, "a 70,000-character conversation plans ~20K tokens: " + sizes);
     }
