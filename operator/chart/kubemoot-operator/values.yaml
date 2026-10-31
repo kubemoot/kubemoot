@@ -304,6 +304,28 @@ nats:
   mcpServer:
     enabled: false   # an MCPServer that lets agents inspect NATS; opt in per cluster
     image: ghcr.io/sinadarbouy/mcp-nats:0.1.4
+  # Limits of the stream that carries every crew's discussion messages (agents, the
+  # coordinator, the dashboard). The stream is shared by all crews in the cluster. These
+  # are the limits a thread needs to be read back after its coordinator restarts: the
+  # stream must still hold the thread's messages, so size maxMessages for the busiest
+  # hour's traffic times the time a restart takes, with headroom. The defaults hold about
+  # four hours of the busiest traffic measured on a two-crew cluster (about 1,200 messages
+  # an hour at the peak). An existing stream is updated to these values on upgrade.
+  # See docs/concepts/signals-and-protocol.md, "The coordinator log".
+  streams:
+    discuss:
+      maxMessages: 5000   # messages kept; the oldest go first. -1 for no limit
+      maxAge: 24h         # how long a message is kept: a number and s, m, h, d, w or y. -1 for no limit
+      maxBytes: -1        # bytes kept, for example 256MiB. -1 for no limit
+
+# The crew coordinators. eventLog makes each coordinator write every decision it makes about
+# a thread (who it convened, the signals it applied, the answer) to the KUBEMOOT_COORDINATOR
+# stream before it acts on the decision, and check that log against the thread's live
+# state when the thread closes. It flows to the KubemootConfig and from there to the
+# KUBEMOOT_COORDINATOR_EVENT_LOG variable of every coordinator Agent; an Agent that sets the
+# variable in spec.deployment.env keeps its own value. Off by default.
+coordinator:
+  eventLog: false
 
 # The engine behind the artifact-access workspace_query tool: read-only SQL over the
 # artifacts of a discussion. sqlite (the default) runs queries inside the artifact-access process

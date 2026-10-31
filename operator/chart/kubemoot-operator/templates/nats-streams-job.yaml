@@ -1,4 +1,19 @@
 {{- if .Values.nats.enabled }}
+{{- $discuss := .Values.nats.streams.discuss }}
+{{- $max := $discuss.maxMessages }}
+{{- if kindIs "string" $max }}
+{{- if not (regexMatch "^(-1|[1-9][0-9]*)$" $max) }}
+{{- fail (printf "nats.streams.discuss.maxMessages must be a whole number or -1, got %v" $max) }}
+{{- end }}
+{{- else if not (and (or (kindIs "float64" $max) (kindIs "int64" $max)) (eq (float64 (int64 $max)) (float64 $max)) (or (eq (float64 $max) -1.0) (ge (float64 $max) 1.0))) }}
+{{- fail (printf "nats.streams.discuss.maxMessages must be a whole number or -1, got %v" $max) }}
+{{- end }}
+{{- if not (regexMatch "^(-1|[1-9][0-9]*[smhdwy])$" (toString $discuss.maxAge)) }}
+{{- fail (printf "nats.streams.discuss.maxAge must be -1 or a number and one of s, m, h, d, w, y (for example 24h), got %v" $discuss.maxAge) }}
+{{- end }}
+{{- if not (regexMatch "^(-1|[1-9][0-9]*([KMGT]i?B)?)$" (toString $discuss.maxBytes)) }}
+{{- fail (printf "nats.streams.discuss.maxBytes must be -1, a number of bytes, or a size such as 256MiB, got %v" $discuss.maxBytes) }}
+{{- end }}
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -81,14 +96,15 @@ spec:
                 --max-age=168h --max-msgs=10000 \
                 --force -s "$NATS_URL" 2>/dev/null || true
 
+              # The limits are the chart values nats.streams.discuss.*.
               nats stream add KUBEMOOT_DISCUSS \
                 --subjects="kubemoot.discuss.>" \
-                --retention=limits --max-age=24h --max-msgs=5000 \
+                --retention=limits --max-age={{ $discuss.maxAge }} --max-msgs={{ int64 $max }} --max-bytes={{ $discuss.maxBytes }} \
                 --storage=file --replicas=1 --discard=old \
                 --defaults -s "$NATS_URL" 2>/dev/null || \
               nats stream update KUBEMOOT_DISCUSS \
                 --subjects="kubemoot.discuss.>" \
-                --max-age=24h --max-msgs=5000 \
+                --max-age={{ $discuss.maxAge }} --max-msgs={{ int64 $max }} --max-bytes={{ $discuss.maxBytes }} \
                 --force -s "$NATS_URL" 2>/dev/null || true
 
               # The coordinators' decision logs, one subject per thread. A coordinator

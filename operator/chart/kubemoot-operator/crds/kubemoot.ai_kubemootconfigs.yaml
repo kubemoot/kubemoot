@@ -82,6 +82,18 @@ spec:
                     - duckdb
                     type: string
                 type: object
+              coordinator:
+                description: Coordinator configures the crew coordinators.
+                properties:
+                  eventLog:
+                    description: |-
+                      EventLog makes every coordinator write each decision it makes about a thread to the
+                      KUBEMOOT_COORDINATOR stream before it acts on the decision, and check the log against
+                      the thread's live state when the thread closes. Default false. The operator sets
+                      KUBEMOOT_COORDINATOR_EVENT_LOG on the coordinator Agents; an Agent that sets the
+                      variable itself in spec.deployment.env keeps its own value.
+                    type: boolean
+                type: object
               defaults:
                 description: Defaults defines default configurations for Kubemoot
                   components

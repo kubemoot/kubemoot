@@ -6,10 +6,12 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /** What the recorder writes, and when it writes nothing. */
@@ -95,12 +97,11 @@ class CoordinatorEventRecorderTest {
         recorder.opened(s, "request");
         var message = msg("{\"messageId\":\"m-7\"}");
 
-        recorder.signalApplied(s, "metrics", "agree", message);
-        recorder.signalApplied(s, "metrics", "agree", message);
+        assertTrue(recorder.signalApplied(s, "metrics", "agree", message));
+        assertTrue(recorder.signalApplied(s, "metrics", "agree", message), "a repeat is answered as already written");
 
         var ids = log.events().stream().skip(1).map(CoordinatorEvent::eventId).toList();
-        assertEquals("t1/0/signal/metrics/m-7", ids.get(0));
-        assertEquals(ids.get(0), ids.get(1), "the stream and the reducer drop the second by this id");
+        assertEquals(List.of("t1/0/signal/metrics/m-7"), ids, "the stream drops the second by this id");
     }
 
     @Test
@@ -208,13 +209,13 @@ class CoordinatorEventRecorderTest {
         var provider = org.mockito.Mockito.mock(NatsConnectionProvider.class);
         try {
             System.clearProperty(CoordinatorEventRecorder.CONFIG_KEY);
-            assertFalse(CoordinatorEventRecorder.fromConfig("c", provider, MAPPER).enabled(), "unset is off");
+            assertFalse(CoordinatorEventRecorder.fromConfig("c", provider, MAPPER, null).enabled(), "unset is off");
 
             System.setProperty(CoordinatorEventRecorder.CONFIG_KEY, "false");
-            assertFalse(CoordinatorEventRecorder.fromConfig("c", provider, MAPPER).enabled());
+            assertFalse(CoordinatorEventRecorder.fromConfig("c", provider, MAPPER, null).enabled());
 
             System.setProperty(CoordinatorEventRecorder.CONFIG_KEY, "true");
-            assertTrue(CoordinatorEventRecorder.fromConfig("c", provider, MAPPER).enabled());
+            assertTrue(CoordinatorEventRecorder.fromConfig("c", provider, MAPPER, null).enabled());
         } finally {
             System.clearProperty(CoordinatorEventRecorder.CONFIG_KEY);
         }
@@ -235,10 +236,10 @@ class CoordinatorEventRecorderTest {
 
     @Test
     void aLogThatThrowsNeverReachesTheOrchestrator() {
-        CoordinatorEventLog broken = (subject, event) -> {
+        CoordinatorEventLog broken = (subject, event, expected) -> {
             throw new IllegalStateException("stream gone");
         };
-        var failing = new CoordinatorEventRecorder(true, broken, (crew, id) -> id, "c", MAPPER, Instant::now);
+        var failing = new CoordinatorEventRecorder(true, broken, (crew, id) -> id, "c", MAPPER, Instant::now, log.metrics());
         var s = thread();
 
         assertDoesNotThrow(() -> failing.opened(s, "request"));
@@ -248,9 +249,168 @@ class CoordinatorEventRecorderTest {
     void aSubjectBuilderThatThrowsNeverReachesTheOrchestrator() {
         var failing = new CoordinatorEventRecorder(true, log, (crew, id) -> {
             throw new IllegalStateException("no scope");
-        }, "c", MAPPER, Instant::now);
+        }, "c", MAPPER, Instant::now, log.metrics());
 
         assertDoesNotThrow(() -> failing.opened(thread(), "request"));
         assertTrue(log.events().isEmpty());
+    }
+
+    // --- write-ahead, fencing, derived ids, the check at close ---
+
+    @Test
+    void aMethodSaysWhetherTheDecisionMayBeCarriedOut() {
+        var s = thread();
+        recorder.opened(s, "request");
+
+        assertTrue(recorder.phaseEntered(s, "thread_start"), "in the log");
+        log.failEventsOfType("settled");
+        assertFalse(recorder.settled(s, "quiet"), "not in the log: the effect must not happen");
+        assertEquals(1, log.counted("kubemoot_coordinator_log_appends_total", "lost"));
+        assertFalse(recorder.fenced(s), "a failed append is not a fence");
+        log.stopFailing("settled");
+        assertTrue(recorder.settled(s, "quiet"), "the next append goes through");
+    }
+
+    @Test
+    void anOffRecorderAlwaysAllowsTheDecision() {
+        var off = CoordinatorEventRecorder.off();
+
+        assertTrue(off.synthesisDone(thread(), "synthesized", "general", "answer"));
+        assertFalse(off.fenced(thread()));
+    }
+
+    @Test
+    void aWriterAnotherOneOutranIsFencedAndNothingMoreIsWrittenForTheThread() {
+        var s = thread();
+        recorder.opened(s, "request");
+        log.anotherWriterAppendsTo("kubemoot.coordinator.ns.crew.t1");
+
+        assertFalse(recorder.phaseEntered(s, "thread_start"), "refused: another writer got there first");
+
+        assertTrue(recorder.fenced(s));
+        int stored = log.events().size();
+        assertFalse(recorder.settled(s, "quiet"), "a fenced thread permits nothing");
+        assertFalse(recorder.synthesisDone(s, "synthesized", "general", "answer"));
+        assertEquals(stored, log.events().size());
+        assertEquals(1, log.counted("kubemoot_coordinator_log_appends_total", "fenced"));
+    }
+
+    @Test
+    void eachAppendStatesTheSequenceOfTheOneBefore() {
+        var s = thread();
+        recorder.opened(s, "request");
+        recorder.phaseEntered(s, "thread_start");
+        recorder.settled(s, "quiet");
+
+        assertEquals(List.of(0L, 1L, 2L), log.expectedSequences());
+        assertEquals(3, s.trace.lastSequence());
+    }
+
+    @Test
+    void aMessageIdIsDerivedFromTheEventThatDecidedIt() {
+        var s = thread();
+        recorder.opened(s, "request");
+        assertNull(recorder.messageId(s, "synthesis_done", "synthesis"), "no such event yet");
+
+        recorder.synthesisDone(s, "synthesized", "general", "answer");
+
+        assertEquals("t1/0/synthesis/done/1/msg/synthesis", recorder.messageId(s, "synthesis_done", "synthesis"));
+        assertEquals("t1/0/closed/msg/thread_close", recorder.closeMessageId(s));
+        assertNull(CoordinatorEventRecorder.off().messageId(s, "synthesis_done", "synthesis"));
+        assertNull(CoordinatorEventRecorder.off().closeMessageId(s));
+    }
+
+    @Test
+    void aRepeatedDecisionHasTheSameMessageId() {
+        var first = thread();
+        var second = thread();
+        var other = new RecordingEventLog().recorder();
+        recorder.opened(first, "request");
+        other.opened(second, "request");
+
+        recorder.synthesisDone(first, "synthesized", "general", "answer");
+        other.synthesisDone(second, "synthesized", "general", "answer");
+
+        assertEquals(recorder.messageId(first, "synthesis_done", "synthesis"),
+                other.messageId(second, "synthesis_done", "synthesis"));
+    }
+
+    @Test
+    void theCheckAtCloseCountsAMatchWhenTheLogRebuildsTheThread() {
+        var s = thread();
+        recorder.opened(s, "request");
+        s.phase = Phase.CLOSED;
+        recorder.closed(s, "zombie", "general");
+
+        recorder.checkAtClose(s);
+
+        assertEquals(1, log.counted("kubemoot_coordinator_log_checks_total", "match"));
+        assertEquals(0, log.counted("kubemoot_coordinator_log_checks_total", "mismatch"));
+    }
+
+    @Test
+    void theCheckAtCloseCountsAMismatchWhenTheLiveStateMovedWithoutAnEvent() {
+        var s = thread();
+        recorder.opened(s, "request");
+        s.phase = Phase.CLOSED;
+        recorder.closed(s, "zombie", "general");
+        s.agreeSignals.put("metrics", "11 pods");
+
+        assertDoesNotThrow(() -> recorder.checkAtClose(s));
+
+        assertEquals(1, log.counted("kubemoot_coordinator_log_checks_total", "mismatch"));
+    }
+
+    @Test
+    void theCheckAtCloseSkipsAThreadItDoesNotOwnOrNeverLogged() {
+        var fenced = thread();
+        recorder.opened(fenced, "request");
+        fenced.trace.fence();
+        recorder.checkAtClose(fenced);
+        recorder.checkAtClose(thread());
+        CoordinatorEventRecorder.off().checkAtClose(thread());
+
+        assertEquals(0, log.counted("kubemoot_coordinator_log_checks_total", "match"));
+        assertEquals(0, log.counted("kubemoot_coordinator_log_checks_total", "mismatch"));
+    }
+
+    @Test
+    void anEventWhoseAcknowledgementWasLostButWasStoredDoesNotFenceTheNextAppend() {
+        var s = thread();
+        recorder.opened(s, "request");
+        log.storeNextEventOfTypeButLoseItsAck("phase_entered");
+
+        assertFalse(recorder.phaseEntered(s, "thread_start"), "the answer never came, so the effect waits");
+        assertTrue(recorder.settled(s, "quiet"), "the next append finds the earlier event was stored and carries on");
+
+        assertFalse(recorder.fenced(s));
+        assertEquals(List.of("thread_opened", "phase_entered", "settled"), log.types());
+        assertEquals(2, s.trace.kept().stream().filter(e -> !e.type().equals("settled")).count(),
+                "the stored event is kept for the check at close");
+        assertEquals(0, log.counted("kubemoot_coordinator_log_appends_total", "fenced"));
+    }
+
+    @Test
+    void aRefusalAfterALostAcknowledgementIsStillAFenceWhenAnotherWriterWrote() {
+        var s = thread();
+        recorder.opened(s, "request");
+        log.failEventsOfType("phase_entered");
+        assertFalse(recorder.phaseEntered(s, "thread_start"));
+        log.stopFailing("phase_entered");
+        log.anotherWriterAppendsTo("kubemoot.coordinator.ns.crew.t1");
+
+        assertFalse(recorder.settled(s, "quiet"));
+
+        assertTrue(recorder.fenced(s), "the last message is not one of ours");
+    }
+
+    @Test
+    void aMessageIdIsNotDerivedFromAnEventOfAnEarlierRound() {
+        var s = thread();
+        recorder.opened(s, "request");
+        recorder.synthesisDone(s, "synthesized", "general", "answer");
+        recorder.reopened(s);
+
+        assertNull(recorder.messageId(s, "synthesis_done", "synthesis"), "round 1 has not written its answer yet");
     }
 }

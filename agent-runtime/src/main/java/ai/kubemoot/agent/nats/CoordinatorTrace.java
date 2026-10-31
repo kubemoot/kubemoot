@@ -1,5 +1,7 @@
 package ai.kubemoot.agent.nats;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -17,6 +19,16 @@ final class CoordinatorTrace {
     private final Map<String, Integer> phaseEntries = new ConcurrentHashMap<>();
 
     private final Object lock = new Object();
+
+    /** The most events kept for the check at close; a thread past it is not checked. */
+    static final int MAX_KEPT_EVENTS = 2048;
+
+    private long lastSequence;
+    private volatile boolean fenced;
+    private boolean overflowed;
+    private final List<CoordinatorEvent> kept = new ArrayList<>();
+    private final Map<String, String> lastEventIds = new ConcurrentHashMap<>();
+    private final List<CoordinatorEvent> unsure = new ArrayList<>();
 
     /**
      * Held while an event is built and handed to the log, so the events of one thread
@@ -48,5 +60,61 @@ final class CoordinatorTrace {
     /** Counts an entry into {@code phase} in the current round; the first entry is 1. */
     int enter(String phase) {
         return phaseEntries.merge(round.get() + ":" + phase, 1, Integer::sum);
+    }
+
+    /** The sequence of the last event this writer stored on the thread's subject; 0 before the first. */
+    long lastSequence() {
+        synchronized (lock) {
+            return lastSequence;
+        }
+    }
+
+    /** Records an event the log acknowledged at {@code sequence}. */
+    void appended(CoordinatorEvent event, long sequence) {
+        synchronized (lock) {
+            unsure.clear();
+            lastSequence = sequence;
+            lastEventIds.put(event.type(), event.eventId());
+            if (kept.size() < MAX_KEPT_EVENTS) {
+                kept.add(event);
+            } else {
+                overflowed = true;
+            }
+        }
+    }
+
+    /** An append failed without the log saying whether the event was stored. */
+    void unsure(CoordinatorEvent event) {
+        synchronized (lock) {
+            unsure.add(event);
+        }
+    }
+
+    /** The events whose append failed since the last acknowledged one (they may have been stored). */
+    List<CoordinatorEvent> unsureEvents() {
+        synchronized (lock) {
+            return List.copyOf(unsure);
+        }
+    }
+
+    /** The id of the event of {@code type} written last, or null when none was. */
+    String lastEventId(String type) {
+        return lastEventIds.get(type);
+    }
+
+    /** Another writer owns the thread: nothing more is written or done for it. */
+    void fence() {
+        fenced = true;
+    }
+
+    boolean fenced() {
+        return fenced;
+    }
+
+    /** The events the log acknowledged, in order; null when there were too many to keep. */
+    List<CoordinatorEvent> kept() {
+        synchronized (lock) {
+            return overflowed ? null : List.copyOf(kept);
+        }
     }
 }

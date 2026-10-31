@@ -128,9 +128,13 @@ The coordinator decides things no agent message records: which agents it convene
 agents a phase waits for and by when, why a phase ended, what the answer is. Those
 decisions can be written to a log, one per thread, so that what the coordinator knew about
 a thread can be read back, and so that a later version can rebuild a thread's state from
-the log. The log is off by default. Set `KUBEMOOT_COORDINATOR_EVENT_LOG=true` on the
-coordinator (in the Agent's `spec.deployment.env`) to turn it on. Turning it on writes
-events and changes nothing else in how a discussion runs.
+the log. The log is off by default. Turn it on for every coordinator with the chart value
+`coordinator.eventLog=true` (it reaches the [KubemootConfig](../../reference/kubemootconfig-guide/#coordinator)
+and from there the `KUBEMOOT_COORDINATOR_EVENT_LOG` variable of each coordinator Agent), or
+for one coordinator by setting the variable in the Agent's `spec.deployment.env`, which
+wins over the chart. With the log on, a coordinator [writes ahead](#write-ahead), keeps
+other coordinators off its threads, and [checks the log](#the-check-at-close) when a thread
+closes; with it off nothing about a discussion changes.
 
 Each thread has its own subject, `kubemoot.coordinator.<namespace>.<crew>.<threadId>`,
 held by the JetStream stream `KUBEMOOT_COORDINATOR` for a day. Agents do not read it.
@@ -169,8 +173,8 @@ A few rules hold for every event:
   Failures are recorded as failures, never as a stand-aside.
 - **Heartbeats are not recorded.** A heartbeat only pushes an agent's deadline out; the
   deadline in the log is the last one an event set.
-- **Writing is best effort.** If the stream cannot be reached the coordinator carries on
-  and the event is lost; a discussion never waits for the log.
+- **An event that cannot be written stops its effect, not the thread.** See
+  [Write-ahead](#write-ahead).
 - **The state rebuilds from the events.** Applying a thread's events in order, and skipping
   any event whose `eventId` was already applied, gives the state the coordinator held at
   the last event: the phase and its clock, the convened agents, the roster and who has
@@ -178,6 +182,87 @@ A few rules hold for every event:
   set for each (a heartbeat can have pushed the live deadline later), and the answer. The coordinator
   writes the log and can rebuild a thread's state from it; a coordinator that starts does
   not yet resume threads from it.
+
+### Write-ahead
+
+A decision's event is written to the log, and acknowledged by the stream, before the
+coordinator carries the decision out:
+
+| Decision (event) | Carried out only after it is in the log |
+|---|---|
+| `subcommittee_convened` | the `advisory` brief and the `subcommittee` line |
+| `evaluation_started` | the `advisory_ready` signal that tells the toolers to evaluate |
+| `review_started` | the `review_ready` signal that wakes the analysts |
+| `synthesis_done` | the `synthesis` answer (`thread_close` follows in every case, see below) |
+
+So the log never lacks a decision that agents have already acted on, and a coordinator
+that stopped between the two can repeat the effect. If the stream cannot be reached
+the event is not written and its effect is not published; the thread's
+phases still move on, so a discussion the log cannot follow ends in the fallback answer or
+at the hard ceiling, as one with a silent agent does, and the loss is counted in
+`kubemoot_coordinator_log_appends_total{result="lost"}`. If the answer itself cannot be
+written, nothing but `thread_close` is published: the thread still closes, `thread_close`
+tells the agents the thread is over so they stop heartbeating on it, and the asker still
+receives the answer; only the `synthesis` message and the log entries are missing.
+
+The bus messages that carry out a logged decision have ids made from the event's id (the
+answer is `<threadId>/0/synthesis/done/1/msg/synthesis`, the close
+`<threadId>/0/closed/msg/thread_close`). The same decision carried out twice has the same
+`messageId`, which every consumer already drops, and the same `Nats-Msg-Id`
+(`<messageId>@<subject>`, one per subject the message goes to), which the
+`KUBEMOOT_DISCUSS` stream drops inside its duplicate window (two minutes, the NATS
+default; a repeat after a longer gap is still dropped by the consumers' `messageId` check). With the log
+off these messages keep a random `messageId` and carry no `Nats-Msg-Id`.
+
+### One coordinator per thread
+
+Every append states the sequence of the last event this coordinator wrote on the thread's
+subject (JetStream's expected-last-subject-sequence). If another writer appended to the
+thread in between, the stream refuses the append: this coordinator no longer owns the
+thread. It logs the refusal at WARN, counts it in
+`kubemoot_coordinator_log_appends_total{result="fenced"}`, and stops acting on the thread:
+it publishes nothing more for it, reads none of its messages and runs none of its phase
+checks. Because decisions are written before they are acted on, a coordinator that was
+outrun cannot publish an answer the other one did not see. A fenced thread's asker is
+released without an answer (the other coordinator owns it), and a fenced thread past the
+zombie age is dropped without publishing. A refusal that follows an append whose
+acknowledgement never came is not taken for a fence at once: the coordinator reads the
+thread's last event, and when it is the one it was waiting for, the event was stored and the
+coordinator carries on from its sequence. There is no lease yet to decide which coordinator
+takes a thread, so the fence is the guard against two coordinators running one thread.
+
+### The check at close
+
+When a thread closes, the coordinator rebuilds the thread's state from the events the
+stream acknowledged for it and compares it with the state it holds. They agree on every
+field except an agent's pending deadline, which a heartbeat moves without an event. On a
+difference the coordinator logs a WARN naming each differing field with both values
+(`signals.agree: log=[] live=[metrics]`) and counts the check in
+`kubemoot_coordinator_log_checks_total{result="mismatch"}`; a match is counted as
+`match`. A difference never fails the thread. A thread with more than 2,048 events is not
+checked.
+
+### Stream limits
+
+The coordinator log is held by `KUBEMOOT_COORDINATOR` for 24 hours: 100,000 events, 512 per
+thread, 256 MiB. The discussion messages the log points at (`messageId`) stay on the
+`KUBEMOOT_DISCUSS` stream, which every crew in the cluster shares. Its limits are chart
+values, because a thread can be read back only while its messages are still on the stream:
+
+| Chart value | Default | Meaning |
+|---|---|---|
+| `nats.streams.discuss.maxMessages` | `5000` | Messages kept across all crews; the oldest go first. `-1` for no limit |
+| `nats.streams.discuss.maxAge` | `24h` | How long a message is kept: a number and `s`, `m`, `h`, `d`, `w` or `y`. `-1` for no limit |
+| `nats.streams.discuss.maxBytes` | `-1` | Bytes kept, such as `256MiB`. `-1` for no limit |
+
+A thread lives minutes (the hard ceiling is about seven) and sends 6 to about 50 messages, 15 at
+the median. Size `maxMessages` for the busiest traffic of all crews multiplied by the time
+between a coordinator stopping and its replacement running, plus a thread's life, with
+headroom. On a cluster with two crews the busiest stretch measured about 1,200 messages an
+hour, so the default holds about four hours of it, many times what a restart needs; a
+cluster that runs many crews at once, or fitness suites alongside live traffic, raises the
+value. The job that creates the streams runs on every install and upgrade and updates an
+existing stream to the values.
 
 ## The bus contract
 

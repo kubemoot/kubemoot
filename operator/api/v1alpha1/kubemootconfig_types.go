@@ -210,6 +210,21 @@ type KubemootConfigSpec struct {
 	// +kubebuilder:default={}
 	// +optional
 	Artifacts ArtifactsConfig `json:"artifacts,omitempty"`
+
+	// Coordinator configures the crew coordinators.
+	// +optional
+	Coordinator *CoordinatorConfig `json:"coordinator,omitempty"`
+}
+
+// CoordinatorConfig configures the crew coordinators.
+type CoordinatorConfig struct {
+	// EventLog makes every coordinator write each decision it makes about a thread to the
+	// KUBEMOOT_COORDINATOR stream before it acts on the decision, and check the log against
+	// the thread's live state when the thread closes. Default false. The operator sets
+	// KUBEMOOT_COORDINATOR_EVENT_LOG on the coordinator Agents; an Agent that sets the
+	// variable itself in spec.deployment.env keeps its own value.
+	// +optional
+	EventLog bool `json:"eventLog,omitempty"`
 }
 
 // ArtifactQueryEngine names the engine behind the artifact-access workspace_query tool.

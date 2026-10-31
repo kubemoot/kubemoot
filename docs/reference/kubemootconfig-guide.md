@@ -75,6 +75,12 @@ The singleton must be named `default`. The operator creates it via the Helm char
 |-------|------|---------|-------------|
 | `artifacts.queryEngine` | enum | `sqlite` | The engine behind the `workspace_query` tool of the [artifact-access](../../concepts/discussion-artifact-store/#query-with-sql) read-ops server. `sqlite` is the default, also when the field or the whole `artifacts` object is left out: it runs inside the artifact-access process, so nothing is added to the image, and it answers small artifacts in milliseconds with a few MB of memory. `none` is the explicit way to turn the tool off: no query tool is offered. `duckdb` is the option for large data: it is faster on large scans, but the artifact-access image must carry the `duckdb` program, and without it the server logs why and offers no query tool. See [Query engines](../../concepts/discussion-artifact-store/#query-engines). The operator sets `ARTIFACT_QUERY_ENGINE` on every MCPServer that selects `spec.kubemootImage: artifactAccess`; a server that sets the variable itself keeps its own value. For `sqlite` and `duckdb` (everything but `none`) the operator also adds a 1Gi `emptyDir` at `/artifacts` and sets `TMPDIR` to it (see [Workspace directory](../../concepts/discussion-artifact-store/#workspace-directory)). The operator chart sets it from the value `artifacts.queryEngine` |
 
+### Coordinator
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `coordinator.eventLog` | bool | `false` | Every coordinator writes each decision it makes about a thread to the `KUBEMOOT_COORDINATOR` stream before it acts on it, keeps other coordinators off its threads, and checks the log against the thread's live state when the thread closes. See [The coordinator log](../../concepts/signals-and-protocol/#the-coordinator-log). The operator sets `KUBEMOOT_COORDINATOR_EVENT_LOG=true` on every Agent whose `discussRole` is `coordinator`; an Agent that sets the variable itself in `spec.deployment.env` keeps its own value. The operator chart sets it from the value `coordinator.eventLog` |
+
 ## Status
 
 | Field | Type | Description |
