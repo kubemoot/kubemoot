@@ -606,7 +606,9 @@ public class ChatService {
      * posting error text as data. The metrics drill re-prompt needs another turn,
      * so it does not run here; an empty metric result is small, so a full window
      * almost always holds real data. Any other agent needs the question in the
-     * next turn, so it fails visibly with CONTEXT_EXCEEDED.
+     * next turn, so it fails visibly with CONTEXT_EXCEEDED. A tooler already holding output
+     * stops earlier, once less than the reply reserve is left: its stand-ins for large results
+     * keep each result small, so the window fills with them rather than with one big result.
      */
     private java.util.Optional<ToolLoopResult> contributionWhenContextIsFull(
             ToolLoopState state, long contextLength, int iteration, boolean toolerRawOutput,
@@ -616,24 +618,38 @@ public class ChatService {
         }
         long next = PromptSize.nextPromptTokens(state.allMessages, tools().specs(),
                 state.lastPromptTokens, state.lastReplyTokens, state.messagesAtLastCall, charsPerToken);
-        if (next <= contextLength) {
+        boolean holdsOutput = toolerHoldsOutput(state, toolerRawOutput);
+        long reserve = holdsOutput ? ToolResultBudget.replyReserve(contextLength) : 0;
+        if (contextLength - next >= reserve) {
             return java.util.Optional.empty();
         }
-        if (toolerRawOutput && state.toolsExecuted && state.toolOutput.length() > 0) {
-            if (state.totalToolFailures >= state.toolCalls) {
-                throw new ToolCallFailure(ToolCallFailure.FailureType.GATHER_FAILED, null, null, iteration,
-                        "every tool call failed and the next prompt (~" + next + " tokens) exceeds the "
-                                + contextLength + "-token context window");
-            }
-            log.info("agent {}: the next prompt (~{} tokens) exceeds the {}-token context; "
-                    + "contributing the tool output gathered in {} iterations", properties.agentName(),
-                    next, contextLength, iteration);
-            return java.util.Optional.of(rawOutputResult(state, serverName, pickReason));
+        if (holdsOutput) {
+            return java.util.Optional.of(toolerPostsWhatItGathered(state, contextLength, next,
+                    serverName, pickReason));
         }
         throw new ToolCallFailure(ToolCallFailure.FailureType.CONTEXT_EXCEEDED,
                 null, null, iteration,
                 "The next prompt (~" + next + " tokens) exceeds the " + contextLength
                         + "-token context window of the chosen server at iteration " + iteration);
+    }
+
+    /** A tooler that already holds raw tool output: its contribution is complete as it stands. */
+    private static boolean toolerHoldsOutput(ToolLoopState state, boolean toolerRawOutput) {
+        return toolerRawOutput && state.toolsExecuted && state.toolOutput.length() > 0;
+    }
+
+    /**
+     * Stop a tooler whose window has no room for another model turn (less than the reply reserve
+     * left, or none at all) and post what it gathered; GATHER_FAILED when every call failed.
+     */
+    private ToolLoopResult toolerPostsWhatItGathered(ToolLoopState state, long contextLength, long next,
+            String serverName, String pickReason) {
+        throwIfEveryToolFailed(state);
+        log.info("agent {}: the next prompt (~{} tokens) leaves less than the {}-token reply reserve of the "
+                + "{}-token context; stopping with {} tool calls and {} chars of output as the contribution",
+                properties.agentName(), next, ToolResultBudget.replyReserve(contextLength), contextLength,
+                state.toolCalls, state.toolOutput.length());
+        return rawOutputResult(state, serverName, pickReason);
     }
 
     /**
@@ -1191,7 +1207,7 @@ public class ChatService {
      */
     private ToolLoopResult exhaustedIterationsResult(ToolLoopState state, int maxIterations,
             boolean toolerRawOutput, String serverName, String pickReason) {
-        if (toolerRawOutput && state.toolsExecuted && state.toolOutput.length() > 0) {
+        if (toolerHoldsOutput(state, toolerRawOutput)) {
             log.info("iterations-exhausted for tooler {}: posting {} chars of raw tool output as the contribution",
                     properties.agentName(), state.toolOutput.length());
             throwIfEveryToolFailed(state);

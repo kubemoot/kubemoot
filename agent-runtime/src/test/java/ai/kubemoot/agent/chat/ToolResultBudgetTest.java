@@ -132,4 +132,28 @@ class ToolResultBudgetTest {
         assertTrue(over.replaced());
         assertEquals(8_672, over.roomTokens());
     }
+
+    @Test
+    void tooler_standInKeepsTheHeadWhileTwiceTheReserveIsLeft() {
+        // Window 32768, reserve 4096: the room after the reserve is 4096 or more.
+        var budget = new ToolResultBudget(32_768, 24_576, defaultRatio());
+
+        var admission = budget.admit("pods_list", "row\n".repeat(60_000), true);
+
+        assertTrue(admission.replaced());
+        assertTrue(admission.text().contains("First " + ToolResultStandIn.HEAD_LINES + " lines"), admission.text());
+    }
+
+    @Test
+    void tooler_standInDropsTheHeadOnceLessThanTwiceTheReserveIsLeft() {
+        // Room after the reserve is 4095 tokens, one under the reserve.
+        var budget = new ToolResultBudget(32_768, 24_577, defaultRatio());
+
+        var admission = budget.admit("pods_list", "row\n".repeat(60_000), true);
+
+        assertTrue(admission.replaced());
+        assertFalse(admission.text().contains("First "), admission.text());
+        assertTrue(admission.text().contains("Size: 240000 bytes, 60000 lines."), admission.text());
+        assertTrue(admission.text().contains("stop: the crew receives all of it"), admission.text());
+    }
 }
