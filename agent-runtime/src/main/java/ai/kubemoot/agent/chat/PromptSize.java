@@ -72,15 +72,35 @@ final class PromptSize {
                                  long lastPromptTokens, long lastReplyTokens, int messagesAtLastCall,
                                  CharsPerToken ratio) {
         if (lastPromptTokens <= 0 || messagesAtLastCall > messages.size()) {
-            return ratio.tokens(chars(messages, specs)) + overhead(messages.size());
+            return ratio.tokens(estimateChars(messages, specs)) + overhead(messages.size());
         }
         var addedMessages = messages.subList(messagesAtLastCall, messages.size());
-        long added = 0;
+        long added = standInExtra(addedMessages);
         for (ChatMessage m : addedMessages) {
             added += chars(m);
         }
         return lastPromptTokens + Math.max(lastReplyTokens, 0) + ratio.tokens(added)
                 + overhead(addedMessages.size());
+    }
+
+    /**
+     * Characters the estimate counts for {@code messages} plus {@code specs}: the characters sent
+     * plus the extra for stand-ins. The estimate and the ratio learned from the engine's reports
+     * both use this, so the ratio does not absorb stand-in density a second time.
+     */
+    static long estimateChars(List<ChatMessage> messages, List<ToolSpecification> specs) {
+        return chars(messages, specs) + standInExtra(messages);
+    }
+
+    /** Characters to add for the tool-result stand-ins among {@code messages}; see {@link ToolResultStandIn#extraChars}. */
+    static long standInExtra(List<ChatMessage> messages) {
+        long extra = 0;
+        for (ChatMessage m : messages) {
+            if (m instanceof ToolExecutionResultMessage tr) {
+                extra += ToolResultStandIn.extraChars(tr.text());
+            }
+        }
+        return extra;
     }
 
     private static long overhead(int messageCount) {

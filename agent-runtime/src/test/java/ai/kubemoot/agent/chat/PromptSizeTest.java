@@ -39,6 +39,52 @@ class PromptSizeTest {
         assertEquals(expected, PromptSize.chars(loopMessages(), List.of(spec)));
     }
 
+    private static String numericJson() {
+        return "{\"vmid\":101,\"cpu\":[0.12,0.34,0.56],\"mem\":[1048576,2097152]}\n".repeat(25);
+    }
+
+    @Test
+    void extraChars_countsDigitsAndSymbolsOfAStandInDenser_andNothingElse() {
+        assertEquals(0, ToolResultStandIn.extraChars("plain prose 123 {\"a\":1}"));
+        assertEquals(0, ToolResultStandIn.extraChars(null));
+        String withDigits = ToolResultStandIn.of("t", "12345\n");
+        String withoutDigits = ToolResultStandIn.of("t", "abcde\n");
+        assertEquals(5 * ToolResultStandIn.DIGIT_EXTRA,
+                ToolResultStandIn.extraChars(withDigits) - ToolResultStandIn.extraChars(withoutDigits));
+    }
+
+    @Test
+    void aNumericStandInHead_isEstimatedDenserThanPlainText() {
+        String numeric = ToolResultStandIn.of("proxmox-vm-metrics", numericJson());
+        String prose = ToolResultStandIn.of("proxmox-vm-metrics", "word ".repeat(300));
+        var ratio = new CharsPerToken();
+        long numericTokens = PromptSize.nextPromptTokens(standInPrompt(numeric), List.of(), 0, 0, 0, ratio);
+        long proseTokens = PromptSize.nextPromptTokens(standInPrompt(prose), List.of(), 0, 0, 0, ratio);
+        long plainEstimate = ratio.tokens(PromptSize.chars(standInPrompt(numeric), List.of()))
+                + 2 * PromptSize.MESSAGE_OVERHEAD_TOKENS;
+        assertTrue(numericTokens > plainEstimate + 300, "digits and symbols add tokens: " + numericTokens);
+        assertTrue(proseTokens < numericTokens);
+    }
+
+    @Test
+    void fifteenNumericStandIns_areCountedFarAboveTheProseRatio() {
+        var call = ToolExecutionRequest.builder().id("1").name("proxmox-vm-metrics").arguments("{}").build();
+        String standIn = ToolResultStandIn.of("proxmox-vm-metrics", numericJson());
+        List<ChatMessage> messages = new ArrayList<>();
+        for (int i = 0; i < 15; i++) {
+            messages.add(ToolExecutionResultMessage.from(call, standIn));
+        }
+        var ratio = new CharsPerToken();
+        long counted = PromptSize.nextPromptTokens(messages, List.of(), 0, 0, 0, ratio);
+        long plain = ratio.tokens(PromptSize.chars(messages, List.of())) + 15 * PromptSize.MESSAGE_OVERHEAD_TOKENS;
+        assertTrue(counted >= plain * 1.5, counted + " against " + plain);
+    }
+
+    private static List<ChatMessage> standInPrompt(String standIn) {
+        var call = ToolExecutionRequest.builder().id("1").name("proxmox-vm-metrics").arguments("{}").build();
+        return List.of(UserMessage.from("q"), ToolExecutionResultMessage.from(call, standIn));
+    }
+
     @Test
     void chars_toleratesNullSpecsAndEmptyMessages() {
         assertEquals(0, PromptSize.chars(List.of(), null));

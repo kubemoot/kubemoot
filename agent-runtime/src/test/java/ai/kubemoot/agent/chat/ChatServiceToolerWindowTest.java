@@ -189,4 +189,98 @@ class ChatServiceToolerWindowTest {
         assertEquals(6, turns.get());
         assertTrue(result.text().contains("{\"small\": {\"vmid\":5}}"), result.text());
     }
+
+    private static final String REJECTION = "HTTP 400: This model's maximum context length is 32768 tokens. "
+            + "However, your prompt contains at least 32769 input tokens, please reduce the length.";
+
+    /**
+     * The model calls the tool every turn, and from turn {@code rejectAt} on the server refuses the prompt
+     * with {@code failure}, as vLLM does when the estimate undercounted.
+     */
+    private AtomicInteger modelRejectsFromTurn(int rejectAt, RuntimeException failure) {
+        var turns = new AtomicInteger();
+        when(chatModel.chat(any(ChatRequest.class))).thenAnswer(inv -> {
+            int turn = turns.getAndIncrement();
+            if (turn >= rejectAt) {
+                throw failure;
+            }
+            var call = ToolExecutionRequest.builder().id("c" + turn).name("t")
+                    .arguments("{\"vmid\":" + turn + "}").build();
+            var response = mock(ChatResponse.class);
+            when(response.aiMessage()).thenReturn(AiMessage.from(List.of(call)));
+            when(response.tokenUsage()).thenReturn(new TokenUsage(100, 20));
+            return response;
+        });
+        return turns;
+    }
+
+    private static String bigResult(ToolExecutionRequest request) {
+        return "[" + request.arguments() + "]\n" + "m".repeat(25_000);
+    }
+
+    @Test
+    void serverRejectsAPromptTheEstimatePassed_theToolerPostsEveryGatheredResultAndLearnsTheRatio() {
+        registerTools(List.of("t"), ChatServiceToolerWindowTest::bigResult);
+        var turns = modelRejectsFromTurn(3, new RuntimeException(REJECTION));
+        var service = service(15);
+
+        var result = service.callWithToolLoop(question(300), chatModel, "vllm-rig1", "test", true, WINDOW);
+
+        assertEquals(4, turns.get(), "three results gathered, then the rejected call");
+        for (int vmid = 0; vmid < 3; vmid++) {
+            assertTrue(result.text().contains("[{\"vmid\":" + vmid + "}]\n" + "m".repeat(25_000)),
+                    "result of call " + vmid + " is in the contribution");
+        }
+        // The first turn's report (300 characters, 100 tokens) set 3.0; the server's report (about
+        // 75,300 characters, 32,769 tokens) then moves it toward 2.3.
+        double expected = 3.0 + CharsPerToken.ALPHA * (75_300.0 / 32_769 - 3.0);
+        assertEquals(expected, service.learnedCharsPerToken(), 0.05);
+    }
+
+    @Test
+    void serverRejectsAPrompt_aNonToolerKeepsTheFailure() {
+        registerTools(List.of("t"), ChatServiceToolerWindowTest::bigResult);
+        var failure = new RuntimeException(REJECTION);
+        modelRejectsFromTurn(3, failure);
+
+        var thrown = assertThrows(RuntimeException.class,
+                () -> service(15).callWithToolLoop(question(300), chatModel, "s", "test", false, WINDOW));
+
+        assertSame(failure, thrown);
+    }
+
+    @Test
+    void serverRejectsTheFirstPrompt_aToolerHoldingNothingKeepsTheFailure() {
+        registerTools(List.of("t"), ChatServiceToolerWindowTest::bigResult);
+        var failure = new RuntimeException(REJECTION);
+        modelRejectsFromTurn(0, failure);
+
+        var thrown = assertThrows(RuntimeException.class,
+                () -> service(15).callWithToolLoop(question(300), chatModel, "s", "test", true, WINDOW));
+
+        assertSame(failure, thrown);
+    }
+
+    @Test
+    void serverRejectsAPrompt_everyResultAnError_theGatherFails() {
+        registerTools(List.of("t"), r -> "{\"error\": \"boom\"}");
+        modelRejectsFromTurn(1, new RuntimeException(REJECTION));
+
+        var failure = assertThrows(ToolCallFailure.class,
+                () -> service(15).callWithToolLoop(question(300), chatModel, "s", "test", true, WINDOW));
+
+        assertEquals(ToolCallFailure.FailureType.GATHER_FAILED, failure.failureType());
+    }
+
+    @Test
+    void anotherModelError_aToolerHoldingOutputStillFails() {
+        registerTools(List.of("t"), ChatServiceToolerWindowTest::bigResult);
+        var failure = new RuntimeException("connection reset");
+        modelRejectsFromTurn(2, failure);
+
+        var thrown = assertThrows(RuntimeException.class,
+                () -> service(15).callWithToolLoop(question(300), chatModel, "s", "test", true, WINDOW));
+
+        assertSame(failure, thrown);
+    }
 }
