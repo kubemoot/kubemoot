@@ -1,0 +1,26 @@
+{
+  "identifier": "9b2e7c14-3f6a-4d1e-8a5b-2c7f9e0d4b31",
+  "path": "team/preferences/status-update-day.md",
+  "title": "Status updates move to Friday",
+  "media_type": "text/markdown",
+  "tags": ["preference", "team-process"],
+  "scope": ["team:platform"],
+  "created_at": "2026-09-15T09:30:00Z",
+  "valid_from": "2026-09-15T00:00:00Z",
+  "version": { "value": 2, "comparator": "integer" },
+  "checksum": "sha256:9f2c1e0b6d4a8f3e2b1c7d5a9e0f4b3c8d2a6e1f7b9c3d5e8a0f2b4c6d1e3a5",
+  "provenance": [
+    { "id": "user:jordan", "kind": "human", "contribution": "instructed", "at": "2026-09-15T09:28:00Z" },
+    { "id": "agent:notes-assistant", "kind": "agent", "contribution": "authored", "name": "example-model-1" },
+    { "id": "user:sam", "kind": "human", "contribution": "approved", "at": "2026-09-15T09:30:00Z" },
+    { "id": "agent:review-judge", "kind": "agent", "contribution": "verified", "name": "example-judge-1", "at": "2026-10-01T12:00:00Z" }
+  ],
+  "evidence": [
+    { "ref": "transcripts/2026-09-15-standup#turn-14", "relation": "stated" },
+    { "ref": "https://wiki.example.com/team/process", "relation": "observed", "dangling": true }
+  ],
+  "links": [
+    { "target": "9b2e7c14-3f6a-4d1e-8a5b-2c7f9e0d4b31", "version": 1, "rel": "supersedes" }
+  ],
+  "body": "Status updates are due Fridays from Sep 15. They were due Tuesdays before that."
+}
