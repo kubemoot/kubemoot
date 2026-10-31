@@ -36,7 +36,7 @@ jobs:
         uses: ./.github/actions/install-kubectl
 
       - name: Set up the build helpers
-        uses: kubemoot/release-actions/setup@b78d1a218811e2a0376eed26240451b2f353f367 # v0.11.4
+        uses: kubemoot/release-actions/setup@46be10555367466d5add34c0f37dc2ae86c40af6 # v0.12.0
 
       - name: Fetch the tested jar
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2

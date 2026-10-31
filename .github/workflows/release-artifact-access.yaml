@@ -51,7 +51,7 @@ jobs:
 
       - name: Calculate the release candidate version
         id: version
-        uses: kubemoot/release-actions/release-candidate-version@b78d1a218811e2a0376eed26240451b2f353f367 # v0.11.4
+        uses: kubemoot/release-actions/release-candidate-version@46be10555367466d5add34c0f37dc2ae86c40af6 # v0.12.0
         with:
           tag_prefix: "artifact-access-v"
           force: ${{ inputs.force_release }}

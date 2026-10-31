@@ -55,7 +55,7 @@ jobs:
           filter: blob:none
 
       - name: Set up the release helpers
-        uses: kubemoot/release-actions/setup@b78d1a218811e2a0376eed26240451b2f353f367 # v0.11.4
+        uses: kubemoot/release-actions/setup@46be10555367466d5add34c0f37dc2ae86c40af6 # v0.12.0
 
       - name: Install Helm
         uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
