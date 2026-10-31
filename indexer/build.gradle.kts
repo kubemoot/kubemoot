@@ -2,7 +2,7 @@ plugins {
     java
     jacoco
     checkstyle
-    id("org.springframework.boot") version "4.1.1"
+    id("org.springframework.boot") version "4.1.2"
     id("io.spring.dependency-management") version "1.1.7"
 }
 
@@ -32,7 +32,7 @@ repositories {
 
 dependencyManagement {
     imports {
-        mavenBom("org.springframework.ai:spring-ai-bom:2.0.1")
+        mavenBom("org.springframework.ai:spring-ai-bom:2.0.2")
     }
 }
 
@@ -54,7 +54,7 @@ dependencies {
     implementation("org.eclipse.jgit:org.eclipse.jgit:7.8.0.202609011348-r")
 
     // AWS S3 support
-    implementation("software.amazon.awssdk:s3:2.57.0")
+    implementation("software.amazon.awssdk:s3:2.57.6")
 
     // HTTP client for URL sources and MCP registries
     implementation("org.springframework.boot:spring-boot-starter-webflux")
