@@ -2,6 +2,7 @@ package ai.kubemoot.agent.nats;
 
 import ai.kubemoot.agent.requester.Requester;
 import ai.kubemoot.agent.chat.ChatService;
+import ai.kubemoot.agent.chat.ContextRejection;
 import ai.kubemoot.agent.chat.ToolCallFailure;
 import ai.kubemoot.agent.config.AgentProperties;
 import ai.kubemoot.agent.util.GpuLabels;
@@ -1001,7 +1002,7 @@ public class DiscussionSubscriber {
      */
     // Visible for testing
     static String classifyException(String exceptionClass, String message) {
-        if (isContextRejection(message)) {
+        if (ContextRejection.matches(message)) {
             return "context_exceeded";
         }
         if (message.contains("timeout period of") || message.contains("Timed out")
@@ -1015,10 +1016,6 @@ public class DiscussionSubscriber {
             return "server_unreachable";
         }
         return "internal_exception";
-    }
-
-    private static boolean isContextRejection(String message) {
-        return message.contains("maximum context length") || message.contains("context_length_exceeded");
     }
 
     /**

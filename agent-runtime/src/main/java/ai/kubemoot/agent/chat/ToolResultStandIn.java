@@ -23,7 +23,49 @@ final class ToolResultStandIn {
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
+    /** Text every stand-in contains, which tells one apart from a real tool result. */
+    private static final String MARKER = "The full result is kept for the crew and posted with your output";
+
+    /**
+     * Extra characters counted for each digit in a stand-in. Tokenizers of the common model
+     * families emit digits one per token, so digit text runs near one character per token against
+     * the 3.0 the estimate allows for JSON.
+     */
+    static final int DIGIT_EXTRA = 2;
+
+    /** Extra characters counted for each punctuation or quote character in a stand-in (about 2 per token). */
+    static final int SYMBOL_EXTRA = 1;
+
     private ToolResultStandIn() {}
+
+    /** True when {@code text} is a stand-in built by {@link #of}. */
+    static boolean isStandIn(String text) {
+        return text != null && text.contains(MARKER);
+    }
+
+    /**
+     * Characters to add to a stand-in's length when estimating its tokens. Its head is numeric
+     * JSON, which tokenizes far denser than prose, so each digit counts {@link #DIGIT_EXTRA} more
+     * and each other non-letter, non-space character {@link #SYMBOL_EXTRA} more. Letters and
+     * spaces count once; the count depends only on the text. Zero for anything that is not a stand-in.
+     */
+    static long extraChars(String text) {
+        if (!isStandIn(text)) {
+            return 0;
+        }
+        long extra = 0;
+        for (int i = 0; i < text.length(); i++) {
+            extra += extraFor(text.charAt(i));
+        }
+        return extra;
+    }
+
+    private static int extraFor(char c) {
+        if (Character.isDigit(c)) {
+            return DIGIT_EXTRA;
+        }
+        return Character.isLetter(c) || Character.isWhitespace(c) ? 0 : SYMBOL_EXTRA;
+    }
 
     /** The stand-in for {@code result} of {@code toolName}, with the head of the result. */
     static String of(String toolName, String result) {
@@ -37,7 +79,7 @@ final class ToolResultStandIn {
     static String of(String toolName, String result, boolean withHead) {
         String text = result == null ? "" : result;
         StringBuilder out = new StringBuilder();
-        out.append('[').append(toolName).append("] The full result is kept for the crew and posted with your output; ")
+        out.append('[').append(toolName).append("] ").append(MARKER).append("; ")
                 .append("it is not shown here because it does not fit the context window.\n");
         out.append("Size: ").append(text.getBytes(StandardCharsets.UTF_8).length).append(" bytes, ")
                 .append(lineCount(text)).append(" lines");

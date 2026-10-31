@@ -86,7 +86,7 @@ final class ToolResultBudget {
         String replacement = keptForTheCrew
                 ? ToolResultStandIn.of(toolName, result, room >= replyReserve)
                 : errorFor(toolName, tokens, available);
-        room -= tokens(length(toolName) + replacement.length());
+        room -= tokens(length(toolName) + replacement.length() + ToolResultStandIn.extraChars(replacement));
         return new Admission(replacement, true, tokens, available);
     }
 

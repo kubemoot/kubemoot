@@ -12,6 +12,25 @@ class ToolResultBudgetTest {
     }
 
     @Test
+    void aNumericStandIn_usesUpMoreRoomThanItsLength_andAnErrorReplacementUsesExactlyItsLength() {
+        String numeric = "{\"cpu\":[0.12,0.34,0.56],\"mem\":[1048576,2097152]}\n".repeat(100_000);
+        var ratio = defaultRatio();
+        var budget = new ToolResultBudget(32_768, 0, ratio);
+        var first = budget.admit("t", numeric, true);
+        assertTrue(first.replaced());
+        var second = budget.admit("t", "{}", true);
+        long used = first.roomTokens() - second.roomTokens();
+        assertEquals(ratio.tokens(1 + first.text().length() + ToolResultStandIn.extraChars(first.text())), used);
+        assertTrue(used > ratio.tokens(1 + first.text().length()));
+
+        var errors = new ToolResultBudget(32_768, 0, ratio);
+        var error = errors.admit("t", numeric, false);
+        assertTrue(error.replaced());
+        long errorUsed = error.roomTokens() - errors.admit("t", "{}", false).roomTokens();
+        assertEquals(ratio.tokens(1 + error.text().length()), errorUsed);
+    }
+
+    @Test
     void unknownWindow_zeroAndNegative_admitEverything() {
         for (long window : new long[] {0, -1}) {
             var budget = new ToolResultBudget(window, 0, defaultRatio());

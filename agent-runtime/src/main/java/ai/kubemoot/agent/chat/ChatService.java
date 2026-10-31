@@ -557,7 +557,17 @@ public class ChatService {
                 return gathered.get();
             }
 
-            var aiMessage = invokeModelForLoop(modelForThisCall, state);
+            AiMessage aiMessage;
+            try {
+                aiMessage = invokeModelForLoop(modelForThisCall, state);
+            } catch (RuntimeException e) {
+                var posted = toolerPostsAfterRejection(e, state, contextLength, toolerRawOutput,
+                        serverName, pickReason);
+                if (posted.isPresent()) {
+                    return posted.get();
+                }
+                throw e;
+            }
 
             // If no tool calls, decide the final text (or retry an empty turn).
             if (!aiMessage.hasToolExecutionRequests()) {
@@ -633,6 +643,42 @@ public class ChatService {
                         + "-token context window of the chosen server at iteration " + iteration);
     }
 
+    /**
+     * The model server rejected the prompt as larger than its context window although the estimate
+     * said it fit. The miss teaches the ratio: the server's reported prompt size against the
+     * characters sent. A tooler that already holds output posts it (GATHER_FAILED when every call
+     * failed); empty for any other agent or error, which keep the failure the caller rethrows.
+     */
+    private java.util.Optional<ToolLoopResult> toolerPostsAfterRejection(
+            RuntimeException error, ToolLoopState state, long contextLength, boolean toolerRawOutput,
+            String serverName, String pickReason) {
+        if (!ContextRejection.isCausedBy(error)) {
+            return java.util.Optional.empty();
+        }
+        var specs = tools().specs();
+        long estimate = PromptSize.nextPromptTokens(state.allMessages, specs, state.lastPromptTokens,
+                state.lastReplyTokens, state.messagesAtLastCall, charsPerToken);
+        ContextRejection.reportedPromptTokens(error).ifPresent(
+                tokens -> charsPerToken.observe(PromptSize.estimateChars(state.allMessages, specs), tokens));
+        if (!toolerHoldsOutput(state, toolerRawOutput)) {
+            return java.util.Optional.empty();
+        }
+        throwIfEveryToolFailed(state);
+        log.info("agent {}: the server rejected the prompt as too long (reported limit {} tokens, reported "
+                + "prompt {} tokens, configured window {}) but the estimate was ~{} tokens; posting the {} chars "
+                + "gathered by {} tool calls as the contribution", properties.agentName(),
+                ContextRejection.reportedLimit(error).orElse(-1),
+                ContextRejection.reportedPromptTokens(error).orElse(-1),
+                contextLength, estimate, state.toolOutput.length(), state.toolCalls);
+        return java.util.Optional.of(rawOutputResult(state, serverName, pickReason));
+    }
+
+    // Visible for testing
+    /** This agent's learned characters per token. */
+    double learnedCharsPerToken() {
+        return charsPerToken.ratio();
+    }
+
     /** A tooler that already holds raw tool output: its contribution is complete as it stands. */
     private static boolean toolerHoldsOutput(ToolLoopState state, boolean toolerRawOutput) {
         return toolerRawOutput && state.toolsExecuted && state.toolOutput.length() > 0;
@@ -674,7 +720,7 @@ public class ChatService {
     private AiMessage invokeModelForLoop(ChatModel modelForThisCall, ToolLoopState state) {
         ChatResponse response;
         var toolSpecList = tools().specs();
-        int sentChars = PromptSize.chars(state.allMessages, toolSpecList);
+        long sentChars = PromptSize.estimateChars(state.allMessages, toolSpecList);
         if (toolSpecList.isEmpty()) {
             response = modelForThisCall.chat(dev.langchain4j.model.chat.request.ChatRequest.builder()
                     .messages(state.allMessages)
