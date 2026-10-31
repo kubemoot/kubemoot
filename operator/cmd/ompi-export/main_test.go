@@ -17,6 +17,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/kubemoot/kubemoot/operator/internal/crewmemory"
 )
@@ -57,24 +58,26 @@ func (r staticReader) ListKVKeys(string) ([]string, error) {
 	return keys, nil
 }
 
-func (r staticReader) GetKVValue(_, key string) ([]byte, error) { return []byte(r[key]), nil }
+func (r staticReader) GetKVEntry(_, key string) (crewmemory.Entry, error) {
+	return crewmemory.Entry{Value: []byte(r[key]), Revision: 3, Created: time.Date(2026, 10, 31, 9, 0, 0, 0, time.UTC)}, nil
+}
 
 func TestRunWritesValidExportFromReader(t *testing.T) {
 	r := staticReader{
-		"ns.c.hardware.gpu0": `{"value":"RTX 5090","learnedBy":"a"}`,
-		"ns.c.hardware.bad":  `not json`,
-		"ns.other.t.k":       `{"value":"x"}`,
+		gpuKey:              `{"value":"RTX 5090","learnedBy":"a"}`,
+		"ns.c.hardware.bad": `not json`,
+		"ns.other.t.k":      `{"value":"x"}`,
 	}
-	open := func(options) (crewmemory.Reader, func(), error) { return r, func() {}, nil }
+	open := func(options) (crewmemory.EntryReader, func(), error) { return r, func() {}, nil }
 	out := filepath.Join(t.TempDir(), "memory")
 	var stdout strings.Builder
-	if err := runWith([]string{nsFlag, "ns", crewFlag, "c", outFlag, out}, &stdout, open); err != nil {
+	if err := runWith([]string{nsFlag, "ns", crewFlag, "c", outFlag, out, "--markdown"}, &stdout, open); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(stdout.String(), "wrote 1 fact(s)") {
+	if !strings.Contains(stdout.String(), "wrote 1 memory object(s)") {
 		t.Errorf("stdout = %q", stdout.String())
 	}
-	for _, f := range []string{"MEMORY.md", "hardware/MEMORY.md", "hardware/gpu0.md"} {
+	for _, f := range []string{"manifest.json", "memories", "markdown/hardware/gpu0.md"} {
 		if _, err := os.Stat(filepath.Join(out, f)); err != nil {
 			t.Errorf("missing %s: %v", f, err)
 		}
@@ -82,7 +85,7 @@ func TestRunWritesValidExportFromReader(t *testing.T) {
 }
 
 func TestRunReportsConnectionFailure(t *testing.T) {
-	open := func(options) (crewmemory.Reader, func(), error) { return nil, nil, errors.New("no server") }
+	open := func(options) (crewmemory.EntryReader, func(), error) { return nil, nil, errors.New("no server") }
 	err := runWith([]string{nsFlag, "ns", crewFlag, "c", outFlag, t.TempDir()}, io.Discard, open)
 	if err == nil || !strings.Contains(err.Error(), "no server") {
 		t.Errorf("runWith() = %v", err)

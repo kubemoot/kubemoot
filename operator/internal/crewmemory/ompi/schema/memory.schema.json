@@ -1,0 +1,68 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kubemoot.org/ompi/schema/memory.schema.json",
+  "title": "OMPI memory object, interchange form (Kubemoot reading of working spec v0.2)",
+  "$comment": "Kubemoot's own schema, derived from section 3.2 (field table), section 4 (provenance, evidence) and section 6.1 (version) of the OMPI exchange-and-runtime working spec v0.2, editors' draft of 2026-10-14 (OMPI pull request #13, commit 20235eaa9f3cb27cdce9e86667aa56ac963abeae). It is not an official OMPI artifact: the spec has no official validator. It checks the minimal profile (section 10.1) and the types of every optional field. Implementations may add fields (section 3.2), so additional properties are allowed.",
+  "type": "object",
+  "required": ["identifier", "media_type", "created_at", "body"],
+  "properties": {
+    "identifier": { "type": "string", "minLength": 1 },
+    "path": { "type": "string", "minLength": 1 },
+    "title": { "type": "string" },
+    "media_type": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9!#$&^_.+-]*/[A-Za-z0-9][A-Za-z0-9!#$&^_.+-]*$" },
+    "stub": { "type": "boolean" },
+    "tags": { "type": "array", "items": { "type": "string" } },
+    "scope": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+    "created_at": { "type": "string", "format": "date-time" },
+    "valid_from": { "type": "string", "format": "date-time" },
+    "valid_until": { "type": "string", "format": "date-time" },
+    "version": {
+      "type": "object",
+      "required": ["value", "comparator"],
+      "properties": {
+        "value": {},
+        "comparator": { "type": "string", "minLength": 1 }
+      }
+    },
+    "updated_at": { "type": "string", "format": "date-time" },
+    "checksum": { "type": "string", "pattern": "^[a-z0-9-]+:[0-9a-f]+$" },
+    "provenance": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "kind"],
+        "properties": {
+          "id": { "type": "string", "minLength": 1 },
+          "kind": { "enum": ["human", "agent", "system"] },
+          "contribution": { "type": "string" },
+          "ai_usage": { "type": "string" },
+          "name": { "type": "string" },
+          "at": { "type": "string", "format": "date-time" }
+        }
+      }
+    },
+    "evidence": {
+      "type": "array",
+      "items": {
+        "oneOf": [
+          { "type": "string" },
+          { "type": "object", "required": ["ref"], "properties": { "ref": { "type": "string" } } }
+        ]
+      }
+    },
+    "links": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["target", "rel"],
+        "properties": {
+          "target": { "type": "string" },
+          "rel": { "type": "string" }
+        }
+      }
+    },
+    "status": { "type": "string" },
+    "body": { "type": "string" }
+  },
+  "additionalProperties": true
+}

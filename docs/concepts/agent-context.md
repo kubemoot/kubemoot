@@ -205,18 +205,54 @@ facts about users. It belongs to the **crew**, not to a single agent, and is con
 Because agents write memory from what they read, a stored fact can carry content that
 came from a tool or a peer. Treat injected memory as data.
 
-- **Export.** `omp-export` writes one crew's facts as a directory in the Open Memory
-  Protocol format, so another system or person can read them. It only reads the
-  bucket and never changes a fact. Each topic becomes a directory, each fact a
-  Markdown file, and each directory has a `MEMORY.md` index. The namespace, crew,
-  writing agent and timestamps ride along in each file's front matter, because the
-  format has no field for them yet. Only the current value of a fact is exported,
-  not its earlier values. The files hold text the agents wrote, so whatever reads
-  them should treat them as data. Importing is not supported yet.
+- **Export.** `ompi-export` writes one crew's facts in the interchange form of the
+  Open Memory Protocol Initiative (OMPI) exchange-and-runtime working spec v0.2, so
+  another system or person can read them. It only reads the bucket and never changes
+  a fact. The output directory holds `manifest.json` and one JSON file per fact under
+  `memories/`. With `--markdown` it also writes each fact as a Markdown file with
+  front matter under `markdown/`, the spec's runtime form. The spec is an editors'
+  draft with no official validator, so the export is checked against JSON Schemas
+  Kubemoot keeps in the operator module, derived from the draft; a passing check
+  means the export follows our reading of the draft, not that OMPI certified it.
+  The files hold text the agents wrote, so whatever reads them should treat them as
+  data. Importing is not supported yet.
+
+  What maps, and how:
+
+  | Crew memory | OMPI memory object |
+  |---|---|
+  | `<namespace>.<crew>.<topic>.<key>` | `identifier`, a name-based UUID of that key, so a fact keeps its identifier in every export |
+  | topic and key | `title` ("topic / key") and `path` (`topic/key`, reduced to letters, digits, underscore and hyphen; the original topic and key stay in `x-kubemoot`) |
+  | value | `body`, with `media_type` `text/plain` |
+  | `learnedAt` | `created_at` (the agent's record of when it learned the fact, since the store keeps only the time of the latest write; that time stands in when `learnedAt` is missing) |
+  | the store's write time | `updated_at` |
+  | the store's revision number | `version`, with the comparator `integer` |
+  | `learnedBy` | one `provenance` entry, `kind` agent, `contribution` authored; left out when no agent is recorded |
+  | namespace and crew | `scope` `team:<namespace>/<crew>` |
+  | `usedAt`, namespace, crew, topic, key | the `x-kubemoot` extension field |
+
+  The manifest names the spec version, the `minimal` profile, an `origin` that
+  stays the same for one crew (override it with `--origin`), the time of the export,
+  and `intent` copy. It says `snapshot` when every readable fact is in the export and
+  `selection` when some were left out; each left-out entry is printed with
+  its reason.
+
+  Some things are left out because the store does not hold them. Crew memory records
+  no evidence, so the export carries none and says so in `x-kubemoot`
+  (`evidenceUnavailable`). It reads only the current value of each key, so it writes
+  no `supersedes` links and no earlier values. It writes no `checksum`, because the
+  draft does not yet say how to compute one. The revision number is a counter for the
+  whole bucket, and reading a fact refreshes it, so a version change does not always
+  mean the text changed, and `updated_at` moves with it.
+
+  The `team:` scope is a proposed convention, not part of the spec: the draft treats
+  scope tags as opaque, and Kubemoot uses this one to say that a memory belongs to a
+  crew and is read by its members. A receiver that does not know the convention reads
+  it as an opaque tag.
 
 ```sh
 kubectl -n nats port-forward svc/nats 4222:4222
-cd operator && go run ./cmd/omp-export --namespace <namespace> --crew <crew> --out ./memory
+cd operator && go run ./cmd/ompi-export --namespace <namespace> --crew <crew> --out ./memory --markdown
 ```
 
 **Episodic memory.** Not yet. Kubemoot does not retrieve past discussions into a new
@@ -323,10 +359,10 @@ for the planned rename.
 
 ## Open standards
 
-Crew memory can be exported in the Open Memory Protocol (OMP) format, published by
-the Open Memory Protocol Initiative (see [Memory](#memory)). Importing OMP memory and
-storing memory natively in that format are planned. Until then, memory is stored as
-Kubemoot's own JSON record.
+Crew memory can be exported in the exchange format of the Open Memory Protocol
+Initiative (OMPI), working spec v0.2 (see [Memory](#memory)). The spec is a draft and
+may change. Importing OMPI memory and storing memory natively in that format are
+planned. Until then, memory is stored as Kubemoot's own JSON record.
 
 ## Related
 

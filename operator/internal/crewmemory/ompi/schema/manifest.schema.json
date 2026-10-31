@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kubemoot.org/ompi/schema/manifest.schema.json",
+  "title": "OMPI export manifest (Kubemoot reading of working spec v0.2)",
+  "$comment": "Kubemoot's own schema, derived from sections 8.1 and 8.2 of the OMPI exchange-and-runtime working spec v0.2, editors' draft of 2026-10-14 (OMPI pull request #13, commit 20235eaa9f3cb27cdce9e86667aa56ac963abeae). Not an official OMPI artifact. The spec says an export SHOULD begin with a manifest; this schema requires the fields the spec lists. The values of selection come from the spec's example and its wording (complete snapshot, a selection, a full history).",
+  "type": "object",
+  "required": ["protocol_version", "profiles", "origin", "exported_at", "selection", "intent", "media_types"],
+  "properties": {
+    "protocol_version": { "type": "string", "minLength": 1 },
+    "profiles": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+    "origin": { "type": "string", "minLength": 1 },
+    "exported_at": { "type": "string", "format": "date-time" },
+    "selection": { "enum": ["snapshot", "selection", "history"] },
+    "intent": { "enum": ["copy", "move", "federation"] },
+    "media_types": { "type": "array", "items": { "type": "string", "minLength": 1 } }
+  },
+  "additionalProperties": true
+}
