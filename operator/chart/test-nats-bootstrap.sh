@@ -69,6 +69,32 @@ grep -q '^stream add KUBEMOOT_COORDINATOR --subjects=kubemoot.coordinator.> --re
   || fail "the coordinator log stream is missing or has the wrong settings"
 grep -q -- '--max-msgs-per-subject=512' "$work/log" || fail "the coordinator log stream has no per-thread bound"
 
+# The discussion stream's limits are chart values. The defaults are the limits the stream
+# has always had; a set value reaches both the create and the update command; a value the
+# shell would misread is refused at render time.
+discuss_line() { grep '^stream add KUBEMOOT_DISCUSS ' "$work/log"; }
+[ "$(discuss_line | grep -c -- '--max-age=24h --max-msgs=5000 --max-bytes=-1')" = "1" ] \
+  || fail "the discussion stream defaults changed: $(discuss_line)"
+[ "$(grep -c -- '--max-age=24h --max-msgs=5000 --max-bytes=-1' "$work/bootstrap.sh")" = "2" ] \
+  || fail "the discussion stream update command does not carry the defaults"
+render_bootstrap() { helm template t "$chart" --show-only templates/nats-streams-job.yaml "$@" \
+  | yq 'select(.kind == "Job") | .spec.template.spec.containers[0].args[0]'; }
+render_bootstrap --set nats.streams.discuss.maxMessages=20000 --set nats.streams.discuss.maxAge=48h \
+  --set nats.streams.discuss.maxBytes=256MiB >"$work/bootstrap.sh"
+run_bootstrap
+[ "$(discuss_line | grep -c -- '--max-age=48h --max-msgs=20000 --max-bytes=256MiB')" = "1" ] \
+  || fail "the discussion stream limits do not follow the chart values: $(discuss_line)"
+[ "$(grep -c -- '--max-age=48h --max-msgs=20000 --max-bytes=256MiB' "$work/bootstrap.sh")" = "2" ] \
+  || fail "the discussion stream update command does not follow the chart values"
+grep -q '^stream add KUBEMOOT_COORDINATOR .*--max-msgs=100000 ' "$work/log" \
+  || fail "the discussion stream values changed the coordinator log stream"
+for bad in 'maxMessages=lots' 'maxMessages=0' 'maxAge=a day' 'maxAge=0h' 'maxAge=24h; rm -rf /' 'maxBytes=1 GB' 'maxBytes=0'; do
+  if helm template t "$chart" --show-only templates/nats-streams-job.yaml --set "nats.streams.discuss.$bad" >/dev/null 2>&1; then
+    fail "nats.streams.discuss.$bad should fail the render"
+  fi
+done
+render_bootstrap >"$work/bootstrap.sh"
+
 # Run again: the retired buckets are absent, which is not an error, and nothing else is deleted.
 run_bootstrap
 grep -q "kubemoot_provider_state is not present" "$work/out" || fail "an absent bucket was not reported"

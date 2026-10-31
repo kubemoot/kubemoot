@@ -32,6 +32,8 @@ public class DiscussionMetrics {
     private static final String METRIC_PHASE_DURATION = "kubemoot_discussion_phase_duration_seconds";
     private static final String METRIC_TOKENS_TOTAL = "kubemoot_discussion_tokens_total";
     private static final String METRIC_COORDINATOR_TOKENS = "kubemoot_discussion_coordinator_tokens_total";
+    private static final String METRIC_LOG_APPENDS = "kubemoot_coordinator_log_appends_total";
+    private static final String METRIC_LOG_CHECKS = "kubemoot_coordinator_log_checks_total";
 
     /**
      * The description of each metric registered under several tags. Prometheus serves
@@ -44,7 +46,11 @@ public class DiscussionMetrics {
             METRIC_GAPS_TOTAL, "Gaps detected in discussions, by type: a missing tooler role or a missing tool",
             METRIC_PHASE_DURATION, "Discussion phase duration, by phase (triage, advisory, evaluation, synthesis)",
             METRIC_TOKENS_TOTAL, "Model tokens agents used in discussions, by direction (input, output)",
-            METRIC_COORDINATOR_TOKENS, "Model tokens the coordinator used, by direction (input, output)");
+            METRIC_COORDINATOR_TOKENS, "Model tokens the coordinator used, by direction (input, output)",
+            METRIC_LOG_APPENDS, "Coordinator log events that were not stored, by result: lost (the log could "
+                    + "not be reached) or fenced (another writer owns the thread)",
+            METRIC_LOG_CHECKS, "Comparisons of a closed thread's coordinator log with its live state, by result: "
+                    + "match or mismatch");
 
     /** Bucket bounds for the duration timers: from a second to a long discussion. */
     private static final Duration[] BUCKETS = {
@@ -57,6 +63,7 @@ public class DiscussionMetrics {
     private static final String TAG_DIRECTION = "direction";
     private static final String TAG_STATE = "state";
     private static final String TAG_PHASE = "phase";
+    private static final String TAG_RESULT = "result";
 
     private final MeterRegistry registry;
 
@@ -103,6 +110,12 @@ public class DiscussionMetrics {
     private final Counter evaluationTimeouts;
     private final AtomicInteger pendingEvaluationsGauge = new AtomicInteger(0);
 
+    // Coordinator log
+    private final Counter logLost;
+    private final Counter logFenced;
+    private final Counter logMatch;
+    private final Counter logMismatch;
+
     public DiscussionMetrics(MeterRegistry registry) {
         this.registry = registry;
 
@@ -148,6 +161,10 @@ public class DiscussionMetrics {
         evaluationTimeouts = Counter.builder("kubemoot_discussion_evaluation_timeouts_total")
                 .description("Agents that timed out in pending evaluation (synthesized stand_aside)")
                 .register(registry);
+        logLost = counter(METRIC_LOG_APPENDS, TAG_RESULT, "lost");
+        logFenced = counter(METRIC_LOG_APPENDS, TAG_RESULT, "fenced");
+        logMatch = counter(METRIC_LOG_CHECKS, TAG_RESULT, "match");
+        logMismatch = counter(METRIC_LOG_CHECKS, TAG_RESULT, "mismatch");
         Gauge.builder("kubemoot_discussion_pending_evaluations", pendingEvaluationsGauge, AtomicInteger::get)
                 .description("Current number of agents with an active evaluating signal across all threads")
                 .register(registry);
@@ -244,6 +261,23 @@ public class DiscussionMetrics {
 
     public void setPendingEvaluations(int count) {
         pendingEvaluationsGauge.set(count);
+    }
+
+    // --- Coordinator log ---
+
+    /** An event the coordinator meant to write was not stored: the log could not be reached. */
+    public void logEventLost() {
+        logLost.increment();
+    }
+
+    /** An append was refused because another writer owns the thread. */
+    public void logEventFenced() {
+        logFenced.increment();
+    }
+
+    /** A closed thread's log was compared with its live state; {@code matched} says they agreed. */
+    public void logChecked(boolean matched) {
+        (matched ? logMatch : logMismatch).increment();
     }
 
     // --- Helpers ---

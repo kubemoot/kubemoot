@@ -20,6 +20,8 @@ spec:
     doclingServe: {{ include "kubemoot-operator.image" (dict "root" $ "image" .Values.kubemootConfig.images.doclingServe) | quote }}
   artifacts:
     queryEngine: {{ include "kubemoot-operator.artifactQueryEngine" . | quote }}
+  coordinator:
+    eventLog: {{ .Values.coordinator.eventLog | default false }}
   defaults:
     {{- with (include "kubemoot-operator.pullSecrets" . | fromYamlArray) }}
     imagePullSecrets:

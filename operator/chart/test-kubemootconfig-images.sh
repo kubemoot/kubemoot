@@ -37,6 +37,17 @@ placement_env() { helm template kubemoot-operator "$chart" --namespace kubemoot 
 [ "$(placement_env --set placementService.url=http://placement:8080)" = "http://placement:8080" ] \
   || fail "placementService.url does not reach the operator as PLACEMENT_SERVICE_URL"
 
+# The coordinator decision log is off unless the chart turns it on, and the KubemootConfig
+# CRD has the field the chart sets.
+coordinator_log() { helm template kubemoot-operator "$chart" --namespace kubemoot "$@" \
+  | yq -N 'select(.kind == "KubemootConfig") | .spec.coordinator.eventLog'; }
+[ "$(coordinator_log)" = "false" ] || fail "coordinator.eventLog should default to false"
+[ "$(coordinator_log --set coordinator.eventLog=true)" = "true" ] \
+  || fail "coordinator.eventLog=true does not reach KubemootConfig"
+[ "$(yq -N '.spec.versions[0].schema.openAPIV3Schema.properties.spec.properties.coordinator.properties.eventLog.type' \
+  "$chart/crds/kubemoot.ai_kubemootconfigs.yaml")" = "boolean" ] \
+  || fail "the KubemootConfig CRD has no boolean spec.coordinator.eventLog"
+
 # The artifact query engine defaults to sqlite, takes duckdb, takes none (no query tool),
 # and refuses any other value at render time.
 query_engine() { helm template kubemoot-operator "$chart" --namespace kubemoot "$@" \

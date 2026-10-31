@@ -376,7 +376,7 @@ public class DiscussionOrchestrator {
         }
 
         this.autoTransitions = buildAutoTransitions();
-        this.events = CoordinatorEventRecorder.fromConfig(properties.agentName(), natsProvider, mapper);
+        this.events = CoordinatorEventRecorder.fromConfig(properties.agentName(), natsProvider, mapper, metrics);
     }
 
     /** Package-private: replace the event recorder, so a unit test can read the events a thread writes. */
@@ -637,6 +637,7 @@ public class DiscussionOrchestrator {
             if (isOwnControlEcho(agentName, messageType)) return;
 
             var state = threads.computeIfAbsent(threadId, k -> new ThreadState(threadId));
+            if (events.fenced(state)) return;
 
             if (isDuplicateMessage(state, msg)) return;
 
@@ -1067,6 +1068,10 @@ public class DiscussionOrchestrator {
 
     // Visible for testing
     void checkThreadTransition(ThreadState state, Instant now) {
+        // Another coordinator owns a fenced thread: this one does nothing more for it.
+        if (events.fenced(state)) {
+            return;
+        }
         // Hard-ceiling backstop FIRST, before the phase table: a discussion must
         // ALWAYS reach a terminal state. This catches threads stuck in ANY phase -
         // including SYNTHESIZING and any phase with no auto edge - that the normal
@@ -1411,19 +1416,19 @@ public class DiscussionOrchestrator {
             state.advisoryContent = outcome.wisdom();
             state.advisoryTechnologies = new CopyOnWriteArrayList<>(outcome.technologies());
             state.primaryChannel = classifyChannelFromAdvisory(outcome.technologies());
-            events.subcommitteeConvened(state, reasoning, outcome);
+            boolean logged = events.subcommitteeConvened(state, reasoning, outcome);
 
             metrics.advisoryCompleted(Duration.ofMillis(outcome.inferenceMs()));
             log.info("Thread {} advisory done in {}ms: technologies={}, layers={}, channel={}",
                     state.threadId, outcome.inferenceMs(), outcome.technologies(), outcome.layers(),
                     state.primaryChannel);
 
+            if (!logged) return;
             publishAdvisory(state.threadId, outcome.technologies(), outcome.layers(), outcome.wisdom(),
                     outcome.inferenceMs(), state.advisoryModelUse);
             publishSubcommittee(state);
             // advisory_ready triggers tooler evaluation (includes innerCircle)
-            publishAdvisoryReady(state, outcome.technologies(), outcome.wisdom());
-            resetEvaluationClock(state);
+            releaseToolers(state, outcome.technologies(), outcome.wisdom());
             log.info("Thread {} evaluation clock reset after advisory_ready ({}ms advisory)",
                     state.threadId, outcome.inferenceMs());
 
@@ -1431,9 +1436,25 @@ public class DiscussionOrchestrator {
             log.warn("Advisory generation failed for thread {}: {}", state.threadId, e.getMessage());
             // Still publish advisory_ready without advisory content, and reset the clock so
             // toolers get a full evaluation window.
-            events.advisoryFailed(state);
-            publishAdvisoryReady(state, List.of(), "Advisory generation failed");
+            if (events.advisoryFailed(state)) {
+                releaseToolers(state, List.of(), "Advisory generation failed");
+            }
+        }
+    }
+
+    /**
+     * Starts the evaluation and tells the toolers: the clock and roster reset, the roster
+     * is written to the log, and only then is advisory_ready published.
+     */
+    private void releaseToolers(ThreadState state, List<String> technologies, String wisdom) {
+        if (!events.enabled()) {
+            // Log off: the order discussions have always had, advisory_ready first.
+            publishAdvisoryReady(state, technologies, wisdom);
             resetEvaluationClock(state);
+            return;
+        }
+        if (resetEvaluationClock(state)) {
+            publishAdvisoryReady(state, technologies, wisdom);
         }
     }
 
@@ -1449,8 +1470,9 @@ public class DiscussionOrchestrator {
             var conn = natsProvider.getConnection();
             if (conn == null || circle == null || circle.isEmpty()) return;
             var members = SubcommitteeLine.members(mapper, new java.util.TreeSet<>(circle), loadCrewResumes());
+            String derivedId = events.messageId(state, CoordinatorEvent.SUBCOMMITTEE_CONVENED, SubcommitteeLine.MESSAGE_TYPE);
             var message = Map.of(
-                    FIELD_MESSAGE_ID, UUID.randomUUID().toString(),
+                    FIELD_MESSAGE_ID, DerivedIds.idOrRandom(derivedId),
                     FIELD_THREAD_ID, state.threadId,
                     FIELD_AGENT_NAME, properties.agentName(),
                     FIELD_MESSAGE_TYPE, SubcommitteeLine.MESSAGE_TYPE,
@@ -1459,7 +1481,8 @@ public class DiscussionOrchestrator {
                     FIELD_TIMESTAMP, Instant.now().toString(),
                     FIELD_METADATA, SubcommitteeLine.metadata(members)
             );
-            conn.publish(broadcastSubject(state.crew, state.threadId), mapper.writeValueAsBytes(message));
+            DerivedIds.publish(conn, broadcastSubject(state.crew, state.threadId), mapper.writeValueAsBytes(message),
+                    derivedId);
         } catch (Exception e) {
             log.warn("Failed to publish subcommittee for thread {}: {}", state.threadId, e.getMessage());
         }
@@ -1514,14 +1537,17 @@ public class DiscussionOrchestrator {
     }
 
     /**
-     * Reset the evaluation clock and clear signals AFTER advisory_ready is published.
-     * Signals received during advisory generation (from agents reacting to the
-     * thread_start broadcast) are stale - they predate the advisory. Resetting makes
-     * the settle window and timeouts measure from when toolers actually receive
-     * advisory_ready, not from when the advisory LLM call started.
+     * Reset the evaluation clock and clear signals when the advisory step ends. With the
+     * coordinator log on this is just before advisory_ready is published, so the roster
+     * is in the log first; with it off, just after, as it always was. Signals received during advisory generation
+     * (from agents reacting to the thread_start broadcast) are stale - they predate the
+     * advisory. Resetting makes the settle window and timeouts measure from when toolers
+     * receive advisory_ready, not from when the advisory LLM call started. Returns false
+     * when the roster could not be written to the coordinator log, in which case
+     * advisory_ready is not published.
      */
     // Visible for testing
-    void resetEvaluationClock(ThreadState state) {
+    boolean resetEvaluationClock(ThreadState state) {
         state.phaseStarted = Instant.now();
         state.lastSignalReceived = null;
         state.agreeSignals.clear();
@@ -1535,7 +1561,7 @@ public class DiscussionOrchestrator {
         state.pendingEvaluations.clear();
         state.phaseRoster.set(PhaseRoster.of(evaluationRoster(state.innerCircle, analystNamesFromResumes())));
         state.advisoryPending.set(false);
-        events.evaluationStarted(state);
+        return events.evaluationStarted(state);
     }
 
     /**
@@ -1872,8 +1898,9 @@ public class DiscussionOrchestrator {
             putRanOn(metadata, ranOn);
             putFirstToken(metadata, chatService.lastSimpleCall());
 
+            String derivedId = events.messageId(threads.get(threadId), CoordinatorEvent.SUBCOMMITTEE_CONVENED, MSG_ADVISORY);
             var advisory = Map.of(
-                    FIELD_MESSAGE_ID, UUID.randomUUID().toString(),
+                    FIELD_MESSAGE_ID, DerivedIds.idOrRandom(derivedId),
                     FIELD_THREAD_ID, threadId,
                     FIELD_AGENT_NAME, properties.agentName(),
                     FIELD_MESSAGE_TYPE, MSG_ADVISORY,
@@ -1885,7 +1912,7 @@ public class DiscussionOrchestrator {
 
             String crew = threads.containsKey(threadId) ? threads.get(threadId).crew : null;
             String subject = broadcastSubject(crew, threadId);
-            conn.publish(subject, mapper.writeValueAsBytes(advisory));
+            DerivedIds.publish(conn, subject, mapper.writeValueAsBytes(advisory), derivedId);
             log.info("Published advisory to {} for thread {}", subject, threadId);
 
         } catch (Exception e) {
@@ -1900,9 +1927,10 @@ public class DiscussionOrchestrator {
 
             var metadata = advisoryReadyMetadata(state, technologies, wisdom);
             String advisorySummary = advisorySummary(technologies, wisdom);
+            String derivedId = events.messageId(state, CoordinatorEvent.EVALUATION_STARTED, MSG_ADVISORY_READY);
 
             var message = Map.of(
-                    FIELD_MESSAGE_ID, UUID.randomUUID().toString(),
+                    FIELD_MESSAGE_ID, DerivedIds.idOrRandom(derivedId),
                     FIELD_THREAD_ID, state.threadId,
                     FIELD_AGENT_NAME, properties.agentName(),
                     FIELD_MESSAGE_TYPE, MSG_ADVISORY_READY,
@@ -1913,7 +1941,7 @@ public class DiscussionOrchestrator {
             );
 
             String subject = broadcastSubject(state.crew, state.threadId);
-            conn.publish(subject, mapper.writeValueAsBytes(message));
+            DerivedIds.publish(conn, subject, mapper.writeValueAsBytes(message), derivedId);
             log.info("Published advisory_ready to {} for thread {}", subject, state.threadId);
 
         } catch (Exception e) {
@@ -1987,15 +2015,16 @@ public class DiscussionOrchestrator {
      * stragglers are dropped so REVIEW waits only for its own participants.
      */
     // Visible for testing
-    void seedReviewRoster(ThreadState state, Collection<String> reviewers, long nowMs) {
+    boolean seedReviewRoster(ThreadState state, Collection<String> reviewers, long nowMs) {
         state.pendingEvaluations.clear();
         state.phaseRoster.set(PhaseRoster.of(reviewers));
         long deadline = nowMs + properties.triageModel().timeoutSeconds() * 1000L;
         for (String reviewer : reviewers) {
             state.pendingEvaluations.put(reviewer, deadline);
         }
-        events.reviewStarted(state);
+        boolean logged = events.reviewStarted(state);
         log.info("Thread {} review roster: {}", state.threadId, reviewers);
+        return logged;
     }
 
     /**
@@ -2034,11 +2063,12 @@ public class DiscussionOrchestrator {
 
         var analysts = analystNamesFromResumes();
         var analystCircle = analystCircleFrom(state.innerCircle, analysts);
-        seedReviewRoster(state, reviewersFor(analystCircle, analysts), System.currentTimeMillis());
+        boolean logged = seedReviewRoster(state, reviewersFor(analystCircle, analysts), System.currentTimeMillis());
         state.phase = Phase.REVIEW;
         state.phaseStarted = Instant.now();
         events.phaseEntered(state, "settled");
         metrics.setPendingEvaluations(state.pendingEvaluations.size());
+        if (!logged) return;
 
         try {
             var conn = natsProvider.getConnection();
@@ -2073,8 +2103,9 @@ public class DiscussionOrchestrator {
                         state.threadId, analystCircle.size(), analystCircle);
             }
 
+            String derivedId = events.messageId(state, CoordinatorEvent.REVIEW_STARTED, MSG_REVIEW_READY);
             var message = Map.of(
-                    FIELD_MESSAGE_ID, UUID.randomUUID().toString(),
+                    FIELD_MESSAGE_ID, DerivedIds.idOrRandom(derivedId),
                     FIELD_THREAD_ID, state.threadId,
                     FIELD_AGENT_NAME, properties.agentName(),
                     FIELD_MESSAGE_TYPE, MSG_REVIEW_READY,
@@ -2085,7 +2116,7 @@ public class DiscussionOrchestrator {
             );
 
             String subject = broadcastSubject(state.crew, state.threadId);
-            conn.publish(subject, mapper.writeValueAsBytes(message));
+            DerivedIds.publish(conn, subject, mapper.writeValueAsBytes(message), derivedId);
             log.info("Published review_ready to {} for thread {}", subject, state.threadId);
 
         } catch (Exception e) {
@@ -2107,7 +2138,7 @@ public class DiscussionOrchestrator {
         state.primaryChannel = channel;
         state.advisoryContent = reasoning.brief();
         state.phase = Phase.SYNTHESIZING;
-        events.answeredDirectly(state, reasoning);
+        boolean logged = events.answeredDirectly(state, reasoning);
         events.phaseEntered(state, "direct");
         metrics.advisoryCompleted(Duration.ofMillis(reasoning.inferenceMs()));
         log.info("Thread {} - coordinator selected no toolers; answering directly from reasoning ({}ms), no tooler wake",
@@ -2118,8 +2149,10 @@ public class DiscussionOrchestrator {
         // metric/event (reasoning.inferenceMs); the synthesis below is a genuine ~0ms
         // no-op (no second LLM call), so its near-zero synthesisCompleted is expected,
         // not an anomaly.
-        publishAdvisory(state.threadId, reasoning.technologies(), List.of(),
-                reasoning.brief(), reasoning.inferenceMs(), state.advisoryModelUse);
+        if (logged) {
+            publishAdvisory(state.threadId, reasoning.technologies(), List.of(),
+                    reasoning.brief(), reasoning.inferenceMs(), state.advisoryModelUse);
+        }
         completeSynthesisPhase(state, channel, reasoning.brief(), Instant.now(), "direct");
     }
 
@@ -2525,6 +2558,7 @@ public class DiscussionOrchestrator {
             publishThreadClose(state.threadId, ch);
             state.phase = Phase.CLOSED;
             events.closed(state, "no_signals", ch);
+            events.checkAtClose(state);
             completePending(state.threadId, null);
             return null;
         }
@@ -2683,11 +2717,21 @@ public class DiscussionOrchestrator {
      * Idempotent: completePending no-ops if the future is already completed.
      */
     private void closeThread(ThreadState state, String channel, String response, String outcome) {
-        events.synthesisDone(state, outcome, channel, response);
-        publishToThread(state.threadId, channel, response, MSG_SYNTHESIS);
+        boolean answerLogged = events.synthesisDone(state, outcome, channel, response);
+        if (events.fenced(state)) {
+            // Another coordinator owns the thread: publish nothing, but do not keep the asker waiting.
+            completePending(state.threadId, null);
+            return;
+        }
+        // An answer that is not in the log is not published. thread_close still goes out, so
+        // agents stop heartbeating on a thread that is over; the asker gets the answer directly.
+        if (answerLogged) {
+            publishToThread(state.threadId, channel, response, MSG_SYNTHESIS);
+        }
         publishThreadClose(state.threadId, channel);
         state.phase = Phase.CLOSED;
         events.closed(state, outcome, channel);
+        events.checkAtClose(state);
         metrics.threadCompleted(Duration.between(state.threadCreated, Instant.now()));
         completePending(state.threadId, response);
     }
@@ -3256,8 +3300,10 @@ public class DiscussionOrchestrator {
             var conn = natsProvider.getConnection();
             if (conn == null) return;
 
+            var thread = threads.get(threadId);
+            String derivedId = events.messageId(thread, CoordinatorEvent.SYNTHESIS_DONE, messageType);
             var message = Map.of(
-                    FIELD_MESSAGE_ID, UUID.randomUUID().toString(),
+                    FIELD_MESSAGE_ID, DerivedIds.idOrRandom(derivedId),
                     FIELD_THREAD_ID, threadId,
                     FIELD_AGENT_NAME, properties.agentName(),
                     FIELD_MESSAGE_TYPE, messageType,
@@ -3270,14 +3316,14 @@ public class DiscussionOrchestrator {
 
             // Synthesis must reach ALL agents (not just the primary channel) so they
             // add the threadId to closedThreads and stop heartbeating.
-            String crew = threads.containsKey(threadId) ? threads.get(threadId).crew : null;
+            String crew = thread != null ? thread.crew : null;
             if (MSG_SYNTHESIS.equals(messageType)) {
-                conn.publish(broadcastSubject(crew, threadId), payload);
+                DerivedIds.publish(conn, broadcastSubject(crew, threadId), payload, derivedId);
                 if (!CHANNEL_BROADCAST.equals(channel)) {
-                    conn.publish(channelSubject(crew, channel, threadId), payload);
+                    DerivedIds.publish(conn, channelSubject(crew, channel, threadId), payload, derivedId);
                 }
             } else {
-                conn.publish(channelSubject(crew, channel, threadId), payload);
+                DerivedIds.publish(conn, channelSubject(crew, channel, threadId), payload, derivedId);
             }
             log.info("Published {} to {} for thread {}", messageType,
                     MSG_SYNTHESIS.equals(messageType) ? "broadcast+" + channel : channel, threadId);
@@ -3416,7 +3462,8 @@ public class DiscussionOrchestrator {
             }
 
             var close = new HashMap<String, Object>();
-            close.put(FIELD_MESSAGE_ID, UUID.randomUUID().toString());
+            String derivedId = events.closeMessageId(state);
+            close.put(FIELD_MESSAGE_ID, DerivedIds.idOrRandom(derivedId));
             close.put(FIELD_THREAD_ID, threadId);
             close.put(FIELD_AGENT_NAME, properties.agentName());
             close.put(FIELD_MESSAGE_TYPE, MSG_THREAD_CLOSE);
@@ -3433,11 +3480,11 @@ public class DiscussionOrchestrator {
             // thread_start goes to broadcast — thread_close must too, otherwise agents on
             // other channels never learn the thread is closed and heartbeats continue forever.
             String crew = threads.containsKey(threadId) ? threads.get(threadId).crew : null;
-            conn.publish(broadcastSubject(crew, threadId), payload);
+            DerivedIds.publish(conn, broadcastSubject(crew, threadId), payload, derivedId);
 
             // Also publish to the primary channel for channel-specific consumers
             if (!CHANNEL_BROADCAST.equals(channel)) {
-                conn.publish(channelSubject(crew, channel, threadId), payload);
+                DerivedIds.publish(conn, channelSubject(crew, channel, threadId), payload, derivedId);
             }
         } catch (Exception e) {
             log.debug("Failed to publish thread close: {}", e.getMessage());
@@ -4070,6 +4117,12 @@ public class DiscussionOrchestrator {
             return false; // a sweep owns it; revisit next pass
         }
         try {
+            if (events.fenced(state)) {
+                // Another coordinator owns the thread: close nothing, release the asker, drop the entry.
+                completePending(state.threadId, null);
+                evicted.add(state.threadId);
+                return true;
+            }
             if (state.phase == Phase.CLOSED) {
                 // Another sweep already closed it. `return true` exits the caller's
                 // removeIf predicate entirely, so the post-try evicted.add is NOT
@@ -4085,6 +4138,7 @@ public class DiscussionOrchestrator {
             completePending(state.threadId, null);
             state.phase = Phase.CLOSED;
             events.closed(state, "zombie", channel);
+            events.checkAtClose(state);
         } finally {
             state.transitioning.set(false);
         }

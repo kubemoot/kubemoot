@@ -160,6 +160,27 @@ agent's contract. With the service off, every sidecar uses the model server its 
 was bound to and no call is placed afresh, and an agent runtime places calls in its own
 process. Agents without a harness block are not affected by sidecar placement.
 
+### Optional: the coordinator log, and how long discussions are kept
+
+Two sets of chart values concern what the coordinators and the discussion stream keep. Both
+default to the behavior Kubemoot has always had.
+
+```yaml
+coordinator:
+  eventLog: true       # each coordinator writes its decisions to a log before acting on them
+
+nats:
+  streams:
+    discuss:           # the stream every crew's discussion messages travel on
+      maxMessages: 5000   # messages kept across all crews; -1 for no limit
+      maxAge: 24h         # how long a message is kept
+      maxBytes: -1        # for example 256MiB; -1 for no limit
+```
+
+`coordinator.eventLog` is described in [The coordinator log](../../concepts/signals-and-protocol/#the-coordinator-log),
+which also says how to size the stream values. The job that creates the NATS streams
+applies `nats.streams.discuss.*` on every install and upgrade, to an existing stream too.
+
 ### Optional: the dashboard
 
 The operator chart carries the [dashboard](../../operating/dashboard/) as an optional

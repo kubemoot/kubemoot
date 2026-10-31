@@ -327,6 +327,13 @@ func (c *ConfigCache) GetPlacementServiceURL() string {
 	return ps.URL
 }
 
+// GetCoordinatorEventLog reports whether the realm turns the coordinators' decision log on.
+func (c *ConfigCache) GetCoordinatorEventLog() bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.config != nil && c.config.Spec.Coordinator != nil && c.config.Spec.Coordinator.EventLog
+}
+
 // GetPlacementPolicy returns the realm's default placement policy, or "" when unset.
 func (c *ConfigCache) GetPlacementPolicy() string {
 	c.mu.RLock()
