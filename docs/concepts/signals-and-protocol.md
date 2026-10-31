@@ -122,6 +122,63 @@ The full state machine (all states, both automatic and event-driven transitions,
 the key design principles) is documented in
 [The Moot - Discussion phase lifecycle](../consensus-model/#discussion-phase-lifecycle).
 
+## The coordinator log
+
+The coordinator decides things no agent message records: which agents it convened, which
+agents a phase waits for and by when, why a phase ended, what the answer is. Those
+decisions can be written to a log, one per thread, so that what the coordinator knew about
+a thread can be read back, and so that a later version can rebuild a thread's state from
+the log. The log is off by default. Set `KUBEMOOT_COORDINATOR_EVENT_LOG=true` on the
+coordinator (in the Agent's `spec.deployment.env`) to turn it on. Turning it on writes
+events and changes nothing else in how a discussion runs.
+
+Each thread has its own subject, `kubemoot.coordinator.<namespace>.<crew>.<threadId>`,
+held by the JetStream stream `KUBEMOOT_COORDINATOR` for a day. Agents do not read it.
+Every message is an event:
+
+| Field | Meaning |
+|---|---|
+| `v` | The envelope version, 1 |
+| `eventId` | A key that names the decision. Writing the same decision twice gives the same id, and a reader ignores an id it already applied |
+| `type` | What was decided (the table below). A reader skips a type it does not know |
+| `threadId`, `round` | The thread, and which round of it: 0 until a human reply reopens the thread, then 1, 2 and so on |
+| `at`, `coordinator` | When, and which coordinator agent wrote it |
+| `data` | The fields of the type |
+
+| `type` | Written when | Main `data` fields |
+|---|---|---|
+| `thread_opened` | the coordinator takes the thread up | `userQuery`, `conversationId`, `crew`, `source` (`request` or `external`), `openedAt` |
+| `phase_entered` | the thread enters ADVISORY, EVALUATING, REVIEW, SYNTHESIZING or PAUSED, or resumes | `phase`, `phaseStartedAt`, `phaseBeforePause`, `advisoryPending`, `reason` |
+| `subcommittee_convened` | the advisory step ends | `path` (`reasoning`, `fallback`, `broadcast` or `direct`), `members`, `brief`, `skills`, `confidence`, `tokens` |
+| `evaluation_started` | the evaluation clock resets after `advisory_ready` | `roster` (who EVALUATING waits for) |
+| `review_started` | `review_ready` is sent | `roster` (the analysts woken), `pending` (each with its deadline) |
+| `signal_applied` | a signal changes the thread: `triaging`, `evaluating`, `waiting`, `waking`, `ready`, `agree`, `concern`, `block`, `stand_aside` | `agent`, `signal`, `messageId`, `deadlineAt`, and for a stand-aside for want of an accelerator `capacityReason` |
+| `failure_recorded` | an agent reports `failure`, or its deadline passes and the coordinator records one | `agent`, `cause` (`reported` or `evaluation_timeout`), `synthesized`, `failedSources` |
+| `settled` | a phase ends | `phase`, `basis` (`roster_signalled`, `fast_path`, `quiet` or `no_pending`), `counts` |
+| `synthesis_started` | the synthesis call begins | the signal counts |
+| `synthesis_done` | the answer exists, before it is published | `outcome` (`synthesized`, `capacity`, `direct`, `fallback` or `ceiling`), `response`, `tokens` |
+| `thread_reopened` | a human reply reopens a closed thread | `phaseStartedAt` |
+| `thread_closed` | the thread ends | `reason`, `channel` |
+
+A few rules hold for every event:
+
+- **Deadlines are absolute.** `deadlineAt` is a time in milliseconds since the epoch, not a
+  number of seconds to wait, so it means the same whenever it is read.
+- **A signal event points at the bus message, it does not copy it.** `messageId` names the
+  message on the discussion stream that carried the signal, and the text stays there.
+  Failures are recorded as failures, never as a stand-aside.
+- **Heartbeats are not recorded.** A heartbeat only pushes an agent's deadline out; the
+  deadline in the log is the last one an event set.
+- **Writing is best effort.** If the stream cannot be reached the coordinator carries on
+  and the event is lost; a discussion never waits for the log.
+- **The state rebuilds from the events.** Applying a thread's events in order, and skipping
+  any event whose `eventId` was already applied, gives the state the coordinator held at
+  the last event: the phase and its clock, the convened agents, the roster and who has
+  signalled, the signals by agent, the agents still pending and the deadline an event last
+  set for each (a heartbeat can have pushed the live deadline later), and the answer. The coordinator
+  writes the log and can rebuild a thread's state from it; a coordinator that starts does
+  not yet resume threads from it.
+
 ## The bus contract
 
 The messages on the bus, the key-value entries agents and Kubemoot share, and the
@@ -136,6 +193,7 @@ from it.
 |---|---|---|
 | Discussion thread | `kubemoot.discuss.<namespace>.<crew>.<channel>.<threadId>` | `DiscussionMessage`: `messageId`, `threadId`, `agentName`, `messageType`, `content`, `channel`, `timestamp`, `traceparent`, `tracestate`, `metadata` |
 | Agent lifecycle | `kubemoot.lifecycle.<namespace>.<crew>.<signal>.<agent>` | `DiscussionMessage` with `waking` or `ready` |
+| Coordinator log | `kubemoot.coordinator.<namespace>.<crew>.<threadId>` | `CoordinatorEvent`: `eventId`, `type`, `threadId`, `round`, `at`, `coordinator`, `data` (see [The coordinator log](#the-coordinator-log)) |
 | Request queue | `kubemoot.request.<namespace>.<crew>` | `DiscussionRequest`: the question for the crew's coordinator |
 | Model lifecycle | `kubemoot.server.model.<server>` | `ModelLifecycleRequest`: an agent asks the operator to wake (`ready`) or sleep (`release`) a model on a vLLM server; the reply is a `ModelLifecycleReply` sent once the server reports the state |
 | Artifact notices | `kubemoot.artifacts.<namespace>.<crew>.<threadId>` | `ArtifactNotice`: a contribution spilled to the artifact store |

@@ -1,0 +1,96 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "CoordinatorEvent",
+  "description": "One decision a coordinator made about a thread, on kubemoot.coordinator.<namespace>.<crew>.<threadId>. A reader rebuilds the thread's state by applying the events in order; it skips an event whose eventId it already applied and an event whose type it does not know. The fields of data depend on type, and every field of data is optional.",
+  "type": "object",
+  "required": ["v", "eventId", "type", "threadId", "round", "at", "coordinator", "data"],
+  "properties": {
+    "v": { "type": "integer", "description": "The envelope version, 1." },
+    "eventId": { "type": "string", "description": "A natural key: the same decision has the same id however often it is written. Also the Nats-Msg-Id header, so the stream drops a duplicate." },
+    "type": {
+      "type": "string",
+      "enum": ["thread_opened", "phase_entered", "subcommittee_convened", "evaluation_started", "review_started", "signal_applied", "failure_recorded", "settled", "synthesis_started", "synthesis_done", "thread_reopened", "thread_closed"],
+      "description": "What was decided. A later version may add types."
+    },
+    "threadId": { "type": "string", "description": "The thread." },
+    "round": { "type": "integer", "description": "0 until a human reply reopens the thread, then 1, 2, and so on." },
+    "at": { "type": "string", "description": "When the coordinator wrote the event, RFC 3339 in UTC." },
+    "coordinator": { "type": "string", "description": "The agent that wrote it." },
+    "data": { "$ref": "#/definitions/CoordinatorEventFields" }
+  },
+  "definitions": {
+    "CoordinatorEventFields": {
+      "type": "object",
+      "description": "The fields of an event. thread_opened: crew, conversationId, userQuery, primaryChannel, source, openedAt, phaseStartedAt. phase_entered: phase, phaseStartedAt, phaseBeforePause, advisoryPending, reason. subcommittee_convened: path, members, brief, technologies, skills, confidence, primaryChannel, tokens. evaluation_started: roster, startedAt. review_started: roster, pending. signal_applied: agent, signal, messageId, deadlineAt, researcher, capacityReason, tooLargeModel, model, lastSignalAt. failure_recorded: agent, cause, synthesized, failedSources, messageId, lastSignalAt. settled: phase, basis, counts. synthesis_started: agrees, concerns, standAsides. synthesis_done: outcome, channel, response, tokens, promptTooLarge. thread_reopened: phaseStartedAt, roster. thread_closed: reason, channel, advisoryPending.",
+      "properties": {
+        "crew": { "type": ["string", "null"], "description": "The crew." },
+        "conversationId": { "type": ["string", "null"], "description": "The conversation the thread belongs to." },
+        "userQuery": { "type": ["string", "null"], "description": "The question." },
+        "primaryChannel": { "type": ["string", "null"], "description": "The thread's main channel; the coordinator can change it after the advisory." },
+        "source": { "type": "string", "enum": ["request", "external"], "description": "How the thread began: a queued request this coordinator took, or a thread_start another publisher put on the bus." },
+        "openedAt": { "type": "string", "description": "When the coordinator took the thread up, RFC 3339 in UTC. The hard ceiling counts from here." },
+        "phaseStartedAt": { "type": "string", "description": "The phase clock after the change, RFC 3339 in UTC." },
+        "startedAt": { "type": "string", "description": "When the evaluation clock was reset, RFC 3339 in UTC." },
+        "phase": { "type": "string", "enum": ["SUBMITTED", "ADVISORY", "EVALUATING", "REVIEW", "PAUSED", "SYNTHESIZING", "CLOSED"], "description": "The phase entered, or for settled the phase that ended." },
+        "phaseBeforePause": { "type": ["string", "null"], "description": "The phase a pause interrupted; null when the thread is not paused." },
+        "advisoryPending": { "type": "boolean", "description": "True while the advisory step runs and agents are not yet woken." },
+        "reason": { "type": "string", "description": "Why. For phase_entered: thread_start, advisory, settled, skip_review, stop, pause, resume or direct. For thread_closed: an outcome of synthesis_done, or zombie, or no_signals." },
+        "path": { "type": "string", "enum": ["reasoning", "fallback", "broadcast", "direct"], "description": "How the subcommittee was chosen: the reasoning call, a similarity or triage fallback, nobody (every agent may take part), or no toolers because the coordinator answered itself." },
+        "members": { "type": "array", "items": { "type": "string" }, "description": "The convened agents, sorted." },
+        "brief": { "type": ["string", "null"], "description": "The coordinator's brief." },
+        "technologies": { "type": "array", "items": { "type": "string" }, "description": "The technologies the coordinator named." },
+        "skills": { "type": "array", "items": { "type": "string" }, "description": "The skills the coordinator selected." },
+        "confidence": { "type": "number", "description": "The coordinator's confidence in its choice, or -1 when it has none." },
+        "roster": { "type": "array", "items": { "type": "string" }, "description": "The agents the phase waits for, sorted. Empty when unknown." },
+        "pending": { "type": "object", "additionalProperties": { "type": "integer" }, "description": "Agent to deadline, in milliseconds since the epoch." },
+        "agent": { "type": "string", "description": "The agent a signal or failure is about." },
+        "signal": {
+          "type": "string",
+          "enum": ["triaging", "evaluating", "waiting", "waking", "ready", "agree", "concern", "block", "stand_aside"],
+          "description": "The signal applied. Aliases are folded: contribution is agree, decline is stand_aside. Heartbeats are not recorded."
+        },
+        "messageId": { "type": "string", "description": "The bus message that carried the signal; its content is read from the discussion stream." },
+        "deadlineAt": { "type": "integer", "description": "The agent's deadline after the signal, in milliseconds since the epoch." },
+        "researcher": { "type": "boolean", "description": "True when the agent contributes as a researcher, which does not count toward settling." },
+        "capacityReason": { "type": "string", "enum": ["gpu-busy", "model-too-large", "prompt-too-large"], "description": "Set on a stand_aside that was for want of an accelerator." },
+        "tooLargeModel": { "type": "string", "description": "The model no accelerator can hold, on a model-too-large stand_aside." },
+        "model": { "type": "string", "description": "The model a waiting agent waits for." },
+        "lastSignalAt": { "type": ["string", "null"], "description": "When the last terminal signal arrived, RFC 3339 in UTC." },
+        "cause": { "type": "string", "enum": ["reported", "evaluation_timeout"], "description": "Whether the agent reported the failure or its deadline passed." },
+        "synthesized": { "type": "boolean", "description": "True when the coordinator recorded the failure for an agent that sent none." },
+        "failedSources": { "type": "array", "items": { "type": "string" }, "description": "The tools a failure named." },
+        "basis": { "type": "string", "enum": ["roster_signalled", "fast_path", "quiet", "no_pending"], "description": "Why the phase settled: every roster member signalled; enough agreement and quiet; the table went quiet; or nobody was pending." },
+        "counts": {
+          "type": "object",
+          "description": "The signals in at the time.",
+          "properties": {
+            "agree": { "type": "integer" },
+            "concern": { "type": "integer" },
+            "standAside": { "type": "integer" },
+            "block": { "type": "integer" },
+            "failure": { "type": "integer" }
+          }
+        },
+        "agrees": { "type": "integer", "description": "Agreeing agents when synthesis began." },
+        "concerns": { "type": "integer", "description": "Agents with a concern when synthesis began." },
+        "standAsides": { "type": "integer", "description": "Agents that stood aside when synthesis began." },
+        "outcome": { "type": "string", "enum": ["synthesized", "capacity", "direct", "fallback", "ceiling"], "description": "How the answer came to be: written by the synthesis call, the accelerator-capacity message, the coordinator's own answer, the toolers' findings as they are, or the answer a force-closed thread got." },
+        "channel": { "type": "string", "description": "The channel the answer goes to." },
+        "response": { "type": "string", "description": "The answer, written here before it is published, so a coordinator that stops between the two can publish it again." },
+        "promptTooLarge": { "type": "boolean", "description": "True when the synthesis prompt fit no accelerator's context window." },
+        "tokens": {
+          "type": "object",
+          "description": "The coordinator's own model calls. On subcommittee_convened: advisoryIn, advisoryOut, triageIn, triageOut. On synthesis_done: in, out.",
+          "properties": {
+            "advisoryIn": { "type": "integer" },
+            "advisoryOut": { "type": "integer" },
+            "triageIn": { "type": "integer" },
+            "triageOut": { "type": "integer" },
+            "in": { "type": "integer" },
+            "out": { "type": "integer" }
+          }
+        }
+      }
+    }
+  }
+}

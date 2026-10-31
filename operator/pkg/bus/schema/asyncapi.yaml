@@ -1,7 +1,7 @@
 asyncapi: 3.1.0
 info:
   title: Kubemoot bus contract
-  version: 2.1.0
+  version: 2.2.0
   description: |
     The messages agents and Kubemoot exchange over NATS, the key-value entries they
     share, and the event stream the discussion gateway serves. Payloads are JSON
@@ -98,6 +98,29 @@ channels:
     messages:
       discussionRequest:
         $ref: '#/components/messages/DiscussionRequest'
+
+  coordinatorLog:
+    address: kubemoot.coordinator.{namespace}.{crew}.{threadId}
+    title: Coordinator log
+    description: |
+      The decisions a coordinator makes about one thread, in the order it made them:
+      the thread opened, each phase entered, the subcommittee convened, the rosters
+      and deadlines of a phase, each signal applied, failures, settles, the synthesis
+      and the close. One subject per thread. The JetStream stream KUBEMOOT_COORDINATOR
+      holds them for a day. Written only when the coordinator runs with
+      KUBEMOOT_COORDINATOR_EVENT_LOG on. Agents do not read it.
+    servers:
+      - $ref: '#/servers/nats'
+    parameters:
+      namespace:
+        $ref: '#/components/parameters/namespace'
+      crew:
+        $ref: '#/components/parameters/crew'
+      threadId:
+        $ref: '#/components/parameters/threadId'
+    messages:
+      coordinatorEvent:
+        $ref: '#/components/messages/CoordinatorEvent'
 
   artifacts:
     address: kubemoot.artifacts.{namespace}.{crew}.{threadId}
@@ -423,6 +446,11 @@ components:
       title: Discussion request
       payload:
         $ref: './discussion-request.json'
+    CoordinatorEvent:
+      name: CoordinatorEvent
+      title: Coordinator event
+      payload:
+        $ref: './coordinator-event.json'
     ArtifactNotice:
       name: ArtifactNotice
       title: Artifact notice

@@ -41,6 +41,15 @@ class CrewScopeTest {
     }
 
     @Test
+    void coordinatorLogSubjects_areOnePerThreadAndScopedByNamespaceThenCrew() {
+        assertEquals("kubemoot.coordinator.team-a.homelab-pilot.t1", A.coordinatorSubject("t1"));
+        assertEquals("kubemoot.coordinator.team-a.homelab-pilot.>", A.coordinatorWildcard());
+        assertEquals("kubemoot.coordinator.team-b.homelab-pilot.t1", B.coordinatorSubject("t1"));
+        assertEquals("kubemoot.coordinator.team-a.t1", CREWLESS.coordinatorSubject("t1"));
+        assertEquals("KUBEMOOT_COORDINATOR", CrewScope.COORDINATOR_STREAM);
+    }
+
+    @Test
     void lifecycleSubjects() {
         assertEquals("kubemoot.lifecycle.team-a.homelab-pilot.waking.k8s-config",
                 A.lifecycleSubject("waking", "k8s-config"));

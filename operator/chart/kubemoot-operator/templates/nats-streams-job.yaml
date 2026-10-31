@@ -91,6 +91,20 @@ spec:
                 --max-age=24h --max-msgs=5000 \
                 --force -s "$NATS_URL" 2>/dev/null || true
 
+              # The coordinators' decision logs, one subject per thread. A coordinator
+              # writes here only when KUBEMOOT_COORDINATOR_EVENT_LOG is on; the stream
+              # is empty otherwise. A day is far past a thread's life (the hard ceiling
+              # is minutes); 512 per subject bounds one runaway thread.
+              nats stream add KUBEMOOT_COORDINATOR \
+                --subjects="kubemoot.coordinator.>" \
+                --retention=limits --max-age=24h --max-msgs=100000 --max-msgs-per-subject=512 --max-bytes=256MiB \
+                --storage=file --replicas=1 --discard=old \
+                --defaults -s "$NATS_URL" 2>/dev/null || \
+              nats stream update KUBEMOOT_COORDINATOR \
+                --subjects="kubemoot.coordinator.>" \
+                --max-age=24h --max-msgs=100000 --max-msgs-per-subject=512 --max-bytes=256MiB \
+                --force -s "$NATS_URL" 2>/dev/null || true
+
               nats stream add KUBEMOOT_REQUEST \
                 --subjects="kubemoot.request.>" \
                 --retention=work --max-age=24h --max-msgs=1000 \

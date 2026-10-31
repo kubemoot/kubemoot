@@ -494,6 +494,7 @@ Consumers judge staleness from the record itself: a heartbeat is stale once two 
 | `KUBEMOOT_MODEL_CANDIDATES_TRIAGE` | All agents | Ranked candidate models for the triage phase, same shape |
 | `KUBEMOOT_MODEL_CANDIDATE_TOLERANCE` | All agents | Optional override via `spec.deployment.env`; quality-score points a warm candidate may trail the preferred model (default 10) |
 | `KUBEMOOT_DISCUSS_GPU_WAIT_LIMIT_SECONDS` | All agents | Optional override via `spec.deployment.env`; safety limit on one GPU capacity wait (default: the synthesis timeout, 90 seconds) |
+| `KUBEMOOT_COORDINATOR_EVENT_LOG` | Coordinator | Optional, via `spec.deployment.env`; `true` makes the coordinator write each decision to its [coordinator log](../../concepts/signals-and-protocol/#the-coordinator-log). Default `false`; it changes nothing else |
 
 ---
 

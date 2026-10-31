@@ -274,6 +274,9 @@ public class DiscussionOrchestrator {
     private final ConcurrentHashMap<String, ThreadState> threads = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, CompletableFuture<String>> pendingResults = new ConcurrentHashMap<>();
 
+    /** Writes each decision to the thread's coordinator log; does nothing unless KUBEMOOT_COORDINATOR_EVENT_LOG is true. */
+    private volatile CoordinatorEventRecorder events;
+
     // Conversation history: durable via NATS KV, with in-memory read-through cache.
     // Allows follow-up questions to reference prior answers (e.g., "How many of these rigs have GPUs?")
     private final ConcurrentHashMap<String, ConversationHistory> conversationCache = new ConcurrentHashMap<>();
@@ -373,6 +376,12 @@ public class DiscussionOrchestrator {
         }
 
         this.autoTransitions = buildAutoTransitions();
+        this.events = CoordinatorEventRecorder.fromConfig(properties.agentName(), natsProvider, mapper);
+    }
+
+    /** Package-private: replace the event recorder, so a unit test can read the events a thread writes. */
+    void useEventRecorder(CoordinatorEventRecorder recorder) {
+        this.events = recorder;
     }
 
     private volatile boolean subscribed = false;
@@ -538,6 +547,7 @@ public class DiscussionOrchestrator {
         state.crew = crew;
         threads.put(threadId, state);
         metrics.threadStarted();
+        events.opened(state, "request");
         return state;
     }
 
@@ -585,6 +595,7 @@ public class DiscussionOrchestrator {
         conn.flush(Duration.ofSeconds(2));
 
         enterAdvisory(state);
+        events.phaseEntered(state, "thread_start");
         log.info("Thread {} → ADVISORY phase (reasoning select+brief will run in transitionToEvaluating)", threadId);
     }
 
@@ -712,6 +723,8 @@ public class DiscussionOrchestrator {
         String conversationId = JsonFields.text(meta, FIELD_CONVERSATION_ID);
         state.conversationId = conversationId.isBlank() ? null : conversationId;
         enterAdvisory(state);
+        events.opened(state, "external");
+        events.phaseEntered(state, "thread_start");
         metrics.threadStarted();
         log.info("Thread {} started by {} -> ADVISORY phase", state.threadId, agentName);
     }
@@ -771,7 +784,7 @@ public class DiscussionOrchestrator {
         if (canForceSynthesis(state.phase)) {
             log.info("Thread {} stop requested by {} — forcing synthesis from phase {}",
                     threadId, agentName, state.phase);
-            transitionToSynthesis(state);
+            transitionToSynthesis(state, "stop");
         }
     }
 
@@ -780,6 +793,7 @@ public class DiscussionOrchestrator {
         if (canPause(state.phase)) {
             state.phaseBeforePause = state.phase;
             state.phase = Phase.PAUSED;
+            events.phaseEntered(state, "pause");
             log.info("Thread {} paused by {} — saved phase {}", threadId, agentName,
                     state.phaseBeforePause);
         }
@@ -792,6 +806,7 @@ public class DiscussionOrchestrator {
             state.phase = restored;
             state.phaseStarted = Instant.now();
             state.phaseBeforePause = null;
+            events.phaseEntered(state, "resume");
             log.info("Thread {} resumed by {} → {}", threadId, agentName, restored);
         }
     }
@@ -822,6 +837,7 @@ public class DiscussionOrchestrator {
         if (TERMINAL_SIGNALS.contains(messageType)) {
             state.phaseRoster.get().recordTerminalSignal(agentName);
         }
+        events.signalApplied(state, agentName, messageType, msg);
     }
 
     private void dispatchSignal(ThreadState state, String agentName, String messageType,
@@ -973,6 +989,11 @@ public class DiscussionOrchestrator {
         log.info("Thread {} - agent {} is waiting for a GPU for {}", state.threadId, agentName, model);
     }
 
+    /** True for the stand-aside reasons that mean an agent could not get an accelerator. */
+    static boolean isCapacityReason(String reason) {
+        return CAPACITY_REASONS.contains(reason);
+    }
+
     /**
      * Record a stand-aside's capacity reason ({@code gpu-busy}, {@code model-too-large}
      * or {@code prompt-too-large}) and, for model-too-large, the model no GPU can hold.
@@ -1026,6 +1047,7 @@ public class DiscussionOrchestrator {
         state.researcherAgents.clear();
         state.pendingEvaluations.clear();
         state.receipt.startRound(state.phaseStarted);
+        events.reopened(state);
         log.info("Thread {} reopened by human reply → EVALUATING", threadId);
     }
 
@@ -1043,7 +1065,8 @@ public class DiscussionOrchestrator {
         }
     }
 
-    private void checkThreadTransition(ThreadState state, Instant now) {
+    // Visible for testing
+    void checkThreadTransition(ThreadState state, Instant now) {
         // Hard-ceiling backstop FIRST, before the phase table: a discussion must
         // ALWAYS reach a terminal state. This catches threads stuck in ANY phase -
         // including SYNTHESIZING and any phase with no auto edge - that the normal
@@ -1118,7 +1141,7 @@ public class DiscussionOrchestrator {
             // Funnel through the one terminal-close path so a ceiling-terminated thread
             // gets the same synthesis + thread_close + threadCompleted metric + future
             // completion as a normal close - it must not be a divergent copy.
-            closeThread(state, resolveChannel(state), buildFallbackResponse(state));
+            closeThread(state, resolveChannel(state), buildFallbackResponse(state), "ceiling");
         } finally {
             state.transitioning.set(false);
         }
@@ -1217,6 +1240,7 @@ public class DiscussionOrchestrator {
         if (rosterSignalled(state)) {
             log.info("Thread {} every participant of {} has signalled after {}s - transitioning",
                     state.threadId, state.phase, elapsed);
+            events.settled(state, "roster_signalled");
             cfg.advance().run();
             return;
         }
@@ -1228,6 +1252,7 @@ public class DiscussionOrchestrator {
         if (cfg.fastPath() && hasSufficientConsensus(state, now)) {
             log.info("Thread {} sufficient consensus ({} agrees), settling - {} pending dropped",
                     state.threadId, toolerAgreeCount(state), state.pendingEvaluations.size());
+            events.settled(state, "fast_path");
             cfg.advance().run();
             return;
         }
@@ -1244,12 +1269,14 @@ public class DiscussionOrchestrator {
     private void advanceIfSettled(ThreadState state, Instant now, long elapsed, PhaseSettle cfg) {
         if (hasSubstantiveSignal(state, toolerAgreeCount(state)) && isQuiet(state, now)) {
             log.info("Thread {} all participants settled after {}s - transitioning", state.threadId, elapsed);
+            events.settled(state, "quiet");
             cfg.advance().run();
             return;
         }
         if (!state.pendingEvaluations.isEmpty()) return;        // someone still pending
         if (isColdStartWaiting(state, elapsed, cfg)) return;    // 0 signals, agents scaling from zero
         log.info("Thread {} no pending participants after {}s - transitioning", state.threadId, elapsed);
+        events.settled(state, "no_pending");
         cfg.advance().run();
     }
 
@@ -1328,6 +1355,7 @@ public class DiscussionOrchestrator {
         state.phase = Phase.EVALUATING;
         state.phaseStarted = Instant.now();
         state.advisoryPending.set(true);
+        events.phaseEntered(state, "advisory");
 
         log.info("Thread {} → EVALUATING phase (coordinator reasoning select+brief)", state.threadId);
 
@@ -1383,6 +1411,7 @@ public class DiscussionOrchestrator {
             state.advisoryContent = outcome.wisdom();
             state.advisoryTechnologies = new CopyOnWriteArrayList<>(outcome.technologies());
             state.primaryChannel = classifyChannelFromAdvisory(outcome.technologies());
+            events.subcommitteeConvened(state, reasoning, outcome);
 
             metrics.advisoryCompleted(Duration.ofMillis(outcome.inferenceMs()));
             log.info("Thread {} advisory done in {}ms: technologies={}, layers={}, channel={}",
@@ -1402,6 +1431,7 @@ public class DiscussionOrchestrator {
             log.warn("Advisory generation failed for thread {}: {}", state.threadId, e.getMessage());
             // Still publish advisory_ready without advisory content, and reset the clock so
             // toolers get a full evaluation window.
+            events.advisoryFailed(state);
             publishAdvisoryReady(state, List.of(), "Advisory generation failed");
             resetEvaluationClock(state);
         }
@@ -1505,6 +1535,7 @@ public class DiscussionOrchestrator {
         state.pendingEvaluations.clear();
         state.phaseRoster.set(PhaseRoster.of(evaluationRoster(state.innerCircle, analystNamesFromResumes())));
         state.advisoryPending.set(false);
+        events.evaluationStarted(state);
     }
 
     /**
@@ -1963,6 +1994,7 @@ public class DiscussionOrchestrator {
         for (String reviewer : reviewers) {
             state.pendingEvaluations.put(reviewer, deadline);
         }
+        events.reviewStarted(state);
         log.info("Thread {} review roster: {}", state.threadId, reviewers);
     }
 
@@ -1996,7 +2028,7 @@ public class DiscussionOrchestrator {
             // synthesis for clean output.
             log.info("Thread {} — single tooler agree, skipping review → synthesis",
                     state.threadId);
-            transitionToSynthesis(state);
+            transitionToSynthesis(state, "skip_review");
             return;
         }
 
@@ -2005,6 +2037,7 @@ public class DiscussionOrchestrator {
         seedReviewRoster(state, reviewersFor(analystCircle, analysts), System.currentTimeMillis());
         state.phase = Phase.REVIEW;
         state.phaseStarted = Instant.now();
+        events.phaseEntered(state, "settled");
         metrics.setPendingEvaluations(state.pendingEvaluations.size());
 
         try {
@@ -2074,6 +2107,8 @@ public class DiscussionOrchestrator {
         state.primaryChannel = channel;
         state.advisoryContent = reasoning.brief();
         state.phase = Phase.SYNTHESIZING;
+        events.answeredDirectly(state, reasoning);
+        events.phaseEntered(state, "direct");
         metrics.advisoryCompleted(Duration.ofMillis(reasoning.inferenceMs()));
         log.info("Thread {} - coordinator selected no toolers; answering directly from reasoning ({}ms), no tooler wake",
                 state.threadId, reasoning.inferenceMs());
@@ -2085,15 +2120,21 @@ public class DiscussionOrchestrator {
         // not an anomaly.
         publishAdvisory(state.threadId, reasoning.technologies(), List.of(),
                 reasoning.brief(), reasoning.inferenceMs(), state.advisoryModelUse);
-        completeSynthesisPhase(state, channel, reasoning.brief(), Instant.now());
+        completeSynthesisPhase(state, channel, reasoning.brief(), Instant.now(), "direct");
     }
 
     /**
      * REVIEW → SYNTHESIZED: LLM synthesizes final answer from all contributions.
      */
     private void transitionToSynthesis(ThreadState state) {
+        transitionToSynthesis(state, "settled");
+    }
+
+    /** {@code reason} is why synthesis begins now: the phase settled, the review was skipped, or a stop was requested. */
+    private void transitionToSynthesis(ThreadState state, String reason) {
         state.phase = Phase.SYNTHESIZING;
         state.synthesisPromptTooLarge = false;
+        events.phaseEntered(state, reason);
         Instant synthesisStart = Instant.now();
         log.info("Thread {} → SYNTHESIZING ({} agrees, {} concerns, {} stand-asides)",
                 state.threadId, state.agreeSignals.size(), state.concernSignals.size(),
@@ -2104,6 +2145,7 @@ public class DiscussionOrchestrator {
 
         llmExecutor.submit(() -> {
             try {
+                events.synthesisStarted(state);
                 // Count tooler agrees (excluding researchers like internet search)
                 long synthToolerAgrees = state.agreeSignals.keySet().stream()
                         .filter(name -> !state.researcherAgents.contains(name)).count();
@@ -2137,11 +2179,11 @@ public class DiscussionOrchestrator {
                 response = detectAndAppendGapHint(state, response, synthToolerAgrees, channel);
 
                 // Publish synthesis (with onboarding hint appended if gap detected)
-                completeSynthesisPhase(state, channel, response, synthesisStart);
+                completeSynthesisPhase(state, channel, response, synthesisStart, "synthesized");
 
             } catch (Exception e) {
                 log.warn("Synthesis failed for thread {}: {}", state.threadId, e.getMessage());
-                closeThread(state, resolveChannel(state), fallbackAfterSynthesisFailure(state, e));
+                closeThread(state, resolveChannel(state), fallbackAfterSynthesisFailure(state, e), "fallback");
             }
         });
     }
@@ -2459,7 +2501,7 @@ public class DiscussionOrchestrator {
      */
     private void handleEmptySynthesisResponse(ThreadState state) {
         log.warn("Empty LLM response for thread {} synthesis", state.threadId);
-        closeThread(state, resolveChannel(state), buildFallbackResponse(state));
+        closeThread(state, resolveChannel(state), buildFallbackResponse(state), "fallback");
     }
 
     /**
@@ -2482,6 +2524,7 @@ public class DiscussionOrchestrator {
             String ch = resolveChannel(state);
             publishThreadClose(state.threadId, ch);
             state.phase = Phase.CLOSED;
+            events.closed(state, "no_signals", ch);
             completePending(state.threadId, null);
             return null;
         }
@@ -2624,10 +2667,10 @@ public class DiscussionOrchestrator {
      * Publish synthesis, close the thread, record metrics, and complete the pending future.
      */
     private void completeSynthesisPhase(ThreadState state, String channel, String response,
-                                         Instant synthesisStart) {
+                                         Instant synthesisStart, String outcome) {
         metrics.synthesisCompleted(Duration.between(synthesisStart, Instant.now()));
         log.info("Thread {} → CLOSED (synthesized)", state.threadId);
-        closeThread(state, channel, response);
+        closeThread(state, channel, response, outcome);
     }
 
     /**
@@ -2639,10 +2682,12 @@ public class DiscussionOrchestrator {
      * The caller records any phase-specific metric (e.g. synthesis duration) first.
      * Idempotent: completePending no-ops if the future is already completed.
      */
-    private void closeThread(ThreadState state, String channel, String response) {
+    private void closeThread(ThreadState state, String channel, String response, String outcome) {
+        events.synthesisDone(state, outcome, channel, response);
         publishToThread(state.threadId, channel, response, MSG_SYNTHESIS);
         publishThreadClose(state.threadId, channel);
         state.phase = Phase.CLOSED;
+        events.closed(state, outcome, channel);
         metrics.threadCompleted(Duration.between(state.threadCreated, Instant.now()));
         completePending(state.threadId, response);
     }
@@ -2745,7 +2790,7 @@ public class DiscussionOrchestrator {
         }
         log.info("Thread {} - no contribution and agents could not get a GPU; answering with the capacity message",
                 state.threadId);
-        completeSynthesisPhase(state, resolveChannel(state), capacity, synthesisStart);
+        completeSynthesisPhase(state, resolveChannel(state), capacity, synthesisStart, "capacity");
         return true;
     }
 
@@ -2776,6 +2821,7 @@ public class DiscussionOrchestrator {
         for (ThreadState state : threads.values()) {
             if (shouldTrackWaking(state, agentName)) {
                 state.pendingEvaluations.put(agentName, wakingDeadline);
+                events.wake(state, agentName, MSG_WAKING, wakingDeadline);
                 affected++;
             }
         }
@@ -2791,6 +2837,7 @@ public class DiscussionOrchestrator {
         for (ThreadState state : threads.values()) {
             if (state.pendingEvaluations.containsKey(agentName)) {
                 state.pendingEvaluations.put(agentName, triageDeadline);
+                events.wake(state, agentName, MSG_READY, triageDeadline);
                 affected++;
             }
         }
@@ -2888,6 +2935,7 @@ public class DiscussionOrchestrator {
                 state.phaseRoster.get().recordTerminalSignal(timedOutAgent);
                 state.lastSignalReceived = Instant.now();
                 metrics.evaluationTimedOut();
+                events.timedOut(state, timedOutAgent);
                 publishSyntheticFailure(timedOutAgent, state.threadId,
                         state.primaryChannel != null ? state.primaryChannel : CHANNEL_GENERAL);
                 return true;
@@ -4036,6 +4084,7 @@ public class DiscussionOrchestrator {
             publishThreadClose(state.threadId, channel);
             completePending(state.threadId, null);
             state.phase = Phase.CLOSED;
+            events.closed(state, "zombie", channel);
         } finally {
             state.transitioning.set(false);
         }
@@ -4102,6 +4151,8 @@ public class DiscussionOrchestrator {
         /** What the thread cost and how it went, published on thread_close. */
         final DiscussionReceipt receipt = new DiscussionReceipt(threadCreated);
         final Set<String> seenMessageIds = ConcurrentHashMap.newKeySet();
+        /** What the coordinator log needs to name this thread's events. */
+        final CoordinatorTrace trace = new CoordinatorTrace();
 
         // Phase tracking
         volatile Phase phase = Phase.SUBMITTED;
