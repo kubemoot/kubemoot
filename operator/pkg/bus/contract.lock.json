@@ -1,5 +1,5 @@
 {
-  "version": "2.1.0",
+  "version": "2.2.0",
   "surface": {
     "agent-activity.json#": {
       "type": "object"
@@ -205,6 +205,287 @@
       "required": true
     },
     "conversation-list.json#/definitions/ConversationSummary/turns": {
+      "type": "integer",
+      "required": true
+    },
+    "coordinator-event.json#": {
+      "type": "object"
+    },
+    "coordinator-event.json#/at": {
+      "type": "string",
+      "required": true
+    },
+    "coordinator-event.json#/coordinator": {
+      "type": "string",
+      "required": true
+    },
+    "coordinator-event.json#/data": {
+      "required": true,
+      "ref": "#/definitions/CoordinatorEventFields"
+    },
+    "coordinator-event.json#/definitions/CoordinatorEventFields": {
+      "type": "object"
+    },
+    "coordinator-event.json#/definitions/CoordinatorEventFields/advisoryPending": {
+      "type": "boolean"
+    },
+    "coordinator-event.json#/definitions/CoordinatorEventFields/agent": {
+      "type": "string"
+    },
+    "coordinator-event.json#/definitions/CoordinatorEventFields/agrees": {
+      "type": "integer"
+    },
+    "coordinator-event.json#/definitions/CoordinatorEventFields/basis": {
+      "type": "string",
+      "enum": [
+        "fast_path",
+        "no_pending",
+        "quiet",
+        "roster_signalled"
+      ]
+    },
+    "coordinator-event.json#/definitions/CoordinatorEventFields/brief": {
+      "type": "null,string"
+    },
+    "coordinator-event.json#/definitions/CoordinatorEventFields/capacityReason": {
+      "type": "string",
+      "enum": [
+        "gpu-busy",
+        "model-too-large",
+        "prompt-too-large"
+      ]
+    },
+    "coordinator-event.json#/definitions/CoordinatorEventFields/cause": {
+      "type": "string",
+      "enum": [
+        "evaluation_timeout",
+        "reported"
+      ]
+    },
+    "coordinator-event.json#/definitions/CoordinatorEventFields/channel": {
+      "type": "string"
+    },
+    "coordinator-event.json#/definitions/CoordinatorEventFields/concerns": {
+      "type": "integer"
+    },
+    "coordinator-event.json#/definitions/CoordinatorEventFields/confidence": {
+      "type": "number"
+    },
+    "coordinator-event.json#/definitions/CoordinatorEventFields/conversationId": {
+      "type": "null,string"
+    },
+    "coordinator-event.json#/definitions/CoordinatorEventFields/counts": {
+      "type": "object"
+    },
+    "coordinator-event.json#/definitions/CoordinatorEventFields/counts/agree": {
+      "type": "integer"
+    },
+    "coordinator-event.json#/definitions/CoordinatorEventFields/counts/block": {
+      "type": "integer"
+    },
+    "coordinator-event.json#/definitions/CoordinatorEventFields/counts/concern": {
+      "type": "integer"
+    },
+    "coordinator-event.json#/definitions/CoordinatorEventFields/counts/failure": {
+      "type": "integer"
+    },
+    "coordinator-event.json#/definitions/CoordinatorEventFields/counts/standAside": {
+      "type": "integer"
+    },
+    "coordinator-event.json#/definitions/CoordinatorEventFields/crew": {
+      "type": "null,string"
+    },
+    "coordinator-event.json#/definitions/CoordinatorEventFields/deadlineAt": {
+      "type": "integer"
+    },
+    "coordinator-event.json#/definitions/CoordinatorEventFields/failedSources": {
+      "type": "array"
+    },
+    "coordinator-event.json#/definitions/CoordinatorEventFields/failedSources[]": {
+      "type": "string"
+    },
+    "coordinator-event.json#/definitions/CoordinatorEventFields/lastSignalAt": {
+      "type": "null,string"
+    },
+    "coordinator-event.json#/definitions/CoordinatorEventFields/members": {
+      "type": "array"
+    },
+    "coordinator-event.json#/definitions/CoordinatorEventFields/members[]": {
+      "type": "string"
+    },
+    "coordinator-event.json#/definitions/CoordinatorEventFields/messageId": {
+      "type": "string"
+    },
+    "coordinator-event.json#/definitions/CoordinatorEventFields/model": {
+      "type": "string"
+    },
+    "coordinator-event.json#/definitions/CoordinatorEventFields/openedAt": {
+      "type": "string"
+    },
+    "coordinator-event.json#/definitions/CoordinatorEventFields/outcome": {
+      "type": "string",
+      "enum": [
+        "capacity",
+        "ceiling",
+        "direct",
+        "fallback",
+        "synthesized"
+      ]
+    },
+    "coordinator-event.json#/definitions/CoordinatorEventFields/path": {
+      "type": "string",
+      "enum": [
+        "broadcast",
+        "direct",
+        "fallback",
+        "reasoning"
+      ]
+    },
+    "coordinator-event.json#/definitions/CoordinatorEventFields/pending": {
+      "type": "object"
+    },
+    "coordinator-event.json#/definitions/CoordinatorEventFields/pending{}": {
+      "type": "integer"
+    },
+    "coordinator-event.json#/definitions/CoordinatorEventFields/phase": {
+      "type": "string",
+      "enum": [
+        "ADVISORY",
+        "CLOSED",
+        "EVALUATING",
+        "PAUSED",
+        "REVIEW",
+        "SUBMITTED",
+        "SYNTHESIZING"
+      ]
+    },
+    "coordinator-event.json#/definitions/CoordinatorEventFields/phaseBeforePause": {
+      "type": "null,string"
+    },
+    "coordinator-event.json#/definitions/CoordinatorEventFields/phaseStartedAt": {
+      "type": "string"
+    },
+    "coordinator-event.json#/definitions/CoordinatorEventFields/primaryChannel": {
+      "type": "null,string"
+    },
+    "coordinator-event.json#/definitions/CoordinatorEventFields/promptTooLarge": {
+      "type": "boolean"
+    },
+    "coordinator-event.json#/definitions/CoordinatorEventFields/reason": {
+      "type": "string"
+    },
+    "coordinator-event.json#/definitions/CoordinatorEventFields/researcher": {
+      "type": "boolean"
+    },
+    "coordinator-event.json#/definitions/CoordinatorEventFields/response": {
+      "type": "string"
+    },
+    "coordinator-event.json#/definitions/CoordinatorEventFields/roster": {
+      "type": "array"
+    },
+    "coordinator-event.json#/definitions/CoordinatorEventFields/roster[]": {
+      "type": "string"
+    },
+    "coordinator-event.json#/definitions/CoordinatorEventFields/signal": {
+      "type": "string",
+      "enum": [
+        "agree",
+        "block",
+        "concern",
+        "evaluating",
+        "ready",
+        "stand_aside",
+        "triaging",
+        "waiting",
+        "waking"
+      ]
+    },
+    "coordinator-event.json#/definitions/CoordinatorEventFields/skills": {
+      "type": "array"
+    },
+    "coordinator-event.json#/definitions/CoordinatorEventFields/skills[]": {
+      "type": "string"
+    },
+    "coordinator-event.json#/definitions/CoordinatorEventFields/source": {
+      "type": "string",
+      "enum": [
+        "external",
+        "request"
+      ]
+    },
+    "coordinator-event.json#/definitions/CoordinatorEventFields/standAsides": {
+      "type": "integer"
+    },
+    "coordinator-event.json#/definitions/CoordinatorEventFields/startedAt": {
+      "type": "string"
+    },
+    "coordinator-event.json#/definitions/CoordinatorEventFields/synthesized": {
+      "type": "boolean"
+    },
+    "coordinator-event.json#/definitions/CoordinatorEventFields/technologies": {
+      "type": "array"
+    },
+    "coordinator-event.json#/definitions/CoordinatorEventFields/technologies[]": {
+      "type": "string"
+    },
+    "coordinator-event.json#/definitions/CoordinatorEventFields/tokens": {
+      "type": "object"
+    },
+    "coordinator-event.json#/definitions/CoordinatorEventFields/tokens/advisoryIn": {
+      "type": "integer"
+    },
+    "coordinator-event.json#/definitions/CoordinatorEventFields/tokens/advisoryOut": {
+      "type": "integer"
+    },
+    "coordinator-event.json#/definitions/CoordinatorEventFields/tokens/in": {
+      "type": "integer"
+    },
+    "coordinator-event.json#/definitions/CoordinatorEventFields/tokens/out": {
+      "type": "integer"
+    },
+    "coordinator-event.json#/definitions/CoordinatorEventFields/tokens/triageIn": {
+      "type": "integer"
+    },
+    "coordinator-event.json#/definitions/CoordinatorEventFields/tokens/triageOut": {
+      "type": "integer"
+    },
+    "coordinator-event.json#/definitions/CoordinatorEventFields/tooLargeModel": {
+      "type": "string"
+    },
+    "coordinator-event.json#/definitions/CoordinatorEventFields/userQuery": {
+      "type": "null,string"
+    },
+    "coordinator-event.json#/eventId": {
+      "type": "string",
+      "required": true
+    },
+    "coordinator-event.json#/round": {
+      "type": "integer",
+      "required": true
+    },
+    "coordinator-event.json#/threadId": {
+      "type": "string",
+      "required": true
+    },
+    "coordinator-event.json#/type": {
+      "type": "string",
+      "enum": [
+        "evaluation_started",
+        "failure_recorded",
+        "phase_entered",
+        "review_started",
+        "settled",
+        "signal_applied",
+        "subcommittee_convened",
+        "synthesis_done",
+        "synthesis_started",
+        "thread_closed",
+        "thread_opened",
+        "thread_reopened"
+      ],
+      "required": true
+    },
+    "coordinator-event.json#/v": {
       "type": "integer",
       "required": true
     },

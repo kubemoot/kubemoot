@@ -248,6 +248,52 @@ class BusContractTest {
     }
 
     @Test
+    void everyCoordinatorEventMatchesTheContract() throws Exception {
+        var log = new RecordingEventLog();
+        var recorder = log.recorder();
+        var s = new DiscussionOrchestrator.ThreadState("t1");
+        s.crew = "crew";
+        s.userQuery = "how many pods";
+        s.primaryChannel = "general";
+        s.innerCircle = new java.util.HashSet<>(List.of("metrics", "workloads"));
+        s.selectedSkills = new java.util.HashSet<>(List.of("skill-a"));
+        s.phaseRoster.set(PhaseRoster.of(List.of("metrics", "workloads")));
+        s.pendingEvaluations.put("metrics", 1_000L);
+        s.lastSignalReceived = Instant.parse("2026-10-31T12:00:00Z");
+        var reasoning = new DiscussionOrchestrator.ReasoningResult(List.of("metrics"), "Check pods.",
+                List.of("kubernetes"), 5, 100, 20);
+        var outcome = new DiscussionOrchestrator.AdvisoryOutcome(List.of("kubernetes"), List.of(), "Check pods.", 5);
+
+        recorder.opened(s, "request");
+        recorder.phaseEntered(s, "thread_start");
+        recorder.subcommitteeConvened(s, reasoning, outcome);
+        recorder.advisoryFailed(s);
+        recorder.answeredDirectly(s, reasoning);
+        recorder.evaluationStarted(s);
+        recorder.reviewStarted(s);
+        for (String type : List.of("triaging", "evaluating", "waiting", "agree", "contribution", "concern", "block",
+                "stand_aside", "decline", "failure")) {
+            recorder.signalApplied(s, "metrics", type, MAPPER.readTree(
+                    "{\"messageId\":\"m-" + type + "\",\"metadata\":{\"model\":\"m:14b\",\"reason\":\"model-too-large\","
+                            + "\"failedTool\":\"pods_top\"}}"));
+        }
+        recorder.wake(s, "metrics", "waking", 2_000L);
+        recorder.wake(s, "metrics", "ready", 3_000L);
+        recorder.timedOut(s, "workloads");
+        recorder.settled(s, "roster_signalled");
+        recorder.synthesisStarted(s);
+        recorder.synthesisDone(s, "synthesized", "general", "Eleven pods.");
+        recorder.closed(s, "synthesized", "general");
+        recorder.reopened(s);
+
+        assertEquals(12, log.events().stream().map(CoordinatorEvent::type).distinct().count(),
+                "the script writes every event type");
+        for (CoordinatorEvent event : log.events()) {
+            assertConforms("coordinator-event.json", event.toJson(MAPPER));
+        }
+    }
+
+    @Test
     void aSubcommitteeMessageMatchesTheContract() throws Exception {
         var members = SubcommitteeLine.members(MAPPER, List.of("pve"), "[{\"name\":\"pve\",\"description\":\"Lists nodes.\"}]");
         var msg = MAPPER.createObjectNode();

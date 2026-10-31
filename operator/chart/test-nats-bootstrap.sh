@@ -65,6 +65,10 @@ grep -q '^kv del kubemoot_provider_state --force' "$work/log" || fail "kv del ra
 grep -q "Removing retired KV bucket kubemoot_provider_state" "$work/out" || fail "the removal was not logged"
 [ "$(grep -c '^kv del ' "$work/log")" = "2" ] || fail "kv del ran other than twice: $(grep '^kv del ' "$work/log")"
 
+grep -q '^stream add KUBEMOOT_COORDINATOR --subjects=kubemoot.coordinator.> --retention=limits --max-age=24h ' "$work/log" \
+  || fail "the coordinator log stream is missing or has the wrong settings"
+grep -q -- '--max-msgs-per-subject=512' "$work/log" || fail "the coordinator log stream has no per-thread bound"
+
 # Run again: the retired buckets are absent, which is not an error, and nothing else is deleted.
 run_bootstrap
 grep -q "kubemoot_provider_state is not present" "$work/out" || fail "an absent bucket was not reported"

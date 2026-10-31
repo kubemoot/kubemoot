@@ -37,6 +37,11 @@ final class PhaseRoster {
         return members;
     }
 
+    /** The members that have published a terminal signal in this phase. */
+    Set<String> signalled() {
+        return Set.copyOf(signalled);
+    }
+
     boolean isKnown() {
         return !members.isEmpty();
     }

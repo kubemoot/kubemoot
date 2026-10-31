@@ -47,11 +47,15 @@ public record CrewScope(String namespace, String crew) {
     private static final String DISCUSS = "kubemoot.discuss.";
     private static final String REQUEST = "kubemoot.request.";
     private static final String LIFECYCLE = "kubemoot.lifecycle.";
+    private static final String COORDINATOR = "kubemoot.coordinator.";
     private static final String ARTIFACTS = "kubemoot.artifacts.";
     private static final String CHAT = "kubemoot.chat.";
     private static final String LATENCY = "latency.";
     private static final String BROADCAST = "broadcast";
     private static final String DOT = ".";
+
+    /** The JetStream stream that holds the coordinators' decision logs. */
+    public static final String COORDINATOR_STREAM = "KUBEMOOT_COORDINATOR";
 
     /** A parsed crew-scoped discussion subject. */
     public record DiscussSubject(String namespace, String crew, String channel, String threadId) {}
@@ -179,6 +183,18 @@ public record CrewScope(String namespace, String crew) {
     public static Optional<DiscussSubject> parseDiscuss(String subject) {
         String[] t = tokensAfter(subject, DISCUSS, 4);
         return t.length == 0 ? Optional.empty() : Optional.of(new DiscussSubject(t[0], t[1], t[2], t[3]));
+    }
+
+    // --- coordinator log ---
+
+    /** {@code kubemoot.coordinator.<ns>.<crew>.<thread>}: the log of one thread's coordinator decisions. */
+    public String coordinatorSubject(String threadId) {
+        return COORDINATOR + scopeTokens() + DOT + threadId;
+    }
+
+    /** Every thread's coordinator log in this scope: {@code kubemoot.coordinator.<ns>.<crew>.>}. */
+    public String coordinatorWildcard() {
+        return COORDINATOR + scopeTokens() + DOT + ">";
     }
 
     // --- request queue ---

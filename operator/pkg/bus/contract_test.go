@@ -162,7 +162,7 @@ var unrecorded = map[string]bool{
 	"post-discussion-request.json": true, "post-discussion-response.json": true,
 	"model-lifecycle-reply.json": true, "model-lifecycle-request.json": true,
 	"server-ticket.json": true, "scheduled-record.json": true, "signal-meta.json": true,
-	"stream-event-base.json": true, "subcommittee.json": true,
+	"stream-event-base.json": true, "subcommittee.json": true, "coordinator-event.json": true,
 }
 
 func TestEverySchemaHasRecordingsOrIsListed(t *testing.T) {
