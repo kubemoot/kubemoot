@@ -19,18 +19,6 @@ interface CoordinatorEventLog {
      */
     AppendResult append(String subject, CoordinatorEvent event, long expectedLastSequence);
 
-    /**
-     * The last message on {@code subject}, or empty when the subject has none or the log
-     * cannot be read. Used after an append whose outcome is unknown (an acknowledgement
-     * that never came), to learn whether the event was stored.
-     */
-    default java.util.Optional<LastMessage> last(String subject) {
-        return java.util.Optional.empty();
-    }
-
-    /** The sequence and event id of a stored message. */
-    record LastMessage(long sequence, String eventId) {}
-
     /** What happened to an append, and for an appended event the sequence it was stored at. */
     record AppendResult(Outcome outcome, long sequence) {
 

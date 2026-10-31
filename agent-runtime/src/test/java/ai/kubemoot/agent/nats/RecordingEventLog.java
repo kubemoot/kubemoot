@@ -30,8 +30,6 @@ final class RecordingEventLog implements CoordinatorEventLog {
     private final Map<String, Long> sequenceById = new HashMap<>();
     private final Set<String> failTypes = new HashSet<>();
     private final List<String> refused = Collections.synchronizedList(new ArrayList<>());
-    private final Set<String> loseAckTypes = new HashSet<>();
-    private final Map<String, LastMessage> lastBySubjectMessage = new HashMap<>();
     private final Map<String, Runnable> afterAppend = new HashMap<>();
     private Consumer<String> observer = type -> { };
     private final SimpleMeterRegistry registry = new SimpleMeterRegistry();
@@ -62,26 +60,12 @@ final class RecordingEventLog implements CoordinatorEventLog {
         long sequence = last + 1;
         lastBySubject.put(subject, sequence);
         sequenceById.put(event.eventId(), sequence);
-        lastBySubjectMessage.put(subject, new LastMessage(sequence, event.eventId()));
         observer.accept("event:" + event.type());
         Runnable hook = afterAppend.get(event.type());
         if (hook != null) {
             hook.run();
         }
-        if (loseAckTypes.remove(event.type())) {
-            return AppendResult.failed();
-        }
         return AppendResult.appended(sequence);
-    }
-
-    @Override
-    public synchronized java.util.Optional<LastMessage> last(String subject) {
-        return java.util.Optional.ofNullable(lastBySubjectMessage.get(subject));
-    }
-
-    /** The next event of {@code type} is stored but its acknowledgement is lost: the append reports FAILED. */
-    synchronized void storeNextEventOfTypeButLoseItsAck(String type) {
-        loseAckTypes.add(type);
     }
 
     /** Appends of events of {@code type} fail from now on, as if the stream refused them. */
@@ -144,6 +128,11 @@ final class RecordingEventLog implements CoordinatorEventLog {
     /** The types of the events written so far, in order. */
     List<String> types() {
         return events().stream().map(CoordinatorEvent::type).toList();
+    }
+
+    /** The count of the untagged counter {@code name}. */
+    double counted(String name) {
+        return registry.get(name).counter().count();
     }
 
     /** The count of the {@code result} series of counter {@code name}. */

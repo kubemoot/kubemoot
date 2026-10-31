@@ -76,6 +76,17 @@ class CoordinatorTraceTest {
     }
 
     @Test
+    void aThreadIsUnloggedOnceAndTheFirstMarkAloneIsReported() {
+        var trace = new CoordinatorTrace();
+        assertFalse(trace.unlogged());
+
+        assertTrue(trace.markUnlogged("t1/e1"), "the first mark is the one to report");
+        assertFalse(trace.markUnlogged("t1/e2"), "later marks are not reported again");
+
+        assertTrue(trace.unlogged());
+    }
+
+    @Test
     void fencingSticks() {
         var trace = new CoordinatorTrace();
         assertFalse(trace.fenced());

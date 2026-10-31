@@ -31,16 +31,18 @@ import static ai.kubemoot.agent.nats.CoordinatorWire.*;
  * holds no event-building code. With the event log off every method returns at once.
  *
  * <p>Each method returns whether the coordinator may carry out what the decision
- * leads to: true when the event is in the log (or the log is off, or the thread is not
- * being logged), false when it is not. That is the write-ahead rule: a decision's effect
- * (a brief, a phase signal, the answer) is published only after its event is appended.
+ * leads to. While the log is up that is the write-ahead rule: a decision's effect (a
+ * brief, a phase signal, the answer) is published only after its event is appended.
+ * When an append fails the log is down for that thread: the effect is published anyway,
+ * the thread is marked unlogged (not resumable, since its log is incomplete), and no
+ * further event is appended to it. The only false is a fence.
  *
  * <p>Every append states the last sequence this writer saw on the thread's subject. When
  * the log refuses it because another writer appended in between, the thread is fenced:
  * this coordinator no longer owns it, every later method returns false for it, and the
  * orchestrator stops acting on it ({@link #fenced}).
  *
- * <p>A bug while building an event is logged and counted and never stops a discussion.
+ * <p>A bug while building an event is treated as a failed append and never stops a discussion.
  * The events of one thread are built and appended one at a time, in order.
  */
 final class CoordinatorEventRecorder {
@@ -100,6 +102,11 @@ final class CoordinatorEventRecorder {
         return s != null && s.trace.fenced();
     }
 
+    /** True once an append failed for the thread: its log is incomplete and it is not resumable. */
+    boolean unlogged(ThreadState s) {
+        return s != null && s.trace.unlogged();
+    }
+
     /**
      * The id of the bus message {@code messageType} that carries out the decision last
      * written as an event of {@code eventType}, or null when the log is not recording the
@@ -108,13 +115,15 @@ final class CoordinatorEventRecorder {
      */
     String messageId(ThreadState s, String eventType, String messageType) {
         String eventId = enabled && s != null ? s.trace.lastEventId(eventType) : null;
-        boolean thisRound = eventId != null && eventId.startsWith(s.threadId + "/" + s.trace.round() + "/");
+        boolean thisRound = eventId != null && !s.trace.unlogged()
+                && eventId.startsWith(s.threadId + "/" + s.trace.round() + "/");
         return thisRound ? eventId + MESSAGE_SUFFIX + messageType : null;
     }
 
     /** The id of the {@code thread_close} message: derived from the id of the thread's close event. */
     String closeMessageId(ThreadState s) {
-        return enabled && s != null && s.trace.opened() ? keyed(s, "closed") + MESSAGE_SUFFIX + MSG_THREAD_CLOSE : null;
+        boolean logged = enabled && s != null && s.trace.opened() && !s.trace.unlogged();
+        return logged ? keyed(s, "closed") + MESSAGE_SUFFIX + MSG_THREAD_CLOSE : null;
     }
 
     // --- decisions, in the order a thread meets them ---
@@ -306,6 +315,10 @@ final class CoordinatorEventRecorder {
         if (!enabled || !s.trace.opened() || s.trace.fenced()) {
             return;
         }
+        if (s.trace.unlogged()) {
+            metrics.logChecked("unlogged");
+            return;
+        }
         try {
             List<CoordinatorEvent> events = s.trace.kept();
             if (events == null) {
@@ -314,7 +327,7 @@ final class CoordinatorEventRecorder {
                 return;
             }
             List<String> differences = CoordinatorStateReducer.reduce(events).view().differences(ThreadView.of(s));
-            metrics.logChecked(differences.isEmpty());
+            metrics.logChecked(differences.isEmpty() ? "match" : "mismatch");
             if (!differences.isEmpty()) {
                 log.warn("Coordinator log of thread {} does not rebuild its live state: {}", s.threadId, differences);
             }
@@ -328,13 +341,12 @@ final class CoordinatorEventRecorder {
     /**
      * Runs {@code body}, which appends the event, when the log is on and the thread was
      * opened, one event at a time per thread. Returns whether the coordinator may carry
-     * out the decision: true when nothing is logged for the thread or the event is in the
-     * log, false when it is not or the thread is fenced. A bug while building the event
-     * counts as a lost event and returns true: it is not the log's fault and must not
-     * stop a discussion.
+     * out the decision: false only for a fenced thread. An unlogged thread (an append
+     * failed) gets no more events and every decision is allowed. A bug while building the
+     * event makes the thread unlogged too: its log would be incomplete.
      */
     private boolean write(ThreadState s, BooleanSupplier body) {
-        if (!enabled || !s.trace.opened()) {
+        if (!enabled || !s.trace.opened() || s.trace.unlogged()) {
             return true;
         }
         if (s.trace.fenced()) {
@@ -342,11 +354,15 @@ final class CoordinatorEventRecorder {
         }
         try {
             synchronized (s.trace.lock()) {
-                return body.getAsBoolean();
+                // A writer queued on the lock behind one whose append failed or was refused must not append.
+                if (s.trace.fenced()) {
+                    return false;
+                }
+                return s.trace.unlogged() || body.getAsBoolean();
             }
         } catch (RuntimeException e) {
-            log.warn("A coordinator event for thread {} was not written: {}", s.threadId, e.toString());
-            metrics.logEventLost();
+            log.debug("A coordinator event for thread {} could not be built", s.threadId, e);
+            markUnlogged(s, "an event that could not be built (" + e + ")");
             return true;
         }
     }
@@ -458,11 +474,7 @@ final class CoordinatorEventRecorder {
      */
     private boolean emit(ThreadState s, String type, String eventId, ObjectNode data) {
         var event = new CoordinatorEvent(eventId, type, s.threadId, s.trace.round(), clock.get(), coordinator, data);
-        String subject = subjectFor.apply(s.crew, s.threadId);
-        AppendResult result = eventLog.append(subject, event, s.trace.lastSequence());
-        if (result.isFenced() && earlierAppendWasStored(s, subject)) {
-            result = eventLog.append(subject, event, s.trace.lastSequence());
-        }
+        AppendResult result = eventLog.append(subjectFor.apply(s.crew, s.threadId), event, s.trace.lastSequence());
         if (result.isAppended()) {
             s.trace.appended(event, result.sequence());
             return true;
@@ -472,35 +484,24 @@ final class CoordinatorEventRecorder {
             metrics.logEventFenced();
             log.warn("Thread {} is written by another coordinator (event {} was refused): this coordinator stops acting on it",
                     s.threadId, eventId);
-        } else {
-            s.trace.unsure(event);
-            metrics.logEventLost();
+            return false;
         }
-        return false;
+        metrics.logAppendFailed();
+        markUnlogged(s, eventId);
+        return true;
     }
 
     /**
-     * An append that failed without an answer (a timeout) may have been stored, which makes
-     * the next append look as if another writer had got in between. Reads the subject's
-     * last message: when it is one of this writer's unanswered events, that event was stored
-     * and the writer carries on from its sequence; when it is not, another writer wrote it.
+     * The thread's log is incomplete from {@code eventId} on: it is not resumable, so no
+     * more events are appended, and the discussion carries on without the log. Reported
+     * once per thread.
      */
-    private boolean earlierAppendWasStored(ThreadState s, String subject) {
-        List<CoordinatorEvent> unsure = s.trace.unsureEvents();
-        if (unsure.isEmpty()) {
-            return false;
+    private void markUnlogged(ThreadState s, String eventId) {
+        if (s.trace.markUnlogged(eventId)) {
+            metrics.threadUnlogged();
+            log.warn("Coordinator log of thread {} is incomplete from event {}: the thread is not resumable and "
+                    + "no more is logged for it", s.threadId, eventId);
         }
-        var last = eventLog.last(subject);
-        if (last.isEmpty()) {
-            return false;
-        }
-        for (CoordinatorEvent event : unsure) {
-            if (event.eventId().equals(last.get().eventId())) {
-                s.trace.appended(event, last.get().sequence());
-                return true;
-            }
-        }
-        return false;
     }
 
     private static void putText(ObjectNode d, String field, String value) {

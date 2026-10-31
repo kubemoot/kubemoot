@@ -173,8 +173,8 @@ A few rules hold for every event:
   Failures are recorded as failures, never as a stand-aside.
 - **Heartbeats are not recorded.** A heartbeat only pushes an agent's deadline out; the
   deadline in the log is the last one an event set.
-- **An event that cannot be written stops its effect, not the thread.** See
-  [Write-ahead](#write-ahead).
+- **A log that is down never silences the crew.** An event that cannot be written leaves
+  the thread unlogged and does not hold back its effects. See [Write-ahead](#write-ahead).
 - **The state rebuilds from the events.** Applying a thread's events in order, and skipping
   any event whose `eventId` was already applied, gives the state the coordinator held at
   the last event: the phase and its clock, the convened agents, the roster and who has
@@ -193,17 +193,21 @@ coordinator carries the decision out:
 | `subcommittee_convened` | the `advisory` brief and the `subcommittee` line |
 | `evaluation_started` | the `advisory_ready` signal that tells the toolers to evaluate |
 | `review_started` | the `review_ready` signal that wakes the analysts |
-| `synthesis_done` | the `synthesis` answer (`thread_close` follows in every case, see below) |
+| `synthesis_done` | the `synthesis` answer, then `thread_close` |
 
-So the log never lacks a decision that agents have already acted on, and a coordinator
-that stopped between the two can repeat the effect. If the stream cannot be reached
-the event is not written and its effect is not published; the thread's
-phases still move on, so a discussion the log cannot follow ends in the fallback answer or
-at the hard ceiling, as one with a silent agent does, and the loss is counted in
-`kubemoot_coordinator_log_appends_total{result="lost"}`. If the answer itself cannot be
-written, nothing but `thread_close` is published: the thread still closes, `thread_close`
-tells the agents the thread is over so they stop heartbeating on it, and the asker still
-receives the answer; only the `synthesis` message and the log entries are missing.
+So while the log is up it never lacks a decision that agents have already acted on, and a
+coordinator that stopped between the two can repeat the effect.
+
+If an append fails (the stream cannot be reached, or it refuses the event for a reason
+other than another writer, see below), a log outage must not silence the crew: the
+coordinator **publishes the effect anyway** and marks the thread *unlogged*. The thread's
+log is incomplete from the failed event on, so a coordinator that took the thread over
+could not rebuild it, and the thread is not resumable. For that thread the coordinator
+appends no further events (later events would make the incomplete log look complete), logs
+one WARN naming the event that failed, and skips the [check at close](#the-check-at-close).
+The messages it publishes for an unlogged thread from then on carry random ids and no
+`Nats-Msg-Id`, as with the log off, so a repeat of one is not dropped by the stream. The loss is counted in `kubemoot_coordinator_log_append_failures_total`
+(each failed append) and `kubemoot_coordinator_threads_unlogged_total` (each thread).
 
 The bus messages that carry out a logged decision have ids made from the event's id (the
 answer is `<threadId>/0/synthesis/done/1/msg/synthesis`, the close
@@ -220,16 +224,16 @@ Every append states the sequence of the last event this coordinator wrote on the
 subject (JetStream's expected-last-subject-sequence). If another writer appended to the
 thread in between, the stream refuses the append: this coordinator no longer owns the
 thread. It logs the refusal at WARN, counts it in
-`kubemoot_coordinator_log_appends_total{result="fenced"}`, and stops acting on the thread:
+`kubemoot_coordinator_log_fenced_total`, and stops acting on the thread:
 it publishes nothing more for it, reads none of its messages and runs none of its phase
 checks. Because decisions are written before they are acted on, a coordinator that was
 outrun cannot publish an answer the other one did not see. A fenced thread's asker is
 released without an answer (the other coordinator owns it), and a fenced thread past the
-zombie age is dropped without publishing. A refusal that follows an append whose
-acknowledgement never came is not taken for a fence at once: the coordinator reads the
-thread's last event, and when it is the one it was waiting for, the event was stored and the
-coordinator carries on from its sequence. There is no lease yet to decide which coordinator
-takes a thread, so the fence is the guard against two coordinators running one thread.
+zombie age is dropped without publishing. A failed append is not a fence: an append that
+timed out may have been stored, but the coordinator stops appending to that thread, so
+it never meets a refusal it could mistake for another writer. There is no lease yet to
+decide which coordinator takes a thread, so the fence is the guard against two
+coordinators running one thread.
 
 ### The check at close
 
@@ -239,8 +243,9 @@ field except an agent's pending deadline, which a heartbeat moves without an eve
 difference the coordinator logs a WARN naming each differing field with both values
 (`signals.agree: log=[] live=[metrics]`) and counts the check in
 `kubemoot_coordinator_log_checks_total{result="mismatch"}`; a match is counted as
-`match`. A difference never fails the thread. A thread with more than 2,048 events is not
-checked.
+`match`, and a close of an unlogged thread, whose log is incomplete and is not compared, as `unlogged`
+(one per close; a thread reopened by a human reply closes more than once).
+A difference never fails the thread. A thread with more than 2,048 events is not checked.
 
 ### Stream limits
 

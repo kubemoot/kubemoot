@@ -2717,17 +2717,13 @@ public class DiscussionOrchestrator {
      * Idempotent: completePending no-ops if the future is already completed.
      */
     private void closeThread(ThreadState state, String channel, String response, String outcome) {
-        boolean answerLogged = events.synthesisDone(state, outcome, channel, response);
+        events.synthesisDone(state, outcome, channel, response);
         if (events.fenced(state)) {
             // Another coordinator owns the thread: publish nothing, but do not keep the asker waiting.
             completePending(state.threadId, null);
             return;
         }
-        // An answer that is not in the log is not published. thread_close still goes out, so
-        // agents stop heartbeating on a thread that is over; the asker gets the answer directly.
-        if (answerLogged) {
-            publishToThread(state.threadId, channel, response, MSG_SYNTHESIS);
-        }
+        publishToThread(state.threadId, channel, response, MSG_SYNTHESIS);
         publishThreadClose(state.threadId, channel);
         state.phase = Phase.CLOSED;
         events.closed(state, outcome, channel);

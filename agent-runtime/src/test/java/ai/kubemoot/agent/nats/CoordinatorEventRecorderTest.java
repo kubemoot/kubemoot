@@ -258,17 +258,41 @@ class CoordinatorEventRecorderTest {
     // --- write-ahead, fencing, derived ids, the check at close ---
 
     @Test
-    void aMethodSaysWhetherTheDecisionMayBeCarriedOut() {
+    void aFailedAppendLetsTheDecisionProceedMarksTheThreadUnloggedAndStopsAppending() {
         var s = thread();
         recorder.opened(s, "request");
-
         assertTrue(recorder.phaseEntered(s, "thread_start"), "in the log");
         log.failEventsOfType("settled");
-        assertFalse(recorder.settled(s, "quiet"), "not in the log: the effect must not happen");
-        assertEquals(1, log.counted("kubemoot_coordinator_log_appends_total", "lost"));
+
+        assertTrue(recorder.settled(s, "quiet"), "the log is down: the effect is published anyway");
+
+        assertTrue(recorder.unlogged(s));
         assertFalse(recorder.fenced(s), "a failed append is not a fence");
+        assertEquals(1, log.counted("kubemoot_coordinator_log_append_failures_total"));
+        assertEquals(1, log.counted("kubemoot_coordinator_threads_unlogged_total"));
         log.stopFailing("settled");
-        assertTrue(recorder.settled(s, "quiet"), "the next append goes through");
+        int stored = log.events().size();
+        assertTrue(recorder.synthesisDone(s, "synthesized", "general", "answer"), "decisions are still allowed");
+        recorder.closed(s, "synthesized", "general");
+        assertEquals(stored, log.events().size(), "its log is incomplete, so nothing more is appended");
+        assertEquals(1, log.counted("kubemoot_coordinator_threads_unlogged_total"), "reported once per thread");
+    }
+
+    @Test
+    void anUnloggedThreadGetsRandomMessageIdsAndIsCountedUnloggedAtClose() {
+        var s = thread();
+        recorder.opened(s, "request");
+        recorder.synthesisDone(s, "synthesized", "general", "answer");
+        log.failEventsOfType("settled");
+        recorder.settled(s, "quiet");
+
+        assertNull(recorder.messageId(s, "synthesis_done", "synthesis"));
+        assertNull(recorder.closeMessageId(s));
+        recorder.checkAtClose(s);
+
+        assertEquals(1, log.counted("kubemoot_coordinator_log_checks_total", "unlogged"));
+        assertEquals(0, log.counted("kubemoot_coordinator_log_checks_total", "match"));
+        assertEquals(0, log.counted("kubemoot_coordinator_log_checks_total", "mismatch"));
     }
 
     @Test
@@ -292,7 +316,7 @@ class CoordinatorEventRecorderTest {
         assertFalse(recorder.settled(s, "quiet"), "a fenced thread permits nothing");
         assertFalse(recorder.synthesisDone(s, "synthesized", "general", "answer"));
         assertEquals(stored, log.events().size());
-        assertEquals(1, log.counted("kubemoot_coordinator_log_appends_total", "fenced"));
+        assertEquals(1, log.counted("kubemoot_coordinator_log_fenced_total"));
     }
 
     @Test
@@ -375,36 +399,6 @@ class CoordinatorEventRecorderTest {
     }
 
     @Test
-    void anEventWhoseAcknowledgementWasLostButWasStoredDoesNotFenceTheNextAppend() {
-        var s = thread();
-        recorder.opened(s, "request");
-        log.storeNextEventOfTypeButLoseItsAck("phase_entered");
-
-        assertFalse(recorder.phaseEntered(s, "thread_start"), "the answer never came, so the effect waits");
-        assertTrue(recorder.settled(s, "quiet"), "the next append finds the earlier event was stored and carries on");
-
-        assertFalse(recorder.fenced(s));
-        assertEquals(List.of("thread_opened", "phase_entered", "settled"), log.types());
-        assertEquals(2, s.trace.kept().stream().filter(e -> !e.type().equals("settled")).count(),
-                "the stored event is kept for the check at close");
-        assertEquals(0, log.counted("kubemoot_coordinator_log_appends_total", "fenced"));
-    }
-
-    @Test
-    void aRefusalAfterALostAcknowledgementIsStillAFenceWhenAnotherWriterWrote() {
-        var s = thread();
-        recorder.opened(s, "request");
-        log.failEventsOfType("phase_entered");
-        assertFalse(recorder.phaseEntered(s, "thread_start"));
-        log.stopFailing("phase_entered");
-        log.anotherWriterAppendsTo("kubemoot.coordinator.ns.crew.t1");
-
-        assertFalse(recorder.settled(s, "quiet"));
-
-        assertTrue(recorder.fenced(s), "the last message is not one of ours");
-    }
-
-    @Test
     void aMessageIdIsNotDerivedFromAnEventOfAnEarlierRound() {
         var s = thread();
         recorder.opened(s, "request");
@@ -412,5 +406,53 @@ class CoordinatorEventRecorderTest {
         recorder.reopened(s);
 
         assertNull(recorder.messageId(s, "synthesis_done", "synthesis"), "round 1 has not written its answer yet");
+    }
+
+    @Test
+    void anEventThatCannotBeBuiltMakesTheThreadUnloggedAndLetsTheDecisionProceed() {
+        var failing = new CoordinatorEventRecorder(true, log, (crew, id) -> {
+            throw new IllegalStateException("no scope");
+        }, "c", MAPPER, Instant::now, log.metrics());
+        var s = thread();
+        failing.opened(s, "request");
+
+        assertTrue(failing.phaseEntered(s, "thread_start"), "the discussion goes on");
+
+        assertTrue(failing.unlogged(s));
+        assertEquals(1, log.counted("kubemoot_coordinator_threads_unlogged_total"));
+        assertTrue(log.events().isEmpty());
+    }
+
+    @Test
+    void aWriterQueuedBehindAFailedAppendAppendsNothing() throws Exception {
+        var inFirstAppend = new java.util.concurrent.CountDownLatch(1);
+        var releaseFirst = new java.util.concurrent.CountDownLatch(1);
+        var appends = new java.util.concurrent.atomic.AtomicInteger();
+        CoordinatorEventLog slowThenDown = (subject, event, expected) -> {
+            if (appends.incrementAndGet() == 1) {
+                inFirstAppend.countDown();
+                try {
+                    releaseFirst.await();
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+            }
+            return CoordinatorEventLog.AppendResult.failed();
+        };
+        var slow = new CoordinatorEventRecorder(true, slowThenDown, (crew, id) -> id, "c", MAPPER, Instant::now,
+                log.metrics());
+        var s = thread();
+        s.trace.markOpened();
+
+        var first = java.util.concurrent.CompletableFuture.runAsync(() -> slow.phaseEntered(s, "thread_start"));
+        inFirstAppend.await();
+        var second = java.util.concurrent.CompletableFuture.runAsync(() -> slow.settled(s, "quiet"));
+        Thread.sleep(100);
+        releaseFirst.countDown();
+        first.get(5, java.util.concurrent.TimeUnit.SECONDS);
+        second.get(5, java.util.concurrent.TimeUnit.SECONDS);
+
+        assertEquals(1, appends.get(), "the second writer found the thread unlogged and appended nothing");
+        assertTrue(slow.unlogged(s));
     }
 }
