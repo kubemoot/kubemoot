@@ -174,6 +174,14 @@ A trial takes as long as the crew takes to answer, plus the recovery, plus the q
 replicas for the lease cases adds about a minute each time. Plan on an hour or more for the protected matrix on a crew whose answer
 takes a minute.
 
+### Choosing the question
+
+The question must need the crew's specialists. A coordinator answers a simple question
+directly (it convenes no subcommittee for it), so the discussion never reaches evaluation,
+review or synthesis, and those kill points end `not_reached`. The default question asks a
+starter crew for pods, restarts, events and Services and has its reviewer check the answer.
+Pass `--question` for a crew whose specialists cover something else.
+
 ## Reading the report
 
 Each run writes `report.json` and `report.md` to `--out`. The markdown has one row per case:
@@ -189,6 +197,10 @@ sequence of log event types (`log`), the counter deltas, and notes such as "the 
 Open the `log` of a failing trial first: it shows where the thread stopped and what the next coordinator did.
 
 ## Limits
+
+- The narrow points (`subcommittee_convened`, `synthesis_done`, `thread_close`) last
+  milliseconds. The test watches for them rather than pausing the coordinator there, so a
+  run may end them `not_reached`; the restart-from-every-prefix unit tests cover them.
 
 - The narrow points depend on how fast the driver reacts. The driver reads a stream and asks the API server to act, so the fault
   arrives some milliseconds to a few hundred milliseconds after the event it waited for. Those cases may need several trials or end
