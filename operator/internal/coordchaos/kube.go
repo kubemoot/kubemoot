@@ -15,10 +15,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
 	"os/exec"
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // Kubectl runs kubectl against one explicit kubeconfig and context. The harness never
@@ -193,18 +196,45 @@ func (c *KubeCluster) Signal(ctx context.Context, pod Pod, sig string) error {
 	return c.Signaler.Signal(ctx, pod, sig)
 }
 
-// Counters reads /q/metrics of the pod through the API server's pod proxy.
+// Counters reads /q/metrics of the pod through a kubectl port-forward to the pod. The
+// API server's pod proxy reaches the pod over the pod network, where a crew's generated
+// NetworkPolicies deny it; a port-forward goes through the kubelet.
 func (c *KubeCluster) Counters(ctx context.Context, pod Pod) (Counters, error) {
 	port := c.Port
 	if port == 0 {
 		port = 8080
 	}
-	path := fmt.Sprintf("/api/v1/namespaces/%s/pods/%s:%d/proxy/q/metrics", c.Namespace, pod.Name, port)
-	raw, err := c.K.Run(ctx, nil, "get", "--raw", path)
+	pf, err := startForward(ctx, c.K, c.Namespace, "pod/"+pod.Name, port, 20*time.Second)
 	if err != nil {
 		return nil, err
 	}
-	return ParseCounters(string(raw)), nil
+	defer pf.Close()
+	raw, err := httpGet(ctx, fmt.Sprintf("http://127.0.0.1:%d/q/metrics", pf.Local))
+	if err != nil {
+		return nil, fmt.Errorf("reading counters of %s: %w", pod.Name, err)
+	}
+	return ParseCounters(raw), nil
+}
+
+// httpGet returns the body of a GET that answers 200.
+func httpGet(ctx context.Context, url string) (string, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return "", err
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = resp.Body.Close() }()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", err
+	}
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("GET %s: %s", url, resp.Status)
+	}
+	return string(body), nil
 }
 
 // Replicas returns the coordinator Agent's configured replicas (1 when it sets none).

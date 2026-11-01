@@ -70,6 +70,20 @@ func (b *builder) msgID(typ, id string) *builder {
 	return b
 }
 
+// copyOn republishes the last message of typ, with the same id, on another subject,
+// as the coordinator does for an answer and a thread_close (channel and broadcast).
+func (b *builder) copyOn(typ, subject string) *builder {
+	for i := len(b.msgs) - 1; i >= 0; i-- {
+		if b.msgs[i].MessageType == typ {
+			m := b.msgs[i]
+			m.Seq, m.Subject = b.next(), subject
+			b.msgs = append(b.msgs, m)
+			return b
+		}
+	}
+	return b
+}
+
 func (b *builder) thread() Thread {
 	return Thread{ID: b.id, Events: append([]Event(nil), b.evs...), Msgs: append([]Msg(nil), b.msgs...)}
 }

@@ -95,12 +95,22 @@ func threadIDs(o Observation) []string {
 	return ids
 }
 
+// totalMsgs counts one question's messages of a type on the busiest subject. The
+// coordinator publishes an answer and a thread_close to the thread's channel subject and
+// to its broadcast subject by design, so each subject carries one; a second on the same
+// subject is a real repeat.
 func totalMsgs(o Observation, messageType string) int {
-	n := 0
+	per := map[string]int{}
 	for _, t := range o.Threads {
-		n += t.MsgCount(messageType)
+		for _, m := range t.MsgsOf(messageType) {
+			per[m.Subject]++
+		}
 	}
-	return n
+	most := 0
+	for _, n := range per {
+		most = max(most, n)
+	}
+	return most
 }
 
 func checkOneThread(o Observation, _ Expect) []Violation {
@@ -166,8 +176,10 @@ func checkMessageIDs(o Observation, _ Expect) []Violation {
 
 func duplicateIDs(t Thread, typ string) []Violation {
 	ids := map[string]int{}
+	onSubject := map[string]int{}
 	for _, m := range t.MsgsOf(typ) {
 		ids[m.MessageID]++
+		onSubject[m.Subject+" "+m.MessageID]++
 	}
 	var out []Violation
 	if len(ids) > 1 {
@@ -177,12 +189,12 @@ func duplicateIDs(t Thread, typ string) []Violation {
 			Evidence: keysOf(ids),
 		})
 	}
-	for id, n := range ids {
+	for key, n := range onSubject {
 		if n > 1 && repeatForbidden[typ] {
 			out = append(out, Violation{
 				Check:    "duplicate_message_id",
-				Detail:   fmt.Sprintf("thread %s: %s message id %s is on the stream %d times", t.ID, typ, id, n),
-				Evidence: []string{id},
+				Detail:   fmt.Sprintf("thread %s: %s message (subject and id %s) is on the stream %d times", t.ID, typ, key, n),
+				Evidence: []string{key},
 			})
 		}
 	}
