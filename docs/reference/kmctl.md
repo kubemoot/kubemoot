@@ -997,6 +997,54 @@ apply it with `kmctl fitness run -f FILE` or `kubectl apply`, then use `kmctl fi
 `kmctl fitness download` still fetches the XLSX through the dashboard. Fetching it
 through an operator-owned API instead is planned.
 
+## kmctl memory
+
+Commands for a crew's long-term memory (the facts it learned, see
+[Agent context](../../concepts/agent-context/#memory)).
+
+### kmctl memory export
+
+```
+kmctl memory export <crew> [-n <namespace>] [-o <dir>] [--markdown] [--origin ID]
+                    [--nats-url URL] [--creds FILE] [--nats-namespace NS] [--nats-service SVC]
+```
+
+Write the crew's memory in the interchange format of the Open Memory Protocol
+Initiative (OMPI) exchange-and-runtime working spec v0.2: `manifest.json` and one JSON
+memory object per fact under `memories/`. With `--markdown` it also writes each fact as
+a Markdown file under `markdown/`. The mapping is the one the operator's `ompi-export`
+uses; see [Agent context](../../concepts/agent-context/#memory) for what maps and what
+does not.
+
+The command only reads. Crew memory lives in a NATS key-value bucket, and the NATS
+server is not behind the Kubernetes API server's service proxy, so kmctl opens a
+port-forward to a ready pod of the NATS Service with your kubeconfig credentials, lists
+the bucket's keys and gets the values it needs, and closes the forward. It never writes,
+deletes or touches a fact. An unreachable server or a missing bucket is an error; only a
+crew with no facts gives an export with none. Every document is checked against the
+schema before anything is written, and the directory is written atomically.
+
+| Flag | Short | Default | Description |
+|---|---|---|---|
+| `-n` | `-n` | the context's namespace | Namespace of the crew |
+| `-o DIR` | `-o` | `./<crew>-memory` | Directory to write; it must not exist or be empty |
+| `--markdown` | | off | Also write the runtime projection as Markdown files |
+| `--origin` | | derived from namespace and crew | Origin id for the manifest |
+| `--nats-namespace` | | `nats` | Namespace of the NATS Service |
+| `--nats-service` | | `nats` | Name of the NATS Service |
+| `--nats-url` | | empty | Connect to this NATS URL instead of port-forwarding |
+| `--creds` | | empty | NATS credentials file, for a server that needs them |
+
+Each entry that could not be turned into a fact is printed with its reason, and the
+manifest says `selection` instead of `snapshot`.
+
+**Example:**
+
+```bash
+kmctl memory export homelab-pilot -n crew-homelab-pilot -o ./pilot-memory --markdown
+# wrote 12 memory object(s) of crew-homelab-pilot/homelab-pilot to ./pilot-memory
+```
+
 ---
 
 ## Related pages
