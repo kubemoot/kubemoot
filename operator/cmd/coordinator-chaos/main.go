@@ -37,6 +37,13 @@ type options struct {
 	pointTimeout, settleTimeout, quiet                time.Duration
 }
 
+// defaultQuestion needs a starter crew's specialists and its reviewer, so the discussion
+// passes evaluation, review and synthesis. A question the coordinator answers directly
+// (for example "what is the capital of France") skips them, and those kill points are
+// never reached.
+const defaultQuestion = "List every pod in this namespace with its restart count, the recent Warning events " +
+	"for any that restarted, and the Services that route to each. Have the reviewer check the answer against the data."
+
 func parseOptions(args []string) (options, error) {
 	var o options
 	fs := flag.NewFlagSet("coordinator-chaos", flag.ContinueOnError)
@@ -54,7 +61,8 @@ func parseOptions(args []string) (options, error) {
 	fs.StringVar(&o.outDir, "out", "chaos-report", "directory for report.json and report.md")
 	fs.StringVar(&o.cases, "cases", "", "comma-separated name filters; empty runs all")
 	fs.StringVar(&o.mode, "mode", string(coordchaos.ModeProtected), "protected (flags on) or control (flags off)")
-	fs.StringVar(&o.question, "question", "What is the capital of France? Answer in one sentence.", "the question asked")
+	fs.StringVar(&o.question, "question", defaultQuestion,
+		"the question asked; it must need the crew's specialists, or the coordinator answers it directly and the later kill points are never reached")
 	fs.IntVar(&o.port, "agent-port", 8080, "the agents' HTTP port, for /q/metrics")
 	fs.BoolVar(&o.list, "list", false, "print the matrix and exit")
 	fs.BoolVar(&o.preflightOnly, "preflight", false, "check the flags and the cluster, then exit without a fault")
