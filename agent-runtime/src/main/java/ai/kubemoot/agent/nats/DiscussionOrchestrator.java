@@ -66,7 +66,7 @@ public class DiscussionOrchestrator {
     private static final String FIELD_METADATA = "metadata";
 
     // Message type constants
-    private static final String MSG_ADVISORY = "advisory";
+    static final String MSG_ADVISORY = "advisory";
     private static final String MSG_STAND_ASIDE = "stand_aside";
     private static final String MSG_AGREE = "agree";
     private static final String MSG_CONTRIBUTION = "contribution";
@@ -98,15 +98,15 @@ public class DiscussionOrchestrator {
     /** The stand-aside reasons that mean the cluster, not the crew, kept an agent out. */
     private static final Set<String> CAPACITY_REASONS =
             Set.of(REASON_GPU_BUSY, REASON_MODEL_TOO_LARGE, REASON_PROMPT_TOO_LARGE);
-    private static final String MSG_THREAD_START = "thread_start";
-    private static final String MSG_ADVISORY_READY = "advisory_ready";
-    private static final String MSG_REVIEW_READY = "review_ready";
-    private static final String MSG_SYNTHESIS = "synthesis";
+    static final String MSG_THREAD_START = "thread_start";
+    static final String MSG_ADVISORY_READY = "advisory_ready";
+    static final String MSG_REVIEW_READY = "review_ready";
+    static final String MSG_SYNTHESIS = "synthesis";
     /** The phases of a thread that the receipt names the coordinator's placed calls by. */
     private static final String PHASE_ADVISORY = MSG_ADVISORY;
     private static final String PHASE_SELECTION = "selection";
     private static final String PHASE_SYNTHESIS = MSG_SYNTHESIS;
-    private static final String MSG_THREAD_CLOSE = "thread_close";
+    static final String MSG_THREAD_CLOSE = "thread_close";
     private static final String MSG_STOP_REQUESTED = "stop_requested";
     private static final String MSG_THREAD_PAUSE = "thread_pause";
     private static final String MSG_THREAD_RESUME = "thread_resume";
@@ -277,6 +277,9 @@ public class DiscussionOrchestrator {
     /** Writes each decision to the thread's coordinator log; does nothing unless KUBEMOOT_COORDINATOR_EVENT_LOG is true. */
     private volatile CoordinatorEventRecorder events;
 
+    /** Picks up the threads a restarted coordinator had in flight; does nothing unless KUBEMOOT_COORDINATOR_RESUME is true. */
+    private volatile CoordinatorResume resume = CoordinatorResume.off();
+
     // Conversation history: durable via NATS KV, with in-memory read-through cache.
     // Allows follow-up questions to reference prior answers (e.g., "How many of these rigs have GPUs?")
     private final ConcurrentHashMap<String, ConversationHistory> conversationCache = new ConcurrentHashMap<>();
@@ -377,11 +380,25 @@ public class DiscussionOrchestrator {
 
         this.autoTransitions = buildAutoTransitions();
         this.events = CoordinatorEventRecorder.fromConfig(properties.agentName(), natsProvider, mapper, metrics);
+        this.resume = CoordinatorResume.fromConfig(this, natsProvider, mapper, metrics);
     }
 
     /** Package-private: replace the event recorder, so a unit test can read the events a thread writes. */
     void useEventRecorder(CoordinatorEventRecorder recorder) {
         this.events = recorder;
+    }
+
+    /** Package-private: replace the resume, so a unit test can restart a coordinator on a fake bus. */
+    void useResume(CoordinatorResume replacement) {
+        this.resume = replacement;
+    }
+
+    CoordinatorEventRecorder recorder() {
+        return events;
+    }
+
+    CoordinatorResume resume() {
+        return resume;
     }
 
     private volatile boolean subscribed = false;
@@ -414,6 +431,10 @@ public class DiscussionOrchestrator {
         if (conn == null) return false;
 
         Dispatcher dispatcher = conn.createDispatcher();
+
+        // With resume on, find the threads the last coordinator left in flight and hold their live
+        // messages back before the subscription below delivers any.
+        resume.discover();
 
         // Subscribe to this namespace's crew-scoped discussion subjects
         CrewScope scope = natsProvider.scope();
@@ -450,6 +471,8 @@ public class DiscussionOrchestrator {
         scheduler.scheduleAtFixedRate(this::reapOrphanArtifacts,
                 ORPHAN_REAP_INTERVAL_MINUTES, ORPHAN_REAP_INTERVAL_MINUTES, TimeUnit.MINUTES);
 
+        resume.launch(llmExecutor);
+
         subscribed = true;
         log.info("Discussion orchestrator active: advisory={}s, review={}s, synthesis={}s, minEval={}s, settle={}s, channels={}",
                 advisoryTimeoutSeconds, reviewTimeoutSeconds, synthesisTimeoutSeconds, minEvalSeconds, settleSeconds, channels);
@@ -474,53 +497,30 @@ public class DiscussionOrchestrator {
      */
     public OrchestrateResult orchestrate(String userQuery, String conversationId, String crew,
                                          Requester requester) {
-        if (!isEnabled()) return null;
+        return orchestrate(userQuery, conversationId, crew, requester, 0);
+    }
 
-        Connection conn = natsProvider.getConnection();
+    /**
+     * {@link #orchestrate(String, String, String, Requester)} for a question taken from the
+     * request queue as the message at stream sequence {@code requestSeq} (0: not from the
+     * queue). A restarted coordinator that is handed the same request again finds the thread
+     * that request started, in flight or closed, instead of starting another.
+     */
+    public OrchestrateResult orchestrate(String userQuery, String conversationId, String crew,
+                                         Requester requester, long requestSeq) {
+        Connection conn = isEnabled() ? natsProvider.getConnection() : null;
         if (conn == null) return null;
 
-        String threadId = UUID.randomUUID().toString();
-        String primaryChannel = CHANNEL_GENERAL;
-
-        log.info("Starting discussion thread {} (crew={}, conversation={}) for: {}",
-                threadId, crew, truncate(conversationId, LOG_ID_PREVIEW_CHARS), truncate(userQuery, LOG_QUERY_PREVIEW_CHARS));
-
-        // The watchdog (forceCloseIfOverCeiling) completes the future at the hard
-        // ceiling, so this future.get budget is only the ultimate fallback - set it
-        // just above the ceiling, not the old 30-minute wait that let a stuck
-        // discussion block the request pump. See [[Discussion Request Pump Can Wedge a Crew]].
-        int totalBudget = Math.toIntExact(hardCeilingSeconds() + 60);
+        var request = new ThreadStart(userQuery, conversationId, crew, requester);
+        var match = resume.matchRequest(requestSeq);
+        if (match != null && match.closed()) {
+            return answerFromClosedThread(match, request);
+        }
+        String threadId = match != null ? match.threadId() : UUID.randomUUID().toString();
+        int totalBudget = totalBudgetSeconds();
 
         try {
-            var state = initThreadState(threadId, userQuery, primaryChannel, conversationId, crew);
-            var conversationContext = buildConversationContext(conversationId);
-            var metadata = buildThreadStartMetadata(userQuery, primaryChannel, conversationId, conversationContext,
-                    crew, threadId, requester);
-
-            var threadStartPayload = mapper.writeValueAsBytes(Map.of(
-                    FIELD_MESSAGE_ID, UUID.randomUUID().toString(),
-                    FIELD_THREAD_ID, threadId,
-                    FIELD_AGENT_NAME, properties.agentName(),
-                    FIELD_MESSAGE_TYPE, MSG_THREAD_START,
-                    FIELD_CONTENT, userQuery,
-                    FIELD_CHANNEL, primaryChannel,
-                    FIELD_TIMESTAMP, Instant.now().toString(),
-                    FIELD_METADATA, metadata
-            ));
-
-            // Primary path: coordinator reasoning call (select+brief) in transitionToEvaluating.
-            // Similarity pre-filter is demoted to a fallback within transitionToEvaluating.
-            publishBroadcastFallback(conn, crew, threadId, threadStartPayload, state);
-
-            var future = pendingResults.computeIfAbsent(threadId, k -> new CompletableFuture<>());
-            String result = future.get(totalBudget, TimeUnit.SECONDS);
-
-            if (result != null && conversationId != null) {
-                recordConversationTurn(conversationId, userQuery, result, threadId);
-            }
-
-            return new OrchestrateResult(threadId, result);
-
+            return new OrchestrateResult(threadId, runThread(conn, request, match, threadId, requestSeq));
         } catch (TimeoutException e) {
             log.info("Thread {} timed out waiting for synthesis (budget={}s)", threadId, totalBudget);
             metrics.threadTimedOut();
@@ -538,13 +538,69 @@ public class DiscussionOrchestrator {
         }
     }
 
-    private ThreadState initThreadState(String threadId, String userQuery, String primaryChannel,
-                                         String conversationId, String crew) {
+    /**
+     * The question a thread is started for, as the request carried it. A restarted
+     * coordinator needs it again to publish the question of a thread that never got that far.
+     */
+    private record ThreadStart(String userQuery, String conversationId, String crew, Requester requester) {}
+
+    /**
+     * The watchdog (forceCloseIfOverCeiling) completes the future at the hard ceiling, so the
+     * future.get budget is only the ultimate fallback: just above the ceiling, not the old
+     * 30-minute wait that let a stuck discussion block the request pump.
+     * See [[Discussion Request Pump Can Wedge a Crew]].
+     */
+    private int totalBudgetSeconds() {
+        return Math.toIntExact(hardCeilingSeconds() + 60);
+    }
+
+    /**
+     * Starts the thread (or, for a request a restarted coordinator was handed again, takes up
+     * the one that request started), waits for its answer, and records the conversation turn.
+     */
+    private String runThread(Connection conn, ThreadStart request, RequestMatch match, String threadId,
+                             long requestSeq) throws Exception {
+        log.info("{} discussion thread {} (crew={}, conversation={}) for: {}", match != null ? "Resuming" : "Starting",
+                threadId, request.crew(), truncate(request.conversationId(), LOG_ID_PREVIEW_CHARS),
+                truncate(request.userQuery(), LOG_QUERY_PREVIEW_CHARS));
+        var state = match != null ? match.live() : initThreadState(threadId, request, CHANNEL_GENERAL, requestSeq);
+        if (state.phase == Phase.SUBMITTED) {
+            // Primary path: coordinator reasoning call (select+brief) in transitionToEvaluating.
+            // Similarity pre-filter is demoted to a fallback within transitionToEvaluating.
+            startThread(conn, state, request);
+        }
+
+        var future = pendingResults.computeIfAbsent(threadId, k -> new CompletableFuture<>());
+        if (match != null && state.phase == Phase.CLOSED) {
+            completePending(threadId, state.answer);
+        }
+        String result = future.get(totalBudgetSeconds(), TimeUnit.SECONDS);
+
+        if (result != null && request.conversationId() != null) {
+            recordConversationTurn(request.conversationId(), request.userQuery(), result, threadId, match != null);
+        }
+        return result;
+    }
+
+    /** The answer of a thread that closed before the restart; the turn is recorded once. */
+    private OrchestrateResult answerFromClosedThread(RequestMatch match, ThreadStart request) {
+        log.info("Thread {} for this request already closed; returning its answer", match.threadId());
+        String answer = match.answer();
+        if (answer != null && request.conversationId() != null) {
+            recordConversationTurn(request.conversationId(), request.userQuery(), answer, match.threadId(), true);
+        }
+        return new OrchestrateResult(match.threadId(), answer);
+    }
+
+    private ThreadState initThreadState(String threadId, ThreadStart request, String primaryChannel,
+                                         long requestSeq) {
         var state = new ThreadState(threadId);
-        state.userQuery = userQuery;
+        state.userQuery = request.userQuery();
         state.primaryChannel = primaryChannel;
-        state.conversationId = conversationId;
-        state.crew = crew;
+        state.conversationId = request.conversationId();
+        state.crew = request.crew();
+        // Tied to a request only when a restarted coordinator can use it to find the thread again.
+        state.requestSeq = resume.enabled() ? requestSeq : 0;
         threads.put(threadId, state);
         metrics.threadStarted();
         events.opened(state, "request");
@@ -588,10 +644,28 @@ public class DiscussionOrchestrator {
         return metadata;
     }
 
-    private void publishBroadcastFallback(Connection conn, String crew, String threadId,
-                                           byte[] threadStartPayload, ThreadState state) throws Exception {
-        String broadcastSubject = broadcastSubject(crew, threadId);
-        conn.publish(broadcastSubject, threadStartPayload);
+    /**
+     * Publishes the question to the thread's crew and moves the thread to ADVISORY. With the
+     * coordinator log on the message has an id made from the thread's id, so a restarted
+     * coordinator that publishes it again is dropped as a repeat.
+     */
+    private void startThread(Connection conn, ThreadState state, ThreadStart request) throws Exception {
+        String threadId = state.threadId;
+        String derivedId = resume.enabled() ? events.openMessageId(state) : null;
+        var conversationContext = buildConversationContext(request.conversationId());
+        var metadata = buildThreadStartMetadata(request.userQuery(), state.primaryChannel, request.conversationId(),
+                conversationContext, request.crew(), threadId, request.requester());
+        var payload = mapper.writeValueAsBytes(Map.of(
+                FIELD_MESSAGE_ID, DerivedIds.idOrRandom(derivedId),
+                FIELD_THREAD_ID, threadId,
+                FIELD_AGENT_NAME, properties.agentName(),
+                FIELD_MESSAGE_TYPE, MSG_THREAD_START,
+                FIELD_CONTENT, request.userQuery(),
+                FIELD_CHANNEL, state.primaryChannel,
+                FIELD_TIMESTAMP, Instant.now().toString(),
+                FIELD_METADATA, metadata
+        ));
+        DerivedIds.publish(conn, broadcastSubject(request.crew(), threadId), payload, derivedId);
         conn.flush(Duration.ofSeconds(2));
 
         enterAdvisory(state);
@@ -622,49 +696,80 @@ public class DiscussionOrchestrator {
         try {
             var msg = mapper.readTree(data);
             String threadId = JsonFields.text(msg, FIELD_THREAD_ID);
-            String agentName = JsonFields.text(msg, FIELD_AGENT_NAME);
-            String messageType = JsonFields.text(msg, FIELD_MESSAGE_TYPE);
-            String content = JsonFields.text(msg, FIELD_CONTENT);
-            String channel = JsonFields.text(msg, FIELD_CHANNEL, CHANNEL_GENERAL);
-
-            // Waking/ready signals have empty threadId — apply to all active threads
-            if (threadId.isEmpty()) {
-                handleThreadlessSignal(agentName, messageType);
-                return;
-            }
-
-            // Skip messages we published ourselves that would otherwise echo back.
-            if (isOwnControlEcho(agentName, messageType)) return;
-
-            var state = threads.computeIfAbsent(threadId, k -> new ThreadState(threadId));
-            if (events.fenced(state)) return;
-
-            if (isDuplicateMessage(state, msg)) return;
-
-            var messageRecord = new MessageRecord(agentName, messageType, content, channel, Instant.now());
-            state.messages.add(messageRecord);
-            observeForReceipt(state, agentName, messageType, msg, messageRecord.timestamp());
-
-            trackThreadStart(state, msg, messageType, channel);
-            takeUpExternalThreadStart(state, msg, agentName, messageType);
-
-            // External dashboard controls (stop / pause / resume) short-circuit.
-            if (handleExternalControl(state, threadId, agentName, messageType)) return;
-
-            // Track advisory arrival (published by coordinator's inline advisory generation)
-            trackAdvisoryMetadata(state, msg, messageType, content);
-
-            // Track agent signals during EVALUATING and REVIEW phases
-            if (!properties.agentName().equals(agentName)) {
-                handleAgentSignal(state, agentName, messageType, content, msg);
-            }
-
-            // Handle human reply on closed thread — reopen to EVALUATING
-            handleThreadReopen(state, threadId, messageType, agentName);
-
+            // A thread being resumed holds its live messages until the ones it missed are applied.
+            if (!threadId.isEmpty() && resume.holdsLive(threadId, data)) return;
+            applyMessage(msg, ReplayFilter.LIVE, null);
         } catch (Exception e) {
             log.debug("Failed to parse orchestrator message: {}", e.getMessage());
         }
+    }
+
+    /** A live message that waited behind a resume gate; the gate is open, so it is applied as any live message is. */
+    void applyHeld(String data) {
+        try {
+            applyMessage(mapper.readTree(data), ReplayFilter.LIVE, null);
+        } catch (Exception e) {
+            log.debug("Failed to apply a held orchestrator message: {}", e.getMessage());
+        }
+    }
+
+    /**
+     * Applies one bus message to its thread: the live subscription's message, or one a
+     * restarted coordinator reads back from the stream ({@code filter} then leaves out what
+     * the thread's log already recorded). {@code known} is the thread when the caller holds
+     * it; null looks it up, creating it for a thread this coordinator has not seen.
+     */
+    void applyMessage(JsonNode msg, ReplayFilter filter, ThreadState known) {
+        String threadId = JsonFields.text(msg, FIELD_THREAD_ID);
+        String agentName = JsonFields.text(msg, FIELD_AGENT_NAME);
+        String messageType = JsonFields.text(msg, FIELD_MESSAGE_TYPE);
+        String content = JsonFields.text(msg, FIELD_CONTENT);
+        String channel = JsonFields.text(msg, FIELD_CHANNEL, CHANNEL_GENERAL);
+
+        // Waking/ready signals have empty threadId: apply to all active threads
+        if (threadId.isEmpty()) {
+            handleThreadlessSignal(agentName, messageType);
+            return;
+        }
+
+        // Skip messages we published ourselves that would otherwise echo back.
+        if (isOwnControlEcho(agentName, messageType)) return;
+
+        var state = known != null ? known : threads.computeIfAbsent(threadId, k -> new ThreadState(threadId));
+        if (events.fenced(state)) return;
+
+        if (isDuplicateMessage(state, msg)) return;
+
+        var messageRecord = new MessageRecord(agentName, messageType, content, channel, Instant.now());
+        state.messages.add(messageRecord);
+        observeForReceipt(state, agentName, messageType, msg, messageRecord.timestamp());
+
+        trackThreadStart(state, msg, messageType, channel);
+        takeUpExternalThreadStart(state, msg, agentName, messageType);
+
+        // External dashboard controls (stop / pause / resume) short-circuit.
+        if (handleControlMessage(state, msg, filter)) return;
+
+        // Track advisory arrival (published by coordinator's inline advisory generation)
+        trackAdvisoryMetadata(state, msg, messageType, content);
+
+        // Track agent signals during EVALUATING and REVIEW phases
+        if (!properties.agentName().equals(agentName) && filter.appliesSignal(messageType, msg)) {
+            handleAgentSignal(state, agentName, messageType, content, msg);
+        }
+
+        // Handle human reply on closed thread: reopen to EVALUATING
+        handleThreadReopen(state, threadId, messageType, agentName);
+    }
+
+    /**
+     * An external stop, pause or resume: applied unless a replay shows it came before the
+     * thread's last logged decision, when its effect is already in the log. True for any
+     * control message, applied or not, so the caller stops processing it.
+     */
+    private boolean handleControlMessage(ThreadState state, JsonNode msg, ReplayFilter filter) {
+        return handleExternalControl(state, state.threadId, JsonFields.text(msg, FIELD_AGENT_NAME),
+                JsonFields.text(msg, FIELD_MESSAGE_TYPE), filter.appliesControl(msg));
     }
 
     /** A threadless waking/ready signal from another agent applies to all active threads. */
@@ -748,17 +853,23 @@ public class DiscussionOrchestrator {
      * the dispatch-by-type rule.
      */
     private boolean handleExternalControl(ThreadState state, String threadId, String agentName,
-            String messageType) {
+            String messageType, boolean apply) {
         if (properties.agentName().equals(agentName)) return false;
         switch (messageType) {
-            case MSG_STOP_REQUESTED -> handleStopRequest(state, threadId, agentName);
-            case MSG_THREAD_PAUSE -> handlePauseRequest(state, threadId, agentName);
-            case MSG_THREAD_RESUME -> handleResumeRequest(state, threadId, agentName);
+            case MSG_STOP_REQUESTED -> applyIf(apply, () -> handleStopRequest(state, threadId, agentName));
+            case MSG_THREAD_PAUSE -> applyIf(apply, () -> handlePauseRequest(state, threadId, agentName));
+            case MSG_THREAD_RESUME -> applyIf(apply, () -> handleResumeRequest(state, threadId, agentName));
             default -> {
                 return false;
             }
         }
         return true;
+    }
+
+    private static void applyIf(boolean apply, Runnable control) {
+        if (apply) {
+            control.run();
+        }
     }
 
     /** A stop is honored only before the thread has already reached synthesis/closed. */
@@ -1424,11 +1535,8 @@ public class DiscussionOrchestrator {
                     state.primaryChannel);
 
             if (!logged) return;
-            publishAdvisory(state.threadId, outcome.technologies(), outcome.layers(), outcome.wisdom(),
-                    outcome.inferenceMs(), state.advisoryModelUse);
-            publishSubcommittee(state);
-            // advisory_ready triggers tooler evaluation (includes innerCircle)
-            releaseToolers(state, outcome.technologies(), outcome.wisdom());
+            announceSubcommittee(state, outcome.technologies(), outcome.layers(), outcome.wisdom(),
+                    outcome.inferenceMs());
             log.info("Thread {} evaluation clock reset after advisory_ready ({}ms advisory)",
                     state.threadId, outcome.inferenceMs());
 
@@ -1440,6 +1548,20 @@ public class DiscussionOrchestrator {
                 releaseToolers(state, List.of(), "Advisory generation failed");
             }
         }
+    }
+
+    /**
+     * Tells the crew who was convened and starts the evaluation: the advisory, the
+     * subcommittee line, then advisory_ready. The subcommittee is already in the log. A
+     * restarted coordinator calls this to carry out a convening whose messages did not all
+     * get out; the messages have ids made from the logged decision, so a repeat is dropped.
+     */
+    void announceSubcommittee(ThreadState state, List<String> technologies, List<String> layers, String wisdom,
+                              long inferenceMs) {
+        publishAdvisory(state.threadId, technologies, layers, wisdom, inferenceMs, state.advisoryModelUse);
+        publishSubcommittee(state);
+        // advisory_ready triggers tooler evaluation (includes innerCircle)
+        releaseToolers(state, technologies, wisdom);
     }
 
     /**
@@ -1920,7 +2042,7 @@ public class DiscussionOrchestrator {
         }
     }
 
-    private void publishAdvisoryReady(ThreadState state, List<String> technologies, String wisdom) {
+    void publishAdvisoryReady(ThreadState state, List<String> technologies, String wisdom) {
         try {
             var conn = natsProvider.getConnection();
             if (conn == null) return;
@@ -2064,12 +2186,25 @@ public class DiscussionOrchestrator {
         var analysts = analystNamesFromResumes();
         var analystCircle = analystCircleFrom(state.innerCircle, analysts);
         boolean logged = seedReviewRoster(state, reviewersFor(analystCircle, analysts), System.currentTimeMillis());
+        enterReview(state);
+        if (!logged) return;
+        publishReviewReady(state, analystCircle);
+    }
+
+    /** The thread moves to REVIEW: the roster is seeded, the phase begins. */
+    void enterReview(ThreadState state) {
         state.phase = Phase.REVIEW;
         state.phaseStarted = Instant.now();
         events.phaseEntered(state, "settled");
         metrics.setPendingEvaluations(state.pendingEvaluations.size());
-        if (!logged) return;
+    }
 
+    /**
+     * Wakes the analysts: review_ready with what the evaluation found. Its id is made from
+     * the review roster's event, so a restarted coordinator that publishes it again is dropped
+     * as a repeat.
+     */
+    void publishReviewReady(ThreadState state, List<String> analystCircle) {
         try {
             var conn = natsProvider.getConnection();
             if (conn == null) return;
@@ -2157,6 +2292,22 @@ public class DiscussionOrchestrator {
     }
 
     /**
+     * Carries out a direct answer whose convening is in the log: the thread goes to
+     * SYNTHESIZING if it has not, the advisory (the coordinator's reasoning) is published
+     * again, and the brief is the answer. A restarted coordinator calls this; the messages
+     * have ids made from the logged events, so a repeat is dropped.
+     */
+    void finishDirectAnswer(ThreadState state, String brief, List<String> technologies) {
+        if (state.phase != Phase.SYNTHESIZING) {
+            state.advisoryPending.set(false);
+            state.phase = Phase.SYNTHESIZING;
+            events.phaseEntered(state, "direct");
+        }
+        publishAdvisory(state.threadId, technologies, List.of(), brief, 0, state.advisoryModelUse);
+        completeSynthesisPhase(state, resolveChannel(state), brief, Instant.now(), "direct");
+    }
+
+    /**
      * REVIEW → SYNTHESIZED: LLM synthesizes final answer from all contributions.
      */
     private void transitionToSynthesis(ThreadState state) {
@@ -2172,53 +2323,63 @@ public class DiscussionOrchestrator {
         log.info("Thread {} → SYNTHESIZING ({} agrees, {} concerns, {} stand-asides)",
                 state.threadId, state.agreeSignals.size(), state.concernSignals.size(),
                 state.standAsideSignals.size());
+        beginSynthesis(state, synthesisStart);
+    }
+
+    /**
+     * Writes the answer: the capacity message when no agent could get an accelerator, else
+     * the synthesis call on the llmExecutor. A restarted coordinator calls this for a thread
+     * that entered SYNTHESIZING and has no answer in its log yet.
+     */
+    void beginSynthesis(ThreadState state, Instant synthesisStart) {
         if (closeForCapacity(state, synthesisStart)) {
             return;
         }
+        llmExecutor.submit(() -> runSynthesis(state, synthesisStart));
+    }
 
-        llmExecutor.submit(() -> {
-            try {
-                events.synthesisStarted(state);
-                // Count tooler agrees (excluding researchers like internet search)
-                long synthToolerAgrees = state.agreeSignals.keySet().stream()
-                        .filter(name -> !state.researcherAgents.contains(name)).count();
+    private void runSynthesis(ThreadState state, Instant synthesisStart) {
+        try {
+            events.synthesisStarted(state);
+            // Count tooler agrees (excluding researchers like internet search)
+            long synthToolerAgrees = state.agreeSignals.keySet().stream()
+                    .filter(name -> !state.researcherAgents.contains(name)).count();
 
-                // Always call LLM for synthesis — ADL rules in coordinator-decision-logic
-                // PromptModule guide the LLM to answer general knowledge directly or
-                // report gaps for domain-specific questions.
-                String signalContext = buildSignalContext(state, synthToolerAgrees);
-                // Read each spilled-artifact file and put its content into the synthesis input: toolers spill
-                // bulky findings to the object store and leave only a marker on the board,
-                // but the synthesizer is tool-free, so it must be handed the actual data.
-                String conversation = signalContext + "\n\n" + inlineArtifactContent(formatThread(state));
-                var synthesisResult = synthesizeWithCompleteness(loadSystemPrompt(), conversation, state.threadId);
-                String response = synthesisResult.text();
-                state.synthesisInputTokens = synthesisResult.inputTokens();
-                state.synthesisOutputTokens = synthesisResult.outputTokens();
+            // Always call LLM for synthesis: ADL rules in coordinator-decision-logic
+            // PromptModule guide the LLM to answer general knowledge directly or
+            // report gaps for domain-specific questions.
+            String signalContext = buildSignalContext(state, synthToolerAgrees);
+            // Read each spilled-artifact file and put its content into the synthesis input: toolers spill
+            // bulky findings to the object store and leave only a marker on the board,
+            // but the synthesizer is tool-free, so it must be handed the actual data.
+            String conversation = signalContext + "\n\n" + inlineArtifactContent(formatThread(state));
+            var synthesisResult = synthesizeWithCompleteness(loadSystemPrompt(), conversation, state.threadId);
+            String response = synthesisResult.text();
+            state.synthesisInputTokens = synthesisResult.inputTokens();
+            state.synthesisOutputTokens = synthesisResult.outputTokens();
 
-                if (response == null || response.isEmpty()) {
-                    handleEmptySynthesisResponse(state);
-                    return;
-                }
-
-                // ADL-FIRST: Before adding behavioral logic here, consider whether it can
-                // be expressed as an ADL rule in a PromptModule CR instead. Hardcoded Java
-                // is a safety net for LLM non-compliance — the primary fix belongs in ADL.
-                // See: homelab-pilot/charts/.../promptmodule-coordinator.yaml
-                response = handleWaitResponse(state, response);
-                if (response == null) return;
-
-                String channel = resolveChannel(state);
-                response = detectAndAppendGapHint(state, response, synthToolerAgrees, channel);
-
-                // Publish synthesis (with onboarding hint appended if gap detected)
-                completeSynthesisPhase(state, channel, response, synthesisStart, "synthesized");
-
-            } catch (Exception e) {
-                log.warn("Synthesis failed for thread {}: {}", state.threadId, e.getMessage());
-                closeThread(state, resolveChannel(state), fallbackAfterSynthesisFailure(state, e), "fallback");
+            if (response == null || response.isEmpty()) {
+                handleEmptySynthesisResponse(state);
+                return;
             }
-        });
+
+            // ADL-FIRST: Before adding behavioral logic here, consider whether it can
+            // be expressed as an ADL rule in a PromptModule CR instead. Hardcoded Java
+            // is a safety net for LLM non-compliance, the primary fix belongs in ADL.
+            // See: homelab-pilot/charts/.../promptmodule-coordinator.yaml
+            response = handleWaitResponse(state, response);
+            if (response == null) return;
+
+            String channel = resolveChannel(state);
+            response = detectAndAppendGapHint(state, response, synthToolerAgrees, channel);
+
+            // Publish synthesis (with onboarding hint appended if gap detected)
+            completeSynthesisPhase(state, channel, response, synthesisStart, "synthesized");
+
+        } catch (Exception e) {
+            log.warn("Synthesis failed for thread {}: {}", state.threadId, e.getMessage());
+            closeThread(state, resolveChannel(state), fallbackAfterSynthesisFailure(state, e), "fallback");
+        }
     }
 
     /**
@@ -2716,8 +2877,18 @@ public class DiscussionOrchestrator {
      * The caller records any phase-specific metric (e.g. synthesis duration) first.
      * Idempotent: completePending no-ops if the future is already completed.
      */
-    private void closeThread(ThreadState state, String channel, String response, String outcome) {
+    void closeThread(ThreadState state, String channel, String response, String outcome) {
         events.synthesisDone(state, outcome, channel, response);
+        finishClose(state, channel, response, outcome);
+    }
+
+    /**
+     * The close after the answer is in the log: publish it, close the thread, record the
+     * completion. A restarted coordinator calls this for a thread whose answer is logged
+     * but whose close is not; the messages carry ids made from the logged events, so a
+     * repeat of one that got out before the restart is dropped.
+     */
+    void finishClose(ThreadState state, String channel, String response, String outcome) {
         if (events.fenced(state)) {
             // Another coordinator owns the thread: publish nothing, but do not keep the asker waiting.
             completePending(state.threadId, null);
@@ -2725,6 +2896,7 @@ public class DiscussionOrchestrator {
         }
         publishToThread(state.threadId, channel, response, MSG_SYNTHESIS);
         publishThreadClose(state.threadId, channel);
+        state.answer = response;
         state.phase = Phase.CLOSED;
         events.closed(state, outcome, channel);
         events.checkAtClose(state);
@@ -4193,6 +4365,49 @@ public class DiscussionOrchestrator {
         return natsProvider.scope().forCrew(crew).discussSubject(channel, threadId);
     }
 
+    // --- what a restarted coordinator asks of the orchestrator (see CoordinatorResume) ---
+
+    /** The agent name this coordinator publishes under. */
+    String coordinatorName() {
+        return properties.agentName();
+    }
+
+    /** Puts a thread rebuilt from its log in the map the phase sweep walks. */
+    void registerResumed(ThreadState state) {
+        threads.put(state.threadId, state);
+        metrics.threadStarted();
+    }
+
+    /** The thread in memory that the request at {@code requestSeq} started, or null. */
+    ThreadState threadForRequest(long requestSeq) {
+        return threads.values().stream().filter(t -> t.requestSeq == requestSeq).findFirst().orElse(null);
+    }
+
+    /**
+     * Gives every agent still pending a fresh window: the time the thread had no coordinator
+     * is not charged to the agents. The window is what a heartbeat gives (the agent's expected
+     * time, at least one heartbeat, plus grace), or what the logged deadline still had left at
+     * the last event when that is longer (a triaging agent queued for an accelerator).
+     */
+    void rearmDeadlines(ThreadState state, Map<String, Long> logged, long lastEventAtMs, long nowMs) {
+        logged.forEach((agent, deadline) -> {
+            String server = lastServerByAgent.getOrDefault(agent, UNKNOWN_SERVER);
+            long window = deadlineWindowMs(latencyTracker.getExpectedSeconds(agent, server), evalGraceMs);
+            state.pendingEvaluations.put(agent, nowMs + Math.max(window, deadline - lastEventAtMs));
+        });
+        metrics.setPendingEvaluations(state.pendingEvaluations.size());
+    }
+
+    /** Runs the advisory step again, on the executor the first run used. */
+    void rerunAdvisory(ThreadState state) {
+        llmExecutor.submit(() -> runAdvisoryGeneration(state));
+    }
+
+    /** The analysts review_ready wakes for this thread: the selected analysts, or none (every analyst) when none was selected. */
+    List<String> analystCircleFor(ThreadState state) {
+        return analystCircleFrom(state.innerCircle, analystNamesFromResumes());
+    }
+
     // Visible for testing
     static class ThreadState {
         final String threadId;
@@ -4222,6 +4437,10 @@ public class DiscussionOrchestrator {
         volatile String primaryChannel;
         volatile String conversationId;
         volatile String crew;
+        /** The stream sequence of the request that started the thread; 0 for a thread no request started. */
+        volatile long requestSeq;
+        /** The answer, once the thread has closed with one. */
+        volatile String answer;
 
         // Advisory tracking
         volatile String advisoryContent;
@@ -4327,8 +4546,17 @@ public class DiscussionOrchestrator {
         }
     }
 
-    private void recordConversationTurn(String conversationId, String query, String response, String threadId) {
+    /**
+     * Adds the turn to the conversation. A request a restarted coordinator was handed again
+     * ({@code once}) may already have its turn from before the restart, so the turn is added
+     * only when none of the conversation's turns came from this thread.
+     */
+    private void recordConversationTurn(String conversationId, String query, String response, String threadId,
+                                        boolean once) {
         var history = loadConversationHistory(conversationId);
+        if (once && history.turns.stream().anyMatch(turn -> threadId.equals(turn.threadId()))) {
+            return;
+        }
         history.addTurn(new ConversationTurn(query, response, threadId, Instant.now().toString()), maxConversationTurns);
         conversationCache.put(conversationId, history);
         persistConversationHistory(conversationId, history);

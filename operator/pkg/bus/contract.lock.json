@@ -1,5 +1,5 @@
 {
-  "version": "2.2.0",
+  "version": "2.3.0",
   "surface": {
     "agent-activity.json#": {
       "type": "object"
@@ -304,6 +304,9 @@
     "coordinator-event.json#/definitions/CoordinatorEventFields/failedSources[]": {
       "type": "string"
     },
+    "coordinator-event.json#/definitions/CoordinatorEventFields/fromSeq": {
+      "type": "integer"
+    },
     "coordinator-event.json#/definitions/CoordinatorEventFields/lastSignalAt": {
       "type": "null,string"
     },
@@ -374,10 +377,16 @@
     "coordinator-event.json#/definitions/CoordinatorEventFields/reason": {
       "type": "string"
     },
+    "coordinator-event.json#/definitions/CoordinatorEventFields/requestSeq": {
+      "type": "integer"
+    },
     "coordinator-event.json#/definitions/CoordinatorEventFields/researcher": {
       "type": "boolean"
     },
     "coordinator-event.json#/definitions/CoordinatorEventFields/response": {
+      "type": "string"
+    },
+    "coordinator-event.json#/definitions/CoordinatorEventFields/resumedAt": {
       "type": "string"
     },
     "coordinator-event.json#/definitions/CoordinatorEventFields/roster": {
@@ -470,6 +479,7 @@
     "coordinator-event.json#/type": {
       "type": "string",
       "enum": [
+        "coordinator_resumed",
         "evaluation_started",
         "failure_recorded",
         "phase_entered",

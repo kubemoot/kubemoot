@@ -151,6 +151,11 @@ public record CrewScope(String namespace, String crew) {
         return discussPrefix() + channel.strip() + ".>";
     }
 
+    /** One thread on every channel: {@code kubemoot.discuss.<ns>.<crew>.*.<thread>}. */
+    public String threadWildcard(String threadId) {
+        return discussPrefix() + "*." + threadId;
+    }
+
     /** {@code kubemoot.discuss.<ns>.<crew>.<channel>.<thread>}. */
     public String discussSubject(String channel, String threadId) {
         return discussPrefix() + channel + DOT + threadId;

@@ -75,6 +75,20 @@ final class CoordinatorThreadState {
     String answer;
     String closeReason;
 
+    // --- what a restarted coordinator needs to carry on ---
+    /** The stream sequence of the request that started the thread; 0 for a thread no request started. */
+    long requestSeq;
+    /** The technologies the coordinator named when it convened the subcommittee. */
+    final java.util.List<String> technologies = new java.util.ArrayList<>();
+    /** True from the review roster being written until the thread has entered another phase. */
+    boolean reviewRosterWritten;
+    /** The bus messages whose signals the log recorded, so a replay of the bus applies only the rest. */
+    final Set<String> appliedMessageIds = new HashSet<>();
+    /** When the last event was written. */
+    Instant lastEventAt;
+    /** How many times a coordinator took the thread over. */
+    int resumes;
+
     /** Ids already applied: a repeat of one is ignored. */
     final Set<String> appliedEventIds = new HashSet<>();
 

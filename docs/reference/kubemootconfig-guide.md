@@ -79,6 +79,7 @@ The singleton must be named `default`. The operator creates it via the Helm char
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
+| `coordinator.resume` | bool | `false` | A restarted coordinator picks up the threads it had in flight: it rebuilds each from its log, reads the messages that arrived while it was down, and carries on from the last decision. Needs `coordinator.eventLog` (the chart refuses `resume` without it; a coordinator started with the variable set and no log stays off and says so). Run one coordinator replica. See [Resume](../../concepts/signals-and-protocol/#resume). The operator sets `KUBEMOOT_COORDINATOR_RESUME=true` on every Agent whose `discussRole` is `coordinator`; an Agent that sets the variable itself in `spec.deployment.env` keeps its own value. The operator chart sets it from the value `coordinator.resume` |
 | `coordinator.eventLog` | bool | `false` | Every coordinator writes each decision it makes about a thread to the `KUBEMOOT_COORDINATOR` stream before it acts on it, keeps other coordinators off its threads, and checks the log against the thread's live state when the thread closes. See [The coordinator log](../../concepts/signals-and-protocol/#the-coordinator-log). The operator sets `KUBEMOOT_COORDINATOR_EVENT_LOG=true` on every Agent whose `discussRole` is `coordinator`; an Agent that sets the variable itself in `spec.deployment.env` keeps its own value. The operator chart sets it from the value `coordinator.eventLog` |
 
 ## Status

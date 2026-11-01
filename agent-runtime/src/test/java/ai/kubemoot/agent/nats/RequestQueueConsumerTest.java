@@ -13,6 +13,7 @@ import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.*;
 
@@ -190,7 +191,7 @@ class RequestQueueConsumerTest {
 
         consumer.processMessage(msg);
 
-        verify(orch, times(1)).orchestrate("hi", "c1", "demo", null);
+        verify(orch, times(1)).orchestrate("hi", "c1", "demo", null, 0L);
         verify(msg, times(1)).ackSync(any(Duration.class));
         verify(msg, never()).term();
     }
@@ -201,7 +202,7 @@ class RequestQueueConsumerTest {
     @Test
     void processMessageReturnsTheRequestWhenShutdownInterruptsIt() throws Exception {
         var orch = mock(DiscussionOrchestrator.class);
-        when(orch.orchestrate(anyString(), anyString(), anyString(), any())).thenAnswer(inv -> {
+        when(orch.orchestrate(anyString(), anyString(), anyString(), any(), anyLong())).thenAnswer(inv -> {
             Thread.currentThread().interrupt();
             return null;
         });
@@ -237,7 +238,7 @@ class RequestQueueConsumerTest {
     @Test
     void processMessageAcksADiscussionThatFinishedAsShutdownBegan() throws Exception {
         var orch = mock(DiscussionOrchestrator.class);
-        when(orch.orchestrate(anyString(), anyString(), anyString(), any()))
+        when(orch.orchestrate(anyString(), anyString(), anyString(), any(), anyLong()))
                 .thenReturn(new DiscussionOrchestrator.OrchestrateResult("t1", "answer"));
         var consumer = coordinatorConsumer(orch);
         consumer.onShutdown(null);
@@ -251,7 +252,7 @@ class RequestQueueConsumerTest {
 
     private static DiscussionOrchestrator orchestratorThatThrows() {
         var orch = mock(DiscussionOrchestrator.class);
-        when(orch.orchestrate(anyString(), anyString(), anyString(), any()))
+        when(orch.orchestrate(anyString(), anyString(), anyString(), any(), anyLong()))
                 .thenThrow(new RuntimeException("orchestrate boom"));
         return orch;
     }

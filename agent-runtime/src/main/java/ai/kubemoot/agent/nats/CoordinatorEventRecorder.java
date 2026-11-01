@@ -52,7 +52,11 @@ final class CoordinatorEventRecorder {
 
     private static final Logger log = LoggerFactory.getLogger(CoordinatorEventRecorder.class);
     private static final String MESSAGE_SUFFIX = "/msg/";
-    private static final String MSG_THREAD_CLOSE = "thread_close";
+
+    /** True when {@code messageId} was made from a logged event (see {@link #messageId}) rather than chosen at random. */
+    static boolean isDerivedId(String messageId) {
+        return messageId != null && messageId.contains(MESSAGE_SUFFIX);
+    }
 
     private final boolean enabled;
     private final CoordinatorEventLog eventLog;
@@ -123,14 +127,15 @@ final class CoordinatorEventRecorder {
     /** The id of the {@code thread_close} message: derived from the id of the thread's close event. */
     String closeMessageId(ThreadState s) {
         boolean logged = enabled && s != null && s.trace.opened() && !s.trace.unlogged();
-        return logged ? keyed(s, "closed") + MESSAGE_SUFFIX + MSG_THREAD_CLOSE : null;
+        return logged ? keyed(s, "closed") + MESSAGE_SUFFIX + DiscussionOrchestrator.MSG_THREAD_CLOSE : null;
     }
 
     // --- decisions, in the order a thread meets them ---
 
     /** The thread exists: started by a request this coordinator took, or by an external {@code thread_start}. */
     boolean opened(ThreadState s, String source) {
-        if (!enabled) {
+        // A thread is opened once; one taken over from an earlier run already is.
+        if (!enabled || s.trace.opened()) {
             return true;
         }
         s.trace.markOpened();
@@ -143,8 +148,35 @@ final class CoordinatorEventRecorder {
             d.put("source", source);
             d.put("openedAt", s.threadCreated.toString());
             d.put(PHASE_STARTED_AT, s.phaseStarted.toString());
+            if (s.requestSeq > 0) {
+                d.put("requestSeq", s.requestSeq);
+            }
             return emit(s, THREAD_OPENED, s.threadId + "/opened", d);
         });
+    }
+
+    /**
+     * This coordinator took the thread over after the one that wrote its log stopped.
+     * {@code fromSeq} is the last event it read. The thread's clocks count from now.
+     */
+    boolean resumed(ThreadState s, long fromSeq) {
+        return write(s, () -> {
+            ObjectNode d = mapper.createObjectNode();
+            d.put("fromSeq", fromSeq);
+            d.put("resumedAt", s.threadCreated.toString());
+            return emit(s, COORDINATOR_RESUMED, keyed(s, "resumed/" + s.trace.enter(COORDINATOR_RESUMED)), d);
+        });
+    }
+
+    /** The id of the {@code thread_start} message of a thread this coordinator opened, or null when its log is not recording. */
+    String openMessageId(ThreadState s) {
+        boolean logged = enabled && s != null && s.trace.opened() && !s.trace.unlogged();
+        return logged ? s.threadId + "/opened" + MESSAGE_SUFFIX + "thread_start" : null;
+    }
+
+    /** Takes up a thread another run wrote: its events as read, and the sequence of the last one. */
+    void adopt(ThreadState s, List<CoordinatorEvent> read, long lastSequence) {
+        s.trace.restore(read, lastSequence);
     }
 
     /** The thread moved to its current phase (anything but closed, which has its own event). */
@@ -406,7 +438,7 @@ final class CoordinatorEventRecorder {
     private boolean failure(ThreadState s, String agent, JsonNode msg, boolean synthesized) {
         ObjectNode d = mapper.createObjectNode();
         d.put(AGENT, agent);
-        d.put(CAUSE, synthesized ? "evaluation_timeout" : "reported");
+        d.put(CAUSE, synthesized ? CAUSE_TIMEOUT : CAUSE_REPORTED);
         d.put(SYNTHESIZED, synthesized);
         d.set(FAILED_SOURCES, strings(synthesized ? List.of() : DiscussionOrchestrator.failedSourceNames(msg)));
         String messageId = synthesized ? "" : JsonFields.text(msg, MESSAGE_ID);

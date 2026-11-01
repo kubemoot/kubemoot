@@ -494,6 +494,7 @@ Consumers judge staleness from the record itself: a heartbeat is stale once two 
 | `KUBEMOOT_MODEL_CANDIDATES_TRIAGE` | All agents | Ranked candidate models for the triage phase, same shape |
 | `KUBEMOOT_MODEL_CANDIDATE_TOLERANCE` | All agents | Optional override via `spec.deployment.env`; quality-score points a warm candidate may trail the preferred model (default 10) |
 | `KUBEMOOT_DISCUSS_GPU_WAIT_LIMIT_SECONDS` | All agents | Optional override via `spec.deployment.env`; safety limit on one GPU capacity wait (default: the synthesis timeout, 90 seconds) |
+| `KUBEMOOT_COORDINATOR_RESUME` | Coordinator | Optional; `true` makes a restarted coordinator [resume](../../concepts/signals-and-protocol/#resume) the threads it had in flight, from its coordinator log. Needs `KUBEMOOT_COORDINATOR_EVENT_LOG=true`; without it resume stays off. The operator sets it on every coordinator when the chart value `coordinator.resume` is true; set here in `spec.deployment.env` it wins. Run one coordinator replica. Default `false`, and then it changes nothing |
 | `KUBEMOOT_COORDINATOR_EVENT_LOG` | Coordinator | Optional; `true` makes the coordinator write each decision to its [coordinator log](../../concepts/signals-and-protocol/#the-coordinator-log) before it acts on it. The operator sets it on every coordinator when the chart value `coordinator.eventLog` is true; set here in `spec.deployment.env` it wins. Default `false`, and then it changes nothing |
 
 ---
