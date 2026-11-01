@@ -116,6 +116,9 @@ func holdKey(it item) string {
 	if it.ev != nil {
 		return it.ev.Type
 	}
+	if it.msg != nil {
+		return "msg:" + it.msg.MessageType
+	}
 	return ""
 }
 
@@ -171,6 +174,7 @@ type harness struct {
 	trials     int
 	duplicate  bool
 	noCounters bool
+	podsStick  bool
 	resumeIn   time.Duration
 }
 
@@ -223,7 +227,9 @@ func (h *harness) Kill(_ context.Context, p Pod) error {
 			left = append(left, q)
 		}
 	}
-	h.pods = left
+	if !h.podsStick {
+		h.pods = left
+	}
 	for _, s := range h.sims {
 		s.halt(h.resumeIn, h.duplicate)
 	}
