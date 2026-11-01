@@ -39,6 +39,7 @@ record CoordinatorEvent(String eventId, String type, String threadId, int round,
     static final String SYNTHESIS_DONE = "synthesis_done";
     static final String THREAD_REOPENED = "thread_reopened";
     static final String THREAD_CLOSED = "thread_closed";
+    static final String COORDINATOR_RESUMED = "coordinator_resumed";
 
     /** The event as the JSON object that goes on the bus. */
     ObjectNode toJson(ObjectMapper mapper) {

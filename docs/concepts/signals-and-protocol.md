@@ -162,7 +162,11 @@ Every message is an event:
 | `synthesis_started` | the synthesis call begins | the signal counts |
 | `synthesis_done` | the answer exists, before it is published | `outcome` (`synthesized`, `capacity`, `direct`, `fallback` or `ceiling`), `response`, `tokens` |
 | `thread_reopened` | a human reply reopens a closed thread | `phaseStartedAt` |
-| `thread_closed` | the thread ends | `reason`, `channel` |
+| `thread_closed` | the thread ends | `reason` (an outcome of `synthesis_done`, `zombie`, `no_signals`, or `unlogged`), `channel` |
+| `coordinator_resumed` | a restarted coordinator takes the thread over | `fromSeq` (the last event it read), `resumedAt` |
+
+`thread_opened` also carries `requestSeq`, the stream sequence of the queued request that
+started the thread, when a request did.
 
 A few rules hold for every event:
 
@@ -179,9 +183,8 @@ A few rules hold for every event:
   any event whose `eventId` was already applied, gives the state the coordinator held at
   the last event: the phase and its clock, the convened agents, the roster and who has
   signalled, the signals by agent, the agents still pending and the deadline an event last
-  set for each (a heartbeat can have pushed the live deadline later), and the answer. The coordinator
-  writes the log and can rebuild a thread's state from it; a coordinator that starts does
-  not yet resume threads from it.
+  set for each (a heartbeat can have pushed the live deadline later), and the answer. A
+  coordinator that starts with [resume](#resume) on rebuilds its threads this way.
 
 ### Write-ahead
 
@@ -246,6 +249,86 @@ difference the coordinator logs a WARN naming each differing field with both val
 `match`, and a close of an unlogged thread, whose log is incomplete and is not compared, as `unlogged`
 (one per close; a thread reopened by a human reply closes more than once).
 A difference never fails the thread. A thread with more than 2,048 events is not checked.
+
+### Resume
+
+With `coordinator.resume=true` (it needs `coordinator.eventLog`; the chart refuses one without
+the other) a coordinator that starts picks up the threads the last one left in flight. Run one
+coordinator replica: nothing yet decides which of two replicas owns a thread, only the
+[fence](#one-coordinator-per-thread) keeps them apart. Resume is off by default and then
+nothing about a discussion changes.
+
+**At start** the coordinator reads its crew's coordinator log, reduces each thread's events to
+the state they describe, and sorts the threads. A thread that closed is only remembered, so a
+request handed again can be answered from its logged answer. A thread still open is a
+candidate, and live messages for it wait behind a gate until the candidate is rebuilt.
+
+**For each open thread** it then:
+
+1. Reads the thread's messages back from `KUBEMOOT_DISCUSS` with an ordered consumer.
+2. Checks the log is complete. If the coordinator published one of its own messages with a
+   random id (what a thread whose append failed leaves behind, see [Write-ahead](#write-ahead)),
+   the log ends before the thread did. Such a thread is **not resumed**. It is closed: its
+   agents get `thread_close` so they stop working for nobody, a `thread_closed` event with
+   reason `unlogged` is written so the next start does not find it open again, and the request
+   that started it, handed again, starts a new thread. Leaving it to its hard ceiling would
+   not work, because the ceiling lives in the memory of the process that died.
+3. Rebuilds the state from the log and writes `coordinator_resumed`. If another coordinator has
+   appended since, the append is refused and this one leaves the thread alone.
+4. Gives every agent still pending a fresh deadline: the window a heartbeat gives (the agent's
+   expected time, at least one heartbeat interval, plus grace), or what the logged deadline
+   still had left at the last event if that is longer. The hard ceiling, the zombie sweep and
+   the phase clock count from the takeover. The time the thread had no coordinator is not
+   charged to the agents or to the thread.
+5. Applies the messages the log has not seen, in stream order, through the handlers the live
+   path uses. A signal whose `messageId` the log holds is skipped. A heartbeat is not replayed.
+   A stop, pause or resume is applied only if it was sent after the thread's last logged
+   decision. Each applied signal is logged as it is live.
+6. Puts the thread in the phase sweep, carries out what the last decision left undone, and
+   opens the gate; the live messages that waited are applied in the order they arrived, and
+   a message that was both read from the stream and delivered live is applied once.
+
+What step 6 carries out depends on the last logged decision. A decision's event is written
+before its effect, so the effect may not have happened. Every effect is repeatable because the
+messages carry [ids made from the event](#write-ahead):
+
+| Last logged decision | What the new coordinator does |
+|---|---|
+| Opened, before ADVISORY | Nothing. The request handed again starts the thread (an external thread waits for its `thread_start`) |
+| ADVISORY entered | Nothing. The phase sweep runs the advisory step |
+| EVALUATING entered, no subcommittee logged | Runs the advisory step again |
+| Subcommittee convened, evaluation not started | Publishes the advisory, the subcommittee line and `advisory_ready` for the members already chosen. No second model call |
+| Evaluation started, no agent has signalled | Publishes `advisory_ready` again |
+| Evaluation started, signals in | Nothing. The sweep settles from the rebuilt roster and deadlines |
+| Review roster written, REVIEW not entered | Enters REVIEW and publishes `review_ready` |
+| REVIEW entered, no analyst has signalled | Publishes `review_ready` again |
+| REVIEW entered, analysts have signalled | Nothing. The sweep settles |
+| PAUSED | Stays paused. A `thread_resume` message resumes it |
+| SYNTHESIZING, no answer logged | Runs the synthesis again |
+| SYNTHESIZING by a direct answer, answer not logged | Writes the answer again from the logged brief |
+| Answer logged (`synthesis_done`), no close | Publishes the answer and `thread_close`, then writes `thread_closed` |
+| Closed | Nothing |
+
+**The request.** The queue consumer passes each request's stream sequence to the coordinator,
+and `thread_opened.requestSeq` ties a thread to it. A request handed again after a restart
+finds its thread. If the thread is in flight, the request waits for its answer and the
+question is not published again. If the thread already closed, the request returns the logged
+answer, records the conversation turn once, and is acknowledged. A request whose thread was
+closed unresumed starts a new thread. The queue consumer waits for the start-up read of the log
+before it takes a request, up to a minute.
+
+**What is not carried over.** A resumed thread's receipt, published on `thread_close`, lacks the
+calls the coordinator itself placed before the restart. An agent that was working when the
+coordinator died is not resumed; it finishes and signals, or its deadline passes and the
+coordinator records a failure, as always.
+
+The live subscription stays a plain NATS subscription. JetStream is used to read the log and
+the messages missed, once per thread, at start.
+
+Resume is counted in `kubemoot_coordinator_resumes_total{action}`, where the action is one
+of the rows above (`sweep`, `rerun_advisory`, `announce_subcommittee`, `republish_advisory_ready`,
+`enter_review`, `republish_review_ready`, `stay_paused`, `restart_synthesis`, `answer_directly`,
+`finish_close`, `nothing`), `abandoned` for an incomplete log, `fenced`, or `failed`.
 
 ### Stream limits
 

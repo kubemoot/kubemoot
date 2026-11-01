@@ -285,6 +285,15 @@ public class DiscussionMetrics {
         logFenced.increment();
     }
 
+    /**
+     * A restarted coordinator dealt with a thread its log left in flight. {@code action} is what it did
+     * (one of the names in {@link ResumeContinuation}), {@code abandoned} for a thread whose log was
+     * incomplete, or {@code fenced} when another coordinator took the thread first.
+     */
+    public void threadResumed(String action) {
+        registry.counter("kubemoot_coordinator_resumes_total", "action", action).increment();
+    }
+
     /** A closed thread's log was checked; {@code result} is {@code match}, {@code mismatch} or {@code unlogged}. */
     public void logChecked(String result) {
         registry.counter(METRIC_LOG_CHECKS, TAG_RESULT, result).increment();

@@ -168,6 +168,7 @@ default to the behavior Kubemoot has always had.
 ```yaml
 coordinator:
   eventLog: true       # each coordinator writes its decisions to a log before acting on them
+  resume: true         # a restarted coordinator picks up its threads from that log (needs eventLog; one replica)
 
 nats:
   streams:
@@ -177,7 +178,7 @@ nats:
       maxBytes: -1        # for example 256MiB; -1 for no limit
 ```
 
-`coordinator.eventLog` is described in [The coordinator log](../../concepts/signals-and-protocol/#the-coordinator-log),
+`coordinator.eventLog` and `coordinator.resume` are described in [The coordinator log](../../concepts/signals-and-protocol/#the-coordinator-log),
 which also says how to size the stream values. The job that creates the NATS streams
 applies `nats.streams.discuss.*` on every install and upgrade, to an existing stream too.
 

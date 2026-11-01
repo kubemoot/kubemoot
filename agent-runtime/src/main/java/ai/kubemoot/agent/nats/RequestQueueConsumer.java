@@ -255,8 +255,10 @@ public class RequestQueueConsumer {
             // orchestrate() is bounded by the orchestrator's watchdog: it always
             // returns within the hard ceiling (force-closing a stuck discussion),
             // so the consumer thread can never block here indefinitely.
+            // The request's stream sequence ties it to the thread it starts, so a request handed
+            // again after a restart finds that thread instead of starting another.
             var result = orchestrator.orchestrate(request.message(), request.conversationId(), request.crew(),
-                    request.requester());
+                    request.requester(), streamSequence(msg));
             // An interrupted orchestrate() returns null; one that finished returns a result
             // and is acked even when shutdown began meanwhile, so it is not answered twice.
             if (result == null && stopping()) {
@@ -325,6 +327,15 @@ public class RequestQueueConsumer {
             msg.term();
         } catch (Exception e) {
             log.warn("Failed to term poison message: {}", e.getMessage());
+        }
+    }
+
+    // Visible for testing. The message's sequence in the request stream; 0 when it cannot be read.
+    static long streamSequence(Message msg) {
+        try {
+            return msg.metaData().streamSequence();
+        } catch (Exception e) {
+            return 0L;
         }
     }
 

@@ -9,7 +9,7 @@
     "eventId": { "type": "string", "description": "A natural key: the same decision has the same id however often it is written. Also the Nats-Msg-Id header, so the stream drops a duplicate." },
     "type": {
       "type": "string",
-      "enum": ["thread_opened", "phase_entered", "subcommittee_convened", "evaluation_started", "review_started", "signal_applied", "failure_recorded", "settled", "synthesis_started", "synthesis_done", "thread_reopened", "thread_closed"],
+      "enum": ["thread_opened", "phase_entered", "subcommittee_convened", "evaluation_started", "review_started", "signal_applied", "failure_recorded", "settled", "synthesis_started", "synthesis_done", "thread_reopened", "thread_closed", "coordinator_resumed"],
       "description": "What was decided. A later version may add types."
     },
     "threadId": { "type": "string", "description": "The thread." },
@@ -21,20 +21,23 @@
   "definitions": {
     "CoordinatorEventFields": {
       "type": "object",
-      "description": "The fields of an event. thread_opened: crew, conversationId, userQuery, primaryChannel, source, openedAt, phaseStartedAt. phase_entered: phase, phaseStartedAt, phaseBeforePause, advisoryPending, reason. subcommittee_convened: path, members, brief, technologies, skills, confidence, primaryChannel, tokens. evaluation_started: roster, startedAt. review_started: roster, pending. signal_applied: agent, signal, messageId, deadlineAt, researcher, capacityReason, tooLargeModel, model, lastSignalAt. failure_recorded: agent, cause, synthesized, failedSources, messageId, lastSignalAt. settled: phase, basis, counts. synthesis_started: agrees, concerns, standAsides. synthesis_done: outcome, channel, response, tokens, promptTooLarge. thread_reopened: phaseStartedAt, roster. thread_closed: reason, channel, advisoryPending.",
+      "description": "The fields of an event. thread_opened: crew, conversationId, userQuery, primaryChannel, source, openedAt, phaseStartedAt. phase_entered: phase, phaseStartedAt, phaseBeforePause, advisoryPending, reason. subcommittee_convened: path, members, brief, technologies, skills, confidence, primaryChannel, tokens. evaluation_started: roster, startedAt. review_started: roster, pending. signal_applied: agent, signal, messageId, deadlineAt, researcher, capacityReason, tooLargeModel, model, lastSignalAt. failure_recorded: agent, cause, synthesized, failedSources, messageId, lastSignalAt. settled: phase, basis, counts. synthesis_started: agrees, concerns, standAsides. synthesis_done: outcome, channel, response, tokens, promptTooLarge. thread_reopened: phaseStartedAt, roster. thread_closed: reason, channel, advisoryPending. coordinator_resumed: fromSeq, resumedAt, coordinator. thread_opened also carries requestSeq.",
       "properties": {
         "crew": { "type": ["string", "null"], "description": "The crew." },
         "conversationId": { "type": ["string", "null"], "description": "The conversation the thread belongs to." },
         "userQuery": { "type": ["string", "null"], "description": "The question." },
         "primaryChannel": { "type": ["string", "null"], "description": "The thread's main channel; the coordinator can change it after the advisory." },
         "source": { "type": "string", "enum": ["request", "external"], "description": "How the thread began: a queued request this coordinator took, or a thread_start another publisher put on the bus." },
+        "requestSeq": { "type": "integer", "description": "On thread_opened for a queued request: the stream sequence of the request message. A restarted coordinator that is handed the same request again finds this thread by it, instead of starting another." },
+        "fromSeq": { "type": "integer", "description": "On coordinator_resumed: the sequence of the last event of the thread the coordinator read before it took the thread over." },
+        "resumedAt": { "type": "string", "description": "On coordinator_resumed: when the coordinator took the thread over, RFC 3339 in UTC. The hard ceiling and the zombie sweep count from here; the time the thread spent with no coordinator is not charged." },
         "openedAt": { "type": "string", "description": "When the coordinator took the thread up, RFC 3339 in UTC. The hard ceiling counts from here." },
         "phaseStartedAt": { "type": "string", "description": "The phase clock after the change, RFC 3339 in UTC." },
         "startedAt": { "type": "string", "description": "When the evaluation clock was reset, RFC 3339 in UTC." },
         "phase": { "type": "string", "enum": ["SUBMITTED", "ADVISORY", "EVALUATING", "REVIEW", "PAUSED", "SYNTHESIZING", "CLOSED"], "description": "The phase entered, or for settled the phase that ended." },
         "phaseBeforePause": { "type": ["string", "null"], "description": "The phase a pause interrupted; null when the thread is not paused." },
         "advisoryPending": { "type": "boolean", "description": "True while the advisory step runs and agents are not yet woken." },
-        "reason": { "type": "string", "description": "Why. For phase_entered: thread_start, advisory, settled, skip_review, stop, pause, resume or direct. For thread_closed: an outcome of synthesis_done, or zombie, or no_signals." },
+        "reason": { "type": "string", "description": "Why. For phase_entered: thread_start, advisory, settled, skip_review, stop, pause, resume or direct. For thread_closed: an outcome of synthesis_done, or zombie, no_signals, or unlogged (a restarted coordinator found a thread whose log was incomplete, so it could not resume it, and closed it)." },
         "path": { "type": "string", "enum": ["reasoning", "fallback", "broadcast", "direct"], "description": "How the subcommittee was chosen: the reasoning call, a similarity or triage fallback, nobody (every agent may take part), or no toolers because the coordinator answered itself." },
         "members": { "type": "array", "items": { "type": "string" }, "description": "The convened agents, sorted." },
         "brief": { "type": ["string", "null"], "description": "The coordinator's brief." },

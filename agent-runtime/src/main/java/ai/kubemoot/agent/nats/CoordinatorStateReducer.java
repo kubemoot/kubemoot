@@ -33,7 +33,8 @@ final class CoordinatorStateReducer {
             Map.entry(SYNTHESIS_STARTED, CoordinatorStateReducer::synthesisStarted),
             Map.entry(SYNTHESIS_DONE, CoordinatorStateReducer::synthesisDone),
             Map.entry(THREAD_REOPENED, CoordinatorStateReducer::threadReopened),
-            Map.entry(THREAD_CLOSED, CoordinatorStateReducer::threadClosed));
+            Map.entry(THREAD_CLOSED, CoordinatorStateReducer::threadClosed),
+            Map.entry(COORDINATOR_RESUMED, CoordinatorStateReducer::resumed));
 
     private static final Map<String, BiConsumer<CoordinatorThreadState, CoordinatorEvent>> SIGNALS = Map.ofEntries(
             Map.entry(TRIAGING, CoordinatorStateReducer::triaging),
@@ -68,6 +69,7 @@ final class CoordinatorStateReducer {
             return false;
         }
         state.threadId = event.threadId();
+        state.lastEventAt = event.at();
         handler.accept(state, event);
         return true;
     }
@@ -87,6 +89,19 @@ final class CoordinatorStateReducer {
         s.source = text(d, "source");
         s.openedAt = instant(d, "openedAt");
         s.phaseStartedAt = instant(d, PHASE_STARTED_AT);
+        s.requestSeq = d.path("requestSeq").asLong(0);
+    }
+
+    /**
+     * A coordinator took the thread over. The ceiling and the zombie sweep count from
+     * then, and so does the phase clock: the time the thread spent with no coordinator is
+     * not charged to it.
+     */
+    private static void resumed(CoordinatorThreadState s, CoordinatorEvent e) {
+        s.resumes++;
+        Instant at = instant(e.data(), "resumedAt");
+        s.openedAt = at;
+        s.phaseStartedAt = at;
     }
 
     private static void phaseEntered(CoordinatorThreadState s, CoordinatorEvent e) {
@@ -95,6 +110,7 @@ final class CoordinatorStateReducer {
         s.phaseStartedAt = instant(d, PHASE_STARTED_AT);
         s.phaseBeforePause = text(d, "phaseBeforePause");
         s.advisoryPending = d.path(ADVISORY_PENDING).asBoolean(false);
+        s.reviewRosterWritten = false;
         if ("SYNTHESIZING".equals(s.phase)) {
             s.synthesisPromptTooLarge = false;
         }
@@ -108,6 +124,8 @@ final class CoordinatorStateReducer {
         s.triageConfidence = d.path("confidence").asDouble(-1.0);
         replaceAll(s.innerCircle, d.path("members"));
         replaceAll(s.selectedSkills, d.path("skills"));
+        s.technologies.clear();
+        d.path("technologies").forEach(n -> s.technologies.add(n.asText()));
         JsonNode tokens = d.path("tokens");
         s.advisoryIn = tokens.path("advisoryIn").asLong();
         s.advisoryOut = tokens.path("advisoryOut").asLong();
@@ -120,10 +138,12 @@ final class CoordinatorStateReducer {
         s.lastSignalAt = null;
         s.phaseStartedAt = instant(e.data(), "startedAt");
         s.advisoryPending = false;
+        s.reviewRosterWritten = false;
         newRoster(s, e.data().path(ROSTER));
     }
 
     private static void reviewStarted(CoordinatorThreadState s, CoordinatorEvent e) {
+        s.reviewRosterWritten = true;
         s.pending.clear();
         e.data().path(PENDING).fields().forEachRemaining(entry -> s.pending.put(entry.getKey(),
                 entry.getValue().asLong()));
@@ -136,6 +156,7 @@ final class CoordinatorStateReducer {
     }
 
     private static void signalApplied(CoordinatorThreadState s, CoordinatorEvent e) {
+        noteMessage(s, e);
         var handler = SIGNALS.get(text(e.data(), SIGNAL));
         if (handler != null) {
             handler.accept(s, e);
@@ -193,6 +214,7 @@ final class CoordinatorStateReducer {
 
     private static void failureRecorded(CoordinatorThreadState s, CoordinatorEvent e) {
         JsonNode d = e.data();
+        noteMessage(s, e);
         s.pending.remove(agent(e));
         if (!d.path(SYNTHESIZED).asBoolean(false)) {
             s.waiting.remove(agent(e));
@@ -225,6 +247,7 @@ final class CoordinatorStateReducer {
         s.round = e.round();
         s.phase = "EVALUATING";
         s.phaseStartedAt = instant(e.data(), PHASE_STARTED_AT);
+        s.reviewRosterWritten = false;
         s.clearSignals();
         newRoster(s, e.data().path(ROSTER));
         s.synthesisStarted = false;
@@ -240,6 +263,14 @@ final class CoordinatorStateReducer {
     }
 
     // --- shared steps ---
+
+    /** Remembers the bus message the event is about, so a replay of the bus does not apply its signal twice. */
+    private static void noteMessage(CoordinatorThreadState s, CoordinatorEvent e) {
+        String messageId = text(e.data(), MESSAGE_ID);
+        if (messageId != null && !messageId.isEmpty()) {
+            s.appliedMessageIds.add(messageId);
+        }
+    }
 
     /** The step every terminal signal takes: the agent is no longer pending or waiting, and the phase roster hears it. */
     private static void endTurn(CoordinatorThreadState s, CoordinatorEvent e) {

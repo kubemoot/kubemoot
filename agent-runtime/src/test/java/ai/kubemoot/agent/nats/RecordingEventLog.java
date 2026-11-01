@@ -68,6 +68,37 @@ final class RecordingEventLog implements CoordinatorEventLog {
         return AppendResult.appended(sequence);
     }
 
+    /**
+     * Fills the log with events a coordinator that has since stopped wrote at {@code subject},
+     * as a restarted coordinator finds them. Nothing is observed or hooked.
+     */
+    synchronized void preload(String subject, List<CoordinatorEvent> written) {
+        for (CoordinatorEvent event : written) {
+            long sequence = lastBySubject.getOrDefault(subject, 0L) + 1;
+            events.add(event);
+            subjects.add(subject);
+            expected.add(sequence - 1);
+            lastBySubject.put(subject, sequence);
+            sequenceById.put(event.eventId(), sequence);
+        }
+    }
+
+    /** What a reader of the stream sees: each event as bytes, with the sequence it was stored at on its subject. */
+    synchronized List<BusReader.BusMessage> asMessages() {
+        var out = new ArrayList<BusReader.BusMessage>();
+        Map<String, Long> next = new HashMap<>();
+        for (int i = 0; i < events.size(); i++) {
+            String subject = subjects.get(i);
+            long sequence = next.merge(subject, 1L, Long::sum);
+            try {
+                out.add(new BusReader.BusMessage(sequence, subject, MAPPER.writeValueAsBytes(events.get(i).toJson(MAPPER))));
+            } catch (Exception e) {
+                throw new IllegalStateException(e);
+            }
+        }
+        return out;
+    }
+
     /** Appends of events of {@code type} fail from now on, as if the stream refused them. */
     synchronized void failEventsOfType(String type) {
         failTypes.add(type);

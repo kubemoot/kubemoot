@@ -72,6 +72,7 @@ abstract class CoordinatorThreadTestBase {
     protected static final String SELECT_NONE = "{\"selected\":[],\"brief\":\"Four.\",\"technologies\":[]}";
 
     protected DiscussionOrchestrator orchestrator;
+    protected NatsConnectionProvider natsProvider;
     protected RecordingEventLog eventLog;
     protected AgentProperties.TriageModel triageModel;
     protected volatile String selection = SELECT_THREE;
@@ -90,11 +91,12 @@ abstract class CoordinatorThreadTestBase {
         Files.writeString(resumes, RESUMES);
         System.setProperty("kubemoot.discuss.crew-resumes-path", resumes.toString());
 
-        var natsProvider = mock(NatsConnectionProvider.class);
+        natsProvider = mock(NatsConnectionProvider.class);
         when(natsProvider.scope()).thenReturn(CrewScope.of("ns", "crew"));
         if (withBus()) {
             Connection bus = fakeBus();
             when(natsProvider.getConnection()).thenReturn(bus);
+            when(natsProvider.isAvailable()).thenReturn(true);
         }
         var chatService = mock(ChatService.class);
         when(chatService.simpleLlmCallWithTokens(any(), anyString())).thenAnswer(call -> {
@@ -194,8 +196,18 @@ abstract class CoordinatorThreadTestBase {
         if (metadataJson != null) {
             msg.set("metadata", MAPPER.readTree(metadataJson));
         }
-        orchestrator.handleMessage(MAPPER.writeValueAsString(msg));
+        String json = MAPPER.writeValueAsString(msg);
+        if (!threadId.isEmpty()) {
+            inbound.add(new Inbound(timeline.size(), "kubemoot.discuss.ns.crew.broadcast." + threadId, json));
+        }
+        orchestrator.handleMessage(json);
     }
+
+    /** A message an agent sent to a thread: its place in {@link #timeline} when it was sent, where it went, and its body. */
+    record Inbound(int position, String subject, String json) {
+    }
+
+    protected final List<Inbound> inbound = Collections.synchronizedList(new ArrayList<>());
 
     /** Runs the ADVISORY step for real: the model call, the selection, the roster; waits for its last event. */
     protected void advanceThroughAdvisory(String t) throws InterruptedException {

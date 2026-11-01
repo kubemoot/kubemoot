@@ -32,6 +32,10 @@ final class CoordinatorWire {
     static final String REASON = "reason";
     static final String CHANNEL = "channel";
 
+    // --- values of cause ---
+    static final String CAUSE_REPORTED = "reported";
+    static final String CAUSE_TIMEOUT = "evaluation_timeout";
+
     // --- signal names ---
     static final String AGREE = "agree";
     static final String CONCERN = "concern";

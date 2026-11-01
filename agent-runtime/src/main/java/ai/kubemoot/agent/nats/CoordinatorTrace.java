@@ -116,6 +116,63 @@ final class CoordinatorTrace {
         return fenced;
     }
 
+    /**
+     * Takes up a thread another coordinator (an earlier run of this one) wrote: the
+     * thread is opened, the round and the per-phase entry counts are what the events
+     * say, and the next append states {@code lastSequence}. A new event of a kind the
+     * thread already has then gets the next number, never an id that is taken.
+     */
+    void restore(List<CoordinatorEvent> events, long lastSequence) {
+        synchronized (lock) {
+            opened = true;
+            this.lastSequence = lastSequence;
+            kept.clear();
+            lastEventIds.clear();
+            phaseEntries.clear();
+            overflowed = false;
+            int maxRound = 0;
+            for (CoordinatorEvent event : events) {
+                maxRound = Math.max(maxRound, event.round());
+                lastEventIds.put(event.type(), event.eventId());
+                String key = counterKey(event);
+                if (key != null) {
+                    phaseEntries.merge(key, lastNumber(event.eventId()), Math::max);
+                }
+                if (kept.size() < MAX_KEPT_EVENTS) {
+                    kept.add(event);
+                } else {
+                    overflowed = true;
+                }
+            }
+            round.set(maxRound);
+        }
+    }
+
+    /**
+     * The key {@code enter} counted this event under when the recorder wrote it, or null for
+     * an event whose id carries no count.
+     */
+    private static String counterKey(CoordinatorEvent event) {
+        String prefix = event.round() + ":";
+        return switch (event.type()) {
+            case CoordinatorEvent.PHASE_ENTERED -> prefix + event.data().path(CoordinatorWire.PHASE).asText();
+            case CoordinatorEvent.SETTLED -> prefix + CoordinatorEvent.SETTLED + event.data().path(CoordinatorWire.PHASE).asText();
+            case CoordinatorEvent.SUBCOMMITTEE_CONVENED, CoordinatorEvent.EVALUATION_STARTED,
+                 CoordinatorEvent.REVIEW_STARTED, CoordinatorEvent.SYNTHESIS_STARTED,
+                 CoordinatorEvent.SYNTHESIS_DONE, CoordinatorEvent.COORDINATOR_RESUMED -> prefix + event.type();
+            default -> null;
+        };
+    }
+
+    /** The number after the last slash of {@code eventId}; 0 when there is none. */
+    private static int lastNumber(String eventId) {
+        try {
+            return Integer.parseInt(eventId.substring(eventId.lastIndexOf('/') + 1));
+        } catch (NumberFormatException e) {
+            return 0;
+        }
+    }
+
     /** The events the log acknowledged, in order; null when there were too many to keep. */
     List<CoordinatorEvent> kept() {
         synchronized (lock) {

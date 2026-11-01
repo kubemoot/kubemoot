@@ -28,6 +28,13 @@ final class PhaseRoster {
         return new PhaseRoster(members == null ? Set.of() : Set.copyOf(members));
     }
 
+    /** A roster of {@code members} of which {@code signalled} (those that are members) already have. */
+    static PhaseRoster restore(Collection<String> members, Collection<String> signalled) {
+        PhaseRoster roster = of(members);
+        signalled.forEach(roster::recordTerminalSignal);
+        return roster;
+    }
+
     /** The roster of a phase whose participants are not known. */
     static PhaseRoster unknown() {
         return new PhaseRoster(Set.of());
