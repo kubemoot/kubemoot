@@ -9,25 +9,25 @@
 # "target machine:" line of the build log) and fails unless it is "compatibility".
 #
 # Quarkus always asks native-image for the report (-H:BuildOutputJSONFile), written as
-# <name>-build-output-stats.json beside the build's other native output.
+# <name>-build-output-stats.json beside the build's other native output. Quarkus keeps
+# copies of that output in its intermediate build folders, so a build directory holds
+# several reports: every one must name the target.
 #
 # Usage: check-native-target.sh REPORT_OR_DIR
-#   REPORT_OR_DIR   the *-build-output-stats.json file, or a directory searched for exactly one
+#   REPORT_OR_DIR   the *-build-output-stats.json file, or a directory searched for all of them
 set -euo pipefail
 
 WANT_TARGET=compatibility
 
 fail() { echo "check-native-target: $*" >&2; exit 1; }
 
-# find_report PATH: prints the report file PATH names, or the single report under PATH.
-find_report() {
+# find_reports PATH: prints the report file PATH names, or every report under PATH.
+find_reports() {
   local path="$1" found
   if [ -f "$path" ]; then echo "$path"; return 0; fi
   [ -d "$path" ] || fail "not a file or directory: ${path}"
   found="$(find "$path" -name '*-build-output-stats.json' -type f | sort)"
   [ -n "$found" ] || fail "no *-build-output-stats.json under ${path}; the native build did not write its report"
-  [ "$(printf '%s\n' "$found" | wc -l)" -eq 1 ] \
-    || fail "want one build-output report under ${path}, found: $(printf '%s' "$found" | tr '\n' ' ')"
   echo "$found"
 }
 
@@ -43,14 +43,16 @@ target_machine() {
 main() {
   [ $# -eq 1 ] || fail "usage: check-native-target.sh REPORT_OR_DIR"
   command -v jq >/dev/null || fail "jq is required"
-  local report target
-  report="$(find_report "$1")"
-  target="$(target_machine "$report")"
-  if [ "$target" != "$WANT_TARGET" ]; then
-    echo "::error::The native image targets '${target}', not '${WANT_TARGET}'. It crashes on a CPU without that target's features (x86-64-v3 needs AVX2). Pin -march=${WANT_TARGET} in quarkus.native.additional-build-args." >&2
-    fail "${report}: target machine is '${target}', want '${WANT_TARGET}'. Fix: pin -march=${WANT_TARGET} in quarkus.native.additional-build-args"
-  fi
-  echo "native image target machine: ${target} (${report})"
+  local reports report target
+  reports="$(find_reports "$1")"
+  while IFS= read -r report; do
+    target="$(target_machine "$report")"
+    if [ "$target" != "$WANT_TARGET" ]; then
+      echo "::error::The native image targets '${target}', not '${WANT_TARGET}'. It crashes on a CPU without that target's features (x86-64-v3 needs AVX2). Pin -march=${WANT_TARGET} in quarkus.native.additional-build-args." >&2
+      fail "${report}: target machine is '${target}', want '${WANT_TARGET}'. Fix: pin -march=${WANT_TARGET} in quarkus.native.additional-build-args"
+    fi
+    echo "native image target machine: ${target} (${report})"
+  done <<< "$reports"
 }
 
 if [ "${BASH_SOURCE[0]}" = "$0" ]; then
