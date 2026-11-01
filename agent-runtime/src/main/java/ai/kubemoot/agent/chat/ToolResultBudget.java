@@ -77,7 +77,7 @@ final class ToolResultBudget {
         if (!known) {
             return new Admission(result, false, 0, 0);
         }
-        long tokens = tokens(length(toolName) + length(result));
+        long tokens = tokens(length(toolName) + length(result) + TokenDensity.extraChars(result));
         long available = Math.max(room, 0);
         if (tokens <= available) {
             room -= tokens;
@@ -107,7 +107,14 @@ final class ToolResultBudget {
         return errorJson("Tool result larger than the room left in the context window: " + toolName
                 + " returned about " + tokens + " tokens and about " + available + " tokens are left."
                 + " The result was not kept. Call " + toolName + " again with a filter: a namespace,"
-                + " a label selector, a field selection, a limit, or a shorter time range.");
+                + " a label selector, a field selection, a limit, or a shorter time range." + aggregateHint(toolName));
+    }
+
+    /** For tools that read stored data: count, select or query it instead of reading rows. */
+    private static String aggregateHint(String toolName) {
+        boolean readsData = toolName != null && (toolName.startsWith("artifact_") || toolName.equals("workspace_query"));
+        return readsData ? " To read stored data, ask for fewer lines or rows, or aggregate it (artifact_count,"
+                + " artifact_select, artifact_jq, or SQL in workspace_query) and read only the answer." : "";
     }
 
     /** Used when the room is gone, so many parallel oversized calls cannot fill the window with errors. */

@@ -400,6 +400,9 @@ public class ChatService {
     record ToolLoopResult(String text, String modelText, boolean contributionIsToolOutput,
                           long inputTokens, long outputTokens, String serverName, String pickReason) {}
 
+    /** Times one tool loop may drop large earlier tool results and retry after the server rejects its prompt. */
+    static final int MAX_REJECTION_RECOVERIES = 2;
+
     // Bounded-retry thresholds for tool failures inside callWithToolLoop.
     // Tunable; revisit when more diverse tool failure modes appear.
     /** Per-tool failure cap — same tool failing this many times aborts the loop. */
@@ -569,12 +572,15 @@ public class ChatService {
 
             AiMessage aiMessage;
             try {
-                aiMessage = invokeModelForLoop(modelForThisCall, state);
+                aiMessage = invokeModelForLoop(modelForThisCall, state, contextLength);
             } catch (RuntimeException e) {
                 var posted = toolerPostsAfterRejection(e, state, contextLength, toolerRawOutput,
                         serverName, pickReason);
                 if (posted.isPresent()) {
                     return posted.get();
+                }
+                if (recoversFromRejection(e, state, contextLength, toolerRawOutput)) {
+                    continue;
                 }
                 throw e;
             }
@@ -647,10 +653,75 @@ public class ChatService {
             return java.util.Optional.of(toolerPostsWhatItGathered(state, contextLength, next,
                     serverName, pickReason));
         }
+        if (compactedToFit(state, contextLength, next)) {
+            return java.util.Optional.empty();
+        }
         throw new ToolCallFailure(ToolCallFailure.FailureType.CONTEXT_EXCEEDED,
                 null, null, iteration,
                 "The next prompt (~" + next + " tokens) exceeds the " + contextLength
                         + "-token context window of the chosen server at iteration " + iteration);
+    }
+
+    /**
+     * An agent that reads its tool results replaces its largest earlier results with a short note
+     * so the next prompt fits, instead of failing. True when the prompt now fits the window.
+     */
+    private boolean compactedToFit(ToolLoopState state, long contextLength, long next) {
+        int replaced = shrinkPromptToWindow(state, contextLength, next);
+        if (replaced == 0) {
+            return false;
+        }
+        log.info("agent {}: the next prompt (~{} tokens) did not fit the {}-token context; replaced {} earlier tool "
+                + "result(s) with a note that they were removed", properties.agentName(), next, contextLength, replaced);
+        return ToolResultCompaction.estimate(state.allMessages, tools().specs(), charsPerToken)
+                < contextLength - ToolResultBudget.replyReserve(contextLength);
+    }
+
+    /**
+     * Replace the largest earlier tool results with a note until the estimated prompt fits the
+     * window less the reply reserve, and return how many were replaced. {@code actualTokens} is
+     * the prompt size the engine reported (or the loop's best count); when it is above the
+     * estimate, the target shrinks by the same share, so a prompt the estimate undercounts is cut
+     * further. The next turn is estimated afresh, since the engine's last report no longer applies.
+     */
+    private int shrinkPromptToWindow(ToolLoopState state, long window, long actualTokens) {
+        var specs = tools().specs();
+        long estimate = ToolResultCompaction.estimate(state.allMessages, specs, charsPerToken);
+        double missed = actualTokens > estimate ? (double) estimate / actualTokens : 1.0;
+        long target = (long) ((window - ToolResultBudget.replyReserve(window)) * missed);
+        int replaced = ToolResultCompaction.compact(state.allMessages, specs, target, charsPerToken);
+        if (replaced > 0) {
+            state.lastPromptTokens = 0;
+        }
+        return replaced;
+    }
+
+    /**
+     * The server rejected the prompt although the estimate said it fit, and the agent reads its own
+     * tool results: the miss teaches the ratio, the largest earlier results are replaced with a note
+     * (cut further by whatever share the corrected estimate is still short of the server's count), and the turn is tried again. At most
+     * {@link #MAX_REJECTION_RECOVERIES} times per loop; false when nothing can be replaced.
+     */
+    private boolean recoversFromRejection(RuntimeException error, ToolLoopState state, long contextLength,
+                                          boolean toolerRawOutput) {
+        if (toolerRawOutput || !ContextRejection.isCausedBy(error)
+                || state.rejectionRecoveries >= MAX_REJECTION_RECOVERIES) {
+            return false;
+        }
+        long window = contextLength > 0 ? contextLength : ContextRejection.reportedLimit(error).orElse(0);
+        if (window <= 0) {
+            return false;
+        }
+        long reported = ContextRejection.reportedPromptTokens(error).orElse(0);
+        int replaced = shrinkPromptToWindow(state, window, reported);
+        if (replaced == 0) {
+            return false;
+        }
+        state.rejectionRecoveries++;
+        log.info("agent {}: the server rejected a prompt of at least {} tokens (window {}); replaced {} "
+                + "earlier tool result(s) with a note and tries the turn again", properties.agentName(), reported,
+                window, replaced);
+        return true;
     }
 
     /**
@@ -727,7 +798,7 @@ public class ChatService {
      * any exist), accumulate token usage, append the reply to the message list,
      * and return it.
      */
-    private AiMessage invokeModelForLoop(ChatModel modelForThisCall, ToolLoopState state) {
+    private AiMessage invokeModelForLoop(ChatModel modelForThisCall, ToolLoopState state, long contextLength) {
         ChatResponse response;
         var toolSpecList = tools().specs();
         long sentChars = PromptSize.estimateChars(state.allMessages, toolSpecList);
@@ -747,10 +818,25 @@ public class ChatService {
             state.totalOutput += usage.outputTokenCount() == null ? 0 : usage.outputTokenCount();
             charsPerToken.observe(sentChars, usage.inputTokenCount() == null ? 0 : usage.inputTokenCount());
         }
+        reportPromptTokens(state, toolSpecList, contextLength, usage);
         var aiMessage = response.aiMessage();
         state.allMessages.add(aiMessage);
         state.recordTurn(usage);
         return aiMessage;
+    }
+
+    /**
+     * One log line and one metric per model call: where the prompt's tokens went, beside the
+     * prompt size the engine reported. A window overflow is then readable from one line.
+     */
+    private void reportPromptTokens(ToolLoopState state, List<ToolSpecification> specs, long contextLength,
+                                    dev.langchain4j.model.output.TokenUsage usage) {
+        state.modelCalls++;
+        long reported = usage == null || usage.inputTokenCount() == null ? 0 : usage.inputTokenCount();
+        // The reply is not in state.allMessages yet, so the report describes the prompt that was sent.
+        var report = PromptReport.of(state.allMessages, specs, charsPerToken);
+        log.info(report.line(properties.agentName(), state.modelCalls, contextLength, reported));
+        report.record(reported);
     }
 
     /**
@@ -1327,6 +1413,8 @@ public class ChatService {
         long lastPromptTokens = 0;
         long lastReplyTokens = 0;
         int messagesAtLastCall = 0;
+        int modelCalls = 0;
+        int rejectionRecoveries = 0;
 
         ToolLoopState(List<ChatMessage> messages) {
             this.allMessages = new ArrayList<>(messages);

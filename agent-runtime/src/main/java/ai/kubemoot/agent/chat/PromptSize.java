@@ -72,15 +72,20 @@ final class PromptSize {
                                  long lastPromptTokens, long lastReplyTokens, int messagesAtLastCall,
                                  CharsPerToken ratio) {
         if (lastPromptTokens <= 0 || messagesAtLastCall > messages.size()) {
-            return ratio.tokens(estimateChars(messages, specs)) + overhead(messages.size());
+            return fullEstimateTokens(messages, specs, ratio);
         }
         var addedMessages = messages.subList(messagesAtLastCall, messages.size());
-        long added = standInExtra(addedMessages);
+        long added = densityExtra(addedMessages);
         for (ChatMessage m : addedMessages) {
             added += chars(m);
         }
         return lastPromptTokens + Math.max(lastReplyTokens, 0) + ratio.tokens(added)
                 + overhead(addedMessages.size());
+    }
+
+    /** Estimated tokens of the whole prompt without an engine report: the characters (with density) plus per-message overhead. */
+    static long fullEstimateTokens(List<ChatMessage> messages, List<ToolSpecification> specs, CharsPerToken ratio) {
+        return ratio.tokens(estimateChars(messages, specs)) + overhead(messages.size());
     }
 
     /**
@@ -89,16 +94,30 @@ final class PromptSize {
      * both use this, so the ratio does not absorb stand-in density a second time.
      */
     static long estimateChars(List<ChatMessage> messages, List<ToolSpecification> specs) {
-        return chars(messages, specs) + standInExtra(messages);
+        return chars(messages, specs) + densityExtra(messages);
     }
 
-    /** Characters to add for the tool-result stand-ins among {@code messages}; see {@link ToolResultStandIn#extraChars}. */
-    static long standInExtra(List<ChatMessage> messages) {
+    /**
+     * Characters to add for the content density of the tool results and user messages among
+     * {@code messages}; see {@link TokenDensity}. The user message carries the thread, whose
+     * inline contributions can be numeric data too.
+     */
+    static long densityExtra(List<ChatMessage> messages) {
         long extra = 0;
         for (ChatMessage m : messages) {
             if (m instanceof ToolExecutionResultMessage tr) {
-                extra += ToolResultStandIn.extraChars(tr.text());
+                extra += TokenDensity.extraChars(tr.text());
+            } else if (m instanceof UserMessage um) {
+                extra += userExtra(um);
             }
+        }
+        return extra;
+    }
+
+    private static long userExtra(UserMessage um) {
+        long extra = 0;
+        for (var content : um.contents()) {
+            if (content instanceof TextContent tc) extra += TokenDensity.extraChars(tc.text());
         }
         return extra;
     }
