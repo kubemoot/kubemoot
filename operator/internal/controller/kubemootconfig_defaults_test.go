@@ -63,3 +63,49 @@ var _ = Describe("KubemootConfig artifacts.queryEngine default", func() {
 		})
 	}
 })
+
+// The apiserver defaults spec.coordinator.eventLog and resume to true, and leaves lease
+// off, whether the coordinator object is absent, empty, or partly set; an explicit false
+// is kept, because the fields are pointers.
+var _ = Describe("KubemootConfig coordinator defaults", func() {
+	flags := func(c *aiv1alpha1.CoordinatorConfig) [3]string {
+		on := func(b *bool) string {
+			if b == nil {
+				return "not-set"
+			}
+			return fmt.Sprint(*b)
+		}
+		return [3]string{on(c.EventLog), on(c.Resume), fmt.Sprint(c.Lease)}
+	}
+	cases := []struct {
+		name        string
+		coordinator map[string]any // nil leaves spec.coordinator out
+		want        [3]string      // eventLog, resume, lease
+	}{
+		{"coordinator absent", nil, [3]string{valueTrue, valueTrue, valueFalse}},
+		{"coordinator empty", map[string]any{}, [3]string{valueTrue, valueTrue, valueFalse}},
+		{"only lease set", map[string]any{"lease": true}, [3]string{valueTrue, valueTrue, valueTrue}},
+		{"resume off keeps the log on", map[string]any{"resume": false}, [3]string{valueTrue, valueFalse, valueFalse}},
+		{"both off", map[string]any{"eventLog": false, "resume": false}, [3]string{valueFalse, valueFalse, valueFalse}},
+	}
+
+	for i, tc := range cases {
+		It("resolves "+tc.name, func() {
+			cfgObj := &unstructured.Unstructured{}
+			cfgObj.SetGroupVersionKind(aiv1alpha1.GroupVersion.WithKind("KubemootConfig"))
+			cfgObj.SetName(fmt.Sprintf("coordinator-default-%d", i))
+			spec := map[string]any{}
+			if tc.coordinator != nil {
+				spec["coordinator"] = tc.coordinator
+			}
+			Expect(unstructured.SetNestedMap(cfgObj.Object, spec, "spec")).To(Succeed())
+			Expect(k8sClient.Create(ctx, cfgObj)).To(Succeed())
+			DeferCleanup(func() { Expect(client.IgnoreNotFound(k8sClient.Delete(ctx, cfgObj))).To(Succeed()) })
+
+			got := &aiv1alpha1.KubemootConfig{}
+			Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cfgObj), got)).To(Succeed())
+			Expect(got.Spec.Coordinator).NotTo(BeNil())
+			Expect(flags(got.Spec.Coordinator)).To(Equal(tc.want))
+		})
+	}
+})

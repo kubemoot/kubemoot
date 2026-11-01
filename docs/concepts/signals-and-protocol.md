@@ -128,13 +128,13 @@ The coordinator decides things no agent message records: which agents it convene
 agents a phase waits for and by when, why a phase ended, what the answer is. Those
 decisions can be written to a log, one per thread, so that what the coordinator knew about
 a thread can be read back, and so that a later version can rebuild a thread's state from
-the log. The log is off by default. Turn it on for every coordinator with the chart value
-`coordinator.eventLog=true` (it reaches the [KubemootConfig](../../reference/kubemootconfig-guide/#coordinator)
+the log. The log is on by default. Turn it off for every coordinator with the chart value
+`coordinator.eventLog=false`, together with `coordinator.resume=false` (it reaches the [KubemootConfig](../../reference/kubemootconfig-guide/#coordinator)
 and from there the `KUBEMOOT_COORDINATOR_EVENT_LOG` variable of each coordinator Agent), or
 for one coordinator by setting the variable in the Agent's `spec.deployment.env`, which
 wins over the chart. With the log on, a coordinator [writes ahead](#write-ahead), keeps
 other coordinators off its threads, and [checks the log](#the-check-at-close) when a thread
-closes; with it off nothing about a discussion changes.
+closes; with it off nothing about a discussion changes. The stream is created either way.
 
 Each thread has its own subject, `kubemoot.coordinator.<namespace>.<crew>.<threadId>`,
 held by the JetStream stream `KUBEMOOT_COORDINATOR` for a day. Agents do not read it.
@@ -253,11 +253,11 @@ A difference never fails the thread. A thread with more than 2,048 events is not
 
 ### Resume
 
-With `coordinator.resume=true` (it needs `coordinator.eventLog`; the chart refuses one without
-the other) a coordinator that starts picks up the threads the last one left in flight. Run one
+Resume is on by default (`coordinator.resume`; it needs `coordinator.eventLog`, so a release that
+turns the log off must turn resume off too, and the chart refuses one without the other). A coordinator that starts picks up the threads the last one left in flight. Run one
 coordinator replica unless you turn on [leases](#leases-and-more-than-one-replica): without them
 nothing decides which of two replicas owns a thread, only the
-[fence](#one-coordinator-per-thread) keeps them apart. Resume is off by default and then
+[fence](#one-coordinator-per-thread) keeps them apart. With resume off
 nothing about a discussion changes.
 
 **At start** the coordinator reads its crew's coordinator log, reduces each thread's events to
@@ -360,11 +360,12 @@ of the rows above (`sweep`, `rerun_advisory`, `announce_subcommittee`, `republis
 
 ### Leases and more than one replica
 
-With `coordinator.lease=true` (it needs `coordinator.eventLog` and `coordinator.resume`; the
-chart refuses it without them) more than one coordinator replica can run. The coordinator
+With `coordinator.lease=true` (it needs `coordinator.eventLog` and `coordinator.resume`, both on by
+default; the chart refuses it when you turned either off) more than one coordinator replica can run. The coordinator
 Agent may set `spec.deployment.replicas` above 1, and it rolls with `RollingUpdate` instead of
 `Recreate`: the new pod starts, the old pod gives its threads up as it stops, and the new pod
-resumes them. Leases are off by default; then a coordinator is one replica that rolls with
+resumes them. Leases are the one coordinator setting that stays off by default, because they pay off only with more
+than one coordinator replica; then a coordinator is one replica that rolls with
 `Recreate`, as before, and nothing below applies.
 
 The log decides and the lease avoids wasted work. The [fenced append](#one-coordinator-per-thread)

@@ -93,7 +93,7 @@ every coordinator pod and logs any failure to do so; if you see that message, ch
 
 ## Protections the test requires
 
-The coordinator must run with `coordinator.eventLog` and `coordinator.resume` on, and with `coordinator.lease` on for the `stop` and
+The coordinator must run with `coordinator.eventLog` and `coordinator.resume` on (the chart default), and with `coordinator.lease` on for the `stop` and
 `kill_holder` cases. The driver reads the environment of the running coordinator pods (`KUBEMOOT_COORDINATOR_EVENT_LOG`,
 `KUBEMOOT_COORDINATOR_RESUME`, `KUBEMOOT_COORDINATOR_LEASE`), because that is what the process reads and an Agent's own
 `spec.deployment.env` wins over the chart. It also reads the KubemootConfig and notes a difference. If a needed flag is not true on

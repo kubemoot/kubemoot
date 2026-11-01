@@ -162,15 +162,15 @@ process. Agents without a harness block are not affected by sidecar placement.
 
 ### Optional: the coordinator log, and how long discussions are kept
 
-Two sets of chart values concern what the coordinators and the discussion stream keep. Both
-default to the behavior Kubemoot has always had.
+Two sets of chart values concern what the coordinators and the discussion stream keep. The coordinator
+log and resume are on by default; leases and the stream limits keep the behavior Kubemoot has always had.
 
 ```yaml
 coordinator:
   eventLog: true       # each coordinator writes its decisions to a log before acting on them
   resume: true         # a restarted coordinator picks up its threads from that log (needs eventLog; one replica)
   resumeMaxAge: 30m    # a thread idle longer than this is closed, not resumed; 0 for no limit
-  lease: false         # true lets more than one coordinator replica run (needs eventLog and resume)
+  lease: false         # opt in: true lets more than one coordinator replica run (needs eventLog and resume)
 
 nats:
   streams:
@@ -180,7 +180,10 @@ nats:
       maxBytes: -1        # for example 256MiB; -1 for no limit
 ```
 
-`coordinator.eventLog` and `coordinator.resume` are described in [The coordinator log](../../concepts/signals-and-protocol/#the-coordinator-log),
+`coordinator.eventLog` and `coordinator.resume` are on by default: a restarted coordinator picks up
+its threads where it left them. To keep the behavior of earlier releases, set both to `false`; the
+chart refuses `resume` with the log off, so a release that turns the log off turns resume off too.
+They are described in [The coordinator log](../../concepts/signals-and-protocol/#the-coordinator-log),
 which also says how to size the stream values. `coordinator.lease` is described in
 [Leases and more than one replica](../../concepts/signals-and-protocol/#leases-and-more-than-one-replica):
 turn it on, then set `spec.deployment.replicas: 2` on a crew's coordinator Agent for a coordinator that

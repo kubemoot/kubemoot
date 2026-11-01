@@ -19,22 +19,25 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
 
 // leasesOffRealms are the realms in which coordinator leases do not count, by what is missing.
 func leasesOffRealms() map[string]*kubemootv1alpha1.CoordinatorConfig {
 	return map[string]*kubemootv1alpha1.CoordinatorConfig{
-		"no coordinator block":  nil,
-		"lease off":             {EventLog: true, Resume: true},
-		"lease without resume":  {EventLog: true, Lease: true},
-		"lease without the log": {Resume: true, Lease: true},
+		noCoordinatorBlock:              nil,
+		"lease unset":                   {},
+		"lease off":                     {Lease: false},
+		"lease without resume":          {Lease: true, Resume: ptr.To(false)},
+		"lease without the log":         {Lease: true, EventLog: ptr.To(false)},
+		"lease with resume and log off": {Lease: true, EventLog: ptr.To(false), Resume: ptr.To(false)},
 	}
 }
 
 // leasesOn is a realm with the log, resume and leases all on.
 func leasesOn() *kubemootv1alpha1.CoordinatorConfig {
-	return &kubemootv1alpha1.CoordinatorConfig{EventLog: true, Resume: true, Lease: true}
+	return &kubemootv1alpha1.CoordinatorConfig{EventLog: ptr.To(true), Resume: ptr.To(true), Lease: true}
 }
 
 func TestCoordinatorLeaseEnv_AbsentUnlessTheRealmTurnsItOnWithResumeAndTheLog(t *testing.T) {
@@ -71,8 +74,13 @@ func TestConfigCache_CoordinatorLease(t *testing.T) {
 	}
 	cache.Update(&kubemootv1alpha1.KubemootConfig{Spec: kubemootv1alpha1.KubemootConfigSpec{
 		Coordinator: &kubemootv1alpha1.CoordinatorConfig{Lease: true}}})
+	if !cache.GetCoordinatorLease() {
+		t.Fatal("lease with the log and resume left at their defaults (on) must be reported")
+	}
+	cache.Update(&kubemootv1alpha1.KubemootConfig{Spec: kubemootv1alpha1.KubemootConfigSpec{
+		Coordinator: &kubemootv1alpha1.CoordinatorConfig{Lease: true, Resume: ptr.To(false)}}})
 	if cache.GetCoordinatorLease() {
-		t.Fatal("lease without resume and the log must not be reported")
+		t.Fatal("lease without resume must not be reported")
 	}
 }
 
