@@ -8,6 +8,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.function.LongSupplier;
 import java.util.Set;
 import java.util.TreeSet;
 
@@ -125,17 +126,13 @@ abstract class ResumeRestartHarness extends CoordinatorThreadTestBase {
         }
     }
 
-    /** Waits until nothing has been written or published for a moment: asynchronous steps have finished. */
+    /**
+     * Waits until the coordinator has no model call queued or running. A step's synchronous
+     * work is done when it returns, and everything asynchronous it started is such a call, so
+     * this is the end of the step. It waits on that state, not on a quiet period.
+     */
     protected void quiesce() throws InterruptedException {
-        int last = -1;
-        int stable = 0;
-        Instant deadline = Instant.now().plus(Duration.ofSeconds(10));
-        while (stable < 8 && Instant.now().isBefore(deadline)) {
-            int size = timeline.size();
-            stable = size == last ? stable + 1 : 0;
-            last = size;
-            Thread.sleep(15);
-        }
+        await(() -> orchestrator.llmTasksInFlight() == 0, "the coordinator's background work did not finish");
     }
 
     /** Runs {@code script} from the start on a fresh orchestrator and records everything a restart needs. */
@@ -260,13 +257,19 @@ abstract class ResumeRestartHarness extends CoordinatorThreadTestBase {
 
     /** As {@link #startResume(List)}; {@code beforeLaunch} runs between reading the log and resuming the threads. */
     protected void startResume(List<TimedMessage> bus, Runnable beforeLaunch) throws InterruptedException {
+        startResume(bus, beforeLaunch, Duration.ZERO, System::currentTimeMillis);
+    }
+
+    /** As above, with an age limit ({@code maxAge}, zero for none) measured on {@code clock} (epoch milliseconds). */
+    protected void startResume(List<TimedMessage> bus, Runnable beforeLaunch, Duration maxAge,
+                               LongSupplier clock) throws InterruptedException {
         resumeRegistry = new SimpleMeterRegistry();
         resumeMetrics = new DiscussionMetrics(resumeRegistry);
         var reader = new FakeBusReader();
         eventLog.asMessages().forEach(m -> reader.put(CrewScope.COORDINATOR_STREAM, m));
         bus.forEach(m -> reader.publish(CoordinatorResume.DISCUSS_STREAM, m.subject(), m.json().getBytes()));
         var resume = new CoordinatorResume(true, orchestrator, reader, () -> CrewScope.of("ns", "crew"), MAPPER,
-                resumeMetrics, System::currentTimeMillis);
+                resumeMetrics, clock, maxAge);
         orchestrator.useResume(resume);
         resume.discover();
         beforeLaunch.run();

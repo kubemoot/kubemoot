@@ -316,7 +316,7 @@ class CoordinatorResumeTest extends ResumeRestartHarness {
         throw new AssertionError("no " + type + " in " + events.stream().map(CoordinatorEvent::type).toList());
     }
 
-    private static List<CoordinatorEvent> withRequestSeq(List<CoordinatorEvent> events, long requestSeq) {
+    static List<CoordinatorEvent> withRequestSeq(List<CoordinatorEvent> events, long requestSeq) {
         var out = new ArrayList<CoordinatorEvent>();
         for (CoordinatorEvent event : events) {
             if ("thread_opened".equals(event.type())) {

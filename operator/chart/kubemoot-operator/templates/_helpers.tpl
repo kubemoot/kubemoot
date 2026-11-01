@@ -137,6 +137,22 @@ The artifact query engine, none, sqlite or duckdb; any other value fails the ren
 {{- $coordinator.resume | default false -}}
 {{- end }}
 
+{{/*
+The oldest a thread's last logged event may be for a restarted coordinator to resume it: a Go
+duration such as 30m or 1h30m. Empty or 0 turns the limit off and renders as "0". Anything else is refused.
+*/}}
+{{- define "kubemoot-operator.coordinatorResumeMaxAge" -}}
+{{- $coordinator := .Values.coordinator | default dict -}}
+{{- $age := toString ($coordinator.resumeMaxAge | default "") | trim -}}
+{{- if or (eq $age "") (eq $age "0") -}}
+0
+{{- else if regexMatch "^([0-9]+(\\.[0-9]+)?(ns|us|ms|s|m|h))+$" $age -}}
+{{- $age -}}
+{{- else -}}
+{{- fail (printf "coordinator.resumeMaxAge must be a duration such as 30m or 1h30m, or 0 for no limit, got %q" $age) -}}
+{{- end -}}
+{{- end }}
+
 {{- define "kubemoot-operator.artifactQueryEngine" -}}
 {{- $engine := (.Values.artifacts | default dict).queryEngine | default "sqlite" -}}
 {{- if not (has $engine (list "none" "sqlite" "duckdb")) -}}

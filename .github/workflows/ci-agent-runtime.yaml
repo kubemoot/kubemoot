@@ -1,6 +1,7 @@
 # POLICY: Unit tests and image builds ONLY. No integration tests.
 # Integration tests require a running cluster and must run AFTER Flux
-# reconciliation — not during the CI/CD build pipeline.
+# reconciliation - not during the CI/CD build pipeline. (Tests that start their
+# own nats-server process on the runner are unit-level and run here.)
 name: CI Agent Runtime
 
 on:
@@ -56,9 +57,38 @@ jobs:
         working-directory: agent-runtime
         run: chmod +x gradlew
 
+      # CoordinatorResumeIT and NatsKvConsumerNamesIT run against a real nats-server process on
+      # the runner (no cluster); without NATS_SERVER_BIN they skip. The binary is pinned by
+      # version and checked against the SHA-256 of the project's published release.
+      - name: Install nats-server
+        env:
+          NATS_SERVER_VERSION: v2.15.1
+          NATS_SERVER_SHA256: bf5edc7b1ce98e885c368cb43a886eb148dc5d0551d99f3cf6141fb5e1954c70
+        run: |
+          curl -fsSL -o nats-server.tar.gz "https://github.com/nats-io/nats-server/releases/download/${NATS_SERVER_VERSION}/nats-server-${NATS_SERVER_VERSION}-linux-amd64.tar.gz"
+          echo "${NATS_SERVER_SHA256}  nats-server.tar.gz" | sha256sum -c -
+          tar -xzf nats-server.tar.gz --strip-components=1 -C "${RUNNER_TEMP}" "nats-server-${NATS_SERVER_VERSION}-linux-amd64/nats-server"
+          rm nats-server.tar.gz
+          "${RUNNER_TEMP}/nats-server" --version
+          echo "NATS_SERVER_BIN=${RUNNER_TEMP}/nats-server" >> "${GITHUB_ENV}"
+
       - name: Build and test
         working-directory: agent-runtime
         run: ./gradlew build
+
+      # A skipped integration test passes, so a missing binary would hide it. Fail instead.
+      - name: Check the nats-server integration tests ran
+        working-directory: agent-runtime
+        run: |
+          for suite in CoordinatorResumeIT NatsKvConsumerNamesIT; do
+            report="build/test-results/test/TEST-ai.kubemoot.agent.nats.${suite}.xml"
+            if ! grep -Eq 'tests="[1-9][0-9]*" skipped="0" failures="0" errors="0"' "${report}"; then
+              echo "::error::${suite} did not run to success against nats-server (skipped, failed or missing)"
+              head -c 600 "${report}" 2>/dev/null || true
+              exit 1
+            fi
+            echo "${suite}: $(grep -Eo 'tests="[0-9]+" skipped="[0-9]+" failures="[0-9]+" errors="[0-9]+"' "${report}")"
+          done
 
   build-image:
     # Runs in parallel with test — pushes SHA-tagged image only.

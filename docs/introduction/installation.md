@@ -169,6 +169,7 @@ default to the behavior Kubemoot has always had.
 coordinator:
   eventLog: true       # each coordinator writes its decisions to a log before acting on them
   resume: true         # a restarted coordinator picks up its threads from that log (needs eventLog; one replica)
+  resumeMaxAge: 30m    # a thread idle longer than this is closed, not resumed; 0 for no limit
 
 nats:
   streams:

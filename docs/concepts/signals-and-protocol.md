@@ -162,7 +162,7 @@ Every message is an event:
 | `synthesis_started` | the synthesis call begins | the signal counts |
 | `synthesis_done` | the answer exists, before it is published | `outcome` (`synthesized`, `capacity`, `direct`, `fallback` or `ceiling`), `response`, `tokens` |
 | `thread_reopened` | a human reply reopens a closed thread | `phaseStartedAt` |
-| `thread_closed` | the thread ends | `reason` (an outcome of `synthesis_done`, `zombie`, `no_signals`, or `unlogged`), `channel` |
+| `thread_closed` | the thread ends | `reason` (an outcome of `synthesis_done`, `zombie`, `no_signals`, `unlogged`, or `expired`), `channel` |
 | `coordinator_resumed` | a restarted coordinator takes the thread over | `fromSeq` (the last event it read), `resumedAt` |
 
 `thread_opened` also carries `requestSeq`, the stream sequence of the queued request that
@@ -265,30 +265,38 @@ candidate, and live messages for it wait behind a gate until the candidate is re
 
 **For each open thread** it then:
 
-1. Reads the thread's messages back from `KUBEMOOT_DISCUSS` with an ordered consumer.
-2. Checks the log is complete. If the coordinator published one of its own messages with a
+1. Checks the thread's age. A thread whose last logged event is older than the **resume age
+   limit** (`coordinator.resumeMaxAge`, default `30m`) is not resumed: its asker stopped
+   waiting long ago, and resuming it would spend accelerator time for nobody. It is closed
+   the way an incomplete one is (below): its agents get `thread_close`, `thread_closed` is
+   written with reason `expired`, and the request that started it, handed again, starts a
+   new thread. The limit is a Go duration such as `30m` or `1h30m`; `0` or empty turns it
+   off, and then a thread of any age is resumed (the log holds a day at most). The chart
+   refuses a value that is not a duration.
+2. Reads the thread's messages back from `KUBEMOOT_DISCUSS` with an ordered consumer.
+3. Checks the log is complete. If the coordinator published one of its own messages with a
    random id (what a thread whose append failed leaves behind, see [Write-ahead](#write-ahead)),
    the log ends before the thread did. Such a thread is **not resumed**. It is closed: its
    agents get `thread_close` so they stop working for nobody, a `thread_closed` event with
    reason `unlogged` is written so the next start does not find it open again, and the request
    that started it, handed again, starts a new thread. Leaving it to its hard ceiling would
    not work, because the ceiling lives in the memory of the process that died.
-3. Rebuilds the state from the log and writes `coordinator_resumed`. If another coordinator has
+4. Rebuilds the state from the log and writes `coordinator_resumed`. If another coordinator has
    appended since, the append is refused and this one leaves the thread alone.
-4. Gives every agent still pending a fresh deadline: the window a heartbeat gives (the agent's
+5. Gives every agent still pending a fresh deadline: the window a heartbeat gives (the agent's
    expected time, at least one heartbeat interval, plus grace), or what the logged deadline
    still had left at the last event if that is longer. The hard ceiling, the zombie sweep and
    the phase clock count from the takeover. The time the thread had no coordinator is not
    charged to the agents or to the thread.
-5. Applies the messages the log has not seen, in stream order, through the handlers the live
+6. Applies the messages the log has not seen, in stream order, through the handlers the live
    path uses. A signal whose `messageId` the log holds is skipped. A heartbeat is not replayed.
    A stop, pause or resume is applied only if it was sent after the thread's last logged
    decision. Each applied signal is logged as it is live.
-6. Puts the thread in the phase sweep, carries out what the last decision left undone, and
+7. Puts the thread in the phase sweep, carries out what the last decision left undone, and
    opens the gate; the live messages that waited are applied in the order they arrived, and
    a message that was both read from the stream and delivered live is applied once.
 
-What step 6 carries out depends on the last logged decision. A decision's event is written
+What step 7 carries out depends on the last logged decision. A decision's event is written
 before its effect, so the effect may not have happened. Every effect is repeatable because the
 messages carry [ids made from the event](#write-ahead):
 
@@ -322,13 +330,27 @@ calls the coordinator itself placed before the restart. An agent that was workin
 coordinator died is not resumed; it finishes and signals, or its deadline passes and the
 coordinator records a failure, as always.
 
+**Limits to know.**
+
+- A stop, pause or resume has no id in the log, so it is compared by its timestamp with the
+  last logged event. A clock that differs between the dashboard and the coordinator can drop
+  one or apply a stale one.
+- A takeover refused because another coordinator wrote to the thread first leaves the thread
+  alone. A request for it, handed again, is not matched and starts a second thread while the
+  other coordinator owns the first. Run one coordinator replica until leases decide the owner.
+- A thread opened before the log or resume was turned on has no derived ids on its first
+  messages. After a restart it looks like a thread with an incomplete log and is closed.
+  Turn the settings on while no thread is open.
+- A message lost to a brief loss of the NATS connection while the coordinator runs is not
+  read back; the stream is read only at start.
+
 The live subscription stays a plain NATS subscription. JetStream is used to read the log and
 the messages missed, once per thread, at start.
 
 Resume is counted in `kubemoot_coordinator_resumes_total{action}`, where the action is one
 of the rows above (`sweep`, `rerun_advisory`, `announce_subcommittee`, `republish_advisory_ready`,
 `enter_review`, `republish_review_ready`, `stay_paused`, `restart_synthesis`, `answer_directly`,
-`finish_close`, `nothing`), `abandoned` for an incomplete log, `fenced`, or `failed`.
+`finish_close`, `nothing`), `abandoned` for an incomplete log, `expired` for a thread past the age limit, `moved_by_replay`, `fenced`, or `failed`.
 
 ### Stream limits
 
