@@ -55,8 +55,11 @@ mkdir -p "${work}/build/app-native-image-source-jar"
 report "${work}/build/app-native-image-source-jar/app-build-output-stats.json" compatibility
 check "a build directory with one report passes" 0 "$(run "${work}/build")"
 report "${work}/build/other-build-output-stats.json" compatibility
-check "a build directory with two reports fails" 1 "$(run "${work}/build")"
-check "the failure lists the reports" 1 "$(grep -c 'want one build-output report' "${work}/run.log")"
+check "a build directory with two compatibility reports passes" 0 "$(run "${work}/build")"
+check "every report is named in the output" 2 "$(grep -c 'native image target machine: compatibility' "${work}/run.log")"
+report "${work}/build/copy-build-output-stats.json" x86-64-v3
+check "one x86-64-v3 report among compatibility ones fails" 1 "$(run "${work}/build")"
+check "the failure names the x86-64-v3 report" 1 "$(grep -c 'copy-build-output-stats.json: target machine is' "${work}/run.log")"
 
 mkdir -p "${work}/nobuild"
 check "a directory without a report fails" 1 "$(run "${work}/nobuild")"
