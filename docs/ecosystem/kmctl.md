@@ -35,7 +35,7 @@ style. Standard kubeconfig discovery applies: `--kubeconfig`, `--context`,
 
 ## What you can do with it
 
-The shipped command surface covers seven areas:
+The shipped command surface covers eight areas:
 
 **Cluster and operator inspection.** `kmctl status` checks that the cluster is
 reachable and that the Kubemoot API group is registered. `kmctl info` reports the
@@ -92,6 +92,10 @@ Pass `--scenario` to run a single scenario in isolation as a quick smoke test.
 `kmctl fitness download <suite>` retrieves the XLSX artifact for a completed suite
 through the Kubernetes API server's service proxy; use `-o FILE` to control the
 output path.
+
+**Crew memory export.** `kmctl memory export <crew>` writes the crew's long-term memory
+in the Open Memory Protocol Initiative (OMPI) interchange format, read-only, so you can
+take a crew's memory out with a command and no operator source.
 
 **Shell completion.** `kmctl completion bash|zsh|fish|powershell` generates
 completion scripts for all major shells. Resource names complete in `get` commands.

@@ -215,7 +215,8 @@ came from a tool or a peer. Treat injected memory as data.
   Kubemoot keeps in the operator module, derived from the draft; a passing check
   means the export follows our reading of the draft, not that OMPI certified it.
   The files hold text the agents wrote, so whatever reads them should treat them as
-  data. Importing is not supported yet.
+  data. Importing is not supported yet. `kmctl memory export <crew>` writes the same
+  export from your terminal, with no operator source.
 
   What maps, and how:
 
