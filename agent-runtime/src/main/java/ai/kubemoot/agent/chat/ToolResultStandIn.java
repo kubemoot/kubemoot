@@ -26,15 +26,11 @@ final class ToolResultStandIn {
     /** Text every stand-in contains, which tells one apart from a real tool result. */
     private static final String MARKER = "The full result is kept for the crew and posted with your output";
 
-    /**
-     * Extra characters counted for each digit in a stand-in. Tokenizers of the common model
-     * families emit digits one per token, so digit text runs near one character per token against
-     * the 3.0 the estimate allows for JSON.
-     */
-    static final int DIGIT_EXTRA = 2;
+    /** Extra characters counted for each digit in a stand-in; see {@link TokenDensity}. */
+    static final int DIGIT_EXTRA = TokenDensity.DIGIT_EXTRA;
 
-    /** Extra characters counted for each punctuation or quote character in a stand-in (about 2 per token). */
-    static final int SYMBOL_EXTRA = 1;
+    /** Extra characters counted for each punctuation or quote character in a stand-in. */
+    static final int SYMBOL_EXTRA = TokenDensity.SYMBOL_EXTRA;
 
     private ToolResultStandIn() {}
 
@@ -50,21 +46,7 @@ final class ToolResultStandIn {
      * spaces count once; the count depends only on the text. Zero for anything that is not a stand-in.
      */
     static long extraChars(String text) {
-        if (!isStandIn(text)) {
-            return 0;
-        }
-        long extra = 0;
-        for (int i = 0; i < text.length(); i++) {
-            extra += extraFor(text.charAt(i));
-        }
-        return extra;
-    }
-
-    private static int extraFor(char c) {
-        if (Character.isDigit(c)) {
-            return DIGIT_EXTRA;
-        }
-        return Character.isLetter(c) || Character.isWhitespace(c) ? 0 : SYMBOL_EXTRA;
+        return isStandIn(text) ? TokenDensity.extraChars(text) : 0;
     }
 
     /** The stand-in for {@code result} of {@code toolName}, with the head of the result. */
