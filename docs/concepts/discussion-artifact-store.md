@@ -148,7 +148,7 @@ own SQL; the tool description tells the model which one it has.
 
 | Input | Meaning |
 |-------|---------|
-| `artifacts` | A map from a table name you choose to an artifact key. Up to 8 per query. A name is letters, digits and underscores. |
+| `artifacts` | A map from a table name you choose to an artifact key. Up to 8 per query. A name is letters, digits and underscores. The tool also accepts a string that holds that JSON object; any other string is rejected with the expected shape, `{"<table>": "<artifact key>"}`. |
 | `sql` | One `SELECT` (or `WITH ... SELECT`) over those table names. |
 
 The result is plain text a small model reads easily: a header line, one `a | b` line per

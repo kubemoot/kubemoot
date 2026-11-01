@@ -87,7 +87,11 @@ func (s *Server) MCP() *mcp.Server {
 	mcp.AddTool(srv, &mcp.Tool{Name: "artifact_jq",
 		Description: "Run a jq program over a JSON artifact (input size capped)."}, s.jq)
 	if s.Query != nil {
-		mcp.AddTool(srv, &mcp.Tool{Name: "workspace_query", Description: queryDescription + " " + s.Query.Hint()}, s.query)
+		mcp.AddTool(srv, &mcp.Tool{
+			Name:        "workspace_query",
+			Description: queryDescription + " " + s.Query.Hint(),
+			InputSchema: queryInputSchema(),
+		}, s.query)
 	}
 	return srv
 }
@@ -129,8 +133,8 @@ type selectIn struct {
 	Delimiter string   `json:"delimiter,omitempty" jsonschema:"single-char field delimiter (default comma)"`
 }
 type queryIn struct {
-	Artifacts map[string]string `json:"artifacts" jsonschema:"table name you choose, mapped to the artifact key"`
-	SQL       string            `json:"sql" jsonschema:"one SELECT over those table names"`
+	Artifacts artifactMap `json:"artifacts" jsonschema:"table name you choose, mapped to the artifact key"`
+	SQL       string      `json:"sql" jsonschema:"one SELECT over those table names"`
 }
 type jqIn struct {
 	Key     string `json:"key" jsonschema:"the artifact object key"`
