@@ -51,6 +51,7 @@ func (r *AgentReconciler) coordinatorLeasesOn() bool {
 // coordinatorResumeEnvVars returns the resume env var when the realm
 // (KubemootConfig spec.coordinator.resume) turns resume on, and nothing otherwise.
 // An Agent's own spec.deployment.env is appended after it and wins.
+// A reconciler with no ConfigCache (test scaffolding only; the manager always wires one) adds nothing.
 func (r *AgentReconciler) coordinatorResumeEnvVars() []corev1.EnvVar {
 	if r.ConfigCache == nil || !r.ConfigCache.GetCoordinatorResume() {
 		return nil
@@ -65,6 +66,7 @@ func (r *AgentReconciler) coordinatorResumeEnvVars() []corev1.EnvVar {
 // coordinatorEventLogEnvVars returns the decision-log env var when the realm
 // (KubemootConfig spec.coordinator.eventLog) turns the log on, and nothing otherwise.
 // An Agent's own spec.deployment.env is appended after it and wins.
+// A reconciler with no ConfigCache (test scaffolding only; the manager always wires one) adds nothing.
 func (r *AgentReconciler) coordinatorEventLogEnvVars() []corev1.EnvVar {
 	if r.ConfigCache == nil || !r.ConfigCache.GetCoordinatorEventLog() {
 		return nil

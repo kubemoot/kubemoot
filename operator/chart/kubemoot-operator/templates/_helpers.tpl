@@ -127,14 +127,37 @@ Usage: include "kubemoot-operator.labelList" $map
 {{- end }}
 
 {{/*
-The artifact query engine, none, sqlite or duckdb; any other value fails the render.
+One coordinator setting as "true" or "false": the value in coordinator.<key>, or the default when
+the key is absent or null. A plain "default" would read an explicit false as unset.
+Usage: include "kubemoot-operator.coordinatorFlag" (dict "root" . "key" "eventLog" "default" "true")
+*/}}
+{{- define "kubemoot-operator.coordinatorFlag" -}}
+{{- $coordinator := .root.Values.coordinator | default dict -}}
+{{- $value := index $coordinator .key -}}
+{{- if kindIs "invalid" $value -}}
+{{- .default -}}
+{{- else -}}
+{{- toString $value -}}
+{{- end -}}
+{{- end }}
+
+{{/*
+Whether each coordinator writes its decision log. On unless coordinator.eventLog is false.
+*/}}
+{{- define "kubemoot-operator.coordinatorEventLog" -}}
+{{- include "kubemoot-operator.coordinatorFlag" (dict "root" . "key" "eventLog" "default" "true") -}}
+{{- end }}
+
+{{/*
+Whether a restarted coordinator resumes its threads from the log. On unless coordinator.resume is
+false. Resume rebuilds a thread from the decision log, so resume with the log off is refused.
 */}}
 {{- define "kubemoot-operator.coordinatorResume" -}}
-{{- $coordinator := .Values.coordinator | default dict -}}
-{{- if and $coordinator.resume (not $coordinator.eventLog) -}}
-{{- fail "coordinator.resume needs coordinator.eventLog: a coordinator resumes a thread from its decision log" -}}
+{{- $resume := include "kubemoot-operator.coordinatorFlag" (dict "root" . "key" "resume" "default" "true") -}}
+{{- if and (eq $resume "true") (eq (include "kubemoot-operator.coordinatorEventLog" .) "false") -}}
+{{- fail "coordinator.resume needs coordinator.eventLog: a coordinator resumes a thread from its decision log. Resume is on by default, so a release that sets coordinator.eventLog to false must also set coordinator.resume to false" -}}
 {{- end -}}
-{{- $coordinator.resume | default false -}}
+{{- $resume -}}
 {{- end }}
 
 {{/*
@@ -142,11 +165,11 @@ Whether more than one coordinator replica may run, each owning the threads it ho
 Leases take a thread over through resume, so lease without resume is refused.
 */}}
 {{- define "kubemoot-operator.coordinatorLease" -}}
-{{- $coordinator := .Values.coordinator | default dict -}}
-{{- if and $coordinator.lease (not $coordinator.resume) -}}
+{{- $lease := include "kubemoot-operator.coordinatorFlag" (dict "root" . "key" "lease" "default" "false") -}}
+{{- if and (eq $lease "true") (eq (include "kubemoot-operator.coordinatorResume" .) "false") -}}
 {{- fail "coordinator.lease needs coordinator.resume (and coordinator.eventLog): a replica takes a thread over by resuming it from its log" -}}
 {{- end -}}
-{{- $coordinator.lease | default false -}}
+{{- $lease -}}
 {{- end }}
 
 {{/*
@@ -165,6 +188,9 @@ duration such as 30m or 1h30m. Empty or 0 turns the limit off and renders as "0"
 {{- end -}}
 {{- end }}
 
+{{/*
+The artifact query engine, none, sqlite or duckdb; any other value fails the render.
+*/}}
 {{- define "kubemoot-operator.artifactQueryEngine" -}}
 {{- $engine := (.Values.artifacts | default dict).queryEngine | default "sqlite" -}}
 {{- if not (has $engine (list "none" "sqlite" "duckdb")) -}}

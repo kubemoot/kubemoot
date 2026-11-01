@@ -68,6 +68,17 @@ grep -q "Removing retired KV bucket kubemoot_provider_state" "$work/out" || fail
 grep -q '^stream add KUBEMOOT_COORDINATOR --subjects=kubemoot.coordinator.> --retention=limits --max-age=24h ' "$work/log" \
   || fail "the coordinator log stream is missing or has the wrong settings"
 grep -q -- '--max-msgs-per-subject=512' "$work/log" || fail "the coordinator log stream has no per-thread bound"
+# The coordinator log is on by default, so the stream is created by default; it is created
+# with the log off as well (an empty stream costs nothing, and turning the log on later needs it).
+off_count="$(helm template t "$chart" --show-only templates/nats-streams-job.yaml \
+  --set coordinator.eventLog=false --set coordinator.resume=false | grep -c 'nats stream add KUBEMOOT_COORDINATOR')"
+[ "$off_count" = "1" ] || fail "the coordinator log stream should be created whatever coordinator.eventLog is"
+# The lease bucket follows coordinator.lease and is refused with the log off.
+helm template t "$chart" --show-only templates/nats-streams-job.yaml --set coordinator.lease=true \
+  | grep -q 'nats kv add kubemoot_coordinator_leases' || fail "coordinator.lease=true should create the lease bucket"
+if helm template t "$chart" --show-only templates/nats-streams-job.yaml --set coordinator.lease=true --set coordinator.eventLog=false >/dev/null 2>&1; then
+  fail "coordinator.lease=true with the log off should be refused"
+fi
 
 # The discussion stream's limits are chart values. The defaults are the limits the stream
 # has always had; a set value reaches both the create and the update command; a value the

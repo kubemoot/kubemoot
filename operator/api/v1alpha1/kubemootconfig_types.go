@@ -211,7 +211,9 @@ type KubemootConfigSpec struct {
 	// +optional
 	Artifacts ArtifactsConfig `json:"artifacts,omitempty"`
 
-	// Coordinator configures the crew coordinators.
+	// Coordinator configures the crew coordinators. The log and resume are on when this is
+	// left out.
+	// +kubebuilder:default={}
 	// +optional
 	Coordinator *CoordinatorConfig `json:"coordinator,omitempty"`
 }
@@ -220,19 +222,24 @@ type KubemootConfigSpec struct {
 type CoordinatorConfig struct {
 	// EventLog makes every coordinator write each decision it makes about a thread to the
 	// KUBEMOOT_COORDINATOR stream before it acts on the decision, and check the log against
-	// the thread's live state when the thread closes. Default false. The operator sets
-	// KUBEMOOT_COORDINATOR_EVENT_LOG on the coordinator Agents; an Agent that sets the
-	// variable itself in spec.deployment.env keeps its own value.
+	// the thread's live state when the thread closes. Default true, also when unset. The
+	// operator sets KUBEMOOT_COORDINATOR_EVENT_LOG on the coordinator Agents when it is on; an
+	// Agent that sets the variable itself in spec.deployment.env keeps its own value. It is a
+	// pointer so that an explicit false survives serialization and is not read as unset.
+	// +kubebuilder:default=true
 	// +optional
-	EventLog bool `json:"eventLog,omitempty"`
+	EventLog *bool `json:"eventLog,omitempty"`
 
 	// Resume makes a restarted coordinator pick up the threads it had in flight: it rebuilds
 	// each from its decision log, reads the messages that arrived while it was down, and
-	// carries on from the last decision. Requires EventLog. Default false. The operator sets
-	// KUBEMOOT_COORDINATOR_RESUME on the coordinator Agents; an Agent that sets the variable
-	// itself in spec.deployment.env keeps its own value.
+	// carries on from the last decision. Requires EventLog: with EventLog false, set Resume
+	// false too. Default true, also when unset. The operator sets KUBEMOOT_COORDINATOR_RESUME on
+	// the coordinator Agents when it is on; an Agent that sets the variable itself in
+	// spec.deployment.env keeps its own value. It is a pointer so that an explicit false
+	// survives serialization and is not read as unset.
+	// +kubebuilder:default=true
 	// +optional
-	Resume bool `json:"resume,omitempty"`
+	Resume *bool `json:"resume,omitempty"`
 
 	// ResumeMaxAge is how old a thread's last logged event may be for a restarted coordinator
 	// to resume it, as a Go duration such as 30m or 1h30m. An older thread is closed, not
@@ -248,7 +255,8 @@ type CoordinatorConfig struct {
 	// thread is open and gives it up at close; a thread whose owner stopped renewing is taken
 	// over by another replica through resume. The coordinator Agents may then run more than one
 	// replica and roll with RollingUpdate instead of Recreate. Requires EventLog and Resume.
-	// Default false. The operator sets KUBEMOOT_COORDINATOR_LEASE on the coordinator Agents; an
+	// Default false (opt in), also when unset. The operator sets KUBEMOOT_COORDINATOR_LEASE on
+	// the coordinator Agents; an
 	// Agent that sets the variable itself in spec.deployment.env keeps its own value.
 	// +optional
 	Lease bool `json:"lease,omitempty"`

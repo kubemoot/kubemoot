@@ -21,7 +21,7 @@ spec:
   artifacts:
     queryEngine: {{ include "kubemoot-operator.artifactQueryEngine" . | quote }}
   coordinator:
-    eventLog: {{ .Values.coordinator.eventLog | default false }}
+    eventLog: {{ include "kubemoot-operator.coordinatorEventLog" . }}
     resume: {{ include "kubemoot-operator.coordinatorResume" . }}
     resumeMaxAge: {{ include "kubemoot-operator.coordinatorResumeMaxAge" . | quote }}
     lease: {{ include "kubemoot-operator.coordinatorLease" . }}

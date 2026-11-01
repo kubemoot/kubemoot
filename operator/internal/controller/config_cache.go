@@ -328,10 +328,11 @@ func (c *ConfigCache) GetPlacementServiceURL() string {
 }
 
 // GetCoordinatorEventLog reports whether the realm turns the coordinators' decision log on.
+// Unset is on, also when the realm has no KubemootConfig or no coordinator block.
 func (c *ConfigCache) GetCoordinatorEventLog() bool {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	return c.config != nil && c.config.Spec.Coordinator != nil && c.config.Spec.Coordinator.EventLog
+	return coordinatorEventLogOn(c.coordinatorConfig())
 }
 
 // GetCoordinatorResumeMaxAge is the realm's limit on how old a thread may be to be resumed
@@ -339,27 +340,42 @@ func (c *ConfigCache) GetCoordinatorEventLog() bool {
 func (c *ConfigCache) GetCoordinatorResumeMaxAge() string {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	if c.config == nil || c.config.Spec.Coordinator == nil {
+	co := c.coordinatorConfig()
+	if co == nil {
 		return ""
 	}
-	return c.config.Spec.Coordinator.ResumeMaxAge
+	return co.ResumeMaxAge
 }
 
 // GetCoordinatorResume reports whether the realm lets a restarted coordinator resume its threads.
+// Unset is on, also when the realm has no KubemootConfig or no coordinator block. Resume rebuilds
+// a thread from the log, so it counts only with the log on.
 func (c *ConfigCache) GetCoordinatorResume() bool {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	return c.config != nil && c.config.Spec.Coordinator != nil && c.config.Spec.Coordinator.Resume
+	co := c.coordinatorConfig()
+	return coordinatorEventLogOn(co) && coordinatorResumeOn(co)
 }
 
 // GetCoordinatorLease reports whether the realm lets more than one coordinator replica run, each
-// owning the threads it holds a lease for. Leases take threads over through resume, which needs
-// the log, so the setting counts only with both on.
+// owning the threads it holds a lease for. Unset is off. Leases take threads over through resume,
+// which needs the log, so the setting counts only with both on.
 func (c *ConfigCache) GetCoordinatorLease() bool {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	co := c.coordinatorConfig()
-	return co != nil && co.Lease && co.Resume && co.EventLog
+	return co != nil && co.Lease && coordinatorEventLogOn(co) && coordinatorResumeOn(co)
+}
+
+// coordinatorEventLogOn reads the log setting of a coordinator block: unset (nil block or nil
+// field) is on.
+func coordinatorEventLogOn(co *kubemootv1alpha1.CoordinatorConfig) bool {
+	return co == nil || co.EventLog == nil || *co.EventLog
+}
+
+// coordinatorResumeOn reads the resume setting of a coordinator block: unset is on.
+func coordinatorResumeOn(co *kubemootv1alpha1.CoordinatorConfig) bool {
+	return co == nil || co.Resume == nil || *co.Resume
 }
 
 // coordinatorConfig is the realm's coordinator block, or nil. The caller holds the lock.

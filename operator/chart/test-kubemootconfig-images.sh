@@ -37,50 +37,74 @@ placement_env() { helm template kubemoot-operator "$chart" --namespace kubemoot 
 [ "$(placement_env --set placementService.url=http://placement:8080)" = "http://placement:8080" ] \
   || fail "placementService.url does not reach the operator as PLACEMENT_SERVICE_URL"
 
-# The coordinator decision log is off unless the chart turns it on, and the KubemootConfig
-# CRD has the field the chart sets.
+# The coordinator decision log is on unless the chart turns it off, and the KubemootConfig
+# CRD has the field the chart sets and defaults it, also when spec.coordinator is absent.
+crd_file="$chart/crds/kubemoot.ai_kubemootconfigs.yaml"
+crd_coordinator=".spec.versions[0].schema.openAPIV3Schema.properties.spec.properties.coordinator"
 coordinator_log() { helm template kubemoot-operator "$chart" --namespace kubemoot "$@" \
   | yq -N 'select(.kind == "KubemootConfig") | .spec.coordinator.eventLog'; }
-[ "$(coordinator_log)" = "false" ] || fail "coordinator.eventLog should default to false"
+[ "$(coordinator_log)" = "true" ] || fail "coordinator.eventLog should default to true"
+[ "$(coordinator_log --set coordinator.eventLog=false --set coordinator.resume=false)" = "false" ] \
+  || fail "coordinator.eventLog=false does not reach KubemootConfig"
 [ "$(coordinator_log --set coordinator.eventLog=true)" = "true" ] \
   || fail "coordinator.eventLog=true does not reach KubemootConfig"
-[ "$(yq -N '.spec.versions[0].schema.openAPIV3Schema.properties.spec.properties.coordinator.properties.eventLog.type' \
-  "$chart/crds/kubemoot.ai_kubemootconfigs.yaml")" = "boolean" ] \
+[ "$(yq -N "$crd_coordinator.properties.eventLog.type" "$crd_file")" = "boolean" ] \
   || fail "the KubemootConfig CRD has no boolean spec.coordinator.eventLog"
+[ "$(yq -N "$crd_coordinator.properties.eventLog.default" "$crd_file")" = "true" ] \
+  || fail "CRD coordinator.eventLog default is not true"
+[ "$(yq -N "$crd_coordinator.default | tag" "$crd_file")" = "!!map" ] \
+  || fail "CRD coordinator has no object default, so an absent coordinator would skip the eventLog and resume defaults"
 
-# Resume is off unless the chart turns it on, reaches the KubemootConfig, needs the log, and
-# the CRD has the field.
+# Resume is on unless the chart turns it off, reaches the KubemootConfig, needs the log (the
+# refusal tells a user who turns the log off to turn resume off too), and the CRD has the
+# field and defaults it.
 coordinator_resume() { helm template kubemoot-operator "$chart" --namespace kubemoot "$@" \
   | yq -N 'select(.kind == "KubemootConfig") | .spec.coordinator.resume'; }
-[ "$(coordinator_resume)" = "false" ] || fail "coordinator.resume should default to false"
-[ "$(coordinator_resume --set coordinator.eventLog=true --set coordinator.resume=true)" = "true" ] \
-  || fail "coordinator.resume=true does not reach KubemootConfig"
-if helm template kubemoot-operator "$chart" --namespace kubemoot --set coordinator.resume=true >/dev/null 2>&1; then
-  fail "coordinator.resume=true without coordinator.eventLog should be refused"
-fi
-[ "$(yq -N '.spec.versions[0].schema.openAPIV3Schema.properties.spec.properties.coordinator.properties.resume.type' \
-  "$chart/crds/kubemoot.ai_kubemootconfigs.yaml")" = "boolean" ] \
+[ "$(coordinator_resume)" = "true" ] || fail "coordinator.resume should default to true"
+[ "$(coordinator_resume --set coordinator.resume=false)" = "false" ] \
+  || fail "coordinator.resume=false does not reach KubemootConfig"
+[ "$(coordinator_resume --set coordinator.eventLog=false --set coordinator.resume=false)" = "false" ] \
+  || fail "the log and resume off together should render"
+refused_sets=("--set coordinator.eventLog=false" "--set coordinator.eventLog=false --set coordinator.resume=true")
+for refused in "${refused_sets[@]}"; do
+  # shellcheck disable=SC2086
+  if err="$(helm template kubemoot-operator "$chart" --namespace kubemoot $refused 2>&1 >/dev/null)"; then
+    fail "the log off with resume on ($refused) should be refused"
+  fi
+  case "$err" in
+    *"must also set coordinator.resume to false"*) ;;
+    *) fail "the refusal does not tell the user to turn resume off too: $err" ;;
+  esac
+done
+[ "$(yq -N "$crd_coordinator.properties.resume.type" "$crd_file")" = "boolean" ] \
   || fail "the KubemootConfig CRD has no boolean spec.coordinator.resume"
+[ "$(yq -N "$crd_coordinator.properties.resume.default" "$crd_file")" = "true" ] \
+  || fail "CRD coordinator.resume default is not true"
 
-# Leases are off unless the chart turns them on, reach the KubemootConfig, need resume (and so the
-# log), create the lease bucket only when on, and the CRD has the field.
+# Leases are off unless the chart turns them on (they pay off only with more than one coordinator
+# replica), reach the KubemootConfig, need resume (and so the log), create the lease bucket only
+# when on, and the CRD has the field and does not default it on.
 coordinator_lease() { helm template kubemoot-operator "$chart" --namespace kubemoot "$@" \
   | yq -N 'select(.kind == "KubemootConfig") | .spec.coordinator.lease'; }
-lease_flags=(--set coordinator.eventLog=true --set coordinator.resume=true)
 [ "$(coordinator_lease)" = "false" ] || fail "coordinator.lease should default to false"
-[ "$(coordinator_lease "${lease_flags[@]}" --set coordinator.lease=true)" = "true" ] \
+[ "$(coordinator_lease --set coordinator.lease=true)" = "true" ] \
   || fail "coordinator.lease=true does not reach KubemootConfig"
-if helm template kubemoot-operator "$chart" --namespace kubemoot --set coordinator.eventLog=true --set coordinator.lease=true >/dev/null 2>&1; then
+if err="$(helm template kubemoot-operator "$chart" --namespace kubemoot --set coordinator.resume=false --set coordinator.lease=true 2>&1 >/dev/null)"; then
   fail "coordinator.lease=true without coordinator.resume should be refused"
 fi
-if helm template kubemoot-operator "$chart" --namespace kubemoot "${lease_flags[@]}" | grep -q kubemoot_coordinator_leases; then
+case "$err" in
+  *"coordinator.lease needs coordinator.resume"*) ;;
+  *) fail "the lease refusal does not name resume: $err" ;;
+esac
+if helm template kubemoot-operator "$chart" --namespace kubemoot | grep -q kubemoot_coordinator_leases; then
   fail "the lease bucket should not be created while coordinator.lease is off"
 fi
-helm template kubemoot-operator "$chart" --namespace kubemoot "${lease_flags[@]}" --set coordinator.lease=true \
+helm template kubemoot-operator "$chart" --namespace kubemoot --set coordinator.lease=true \
   | grep -q "nats kv add kubemoot_coordinator_leases --ttl=15s" || fail "coordinator.lease=true should create the lease bucket with a 15s TTL"
-[ "$(yq -N '.spec.versions[0].schema.openAPIV3Schema.properties.spec.properties.coordinator.properties.lease.type' \
-  "$chart/crds/kubemoot.ai_kubemootconfigs.yaml")" = "boolean" ] \
+[ "$(yq -N "$crd_coordinator.properties.lease.type" "$crd_file")" = "boolean" ] \
   || fail "the KubemootConfig CRD has no boolean spec.coordinator.lease"
+[ "$(yq -N "$crd_coordinator.properties.lease.default" "$crd_file")" = "null" ] \
+  || fail "CRD coordinator.lease must not default on"
 
 # The resume age limit defaults to 30m, takes durations, renders 0 or empty as 0 (no limit),
 # refuses anything else, and the CRD has the field.

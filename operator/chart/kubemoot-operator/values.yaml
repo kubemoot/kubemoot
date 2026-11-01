@@ -323,11 +323,13 @@ nats:
 # stream before it acts on the decision, and check that log against the thread's live
 # state when the thread closes. It flows to the KubemootConfig and from there to the
 # KUBEMOOT_COORDINATOR_EVENT_LOG variable of every coordinator Agent; an Agent that sets the
-# variable in spec.deployment.env keeps its own value. Off by default.
+# variable in spec.deployment.env keeps its own value. On by default; false turns the log off
+# (and then resume must be false too).
 # resume makes a restarted coordinator pick up the threads it had in flight: it rebuilds each
 # from its log, reads the messages that arrived while it was down, and carries on from the
 # last decision. It needs eventLog (the chart refuses resume without it), and it flows to
-# KUBEMOOT_COORDINATOR_RESUME the same way. Run one coordinator replica unless lease is on. Off by default.
+# KUBEMOOT_COORDINATOR_RESUME the same way. Run one coordinator replica unless lease is on. On by default;
+# a release that sets eventLog false must set resume false too.
 # resumeMaxAge is how old a thread's last logged event may be for a restarted coordinator to resume
 # it, as a Go duration (30m, 1h30m). A thread older than that is closed with reason "expired" and
 # its request, handed again, starts fresh. 0 or empty turns the limit off. A value that is not a
@@ -340,8 +342,8 @@ nats:
 # KUBEMOOT_COORDINATOR_LEASE the same way. Off by default; then a coordinator is one replica
 # that rolls with Recreate, as before.
 coordinator:
-  eventLog: false
-  resume: false
+  eventLog: true
+  resume: true
   resumeMaxAge: 30m
   lease: false
 
