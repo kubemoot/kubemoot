@@ -62,6 +62,37 @@ fi
   "$chart/crds/kubemoot.ai_kubemootconfigs.yaml")" = "boolean" ] \
   || fail "the KubemootConfig CRD has no boolean spec.coordinator.resume"
 
+# The resume age limit defaults to 30m, takes durations, renders 0 or empty as 0 (no limit),
+# refuses anything else, and the CRD has the field.
+resume_age() { helm template kubemoot-operator "$chart" --namespace kubemoot "$@" \
+  | yq -N 'select(.kind == "KubemootConfig") | .spec.coordinator.resumeMaxAge'; }
+[ "$(resume_age)" = "30m" ] || fail "coordinator.resumeMaxAge should default to 30m"
+[ "$(resume_age --set coordinator.resumeMaxAge=1h30m)" = "1h30m" ] || fail "coordinator.resumeMaxAge=1h30m does not reach KubemootConfig"
+[ "$(resume_age --set coordinator.resumeMaxAge=1.5h)" = "1.5h" ] || fail "coordinator.resumeMaxAge=1.5h should be accepted"
+[ "$(resume_age --set coordinator.resumeMaxAge=0s)" = "0s" ] || fail "coordinator.resumeMaxAge=0s should be accepted"
+[ "$(resume_age --set coordinator.resumeMaxAge=1.5ns)" = "1.5ns" ] || fail "coordinator.resumeMaxAge=1.5ns should be accepted"
+[ "$(resume_age --set coordinator.resumeMaxAge=0)" = "0" ] || fail "coordinator.resumeMaxAge=0 should render 0"
+[ "$(resume_age --set coordinator.resumeMaxAge=)" = "0" ] || fail "an empty coordinator.resumeMaxAge should render 0"
+# The runtime accepts and refuses the same strings (ResumeAge, CoordinatorResumeAgeTest).
+not_durations=(soon 30 -5m 5d "30 m" .5s 1.s $'\xc2\xb5s' 1h-30m)
+for bad in "${not_durations[@]}"; do
+  if helm template kubemoot-operator "$chart" --namespace kubemoot --set "coordinator.resumeMaxAge=$bad" >/dev/null 2>&1; then
+    fail "coordinator.resumeMaxAge=$bad should be refused"
+  fi
+done
+# A KubemootConfig applied directly gets the same answer from the CRD pattern as the chart gives.
+age_pattern="$(yq -N '.spec.versions[0].schema.openAPIV3Schema.properties.spec.properties.coordinator.properties.resumeMaxAge.pattern' \
+  "$chart/crds/kubemoot.ai_kubemootconfigs.yaml")"
+for good in "" 0 0s 30m 1h30m 1.5h 250ms 1.5ns; do
+  printf '%s\n' "$good" | grep -Eq "$age_pattern" || fail "the CRD pattern refuses '$good'"
+done
+for bad in "${not_durations[@]}"; do
+  if printf '%s\n' "$bad" | grep -Eq "$age_pattern"; then fail "the CRD pattern accepts '$bad'"; fi
+done
+[ "$(yq -N '.spec.versions[0].schema.openAPIV3Schema.properties.spec.properties.coordinator.properties.resumeMaxAge.type' \
+  "$chart/crds/kubemoot.ai_kubemootconfigs.yaml")" = "string" ] \
+  || fail "the KubemootConfig CRD has no string spec.coordinator.resumeMaxAge"
+
 # The artifact query engine defaults to sqlite, takes duckdb, takes none (no query tool),
 # and refuses any other value at render time.
 query_engine() { helm template kubemoot-operator "$chart" --namespace kubemoot "$@" \

@@ -233,6 +233,15 @@ type CoordinatorConfig struct {
 	// itself in spec.deployment.env keeps its own value.
 	// +optional
 	Resume bool `json:"resume,omitempty"`
+
+	// ResumeMaxAge is how old a thread's last logged event may be for a restarted coordinator
+	// to resume it, as a Go duration such as 30m or 1h30m. An older thread is closed, not
+	// resumed. 0 or empty turns the limit off. The operator sets
+	// KUBEMOOT_COORDINATOR_RESUME_MAX_AGE on the coordinator Agents when Resume is on; an Agent
+	// that sets the variable itself in spec.deployment.env keeps its own value.
+	// +optional
+	// +kubebuilder:validation:Pattern=`^(|0|([0-9]+(\.[0-9]+)?(ns|us|ms|s|m|h))+)$`
+	ResumeMaxAge string `json:"resumeMaxAge,omitempty"`
 }
 
 // ArtifactQueryEngine names the engine behind the artifact-access workspace_query tool.

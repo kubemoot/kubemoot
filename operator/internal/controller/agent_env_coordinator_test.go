@@ -135,6 +135,49 @@ func TestCoordinatorResumeEnv_TheAgentsOwnValueComesLastAndWins(t *testing.T) {
 	}
 }
 
+// testResumeMaxAge is a resume age limit the tests set on the realm.
+const testResumeMaxAge = "45m"
+
+func TestCoordinatorResumeMaxAgeEnv_FollowsResumeAndCarriesTheRealmsValue(t *testing.T) {
+	cases := []struct {
+		name   string
+		config *kubemootv1alpha1.CoordinatorConfig
+		want   []string
+	}{
+		{"resume off: no limit variable", &kubemootv1alpha1.CoordinatorConfig{ResumeMaxAge: testResumeMaxAge}, nil},
+		{"resume on, no limit set: none", &kubemootv1alpha1.CoordinatorConfig{EventLog: true, Resume: true}, nil},
+		{"resume on, limit set", &kubemootv1alpha1.CoordinatorConfig{EventLog: true, Resume: true, ResumeMaxAge: testResumeMaxAge}, []string{testResumeMaxAge}},
+		{"resume on, limit off", &kubemootv1alpha1.CoordinatorConfig{EventLog: true, Resume: true, ResumeMaxAge: "0"}, []string{"0"}},
+	}
+	for _, c := range cases {
+		got := coordinatorEnvValues(t, envCoordinatorResumeMaxAge, c.config)
+		if len(got) != len(c.want) || (len(got) == 1 && got[0] != c.want[0]) {
+			t.Errorf("%s: want %v, got %v", c.name, c.want, got)
+		}
+	}
+}
+
+func TestCoordinatorResumeMaxAgeEnv_TheAgentsOwnValueComesLastAndWins(t *testing.T) {
+	got := coordinatorEnvValues(t, envCoordinatorResumeMaxAge,
+		&kubemootv1alpha1.CoordinatorConfig{EventLog: true, Resume: true, ResumeMaxAge: "30m"},
+		corev1.EnvVar{Name: envCoordinatorResumeMaxAge, Value: "5m"})
+	if len(got) != 2 || got[len(got)-1] != "5m" {
+		t.Fatalf("the Agent's own env must follow the realm's so it wins, got %v", got)
+	}
+}
+
+func TestConfigCache_CoordinatorResumeMaxAge(t *testing.T) {
+	cache := NewConfigCache()
+	if got := cache.GetCoordinatorResumeMaxAge(); got != "" {
+		t.Fatalf("an empty cache has no limit, got %q", got)
+	}
+	cache.Update(&kubemootv1alpha1.KubemootConfig{Spec: kubemootv1alpha1.KubemootConfigSpec{
+		Coordinator: &kubemootv1alpha1.CoordinatorConfig{ResumeMaxAge: "1h"}}})
+	if got := cache.GetCoordinatorResumeMaxAge(); got != "1h" {
+		t.Fatalf("want 1h, got %q", got)
+	}
+}
+
 func TestConfigCache_CoordinatorResumeIsOffWithoutAConfigOrABlock(t *testing.T) {
 	cache := NewConfigCache()
 	if cache.GetCoordinatorResume() {

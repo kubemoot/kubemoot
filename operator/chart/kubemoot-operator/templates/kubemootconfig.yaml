@@ -23,6 +23,7 @@ spec:
   coordinator:
     eventLog: {{ .Values.coordinator.eventLog | default false }}
     resume: {{ include "kubemoot-operator.coordinatorResume" . }}
+    resumeMaxAge: {{ include "kubemoot-operator.coordinatorResumeMaxAge" . | quote }}
   defaults:
     {{- with (include "kubemoot-operator.pullSecrets" . | fromYamlArray) }}
     imagePullSecrets:

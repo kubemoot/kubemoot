@@ -24,6 +24,10 @@ const envCoordinatorEventLog = "KUBEMOOT_COORDINATOR_EVENT_LOG"
 // It is absent when the realm leaves resume off.
 const envCoordinatorResume = "KUBEMOOT_COORDINATOR_RESUME"
 
+// envCoordinatorResumeMaxAge is how old a thread's last logged event may be for the coordinator
+// to resume it, as a Go duration; "0" turns the limit off. Set with envCoordinatorResume.
+const envCoordinatorResumeMaxAge = "KUBEMOOT_COORDINATOR_RESUME_MAX_AGE"
+
 // coordinatorResumeEnvVars returns the resume env var when the realm
 // (KubemootConfig spec.coordinator.resume) turns resume on, and nothing otherwise.
 // An Agent's own spec.deployment.env is appended after it and wins.
@@ -31,7 +35,11 @@ func (r *AgentReconciler) coordinatorResumeEnvVars() []corev1.EnvVar {
 	if r.ConfigCache == nil || !r.ConfigCache.GetCoordinatorResume() {
 		return nil
 	}
-	return []corev1.EnvVar{{Name: envCoordinatorResume, Value: valueTrue}}
+	env := []corev1.EnvVar{{Name: envCoordinatorResume, Value: valueTrue}}
+	if maxAge := r.ConfigCache.GetCoordinatorResumeMaxAge(); maxAge != "" {
+		env = append(env, corev1.EnvVar{Name: envCoordinatorResumeMaxAge, Value: maxAge})
+	}
+	return env
 }
 
 // coordinatorEventLogEnvVars returns the decision-log env var when the realm

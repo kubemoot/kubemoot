@@ -11,6 +11,7 @@ import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -24,6 +25,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executor;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.TimeUnit;
+import java.util.function.LongSupplier;
 import java.util.function.Supplier;
 
 /**
@@ -62,6 +64,9 @@ final class CoordinatorResume {
     /** Closed threads remembered by request, so a request handed again after its close is answered, not rerun. */
     private static final int MAX_CLOSED_REMEMBERED = 500;
     private static final String CLOSE_UNLOGGED = "unlogged";
+    private static final String CLOSE_EXPIRED = "expired";
+    /** The setting for the resume age limit: environment variable {@code KUBEMOOT_COORDINATOR_RESUME_MAX_AGE}. */
+    static final String MAX_AGE_KEY = "kubemoot.coordinator.resume-max-age";
     /** The messages the coordinator publishes about a thread; with the log on each carries an id made from its event. */
     private static final Set<String> COORDINATOR_MESSAGES = Set.of(DiscussionOrchestrator.MSG_THREAD_START,
             DiscussionOrchestrator.MSG_ADVISORY, SubcommitteeLine.MESSAGE_TYPE, DiscussionOrchestrator.MSG_ADVISORY_READY,
@@ -80,7 +85,7 @@ final class CoordinatorResume {
     private final Supplier<CrewScope> scope;
     private final ObjectMapper mapper;
     private final DiscussionMetrics metrics;
-    private final java.util.function.LongSupplier clock;
+    private final LongSupplier clock;
 
     private final ResumeGates gates = new ResumeGates();
     private final CountDownLatch ready = new CountDownLatch(1);
@@ -93,9 +98,20 @@ final class CoordinatorResume {
         }
     });
 
+    private final Duration maxAge;
+
+    /** A resume with no age limit. */
     CoordinatorResume(boolean enabled, DiscussionOrchestrator orchestrator, BusReader reader,
                       Supplier<CrewScope> scope, ObjectMapper mapper, DiscussionMetrics metrics,
-                      java.util.function.LongSupplier clock) {
+                      LongSupplier clock) {
+        this(enabled, orchestrator, reader, scope, mapper, metrics, clock, Duration.ZERO);
+    }
+
+    /** @param maxAge how old a thread's last event may be for it to be resumed; zero for no limit */
+    CoordinatorResume(boolean enabled, DiscussionOrchestrator orchestrator, BusReader reader,
+                      Supplier<CrewScope> scope, ObjectMapper mapper, DiscussionMetrics metrics,
+                      LongSupplier clock, Duration maxAge) {
+        this.maxAge = maxAge;
         this.enabled = enabled;
         this.orchestrator = orchestrator;
         this.reader = reader;
@@ -122,9 +138,18 @@ final class CoordinatorResume {
                     + "log, so resume stays off");
             return off();
         }
-        log.info("Coordinator resume is on: threads left in flight are picked up from {}", CrewScope.COORDINATOR_STREAM);
+        Duration maxAge = configuredMaxAge();
+        log.info("Coordinator resume is on: threads left in flight are picked up from {}; age limit {}",
+                CrewScope.COORDINATOR_STREAM, maxAge.isZero() ? "none" : maxAge);
         return new CoordinatorResume(true, orchestrator, new NatsBusReader(natsProvider), natsProvider::scope, mapper,
-                metrics, System::currentTimeMillis);
+                metrics, System::currentTimeMillis, maxAge);
+    }
+
+    /** The age limit from {@link #MAX_AGE_KEY}: the default when unset, the default with a warning when not a duration. */
+    private static Duration configuredMaxAge() {
+        return ResumeAge.from(ConfigProvider.getConfig().getOptionalValue(MAX_AGE_KEY, String.class),
+                text -> log.warn("KUBEMOOT_COORDINATOR_RESUME_MAX_AGE={} is not a duration such as 30m; using {}", text,
+                        ResumeAge.DEFAULT));
     }
 
     boolean enabled() {
@@ -202,7 +227,8 @@ final class CoordinatorResume {
     }
 
     private void rememberClosed(CoordinatorThreadState state) {
-        if (state.requestSeq > 0 && !CLOSE_UNLOGGED.equals(state.closeReason)) {
+        boolean closedUnresumed = CLOSE_UNLOGGED.equals(state.closeReason) || CLOSE_EXPIRED.equals(state.closeReason);
+        if (state.requestSeq > 0 && !closedUnresumed) {
             closed.put(state.requestSeq, new ClosedThread(state.threadId, state.answer));
         }
     }
@@ -277,6 +303,10 @@ final class CoordinatorResume {
     /** Takes the thread over; returns it, or null when it was closed unresumed or another coordinator has it. */
     private ThreadState takeOver(Candidate candidate) throws IOException {
         CoordinatorThreadState logged = candidate.state();
+        if (tooOld(logged)) {
+            expire(candidate);
+            return null;
+        }
         List<JsonNode> messages = readMessages(logged.threadId);
         if (leftUnlogged(messages)) {
             abandon(candidate);
@@ -361,8 +391,28 @@ final class CoordinatorResume {
      * request that started it is no longer tied to it: handed again, it starts a new thread.
      */
     private void abandon(Candidate candidate) {
-        CoordinatorThreadState logged = candidate.state();
-        ThreadState state = ThreadRebuilder.build(logged);
+        closeUnresumed(candidate, CLOSE_UNLOGGED, "abandoned");
+        log.warn("Thread {} was left with an incomplete log (an event could not be written); it is closed, not resumed",
+                candidate.state().threadId);
+    }
+
+    /**
+     * Closes a thread whose last event is older than the resume age limit: the asker has long
+     * stopped waiting, and resuming it would spend accelerator time for nobody. Closed the same
+     * way as an incomplete one, with the reason {@code expired}.
+     */
+    private void expire(Candidate candidate) {
+        closeUnresumed(candidate, CLOSE_EXPIRED, "expired");
+        log.warn("Thread {} last logged an event at {}, more than {} ago; it is closed, not resumed",
+                candidate.state().threadId, candidate.state().lastEventAt, maxAge);
+    }
+
+    /**
+     * Closes a thread this coordinator will not resume: its agents get {@code thread_close}, the
+     * close is logged with {@code reason}, and the request that started it is no longer tied to it.
+     */
+    private void closeUnresumed(Candidate candidate, String reason, String action) {
+        ThreadState state = ThreadRebuilder.build(candidate.state());
         state.requestSeq = 0;
         CoordinatorEventRecorder recorder = orchestrator.recorder();
         recorder.adopt(state, candidate.events(), candidate.lastSequence());
@@ -370,10 +420,14 @@ final class CoordinatorResume {
         String channel = DiscussionOrchestrator.resolveChannel(state);
         orchestrator.publishThreadClose(state.threadId, channel);
         state.phase = Phase.CLOSED;
-        recorder.closed(state, CLOSE_UNLOGGED, channel);
-        metrics.threadResumed("abandoned");
-        log.warn("Thread {} was left with an incomplete log (an event could not be written); it is closed, not resumed",
-                state.threadId);
+        recorder.closed(state, reason, channel);
+        metrics.threadResumed(action);
+    }
+
+    /** True when the thread's last logged event is older than the resume age limit (none when the limit is off). */
+    private boolean tooOld(CoordinatorThreadState logged) {
+        return !maxAge.isZero()
+                && Duration.between(logged.lastEventAt, Instant.ofEpochMilli(clock.getAsLong())).compareTo(maxAge) > 0;
     }
 
     /** A thread that could not be taken over is closed, so its agents stop and no live message makes a blank thread of it. */

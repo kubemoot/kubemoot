@@ -26,6 +26,7 @@ import java.time.Instant;
 import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
 /**
@@ -291,6 +292,7 @@ public class DiscussionOrchestrator {
     // Separate executor for LLM calls so they never starve the scheduler's
     // periodic tasks (checkPhaseTransitions, cleanupOldThreads).
     private final ExecutorService llmExecutor = Executors.newCachedThreadPool();
+    private final AtomicInteger llmInFlight = new AtomicInteger();
 
     // System prompt loaded from file (composed by operator from PromptModules)
     private volatile String systemPromptCache;
@@ -1475,7 +1477,7 @@ public class DiscussionOrchestrator {
 
         log.info("Thread {} → EVALUATING phase (coordinator reasoning select+brief)", state.threadId);
 
-        llmExecutor.submit(() -> runAdvisoryGeneration(state));
+        submitLlm(() -> runAdvisoryGeneration(state));
     }
 
     /**
@@ -2335,7 +2337,7 @@ public class DiscussionOrchestrator {
         if (closeForCapacity(state, synthesisStart)) {
             return;
         }
-        llmExecutor.submit(() -> runSynthesis(state, synthesisStart));
+        submitLlm(() -> runSynthesis(state, synthesisStart));
     }
 
     private void runSynthesis(ThreadState state, Instant synthesisStart) {
@@ -4365,6 +4367,33 @@ public class DiscussionOrchestrator {
         return natsProvider.scope().forCrew(crew).discussSubject(channel, threadId);
     }
 
+    /** Runs a coordinator model call on the executor made for them, counting it while it is queued or running. */
+    void submitLlm(Runnable task) {
+        llmInFlight.incrementAndGet();
+        try {
+            llmExecutor.submit(() -> {
+                try {
+                    task.run();
+                } finally {
+                    llmInFlight.decrementAndGet();
+                }
+            });
+        } catch (RuntimeException e) {
+            llmInFlight.decrementAndGet();
+            throw e;
+        }
+    }
+
+    /** Stops the model-call executor, so a test can see a submit refused. */
+    void stopLlmExecutor() {
+        llmExecutor.shutdownNow();
+    }
+
+    /** How many model calls the coordinator has queued or running; zero means its background work is done. For tests. */
+    int llmTasksInFlight() {
+        return llmInFlight.get();
+    }
+
     // --- what a restarted coordinator asks of the orchestrator (see CoordinatorResume) ---
 
     /** The agent name this coordinator publishes under. */
@@ -4400,7 +4429,7 @@ public class DiscussionOrchestrator {
 
     /** Runs the advisory step again, on the executor the first run used. */
     void rerunAdvisory(ThreadState state) {
-        llmExecutor.submit(() -> runAdvisoryGeneration(state));
+        submitLlm(() -> runAdvisoryGeneration(state));
     }
 
     /** The analysts review_ready wakes for this thread: the selected analysts, or none (every analyst) when none was selected. */

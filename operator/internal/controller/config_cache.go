@@ -334,6 +334,17 @@ func (c *ConfigCache) GetCoordinatorEventLog() bool {
 	return c.config != nil && c.config.Spec.Coordinator != nil && c.config.Spec.Coordinator.EventLog
 }
 
+// GetCoordinatorResumeMaxAge is the realm's limit on how old a thread may be to be resumed
+// (a Go duration; "0" or empty: no limit). Empty when the realm sets none.
+func (c *ConfigCache) GetCoordinatorResumeMaxAge() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if c.config == nil || c.config.Spec.Coordinator == nil {
+		return ""
+	}
+	return c.config.Spec.Coordinator.ResumeMaxAge
+}
+
 // GetCoordinatorResume reports whether the realm lets a restarted coordinator resume its threads.
 func (c *ConfigCache) GetCoordinatorResume() bool {
 	c.mu.RLock()
