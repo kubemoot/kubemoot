@@ -51,6 +51,13 @@ been sent, plus a short observation window), reads the streams, and tests the sa
 point the trial is `landed`. If the coordinator got past the point before it stopped, the trial is not landed and the driver tries
 again with a new question, up to the case's attempt limit (2 for a wide window, 5 for a narrow one).
 
+The judgment of where the fault landed and the wait for the thread to settle both end at the settle timeout counted from the fault
+(`--settle-timeout`, default 10 minutes, 3 minutes in control mode), in both modes. Reading the final state afterwards adds the quiet
+window, at most 30 seconds to read the streams, and at most the settle timeout to read the counters. In control mode there is no log to
+read, so the fault landed when the discussion messages put the thread at the point and it had not finished once the coordinator was
+gone. A thread that is then lost is the expected result: the trial ends at the limit as `expected_loss`, and the report lists the
+evidence (the thread is still open, it has no answer, the asker received none).
+
 The narrow points are reached by watching, so the fault can arrive after the next write. A case that never lands is reported as
 `not_reached`, never as a pass.
 

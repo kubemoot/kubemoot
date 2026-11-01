@@ -87,12 +87,12 @@ func Classify(c Case, trials []Trial) Outcome {
 
 func classifyControl(landed, violated, errored bool) Outcome {
 	switch {
+	case errored:
+		return OutcomeError
 	case landed && violated:
 		return OutcomeExpectedLoss
 	case landed:
 		return OutcomeControlNoLoss
-	case errored:
-		return OutcomeError
 	}
 	return OutcomeNotReached
 }
@@ -159,6 +159,11 @@ func (r Report) evidence() string {
 	var b strings.Builder
 	for _, c := range r.Cases {
 		for _, t := range c.Trials {
+			if c.Case.Mode == ModeControl {
+				for _, n := range t.Notes {
+					fmt.Fprintf(&b, "\n- %s trial %d: %s\n", c.Case.Name, t.Number, n)
+				}
+			}
 			if t.Error != "" {
 				fmt.Fprintf(&b, "\n- %s trial %d: error: %s\n", c.Case.Name, t.Number, t.Error)
 			}

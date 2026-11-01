@@ -62,7 +62,8 @@ func parseOptions(args []string) (options, error) {
 	fs.StringVar(&o.cases, "cases", "", "comma-separated name filters; empty runs all")
 	fs.StringVar(&o.mode, "mode", string(coordchaos.ModeProtected), "protected (flags on) or control (flags off)")
 	fs.StringVar(&o.question, "question", defaultQuestion,
-		"the question asked; it must need the crew's specialists, or the coordinator answers it directly and the later kill points are never reached")
+		"the question asked; it must need the crew's specialists, or the coordinator answers it "+
+			"directly and the later kill points are never reached")
 	fs.IntVar(&o.port, "agent-port", 8080, "the agents' HTTP port, for /q/metrics")
 	fs.BoolVar(&o.list, "list", false, "print the matrix and exit")
 	fs.BoolVar(&o.preflightOnly, "preflight", false, "check the flags and the cluster, then exit without a fault")

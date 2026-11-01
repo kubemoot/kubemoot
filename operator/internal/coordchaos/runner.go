@@ -124,6 +124,9 @@ func (r *Runner) poll(ctx context.Context, what string, cond func() (bool, error
 	tick := time.NewTicker(interval)
 	defer tick.Stop()
 	for {
+		if err := ctx.Err(); err != nil {
+			return fmt.Errorf("waiting for %s: %w", what, err)
+		}
 		done, err := cond()
 		if err != nil {
 			return err
@@ -211,6 +214,9 @@ func (r *Runner) runTrial(ctx context.Context, c Case, n int) Trial {
 		t.Error = err.Error()
 		return t
 	}
+	if fault.injected {
+		r.judgeLanding(ctx, c, fault, &t)
+	}
 	if err := r.settle(ctx, c, asked, fault, &t); err != nil {
 		t.Error = err.Error()
 		return t
@@ -220,7 +226,9 @@ func (r *Runner) runTrial(ctx context.Context, c Case, n int) Trial {
 
 // fault records when and where the fault went in.
 type fault struct {
-	at       time.Time
+	at time.Time
+	// limit is the real-time end of every wait after the fault.
+	limit    time.Time
 	injected bool
 	pod      Pod
 	thread   string
@@ -247,10 +255,6 @@ func (r *Runner) driveToFault(ctx context.Context, c Case, asked Asked, t *Trial
 	}
 	if err := r.inject(ctx, c, &f); err != nil {
 		return f, err
-	}
-	t.Landed = r.landed(ctx, c, f)
-	if !t.Landed {
-		t.Notes = append(t.Notes, "the coordinator passed "+string(c.Point)+" before it stopped; the fault landed later")
 	}
 	return f, nil
 }
@@ -298,16 +302,16 @@ func (r *Runner) streamHealthy(ctx context.Context, asked Asked) error {
 func threadOver(t Thread) bool { return t.Closed() || t.MsgCount(MsgThreadClose) > 0 }
 
 func (r *Runner) ensureReplicas(ctx context.Context, want int) error {
-	if err := r.Cluster.SetReplicas(ctx, want); err != nil {
-		return fmt.Errorf("setting replicas to %d: %w", want, err)
-	}
 	wctx, cancel := context.WithTimeout(ctx, r.Cfg.PointTimeout)
 	defer cancel()
+	if err := r.Cluster.SetReplicas(wctx, want); err != nil {
+		return fmt.Errorf("setting replicas to %d: %w", want, err)
+	}
 	return r.poll(wctx, fmt.Sprintf("%d ready coordinator pod(s)", want), func() (bool, error) {
-		if err := r.healthy(ctx); err != nil {
+		if err := r.healthy(wctx); err != nil {
 			return false, err
 		}
-		pods, err := r.Cluster.CoordinatorPods(ctx)
+		pods, err := r.Cluster.CoordinatorPods(wctx)
 		if err != nil {
 			return false, err
 		}
