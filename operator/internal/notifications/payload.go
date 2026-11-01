@@ -22,8 +22,8 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/kubemoot/kubemoot/operator/internal/crewscope"
 	"github.com/kubemoot/kubemoot/operator/pkg/bus"
+	"github.com/kubemoot/kubemoot/operator/pkg/crewscope"
 )
 
 // PayloadSchemaVersion is bumped only on incompatible payload changes.

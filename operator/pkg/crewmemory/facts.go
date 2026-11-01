@@ -8,6 +8,9 @@ You may obtain a copy of the License at
     http://www.apache.org/licenses/LICENSE-2.0
 */
 
+// Package crewmemory reads a crew's working memory from the kubemoot_crew_memory
+// NATS key-value bucket. It is public so tools outside the operator (the
+// ompi-export command, kmctl) read facts through the one reader. It only reads.
 package crewmemory
 
 import (
@@ -18,8 +21,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/kubemoot/kubemoot/operator/internal/crewscope"
+	"github.com/kubemoot/kubemoot/operator/pkg/crewscope"
 )
+
+// Bucket is the NATS KV bucket holding crew working memory.
+const Bucket = "kubemoot_crew_memory"
 
 // Fact is one crew-memory entry as the agent runtime stores it: the key
 // <ns>.<crew>.<topic>.<key> and the JSON value {value, learnedBy, learnedAt, usedAt}.

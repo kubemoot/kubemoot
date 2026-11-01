@@ -16,8 +16,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kubemoot/kubemoot/operator/internal/crewscope"
 	"github.com/kubemoot/kubemoot/operator/pkg/bus"
+	"github.com/kubemoot/kubemoot/operator/pkg/crewscope"
 	"github.com/kubemoot/kubemoot/operator/pkg/mesh"
 )
 

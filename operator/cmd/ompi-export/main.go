@@ -31,9 +31,9 @@ import (
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 
-	"github.com/kubemoot/kubemoot/operator/internal/crewmemory"
-	"github.com/kubemoot/kubemoot/operator/internal/crewmemory/ompi"
-	"github.com/kubemoot/kubemoot/operator/internal/crewscope"
+	"github.com/kubemoot/kubemoot/operator/pkg/crewmemory"
+	"github.com/kubemoot/kubemoot/operator/pkg/crewmemory/ompi"
+	"github.com/kubemoot/kubemoot/operator/pkg/crewscope"
 )
 
 const timeout = 30 * time.Second

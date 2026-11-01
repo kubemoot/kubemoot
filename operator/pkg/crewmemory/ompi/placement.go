@@ -15,7 +15,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/kubemoot/kubemoot/operator/internal/crewmemory"
+	"github.com/kubemoot/kubemoot/operator/pkg/crewmemory"
 )
 
 var unsafeName = regexp.MustCompile(`[^A-Za-z0-9_=-]`)

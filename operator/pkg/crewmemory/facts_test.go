@@ -15,7 +15,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kubemoot/kubemoot/operator/internal/crewscope"
+	"github.com/kubemoot/kubemoot/operator/pkg/crewscope"
 )
 
 type fakeReader struct {

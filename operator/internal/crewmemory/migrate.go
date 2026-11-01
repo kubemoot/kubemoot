@@ -22,15 +22,13 @@ import (
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
 	kubemootv1alpha1 "github.com/kubemoot/kubemoot/operator/api/v1alpha1"
-	"github.com/kubemoot/kubemoot/operator/internal/crewscope"
+	memory "github.com/kubemoot/kubemoot/operator/pkg/crewmemory"
+	"github.com/kubemoot/kubemoot/operator/pkg/crewscope"
 )
-
-// Bucket is the NATS KV bucket holding crew working memory.
-const Bucket = "kubemoot_crew_memory"
 
 // KV is the subset of the NATS publisher the migration uses.
 type KV interface {
-	Reader
+	memory.Reader
 	PutKVValue(bucket, key string, value []byte) error
 	DeleteKVKey(bucket, key string) error
 }
@@ -67,9 +65,9 @@ func (m *Migrator) Run(ctx context.Context, log logr.Logger) error {
 	if err := m.Reader.List(ctx, crews); err != nil {
 		return fmt.Errorf("list crews: %w", err)
 	}
-	keys, err := m.KV.ListKVKeys(Bucket)
+	keys, err := m.KV.ListKVKeys(memory.Bucket)
 	if err != nil {
-		return fmt.Errorf("list %s keys: %w", Bucket, err)
+		return fmt.Errorf("list %s keys: %w", memory.Bucket, err)
 	}
 	p := Plan(keys, NewIndex(crews.Items))
 	logLeftUnscoped(log, p)
@@ -105,7 +103,7 @@ func (m *Migrator) applyRenames(log logr.Logger, renames []Rename) int {
 // rename copies one value to its scoped key and deletes the unscoped key. An
 // existing scoped key wins; the unscoped copy is then only deleted.
 func (m *Migrator) rename(log logr.Logger, r Rename) bool {
-	value, err := m.KV.GetKVValue(Bucket, r.From)
+	value, err := m.KV.GetKVValue(memory.Bucket, r.From)
 	if err != nil {
 		log.V(1).Info("Crew memory key not read", "key", r.From, "error", err.Error())
 		return false
@@ -113,13 +111,13 @@ func (m *Migrator) rename(log logr.Logger, r Rename) bool {
 	if value == nil {
 		return false
 	}
-	if existing, _ := m.KV.GetKVValue(Bucket, r.To); existing == nil {
-		if err := m.KV.PutKVValue(Bucket, r.To, value); err != nil {
+	if existing, _ := m.KV.GetKVValue(memory.Bucket, r.To); existing == nil {
+		if err := m.KV.PutKVValue(memory.Bucket, r.To, value); err != nil {
 			log.Info("Crew memory key not renamed", "from", r.From, "to", r.To, "error", err.Error())
 			return false
 		}
 	}
-	if err := m.KV.DeleteKVKey(Bucket, r.From); err != nil {
+	if err := m.KV.DeleteKVKey(memory.Bucket, r.From); err != nil {
 		log.Info("Crew memory key copied but the unscoped key was not deleted", "key", r.From, "error", err.Error())
 	}
 	return true

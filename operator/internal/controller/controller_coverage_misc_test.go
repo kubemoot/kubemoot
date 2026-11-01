@@ -16,7 +16,7 @@ import (
 	"time"
 
 	kubemootv1alpha1 "github.com/kubemoot/kubemoot/operator/api/v1alpha1"
-	"github.com/kubemoot/kubemoot/operator/internal/crewscope"
+	"github.com/kubemoot/kubemoot/operator/pkg/crewscope"
 	"github.com/xuri/excelize/v2"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"

@@ -18,7 +18,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/kubemoot/kubemoot/operator/internal/crewmemory"
+	"github.com/kubemoot/kubemoot/operator/pkg/crewmemory"
 )
 
 const gpuKey = "ns.c.hardware.gpu0"

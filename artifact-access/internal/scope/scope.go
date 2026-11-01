@@ -4,7 +4,7 @@
 // namespace's artifacts, even for a crew of the same name.
 //
 // IMPORTANT: namespace resolution and token validation are shared with
-// kubemoot/operator/internal/crewscope, kubemoot/discussion-gateway/internal/crewscope
+// kubemoot/operator/pkg/crewscope, kubemoot/discussion-gateway/internal/crewscope
 // and kubemoot/scheduling-mcp/internal/scope (per-module builds cannot share
 // source). If you change one, change the others.
 package scope
