@@ -39,6 +39,18 @@ func TestResumedThreadHasNoViolations(t *testing.T) {
 	}
 }
 
+func TestAnswerOnChannelAndBroadcastIsOneAnswer(t *testing.T) {
+	th := healthyThread("a")
+	th.copyOn(MsgSynthesis, "kubemoot.discuss.ns.crew.general.a").copyOn(MsgThreadClose, "kubemoot.discuss.ns.crew.general.a")
+	if vs := Evaluate(observe(1, th), protected(0, 0)); len(vs) != 0 {
+		t.Fatalf("the same answer and close on two subjects is one answer: %s", Summary(vs))
+	}
+	th.copyOn(MsgSynthesis, "kubemoot.discuss.ns.crew.general.a")
+	if vs := Evaluate(observe(1, th), protected(0, 0)); !strings.Contains(Summary(vs), "duplicate_message_id") {
+		t.Fatalf("the same answer twice on one subject is a repeat, got %s", Summary(vs))
+	}
+}
+
 func TestViolations(t *testing.T) {
 	dupSynth := healthyThread("a")
 	dupSynth.msgID(MsgSynthesis, "other-answer")

@@ -12,6 +12,9 @@ package coordchaos
 
 import (
 	"context"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 )
@@ -136,12 +139,23 @@ func TestConfiguredFlagsAndCounters(t *testing.T) {
 	if err != nil || f != (Flags{EventLog: true, Resume: true}) {
 		t.Fatalf("got %+v %v", f, err)
 	}
-	cs, err := c.Counters(context.Background(), Pod{Name: "p1"})
-	if err != nil || cs["fenced"] != 3 {
-		t.Fatalf("got %v %v", cs, err)
+}
+
+func TestHTTPGetReadsMetricsBody(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/q/metrics" {
+			http.NotFound(w, r)
+			return
+		}
+		_, _ = io.WriteString(w, sampleMetrics)
+	}))
+	defer srv.Close()
+	body, err := httpGet(context.Background(), srv.URL+"/q/metrics")
+	if err != nil || ParseCounters(body)["fenced"] != 3 {
+		t.Fatalf("got %v %v", ParseCounters(body), err)
 	}
-	if got := strings.Join(r.calls[len(r.calls)-1], " "); !strings.Contains(got, "/api/v1/namespaces/hello/pods/p1:8080/proxy/q/metrics") {
-		t.Fatalf("metrics path: %q", got)
+	if _, err := httpGet(context.Background(), srv.URL+"/missing"); err == nil {
+		t.Fatal("a non-200 answer must be an error")
 	}
 }
 

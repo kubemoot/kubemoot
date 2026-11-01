@@ -23,7 +23,9 @@ import (
 // process through its own handle; it never looks a process up by name.
 type PortForward struct {
 	// URL is the nats:// address on the local side.
-	URL    string
+	URL string
+	// Local is the local port the forward listens on.
+	Local  int
 	cancel context.CancelFunc
 	done   chan struct{}
 }
@@ -31,12 +33,19 @@ type PortForward struct {
 // StartPortForward forwards a free local port to the service's port and returns once
 // kubectl reports the forward is up. ready bounds that wait.
 func StartPortForward(ctx context.Context, k Kubectl, namespace, service string, port int, ready time.Duration) (*PortForward, error) {
+	return startForward(ctx, k, namespace, "svc/"+service, port, ready)
+}
+
+// startForward forwards a free local port to target ("svc/<name>" or "pod/<name>").
+// The forward goes through the kubelet, so NetworkPolicies do not block it, unlike the
+// API server's proxy, which reaches the pod over the pod network.
+func startForward(ctx context.Context, k Kubectl, namespace, target string, port int, ready time.Duration) (*PortForward, error) {
 	local, err := freePort()
 	if err != nil {
 		return nil, err
 	}
 	pctx, cancel := context.WithCancel(ctx)
-	cmd := k.Command(pctx, "port-forward", "-n", namespace, "svc/"+service, fmt.Sprintf("%d:%d", local, port))
+	cmd := k.Command(pctx, "port-forward", "-n", namespace, target, fmt.Sprintf("%d:%d", local, port))
 	out, err := cmd.StdoutPipe()
 	if err != nil {
 		cancel()
@@ -46,7 +55,7 @@ func StartPortForward(ctx context.Context, k Kubectl, namespace, service string,
 		cancel()
 		return nil, err
 	}
-	pf := &PortForward{URL: fmt.Sprintf("nats://127.0.0.1:%d", local), cancel: cancel, done: make(chan struct{})}
+	pf := &PortForward{URL: fmt.Sprintf("nats://127.0.0.1:%d", local), Local: local, cancel: cancel, done: make(chan struct{})}
 	up := make(chan struct{})
 	go func() {
 		defer close(pf.done)
@@ -65,10 +74,10 @@ func StartPortForward(ctx context.Context, k Kubectl, namespace, service string,
 		return pf, nil
 	case <-pf.done:
 		cancel()
-		return nil, fmt.Errorf("port-forward to %s/%s ended before it was ready", namespace, service)
+		return nil, fmt.Errorf("port-forward to %s/%s ended before it was ready", namespace, target)
 	case <-time.After(ready):
 		pf.Close()
-		return nil, fmt.Errorf("port-forward to %s/%s not ready after %s", namespace, service, ready)
+		return nil, fmt.Errorf("port-forward to %s/%s not ready after %s", namespace, target, ready)
 	}
 }
 
