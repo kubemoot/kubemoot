@@ -53,6 +53,8 @@ public class RequestQueueConsumer {
     // A request that keeps failing is dead-lettered after this many deliveries so one
     // poison request can never block the crew's FIFO queue.
     private static final int MAX_DELIVER = 3;
+    // With leases: how long a replica that does not hold the pump lease waits before it asks again.
+    private static final long PUMP_RETRY_MILLIS = 5_000;
     // Backoff before recreating the subscription after a consume-loop error.
     private static final long ERROR_RETRY_BACKOFF_MS = 10_000;
 
@@ -60,6 +62,9 @@ public class RequestQueueConsumer {
     private final DiscussionOrchestrator orchestrator;
     private final boolean coordinator;
     private final String crew;
+
+    // Visible for testing.
+    long pumpRetryMillis = PUMP_RETRY_MILLIS;
 
     private final AtomicBoolean shutdown = new AtomicBoolean(false);
     private Thread consumerThread;
@@ -126,6 +131,9 @@ public class RequestQueueConsumer {
 
     /** Fetch and process at most one message; returns the subscription to reuse, or null when none could be created. */
     private JetStreamSubscription pollOnce(JetStreamSubscription current) throws Exception {
+        if (!pumping(current)) {
+            return null;
+        }
         JetStreamSubscription subscription = current;
         if (subscription == null) {
             subscription = createSubscription();
@@ -144,6 +152,29 @@ public class RequestQueueConsumer {
             processMessage(msg);
         }
         return subscription;
+    }
+
+    /**
+     * With leases, only the replica that holds the crew's pump lease pulls requests, and it alone
+     * resets the durable consumer when it takes the lease over: the other replicas wait and watch,
+     * so they never delete the consumer out from under the one that works. A request goes to the
+     * pump and the pump's replica owns the thread it starts. Without leases this is always true.
+     */
+    // Visible for testing.
+    boolean pumping(JetStreamSubscription current) throws InterruptedException {
+        if (holdsPump()) {
+            return true;
+        }
+        if (current != null) {
+            current.unsubscribe();
+        }
+        Thread.sleep(pumpRetryMillis);
+        return false;
+    }
+
+    // Visible for testing. True when this replica holds (or just took) the crew's pump lease; always true without leases.
+    boolean holdsPump() {
+        return orchestrator.leases().acquire(CoordinatorLeases.PUMP);
     }
 
     /** Sleep out the error backoff; false when interrupted. */

@@ -3,8 +3,6 @@ package ai.kubemoot.agent.lease;
 import io.nats.client.Connection;
 import io.nats.client.JetStreamApiException;
 import io.nats.client.KeyValue;
-import io.nats.client.api.KeyValueEntry;
-import io.nats.client.api.KeyValueOperation;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -58,12 +56,6 @@ public final class KvLeaseStore implements LeaseStore {
                 throw e;
             }
         }
-    }
-
-    @Override
-    public boolean isHeld(String key) throws IOException, JetStreamApiException {
-        KeyValueEntry entry = kv.get(key);
-        return entry != null && entry.getOperation() == KeyValueOperation.PUT;
     }
 
     /** True when the write lost because the key exists or changed, not because JetStream failed. */

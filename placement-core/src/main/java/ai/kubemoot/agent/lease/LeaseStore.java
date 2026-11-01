@@ -20,7 +20,4 @@ public interface LeaseStore {
 
     /** Gives the lease on {@code key} up if {@code revision} is still the latest write. */
     void release(String key, long revision) throws Exception;
-
-    /** True while some holder's entry exists for {@code key}: the lease is held and has not lapsed. */
-    boolean isHeld(String key) throws Exception;
 }

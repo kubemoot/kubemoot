@@ -137,6 +137,13 @@ spec:
               nats kv add kubemoot_latency --history=1 --max-bucket-size=1048576 -s "$NATS_URL" 2>/dev/null || true
               nats kv add kubemoot_config -s "$NATS_URL" 2>/dev/null || true
               nats kv add kubemoot_conversations --ttl=24h --history=1 --max-value-size=65536 -s "$NATS_URL" 2>/dev/null || true
+{{- if (.Values.coordinator | default dict).lease }}
+              # The coordinators' thread leases (coordinator.lease): one key per thread a
+              # replica owns plus one per crew for the request pump. The TTL is the lease: an owner
+              # renews every 5s, and a key not renewed within 15s is dropped so another replica
+              # takes the thread. It must equal CoordinatorLeases.LEASE in agent-runtime.
+              nats kv add kubemoot_coordinator_leases --ttl=15s --history=1 -s "$NATS_URL" 2>/dev/null || true
+{{- end }}
               # Crew working memory: per-cluster facts the crew learns at runtime
               # (e.g. discovered label/topology mappings). Keys crew-scoped
               # (<crew>.<topic>.<key>). GC is layered: (1) the agent-runtime

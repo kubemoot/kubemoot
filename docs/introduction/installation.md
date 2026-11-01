@@ -170,6 +170,7 @@ coordinator:
   eventLog: true       # each coordinator writes its decisions to a log before acting on them
   resume: true         # a restarted coordinator picks up its threads from that log (needs eventLog; one replica)
   resumeMaxAge: 30m    # a thread idle longer than this is closed, not resumed; 0 for no limit
+  lease: false         # true lets more than one coordinator replica run (needs eventLog and resume)
 
 nats:
   streams:
@@ -180,7 +181,10 @@ nats:
 ```
 
 `coordinator.eventLog` and `coordinator.resume` are described in [The coordinator log](../../concepts/signals-and-protocol/#the-coordinator-log),
-which also says how to size the stream values. The job that creates the NATS streams
+which also says how to size the stream values. `coordinator.lease` is described in
+[Leases and more than one replica](../../concepts/signals-and-protocol/#leases-and-more-than-one-replica):
+turn it on, then set `spec.deployment.replicas: 2` on a crew's coordinator Agent for a coordinator that
+survives a node loss or a rolling update without losing the discussions in flight. The job that creates the NATS streams
 applies `nats.streams.discuss.*` on every install and upgrade, to an existing stream too.
 
 ### Optional: the dashboard

@@ -32,6 +32,7 @@ final class ThreadRebuilder {
         state.userQuery = log.userQuery;
         state.primaryChannel = log.primaryChannel;
         state.requestSeq = log.requestSeq;
+        state.discussSeq = log.discussSeq;
         state.phase = Phase.valueOf(log.phase);
         state.phaseBeforePause = log.phaseBeforePause == null ? null : Phase.valueOf(log.phaseBeforePause);
         state.phaseStarted = state.threadCreated;

@@ -7,7 +7,6 @@ import java.time.Duration;
 import java.util.concurrent.atomic.AtomicLong;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -39,7 +38,7 @@ class FakeLeaseBucketTest {
         long second = a.renew("t1", "a", first);
         assertTrue(second > first);
         clock.addAndGet(TTL - 1);
-        assertTrue(a.isHeld("t1"), "a renewed lease outlives the first TTL");
+        assertEquals("a", bucket.holder("t1"), "a renewed lease outlives the first TTL");
         assertEquals(LeaseStore.NOT_HELD, a.renew("t1", "a", first), "a stale revision loses");
     }
 
@@ -47,7 +46,6 @@ class FakeLeaseBucketTest {
     void anUnrenewedLeaseLapsesAndAnotherHolderTakesIt() throws Exception {
         long first = a.acquire("t1", "a");
         clock.addAndGet(TTL);
-        assertFalse(b.isHeld("t1"));
         assertNull(bucket.holder("t1"));
         assertTrue(b.acquire("t1", "b") > 0);
         assertEquals(LeaseStore.NOT_HELD, a.renew("t1", "a", first), "the deposed holder cannot renew");
@@ -58,9 +56,9 @@ class FakeLeaseBucketTest {
         long first = a.acquire("t1", "a");
         long second = a.renew("t1", "a", first);
         a.release("t1", first);
-        assertTrue(a.isHeld("t1"), "a stale revision does not release");
+        assertEquals("a", bucket.holder("t1"), "a stale revision does not release");
         a.release("t1", second);
-        assertFalse(a.isHeld("t1"));
+        assertNull(bucket.holder("t1"));
         assertTrue(b.acquire("t1", "b") > 0);
     }
 
@@ -68,6 +66,6 @@ class FakeLeaseBucketTest {
     void anUnreachableBucketFailsEveryCall() {
         bucket.setUnreachable(true);
         assertThrows(IOException.class, () -> a.acquire("t1", "a"));
-        assertThrows(IOException.class, () -> a.isHeld("t1"));
+        assertThrows(IOException.class, () -> a.release("t1", 1));
     }
 }

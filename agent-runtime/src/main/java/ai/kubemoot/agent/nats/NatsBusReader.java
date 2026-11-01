@@ -5,9 +5,13 @@ import io.nats.client.JetStreamApiException;
 import io.nats.client.JetStreamSubscription;
 import io.nats.client.Message;
 import io.nats.client.PushSubscribeOptions;
+import io.nats.client.api.ConsumerConfiguration;
+import io.nats.client.api.DeliverPolicy;
 
 import java.io.IOException;
 import java.time.Duration;
+import java.time.Instant;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -33,13 +37,25 @@ final class NatsBusReader implements BusReader {
 
     @Override
     public List<BusMessage> readAll(String stream, String filterSubject) throws IOException {
+        return read(stream, filterSubject, PushSubscribeOptions.builder().stream(stream).ordered(true).build());
+    }
+
+    @Override
+    public List<BusMessage> readSince(String stream, String filterSubject, Instant since) throws IOException {
+        var config = ConsumerConfiguration.builder().deliverPolicy(DeliverPolicy.ByStartTime)
+                .startTime(since.atZone(ZoneOffset.UTC)).build();
+        return read(stream, filterSubject,
+                PushSubscribeOptions.builder().stream(stream).ordered(true).configuration(config).build());
+    }
+
+    private List<BusMessage> read(String stream, String filterSubject, PushSubscribeOptions options)
+            throws IOException {
         Connection conn = natsProvider.getConnection();
         if (conn == null) {
             throw new IOException("no NATS connection");
         }
         var out = new ArrayList<BusMessage>();
         try {
-            var options = PushSubscribeOptions.builder().stream(stream).ordered(true).build();
             JetStreamSubscription sub = conn.jetStream().subscribe(filterSubject, options);
             try {
                 drain(sub, out);

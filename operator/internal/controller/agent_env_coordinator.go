@@ -28,6 +28,26 @@ const envCoordinatorResume = "KUBEMOOT_COORDINATOR_RESUME"
 // to resume it, as a Go duration; "0" turns the limit off. Set with envCoordinatorResume.
 const envCoordinatorResumeMaxAge = "KUBEMOOT_COORDINATOR_RESUME_MAX_AGE"
 
+// envCoordinatorLease lets more than one coordinator replica run: each owns the threads it holds
+// a lease for, and a thread whose owner stopped is taken over through resume. The runtime
+// ignores it unless resume is on. It is absent when the realm leaves leases off.
+const envCoordinatorLease = "KUBEMOOT_COORDINATOR_LEASE"
+
+// coordinatorLeaseEnvVars returns the lease env var when the realm (KubemootConfig
+// spec.coordinator.lease, with resume and the log on) turns leases on, and nothing otherwise.
+// An Agent's own spec.deployment.env is appended after it and wins.
+func (r *AgentReconciler) coordinatorLeaseEnvVars() []corev1.EnvVar {
+	if !r.coordinatorLeasesOn() {
+		return nil
+	}
+	return []corev1.EnvVar{{Name: envCoordinatorLease, Value: valueTrue}}
+}
+
+// coordinatorLeasesOn reports whether the realm lets coordinator replicas share threads by lease.
+func (r *AgentReconciler) coordinatorLeasesOn() bool {
+	return r.ConfigCache != nil && r.ConfigCache.GetCoordinatorLease()
+}
+
 // coordinatorResumeEnvVars returns the resume env var when the realm
 // (KubemootConfig spec.coordinator.resume) turns resume on, and nothing otherwise.
 // An Agent's own spec.deployment.env is appended after it and wins.

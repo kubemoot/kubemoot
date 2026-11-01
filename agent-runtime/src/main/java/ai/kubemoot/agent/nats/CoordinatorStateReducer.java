@@ -70,6 +70,7 @@ final class CoordinatorStateReducer {
         }
         state.threadId = event.threadId();
         state.lastEventAt = event.at();
+        state.discussSeq = Math.max(state.discussSeq, event.data().path(CoordinatorWire.DISCUSS_SEQ).asLong(0));
         handler.accept(state, event);
         return true;
     }

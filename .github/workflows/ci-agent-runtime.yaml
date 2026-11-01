@@ -57,7 +57,7 @@ jobs:
         working-directory: agent-runtime
         run: chmod +x gradlew
 
-      # CoordinatorResumeIT and NatsKvConsumerNamesIT run against a real nats-server process on
+      # CoordinatorResumeIT, CoordinatorLeaseIT and NatsKvConsumerNamesIT run against a real nats-server process on
       # the runner (no cluster); without NATS_SERVER_BIN they skip. The binary is pinned by
       # version and checked against the SHA-256 of the project's published release.
       - name: Install nats-server
@@ -80,7 +80,7 @@ jobs:
       - name: Check the nats-server integration tests ran
         working-directory: agent-runtime
         run: |
-          for suite in CoordinatorResumeIT NatsKvConsumerNamesIT; do
+          for suite in CoordinatorResumeIT CoordinatorLeaseIT NatsKvConsumerNamesIT; do
             report="build/test-results/test/TEST-ai.kubemoot.agent.nats.${suite}.xml"
             if ! grep -Eq 'tests="[1-9][0-9]*" skipped="0" failures="0" errors="0"' "${report}"; then
               echo "::error::${suite} did not run to success against nats-server (skipped, failed or missing)"
