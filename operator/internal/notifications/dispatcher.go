@@ -24,9 +24,9 @@ import (
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
 	kubemootv1alpha1 "github.com/kubemoot/kubemoot/operator/api/v1alpha1"
-	"github.com/kubemoot/kubemoot/operator/internal/crewscope"
 	kubemootnats "github.com/kubemoot/kubemoot/operator/internal/nats"
 	"github.com/kubemoot/kubemoot/operator/pkg/bus"
+	"github.com/kubemoot/kubemoot/operator/pkg/crewscope"
 )
 
 // DiscussionSubjectWildcard is the NATS subject the dispatcher subscribes

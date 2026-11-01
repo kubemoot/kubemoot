@@ -16,8 +16,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kubemoot/kubemoot/operator/internal/crewmemory"
-	"github.com/kubemoot/kubemoot/operator/internal/crewscope"
+	"github.com/kubemoot/kubemoot/operator/pkg/crewmemory"
+	"github.com/kubemoot/kubemoot/operator/pkg/crewscope"
 )
 
 const (

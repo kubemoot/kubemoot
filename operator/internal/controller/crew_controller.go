@@ -43,10 +43,10 @@ import (
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
 	kubemootv1alpha1 "github.com/kubemoot/kubemoot/operator/api/v1alpha1"
-	"github.com/kubemoot/kubemoot/operator/internal/crewmemory"
-	"github.com/kubemoot/kubemoot/operator/internal/crewscope"
 	kubemootnats "github.com/kubemoot/kubemoot/operator/internal/nats"
 	"github.com/kubemoot/kubemoot/operator/internal/netpol"
+	"github.com/kubemoot/kubemoot/operator/pkg/crewmemory"
+	"github.com/kubemoot/kubemoot/operator/pkg/crewscope"
 )
 
 // crewMemoryBucket is the NATS KV bucket holding crew working memory; keys are

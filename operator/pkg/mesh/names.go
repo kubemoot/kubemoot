@@ -17,7 +17,7 @@ import (
 )
 
 // The names the sidecar uses on the bus. The formats are the bus contract's (asyncapi.yaml);
-// the operator's internal/crewscope builds the same subjects for its own use.
+// the operator's pkg/crewscope builds the same subjects for its own use.
 const (
 	// AgentStateBucket is the KV bucket holding each agent's liveness heartbeat.
 	AgentStateBucket = "kubemoot_agent_state"

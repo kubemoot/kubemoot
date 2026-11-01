@@ -45,9 +45,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	kubemootv1alpha1 "github.com/kubemoot/kubemoot/operator/api/v1alpha1"
-	"github.com/kubemoot/kubemoot/operator/internal/crewscope"
 	kubemootnats "github.com/kubemoot/kubemoot/operator/internal/nats"
 	"github.com/kubemoot/kubemoot/operator/internal/netpol"
+	"github.com/kubemoot/kubemoot/operator/pkg/crewscope"
 )
 
 const maxReportTrials = 20

@@ -12,8 +12,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/kubemoot/kubemoot/operator/internal/crewscope"
 	"github.com/kubemoot/kubemoot/operator/pkg/bus"
+	"github.com/kubemoot/kubemoot/operator/pkg/crewscope"
 )
 
 func TestBuildPayload_PopulatesCoreFields(t *testing.T) {
