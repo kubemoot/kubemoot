@@ -107,9 +107,16 @@ func Matrix(m Mode) []Case {
 
 // Select keeps the cases whose name contains one of the filters (all when empty).
 func Select(cases []Case, filters []string) ([]Case, error) {
-	if len(filters) == 0 {
+	var kept []string
+	for _, f := range filters {
+		if f = strings.TrimSpace(f); f != "" {
+			kept = append(kept, f)
+		}
+	}
+	if len(kept) == 0 {
 		return cases, nil
 	}
+	filters = kept
 	var out []Case
 	for _, c := range cases {
 		for _, f := range filters {

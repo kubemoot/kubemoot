@@ -149,6 +149,31 @@ func TestNATSBusSeesLaterWritesAfterCatchUp(t *testing.T) {
 	}
 }
 
+func TestNATSBusWithAZeroStartReadsOnlyWhatIsWrittenAfterwards(t *testing.T) {
+	url := startNATS(t)
+	js, _ := provision(t, url)
+	publish(t, js, "kubemoot.coordinator.hello.hello.old-thread",
+		`{"v":1,"eventId":"old/opened","type":"thread_opened","threadId":"old-thread","data":{"conversationId":"old"}}`)
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	bus, err := DialBus(ctx, url, "hello", "hello", time.Time{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer bus.Close()
+	publish(t, js, "kubemoot.coordinator.hello.hello.new-thread",
+		`{"v":1,"eventId":"new/opened","type":"thread_opened","threadId":"new-thread","data":{"conversationId":"new"}}`)
+	if err := bus.CatchUp(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if bus.Store().Thread("old-thread").Has(EvThreadOpened) {
+		t.Fatal("read an event written before the consumers started")
+	}
+	if !bus.Store().Thread("new-thread").Has(EvThreadOpened) {
+		t.Fatal("missed an event written after the consumers started")
+	}
+}
+
 func TestNATSBusLeaseHolder(t *testing.T) {
 	url := startNATS(t)
 	provision(t, url)

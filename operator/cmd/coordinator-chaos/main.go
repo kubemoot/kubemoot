@@ -59,7 +59,7 @@ func parseOptions(args []string) (options, error) {
 	fs.BoolVar(&o.list, "list", false, "print the matrix and exit")
 	fs.BoolVar(&o.preflightOnly, "preflight", false, "check the flags and the cluster, then exit without a fault")
 	fs.DurationVar(&o.pointTimeout, "point-timeout", 10*time.Minute, "safety net: wait for a kill point")
-	fs.DurationVar(&o.settleTimeout, "settle-timeout", 10*time.Minute, "safety net: wait after the fault for the close")
+	fs.DurationVar(&o.settleTimeout, "settle-timeout", 0, "safety net after the fault (default 10m, control 3m)")
 	fs.DurationVar(&o.quiet, "quiet", 10*time.Second, "watch for a late duplicate this long after the close")
 	if err := fs.Parse(args); err != nil {
 		return o, err
@@ -79,6 +79,12 @@ func (o *options) validate() error {
 	}
 	if o.agent == "" {
 		o.agent = o.crew + "-coordinator"
+	}
+	if o.settleTimeout == 0 {
+		o.settleTimeout = 10 * time.Minute
+		if o.mode == string(coordchaos.ModeControl) {
+			o.settleTimeout = 3 * time.Minute
+		}
 	}
 	if o.mode != string(coordchaos.ModeProtected) && o.mode != string(coordchaos.ModeControl) {
 		return fmt.Errorf("--mode must be protected or control")
@@ -173,6 +179,9 @@ func execute(ctx context.Context, o options, k coordchaos.Kubectl, cluster *coor
 	}
 	defer restore(cluster, signaler, original)
 	url := o.natsURL
+	if url != "" {
+		logf("note: NATS at %s is read as given; --context %s does not bound it", url, o.kctx)
+	}
 	if url == "" {
 		pf, err := coordchaos.StartPortForward(ctx, k, o.natsNamespace, o.natsService, 4222, time.Minute)
 		if err != nil {
@@ -182,7 +191,7 @@ func execute(ctx context.Context, o options, k coordchaos.Kubectl, cluster *coor
 		defer pf.Close()
 		url = pf.URL
 	}
-	bus, err := coordchaos.DialBus(ctx, url, o.namespace, o.crew, started.Add(-5*time.Second))
+	bus, err := coordchaos.DialBus(ctx, url, o.namespace, o.crew, time.Time{})
 	if err != nil {
 		logf("%v", err)
 		return coordchaos.ExitRefused
@@ -213,7 +222,9 @@ func restore(cluster *coordchaos.KubeCluster, signaler *coordchaos.NodeSignaler,
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 	if pods, err := cluster.CoordinatorPods(ctx); err == nil {
-		signaler.ContinueAll(ctx, pods)
+		for _, err := range signaler.ContinueAll(ctx, pods) {
+			logf("a coordinator may still be frozen: %v", err)
+		}
 	}
 	if err := cluster.SetReplicas(ctx, replicas); err != nil {
 		logf("restoring replicas to %d: %v", replicas, err)

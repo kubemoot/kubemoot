@@ -132,22 +132,22 @@ func TestSynthesisDoneStopsHoldingOncePublished(t *testing.T) {
 func TestMessageFrontiersForControlMode(t *testing.T) {
 	b := newBuilder("a")
 	b.msg(MsgThreadStart)
-	if !PointThreadOpened.Holds(b.thread()) {
+	if !PointThreadOpened.HoldsMsgs(b.thread()) {
 		t.Fatal("thread_start alone is the opened point")
 	}
 	b.msg(MsgAdvisoryReady)
-	if !PointEvaluationStarted.Holds(b.thread()) || PointThreadOpened.Holds(b.thread()) {
+	if !PointEvaluationStarted.HoldsMsgs(b.thread()) || PointThreadOpened.HoldsMsgs(b.thread()) {
 		t.Fatal("advisory_ready moves to evaluation")
 	}
 	b.msg("agree")
-	if !PointSynthesisStarted.Holds(b.thread()) || PointEvaluationStarted.Holds(b.thread()) {
+	if !PointSynthesisStarted.HoldsMsgs(b.thread()) || PointEvaluationStarted.HoldsMsgs(b.thread()) {
 		t.Fatal("a terminal signal moves to synthesis")
 	}
 	b.msg(MsgSynthesis)
-	if PointSynthesisStarted.Holds(b.thread()) {
+	if PointSynthesisStarted.HoldsMsgs(b.thread()) {
 		t.Fatal("the answer ends synthesis")
 	}
-	if PointSynthesisDone.Holds(b.thread()) {
+	if PointSynthesisDone.HoldsMsgs(b.thread()) {
 		t.Fatal("no log, no synthesis_done point")
 	}
 }

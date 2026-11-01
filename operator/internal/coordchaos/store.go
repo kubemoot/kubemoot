@@ -13,6 +13,7 @@ package coordchaos
 import (
 	"sort"
 	"sync"
+	"time"
 )
 
 // Store collects what the watchers read: the coordinator log events and the discussion
@@ -86,30 +87,30 @@ func (s *Store) Thread(id string) Thread {
 func (s *Store) ThreadsFor(conversationID string) []string {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	seen := map[string]uint64{}
+	seen := map[string]time.Time{}
 	for i := range s.msgs {
 		m := s.msgs[i]
 		if m.MessageType == MsgThreadStart && m.ConversationID == conversationID {
-			noteFirst(seen, m.ThreadID, m.Seq)
+			noteFirst(seen, m.ThreadID, m.Seen)
 		}
 	}
 	for i := range s.events {
 		e := s.events[i]
 		if e.Type == EvThreadOpened && e.Data.ConversationID == conversationID {
-			noteFirst(seen, e.ThreadID, e.Seq)
+			noteFirst(seen, e.ThreadID, e.Seen)
 		}
 	}
 	ids := make([]string, 0, len(seen))
 	for id := range seen {
 		ids = append(ids, id)
 	}
-	sort.Slice(ids, func(a, b int) bool { return seen[ids[a]] < seen[ids[b]] })
+	sort.Slice(ids, func(a, b int) bool { return seen[ids[a]].Before(seen[ids[b]]) })
 	return ids
 }
 
-func noteFirst(m map[string]uint64, id string, seq uint64) {
-	if _, ok := m[id]; !ok {
-		m[id] = seq
+func noteFirst(m map[string]time.Time, id string, at time.Time) {
+	if first, ok := m[id]; !ok || at.Before(first) {
+		m[id] = at
 	}
 }
 

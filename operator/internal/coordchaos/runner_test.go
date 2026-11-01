@@ -159,18 +159,19 @@ func (a *fakeAsked) Syntheses() int {
 }
 
 type harness struct {
-	t         *testing.T
-	store     *Store
-	mu        sync.Mutex
-	sims      []*sim
-	hold      map[string]time.Duration
-	instant   bool
-	pods      []Pod
-	signals   []string
-	kills     []string
-	trials    int
-	duplicate bool
-	resumeIn  time.Duration
+	t          *testing.T
+	store      *Store
+	mu         sync.Mutex
+	sims       []*sim
+	hold       map[string]time.Duration
+	instant    bool
+	pods       []Pod
+	signals    []string
+	kills      []string
+	trials     int
+	duplicate  bool
+	noCounters bool
+	resumeIn   time.Duration
 }
 
 func newHarness(t *testing.T, replicas int) *harness {
@@ -248,7 +249,14 @@ func (h *harness) Signal(_ context.Context, _ Pod, sig string) error {
 	return nil
 }
 
-func (h *harness) Counters(context.Context, Pod) (Counters, error) { return Counters{}, nil }
+func (h *harness) Counters(context.Context, Pod) (Counters, error) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.noCounters && len(h.kills)+len(h.signals) > 0 {
+		return nil, context.DeadlineExceeded
+	}
+	return Counters{}, nil
+}
 
 func (h *harness) Ask(_ context.Context, _ string) (Asked, error) {
 	h.mu.Lock()

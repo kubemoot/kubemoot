@@ -77,6 +77,9 @@ func (s *NodeSignaler) podOn(ctx context.Context, node string) (string, error) {
 	if len(name) > 60 {
 		name = name[:60]
 	}
+	if err := s.claim(ctx); err != nil {
+		return "", err
+	}
 	if _, err := s.K.Run(ctx, []byte(s.manifest(name, node)), "apply", "-f", "-"); err != nil {
 		return "", fmt.Errorf("creating the signaling pod on %s (the namespace %s must admit a privileged pod): %w", node, s.Namespace, err)
 	}
@@ -99,6 +102,7 @@ metadata:
   name: %[1]s
   labels:
     pod-security.kubernetes.io/enforce: privileged
+    app.kubernetes.io/managed-by: coordinator-chaos
 ---
 apiVersion: v1
 kind: Pod
@@ -124,22 +128,72 @@ spec:
 `, s.Namespace, name, node, s.Image)
 }
 
-// ContinueAll sends CONT to the pods, so a coordinator the run froze is never left frozen.
-// It does nothing when the run never created a signaling pod.
-func (s *NodeSignaler) ContinueAll(ctx context.Context, pods []Pod) {
+// ContinueAll sends CONT to the pods, so a coordinator the run froze is not left frozen,
+// and returns the failures. It does nothing when the run never created a signaling pod.
+func (s *NodeSignaler) ContinueAll(ctx context.Context, pods []Pod) []error {
 	s.mu.Lock()
 	used := len(s.pods) > 0
 	s.mu.Unlock()
 	if !used {
-		return
+		return nil
 	}
+	var errs []error
 	for _, p := range pods {
-		_ = s.Signal(ctx, p, sigCont)
+		if err := s.Signal(ctx, p, sigCont); err != nil {
+			errs = append(errs, fmt.Errorf("CONT to %s: %w", p.Name, err))
+		}
 	}
+	return errs
 }
 
-// Cleanup deletes the signaling pods. Run it when the run ends.
+const ownerLabel = "coordinator-chaos"
+
+// namespaceOwner reports whether the signaling namespace exists and whether the chaos
+// test made it (it carries the managed-by label the manifest sets).
+func (s *NodeSignaler) namespaceOwner(ctx context.Context) (exists, ours bool, err error) {
+	out, err := s.K.Run(ctx, nil, "get", "namespace", s.Namespace, "--ignore-not-found", "-o", "name")
+	if err != nil || strings.TrimSpace(string(out)) == "" {
+		return false, false, err
+	}
+	label, err := s.K.Run(ctx, nil, "get", "namespace", s.Namespace, "-o",
+		`jsonpath={.metadata.labels.app\.kubernetes\.io/managed-by}`)
+	if err != nil {
+		return true, false, err
+	}
+	return true, strings.TrimSpace(string(label)) == ownerLabel, nil
+}
+
+// claim refuses a namespace that exists and is not the signaler's own, so a typo in
+// --signal-namespace cannot relax the pod security of kube-system or a crew namespace.
+func (s *NodeSignaler) claim(ctx context.Context) error {
+	exists, ours, err := s.namespaceOwner(ctx)
+	if err != nil {
+		return err
+	}
+	if exists && !ours {
+		return fmt.Errorf("namespace %s exists and was not created by the chaos test; pick another --signal-namespace", s.Namespace)
+	}
+	return nil
+}
+
+// Cleanup deletes the signaling pods and, when the run created one, the namespace. It
+// deletes the namespace only if it carries the label the test sets, and never when no
+// signaling pod was made.
 func (s *NodeSignaler) Cleanup(ctx context.Context) error {
-	_, err := s.K.Run(ctx, nil, "delete", "pod", "-n", s.Namespace, "-l", debugLabel, "--ignore-not-found", "--grace-period=0", "--force")
+	s.mu.Lock()
+	used := len(s.pods) > 0
+	s.mu.Unlock()
+	if !used {
+		return nil
+	}
+	if _, err := s.K.Run(ctx, nil, "delete", "pod", "-n", s.Namespace, "-l", debugLabel, "--ignore-not-found",
+		"--grace-period=0", "--force"); err != nil {
+		return err
+	}
+	exists, ours, err := s.namespaceOwner(ctx)
+	if err != nil || !exists || !ours {
+		return err
+	}
+	_, err = s.K.Run(ctx, nil, "delete", "namespace", s.Namespace, "--ignore-not-found", "--wait=false")
 	return err
 }

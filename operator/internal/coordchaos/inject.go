@@ -104,7 +104,7 @@ func (r *Runner) landed(ctx context.Context, c Case, f fault) bool {
 	if err := r.Bus.CatchUp(ctx); err != nil {
 		return false
 	}
-	return c.Point.Holds(r.Bus.Store().Thread(f.thread))
+	return c.Point.HoldsIn(r.Bus.Store().Thread(f.thread), c.Mode)
 }
 
 // settle waits for the thread to close and the asker to have its answer. A zombie is
@@ -174,17 +174,17 @@ func (r *Runner) finish(ctx context.Context, c Case, asked Asked, f fault, befor
 		return t
 	}
 	obs := r.observe(asked, c.Mode)
-	if after, err := r.snapshotCounters(ctx); err == nil {
-		obs.Metrics = Delta(before, after)
-		t.Metrics = obs.Metrics
-	} else {
-		t.Notes = append(t.Notes, "counters not read after the trial: "+err.Error())
-	}
+	unreadable := r.readCounters(ctx, c.Mode, before, &obs, &t)
 	exp := c.Expect()
-	if c.Action != ActionNone && !f.injected {
+	switch {
+	case c.Action != ActionNone && !f.injected:
 		exp.ResumedMin, exp.ResumedMax = 0, 0
+	case c.Action != ActionNone && !t.Landed:
+		// The coordinator got past the point before it stopped. If it had already
+		// closed the thread there is nothing to resume.
+		exp.ResumedMin, exp.ResumedMax = 0, 1
 	}
-	t.Violations = Evaluate(obs, exp)
+	t.Violations = append(Evaluate(obs, exp), unreadable...)
 	t.Threads = threadIDs(obs)
 	if len(obs.Threads) > 0 {
 		t.LogTypes = obs.Threads[0].Types()
@@ -193,6 +193,41 @@ func (r *Runner) finish(ctx context.Context, c Case, asked Asked, f fault, befor
 		t.AnswerSeconds, t.ClosedSeconds = r.recovery(obs, f.at)
 	}
 	return t
+}
+
+// defaultMetricsWait is the safety net for the replacement coordinator to serve its counters.
+const defaultMetricsWait = 2 * time.Minute
+
+func (r *Runner) metricsWait() time.Duration {
+	if r.Cfg.MetricsWait > 0 {
+		return r.Cfg.MetricsWait
+	}
+	return defaultMetricsWait
+}
+
+// readCounters reads the counters after the trial, waiting for a replacement pod to
+// serve them. In protected mode counters that cannot be read are a violation, because
+// the metrics check could not fail without them.
+func (r *Runner) readCounters(ctx context.Context, mode Mode, before map[string]Counters, obs *Observation,
+	t *Trial) []Violation {
+	mctx, cancel := context.WithTimeout(ctx, r.metricsWait())
+	defer cancel()
+	var after map[string]Counters
+	err := r.poll(mctx, "the coordinator counters", func() (bool, error) {
+		var rerr error
+		after, rerr = r.snapshotCounters(mctx)
+		return rerr == nil, nil
+	})
+	if err == nil {
+		obs.Metrics = Delta(before, after)
+		t.Metrics = obs.Metrics
+		return nil
+	}
+	t.Notes = append(t.Notes, "counters not read after the trial: "+err.Error())
+	if mode == ModeProtected && ctx.Err() == nil {
+		return []Violation{{Check: "metrics_unreadable", Detail: "the coordinator counters could not be read after the trial"}}
+	}
+	return nil
 }
 
 // observe collects the state the checks read.

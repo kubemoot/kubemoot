@@ -41,8 +41,9 @@ type watcher struct {
 	processed atomic.Uint64
 }
 
-// DialBus connects to NATS at url and starts reading everything the crew's streams hold
-// from since on.
+// DialBus connects to NATS at url and starts reading the crew's streams: from since on, or,
+// when since is zero, only what is written after the consumers start. The zero form compares
+// no clocks, so it holds when the host and the server disagree on the time.
 func DialBus(ctx context.Context, url, namespace, crew string, since time.Time, opts ...nats.Option) (*NATSBus, error) {
 	nc, err := nats.Connect(url, append([]nats.Option{nats.Name("coordinator-chaos")}, opts...)...)
 	if err != nil {
@@ -66,11 +67,11 @@ func DialBus(ctx context.Context, url, namespace, crew string, since time.Time, 
 }
 
 func (b *NATSBus) watch(ctx context.Context, stream, subject string, since time.Time, h func(jetstream.Msg)) (*watcher, error) {
-	cons, err := b.js.OrderedConsumer(ctx, stream, jetstream.OrderedConsumerConfig{
-		FilterSubjects: []string{subject},
-		DeliverPolicy:  jetstream.DeliverByStartTimePolicy,
-		OptStartTime:   &since,
-	})
+	cfg := jetstream.OrderedConsumerConfig{FilterSubjects: []string{subject}, DeliverPolicy: jetstream.DeliverNewPolicy}
+	if !since.IsZero() {
+		cfg.DeliverPolicy, cfg.OptStartTime = jetstream.DeliverByStartTimePolicy, &since
+	}
+	cons, err := b.js.OrderedConsumer(ctx, stream, cfg)
 	if err != nil {
 		return nil, fmt.Errorf("reading stream %s: %w", stream, err)
 	}
