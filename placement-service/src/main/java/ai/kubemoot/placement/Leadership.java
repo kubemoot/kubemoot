@@ -1,5 +1,7 @@
 package ai.kubemoot.placement;
 
+import ai.kubemoot.agent.lease.KvLeaseStore;
+import ai.kubemoot.agent.lease.LeaseStore;
 import jakarta.annotation.PreDestroy;
 import jakarta.inject.Inject;
 import jakarta.inject.Singleton;
@@ -39,6 +41,9 @@ import java.util.function.LongSupplier;
 public class Leadership {
 
     private static final Logger log = LoggerFactory.getLogger(Leadership.class);
+    /** The bucket the chart creates for the lease, with a TTL equal to the lease. */
+    static final String LEADER_BUCKET = "kubemoot_placement_leader";
+    private static final String LEASE_KEY = "leader";
 
     /** What the service does when this replica gains or loses the lease. */
     interface Callbacks {
@@ -75,7 +80,7 @@ public class Leadership {
 
     @Inject
     public Leadership(ServiceSettings settings, NatsConnection nats) {
-        this(settings, () -> new KvLeaseStore(nats.require()), System::nanoTime);
+        this(settings, () -> new KvLeaseStore(nats.require(), LEADER_BUCKET), System::nanoTime);
     }
 
     Leadership(ServiceSettings settings, StoreSource storeSource, LongSupplier nanoClock) {
@@ -130,7 +135,7 @@ public class Leadership {
         // answer came back, so a slow answer shortens the fence instead of extending it.
         long sentAt = nanoClock.getAsLong();
         try {
-            long renewed = store().renew(settings.holderId(), revision);
+            long renewed = store().renew(LEASE_KEY, settings.holderId(), revision);
             if (renewed == LeaseStore.NOT_HELD) {
                 stepDown("another replica holds the lease");
                 return;
@@ -147,7 +152,7 @@ public class Leadership {
     private void contend() {
         try {
             long sentAt = nanoClock.getAsLong();
-            long acquired = store().acquire(settings.holderId());
+            long acquired = store().acquire(LEASE_KEY, settings.holderId());
             if (acquired == LeaseStore.NOT_HELD) {
                 return;
             }
@@ -189,7 +194,7 @@ public class Leadership {
         try {
             callbacks.demoted(true);
             if (store != null) {
-                store.release(revision);
+                store.release(LEASE_KEY, revision);
             }
         } catch (Exception e) {
             log.warn("Giving the lease back failed: {}", e.getMessage());
@@ -214,7 +219,7 @@ public class Leadership {
         }
         try {
             if (store != null) {
-                store.release(revision);
+                store.release(LEASE_KEY, revision);
             }
             log.info("Gave the placement lease up for a quick handover");
         } catch (Exception e) {

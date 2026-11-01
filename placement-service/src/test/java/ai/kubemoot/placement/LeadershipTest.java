@@ -1,5 +1,6 @@
 package ai.kubemoot.placement;
 
+import ai.kubemoot.agent.lease.LeaseStore;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -46,7 +47,7 @@ class LeadershipTest {
         LeaseStore storeFor() {
             return new LeaseStore() {
                 @Override
-                public long acquire(String who) throws Exception {
+                public long acquire(String key, String who) throws Exception {
                     synchronized (FakeLeaseBucket.this) {
                         check();
                         expire();
@@ -58,7 +59,7 @@ class LeadershipTest {
                 }
 
                 @Override
-                public long renew(String who, long expected) throws Exception {
+                public long renew(String key, String who, long expected) throws Exception {
                     synchronized (FakeLeaseBucket.this) {
                         check();
                         expire();
@@ -72,12 +73,21 @@ class LeadershipTest {
                 }
 
                 @Override
-                public void release(long expected) throws Exception {
+                public void release(String key, long expected) throws Exception {
                     synchronized (FakeLeaseBucket.this) {
                         check();
                         if (holder != null && revision == expected) {
                             holder = null;
                         }
+                    }
+                }
+
+                @Override
+                public boolean isHeld(String key) throws Exception {
+                    synchronized (FakeLeaseBucket.this) {
+                        check();
+                        expire();
+                        return holder != null;
                     }
                 }
             };
