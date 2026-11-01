@@ -1,5 +1,5 @@
 {
-  "version": "2.3.0",
+  "version": "2.4.0",
   "surface": {
     "agent-activity.json#": {
       "type": "object"
@@ -296,6 +296,9 @@
       "type": "null,string"
     },
     "coordinator-event.json#/definitions/CoordinatorEventFields/deadlineAt": {
+      "type": "integer"
+    },
+    "coordinator-event.json#/definitions/CoordinatorEventFields/discussSeq": {
       "type": "integer"
     },
     "coordinator-event.json#/definitions/CoordinatorEventFields/failedSources": {

@@ -19,6 +19,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
@@ -47,8 +48,12 @@ import java.util.function.Supplier;
  * handlers the live path uses, the thread joins the phase sweep, {@link ResumeContinuation}
  * carries out what the last decision left undone, and the gate opens.
  *
- * <p>A single coordinator replica is assumed; the log's fenced appends keep a second writer from
- * acting on a thread, but nothing here decides which replica owns a thread.
+ * <p>Without leases a single coordinator replica is assumed: the log's fenced appends keep a
+ * second writer from acting on a thread, but nothing decides which replica owns it. With leases
+ * ({@link CoordinatorLeases}) a replica takes over only a thread whose lease it wins, and it looks
+ * again every {@link #SCAN_EVERY} ({@link #scan}), so a thread whose owner stopped is taken over
+ * within the lease and one scan. A request handed again finds its thread in the log, whichever
+ * replica owns it ({@link #matchRequest}).
  */
 final class CoordinatorResume {
 
@@ -59,6 +64,14 @@ final class CoordinatorResume {
     private static final Logger log = LoggerFactory.getLogger(CoordinatorResume.class);
     /** How long a request waits for the start-up read of the log before it is treated as new. */
     private static final long READY_WAIT_SECONDS = 60;
+    /** With leases: how often a replica looks in the log for open threads nobody holds a lease for. */
+    static final Duration SCAN_EVERY = Duration.ofSeconds(10);
+    /** With leases: the least the scan and the lookup of a request read back in the coordinator log. */
+    private static final Duration MIN_LOG_WINDOW = Duration.ofHours(1);
+    /** With leases: how long a request waits between looks at a thread another replica owns. */
+    private static final long FOLLOW_POLL_MILLIS = 2_000;
+    /** With leases: how long past the hard ceiling a request waits for another replica's thread before it gives up. */
+    private static final long FOLLOW_GRACE_SECONDS = 120;
     /** How long a request waits for the thread it names to be rebuilt. */
     private static final long REBUILD_WAIT_SECONDS = 120;
     /** Closed threads remembered by request, so a request handed again after its close is answered, not rerun. */
@@ -76,6 +89,10 @@ final class CoordinatorResume {
     private record Candidate(CoordinatorThreadState state, List<CoordinatorEvent> events, long lastSequence) {
     }
 
+    /** A message read back from the discussion stream, with its sequence there. */
+    private record Streamed(long sequence, JsonNode node) {
+    }
+
     private record ClosedThread(String threadId, String answer) {
     }
 
@@ -88,6 +105,8 @@ final class CoordinatorResume {
     private final LongSupplier clock;
 
     private final ResumeGates gates = new ResumeGates();
+    /** Threads whose takeover has started, so a scan that meets a candidate again does not start it twice. */
+    private final Set<String> launched = ConcurrentHashMap.newKeySet();
     private final CountDownLatch ready = new CountDownLatch(1);
     private final Map<String, Candidate> candidates = new ConcurrentHashMap<>();
     private final Map<Long, CompletableFuture<ThreadState>> rebuilding = new ConcurrentHashMap<>();
@@ -99,6 +118,7 @@ final class CoordinatorResume {
     });
 
     private final Duration maxAge;
+    private final CoordinatorLeases leases;
 
     /** A resume with no age limit. */
     CoordinatorResume(boolean enabled, DiscussionOrchestrator orchestrator, BusReader reader,
@@ -111,6 +131,14 @@ final class CoordinatorResume {
     CoordinatorResume(boolean enabled, DiscussionOrchestrator orchestrator, BusReader reader,
                       Supplier<CrewScope> scope, ObjectMapper mapper, DiscussionMetrics metrics,
                       LongSupplier clock, Duration maxAge) {
+        this(enabled, orchestrator, reader, scope, mapper, metrics, clock, maxAge, CoordinatorLeases.off());
+    }
+
+    /** @param leases who may take a thread over; {@link CoordinatorLeases#off()} for a single replica */
+    CoordinatorResume(boolean enabled, DiscussionOrchestrator orchestrator, BusReader reader,
+                      Supplier<CrewScope> scope, ObjectMapper mapper, DiscussionMetrics metrics,
+                      LongSupplier clock, Duration maxAge, CoordinatorLeases leases) {
+        this.leases = leases;
         this.maxAge = maxAge;
         this.enabled = enabled;
         this.orchestrator = orchestrator;
@@ -131,6 +159,10 @@ final class CoordinatorResume {
                                         ObjectMapper mapper, DiscussionMetrics metrics) {
         boolean on = ConfigProvider.getConfig().getOptionalValue(CONFIG_KEY, Boolean.class).orElse(false);
         if (!on) {
+            if (CoordinatorLeases.configured()) {
+                log.warn("KUBEMOOT_COORDINATOR_LEASE needs KUBEMOOT_COORDINATOR_RESUME: a replica takes a thread over "
+                        + "through resume, so leases stay off");
+            }
             return off();
         }
         if (!orchestrator.recorder().enabled()) {
@@ -141,8 +173,11 @@ final class CoordinatorResume {
         Duration maxAge = configuredMaxAge();
         log.info("Coordinator resume is on: threads left in flight are picked up from {}; age limit {}",
                 CrewScope.COORDINATOR_STREAM, maxAge.isZero() ? "none" : maxAge);
+        CoordinatorLeases leases = CoordinatorLeases.configured()
+                ? CoordinatorLeases.forRuntime(natsProvider, orchestrator::threadIsOpen, orchestrator::threadLost)
+                : CoordinatorLeases.off();
         return new CoordinatorResume(true, orchestrator, new NatsBusReader(natsProvider), natsProvider::scope, mapper,
-                metrics, System::currentTimeMillis, maxAge);
+                metrics, System::currentTimeMillis, maxAge, leases);
     }
 
     /** The age limit from {@link #MAX_AGE_KEY}: the default when unset, the default with a warning when not a duration. */
@@ -154,6 +189,11 @@ final class CoordinatorResume {
 
     boolean enabled() {
         return enabled;
+    }
+
+    /** The leases this resume takes threads with; off for a single replica. */
+    CoordinatorLeases leases() {
+        return leases;
     }
 
     // --- at start ---
@@ -184,6 +224,9 @@ final class CoordinatorResume {
             return;
         }
         for (Candidate candidate : List.copyOf(candidates.values())) {
+            if (!launched.add(candidate.state().threadId)) {
+                continue;
+            }
             try {
                 executor.execute(() -> resumeThread(candidate));
             } catch (RejectedExecutionException e) {
@@ -191,6 +234,29 @@ final class CoordinatorResume {
                 finish(candidate.state(), null);
             }
         }
+    }
+
+    /**
+     * With leases: looks in the log for open threads no replica holds a lease for, wins the lease of
+     * each, and resumes it on {@code executor}. A thread whose owner died or was cut off is taken
+     * over within the lease and one scan. Does nothing without leases.
+     */
+    void scan(Executor executor) {
+        if (!enabled || !leases.enabled()) {
+            return;
+        }
+        try {
+            group(reader.readSince(CrewScope.COORDINATOR_STREAM, scope.get().coordinatorWildcard(), logWindowStart()))
+                    .forEach(this::sort);
+            launch(executor);
+        } catch (IOException | RuntimeException e) {
+            log.warn("The coordinator log could not be scanned for threads to take over: {}", e.getMessage());
+        }
+    }
+
+    private Instant logWindowStart() {
+        Duration window = maxAge.compareTo(MIN_LOG_WINDOW) > 0 ? maxAge : MIN_LOG_WINDOW;
+        return Instant.ofEpochMilli(clock.getAsLong()).minus(window);
     }
 
     private List<Candidate> group(List<BusMessage> messages) {
@@ -219,11 +285,26 @@ final class CoordinatorResume {
             rememberClosed(state);
             return;
         }
+        if (!claim(state.threadId)) {
+            return;
+        }
         candidates.put(state.threadId, candidate);
         gates.shut(state.threadId);
         if (state.requestSeq > 0) {
             rebuilding.put(state.requestSeq, new CompletableFuture<>());
         }
+    }
+
+    /**
+     * True when this replica may take the open thread over: it is not already here or being taken,
+     * and, with leases, no other replica holds its lease. The lease is won before the gate is shut,
+     * and the thread's messages are read after, so none that arrives in between is missed.
+     */
+    private boolean claim(String threadId) {
+        if (candidates.containsKey(threadId) || orchestrator.holdsThread(threadId)) {
+            return false;
+        }
+        return !leases.enabled() || leases.acquire(threadId);
     }
 
     private void rememberClosed(CoordinatorThreadState state) {
@@ -235,9 +316,19 @@ final class CoordinatorResume {
 
     // --- live messages and requests ---
 
+    /** True while the thread is a candidate for takeover or its takeover is running. */
+    boolean isResuming(String threadId) {
+        return candidates.containsKey(threadId) || launched.contains(threadId);
+    }
+
     /** True when the message was queued behind the shut gate of a thread being resumed. */
     boolean holdsLive(String threadId, String data) {
-        return enabled && gates.hold(threadId, data);
+        return holdsLive(threadId, data, 0);
+    }
+
+    /** {@link #holdsLive(String, String)} for a message at {@code streamSequence} of the discussion stream. */
+    boolean holdsLive(String threadId, String data, long streamSequence) {
+        return enabled && gates.hold(threadId, data, streamSequence);
     }
 
     /**
@@ -251,6 +342,12 @@ final class CoordinatorResume {
         }
         awaitReady();
         awaitRebuilt(requestSeq);
+        RequestMatch known = knownMatch(requestSeq);
+        return known != null || !leases.enabled() ? known : followInLog(requestSeq);
+    }
+
+    /** The thread of the request that this replica holds, or remembers having closed; null when it knows none. */
+    private RequestMatch knownMatch(long requestSeq) {
         ThreadState live = orchestrator.threadForRequest(requestSeq);
         if (live != null) {
             return live.phase == Phase.CLOSED ? RequestMatch.closedWith(live.threadId, live.answer)
@@ -258,6 +355,85 @@ final class CoordinatorResume {
         }
         ClosedThread done = closed.get(requestSeq);
         return done == null ? null : RequestMatch.closedWith(done.threadId(), done.answer());
+    }
+
+    /**
+     * With leases: the thread the request started may be owned by another replica, so the log is
+     * asked. A closed thread answers from its logged answer. An open thread nobody holds is taken
+     * over here. An open thread another replica holds is waited for, looking again every
+     * {@link #FOLLOW_POLL_MILLIS}, until it closes or its lease lapses. No thread in the log means
+     * the request is new. A wait that outlasts the hard ceiling plus a margin fails the request, so
+     * it is handed again; it never starts a second thread for a request that has one.
+     */
+    private RequestMatch followInLog(long requestSeq) {
+        long giveUpAt = clock.getAsLong() + (orchestrator.hardCeilingSeconds() + FOLLOW_GRACE_SECONDS) * 1000;
+        while (clock.getAsLong() < giveUpAt) {
+            Candidate found = findByRequest(requestSeq);
+            if (found == null) {
+                return null;
+            }
+            if (found.state().closed()) {
+                return closedMatch(found.state());
+            }
+            RequestMatch mine = takeOrFind(found, requestSeq);
+            if (mine != null) {
+                return mine;
+            }
+            pause();
+        }
+        throw new IllegalStateException("request " + requestSeq + " is owned by another coordinator past the hard ceiling");
+    }
+
+    /** The thread of the request when it is here, taking it over first when no replica holds its lease; else null. */
+    private RequestMatch takeOrFind(Candidate found, long requestSeq) {
+        RequestMatch here = knownMatch(requestSeq);
+        if (here != null) {
+            return here;
+        }
+        sort(found);
+        String threadId = found.state().threadId;
+        if (!candidates.containsKey(threadId)) {
+            return null;
+        }
+        if (launched.add(threadId)) {
+            resumeThread(found);
+        } else {
+            awaitRebuilt(requestSeq);
+        }
+        return knownMatch(requestSeq);
+    }
+
+    /** A closed thread answers its request, unless it was closed without an answer being resumed (the request then starts anew). */
+    private static RequestMatch closedMatch(CoordinatorThreadState state) {
+        boolean unresumed = CLOSE_UNLOGGED.equals(state.closeReason) || CLOSE_EXPIRED.equals(state.closeReason);
+        return unresumed ? null : RequestMatch.closedWith(state.threadId, state.answer);
+    }
+
+    /** The newest thread in the log that the request started; null when there is none. */
+    private Candidate findByRequest(long requestSeq) {
+        try {
+            Candidate newest = null;
+            for (Candidate candidate : group(reader.readSince(CrewScope.COORDINATOR_STREAM,
+                    scope.get().coordinatorWildcard(), logWindowStart()))) {
+                CoordinatorThreadState state = candidate.state();
+                if (state.requestSeq == requestSeq && state.openedAt != null
+                        && (newest == null || state.openedAt.isAfter(newest.state().openedAt))) {
+                    newest = candidate;
+                }
+            }
+            return newest;
+        } catch (IOException | RuntimeException e) {
+            throw new IllegalStateException("the coordinator log could not be read for request " + requestSeq, e);
+        }
+    }
+
+    private void pause() {
+        try {
+            Thread.sleep(FOLLOW_POLL_MILLIS);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new CancellationException("interrupted while waiting for the thread of a request");
+        }
     }
 
     private void awaitReady() {
@@ -307,7 +483,7 @@ final class CoordinatorResume {
             expire(candidate);
             return null;
         }
-        List<JsonNode> messages = readMessages(logged.threadId);
+        List<Streamed> messages = readMessages(logged.threadId);
         if (leftUnlogged(messages)) {
             abandon(candidate);
             return null;
@@ -347,11 +523,11 @@ final class CoordinatorResume {
                 lastSequence, action);
     }
 
-    private List<JsonNode> readMessages(String threadId) throws IOException {
-        var out = new ArrayList<JsonNode>();
+    private List<Streamed> readMessages(String threadId) throws IOException {
+        var out = new ArrayList<Streamed>();
         for (BusMessage message : reader.readAll(DISCUSS_STREAM, scope.get().threadWildcard(threadId))) {
             try {
-                out.add(mapper.readTree(message.data()));
+                out.add(new Streamed(message.sequence(), mapper.readTree(message.data())));
             } catch (IOException e) {
                 log.debug("Skipping an unreadable message of thread {}: {}", threadId, e.getMessage());
             }
@@ -365,20 +541,20 @@ final class CoordinatorResume {
      * carries an id made from its event; one with a random id was published after an append
      * failed, so the log ends before the thread did and cannot be resumed from.
      */
-    private boolean leftUnlogged(List<JsonNode> messages) {
+    private boolean leftUnlogged(List<Streamed> messages) {
         String coordinator = orchestrator.coordinatorName();
-        return messages.stream().anyMatch(msg -> coordinator.equals(JsonFields.text(msg, "agentName"))
+        return messages.stream().map(Streamed::node).anyMatch(msg -> coordinator.equals(JsonFields.text(msg, "agentName"))
                 && COORDINATOR_MESSAGES.contains(JsonFields.text(msg, "messageType"))
                 && !CoordinatorEventRecorder.isDerivedId(JsonFields.text(msg, CoordinatorWire.MESSAGE_ID)));
     }
 
     /** Applies the thread's messages the log has not seen, in the order the stream holds them. */
-    private void applyMissed(ThreadState state, CoordinatorThreadState logged, List<JsonNode> messages) {
-        var filter = new ReplayFilter(logged.lastEventAt, logged.appliedMessageIds);
-        for (JsonNode message : messages) {
+    private void applyMissed(ThreadState state, CoordinatorThreadState logged, List<Streamed> messages) {
+        var filter = new ReplayFilter(logged.lastEventAt, logged.appliedMessageIds, logged.discussSeq);
+        for (Streamed message : messages) {
             try {
-                ThreadRebuilder.fillContent(state, logged, message);
-                orchestrator.applyMessage(message, filter, state);
+                ThreadRebuilder.fillContent(state, logged, message.node());
+                orchestrator.applyMessage(message.node(), filter, state, message.sequence());
             } catch (RuntimeException e) {
                 log.debug("A message of thread {} could not be applied: {}", state.threadId, e.getMessage());
             }
@@ -445,7 +621,11 @@ final class CoordinatorResume {
         if (waiting != null) {
             waiting.complete(state);
         }
-        gates.open(logged.threadId, orchestrator::applyHeld);
+        gates.openHeld(logged.threadId, held -> orchestrator.applyHeld(held.data(), held.streamSequence()));
         candidates.remove(logged.threadId);
+        launched.remove(logged.threadId);
+        if (state == null) {
+            leases.release(logged.threadId);
+        }
     }
 }

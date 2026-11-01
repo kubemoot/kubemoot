@@ -327,15 +327,23 @@ nats:
 # resume makes a restarted coordinator pick up the threads it had in flight: it rebuilds each
 # from its log, reads the messages that arrived while it was down, and carries on from the
 # last decision. It needs eventLog (the chart refuses resume without it), and it flows to
-# KUBEMOOT_COORDINATOR_RESUME the same way. Run one coordinator replica. Off by default.
+# KUBEMOOT_COORDINATOR_RESUME the same way. Run one coordinator replica unless lease is on. Off by default.
 # resumeMaxAge is how old a thread's last logged event may be for a restarted coordinator to resume
 # it, as a Go duration (30m, 1h30m). A thread older than that is closed with reason "expired" and
 # its request, handed again, starts fresh. 0 or empty turns the limit off. A value that is not a
 # duration is refused when the chart renders. It reaches KUBEMOOT_COORDINATOR_RESUME_MAX_AGE.
+# lease lets more than one coordinator replica run: each replica owns the threads it holds a lease
+# for (a key in the kubemoot_coordinator_leases KV bucket, which the chart then creates), and a
+# thread whose owner stopped is taken over by another replica through resume. With lease on the
+# coordinator Agents may set spec.deployment.replicas above 1 and roll with RollingUpdate instead of
+# Recreate. It needs eventLog and resume (the chart refuses lease without them) and flows to
+# KUBEMOOT_COORDINATOR_LEASE the same way. Off by default; then a coordinator is one replica
+# that rolls with Recreate, as before.
 coordinator:
   eventLog: false
   resume: false
   resumeMaxAge: 30m
+  lease: false
 
 # The engine behind the artifact-access workspace_query tool: read-only SQL over the
 # artifacts of a discussion. sqlite (the default) runs queries inside the artifact-access process

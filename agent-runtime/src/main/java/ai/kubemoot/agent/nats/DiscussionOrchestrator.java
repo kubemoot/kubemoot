@@ -12,6 +12,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import io.nats.client.Connection;
 import io.nats.client.Dispatcher;
+import io.quarkus.runtime.ShutdownEvent;
 import io.quarkus.runtime.StartupEvent;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.event.Observes;
@@ -281,6 +282,9 @@ public class DiscussionOrchestrator {
     /** Picks up the threads a restarted coordinator had in flight; does nothing unless KUBEMOOT_COORDINATOR_RESUME is true. */
     private volatile CoordinatorResume resume = CoordinatorResume.off();
 
+    /** Per-thread ownership leases, so more than one replica can run; does nothing unless KUBEMOOT_COORDINATOR_LEASE is true. */
+    private volatile CoordinatorLeases leases = CoordinatorLeases.off();
+
     // Conversation history: durable via NATS KV, with in-memory read-through cache.
     // Allows follow-up questions to reference prior answers (e.g., "How many of these rigs have GPUs?")
     private final ConcurrentHashMap<String, ConversationHistory> conversationCache = new ConcurrentHashMap<>();
@@ -383,6 +387,7 @@ public class DiscussionOrchestrator {
         this.autoTransitions = buildAutoTransitions();
         this.events = CoordinatorEventRecorder.fromConfig(properties.agentName(), natsProvider, mapper, metrics);
         this.resume = CoordinatorResume.fromConfig(this, natsProvider, mapper, metrics);
+        this.leases = resume.leases();
     }
 
     /** Package-private: replace the event recorder, so a unit test can read the events a thread writes. */
@@ -393,6 +398,11 @@ public class DiscussionOrchestrator {
     /** Package-private: replace the resume, so a unit test can restart a coordinator on a fake bus. */
     void useResume(CoordinatorResume replacement) {
         this.resume = replacement;
+        this.leases = replacement.leases();
+    }
+
+    CoordinatorLeases leases() {
+        return leases;
     }
 
     CoordinatorEventRecorder recorder() {
@@ -428,6 +438,17 @@ public class DiscussionOrchestrator {
         }
     }
 
+    /**
+     * A stopping replica stops acting on its threads and gives their leases up, so another replica
+     * takes them at once instead of after the lease lapses.
+     */
+    void onShutdown(@Observes ShutdownEvent event) {
+        if (leases.enabled()) {
+            threads.values().forEach(state -> state.trace.fence());
+            leases.releaseAll();
+        }
+    }
+
     private boolean trySubscribe() {
         Connection conn = natsProvider.getConnection();
         if (conn == null) return false;
@@ -441,13 +462,18 @@ public class DiscussionOrchestrator {
         // Subscribe to this namespace's crew-scoped discussion subjects
         CrewScope scope = natsProvider.scope();
         String sub = scope.discussWildcard();
-        dispatcher.subscribe(sub, msg -> {
-            try {
-                handleMessage(new String(msg.getData()));
-            } catch (Exception e) {
-                log.debug("Error handling orchestrator message: {}", e.getMessage());
-            }
-        });
+        if (leases.enabled()) {
+            // A stream consumer, so each message arrives with its stream sequence (see DiscussionFeed).
+            DiscussionFeed.subscribe(conn, dispatcher, sub, this::handleMessage);
+        } else {
+            dispatcher.subscribe(sub, msg -> {
+                try {
+                    handleMessage(new String(msg.getData()));
+                } catch (Exception e) {
+                    log.debug("Error handling orchestrator message: {}", e.getMessage());
+                }
+            });
+        }
 
         // Subscribe to lifecycle signals (waking/ready) on a separate subject tree.
         // These are published outside KUBEMOOT_DISCUSS JetStream to prevent bootstrap
@@ -474,11 +500,23 @@ public class DiscussionOrchestrator {
                 ORPHAN_REAP_INTERVAL_MINUTES, ORPHAN_REAP_INTERVAL_MINUTES, TimeUnit.MINUTES);
 
         resume.launch(llmExecutor);
+        startLeases();
 
         subscribed = true;
         log.info("Discussion orchestrator active: advisory={}s, review={}s, synthesis={}s, minEval={}s, settle={}s, channels={}",
                 advisoryTimeoutSeconds, reviewTimeoutSeconds, synthesisTimeoutSeconds, minEvalSeconds, settleSeconds, channels);
         return true;
+    }
+
+    /** With leases on: renews them, and looks for threads whose owner stopped renewing. */
+    private void startLeases() {
+        if (!leases.enabled()) {
+            return;
+        }
+        leases.start(scheduler);
+        scheduler.scheduleWithFixedDelay(() -> resume.scan(llmExecutor), CoordinatorResume.SCAN_EVERY.toMillis(),
+                CoordinatorResume.SCAN_EVERY.toMillis(), TimeUnit.MILLISECONDS);
+        log.info("Coordinator leases are on: this replica owns the threads it holds a lease for");
     }
 
     /**
@@ -510,6 +548,31 @@ public class DiscussionOrchestrator {
      */
     public OrchestrateResult orchestrate(String userQuery, String conversationId, String crew,
                                          Requester requester, long requestSeq) {
+        return orchestrate(userQuery, conversationId, crew, requester, requestSeq, 0);
+    }
+
+    /**
+     * One try at the request. When the thread it started is lost to another replica (its lease
+     * lapsed, or its log shows another writer), the request finds that thread in the log and waits
+     * for it there, a bounded number of times, instead of starting a second thread or acknowledging
+     * a request whose answer nobody here is writing.
+     */
+    private OrchestrateResult orchestrate(String userQuery, String conversationId, String crew,
+                                          Requester requester, long requestSeq, int followed) {
+        try {
+            return attempt(userQuery, conversationId, crew, requester, requestSeq);
+        } catch (ThreadLostException lost) {
+            if (requestSeq <= 0 || followed >= MAX_FOLLOWS) {
+                log.warn("Thread {} is owned by another coordinator and is not followed", lost.getMessage());
+                return null;
+            }
+            log.info("Thread {} is owned by another coordinator now; following it", lost.getMessage());
+            return orchestrate(userQuery, conversationId, crew, requester, requestSeq, followed + 1);
+        }
+    }
+
+    private OrchestrateResult attempt(String userQuery, String conversationId, String crew, Requester requester,
+                                      long requestSeq) {
         Connection conn = isEnabled() ? natsProvider.getConnection() : null;
         if (conn == null) return null;
 
@@ -519,12 +582,17 @@ public class DiscussionOrchestrator {
             return answerFromClosedThread(match, request);
         }
         String threadId = match != null ? match.threadId() : UUID.randomUUID().toString();
-        int totalBudget = totalBudgetSeconds();
+        return runAndRecover(conn, request, match, threadId, requestSeq);
+    }
 
+    private OrchestrateResult runAndRecover(Connection conn, ThreadStart request, RequestMatch match, String threadId,
+                                            long requestSeq) {
         try {
             return new OrchestrateResult(threadId, runThread(conn, request, match, threadId, requestSeq));
+        } catch (ThreadLostException lost) {
+            throw lost;
         } catch (TimeoutException e) {
-            log.info("Thread {} timed out waiting for synthesis (budget={}s)", threadId, totalBudget);
+            log.info("Thread {} timed out waiting for synthesis (budget={}s)", threadId, totalBudgetSeconds());
             metrics.threadTimedOut();
             pendingResults.remove(threadId);
             return new OrchestrateResult(threadId, null);
@@ -539,6 +607,18 @@ public class DiscussionOrchestrator {
             return null;
         }
     }
+
+    /** The thread a call waits for is now owned by another replica; the message is the thread's id. */
+    static final class ThreadLostException extends RuntimeException {
+        private static final long serialVersionUID = 1L;
+
+        ThreadLostException(String threadId) {
+            super(threadId);
+        }
+    }
+
+    /** How often one request follows its thread to another replica before it gives up. */
+    private static final int MAX_FOLLOWS = 3;
 
     /**
      * The question a thread is started for, as the request carried it. A restarted
@@ -572,16 +652,34 @@ public class DiscussionOrchestrator {
             startThread(conn, state, request);
         }
 
-        var future = pendingResults.computeIfAbsent(threadId, k -> new CompletableFuture<>());
-        if (match != null && state.phase == Phase.CLOSED) {
-            completePending(threadId, state.answer);
-        }
-        String result = future.get(totalBudgetSeconds(), TimeUnit.SECONDS);
+        String result = awaitAnswer(state, match, threadId);
 
         if (result != null && request.conversationId() != null) {
             recordConversationTurn(request.conversationId(), request.userQuery(), result, threadId, match != null);
         }
         return result;
+    }
+
+    /**
+     * Waits for the thread's answer. A thread another replica owns ends the wait with
+     * {@link ThreadLostException}, so the caller follows it.
+     */
+    private String awaitAnswer(ThreadState state, RequestMatch match, String threadId) throws Exception {
+        var future = pendingResults.computeIfAbsent(threadId, k -> new CompletableFuture<>());
+        if (leases.enabled() && state.trace.fenced()) {
+            future.completeExceptionally(new ThreadLostException(threadId));
+        }
+        if (match != null && state.phase == Phase.CLOSED) {
+            completePending(threadId, state.answer);
+        }
+        try {
+            return future.get(totalBudgetSeconds(), TimeUnit.SECONDS);
+        } catch (ExecutionException e) {
+            if (e.getCause() instanceof ThreadLostException lost) {
+                throw lost;
+            }
+            throw e;
+        }
     }
 
     /** The answer of a thread that closed before the restart; the turn is recorded once. */
@@ -603,6 +701,9 @@ public class DiscussionOrchestrator {
         state.crew = request.crew();
         // Tied to a request only when a restarted coordinator can use it to find the thread again.
         state.requestSeq = resume.enabled() ? requestSeq : 0;
+        if (!leases.acquire(threadId)) {
+            throw new IllegalStateException("the lease for thread " + threadId + " could not be taken");
+        }
         threads.put(threadId, state);
         metrics.threadStarted();
         events.opened(state, "request");
@@ -695,21 +796,43 @@ public class DiscussionOrchestrator {
 
     // Visible for testing
     void handleMessage(String data) {
+        handleMessage(data, 0);
+    }
+
+    /** A live message at {@code streamSequence} of the discussion stream (0 when the feed does not say). */
+    void handleMessage(String data, long streamSequence) {
         try {
             var msg = mapper.readTree(data);
             String threadId = JsonFields.text(msg, FIELD_THREAD_ID);
             // A thread being resumed holds its live messages until the ones it missed are applied.
-            if (!threadId.isEmpty() && resume.holdsLive(threadId, data)) return;
-            applyMessage(msg, ReplayFilter.LIVE, null);
+            if (!threadId.isEmpty() && resume.holdsLive(threadId, data, streamSequence)) return;
+            if (!threadId.isEmpty() && !admits(threadId, msg)) return;
+            applyMessage(msg, ReplayFilter.LIVE, null, streamSequence);
         } catch (Exception e) {
             log.debug("Failed to parse orchestrator message: {}", e.getMessage());
         }
     }
 
+    /**
+     * With leases on, every replica hears every message but acts only on the threads it owns. A
+     * message for a thread this replica does not hold is dropped, except an external
+     * {@code thread_start}, which the replica that wins the thread's lease takes up.
+     */
+    private boolean admits(String threadId, JsonNode msg) {
+        return !leases.enabled() || threads.containsKey(threadId) || claimsExternalThread(threadId, msg);
+    }
+
+    private boolean claimsExternalThread(String threadId, JsonNode msg) {
+        return MSG_THREAD_START.equals(JsonFields.text(msg, FIELD_MESSAGE_TYPE))
+                && !properties.agentName().equals(JsonFields.text(msg, FIELD_AGENT_NAME))
+                && addressedToThisCrew(msg.path(FIELD_METADATA))
+                && leases.acquire(threadId);
+    }
+
     /** A live message that waited behind a resume gate; the gate is open, so it is applied as any live message is. */
-    void applyHeld(String data) {
+    void applyHeld(String data, long streamSequence) {
         try {
-            applyMessage(mapper.readTree(data), ReplayFilter.LIVE, null);
+            applyMessage(mapper.readTree(data), ReplayFilter.LIVE, null, streamSequence);
         } catch (Exception e) {
             log.debug("Failed to apply a held orchestrator message: {}", e.getMessage());
         }
@@ -722,6 +845,11 @@ public class DiscussionOrchestrator {
      * it; null looks it up, creating it for a thread this coordinator has not seen.
      */
     void applyMessage(JsonNode msg, ReplayFilter filter, ThreadState known) {
+        applyMessage(msg, filter, known, 0);
+    }
+
+    /** {@link #applyMessage(JsonNode, ReplayFilter, ThreadState)} for the message at {@code streamSequence} (0: unknown). */
+    void applyMessage(JsonNode msg, ReplayFilter filter, ThreadState known, long streamSequence) {
         String threadId = JsonFields.text(msg, FIELD_THREAD_ID);
         String agentName = JsonFields.text(msg, FIELD_AGENT_NAME);
         String messageType = JsonFields.text(msg, FIELD_MESSAGE_TYPE);
@@ -741,6 +869,7 @@ public class DiscussionOrchestrator {
         if (events.fenced(state)) return;
 
         if (isDuplicateMessage(state, msg)) return;
+        noteSequence(state, messageType, streamSequence);
 
         var messageRecord = new MessageRecord(agentName, messageType, content, channel, Instant.now());
         state.messages.add(messageRecord);
@@ -750,7 +879,7 @@ public class DiscussionOrchestrator {
         takeUpExternalThreadStart(state, msg, agentName, messageType);
 
         // External dashboard controls (stop / pause / resume) short-circuit.
-        if (handleControlMessage(state, msg, filter)) return;
+        if (handleControlMessage(state, msg, filter, streamSequence)) return;
 
         // Track advisory arrival (published by coordinator's inline advisory generation)
         trackAdvisoryMetadata(state, msg, messageType, content);
@@ -769,9 +898,24 @@ public class DiscussionOrchestrator {
      * thread's last logged decision, when its effect is already in the log. True for any
      * control message, applied or not, so the caller stops processing it.
      */
-    private boolean handleControlMessage(ThreadState state, JsonNode msg, ReplayFilter filter) {
-        return handleExternalControl(state, state.threadId, JsonFields.text(msg, FIELD_AGENT_NAME),
-                JsonFields.text(msg, FIELD_MESSAGE_TYPE), filter.appliesControl(msg));
+    private boolean handleControlMessage(ThreadState state, JsonNode msg, ReplayFilter filter, long streamSequence) {
+        boolean handled = handleExternalControl(state, state.threadId, JsonFields.text(msg, FIELD_AGENT_NAME),
+                JsonFields.text(msg, FIELD_MESSAGE_TYPE), filter.appliesControl(msg, streamSequence));
+        if (handled) {
+            // Stamped once the control's effect is decided (and logged), never before: an event
+            // written in between must not claim a sequence whose control it does not account for.
+            state.discussSeq = Math.max(state.discussSeq, streamSequence);
+        }
+        return handled;
+    }
+
+    /** Records the stream sequence a message was applied at; a control is recorded after it is handled. */
+    private static void noteSequence(ThreadState state, String messageType, long streamSequence) {
+        boolean control = MSG_STOP_REQUESTED.equals(messageType) || MSG_THREAD_PAUSE.equals(messageType)
+                || MSG_THREAD_RESUME.equals(messageType);
+        if (!control) {
+            state.discussSeq = Math.max(state.discussSeq, streamSequence);
+        }
     }
 
     /** A threadless waking/ready signal from another agent applies to all active threads. */
@@ -1143,7 +1287,8 @@ public class DiscussionOrchestrator {
     // Visible for testing
     void handleThreadReopen(ThreadState state, String threadId,
                             String messageType, String agentName) {
-        if (state.phase != Phase.CLOSED || !"reply".equals(messageType) || !"human".equals(agentName)) {
+        if (state.phase != Phase.CLOSED || !"reply".equals(messageType) || !"human".equals(agentName)
+                || !leases.acquire(threadId)) {
             return;
         }
         // The roster resets before the phase flips, so the phase checker never sees
@@ -1181,8 +1326,9 @@ public class DiscussionOrchestrator {
 
     // Visible for testing
     void checkThreadTransition(ThreadState state, Instant now) {
-        // Another coordinator owns a fenced thread: this one does nothing more for it.
-        if (events.fenced(state)) {
+        // Another coordinator owns a fenced thread, or this one's lease on it lapsed: it does nothing more for it.
+        if (notOurs(state)) {
+            completeFenced(state);
             return;
         }
         // Hard-ceiling backstop FIRST, before the phase table: a discussion must
@@ -2891,9 +3037,9 @@ public class DiscussionOrchestrator {
      * repeat of one that got out before the restart is dropped.
      */
     void finishClose(ThreadState state, String channel, String response, String outcome) {
-        if (events.fenced(state)) {
+        if (notOurs(state)) {
             // Another coordinator owns the thread: publish nothing, but do not keep the asker waiting.
-            completePending(state.threadId, null);
+            completeFenced(state);
             return;
         }
         publishToThread(state.threadId, channel, response, MSG_SYNTHESIS);
@@ -2904,6 +3050,56 @@ public class DiscussionOrchestrator {
         events.checkAtClose(state);
         metrics.threadCompleted(Duration.between(state.threadCreated, Instant.now()));
         completePending(state.threadId, response);
+        leases.release(state.threadId);
+    }
+
+    /**
+     * Another coordinator owns the thread. With leases the call waiting for it follows the thread
+     * to its end (see {@link #threadLost}); without them the asker is released with no answer.
+     */
+    private void completeFenced(ThreadState state) {
+        if (leases.enabled()) {
+            threadLost(state.threadId);
+        } else {
+            completePending(state.threadId, null);
+        }
+    }
+
+    /**
+     * True while the thread is open in memory, or being taken over: the leases keep renewing it.
+     * A thread being rebuilt joins the map only when the rebuild is done, and its lease must
+     * outlive that.
+     */
+    boolean threadIsOpen(String threadId) {
+        ThreadState state = threads.get(threadId);
+        return state != null ? state.phase != Phase.CLOSED : resume.isResuming(threadId);
+    }
+
+    /**
+     * True when this replica must not act on the thread: another writer fenced it, or (with leases)
+     * the lease on an open thread lapsed, so another replica may own it by now. Always false for a
+     * closed thread with a lease released at close.
+     */
+    private boolean notOurs(ThreadState state) {
+        return events.fenced(state) || (state.phase != Phase.CLOSED && !leases.holds(state.threadId));
+    }
+
+    /**
+     * This replica no longer owns the thread (its lease lapsed or was taken, or its log shows
+     * another writer): it stops acting on it, forgets it, and releases the call waiting for it,
+     * which then follows the thread to the replica that owns it.
+     */
+    void threadLost(String threadId) {
+        ThreadState state = threads.remove(threadId);
+        if (state == null) {
+            return;
+        }
+        state.trace.fence();
+        leases.release(threadId);
+        var future = pendingResults.remove(threadId);
+        if (future != null) {
+            future.completeExceptionally(new ThreadLostException(threadId));
+        }
     }
 
     /**
@@ -4289,7 +4485,7 @@ public class DiscussionOrchestrator {
         try {
             if (events.fenced(state)) {
                 // Another coordinator owns the thread: close nothing, release the asker, drop the entry.
-                completePending(state.threadId, null);
+                completeFenced(state);
                 evicted.add(state.threadId);
                 return true;
             }
@@ -4407,6 +4603,11 @@ public class DiscussionOrchestrator {
         metrics.threadStarted();
     }
 
+    /** True when this replica has the thread in memory, open or closed. */
+    boolean holdsThread(String threadId) {
+        return threads.containsKey(threadId);
+    }
+
     /** The thread in memory that the request at {@code requestSeq} started, or null. */
     ThreadState threadForRequest(long requestSeq) {
         return threads.values().stream().filter(t -> t.requestSeq == requestSeq).findFirst().orElse(null);
@@ -4468,6 +4669,13 @@ public class DiscussionOrchestrator {
         volatile String crew;
         /** The stream sequence of the request that started the thread; 0 for a thread no request started. */
         volatile long requestSeq;
+        /**
+         * The highest discussion stream sequence applied for the thread. Every event the
+         * coordinator writes carries it, so a coordinator that takes the thread over knows which
+         * stop, pause and resume messages the decisions already account for. 0 when the live
+         * feed does not carry sequences.
+         */
+        volatile long discussSeq;
         /** The answer, once the thread has closed with one. */
         volatile String answer;
 

@@ -234,9 +234,10 @@ outrun cannot publish an answer the other one did not see. A fenced thread's ask
 released without an answer (the other coordinator owns it), and a fenced thread past the
 zombie age is dropped without publishing. A failed append is not a fence: an append that
 timed out may have been stored, but the coordinator stops appending to that thread, so
-it never meets a refusal it could mistake for another writer. There is no lease yet to
-decide which coordinator takes a thread, so the fence is the guard against two
-coordinators running one thread.
+it never meets a refusal it could mistake for another writer. Without
+[leases](#leases-and-more-than-one-replica) nothing decides which coordinator takes a thread,
+so the fence is the guard against two coordinators running one thread; with leases on, the fence
+is still the arbiter and the lease keeps replicas from trying.
 
 ### The check at close
 
@@ -254,7 +255,8 @@ A difference never fails the thread. A thread with more than 2,048 events is not
 
 With `coordinator.resume=true` (it needs `coordinator.eventLog`; the chart refuses one without
 the other) a coordinator that starts picks up the threads the last one left in flight. Run one
-coordinator replica: nothing yet decides which of two replicas owns a thread, only the
+coordinator replica unless you turn on [leases](#leases-and-more-than-one-replica): without them
+nothing decides which of two replicas owns a thread, only the
 [fence](#one-coordinator-per-thread) keeps them apart. Resume is off by default and then
 nothing about a discussion changes.
 
@@ -290,8 +292,9 @@ candidate, and live messages for it wait behind a gate until the candidate is re
    charged to the agents or to the thread.
 6. Applies the messages the log has not seen, in stream order, through the handlers the live
    path uses. A signal whose `messageId` the log holds is skipped. A heartbeat is not replayed.
-   A stop, pause or resume is applied only if it was sent after the thread's last logged
-   decision. Each applied signal is logged as it is live.
+   A stop, pause or resume is applied only if it came after the thread's last logged
+   decision: by stream sequence when the log states one (with [leases](#leases-and-more-than-one-replica)
+   on), else by the message's timestamp. Each applied signal is logged as it is live.
 7. Puts the thread in the phase sweep, carries out what the last decision left undone, and
    opens the gate; the live messages that waited are applied in the order they arrived, and
    a message that was both read from the stream and delivered live is applied once.
@@ -332,25 +335,124 @@ coordinator records a failure, as always.
 
 **Limits to know.**
 
-- A stop, pause or resume has no id in the log, so it is compared by its timestamp with the
-  last logged event. A clock that differs between the dashboard and the coordinator can drop
-  one or apply a stale one.
-- A takeover refused because another coordinator wrote to the thread first leaves the thread
-  alone. A request for it, handed again, is not matched and starts a second thread while the
-  other coordinator owns the first. Run one coordinator replica until leases decide the owner.
+- Without leases a stop, pause or resume has no id in the log, so it is compared by its
+  timestamp with the last logged event. A clock that differs between the dashboard and the
+  coordinator can drop one or apply a stale one. With leases on it is compared by stream
+  sequence and no clock is read.
+- Without leases, a takeover refused because another coordinator wrote to the thread first
+  leaves the thread alone, and a request for it, handed again, is not matched and starts a
+  second thread while the other coordinator owns the first. With leases on, that request
+  finds the thread in the log, whichever replica owns it.
 - A thread opened before the log or resume was turned on has no derived ids on its first
   messages. After a restart it looks like a thread with an incomplete log and is closed.
   Turn the settings on while no thread is open.
 - A message lost to a brief loss of the NATS connection while the coordinator runs is not
   read back; the stream is read only at start.
 
-The live subscription stays a plain NATS subscription. JetStream is used to read the log and
-the messages missed, once per thread, at start.
+Without leases the live subscription stays a plain NATS subscription. JetStream is used to read
+the log and the messages missed, once per thread, at start. With leases on the live feed is an
+ordered consumer ([below](#leases-and-more-than-one-replica)).
 
 Resume is counted in `kubemoot_coordinator_resumes_total{action}`, where the action is one
 of the rows above (`sweep`, `rerun_advisory`, `announce_subcommittee`, `republish_advisory_ready`,
 `enter_review`, `republish_review_ready`, `stay_paused`, `restart_synthesis`, `answer_directly`,
 `finish_close`, `nothing`), `abandoned` for an incomplete log, `expired` for a thread past the age limit, `moved_by_replay`, `fenced`, or `failed`.
+
+### Leases and more than one replica
+
+With `coordinator.lease=true` (it needs `coordinator.eventLog` and `coordinator.resume`; the
+chart refuses it without them) more than one coordinator replica can run. The coordinator
+Agent may set `spec.deployment.replicas` above 1, and it rolls with `RollingUpdate` instead of
+`Recreate`: the new pod starts, the old pod gives its threads up as it stops, and the new pod
+resumes them. Leases are off by default; then a coordinator is one replica that rolls with
+`Recreate`, as before, and nothing below applies.
+
+The log decides and the lease avoids wasted work. The [fenced append](#one-coordinator-per-thread)
+is still what keeps two replicas from both acting on a thread; the lease keeps them from trying.
+
+**The lease.** A lease is a key in the `kubemoot_coordinator_leases` KV bucket, which the chart
+creates when `coordinator.lease` is on, with a TTL of 15 seconds and history 1. The key is
+`<namespace>.<crew>.<threadId>` and the value is the pod name.
+
+- A replica takes a thread's lease with a create, which fails while another replica holds it,
+  before it opens the thread or takes it up.
+- It renews the lease every 5 seconds with a compare-and-set on the revision it last wrote, as
+  long as the thread is open. A replica that has not renewed for 10 seconds (two thirds of the
+  lease) treats the lease as lost, before the bucket can hand the key to anyone else.
+- It gives the lease up when the thread closes and when the replica stops, so a rolling update
+  hands threads over at once instead of after the TTL.
+- A replica that learns it lost a lease, at a renewal or from a refused append, stops acting on
+  the thread and forgets it. The call waiting for the thread's answer follows the thread to
+  the replica that owns it (below).
+
+**Who owns a thread.** Every replica hears every discussion message of its crew. It acts only on
+the threads it holds a lease for and drops the rest, so no replica makes a blank thread of a
+message it was not meant to handle.
+
+- A request is pulled by one replica, which takes the thread's lease and owns the new thread.
+- A `thread_start` that another publisher put on the bus (the dashboard's New Discussion) is
+  heard by every replica; the one that wins the create owns the thread.
+- A thread whose owner stopped renewing is taken over. Every 10 seconds, and at start, each
+  replica reads the last hour of the coordinator log (the longer of an hour and the resume age
+  limit), finds the open threads it does not hold, and tries to take each lease. The replica
+  that wins resumes the thread through [the steps above](#resume): the lease is won before the
+  thread's gate is shut and its messages are read, so none that arrives in between is missed.
+  A thread is taken within the lease plus one scan, about 25 seconds, of its owner stopping.
+
+**The request pump.** The queue consumer of a crew is one durable consumer, and one replica
+at a time pulls from it: the one that holds the crew's `request-pump` lease. Only that replica
+resets the consumer when it takes the lease, so replicas never delete it out from under each
+other and the 409 churn does not return. The consumer still has one request in flight, so a
+crew's requests are served one at a time; replicas add availability, not throughput.
+
+**A request handed again.** A request redelivered after its replica stopped, or handed to the
+pump of a new replica, carries the same stream sequence, and `thread_opened.requestSeq` ties
+it to its thread in the log. With leases on the replica that is handed the request asks the log,
+not only its own memory:
+
+- No thread started by this request: the request is new.
+- The thread closed: the request returns the logged answer, records the conversation turn once
+  and is acknowledged.
+- The thread is open and no replica holds its lease: this replica takes it over and the request
+  waits for its answer.
+- The thread is open and another replica holds the lease: the request waits, looking every
+  2 seconds, until the thread closes (it then returns the logged answer) or the lease lapses (it
+  then takes the thread over). A wait that outlasts the hard ceiling by two minutes fails the
+  request, so it is handed again; it never starts a second thread for a request that has one.
+- A request whose own thread was lost to another replica (its lease lapsed or its append was
+  refused) is followed the same way, up to three times, instead of being acknowledged with no
+  answer.
+
+**Stop, pause and resume.** These messages have no id in the log, so a replica that takes a
+thread over needs to know which of them the owner's decisions already account for. With leases
+on, the coordinator follows the discussion subjects with an ordered JetStream consumer, so each
+message arrives with its sequence in `KUBEMOOT_DISCUSS`, and every event it writes carries
+`discussSeq`, the highest sequence it had applied for the thread. A replica taking a thread
+over applies a stop, pause or resume whose sequence is greater than the thread's logged
+`discussSeq` and skips the rest. No clock is read, so a dashboard whose clock is an hour off
+cannot drop a fresh control or apply a stale one. A log written without sequences (leases were
+off) falls back to the message's timestamp.
+
+**Why the live feed is a consumer, and a plain subscription would not do.** A plain subscription
+delivers every message to every replica with no sequence. A queue group would give each message
+to one replica, which is not necessarily the owner. An ordered consumer per replica delivers every
+message with its sequence, and recreates itself after a gap, so a brief loss of the NATS
+connection loses nothing. Every replica still parses every message of its crew and drops the ones
+for threads it does not hold; that cost is small for the few replicas this is meant for. If the
+consumer cannot be created the feed falls back to a plain subscription, says so at WARN, and
+controls are ordered by time as before.
+
+**Limits to know.**
+
+- The lease TTL is a bucket setting (15 seconds) that the runtime assumes; do not change the
+  bucket's TTL.
+- A thread started through the HTTP chat API (the synchronous bridge) has no request to follow.
+  If its replica stops, another replica resumes the thread and the answer reaches the bus, but
+  the HTTP call that asked is gone with the replica.
+- A model call in flight on the replica that lost a thread is wasted: the replica that takes the
+  thread runs the step again from the last logged decision. The answer is still published once.
+- Run as many replicas as you need for availability, usually two. Every replica reads every
+  message of its crew.
 
 ### Stream limits
 

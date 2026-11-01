@@ -82,14 +82,6 @@ class LeadershipTest {
                     }
                 }
 
-                @Override
-                public boolean isHeld(String key) throws Exception {
-                    synchronized (FakeLeaseBucket.this) {
-                        check();
-                        expire();
-                        return holder != null;
-                    }
-                }
             };
         }
 

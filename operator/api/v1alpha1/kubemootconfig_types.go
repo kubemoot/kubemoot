@@ -242,6 +242,16 @@ type CoordinatorConfig struct {
 	// +optional
 	// +kubebuilder:validation:Pattern=`^(|0|([0-9]+(\.[0-9]+)?(ns|us|ms|s|m|h))+)$`
 	ResumeMaxAge string `json:"resumeMaxAge,omitempty"`
+
+	// Lease lets more than one coordinator replica run. Each replica takes a lease on the
+	// threads it owns (a key in the kubemoot_coordinator_leases KV bucket), renews it while the
+	// thread is open and gives it up at close; a thread whose owner stopped renewing is taken
+	// over by another replica through resume. The coordinator Agents may then run more than one
+	// replica and roll with RollingUpdate instead of Recreate. Requires EventLog and Resume.
+	// Default false. The operator sets KUBEMOOT_COORDINATOR_LEASE on the coordinator Agents; an
+	// Agent that sets the variable itself in spec.deployment.env keeps its own value.
+	// +optional
+	Lease bool `json:"lease,omitempty"`
 }
 
 // ArtifactQueryEngine names the engine behind the artifact-access workspace_query tool.

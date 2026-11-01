@@ -1,6 +1,7 @@
 package ai.kubemoot.agent.nats;
 
 import java.io.IOException;
+import java.time.Instant;
 import java.util.List;
 
 /**
@@ -18,4 +19,13 @@ interface BusReader {
      * first, up to the last one the stream held when the read began.
      */
     List<BusMessage> readAll(String stream, String filterSubject) throws IOException;
+
+    /**
+     * The messages of {@code stream} on {@code filterSubject} that were stored at or after
+     * {@code since}, oldest first. A reader may return more than that (everything); the caller
+     * must not rely on the cut-off, only on getting at least those messages.
+     */
+    default List<BusMessage> readSince(String stream, String filterSubject, Instant since) throws IOException {
+        return readAll(stream, filterSubject);
+    }
 }

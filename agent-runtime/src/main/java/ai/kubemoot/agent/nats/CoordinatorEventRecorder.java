@@ -505,6 +505,9 @@ final class CoordinatorEventRecorder {
      * thread; any other failure is counted and leaves the thread as it was.
      */
     private boolean emit(ThreadState s, String type, String eventId, ObjectNode data) {
+        if (s.discussSeq > 0) {
+            data.put(DISCUSS_SEQ, s.discussSeq);
+        }
         var event = new CoordinatorEvent(eventId, type, s.threadId, s.trace.round(), clock.get(), coordinator, data);
         AppendResult result = eventLog.append(subjectFor.apply(s.crew, s.threadId), event, s.trace.lastSequence());
         if (result.isAppended()) {

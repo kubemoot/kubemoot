@@ -62,6 +62,26 @@ fi
   "$chart/crds/kubemoot.ai_kubemootconfigs.yaml")" = "boolean" ] \
   || fail "the KubemootConfig CRD has no boolean spec.coordinator.resume"
 
+# Leases are off unless the chart turns them on, reach the KubemootConfig, need resume (and so the
+# log), create the lease bucket only when on, and the CRD has the field.
+coordinator_lease() { helm template kubemoot-operator "$chart" --namespace kubemoot "$@" \
+  | yq -N 'select(.kind == "KubemootConfig") | .spec.coordinator.lease'; }
+lease_flags=(--set coordinator.eventLog=true --set coordinator.resume=true)
+[ "$(coordinator_lease)" = "false" ] || fail "coordinator.lease should default to false"
+[ "$(coordinator_lease "${lease_flags[@]}" --set coordinator.lease=true)" = "true" ] \
+  || fail "coordinator.lease=true does not reach KubemootConfig"
+if helm template kubemoot-operator "$chart" --namespace kubemoot --set coordinator.eventLog=true --set coordinator.lease=true >/dev/null 2>&1; then
+  fail "coordinator.lease=true without coordinator.resume should be refused"
+fi
+if helm template kubemoot-operator "$chart" --namespace kubemoot "${lease_flags[@]}" | grep -q kubemoot_coordinator_leases; then
+  fail "the lease bucket should not be created while coordinator.lease is off"
+fi
+helm template kubemoot-operator "$chart" --namespace kubemoot "${lease_flags[@]}" --set coordinator.lease=true \
+  | grep -q "nats kv add kubemoot_coordinator_leases --ttl=15s" || fail "coordinator.lease=true should create the lease bucket with a 15s TTL"
+[ "$(yq -N '.spec.versions[0].schema.openAPIV3Schema.properties.spec.properties.coordinator.properties.lease.type' \
+  "$chart/crds/kubemoot.ai_kubemootconfigs.yaml")" = "boolean" ] \
+  || fail "the KubemootConfig CRD has no boolean spec.coordinator.lease"
+
 # The resume age limit defaults to 30m, takes durations, renders 0 or empty as 0 (no limit),
 # refuses anything else, and the CRD has the field.
 resume_age() { helm template kubemoot-operator "$chart" --namespace kubemoot "$@" \

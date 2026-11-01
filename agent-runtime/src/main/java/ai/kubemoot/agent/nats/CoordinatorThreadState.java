@@ -86,6 +86,11 @@ final class CoordinatorThreadState {
     final Set<String> appliedMessageIds = new HashSet<>();
     /** When the last event was written. */
     Instant lastEventAt;
+    /**
+     * The highest discussion stream sequence a coordinator had applied for the thread when it
+     * wrote an event; 0 when no event carried one (the live feed was not a stream consumer).
+     */
+    long discussSeq;
     /** How many times a coordinator took the thread over. */
     int resumes;
 

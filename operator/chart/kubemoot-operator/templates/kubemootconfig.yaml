@@ -24,6 +24,7 @@ spec:
     eventLog: {{ .Values.coordinator.eventLog | default false }}
     resume: {{ include "kubemoot-operator.coordinatorResume" . }}
     resumeMaxAge: {{ include "kubemoot-operator.coordinatorResumeMaxAge" . | quote }}
+    lease: {{ include "kubemoot-operator.coordinatorLease" . }}
   defaults:
     {{- with (include "kubemoot-operator.pullSecrets" . | fromYamlArray) }}
     imagePullSecrets:

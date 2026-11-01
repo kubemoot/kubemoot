@@ -138,6 +138,18 @@ The artifact query engine, none, sqlite or duckdb; any other value fails the ren
 {{- end }}
 
 {{/*
+Whether more than one coordinator replica may run, each owning the threads it holds a lease for.
+Leases take a thread over through resume, so lease without resume is refused.
+*/}}
+{{- define "kubemoot-operator.coordinatorLease" -}}
+{{- $coordinator := .Values.coordinator | default dict -}}
+{{- if and $coordinator.lease (not $coordinator.resume) -}}
+{{- fail "coordinator.lease needs coordinator.resume (and coordinator.eventLog): a replica takes a thread over by resuming it from its log" -}}
+{{- end -}}
+{{- $coordinator.lease | default false -}}
+{{- end }}
+
+{{/*
 The oldest a thread's last logged event may be for a restarted coordinator to resume it: a Go
 duration such as 30m or 1h30m. Empty or 0 turns the limit off and renders as "0". Anything else is refused.
 */}}

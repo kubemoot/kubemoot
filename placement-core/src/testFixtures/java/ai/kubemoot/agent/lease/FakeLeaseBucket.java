@@ -67,14 +67,6 @@ public final class FakeLeaseBucket {
                     }
                 }
             }
-
-            @Override
-            public boolean isHeld(String key) throws IOException {
-                synchronized (FakeLeaseBucket.this) {
-                    check();
-                    return live(key) != null;
-                }
-            }
         };
     }
 

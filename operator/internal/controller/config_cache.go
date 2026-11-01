@@ -352,6 +352,24 @@ func (c *ConfigCache) GetCoordinatorResume() bool {
 	return c.config != nil && c.config.Spec.Coordinator != nil && c.config.Spec.Coordinator.Resume
 }
 
+// GetCoordinatorLease reports whether the realm lets more than one coordinator replica run, each
+// owning the threads it holds a lease for. Leases take threads over through resume, which needs
+// the log, so the setting counts only with both on.
+func (c *ConfigCache) GetCoordinatorLease() bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	co := c.coordinatorConfig()
+	return co != nil && co.Lease && co.Resume && co.EventLog
+}
+
+// coordinatorConfig is the realm's coordinator block, or nil. The caller holds the lock.
+func (c *ConfigCache) coordinatorConfig() *kubemootv1alpha1.CoordinatorConfig {
+	if c.config == nil {
+		return nil
+	}
+	return c.config.Spec.Coordinator
+}
+
 // GetPlacementPolicy returns the realm's default placement policy, or "" when unset.
 func (c *ConfigCache) GetPlacementPolicy() string {
 	c.mu.RLock()

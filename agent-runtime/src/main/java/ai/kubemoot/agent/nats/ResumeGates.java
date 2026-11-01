@@ -17,8 +17,12 @@ import java.util.function.Consumer;
  */
 final class ResumeGates {
 
+    /** A live message held back, with the discussion stream sequence it arrived at (0 when the feed gave none). */
+    record Held(String data, long streamSequence) {
+    }
+
     private static final class Gate {
-        final Queue<String> queue = new ArrayDeque<>();
+        final Queue<Held> queue = new ArrayDeque<>();
         boolean open;
     }
 
@@ -31,6 +35,11 @@ final class ResumeGates {
 
     /** Queues {@code data} and returns true when the thread's gate is shut; false when there is no gate or it is open. */
     boolean hold(String threadId, String data) {
+        return hold(threadId, data, 0);
+    }
+
+    /** {@link #hold(String, String)} for a message at {@code streamSequence} of the discussion stream. */
+    boolean hold(String threadId, String data, long streamSequence) {
         Gate gate = gates.get(threadId);
         if (gate == null) {
             return false;
@@ -39,7 +48,7 @@ final class ResumeGates {
             if (gate.open) {
                 return false;
             }
-            gate.queue.add(data);
+            gate.queue.add(new Held(data, streamSequence));
             return true;
         }
     }
@@ -50,12 +59,17 @@ final class ResumeGates {
      * pass straight through. The order of arrival is kept.
      */
     void open(String threadId, Consumer<String> apply) {
+        openHeld(threadId, held -> apply.accept(held.data()));
+    }
+
+    /** {@link #open(String, Consumer)} handing over each held message with its stream sequence. */
+    void openHeld(String threadId, Consumer<Held> apply) {
         Gate gate = gates.get(threadId);
         if (gate == null) {
             return;
         }
         while (true) {
-            List<String> batch;
+            List<Held> batch;
             synchronized (gate) {
                 if (gate.queue.isEmpty()) {
                     gate.open = true;

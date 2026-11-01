@@ -622,6 +622,15 @@ func (r *AgentReconciler) ensureDeployment(ctx context.Context, agent *kubemootv
 	return r.Update(ctx, existing)
 }
 
+// coordinatorStrategy is how a coordinator Deployment rolls: Recreate, so the old and new pod
+// never overlap, or RollingUpdate when leases let replicas share the crew's threads.
+func coordinatorStrategy(leases bool) appsv1.DeploymentStrategy {
+	if leases {
+		return appsv1.DeploymentStrategy{Type: appsv1.RollingUpdateDeploymentStrategyType}
+	}
+	return appsv1.DeploymentStrategy{Type: appsv1.RecreateDeploymentStrategyType}
+}
+
 // deploymentNeedsUpdate reports whether the live Deployment differs from the desired one.
 func deploymentNeedsUpdate(existing, desired *appsv1.Deployment, desiredHash string) bool {
 	currentHash := existing.Annotations[deploymentHashAnnotation]
@@ -748,8 +757,11 @@ func (r *AgentReconciler) buildDeployment(ctx context.Context, agent *kubemootv1
 	// Recreate (terminate old, THEN start new) so the pods never overlap. Queued
 	// requests persist in the stream and the new pod processes them; nothing drops.
 	// See the [[Coordinator NATS Consumer 409 Deleted]] note.
+	// With leases on (KubemootConfig spec.coordinator.lease) only the replica holding the crew's
+	// pump lease resets the consumer, and the old pod hands its thread leases over when it stops,
+	// so the pods may overlap and the coordinator rolls with RollingUpdate.
 	if agent.Spec.DiscussRole == "coordinator" {
-		d.Spec.Strategy = appsv1.DeploymentStrategy{Type: appsv1.RecreateDeploymentStrategyType}
+		d.Spec.Strategy = coordinatorStrategy(r.coordinatorLeasesOn())
 	}
 
 	var override *corev1.ResourceRequirements
@@ -1004,6 +1016,7 @@ func (r *AgentReconciler) agentDiscussRoleEnvVars(ctx context.Context, agent *ku
 		})
 		env = append(env, r.coordinatorEventLogEnvVars()...)
 		env = append(env, r.coordinatorResumeEnvVars()...)
+		env = append(env, r.coordinatorLeaseEnvVars()...)
 		// If the crew declares any analyst-role agent, the coordinator must run
 		// the REVIEW phase (where analysts self-select) rather than taking the
 		// single-agree fast path that skips it.

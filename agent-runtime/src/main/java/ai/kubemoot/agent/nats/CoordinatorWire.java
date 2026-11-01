@@ -16,6 +16,8 @@ final class CoordinatorWire {
     static final String PHASE = "phase";
     static final String SIGNAL = "signal";
     static final String MESSAGE_ID = "messageId";
+    /** The event field holding the highest discussion stream sequence applied when the event was written. */
+    static final String DISCUSS_SEQ = "discussSeq";
     static final String LAST_SIGNAL_AT = "lastSignalAt";
     static final String PHASE_STARTED_AT = "phaseStartedAt";
     static final String ADVISORY_PENDING = "advisoryPending";
