@@ -11,6 +11,7 @@ on:
       - 'placement-service/**'
       - '!placement-service/**.md'
       - '.github/scripts/check-native-libs.sh'
+      - '.github/scripts/check-native-target.sh'
       - '.github/workflows/ci-agent-runtime.yaml'
   workflow_dispatch:
     inputs:

@@ -14,6 +14,7 @@ on:
       - 'placement-service/**'
       - 'config/checkstyle/**'
       - '.github/scripts/check-native-libs.sh'
+      - '.github/scripts/check-native-target.sh'
       - '.github/workflows/ci-agent-runtime.yaml'
   workflow_dispatch:
     inputs:
@@ -142,6 +143,12 @@ jobs:
             -Dquarkus.native.enabled=true \
             -Dquarkus.native.container-build=false \
             -Dquarkus.package.jar.enabled=false
+
+      # A build for x86-64-v3 (AVX2) crash-loops on a node without AVX2. The check reads the
+      # machine target from native-image's build-output report and fails unless it is
+      # compatibility, which -march=compatibility in application.properties pins.
+      - name: Check the binary targets every x86-64 CPU
+        run: .github/scripts/check-native-target.sh agent-runtime/build
 
       - name: Start the native binary (native check)
         if: ${{ inputs.native_check }}
