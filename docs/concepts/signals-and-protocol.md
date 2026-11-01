@@ -476,6 +476,14 @@ cluster that runs many crews at once, or fitness suites alongside live traffic, 
 value. The job that creates the streams runs on every install and upgrade and updates an
 existing stream to the values.
 
+### Testing the coordinator
+
+The [coordinator chaos test](../../operating/coordinator-chaos-test/) kills or freezes a
+coordinator at chosen points of a real discussion (after the thread opened, the subcommittee
+convened, evaluation or synthesis started, the answer was logged, the close was published) and
+checks from the log and the streams that the question was answered once. It refuses to run
+unless the log and resume (and, for its freeze and lease-holder cases, leases) are on.
+
 ## The bus contract
 
 The messages on the bus, the key-value entries agents and Kubemoot share, and the

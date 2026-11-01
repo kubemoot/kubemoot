@@ -96,15 +96,25 @@ var msgFrontiers = map[Point]func(Thread) bool{
 	},
 }
 
-// Holds reports whether the thread sits at the point. A thread with a coordinator log
-// is judged by the log; one without (control mode) by its messages.
+// Holds reports whether the coordinator log puts the thread at the point.
 func (p Point) Holds(t Thread) bool {
-	if len(t.Events) > 0 {
-		f, ok := logFrontiers[p]
-		return ok && f(t)
-	}
+	f, ok := logFrontiers[p]
+	return ok && f(t)
+}
+
+// HoldsMsgs reports whether the discussion messages put the thread at the point.
+func (p Point) HoldsMsgs(t Thread) bool {
 	f, ok := msgFrontiers[p]
 	return ok && f(t)
+}
+
+// HoldsIn judges the thread by the log in protected mode, where a point is not reached
+// until its event is logged, and by the messages in control mode, where there is no log.
+func (p Point) HoldsIn(t Thread, m Mode) bool {
+	if m == ModeControl {
+		return p.HoldsMsgs(t)
+	}
+	return p.Holds(t)
 }
 
 // ParsePoint returns the point named s.

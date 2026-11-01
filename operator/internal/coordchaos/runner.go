@@ -84,6 +84,8 @@ type Config struct {
 	// DeathQuiet is how long a killed or frozen coordinator's last writes get to reach the streams
 	// before the runner reads where the fault landed. Zero means 2 seconds.
 	DeathQuiet time.Duration
+	// MetricsWait is a safety net for the replacement coordinator to serve its counters. Zero means 2 minutes.
+	MetricsWait time.Duration
 	// Poll is how often state is read.
 	Poll time.Duration
 	// Question is the text asked; the runner appends a marker that names the trial.
@@ -234,7 +236,7 @@ func (r *Runner) driveToFault(ctx context.Context, c Case, asked Asked, t *Trial
 	f := fault{}
 	pctx, cancel := context.WithTimeout(ctx, r.Cfg.PointTimeout)
 	defer cancel()
-	thread, reached, err := r.awaitPoint(pctx, c.Point, asked)
+	thread, reached, err := r.awaitPoint(pctx, c.Point, c.Mode, asked)
 	if err != nil {
 		return f, err
 	}
@@ -257,7 +259,7 @@ var errMissed = errors.New("thread passed the point")
 
 // awaitPoint waits for the question's thread to sit at the point. It returns reached=false
 // when the thread closed without the harness seeing it there.
-func (r *Runner) awaitPoint(ctx context.Context, p Point, asked Asked) (string, bool, error) {
+func (r *Runner) awaitPoint(ctx context.Context, p Point, m Mode, asked Asked) (string, bool, error) {
 	var thread string
 	reached := false
 	err := r.poll(ctx, "the thread to reach "+string(p), func() (bool, error) {
@@ -270,7 +272,7 @@ func (r *Runner) awaitPoint(ctx context.Context, p Point, asked Asked) (string, 
 		}
 		th := r.Bus.Store().Thread(ids[0])
 		thread = ids[0]
-		if p.Holds(th) {
+		if p.HoldsIn(th, m) {
 			reached = true
 			return true, nil
 		}
