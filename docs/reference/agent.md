@@ -91,7 +91,7 @@ Standard Kubernetes deployment overrides.
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `replicas` | int32 | Default: 1. A coordinator runs more than one only with the chart value `coordinator.lease` on; see [Leases and more than one replica](../../concepts/signals-and-protocol/#leases-and-more-than-one-replica) |
+| `replicas` | int32 | Default: 1. A coordinator runs more than one only with the chart value `coordinator.lease` on; with it off the operator runs one replica whatever this says and sets the `ReplicasLimited` condition on the Agent. See [Leases and more than one replica](../../concepts/signals-and-protocol/#leases-and-more-than-one-replica) |
 | `image` | string | Override agent-runtime image. Defaults to `KubemootConfig.spec.images.agentRuntime`. In sidecar mode it names the harness when `spec.harness.image` is unset |
 | `port` | int32 | HTTP API port. Default: 8080. In sidecar mode it is the sidecar's port, which the Service targets |
 | `resources` | ResourceRequirements | CPU and memory for the `agent` container. See [Resources](#resources) |
@@ -244,7 +244,7 @@ The goose harness runs `goose run` for each request, so its default is larger th
 | `ready` | bool | True when the scheduler bound a Model and the agent is deployed |
 | `endpoint` | string | Internal service URL (`http://<name>.<namespace>.svc.cluster.local:<port>`, following `spec.deployment.port`) |
 | `availableReplicas` | int32 | Declared, not populated by the controller today |
-| `conditions[]` | Condition | `RuntimeClassAvailable` is present only when the pod asks for a RuntimeClass: `True` when the class exists, `False` (reason `RuntimeClassMissing`) when it does not. See [Isolation](../../concepts/isolation/) |
+| `conditions[]` | Condition | `RuntimeClassAvailable` is present only when the pod asks for a RuntimeClass: `True` when the class exists, `False` (reason `RuntimeClassMissing`) when it does not. See [Isolation](../../concepts/isolation/). `ReplicasLimited` (`True`, reason `CoordinatorLeasesOff`) is present only on a coordinator whose `spec.deployment.replicas` asks for more than 1 while `coordinator.lease` is off: the operator ran one replica |
 | `message` | string | The bound models (`mulling=<model>@<server>; triage=<model>@<server>`), or the reason the agent is unschedulable |
 | `ragSourceStatus[]` | RAGSourceRefStatus | Declared, not populated by the controller today |
 | `mcpServerStatus[]` | MCPServerRefStatus | Declared, not populated by the controller today |

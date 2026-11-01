@@ -186,6 +186,9 @@ func (r *AgentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 	if err := r.syncRuntimeClassCondition(ctx, agent); err != nil {
 		return ctrl.Result{}, err
 	}
+	if err := r.syncReplicasLimitedCondition(ctx, agent); err != nil {
+		return ctrl.Result{}, err
+	}
 
 	mullingPick, triagePick, mullingErr := r.pickPhaseModels(ctx, agent)
 	if mullingPick == nil {
@@ -760,9 +763,7 @@ func (r *AgentReconciler) buildDeployment(ctx context.Context, agent *kubemootv1
 	// With leases on (KubemootConfig spec.coordinator.lease) only the replica holding the crew's
 	// pump lease resets the consumer, and the old pod hands its thread leases over when it stops,
 	// so the pods may overlap and the coordinator rolls with RollingUpdate.
-	if agent.Spec.DiscussRole == "coordinator" {
-		d.Spec.Strategy = coordinatorStrategy(r.coordinatorLeasesOn())
-	}
+	r.setCoordinatorStrategy(d, agent)
 
 	var override *corev1.ResourceRequirements
 	if agent.Spec.Deployment != nil {
@@ -807,6 +808,9 @@ func (r *AgentReconciler) resolveDeploymentParams(agent *kubemootv1alpha1.Agent)
 	if agent.Spec.Deployment != nil {
 		if agent.Spec.Deployment.Replicas > 0 {
 			replicas = agent.Spec.Deployment.Replicas
+		}
+		if limit := r.coordinatorReplicasLimit(agent); limit > 0 && replicas > limit {
+			replicas = limit
 		}
 		if agent.Spec.Deployment.Port > 0 {
 			port = agent.Spec.Deployment.Port
