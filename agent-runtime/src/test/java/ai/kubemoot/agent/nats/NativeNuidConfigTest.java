@@ -16,4 +16,11 @@ class NativeNuidConfigTest {
         assertTrue(props.contains("--initialize-at-run-time=io.nats.client.NUID"),
                 "every pod must start from its own NUID state, or consumer names repeat across pods");
     }
+
+    @Test
+    void nativeBuildTargetsEveryX8664Cpu() throws Exception {
+        String props = Files.readString(Path.of("src/main/resources/application.properties"));
+        assertTrue(props.contains("-march=compatibility"),
+                "the binary must not depend on the build machine's CPU features");
+    }
 }
