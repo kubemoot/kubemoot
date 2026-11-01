@@ -184,7 +184,9 @@ nats:
 which also says how to size the stream values. `coordinator.lease` is described in
 [Leases and more than one replica](../../concepts/signals-and-protocol/#leases-and-more-than-one-replica):
 turn it on, then set `spec.deployment.replicas: 2` on a crew's coordinator Agent for a coordinator that
-survives a node loss or a rolling update without losing the discussions in flight. The job that creates the NATS streams
+survives a node loss or a rolling update without losing the discussions in flight. With it off, the
+operator runs every coordinator Agent with exactly one replica and the `Recreate` strategy, whatever
+`spec.deployment.replicas` asks for, and says so in the Agent's `ReplicasLimited` status condition. The job that creates the NATS streams
 applies `nats.streams.discuss.*` on every install and upgrade, to an existing stream too.
 
 ### Optional: the dashboard

@@ -337,6 +337,7 @@ func (r *AgentReconciler) buildSidecarDeployment(ctx context.Context, agent *kub
 			Template: tmpl,
 		},
 	}
+	r.setCoordinatorStrategy(d, agent)
 	d.Annotations[deploymentHashAnnotation] = computeDeploymentHash(d)
 	return d, nil
 }

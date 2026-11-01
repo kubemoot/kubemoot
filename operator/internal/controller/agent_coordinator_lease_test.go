@@ -22,19 +22,23 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
 
+// leasesOffRealms are the realms in which coordinator leases do not count, by what is missing.
+func leasesOffRealms() map[string]*kubemootv1alpha1.CoordinatorConfig {
+	return map[string]*kubemootv1alpha1.CoordinatorConfig{
+		"no coordinator block":  nil,
+		"lease off":             {EventLog: true, Resume: true},
+		"lease without resume":  {EventLog: true, Lease: true},
+		"lease without the log": {Resume: true, Lease: true},
+	}
+}
+
 // leasesOn is a realm with the log, resume and leases all on.
 func leasesOn() *kubemootv1alpha1.CoordinatorConfig {
 	return &kubemootv1alpha1.CoordinatorConfig{EventLog: true, Resume: true, Lease: true}
 }
 
 func TestCoordinatorLeaseEnv_AbsentUnlessTheRealmTurnsItOnWithResumeAndTheLog(t *testing.T) {
-	cases := map[string]*kubemootv1alpha1.CoordinatorConfig{
-		"no coordinator block":  nil,
-		"lease off":             {EventLog: true, Resume: true},
-		"lease without resume":  {EventLog: true, Lease: true},
-		"lease without the log": {Resume: true, Lease: true},
-	}
-	for name, config := range cases {
+	for name, config := range leasesOffRealms() {
 		if got := coordinatorEnvValues(t, envCoordinatorLease, config); len(got) != 0 {
 			t.Errorf("%s: want no variable, got %v", name, got)
 		}
@@ -96,12 +100,7 @@ func TestCoordinatorRollsWithRollingUpdateWhenLeasesAreOn(t *testing.T) {
 	if withLeases.Spec.Strategy.Type != appsv1.RollingUpdateDeploymentStrategyType {
 		t.Errorf("leases on: got %q, want RollingUpdate", withLeases.Spec.Strategy.Type)
 	}
-	for name, config := range map[string]*kubemootv1alpha1.CoordinatorConfig{
-		"no block":              nil,
-		"lease off":             {EventLog: true, Resume: true},
-		"lease without resume":  {EventLog: true, Lease: true},
-		"resume without leases": {EventLog: true, Resume: true},
-	} {
+	for name, config := range leasesOffRealms() {
 		if got := build(config).Spec.Strategy.Type; got != appsv1.RecreateDeploymentStrategyType {
 			t.Errorf("%s: got %q, want Recreate", name, got)
 		}
@@ -113,9 +112,9 @@ func TestCoordinatorRollsWithRollingUpdateWhenLeasesAreOn(t *testing.T) {
 	}
 }
 
-// TestCoordinatorReplicasFollowTheAgentWhateverTheLeaseSetting verifies the operator neither
+// TestCoordinatorReplicasFollowTheAgentWhenLeasesAreOn verifies, with leases on, that the operator neither
 // raises nor caps a coordinator's replicas: the Agent states them, one by default.
-func TestCoordinatorReplicasFollowTheAgentWhateverTheLeaseSetting(t *testing.T) {
+func TestCoordinatorReplicasFollowTheAgentWhenLeasesAreOn(t *testing.T) {
 	scheme := runtime.NewScheme()
 	if err := kubemootv1alpha1.AddToScheme(scheme); err != nil {
 		t.Fatalf("add scheme: %v", err)
