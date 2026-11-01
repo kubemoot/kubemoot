@@ -20,8 +20,6 @@ You may obtain a copy of the License at
 package main
 
 import (
-	"context"
-	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -29,14 +27,12 @@ import (
 	"time"
 
 	"github.com/nats-io/nats.go"
-	"github.com/nats-io/nats.go/jetstream"
 
 	"github.com/kubemoot/kubemoot/operator/pkg/crewmemory"
+	"github.com/kubemoot/kubemoot/operator/pkg/crewmemory/natskv"
 	"github.com/kubemoot/kubemoot/operator/pkg/crewmemory/ompi"
 	"github.com/kubemoot/kubemoot/operator/pkg/crewscope"
 )
-
-const timeout = 30 * time.Second
 
 type options struct {
 	natsURL   string
@@ -111,19 +107,7 @@ func runWith(args []string, stdout io.Writer, open opener) error {
 // export reads the crew's facts, maps them to memory objects, checks every
 // document against the schema and writes the directory.
 func export(reader crewmemory.EntryReader, scope crewscope.Scope, o options, now time.Time) (ompi.Export, error) {
-	res, err := crewmemory.ReadFacts(reader, scope)
-	if err != nil {
-		return ompi.Export{}, err
-	}
-	exp, err := ompi.Build(scope, res, ompi.Options{ExportedAt: now, Origin: o.origin})
-	if err != nil {
-		return ompi.Export{}, err
-	}
-	files, err := ompi.Files(exp, o.markdown)
-	if err != nil {
-		return ompi.Export{}, err
-	}
-	return exp, ompi.Write(o.out, files)
+	return ompi.ExportCrew(reader, scope, o.out, o.markdown, ompi.Options{ExportedAt: now, Origin: o.origin})
 }
 
 // connect opens the bucket for reading. It is not the operator's Publisher on
@@ -138,46 +122,10 @@ func connect(o options) (crewmemory.EntryReader, func(), error) {
 	if err != nil {
 		return nil, nil, fmt.Errorf("connect %s: %w", o.natsURL, err)
 	}
-	js, err := jetstream.New(nc)
+	reader, err := natskv.Open(nc)
 	if err != nil {
 		nc.Close()
 		return nil, nil, err
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
-	defer cancel()
-	kv, err := js.KeyValue(ctx, crewmemory.Bucket)
-	if err != nil {
-		nc.Close()
-		return nil, nil, fmt.Errorf("open bucket %s: %w", crewmemory.Bucket, err)
-	}
-	return &kvReader{kv: kv}, nc.Close, nil
-}
-
-// kvReader adapts a JetStream bucket to crewmemory.EntryReader. It offers no write.
-// Each call gets its own timeout.
-type kvReader struct {
-	kv jetstream.KeyValue
-}
-
-func (r *kvReader) ListKVKeys(string) ([]string, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
-	defer cancel()
-	keys, err := r.kv.Keys(ctx)
-	if errors.Is(err, jetstream.ErrNoKeysFound) {
-		return nil, nil
-	}
-	return keys, err
-}
-
-func (r *kvReader) GetKVEntry(_, key string) (crewmemory.Entry, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
-	defer cancel()
-	e, err := r.kv.Get(ctx, key)
-	if err != nil {
-		if errors.Is(err, jetstream.ErrKeyNotFound) {
-			return crewmemory.Entry{}, nil
-		}
-		return crewmemory.Entry{}, err
-	}
-	return crewmemory.Entry{Value: e.Value(), Revision: e.Revision(), Created: e.Created()}, nil
+	return reader, nc.Close, nil
 }
