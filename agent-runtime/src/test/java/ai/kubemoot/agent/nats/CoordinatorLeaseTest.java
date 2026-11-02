@@ -167,6 +167,16 @@ class CoordinatorLeaseTest extends CoordinatorThreadTestBase {
         await(() -> countOf(threadId, type) >= 1, "no " + type + " for " + threadId + ", got " + sharedLog.types());
     }
 
+    /**
+     * Waits until the replica has the thread and its takeover is finished. The thread joins the
+     * replica's map while the takeover still holds the thread's transition guard, and a step run
+     * in that window is skipped, so holding the thread is not yet being able to act on it.
+     */
+    private void awaitTakenOver(Replica replica, String threadId) throws InterruptedException {
+        await(() -> replica.owns(threadId) && !replica.resume().isResuming(threadId),
+                "the request did not take the thread over, got " + sharedLog.types());
+    }
+
     private CoordinatorThreadState logged(String threadId) {
         return CoordinatorStateReducer.reduce(eventsOf(threadId));
     }
@@ -364,7 +374,7 @@ class CoordinatorLeaseTest extends CoordinatorThreadTestBase {
         advance(CoordinatorLeases.LEASE);
 
         Future<OrchestrateResult> second = ask(b, 42);
-        await(() -> b.owns(threadId), "the request did not take the thread over");
+        awaitTakenOver(b, threadId);
         convene(b, threadId);
         say(threadId, "k8s-metrics", "agree", "3", b);
         say(threadId, "k8s-workloads", "stand_aside", "nothing to add", b);
