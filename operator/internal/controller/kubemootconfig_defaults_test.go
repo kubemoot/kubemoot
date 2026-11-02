@@ -64,6 +64,39 @@ var _ = Describe("KubemootConfig artifacts.queryEngine default", func() {
 	}
 })
 
+// spec.artifacts.perCallArtifacts is off unless it is set: absent artifacts and an empty
+// artifacts object both read false, and true is kept.
+var _ = Describe("KubemootConfig artifacts.perCallArtifacts default", func() {
+	cases := []struct {
+		name      string
+		artifacts map[string]any // nil leaves spec.artifacts out
+		want      bool
+	}{
+		{"artifacts absent", nil, false},
+		{"artifacts empty", map[string]any{}, false},
+		{"explicitly on", map[string]any{"perCallArtifacts": true}, true},
+	}
+
+	for i, tc := range cases {
+		It("resolves "+tc.name, func() {
+			cfgObj := &unstructured.Unstructured{}
+			cfgObj.SetGroupVersionKind(aiv1alpha1.GroupVersion.WithKind("KubemootConfig"))
+			cfgObj.SetName(fmt.Sprintf("per-call-artifacts-default-%d", i))
+			spec := map[string]any{}
+			if tc.artifacts != nil {
+				spec["artifacts"] = tc.artifacts
+			}
+			Expect(unstructured.SetNestedMap(cfgObj.Object, spec, "spec")).To(Succeed())
+			Expect(k8sClient.Create(ctx, cfgObj)).To(Succeed())
+			DeferCleanup(func() { Expect(client.IgnoreNotFound(k8sClient.Delete(ctx, cfgObj))).To(Succeed()) })
+
+			got := &aiv1alpha1.KubemootConfig{}
+			Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cfgObj), got)).To(Succeed())
+			Expect(got.Spec.Artifacts.PerCallArtifacts).To(Equal(tc.want))
+		})
+	}
+})
+
 // The apiserver defaults spec.coordinator.eventLog and resume to true, and leaves lease
 // off, whether the coordinator object is absent, empty, or partly set; an explicit false
 // is kept, because the fields are pointers.
