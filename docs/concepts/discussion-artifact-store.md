@@ -93,7 +93,16 @@ too large for its window, and that stand-in now names the call's key
 (`Stored as workspace artifact {key}.`). If any write to the store fails, the contribution
 is the glued output as before, so a storage failure never loses data.
 
-Analysts and the coordinator receive the manifest. An analyst that needs rows calls
+Call numbers keep counting after an agent restarts: the next number is found from the
+objects already stored, so a call never overwrites an earlier one. Square brackets in the
+summarized arguments show as parentheses so a list cannot end the call line early.
+
+Analysts and the coordinator receive the manifest. The tool-free synthesizer cannot read
+the workspace, so before synthesis the coordinator replaces each `[CALL ...]` line with
+`[tool]` and the stored result (the form the glued output has), drops the header and
+closing lines, and puts a notice in place of any result it cannot read. The results it
+fills in together are capped at 96,000 characters; a call past the cap is named but not
+filled in. The final answer to the user never carries a manifest line. An analyst that needs rows calls
 `workspace_query` with a key from a `[CALL ...]` line; see
 [Query with SQL](#query-with-sql). Both formats coexist: artifacts written before the
 setting was turned on, and the single object a tooler spills with the setting off, are
@@ -260,7 +269,8 @@ With [per-call artifacts](#one-artifact-per-tool-call-opt-in), the key of one ca
 header decides how it is read: `json` is read as JSON, `text` is detected as above. A
 key with a `*` reads every stored call that matches as one table. `*` stands for any
 characters except `/`, and the part before the first `*` must name the namespace, crew and
-thread (`ns/crew/thread/`). `default/pilot/t1/k8s-workloads/*-pods_list` is every
+thread (`ns/crew/thread/`), and the namespace must be the artifact-access pod's own
+(`KUBEMOOT_NAMESPACE`). `default/pilot/t1/k8s-workloads/*-pods_list` is every
 `pods_list` call of one agent in the thread; `default/pilot/t1/*/*-pods_list` is every
 `pods_list` call of every agent. Calls of the same shape are stacked as the rows of one
 table, a different shape is `name_2`, and a call that returned an error is left out and

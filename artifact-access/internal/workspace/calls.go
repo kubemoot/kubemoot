@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path"
+	"strconv"
 	"strings"
 
 	"github.com/kubemoot/kubemoot/artifact-access/internal/store"
@@ -67,8 +68,8 @@ func RowsHeader(m store.Meta) (int64, bool) {
 	if !ok || ci.truncated {
 		return 0, false
 	}
-	var n int64
-	if _, err := fmt.Sscan(m.Headers[headerRows], &n); err != nil {
+	n, err := strconv.ParseInt(m.Headers[headerRows], 10, 64)
+	if err != nil || n < 0 {
 		return 0, false
 	}
 	return n, true
@@ -162,13 +163,9 @@ func (s *Service) matching(ctx context.Context, pattern string) ([]store.Meta, e
 	if !ok {
 		return nil, errors.New("this store cannot list objects, so a key with * cannot be used")
 	}
-	prefix := pattern[:strings.IndexByte(pattern, '*')]
-	if strings.Count(prefix, "/") < minPatternSlashes {
-		return nil, fmt.Errorf("a key with * must start with the namespace, crew and thread "+
-			"(ns/crew/thread/), got %q", pattern)
-	}
-	if _, err := path.Match(pattern, ""); err != nil {
-		return nil, fmt.Errorf("bad key pattern %q: %w", pattern, err)
+	prefix, err := s.patternPrefix(pattern)
+	if err != nil {
+		return nil, err
 	}
 	all, err := l.List(ctx, prefix)
 	if err != nil {
@@ -188,6 +185,23 @@ func (s *Service) matching(ctx context.Context, pattern string) ([]store.Meta, e
 			pattern, len(out), MaxGlobObjects)
 	}
 	return out, nil
+}
+
+// patternPrefix checks a key pattern and returns its fixed part, the text before the first *. The
+// fixed part must name the namespace, crew and thread, and the pod's namespace when it knows it.
+func (s *Service) patternPrefix(pattern string) (string, error) {
+	prefix := pattern[:strings.IndexByte(pattern, '*')]
+	if strings.Count(prefix, "/") < minPatternSlashes {
+		return "", fmt.Errorf("a key with * must start with the namespace, crew and thread "+
+			"(ns/crew/thread/), got %q", pattern)
+	}
+	if s.Namespace != "" && !strings.HasPrefix(prefix, s.Namespace+"/") {
+		return "", fmt.Errorf("a key with * may reach only the namespace %q, got %q", s.Namespace, pattern)
+	}
+	if _, err := path.Match(pattern, ""); err != nil {
+		return "", fmt.Errorf("bad key pattern %q: %w", pattern, err)
+	}
+	return prefix, nil
 }
 
 // readObject finds the object's file under Dir, fetching it first when it is not there yet,

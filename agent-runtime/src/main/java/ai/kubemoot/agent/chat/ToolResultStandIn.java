@@ -1,8 +1,5 @@
 package ai.kubemoot.agent.chat;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-
 import java.nio.charset.StandardCharsets;
 
 /**
@@ -20,8 +17,6 @@ final class ToolResultStandIn {
 
     /** Most characters of the result shown, so a single very long line cannot fill the window. */
     static final int HEAD_CHARS = 1_500;
-
-    private static final ObjectMapper MAPPER = new ObjectMapper();
 
     /** Text every stand-in contains, which tells one apart from a real tool result. */
     private static final String MARKER = "The full result is kept for the crew and posted with your output";
@@ -121,16 +116,6 @@ final class ToolResultStandIn {
      * {@code items} array (the shape of a Kubernetes list); -1 for anything else.
      */
     static int itemCount(String text) {
-        String t = text.stripLeading();
-        if (!t.startsWith("[") && !t.startsWith("{")) {
-            return -1;
-        }
-        try {
-            JsonNode root = MAPPER.readTree(t);
-            JsonNode list = root.isArray() ? root : root.path("items");
-            return list.isArray() ? list.size() : -1;
-        } catch (Exception e) {
-            return -1;
-        }
+        return ToolResultShape.of(text).rows();
     }
 }

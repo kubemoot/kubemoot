@@ -66,6 +66,19 @@ class ToolCallLedgerTest {
     }
 
     @Test
+    void squareBracketsInArgumentsCannotEndTheCallLineEarly() {
+        record("t", "{\"ids\":[1,2]}", "[]", false);
+
+        String manifest = ledger.manifest();
+
+        assertTrue(manifest.contains("args={\"ids\":(1,2)}"), manifest);
+        var line = CallManifest.CALL_LINE.matcher(manifest);
+        assertTrue(line.find());
+        assertEquals("t", line.group(2));
+        assertEquals(manifest.indexOf("error=false]") + "error=false]".length(), line.end(), "the whole line matches");
+    }
+
+    @Test
     void emptyArgumentsShowAsAnEmptyObject() {
         assertEquals("{}", ToolCallLedger.summary(null));
         assertEquals("{}", ToolCallLedger.summary("  "));
