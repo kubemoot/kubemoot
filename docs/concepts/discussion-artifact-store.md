@@ -81,13 +81,23 @@ goes through the bus, and the manifest stays under 4,000 characters so it posts 
 
 ```
 [WORKSPACE agent=k8s-workloads calls=2 errors=1 prefix=default/pilot/t1/k8s-workloads/]
-[CALL key=default/pilot/t1/k8s-workloads/001-pods_list tool=pods_list args={"namespace":"kube-system"} bytes=15210 rows=41 error=false]
-[CALL key=default/pilot/t1/k8s-workloads/002-events_list tool=events_list args={"type":"Warning"} bytes=38 rows=unknown error=true]
-The results are stored under these keys and are not shown here. Read a key with workspace_query (SQL) or the artifact_* tools; the key default/pilot/t1/k8s-workloads/*-<tool> reads every call of one tool as one table.
+[CALL key=default/pilot/t1/k8s-workloads/001-pods_list tool=pods_list args={"namespace":"kube-system"} format=text-table bytes=15210 rows=unknown error=false columns=NAME,READY,STATUS,RESTARTS,AGE]
+[CALL key=default/pilot/t1/k8s-workloads/002-nodes_list tool=nodes_list args={} format=json bytes=2210 rows=3 error=false fields=metadata,spec,status]
+The results are stored under these keys and are not shown here. Read a key with workspace_query (SQL; the columns are listed on the call line), the artifact_* tools, or execute_code over the file /artifacts/<key>; the key default/pilot/t1/k8s-workloads/*-<tool> reads every call of one tool as one table.
 ```
 
+Each call line says what the stored body is, so a reader does not guess it. `format=` is
+`json` (a JSON object or list), `text-table` (a `kubectl` style table: a first line of
+upper-case column titles separated by two or more spaces) or `text` (anything else, and a
+JSON result that was cut at the size cap). For a table, `columns=` lists its column titles;
+for a JSON list or object, `fields=` lists the keys of its first row (the `items` list of a
+Kubernetes list). At most 12 names are shown, each cut at 30 characters, then `,+Nmore`.
+These are the names `workspace_query` reads the table by, so a query can use them as written.
+A `workspace_query` that names a column the table does not have fails with `no such column`
+and the error lists the actual columns of every table in the query.
+
 Arguments are cut to 60 characters. A manifest that would pass the limit drops the
-arguments, then replaces the last lines with a count (`[N more calls under the prefix]`).
+arguments, then the column names, then replaces the last lines with a count (`[N more calls under the prefix]`).
 The tooler's own model keeps its normal behavior: it sees a short stand-in for a result
 too large for its window, and that stand-in now names the call's key
 (`Stored as workspace artifact {key}.`). If any write to the store fails, the contribution
@@ -98,18 +108,73 @@ objects already stored, so a call never overwrites an earlier one. Square bracke
 summarized arguments show as parentheses so a list cannot end the call line early.
 
 Analysts and the coordinator receive the manifest. The tool-free synthesizer cannot read
-the workspace, so before synthesis the coordinator replaces each `[CALL ...]` line with
-`[tool]` and the stored result (the form the glued output has), drops the header and
-closing lines, and puts a notice in place of any result it cannot read. How many results it
-fills in depends on the room the synthesizer's window has left: the smallest context window
-any server publishes for the agent's model, less the rest of the synthesis prompt and the
-reply reserve, counted with the estimator an agent's tool loop uses (digits and symbols
-count as dense, so numeric JSON takes about a token per digit). Results are filled in
-in manifest order, each whole or not at all, until one does not fit. That call and the
-rest keep their `[CALL ...]` line and get the note "Not included here: the stored result
-did not fit the room left in the synthesis window. The analysts' findings summarize it."
-No part of a result is ever cut to fit. When no server publishes a window, each result is
-filled in up to 24,000 characters instead.
+the workspace, so the coordinator reads each stored result once and delivers it to the model
+that writes the answer. How is described next.
+
+### Delivery to the synthesis
+
+The synthesis call is placed by the scheduler like any other, and the room it has depends on
+the model the scheduler picks for that call. So the prompt is built after the pick, from the
+**context window of the picked model on the picked server**, never the smallest window of any
+server: a server that does not hold the model (a CPU embedding server with an 8,192-token
+window, say) does not count. The room is that window, less the rest of the prompt and the reply
+reserve, counted with the estimator an agent's tool loop uses (digits and symbols count as
+dense, so numeric JSON takes about a token per digit). No size is fixed: an install whose
+models have an 8K window, a 32K window or a 128K window gets batches sized to its own.
+
+**One round.** When every stored result fits that room, the coordinator replaces each
+`[CALL ...]` line with `[tool]` and the stored result (the form the glued output has), drops
+the manifest's header and closing lines, and the crew's synthesis prompt writes the answer.
+The fill considers every result in manifest order; one that does not fit does not stop the
+ones after it.
+
+**Several rounds (refinement).** When the results do not all fit one prompt, the evidence is
+read in rounds, the established "refine" pattern:
+
+1. Round 1 sends the question, the analysts' contributions and the first batch of stored
+   results that fits. The model writes **working notes**: one line per finding, with exact
+   values, names and counts, each tagged with the call key it came from (`- [<call key>]
+   <finding>`). It does not round, merge distinct items or count by eye; a number or list an
+   analyst computed is copied verbatim with the analyst's name.
+2. Rounds 2 to N send the notes so far and the next batch. The model adds findings, corrects
+   one only when a new result shows it wrong (with the reason on that line), and never drops
+   a finding without a reason.
+3. The last round is the crew's normal synthesis prompt, over the question, the contributions
+   and the finished notes (under a "WORKING NOTES FROM THE STORED TOOL RESULTS" heading).
+
+Every stored result is read exactly once across the rounds, and the batch of each round is
+sized to the window of the model that round was placed on. Rounds can land on different
+models: a later round that gets a smaller window takes a smaller batch (it is re-planned
+from what is left, never sent over the window), and one that gets a larger window takes more.
+A result larger than one round's room is read in consecutive parts, cut at line boundaries
+(a single line longer than the room is cut at the character), each marked `part i of n of
+<key>`. The same evidence takes more rounds on a small window than on a large one.
+
+**Limits.** The rounds, counting the last, are capped by the coordinator setting
+`KUBEMOOT_DISCUSS_SYNTHESIS_EVIDENCE_ROUNDS` (`kubemoot.discuss.synthesis-evidence-rounds`,
+default **4**; a value below 1 means the default), and each allowed round gets the synthesis
+time limit (`synthesisTimeoutSeconds`) within the thread's hard ceiling. Both are safety
+limits, not flow control. A small-window install needs more rounds for the same evidence, so
+raise the cap there. The last allowed round takes the results that fit and names every other
+result with the same notice an unreadable artifact gets:
+`[ARTIFACT UNAVAILABLE key=... Treat it as UNKNOWN ... do NOT infer, guess, or fabricate ...]`.
+A result that was not delivered is never described as summarized by the analysts.
+
+**Unknown window.** When no window is known for the picked model, there is one round and each
+result is filled in up to 24,000 characters (cut with a marker), as before.
+
+The round prompts and the notes format are ADL resources of the runtime
+(`agent-runtime/src/main/resources/prompts/synthesis-notes-*.adl`), not Java text.
+
+The coordinator logs one line per synthesis that delivered stored results:
+
+```
+synthesis evidence: thread=... windows=[8192, 8192, 32768] rooms=[...] results=7 filled=7 rounds=3 chunks=0 bytes=140000 notDelivered=[]
+```
+
+and the `synthesis_done` event carries `rounds` (model calls the synthesis made) and
+`filledBytes` (bytes of stored results that reached the model), so a measurement can read
+them. A thread without a manifest reports one round and no bytes, and synthesizes as before.
 
 The final answer to the user never carries a manifest line. An analyst that needs rows calls
 `workspace_query` with a key from a `[CALL ...]` line; see

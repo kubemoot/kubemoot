@@ -17,14 +17,15 @@ import static org.mockito.Mockito.when;
 
 /**
  * The room a simple call (synthesis) has in its window for stored tool results: the smallest
- * window any server publishes for the agent's model, less the prompt (counted dense for numbers)
- * and the reply reserve; unknown when no server publishes one.
+ * window among the servers that hold the agent's model, less the prompt (counted dense for numbers)
+ * and the reply reserve; unknown when no such server publishes one.
  */
 class ChatServiceSynthesisRoomTest {
 
     private static ServerState server(long window) {
         var state = mock(ServerState.class);
         when(state.contextLengthFor(anyString())).thenReturn(window);
+        when(state.hasModel(anyString())).thenReturn(true);
         return state;
     }
 
@@ -46,6 +47,20 @@ class ChatServiceSynthesisRoomTest {
     @Test
     void theWindowIsTheSmallestAnyServerPublishesForTheModel() {
         assertEquals(16_384, service(publishing(32_768, 16_384, 65_536)).simpleCallContextTokens().getAsLong());
+    }
+
+    @Test
+    void aServerThatDoesNotHoldTheModelDoesNotCount() {
+        // The CPU embedding server publishes 8,192 for its own model; it cannot run the agent's model,
+        // so its window must not set the room of a synthesis that runs on the larger server.
+        var embedding = mock(ServerState.class);
+        when(embedding.contextLengthFor(anyString())).thenReturn(8_192L);
+        when(embedding.hasModel(anyString())).thenReturn(false);
+        var big = server(32_768);
+        var selector = mock(ServerSelector.class);
+        when(selector.readState()).thenReturn(java.util.List.of(embedding, big));
+
+        assertEquals(32_768, service(selector).simpleCallContextTokens().getAsLong());
     }
 
     @Test

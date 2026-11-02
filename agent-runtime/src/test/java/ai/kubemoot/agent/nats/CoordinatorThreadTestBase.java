@@ -72,6 +72,7 @@ abstract class CoordinatorThreadTestBase {
     protected static final String SELECT_NONE = "{\"selected\":[],\"brief\":\"Four.\",\"technologies\":[]}";
 
     protected DiscussionOrchestrator orchestrator;
+    protected ChatService chatService;
     protected NatsConnectionProvider natsProvider;
     protected RecordingEventLog eventLog;
     protected AgentProperties.TriageModel triageModel;
@@ -98,7 +99,7 @@ abstract class CoordinatorThreadTestBase {
             when(natsProvider.getConnection()).thenReturn(bus);
             when(natsProvider.isAvailable()).thenReturn(true);
         }
-        var chatService = mock(ChatService.class);
+        chatService = mock(ChatService.class);
         when(chatService.simpleLlmCallWithTokens(any(), anyString())).thenAnswer(call -> {
             String prompt = call.getArgument(1);
             String text = prompt.contains("Discussion thread") ? "Eleven pods." : selection;

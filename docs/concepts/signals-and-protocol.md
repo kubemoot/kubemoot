@@ -160,7 +160,7 @@ Every message is an event:
 | `failure_recorded` | an agent reports `failure`, or its deadline passes and the coordinator records one | `agent`, `cause` (`reported` or `evaluation_timeout`), `synthesized`, `failedSources` |
 | `settled` | a phase ends | `phase`, `basis` (`roster_signalled`, `fast_path`, `quiet` or `no_pending`), `counts` |
 | `synthesis_started` | the synthesis call begins | the signal counts |
-| `synthesis_done` | the answer exists, before it is published | `outcome` (`synthesized`, `capacity`, `direct`, `fallback` or `ceiling`), `response`, `tokens` |
+| `synthesis_done` | the answer exists, before it is published | `outcome` (`synthesized`, `capacity`, `direct`, `fallback` or `ceiling`), `response`, `tokens`, `rounds` (model calls the synthesis made; more than one when stored tool results were read in rounds, see [one artifact per tool call](discussion-artifact-store.md#delivery-to-the-synthesis)), `filledBytes` (bytes of stored results that reached the model); both are always present, `1` and `0` for a thread with no stored results |
 | `thread_reopened` | a human reply reopens a closed thread | `phaseStartedAt` |
 | `thread_closed` | the thread ends | `reason` (an outcome of `synthesis_done`, `zombie`, `no_signals`, `unlogged`, or `expired`), `channel` |
 | `coordinator_resumed` | a restarted coordinator takes the thread over | `fromSeq` (the last event it read), `resumedAt` |

@@ -25,6 +25,9 @@ final class ToolCallLedger {
     static final int MAX_MANIFEST_CHARS = 4_000;
     /** Most characters of a call's arguments in a manifest line. */
     static final int ARGS_SUMMARY_CHARS = 60;
+    /** Most column or field names of one call in a manifest line, and the most characters of one name. */
+    static final int MAX_COLUMNS_SHOWN = 12;
+    static final int MAX_NAME_CHARS = 30;
 
     private final CallArtifactStore store;
     private final String threadId;
@@ -59,7 +62,9 @@ final class ToolCallLedger {
             everyWriteWorked = false;
             return null;
         }
-        calls.add(new ToolCallRecord(key, call.tool(), call.arguments(), body.length, shape.rows(), error));
+        String format = cut && shape.json() ? CallHeaders.FORMAT_TEXT : shape.format();
+        calls.add(new ToolCallRecord(key, call.tool(), call.arguments(), body.length, shape.rows(), error,
+                format, cut ? List.of() : shape.columns()));
         return key;
     }
 
@@ -123,26 +128,29 @@ final class ToolCallLedger {
         String head = CallManifest.HEADER_PREFIX + "agent=" + agent + " calls=" + calls.size() + " errors=" + errors
                 + " prefix=" + prefix + "]\n";
         String foot = "\n" + CallManifest.FOOTER_PREFIX + " and are not shown here. Read a key with "
-                + "workspace_query (SQL) or the artifact_* tools; the key " + prefix
+                + "workspace_query (SQL; the columns are listed on the call line), the artifact_* tools, or "
+                + "execute_code over the file /artifacts/<key>; the key " + prefix
                 + "*-<tool> reads every call of one tool as one table.";
         int room = MAX_MANIFEST_CHARS - head.length() - foot.length();
         return head + lines(room) + foot;
     }
 
+    /**
+     * Every call's line with what fits: arguments and column names, then column names alone, then
+     * neither, and only then the oldest lines replaced by a count.
+     */
     private String lines(int room) {
-        String withArgs = joined(calls.size(), true);
-        if (withArgs.length() <= room) {
-            return withArgs;
-        }
-        String bare = joined(calls.size(), false);
-        if (bare.length() <= room) {
-            return bare;
+        for (boolean[] detail : new boolean[][] {{true, true}, {false, true}, {false, false}}) {
+            String all = joined(calls.size(), detail[0], detail[1]);
+            if (all.length() <= room) {
+                return all;
+            }
         }
         int shown = calls.size();
-        String cut = joined(shown, false);
+        String cut = joined(shown, false, false);
         while (shown > 0 && cut.length() + omitted(calls.size() - shown).length() > room) {
             shown--;
-            cut = joined(shown, false);
+            cut = joined(shown, false, false);
         }
         return cut + omitted(calls.size() - shown);
     }
@@ -151,26 +159,45 @@ final class ToolCallLedger {
         return count == 0 ? "" : "\n[" + count + " more calls under the prefix]";
     }
 
-    private String joined(int count, boolean withArgs) {
+    private String joined(int count, boolean withArgs, boolean withColumns) {
         var sb = new StringBuilder();
         for (int i = 0; i < count; i++) {
             if (i > 0) {
                 sb.append('\n');
             }
-            sb.append(line(calls.get(i), withArgs));
+            sb.append(line(calls.get(i), withArgs, withColumns));
         }
         return sb.toString();
     }
 
-    private static String line(ToolCallRecord c, boolean withArgs) {
+    private static String line(ToolCallRecord c, boolean withArgs, boolean withColumns) {
         var sb = new StringBuilder(CallManifest.CALL_PREFIX).append(c.key()).append(" tool=").append(c.tool());
         if (withArgs) {
             sb.append(" args=").append(summary(c.arguments()));
         }
+        sb.append(" format=").append(c.format());
         sb.append(" bytes=").append(c.bytes())
                 .append(" rows=").append(c.rows() >= 0 ? Integer.toString(c.rows()) : "unknown")
-                .append(" error=").append(c.error()).append(']');
-        return sb.toString();
+                .append(" error=").append(c.error());
+        if (withColumns && !c.columns().isEmpty()) {
+            sb.append(CallHeaders.FORMAT_JSON.equals(c.format()) ? " fields=" : " columns=").append(columnList(c.columns()));
+        }
+        return sb.append(']').toString();
+    }
+
+    /**
+     * The names, comma separated: at most {@link #MAX_COLUMNS_SHOWN} of them, each cut at
+     * {@link #MAX_NAME_CHARS}, then a count of the rest. Square brackets become parentheses so a name
+     * cannot end the [CALL ...] line early.
+     */
+    static String columnList(List<String> names) {
+        var shown = new ArrayList<String>();
+        for (String name : names.subList(0, Math.min(names.size(), MAX_COLUMNS_SHOWN))) {
+            String one = name.replace('[', '(').replace(']', ')');
+            shown.add(one.length() <= MAX_NAME_CHARS ? one : one.substring(0, MAX_NAME_CHARS) + "...");
+        }
+        int more = names.size() - shown.size();
+        return String.join(",", shown) + (more > 0 ? ",+" + more + "more" : "");
     }
 
     /** The arguments on one line, cut at {@link #ARGS_SUMMARY_CHARS}. */

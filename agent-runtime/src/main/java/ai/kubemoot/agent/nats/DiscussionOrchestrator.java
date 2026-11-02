@@ -163,6 +163,8 @@ public class DiscussionOrchestrator {
     static final java.util.regex.Pattern ARTIFACT_MARKER_WITH_KEY =
             java.util.regex.Pattern.compile("\\[ARTIFACT key=([^\\]\\s]++)[^\\]]*+\\]");
     private static final int MAX_ARTIFACT_INLINE_CHARS = 24_000;
+    /** Synthesis rounds for stored tool results when {@code synthesisEvidenceRounds} is not set. */
+    private static final int DEFAULT_EVIDENCE_ROUNDS = 4;
     // Absolute floor of a table's names that must appear in a draft for the synthesis
     // completeness contract to treat the draft as enumerating that table. Below this the
     // draft is a count/free-form answer, not an inventory. See enumeratedTable().
@@ -2502,8 +2504,10 @@ public class DiscussionOrchestrator {
             // bulky findings to the object store and leave only a marker on the board,
             // but the synthesizer is tool-free, so it must be handed the actual data.
             String threadPrefix = signalContext + "\n\n";
-            String conversation = threadPrefix + inlineArtifactContent(formatThread(state), threadPrefix);
-            var synthesisResult = synthesizeWithCompleteness(loadSystemPrompt(), conversation, state.threadId);
+            String threadText = inlineArtifactContent(formatThread(state));
+            var synthesisResult = threadText.contains(CallManifest.CALL_PREFIX)
+                    ? synthesizeFromStoredResults(state, threadPrefix + threadText, synthesisStart)
+                    : synthesizeWithCompleteness(loadSystemPrompt(), threadPrefix + threadText, state.threadId);
             String response = synthesisResult.text();
             state.synthesisInputTokens = synthesisResult.inputTokens();
             state.synthesisOutputTokens = synthesisResult.outputTokens();
@@ -2547,6 +2551,57 @@ public class DiscussionOrchestrator {
             String conversation, String threadId) {
         var result = chatService.simpleLlmCallWithTokens(systemPrompt, conversation);
         recordPlacedCall(threads.get(threadId), PHASE_SYNTHESIS, result);
+        return completeAnswer(systemPrompt, conversation, result, threadId);
+    }
+
+    /**
+     * The synthesis when a tooler's per-call manifest is in the input: its stored results reach the model
+     * that writes the answer, in as many rounds as they need ({@link EvidenceSynthesis}). Every round is
+     * sized to the window of the model the scheduler picks for that round; the answer then goes through
+     * the same completeness contract as any other. What was delivered is logged in one line and its
+     * rounds and bytes are kept for the synthesis event.
+     */
+    private ChatService.SimpleLlmResult synthesizeFromStoredResults(ThreadState state, String conversation,
+            Instant synthesisStart) {
+        String system = loadSystemPrompt();
+        Connection conn = natsProvider.getConnection();
+        String text = ManifestInliner.strip(conversation, false);
+        var results = StoredResult.listFrom(text, key -> conn == null ? null : readWholeArtifact(conn, key));
+        var settings = new EvidenceSynthesis.Settings(evidenceRounds(), MAX_ARTIFACT_INLINE_CHARS,
+                () -> synthesisHasTime(state, synthesisStart));
+        EvidenceSynthesis.Caller caller = (pickSystem, pickUser, promptFor) -> {
+            var result = chatService.simpleLlmCallFor(pickSystem, pickUser, promptFor);
+            recordPlacedCall(threads.get(state.threadId), PHASE_SYNTHESIS, result);
+            return result;
+        };
+        var outcome = new EvidenceSynthesis(caller, chatService::estimateTokens, settings, system)
+                .run(text, results);
+        log.info(outcome.report().logLine(state.threadId));
+        state.synthesisRounds = outcome.report().rounds();
+        state.synthesisFilledBytes = outcome.report().filledBytes();
+        return completeAnswer(system, outcome.conversation(), outcome.result(), state.threadId);
+    }
+
+    /** Most synthesis rounds (calls) for stored results; the setting, or 4 when it is not set above zero. */
+    private int evidenceRounds() {
+        int configured = properties.discuss().synthesisEvidenceRounds();
+        return configured > 0 ? configured : DEFAULT_EVIDENCE_ROUNDS;
+    }
+
+    /**
+     * Whether another round may begin: each allowed round gets the synthesis time limit, and the
+     * thread stays inside its hard ceiling. A timeout here only ends the reading; it is not flow control.
+     */
+    private boolean synthesisHasTime(ThreadState state, Instant synthesisStart) {
+        Instant now = Instant.now();
+        long inSynthesis = Duration.between(synthesisStart, now).getSeconds();
+        long age = Duration.between(state.threadCreated, now).getSeconds();
+        return inSynthesis < (long) synthesisTimeoutSeconds * evidenceRounds() && age < hardCeilingSeconds();
+    }
+
+    /** The completeness contract applied to a first answer {@code result} of {@code conversation}. */
+    private ChatService.SimpleLlmResult completeAnswer(String systemPrompt, String conversation,
+            ChatService.SimpleLlmResult result, String threadId) {
         int maxRetries = properties.discuss().synthesisCompletenessRetries();
         if (maxRetries <= 0) {
             return result;
@@ -2787,11 +2842,12 @@ public class DiscussionOrchestrator {
      * the real data instead of an empty reference. On a read FAILURE the marker is replaced
      * with an explicit UNAVAILABLE notice (not the original "the full data is in the file"
      * marker), so the synthesizer reports the gap instead of fabricating a confident answer
-     * over data it never received. {@code text} follows {@code promptBefore} in the synthesis
-     * prompt, so the room left for a tooler's stored results is counted after it.
+     * over data it never received. A tooler's per-call manifest is left as it is: its stored
+     * results are delivered by {@link #synthesizeFromStoredResults}, sized to the model that
+     * writes the answer.
      */
-    String inlineArtifactContent(String text, String promptBefore) {
-        if (text == null || !(text.contains("[ARTIFACT key=") || text.contains(CallManifest.CALL_PREFIX))) {
+    String inlineArtifactContent(String text) {
+        if (text == null || !text.contains("[ARTIFACT key=")) {
             return text;
         }
         Connection conn = natsProvider.getConnection();
@@ -2806,17 +2862,7 @@ public class DiscussionOrchestrator {
             m.appendReplacement(sb, java.util.regex.Matcher.quoteReplacement(replacement));
         }
         m.appendTail(sb);
-        // A tooler's per-call manifest is filled in one stored result per call line, as many as the
-        // synthesis window has room for, counted after the prompt this text is part of. The count
-        // includes the manifests' own lines, which the fill replaces, so it errs on the side of
-        // room. A completeness re-prompt appends a draft and names later; that is not counted here.
-        String filled = sb.toString();
-        if (!filled.contains(CallManifest.CALL_PREFIX)) {
-            return filled;
-        }
-        var room = chatService.simpleCallRoomTokens(loadSystemPrompt(), promptBefore + filled);
-        return ManifestInliner.inline(filled, key -> readWholeArtifact(conn, key), chatService::estimateTokens,
-                room, MAX_ARTIFACT_INLINE_CHARS);
+        return sb.toString();
     }
 
     /** Read one artifact's whole content; null on any failure. */
@@ -4754,6 +4800,10 @@ public class DiscussionOrchestrator {
         volatile long triageOutputTokens;
         volatile long synthesisInputTokens;
         volatile long synthesisOutputTokens;
+        // How the synthesis got the stored tool results to the model: model calls made, and bytes
+        // of results delivered. Recorded in the synthesis event.
+        volatile int synthesisRounds = 1;
+        volatile long synthesisFilledBytes;
 
         // Triage subcommittee — set of agent names selected by triage LLM call.
         // When non-null and non-empty, only these agents should evaluate.

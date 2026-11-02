@@ -1,0 +1,10 @@
+DEFINE COMPONENT notes-round-first
+DESCRIPTION Round {{round}}: the question, the analysts' contributions, and the first stored results
+
+QUESTION AND CONTRIBUTIONS:
+{{context}}
+
+STORED RESULTS (round {{round}}):
+{{batch}}
+
+WHEN you reply THEN write the working notes for these results in the notes format

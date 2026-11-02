@@ -2180,16 +2180,25 @@ public class ChatService {
      * Used by advisory generation, triage, and synthesis for token tracking.
      */
     public SimpleLlmResult simpleLlmCallWithTokens(String systemPrompt, String userPrompt) {
-        List<ChatMessage> messages = buildSimpleMessages(systemPrompt, userPrompt);
+        return simpleLlmCallFor(systemPrompt, userPrompt, window -> new SimplePrompt(systemPrompt, userPrompt));
+    }
 
+    /**
+     * A simple call whose prompt is built after the scheduler has picked the model. The pick is made
+     * for {@code pickSystem} and {@code pickUser} (their size decides which servers can take the
+     * call); then {@code promptFor} is given the picked model's window and returns the prompt to send,
+     * sized to that window. A call placed on another model, or in another round, gets its own window.
+     */
+    public SimpleLlmResult simpleLlmCallFor(String pickSystem, String pickUser,
+                                            java.util.function.Function<PromptWindow, SimplePrompt> promptFor) {
         // Place this call through the JIT scheduler, same as the tool-loop path -
         // the scheduler must be the ONLY thing that picks a GPU. This is a
         // no-tools call (coordinator advisory/synthesis), so it does not use
         // callWithToolLoop, but it still asks pickMullingChatModel for the
         // server and claims/releases a VRAM ticket so concurrent calls account
         // for each other. See [[JIT is the sole scheduler]].
-        int promptChars = (systemPrompt == null ? 0 : systemPrompt.length())
-                + (userPrompt == null ? 0 : userPrompt.length());
+        int promptChars = (pickSystem == null ? 0 : pickSystem.length())
+                + (pickUser == null ? 0 : pickUser.length());
         MullingPick pick = pickForSimpleCall(promptChars);
         String serverName = pick.serverName();
         // Outbound wire trace (no-tools path: advisory/synthesis/triage). Pair with
@@ -2203,7 +2212,8 @@ public class ChatService {
         // without catching Error (S1181) - the throwable propagates untouched.
         boolean callFailed = true;
         try {
-            var result = invokeSimpleCall(pick, messages);
+            var prompt = promptFor.apply(windowOf(pick));
+            var result = invokeSimpleCall(pick, buildSimpleMessages(prompt.system(), prompt.user()));
             callFailed = false;
             return result;
         } finally {
@@ -2213,17 +2223,40 @@ public class ChatService {
     }
 
     /**
-     * The smallest context window, in tokens, that any server publishes for this agent's model, or
-     * empty when none does or there is no server selector. A simple call (synthesis) is placed on
-     * any server that can hold the model, so the smallest window is the one it must fit.
+     * The context window, in tokens, of the servers that hold this agent's model, or empty when none
+     * publishes one or there is no server selector. A server that does not hold the model (an
+     * embedding server, say) does not count: the smallest window among the servers that can run it is
+     * the one a call placed without a known server must fit.
      */
     public java.util.OptionalLong simpleCallContextTokens() {
         if (serverSelector == null) {
             return java.util.OptionalLong.empty();
         }
         String model = properties.model().model();
-        return serverSelector.readState().stream().mapToLong(p -> p.contextLengthFor(model))
-                .filter(window -> window > 0).min();
+        return serverSelector.readState().stream().filter(p -> p.hasModel(model))
+                .mapToLong(p -> p.contextLengthFor(model)).filter(window -> window > 0).min();
+    }
+
+    /**
+     * The window of the model the scheduler picked: the picked server's window for the model, or
+     * (for a static pick that names no server) the window of the servers that hold the model. Empty
+     * when none is known.
+     */
+    private PromptWindow windowOf(MullingPick pick) {
+        long picked = contextLengthOf(pick);
+        java.util.OptionalLong tokens = picked > 0 ? java.util.OptionalLong.of(picked)
+                : pick.serverName().isEmpty() ? simpleCallContextTokens() : java.util.OptionalLong.empty();
+        return new PromptWindow() {
+            @Override
+            public java.util.OptionalLong tokens() {
+                return tokens;
+            }
+
+            @Override
+            public java.util.OptionalLong roomAfter(String system, String user) {
+                return roomIn(tokens, system, user);
+            }
+        };
     }
 
     /**
@@ -2234,7 +2267,10 @@ public class ChatService {
      * window is unknown.
      */
     public java.util.OptionalLong simpleCallRoomTokens(String systemPrompt, String userPrompt) {
-        var window = simpleCallContextTokens();
+        return roomIn(simpleCallContextTokens(), systemPrompt, userPrompt);
+    }
+
+    private java.util.OptionalLong roomIn(java.util.OptionalLong window, String systemPrompt, String userPrompt) {
         if (window.isEmpty()) {
             return window;
         }

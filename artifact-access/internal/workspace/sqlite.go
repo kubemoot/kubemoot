@@ -61,17 +61,20 @@ func (SQLite) Query(ctx context.Context, rels []Relation, query string, lim Limi
 	}
 	defer func() { _ = db.Close() }()
 
+	schema := make([]tableColumns, 0, len(rels))
 	for _, r := range rels {
-		if err := loadRelation(ctx, conn, r); err != nil {
+		cols, err := loadRelation(ctx, conn, r)
+		if err != nil {
 			return Result{}, sqliteError(ctx, fmt.Errorf("load %q: %w", r.Name, err))
 		}
+		schema = append(schema, tableColumns{table: r.Name, columns: cols})
 	}
 	if err := lockDown(ctx, conn); err != nil {
 		return Result{}, err
 	}
 	res, err := runSelect(ctx, conn, query, lim.MaxRows)
 	if err != nil {
-		return Result{}, sqliteError(ctx, err)
+		return Result{}, withColumns(sqliteError(ctx, err), schema)
 	}
 	return res, nil
 }
