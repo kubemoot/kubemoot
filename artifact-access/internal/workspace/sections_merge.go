@@ -43,7 +43,7 @@ func shapeOf(rel Relation) (string, error) {
 // mergeGroup makes the one relation named table from sections of the same shape.
 // A single section is used as it is.
 func mergeGroup(table string, g []prepared, workDir string) (Relation, error) {
-	if len(g) == 1 {
+	if len(g) == 1 && g[0].call == "" {
 		rel := g[0].rel
 		rel.Name = table
 		return rel, nil
@@ -58,17 +58,19 @@ func mergeGroup(table string, g []prepared, workDir string) (Relation, error) {
 // sections are numbered again so line_no runs across all of them.
 func mergeRows(table string, g []prepared, workDir string) (Relation, error) {
 	var rows [][]string
+	var tag callTag
 	for i, p := range g {
 		first := true
 		err := csvSource{path: p.rel.Path}.each(func(rec []string) error {
 			if first {
 				first = false
 				if i == 0 {
-					rows = append(rows, rec)
+					tag = tagIfCalls(g, rec)
+					rows = append(rows, append(rec, tag.names...))
 				}
 				return nil
 			}
-			rows = append(rows, rec)
+			rows = append(rows, append(rec, tag.values[p.call]...))
 			return nil
 		})
 		if err != nil {
@@ -86,9 +88,16 @@ func mergeRows(table string, g []prepared, workDir string) (Relation, error) {
 // mergeJSON stacks the rows of JSON relations into one list of objects.
 func mergeJSON(table string, g []prepared, workDir string) (Relation, error) {
 	rows := []map[string]any{}
+	var tag callTag
+	if g[0].call != "" {
+		tag = tagFor(g, jsonKeys(g))
+	}
 	for _, p := range g {
 		src := &jsonSource{path: p.rel.Path, items: p.rel.Kind == KindJSONItems}
 		err := src.each(func(row map[string]any) error {
+			for j, n := range tag.names {
+				row[n] = tag.values[p.call][j]
+			}
 			rows = append(rows, row)
 			return nil
 		})
@@ -105,4 +114,28 @@ func mergeJSON(table string, g []prepared, workDir string) (Relation, error) {
 		return Relation{}, fmt.Errorf("write %s: %w", table, err)
 	}
 	return Relation{Name: table, Path: path, Kind: KindJSON}, nil
+}
+
+// tagIfCalls tags the rows when the sections are stored tool calls; header is the CSV header.
+func tagIfCalls(g []prepared, header []string) callTag {
+	if g[0].call == "" {
+		return callTag{}
+	}
+	return tagFor(g, header)
+}
+
+// jsonKeys lists the keys of the first row of each section, to keep the call columns from
+// overwriting a column the data has.
+func jsonKeys(g []prepared) []string {
+	var keys []string
+	for _, p := range g {
+		src := &jsonSource{path: p.rel.Path, items: p.rel.Kind == KindJSONItems}
+		_ = src.each(func(row map[string]any) error {
+			for k := range row {
+				keys = append(keys, k)
+			}
+			return errEnough
+		})
+	}
+	return keys
 }

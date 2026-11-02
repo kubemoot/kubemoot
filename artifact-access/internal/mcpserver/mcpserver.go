@@ -107,6 +107,9 @@ const queryDescription = "Run one read-only SQL SELECT over artifacts. Give arti
 	"others are name_2, name_3. A tooler's [CALL key=...] line names one stored tool call: that key is one " +
 	"table. A key with * reads every call that matches as one table (same-shaped calls are stacked, failed " +
 	"calls are left out), for example <prefix>*-pods_list with the prefix from the [WORKSPACE ...] line. " +
+	"Each row of such a table also has _call (the call's key), _args (its arguments as JSON text) and, for an " +
+	"argument that is a plain value and differs between the calls, _arg_<name> (for example _arg_vmid), " +
+	"so GROUP BY _call or _arg_vmid counts and totals per call. " +
 	"No writes, no files outside the named artifacts, no network."
 
 // --- tool inputs ---
