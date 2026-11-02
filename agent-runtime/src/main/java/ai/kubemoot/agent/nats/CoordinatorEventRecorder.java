@@ -308,6 +308,8 @@ final class CoordinatorEventRecorder {
             tokens.put("in", s.synthesisInputTokens);
             tokens.put("out", s.synthesisOutputTokens);
             d.put("promptTooLarge", s.synthesisPromptTooLarge);
+            d.put("rounds", s.synthesisRounds);
+            d.put("filledBytes", s.synthesisFilledBytes);
             return emit(s, SYNTHESIS_DONE, keyed(s, "synthesis/done/" + s.trace.enter(SYNTHESIS_DONE)), d);
         });
     }

@@ -154,7 +154,7 @@ class ChatServicePerCallArtifactsTest {
         assertTrue(result.text().startsWith("[WORKSPACE agent=test-agent calls=1 errors=0 prefix="
                 + "ns/crew/t1/test-agent/]"), result.text());
         assertTrue(result.text().contains("[CALL key=" + key + " tool=pods_list args={\"namespace\":\"kube-system\"} "
-                + "bytes=" + store.bodies.get(key).length + " rows=3 error=false]"), result.text());
+                + "format=json bytes=" + store.bodies.get(key).length + " rows=3 error=false fields=a]"), result.text());
         assertFalse(result.text().contains("{\"a\":1}"), "no result data in the manifest");
     }
 
@@ -172,7 +172,7 @@ class ChatServicePerCallArtifactsTest {
         assertEquals("tool_error", bad.get(CallHeaders.ERROR_TYPE));
         assertEquals("{\"error\": \"forbidden\"}", store.body(keys.get(1)));
         assertTrue(result.text().contains("calls=2 errors=1"), result.text());
-        assertTrue(result.text().contains("tool=bad args={\"k\":1} bytes=22 rows=unknown error=true]"), result.text());
+        assertTrue(result.text().contains("tool=bad args={\"k\":1} format=json bytes=22 rows=unknown error=true fields=error]"), result.text());
     }
 
     @Test

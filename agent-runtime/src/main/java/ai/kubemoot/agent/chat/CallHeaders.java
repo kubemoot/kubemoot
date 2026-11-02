@@ -33,6 +33,8 @@ public final class CallHeaders {
     public static final String FORMAT = "kubemoot.format";
     public static final String FORMAT_JSON = "json";
     public static final String FORMAT_TEXT = "text";
+    /** A kubectl style table; the manifest names it so, and the header says {@code text}. */
+    public static final String FORMAT_TEXT_TABLE = "text-table";
     /** {@code true} only when the result was cut at the size cap; the body then ends with the cut marker. */
     public static final String TRUNCATED = "kubemoot.truncated";
 

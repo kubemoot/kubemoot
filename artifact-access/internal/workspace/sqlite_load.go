@@ -33,7 +33,7 @@ var (
 // loadRelation reads the relation's file into a table of the relation's name. Every
 // file is read twice, once to find the columns and once to insert, so a large
 // artifact is never held in memory whole.
-func loadRelation(ctx context.Context, conn *sql.Conn, r Relation) error {
+func loadRelation(ctx context.Context, conn *sql.Conn, r Relation) ([]string, error) {
 	var src rowSource
 	switch r.Kind {
 	case KindCSV:
@@ -45,15 +45,15 @@ func loadRelation(ctx context.Context, conn *sql.Conn, r Relation) error {
 	}
 	cols, err := src.columns()
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if len(cols) == 0 {
-		return errors.New("the artifact has no columns")
+		return nil, errors.New("the artifact has no columns")
 	}
 	if len(cols) > maxColumns {
-		return fmt.Errorf("the artifact has %d columns; the limit is %d", len(cols), maxColumns)
+		return nil, fmt.Errorf("the artifact has %d columns; the limit is %d", len(cols), maxColumns)
 	}
-	return insertAll(ctx, conn, r.Name, cols, src)
+	return cols, insertAll(ctx, conn, r.Name, cols, src)
 }
 
 // rowSource yields a table's columns, then its rows in column order.
