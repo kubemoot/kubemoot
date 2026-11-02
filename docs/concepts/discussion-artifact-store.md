@@ -27,6 +27,82 @@ keyed as:
 The tooler then publishes its discussion message carrying only a **reference
 envelope** rather than the raw data. The full object waits in the store.
 
+## One artifact per tool call (opt-in)
+
+By default a tooler's contribution is its tool output glued together, one `[tool]`
+section per call, and a contribution over about 4 KiB is spilled as one object. A reader
+has to guess each section's format back from its first lines, and a failed call sits
+among the good ones.
+
+With `artifacts.perCallArtifacts: true` (chart value, `spec.artifacts.perCallArtifacts`
+in the KubemootConfig; default `false`) every tooler (`discussRole: tooler`) instead
+writes **each tool call's result as its own object** in the same bucket, under the
+thread's key prefix:
+
+```
+{namespace}/{crew}/{threadId}/{agent}/{nnn}-{tool}
+```
+
+`nnn` is the agent's call number in the thread, three digits and counting up
+(`001-pods_list`, `002-events_list`). A tool name is cut to letters, digits, `_`, `.` and
+`-`. The body is the tool's own result text, with no `[tool]` header: JSON where the
+tool returned JSON. A result over the runtime's size cap (1,000,000 characters) is cut
+and ends with ` ...[truncated]`. An error result is stored too, and flagged in its
+headers. Each object is announced to the materializer like any other, so a compute
+sandbox finds it as a file under `/artifacts/{key}`.
+
+### Object headers
+
+The call is described by NATS object headers on the object. Names that the
+[OpenTelemetry GenAI semantic conventions](https://opentelemetry.io/docs/specs/semconv/registry/attributes/gen-ai/)
+define use the convention's name; the rest sit in the `kubemoot.` namespace.
+
+| Header | Value |
+|--------|-------|
+| `gen_ai.operation.name` | Always `execute_tool`. |
+| `gen_ai.tool.name` | The tool called. |
+| `gen_ai.tool.call.id` | The model's tool call id, or the object's last key segment (`001-pods_list`) when the model sent none. |
+| `gen_ai.tool.call.arguments` | The arguments as the model sent them, cut at 1,000 characters. |
+| `gen_ai.agent.name` | The agent that made the call. |
+| `error.type` | `tool_error`, present only on an error call. |
+| `kubemoot.started` | When the call started, RFC 3339 UTC. |
+| `kubemoot.duration_ms` | How long the call took. |
+| `kubemoot.error` | `true` or `false`. |
+| `kubemoot.bytes` | Size of the stored body. |
+| `kubemoot.rows` | Items in a JSON list, or in the `items` list of a JSON object; absent when unknown (text). |
+| `kubemoot.format` | `json` when the body is a JSON object or list, otherwise `text`. A text body is a `kubectl` table, YAML or prose, and `workspace_query` detects which. |
+| `kubemoot.truncated` | `true` only when the result was cut at the size cap. |
+
+### The manifest
+
+The tooler's contribution is then a manifest, built in code from what was stored: a
+header line, one line per call, and one line saying where the results are. Nothing large
+goes through the bus, and the manifest stays under 4,000 characters so it posts inline.
+
+```
+[WORKSPACE agent=k8s-workloads calls=2 errors=1 prefix=default/pilot/t1/k8s-workloads/]
+[CALL key=default/pilot/t1/k8s-workloads/001-pods_list tool=pods_list args={"namespace":"kube-system"} bytes=15210 rows=41 error=false]
+[CALL key=default/pilot/t1/k8s-workloads/002-events_list tool=events_list args={"type":"Warning"} bytes=38 rows=unknown error=true]
+The results are stored under these keys and are not shown here. Read a key with workspace_query (SQL) or the artifact_* tools; the key default/pilot/t1/k8s-workloads/*-<tool> reads every call of one tool as one table.
+```
+
+Arguments are cut to 60 characters. A manifest that would pass the limit drops the
+arguments, then replaces the last lines with a count (`[N more calls under the prefix]`).
+The tooler's own model keeps its normal behavior: it sees a short stand-in for a result
+too large for its window, and that stand-in now names the call's key
+(`Stored as workspace artifact {key}.`). If any write to the store fails, the contribution
+is the glued output as before, so a storage failure never loses data.
+
+Analysts and the coordinator receive the manifest. An analyst that needs rows calls
+`workspace_query` with a key from a `[CALL ...]` line; see
+[Query with SQL](#query-with-sql). Both formats coexist: artifacts written before the
+setting was turned on, and the single object a tooler spills with the setting off, are
+read as before.
+
+Per-call objects follow the same retention as every other object: they are deleted with
+their thread (by the thread's key prefix), and the 48-hour bucket TTL bounds anything
+that is missed. See [Garbage collection](#garbage-collection).
+
 ## The reference envelope
 
 The reference envelope is a small JSON structure carried inside the tooler's
@@ -179,7 +255,20 @@ The format is decided from the content (object keys carry no file extension):
 | CSV with a header row | One row per line. |
 | Anything else | One row per line, columns `line_no` and `line`. |
 
-A tooler agent's contribution is its raw tool output, which the agent runtime writes as
+With [per-call artifacts](#one-artifact-per-tool-call-opt-in), the key of one call
+(`default/pilot/t1/k8s-workloads/001-pods_list`) is one table, and its `kubemoot.format`
+header decides how it is read: `json` is read as JSON, `text` is detected as above. A
+key with a `*` reads every stored call that matches as one table. `*` stands for any
+characters except `/`, and the part before the first `*` must name the namespace, crew and
+thread (`ns/crew/thread/`). `default/pilot/t1/k8s-workloads/*-pods_list` is every
+`pods_list` call of one agent in the thread; `default/pilot/t1/*/*-pods_list` is every
+`pods_list` call of every agent. Calls of the same shape are stacked as the rows of one
+table, a different shape is `name_2`, and a call that returned an error is left out and
+named in a note. At most 100 objects match, and together they stay inside the artifact
+size limit. `artifact_count` on a call whose result is a JSON list returns the list's
+item count from the `kubemoot.rows` header.
+
+A tooler agent's contribution is, with per-call artifacts off, its raw tool output, which the agent runtime writes as
 one section per tool call: a `[tool_name]` line, the result, then a blank line. A query
 reads such an artifact one section at a time, so a kubectl table or a JSON result behind
 a `[pods_list]` line is read as the table or the JSON it is. Sections of the same

@@ -353,8 +353,14 @@ coordinator:
 # program, which the artifact-access image must carry. See
 # docs/concepts/discussion-artifact-store.md.
 # Every MCPServer that selects kubemootImage artifactAccess gets ARTIFACT_QUERY_ENGINE.
+#
+# perCallArtifacts: each raw-output tooler (discussRole tooler) stores every tool call's result as
+# its own workspace object, with headers that describe the call, and posts a short manifest of the
+# keys instead of the results glued together. Default false. The operator sets
+# KUBEMOOT_PER_CALL_ARTIFACTS on the tooler Agents.
 artifacts:
   queryEngine: sqlite   # sqlite | duckdb | none
+  perCallArtifacts: false
 
 # Scale-to-zero configuration for KEDA-based agent autoscaling
 scaleToZero:
