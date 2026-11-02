@@ -272,6 +272,22 @@ func TestAStoreThatCannotListRefusesAStar(t *testing.T) {
 	}
 }
 
+func TestAKeyWithAStarStaysInThePodsNamespace(t *testing.T) {
+	s := callService(t, map[string]object{
+		callPods1:                        call(toolPods, podsA, headerFormat, "json"),
+		"other/crew/th1/a/001-pods_list": call(toolPods, podsB, headerFormat, "json"),
+	})
+	s.Namespace = "ns"
+
+	if got := query(t, s, map[string]string{tblPods: callPrefix + "*-pods_list"}, countPodsSQL); !strings.HasPrefix(got, "n\n2\n") {
+		t.Fatalf("got %q", got)
+	}
+	_, err := s.Query(context.Background(), map[string]string{tblPods: "other/crew/th1/a/*"}, countPodsSQL)
+	if err == nil || !strings.Contains(err.Error(), `may reach only the namespace "ns"`) {
+		t.Fatalf("err = %v", err)
+	}
+}
+
 func TestRowsHeader(t *testing.T) {
 	meta := func(o object) store.Meta { return store.Meta{Headers: o.headers} }
 	if n, ok := RowsHeader(meta(call("t", "", headerRows, "812"))); !ok || n != 812 {

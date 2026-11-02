@@ -12,7 +12,7 @@ import java.io.ByteArrayInputStream;
 import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
+import java.util.Collections;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -29,13 +29,20 @@ public class NatsCallArtifactStore implements CallArtifactStore {
 
     private static final Logger log = LoggerFactory.getLogger(NatsCallArtifactStore.class);
 
-    /** Call counters kept at once; cleared wholesale past this, like the runtime's other thread caches. */
+    /** Call counters kept at once; the least recently used is dropped past this and found again from the store. */
     private static final int MAX_COUNTERS = 500;
     private static final String CONTENT_TYPE_JSON = "application/json";
 
     private final NatsConnectionProvider natsProvider;
     private final ObjectMapper mapper;
-    private final Map<String, AtomicInteger> counters = new ConcurrentHashMap<>();
+    /** The last call number given per {@code {thread prefix}{agent}/}, least recently used first out. */
+    private final Map<String, AtomicInteger> counters = Collections.synchronizedMap(
+            new LinkedHashMap<String, AtomicInteger>(16, 0.75f, true) {
+                @Override
+                protected boolean removeEldestEntry(Map.Entry<String, AtomicInteger> eldest) {
+                    return size() > MAX_COUNTERS;
+                }
+            });
     private volatile boolean bucketEnsured;
 
     @Inject
@@ -47,12 +54,42 @@ public class NatsCallArtifactStore implements CallArtifactStore {
     @Override
     public String reserveKey(String threadId, String agent, String tool) {
         CrewScope scope = natsProvider.scope();
-        if (counters.size() > MAX_COUNTERS) {
-            counters.clear();
+        String agentPrefix = DiscussionArtifacts.threadPrefix(scope, threadId) + agent + "/";
+        AtomicInteger counter;
+        synchronized (counters) {
+            counter = counters.get(agentPrefix);
+            if (counter == null) {
+                counter = new AtomicInteger(highestCallNumber(agentPrefix));
+                counters.put(agentPrefix, counter);
+            }
         }
-        int n = counters.computeIfAbsent(DiscussionArtifacts.threadPrefix(scope, threadId) + agent,
-                k -> new AtomicInteger()).incrementAndGet();
-        return DiscussionArtifacts.callKey(scope, threadId, agent, n, tool);
+        return DiscussionArtifacts.callKey(scope, threadId, agent, counter.incrementAndGet(), tool);
+    }
+
+    /**
+     * The highest call number already stored under {@code agentPrefix}, so numbering carries on after a
+     * restart or after the counter was evicted instead of overwriting an earlier call. Zero when
+     * nothing is stored or the bucket cannot be listed.
+     */
+    private int highestCallNumber(String agentPrefix) {
+        try {
+            Connection conn = natsProvider.getConnection();
+            if (conn == null) {
+                return 0;
+            }
+            ensureBucket(conn);
+            int highest = 0;
+            for (var info : conn.objectStore(DiscussionArtifacts.BUCKET).getList()) {
+                if (!info.isDeleted() && info.getObjectName().startsWith(agentPrefix)) {
+                    highest = Math.max(highest, DiscussionArtifacts.callNumberOf(info.getObjectName(), agentPrefix));
+                }
+            }
+            return highest;
+        } catch (Exception e) {
+            log.warn("Could not list stored calls under {} ({}): {} - numbering starts at 1",
+                    agentPrefix, e.getClass().getSimpleName(), e.getMessage());
+            return 0;
+        }
     }
 
     @Override

@@ -34,6 +34,9 @@ type Service struct {
 	Limits Limits
 	// MaxArtifactBytes is the largest artifact a query may read.
 	MaxArtifactBytes int64
+	// Namespace, when set, is the only namespace a key with * may reach: the pattern must start
+	// with it. It is the pod's namespace, so a crew's query never lists another namespace's objects.
+	Namespace string
 }
 
 // Query runs sql over the named artifacts and returns the rendered rows. artifacts

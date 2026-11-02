@@ -51,7 +51,7 @@ final class ToolCallLedger {
     String record(Call call, String result, boolean error, int maxChars) {
         String text = result == null ? "" : result;
         boolean cut = text.length() > maxChars;
-        byte[] body = (cut ? ChatService.truncate(text, maxChars) : text).getBytes(StandardCharsets.UTF_8);
+        byte[] body = (cut ? TextCut.truncate(text, maxChars) : text).getBytes(StandardCharsets.UTF_8);
         ToolResultShape shape = ToolResultShape.of(text);
         String key = store.reserveKey(threadId, agent, call.tool());
         Map<String, String> headers = headers(call, key, body.length, shape, error, cut);
@@ -70,7 +70,7 @@ final class ToolCallLedger {
         h.put(CallHeaders.TOOL_NAME, call.tool());
         h.put(CallHeaders.TOOL_CALL_ID, callId(call, key));
         h.put(CallHeaders.TOOL_CALL_ARGUMENTS,
-                ChatService.truncate(call.arguments(), CallHeaders.MAX_ARGUMENTS_CHARS));
+                TextCut.truncate(call.arguments(), CallHeaders.MAX_ARGUMENTS_CHARS));
         h.put(CallHeaders.AGENT_NAME, agent);
         h.put(CallHeaders.STARTED, call.started().toString());
         h.put(CallHeaders.DURATION_MS, Long.toString(call.durationMs()));
@@ -120,9 +120,9 @@ final class ToolCallLedger {
     String manifest() {
         String prefix = prefix();
         long errors = calls.stream().filter(ToolCallRecord::error).count();
-        String head = "[WORKSPACE agent=" + agent + " calls=" + calls.size() + " errors=" + errors
+        String head = CallManifest.HEADER_PREFIX + "agent=" + agent + " calls=" + calls.size() + " errors=" + errors
                 + " prefix=" + prefix + "]\n";
-        String foot = "\nThe results are stored under these keys and are not shown here. Read a key with "
+        String foot = "\n" + CallManifest.FOOTER_PREFIX + " and are not shown here. Read a key with "
                 + "workspace_query (SQL) or the artifact_* tools; the key " + prefix
                 + "*-<tool> reads every call of one tool as one table.";
         int room = MAX_MANIFEST_CHARS - head.length() - foot.length();
@@ -163,7 +163,7 @@ final class ToolCallLedger {
     }
 
     private static String line(ToolCallRecord c, boolean withArgs) {
-        var sb = new StringBuilder("[CALL key=").append(c.key()).append(" tool=").append(c.tool());
+        var sb = new StringBuilder(CallManifest.CALL_PREFIX).append(c.key()).append(" tool=").append(c.tool());
         if (withArgs) {
             sb.append(" args=").append(summary(c.arguments()));
         }
@@ -175,7 +175,9 @@ final class ToolCallLedger {
 
     /** The arguments on one line, cut at {@link #ARGS_SUMMARY_CHARS}. */
     static String summary(String arguments) {
-        String one = arguments == null ? "" : arguments.replaceAll("\\s+", " ").strip();
+        // Square brackets become parentheses so a list in the arguments cannot end the [CALL ...] line early.
+        String one = arguments == null ? ""
+                : arguments.replaceAll("\\s+", " ").strip().replace('[', '(').replace(']', ')');
         if (one.isEmpty()) {
             return "{}";
         }

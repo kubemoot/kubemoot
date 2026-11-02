@@ -4,8 +4,10 @@ import (
 	"fmt"
 	"os/exec"
 	"strconv"
+	"strings"
 	"time"
 
+	"github.com/kubemoot/kubemoot/artifact-access/internal/scope"
 	"github.com/kubemoot/kubemoot/artifact-access/internal/store"
 )
 
@@ -54,6 +56,7 @@ func FromEnv(getenv func(string) string, fetcher store.Getter, dir string) (*Ser
 	}
 	return &Service{
 		Store: fetcher, Dir: dir, Engine: eng, Limits: lim, MaxArtifactBytes: int64(maxBytes),
+		Namespace: strings.TrimSpace(getenv(scope.NamespaceEnv)),
 	}, nil
 }
 

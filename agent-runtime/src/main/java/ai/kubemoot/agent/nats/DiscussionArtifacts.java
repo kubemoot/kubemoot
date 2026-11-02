@@ -60,6 +60,23 @@ final class DiscussionArtifacts {
         return threadPrefix(scope, threadId) + agent + "/" + String.format("%03d", callNumber) + "-" + safe(tool);
     }
 
+    /**
+     * The call number of a key made by {@link #callKey}: the digits after {@code agentPrefix} and
+     * before the first hyphen. Zero for any other key.
+     */
+    static int callNumberOf(String key, String agentPrefix) {
+        String rest = key.substring(agentPrefix.length());
+        int dash = rest.indexOf('-');
+        if (dash <= 0 || rest.indexOf('/') >= 0) {
+            return 0;
+        }
+        try {
+            return Integer.parseInt(rest.substring(0, dash));
+        } catch (NumberFormatException e) {
+            return 0;
+        }
+    }
+
     /** A tool name as a key segment: letters, digits, underscore, dot and hyphen; anything else becomes underscore. */
     static String safe(String tool) {
         return tool == null || tool.isEmpty() ? "tool" : tool.replaceAll("[^A-Za-z0-9_.-]", "_");

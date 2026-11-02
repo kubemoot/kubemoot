@@ -133,6 +133,27 @@ class NatsCallArtifactStoreIT {
     }
 
     @Test
+    void numberingCarriesOnAfterARestartInsteadOfOverwritingEarlierCalls() throws Exception {
+        try (Connection conn = Nats.connect(url)) {
+            var provider = mock(NatsConnectionProvider.class);
+            when(provider.scope()).thenReturn(SCOPE);
+            when(provider.getConnection()).thenReturn(conn);
+            var before = new NatsCallArtifactStore(provider, new ObjectMapper());
+            for (int i = 0; i < 3; i++) {
+                String key = before.reserveKey("t-restart", "a", "tool");
+                assertTrue(before.put("t-restart", "a", "tool", key, new byte[] {'x'}, new LinkedHashMap<>()));
+            }
+
+            var after = new NatsCallArtifactStore(provider, new ObjectMapper());
+
+            assertEquals("ns-a/homelab-pilot/t-restart/a/004-tool", after.reserveKey("t-restart", "a", "tool"));
+            assertEquals("ns-a/homelab-pilot/t-restart/a/005-tool", after.reserveKey("t-restart", "a", "tool"));
+            assertEquals("ns-a/homelab-pilot/t-restart/b/001-tool", after.reserveKey("t-restart", "b", "tool"),
+                    "another agent of the thread has its own numbers");
+        }
+    }
+
+    @Test
     void anotherThreadsCallsAreNotDeleted() throws Exception {
         try (Connection conn = Nats.connect(url)) {
             var provider = mock(NatsConnectionProvider.class);

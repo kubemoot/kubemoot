@@ -1,6 +1,7 @@
 package ai.kubemoot.agent.nats;
 
 import ai.kubemoot.agent.requester.Requester;
+import ai.kubemoot.agent.chat.CallManifest;
 import ai.kubemoot.agent.chat.ChatService;
 import ai.kubemoot.agent.chat.ModelUse;
 import ai.kubemoot.agent.chat.ToolListPlaceholder;
@@ -162,6 +163,9 @@ public class DiscussionOrchestrator {
     static final java.util.regex.Pattern ARTIFACT_MARKER_WITH_KEY =
             java.util.regex.Pattern.compile("\\[ARTIFACT key=([^\\]\\s]++)[^\\]]*+\\]");
     private static final int MAX_ARTIFACT_INLINE_CHARS = 24_000;
+    // Most characters of stored tool results filled into the synthesis input from tooler manifests,
+    // all manifests together; a call past it is named but not inlined.
+    private static final int MAX_MANIFEST_INLINE_CHARS = 96_000;
     // Absolute floor of a table's names that must appear in a draft for the synthesis
     // completeness contract to treat the draft as enumerating that table. Below this the
     // draft is a count/free-form answer, not an inventory. See enumeratedTable().
@@ -2788,7 +2792,7 @@ public class DiscussionOrchestrator {
      * over data it never received.
      */
     String inlineArtifactContent(String text) {
-        if (text == null || !text.contains("[ARTIFACT key=")) {
+        if (text == null || !(text.contains("[ARTIFACT key=") || text.contains(CallManifest.CALL_PREFIX))) {
             return text;
         }
         Connection conn = natsProvider.getConnection();
@@ -2803,7 +2807,9 @@ public class DiscussionOrchestrator {
             m.appendReplacement(sb, java.util.regex.Matcher.quoteReplacement(replacement));
         }
         m.appendTail(sb);
-        return sb.toString();
+        // A tooler's per-call manifest is filled in the same way, one stored result per call line.
+        return ManifestInliner.inline(sb.toString(), key -> readArtifactForSynthesis(conn, key),
+                MAX_MANIFEST_INLINE_CHARS);
     }
 
     /**
@@ -3657,7 +3663,8 @@ public class DiscussionOrchestrator {
         if (!MSG_SYNTHESIS.equals(messageType)) {
             return truncate(content, PUBLISHED_CONTENT_CHARS);
         }
-        String cleaned = ARTIFACT_SPILL_MARKER.matcher(content == null ? "" : content).replaceAll("");
+        String cleaned = ManifestInliner.strip(
+                ARTIFACT_SPILL_MARKER.matcher(content == null ? "" : content).replaceAll(""), true);
         return truncate(cleaned, SYNTHESIS_CONTENT_CHARS);
     }
 

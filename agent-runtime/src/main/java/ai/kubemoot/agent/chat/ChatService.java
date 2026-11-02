@@ -472,7 +472,7 @@ public class ChatService {
             java.util.regex.Pattern.compile("\\[(?:ARTIFACT|CALL) key=([^\\]\\s]+)");
     // A line of a tooler's per-call manifest ("[CALL key=<key> ..."), which names a stored tool result
     // the way a spill marker names a spilled contribution.
-    private static final String CALL_MARKER = "[CALL key=";
+    private static final String CALL_MARKER = CallManifest.CALL_PREFIX;
     // Strips a reasoning model's <think>...</think> block so the no-data sentinel
     // check sees only the actual answer. See isNoDataDeclaration.
     private static final java.util.regex.Pattern THINK_BLOCK =
@@ -1525,9 +1525,7 @@ public class ChatService {
 
     /** Truncate s to max chars, appending an ellipsis marker when cut. */
     static String truncate(String s, int max) {
-        if (s == null) return "";
-        if (s.length() <= max) return s;
-        return s.substring(0, max) + " ...[truncated]";
+        return TextCut.truncate(s, max);
     }
 
     /**
