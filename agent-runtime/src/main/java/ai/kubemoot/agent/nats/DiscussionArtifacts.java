@@ -1,7 +1,10 @@
 package ai.kubemoot.agent.nats;
 
 import io.nats.client.Connection;
+import io.nats.client.JetStreamApiException;
 import io.nats.client.api.ObjectInfo;
+import io.nats.client.api.ObjectStoreConfiguration;
+import io.nats.client.api.StorageType;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Collection;
@@ -25,7 +28,41 @@ final class DiscussionArtifacts {
 
     private static final Logger log = LoggerFactory.getLogger(DiscussionArtifacts.class);
 
+    /** JetStream API error code for "stream name already in use": the bucket already exists. */
+    private static final int JSAPI_STREAM_NAME_IN_USE = 10058;
+
+    /** How long an object lives: the bucket's TTL, which bounds anything thread-end clean-up misses. */
+    static final Duration TTL = Duration.ofHours(48);
+
     private DiscussionArtifacts() {
+    }
+
+    /**
+     * Create the bucket if it does not exist. create() is called unconditionally (no
+     * check-then-create race); an "already in use" error from a concurrent or earlier create
+     * is benign and ignored.
+     */
+    static void ensureBucket(Connection conn) throws Exception {
+        try {
+            conn.objectStoreManagement().create(ObjectStoreConfiguration.builder(BUCKET)
+                    .ttl(TTL)
+                    .storageType(StorageType.File)
+                    .build());
+        } catch (JetStreamApiException e) {
+            if (e.getApiErrorCode() != JSAPI_STREAM_NAME_IN_USE) {
+                throw e;
+            }
+        }
+    }
+
+    /** Thread-scoped key of one tool call's result: {@code {ns}/{crew}/{threadId}/{agent}/{nnn}-{tool}}. */
+    static String callKey(CrewScope scope, String threadId, String agent, int callNumber, String tool) {
+        return threadPrefix(scope, threadId) + agent + "/" + String.format("%03d", callNumber) + "-" + safe(tool);
+    }
+
+    /** A tool name as a key segment: letters, digits, underscore, dot and hyphen; anything else becomes underscore. */
+    static String safe(String tool) {
+        return tool == null || tool.isEmpty() ? "tool" : tool.replaceAll("[^A-Za-z0-9_.-]", "_");
     }
 
     /** Thread-scoped object key: {@code {ns}/{crew}/{threadId}/{agent}/{signal}-{uuid}}. */

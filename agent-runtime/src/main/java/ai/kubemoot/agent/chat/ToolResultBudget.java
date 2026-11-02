@@ -74,6 +74,11 @@ final class ToolResultBudget {
      * output), or with an error asking for a narrower call.
      */
     Admission admit(String toolName, String result, boolean keptForTheCrew) {
+        return admit(toolName, result, keptForTheCrew, null);
+    }
+
+    /** As {@link #admit(String, String, boolean)}; a stand-in names {@code artifactKey} when it is not null. */
+    Admission admit(String toolName, String result, boolean keptForTheCrew, String artifactKey) {
         if (!known) {
             return new Admission(result, false, 0, 0);
         }
@@ -84,7 +89,7 @@ final class ToolResultBudget {
             return new Admission(result, false, tokens, available);
         }
         String replacement = keptForTheCrew
-                ? ToolResultStandIn.of(toolName, result, room >= replyReserve)
+                ? ToolResultStandIn.of(toolName, result, room >= replyReserve, artifactKey)
                 : errorFor(toolName, tokens, available);
         room -= tokens(length(toolName) + replacement.length() + ToolResultStandIn.extraChars(replacement));
         return new Admission(replacement, true, tokens, available);

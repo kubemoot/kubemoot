@@ -38,6 +38,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -58,6 +59,18 @@ public class ChatService {
     private final ChatModel chatModel;
     private final RagClient ragClient;
     private final DiscussionOrchestrator discussionOrchestrator;
+
+    /** Config key that turns per-call workspace artifacts on: environment variable KUBEMOOT_PER_CALL_ARTIFACTS. */
+    static final String PER_CALL_ARTIFACTS_KEY = "kubemoot.per-call-artifacts";
+
+    /** Writes each tool call of a raw-output tooler as its own workspace object; null in tests that do not use it. */
+    @Inject
+    CallArtifactStore callArtifactStore;
+
+    /** True when a raw-output tooler stores each tool call as its own workspace object. Off unless configured. */
+    boolean perCallArtifacts = org.eclipse.microprofile.config.ConfigProvider.getConfig()
+            .getOptionalValue(PER_CALL_ARTIFACTS_KEY, Boolean.class).orElse(false);
+
     private final AgentProperties properties;
     private final AgentHeartbeatService heartbeatService;
     private final ObjectMapper objectMapper;
@@ -352,9 +365,11 @@ public class ChatService {
         // with an infrastructure cause, or an Error): the circuit-breaker input.
         boolean callFailed = true;
         try (var requesterScope = RequesterScope.bind(request.requester())) {
+            var ledger = ToolCallLedger.forLoop(perCallArtifacts && toolerRawOutput, callArtifactStore,
+                    request.discussionThreadId(), properties.agentName());
             loopResult = callWithToolLoop(messages,
                     observed(pick, CallObservation.KIND_TOOL_TURN),
-                    serverName, pick.pickReason(), toolerRawOutput, contextLengthOf(pick));
+                    serverName, pick.pickReason(), toolerRawOutput, contextLengthOf(pick), ledger);
             callFailed = false;
         } finally {
             // ALWAYS record observed latency, even on ToolCallFailure -
@@ -454,7 +469,10 @@ public class ChatService {
     // so the compute re-prompt can name the precise file at /artifacts/<key> rather
     // than a generic "<key>" placeholder.
     private static final java.util.regex.Pattern ARTIFACT_KEY_PATTERN =
-            java.util.regex.Pattern.compile("\\[ARTIFACT key=([^\\]\\s]+)");
+            java.util.regex.Pattern.compile("\\[(?:ARTIFACT|CALL) key=([^\\]\\s]+)");
+    // A line of a tooler's per-call manifest ("[CALL key=<key> ..."), which names a stored tool result
+    // the way a spill marker names a spilled contribution.
+    private static final String CALL_MARKER = "[CALL key=";
     // Strips a reasoning model's <think>...</think> block so the no-data sentinel
     // check sees only the actual answer. See isNoDataDeclaration.
     private static final java.util.regex.Pattern THINK_BLOCK =
@@ -549,8 +567,26 @@ public class ChatService {
                                      String pickReason,
                                      boolean toolerRawOutput,
                                      long contextLength) {
+        return callWithToolLoop(messages, modelForThisCall, serverName, pickReason, toolerRawOutput,
+                contextLength, null);
+    }
+
+    /**
+     * The tool loop with a {@link ToolCallLedger}: when it is not null, each tool call's result is
+     * also written as its own workspace object and the tooler's contribution is the manifest of
+     * those objects (see {@link #rawOutputResult}).
+     */
+    @SuppressWarnings("java:S107") // the loop's inputs; the ledger is the one optional addition
+    ToolLoopResult callWithToolLoop(List<ChatMessage> messages,
+                                     ChatModel modelForThisCall,
+                                     String serverName,
+                                     String pickReason,
+                                     boolean toolerRawOutput,
+                                     long contextLength,
+                                     ToolCallLedger ledger) {
         refreshTools();
         ToolLoopState state = new ToolLoopState(messages);
+        state.ledger = ledger;
         int maxIterations = properties.model().maxToolIterations();
 
         // Wall-clock deadline for the entire loop — bounds elapsed time
@@ -1069,7 +1105,7 @@ public class ChatService {
     private static boolean inputReferencesArtifact(ToolLoopState state) {
         for (var msg : state.allMessages) {
             String text = inputMessageText(msg);
-            if (text != null && text.contains(ARTIFACT_MARKER)) {
+            if (text != null && (text.contains(ARTIFACT_MARKER) || text.contains(CALL_MARKER))) {
                 return true;
             }
         }
@@ -1210,10 +1246,13 @@ public class ChatService {
     private void executeToolCall(dev.langchain4j.agent.tool.ToolExecutionRequest toolRequest, ToolLoopState state,
                                  ToolResultBudget budget, boolean toolerRawOutput, long contextLength) {
         var executor = findExecutor(toolRequest.name());
+        Instant started = Instant.now();
+        long startNanos = System.nanoTime();
         String raw = executor != null
                 ? executor.execute(toolRequest, null)
                 : ToolResultBudget.errorJson("Unknown tool: " + toolRequest.name());
-        var admitted = budget.admit(toolRequest.name(), raw, toolerRawOutput);
+        String artifactKey = storeCall(state, toolRequest, started, (System.nanoTime() - startNanos) / 1_000_000, raw);
+        var admitted = budget.admit(toolRequest.name(), raw, toolerRawOutput, artifactKey);
         state.allMessages.add(new ToolExecutionResultMessage(
                 toolRequest.id(), toolRequest.name(), admitted.text()));
         state.toolsExecuted = true;
@@ -1236,6 +1275,19 @@ public class ChatService {
         appendToolOutput(state, toolRequest.name(), kept);
         state.recordGatherResult(toolRequest.name(), raw);
         recordToolFailure(toolRequest.name(), raw, state);
+    }
+
+    /**
+     * Write one call's result as its own workspace object when the loop has a ledger. Returns the
+     * object key, or null when there is no ledger or the write failed.
+     */
+    private static String storeCall(ToolLoopState state, dev.langchain4j.agent.tool.ToolExecutionRequest request,
+                                    Instant started, long durationMs, String raw) {
+        if (state.ledger == null) {
+            return null;
+        }
+        var call = new ToolCallLedger.Call(request.name(), request.id(), request.arguments(), started, durationMs);
+        return state.ledger.record(call, raw, isGatherErrorResult(raw), MAX_TOOL_RESULT_CHARS);
     }
 
     /** Accumulate one result as the tooler's contribution, capped so a pathological response stays bounded. */
@@ -1335,9 +1387,14 @@ public class ChatService {
         }
     }
 
-    /** A tooler's contribution: the raw output of the tools it ran, with the loop's token totals. */
+    /**
+     * A tooler's contribution, with the loop's token totals: the manifest of its per-call workspace
+     * objects when every call was stored, otherwise the raw output of the tools it ran.
+     */
     private static ToolLoopResult rawOutputResult(ToolLoopState state, String serverName, String pickReason) {
-        return new ToolLoopResult(state.toolOutput.toString().strip(), state.modelText(), true,
+        String contribution = state.ledger != null && state.ledger.complete()
+                ? state.ledger.manifest() : state.toolOutput.toString().strip();
+        return new ToolLoopResult(contribution, state.modelText(), true,
                 state.totalInput, state.totalOutput, serverName, pickReason);
     }
 
@@ -1387,6 +1444,8 @@ public class ChatService {
         boolean toolsExecuted = false;
         int toolCalls = 0;
         final StringBuilder toolOutput = new StringBuilder();
+        // Set when per-call workspace artifacts are on for this tooler loop; null otherwise.
+        ToolCallLedger ledger;
         int emptyNoToolsRetries = 0;
         int computeRetries = 0;
         // True once an execute_code call's arguments referenced the artifact mount
@@ -1462,7 +1521,7 @@ public class ChatService {
      *  whole contribution to an object-store file leaving only a marker on the bus, so the
      *  cap only bounds a pathological response; a cluster-wide pod or resource list must
      *  arrive whole, because counts and rankings are computed over all of it. */
-    private static final int MAX_TOOL_RESULT_CHARS = 1_000_000;
+    static final int MAX_TOOL_RESULT_CHARS = 1_000_000;
 
     /** Truncate s to max chars, appending an ellipsis marker when cut. */
     static String truncate(String s, int max) {
