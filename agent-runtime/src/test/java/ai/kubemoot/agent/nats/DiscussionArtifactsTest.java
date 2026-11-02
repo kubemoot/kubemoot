@@ -30,6 +30,36 @@ class DiscussionArtifactsTest {
     }
 
     @Test
+    void callKey_format_numberedAndSafe() {
+        assertEquals("ns-a/homelab-pilot/t1/k8s-workloads/007-pods_list",
+                DiscussionArtifacts.callKey(SCOPE, "t1", "k8s-workloads", 7, "pods_list"));
+        assertEquals("ns-a/homelab-pilot/t1/a/1000-weird_name_x",
+                DiscussionArtifacts.callKey(SCOPE, "t1", "a", 1000, "weird/name x"));
+        assertEquals("tool", DiscussionArtifacts.safe(""));
+    }
+
+    @Test
+    void deleteThreadArtifacts_deletesPerCallObjectsByThePrefix() throws Exception {
+        var conn = mock(Connection.class);
+        var store = mock(ObjectStore.class);
+        String call1 = DiscussionArtifacts.callKey(SCOPE, "t1", "k8s-workloads", 1, "pods_list");
+        String call2 = DiscussionArtifacts.callKey(SCOPE, "t1", "k8s-workloads", 2, "events_list");
+        String otherThread = DiscussionArtifacts.callKey(SCOPE, "t2", "k8s-workloads", 1, "pods_list");
+        assertTrue(call1.startsWith(DiscussionArtifacts.threadPrefix(SCOPE, "t1")));
+        var o1 = objectInfo(call1, false);
+        var o2 = objectInfo(call2, false);
+        var o3 = objectInfo(otherThread, false);
+        when(conn.objectStore(DiscussionArtifacts.BUCKET)).thenReturn(store);
+        when(store.getList()).thenReturn(List.of(o1, o2, o3));
+
+        assertEquals(2, DiscussionArtifacts.deleteThreadArtifacts(conn, SCOPE, List.of("t1")));
+
+        verify(store).delete(call1);
+        verify(store).delete(call2);
+        verify(store, never()).delete(otherThread);
+    }
+
+    @Test
     void threadPrefix_isKeyPrefix() {
         String prefix = DiscussionArtifacts.threadPrefix(SCOPE, "t1");
         assertEquals("ns-a/homelab-pilot/t1/", prefix);

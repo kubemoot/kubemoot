@@ -11,12 +11,9 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import io.nats.client.Connection;
 import io.nats.client.Dispatcher;
 import io.nats.client.JetStream;
-import io.nats.client.JetStreamApiException;
 import io.nats.client.Message;
 import io.nats.client.PushSubscribeOptions;
 import io.nats.client.api.ConsumerConfiguration;
-import io.nats.client.api.ObjectStoreConfiguration;
-import io.nats.client.api.StorageType;
 import io.quarkus.runtime.StartupEvent;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.event.Observes;
@@ -25,7 +22,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.nio.charset.StandardCharsets;
-import java.time.Duration;
 import java.time.Instant;
 import java.util.*;
 import java.util.concurrent.*;
@@ -101,9 +97,6 @@ public class DiscussionSubscriber {
     // read the full file rather than tally an incomplete preview. Kept compatible
     // with ChatService.ARTIFACT_KEY_PATTERN (key terminated by whitespace).
     private static final String ARTIFACT_MARKER_PREFIX = "[ARTIFACT key=";
-    // JetStream API error code for "stream name already in use": a benign result when
-    // the artifact bucket already exists (a concurrent or prior create won the race).
-    private static final int JSAPI_STREAM_NAME_IN_USE = 10058;
     // Eviction caps for the in-memory dedup/context caches; cleared wholesale past these.
     private static final int MAX_PROCESSED_MESSAGES = 5000;
     private static final int MAX_THREAD_CONTEXT_ENTRIES = 500;
@@ -1462,16 +1455,7 @@ public class DiscussionSubscriber {
         if (artifactBucketEnsured) {
             return;
         }
-        try {
-            conn.objectStoreManagement().create(ObjectStoreConfiguration.builder(DiscussionArtifacts.BUCKET)
-                    .ttl(Duration.ofHours(48))
-                    .storageType(StorageType.File)
-                    .build());
-        } catch (JetStreamApiException e) {
-            if (e.getApiErrorCode() != JSAPI_STREAM_NAME_IN_USE) {
-                throw e;
-            }
-        }
+        DiscussionArtifacts.ensureBucket(conn);
         artifactBucketEnsured = true;
     }
 

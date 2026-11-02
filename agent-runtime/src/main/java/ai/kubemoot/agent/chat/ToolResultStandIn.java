@@ -59,6 +59,14 @@ final class ToolResultStandIn {
      * one-line summary only (tool, size, stop advice), for a window short of room.
      */
     static String of(String toolName, String result, boolean withHead) {
+        return of(toolName, result, withHead, null);
+    }
+
+    /**
+     * As {@link #of(String, String, boolean)}; when {@code artifactKey} is not null the stand-in
+     * names the workspace object that holds this call's result.
+     */
+    static String of(String toolName, String result, boolean withHead, String artifactKey) {
         String text = result == null ? "" : result;
         StringBuilder out = new StringBuilder();
         out.append('[').append(toolName).append("] ").append(MARKER).append("; ")
@@ -70,6 +78,9 @@ final class ToolResultStandIn {
             out.append(", ").append(items).append(" items");
         }
         out.append(".\n");
+        if (artifactKey != null) {
+            out.append("Stored as workspace artifact ").append(artifactKey).append(".\n");
+        }
         if (withHead) {
             out.append("First ").append(HEAD_LINES).append(" lines (cut at ").append(HEAD_CHARS)
                     .append(" characters):\n").append(head(text)).append('\n');
