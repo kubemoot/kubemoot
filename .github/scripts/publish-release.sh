@@ -52,7 +52,8 @@
 #                     tag, but checks that cosign and the signing identity are in place
 #   REGISTRY          Harbor host (images at ${REGISTRY}/kubemoot/<name>)
 #   RELEASE_REGISTRY  registry plus namespace, e.g. ghcr.io/kubemoot
-#   HARBOR_USERNAME, HARBOR_PASSWORD, GHCR_USERNAME, GHCR_TOKEN
+#   HARBOR_USERNAME, HARBOR_PASSWORD, GHCR_USERNAME (github.actor), GHCR_TOKEN
+#                     (the workflow's GITHUB_TOKEN; a dry run needs neither)
 #   STANDALONE_IMAGES images released on their own (default below)
 #   OUT_DIR           where packaged charts and notes.md land (default: release-files)
 #   RELEASE_LIB       release-lib.sh of kubemoot/release-actions (its actions set it)

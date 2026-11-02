@@ -14,8 +14,8 @@
 #
 # Required env:
 #   RELEASE_REGISTRY  registry plus namespace, e.g. ghcr.io/kubemoot
-#   GHCR_USERNAME    account with write:packages on that namespace
-#   GHCR_TOKEN       its token
+#   GHCR_USERNAME    the workflow actor (github.actor)
+#   GHCR_TOKEN       the workflow's own GITHUB_TOKEN, from a job with packages: write
 #   HARBOR_USERNAME  read access to the source registry
 #   HARBOR_PASSWORD  its password
 #

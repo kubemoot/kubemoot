@@ -49,12 +49,6 @@ on:
         required: false
         default: ''
         type: string
-    secrets:
-      GHCR_USERNAME:
-        description: 'Credentials for the release registry, needed only while its packages are private.'
-        required: false
-      GHCR_TOKEN:
-        required: false
   pull_request:
     paths:
       - 'quickstart/**'
@@ -85,9 +79,6 @@ concurrency:
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
   RELEASE_REGISTRY: ghcr.io/kubemoot
-  # Credentials are needed only while the packages are private; empty after the flip.
-  GHCR_USERNAME: ${{ secrets.GHCR_USERNAME }}
-  GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
 
 permissions:
   contents: read
@@ -152,12 +143,6 @@ jobs:
     permissions:
       contents: read
     steps:
-      - name: Log in to the release registry
-        if: env.GHCR_TOKEN != ''
-        run: |
-          echo "$GHCR_TOKEN" | docker login "${RELEASE_REGISTRY%%/*}" -u "$GHCR_USERNAME" --password-stdin
-          echo "$GHCR_TOKEN" | helm registry login "${RELEASE_REGISTRY%%/*}" -u "$GHCR_USERNAME" --password-stdin
-
       - name: Choose the chart
         id: chart
         env:

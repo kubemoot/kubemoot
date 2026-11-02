@@ -357,6 +357,9 @@ check "a run where cosign does not run fails" "1|1" "${status}|$(grep -c 'cosign
 : > "$LOG"
 GHCR_TOKEN='' DRY_RUN=false RC_TAG="$cand" run_publish notoken && status=0 || status=$?
 check "a real run without a registry token fails before publishing" "1|0" "${status}|$(grep -c '^crane copy' "$LOG" || true)"
+: > "$LOG"
+GHCR_USERNAME='' GHCR_TOKEN='' DRY_RUN=true RC_TAG="$cand" run_publish dryntoken && status=0 || status=$?
+check "a dry run needs no registry token and pushes nothing" "0|0" "${status}|$(grep -c '^crane copy' "$LOG" || true)"
 
 # A signing failure stops the release before any tag, so no GitHub Release is written.
 # The registry state is restored afterwards so the real release below starts clean.
@@ -566,8 +569,12 @@ check "the candidate job runs in a dry run too" "0" "$(job_block candidate | gre
 check "quickstart-candidate follows the candidate and runs in a dry run too" "1|0" \
   "$(job_block quickstart-candidate | grep -cE '^    needs: candidate$')|$(job_block quickstart-candidate | grep -c 'dry_run')"
 # shellcheck disable=SC2016  # the pattern is literal workflow text
-check "quickstart-candidate hands the quickstart the candidate and only the registry secrets" "1|1|1|0" \
-  "$(job_block quickstart-candidate | grep -c 'candidate_tag: \${{ needs.candidate.outputs.rc_tag }}')|$(job_block quickstart-candidate | grep -c 'GHCR_USERNAME')|$(job_block quickstart-candidate | grep -c 'GHCR_TOKEN')|$(job_block quickstart-candidate | grep -c 'inherit')"
+check "quickstart-candidate hands the quickstart the candidate and no secrets" "1|0|0" \
+  "$(job_block quickstart-candidate | grep -c 'candidate_tag: \${{ needs.candidate.outputs.rc_tag }}')|$(job_block quickstart-candidate | grep -c 'secrets')|$(job_block quickstart-candidate | grep -c 'GHCR')"
+# GHCR is written with the workflow's own token, never a stored one.
+check "no workflow reads a GHCR secret" "" "$(grep -n 'secrets.GHCR' .github/workflows/*.yaml || true)"
+check "the jobs that push to GHCR hold packages: write, the rest do not" "1|1|0" \
+  "$(job_block publish | grep -c 'packages: write')|$(job_block attest | grep -c 'packages: write')|$(job_block release | grep -c 'packages')"
 check "publish runs from main after the quickstart on the candidate" "1|1" \
   "$(job_block publish | grep -cE "^    if: github.ref == 'refs/heads/main'$")|$(job_block publish | grep -cE '^    needs: \[candidate, quickstart-candidate\]$')"
 check "the post-publish quickstart still runs after publish, not in a dry run" "1|1" \

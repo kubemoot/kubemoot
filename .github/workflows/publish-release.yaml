@@ -156,9 +156,6 @@ jobs:
     with:
       candidate_tag: ${{ needs.candidate.outputs.rc_tag }}
       candidate_artifact: quickstart-candidate
-    secrets:
-      GHCR_USERNAME: ${{ secrets.GHCR_USERNAME }}
-      GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
 
   publish:
     # Harbor is reachable only in-cluster, so publishing runs on the homelab runners,
@@ -168,6 +165,7 @@ jobs:
     runs-on: homelab-runners
     permissions:
       contents: write
+      packages: write # push the images and chart to GHCR with the workflow's own token
       id-token: write # cosign keyless signing of the published images and chart
     outputs:
       chart_version: ${{ steps.publish.outputs.chart_version }}
@@ -211,8 +209,8 @@ jobs:
           RELEASE_REGISTRY: ${{ vars.RELEASE_REGISTRY }}
           HARBOR_USERNAME: ${{ secrets.HARBOR_USERNAME }}
           HARBOR_PASSWORD: ${{ secrets.HARBOR_PASSWORD }}
-          GHCR_USERNAME: ${{ secrets.GHCR_USERNAME }}
-          GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
+          GHCR_USERNAME: ${{ github.actor }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           echo "${HARBOR_PASSWORD}" | crane auth login --insecure "${REGISTRY}" -u "${HARBOR_USERNAME}" --password-stdin
           echo "${HARBOR_PASSWORD}" | helm registry login --insecure "${REGISTRY}" -u "${HARBOR_USERNAME}" --password-stdin
@@ -228,8 +226,8 @@ jobs:
           RELEASE_REGISTRY: ${{ vars.RELEASE_REGISTRY }}
           HARBOR_USERNAME: ${{ secrets.HARBOR_USERNAME }}
           HARBOR_PASSWORD: ${{ secrets.HARBOR_PASSWORD }}
-          GHCR_USERNAME: ${{ secrets.GHCR_USERNAME }}
-          GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
+          GHCR_USERNAME: ${{ github.actor }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           OUT_DIR: release-files
         run: |
           git config user.name "github-actions[bot]"
@@ -258,6 +256,7 @@ jobs:
     if: ${{ !inputs.dry_run }}
     runs-on: ubuntu-latest
     permissions:
+      packages: write # attach the attestation to the package in GHCR
       id-token: write # sign the provenance attestation keylessly
       attestations: write # store the attestation in the repository
     strategy:
@@ -268,8 +267,8 @@ jobs:
       - name: Log in to the release registry
         env:
           RELEASE_REGISTRY: ${{ vars.RELEASE_REGISTRY }}
-          GHCR_USERNAME: ${{ secrets.GHCR_USERNAME }}
-          GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
+          GHCR_USERNAME: ${{ github.actor }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: echo "${GHCR_TOKEN}" | docker login "${RELEASE_REGISTRY%%/*}" -u "${GHCR_USERNAME}" --password-stdin
 
       - name: Attest the build provenance
@@ -306,9 +305,6 @@ jobs:
     uses: ./.github/workflows/quickstart.yaml
     with:
       chart_version: ${{ needs.publish.outputs.chart_version }}
-    secrets:
-      GHCR_USERNAME: ${{ secrets.GHCR_USERNAME }}
-      GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
 
   release:
     needs: [publish, attest, quickstart]
