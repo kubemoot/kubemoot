@@ -39,6 +39,7 @@ const (
 // callInfo is what an object's headers say about the tool call whose result it holds.
 type callInfo struct {
 	tool      string
+	args      string
 	failed    bool
 	truncated bool
 	// hint is the format the producer says the body has; empty when it says text.
@@ -52,6 +53,7 @@ func callInfoOf(m store.Meta) (callInfo, bool) {
 	}
 	ci := callInfo{
 		tool:      m.Headers[headerTool],
+		args:      m.Headers[headerArgs],
 		failed:    m.Headers[headerError] == flagSet,
 		truncated: m.Headers[headerTruncated] == flagSet,
 	}
@@ -142,6 +144,7 @@ func (s *Service) callGroup(ctx context.Context, name, pattern, workDir string,
 			return nil, nil, fmt.Errorf("%s: %w", m.Key, err)
 		}
 		if ok {
+			p.call, p.args = m.Key, ci.args
 			items = append(items, p)
 		}
 	}

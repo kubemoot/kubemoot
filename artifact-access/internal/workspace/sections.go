@@ -171,6 +171,10 @@ type prepared struct {
 	rel    Relation
 	sig    string
 	cut    bool
+	// call and args are set for a stored tool call read through a key pattern: its object key
+	// and the arguments it was made with. They become the _call and _args columns.
+	call string
+	args string
 }
 
 // prepareSections makes the relations for a tooler artifact. Each section is
