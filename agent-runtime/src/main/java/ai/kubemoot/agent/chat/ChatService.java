@@ -2212,6 +2212,43 @@ public class ChatService {
         }
     }
 
+    /**
+     * The smallest context window, in tokens, that any server publishes for this agent's model, or
+     * empty when none does or there is no server selector. A simple call (synthesis) is placed on
+     * any server that can hold the model, so the smallest window is the one it must fit.
+     */
+    public java.util.OptionalLong simpleCallContextTokens() {
+        if (serverSelector == null) {
+            return java.util.OptionalLong.empty();
+        }
+        String model = properties.model().model();
+        return serverSelector.readState().stream().mapToLong(p -> p.contextLengthFor(model))
+                .filter(window -> window > 0).min();
+    }
+
+    /**
+     * The room, in tokens, a simple call has left in its window for more text: the window, minus the
+     * estimated size of {@code systemPrompt} and {@code userPrompt} (counted with the same estimator
+     * as an agent's tool loop: this agent's learned characters per token and the density of digits
+     * and symbols), minus the reply reserve. Zero when the prompts already fill it; empty when the
+     * window is unknown.
+     */
+    public java.util.OptionalLong simpleCallRoomTokens(String systemPrompt, String userPrompt) {
+        var window = simpleCallContextTokens();
+        if (window.isEmpty()) {
+            return window;
+        }
+        long prompt = PromptSize.fullEstimateTokens(buildSimpleMessages(systemPrompt, userPrompt), List.of(),
+                charsPerToken);
+        return java.util.OptionalLong.of(Math.max(0,
+                window.getAsLong() - prompt - ToolResultBudget.replyReserve(window.getAsLong())));
+    }
+
+    /** Estimated tokens of {@code text} as a message body, counted as an agent's tool results are. */
+    public long estimateTokens(String text) {
+        return charsPerToken.tokens(TokenDensity.countedChars(text));
+    }
+
     /** Build the system+user message list for a no-tool call (system optional). */
     private static List<ChatMessage> buildSimpleMessages(String systemPrompt, String userPrompt) {
         List<ChatMessage> messages = new ArrayList<>();

@@ -159,7 +159,7 @@ class DiscussionOrchestratorSkillsTest {
     @Test
     void inlineArtifactContent_noMarker_returnsUnchangedWithoutReadingNats() {
         String text = "k8s-config agree: found 28 namespaces with their labels";
-        assertEquals(text, orchestrator.inlineArtifactContent(text));
+        assertEquals(text, orchestrator.inlineArtifactContent(text, ""));
         verifyNoInteractions(natsProvider);
     }
 
@@ -182,10 +182,72 @@ class DiscussionOrchestratorSkillsTest {
         String key = "ns-a/homelab-pilot/t1/k8s-config/agree-abc";
         String input = "k8s-config agree: [ARTIFACT key=" + key
                 + " bytes=64 - the FULL data is in the file /artifacts/" + key + "]";
-        String out = orchestrator.inlineArtifactContent(input);
+        String out = orchestrator.inlineArtifactContent(input, "");
 
         assertTrue(out.contains(fullData), "the marker is replaced with the artifact content: " + out);
         assertFalse(out.contains("[ARTIFACT key="), "the marker is gone once the content is read in");
+    }
+
+    @Test
+    void inlineArtifactContent_fillsAManifestAsManyResultsAsTheSynthesisWindowHasRoomFor() throws Exception {
+        var conn = mock(io.nats.client.Connection.class);
+        var os = mock(io.nats.client.ObjectStore.class);
+        when(natsProvider.getConnection()).thenReturn(conn);
+        when(conn.objectStore("kubemoot_discussion_artifacts")).thenReturn(os);
+        String k1 = "ns/crew/t1/k8s/001-pods_list";
+        String k2 = "ns/crew/t1/k8s/002-events_list";
+        var stored = java.util.Map.of(k1, "p".repeat(400), k2, "e".repeat(400));
+        doAnswer(inv -> {
+            ((java.io.OutputStream) inv.getArgument(1))
+                    .write(stored.get(inv.<String>getArgument(0)).getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            return null;
+        }).when(os).get(anyString(), any(java.io.OutputStream.class));
+        // Room for one of the two results: the estimate is a quarter of the characters.
+        when(chatService.simpleCallRoomTokens(any(), any())).thenReturn(java.util.OptionalLong.of(150));
+        when(chatService.estimateTokens(any())).thenAnswer(inv -> (long) inv.<String>getArgument(0).length() / 4);
+        String line1 = "[CALL key=" + k1 + " tool=pods_list args={} bytes=400 rows=unknown error=false]";
+        String line2 = "[CALL key=" + k2 + " tool=events_list args={} bytes=400 rows=unknown error=false]";
+        String input = "k8s agree: [WORKSPACE agent=k8s calls=2 errors=0 prefix=ns/crew/t1/k8s/]\n"
+                + line1 + "\n" + line2 + "\nThe results are stored under these keys and are not shown here.";
+
+        String out = orchestrator.inlineArtifactContent(input, "prompt so far\n\n");
+
+        assertTrue(out.contains("[pods_list]\n" + "p".repeat(400)), out);
+        assertTrue(out.contains(line2 + "\n" + ManifestInliner.NOT_INCLUDED), out);
+        assertFalse(out.contains("e".repeat(10)), "no part of the result that did not fit");
+        // The room is counted after the synthesis system prompt and the text that precedes this one.
+        verify(chatService).simpleCallRoomTokens(orchestrator.loadSystemPrompt(), "prompt so far\n\n" + input);
+    }
+
+    @Test
+    void inlineArtifactContent_unknownWindowFillsEveryResultUpToTheFixedLimit() throws Exception {
+        var conn = mock(io.nats.client.Connection.class);
+        var os = mock(io.nats.client.ObjectStore.class);
+        when(natsProvider.getConnection()).thenReturn(conn);
+        when(conn.objectStore("kubemoot_discussion_artifacts")).thenReturn(os);
+        doAnswer(inv -> {
+            ((java.io.OutputStream) inv.getArgument(1)).write("z".repeat(30_000).getBytes());
+            return null;
+        }).when(os).get(anyString(), any(java.io.OutputStream.class));
+        when(chatService.simpleCallRoomTokens(any(), any())).thenReturn(java.util.OptionalLong.empty());
+        String line = "[CALL key=ns/crew/t1/k8s/001-pods_list tool=pods_list args={} bytes=30000 rows=unknown error=false]";
+
+        String out = orchestrator.inlineArtifactContent(line, "");
+
+        assertTrue(out.contains("[pods_list]\n" + "z".repeat(24_000) + ManifestInliner.CUT_NOTE), "cut at 24,000");
+        assertFalse(out.contains("z".repeat(24_001)));
+    }
+
+    @Test
+    void inlineArtifactContent_aSpilledMarkerWithoutAManifestComputesNoRoom() throws Exception {
+        var conn = mock(io.nats.client.Connection.class);
+        var os = mock(io.nats.client.ObjectStore.class);
+        when(natsProvider.getConnection()).thenReturn(conn);
+        when(conn.objectStore("kubemoot_discussion_artifacts")).thenReturn(os);
+
+        orchestrator.inlineArtifactContent("a: [ARTIFACT key=ns/c/t/a/agree-u bytes=5 - the FULL data is in the file]", "");
+
+        verify(chatService, never()).simpleCallRoomTokens(any(), any());
     }
 
     @Test

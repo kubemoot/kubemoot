@@ -69,8 +69,7 @@ final class ToolResultCompaction {
     }
 
     private static long sizeOf(ToolExecutionResultMessage result) {
-        String text = result.text() == null ? "" : result.text();
-        return text.length() + TokenDensity.extraChars(text);
+        return TokenDensity.countedChars(result.text());
     }
 
     private static String note(String toolName, long tokens) {

@@ -37,6 +37,15 @@ final class TokenDensity {
         return extra;
     }
 
+    /**
+     * The characters an estimate counts for {@code text}: its length plus {@link #extraChars}. Zero
+     * for null. Every estimate of a text's tokens divides this by the characters per token, so they
+     * agree on what a text weighs.
+     */
+    static long countedChars(String text) {
+        return text == null ? 0 : text.length() + extraChars(text);
+    }
+
     private static int extraFor(char c) {
         if (Character.isDigit(c)) {
             return DIGIT_EXTRA;

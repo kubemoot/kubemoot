@@ -163,9 +163,6 @@ public class DiscussionOrchestrator {
     static final java.util.regex.Pattern ARTIFACT_MARKER_WITH_KEY =
             java.util.regex.Pattern.compile("\\[ARTIFACT key=([^\\]\\s]++)[^\\]]*+\\]");
     private static final int MAX_ARTIFACT_INLINE_CHARS = 24_000;
-    // Most characters of stored tool results filled into the synthesis input from tooler manifests,
-    // all manifests together; a call past it is named but not inlined.
-    private static final int MAX_MANIFEST_INLINE_CHARS = 96_000;
     // Absolute floor of a table's names that must appear in a draft for the synthesis
     // completeness contract to treat the draft as enumerating that table. Below this the
     // draft is a count/free-form answer, not an inventory. See enumeratedTable().
@@ -2504,7 +2501,8 @@ public class DiscussionOrchestrator {
             // Read each spilled-artifact file and put its content into the synthesis input: toolers spill
             // bulky findings to the object store and leave only a marker on the board,
             // but the synthesizer is tool-free, so it must be handed the actual data.
-            String conversation = signalContext + "\n\n" + inlineArtifactContent(formatThread(state));
+            String threadPrefix = signalContext + "\n\n";
+            String conversation = threadPrefix + inlineArtifactContent(formatThread(state), threadPrefix);
             var synthesisResult = synthesizeWithCompleteness(loadSystemPrompt(), conversation, state.threadId);
             String response = synthesisResult.text();
             state.synthesisInputTokens = synthesisResult.inputTokens();
@@ -2789,9 +2787,10 @@ public class DiscussionOrchestrator {
      * the real data instead of an empty reference. On a read FAILURE the marker is replaced
      * with an explicit UNAVAILABLE notice (not the original "the full data is in the file"
      * marker), so the synthesizer reports the gap instead of fabricating a confident answer
-     * over data it never received.
+     * over data it never received. {@code text} follows {@code promptBefore} in the synthesis
+     * prompt, so the room left for a tooler's stored results is counted after it.
      */
-    String inlineArtifactContent(String text) {
+    String inlineArtifactContent(String text, String promptBefore) {
         if (text == null || !(text.contains("[ARTIFACT key=") || text.contains(CallManifest.CALL_PREFIX))) {
             return text;
         }
@@ -2807,9 +2806,29 @@ public class DiscussionOrchestrator {
             m.appendReplacement(sb, java.util.regex.Matcher.quoteReplacement(replacement));
         }
         m.appendTail(sb);
-        // A tooler's per-call manifest is filled in the same way, one stored result per call line.
-        return ManifestInliner.inline(sb.toString(), key -> readArtifactForSynthesis(conn, key),
-                MAX_MANIFEST_INLINE_CHARS);
+        // A tooler's per-call manifest is filled in one stored result per call line, as many as the
+        // synthesis window has room for, counted after the prompt this text is part of. The count
+        // includes the manifests' own lines, which the fill replaces, so it errs on the side of
+        // room. A completeness re-prompt appends a draft and names later; that is not counted here.
+        String filled = sb.toString();
+        if (!filled.contains(CallManifest.CALL_PREFIX)) {
+            return filled;
+        }
+        var room = chatService.simpleCallRoomTokens(loadSystemPrompt(), promptBefore + filled);
+        return ManifestInliner.inline(filled, key -> readWholeArtifact(conn, key), chatService::estimateTokens,
+                room, MAX_ARTIFACT_INLINE_CHARS);
+    }
+
+    /** Read one artifact's whole content; null on any failure. */
+    private String readWholeArtifact(Connection conn, String key) {
+        try {
+            var bos = new java.io.ByteArrayOutputStream();
+            conn.objectStore(DiscussionArtifacts.BUCKET).get(key, bos);
+            return new String(bos.toByteArray(), java.nio.charset.StandardCharsets.UTF_8);
+        } catch (Exception e) {
+            log.warn("synthesis: could not read artifact {}: {}", key, e.getMessage());
+            return null;
+        }
     }
 
     /**
@@ -2828,20 +2847,13 @@ public class DiscussionOrchestrator {
 
     /** Read one artifact's content for inlining, capped; null on any failure. */
     private String readArtifactForSynthesis(Connection conn, String key) {
-        try {
-            var bos = new java.io.ByteArrayOutputStream();
-            conn.objectStore(DiscussionArtifacts.BUCKET).get(key, bos);
-            String content = new String(bos.toByteArray(), java.nio.charset.StandardCharsets.UTF_8);
-            if (content.length() > MAX_ARTIFACT_INLINE_CHARS) {
-                content = content.substring(0, MAX_ARTIFACT_INLINE_CHARS)
-                        + "\n[...artifact truncated for synthesis...]";
-            }
-            log.info("synthesis: inlined artifact {} ({} chars)", key, content.length());
-            return content;
-        } catch (Exception e) {
-            log.warn("synthesis: could not read artifact {}: {}", key, e.getMessage());
+        String content = readWholeArtifact(conn, key);
+        if (content == null) {
             return null;
         }
+        content = ManifestInliner.cut(content, MAX_ARTIFACT_INLINE_CHARS);
+        log.info("synthesis: inlined artifact {} ({} chars)", key, content.length());
+        return content;
     }
 
     /**

@@ -100,9 +100,18 @@ summarized arguments show as parentheses so a list cannot end the call line earl
 Analysts and the coordinator receive the manifest. The tool-free synthesizer cannot read
 the workspace, so before synthesis the coordinator replaces each `[CALL ...]` line with
 `[tool]` and the stored result (the form the glued output has), drops the header and
-closing lines, and puts a notice in place of any result it cannot read. The results it
-fills in together are capped at 96,000 characters; a call past the cap is named but not
-filled in. The final answer to the user never carries a manifest line. An analyst that needs rows calls
+closing lines, and puts a notice in place of any result it cannot read. How many results it
+fills in depends on the room the synthesizer's window has left: the smallest context window
+any server publishes for the agent's model, less the rest of the synthesis prompt and the
+reply reserve, counted with the estimator an agent's tool loop uses (digits and symbols
+count as dense, so numeric JSON takes about a token per digit). Results are filled in
+in manifest order, each whole or not at all, until one does not fit. That call and the
+rest keep their `[CALL ...]` line and get the note "Not included here: the stored result
+did not fit the room left in the synthesis window. The analysts' findings summarize it."
+No part of a result is ever cut to fit. When no server publishes a window, each result is
+filled in up to 24,000 characters instead.
+
+The final answer to the user never carries a manifest line. An analyst that needs rows calls
 `workspace_query` with a key from a `[CALL ...]` line; see
 [Query with SQL](#query-with-sql). Both formats coexist: artifacts written before the
 setting was turned on, and the single object a tooler spills with the setting off, are
