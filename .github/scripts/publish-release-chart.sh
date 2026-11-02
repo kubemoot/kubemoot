@@ -9,8 +9,8 @@
 #
 # Env:
 #   RELEASE_REGISTRY  registry plus namespace, e.g. ghcr.io/kubemoot (optional)
-#   GHCR_USERNAME     account with write:packages on that namespace
-#   GHCR_TOKEN        its token
+#   GHCR_USERNAME     the workflow actor (github.actor)
+#   GHCR_TOKEN        the workflow's own GITHUB_TOKEN, from a job with packages: write
 set -euo pipefail
 
 tgz="${1:?packaged chart path required}"
