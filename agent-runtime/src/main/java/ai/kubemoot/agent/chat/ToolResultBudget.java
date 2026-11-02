@@ -82,7 +82,7 @@ final class ToolResultBudget {
         if (!known) {
             return new Admission(result, false, 0, 0);
         }
-        long tokens = tokens(length(toolName) + length(result) + TokenDensity.extraChars(result));
+        long tokens = tokens(length(toolName) + TokenDensity.countedChars(result));
         long available = Math.max(room, 0);
         if (tokens <= available) {
             room -= tokens;
