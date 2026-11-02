@@ -137,21 +137,15 @@ func (s *Service) relations(ctx context.Context, artifacts map[string]string,
 // there yet, and prepares it for the engine.
 func (s *Service) relation(ctx context.Context, name, key, workDir string,
 	taken map[string]bool) ([]Relation, []string, error) {
-	path, err := s.materialized(ctx, key)
+	if strings.Contains(key, "*") {
+		return s.callGroup(ctx, name, key, workDir, taken)
+	}
+	path, data, err := s.readObject(ctx, key, nil)
 	if err != nil {
 		return nil, nil, err
 	}
-	info, err := os.Stat(path)
-	if err != nil {
-		return nil, nil, err
-	}
-	if s.MaxArtifactBytes > 0 && info.Size() > s.MaxArtifactBytes {
-		return nil, nil, fmt.Errorf("the artifact is %d bytes, over the %d byte limit for queries",
-			info.Size(), s.MaxArtifactBytes)
-	}
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil, nil, err
+	if ci, ok := s.describe(ctx, key); ok {
+		return singleCall(name, data, workDir, taken, ci)
 	}
 	return PrepareArtifact(name, path, data, workDir, taken)
 }

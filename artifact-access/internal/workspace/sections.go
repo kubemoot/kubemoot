@@ -179,10 +179,9 @@ type prepared struct {
 // table. The first shape takes the name the caller chose; each other shape takes
 // name_2, name_3 and so on, and a note says what each table holds.
 func prepareSections(name string, secs []section, workDir string, taken map[string]bool) ([]Relation, []string, error) {
-	local := maps.Clone(taken)
 	var items []prepared
 	for i, s := range secs {
-		p, ok, err := prepareSection(fmt.Sprintf("%s__section%d", name, i+1), s, workDir)
+		p, ok, err := prepareSection(fmt.Sprintf("%s__section%d", name, i+1), s, workDir, "")
 		if err != nil {
 			return nil, nil, fmt.Errorf("section [%s]: %w", s.tool, err)
 		}
@@ -196,6 +195,15 @@ func prepareSections(name string, secs []section, workDir string, taken map[stri
 	if allText(items) {
 		return nil, nil, errAllText
 	}
+	return groupRelations(name, items, workDir, taken)
+}
+
+// groupRelations makes the relations for prepared outputs: those with the same shape are
+// the rows of one table, the first shape takes the caller's name and each other shape takes
+// name_2, name_3 and so on. taken receives the extra names this uses.
+func groupRelations(name string, items []prepared, workDir string,
+	taken map[string]bool) ([]Relation, []string, error) {
+	local := maps.Clone(taken)
 	groups := groupByShape(items)
 	rels := make([]Relation, 0, len(groups))
 	var notes []string
@@ -213,7 +221,9 @@ func prepareSections(name string, secs []section, workDir string, taken map[stri
 }
 
 // prepareSection writes one section to a file and prepares it. An empty section is skipped.
-func prepareSection(tmp string, s section, workDir string) (prepared, bool, error) {
+// A non-empty hint is the format to read it as, when the body is valid for it; otherwise the
+// format is detected from the bytes.
+func prepareSection(tmp string, s section, workDir string, hint Format) (prepared, bool, error) {
 	body := cleanBody(s)
 	if strings.TrimSpace(body) == "" {
 		return prepared{}, false, nil
@@ -222,7 +232,7 @@ func prepareSection(tmp string, s section, workDir string) (prepared, bool, erro
 	if err := os.WriteFile(src, []byte(body), 0o600); err != nil {
 		return prepared{}, false, fmt.Errorf("write section: %w", err)
 	}
-	rel, format, err := Prepare(tmp, src, []byte(body), workDir)
+	rel, format, err := PrepareAs(hint, tmp, src, []byte(body), workDir)
 	if err != nil {
 		return prepared{}, false, err
 	}

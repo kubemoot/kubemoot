@@ -144,7 +144,16 @@ var preparers = map[Format]func(name, src string, data []byte, workDir string) (
 // Prepare makes the relation a query reads for an artifact whose bytes are in data
 // and whose materialized file is src. Converted copies are written under workDir.
 func Prepare(name, src string, data []byte, workDir string) (Relation, Format, error) {
+	return PrepareAs("", name, src, data, workDir)
+}
+
+// PrepareAs is Prepare for an artifact whose producer says what it is. A hint of FormatJSON is
+// believed when data is valid JSON; any other hint, or none, leaves the format to Detect.
+func PrepareAs(hint Format, name, src string, data []byte, workDir string) (Relation, Format, error) {
 	format := Detect(data)
+	if hint == FormatJSON && isJSON(data, nil) {
+		format = FormatJSON
+	}
 	rel, err := preparers[format](name, src, data, workDir)
 	return rel, format, err
 }

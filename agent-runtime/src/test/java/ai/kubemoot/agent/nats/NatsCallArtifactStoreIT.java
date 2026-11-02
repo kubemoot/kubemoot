@@ -117,6 +117,12 @@ class NatsCallArtifactStoreIT {
             assertEquals("json", info.getHeaders().getFirst(CallHeaders.FORMAT));
             assertEquals("{\"a\": \"b\"}", info.getHeaders().getFirst(CallHeaders.TOOL_CALL_ARGUMENTS),
                     "a line break in a value becomes a space");
+            // The wire form other clients (artifact-access, in Go) read: headers as name -> list of values.
+            String metaSubject = "$O." + DiscussionArtifacts.BUCKET + ".M."
+                    + java.util.Base64.getUrlEncoder().encodeToString(key.getBytes(StandardCharsets.UTF_8));
+            String rawMeta = new String(conn.jetStreamManagement()
+                    .getLastMessage("OBJ_" + DiscussionArtifacts.BUCKET, metaSubject).getData(), StandardCharsets.UTF_8);
+            assertTrue(rawMeta.contains("\"gen_ai.tool.name\":[\"pods_list\"]"), rawMeta);
             String reference = references.poll(5, TimeUnit.SECONDS);
             assertTrue(reference != null && reference.contains("\"key\":\"" + key + "\"")
                     && reference.contains("\"rows\":2") && reference.contains("application/json"), reference);

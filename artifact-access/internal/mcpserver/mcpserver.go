@@ -19,6 +19,7 @@ import (
 
 	"github.com/kubemoot/kubemoot/artifact-access/internal/readops"
 	"github.com/kubemoot/kubemoot/artifact-access/internal/store"
+	"github.com/kubemoot/kubemoot/artifact-access/internal/workspace"
 )
 
 const (
@@ -76,7 +77,8 @@ func (s *Server) MCP() *mcp.Server {
 		Description: "Number of DATA rows in an artifact: skips blank lines and a " +
 			"leading column-header row (e.g. a kubectl / resources_list table), so " +
 			"the result is the entity count (how many namespaces/pods/rows), not the " +
-			"raw line count."}, s.count)
+			"raw line count. For a stored tool call whose result is a JSON list it is " +
+			"the number of items in the list."}, s.count)
 	mcp.AddTool(srv, &mcp.Tool{Name: "artifact_rows",
 		Description: "Lines [start, start+limit) of an artifact (0-based), ending " +
 			"with a position line such as [lines 0-99 of 412]. limit defaults to 100; " +
@@ -102,7 +104,10 @@ const queryDescription = "Run one read-only SQL SELECT over artifacts. Give arti
 	"tables, CSV, and any other text (columns line_no, line). Use it to count, filter, sort, group " +
 	"and total instead of doing it by eye. Rows come back as 'a | b' lines, cut at a row limit, with a " +
 	"row count line. A tooler's [tool] sections are read one by one: same-shaped ones are one table, " +
-	"others are name_2, name_3. No writes, no files outside the named artifacts, no network."
+	"others are name_2, name_3. A tooler's [CALL key=...] line names one stored tool call: that key is one " +
+	"table. A key with * reads every call that matches as one table (same-shaped calls are stacked, failed " +
+	"calls are left out), for example <prefix>*-pods_list with the prefix from the [WORKSPACE ...] line. " +
+	"No writes, no files outside the named artifacts, no network."
 
 // --- tool inputs ---
 
@@ -162,6 +167,9 @@ func (s *Server) grep(ctx context.Context, _ *mcp.CallToolRequest, in grepIn) (*
 }
 
 func (s *Server) count(ctx context.Context, _ *mcp.CallToolRequest, in keyIn) (*mcp.CallToolResult, Out, error) {
+	if n, ok := s.recordedRows(ctx, in.Key); ok {
+		return s.result(strconv.FormatInt(n, 10) + "\n")
+	}
 	return s.read(ctx, in.Key, func(r io.Reader) (string, error) {
 		n, err := readops.CountData(r)
 		return strconv.FormatInt(n, 10) + "\n", err
@@ -192,6 +200,21 @@ func (s *Server) query(ctx context.Context, _ *mcp.CallToolRequest, in queryIn) 
 		return nil, Out{}, err
 	}
 	return s.result(text)
+}
+
+// recordedRows is the row count the agent runtime recorded in the headers of a stored tool call
+// whose result is a JSON list. It is the entity count a single-line JSON body would hide from a
+// line count. False for any other object, and for a result that was cut.
+func (s *Server) recordedRows(ctx context.Context, key string) (int64, bool) {
+	d, ok := s.Fetcher.(store.Describer)
+	if !ok || key == "" {
+		return 0, false
+	}
+	meta, err := d.Describe(ctx, key)
+	if err != nil {
+		return 0, false
+	}
+	return workspace.RowsHeader(meta)
 }
 
 // result caps the text and wraps it as a tool result.
