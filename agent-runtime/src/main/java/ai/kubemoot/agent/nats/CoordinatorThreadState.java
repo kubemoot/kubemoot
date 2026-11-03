@@ -122,6 +122,11 @@ final class CoordinatorThreadState {
         tooLargeModels.clear();
         waiting.clear();
         pending.clear();
+        readKeys.clear();
+        dataAnalysts.clear();
+        convenings = 0;
+        convenedAnalysts.clear();
+        convenedAssignments = java.util.List.of();
     }
 
     /** Records a terminal signal on the roster; an agent the phase does not wait for is ignored. */

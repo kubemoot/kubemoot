@@ -1320,6 +1320,7 @@ public class DiscussionOrchestrator {
         state.clearCapacitySignals();
         state.researcherAgents.clear();
         state.pendingEvaluations.clear();
+        state.clearDeliveryRound();
         state.receipt.startRound(state.phaseStarted);
         events.reopened(state);
         log.info("Thread {} reopened by human reply → EVALUATING", threadId);
@@ -2606,7 +2607,11 @@ public class DiscussionOrchestrator {
             conveneAnalysts(state, plan);
             return null;
         }
-        return synthesizeFromStoredResults(state, delivery, synthesisStart);
+        try {
+            return synthesizeFromStoredResults(state, delivery, synthesisStart);
+        } finally {
+            state.resultCache.clear();
+        }
     }
 
     /**
@@ -2720,7 +2725,6 @@ public class DiscussionOrchestrator {
         state.synthesisRounds = report.rounds();
         state.synthesisFilledBytes = report.filledBytes();
         state.synthesisDetail = report.detail();
-        state.resultCache.clear();
         return completeAnswer(system, outcome.conversation(), outcome.result(), state.threadId);
     }
 
@@ -4983,6 +4987,19 @@ public class DiscussionOrchestrator {
 
         ThreadState(String threadId) {
             this.threadId = threadId;
+        }
+
+        /** A new round (a human reply reopened the thread) starts with no reads, convening or held results. */
+        void clearDeliveryRound() {
+            readKeys.clear();
+            dataAnalysts.clear();
+            convenedAnalysts.clear();
+            convenedAssignments = List.of();
+            convenings = 0;
+            conveneStartedMs = 0;
+            conveneMillis = 0;
+            resultCache.clear();
+            synthesisDetail = null;
         }
     }
 

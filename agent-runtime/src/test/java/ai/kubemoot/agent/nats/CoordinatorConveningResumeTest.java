@@ -78,6 +78,34 @@ class CoordinatorConveningResumeTest {
     }
 
     @Test
+    void aReopenedThreadStartsItsNextRoundWithNoReadsAndNoConvening() {
+        var reopened = event("t/reopened/1", "thread_reopened", d -> d.putArray("roster"));
+
+        var log = CoordinatorStateReducer.reduce(List.of(opened(), agreed("compute", true, PATTERN), secondReview(),
+                reopened));
+
+        assertTrue(log.readKeys.isEmpty() && log.dataAnalysts.isEmpty());
+        assertEquals(0, log.convenings);
+        assertTrue(log.convenedAnalysts.isEmpty());
+    }
+
+    @Test
+    void aReopenedLiveThreadClearsItsDeliveryRound() {
+        var state = new DiscussionOrchestrator.ThreadState("t");
+        state.readKeys.put("compute", Set.of(PATTERN));
+        state.dataAnalysts.add("compute");
+        state.convenings = 1;
+        state.convenedAnalysts.add("compute");
+        state.resultCache.put("k", "v");
+
+        state.clearDeliveryRound();
+
+        assertTrue(state.readKeys.isEmpty() && state.dataAnalysts.isEmpty() && state.convenedAnalysts.isEmpty());
+        assertTrue(state.resultCache.isEmpty());
+        assertEquals(0, state.convenings);
+    }
+
+    @Test
     void aFirstReviewHasNoConvening() {
         var first = event("t/0/review/1", "review_started", d -> d.putArray("roster").add("compute"));
 
