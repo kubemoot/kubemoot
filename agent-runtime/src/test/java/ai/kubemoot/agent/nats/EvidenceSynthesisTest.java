@@ -482,4 +482,75 @@ class EvidenceSynthesisTest {
 
         assertEquals("a RESULT $1 b " + callLine(2), out);
     }
+
+    // --- time: notes sized to the batch, rounds that must fit the budget left ---
+
+    @Test
+    void theNotesAReadingRoundMayWriteAreAFractionOfItsBatchNotAFlatLimit() {
+        assertEquals(EvidenceSynthesis.MIN_NOTES_TOKENS, EvidenceSynthesis.notesCap(100));
+        assertEquals(2_000, EvidenceSynthesis.notesCap(10_000));
+        assertEquals(20_000, EvidenceSynthesis.notesCap(100_000));
+    }
+
+    @Test
+    void aNotesRoundIsCappedByItsBatchAndTheAnswerIsNot() {
+        var run = runOnWindow(8_192, 10);
+
+        assertTrue(run.model.sent.size() > 2);
+        for (int i = 0; i < run.model.sent.size() - 1; i++) {
+            int cap = run.model.sent.get(i).maxOutputTokens();
+            assertTrue(cap >= EvidenceSynthesis.MIN_NOTES_TOKENS, "round " + (i + 1) + " cap " + cap);
+            assertTrue(cap < 8_192, "round " + (i + 1) + " cap " + cap + " is below the window");
+        }
+        assertEquals(0, run.model.sent.get(run.model.sent.size() - 1).maxOutputTokens(), "the answer keeps the model's limit");
+    }
+
+    @Test
+    void aRoundWhosePredictedCostDoesNotFitTheBudgetLeftIsNotStartedAndTheRestIsNamedUnknown() {
+        var model = new FakeModel(List.of(8_192L), prompt -> {
+            sleep(30);
+            return FakeModel.notes(prompt);
+        });
+        var settings = new EvidenceSynthesis.Settings(10, FALLBACK, () -> true, () -> 10);
+
+        var outcome = new EvidenceSynthesis(model, EvidenceSynthesisTest::estimate, settings, SYSTEM)
+                .run(conversation(SEVEN), results(SEVEN, FIVE_K));
+
+        assertEquals(2, outcome.report().rounds(), "one notes round, then the answer");
+        assertFalse(outcome.report().notDelivered().isEmpty());
+        assertTrue(outcome.conversation().contains("Treat it as UNKNOWN"));
+        assertEquals(2, outcome.report().roundMillis().size());
+    }
+
+    @Test
+    void withNoCallMadeYetThereIsNothingToPredictFromAndTheRoundStarts() {
+        var predictor = new EvidenceSynthesis.CostPredictor();
+
+        assertTrue(predictor.fits(10_000, 2_000, 1));
+    }
+
+    @Test
+    void thePredictedCostIsTheTimePerTokenOfTheCallsSoFarPlusOneMoreAnswer() {
+        var predictor = new EvidenceSynthesis.CostPredictor();
+        predictor.observe(800, 200, 1_000);
+
+        assertEquals(500, predictor.predictedMillis(250, 250));
+        assertTrue(predictor.fits(250, 250, 1_500));
+        assertFalse(predictor.fits(250, 250, 1_499));
+    }
+
+    @Test
+    void eachRoundIsTimedInTheReport() {
+        var run = runOnWindow(8_192, 10);
+
+        assertEquals(run.outcome.report().rounds(), run.outcome.report().roundMillis().size());
+    }
+
+    private static void sleep(long millis) {
+        try {
+            Thread.sleep(millis);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+    }
 }

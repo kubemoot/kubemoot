@@ -536,6 +536,47 @@ class DiscussionSubscriberHelpersTest {
     }
 
     @Test
+    void anAgreeCarriesTheStoredCallsTheAgentReadAsReadKeys() throws Exception {
+        var conn = mock(Connection.class);
+        var chat = mock(ChatService.class);
+        when(chat.takeReads("t1")).thenReturn(List.of("ns/crew/t1/qm/*-get_vm_rrd_data", "ns/crew/t1/qm/001-list_vms"));
+        var sub = createSubscriberWithConnection(conn, chat);
+        var result = new ChatService.ChatResult("c", "web 0.5", "m", "t1", 1, 1, "s", "");
+
+        sub.classifyAndPublishResult(SUBJECT_T1, "t1", result, DiscussionSubscriber.SignalTiming.NONE, "static");
+
+        var msg = published(conn, 1).get(0);
+        assertEquals("agree", msg.path("messageType").asText());
+        assertEquals(List.of("ns/crew/t1/qm/*-get_vm_rrd_data", "ns/crew/t1/qm/001-list_vms"),
+                AnalystReadouts.readKeysOf(msg).stream().toList());
+    }
+
+    @Test
+    void anAgreeThatReadNothingHasNoReadKeysField() throws Exception {
+        var conn = mock(Connection.class);
+        var sub = createSubscriberWithConnection(conn);
+        var result = new ChatService.ChatResult("c", "11 pods", "m", "t1", 1, 1, "s", "");
+
+        sub.classifyAndPublishResult(SUBJECT_T1, "t1", result, DiscussionSubscriber.SignalTiming.NONE, "static");
+
+        assertTrue(published(conn, 1).get(0).path("metadata").path("readKeys").isMissingNode());
+    }
+
+    @Test
+    void aStandAsideDropsTheReadsSoTheyNeverReachALaterSignal() throws Exception {
+        var conn = mock(Connection.class);
+        var chat = mock(ChatService.class);
+        when(chat.takeReads("t1")).thenReturn(List.of("ns/crew/t1/qm/001-list_vms"));
+        var sub = createSubscriberWithConnection(conn, chat);
+        var result = new ChatService.ChatResult("c", "NOTHING_TO_ADD", "m", "t1", 1, 1, "s", "");
+
+        sub.classifyAndPublishResult(SUBJECT_T1, "t1", result, DiscussionSubscriber.SignalTiming.NONE, "static");
+
+        verify(chat).takeReads("t1");
+        assertTrue(published(conn, 1).get(0).path("metadata").path("readKeys").isMissingNode());
+    }
+
+    @Test
     void noResult_standsAsideWithTheConfiguredModelAndFallbackLabel() throws Exception {
         var conn = mock(Connection.class);
         var sub = createSubscriberWithConnection(conn);

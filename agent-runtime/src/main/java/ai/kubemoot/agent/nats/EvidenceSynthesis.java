@@ -12,6 +12,7 @@ import java.util.Map;
 import java.util.OptionalLong;
 import java.util.function.BooleanSupplier;
 import java.util.function.Function;
+import java.util.function.LongSupplier;
 import java.util.function.ToLongFunction;
 import java.util.regex.Matcher;
 import org.slf4j.Logger;
@@ -42,8 +43,19 @@ final class EvidenceSynthesis {
                                          Function<PromptWindow, SimplePrompt> promptFor);
     }
 
-    /** The round cap, the characters a result is cut at when no window is known, and the time check. */
-    record Settings(int maxRounds, int fallbackChars, BooleanSupplier timeLeft) {}
+    /**
+     * The round cap, the characters a result is cut at when no window is known, the time check, and
+     * the milliseconds of synthesis budget left (a notes round starts only when its predicted cost fits).
+     */
+    record Settings(int maxRounds, int fallbackChars, BooleanSupplier timeLeft, LongSupplier remainingMillis) {
+        Settings(int maxRounds, int fallbackChars, BooleanSupplier timeLeft) {
+            this(maxRounds, fallbackChars, timeLeft, () -> Long.MAX_VALUE);
+        }
+    }
+
+    /** A notes round writes about one token for this many tokens of the results it reads, and never fewer than the minimum. */
+    static final int NOTES_TOKENS_PER_BATCH_TOKENS = 5;
+    static final int MIN_NOTES_TOKENS = 512;
 
     /** The call that wrote the answer, the prompt it was given, and what was done with the results. */
     record Outcome(ChatService.SimpleLlmResult result, String conversation, EvidenceReport report,
@@ -69,11 +81,16 @@ final class EvidenceSynthesis {
     Outcome run(String conversation, List<StoredResult> results) {
         var report = new EvidenceReport(results.size());
         var queue = new EvidenceQueue(results, tokens);
+        var predictor = new CostPredictor();
         String notes = null;
         long notesTokensIn = 0;
         for (int number = 1; ; number++) {
-            var round = new Round(number, conversation, notes, queue, results, report);
+            var round = new Round(number, conversation, notes, queue, results, report, predictor);
+            long started = System.nanoTime();
             var result = caller.call(system, round.pickPrompt(), round);
+            long elapsedMs = (System.nanoTime() - started) / 1_000_000;
+            report.roundTimed(elapsedMs);
+            predictor.observe(result.inputTokens(), result.outputTokens(), elapsedMs);
             if (round.last) {
                 return new Outcome(result, round.finalConversation, report, notesTokensIn);
             }
@@ -97,13 +114,15 @@ final class EvidenceSynthesis {
         private final EvidenceQueue queue;
         private final List<StoredResult> results;
         private final EvidenceReport report;
+        private final CostPredictor predictor;
         private EvidenceQueue.Batch batch;
         private long windowRoom = -1;
         boolean last;
         String finalConversation;
 
         Round(int number, String conversation, String notes, EvidenceQueue queue, List<StoredResult> results,
-              EvidenceReport report) {
+              EvidenceReport report, CostPredictor predictor) {
+            this.predictor = predictor;
             this.number = number;
             this.conversation = conversation;
             this.notes = notes;
@@ -149,7 +168,16 @@ final class EvidenceSynthesis {
                 return null;
             }
             String text = String.join("\n\n", batch.slices().stream().map(s -> s.render(true)).toList());
-            return new SimplePrompt(RefinePrompts.system(), RefinePrompts.round(number, conversation, notes, text));
+            String prompt = RefinePrompts.round(number, conversation, notes, text);
+            int cap = notesCap(tokens.applyAsLong(text));
+            long remaining = settings.remainingMillis().getAsLong();
+            long promptTokens = tokens.applyAsLong(prompt);
+            if (!predictor.fits(promptTokens, cap, remaining)) {
+                log.info("synthesis evidence: round {} would take about {} ms and {} ms are left; the results not read are named unknown",
+                        number, predictor.predictedMillis(promptTokens, cap), remaining);
+                return null;
+            }
+            return new SimplePrompt(RefinePrompts.system(), prompt, cap);
         }
 
         void reportBatch() {
@@ -193,6 +221,41 @@ final class EvidenceSynthesis {
                     ? "[" + r.tool() + "] its first part was read; its findings so far are in the working notes below.\n"
                             + unknown
                     : unknown;
+        }
+    }
+
+    /** The most tokens a notes round may write for a batch of {@code batchTokens}: a fraction of the batch, not a flat limit. */
+    static int notesCap(long batchTokens) {
+        return (int) Math.min(Integer.MAX_VALUE, Math.max(MIN_NOTES_TOKENS, batchTokens / NOTES_TOKENS_PER_BATCH_TOKENS));
+    }
+
+    /**
+     * Predicts what the next call costs from the calls already made in this synthesis: the time per
+     * token (read and written) they took. With no call made yet there is nothing to predict from and
+     * the round is allowed. The answer call that must follow a notes round is predicted as the mean
+     * of the calls so far.
+     */
+    static final class CostPredictor {
+        private long millis;
+        private long tokenCount;
+        private int calls;
+
+        void observe(long inputTokens, long outputTokens, long elapsedMillis) {
+            millis += elapsedMillis;
+            tokenCount += inputTokens + outputTokens;
+            calls++;
+        }
+
+        long predictedMillis(long inputTokens, long outputTokens) {
+            return tokenCount == 0 ? 0 : (inputTokens + outputTokens) * millis / tokenCount;
+        }
+
+        /** True when a notes round of these sizes and the answer call after it fit in {@code remainingMillis}. */
+        boolean fits(long inputTokens, long outputTokens, long remainingMillis) {
+            if (calls == 0) {
+                return true;
+            }
+            return predictedMillis(inputTokens, outputTokens) + millis / calls <= remainingMillis;
         }
     }
 

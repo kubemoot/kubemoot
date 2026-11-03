@@ -82,6 +82,13 @@ final class CoordinatorThreadState {
     final java.util.List<String> technologies = new java.util.ArrayList<>();
     /** True from the review roster being written until the thread has entered another phase. */
     boolean reviewRosterWritten;
+    /** What each agent's agree signal said it read, and the agents that answered with data. */
+    final Map<String, Set<String>> readKeys = new TreeMap<>();
+    final Set<String> dataAnalysts = new TreeSet<>();
+    /** The convening of the last second review: how many times, who, and what each was asked to read. */
+    int convenings;
+    final java.util.List<String> convenedAnalysts = new java.util.ArrayList<>();
+    java.util.List<DeliveryPlan.Assignment> convenedAssignments = java.util.List.of();
     /** The bus messages whose signals the log recorded, so a replay of the bus applies only the rest. */
     final Set<String> appliedMessageIds = new HashSet<>();
     /** When the last event was written. */

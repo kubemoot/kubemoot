@@ -17,17 +17,32 @@ import (
 )
 
 // envPerCallArtifacts makes a raw-output tooler store each tool call's result as its own object in
-// the discussion workspace and post a manifest of those objects as its contribution. It is absent
-// when the realm leaves per-call artifacts off.
+// the discussion workspace and post a manifest of those objects as its contribution. An analyst
+// then records which stored calls its tool calls read, and the coordinator builds the thread's
+// catalog and coverage. It is absent when the realm leaves per-call artifacts off.
 const envPerCallArtifacts = "KUBEMOOT_PER_CALL_ARTIFACTS"
 
-// perCallArtifactsEnvVars returns the per-call artifacts env var for a tooler Agent when the realm
-// (KubemootConfig spec.artifacts.perCallArtifacts) turns it on, and nothing otherwise or for any
-// other role: only a tooler posts raw tool output. An Agent's own spec.deployment.env is appended
-// after it and wins. A reconciler with no ConfigCache (test scaffolding only) adds nothing.
+// roleAnalystResume is the discussRole of an analyst agent.
+const roleAnalystResume = "analyst"
+
+// perCallArtifactsEnvVars returns the per-call artifacts env var for a tooler, an analyst and the
+// coordinator when the realm (KubemootConfig spec.artifacts.perCallArtifacts) turns it on, and
+// nothing otherwise or for any other role: a tooler writes the per-call objects, an analyst reads
+// them and the coordinator catalogs them. An Agent's own spec.deployment.env is appended after it
+// and wins. A reconciler with no ConfigCache (test scaffolding only) adds nothing.
 func (r *AgentReconciler) perCallArtifactsEnvVars(agent *kubemootv1alpha1.Agent) []corev1.EnvVar {
-	if agent.Spec.DiscussRole != roleToolerResume || r.ConfigCache == nil || !r.ConfigCache.GetPerCallArtifacts() {
+	if !usesPerCallArtifacts(agent) || r.ConfigCache == nil || !r.ConfigCache.GetPerCallArtifacts() {
 		return nil
 	}
 	return []corev1.EnvVar{{Name: envPerCallArtifacts, Value: valueTrue}}
+}
+
+// usesPerCallArtifacts reports whether the agent's role takes part in per-call artifacts.
+func usesPerCallArtifacts(agent *kubemootv1alpha1.Agent) bool {
+	switch agent.Spec.DiscussRole {
+	case roleToolerResume, roleAnalystResume:
+		return true
+	default:
+		return isCoordinator(agent)
+	}
 }
