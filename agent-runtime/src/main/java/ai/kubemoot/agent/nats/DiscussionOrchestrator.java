@@ -2369,8 +2369,22 @@ public class DiscussionOrchestrator {
      * as a repeat.
      */
     void publishReviewReady(ThreadState state, List<String> analystCircle) {
-        publishReviewReady(state, analystCircle, reviewSummary(state) + catalogForReview(state));
+        publishReviewReady(state, analystCircle,
+                reviewSummary(state) + analystFirst().catalogForReview(state.threadId), Map.of());
     }
+
+    /** The helper for the parts of the analyst-first delivery that need the bus and the model windows. */
+    private AnalystFirstDelivery analystFirst() {
+        var held = analystFirst;
+        if (held == null) {
+            held = new AnalystFirstDelivery(natsProvider, chatService, mapper, this::loadSystemPrompt,
+                    this::loadCrewResumes);
+            analystFirst = held;
+        }
+        return held;
+    }
+
+    private volatile AnalystFirstDelivery analystFirst;
 
     /** What the evaluation found, as the first review shows it: each agree and concern, cut. */
     private static String reviewSummary(ThreadState state) {
@@ -2387,21 +2401,12 @@ public class DiscussionOrchestrator {
     }
 
     /**
-     * The complete list of the thread's stored tool calls, for the analysts the first review wakes; empty
-     * when there are none or per-call artifacts are off. It is rendered one level coarser when it does not
-     * fit a quarter of the smallest window, and never cut.
+     * Publishes review_ready with {@code content}, scoped to {@code analystCircle} when it is not empty.
+     * {@code tasks}, when it has an entry for an analyst, is that analyst's whole task: it works from the
+     * entry and not from the thread (a second review that assigns stored calls).
      */
-    private String catalogForReview(ThreadState state) {
-        Connection conn = natsProvider.getConnection();
-        if (conn == null || !chatService.perCallArtifactsOn()) {
-            return "";
-        }
-        var catalog = ThreadCatalog.load(conn, DiscussionArtifacts.threadPrefix(natsProvider.scope(), state.threadId));
-        return catalog.isEmpty() ? "" : catalog.render(ThreadCatalog.roomChars(chatService.simpleCallContextTokens()));
-    }
-
-    /** Publishes review_ready with {@code content}, scoped to {@code analystCircle} when it is not empty. */
-    void publishReviewReady(ThreadState state, List<String> analystCircle, String content) {
+    void publishReviewReady(ThreadState state, List<String> analystCircle, String content,
+                            Map<String, String> tasks) {
         try {
             var conn = natsProvider.getConnection();
             if (conn == null) return;
@@ -2414,6 +2419,9 @@ public class DiscussionOrchestrator {
             metadata.put("failureCount", state.failureSignals.size());
             metadata.put(FIELD_GPU_LABEL, GpuLabels.fromEndpoint(properties.model().endpoint()));
             metadata.put(FIELD_MODEL_NAME, properties.model().model());
+            if (!tasks.isEmpty()) {
+                metadata.put(AnalystReadouts.FIELD_TASKS, tasks);
+            }
 
             // The inner circle scopes review_ready to the selected analysts (the
             // subscriber's isExcludedByInnerCircle gate); without one, every
@@ -2621,8 +2629,7 @@ public class DiscussionOrchestrator {
     private StoredDelivery deliveryFor(ThreadState state, String prefix, String text) {
         Connection conn = natsProvider.getConnection();
         long start = System.nanoTime();
-        var catalog = conn == null || !chatService.perCallArtifactsOn() ? new ThreadCatalog("", List.of())
-                : ThreadCatalog.load(conn, DiscussionArtifacts.threadPrefix(natsProvider.scope(), state.threadId));
+        var catalog = analystFirst().catalog(state.threadId);
         long catalogMs = (System.nanoTime() - start) / 1_000_000;
         var coverage = EvidenceCoverage.compute(catalog, state.readKeys, state.dataAnalysts);
         var delivery = StoredDelivery.prepare(prefix, text, catalog, coverage, key -> cachedResult(state, conn, key));
@@ -2644,36 +2651,21 @@ public class DiscussionOrchestrator {
     }
 
     /**
-     * Decides whether the stored results no analyst read fit the synthesizer, or analysts must be
-     * convened to reduce them first ({@link DeliveryPlan#decide}).
+     * Decides whether the stored results no analyst read go to the synthesizer, or analysts are
+     * convened to reduce them first ({@link AnalystFirstDelivery#plan}).
      */
     private DeliveryPlan planDelivery(ThreadState state, StoredDelivery delivery) {
-        if (delivery.catalog().isEmpty()) {
-            return DeliveryPlan.synthesize();
-        }
-        var room = chatService.simpleCallRoomTokens(loadSystemPrompt(), delivery.conversation());
-        long tokens = delivery.uncoveredTokens(chatService::estimateTokens);
-        return DeliveryPlan.decide(delivery.coverage().uncovered(), tokens, room, queryAnalysts(), state.convenings);
-    }
-
-    /** The crew's analysts that have a tool to run a query or code. */
-    private List<String> queryAnalysts() {
-        try {
-            String raw = loadCrewResumes();
-            return raw == null || raw.isBlank() ? List.of() : AnalystReadouts.queryCapable(mapper.readTree(raw));
-        } catch (Exception e) {
-            log.debug("Could not read the analysts' tools from the resumes: {}", e.getMessage());
-            return List.of();
-        }
+        return analystFirst().plan(delivery, state.convenings);
     }
 
     /**
-     * Sends the thread back to review with only the analysts in the plan, each asked to read its key
-     * patterns. The review settles when they have signalled, and the synthesis runs again.
+     * Sends the thread back to review with only the analysts in the plan, each given its key patterns
+     * and their stored calls as its task. The review settles when they have signalled, and the synthesis
+     * runs again.
      */
     private void conveneAnalysts(ThreadState state, DeliveryPlan plan) {
         List<String> analysts = plan.assignments().stream().map(DeliveryPlan.Assignment::analyst).toList();
-        log.info("Thread {} - stored results no analyst read do not fit the synthesis; convening {}: {}",
+        log.info("Thread {} - convening {} for the stored results no analyst read: {}",
                 state.threadId, analysts, plan.assignments());
         state.convenings++;
         state.convenedAnalysts.addAll(analysts);
@@ -2682,8 +2674,19 @@ public class DiscussionOrchestrator {
         boolean logged = seedReviewRoster(state, analysts, state.conveneStartedMs);
         enterReview(state);
         if (logged) {
-            publishReviewReady(state, analysts, AnalystReadouts.secondReviewContent(plan.assignments()));
+            publishSecondReview(state, analysts, plan.assignments());
         }
+    }
+
+    /**
+     * Publishes the second review: review_ready to the convened analysts, each with its assignment as its
+     * task. A restarted coordinator calls it again for a convening that was logged; the message id is the
+     * same, so a repeat is dropped.
+     */
+    void publishSecondReview(ThreadState state, List<String> analysts, List<DeliveryPlan.Assignment> assignments) {
+        var tasks = analystFirst().secondReviewTasks(state.threadId, state.userQuery, assignments, state.readKeys,
+                state.dataAnalysts);
+        publishReviewReady(state, analysts, AnalystReadouts.secondReviewContent(tasks), tasks);
     }
 
     /** Adds the time the convened analysts took to the thread, once the synthesis runs again. */

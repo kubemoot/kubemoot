@@ -157,7 +157,7 @@ final class ThreadCatalog {
         groups().values().forEach(g -> {
             sb.append(groupLine(g)).append('\n');
             if (withCalls) {
-                g.forEach(e -> sb.append(entryLine(e)).append('\n'));
+                g.forEach(e -> sb.append(callLine(e)).append('\n'));
             }
         });
         return sb.append(legend(withCalls)).toString();
@@ -173,19 +173,23 @@ final class ThreadCatalog {
                 + " rows=" + (rowsKnown ? Long.toString(rows) : "unknown") + " pattern=" + first.pattern() + "]";
     }
 
-    private static String entryLine(Entry e) {
+    /** The catalog line of one call: its key, tool, arguments, shape and size. */
+    static String callLine(Entry e) {
         return ENTRY_PREFIX + e.key() + " tool=" + e.tool() + " args=" + CallManifest.argsSummary(e.args())
                 + " format=" + (e.format().isEmpty() ? "text" : e.format())
                 + " rows=" + (e.rows() >= 0 ? Long.toString(e.rows()) : "unknown")
                 + " bytes=" + e.bytes() + " error=" + e.error() + "]";
     }
 
+    /** How stored calls are read: by key, by pattern as one table, or as files; the same words wherever calls are listed. */
+    static final String READING_NOTE = "Read one call by its key, or every call of a group by its pattern, with "
+            + "workspace_query (SQL) or the artifact_* tools, or with execute_code over the file /artifacts/<key>. "
+            + "A pattern reads the calls as one table with the columns _call (the call's key), _args (its "
+            + "arguments) and _arg_<name> for an argument that differs between the calls (for example _arg_vmid).";
+
     private static String legend(boolean withCalls) {
-        String how = "Read one call by its key, or every call of a group by its pattern, with workspace_query (SQL) "
-                + "or the artifact_* tools, or with execute_code over the file /artifacts/<key>. A pattern reads the "
-                + "calls as one table with the columns _call (the call's key), _args (its arguments) and "
-                + "_arg_<name> for an argument that differs between the calls (for example _arg_vmid).";
-        return withCalls ? how : how + " Per-call lines are not shown; SELECT DISTINCT _call, _args over the pattern lists them.";
+        return withCalls ? READING_NOTE
+                : READING_NOTE + " Per-call lines are not shown; SELECT DISTINCT _call, _args over the pattern lists them.";
     }
 
     /** The totals and, per tool, the number of calls, on one line: what a synthesis is told when no analyst reads. */

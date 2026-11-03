@@ -2,6 +2,7 @@ package ai.kubemoot.agent.nats;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -17,6 +18,9 @@ final class AnalystReadouts {
 
     /** The tools that reduce stored results: a query over them, or code run over their files. */
     static final List<String> QUERY_TOOLS = List.of("workspace_query", "execute_code");
+
+    /** The review_ready metadata field that holds each convened analyst's whole task, by analyst name. */
+    static final String FIELD_TASKS = "tasks";
 
     private static final String ROLE_ANALYST = "analyst";
     private static final Pattern THINK_BLOCK = Pattern.compile("(?s)<think>.*?</think>");
@@ -69,14 +73,37 @@ final class AnalystReadouts {
         return false;
     }
 
-    /** The review_ready content that names, per analyst, the key patterns to read and how many calls each holds. */
-    static String secondReviewContent(List<DeliveryPlan.Assignment> assignments) {
-        var lines = new ArrayList<String>();
+    /**
+     * The task of each convened analyst, by analyst: the question, the key patterns it is to read, the
+     * stored calls of each pattern that no analyst read (the catalog lines, with the arguments of each
+     * call), and how a pattern reads as one table. The message is the analyst's whole task, so it carries
+     * no other part of the thread.
+     */
+    static Map<String, String> secondReviewTasks(String question, List<DeliveryPlan.Assignment> assignments,
+                                                 List<ThreadCatalog.Entry> uncovered) {
+        var tasks = new LinkedHashMap<String, String>();
         for (DeliveryPlan.Assignment a : assignments) {
-            for (Map.Entry<String, Integer> p : a.patterns().entrySet()) {
-                lines.add("[ASSIGN analyst=" + a.analyst() + " pattern=" + p.getKey() + " calls=" + p.getValue() + "]");
-            }
+            tasks.put(a.analyst(), RefinePrompts.render(REVIEW_TEMPLATE, Map.of(
+                    "question", question == null ? "" : question.strip(),
+                    "assignments", assignmentLines(a, uncovered),
+                    "reading", ThreadCatalog.READING_NOTE)));
         }
-        return RefinePrompts.render(REVIEW_TEMPLATE, Map.of("assignments", String.join("\n", lines)));
+        return tasks;
+    }
+
+    /** The review_ready content of a second review: the tasks, one after the other. */
+    static String secondReviewContent(Map<String, String> tasks) {
+        return String.join("\n\n", tasks.values());
+    }
+
+    /** Per pattern of the assignment: its line, then the lines of the pattern's calls that no analyst read. */
+    private static String assignmentLines(DeliveryPlan.Assignment a, List<ThreadCatalog.Entry> uncovered) {
+        var lines = new ArrayList<String>();
+        for (Map.Entry<String, Integer> p : a.patterns().entrySet()) {
+            lines.add("[ASSIGN analyst=" + a.analyst() + " pattern=" + p.getKey() + " calls=" + p.getValue() + "]");
+            uncovered.stream().filter(e -> !e.error() && EvidenceCoverage.matches(p.getKey(), e.key()))
+                    .forEach(e -> lines.add(ThreadCatalog.callLine(e)));
+        }
+        return String.join("\n", lines);
     }
 }

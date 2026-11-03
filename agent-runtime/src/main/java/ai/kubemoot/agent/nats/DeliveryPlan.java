@@ -4,7 +4,6 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.OptionalLong;
 
 /**
  * What the coordinator does before the synthesizer reads, decided from state: the stored results no
@@ -35,14 +34,13 @@ record DeliveryPlan(Action action, List<Assignment> assignments) {
     }
 
     /**
-     * Decides from the uncovered calls, their size in tokens, the room (empty when no window is
-     * known), the analysts able to run a query or code and the number of times analysts were already
-     * convened.
+     * Decides from the uncovered calls, whether the synthesis holds them whole in one round
+     * ({@link StoredDelivery#fitsOneRound}, the test the fill itself uses), the analysts able to run a
+     * query or code and the number of times analysts were already convened.
      */
-    static DeliveryPlan decide(List<ThreadCatalog.Entry> uncovered, long uncoveredTokens, OptionalLong room,
+    static DeliveryPlan decide(List<ThreadCatalog.Entry> uncovered, boolean fitsOneRound,
                                List<String> queryAnalysts, int convenings) {
-        boolean fits = uncovered.isEmpty() || room.isEmpty() || uncoveredTokens <= room.getAsLong();
-        if (fits || queryAnalysts.isEmpty() || convenings >= MAX_CONVENINGS) {
+        if (uncovered.isEmpty() || fitsOneRound || queryAnalysts.isEmpty() || convenings >= MAX_CONVENINGS) {
             return synthesize();
         }
         List<Assignment> assignments = assign(uncovered, queryAnalysts);

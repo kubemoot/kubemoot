@@ -182,12 +182,26 @@ coordinator decides from state, in this order:
    When they all fit, that is one model call.
 3. **When they do not fit and the crew has a query-capable analyst** (role `analyst`, with
    `workspace_query` or `execute_code` among its tools in the crew resumes), the coordinator
-   convenes it: the thread goes back to review with only the convened analysts, and the new
-   `review_ready` names the uncovered key patterns, each with its count of uncovered calls
-   (`[ASSIGN analyst=... pattern=... calls=N]`), shared out largest first so several analysts read
-   in parallel. The message carries no data; the analysts read with a tool that counts. When they
-   have signalled, the synthesis runs again with their reads covered. The coordinator convenes at most once per thread. The test of "does not fit" compares the tokens of the
-   uncovered results with the room the smallest window leaves after the rest of the prompt.
+   convenes it. "Do not fit" is the question the fill asks: would one round hold every uncovered
+   result whole? The coordinator asks the same queue the fill uses, counting each result as the
+   prompt shows it, in the room the smallest window of the servers that hold the model leaves after
+   the rest of the prompt (the server the scheduler picks later is not known yet). One result too
+   big for the room, or several that fit one by one and not together, mean "do not fit"; a total
+   that is under the room means the fill needs one round and nobody is convened. The thread goes
+   back to review with only the convened analysts, and the new `review_ready` is each analyst's
+   whole task:
+   - the question;
+   - its key patterns, each with its count of uncovered calls (`[ASSIGN analyst=... pattern=...
+     calls=N]`), shared out largest first so several analysts read in parallel;
+   - under each pattern, the catalog line of every uncovered call of it, with the call's arguments;
+   - how a pattern reads as one table, with the columns `_call`, `_args` and `_arg_<name>`.
+
+   The task replaces the thread for that analyst. It does not see the first review's contributions
+   or catalog, and it answers in its own conversation for the thread, apart from the one it kept from
+   its first review. The message carries no data; the analysts read with a tool that counts. Each analyst's
+   task is also in the message metadata (`tasks`, by analyst name). When they have signalled, the
+   synthesis runs again, and a call counts as read when the analyst's tool call named its key or a
+   pattern that matches it. The coordinator convenes at most once per thread.
 4. **What no tool reduced** (the analysts failed, or the crew has no query-capable analyst) goes
    through the notes rounds below, and what is still unread is named `UNKNOWN` with its count.
    A crew with no query-capable analyst keeps this path, with the catalog counts and the rule that
