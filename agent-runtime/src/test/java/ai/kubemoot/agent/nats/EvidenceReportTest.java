@@ -54,14 +54,14 @@ class EvidenceReportTest {
     }
 
     @Test
-    void aDeliveryAddsCoveredUncoveredConvenedAndTheMillisecondsPerStep() {
+    void aDeliveryAddsCoveredUncoveredAndTheMillisecondsPerStep() {
         var report = new EvidenceReport(1);
         report.roundStarted(8192, 3000);
         report.roundTimed(40);
         report.roundStarted(8192, 3000);
         report.roundTimed(25);
         report.finish(1, List.of());
-        report.delivery(List.of("a", "b"), List.of("c"), List.of("compute"));
+        report.delivery(List.of("a", "b"), List.of("c"));
         report.step("catalog", 12);
         report.step("read", 30);
         report.step("read", 5);
@@ -69,9 +69,8 @@ class EvidenceReportTest {
         var detail = report.detail();
         assertEquals(List.of("a", "b"), detail.covered());
         assertEquals(List.of("c"), detail.uncovered());
-        assertEquals(List.of("compute"), detail.convened());
         assertEquals(java.util.Map.of("catalog", 12L, "read", 35L, "round1", 40L, "round2", 25L), detail.stepMillis());
-        assertTrue(report.logLine("t").contains(" covered=2 uncovered=1 convened=[compute] stepMillis={"),
+        assertTrue(report.logLine("t").contains(" covered=2 uncovered=1 stepMillis={"),
                 report.logLine("t"));
     }
 }

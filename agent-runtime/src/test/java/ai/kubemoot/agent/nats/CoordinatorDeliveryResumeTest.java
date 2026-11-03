@@ -13,9 +13,10 @@ import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * What the log keeps of the analyst-first delivery so a restarted coordinator carries on: what each
- * analyst read, who answered with data, and the second review that was convened.
+ * analyst read and who answered with data. A log written by an earlier coordinator, whose review and
+ * synthesis events carry fields that are no longer read, replays without a failure.
  */
-class CoordinatorConveningResumeTest {
+class CoordinatorDeliveryResumeTest {
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
     private static final Instant T0 = Instant.parse("2026-11-02T10:00:00Z");
@@ -47,7 +48,8 @@ class CoordinatorConveningResumeTest {
         });
     }
 
-    private static CoordinatorEvent secondReview() {
+    /** A second review event as an earlier coordinator wrote it: the roster and fields no longer read. */
+    private static CoordinatorEvent olderSecondReview() {
         return event("t/0/review/2", "review_started", d -> {
             d.putArray("roster").add("compute");
             var convening = d.putObject("convening");
@@ -69,24 +71,51 @@ class CoordinatorConveningResumeTest {
     }
 
     @Test
-    void theSecondReviewsConveningAndAssignmentsAreKept() {
-        var log = CoordinatorStateReducer.reduce(List.of(opened(), secondReview()));
+    void aLogWithUnknownFieldsInItsReviewEventReplaysAndTheRestOfTheReviewIsKept() {
+        var log = CoordinatorStateReducer.reduce(List.of(opened(), agreed("compute", true, PATTERN),
+                olderSecondReview()));
 
-        assertEquals(1, log.convenings);
-        assertEquals(List.of("compute"), log.convenedAnalysts);
-        assertEquals(List.of(new DeliveryPlan.Assignment("compute", Map.of(PATTERN, 9))), log.convenedAssignments);
+        assertEquals(List.of("compute"), List.copyOf(log.rosterMembers));
+        assertTrue(log.reviewRosterWritten);
+        assertEquals(Set.of(PATTERN), log.readKeys.get("compute"));
+        assertEquals(Set.of("compute"), log.dataAnalysts);
     }
 
     @Test
-    void aReopenedThreadStartsItsNextRoundWithNoReadsAndNoConvening() {
+    void aThreadRebuiltFromALogWithUnknownReviewFieldsHasTheReads() {
+        var log = CoordinatorStateReducer.reduce(List.of(opened(), agreed("compute", true, PATTERN),
+                olderSecondReview()));
+
+        var state = ThreadRebuilder.build(log);
+
+        assertEquals(Set.of(PATTERN), state.readKeys.get("compute"));
+        assertEquals(Set.of("compute"), state.dataAnalysts);
+    }
+
+    @Test
+    void aSynthesisEventWithUnknownDeliveryFieldsIsTolerated() {
+        var done = event("t/0/synthesis/done/1", "synthesis_done", d -> {
+            d.put("outcome", "synthesized");
+            var delivery = d.putObject("delivery");
+            delivery.putArray("covered").add("a");
+            delivery.putArray("uncovered");
+            delivery.putArray("convened").add("compute");
+            delivery.putObject("stepMillis").put("convene", 4000L).put("catalog", 3L);
+        });
+
+        var log = CoordinatorStateReducer.reduce(List.of(opened(), olderSecondReview(), done));
+
+        assertNotNull(log);
+    }
+
+    @Test
+    void aReopenedThreadStartsItsNextRoundWithNoReads() {
         var reopened = event("t/reopened/1", "thread_reopened", d -> d.putArray("roster"));
 
-        var log = CoordinatorStateReducer.reduce(List.of(opened(), agreed("compute", true, PATTERN), secondReview(),
-                reopened));
+        var log = CoordinatorStateReducer.reduce(List.of(opened(), agreed("compute", true, PATTERN),
+                olderSecondReview(), reopened));
 
         assertTrue(log.readKeys.isEmpty() && log.dataAnalysts.isEmpty());
-        assertEquals(0, log.convenings);
-        assertTrue(log.convenedAnalysts.isEmpty());
     }
 
     @Test
@@ -94,34 +123,9 @@ class CoordinatorConveningResumeTest {
         var state = new DiscussionOrchestrator.ThreadState("t");
         state.readKeys.put("compute", Set.of(PATTERN));
         state.dataAnalysts.add("compute");
-        state.convenings = 1;
-        state.convenedAnalysts.add("compute");
-        state.resultCache.put("k", "v");
 
         state.clearDeliveryRound();
 
-        assertTrue(state.readKeys.isEmpty() && state.dataAnalysts.isEmpty() && state.convenedAnalysts.isEmpty());
-        assertTrue(state.resultCache.isEmpty());
-        assertEquals(0, state.convenings);
-    }
-
-    @Test
-    void aFirstReviewHasNoConvening() {
-        var first = event("t/0/review/1", "review_started", d -> d.putArray("roster").add("compute"));
-
-        assertEquals(0, CoordinatorStateReducer.reduce(List.of(opened(), first)).convenings);
-    }
-
-    @Test
-    void theRebuiltThreadHasTheReadsTheAnalystsAndTheConveningBack() {
-        var log = CoordinatorStateReducer.reduce(List.of(opened(), agreed("compute", true, PATTERN), secondReview()));
-
-        var state = ThreadRebuilder.build(log);
-
-        assertEquals(Set.of(PATTERN), state.readKeys.get("compute"));
-        assertEquals(Set.of("compute"), state.dataAnalysts);
-        assertEquals(1, state.convenings, "the thread is not convened a second time after a restart");
-        assertEquals(List.of("compute"), state.convenedAnalysts);
-        assertEquals(log.convenedAssignments, state.convenedAssignments);
+        assertTrue(state.readKeys.isEmpty() && state.dataAnalysts.isEmpty());
     }
 }

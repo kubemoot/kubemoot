@@ -78,9 +78,6 @@ final class ThreadRebuilder {
         state.dataAnalysts.addAll(log.dataAnalysts);
         log.readKeys.forEach((agent, keys) ->
                 state.readKeys.computeIfAbsent(agent, a -> ConcurrentHashMap.newKeySet()).addAll(keys));
-        state.convenings = log.convenings;
-        state.convenedAnalysts.addAll(log.convenedAnalysts);
-        state.convenedAssignments = log.convenedAssignments;
     }
 
     private static void capacity(ThreadState state, CoordinatorThreadState log) {

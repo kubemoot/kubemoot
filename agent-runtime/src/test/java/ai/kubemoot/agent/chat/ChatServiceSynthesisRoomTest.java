@@ -71,8 +71,8 @@ class ChatServiceSynthesisRoomTest {
     @Test
     void noPublishedWindowOrNoSelectorIsUnknown() {
         assertTrue(service(publishing(0, 0)).simpleCallContextTokens().isEmpty());
-        assertTrue(service(publishing()).simpleCallRoomTokens("s", "u").isEmpty());
-        assertTrue(service(null).simpleCallRoomTokens("s", "u").isEmpty());
+        assertTrue(roomOf(service(publishing()), "s", "u").isEmpty());
+        assertTrue(roomOf(service(null), "s", "u").isEmpty());
     }
 
     @Test
@@ -81,7 +81,7 @@ class ChatServiceSynthesisRoomTest {
         String system = "s".repeat(3_000);
         String user = "u".repeat(6_000);
 
-        long room = service.simpleCallRoomTokens(system, user).getAsLong();
+        long room = roomOf(service, system, user).getAsLong();
 
         // 9,000 characters at 3.0 per token (the estimate never goes above 3.0, whatever the default ratio), two messages of overhead, and the 4,096-token reserve.
         long prompt = 3_000 + 2L * PromptSize.MESSAGE_OVERHEAD_TOKENS;
@@ -97,7 +97,7 @@ class ChatServiceSynthesisRoomTest {
 
         // About 28,800 characters; a flat 3.0 per token is 9,600, one token per digit is above 20,000.
         assertTrue(tokens >= 20_000, "dense: " + tokens);
-        long room = service.simpleCallRoomTokens("system", numeric).getAsLong();
+        long room = roomOf(service, "system", numeric).getAsLong();
         assertTrue(room < 32_768 - 20_000 - ToolResultBudget.replyReserve(32_768) + 1, "room " + room);
     }
 
@@ -105,7 +105,7 @@ class ChatServiceSynthesisRoomTest {
     void aPromptThatAlreadyFillsTheWindowLeavesNoRoom() {
         var service = service(publishing(8_192));
 
-        assertEquals(0, service.simpleCallRoomTokens("s", "u".repeat(60_000)).getAsLong());
+        assertEquals(0, roomOf(service, "s", "u".repeat(60_000)).getAsLong());
         assertEquals(0, service.estimateTokens(null));
     }
 
@@ -120,5 +120,9 @@ class ChatServiceSynthesisRoomTest {
                 java.util.List.of(dev.langchain4j.data.message.UserMessage.from(text)), java.util.List.of(), ratio);
         assertEquals(asAMessage - PromptSize.MESSAGE_OVERHEAD_TOKENS,
                 service.estimateTokens(text));
+    }
+
+    private static java.util.OptionalLong roomOf(ChatService service, String system, String user) {
+        return service.roomIn(service.simpleCallContextTokens(), system, user);
     }
 }

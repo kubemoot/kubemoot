@@ -143,29 +143,12 @@ final class CoordinatorStateReducer {
         newRoster(s, e.data().path(ROSTER));
     }
 
-    private static void convening(CoordinatorThreadState s, JsonNode convening) {
-        if (convening.isMissingNode()) {
-            return;
-        }
-        s.convenings = convening.path("count").asInt();
-        s.convenedAnalysts.clear();
-        convening.path("analysts").forEach(a -> s.convenedAnalysts.add(a.asText()));
-        var assignments = new java.util.ArrayList<DeliveryPlan.Assignment>();
-        convening.path("assignments").forEach(a -> {
-            var patterns = new java.util.LinkedHashMap<String, Integer>();
-            a.path("patterns").fields().forEachRemaining(p -> patterns.put(p.getKey(), p.getValue().asInt()));
-            assignments.add(new DeliveryPlan.Assignment(a.path("analyst").asText(), patterns));
-        });
-        s.convenedAssignments = assignments;
-    }
-
     private static void reviewStarted(CoordinatorThreadState s, CoordinatorEvent e) {
         s.reviewRosterWritten = true;
         s.pending.clear();
         e.data().path(PENDING).fields().forEachRemaining(entry -> s.pending.put(entry.getKey(),
                 entry.getValue().asLong()));
         newRoster(s, e.data().path(ROSTER));
-        convening(s, e.data().path(CONVENING));
     }
 
     private static void newRoster(CoordinatorThreadState s, JsonNode members) {
