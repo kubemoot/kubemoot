@@ -47,6 +47,8 @@ public class DiscussionSubscriber {
     private static final ObjectMapper mapper = new ObjectMapper();
 
     private static final String NOTHING_TO_ADD = "NOTHING_TO_ADD";
+    /** Signal metadata: the stored tool calls the agent read, as keys and key patterns. */
+    static final String FIELD_READ_KEYS = "readKeys";
     private static final String SIGNAL_AGREE = "agree";
     private static final String SIGNAL_STAND_ASIDE = "stand_aside";
     /** Published once when an agent starts waiting for GPU capacity. */
@@ -1325,6 +1327,7 @@ public class DiscussionSubscriber {
             if (SIGNAL_AGREE.equals(signal)) {
                 metadata.put("toolsUsed", properties.enabledTools().orElse(List.of()));
             }
+            putReadKeys(metadata, threadId, signal);
             metadata.put("role", properties.discuss().role());
             // The configured model until a call has run; extraMetadata names the
             // model the calls ran on (ModelAttribution) once they have.
@@ -1362,6 +1365,22 @@ public class DiscussionSubscriber {
 
         } catch (Exception e) {
             log.warn("Failed to publish {} signal: {}", signal, e.getMessage());
+        }
+    }
+
+    /**
+     * The stored tool calls this agent read for the thread go on its agree signal as {@code readKeys}, for
+     * the coordinator's coverage. Any other final signal drops them, so they never reach a later signal.
+     */
+    private void putReadKeys(Map<String, Object> metadata, String threadId, String signal) {
+        boolean terminal = SIGNAL_AGREE.equals(signal) || SIGNAL_STAND_ASIDE.equals(signal)
+                || SIGNAL_FAILURE.equals(signal);
+        if (!terminal) {
+            return;
+        }
+        List<String> reads = chatService.takeReads(threadId);
+        if (SIGNAL_AGREE.equals(signal) && !reads.isEmpty()) {
+            metadata.put(FIELD_READ_KEYS, reads);
         }
     }
 

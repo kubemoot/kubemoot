@@ -108,8 +108,90 @@ objects already stored, so a call never overwrites an earlier one. Square bracke
 summarized arguments show as parentheses so a list cannot end the call line early.
 
 Analysts and the coordinator receive the manifest. The tool-free synthesizer cannot read
-the workspace, so the coordinator reads each stored result once and delivers it to the model
-that writes the answer. How is described next.
+the workspace. Counting belongs to the analysts' tools, so the coordinator first gives the
+analysts the complete list of calls, computes which of them each analyst read, and delivers to
+the synthesizer the analysts' results and only the stored results no analyst read. How is
+described next.
+
+### The catalog: the complete list for the analysts
+
+When the review begins, the coordinator builds the **catalog** of the thread in code from the
+object headers under the thread's key prefix (not from what any model wrote), and puts it in the
+`review_ready` message that wakes the analysts, after the contributions. Nothing stored is
+missing from it, and the totals line shows if a line were:
+
+```
+[CATALOG calls=11 errors=1 bytes=198940 groups=3 prefix=default/pilot/t1/]
+[GROUP agent=proxmox-qm tool=get_vm_rrd_data calls=9 errors=0 bytes=198000 rows=540 pattern=default/pilot/t1/proxmox-qm/*-get_vm_rrd_data]
+[CATALOG-CALL key=default/pilot/t1/proxmox-qm/002-get_vm_rrd_data tool=get_vm_rrd_data args={"node":"pve","vmid":101} format=text rows=60 bytes=22000 error=false]
+...
+Read one call by its key, or every call of a group by its pattern, with workspace_query (SQL) or the artifact_* tools, or with execute_code over the file /artifacts/<key>. A pattern reads the calls as one table with the columns _call (the call's key), _args (its arguments) and _arg_<name> for an argument that differs between the calls (for example _arg_vmid).
+```
+
+One `[GROUP ...]` line per agent and tool carries the call, error and byte counts, the sum of the
+rows when every call reports them (`unknown` otherwise) and the key pattern that reads the group.
+One `[CATALOG-CALL ...]` line per call carries the tool, the arguments (cut at 60 characters),
+the format and rows from the headers, the bytes and whether it was an error. A catalog line never
+begins with `[CALL key=`, so it is not read as a tooler's manifest. When the call lines do not fit
+a quarter of the smallest window any server publishes for the model (about 3 characters a token;
+8,000 characters when no window is known), the catalog is rendered one level coarser: the totals
+and the group lines only, with a note that `SELECT DISTINCT _call, _args` over a group's pattern
+lists its calls. It is never cut: no group line is dropped. The files stay separate and are reachable
+by one key, by a pattern through `workspace_query`, and as `/artifacts/<key>` for `execute_code`.
+
+### Coverage: what each analyst read
+
+Which stored calls an analyst read is computed in code, never reported by the model. The agent
+runtime keeps the keys that each **successful** tool call of the agent read and puts them on the
+agent's `agree` signal as metadata `readKeys`. What is traced:
+
+| Tool | Traced keys |
+|------|-------------|
+| `workspace_query` | every value of the `artifacts` map (a key or a `*` pattern) |
+| `artifact_head`, `artifact_tail`, `artifact_grep`, `artifact_count`, `artifact_rows`, `artifact_select`, `artifact_jq` | the `key` argument |
+| `execute_code` | each `/artifacts/<key>` path that the code names as text: a literal key, a directory ending in `/` (every call below it) or a pattern with `*` |
+
+What is **not** traceable: a path that code builds at run time (concatenation, a directory
+listing) counts for nothing, and a call that failed counts for nothing. Reading a call is taken as
+covering it: a query that read a call may have used only some of its rows, which is not looked into.
+
+The coordinator expands each pattern against the catalog (`*` stands for any characters except `/`)
+into the calls it matched. An analyst counts only when it answered with data (not `NO_DATA` or
+`TOOL_GAP`), so the reads of an analyst that failed, stood aside or answered no data cover nothing.
+A call that is a tool error is never covered: it holds no data, and the synthesis sees it so a
+failed source stays visible. The coverage is rebuilt from the signals, so a restarted coordinator
+has it back as far as the signals are replayed. The per-analyst lines go at the head of the synthesis
+input, followed by the catalog's totals and a few ADL rules (a `[COVERED ...]` line stands for a
+result an analyst read; a count or total comes from a tool result only):
+
+```
+[COVERAGE analyst=compute read=9 of 11 stored calls: get_vm_rrd_data 9 of 9]
+[COVERAGE read by no analyst: 2 calls ({get_node_status=1, list_vms=1}), 200 bytes]
+[CATALOG calls=11 errors=1 bytes=198940 tools={get_node_status=1, list_vms=1, get_vm_rrd_data=9}]
+```
+
+### Delivery order
+
+The synthesizer is the reduce step over the analysts' map; refinement is only the fallback. The
+coordinator decides from state, in this order:
+
+1. **Covered results are never read raw.** Their call lines are replaced by one line,
+   `[COVERED key=... tool=... by=<analysts>]`, and the results are not read from the store.
+2. **The results no analyst covered** are read (in parallel, up to 8 at once) and delivered whole in the
+   room of the model the scheduler picks, as described under [Delivery to the synthesis](#delivery-to-the-synthesis).
+   When they all fit, that is one model call.
+3. **When they do not fit and the crew has a query-capable analyst** (role `analyst`, with
+   `workspace_query` or `execute_code` among its tools in the crew resumes), the coordinator
+   convenes it: the thread goes back to review with only the convened analysts, and the new
+   `review_ready` names the uncovered key patterns, each with its count of uncovered calls
+   (`[ASSIGN analyst=... pattern=... calls=N]`), shared out largest first so several analysts read
+   in parallel. The message carries no data; the analysts read with a tool that counts. When they
+   have signalled, the synthesis runs again with their reads covered. The coordinator convenes at most once per thread. The test of "does not fit" compares the tokens of the
+   uncovered results with the room the smallest window leaves after the rest of the prompt.
+4. **What no tool reduced** (the analysts failed, or the crew has no query-capable analyst) goes
+   through the notes rounds below, and what is still unread is named `UNKNOWN` with its count.
+   A crew with no query-capable analyst keeps this path, with the catalog counts and the rule that
+   a count or total comes from a tool result only added to its synthesis input.
 
 ### Delivery to the synthesis
 
@@ -160,6 +242,15 @@ result with the same notice an unreadable artifact gets:
 `[ARTIFACT UNAVAILABLE key=... Treat it as UNKNOWN ... do NOT infer, guess, or fabricate ...]`.
 A result that was not delivered is never described as summarized by the analysts.
 
+**Time.** A notes round writes at most about a fifth of the tokens of its batch (never fewer than
+512; the model's own limit still applies), not a flat limit. A notes round begins only when its
+predicted cost fits the budget left: the cost is predicted from the calls already made in this
+synthesis (their time per token, read and written, times the tokens of the round, plus one more
+call for the answer). The first call has nothing to predict from and is allowed. The budget is the
+synthesis time limit times the round cap, within the thread's hard ceiling. A round that does not fit
+is not started and the results it would have read are named `UNKNOWN`. The scheduler's own latency
+predictions are not used; the prediction is from this synthesis's calls.
+
 **Unknown window.** When no window is known for the picked model, there is one round and each
 result is filled in up to 24,000 characters (cut with a marker), as before.
 
@@ -174,7 +265,11 @@ synthesis evidence: thread=... windows=[8192, 8192, 32768] rooms=[...] results=7
 
 and the `synthesis_done` event carries `rounds` (model calls the synthesis made) and
 `filledBytes` (bytes of stored results that reached the model), so a measurement can read
-them. A thread without a manifest reports one round and no bytes, and synthesizes as before.
+them. A thread with stored per-call results also gets the `delivery` object (the keys covered
+and not covered, the analysts convened and the milliseconds of each step, see
+[signals and protocol](signals-and-protocol.md)), and the log line ends with
+`covered=N uncovered=M convened=[...] stepMillis={catalog=.., read=.., convene=.., round1=..}`.
+A thread without a manifest reports one round and no bytes, and synthesizes as before.
 
 The final answer to the user never carries a manifest line. An analyst that needs rows calls
 `workspace_query` with a key from a `[CALL ...]` line; see
@@ -349,7 +444,29 @@ thread (`ns/crew/thread/`), and the namespace must be the artifact-access pod's 
 `pods_list` call of every agent. Calls of the same shape are stacked as the rows of one
 table, a different shape is `name_2`, and a call that returned an error is left out and
 named in a note. At most 100 objects match, and together they stay inside the artifact
-size limit. `artifact_count` on a call whose result is a JSON list returns the list's
+size limit.
+
+Every row of a table stacked from a `*` key carries the call that produced it, so rows
+can be grouped, joined and counted per call (both engines):
+
+| Column | Value |
+|--------|-------|
+| `_call` | The object key of the call. |
+| `_args` | The call's arguments as the runtime recorded them (JSON text, cut at 1,000 characters); empty when the call has none. |
+| `_arg_<name>` | An argument that is a plain value (text, number or flag) in every stacked call and **differs between them**, one column per such argument, at most 6 in name order, with the argument's name made of letters, digits and `_`. For nine `get_vm_rrd_data` calls that differ only in `vmid`, that is `_arg_vmid`. |
+
+```
+artifacts: {"rrd": "default/pilot/t1/proxmox-qm/*-get_vm_rrd_data"}
+sql: SELECT _arg_vmid, max(cpu) AS peak_cpu FROM rrd GROUP BY _arg_vmid ORDER BY peak_cpu DESC
+```
+
+A column the data already has under that name (compared without regard to case) is never
+replaced; the call column is then left out. The columns are added to a `*` key even when
+it matches one call. A key that names one call is unchanged, and so is every artifact
+that is not a stored tool call. An argument that is the same in every call, is missing from
+one of them, is a list or object, or comes from arguments cut at the header limit has no
+`_arg_` column; `_args` still holds the text, and
+`SELECT DISTINCT _call, _args FROM rrd` lists the calls. `artifact_count` on a call whose result is a JSON list returns the list's
 item count from the `kubemoot.rows` header.
 
 A tooler agent's contribution is, with per-call artifacts off, its raw tool output, which the agent runtime writes as

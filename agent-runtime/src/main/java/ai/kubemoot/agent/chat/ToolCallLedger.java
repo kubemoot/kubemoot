@@ -24,7 +24,7 @@ final class ToolCallLedger {
     /** The manifest stays under the runtime's spill threshold so it is posted inline. */
     static final int MAX_MANIFEST_CHARS = 4_000;
     /** Most characters of a call's arguments in a manifest line. */
-    static final int ARGS_SUMMARY_CHARS = 60;
+    static final int ARGS_SUMMARY_CHARS = CallManifest.ARGS_SUMMARY_CHARS;
     /** Most column or field names of one call in a manifest line, and the most characters of one name. */
     static final int MAX_COLUMNS_SHOWN = 12;
     static final int MAX_NAME_CHARS = 30;
@@ -202,13 +202,7 @@ final class ToolCallLedger {
 
     /** The arguments on one line, cut at {@link #ARGS_SUMMARY_CHARS}. */
     static String summary(String arguments) {
-        // Square brackets become parentheses so a list in the arguments cannot end the [CALL ...] line early.
-        String one = arguments == null ? ""
-                : arguments.replaceAll("\\s+", " ").strip().replace('[', '(').replace(']', ')');
-        if (one.isEmpty()) {
-            return "{}";
-        }
-        return one.length() <= ARGS_SUMMARY_CHARS ? one : one.substring(0, ARGS_SUMMARY_CHARS) + "...";
+        return CallManifest.argsSummary(arguments);
     }
 
     /** The key prefix shared by this agent's calls in the thread: everything up to the last slash. */

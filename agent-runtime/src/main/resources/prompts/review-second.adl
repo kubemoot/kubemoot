@@ -1,0 +1,10 @@
+DEFINE DOMAIN review-second
+DESCRIPTION The coordinator asks the analysts named below to read stored tool results that no analyst has read yet. The results are listed by key pattern with the number of calls not yet read. This message carries no data.
+
+{{assignments}}
+
+DEFINE COMPONENT second-review
+WHEN you are named in an assignment THEN read every call of each of your patterns with a tool that counts: workspace_query over the pattern key, or execute_code over /artifacts/<key>
+ALWAYS state each count, total and list as the tool returned it, tagged with its pattern
+NEVER answer from this message alone
+WHEN you are not named in an assignment THEN stand aside

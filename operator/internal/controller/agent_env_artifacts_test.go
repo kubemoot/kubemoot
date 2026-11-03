@@ -69,9 +69,18 @@ func TestPerCallArtifactsEnv_SetOnAToolerWhenTheRealmTurnsItOn(t *testing.T) {
 	}
 }
 
-func TestPerCallArtifactsEnv_OnlyAToolerGetsIt(t *testing.T) {
+func TestPerCallArtifactsEnv_ToolerAnalystAndCoordinatorGetIt(t *testing.T) {
 	on := &kubemootv1alpha1.ArtifactsConfig{PerCallArtifacts: true}
-	for _, role := range []string{roleCoordinator, roleAnalystName, testResearcher, ""} {
+	for _, role := range []string{roleToolerResume, roleAnalystName, roleCoordinator} {
+		if got := perCallArtifactsEnv(t, role, on); len(got) != 1 || got[0] != valueTrue {
+			t.Errorf("role %q: want the variable once as true, got %v", role, got)
+		}
+	}
+}
+
+func TestPerCallArtifactsEnv_OtherRolesDoNotGetIt(t *testing.T) {
+	on := &kubemootv1alpha1.ArtifactsConfig{PerCallArtifacts: true}
+	for _, role := range []string{testResearcher, ""} {
 		if got := perCallArtifactsEnv(t, role, on); len(got) != 0 {
 			t.Errorf("role %q: want no variable, got %v", role, got)
 		}

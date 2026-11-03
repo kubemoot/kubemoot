@@ -71,6 +71,11 @@ public class ChatService {
     boolean perCallArtifacts = org.eclipse.microprofile.config.ConfigProvider.getConfig()
             .getOptionalValue(PER_CALL_ARTIFACTS_KEY, Boolean.class).orElse(false);
 
+    /** The stored calls this agent's tool calls read, per thread; recorded only with per-call artifacts on. */
+    private final AnalystReads analystReads = new AnalystReads();
+    /** The discussion thread whose tool loop is running on this thread, for {@link #analystReads}. */
+    static final ThreadLocal<String> READING_THREAD = new ThreadLocal<>();
+
     private final AgentProperties properties;
     private final AgentHeartbeatService heartbeatService;
     private final ObjectMapper objectMapper;
@@ -367,11 +372,15 @@ public class ChatService {
         try (var requesterScope = RequesterScope.bind(request.requester())) {
             var ledger = ToolCallLedger.forLoop(perCallArtifacts && toolerRawOutput, callArtifactStore,
                     request.discussionThreadId(), properties.agentName());
+            if (perCallArtifacts) {
+                READING_THREAD.set(request.discussionThreadId());
+            }
             loopResult = callWithToolLoop(messages,
                     observed(pick, CallObservation.KIND_TOOL_TURN),
                     serverName, pick.pickReason(), toolerRawOutput, contextLengthOf(pick), ledger);
             callFailed = false;
         } finally {
+            READING_THREAD.remove();
             // ALWAYS record observed latency, even on ToolCallFailure -
             // the failed-call duration is exactly the signal we need to
             // steer subsequent picks away from the bad server.
@@ -462,9 +471,7 @@ public class ChatService {
     // in sandbox code (which qwen3:32b flakily skips). A call to any of these over an
     // artifact present in the input satisfies the read-the-file half of the contract
     // exactly as an execute_code that opens /artifacts/ does.
-    private static final java.util.Set<String> ARTIFACT_READ_TOOLS = java.util.Set.of(
-            "artifact_head", "artifact_tail", "artifact_grep", "artifact_count",
-            "artifact_rows", "artifact_select", "artifact_jq");
+    private static final java.util.Set<String> ARTIFACT_READ_TOOLS = AnalystReads.ARTIFACT_READ_TOOLS;
     // Captures the exact object key from a spill marker "[ARTIFACT key=<key> bytes=...]"
     // so the compute re-prompt can name the precise file at /artifacts/<key> rather
     // than a generic "<key>" placeholder.
@@ -642,6 +649,19 @@ public class ChatService {
 
         return exhaustedIterationsResult(state, maxIterations, toolerRawOutput,
                 serverName, pickReason);
+    }
+
+    /** True when per-call workspace artifacts are on for this agent (the realm's flag, set by the operator). */
+    public boolean perCallArtifactsOn() {
+        return perCallArtifacts;
+    }
+
+    /**
+     * The keys and key patterns of stored tool calls that this agent's successful tool calls read in
+     * the thread since the last take; empty when per-call artifacts are off. Clears the thread's list.
+     */
+    public List<String> takeReads(String threadId) {
+        return perCallArtifacts ? analystReads.take(threadId) : List.of();
     }
 
     /** Throw LOOP_TIME_EXCEEDED when the wall-clock deadline has passed. */
@@ -1252,6 +1272,10 @@ public class ChatService {
                 ? executor.execute(toolRequest, null)
                 : ToolResultBudget.errorJson("Unknown tool: " + toolRequest.name());
         String artifactKey = storeCall(state, toolRequest, started, (System.nanoTime() - startNanos) / 1_000_000, raw);
+        if (perCallArtifacts) {
+            analystReads.record(READING_THREAD.get(), toolRequest.name(), toolRequest.arguments(),
+                    !isGatherErrorResult(raw));
+        }
         var admitted = budget.admit(toolRequest.name(), raw, toolerRawOutput, artifactKey);
         state.allMessages.add(new ToolExecutionResultMessage(
                 toolRequest.id(), toolRequest.name(), admitted.text()));
@@ -2213,7 +2237,8 @@ public class ChatService {
         boolean callFailed = true;
         try {
             var prompt = promptFor.apply(windowOf(pick));
-            var result = invokeSimpleCall(pick, buildSimpleMessages(prompt.system(), prompt.user()));
+            var result = invokeSimpleCall(pick, buildSimpleMessages(prompt.system(), prompt.user()),
+                    prompt.maxOutputTokens());
             callFailed = false;
             return result;
         } finally {
@@ -2317,9 +2342,11 @@ public class ChatService {
     }
 
     /** Send a no-tool chat request as a timed stream, record it, and return text + token counts. */
-    private SimpleLlmResult invokeSimpleCall(MullingPick pick, List<ChatMessage> messages) {
+    private SimpleLlmResult invokeSimpleCall(MullingPick pick, List<ChatMessage> messages, int maxOutputTokens) {
+        int maxTokens = maxOutputTokens > 0 ? Math.min(maxOutputTokens, properties.model().maxTokens())
+                : properties.model().maxTokens();
         var model = chatModelPool.streamingForEndpoint(engineFor(pick.serverName()), pick.endpoint(),
-                pick.modelName(), properties.model().temperature(), properties.model().maxTokens(),
+                pick.modelName(), properties.model().temperature(), maxTokens,
                 SIMPLE_CALL_TIMEOUT, properties.model().think().orElse(null));
         var context = callContext(pick.serverName(), pick.modelName(),
                 CallObservation.KIND_SIMPLE, pick.coldLoad(), pick.call());

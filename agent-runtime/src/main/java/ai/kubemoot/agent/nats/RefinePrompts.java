@@ -59,7 +59,7 @@ final class RefinePrompts {
         return sb.toString();
     }
 
-    private static String load(String name) {
+    static String load(String name) {
         try (InputStream in = RefinePrompts.class.getResourceAsStream("/prompts/" + name)) {
             if (in == null) {
                 throw new IllegalStateException("missing prompt resource prompts/" + name);

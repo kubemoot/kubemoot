@@ -25,6 +25,11 @@ final class CoordinatorWire {
     static final String PENDING = "pending";
     static final String DEADLINE_AT = "deadlineAt";
     static final String RESEARCHER = "researcher";
+    /** Signal event: the agent answered with data, and the stored calls its tool calls read. */
+    static final String WITH_DATA = "withData";
+    static final String READ_KEYS = "readKeys";
+    /** Review event: the analysts convened for a second review and what each was asked to read. */
+    static final String CONVENING = "convening";
     static final String CAPACITY_REASON = "capacityReason";
     static final String TOO_LARGE_MODEL = "tooLargeModel";
     static final String MODEL = "model";

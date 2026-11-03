@@ -30,5 +30,21 @@ public final class CallManifest {
     public static final Pattern FOOTER_LINE =
             Pattern.compile("\\n?" + Pattern.quote(FOOTER_PREFIX) + "[^\\n]*+");
 
+    /** Most characters of a call's arguments in a manifest or catalog line. */
+    public static final int ARGS_SUMMARY_CHARS = 60;
+
     private CallManifest() {}
+
+    /**
+     * The arguments on one line, cut at {@link #ARGS_SUMMARY_CHARS}. Square brackets become
+     * parentheses so a list in the arguments cannot end the [CALL ...] line early.
+     */
+    public static String argsSummary(String arguments) {
+        String one = arguments == null ? ""
+                : arguments.replaceAll("\\s+", " ").strip().replace('[', '(').replace(']', ')');
+        if (one.isEmpty()) {
+            return "{}";
+        }
+        return one.length() <= ARGS_SUMMARY_CHARS ? one : one.substring(0, ARGS_SUMMARY_CHARS) + "...";
+    }
 }

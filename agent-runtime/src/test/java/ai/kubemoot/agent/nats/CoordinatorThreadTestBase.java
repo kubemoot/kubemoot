@@ -53,6 +53,11 @@ abstract class CoordinatorThreadTestBase {
     /** Events appended ("event:type") and messages published ("bus:type"), in the order they happened. */
     protected final List<String> timeline = Collections.synchronizedList(new ArrayList<>());
 
+    /** The crew's resumes the orchestrator reads; a test that needs other agents overrides it. */
+    protected String resumesJson() {
+        return RESUMES;
+    }
+
     /** True when the orchestrator should get a connection that records its publishes. */
     protected boolean withBus() {
         return false;
@@ -89,7 +94,7 @@ abstract class CoordinatorThreadTestBase {
     /** A fresh orchestrator and event log; {@code hasAnalysts} is the crew's setting that forces the review phase. */
     protected void build(boolean hasAnalysts) throws Exception {
         Path resumes = dir.resolve("crew-resumes.json");
-        Files.writeString(resumes, RESUMES);
+        Files.writeString(resumes, resumesJson());
         System.setProperty("kubemoot.discuss.crew-resumes-path", resumes.toString());
 
         natsProvider = mock(NatsConnectionProvider.class);

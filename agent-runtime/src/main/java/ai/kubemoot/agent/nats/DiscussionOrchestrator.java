@@ -1211,7 +1211,19 @@ public class DiscussionOrchestrator {
         }
         state.waitingAgents.remove(agentName);
         state.agreeSignals.put(agentName, content);
+        recordReads(state, agentName, content, msg);
         state.lastSignalReceived = Instant.now();
+    }
+
+    /** Keeps what an agree signal says the agent read, and whether it answered with data. */
+    private static void recordReads(ThreadState state, String agentName, String content, JsonNode msg) {
+        if (AnalystReadouts.answeredWithData(content)) {
+            state.dataAnalysts.add(agentName);
+        }
+        Set<String> keys = AnalystReadouts.readKeysOf(msg);
+        if (!keys.isEmpty()) {
+            state.readKeys.computeIfAbsent(agentName, a -> ConcurrentHashMap.newKeySet()).addAll(keys);
+        }
     }
 
     private void handleConcernSignal(ThreadState state, String agentName, String content, JsonNode msg) {
@@ -2356,20 +2368,42 @@ public class DiscussionOrchestrator {
      * as a repeat.
      */
     void publishReviewReady(ThreadState state, List<String> analystCircle) {
+        publishReviewReady(state, analystCircle, reviewSummary(state) + catalogForReview(state));
+    }
+
+    /** What the evaluation found, as the first review shows it: each agree and concern, cut. */
+    private static String reviewSummary(ThreadState state) {
+        var responseSummary = new StringBuilder();
+        for (var agreeEntry : state.agreeSignals.entrySet()) {
+            responseSummary.append("[").append(agreeEntry.getKey()).append("] ")
+                    .append(truncate(agreeEntry.getValue(), REVIEW_SNIPPET_CHARS)).append("\n\n");
+        }
+        for (var concernEntry : state.concernSignals.entrySet()) {
+            responseSummary.append("[CONCERN from ").append(concernEntry.getKey()).append("] ")
+                    .append(truncate(concernEntry.getValue(), REVIEW_SNIPPET_CHARS)).append("\n\n");
+        }
+        return responseSummary.toString();
+    }
+
+    /**
+     * The complete list of the thread's stored tool calls, for the analysts the first review wakes; empty
+     * when there are none or per-call artifacts are off. It is rendered one level coarser when it does not
+     * fit a quarter of the smallest window, and never cut.
+     */
+    private String catalogForReview(ThreadState state) {
+        Connection conn = natsProvider.getConnection();
+        if (conn == null || !chatService.perCallArtifactsOn()) {
+            return "";
+        }
+        var catalog = ThreadCatalog.load(conn, DiscussionArtifacts.threadPrefix(natsProvider.scope(), state.threadId));
+        return catalog.isEmpty() ? "" : catalog.render(ThreadCatalog.roomChars(chatService.simpleCallContextTokens()));
+    }
+
+    /** Publishes review_ready with {@code content}, scoped to {@code analystCircle} when it is not empty. */
+    void publishReviewReady(ThreadState state, List<String> analystCircle, String content) {
         try {
             var conn = natsProvider.getConnection();
             if (conn == null) return;
-
-            // Build review summary
-            var responseSummary = new StringBuilder();
-            for (var agreeEntry : state.agreeSignals.entrySet()) {
-                responseSummary.append("[").append(agreeEntry.getKey()).append("] ")
-                        .append(truncate(agreeEntry.getValue(), REVIEW_SNIPPET_CHARS)).append("\n\n");
-            }
-            for (var concernEntry : state.concernSignals.entrySet()) {
-                responseSummary.append("[CONCERN from ").append(concernEntry.getKey()).append("] ")
-                        .append(truncate(concernEntry.getValue(), REVIEW_SNIPPET_CHARS)).append("\n\n");
-            }
 
             var metadata = new HashMap<String, Object>();
             metadata.put(FIELD_USER_QUERY, state.userQuery);
@@ -2395,7 +2429,7 @@ public class DiscussionOrchestrator {
                     FIELD_THREAD_ID, state.threadId,
                     FIELD_AGENT_NAME, properties.agentName(),
                     FIELD_MESSAGE_TYPE, MSG_REVIEW_READY,
-                    FIELD_CONTENT, responseSummary.toString(),
+                    FIELD_CONTENT, content,
                     FIELD_CHANNEL, CHANNEL_BROADCAST,
                     FIELD_TIMESTAMP, Instant.now().toString(),
                     FIELD_METADATA, metadata
@@ -2505,9 +2539,10 @@ public class DiscussionOrchestrator {
             // but the synthesizer is tool-free, so it must be handed the actual data.
             String threadPrefix = signalContext + "\n\n";
             String threadText = inlineArtifactContent(formatThread(state));
-            var synthesisResult = threadText.contains(CallManifest.CALL_PREFIX)
-                    ? synthesizeFromStoredResults(state, threadPrefix + threadText, synthesisStart)
-                    : synthesizeWithCompleteness(loadSystemPrompt(), threadPrefix + threadText, state.threadId);
+            var synthesisResult = synthesisResultFor(state, synthesisStart, threadPrefix, threadText);
+            if (synthesisResult == null) {
+                return; // analysts were convened to read the rest; the thread is back in review
+            }
             String response = synthesisResult.text();
             state.synthesisInputTokens = synthesisResult.inputTokens();
             state.synthesisOutputTokens = synthesisResult.outputTokens();
@@ -2555,31 +2590,147 @@ public class DiscussionOrchestrator {
     }
 
     /**
-     * The synthesis when a tooler's per-call manifest is in the input: its stored results reach the model
-     * that writes the answer, in as many rounds as they need ({@link EvidenceSynthesis}). Every round is
-     * sized to the window of the model the scheduler picks for that round; the answer then goes through
-     * the same completeness contract as any other. What was delivered is logged in one line and its
-     * rounds and bytes are kept for the synthesis event.
+     * The synthesis result, or null when the thread went back to review because analysts were convened. A
+     * thread with no per-call manifest is synthesized as before; one with stored results goes through the
+     * analyst-first delivery ({@link #deliveryFor}, {@link #synthesizeFromStoredResults}).
      */
-    private ChatService.SimpleLlmResult synthesizeFromStoredResults(ThreadState state, String conversation,
+    private ChatService.SimpleLlmResult synthesisResultFor(ThreadState state, Instant synthesisStart,
+            String prefix, String threadText) {
+        endConvening(state);
+        if (!threadText.contains(CallManifest.CALL_PREFIX)) {
+            return synthesizeWithCompleteness(loadSystemPrompt(), prefix + threadText, state.threadId);
+        }
+        var delivery = deliveryFor(state, prefix, ManifestInliner.strip(threadText, false));
+        var plan = planDelivery(state, delivery);
+        if (plan.convenes()) {
+            conveneAnalysts(state, plan);
+            return null;
+        }
+        return synthesizeFromStoredResults(state, delivery, synthesisStart);
+    }
+
+    /**
+     * Builds the thread's catalog and the coverage of it by the analysts' reads, and reads only the
+     * stored results no analyst covered (in parallel).
+     */
+    private StoredDelivery deliveryFor(ThreadState state, String prefix, String text) {
+        Connection conn = natsProvider.getConnection();
+        long start = System.nanoTime();
+        var catalog = conn == null || !chatService.perCallArtifactsOn() ? new ThreadCatalog("", List.of())
+                : ThreadCatalog.load(conn, DiscussionArtifacts.threadPrefix(natsProvider.scope(), state.threadId));
+        long catalogMs = (System.nanoTime() - start) / 1_000_000;
+        var coverage = EvidenceCoverage.compute(catalog, state.readKeys, state.dataAnalysts);
+        var delivery = StoredDelivery.prepare(prefix, text, catalog, coverage, key -> cachedResult(state, conn, key));
+        delivery.setCatalogMillis(catalogMs);
+        return delivery;
+    }
+
+    /** A stored result's content, read once per thread: the read before a convening is not repeated after it. */
+    private String cachedResult(ThreadState state, Connection conn, String key) {
+        String held = state.resultCache.get(key);
+        if (held != null || conn == null) {
+            return held;
+        }
+        String read = readWholeArtifact(conn, key);
+        if (read != null) {
+            state.resultCache.put(key, read);
+        }
+        return read;
+    }
+
+    /**
+     * Decides whether the stored results no analyst read fit the synthesizer, or analysts must be
+     * convened to reduce them first ({@link DeliveryPlan#decide}).
+     */
+    private DeliveryPlan planDelivery(ThreadState state, StoredDelivery delivery) {
+        if (delivery.catalog().isEmpty()) {
+            return DeliveryPlan.synthesize();
+        }
+        var room = chatService.simpleCallRoomTokens(loadSystemPrompt(), delivery.conversation());
+        long tokens = delivery.uncoveredTokens(chatService::estimateTokens);
+        return DeliveryPlan.decide(delivery.coverage().uncovered(), tokens, room, queryAnalysts(), state.convenings);
+    }
+
+    /** The crew's analysts that have a tool to run a query or code. */
+    private List<String> queryAnalysts() {
+        try {
+            String raw = loadCrewResumes();
+            return raw == null || raw.isBlank() ? List.of() : AnalystReadouts.queryCapable(mapper.readTree(raw));
+        } catch (Exception e) {
+            log.debug("Could not read the analysts' tools from the resumes: {}", e.getMessage());
+            return List.of();
+        }
+    }
+
+    /**
+     * Sends the thread back to review with only the analysts in the plan, each asked to read its key
+     * patterns. The review settles when they have signalled, and the synthesis runs again.
+     */
+    private void conveneAnalysts(ThreadState state, DeliveryPlan plan) {
+        List<String> analysts = plan.assignments().stream().map(DeliveryPlan.Assignment::analyst).toList();
+        log.info("Thread {} - stored results no analyst read do not fit the synthesis; convening {}: {}",
+                state.threadId, analysts, plan.assignments());
+        state.convenings++;
+        state.convenedAnalysts.addAll(analysts);
+        state.convenedAssignments = plan.assignments();
+        state.conveneStartedMs = System.currentTimeMillis();
+        boolean logged = seedReviewRoster(state, analysts, state.conveneStartedMs);
+        enterReview(state);
+        if (logged) {
+            publishReviewReady(state, analysts, AnalystReadouts.secondReviewContent(plan.assignments()));
+        }
+    }
+
+    /** Adds the time the convened analysts took to the thread, once the synthesis runs again. */
+    private static void endConvening(ThreadState state) {
+        if (state.conveneStartedMs > 0) {
+            state.conveneMillis += System.currentTimeMillis() - state.conveneStartedMs;
+            state.conveneStartedMs = 0;
+        }
+    }
+
+    /**
+     * The synthesis when a tooler's per-call manifest is in the input: the stored results no analyst
+     * read reach the model that writes the answer, in as many rounds as they need
+     * ({@link EvidenceSynthesis}). Covered results are not read again; they stand as a line naming the
+     * analyst. Every round is sized to the window of the model the scheduler picks for that round; the
+     * answer then goes through the same completeness contract as any other. What was delivered is logged
+     * in one line and its rounds, bytes and steps are kept for the synthesis event.
+     */
+    private ChatService.SimpleLlmResult synthesizeFromStoredResults(ThreadState state, StoredDelivery delivery,
             Instant synthesisStart) {
         String system = loadSystemPrompt();
-        Connection conn = natsProvider.getConnection();
-        String text = ManifestInliner.strip(conversation, false);
-        var results = StoredResult.listFrom(text, key -> conn == null ? null : readWholeArtifact(conn, key));
         var settings = new EvidenceSynthesis.Settings(evidenceRounds(), MAX_ARTIFACT_INLINE_CHARS,
-                () -> synthesisHasTime(state, synthesisStart));
+                () -> synthesisHasTime(state, synthesisStart), () -> synthesisMillisLeft(state, synthesisStart));
         EvidenceSynthesis.Caller caller = (pickSystem, pickUser, promptFor) -> {
             var result = chatService.simpleLlmCallFor(pickSystem, pickUser, promptFor);
             recordPlacedCall(threads.get(state.threadId), PHASE_SYNTHESIS, result);
             return result;
         };
         var outcome = new EvidenceSynthesis(caller, chatService::estimateTokens, settings, system)
-                .run(text, results);
-        log.info(outcome.report().logLine(state.threadId));
-        state.synthesisRounds = outcome.report().rounds();
-        state.synthesisFilledBytes = outcome.report().filledBytes();
+                .run(delivery.conversation(), delivery.results());
+        var report = outcome.report();
+        if (!delivery.catalog().isEmpty()) {
+            report.delivery(delivery.coveredKeys(), delivery.uncoveredKeys(), state.convenedAnalysts);
+            report.step("catalog", delivery.catalogMillis());
+            report.step("read", delivery.readMillis());
+            report.step("convene", state.conveneMillis);
+        }
+        log.info(report.logLine(state.threadId));
+        state.synthesisRounds = report.rounds();
+        state.synthesisFilledBytes = report.filledBytes();
+        state.synthesisDetail = report.detail();
+        state.resultCache.clear();
         return completeAnswer(system, outcome.conversation(), outcome.result(), state.threadId);
+    }
+
+    /** Milliseconds of the synthesis budget left: each allowed round gets the synthesis time limit, within the hard ceiling. */
+    private long synthesisMillisLeft(ThreadState state, Instant synthesisStart) {
+        Instant now = Instant.now();
+        long budget = (long) synthesisTimeoutSeconds * evidenceRounds() * 1000L;
+        long used = Duration.between(synthesisStart, now).toMillis();
+        long ceiling = hardCeilingSeconds() * 1000L - Duration.between(state.threadCreated, now).toMillis();
+        return Math.max(0, Math.min(budget - used, ceiling));
     }
 
     /** Most synthesis rounds (calls) for stored results; the setting, or 4 when it is not set above zero. */
@@ -4394,15 +4545,7 @@ public class DiscussionOrchestrator {
         var analysts = new HashSet<String>();
         try {
             if (raw == null || raw.isBlank()) return analysts;
-            var arr = mapper.readTree(raw);
-            if (arr.isArray()) {
-                for (var node : arr) {
-                    if (ROLE_ANALYST.equals(node.path(FIELD_ROLE).asText(""))) {
-                        String name = node.path(FIELD_NAME).asText("");
-                        if (!name.isEmpty()) analysts.add(name);
-                    }
-                }
-            }
+            AnalystReadouts.analysts(mapper.readTree(raw)).forEach(node -> analysts.add(node.path(FIELD_NAME).asText("")));
         } catch (Exception e) {
             log.debug("Could not parse analyst names from resumes: {}", e.getMessage());
         }
@@ -4804,6 +4947,22 @@ public class DiscussionOrchestrator {
         // of results delivered. Recorded in the synthesis event.
         volatile int synthesisRounds = 1;
         volatile long synthesisFilledBytes;
+        /** What the delivery of per-call evidence did; null when the thread had none. */
+        volatile SynthesisDetail synthesisDetail;
+
+        // Coverage of the thread's stored tool calls: what each agent's agree signal says it read, and
+        // the agents that answered with data. Built from the signals, so a replay rebuilds it.
+        final ConcurrentHashMap<String, Set<String>> readKeys = new ConcurrentHashMap<>();
+        final Set<String> dataAnalysts = ConcurrentHashMap.newKeySet();
+        /** The analysts convened for a second review, how often, when the last convening began, and how long they took. */
+        final List<String> convenedAnalysts = new CopyOnWriteArrayList<>();
+        volatile int convenings;
+        volatile long conveneStartedMs;
+        volatile long conveneMillis;
+        /** What each convened analyst was asked to read; logged with the second review so a restart can ask again. */
+        volatile List<DeliveryPlan.Assignment> convenedAssignments = List.of();
+        /** Stored results read for the synthesis, kept until it is done so a convening does not read them twice. */
+        final ConcurrentHashMap<String, String> resultCache = new ConcurrentHashMap<>();
 
         // Triage subcommittee — set of agent names selected by triage LLM call.
         // When non-null and non-empty, only these agents should evaluate.

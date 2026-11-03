@@ -273,4 +273,46 @@ class ChatServicePerCallArtifactsTest {
 
         assertEquals(List.of("/artifacts/ns/crew/t1/a/001-pods_list"), ChatService.artifactPathsInInput(messages));
     }
+
+    // --- which stored calls an agent's tool calls read ---
+
+    private static final String PATTERN = "ns/crew/t1/proxmox-qm/*-get_vm_rrd_data";
+
+    private void readTwice() {
+        registerTools(r -> r.name().equals("artifact_head") ? "{\"error\": \"no such key\"}" : "n\n3\n(1 row)",
+                "workspace_query", "artifact_head");
+        modelCalls(call("c1", "workspace_query", "{\"artifacts\":{\"rrd\":\"" + PATTERN + "\"},\"sql\":\"SELECT 1\"}"),
+                call("c2", "artifact_head", "{\"key\":\"ns/crew/t1/missing\"}"));
+    }
+
+    @Test
+    void theKeysASuccessfulReadTouchedAreKeptForTheSignalAndAFailedReadIsNot() {
+        readTwice();
+        var service = service();
+        ChatService.READING_THREAD.set(THREAD);
+        try {
+            run(service, 0);
+        } finally {
+            ChatService.READING_THREAD.remove();
+        }
+
+        assertEquals(List.of(PATTERN), service.takeReads(THREAD));
+        assertEquals(List.of(), service.takeReads(THREAD), "taken once");
+    }
+
+    @Test
+    void withPerCallArtifactsOffNothingIsRecorded() {
+        readTwice();
+        var service = service();
+        service.perCallArtifacts = false;
+        ChatService.READING_THREAD.set(THREAD);
+        try {
+            run(service, 0);
+        } finally {
+            ChatService.READING_THREAD.remove();
+        }
+
+        assertEquals(List.of(), service.takeReads(THREAD));
+        assertFalse(service.perCallArtifactsOn());
+    }
 }
