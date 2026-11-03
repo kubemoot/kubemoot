@@ -42,6 +42,21 @@ class EvidenceQueueTest {
     }
 
     @Test
+    void theQueueFitsARoomExactlyWhenTheFillTakesEveryResult() {
+        var q = queue(result(1, "a".repeat(400)), result(2, "b".repeat(40)));
+
+        assertFalse(q.fits(100), "the first result does not fit, so one round would leave it out");
+        assertTrue(q.takesAll(q.fill(1_000)));
+        assertTrue(q.fits(1_000));
+        assertFalse(q.takesAll(q.fill(40)));
+    }
+
+    @Test
+    void anEmptyQueueFitsAnyRoom() {
+        assertTrue(queue().fits(0));
+    }
+
+    @Test
     void planningChangesNothingUntilItIsCommitted() {
         var q = queue(result(1, "a"), result(2, "b"));
 

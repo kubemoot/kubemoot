@@ -83,6 +83,37 @@ class AnalystFirstDeliveryTest extends CoordinatorThreadTestBase {
         }
     }
 
+    private static String agentOf(String key) {
+        String[] parts = key.split("/");
+        return parts[parts.length - 2];
+    }
+
+    private static String keyOf(String agent, int n, String tool) {
+        return "ns/crew/" + THREAD + "/" + agent + "/" + String.format("%03d", n) + "-" + tool;
+    }
+
+    /** Stores one call of {@code agent} whose result is {@code bytes} long (empty for 0), and returns its key. */
+    private String put(String agent, int n, String tool, int bytes) {
+        String key = keyOf(agent, n, tool);
+        String head = "UNIQUE-" + agent + "-" + n + "-" + tool + "\n";
+        String body = head + "cpu,mem,disk 0.5,100,3\n".repeat(bytes / 22 + 1);
+        stored.put(key, bytes == 0 ? "" : body.substring(0, Math.min(bytes, body.length())));
+        argsOf.put(key, "{\"n\":" + n + "}");
+        return key;
+    }
+
+    private String putAll(String agent, int from, String tool, int count, int bytes) {
+        String last = null;
+        for (int n = from; n < from + count; n++) {
+            last = put(agent, n, tool, bytes);
+        }
+        return last;
+    }
+
+    private static String patternOf(String agent, String tool) {
+        return "ns/crew/" + THREAD + "/" + agent + "/*-" + tool;
+    }
+
     private static String toolOf(String key) {
         return key.substring(key.indexOf('-', key.lastIndexOf('/')) + 1);
     }
@@ -99,7 +130,7 @@ class AnalystFirstDeliveryTest extends CoordinatorThreadTestBase {
         var h = new Headers();
         h.put(CallHeaders.OPERATION_NAME, CallHeaders.OPERATION_EXECUTE_TOOL);
         h.put(CallHeaders.TOOL_NAME, toolOf(key));
-        h.put(CallHeaders.AGENT_NAME, "k8s-workloads");
+        h.put(CallHeaders.AGENT_NAME, agentOf(key));
         h.put(CallHeaders.TOOL_CALL_ARGUMENTS, argsOf.getOrDefault(key, "{}"));
         h.put(CallHeaders.ERROR, "false");
         h.put(CallHeaders.BYTES, Integer.toString(stored.get(key).length()));
@@ -321,6 +352,174 @@ class AnalystFirstDeliveryTest extends CoordinatorThreadTestBase {
         assertEquals(List.of("k8s-analyst"), texts(d.path("convened")));
         assertEquals(10, d.path("covered").size());
         assertTrue(d.path("stepMillis").has("convene"));
+    }
+
+    // --- the second review: the assignment is the task ---
+
+    @Test
+    void theSecondReviewIsTheAssignmentAsTheAnalystsWholeTask() throws Exception {
+        storeProxmoxShape();
+        storeIsOpen(16_384);
+        toReview(THREAD);
+        send(THREAD, "k8s-analyst", "agree", "looked at the VM list", reads(listKey()));
+        settle(THREAD, REVIEW_TO_SYNTHESIS);
+        await(() -> publishedOfType("review_ready").size() >= 2, "the second review_ready was not published");
+
+        var second = publishedOfType("review_ready").get(1).body();
+        String task = second.path("metadata").path("tasks").path("k8s-analyst").asText();
+
+        assertEquals(task, second.path("content").asText(), "one analyst: the message is its task");
+        assertTrue(task.contains("Which VMs use the most CPU?"), "the question the calls are read for: " + task);
+        assertTrue(task.contains("[ASSIGN analyst=k8s-analyst pattern=" + RRD_PATTERN + " calls=9]"), task);
+        for (int n = 1; n <= 9; n++) {
+            assertTrue(task.contains("[CATALOG-CALL key=" + rrdKey(n) + " tool=get_vm_rrd_data args={\"node\":\"pve\","
+                    + "\"vmid\":" + (100 + n) + "}"), "the call and its arguments: " + n);
+        }
+        assertFalse(task.contains("[k8s-workloads]") || task.contains("11 pods"),
+                "none of the first review's contributions is in the task");
+        assertFalse(task.contains("[CATALOG calls="), "not the whole catalog");
+    }
+
+    @Test
+    void aConvenedAnalystThatQueriesItsAssignedPatternsCoversTwentyCallsAndNoNotesRoundRuns() throws Exception {
+        // the shape of thread 1b5de0ea: 20 assigned calls in 7 patterns, the first review read one unrelated call
+        String eventsRead = put("k8s-storage", 1, "events_list", 7_000);
+        String nodes = put("proxmox-pve", 1, "list_nodes", 700);
+        putAll("k8s-storage", 2, "resources_list", 8, 7_000);
+        put("k8s-workloads", 1, "pods_list", 7_000);
+        put("k8s-workloads", 2, "resources_list", 7_000);
+        put("k8s-workloads", 3, "events_list", 7_000);
+        put("proxmox-pve", 2, "get_cluster_resources", 7_000);
+        put("proxmox-pve", 3, "list_storage", 7_000);
+        putAll("proxmox-pve", 4, "get_storage_content", 7, 7_000);
+        storeIsOpen(32_768);
+        toReview(THREAD);
+        send(THREAD, "k8s-analyst", "agree", "the events", reads(eventsRead, nodes));
+        settle(THREAD, REVIEW_TO_SYNTHESIS);
+        await(() -> publishedOfType("review_ready").size() >= 2, "the analyst was not convened");
+
+        String task = publishedOfType("review_ready").get(1).body().path("metadata").path("tasks")
+                .path("k8s-analyst").asText();
+        long assigned = task.lines().filter(l -> l.startsWith("[CATALOG-CALL key=")).count();
+        assertEquals(20, assigned, task);
+        assertFalse(task.contains(eventsRead) || task.contains(nodes), "a call an analyst already read is not assigned");
+        assertTrue(task.contains("pattern=" + patternOf("k8s-storage", "resources_list") + " calls=8]"), task);
+        assertTrue(task.contains("pattern=" + patternOf("proxmox-pve", "get_storage_content") + " calls=7]"), task);
+
+        send(THREAD, "k8s-analyst", "agree", "storage per node, by _call (query over the patterns)", reads(
+                patternOf("k8s-storage", "resources_list"), patternOf("k8s-workloads", "pods_list"),
+                patternOf("proxmox-pve", "get_cluster_resources"), patternOf("proxmox-pve", "list_storage"),
+                patternOf("k8s-workloads", "resources_list"), patternOf("k8s-workloads", "events_list"),
+                patternOf("proxmox-pve", "get_storage_content")));
+        settle(THREAD, REVIEW_TO_SYNTHESIS);
+        awaitTypes(THREAD, 1, "synthesis_done");
+
+        var done = delivery(THREAD);
+        JsonNode d = (JsonNode) done.get("delivery");
+        assertEquals(22, d.path("covered").size(), "the 20 assigned calls and the 2 read in the first review");
+        assertEquals(0, d.path("uncovered").size());
+        assertEquals(1, done.get("rounds"));
+        assertEquals(1, prompts.size(), "one model call: no notes round");
+        assertFalse(allPrompts().contains("UNIQUE-"), "covered evidence is not given to the synthesizer raw");
+        assertEquals(new java.util.HashSet<>(fetched).size(), fetched.size(),
+                "each result was read once, to size it before the convening, and not again after it");
+        assertEquals(2, publishedOfType("review_ready").size(), "analysts are convened once");
+    }
+
+    @Test
+    void coverageCountsOnlyTheAssignedCallsTheAnalystActuallyQueried() throws Exception {
+        String eventsRead = put("k8s-storage", 1, "events_list", 7_000);
+        putAll("k8s-storage", 2, "resources_list", 8, 7_000);
+        putAll("proxmox-pve", 1, "get_storage_content", 7, 7_000);
+        put("k8s-workloads", 1, "pods_list", 7_000);
+        storeIsOpen(32_768);
+        toReview(THREAD);
+        send(THREAD, "k8s-analyst", "agree", "the events", reads(eventsRead));
+        settle(THREAD, REVIEW_TO_SYNTHESIS);
+        await(() -> publishedOfType("review_ready").size() >= 2, "the analyst was not convened");
+
+        send(THREAD, "k8s-analyst", "agree", "storage resources, queried", reads(patternOf("k8s-storage", "resources_list")));
+        settle(THREAD, REVIEW_TO_SYNTHESIS);
+        awaitTypes(THREAD, 1, "synthesis_done");
+
+        JsonNode d = (JsonNode) delivery(THREAD).get("delivery");
+        assertEquals(9, d.path("covered").size(), "the 8 resources_list calls and the events call");
+        assertEquals(8, d.path("uncovered").size(), "the 7 get_storage_content calls and the pods_list call");
+        assertEquals(2, publishedOfType("review_ready").size(), "never convened a second time");
+        assertTrue(allPrompts().contains("UNIQUE-proxmox-pve-1-get_storage_content"), "what was not queried is delivered");
+        assertFalse(allPrompts().contains("UNIQUE-k8s-storage-2-resources_list"));
+    }
+
+    // --- the fit check and the fill agree (thread d1bea316) ---
+
+    /** The stored calls of thread d1bea316: two 106,746 byte pods_list results and 11 small ones, 9,916 bytes together. */
+    private void storeD1bea316() {
+        put("k8s-workloads", 1, "pods_list", 106_746);
+        put("k8s-workloads", 2, "events_list", 9_108);
+        put("k8s-workloads", 3, "pods_list", 106_746);
+        put("k8s-workloads", 4, "pods_list_in_namespace", 0);
+        put("k8s-workloads", 5, "pods_list_in_namespace", 0);
+        put("proxmox-pve", 1, "list_nodes", 666);
+        put("proxmox-pve", 2, "get_node_status", 2_072);
+        put("proxmox-pve", 3, "get_node_status", 2_167);
+        put("proxmox-pve", 4, "get_node_status", 2_162);
+        put("proxmox-pve", 5, "list_storage", 843);
+        put("proxmox-pve", 6, "get_storage_content", 2);
+        put("proxmox-pve", 7, "get_storage_content", 2);
+        put("proxmox-pve", 8, "get_storage_content", 2_423);
+        put("proxmox-pve", 9, "get_storage_content", 243);
+        put("proxmox-pve", 10, "get_storage_content", 2);
+    }
+
+    @Test
+    void theSmallResultsOfThreadD1bea316FitOneRoundSoNothingIsConvened() throws Exception {
+        storeD1bea316();
+        storeIsOpen(32_768);
+        toReview(THREAD);
+
+        // the first review's analyst read the two big pods_list calls with a pattern, and the two small calls
+        send(THREAD, "k8s-analyst", "agree", "pods, events, nodes", reads(patternOf("k8s-workloads", "pods_list"),
+                keyOf("k8s-workloads", 2, "events_list"), keyOf("proxmox-pve", 1, "list_nodes")));
+        settle(THREAD, REVIEW_TO_SYNTHESIS);
+        awaitTypes(THREAD, 1, "synthesis_done");
+
+        assertEquals(1, publishedOfType("review_ready").size(), "11 results of 9,916 bytes fit the room: no analyst is convened");
+        var done = delivery(THREAD);
+        assertEquals(1, done.get("rounds"));
+        assertEquals(1, prompts.size());
+        JsonNode d = (JsonNode) done.get("delivery");
+        assertEquals(11, d.path("uncovered").size());
+        assertEquals(4, d.path("covered").size());
+        assertTrue(d.path("convened").isEmpty());
+        assertTrue(allPrompts().contains("UNIQUE-proxmox-pve-8-get_storage_content"), "the 11 results are delivered whole");
+    }
+
+    @Test
+    void whenTheTwoBigResultsAreUncoveredTheyDoNotFitAndTheAnalystIsConvenedForTheLargestGroupFirst() throws Exception {
+        storeD1bea316();
+        storeIsOpen(32_768);
+        toReview(THREAD);
+        send(THREAD, "k8s-analyst", "agree", "events and nodes", reads(keyOf("k8s-workloads", 2, "events_list"),
+                keyOf("proxmox-pve", 1, "list_nodes")));
+        settle(THREAD, REVIEW_TO_SYNTHESIS);
+        await(() -> publishedOfType("review_ready").size() >= 2, "the analyst was not convened");
+
+        String task = publishedOfType("review_ready").get(1).body().path("metadata").path("tasks")
+                .path("k8s-analyst").asText();
+        assertTrue(task.indexOf("pattern=" + patternOf("k8s-workloads", "pods_list") + " calls=2]")
+                < task.indexOf("get_node_status"), "the 213 KB group leads the assignment: " + task);
+        assertEquals(13, task.lines().filter(l -> l.startsWith("[CATALOG-CALL key=")).count());
+
+        // it queries the big group, as in the thread: the 11 that are left fit one round
+        send(THREAD, "k8s-analyst", "agree", "pods by node", reads(patternOf("k8s-workloads", "pods_list")));
+        settle(THREAD, REVIEW_TO_SYNTHESIS);
+        awaitTypes(THREAD, 1, "synthesis_done");
+
+        assertEquals(2, publishedOfType("review_ready").size(), "not convened again");
+        var done = delivery(THREAD);
+        assertEquals(1, done.get("rounds"));
+        assertEquals(1, prompts.size());
+        assertEquals(11, ((JsonNode) done.get("delivery")).path("uncovered").size());
     }
 
     @Test

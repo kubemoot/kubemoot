@@ -6,6 +6,7 @@ import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.OptionalLong;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
@@ -127,9 +128,20 @@ final class StoredDelivery {
         this.catalogMillis = millis;
     }
 
-    /** The tokens the readable uncovered results take, counted with {@code tokens}. */
+    /**
+     * Whether the uncovered results fit one synthesis round in {@code room} tokens (empty when the window
+     * is unknown, which is one round with each result cut). It asks the queue the synthesis fills from, so
+     * the answer here is the answer the fill gives: each result is counted as the prompt shows it, and the
+     * room is the window less the prompt and the reply reserve.
+     */
+    boolean fitsOneRound(ToLongFunction<String> tokens, OptionalLong room) {
+        return room.isEmpty() || new EvidenceQueue(results, tokens).fits(room.getAsLong());
+    }
+
+    /** The tokens the readable uncovered results take as the prompt shows them, for the log line of a convening. */
     long uncoveredTokens(ToLongFunction<String> tokens) {
-        return results.stream().filter(StoredResult::readable).mapToLong(r -> tokens.applyAsLong(r.content())).sum();
+        var queue = new EvidenceQueue(results, tokens);
+        return queue.fill(Long.MAX_VALUE).slices().stream().mapToLong(s -> tokens.applyAsLong(s.render(false))).sum();
     }
 
     List<String> coveredKeys() {

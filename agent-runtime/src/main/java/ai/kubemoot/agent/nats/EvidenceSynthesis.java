@@ -146,7 +146,7 @@ final class EvidenceSynthesis {
                 return answer(queue.cut(settings.fallbackChars()));
             }
             var fill = queue.fill(room.getAsLong());
-            if (!isLastRound() && fill.size() < queue.size()) {
+            if (!isLastRound() && !queue.takesAll(fill)) {
                 SimplePrompt reading = readingRound(window);
                 if (reading != null) {
                     return reading;

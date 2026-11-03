@@ -105,8 +105,7 @@ final class ResumeContinuation {
     private static String review(DiscussionOrchestrator orchestrator, ThreadState state, CoordinatorThreadState log) {
         if (log.rosterSignalled.isEmpty()) {
             if (log.convenings > 0) {
-                orchestrator.publishReviewReady(state, log.convenedAnalysts,
-                        AnalystReadouts.secondReviewContent(log.convenedAssignments));
+                orchestrator.publishSecondReview(state, log.convenedAnalysts, log.convenedAssignments);
             } else {
                 orchestrator.publishReviewReady(state, orchestrator.analystCircleFor(state));
             }

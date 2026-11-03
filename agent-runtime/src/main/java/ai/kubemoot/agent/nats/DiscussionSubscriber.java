@@ -151,6 +151,8 @@ public class DiscussionSubscriber {
     private SkillBodyLoader skillBodyLoader;
 
     private final ConcurrentHashMap<String, List<ThreadMessage>> threadContext = new ConcurrentHashMap<>();
+    /** Threads whose latest review gave this agent an assignment as its task. */
+    private final Set<String> assignedThreads = ConcurrentHashMap.newKeySet();
     private final ConcurrentHashMap<String, List<String>> threadTechnologies = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, List<?>> threadConversationContext = new ConcurrentHashMap<>();
     // The user's question per thread, from its thread_start, for knowledge retrieval.
@@ -197,6 +199,7 @@ public class DiscussionSubscriber {
     // analyst reasons over the callers' gathered data the EVALUATING phase produced
     // (already accumulated in thread context).
     private static final Set<String> ANALYST_TRIGGERS = Set.of(MSG_REVIEW_READY);
+    private static final String ASSIGNMENT_CONVERSATION_SUFFIX = "#assignment";
 
     /** The trigger message types an agent acts on, by its discuss-role. */
     static Set<String> triggerTypesFor(String role) {
@@ -457,7 +460,30 @@ public class DiscussionSubscriber {
         var messages = threadContext.get(threadId);
         log.info("Evaluating thread {} on trigger '{}' for agent {} (selected by coordinator)",
                 threadId, messageType, properties.agentName());
-        return new PendingEvaluation(threadId, formatThread(messages, threadId), isExplicitlySelected(data));
+        return new PendingEvaluation(threadId, conversationFor(msg, messageType, threadId, messages),
+                isExplicitlySelected(data));
+    }
+
+    /**
+     * What the agent is shown for this evaluation. A second review that assigns it stored calls gives it
+     * the assignment as its whole task: the question, its key patterns and their calls, with none of the
+     * first review's thread and none of its own earlier answer. Any other trigger shows the thread.
+     */
+    private String conversationFor(JsonNode msg, String messageType, String threadId, List<ThreadMessage> messages) {
+        JsonNode task = MSG_REVIEW_READY.equals(messageType)
+                ? msg.path(FIELD_METADATA).path(AnalystReadouts.FIELD_TASKS).path(properties.agentName())
+                : null;
+        if (task == null || !task.isTextual() || task.asText().isBlank()) {
+            assignedThreads.remove(threadId);
+            return formatThread(messages, threadId);
+        }
+        assignedThreads.add(threadId);
+        return task.asText();
+    }
+
+    /** The conversation the agent's model keeps for the thread: its own for an assignment, apart from the first review's. */
+    private String conversationIdFor(String threadId) {
+        return assignedThreads.contains(threadId) ? threadId + ASSIGNMENT_CONVERSATION_SUFFIX : threadId;
     }
 
     /** Rate-limit permits taken for the thread. Visible for testing. */
@@ -485,6 +511,7 @@ public class DiscussionSubscriber {
     private void trackThreadState(String threadId, String agentName, String messageType, String content) {
         if ("synthesis".equals(messageType) || "thread_close".equals(messageType)) {
             closedThreads.add(threadId);
+            assignedThreads.remove(threadId);
             wakeThreadEnd(threadId);
         }
         if (MSG_REPLY.equals(messageType) && "human".equals(agentName)) {
@@ -1101,8 +1128,8 @@ public class DiscussionSubscriber {
         // to what it was before skills were introduced.
         String skillContext = skillBodyLoader.load(threadSelectedSkills.get(threadId));
         String message = skillContext.isEmpty() ? conversation : skillContext + conversation;
-        var request = new ChatService.ChatRequest(threadId, message, null, threadId, retrievalQueryFor(threadId),
-                requesterFor(threadId));
+        var request = new ChatService.ChatRequest(conversationIdFor(threadId), message, null, threadId,
+                retrievalQueryFor(threadId), requesterFor(threadId));
         return chatService.directChat(request, false, wait);
     }
 

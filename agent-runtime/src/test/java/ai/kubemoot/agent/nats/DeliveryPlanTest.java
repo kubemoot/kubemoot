@@ -2,7 +2,6 @@ package ai.kubemoot.agent.nats;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.OptionalLong;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -27,24 +26,19 @@ class DeliveryPlanTest {
 
     @Test
     void nothingUncoveredMeansSynthesize() {
-        var plan = DeliveryPlan.decide(List.of(), 0, OptionalLong.of(10), ANALYSTS, 0);
+        var plan = DeliveryPlan.decide(List.of(), false, ANALYSTS, 0);
 
         assertFalse(plan.convenes());
     }
 
     @Test
     void uncoveredResultsThatFitTheRoomMeanSynthesize() {
-        assertFalse(DeliveryPlan.decide(uncovered(), 5_000, OptionalLong.of(5_000), ANALYSTS, 0).convenes());
-    }
-
-    @Test
-    void anUnknownWindowMeansSynthesize() {
-        assertFalse(DeliveryPlan.decide(uncovered(), 999_999, OptionalLong.empty(), ANALYSTS, 0).convenes());
+        assertFalse(DeliveryPlan.decide(uncovered(), true, ANALYSTS, 0).convenes());
     }
 
     @Test
     void resultsThatDoNotFitConveneTheQueryCapableAnalysts() {
-        var plan = DeliveryPlan.decide(uncovered(), 50_000, OptionalLong.of(5_000), ANALYSTS, 0);
+        var plan = DeliveryPlan.decide(uncovered(), false, ANALYSTS, 0);
 
         assertTrue(plan.convenes());
         assertEquals(2, plan.assignments().size());
@@ -52,12 +46,12 @@ class DeliveryPlanTest {
 
     @Test
     void withoutAQueryCapableAnalystTheRefinePathStays() {
-        assertFalse(DeliveryPlan.decide(uncovered(), 50_000, OptionalLong.of(5_000), List.of(), 0).convenes());
+        assertFalse(DeliveryPlan.decide(uncovered(), false, List.of(), 0).convenes());
     }
 
     @Test
     void analystsAreConvenedOnlyOncePerThread() {
-        assertFalse(DeliveryPlan.decide(uncovered(), 50_000, OptionalLong.of(5_000), ANALYSTS, 1).convenes());
+        assertFalse(DeliveryPlan.decide(uncovered(), false, ANALYSTS, 1).convenes());
     }
 
     @Test

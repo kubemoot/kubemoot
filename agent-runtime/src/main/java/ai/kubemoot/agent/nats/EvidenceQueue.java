@@ -99,6 +99,20 @@ final class EvidenceQueue {
         return pending.stream().noneMatch(i -> i.result.key().equals(key));
     }
 
+    /**
+     * True when {@code batch} (a {@link #fill} of this queue) takes every pending result, so one round holds
+     * them all. The synthesis asks it before it reads in rounds, and the coordinator asks it
+     * ({@link #fits}) before it convenes analysts: one test for both.
+     */
+    boolean takesAll(Batch batch) {
+        return batch.size() == pending.size();
+    }
+
+    /** True when every pending result fits {@code room} whole: the answer needs one round. */
+    boolean fits(long room) {
+        return takesAll(fill(room));
+    }
+
     /** The pending results that fit {@code room} whole, in order; one that does not fit does not stop the rest. */
     Batch fill(long room) {
         var batch = new Batch();
