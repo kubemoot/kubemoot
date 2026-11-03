@@ -180,32 +180,10 @@ coordinator decides from state, in this order:
 2. **The results no analyst covered** are read (in parallel, up to 8 at once) and delivered whole in the
    room of the model the scheduler picks, as described under [Delivery to the synthesis](#delivery-to-the-synthesis).
    When they all fit, that is one model call.
-3. **When they do not fit and the crew has a query-capable analyst** (role `analyst`, with
-   `workspace_query` or `execute_code` among its tools in the crew resumes), the coordinator
-   convenes it. "Do not fit" is the question the fill asks: would one round hold every uncovered
-   result whole? The coordinator asks the same queue the fill uses, counting each result as the
-   prompt shows it, in the room the smallest window of the servers that hold the model leaves after
-   the rest of the prompt (the server the scheduler picks later is not known yet). One result too
-   big for the room, or several that fit one by one and not together, mean "do not fit"; a total
-   that is under the room means the fill needs one round and nobody is convened. The thread goes
-   back to review with only the convened analysts, and the new `review_ready` is each analyst's
-   whole task:
-   - the question;
-   - its key patterns, each with its count of uncovered calls (`[ASSIGN analyst=... pattern=...
-     calls=N]`), shared out largest first so several analysts read in parallel;
-   - under each pattern, the catalog line of every uncovered call of it, with the call's arguments;
-   - how a pattern reads as one table, with the columns `_call`, `_args` and `_arg_<name>`.
-
-   The task replaces the thread for that analyst. It does not see the first review's contributions
-   or catalog, and it answers in its own conversation for the thread, apart from the one it kept from
-   its first review. The message carries no data; the analysts read with a tool that counts. Each analyst's
-   task is also in the message metadata (`tasks`, by analyst name). When they have signalled, the
-   synthesis runs again, and a call counts as read when the analyst's tool call named its key or a
-   pattern that matches it. The coordinator convenes at most once per thread.
-4. **What no tool reduced** (the analysts failed, or the crew has no query-capable analyst) goes
-   through the notes rounds below, and what is still unread is named `UNKNOWN` with its count.
-   A crew with no query-capable analyst keeps this path, with the catalog counts and the rule that
-   a count or total comes from a tool result only added to its synthesis input.
+3. **When they do not fit** the room (one result too big for it, or several that fit one by one and
+   not together), the rest goes through the notes rounds below, and what is still unread is named
+   `UNKNOWN` with its count. The analysts' own results stand as they are; the thread is reviewed
+   once and is not sent back to review for more reads.
 
 ### Delivery to the synthesis
 
@@ -280,9 +258,9 @@ synthesis evidence: thread=... windows=[8192, 8192, 32768] rooms=[...] results=7
 and the `synthesis_done` event carries `rounds` (model calls the synthesis made) and
 `filledBytes` (bytes of stored results that reached the model), so a measurement can read
 them. A thread with stored per-call results also gets the `delivery` object (the keys covered
-and not covered, the analysts convened and the milliseconds of each step, see
+and not covered and the milliseconds of each step, see
 [signals and protocol](signals-and-protocol.md)), and the log line ends with
-`covered=N uncovered=M convened=[...] stepMillis={catalog=.., read=.., convene=.., round1=..}`.
+`covered=N uncovered=M stepMillis={catalog=.., read=.., round1=..}`.
 A thread without a manifest reports one round and no bytes, and synthesizes as before.
 
 The final answer to the user never carries a manifest line. An analyst that needs rows calls

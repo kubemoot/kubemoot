@@ -28,8 +28,8 @@ import static org.mockito.Mockito.*;
 /**
  * A whole thread whose tooler stored its calls one by one, from the first review to the answer: the
  * analysts get the catalog, the coordinator computes what they read, and the synthesizer is given
- * the analysts' results and only the stored results no analyst read. Where those do not fit and the
- * crew has an analyst with a query tool, that analyst is convened for the rest.
+ * the analysts' results and only the stored results no analyst read. Where those do not fit the
+ * picked model's room, refinement notes rounds carry the rest.
  */
 class AnalystFirstDeliveryTest extends CoordinatorThreadTestBase {
 
@@ -39,7 +39,6 @@ class AnalystFirstDeliveryTest extends CoordinatorThreadTestBase {
     private static final String BUCKET = "kubemoot_discussion_artifacts";
     private static final int RRD_BYTES = 22_000;
 
-    private String analystTools = "[\"workspace_query\",\"execute_code\"]";
     private final Map<String, String> stored = new LinkedHashMap<>();
     private final Map<String, String> argsOf = new LinkedHashMap<>();
     private final List<String> fetched = Collections.synchronizedList(new ArrayList<>());
@@ -56,8 +55,8 @@ class AnalystFirstDeliveryTest extends CoordinatorThreadTestBase {
         return """
                 [{"name":"k8s-metrics","description":"Kubernetes metrics tooler","tools":["pods_top"]},
                  {"name":"k8s-workloads","description":"Kubernetes workloads tooler","tools":["resources_list"]},
-                 {"name":"k8s-analyst","role":"analyst","description":"Reads what the toolers gathered","tools":%s}]
-                """.formatted(analystTools);
+                 {"name":"k8s-analyst","role":"analyst","description":"Reads what the toolers gathered","tools":["workspace_query","execute_code"]}]
+                """;
     }
 
     // --- the stored calls ---
@@ -159,9 +158,6 @@ class AnalystFirstDeliveryTest extends CoordinatorThreadTestBase {
         when(chatService.estimateTokens(any())).thenAnswer(inv -> (inv.<String>getArgument(0).length() + 3) / 4L);
         when(chatService.perCallArtifactsOn()).thenReturn(true);
         when(chatService.simpleCallContextTokens()).thenReturn(OptionalLong.of(window));
-        when(chatService.simpleCallRoomTokens(any(), any())).thenAnswer(inv ->
-                OptionalLong.of(Math.max(0, window - (inv.<String>getArgument(0).length()
-                        + inv.<String>getArgument(1).length()) / 4L - window / 8)));
         when(chatService.simpleLlmCallFor(any(), any(), any())).thenAnswer(call -> {
             Function<PromptWindow, SimplePrompt> promptFor = call.getArgument(2);
             var prompt = promptFor.apply(new PromptWindow() {
@@ -320,134 +316,28 @@ class AnalystFirstDeliveryTest extends CoordinatorThreadTestBase {
             assertTrue(allPrompts().contains("UNIQUE-RRD-" + n + "\n"), "result " + n);
         }
         assertEquals(10, ((JsonNode) delivery(THREAD).get("delivery")).path("uncovered").size());
-        assertTrue(publishedOfType("review_ready").size() == 1, "no analyst was convened");
+        assertEquals(1, publishedOfType("review_ready").size(), "the thread is reviewed once");
     }
 
     @Test
-    void uncoveredEvidenceThatDoesNotFitConvenesTheQueryAnalystAndThenSynthesizesFromItsResult() throws Exception {
+    void uncoveredEvidenceThatDoesNotFitGoesStraightToNotesRoundsAndTheThreadIsReviewedOnce() throws Exception {
         storeProxmoxShape();
         storeIsOpen(16_384);
         toReview(THREAD);
         send(THREAD, "k8s-analyst", "agree", "looked at the VM list", reads(listKey()));
 
         settle(THREAD, REVIEW_TO_SYNTHESIS);
-        awaitTypes(THREAD, 2, "review_started");
-        await(() -> publishedOfType("review_ready").size() >= 2, "the second review_ready was not published");
-
-        var second = publishedOfType("review_ready").get(1).body();
-        assertEquals(List.of("k8s-analyst"), texts(second.path("metadata").path("innerCircle")));
-        String task = second.path("content").asText();
-        assertTrue(task.contains("[ASSIGN analyst=k8s-analyst pattern=" + RRD_PATTERN + " calls=9]"), task);
-        assertFalse(task.contains("UNIQUE-RRD-"), "the task carries no data");
-        assertTrue(prompts.isEmpty(), "no synthesis call before the analyst answered");
-        assertEquals(0, forThread(THREAD).stream().filter(e -> e.type().equals("synthesis_done")).count());
-
-        send(THREAD, "k8s-analyst", "agree", "per VM: 101 0.5 ... (query over _arg_vmid)", reads(RRD_PATTERN));
-        settle(THREAD, REVIEW_TO_SYNTHESIS);
         awaitTypes(THREAD, 1, "synthesis_done");
 
-        assertEquals(1, prompts.size(), "one call, no refinement round");
-        assertFalse(allPrompts().contains("UNIQUE-RRD-"));
+        assertEquals(1, publishedOfType("review_ready").size(), "the thread never goes back to review");
+        assertEquals(1, forThread(THREAD).stream().filter(e -> e.type().equals("review_started")).count());
+        assertTrue((int) delivery(THREAD).get("rounds") > 1, "notes rounds carry what does not fit");
         JsonNode d = (JsonNode) delivery(THREAD).get("delivery");
-        assertEquals(List.of("k8s-analyst"), texts(d.path("convened")));
-        assertEquals(10, d.path("covered").size());
-        assertTrue(d.path("stepMillis").has("convene"));
-    }
-
-    // --- the second review: the assignment is the task ---
-
-    @Test
-    void theSecondReviewIsTheAssignmentAsTheAnalystsWholeTask() throws Exception {
-        storeProxmoxShape();
-        storeIsOpen(16_384);
-        toReview(THREAD);
-        send(THREAD, "k8s-analyst", "agree", "looked at the VM list", reads(listKey()));
-        settle(THREAD, REVIEW_TO_SYNTHESIS);
-        await(() -> publishedOfType("review_ready").size() >= 2, "the second review_ready was not published");
-
-        var second = publishedOfType("review_ready").get(1).body();
-        String task = second.path("metadata").path("tasks").path("k8s-analyst").asText();
-
-        assertEquals(task, second.path("content").asText(), "one analyst: the message is its task");
-        assertTrue(task.contains("Which VMs use the most CPU?"), "the question the calls are read for: " + task);
-        assertTrue(task.contains("[ASSIGN analyst=k8s-analyst pattern=" + RRD_PATTERN + " calls=9]"), task);
-        for (int n = 1; n <= 9; n++) {
-            assertTrue(task.contains("[CATALOG-CALL key=" + rrdKey(n) + " tool=get_vm_rrd_data args={\"node\":\"pve\","
-                    + "\"vmid\":" + (100 + n) + "}"), "the call and its arguments: " + n);
-        }
-        assertFalse(task.contains("[k8s-workloads]") || task.contains("11 pods"),
-                "none of the first review's contributions is in the task");
-        assertFalse(task.contains("[CATALOG calls="), "not the whole catalog");
-    }
-
-    @Test
-    void aConvenedAnalystThatQueriesItsAssignedPatternsCoversTwentyCallsAndNoNotesRoundRuns() throws Exception {
-        // the shape of thread 1b5de0ea: 20 assigned calls in 7 patterns, the first review read one unrelated call
-        String eventsRead = put("k8s-storage", 1, "events_list", 7_000);
-        String nodes = put("proxmox-pve", 1, "list_nodes", 700);
-        putAll("k8s-storage", 2, "resources_list", 8, 7_000);
-        put("k8s-workloads", 1, "pods_list", 7_000);
-        put("k8s-workloads", 2, "resources_list", 7_000);
-        put("k8s-workloads", 3, "events_list", 7_000);
-        put("proxmox-pve", 2, "get_cluster_resources", 7_000);
-        put("proxmox-pve", 3, "list_storage", 7_000);
-        putAll("proxmox-pve", 4, "get_storage_content", 7, 7_000);
-        storeIsOpen(32_768);
-        toReview(THREAD);
-        send(THREAD, "k8s-analyst", "agree", "the events", reads(eventsRead, nodes));
-        settle(THREAD, REVIEW_TO_SYNTHESIS);
-        await(() -> publishedOfType("review_ready").size() >= 2, "the analyst was not convened");
-
-        String task = publishedOfType("review_ready").get(1).body().path("metadata").path("tasks")
-                .path("k8s-analyst").asText();
-        long assigned = task.lines().filter(l -> l.startsWith("[CATALOG-CALL key=")).count();
-        assertEquals(20, assigned, task);
-        assertFalse(task.contains(eventsRead) || task.contains(nodes), "a call an analyst already read is not assigned");
-        assertTrue(task.contains("pattern=" + patternOf("k8s-storage", "resources_list") + " calls=8]"), task);
-        assertTrue(task.contains("pattern=" + patternOf("proxmox-pve", "get_storage_content") + " calls=7]"), task);
-
-        send(THREAD, "k8s-analyst", "agree", "storage per node, by _call (query over the patterns)", reads(
-                patternOf("k8s-storage", "resources_list"), patternOf("k8s-workloads", "pods_list"),
-                patternOf("proxmox-pve", "get_cluster_resources"), patternOf("proxmox-pve", "list_storage"),
-                patternOf("k8s-workloads", "resources_list"), patternOf("k8s-workloads", "events_list"),
-                patternOf("proxmox-pve", "get_storage_content")));
-        settle(THREAD, REVIEW_TO_SYNTHESIS);
-        awaitTypes(THREAD, 1, "synthesis_done");
-
-        var done = delivery(THREAD);
-        JsonNode d = (JsonNode) done.get("delivery");
-        assertEquals(22, d.path("covered").size(), "the 20 assigned calls and the 2 read in the first review");
-        assertEquals(0, d.path("uncovered").size());
-        assertEquals(1, done.get("rounds"));
-        assertEquals(1, prompts.size(), "one model call: no notes round");
-        assertFalse(allPrompts().contains("UNIQUE-"), "covered evidence is not given to the synthesizer raw");
-        assertEquals(new java.util.HashSet<>(fetched).size(), fetched.size(),
-                "each result was read once, to size it before the convening, and not again after it");
-        assertEquals(2, publishedOfType("review_ready").size(), "analysts are convened once");
-    }
-
-    @Test
-    void coverageCountsOnlyTheAssignedCallsTheAnalystActuallyQueried() throws Exception {
-        String eventsRead = put("k8s-storage", 1, "events_list", 7_000);
-        putAll("k8s-storage", 2, "resources_list", 8, 7_000);
-        putAll("proxmox-pve", 1, "get_storage_content", 7, 7_000);
-        put("k8s-workloads", 1, "pods_list", 7_000);
-        storeIsOpen(32_768);
-        toReview(THREAD);
-        send(THREAD, "k8s-analyst", "agree", "the events", reads(eventsRead));
-        settle(THREAD, REVIEW_TO_SYNTHESIS);
-        await(() -> publishedOfType("review_ready").size() >= 2, "the analyst was not convened");
-
-        send(THREAD, "k8s-analyst", "agree", "storage resources, queried", reads(patternOf("k8s-storage", "resources_list")));
-        settle(THREAD, REVIEW_TO_SYNTHESIS);
-        awaitTypes(THREAD, 1, "synthesis_done");
-
-        JsonNode d = (JsonNode) delivery(THREAD).get("delivery");
-        assertEquals(9, d.path("covered").size(), "the 8 resources_list calls and the events call");
-        assertEquals(8, d.path("uncovered").size(), "the 7 get_storage_content calls and the pods_list call");
-        assertEquals(2, publishedOfType("review_ready").size(), "never convened a second time");
-        assertTrue(allPrompts().contains("UNIQUE-proxmox-pve-1-get_storage_content"), "what was not queried is delivered");
-        assertFalse(allPrompts().contains("UNIQUE-k8s-storage-2-resources_list"));
+        assertEquals(List.of(listKey()), texts(d.path("covered")));
+        assertEquals(9, d.path("uncovered").size());
+        assertFalse(d.has("convened"), "a delivery records no convening");
+        assertFalse(d.path("stepMillis").has("convene"));
+        assertTrue(allPrompts().contains("[COVERED key=" + listKey()));
     }
 
     // --- the fit check and the fill agree (thread d1bea316) ---
@@ -472,7 +362,7 @@ class AnalystFirstDeliveryTest extends CoordinatorThreadTestBase {
     }
 
     @Test
-    void theSmallResultsOfThreadD1bea316FitOneRoundSoNothingIsConvened() throws Exception {
+    void theSmallResultsOfThreadD1bea316FitOneRound() throws Exception {
         storeD1bea316();
         storeIsOpen(32_768);
         toReview(THREAD);
@@ -483,49 +373,36 @@ class AnalystFirstDeliveryTest extends CoordinatorThreadTestBase {
         settle(THREAD, REVIEW_TO_SYNTHESIS);
         awaitTypes(THREAD, 1, "synthesis_done");
 
-        assertEquals(1, publishedOfType("review_ready").size(), "11 results of 9,916 bytes fit the room: no analyst is convened");
+        assertEquals(1, publishedOfType("review_ready").size(), "11 results of 9,916 bytes fit the room");
         var done = delivery(THREAD);
         assertEquals(1, done.get("rounds"));
         assertEquals(1, prompts.size());
         JsonNode d = (JsonNode) done.get("delivery");
         assertEquals(11, d.path("uncovered").size());
         assertEquals(4, d.path("covered").size());
-        assertTrue(d.path("convened").isEmpty());
         assertTrue(allPrompts().contains("UNIQUE-proxmox-pve-8-get_storage_content"), "the 11 results are delivered whole");
     }
 
     @Test
-    void whenTheTwoBigResultsAreUncoveredTheyDoNotFitAndTheAnalystIsConvenedForTheLargestGroupFirst() throws Exception {
+    void whenTheTwoBigResultsAreUncoveredTheyDoNotFitAndNotesRoundsCarryThem() throws Exception {
         storeD1bea316();
         storeIsOpen(32_768);
         toReview(THREAD);
         send(THREAD, "k8s-analyst", "agree", "events and nodes", reads(keyOf("k8s-workloads", 2, "events_list"),
                 keyOf("proxmox-pve", 1, "list_nodes")));
         settle(THREAD, REVIEW_TO_SYNTHESIS);
-        await(() -> publishedOfType("review_ready").size() >= 2, "the analyst was not convened");
-
-        String task = publishedOfType("review_ready").get(1).body().path("metadata").path("tasks")
-                .path("k8s-analyst").asText();
-        assertTrue(task.indexOf("pattern=" + patternOf("k8s-workloads", "pods_list") + " calls=2]")
-                < task.indexOf("get_node_status"), "the 213 KB group leads the assignment: " + task);
-        assertEquals(13, task.lines().filter(l -> l.startsWith("[CATALOG-CALL key=")).count());
-
-        // it queries the big group, as in the thread: the 11 that are left fit one round
-        send(THREAD, "k8s-analyst", "agree", "pods by node", reads(patternOf("k8s-workloads", "pods_list")));
-        settle(THREAD, REVIEW_TO_SYNTHESIS);
         awaitTypes(THREAD, 1, "synthesis_done");
 
-        assertEquals(2, publishedOfType("review_ready").size(), "not convened again");
+        assertEquals(1, publishedOfType("review_ready").size(), "no second review");
         var done = delivery(THREAD);
-        assertEquals(1, done.get("rounds"));
-        assertEquals(1, prompts.size());
-        assertEquals(11, ((JsonNode) done.get("delivery")).path("uncovered").size());
+        assertTrue((int) done.get("rounds") > 1, "the 213 KB of pods_list does not fit one round");
+        JsonNode d = (JsonNode) done.get("delivery");
+        assertEquals(13, d.path("uncovered").size());
+        assertEquals(2, d.path("covered").size());
     }
 
     @Test
-    void aCrewWithoutAQueryCapableAnalystKeepsTheStoredResultPathAndGetsTheCatalogCounts() throws Exception {
-        analystTools = "[]";
-        build(true);
+    void theNotesRoundsAreToldTheCatalogCountsAndTheRuleThatCountsComeFromATool() throws Exception {
         storeProxmoxShape();
         storeIsOpen(16_384);
         toReview(THREAD);
@@ -534,7 +411,7 @@ class AnalystFirstDeliveryTest extends CoordinatorThreadTestBase {
         settle(THREAD, REVIEW_TO_SYNTHESIS);
         awaitTypes(THREAD, 1, "synthesis_done");
 
-        assertEquals(1, publishedOfType("review_ready").size(), "nobody to convene");
+        assertEquals(1, publishedOfType("review_ready").size());
         assertTrue((int) delivery(THREAD).get("rounds") > 1, "refinement carries what does not fit");
         assertTrue(allPrompts().contains("[CATALOG calls=10 errors=0"), "the catalog counts are given");
         assertTrue(allPrompts().contains("[COVERAGE read by no analyst: 10 calls"));

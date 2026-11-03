@@ -73,11 +73,6 @@ pattern) that the agent's successful tool calls read in this thread, taken from 
 The coordinator computes [coverage](discussion-artifact-store.md#coverage-what-each-analyst-read)
 from it. Any other final signal drops the agent's reads; they never reach a later signal.
 
-When the stored results no analyst read do not fit the synthesizer, the coordinator sends the
-thread back to REVIEW once: a second `review_started` event and a `review_ready` whose
-`metadata.innerCircle` holds only the convened analysts and whose content names the key patterns to
-read (see [delivery order](discussion-artifact-store.md#delivery-order)).
-
 A message can also carry `traceparent` and `tracestate`, the W3C Trace Context of the
 span that published it, so one trace follows a question across the crew. The same
 value travels in the `traceparent` header of the NATS message. Both fields are
@@ -172,7 +167,7 @@ Every message is an event:
 | `failure_recorded` | an agent reports `failure`, or its deadline passes and the coordinator records one | `agent`, `cause` (`reported` or `evaluation_timeout`), `synthesized`, `failedSources` |
 | `settled` | a phase ends | `phase`, `basis` (`roster_signalled`, `fast_path`, `quiet` or `no_pending`), `counts` |
 | `synthesis_started` | the synthesis call begins | the signal counts |
-| `synthesis_done` | the answer exists, before it is published | `outcome` (`synthesized`, `capacity`, `direct`, `fallback` or `ceiling`), `response`, `tokens`, `rounds` (model calls the synthesis made; more than one when stored tool results were read in rounds, see [one artifact per tool call](discussion-artifact-store.md#delivery-to-the-synthesis)), `filledBytes` (bytes of stored results that reached the model); both are always present, `1` and `0` for a thread with no stored results; `delivery`, present only when the thread had stored per-call results: `covered` (keys an analyst's successful tool calls read), `uncovered` (keys none did), `convened` (analysts the coordinator convened for a second review), `stepMillis` (milliseconds per step: `catalog`, `read`, `convene`, and `round1`, `round2` and so on for each model call; see [delivery order](discussion-artifact-store.md#delivery-order)) |
+| `synthesis_done` | the answer exists, before it is published | `outcome` (`synthesized`, `capacity`, `direct`, `fallback` or `ceiling`), `response`, `tokens`, `rounds` (model calls the synthesis made; more than one when stored tool results were read in rounds, see [one artifact per tool call](discussion-artifact-store.md#delivery-to-the-synthesis)), `filledBytes` (bytes of stored results that reached the model); both are always present, `1` and `0` for a thread with no stored results; `delivery`, present only when the thread had stored per-call results: `covered` (keys an analyst's successful tool calls read), `uncovered` (keys none did), `stepMillis` (milliseconds per step: `catalog`, `read`, and `round1`, `round2` and so on for each model call; see [delivery order](discussion-artifact-store.md#delivery-order)) |
 | `thread_reopened` | a human reply reopens a closed thread | `phaseStartedAt` |
 | `thread_closed` | the thread ends | `reason` (an outcome of `synthesis_done`, `zombie`, `no_signals`, `unlogged`, or `expired`), `channel` |
 | `coordinator_resumed` | a restarted coordinator takes the thread over | `fromSeq` (the last event it read), `resumedAt` |

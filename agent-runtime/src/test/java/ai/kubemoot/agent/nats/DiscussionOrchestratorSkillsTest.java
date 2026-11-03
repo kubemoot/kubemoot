@@ -197,7 +197,6 @@ class DiscussionOrchestratorSkillsTest {
         assertEquals(line, orchestrator.inlineArtifactContent(line));
 
         verifyNoInteractions(natsProvider);
-        verify(chatService, never()).simpleCallRoomTokens(any(), any());
     }
 
     @Test
@@ -215,7 +214,6 @@ class DiscussionOrchestratorSkillsTest {
 
         assertTrue(out.contains("z".repeat(24_000) + ManifestInliner.CUT_NOTE), "cut at 24,000");
         assertFalse(out.contains("z".repeat(24_001)));
-        verify(chatService, never()).simpleCallRoomTokens(any(), any());
     }
 
     @Test

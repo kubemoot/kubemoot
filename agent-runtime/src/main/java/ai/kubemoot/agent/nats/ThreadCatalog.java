@@ -174,7 +174,7 @@ final class ThreadCatalog {
     }
 
     /** The catalog line of one call: its key, tool, arguments, shape and size. */
-    static String callLine(Entry e) {
+    private static String callLine(Entry e) {
         return ENTRY_PREFIX + e.key() + " tool=" + e.tool() + " args=" + CallManifest.argsSummary(e.args())
                 + " format=" + (e.format().isEmpty() ? "text" : e.format())
                 + " rows=" + (e.rows() >= 0 ? Long.toString(e.rows()) : "unknown")
@@ -182,7 +182,7 @@ final class ThreadCatalog {
     }
 
     /** How stored calls are read: by key, by pattern as one table, or as files; the same words wherever calls are listed. */
-    static final String READING_NOTE = "Read one call by its key, or every call of a group by its pattern, with "
+    private static final String READING_NOTE = "Read one call by its key, or every call of a group by its pattern, with "
             + "workspace_query (SQL) or the artifact_* tools, or with execute_code over the file /artifacts/<key>. "
             + "A pattern reads the calls as one table with the columns _call (the call's key), _args (its "
             + "arguments) and _arg_<name> for an argument that differs between the calls (for example _arg_vmid).";

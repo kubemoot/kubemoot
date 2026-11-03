@@ -2285,17 +2285,13 @@ public class ChatService {
     }
 
     /**
-     * The room, in tokens, a simple call has left in its window for more text: the window, minus the
+     * The room, in tokens, a call has left in {@code window} for more text: the window, minus the
      * estimated size of {@code systemPrompt} and {@code userPrompt} (counted with the same estimator
      * as an agent's tool loop: this agent's learned characters per token and the density of digits
      * and symbols), minus the reply reserve. Zero when the prompts already fill it; empty when the
      * window is unknown.
      */
-    public java.util.OptionalLong simpleCallRoomTokens(String systemPrompt, String userPrompt) {
-        return roomIn(simpleCallContextTokens(), systemPrompt, userPrompt);
-    }
-
-    private java.util.OptionalLong roomIn(java.util.OptionalLong window, String systemPrompt, String userPrompt) {
+    java.util.OptionalLong roomIn(java.util.OptionalLong window, String systemPrompt, String userPrompt) {
         if (window.isEmpty()) {
             return window;
         }

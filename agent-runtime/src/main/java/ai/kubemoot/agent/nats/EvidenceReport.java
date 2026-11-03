@@ -24,7 +24,6 @@ final class EvidenceReport {
     private final Map<String, Long> stepMillis = new LinkedHashMap<>();
     private List<String> covered = List.of();
     private List<String> uncovered = List.of();
-    private List<String> convened = List.of();
     private boolean delivery;
     private int rounds;
     private int chunks;
@@ -52,15 +51,14 @@ final class EvidenceReport {
         roundMillis.add(millis);
     }
 
-    /** The keys the analysts covered, the keys they did not, and the analysts convened to read more. */
-    void delivery(List<String> coveredKeys, List<String> uncoveredKeys, List<String> convenedAnalysts) {
+    /** The keys the analysts covered and the keys they did not. */
+    void delivery(List<String> coveredKeys, List<String> uncoveredKeys) {
         delivery = true;
         covered = List.copyOf(coveredKeys);
         uncovered = List.copyOf(uncoveredKeys);
-        convened = List.copyOf(convenedAnalysts);
     }
 
-    /** A step of the delivery took {@code millis} (catalog, read, convene and so on). */
+    /** A step of the delivery took {@code millis} (catalog, read and so on). */
     void step(String name, long millis) {
         stepMillis.merge(name, millis, Long::sum);
     }
@@ -74,7 +72,7 @@ final class EvidenceReport {
         for (int i = 0; i < roundMillis.size(); i++) {
             steps.put("round" + (i + 1), roundMillis.get(i));
         }
-        return new SynthesisDetail(covered, uncovered, convened, steps);
+        return new SynthesisDetail(covered, uncovered, steps);
     }
 
     /** {@code bytes} of a stored result reached the model, as a part when {@code part}. */
@@ -129,7 +127,7 @@ final class EvidenceReport {
     private String deliveryText() {
         SynthesisDetail d = detail();
         return d == null ? "" : " covered=" + d.covered().size() + " uncovered=" + d.uncovered().size()
-                + " convened=" + d.convened() + " stepMillis=" + d.stepMillis();
+                + " stepMillis=" + d.stepMillis();
     }
 
     private static String show(List<Long> values) {

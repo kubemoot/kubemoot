@@ -115,36 +115,4 @@ class StoredDeliveryTest {
         assertFalse(delivery.conversation().contains("[COVERAGE"));
         assertEquals(4, delivery.results().size());
     }
-
-    @Test
-    void theUncoveredTokensAreCountedAsThePromptShowsTheResults() {
-        var delivery = prepare(Map.of("compute", Set.of(DIR + "*-get_vm_rrd_data")), "compute");
-
-        String shown = "[list_vms]\n" + "BODY of " + key(1, "list_vms");
-        assertEquals(shown.length(), delivery.uncoveredTokens(String::length));
-    }
-
-    @Test
-    void theUncoveredResultsFitOneRoundExactlyWhenTheSynthesisFillWouldTakeThemAll() {
-        var delivery = prepare(Map.of());
-        var tokens = (java.util.function.ToLongFunction<String>) String::length;
-        long all = delivery.uncoveredTokens(tokens);
-
-        assertTrue(delivery.fitsOneRound(tokens, java.util.OptionalLong.of(all)));
-        assertFalse(delivery.fitsOneRound(tokens, java.util.OptionalLong.of(all - 1)));
-        for (long room : new long[] {0, 10, all - 1, all, all + 1}) {
-            var queue = new EvidenceQueue(delivery.results(), tokens);
-            assertEquals(queue.takesAll(queue.fill(room)), delivery.fitsOneRound(tokens, java.util.OptionalLong.of(room)),
-                    "room " + room);
-        }
-    }
-
-    @Test
-    void anUnknownWindowIsOneRoundAndSoAreNoUncoveredResults() {
-        var tokens = (java.util.function.ToLongFunction<String>) String::length;
-
-        assertTrue(prepare(Map.of()).fitsOneRound(tokens, java.util.OptionalLong.empty()));
-        assertTrue(prepare(Map.of("compute", Set.of(DIR + "*")), "compute")
-                .fitsOneRound(tokens, java.util.OptionalLong.of(0)));
-    }
 }

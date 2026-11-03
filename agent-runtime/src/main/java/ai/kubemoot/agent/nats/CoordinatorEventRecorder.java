@@ -228,7 +228,6 @@ final class CoordinatorEventRecorder {
             d.set(ROSTER, strings(s.phaseRoster.get().members()));
             ObjectNode pending = d.putObject(PENDING);
             new TreeMap<>(s.pendingEvaluations).forEach(pending::put);
-            putConvening(d, s);
             return emit(s, REVIEW_STARTED, keyed(s, "review/" + s.trace.enter(REVIEW_STARTED)), d);
         });
     }
@@ -316,24 +315,7 @@ final class CoordinatorEventRecorder {
         });
     }
 
-    /** A second review names the analysts convened and what each was asked to read, so a restart can ask again. */
-    private void putConvening(ObjectNode d, ThreadState s) {
-        if (s.convenings == 0) {
-            return;
-        }
-        ObjectNode convening = d.putObject(CONVENING);
-        convening.put("count", s.convenings);
-        convening.set("analysts", strings(s.convenedAnalysts));
-        var assignments = convening.putArray("assignments");
-        for (DeliveryPlan.Assignment a : s.convenedAssignments) {
-            ObjectNode one = assignments.addObject();
-            one.put("analyst", a.analyst());
-            ObjectNode patterns = one.putObject("patterns");
-            a.patterns().forEach(patterns::put);
-        }
-    }
-
-    /** The delivery of per-call evidence: covered and uncovered keys, analysts convened, milliseconds per step. */
+    /** The delivery of per-call evidence: covered and uncovered keys, milliseconds per step. */
     private void putDelivery(ObjectNode d, SynthesisDetail detail) {
         if (detail == null) {
             return;
@@ -341,7 +323,6 @@ final class CoordinatorEventRecorder {
         ObjectNode delivery = d.putObject("delivery");
         delivery.set("covered", strings(detail.covered()));
         delivery.set("uncovered", strings(detail.uncovered()));
-        delivery.set("convened", strings(detail.convened()));
         ObjectNode steps = delivery.putObject("stepMillis");
         detail.stepMillis().forEach(steps::put);
     }

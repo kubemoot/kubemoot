@@ -2369,16 +2369,15 @@ public class DiscussionOrchestrator {
      * as a repeat.
      */
     void publishReviewReady(ThreadState state, List<String> analystCircle) {
-        publishReviewReady(state, analystCircle,
-                reviewSummary(state) + analystFirst().catalogForReview(state.threadId), Map.of());
+        String content = reviewSummary(state) + analystFirst().catalogForReview(state.threadId);
+        publishReviewReady(state, analystCircle, content);
     }
 
     /** The helper for the parts of the analyst-first delivery that need the bus and the model windows. */
     private AnalystFirstDelivery analystFirst() {
         var held = analystFirst;
         if (held == null) {
-            held = new AnalystFirstDelivery(natsProvider, chatService, mapper, this::loadSystemPrompt,
-                    this::loadCrewResumes);
+            held = new AnalystFirstDelivery(natsProvider, chatService);
             analystFirst = held;
         }
         return held;
@@ -2402,11 +2401,8 @@ public class DiscussionOrchestrator {
 
     /**
      * Publishes review_ready with {@code content}, scoped to {@code analystCircle} when it is not empty.
-     * {@code tasks}, when it has an entry for an analyst, is that analyst's whole task: it works from the
-     * entry and not from the thread (a second review that assigns stored calls).
      */
-    void publishReviewReady(ThreadState state, List<String> analystCircle, String content,
-                            Map<String, String> tasks) {
+    private void publishReviewReady(ThreadState state, List<String> analystCircle, String content) {
         try {
             var conn = natsProvider.getConnection();
             if (conn == null) return;
@@ -2419,9 +2415,6 @@ public class DiscussionOrchestrator {
             metadata.put("failureCount", state.failureSignals.size());
             metadata.put(FIELD_GPU_LABEL, GpuLabels.fromEndpoint(properties.model().endpoint()));
             metadata.put(FIELD_MODEL_NAME, properties.model().model());
-            if (!tasks.isEmpty()) {
-                metadata.put(AnalystReadouts.FIELD_TASKS, tasks);
-            }
 
             // The inner circle scopes review_ready to the selected analysts (the
             // subscriber's isExcludedByInnerCircle gate); without one, every
@@ -2549,9 +2542,6 @@ public class DiscussionOrchestrator {
             String threadPrefix = signalContext + "\n\n";
             String threadText = inlineArtifactContent(formatThread(state));
             var synthesisResult = synthesisResultFor(state, synthesisStart, threadPrefix, threadText);
-            if (synthesisResult == null) {
-                return; // analysts were convened to read the rest; the thread is back in review
-            }
             String response = synthesisResult.text();
             state.synthesisInputTokens = synthesisResult.inputTokens();
             state.synthesisOutputTokens = synthesisResult.outputTokens();
@@ -2599,27 +2589,16 @@ public class DiscussionOrchestrator {
     }
 
     /**
-     * The synthesis result, or null when the thread went back to review because analysts were convened. A
-     * thread with no per-call manifest is synthesized as before; one with stored results goes through the
-     * analyst-first delivery ({@link #deliveryFor}, {@link #synthesizeFromStoredResults}).
+     * The synthesis result. A thread with no per-call manifest is synthesized as before; one with stored
+     * results goes through the analyst-first delivery ({@link #deliveryFor}, {@link #synthesizeFromStoredResults}).
      */
     private ChatService.SimpleLlmResult synthesisResultFor(ThreadState state, Instant synthesisStart,
             String prefix, String threadText) {
-        endConvening(state);
         if (!threadText.contains(CallManifest.CALL_PREFIX)) {
             return synthesizeWithCompleteness(loadSystemPrompt(), prefix + threadText, state.threadId);
         }
         var delivery = deliveryFor(state, prefix, ManifestInliner.strip(threadText, false));
-        var plan = planDelivery(state, delivery);
-        if (plan.convenes()) {
-            conveneAnalysts(state, plan);
-            return null;
-        }
-        try {
-            return synthesizeFromStoredResults(state, delivery, synthesisStart);
-        } finally {
-            state.resultCache.clear();
-        }
+        return synthesizeFromStoredResults(state, delivery, synthesisStart);
     }
 
     /**
@@ -2632,69 +2611,10 @@ public class DiscussionOrchestrator {
         var catalog = analystFirst().catalog(state.threadId);
         long catalogMs = (System.nanoTime() - start) / 1_000_000;
         var coverage = EvidenceCoverage.compute(catalog, state.readKeys, state.dataAnalysts);
-        var delivery = StoredDelivery.prepare(prefix, text, catalog, coverage, key -> cachedResult(state, conn, key));
+        var delivery = StoredDelivery.prepare(prefix, text, catalog, coverage, key -> conn == null ? null
+                : readWholeArtifact(conn, key));
         delivery.setCatalogMillis(catalogMs);
         return delivery;
-    }
-
-    /** A stored result's content, read once per thread: the read before a convening is not repeated after it. */
-    private String cachedResult(ThreadState state, Connection conn, String key) {
-        String held = state.resultCache.get(key);
-        if (held != null || conn == null) {
-            return held;
-        }
-        String read = readWholeArtifact(conn, key);
-        if (read != null) {
-            state.resultCache.put(key, read);
-        }
-        return read;
-    }
-
-    /**
-     * Decides whether the stored results no analyst read go to the synthesizer, or analysts are
-     * convened to reduce them first ({@link AnalystFirstDelivery#plan}).
-     */
-    private DeliveryPlan planDelivery(ThreadState state, StoredDelivery delivery) {
-        return analystFirst().plan(delivery, state.convenings);
-    }
-
-    /**
-     * Sends the thread back to review with only the analysts in the plan, each given its key patterns
-     * and their stored calls as its task. The review settles when they have signalled, and the synthesis
-     * runs again.
-     */
-    private void conveneAnalysts(ThreadState state, DeliveryPlan plan) {
-        List<String> analysts = plan.assignments().stream().map(DeliveryPlan.Assignment::analyst).toList();
-        log.info("Thread {} - convening {} for the stored results no analyst read: {}",
-                state.threadId, analysts, plan.assignments());
-        state.convenings++;
-        state.convenedAnalysts.addAll(analysts);
-        state.convenedAssignments = plan.assignments();
-        state.conveneStartedMs = System.currentTimeMillis();
-        boolean logged = seedReviewRoster(state, analysts, state.conveneStartedMs);
-        enterReview(state);
-        if (logged) {
-            publishSecondReview(state, analysts, plan.assignments());
-        }
-    }
-
-    /**
-     * Publishes the second review: review_ready to the convened analysts, each with its assignment as its
-     * task. A restarted coordinator calls it again for a convening that was logged; the message id is the
-     * same, so a repeat is dropped.
-     */
-    void publishSecondReview(ThreadState state, List<String> analysts, List<DeliveryPlan.Assignment> assignments) {
-        var tasks = analystFirst().secondReviewTasks(state.threadId, state.userQuery, assignments, state.readKeys,
-                state.dataAnalysts);
-        publishReviewReady(state, analysts, AnalystReadouts.secondReviewContent(tasks), tasks);
-    }
-
-    /** Adds the time the convened analysts took to the thread, once the synthesis runs again. */
-    private static void endConvening(ThreadState state) {
-        if (state.conveneStartedMs > 0) {
-            state.conveneMillis += System.currentTimeMillis() - state.conveneStartedMs;
-            state.conveneStartedMs = 0;
-        }
     }
 
     /**
@@ -2719,10 +2639,9 @@ public class DiscussionOrchestrator {
                 .run(delivery.conversation(), delivery.results());
         var report = outcome.report();
         if (!delivery.catalog().isEmpty()) {
-            report.delivery(delivery.coveredKeys(), delivery.uncoveredKeys(), state.convenedAnalysts);
+            report.delivery(delivery.coveredKeys(), delivery.uncoveredKeys());
             report.step("catalog", delivery.catalogMillis());
             report.step("read", delivery.readMillis());
-            report.step("convene", state.conveneMillis);
         }
         log.info(report.logLine(state.threadId));
         state.synthesisRounds = report.rounds();
@@ -4961,15 +4880,6 @@ public class DiscussionOrchestrator {
         // the agents that answered with data. Built from the signals, so a replay rebuilds it.
         final ConcurrentHashMap<String, Set<String>> readKeys = new ConcurrentHashMap<>();
         final Set<String> dataAnalysts = ConcurrentHashMap.newKeySet();
-        /** The analysts convened for a second review, how often, when the last convening began, and how long they took. */
-        final List<String> convenedAnalysts = new CopyOnWriteArrayList<>();
-        volatile int convenings;
-        volatile long conveneStartedMs;
-        volatile long conveneMillis;
-        /** What each convened analyst was asked to read; logged with the second review so a restart can ask again. */
-        volatile List<DeliveryPlan.Assignment> convenedAssignments = List.of();
-        /** Stored results read for the synthesis, kept until it is done so a convening does not read them twice. */
-        final ConcurrentHashMap<String, String> resultCache = new ConcurrentHashMap<>();
 
         // Triage subcommittee — set of agent names selected by triage LLM call.
         // When non-null and non-empty, only these agents should evaluate.
@@ -4992,16 +4902,10 @@ public class DiscussionOrchestrator {
             this.threadId = threadId;
         }
 
-        /** A new round (a human reply reopened the thread) starts with no reads, convening or held results. */
+        /** A new round (a human reply reopened the thread) starts with no reads. */
         void clearDeliveryRound() {
             readKeys.clear();
             dataAnalysts.clear();
-            convenedAnalysts.clear();
-            convenedAssignments = List.of();
-            convenings = 0;
-            conveneStartedMs = 0;
-            conveneMillis = 0;
-            resultCache.clear();
             synthesisDetail = null;
         }
     }
