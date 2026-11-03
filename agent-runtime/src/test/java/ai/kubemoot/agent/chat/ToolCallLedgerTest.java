@@ -116,7 +116,7 @@ class ToolCallLedgerTest {
 
     @Test
     void shapeReadsJsonListsAndKubernetesLists() {
-        assertEquals(new ToolResultShape("json", 2), ToolResultShape.of("[1,2]"));
+        assertEquals(new ToolResultShape("json", 2, java.util.List.of("value")), ToolResultShape.of("[1,2]"));
         assertEquals(new ToolResultShape("json", 1), ToolResultShape.of(" {\"items\":[{}]}"));
         assertEquals(new ToolResultShape("json", -1, java.util.List.of("error")), ToolResultShape.of("{\"error\":\"x\"}"));
         assertEquals(new ToolResultShape("text", -1), ToolResultShape.of("{broken"));
@@ -133,7 +133,7 @@ class ToolCallLedgerTest {
         var list = ToolResultShape.of("[{\"name\":\"a\",\"ns\":\"x\"},{\"name\":\"b\",\"extra\":1}]");
         assertEquals("json", list.format());
         assertEquals(2, list.rows());
-        assertEquals(java.util.List.of("name", "ns"), list.columns(), "the first row's keys");
+        assertEquals(java.util.List.of("extra", "name", "ns"), list.columns(), "the keys of every row, in name order");
 
         assertEquals(java.util.List.of("metadata", "spec"), ToolResultShape.of("{\"items\":[{\"metadata\":{},\"spec\":{}}]}").columns());
         assertEquals("text", ToolResultShape.of("Error: pods is forbidden\nsecond line").format());
@@ -163,7 +163,7 @@ class ToolCallLedgerTest {
         String manifest = ledger.manifest();
 
         assertTrue(manifest.contains("columns=COL1,COL2,COL3,COL4,COL5,COL6,COL7,COL8,COL9,COL10,COL11,COL12,+2more]"), manifest);
-        assertTrue(manifest.contains("fields=" + "k".repeat(30) + "...,a)b]"), manifest);
+        assertTrue(manifest.contains("fields=a)b," + "k".repeat(30) + "...]"), manifest);
         var lines = CallManifest.CALL_LINE.matcher(manifest);
         int found = 0;
         while (lines.find()) {

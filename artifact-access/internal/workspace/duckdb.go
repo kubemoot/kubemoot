@@ -39,7 +39,8 @@ type DuckDB struct {
 
 // Hint describes how nested JSON is read in this engine's SQL.
 func (DuckDB) Hint() string {
-	return "The SQL is DuckDB's. A nested object in JSON or YAML is a struct: read a field with col.key."
+	return "The SQL is DuckDB's. A JSON result needs no JSON functions for its rows and nested objects (see above). " +
+		"The nested fields of a Kubernetes object are a struct: read a field with col.key."
 }
 
 // Query validates sql as one SELECT statement, then runs it over rels.

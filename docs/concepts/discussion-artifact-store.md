@@ -441,6 +441,8 @@ The format is decided from the content (object keys carry no file extension):
 |---------|-------|
 | A JSON list of objects | One row per object, one column per key. |
 | A JSON object with an `items` list (`kubectl get -o json`) | One row per item. |
+| A JSON object whose rows are one list of objects (`{"data":[...]}`) | One row per list element; see [flattened JSON](#flattened-json). |
+| A JSON object, or a row with nested objects | One row; a nested object is columns named `parent_child`; see [flattened JSON](#flattened-json). |
 | A `kubectl get` table | One row per line, columns named by the header. |
 | YAML (several documents become a list) | Read as JSON. |
 | A Markdown pipe table | One row per table row. |
@@ -497,10 +499,64 @@ its complete items), and a note says so. An artifact that does not start with a
 
 A column whose every value is a number is stored as numbers, so `sum`, `avg` and
 `ORDER BY` work on it (`RESTARTS` of a kubectl table, a Markdown count column).
-A nested object or list in JSON or YAML is read per engine. In SQLite it is a text
-column holding JSON: `status->>'phase'` reads a field, `json_array_length(tags)` counts
-a list. In DuckDB it is a struct: `status.phase`. A JSON `true` or `false` is `1` or `0`
-in SQLite and a boolean in DuckDB.
+A JSON `true` or `false` is `1` or `0` in SQLite and a boolean in DuckDB.
+
+##### Flattened JSON
+
+A JSON result is turned into plain rows before a query reads it, so a query needs only
+plain SQL (`GROUP BY`, `MAX`, `AVG`, `ORDER BY`) and no JSON function. A tool such as
+Proxmox `get_vm_rrd_data` returns its samples in one list inside a wrapper; the same
+query works whether the result came as a list or in a wrapper:
+
+```
+artifacts: {"rrd": "default/pilot/t1/proxmox-qm/*-get_vm_rrd_data"}
+sql: SELECT _arg_vmid, MAX(cpu) AS peak_cpu, AVG(netin) AS avg_netin FROM rrd GROUP BY _arg_vmid
+```
+
+The rule is the same for every tool; it does not know tool names (YAML is read as JSON first):
+
+| The JSON is | The table is |
+|-------------|--------------|
+| A list of objects | One row per object. |
+| An object with exactly one non-empty list of objects (a wrapper such as `data`, `result`, `rows`) | One row per element of that list. The wrapper's other fields are repeated on every row; a wrapper field named like a row column is called `root_<name>`. |
+| An object with two or more lists of objects | One row; each list is JSON text, and a note names the lists. |
+| A nested object | Columns named `parent_child`, up to four levels deep (`memory_total`, `cpuinfo_model`). An underscore keeps every name a valid unquoted SQL identifier, which a dot would not. A character other than a letter, digit or `_` becomes `_`, a name that would repeat gets `_2`, `_3`, and a name that starts with a digit gets a leading `_`. |
+| A list inside a row (numbers, or objects below the wrapper), an empty object, or an object more than four levels deep | One column holding compact JSON text. SQLite reads it with `col->>'key'` and `json_array_length(col)`, DuckDB with `json_extract`. |
+
+Every row has every column (`NULL` where an object lacked it). A column that holds
+numbers in some rows and text or booleans in others is text in all of them, so both
+engines read it the same way. A table that is already plain (a list of objects with
+only plain values or lists) reads exactly as before, and the stacked call columns
+(`_call`, `_args`, `_arg_<name>`) are added to every flattened row.
+
+These are read as they are, not flattened: a Kubernetes `List` (an object with an
+`items` list), a list of Kubernetes objects, a wrapper whose list holds Kubernetes
+objects, and a single Kubernetes object (an object whose `metadata` has a `name`, or
+has a `kind` beside it). Their nested fields stay nested: `metadata.name` in DuckDB,
+`metadata->>'name'` in SQLite.
+
+Two names that differ only by case (`A_x` and `a_x`) are one name to SQL, so the later one
+is called `a_x_2`.
+
+Limits:
+
+- Only one level of list becomes rows. A list of objects below the wrapper stays JSON text.
+- Flattened columns count toward the 500 column limit of one table. A result that would pass
+  it is read as it came, and a note says so.
+- The flattened rows may take up to four times the size of the result plus 1 MiB (a wrapper
+  field repeated on many rows is what grows it). The rows times, for each column, its name
+  length plus 12 bytes (quotes, colon, comma and a `null` for a missing value) may not pass
+  the same size either. A result that would pass either is read as it came, and a note says
+  so, as it does for a result that cannot be decoded. The artifact size limit and the row
+  limit of a query apply as before: the size limit to the stored result, the row limit to
+  the rows a query returns. Flattening reads the whole result into memory, which the
+  artifact size limit (32 MiB by default) bounds.
+- The runtime's call catalog and the `kubemoot.rows` header count the rows of the
+  flattened table: the length of the wrapper's list for a wrapper result (the call line
+  shows `rows=60` for sixty samples), and the `fields=` list names the flattened columns.
+  A single object has no count. The runtime applies the same rule to the stored text
+  (a case file shared by both tests keeps them equal); for the size bound it estimates
+  from the text of the wrapper's fields.
 
 Markdown beyond pipe tables is read as lines of text. DuckDB's Markdown reader is a
 community extension that downloads at run time, which a server with no network cannot do.

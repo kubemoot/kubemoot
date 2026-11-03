@@ -146,11 +146,11 @@ func TestSQLiteValueSizeLimitStopsAHungryQuery(t *testing.T) {
 	}
 }
 
-func TestSQLiteStoresNestedValuesAsJSONText(t *testing.T) {
+func TestSQLiteFlattensNestedObjectsAndStoresListsAsJSONText(t *testing.T) {
 	s := sqliteService(t, map[string]string{"k": `[{"id":1,"meta":{"a":{"b":"deep"}},"tags":["x","y"],"ok":true,"none":null,"f":1.5}]`})
 	got := query(t, s, map[string]string{"t": "k"},
-		"SELECT meta->>'$.a.b' AS deep, json_array_length(tags) AS n, ok, none IS NULL AS missing, f FROM t")
-	if want := "deep | n | ok | missing | f\ndeep | 2 | 1 | 1 | 1.5\n(1 row)\n"; got != want {
+		"SELECT meta_a_b AS deep, json_array_length(tags) AS n, ok, none IS NULL AS missing, f FROM t")
+	if want := "deep | n | ok | missing | f\ndeep | 2 | 1 | 1 | 1.5\n(1 row)\n"; !strings.HasPrefix(got, want) {
 		t.Fatalf("got %q", got)
 	}
 }

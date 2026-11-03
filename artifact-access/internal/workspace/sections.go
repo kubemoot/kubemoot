@@ -171,6 +171,8 @@ type prepared struct {
 	rel    Relation
 	sig    string
 	cut    bool
+	// notes say how the section was read (see Relation.Notes).
+	notes []string
 	// call and args are set for a stored tool call read through a key pattern: its object key
 	// and the arguments it was made with. They become the _call and _args columns.
 	call string
@@ -245,7 +247,7 @@ func prepareSection(tmp string, s section, workDir string, hint Format) (prepare
 		return prepared{}, false, err
 	}
 	sig = string(format) + ":" + sig
-	return prepared{tool: s.tool, format: format, rel: rel, sig: sig, cut: s.cut}, true, nil
+	return prepared{tool: s.tool, format: format, rel: rel, sig: sig, cut: s.cut, notes: rel.Notes}, true, nil
 }
 
 // groupByShape collects sections with the same shape, in order of first appearance.
@@ -296,5 +298,29 @@ func groupNotes(table string, g []prepared, several bool) []string {
 				"table %s may be missing rows", p.tool, table))
 		}
 	}
-	return notes
+	return append(notes, tableNotes(table, groupReadNotes(g))...)
+}
+
+// groupReadNotes are the notes of how the sections were read, each once.
+func groupReadNotes(g []prepared) []string {
+	var out []string
+	seen := map[string]bool{}
+	for _, p := range g {
+		for _, n := range p.notes {
+			if !seen[n] {
+				seen[n] = true
+				out = append(out, n)
+			}
+		}
+	}
+	return out
+}
+
+// tableNotes names the table each note is about.
+func tableNotes(table string, notes []string) []string {
+	out := make([]string, 0, len(notes))
+	for _, n := range notes {
+		out = append(out, fmt.Sprintf("table %s: %s", table, n))
+	}
+	return out
 }
