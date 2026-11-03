@@ -34,6 +34,8 @@ type Relation struct {
 	Name string
 	Path string
 	Kind Kind
+	// Notes are lines for the model about how the table was read, shown after the rows.
+	Notes []string
 }
 
 // Limits bound one query.

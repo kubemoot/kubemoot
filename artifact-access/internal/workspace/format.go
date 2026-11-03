@@ -177,15 +177,28 @@ func PrepareArtifact(name, src string, data []byte, workDir string,
 		}
 	}
 	rel, _, err := Prepare(name, src, data, workDir)
-	return []Relation{rel}, nil, err
+	return []Relation{rel}, tableNotes(name, rel.Notes), err
 }
 
-func prepareJSON(name, src string, data []byte, _ string) (Relation, error) {
-	kind := KindJSON
-	if hasItemsList(data) {
-		kind = KindJSONItems
+func prepareJSON(name, src string, data []byte, workDir string) (Relation, error) {
+	return jsonRelation(name, src, data, workDir)
+}
+
+// jsonRelation is the relation for a JSON document in the file at path. A Kubernetes List
+// (an "items" list) is read as it is; any other document is flattened into plain rows when it
+// has nested objects or a wrapper list (see flatten.go).
+func jsonRelation(name, path string, doc []byte, workDir string) (Relation, error) {
+	if hasItemsList(doc) {
+		return Relation{Name: name, Path: path, Kind: KindJSONItems}, nil
 	}
-	return Relation{Name: name, Path: src, Kind: kind}, nil
+	flat, ok, err := flattenRelation(name, doc, workDir)
+	if err != nil {
+		return Relation{}, err
+	}
+	if ok {
+		return flat, nil
+	}
+	return Relation{Name: name, Path: path, Kind: KindJSON, Notes: flat.Notes}, nil
 }
 
 func prepareCSV(name, src string, _ []byte, _ string) (Relation, error) {
@@ -201,11 +214,7 @@ func prepareYAML(name, _ string, data []byte, workDir string) (Relation, error) 
 	if err := os.WriteFile(path, doc, 0o600); err != nil {
 		return Relation{}, fmt.Errorf("write %s: %w", name, err)
 	}
-	kind := KindJSON
-	if hasItemsList(doc) {
-		kind = KindJSONItems
-	}
-	return Relation{Name: name, Path: path, Kind: kind}, nil
+	return jsonRelation(name, path, doc, workDir)
 }
 
 func prepareMarkdownTable(name, _ string, data []byte, workDir string) (Relation, error) {

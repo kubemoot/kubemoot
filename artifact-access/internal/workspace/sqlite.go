@@ -33,7 +33,8 @@ type SQLite struct{}
 
 // Hint describes how nested JSON is read in this engine's SQL.
 func (SQLite) Hint() string {
-	return "The SQL is SQLite's. A nested object or list in JSON or YAML is a text column: " +
+	return "The SQL is SQLite's. A JSON result needs no JSON functions for its rows and nested objects (see above). " +
+		"A list left in a row, and the nested fields of a Kubernetes object, are text columns: " +
 		"read a field with col->>'key' (or col->>'$.a.b'), a list length with json_array_length(col)."
 }
 

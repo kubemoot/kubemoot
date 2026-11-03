@@ -101,7 +101,10 @@ func (s *Server) MCP() *mcp.Server {
 const queryDescription = "Run one read-only SQL SELECT over artifacts. Give artifacts as a map " +
 	"from a table name you choose to an artifact key, and write the SQL against those table names. " +
 	"Reads JSON lists, kubectl get -o json output (one row per item), kubectl tables, YAML, Markdown " +
-	"tables, CSV, and any other text (columns line_no, line). Use it to count, filter, sort, group " +
+	"tables, CSV, and any other text (columns line_no, line). A JSON object whose rows are in one list " +
+	"(such as {\"data\":[...]}) is one row per element, with the object's other fields repeated on each row, " +
+	"and a nested object is columns joined with _ (memory_total), so use plain columns and no JSON functions. " +
+	"Use it to count, filter, sort, group " +
 	"and total instead of doing it by eye. Rows come back as 'a | b' lines, cut at a row limit, with a " +
 	"row count line. A tooler's [tool] sections are read one by one: same-shaped ones are one table, " +
 	"others are name_2, name_3. A tooler's [CALL key=...] line names one stored tool call: that key is one " +
