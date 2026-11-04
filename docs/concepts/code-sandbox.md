@@ -45,7 +45,9 @@ that runs programs holds no bus credentials and talks to nothing itself. Program
 The sandbox runs code a model wrote, so every run is locked down.
 
 - **No credentials and no Kubernetes access.** The pod holds no secrets and no service
-  account token. It only computes over data already handed to it.
+  account token. It only computes over data already handed to it. The `execute_code`
+  description tells the model so: no cluster API and no kubectl, so a crew that needs live
+  data selects the agents that fetch it.
 - **Limited egress.** With [network policies](../network-policies/) on, the crew's policy
   limits the pod's outbound traffic to the message bus, which the materializer sidecar uses
   to stage artifacts. The pod has no route to external services.
