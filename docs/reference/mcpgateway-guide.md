@@ -261,6 +261,19 @@ Each value must be a positive duration; the gateway refuses to start with the na
 
 When a reset still happens on a streamable-http server, the gateway sends `initialize`, `notifications/initialized` and the first `tools/list` once more on a new connection, because they read state and change nothing. Servers reached over SSE or stdio are not retried. A second reset in a row fails the connect and marks the server `ERROR`. The gateway never sends `tools/call` again after a reset: the server may have received and run the call before the connection dropped, and a second send would run it twice. The caller gets the error and decides.
 
+## Tool result size limits
+
+A tool result is read whole before it is returned, so two limits cap its size. A tool call result over either limit is never cut or garbled: the caller gets a tool error that names the limit (and the size, when it is known) and tells the agent to ask for less, so the agent and the failure signals see it.
+
+| Where | Setting | Default | Applies to |
+|-------|---------|---------|------------|
+| Gateway | `mcp.gateway.max-response-size` (environment `MCP_GATEWAY_MAXRESPONSESIZE`) | `4MB` | Every reply the gateway reads from an MCP server over HTTP. A `tools/call` over it returns the tool error; a `tools/list` over it logs an error naming the setting and the server lists no tools. Replies carried on an SSE stream (stdio servers behind the bridge) pass the bridge cap below first |
+| mcp-bridge sidecar | `KUBEMOOT_MCP_BRIDGE_MAX_REPLY_BYTES` | `1048576` (1 MiB) | One reply line from a stdio server behind the bridge |
+
+The gateway default covers real results: a Proxmox RRD series for a day is about 0.6 MB, and a Prometheus targets list is over 1 MB. The gateway value must be a positive size of at most 2GB, or the gateway refuses to start and names the key. Each reply being read is held in memory, so size the gateway pod's memory for the limit times the number of concurrent calls. The bridge cap is lower because the sidecar runs in a small memory limit and holds a reply several times while it routes it; raise it only together with the sidecar's memory.
+
+The gateway error reads, for example: `The tool result from proxmox was 600000 bytes, over the gateway limit of 262144 bytes (mcp.gateway.max-response-size) and was not delivered. Ask for less: filter, select specific fields, or request a shorter range.` When the server sends the reply without a declared length, the error says the full size is unknown.
+
 ## Example
 
 ### Example Gateway

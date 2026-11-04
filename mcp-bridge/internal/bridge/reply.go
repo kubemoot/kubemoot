@@ -183,13 +183,13 @@ func (b *Bridge) rejectOversized(o oversizedLine, maxBytes int) {
 	}
 	log.Printf("Discarded an MCP server reply of %d bytes (limit %d, id %s); answering the caller with an error",
 		o.size, maxBytes, id)
-	b.route(oversizedError(id, maxBytes))
+	b.route(oversizedError(id, o.size, maxBytes))
 }
 
 // oversizedError builds the JSON-RPC error that stands in for a discarded reply.
-func oversizedError(id json.RawMessage, maxBytes int) []byte {
-	msg := fmt.Sprintf("The tool result was larger than the %d KB limit and was not delivered. "+
-		"Ask for less: filter, select specific fields, or request a shorter range.", maxBytes/1024)
+func oversizedError(id json.RawMessage, size, maxBytes int) []byte {
+	msg := fmt.Sprintf("The tool result was %d bytes, over the bridge limit of %d bytes (%s) and was not delivered. "+
+		"Ask for less: filter, select specific fields, or request a shorter range.", size, maxBytes, maxReplyEnv)
 	out, _ := json.Marshal(map[string]any{
 		"jsonrpc": "2.0",
 		"id":      id,

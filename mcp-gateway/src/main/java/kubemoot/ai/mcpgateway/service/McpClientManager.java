@@ -942,7 +942,8 @@ public class McpClientManager {
                     .defaultIfEmpty(Collections.emptyList());
             })
             .retryWhen(RETRY_ONCE_ON_RESET)
-            .doOnError(e -> log.error("Error discovering tools for {}: {}", serverId, e.getMessage()))
+            .doOnError(e -> log.error("Error discovering tools for {}: {}", serverId,
+                ResponseLimit.describe(e, properties.maxResponseBytes())))
             .onErrorReturn(Collections.emptyList());
     }
 
@@ -1069,6 +1070,9 @@ public class McpClientManager {
     private Mono<McpMessage> recoverForwardError(Throwable e, String serverId, McpMessage request,
             boolean allowRetry, boolean replayOnTimeout) {
         log.warn("Error forwarding request to {}: {}", serverId, e.getMessage());
+        if (ResponseLimit.isExceeded(e)) {
+            return Mono.just(responseTooLarge(serverId, request, -1));
+        }
         if (e instanceof WebClientRequestException) {
             setStatus(serverId, ServerStatus.ERROR);
         }
@@ -1077,6 +1081,17 @@ public class McpClientManager {
             return reconnectAndResend(serverId, request);
         }
         return Mono.just(McpMessage.error(request.id(), -32603, "Internal error: " + e.getMessage()));
+    }
+
+    /** The tool error for a reply over the limit; a negative size means the server did not declare one. */
+    private McpMessage responseTooLarge(String serverId, McpMessage request, long sizeBytes) {
+        ServerRegistration server = servers.get(serverId);
+        String name = server != null ? server.name() : serverId;
+        int limit = properties.maxResponseBytes();
+        log.warn("Reply from {} over the {} byte limit (size {}); answering the caller with an error",
+            name, limit, sizeBytes);
+        return McpMessage.error(request.id(), ResponseLimit.ERROR_CODE,
+            ResponseLimit.message(name, sizeBytes, limit));
     }
 
     private Mono<McpMessage> forwardRequestViaSSE(String serverId, WebClient client,
@@ -1163,6 +1178,11 @@ public class McpClientManager {
                         .defaultIfEmpty("Unknown error")
                         .map(body -> McpMessage.error(request.id(), -32603,
                             "HTTP " + statusCode + ": " + body));
+                }
+
+                long declared = response.headers().contentLength().orElse(-1);
+                if (ResponseLimit.isOver(declared, properties.maxResponseBytes())) {
+                    return response.releaseBody().thenReturn(responseTooLarge(serverId, request, declared));
                 }
 
                 return responsePayloads(response)
