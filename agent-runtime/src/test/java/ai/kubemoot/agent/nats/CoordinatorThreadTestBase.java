@@ -81,6 +81,7 @@ abstract class CoordinatorThreadTestBase {
     protected NatsConnectionProvider natsProvider;
     protected RecordingEventLog eventLog;
     protected AgentProperties.TriageModel triageModel;
+    protected final ResumeSearchClient resumeSearch = mock(ResumeSearchClient.class);
     protected volatile String selection = SELECT_THREE;
 
     @TempDir
@@ -141,7 +142,7 @@ abstract class CoordinatorThreadTestBase {
 
         orchestrator = new DiscussionOrchestrator(natsProvider, properties, chatService,
                 new DiscussionMetrics(new SimpleMeterRegistry()), mock(LatencyTracker.class),
-                mock(ResumeSearchClient.class));
+                resumeSearch);
         eventLog = new RecordingEventLog();
         eventLog.observeWith(timeline::add);
         orchestrator.useEventRecorder(eventLog.recorder());

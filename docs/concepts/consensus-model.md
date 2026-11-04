@@ -102,6 +102,27 @@ Once the coordinator enters REVIEW, it holds until every woken Analyst has
 reported or missed its deadline. A slow Analyst is not dropped in favour of a faster
 synthesis.
 
+**A subcommittee is never Analysts alone.** An Analyst computes or reasons over data
+the Toolers gathered, so a subcommittee of Analysts has nothing to work on and answers
+from what it can find or guess. After the coordinator picks the subcommittee, by
+whichever path (the reasoning call, the similarity fallback or the triage fallback), the
+coordinator checks it. If every member declares `discussRole: analyst`, it adds the
+crew's data-gathering agents that best match the question: the agents whose
+`discussRole` is `tooler` (the default when none is declared), ranked by the same resume
+search the selection uses (asked with the question and the coordinator's brief together,
+since the brief names the data the answer needs; on a fallback path the brief is the
+advisory text), at most two. Without the search, the
+crew's order decides. Two covers a question that spans two sources,
+such as capacity from one agent and usage from another, and keeps the group a
+subcommittee. Researchers, which bring in outside information, do not count as data
+gatherers. A mixed subcommittee is left as the coordinator chose it. A crew with no
+Tooler keeps its Analysts, and the evaluation reports that nothing could be gathered.
+The `subcommittee_convened` event records the agents it added in `dataAgentsAdded`, with
+`dataAgentsAddedReason: analysts_only`; both are absent when it added none, so counting
+the events that have the field counts the corrections. When the coordinator selects no
+agent and answers directly (`path: direct`), there is no subcommittee and this rule does
+not apply.
+
 **PAUSED suspends settle timers.** While the machine is in PAUSED, the coordinator
 does not advance settle windows or expire deadlines. When `thread_resume` arrives,
 timers pick up from where they stopped.

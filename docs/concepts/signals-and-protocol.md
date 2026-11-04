@@ -203,7 +203,7 @@ Every message is an event:
 |---|---|---|
 | `thread_opened` | the coordinator takes the thread up | `userQuery`, `conversationId`, `crew`, `source` (`request` or `external`), `openedAt` |
 | `phase_entered` | the thread enters ADVISORY, EVALUATING, REVIEW, SYNTHESIZING or PAUSED, or resumes | `phase`, `phaseStartedAt`, `phaseBeforePause`, `advisoryPending`, `reason` |
-| `subcommittee_convened` | the advisory step ends | `path` (`reasoning`, `fallback`, `broadcast` or `direct`), `members`, `brief`, `skills`, `confidence`, `tokens` |
+| `subcommittee_convened` | the advisory step ends | `path` (`reasoning`, `fallback`, `broadcast` or `direct`), `members`, `brief`, `skills`, `confidence`, `tokens`, and when the selection was analysts only, `dataAgentsAdded` and `dataAgentsAddedReason` |
 | `evaluation_started` | the evaluation clock resets after `advisory_ready` | `roster` (who EVALUATING waits for) |
 | `review_started` | `review_ready` is sent | `roster` (the analysts woken), `pending` (each with its deadline) |
 | `signal_applied` | a signal changes the thread: `triaging`, `evaluating`, `waiting`, `waking`, `ready`, `agree`, `concern`, `block`, `stand_aside` | `agent`, `signal`, `messageId`, `deadlineAt`, and for a stand-aside for want of an accelerator `capacityReason` |

@@ -295,6 +295,18 @@
     "coordinator-event.json#/definitions/CoordinatorEventFields/crew": {
       "type": "null,string"
     },
+    "coordinator-event.json#/definitions/CoordinatorEventFields/dataAgentsAdded": {
+      "type": "array"
+    },
+    "coordinator-event.json#/definitions/CoordinatorEventFields/dataAgentsAddedReason": {
+      "type": "string",
+      "enum": [
+        "analysts_only"
+      ]
+    },
+    "coordinator-event.json#/definitions/CoordinatorEventFields/dataAgentsAdded[]": {
+      "type": "string"
+    },
     "coordinator-event.json#/definitions/CoordinatorEventFields/deadlineAt": {
       "type": "integer"
     },

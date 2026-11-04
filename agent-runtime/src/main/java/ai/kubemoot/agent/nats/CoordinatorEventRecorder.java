@@ -406,6 +406,10 @@ final class CoordinatorEventRecorder {
         putText(d, "brief", brief);
         d.set("technologies", strings(technologies));
         d.set("skills", strings(s.selectedSkills));
+        if (!s.dataAgentsAdded.isEmpty()) {
+            d.set("dataAgentsAdded", strings(s.dataAgentsAdded));
+            d.put("dataAgentsAddedReason", CrewDataGatherers.REASON_ANALYSTS_ONLY);
+        }
         d.put("confidence", s.triageConfidence);
         putText(d, "primaryChannel", s.primaryChannel);
         ObjectNode tokens = d.putObject("tokens");

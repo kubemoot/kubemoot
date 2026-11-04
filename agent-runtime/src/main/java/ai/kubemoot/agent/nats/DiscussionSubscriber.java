@@ -112,7 +112,6 @@ public class DiscussionSubscriber {
     private static final String MSG_ADVISORY_READY = "advisory_ready";
     private static final String MSG_REVIEW_READY = "review_ready";
     private static final String MSG_REPLY = "reply";
-    private static final String ROLE_ANALYST = "analyst";
 
     // Conversation context field constants
     private static final String FIELD_QUERY = "query";
@@ -187,7 +186,7 @@ public class DiscussionSubscriber {
 
     /** The trigger message types an agent acts on, by its discuss-role. */
     static Set<String> triggerTypesFor(String role) {
-        return ROLE_ANALYST.equalsIgnoreCase(role) ? ANALYST_TRIGGERS : TOOLER_TRIGGERS;
+        return CrewRoles.ANALYST.equalsIgnoreCase(role) ? ANALYST_TRIGGERS : TOOLER_TRIGGERS;
     }
 
     // Single constructor: Quarkus ArC requires one constructor (or one annotated

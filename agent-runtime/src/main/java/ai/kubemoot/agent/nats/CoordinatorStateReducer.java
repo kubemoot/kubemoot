@@ -125,6 +125,7 @@ final class CoordinatorStateReducer {
         s.triageConfidence = d.path("confidence").asDouble(-1.0);
         replaceAll(s.innerCircle, d.path("members"));
         replaceAll(s.selectedSkills, d.path("skills"));
+        replaceAll(s.dataAgentsAdded, d.path("dataAgentsAdded"));
         s.technologies.clear();
         d.path("technologies").forEach(n -> s.technologies.add(n.asText()));
         JsonNode tokens = d.path("tokens");

@@ -39,6 +39,8 @@ final class CoordinatorThreadState {
     double triageConfidence = -1.0;
     final Set<String> selectedSkills = new TreeSet<>();
     String selectionPath;
+    /** The data gatherers added because the selection was analysts only; empty for events that predate the field. */
+    final Set<String> dataAgentsAdded = new java.util.LinkedHashSet<>();
     String brief;
 
     // --- what the phase waits for ---

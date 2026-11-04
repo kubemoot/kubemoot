@@ -21,7 +21,7 @@
   "definitions": {
     "CoordinatorEventFields": {
       "type": "object",
-      "description": "The fields of an event. thread_opened: crew, conversationId, userQuery, primaryChannel, source, openedAt, phaseStartedAt. phase_entered: phase, phaseStartedAt, phaseBeforePause, advisoryPending, reason. subcommittee_convened: path, members, brief, technologies, skills, confidence, primaryChannel, tokens. evaluation_started: roster, startedAt. review_started: roster, pending. signal_applied: agent, signal, messageId, deadlineAt, researcher, capacityReason, tooLargeModel, model, lastSignalAt. failure_recorded: agent, cause, synthesized, failedSources, messageId, lastSignalAt. settled: phase, basis, counts. synthesis_started: agrees, concerns, standAsides. synthesis_done: outcome, channel, response, tokens, promptTooLarge. thread_reopened: phaseStartedAt, roster. thread_closed: reason, channel, advisoryPending. coordinator_resumed: fromSeq, resumedAt, coordinator. thread_opened also carries requestSeq. Any event may carry discussSeq.",
+      "description": "The fields of an event. thread_opened: crew, conversationId, userQuery, primaryChannel, source, openedAt, phaseStartedAt. phase_entered: phase, phaseStartedAt, phaseBeforePause, advisoryPending, reason. subcommittee_convened: path, members, brief, technologies, skills, dataAgentsAdded, dataAgentsAddedReason, confidence, primaryChannel, tokens. evaluation_started: roster, startedAt. review_started: roster, pending. signal_applied: agent, signal, messageId, deadlineAt, researcher, capacityReason, tooLargeModel, model, lastSignalAt. failure_recorded: agent, cause, synthesized, failedSources, messageId, lastSignalAt. settled: phase, basis, counts. synthesis_started: agrees, concerns, standAsides. synthesis_done: outcome, channel, response, tokens, promptTooLarge. thread_reopened: phaseStartedAt, roster. thread_closed: reason, channel, advisoryPending. coordinator_resumed: fromSeq, resumedAt, coordinator. thread_opened also carries requestSeq. Any event may carry discussSeq.",
       "properties": {
         "crew": { "type": ["string", "null"], "description": "The crew." },
         "conversationId": { "type": ["string", "null"], "description": "The conversation the thread belongs to." },
@@ -44,6 +44,8 @@
         "brief": { "type": ["string", "null"], "description": "The coordinator's brief." },
         "technologies": { "type": "array", "items": { "type": "string" }, "description": "The technologies the coordinator named." },
         "skills": { "type": "array", "items": { "type": "string" }, "description": "The skills the coordinator selected." },
+        "dataAgentsAdded": { "type": "array", "items": { "type": "string" }, "description": "On subcommittee_convened, when the selection was analysts only: the data gatherers the coordinator added, best match first. Absent when it added none. They are also in members." },
+        "dataAgentsAddedReason": { "type": "string", "enum": ["analysts_only"], "description": "Why dataAgentsAdded were added: analysts_only, the selection held no agent that gathers data." },
         "confidence": { "type": "number", "description": "The coordinator's confidence in its choice, or -1 when it has none." },
         "roster": { "type": "array", "items": { "type": "string" }, "description": "The agents the phase waits for, sorted. Empty when unknown." },
         "pending": { "type": "object", "additionalProperties": { "type": "integer" }, "description": "Agent to deadline, in milliseconds since the epoch." },

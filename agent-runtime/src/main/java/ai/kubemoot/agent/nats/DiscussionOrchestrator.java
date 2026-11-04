@@ -215,8 +215,6 @@ public class DiscussionOrchestrator {
     private static final String FIELD_ROLE = "role";
     private static final String FIELD_DESCRIPTION = "description";
     private static final String FIELD_TOOLS = "tools";
-    private static final String ROLE_TOOLER = "tooler";
-    private static final String ROLE_ANALYST = "analyst";
     private static final String ROLE_RESEARCHER = "researcher";
     private static final String KIND_SKILL = "skill";
     private static final String FIELD_KIND = "kind";
@@ -1662,6 +1660,7 @@ public class DiscussionOrchestrator {
                 outcome = selectViaFallback(state);
             }
 
+            addDataGatherersToAnalysts(state, outcome.wisdom());
             state.advisoryContent = outcome.wisdom();
             state.advisoryTechnologies = new CopyOnWriteArrayList<>(outcome.technologies());
             state.primaryChannel = classifyChannelFromAdvisory(outcome.technologies());
@@ -1745,6 +1744,61 @@ public class DiscussionOrchestrator {
                     derivedId);
         } catch (Exception e) {
             log.warn("Failed to publish subcommittee for thread {}: {}", state.threadId, e.getMessage());
+        }
+    }
+
+    /**
+     * A subcommittee of analysts alone has no data to work on: analysts compute or reason
+     * over what gatherers collected. When every member is an analyst, add the crew's
+     * gatherers that best match the question (at most CrewDataGatherers.MAX_ADDED) and
+     * remember them for the subcommittee_convened event. Applies to every selection path.
+     * A crew with no gatherer keeps its analysts; the evaluation then reports the failure.
+     */
+    private void addDataGatherersToAnalysts(ThreadState state, String brief) {
+        Set<String> circle = state.innerCircle;
+        JsonNode resumes = readResumes(loadCrewResumes());
+        var analysts = new HashSet<String>();
+        CrewAnalysts.analysts(resumes).forEach(node -> analysts.add(node.path(FIELD_NAME).asText("")));
+        if (!CrewDataGatherers.analystsOnly(circle, analysts)) return;
+        List<String> gatherers = CrewDataGatherers.gatherers(resumes);
+        if (gatherers.isEmpty()) {
+            log.warn("Thread {} - subcommittee {} is analysts only and the crew has no data gatherer",
+                    state.threadId, circle);
+            return;
+        }
+        List<String> added = CrewDataGatherers.choose(rankCrew(state, brief, resumes.size()),
+                gatherers, CrewDataGatherers.MAX_ADDED);
+        circle.addAll(added);
+        state.dataAgentsAdded = List.copyOf(added);
+        log.info("Thread {} - subcommittee was analysts only; added data gatherers {}", state.threadId, added);
+    }
+
+    /** The resumes as a tree, or null when there are none or they cannot be read. */
+    private JsonNode readResumes(String raw) {
+        try {
+            return raw == null || raw.isBlank() ? null : mapper.readTree(raw);
+        } catch (Exception e) {
+            log.debug("Could not read crew resumes: {}", e.getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * The crew ranked by the same resume search the pre-filter uses, asked for every
+     * agent so a gatherer the pre-filter left out is still ranked. The query is the
+     * question plus the coordinator's brief, which names the data the answer needs; the
+     * question alone is too general to tell a node source from a GPU source. Null when
+     * the search is unavailable or fails.
+     */
+    private List<String> rankCrew(ThreadState state, String brief, int crewSize) {
+        if (resumeSearchClient == null || !resumeSearchClient.isAvailable()) return null;
+        try {
+            String query = brief == null || brief.isBlank() ? state.userQuery : state.userQuery + "\n" + brief;
+            return resumeSearchClient.searchResumes(query,
+                    Math.max(crewSize, properties.discuss().resumePreFilterTopK()));
+        } catch (Exception e) {
+            log.warn("Thread {} - resume ranking for data gatherers failed: {}", state.threadId, e.getMessage());
+            return null;
         }
     }
 
@@ -4213,7 +4267,7 @@ public class DiscussionOrchestrator {
         if (name.isEmpty()) return;
         sb.append("- ").append(name);
         String role = node.path(FIELD_ROLE).asText("");
-        if (!role.isEmpty() && !ROLE_TOOLER.equals(role)) {
+        if (!CrewRoles.gathersData(role)) {
             sb.append(" [").append(role).append("]");
         }
         String desc = node.path(FIELD_DESCRIPTION).asText("");
@@ -4716,6 +4770,9 @@ public class DiscussionOrchestrator {
         // checker thread (advisory_ready and review_ready publishes).
         volatile Set<String> innerCircle; // NOSONAR S3077: volatile reference + only ever assigned ConcurrentHashMap.newKeySet(); thread-safe by construction (ref visibility + concurrent contents)
         volatile double triageConfidence = -1.0;
+        // Data gatherers the coordinator added because the selection was analysts only;
+        // empty when it added none. Written to the subcommittee_convened event.
+        volatile List<String> dataAgentsAdded = List.of();
         // Skills selected by the coordinator for this discussion. Set when the
         // coordinator's reasoning JSON includes a "skills" array. Empty set means
         // no skills were selected (behavior unchanged from pre-skills baseline).
