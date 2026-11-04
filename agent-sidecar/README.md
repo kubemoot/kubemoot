@@ -19,7 +19,7 @@ The module imports the operator's bus contract (`operator/pkg/bus`) and the cont
 | `internal/modeldoor` | The model door: OpenAI-compatible, `model` is an alias, each call placed by the placement service, streamed back unbuffered, measured, ticket released |
 | `internal/toolsdoor` | The tools door: stateless MCP over streamable HTTP, allow-list enforced on list and on call, requester date and time zone in `_meta`, identical repeat calls to read-only or idempotent tools answered from the turn |
 | `internal/placement` | The placement service client, the bound-server floor, and the degraded fallback |
-| `internal/bus` | Admission, the durable consumer binding with progress acks, the turn, signals, heartbeat, artifact spill, lifecycle |
+| `internal/bus` | Admission, the durable consumer binding with progress acks, the turn, signals, heartbeat, lifecycle |
 | `internal/turn` | What the sidecar measures per turn, keyed by the per-turn key the harness sends as its API key |
 | `internal/obs` | OpenTelemetry (W3C trace context through every hop) and Prometheus metrics |
 | `internal/bustest` | Test kit: a real NATS server with JetStream, the operator's consumer shape, schema validation of every published message |

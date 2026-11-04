@@ -63,16 +63,14 @@ export async function readFitnessTranscript(objectKey: string): Promise<unknown>
 
 // DISCUSSION_ARTIFACTS_BUCKET must match the agent-runtime's constant
 // (DiscussionArtifacts.BUCKET in kubemoot/agent-runtime/src/main/java/ai/
-// kubemoot/agent/nats/DiscussionArtifacts.java). The spill in DiscussionSubscriber
-// writes a large agent contribution here at key
-// `{namespace}/{crew}/{threadId}/{agent}/{signal}-{uuid}` (see #lib/crewScope)
-// and appends an `[ARTIFACT key=...]` marker to the inline message. The two literals
-// are kept in sync by code review.
+// kubemoot/agent/nats/DiscussionArtifacts.java). The agent runtime writes each tool result
+// here at key `{namespace}/{crew}/{threadId}/{agent}/{nnn}-{tool}` (see #lib/crewScope).
+// The two literals are kept in sync by code review.
 export const DISCUSSION_ARTIFACTS_BUCKET = 'kubemoot_discussion_artifacts';
 
 /**
- * Read a spilled discussion artifact (the FULL contribution behind an
- * `[ARTIFACT key=...]` marker) from the discussion-artifacts bucket. Returns the
+ * Read a stored discussion artifact (a tool result file, or the full contribution behind an
+ * `[ARTIFACT key=...]` marker in a thread from an earlier release) from the discussion-artifacts bucket. Returns the
  * bytes as a Uint8Array, or null when the object is absent (TTL-pruned, GC-reaped,
  * or never written). Mirrors readFitnessArtifact but against the discussion bucket.
  *

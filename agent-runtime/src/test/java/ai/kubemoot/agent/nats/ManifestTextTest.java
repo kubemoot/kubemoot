@@ -5,7 +5,7 @@ import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-class ManifestInlinerTest {
+class ManifestTextTest {
 
     private static final String K1 = "ns/crew/t1/k8s/001-pods_list";
     private static final String K2 = "ns/crew/t1/k8s/002-events_list";
@@ -18,14 +18,8 @@ class ManifestInlinerTest {
     private static final String MANIFEST = HEADER + LINE1 + "\n" + LINE2 + FOOTER;
 
     @Test
-    void cutLeavesAShortTextAndMarksALongOne() {
-        assertEquals("abc", ManifestInliner.cut("abc", 3));
-        assertEquals("ab" + ManifestInliner.CUT_NOTE, ManifestInliner.cut("abc", 2));
-    }
-
-    @Test
     void theHeaderAndClosingLineGoAwayAndTheCallLinesStayUnlessAsked() {
-        String out = ManifestInliner.strip("Findings:\n" + MANIFEST, false);
+        String out = ManifestText.strip("Findings:\n" + MANIFEST, false);
 
         assertTrue(out.contains(LINE1) && out.contains(LINE2), out);
         assertFalse(out.contains("[WORKSPACE"), out);
@@ -36,10 +30,27 @@ class ManifestInlinerTest {
     void theUserFacingAnswerLosesTheManifestLinesAndKeepsItsOwnText() {
         String answer = "The cluster has 3 pods.\n" + MANIFEST;
 
-        assertEquals("The cluster has 3 pods.\n", ManifestInliner.strip(answer, true).replaceAll("\\n+$", "\n"));
-        assertTrue(ManifestInliner.strip(answer, false).contains("[CALL key="), "call lines stay unless asked");
-        assertEquals("[WORKSPACE no end", ManifestInliner.strip("[WORKSPACE no end", true));
+        assertEquals("The cluster has 3 pods.\n", ManifestText.strip(answer, true).replaceAll("\\n+$", "\n"));
+        assertTrue(ManifestText.strip(answer, false).contains("[CALL key="), "call lines stay unless asked");
+        assertEquals("[WORKSPACE no end", ManifestText.strip("[WORKSPACE no end", true));
         assertEquals("The cluster has 3 pods.", DiscussionOrchestrator.publishedContent("synthesis", "The cluster has 3 pods."));
+    }
+
+    @Test
+    void aNotStoredLineGoesWithTheCallLinesFromTheUserFacingAnswer() {
+        String answer = "Two pods.\n[WORKSPACE agent=k8s calls=1 errors=0 prefix=]\n"
+                + "[NOT STORED tool=pods_list args={} error=false - the result could not be written to the workspace "
+                + "and is not available]";
+
+        assertEquals("Two pods.\n\n", ManifestText.strip(answer, true).replaceAll("\\n+$", "\n\n"));
+        assertTrue(ManifestText.strip(answer, false).contains("[NOT STORED tool=pods_list"),
+                "the synthesizer sees it");
+    }
+
+    @Test
+    void aTextWithNoManifestIsUnchanged() {
+        assertEquals("plain", ManifestText.strip("plain", true));
+        assertEquals("", ManifestText.strip("", false));
     }
 
     @Test

@@ -215,16 +215,6 @@ public interface AgentProperties {
         @WithDefault("0")
         int synthesisCompletenessRetries();
 
-        /**
-         * Most rounds the synthesis makes when the stored tool results of a thread do not fit one
-         * prompt (per-call workspace artifacts). Each round before the last reads the next batch of
-         * results into working notes; the last writes the answer. A small context window takes more
-         * rounds for the same evidence, so raise this on an install whose models have small windows.
-         * Set with KUBEMOOT_DISCUSS_SYNTHESIS_EVIDENCE_ROUNDS on the coordinator. A value below 1 is the default.
-         */
-        @WithDefault("4")
-        int synthesisEvidenceRounds();
-
         @WithDefault("10")
         int advisoryTimeoutSeconds();
 

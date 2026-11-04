@@ -12,7 +12,7 @@ class ToolCallLedgerTest {
 
     private static final Instant T0 = Instant.parse("2026-11-01T12:00:00Z");
 
-    private final ChatServicePerCallArtifactsTest.FakeStore store = new ChatServicePerCallArtifactsTest.FakeStore();
+    private final ChatServiceCallFilesTest.FakeStore store = new ChatServiceCallFilesTest.FakeStore();
     private final ToolCallLedger ledger = new ToolCallLedger(store, "th", "agent-x");
 
     private String record(String tool, String args, String result, boolean error) {
@@ -22,7 +22,7 @@ class ToolCallLedgerTest {
     @Test
     void theManifestIsTheSameTextForTheSameCalls() {
         record("pods_list", "{\"namespace\":\"a\"}", "[{\"x\":1}]", false);
-        var other = new ToolCallLedger(new ChatServicePerCallArtifactsTest.FakeStore(), "th", "agent-x");
+        var other = new ToolCallLedger(new ChatServiceCallFilesTest.FakeStore(), "th", "agent-x");
         other.record(new ToolCallLedger.Call("pods_list", "id", "{\"namespace\":\"a\"}", T0, 99),
                 "[{\"x\":1}]", false, 1_000_000);
 
@@ -104,14 +104,33 @@ class ToolCallLedgerTest {
     }
 
     @Test
-    void completeNeedsACallAndEveryWriteToHaveWorked() {
-        assertFalse(ledger.complete());
+    void aCallWhoseWriteFailedIsCountedAndNamedNotStored() {
+        assertFalse(ledger.holdsOutput());
         record("t", "{}", "[]", false);
-        assertTrue(ledger.complete());
+        assertTrue(ledger.holdsOutput());
         store.failWrites = true;
-        assertNull(record("t", "{}", "[]", false));
-        assertFalse(ledger.complete());
-        assertEquals(1, ledger.size());
+        assertNull(record("u", "{\"a\":1}", "[]", true));
+        assertEquals(2, ledger.size());
+
+        String manifest = ledger.manifest();
+
+        assertTrue(manifest.contains("calls=2 errors=1"), manifest);
+        assertTrue(manifest.contains("[NOT STORED tool=u args={\"a\":1} error=true"), manifest);
+        assertTrue(CallManifest.NOT_STORED_LINE.matcher(manifest).find());
+        assertTrue(manifest.contains("prefix=" + ledger.prefix()) && !ledger.prefix().isEmpty(), manifest);
+    }
+
+    @Test
+    void aLedgerWhoseEveryWriteFailedHasNoPrefixAndStillDescribesTheCalls() {
+        store.failWrites = true;
+        record("t", "{}", "[]", false);
+
+        String manifest = ledger.manifest();
+
+        assertEquals("", ledger.prefix());
+        assertFalse(manifest.contains("*-<tool>"), "there is no key pattern to name: " + manifest);
+        assertTrue(manifest.contains("[NOT STORED tool=t"), manifest);
+        assertFalse(manifest.contains("[CALL key="), manifest);
     }
 
     @Test

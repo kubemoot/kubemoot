@@ -308,23 +308,8 @@ final class CoordinatorEventRecorder {
             tokens.put("in", s.synthesisInputTokens);
             tokens.put("out", s.synthesisOutputTokens);
             d.put("promptTooLarge", s.synthesisPromptTooLarge);
-            d.put("rounds", s.synthesisRounds);
-            d.put("filledBytes", s.synthesisFilledBytes);
-            putDelivery(d, s.synthesisDetail);
             return emit(s, SYNTHESIS_DONE, keyed(s, "synthesis/done/" + s.trace.enter(SYNTHESIS_DONE)), d);
         });
-    }
-
-    /** The delivery of per-call evidence: covered and uncovered keys, milliseconds per step. */
-    private void putDelivery(ObjectNode d, SynthesisDetail detail) {
-        if (detail == null) {
-            return;
-        }
-        ObjectNode delivery = d.putObject("delivery");
-        delivery.set("covered", strings(detail.covered()));
-        delivery.set("uncovered", strings(detail.uncovered()));
-        ObjectNode steps = delivery.putObject("stepMillis");
-        detail.stepMillis().forEach(steps::put);
     }
 
     /** A human reply reopened a closed thread: a new round begins with no roster and no signals. */
@@ -473,8 +458,6 @@ final class CoordinatorEventRecorder {
     private void signalDetails(ObjectNode d, ThreadState s, String agent, String signal, JsonNode msg) {
         if (AGREE.equals(signal)) {
             d.put(RESEARCHER, s.researcherAgents.contains(agent));
-            d.put(WITH_DATA, AnalystReadouts.answeredWithData(JsonFields.text(msg, "content")));
-            d.set(READ_KEYS, strings(AnalystReadouts.readKeysOf(msg)));
         }
         if (WAITING.equals(signal)) {
             d.put(MODEL, msg.path("metadata").path(MODEL).asText(""));

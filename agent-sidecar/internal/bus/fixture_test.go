@@ -91,20 +91,19 @@ func (h *harness) firstMessage() *sdk.Message {
 // pod is a sidecar under test: a runner on a real NATS server with JetStream, and a recorder of
 // everything the agent publishes.
 type pod struct {
-	url      string
-	nc       *nats.Conn
-	js       nats.JetStreamContext
-	runner   *bus.Runner
-	pub      *bus.Publisher
-	reg      *turn.Registry
-	h        *harness
-	got      chan kbus.DiscussionMessage
-	raw      chan []byte
-	artifact chan []byte
-	tools    *fakeTools
-	planner  *fakePlanner
-	metrics  *obs.Metrics
-	sub      *nats.Subscription
+	url     string
+	nc      *nats.Conn
+	js      nats.JetStreamContext
+	runner  *bus.Runner
+	pub     *bus.Publisher
+	reg     *turn.Registry
+	h       *harness
+	got     chan kbus.DiscussionMessage
+	raw     chan []byte
+	tools   *fakeTools
+	planner *fakePlanner
+	metrics *obs.Metrics
+	sub     *nats.Subscription
 }
 
 // deliveries is how many bus messages the sidecar counted with the given result.
@@ -193,7 +192,7 @@ func newPodWith(t *testing.T, ctx context.Context, o options,
 	h := &harness{do: script, reg: reg, canceled: make(chan sdk.TaskID, 4)}
 	metrics := obs.New(obs.Labels{Namespace: "homelab", Crew: crewPilot, Agent: agent}, "algorithm")
 	p := &pod{metrics: metrics, url: url, nc: nc, js: js, reg: reg, h: h, tools: &fakeTools{}, planner: &fakePlanner{},
-		got: make(chan kbus.DiscussionMessage, 64), raw: make(chan []byte, 64), artifact: make(chan []byte, 8)}
+		got: make(chan kbus.DiscussionMessage, 64), raw: make(chan []byte, 64)}
 	p.pub = &bus.Publisher{Conn: nc, JS: js, ID: identity, Role: identity.Role, Harness: "test-harness",
 		HarnessImage: "registry/harness@sha256:abc", Model: modelQwen, EnabledTools: []string{toolFetch}, Metrics: metrics}
 	p.runner = &bus.Runner{ID: identity, Bus: b, Turn: mesh.Turn{Concurrency: o.concurrency,
@@ -312,9 +311,6 @@ func (p *pod) record(t *testing.T) {
 			p.got <- msg
 		}
 	}); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := rc.Subscribe("kubemoot.artifacts.>", func(m *nats.Msg) { p.artifact <- m.Data }); err != nil {
 		t.Fatal(err)
 	}
 	if err := rc.Flush(); err != nil {

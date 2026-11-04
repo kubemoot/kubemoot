@@ -36,15 +36,20 @@ class DiscussionOrchestratorHelpersTest {
     // --- deadlineWindowMs (heartbeat-floored evaluation deadline) ---
 
     @Test
-    void publishedContent_synthesisDeliveredWholeAndMarkerStripped() {
+    void publishedContent_synthesisDeliveredWholeAndFileDescriptionsStripped() {
         // The synthesis is the terminal user answer: it must NOT be cut at the 5000
-        // bus cap, and any internal artifact-spill marker must be stripped so the
+        // bus cap, and the internal file descriptions must be stripped so the
         // user is never handed an /artifacts/ path they cannot open.
         String body = "A".repeat(20_000);
-        String synth = body + "\n\n[ARTIFACT key=crew/t/agent/agree/abc bytes=99 - full data materialized at /artifacts/crew/t/agent/agree/abc]";
+        String synth = body + "\n\n[WORKSPACE agent=a calls=2 errors=0 prefix=crew/t/a/]\n"
+                + "[CALL key=crew/t/a/001-x tool=x args={} format=json bytes=99 rows=2 error=false]\n"
+                + "[NOT STORED tool=y args={} error=false - the result could not be written to the workspace and is not available]\n"
+                + "The results are stored under these keys and are not shown here. Read a key with workspace_query.";
         String out = DiscussionOrchestrator.publishedContent("synthesis", synth);
-        assertFalse(out.contains("ARTIFACT key="), "artifact marker must be stripped from synthesis");
-        assertFalse(out.contains("/artifacts/"), "no internal artifact path may reach the user");
+        assertFalse(out.contains("[CALL key="), "a file description must be stripped from synthesis");
+        assertFalse(out.contains("[NOT STORED"), "a not-stored line must be stripped from synthesis");
+        assertFalse(out.contains("[WORKSPACE"), "the header must be stripped from synthesis");
+        assertFalse(out.contains("workspace_query"), "the closing line must be stripped from synthesis");
         assertFalse(out.endsWith("..."), "a 20k synthesis must not be truncated");
         assertTrue(out.startsWith(body), "the full answer body must be preserved");
     }
@@ -715,7 +720,6 @@ class DiscussionOrchestratorHelpersTest {
                 @Override public boolean metricsDrillContract() { return false; }
                 @Override public Optional<String> alwaysCandidateAgents() { return Optional.empty(); }
                 @Override public int synthesisCompletenessRetries() { return completenessRetries; }
-                @Override public int synthesisEvidenceRounds() { return 4; }
                 @Override public boolean answerDirectly() { return true; }
                 @Override public boolean hasAnalysts() { return false; }
                 @Override public int advisoryTimeoutSeconds() { return 10; }
@@ -889,36 +893,6 @@ class DiscussionOrchestratorHelpersTest {
         assertTrue(state.tooLargeModels.isEmpty());
         assertEquals("No GPU in this cluster can hold the model the agents need; add a smaller Model or a larger GPU.",
                 DiscussionOrchestrator.capacityMessage(state));
-    }
-
-    @Test
-    void artifactMarkerExtractsTheKey() {
-        var m = DiscussionOrchestrator.ARTIFACT_MARKER_WITH_KEY.matcher(
-                "before [ARTIFACT key=crew/t/agent/agree/abc bytes=99 - at /artifacts/x] after");
-        assertTrue(m.find());
-        assertEquals("crew/t/agent/agree/abc", m.group(1));
-        assertEquals("[ARTIFACT key=crew/t/agent/agree/abc bytes=99 - at /artifacts/x]", m.group());
-    }
-
-    @Test
-    void artifactMarkerWithoutAttributesExtractsTheKey() {
-        var m = DiscussionOrchestrator.ARTIFACT_MARKER_WITH_KEY.matcher("[ARTIFACT key=a/b]");
-        assertTrue(m.find());
-        assertEquals("a/b", m.group(1));
-    }
-
-    @Test
-    void artifactMarkerRejectsMalformedMarkers() {
-        assertFalse(DiscussionOrchestrator.ARTIFACT_MARKER_WITH_KEY.matcher("[ARTIFACT key=]").find());
-        assertFalse(DiscussionOrchestrator.ARTIFACT_MARKER_WITH_KEY.matcher("[ARTIFACT key= a]").find());
-        assertFalse(DiscussionOrchestrator.ARTIFACT_MARKER_WITH_KEY.matcher("[ARTIFACT key=abc").find());
-    }
-
-    @Test
-    void unterminatedArtifactMarkerFailsInLinearTime() {
-        String text = "[ARTIFACT key=" + "k".repeat(50_000) + " " + "x".repeat(50_000);
-        assertTimeoutPreemptively(java.time.Duration.ofSeconds(2),
-                () -> assertFalse(DiscussionOrchestrator.ARTIFACT_MARKER_WITH_KEY.matcher(text).find()));
     }
 
     @Test

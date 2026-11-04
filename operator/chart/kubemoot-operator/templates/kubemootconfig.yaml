@@ -20,7 +20,6 @@ spec:
     doclingServe: {{ include "kubemoot-operator.image" (dict "root" $ "image" .Values.kubemootConfig.images.doclingServe) | quote }}
   artifacts:
     queryEngine: {{ include "kubemoot-operator.artifactQueryEngine" . | quote }}
-    perCallArtifacts: {{ include "kubemoot-operator.perCallArtifacts" . }}
   coordinator:
     eventLog: {{ include "kubemoot-operator.coordinatorEventLog" . }}
     resume: {{ include "kubemoot-operator.coordinatorResume" . }}

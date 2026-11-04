@@ -191,12 +191,4 @@ final class ThreadCatalog {
         return withCalls ? READING_NOTE
                 : READING_NOTE + " Per-call lines are not shown; SELECT DISTINCT _call, _args over the pattern lists them.";
     }
-
-    /** The totals and, per tool, the number of calls, on one line: what a synthesis is told when no analyst reads. */
-    String counts() {
-        var perTool = new LinkedHashMap<String, Integer>();
-        entries.forEach(e -> perTool.merge(e.tool(), 1, Integer::sum));
-        return HEADER_PREFIX + "calls=" + calls() + " errors=" + errors() + " bytes=" + bytes() + " tools="
-                + perTool + "]";
-    }
 }

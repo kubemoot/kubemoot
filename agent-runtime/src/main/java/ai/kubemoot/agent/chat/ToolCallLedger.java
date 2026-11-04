@@ -8,21 +8,21 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * The per-call workspace objects of one tooler's tool loop. Each tool call's result is written
- * as its own object, with headers that describe the call, and the tooler's contribution becomes
- * a short manifest of those objects instead of the results glued together. The manifest is built
+ * The per-call workspace objects of one agent's tool loop. Every tool call's result is written as
+ * its own object, with headers that describe the call, and the agent's contribution carries a short
+ * manifest of those objects: the description of each file, never its content. The manifest is built
  * in code from what was stored, so it is the same text for the same calls.
  *
- * <p>A call whose write failed is not in the manifest, and {@link #complete()} is then false: the
- * caller posts the glued output as before, so a storage failure never loses data.
+ * <p>A call whose write failed has a line in the manifest that says it was not stored, so the crew
+ * learns that the data existed and is not available.
  */
 final class ToolCallLedger {
 
     /** What the loop knows about a call before its result is stored. */
     record Call(String tool, String callId, String arguments, Instant started, long durationMs) {}
 
-    /** The manifest stays under the runtime's spill threshold so it is posted inline. */
-    static final int MAX_MANIFEST_CHARS = 4_000;
+    /** The descriptions stay under this size so they are posted inline whole. */
+    static final int MAX_MANIFEST_CHARS = CallManifest.MAX_CHARS;
     /** Most characters of a call's arguments in a manifest line. */
     static final int ARGS_SUMMARY_CHARS = CallManifest.ARGS_SUMMARY_CHARS;
     /** Most column or field names of one call in a manifest line, and the most characters of one name. */
@@ -33,7 +33,6 @@ final class ToolCallLedger {
     private final String threadId;
     private final String agent;
     private final List<ToolCallRecord> calls = new ArrayList<>();
-    private boolean everyWriteWorked = true;
 
     ToolCallLedger(CallArtifactStore store, String threadId, String agent) {
         this.store = store;
@@ -41,9 +40,9 @@ final class ToolCallLedger {
         this.agent = agent;
     }
 
-    /** A ledger for a loop, or null when there is no store, no thread or the loop is not a tooler's. */
-    static ToolCallLedger forLoop(boolean enabled, CallArtifactStore store, String threadId, String agent) {
-        boolean usable = enabled && store != null && threadId != null && !threadId.isBlank();
+    /** A ledger for a loop, or null when there is no store or no discussion thread to store under. */
+    static ToolCallLedger forLoop(CallArtifactStore store, String threadId, String agent) {
+        boolean usable = store != null && threadId != null && !threadId.isBlank();
         return usable ? new ToolCallLedger(store, threadId, agent) : null;
     }
 
@@ -59,7 +58,7 @@ final class ToolCallLedger {
         String key = store.reserveKey(threadId, agent, call.tool());
         Map<String, String> headers = headers(call, key, body.length, shape, error, cut);
         if (!store.put(threadId, agent, call.tool(), key, body, headers)) {
-            everyWriteWorked = false;
+            calls.add(ToolCallRecord.notStored(call.tool(), call.arguments(), error));
             return null;
         }
         String format = cut && shape.json() ? CallHeaders.FORMAT_TEXT : shape.format();
@@ -102,25 +101,20 @@ final class ToolCallLedger {
         return key.substring(key.lastIndexOf('/') + 1);
     }
 
-    /** True when at least one call is stored and every write worked. */
-    boolean complete() {
-        return everyWriteWorked && !calls.isEmpty();
-    }
-
-    /** True when any call was stored, so the tooler holds output. */
+    /** True when the agent made a tool call, so its contribution has a manifest to carry. */
     boolean holdsOutput() {
         return !calls.isEmpty();
     }
 
-    /** Number of calls stored. */
+    /** Number of calls recorded, stored or not. */
     int size() {
         return calls.size();
     }
 
     /**
-     * The tooler's contribution: a header line, one line per call, and one line saying where the
-     * results are. Arguments are summarized, then dropped, then the oldest lines are replaced by
-     * a count, so the text never passes {@link #MAX_MANIFEST_CHARS}.
+     * The file descriptions of the agent's contribution: a header line, one line per call, and one
+     * line saying where the results are. Arguments are summarized, then dropped, then the oldest
+     * lines are replaced by a count, so the text never passes {@link #MAX_MANIFEST_CHARS}.
      */
     String manifest() {
         String prefix = prefix();
@@ -129,8 +123,8 @@ final class ToolCallLedger {
                 + " prefix=" + prefix + "]\n";
         String foot = "\n" + CallManifest.FOOTER_PREFIX + " and are not shown here. Read a key with "
                 + "workspace_query (SQL; the columns are listed on the call line), the artifact_* tools, or "
-                + "execute_code over the file /artifacts/<key>; the key " + prefix
-                + "*-<tool> reads every call of one tool as one table.";
+                + "execute_code over the file /artifacts/<key>"
+                + (prefix.isEmpty() ? "." : "; the key " + prefix + "*-<tool> reads every call of one tool as one table.");
         int room = MAX_MANIFEST_CHARS - head.length() - foot.length();
         return head + lines(room) + foot;
     }
@@ -171,6 +165,10 @@ final class ToolCallLedger {
     }
 
     private static String line(ToolCallRecord c, boolean withArgs, boolean withColumns) {
+        if (!c.stored()) {
+            return CallManifest.NOT_STORED_PREFIX + c.tool() + (withArgs ? " args=" + summary(c.arguments()) : "")
+                    + " error=" + c.error() + " - the result could not be written to the workspace and is not available]";
+        }
         var sb = new StringBuilder(CallManifest.CALL_PREFIX).append(c.key()).append(" tool=").append(c.tool());
         if (withArgs) {
             sb.append(" args=").append(summary(c.arguments()));
@@ -207,10 +205,7 @@ final class ToolCallLedger {
 
     /** The key prefix shared by this agent's calls in the thread: everything up to the last slash. */
     String prefix() {
-        if (calls.isEmpty()) {
-            return "";
-        }
-        String key = calls.get(0).key();
-        return key.substring(0, key.lastIndexOf('/') + 1);
+        return calls.stream().filter(ToolCallRecord::stored).findFirst()
+                .map(c -> c.key().substring(0, c.key().lastIndexOf('/') + 1)).orElse("");
     }
 }

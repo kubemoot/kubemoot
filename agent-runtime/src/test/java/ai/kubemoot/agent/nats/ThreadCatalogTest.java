@@ -79,12 +79,6 @@ class ThreadCatalogTest {
     }
 
     @Test
-    void theCountsLineNamesTheCallsPerTool() {
-        assertEquals("[CATALOG calls=11 errors=1 bytes=198940 tools={get_node_status=1, list_vms=1, get_vm_rrd_data=9}]",
-                proxmox().counts());
-    }
-
-    @Test
     void anEmptyCatalogIsEmpty() {
         var catalog = new ThreadCatalog(PREFIX, List.of());
 

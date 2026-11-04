@@ -327,14 +327,6 @@ func (c *ConfigCache) GetPlacementServiceURL() string {
 	return ps.URL
 }
 
-// GetPerCallArtifacts reports whether the realm has toolers store each tool call's result as its
-// own workspace object. Unset is off, also when the realm has no KubemootConfig.
-func (c *ConfigCache) GetPerCallArtifacts() bool {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-	return c.config != nil && c.config.Spec.Artifacts.PerCallArtifacts
-}
-
 // GetCoordinatorEventLog reports whether the realm turns the coordinators' decision log on.
 // Unset is on, also when the realm has no KubemootConfig or no coordinator block.
 func (c *ConfigCache) GetCoordinatorEventLog() bool {

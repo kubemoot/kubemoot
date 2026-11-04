@@ -3,10 +3,10 @@ package ai.kubemoot.agent.chat;
 import java.util.regex.Pattern;
 
 /**
- * The text form of a tooler's manifest, shared by the code that writes it ({@link ToolCallLedger}),
- * the compute contract that looks for stored results in its input, and the coordinator that fills a
- * manifest in with the stored results before synthesis. One definition, so the writer and the
- * readers cannot drift.
+ * The text form of the file descriptions an agent's contribution carries, shared by the code that
+ * writes them ({@link ToolCallLedger}), the compute contract that looks for stored results in its
+ * input, and the coordinator that removes the internal lines from the user-facing answer. One
+ * definition, so the writer and the readers cannot drift.
  */
 public final class CallManifest {
 
@@ -15,6 +15,9 @@ public final class CallManifest {
 
     /** Opens a call line: {@code [CALL key=<key> tool=<tool> args=... bytes=... rows=... error=...]}. */
     public static final String CALL_PREFIX = "[CALL key=";
+
+    /** Opens the line of a call whose result could not be written: {@code [NOT STORED tool=<tool> ...]}. */
+    public static final String NOT_STORED_PREFIX = "[NOT STORED tool=";
 
     /** Opens the closing line that says where the results are. */
     public static final String FOOTER_PREFIX = "The results are stored under these keys";
@@ -26,9 +29,15 @@ public final class CallManifest {
     public static final Pattern CALL_LINE =
             Pattern.compile("\\[CALL key=([^\\]\\s]++) tool=([^\\]\\s]++)[^\\]]*+\\]");
 
+    /** A not-stored line. */
+    public static final Pattern NOT_STORED_LINE = Pattern.compile("\\[NOT STORED tool=[^\\]]*+\\]");
+
     /** The closing line, up to its end. */
     public static final Pattern FOOTER_LINE =
             Pattern.compile("\\n?" + Pattern.quote(FOOTER_PREFIX) + "[^\\n]*+");
+
+    /** Most characters of the descriptions an agent's contribution carries. */
+    public static final int MAX_CHARS = 4_000;
 
     /** Most characters of a call's arguments in a manifest or catalog line. */
     public static final int ARGS_SUMMARY_CHARS = 60;

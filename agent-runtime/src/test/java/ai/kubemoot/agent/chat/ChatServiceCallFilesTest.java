@@ -32,11 +32,11 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 /**
- * With per-call artifacts on, a raw-output tooler stores each tool result as its own workspace
- * object and its contribution is the manifest of those objects. With them off, the contribution is
- * the glued tool output, unchanged.
+ * Every tool result is stored as its own workspace object. A raw-output tooler's contribution is the
+ * description of those files; any other agent's contribution is its own statement plus the same
+ * description. The content of a file is never in the contribution.
  */
-class ChatServicePerCallArtifactsTest {
+class ChatServiceCallFilesTest {
 
     private static final String THREAD = "t1";
     private static final String AGENT = "test-agent";
@@ -51,6 +51,7 @@ class ChatServicePerCallArtifactsTest {
         final Map<String, Map<String, String>> headers = new LinkedHashMap<>();
         int next;
         boolean failWrites;
+        String failFor;
 
         @Override
         public String reserveKey(String threadId, String agent, String tool) {
@@ -60,7 +61,7 @@ class ChatServicePerCallArtifactsTest {
         @Override
         public boolean put(String threadId, String agent, String tool, String key, byte[] body,
                            Map<String, String> hdrs) {
-            if (failWrites) {
+            if (failWrites || tool.equals(failFor)) {
                 return false;
             }
             bodies.put(key, body);
@@ -86,7 +87,6 @@ class ChatServicePerCallArtifactsTest {
                 mock(AgentHeartbeatService.class), new ObjectMapper(),
                 null, null, null, null, null, null, null, null, null);
         service.callArtifactStore = store;
-        service.perCallArtifacts = true;
         return service;
     }
 
@@ -120,7 +120,7 @@ class ChatServicePerCallArtifactsTest {
     }
 
     private ChatService.ToolLoopResult run(ChatService service, long window) {
-        var ledger = ToolCallLedger.forLoop(true, store, THREAD, AGENT);
+        var ledger = ToolCallLedger.forLoop(store, THREAD, AGENT);
         return service.callWithToolLoop(question(), chatModel, "s", "test", true, window, ledger);
     }
 
@@ -225,14 +225,70 @@ class ChatServicePerCallArtifactsTest {
     }
 
     @Test
-    void aFailedWriteLeavesTheGluedOutputAsTheContribution() {
+    void aFailedWriteIsNamedNotStoredAndNoResultDataIsPosted() {
         store.failWrites = true;
         registerTools(r -> "[{\"x\":1}]", "pods_list");
-        modelCalls(call("c1", "pods_list", "{}"));
+        modelCalls(call("c1", "pods_list", "{\"namespace\":\"a\"}"));
 
         var result = run(service(), 0);
 
-        assertEquals("[pods_list]\n[{\"x\":1}]", result.text());
+        assertTrue(result.text().contains("calls=1 errors=0"), result.text());
+        assertTrue(result.text().contains("[NOT STORED tool=pods_list args={\"namespace\":\"a\"} error=false"), result.text());
+        assertFalse(result.text().contains("{\"x\":1}"), "the result data is not posted");
+        assertFalse(result.text().contains("[CALL key="), result.text());
+        assertTrue(CallManifest.NOT_STORED_LINE.matcher(result.text()).find());
+    }
+
+    @Test
+    void aWriteThatFailsForOneCallLeavesTheOtherCallsStored() {
+        registerTools(r -> "[{\"x\":1}]", "pods_list", "nodes_list");
+        modelCalls(call("c1", "pods_list", "{}"), call("c2", "nodes_list", "{}"));
+        store.failFor = "nodes_list";
+
+        var result = run(service(), 0);
+
+        assertEquals(1, store.bodies.size());
+        assertTrue(result.text().contains("[CALL key=ns/crew/t1/test-agent/001-pods_list"), result.text());
+        assertTrue(result.text().contains("[NOT STORED tool=nodes_list"), result.text());
+        assertTrue(result.text().contains("prefix=ns/crew/t1/test-agent/]"), result.text());
+    }
+
+    @Test
+    void anAgentThatReadsItsResultsPostsItsOwnTextAndTheFileDescriptionsApart() {
+        registerTools(r -> "{\"items\":[{\"a\":1},{\"a\":2}]}", "pods_list");
+        modelCalls(call("c1", "pods_list", "{\"namespace\":\"kube-system\"}"));
+        var service = service();
+        var ledger = ToolCallLedger.forLoop(store, THREAD, AGENT);
+
+        var result = service.callWithToolLoop(question(), chatModel, "s", "test", false, 0L, ledger);
+
+        assertEquals("done", result.text(), "the statement is the model's text only");
+        assertFalse(result.contributionIsToolOutput());
+        String files = ChatService.filesOf(result, ledger);
+        assertTrue(files.contains("[CALL key=ns/crew/t1/test-agent/001-pods_list tool=pods_list"), files);
+        assertTrue(files.contains("rows=2"), files);
+        assertFalse(files.contains("{\"a\":1}"), "no file content");
+    }
+
+    @Test
+    void aToolersTextIsAlreadyTheDescriptionSoItAddsNone() {
+        registerTools(r -> "[{\"x\":1}]", "pods_list");
+        modelCalls(call("c1", "pods_list", "{}"));
+        var ledger = ToolCallLedger.forLoop(store, THREAD, AGENT);
+
+        var result = service().callWithToolLoop(question(), chatModel, "s", "test", true, 0L, ledger);
+
+        assertTrue(result.contributionIsToolOutput());
+        assertEquals("", ChatService.filesOf(result, ledger));
+    }
+
+    @Test
+    void anAgentThatCalledNoToolHasNoFiles() {
+        var ledger = ToolCallLedger.forLoop(store, THREAD, AGENT);
+        var result = new ChatService.ToolLoopResult("text", "text", false, 1, 1, "s", "r");
+
+        assertEquals("", ChatService.filesOf(result, ledger));
+        assertEquals("", ChatService.filesOf(result, null));
     }
 
     @Test
@@ -256,13 +312,60 @@ class ChatServicePerCallArtifactsTest {
         assertTrue(store.bodies.isEmpty());
     }
 
+    private ChatService serviceWithRole(String role) {
+        var service = new ChatService(chatModel, mock(RagClient.class), mcpClient, mock(DiscussionOrchestrator.class),
+                ChatServiceToolLoopTest.stubProperties(8, role, false, false),
+                mock(AgentHeartbeatService.class), new ObjectMapper(),
+                null, null, null, null, null, null, null, null, null);
+        service.callArtifactStore = store;
+        return service;
+    }
+
+    private ChatService.ChatResult chatInThread(ChatService service, String threadId) {
+        return service.directChat(new ChatService.ChatRequest("c1", "how many pods?", null, threadId), true);
+    }
+
     @Test
-    void theFlagOffMeansNoLedgerForALoop() {
-        assertNull(ToolCallLedger.forLoop(false, store, THREAD, AGENT));
-        assertNull(ToolCallLedger.forLoop(true, null, THREAD, AGENT));
-        assertNull(ToolCallLedger.forLoop(true, store, null, AGENT));
-        assertNull(ToolCallLedger.forLoop(true, store, " ", AGENT));
-        assertNotNull(ToolCallLedger.forLoop(true, store, THREAD, AGENT));
+    void aDiscussionAnswerKeepsTheStatementAndCarriesTheFileDescriptionsApart() {
+        registerTools(r -> "{\"items\":[{\"a\":1},{\"a\":2}]}", "pods_list");
+        modelCalls(call("c1", "pods_list", "{\"namespace\":\"a\"}"));
+
+        var result = chatInThread(serviceWithRole("analyst"), THREAD);
+
+        assertEquals("done", result.response());
+        assertTrue(result.files().contains("[CALL key=ns/crew/t1/test-agent/001-pods_list tool=pods_list"), result.files());
+        assertEquals(1, store.bodies.size(), "an agent that is not a tooler stores its calls too");
+    }
+
+    @Test
+    void aToolersDiscussionAnswerIsTheDescriptionsAndCarriesNoSeparateFiles() {
+        registerTools(r -> "[{\"x\":1}]", "pods_list");
+        modelCalls(call("c1", "pods_list", "{}"));
+
+        var result = chatInThread(serviceWithRole("tooler"), THREAD);
+
+        assertTrue(result.response().startsWith("[WORKSPACE agent=test-agent calls=1"), result.response());
+        assertEquals("", result.files());
+        assertFalse(result.response().contains("{\"x\":1}"), "the file content is not posted");
+    }
+
+    @Test
+    void anAnswerOutsideADiscussionStoresNothing() {
+        registerTools(r -> "[{\"x\":1}]", "pods_list");
+        modelCalls(call("c1", "pods_list", "{}"));
+
+        var result = chatInThread(serviceWithRole("analyst"), null);
+
+        assertEquals("", result.files());
+        assertTrue(store.bodies.isEmpty());
+    }
+
+    @Test
+    void aLoopHasALedgerOnlyWithAStoreAndAThread() {
+        assertNull(ToolCallLedger.forLoop(null, THREAD, AGENT));
+        assertNull(ToolCallLedger.forLoop(store, null, AGENT));
+        assertNull(ToolCallLedger.forLoop(store, " ", AGENT));
+        assertNotNull(ToolCallLedger.forLoop(store, THREAD, AGENT));
     }
 
     @Test
@@ -272,47 +375,5 @@ class ChatServicePerCallArtifactsTest {
                         + "[CALL key=ns/crew/t1/a/001-pods_list tool=pods_list args={} bytes=2 rows=0 error=false]")));
 
         assertEquals(List.of("/artifacts/ns/crew/t1/a/001-pods_list"), ChatService.artifactPathsInInput(messages));
-    }
-
-    // --- which stored calls an agent's tool calls read ---
-
-    private static final String PATTERN = "ns/crew/t1/proxmox-qm/*-get_vm_rrd_data";
-
-    private void readTwice() {
-        registerTools(r -> r.name().equals("artifact_head") ? "{\"error\": \"no such key\"}" : "n\n3\n(1 row)",
-                "workspace_query", "artifact_head");
-        modelCalls(call("c1", "workspace_query", "{\"artifacts\":{\"rrd\":\"" + PATTERN + "\"},\"sql\":\"SELECT 1\"}"),
-                call("c2", "artifact_head", "{\"key\":\"ns/crew/t1/missing\"}"));
-    }
-
-    @Test
-    void theKeysASuccessfulReadTouchedAreKeptForTheSignalAndAFailedReadIsNot() {
-        readTwice();
-        var service = service();
-        ChatService.READING_THREAD.set(THREAD);
-        try {
-            run(service, 0);
-        } finally {
-            ChatService.READING_THREAD.remove();
-        }
-
-        assertEquals(List.of(PATTERN), service.takeReads(THREAD));
-        assertEquals(List.of(), service.takeReads(THREAD), "taken once");
-    }
-
-    @Test
-    void withPerCallArtifactsOffNothingIsRecorded() {
-        readTwice();
-        var service = service();
-        service.perCallArtifacts = false;
-        ChatService.READING_THREAD.set(THREAD);
-        try {
-            run(service, 0);
-        } finally {
-            ChatService.READING_THREAD.remove();
-        }
-
-        assertEquals(List.of(), service.takeReads(THREAD));
-        assertFalse(service.perCallArtifactsOn());
     }
 }

@@ -179,7 +179,6 @@ class RagClientTest {
                 @Override public boolean metricsDrillContract() { return false; }
                 @Override public Optional<String> alwaysCandidateAgents() { return Optional.empty(); }
                 @Override public int synthesisCompletenessRetries() { return 0; }
-                @Override public int synthesisEvidenceRounds() { return 4; }
                 @Override public boolean answerDirectly() { return true; }
                 @Override public boolean hasAnalysts() { return false; }
                 @Override public int advisoryTimeoutSeconds() { return 10; }

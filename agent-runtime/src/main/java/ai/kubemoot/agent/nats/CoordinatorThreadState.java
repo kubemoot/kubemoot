@@ -82,9 +82,6 @@ final class CoordinatorThreadState {
     final java.util.List<String> technologies = new java.util.ArrayList<>();
     /** True from the review roster being written until the thread has entered another phase. */
     boolean reviewRosterWritten;
-    /** What each agent's agree signal said it read, and the agents that answered with data. */
-    final Map<String, Set<String>> readKeys = new TreeMap<>();
-    final Set<String> dataAnalysts = new TreeSet<>();
     /** The bus messages whose signals the log recorded, so a replay of the bus applies only the rest. */
     final Set<String> appliedMessageIds = new HashSet<>();
     /** When the last event was written. */
@@ -118,8 +115,6 @@ final class CoordinatorThreadState {
         tooLargeModels.clear();
         waiting.clear();
         pending.clear();
-        readKeys.clear();
-        dataAnalysts.clear();
     }
 
     /** Records a terminal signal on the roster; an agent the phase does not wait for is ignored. */

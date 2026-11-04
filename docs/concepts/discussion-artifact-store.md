@@ -1,7 +1,7 @@
 ---
 title: "Discussion Artifact Store"
 weight: 35
-description: "How Kubemoot passes large tool outputs by reference, keeping the message bus and LLM context windows free of bulk data."
+description: "How Kubemoot stores every tool result as its own file and puts only the file's description in the discussion."
 ---
 
 When a tooler fetches data from a live system, the result can be large: a full
@@ -10,34 +10,24 @@ hundreds of rows. The NATS discussion bus and the LLM context window were not
 designed to carry datasets. Dumping bulk data onto the bus truncates it, floods
 downstream agents' context, and degrades the quality of reasoning that follows.
 
-Kubemoot passes large outputs **by reference**. The data lands in an object store;
-the discussion message carries only a small reference and a preview. Agents that
-need the data fetch a targeted slice; most can answer from the preview alone.
+Kubemoot treats this as plain mechanics, with no setting to turn on:
+
+1. **Every tool result is written to a file**, always, one file per call.
+2. **The discussion carries the file's description**: the tool, its arguments, rows, bytes,
+   format and columns. Never the content.
+3. **Agents read files by key** (`workspace_query`, the `artifact_*` tools, `execute_code`)
+   and **add the facts they find** to the discussion.
+4. **The synthesizer answers from the discussion only.** A fact no agent added is reported as
+   unknown, and the file descriptions in the discussion let the answer say which data existed.
+
+The remedy for a result that is too large is a tool call that asks for less (fewer fields, a
+filter, a limit, a shorter time range). Storing the result as a file keeps the bus and the
+context lean; it does not replace asking for less.
 
 ## The producer pattern
 
-Any tooler whose output exceeds roughly 4 KiB spills the full result to a NATS
-JetStream Object Store bucket named `kubemoot_discussion_artifacts`. The object is
-keyed as:
-
-```
-{namespace}/{crew}/{threadId}/{agent}/{tool}-{seq}
-```
-
-The tooler then publishes its discussion message carrying only a **reference
-envelope** rather than the raw data. The full object waits in the store.
-
-## One artifact per tool call (opt-in)
-
-By default a tooler's contribution is its tool output glued together, one `[tool]`
-section per call, and a contribution over about 4 KiB is spilled as one object. A reader
-has to guess each section's format back from its first lines, and a failed call sits
-among the good ones.
-
-With `artifacts.perCallArtifacts: true` (chart value, `spec.artifacts.perCallArtifacts`
-in the KubemootConfig; default `false`) every tooler (`discussRole: tooler`) instead
-writes **each tool call's result as its own object** in the same bucket, under the
-thread's key prefix:
+Every agent with tools writes **each tool call's result as its own object** in the NATS
+JetStream Object Store bucket `kubemoot_discussion_artifacts`, under the thread's key prefix:
 
 ```
 {namespace}/{crew}/{threadId}/{agent}/{nnn}-{tool}
@@ -48,8 +38,14 @@ thread's key prefix:
 `-`. The body is the tool's own result text, with no `[tool]` header: JSON where the
 tool returned JSON. A result over the runtime's size cap (1,000,000 characters) is cut
 and ends with ` ...[truncated]`. An error result is stored too, and flagged in its
-headers. Each object is announced to the materializer like any other, so a compute
+headers. Each object is announced to the materializer, so a compute
 sandbox finds it as a file under `/artifacts/{key}`.
+
+Call numbers keep counting after an agent restarts: the next number is found from the
+objects already stored, so a call never overwrites an earlier one.
+
+A loop with no discussion thread (a direct chat to an agent) has nowhere to store files and
+works as a plain chat.
 
 ### Object headers
 
@@ -73,13 +69,18 @@ define use the convention's name; the rest sit in the `kubemoot.` namespace.
 | `kubemoot.format` | `json` when the body is a JSON object or list, otherwise `text`. A text body is a `kubectl` table, YAML or prose, and `workspace_query` detects which. |
 | `kubemoot.truncated` | `true` only when the result was cut at the size cap. |
 
-### The manifest
+### What an agent posts: the descriptions of its files
 
-The tooler's contribution is then a manifest, built in code from what was stored: a
-header line, one line per call, and one line saying where the results are. Nothing large
-goes through the bus, and the manifest stays under 4,000 characters so it posts inline.
+A contribution is what the agent states, followed by the description of each file it
+produced, built in code from what was stored. A raw-output tooler (`discussRole: tooler`)
+states nothing: its contribution is the descriptions alone. Any other agent with tools posts
+its own words first, then the descriptions after a blank line. The content of a file is
+never in a contribution, so nothing large goes through the bus, and the descriptions stay
+under 4,000 characters.
 
 ```
+Pod a-1 uses the most CPU, 0.9 cores (workspace_query over 001-pods_list).
+
 [WORKSPACE agent=k8s-workloads calls=2 errors=1 prefix=default/pilot/t1/k8s-workloads/]
 [CALL key=default/pilot/t1/k8s-workloads/001-pods_list tool=pods_list args={"namespace":"kube-system"} format=text-table bytes=15210 rows=unknown error=false columns=NAME,READY,STATUS,RESTARTS,AGE]
 [CALL key=default/pilot/t1/k8s-workloads/002-nodes_list tool=nodes_list args={} format=json bytes=2210 rows=3 error=false fields=metadata,spec,status]
@@ -96,29 +97,29 @@ These are the names `workspace_query` reads the table by, so a query can use the
 A `workspace_query` that names a column the table does not have fails with `no such column`
 and the error lists the actual columns of every table in the query.
 
-Arguments are cut to 60 characters. A manifest that would pass the limit drops the
-arguments, then the column names, then replaces the last lines with a count (`[N more calls under the prefix]`).
-The tooler's own model keeps its normal behavior: it sees a short stand-in for a result
-too large for its window, and that stand-in now names the call's key
-(`Stored as workspace artifact {key}.`). If any write to the store fails, the contribution
-is the glued output as before, so a storage failure never loses data.
+Arguments are cut to 60 characters. Descriptions that would pass the limit drop the
+arguments, then the column names, then replace the last lines with a count
+(`[N more calls under the prefix]`). Square brackets in the summarized arguments show as
+parentheses so a list cannot end the call line early.
 
-Call numbers keep counting after an agent restarts: the next number is found from the
-objects already stored, so a call never overwrites an earlier one. Square brackets in the
-summarized arguments show as parentheses so a list cannot end the call line early.
+A statement is cut at 24,000 characters; the descriptions after it are never cut. An agent that answers `NOTHING_TO_ADD` or `TOOL_GAP:` posts no descriptions (the files are still stored and still listed in the catalog).
 
-Analysts and the coordinator receive the manifest. The tool-free synthesizer cannot read
-the workspace. Counting belongs to the analysts' tools, so the coordinator first gives the
-analysts the complete list of calls, computes which of them each analyst read, and delivers to
-the synthesizer the analysts' results and only the stored results no analyst read. How is
-described next.
+An agent's own model keeps its normal behavior while it works: a result too large for its
+window is shown to a tooler's model as a short stand-in that names the call's key
+(`Stored as workspace artifact {key}.`), and to any other agent as an error asking for a
+narrower call. In both cases the whole result is in the file.
 
-### The catalog: the complete list for the analysts
+**A write that fails** is not hidden. The call gets a line
+`[NOT STORED tool=<tool> args=... error=... - the result could not be written to the workspace and is not available]`
+in place of its `[CALL ...]` line, and the synthesizer treats that data as unknown. The
+result is not posted in the contribution in its place.
+
+### The catalog: the complete list of files
 
 When the review begins, the coordinator builds the **catalog** of the thread in code from the
 object headers under the thread's key prefix (not from what any model wrote), and puts it in the
-`review_ready` message that wakes the analysts, after the contributions. Nothing stored is
-missing from it, and the totals line shows if a line were:
+`review_ready` message that wakes the agents that can read files, after the contributions. Nothing
+stored is missing from it, and the totals line shows if a line were:
 
 ```
 [CATALOG calls=11 errors=1 bytes=198940 groups=3 prefix=default/pilot/t1/]
@@ -132,168 +133,57 @@ One `[GROUP ...]` line per agent and tool carries the call, error and byte count
 rows when every call reports them (`unknown` otherwise) and the key pattern that reads the group.
 One `[CATALOG-CALL ...]` line per call carries the tool, the arguments (cut at 60 characters),
 the format and rows from the headers, the bytes and whether it was an error. A catalog line never
-begins with `[CALL key=`, so it is not read as a tooler's manifest. When the call lines do not fit
-a quarter of the smallest window any server publishes for the model (about 3 characters a token;
-8,000 characters when no window is known), the catalog is rendered one level coarser: the totals
-and the group lines only, with a note that `SELECT DISTINCT _call, _args` over a group's pattern
-lists its calls. It is never cut: no group line is dropped. The files stay separate and are reachable
-by one key, by a pattern through `workspace_query`, and as `/artifacts/<key>` for `execute_code`.
+begins with `[CALL key=`, so it is not read as an agent's file description. When the call lines do
+not fit a quarter of the smallest window any server publishes for the model (about 3 characters a
+token; 8,000 characters when no window is known), the catalog is rendered one level coarser: the
+totals and the group lines only, with a note that `SELECT DISTINCT _call, _args` over a group's
+pattern lists its calls. It is never cut: no group line is dropped.
 
-### Coverage: what each analyst read
+An analyst reads files by key or pattern and puts the facts it finds into its own contribution,
+for example "pod a-1 uses the most CPU, 0.9 cores". Counting, summing and ranking belong to the
+analysts' tools (`workspace_query`, `execute_code`), never to the synthesizer.
 
-Which stored calls an analyst read is computed in code, never reported by the model. The agent
-runtime keeps the keys that each **successful** tool call of the agent read and puts them on the
-agent's `agree` signal as metadata `readKeys`. What is traced:
+### The synthesis: the discussion only
 
-| Tool | Traced keys |
-|------|-------------|
-| `workspace_query` | every value of the `artifacts` map (a key or a `*` pattern) |
-| `artifact_head`, `artifact_tail`, `artifact_grep`, `artifact_count`, `artifact_rows`, `artifact_select`, `artifact_jq` | the `key` argument |
-| `execute_code` | each `/artifacts/<key>` path that the code names as text: a literal key, a directory ending in `/` (every call below it) or a pattern with `*` |
+The tool-free synthesizer cannot read the workspace and is not given a file. Its input is:
 
-What is **not** traceable: a path that code builds at run time (concatenation, a directory
-listing) counts for nothing, and a call that failed counts for nothing. Reading a call is taken as
-covering it: a query that read a call may have used only some of its rows, which is not looked into.
+1. the signal counts and the original question,
+2. a few ADL rules for file descriptions (`agent-runtime/src/main/resources/prompts/synthesis-files.adl`),
+   present only when a contribution describes a file,
+3. the thread: every contribution, each with the descriptions of its files, with the
+   `[WORKSPACE ...]` header and the closing "stored under these keys" line removed (they speak to an
+   agent that can read files).
 
-The coordinator expands each pattern against the catalog (`*` stands for any characters except `/`)
-into the calls it matched. An analyst counts only when it answered with data (not `NO_DATA` or
-`TOOL_GAP`), so the reads of an analyst that failed, stood aside or answered no data cover nothing.
-A call that is a tool error is never covered: it holds no data, and the synthesis sees it so a
-failed source stays visible. The coverage is rebuilt from the signals, so a restarted coordinator
-has it back as far as the signals are replayed. The per-analyst lines go at the head of the synthesis
-input, followed by the catalog's totals and a few ADL rules (a `[COVERED ...]` line stands for a
-result an analyst read; a count or total comes from a tool result only):
+The rules say that a `[CALL ...]` line describes a file and carries no values; that a count, total
+or list is stated as the agent stated it; that nothing is derived from rows and bytes; and that a
+value no agent stated is reported as **unknown**, naming the files that existed for it (tool,
+arguments, rows). A `[NOT STORED ...]` line is unavailable data and also unknown. Because the
+synthesizer sees the discussion only, the cost of an answer does not depend on the size of the
+files.
 
-```
-[COVERAGE analyst=compute read=9 of 11 stored calls: get_vm_rrd_data 9 of 9]
-[COVERAGE read by no analyst: 2 calls ({get_node_status=1, list_vms=1}), 200 bytes]
-[CATALOG calls=11 errors=1 bytes=198940 tools={get_node_status=1, list_vms=1, get_vm_rrd_data=9}]
-```
+The final answer to the user never carries a file description line.
 
-### Delivery order
-
-The synthesizer is the reduce step over the analysts' map; refinement is only the fallback. The
-coordinator decides from state, in this order:
-
-1. **Covered results are never read raw.** Their call lines are replaced by one line,
-   `[COVERED key=... tool=... by=<analysts>]`, and the results are not read from the store.
-2. **The results no analyst covered** are read (in parallel, up to 8 at once) and delivered whole in the
-   room of the model the scheduler picks, as described under [Delivery to the synthesis](#delivery-to-the-synthesis).
-   When they all fit, that is one model call.
-3. **When they do not fit** the room (one result too big for it, or several that fit one by one and
-   not together), the rest goes through the notes rounds below, and what is still unread is named
-   `UNKNOWN` with its count. The analysts' own results stand as they are; the thread is reviewed
-   once and is not sent back to review for more reads.
-
-### Delivery to the synthesis
-
-The synthesis call is placed by the scheduler like any other, and the room it has depends on
-the model the scheduler picks for that call. So the prompt is built after the pick, from the
-**context window of the picked model on the picked server**, never the smallest window of any
-server: a server that does not hold the model (a CPU embedding server with an 8,192-token
-window, say) does not count. The room is that window, less the rest of the prompt and the reply
-reserve, counted with the estimator an agent's tool loop uses (digits and symbols count as
-dense, so numeric JSON takes about a token per digit). No size is fixed: an install whose
-models have an 8K window, a 32K window or a 128K window gets batches sized to its own.
-
-**One round.** When every stored result fits that room, the coordinator replaces each
-`[CALL ...]` line with `[tool]` and the stored result (the form the glued output has), drops
-the manifest's header and closing lines, and the crew's synthesis prompt writes the answer.
-The fill considers every result in manifest order; one that does not fit does not stop the
-ones after it.
-
-**Several rounds (refinement).** When the results do not all fit one prompt, the evidence is
-read in rounds, the established "refine" pattern:
-
-1. Round 1 sends the question, the analysts' contributions and the first batch of stored
-   results that fits. The model writes **working notes**: one line per finding, with exact
-   values, names and counts, each tagged with the call key it came from (`- [<call key>]
-   <finding>`). It does not round, merge distinct items or count by eye; a number or list an
-   analyst computed is copied verbatim with the analyst's name.
-2. Rounds 2 to N send the notes so far and the next batch. The model adds findings, corrects
-   one only when a new result shows it wrong (with the reason on that line), and never drops
-   a finding without a reason.
-3. The last round is the crew's normal synthesis prompt, over the question, the contributions
-   and the finished notes (under a "WORKING NOTES FROM THE STORED TOOL RESULTS" heading).
-
-Every stored result is read exactly once across the rounds, and the batch of each round is
-sized to the window of the model that round was placed on. Rounds can land on different
-models: a later round that gets a smaller window takes a smaller batch (it is re-planned
-from what is left, never sent over the window), and one that gets a larger window takes more.
-A result larger than one round's room is read in consecutive parts, cut at line boundaries
-(a single line longer than the room is cut at the character), each marked `part i of n of
-<key>`. The same evidence takes more rounds on a small window than on a large one.
-
-**Limits.** The rounds, counting the last, are capped by the coordinator setting
-`KUBEMOOT_DISCUSS_SYNTHESIS_EVIDENCE_ROUNDS` (`kubemoot.discuss.synthesis-evidence-rounds`,
-default **4**; a value below 1 means the default), and each allowed round gets the synthesis
-time limit (`synthesisTimeoutSeconds`) within the thread's hard ceiling. Both are safety
-limits, not flow control. A small-window install needs more rounds for the same evidence, so
-raise the cap there. The last allowed round takes the results that fit and names every other
-result with the same notice an unreadable artifact gets:
-`[ARTIFACT UNAVAILABLE key=... Treat it as UNKNOWN ... do NOT infer, guess, or fabricate ...]`.
-A result that was not delivered is never described as summarized by the analysts.
-
-**Time.** A notes round writes at most about a fifth of the tokens of its batch (never fewer than
-512; the model's own limit still applies), not a flat limit. A notes round begins only when its
-predicted cost fits the budget left: the cost is predicted from the calls already made in this
-synthesis (their time per token, read and written, times the tokens of the round, plus one more
-call for the answer). The first call has nothing to predict from and is allowed. The budget is the
-synthesis time limit times the round cap, within the thread's hard ceiling. A round that does not fit
-is not started and the results it would have read are named `UNKNOWN`. The scheduler's own latency
-predictions are not used; the prediction is from this synthesis's calls.
-
-**Unknown window.** When no window is known for the picked model, there is one round and each
-result is filled in up to 24,000 characters (cut with a marker), as before.
-
-The round prompts and the notes format are ADL resources of the runtime
-(`agent-runtime/src/main/resources/prompts/synthesis-notes-*.adl`), not Java text.
-
-The coordinator logs one line per synthesis that delivered stored results:
-
-```
-synthesis evidence: thread=... windows=[8192, 8192, 32768] rooms=[...] results=7 filled=7 rounds=3 chunks=0 bytes=140000 notDelivered=[]
-```
-
-and the `synthesis_done` event carries `rounds` (model calls the synthesis made) and
-`filledBytes` (bytes of stored results that reached the model), so a measurement can read
-them. A thread with stored per-call results also gets the `delivery` object (the keys covered
-and not covered and the milliseconds of each step, see
-[signals and protocol](signals-and-protocol.md)), and the log line ends with
-`covered=N uncovered=M stepMillis={catalog=.., read=.., round1=..}`.
-A thread without a manifest reports one round and no bytes, and synthesizes as before.
-
-The final answer to the user never carries a manifest line. An analyst that needs rows calls
-`workspace_query` with a key from a `[CALL ...]` line; see
-[Query with SQL](#query-with-sql). Both formats coexist: artifacts written before the
-setting was turned on, and the single object a tooler spills with the setting off, are
-read as before.
-
-Per-call objects follow the same retention as every other object: they are deleted with
-their thread (by the thread's key prefix), and the 48-hour bucket TTL bounds anything
-that is missed. See [Garbage collection](#garbage-collection).
+Per-call objects are deleted with their thread (by the thread's key prefix), and the 48-hour
+bucket TTL bounds anything that is missed. See [Garbage collection](#garbage-collection).
 
 ## The reference envelope
 
-The reference envelope is a small JSON structure carried inside the tooler's
-contribution message. Its fields let any consumer make a smart fetch decision
-before opening the object:
+Each stored file is announced on the artifact subject
+(`kubemoot.artifacts.<namespace>.<crew>.<threadId>`) with a small JSON structure so the
+materializer can put it on disk and a consumer can decide before opening it:
 
 | Field | Purpose |
 |-------|---------|
 | `bucket` | Object store bucket name. |
-| `key` | Full object key (namespace/crew/thread/agent/tool-seq). |
-| `contentType` | MIME type of the stored object (e.g. `application/json`, `text/csv`). |
+| `key` | Full object key (`namespace/crew/thread/agent/nnn-tool`). |
+| `contentType` | MIME type of the stored object (`application/json` for a JSON body). |
 | `bytes` | Total object size in bytes. |
-| `rows` | Row count for tabular data; 0 for unstructured. |
+| `rows` | Row count when known. |
 | `tool` | Name of the MCP tool that produced the data. |
 | `agent` | Name of the agent that ran the tool. |
-| `createdAt` | ISO-8601 timestamp of the spill. |
-| `preview` | Up to 800 characters of the object's leading content. |
+| `createdAt` | ISO-8601 timestamp of the write. |
 
-The preview and the row/byte counts let many consumers answer the question without
-fetching at all. A coordinator synthesizing from "8 namespaces found (preview: default,
-kube-system, kubemoot...)" does not need the full list.
+The rows and byte counts let many consumers answer without fetching at all.
 
 ## Consumer paths
 
@@ -302,9 +192,9 @@ depending on the agent's network posture.
 
 ### Network-capable agents (sip from the bus)
 
-Toolers, analysts, and the coordinator can reach NATS directly. They read the
-reference envelope, decide whether the preview suffices, and if not, issue a
-targeted read through the **read-ops MCP service** (`artifact-access` in `mcp`
+Toolers, analysts, and the coordinator can reach NATS directly. They read a file's
+description (tool, arguments, rows, bytes, columns), decide which slice they need, and
+issue a targeted read through the **read-ops MCP service** (`artifact-access` in `mcp`
 mode; an MCPServer with `kubemootImage: artifactAccess` runs it without naming a version,
 see the [MCPServer guide](../../reference/mcpserver-guide/#run-a-kubemoot-built-server-without-naming-a-version)). That service exposes output-bounded tools that extract only the slice an
 agent needs:
@@ -330,10 +220,10 @@ tight enough for reliable reasoning.
 ### Query with SQL
 
 `workspace_query` gives every agent one query language, SQL, for reading the evidence a
-discussion has already gathered. Toolers call tools and post the results, and a large
-result becomes an artifact in the discussion's workspace. Those artifacts arrive in many
-formats: `kubectl` text tables, JSON (`kubectl -o json`, search results), YAML, Markdown
-tables, CSV, and a tooler's raw output made of one `[tool]` section per call. With
+discussion has already gathered. Agents call tools, and every result becomes a file in
+the discussion's workspace. Those files arrive in many formats: `kubectl` text tables,
+JSON (`kubectl -o json`, search results), YAML, Markdown tables, CSV, and the sectioned
+output older Kubemoot versions wrote. With
 `workspace_query` an agent counts, filters, groups, sorts and totals any of them without
 choosing a tool for the format.
 
@@ -425,7 +315,7 @@ The format is decided from the content (object keys carry no file extension):
 | CSV with a header row | One row per line. |
 | Anything else | One row per line, columns `line_no` and `line`. |
 
-With [per-call artifacts](#one-artifact-per-tool-call-opt-in), the key of one call
+The key of one call
 (`default/pilot/t1/k8s-workloads/001-pods_list`) is one table, and its `kubemoot.format`
 header decides how it is read: `json` is read as JSON, `text` is detected as above. A
 key with a `*` reads every stored call that matches as one table. `*` stands for any
@@ -461,7 +351,7 @@ one of them, is a list or object, or comes from arguments cut at the header limi
 `SELECT DISTINCT _call, _args FROM rrd` lists the calls. `artifact_count` on a call whose result is a JSON list returns the list's
 item count from the `kubemoot.rows` header.
 
-A tooler agent's contribution is, with per-call artifacts off, its raw tool output, which the agent runtime writes as
+An artifact written by an older Kubemoot version holds a tooler's raw output as
 one section per tool call: a `[tool_name]` line, the result, then a blank line. A query
 reads such an artifact one section at a time, so a kubectl table or a JSON result behind
 a `[pods_list]` line is read as the table or the JSON it is. Sections of the same

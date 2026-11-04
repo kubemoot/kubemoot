@@ -141,18 +141,4 @@ class DiscussionOrchestratorCatalogTest {
         assertSame(ranked, DiscussionOrchestrator.unionAlwaysCandidates(ranked, null, null),
                 "null extras -> the ranked list is returned as-is");
     }
-
-    // --- artifactUnavailableNotice (honest-fail on an unreadable artifact) ---
-
-    @Test
-    void artifactUnavailableNotice_namesKeyAndForbidsFabrication() {
-        String key = "homelab-pilot/thread1/k8s-config/agree-abc";
-        String notice = DiscussionOrchestrator.artifactUnavailableNotice(key);
-        assertTrue(notice.contains(key), "names the specific artifact key");
-        assertTrue(notice.contains("UNAVAILABLE"), "flags the data as unavailable");
-        assertTrue(notice.toLowerCase().contains("do not") && notice.toLowerCase().contains("fabricate"),
-                "instructs the synthesizer not to fabricate");
-        assertFalse(notice.contains("full data is in the file"),
-                "must NOT keep the misleading 'the full data is in the file' wording");
-    }
 }

@@ -10,10 +10,8 @@ import { resolve } from '$app/paths';
 // A synthesis longer than this (chars) gets the collapse/expand affordance.
 export const SYNTHESIS_COLLAPSE_CHARS = 600;
 
-// Spill-marker parsing: a large agent contribution is replaced inline by
-// `[ARTIFACT key=... bytes=N - ...]` (agent-runtime DiscussionSubscriber). The key
-// terminates at whitespace or `]`. Same stable prefix + capture the agent-runtime
-// uses (ChatService.ARTIFACT_KEY_PATTERN).
+// Marker parsing for `[ARTIFACT key=... bytes=N - ...]`, which a thread stored by an earlier
+// release holds in place of a large contribution. The key terminates at whitespace or `]`.
 const ARTIFACT_KEY_RE = /\[ARTIFACT key=([^\]\s]+)/;
 
 /** Extract the spilled-artifact key from a finding/synthesis body, or null when absent. */

@@ -1,0 +1,10 @@
+DEFINE DOMAIN synthesis-files
+DESCRIPTION What the thread's file descriptions mean to the synthesizer. A [CALL ...] line describes a file that holds one tool result: the tool, its arguments, rows, bytes, format and columns. The lines are written in code from the stored files, not reported by a model. The synthesizer sees the discussion only and cannot open a file.
+
+DEFINE COMPONENT file-rules
+ASSERT a [CALL ...] line is a description of a file, not data; it carries no values
+ASSERT a fact is something an agent stated in its contribution, with or without a file description beside it
+WHEN a count, total, ranking or list appears in an agent contribution THEN state it as the agent stated it
+NEVER derive a count, sum, average or ranking from a file description; rows and bytes describe the file, not the answer
+WHEN the question needs a value that no agent stated THEN report it as UNKNOWN and say which files existed for it, naming the tool, arguments and rows from their descriptions
+WHEN a [NOT STORED ...] line stands in place of a file THEN the result could not be written and is unavailable; report that data as UNKNOWN

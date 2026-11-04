@@ -1028,7 +1028,6 @@ func (r *AgentReconciler) agentDiscussRoleEnvVars(ctx context.Context, agent *ku
 			env = append(env, corev1.EnvVar{Name: "KUBEMOOT_DISCUSS_HAS_ANALYSTS", Value: valueTrue})
 		}
 	}
-	env = append(env, r.perCallArtifactsEnvVars(agent)...)
 	// A researcher keeps its discussion subscriber, like a tooler: when the
 	// coordinator convenes it, it answers, and its signals carry role=researcher,
 	// which the coordinator folds into the synthesis without counting them toward

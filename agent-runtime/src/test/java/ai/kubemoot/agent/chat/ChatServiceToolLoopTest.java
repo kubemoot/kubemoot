@@ -886,7 +886,7 @@ class ChatServiceToolLoopTest {
         when(ragClient.queryForContext(anyString())).thenReturn("");
 
         var service = createService(10, "analyst", true);
-        var msg = "Count namespaces. preview... [ARTIFACT key=k1 bytes=6032 - full data materialized at /artifacts/k1]";
+        var msg = "Count namespaces. preview... [CALL key=k1 bytes=6032 - full data materialized at /artifacts/k1]";
         var thrown = assertThrows(ToolCallFailure.class,
                 () -> service.directChat(new ChatService.ChatRequest("c-cc7", msg), false));
         assertEquals(ToolCallFailure.FailureType.COMPUTE_CONTRACT_UNSATISFIED, thrown.failureType());
@@ -928,7 +928,7 @@ class ChatServiceToolLoopTest {
         when(ragClient.queryForContext(anyString())).thenReturn("");
 
         var service = createService(10, "analyst", true);
-        var msg = "Count namespaces. preview... [ARTIFACT key=k1 bytes=6032 - full data materialized at /artifacts/k1]";
+        var msg = "Count namespaces. preview... [CALL key=k1 bytes=6032 - full data materialized at /artifacts/k1]";
         var result = service.directChat(new ChatService.ChatRequest("c-cc9", msg), false);
         assertEquals("There are 28 namespaces.", result.response(), "accepted once the code reads the artifact file");
         verify(chatModel, times(5)).chat(any(ChatRequest.class)); // both re-prompts used, then accepted
@@ -954,7 +954,7 @@ class ChatServiceToolLoopTest {
         when(ragClient.queryForContext(anyString())).thenReturn("");
 
         var service = createService(10, "analyst", true);
-        var msg = "Count namespaces. preview... [ARTIFACT key=k1 bytes=6032 - full data materialized at /artifacts/k1]";
+        var msg = "Count namespaces. preview... [CALL key=k1 bytes=6032 - full data materialized at /artifacts/k1]";
         var result = service.directChat(new ChatService.ChatRequest("c-cc8", msg), false);
         assertEquals("There are 28 namespaces.", result.response(), "read the artifact file -> accepted");
         verify(exec, times(1)).execute(any(), any());
@@ -984,7 +984,7 @@ class ChatServiceToolLoopTest {
         when(ragClient.queryForContext(anyString())).thenReturn("");
 
         var service = createService(10, "analyst", true);
-        var msg = "Count namespaces. [ARTIFACT key=k1 bytes=6032 - full data materialized at /artifacts/k1]";
+        var msg = "Count namespaces. [CALL key=k1 bytes=6032 - full data materialized at /artifacts/k1]";
         var result = service.directChat(new ChatService.ChatRequest("c-cc10", msg), false);
         assertEquals("There are 28 namespaces.", result.response(),
                 "a read-ops call over the artifact key satisfies the contract without execute_code");
@@ -1011,7 +1011,7 @@ class ChatServiceToolLoopTest {
         when(ragClient.queryForContext(anyString())).thenReturn("");
 
         var service = createService(10, "analyst", true);
-        var msg = "Count namespaces. [ARTIFACT key=k1 bytes=6032 - full data materialized at /artifacts/k1]";
+        var msg = "Count namespaces. [CALL key=k1 bytes=6032 - full data materialized at /artifacts/k1]";
         var thrown = assertThrows(ToolCallFailure.class,
                 () -> service.directChat(new ChatService.ChatRequest("c-cc11", msg), false));
         assertEquals(ToolCallFailure.FailureType.COMPUTE_CONTRACT_UNSATISFIED, thrown.failureType(),
@@ -1027,7 +1027,7 @@ class ChatServiceToolLoopTest {
         // read-ops tool, server reads the file) and still offer the exact open() path
         // as the alternative - both name the precise artifact, no generic placeholder.
         var msg = dev.langchain4j.data.message.UserMessage.from(
-                "Count namespaces. preview... [ARTIFACT key=homelab/conv/k8s-config/list-0 "
+                "Count namespaces. preview... [CALL key=homelab/conv/k8s-config/list-0 "
                 + "bytes=6032 - full data materialized at /artifacts/homelab/conv/k8s-config/list-0]");
         String reprompt = ChatService.buildComputeReprompt(java.util.List.of(msg));
         assertTrue(reprompt.contains("read-ops"),
@@ -1036,8 +1036,8 @@ class ChatServiceToolLoopTest {
                 "re-prompt must give a concrete read-ops example with the bare object key (no /artifacts/ prefix)");
         assertTrue(reprompt.contains("open('/artifacts/homelab/conv/k8s-config/list-0')"),
                 "re-prompt should still offer the exact open() path as the alternative");
-        assertTrue(reprompt.toLowerCase().contains("marker"),
-                "re-prompt must warn the model off answering from the inline marker");
+        assertTrue(reprompt.toLowerCase().contains("description"),
+                "re-prompt must warn the model off answering from the file description");
     }
 
     @Test
@@ -1052,10 +1052,10 @@ class ChatServiceToolLoopTest {
 
     @Test
     void artifactPathsInInput_ignoresSystemPromptMarkerExample() {
-        // The compute prompt documents the marker format ("[ARTIFACT key=<key> ..."); that
+        // The compute prompt documents the marker format ("[CALL key=<key> ..."); that
         // example is not a spill and must not yield a bogus /artifacts/<key> path.
         var system = dev.langchain4j.data.message.SystemMessage.from(
-                "a contribution may carry \"[ARTIFACT key=<key> bytes=<n> ...]\"");
+                "a contribution may carry \"[CALL key=<key> bytes=<n> ...]\"");
         var user = dev.langchain4j.data.message.UserMessage.from("Sum the squares from 1 to 10.");
         assertTrue(ChatService.artifactPathsInInput(java.util.List.of(system, user)).isEmpty());
     }
@@ -1068,7 +1068,7 @@ class ChatServiceToolLoopTest {
         // on the first answer, with no re-prompt.
         var promptFile = dir.resolve("prompt.txt");
         java.nio.file.Files.writeString(promptFile,
-                "marker form: [ARTIFACT key=<key> bytes=<n> ...] read it with the read-ops tools");
+                "marker form: [CALL key=<key> bytes=<n> ...] read it with the read-ops tools");
         var toolSpec = ToolSpecification.builder().name("execute_code").description("run code").build();
         var exec = mock(ToolExecutor.class);
         when(exec.execute(any(), any())).thenReturn("{\"stdout\": \"43289913723294\"}");
@@ -1096,7 +1096,7 @@ class ChatServiceToolLoopTest {
     @Test
     void artifactPathsInInput_extractsKeyBeforeBytes() {
         var msg = dev.langchain4j.data.message.UserMessage.from(
-                "x [ARTIFACT key=k1 bytes=6032 - full data materialized at /artifacts/k1]");
+                "x [CALL key=k1 bytes=6032 - full data materialized at /artifacts/k1]");
         assertEquals(java.util.List.of("/artifacts/k1"),
                 ChatService.artifactPathsInInput(java.util.List.of(msg)),
                 "the key must be captured up to the space before bytes=");
@@ -1876,7 +1876,6 @@ class ChatServiceToolLoopTest {
                 @Override public boolean metricsDrillContract() { return metricsDrillContract; }
                 @Override public Optional<String> alwaysCandidateAgents() { return Optional.empty(); }
                 @Override public int synthesisCompletenessRetries() { return 0; }
-                @Override public int synthesisEvidenceRounds() { return 4; }
                 @Override public boolean answerDirectly() { return true; }
                 @Override public boolean hasAnalysts() { return false; }
                 @Override public int advisoryTimeoutSeconds() { return 10; }
