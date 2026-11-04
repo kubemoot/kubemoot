@@ -15,6 +15,11 @@ class ToolCallLedgerTest {
     private final ChatServiceCallFilesTest.FakeStore store = new ChatServiceCallFilesTest.FakeStore();
     private final ToolCallLedger ledger = new ToolCallLedger(store, "th", "agent-x");
 
+    /** The manifest without the results posted in it: the descriptions the size cap applies to. */
+    private static String descriptions(String manifest) {
+        return CallManifest.RESULT_BLOCK.matcher(manifest).replaceAll("");
+    }
+
     private String record(String tool, String args, String result, boolean error) {
         return ledger.record(new ToolCallLedger.Call(tool, "id", args, T0, 12), result, error, 1_000_000);
     }
@@ -35,8 +40,9 @@ class ToolCallLedgerTest {
 
         String manifest = ledger.manifest();
 
-        assertTrue(manifest.contains("prefix=ns/crew/th/agent-x/]"), manifest);
-        assertTrue(manifest.contains("ns/crew/th/agent-x/*-<tool>"), manifest);
+        assertTrue(manifest.contains("prefix=agent-x/]"), manifest);
+        assertTrue(manifest.contains("the key agent-x/*-<tool>"), manifest);
+        assertFalse(manifest.contains("ns/crew/th"), "keys are relative to the thread: " + manifest);
         assertTrue(manifest.contains("workspace_query"), manifest);
     }
 
@@ -46,7 +52,7 @@ class ToolCallLedgerTest {
             record("tool_number_" + i, "{\"argument\":\"" + "v".repeat(200) + "\"}", "[{\"x\":1}]", false);
         }
 
-        String manifest = ledger.manifest();
+        String manifest = descriptions(ledger.manifest());
 
         assertTrue(manifest.length() <= ToolCallLedger.MAX_MANIFEST_CHARS, "length " + manifest.length());
         assertTrue(manifest.contains("calls=120"), "the header counts every call");
@@ -210,7 +216,7 @@ class ToolCallLedgerTest {
                     "NAME  READY  STATUS\nx  1/1  Running\n", false);
         }
 
-        String manifest = ledger.manifest();
+        String manifest = descriptions(ledger.manifest());
 
         assertTrue(manifest.length() <= ToolCallLedger.MAX_MANIFEST_CHARS, "length " + manifest.length());
         assertFalse(manifest.contains("args="), manifest);

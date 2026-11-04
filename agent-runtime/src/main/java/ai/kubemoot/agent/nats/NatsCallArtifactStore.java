@@ -52,6 +52,11 @@ public class NatsCallArtifactStore implements CallArtifactStore {
     }
 
     @Override
+    public String threadPrefix(String threadId) {
+        return DiscussionArtifacts.threadPrefix(natsProvider.scope(), threadId);
+    }
+
+    @Override
     public String reserveKey(String threadId, String agent, String tool) {
         CrewScope scope = natsProvider.scope();
         String agentPrefix = DiscussionArtifacts.threadPrefix(scope, threadId) + agent + "/";

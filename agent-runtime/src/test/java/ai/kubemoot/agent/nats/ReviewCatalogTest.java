@@ -68,8 +68,8 @@ class ReviewCatalogTest {
         String text = catalog.forReview("t1");
 
         assertTrue(text.contains("[CATALOG calls=1"), text);
-        assertTrue(text.contains("ns/crew/t1/k8s/001-pods_list"), text);
-        assertFalse(text.contains("ns/crew/other/"), text);
+        assertTrue(text.contains("[CATALOG-CALL key=k8s/001-pods_list"), "keys are relative to the thread: " + text);
+        assertFalse(text.contains("ns/crew/"), text);
     }
 
     @Test

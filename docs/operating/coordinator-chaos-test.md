@@ -116,7 +116,7 @@ agent anything.
 | `one_answer_to_asker` | the asker's stream delivered other than one answer |
 | `one_thread_close`, `one_thread_closed_event` | other than one `thread_close` message, or one `thread_closed` event per thread |
 | `duplicate_message`, `duplicate_message_id` | (a republish with the same id inside the stream's two-minute duplicate window is dropped by the stream and is not visible here) a singleton coordinator message (`advisory`, `subcommittee`, `advisory_ready`, `review_ready`, `synthesis`, `thread_close`) appears with two different ids, or the same id twice for `advisory`, `synthesis` and `thread_close` |
-| `closed_reason`, `closed_reason_matches_answer` | `thread_closed.reason` is not an outcome of `synthesis_done` (`synthesized`, `capacity`, `direct`, `fallback`), or differs from the logged outcome. `zombie`, `expired`, `unlogged`, `no_signals` and `ceiling` all fail |
+| `closed_reason`, `closed_reason_matches_answer` | `thread_closed.reason` is not an outcome of `synthesis_done` (`synthesized`, `capacity`, `no_data`, `direct`, `fallback`), or differs from the logged outcome. `zombie`, `expired`, `unlogged`, `no_signals` and `ceiling` all fail |
 | `coordinator_resumed` | the thread logged `coordinator_resumed` other than exactly once after a fault, or at all on the baseline |
 | `unique_event_ids` | an `eventId` is in the log twice |
 | `thread_left_open` | a thread of the question is still open in the log after the trial settled |

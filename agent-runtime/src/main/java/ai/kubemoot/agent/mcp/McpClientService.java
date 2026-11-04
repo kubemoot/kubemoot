@@ -246,8 +246,9 @@ public class McpClientService {
         }
 
         log.debug("Calling tool {} on server {}", actualToolName, serverName);
-        var request = McpSchema.CallToolRequest.builder(actualToolName).arguments(arguments);
-        var meta = mergeRequesterMeta(null, requesterMeta());
+        var request = McpSchema.CallToolRequest.builder(actualToolName)
+                .arguments(WorkspaceScope.argumentsFor(actualToolName, arguments));
+        var meta = mergeRequesterMeta(null, callMeta(actualToolName));
         if (!meta.isEmpty()) {
             request.meta(meta);
         }
@@ -268,6 +269,14 @@ public class McpClientService {
         }
         boolean failed = Boolean.TRUE.equals(result.isError());
         return new ToolResult(toolName, !failed, content, failed ? content : null);
+    }
+
+    /**
+     * The MCP {@code _meta} of a call to {@code toolName}: the requester of the running turn and,
+     * for a tool that reads stored tool results, the thread's key prefix.
+     */
+    private static Map<String, Object> callMeta(String toolName) {
+        return mergeRequesterMeta(requesterMeta(), WorkspaceScope.metaFor(toolName));
     }
 
     /** The MCP {@code _meta} of a tool call: the requester of the running turn, empty when it has none. */
@@ -295,7 +304,8 @@ public class McpClientService {
         log.debug("Calling tool {} via gateway REST API", toolName);
 
         try {
-            var result = gatewayClient.callTool(toolName, arguments, requesterMeta());
+            var result = gatewayClient.callTool(toolName, WorkspaceScope.argumentsFor(toolName, arguments),
+                    callMeta(toolName));
             if (result == null) {
                 return new ToolResult(toolName, false, null, "Gateway returned null response");
             }

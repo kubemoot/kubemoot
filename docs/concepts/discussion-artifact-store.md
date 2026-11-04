@@ -1,7 +1,7 @@
 ---
 title: "Discussion Artifact Store"
 weight: 35
-description: "How Kubemoot stores every tool result as its own file and puts only the file's description in the discussion."
+description: "How Kubemoot stores every tool result as its own file, puts the file's description in the discussion, and posts a result as well when it is small enough."
 ---
 
 When a tooler fetches data from a live system, the result can be large: a full
@@ -14,11 +14,20 @@ Kubemoot treats this as plain mechanics, with no setting to turn on:
 
 1. **Every tool result is written to a file**, always, one file per call.
 2. **The discussion carries the file's description**: the tool, its arguments, rows, bytes,
-   format and columns. Never the content.
-3. **Agents read files by key** (`workspace_query`, the `artifact_*` tools, `execute_code`)
-   and **add the facts they find** to the discussion.
-4. **The synthesizer answers from the discussion only.** A fact no agent added is reported as
-   unknown, and the file descriptions in the discussion let the answer say which data existed.
+   format and columns.
+3. **A result small enough to read is posted in the discussion as well**, whole, after its
+   description. A larger result is only in its file. How small is computed from the context
+   window of the models that read the discussion ([Small results go in the
+   discussion](#small-results-go-in-the-discussion)). A result is never cut: it is posted whole
+   or not at all.
+4. **Agents read files by key** (`workspace_query`, the `artifact_*` tools, `execute_code`)
+   and **add the facts they find** to the discussion. Keys are short and relative to the
+   thread ([Short keys](#short-keys)).
+5. **The synthesizer answers from the discussion only.** A fact no agent added and no posted
+   result holds is reported as unknown, and the file descriptions in the discussion let the
+   answer say which data existed. When tools ran and the discussion holds no fact at all, the
+   coordinator does not call the model and says that no data was obtained
+   ([No facts, no model](../signals-and-protocol/#no-facts-no-model)).
 
 The remedy for a result that is too large is a tool call that asks for less (fewer fields, a
 filter, a limit, a shorter time range). Storing the result as a file keeps the bus and the
@@ -69,23 +78,31 @@ define use the convention's name; the rest sit in the `kubemoot.` namespace.
 | `kubemoot.format` | `json` when the body is a JSON object or list, otherwise `text`. A text body is a `kubectl` table, YAML or prose, and `workspace_query` detects which. |
 | `kubemoot.truncated` | `true` only when the result was cut at the size cap. |
 
-### What an agent posts: the descriptions of its files
+### What an agent posts: the descriptions of its files, and its small results
 
 A contribution is what the agent states, followed by the description of each file it
 produced, built in code from what was stored. A raw-output tooler (`discussRole: tooler`)
 states nothing: its contribution is the descriptions alone. Any other agent with tools posts
-its own words first, then the descriptions after a blank line. The content of a file is
-never in a contribution, so nothing large goes through the bus, and the descriptions stay
-under 4,000 characters.
+its own words first, then the descriptions after a blank line. The descriptions stay under
+4,000 characters. A result small enough for the discussion follows its description whole,
+between `[RESULT]` and `[END RESULT]`; a larger result is only in its file, so nothing large
+goes through the bus.
 
 ```
 Pod a-1 uses the most CPU, 0.9 cores (workspace_query over 001-pods_list).
 
-[WORKSPACE agent=k8s-workloads calls=2 errors=1 prefix=default/pilot/t1/k8s-workloads/]
-[CALL key=default/pilot/t1/k8s-workloads/001-pods_list tool=pods_list args={"namespace":"kube-system"} format=text-table bytes=15210 rows=unknown error=false columns=NAME,READY,STATUS,RESTARTS,AGE]
-[CALL key=default/pilot/t1/k8s-workloads/002-nodes_list tool=nodes_list args={} format=json bytes=2210 rows=3 error=false fields=metadata,spec,status]
-The results are stored under these keys and are not shown here. Read a key with workspace_query (SQL; the columns are listed on the call line), the artifact_* tools, or execute_code over the file /artifacts/<key>; the key default/pilot/t1/k8s-workloads/*-<tool> reads every call of one tool as one table.
+[WORKSPACE agent=k8s-workloads calls=3 errors=0 prefix=k8s-workloads/]
+[CALL key=k8s-workloads/001-pods_list tool=pods_list args={"namespace":"kube-system"} format=text-table bytes=15210 rows=unknown error=false columns=NAME,READY,STATUS,RESTARTS,AGE]
+[CALL key=k8s-workloads/002-nodes_list tool=nodes_list args={} format=json bytes=2210 rows=3 error=false fields=metadata,spec,status]
+[CALL key=k8s-workloads/003-events_list tool=events_list args={} format=text bytes=15 rows=unknown error=false]
+[RESULT]
+No events found
+[END RESULT]
+The results are stored under these keys; a result not shown above is only in its file. Read a key with workspace_query (SQL; the columns are listed on the call line), the artifact_* tools, or execute_code over the file /artifacts/<key>; the key k8s-workloads/*-<tool> reads every call of one tool as one table.
 ```
+
+The keys in the lines are relative to the thread: `{agent}/{nnn}-{tool}` ([Short
+keys](#short-keys)).
 
 Each call line says what the stored body is, so a reader does not guess it. `format=` is
 `json` (a JSON object or list), `text-table` (a `kubectl` style table: a first line of
@@ -102,7 +119,7 @@ arguments, then the column names, then replace the last lines with a count
 (`[N more calls under the prefix]`). Square brackets in the summarized arguments show as
 parentheses so a list cannot end the call line early.
 
-A statement is cut at 24,000 characters; the descriptions after it are never cut. An agent that answers `NOTHING_TO_ADD` or `TOOL_GAP:` posts no descriptions (the files are still stored and still listed in the catalog).
+A statement is cut at 24,000 characters; the descriptions and posted results after it are never cut. An agent that answers `NOTHING_TO_ADD` or `TOOL_GAP:` posts no descriptions (the files are still stored and still listed in the catalog).
 
 An agent's own model keeps its normal behavior while it works: a result too large for its
 window is shown to a tooler's model as a short stand-in that names the call's key
@@ -112,7 +129,70 @@ narrower call. In both cases the whole result is in the file.
 **A write that fails** is not hidden. The call gets a line
 `[NOT STORED tool=<tool> args=... error=... - the result could not be written to the workspace and is not available]`
 in place of its `[CALL ...]` line, and the synthesizer treats that data as unknown. The
-result is not posted in the contribution in its place.
+result is not posted in the contribution in its place: nothing backs it, so it is not offered
+as data.
+
+### Small results go in the discussion
+
+A tool result is posted after its description when it fits in whole. Both limits follow from the
+context window of the models that read the discussion. The window used is the smallest one among
+the servers that hold the agent's model, so the reader with the least room can still take the
+discussion in; when no window is published, the room is a fixed 8,000 characters.
+
+| | Rule | 32,768-token window | 131,072-token window | No window known |
+|---|---|---|---|---|
+| Room for results in the discussion | A quarter of the window, at 3 characters a token | 24,576 | 98,304 | 8,000 |
+| One result | An eighth of the room | 3,072 | 12,288 | 1,000 |
+| All the results of one contribution | A quarter of the room, at most 20,000 | 6,144 | 20,000 | 2,000 |
+
+The 20,000 cap keeps a contribution (descriptions of at most 4,000 characters plus results) inside
+the 24,000 characters an agent's statement may take on the bus. The catalog uses the same room.
+
+Results are admitted in call order. A result that is over its share, or does not fit what is left
+of the contribution's, stays in its file only, and a smaller result after it can still go in.
+Rules that keep the posted text trustworthy:
+
+- A result is posted exactly as the tool returned it, or not at all. It is never cut, and a
+  result that would have been cut at the storage cap (1,000,000 characters) is not posted.
+- A result that holds the text `[END RESULT]` itself, an empty result, and a result that could
+  not be stored are not posted.
+- A failed call posts its error text between `[FAILED RESULT]` and `[END RESULT]` when it fits.
+  That text says why the call failed; it is not data about the system and does not count as a
+  fact.
+- A long manifest that has to drop lines drops the calls without a posted result first, so a
+  posted result keeps the line that describes it.
+
+The example from a Kubernetes crew: a CronJobs table of 856 bytes and an events result of 15 bytes are
+posted, and a Jobs table of 25,662 bytes stays in its file on a 32,768-token window (and on a
+131,072-token window, where one result may take 12,288 characters). The agents that read files can
+still query the Jobs table; the synthesizer reads the CronJobs and the events from the discussion
+and reports the Jobs as unknown.
+
+### Short keys
+
+Agents see and type keys relative to the thread: `{agent}/{nnn}-{tool}`, for example
+`k8s-workloads/002-resources_list`. The long key still exists in the store and in the reference
+envelope, but no agent has to copy a 36-character thread id, which models mistype.
+
+The agent runtime names the thread in the `_meta` of each call to a tool that reads stored results
+(`workspace_query`, the `artifact_*` tools, `execute_code`), as the entry `workspacePrefix`
+(`{namespace}/{crew}/{threadId}/`). It is the same MCP `_meta` that carries the requester's time zone
+and date, and the [MCP gateway](../../reference/mcpgateway-guide/) forwards it after checking it
+is three plain name parts. The tool resolves each key inside that thread:
+
+| Key given | Result |
+|-----------|--------|
+| `k8s-workloads/002-resources_list` | Read as `{namespace}/{crew}/{threadId}/k8s-workloads/002-resources_list`. |
+| `k8s-workloads/*-resources_list` | The pattern, inside the thread. `*/*-pods_list` is every `pods_list` call of every agent. |
+| The full key of this thread | Read as given. |
+| A key of another thread, or a full key with a mistyped thread id | Refused with a message that gives the short form. |
+| A key with an empty, `.` or `..` part | Refused, so a key cannot climb out of the thread. |
+
+Without a thread in `_meta` (a call from outside a discussion), keys are used as given. `execute_code`
+runs in a sandbox that knows no thread, so the runtime writes the thread into each
+`/artifacts/{agent}/{nnn}-{tool}` path in the code before the call; a path that already names a
+thread is left alone. Short keys are resolved for the files of the thread the call runs in only; code
+that builds a path to another thread's file by hand can still read it from the sandbox's mount.
 
 ### The catalog: the complete list of files
 
@@ -122,9 +202,9 @@ object headers under the thread's key prefix (not from what any model wrote), an
 stored is missing from it, and the totals line shows if a line were:
 
 ```
-[CATALOG calls=11 errors=1 bytes=198940 groups=3 prefix=default/pilot/t1/]
-[GROUP agent=proxmox-qm tool=get_vm_rrd_data calls=9 errors=0 bytes=198000 rows=540 pattern=default/pilot/t1/proxmox-qm/*-get_vm_rrd_data]
-[CATALOG-CALL key=default/pilot/t1/proxmox-qm/002-get_vm_rrd_data tool=get_vm_rrd_data args={"node":"pve","vmid":101} format=text rows=60 bytes=22000 error=false]
+[CATALOG calls=11 errors=1 bytes=198940 groups=3]
+[GROUP agent=proxmox-qm tool=get_vm_rrd_data calls=9 errors=0 bytes=198000 rows=540 pattern=proxmox-qm/*-get_vm_rrd_data]
+[CATALOG-CALL key=proxmox-qm/002-get_vm_rrd_data tool=get_vm_rrd_data args={"node":"pve","vmid":101} format=text rows=60 bytes=22000 error=false]
 ...
 Read one call by its key, or every call of a group by its pattern, with workspace_query (SQL) or the artifact_* tools, or with execute_code over the file /artifacts/<key>. A pattern reads the calls as one table with the columns _call (the call's key), _args (its arguments) and _arg_<name> for an argument that differs between the calls (for example _arg_vmid).
 ```
@@ -150,18 +230,22 @@ The tool-free synthesizer cannot read the workspace and is not given a file. Its
 1. the signal counts and the original question,
 2. a few ADL rules for file descriptions (`agent-runtime/src/main/resources/prompts/synthesis-files.adl`),
    present only when a contribution describes a file,
-3. the thread: every contribution, each with the descriptions of its files, with the
-   `[WORKSPACE ...]` header and the closing "stored under these keys" line removed (they speak to an
-   agent that can read files).
+3. the thread: every contribution, each with the descriptions of its files and the results posted
+   with them, with the `[WORKSPACE ...]` header and the closing "stored under these keys" line
+   removed (they speak to an agent that can read files).
 
-The rules say that a `[CALL ...]` line describes a file and carries no values; that a count, total
-or list is stated as the agent stated it; that nothing is derived from rows and bytes; and that a
-value no agent stated is reported as **unknown**, naming the files that existed for it (tool,
+The rules say that a `[CALL ...]` line describes a file and carries no values; that a `[RESULT]`
+block is the whole result of the call above it and is data; that a count, total or list is stated as
+the agent stated it; that nothing is derived from rows and bytes; and that a value no agent stated and
+no posted result holds is reported as **unknown**, naming the files that existed for it (tool,
 arguments, rows). A `[NOT STORED ...]` line is unavailable data and also unknown. Because the
-synthesizer sees the discussion only, the cost of an answer does not depend on the size of the
-files.
+synthesizer sees the discussion only, the cost of an answer is bounded by the room computed above, not
+by the size of the files.
 
-The final answer to the user never carries a file description line.
+When tools ran and the discussion holds no fact, the synthesizer is not called ([No facts, no
+model](../signals-and-protocol/#no-facts-no-model)).
+
+The final answer to the user never carries a file description line or a posted result block.
 
 Per-call objects are deleted with their thread (by the thread's key prefix), and the 48-hour
 bucket TTL bounds anything that is missed. See [Garbage collection](#garbage-collection).
@@ -316,13 +400,14 @@ The format is decided from the content (object keys carry no file extension):
 | Anything else | One row per line, columns `line_no` and `line`. |
 
 The key of one call
-(`default/pilot/t1/k8s-workloads/001-pods_list`) is one table, and its `kubemoot.format`
+(`k8s-workloads/001-pods_list`, or the full `default/pilot/t1/k8s-workloads/001-pods_list`) is one table, and its `kubemoot.format`
 header decides how it is read: `json` is read as JSON, `text` is detected as above. A
 key with a `*` reads every stored call that matches as one table. `*` stands for any
-characters except `/`, and the part before the first `*` must name the namespace, crew and
-thread (`ns/crew/thread/`), and the namespace must be the artifact-access pod's own
-(`KUBEMOOT_NAMESPACE`). `default/pilot/t1/k8s-workloads/*-pods_list` is every
-`pods_list` call of one agent in the thread; `default/pilot/t1/*/*-pods_list` is every
+characters except `/`. A short key (`k8s-workloads/*-pods_list`) is read inside the current thread
+([Short keys](#short-keys)); a full key must name the namespace, crew and thread
+(`ns/crew/thread/`), and the namespace must be the artifact-access pod's own
+(`KUBEMOOT_NAMESPACE`). `k8s-workloads/*-pods_list` is every
+`pods_list` call of one agent in the thread; `*/*-pods_list` is every
 `pods_list` call of every agent. Calls of the same shape are stacked as the rows of one
 table, a different shape is `name_2`, and a call that returned an error is left out and
 named in a note. At most 100 objects match, and together they stay inside the artifact
@@ -333,12 +418,12 @@ can be grouped, joined and counted per call (both engines):
 
 | Column | Value |
 |--------|-------|
-| `_call` | The object key of the call. |
+| `_call` | The object key of the call (the full key). |
 | `_args` | The call's arguments as the runtime recorded them (JSON text, cut at 1,000 characters); empty when the call has none. |
 | `_arg_<name>` | An argument that is a plain value (text, number or flag) in every stacked call and **differs between them**, one column per such argument, at most 6 in name order, with the argument's name made of letters, digits and `_`. For nine `get_vm_rrd_data` calls that differ only in `vmid`, that is `_arg_vmid`. |
 
 ```
-artifacts: {"rrd": "default/pilot/t1/proxmox-qm/*-get_vm_rrd_data"}
+artifacts: {"rrd": "proxmox-qm/*-get_vm_rrd_data"}
 sql: SELECT _arg_vmid, max(cpu) AS peak_cpu FROM rrd GROUP BY _arg_vmid ORDER BY peak_cpu DESC
 ```
 

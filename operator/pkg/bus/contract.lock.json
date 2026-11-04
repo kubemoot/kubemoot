@@ -335,6 +335,7 @@
         "ceiling",
         "direct",
         "fallback",
+        "no_data",
         "synthesized"
       ]
     },

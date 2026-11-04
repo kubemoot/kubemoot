@@ -2493,7 +2493,7 @@ public class DiscussionOrchestrator {
      * that entered SYNTHESIZING and has no answer in its log yet.
      */
     void beginSynthesis(ThreadState state, Instant synthesisStart) {
-        if (closeForCapacity(state, synthesisStart)) {
+        if (closeForCapacity(state, synthesisStart) || closeForNoData(state, synthesisStart)) {
             return;
         }
         submitLlm(() -> runSynthesis(state, synthesisStart));
@@ -3161,7 +3161,29 @@ public class DiscussionOrchestrator {
         }
         log.info("Thread {} - no contribution and agents could not get a GPU; answering with the capacity message",
                 state.threadId);
-        completeSynthesisPhase(state, resolveChannel(state), capacity, synthesisStart, "capacity");
+        return closeWith(state, synthesisStart, capacity, "capacity");
+    }
+
+    /**
+     * Close the thread with the no-data answer, without the model, when tools ran and the
+     * discussion holds no fact (see {@link DiscussionFacts}): a synthesizer with nothing to answer
+     * from invents. Returns true when it closed the thread.
+     */
+    private boolean closeForNoData(ThreadState state, Instant synthesisStart) {
+        var thread = state.messages.stream()
+                .map(m -> new DiscussionFacts.Message(m.agentName, m.messageType, m.content)).toList();
+        if (!DiscussionFacts.noData(thread)) {
+            return false;
+        }
+        log.info("Thread {} - tools ran and no agent stated a fact; answering that no data was obtained, "
+                + "without the synthesis call", state.threadId);
+        String answer = DiscussionFacts.noDataAnswer(state.userQuery, thread, new TreeMap<>(state.failureSignals));
+        return closeWith(state, synthesisStart, answer, CoordinatorWire.NO_DATA);
+    }
+
+    /** Closes the thread with an answer written in code, without the synthesis call. Always true. */
+    private boolean closeWith(ThreadState state, Instant synthesisStart, String answer, String outcome) {
+        completeSynthesisPhase(state, resolveChannel(state), answer, synthesisStart, outcome);
         return true;
     }
 

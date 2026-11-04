@@ -2,6 +2,7 @@ package ai.kubemoot.agent.nats;
 
 import ai.kubemoot.agent.chat.CallHeaders;
 import ai.kubemoot.agent.chat.CallManifest;
+import ai.kubemoot.agent.chat.DiscussionRoom;
 import io.nats.client.Connection;
 import io.nats.client.api.ObjectInfo;
 import io.nats.client.impl.Headers;
@@ -37,18 +38,21 @@ final class ThreadCatalog {
     record Entry(String key, String agent, String tool, String args, long rows, long bytes, String format,
                  boolean error) {
 
-        /** The key pattern that reads every call of this entry's agent and tool as one table. */
-        String pattern() {
-            return key.substring(0, key.lastIndexOf('/') + 1) + "*-" + DiscussionArtifacts.safe(tool);
+        /** The key relative to the thread under {@code threadPrefix}: {@code <agent>/<nnn>-<tool>}. */
+        String relativeKey(String threadPrefix) {
+            return key.startsWith(threadPrefix) ? key.substring(threadPrefix.length()) : key;
+        }
+
+        /** The key pattern, relative to the thread, that reads every call of this entry's agent and tool as one table. */
+        String pattern(String threadPrefix) {
+            String relative = relativeKey(threadPrefix);
+            return relative.substring(0, relative.lastIndexOf('/') + 1) + "*-" + DiscussionArtifacts.safe(tool);
         }
 
         String groupId() {
             return agent + "\u0000" + tool;
         }
     }
-
-    private static final int UNKNOWN_WINDOW_CHARS = 8_000;
-    private static final int CHARS_PER_TOKEN = 3;
 
     private final String prefix;
     private final List<Entry> entries;
@@ -107,10 +111,9 @@ final class ThreadCatalog {
         }
     }
 
-    /** Characters of a quarter of the smallest window (about three characters a token); a fixed size when no window is known. */
+    /** Characters of a quarter of the smallest window; the same room the discussion's results are sized from. */
     static int roomChars(java.util.OptionalLong windowTokens) {
-        return windowTokens.isEmpty() ? UNKNOWN_WINDOW_CHARS
-                : (int) Math.min(Integer.MAX_VALUE, windowTokens.getAsLong() / 4 * CHARS_PER_TOKEN);
+        return DiscussionRoom.chars(windowTokens);
     }
 
     List<Entry> entries() {
@@ -153,7 +156,7 @@ final class ThreadCatalog {
     private String text(boolean withCalls) {
         var sb = new StringBuilder(HEADER_PREFIX).append("calls=").append(calls()).append(" errors=")
                 .append(errors()).append(" bytes=").append(bytes()).append(" groups=").append(groups().size())
-                .append(" prefix=").append(prefix).append("]\n");
+                .append("]\n");
         groups().values().forEach(g -> {
             sb.append(groupLine(g)).append('\n');
             if (withCalls) {
@@ -163,19 +166,19 @@ final class ThreadCatalog {
         return sb.append(legend(withCalls)).toString();
     }
 
-    private static String groupLine(List<Entry> g) {
+    private String groupLine(List<Entry> g) {
         Entry first = g.get(0);
         long errors = g.stream().filter(Entry::error).count();
         boolean rowsKnown = g.stream().allMatch(e -> e.rows() >= 0);
         long rows = g.stream().filter(e -> e.rows() >= 0).mapToLong(Entry::rows).sum();
         return GROUP_PREFIX + "agent=" + first.agent() + " tool=" + first.tool() + " calls=" + g.size()
                 + " errors=" + errors + " bytes=" + g.stream().mapToLong(Entry::bytes).sum()
-                + " rows=" + (rowsKnown ? Long.toString(rows) : "unknown") + " pattern=" + first.pattern() + "]";
+                + " rows=" + (rowsKnown ? Long.toString(rows) : "unknown") + " pattern=" + first.pattern(prefix) + "]";
     }
 
     /** The catalog line of one call: its key, tool, arguments, shape and size. */
-    private static String callLine(Entry e) {
-        return ENTRY_PREFIX + e.key() + " tool=" + e.tool() + " args=" + CallManifest.argsSummary(e.args())
+    private String callLine(Entry e) {
+        return ENTRY_PREFIX + e.relativeKey(prefix) + " tool=" + e.tool() + " args=" + CallManifest.argsSummary(e.args())
                 + " format=" + (e.format().isEmpty() ? "text" : e.format())
                 + " rows=" + (e.rows() >= 0 ? Long.toString(e.rows()) : "unknown")
                 + " bytes=" + e.bytes() + " error=" + e.error() + "]";

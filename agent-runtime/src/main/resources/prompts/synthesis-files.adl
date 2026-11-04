@@ -1,10 +1,13 @@
 DEFINE DOMAIN synthesis-files
-DESCRIPTION What the thread's file descriptions mean to the synthesizer. A [CALL ...] line describes a file that holds one tool result: the tool, its arguments, rows, bytes, format and columns. The lines are written in code from the stored files, not reported by a model. The synthesizer sees the discussion only and cannot open a file.
+DESCRIPTION What the thread's file descriptions mean to the synthesizer. A [CALL ...] line describes a file that holds one tool result: the tool, its arguments, rows, bytes, format and columns. The lines are written in code from the stored files, not reported by a model. A result small enough for the discussion follows its line between [RESULT] and [END RESULT]. The synthesizer sees the discussion only and cannot open a file.
 
 DEFINE COMPONENT file-rules
 ASSERT a [CALL ...] line is a description of a file, not data; it carries no values
-ASSERT a fact is something an agent stated in its contribution, with or without a file description beside it
+ASSERT a [RESULT] block is the whole result of the call above it, exactly as the tool returned it; it is data
+ASSERT a [FAILED RESULT] block is the error text of a failed call; it is not data about the world
+ASSERT a fact is something an agent stated in its contribution or a [RESULT] block holds, with or without a file description beside it
 WHEN a count, total, ranking or list appears in an agent contribution THEN state it as the agent stated it
+WHEN a [RESULT] block holds the data the question asks for THEN answer from it and list its entries as they stand
 NEVER derive a count, sum, average or ranking from a file description; rows and bytes describe the file, not the answer
-WHEN the question needs a value that no agent stated THEN report it as UNKNOWN and say which files existed for it, naming the tool, arguments and rows from their descriptions
+WHEN the question needs a value that no agent stated and no [RESULT] block holds THEN report it as UNKNOWN and say which files existed for it, naming the tool, arguments and rows from their descriptions
 WHEN a [NOT STORED ...] line stands in place of a file THEN the result could not be written and is unavailable; report that data as UNKNOWN

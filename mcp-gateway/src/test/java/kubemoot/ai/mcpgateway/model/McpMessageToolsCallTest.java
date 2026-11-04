@@ -93,4 +93,21 @@ class McpMessageToolsCallTest {
         assertNull(McpMessage.toolsCall(1, "t", ARGS, "not a map").params().get("_meta"));
         assertNull(McpMessage.toolsCall(1, "t", ARGS, Map.of("timeZone", 5)).params().get("_meta"));
     }
+
+    private static final String PREFIX = "crew-homelab-pilot/homelab-pilot/0071d018-24cb-4532-a560-fc12a788e654/";
+
+    @Test
+    void workspacePrefixOfAThreadIsForwarded() {
+        assertEquals(Map.of("workspacePrefix", PREFIX), forwarded(Map.of("workspacePrefix", PREFIX)));
+    }
+
+    @Test
+    void malformedWorkspacePrefixIsDropped() {
+        for (String bad : new String[] {"", "ns/crew/thread", "ns/crew/", "ns/crew/thread/extra/", "ns/../thread/",
+                "ns/./thread/", "ns/crew/*/", "ns/crew/thr ead/", "/crew/thread/", "ns/crew/" + "x".repeat(600) + "/"}) {
+            assertNull(McpMessage.toolsCall(1, "t", ARGS, Map.of("workspacePrefix", bad)).params().get("_meta"),
+                    "prefix [" + bad + "] must be dropped");
+        }
+        assertNull(McpMessage.toolsCall(1, "t", ARGS, Map.of("workspacePrefix", 7)).params().get("_meta"));
+    }
 }

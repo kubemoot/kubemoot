@@ -235,17 +235,18 @@ The MCP Java SDK and the JSON Schema validator it uses (networknt) only validate
 
 ## Request metadata (_meta)
 
-MCP's `tools/call` carries per-request metadata in `params._meta`. The gateway forwards only the three requester keys listed below, on every route into a tool server: the MCP endpoint reads them from the `_meta` the caller sent, and `POST /tools/{name}/call` takes an optional `_meta` object next to `arguments`. It re-validates each value (`timeZone` must be a known IANA zone id of at most 64 characters, `localDateTime` an ISO local date-time with a four-digit year and no offset, `requestDate` an ISO date) and drops every other key and every value that fails its check, so a caller cannot pass other fields to a tool through `_meta`. A call with nothing left to forward carries no `_meta`. The gateway does not add values.
+MCP's `tools/call` carries per-request metadata in `params._meta`. The gateway forwards only the four keys listed below, on every route into a tool server: the MCP endpoint reads them from the `_meta` the caller sent, and `POST /tools/{name}/call` takes an optional `_meta` object next to `arguments`. It re-validates each value (`timeZone` must be a known IANA zone id of at most 64 characters, `localDateTime` an ISO local date-time with a four-digit year and no offset, `requestDate` an ISO date, `workspacePrefix` three plain name parts and a closing slash of at most 512 characters) and drops every other key and every value that fails its check, so a caller cannot pass other fields to a tool through `_meta`. A call with nothing left to forward carries no `_meta`. The gateway does not add values.
 
-Agents use it to give a tool the requester's date and time zone:
+Agents use it to give a tool the requester's date and time zone, and to give the tools that read a discussion's stored results the thread they run in:
 
 | `_meta` key | Value |
 |-------------|-------|
 | `timeZone` | the requester's IANA time zone, such as `America/Los_Angeles` |
 | `localDateTime` | the requester's local date and time, ISO 8601 without an offset |
 | `requestDate` | the requester's date, `YYYY-MM-DD` |
+| `workspacePrefix` | the key prefix of the discussion thread, `{namespace}/{crew}/{threadId}/`. The agent runtime sends it only to `workspace_query`, the `artifact_*` tools and `execute_code`; the artifact tools resolve a short key such as `k8s-workloads/002-resources_list` inside that thread and refuse a key of another thread, see [Short keys](../../concepts/discussion-artifact-store/#short-keys) |
 
-A key is present only when the requester's client sent it (and `requestDate` whenever either of the others is). A tool that needs "today" should read it from here and not from its own clock; see [Read the requester's date in a tool](../../user-guides/onboard-mcp-tools/#read-the-requesters-date-in-a-tool).
+A requester key is present only when the requester's client sent it (and `requestDate` whenever either of the other two is); `workspacePrefix` only inside a discussion. A tool that needs "today" should read it from here and not from its own clock; see [Read the requester's date in a tool](../../user-guides/onboard-mcp-tools/#read-the-requesters-date-in-a-tool).
 
 ## Connections to MCP servers
 

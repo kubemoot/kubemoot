@@ -31,16 +31,16 @@ class ThreadCatalogTest {
     void theTotalsLineCountsEveryCallErrorAndByte() {
         String text = proxmox().render(1_000_000);
 
-        assertTrue(text.startsWith("[CATALOG calls=11 errors=1 bytes=198940 groups=3 prefix=" + PREFIX + "]\n"), text);
+        assertTrue(text.startsWith("[CATALOG calls=11 errors=1 bytes=198940 groups=3]\n"), text);
     }
 
     @Test
     void everyCallHasALineWithItsToolArgumentsFormatRowsBytesAndError() {
         String text = proxmox().render(1_000_000);
 
-        assertTrue(text.contains("[CATALOG-CALL key=" + PREFIX + "qm/002-get_vm_rrd_data tool=get_vm_rrd_data "
+        assertTrue(text.contains("[CATALOG-CALL key=qm/002-get_vm_rrd_data tool=get_vm_rrd_data "
                 + "args={\"node\":\"pve\",\"vmid\":101} format=text rows=60 bytes=22000 error=false]"), text);
-        assertTrue(text.contains("[CATALOG-CALL key=" + PREFIX + "pve/001-get_node_status tool=get_node_status args={} "
+        assertTrue(text.contains("[CATALOG-CALL key=pve/001-get_node_status tool=get_node_status args={} "
                 + "format=text rows=unknown bytes=900 error=true]"), text);
     }
 
@@ -49,9 +49,9 @@ class ThreadCatalogTest {
         String text = proxmox().render(1_000_000);
 
         assertTrue(text.contains("[GROUP agent=qm tool=get_vm_rrd_data calls=9 errors=0 bytes=198000 rows=540 pattern="
-                + PREFIX + "qm/*-get_vm_rrd_data]"), text);
+                + "qm/*-get_vm_rrd_data]"), text);
         assertTrue(text.contains("[GROUP agent=pve tool=get_node_status calls=1 errors=1 bytes=900 rows=unknown pattern="
-                + PREFIX + "pve/*-get_node_status]"), text);
+                + "pve/*-get_node_status]"), text);
     }
 
     @Test

@@ -48,6 +48,28 @@ class ManifestTextTest {
     }
 
     @Test
+    void aPostedResultStaysForTheSynthesizerAndGoesFromTheUserFacingAnswer() {
+        String block = "[RESULT]\nNAME  READY\npod-a  1/1\n[END RESULT]";
+        String failed = "[FAILED RESULT]\nobject not found\n[END RESULT]";
+        String text = "Two pods.\n" + HEADER + LINE1 + "\n" + block + "\n" + LINE2 + "\n" + failed + FOOTER;
+
+        String forSynthesizer = ManifestText.strip(text, false);
+        String forUser = ManifestText.strip(text, true);
+
+        assertTrue(forSynthesizer.contains(block) && forSynthesizer.contains(failed), forSynthesizer);
+        assertFalse(forUser.contains("pod-a") || forUser.contains("object not found") || forUser.contains("RESULT"),
+                forUser);
+        assertEquals("Two pods.", forUser.strip());
+    }
+
+    @Test
+    void anUnclosedResultBlockIsNotMistakenForOne() {
+        String text = "Findings\n[RESULT]\nrows that never end";
+
+        assertEquals(text, ManifestText.strip(text, true));
+    }
+
+    @Test
     void aTextWithNoManifestIsUnchanged() {
         assertEquals("plain", ManifestText.strip("plain", true));
         assertEquals("", ManifestText.strip("", false));

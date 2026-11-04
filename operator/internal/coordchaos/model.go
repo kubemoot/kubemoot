@@ -86,6 +86,7 @@ const (
 	signalFailure           = "failure"
 	reasonSynthesized       = "synthesized"
 	reasonCapacity          = "capacity"
+	reasonNoData            = "no_data"
 	reasonDirect            = "direct"
 	reasonFallback          = "fallback"
 	metricResumes           = "kubemoot_coordinator_resumes_total"

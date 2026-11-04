@@ -25,6 +25,10 @@ for the full design.
 - `internal/materializer` - streams an object to a file (atomic temp+rename);
   `ObjectStore` is an interface so the core is unit-tested without NATS.
 - `internal/natsstore` - the NATS JetStream Object Store adapter.
+- `internal/threadkey` - short keys. A call's `_meta.workspacePrefix`
+  (`{namespace}/{crew}/{thread}/`) names the thread it runs in; a key written
+  `{agent}/{nnn}-{tool}` is read inside that thread, a full key of the same thread
+  passes, and a key of another thread is refused. Without the entry, keys are used as given.
 - `cmd/artifact-access` - wires NATS + subscription + materialization.
 
 ## Config (env)

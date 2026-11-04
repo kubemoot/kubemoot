@@ -78,7 +78,7 @@
         "agrees": { "type": "integer", "description": "Agreeing agents when synthesis began." },
         "concerns": { "type": "integer", "description": "Agents with a concern when synthesis began." },
         "standAsides": { "type": "integer", "description": "Agents that stood aside when synthesis began." },
-        "outcome": { "type": "string", "enum": ["synthesized", "capacity", "direct", "fallback", "ceiling"], "description": "How the answer came to be: written by the synthesis call, the accelerator-capacity message, the coordinator's own answer, the toolers' findings as they are, or the answer a force-closed thread got." },
+        "outcome": { "type": "string", "enum": ["synthesized", "capacity", "no_data", "direct", "fallback", "ceiling"], "description": "How the answer came to be: written by the synthesis call, the accelerator-capacity message, the statement that tools ran and no data was obtained (the model is not called), the coordinator's own answer, the toolers' findings as they are, or the answer a force-closed thread got." },
         "channel": { "type": "string", "description": "The channel the answer goes to." },
         "response": { "type": "string", "description": "The answer, written here before it is published, so a coordinator that stops between the two can publish it again." },
         "promptTooLarge": { "type": "boolean", "description": "True when the synthesis prompt fit no accelerator's context window." },
