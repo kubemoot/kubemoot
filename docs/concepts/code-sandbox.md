@@ -29,8 +29,8 @@ answer. A count a program printed is.
 The container that runs programs has no network path to the places data lives, so the data
 comes to it:
 
-1. A tooler agent fetches the data from the live system and spills it to the crew's
-   [artifact store](../discussion-artifact-store/), passing a reference on the bus.
+1. An agent fetches the data from the live system, and each tool result is stored as its own file in the crew's
+   [artifact store](../discussion-artifact-store/), announcing it on the bus.
 2. The artifact-access materializer, a sidecar in the sandbox pod, reads the referenced
    objects from the store over the message bus and writes them to a shared volume under
    `/artifacts`.

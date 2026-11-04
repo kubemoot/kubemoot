@@ -157,66 +157,6 @@ class DiscussionOrchestratorSkillsTest {
     }
 
     @Test
-    void inlineArtifactContent_noMarker_returnsUnchangedWithoutReadingNats() {
-        String text = "k8s-config agree: found 28 namespaces with their labels";
-        assertEquals(text, orchestrator.inlineArtifactContent(text));
-        verifyNoInteractions(natsProvider);
-    }
-
-    @Test
-    void inlineArtifactContent_replacesMarkerWithArtifactContentFromObjectStore() throws Exception {
-        // The fix: a marker-only contribution is filled in with the artifact's real
-        // content read from the object store, so the tool-free synthesizer works over
-        // the full data instead of an empty reference.
-        var conn = mock(io.nats.client.Connection.class);
-        var os = mock(io.nats.client.ObjectStore.class);
-        when(natsProvider.getConnection()).thenReturn(conn);
-        when(conn.objectStore("kubemoot_discussion_artifacts")).thenReturn(os);
-        String fullData = "namespaces: arc-runners, cert-manager, harbor, sonarqube, ... (28 total)";
-        doAnswer(inv -> {
-            ((java.io.OutputStream) inv.getArgument(1))
-                    .write(fullData.getBytes(java.nio.charset.StandardCharsets.UTF_8));
-            return null;
-        }).when(os).get(anyString(), any(java.io.OutputStream.class));
-
-        String key = "ns-a/homelab-pilot/t1/k8s-config/agree-abc";
-        String input = "k8s-config agree: [ARTIFACT key=" + key
-                + " bytes=64 - the FULL data is in the file /artifacts/" + key + "]";
-        String out = orchestrator.inlineArtifactContent(input);
-
-        assertTrue(out.contains(fullData), "the marker is replaced with the artifact content: " + out);
-        assertFalse(out.contains("[ARTIFACT key="), "the marker is gone once the content is read in");
-    }
-
-    @Test
-    void inlineArtifactContent_leavesAManifestForTheStoredResultsDelivery() {
-        // A tooler's per-call manifest is not filled in here: EvidenceSynthesis delivers its results,
-        // sized to the model that writes the answer. No object is read and no room is computed.
-        String line = "[CALL key=ns/crew/t1/k8s/001-pods_list tool=pods_list args={} bytes=30000 rows=unknown error=false]";
-
-        assertEquals(line, orchestrator.inlineArtifactContent(line));
-
-        verifyNoInteractions(natsProvider);
-    }
-
-    @Test
-    void inlineArtifactContent_aSpilledMarkerStillGetsTheFixedCharacterCut() throws Exception {
-        var conn = mock(io.nats.client.Connection.class);
-        var os = mock(io.nats.client.ObjectStore.class);
-        when(natsProvider.getConnection()).thenReturn(conn);
-        when(conn.objectStore("kubemoot_discussion_artifacts")).thenReturn(os);
-        doAnswer(inv -> {
-            ((java.io.OutputStream) inv.getArgument(1)).write("z".repeat(30_000).getBytes());
-            return null;
-        }).when(os).get(anyString(), any(java.io.OutputStream.class));
-
-        String out = orchestrator.inlineArtifactContent("a: [ARTIFACT key=ns/c/t/a/agree-u bytes=30000 - the FULL data is in the file]");
-
-        assertTrue(out.contains("z".repeat(24_000) + ManifestInliner.CUT_NOTE), "cut at 24,000");
-        assertFalse(out.contains("z".repeat(24_001)));
-    }
-
-    @Test
     void compactCatalog_skillsNotRenderedAsAgents() {
         String compact = orchestrator.compactCatalog(MIXED_CATALOG_JSON);
 

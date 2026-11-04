@@ -64,35 +64,30 @@ var _ = Describe("KubemootConfig artifacts.queryEngine default", func() {
 	}
 })
 
-// spec.artifacts.perCallArtifacts is off unless it is set: absent artifacts and an empty
-// artifacts object both read false, and true is kept.
-var _ = Describe("KubemootConfig artifacts.perCallArtifacts default", func() {
+// spec.artifacts.perCallArtifacts was removed: every tool result is always stored as its own
+// object. A KubemootConfig written before the removal (by Helm, Flux or kubectl) still carries the
+// field; it is accepted and dropped, so an upgrade never rejects an existing object.
+var _ = Describe("KubemootConfig with the removed artifacts.perCallArtifacts field", func() {
 	cases := []struct {
 		name      string
-		artifacts map[string]any // nil leaves spec.artifacts out
-		want      bool
+		artifacts map[string]any
 	}{
-		{"artifacts absent", nil, false},
-		{"artifacts empty", map[string]any{}, false},
-		{"explicitly on", map[string]any{"perCallArtifacts": true}, true},
+		{"set true", map[string]any{"perCallArtifacts": true}},
+		{"set false", map[string]any{"perCallArtifacts": false}},
 	}
 
 	for i, tc := range cases {
-		It("resolves "+tc.name, func() {
+		It("accepts it when "+tc.name, func() {
 			cfgObj := &unstructured.Unstructured{}
 			cfgObj.SetGroupVersionKind(aiv1alpha1.GroupVersion.WithKind("KubemootConfig"))
-			cfgObj.SetName(fmt.Sprintf("per-call-artifacts-default-%d", i))
-			spec := map[string]any{}
-			if tc.artifacts != nil {
-				spec["artifacts"] = tc.artifacts
-			}
-			Expect(unstructured.SetNestedMap(cfgObj.Object, spec, "spec")).To(Succeed())
+			cfgObj.SetName(fmt.Sprintf("removed-per-call-artifacts-%d", i))
+			Expect(unstructured.SetNestedMap(cfgObj.Object, map[string]any{"artifacts": tc.artifacts}, "spec")).To(Succeed())
 			Expect(k8sClient.Create(ctx, cfgObj)).To(Succeed())
 			DeferCleanup(func() { Expect(client.IgnoreNotFound(k8sClient.Delete(ctx, cfgObj))).To(Succeed()) })
 
 			got := &aiv1alpha1.KubemootConfig{}
 			Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cfgObj), got)).To(Succeed())
-			Expect(got.Spec.Artifacts.PerCallArtifacts).To(Equal(tc.want))
+			Expect(got.Spec.Artifacts.QueryEngine).NotTo(BeEmpty())
 		})
 	}
 })

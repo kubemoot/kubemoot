@@ -3,14 +3,10 @@ package ai.kubemoot.agent.nats;
 import ai.kubemoot.agent.chat.ChatService;
 import ai.kubemoot.agent.config.AgentProperties;
 import io.nats.client.Connection;
-import io.nats.client.ObjectStore;
-import io.nats.client.ObjectStoreManagement;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -110,64 +106,94 @@ class DiscussionSubscriberHelpersTest {
                 "malformed data -> not explicitly selected");
     }
 
-    // --- resolveContentField (artifact spill decision) ---
+    // --- what a contribution carries ---
 
     @Test
-    void resolveContentField_nullContent_returnsEmpty() {
-        var sub = createSubscriber("test-agent");
-        var meta = new HashMap<String, Object>();
-        assertEquals("", sub.resolveContentField(null, "t1", "agree", null, meta));
-        assertFalse(meta.containsKey("artifact"));
+    void contribution_isTheStatementThenTheFileDescriptions() {
+        assertEquals("11 pods\n\n[WORKSPACE agent=a]\n[CALL key=k tool=t]",
+                DiscussionSubscriber.contribution("11 pods", "[WORKSPACE agent=a]\n[CALL key=k tool=t]"));
     }
 
     @Test
-    void resolveContentField_smallContent_inlinedNoSpill() {
-        var sub = createSubscriber("test-agent");
-        var meta = new HashMap<String, Object>();
-        String out = sub.resolveContentField(null, "t1", "agree", "small body", meta);
-        assertEquals("small body", out);
-        assertFalse(meta.containsKey("artifact"), "small content must not spill");
+    void contribution_withoutFilesIsTheStatementAlone() {
+        assertEquals("11 pods", DiscussionSubscriber.contribution("11 pods", ""));
+        assertEquals("11 pods", DiscussionSubscriber.contribution("11 pods", null));
+        assertEquals("11 pods", DiscussionSubscriber.contribution("11 pods", "  "));
     }
 
     @Test
-    void resolveContentField_largeContent_spillFails_fallsBackToInline() throws Exception {
-        var sub = createSubscriber("test-agent");
+    void contribution_withoutAStatementIsTheDescriptionsAlone() {
+        assertEquals("[CALL key=k tool=t]", DiscussionSubscriber.contribution("", "[CALL key=k tool=t]"));
+        assertEquals("[CALL key=k tool=t]", DiscussionSubscriber.contribution(null, "[CALL key=k tool=t]"));
+        assertEquals("", DiscussionSubscriber.contribution(null, null));
+    }
+
+    @Test
+    void contribution_cutsALongStatementAndKeepsEveryFileDescription() {
+        String files = "[CALL key=ns/crew/t1/a/001-x tool=x]";
+        String out = DiscussionSubscriber.contribution("s".repeat(DiscussionSubscriber.STATEMENT_MAX_CHARS * 2), files);
+
+        assertTrue(out.endsWith("\n\n" + files), "the descriptions are never cut");
+        assertTrue(out.length() < DiscussionSubscriber.STATEMENT_MAX_CHARS + 200, "the statement is: " + out.length());
+    }
+
+    @Test
+    void anAgreeCarriesTheStatementAndTheFileDescriptionsAndNoSpillMarker() throws Exception {
         var conn = mock(Connection.class);
-        when(conn.objectStoreManagement()).thenThrow(new RuntimeException("nats down"));
-        var meta = new HashMap<String, Object>();
-        String big = "x".repeat(5000); // over the 4096 spill threshold
-        String out = sub.resolveContentField(conn, "t1", "agree", big, meta);
-        assertFalse(out.contains("[ARTIFACT"), "spill failure must fall back to inline, no marker");
-        assertFalse(meta.containsKey("artifact"), "no artifact metadata when spill fails");
+        var sub = createSubscriberWithConnection(conn);
+        String files = "[WORKSPACE agent=a calls=1 errors=0 prefix=ns/crew/t1/a/]\n[CALL key=ns/crew/t1/a/001-x tool=x]";
+        var result = new ChatService.ChatResult("c", "web uses 0.5 cores", "m", "t1", 1, 1, "s", "", null, null, files);
+
+        sub.classifyAndPublishResult(SUBJECT_T1, "t1", result, DiscussionSubscriber.SignalTiming.NONE, "static");
+
+        var msg = published(conn, 1).get(0);
+        String content = msg.path("content").asText();
+        assertEquals("agree", msg.path("messageType").asText());
+        assertEquals("web uses 0.5 cores\n\n" + files, content);
+        assertTrue(msg.path("metadata").path("artifact").isMissingNode(), "nothing is spilled");
+        assertTrue(msg.path("metadata").path("readKeys").isMissingNode());
     }
 
     @Test
-    void resolveContentField_largeContent_spillSucceeds_marksAndSetsMetadata() throws Exception {
-        var sub = createSubscriber("compute-agent");
+    void aLongContributionIsNeverSpilledToOneArtifact() throws Exception {
         var conn = mock(Connection.class);
-        var osm = mock(ObjectStoreManagement.class);
-        var os = mock(ObjectStore.class);
-        when(conn.objectStoreManagement()).thenReturn(osm);
-        when(conn.objectStore(anyString())).thenReturn(os);
+        var sub = createSubscriberWithConnection(conn);
+        var result = new ChatService.ChatResult("c", "y".repeat(9_000), "m", "t1", 1, 1, "s", "");
 
-        var meta = new HashMap<String, Object>();
-        String big = "y".repeat(5000);
-        String out = sub.resolveContentField(conn, "t1", "agree", big, meta);
+        sub.classifyAndPublishResult(SUBJECT_T1, "t1", result, DiscussionSubscriber.SignalTiming.NONE, "static");
 
-        assertTrue(out.contains("[ARTIFACT key="), "large spilled content carries a marker");
-        // Overflow posts ONLY the reference - the truncated inline preview is gone, so
-        // no consumer can tally incomplete data; they must read the artifact file.
-        assertFalse(out.contains("y".repeat(100)), "spilled content posts no inline preview, only the marker");
-        assertTrue(out.contains("/artifacts/"), "the marker names the file path to read");
-        assertTrue(meta.containsKey("artifact"), "spill sets structured metadata.artifact");
-        @SuppressWarnings("unchecked")
-        var ref = (Map<String, Object>) meta.get("artifact");
-        assertEquals("kubemoot_discussion_artifacts", ref.get("bucket"));
-        assertEquals(5000, ((Number) ref.get("bytes")).intValue(), "bytes is the full byte[] length");
-        assertTrue(((String) ref.get("key")).startsWith("ns-a/nocrew/t1/compute-agent/agree-"),
-                "key is namespace-, crew-, and thread-scoped");
-        verify(os).put(anyString(), any(byte[].class));
-        verify(conn).publish(eq("kubemoot.artifacts.ns-a.nocrew.t1"), any(byte[].class));
+        var msg = published(conn, 1).get(0);
+        assertEquals(9_000, msg.path("content").asText().length(), "the whole statement is inline");
+        assertFalse(msg.path("content").asText().contains("[ARTIFACT"));
+        verify(conn, never()).objectStoreManagement();
+    }
+
+    @Test
+    void aToolGapIsAConcernWithTheNeedAloneAndNoFileDescriptions() throws Exception {
+        var conn = mock(Connection.class);
+        var sub = createSubscriberWithConnection(conn);
+        var result = new ChatService.ChatResult("c", "TOOL_GAP: a Proxmox tool", "m", "t1", 1, 1, "s", "", null, null,
+                "[CALL key=k tool=t]");
+
+        sub.classifyAndPublishResult(SUBJECT_T1, "t1", result, DiscussionSubscriber.SignalTiming.NONE, "static");
+
+        var msg = published(conn, 1).get(0);
+        assertEquals("concern", msg.path("messageType").asText());
+        assertEquals("a Proxmox tool", msg.path("content").asText());
+    }
+
+    @Test
+    void aStandAsideDropsTheFileDescriptions() throws Exception {
+        var conn = mock(Connection.class);
+        var sub = createSubscriberWithConnection(conn);
+        var result = new ChatService.ChatResult("c", "NOTHING_TO_ADD", "m", "t1", 1, 1, "s", "", null, null,
+                "[CALL key=k tool=t]");
+
+        sub.classifyAndPublishResult(SUBJECT_T1, "t1", result, DiscussionSubscriber.SignalTiming.NONE, "static");
+
+        var msg = published(conn, 1).get(0);
+        assertEquals("stand_aside", msg.path("messageType").asText());
+        assertEquals("", msg.path("content").asText());
     }
 
     // --- admitForEvaluation guard order ---
@@ -321,7 +347,6 @@ class DiscussionSubscriberHelpersTest {
                 @Override public boolean metricsDrillContract() { return false; }
                 @Override public Optional<String> alwaysCandidateAgents() { return Optional.empty(); }
                 @Override public int synthesisCompletenessRetries() { return 0; }
-                @Override public int synthesisEvidenceRounds() { return 4; }
                 @Override public boolean answerDirectly() { return true; }
                 @Override public boolean hasAnalysts() { return false; }
                 @Override public int advisoryTimeoutSeconds() { return 10; }
@@ -533,47 +558,6 @@ class DiscussionSubscriberHelpersTest {
         assertEquals("alt-model:14b", msg.path("metadata").path("modelName").asText());
         assertTrue(msg.path("metadata").path("model").isMissingNode(),
                 "a plain stand-aside carries no capacity model: " + msg);
-    }
-
-    @Test
-    void anAgreeCarriesTheStoredCallsTheAgentReadAsReadKeys() throws Exception {
-        var conn = mock(Connection.class);
-        var chat = mock(ChatService.class);
-        when(chat.takeReads("t1")).thenReturn(List.of("ns/crew/t1/qm/*-get_vm_rrd_data", "ns/crew/t1/qm/001-list_vms"));
-        var sub = createSubscriberWithConnection(conn, chat);
-        var result = new ChatService.ChatResult("c", "web 0.5", "m", "t1", 1, 1, "s", "");
-
-        sub.classifyAndPublishResult(SUBJECT_T1, "t1", result, DiscussionSubscriber.SignalTiming.NONE, "static");
-
-        var msg = published(conn, 1).get(0);
-        assertEquals("agree", msg.path("messageType").asText());
-        assertEquals(List.of("ns/crew/t1/qm/*-get_vm_rrd_data", "ns/crew/t1/qm/001-list_vms"),
-                AnalystReadouts.readKeysOf(msg).stream().toList());
-    }
-
-    @Test
-    void anAgreeThatReadNothingHasNoReadKeysField() throws Exception {
-        var conn = mock(Connection.class);
-        var sub = createSubscriberWithConnection(conn);
-        var result = new ChatService.ChatResult("c", "11 pods", "m", "t1", 1, 1, "s", "");
-
-        sub.classifyAndPublishResult(SUBJECT_T1, "t1", result, DiscussionSubscriber.SignalTiming.NONE, "static");
-
-        assertTrue(published(conn, 1).get(0).path("metadata").path("readKeys").isMissingNode());
-    }
-
-    @Test
-    void aStandAsideDropsTheReadsSoTheyNeverReachALaterSignal() throws Exception {
-        var conn = mock(Connection.class);
-        var chat = mock(ChatService.class);
-        when(chat.takeReads("t1")).thenReturn(List.of("ns/crew/t1/qm/001-list_vms"));
-        var sub = createSubscriberWithConnection(conn, chat);
-        var result = new ChatService.ChatResult("c", "NOTHING_TO_ADD", "m", "t1", 1, 1, "s", "");
-
-        sub.classifyAndPublishResult(SUBJECT_T1, "t1", result, DiscussionSubscriber.SignalTiming.NONE, "static");
-
-        verify(chat).takeReads("t1");
-        assertTrue(published(conn, 1).get(0).path("metadata").path("readKeys").isMissingNode());
     }
 
     @Test

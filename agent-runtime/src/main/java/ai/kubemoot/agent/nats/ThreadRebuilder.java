@@ -75,9 +75,6 @@ final class ThreadRebuilder {
                 state.failureSignals.put(agent, CoordinatorWire.CAUSE_TIMEOUT.equals(cause) ? TIMED_OUT : PLACEHOLDER));
         state.failedSources.addAll(log.failedSources);
         state.researcherAgents.addAll(log.researchers);
-        state.dataAnalysts.addAll(log.dataAnalysts);
-        log.readKeys.forEach((agent, keys) ->
-                state.readKeys.computeIfAbsent(agent, a -> ConcurrentHashMap.newKeySet()).addAll(keys));
     }
 
     private static void capacity(ThreadState state, CoordinatorThreadState log) {

@@ -60,21 +60,9 @@ public class ChatService {
     private final RagClient ragClient;
     private final DiscussionOrchestrator discussionOrchestrator;
 
-    /** Config key that turns per-call workspace artifacts on: environment variable KUBEMOOT_PER_CALL_ARTIFACTS. */
-    static final String PER_CALL_ARTIFACTS_KEY = "kubemoot.per-call-artifacts";
-
-    /** Writes each tool call of a raw-output tooler as its own workspace object; null in tests that do not use it. */
+    /** Writes each tool call of every agent as its own workspace object; null in tests that do not use it. */
     @Inject
     CallArtifactStore callArtifactStore;
-
-    /** True when a raw-output tooler stores each tool call as its own workspace object. Off unless configured. */
-    boolean perCallArtifacts = org.eclipse.microprofile.config.ConfigProvider.getConfig()
-            .getOptionalValue(PER_CALL_ARTIFACTS_KEY, Boolean.class).orElse(false);
-
-    /** The stored calls this agent's tool calls read, per thread; recorded only with per-call artifacts on. */
-    private final AnalystReads analystReads = new AnalystReads();
-    /** The discussion thread whose tool loop is running on this thread, for {@link #analystReads}. */
-    static final ThreadLocal<String> READING_THREAD = new ThreadLocal<>();
 
     private final AgentProperties properties;
     private final AgentHeartbeatService heartbeatService;
@@ -366,21 +354,17 @@ public class ChatService {
                 serverName.isEmpty() ? "static" : serverName, pick.pickReason());
         long callStartMs = System.currentTimeMillis();
         ToolLoopResult loopResult;
+        ToolCallLedger ledger = null;
         // Stays true for any Throwable escaping the loop (timeouts, 5xx, ToolCallFailure
         // with an infrastructure cause, or an Error): the circuit-breaker input.
         boolean callFailed = true;
         try (var requesterScope = RequesterScope.bind(request.requester())) {
-            var ledger = ToolCallLedger.forLoop(perCallArtifacts && toolerRawOutput, callArtifactStore,
-                    request.discussionThreadId(), properties.agentName());
-            if (perCallArtifacts) {
-                READING_THREAD.set(request.discussionThreadId());
-            }
+            ledger = ToolCallLedger.forLoop(callArtifactStore, request.discussionThreadId(), properties.agentName());
             loopResult = callWithToolLoop(messages,
                     observed(pick, CallObservation.KIND_TOOL_TURN),
                     serverName, pick.pickReason(), toolerRawOutput, contextLengthOf(pick), ledger);
             callFailed = false;
         } finally {
-            READING_THREAD.remove();
             // ALWAYS record observed latency, even on ToolCallFailure -
             // the failed-call duration is exactly the signal we need to
             // steer subsequent picks away from the bad server.
@@ -405,7 +389,18 @@ public class ChatService {
         return new ChatResult(request.conversationId(), text, pick.modelName(), null,
                 loopResult.inputTokens(), loopResult.outputTokens(),
                 serverName, loopResult.pickReason(), pick.evicted(),
-                List.of(new ModelUse(pick.modelName(), serverName, pick.call())));
+                List.of(new ModelUse(pick.modelName(), serverName, pick.call())),
+                filesOf(loopResult, ledger));
+    }
+
+    /**
+     * The file descriptions that go with the agent's statement: the manifest of the files its tool
+     * calls produced. A tooler's text already is that manifest, so it adds nothing; an agent that
+     * made no tool call has no files.
+     */
+    static String filesOf(ToolLoopResult loopResult, ToolCallLedger ledger) {
+        boolean describes = ledger != null && ledger.holdsOutput() && !loopResult.contributionIsToolOutput();
+        return describes ? ledger.manifest() : "";
     }
 
     /**
@@ -459,26 +454,23 @@ public class ChatService {
     // answered without running execute_code before failing (never emit an
     // in-head number). See AgentProperties.Discuss.computeContract().
     static final int MAX_COMPUTE_RETRIES = 2;
-    // The sidecar artifact mount and the marker the spill code appends to a
-    // contribution whose full data was materialized there (DiscussionSubscriber
-    // resolveContentField). The contract uses these to require that the compute
-    // agent reads the FILE, not the truncated inline preview above the marker.
+    // The sidecar artifact mount, and the [CALL key=...] lines that describe the stored files in a
+    // contribution. The contract uses them to require that the compute agent reads the FILE.
     private static final String ARTIFACT_MOUNT = "/artifacts/";
-    private static final String ARTIFACT_MARKER = "[ARTIFACT key=";
     // The artifact read-ops tools (artifact-readops-mcp) read a spilled artifact
     // SERVER-SIDE from its object key - the compute agent passes key=<key> and the
     // server reads the file, rather than the model authoring open('/artifacts/<key>')
     // in sandbox code (which qwen3:32b flakily skips). A call to any of these over an
     // artifact present in the input satisfies the read-the-file half of the contract
     // exactly as an execute_code that opens /artifacts/ does.
-    private static final java.util.Set<String> ARTIFACT_READ_TOOLS = AnalystReads.ARTIFACT_READ_TOOLS;
-    // Captures the exact object key from a spill marker "[ARTIFACT key=<key> bytes=...]"
-    // so the compute re-prompt can name the precise file at /artifacts/<key> rather
-    // than a generic "<key>" placeholder.
+    private static final java.util.Set<String> ARTIFACT_READ_TOOLS = java.util.Set.of(
+            "artifact_head", "artifact_tail", "artifact_grep", "artifact_count",
+            "artifact_rows", "artifact_select", "artifact_jq");
+    // Captures the exact object key from a file description "[CALL key=<key> ...]" so the compute
+    // re-prompt can name the precise file at /artifacts/<key> rather than a generic "<key>" placeholder.
     private static final java.util.regex.Pattern ARTIFACT_KEY_PATTERN =
-            java.util.regex.Pattern.compile("\\[(?:ARTIFACT|CALL) key=([^\\]\\s]+)");
-    // A line of a tooler's per-call manifest ("[CALL key=<key> ..."), which names a stored tool result
-    // the way a spill marker names a spilled contribution.
+            java.util.regex.Pattern.compile("\\[CALL key=([^\\]\\s]+)");
+    // A line of the file descriptions in a contribution ("[CALL key=<key> ..."), which names a stored tool result.
     private static final String CALL_MARKER = CallManifest.CALL_PREFIX;
     // Strips a reasoning model's <think>...</think> block so the no-data sentinel
     // check sees only the actual answer. See isNoDataDeclaration.
@@ -580,8 +572,8 @@ public class ChatService {
 
     /**
      * The tool loop with a {@link ToolCallLedger}: when it is not null, each tool call's result is
-     * also written as its own workspace object and the tooler's contribution is the manifest of
-     * those objects (see {@link #rawOutputResult}).
+     * written as its own workspace object and the contribution carries the description of those
+     * objects (see {@link #rawOutputResult} and {@link #filesOf}).
      */
     @SuppressWarnings("java:S107") // the loop's inputs; the ledger is the one optional addition
     ToolLoopResult callWithToolLoop(List<ChatMessage> messages,
@@ -649,19 +641,6 @@ public class ChatService {
 
         return exhaustedIterationsResult(state, maxIterations, toolerRawOutput,
                 serverName, pickReason);
-    }
-
-    /** True when per-call workspace artifacts are on for this agent (the realm's flag, set by the operator). */
-    public boolean perCallArtifactsOn() {
-        return perCallArtifacts;
-    }
-
-    /**
-     * The keys and key patterns of stored tool calls that this agent's successful tool calls read in
-     * the thread since the last take; empty when per-call artifacts are off. Clears the thread's list.
-     */
-    public List<String> takeReads(String threadId) {
-        return perCallArtifacts ? analystReads.take(threadId) : List.of();
     }
 
     /** Throw LOOP_TIME_EXCEEDED when the wall-clock deadline has passed. */
@@ -806,7 +785,7 @@ public class ChatService {
                 + "gathered by {} tool calls as the contribution", properties.agentName(),
                 ContextRejection.reportedLimit(error).orElse(-1),
                 ContextRejection.reportedPromptTokens(error).orElse(-1),
-                contextLength, estimate, state.toolOutput.length(), state.toolCalls);
+                contextLength, estimate, state.outputChars(), state.toolCalls);
         return java.util.Optional.of(rawOutputResult(state, serverName, pickReason));
     }
 
@@ -818,7 +797,7 @@ public class ChatService {
 
     /** A tooler that already holds raw tool output: its contribution is complete as it stands. */
     private static boolean toolerHoldsOutput(ToolLoopState state, boolean toolerRawOutput) {
-        return toolerRawOutput && state.toolsExecuted && state.toolOutput.length() > 0;
+        return toolerRawOutput && state.toolsExecuted && state.outputChars() > 0;
     }
 
     /**
@@ -831,7 +810,7 @@ public class ChatService {
         log.info("agent {}: the next prompt (~{} tokens) leaves less than the {}-token reply reserve of the "
                 + "{}-token context; stopping with {} tool calls and {} chars of output as the contribution",
                 properties.agentName(), next, ToolResultBudget.replyReserve(contextLength), contextLength,
-                state.toolCalls, state.toolOutput.length());
+                state.toolCalls, state.outputChars());
         return rawOutputResult(state, serverName, pickReason);
     }
 
@@ -1120,12 +1099,12 @@ public class ChatService {
         return compact.equals("[]") || EMPTY_DISCOVERY.matcher(compact).find();
     }
 
-    /** True when any input message carries the spill marker, i.e. the data the
-     *  compute agent must compute over lives in a materialized artifact file. */
+    /** True when any input message carries a file description, i.e. the data the
+     *  compute agent must compute over lives in a stored file. */
     private static boolean inputReferencesArtifact(ToolLoopState state) {
         for (var msg : state.allMessages) {
             String text = inputMessageText(msg);
-            if (text != null && (text.contains(ARTIFACT_MARKER) || text.contains(CALL_MARKER))) {
+            if (text != null && text.contains(CALL_MARKER)) {
                 return true;
             }
         }
@@ -1134,14 +1113,14 @@ public class ChatService {
 
     /** Text of a message that can carry discussion input. The system prompt is
      *  excluded: the compute prompt module documents the marker format with an example
-     *  ("[ARTIFACT key=&lt;key&gt; ..."), and counting that as a real spill made every
+     *  ("[CALL key=&lt;key&gt; ..."), and counting that as a real spill made every
      *  compute turn look artifact-backed, so a question that carries its own inputs
      *  could never satisfy the contract. */
     private static String inputMessageText(ChatMessage msg) {
         return msg instanceof SystemMessage ? null : messageText(msg);
     }
 
-    /** Exact /artifacts/&lt;key&gt; paths named by spill markers in the input, so the
+    /** Exact /artifacts/&lt;key&gt; paths named by file descriptions in the input, so the
      *  compute re-prompt can point the model at the precise file rather than a
      *  generic "&lt;key&gt;" placeholder. Order-preserving and de-duplicated. */
     //  Package-private for unit testing.
@@ -1161,7 +1140,7 @@ public class ChatService {
     }
 
     /** The compute re-prompt. Names the EXACT artifact file(s) to read when the
-     *  input carries spill markers - the flaky failure was qwen3:32b counting the
+     *  input carries file descriptions - the flaky failure was qwen3:32b counting the
      *  truncated inline preview instead of reading the file. Falls back to the
      *  generic re-prompt when no artifact is referenced (the no-execute_code case).
      *  Package-private for unit testing. */
@@ -1178,7 +1157,7 @@ public class ChatService {
                 + "artifact_rows / artifact_select / artifact_jq to pull the rows you need, e.g. "
                 + "artifact_count(key=\"" + firstKey + "\", ...); then run execute_code over the returned "
                 + "rows only if more math is needed. ALTERNATIVELY, execute_code that opens the file, "
-                + "e.g. open('" + paths.get(0) + "'). Do NOT answer from the inline marker - it carries no "
+                + "e.g. open('" + paths.get(0) + "'). Do NOT answer from the file description - it carries no "
                 + "data. If there is genuinely no data to compute over, reply with exactly NO_DATA.";
     }
 
@@ -1272,10 +1251,6 @@ public class ChatService {
                 ? executor.execute(toolRequest, null)
                 : ToolResultBudget.errorJson("Unknown tool: " + toolRequest.name());
         String artifactKey = storeCall(state, toolRequest, started, (System.nanoTime() - startNanos) / 1_000_000, raw);
-        if (perCallArtifacts) {
-            analystReads.record(READING_THREAD.get(), toolRequest.name(), toolRequest.arguments(),
-                    !isGatherErrorResult(raw));
-        }
         var admitted = budget.admit(toolRequest.name(), raw, toolerRawOutput, artifactKey);
         state.allMessages.add(new ToolExecutionResultMessage(
                 toolRequest.id(), toolRequest.name(), admitted.text()));
@@ -1314,8 +1289,15 @@ public class ChatService {
         return state.ledger.record(call, raw, isGatherErrorResult(raw), MAX_TOOL_RESULT_CHARS);
     }
 
-    /** Accumulate one result as the tooler's contribution, capped so a pathological response stays bounded. */
+    /**
+     * Accumulate one result as the tooler's contribution, capped so a pathological response stays
+     * bounded. Only a loop with no workspace ledger (no discussion thread) gathers text; with a
+     * ledger the contribution is the description of the stored files.
+     */
     private static void appendToolOutput(ToolLoopState state, String toolName, String text) {
+        if (state.ledger != null) {
+            return;
+        }
         state.toolOutput.append("[").append(toolName).append("]\n")
                 .append(truncate(text, MAX_TOOL_RESULT_CHARS)).append("\n\n");
     }
@@ -1341,7 +1323,7 @@ public class ChatService {
 
     /** A tooler with output in hand stops gathering once its model repeats an identical call. */
     private static boolean toolerStopsAfterRefusedRepeat(ToolLoopState state, boolean toolerRawOutput) {
-        return toolerRawOutput && state.repeatRefused && state.toolOutput.length() > 0;
+        return toolerRawOutput && state.repeatRefused && state.outputChars() > 0;
     }
 
     /**
@@ -1412,11 +1394,11 @@ public class ChatService {
     }
 
     /**
-     * A tooler's contribution, with the loop's token totals: the manifest of its per-call workspace
-     * objects when every call was stored, otherwise the raw output of the tools it ran.
+     * A tooler's contribution, with the loop's token totals: the description of the files its tool
+     * calls stored, or, when the loop has no workspace (no discussion thread), the output it gathered.
      */
     private static ToolLoopResult rawOutputResult(ToolLoopState state, String serverName, String pickReason) {
-        String contribution = state.ledger != null && state.ledger.complete()
+        String contribution = state.ledger != null
                 ? state.ledger.manifest() : state.toolOutput.toString().strip();
         return new ToolLoopResult(contribution, state.modelText(), true,
                 state.totalInput, state.totalOutput, serverName, pickReason);
@@ -1432,7 +1414,7 @@ public class ChatService {
             boolean toolerRawOutput, String serverName, String pickReason) {
         if (toolerHoldsOutput(state, toolerRawOutput)) {
             log.info("iterations-exhausted for tooler {}: posting {} chars of raw tool output as the contribution",
-                    properties.agentName(), state.toolOutput.length());
+                    properties.agentName(), state.outputChars());
             throwIfEveryToolFailed(state);
             return rawOutputResult(state, serverName, pickReason);
         }
@@ -1452,6 +1434,11 @@ public class ChatService {
      * empty turns are retried.
      */
     private static final class ToolLoopState {
+        /** Size of what a tooler holds to contribute: its stored calls, or the text gathered without a workspace. */
+        long outputChars() {
+            return ledger != null ? ledger.size() : toolOutput.length();
+        }
+
         final List<ChatMessage> allMessages;
         private final int inputMessages;
         long totalInput = 0;
@@ -1468,7 +1455,7 @@ public class ChatService {
         boolean toolsExecuted = false;
         int toolCalls = 0;
         final StringBuilder toolOutput = new StringBuilder();
-        // Set when per-call workspace artifacts are on for this tooler loop; null otherwise.
+        // The files this loop's tool calls were stored as; null when the loop has no discussion thread.
         ToolCallLedger ledger;
         int emptyNoToolsRetries = 0;
         int computeRetries = 0;
@@ -2772,10 +2759,19 @@ public class ChatService {
     public record ChatResult(String conversationId, String response, String model, String threadId,
                               long inputTokens, long outputTokens,
                               String serverName, String pickReason, List<String> evicted,
-                              List<ModelUse> modelsUsed) {
+                              List<ModelUse> modelsUsed, String files) {
         public ChatResult {
             evicted = evicted == null ? List.of() : evicted;
             modelsUsed = modelsUsed == null ? List.of() : List.copyOf(modelsUsed);
+            files = files == null ? "" : files;
+        }
+        /** A result whose agent stored no files. */
+        public ChatResult(String conversationId, String response, String model, String threadId,
+                          long inputTokens, long outputTokens,
+                          String serverName, String pickReason, List<String> evicted,
+                          List<ModelUse> modelsUsed) {
+            this(conversationId, response, model, threadId, inputTokens, outputTokens, serverName, pickReason,
+                    evicted, modelsUsed, "");
         }
         /**
          * Where the final call ran: the last entry of {@code modelsUsed}, or the

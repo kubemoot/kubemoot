@@ -185,7 +185,6 @@ each field only when the agent sent it:
 | `inferenceMs` | Time spent in model calls. |
 | `gpu` | The accelerator the agent ran on (findings; phase events already had it). |
 | `toolsUsed` | The tools the agent has enabled, sent with `agree`. It lists what the agent could call, not the calls it made. |
-| `artifact` | `{"key", "bytes"}` of a contribution spilled to the artifact store. |
 | `failureType`, `failedTool`, `failureCount`, `lastError` | For a `failure`: the kind of failure, the tool that failed, how many tool calls failed, and the last error. |
 
 ```json

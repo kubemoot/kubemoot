@@ -16,9 +16,9 @@ import org.slf4j.LoggerFactory;
 /**
  * Shared naming + lifecycle helpers for discussion artifacts in the NATS Object
  * Store. This is the single source of truth for the bucket name and the
- * thread-scoped key schema, so the producer (spill in {@link DiscussionSubscriber})
+ * thread-scoped key schema, so the producer ({@link NatsCallArtifactStore})
  * and the GC reaper (eviction in {@link DiscussionOrchestrator}) agree byte-for-byte
- * on where an object lives. A drift between the spill key and the delete prefix would
+ * on where an object lives. A drift between the written key and the delete prefix would
  * silently leak artifacts, which is exactly the divergent-duplication class this
  * helper exists to prevent.
  */

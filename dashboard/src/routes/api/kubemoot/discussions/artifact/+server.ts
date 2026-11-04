@@ -6,11 +6,10 @@ import { guardKeyNamespace } from '#lib/server/scope.js';
 /**
  * GET /api/kubemoot/discussions/artifact?key=...
  *
- * Read-only download of a spilled discussion artifact: the FULL agent
- * contribution behind an `[ARTIFACT key=...]` marker in a finding or synthesis.
- * The object lives in the NATS object store bucket `kubemoot_discussion_artifacts`,
- * written by the agent-runtime spill (DiscussionSubscriber) at the namespaced,
- * thread-scoped key `{namespace}/{crew}/{threadId}/{agent}/{signal}-{uuid}`.
+ * Read-only download of a stored discussion artifact: a tool result file, or the full agent
+ * contribution behind an `[ARTIFACT key=...]` marker in a thread from an earlier release.
+ * The object lives in the NATS object store bucket `kubemoot_discussion_artifacts`
+ * at the namespaced, thread-scoped key `{namespace}/{crew}/{threadId}/{agent}/{nnn}-{tool}`.
  *
  * The key is VALIDATED to that exact 5-segment shape by parseArtifactKey: no
  * `..`, no leading or trailing slash, a DNS-label namespace, and each other

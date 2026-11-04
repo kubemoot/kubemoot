@@ -188,10 +188,6 @@ final class CoordinatorStateReducer {
             s.researchers.add(agent(e));
         }
         s.agree.put(agent(e), text(e.data(), MESSAGE_ID));
-        if (e.data().path(WITH_DATA).asBoolean(false)) {
-            s.dataAnalysts.add(agent(e));
-        }
-        e.data().path(READ_KEYS).forEach(k -> s.readKeys.computeIfAbsent(agent(e), a -> new java.util.TreeSet<>()).add(k.asText()));
     }
 
     private static void concerned(CoordinatorThreadState s, CoordinatorEvent e) {

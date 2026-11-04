@@ -1,6 +1,7 @@
 package ai.kubemoot.agent.nats;
 
 import ai.kubemoot.agent.requester.Requester;
+import ai.kubemoot.agent.chat.CallManifest;
 import ai.kubemoot.agent.chat.ChatService;
 import ai.kubemoot.agent.chat.ContextRejection;
 import ai.kubemoot.agent.chat.ToolCallFailure;
@@ -21,7 +22,6 @@ import org.eclipse.microprofile.config.inject.ConfigProperty;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.*;
 import java.util.concurrent.*;
@@ -48,7 +48,6 @@ public class DiscussionSubscriber {
 
     private static final String NOTHING_TO_ADD = "NOTHING_TO_ADD";
     /** Signal metadata: the stored tool calls the agent read, as keys and key patterns. */
-    static final String FIELD_READ_KEYS = "readKeys";
     private static final String SIGNAL_AGREE = "agree";
     private static final String SIGNAL_STAND_ASIDE = "stand_aside";
     /** Published once when an agent starts waiting for GPU capacity. */
@@ -82,23 +81,12 @@ public class DiscussionSubscriber {
     private static final String FIELD_MODEL = "model";
     private static final String FIELD_INNER_CIRCLE = "innerCircle";
 
-    // Artifact spill: a contribution larger than this is written to the NATS
-    // Object Store and replaced inline with a preview + reference, so bulk data
-    // is not truncated on the discussion bus (see Agent Collaborative Artifact
-    // Store). The artifact-access sidecar materializes it for the no-network
-    // sandbox; network-capable consumers read the structured metadata.artifact.
-    private static final int ARTIFACT_SPILL_THRESHOLD = 4096;
-    // Inline content cap for a contribution that does NOT spill (<= threshold) and
-    // for the fallback when a spill FAILS (no artifact, so keep what we can inline).
-    // A successfully-spilled contribution posts ONLY the marker, never a preview.
-    private static final int INLINE_TRUNCATE_CHARS = 5000;
-    // Short preview carried in the structured reference descriptor only.
-    private static final int ARTIFACT_PREVIEW_CHARS = 800;
-    // The inline spill marker prefix. On overflow the inline content is ONLY this
-    // marker (key + bytes + /artifacts path) - no truncated preview - so consumers
-    // read the full file rather than tally an incomplete preview. Kept compatible
-    // with ChatService.ARTIFACT_KEY_PATTERN (key terminated by whitespace).
-    private static final String ARTIFACT_MARKER_PREFIX = "[ARTIFACT key=";
+    // The most characters of an agent's own statement in a contribution. The descriptions of the files
+    // it produced follow the statement whole (the ledger keeps them under its own cap), so the
+    // statement is cut and the descriptions never are.
+    static final int STATEMENT_MAX_CHARS = 24_000;
+    // The most characters of any signal's content: a statement and the file descriptions after it.
+    private static final int CONTENT_MAX_CHARS = STATEMENT_MAX_CHARS + CallManifest.MAX_CHARS + 2;
     // Eviction caps for the in-memory dedup/context caches; cleared wholesale past these.
     private static final int MAX_PROCESSED_MESSAGES = 5000;
     private static final int MAX_THREAD_CONTEXT_ENTRIES = 500;
@@ -167,7 +155,6 @@ public class DiscussionSubscriber {
     /** Wake-ups for agents waiting for GPU capacity, run when their thread ends. */
     private final ConcurrentHashMap<String, List<Runnable>> threadEndWakers = new ConcurrentHashMap<>();
     // Ensure the artifact Object Store bucket once per process (idempotent create).
-    private volatile boolean artifactBucketEnsured = false;
 
     private final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(2);
     /**
@@ -1231,8 +1218,21 @@ public class DiscussionSubscriber {
             return;
         }
 
-        publishSignal(subject, threadId, SIGNAL_AGREE, content, timing, gpuLabel,
+        publishSignal(subject, threadId, SIGNAL_AGREE, contribution(content, result.files()), timing, gpuLabel,
                 ModelAttribution.withEarlierCall(findingMetadata(result), triageUse));
+    }
+
+    /**
+     * What an agent posts: its statement, cut at {@link #STATEMENT_MAX_CHARS}, then the description
+     * of each file its tool calls stored. The content of a file is never in it.
+     */
+    // Visible for testing
+    static String contribution(String statement, String files) {
+        String stated = truncate(statement == null ? "" : statement, STATEMENT_MAX_CHARS);
+        if (files == null || files.isBlank()) {
+            return stated;
+        }
+        return stated.isEmpty() ? files : stated + "\n\n" + files;
     }
 
     // The agent's view of the thread. DiscussionOrchestrator.threadLabel labels the
@@ -1327,7 +1327,6 @@ public class DiscussionSubscriber {
             if (SIGNAL_AGREE.equals(signal)) {
                 metadata.put("toolsUsed", properties.enabledTools().orElse(List.of()));
             }
-            putReadKeys(metadata, threadId, signal);
             metadata.put("role", properties.discuss().role());
             // The configured model until a call has run; extraMetadata names the
             // model the calls ran on (ModelAttribution) once they have.
@@ -1344,9 +1343,7 @@ public class DiscussionSubscriber {
                 metadata.putAll(extraMetadata);
             }
 
-            // Spill large contributions to the artifact store (adds metadata.artifact
-            // and publishes a reference for the materializer); small ones inline.
-            String contentField = resolveContentField(conn, threadId, signal, content, metadata);
+            String contentField = truncate(content == null ? "" : content, CONTENT_MAX_CHARS);
 
             var message = Map.of(
                     FIELD_MESSAGE_ID, UUID.randomUUID().toString(),
@@ -1365,146 +1362,6 @@ public class DiscussionSubscriber {
 
         } catch (Exception e) {
             log.warn("Failed to publish {} signal: {}", signal, e.getMessage());
-        }
-    }
-
-    /**
-     * The stored tool calls this agent read for the thread go on its agree signal as {@code readKeys}, for
-     * the coordinator's coverage. Any other final signal drops them, so they never reach a later signal.
-     */
-    private void putReadKeys(Map<String, Object> metadata, String threadId, String signal) {
-        boolean terminal = SIGNAL_AGREE.equals(signal) || SIGNAL_STAND_ASIDE.equals(signal)
-                || SIGNAL_FAILURE.equals(signal);
-        if (!terminal) {
-            return;
-        }
-        List<String> reads = chatService.takeReads(threadId);
-        if (SIGNAL_AGREE.equals(signal) && !reads.isEmpty()) {
-            metadata.put(FIELD_READ_KEYS, reads);
-        }
-    }
-
-    /**
-     * Decide the inline content for a published signal. Small content is inlined
-     * (truncated as before). Large content is spilled to the artifact store: the
-     * full bytes go to the Object Store, a structured reference is added to the
-     * signal metadata and published for the materializer sidecar, and the inline
-     * content becomes a short preview plus a marker pointing at the materialized
-     * file. This is what stops bulk tool output being truncated on the bus.
-     */
-    // Package-private for unit testing (see DiscussionSubscriberHelpersTest).
-    // Every contribution is inlined up to INLINE_TRUNCATE_CHARS (unchanged from
-    // the historic behavior). A contribution over ARTIFACT_SPILL_THRESHOLD is
-    // ALSO spilled whole to the artifact store and gets a marker appended to the
-    // inline preview, so non-artifact consumers lose no context and the compute
-    // tooler can read the full data from the materialized file.
-    String resolveContentField(Connection conn, String threadId, String signal,
-                               String content, Map<String, Object> metadata) {
-        if (content == null) {
-            return "";
-        }
-        if (content.length() <= ARTIFACT_SPILL_THRESHOLD) {
-            return truncate(content, INLINE_TRUNCATE_CHARS);
-        }
-        Map<String, Object> ref = spillArtifact(conn, threadId, signal, content);
-        if (ref == null) {
-            return truncate(content, INLINE_TRUNCATE_CHARS);
-        }
-        metadata.put("artifact", ref);
-        // Overflow: the FULL data is in the artifact, so post ONLY the reference -
-        // never the truncated inline preview. A truncated preview pollutes the bus
-        // with incomplete data and tempts consumers to answer from it (the compute
-        // tooler tallied the preview; the coordinator under-reported lists). Artifact
-        // -aware consumers read the file instead: the compute tooler via execute_code
-        // over /artifacts/<key>, network-capable agents via the artifact read-ops
-        // tools (head/tail/grep/count) on the key. See [[Measurement Integrity -
-        // Grade Inflation and Fabrication]] and [[Agent Collaborative Artifact Store]].
-        return ARTIFACT_MARKER_PREFIX + ref.get("key") + " bytes=" + ref.get("bytes")
-                + " - the FULL data is in the file /artifacts/" + ref.get("key")
-                + "; READ it (execute_code, or head/tail/grep/count over the artifact key) - "
-                + "do NOT answer from this reference line, it carries no data]";
-    }
-
-    /**
-     * Write a large contribution to the NATS Object Store and publish a reference
-     * for the artifact-access materializer. Returns the reference map, or null on
-     * any failure (the caller falls back to inline-truncated content).
-     */
-    private Map<String, Object> spillArtifact(Connection conn, String threadId, String signal, String content) {
-        try {
-            byte[] bytes = content.getBytes(StandardCharsets.UTF_8);
-            CrewScope scope = natsProvider.scope();
-            String key = DiscussionArtifacts.key(scope, threadId, properties.agentName(), signal,
-                    UUID.randomUUID().toString());
-
-            ensureArtifactBucket(conn);
-            // Put the full byte[] (NATS computes the digest over it deterministically).
-            // A streaming put(InputStream) was tried (heap optimization) but corrupted
-            // larger objects - NATS digest mismatch on read-back - and gave no benefit at
-            // our KB-scale artifact sizes; see [[Agent Collaborative Artifact Store]].
-            conn.objectStore(DiscussionArtifacts.BUCKET).put(key, bytes);
-            verifyWriteReadback(conn, key, bytes);
-
-            var ref = new LinkedHashMap<String, Object>();
-            ref.put("bucket", DiscussionArtifacts.BUCKET);
-            ref.put("key", key);
-            ref.put("bytes", bytes.length);
-            ref.put("agent", properties.agentName());
-            ref.put("tool", signal);
-            ref.put("createdAt", Instant.now().toString());
-            ref.put("preview", truncate(content, ARTIFACT_PREVIEW_CHARS));
-
-            conn.publish(scope.artifactSubject(threadId),
-                    mapper.writeValueAsBytes(Map.of("artifact", ref)));
-            log.info("Spilled {} contribution ({} bytes) to artifact {}", signal, bytes.length, key);
-            return ref;
-        } catch (Exception e) {
-            log.warn("Artifact spill failed for {} ({}): {} - falling back to inline",
-                    signal, e.getClass().getSimpleName(), e.getMessage());
-            return null;
-        }
-    }
-
-    /**
-     * Ensure the artifact bucket exists, once per process. create() is called
-     * unconditionally (no check-then-create TOCTOU); an "already in use" error
-     * (code 10058) from a concurrent or prior create is benign and ignored.
-     */
-    private void ensureArtifactBucket(Connection conn) throws Exception {
-        if (artifactBucketEnsured) {
-            return;
-        }
-        DiscussionArtifacts.ensureBucket(conn);
-        artifactBucketEnsured = true;
-    }
-
-    /**
-     * DIAGNOSTIC (artifact-corruption hunt): immediately read the just-written object
-     * back, in this same agent process, and log whether it is intact AT THE SOURCE.
-     * This splits the problem: a SIZE/CONTENT mismatch or error here means the write
-     * produced a bad object under load; an OK here means corruption appears later, on
-     * the materializer's read path. Logs an ARTIFACT-DIAG line per spill. Remove once
-     * the root cause is pinned. See [[Agent Collaborative Artifact Store]].
-     */
-    private void verifyWriteReadback(Connection conn, String key, byte[] expected) {
-        try {
-            long t0 = System.nanoTime();
-            var bos = new java.io.ByteArrayOutputStream(expected.length);
-            conn.objectStore(DiscussionArtifacts.BUCKET).get(key, bos);
-            long ms = (System.nanoTime() - t0) / 1_000_000;
-            byte[] back = bos.toByteArray();
-            if (back.length != expected.length) {
-                log.error("ARTIFACT-DIAG write/readback SIZE-MISMATCH key={} wrote={} readback={} readMs={}",
-                        key, expected.length, back.length, ms);
-            } else if (!java.util.Arrays.equals(back, expected)) {
-                log.error("ARTIFACT-DIAG write/readback CONTENT-MISMATCH key={} bytes={} readMs={}",
-                        key, expected.length, ms);
-            } else {
-                log.info("ARTIFACT-DIAG write/readback OK key={} bytes={} readMs={}", key, expected.length, ms);
-            }
-        } catch (Exception e) {
-            log.error("ARTIFACT-DIAG write/readback ERROR key={} bytes={}: {}: {}",
-                    key, expected.length, e.getClass().getSimpleName(), e.getMessage());
         }
     }
 

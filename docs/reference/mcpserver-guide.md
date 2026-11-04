@@ -399,8 +399,7 @@ spec:
 ```
 
 This is the read-ops server that agents call (`head`, `tail`, `grep`, `select`, `count`,
-`rows`, `jq`) when a tool result is too large to carry in the discussion and spills to the
-artifact store. See [Discussion artifact store](../../concepts/discussion-artifact-store/).
+`rows`, `jq`) to read a tool result, which is always stored as a file in the artifact store. See [Discussion artifact store](../../concepts/discussion-artifact-store/).
 
 How it behaves:
 

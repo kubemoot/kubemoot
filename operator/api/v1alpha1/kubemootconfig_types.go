@@ -287,17 +287,6 @@ type ArtifactsConfig struct {
 	// +kubebuilder:default=sqlite
 	// +optional
 	QueryEngine ArtifactQueryEngine `json:"queryEngine,omitempty"`
-
-	// PerCallArtifacts makes every raw-output tooler (discussRole tooler) store each tool call's
-	// result as its own object in the discussion workspace, with headers that describe the call,
-	// and post a short manifest of those objects as its contribution instead of the results glued
-	// together. workspace_query reads one call by its key, or every call of one tool by a key with
-	// a *. Default false (opt in), also when unset. The operator sets KUBEMOOT_PER_CALL_ARTIFACTS on
-	// the tooler Agents when it is on; an Agent that sets the variable itself in spec.deployment.env
-	// keeps its own value.
-	// +kubebuilder:default=false
-	// +optional
-	PerCallArtifacts bool `json:"perCallArtifacts,omitempty"`
 }
 
 // KubemootConfigStatus defines the observed state of KubemootConfig

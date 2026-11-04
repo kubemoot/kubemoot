@@ -66,12 +66,13 @@ carries a few more facts, all measured or recorded by the sidecar and all option
 `metadata.toolsUsed` keeps its meaning: the tools the agent has enabled, what it
 could call. `toolsCalled` is what it did call.
 
-With [per-call artifacts](discussion-artifact-store.md#one-artifact-per-tool-call-opt-in) on, an
-`agree` signal can carry `metadata.readKeys`: the object keys and key patterns (a `*` pattern stays a
-pattern) that the agent's successful tool calls read in this thread, taken from the arguments of
-`workspace_query`, the `artifact_*` tools and the `/artifacts/<key>` paths in `execute_code`.
-The coordinator computes [coverage](discussion-artifact-store.md#coverage-what-each-analyst-read)
-from it. Any other final signal drops the agent's reads; they never reach a later signal.
+A contribution (`agree`) carries what the agent states followed by the description of each file its
+tool calls stored: `[CALL key=... tool=... args=... format=... bytes=... rows=... error=...]` lines
+under a `[WORKSPACE ...]` header, or a `[NOT STORED ...]` line for a result that could not be
+written. The content of a file is never in a signal. See the
+[discussion artifact store](discussion-artifact-store.md#what-an-agent-posts-the-descriptions-of-its-files).
+Agents that read files add the facts they find to their own contribution; the synthesizer answers
+from the discussion only.
 
 A message can also carry `traceparent` and `tracestate`, the W3C Trace Context of the
 span that published it, so one trace follows a question across the crew. The same
@@ -167,7 +168,7 @@ Every message is an event:
 | `failure_recorded` | an agent reports `failure`, or its deadline passes and the coordinator records one | `agent`, `cause` (`reported` or `evaluation_timeout`), `synthesized`, `failedSources` |
 | `settled` | a phase ends | `phase`, `basis` (`roster_signalled`, `fast_path`, `quiet` or `no_pending`), `counts` |
 | `synthesis_started` | the synthesis call begins | the signal counts |
-| `synthesis_done` | the answer exists, before it is published | `outcome` (`synthesized`, `capacity`, `direct`, `fallback` or `ceiling`), `response`, `tokens`, `rounds` (model calls the synthesis made; more than one when stored tool results were read in rounds, see [one artifact per tool call](discussion-artifact-store.md#delivery-to-the-synthesis)), `filledBytes` (bytes of stored results that reached the model); both are always present, `1` and `0` for a thread with no stored results; `delivery`, present only when the thread had stored per-call results: `covered` (keys an analyst's successful tool calls read), `uncovered` (keys none did), `stepMillis` (milliseconds per step: `catalog`, `read`, and `round1`, `round2` and so on for each model call; see [delivery order](discussion-artifact-store.md#delivery-order)) |
+| `synthesis_done` | the answer exists, before it is published | `outcome` (`synthesized`, `capacity`, `direct`, `fallback` or `ceiling`), `response`, `tokens`, `promptTooLarge`. A log written by an earlier release may also carry `rounds`, `filledBytes` and `delivery`; they are ignored on replay |
 | `thread_reopened` | a human reply reopens a closed thread | `phaseStartedAt` |
 | `thread_closed` | the thread ends | `reason` (an outcome of `synthesis_done`, `zombie`, `no_signals`, `unlogged`, or `expired`), `channel` |
 | `coordinator_resumed` | a restarted coordinator takes the thread over | `fromSeq` (the last event it read), `resumedAt` |
@@ -509,7 +510,7 @@ from it.
 | Coordinator log | `kubemoot.coordinator.<namespace>.<crew>.<threadId>` | `CoordinatorEvent`: `eventId`, `type`, `threadId`, `round`, `at`, `coordinator`, `data` (see [The coordinator log](#the-coordinator-log)) |
 | Request queue | `kubemoot.request.<namespace>.<crew>` | `DiscussionRequest`: the question for the crew's coordinator |
 | Model lifecycle | `kubemoot.server.model.<server>` | `ModelLifecycleRequest`: an agent asks the operator to wake (`ready`) or sleep (`release`) a model on a vLLM server; the reply is a `ModelLifecycleReply` sent once the server reports the state |
-| Artifact notices | `kubemoot.artifacts.<namespace>.<crew>.<threadId>` | `ArtifactNotice`: a contribution spilled to the artifact store |
+| Artifact notices | `kubemoot.artifacts.<namespace>.<crew>.<threadId>` | `ArtifactNotice`: a tool result stored as a file in the artifact store |
 | Direct chat | `kubemoot.chat.<namespace>.<agent>` | `ChatEvent` |
 | Onboarding | `kubemoot.operator.onboarding.deployed`, `.progress`, `.docs-indexed` | `OnboardingDeployed`, `OnboardingProgress`, `OnboardingDocsIndexed` |
 | Discussion stream | `GET /api/v1/discussions/{crew}/{conversationId}/stream` on the gateway | `StreamEvent`, as server-sent events |

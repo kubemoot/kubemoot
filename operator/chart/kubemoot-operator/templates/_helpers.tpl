@@ -189,21 +189,6 @@ duration such as 30m or 1h30m. Empty or 0 turns the limit off and renders as "0"
 {{- end }}
 
 {{/*
-Whether raw-output toolers store each tool call's result as its own workspace object. A boolean,
-false when unset; any other value fails the render.
-*/}}
-{{- define "kubemoot-operator.perCallArtifacts" -}}
-{{- $value := (.Values.artifacts | default dict).perCallArtifacts -}}
-{{- if kindIs "invalid" $value -}}
-false
-{{- else if kindIs "bool" $value -}}
-{{- $value -}}
-{{- else -}}
-{{- fail (printf "artifacts.perCallArtifacts must be true or false, got %v" $value) -}}
-{{- end -}}
-{{- end }}
-
-{{/*
 The artifact query engine, none, sqlite or duckdb; any other value fails the render.
 */}}
 {{- define "kubemoot-operator.artifactQueryEngine" -}}

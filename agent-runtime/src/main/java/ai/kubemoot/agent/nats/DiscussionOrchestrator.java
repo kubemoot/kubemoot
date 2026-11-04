@@ -1,7 +1,6 @@
 package ai.kubemoot.agent.nats;
 
 import ai.kubemoot.agent.requester.Requester;
-import ai.kubemoot.agent.chat.CallManifest;
 import ai.kubemoot.agent.chat.ChatService;
 import ai.kubemoot.agent.chat.ModelUse;
 import ai.kubemoot.agent.chat.ToolListPlaceholder;
@@ -149,22 +148,10 @@ public class DiscussionOrchestrator {
     // The synthesis is the terminal answer streamed to the user, who is NOT
     // artifact-aware. Unlike a finding it is published WHOLE (a generous cap well
     // under the NATS payload limit) so the user always sees the complete answer,
-    // and any internal artifact-spill marker is stripped so the user is never
+    // and the internal file descriptions are stripped so the user is never
     // handed an /artifacts/<key> path they cannot open. See [[Measurement
     // Integrity - Grade Inflation and Fabrication]].
     private static final int SYNTHESIS_CONTENT_CHARS = 200_000;
-    private static final java.util.regex.Pattern ARTIFACT_SPILL_MARKER =
-            java.util.regex.Pattern.compile("\\s*\\[ARTIFACT key=[^\\]]*\\]");
-    // Captures the object key from a spill marker so the synthesis input can be
-    // filled in with the artifact's actual content (the tool-free synthesizer cannot
-    // read the object store itself). Cap per artifact so one huge object cannot blow
-    // the synthesis context.
-    // Possessive quantifiers: a long marker with no closing bracket fails in linear time.
-    static final java.util.regex.Pattern ARTIFACT_MARKER_WITH_KEY =
-            java.util.regex.Pattern.compile("\\[ARTIFACT key=([^\\]\\s]++)[^\\]]*+\\]");
-    private static final int MAX_ARTIFACT_INLINE_CHARS = 24_000;
-    /** Synthesis rounds for stored tool results when {@code synthesisEvidenceRounds} is not set. */
-    private static final int DEFAULT_EVIDENCE_ROUNDS = 4;
     // Absolute floor of a table's names that must appear in a draft for the synthesis
     // completeness contract to treat the draft as enumerating that table. Below this the
     // draft is a count/free-form answer, not an inventory. See enumeratedTable().
@@ -1211,19 +1198,7 @@ public class DiscussionOrchestrator {
         }
         state.waitingAgents.remove(agentName);
         state.agreeSignals.put(agentName, content);
-        recordReads(state, agentName, content, msg);
         state.lastSignalReceived = Instant.now();
-    }
-
-    /** Keeps what an agree signal says the agent read, and whether it answered with data. */
-    private static void recordReads(ThreadState state, String agentName, String content, JsonNode msg) {
-        if (AnalystReadouts.answeredWithData(content)) {
-            state.dataAnalysts.add(agentName);
-        }
-        Set<String> keys = AnalystReadouts.readKeysOf(msg);
-        if (!keys.isEmpty()) {
-            state.readKeys.computeIfAbsent(agentName, a -> ConcurrentHashMap.newKeySet()).addAll(keys);
-        }
     }
 
     private void handleConcernSignal(ThreadState state, String agentName, String content, JsonNode msg) {
@@ -1320,7 +1295,6 @@ public class DiscussionOrchestrator {
         state.clearCapacitySignals();
         state.researcherAgents.clear();
         state.pendingEvaluations.clear();
-        state.clearDeliveryRound();
         state.receipt.startRound(state.phaseStarted);
         events.reopened(state);
         log.info("Thread {} reopened by human reply → EVALUATING", threadId);
@@ -2369,21 +2343,21 @@ public class DiscussionOrchestrator {
      * as a repeat.
      */
     void publishReviewReady(ThreadState state, List<String> analystCircle) {
-        String content = reviewSummary(state) + analystFirst().catalogForReview(state.threadId);
+        String content = reviewSummary(state) + reviewCatalog().forReview(state.threadId);
         publishReviewReady(state, analystCircle, content);
     }
 
-    /** The helper for the parts of the analyst-first delivery that need the bus and the model windows. */
-    private AnalystFirstDelivery analystFirst() {
-        var held = analystFirst;
+    /** The helper that loads the list of the thread's stored files for the first review. */
+    private ReviewCatalog reviewCatalog() {
+        var held = reviewCatalog;
         if (held == null) {
-            held = new AnalystFirstDelivery(natsProvider, chatService);
-            analystFirst = held;
+            held = new ReviewCatalog(natsProvider, chatService);
+            reviewCatalog = held;
         }
         return held;
     }
 
-    private volatile AnalystFirstDelivery analystFirst;
+    private volatile ReviewCatalog reviewCatalog;
 
     /** What the evaluation found, as the first review shows it: each agree and concern, cut. */
     private static String reviewSummary(ThreadState state) {
@@ -2536,12 +2510,12 @@ public class DiscussionOrchestrator {
             // PromptModule guide the LLM to answer general knowledge directly or
             // report gaps for domain-specific questions.
             String signalContext = buildSignalContext(state, synthToolerAgrees);
-            // Read each spilled-artifact file and put its content into the synthesis input: toolers spill
-            // bulky findings to the object store and leave only a marker on the board,
-            // but the synthesizer is tool-free, so it must be handed the actual data.
-            String threadPrefix = signalContext + "\n\n";
-            String threadText = inlineArtifactContent(formatThread(state));
-            var synthesisResult = synthesisResultFor(state, synthesisStart, threadPrefix, threadText);
+            // The synthesizer is tool-free and answers from the discussion only: the contributions with
+            // the descriptions of the files they came from. A fact no agent stated is unknown.
+            String threadText = ManifestText.strip(formatThread(state), false);
+            String threadPrefix = signalContext + "\n\n" + SynthesisFiles.rulesFor(threadText);
+            var synthesisResult = synthesizeWithCompleteness(loadSystemPrompt(), threadPrefix + threadText,
+                    state.threadId);
             String response = synthesisResult.text();
             state.synthesisInputTokens = synthesisResult.inputTokens();
             state.synthesisOutputTokens = synthesisResult.outputTokens();
@@ -2586,94 +2560,6 @@ public class DiscussionOrchestrator {
         var result = chatService.simpleLlmCallWithTokens(systemPrompt, conversation);
         recordPlacedCall(threads.get(threadId), PHASE_SYNTHESIS, result);
         return completeAnswer(systemPrompt, conversation, result, threadId);
-    }
-
-    /**
-     * The synthesis result. A thread with no per-call manifest is synthesized as before; one with stored
-     * results goes through the analyst-first delivery ({@link #deliveryFor}, {@link #synthesizeFromStoredResults}).
-     */
-    private ChatService.SimpleLlmResult synthesisResultFor(ThreadState state, Instant synthesisStart,
-            String prefix, String threadText) {
-        if (!threadText.contains(CallManifest.CALL_PREFIX)) {
-            return synthesizeWithCompleteness(loadSystemPrompt(), prefix + threadText, state.threadId);
-        }
-        var delivery = deliveryFor(state, prefix, ManifestInliner.strip(threadText, false));
-        return synthesizeFromStoredResults(state, delivery, synthesisStart);
-    }
-
-    /**
-     * Builds the thread's catalog and the coverage of it by the analysts' reads, and reads only the
-     * stored results no analyst covered (in parallel).
-     */
-    private StoredDelivery deliveryFor(ThreadState state, String prefix, String text) {
-        Connection conn = natsProvider.getConnection();
-        long start = System.nanoTime();
-        var catalog = analystFirst().catalog(state.threadId);
-        long catalogMs = (System.nanoTime() - start) / 1_000_000;
-        var coverage = EvidenceCoverage.compute(catalog, state.readKeys, state.dataAnalysts);
-        var delivery = StoredDelivery.prepare(prefix, text, catalog, coverage, key -> conn == null ? null
-                : readWholeArtifact(conn, key));
-        delivery.setCatalogMillis(catalogMs);
-        return delivery;
-    }
-
-    /**
-     * The synthesis when a tooler's per-call manifest is in the input: the stored results no analyst
-     * read reach the model that writes the answer, in as many rounds as they need
-     * ({@link EvidenceSynthesis}). Covered results are not read again; they stand as a line naming the
-     * analyst. Every round is sized to the window of the model the scheduler picks for that round; the
-     * answer then goes through the same completeness contract as any other. What was delivered is logged
-     * in one line and its rounds, bytes and steps are kept for the synthesis event.
-     */
-    private ChatService.SimpleLlmResult synthesizeFromStoredResults(ThreadState state, StoredDelivery delivery,
-            Instant synthesisStart) {
-        String system = loadSystemPrompt();
-        var settings = new EvidenceSynthesis.Settings(evidenceRounds(), MAX_ARTIFACT_INLINE_CHARS,
-                () -> synthesisHasTime(state, synthesisStart), () -> synthesisMillisLeft(state, synthesisStart));
-        EvidenceSynthesis.Caller caller = (pickSystem, pickUser, promptFor) -> {
-            var result = chatService.simpleLlmCallFor(pickSystem, pickUser, promptFor);
-            recordPlacedCall(threads.get(state.threadId), PHASE_SYNTHESIS, result);
-            return result;
-        };
-        var outcome = new EvidenceSynthesis(caller, chatService::estimateTokens, settings, system)
-                .run(delivery.conversation(), delivery.results());
-        var report = outcome.report();
-        if (!delivery.catalog().isEmpty()) {
-            report.delivery(delivery.coveredKeys(), delivery.uncoveredKeys());
-            report.step("catalog", delivery.catalogMillis());
-            report.step("read", delivery.readMillis());
-        }
-        log.info(report.logLine(state.threadId));
-        state.synthesisRounds = report.rounds();
-        state.synthesisFilledBytes = report.filledBytes();
-        state.synthesisDetail = report.detail();
-        return completeAnswer(system, outcome.conversation(), outcome.result(), state.threadId);
-    }
-
-    /** Milliseconds of the synthesis budget left: each allowed round gets the synthesis time limit, within the hard ceiling. */
-    private long synthesisMillisLeft(ThreadState state, Instant synthesisStart) {
-        Instant now = Instant.now();
-        long budget = (long) synthesisTimeoutSeconds * evidenceRounds() * 1000L;
-        long used = Duration.between(synthesisStart, now).toMillis();
-        long ceiling = hardCeilingSeconds() * 1000L - Duration.between(state.threadCreated, now).toMillis();
-        return Math.max(0, Math.min(budget - used, ceiling));
-    }
-
-    /** Most synthesis rounds (calls) for stored results; the setting, or 4 when it is not set above zero. */
-    private int evidenceRounds() {
-        int configured = properties.discuss().synthesisEvidenceRounds();
-        return configured > 0 ? configured : DEFAULT_EVIDENCE_ROUNDS;
-    }
-
-    /**
-     * Whether another round may begin: each allowed round gets the synthesis time limit, and the
-     * thread stays inside its hard ceiling. A timeout here only ends the reading; it is not flow control.
-     */
-    private boolean synthesisHasTime(ThreadState state, Instant synthesisStart) {
-        Instant now = Instant.now();
-        long inSynthesis = Duration.between(synthesisStart, now).getSeconds();
-        long age = Duration.between(state.threadCreated, now).getSeconds();
-        return inSynthesis < (long) synthesisTimeoutSeconds * evidenceRounds() && age < hardCeilingSeconds();
     }
 
     /** The completeness contract applied to a first answer {@code result} of {@code conversation}. */
@@ -2911,72 +2797,6 @@ public class DiscussionOrchestrator {
                 + String.join(", ", missing)
                 + ".\nRe-write the COMPLETE answer including EVERY entry, one compact line each, "
                 + "omitting none. Keep the entries you already have and add the missing ones.";
-    }
-
-    /**
-     * Replace each spilled-artifact marker in the synthesis input with the artifact's
-     * actual content read from the object store, so the tool-free synthesizer works over
-     * the real data instead of an empty reference. On a read FAILURE the marker is replaced
-     * with an explicit UNAVAILABLE notice (not the original "the full data is in the file"
-     * marker), so the synthesizer reports the gap instead of fabricating a confident answer
-     * over data it never received. A tooler's per-call manifest is left as it is: its stored
-     * results are delivered by {@link #synthesizeFromStoredResults}, sized to the model that
-     * writes the answer.
-     */
-    String inlineArtifactContent(String text) {
-        if (text == null || !text.contains("[ARTIFACT key=")) {
-            return text;
-        }
-        Connection conn = natsProvider.getConnection();
-        if (conn == null) {
-            return text;
-        }
-        var m = ARTIFACT_MARKER_WITH_KEY.matcher(text);
-        var sb = new StringBuilder();
-        while (m.find()) {
-            String content = readArtifactForSynthesis(conn, m.group(1));
-            String replacement = content != null ? content : artifactUnavailableNotice(m.group(1));
-            m.appendReplacement(sb, java.util.regex.Matcher.quoteReplacement(replacement));
-        }
-        m.appendTail(sb);
-        return sb.toString();
-    }
-
-    /** Read one artifact's whole content; null on any failure. */
-    private String readWholeArtifact(Connection conn, String key) {
-        try {
-            var bos = new java.io.ByteArrayOutputStream();
-            conn.objectStore(DiscussionArtifacts.BUCKET).get(key, bos);
-            return new String(bos.toByteArray(), java.nio.charset.StandardCharsets.UTF_8);
-        } catch (Exception e) {
-            log.warn("synthesis: could not read artifact {}: {}", key, e.getMessage());
-            return null;
-        }
-    }
-
-    /**
-     * The inline replacement when an artifact could NOT be read (missing, TTL-reaped,
-     * unreadable, NATS down). It is an EXPLICIT unavailability instruction rather than the
-     * original "the full data is in the file /artifacts/&lt;key&gt;" marker, which implies
-     * the data exists and lets the tool-free synthesizer answer confidently over data it
-     * never got. Names the key and tells the synthesis to treat the contribution as
-     * unknown. See "honest-fail on unavailable artifact" (kill fabrication).
-     */
-    static String artifactUnavailableNotice(String key) {
-        return "[ARTIFACT UNAVAILABLE key=" + key + " - this contribution's data could NOT be "
-                + "retrieved. Treat it as UNKNOWN: state that the data was unavailable; do NOT "
-                + "infer, guess, or fabricate any value in its place.]";
-    }
-
-    /** Read one artifact's content for inlining, capped; null on any failure. */
-    private String readArtifactForSynthesis(Connection conn, String key) {
-        String content = readWholeArtifact(conn, key);
-        if (content == null) {
-            return null;
-        }
-        content = ManifestInliner.cut(content, MAX_ARTIFACT_INLINE_CHARS);
-        log.info("synthesis: inlined artifact {} ({} chars)", key, content.length());
-        return content;
     }
 
     /**
@@ -3792,14 +3612,13 @@ public class DiscussionOrchestrator {
 
     // Content as published for a message type. The synthesis is the user-facing
     // terminal answer, so it is delivered WHOLE (no 5000-char bus truncation) with
-    // internal artifact-spill markers stripped; every other message type keeps the
+    // the internal file-description lines stripped; every other message type keeps the
     // bus-hygiene cap. See [[Measurement Integrity - Grade Inflation and Fabrication]].
     static String publishedContent(String messageType, String content) {
         if (!MSG_SYNTHESIS.equals(messageType)) {
             return truncate(content, PUBLISHED_CONTENT_CHARS);
         }
-        String cleaned = ManifestInliner.strip(
-                ARTIFACT_SPILL_MARKER.matcher(content == null ? "" : content).replaceAll(""), true);
+        String cleaned = ManifestText.strip(content == null ? "" : content, true);
         return truncate(cleaned, SYNTHESIS_CONTENT_CHARS);
     }
 
@@ -4471,7 +4290,7 @@ public class DiscussionOrchestrator {
         var analysts = new HashSet<String>();
         try {
             if (raw == null || raw.isBlank()) return analysts;
-            AnalystReadouts.analysts(mapper.readTree(raw)).forEach(node -> analysts.add(node.path(FIELD_NAME).asText("")));
+            CrewAnalysts.analysts(mapper.readTree(raw)).forEach(node -> analysts.add(node.path(FIELD_NAME).asText("")));
         } catch (Exception e) {
             log.debug("Could not parse analyst names from resumes: {}", e.getMessage());
         }
@@ -4869,18 +4688,6 @@ public class DiscussionOrchestrator {
         volatile long triageOutputTokens;
         volatile long synthesisInputTokens;
         volatile long synthesisOutputTokens;
-        // How the synthesis got the stored tool results to the model: model calls made, and bytes
-        // of results delivered. Recorded in the synthesis event.
-        volatile int synthesisRounds = 1;
-        volatile long synthesisFilledBytes;
-        /** What the delivery of per-call evidence did; null when the thread had none. */
-        volatile SynthesisDetail synthesisDetail;
-
-        // Coverage of the thread's stored tool calls: what each agent's agree signal says it read, and
-        // the agents that answered with data. Built from the signals, so a replay rebuilds it.
-        final ConcurrentHashMap<String, Set<String>> readKeys = new ConcurrentHashMap<>();
-        final Set<String> dataAnalysts = ConcurrentHashMap.newKeySet();
-
         // Triage subcommittee — set of agent names selected by triage LLM call.
         // When non-null and non-empty, only these agents should evaluate.
         // volatile: assigned on llmExecutor threads, read on the phase-transition
@@ -4900,13 +4707,6 @@ public class DiscussionOrchestrator {
 
         ThreadState(String threadId) {
             this.threadId = threadId;
-        }
-
-        /** A new round (a human reply reopened the thread) starts with no reads. */
-        void clearDeliveryRound() {
-            readKeys.clear();
-            dataAnalysts.clear();
-            synthesisDetail = null;
         }
     }
 

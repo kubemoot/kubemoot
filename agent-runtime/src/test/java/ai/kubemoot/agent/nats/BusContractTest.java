@@ -13,8 +13,6 @@ import com.networknt.schema.SchemaRegistry;
 import com.networknt.schema.SpecificationVersion;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.nats.client.Connection;
-import io.nats.client.ObjectStore;
-import io.nats.client.ObjectStoreManagement;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -115,21 +113,6 @@ class BusContractTest {
         JsonNode msg = MAPPER.readTree(payload.getValue());
         assertEquals(2, msg.path("metadata").path("modelsUsed").size());
         assertConforms(MESSAGE, msg);
-    }
-
-    @Test
-    void aSpilledArtifactMatchesTheContract() throws Exception {
-        var conn = mock(Connection.class);
-        when(conn.objectStoreManagement()).thenReturn(mock(ObjectStoreManagement.class));
-        when(conn.objectStore(anyString())).thenReturn(mock(ObjectStore.class));
-        var metadata = new HashMap<String, Object>();
-
-        subscriber(conn, mock(ChatService.class)).resolveContentField(conn, "t1", "agree", "z".repeat(5000), metadata);
-
-        var notice = ArgumentCaptor.forClass(byte[].class);
-        verify(conn).publish(eq("kubemoot.artifacts.ns-a.nocrew.t1"), notice.capture());
-        assertConforms("artifact-notice.json", MAPPER.readTree(notice.getValue()));
-        assertConforms(METADATA, MAPPER.valueToTree(metadata));
     }
 
     @Test

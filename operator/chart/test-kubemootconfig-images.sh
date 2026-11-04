@@ -160,17 +160,14 @@ if helm template kubemoot-operator "$chart" --namespace kubemoot --set artifacts
   fail "artifacts.queryEngine=oracle should fail the render"
 fi
 
-# Per-call artifacts are off by default, reach the KubemootConfig when turned on, and refuse a
-# value that is not a boolean. The CRD defaults the field to false.
-per_call() { helm template kubemoot-operator "$chart" --namespace kubemoot "$@" \
-  | yq -N 'select(.kind == "KubemootConfig") | .spec.artifacts.perCallArtifacts'; }
-[ "$(per_call)" = "false" ] || fail "artifacts.perCallArtifacts should default to false"
-[ "$(per_call --set artifacts.perCallArtifacts=true)" = "true" ] \
-  || fail "artifacts.perCallArtifacts=true does not reach KubemootConfig"
-if helm template kubemoot-operator "$chart" --namespace kubemoot --set-string artifacts.perCallArtifacts=yes >/dev/null 2>&1; then
-  fail "artifacts.perCallArtifacts=yes (a string) should fail the render"
-fi
-[ "$(yq -N "$crd_artifacts.properties.perCallArtifacts.default" "$chart/crds/kubemoot.ai_kubemootconfigs.yaml")" = "false" ] \
-  || fail "CRD perCallArtifacts default is not false"
+# The removed artifacts.perCallArtifacts value: a values file that still sets it renders, and the
+# KubemootConfig and its CRD no longer carry the field (every tool result is always stored).
+has_per_call() { helm template kubemoot-operator "$chart" --namespace kubemoot "$@" \
+  | yq -N 'select(.kind == "KubemootConfig") | .spec.artifacts | has("perCallArtifacts")'; }
+[ "$(has_per_call)" = "false" ] || fail "KubemootConfig still carries artifacts.perCallArtifacts"
+[ "$(has_per_call --set artifacts.perCallArtifacts=true)" = "false" ] \
+  || fail "a values file that sets the removed artifacts.perCallArtifacts must render without the field"
+[ "$(yq -N "$crd_artifacts.properties | has(\"perCallArtifacts\")" "$chart/crds/kubemoot.ai_kubemootconfigs.yaml")" = "false" ] \
+  || fail "CRD still has perCallArtifacts"
 
 echo "all KubemootConfig image render tests passed"

@@ -25,8 +25,7 @@ const DefaultChannel = "general"
 // harness never builds a bus message.
 type Publisher struct {
 	Conn *nats.Conn
-	// JS reaches the Object Store for spilled contributions and the heartbeat bucket. Nil turns
-	// both off: contributions are then truncated inline.
+	// JS reaches the heartbeat bucket. Nil turns it off.
 	JS      nats.JetStreamContext
 	ID      mesh.Identity
 	Role    string
@@ -41,8 +40,6 @@ type Publisher struct {
 	Now func() time.Time
 	// Send publishes a message; nil means Conn.PublishMsg. A test sets it to fail a publish.
 	Send func(*nats.Msg) error
-
-	artifacts artifactStore
 }
 
 func (p *Publisher) now() time.Time {
@@ -53,7 +50,7 @@ func (p *Publisher) now() time.Time {
 }
 
 // Signal publishes one signal on the thread's subject. md is merged over the base metadata; a
-// large content is spilled to the artifact store. The trace context of ctx travels in the NATS
+// long content is cut at inlineLimit. The trace context of ctx travels in the NATS
 // headers and in the message body.
 func (p *Publisher) Signal(ctx context.Context, to Thread, t kbus.DiscussionMessageMessageType, content string,
 	md map[string]any) error {
@@ -66,7 +63,7 @@ func (p *Publisher) Signal(ctx context.Context, to Thread, t kbus.DiscussionMess
 	for k, v := range md {
 		meta[k] = v
 	}
-	content = p.contentFor(ctx, to, string(t), content, meta)
+	content = truncate(content, inlineLimit)
 	msg := kbus.DiscussionMessage{
 		MessageID: uuid.NewString(), ThreadID: to.ID, AgentName: p.ID.Agent, MessageType: t, Content: content,
 		Channel: to.Channel, Timestamp: p.now().UTC().Format(time.RFC3339), Metadata: meta,

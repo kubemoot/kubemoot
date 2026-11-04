@@ -129,32 +129,16 @@ func TestOneTurnAtATimeAndTheWaitingMessageIsKeptAlive(t *testing.T) {
 	}
 }
 
-func TestALargeContributionIsSpilledAndAnnounced(t *testing.T) {
+func TestALargeContributionStaysInlineWhole(t *testing.T) {
 	big := strings.Repeat("node-row\n", 800) // 7200 bytes
 	p := newPod(t, options{}, answer(big))
 	p.advisory(t, "l1", agent)
 	m := p.nextOf(t, agree)
-	if !strings.HasPrefix(m.Content, "[ARTIFACT key=") || contains(m.Content, "node-row") {
-		t.Fatalf("the inline content is a marker with no data: %.120s", m.Content)
+	if strings.TrimSpace(m.Content) != strings.TrimSpace(big) || strings.Contains(m.Content, "[ARTIFACT") {
+		t.Fatalf("the contribution is posted whole, with no marker: %d bytes", len(m.Content))
 	}
-	ref, _ := m.Metadata["artifact"].(map[string]any)
-	key, _ := ref["key"].(string)
-	if !strings.HasPrefix(key, "homelab/pilot/l1/"+agent+"/agree-") || ref["bytes"] != float64(len(big)) {
-		t.Fatalf("%v", ref)
-	}
-	store, err := p.js.ObjectStore(mesh.ArtifactBucket)
-	if err != nil {
-		t.Fatal(err)
-	}
-	got, err := store.GetBytes(key)
-	if err != nil || string(got) != big {
-		t.Fatalf("the full contribution must be in the store: %v", err)
-	}
-	select {
-	case notice := <-p.artifact:
-		bustest.Validate(t, "artifact-notice.json", notice)
-	case <-time.After(waitFor):
-		t.Fatal("the materializer was not told")
+	if m.Metadata["artifact"] != nil {
+		t.Fatalf("nothing is moved to a file: %v", m.Metadata["artifact"])
 	}
 }
 
@@ -167,12 +151,11 @@ func TestASmallContributionStaysInline(t *testing.T) {
 	}
 }
 
-func TestWithoutJetStreamALargeContributionIsTruncatedAndSaysWhy(t *testing.T) {
-	p := newPod(t, options{}, answer(strings.Repeat("y", 9000)))
-	p.pub.JS = nil
+func TestAContributionOverTheLimitIsCut(t *testing.T) {
+	p := newPod(t, options{}, answer(strings.Repeat("y", 30_000)))
 	p.advisory(t, "l3", agent)
 	m := p.nextOf(t, agree)
-	if len(m.Content) != 5000 || m.Metadata["lastError"] == nil {
+	if len(m.Content) != 24_000 || m.Metadata["lastError"] != nil {
 		t.Fatalf("%d %v", len(m.Content), m.Metadata)
 	}
 }
