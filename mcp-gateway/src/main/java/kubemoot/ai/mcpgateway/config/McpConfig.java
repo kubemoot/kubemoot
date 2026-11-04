@@ -45,7 +45,9 @@ public class McpConfig {
 
     @Bean
     public WebClient.Builder webClientBuilder(ConnectionProvider mcpConnectionProvider) {
+        int maxResponseBytes = properties.maxResponseBytes();
         return WebClient.builder()
+            .codecs(codecs -> codecs.defaultCodecs().maxInMemorySize(maxResponseBytes))
             .clientConnector(new ReactorClientHttpConnector(HttpClient.create(mcpConnectionProvider)));
     }
 }

@@ -1,6 +1,7 @@
 package kubemoot.ai.mcpgateway.config;
 
 import org.springframework.boot.context.properties.ConfigurationProperties;
+import org.springframework.util.unit.DataSize;
 
 import java.time.Duration;
 import java.util.ArrayList;
@@ -20,6 +21,31 @@ public class McpGatewayProperties {
      * server's notifications/tools/list_changed; this only catches a change neither reported.
      */
     private Duration toolListMaxAge = Duration.ofMinutes(10);
+    /**
+     * The largest reply the gateway reads from an MCP server for one request. A reply over this
+     * is answered with a tool error naming the size and this limit. 4MB covers the Proxmox RRD
+     * day window (about 0.6 MB) and a Prometheus targets list (over 1 MB) with room to spare,
+     * and stays above the 1 MiB cap the mcp-bridge sidecar applies to stdio servers.
+     */
+    private DataSize maxResponseSize = DataSize.ofMegabytes(4);
+
+    public DataSize getMaxResponseSize() {
+        return maxResponseSize;
+    }
+
+    public void setMaxResponseSize(DataSize maxResponseSize) {
+        this.maxResponseSize = maxResponseSize;
+    }
+
+    /** The limit in bytes; fails startup with the key name when it is not between 1 byte and 2 GB. */
+    public int maxResponseBytes() {
+        if (maxResponseSize == null || maxResponseSize.toBytes() <= 0
+                || maxResponseSize.toBytes() > Integer.MAX_VALUE) {
+            throw new IllegalStateException("mcp.gateway.max-response-size must be a size between 1B and 2GB,"
+                + " for example 4MB, but is " + maxResponseSize);
+        }
+        return (int) maxResponseSize.toBytes();
+    }
 
     public Duration getToolListMaxAge() {
         return toolListMaxAge;

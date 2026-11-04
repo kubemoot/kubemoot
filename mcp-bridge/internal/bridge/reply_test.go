@@ -63,6 +63,9 @@ func assertOversizedError(t *testing.T, msg, wantID string) {
 	if got.Error.Code != oversizedErrorCode || !strings.Contains(got.Error.Message, "Ask for less") {
 		t.Errorf("unexpected error: %+v", got.Error)
 	}
+	if !strings.Contains(got.Error.Message, "bytes, over the bridge limit of") || !strings.Contains(got.Error.Message, maxReplyEnv) {
+		t.Errorf("the error does not name the size, the limit and the setting: %s", got.Error.Message)
+	}
 }
 
 func TestReadStdoutPipe_NormalAndUnderCap(t *testing.T) {
