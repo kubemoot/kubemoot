@@ -40,6 +40,17 @@ type CheckOut struct {
 	Errors string `json:"errors,omitempty"`
 }
 
+// executeCodeDescription is what a model reads about execute_code. It says where
+// the data comes from (the code itself, or files other agents stored that are
+// staged under /artifacts) and what the program cannot reach, so a model does not
+// expect the sandbox to fetch data.
+const executeCodeDescription = "Run a short program and return its stdout, stderr, and exit code. " +
+	"Python 3 with the standard library only, or bash. " +
+	"It computes over data you put in the code or over the files other agents stored in this discussion, " +
+	"which are staged under /artifacts. " +
+	"It cannot fetch data: no network, no cluster API, no kubectl, and no credentials. " +
+	"Nothing arrives on stdin."
+
 // MCP builds the MCP server with both tools registered.
 func (s *Server) MCP() (*mcp.Server, error) {
 	schema, err := inputSchema()
@@ -48,9 +59,7 @@ func (s *Server) MCP() (*mcp.Server, error) {
 	}
 	srv := mcp.NewServer(&mcp.Implementation{Name: "code-sandbox", Version: "v1"}, nil)
 	mcp.AddTool(srv, &mcp.Tool{Name: "execute_code", InputSchema: schema,
-		Description: "Run a short program and return its stdout, stderr, and exit code. " +
-			"Python 3 with the standard library only, or bash. No network. " +
-			"Nothing arrives on stdin: put the data in the code or open a file under /artifacts."}, s.execute)
+		Description: executeCodeDescription}, s.execute)
 	mcp.AddTool(srv, &mcp.Tool{Name: "validate_code", InputSchema: schema,
 		Description: "Check a program's syntax without running it."}, s.validate)
 	return srv, nil

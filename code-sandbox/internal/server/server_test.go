@@ -84,6 +84,32 @@ func TestToolsAreListedWithTheLanguageEnum(t *testing.T) {
 	}
 }
 
+// TestExecuteCodeDescriptionSaysItCannotFetch checks that a model listing the tools
+// learns where execute_code's data comes from and that the program cannot fetch any.
+func TestExecuteCodeDescriptionSaysItCannotFetch(t *testing.T) {
+	session := connect(t, newServer(t))
+	list, err := session.ListTools(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	description, found := "", false
+	for _, tool := range list.Tools {
+		if tool.Name == "execute_code" {
+			description, found = tool.Description, true
+			break
+		}
+	}
+	if !found {
+		t.Fatal("execute_code is not listed")
+	}
+	for _, want := range []string{"files other agents stored", "/artifacts", "cannot fetch data",
+		"no network", "no cluster API", "no kubectl", "no credentials", "stdin"} {
+		if !strings.Contains(description, want) {
+			t.Errorf("execute_code description lacks %q: %s", want, description)
+		}
+	}
+}
+
 func TestExecuteOverTheProtocol(t *testing.T) {
 	session := connect(t, newServer(t))
 	res := call(t, session, "execute_code", map[string]any{"language": "python", "code": "print(6 * 7)", "filename": "answer.py"})

@@ -43,6 +43,9 @@ The models decide what to compute; the sandbox makes the numbers real.
 | `execute_code` | `language` (`python` or `bash`), `code`, optional `filename` | stdout, stderr, exit code, execution time |
 | `validate_code` | same | whether the syntax is valid, and the errors if not |
 
+The `execute_code` description tells the model that a program cannot fetch data,
+so the model looks to other agents for it.
+
 ## How a program runs
 
 - In a new temporary directory, which is also its `HOME`, removed afterwards.
