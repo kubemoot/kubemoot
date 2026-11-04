@@ -99,6 +99,9 @@ class NatsCallArtifactStoreIT {
             String second = store.reserveKey("t1", "k8s-workloads", "pods_list");
             assertEquals("ns-a/homelab-pilot/t1/k8s-workloads/001-pods_list", key);
             assertEquals("ns-a/homelab-pilot/t1/k8s-workloads/002-pods_list", second);
+            assertEquals("ns-a/homelab-pilot/t1/", store.threadPrefix("t1"),
+                    "the prefix every key of the thread starts with, so short keys can be made from long ones");
+            assertTrue(key.startsWith(store.threadPrefix("t1")));
 
             var headers = new LinkedHashMap<String, String>();
             headers.put(CallHeaders.TOOL_NAME, "pods_list");

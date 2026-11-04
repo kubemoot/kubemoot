@@ -19,6 +19,7 @@ import (
 
 	"github.com/kubemoot/kubemoot/artifact-access/internal/readops"
 	"github.com/kubemoot/kubemoot/artifact-access/internal/store"
+	"github.com/kubemoot/kubemoot/artifact-access/internal/threadkey"
 	"github.com/kubemoot/kubemoot/artifact-access/internal/workspace"
 )
 
@@ -110,6 +111,9 @@ const queryDescription = "Run one read-only SQL SELECT over artifacts. Give arti
 	"Each row of such a table also has _call (the call's key), _args (its arguments as JSON text) and, for an " +
 	"argument that is a plain value and differs between the calls, _arg_<name> (for example _arg_vmid), " +
 	"so GROUP BY _call or _arg_vmid counts and totals per call. " +
+	"A key may be written short, <agent>/<nnn>-<tool> as the file descriptions show it (for example " +
+	"k8s-workloads/002-resources_list); it is read inside the current thread, and a key of another " +
+	"thread is refused. " +
 	"No writes, no files outside the named artifacts, no network."
 
 // --- tool inputs ---
@@ -151,54 +155,65 @@ type jqIn struct {
 
 // --- tool handlers ---
 
-func (s *Server) head(ctx context.Context, _ *mcp.CallToolRequest, in headIn) (*mcp.CallToolResult, Out, error) {
-	return s.read(ctx, in.Key, func(r io.Reader) (string, error) {
+func (s *Server) head(ctx context.Context, req *mcp.CallToolRequest, in headIn) (*mcp.CallToolResult, Out, error) {
+	return s.read(ctx, scopeOf(req), in.Key, func(r io.Reader) (string, error) {
 		return readops.Head(r, orDefault(in.Lines, defaultLines), s.MaxOutputBytes)
 	})
 }
 
-func (s *Server) tail(ctx context.Context, _ *mcp.CallToolRequest, in tailIn) (*mcp.CallToolResult, Out, error) {
-	return s.read(ctx, in.Key, func(r io.Reader) (string, error) {
+func (s *Server) tail(ctx context.Context, req *mcp.CallToolRequest, in tailIn) (*mcp.CallToolResult, Out, error) {
+	return s.read(ctx, scopeOf(req), in.Key, func(r io.Reader) (string, error) {
 		return readops.Tail(r, orDefault(in.Lines, defaultLines), s.MaxOutputBytes)
 	})
 }
 
-func (s *Server) grep(ctx context.Context, _ *mcp.CallToolRequest, in grepIn) (*mcp.CallToolResult, Out, error) {
-	return s.read(ctx, in.Key, func(r io.Reader) (string, error) {
+func (s *Server) grep(ctx context.Context, req *mcp.CallToolRequest, in grepIn) (*mcp.CallToolResult, Out, error) {
+	return s.read(ctx, scopeOf(req), in.Key, func(r io.Reader) (string, error) {
 		return readops.Grep(r, in.Pattern, orDefault(in.Max, defaultGrepMax), s.MaxOutputBytes)
 	})
 }
 
-func (s *Server) count(ctx context.Context, _ *mcp.CallToolRequest, in keyIn) (*mcp.CallToolResult, Out, error) {
-	if n, ok := s.recordedRows(ctx, in.Key); ok {
+func (s *Server) count(ctx context.Context, req *mcp.CallToolRequest, in keyIn) (*mcp.CallToolResult, Out, error) {
+	sc := scopeOf(req)
+	key, err := sc.Resolve(in.Key)
+	if err != nil {
+		return nil, Out{}, err
+	}
+	if n, ok := s.recordedRows(ctx, key); ok {
 		return s.result(strconv.FormatInt(n, 10) + "\n")
 	}
-	return s.read(ctx, in.Key, func(r io.Reader) (string, error) {
+	return s.read(ctx, sc, key, func(r io.Reader) (string, error) {
 		n, err := readops.CountData(r)
 		return strconv.FormatInt(n, 10) + "\n", err
 	})
 }
 
-func (s *Server) rows(ctx context.Context, _ *mcp.CallToolRequest, in rowsIn) (*mcp.CallToolResult, Out, error) {
-	return s.read(ctx, in.Key, func(r io.Reader) (string, error) {
+func (s *Server) rows(ctx context.Context, req *mcp.CallToolRequest, in rowsIn) (*mcp.CallToolResult, Out, error) {
+	return s.read(ctx, scopeOf(req), in.Key, func(r io.Reader) (string, error) {
 		return readops.Rows(r, in.Start, orDefault(in.Limit, defaultRowsLimit), s.MaxOutputBytes)
 	})
 }
 
-func (s *Server) selectCSV(ctx context.Context, _ *mcp.CallToolRequest, in selectIn) (*mcp.CallToolResult, Out, error) {
-	return s.read(ctx, in.Key, func(r io.Reader) (string, error) {
+func (s *Server) selectCSV(
+	ctx context.Context, req *mcp.CallToolRequest, in selectIn,
+) (*mcp.CallToolResult, Out, error) {
+	return s.read(ctx, scopeOf(req), in.Key, func(r io.Reader) (string, error) {
 		return readops.SelectCSV(r, in.Columns, delimiterOrComma(in.Delimiter), s.MaxOutputBytes)
 	})
 }
 
-func (s *Server) jq(ctx context.Context, _ *mcp.CallToolRequest, in jqIn) (*mcp.CallToolResult, Out, error) {
-	return s.read(ctx, in.Key, func(r io.Reader) (string, error) {
+func (s *Server) jq(ctx context.Context, req *mcp.CallToolRequest, in jqIn) (*mcp.CallToolResult, Out, error) {
+	return s.read(ctx, scopeOf(req), in.Key, func(r io.Reader) (string, error) {
 		return readops.Jq(r, in.Program, s.JqMaxInputBytes, s.MaxOutputBytes)
 	})
 }
 
-func (s *Server) query(ctx context.Context, _ *mcp.CallToolRequest, in queryIn) (*mcp.CallToolResult, Out, error) {
-	text, err := s.Query.Query(ctx, in.Artifacts, in.SQL)
+func (s *Server) query(ctx context.Context, req *mcp.CallToolRequest, in queryIn) (*mcp.CallToolResult, Out, error) {
+	artifacts, err := scopeOf(req).ResolveAll(in.Artifacts)
+	if err != nil {
+		return nil, Out{}, err
+	}
+	text, err := s.Query.Query(ctx, artifacts, in.SQL)
 	if err != nil {
 		return nil, Out{}, err
 	}
@@ -226,14 +241,28 @@ func (s *Server) result(text string) (*mcp.CallToolResult, Out, error) {
 	return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: text}}}, Out{Output: text}, nil
 }
 
-// read fetches the keyed object once, runs the read-op, and wraps the capped slice
-// as a tool result. A nil key or a fetch/read error is returned as a tool error so
-// the model can see it and self-correct (the SDK marks IsError).
+// scopeOf is the thread a tool call runs in, from the _meta the agent runtime sends; the zero
+// scope (no thread) when the call has none.
+func scopeOf(req *mcp.CallToolRequest) threadkey.Scope {
+	if req == nil || req.Params == nil {
+		return threadkey.Scope{}
+	}
+	return threadkey.FromMeta(req.Params.GetMeta())
+}
+
+// read resolves the key within the call's thread, fetches the object once, runs the read-op, and
+// wraps the capped slice as a tool result. A missing key, a key of another thread, or a
+// fetch/read error is returned as a tool error so the model can see it and self-correct (the SDK
+// marks IsError).
 func (s *Server) read(
-	ctx context.Context, key string, op func(io.Reader) (string, error),
+	ctx context.Context, sc threadkey.Scope, key string, op func(io.Reader) (string, error),
 ) (*mcp.CallToolResult, Out, error) {
 	if key == "" {
 		return nil, Out{}, fmt.Errorf("key is required")
+	}
+	key, err := sc.Resolve(key)
+	if err != nil {
+		return nil, Out{}, err
 	}
 	rc, err := s.Fetcher.Get(ctx, key)
 	if err != nil {

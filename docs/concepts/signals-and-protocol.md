@@ -69,8 +69,11 @@ could call. `toolsCalled` is what it did call.
 A contribution (`agree`) carries what the agent states followed by the description of each file its
 tool calls stored: `[CALL key=... tool=... args=... format=... bytes=... rows=... error=...]` lines
 under a `[WORKSPACE ...]` header, or a `[NOT STORED ...]` line for a result that could not be
-written. The content of a file is never in a signal. See the
-[discussion artifact store](discussion-artifact-store.md#what-an-agent-posts-the-descriptions-of-its-files).
+written. The keys in those lines are relative to the thread (`k8s-workloads/001-pods_list`). A
+result small enough for the readers' context window follows its line whole, between `[RESULT]` and
+`[END RESULT]` (`[FAILED RESULT]` for the error text of a failed call); a larger result is only in
+its file, and a result is never cut. See the
+[discussion artifact store](discussion-artifact-store.md#what-an-agent-posts-the-descriptions-of-its-files-and-its-small-results).
 Agents that read files add the facts they find to their own contribution; the synthesizer answers
 from the discussion only.
 
@@ -130,6 +133,45 @@ The full state machine (all states, both automatic and event-driven transitions,
 the key design principles) is documented in
 [The Moot - Discussion phase lifecycle](../consensus-model/#discussion-phase-lifecycle).
 
+### No facts, no model
+
+The synthesizer answers from the discussion, so it needs something to answer from. When the
+discussion holds **no facts** but tools ran, the coordinator does not call the model: a model with
+nothing to answer from invents. It closes the thread with an answer it writes in code:
+
+- the question,
+- the tools that ran, per agent, with the number of calls and how many failed (from the file
+  descriptions),
+- the failures with their text: the error text a failed call posted, and what an agent reported
+  when it failed,
+- the plain statement that no data was obtained and nothing can be reported as fact.
+
+It is a normal synthesized answer: it is published as the `synthesis` message, the thread closes,
+and the asker and the fitness judge read it like any other.
+
+**The discussion holds facts** when a contribution of type `agree`, `contribution`, `proposal`,
+`concern` or `block` has either
+
+- a `[RESULT]` block with a result that is not blank, or
+- its own text, which is whatever is left after taking out the `[WORKSPACE ...]` header, the
+  `[CALL ...]` and `[NOT STORED ...]` lines, the closing "stored under these keys" line, the
+  `[N more calls under the prefix]` line, the `[FAILED RESULT]` blocks, and the words
+  `NOTHING_TO_ADD` and `NO_DATA`.
+
+An empty `agree`, a `stand_aside`, a `decline`, a `failure`, the coordinator's own messages (the
+advisory, the review list) and the user's question hold no facts. A `concern` counts, because its
+text is usually a `TOOL_GAP:` that the model path turns into a hint about the missing tool.
+
+**The shortcut applies only when tools ran**: at least one contribution describes files (a
+`[CALL ...]` or `[NOT STORED ...]` line). A discussion where every agent stood aside, or only
+failed without storing a call, still goes to the model, which answers a general question from its
+own knowledge or reports the sources it could not reach.
+
+The decision is made in code on what is in the discussion, never on a timer. The thread's
+`synthesis_done` event carries the outcome `no_data` (see the table below), so the case is
+countable: the share of threads that end with `no_data` is the share of questions that got no
+data from their tools.
+
 ## The coordinator log
 
 The coordinator decides things no agent message records: which agents it convened, which
@@ -168,7 +210,7 @@ Every message is an event:
 | `failure_recorded` | an agent reports `failure`, or its deadline passes and the coordinator records one | `agent`, `cause` (`reported` or `evaluation_timeout`), `synthesized`, `failedSources` |
 | `settled` | a phase ends | `phase`, `basis` (`roster_signalled`, `fast_path`, `quiet` or `no_pending`), `counts` |
 | `synthesis_started` | the synthesis call begins | the signal counts |
-| `synthesis_done` | the answer exists, before it is published | `outcome` (`synthesized`, `capacity`, `direct`, `fallback` or `ceiling`), `response`, `tokens`, `promptTooLarge`. A log written by an earlier release may also carry `rounds`, `filledBytes` and `delivery`; they are ignored on replay |
+| `synthesis_done` | the answer exists, before it is published | `outcome` (`synthesized`, `capacity`, `no_data`, `direct`, `fallback` or `ceiling`), `response`, `tokens`, `promptTooLarge`. A log written by an earlier release may also carry `rounds`, `filledBytes` and `delivery`; they are ignored on replay |
 | `thread_reopened` | a human reply reopens a closed thread | `phaseStartedAt` |
 | `thread_closed` | the thread ends | `reason` (an outcome of `synthesis_done`, `zombie`, `no_signals`, `unlogged`, or `expired`), `channel` |
 | `coordinator_resumed` | a restarted coordinator takes the thread over | `fromSeq` (the last event it read), `resumedAt` |

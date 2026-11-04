@@ -4,6 +4,7 @@ import ai.kubemoot.agent.requester.Requester;
 import ai.kubemoot.agent.requester.RequesterScope;
 import ai.kubemoot.agent.config.AgentProperties;
 import ai.kubemoot.agent.mcp.McpClientService;
+import ai.kubemoot.agent.mcp.WorkspaceScope;
 import ai.kubemoot.agent.nats.AgentHeartbeatService;
 import ai.kubemoot.agent.nats.DiscussionOrchestrator;
 import ai.kubemoot.agent.modelserver.ChatModelPool;
@@ -358,8 +359,10 @@ public class ChatService {
         // Stays true for any Throwable escaping the loop (timeouts, 5xx, ToolCallFailure
         // with an infrastructure cause, or an Error): the circuit-breaker input.
         boolean callFailed = true;
-        try (var requesterScope = RequesterScope.bind(request.requester())) {
-            ledger = ToolCallLedger.forLoop(callArtifactStore, request.discussionThreadId(), properties.agentName());
+        try (var requesterScope = RequesterScope.bind(request.requester());
+             var workspaceScope = WorkspaceScope.bind(threadPrefixOf(request.discussionThreadId()))) {
+            ledger = ToolCallLedger.forLoop(callArtifactStore, request.discussionThreadId(), properties.agentName(),
+                    readersWindow(pick));
             loopResult = callWithToolLoop(messages,
                     observed(pick, CallObservation.KIND_TOOL_TURN),
                     serverName, pick.pickReason(), toolerRawOutput, contextLengthOf(pick), ledger);
@@ -391,6 +394,27 @@ public class ChatService {
                 serverName, loopResult.pickReason(), pick.evicted(),
                 List.of(new ModelUse(pick.modelName(), serverName, pick.call())),
                 filesOf(loopResult, ledger));
+    }
+
+    /** The key prefix of the discussion thread's stored results; null outside a thread or without a store. */
+    private String threadPrefixOf(String discussionThreadId) {
+        boolean inThread = callArtifactStore != null && discussionThreadId != null && !discussionThreadId.isBlank();
+        return inThread ? callArtifactStore.threadPrefix(discussionThreadId) : null;
+    }
+
+    /**
+     * The context window of the models that will read this agent's contribution, in tokens: the
+     * smallest window among the servers that hold the agent's model, else the window of the server
+     * picked for this turn, else empty. {@link DiscussionRoom} sizes the results posted in the
+     * discussion from it.
+     */
+    private java.util.OptionalLong readersWindow(MullingPick pick) {
+        java.util.OptionalLong smallest = simpleCallContextTokens();
+        if (smallest.isPresent()) {
+            return smallest;
+        }
+        long picked = contextLengthOf(pick);
+        return picked > 0 ? java.util.OptionalLong.of(picked) : java.util.OptionalLong.empty();
     }
 
     /**

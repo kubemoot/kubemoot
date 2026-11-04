@@ -34,6 +34,10 @@ final class CoordinatorWire {
     static final String REASON = "reason";
     static final String CHANNEL = "channel";
 
+    // --- values of the synthesis_done outcome that are not the synthesis call's ---
+    /** Tools ran and the discussion held no fact, so the answer says no data was obtained and the model was not called. */
+    static final String NO_DATA = "no_data";
+
     // --- values of cause ---
     static final String CAUSE_REPORTED = "reported";
     static final String CAUSE_TIMEOUT = "evaluation_timeout";

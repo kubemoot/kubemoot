@@ -58,7 +58,7 @@ type Expect struct {
 
 // allowedReasons are the thread_closed reasons of a thread that reached its answer.
 var allowedReasons = map[string]bool{
-	reasonSynthesized: true, reasonCapacity: true, reasonDirect: true, reasonFallback: true,
+	reasonSynthesized: true, reasonCapacity: true, reasonNoData: true, reasonDirect: true, reasonFallback: true,
 }
 
 // singletonMessages are coordinator messages a thread publishes once.
@@ -230,7 +230,7 @@ func reasonViolations(t Thread, closed Event) []Violation {
 	if !allowedReasons[closed.Data.Reason] {
 		out = append(out, Violation{
 			Check:    "closed_reason",
-			Detail:   fmt.Sprintf("thread %s closed with reason %q, want one of synthesized, capacity, direct, fallback", t.ID, closed.Data.Reason),
+			Detail:   fmt.Sprintf("thread %s closed with reason %q, want one of synthesized, capacity, no_data, direct, fallback", t.ID, closed.Data.Reason),
 			Evidence: t.Types(),
 		})
 	}

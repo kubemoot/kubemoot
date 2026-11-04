@@ -295,7 +295,7 @@ final class CoordinatorEventRecorder {
 
     /**
      * The answer exists and is about to be published. {@code outcome} is how it came to
-     * be: {@code synthesized}, {@code capacity}, {@code direct}, {@code fallback} or
+     * be: {@code synthesized}, {@code capacity}, {@code no_data}, {@code direct}, {@code fallback} or
      * {@code ceiling}. The answer is in the log before it is on the bus.
      */
     boolean synthesisDone(ThreadState s, String outcome, String channel, String response) {

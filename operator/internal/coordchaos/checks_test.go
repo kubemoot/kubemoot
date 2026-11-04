@@ -33,6 +33,38 @@ func TestHealthyThreadHasNoViolations(t *testing.T) {
 	}
 }
 
+func TestNoDataAnswerIsAnAnswer(t *testing.T) {
+	b := newBuilder("a")
+	b.ev(EvThreadOpened, EventData{ConversationID: b.conv}).msg(MsgThreadStart)
+	b.ev(EvSubcommitteeConvened, EventData{}).msg(MsgAdvisory).msg(MsgSubcommittee)
+	b.ev(EvEvaluationStarted, EventData{}).msg(MsgAdvisoryReady)
+	b.msg(signalAgree).ev(EvSignalApplied, EventData{Signal: signalAgree})
+	b.ev(EvSettled, EventData{})
+	b.ev(EvSynthesisDone, EventData{Outcome: reasonNoData}).msg(MsgSynthesis).msg(MsgThreadClose)
+	b.ev(EvThreadClosed, EventData{Reason: reasonNoData})
+	if vs := Evaluate(observe(1, b), protected(0, 0)); len(vs) != 0 {
+		t.Fatalf("a thread answered with no data is a finished thread: %s", Summary(vs))
+	}
+}
+
+func TestBadReasonMessageListsEveryAllowedReason(t *testing.T) {
+	b := newBuilder("a")
+	b.ev(EvThreadOpened, EventData{ConversationID: b.conv}).msg(MsgThreadStart)
+	b.msg(MsgSynthesis).msg(MsgThreadClose).ev(EvThreadClosed, EventData{Reason: "zombie"})
+	for _, v := range Evaluate(observe(1, b), protected(0, 0)) {
+		if v.Check != "closed_reason" {
+			continue
+		}
+		for reason := range allowedReasons {
+			if !strings.Contains(v.Detail, reason) {
+				t.Fatalf("the message %q does not name the allowed reason %s", v.Detail, reason)
+			}
+		}
+		return
+	}
+	t.Fatal("no closed_reason violation")
+}
+
 func TestResumedThreadHasNoViolations(t *testing.T) {
 	if vs := Evaluate(observe(1, resumedThread("a")), protected(1, 1)); len(vs) != 0 {
 		t.Fatalf("violations on a resumed thread: %s", Summary(vs))

@@ -10,6 +10,13 @@ import java.util.Map;
 public interface CallArtifactStore {
 
     /**
+     * The prefix of every key stored for the thread, {@code <namespace>/<crew>/<thread>/}. A key
+     * without it is the key relative to the thread, {@code <agent>/<call number>-<tool>}, which is
+     * how agents see and write keys.
+     */
+    String threadPrefix(String threadId);
+
+    /**
      * The key the next call of {@code tool} by {@code agent} in the thread is stored under:
      * {@code <thread prefix><agent>/<call number>-<tool>}. Each call to this method takes the
      * next call number, so no two calls of one agent in one thread share a key.

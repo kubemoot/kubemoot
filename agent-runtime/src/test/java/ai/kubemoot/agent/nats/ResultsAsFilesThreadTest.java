@@ -56,13 +56,14 @@ class ResultsAsFilesThreadTest extends CoordinatorThreadTestBase {
     }
 
     private static String callLine() {
-        return "[CALL key=" + podsKey() + " tool=pods_list args={\"namespace\":\"a\"} format=json bytes=300 rows=3 "
+        return "[CALL key=k8s-workloads/001-pods_list tool=pods_list args={\"namespace\":\"a\"} format=json bytes=300 rows=3 "
                 + "error=false fields=name,cpu]";
     }
 
     private static String manifest(String line) {
-        return "[WORKSPACE agent=k8s-workloads calls=1 errors=0 prefix=" + DIR + "]\n" + line
-                + "\nThe results are stored under these keys and are not shown here. Read a key with workspace_query.";
+        return "[WORKSPACE agent=k8s-workloads calls=1 errors=0 prefix=k8s-workloads/]\n" + line
+                + "\nThe results are stored under these keys; a result not shown above is only in its file. "
+                + "Read a key with workspace_query.";
     }
 
     private ObjectInfo infoOf(String key) {
@@ -124,7 +125,7 @@ class ResultsAsFilesThreadTest extends CoordinatorThreadTestBase {
 
         String content = publishedOfType("review_ready").get(0).body().path("content").asText();
         assertTrue(content.contains("[CATALOG calls=1 errors=0"), content);
-        assertTrue(content.contains("[CATALOG-CALL key=" + podsKey()), content);
+        assertTrue(content.contains("[CATALOG-CALL key=k8s-workloads/001-pods_list"), content);
         assertFalse(content.substring(content.indexOf("[CATALOG calls=")).contains("[CALL key="),
                 "a catalog line is never read as an agent's file description");
     }
@@ -144,7 +145,7 @@ class ResultsAsFilesThreadTest extends CoordinatorThreadTestBase {
         assertTrue(prompt.contains("DEFINE DOMAIN synthesis-files"), "the rules for file descriptions come with them");
         assertTrue(prompt.contains("UNKNOWN"), prompt);
         assertFalse(prompt.contains("[WORKSPACE"), "the header speaks to an agent that can read files");
-        assertFalse(prompt.contains("are not shown here"), "the closing line speaks to an agent that can read files");
+        assertFalse(prompt.contains("only in its file"), "the closing line speaks to an agent that can read files");
         assertFalse(prompt.contains(SECRET_ROW), "the content of a file never reaches the synthesizer");
         assertTrue(fetched.isEmpty(), "no file is read for the synthesis: " + fetched);
     }
@@ -207,5 +208,73 @@ class ResultsAsFilesThreadTest extends CoordinatorThreadTestBase {
 
         assertFalse(done.has("rounds") || done.has("delivery") || done.has("filledBytes"), done.toString());
         assertFalse(done.path("response").asText().contains("[CALL key="));
+    }
+
+    private String doneOutcome() {
+        return forThread(THREAD).stream().filter(e -> e.type().equals("synthesis_done")).findFirst()
+                .orElseThrow().data().path("outcome").asText();
+    }
+
+    private String synthesisAnswer() {
+        return publishedOfType("synthesis").get(0).body().path("content").asText();
+    }
+
+    @Test
+    void toolsThatRanAndStatedNothingEndInAnAnswerWithoutTheModelAndTheNoDataOutcome() throws Exception {
+        storeIsOpen();
+        send(THREAD, "human", "thread_start", "List the CronJobs and recent Jobs.", "{\"crew\":\"crew\",\"namespace\":\"ns\"}");
+        advanceThroughAdvisory(THREAD);
+        send(THREAD, "k8s-workloads", "agree", manifest(callLine()), null);
+        send(THREAD, "k8s-metrics", "failure", "Tool 'pods_top' failed 2 times in this evaluation", null);
+        settle(THREAD, EVALUATION_TO_REVIEW);
+        send(THREAD, "k8s-analyst", "stand_aside", "", null);
+        settle(THREAD, REVIEW_TO_SYNTHESIS);
+        awaitTypes(THREAD, 1, "synthesis_done");
+
+        assertEquals("no_data", doneOutcome());
+        assertTrue(synthesisPrompts.isEmpty(), "the model was not asked: " + synthesisPrompts);
+        String answer = synthesisAnswer();
+        assertTrue(answer.startsWith("No data was obtained"), answer);
+        assertTrue(answer.contains("Question: List the CronJobs and recent Jobs."), answer);
+        assertTrue(answer.contains("- k8s-workloads: pods_list (1 call)"), answer);
+        assertTrue(answer.contains("- k8s-metrics: Tool 'pods_top' failed 2 times in this evaluation"), answer);
+        assertFalse(answer.contains("[CALL"), answer);
+        assertTrue(forThread(THREAD).stream().anyMatch(e -> e.type().equals("thread_closed")
+                && e.data().path("reason").asText().equals("no_data")), "the close names the same outcome");
+    }
+
+    @Test
+    void aSmallResultPostedInTheContributionIsAFactSoTheModelAnswersFromIt() throws Exception {
+        storeIsOpen();
+        String result = "NAME  READY\npod-a-1  1/1";
+        send(THREAD, "human", "thread_start", "Which pods run?", "{\"crew\":\"crew\",\"namespace\":\"ns\"}");
+        advanceThroughAdvisory(THREAD);
+        send(THREAD, "k8s-workloads", "agree", manifest(callLine() + "\n[RESULT]\n" + result + "\n[END RESULT]"), null);
+        settle(THREAD, EVALUATION_TO_REVIEW);
+        send(THREAD, "k8s-analyst", "stand_aside", "", null);
+        settle(THREAD, REVIEW_TO_SYNTHESIS);
+        awaitTypes(THREAD, 1, "synthesis_done");
+
+        assertEquals("synthesized", doneOutcome());
+        assertTrue(synthesisPrompt().contains("[RESULT]\n" + result + "\n[END RESULT]"),
+                "the synthesizer reads the posted result");
+        assertFalse(synthesisAnswer().contains("pod-a-1 "), "the posted block does not leak into the answer text");
+    }
+
+    @Test
+    void aFailedCallsPostedErrorTextIsNotAFactSoTheThreadStillEndsWithNoData() throws Exception {
+        storeIsOpen();
+        send(THREAD, "human", "thread_start", "Which pods run?", "{\"crew\":\"crew\",\"namespace\":\"ns\"}");
+        advanceThroughAdvisory(THREAD);
+        send(THREAD, "k8s-workloads", "agree", manifest(callLine().replace("error=false", "error=true")
+                + "\n[FAILED RESULT]\nforbidden: cannot list pods\n[END RESULT]"), null);
+        settle(THREAD, EVALUATION_TO_REVIEW);
+        send(THREAD, "k8s-analyst", "stand_aside", "", null);
+        settle(THREAD, REVIEW_TO_SYNTHESIS);
+        awaitTypes(THREAD, 1, "synthesis_done");
+
+        assertEquals("no_data", doneOutcome());
+        assertTrue(synthesisAnswer().contains("- k8s-workloads, pods_list: forbidden: cannot list pods"),
+                synthesisAnswer());
     }
 }

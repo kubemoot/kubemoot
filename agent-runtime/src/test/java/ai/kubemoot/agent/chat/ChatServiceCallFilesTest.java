@@ -54,6 +54,11 @@ class ChatServiceCallFilesTest {
         String failFor;
 
         @Override
+        public String threadPrefix(String threadId) {
+            return "ns/crew/" + threadId + "/";
+        }
+
+        @Override
         public String reserveKey(String threadId, String agent, String tool) {
             return "ns/crew/" + threadId + "/" + agent + "/" + String.format("%03d", ++next) + "-" + tool;
         }
@@ -120,7 +125,7 @@ class ChatServiceCallFilesTest {
     }
 
     private ChatService.ToolLoopResult run(ChatService service, long window) {
-        var ledger = ToolCallLedger.forLoop(store, THREAD, AGENT);
+        var ledger = ToolCallLedger.forLoop(store, THREAD, AGENT, java.util.OptionalLong.empty());
         return service.callWithToolLoop(question(), chatModel, "s", "test", true, window, ledger);
     }
 
@@ -151,11 +156,12 @@ class ChatServiceCallFilesTest {
         assertNotNull(h.get(CallHeaders.DURATION_MS));
 
         assertTrue(result.contributionIsToolOutput());
-        assertTrue(result.text().startsWith("[WORKSPACE agent=test-agent calls=1 errors=0 prefix="
-                + "ns/crew/t1/test-agent/]"), result.text());
-        assertTrue(result.text().contains("[CALL key=" + key + " tool=pods_list args={\"namespace\":\"kube-system\"} "
-                + "format=json bytes=" + store.bodies.get(key).length + " rows=3 error=false fields=a]"), result.text());
-        assertFalse(result.text().contains("{\"a\":1}"), "no result data in the manifest");
+        assertTrue(result.text().startsWith("[WORKSPACE agent=test-agent calls=1 errors=0 prefix=test-agent/]"),
+                result.text());
+        assertTrue(result.text().contains("[CALL key=test-agent/001-pods_list tool=pods_list "
+                + "args={\"namespace\":\"kube-system\"} format=json bytes=" + store.bodies.get(key).length
+                + " rows=3 error=false fields=a]\n[RESULT]\n{\"items\":[{\"a\":1},{\"a\":2},{\"a\":3}]}\n[END RESULT]"),
+                "a small result follows its description whole: " + result.text());
     }
 
     @Test
@@ -221,7 +227,8 @@ class ChatServiceCallFilesTest {
         assertTrue(prompt.contains("Stored as workspace artifact " + key + "."), prompt);
         assertTrue(ToolResultStandIn.isStandIn(prompt));
         assertTrue(store.body(key).length() > 30_000, "the object holds the full result");
-        assertTrue(result.text().contains("[CALL key=" + key), "the contribution is still the manifest");
+        assertTrue(result.text().contains("[CALL key=test-agent/001-pods_list"), "the contribution is still the manifest");
+        assertFalse(result.text().contains("[RESULT]"), "a result over its share stays in the file only");
     }
 
     @Test
@@ -248,9 +255,9 @@ class ChatServiceCallFilesTest {
         var result = run(service(), 0);
 
         assertEquals(1, store.bodies.size());
-        assertTrue(result.text().contains("[CALL key=ns/crew/t1/test-agent/001-pods_list"), result.text());
+        assertTrue(result.text().contains("[CALL key=test-agent/001-pods_list"), result.text());
         assertTrue(result.text().contains("[NOT STORED tool=nodes_list"), result.text());
-        assertTrue(result.text().contains("prefix=ns/crew/t1/test-agent/]"), result.text());
+        assertTrue(result.text().contains("prefix=test-agent/]"), result.text());
     }
 
     @Test
@@ -258,23 +265,24 @@ class ChatServiceCallFilesTest {
         registerTools(r -> "{\"items\":[{\"a\":1},{\"a\":2}]}", "pods_list");
         modelCalls(call("c1", "pods_list", "{\"namespace\":\"kube-system\"}"));
         var service = service();
-        var ledger = ToolCallLedger.forLoop(store, THREAD, AGENT);
+        var ledger = ToolCallLedger.forLoop(store, THREAD, AGENT, java.util.OptionalLong.empty());
 
         var result = service.callWithToolLoop(question(), chatModel, "s", "test", false, 0L, ledger);
 
         assertEquals("done", result.text(), "the statement is the model's text only");
         assertFalse(result.contributionIsToolOutput());
         String files = ChatService.filesOf(result, ledger);
-        assertTrue(files.contains("[CALL key=ns/crew/t1/test-agent/001-pods_list tool=pods_list"), files);
+        assertTrue(files.contains("[CALL key=test-agent/001-pods_list tool=pods_list"), files);
         assertTrue(files.contains("rows=2"), files);
-        assertFalse(files.contains("{\"a\":1}"), "no file content");
+        assertTrue(files.contains("[RESULT]\n{\"items\":[{\"a\":1},{\"a\":2}]}\n[END RESULT]"),
+                "a small result is posted with the descriptions: " + files);
     }
 
     @Test
     void aToolersTextIsAlreadyTheDescriptionSoItAddsNone() {
         registerTools(r -> "[{\"x\":1}]", "pods_list");
         modelCalls(call("c1", "pods_list", "{}"));
-        var ledger = ToolCallLedger.forLoop(store, THREAD, AGENT);
+        var ledger = ToolCallLedger.forLoop(store, THREAD, AGENT, java.util.OptionalLong.empty());
 
         var result = service().callWithToolLoop(question(), chatModel, "s", "test", true, 0L, ledger);
 
@@ -284,7 +292,7 @@ class ChatServiceCallFilesTest {
 
     @Test
     void anAgentThatCalledNoToolHasNoFiles() {
-        var ledger = ToolCallLedger.forLoop(store, THREAD, AGENT);
+        var ledger = ToolCallLedger.forLoop(store, THREAD, AGENT, java.util.OptionalLong.empty());
         var result = new ChatService.ToolLoopResult("text", "text", false, 1, 1, "s", "r");
 
         assertEquals("", ChatService.filesOf(result, ledger));
@@ -333,7 +341,7 @@ class ChatServiceCallFilesTest {
         var result = chatInThread(serviceWithRole("analyst"), THREAD);
 
         assertEquals("done", result.response());
-        assertTrue(result.files().contains("[CALL key=ns/crew/t1/test-agent/001-pods_list tool=pods_list"), result.files());
+        assertTrue(result.files().contains("[CALL key=test-agent/001-pods_list tool=pods_list"), result.files());
         assertEquals(1, store.bodies.size(), "an agent that is not a tooler stores its calls too");
     }
 
@@ -346,7 +354,8 @@ class ChatServiceCallFilesTest {
 
         assertTrue(result.response().startsWith("[WORKSPACE agent=test-agent calls=1"), result.response());
         assertEquals("", result.files());
-        assertFalse(result.response().contains("{\"x\":1}"), "the file content is not posted");
+        assertTrue(result.response().contains("[RESULT]\n[{\"x\":1}]\n[END RESULT]"),
+                "a small result is posted with its description: " + result.response());
     }
 
     @Test
@@ -362,10 +371,10 @@ class ChatServiceCallFilesTest {
 
     @Test
     void aLoopHasALedgerOnlyWithAStoreAndAThread() {
-        assertNull(ToolCallLedger.forLoop(null, THREAD, AGENT));
-        assertNull(ToolCallLedger.forLoop(store, null, AGENT));
-        assertNull(ToolCallLedger.forLoop(store, " ", AGENT));
-        assertNotNull(ToolCallLedger.forLoop(store, THREAD, AGENT));
+        assertNull(ToolCallLedger.forLoop(null, THREAD, AGENT, java.util.OptionalLong.empty()));
+        assertNull(ToolCallLedger.forLoop(store, null, AGENT, java.util.OptionalLong.empty()));
+        assertNull(ToolCallLedger.forLoop(store, " ", AGENT, java.util.OptionalLong.empty()));
+        assertNotNull(ToolCallLedger.forLoop(store, THREAD, AGENT, java.util.OptionalLong.empty()));
     }
 
     @Test
