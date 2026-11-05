@@ -16,7 +16,6 @@ package readops
 
 import (
 	"bufio"
-	"encoding/csv"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -26,7 +25,6 @@ import (
 	"unicode"
 
 	"github.com/itchyny/gojq"
-	"github.com/kubemoot/kubemoot/artifact-access/internal/colname"
 )
 
 // maxLineBytes bounds a single line the scanner will accept (defensive against a
@@ -261,112 +259,6 @@ func Rows(r io.Reader, start, limit, maxBytes int) (string, error) {
 		return out.String() + position(start, emitted, idx, false), nil
 	}
 	return out.String() + position(start, emitted, idx, true), err
-}
-
-// SelectCSV projects the named columns from CSV input that has a header row,
-// preserving requested column order. A zero delimiter defaults to comma. Output is
-// bounded by maxBytes (the row loop stops once the budget is reached).
-func SelectCSV(r io.Reader, columns []string, delimiter rune, maxBytes int) (string, error) {
-	if len(columns) == 0 {
-		return "", fmt.Errorf("no columns requested")
-	}
-	cr := newCSVReader(r, delimiter)
-	header, err := cr.Read()
-	if err != nil {
-		return "", fmt.Errorf("read header: %w", err)
-	}
-	// Columns are matched, and shown, by their SQL-safe names, the same ones workspace_query uses.
-	header = colname.Normalize(header)
-	columns = normalizedRequest(columns)
-	idx, err := columnIndexes(header, columns)
-	if err != nil {
-		return "", err
-	}
-	var sb strings.Builder
-	w := csv.NewWriter(&sb)
-	if delimiter != 0 {
-		w.Comma = delimiter
-	}
-	if err := writeRow(w, columns); err != nil {
-		return "", err
-	}
-	if err := copyProjectedRows(cr, w, &sb, idx, maxBytes); err != nil {
-		return "", err
-	}
-	return sb.String(), nil
-}
-
-// normalizedRequest gives each requested column its SQL-safe name; unlike a header, a request
-// is not renumbered or de-duplicated, because the same column may be asked for twice.
-func normalizedRequest(columns []string) []string {
-	out := make([]string, len(columns))
-	for i, c := range columns {
-		out[i] = colname.Name(c)
-	}
-	return out
-}
-
-func newCSVReader(r io.Reader, delimiter rune) *csv.Reader {
-	cr := csv.NewReader(r)
-	if delimiter != 0 {
-		cr.Comma = delimiter
-	}
-	cr.FieldsPerRecord = -1 // tolerate ragged rows
-	return cr
-}
-
-// copyProjectedRows writes the projected columns of each remaining row until EOF or
-// the output reaches maxBytes (maxBytes <= 0 means unbounded).
-func copyProjectedRows(cr *csv.Reader, w *csv.Writer, sb *strings.Builder, idx []int, maxBytes int) error {
-	for maxBytes <= 0 || sb.Len() < maxBytes {
-		rec, err := cr.Read()
-		if err == io.EOF {
-			return nil
-		}
-		if err != nil {
-			return err
-		}
-		if err := writeRow(w, project(rec, idx)); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-// writeRow writes one CSV record and flushes so the caller can observe the backing
-// builder's length (csv.Writer buffers internally otherwise).
-func writeRow(w *csv.Writer, rec []string) error {
-	if err := w.Write(rec); err != nil {
-		return err
-	}
-	w.Flush()
-	return w.Error()
-}
-
-func project(rec []string, idx []int) []string {
-	out := make([]string, len(idx))
-	for j, i := range idx {
-		if i < len(rec) {
-			out[j] = rec[i]
-		}
-	}
-	return out
-}
-
-func columnIndexes(header, columns []string) ([]int, error) {
-	pos := make(map[string]int, len(header))
-	for i, h := range header {
-		pos[h] = i
-	}
-	idx := make([]int, len(columns))
-	for j, c := range columns {
-		i, ok := pos[c]
-		if !ok {
-			return nil, fmt.Errorf("column %q not found in header", c)
-		}
-		idx[j] = i
-	}
-	return idx, nil
 }
 
 // Jq runs the gojq program over JSON input and returns one JSON result per line.

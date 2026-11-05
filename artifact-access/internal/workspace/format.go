@@ -193,9 +193,7 @@ func prepareJSON(name, src string, data []byte, _ string) (Relation, error) {
 // prepareCSV reads the file as it is when its header already holds SQL-safe names; otherwise
 // it writes a copy with the header normalized and every other row unchanged.
 func prepareCSV(name, src string, data []byte, workDir string) (Relation, error) {
-	r := csv.NewReader(bytes.NewReader(data))
-	r.FieldsPerRecord = -1
-	r.LazyQuotes = true
+	r := newCSVReader(data, 0)
 	header, err := r.Read()
 	if err != nil {
 		return Relation{Name: name, Path: src, Kind: KindCSV}, nil
@@ -236,11 +234,13 @@ func prepareYAML(name, _ string, data []byte, workDir string) (Relation, error) 
 }
 
 func prepareMarkdownTable(name, _ string, data []byte, workDir string) (Relation, error) {
-	return writeRows(name, workDir, normalizeHeader(parseMarkdownTable(string(data))))
+	rows, _ := readMarkdownRows(data, 0)
+	return writeRows(name, workDir, rows)
 }
 
 func prepareKubectlTable(name, _ string, data []byte, workDir string) (Relation, error) {
-	return writeRows(name, workDir, normalizeHeader(parseKubectlTable(string(data))))
+	rows, _ := readKubectlRows(data, 0)
+	return writeRows(name, workDir, rows)
 }
 
 func prepareText(name, _ string, data []byte, workDir string) (Relation, error) {
