@@ -40,6 +40,7 @@ final class CoordinatorThreadState {
     final Set<String> selectedSkills = new TreeSet<>();
     String selectionPath;
     String brief;
+    MemberTasks memberTasks = MemberTasks.NONE;
 
     // --- what the phase waits for ---
     final Set<String> rosterMembers = new TreeSet<>();

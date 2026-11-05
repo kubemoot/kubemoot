@@ -200,7 +200,8 @@ each field only when the agent sent it:
 When the coordinator decides which agents to convene, the stream sends a
 `subcommittee` event with the convened agents in `members`. The coordinator's
 advisory produces one with `source` `advisory`, which also carries the brief the
-coordinator wrote for the agents, its confidence, and the technologies it named.
+coordinator wrote for the agents (one text; each agent reads its own task, see
+[Compose a Crew](../../user-guides/compose-a-crew/#one-task-per-member)), its confidence, and the technologies it named.
 When the coordinator chooses by triage, its triage result produces one more, before
 the advisory's, with `source` `triage` and each agent's `reason` and `confidence`.
 When the coordinator convened no subcommittee, `allAgents` is true and every agent

@@ -197,18 +197,19 @@ final class CoordinatorEventRecorder {
                                  DiscussionOrchestrator.AdvisoryOutcome outcome) {
         return write(s, () -> {
             boolean byReasoning = reasoning != null && !reasoning.selected().isEmpty();
-            return subcommittee(s, byReasoning ? "reasoning" : fallbackPath(s), outcome.wisdom(), outcome.technologies());
+            return subcommittee(s, byReasoning ? "reasoning" : fallbackPath(s), outcome.wisdom(), outcome.technologies(),
+                    byReasoning);
         });
     }
 
     /** The advisory step failed: no subcommittee was chosen and every agent may take part. */
     boolean advisoryFailed(ThreadState s) {
-        return write(s, () -> subcommittee(s, "broadcast", null, List.of()));
+        return write(s, () -> subcommittee(s, "broadcast", null, List.of(), false));
     }
 
     /** The coordinator chose no toolers and answered from its own reasoning. */
     boolean answeredDirectly(ThreadState s, DiscussionOrchestrator.ReasoningResult reasoning) {
-        return write(s, () -> subcommittee(s, "direct", reasoning.brief(), reasoning.technologies()));
+        return write(s, () -> subcommittee(s, "direct", reasoning.brief(), reasoning.technologies(), false));
     }
 
     /** The advisory step ended and the evaluation clock reset: signals cleared, roster set. */
@@ -399,11 +400,13 @@ final class CoordinatorEventRecorder {
         }
     }
 
-    private boolean subcommittee(ThreadState s, String path, String brief, List<String> technologies) {
+    private boolean subcommittee(ThreadState s, String path, String brief, List<String> technologies,
+                                 boolean reasoned) {
         ObjectNode d = mapper.createObjectNode();
         d.put("path", path);
         d.set("members", strings(s.innerCircle));
         putText(d, "brief", brief);
+        s.memberTasks.writeTo(d, reasoned);
         d.set("technologies", strings(technologies));
         d.set("skills", strings(s.selectedSkills));
         d.put("confidence", s.triageConfidence);

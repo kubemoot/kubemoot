@@ -121,6 +121,7 @@ final class CoordinatorStateReducer {
         JsonNode d = e.data();
         s.selectionPath = text(d, "path");
         s.brief = text(d, "brief");
+        s.memberTasks = MemberTasks.fromEvent(d);
         s.primaryChannel = text(d, "primaryChannel");
         s.triageConfidence = d.path("confidence").asDouble(-1.0);
         replaceAll(s.innerCircle, d.path("members"));
