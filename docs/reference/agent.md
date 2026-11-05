@@ -429,8 +429,8 @@ Each agent declares its channels via `Agent.spec.discussChannels`. Coordinators 
 
 The tool-calling loop is bounded along three axes so a misbehaving tool can't hang the discussion forever:
 
-- **Same-tool failure cap** (2): if any individual tool returns an error result twice in the same evaluation, the loop aborts.
-- **Total-failure cap** (4): if 4 tool calls across distinct tools all error, the loop aborts - this catches a model spreading its retries across many broken tools rather than one.
+- **Same-tool failure caps**: a tool that returns an error twice in the same evaluation, the second being a repeat (the same call, with whitespace and key order ignored, or the same error text again), aborts the loop: the agent is stuck. An error that came with new arguments and a new error text is a correction, such as a query fixed after an error that named the right columns. Corrections have their own budget: a tool that fails 4 times, each with new arguments and new error text, aborts the loop, so a model that keeps guessing still stops.
+- **Total-failure cap** (4): if 4 tool calls across all tools error, the loop aborts - this catches a model spreading its retries across many broken tools rather than one.
 - **Iteration cap** (`properties.model().maxToolIterations()`, default 15): if the LLM keeps requesting tools without producing a final answer, the loop aborts.
 
 A fourth rule keeps a model from asking for the same thing again: a call with the same tool and the same arguments (key order and spacing do not count) runs at most twice in one evaluation. A third identical call is not run; the model gets an error telling it to change the arguments or answer from what it has, and that error counts toward the same-tool failure cap. A tooler that already holds output stops gathering and posts it instead.
