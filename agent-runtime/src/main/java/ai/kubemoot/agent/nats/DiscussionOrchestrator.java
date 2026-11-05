@@ -1625,6 +1625,7 @@ public class DiscussionOrchestrator {
      */
     private void runAdvisoryGeneration(ThreadState state) {
         state.advisoryModelUse = null;
+        state.memberTasks = MemberTasks.NONE;
         try {
             // Pre-filter, then reason: the resume vector search ranks the crew by
             // similarity to the question and returns the top-K; the coordinator reasons
@@ -1757,7 +1758,8 @@ public class DiscussionOrchestrator {
         state.triageConfidence = 0.9; // Reasoning path is high confidence
         log.info("Thread {} - reasoning selected {} agents in {}ms: {}",
                 state.threadId, reasoning.selected().size(), reasoning.inferenceMs(), reasoning.selected());
-        return new AdvisoryOutcome(reasoning.technologies(), List.of(), reasoning.brief(),
+        state.memberTasks = reasoning.memberTasks();
+        return new AdvisoryOutcome(reasoning.technologies(), List.of(), reasoning.memberTasks().combined(),
                 reasoning.inferenceMs());
     }
 
@@ -1892,8 +1894,14 @@ public class DiscussionOrchestrator {
             List<String> technologies,
             long inferenceMs,
             long inputTokens,
-            long outputTokens
-    ) {}
+            long outputTokens,
+            MemberTasks memberTasks
+    ) {
+        ReasoningResult(List<String> selected, String brief, List<String> technologies, long inferenceMs,
+                        long inputTokens, long outputTokens) {
+            this(selected, brief, technologies, inferenceMs, inputTokens, outputTokens, MemberTasks.NONE);
+        }
+    }
 
     /**
      * True when the coordinator's reasoning SUCCEEDED but deliberately selected no
@@ -1967,8 +1975,12 @@ public class DiscussionOrchestrator {
             log.info("Thread {} - reasoning select+brief parsed: selected={}, technologies={}, brief={}",
                     state.threadId, validSelected, technologies, truncate(brief, LOG_PREVIEW_CHARS));
 
+            var memberTasks = MemberTasks.parse(jsonNode, validSelected, brief);
+            if (!memberTasks.ignored().isEmpty()) {
+                log.warn("Thread {} - dropped tasks for non-members {}", state.threadId, memberTasks.ignored());
+            }
             return new ReasoningResult(validSelected, brief, technologies, inferenceMs,
-                    result.inputTokens(), result.outputTokens());
+                    result.inputTokens(), result.outputTokens(), memberTasks);
 
         } catch (Exception e) {
             log.warn("Thread {} - reasoning select+brief call failed: {}", state.threadId, e.getMessage());
@@ -2157,6 +2169,7 @@ public class DiscussionOrchestrator {
             // render the same colored badge it does for toolers.
             putRanOn(metadata, ranOn);
             putFirstToken(metadata, chatService.lastSimpleCall());
+            putMemberTasks(metadata, threads.get(threadId));
 
             String derivedId = events.messageId(threads.get(threadId), CoordinatorEvent.SUBCOMMITTEE_CONVENED, MSG_ADVISORY);
             var advisory = Map.of(
@@ -2180,13 +2193,23 @@ public class DiscussionOrchestrator {
         }
     }
 
+    /** The members' own tasks, so each reads only its own in place of the advisory text. */
+    // Visible for testing
+    static void putMemberTasks(Map<String, Object> metadata, ThreadState state) {
+        if (state != null && state.memberTasks.hasTasks()) {
+            metadata.put(MemberTasks.FIELD, state.memberTasks.tasks());
+            metadata.put(MemberTasks.SHARED_BRIEF, state.memberTasks.sharedBrief());
+        }
+    }
+
     void publishAdvisoryReady(ThreadState state, List<String> technologies, String wisdom) {
         try {
             var conn = natsProvider.getConnection();
             if (conn == null) return;
 
             var metadata = advisoryReadyMetadata(state, technologies, wisdom);
-            String advisorySummary = advisorySummary(technologies, wisdom);
+            // With a task per member the text names every member's task, so the message agents read carries none of it.
+            String advisorySummary = advisorySummary(technologies, state.memberTasks.hasTasks() ? "" : wisdom);
             String derivedId = events.messageId(state, CoordinatorEvent.EVALUATION_STARTED, MSG_ADVISORY_READY);
 
             var message = Map.of(
@@ -3592,9 +3615,9 @@ public class DiscussionOrchestrator {
         // The skills field is offered only when the crew actually has skills, so a
         // crew with zero skills sees a coordinator prompt byte-identical to baseline.
         if (knownSkillNames.get().isEmpty()) {
-            sb.append("{\"selected\": [agent names], \"brief\": \"...\", \"technologies\": [...]}");
+            sb.append("{\"selected\": [agent names], \"brief\": \"...\", \"memberTasks\": {agent name: its task}, \"technologies\": [...]}");
         } else {
-            sb.append("{\"selected\": [agent names], \"brief\": \"...\", \"technologies\": [...], \"skills\": [skill names or empty]}");
+            sb.append("{\"selected\": [agent names], \"brief\": \"...\", \"memberTasks\": {agent name: its task}, \"technologies\": [...], \"skills\": [skill names or empty]}");
         }
 
         return sb.toString();
@@ -4656,6 +4679,8 @@ public class DiscussionOrchestrator {
 
         // Advisory tracking
         volatile String advisoryContent;
+        /** What the coordinator asked of each convened member; none when it gave no per-member tasks. */
+        volatile MemberTasks memberTasks = MemberTasks.NONE;
         List<String> advisoryTechnologies = new CopyOnWriteArrayList<>();
         // Tracks when the last agent signal arrived (for settle-window early transitions)
         volatile Instant lastSignalReceived;

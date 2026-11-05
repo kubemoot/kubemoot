@@ -310,8 +310,20 @@
     "coordinator-event.json#/definitions/CoordinatorEventFields/fromSeq": {
       "type": "integer"
     },
+    "coordinator-event.json#/definitions/CoordinatorEventFields/ignoredTasks": {
+      "type": "array"
+    },
+    "coordinator-event.json#/definitions/CoordinatorEventFields/ignoredTasks[]": {
+      "type": "string"
+    },
     "coordinator-event.json#/definitions/CoordinatorEventFields/lastSignalAt": {
       "type": "null,string"
+    },
+    "coordinator-event.json#/definitions/CoordinatorEventFields/memberTasks": {
+      "type": "object"
+    },
+    "coordinator-event.json#/definitions/CoordinatorEventFields/memberTasks{}": {
+      "type": "string"
     },
     "coordinator-event.json#/definitions/CoordinatorEventFields/members": {
       "type": "array"
@@ -399,6 +411,9 @@
     "coordinator-event.json#/definitions/CoordinatorEventFields/roster[]": {
       "type": "string"
     },
+    "coordinator-event.json#/definitions/CoordinatorEventFields/sharedBrief": {
+      "type": "null,string"
+    },
     "coordinator-event.json#/definitions/CoordinatorEventFields/signal": {
       "type": "string",
       "enum": [
@@ -434,6 +449,12 @@
     },
     "coordinator-event.json#/definitions/CoordinatorEventFields/synthesized": {
       "type": "boolean"
+    },
+    "coordinator-event.json#/definitions/CoordinatorEventFields/taskFallbacks": {
+      "type": "array"
+    },
+    "coordinator-event.json#/definitions/CoordinatorEventFields/taskFallbacks[]": {
+      "type": "string"
     },
     "coordinator-event.json#/definitions/CoordinatorEventFields/technologies": {
       "type": "array"
@@ -1026,6 +1047,12 @@
     "discussion-metadata.json#/loadDurationMs": {
       "type": "integer"
     },
+    "discussion-metadata.json#/memberTasks": {
+      "type": "object"
+    },
+    "discussion-metadata.json#/memberTasks{}": {
+      "type": "string"
+    },
     "discussion-metadata.json#/model": {
       "type": "string"
     },
@@ -1093,6 +1120,9 @@
       "type": "string"
     },
     "discussion-metadata.json#/server": {
+      "type": "string"
+    },
+    "discussion-metadata.json#/sharedBrief": {
       "type": "string"
     },
     "discussion-metadata.json#/signal": {

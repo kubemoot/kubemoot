@@ -39,6 +39,7 @@ final class ThreadRebuilder {
         state.advisoryPending.set(log.advisoryPending);
         state.lastSignalReceived = log.lastSignalAt;
         state.advisoryContent = log.brief;
+        state.memberTasks = log.memberTasks;
         state.advisoryTechnologies = new CopyOnWriteArrayList<>(log.technologies);
         selection(state, log);
         signals(state, log);

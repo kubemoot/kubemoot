@@ -229,6 +229,30 @@ data sources, and frames the question in a way that helps a Tooler who may not
 have the coordinator's broader context. It reduces the chance that a small model picks
 the wrong tool or misses the intent of the question.
 
+### One task per member
+
+The coordinator can give each selected agent its own task. Its selection holds a
+`memberTasks` object that maps an agent's name to the task text only that agent
+receives:
+
+```json
+{"selected": ["compute", "k8s-workloads"],
+ "brief": "Shared framing for the question.",
+ "memberTasks": {"k8s-workloads": "List every Deployment in all namespaces.",
+                 "compute": "Sort the Deployments by replica count."}}
+```
+
+An agent reads the user's question and its own task. It does not read the other
+agents' tasks. An agent with no entry in `memberTasks`, an empty entry, or a non-text
+entry reads the shared `brief` instead, as it did before tasks existed. A name in
+`memberTasks` that is not a selected agent is dropped.
+
+The `subcommittee_convened` event keeps `brief` as one text for the dashboard (the
+shared brief, or each task on its own line when there is no brief). It also records
+`memberTasks`, `sharedBrief`, `taskFallbacks` (the members that read the shared brief)
+and `ignoredTasks` (the dropped names). A coordinator that restarts republishes the
+same tasks from the event.
+
 ### The additive constraint
 
 **The brief must be additive only.** It must not contain prohibitions phrased as

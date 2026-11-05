@@ -111,6 +111,27 @@ class DiscussionOrchestratorReasoningSelectTest {
     }
 
     @Test
+    void runReasoningSelectBrief_readsOneTaskPerMemberAndDropsNamesThatAreNotMembers() {
+        String llmResponse = """
+                {"selected": ["k8s-metrics", "k8s-workloads"], "brief": "Shared.",
+                 "memberTasks": {"k8s-workloads": "List every Deployment.", "proxmox-agent": "Not convened."},
+                 "technologies": ["kubernetes"]}
+                """;
+        when(chatService.simpleLlmCallWithTokens(any(), anyString()))
+                .thenReturn(new ChatService.SimpleLlmResult(llmResponse, 1, 1));
+        var state = new DiscussionOrchestrator.ThreadState("thread-tasks");
+        state.userQuery = "q";
+        orchestrator.loadKnownAgentNamesForTest(List.of("k8s-metrics", "k8s-workloads", "proxmox-agent"));
+
+        var result = orchestrator.runReasoningSelectBrief(state, SAMPLE_RESUMES);
+
+        assertEquals("List every Deployment.", result.memberTasks().forMember("k8s-workloads"));
+        assertEquals("Shared.", result.memberTasks().forMember("k8s-metrics"));
+        assertEquals(List.of("k8s-metrics"), result.memberTasks().fallbacks());
+        assertEquals(List.of("proxmox-agent"), result.memberTasks().ignored());
+    }
+
+    @Test
     void runReasoningSelectBrief_recordsTheModelAndServerTheCallRanOn() {
         String llmResponse = """
                 {"selected": ["k8s-metrics"], "brief": "Check pods_top.", "technologies": ["kubernetes"]}

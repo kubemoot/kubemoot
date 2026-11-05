@@ -428,7 +428,7 @@ public class DiscussionSubscriber {
             return null;
         }
 
-        trackThreadState(threadId, agentName, messageType, content);
+        trackThreadState(threadId, agentName, messageType, ownAdvisory(msg, messageType, content));
         extractMetadata(data, messageType, threadId);
 
         if (!isEvaluationTrigger(data, messageType, threadId)) {
@@ -467,6 +467,24 @@ public class DiscussionSubscriber {
                 && triggerTypes.contains(messageType)
                 && rateLimiter.tryAcquire(threadId)
                 && !isExcludedByInnerCircle(data, threadId);
+    }
+
+    /**
+     * What this agent reads of a message. The advisory carries one task per convened member:
+     * an agent reads its own task, or the shared brief when it has none. Every other message,
+     * and an advisory without tasks, is read as it was sent.
+     */
+    // Visible for testing
+    String ownAdvisory(JsonNode msg, String messageType, String content) {
+        if (!"advisory".equals(messageType)) {
+            return content;
+        }
+        JsonNode tasks = msg.path(FIELD_METADATA).path(MemberTasks.FIELD);
+        if (!tasks.isObject()) {
+            return content;
+        }
+        JsonNode own = tasks.path(properties.agentName());
+        return own.isTextual() ? own.asText() : msg.path(FIELD_METADATA).path(MemberTasks.SHARED_BRIEF).asText("");
     }
 
     private void trackThreadState(String threadId, String agentName, String messageType, String content) {

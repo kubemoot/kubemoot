@@ -186,6 +186,15 @@
       "type": "string",
       "description": "The coordinator's advisory text, on advisory."
     },
+    "memberTasks": {
+      "type": "object",
+      "additionalProperties": { "type": "string" },
+      "description": "On advisory: the task the coordinator gave each convened member, by agent name. A member reads its own task in place of the advisory text."
+    },
+    "sharedBrief": {
+      "type": "string",
+      "description": "On advisory, when memberTasks is present: the shared brief a member without a task reads."
+    },
     "advisory": {
       "type": "string",
       "description": "The coordinator's advisory text, on advisory_ready: the brief for the convened agents."
