@@ -197,27 +197,62 @@ func (r *AgentReconciler) compileCrewResumes(ctx context.Context, coordinator *k
 		return nil
 	}
 
+	moduleUse := countModuleUse(agentList.Items)
 	var resumes []AgentResume
 	for i := range agentList.Items {
 		a := &agentList.Items[i]
 		if a.Name == coordinator.Name || isCoordinator(a) {
 			continue
 		}
-		resumes = append(resumes, r.buildAgentResume(ctx, a))
+		resumes = append(resumes, r.buildAgentResume(ctx, a, moduleUse))
 	}
 	sort.Slice(resumes, func(i, j int) bool { return resumes[i].Name < resumes[j].Name })
 	return resumes
 }
 
+// countModuleUse counts, for each PromptModule name, how many of the crew's
+// agents reference it. An agent counts once per module, however often it lists it.
+func countModuleUse(agents []kubemootv1alpha1.Agent) map[string]int {
+	use := make(map[string]int)
+	for i := range agents {
+		seen := make(map[string]bool)
+		for _, ref := range agents[i].Spec.PromptRefs {
+			if !seen[ref] {
+				seen[ref] = true
+				use[ref]++
+			}
+		}
+	}
+	return use
+}
+
+// ownModuleRefs returns the agent's PromptModule names that no other agent in
+// its crew references, in the order the agent lists them. use counts every
+// agent in the crew (the coordinator included), so a module the coordinator
+// shares with one specialist is shared, not that specialist's own. Modules that
+// several agents share (discussion protocol, response style) carry the same
+// words in every resume and only make the resumes alike; the module only this
+// agent has says what it does.
+func ownModuleRefs(agent *kubemootv1alpha1.Agent, use map[string]int) []string {
+	var own []string
+	seen := make(map[string]bool)
+	for _, ref := range agent.Spec.PromptRefs {
+		if use[ref] == 1 && !seen[ref] {
+			seen[ref] = true
+			own = append(own, ref)
+		}
+	}
+	return own
+}
+
 // buildAgentResume projects an Agent spec into the resume the indexer embeds and
-// the triage selector reads. The concise declarative fields (description,
-// keywords, tools, channels, role) plus the agent's FULL assembled system prompt —
-// the richest statement of what the agent does — which the indexer folds into the
-// embedding for sharper top-K ranking. The prompt rides the embedding only: the
-// resume query returns agent NAMES, so it never reaches a triage LLM call
-// (embed-rich, triage-lean). A prompt-assembly error is non-fatal — the resume
-// still embeds on its declarative fields.
-func (r *AgentReconciler) buildAgentResume(ctx context.Context, agent *kubemootv1alpha1.Agent) AgentResume {
+// the triage selector reads: the declarative fields (description, keywords,
+// tools, channels, role) plus the text of the agent's OWN PromptModules, the ones
+// no other agent in the crew references (use counts module references across the
+// crew). The prompt rides the embedding only: the resume query returns agent
+// NAMES, so it never reaches a triage LLM call. A prompt-assembly error is
+// non-fatal; the resume still embeds on its declarative fields.
+func (r *AgentReconciler) buildAgentResume(ctx context.Context, agent *kubemootv1alpha1.Agent, use map[string]int) AgentResume {
 	role := agent.Spec.DiscussRole
 	if role == "" {
 		role = roleToolerResume
@@ -226,7 +261,7 @@ func (r *AgentReconciler) buildAgentResume(ctx context.Context, agent *kubemootv
 	if summary == "" && agent.Annotations != nil {
 		summary = agent.Annotations[triageSummaryAnno]
 	}
-	prompt, err := r.assembleSystemPrompt(ctx, agent)
+	prompt, err := r.assemblePromptModules(ctx, agent.Namespace, ownModuleRefs(agent, use))
 	if err != nil {
 		logf.FromContext(ctx).V(1).Info("resume: prompt assembly failed, embedding declarative fields only",
 			"agent", agent.Name, "error", err.Error())
@@ -387,11 +422,10 @@ func buildResumeRAGSourceSpec(scope crewscope.Scope, contentHash string, vectorS
 		EmbeddingModelRef: embeddingModelRef,
 		// One vector per resume: a resume must stay a single chunk so a top-K
 		// search returns K DISTINCT agents (the query dedupes by agent_name).
-		// Enriching the resume with the full system prompt made the text long
-		// enough to trigger the default chunker (~6 chunks/agent), which collapsed
-		// K chunks to far fewer distinct agents and starved triage. A large chunk
-		// size keeps each resume atomic; a very long prompt truncates at the embed
-		// model's context limit rather than splitting.
+		// A resume with prompt text can exceed the default chunk size, and several
+		// chunks per agent would collapse K chunks to far fewer distinct agents.
+		// A large chunk size keeps each resume atomic; a very long prompt truncates
+		// at the embed model's context limit rather than splitting.
 		Chunking: &kubemootv1alpha1.ChunkingConfig{ChunkSize: 20000, ChunkOverlap: 0},
 	}
 }

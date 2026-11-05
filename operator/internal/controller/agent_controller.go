@@ -537,7 +537,14 @@ func (r *AgentReconciler) ensurePolicyConfigMap(ctx context.Context, agent *kube
 // assembleSystemPrompt resolves PromptModule references, sorts by Order, and
 // concatenates their content into a single system prompt string.
 func (r *AgentReconciler) assembleSystemPrompt(ctx context.Context, agent *kubemootv1alpha1.Agent) (string, error) {
-	if len(agent.Spec.PromptRefs) == 0 {
+	return r.assemblePromptModules(ctx, agent.Namespace, agent.Spec.PromptRefs)
+}
+
+// assemblePromptModules resolves the named PromptModules in a namespace, sorts
+// them by Order, and concatenates their content. A module that does not exist
+// is skipped.
+func (r *AgentReconciler) assemblePromptModules(ctx context.Context, namespace string, refs []string) (string, error) {
+	if len(refs) == 0 {
 		return "", nil
 	}
 	type orderedModule struct {
@@ -546,9 +553,9 @@ func (r *AgentReconciler) assembleSystemPrompt(ctx context.Context, agent *kubem
 		name    string
 	}
 	var modules []orderedModule
-	for _, ref := range agent.Spec.PromptRefs {
+	for _, ref := range refs {
 		pm := &kubemootv1alpha1.PromptModule{}
-		if err := r.Get(ctx, types.NamespacedName{Name: ref, Namespace: agent.Namespace}, pm); err != nil {
+		if err := r.Get(ctx, types.NamespacedName{Name: ref, Namespace: namespace}, pm); err != nil {
 			if apierrors.IsNotFound(err) {
 				continue
 			}

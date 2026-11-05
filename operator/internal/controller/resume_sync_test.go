@@ -80,7 +80,7 @@ func TestBuildAgentResume(t *testing.T) {
 	bare := mkResumeAgent(testCrewNamespace, "x", testCrewName, "", nil)
 	cli := fake.NewClientBuilder().WithScheme(resumeScheme(t)).WithObjects(a, bare).Build()
 	rec := &AgentReconciler{Client: cli}
-	r := rec.buildAgentResume(context.Background(), a)
+	r := rec.buildAgentResume(context.Background(), a, nil)
 	if r.Name != testK8sNodes || r.Role != testRoleTooler || r.Description != "k8s-nodes desc" {
 		t.Errorf("unexpected base fields: %+v", r)
 	}
@@ -92,7 +92,7 @@ func TestBuildAgentResume(t *testing.T) {
 	}
 
 	// Empty role defaults to tooler.
-	if got := rec.buildAgentResume(context.Background(), bare); got.Role != testRoleTooler {
+	if got := rec.buildAgentResume(context.Background(), bare, nil); got.Role != testRoleTooler {
 		t.Errorf("empty role default = %q, want tooler", got.Role)
 	}
 }
@@ -106,11 +106,11 @@ func TestBuildAgentResumeSummaryFromSpec(t *testing.T) {
 	})
 	cli := fake.NewClientBuilder().WithScheme(resumeScheme(t)).WithObjects(both).Build()
 	rec := &AgentReconciler{Client: cli}
-	if got := rec.buildAgentResume(context.Background(), both).Summary; got != "explains what a crew status means" {
+	if got := rec.buildAgentResume(context.Background(), both, nil).Summary; got != "explains what a crew status means" {
 		t.Errorf("summary = %q, want spec.triageSummary", got)
 	}
 	both.Spec.TriageSummary = ""
-	if got := rec.buildAgentResume(context.Background(), both).Summary; got != "older annotation" {
+	if got := rec.buildAgentResume(context.Background(), both, nil).Summary; got != "older annotation" {
 		t.Errorf("summary = %q, want the annotation when the spec is empty", got)
 	}
 }
