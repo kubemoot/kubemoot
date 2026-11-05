@@ -448,8 +448,19 @@ public class ChatService {
 
     // Bounded-retry thresholds for tool failures inside callWithToolLoop.
     // Tunable; revisit when more diverse tool failure modes appear.
-    /** Per-tool failure cap — same tool failing this many times aborts the loop. */
+    /**
+     * Per-tool repeat cap: a tool that fails this many times, the latest failure being a repeat
+     * (the same call or the same error text again), aborts the loop. The model is stuck.
+     */
     static final int MAX_SAME_TOOL_FAILURES = 2;
+    /**
+     * Per-tool budget for a model that is correcting itself: each failure came with new arguments
+     * and a new error text, the first failure included. A tool that fails this many times aborts
+     * the loop, so a model that keeps guessing still stops. For one tool this equals
+     * {@link #MAX_TOTAL_TOOL_FAILURES}; the total cap bounds corrections spread across tools. An error such as "no such column ...
+     * the columns are: ..." tells the model how to fix the call, and it needs more than one try.
+     */
+    static final int MAX_CORRECTING_TOOL_FAILURES = 4;
     /** Cluster-wide failure cap — total tool errors across all tools in this loop. */
     static final int MAX_TOTAL_TOOL_FAILURES = 4;
     /**
@@ -561,7 +572,9 @@ public class ChatService {
      * and feeding results back until the model produces a final text response.
      *
      * Throws {@link ToolCallFailure} when bounded tool retries are exhausted —
-     * either the same tool failed {@link #MAX_SAME_TOOL_FAILURES} times or the
+     * either the same tool failed again with a repeated call or error text (at
+     * least {@link #MAX_SAME_TOOL_FAILURES} failures), failed
+     * {@link #MAX_CORRECTING_TOOL_FAILURES} times with new arguments each time, or the
      * loop accumulated {@link #MAX_TOTAL_TOOL_FAILURES} errors total. Bounded
      * retries are essential because the McpClientService.createToolExecutor
      * catches tool exceptions and returns them as {@code {"error": "..."}}
@@ -1297,7 +1310,7 @@ public class ChatService {
         recordReadAndMetricSignals(toolRequest.name(), toolRequest.arguments(), raw, state);
         appendToolOutput(state, toolRequest.name(), kept);
         state.recordGatherResult(toolRequest.name(), raw);
-        recordToolFailure(toolRequest.name(), raw, state);
+        recordToolFailure(toolRequest.name(), toolRequest.arguments(), raw, false, state);
     }
 
     /**
@@ -1341,7 +1354,7 @@ public class ChatService {
         if (!toolerRawOutput) {
             state.toolCalls++;
             state.recordGatherResult(toolRequest.name(), refusal);
-            recordToolFailure(toolRequest.name(), refusal, state);
+            recordToolFailure(toolRequest.name(), toolRequest.arguments(), refusal, true, state);
         }
     }
 
@@ -1393,19 +1406,25 @@ public class ChatService {
      * McpClientService wraps every exception as {"error": "..."} so failures are
      * detected by content, not checked exceptions.
      */
-    private void recordToolFailure(String toolName, String result, ToolLoopState state) {
+    private void recordToolFailure(String toolName, String arguments, String result, boolean knownRepeat,
+                                   ToolLoopState state) {
         if (!isToolErrorResult(result)) {
             return;
         }
-        int count = state.perToolFailures.merge(toolName, 1, Integer::sum);
+        var tracker = state.perToolFailures.computeIfAbsent(toolName,
+                t -> new ToolFailureTracker(MAX_SAME_TOOL_FAILURES, MAX_CORRECTING_TOOL_FAILURES));
+        var verdict = tracker.record(arguments, result, knownRepeat);
+        int count = tracker.failures();
         state.totalToolFailures++;
-        log.info("Tool '{}' returned error ({} times in this loop, {} total): {}",
-                toolName, count, state.totalToolFailures, truncateErrorForLog(result));
-        if (count >= MAX_SAME_TOOL_FAILURES) {
+        log.info("Tool '{}' returned error ({} times in this loop, {} total, {}): {}",
+                toolName, count, state.totalToolFailures, verdict, truncateErrorForLog(result));
+        if (verdict != ToolFailureTracker.Verdict.CONTINUE) {
             throw new ToolCallFailure(
                     ToolCallFailure.FailureType.SAME_TOOL_REPEATED,
                     toolName, result, count,
-                    "Tool '" + toolName + "' failed " + count + " times in this evaluation");
+                    "Tool '" + toolName + "' failed " + count + " times in this evaluation ("
+                            + (verdict == ToolFailureTracker.Verdict.STUCK
+                                    ? "same call or error repeated" : "corrections exhausted") + ")");
         }
         if (state.totalToolFailures >= MAX_TOTAL_TOOL_FAILURES) {
             throw new ToolCallFailure(
@@ -1467,7 +1486,7 @@ public class ChatService {
         private final int inputMessages;
         long totalInput = 0;
         long totalOutput = 0;
-        final Map<String, Integer> perToolFailures = new java.util.HashMap<>();
+        final Map<String, ToolFailureTracker> perToolFailures = new java.util.HashMap<>();
         int totalToolFailures = 0;
         // Identical calls seen in this evaluation, and whether one was refused.
         final ToolCallRepeatGuard repeatGuard = new ToolCallRepeatGuard();

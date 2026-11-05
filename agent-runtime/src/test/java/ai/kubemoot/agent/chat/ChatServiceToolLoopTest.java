@@ -271,6 +271,84 @@ class ChatServiceToolLoopTest {
         assertEquals(ChatService.MAX_TOTAL_TOOL_FAILURES, thrown.failureCount());
     }
 
+    /** Runs a loop where each round calls "workspace_query" with the next arguments and gets the next result. */
+    private ToolCallFailure runWorkspaceQueryRounds(List<String> argumentsPerRound, List<String> resultsPerRound) {
+        var spec = ToolSpecification.builder().name("workspace_query").description("d").build();
+        var exec = mock(ToolExecutor.class);
+        var results = new java.util.ArrayList<>(resultsPerRound);
+        when(exec.execute(any(), any())).thenReturn(results.get(0),
+                results.subList(1, results.size()).toArray(new String[0]));
+        when(mcpClient.getToolSpecifications()).thenReturn(Map.of(spec, exec));
+        var responses = new java.util.ArrayList<ChatResponse>();
+        for (int i = 0; i < argumentsPerRound.size(); i++) {
+            var req = ToolExecutionRequest.builder()
+                    .id("call-" + i).name("workspace_query").arguments(argumentsPerRound.get(i)).build();
+            var r = mock(ChatResponse.class);
+            when(r.aiMessage()).thenReturn(AiMessage.from(List.of(req)));
+            when(r.tokenUsage()).thenReturn(new TokenUsage(50, 10));
+            responses.add(r);
+        }
+        when(chatModel.chat(any(ChatRequest.class))).thenReturn(responses.get(0),
+                responses.subList(1, responses.size()).toArray(new ChatResponse[0]));
+        when(ragClient.queryForContext(anyString())).thenReturn("");
+        var service = createService(15);
+        return assertThrows(ToolCallFailure.class,
+                () -> service.directChat(new ChatService.ChatRequest("conv-corr", "which nodes")));
+    }
+
+    @Test
+    void directChat_toolLoop_sameErrorWithDifferentArguments_stops() {
+        var thrown = runWorkspaceQueryRounds(
+                List.of("{\"sql\":\"select 1\"}", "{\"sql\":\"select 2\"}"),
+                List.of("{\"error\": \"table is locked\"}", "{\"error\": \"table is locked\"}"));
+        assertEquals(ToolCallFailure.FailureType.SAME_TOOL_REPEATED, thrown.failureType());
+        assertEquals(2, thrown.failureCount());
+    }
+
+    @Test
+    void directChat_toolLoop_correctedCallsContinueUpToBudgetThenStop() {
+        int budget = ChatService.MAX_CORRECTING_TOOL_FAILURES;
+        var args = new java.util.ArrayList<String>();
+        var errors = new java.util.ArrayList<String>();
+        for (int i = 0; i < budget; i++) {
+            args.add("{\"sql\":\"select c" + i + "\"}");
+            errors.add("{\"error\": \"no such column: c" + i + "; the columns are: a, b\"}");
+        }
+        var thrown = runWorkspaceQueryRounds(args, errors);
+        assertEquals(ToolCallFailure.FailureType.SAME_TOOL_REPEATED, thrown.failureType());
+        assertEquals(budget, thrown.failureCount());
+        assertTrue(thrown.lastErrorContent().contains("no such column: c" + (budget - 1)));
+    }
+
+    @Test
+    void directChat_toolLoop_correctionThenSuccess_doesNotThrow() {
+        var spec = ToolSpecification.builder().name("workspace_query").description("d").build();
+        var exec = mock(ToolExecutor.class);
+        when(exec.execute(any(), any())).thenReturn(
+                "{\"error\": \"no such column: n.TAINTS; the columns are: name\"}",
+                "{\"error\": \"no such column: d.NODE_SELECTOR; the columns are: name\"}",
+                "{\"rows\": [\"k8s-1\"]}");
+        when(mcpClient.getToolSpecifications()).thenReturn(Map.of(spec, exec));
+        var responses = new java.util.ArrayList<ChatResponse>();
+        for (int i = 0; i < 3; i++) {
+            var req = ToolExecutionRequest.builder()
+                    .id("c" + i).name("workspace_query").arguments("{\"sql\":\"q" + i + "\"}").build();
+            var r = mock(ChatResponse.class);
+            when(r.aiMessage()).thenReturn(AiMessage.from(List.of(req)));
+            when(r.tokenUsage()).thenReturn(new TokenUsage(50, 10));
+            responses.add(r);
+        }
+        var fin = mock(ChatResponse.class);
+        when(fin.aiMessage()).thenReturn(new AiMessage("done"));
+        when(fin.tokenUsage()).thenReturn(new TokenUsage(60, 12));
+        when(chatModel.chat(any(ChatRequest.class))).thenReturn(responses.get(0), responses.get(1), responses.get(2), fin);
+        when(ragClient.queryForContext(anyString())).thenReturn("");
+
+        var service = createService(10);
+        service.directChat(new ChatService.ChatRequest("conv-fix", "which nodes"), false);
+        verify(exec, times(3)).execute(any(), any());
+    }
+
     @Test
     void directChat_toolLoop_oneErrorOneSuccess_doesNotThrow() {
         // Mixed failure and success — one tool returns error then a different

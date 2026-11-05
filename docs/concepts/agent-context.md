@@ -149,7 +149,7 @@ environment. What an agent observes, such as the output of `kubectl`, arrives as
 result.
 
 **Errors and feedback.** A failed tool call returns its error to the model. When the
-same tool keeps failing, or the error rate climbs, the loop stops and the agent
+same tool keeps failing the same way, keeps failing after several corrections, or the error rate climbs, the loop stops and the agent
 publishes a `failure` signal that the whole table sees. For a compute agent, the runtime
 adds one more kind of feedback: if the agent states a number without running code, the
 runtime re-prompts it to compute the result by running the code over the data.
