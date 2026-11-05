@@ -86,8 +86,11 @@ func (s *Server) MCP() *mcp.Server {
 			"pass a larger limit, or 0 for the rest of the artifact, to read more in " +
 			"one call (output is capped at 64 KB)."}, s.rows)
 	mcp.AddTool(srv, &mcp.Tool{Name: "artifact_select",
-		Description: "Project named columns from a CSV artifact with a header row. Columns are " +
-			"named as workspace_query names them: lowercase, with underscores for spaces and hyphens."}, s.selectCSV)
+		Description: "Project named columns from a table artifact (kubectl table, Markdown table or CSV) " +
+			"and return them as CSV. Columns are named as workspace_query names them: lowercase, with " +
+			"underscores for spaces and hyphens; the printed title and any case also match. A missing " +
+			"column lists the columns the table has. For JSON use artifact_jq; for other text use " +
+			"artifact_grep or artifact_rows."}, s.selectCSV)
 	mcp.AddTool(srv, &mcp.Tool{Name: "artifact_jq",
 		Description: "Run a jq program over a JSON artifact (input size capped)."}, s.jq)
 	if s.Query != nil {

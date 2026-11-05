@@ -9,6 +9,91 @@ import (
 const sample = "alpha\nbravo\ncharlie\ndelta\necho\n"
 const big = 1 << 20
 
+const (
+	colNodeSelector = "node_selector"
+	colName         = "name"
+)
+
+const kubectlDaemonSets = "NAMESPACE     NAME        DESIRED   CURRENT   READY   UP-TO-DATE   AVAILABLE   NODE SELECTOR            AGE\n" +
+	"kube-system   cilium      3         3         3       3            3           kubernetes.io/os=linux   9d\n" +
+	"monitoring    exporter    2         2         1       2            1           <none>                   2d\n"
+
+func TestSelectCSVFormats(t *testing.T) {
+	md := "| ns | Node Selector |\n|----|---------------|\n| a | disk=ssd |\n| b | |\n"
+	cases := []struct {
+		name, in string
+		columns  []string
+		want     string
+	}{
+		{"markdown table", md, []string{colNodeSelector, "ns"}, colNodeSelector + ",ns\ndisk=ssd,a\n,b\n"},
+		{"csv", "NS,Node Selector\na,x\n", []string{"ns"}, "ns\na\n"},
+		{"header only", "NAME   AGE\n", []string{"age"}, "age\n"},
+		{"header only csv", "a,b\n", []string{"b"}, "b\n"},
+		{"ragged csv rows", "a,b,c\n1,2,3\n1,2,3\n1,2,3\n1,2,3\n1,2\n1,2,3,4\n", []string{"c", "a"},
+			"c,a\n3,1\n3,1\n3,1\n3,1\n,1\n3,1\n"},
+		{"short kubectl row", "NAME   READY   AGE\nweb\n", []string{"ready", colName}, "ready," + colName + "\n,web\n"},
+		{"mixed case and printed title", kubectlDaemonSets,
+			[]string{"Node Selector", "UP-TO-DATE", "Desired"},
+			"node_selector,up_to_date,desired\nkubernetes.io/os=linux,3,3\n<none>,2,2\n"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := SelectCSV(strings.NewReader(tc.in), tc.columns, ',', big)
+			if err != nil || got != tc.want {
+				t.Fatalf("got %q, %v; want %q", got, err, tc.want)
+			}
+		})
+	}
+}
+
+func TestSelectCSVErrors(t *testing.T) {
+	cases := []struct {
+		name, in string
+		want     []string
+	}{
+		{"missing column lists the columns", kubectlDaemonSets,
+			[]string{`"nme"`, "namespace, name, desired, current, ready, up_to_date, available, node_selector, age"}},
+		{"empty file", "", []string{"empty"}},
+		{"blank file", "\n  \n", []string{"empty"}},
+		{"json", `{"items":[]}`, []string{"json", "artifact_jq"}},
+		{"yaml", "a: 1\nb: 2\n", []string{"yaml", "artifact_grep", "artifact_rows"}},
+		{"text", "The cluster is healthy.\nNothing to report.\n", []string{"text", "artifact_grep", "artifact_rows"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := SelectCSV(strings.NewReader(tc.in), []string{"nme"}, ',', big)
+			if err == nil {
+				t.Fatal("expected an error")
+			}
+			for _, w := range tc.want {
+				if !strings.Contains(err.Error(), w) {
+					t.Fatalf("error %q lacks %q", err, w)
+				}
+			}
+		})
+	}
+}
+
+func TestSelectCSVDelimiterReadsDelimitedText(t *testing.T) {
+	got, err := SelectCSV(strings.NewReader("a;b\n1;2\n"), []string{"b"}, ';', big)
+	if err != nil || got != "b\n2\n" {
+		t.Fatalf("got %q, %v", got, err)
+	}
+}
+
+func TestSelectCSVReadsKubectlTable(t *testing.T) {
+	got, err := SelectCSV(strings.NewReader(kubectlDaemonSets),
+		[]string{"namespace", "name", "node_selector", "desired", "current"}, 0, big)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "namespace,name,node_selector,desired,current\n" +
+		"kube-system,cilium,kubernetes.io/os=linux,3,3\nmonitoring,exporter,<none>,2,2\n"
+	if got != want {
+		t.Fatalf("got %q want %q", got, want)
+	}
+}
+
 func TestHead(t *testing.T) {
 	got, err := Head(strings.NewReader(sample), 2, big)
 	if err != nil {

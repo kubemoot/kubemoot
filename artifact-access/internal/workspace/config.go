@@ -30,7 +30,7 @@ const (
 	defaultTimeout          = 10 * time.Second
 	defaultMaxRows          = 100
 	defaultMemory           = "256MB"
-	defaultMaxArtifactBytes = 32 << 20
+	DefaultMaxArtifactBytes = 32 << 20
 )
 
 // FromEnv builds the query service the environment asks for. It returns nil and no
@@ -50,7 +50,7 @@ func FromEnv(getenv func(string) string, fetcher store.Getter, dir string) (*Ser
 	if err != nil {
 		return nil, err
 	}
-	maxBytes, err := positiveInt(getenv, EnvMaxArtifactBytes, defaultMaxArtifactBytes)
+	maxBytes, err := positiveInt(getenv, EnvMaxArtifactBytes, DefaultMaxArtifactBytes)
 	if err != nil {
 		return nil, err
 	}

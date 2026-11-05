@@ -125,7 +125,12 @@ starts with a digit gets `c_` in front (`1st` is `c_1st`), and names that collid
 
 The rule applies to `kubectl` tables, Markdown tables and CSV files, in `workspace_query`, in the
 `columns=` list on the call line, in the `no such column` error and in `artifact_select`, which
-also accepts the printed title as a request. Cell values are never changed. The keys of a JSON
+also accepts the printed title and any case as a request. `artifact_select` finds and reads the
+table the way `workspace_query` does, so it takes a `kubectl` table, a Markdown table or CSV and
+returns CSV with the normalized headers. When a column is missing, its error lists the columns the
+table has. A result that is not a table (JSON, YAML, plain text) gets an error that names the tool
+that fits: `artifact_jq` for JSON, `artifact_grep` or `artifact_rows` for text. Cell values are
+never changed. The keys of a JSON
 result are not renamed: they are already identifiers in nearly every result, SQL ignores their
 case, and `artifact_jq` and the `fields=` list show the same keys the file holds. `artifact_head`,
 `artifact_rows`, `artifact_grep` and `artifact_tail` print the stored text, so a `kubectl` table
