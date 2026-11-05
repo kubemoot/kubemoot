@@ -86,7 +86,8 @@ func (s *Server) MCP() *mcp.Server {
 			"pass a larger limit, or 0 for the rest of the artifact, to read more in " +
 			"one call (output is capped at 64 KB)."}, s.rows)
 	mcp.AddTool(srv, &mcp.Tool{Name: "artifact_select",
-		Description: "Project named columns from a CSV artifact with a header row."}, s.selectCSV)
+		Description: "Project named columns from a CSV artifact with a header row. Columns are " +
+			"named as workspace_query names them: lowercase, with underscores for spaces and hyphens."}, s.selectCSV)
 	mcp.AddTool(srv, &mcp.Tool{Name: "artifact_jq",
 		Description: "Run a jq program over a JSON artifact (input size capped)."}, s.jq)
 	if s.Query != nil {
@@ -114,6 +115,8 @@ const queryDescription = "Run one read-only SQL SELECT over artifacts. Give arti
 	"A key may be written short, <agent>/<nnn>-<tool> as the file descriptions show it (for example " +
 	"k8s-workloads/002-resources_list); it is read inside the current thread, and a key of another " +
 	"thread is refused. " +
+	"Column names of a table are lowercase with underscores: a kubectl title NODE SELECTOR " +
+	"is node_selector, UP-TO-DATE is up_to_date. " +
 	"No writes, no files outside the named artifacts, no network."
 
 // --- tool inputs ---

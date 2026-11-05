@@ -158,3 +158,37 @@ func TestPrepareFailsWhenWorkDirIsMissing(t *testing.T) {
 		t.Fatal("writing into a missing directory must fail")
 	}
 }
+
+func TestPreparedTablesHaveSQLSafeHeaders(t *testing.T) {
+	kubectl := "NAMESPACE     NAME   UP-TO-DATE   NODE SELECTOR   AGE\nkube-system   ds-a   1            disk=ssd        3d\n"
+	md := "| Node Selector | 1st | |\n|---|---|---|\n| a | b | c |\n"
+	csvIn := "\ufeffNODE SELECTOR,NAME,name\nx,y,z\n"
+	cases := map[string]struct {
+		prep func(name, src string, data []byte, workDir string) (Relation, error)
+		data string
+		want string
+	}{
+		"kubectl":  {prepareKubectlTable, kubectl, "namespace,name,up_to_date,node_selector,age\nkube-system,ds-a,1,disk=ssd,3d\n"},
+		"markdown": {prepareMarkdownTable, md, "node_selector,c_1st,col3\na,b,c\n"},
+		"csv":      {prepareCSV, csvIn, "node_selector,name,name_2\nx,y,z\n"},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			rel, err := c.prep("t", "/nonexistent", []byte(c.data), t.TempDir())
+			if err != nil {
+				t.Fatal(err)
+			}
+			got, err := os.ReadFile(rel.Path)
+			if err != nil || string(got) != c.want {
+				t.Fatalf("file = %q (%v), want %q", got, err, c.want)
+			}
+		})
+	}
+}
+
+func TestPrepareCSVKeepsASafeFileInPlace(t *testing.T) {
+	rel, err := prepareCSV("t", "/some/src.csv", []byte("name,age\na,1\n"), t.TempDir())
+	if err != nil || rel.Path != "/some/src.csv" {
+		t.Fatalf("a safe header must read the original: %+v, %v", rel, err)
+	}
+}

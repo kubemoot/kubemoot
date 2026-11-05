@@ -26,6 +26,7 @@ import (
 	"unicode"
 
 	"github.com/itchyny/gojq"
+	"github.com/kubemoot/kubemoot/artifact-access/internal/colname"
 )
 
 // maxLineBytes bounds a single line the scanner will accept (defensive against a
@@ -274,6 +275,9 @@ func SelectCSV(r io.Reader, columns []string, delimiter rune, maxBytes int) (str
 	if err != nil {
 		return "", fmt.Errorf("read header: %w", err)
 	}
+	// Columns are matched, and shown, by their SQL-safe names, the same ones workspace_query uses.
+	header = colname.Normalize(header)
+	columns = normalizedRequest(columns)
 	idx, err := columnIndexes(header, columns)
 	if err != nil {
 		return "", err
@@ -290,6 +294,16 @@ func SelectCSV(r io.Reader, columns []string, delimiter rune, maxBytes int) (str
 		return "", err
 	}
 	return sb.String(), nil
+}
+
+// normalizedRequest gives each requested column its SQL-safe name; unlike a header, a request
+// is not renumbered or de-duplicated, because the same column may be asked for twice.
+func normalizedRequest(columns []string) []string {
+	out := make([]string, len(columns))
+	for i, c := range columns {
+		out[i] = colname.Name(c)
+	}
+	return out
 }
 
 func newCSVReader(r io.Reader, delimiter rune) *csv.Reader {

@@ -136,6 +136,26 @@ func TestSelectCSV(t *testing.T) {
 	}
 }
 
+func TestSelectCSVMatchesAndShowsSQLSafeNames(t *testing.T) {
+	in := "NAME,NODE SELECTOR,UP-TO-DATE,NAME\nds-a,disk=ssd,1,x\n"
+	for _, req := range [][]string{{"node_selector", "up_to_date"}, {"NODE SELECTOR", "UP-TO-DATE"}, {"Node_Selector", "up-to-date"}} {
+		got, err := SelectCSV(strings.NewReader(in), req, 0, big)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if want := "node_selector,up_to_date\ndisk=ssd,1\n"; got != want {
+			t.Fatalf("request %q: got %q want %q", req, got, want)
+		}
+	}
+	got, err := SelectCSV(strings.NewReader(in), []string{"name_2"}, 0, big)
+	if err != nil || got != "name_2\nx\n" {
+		t.Fatalf("the duplicate header is name_2: %q, %v", got, err)
+	}
+	if _, err := SelectCSV(strings.NewReader(in), []string{""}, 0, big); err == nil {
+		t.Fatal("an empty column name must not match")
+	}
+}
+
 func TestJq(t *testing.T) {
 	jsonIn := `{"items":[{"n":"a"},{"n":"b"}]}`
 	got, err := Jq(strings.NewReader(jsonIn), ".items[].n", big, big)

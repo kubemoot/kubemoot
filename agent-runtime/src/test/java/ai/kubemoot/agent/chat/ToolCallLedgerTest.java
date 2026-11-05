@@ -153,7 +153,7 @@ class ToolCallLedgerTest {
     void shapeReadsTheColumnsOfATableAndTheFieldsOfAJsonList() {
         var table = ToolResultShape.of("NAME      READY   NOMINATED NODE\npod-a     1/1     <none>\n");
         assertEquals("text-table", table.format());
-        assertEquals(java.util.List.of("NAME", "READY", "NOMINATED NODE"), table.columns());
+        assertEquals(java.util.List.of("name", "ready", "nominated_node"), table.columns());
 
         var list = ToolResultShape.of("[{\"name\":\"a\",\"ns\":\"x\"},{\"name\":\"b\",\"extra\":1}]");
         assertEquals("json", list.format());
@@ -173,7 +173,7 @@ class ToolCallLedgerTest {
 
         String manifest = ledger.manifest();
 
-        assertTrue(manifest.contains("format=text-table bytes=") && manifest.contains("columns=NAME,READY,STATUS]"), manifest);
+        assertTrue(manifest.contains("format=text-table bytes=") && manifest.contains("columns=name,ready,status]"), manifest);
         assertTrue(manifest.contains("format=json bytes=") && manifest.contains("fields=name,taints]"), manifest);
         assertTrue(manifest.contains("tool=logs args={} format=text bytes=14 rows=unknown error=false]"), manifest);
     }
@@ -187,7 +187,7 @@ class ToolCallLedgerTest {
 
         String manifest = ledger.manifest();
 
-        assertTrue(manifest.contains("columns=COL1,COL2,COL3,COL4,COL5,COL6,COL7,COL8,COL9,COL10,COL11,COL12,+2more]"), manifest);
+        assertTrue(manifest.contains("columns=col1,col2,col3,col4,col5,col6,col7,col8,col9,col10,col11,col12,+2more]"), manifest);
         assertTrue(manifest.contains("fields=" + "k".repeat(30) + "...,a)b]"), manifest);
         var lines = CallManifest.CALL_LINE.matcher(manifest);
         int found = 0;
@@ -220,7 +220,7 @@ class ToolCallLedgerTest {
 
         assertTrue(manifest.length() <= ToolCallLedger.MAX_MANIFEST_CHARS, "length " + manifest.length());
         assertFalse(manifest.contains("args="), manifest);
-        assertTrue(manifest.contains("columns=NAME,READY,STATUS"), manifest);
+        assertTrue(manifest.contains("columns=name,ready,status"), manifest);
     }
 
     @Test
