@@ -10,9 +10,11 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 
+	"github.com/kubemoot/kubemoot/artifact-access/internal/colname"
 	"go.yaml.in/yaml/v3"
 )
 
@@ -188,8 +190,33 @@ func prepareJSON(name, src string, data []byte, _ string) (Relation, error) {
 	return Relation{Name: name, Path: src, Kind: kind}, nil
 }
 
-func prepareCSV(name, src string, _ []byte, _ string) (Relation, error) {
-	return Relation{Name: name, Path: src, Kind: KindCSV}, nil
+// prepareCSV reads the file as it is when its header already holds SQL-safe names; otherwise
+// it writes a copy with the header normalized and every other row unchanged.
+func prepareCSV(name, src string, data []byte, workDir string) (Relation, error) {
+	r := csv.NewReader(bytes.NewReader(data))
+	r.FieldsPerRecord = -1
+	r.LazyQuotes = true
+	header, err := r.Read()
+	if err != nil {
+		return Relation{Name: name, Path: src, Kind: KindCSV}, nil
+	}
+	norm := colname.Normalize(header)
+	if slices.Equal(norm, header) {
+		return Relation{Name: name, Path: src, Kind: KindCSV}, nil
+	}
+	rest, err := r.ReadAll()
+	if err != nil {
+		return Relation{}, fmt.Errorf("read %s: %w", name, err)
+	}
+	return writeRows(name, workDir, append([][]string{norm}, rest...))
+}
+
+// normalizeHeader gives the first row of a parsed table SQL-safe column names.
+func normalizeHeader(rows [][]string) [][]string {
+	if len(rows) > 0 {
+		rows[0] = colname.Normalize(rows[0])
+	}
+	return rows
 }
 
 func prepareYAML(name, _ string, data []byte, workDir string) (Relation, error) {
@@ -209,11 +236,11 @@ func prepareYAML(name, _ string, data []byte, workDir string) (Relation, error) 
 }
 
 func prepareMarkdownTable(name, _ string, data []byte, workDir string) (Relation, error) {
-	return writeRows(name, workDir, parseMarkdownTable(string(data)))
+	return writeRows(name, workDir, normalizeHeader(parseMarkdownTable(string(data))))
 }
 
 func prepareKubectlTable(name, _ string, data []byte, workDir string) (Relation, error) {
-	return writeRows(name, workDir, parseKubectlTable(string(data)))
+	return writeRows(name, workDir, normalizeHeader(parseKubectlTable(string(data))))
 }
 
 func prepareText(name, _ string, data []byte, workDir string) (Relation, error) {

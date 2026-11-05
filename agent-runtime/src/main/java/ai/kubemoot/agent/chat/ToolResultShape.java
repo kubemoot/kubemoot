@@ -13,8 +13,9 @@ import java.util.regex.Pattern;
  * {@code text-table} when it is a kubectl style table (a first line of upper-case column titles
  * separated by two or more spaces), and {@code text} for anything else. The row count is the list
  * length, or the length of the {@code items} list of an object (a Kubernetes list); a text result
- * has an unknown count. The names are a table's column titles, or the top-level keys of the first
- * JSON row, the names a query reads them by.
+ * has an unknown count. The names are a table's column titles as {@link ColumnNames} writes them
+ * (lowercase, underscores), or the top-level keys of the first JSON row as they are; either way
+ * the names a query reads them by.
  *
  * <p>Tables are recognized by the rule the workspace query uses (artifact-access
  * {@code internal/workspace/format.go}, {@code isKubectlTable}, is the source of truth), so the manifest and
@@ -56,7 +57,10 @@ record ToolResultShape(String format, int rows, List<String> columns) {
         }
     }
 
-    /** The column titles of a table's header line, or none when the first line is not one. */
+    /**
+     * The column names of a table's header line, or none when the first line is not one. They are the
+     * names the workspace query gives the columns ({@link ColumnNames}), not the titles as printed.
+     */
     private static List<String> tableTitles(String text) {
         int end = text.indexOf('\n');
         String first = (end < 0 ? text : text.substring(0, end)).stripTrailing();
@@ -68,7 +72,7 @@ record ToolResultShape(String format, int rows, List<String> columns) {
             }
             titles.add(m.group());
         }
-        return titles.size() < 2 ? List.of() : titles;
+        return titles.size() < 2 ? List.of() : ColumnNames.normalize(titles);
     }
 
     /** The keys of the first object of a JSON list, or of the object itself. */

@@ -1,0 +1,17 @@
+{
+  "description": "Column name rule shared by artifact-access (Go, internal/colname) and agent-runtime (Java, ColumnNames). Each case maps the headers of a table to the names a query and a [CALL ...] description show.",
+  "cases": [
+    {"name": "kubectl headers", "input": ["NAME", "READY", "UP-TO-DATE", "NODE SELECTOR", "AGE"], "output": ["name", "ready", "up_to_date", "node_selector", "age"]},
+    {"name": "allocatable memory", "input": ["NODE", "ALLOCATABLE MEMORY", "TAINTS"], "output": ["node", "allocatable_memory", "taints"]},
+    {"name": "mixed case is lowered, not split", "input": ["nodeSelector", "Node Selector", "APIVersion"], "output": ["nodeselector", "node_selector", "apiversion"]},
+    {"name": "punctuation runs become one underscore", "input": ["CPU(cores)", "%CPU", "a -- b", "x/y.z"], "output": ["cpu_cores", "cpu", "a_b", "x_y_z"]},
+    {"name": "already safe names are kept", "input": ["name", "line_no", "col2"], "output": ["name", "line_no", "col2"]},
+    {"name": "leading digit gets the c_ prefix", "input": ["1st", "2024-01", "3"], "output": ["c_1st", "c_2024_01", "c_3"]},
+    {"name": "empty and symbol-only names use col and the 1-based position", "input": ["", "name", "---", "  "], "output": ["col1", "name", "col3", "col4"]},
+    {"name": "non-ASCII is a separator", "input": ["Gr\u00f6\u00dfe", "\u540d\u524d", "na\u00efve"], "output": ["gr_e", "col2", "na_ve"]},
+    {"name": "duplicates after normalizing get _2, _3", "input": ["NAME", "name", "Name", "NAME"], "output": ["name", "name_2", "name_3", "name_4"]},
+    {"name": "a suffix that collides is pushed on", "input": ["a", "a_2", "a", "A-2"], "output": ["a", "a_2", "a_3", "a_2_2"]},
+    {"name": "a byte order mark is dropped", "input": ["\ufeffNAME", "AGE"], "output": ["name", "age"]},
+    {"name": "no columns", "input": [], "output": []}
+  ]
+}

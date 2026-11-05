@@ -92,7 +92,7 @@ goes through the bus.
 Pod a-1 uses the most CPU, 0.9 cores (workspace_query over 001-pods_list).
 
 [WORKSPACE agent=k8s-workloads calls=3 errors=0 prefix=k8s-workloads/]
-[CALL key=k8s-workloads/001-pods_list tool=pods_list args={"namespace":"kube-system"} format=text-table bytes=15210 rows=unknown error=false columns=NAME,READY,STATUS,RESTARTS,AGE]
+[CALL key=k8s-workloads/001-pods_list tool=pods_list args={"namespace":"kube-system"} format=text-table bytes=15210 rows=unknown error=false columns=name,ready,status,restarts,age]
 [CALL key=k8s-workloads/002-nodes_list tool=nodes_list args={} format=json bytes=2210 rows=3 error=false fields=metadata,spec,status]
 [CALL key=k8s-workloads/003-events_list tool=events_list args={} format=text bytes=15 rows=unknown error=false]
 [RESULT]
@@ -107,12 +107,29 @@ keys](#short-keys)).
 Each call line says what the stored body is, so a reader does not guess it. `format=` is
 `json` (a JSON object or list), `text-table` (a `kubectl` style table: a first line of
 upper-case column titles separated by two or more spaces) or `text` (anything else, and a
-JSON result that was cut at the size cap). For a table, `columns=` lists its column titles;
+JSON result that was cut at the size cap). For a table, `columns=` lists its column names;
 for a JSON list or object, `fields=` lists the keys of its first row (the `items` list of a
 Kubernetes list). At most 12 names are shown, each cut at 30 characters, then `,+Nmore`.
 These are the names `workspace_query` reads the table by, so a query can use them as written.
 A `workspace_query` that names a column the table does not have fails with `no such column`
 and the error lists the actual columns of every table in the query.
+
+### Column names
+
+A table's column names are SQL-safe, so a query never needs quotes: the printed title is
+lowercased, every run of other characters becomes one underscore, and none is left at either end.
+`NODE SELECTOR` is `node_selector`, `UP-TO-DATE` is `up_to_date`, `CPU(cores)` is `cpu_cores`.
+A name that is empty after this is `col<position>` (the first column is `col1`), a name that
+starts with a digit gets `c_` in front (`1st` is `c_1st`), and names that collide get `_2`, `_3`
+(`NAME`, `name` is `name`, `name_2`). Non-ASCII characters count as other characters.
+
+The rule applies to `kubectl` tables, Markdown tables and CSV files, in `workspace_query`, in the
+`columns=` list on the call line, in the `no such column` error and in `artifact_select`, which
+also accepts the printed title as a request. Cell values are never changed. The keys of a JSON
+result are not renamed: they are already identifiers in nearly every result, SQL ignores their
+case, and `artifact_jq` and the `fields=` list show the same keys the file holds. `artifact_head`,
+`artifact_rows`, `artifact_grep` and `artifact_tail` print the stored text, so a `kubectl` table
+shows its original titles there.
 
 Arguments are cut to 60 characters. Descriptions that would pass the limit drop the
 arguments, then the column names, then replace the last lines with a count
