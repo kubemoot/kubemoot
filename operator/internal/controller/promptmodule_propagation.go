@@ -42,7 +42,9 @@ func enqueueAgentsOnPromptModuleChange(cli client.Client) handler.EventHandler {
 
 // mapPromptModuleToAgentRequests lists the Agents in the PromptModule's
 // namespace whose spec.promptRefs include it and returns reconcile requests for
-// them. Non-PromptModule objects -> nil.
+// them, plus one for each coordinator of those agents' crews: the coordinator
+// compiles the crew's resumes, which carry module text, so a module edit must
+// reach it too. Non-PromptModule objects -> nil.
 func mapPromptModuleToAgentRequests(ctx context.Context, cli client.Client, obj client.Object) []reconcile.Request {
 	pm, ok := obj.(*kubemootv1alpha1.PromptModule)
 	if !ok {
@@ -55,16 +57,45 @@ func mapPromptModuleToAgentRequests(ctx context.Context, cli client.Client, obj 
 		return nil
 	}
 	reqs := make([]reconcile.Request, 0)
+	crews := map[string]bool{}
 	for i := range agents.Items {
 		a := &agents.Items[i]
 		if !referencesPromptModule(a, pm.Name) {
 			continue
 		}
 		reqs = append(reqs, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(a)})
+		crews[a.Labels[labelCrew]] = true
 	}
+	reqs = append(reqs, coordinatorRequestsForCrews(agents.Items, crews, reqs)...)
 	if len(reqs) > 0 {
 		log.Info("PromptModule changed; enqueueing agent reconciles",
 			"promptModule", pm.Name, "count", len(reqs))
+	}
+	return reqs
+}
+
+// coordinatorRequestsForCrews returns requests for the coordinators among agents
+// that compile the resumes of one of the crews (crew label values). A coordinator
+// without a crew label compiles the whole namespace, so any crew reaches it.
+// Coordinators already in have are left out.
+func coordinatorRequestsForCrews(agents []kubemootv1alpha1.Agent, crews map[string]bool, have []reconcile.Request) []reconcile.Request {
+	if len(crews) == 0 {
+		return nil
+	}
+	queued := make(map[client.ObjectKey]bool, len(have))
+	for _, req := range have {
+		queued[req.NamespacedName] = true
+	}
+	var reqs []reconcile.Request
+	for i := range agents {
+		a := &agents[i]
+		crew := a.Labels[labelCrew]
+		key := client.ObjectKeyFromObject(a)
+		if a.Spec.DiscussRole != roleCoordinator || queued[key] || (crew != "" && !crews[crew]) {
+			continue
+		}
+		queued[key] = true
+		reqs = append(reqs, reconcile.Request{NamespacedName: key})
 	}
 	return reqs
 }

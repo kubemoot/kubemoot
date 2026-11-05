@@ -33,8 +33,9 @@ type AgentResume struct {
 	Channels    []string `json:"channels,omitempty"`
 	Role        string   `json:"role"`
 	Summary     string   `json:"triageSummary,omitempty"`
-	// Prompt is the agent's full assembled system prompt included for EMBEDDING
-	// only (the indexer folds it into the resume text for sharper top-K ranking).
+	// Prompt is the text of the agent's own PromptModules (those no other agent
+	// in the crew references), included for EMBEDDING only (the indexer folds it
+	// into the resume text for sharper top-K ranking).
 	// It rides the NATS-KV view, not the triage path: the resume query returns
 	// agent NAMES only, so the prompt never reaches a triage LLM call
 	// (embed-rich, triage-lean).
