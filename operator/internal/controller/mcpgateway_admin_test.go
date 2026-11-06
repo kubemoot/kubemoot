@@ -32,6 +32,7 @@ import (
 	networkingv1 "k8s.io/api/networking/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/intstr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
@@ -42,6 +43,7 @@ const (
 	adminTestNS         = "crew-a"
 	adminTestGateway    = "gw"
 	adminTestSecret     = "gw-admin-token"
+	adminTestPolicy     = "gw-admin"
 	adminTestUID        = "uid-gw"
 	adminTestOperatorNS = "kubemoot-ops"
 	adminTestToolsMCP   = "tools-mcp"
@@ -127,7 +129,7 @@ func TestAdminNetworkPolicyAdmitsOnlyTheOperatorToTheAdminPort(t *testing.T) {
 		t.Fatal(err)
 	}
 	policy := &networkingv1.NetworkPolicy{}
-	if err := r.Get(context.Background(), types.NamespacedName{Namespace: adminTestNS, Name: "gw-admin"}, policy); err != nil {
+	if err := r.Get(context.Background(), types.NamespacedName{Namespace: adminTestNS, Name: adminTestPolicy}, policy); err != nil {
 		t.Fatalf("network policy not rendered: %v", err)
 	}
 	if len(policy.Spec.Ingress) != 2 {
@@ -146,8 +148,14 @@ func TestAdminNetworkPolicyAdmitsOnlyTheOperatorToTheAdminPort(t *testing.T) {
 
 func checkToolRule(t *testing.T, rule networkingv1.NetworkPolicyIngressRule) {
 	t.Helper()
-	if len(rule.From) != 0 || rule.Ports[0].Port.IntVal != 8080 {
-		t.Errorf("tool port must be open to every caller: %+v", rule)
+	if rule.Ports[0].Port.IntVal != 8080 || len(rule.From) != 2 {
+		t.Fatalf("tool port must admit two peers, the crew namespace and the operator namespace: %+v", rule)
+	}
+	if rule.From[0].PodSelector == nil || rule.From[0].NamespaceSelector != nil {
+		t.Errorf("first peer must be the pods of the policy's own namespace: %+v", rule.From[0])
+	}
+	if got := rule.From[1].NamespaceSelector.MatchLabels[namespaceNameLabel]; got != adminTestOperatorNS || rule.From[1].PodSelector != nil {
+		t.Errorf("second peer must be the operator namespace %q: %+v", adminTestOperatorNS, rule.From[1])
 	}
 }
 
@@ -163,7 +171,8 @@ func checkAdminRule(t *testing.T, rule networkingv1.NetworkPolicyIngressRule) {
 	}
 }
 
-func TestContextForgeGetsNoAdminPortOrPolicy(t *testing.T) {
+func TestContextForgeGetsNoAdminPortAndANarrowedToolPort(t *testing.T) {
+	t.Setenv("OPERATOR_NAMESPACE", adminTestOperatorNS)
 	gw := adminTestGW()
 	gw.Spec.Implementation = kubemootv1alpha1.ImplementationContextForge
 	r := adminTestReconciler(t, nil)
@@ -171,12 +180,48 @@ func TestContextForgeGetsNoAdminPortOrPolicy(t *testing.T) {
 		t.Fatal(err)
 	}
 	list := &networkingv1.NetworkPolicyList{}
-	if err := r.List(context.Background(), list); err != nil || len(list.Items) != 0 {
-		t.Errorf("unexpected policies %v err %v", list.Items, err)
+	if err := r.List(context.Background(), list); err != nil || len(list.Items) != 1 {
+		t.Fatalf("want the tool port policy only, got %v err %v", list.Items, err)
+	}
+	if rules := list.Items[0].Spec.Ingress; len(rules) != 1 {
+		t.Errorf("a gateway without an admin port has one rule, the tool port: %+v", rules)
+	} else {
+		checkToolRule(t, rules[0])
+	}
+	secrets := &corev1.SecretList{}
+	if err := r.List(context.Background(), secrets); err != nil || len(secrets.Items) != 0 {
+		t.Errorf("a gateway without an admin port gets no token Secret: %v err %v", secrets.Items, err)
 	}
 	if gatewayAdminPort(gw) != gatewayToolPort(gw) {
 		t.Error("contextforge must keep one port")
 	}
+}
+
+func TestUpgradeNarrowsAnExistingOpenToolPortPolicy(t *testing.T) {
+	t.Setenv("OPERATOR_NAMESPACE", adminTestOperatorNS)
+	tcp := corev1.ProtocolTCP
+	port := intstr.FromInt32(8080)
+	old := &networkingv1.NetworkPolicy{
+		ObjectMeta: metav1.ObjectMeta{Name: adminTestPolicy, Namespace: adminTestNS},
+		Spec: networkingv1.NetworkPolicySpec{
+			PodSelector: metav1.LabelSelector{MatchLabels: gatewayLabels(adminTestGW())},
+			Ingress: []networkingv1.NetworkPolicyIngressRule{
+				{Ports: []networkingv1.NetworkPolicyPort{{Protocol: &tcp, Port: &port}}},
+			},
+		},
+	}
+	r := adminTestReconciler(t, nil, old)
+	if err := r.reconcileAdminAccess(context.Background(), adminTestGW()); err != nil {
+		t.Fatal(err)
+	}
+	policy := &networkingv1.NetworkPolicy{}
+	if err := r.Get(context.Background(), types.NamespacedName{Namespace: adminTestNS, Name: adminTestPolicy}, policy); err != nil {
+		t.Fatal(err)
+	}
+	if len(policy.Spec.Ingress) != 2 {
+		t.Fatalf("the old open policy must gain the admin rule: %+v", policy.Spec.Ingress)
+	}
+	checkToolRule(t, policy.Spec.Ingress[0])
 }
 
 func TestAdminPortAvoidsTheToolPort(t *testing.T) {

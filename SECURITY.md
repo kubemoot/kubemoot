@@ -61,8 +61,9 @@ you use the internal MCP servers, and bind any Kubernetes-facing MCP server to a
 `Role` in the crew's namespace.
 
 The chart's `verify` value, when enabled, creates the `kubemoot-verify-runner` service
-account with a `ClusterRole` that has full access to Kubemoot resources, cluster-wide read
-of Secrets, and create and delete on Jobs. Leave it disabled unless you run the verify jobs.
+account with a `ClusterRole` that has full access to Kubemoot resources and create and
+delete on Jobs. It reads Secrets only in the release namespace, through a `Role`, not
+cluster-wide. Leave it disabled unless you run the verify jobs.
 
 The reference crews in the `crews` repository bind tools with cluster-wide read access,
 including Secrets, plus pod exec and workload patch and scale, for demonstration. Review

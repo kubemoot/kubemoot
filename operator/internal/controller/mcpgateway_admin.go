@@ -215,22 +215,28 @@ func (r *MCPGatewayReconciler) kubemootAdminToken(ctx context.Context, gateway *
 	return string(token), nil
 }
 
-// buildAdminNetworkPolicy admits the tool port to every caller and the admin port to the
-// operator only.
+// toolPortConfig is the config that names who may reach a gateway's tool port: the crew's
+// own namespace, the operator's namespace, and the metrics scraper when the chart names one.
+// It takes the chart setting as it is rather than through Resolved, because the Cilium
+// decision does not matter to a plain NetworkPolicy. It does not depend on the network policy flag. The flag decides whether the operator
+// also generates default-deny and the other ingress policies; a gateway's tool port is
+// never open to every pod.
+func (r *MCPGatewayReconciler) toolPortConfig() netpol.Config {
+	cfg := netpol.Config{}
+	if r.NetPol != nil {
+		cfg = r.NetPol.Config
+	}
+	cfg.OperatorNamespace = operatorNamespace()
+	return cfg
+}
+
+// buildAdminNetworkPolicy admits the tool port to the crew's namespace, the operator, and
+// the metrics scraper, and the admin port to the operator only.
 func (r *MCPGatewayReconciler) buildAdminNetworkPolicy(gateway *kubemootv1alpha1.MCPGateway) *networkingv1.NetworkPolicy {
 	tcp := corev1.ProtocolTCP
-	toolPort := intstr.FromInt32(gatewayToolPort(gateway))
-	adminPort := intstr.FromInt32(gatewayAdminPort(gateway))
-	toolRule := networkingv1.NetworkPolicyIngressRule{Ports: []networkingv1.NetworkPolicyPort{{Protocol: &tcp, Port: &toolPort}}}
-	if r.NetPol != nil {
-		// Under the network policy flag the tool port admits the crew's namespace, the
-		// operator, and the metrics scraper instead of every pod.
-		if cfg := r.NetPol.Resolved(); cfg.IngressOn() {
-			toolRule = netpol.GatewayToolPort(cfg, gatewayToolPort(gateway))
-		}
-	}
-	rules := []networkingv1.NetworkPolicyIngressRule{toolRule}
+	rules := []networkingv1.NetworkPolicyIngressRule{netpol.GatewayToolPort(r.toolPortConfig(), gatewayToolPort(gateway))}
 	if gatewayHasAdminPort(gateway) {
+		adminPort := intstr.FromInt32(gatewayAdminPort(gateway))
 		rules = append(rules, networkingv1.NetworkPolicyIngressRule{
 			From: []networkingv1.NetworkPolicyPeer{{
 				NamespaceSelector: &metav1.LabelSelector{MatchLabels: map[string]string{namespaceNameLabel: operatorNamespace()}},
@@ -253,30 +259,11 @@ func (r *MCPGatewayReconciler) buildAdminNetworkPolicy(gateway *kubemootv1alpha1
 	}
 }
 
-// toolPortNarrowed reports whether the network policy flag narrows the gateway tool port.
-func (r *MCPGatewayReconciler) toolPortNarrowed() bool {
-	return r.NetPol != nil && r.NetPol.Resolved().IngressOn()
-}
-
-// removeToolPortPolicy deletes the tool port policy of a gateway that has no admin port,
-// which the operator creates only while the network policy flag is on.
-func (r *MCPGatewayReconciler) removeToolPortPolicy(ctx context.Context, gateway *kubemootv1alpha1.MCPGateway) error {
-	existing := &networkingv1.NetworkPolicy{}
-	err := r.Get(ctx, types.NamespacedName{Namespace: gateway.Namespace, Name: gateway.Name + "-admin"}, existing)
-	if err != nil || !metav1.IsControlledBy(existing, gateway) {
-		return client.IgnoreNotFound(err)
-	}
-	return client.IgnoreNotFound(r.Delete(ctx, existing))
-}
-
-// reconcileAdminAccess creates the admin token Secret and the NetworkPolicy that keeps the
-// admin port to the operator. It does nothing for an implementation without an admin port.
+// reconcileAdminAccess creates the admin token Secret (for a gateway with an admin port) and
+// the NetworkPolicy that keeps the tool port to the crew and the operator and the admin
+// port to the operator. Every gateway gets the policy.
 func (r *MCPGatewayReconciler) reconcileAdminAccess(ctx context.Context, gateway *kubemootv1alpha1.MCPGateway) error {
-	hasAdmin := gatewayHasAdminPort(gateway)
-	if !hasAdmin && !r.toolPortNarrowed() {
-		return r.removeToolPortPolicy(ctx, gateway)
-	}
-	if hasAdmin {
+	if gatewayHasAdminPort(gateway) {
 		if err := r.ensureAdminTokenSecret(ctx, gateway); err != nil {
 			return err
 		}

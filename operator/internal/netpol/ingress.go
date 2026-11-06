@@ -242,8 +242,8 @@ func ciliumPolicy(name, namespace string, spec map[string]any) *unstructured.Uns
 }
 
 // GatewayToolPort is the ingress rule of a crew gateway's tool port: the crew's own
-// namespace, the operator, and the metrics scraper. The caller adds it to the gateway's
-// policy in place of the rule that admits every pod.
+// namespace, the operator, and the metrics scraper. It is the tool port rule of every
+// gateway's -admin policy, whether or not the network policy flag is on.
 func GatewayToolPort(c Config, port int32) networkingv1.NetworkPolicyIngressRule {
 	return networkingv1.NetworkPolicyIngressRule{From: ToolPortPeers(c), Ports: []networkingv1.NetworkPolicyPort{tcpPort(port)}}
 }

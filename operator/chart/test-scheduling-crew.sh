@@ -28,6 +28,10 @@ ns=kubemoot-scheduling
 
 # On by default, in its own namespace, which the chart creates.
 [ "$(get "$out" Namespace "$ns" .metadata.name)" = "$ns" ] || fail "the crew namespace is not rendered"
+[ "$(get "$out" Namespace "$ns" '.metadata.labels["pod-security.kubernetes.io/enforce"]')" = baseline ] \
+  || fail "the crew namespace does not enforce Pod Security baseline"
+[ "$(get "$out" Namespace "$ns" '.metadata.labels | has("pod-security.kubernetes.io/enforce-version")')" = false ] \
+  || fail "the namespace pins a Pod Security version"
 [ "$(get "$out" Crew kubemoot-scheduling .metadata.namespace)" = "$ns" ] || fail "the Crew is not in $ns"
 [ "$(count "$out" '.metadata.namespace == "kubemoot-scheduling" and .kind == "Agent"')" = 2 ] \
   || fail "the crew should have two agents"

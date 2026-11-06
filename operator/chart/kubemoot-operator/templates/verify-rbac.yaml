@@ -29,7 +29,7 @@ rules:
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
   # Core resources - read for verification
   - apiGroups: [""]
-    resources: ["pods", "pods/log", "services", "configmaps", "secrets", "namespaces"]
+    resources: ["pods", "pods/log", "services", "configmaps", "namespaces"]
     verbs: ["get", "list", "watch"]
   # Deployments - read for verification
   - apiGroups: ["apps"]
@@ -58,5 +58,37 @@ subjects:
 roleRef:
   kind: ClusterRole
   name: kubemoot-verify-runner
+  apiGroup: rbac.authorization.k8s.io
+---
+# Secrets are read in the test namespace only (the release namespace, where the suites run
+# and where the database credentials they use live), not cluster-wide.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: kubemoot-verify-runner-secrets
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "kubemoot-operator.labels" . | nindent 4 }}
+    app.kubernetes.io/component: verify
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: kubemoot-verify-runner-secrets
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "kubemoot-operator.labels" . | nindent 4 }}
+    app.kubernetes.io/component: verify
+subjects:
+  - kind: ServiceAccount
+    name: kubemoot-verify-runner
+    namespace: {{ .Release.Namespace }}
+roleRef:
+  kind: Role
+  name: kubemoot-verify-runner-secrets
   apiGroup: rbac.authorization.k8s.io
 {{- end }}
