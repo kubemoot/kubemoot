@@ -218,7 +218,7 @@ const defaultEfficiencyBudgetMs int64 = 60000
 var recognizedSignals = map[string]bool{
 	"agree": true, "concern": true, "stand_aside": true, "block": true,
 	"advisory": true, "evaluating": true, "triaging": true,
-	"proposal": true, "consent": true, "failure": true,
+	"proposal": true, "consent": true, signalFailure: true,
 }
 
 // transcriptEvent is the subset of the runner's SSE SignalEvent the scoring
@@ -233,6 +233,10 @@ type transcriptEvent struct {
 	GPU        string `json:"gpu,omitempty"`
 	StoodAside bool   `json:"stood_aside,omitempty"`
 	Error      string `json:"error,omitempty"`
+
+	// FailureType and LastError are the signal metadata of a failure finding.
+	FailureType string `json:"failureType,omitempty"`
+	LastError   string `json:"lastError,omitempty"`
 }
 
 // pct is num/den as a 0-100 percentage; 0 when den is non-positive.

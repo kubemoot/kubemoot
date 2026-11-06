@@ -70,6 +70,20 @@ const (
 	// that records a scenario's quality (all-gated, no-verdict, or a real
 	// verdict) — kept identical so a log query catches every scored scenario.
 	logMsgScenarioScored = "deferred judge: scenario scored"
+
+	// maxJudgeAttempts bounds how many judge passes dispatch one scenario. Each
+	// pass makes one attempt per scenario still pending; the count lives in the
+	// checkpoint, so an operator restart does not reset it. After this many
+	// failed attempts the scenario is marked unjudged and the pass can end.
+	maxJudgeAttempts = 3
+
+	// unjudgedReasonTooLarge is the reason recorded when the judge reports that
+	// the comparison document does not fit its context window. A retry would
+	// send the same document, so the scenario is unjudgeable at once.
+	unjudgedReasonTooLarge = "comparison document does not fit the judge's context window"
+
+	// contextExceededMarker is how the judge's failure reads, in any case.
+	contextExceededMarker = "context_exceeded"
 )
 
 var (
@@ -168,23 +182,41 @@ type deferredScoreCache struct {
 	Reasons map[string]string  `json:"reasons,omitempty"` // per-scenario judge rationale (one terse sentence), surfaced in the dashboard
 	// Total is how many scenarios the pass has to score (a DEFER assertion and a
 	// transcript); counted at the start of each pass. 0 in older checkpoints.
-	Total    int  `json:"total,omitempty"`
-	Complete bool `json:"complete"`
+	Total int `json:"total,omitempty"`
+	// Attempts counts the dispatches made per scenario; a scenario that reaches
+	// maxJudgeAttempts without a verdict moves to Unjudged.
+	Attempts map[string]int `json:"attempts,omitempty"`
+	// Unjudged maps a scenario the judge gave up on to the reason. A scenario is
+	// either scored or unjudged, never both.
+	Unjudged map[string]string `json:"unjudged,omitempty"`
+	Complete bool              `json:"complete"`
 }
 
 // loadDeferredCache reads the checkpoint (empty, not-complete when absent).
 func loadDeferredCache(store objectStore, prefix string) deferredScoreCache {
-	c := deferredScoreCache{Scores: map[string]float64{}, Reasons: map[string]string{}}
+	c := deferredScoreCache{}
 	if data, err := store.GetObject(FitnessArtifactsBucket, deferredSidecarKey(prefix)); err == nil && data != nil {
 		_ = json.Unmarshal(data, &c)
-		if c.Scores == nil {
-			c.Scores = map[string]float64{}
-		}
-		if c.Reasons == nil {
-			c.Reasons = map[string]string{}
-		}
 	}
+	c.ensureMaps()
 	return c
+}
+
+// ensureMaps makes every map non-nil, so a checkpoint from an older operator (or
+// a fresh one) can be written to.
+func (c *deferredScoreCache) ensureMaps() {
+	if c.Scores == nil {
+		c.Scores = map[string]float64{}
+	}
+	if c.Reasons == nil {
+		c.Reasons = map[string]string{}
+	}
+	if c.Attempts == nil {
+		c.Attempts = map[string]int{}
+	}
+	if c.Unjudged == nil {
+		c.Unjudged = map[string]string{}
+	}
 }
 
 // parseDeferredAssertion pulls the KEYWORD and REFERENCE out of a deferred
@@ -219,6 +251,17 @@ func resolveKeywordEndpoint(ctx context.Context, c client.Client, keyword string
 // across runs - a random ~5-8%/run judge failure. The worker retries on this signal
 // rather than recording a silent 0. See [[Deferred Judge Spurious Zeros and Stuck Pass]].
 var errJudgeNoVerdict = errors.New("judge returned no verdict (total<=0, no scores)")
+
+// errJudgeInputTooLarge signals that the judge reported the comparison document
+// does not fit its context window (a failure signal of type CONTEXT_EXCEEDED on
+// the stream, or that text in a response that holds no verdict). The same
+// document fails the same way on every attempt, so the scenario is unjudgeable
+// at once.
+var errJudgeInputTooLarge = errors.New("judge input does not fit the context window")
+
+func mentionsContextExceeded(s string) bool {
+	return strings.Contains(strings.ToLower(s), contextExceededMarker)
+}
 
 // answerScore is one per-answer entry of the batch verdict.
 type answerScore struct {
@@ -364,9 +407,24 @@ func normalizeAnswerScore(score float64, reason string) float64 {
 	return sc
 }
 
-type discussionEvent struct {
-	Type    string `json:"type"`
-	Content string `json:"content"`
+// reportsContextExceeded reports whether the event is a failure signal or a
+// stream error that says the input did not fit.
+func (e transcriptEvent) reportsContextExceeded() bool {
+	switch {
+	case e.Type == eventTypeFinding && e.Signal == signalFailure:
+		return mentionsContextExceeded(e.FailureType) || mentionsContextExceeded(e.LastError) ||
+			mentionsContextExceeded(e.Content)
+	case e.Type == eventTypeError:
+		return mentionsContextExceeded(e.Error)
+	}
+	return false
+}
+
+// judgeStream is what one judge discussion's stream yielded: the last synthesis
+// and whether any event said the input did not fit.
+type judgeStream struct {
+	synthesis       string
+	contextExceeded bool
 }
 
 // judgeAnswer is one consensus-passing iteration handed to the judge: the crew's
@@ -518,11 +576,15 @@ func dispatchScenario(ctx context.Context, hc *http.Client, endpoint, comparison
 		return 0, "", err
 	}
 	streamURL := strings.TrimRight(endpoint, "/") + "/" + convID + "/stream"
-	synthesis, err := streamJudgeSynthesis(ctx, hc, streamURL)
+	st, err := streamJudgeSynthesis(ctx, hc, streamURL)
 	if err != nil {
 		return 0, "", err
 	}
+	synthesis := st.synthesis
 	if synthesis == "" {
+		if st.contextExceeded {
+			return 0, "", fmt.Errorf("%w: the judge failed with no synthesis", errJudgeInputTooLarge)
+		}
 		// The stream ended (done, EOF, or ctx deadline) with no synthesis. This is a
 		// transient failure (the judge discussion didn't conclude in time), NOT
 		// errJudgeNoVerdict (a COMPLETED discussion whose verdict had total<=0). Keep
@@ -530,7 +592,13 @@ func dispatchScenario(ctx context.Context, hc *http.Client, endpoint, comparison
 		// than entering the in-pass retry loop reserved for the empty-verdict sentinel.
 		return 0, "", fmt.Errorf("no synthesis verdict received")
 	}
-	return parseScenarioQuality(synthesis)
+	quality, reason, pErr := parseScenarioQuality(synthesis)
+	if pErr != nil && st.contextExceeded {
+		// A response without a verdict, after the judge reported it ran out of
+		// context, is that failure, not a flake worth retrying.
+		return 0, "", fmt.Errorf("%w: %v", errJudgeInputTooLarge, pErr)
+	}
+	return quality, reason, pErr
 }
 
 // postJudgeDiscussion opens a judge discussion with the comparison document and
@@ -564,31 +632,33 @@ func postJudgeDiscussion(ctx context.Context, hc *http.Client, endpoint, compari
 }
 
 // streamJudgeSynthesis reads the SSE stream and returns the last non-empty
-// synthesis content, stopping on the 'done' event (empty string if none seen).
-func streamJudgeSynthesis(ctx context.Context, hc *http.Client, streamURL string) (string, error) {
+// synthesis content, stopping on the 'done' event (empty synthesis if none seen),
+// and notes whether any event said the input did not fit.
+func streamJudgeSynthesis(ctx context.Context, hc *http.Client, streamURL string) (judgeStream, error) {
+	var st judgeStream
 	sReq, err := http.NewRequestWithContext(ctx, http.MethodGet, streamURL, nil)
 	if err != nil {
-		return "", err
+		return st, err
 	}
 	sReq.Header.Set("Accept", "text/event-stream")
 	sResp, err := hc.Do(sReq)
 	if err != nil {
-		return "", err
+		return st, err
 	}
 	defer func() { _ = sResp.Body.Close() }()
 
-	var synthesis string
 	err = sse.Data(sResp.Body, func(data string) bool {
-		var ev discussionEvent
+		var ev transcriptEvent
 		if json.Unmarshal([]byte(data), &ev) != nil {
 			return true
 		}
 		if ev.Type == eventTypeSynthesis && strings.TrimSpace(ev.Content) != "" {
-			synthesis = ev.Content
+			st.synthesis = ev.Content
 		}
+		st.contextExceeded = st.contextExceeded || ev.reportsContextExceeded()
 		return ev.Type != eventTypeDone
 	})
-	return synthesis, err
+	return st, err
 }
 
 // runDeferredJudgePass scores every DEFER assertion in the suite via the crew that
@@ -661,22 +731,29 @@ func (r *CrewFitnessSuiteReconciler) deferredJudgeWorker(suite *kubemootv1alpha1
 	// dispatch message. No collect_scenario tool round-trip.
 	p.cache.Total = p.countJudgeable()
 	p.publishStatus() // the pass has started: status.judge reads Judging with its total
-	pending := 0
-	for idx := range suite.Spec.Scripts {
-		switch p.processScenario(ctx, idx) {
-		case scenarioPending:
-			pending++
-		case scenarioBudgetExhausted:
-			goto done // budget exhausted — checkpoint holds finished scenarios
-		case scenarioHandled:
-		}
-	}
-done:
+	pending := p.scorePending(ctx)
 	complete := pending == 0 && ctx.Err() == nil
 	p.persist(complete)
 	p.publishStatus()
 	log.Info("deferred judge: pass finished", "prefix", prefix,
 		"scenarios", len(p.cache.Scores), "pending", pending, "complete", complete)
+}
+
+// scorePending makes one attempt on every scenario the checkpoint has not settled
+// (scored or unjudged) and returns how many remain pending. It stops early when
+// the batch budget runs out; the checkpoint holds what finished.
+func (p *judgePass) scorePending(ctx context.Context) int {
+	pending := 0
+	for idx := range p.suite.Spec.Scripts {
+		switch p.processScenario(ctx, idx) {
+		case scenarioPending:
+			pending++
+		case scenarioBudgetExhausted:
+			return pending
+		case scenarioHandled:
+		}
+	}
+	return pending
 }
 
 // newJudgeHTTPClient builds the judge dispatch client.
@@ -716,13 +793,19 @@ func (p *judgePass) processScenario(ctx context.Context, idx int) scenarioOutcom
 	if _, done := p.cache.Scores[scenario]; done {
 		return scenarioHandled // resumed: already judged in a prior pass
 	}
+	if _, gaveUp := p.cache.Unjudged[scenario]; gaveUp {
+		return scenarioHandled // resumed: already marked unjudged
+	}
 	keyword, ok := p.scenarioKeyword(idx)
 	if !ok {
 		return scenarioHandled // gap / never ran, or no DEFER assertion to judge
 	}
 	ep, resolvable := p.resolveEndpoint(ctx, keyword)
 	if !resolvable {
-		return scenarioPending // keyword unresolved; retry on a later pass
+		// No crew declares the keyword. Each pass counts as an attempt, so a keyword
+		// that never resolves ends unjudged instead of holding the pass open.
+		p.beginAttempt(scenario)
+		return p.failedAttempt(scenario, fmt.Errorf("no crew declares %s=%s", keywordCrewLabel, keyword))
 	}
 	if ctx.Err() != nil {
 		return scenarioBudgetExhausted // budget exhausted — checkpoint holds finished scenarios
@@ -731,8 +814,9 @@ func (p *judgePass) processScenario(ctx context.Context, idx int) scenarioOutcom
 	// tool round-trip) and hand it to the judge in the dispatch message.
 	comparisonDoc, total, answers, bErr := buildComparisonDoc(p.store, p.prefix, idx, keyword)
 	if bErr != nil {
-		p.log.Info("deferred judge: build comparison doc failed; retry next pass", "scenario", scenario, "err", bErr.Error())
-		return scenarioPending
+		p.log.Info("deferred judge: build comparison doc failed", "scenario", scenario, "err", bErr.Error())
+		p.beginAttempt(scenario)
+		return p.failedAttempt(scenario, bErr)
 	}
 	if total == 0 {
 		return scenarioHandled // no transcripts for this scenario yet (gap / not run)
@@ -789,9 +873,24 @@ func (p *judgePass) resolveEndpoint(ctx context.Context, keyword string) (string
 
 // judgeAndRecord dispatches the comparison document to the judge (with bounded
 // no-verdict retries), records the outcome, and reports the loop disposition.
+// A judge that returns an empty verdict on every in-pass retry is scored 0 with a
+// reason (the judge read the document and found nothing to score); every other
+// failure counts against maxJudgeAttempts.
 func (p *judgePass) judgeAndRecord(ctx context.Context, scenario, keyword, ep, comparisonDoc string) scenarioOutcome {
+	p.beginAttempt(scenario)
 	quality, reason, jErr := p.dispatchWithRetries(ctx, scenario, ep, comparisonDoc)
+	if jErr != nil && ctx.Err() != nil && !errors.Is(jErr, errJudgeInputTooLarge) && !errors.Is(jErr, errJudgeNoVerdict) {
+		// The pass was cut off (batch budget or shutdown), not the judge failing:
+		// the interrupted dispatch does not count against the scenario.
+		p.cache.Attempts[scenario]--
+		p.persist(false)
+		return scenarioBudgetExhausted
+	}
 	switch {
+	case errors.Is(jErr, errJudgeInputTooLarge):
+		p.markUnjudged(scenario, unjudgedReasonTooLarge)
+		p.log.Info("deferred judge: scenario unjudged", "scenario", scenario, "reason", unjudgedReasonTooLarge, "err", jErr.Error())
+		return scenarioHandled
 	case errors.Is(jErr, errJudgeNoVerdict):
 		// Exhausted retries - treat as genuinely empty/gated, but record WHY so
 		// it is not a silent zero and the pass converges.
@@ -800,7 +899,7 @@ func (p *judgePass) judgeAndRecord(ctx context.Context, scenario, keyword, ep, c
 		return scenarioHandled
 	case jErr != nil:
 		p.log.Info("deferred judge: dispatch failed", "scenario", scenario, "keyword", keyword, "err", jErr.Error())
-		return scenarioPending
+		return p.failedAttempt(scenario, jErr)
 	}
 	p.recordScore(scenario, quality, reason)
 	p.log.Info(logMsgScenarioScored, "scenario", scenario, "quality", quality, "reason", reason)
@@ -848,6 +947,37 @@ func (p *judgePass) recordScore(scenario string, quality float64, reason string)
 		p.cache.Reasons[scenario] = reason
 	}
 	p.persist(false) // checkpoint after each scenario so a restart resumes
+	p.publishStatus()
+}
+
+// beginAttempt counts one dispatch of a scenario and persists the count before
+// the dispatch, so an operator restart during it does not reset the bound.
+func (p *judgePass) beginAttempt(scenario string) {
+	p.cache.ensureMaps()
+	p.cache.Attempts[scenario]++
+	p.persist(false)
+}
+
+// failedAttempt handles a dispatch that produced no verdict and is worth
+// another try: the scenario stays pending until it has used maxJudgeAttempts,
+// then it is marked unjudged with the last error as the reason.
+func (p *judgePass) failedAttempt(scenario string, cause error) scenarioOutcome {
+	n := p.cache.Attempts[scenario]
+	if n < maxJudgeAttempts {
+		return scenarioPending
+	}
+	reason := fmt.Sprintf("judge failed on all %d attempts: %v", n, cause)
+	p.markUnjudged(scenario, reason)
+	p.log.Info("deferred judge: scenario unjudged", "scenario", scenario, "attempts", n, "err", cause.Error())
+	return scenarioHandled
+}
+
+// markUnjudged records that the judge gave up on a scenario, with the reason, and
+// persists it so the pass can end and a restart keeps it.
+func (p *judgePass) markUnjudged(scenario, reason string) {
+	p.cache.ensureMaps()
+	p.cache.Unjudged[scenario] = reason
+	p.persist(false)
 	p.publishStatus()
 }
 

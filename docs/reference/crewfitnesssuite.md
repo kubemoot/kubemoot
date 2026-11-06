@@ -138,15 +138,23 @@ On a re-judge suite the rows come from the copied transcripts, with the duration
 
 | Field | Description |
 |-------|-------------|
-| `phase` | `Pending`: the run has not finished, and the judge waits for it. `Judging`: the run finished and the judge is scoring it. `Complete`: every judgeable scenario has a score. `Skipped`: the suite was cancelled, so the judge does not run. |
-| `judged` | Scenarios scored so far. |
-| `total` | Scenarios the judge has to score: those with a `DEFER` assertion and at least one transcript. It is set when the pass starts. |
-| `mean` | Mean scenario score over the judged scenarios, 0 to 100, rounded. |
+| `phase` | `Pending`: the run has not finished, and the judge waits for it. `Judging`: the run finished and the judge is scoring it. `Complete`: the pass is over; every judgeable scenario has a score or is listed in `unjudged`. `Skipped`: the suite was cancelled, so the judge does not run. |
+| `judged` | Scenarios scored so far. Unjudged scenarios are not counted. |
+| `total` | Scenarios the judge has to score: those with a `DEFER` assertion and at least one transcript. It is set when the pass starts, and counts judged and unjudged scenarios. |
+| `mean` | Mean scenario score over the judged scenarios only, 0 to 100, rounded. Absent when no scenario was judged. |
 | `zeros` | Judged scenarios that scored 0. A scenario whose every iteration failed its consensus floor scores 0 without a judge call. |
 | `completedAt` | When the operator recorded the pass as complete. |
 | `scores` | Each judged scenario in spec order: `scenario`, `score` (0 to 100, rounded), and `reason`, the judge's rationale on one line, cut to 200 characters. |
+| `unjudged` | Each scenario the judge gave up on, in spec order: `scenario` and `reason`, one line cut to 200 characters. Absent when there are none. |
 
 The judge writes `status.judge` when its pass starts, after each scenario it scores, and when it finishes, so `judged` out of `total` shows progress while the pass runs. Once `phase` is `Complete` or `Skipped` the field is final: it is not rewritten, even after the judge checkpoint passes its object store retention. While judging, `judged` never goes down: if the checkpoint expires before the pass completes, status keeps the scores it recorded. `status.judge` is absent when the operator has no NATS Object Store configured, since there is no judge.
+
+**Unjudged scenarios.** The judge never retries a scenario without bound. Each judge pass makes one attempt per scenario still pending, and the attempt count is kept in the judge checkpoint, so an operator restart does not reset it. A scenario becomes unjudged in two cases:
+
+- The judge reports that the comparison document does not fit its context window (a `failure` signal of type `CONTEXT_EXCEEDED`, or a response with no verdict that names it). The same document would fail the same way, so the scenario is unjudged at once.
+- Any other failure (no verdict in the response, a transient error, no crew declaring the scenario's keyword) is retried until the scenario has used 3 attempts, then the scenario is unjudged.
+
+When every scenario is judged or unjudged, `phase` becomes `Complete`: a partly judged run reads as done with a visible gap (`judged` below `total`, and the scenarios and reasons in `unjudged`), not as failed. Unjudged scenarios have no score in the XLSX. The bound counts attempts, not elapsed time.
 
 `kubectl get crewfitnesssuites` shows the judge phase and the mean score in the `Judge` and `Quality` columns.
 

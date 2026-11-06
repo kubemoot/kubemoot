@@ -149,4 +149,8 @@ const (
 	eventTypeFinding   = "finding"
 	eventTypeSynthesis = "synthesis"
 	eventTypeDone      = "done"
+	eventTypeError     = "error"
 )
+
+// signalFailure is the finding signal an agent publishes when it declares a failure.
+const signalFailure = "failure"

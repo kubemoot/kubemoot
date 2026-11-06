@@ -348,7 +348,9 @@ spec:
                     format: date-time
                     type: string
                   judged:
-                    description: Judged is the number of scenarios scored so far.
+                    description: |-
+                      Judged is the number of scenarios scored so far. Unjudged scenarios are
+                      not counted.
                     format: int32
                     type: integer
                   mean:
@@ -400,11 +402,40 @@ spec:
                     x-kubernetes-list-type: atomic
                   total:
                     description: |-
-                      Total is the number of scenarios the judge has to score: those with a
-                      DEFER assertion and at least one transcript. It is 0 until the pass
+                      Total is the number of scenarios the judge has to score (judged plus
+                      unjudged plus those still pending): those with a DEFER assertion and at
+                      least one transcript. It is 0 until the pass
                       starts and stays 0 for a run with nothing to judge.
                     format: int32
                     type: integer
+                  unjudged:
+                    description: |-
+                      Unjudged lists the scenarios the judge could not score, in spec order,
+                      capped at 300 entries. A scenario is unjudged at once when its input does
+                      not fit the judge's context window, and after a fixed number of failed
+                      attempts otherwise. The phase still ends at Complete and the mean covers
+                      the judged scenarios only.
+                    items:
+                      description: FitnessJudgeUnjudged is a scenario the judge gave
+                        up on, with the reason.
+                      properties:
+                        reason:
+                          description: |-
+                            Reason says why the scenario has no score: its comparison document does
+                            not fit the judge's context window, or the judge failed on every
+                            attempt. One line, cut to 200 characters.
+                          maxLength: 200
+                          type: string
+                        scenario:
+                          description: Scenario is the script's testRef.
+                          maxLength: 253
+                          type: string
+                      required:
+                      - scenario
+                      type: object
+                    maxItems: 300
+                    type: array
+                    x-kubernetes-list-type: atomic
                   zeros:
                     description: Zeros is the number of judged scenarios that scored
                       0.
