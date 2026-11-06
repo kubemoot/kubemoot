@@ -229,7 +229,8 @@ const (
 	FitnessJudgePhasePending FitnessJudgePhase = "Pending"
 	// FitnessJudgePhaseJudging: the run finished and the judge is scoring it.
 	FitnessJudgePhaseJudging FitnessJudgePhase = "Judging"
-	// FitnessJudgePhaseComplete: every judgeable scenario has a score.
+	// FitnessJudgePhaseComplete: the pass is over. Every judgeable scenario has
+	// a score or is listed under status.judge.unjudged.
 	FitnessJudgePhaseComplete FitnessJudgePhase = "Complete"
 	// FitnessJudgePhaseSkipped: the suite was cancelled; the judge does not run.
 	FitnessJudgePhaseSkipped FitnessJudgePhase = "Skipped"
@@ -253,6 +254,20 @@ type FitnessJudgeScore struct {
 	Reason string `json:"reason,omitempty"`
 }
 
+// FitnessJudgeUnjudged is a scenario the judge gave up on, with the reason.
+type FitnessJudgeUnjudged struct {
+	// Scenario is the script's testRef.
+	// +kubebuilder:validation:MaxLength=253
+	Scenario string `json:"scenario"`
+
+	// Reason says why the scenario has no score: its comparison document does
+	// not fit the judge's context window, or the judge failed on every
+	// attempt. One line, cut to 200 characters.
+	// +optional
+	// +kubebuilder:validation:MaxLength=200
+	Reason string `json:"reason,omitempty"`
+}
+
 // FitnessJudgeStatus summarizes the deferred judge pass over a suite run. It is
 // written as each scenario is scored and once more at completion, so a reader
 // sees progress without reaching the object store, where the full checkpoint
@@ -261,12 +276,14 @@ type FitnessJudgeStatus struct {
 	// Phase is where the judge pass stands.
 	Phase FitnessJudgePhase `json:"phase"`
 
-	// Judged is the number of scenarios scored so far.
+	// Judged is the number of scenarios scored so far. Unjudged scenarios are
+	// not counted.
 	// +optional
 	Judged int32 `json:"judged,omitempty"`
 
-	// Total is the number of scenarios the judge has to score: those with a
-	// DEFER assertion and at least one transcript. It is 0 until the pass
+	// Total is the number of scenarios the judge has to score (judged plus
+	// unjudged plus those still pending): those with a DEFER assertion and at
+	// least one transcript. It is 0 until the pass
 	// starts and stays 0 for a run with nothing to judge.
 	// +optional
 	Total int32 `json:"total,omitempty"`
@@ -291,6 +308,16 @@ type FitnessJudgeStatus struct {
 	// +listType=atomic
 	// +kubebuilder:validation:MaxItems=300
 	Scores []FitnessJudgeScore `json:"scores,omitempty"`
+
+	// Unjudged lists the scenarios the judge could not score, in spec order,
+	// capped at 300 entries. A scenario is unjudged at once when its input does
+	// not fit the judge's context window, and after a fixed number of failed
+	// attempts otherwise. The phase still ends at Complete and the mean covers
+	// the judged scenarios only.
+	// +optional
+	// +listType=atomic
+	// +kubebuilder:validation:MaxItems=300
+	Unjudged []FitnessJudgeUnjudged `json:"unjudged,omitempty"`
 }
 
 // SuiteScenarioResult rolls up the finished iterations of one scenario.

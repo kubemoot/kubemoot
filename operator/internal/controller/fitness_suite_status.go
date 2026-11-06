@@ -191,7 +191,8 @@ func judgeStatusFor(suite *kubemootv1alpha1.CrewFitnessSuite, cache deferredScor
 			})
 		}
 	}
-	js.Total = max(int32(cache.Total), js.Judged)
+	js.Unjudged = unjudgedStatus(suite.Spec.Scripts, cache)
+	js.Total = max(int32(cache.Total), js.Judged+int32(len(cache.Unjudged)))
 	if js.Judged > 0 {
 		js.Mean = ptr.To(roundScore(sum / float64(js.Judged)))
 	}
@@ -199,6 +200,23 @@ func judgeStatusFor(suite *kubemootv1alpha1.CrewFitnessSuite, cache deferredScor
 		js.CompletedAt = completedAt(suite.Status.Judge, now)
 	}
 	return js
+}
+
+// unjudgedStatus lists the scenarios the judge gave up on in spec order, capped at
+// MaxStatusScenarios entries. nil when there are none.
+func unjudgedStatus(scripts []kubemootv1alpha1.SuiteScript, cache deferredScoreCache) []kubemootv1alpha1.FitnessJudgeUnjudged {
+	var out []kubemootv1alpha1.FitnessJudgeUnjudged
+	for _, ref := range distinctTestRefs(scripts) {
+		reason, gaveUp := cache.Unjudged[ref]
+		if !gaveUp {
+			continue
+		}
+		if len(out) == kubemootv1alpha1.MaxStatusScenarios {
+			break
+		}
+		out = append(out, kubemootv1alpha1.FitnessJudgeUnjudged{Scenario: statusName(ref), Reason: oneLineReason(reason)})
+	}
+	return out
 }
 
 // completedAt keeps the completion time status already holds, or uses now.
