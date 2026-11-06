@@ -16,7 +16,6 @@ import (
 
 	discoveryv1 "k8s.io/api/discovery/v1"
 	networkingv1 "k8s.io/api/networking/v1"
-	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -26,7 +25,7 @@ import (
 	"github.com/kubemoot/kubemoot/operator/internal/netpol"
 )
 
-func TestReconcileAdminAccessWithoutAdminPort(t *testing.T) {
+func TestReconcileAdminAccessWithoutAdminPortNarrowsTheToolPortWhateverTheFlag(t *testing.T) {
 	ctx := context.Background()
 	scheme := gatewayScheme(t)
 	gw := &aiv1alpha1.MCPGateway{
@@ -34,35 +33,25 @@ func TestReconcileAdminAccessWithoutAdminPort(t *testing.T) {
 		Spec:       aiv1alpha1.MCPGatewaySpec{Implementation: aiv1alpha1.ImplementationDocker, Port: 8080},
 	}
 	cli := fake.NewClientBuilder().WithScheme(scheme).WithObjects(gw).Build()
-	key := types.NamespacedName{Namespace: npCrewA, Name: "gw-admin"}
+	key := types.NamespacedName{Namespace: npCrewA, Name: adminTestPolicy}
 
-	off := &MCPGatewayReconciler{Client: cli, Scheme: scheme}
-	if err := off.reconcileAdminAccess(ctx, gw); err != nil {
-		t.Fatal(err)
-	}
-	if err := cli.Get(ctx, key, &networkingv1.NetworkPolicy{}); !errors.IsNotFound(err) {
-		t.Fatalf("with the flag off a gateway without an admin port gets no policy: %v", err)
-	}
-
-	on := &MCPGatewayReconciler{Client: cli, Scheme: scheme, NetPol: &NetPolicySync{
-		Config: netpol.Config{Enabled: true, Ingress: true, OperatorNamespace: defaultOperatorNamespace},
-	}}
-	if err := on.reconcileAdminAccess(ctx, gw); err != nil {
-		t.Fatal(err)
-	}
-	p := &networkingv1.NetworkPolicy{}
-	if err := cli.Get(ctx, key, p); err != nil {
-		t.Fatalf("with the flag on its tool port needs an allow rule: %v", err)
-	}
-	if len(p.Spec.Ingress) != 1 || len(p.Spec.Ingress[0].From) != 2 {
-		t.Errorf("only the tool port rule, narrowed: %+v", p.Spec.Ingress)
-	}
-
-	if err := off.reconcileAdminAccess(ctx, gw); err != nil {
-		t.Fatal(err)
-	}
-	if err := cli.Get(ctx, key, p); !errors.IsNotFound(err) {
-		t.Errorf("turning the flag off removes the policy again: %v", err)
+	for name, r := range map[string]*MCPGatewayReconciler{
+		"no network policy setting": {Client: cli, Scheme: scheme},
+		"flag off": {Client: cli, Scheme: scheme, NetPol: &NetPolicySync{
+			Config: netpol.Config{OperatorNamespace: defaultOperatorNamespace}}},
+		"flag on": {Client: cli, Scheme: scheme, NetPol: &NetPolicySync{
+			Config: netpol.Config{Enabled: true, Ingress: true, OperatorNamespace: defaultOperatorNamespace}}},
+	} {
+		if err := r.reconcileAdminAccess(ctx, gw); err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		p := &networkingv1.NetworkPolicy{}
+		if err := cli.Get(ctx, key, p); err != nil {
+			t.Fatalf("%s: the tool port needs its policy: %v", name, err)
+		}
+		if len(p.Spec.Ingress) != 1 || len(p.Spec.Ingress[0].From) != 2 {
+			t.Errorf("%s: only the tool port rule, narrowed to two peers: %+v", name, p.Spec.Ingress)
+		}
 	}
 }
 

@@ -163,23 +163,38 @@ func TestAttachAPIServer(t *testing.T) {
 	}
 }
 
-func TestGatewayAdminPolicyToolPortNarrowsOnlyUnderTheFlag(t *testing.T) {
+func TestGatewayAdminPolicyToolPortIsNeverOpenToEveryPod(t *testing.T) {
 	gw := &aiv1alpha1.MCPGateway{ObjectMeta: metav1.ObjectMeta{Name: "gw", Namespace: npCrewA}, Spec: aiv1alpha1.MCPGatewaySpec{Port: 8080}}
-	open := (&MCPGatewayReconciler{}).buildAdminNetworkPolicy(gw)
-	if len(open.Spec.Ingress[0].From) != 0 {
-		t.Errorf("without the flag the tool port stays open to every pod: %+v", open.Spec.Ingress[0])
+	scraper := netpol.PodRef{Namespace: "metrics-ns", Labels: map[string]string{"scraper": "prom"}}
+	cases := map[string]struct {
+		r         *MCPGatewayReconciler
+		wantPeers int
+	}{
+		"no setting":             {&MCPGatewayReconciler{}, 2},
+		"flag off":               {&MCPGatewayReconciler{NetPol: &NetPolicySync{Config: netpol.Config{OperatorNamespace: defaultOperatorNamespace}}}, 2},
+		"flag on":                {&MCPGatewayReconciler{NetPol: &NetPolicySync{Config: netpol.Config{Enabled: true, Ingress: true, OperatorNamespace: defaultOperatorNamespace}}}, 2},
+		"flag off, with scraper": {&MCPGatewayReconciler{NetPol: &NetPolicySync{Config: netpol.Config{Metrics: scraper}}}, 3},
 	}
-	off := (&MCPGatewayReconciler{NetPol: &NetPolicySync{Config: netpol.Config{OperatorNamespace: defaultOperatorNamespace}}}).buildAdminNetworkPolicy(gw)
-	if len(off.Spec.Ingress[0].From) != 0 {
-		t.Errorf("with the flag off the tool port stays as it was: %+v", off.Spec.Ingress[0])
+	for name, c := range cases {
+		p := c.r.buildAdminNetworkPolicy(gw)
+		rule := p.Spec.Ingress[0]
+		if len(rule.From) != c.wantPeers || rule.Ports[0].Port.IntVal != 8080 {
+			t.Errorf("%s: the tool port admits the namespace and the operator (and a configured scraper): %+v", name, rule)
+		}
+		if len(p.Spec.Ingress) != 2 || p.Spec.Ingress[1].Ports[0].Port.IntVal != gatewayAdminPort(gw) {
+			t.Errorf("%s: the admin port rule must stay: %+v", name, p.Spec.Ingress)
+		}
 	}
-	on := (&MCPGatewayReconciler{NetPol: &NetPolicySync{Config: netpol.Config{Enabled: true, Ingress: true, OperatorNamespace: defaultOperatorNamespace}}}).buildAdminNetworkPolicy(gw)
-	rule := on.Spec.Ingress[0]
-	if len(rule.From) != 2 || rule.Ports[0].Port.IntVal != 8080 {
-		t.Errorf("with the flag on the tool port admits the namespace and the operator: %+v", rule)
-	}
-	if len(on.Spec.Ingress) != 2 || on.Spec.Ingress[1].Ports[0].Port.IntVal != gatewayAdminPort(gw) {
-		t.Errorf("the admin port rule must stay: %+v", on.Spec.Ingress)
+}
+
+func TestGatewayAdminPolicyFollowsTheOperatorNamespaceEnv(t *testing.T) {
+	t.Setenv("OPERATOR_NAMESPACE", "ops-ns")
+	gw := &aiv1alpha1.MCPGateway{ObjectMeta: metav1.ObjectMeta{Name: "gw", Namespace: npCrewA}}
+	// A Config built for another namespace does not override where the operator runs.
+	r := &MCPGatewayReconciler{NetPol: &NetPolicySync{Config: netpol.Config{OperatorNamespace: "previous-ns"}}}
+	from := r.buildAdminNetworkPolicy(gw).Spec.Ingress[0].From
+	if got := from[1].NamespaceSelector.MatchLabels[namespaceNameLabel]; got != "ops-ns" {
+		t.Errorf("the operator peer is %q, want ops-ns", got)
 	}
 }
 

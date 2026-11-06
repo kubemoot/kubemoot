@@ -487,7 +487,9 @@ depend on themselves to be scheduled.
 Kubemoot ships its own crew for scheduling work, `kubemoot-scheduling`, in the operator
 chart (`schedulingCrew` values, on by default) and in its own namespace,
 `kubemoot-scheduling`. It is built like any crew: a coordinator, a specialist, ADL
-PromptModules, a Skill, and an MCPGateway. It ships no Models: its policy requires a model
+PromptModules, a Skill, and an MCPGateway. The chart labels its namespace
+`pod-security.kubernetes.io/enforce: baseline`, so a pod that asks for privilege, host
+access, or added capabilities is refused there. It ships no Models: its policy requires a model
 that calls tools and prefers the measured-faster model in triage, and the
 agents select it from the cluster's model catalog like any crew. Its tools come from `accelerator-mcp`, a core MCP
 server in the operator's namespace (`acceleratorMcp` values) that the crew's gateway

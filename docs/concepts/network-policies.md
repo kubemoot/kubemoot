@@ -27,8 +27,10 @@ The cluster needs a CNI that enforces `NetworkPolicy`. The value is cluster-wide
 author cannot turn it off for one crew, so a crew cannot weaken a platform policy. The full
 list of values is in the [KubemootConfig and chart guide](../../reference/kubemootconfig-guide/#network-policies).
 
-With the flag off the operator creates nothing. When you turn it off after it was on, the
-operator deletes the objects it generated and nothing else.
+With the flag off the operator creates none of the `km-...` objects below. When you turn it
+off after it was on, the operator deletes the objects it generated and nothing else. One
+policy does not depend on the flag: every MCP gateway gets its `<gateway>-admin` policy, so
+a gateway's tool port is never open to every pod (see [Who may call a gateway](#who-may-call-a-gateway)).
 
 ## What the operator generates
 
@@ -42,7 +44,7 @@ operator wants, the operator reports an error and leaves it alone.
 |-----|---------|-----|
 | Each crew namespace (a namespace that holds at least one `Crew`; the operator labels it `kubemoot.ai/crew`) | `km-default-deny`, `km-crew-internal` | Every pod refuses ingress unless a policy admits it. The pods of the namespace, the operator, and the metrics scraper may reach every pod that is not a tool server or a tool gateway. |
 | Each MCPServer with a pod | `km-mcp-<name>-ingress` | Only the crew's gateway and the operator reach the server, on its port (the bridge port for a stdio server). A shared server in the operator namespace admits the gateway of every namespace that holds a `Crew`. |
-| Each MCPGateway | the `<gateway>-admin` policy (created for every gateway while the flag is on) | The tool port admits the crew's namespace, the operator, and the metrics scraper instead of every pod. The admin port stays operator only. |
+| Each MCPGateway | the `<gateway>-admin` policy (created for every gateway, with the flag on or off) | The tool port admits the crew's namespace, the operator, and the metrics scraper when the chart names one, instead of every pod. The admin port stays operator only. |
 | Each Crew with a discussion gateway | `km-crew-<crew>-gateway-ingress`, and on Cilium `km-crew-<crew>-gateway-entities` | Callers from outside the namespace reach the gateway on port 8080: the namespaces in `spec.network.allowedIngress`, the Gateway API proxy, and the API server's service proxy used by `kubectl ask` and kmctl. |
 | Each MCPServer or Agent with `spec.egress` | `km-mcp-<name>-egress` or `km-agent-<name>-egress`, and on Cilium the same name with `-fqdn` | Outbound rules, described below. |
 
@@ -79,6 +81,31 @@ consent to delete a namespace.
 
 The operator's own namespace is not covered by the generated default-deny. Tool servers
 there are protected one by one by their `km-mcp-<name>-ingress` policy.
+
+### Who may call a gateway
+
+A crew's MCP gateway serves every tool of the crew on its tool port (8080 by default), and
+the tools act with the credentials of their tool servers. The `<gateway>-admin` policy
+therefore admits only:
+
+- the pods of the crew's own namespace (the agents and the coordinator, which find the
+  gateway in their namespace);
+- the operator's namespace (registration, and the operator's own checks);
+- the metrics scraper, when `security.networkPolicies.metricsScraper` names one.
+
+It is a plain `networking.k8s.io/v1` `NetworkPolicy`, so it works on any CNI that enforces
+policy, with no Cilium type. The dashboard, the crew liaison, and the fitness judge do not
+call a tool gateway: the dashboard reads the Kubernetes API and the message bus, the
+liaison calls the discussion gateway, and the judge runs in the crew's own namespace or
+the operator's.
+
+A pod in another namespace that must use a crew's tools needs an allow policy you write in
+the crew namespace, selecting the gateway pods (`app.kubernetes.io/component: mcp-gateway`).
+Policies add up, so yours widens the generated one for exactly the callers you name.
+
+Upgrading from a release that opened the tool port to every pod changes only this: the
+operator rewrites the policy of each gateway at its next reconcile, which happens when it
+starts. A cluster that does not enforce `NetworkPolicy` is unaffected.
 
 ### What this means for your own pods
 
