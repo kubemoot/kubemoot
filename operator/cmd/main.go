@@ -108,9 +108,18 @@ func mustAddRunnables(mgr ctrl.Manager, natsPublisher *kubemootnats.Publisher) {
 			Publisher:     natsPublisher,
 			DashboardBase: os.Getenv("KUBEMOOT_DASHBOARD_BASE"),
 		}},
-		// Removes the cluster-wide Kubernetes MCP ClusterRoleBinding earlier releases made.
+		// Removes the Kubernetes MCP bindings earlier releases made: the cluster-wide one, and
+		// the per-namespace ones made from namespace labels. Crew charts grant that access now.
 		{"legacy kubernetes binding cleanup", manager.RunnableFunc(func(ctx context.Context) error {
-			return controller.RemoveLegacyKubernetesBinding(ctx, mgr.GetAPIReader(), mgr.GetClient())
+			// Best effort: a failed cleanup is logged and retried at the next start, and does
+			// not stop the operator.
+			if err := controller.RemoveLegacyKubernetesBinding(ctx, mgr.GetAPIReader(), mgr.GetClient()); err != nil {
+				setupLog.Error(err, "could not remove the legacy Kubernetes MCP binding")
+			}
+			if err := controller.RemoveReadConsentBindings(ctx, mgr.GetAPIReader(), mgr.GetClient()); err != nil {
+				setupLog.Error(err, "could not remove the namespace read-consent bindings")
+			}
+			return nil
 		})},
 		// Deletes server-state entries no ModelServer owns, once at start.
 		{"server state sweep", &controller.ServerStateSweeper{
@@ -423,9 +432,6 @@ func main() {
 		}).SetupWithManager},
 		{"NotificationSink", (&controller.NotificationSinkReconciler{
 			Client: mgr.GetClient(), Scheme: mgr.GetScheme(),
-		}).SetupWithManager},
-		{"KubernetesReadConsent", (&controller.ReadConsentReconciler{
-			Client: mgr.GetClient(), Recorder: mgr.GetEventRecorder("read-consent"),
 		}).SetupWithManager},
 		{"Namespace", (&controller.NamespaceReconciler{
 			Client: mgr.GetClient(), ConfigCache: configCache, NetPol: netPol, APIReader: mgr.GetAPIReader(),

@@ -2522,13 +2522,6 @@ spec:
                 description: Phase is the current lifecycle phase (Pending, Deploying,
                   Ready, Error)
                 type: string
-              readConsentNamespaces:
-                description: |-
-                  ReadConsentNamespaces is the number of namespaces that carry the label
-                  kubemoot.ai/crew-read=true and so let this server read them. Set only on a server
-                  with the kubernetes capability. Zero means the server reads no namespace.
-                format: int32
-                type: integer
               ready:
                 description: Ready indicates if the MCP server is ready to accept
                   connections

@@ -228,28 +228,27 @@ release. This is how the reference deployment runs Kubemoot.
 
 ## Upgrading
 
-### Kubernetes MCP server reads only labeled namespaces
+### Kubernetes MCP servers get their access from the crew chart
 
 Earlier releases bound the operator chart's Kubernetes MCP server to a ClusterRole in every
-namespace (`kubemoot-kubernetes-mcp-binding`). The chart no longer renders that binding, so
-`helm upgrade` removes it, and the operator also deletes a leftover binding of that name when it
-starts. You do not delete it by hand.
+namespace (`kubemoot-kubernetes-mcp-binding`), and a later release bound crews' Kubernetes MCP
+servers from namespace labels (`kubemoot.ai/crew-read`, `crew-read-secrets`, `crew-write`).
+The operator now grants neither. A crew grants its own tool servers' access with a
+ServiceAccount, roles and bindings in its chart, so upgrade in this order:
 
-After the upgrade, Kubernetes MCP servers read only namespaces that carry the label
-`kubemoot.ai/crew-read=true`. Label every namespace you want read, before or together with
-the upgrade:
+1. Upgrade each crew chart, listing the namespaces its Kubernetes servers should read (for the
+   reference crew, `kubernetesAccess.namespaces`; see its
+   [cluster permissions](https://github.com/kubemoot/crews/blob/main/homelab-pilot-crew/README.md#cluster-permissions)).
+2. Upgrade the operator. When it starts it deletes the cluster-wide
+   `kubemoot-kubernetes-mcp-binding`, the RoleBindings the label controller made (labels
+   `app.kubernetes.io/managed-by=kubemoot-operator` and
+   `app.kubernetes.io/component=kubernetes-mcp-read-consent`) and the
+   `kubemoot-kubernetes-mcp-namespaces` ClusterRoleBinding. You do not delete them by hand. Upgrading
+   the operator before the crew chart leaves the crew without read access until the chart is
+   upgraded.
+3. Remove the namespace labels. They do nothing now.
 
-```bash
-kubectl label namespace kube-system team-a team-b kubemoot.ai/crew-read=true
-```
-
-In GitOps, put the label in the Namespace manifest. For a namespace your manifests do not
-declare (`kube-system`, `default`), add a Namespace manifest that holds only the label and the
-annotation `kustomize.toolkit.fluxcd.io/prune: disabled`. Flux applies it server-side, so it adds
-the label without taking over the namespace, and the annotation stops a pruning Kustomization
-from ever deleting it. An install with no labeled namespace keeps working, and
-shows `status.readConsentNamespaces: 0` and a `NoReadConsent` event on the server. See
-[Namespaces a Kubernetes tool may read](../../concepts/secrets-and-tools/#namespaces-a-kubernetes-tool-may-read).
+See [Namespaces a Kubernetes tool may read](../../concepts/secrets-and-tools/#namespaces-a-kubernetes-tool-may-read).
 
 The MCPServer create and update rights the chart gave that server cluster-wide now apply in the
 release namespace only.

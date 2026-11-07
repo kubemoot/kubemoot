@@ -268,7 +268,6 @@ crew's gateway and the operator to the server's port.
 | `tools` | []MCPTool | Discovered tool names and descriptions |
 | `discoverable` | bool | Registered with at least one gateway |
 | `registeredWith` | []RegistryStatus | Gateway registration details |
-| `readConsentNamespaces` | int32 | Set on a server with the `kubernetes` capability: how many namespaces carry `kubemoot.ai/crew-read=true`. `0` means the server reads no namespace. See [Namespaces a Kubernetes tool may read](../../concepts/secrets-and-tools/#namespaces-a-kubernetes-tool-may-read) |
 | `conditions` | []Condition | `Ready`; `ImageResolved` on a managed server (False with the reason when `kubemootImage` cannot resolve); `CredentialReady` on an external server with `registry.authSecretRef`; `EgressEnforced` when the server sets `egress` and the operator generates network policies (False with reason `FQDNNotSupported` when the CNI cannot enforce `allowedHosts`, or `ServiceNotResolved` when an `allowedServices` entry has no Service, no pod selector or no matching port yet); `RuntimeClassAvailable` on a managed server that asks for a RuntimeClass (`True` when the class exists, `False` with reason `RuntimeClassMissing` and phase `Pending` when it does not) |
 
 ## Examples
@@ -305,20 +304,11 @@ spec:
       memory: 128Mi
 ```
 
-A server with the `kubernetes` capability reads only namespaces that carry the label
-`kubemoot.ai/crew-read: "true"`. The operator binds the server's `serviceAccountName` in each
-such namespace, so label the namespaces you want it to read:
-
-```bash
-kubectl label namespace team-a kubemoot.ai/crew-read=true
-```
-
-A server that needs Secret reads or write access adds the annotation
-`kubemoot.ai/kubernetes-access` (`secrets`, `secret-get`, `write`, comma separated), and the
-namespace grants each with `kubemoot.ai/crew-read-secrets=true` or `kubemoot.ai/crew-write=true`.
-
-Name the account in `serviceAccountName`: a server that runs as the namespace `default`
-account is never bound. See
+A server with the `kubernetes` capability reads what its ServiceAccount's RBAC allows, and
+the operator grants none of it. The crew chart that deploys the server ships the ServiceAccount,
+its roles, and a RoleBinding in each namespace it should read; whoever creates a RoleBinding in a
+namespace consents for it. Name the account in `serviceAccountName`: a server that runs as the
+namespace `default` account has no access beyond what you bind to `default`. See
 [Namespaces a Kubernetes tool may read](../../concepts/secrets-and-tools/#namespaces-a-kubernetes-tool-may-read).
 
 ### NATS MCP (stdio, strict security)

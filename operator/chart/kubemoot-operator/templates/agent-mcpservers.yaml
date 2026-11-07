@@ -42,8 +42,9 @@ rules:
     resources: ["agents"]
     verbs: ["create", "get", "list", "watch", "update", "patch"]
 ---
-# The creator's rules apply in the release namespace only. Reading other namespaces is
-# per-namespace consent (kubernetes-mcp-read.yaml), never a cluster-wide binding.
+# The creator's rules apply in the release namespace only. This server reads no other
+# namespace until you bind a read role to the kubemoot-kubernetes-mcp ServiceAccount yourself,
+# in each namespace it should read; the operator grants none.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:

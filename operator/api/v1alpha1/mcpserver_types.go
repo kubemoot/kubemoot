@@ -397,12 +397,6 @@ type MCPServerStatus struct {
 	// RegisteredWith lists gateways this MCPServer is registered with
 	// +optional
 	RegisteredWith []RegistryStatus `json:"registeredWith,omitempty"`
-
-	// ReadConsentNamespaces is the number of namespaces that carry the label
-	// kubemoot.ai/crew-read=true and so let this server read them. Set only on a server
-	// with the kubernetes capability. Zero means the server reads no namespace.
-	// +optional
-	ReadConsentNamespaces *int32 `json:"readConsentNamespaces,omitempty"`
 }
 
 // +kubebuilder:object:root=true

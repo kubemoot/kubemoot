@@ -172,76 +172,62 @@ template: upgrading restarts every Agent and MCPServer pod that names no Service
 ## Namespaces a Kubernetes tool may read
 
 A Kubernetes MCP server runs as a ServiceAccount, and what that account may read decides
-what an agent can see through the server. Kubemoot grants that read per namespace, and only
-where the namespace asks for it.
+what an agent can see through the server. The crew that deploys the server grants that
+access, with Kubernetes RBAC and nothing else: the crew chart ships the server's
+ServiceAccount, its roles, and a RoleBinding in each namespace the chart's values list (or one
+ClusterRoleBinding when the values say cluster-wide). Whoever can create a RoleBinding in a
+namespace consents for it, and `kubectl get rolebinding -n team-a` shows the grant. The operator
+creates no binding for these servers and watches no namespace label.
 
-A namespace owner opts in by labeling the namespace:
+The reference crew's values, for example:
 
-```bash
-kubectl label namespace team-a kubemoot.ai/crew-read=true
+```yaml
+kubernetesAccess:
+  namespaces: [team-a, team-b]   # read role bound in each
+  secretRead:
+    namespaces: [team-a]         # Secret reads, per namespace
+  write:
+    namespaces: []               # exec, patch and scale, per namespace
 ```
 
-Only the value `true` counts. Any other value, or no label, means the namespace is not
-readable. The operator then does the rest:
+With no namespace listed and `clusterWide` false the chart binds no read role, and the server
+reads nothing inside a namespace. See the
+[crew's cluster permissions](https://github.com/kubemoot/crews/blob/main/homelab-pilot-crew/README.md#cluster-permissions)
+for the roles and what each reads. Reading Secrets and changing workloads are separate tiers,
+each bound only in the namespaces it lists and off by default. Treat the write tier as also
+exposing Secrets: `pods/exec` reads the Secrets mounted into any pod and the pod's
+ServiceAccount token, and patching a workload can mount any Secret or run it as any
+ServiceAccount in the namespace.
 
-- In each labeled namespace it keeps a RoleBinding named `kubemoot-kubernetes-mcp-read` to the
-  `kubemoot-kubernetes-mcp-read` ClusterRole. The ClusterRole holds reads only: pods, pod
-  logs, services, endpoints, ConfigMaps, events, volume claims, workloads, jobs, ingresses,
-  network policies, autoscalers, Flux releases and sources, and Kubemoot resources. It holds no
-  Secrets, no `exec` and no write verbs.
-- The bound accounts are the `spec.serviceAccountName` of every MCPServer that lists the
-  `kubernetes` capability, in any namespace. A server without its own ServiceAccount runs as
-  `default`, which is never bound, even when a server names it. The label therefore consents
-  to every Kubernetes MCP server in the cluster, not to one crew, so whoever may create an
-  MCPServer with the `kubernetes` capability and name a ServiceAccount is trusted with every
-  labeled namespace. The [use grant](#granting-use-on-a-secret) on ServiceAccounts is the
-  control on which accounts an author may name.
-- When the label is removed or set to anything but `true`, when the namespace is deleted, or
-  when the last Kubernetes MCP server goes, the operator deletes the RoleBinding. It deletes
-  only a RoleBinding that carries its own labels.
-- It keeps one ClusterRoleBinding, `kubemoot-kubernetes-mcp-namespaces`, to a ClusterRole that
-  grants `get`, `list` and `watch` on `namespaces` and nothing else. The namespace list is
-  cluster-scoped, so a RoleBinding cannot grant it. A server can therefore see that a
-  namespace exists without reading anything in it.
+Kinds that exist only cluster-wide (the namespace list, nodes, volumes, storage classes, CRDs,
+cluster RBAC objects) cannot be granted by a RoleBinding. The crew chart binds a small
+read-only ClusterRole of just those kinds, and names the agent that reads each.
 
-The operator may bind exactly five ClusterRoles, by name (`bind` with `resourceNames`): the
-read role, the namespace-list role and the three opt-in roles below, so it cannot hand out
-any other role through this path. A compromised operator could still bind those five in any
-namespace, labeled or not.
+Writing your own crew or MCPServer with the `kubernetes` capability follows the same pattern:
+ship the ServiceAccount, the roles and the bindings with it, scoped to what the tools need.
+The operator's internal `kubernetes-mcp` server (`internalAgents`) reads only its own
+namespace's Kubemoot resources until you bind a read role to its ServiceAccount in the
+namespaces it should read.
 
-### Secrets and write access
+### Upgrading from namespace labels
 
-Reading Secrets and changing workloads are separate consents, each with its own label, and a
-server must also ask for the access. A label alone binds nobody, and the server's request
-alone grants nothing:
+Earlier releases granted this access from the namespace labels `kubemoot.ai/crew-read`,
+`kubemoot.ai/crew-read-secrets` and `kubemoot.ai/crew-write` and the MCPServer annotation
+`kubemoot.ai/kubernetes-access`. They do nothing now. Upgrade in this order:
 
-| Namespace label | Annotation word on the MCPServer | Role bound there | Grants |
-|---|---|---|---|
-| `kubemoot.ai/crew-read-secrets=true` | `secrets` | `kubemoot-kubernetes-mcp-secrets` | `get`, `list`, `watch` on Secrets |
-| `kubemoot.ai/crew-read-secrets=true` | `secret-get` | `kubemoot-kubernetes-mcp-secret-get` | `get` on Secrets, for a server that checks one named Secret |
-| `kubemoot.ai/crew-write=true` | `write` | `kubemoot-kubernetes-mcp-write` | `pods/exec` create; patch and scale on workloads |
+1. Upgrade the crew chart. Its own bindings appear in the namespaces you list, next to the
+   operator's old ones.
+2. Upgrade the operator. When it starts it deletes the RoleBindings the label controller made
+   (labels `app.kubernetes.io/managed-by=kubemoot-operator` and
+   `app.kubernetes.io/component=kubernetes-mcp-read-consent`) and the
+   `kubemoot-kubernetes-mcp-namespaces` ClusterRoleBinding; later starts find nothing to delete.
+   A binding without the operator's labels stays. Upgrading the operator first leaves the crew with no read access until the crew
+   chart is upgraded.
+3. Remove the three labels from your namespaces when convenient. They are inert.
 
-Treat `crew-write` as also exposing Secrets: `pods/exec` reads the Secrets mounted into any
-pod and the pod's ServiceAccount token, and patching a workload can mount any Secret or run it
-as any ServiceAccount in the namespace. Consent is cluster-wide, not per crew: every server
-that asks, in any namespace, is bound in every namespace that carries the label, so whoever
-may create such an MCPServer and name a ServiceAccount is trusted with all of them.
-
-A server asks with the annotation `kubemoot.ai/kubernetes-access`, a comma separated list of
-the words above (an unknown word is ignored), for example `kubemoot.ai/kubernetes-access: "secrets,write"`. The namespace
-owner decides whether the access exists at all.
-
-To see how many namespaces consent, read the count on the server:
-
-```bash
-kubectl get mcpserver -A -o custom-columns=NS:.metadata.namespace,NAME:.metadata.name,NAMESPACES:.status.readConsentNamespaces
-```
-
-`0` means the server reads no namespace. The operator also records a `NoReadConsent` event
-on the server in that case and a `ReadConsent` event when the count changes.
-
-Cluster-scoped kinds beyond the namespace list (nodes, volumes, storage classes, CRDs) are
-not granted here. A crew whose server needs them grants them in its own chart.
+The `status.readConsentNamespaces` field and the `NoReadConsent` event are gone with the
+controller. The count came from labels and has no replacement: the crew chart's own bindings show the grant, and a
+render that lists no namespace says so in the chart notes.
 
 ## Target design
 
