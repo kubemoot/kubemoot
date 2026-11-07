@@ -245,6 +245,7 @@ rules:
   resources:
   - clusterrolebindings
   - clusterroles
+  - rolebindings
   verbs:
   - create
   - delete
@@ -255,8 +256,16 @@ rules:
   - watch
 - apiGroups:
   - rbac.authorization.k8s.io
+  resourceNames:
+  - kubemoot-kubernetes-mcp-namespaces
+  - kubemoot-kubernetes-mcp-read
   resources:
-  - rolebindings
+  - clusterroles
+  verbs:
+  - bind
+- apiGroups:
+  - rbac.authorization.k8s.io
+  resources:
   - roles
   verbs:
   - create

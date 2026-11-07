@@ -169,6 +169,56 @@ whose spec names a ServiceAccount keeps the Kubernetes default, because that acc
 to call the API and its RBAC bounds the pod. This is not behind a flag, and it changes the pod
 template: upgrading restarts every Agent and MCPServer pod that names no ServiceAccount, once.
 
+## Namespaces a Kubernetes tool may read
+
+A Kubernetes MCP server runs as a ServiceAccount, and what that account may read decides
+what an agent can see through the server. Kubemoot grants that read per namespace, and only
+where the namespace asks for it.
+
+A namespace owner opts in by labeling the namespace:
+
+```bash
+kubectl label namespace team-a kubemoot.ai/crew-read=true
+```
+
+Only the value `true` counts. Any other value, or no label, means the namespace is not
+readable. The operator then does the rest:
+
+- In each labeled namespace it keeps a RoleBinding named `kubemoot-kubernetes-mcp-read` to the
+  `kubemoot-kubernetes-mcp-read` ClusterRole. The ClusterRole holds reads only: pods, pod
+  logs, services, endpoints, ConfigMaps, events, volume claims, workloads, jobs, ingresses,
+  network policies, autoscalers, Flux releases and sources, and Kubemoot resources. It holds no
+  Secrets, no `exec` and no write verbs.
+- The bound accounts are the `spec.serviceAccountName` of every MCPServer that lists the
+  `kubernetes` capability, in any namespace. A server without its own ServiceAccount runs as
+  `default`, which is never bound, even when a server names it. The label therefore consents
+  to every Kubernetes MCP server in the cluster, not to one crew, so whoever may create an
+  MCPServer with the `kubernetes` capability and name a ServiceAccount is trusted with every
+  labeled namespace. The [use grant](#granting-use-on-a-secret) on ServiceAccounts is the
+  control on which accounts an author may name.
+- When the label is removed or set to anything but `true`, when the namespace is deleted, or
+  when the last Kubernetes MCP server goes, the operator deletes the RoleBinding. It deletes
+  only a RoleBinding that carries its own labels.
+- It keeps one ClusterRoleBinding, `kubemoot-kubernetes-mcp-namespaces`, to a ClusterRole that
+  grants `get`, `list` and `watch` on `namespaces` and nothing else. The namespace list is
+  cluster-scoped, so a RoleBinding cannot grant it. A server can therefore see that a
+  namespace exists without reading anything in it.
+
+The operator may bind exactly two ClusterRoles, by name (`bind` with `resourceNames`), so it
+cannot hand out any other role through this path.
+
+To see how many namespaces consent, read the count on the server:
+
+```bash
+kubectl get mcpserver -A -o custom-columns=NS:.metadata.namespace,NAME:.metadata.name,NAMESPACES:.status.readConsentNamespaces
+```
+
+`0` means the server reads no namespace. The operator also records a `NoReadConsent` event
+on the server in that case and a `ReadConsent` event when the count changes.
+
+Cluster-scoped kinds beyond the namespace list (nodes, volumes, storage classes, CRDs) are
+not granted here. A crew whose server needs them grants them in its own chart.
+
 ## Target design
 
 Closing the gap uses Kubernetes authorization and admission, with nothing new invented.
