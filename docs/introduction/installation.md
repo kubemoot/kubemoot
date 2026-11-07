@@ -226,6 +226,34 @@ pointed at an `OCIRepository`, rather than installed imperatively. Set
 `install.crds: Create` and `upgrade.crds: CreateReplace` so CRDs are managed with the
 release. This is how the reference deployment runs Kubemoot.
 
+## Upgrading
+
+### Kubernetes MCP server reads only labeled namespaces
+
+Earlier releases bound the operator chart's Kubernetes MCP server to a ClusterRole in every
+namespace (`kubemoot-kubernetes-mcp-binding`). The chart no longer renders that binding, so
+`helm upgrade` removes it, and the operator also deletes a leftover binding of that name when it
+starts. You do not delete it by hand.
+
+After the upgrade, Kubernetes MCP servers read only namespaces that carry the label
+`kubemoot.ai/crew-read=true`. Label every namespace you want read, before or together with
+the upgrade:
+
+```bash
+kubectl label namespace kube-system team-a team-b kubemoot.ai/crew-read=true
+```
+
+In GitOps, put the label in the Namespace manifest. For a namespace your manifests do not
+declare (`kube-system`, `default`), add a Namespace manifest that holds only the label and the
+annotation `kustomize.toolkit.fluxcd.io/prune: disabled`. Flux applies it server-side, so it adds
+the label without taking over the namespace, and the annotation stops a pruning Kustomization
+from ever deleting it. An install with no labeled namespace keeps working, and
+shows `status.readConsentNamespaces: 0` and a `NoReadConsent` event on the server. See
+[Namespaces a Kubernetes tool may read](../../concepts/secrets-and-tools/#namespaces-a-kubernetes-tool-may-read).
+
+The MCPServer create and update rights the chart gave that server cluster-wide now apply in the
+release namespace only.
+
 ## Verify
 
 ```bash

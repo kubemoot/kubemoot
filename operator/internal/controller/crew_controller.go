@@ -453,7 +453,7 @@ func (r *CrewReconciler) reconcileRBAC(ctx context.Context, crew *kubemootv1alph
 		crb.Labels = r.buildLabels(crew)
 		crb.RoleRef = rbacv1.RoleRef{
 			APIGroup: "rbac.authorization.k8s.io",
-			Kind:     "ClusterRole",
+			Kind:     kindClusterRole,
 			Name:     crName,
 		}
 		crb.Subjects = []rbacv1.Subject{

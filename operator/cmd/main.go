@@ -108,6 +108,10 @@ func mustAddRunnables(mgr ctrl.Manager, natsPublisher *kubemootnats.Publisher) {
 			Publisher:     natsPublisher,
 			DashboardBase: os.Getenv("KUBEMOOT_DASHBOARD_BASE"),
 		}},
+		// Removes the cluster-wide Kubernetes MCP ClusterRoleBinding earlier releases made.
+		{"legacy kubernetes binding cleanup", manager.RunnableFunc(func(ctx context.Context) error {
+			return controller.RemoveLegacyKubernetesBinding(ctx, mgr.GetAPIReader(), mgr.GetClient())
+		})},
 		// Deletes server-state entries no ModelServer owns, once at start.
 		{"server state sweep", &controller.ServerStateSweeper{
 			Reader: mgr.GetAPIReader(),
@@ -419,6 +423,9 @@ func main() {
 		}).SetupWithManager},
 		{"NotificationSink", (&controller.NotificationSinkReconciler{
 			Client: mgr.GetClient(), Scheme: mgr.GetScheme(),
+		}).SetupWithManager},
+		{"KubernetesReadConsent", (&controller.ReadConsentReconciler{
+			Client: mgr.GetClient(), Recorder: mgr.GetEventRecorder("read-consent"),
 		}).SetupWithManager},
 		{"Namespace", (&controller.NamespaceReconciler{
 			Client: mgr.GetClient(), ConfigCache: configCache, NetPol: netPol, APIReader: mgr.GetAPIReader(),
