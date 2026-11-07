@@ -259,6 +259,9 @@ rules:
   resourceNames:
   - kubemoot-kubernetes-mcp-namespaces
   - kubemoot-kubernetes-mcp-read
+  - kubemoot-kubernetes-mcp-secret-get
+  - kubemoot-kubernetes-mcp-secrets
+  - kubemoot-kubernetes-mcp-write
   resources:
   - clusterroles
   verbs:

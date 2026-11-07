@@ -204,8 +204,32 @@ readable. The operator then does the rest:
   cluster-scoped, so a RoleBinding cannot grant it. A server can therefore see that a
   namespace exists without reading anything in it.
 
-The operator may bind exactly two ClusterRoles, by name (`bind` with `resourceNames`), so it
-cannot hand out any other role through this path.
+The operator may bind exactly five ClusterRoles, by name (`bind` with `resourceNames`): the
+read role, the namespace-list role and the three opt-in roles below, so it cannot hand out
+any other role through this path. A compromised operator could still bind those five in any
+namespace, labeled or not.
+
+### Secrets and write access
+
+Reading Secrets and changing workloads are separate consents, each with its own label, and a
+server must also ask for the access. A label alone binds nobody, and the server's request
+alone grants nothing:
+
+| Namespace label | Annotation word on the MCPServer | Role bound there | Grants |
+|---|---|---|---|
+| `kubemoot.ai/crew-read-secrets=true` | `secrets` | `kubemoot-kubernetes-mcp-secrets` | `get`, `list`, `watch` on Secrets |
+| `kubemoot.ai/crew-read-secrets=true` | `secret-get` | `kubemoot-kubernetes-mcp-secret-get` | `get` on Secrets, for a server that checks one named Secret |
+| `kubemoot.ai/crew-write=true` | `write` | `kubemoot-kubernetes-mcp-write` | `pods/exec` create; patch and scale on workloads |
+
+Treat `crew-write` as also exposing Secrets: `pods/exec` reads the Secrets mounted into any
+pod and the pod's ServiceAccount token, and patching a workload can mount any Secret or run it
+as any ServiceAccount in the namespace. Consent is cluster-wide, not per crew: every server
+that asks, in any namespace, is bound in every namespace that carries the label, so whoever
+may create such an MCPServer and name a ServiceAccount is trusted with all of them.
+
+A server asks with the annotation `kubemoot.ai/kubernetes-access`, a comma separated list of
+the words above (an unknown word is ignored), for example `kubemoot.ai/kubernetes-access: "secrets,write"`. The namespace
+owner decides whether the access exists at all.
 
 To see how many namespaces consent, read the count on the server:
 

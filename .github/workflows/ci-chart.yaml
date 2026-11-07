@@ -56,6 +56,8 @@ jobs:
         run: operator/chart/test-secret-use-grants.sh
       - name: Verify runner RBAC render tests
         run: operator/chart/test-verify-rbac.sh
+      - name: Kubernetes MCP read RBAC render tests
+        run: operator/chart/test-kubernetes-mcp-read.sh
       - name: Network policy render tests
         run: operator/chart/test-network-policies.sh
       - name: Observability tests (dashboards and scraping)

@@ -54,6 +54,21 @@ const (
 	// kubernetesReadRole is the chart's ClusterRole with the namespaced reads. A RoleBinding
 	// in a consenting namespace grants it there and nowhere else.
 	kubernetesReadRole = "kubemoot-kubernetes-mcp-read"
+	// labelSecretsConsent on a Namespace consents to Secret reads, and labelWriteConsent to
+	// pod exec and workload patch and scale, by the Kubernetes MCP servers that ask for them
+	// with the annotation annoKubernetesAccess.
+	labelSecretsConsent = "kubemoot.ai/crew-read-secrets"
+	labelWriteConsent   = "kubemoot.ai/crew-write"
+	// annoKubernetesAccess on an MCPServer lists, comma separated, the extra access it asks for:
+	// secrets (get, list, watch), secret-get (get) and write. A namespace grants each only with
+	// its own label; the annotation alone grants nothing.
+	annoKubernetesAccess = "kubemoot.ai/kubernetes-access"
+
+	// The chart's opt-in ClusterRoles. Each RoleBinding carries the name of its role.
+	roleSecrets   = "kubemoot-kubernetes-mcp-secrets"
+	roleSecretGet = "kubemoot-kubernetes-mcp-secret-get"
+	roleWrite     = "kubemoot-kubernetes-mcp-write"
+
 	// kubernetesNamespacesRole is the chart's ClusterRole that lets a server list namespaces,
 	// which is cluster-scoped and cannot be granted by a RoleBinding.
 	kubernetesNamespacesRole = "kubemoot-kubernetes-mcp-namespaces"
@@ -79,12 +94,34 @@ const (
 	legacyKubernetesAccount = "kubemoot-kubernetes-mcp"
 )
 
-// ReadConsentReconciler grants the Kubernetes MCP servers read access to the namespaces
-// that consent to it, and to no others. A namespace consents with the label
-// kubemoot.ai/crew-read=true. The reconciler keeps a RoleBinding to the read ClusterRole
-// in each consenting namespace, bound to the ServiceAccount of every Kubernetes MCP server,
-// removes it when the namespace stops consenting, and keeps a ClusterRoleBinding that
-// lets those ServiceAccounts list namespaces. It reports the count of consenting
+// consentTier is one level of access a namespace can consent to: a ClusterRole, the
+// namespace label that consents, the RoleBinding that carries it, and which servers it binds.
+type consentTier struct {
+	label   string
+	role    string
+	binding string
+	// token is the word in annoKubernetesAccess that asks for the tier. Empty binds every
+	// Kubernetes MCP server.
+	token string
+}
+
+var consentTiers = []consentTier{
+	{label: labelReadConsent, role: kubernetesReadRole, binding: kubernetesReadBinding},
+	{label: labelSecretsConsent, role: roleSecrets, binding: roleSecrets, token: "secrets"},
+	{label: labelSecretsConsent, role: roleSecretGet, binding: roleSecretGet, token: "secret-get"},
+	{label: labelWriteConsent, role: roleWrite, binding: roleWrite, token: "write"},
+}
+
+// ReadConsentReconciler grants the Kubernetes MCP servers access to the namespaces that
+// consent to it, and to no others. A namespace consents with the label
+// kubemoot.ai/crew-read=true for reads, kubemoot.ai/crew-read-secrets=true for Secrets and
+// kubemoot.ai/crew-write=true for exec and workload changes. For each tier the reconciler keeps
+// a RoleBinding to the tier's ClusterRole in each consenting namespace, bound to the
+// ServiceAccount of every Kubernetes MCP server (for Secrets and write, of every server that
+// also asks for it with the annotation), removes it when the namespace stops consenting, and
+// keeps a ClusterRoleBinding that lets those ServiceAccounts list namespaces. Consent is
+// cluster-wide: a consenting namespace is open to every server that qualifies, from any
+// namespace. It reports the count of consenting
 // namespaces on each Kubernetes MCP server.
 type ReadConsentReconciler struct {
 	client.Client
@@ -94,7 +131,7 @@ type ReadConsentReconciler struct {
 
 // +kubebuilder:rbac:groups=core,resources=namespaces,verbs=get;list;watch
 // +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=rolebindings,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=clusterroles,verbs=bind,resourceNames=kubemoot-kubernetes-mcp-read;kubemoot-kubernetes-mcp-namespaces
+// +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=clusterroles,verbs=bind,resourceNames=kubemoot-kubernetes-mcp-read;kubemoot-kubernetes-mcp-namespaces;kubemoot-kubernetes-mcp-secrets;kubemoot-kubernetes-mcp-secret-get;kubemoot-kubernetes-mcp-write
 // +kubebuilder:rbac:groups=kubemoot.ai,resources=mcpservers,verbs=get;list;watch
 // +kubebuilder:rbac:groups=kubemoot.ai,resources=mcpservers/status,verbs=get;update;patch
 
@@ -105,11 +142,10 @@ func (r *ReadConsentReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
-	subjects := serverSubjects(servers)
 	if req.Name == readConsentCluster {
-		err = r.syncCluster(ctx, subjects)
+		err = r.syncCluster(ctx, servers)
 	} else {
-		err = r.syncNamespace(ctx, req.Name, subjects)
+		err = r.syncNamespace(ctx, req.Name, servers)
 	}
 	if err != nil {
 		return ctrl.Result{}, err
@@ -140,11 +176,11 @@ func isKubernetesServer(s *kubemootv1alpha1.MCPServer) bool {
 // serverSubjects returns, sorted and without repeats, the ServiceAccounts the servers run
 // as. A server without its own ServiceAccount runs as the namespace default, which is
 // never bound, whether the server names it or leaves the field empty.
-func serverSubjects(servers []kubemootv1alpha1.MCPServer) []rbacv1.Subject {
+func serverSubjects(servers []kubemootv1alpha1.MCPServer, token string) []rbacv1.Subject {
 	seen := map[string]rbacv1.Subject{}
 	for i := range servers {
 		name := servers[i].Spec.ServiceAccountName
-		if name == "" || name == defaultServiceAccount {
+		if name == "" || name == defaultServiceAccount || !asksFor(&servers[i], token) {
 			continue
 		}
 		subject := rbacv1.Subject{Kind: rbacv1.ServiceAccountKind, Name: name, Namespace: servers[i].Namespace}
@@ -160,52 +196,98 @@ func serverSubjects(servers []kubemootv1alpha1.MCPServer) []rbacv1.Subject {
 	return out
 }
 
-// consents reports whether the namespace grants read consent: the label is "true" and the
-// namespace is not being deleted.
-func consents(obj client.Object) bool {
-	return obj.GetLabels()[labelReadConsent] == readConsentGranted && obj.GetDeletionTimestamp().IsZero()
+// asksFor reports whether the server asks for the access token. The empty token is asked
+// for by every server.
+func asksFor(s *kubemootv1alpha1.MCPServer, token string) bool {
+	if token == "" {
+		return true
+	}
+	for _, word := range strings.Split(s.Annotations[annoKubernetesAccess], ",") {
+		if strings.TrimSpace(word) == token {
+			return true
+		}
+	}
+	return false
 }
 
-// syncNamespace brings one namespace's RoleBinding in line with its consent.
-func (r *ReadConsentReconciler) syncNamespace(ctx context.Context, name string, subjects []rbacv1.Subject) error {
+// consentsTo reports whether the namespace carries the label with the value "true" and is
+// not being deleted.
+func consentsTo(obj client.Object, label string) bool {
+	return obj.GetLabels()[label] == readConsentGranted && obj.GetDeletionTimestamp().IsZero()
+}
+
+// anyConsent reports whether the namespace consents to at least one tier.
+func anyConsent(obj client.Object) bool {
+	return strings.Contains(consentState(obj), "1")
+}
+
+// consentState summarizes which tiers the namespace consents to, to compare two versions.
+func consentState(obj client.Object) string {
+	var b strings.Builder
+	for _, t := range consentTiers {
+		if consentsTo(obj, t.label) {
+			b.WriteString("1")
+		} else {
+			b.WriteString("0")
+		}
+	}
+	return b.String()
+}
+
+// syncNamespace brings one namespace's RoleBindings in line with its consent, tier by tier.
+func (r *ReadConsentReconciler) syncNamespace(ctx context.Context, name string, servers []kubemootv1alpha1.MCPServer) error {
 	ns := &corev1.Namespace{}
 	if err := r.Get(ctx, types.NamespacedName{Name: name}, ns); err != nil {
-		// A deleted namespace takes its RoleBinding with it.
+		// A deleted namespace takes its RoleBindings with it.
 		return client.IgnoreNotFound(err)
 	}
-	if consents(ns) {
-		return r.ensureReadBinding(ctx, name, subjects)
-	}
-	return r.removeBinding(ctx, &rbacv1.RoleBinding{ObjectMeta: metav1.ObjectMeta{Name: kubernetesReadBinding, Namespace: name}})
-}
-
-// syncCluster keeps the namespaces ClusterRoleBinding, every consenting namespace's
-// RoleBinding, and removes RoleBindings left in namespaces that no longer consent.
-func (r *ReadConsentReconciler) syncCluster(ctx context.Context, subjects []rbacv1.Subject) error {
-	if err := r.ensureNamespacesBinding(ctx, subjects); err != nil {
-		return err
-	}
-	consenting, err := r.consentingNamespaces(ctx)
-	if err != nil {
-		return err
-	}
-	for _, name := range consenting {
-		if err := r.ensureReadBinding(ctx, name, subjects); err != nil {
+	for _, tier := range consentTiers {
+		var err error
+		if consentsTo(ns, tier.label) {
+			err = r.ensureTierBinding(ctx, tier, name, serverSubjects(servers, tier.token))
+		} else {
+			err = r.removeBinding(ctx, &rbacv1.RoleBinding{ObjectMeta: metav1.ObjectMeta{Name: tier.binding, Namespace: name}})
+		}
+		if err != nil {
 			return err
 		}
 	}
-	return r.removeStaleBindings(ctx, consenting)
+	return nil
 }
 
-// consentingNamespaces lists, sorted, the namespaces that grant read consent.
-func (r *ReadConsentReconciler) consentingNamespaces(ctx context.Context) ([]string, error) {
+// syncCluster keeps the namespaces ClusterRoleBinding, every consenting namespace's
+// RoleBindings, and removes RoleBindings left in namespaces that no longer consent.
+func (r *ReadConsentReconciler) syncCluster(ctx context.Context, servers []kubemootv1alpha1.MCPServer) error {
+	if err := r.ensureNamespacesBinding(ctx, serverSubjects(servers, "")); err != nil {
+		return err
+	}
+	for _, tier := range consentTiers {
+		consenting, err := r.consentingNamespaces(ctx, tier.label)
+		if err != nil {
+			return err
+		}
+		subjects := serverSubjects(servers, tier.token)
+		for _, name := range consenting {
+			if err := r.ensureTierBinding(ctx, tier, name, subjects); err != nil {
+				return err
+			}
+		}
+		if err := r.removeStaleBindings(ctx, tier.binding, consenting); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// consentingNamespaces lists, sorted, the namespaces that carry the label with the value true.
+func (r *ReadConsentReconciler) consentingNamespaces(ctx context.Context, label string) ([]string, error) {
 	list := &corev1.NamespaceList{}
-	if err := r.List(ctx, list, client.MatchingLabels{labelReadConsent: readConsentGranted}); err != nil {
+	if err := r.List(ctx, list, client.MatchingLabels{label: readConsentGranted}); err != nil {
 		return nil, fmt.Errorf("list namespaces: %w", err)
 	}
 	var out []string
 	for i := range list.Items {
-		if consents(&list.Items[i]) {
+		if consentsTo(&list.Items[i], label) {
 			out = append(out, list.Items[i].Name)
 		}
 	}
@@ -217,13 +299,13 @@ func readConsentLabels() map[string]string {
 	return map[string]string{labelManagedBy: managedByValue, labelComponent: readConsentComponent}
 }
 
-// ensureReadBinding makes the RoleBinding in a consenting namespace. With no Kubernetes MCP
-// server there is nobody to bind, so it removes the binding instead.
-func (r *ReadConsentReconciler) ensureReadBinding(ctx context.Context, namespace string, subjects []rbacv1.Subject) error {
-	binding := &rbacv1.RoleBinding{ObjectMeta: metav1.ObjectMeta{Name: kubernetesReadBinding, Namespace: namespace}}
+// ensureTierBinding makes the tier's RoleBinding in a consenting namespace. With no server
+// that asks for the tier there is nobody to bind, so it removes the binding instead.
+func (r *ReadConsentReconciler) ensureTierBinding(ctx context.Context, tier consentTier, namespace string, subjects []rbacv1.Subject) error {
+	binding := &rbacv1.RoleBinding{ObjectMeta: metav1.ObjectMeta{Name: tier.binding, Namespace: namespace}}
 	return r.ensureBinding(ctx, binding, subjects, func() {
 		binding.Subjects = subjects
-		binding.RoleRef = rbacv1.RoleRef{APIGroup: rbacv1.GroupName, Kind: kindClusterRole, Name: kubernetesReadRole}
+		binding.RoleRef = rbacv1.RoleRef{APIGroup: rbacv1.GroupName, Kind: kindClusterRole, Name: tier.role}
 	})
 }
 
@@ -270,15 +352,15 @@ func (r *ReadConsentReconciler) removeBinding(ctx context.Context, binding clien
 	return client.IgnoreNotFound(r.Delete(ctx, binding))
 }
 
-// removeStaleBindings deletes read-consent RoleBindings in every namespace not in keep.
-func (r *ReadConsentReconciler) removeStaleBindings(ctx context.Context, keep []string) error {
+// removeStaleBindings deletes the RoleBindings of that name in every namespace not in keep.
+func (r *ReadConsentReconciler) removeStaleBindings(ctx context.Context, name string, keep []string) error {
 	bindings := &rbacv1.RoleBindingList{}
 	if err := r.List(ctx, bindings, client.MatchingLabels{labelComponent: readConsentComponent}); err != nil {
 		return fmt.Errorf("list role bindings: %w", err)
 	}
 	for i := range bindings.Items {
 		b := &bindings.Items[i]
-		if b.Name != kubernetesReadBinding || slices.Contains(keep, b.Namespace) {
+		if b.Name != name || slices.Contains(keep, b.Namespace) {
 			continue
 		}
 		if err := client.IgnoreNotFound(r.Delete(ctx, b)); err != nil {
@@ -294,7 +376,7 @@ func (r *ReadConsentReconciler) report(ctx context.Context, servers []kubemootv1
 	if len(servers) == 0 {
 		return nil
 	}
-	consenting, err := r.consentingNamespaces(ctx)
+	consenting, err := r.consentingNamespaces(ctx, labelReadConsent)
 	if err != nil {
 		return err
 	}
@@ -383,10 +465,10 @@ func roleBindingNamespace(_ context.Context, obj client.Object) []reconcile.Requ
 // whether it consents. Deletion needs no work: the namespace takes its binding with it.
 func consentLabelPredicate() predicate.Funcs {
 	return predicate.Funcs{
-		CreateFunc:  func(e event.CreateEvent) bool { return consents(e.Object) },
-		UpdateFunc:  func(e event.UpdateEvent) bool { return consents(e.ObjectOld) != consents(e.ObjectNew) },
+		CreateFunc:  func(e event.CreateEvent) bool { return anyConsent(e.Object) },
+		UpdateFunc:  func(e event.UpdateEvent) bool { return consentState(e.ObjectOld) != consentState(e.ObjectNew) },
 		DeleteFunc:  func(event.DeleteEvent) bool { return false },
-		GenericFunc: func(e event.GenericEvent) bool { return consents(e.Object) },
+		GenericFunc: func(e event.GenericEvent) bool { return anyConsent(e.Object) },
 	}
 }
 
@@ -415,6 +497,7 @@ func kubernetesServerPredicate() predicate.Funcs {
 			}
 			return isKubernetesServer(oldS) != isKubernetesServer(newS) ||
 				oldS.Spec.ServiceAccountName != newS.Spec.ServiceAccountName ||
+				oldS.Annotations[annoKubernetesAccess] != newS.Annotations[annoKubernetesAccess] ||
 				oldS.DeletionTimestamp.IsZero() != newS.DeletionTimestamp.IsZero()
 		},
 	}
