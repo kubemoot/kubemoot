@@ -233,6 +233,55 @@ var _ = Describe("Kubernetes MCP read consent", func() {
 		Expect(err).NotTo(HaveOccurred())
 	})
 
+	It("binds secrets and write access only where the namespace consents and the server asks", func() {
+		server("rc-reader", "rc-reader-sa", "kubernetes")
+		asker := server("rc-asker", "rc-asker-sa", "kubernetes")
+		asker.Annotations = map[string]string{annoKubernetesAccess: "secrets, write"}
+		Expect(k8sClient.Update(ctx, asker)).To(Succeed())
+		namespace("rc-tiers-read", map[string]string{labelReadConsent: valueTrue})
+		namespace("rc-tiers-all", map[string]string{
+			labelReadConsent: valueTrue, labelSecretsConsent: valueTrue, labelWriteConsent: valueTrue,
+		})
+		reconcileCluster()
+
+		named := func(ns, name string) (*rbacv1.RoleBinding, error) {
+			b := &rbacv1.RoleBinding{}
+			err := k8sClient.Get(ctx, types.NamespacedName{Name: name, Namespace: ns}, b)
+			return b, err
+		}
+		for _, name := range []string{"kubemoot-kubernetes-mcp-secrets", "kubemoot-kubernetes-mcp-secret-get", "kubemoot-kubernetes-mcp-write"} {
+			_, err := named("rc-tiers-read", name)
+			Expect(errors.IsNotFound(err)).To(BeTrue(), name)
+		}
+		secrets, err := named("rc-tiers-all", "kubemoot-kubernetes-mcp-secrets")
+		Expect(err).NotTo(HaveOccurred())
+		Expect(secrets.RoleRef.Name).To(Equal("kubemoot-kubernetes-mcp-secrets"))
+		Expect(secrets.Subjects).To(Equal([]rbacv1.Subject{{Kind: rbacv1.ServiceAccountKind, Name: "rc-asker-sa", Namespace: rcServerNS}}))
+		_, err = named("rc-tiers-all", "kubemoot-kubernetes-mcp-write")
+		Expect(err).NotTo(HaveOccurred())
+		// Nobody asked for secret-get, so no binding.
+		_, err = named("rc-tiers-all", "kubemoot-kubernetes-mcp-secret-get")
+		Expect(errors.IsNotFound(err)).To(BeTrue())
+		// Both servers read.
+		b, err := readBinding("rc-tiers-all")
+		Expect(err).NotTo(HaveOccurred())
+		Expect(b.Subjects).To(HaveLen(2))
+
+		// Withdrawing the secrets label removes that tier and keeps the others.
+		relabel("rc-tiers-all", map[string]string{labelReadConsent: valueTrue, labelWriteConsent: valueTrue})
+		reconcileNS("rc-tiers-all")
+		_, err = named("rc-tiers-all", "kubemoot-kubernetes-mcp-secrets")
+		Expect(errors.IsNotFound(err)).To(BeTrue())
+		_, err = named("rc-tiers-all", "kubemoot-kubernetes-mcp-write")
+		Expect(err).NotTo(HaveOccurred())
+
+		// The cluster-wide sync removes a tier that lost its label while the operator was down.
+		relabel("rc-tiers-all", map[string]string{labelReadConsent: valueTrue})
+		reconcileCluster()
+		_, err = named("rc-tiers-all", "kubemoot-kubernetes-mcp-write")
+		Expect(errors.IsNotFound(err)).To(BeTrue())
+	})
+
 	It("refuses to overwrite a binding of its name that it did not make", func() {
 		server(rcServerName, rcServerSA, "kubernetes")
 		namespace("rc-foreign", map[string]string{labelReadConsent: valueTrue})
@@ -300,14 +349,28 @@ var _ = Describe("Kubernetes MCP read consent triggers", func() {
 		labeled := func(v string) *corev1.Namespace {
 			return &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{labelReadConsent: v}}}
 		}
-		Expect(consents(labeled(valueTrue))).To(BeTrue())
-		Expect(consents(labeled("false"))).To(BeFalse())
-		Expect(consents(labeled("True"))).To(BeFalse())
-		Expect(consents(&corev1.Namespace{})).To(BeFalse())
+		Expect(consentsTo(labeled(valueTrue), labelReadConsent)).To(BeTrue())
+		Expect(consentsTo(labeled("false"), labelReadConsent)).To(BeFalse())
+		Expect(consentsTo(labeled("True"), labelReadConsent)).To(BeFalse())
+		Expect(consentsTo(&corev1.Namespace{}, labelReadConsent)).To(BeFalse())
 		now := metav1.Now()
 		terminating := labeled(valueTrue)
 		terminating.DeletionTimestamp = &now
-		Expect(consents(terminating)).To(BeFalse())
+		Expect(consentsTo(terminating, labelReadConsent)).To(BeFalse())
+	})
+
+	It("reads the access a server asks for from its annotation", func() {
+		s := &aiv1alpha1.MCPServer{ObjectMeta: metav1.ObjectMeta{Annotations: map[string]string{annoKubernetesAccess: "secrets, write"}}}
+		Expect(asksFor(s, "")).To(BeTrue())
+		Expect(asksFor(s, "secrets")).To(BeTrue())
+		Expect(asksFor(s, "write")).To(BeTrue())
+		Expect(asksFor(s, "secret-get")).To(BeFalse())
+		Expect(asksFor(&aiv1alpha1.MCPServer{}, "write")).To(BeFalse())
+		mixed := &aiv1alpha1.MCPServer{ObjectMeta: metav1.ObjectMeta{Annotations: map[string]string{annoKubernetesAccess: "secrets,secret-get,bogus"}}}
+		Expect(asksFor(mixed, "secrets")).To(BeTrue())
+		Expect(asksFor(mixed, "secret-get")).To(BeTrue())
+		Expect(asksFor(mixed, "write")).To(BeFalse())
+		Expect(asksFor(mixed, "bogus")).To(BeTrue())
 	})
 
 	It("lists server accounts sorted and without repeats", func() {
@@ -317,7 +380,7 @@ var _ = Describe("Kubernetes MCP read consent triggers", func() {
 				Spec:       aiv1alpha1.MCPServerSpec{ServiceAccountName: sa},
 			}
 		}
-		got := serverSubjects([]aiv1alpha1.MCPServer{mk("b", "x"), mk("a", "y"), mk("b", "x"), mk("a", "")})
+		got := serverSubjects([]aiv1alpha1.MCPServer{mk("b", "x"), mk("a", "y"), mk("b", "x"), mk("a", "")}, "")
 		Expect(got).To(Equal([]rbacv1.Subject{
 			{Kind: rbacv1.ServiceAccountKind, Name: "y", Namespace: "a"},
 			{Kind: rbacv1.ServiceAccountKind, Name: "x", Namespace: "b"},
@@ -345,6 +408,9 @@ var _ = Describe("Kubernetes MCP read consent predicates", func() {
 		Expect(p.Update(event.UpdateEvent{ObjectOld: ns("false"), ObjectNew: ns(valueTrue)})).To(BeTrue())
 		Expect(p.Update(event.UpdateEvent{ObjectOld: ns(valueTrue), ObjectNew: ns("false")})).To(BeTrue())
 		Expect(p.Update(event.UpdateEvent{ObjectOld: ns(valueTrue), ObjectNew: ns(valueTrue)})).To(BeFalse())
+		withWrite := ns(valueTrue)
+		withWrite.Labels[labelWriteConsent] = valueTrue
+		Expect(p.Update(event.UpdateEvent{ObjectOld: ns(valueTrue), ObjectNew: withWrite})).To(BeTrue())
 		Expect(p.Delete(event.DeleteEvent{Object: ns(valueTrue)})).To(BeFalse())
 	})
 
@@ -358,6 +424,9 @@ var _ = Describe("Kubernetes MCP read consent predicates", func() {
 		Expect(p.Update(event.UpdateEvent{ObjectOld: srv("a", false, "http"), ObjectNew: k})).To(BeTrue())
 		Expect(p.Update(event.UpdateEvent{ObjectOld: k, ObjectNew: srv("a", true, capabilityKubernetes)})).To(BeTrue())
 		Expect(p.Update(event.UpdateEvent{ObjectOld: k, ObjectNew: k.DeepCopy()})).To(BeFalse())
+		asked := k.DeepCopy()
+		asked.Annotations = map[string]string{annoKubernetesAccess: "write"}
+		Expect(p.Update(event.UpdateEvent{ObjectOld: k, ObjectNew: asked})).To(BeTrue())
 		Expect(p.Update(event.UpdateEvent{ObjectOld: srv("a", false, "http"), ObjectNew: srv("b", false, "http")})).To(BeFalse())
 	})
 })

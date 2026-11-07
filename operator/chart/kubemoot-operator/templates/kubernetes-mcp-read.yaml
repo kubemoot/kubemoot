@@ -1,16 +1,22 @@
 {{/*
-Read access for the Kubernetes MCP servers, granted per namespace.
+Access for the Kubernetes MCP servers, granted per namespace.
 
-kubemoot-kubernetes-mcp-read holds namespaced reads only. The operator binds it with a
-RoleBinding in each namespace labeled kubemoot.ai/crew-read=true, to the ServiceAccount of
-every MCPServer that has the kubernetes capability. No Secrets, no exec, no writes.
+The operator binds each role below with a RoleBinding, in each namespace whose owner
+consents with a label, to the ServiceAccount of every MCPServer that has the kubernetes
+capability (and, for the last three, asks for it with the annotation
+kubemoot.ai/kubernetes-access):
 
-kubemoot-kubernetes-mcp-namespaces holds the one cluster-scoped kind the servers need,
-the namespace list itself, which a RoleBinding cannot grant. The operator keeps the
+  kubemoot-kubernetes-mcp-read        label kubemoot.ai/crew-read=true          every server
+  kubemoot-kubernetes-mcp-secrets     label kubemoot.ai/crew-read-secrets=true  annotation word: secrets
+  kubemoot-kubernetes-mcp-secret-get  label kubemoot.ai/crew-read-secrets=true  annotation word: secret-get
+  kubemoot-kubernetes-mcp-write       label kubemoot.ai/crew-write=true         annotation word: write
+
+kubemoot-kubernetes-mcp-namespaces holds the one cluster-scoped kind every server needs, the
+namespace list itself, which a RoleBinding cannot grant. The operator keeps the
 ClusterRoleBinding of the same name. Nodes, volumes and other cluster-scoped kinds are not
-granted here; a crew that needs them grants them itself.
+granted here; a crew that needs them grants them itself, read-only, in its own chart.
 
-The operator holds `bind` on these two names only (see rbac.yaml).
+The operator holds `bind` on these names only (see rbac.yaml).
 */}}
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
@@ -20,16 +26,25 @@ metadata:
     {{- include "kubemoot-operator.labels" . | nindent 4 }}
 rules:
   - apiGroups: [""]
-    resources: ["pods", "services", "endpoints", "configmaps", "events", "persistentvolumeclaims"]
+    resources: ["pods", "services", "endpoints", "configmaps", "events", "persistentvolumeclaims", "serviceaccounts", "resourcequotas", "limitranges", "replicationcontrollers"]
     verbs: ["get", "list", "watch"]
   - apiGroups: [""]
     resources: ["pods/log"]
     verbs: ["get", "list"]
+  - apiGroups: ["discovery.k8s.io"]
+    resources: ["endpointslices"]
+    verbs: ["get", "list", "watch"]
   - apiGroups: ["apps"]
     resources: ["deployments", "daemonsets", "replicasets", "statefulsets"]
     verbs: ["get", "list", "watch"]
   - apiGroups: ["batch"]
     resources: ["jobs", "cronjobs"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["policy"]
+    resources: ["poddisruptionbudgets"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["rbac.authorization.k8s.io"]
+    resources: ["roles", "rolebindings"]
     verbs: ["get", "list", "watch"]
   - apiGroups: ["metrics.k8s.io"]
     resources: ["pods"]
@@ -40,6 +55,9 @@ rules:
   - apiGroups: ["networking.k8s.io"]
     resources: ["ingresses", "networkpolicies"]
     verbs: ["get", "list", "watch"]
+  - apiGroups: ["gateway.networking.k8s.io"]
+    resources: ["gateways", "httproutes"]
+    verbs: ["get", "list", "watch"]
   - apiGroups: ["helm.toolkit.fluxcd.io"]
     resources: ["helmreleases"]
     verbs: ["get", "list", "watch"]
@@ -47,8 +65,52 @@ rules:
     resources: ["helmrepositories", "helmcharts", "ocirepositories"]
     verbs: ["get", "list", "watch"]
   - apiGroups: ["kubemoot.ai"]
-    resources: ["agents", "mcpservers", "mcpgateways", "ragsources", "models", "modelproviders"]
+    resources: ["agents", "mcpservers", "mcpgateways", "ragsources", "models", "modelservers"]
     verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: kubemoot-kubernetes-mcp-secrets
+  labels:
+    {{- include "kubemoot-operator.labels" . | nindent 4 }}
+rules:
+  # helm_list reads release state from Secrets; counting Secrets lists them.
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: kubemoot-kubernetes-mcp-secret-get
+  labels:
+    {{- include "kubemoot-operator.labels" . | nindent 4 }}
+rules:
+  # For a server that checks one named Secret (an Ingress TLS Secret) and lists none.
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: kubemoot-kubernetes-mcp-write
+  labels:
+    {{- include "kubemoot-operator.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: ["pods/exec"]
+    verbs: ["create"]
+  - apiGroups: ["apps"]
+    resources: ["deployments", "daemonsets", "replicasets", "statefulsets"]
+    verbs: ["patch"]
+  - apiGroups: ["apps"]
+    resources: ["deployments/scale", "statefulsets/scale", "replicasets/scale"]
+    verbs: ["get", "patch", "update"]
+  - apiGroups: ["apps"]
+    resources: ["deployments/rollout"]
+    verbs: ["get", "patch"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole

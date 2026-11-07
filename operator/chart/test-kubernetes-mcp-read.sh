@@ -39,7 +39,22 @@ for args in "" "--set internalAgents.enabled=true --set internalAgents.mcpServer
 
   # The operator may bind those two roles and no other by name.
   bound="$(role "$out" kubemoot-operator-manager '.rules[] | select(.verbs[] == "bind") | .resourceNames[]' | sort | paste -sd, -)"
-  [ "$bound" = "kubemoot-kubernetes-mcp-namespaces,kubemoot-kubernetes-mcp-read" ] || fail "the operator binds '$bound'"
+  [ "$bound" = "kubemoot-kubernetes-mcp-namespaces,kubemoot-kubernetes-mcp-read,kubemoot-kubernetes-mcp-secret-get,kubemoot-kubernetes-mcp-secrets,kubemoot-kubernetes-mcp-write" ] || fail "the operator binds '$bound'"
+
+  # The opt-in roles: Secrets only, and write only, each exactly what it says.
+  [ "$(role "$out" kubemoot-kubernetes-mcp-secrets '.rules[0].resources[0] + "/" + (.rules[0].verbs | join(","))')" = "secrets/get,list,watch" ] \
+    || fail "the secrets role is not get,list,watch on secrets"
+  [ "$(role "$out" kubemoot-kubernetes-mcp-secrets '.rules | length')" = 1 ] || fail "the secrets role has more than one rule"
+  [ "$(role "$out" kubemoot-kubernetes-mcp-secret-get '.rules[0].resources[0] + "/" + (.rules[0].verbs | join(","))')" = "secrets/get" ] \
+    || fail "the secret-get role is not get on secrets"
+  [ "$(role "$out" kubemoot-kubernetes-mcp-secret-get '.rules | length')" = 1 ] || fail "the secret-get role has more than one rule"
+  [ -z "$(role "$out" kubemoot-kubernetes-mcp-write '.rules[].resources[]' | grep -x -e secrets -e namespaces -e nodes || true)" ] \
+    || fail "the write role names secrets, namespaces or nodes"
+  want_write="pods/exec:create,deployments:patch,deployments/scale:get,patch,update,deployments/rollout:get,patch"
+  got_write="$(role "$out" kubemoot-kubernetes-mcp-write '.rules[] | .resources[] as $r | $r + ":" + (.verbs | join(","))' \
+    | grep -x -e 'pods/exec:create' -e 'deployments:patch' -e 'deployments/rollout:get,patch' -e 'deployments/scale:get,patch,update' | paste -sd, -)"
+  [ "$got_write" = "$want_write" ] || fail "the write role rules are '$got_write'"
+  [ "$(role "$out" kubemoot-kubernetes-mcp-write '.rules[].resources[]' | grep -c .)" = 9 ] || fail "the write role names resources beyond the reviewed nine"
 done
 
 # The creator role is bound in the release namespace only.

@@ -313,6 +313,10 @@ such namespace, so label the namespaces you want it to read:
 kubectl label namespace team-a kubemoot.ai/crew-read=true
 ```
 
+A server that needs Secret reads or write access adds the annotation
+`kubemoot.ai/kubernetes-access` (`secrets`, `secret-get`, `write`, comma separated), and the
+namespace grants each with `kubemoot.ai/crew-read-secrets=true` or `kubemoot.ai/crew-write=true`.
+
 Name the account in `serviceAccountName`: a server that runs as the namespace `default`
 account is never bound. See
 [Namespaces a Kubernetes tool may read](../../concepts/secrets-and-tools/#namespaces-a-kubernetes-tool-may-read).
