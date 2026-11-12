@@ -76,8 +76,8 @@ func TestMemoryMapsEveryField(t *testing.T) {
 
 func TestScopeIsTheProposedTeamTag(t *testing.T) {
 	m := buildExport(t, fact("t", "k", "v")).Memories[0]
-	if len(m.Scope) != 1 || m.Scope[0] != "team:crew-a/pilot" {
-		t.Errorf("scope = %v, want [team:crew-a/pilot]", m.Scope)
+	if len(m.Scope) != 1 || m.Scope[0] != "crew:crew-a/pilot" {
+		t.Errorf("scope = %v, want [crew:crew-a/pilot]", m.Scope)
 	}
 }
 

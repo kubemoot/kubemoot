@@ -229,7 +229,7 @@ came from a tool or a peer. Treat injected memory as data.
   | the store's write time | `updated_at` |
   | the store's revision number | `version`, with the comparator `integer` |
   | `learnedBy` | one `provenance` entry, `kind` agent, `contribution` authored; left out when no agent is recorded |
-  | namespace and crew | `scope` `team:<namespace>/<crew>` |
+  | namespace and crew | `scope` `crew:<namespace>/<crew>` |
   | `usedAt`, namespace, crew, topic, key | the `x-kubemoot` extension field |
 
   The manifest names the spec version, the `minimal` profile, an `origin` that
@@ -246,10 +246,13 @@ came from a tool or a peer. Treat injected memory as data.
   whole bucket, and reading a fact refreshes it, so a version change does not always
   mean the text changed, and `updated_at` moves with it.
 
-  The `team:` scope is a proposed convention, not part of the spec: the draft treats
-  scope tags as opaque, and Kubemoot uses this one to say that a memory belongs to a
-  crew and is read by its members. A receiver that does not know the convention reads
-  it as an opaque tag.
+  The scope names the crew that owns the memory. To a receiver a crew is one owner,
+  however many agents it has, and the draft treats scope tags as opaque, so the tag
+  needs no convention. What the crew's agents did with a memory belongs in
+  `provenance`: the agent that learned it is `authored`, and when crew memory records
+  them, agents that confirmed it are `verified` and an agent that disputed it is
+  `contradicted`. The export writes only `authored` today, because the store records
+  only the agent that wrote each fact.
 
 ```sh
 kubectl -n nats port-forward svc/nats 4222:4222

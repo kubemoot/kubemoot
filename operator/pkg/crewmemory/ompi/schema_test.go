@@ -92,7 +92,7 @@ func TestSchemaRejectsWrongTypesAndFormats(t *testing.T) {
 		"created_at not date":   {"created_at", "yesterday"},
 		"created_at no zone":    {"created_at", "2026-10-14 10:00"},
 		"updated_at number":     {"updated_at", 5},
-		"scope string":          {"scope", "team:a"},
+		"scope string":          {"scope", "crew:a"},
 		"scope entry number":    {"scope", []any{1}},
 		"tags string":           {"tags", "x"},
 		"version bare":          {"version", 2},

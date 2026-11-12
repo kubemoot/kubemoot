@@ -48,7 +48,7 @@ func TestProjectionKeepsRuntimeFieldsOnly(t *testing.T) {
 			t.Errorf("projection lacks %q:\n%s", want, md)
 		}
 	}
-	for _, absent := range []string{"scope:", "team:", "checksum", "x-kubemoot", "usedAt", "evidenceUnavailable"} {
+	for _, absent := range []string{"scope:", "crew:", "checksum", "x-kubemoot", "usedAt", "evidenceUnavailable"} {
 		if strings.Contains(md, absent) {
 			t.Errorf("projection carries %q (section 7.2):\n%s", absent, md)
 		}
