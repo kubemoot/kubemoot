@@ -43,11 +43,11 @@ type Options struct {
 	Origin string
 }
 
-// ScopeTag is the proposed convention for a crew's memory scope:
-// team:<namespace>/<crew>. The spec treats scope tags as opaque strings;
-// "team:" is Kubemoot's proposal, not part of the spec.
+// ScopeTag names the crew that owns a memory: crew:<namespace>/<crew>. The
+// crew is one owner however many agents it has; the spec treats scope tags as
+// opaque strings, and a receiver reads this one as the owner's name.
 func ScopeTag(s crewscope.Scope) string {
-	return "team:" + s.Namespace + "/" + s.Crew
+	return "crew:" + s.Namespace + "/" + s.Crew
 }
 
 // Identifier is the stable identifier of a fact: a UUIDv5 of
