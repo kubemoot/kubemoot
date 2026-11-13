@@ -79,7 +79,6 @@ type RAGSourceReconciler struct {
 // +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=roles;rolebindings,verbs=get;list;watch;create;update;patch
 // +kubebuilder:rbac:groups=apps,resources=deployments,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=core,resources=services,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=kubemoot.ai,resources=mcpservers,verbs=get;list;watch;create;update;patch;delete
 
 // Reconcile handles RAGSource reconciliation
 func (r *RAGSourceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -138,7 +137,9 @@ func (r *RAGSourceReconciler) invalidScheduleMessage(ragSource *kubemootv1alpha1
 }
 
 // reconcileQueryService deploys the query service (if enabled) and offers it as a search
-// tool. Neither failing stops the reconciliation: indexing does not depend on them.
+// tool. Neither failing stops the reconciliation: indexing does not depend on them. A failed
+// search tool is retried at the next reconcile: the requeue at the end of reconcileIndexingState
+// (at most 5 minutes), or sooner on any change to the RAGSource or its generated MCPServer.
 func (r *RAGSourceReconciler) reconcileQueryService(ctx context.Context, ragSource *kubemootv1alpha1.RAGSource, embeddingModel *kubemootv1alpha1.EmbeddingModel) {
 	log := logf.FromContext(ctx)
 	if queryServiceEnabled(ragSource) {

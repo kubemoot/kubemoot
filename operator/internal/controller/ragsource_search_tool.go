@@ -67,7 +67,10 @@ func ragSearchOffered(ragSource *kubemootv1alpha1.RAGSource) bool {
 }
 
 // isHelmOrFluxLabel reports whether a label belongs to the tool that installed the
-// RAGSource. The generated MCPServer is not part of that release, so it must not copy them.
+// RAGSource, or says who manages it. The generated MCPServer is not part of that release and
+// the operator manages it, so copying them would misstate both. The managed-by-resource label
+// is one crew charts stamp on their resources (value kubemoot) to say a Kubemoot resource
+// manages them; the generated MCPServer's own managed-by label says the operator does.
 func isHelmOrFluxLabel(key string) bool {
 	return key == labelManagedBy ||
 		strings.HasPrefix(key, "helm.sh/") ||
@@ -105,9 +108,14 @@ func buildRAGSearchServer(ragSource *kubemootv1alpha1.RAGSource) *kubemootv1alph
 		Spec: kubemootv1alpha1.MCPServerSpec{
 			ExternalEndpoint: ragSearchEndpoint(ragSource),
 			Transport:        kubemootv1alpha1.TransportHTTP,
-			Capabilities:     []string{generatedByRAGSearch},
 		},
 	}
+}
+
+// ownsSearchServer reports whether the MCPServer is the one this RAGSource generated: it
+// carries the generated-by label and this RAGSource is its controller.
+func ownsSearchServer(server *kubemootv1alpha1.MCPServer, ragSource *kubemootv1alpha1.RAGSource) bool {
+	return server.Labels[labelGeneratedBy] == generatedByRAGSearch && metav1.IsControlledBy(server, ragSource)
 }
 
 // reconcileSearchTool creates, updates, or removes the RAGSource's search MCPServer so it
@@ -137,20 +145,20 @@ func (r *RAGSourceReconciler) ensureSearchTool(ctx context.Context, ragSource *k
 	if err != nil {
 		return err
 	}
-	if current.Labels[labelGeneratedBy] != generatedByRAGSearch {
-		log.Info("An MCPServer this RAGSource's search tool would use already exists; leaving it alone",
+	if !ownsSearchServer(current, ragSource) {
+		// Either a person's MCPServer, or one generated for another RAGSource (two long
+		// names can bound to one name). It is never taken over or rewritten.
+		log.Info("An MCPServer this RAGSource's search tool would use already exists and is not its own; leaving it alone",
 			"mcpServer", current.Name)
 		return nil
 	}
 	if equality.Semantic.DeepEqual(current.Spec, desired.Spec) &&
-		equality.Semantic.DeepEqual(current.Labels, desired.Labels) &&
-		metav1.IsControlledBy(current, ragSource) {
+		equality.Semantic.DeepEqual(current.Labels, desired.Labels) {
 		return nil
 	}
 	log.Info("Updating search tool MCPServer", "mcpServer", desired.Name)
 	current.Spec = desired.Spec
 	current.Labels = desired.Labels
-	current.OwnerReferences = desired.OwnerReferences
 	return r.Update(ctx, current)
 }
 
@@ -161,7 +169,7 @@ func (r *RAGSourceReconciler) removeSearchTool(ctx context.Context, ragSource *k
 	if err := r.Get(ctx, key, current); err != nil {
 		return client.IgnoreNotFound(err)
 	}
-	if current.Labels[labelGeneratedBy] != generatedByRAGSearch || !metav1.IsControlledBy(current, ragSource) {
+	if !ownsSearchServer(current, ragSource) {
 		return nil
 	}
 	logf.FromContext(ctx).Info("Removing search tool MCPServer", "mcpServer", current.Name)

@@ -410,6 +410,10 @@ Each RAGSource that runs a query service is also offered as a tool. The controll
 
 The gateway reaches the query service without a network policy of its own: the query service pod is neither a tool server nor a tool gateway, so the namespace baseline (`km-crew-internal`) admits the pods of the namespace, the gateway included. See [Network policies](../../concepts/network-policies/).
 
+`/mcp` has no authentication, like `/query`: anything that can reach the query service's port can search it. The namespace network policy is the access control, so keep the generated policies on (see [Network policies](../../concepts/network-policies/)) when the RAGSource holds text you do not want every pod in the namespace to read.
+
+The tool returns each passage inside a `<passage n="..." source="..." score="...">` block, and a passage cannot close its own block. A search that fails because of the database or an unexpected error returns a fixed message (`Search failed; the reference store is unavailable.`) and the detail goes to the query service's log; a missing collection and an embedding service failure are reported with their reason.
+
 An agent opts in by listing `<ragsource>_search` in `spec.enabledTools`. There is no RAGSource or Agent field for it.
 
 ## Vector Store Verification
