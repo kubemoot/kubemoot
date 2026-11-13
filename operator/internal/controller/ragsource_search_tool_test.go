@@ -12,6 +12,7 @@ package controller
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -22,6 +23,8 @@ import (
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
 	kubemootv1alpha1 "github.com/kubemoot/kubemoot/operator/api/v1alpha1"
 )
@@ -41,11 +44,12 @@ func searchTestRAGSource(mutate func(*kubemootv1alpha1.RAGSource)) *kubemootv1al
 		ObjectMeta: metav1.ObjectMeta{
 			Name: searchTestSource, Namespace: searchTestNS, UID: types.UID("uid-rag"),
 			Labels: map[string]string{
-				labelInstance:                 searchTestInst,
-				labelManagedBy:                "Helm",
-				"helm.sh/chart":               searchTestChart,
-				"helm.toolkit.fluxcd.io/name": searchTestChart,
-				"team":                        "platform",
+				labelInstance:                           searchTestInst,
+				labelManagedBy:                          "Helm",
+				"helm.sh/chart":                         searchTestChart,
+				"helm.toolkit.fluxcd.io/name":           searchTestChart,
+				"team":                                  "platform",
+				"app.kubernetes.io/managed-by-resource": "a-resource",
 			},
 		},
 	}
@@ -140,7 +144,9 @@ func TestRAGSearchLabelsCarryTheGatewaySelectorAndNotTheInstallersLabels(t *test
 			t.Errorf("label %s = %q, want %q", k, labels[k], v)
 		}
 	}
-	for _, k := range []string{"helm.sh/chart", "helm.toolkit.fluxcd.io/name"} {
+	// The managed-by-resource label says a resource manages the RAGSource; it does not manage
+	// the generated MCPServer, the operator does.
+	for _, k := range []string{"helm.sh/chart", "helm.toolkit.fluxcd.io/name", "app.kubernetes.io/managed-by-resource"} {
 		if _, ok := labels[k]; ok {
 			t.Errorf("label %s belongs to the installer and must not be copied", k)
 		}
@@ -252,6 +258,80 @@ func TestReconcileSearchToolOffersNothingForAnOperatorMadeSource(t *testing.T) {
 	}
 	if _, err := getSearchServer(c); err == nil {
 		t.Error("an operator-made RAGSource must get no search tool")
+	}
+}
+
+func TestReconcileSearchToolLeavesAServerGeneratedForAnotherRAGSourceAlone(t *testing.T) {
+	other := searchTestRAGSource(func(rs *kubemootv1alpha1.RAGSource) {
+		rs.Name, rs.UID = "another-source", types.UID("uid-other")
+	})
+	theirs := buildRAGSearchServer(other)
+	theirs.Name = searchTestServer
+	if err := controllerutil.SetControllerReference(other, theirs, gatewayScheme(t)); err != nil {
+		t.Fatalf("owner: %v", err)
+	}
+	rs := searchTestRAGSource(nil)
+	r, c := searchTestReconciler(t, theirs)
+	ctx := context.Background()
+
+	if err := r.reconcileSearchTool(ctx, rs); err != nil {
+		t.Fatalf("reconcile: %v", err)
+	}
+	ms, err := getSearchServer(c)
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	if ms.Spec.ExternalEndpoint != theirs.Spec.ExternalEndpoint || !metav1.IsControlledBy(ms, other) {
+		t.Errorf("a server another RAGSource owns was rewritten or taken over: owners %v", ms.OwnerReferences)
+	}
+
+	rs.Spec.QueryService = &kubemootv1alpha1.QueryServiceConfig{Enabled: ptr.To(false)}
+	if err := r.reconcileSearchTool(ctx, rs); err != nil {
+		t.Fatalf("reconcile off: %v", err)
+	}
+	if _, err := getSearchServer(c); err != nil {
+		t.Errorf("a server another RAGSource owns was deleted: %v", err)
+	}
+}
+
+func TestLongRAGSourceNamesBoundToDistinctServerNames(t *testing.T) {
+	prefix := "a-ragsource-name-long-enough-that-its-search-server-name-is-bounded-"
+	first, second := ragSearchServerName(prefix+"one"), ragSearchServerName(prefix+"two")
+	if first == second {
+		t.Errorf("two different long names bound to the same server name %q", first)
+	}
+	if len(first) > 63 || len(second) > 63 {
+		t.Errorf("bounded names are too long: %q, %q", first, second)
+	}
+}
+
+func TestReconcileSearchToolReportsAnAPIErrorFromGet(t *testing.T) {
+	boom := errors.New("api down")
+	c := fake.NewClientBuilder().WithScheme(gatewayScheme(t)).WithInterceptorFuncs(interceptor.Funcs{
+		Get: func(context.Context, client.WithWatch, client.ObjectKey, client.Object, ...client.GetOption) error {
+			return boom
+		},
+	}).Build()
+	r := &RAGSourceReconciler{Client: c, Scheme: c.Scheme(), ConfigCache: NewConfigCache()}
+	if err := r.reconcileSearchTool(context.Background(), searchTestRAGSource(nil)); !errors.Is(err, boom) {
+		t.Errorf("ensure: err = %v, want the Get error", err)
+	}
+	off := searchTestRAGSource(func(rs *kubemootv1alpha1.RAGSource) {
+		rs.Spec.QueryService = &kubemootv1alpha1.QueryServiceConfig{Enabled: ptr.To(false)}
+	})
+	if err := r.reconcileSearchTool(context.Background(), off); !errors.Is(err, boom) {
+		t.Errorf("remove: err = %v, want the Get error", err)
+	}
+}
+
+func TestReconcileSearchToolReportsAnAPIErrorFromCreate(t *testing.T) {
+	boom := errors.New("quota exceeded")
+	c := fake.NewClientBuilder().WithScheme(gatewayScheme(t)).WithInterceptorFuncs(interceptor.Funcs{
+		Create: func(context.Context, client.WithWatch, client.Object, ...client.CreateOption) error { return boom },
+	}).Build()
+	r := &RAGSourceReconciler{Client: c, Scheme: c.Scheme(), ConfigCache: NewConfigCache()}
+	if err := r.reconcileSearchTool(context.Background(), searchTestRAGSource(nil)); !errors.Is(err, boom) {
+		t.Errorf("err = %v, want the Create error", err)
 	}
 }
 
