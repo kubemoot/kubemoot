@@ -13,7 +13,9 @@ import httpx
 import psycopg2
 import psycopg2.errors
 from fastapi import HTTPException
+from mcp.server.mcpserver.exceptions import ToolError
 from prometheus_client import REGISTRY
+from starlette.testclient import TestClient
 
 _SPEC = importlib.util.spec_from_file_location(
     "query_service", Path(__file__).parent / "query-service.py"
@@ -177,10 +179,6 @@ class QueryTest(unittest.TestCase):
         self.assertEqual(errors(), self.errors_before + 1)
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class RecordingEmbeddingClient:
     """An httpx.AsyncClient stand-in that records the embedding request and answers with a
     fixed, unnormalized vector the way vLLM does."""
@@ -251,3 +249,189 @@ class EmbeddingTest(unittest.TestCase):
             self.assertRaises(httpx.HTTPStatusError),
         ):
             run(qs.get_embedding("hello"))
+
+
+def chunk_rows(*rows):
+    """A database connection whose similarity query returns these rows."""
+    cursor = mock.MagicMock()
+    cursor.__enter__.return_value.fetchall.return_value = list(rows)
+    conn = mock.MagicMock()
+    conn.cursor.return_value = cursor
+    return conn, cursor.__enter__.return_value
+
+
+class SearchToolTest(unittest.TestCase):
+    def setUp(self):
+        embed = mock.patch.object(qs, "get_embedding", mock.AsyncMock(return_value=[0.1]))
+        embed.start()
+        self.addCleanup(embed.stop)
+
+    def test_the_tool_is_named_for_its_rag_source(self):
+        self.assertEqual(qs.SEARCH_TOOL_NAME, f"{qs.RAGSOURCE_NAME}_search")
+
+    def test_returns_each_chunk_with_its_source_path_and_score(self):
+        conn, _ = chunk_rows(
+            {"content": "kubectl get lists resources", "metadata": {"file_path": "docs/get.md"}, "score": 0.8123},
+            {"content": "second chunk", "metadata": {}, "score": 0.5},
+        )
+        with mock.patch.object(qs, "get_db_connection", return_value=conn):
+            text = run(qs.search("how do I list pods", 2))
+        self.assertIn("[1] source: docs/get.md | score: 0.81\nkubectl get lists resources", text)
+        self.assertIn("[2] source: unknown | score: 0.50\nsecond chunk", text)
+
+    def test_runs_the_same_similarity_query_as_the_query_endpoint(self):
+        conn, cur = chunk_rows({"content": "c", "metadata": {}, "score": 0.9})
+        with mock.patch.object(qs, "get_db_connection", return_value=conn):
+            run(qs.search("q", 3))
+            tool_call = cur.execute.call_args
+            run(qs.query(qs.QueryRequest(query="q", top_k=3)))
+            endpoint_call = cur.execute.call_args
+        self.assertEqual(tool_call, endpoint_call)
+        self.assertEqual(tool_call.args[1][-1], 3)
+
+    def test_says_so_when_nothing_matches(self):
+        conn, _ = chunk_rows()
+        with mock.patch.object(qs, "get_db_connection", return_value=conn):
+            text = run(qs.search("q", 5))
+        self.assertIn("No reference text", text)
+        self.assertIn(qs.RAGSOURCE_NAME, text)
+
+    def test_a_blank_query_is_refused_before_any_search(self):
+        with (
+            mock.patch.object(qs, "run_search", mock.AsyncMock()) as searched,
+            self.assertRaises(ToolError),
+        ):
+            run(qs.search("   ", 5))
+        searched.assert_not_called()
+
+    def test_an_unreachable_store_is_a_tool_error_with_the_reason(self):
+        db_down = psycopg2.OperationalError("db down")
+        before = errors()
+        with (
+            mock.patch.object(qs, "get_db_connection", side_effect=db_down),
+            self.assertLogs("kubemoot-query", level="ERROR"),
+            self.assertRaises(ToolError) as ctx,
+        ):
+            run(qs.search("q", 5))
+        self.assertIn("500", str(ctx.exception))
+        self.assertIn("db down", str(ctx.exception))
+        self.assertEqual(errors(), before + 1)
+
+    def test_a_missing_collection_is_a_tool_error(self):
+        with (
+            mock.patch.object(qs, "get_db_connection", side_effect=psycopg2.errors.UndefinedTable()),
+            self.assertRaises(ToolError) as ctx,
+        ):
+            run(qs.search("q", 5))
+        self.assertIn("Has indexing completed?", str(ctx.exception))
+
+    def test_an_embedding_failure_is_a_tool_error(self):
+        failing = mock.AsyncMock(side_effect=httpx.ConnectError("refused"))
+        with (
+            mock.patch.object(qs, "get_embedding", failing),
+            self.assertLogs("kubemoot-query", level="ERROR"),
+            self.assertRaises(ToolError) as ctx,
+        ):
+            run(qs.search("q", 5))
+        self.assertIn("502", str(ctx.exception))
+
+    def test_a_search_is_counted_like_a_query(self):
+        conn, _ = chunk_rows({"content": "c", "metadata": {}, "score": 0.9})
+        before = sample("kubemoot_query_requests_total")
+        with mock.patch.object(qs, "get_db_connection", return_value=conn):
+            run(qs.search("q", 5))
+        self.assertEqual(sample("kubemoot_query_requests_total"), before + 1)
+
+
+class SourcePathTest(unittest.TestCase):
+    def test_prefers_the_file_path(self):
+        self.assertEqual(qs.source_path({"file_path": "a.md", "source": "git"}), "a.md")
+
+    def test_falls_back_to_the_best_identifier_the_indexer_stored(self):
+        self.assertEqual(qs.source_path({"key": "agents/x", "source": "nats-kv"}), "agents/x")
+        self.assertEqual(qs.source_path({"source": "url"}), "url")
+
+    def test_has_no_path_when_the_chunk_carries_no_metadata(self):
+        self.assertEqual(qs.source_path({}), "")
+
+
+class McpEndpointTest(unittest.TestCase):
+    """The tool over the wire, the way the MCP gateway calls it: streamable HTTP on /mcp."""
+
+    HEADERS: ClassVar[dict] = {"Accept": "application/json, text/event-stream"}
+
+    @classmethod
+    def setUpClass(cls):
+        cls.http = TestClient(qs.build_mcp_app())
+        cls.http.__enter__()
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.http.__exit__(None, None, None)
+
+    def rpc(self, method, params=None, id_=1):
+        body = {"jsonrpc": "2.0", "id": id_, "method": method, "params": params or {}}
+        response = self.http.post("/mcp", json=body, headers=self.HEADERS)
+        self.assertEqual(response.status_code, 200, response.text)
+        return response.json()
+
+    def call(self, arguments):
+        return self.rpc("tools/call", {"name": qs.SEARCH_TOOL_NAME, "arguments": arguments})["result"]
+
+    def test_lists_one_search_tool_with_a_bounded_top_k(self):
+        tools = self.rpc("tools/list")["result"]["tools"]
+        self.assertEqual([t["name"] for t in tools], [qs.SEARCH_TOOL_NAME])
+        properties = tools[0]["inputSchema"]["properties"]
+        self.assertEqual(tools[0]["inputSchema"]["required"], ["query"])
+        self.assertEqual((properties["top_k"]["minimum"], properties["top_k"]["maximum"]), (1, 100))
+
+    def test_answers_a_search_with_the_chunk_text(self):
+        conn, _ = chunk_rows({"content": "scale with kubectl scale", "metadata": {"file_path": "s.md"}, "score": 0.7})
+        with (
+            mock.patch.object(qs, "get_embedding", mock.AsyncMock(return_value=[0.1])),
+            mock.patch.object(qs, "get_db_connection", return_value=conn),
+        ):
+            result = self.call({"query": "scale a deployment", "top_k": 1})
+        self.assertFalse(result.get("isError"))
+        self.assertIn("source: s.md | score: 0.70\nscale with kubectl scale", result["content"][0]["text"])
+
+    def test_rejects_an_empty_query(self):
+        result = self.call({"query": ""})
+        self.assertTrue(result["isError"])
+
+    def test_rejects_a_top_k_out_of_range(self):
+        self.assertTrue(self.call({"query": "q", "top_k": 0})["isError"])
+        self.assertTrue(self.call({"query": "q", "top_k": 101})["isError"])
+
+    def test_reports_an_unreachable_store_as_a_tool_error(self):
+        db_down = psycopg2.OperationalError("db down")
+        with (
+            mock.patch.object(qs, "get_embedding", mock.AsyncMock(return_value=[0.1])),
+            mock.patch.object(qs, "get_db_connection", side_effect=db_down),
+            self.assertLogs("kubemoot-query", level="ERROR"),
+        ):
+            result = self.call({"query": "q"})
+        self.assertTrue(result["isError"])
+        self.assertIn("db down", result["content"][0]["text"])
+
+    def test_unknown_tool_is_an_error(self):
+        result = self.rpc("tools/call", {"name": "other_search", "arguments": {"query": "q"}})["result"]
+        self.assertTrue(result["isError"])
+
+
+class MountedRoutesTest(unittest.TestCase):
+    """Mounting the MCP app must not shadow the service's own routes."""
+
+    def test_the_http_routes_come_before_the_mount(self):
+        paths = [getattr(route, "path", None) for route in qs.app.routes]
+        for path in ("/query", "/health", "/ready", "/metrics", "/info", "/version"):
+            self.assertIn(path, paths)
+            self.assertLess(paths.index(path), len(paths) - 1)
+        self.assertEqual(qs.app.routes[-1].path, "")
+
+    def test_the_mcp_endpoint_is_served_beside_them(self):
+        self.assertEqual(run(qs.health()).status, "healthy")
+
+
+if __name__ == "__main__":
+    unittest.main()
