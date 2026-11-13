@@ -79,6 +79,7 @@ type RAGSourceReconciler struct {
 // +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=roles;rolebindings,verbs=get;list;watch;create;update;patch
 // +kubebuilder:rbac:groups=apps,resources=deployments,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=core,resources=services,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=kubemoot.ai,resources=mcpservers,verbs=get;list;watch;create;update;patch;delete
 
 // Reconcile handles RAGSource reconciliation
 func (r *RAGSourceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -119,13 +120,7 @@ func (r *RAGSourceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		return r.updateStatus(ctx, ragSource, "Error", false, msg)
 	}
 
-	// Ensure query service is deployed (if enabled)
-	if queryServiceEnabled(ragSource) {
-		if err := r.ensureQueryService(ctx, ragSource, embeddingModel); err != nil {
-			log.Error(err, "Failed to ensure query service")
-			// Don't fail reconciliation for query service issues
-		}
-	}
+	r.reconcileQueryService(ctx, ragSource, embeddingModel)
 
 	return r.reconcileIndexingState(ctx, ragSource, embeddingModel)
 }
@@ -140,6 +135,20 @@ func (r *RAGSourceReconciler) invalidScheduleMessage(ragSource *kubemootv1alpha1
 		return fmt.Sprintf("Invalid cron schedule: %s", err.Error())
 	}
 	return ""
+}
+
+// reconcileQueryService deploys the query service (if enabled) and offers it as a search
+// tool. Neither failing stops the reconciliation: indexing does not depend on them.
+func (r *RAGSourceReconciler) reconcileQueryService(ctx context.Context, ragSource *kubemootv1alpha1.RAGSource, embeddingModel *kubemootv1alpha1.EmbeddingModel) {
+	log := logf.FromContext(ctx)
+	if queryServiceEnabled(ragSource) {
+		if err := r.ensureQueryService(ctx, ragSource, embeddingModel); err != nil {
+			log.Error(err, "Failed to ensure query service")
+		}
+	}
+	if err := r.reconcileSearchTool(ctx, ragSource); err != nil {
+		log.Error(err, "Failed to reconcile the search tool")
+	}
 }
 
 // reconcileIndexingState handles delay checking, indexing triggers, job monitoring, and vector store verification.
@@ -1336,6 +1345,10 @@ func (r *RAGSourceReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Owns(&batchv1.Job{}).
 		Owns(&appsv1.Deployment{}).
 		Owns(&corev1.Service{}).
+		// The generated search MCPServer: re-created when deleted, restored when its spec
+		// or labels drift. Its status updates do not matter here.
+		Owns(&kubemootv1alpha1.MCPServer{}, builder.WithPredicates(
+			predicate.Or(predicate.GenerationChangedPredicate{}, predicate.LabelChangedPredicate{}))).
 		Named("ragsource").
 		// Re-reconcile every RAGSource when KubemootConfig changes so
 		// indexer / queryService / doclingServe image bumps propagate

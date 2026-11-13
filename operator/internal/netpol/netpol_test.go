@@ -17,6 +17,7 @@ import (
 	networkingv1 "k8s.io/api/networking/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	k8slabels "k8s.io/apimachinery/pkg/labels"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kubemootv1alpha1 "github.com/kubemoot/kubemoot/operator/api/v1alpha1"
@@ -166,6 +167,25 @@ func TestBaseline(t *testing.T) {
 			Key: labelComponent, Operator: metav1.LabelSelectorOpNotIn,
 			Values: []string{ComponentMCPServer, ComponentMCPGateway},
 		}})
+}
+
+// A RAGSource's query service pod (component query-service) is neither a tool server nor a
+// tool gateway, so km-crew-internal admits the crew gateway's pod to it: the gateway reaches
+// the query service's MCP endpoint without a policy of its own.
+func TestBaselineAdmitsTheCrewGatewayToAQueryServicePod(t *testing.T) {
+	internal := asPolicy(t, Baseline(testConfig(), testNS)[1])
+	selector, err := metav1.LabelSelectorAsSelector(&internal.Spec.PodSelector)
+	if err != nil {
+		t.Fatalf("selector: %v", err)
+	}
+	if !selector.Matches(k8slabels.Set{labelComponent: "query-service"}) {
+		t.Error("km-crew-internal must select a query service pod")
+	}
+	if selector.Matches(k8slabels.Set{labelComponent: ComponentMCPGateway}) {
+		t.Error("the gateway keeps its own policy")
+	}
+	eq(t, "the namespace's own pods, which include the gateway, may connect",
+		internal.Spec.Ingress[0].From[0], sameNamespacePeer())
 }
 
 func TestGeneratedObjectsCarryTheLabelAndNamespace(t *testing.T) {

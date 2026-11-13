@@ -383,6 +383,7 @@ The controller automatically deploys a query service (Python FastAPI) for each R
 | Endpoint | Method | Description |
 |----------|--------|-------------|
 | `/query` | POST | Semantic search. Body: `{"query": "...", "top_k": 5}` |
+| `/mcp` | POST | MCP (streamable HTTP) with one tool, `<ragsource>_search(query, top_k)`. Runs the same similarity query as `/query` and returns each passage with its source path and score |
 | `/info` | GET | Collection stats including `document_count` |
 | `/health` | GET | Health check |
 
@@ -402,6 +403,14 @@ status:
 ```
 
 Agents reference RAGSources by name. The agent runtime resolves the name → `queryEndpoint` → calls `/query` with the user's question → injects results into the system prompt.
+
+### Search tool
+
+Each RAGSource that runs a query service is also offered as a tool. The controller generates an `MCPServer` named `<ragsource>-search` (owned by the RAGSource, so deleting the RAGSource deletes it) with `externalEndpoint` set to `<queryEndpoint>/mcp` and transport `http`. It copies the RAGSource's labels except those Helm and Flux own, so a gateway whose `mcpServerSelector` matches the crew's `app.kubernetes.io/instance` label registers it, and the tool appears as `<ragsource>_search`. An MCPServer of that name that the controller did not generate is left alone. Set `spec.queryService.enabled: false` and the tool is removed. RAGSources the operator creates for itself get no tool.
+
+The gateway reaches the query service without a network policy of its own: the query service pod is neither a tool server nor a tool gateway, so the namespace baseline (`km-crew-internal`) admits the pods of the namespace, the gateway included. See [Network policies](../../concepts/network-policies/).
+
+An agent opts in by listing `<ragsource>_search` in `spec.enabledTools`. There is no RAGSource or Agent field for it.
 
 ## Vector Store Verification
 
@@ -500,7 +509,16 @@ spec:
       topK: 2
 ```
 
-The agent runtime:
+To search on demand instead, leave the source out of `ragSources` and list its search tool:
+
+```yaml
+spec:
+  enabledTools: [kubectl-reference_search]
+```
+
+The agent then calls the tool when it needs reference text, and nothing is added to its system prompt. See [Agent Context](../../concepts/agent-context/#retrieved) for when to choose which.
+
+With `ragSources`, the agent runtime:
 1. Resolves each RAGSource name → `status.queryEndpoint`
 2. On each chat message, queries all RAG sources with the user's question
 3. Injects retrieved context into the system prompt before calling the LLM

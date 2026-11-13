@@ -33,7 +33,7 @@ obey. See [Why the split matters in a crew](#why-the-split-matters-in-a-crew).
 | Conversation history | The `kubemoot_conversations` bucket; the last 10 turns, expiring after 24 hours of inactivity (defaults) | Your earlier turns are trusted instructions; the crew's earlier answers are untrusted data |
 | Conversation compaction | Not yet. Proposed: an adopted agent harness that compacts long conversations, rather than growing Kubemoot's own runtime | Not applicable |
 | **Retrieved** | | |
-| RAG | `RAGSource` documents named in `spec.ragSources`, indexed into a vector store and searched per question | Untrusted data |
+| RAG | `RAGSource` documents, indexed into a vector store. Searched per question when named in `spec.ragSources`, or on demand when the agent lists `<source>_search` in `spec.enabledTools` | Untrusted data |
 | Keyword or structured search | `workspace_query` (SQL over the workspace), the coordinator's resume search, and the gateway's optional tool search | Untrusted data |
 | Web search and fetch | A web search tool server, when the crew has one | Untrusted data |
 | **Tool and environment output** | | |
@@ -109,15 +109,39 @@ not compact or summarize them. See
 
 **RAG.** Knowledge is reference material the crew retrieves rather than remembers. A
 `RAGSource` points at documents; the operator indexes them into a vector store and runs
-a query service for each source. An `Agent` names the sources it may query in
-`spec.ragSources`, each with a `topK` (default 5) and a `priority`. The operator
-resolves each named source to its query service and passes the endpoints to the agent
-as environment variables, and the agent's network policy allows only the services it is
-configured to call.
+a query service for each source. An agent gets that reference text in one of two ways.
 
-When the agent answers, the runtime searches those sources with the user's question
-(in a discussion, the question and not the whole thread) and places the top results in
-the system prompt ahead of the model call. Keep `topK` small, because large retrieved
+*Up front.* The agent names the source in `spec.ragSources`, with a `topK` (default 5)
+and a `priority`. The operator resolves the source to its query service and passes the
+endpoint to the agent as an environment variable, and the agent's network policy allows
+only the services it is configured to call. When the agent answers, the runtime searches
+the source with the user's question (in a discussion, the question and not the whole
+thread) and places the top results in the system prompt ahead of every model call.
+
+*On demand.* The query service is also an MCP server with one tool, `<source>_search`
+(for a RAGSource named `kubectl-reference`, `kubectl-reference_search`), taking a `query`
+and an optional `top_k` (1 to 100). For each RAGSource the operator generates an
+`MCPServer` named `<source>-search` that points the crew's MCP gateway at the query
+service, so the tool reaches agents the way every other tool does. The agent lists
+`<source>_search` in `spec.enabledTools` and leaves the source out of `spec.ragSources`.
+It searches when it decides it needs reference text, and the passages arrive as a tool
+result, each with its source path and score. Nothing is added to the system prompt, so a
+question the live data answers costs no reference text.
+
+The generated `MCPServer` carries the RAGSource's labels (without the ones Helm and Flux
+own), so a gateway that selects tool servers by the crew's instance label finds it. A
+RAGSource with `spec.queryService.enabled: false`, or one the operator created for
+itself (the tool index, a crew's agent resumes), gets no tool.
+
+*Which to choose.* Search up front when every question the agent gets needs the
+reference text and the model is too small to be trusted to ask for it: the text is always
+there, and no model round trip is spent asking. Search on demand when only some questions
+need it: an advisor that mostly reads live cluster data and sometimes needs to know how a
+setting behaves loads reference text for those questions only. The cost is that the model
+must decide to call the tool, and a search adds one model round trip, so say when to
+search in the agent's prompt module (a question about how a tool, an API or a setting
+behaves) and when not to (a question the live data answers). An agent can use both, for
+different sources. Keep `topK` and `top_k` small either way, because large retrieved
 payloads degrade tool calling. See the
 [RAGSource guide](../../reference/ragsource-guide/) and the
 [Agent reference](../../reference/agent/#specragsources).
