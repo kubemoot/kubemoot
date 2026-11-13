@@ -5,7 +5,7 @@
 # (Python 3.14, the image's Python). Dependabot updates both.
 
 # Web framework
-fastapi>=0.149.0,<0.150.0
+fastapi>=0.162.2,<0.163.0
 uvicorn[standard]>=0.54.0,<0.55.0
 
 # HTTP client for embedding calls
@@ -15,7 +15,7 @@ httpx>=0.28.1,<0.29.0
 psycopg2-binary>=2.9.13,<3.0.0
 
 # Data validation
-pydantic>=2.14.1,<3.0.0
+pydantic>=2.14.3,<3.0.0
 
 # MCP server: the search tool agents call through the crew's MCP gateway
 mcp>=2.3.0,<3.0.0
