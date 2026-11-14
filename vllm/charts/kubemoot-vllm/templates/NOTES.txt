@@ -34,3 +34,9 @@ class:
 To add labels of your own to a model (data residency, license) or to keep one out of the
 catalog, create a Model in Kubemoot's namespace with spec.model set to the served name and
 spec.serverRef set to {{ $name }}.
+{{- if and .Values.metrics.serviceMonitor.enabled (not (.Capabilities.APIVersions.Has "monitoring.coreos.com/v1/ServiceMonitor")) }}
+
+metrics.serviceMonitor.enabled is true, but this cluster has no monitoring.coreos.com/v1
+ServiceMonitor API, so no ServiceMonitor was created. Install the Prometheus Operator (for
+example kube-prometheus-stack), then run helm upgrade again.
+{{- end }}

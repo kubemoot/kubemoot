@@ -120,6 +120,36 @@ after="$(render -f "$more" | yq -N 'select(.kind == "Deployment") | .spec.templa
 [ -n "$before" ] && [ "$before" != "$after" ] || fail "adding a model does not change the pod template"
 [ "$(render -f "$more" | yq -N 'select(.kind == "Service") | .spec.ports | length')" = "3" ] || fail "the new model has no port"
 
+# ---- Prometheus scraping ----------------------------------------------------
+# Off by default: no ServiceMonitor, even where the API exists.
+api=monitoring.coreos.com/v1/ServiceMonitor
+[ "$(render -f "$example" --api-versions "$api" | yq -N 'select(.kind == "ServiceMonitor") | .kind')" = "" ] || fail "a ServiceMonitor rendered by default"
+# Enabled with the API: one endpoint per model, on the Service's port names.
+mon="$(render -f "$example" --api-versions "$api" --set metrics.serviceMonitor.enabled=true --set metrics.serviceMonitor.labels.release=kps)"
+[ "$(get "$mon" ServiceMonitor .apiVersion)" = "monitoring.coreos.com/v1" ] || fail "ServiceMonitor apiVersion"
+[ "$(get "$mon" ServiceMonitor '.spec.endpoints | map(.port) | join(",")')" = "vllm-0,vllm-1" ] || fail "endpoints are not one per model port"
+[ "$(get "$mon" ServiceMonitor '.spec.endpoints | map(.path) | unique | join(",")')" = "/metrics" ] || fail "endpoint path"
+[ "$(get "$mon" ServiceMonitor '.spec.endpoints[0].interval')" = "30s" ] || fail "default interval"
+[ "$(get "$mon" ServiceMonitor '.spec.endpoints[0] | has("scrapeTimeout")')" = "false" ] || fail "scrapeTimeout set without a value"
+[ "$(get "$mon" ServiceMonitor '.metadata.labels.release')" = "kps" ] || fail "extra ServiceMonitor labels lost"
+[ "$(get "$mon" ServiceMonitor '.spec.namespaceSelector.matchNames[0]')" = "vllm" ] || fail "namespaceSelector"
+# The selector matches the Service's labels, and each endpoint port exists on the Service.
+for k in app.kubernetes.io/name app.kubernetes.io/instance; do
+  [ "$(get "$mon" ServiceMonitor ".spec.selector.matchLabels[\"$k\"]")" = "$(get "$mon" Service ".metadata.labels[\"$k\"]")" ] || fail "selector does not match the Service on $k"
+done
+[ "$(get "$mon" ServiceMonitor '.spec.endpoints | map(.port) | join(",")')" = "$(get "$mon" Service '.spec.ports | map(.name) | join(",")')" ] || fail "endpoints differ from Service ports"
+# Three models give three endpoints; interval and timeout are passed through.
+mon3="$(render -f "$more" --api-versions "$api" --set metrics.serviceMonitor.enabled=true --set metrics.serviceMonitor.interval=15s --set metrics.serviceMonitor.scrapeTimeout=10s)"
+[ "$(get "$mon3" ServiceMonitor '.spec.endpoints | length')" = "3" ] || fail "a third model has no endpoint"
+[ "$(get "$mon3" ServiceMonitor '.spec.endpoints[2].interval + " " + .spec.endpoints[2].scrapeTimeout')" = "15s 10s" ] || fail "interval and scrapeTimeout not rendered"
+# Enabled without the API: nothing rendered, the install does not fail, the notes say why.
+[ "$(render -f "$example" --set metrics.serviceMonitor.enabled=true | yq -N 'select(.kind == "ServiceMonitor") | .kind')" = "" ] || fail "a ServiceMonitor rendered without the API"
+nomon="$(helm install vg "$chart" --namespace vllm --dry-run=client -f "$example" --set metrics.serviceMonitor.enabled=true | sed -n '/^NOTES:/,$p')"
+grep -qF 'no monitoring.coreos.com/v1' <<<"$nomon" || fail "notes: the missing ServiceMonitor API is not reported"
+helm install vg "$chart" --namespace vllm --dry-run=client -f "$example" | grep -qF 'no monitoring.coreos.com/v1' && fail "notes: the warning shows when scraping is off"
+# Turning it on does not roll the pod.
+[ "$(get "$mon" Deployment '.spec.template.metadata.annotations["checksum/launcher"]')" = "$before" ] || fail "enabling metrics rolled the pod"
+
 # ---- arguments the chart owns are rejected ----------------------------------
 for flag in --model --served-model-name --revision --port --host --enable-sleep-mode; do
   rejects "set by the chart" -f "$example" --set "models[0].args[0]=${flag}"

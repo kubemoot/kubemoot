@@ -48,6 +48,28 @@ shmSize: 8Gi
 # printed for you.
 sleepLevel: 1
 
+# Prometheus scraping, off by default. Each vLLM server serves its metrics at /metrics on
+# its own port (the Service's vllm-0, vllm-1, ...). The series carry a model_name label
+# (the served name) and an engine label, so nothing is added to them here. The ones
+# Kubemoot cares about: vllm:prefix_cache_hits_total and vllm:prefix_cache_queries_total,
+# vllm:prompt_tokens_total and vllm:generation_tokens_total, vllm:num_requests_running and
+# vllm:num_requests_waiting, vllm:time_to_first_token_seconds.
+metrics:
+  serviceMonitor:
+    # Create a Prometheus Operator ServiceMonitor with one endpoint per model. Nothing is
+    # rendered, and the install does not fail, when the cluster has no
+    # monitoring.coreos.com/v1 ServiceMonitor API; the install notes say so.
+    enabled: false
+    # How often Prometheus scrapes each model's port.
+    interval: 30s
+    # How long a scrape may take; empty leaves Prometheus's default (it must not exceed
+    # the interval).
+    scrapeTimeout: ""
+    # Extra labels on the ServiceMonitor. kube-prometheus-stack selects monitors by a
+    # label, often release: <its Helm release name>, so set that one here.
+    labels: {}
+    #  release: kube-prometheus-stack
+
 # The models, one server each. Required, at least one.
 #   servedName   the name every request uses (--served-model-name). The Kubemoot Model's
 #                spec.model must equal it; the operator reports a mismatch.
