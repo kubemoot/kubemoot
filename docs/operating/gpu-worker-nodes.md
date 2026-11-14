@@ -335,6 +335,40 @@ already does the ones marked (chart); any other vLLM deployment must do them its
 - **Allow for start-up time.** From a warm weights volume, start-up took 100 to 220 s,
   mostly CUDA graph capture and compilation. Set probes so Kubernetes waits for it.
 
+### Scrape vLLM metrics with Prometheus
+
+Each vLLM server serves Prometheus metrics at `/metrics` on its own port. The chart can
+create a Prometheus Operator `ServiceMonitor` with one endpoint per model (the Service's
+`vllm-0`, `vllm-1`, and so on). It is off by default. Turn it on in the release's values:
+
+```yaml
+metrics:
+  serviceMonitor:
+    enabled: true
+    interval: 30s          # the default
+    scrapeTimeout: ""      # empty leaves Prometheus's default
+    labels:
+      release: kube-prometheus-stack   # whatever label your Prometheus selects monitors by
+```
+
+kube-prometheus-stack selects `ServiceMonitor` objects by a label, usually
+`release: <its Helm release name>`; put that label in `labels`, or Prometheus ignores the
+monitor. The `ServiceMonitor` is created only when the cluster has the
+`monitoring.coreos.com/v1` API. Without it the install still succeeds, creates nothing, and
+the install notes say so. Install the Prometheus Operator and run `helm upgrade` again.
+
+vLLM labels every series with `model_name` (the served name) and `engine`, so you can split
+any of them per model. The ones that matter for Kubemoot:
+
+| Metric | What it tells you |
+|---|---|
+| `vllm:prefix_cache_hits_total`, `vllm:prefix_cache_queries_total` | Prefix cache hit rate: hits divided by queries, as a `rate()` of each. A low rate means prompts do not share a stable beginning. |
+| `vllm:prompt_tokens_total`, `vllm:generation_tokens_total` | Tokens read and written per model. |
+| `vllm:num_requests_running`, `vllm:num_requests_waiting` | Load on a server. A model with requests waiting is saturated. |
+| `vllm:time_to_first_token_seconds` | Histogram of the wait before the first token, per model. |
+
+Only the awake model has traffic; a sleeping model's series stay flat.
+
 ## Run Ollama on a GPU node
 
 Ollama is the engine of the [quickstart](../../introduction/quickstart/) and stays supported

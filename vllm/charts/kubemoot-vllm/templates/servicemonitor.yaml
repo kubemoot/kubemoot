@@ -1,0 +1,30 @@
+{{- if and .Values.metrics.serviceMonitor.enabled (.Capabilities.APIVersions.Has "monitoring.coreos.com/v1/ServiceMonitor") }}
+{{- $servers := include "kubemoot-vllm.servers" . | fromJsonArray -}}
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "kubemoot-vllm.fullname" . }}
+  labels:
+    {{- include "kubemoot-vllm.labels" . | nindent 4 }}
+    {{- with .Values.metrics.serviceMonitor.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "kubemoot-vllm.selectorLabels" . | nindent 6 }}
+  namespaceSelector:
+    matchNames:
+      - {{ .Release.Namespace }}
+  # One endpoint per model, by the Service's port name. vLLM already labels each series
+  # with model_name (the served name), so no relabeling adds it.
+  endpoints:
+    {{- range $i, $s := $servers }}
+    - port: vllm-{{ $i }}
+      path: /metrics
+      interval: {{ $.Values.metrics.serviceMonitor.interval | quote }}
+      {{- with $.Values.metrics.serviceMonitor.scrapeTimeout }}
+      scrapeTimeout: {{ . | quote }}
+      {{- end }}
+    {{- end }}
+{{- end }}
