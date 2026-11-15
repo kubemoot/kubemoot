@@ -147,7 +147,7 @@ func (r *AgentReconciler) buildContract(ctx context.Context, agent *kubemootv1al
 	if concurrency < 1 {
 		concurrency = 1
 	}
-	tools := r.workspaceToolsFor(ctx, agent)
+	tools := r.workspaceFor(ctx, agent).tools
 	c := meshcontract.Contract{
 		ContractVersion: meshcontract.ContractVersion,
 		Identity:        id,

@@ -51,8 +51,9 @@ type AgentWorkspace struct {
 	// the KubemootConfig's, and with none declared the agent behaves as before: it stores every
 	// tool result and reads the workspace only through the tools in its enabledTools.
 	// A declared access is authoritative: workspace tools the access does not allow are disabled
-	// even when enabledTools names them. Read is enforced through the agent's tool list; write
-	// is enforced by the agent's NATS permissions.
+	// even when enabledTools names them. In 0.94 read is enforced through the agent's tool list
+	// and write by the agent-runtime, which stores nothing without write access. NATS does not
+	// enforce either yet; that lands with NATS user provisioning.
 	// +optional
 	Access WorkspaceAccess `json:"access,omitempty"`
 }
@@ -66,8 +67,8 @@ type CrewWorkspace struct {
 
 // WorkspaceConfig configures the discussion workspace cluster-wide.
 type WorkspaceConfig struct {
-	// DefaultAccess is the access of every agent whose Agent and Crew declare none. Left empty,
-	// such an agent keeps its implicit behavior.
+	// DefaultAccess is the access of every agent whose Agent and Crew declare none. Omit it to
+	// leave such an agent implicit; an empty string is refused by the enum.
 	// +optional
 	DefaultAccess WorkspaceAccess `json:"defaultAccess,omitempty"`
 }

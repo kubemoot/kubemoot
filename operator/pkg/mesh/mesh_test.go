@@ -233,27 +233,85 @@ func TestTheAckPermissionIsThisAgentsConsumerOnly(t *testing.T) {
 	}
 }
 
-func TestWorkspaceWriteGrantFollowsTheDeclaredAccess(t *testing.T) {
-	id := valid().Identity
-	workspace := []string{
+// grantsOf is the workspace subjects an identity's permissions hold, by grant.
+func holdsAll(p mesh.Permissions, subjects []string) bool {
+	for _, s := range subjects {
+		if !slices.Contains(p.Publish, s) {
+			return false
+		}
+	}
+	return true
+}
+
+func holdsAny(p mesh.Permissions, subjects []string) bool {
+	for _, s := range subjects {
+		if slices.Contains(p.Publish, s) {
+			return true
+		}
+	}
+	return false
+}
+
+var (
+	writeSubjects = []string{
 		"kubemoot.artifacts.homelab.homelab-pilot.*",
-		"$O.kubemoot_discussion_artifacts.>",
-		"$JS.API.STREAM.INFO.OBJ_kubemoot_discussion_artifacts",
+		"$O.kubemoot_discussion_artifacts.C.*", "$O.kubemoot_discussion_artifacts.M.*",
 		"$JS.API.STREAM.CREATE.OBJ_kubemoot_discussion_artifacts",
+		"$O.kubemoot_workspace.C.*", "$O.kubemoot_workspace.M.*",
+		"$JS.API.STREAM.CREATE.OBJ_kubemoot_workspace",
 	}
-	withWrite, withoutWrite := id.PermissionsFor(true), id.PermissionsFor(false)
-	for _, s := range workspace {
-		if !slices.Contains(withWrite.Publish, s) {
-			t.Errorf("a writing agent lacks %q", s)
-		}
-		if slices.Contains(withoutWrite.Publish, s) {
-			t.Errorf("an agent without write holds %q", s)
-		}
+	readSubjects = []string{
+		"$JS.API.STREAM.INFO.OBJ_kubemoot_discussion_artifacts", "$JS.API.CONSUMER.CREATE.OBJ_kubemoot_discussion_artifacts.>",
+		"$JS.API.STREAM.INFO.OBJ_kubemoot_workspace", "$JS.API.CONSUMER.CREATE.OBJ_kubemoot_workspace.>",
 	}
-	if !slices.Equal(id.Permissions().Publish, withWrite.Publish) {
+	deleteSubjects = []string{
+		"$JS.API.STREAM.PURGE.OBJ_kubemoot_discussion_artifacts", "$JS.API.STREAM.PURGE.OBJ_kubemoot_workspace",
+	}
+)
+
+func TestWriteGrantFollowsTheDeclaredAccess(t *testing.T) {
+	id := valid().Identity
+	if !holdsAll(id.PermissionsFor(true), writeSubjects) {
+		t.Error("a writing agent lacks a write subject")
+	}
+	if holdsAny(id.PermissionsFor(false), writeSubjects) {
+		t.Error("an agent without write holds a write subject")
+	}
+	if !slices.Equal(id.Permissions().Publish, id.PermissionsFor(true).Publish) {
 		t.Error("an agent with no declared access must keep the write grant")
 	}
-	if !slices.Contains(withoutWrite.Publish, "kubemoot.discuss.homelab.homelab-pilot.>") {
+	if !slices.Contains(id.PermissionsFor(false).Publish, "kubemoot.discuss.homelab.homelab-pilot.>") {
 		t.Error("dropping the workspace grant must keep the discussion grant")
+	}
+}
+
+func TestOnlyACoordinatorHoldsReadAndDeleteWhateverItsAccess(t *testing.T) {
+	tooler := valid().Identity
+	coordinator := tooler
+	coordinator.Role = "coordinator"
+	for _, write := range []bool{true, false} {
+		p := coordinator.PermissionsFor(write)
+		if !holdsAll(p, readSubjects) || !holdsAll(p, deleteSubjects) {
+			t.Errorf("coordinator (write=%v) lacks a read or delete subject: thread-close delete, the reaper and the catalog would break", write)
+		}
+	}
+	if holdsAny(tooler.PermissionsFor(false), readSubjects) || holdsAny(tooler.PermissionsFor(false), deleteSubjects) {
+		t.Error("a non-coordinator without write holds read or delete subjects")
+	}
+	if holdsAny(coordinator.PermissionsFor(false), writeSubjects[:1]) {
+		t.Error("a coordinator without write holds the artifact publish subject")
+	}
+}
+
+func TestEachGrantNamesBothBuckets(t *testing.T) {
+	for name, subjects := range map[string][]string{"write": writeSubjects, "read": readSubjects, "delete": deleteSubjects} {
+		var old, current bool
+		for _, s := range subjects {
+			old = old || strings.Contains(s, "kubemoot_discussion_artifacts")
+			current = current || strings.Contains(s, "kubemoot_workspace")
+		}
+		if !old || !current {
+			t.Errorf("%s grant misses a bucket", name)
+		}
 	}
 }

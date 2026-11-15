@@ -87,7 +87,9 @@ Left out, the Crew's `spec.workspace.defaultAccess` applies, then the KubemootCo
 
 A declared access is authoritative. The operator disables every workspace tool the access does not grant (the `workspace_*` tools and the older `artifact_*` names), even when `enabledTools` names it, and adds the tools a `read` or `readWrite` access grants to a non-empty `enabledTools`. A tool named in `disabledTools` stays denied. The operator sets `KUBEMOOT_WORKSPACE_ACCESS` on the agent runtime.
 
-Read is enforced through the agent's tool list. The workspace server scopes reads by discussion, not by agent, so access does not isolate two agents of one crew from each other. Write is enforced by the agent's NATS permissions: an agent without write holds no publish grant on the workspace bucket.
+In 0.94 read is enforced through the agent's tool list and write by the agent-runtime, which stores nothing without write access. NATS does not enforce either yet: nothing provisions per-agent NATS users, and that enforcement lands with user provisioning. The workspace server scopes reads by discussion, not by agent, so access does not isolate two agents of one crew from each other. Other routes read the workspace whatever the tool list says: the code sandbox's `/artifacts` mount (the materializer copies every object of the namespace), the coordinator's catalog of stored keys (an agent with `none` or `read` still receives it in the discussion), and direct MCP mode, where tool names carry a server prefix (`server.tool`) that the workspace tool names do not match.
+
+The `NoWorkspaceServer` check recognizes only an MCPServer that selects the image with `spec.kubemootImage`; a server that names its image directly or an external endpoint is not counted. In a KubemootConfig `workspace.defaultAccess`, omit the field to leave agents implicit; an empty string is refused.
 
 ### `spec.ragSources[]`
 Optional. RAGSource references the runtime searches up front: before every model call it queries each listed source with the question and puts the top results in the system prompt.

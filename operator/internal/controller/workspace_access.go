@@ -10,8 +10,16 @@ You may obtain a copy of the License at
 
 // workspace_access.go turns the workspace access an Agent, its Crew or KubemootConfig declares
 // into what the agent gets: its tool lists, the KUBEMOOT_WORKSPACE_ACCESS the runtime reads,
-// and its status. This file is the one place that decides access. Read is enforced through the
-// agent's tool list; write is enforced by the agent's NATS permissions (mesh.PermissionsFor).
+// and its status. This file is the one place that decides access, and Reconcile resolves it once
+// per pass (withWorkspace) so the env, the contract and the status cannot disagree.
+//
+// In 0.94 read is enforced through the agent's tool list and write by the agent-runtime, which
+// stores nothing without write access. NATS permissions (mesh.PermissionsFor) describe the
+// matching grants, but nothing provisions NATS users from them yet, so NATS does not enforce
+// either until user provisioning lands. Other routes read the workspace regardless of the tool
+// list: the code sandbox's /artifacts mount (the materializer sidecar copies every object of its
+// namespace), the coordinator's review catalog of keys, and direct MCP mode, where tool names
+// carry a server prefix (server.tool) and so are not matched by the workspace tool names here.
 // An agent with nothing declared is implicit: its tool lists and behavior are left as they are.
 package controller
 
@@ -22,11 +30,14 @@ import (
 	"strings"
 
 	corev1 "k8s.io/api/core/v1"
+	apiequality "k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
 	kubemootv1alpha1 "github.com/kubemoot/kubemoot/operator/api/v1alpha1"
 )
@@ -177,10 +188,33 @@ func sortedKeys(m map[string]string) []string {
 	return keys
 }
 
-// workspaceDecisionFor reads the declarations that apply to an Agent. A Crew that cannot be read
-// is treated as declaring nothing; the next reconcile reads it again.
-func (r *AgentReconciler) workspaceDecisionFor(ctx context.Context, agent *kubemootv1alpha1.Agent) workspaceDecision {
-	var declared, crewAccess kubemootv1alpha1.WorkspaceAccess
+// workspaceResolution is what an Agent's workspace declarations resolve to in one reconcile.
+type workspaceResolution struct {
+	decision workspaceDecision
+	tools    workspaceTools
+}
+
+type workspaceCtxKey struct{}
+
+// withWorkspace resolves the Agent's workspace access once and carries it in the context, so every
+// later step of the reconcile (env, contract, status) reads the same answer and the Crew is read once.
+func (r *AgentReconciler) withWorkspace(ctx context.Context, agent *kubemootv1alpha1.Agent) context.Context {
+	return context.WithValue(ctx, workspaceCtxKey{}, r.resolveWorkspace(ctx, agent))
+}
+
+// workspaceFor returns the resolution withWorkspace put in ctx, or resolves it when the caller
+// did not (a test that builds one piece of an Agent directly).
+func (r *AgentReconciler) workspaceFor(ctx context.Context, agent *kubemootv1alpha1.Agent) workspaceResolution {
+	if res, ok := ctx.Value(workspaceCtxKey{}).(workspaceResolution); ok {
+		return res
+	}
+	return r.resolveWorkspace(ctx, agent)
+}
+
+// resolveWorkspace reads the declarations that apply to an Agent and applies them to its tool
+// lists. A Crew that cannot be read is treated as declaring nothing; the next reconcile reads it again.
+func (r *AgentReconciler) resolveWorkspace(ctx context.Context, agent *kubemootv1alpha1.Agent) workspaceResolution {
+	var declared, crewAccess, configAccess kubemootv1alpha1.WorkspaceAccess
 	if agent.Spec.Workspace != nil {
 		declared = agent.Spec.Workspace.Access
 	}
@@ -194,21 +228,13 @@ func (r *AgentReconciler) workspaceDecisionFor(ctx context.Context, agent *kubem
 			logf.FromContext(ctx).Error(err, "Reading the Crew for its workspace access failed", "agent", agent.Name)
 		}
 	}
-	var configAccess kubemootv1alpha1.WorkspaceAccess
-	if r.ConfigCache != nil {
-		configAccess = r.ConfigCache.GetWorkspaceDefaultAccess()
-	}
-	return resolveWorkspaceAccess(declared, crewAccess, configAccess)
-}
-
-// workspaceToolsFor returns the Agent's tool lists with its workspace access applied.
-func (r *AgentReconciler) workspaceToolsFor(ctx context.Context, agent *kubemootv1alpha1.Agent) workspaceTools {
 	engine := kubemootv1alpha1.ArtifactQueryEngineSQLite
 	if r.ConfigCache != nil {
+		configAccess = r.ConfigCache.GetWorkspaceDefaultAccess()
 		engine = r.ConfigCache.GetWorkspaceQueryEngine()
 	}
-	return applyWorkspaceAccess(agent.Spec.EnabledTools, agent.Spec.DisabledTools,
-		r.workspaceDecisionFor(ctx, agent), engine)
+	d := resolveWorkspaceAccess(declared, crewAccess, configAccess)
+	return workspaceResolution{decision: d, tools: applyWorkspaceAccess(agent.Spec.EnabledTools, agent.Spec.DisabledTools, d, engine)}
 }
 
 // workspaceAccessEnvVar is the access the agent-runtime reads; implicit sets nothing.
@@ -219,8 +245,10 @@ func workspaceAccessEnvVar(d workspaceDecision) []corev1.EnvVar {
 	return []corev1.EnvVar{{Name: workspaceAccessEnv, Value: string(d.access)}}
 }
 
-// hasWorkspaceServer reports whether the namespace runs an MCPServer built from the workspace
-// access image, which read tools need.
+// hasWorkspaceServer reports whether the namespace has an MCPServer that selects the workspace
+// image with spec.kubemootImage. It recognizes only that field: a server that names the image
+// directly (spec.image) or an external endpoint is not counted, so a crew using one sees the
+// NoWorkspaceServer condition although its read tools work.
 func (r *AgentReconciler) hasWorkspaceServer(ctx context.Context, namespace string) (bool, error) {
 	servers := &kubemootv1alpha1.MCPServerList{}
 	if err := r.List(ctx, servers, client.InNamespace(namespace)); err != nil {
@@ -259,8 +287,8 @@ func workspaceCondition(agent *kubemootv1alpha1.Agent, d workspaceDecision, tool
 // syncWorkspaceAccess records the resolved access and its condition in the Agent's status, and
 // writes the status when either changed.
 func (r *AgentReconciler) syncWorkspaceAccess(ctx context.Context, agent *kubemootv1alpha1.Agent) error {
-	d := r.workspaceDecisionFor(ctx, agent)
-	tools := r.workspaceToolsFor(ctx, agent)
+	res := r.workspaceFor(ctx, agent)
+	d, tools := res.decision, res.tools
 	serverMissing := false
 	if d.access.CanRead() {
 		has, err := r.hasWorkspaceServer(ctx, agent.Namespace)
@@ -295,4 +323,24 @@ func setWorkspaceStatus(agent *kubemootv1alpha1.Agent, d workspaceDecision) bool
 	}
 	agent.Status.Workspace = want
 	return true
+}
+
+// crewWorkspaceChanged passes a Crew's creation, deletion and any change to spec.workspace, the
+// only part of a Crew that changes an Agent's access.
+func crewWorkspaceChanged() predicate.Predicate {
+	return predicate.Funcs{UpdateFunc: func(e event.UpdateEvent) bool {
+		oldCrew, ok1 := e.ObjectOld.(*kubemootv1alpha1.Crew)
+		newCrew, ok2 := e.ObjectNew.(*kubemootv1alpha1.Crew)
+		return !ok1 || !ok2 || !apiequality.Semantic.DeepEqual(oldCrew.Spec.Workspace, newCrew.Spec.Workspace)
+	}}
+}
+
+// workspaceServerChanged passes an MCPServer's creation and deletion and a change to
+// spec.kubemootImage, the only changes that alter whether the namespace has a workspace server.
+func workspaceServerChanged() predicate.Predicate {
+	return predicate.Funcs{UpdateFunc: func(e event.UpdateEvent) bool {
+		oldServer, ok1 := e.ObjectOld.(*kubemootv1alpha1.MCPServer)
+		newServer, ok2 := e.ObjectNew.(*kubemootv1alpha1.MCPServer)
+		return !ok1 || !ok2 || oldServer.Spec.KubemootImage != newServer.Spec.KubemootImage
+	}}
 }
