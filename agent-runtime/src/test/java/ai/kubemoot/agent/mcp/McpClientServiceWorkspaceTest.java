@@ -85,6 +85,16 @@ class McpClientServiceWorkspaceTest {
     }
 
     @Test
+    void aForeignToolWithAWorkspaceNameDoesNotLearnTheThread() {
+        try (var scope = WorkspaceScope.bind(PREFIX)) {
+            service.callTool("workspace_x", Map.of());
+            service.callTool("workspace_query_all", Map.of());
+        }
+        assertTrue(metaSentFor("workspace_x").isEmpty());
+        assertTrue(metaSentFor("workspace_query_all").isEmpty());
+    }
+
+    @Test
     void anArtifactToolGetsItAndTheRequestersFieldsStayBesideIt() {
         var requester = Requester.of("America/New_York", "2026-11-04T09:00:00").orElseThrow();
         try (var r = RequesterScope.bind(requester); var scope = WorkspaceScope.bind(PREFIX)) {

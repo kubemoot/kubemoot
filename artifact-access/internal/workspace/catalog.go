@@ -29,7 +29,7 @@ const (
 )
 
 // ErrNoThread means a listing was asked for outside a discussion's thread.
-var ErrNoThread = errors.New("workspace_list lists the thread it is called from, and this call names none")
+var ErrNoThread = errors.New("this tool works on the thread it is called from, and this call names none")
 
 // catalogEntry is one stored tool call as the listing shows it.
 type catalogEntry struct {

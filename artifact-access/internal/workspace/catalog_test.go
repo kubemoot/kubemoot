@@ -148,6 +148,24 @@ func TestCatalogCapsTheCallLinesAndCountsTheRest(t *testing.T) {
 	}
 }
 
+func TestArgsSummarySharedFixture(t *testing.T) {
+	raw, err := os.ReadFile("../../../test/fixtures/catalog-lines.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var f struct {
+		Cases []struct{ Name, Input, Output string } `json:"argsSummaries"`
+	}
+	if err := json.Unmarshal(raw, &f); err != nil || len(f.Cases) == 0 {
+		t.Fatalf("fixture: %v (%d cases)", err, len(f.Cases))
+	}
+	for _, c := range f.Cases {
+		if got := argsSummary(c.Input); got != c.Output {
+			t.Errorf("%s: argsSummary(%q) = %q, want %q", c.Name, c.Input, got, c.Output)
+		}
+	}
+}
+
 func TestArgsSummary(t *testing.T) {
 	cases := map[string]string{
 		"":                       "{}",

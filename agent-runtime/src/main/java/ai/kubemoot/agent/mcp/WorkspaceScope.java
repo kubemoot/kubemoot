@@ -13,7 +13,7 @@ import java.util.regex.Pattern;
  * ({@code <namespace>/<crew>/<thread>/}) around a turn's tool loop, and the tool client reads it
  * when it calls a tool, as it does for {@link ai.kubemoot.agent.requester.RequesterScope}.
  *
- * <p>The {@code workspace_*} tools (query, list, describe) and the {@code artifact_*} tools get the prefix in the call's MCP
+ * <p>{@code workspace_query}, {@code workspace_list}, {@code workspace_describe} and the {@code artifact_*} tools get the prefix in the call's MCP
  * {@code _meta} and resolve the key themselves (the artifact-access server). {@code execute_code}
  * runs in a sandbox that knows no thread, so the code's {@code /artifacts/<agent>/<nnn>-<tool>}
  * paths are written out in full here before the call.
@@ -26,7 +26,9 @@ public final class WorkspaceScope {
     private static final String EXECUTE_CODE = "execute_code";
     private static final String CODE_ARGUMENT = "code";
     private static final String ARTIFACT_PREFIX = "artifact_";
-    private static final String WORKSPACE_PREFIX = "workspace_";
+    /** The artifact-access tools that resolve keys inside a thread; another tool named workspace_<x> is not sent the thread. */
+    private static final java.util.Set<String> WORKSPACE_TOOLS =
+            java.util.Set.of("workspace_query", "workspace_list", "workspace_describe");
 
     /** {@code /artifacts/<agent>/<call file or pattern>} with an agent part and no thread part before it. */
     private static final Pattern SHORT_PATH = Pattern.compile(
@@ -51,7 +53,7 @@ public final class WorkspaceScope {
     /** True for the tools that read stored tool results by key. */
     static boolean readsStoredResults(String toolName) {
         String name = baseName(toolName);
-        return name.startsWith(WORKSPACE_PREFIX) || name.startsWith(ARTIFACT_PREFIX) || EXECUTE_CODE.equals(name);
+        return WORKSPACE_TOOLS.contains(name) || name.startsWith(ARTIFACT_PREFIX) || EXECUTE_CODE.equals(name);
     }
 
     /** The {@code _meta} entries that name the thread for {@code toolName}: empty for any other tool or outside a thread. */

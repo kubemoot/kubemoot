@@ -88,7 +88,7 @@ final class ThreadCatalog {
         return entryOf(info.getObjectName(), info.getSize(), info.getHeaders());
     }
 
-    /** The entry of the object stored under {@code key}, or none when it is not a stored tool call. */
+    /** Package-private so the shared fixture test (ThreadCatalogTest) can build entries from headers. The entry of the object stored under {@code key}, or none when it is not a stored tool call. */
     static java.util.Optional<Entry> entryOf(String key, long size, Headers h) {
         if (h == null || !CallHeaders.OPERATION_EXECUTE_TOOL.equals(h.getFirst(CallHeaders.OPERATION_NAME))) {
             return java.util.Optional.empty();
@@ -183,6 +183,7 @@ final class ThreadCatalog {
     }
 
     /** The catalog line of one call: its key, tool, arguments, shape and size. */
+    /** Package-private so the shared fixture test (ThreadCatalogTest) can render one line. */
     String callLine(Entry e) {
         return ENTRY_PREFIX + e.relativeKey(prefix) + " tool=" + e.tool() + " args=" + CallManifest.argsSummary(e.args())
                 + " type=" + (e.type().isEmpty() ? UNKNOWN_TYPE : e.type())

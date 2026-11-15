@@ -153,15 +153,32 @@ func TestWorkspaceDescribeAcceptsTheMapAsAString(t *testing.T) {
 	}
 }
 
-func TestWorkspaceDescribeWithoutAThreadTakesKeysAsGiven(t *testing.T) {
+func TestWorkspaceDescribeWithoutAThreadIsRefused(t *testing.T) {
 	q := &describingQuerier{}
 	s := newServer(nil)
 	s.Query = q
+	args := map[string]any{artifactsArg: map[string]any{"p": scopeThread + scopeShort}}
 
-	_, err := callScoped(t, s, nil, "workspace_describe",
-		map[string]any{artifactsArg: map[string]any{"p": scopeThread + scopeShort}})
+	for name, meta := range map[string]map[string]any{"no meta": nil, "a malformed prefix": {"workspacePrefix": "x"}} {
+		if _, err := callScoped(t, s, meta, "workspace_describe", args); err == nil || !strings.Contains(err.Error(), "names none") {
+			t.Errorf("%s: got %v", name, err)
+		}
+	}
+	if q.described != nil {
+		t.Fatal("nothing may be described outside a thread")
+	}
+}
 
-	if err != nil || q.described["p"] != scopeThread+scopeShort {
-		t.Fatalf("like workspace_query, a call outside a thread uses the key as given: %v %v", err, q.described)
+func TestWorkspaceDescribeRefusesKeysOutsideTheThread(t *testing.T) {
+	for _, key := range []string{"*", "x", "..", "a/*/b/c/d", "/etc/passwd"} {
+		q := &describingQuerier{}
+		s := newServer(nil)
+		s.Query = q
+
+		_, err := callScoped(t, s, threadMeta(), "workspace_describe", map[string]any{artifactsArg: map[string]any{"p": key}})
+
+		if err == nil || q.described != nil {
+			t.Errorf("key %q: want a refusal before describing, got %v (described %v)", key, err, q.described)
+		}
 	}
 }

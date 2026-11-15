@@ -259,7 +259,7 @@ Read one call by its key, or every call of a group by its pattern, with workspac
 
 One `[GROUP ...]` line per agent and tool carries the call, error and byte counts, the sum of the
 rows when every call reports them (`unknown` otherwise) and the key pattern that reads the group.
-One `[CATALOG-CALL ...]` line per call carries the tool, the arguments (cut at 60 characters),
+An object stored before the `Content-Type` header existed shows `type=unknown`. One `[CATALOG-CALL ...]` line per call carries the tool, the arguments (cut at 60 characters),
 the content type and rows from the headers, the bytes and whether it was an error. A catalog line never
 begins with `[CALL key=`, so it is not read as an agent's file description. When the call lines do
 not fit a quarter of the smallest window any server publishes for the model (about 3 characters a
@@ -604,7 +604,8 @@ faster on the large case.
 
 Two read-ops tell an agent what the discussion has gathered, before it writes a query. Both
 work on the calling thread only: the thread comes from the call's `_meta`
-([Short keys](#short-keys)), a call without one is refused, and a key of another thread is refused.
+([Short keys](#short-keys)), a call without one is refused, a key of another thread is refused, and so is a key that does not lie
+under the thread once resolved (a bare `*`, a one-part key such as `x`).
 
 **`workspace_list`** returns the catalog of the thread on request, so an agent can check it has the
 full picture before it counts. It is the object store's own listing of the thread's key prefix with
@@ -641,6 +642,8 @@ the columns Kubemoot adds to a table of stacked calls (`_call`, `_args`, `_arg_<
 no meaning is invented for any other column. Types are the engine's own (SQLite: `integer`, `real`,
 `text`, `blob`), and the result says that the types and examples are read from the data. It is
 offered when the engine can describe; it asks the engine for `typeof` and a `UNION ALL`, so any engine behind the `Engine` seam that has them can.
+
+A column name that an earlier column already has is described once, and a line says how many were left out. If the engine reports more types for a column than were asked for, a line says so.
 
 Each table is read twice, once for its columns and examples and once for its types, so describing a
 large artifact costs about two queries. Tables of a call pattern carry the same notes a query shows.

@@ -287,8 +287,15 @@ func (s *Server) describe(
 	if !ok {
 		return nil, Out{}, fmt.Errorf("this engine cannot describe tables")
 	}
-	artifacts, err := scopeOf(req).ResolveAll(in.Artifacts)
+	sc := scopeOf(req)
+	if sc.Prefix() == "" {
+		return nil, Out{}, workspace.ErrNoThread
+	}
+	artifacts, err := sc.ResolveAll(in.Artifacts)
 	if err != nil {
+		return nil, Out{}, err
+	}
+	if err := inThread(sc, artifacts); err != nil {
 		return nil, Out{}, err
 	}
 	text, err := d.Describe(ctx, artifacts)
@@ -296,6 +303,18 @@ func (s *Server) describe(
 		return nil, Out{}, err
 	}
 	return s.result(text)
+}
+
+// inThread refuses a key that, after resolving, does not lie under the thread's prefix (a key of
+// one segment, or a bare "*", is passed through by Resolve), so a describe never reaches past the thread.
+func inThread(sc threadkey.Scope, artifacts map[string]string) error {
+	for table, key := range artifacts {
+		if !strings.HasPrefix(key, sc.Prefix()) {
+			return fmt.Errorf("artifacts[%q]: key %q is not a key of this thread; use a key like %s",
+				table, key, "k8s-workloads/002-resources_list")
+		}
+	}
+	return nil
 }
 
 // recordedRows is the row count the agent runtime recorded in the headers of a stored tool call

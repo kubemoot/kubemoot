@@ -188,3 +188,67 @@ func TestDescribeCarriesTheNotesOfHowArtifactsWereRead(t *testing.T) {
 		t.Fatalf("got\n%s", got)
 	}
 }
+
+// cannedEngine answers the two queries Describe makes with fixed results.
+type cannedEngine struct{ sample, typed Result }
+
+func (c cannedEngine) Query(_ context.Context, _ []Relation, sql string, _ Limits) (Result, error) {
+	if strings.Contains(sql, "typeof(") {
+		return c.typed, nil
+	}
+	return c.sample, nil
+}
+
+func cannedService(t *testing.T, e cannedEngine) *Service {
+	t.Helper()
+	s := newService(t, engineSQLite, map[string]string{"t": `[{"a":1}]`})
+	s.Engine = e
+	return s
+}
+
+func TestDescribeCountsRowsFromTheFirstColumnByName(t *testing.T) {
+	s := cannedService(t, cannedEngine{
+		sample: Result{Columns: []string{"a", "b"}, Rows: [][]string{{"1", "x"}}},
+		// b's rows come first and are fewer: the row count must still be a's.
+		typed: Result{Columns: []string{"col", "ty", "n"}, Rows: [][]string{
+			{"b", "text", "1"}, {"a", "integer", "3"}, {"a", "null", "2"}, {"b", "null", "4"}}},
+	})
+
+	got := describe(t, s, map[string]string{"t": "t"})
+
+	if !strings.Contains(got, "[TABLE t rows=5 columns=2]") {
+		t.Fatalf("got\n%s", got)
+	}
+}
+
+func TestDescribeSaysWhenTheEngineReportedMoreTypesThanItAskedFor(t *testing.T) {
+	var rows [][]string
+	for i := 0; i < 10; i++ {
+		rows = append(rows, []string{"a", fmt.Sprintf("type%d", i), "1"})
+	}
+	s := cannedService(t, cannedEngine{
+		sample: Result{Columns: []string{"a"}, Rows: [][]string{{"1"}}},
+		typed:  Result{Columns: []string{"col", "ty", "n"}, Rows: rows[:maxTypesPerColumn], Truncated: true},
+	})
+
+	got := describe(t, s, map[string]string{"t": "t"})
+
+	if !strings.Contains(got, "(some columns have more types than are shown)") {
+		t.Fatalf("got\n%s", got)
+	}
+}
+
+func TestDescribeDescribesAColumnNameOnce(t *testing.T) {
+	s := cannedService(t, cannedEngine{
+		sample: Result{Columns: []string{"a", "b", "a"}, Rows: [][]string{{"1", "x", "9"}}},
+		typed: Result{Columns: []string{"col", "ty", "n"}, Rows: [][]string{
+			{"a", "integer", "1"}, {"b", "text", "1"}}},
+	})
+
+	got := describe(t, s, map[string]string{"t": "t"})
+
+	if strings.Count(got, "\n- a: ") != 1 || !strings.Contains(got, "[TABLE t rows=1 columns=2]") ||
+		!strings.Contains(got, "(1 columns repeat the name of an earlier column") || !strings.Contains(got, `examples: "1"`) {
+		t.Fatalf("got\n%s", got)
+	}
+}
