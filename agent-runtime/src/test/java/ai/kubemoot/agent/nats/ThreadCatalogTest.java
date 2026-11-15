@@ -49,6 +49,16 @@ class ThreadCatalogTest {
     }
 
     @Test
+    void sharedFixtureGivesTheSameArgumentSummariesAsArtifactAccess() throws Exception {
+        JsonNode cases = new ObjectMapper().readTree(new File("../test/fixtures/catalog-lines.json")).get("argsSummaries");
+        assertTrue(cases.size() > 0, "the fixture has cases");
+        for (JsonNode c : cases) {
+            assertEquals(c.get("output").asText(), ai.kubemoot.agent.chat.CallManifest.argsSummary(c.get("input").asText()),
+                    c.get("name").asText());
+        }
+    }
+
+    @Test
     void anObjectThatIsNotAStoredToolCallIsNotAnEntry() {
         var headers = new Headers();
         headers.put("kubemoot.rows", "3");

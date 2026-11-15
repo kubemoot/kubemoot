@@ -73,6 +73,10 @@ public final class CallManifest {
     /** Most characters of a call's arguments in a manifest or catalog line. */
     public static final int ARGS_SUMMARY_CHARS = 60;
 
+    /** A run of the white space Go's strings.Fields-style folding in artifact-access treats as space: ASCII only. */
+    private static final Pattern ASCII_SPACE_RUNS = Pattern.compile("[ \\t\\n\\x0B\\f\\r]+");
+    private static final Pattern EDGE_SPACE = Pattern.compile("^ | $");
+
     private CallManifest() {}
 
     /** The line, with its leading line break, that says {@code count} calls are not listed. */
@@ -86,10 +90,13 @@ public final class CallManifest {
      */
     public static String argsSummary(String arguments) {
         String one = arguments == null ? ""
-                : arguments.replaceAll("\\s+", " ").strip().replace('[', '(').replace(']', ')');
+                : EDGE_SPACE.matcher(ASCII_SPACE_RUNS.matcher(arguments).replaceAll(" ")).replaceAll("").replace('[', '(').replace(']', ')');
         if (one.isEmpty()) {
             return "{}";
         }
-        return one.length() <= ARGS_SUMMARY_CHARS ? one : one.substring(0, ARGS_SUMMARY_CHARS) + "...";
+        if (one.codePointCount(0, one.length()) <= ARGS_SUMMARY_CHARS) {
+            return one;
+        }
+        return one.substring(0, one.offsetByCodePoints(0, ARGS_SUMMARY_CHARS)) + "...";
     }
 }

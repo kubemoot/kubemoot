@@ -24,7 +24,7 @@ const (
 	// maxDescribedColumns is the most columns one table is described by; the rest are counted.
 	maxDescribedColumns = 200
 	// maxTypesPerColumn bounds the type rows one column adds to the type query.
-	maxTypesPerColumn = 6
+	maxTypesPerColumn = 8
 	nullType          = "null"
 	inferredNote      = "note: the types are the query engine's and the examples come from the first 50 rows; " +
 		"both are read from the data. No unit or meaning is recorded for these results except where a column says one."
@@ -45,6 +45,10 @@ type tableInfo struct {
 	columns []columnInfo
 	// omitted counts the columns past maxDescribedColumns.
 	omitted int
+	// repeated counts the columns whose name an earlier column already has; they are not described again.
+	repeated int
+	// typesCut is true when the engine reported more types per column than the query asked for.
+	typesCut bool
 }
 
 // Describe returns the description of every table the named artifacts become, in name order.
@@ -76,7 +80,8 @@ func (s *Service) describeRelation(ctx context.Context, r Relation) (tableInfo, 
 		return tableInfo{}, err
 	}
 	info := tableInfo{name: r.Name}
-	names := sample.Columns
+	names, repeated := distinctNames(sample.Columns)
+	info.repeated = repeated
 	if len(names) > maxDescribedColumns {
 		info.omitted = len(names) - maxDescribedColumns
 		names = names[:maxDescribedColumns]
@@ -89,9 +94,24 @@ func (s *Service) describeRelation(ctx context.Context, r Relation) (tableInfo, 
 	if err != nil {
 		return tableInfo{}, err
 	}
-	info.columns = columnsOf(names, typed.Rows, sample.Rows)
-	info.rows = rowCount(typed.Rows)
+	info.typesCut = typed.Truncated
+	info.columns = columnsOf(names, sample.Columns, typed.Rows, sample.Rows)
+	info.rows = rowCount(names[0], typed.Rows)
 	return info, nil
+}
+
+// distinctNames is the column names without a name that an earlier column has, and how many were
+// left out. A query cannot tell two columns of one name apart, so the second is not described.
+func distinctNames(columns []string) ([]string, int) {
+	seen := make(map[string]bool, len(columns))
+	out := make([]string, 0, len(columns))
+	for _, c := range columns {
+		if !seen[c] {
+			seen[c] = true
+			out = append(out, c)
+		}
+	}
+	return out, len(columns) - len(out)
 }
 
 // typeQuery is one SELECT that gives, per column, each type its values have and how many.
@@ -114,7 +134,7 @@ type typeCount struct {
 
 // columnsOf joins the type rows (column, type, count) and the sample rows into one description
 // per column, in the table's column order.
-func columnsOf(names []string, typeRows, sample [][]string) []columnInfo {
+func columnsOf(names, sampleColumns []string, typeRows, sample [][]string) []columnInfo {
 	byColumn := map[string][]typeCount{}
 	for _, r := range typeRows {
 		if len(r) == 3 {
@@ -125,7 +145,7 @@ func columnsOf(names []string, typeRows, sample [][]string) []columnInfo {
 	out := make([]columnInfo, len(names))
 	for i, name := range names {
 		types, nulls := splitTypes(byColumn[name])
-		out[i] = columnInfo{name: name, types: types, nulls: nulls, examples: examplesOf(sample, i)}
+		out[i] = columnInfo{name: name, types: types, nulls: nulls, examples: examplesOf(sample, indexOf(sampleColumns, name))}
 		if jsonText(out[i].examples) && len(types) == 1 && isTextType(types[0]) {
 			out[i].types = []string{"text (JSON)"}
 		}
@@ -135,6 +155,16 @@ func columnsOf(names []string, typeRows, sample [][]string) []columnInfo {
 
 // isTextType is true for the type name an engine gives a string column: SQLite's text, DuckDB's varchar.
 func isTextType(name string) bool { return name == "text" || name == "varchar" }
+
+// indexOf is the position of the first column called name.
+func indexOf(columns []string, name string) int {
+	for i, c := range columns {
+		if c == name {
+			return i
+		}
+	}
+	return -1
+}
 
 // splitTypes orders a column's non-null types by how many values have each, and counts its nulls.
 func splitTypes(counts []typeCount) ([]string, int64) {
@@ -166,7 +196,7 @@ func examplesOf(sample [][]string, i int) []string {
 		if len(out) == maxExamples {
 			break
 		}
-		if i >= len(row) || row[i] == "" || seen[row[i]] {
+		if i < 0 || i >= len(row) || row[i] == "" || seen[row[i]] {
 			continue
 		}
 		seen[row[i]] = true
@@ -186,16 +216,12 @@ func jsonText(examples []string) bool {
 	return len(examples) > 0
 }
 
-// rowCount is the number of rows, from the first column's type counts (every row has a value, or
-// a null, in every column).
-func rowCount(typeRows [][]string) int64 {
-	if len(typeRows) == 0 || len(typeRows[0]) != 3 {
-		return 0
-	}
-	first := typeRows[0][0]
+// rowCount is the number of rows, from the type counts of the named column (every row has a
+// value, or a null, in every column).
+func rowCount(column string, typeRows [][]string) int64 {
 	var n int64
 	for _, r := range typeRows {
-		if len(r) == 3 && r[0] == first {
+		if len(r) == 3 && r[0] == column {
 			c, _ := strconv.ParseInt(r[2], 10, 64)
 			n += c
 		}
@@ -228,6 +254,12 @@ func knownColumn(name string) string {
 func (t tableInfo) render() string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "[TABLE %s rows=%d columns=%d]\n", t.name, t.rows, len(t.columns)+t.omitted)
+	if t.repeated > 0 {
+		fmt.Fprintf(&b, "(%d columns repeat the name of an earlier column and are not described again)\n", t.repeated)
+	}
+	if t.typesCut {
+		b.WriteString("(some columns have more types than are shown)\n")
+	}
 	for _, c := range t.columns {
 		b.WriteString(c.line() + "\n")
 	}

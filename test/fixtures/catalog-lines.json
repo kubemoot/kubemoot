@@ -1,5 +1,5 @@
 {
- "description": "The [CATALOG-CALL ...] line of one stored tool call, shared by artifact-access (Go, workspace_list) and agent-runtime (Java, ThreadCatalog, the review catalog). Each case maps the object's key and headers to the line, without the trailing started=<time> field that only workspace_list adds. A missing header is unknown (a missing Content-Type is unknown, a missing size header is the object's size).",
+ "description": "The [CATALOG-CALL ...] line of one stored tool call, shared by artifact-access (Go, workspace_list) and agent-runtime (Java, ThreadCatalog, the review catalog). Each case maps the object's key and headers to the line, without the trailing started=<time> field that only workspace_list adds. A missing header is unknown (a missing Content-Type is unknown, a missing size header is the object's size). argsSummaries are cases of the arguments summary alone, which may hold characters a NATS header cannot.",
  "prefix": "ns/crew/th1/",
  "cases": [
   {
@@ -126,6 +126,63 @@
     "kubemoot.error": "false"
    },
    "line": "[CATALOG-CALL key=k8s/009-x tool=x args={\"a\": 1} type=text/plain rows=unknown bytes=5 error=false]"
+  }
+ ],
+ "argsSummaries": [
+  {
+   "name": "nothing is an empty object",
+   "input": "",
+   "output": "{}"
+  },
+  {
+   "name": "only spaces is an empty object",
+   "input": "  \t\n ",
+   "output": "{}"
+  },
+  {
+   "name": "white space is folded and the ends are trimmed",
+   "input": "  {\"a\":\n\t 1}  ",
+   "output": "{\"a\": 1}"
+  },
+  {
+   "name": "brackets become parentheses",
+   "input": "{\"a\": [1, 2]}",
+   "output": "{\"a\": (1, 2)}"
+  },
+  {
+   "name": "a no-break space is not folded",
+   "input": "{\"a\": 1}",
+   "output": "{\"a\": 1}"
+  },
+  {
+   "name": "an em space is not folded",
+   "input": " {\"a\":1}",
+   "output": " {\"a\":1}"
+  },
+  {
+   "name": "exactly 60 characters are kept whole",
+   "input": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+   "output": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+  },
+  {
+   "name": "61 characters are cut at 60",
+   "input": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+   "output": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx..."
+  },
+  {
+   "name": "accented characters are cut by character",
+   "input": "éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé",
+   "output": "éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé..."
+  },
+  {
+   "name": "an astral character counts as one character and is never split",
+   "input": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa😀bbbbb",
+   "output": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa😀..."
+  },
+  {
+   "name": "an astral character at the cut",
+   "input": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa😀😀😀😀",
+   "output": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa😀😀..."
   }
  ]
 }
