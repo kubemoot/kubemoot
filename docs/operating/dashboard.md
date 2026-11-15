@@ -63,7 +63,7 @@ The sidebar groups pages by what they cover. The Topology page exists by URL (`/
 
 The sidebar shows the dashboard's version under the logo. A release candidate (`X.Y.Z-rc.N`) carries an RC badge beside it; a published release shows none.
 
-The info icon next to the version opens the Kubemoot components panel. Its first line, `Kubemoot`, is the release the cluster runs: the version of the operator chart, which the operator writes to the `KubemootConfig` status (`status.release`) and the dashboard reads from there. Below it come the dashboard's own version, the operator version, and the operator's uptime. The line reads `not reported` while the operator has not written its status yet, and on an operator too old to report a release. The Copy button puts the panel's lines on the clipboard for a support request.
+The info icon next to the version opens the Kubemoot components panel. Its first line, `Kubemoot`, is the release the cluster runs: the version of the operator chart, which the operator writes to the `KubemootConfig` status (`status.release`) and the dashboard reads from there. Below it come the dashboard's own version, the operator version, and the operator's uptime. A cluster whose chart was never stamped with a release reads `development build`. The line reads `not reported` while the operator has not written its status yet, and on an operator too old to report a release. The Copy button puts the panel's lines on the clipboard for a support request.
 
 | Section | Pages | Shows |
 |---------|-------|-------|

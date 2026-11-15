@@ -22,7 +22,8 @@ export function versionLabel(version: string): string {
 	return version === VERSION_UNKNOWN ? 'version unknown' : `v${version}`;
 }
 
-/** The Kubemoot release as shown: "v1.2.3", or "not reported" when the operator has not written one. */
+/** The Kubemoot release as shown: "v1.2.3"; "development build" for the 0.0.0 an unstamped chart holds; "not reported" when the operator wrote none. */
 export function releaseLabel(release: string): string {
-	return release ? `v${release}` : 'not reported';
+	if (!release) return 'not reported';
+	return release === '0.0.0' ? 'development build' : `v${release}`;
 }
