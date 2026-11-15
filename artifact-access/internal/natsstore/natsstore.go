@@ -51,11 +51,13 @@ func notFound(err error) bool {
 }
 
 // inFirstBucket runs try on each bucket in order and returns the first result that is not a
-// not-found. When every bucket reports not-found it returns the first bucket's error, so an
-// object missing everywhere reads the same as it did with one bucket.
+// not-found. When every bucket reports not-found it returns an object-not-found if any bucket
+// gave one (the object is missing from a bucket that exists), else the first bucket's error, so a
+// key missing everywhere reads as the object-not-found it is even when the first bucket does not
+// exist yet.
 func inFirstBucket[T any](buckets []string, try func(bucket string) (T, error)) (T, error) {
 	var zero T
-	var first error
+	var first, objectMissing error
 	for _, bucket := range buckets {
 		v, err := try(bucket)
 		if err == nil || !notFound(err) {
@@ -64,34 +66,48 @@ func inFirstBucket[T any](buckets []string, try func(bucket string) (T, error)) 
 		if first == nil {
 			first = err
 		}
+		if objectMissing == nil && errors.Is(err, jetstream.ErrObjectNotFound) {
+			objectMissing = err
+		}
 	}
-	if first == nil {
-		first = errors.New("no workspace bucket is configured")
+	switch {
+	case objectMissing != nil:
+		return zero, objectMissing
+	case first != nil:
+		return zero, first
 	}
-	return zero, first
+	return zero, errors.New("no workspace bucket is configured")
 }
 
-// Get opens a fresh connection, streams one object, and returns a reader that closes
-// the connection when the caller closes it. On any setup error the connection is
+// Get opens one connection, streams one object from the first bucket that has it, and returns a
+// reader that closes the connection when the caller closes it. On any setup error the connection is
 // closed before returning so nothing leaks.
 func (s *Store) Get(ctx context.Context, key string) (io.ReadCloser, error) {
-	return inFirstBucket(s.buckets, func(bucket string) (io.ReadCloser, error) {
-		nc, obs, err := s.session(ctx, "artifact-access-get", bucket)
+	nc, js, err := s.connect("artifact-access-get")
+	if err != nil {
+		return nil, err
+	}
+	rc, err := inFirstBucket(s.buckets, func(bucket string) (io.ReadCloser, error) {
+		obs, err := objectStore(ctx, js, bucket)
 		if err != nil {
 			return nil, err
 		}
 		res, err := obs.Get(ctx, key)
 		if err != nil {
-			nc.Close()
 			return nil, err
 		}
 		return &connBoundResult{res: res, nc: nc}, nil
 	})
+	if err != nil {
+		nc.Close()
+		return nil, err
+	}
+	return rc, nil
 }
 
-// session opens a connection and the bucket on it. On error nothing is left open; on success the
-// caller closes the connection.
-func (s *Store) session(ctx context.Context, name, bucket string) (*nats.Conn, jetstream.ObjectStore, error) {
+// connect opens the one connection a call uses for every bucket it tries. On error nothing is left
+// open; on success the caller closes the connection.
+func (s *Store) connect(name string) (*nats.Conn, jetstream.JetStream, error) {
 	nc, err := nats.Connect(s.url, nats.Name(name))
 	if err != nil {
 		return nil, nil, fmt.Errorf("connect %s: %w", s.url, err)
@@ -101,22 +117,31 @@ func (s *Store) session(ctx context.Context, name, bucket string) (*nats.Conn, j
 		nc.Close()
 		return nil, nil, fmt.Errorf("jetstream: %w", err)
 	}
-	obs, err := js.ObjectStore(ctx, bucket)
-	if err != nil {
-		nc.Close()
-		return nil, nil, fmt.Errorf("object store %q: %w", bucket, err)
-	}
-	return nc, obs, nil
+	return nc, js, nil
 }
 
-// Describe returns the size and headers of one object, on its own short-lived connection.
+// objectStore opens one bucket on a connection.
+func objectStore(ctx context.Context, js jetstream.JetStream, bucket string) (jetstream.ObjectStore, error) {
+	obs, err := js.ObjectStore(ctx, bucket)
+	if err != nil {
+		return nil, fmt.Errorf("object store %q: %w", bucket, err)
+	}
+	return obs, nil
+}
+
+// Describe returns the size and headers of one object, from the first bucket that has it, on its
+// own short-lived connection.
 func (s *Store) Describe(ctx context.Context, key string) (store.Meta, error) {
+	nc, js, err := s.connect("artifact-access-describe")
+	if err != nil {
+		return store.Meta{}, err
+	}
+	defer nc.Close()
 	return inFirstBucket(s.buckets, func(bucket string) (store.Meta, error) {
-		nc, obs, err := s.session(ctx, "artifact-access-describe", bucket)
+		obs, err := objectStore(ctx, js, bucket)
 		if err != nil {
 			return store.Meta{}, err
 		}
-		defer nc.Close()
 		info, err := obs.GetInfo(ctx, key)
 		if err != nil {
 			return store.Meta{}, err
@@ -125,14 +150,19 @@ func (s *Store) Describe(ctx context.Context, key string) (store.Meta, error) {
 	})
 }
 
-// List returns the live objects whose key starts with prefix, sorted by key, on a short-lived
-// connection per bucket. An empty or missing bucket is an empty list, not an error; a key in
-// more than one bucket is listed once, from the first bucket.
+// List returns the live objects whose key starts with prefix, sorted by key, over one short-lived
+// connection. An empty or missing bucket is an empty list, not an error; a key in more than one
+// bucket is listed once, from the first bucket.
 func (s *Store) List(ctx context.Context, prefix string) ([]store.Meta, error) {
+	nc, js, err := s.connect("artifact-access-list")
+	if err != nil {
+		return nil, err
+	}
+	defer nc.Close()
 	var out []store.Meta
 	seen := map[string]bool{}
 	for _, bucket := range s.buckets {
-		metas, err := s.listBucket(ctx, bucket, prefix)
+		metas, err := listBucket(ctx, js, bucket, prefix)
 		if err != nil {
 			return nil, err
 		}
@@ -148,15 +178,14 @@ func (s *Store) List(ctx context.Context, prefix string) ([]store.Meta, error) {
 }
 
 // listBucket lists one bucket; a bucket no writer has created yet lists as empty.
-func (s *Store) listBucket(ctx context.Context, bucket, prefix string) ([]store.Meta, error) {
-	nc, obs, err := s.session(ctx, "artifact-access-list", bucket)
+func listBucket(ctx context.Context, js jetstream.JetStream, bucket, prefix string) ([]store.Meta, error) {
+	obs, err := objectStore(ctx, js, bucket)
 	if errors.Is(err, jetstream.ErrBucketNotFound) {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, err
 	}
-	defer nc.Close()
 	infos, err := obs.List(ctx)
 	if err != nil && !errors.Is(err, jetstream.ErrNoObjectsFound) {
 		return nil, fmt.Errorf("list %q: %w", prefix, err)

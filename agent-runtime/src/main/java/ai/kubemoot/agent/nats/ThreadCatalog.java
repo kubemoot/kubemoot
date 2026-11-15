@@ -1,6 +1,7 @@
 package ai.kubemoot.agent.nats;
 
 import ai.kubemoot.agent.chat.CallHeaders;
+import ai.kubemoot.agent.mcp.WorkspaceTools;
 import ai.kubemoot.agent.chat.CallManifest;
 import ai.kubemoot.agent.chat.DiscussionRoom;
 import io.nats.client.Connection;
@@ -86,9 +87,9 @@ final class ThreadCatalog {
         return new ThreadCatalog(prefix, found);
     }
 
-    /** A workspace bucket no writer has created is not a failure; the old bucket failing to list is. */
+    /** A bucket no writer has created is not a failure; any other failure to list is. */
     private static void logListFailure(String bucket, String prefix, Exception e) {
-        if (DiscussionArtifacts.WORKSPACE_BUCKET.equals(bucket)) {
+        if (DiscussionArtifacts.isBucketMissing(e)) {
             log.debug("catalog: bucket {} is not readable yet: {}", bucket, e.getMessage());
             return;
         }
@@ -205,7 +206,7 @@ final class ThreadCatalog {
 
     /** How stored calls are read: by key, by pattern as one table, or as files; the same words wherever calls are listed. */
     private static final String READING_NOTE = "Read one call by its key, or every call of a group by its pattern, with "
-            + "workspace_query (SQL) or the artifact_* tools, or with execute_code over the file /artifacts/<key>. "
+            + WorkspaceTools.READ_TOOLS_TEXT + ", or with execute_code over the file /artifacts/<key>. "
             + "A pattern reads the calls as one table with the columns _call (the call's key), _args (its "
             + "arguments) and _arg_<name> for an argument that differs between the calls (for example _arg_vmid).";
 

@@ -97,3 +97,24 @@ func TestAnObjectInNoBucketReportsTheFirstBucketsError(t *testing.T) {
 		t.Error("a store with no bucket must say so")
 	}
 }
+
+func TestAKeyMissingFromTheOnlyExistingBucketReadsAsObjectNotFound(t *testing.T) {
+	_, err := inFirstBucket([]string{newBucket, oldBucket}, func(b string) (string, error) {
+		if b == newBucket {
+			return "", fmt.Errorf("object store %q: %w", b, jetstream.ErrBucketNotFound)
+		}
+		return "", fmt.Errorf("%s: %w", b, jetstream.ErrObjectNotFound)
+	})
+	if !errors.Is(err, jetstream.ErrObjectNotFound) || errors.Is(err, jetstream.ErrBucketNotFound) {
+		t.Errorf("err = %v, want object-not-found, not bucket-not-found", err)
+	}
+}
+
+func TestWhenNoBucketExistsTheFirstBucketsErrorIsReported(t *testing.T) {
+	_, err := inFirstBucket([]string{newBucket, oldBucket}, func(b string) (string, error) {
+		return "", fmt.Errorf("object store %q: %w", b, jetstream.ErrBucketNotFound)
+	})
+	if !errors.Is(err, jetstream.ErrBucketNotFound) || !strings.Contains(err.Error(), newBucket) {
+		t.Errorf("err = %v", err)
+	}
+}

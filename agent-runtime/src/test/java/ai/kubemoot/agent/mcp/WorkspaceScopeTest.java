@@ -20,7 +20,8 @@ class WorkspaceScopeTest {
         try (var scope = WorkspaceScope.bind(PREFIX)) {
             for (String tool : new String[] {"workspace_query", "artifact_head", "artifact_tail", "artifact_grep",
                     "artifact_count", "artifact_rows", "artifact_select", "artifact_jq", "execute_code",
-                    "artifact-access.workspace_query"}) {
+                    "artifact-access.workspace_query", "workspace_head", "workspace_tail", "workspace_grep",
+                    "workspace_list", "workspace_describe", "artifact-access.workspace_head"}) {
                 assertEquals(Map.of(WorkspaceScope.META_KEY, PREFIX), WorkspaceScope.metaFor(tool), tool);
             }
             for (String tool : new String[] {"resources_list", "pods_list", "execute_query", "validate_code",
@@ -134,5 +135,23 @@ class WorkspaceScopeTest {
         String code = WorkspaceScope.expandPaths("open('" + SHORT + "')", "ns/crew/th$1\\x/");
 
         assertEquals("open('/artifacts/ns/crew/th$1\\x/k8s-workloads/002-resources_list')", code);
+    }
+
+    @Test
+    void theRegistryAnswersForEveryWorkspaceToolUnderEitherName() {
+        for (String tool : new String[] {"workspace_head", "workspace_tail", "workspace_grep", "workspace_query",
+                "workspace_list", "workspace_describe", "artifact_head", "artifact_tail", "artifact_grep",
+                "artifact_count", "artifact_rows", "artifact_select", "artifact_jq", "srv.artifact_head"}) {
+            assertTrue(WorkspaceTools.isWorkspace(tool), tool);
+        }
+        for (String tool : new String[] {"artifact_head", "artifact_count", "workspace_query", "workspace_grep"}) {
+            assertTrue(WorkspaceTools.readsData(tool), tool);
+        }
+        assertEquals("workspace_head", WorkspaceTools.canonical("artifact_head"));
+        assertEquals("workspace_query", WorkspaceTools.canonical("artifact_jq"));
+        assertEquals("pods_list", WorkspaceTools.canonical("pods_list"));
+        assertTrue(!WorkspaceTools.isWorkspace("my_artifact_tool") && !WorkspaceTools.isWorkspace(null));
+        assertTrue(!WorkspaceTools.readsData("workspace_list") && !WorkspaceTools.readsData("workspace_describe"),
+                "the catalog tools do not read data");
     }
 }

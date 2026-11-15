@@ -62,20 +62,47 @@ final class DiscussionArtifacts {
         }
     }
 
+    /** The store and the info of an object found in one of the {@link #READ_BUCKETS}. */
+    record Held(ObjectStore store, ObjectInfo info) {
+    }
+
+    /** JetStream API error code for "stream not found": the bucket does not exist. */
+    private static final int JSAPI_STREAM_NOT_FOUND = 10059;
+
     /**
-     * The store of the first {@link #READ_BUCKETS} bucket that holds a live object under {@code key}, or
-     * null when none does. A bucket that does not exist yet is skipped.
+     * True when the failure means the bucket does not exist (no writer has created it), at the top of
+     * {@code e} or in its cause chain. Any other failure is a real one and is not hidden by this.
      */
-    static ObjectStore storeHolding(Connection conn, String key) {
+    static boolean isBucketMissing(Throwable e) {
+        for (Throwable t = e; t != null; t = t.getCause()) {
+            if (t instanceof JetStreamApiException api && api.getApiErrorCode() == JSAPI_STREAM_NOT_FOUND) {
+                return true;
+            }
+            String message = t.getMessage();
+            if (message != null && message.contains("stream not found")) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * The first {@link #READ_BUCKETS} bucket that holds a live object under {@code key}, with its info,
+     * or null when none does. A bucket that does not exist yet is skipped; any other failure is thrown.
+     */
+    static Held storeHolding(Connection conn, String key) throws Exception {
         for (String bucket : READ_BUCKETS) {
             try {
                 ObjectStore store = conn.objectStore(bucket);
-                ObjectInfo info = store.getInfo(key);
+                ObjectInfo info = store == null ? null : store.getInfo(key);
                 if (info != null && !info.isDeleted()) {
-                    return store;
+                    return new Held(store, info);
                 }
             } catch (Exception e) {
-                log.debug("{} cannot answer for {}: {}", bucket, key, e.getMessage());
+                if (!isBucketMissing(e)) {
+                    throw e;
+                }
+                log.debug("{} does not exist yet", bucket);
             }
         }
         return null;
@@ -202,7 +229,7 @@ final class DiscussionArtifacts {
         try {
             store = conn.objectStore(bucket);
         } catch (Exception e) {
-            if (WORKSPACE_BUCKET.equals(bucket)) {
+            if (isBucketMissing(e)) {
                 return 0; // no writer has created it
             }
             throw e;

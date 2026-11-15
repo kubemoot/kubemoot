@@ -1,5 +1,7 @@
 package ai.kubemoot.agent.chat;
 
+import ai.kubemoot.agent.mcp.WorkspaceTools;
+
 /**
  * The room one turn's tool results may take in the context window. The room is the
  * window, minus the prompt the model already has, minus a reserve for its reply.
@@ -117,9 +119,8 @@ final class ToolResultBudget {
 
     /** For tools that read stored data: count, select or query it instead of reading rows. */
     private static String aggregateHint(String toolName) {
-        boolean readsData = toolName != null && (toolName.startsWith("artifact_") || toolName.equals("workspace_query"));
-        return readsData ? " To read stored data, ask for fewer lines or rows, or aggregate it (artifact_count,"
-                + " artifact_select, artifact_jq, or SQL in workspace_query) and read only the answer." : "";
+        return WorkspaceTools.readsData(toolName) ? " To read stored data, ask for fewer lines or rows, or"
+                + " aggregate it with SQL in " + WorkspaceTools.QUERY + " and read only the answer." : "";
     }
 
     /** Used when the room is gone, so many parallel oversized calls cannot fill the window with errors. */

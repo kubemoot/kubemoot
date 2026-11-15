@@ -240,7 +240,7 @@ class ToolCallLedgerTest {
 
         String manifest = ledger.manifest();
 
-        assertTrue(manifest.contains("workspace_query") && manifest.contains("artifact_*")
+        assertTrue(manifest.contains("workspace_query") && manifest.contains("workspace_head")
                 && manifest.contains("execute_code over the file /artifacts/<key>"), manifest);
     }
 

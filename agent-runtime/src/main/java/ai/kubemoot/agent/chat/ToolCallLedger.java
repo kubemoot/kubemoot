@@ -1,5 +1,6 @@
 package ai.kubemoot.agent.chat;
 
+import ai.kubemoot.agent.mcp.WorkspaceTools;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -166,7 +167,8 @@ final class ToolCallLedger {
         String head = CallManifest.HEADER_PREFIX + "agent=" + agent + " calls=" + calls.size() + " errors=" + errors
                 + " prefix=" + prefix + "]\n";
         String foot = "\n" + CallManifest.FOOTER_PREFIX + "; a result not shown above is only in its file. Read a key with "
-                + "workspace_query (SQL; the columns are listed on the call line), the artifact_* tools, or "
+                + WorkspaceTools.QUERY + " (SQL; the columns are listed on the call line), "
+                + WorkspaceTools.HEAD + ", " + WorkspaceTools.TAIL + ", " + WorkspaceTools.GREP + ", or "
                 + "execute_code over the file /artifacts/<key>"
                 + (prefix.isEmpty() ? "." : "; the key " + prefix + "*-<tool> reads every call of one tool as one table.");
         int room = MAX_MANIFEST_CHARS - head.length() - foot.length();
