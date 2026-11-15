@@ -151,7 +151,9 @@ loading a whole document:
 
 - `workspace_query` runs one read-only SQL `SELECT` over named artifacts in the
   [workspace](#workspace), so counting and totalling are done by a database instead of
-  by the model.
+  by the model. `workspace_list` lists what the discussion has stored, and `workspace_describe` gives
+  each table's columns, types and example values (see
+  [List and describe the workspace](../discussion-artifact-store/#list-and-describe-the-workspace)).
 - The coordinator has a query service of its own. The operator indexes the crew's
   resumes into a per-crew `RAGSource` and points the coordinator at it, so the
   coordinator can narrow the crew to the agents whose expertise matches the question.

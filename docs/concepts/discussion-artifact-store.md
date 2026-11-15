@@ -600,6 +600,51 @@ memory of its whole process. SQLite loads the file into a table before it querie
 time grows with the size of the artifact. DuckDB scans the file as it queries and is
 faster on the large case.
 
+### List and describe the workspace
+
+Two read-ops tell an agent what the discussion has gathered, before it writes a query. Both
+work on the calling thread only: the thread comes from the call's `_meta`
+([Short keys](#short-keys)), a call without one is refused, and a key of another thread is refused.
+
+**`workspace_list`** returns the catalog of the thread on request, so an agent can check it has the
+full picture before it counts. It is the object store's own listing of the thread's key prefix with
+each object's headers; nothing else stores it. It is offered whenever the store can list objects.
+
+```
+[CATALOG calls=3 errors=1 bytes=44060]
+[CATALOG-CALL key=k8s-workloads/001-pods_list tool=pods_list args={"namespace":"kube-system"} type=application/json rows=3 bytes=2210 error=false started=2026-11-15T10:00:00Z]
+...
+```
+
+The call lines are the ones the coordinator's [catalog](#the-catalog-the-complete-list-of-files)
+uses (both render `test/fixtures/catalog-lines.json`), with one more field, `started=`, the time the
+call started. A header an object lacks is `unknown` (an object stored before the `Content-Type` header
+has `type=unknown`). The optional `tool` argument lists the calls of one tool. At most 200 call lines
+are shown, then a line counts the rest. A key of a line reads as it is shown, short.
+
+**`workspace_describe`** takes the same `artifacts` map as `workspace_query` (table name to key; a key
+may be short or end in `*`) and returns, for each table the artifacts become, its columns and the
+type the query engine gives each, so a query uses real names:
+
+```
+[TABLE pods rows=3 columns=4]
+- ns: text; examples: "kube-system", "default"
+- restarts: integer; 1 null; examples: "0", "2"
+- labels: text (JSON); examples: "{\"app\":\"x\"}"
+- _call: text; meaning: the key of the stored call the row came from; examples: "k8s-workloads/001-pods_list"
+```
+
+The data dictionary is what the data and the engine show: the type, how many values are null, and up
+to three example values from the first 50 rows (each cut at 40 characters). A column that holds
+nested JSON is marked `text (JSON)`; SQLite reads such a column with `->>`. A meaning is given only for
+the columns Kubemoot adds to a table of stacked calls (`_call`, `_args`, `_arg_<name>`); no unit and
+no meaning is invented for any other column. Types are the engine's own (SQLite: `integer`, `real`,
+`text`, `blob`), and the result says that the types and examples are read from the data. It is
+offered when the engine can describe; it asks the engine for `typeof` and a `UNION ALL`, so any engine behind the `Engine` seam that has them can.
+
+Each table is read twice, once for its columns and examples and once for its types, so describing a
+large artifact costs about two queries. Tables of a call pattern carry the same notes a query shows.
+
 ### Compute sandbox agents (materialised to disk)
 
 Counting, summing, sorting, and filtering are unreliable when a model performs
