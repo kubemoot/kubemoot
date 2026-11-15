@@ -15,7 +15,8 @@ machines sit in a cluster before you start, read
 The operator is one part of the ecosystem. The others install separately, each from
 its own page:
 
-- **kmctl**, the command-line tool: [kmctl User Guide](../../user-guides/kmctl/).
+- **kmctl**, the command-line tool: [install it from the release](https://github.com/kubemoot/kmctl#install),
+  then see the [kmctl User Guide](../../user-guides/kmctl/).
 - **Crews**, packaged as Helm charts, including the reference crew:
   [Crews](../../ecosystem/crews/) and [Pilot](../../ecosystem/pilot/).
 - **CrewForge**, the VS Code extension: [CrewForge](../../ecosystem/crewforge/).
