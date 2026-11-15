@@ -135,7 +135,7 @@ func TestPrepareAsDropsATypeTheBytesDoNotHold(t *testing.T) {
 		"JSON that is not JSON":    {FormatJSON, "plain words\nmore words\n", FormatText},
 		"Markdown without a table": {FormatMarkdownTable, "plain words\n", FormatText},
 		"YAML that does not parse": {FormatYAML, "a: b: c\n", FormatText},
-		"a table type over JSON":   {FormatKubectlTable, `[{"a":1}]`, FormatKubectlTable},
+		"a table type over JSON":   {FormatKubectlTable, `[{"a":3}]`, FormatKubectlTable},
 		"JSON over a CSV body":     {FormatJSON, "a,b\n1,2\n", FormatCSV},
 		"an empty body, text hint": {FormatText, "", FormatText},
 	}
