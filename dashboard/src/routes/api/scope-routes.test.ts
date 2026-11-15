@@ -239,6 +239,7 @@ describe('scoped dashboard', () => {
 			const purge = vi.fn(async () => ({ purged: 3 }));
 			mocks.getNatsConnection.mockResolvedValue({
 				publish,
+				flush: async () => {},
 				jetstreamManager: async () => ({ streams: { purge } })
 			});
 			const post = (handler: unknown, body: unknown) =>

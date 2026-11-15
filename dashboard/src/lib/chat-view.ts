@@ -146,8 +146,10 @@ export function canSend(opts: {
 	text: string;
 	sending: boolean;
 	readOnly: boolean;
+	/** The open conversation's first message was not sent; nothing can be added until it is. */
+	blocked?: boolean;
 }): boolean {
-	return !!opts.scope && !opts.readOnly && !opts.sending && opts.text.trim().length > 0;
+	return !!opts.scope && !opts.readOnly && !opts.sending && !opts.blocked && opts.text.trim().length > 0;
 }
 
 /** The chat as plain text for the clipboard. */

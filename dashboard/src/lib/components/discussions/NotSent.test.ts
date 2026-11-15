@@ -20,15 +20,41 @@ describe('NotSent', () => {
 		const publish = vi.fn().mockResolvedValue(undefined);
 		render(NotSent, { messageId: 'm1', publish });
 		expect(screen.getByRole('alert').textContent).toContain('Not sent: Your session has ended.');
-		await fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+		await fireEvent.click(screen.getByRole('button', { name: /Retry sending/ }));
 		await waitFor(() => expect(get(unsentMessages).has('m1')).toBe(false));
 		expect(publish).toHaveBeenCalledWith('s', message);
+	});
+
+	it('names its message in the button label and moves focus to the message after a good retry', async () => {
+		const card = document.createElement('div');
+		card.id = 'message-m1';
+		card.tabIndex = -1;
+		document.body.appendChild(card);
+		unsentMessages.set(new Map([['m1', { subject: 's', message: { ...message, content: 'What is up?' }, reason: 'r' }]]));
+		render(NotSent, { messageId: 'm1', publish: vi.fn().mockResolvedValue(undefined) });
+		const btn = screen.getByRole('button', { name: 'Retry sending: What is up?' });
+		await fireEvent.click(btn);
+		await waitFor(() => expect(document.activeElement).toBe(card));
+		card.remove();
+	});
+
+	it('marks the button aria-disabled while sending and ignores a second press', async () => {
+		unsentMessages.set(new Map([['m1', { subject: 's', message, reason: 'r' }]]));
+		let release: () => void = () => {};
+		const publish = vi.fn(() => new Promise<void>((resolve) => (release = resolve)));
+		render(NotSent, { messageId: 'm1', publish });
+		const btn = screen.getByRole('button', { name: /Retry sending/ });
+		await fireEvent.click(btn);
+		await waitFor(() => expect(btn.getAttribute('aria-disabled')).toBe('true'));
+		await fireEvent.click(btn);
+		expect(publish).toHaveBeenCalledTimes(1);
+		release();
 	});
 
 	it('keeps the mark with the new reason when the retry fails too', async () => {
 		unsentMessages.set(new Map([['m1', { subject: 's', message, reason: 'old' }]]));
 		render(NotSent, { messageId: 'm1', publish: vi.fn().mockRejectedValue(new Error('still down')) });
-		await fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+		await fireEvent.click(screen.getByRole('button', { name: /Retry sending/ }));
 		await waitFor(() => expect(get(unsentMessages).get('m1')?.reason).toBe('Sending failed: still down'));
 	});
 });

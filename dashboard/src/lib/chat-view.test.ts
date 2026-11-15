@@ -142,6 +142,10 @@ describe('canSend', () => {
 		expect(canSend({ ...ok, sending: true })).toBe(false);
 		expect(canSend({ ...ok, readOnly: true })).toBe(false);
 	});
+	it('is disabled while the first message of the conversation is unsent', () => {
+		expect(canSend({ ...ok, blocked: true })).toBe(false);
+		expect(canSend({ ...ok, blocked: false })).toBe(true);
+	});
 });
 
 describe('crewThreads', () => {

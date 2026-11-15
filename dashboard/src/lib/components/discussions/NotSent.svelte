@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { tick } from 'svelte';
 	import { unsentMessages, retryUnsent, type Unsent } from '#lib/send-state.js';
 
 	interface Props {
@@ -12,9 +13,15 @@
 	let retrying = $state(false);
 
 	async function retry() {
+		if (retrying) return;
 		retrying = true;
 		try {
-			await retryUnsent(publish, messageId, $unsentMessages);
+			const sent = await retryUnsent(publish, messageId, $unsentMessages);
+			// The notice is gone once the message is sent; keep the keyboard on the message.
+			if (sent) {
+				await tick();
+				document.getElementById(`message-${messageId}`)?.focus();
+			}
 		} finally {
 			retrying = false;
 		}
@@ -24,7 +31,12 @@
 {#if entry}
 	<div class="not-sent" role="alert">
 		<span>Not sent: {entry.reason}</span>
-		<button class="retry-send" onclick={retry} disabled={retrying}>{retrying ? 'Sending...' : 'Retry'}</button>
+		<button
+			class="retry-send"
+			onclick={retry}
+			aria-disabled={retrying}
+			aria-label={retrying ? 'Sending the message again' : `Retry sending: ${entry.message.content ?? 'message'}`.slice(0, 120)}
+		>{retrying ? 'Sending...' : 'Retry'}</button>
 	</div>
 {/if}
 
@@ -46,7 +58,7 @@
 		color: var(--color-error);
 		cursor: pointer;
 	}
-	.retry-send:disabled {
+	.retry-send[aria-disabled="true"] {
 		opacity: 0.6;
 		cursor: default;
 	}
