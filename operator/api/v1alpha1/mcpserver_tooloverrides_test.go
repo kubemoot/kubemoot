@@ -102,3 +102,50 @@ toolOverrides:
 		t.Error("an unknown override field must be rejected")
 	}
 }
+
+func TestMCPServerCRDToolArgumentRulesSchema(t *testing.T) {
+	spec := loadMCPServerSpecSchema(t, "config", "crd", "bases", "kubemoot.ai_mcpservers.yaml")
+	param := spec.Properties["toolOverrides"].Items.Schema.Properties["parameters"].AdditionalProperties.Schema
+	rules, ok := param.Properties["rules"]
+	if !ok {
+		t.Fatal("a parameter override has no rules in the CRD")
+	}
+	if rules.MaxItems == nil || *rules.MaxItems != 16 {
+		t.Errorf("rules should be capped at 16 items, got %+v", rules.MaxItems)
+	}
+	rule := rules.Items.Schema
+	if len(rule.Required) != 2 {
+		t.Errorf("reject and message are both required, got %v", rule.Required)
+	}
+	reject := rule.Properties["reject"]
+	if reject.MaxLength == nil || len(reject.XValidations) != 1 {
+		t.Errorf("reject needs a length cap and the regex check, got %+v", reject)
+	}
+	if len(param.Required) != 1 || param.Required[0] != "description" {
+		t.Errorf("adding rules must not change what a parameter requires, got %v", param.Required)
+	}
+}
+
+func TestMCPServerToolArgumentRulesRoundTrip(t *testing.T) {
+	in := `
+toolOverrides:
+- name: resources_list
+  parameters:
+    fieldSelector:
+      description: a selector
+      rules:
+      - reject: "[<>]"
+        message: no comparison operators
+`
+	var spec MCPServerSpec
+	if err := yaml.UnmarshalStrict([]byte(in), &spec); err != nil {
+		t.Fatal(err)
+	}
+	rules := spec.ToolOverrides[0].Parameters["fieldSelector"].Rules
+	if len(rules) != 1 || rules[0].Reject != "[<>]" || rules[0].Message != "no comparison operators" {
+		t.Errorf("unexpected rules: %+v", rules)
+	}
+	if err := yaml.UnmarshalStrict([]byte("toolOverrides:\n- name: x\n  parameters:\n    p:\n      description: d\n      rules:\n      - allow: y\n"), &spec); err == nil {
+		t.Error("an unknown rule field must be rejected")
+	}
+}

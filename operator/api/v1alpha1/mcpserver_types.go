@@ -136,6 +136,34 @@ type ToolParameterOverride struct {
 	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=2000
 	Description string `json:"description"`
+
+	// Rules reject a call whose value for this parameter the tool server would
+	// refuse, before the call: the gateway returns the rule's message as the tool
+	// error and does not call the server. Rules are checked in order and the first
+	// match answers.
+	// +kubebuilder:validation:MaxItems=16
+	// +optional
+	Rules []ToolArgumentRule `json:"rules,omitempty"`
+}
+
+// ToolArgumentRule rejects a tool call when a parameter's text matches a pattern.
+// Only a string value is checked; an absent, empty, or non-string argument never
+// matches, so the tool server's own validation still applies to it.
+type ToolArgumentRule struct {
+	// Reject is an RE2 regular expression searched anywhere in the argument text
+	// (anchor with ^ and $ to match all of it). A pattern that does not compile is
+	// rejected when the MCPServer is created or updated. Use the syntax RE2 and
+	// Java share: named groups written (?P<name>...) are not portable.
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=200
+	// +kubebuilder:validation:XValidation:rule="''.matches(self) in [true, false]",message="reject must be a valid RE2 regular expression"
+	Reject string `json:"reject"`
+
+	// Message is what the model gets back as the tool error. Write it in ADL and name
+	// the alternative call.
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=1000
+	Message string `json:"message"`
 }
 
 // ToolOverride replaces the description text an MCP server reports for one of its

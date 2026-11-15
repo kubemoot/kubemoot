@@ -90,6 +90,8 @@ public class McpClientManager {
     private final Map<String, List<ToolInfo>> serverTools = new ConcurrentHashMap<>();
     // Description overrides per server ID, applied to every tool list read from that server
     private final Map<String, List<ToolOverride>> serverOverrides = new ConcurrentHashMap<>();
+    // Argument rules compiled from the same overrides, checked before a call is forwarded
+    private final Map<String, ArgumentRules> serverRules = new ConcurrentHashMap<>();
     private final Map<String, String> serverSessions = new ConcurrentHashMap<>();
     // For supergateway: active SSE subscriptions and response sinks
     private final Map<String, Disposable> sseSubscriptions = new ConcurrentHashMap<>();
@@ -164,7 +166,7 @@ public class McpClientManager {
                 log.info("Server {} credential changed, re-registering", name);
                 unregisterServer(existing.id());
             } else if (existing.url().equals(url)) {
-                List<ToolOverride> previous = serverOverrides.put(existing.id(), overrides);
+                List<ToolOverride> previous = setOverrides(existing.id(), overrides, name);
                 if (!overrides.equals(previous)) {
                     log.info("Server {} tool overrides changed", name);
                     ToolOverrides.warnUnmatched(getToolsForServer(existing.id()), overrides, name);
@@ -180,7 +182,7 @@ public class McpClientManager {
 
         log.info("Registering new MCP server: {} at {}", name, url);
         ServerRegistration registration = ServerRegistration.create(name, url, transport);
-        serverOverrides.put(registration.id(), overrides);
+        setOverrides(registration.id(), overrides, name);
         if (credential != null) {
             credentials.put(registration.id(), credential);
         }
@@ -377,6 +379,7 @@ public class McpClientManager {
         mcpPaths.remove(serverId);
         serverTools.remove(serverId);
         serverOverrides.remove(serverId);
+        serverRules.remove(serverId);
         toolsListedAt.remove(serverId);
         listings.remove(serverId);
         cleanupSseSession(serverId);
@@ -392,6 +395,12 @@ public class McpClientManager {
     }
 
     /** Every server's tools, with each server's description overrides applied. */
+    /** Stores a server's overrides and compiles their argument rules; returns the previous overrides. */
+    private List<ToolOverride> setOverrides(String serverId, List<ToolOverride> overrides, String serverName) {
+        serverRules.put(serverId, ArgumentRules.compile(overrides, serverName));
+        return serverOverrides.put(serverId, overrides);
+    }
+
     public List<ToolInfo> getAllTools() {
         return serverTools.keySet().stream()
             .flatMap(id -> getToolsForServer(id).stream())
@@ -966,9 +975,15 @@ public class McpClientManager {
      * ids independently (a timestamp, or a client's own counter starting at 1), and a
      * backend that sees two in-flight requests with one id on a session answers only
      * one of them. A tools/call has its argument values coerced to the tool's declared
-     * input schema types first (see {@link ToolArgumentCoercion}).
+     * input schema types first (see {@link ToolArgumentCoercion}). A tools/call that breaks
+     * one of the server's argument rules (see {@link ArgumentRules}) is answered with the
+     * rule's message as a tool error and is not forwarded.
      */
     public Mono<McpMessage> forwardRequest(String serverId, McpMessage original) {
+        McpMessage refusal = refuseBrokenRule(serverId, original);
+        if (refusal != null) {
+            return Mono.just(refusal);
+        }
         McpMessage request = ToolArgumentCoercion.coerceCall(original, serverTools.get(serverId));
         Object callerId = request.id();
         if (callerId == null) {
@@ -976,6 +991,24 @@ public class McpClientManager {
         }
         return forwardRequestInternal(serverId, request.withId(upstreamIds.incrementAndGet()), true)
             .map(reply -> reply.withId(callerId));
+    }
+
+    /** The tool error for a tools/call that breaks an argument rule of the server, else null. */
+    private McpMessage refuseBrokenRule(String serverId, McpMessage request) {
+        Map<String, Object> params = request.params();
+        if (params == null || !"tools/call".equals(request.method())
+            || !(params.get("name") instanceof String tool)
+            || !(params.get("arguments") instanceof Map<?, ?> arguments)) {
+            return null;
+        }
+        return serverRules.getOrDefault(serverId, ArgumentRules.none()).check(tool, arguments)
+            .map(message -> {
+                log.info("Refused call to {} before forwarding: an argument rule matched", tool);
+                return McpMessage.response(request.id(), Map.of(
+                    "isError", true,
+                    "content", List.of(Map.of("type", "text", "text", message))));
+            })
+            .orElse(null);
     }
 
     /**
