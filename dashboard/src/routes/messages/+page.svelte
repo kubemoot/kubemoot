@@ -20,7 +20,7 @@
 	import { crewEntry, crewLabel } from '#lib/crew-display-name.js';
 	import { canSend, chatAsText, chatTurns, crewThreads, detailsLine } from '#lib/chat-view.js';
 	import { formatTimestamp } from '#lib/discussion-timing.js';
-	import { publishToBus, sendTracked } from '#lib/send-state.js';
+	import { firstMessageUnsent, publishDiscussionMessage, sendTracked, threadIsOpen, unsentMessages } from '#lib/send-state.js';
 	import { NotSent } from '#lib/components/discussions/index.js';
 
 	marked.setOptions({ breaks: true, gfm: true });
@@ -44,8 +44,17 @@
 	let copied = $state(false);
 	let timelineEl = $state<HTMLElement | null>(null);
 
+	// A conversation whose first message was not sent takes no reply until that one is sent.
+	const blocked = $derived(selected ? firstMessageUnsent(selected.messages, $unsentMessages) : false);
+
 	const sendable = $derived(
-		canSend({ scope: selectedScope, text: draft, sending, readOnly: $readOnly })
+		canSend({
+			scope: selectedScope,
+			text: draft,
+			sending,
+			readOnly: $readOnly,
+			blocked: blocked
+		})
 	);
 
 	function selectChat(threadId: string | null) {
@@ -53,9 +62,6 @@
 		deleteConfirm = false;
 	}
 
-	function publish(subject: string, msg: DiscussionMessage): Promise<void> {
-		return publishToBus(resolve('/api/nats/publish'), subject, msg);
-	}
 
 	// A new conversation starts a thread (thread_start on the crew's discuss subject, as
 	// New discussion does); a message in an open conversation is a reply on its thread.
@@ -93,7 +99,7 @@
 			const { subject, msg } = outgoing(selectedScope, draft.trim());
 			addDiscussionMessage(msg, subject);
 			selectedThreadId = msg.threadId;
-			await sendTracked(publish, subject, msg);
+			await sendTracked(publishDiscussionMessage, subject, msg);
 			draft = '';
 			await tick();
 			if (timelineEl) timelineEl.scrollTop = timelineEl.scrollHeight;
@@ -194,7 +200,7 @@
 				</div>
 			{:else}
 				{#each turns as turn (turn.id)}
-					<div class="bubble {turn.from}">
+					<div class="bubble {turn.from}" id="message-{turn.id}" tabindex="-1">
 						<div class="bubble-head">
 							<span class="who">{turn.from === 'you' ? 'You' : crewLabel($crewDirectory, selected.namespace, selected.crew ?? '') || 'Crew'}</span>
 							<span class="when">{formatTimestamp(turn.timestamp)}</span>
@@ -206,12 +212,15 @@
 							{/if}
 						{:else}
 							<div class="plain">{turn.text}</div>
-							<NotSent messageId={turn.id} {publish} />
+							<NotSent messageId={turn.id} publish={publishDiscussionMessage} />
 						{/if}
 					</div>
 				{/each}
-				{#if selected.status === 'open'}
+				{#if threadIsOpen(selected, $unsentMessages)}
 					<div class="waiting">The crew is working on an answer...</div>
+				{/if}
+				{#if blocked}
+					<div class="waiting" role="status">The first message was not sent. Retry it before replying.</div>
 				{/if}
 			{/if}
 		</div>

@@ -1,6 +1,12 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { get } from 'svelte/store';
 import {
+	awaitingAnswer,
+	deliveredMessages,
+	firstMessageUnsent,
+	isPaused,
+	publishDiscussionMessage,
+	threadIsOpen,
 	PublishFailure,
 	failureText,
 	publishToBus,
@@ -51,13 +57,33 @@ describe('publishToBus', () => {
 		stubFetch(async () => res);
 		const f = await failureOf(publishToBus('/u', 's', {}));
 		expect(f?.kind).toBe('signed-out');
-		expect(f?.message).toMatch(/sign in again/);
+		expect(f?.message).toMatch(/Sign in again/);
+		expect(f?.message).not.toMatch(/[Rr]eload/);
 	});
 
 	it('reports a login page served with status 200 as signed out', async () => {
 		const res = reply({ status: 200, body: '<html></html>', headers: { 'content-type': 'text/html' } });
 		stubFetch(async () => res);
 		expect((await failureOf(publishToBus('/u', 's', {})))?.kind).toBe('signed-out');
+	});
+
+	it('reports a 403 login page as signed out but a 5xx HTML page as a refusal', async () => {
+		const html = { 'content-type': 'text/html' };
+		stubFetch(async () => reply({ status: 403, body: '<html></html>', headers: html }));
+		expect((await failureOf(publishToBus('/u', 's', {})))?.kind).toBe('signed-out');
+		for (const status of [500, 502, 503]) {
+			stubFetch(async () => reply({ status, body: '<html>Bad gateway</html>', headers: html }));
+			const f = await failureOf(publishToBus('/u', 's', {}));
+			expect(f?.kind).toBe('refused');
+			expect(f?.message).toContain(`HTTP ${status}`);
+		}
+	});
+
+	it('cuts a long refusal text to 200 characters', async () => {
+		const res = reply({ status: 500, body: JSON.stringify({ error: 'x'.repeat(900) }), headers: { 'content-type': 'application/json' } });
+		stubFetch(async () => res);
+		const f = await failureOf(publishToBus('/u', 's', {}));
+		expect(f?.message.length).toBeLessThan(260);
 	});
 
 	it('reports 401 as signed out', async () => {
@@ -122,5 +148,67 @@ describe('sendTracked and retryUnsent', () => {
 		expect(await sendTracked(async () => {}, 's', msg('b'))).toBe(true);
 		expect(get(unsentMessages).size).toBe(0);
 		expect(await retryUnsent(async () => {}, 'nope', get(unsentMessages))).toBe(false);
+	});
+});
+
+const person = (id: string, type: DiscussionMessage['messageType'], agent = 'human') =>
+	({ messageId: id, threadId: 't', agentName: agent, messageType: type }) as DiscussionMessage;
+const entry = (m: DiscussionMessage) => [m.messageId, { subject: 's', message: m, reason: 'down' }] as const;
+
+describe('state derived with unsent messages', () => {
+	it('a pause that did not go does not pause the thread, and a resume that did not go does not resume it', () => {
+		const start = person('1', 'thread_start');
+		const pause = person('2', 'thread_pause');
+		const resume = person('3', 'thread_resume');
+		expect(isPaused([start, pause], new Map([entry(pause)]))).toBe(false);
+		expect(isPaused([start, pause], new Map())).toBe(true);
+		expect(isPaused([start, pause, resume], new Map([entry(resume)]))).toBe(true);
+	});
+
+	it('a question that did not go leaves no answer owed', () => {
+		const start = person('1', 'thread_start');
+		const answer = person('2', 'synthesis', 'coordinator');
+		const reply = person('3', 'reply');
+		expect(awaitingAnswer([start], new Map([entry(start)]))).toBe(false);
+		expect(awaitingAnswer([start], new Map())).toBe(true);
+		expect(awaitingAnswer([start, answer, reply], new Map([entry(reply)]))).toBe(false);
+		expect(awaitingAnswer([start, answer, reply], new Map())).toBe(true);
+	});
+
+	it('an open thread whose replay (a new thread_start) did not go is not open', () => {
+		const replay = person('9', 'thread_start');
+		expect(threadIsOpen({ status: 'open', messages: [replay] }, new Map([entry(replay)]))).toBe(false);
+		expect(threadIsOpen({ status: 'open', messages: [replay] }, new Map())).toBe(true);
+		expect(threadIsOpen({ status: 'synthesized', messages: [replay] }, new Map())).toBe(false);
+	});
+
+	it('a thread started by someone else stays open when an unrelated reply did not go', () => {
+		const start = person('1', 'thread_start', 'scheduler');
+		const reply = person('2', 'reply');
+		expect(threadIsOpen({ status: 'open', messages: [start, reply] }, new Map([entry(reply)]))).toBe(true);
+	});
+
+	it('finds an unsent first message and lists the delivered ones', () => {
+		const start = person('1', 'thread_start');
+		const reply = person('2', 'reply');
+		const unsent = new Map([entry(start)]);
+		expect(firstMessageUnsent([start, reply], unsent)).toBe(true);
+		expect(firstMessageUnsent([start, reply], new Map([entry(reply)]))).toBe(false);
+		expect(deliveredMessages([start, reply], unsent)).toEqual([reply]);
+	});
+});
+
+describe('publishDiscussionMessage', () => {
+	it('posts to the dashboard publish route and tracks a failure', async () => {
+		unsentMessages.set(new Map());
+		let url = '';
+		stubFetch(async (u) => {
+			url = u;
+			return reply({ status: 502, body: '{}', headers: { 'content-type': 'application/json' } });
+		});
+		const m = person('p1', 'thread_pause');
+		expect(await sendTracked(publishDiscussionMessage, 'subj', m)).toBe(false);
+		expect(url).toContain('/api/nats/publish');
+		expect(get(unsentMessages).get('p1')?.reason).toContain('HTTP 502');
 	});
 });

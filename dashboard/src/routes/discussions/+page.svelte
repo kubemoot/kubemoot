@@ -18,7 +18,7 @@
 	import { placementOf, threadStartMs as messagesStartMs } from '#lib/discussion-spans.js';
 	import { buildGpuDisplayMap } from '#lib/gpu-display.js';
 	import * as tips from '#lib/discussion-actions.js';
-	import { publishToBus, sendTracked } from '#lib/send-state.js';
+	import { isPaused, publishDiscussionMessage, sendTracked, threadIsOpen, unsentMessages } from '#lib/send-state.js';
 	import { fetchDashboardVersion, versionLabel, VERSION_UNKNOWN } from '#lib/dashboard-version.js';
 
 	// Configure marked for safe inline rendering
@@ -161,13 +161,9 @@
 		return discussSubject(scope, thread.channel, threadId);
 	}
 
-	function publishMessage(subject: string, data: DiscussionMessage): Promise<void> {
-		return publishToBus(resolve('/api/nats/publish'), subject, data);
-	}
-
 	// Sends a message already on screen; one that did not go is marked "not sent" with a Retry.
 	function deliver(subject: string, msg: DiscussionMessage): Promise<boolean> {
-		return sendTracked(publishMessage, subject, msg);
+		return sendTracked(publishDiscussionMessage, subject, msg);
 	}
 
 	async function startNewDiscussion() {
@@ -300,14 +296,9 @@
 		setTimeout(() => { copiedThread = false; }, 2000);
 	}
 
+	// The latest delivered pause or resume wins; a message that was not sent does not count.
 	function isThreadPaused(thread: Thread): boolean {
-		// Walk messages from latest to oldest; the most recent pause/resume wins.
-		for (let i = thread.messages.length - 1; i >= 0; i--) {
-			const m = thread.messages[i];
-			if (m.messageType === 'thread_pause') return true;
-			if (m.messageType === 'thread_resume') return false;
-		}
-		return false;
+		return isPaused(thread.messages, $unsentMessages);
 	}
 
 	async function publishPauseSignal(thread: Thread, paused: boolean) {
@@ -376,7 +367,7 @@
 				metadata: { reason: 'manual_stop' }
 			};
 			addDiscussionMessage(msg, subject);
-			await publishMessage(subject, msg);
+			await deliver(subject, msg);
 		} catch (e) {
 			console.error('Failed to stop discussion:', e);
 		} finally {
@@ -705,7 +696,7 @@
 						>
 							{$pinnedThreadIds.has(selectedThread.threadId) ? '📌' : '📍'}
 						</button>
-						{#if selectedThread.status === 'open'}
+						{#if threadIsOpen(selectedThread, $unsentMessages)}
 							{#if isThreadPaused(selectedThread)}
 								<button class="action-btn" onclick={resumeThread} disabled={sending} title={tips.RESUME_TOOLTIP} aria-label="Resume discussion">
 									▶️
@@ -719,7 +710,7 @@
 								⏹️
 							</button>
 						{/if}
-						{#if selectedThread.status !== 'open'}
+						{#if !threadIsOpen(selectedThread, $unsentMessages)}
 							<button class="action-btn" onclick={replayThread} disabled={sending} title={tips.REPLAY_TOOLTIP} aria-label="Replay discussion">
 								🔁
 							</button>
@@ -768,6 +759,8 @@
 							class:proposal={msg.messageType === 'proposal'}
 							class:human={msg.agentName === 'human'}
 							class:after-answer={afterAnswer.has(msg)}
+							id="message-{msg.messageId}"
+							tabindex="-1"
 						>
 							<div class="message-header">
 								<span class="agent-name" class:human-name={msg.agentName === 'human'}>
@@ -786,7 +779,7 @@
 									<span class="message-time" title={formatTimestamp(msg.timestamp)}>{formatElapsed(stats.elapsedMs)}</span>
 								{/if}
 							</div>
-							<NotSent messageId={msg.messageId} publish={publishMessage} />
+							<NotSent messageId={msg.messageId} publish={publishDiscussionMessage} />
 							{#if (msg.messageType === 'advisory' || msg.messageType === 'advisory_ready') && msg.metadata?.technologies && msg.metadata.technologies.length > 0}
 								<div class="tech-badges">
 									{#each msg.metadata.technologies as tech}

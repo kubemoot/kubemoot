@@ -20,6 +20,9 @@ export const POST: RequestHandler = async ({ request }) => {
 
 		const nc = await getNatsConnection();
 		nc.publish(subject, sc.encode(typeof data === 'string' ? data : JSON.stringify(data)));
+		// Core publish, then flush: a success answer means the NATS server has the message. The
+		// subject is captured by the discussion stream on the server side; this does not wait for that.
+		await nc.flush();
 
 		return Response.json({ success: true });
 	} catch (err) {

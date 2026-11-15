@@ -3,6 +3,7 @@
 // the message is marked "not sent" with the reason and a Retry, so it never looks sent.
 
 import { writable } from 'svelte/store';
+import { resolve } from '$app/paths';
 import type { DiscussionMessage } from '#lib/types/kubemoot.js';
 
 /** Why a publish failed, in the terms a person can act on. */
@@ -18,20 +19,29 @@ export class PublishFailure extends Error {
 	}
 }
 
-const SIGNED_OUT = 'Your session has ended. Reload the page and sign in again.';
+// The unsent messages live in memory only, so the text never tells the person to reload the page.
+const SIGNED_OUT = 'Your session has ended. Sign in again (in this tab or another), then press Retry.';
 
-/** True when the answer is not from the dashboard server: a sign-in redirect or a login page. */
+/** The most of the server's own error text shown to a person. */
+const REASON_MAX_CHARS = 200;
+
+/**
+ * True when the answer is not from the dashboard server: a sign-in redirect, a 401, or a
+ * login page (HTML served with 200, 401 or 403). An HTML error page on a 5xx is the server
+ * failing, not a lost session.
+ */
 function isSignInResponse(res: Response): boolean {
-	if (res.type === 'opaqueredirect' || res.redirected) return true;
-	if (res.status === 401) return true;
-	return (res.headers.get('content-type') ?? '').includes('text/html');
+	if (res.type === 'opaqueredirect' || res.status === 401) return true;
+	const loginStatus = res.ok || res.status === 403;
+	return loginStatus && (res.headers.get('content-type') ?? '').includes('text/html');
 }
 
 /** The server's own error text from a JSON body, when it gave one. */
 async function serverReason(res: Response): Promise<string> {
 	try {
 		const body = await res.json();
-		return typeof body?.error === 'string' && body.error ? body.error : '';
+		const text: unknown = body?.error;
+		return typeof text === 'string' ? text.slice(0, REASON_MAX_CHARS) : '';
 	} catch {
 		return '';
 	}
@@ -55,6 +65,11 @@ export async function publishToBus(url: string, subject: string, data: object): 
 	if (res.ok) return;
 	const reason = (await serverReason(res)) || `HTTP ${res.status}`;
 	throw new PublishFailure('refused', `The server refused the message: ${reason}.`);
+}
+
+/** Posts a discussion message to the bus; the one publish both Discussions and Messages use. */
+export function publishDiscussionMessage(subject: string, message: DiscussionMessage): Promise<void> {
+	return publishToBus(resolve('/api/nats/publish'), subject, message);
 }
 
 /** What the page tells the person about a failed send. */
@@ -109,4 +124,48 @@ export async function retryUnsent(
 	const entry = unsent.get(messageId);
 	if (!entry) return false;
 	return sendTracked(publish, entry.subject, entry.message);
+}
+
+/** The messages the bus has: those not marked unsent. */
+export function deliveredMessages(messages: DiscussionMessage[], unsent: ReadonlyMap<string, Unsent>): DiscussionMessage[] {
+	return messages.filter((m) => !unsent.has(m.messageId));
+}
+
+/** Whether the thread is paused, by its latest delivered pause or resume. */
+export function isPaused(messages: DiscussionMessage[], unsent: ReadonlyMap<string, Unsent>): boolean {
+	const delivered = deliveredMessages(messages, unsent);
+	for (let i = delivered.length - 1; i >= 0; i--) {
+		if (delivered[i].messageType === 'thread_pause') return true;
+		if (delivered[i].messageType === 'thread_resume') return false;
+	}
+	return false;
+}
+
+const PERSON_MESSAGES: ReadonlySet<string> = new Set(['thread_start', 'reply', 'follow_up']);
+
+/** Whether the crew owes an answer: a delivered question since the last answer or close. */
+export function awaitingAnswer(messages: DiscussionMessage[], unsent: ReadonlyMap<string, Unsent>): boolean {
+	let waiting = false;
+	for (const m of deliveredMessages(messages, unsent)) {
+		if (m.messageType === 'thread_start' || (m.agentName === 'human' && PERSON_MESSAGES.has(m.messageType))) waiting = true;
+		else if (m.messageType === 'synthesis' || m.messageType === 'thread_close') waiting = false;
+	}
+	return waiting;
+}
+
+/**
+ * Whether a thread is open: the store's status, unless a message of it never reached the bus.
+ * Then the status was moved by that message, so it is read again from the delivered ones.
+ */
+export function threadIsOpen(
+	thread: { status: string; messages: DiscussionMessage[] },
+	unsent: ReadonlyMap<string, Unsent>
+): boolean {
+	if (thread.status !== 'open') return false;
+	return thread.messages.some((m) => unsent.has(m.messageId)) ? awaitingAnswer(thread.messages, unsent) : true;
+}
+
+/** Whether the thread's opening message never reached the bus, so nothing can be added to it yet. */
+export function firstMessageUnsent(messages: DiscussionMessage[], unsent: ReadonlyMap<string, Unsent>): boolean {
+	return messages.some((m) => m.messageType === 'thread_start' && unsent.has(m.messageId));
 }
