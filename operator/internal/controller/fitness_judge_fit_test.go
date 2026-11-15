@@ -24,6 +24,8 @@ import (
 	"testing"
 	"unicode/utf8"
 
+	"github.com/go-logr/logr"
+	"github.com/go-logr/logr/funcr"
 	aiv1alpha1 "github.com/kubemoot/kubemoot/operator/api/v1alpha1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
@@ -77,7 +79,7 @@ func TestMarshalFittedLeavesAFittingDocumentAlone(t *testing.T) {
 	cd := fitDoc("small evidence")
 	plain, _ := json.Marshal(cd)
 	for _, budget := range []int{0, -1, len(plain), len(plain) + 100} {
-		got, err := marshalFitted(cd, budget)
+		got, err := marshalFitted(cd, budget, logr.Discard())
 		if err != nil || got != string(plain) {
 			t.Errorf("budget %d: changed a document that fits (err %v)", budget, err)
 		}
@@ -92,7 +94,7 @@ func TestMarshalFittedCutsBulkEvidenceAndKeepsTheClaims(t *testing.T) {
 		t.Fatalf("test document is %d bytes, want at least 77000", len(plain))
 	}
 	budget, _ := judgeDocBudgetChars(16384)
-	got, err := marshalFitted(cd, budget)
+	got, err := marshalFitted(cd, budget, logr.Discard())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -138,7 +140,7 @@ func assertEvidenceCut(t *testing.T, parsed judgeComparisonDoc) {
 
 func TestMarshalFittedSharesTheRoomAcrossItems(t *testing.T) {
 	cd := fitDoc(strings.Repeat("a", 30_000), strings.Repeat("b", 30_000), "tiny")
-	got, err := marshalFitted(cd, 10_000)
+	got, err := marshalFitted(cd, 10_000, logr.Discard())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -159,7 +161,7 @@ func TestMarshalFittedSharesTheRoomAcrossItems(t *testing.T) {
 func TestMarshalFittedKeepsClaimsWhenTheyAloneExceedTheBudget(t *testing.T) {
 	cd := fitDoc(proxmoxRows(50))
 	cd.Answers[0].Synthesis = strings.Repeat("claim ", 2000)
-	got, err := marshalFitted(cd, 500)
+	got, err := marshalFitted(cd, 500, logr.Discard())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -175,12 +177,29 @@ func TestMarshalFittedKeepsClaimsWhenTheyAloneExceedTheBudget(t *testing.T) {
 	}
 }
 
+func TestMarshalFittedLogsWhenStillOverBudget(t *testing.T) {
+	var lines []string
+	log := funcr.New(func(prefix, args string) { lines = append(lines, args) }, funcr.Options{})
+	cd := fitDoc(proxmoxRows(20))
+	cd.Answers[0].Synthesis = strings.Repeat("claim ", 2000)
+	if _, err := marshalFitted(cd, 500, log); err != nil {
+		t.Fatal(err)
+	}
+	if len(lines) != 1 || !strings.Contains(lines[0], `"budgetBytes"=500`) || !strings.Contains(lines[0], `"bytes"=`) {
+		t.Errorf("log lines = %q, want one naming the size and the budget", lines)
+	}
+	lines = nil
+	if _, err := marshalFitted(fitDoc("small"), 100_000, log); err != nil || len(lines) != 0 {
+		t.Errorf("a document that fits logged %q (err %v)", lines, err)
+	}
+}
+
 func TestMarshalFittedHandlesNoAnswersAndNoEvidence(t *testing.T) {
 	for _, cd := range []judgeComparisonDoc{
 		{Question: strings.Repeat("q", 900), Answers: []judgeAnswer{}},
 		{Question: "q", Answers: []judgeAnswer{{Synthesis: strings.Repeat("s", 900)}}},
 	} {
-		got, err := marshalFitted(cd, 100)
+		got, err := marshalFitted(cd, 100, logr.Discard())
 		if err != nil || !json.Valid([]byte(got)) {
 			t.Errorf("document with nothing to cut: err %v, valid %v", err, json.Valid([]byte(got)))
 		}
@@ -197,6 +216,19 @@ func TestCutEvidenceNeverSplitsACharacter(t *testing.T) {
 		if omitted <= 0 {
 			t.Fatalf("limit %d: nothing omitted from an item longer than the limit", limit)
 		}
+	}
+}
+
+// Omitted characters are counted as characters, not bytes.
+func TestCutEvidenceCountsCharactersNotBytes(t *testing.T) {
+	item := strings.Repeat("\u4e2d", 1000) // 1000 characters, 3000 bytes
+	_, omitted := cutEvidence(item, 300)
+	if omitted > 1000 || omitted < 800 {
+		t.Errorf("omitted = %d, want about 900 characters (a byte count would be near 2700)", omitted)
+	}
+	note, n := cutEvidence(item, 10)
+	if n != 1000 || !strings.Contains(note, "1000 characters") {
+		t.Errorf("note %q count %d, want 1000 characters", note, n)
 	}
 }
 
@@ -256,6 +288,56 @@ func TestJudgeCrewWindowIsTheSmallestAdmittedModel(t *testing.T) {
 	}
 }
 
+// The catalog's window is the model's trained context on Ollama; the window each request
+// gets, from the server's status, is what the document has to fit.
+func TestJudgeCrewWindowPrefersTheServedWindowOverTheCatalog(t *testing.T) {
+	loaded := opServer(selOllama, aiv1alpha1.ServerTypeOllama, windowedEntry("judge-a", 131072, testToolCalling))
+	loaded.Status.Capacity = &aiv1alpha1.DiscoveredCapacity{
+		ContextLength: 8192,
+		LoadedModels:  []aiv1alpha1.LoadedModel{{Name: "judge-a", ContextLength: 16384}},
+	}
+	crew := &aiv1alpha1.Crew{ObjectMeta: metav1.ObjectMeta{Name: selCrew, Namespace: selNS}}
+	cases := []struct {
+		name   string
+		mutate func(*aiv1alpha1.ModelServer)
+		want   int
+	}{
+		{"loaded model window", func(*aiv1alpha1.ModelServer) {}, 16384},
+		{"server setting when not loaded", func(s *aiv1alpha1.ModelServer) { s.Status.Capacity.LoadedModels = nil }, 8192},
+		{"calibrated window before the server setting", func(s *aiv1alpha1.ModelServer) {
+			s.Status.Capacity.LoadedModels = nil
+			s.Status.Calibration = &aiv1alpha1.ServerCalibration{Models: []aiv1alpha1.ModelCalibration{{Model: "judge-a", Fits: true, ContextLength: 12288}}}
+		}, 12288},
+		{"catalog when the server reports none", func(s *aiv1alpha1.ModelServer) { s.Status.Capacity = nil }, 131072},
+	}
+	for _, c := range cases {
+		server := loaded.DeepCopy()
+		c.mutate(server)
+		_, cli := catalogReconciler(t, server, pilotPolicy(), pilotAgent("judge"))
+		if got := judgeCrewWindow(context.Background(), cli, crew); got != c.want {
+			t.Errorf("%s: window = %d, want %d", c.name, got, c.want)
+		}
+	}
+}
+
+func TestAdmittedModelsKeepsReadyModelsTheRuleAdmits(t *testing.T) {
+	rule := &aiv1alpha1.SchedulingRule{Phase: phaseMulling, Require: &metav1.LabelSelector{MatchLabels: map[string]string{"k": "v"}}}
+	model := func(name string, ready bool, lbls map[string]string) aiv1alpha1.Model {
+		return aiv1alpha1.Model{ObjectMeta: metav1.ObjectMeta{Name: name, Labels: lbls}, Status: aiv1alpha1.ModelStatus{Ready: ready}}
+	}
+	models := []aiv1alpha1.Model{
+		model("ok", true, map[string]string{"k": "v"}),
+		model("not-ready", false, map[string]string{"k": "v"}),
+		model("no-match", true, map[string]string{"k": "mismatch-value"}),
+	}
+	if got := admittedModels(rule, models); len(got) != 1 || got[0].Name != "ok" {
+		t.Errorf("admitted = %v, want only ok", got)
+	}
+	if got := admittedModels(nil, models); len(got) != 2 {
+		t.Errorf("a nil rule admits every ready model, got %d", len(got))
+	}
+}
+
 func TestJudgeCrewWindowIsUnknownWithoutDeclaredWindows(t *testing.T) {
 	server := opServer(selOllama, aiv1alpha1.ServerTypeOllama, windowedEntry("judge-a", 0, testToolCalling))
 	_, cli := catalogReconciler(t, server, pilotPolicy(), pilotAgent("judge"))
@@ -278,12 +360,12 @@ func TestBuildComparisonDocFitsTheJudgeWindow(t *testing.T) {
 		`{"type":"synthesis","content":"` + fitSynthesis + `"},{"type":"done"}]}`
 	store := fakeStore{objs: map[string][]byte{testRunPrefix + "s0-i1.json": []byte(transcript)}}
 
-	whole, _, _, err := buildComparisonDoc(store, testRunPrefix, 0, testVerdictReflects, 0)
+	whole, _, _, err := buildComparisonDoc(store, testRunPrefix, 0, testVerdictReflects, 0, logr.Discard())
 	if err != nil || len(whole) < 77_000 {
 		t.Fatalf("unknown window: err %v, document %d bytes; want the whole 77 KB document", err, len(whole))
 	}
 	budget, _ := judgeDocBudgetChars(16384)
-	fitted, total, answers, err := buildComparisonDoc(store, testRunPrefix, 0, testVerdictReflects, 16384)
+	fitted, total, answers, err := buildComparisonDoc(store, testRunPrefix, 0, testVerdictReflects, 16384, logr.Discard())
 	if err != nil || total != 1 || answers != 1 {
 		t.Fatalf("fitted: err %v total %d answers %d", err, total, answers)
 	}

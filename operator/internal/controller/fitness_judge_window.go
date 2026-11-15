@@ -75,11 +75,39 @@ func agentWindow(ctx context.Context, r *AgentReconciler, agent *kubemootv1alpha
 		return 0
 	}
 	smallest := 0
-	for i := range src.Models {
-		m := &src.Models[i]
-		if m.Status.Ready && matchesRequire(rule, m) {
-			smallest = smallerWindow(smallest, m.Spec.ContextLength)
-		}
+	for _, m := range admittedModels(rule, src.Models) {
+		smallest = smallerWindow(smallest, servedWindow(ctx, r, agent.Namespace, m))
 	}
 	return smallest
+}
+
+// servedWindow is the context each request to the model gets on its server: the window
+// of the loaded model, else the one calibration measured, else the server's own setting,
+// and only when the server reports none the catalog's. For Ollama the catalog value is
+// the model's trained context, which the server may serve far less of.
+func servedWindow(ctx context.Context, r *AgentReconciler, namespace string, m *kubemootv1alpha1.Model) int {
+	server, ok := r.serverOf(ctx, namespace, m)
+	if !ok {
+		return m.Spec.ContextLength
+	}
+	if w := servedWindowOf(server, m.Spec.Model); w > 0 {
+		return w
+	}
+	return m.Spec.ContextLength
+}
+
+// servedWindowOf is what the server's status says each request to model gets, zero when it says nothing.
+func servedWindowOf(server *kubemootv1alpha1.ModelServer, model string) int {
+	if c := server.Status.Capacity; c != nil {
+		if w := loadedContextLengths(c.LoadedModels)[model]; w > 0 {
+			return w
+		}
+	}
+	if w := calibratedWindows(server)[model]; w > 0 {
+		return w
+	}
+	if c := server.Status.Capacity; c != nil {
+		return c.ContextLength
+	}
+	return 0
 }

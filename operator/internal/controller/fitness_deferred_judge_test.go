@@ -19,6 +19,8 @@ import (
 	"net/http/httptest"
 	"testing"
 	"time"
+
+	"github.com/go-logr/logr"
 )
 
 // dispatchScenario must read the judge crew's SSE stream until its synthesis
@@ -110,7 +112,7 @@ func TestBuildComparisonDoc(t *testing.T) {
 		pfx + "s1-i1.json": []byte(good), // different scenario, must be excluded
 	}}
 
-	doc, total, answers, err := buildComparisonDoc(store, pfx, 0, testVerdictReflects, 0)
+	doc, total, answers, err := buildComparisonDoc(store, pfx, 0, testVerdictReflects, 0, logr.Discard())
 	if err != nil {
 		t.Fatalf("buildComparisonDoc error: %v", err)
 	}

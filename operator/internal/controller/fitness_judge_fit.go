@@ -21,6 +21,8 @@ import (
 	"fmt"
 	"sort"
 	"unicode/utf8"
+
+	"github.com/go-logr/logr"
 )
 
 // The judge reads one comparison document per scenario. Its question, reference and
@@ -78,7 +80,7 @@ func judgeDocBudgetChars(windowTokens int) (chars int, ok bool) {
 // cut to make it so. Questions, references and syntheses are never cut: when they
 // alone exceed the budget the document is sent with its evidence removed and the
 // judge reports the window overrun as before. A budget of zero or less means no limit.
-func marshalFitted(cd judgeComparisonDoc, budgetChars int) (string, error) {
+func marshalFitted(cd judgeComparisonDoc, budgetChars int, log logr.Logger) (string, error) {
 	out, err := json.Marshal(cd)
 	if err != nil {
 		return "", fmt.Errorf("marshal comparison doc: %w", err)
@@ -102,6 +104,10 @@ func marshalFitted(cd judgeComparisonDoc, budgetChars int) (string, error) {
 			break
 		}
 	}
+	if len(out) > budgetChars {
+		log.Info("deferred judge: comparison document still over the judge window after cutting evidence",
+			"bytes", len(out), "budgetBytes", budgetChars)
+	}
 	return string(out), nil
 }
 
@@ -124,7 +130,8 @@ func trimEvidenceTo(cd judgeComparisonDoc, original []string, targetChars int) j
 	trim := evidenceTrim{}
 	next := 0
 	for i, a := range cd.Answers {
-		out.Answers[i] = judgeAnswer{Synthesis: a.Synthesis, Evidence: make([]string, len(a.Evidence))}
+		out.Answers[i] = a
+		out.Answers[i].Evidence = make([]string, len(a.Evidence))
 		for j := range a.Evidence {
 			cut, omitted := cutEvidence(original[next], limit)
 			next++
@@ -168,7 +175,8 @@ func cutEvidence(item string, limit int) (string, int) {
 		return item, 0
 	}
 	if limit < judgeMinEvidenceKeepChars {
-		return fmt.Sprintf("[%d characters of evidence omitted]", len(item)), len(item)
+		n := utf8.RuneCountInString(item)
+		return fmt.Sprintf("[%d characters of evidence omitted]", n), n
 	}
 	head := limit * 3 / 5
 	tail := limit - head
@@ -179,6 +187,6 @@ func cutEvidence(item string, limit int) (string, int) {
 	for start < len(item) && !utf8.RuneStart(item[start]) {
 		start++
 	}
-	omitted := start - head
+	omitted := utf8.RuneCountInString(item[head:start])
 	return fmt.Sprintf("%s [... %d characters of evidence omitted ...] %s", item[:head], omitted, item[start:]), omitted
 }
