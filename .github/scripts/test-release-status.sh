@@ -22,8 +22,9 @@ trap 'rm -rf "$work"' EXIT
 mkdir -p "${work}/bin" "${work}/state"
 
 # Fake gh: `gh api repos/OWNER/REPO/releases/latest -q ...` prints state/REPO.latest (fails when
-# the file is missing); `.../compare/...` prints state/REPO.compare ("<ahead>\t<subjects joined
-# by a literal backslash-n>").
+# the file is missing); `.../compare/...` prints state/REPO.compare (the query's output: the
+# commits ahead, then "<flag><TAB><subject>" lines), or, when state/REPO.compare.json exists,
+# runs the query it was given (`-q`, the real jq program of release-status.sh) over that JSON.
 cat > "${work}/bin/gh" <<EOF2
 #!/usr/bin/env bash
 repo="\$(cut -d/ -f3 <<<"\$2")"
@@ -31,7 +32,9 @@ kind="\$(sed -E 's|.*/(releases/latest\|compare)(/.*)?|\1|' <<<"\$2" | tr '/' '-
 if [ -f "${work}/state/\${repo}.fail-\${kind}" ]; then cat "${work}/state/\${repo}.fail-\${kind}" >&2; exit 1; fi
 case "\$2" in
   */releases/latest) cat "${work}/state/\${repo}.latest" ;;
-  */compare/*) cat "${work}/state/\${repo}.compare" ;;
+  */compare/*)
+    if [ -f "${work}/state/\${repo}.compare.json" ]; then jq -r "\$4" "${work}/state/\${repo}.compare.json"
+    else cat "${work}/state/\${repo}.compare"; fi ;;
   *) exit 2 ;;
 esac
 EOF2
@@ -49,7 +52,7 @@ chmod +x "${work}/bin/gh" "${work}/bin/git"
 # A repository: name latest-tag ahead subjects(with \n between) tags(newline separated)
 repo() {
   printf '%s\n' "$2" > "${work}/state/$1.latest"
-  printf '%s\t%s\n' "$3" "$4" > "${work}/state/$1.compare"
+  { printf '%s\n' "$3"; if [ -n "$4" ]; then printf '%s\n' "$4" | sed 's/\\n/\n/g; s/^/0\t/'; fi; } > "${work}/state/$1.compare"
   printf '%s' "$5" | sed 's|^|abc\trefs/tags/|' > "${work}/state/$1.tags"
 }
 run() { PATH="${work}/bin:${PATH}" bash "${here}/release-status.sh" "$@" 2>&1; }
@@ -115,13 +118,59 @@ md="$(run --markdown kmctl kubemoot-docs || true)"
 check "markdown lists a repository as a bullet" "1" "$(grep -c '^- kubemoot-docs: released v0.5.0' <<<"$md")"
 check "markdown nests the breaking change" "1" "$(grep -c '^  - UNPUBLISHED BREAKING: feat!: rename' <<<"$md")"
 
-# RELEASE_STATUS_MIN_AGE_HOURS: the compare query marks commits younger than the window.
-repo young v1.0.0 2 'feat!: just merged [WITHIN GRACE]\nfix: older' 'v1.0.0'
-repo aged v1.0.0 2 'feat!: held a while\nfix: x [WITHIN GRACE]' 'v1.0.0'
+# RELEASE_STATUS_MIN_AGE_HOURS, through the real jq program over a JSON fixture of the compare
+# answer: a young breaking commit is not reported, an old one is, and a subject that contains
+# the old marker text cannot hide itself.
+ago() { date -u -d "-$1 hours" +%Y-%m-%dT%H:%M:%SZ; }
+# jrepo NAME: the compare answer of NAME is the commits given as "HOURS_AGO|MESSAGE" lines on stdin.
+jrepo() {
+  printf '%s\n' v1.0.0 > "${work}/state/$1.latest"
+  : > "${work}/state/$1.tags"
+  local n=0 lines=() h m
+  while IFS='|' read -r h m; do
+    n=$((n + 1)); m="${m//\\n/$'\n'}"
+    lines+=("$(jq -n --arg m "$m" --arg d "$(ago "$h")" '{commit: {message: $m, committer: {date: $d}}}')")
+  done
+  printf '%s\n' "${lines[@]}" | jq -s --argjson n "$n" '{ahead_by: $n, commits: .}' > "${work}/state/$1.compare.json"
+}
+jrepo young <<'EOF2'
+1|feat!: just merged
+EOF2
+jrepo aged <<'EOF2'
+48|feat!: held a while
+1|fix: young and ordinary
+EOF2
+jrepo forged <<'EOF2'
+48|feat!: old [WITHIN GRACE]
+EOF2
+jrepo footer <<'EOF2'
+48|fix: old with a footer\n\nBREAKING CHANGE: gone
+EOF2
+export RELEASE_STATUS_MIN_AGE_HOURS=24
 check "a breaking change inside the window is not reported" "0" "$(status young)"
 check "a breaking change older than the window is reported" "1" "$(status aged)"
 check "the window does not hide the old one among young ones" "1" "$(run aged | grep -c 'UNPUBLISHED BREAKING: feat!: held a while')"
+check "a subject carrying the marker text is still reported" "1" "$(status forged)"
+check "an old BREAKING CHANGE footer is reported" "1" "$(status footer)"
+check "the commit count comes from the query" "1" "$(run aged | grep -c 'aged: released v1.0.0; main is 2 commit(s) ahead, 2 user-facing')"
+unset RELEASE_STATUS_MIN_AGE_HOURS
+check "without a window a young breaking change is reported" "1" "$(status young)"
+export RELEASE_STATUS_MIN_AGE_HOURS=0
+check "a window of 0 reports it too" "1" "$(status young)"
+unset RELEASE_STATUS_MIN_AGE_HOURS
 check "a non-numeric window is refused" "64" \
   "$(RELEASE_STATUS_MIN_AGE_HOURS=soon PATH="${work}/bin:${PATH}" bash "${here}/release-status.sh" young >/dev/null 2>&1; echo $?)"
+# A rate-limit answer is UNKNOWN (bit 2), never "no published release" and never clean.
+repo limited v1.0.0 0 '' 'v1.0.0'
+echo 'gh: API rate limit exceeded (HTTP 403)' > "${work}/state/limited.fail-releases-latest"
+check "a 403 rate limit on the latest release is UNKNOWN" "1|0" \
+  "$(run limited | grep -c '^limited: UNKNOWN, could not read the latest release: gh: API rate limit exceeded')|$(run limited | grep -c 'no published release')"
+check "a 403 rate limit exits 2" "2" "$(status limited)"
+rm -f "${work}/state/limited.fail-releases-latest"
+echo 'fatal: unable to access the repository' > "${work}/state/limited.fail-tags"
+check "a failing git ls-remote exits 2" "2" "$(status limited)"
+check "a failing git ls-remote with a breaking repository exits 3" "3" "$(status kmctl limited)"
+rm -f "${work}/state/limited.fail-tags"
+
 [ "$failures" -eq 0 ] || { echo "${failures} failed"; exit 1; }
 echo "all passed"

@@ -43,10 +43,14 @@ out="$(DRY_RUN=false CHART_VERSION=0.94.0 run)"
 check "a real run dispatches crews, kmctl and CrewForge" "3" "$(grep -c '^api -X POST repos/kubemoot/\(crews\|kmctl\|vscode-crewforge\)/dispatches' "$calls")"
 check "the event type is kubemoot-published" "3" "$(grep -c 'event_type=kubemoot-published' "$calls")"
 check "the payload carries the chart version" "3" "$(grep -c 'client_payload\[chart_version\]=0.94.0' "$calls")"
+for r in crews kmctl vscode-crewforge; do
+  check "the POST to ${r} has exactly these arguments" "1" \
+    "$(grep -cxF "api -X POST repos/kubemoot/${r}/dispatches -f event_type=kubemoot-published -f client_payload[chart_version]=0.94.0" "$calls")"
+done
 check "a real run reports each dispatch" "3" "$(grep -c '^Dispatched kubemoot-published' <<<"$out")"
 check "a real run exits 0" "0" "$(DRY_RUN=false CHART_VERSION=0.94.0 code)"
 
-check "named repositories replace the default" "1" "$(DRY_RUN=false CHART_VERSION=1 run kmctl >/dev/null; wc -l < "$calls" | tr -d ' ')"
+check "named repositories replace the default" "1" "$(DRY_RUN=false CHART_VERSION=1.0.0 run kmctl >/dev/null; wc -l < "$calls" | tr -d ' ')"
 
 out="$(DRY_RUN=false CHART_VERSION=0.94.0 FAIL_REPO=kmctl run || true)"
 check "a failed dispatch is named" "1" "$(grep -c '^FAILED to dispatch kubemoot-published to kubemoot/kmctl' <<<"$out")"
@@ -55,7 +59,21 @@ check "a failed dispatch exits 1" "1" "$(DRY_RUN=false CHART_VERSION=0.94.0 FAIL
 
 check "a real run without a chart version is refused" "64" "$(DRY_RUN=false code)"
 check "a real run without a chart version dispatches nothing" "0" "$(wc -l < "$calls" | tr -d ' ')"
-check "an invalid DRY_RUN is refused" "64" "$(DRY_RUN=maybe CHART_VERSION=1 code)"
+check "an invalid DRY_RUN is refused" "64" "$(DRY_RUN=maybe CHART_VERSION=1.0.0 code)"
+
+# The token is the environment's, never an argument or output.
+out="$(GH_TOKEN=sentinel-token-value DRY_RUN=false CHART_VERSION=0.94.0 run)"
+check "the token is not in the output" "0" "$(grep -c 'sentinel-token-value' <<<"$out")"
+check "the token is not in the arguments" "0" "$(grep -c 'sentinel-token-value' "$calls")"
+out="$(GH_TOKEN=sentinel-token-value DRY_RUN=false CHART_VERSION=0.94.0 FAIL_REPO=kmctl run || true)"
+check "the token is not in the output of a failure" "0" "$(grep -c 'sentinel-token-value' <<<"$out")"
+
+# Only a plain version is sent.
+# shellcheck disable=SC2016  # a literal command substitution is the point
+for v in 'v0.94.0' '0.94' '0.94.0-rc.1' '0.94.0 x' '$(id)' 'a;b'; do
+  check "the version '${v}' is refused" "64|0" "$(DRY_RUN=false CHART_VERSION="$v" code)|$(wc -l < "$calls" | tr -d ' ')"
+done
+check "a dry run refuses a malformed version too" "64" "$(DRY_RUN=true CHART_VERSION=nope code)"
 
 [ "$failures" -eq 0 ] || { echo "${failures} failed"; exit 1; }
 echo "all passed"

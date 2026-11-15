@@ -361,7 +361,8 @@ jobs:
 
       - name: Dispatch the candidate builds
         env:
-          GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+          # A dry run never holds the token. (`a && '' || b` would fall through to b.)
+          GH_TOKEN: ${{ !inputs.dry_run && secrets.RELEASE_TOKEN || '' }}
           DRY_RUN: ${{ inputs.dry_run }}
           CHART_VERSION: ${{ needs.publish.outputs.chart_version }}
         run: |
@@ -404,6 +405,11 @@ jobs:
             echo "$report"
           } >> "$GITHUB_STEP_SUMMARY"
           # Exit bits of release-status.sh: 1 unpublished breaking changes, 2 the check failed.
+          # Above 3 the script itself did not run: not a status, a failure to show.
+          if [ "$status" -gt 3 ]; then
+            echo "::error title=Release status check did not run::release-status.sh exited ${status}."
+            exit 1
+          fi
           if [ $((status & 1)) -ne 0 ]; then
             echo "::warning title=Unpublished breaking changes::A public repository holds unpublished breaking changes; see the run summary. Publish it with the release."
           fi

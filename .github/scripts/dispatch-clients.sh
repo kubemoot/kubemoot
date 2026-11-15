@@ -29,6 +29,11 @@ if [ "$DRY_RUN" = false ] && [ -z "${CHART_VERSION:-}" ]; then
   echo "dispatch-clients: CHART_VERSION is required for a real dispatch" >&2
   exit 64
 fi
+# The payload is a published final version: X.Y.Z, nothing else reaches the other repositories.
+if [ -n "${CHART_VERSION:-}" ] && ! [[ "$CHART_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+  echo "dispatch-clients: CHART_VERSION must be a version X.Y.Z, got '${CHART_VERSION}'" >&2
+  exit 64
+fi
 
 failed=0
 for repo in "${repos[@]}"; do
