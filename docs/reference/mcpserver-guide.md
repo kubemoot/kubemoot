@@ -402,8 +402,8 @@ spec:
       value: "mcp"
     - name: NATS_URL
       value: "nats://nats.nats.svc:4222"
-    - name: WORKSPACE_BUCKET
-      value: "kubemoot_workspace"
+    - name: ARTIFACT_BUCKET
+      value: "kubemoot_discussion_artifacts"
   capabilities: [data-access, data-analysis]
   securityContext:
     readOnlyRootFilesystem: true

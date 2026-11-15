@@ -1110,7 +1110,7 @@ class ChatServiceToolLoopTest {
         String reprompt = ChatService.buildComputeReprompt(java.util.List.of(msg));
         assertTrue(reprompt.contains("read-ops"),
                 "re-prompt must steer to the artifact read-ops tools");
-        assertTrue(reprompt.contains("artifact_count(key=\"homelab/conv/k8s-config/list-0\""),
+        assertTrue(reprompt.contains("workspace_head(key=\"homelab/conv/k8s-config/list-0\""),
                 "re-prompt must give a concrete read-ops example with the bare object key (no /artifacts/ prefix)");
         assertTrue(reprompt.contains("open('/artifacts/homelab/conv/k8s-config/list-0')"),
                 "re-prompt should still offer the exact open() path as the alternative");

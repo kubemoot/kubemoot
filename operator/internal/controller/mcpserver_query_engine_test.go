@@ -39,7 +39,7 @@ func configWithQueryEngine(engine kubemootv1alpha1.ArtifactQueryEngine) *kubemoo
 
 func queryEngineEnv(env []corev1.EnvVar) (string, bool) {
 	for _, e := range env {
-		if e.Name == artifactQueryEngineEnv {
+		if e.Name == workspaceQueryEngineEnv {
 			return e.Value, true
 		}
 	}
@@ -62,18 +62,14 @@ func TestWithQueryEngineEnv(t *testing.T) {
 	for engine, value := range want {
 		got := withQueryEngineEnv(plain, engine)
 		if v, ok := queryEngineEnv(got.Spec.Env); !ok || v != value {
-			t.Errorf("engine %q must set %s=%s, env = %v", engine, artifactQueryEngineEnv, value, got.Spec.Env)
+			t.Errorf("engine %q must set %s=%s, env = %v", engine, workspaceQueryEngineEnv, value, got.Spec.Env)
 		}
 	}
 	if _, ok := queryEngineEnv(plain.Spec.Env); ok {
 		t.Error("the server the user owns must not be changed")
 	}
 
-	own := readOpsServer()
-	own.Spec.Env = []corev1.EnvVar{{Name: artifactQueryEngineEnv, Value: string(kubemootv1alpha1.ArtifactQueryEngineNone)}}
-	if v, _ := queryEngineEnv(withQueryEngineEnv(own, kubemootv1alpha1.ArtifactQueryEngineDuckDB).Spec.Env); v != string(kubemootv1alpha1.ArtifactQueryEngineNone) {
-		t.Errorf("a value the server sets itself must win, got %q", v)
-	}
+	assertServerOwnEngineWins(t)
 }
 
 func TestEffectiveQueryEngine(t *testing.T) {
@@ -141,8 +137,22 @@ func TestReconcileSetsTheQueryEngineOnTheDeployment(t *testing.T) {
 			reconcileTwice(t, r, req)
 			v, ok := queryEngineEnv(deploymentEnv(t, cli))
 			if ok != tc.set || v != tc.want {
-				t.Errorf("env %s = %q (set %v), want %q (set %v)", artifactQueryEngineEnv, v, ok, tc.want, tc.set)
+				t.Errorf("env %s = %q (set %v), want %q (set %v)", workspaceQueryEngineEnv, v, ok, tc.want, tc.set)
 			}
 		})
+	}
+}
+
+// assertServerOwnEngineWins checks that a server which sets either engine variable keeps it and
+// gains no second one.
+func assertServerOwnEngineWins(t *testing.T) {
+	t.Helper()
+	for _, name := range []string{workspaceQueryEngineEnv, artifactQueryEngineEnv} {
+		own := readOpsServer()
+		own.Spec.Env = []corev1.EnvVar{{Name: name, Value: string(kubemootv1alpha1.ArtifactQueryEngineNone)}}
+		got := withQueryEngineEnv(own, kubemootv1alpha1.ArtifactQueryEngineDuckDB).Spec.Env
+		if len(got) != 1 || got[0].Name != name || got[0].Value != string(kubemootv1alpha1.ArtifactQueryEngineNone) {
+			t.Errorf("a server that sets %s itself must keep it and gain no second engine variable, got %v", name, got)
+		}
 	}
 }

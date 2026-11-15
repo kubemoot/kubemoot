@@ -4,6 +4,7 @@ import ai.kubemoot.agent.requester.Requester;
 import ai.kubemoot.agent.requester.RequesterScope;
 import ai.kubemoot.agent.config.AgentProperties;
 import ai.kubemoot.agent.mcp.McpClientService;
+import ai.kubemoot.agent.mcp.WorkspaceTools;
 import ai.kubemoot.agent.mcp.WorkspaceScope;
 import ai.kubemoot.agent.nats.AgentHeartbeatService;
 import ai.kubemoot.agent.nats.DiscussionOrchestrator;
@@ -518,9 +519,6 @@ public class ChatService {
     // in sandbox code (which qwen3:32b flakily skips). A call to any of these over an
     // artifact present in the input satisfies the read-the-file half of the contract
     // exactly as an execute_code that opens /artifacts/ does.
-    private static final java.util.Set<String> ARTIFACT_READ_TOOLS = java.util.Set.of(
-            "artifact_head", "artifact_tail", "artifact_grep", "artifact_count",
-            "artifact_rows", "artifact_select", "artifact_jq");
     // Captures the exact object key from a file description "[CALL key=<key> ...]" so the compute
     // re-prompt can name the precise file at /artifacts/<key> rather than a generic "<key>" placeholder.
     private static final java.util.regex.Pattern ARTIFACT_KEY_PATTERN =
@@ -1210,9 +1208,10 @@ public class ChatService {
         return "You answered without reading the data FILE. The full data lives in: "
                 + String.join(", ", paths) + ". You MUST read it before answering. PREFERRED: call an "
                 + "artifact read-ops tool with the object key - the server reads the file for you, so "
-                + "you never open a path. Use artifact_count / artifact_grep for counts and membership, "
-                + "artifact_rows / artifact_select / artifact_jq to pull the rows you need, e.g. "
-                + "artifact_count(key=\"" + firstKey + "\", ...); then run execute_code over the returned "
+                + "you never open a path. Use " + WorkspaceTools.QUERY + " (SQL) for counts and the rows you need, "
+                + WorkspaceTools.GREP + " for membership, " + WorkspaceTools.HEAD + " / " + WorkspaceTools.TAIL
+                + " to read lines, e.g. "
+                + WorkspaceTools.HEAD + "(key=\"" + firstKey + "\", ...); then run execute_code over the returned "
                 + "rows only if more math is needed. ALTERNATIVELY, execute_code that opens the file, "
                 + "e.g. open('" + paths.get(0) + "'). Do NOT answer from the file description - it carries no "
                 + "data. If there is genuinely no data to compute over, reply with exactly NO_DATA.";
@@ -1392,14 +1391,14 @@ public class ChatService {
                                             ToolLoopState state) {
         // Two ways the compute agent legitimately reads the spilled FILE:
         //   (1) execute_code whose code opens /artifacts/<key>, or
-        //   (2) an artifact read-ops tool (artifact_count/rows/grep/jq/...) that
+        //   (2) an artifact read-ops tool (workspace_query, workspace_head, workspace_grep, ...) that
         //       reads the artifact server-side from its key.
         // A validate_code or a call that merely names /artifacts/ in unrelated args
         // does NOT count - it must be one of these two real reads.
         boolean readViaCode = "execute_code".equals(toolName)
                 && arguments != null
                 && arguments.contains(ARTIFACT_MOUNT);
-        boolean readViaReadOps = ARTIFACT_READ_TOOLS.contains(toolName);
+        boolean readViaReadOps = WorkspaceTools.readsData(toolName);
         // Only a SUCCESSFUL read satisfies the contract - a key-not-found / errored
         // read-ops or execute_code call must not let the agent answer from nothing.
         if ((readViaCode || readViaReadOps) && !isToolErrorResult(result)) {

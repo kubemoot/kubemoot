@@ -533,7 +533,7 @@ community extension that downloads at run time, which a server with no network c
 - **Errors say what to fix.** A missing artifact, an unknown column or a refused
   statement comes back as a tool error naming the cause.
 
-The service reads these variables; the chart value sets only the engine. Each one is also read as `WORKSPACE_<name>` (`WORKSPACE_QUERY_ENGINE`, `WORKSPACE_DIR`, `WORKSPACE_MODE`, `WORKSPACE_SUBJECT`, `WORKSPACE_BUCKET`), and the `WORKSPACE_` name wins. The `ARTIFACT_` names keep working for one release and each logs a warning the first time it supplies a value; set the new names in new manifests. The operator still sets `ARTIFACT_QUERY_ENGINE`.
+The service reads these variables; the chart value sets only the engine. Each one is also read as `WORKSPACE_<name>` (`WORKSPACE_QUERY_ENGINE`, `WORKSPACE_DIR`, `WORKSPACE_MODE`, `WORKSPACE_SUBJECT`, `WORKSPACE_BUCKET`), and the `WORKSPACE_` name wins. The `ARTIFACT_` names keep working for one release and each logs a warning the first time it supplies a value; set the new names in new manifests. The operator sets `WORKSPACE_QUERY_ENGINE` on every server that selects the workspace image; a server that sets either name itself keeps its own value.
 
 | Variable | Default | Meaning |
 |----------|---------|---------|
@@ -629,7 +629,7 @@ The discussion's artifacts are the discussion's workspace, and the names follow.
 | `artifact_head`, `artifact_tail`, `artifact_grep` | `workspace_head`, `workspace_tail`, `workspace_grep` | Both are served and answer the same. The old tools say they are deprecated in their descriptions, and the first call of each logs a warning. |
 | `artifact_count`, `artifact_rows`, `artifact_select`, `artifact_jq` | `workspace_query` | The four still work. Their descriptions say to use `workspace_query`, and the first call of each logs a warning. |
 | `ARTIFACT_MODE`, `ARTIFACT_DIR`, `ARTIFACT_SUBJECT`, `ARTIFACT_QUERY_*`, `ARTIFACT_DUCKDB_BIN` | the same names with `WORKSPACE_` | The service reads the new name first and the old name second. |
-| bucket `kubemoot_discussion_artifacts` | bucket `kubemoot_workspace` | Writers still use the old bucket. Readers (the workspace server, and the agent runtime's catalog, stored-result read and clean-up) look in the new bucket first and the old one second, skipping a bucket that does not exist, so they keep working when writers move. An agent's NATS permissions grant both buckets. Data in the old bucket expires within 48 hours; nothing is copied. |
+| bucket `kubemoot_discussion_artifacts` | bucket `kubemoot_workspace` | Writers still use the old bucket. Readers (the workspace server, and the agent runtime's catalog, stored-result read and clean-up) look in the new bucket first and the old one second, skipping a bucket that does not exist, so they keep working when writers move. Data in the old bucket expires within 48 hours; nothing is copied. |
 
 A crew that declares workspace access governs both sets of tool names: a tool the access does not grant is disabled under either name.
 

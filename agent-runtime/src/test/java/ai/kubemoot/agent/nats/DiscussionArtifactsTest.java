@@ -314,10 +314,11 @@ class DiscussionArtifactsTest {
         when(conn.objectStore(DiscussionArtifacts.WORKSPACE_BUCKET)).thenReturn(newStore);
         when(oldStore.getInfo("k")).thenReturn(info);
 
-        assertSame(oldStore, DiscussionArtifacts.storeHolding(conn, "k"));
+        assertSame(oldStore, DiscussionArtifacts.storeHolding(conn, "k").store());
+        assertSame(info, DiscussionArtifacts.storeHolding(conn, "k").info());
 
         when(newStore.getInfo("k")).thenReturn(info);
-        assertSame(newStore, DiscussionArtifacts.storeHolding(conn, "k"));
+        assertSame(newStore, DiscussionArtifacts.storeHolding(conn, "k").store());
     }
 
     @Test
@@ -332,6 +333,22 @@ class DiscussionArtifactsTest {
         var gone = objectInfo("gone", true);
         when(oldStore.getInfo("gone")).thenReturn(gone);
         assertNull(DiscussionArtifacts.storeHolding(conn, "gone"));
+    }
+
+    @Test
+    void storeHolding_aFailureThatIsNotAMissingBucketIsNotHidden() throws Exception {
+        var conn = mock(Connection.class);
+        when(conn.objectStore(DiscussionArtifacts.WORKSPACE_BUCKET)).thenThrow(new java.io.IOException("nats down"));
+
+        assertThrows(java.io.IOException.class, () -> DiscussionArtifacts.storeHolding(conn, "k"));
+    }
+
+    @Test
+    void isBucketMissing_recognizesTheMissingBucketInTheCauseChainOnly() {
+        assertTrue(DiscussionArtifacts.isBucketMissing(new java.io.IOException("stream not found")));
+        assertTrue(DiscussionArtifacts.isBucketMissing(new RuntimeException("x", new java.io.IOException("stream not found"))));
+        assertFalse(DiscussionArtifacts.isBucketMissing(new java.io.IOException("timeout")));
+        assertFalse(DiscussionArtifacts.isBucketMissing(new RuntimeException()));
     }
 
     private static ObjectInfo objectInfo(String name, boolean deleted) {

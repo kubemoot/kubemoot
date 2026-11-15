@@ -107,8 +107,12 @@ func (r *MCPServerReconciler) resolveMCPServerImage(ctx context.Context, mcpServ
 	return res, nil
 }
 
-// artifactQueryEngineEnv is the variable artifact-access reads to choose its query engine.
-const artifactQueryEngineEnv = "ARTIFACT_QUERY_ENGINE"
+// The variables artifact-access reads to choose its query engine: the operator sets the current
+// one; the old one is still read by the server for one release, so a server that sets it keeps its value.
+const (
+	workspaceQueryEngineEnv = "WORKSPACE_QUERY_ENGINE"
+	artifactQueryEngineEnv  = "ARTIFACT_QUERY_ENGINE"
+)
 
 // hasEnv reports whether env sets the variable name.
 func hasEnv(env []corev1.EnvVar, name string) bool {
@@ -138,17 +142,18 @@ func queryEngineOn(engine kubemootv1alpha1.ArtifactQueryEngine) bool {
 	return engine != "" && engine != kubemootv1alpha1.ArtifactQueryEngineNone
 }
 
-// withQueryEngineEnv returns mcpServer with ARTIFACT_QUERY_ENGINE set to the engine
+// withQueryEngineEnv returns mcpServer with WORKSPACE_QUERY_ENGINE set to the engine
 // KubemootConfig asks for, as resolved by resolveMCPServerImage. Nothing is added for none or
 // for a server that does not select the artifact-access image, so a server
 // behaves as it did before the setting existed, and a server that sets the variable
 // itself keeps its value. The original is left alone.
 func withQueryEngineEnv(mcpServer *kubemootv1alpha1.MCPServer, engine kubemootv1alpha1.ArtifactQueryEngine) *kubemootv1alpha1.MCPServer {
-	if !queryEngineOn(engine) || hasEnv(mcpServer.Spec.Env, artifactQueryEngineEnv) {
+	if !queryEngineOn(engine) || hasEnv(mcpServer.Spec.Env, workspaceQueryEngineEnv) ||
+		hasEnv(mcpServer.Spec.Env, artifactQueryEngineEnv) {
 		return mcpServer
 	}
 	out := mcpServer.DeepCopy()
-	out.Spec.Env = append(out.Spec.Env, corev1.EnvVar{Name: artifactQueryEngineEnv, Value: string(engine)})
+	out.Spec.Env = append(out.Spec.Env, corev1.EnvVar{Name: workspaceQueryEngineEnv, Value: string(engine)})
 	return out
 }
 

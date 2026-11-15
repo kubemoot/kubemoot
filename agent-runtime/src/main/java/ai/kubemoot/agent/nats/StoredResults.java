@@ -105,12 +105,13 @@ final class StoredResults {
     private static Fetched fetch(Connection conn, ThreadCatalog.Entry call, int maxBytes, BooleanSupplier timeUp)
             throws InterruptedException {
         try {
-            ObjectStore store = DiscussionArtifacts.storeHolding(conn, call.key());
-            if (store == null) {
+            var held = DiscussionArtifacts.storeHolding(conn, call.key());
+            if (held == null) {
                 log.warn("Could not read stored result {}: no workspace bucket holds it", call.key());
                 return null;
             }
-            ObjectInfo info = store.getInfo(call.key());
+            ObjectStore store = held.store();
+            ObjectInfo info = held.info();
             boolean markedCut = info != null && info.getHeaders() != null
                     && Boolean.parseBoolean(info.getHeaders().getFirst(CallHeaders.TRUNCATED));
             var out = new CappedOutput(maxBytes, timeUp);
