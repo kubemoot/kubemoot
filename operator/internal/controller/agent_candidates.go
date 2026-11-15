@@ -101,6 +101,19 @@ func matchesRequire(rule *kubemootv1alpha1.SchedulingRule, m *kubemootv1alpha1.M
 	return err == nil && ok
 }
 
+// admittedModels are the Models a phase rule admits: Ready and satisfying the rule's
+// hard constraints. The candidate list and the judge's window both read it, so the
+// two cannot disagree about which models an agent may run.
+func admittedModels(rule *kubemootv1alpha1.SchedulingRule, models []kubemootv1alpha1.Model) []*kubemootv1alpha1.Model {
+	var out []*kubemootv1alpha1.Model
+	for i := range models {
+		if models[i].Status.Ready && matchesRequire(rule, &models[i]) {
+			out = append(out, &models[i])
+		}
+	}
+	return out
+}
+
 // rankedCandidates lists the models an agent may run for a phase: every Ready
 // Model the rule's Require selector admits, one entry per model identifier
 // (keeping its best quality score). The bound model comes first; the rest follow
@@ -109,11 +122,7 @@ func matchesRequire(rule *kubemootv1alpha1.SchedulingRule, m *kubemootv1alpha1.M
 // list (and the Deployment env) stays stable while servers come and go.
 func rankedCandidates(bound string, rule *kubemootv1alpha1.SchedulingRule, models []kubemootv1alpha1.Model, sc phaseScoring) []modelCandidate {
 	best := map[string]int64{}
-	for i := range models {
-		m := &models[i]
-		if !m.Status.Ready || !matchesRequire(rule, m) {
-			continue
-		}
+	for _, m := range admittedModels(rule, models) {
 		score := modelQualityScore(rule, m, sc)
 		if prev, seen := best[m.Spec.Model]; !seen || score > prev {
 			best[m.Spec.Model] = score

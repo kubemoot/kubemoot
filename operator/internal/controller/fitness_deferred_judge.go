@@ -452,7 +452,7 @@ type judgeComparisonDoc struct {
 // marshalled doc, the total iterations found, and the count of judgeable
 // (non-gated) answers. A windowTokens above zero is the judge model's context
 // window: the document's evidence is cut to fit it (see marshalFitted).
-func buildComparisonDoc(store objectStore, prefix string, scriptIdx int, keyword string, windowTokens int) (doc string, total, answers int, err error) {
+func buildComparisonDoc(store objectStore, prefix string, scriptIdx int, keyword string, windowTokens int, log logr.Logger) (doc string, total, answers int, err error) {
 	scenarioPrefix := fmt.Sprintf("%ss%d-i", strings.TrimRight(prefix, "/")+"/", scriptIdx)
 	keys, lErr := store.ListObjects(FitnessArtifactsBucket, scenarioPrefix)
 	if lErr != nil {
@@ -468,7 +468,7 @@ func buildComparisonDoc(store objectStore, prefix string, scriptIdx int, keyword
 		addTranscriptToDoc(&cd, td, keyword)
 	}
 	budget, _ := judgeDocBudgetChars(windowTokens)
-	out, mErr := marshalFitted(cd, budget)
+	out, mErr := marshalFitted(cd, budget, log)
 	if mErr != nil {
 		return "", 0, 0, mErr
 	}
@@ -813,7 +813,7 @@ func (p *judgePass) processScenario(ctx context.Context, idx int) scenarioOutcom
 	}
 	// Build the full comparison document operator-side (no collect_scenario
 	// tool round-trip) and hand it to the judge in the dispatch message.
-	comparisonDoc, total, answers, bErr := buildComparisonDoc(p.store, p.prefix, idx, keyword, p.judgeWindow(ctx, keyword))
+	comparisonDoc, total, answers, bErr := buildComparisonDoc(p.store, p.prefix, idx, keyword, p.judgeWindow(ctx, keyword), p.log)
 	if bErr != nil {
 		p.log.Info("deferred judge: build comparison doc failed", "scenario", scenario, "err", bErr.Error())
 		p.beginAttempt(scenario)
