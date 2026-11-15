@@ -301,6 +301,12 @@ type KubemootConfigStatus struct {
 	// Message provides additional status information
 	Message string `json:"message,omitempty"`
 
+	// Release is the Kubemoot release this cluster runs: the version of the operator
+	// chart, which the operator learns from what the chart build stamped. Empty until
+	// an operator that reports it has reconciled this object.
+	// +optional
+	Release string `json:"release,omitempty"`
+
 	// Conditions represent the latest available observations
 	// +optional
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
@@ -312,6 +318,7 @@ type KubemootConfigStatus struct {
 // +kubebuilder:printcolumn:name="Indexer",type=string,JSONPath=`.spec.images.indexer`,priority=1
 // +kubebuilder:printcolumn:name="QueryService",type=string,JSONPath=`.spec.images.queryService`,priority=1
 // +kubebuilder:printcolumn:name="AgentRuntime",type=string,JSONPath=`.spec.images.agentRuntime`,priority=1
+// +kubebuilder:printcolumn:name="Release",type=string,JSONPath=`.status.release`
 // +kubebuilder:printcolumn:name="Ready",type=boolean,JSONPath=`.status.ready`
 // +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
 

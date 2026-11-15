@@ -49,23 +49,43 @@ kmctl crew get demo -o kyaml
 ## kmctl version
 
 ```
-kmctl version [--short]
+kmctl version [--client] [--short] [-o yaml|json|kyaml]
 ```
 
-Print the `kmctl` client version. With `--short`, prints only the version string.
+Print `kmctl`'s own version and the Kubemoot release of the cluster it is connected to,
+as a client line and a server line like `kubectl version`. The release comes from
+`status.release` of the `KubemootConfig` the operator maintains, read through the
+Kubernetes API with the active kubeconfig context.
+
+The server line says why it has no release instead of failing, and the client line is
+always printed:
+
+| Server line | Meaning |
+|---|---|
+| `Kubemoot <release>` | The operator reported its release |
+| `unavailable (cannot reach ...)` | No cluster could be reached with this kubeconfig and context |
+| `unavailable (Kubemoot is not installed ...)` | The cluster has no `KubemootConfig` named `default` |
+| `unavailable (not allowed to read ...)` | The credentials cannot read the `KubemootConfig` |
+| `unavailable (the operator has not written its status yet)` | The operator has not reconciled the object |
+| `unavailable (this operator does not report a release ...)` | The operator is older than the release field; upgrade Kubemoot |
 
 | Flag | Description |
 |---|---|
-| `--short` | Print version string only |
+| `--client` | Print only the client line; do not contact the cluster |
+| `--short` | Print only the `kmctl` version string, without contacting the cluster |
+| `-o`, `--output` | `yaml`, `json`, or `kyaml`: the structured form has `clientVersion` and, when reported, `serverVersion.release`; otherwise `serverMessage` says why not |
 
 **Example:**
 
 ```bash
 kmctl version
-# kmctl version v<version> (linux/amd64)
+# Client Version: kmctl <version> (commit <commit>, built <date>)
+# Server Version: Kubemoot <release>
 
 kmctl version --short
-# v<version>
+# <version>
+
+kmctl version -o json
 ```
 
 ---

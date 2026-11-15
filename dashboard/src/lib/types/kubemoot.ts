@@ -555,6 +555,8 @@ export interface KubemootConfigSpec {
 export interface KubemootConfigStatus {
 	ready?: boolean;
 	message?: string;
+	/** The Kubemoot release (operator chart version); absent until an operator that reports it reconciles. */
+	release?: string;
 	conditions?: Condition[];
 }
 

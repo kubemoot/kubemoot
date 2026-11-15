@@ -52,3 +52,16 @@ export function oldestRunningStart(pods: OperatorPodLike[]): string {
 	if (startTimes.length === 0) return '';
 	return new Date(Math.min(...startTimes)).toISOString();
 }
+
+export interface KubemootConfigLike {
+	status?: { release?: unknown };
+}
+
+/**
+ * The Kubemoot release the operator reports in the KubemootConfig status, or '' when the
+ * object is missing, its status is not written yet, or the operator is too old to report one.
+ */
+export function kubemootRelease(config: KubemootConfigLike | null | undefined): string {
+	const release = config?.status?.release;
+	return typeof release === 'string' ? release : '';
+}

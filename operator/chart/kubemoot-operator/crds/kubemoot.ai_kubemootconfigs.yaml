@@ -29,6 +29,9 @@ spec:
       name: AgentRuntime
       priority: 1
       type: string
+    - jsonPath: .status.release
+      name: Release
+      type: string
     - jsonPath: .status.ready
       name: Ready
       type: boolean
@@ -457,6 +460,12 @@ spec:
                 description: Ready indicates if the configuration has been successfully
                   applied
                 type: boolean
+              release:
+                description: |-
+                  Release is the Kubemoot release this cluster runs: the version of the operator
+                  chart, which the operator learns from what the chart build stamped. Empty until
+                  an operator that reports it has reconciled this object.
+                type: string
             type: object
         type: object
     served: true

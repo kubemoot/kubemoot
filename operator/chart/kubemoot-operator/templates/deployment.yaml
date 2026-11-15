@@ -80,6 +80,10 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.namespace
+            # The Kubemoot release: the chart's own version, stamped when the chart is packaged.
+            # The operator writes it to the KubemootConfig status.
+            - name: KUBEMOOT_RELEASE
+              value: {{ .Chart.Version | quote }}
             {{- if .Values.nats.enabled }}
             - name: NATS_URL
               value: {{ .Values.nats.url | quote }}

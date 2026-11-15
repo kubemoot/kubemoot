@@ -1,9 +1,11 @@
 <script lang="ts">
 	import { resolve } from '$app/paths';
 	import { onDestroy } from 'svelte';
-	import { versionLabel } from '#lib/dashboard-version.js';
+	import { releaseLabel, versionLabel } from '#lib/dashboard-version.js';
 
 	interface SystemInfo {
+		/** The Kubemoot release from the KubemootConfig status, or "" when not reported. */
+		release: string;
 		operatorVersion: string;
 		operatorImage: string;
 		/** ISO-8601 timestamp of the running operator pod's startTime, or "". */
@@ -108,7 +110,8 @@
 		const uptimeLine = uptimeLabel
 			? `Uptime:    ${uptimeLabel}${parenthetical(startedNote)}`
 			: 'Uptime:    unknown';
-		const lines = ['Kubemoot components', `Dashboard: ${versionLabel(dashboardVersion)}`, operatorLine, uptimeLine];
+		const releaseText = info ? releaseLabel(info.release) : 'unknown';
+		const lines = ['Kubemoot components', `Kubemoot:  ${releaseText}`, `Dashboard: ${versionLabel(dashboardVersion)}`, operatorLine, uptimeLine];
 		await navigator.clipboard.writeText(lines.join('\n'));
 		copied = true;
 		setTimeout(() => { copied = false; }, 2000);
@@ -135,6 +138,15 @@
 				</button>
 			</div>
 			<dl class="components">
+				<dt>Kubemoot</dt>
+				<dd>
+					{#if loading}<span class="muted">loading...</span>
+					{:else if error}<span class="muted" title={error}>lookup failed</span>
+					{:else if info && info.release}{releaseLabel(info.release)}
+					{:else if info}<span class="muted">{releaseLabel('')}</span>
+					{:else}<span class="muted">unknown</span>
+					{/if}
+				</dd>
 				<dt>Dashboard</dt>
 				<dd>{versionLabel(dashboardVersion)}</dd>
 				<dt>Operator</dt>

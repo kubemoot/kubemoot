@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { oldestRunningStart, operatorDeploymentInfo } from './operator-info';
+import { kubemootRelease, oldestRunningStart, operatorDeploymentInfo } from './operator-info';
 
 describe('operatorDeploymentInfo', () => {
 	it('reads the version label, first container image, and selector', () => {
@@ -47,5 +47,26 @@ describe('oldestRunningStart', () => {
 				{}
 			])
 		).toBe('');
+	});
+});
+
+describe('kubemootRelease', () => {
+	it('reads the release from the KubemootConfig status', () => {
+		expect(kubemootRelease({ status: { release: '1.2.3-test' } })).toBe('1.2.3-test');
+	});
+
+	it('is empty when the status is not written yet', () => {
+		expect(kubemootRelease({})).toBe('');
+		expect(kubemootRelease({ status: {} })).toBe('');
+	});
+
+	it('is empty for an old operator that reports no release, or a missing config', () => {
+		expect(kubemootRelease({ status: { release: undefined } })).toBe('');
+		expect(kubemootRelease(null)).toBe('');
+		expect(kubemootRelease(undefined)).toBe('');
+	});
+
+	it('is empty when the field is not a string', () => {
+		expect(kubemootRelease({ status: { release: 42 } })).toBe('');
 	});
 });
