@@ -43,6 +43,10 @@ jobs:
 
       # The operator tests render the chart's use-grant policies with helm.
       - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
+        with:
+          # Pinned like every other tool and action: an unpinned setup fetches the newest Helm
+          # at run time and, when that fetch fails, falls back to an old one.
+          version: 'v4.3.1'
 
       - name: Check go.mod and go.sum are tidy
         working-directory: operator

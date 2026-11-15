@@ -33,6 +33,10 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
+        with:
+          # Pinned like every other tool and action: an unpinned setup fetches the newest Helm
+          # at run time and, when that fetch fails, falls back to an old one.
+          version: 'v4.3.1'
       - name: Lint (defaults and quickstart values)
         run: |
           helm dependency build operator/chart/kubemoot-operator
