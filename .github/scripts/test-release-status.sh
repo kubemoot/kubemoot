@@ -115,5 +115,13 @@ md="$(run --markdown kmctl kubemoot-docs || true)"
 check "markdown lists a repository as a bullet" "1" "$(grep -c '^- kubemoot-docs: released v0.5.0' <<<"$md")"
 check "markdown nests the breaking change" "1" "$(grep -c '^  - UNPUBLISHED BREAKING: feat!: rename' <<<"$md")"
 
+# RELEASE_STATUS_MIN_AGE_HOURS: the compare query marks commits younger than the window.
+repo young v1.0.0 2 'feat!: just merged [WITHIN GRACE]\nfix: older' 'v1.0.0'
+repo aged v1.0.0 2 'feat!: held a while\nfix: x [WITHIN GRACE]' 'v1.0.0'
+check "a breaking change inside the window is not reported" "0" "$(status young)"
+check "a breaking change older than the window is reported" "1" "$(status aged)"
+check "the window does not hide the old one among young ones" "1" "$(run aged | grep -c 'UNPUBLISHED BREAKING: feat!: held a while')"
+check "a non-numeric window is refused" "64" \
+  "$(RELEASE_STATUS_MIN_AGE_HOURS=soon PATH="${work}/bin:${PATH}" bash "${here}/release-status.sh" young >/dev/null 2>&1; echo $?)"
 [ "$failures" -eq 0 ] || { echo "${failures} failed"; exit 1; }
 echo "all passed"

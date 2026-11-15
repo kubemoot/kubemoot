@@ -10,6 +10,8 @@
 #
 # Usage: release-status.sh [--markdown] [repo ...]   (default: the six public repositories)
 # Needs gh (authenticated) and git. --markdown prints a list for a GitHub step summary.
+# RELEASE_STATUS_MIN_AGE_HOURS=N (default 0) counts only breaking changes committed more than
+# N hours ago, so the daily check does not raise an issue for a change merged minutes ago.
 # A repository that has never been released (the API answers 404) is reported as such and is
 # not a failure. Any other API or git error is reported as "UNKNOWN" for that repository: the
 # check could not tell.
@@ -27,6 +29,10 @@ for arg in "$@"; do
     *) repos+=("$arg") ;;
   esac
 done
+GRACE_HOURS="${RELEASE_STATUS_MIN_AGE_HOURS:-0}"
+case "$GRACE_HOURS" in
+  ''|*[!0-9]*) echo "release-status: RELEASE_STATUS_MIN_AGE_HOURS must be a whole number, got '${GRACE_HOURS}'" >&2; exit 64 ;;
+esac
 [ "${#repos[@]}" -gt 0 ] || repos=(kubemoot crews kmctl vscode-crewforge kubemoot-docs release-actions)
 
 # The commits that carry a user-facing conventional prefix, from subjects on stdin.
@@ -35,9 +41,11 @@ count_user_facing() {
 }
 
 # The subjects that mark a breaking change (type!:, or a BREAKING CHANGE footer the compare
-# query appends to the subject), from subjects on stdin.
+# query appends to the subject), from subjects on stdin. A subject the compare query marked
+# "[WITHIN GRACE]" (committed less than RELEASE_STATUS_MIN_AGE_HOURS ago) is not reported.
 breaking_subjects() {
-  grep -E '^[a-z]+(\([^)]*\))?!:|\[BREAKING CHANGE in the body\]$' || true
+  { grep -E '^[a-z]+(\([^)]*\))?!:|\[BREAKING CHANGE in the body\]$' || true; } \
+    | { grep -vF '[WITHIN GRACE]' || true; }
 }
 
 # The newest release candidate with the release's tag prefix, from `git ls-remote` output on
@@ -90,7 +98,9 @@ status_of() {
     return 2
   fi
   compare="$(gh_read "repos/${OWNER}/${repo}/compare/${latest}...main" \
-    '[.ahead_by, ([.commits[].commit.message | split("\n")[0] + (if test("(^|\n)BREAKING[ -]CHANGE") then " [BREAKING CHANGE in the body]" else "" end)]|join("\n"))]|@tsv' \
+    '[.ahead_by, ([.commits[].commit | (.message | split("\n")[0])
+      + (if '"${GRACE_HOURS}"' > 0 and ((.committer.date | fromdateiso8601) > (now - '"${GRACE_HOURS}"' * 3600)) then " [WITHIN GRACE]" else "" end)
+      + (if (.message | test("(^|\n)BREAKING[ -]CHANGE")) then " [BREAKING CHANGE in the body]" else "" end)] | join("\n"))] | @tsv' \
     2>"${work}/err")" || { unknown "$repo" "the commits since ${latest}" "$(cat "${work}/err")"; return 2; }
   ahead="${compare%%$'\t'*}"
   subjects="$(printf '%s' "${compare#*$'\t'}" | sed 's/\\n/\n/g')"

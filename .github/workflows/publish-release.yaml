@@ -29,14 +29,16 @@
 #               signed attached as kubemoot_<version>.intoto.jsonl: created as a draft,
 #               given the file, then published, since releases are immutable once
 #               published (.github/scripts/create-github-releases.sh)
-#   dispatch    asks kubemoot/crews and kubemoot/kmctl to build
+#   dispatch    asks kubemoot/crews, kubemoot/kmctl and kubemoot/vscode-crewforge to build
 #               new candidates, which take the finals just published (repository_dispatch
-#               kubemoot-published); publishing them stays a Publish Release run in each
+#               kubemoot-published; a dry run only lists them,
+#               .github/scripts/dispatch-clients.sh); publishing them stays a Publish Release run in each
 #   release-status
 #               writes the release status of the six public repositories to the run summary
 #               and warns for each one that still holds unpublished breaking changes
 #               (.github/scripts/release-status.sh); the clients still do right after the
-#               dispatch, until their own Publish Release runs
+#               dispatch, until their own Publish Release runs; the daily Release Status
+#               workflow opens an issue for one that stays so
 # The candidate and quickstart-candidate jobs also run in a dry run, so the approval to
 # publish comes with the quickstart's verdict on the candidate. The exported candidate is
 # a workflow artifact kept for 1 day (the images of an unpublished candidate are
@@ -202,6 +204,8 @@ jobs:
           bash .github/scripts/test-publish-release.sh
           bash .github/scripts/test-install-crane.sh
           bash .github/scripts/test-release-status.sh
+          bash .github/scripts/test-dispatch-clients.sh
+          bash .github/scripts/test-release-status-issue.sh
 
       - name: Log in to the registries
         env:
@@ -336,29 +340,39 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: bash .github/scripts/create-github-releases.sh release-files provenance
 
-  # The crew charts and kmctl take Kubemoot's latest finals when a candidate is
-  # built, so a new Kubemoot release asks each for a new candidate. Only a GitHub API call,
+  # The crew charts, kmctl and CrewForge are released with Kubemoot: a new Kubemoot release
+  # asks each for a new candidate (the crews and kmctl build it against the finals just
+  # published), and publishing those candidates is a Publish Release run in each repository.
+  # A dry run dispatches nothing and says what it would dispatch. Only a GitHub API call,
   # with RELEASE_TOKEN (contents write on each repository); the job's own token needs nothing.
-  # Publishing those candidates is a Publish Release run in each repository. CrewForge is
-  # not dispatched: it has no build-time Kubemoot dependency (no chart or image to stamp),
-  # so a forced candidate would rebuild the same code; the release status below reports it.
+  # The release status below reports what is still unpublished.
   dispatch:
     needs: [publish, release]
-    if: ${{ !inputs.dry_run }}
+    if: ${{ !cancelled() && needs.publish.result == 'success' && (inputs.dry_run || needs.release.result == 'success') }}
     runs-on: ubuntu-latest
-    permissions: {}
-    strategy:
-      fail-fast: false
-      matrix:
-        repository: [crews, kmctl]
+    permissions:
+      contents: read
     steps:
-      - name: Dispatch the candidate build
-        uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
+      - name: Checkout the release scripts
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          token: ${{ secrets.RELEASE_TOKEN }}
-          repository: kubemoot/${{ matrix.repository }}
-          event-type: kubemoot-published
-          client-payload: '{"chart_version": "${{ needs.publish.outputs.chart_version }}"}'
+          sparse-checkout: .github/scripts
+          persist-credentials: false
+
+      - name: Dispatch the candidate builds
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+          DRY_RUN: ${{ inputs.dry_run }}
+          CHART_VERSION: ${{ needs.publish.outputs.chart_version }}
+        run: |
+          status=0
+          bash .github/scripts/dispatch-clients.sh | tee dispatch.txt || status=$?
+          {
+            echo '### Candidate builds for the clients'
+            echo
+            sed 's/^/- /' dispatch.txt
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit "$status"
 
   # The release status of the six public repositories, in the run summary. Report only: the
   # clients hold unpublished breaking changes until their own Publish Release runs, so a

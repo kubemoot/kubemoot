@@ -1,0 +1,57 @@
+# Release Status: a daily check that a Kubemoot release covers every public repository.
+#
+# Runs .github/scripts/release-status.sh (the umbrella scripts/release-status.sh wraps it) over the six
+# public repositories and keeps one issue in this repository: opened or updated while a
+# repository has held an unpublished breaking change for more than a day, closed when none
+# does (.github/scripts/release-status-issue.sh). The public repositories are read with the
+# workflow's own token, which reads any public repository; no stored token is involved, and
+# the only write permission is issues, on this repository.
+name: Release Status
+
+on:
+  schedule:
+    - cron: '23 12 * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: release-status
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    if: github.repository == 'kubemoot/kubemoot'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write # open, update and close the one release status issue
+    steps:
+      - name: Checkout the release scripts
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          sparse-checkout: .github/scripts
+          persist-credentials: false
+
+      - name: Check the public repositories
+        id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+          # A breaking change merged today is not late yet: the issue waits a day.
+          RELEASE_STATUS_MIN_AGE_HOURS: '24'
+        run: |
+          status=0
+          bash .github/scripts/release-status.sh --markdown > "${RUNNER_TEMP}/report.md" || status=$?
+          {
+            echo '### Release status of the public repositories'
+            echo
+            cat "${RUNNER_TEMP}/report.md"
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "status=${status}" >> "$GITHUB_OUTPUT"
+
+      - name: Keep the issue in step with the status
+        env:
+          GH_TOKEN: ${{ github.token }}
+          STATUS: ${{ steps.check.outputs.status }}
+        run: bash .github/scripts/release-status-issue.sh "$STATUS" "${RUNNER_TEMP}/report.md"
