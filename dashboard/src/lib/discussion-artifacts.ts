@@ -21,7 +21,7 @@ export function artifactKey(text: string | undefined | null): string | null {
 	return m ? m[1] : null;
 }
 
-/** Read-only download endpoint for a spilled artifact (base-path aware). */
+/** Read-only download endpoint for a stored result of the discussion's workspace (base-path aware). */
 export function artifactHref(key: string): string {
-	return `${resolve('/api/kubemoot/discussions/artifact')}?key=${encodeURIComponent(key)}`;
+	return `${resolve('/api/kubemoot/discussions/workspace')}?key=${encodeURIComponent(key)}`;
 }

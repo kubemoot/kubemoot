@@ -231,10 +231,13 @@ the list covers what the stream still holds (about a day). `question` is the fir
 question the stream holds for the conversation, and `turns` counts its threads; a
 question the coordinator started again counts twice.
 
-### Fetching an artifact
+### Fetching a stored result
 
-`GET /api/v1/discussions/{crew}/artifact?key=<key>` returns an artifact's bytes as text,
-for the `artifact.key` a finding names. The key must belong to the crew in the
+`GET /api/v1/discussions/{crew}/workspace?key=<key>` returns a stored result's bytes as text,
+for the `artifact.key` a finding names. The older `GET /api/v1/discussions/{crew}/artifact?key=<key>`
+answers the same for one more release, with a `Deprecation: true` header and a `Link` to the new
+route; it is removed in the next release. The gateway reads the workspace bucket first and the
+bucket the workspace was stored in before it was renamed second. The key must belong to the crew in the
 gateway's namespace (`<namespace>/<crew>/<thread>/<agent>/<object>`); any other key is
 answered as not found. The coordinator deletes a thread's artifacts soon after the
 thread closes ([Discussion Artifact Store](../discussion-artifact-store/)), and the

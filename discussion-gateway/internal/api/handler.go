@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -42,6 +43,8 @@ type Handler struct {
 	namespace  string
 	// streamsEnd ends every open stream when it is done, such as at shutdown.
 	streamsEnd context.Context
+	// deprecatedRoute logs the first call of a deprecated route once.
+	deprecatedRoute sync.Once
 }
 
 // NewHandler creates a new API handler whose NATS subjects are scoped to namespace.
@@ -78,7 +81,8 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /ready", h.readyHandler)
 	mux.HandleFunc("POST /api/v1/discussions/{crew}", h.postDiscussion)
 	mux.HandleFunc("GET /api/v1/discussions/{crew}", h.listConversationsHandler)
-	mux.HandleFunc("GET /api/v1/discussions/{crew}/artifact", h.getArtifact)
+	mux.HandleFunc("GET /api/v1/discussions/{crew}/workspace", h.getWorkspace)
+	mux.HandleFunc("GET /api/v1/discussions/{crew}/artifact", h.getArtifactDeprecated)
 	mux.HandleFunc("GET /api/v1/discussions/{crew}/{conversationId}/stream", h.streamDiscussion)
 }
 
