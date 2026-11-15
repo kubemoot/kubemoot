@@ -26,6 +26,7 @@ const CLUSTER_SCOPED: Record<string, string> = {
 	'./kubemoot/componentstatuses/+server.ts': 'operator control-plane health: name, healthy, message',
 	'./kubemoot/system-info/+server.ts': 'operator version and uptime',
 	'./nats/config/+server.ts': 'whether NATS is configured; no subjects or data',
+	'./kubemoot/discussions/artifact/+server.ts': 'redirects to the workspace route, which applies the scope',
 };
 
 const WRITE_ROUTES = [

@@ -263,3 +263,76 @@ func TestReadPendingStopsWhenTheContextIsDone(t *testing.T) {
 		t.Fatalf("err %v, read %d", err, read)
 	}
 }
+
+// workspaceStore creates bucket and puts content at key.
+func workspaceStore(t *testing.T, js jetstream.JetStream, bucket, key, content string) {
+	t.Helper()
+	store, err := js.CreateObjectStore(context.Background(), jetstream.ObjectStoreConfig{Bucket: bucket})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.PutString(context.Background(), key, content); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestWorkspaceRouteReadsTheNewBucketThenTheOld(t *testing.T) {
+	nc, js := jetStreamServer(t)
+	workspaceStore(t, js, workspaceBucket, "ns/pilot/t1/k8s/new", "in the workspace bucket")
+	workspaceStore(t, js, artifactBucket, "ns/pilot/t1/k8s/old", "in the old bucket")
+	workspaceStore(t, js, artifactBucket, "ns/pilot/t1/k8s/both", "old copy")
+	workspaceStore(t, js, workspaceBucket, "ns/pilot/t1/k8s/both", "new copy")
+	srv := gatewayServer(t, nc)
+	for key, want := range map[string]string{
+		"ns/pilot/t1/k8s/new": "in the workspace bucket", "ns/pilot/t1/k8s/old": "in the old bucket",
+		"ns/pilot/t1/k8s/both": "new copy",
+	} {
+		code, body, _ := getArtifactBody(t, srv.URL+"/api/v1/discussions/pilot/workspace?key="+key)
+		if code != http.StatusOK || body != want {
+			t.Errorf("%s: status %d body %q, want %q", key, code, body, want)
+		}
+	}
+	if code, _, _ := getArtifactBody(t, srv.URL+"/api/v1/discussions/pilot/workspace?key=ns/pilot/t1/k8s/none"); code != http.StatusNotFound {
+		t.Errorf("a key in neither bucket: status %d, want 404", code)
+	}
+}
+
+func TestWorkspaceRouteKeepsTheCrewScopeAndNeedsAKey(t *testing.T) {
+	nc, js := jetStreamServer(t)
+	workspaceStore(t, js, workspaceBucket, "ns2/pilot/t1/k8s/x", "another namespace")
+	srv := gatewayServer(t, nc)
+	if code, body, _ := getArtifactBody(t, srv.URL+"/api/v1/discussions/pilot/workspace?key=ns2/pilot/t1/k8s/x"); code != http.StatusNotFound || strings.Contains(body, "another namespace") {
+		t.Errorf("another namespace: status %d body %s", code, body)
+	}
+	if code, _, _ := getArtifactBody(t, srv.URL+"/api/v1/discussions/pilot/workspace"); code != http.StatusBadRequest {
+		t.Errorf("missing key: status %d, want 400", code)
+	}
+}
+
+func TestOldArtifactRouteStillAnswersAndSaysItIsDeprecated(t *testing.T) {
+	nc, js := jetStreamServer(t)
+	workspaceStore(t, js, workspaceBucket, "ns/pilot/t1/k8s/x", "same bytes")
+	srv := gatewayServer(t, nc)
+
+	old, err := http.Get(srv.URL + "/api/v1/discussions/pilot/artifact?key=ns/pilot/t1/k8s/x")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = old.Body.Close() }()
+	body, _ := io.ReadAll(old.Body)
+	if old.StatusCode != http.StatusOK || string(body) != "same bytes" {
+		t.Fatalf("old route: status %d body %q", old.StatusCode, body)
+	}
+	if old.Header.Get("Deprecation") != "true" || !strings.Contains(old.Header.Get("Link"), "/api/v1/discussions/pilot/workspace") {
+		t.Errorf("old route headers: Deprecation=%q Link=%q", old.Header.Get("Deprecation"), old.Header.Get("Link"))
+	}
+
+	current, err := http.Get(srv.URL + "/api/v1/discussions/pilot/workspace?key=ns/pilot/t1/k8s/x")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = current.Body.Close() }()
+	if current.Header.Get("Deprecation") != "" {
+		t.Errorf("the new route is marked deprecated")
+	}
+}

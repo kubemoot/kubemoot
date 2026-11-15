@@ -40,7 +40,8 @@ vi.mock('#lib/server/nats-object-store.js', () => ({
 import { resetScopeCache } from '#lib/server/scope.js';
 import { GET as agentsGET } from './kubemoot/agents/+server';
 import { GET as agentGET } from './kubemoot/agents/[name]/+server';
-import { GET as artifactGET } from './kubemoot/discussions/artifact/+server';
+import { GET as artifactGET } from './kubemoot/discussions/workspace/+server';
+import { GET as oldArtifactGET } from './kubemoot/discussions/artifact/+server';
 import { GET as kvGET } from './nats/kv/+server';
 import { GET as watchGET } from './kubemoot/watch/[plural]/+server';
 import { POST as publishPOST } from './nats/publish/+server';
@@ -135,20 +136,28 @@ describe('scoped dashboard', () => {
 
 	describe('discussion artifacts and fitness data', () => {
 		it('refuses an artifact keyed by a namespace outside the scope without reading it', async () => {
-			const res = await call(artifactGET, { url: urlOf('/api/kubemoot/discussions/artifact?key=kubemoot/crew/t1/agent/finding-1') });
+			const res = await call(artifactGET, { url: urlOf('/api/kubemoot/discussions/workspace?key=kubemoot/crew/t1/agent/finding-1') });
 			expect(res.status).toBe(404);
 			expect(mocks.readDiscussionArtifact).not.toHaveBeenCalled();
 		});
 
 		it('serves an artifact of an in-scope namespace', async () => {
 			mocks.readDiscussionArtifact.mockResolvedValue(new TextEncoder().encode('full text'));
-			const res = await call(artifactGET, { url: urlOf('/api/kubemoot/discussions/artifact?key=team-a/crew/t1/agent/finding-1') });
+			const res = await call(artifactGET, { url: urlOf('/api/kubemoot/discussions/workspace?key=team-a/crew/t1/agent/finding-1') });
 			expect(res.status).toBe(200);
 			expect(await res.text()).toBe('full text');
 		});
 
+		it('sends the older artifact route to the workspace route with a deprecation header', async () => {
+			const res = await call(oldArtifactGET, { url: urlOf('/api/kubemoot/discussions/artifact?key=team-a/crew/t1/agent/finding-1') });
+			expect(res.status).toBe(308);
+			expect(res.headers.get('Location')).toBe('/api/kubemoot/discussions/workspace?key=team-a/crew/t1/agent/finding-1');
+			expect(res.headers.get('Deprecation')).toBe('true');
+			expect(mocks.readDiscussionArtifact).not.toHaveBeenCalled();
+		});
+
 		it('still reports a malformed key as 400 first', async () => {
-			const res = await call(artifactGET, { url: urlOf('/api/kubemoot/discussions/artifact?key=../etc') });
+			const res = await call(artifactGET, { url: urlOf('/api/kubemoot/discussions/workspace?key=../etc') });
 			expect(res.status).toBe(400);
 		});
 

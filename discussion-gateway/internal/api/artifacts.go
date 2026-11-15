@@ -12,9 +12,16 @@ import (
 	"github.com/nats-io/nats.go/jetstream"
 )
 
-// artifactBucket is the Object Store bucket agents spill large contributions to. Keys
-// are <namespace>/<crew>/<threadId>/<agent>/<signal>-<uuid>.
-const artifactBucket = "kubemoot_discussion_artifacts"
+// The Object Store buckets that hold a discussion's workspace. Keys are
+// <namespace>/<crew>/<threadId>/<agent>/<signal>-<uuid>. Writers still use artifactBucket; a read
+// looks in workspaceBucket first and artifactBucket second, so it keeps working when writers move.
+const (
+	workspaceBucket = "kubemoot_workspace"
+	artifactBucket  = "kubemoot_discussion_artifacts"
+)
+
+// readBuckets are the buckets a read tries, in order.
+var readBuckets = []string{workspaceBucket, artifactBucket}
 
 // errArtifactGone means the artifact is not in the store: never written, or deleted
 // with its thread.
@@ -39,10 +46,22 @@ func inScope(scope crewscope.Scope, key string) bool {
 	return true
 }
 
-// openArtifact opens the artifact at key, or returns errArtifactGone when the bucket or
-// the object is not there.
+// openArtifact opens the artifact at key from the first bucket that has it, or returns
+// errArtifactGone when no bucket or object is there.
 func openArtifact(ctx context.Context, js jetstream.JetStream, key string) (jetstream.ObjectResult, error) {
-	store, err := js.ObjectStore(ctx, artifactBucket)
+	for _, bucket := range readBuckets {
+		obj, err := openFrom(ctx, js, bucket, key)
+		if errors.Is(err, errArtifactGone) {
+			continue
+		}
+		return obj, err
+	}
+	return nil, errArtifactGone
+}
+
+// openFrom opens key from one bucket; a bucket or an object that is not there is errArtifactGone.
+func openFrom(ctx context.Context, js jetstream.JetStream, bucket, key string) (jetstream.ObjectResult, error) {
+	store, err := js.ObjectStore(ctx, bucket)
 	if errors.Is(err, jetstream.ErrBucketNotFound) {
 		return nil, errArtifactGone
 	}
@@ -56,9 +75,26 @@ func openArtifact(ctx context.Context, js jetstream.JetStream, key string) (jets
 	return obj, err
 }
 
-// getArtifact answers GET /api/v1/discussions/{crew}/artifact?key=<key> with the
-// artifact's bytes. A key outside the crew's namespace and crew is answered as not
-// found, the same as a deleted one.
+// getWorkspace answers GET /api/v1/discussions/{crew}/workspace?key=<key> with the stored
+// result's bytes. A key outside the crew's namespace and crew is answered as not found, the
+// same as a deleted one.
+func (h *Handler) getWorkspace(w http.ResponseWriter, r *http.Request) {
+	h.getArtifact(w, r)
+}
+
+// getArtifactDeprecated answers the old route, GET /api/v1/discussions/{crew}/artifact, as
+// getWorkspace does and says so: a Deprecation header and a Link to the new route on every
+// answer, and one log line for the life of the process. The route is removed in the next release.
+func (h *Handler) getArtifactDeprecated(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Deprecation", "true")
+	w.Header().Set("Link", "</api/v1/discussions/"+r.PathValue("crew")+"/workspace>; rel=\"successor-version\"")
+	h.deprecatedRoute.Do(func() {
+		handlerLog.Info("The /artifact route is deprecated and is removed in the next release; use /workspace")
+	})
+	h.getArtifact(w, r)
+}
+
+// getArtifact serves a stored result; getWorkspace and getArtifactDeprecated both call it.
 func (h *Handler) getArtifact(w http.ResponseWriter, r *http.Request) {
 	scope, ok := h.scopeFor(w, r.PathValue("crew"))
 	if !ok {

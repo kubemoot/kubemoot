@@ -1,65 +1,21 @@
 import type { RequestHandler } from './$types';
-import { readDiscussionArtifact } from '#lib/server/nats-object-store.js';
-import { parseArtifactKey, type ArtifactKey } from '#lib/crewScope.js';
-import { guardKeyNamespace } from '#lib/server/scope.js';
 
 /**
  * GET /api/kubemoot/discussions/artifact?key=...
  *
- * Read-only download of a stored discussion artifact: a tool result file, or the full agent
- * contribution behind an `[ARTIFACT key=...]` marker in a thread from an earlier release.
- * The object lives in the NATS object store bucket `kubemoot_discussion_artifacts`
- * at the namespaced, thread-scoped key `{namespace}/{crew}/{threadId}/{agent}/{nnn}-{tool}`.
- *
- * The key is VALIDATED to that exact 5-segment shape by parseArtifactKey: no
- * `..`, no leading or trailing slash, a DNS-label namespace, and each other
- * segment a safe `[A-Za-z0-9._-]+`. This rejects path traversal and any crafted
- * key that tries to read outside the discussion-artifact namespace.
- *
- *   200 + the artifact bytes (Content-Disposition attachment) on success
- *   400 when the key is missing or fails the shape guard
- *   404 when the object is absent (TTL-pruned, GC-reaped, or never written)
- *   500 when NATS itself is unreachable
+ * The older name of /api/kubemoot/discussions/workspace. It answers with a 308 to the new route
+ * for one release, so a link or script that still uses it keeps working, and says so in a
+ * Deprecation header. The new route does the key check and the namespace guard.
  */
-
-/** Build a safe download filename from the validated key: `{agent}-{signal}.txt`. */
-function filenameFor(parsed: ArtifactKey): string {
-	const signal = parsed.name.split('-')[0] || 'data';
-	const safe = `${parsed.agent}-${signal}`.replaceAll(/[^A-Za-z0-9._-]/g, '_');
-	return `${safe}.txt`;
-}
-
-export const GET: RequestHandler = async ({ url }) => {
-	const key = url.searchParams.get('key');
-	if (!key) {
-		return Response.json({ error: 'key required' }, { status: 400 });
-	}
-	const parsed = parseArtifactKey(key);
-	if (!parsed) {
-		return Response.json({ error: 'invalid artifact key' }, { status: 400 });
-	}
-	const denied = await guardKeyNamespace(parsed);
-	if (denied) return denied;
-	try {
-		const bytes = await readDiscussionArtifact(key);
-		if (!bytes) {
-			return Response.json(
-				{ error: 'artifact not found (TTL-pruned, GC-reaped, or never written)' },
-				{ status: 404 }
-			);
+export const GET: RequestHandler = ({ url }) => {
+	const target = new URL(url);
+	target.pathname = target.pathname.replace(/\/artifact$/, '/workspace');
+	return new Response(null, {
+		status: 308,
+		headers: {
+			Location: `${target.pathname}${target.search}`,
+			Deprecation: 'true',
+			Link: `<${target.pathname}>; rel="successor-version"`
 		}
-		const buf = Buffer.from(bytes);
-		return new Response(buf, {
-			status: 200,
-			headers: {
-				'Content-Type': 'text/plain; charset=utf-8',
-				'Content-Disposition': `attachment; filename="${filenameFor(parsed)}"`,
-				'Content-Length': String(buf.byteLength),
-				'Cache-Control': 'no-store'
-			}
-		});
-	} catch (e) {
-		const message = e instanceof Error ? e.message : 'Failed to read artifact';
-		return Response.json({ error: message }, { status: 500 });
-	}
+	});
 };
