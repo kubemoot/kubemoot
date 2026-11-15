@@ -1,7 +1,6 @@
 package ai.kubemoot.agent.nats;
 
 import ai.kubemoot.agent.chat.CallManifest;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Set;
 import java.util.regex.Matcher;
@@ -30,11 +29,6 @@ final class DiscussionFacts {
     private static final Pattern PROTOCOL_WORDS = Pattern.compile("\\b(?:NOTHING_TO_ADD|NO_DATA)\\b");
 
     private static final int QUESTION_CHARS = 500;
-
-    /** A call line or a not-stored line, in the order they stand. */
-    private static final Pattern ITEM = Pattern.compile(
-            "\\[CALL key=([^\\]\\s]++) tool=([^\\]\\s]++)([^\\]]*+)\\]"
-                    + "|\\[NOT STORED tool=([^\\]\\s]++)([^\\]]*+)\\]");
 
     private DiscussionFacts() {}
 
@@ -75,39 +69,20 @@ final class DiscussionFacts {
         return PROTOCOL_WORDS.matcher(text).replaceAll("").strip();
     }
 
-    /** A successful tool call whose result was stored: who made it, with what tool, and the thread-relative key. */
-    record StoredCall(String agent, String tool, String key) {}
-
     /**
-     * The successful, stored calls the thread describes, in the order they stand and without repeats.
-     * When the thread holds no fact these are results nobody stated and that were too large to post.
+     * The answer for a thread that holds no facts and has no stored result to show: what was asked
+     * and why it could not be checked, as {@code why} says. It speaks to the asker, so it names no
+     * agent, tool, key or count of calls. A failed lookup is never reported as an empty result.
      */
-    static List<StoredCall> storedSuccesses(List<Message> thread) {
-        var found = new LinkedHashMap<String, StoredCall>();
-        statements(thread).forEach(m -> {
-            Matcher item = ITEM.matcher(m.content());
-            while (item.find()) {
-                if (item.group(2) != null && !item.group(3).contains("error=true")) {
-                    found.putIfAbsent(item.group(1), new StoredCall(m.agent(), item.group(2), item.group(1)));
-                }
-            }
-        });
-        return List.copyOf(found.values());
-    }
-
-    /**
-     * The answer for a thread that holds no facts and has no stored result to read: what was asked
-     * and that it could not be checked. It speaks to the asker, so it names no agent, tool, key or
-     * count of calls. A failed lookup is never reported as an empty result.
-     */
-    static String noDataAnswer(String question, boolean anyResultStored) {
+    static String noDataAnswer(String question, StoredResults.Status why) {
         var out = new StringBuilder("I could not get the data needed to answer this question, so I have no answer to give.\n\n");
         out.append("You asked: ").append(question == null || question.isBlank() ? "(not recorded)"
                 : cut(oneLine(question), QUESTION_CHARS)).append("\n\n");
-        return out.append(anyResultStored
-                ? "Some lookups returned results, but none of them could be read here, so nothing from them is reported."
-                : "Every lookup this needed failed, so nothing could be checked.")
-                .append(" A lookup that failed says nothing about what exists, so no item is reported as missing or as zero.")
+        return out.append(switch (why) {
+            case UNREADABLE -> "Some lookups returned results, but they could not be read here, so nothing from them is reported.";
+            case NO_ROOM -> "Some lookups returned results, but they were too large to show here, so nothing from them is reported.";
+            default -> "No lookup this needed returned a result that could be checked.";
+        }).append(" A lookup that failed says nothing about what exists, so no item is reported as missing or as zero.")
                 .toString();
     }
 
