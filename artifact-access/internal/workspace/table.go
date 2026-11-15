@@ -31,9 +31,18 @@ func readKubectlRows(data []byte, _ rune) ([][]string, error) {
 // the artifact is delimited text and skips detection. An artifact in any other format returns
 // its format and ErrNotTable.
 func ReadTable(data []byte, comma rune) (Format, [][]string, error) {
+	return ReadTableAs("", data, comma)
+}
+
+// ReadTableAs is ReadTable for an artifact whose Content-Type is recorded: the recorded format
+// is believed (see trusted) and the bytes are sniffed only when there is none.
+func ReadTableAs(hint Format, data []byte, comma rune) (Format, [][]string, error) {
 	format := FormatCSV
 	if comma == 0 || comma == ',' {
-		format = Detect(data)
+		format = hint
+		if !trusted(hint, data) {
+			format = Detect(data)
+		}
 	}
 	read, ok := tableReaders[format]
 	if !ok {

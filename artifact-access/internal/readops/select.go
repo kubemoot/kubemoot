@@ -18,8 +18,9 @@ var errEmptyArtifact = errors.New("artifact is empty; it has no header row")
 // table or CSV, found and parsed by the code workspace_query uses (workspace.ReadTable). Columns
 // are matched by their SQL-safe name, so the printed title and any case also match. A
 // delimiter other than comma says the artifact is delimited text. Output is bounded by maxBytes
-// (the row loop stops once the budget is reached).
-func SelectCSV(r io.Reader, columns []string, delimiter rune, maxBytes int) (string, error) {
+// (the row loop stops once the budget is reached). hint is the format the object's Content-Type
+// header names, empty when it has none; the bytes are sniffed only then.
+func SelectCSV(r io.Reader, hint workspace.Format, columns []string, delimiter rune, maxBytes int) (string, error) {
 	if len(columns) == 0 {
 		return "", fmt.Errorf("no columns requested")
 	}
@@ -31,7 +32,7 @@ func SelectCSV(r io.Reader, columns []string, delimiter rune, maxBytes int) (str
 		return "", fmt.Errorf("artifact exceeds %d bytes; use artifact_grep or artifact_rows",
 			workspace.DefaultMaxArtifactBytes)
 	}
-	format, rows, err := workspace.ReadTable(data, delimiter)
+	format, rows, err := workspace.ReadTableAs(hint, data, delimiter)
 	if err != nil {
 		return "", tableError(format, data, err)
 	}

@@ -56,7 +56,7 @@ class ResultsAsFilesThreadTest extends CoordinatorThreadTestBase {
     }
 
     private static String callLine() {
-        return "[CALL key=k8s-workloads/001-pods_list tool=pods_list args={\"namespace\":\"a\"} format=json bytes=300 rows=3 "
+        return "[CALL key=k8s-workloads/001-pods_list tool=pods_list args={\"namespace\":\"a\"} type=application/json bytes=300 rows=3 "
                 + "error=false fields=name,cpu]";
     }
 
@@ -74,7 +74,7 @@ class ResultsAsFilesThreadTest extends CoordinatorThreadTestBase {
         h.put(CallHeaders.TOOL_CALL_ARGUMENTS, "{\"namespace\":\"a\"}");
         h.put(CallHeaders.ERROR, "false");
         h.put(CallHeaders.BYTES, Integer.toString(stored.get(key).length()));
-        h.put(CallHeaders.FORMAT, "json");
+        h.put(CallHeaders.CONTENT_TYPE, "application/json");
         var info = mock(ObjectInfo.class);
         when(info.isDeleted()).thenReturn(false);
         when(info.getObjectName()).thenReturn(key);
@@ -160,7 +160,7 @@ class ResultsAsFilesThreadTest extends CoordinatorThreadTestBase {
 
         String prompt = synthesisPrompt();
 
-        assertTrue(prompt.contains("tool=pods_list args={\"namespace\":\"a\"} format=json bytes=300 rows=3"), prompt);
+        assertTrue(prompt.contains("tool=pods_list args={\"namespace\":\"a\"} type=application/json bytes=300 rows=3"), prompt);
         assertTrue(prompt.contains("fields=name,cpu]"), "the data dictionary is in the description");
         assertEquals(1, publishedOfType("review_ready").size(), "the thread is reviewed once");
     }

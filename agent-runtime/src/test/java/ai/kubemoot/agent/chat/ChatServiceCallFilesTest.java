@@ -150,7 +150,7 @@ class ChatServiceCallFilesTest {
         assertEquals("false", h.get(CallHeaders.ERROR));
         assertNull(h.get(CallHeaders.ERROR_TYPE));
         assertEquals("3", h.get(CallHeaders.ROWS));
-        assertEquals("json", h.get(CallHeaders.FORMAT));
+        assertEquals("application/json", h.get(CallHeaders.CONTENT_TYPE));
         assertEquals(String.valueOf(store.bodies.get(key).length), h.get(CallHeaders.BYTES));
         assertFalse(Instant.parse(h.get(CallHeaders.STARTED)).isBefore(before.minusSeconds(1)));
         assertNotNull(h.get(CallHeaders.DURATION_MS));
@@ -159,7 +159,7 @@ class ChatServiceCallFilesTest {
         assertTrue(result.text().startsWith("[WORKSPACE agent=test-agent calls=1 errors=0 prefix=test-agent/]"),
                 result.text());
         assertTrue(result.text().contains("[CALL key=test-agent/001-pods_list tool=pods_list "
-                + "args={\"namespace\":\"kube-system\"} format=json bytes=" + store.bodies.get(key).length
+                + "args={\"namespace\":\"kube-system\"} type=application/json bytes=" + store.bodies.get(key).length
                 + " rows=3 error=false fields=a]\n[RESULT]\n{\"items\":[{\"a\":1},{\"a\":2},{\"a\":3}]}\n[END RESULT]"),
                 "a small result follows its description whole: " + result.text());
     }
@@ -178,20 +178,21 @@ class ChatServiceCallFilesTest {
         assertEquals("tool_error", bad.get(CallHeaders.ERROR_TYPE));
         assertEquals("{\"error\": \"forbidden\"}", store.body(keys.get(1)));
         assertTrue(result.text().contains("calls=2 errors=1"), result.text());
-        assertTrue(result.text().contains("tool=bad args={\"k\":1} format=json bytes=22 rows=unknown error=true fields=error]"), result.text());
+        assertTrue(result.text().contains("tool=bad args={\"k\":1} type=application/json bytes=22 rows=unknown error=true fields=error]"), result.text());
     }
 
     @Test
-    void textResultHasFormatTextAndNoRowCount() {
+    void kubectlTableResultIsTypedAsTheTableAndHasNoRowCount() {
         registerTools(r -> "NAME   READY\npod-a  1/1\npod-b  1/1", "pods_list");
         modelCalls(call("c1", "pods_list", "{}"));
 
         var result = run(service(), 0);
 
         var h = store.headers.values().iterator().next();
-        assertEquals("text", h.get(CallHeaders.FORMAT));
+        assertEquals("text/plain; profile=kubectl-table", h.get(CallHeaders.CONTENT_TYPE));
         assertFalse(h.containsKey(CallHeaders.ROWS));
         assertTrue(result.text().contains("rows=unknown"));
+        assertTrue(result.text().contains("type=text/plain; profile=kubectl-table"), "the [CALL] line shows the stored type");
     }
 
     @Test

@@ -1,0 +1,195 @@
+{
+ "description": "What a stored tool result is, shared by artifact-access (Go, workspace.DetectContentType) and agent-runtime (Java, ResultType). Each case maps the text of a result to the Content-Type recorded for it. The first five lines of a result decide everything but JSON, which reads the whole text.",
+ "cases": [
+  {
+   "name": "JSON list",
+   "input": "[{\"name\":\"a\"},{\"name\":\"b\"}]",
+   "type": "application/json"
+  },
+  {
+   "name": "JSON object with an items list",
+   "input": "{\"kind\":\"PodList\",\"items\":[{\"metadata\":{\"name\":\"a\"}}]}",
+   "type": "application/json"
+  },
+  {
+   "name": "JSON with leading whitespace and a newline",
+   "input": "\n  {\"a\": 1}\n",
+   "type": "application/json"
+  },
+  {
+   "name": "JSON empty list",
+   "input": "[]",
+   "type": "application/json"
+  },
+  {
+   "name": "JSON cut off",
+   "input": "{\"a\":",
+   "type": "text/plain"
+  },
+  {
+   "name": "JSON with trailing text",
+   "input": "{\"a\":1} and more",
+   "type": "text/plain"
+  },
+  {
+   "name": "a bare number is not data",
+   "input": "42",
+   "type": "text/plain"
+  },
+  {
+   "name": "empty",
+   "input": "",
+   "type": "text/plain"
+  },
+  {
+   "name": "only blank lines",
+   "input": " \n\t\n",
+   "type": "text/plain"
+  },
+  {
+   "name": "kubectl pods table",
+   "input": "NAME      READY   STATUS    RESTARTS   AGE\ncoredns   1/1     Running   0          5d\netcd      1/1     Running   2          5d\n",
+   "type": "text/plain; profile=kubectl-table"
+  },
+  {
+   "name": "kubectl table with a two word title",
+   "input": "NAMESPACE   NAME   NOMINATED NODE   READINESS GATES\nkube-system   coredns   <none>   <none>\n",
+   "type": "text/plain; profile=kubectl-table"
+  },
+  {
+   "name": "kubectl table with CRLF line endings",
+   "input": "NAME      READY   STATUS    RESTARTS   AGE\r\ncoredns   1/1     Running   0          5d\r\netcd      1/1     Running   2          5d\r\n",
+   "type": "text/plain; profile=kubectl-table"
+  },
+  {
+   "name": "a single upper case word is not a table",
+   "input": "NAME\nfoo\nbar\n",
+   "type": "text/plain"
+  },
+  {
+   "name": "a lower case header is not a kubectl table",
+   "input": "name   ready   status\nfoo   1/1   Running\n",
+   "type": "text/plain"
+  },
+  {
+   "name": "Markdown table",
+   "input": "| name | ready |\n|------|-------|\n| a | 1/1 |\n| b | 0/1 |\n",
+   "type": "text/markdown"
+  },
+  {
+   "name": "Markdown table after a sentence",
+   "input": "Pods in kube-system:\n\n| name | ready |\n| :--- | ---: |\n| a | 1/1 |\n",
+   "type": "text/markdown"
+  },
+  {
+   "name": "pipes without a separator row are text",
+   "input": "| name | ready |\n| a | 1/1 |\n",
+   "type": "text/plain"
+  },
+  {
+   "name": "YAML mapping",
+   "input": "apiVersion: v1\nkind: Pod\nmetadata:\n  name: a\n",
+   "type": "application/yaml"
+  },
+  {
+   "name": "YAML list",
+   "input": "- name: a\n  ready: true\n- name: b\n  ready: false\n",
+   "type": "application/yaml"
+  },
+  {
+   "name": "YAML with several documents",
+   "input": "---\nkind: Pod\n---\nkind: Service\n",
+   "type": "application/yaml"
+  },
+  {
+   "name": "YAML with a duplicate key",
+   "input": "a: 1\na: 2\n",
+   "type": "text/plain"
+  },
+  {
+   "name": "YAML that does not parse",
+   "input": "a: b: c\n",
+   "type": "text/plain"
+  },
+  {
+   "name": "YAML that is only a scalar",
+   "input": "--- hello\n",
+   "type": "text/plain"
+  },
+  {
+   "name": "CSV",
+   "input": "name,ready\na,1/1\nb,0/1\n",
+   "type": "text/csv"
+  },
+  {
+   "name": "CSV with a quoted comma",
+   "input": "name,note\na,\"x, y\"\nb,z\n",
+   "type": "text/csv"
+  },
+  {
+   "name": "CSV with a quoted line break",
+   "input": "name,note\na,\"x\ny\"\nb,z\n",
+   "type": "text/csv"
+  },
+  {
+   "name": "CSV with rows of different widths",
+   "input": "name,ready\na,1/1,extra\nb,0/1\n",
+   "type": "text/plain"
+  },
+  {
+   "name": "CSV with a bare quote",
+   "input": "name,note\na,x\"y\n",
+   "type": "text/plain"
+  },
+  {
+   "name": "CSV with an unclosed quote",
+   "input": "name,note\na,\"x\n",
+   "type": "text/plain"
+  },
+  {
+   "name": "one column is not CSV",
+   "input": "name\na\nb\n",
+   "type": "text/plain"
+  },
+  {
+   "name": "prose",
+   "input": "The cluster has three nodes.\nAll are ready.\n",
+   "type": "text/plain"
+  },
+  {
+   "name": "prose that starts like YAML but does not parse",
+   "input": "Note: the result: was empty: really\n",
+   "type": "text/plain"
+  },
+  {
+   "name": "a log line list",
+   "input": "2026-11-15T10:00:00Z INFO started\n2026-11-15T10:00:01Z INFO ready\n",
+   "type": "text/plain"
+  },
+  {
+   "name": "prose with commas but a different count on each line",
+   "input": "Pods, services and nodes\nwere all healthy, ready, and fine.\n",
+   "type": "text/plain"
+  },
+  {
+   "name": "JSON nested 1500 deep",
+   "input": "[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]",
+   "type": "application/json"
+  },
+  {
+   "name": "JSON padded with no-break spaces",
+   "input": "\u00a0\u00a0{\"a\":1}\u00a0\n",
+   "type": "application/json"
+  },
+  {
+   "name": "a line of only a no-break space is blank",
+   "input": "\u00a0\nname,ready\na,1\n",
+   "type": "text/csv"
+  },
+  {
+   "name": "JSON after a byte order mark is not JSON",
+   "input": "\ufeff{\"a\":1}",
+   "type": "text/plain"
+  }
+ ]
+}

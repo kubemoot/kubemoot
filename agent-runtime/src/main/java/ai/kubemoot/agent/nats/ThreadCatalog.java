@@ -16,7 +16,7 @@ import org.slf4j.LoggerFactory;
 
 /**
  * Every tool call stored for one thread, built in code from the headers of the per-call workspace
- * objects (tool, arguments, rows, bytes, format, error). It is the index analysts read by: nothing
+ * objects (tool, arguments, rows, bytes, content type, error). It is the index analysts read by: nothing
  * stored is missing from it, and a header line carries the totals so a missing line shows.
  *
  * <p>{@link #render} gives it one line per call grouped per (agent, tool), and one level coarser
@@ -34,8 +34,11 @@ final class ThreadCatalog {
     /** Opens a call line. Not {@code [CALL key=}, so a catalog is never read as a tooler's manifest. */
     static final String ENTRY_PREFIX = "[CATALOG-CALL key=";
 
+    /** The type shown for an object stored before the Content-Type header existed. */
+    private static final String TEXT_TYPE = "text/plain";
+
     /** One stored call; {@code rows} is -1 when unknown. */
-    record Entry(String key, String agent, String tool, String args, long rows, long bytes, String format,
+    record Entry(String key, String agent, String tool, String args, long rows, long bytes, String type,
                  boolean error) {
 
         /** The key relative to the thread under {@code threadPrefix}: {@code <agent>/<nnn>-<tool>}. */
@@ -94,7 +97,7 @@ final class ThreadCatalog {
         }
         return java.util.Optional.of(new Entry(key, agent, text(h, CallHeaders.TOOL_NAME),
                 text(h, CallHeaders.TOOL_CALL_ARGUMENTS), number(h, CallHeaders.ROWS, -1),
-                number(h, CallHeaders.BYTES, info.getSize()), text(h, CallHeaders.FORMAT),
+                number(h, CallHeaders.BYTES, info.getSize()), text(h, CallHeaders.CONTENT_TYPE),
                 Boolean.parseBoolean(text(h, CallHeaders.ERROR))));
     }
 
@@ -179,7 +182,7 @@ final class ThreadCatalog {
     /** The catalog line of one call: its key, tool, arguments, shape and size. */
     private String callLine(Entry e) {
         return ENTRY_PREFIX + e.relativeKey(prefix) + " tool=" + e.tool() + " args=" + CallManifest.argsSummary(e.args())
-                + " format=" + (e.format().isEmpty() ? "text" : e.format())
+                + " type=" + (e.type().isEmpty() ? TEXT_TYPE : e.type())
                 + " rows=" + (e.rows() >= 0 ? Long.toString(e.rows()) : "unknown")
                 + " bytes=" + e.bytes() + " error=" + e.error() + "]";
     }

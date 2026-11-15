@@ -31,7 +31,6 @@ public class NatsCallArtifactStore implements CallArtifactStore {
 
     /** Call counters kept at once; the least recently used is dropped past this and found again from the store. */
     private static final int MAX_COUNTERS = 500;
-    private static final String CONTENT_TYPE_JSON = "application/json";
 
     private final NatsConnectionProvider natsProvider;
     private final ObjectMapper mapper;
@@ -142,8 +141,9 @@ public class NatsCallArtifactStore implements CallArtifactStore {
         ref.put("agent", agent);
         ref.put("tool", tool);
         ref.put("createdAt", Instant.now().toString());
-        if (CallHeaders.FORMAT_JSON.equals(headers.get(CallHeaders.FORMAT))) {
-            ref.put("contentType", CONTENT_TYPE_JSON);
+        String type = headers.get(CallHeaders.CONTENT_TYPE);
+        if (type != null) {
+            ref.put("contentType", type);
         }
         String rows = headers.get(CallHeaders.ROWS);
         if (rows != null) {

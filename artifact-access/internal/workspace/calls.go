@@ -21,7 +21,6 @@ const (
 	operationExecuteTool = "execute_tool"
 	headerTool           = "gen_ai.tool.name"
 	headerError          = "kubemoot.error"
-	headerFormat         = "kubemoot.format"
 	headerTruncated      = "kubemoot.truncated"
 	headerRows           = "kubemoot.rows"
 	// flagSet is the value of a header that is on.
@@ -42,7 +41,7 @@ type callInfo struct {
 	args      string
 	failed    bool
 	truncated bool
-	// hint is the format the producer says the body has; empty when it says text.
+	// hint is the format the Content-Type header names; empty when the object has none.
 	hint Format
 }
 
@@ -57,8 +56,10 @@ func callInfoOf(m store.Meta) (callInfo, bool) {
 		failed:    m.Headers[headerError] == flagSet,
 		truncated: m.Headers[headerTruncated] == flagSet,
 	}
-	if m.Headers[headerFormat] == string(FormatJSON) {
-		ci.hint = FormatJSON
+	if !ci.truncated {
+		// A cut body is mended and read again by section, so what the header said of the whole
+		// result does not describe the bytes that are left.
+		ci.hint = HintOf(m)
 	}
 	return ci, true
 }

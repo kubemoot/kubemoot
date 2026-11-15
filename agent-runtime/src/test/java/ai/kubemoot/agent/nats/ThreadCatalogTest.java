@@ -14,7 +14,7 @@ class ThreadCatalogTest {
     private static ThreadCatalog.Entry entry(String agent, int n, String tool, String args, long rows, long bytes,
                                              boolean error) {
         return new ThreadCatalog.Entry(PREFIX + agent + "/" + String.format("%03d", n) + "-" + tool, agent, tool, args,
-                rows, bytes, "text", error);
+                rows, bytes, "text/plain", error);
     }
 
     private static ThreadCatalog proxmox() {
@@ -39,9 +39,9 @@ class ThreadCatalogTest {
         String text = proxmox().render(1_000_000);
 
         assertTrue(text.contains("[CATALOG-CALL key=qm/002-get_vm_rrd_data tool=get_vm_rrd_data "
-                + "args={\"node\":\"pve\",\"vmid\":101} format=text rows=60 bytes=22000 error=false]"), text);
+                + "args={\"node\":\"pve\",\"vmid\":101} type=text/plain rows=60 bytes=22000 error=false]"), text);
         assertTrue(text.contains("[CATALOG-CALL key=pve/001-get_node_status tool=get_node_status args={} "
-                + "format=text rows=unknown bytes=900 error=true]"), text);
+                + "type=text/plain rows=unknown bytes=900 error=true]"), text);
     }
 
     @Test

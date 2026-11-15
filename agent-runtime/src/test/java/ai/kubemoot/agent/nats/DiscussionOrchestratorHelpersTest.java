@@ -42,7 +42,7 @@ class DiscussionOrchestratorHelpersTest {
         // user is never handed an /artifacts/ path they cannot open.
         String body = "A".repeat(20_000);
         String synth = body + "\n\n[WORKSPACE agent=a calls=2 errors=0 prefix=crew/t/a/]\n"
-                + "[CALL key=crew/t/a/001-x tool=x args={} format=json bytes=99 rows=2 error=false]\n"
+                + "[CALL key=crew/t/a/001-x tool=x args={} type=application/json bytes=99 rows=2 error=false]\n"
                 + "[NOT STORED tool=y args={} error=false - the result could not be written to the workspace and is not available]\n"
                 + "The results are stored under these keys and are not shown here. Read a key with workspace_query.";
         String out = DiscussionOrchestrator.publishedContent("synthesis", synth);

@@ -42,7 +42,7 @@ func countOf(t *testing.T, s *Server, key string) string {
 func TestCountOfAStoredJSONListIsItsItemCountNotItsLineCount(t *testing.T) {
 	s := New(describingFetcher{
 		fakeFetcher: fakeFetcher{data: map[string]string{"k": `[{"a":1},{"a":2},{"a":3}]`}},
-		headers:     map[string]map[string]string{"k": callHeaders("kubemoot.rows", "3", "kubemoot.format", "json")},
+		headers:     map[string]map[string]string{"k": callHeaders("kubemoot.rows", "3", "Content-Type", "application/json")},
 	})
 
 	if got := countOf(t, s, "k"); got != "3\n" {
@@ -75,5 +75,36 @@ func TestCountReadsTheObjectWhenTheHeadersCannotAnswer(t *testing.T) {
 		if got := countOf(t, s, tc.key); got != tc.want {
 			t.Errorf("%s: got %q, want %q", tc.key, got, tc.want)
 		}
+	}
+}
+
+func selectOf(t *testing.T, s *Server, key string) (string, error) {
+	t.Helper()
+	_, out, err := s.selectCSV(context.Background(), nil, selectIn{Key: key, Columns: []string{"name"}})
+	return out.Output, err
+}
+
+func TestSelectBelievesTheRecordedType(t *testing.T) {
+	body := "NAME   READY\nfoo    1/1\n"
+	s := New(describingFetcher{
+		fakeFetcher: fakeFetcher{data: map[string]string{"typed": body, "plain": body, "legacy": body}},
+		headers: map[string]map[string]string{
+			"typed":  callHeaders("Content-Type", "text/plain; profile=kubectl-table"),
+			"plain":  callHeaders("Content-Type", "text/plain"),
+			"legacy": callHeaders(),
+		},
+	})
+
+	if got, err := selectOf(t, s, "typed"); err != nil || got != "name\nfoo\n" {
+		t.Errorf("typed: %q, %v", got, err)
+	}
+	if got, err := selectOf(t, s, "legacy"); err != nil || got != "name\nfoo\n" {
+		t.Errorf("an object without a type is sniffed: %q, %v", got, err)
+	}
+	if _, err := selectOf(t, s, "plain"); err == nil {
+		t.Error("a plain text type is not a table, whatever the bytes look like")
+	}
+	if _, err := selectOf(t, s, ""); err == nil {
+		t.Error("an empty key is refused")
 	}
 }

@@ -29,12 +29,13 @@ public final class CallHeaders {
     public static final String BYTES = "kubemoot.bytes";
     /** Row or item count; absent when the runtime cannot tell (a text result). */
     public static final String ROWS = "kubemoot.rows";
-    /** {@code json} when the body is a JSON object or list, otherwise {@code text}. */
-    public static final String FORMAT = "kubemoot.format";
-    public static final String FORMAT_JSON = "json";
-    public static final String FORMAT_TEXT = "text";
-    /** A kubectl style table; the manifest names it so, and the header says {@code text}. */
-    public static final String FORMAT_TEXT_TABLE = "text-table";
+    /**
+     * What the stored body is, as a content type: {@code application/json}, {@code text/csv},
+     * {@code text/markdown} (a table), {@code application/yaml}, {@code text/plain}, or
+     * {@code text/plain; profile=kubectl-table}. Decided once by {@code ResultType}; readers believe
+     * it and look at the bytes only when it is missing.
+     */
+    public static final String CONTENT_TYPE = "Content-Type";
     /** {@code true} only when the result was cut at the size cap; the body then ends with the cut marker. */
     public static final String TRUNCATED = "kubemoot.truncated";
 

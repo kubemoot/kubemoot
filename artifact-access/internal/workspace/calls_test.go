@@ -56,10 +56,11 @@ func (c callStore) List(_ context.Context, prefix string) ([]store.Meta, error) 
 	return out, nil
 }
 
-// call is a stored tool call: the headers the runtime sets, with the extra ones given.
+// call is a stored tool call: the headers the runtime sets, with the extra ones given. It has no
+// Content-Type unless one is given, like an object stored before the header existed.
 func call(tool, body string, extra ...string) object {
 	h := map[string]string{
-		headerOperation: operationExecuteTool, headerTool: tool, headerError: "false", headerFormat: "text",
+		headerOperation: operationExecuteTool, headerTool: tool, headerError: "false",
 	}
 	for i := 0; i+1 < len(extra); i += 2 {
 		h[extra[i]] = extra[i+1]
@@ -82,7 +83,7 @@ const (
 )
 
 func TestPerCallKeyIsOneTable(t *testing.T) {
-	s := callService(t, map[string]object{callPods1: call(toolPods, podsA, headerFormat, "json")})
+	s := callService(t, map[string]object{callPods1: call(toolPods, podsA, HeaderContentType, "application/json")})
 
 	got := query(t, s, map[string]string{tblPods: callPods1},
 		"SELECT metadata->>'namespace' AS ns, count(*) AS n FROM pods GROUP BY ns ORDER BY ns")
@@ -106,7 +107,7 @@ const oneRowFive = "n\n5\n(1 row)\n"
 
 func TestHeaderFormatJSONIsBelievedForAJSONBodyDetectionWouldCallText(t *testing.T) {
 	// A bare list of numbers is valid JSON, and a header saying json reads it as JSON.
-	s := callService(t, map[string]object{callPods1: call(toolPods, `[{"v":1},{"v":2}]`, headerFormat, "json")})
+	s := callService(t, map[string]object{callPods1: call(toolPods, `[{"v":1},{"v":2}]`, HeaderContentType, "application/json")})
 
 	got := query(t, s, map[string]string{"t": callPods1}, "SELECT sum(v) AS total FROM t")
 
@@ -116,7 +117,7 @@ func TestHeaderFormatJSONIsBelievedForAJSONBodyDetectionWouldCallText(t *testing
 }
 
 func TestHeaderSayingJSONOverABodyThatIsNotJSONFallsBackToDetection(t *testing.T) {
-	s := callService(t, map[string]object{callPods1: call(toolPods, podsListTable, headerFormat, "json")})
+	s := callService(t, map[string]object{callPods1: call(toolPods, podsListTable, HeaderContentType, "application/json")})
 
 	got := query(t, s, map[string]string{tblPods: callPods1}, countPodsSQL)
 
@@ -126,7 +127,7 @@ func TestHeaderSayingJSONOverABodyThatIsNotJSONFallsBackToDetection(t *testing.T
 }
 
 func TestAnErrorCallQueriedDirectlyIsReadAndNoted(t *testing.T) {
-	s := callService(t, map[string]object{callBad: call(toolPods, errJS, headerError, "true", headerFormat, "json")})
+	s := callService(t, map[string]object{callBad: call(toolPods, errJS, headerError, "true", HeaderContentType, "application/json")})
 
 	got := query(t, s, map[string]string{"t": callBad}, "SELECT error FROM t")
 
@@ -137,10 +138,10 @@ func TestAnErrorCallQueriedDirectlyIsReadAndNoted(t *testing.T) {
 
 func TestAKeyWithAStarIsAllCallsOfOneToolAsOneTable(t *testing.T) {
 	s := callService(t, map[string]object{
-		callPods1:  call(toolPods, podsA, headerFormat, "json"),
-		callPods2:  call(toolPods, podsB, headerFormat, "json"),
+		callPods1:  call(toolPods, podsA, HeaderContentType, "application/json"),
+		callPods2:  call(toolPods, podsB, HeaderContentType, "application/json"),
 		callEvents: call(toolEvents, eventsTable),
-		callOther:  call(toolPods, podsB, headerFormat, "json"),
+		callOther:  call(toolPods, podsB, HeaderContentType, "application/json"),
 	})
 
 	got := query(t, s, map[string]string{tblPods: callPrefix + "*-pods_list"}, countPodsSQL)
@@ -152,9 +153,9 @@ func TestAKeyWithAStarIsAllCallsOfOneToolAsOneTable(t *testing.T) {
 
 func TestAStarAcrossAgentsWithinOneThread(t *testing.T) {
 	s := callService(t, map[string]object{
-		callPods1:                              call(toolPods, podsA, headerFormat, "json"),
-		"ns/crew/th1/k8s-config/001-pods_list": call(toolPods, podsB, headerFormat, "json"),
-		callOther:                              call(toolPods, podsB, headerFormat, "json"),
+		callPods1:                              call(toolPods, podsA, HeaderContentType, "application/json"),
+		"ns/crew/th1/k8s-config/001-pods_list": call(toolPods, podsB, HeaderContentType, "application/json"),
+		callOther:                              call(toolPods, podsB, HeaderContentType, "application/json"),
 	})
 
 	got := query(t, s, map[string]string{tblPods: "ns/crew/th1/*/*-pods_list"}, countPodsSQL)
@@ -166,8 +167,8 @@ func TestAStarAcrossAgentsWithinOneThread(t *testing.T) {
 
 func TestAFailedCallIsLeftOutOfTheUnionAndNamed(t *testing.T) {
 	s := callService(t, map[string]object{
-		callPods1: call(toolPods, podsA, headerFormat, "json"),
-		callBad:   call(toolPods, errJS, headerError, "true", headerFormat, "json"),
+		callPods1: call(toolPods, podsA, HeaderContentType, "application/json"),
+		callBad:   call(toolPods, errJS, headerError, "true", HeaderContentType, "application/json"),
 	})
 
 	got := query(t, s, map[string]string{tblPods: callPrefix + "*-pods_list"}, countPodsSQL)
@@ -180,7 +181,7 @@ func TestAFailedCallIsLeftOutOfTheUnionAndNamed(t *testing.T) {
 
 func TestDifferentShapesBecomeSeparateTables(t *testing.T) {
 	s := callService(t, map[string]object{
-		callPods1:  call(toolPods, podsA, headerFormat, "json"),
+		callPods1:  call(toolPods, podsA, HeaderContentType, "application/json"),
 		callEvents: call(toolEvents, eventsTable),
 	})
 
@@ -215,7 +216,7 @@ func TestAnObjectWithoutCallHeadersIsReadAsBefore(t *testing.T) {
 }
 
 func TestKeyPatternsAreRefused(t *testing.T) {
-	s := callService(t, map[string]object{callPods1: call(toolPods, podsA, headerFormat, "json")})
+	s := callService(t, map[string]object{callPods1: call(toolPods, podsA, HeaderContentType, "application/json")})
 	cases := []struct{ name, key, want string }{
 		{"no thread in the fixed part", "ns/*", "must start with the namespace, crew and thread"},
 		{"star alone", "*", "must start with the namespace, crew and thread"},
@@ -274,8 +275,8 @@ func TestAStoreThatCannotListRefusesAStar(t *testing.T) {
 
 func TestAKeyWithAStarStaysInThePodsNamespace(t *testing.T) {
 	s := callService(t, map[string]object{
-		callPods1:                        call(toolPods, podsA, headerFormat, "json"),
-		"other/crew/th1/a/001-pods_list": call(toolPods, podsB, headerFormat, "json"),
+		callPods1:                        call(toolPods, podsA, HeaderContentType, "application/json"),
+		"other/crew/th1/a/001-pods_list": call(toolPods, podsB, HeaderContentType, "application/json"),
 	})
 	s.Namespace = "ns"
 
@@ -302,5 +303,38 @@ func TestRowsHeader(t *testing.T) {
 		if _, ok := RowsHeader(meta(o)); ok {
 			t.Errorf("%s: a count was returned", name)
 		}
+	}
+}
+
+func TestARecordedKubectlTableTypeReadsTheTable(t *testing.T) {
+	s := callService(t, map[string]object{
+		callPods1: call(toolPods, podsListTable, HeaderContentType, "text/plain; profile=kubectl-table"),
+	})
+
+	if got := query(t, s, map[string]string{tblPods: callPods1}, countPodsSQL); got != oneRowFive {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestARecordedPlainTextTypeIsReadAsLinesNotSniffed(t *testing.T) {
+	s := callService(t, map[string]object{callPods1: call(toolPods, "a,b\n1,2\n", HeaderContentType, "text/plain")})
+
+	got := query(t, s, map[string]string{"t": callPods1}, "SELECT line FROM t WHERE line_no = 2")
+
+	if want := "line\n1,2\n(1 row)\n"; got != want {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+}
+
+func TestACutCallIgnoresTheTypeRecordedForTheWholeResult(t *testing.T) {
+	cut := `[{"v":1},{"v":2},{"v` + " ...[truncated]"
+	s := callService(t, map[string]object{
+		callPods1: call(toolPods, cut, headerTruncated, "true", HeaderContentType, "text/plain"),
+	})
+
+	got := query(t, s, map[string]string{"t": callPods1}, "SELECT count(*) AS n FROM t")
+
+	if !strings.HasPrefix(got, "n\n2\n(1 row)\n") {
+		t.Fatalf("got %q", got)
 	}
 }
