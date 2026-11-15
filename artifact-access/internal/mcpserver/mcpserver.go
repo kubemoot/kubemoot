@@ -11,8 +11,10 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"log"
 	"strconv"
 	"strings"
+	"sync"
 	"unicode/utf8"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -40,6 +42,10 @@ type Server struct {
 	JqMaxInputBytes int64
 	// Query answers workspace_query. When nil the tool is not offered.
 	Query Querier
+	// Warnf logs a deprecation warning; nil means the standard logger.
+	Warnf func(format string, args ...any)
+
+	warned sync.Map
 }
 
 // Querier runs read-only SQL over named artifacts and returns the rendered rows.
@@ -74,41 +80,111 @@ type Out struct {
 // MCP builds the MCP server with every read-op tool registered.
 func (s *Server) MCP() *mcp.Server {
 	srv := mcp.NewServer(&mcp.Implementation{Name: "artifact-access", Version: "v1"}, nil)
-	mcp.AddTool(srv, &mcp.Tool{Name: "artifact_head",
-		Description: "First N lines of an artifact, by object key, ending with a " +
-			"position line that gives the artifact's total line count."}, s.head)
-	mcp.AddTool(srv, &mcp.Tool{Name: "artifact_tail",
-		Description: "Last N lines of an artifact, by object key."}, s.tail)
-	mcp.AddTool(srv, &mcp.Tool{Name: "artifact_grep",
-		Description: "Lines of an artifact matching an RE2 regex (capped)."}, s.grep)
-	mcp.AddTool(srv, &mcp.Tool{Name: "artifact_count",
-		Description: "Number of DATA rows in an artifact: skips blank lines and a " +
-			"leading column-header row (e.g. a kubectl / resources_list table), so " +
-			"the result is the entity count (how many namespaces/pods/rows), not the " +
-			"raw line count. For a stored tool call whose result is a JSON list it is " +
-			"the number of items in the list."}, s.count)
-	mcp.AddTool(srv, &mcp.Tool{Name: "artifact_rows",
-		Description: "Lines [start, start+limit) of an artifact (0-based), ending " +
-			"with a position line such as [lines 0-99 of 412]. limit defaults to 100; " +
-			"pass a larger limit, or 0 for the rest of the artifact, to read more in " +
-			"one call (output is capped at 64 KB)."}, s.rows)
-	mcp.AddTool(srv, &mcp.Tool{Name: "artifact_select",
-		Description: "Project named columns from a table artifact (kubectl table, Markdown table or CSV) " +
-			"and return them as CSV. Columns are named as workspace_query names them: lowercase, with " +
-			"underscores for spaces and hyphens; the printed title and any case also match. A missing " +
-			"column lists the columns the table has. For JSON use artifact_jq; for other text use " +
-			"artifact_grep or artifact_rows."}, s.selectCSV)
-	mcp.AddTool(srv, &mcp.Tool{Name: "artifact_jq",
-		Description: "Run a jq program over a JSON artifact (input size capped)."}, s.jq)
+	s.addTextTools(srv)
+	s.addRetiredTools(srv)
 	if s.Query != nil {
 		mcp.AddTool(srv, &mcp.Tool{
-			Name:        "workspace_query",
+			Name:        toolQuery,
 			Description: queryDescription + " " + s.Query.Hint(),
 			InputSchema: queryInputSchema(),
 		}, s.query)
 	}
 	s.addCatalogTools(srv)
 	return srv
+}
+
+// Tool names the package refers to more than once.
+const (
+	toolQuery        = "workspace_query"
+	toolHead         = "workspace_head"
+	toolTail         = "workspace_tail"
+	toolGrep         = "workspace_grep"
+	toolArtifactHead = "artifact_head"
+	toolArtifactTail = "artifact_tail"
+	toolArtifactGrep = "artifact_grep"
+	argLines         = "lines"
+)
+
+// The text read tools are served under both names while the old names are retired: the
+// workspace_* tool is the one to use, and the artifact_* tool is the same handler and says so.
+const (
+	headDescription = "First N lines of a stored result, by object key, ending with a " +
+		"position line that gives its total line count."
+	tailDescription = "Last N lines of a stored result, by object key."
+	grepDescription = "Lines of a stored result matching an RE2 regex (capped)."
+)
+
+// addTextTools registers workspace_head, workspace_tail and workspace_grep and, beside them,
+// artifact_head, artifact_tail and artifact_grep, which keep working and log the first call.
+func (s *Server) addTextTools(srv *mcp.Server) {
+	mcp.AddTool(srv, &mcp.Tool{Name: toolHead, Description: headDescription}, s.head)
+	mcp.AddTool(srv, &mcp.Tool{Name: toolTail, Description: tailDescription}, s.tail)
+	mcp.AddTool(srv, &mcp.Tool{Name: toolGrep, Description: grepDescription}, s.grep)
+	mcp.AddTool(srv, &mcp.Tool{Name: toolArtifactHead,
+		Description: renamedNotice(toolHead) + headDescription},
+		deprecated(s, toolArtifactHead, toolHead, s.head))
+	mcp.AddTool(srv, &mcp.Tool{Name: toolArtifactTail,
+		Description: renamedNotice(toolTail) + tailDescription},
+		deprecated(s, toolArtifactTail, toolTail, s.tail))
+	mcp.AddTool(srv, &mcp.Tool{Name: toolArtifactGrep,
+		Description: renamedNotice(toolGrep) + grepDescription},
+		deprecated(s, toolArtifactGrep, toolGrep, s.grep))
+}
+
+// addRetiredTools registers the four tools workspace_query replaces. They keep working for one
+// release; their descriptions and the first call of each say to use workspace_query.
+func (s *Server) addRetiredTools(srv *mcp.Server) {
+	const use = toolQuery
+	mcp.AddTool(srv, &mcp.Tool{Name: "artifact_count",
+		Description: retiredNotice + "Number of DATA rows in an artifact: skips blank lines and a " +
+			"leading column-header row (e.g. a kubectl / resources_list table), so " +
+			"the result is the entity count (how many namespaces/pods/rows), not the " +
+			"raw line count. For a stored tool call whose result is a JSON list it is " +
+			"the number of items in the list."}, deprecated(s, "artifact_count", use, s.count))
+	mcp.AddTool(srv, &mcp.Tool{Name: "artifact_rows",
+		Description: retiredNotice + "Lines [start, start+limit) of an artifact (0-based), ending " +
+			"with a position line such as [lines 0-99 of 412]. limit defaults to 100; " +
+			"pass a larger limit, or 0 for the rest of the artifact, to read more in " +
+			"one call (output is capped at 64 KB)."}, deprecated(s, "artifact_rows", use, s.rows))
+	mcp.AddTool(srv, &mcp.Tool{Name: "artifact_select",
+		Description: retiredNotice + "Project named columns from a table artifact (kubectl table, Markdown table or CSV) " +
+			"and return them as CSV. Columns are named as workspace_query names them: lowercase, with " +
+			"underscores for spaces and hyphens; the printed title and any case also match. A missing " +
+			"column lists the columns the table has. For JSON use artifact_jq; for other text use " +
+			"artifact_grep or artifact_rows."}, deprecated(s, "artifact_select", use, s.selectCSV))
+	mcp.AddTool(srv, &mcp.Tool{Name: "artifact_jq",
+		Description: retiredNotice + "Run a jq program over a JSON artifact (input size capped)."},
+		deprecated(s, "artifact_jq", use, s.jq))
+}
+
+// retiredNotice opens the description of a tool that workspace_query replaces.
+const retiredNotice = "Deprecated: use workspace_query, which replaces artifact_count, artifact_rows, " +
+	"artifact_select and artifact_jq; this tool is removed in the next release. "
+
+// renamedNotice opens the description of an old name for a tool that has a new one.
+func renamedNotice(use string) string {
+	return "Deprecated: the same tool as " + use + "; use " + use + ". This name is removed in the next release. "
+}
+
+// deprecated wraps a handler so the first call under an old name logs that the name is
+// deprecated and what to use, once per tool for the life of the process.
+func deprecated[In any](s *Server, old, use string, h mcp.ToolHandlerFor[In, Out]) mcp.ToolHandlerFor[In, Out] {
+	return func(ctx context.Context, req *mcp.CallToolRequest, in In) (*mcp.CallToolResult, Out, error) {
+		s.noteDeprecated(old, use)
+		return h(ctx, req, in)
+	}
+}
+
+// noteDeprecated logs a deprecated tool name the first time it is called.
+func (s *Server) noteDeprecated(old, use string) {
+	if _, seen := s.warned.LoadOrStore(old, true); seen {
+		return
+	}
+	warn := s.Warnf
+	if warn == nil {
+		warn = log.Printf
+	}
+	warn("tool %s is deprecated and is removed in the next release; use %s", old, use)
 }
 
 // addCatalogTools registers the tools that tell an agent what the discussion has gathered:
@@ -129,7 +205,7 @@ func (s *Server) addCatalogTools(srv *mcp.Server) {
 const listDescription = "List what this discussion has stored: one line per tool call with its key, tool, " +
 	"arguments, content type, rows, bytes, whether it failed and when it started. Only this thread's " +
 	"calls are listed. Pass tool to list the calls of one tool. Read a call by its key with " +
-	"workspace_query or the artifact_* tools."
+	"workspace_query, workspace_head, workspace_tail or workspace_grep."
 
 const describeDescription = "Say what the tables of named artifacts hold, before writing a query: for each " +
 	"table its columns, the type the query engine gives each, how many values are null, and a few example " +

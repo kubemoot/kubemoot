@@ -105,7 +105,11 @@ final class StoredResults {
     private static Fetched fetch(Connection conn, ThreadCatalog.Entry call, int maxBytes, BooleanSupplier timeUp)
             throws InterruptedException {
         try {
-            ObjectStore store = conn.objectStore(DiscussionArtifacts.BUCKET);
+            ObjectStore store = DiscussionArtifacts.storeHolding(conn, call.key());
+            if (store == null) {
+                log.warn("Could not read stored result {}: no workspace bucket holds it", call.key());
+                return null;
+            }
             ObjectInfo info = store.getInfo(call.key());
             boolean markedCut = info != null && info.getHeaders() != null
                     && Boolean.parseBoolean(info.getHeaders().getFirst(CallHeaders.TRUNCATED));

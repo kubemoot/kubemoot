@@ -24,39 +24,74 @@ import (
 	"github.com/nats-io/nats.go/jetstream"
 )
 
-// Store is the read interface to an Object Store bucket. It holds only config; each
-// Get establishes and tears down its own connection.
+// Store is the read interface to the Object Store buckets of a discussion's workspace. It
+// holds only config; each Get establishes and tears down its own connection. With more than
+// one bucket it reads them in order and takes an object from the first that has it, so a
+// reader stays correct while writers move from the old bucket to the new one.
 type Store struct {
-	url    string
-	bucket string
+	url     string
+	buckets []string
 }
 
-// Open returns a Store for the given NATS URL and bucket. It does not hold a
-// connection; connections are per-Get. The bucket is created by the producer
-// (the agent-runtime), so the reader never needs to create it.
-func Open(url, bucket string) *Store {
-	return &Store{url: url, bucket: bucket}
+// Open returns a Store for the given NATS URL and buckets, in the order they are tried. It
+// does not hold a connection; connections are per-Get. The buckets are created by the
+// producer (the agent-runtime), so the reader never needs to create them, and a bucket that
+// does not exist yet is skipped.
+func Open(url string, buckets ...string) *Store {
+	return &Store{url: url, buckets: buckets}
+}
+
+// Buckets are the buckets the Store reads, in the order it tries them.
+func (s *Store) Buckets() []string { return s.buckets }
+
+// notFound is true for the errors that mean "not in this bucket": the bucket does not exist
+// (no writer has created it) or it holds no such object.
+func notFound(err error) bool {
+	return errors.Is(err, jetstream.ErrBucketNotFound) || errors.Is(err, jetstream.ErrObjectNotFound)
+}
+
+// inFirstBucket runs try on each bucket in order and returns the first result that is not a
+// not-found. When every bucket reports not-found it returns the first bucket's error, so an
+// object missing everywhere reads the same as it did with one bucket.
+func inFirstBucket[T any](buckets []string, try func(bucket string) (T, error)) (T, error) {
+	var zero T
+	var first error
+	for _, bucket := range buckets {
+		v, err := try(bucket)
+		if err == nil || !notFound(err) {
+			return v, err
+		}
+		if first == nil {
+			first = err
+		}
+	}
+	if first == nil {
+		first = errors.New("no workspace bucket is configured")
+	}
+	return zero, first
 }
 
 // Get opens a fresh connection, streams one object, and returns a reader that closes
 // the connection when the caller closes it. On any setup error the connection is
 // closed before returning so nothing leaks.
 func (s *Store) Get(ctx context.Context, key string) (io.ReadCloser, error) {
-	nc, obs, err := s.session(ctx, "artifact-access-get")
-	if err != nil {
-		return nil, err
-	}
-	res, err := obs.Get(ctx, key)
-	if err != nil {
-		nc.Close()
-		return nil, err
-	}
-	return &connBoundResult{res: res, nc: nc}, nil
+	return inFirstBucket(s.buckets, func(bucket string) (io.ReadCloser, error) {
+		nc, obs, err := s.session(ctx, "artifact-access-get", bucket)
+		if err != nil {
+			return nil, err
+		}
+		res, err := obs.Get(ctx, key)
+		if err != nil {
+			nc.Close()
+			return nil, err
+		}
+		return &connBoundResult{res: res, nc: nc}, nil
+	})
 }
 
 // session opens a connection and the bucket on it. On error nothing is left open; on success the
 // caller closes the connection.
-func (s *Store) session(ctx context.Context, name string) (*nats.Conn, jetstream.ObjectStore, error) {
+func (s *Store) session(ctx context.Context, name, bucket string) (*nats.Conn, jetstream.ObjectStore, error) {
 	nc, err := nats.Connect(s.url, nats.Name(name))
 	if err != nil {
 		return nil, nil, fmt.Errorf("connect %s: %w", s.url, err)
@@ -66,32 +101,58 @@ func (s *Store) session(ctx context.Context, name string) (*nats.Conn, jetstream
 		nc.Close()
 		return nil, nil, fmt.Errorf("jetstream: %w", err)
 	}
-	obs, err := js.ObjectStore(ctx, s.bucket)
+	obs, err := js.ObjectStore(ctx, bucket)
 	if err != nil {
 		nc.Close()
-		return nil, nil, fmt.Errorf("object store %q: %w", s.bucket, err)
+		return nil, nil, fmt.Errorf("object store %q: %w", bucket, err)
 	}
 	return nc, obs, nil
 }
 
 // Describe returns the size and headers of one object, on its own short-lived connection.
 func (s *Store) Describe(ctx context.Context, key string) (store.Meta, error) {
-	nc, obs, err := s.session(ctx, "artifact-access-describe")
-	if err != nil {
-		return store.Meta{}, err
-	}
-	defer nc.Close()
-	info, err := obs.GetInfo(ctx, key)
-	if err != nil {
-		return store.Meta{}, err
-	}
-	return metaOf(info), nil
+	return inFirstBucket(s.buckets, func(bucket string) (store.Meta, error) {
+		nc, obs, err := s.session(ctx, "artifact-access-describe", bucket)
+		if err != nil {
+			return store.Meta{}, err
+		}
+		defer nc.Close()
+		info, err := obs.GetInfo(ctx, key)
+		if err != nil {
+			return store.Meta{}, err
+		}
+		return metaOf(info), nil
+	})
 }
 
-// List returns the live objects whose key starts with prefix, sorted by key, on its own
-// short-lived connection. An empty bucket is an empty list, not an error.
+// List returns the live objects whose key starts with prefix, sorted by key, on a short-lived
+// connection per bucket. An empty or missing bucket is an empty list, not an error; a key in
+// more than one bucket is listed once, from the first bucket.
 func (s *Store) List(ctx context.Context, prefix string) ([]store.Meta, error) {
-	nc, obs, err := s.session(ctx, "artifact-access-list")
+	var out []store.Meta
+	seen := map[string]bool{}
+	for _, bucket := range s.buckets {
+		metas, err := s.listBucket(ctx, bucket, prefix)
+		if err != nil {
+			return nil, err
+		}
+		for _, m := range metas {
+			if !seen[m.Key] {
+				seen[m.Key] = true
+				out = append(out, m)
+			}
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Key < out[j].Key })
+	return out, nil
+}
+
+// listBucket lists one bucket; a bucket no writer has created yet lists as empty.
+func (s *Store) listBucket(ctx context.Context, bucket, prefix string) ([]store.Meta, error) {
+	nc, obs, err := s.session(ctx, "artifact-access-list", bucket)
+	if errors.Is(err, jetstream.ErrBucketNotFound) {
+		return nil, nil
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -106,7 +167,6 @@ func (s *Store) List(ctx context.Context, prefix string) ([]store.Meta, error) {
 			out = append(out, metaOf(info))
 		}
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].Key < out[j].Key })
 	return out, nil
 }
 

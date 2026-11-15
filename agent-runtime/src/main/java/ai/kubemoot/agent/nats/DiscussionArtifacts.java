@@ -1,6 +1,7 @@
 package ai.kubemoot.agent.nats;
 
 import io.nats.client.Connection;
+import io.nats.client.ObjectStore;
 import io.nats.client.JetStreamApiException;
 import io.nats.client.api.ObjectInfo;
 import io.nats.client.api.ObjectStoreConfiguration;
@@ -25,6 +26,12 @@ import org.slf4j.LoggerFactory;
 final class DiscussionArtifacts {
 
     static final String BUCKET = "kubemoot_discussion_artifacts";
+
+    /** The workspace bucket under its new name. Nothing writes to it yet; readers and clean-up already look in it. */
+    static final String WORKSPACE_BUCKET = "kubemoot_workspace";
+
+    /** The buckets a reader looks in, in order, so reads stay correct while writers move to the new one. */
+    static final List<String> READ_BUCKETS = List.of(WORKSPACE_BUCKET, BUCKET);
 
     private static final Logger log = LoggerFactory.getLogger(DiscussionArtifacts.class);
 
@@ -53,6 +60,25 @@ final class DiscussionArtifacts {
                 throw e;
             }
         }
+    }
+
+    /**
+     * The store of the first {@link #READ_BUCKETS} bucket that holds a live object under {@code key}, or
+     * null when none does. A bucket that does not exist yet is skipped.
+     */
+    static ObjectStore storeHolding(Connection conn, String key) {
+        for (String bucket : READ_BUCKETS) {
+            try {
+                ObjectStore store = conn.objectStore(bucket);
+                ObjectInfo info = store.getInfo(key);
+                if (info != null && !info.isDeleted()) {
+                    return store;
+                }
+            } catch (Exception e) {
+                log.debug("{} cannot answer for {}: {}", bucket, key, e.getMessage());
+            }
+        }
+        return null;
     }
 
     /** Thread-scoped key of one tool call's result: {@code {ns}/{crew}/{threadId}/{agent}/{nnn}-{tool}}. */
@@ -162,7 +188,28 @@ final class DiscussionArtifacts {
      */
     private static int filterAndDelete(Connection conn, Predicate<ObjectInfo> shouldDelete)
             throws Exception {
-        var store = conn.objectStore(BUCKET);
+        int deleted = 0;
+        for (String bucket : READ_BUCKETS) {
+            deleted += filterAndDelete(conn, bucket, shouldDelete);
+        }
+        return deleted;
+    }
+
+    /** One bucket's share of {@link #filterAndDelete(Connection, Predicate)}; the workspace bucket may not exist yet. */
+    private static int filterAndDelete(Connection conn, String bucket, Predicate<ObjectInfo> shouldDelete)
+            throws Exception {
+        ObjectStore store;
+        try {
+            store = conn.objectStore(bucket);
+        } catch (Exception e) {
+            if (WORKSPACE_BUCKET.equals(bucket)) {
+                return 0; // no writer has created it
+            }
+            throw e;
+        }
+        if (store == null) {
+            return 0;
+        }
         int deleted = 0;
         for (ObjectInfo info : store.getList()) {
             if (!shouldDelete.test(info)) {

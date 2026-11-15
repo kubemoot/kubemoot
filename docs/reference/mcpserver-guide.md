@@ -398,12 +398,12 @@ spec:
   port: 3000
   replicas: 1
   env:
-    - name: ARTIFACT_MODE
+    - name: WORKSPACE_MODE
       value: "mcp"
     - name: NATS_URL
       value: "nats://nats.nats.svc:4222"
-    - name: ARTIFACT_BUCKET
-      value: "kubemoot_discussion_artifacts"
+    - name: WORKSPACE_BUCKET
+      value: "kubemoot_workspace"
   capabilities: [data-access, data-analysis]
   securityContext:
     readOnlyRootFilesystem: true
@@ -414,8 +414,8 @@ spec:
       type: RuntimeDefault
 ```
 
-This is the read-ops server that agents call (`head`, `tail`, `grep`, `select`, `count`,
-`rows`, `jq`) to read a tool result, which is always stored as a file in the artifact store. See [Discussion artifact store](../../concepts/discussion-artifact-store/).
+This is the read-ops server that agents call (`workspace_head`, `workspace_tail`, `workspace_grep`,
+`workspace_query`; the older `artifact_*` names are served too and are removed in the next release) to read a tool result, which is always stored as a file in the artifact store. See [Discussion artifact store](../../concepts/discussion-artifact-store/).
 
 How it behaves:
 

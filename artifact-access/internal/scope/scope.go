@@ -20,7 +20,7 @@ const (
 	// NamespaceEnv is the environment variable the operator sets from the downward API.
 	NamespaceEnv = "KUBEMOOT_NAMESPACE"
 	// SubjectEnv overrides the reference subject the materializer subscribes to.
-	SubjectEnv = "ARTIFACT_SUBJECT"
+	SubjectEnv = "WORKSPACE_SUBJECT"
 	// ServiceAccountNamespaceFile is the fallback source of the pod's namespace.
 	ServiceAccountNamespaceFile = "/var/run/secrets/kubernetes.io/serviceaccount/namespace"
 
@@ -59,7 +59,7 @@ func ResolveNamespace(getenv func(string) string, readFile func(string) ([]byte,
 	return ns, nil
 }
 
-// MaterializerSubject is ARTIFACT_SUBJECT when set, otherwise the reference
+// MaterializerSubject is WORKSPACE_SUBJECT when set, otherwise the reference
 // filter of the pod's namespace.
 func MaterializerSubject(getenv func(string) string, readFile func(string) ([]byte, error)) (string, error) {
 	if s := strings.TrimSpace(getenv(SubjectEnv)); s != "" {
@@ -72,8 +72,8 @@ func MaterializerSubject(getenv func(string) string, readFile func(string) ([]by
 	return ReferenceFilter(ns), nil
 }
 
-// MaterializerSubjectFromEnvironment resolves the subject from the process
-// environment and the real service-account file.
-func MaterializerSubjectFromEnvironment() (string, error) {
-	return MaterializerSubject(os.Getenv, os.ReadFile)
+// MaterializerSubjectFromEnvironment resolves the subject from getenv and the real
+// service-account file.
+func MaterializerSubjectFromEnvironment(getenv func(string) string) (string, error) {
+	return MaterializerSubject(getenv, os.ReadFile)
 }

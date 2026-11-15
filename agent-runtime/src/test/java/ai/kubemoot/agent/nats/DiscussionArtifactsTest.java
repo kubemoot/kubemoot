@@ -265,6 +265,75 @@ class DiscussionArtifactsTest {
         assertEquals(0, DiscussionArtifacts.reapOrphans(conn, SCOPE, t -> false, GRACE, NOW));
     }
 
+    @Test
+    void deleteThreadArtifacts_reachesTheWorkspaceBucketToo() throws Exception {
+        var conn = mock(Connection.class);
+        var oldStore = mock(ObjectStore.class);
+        var newStore = mock(ObjectStore.class);
+        when(conn.objectStore(DiscussionArtifacts.BUCKET)).thenReturn(oldStore);
+        when(conn.objectStore(DiscussionArtifacts.WORKSPACE_BUCKET)).thenReturn(newStore);
+        var inOld = objectInfo("ns-a/homelab-pilot/t1/a/001-pods", false);
+        var inNew = objectInfo("ns-a/homelab-pilot/t1/b/001-pods", false);
+        when(oldStore.getList()).thenReturn(List.of(inOld));
+        when(newStore.getList()).thenReturn(List.of(inNew));
+
+        assertEquals(2, DiscussionArtifacts.deleteThreadArtifacts(conn, SCOPE, List.of("t1")));
+        verify(oldStore).delete("ns-a/homelab-pilot/t1/a/001-pods");
+        verify(newStore).delete("ns-a/homelab-pilot/t1/b/001-pods");
+    }
+
+    @Test
+    void deleteThreadArtifacts_aWorkspaceBucketNoWriterCreatedYetDoesNotStopTheOldOne() throws Exception {
+        var conn = mock(Connection.class);
+        var oldStore = mock(ObjectStore.class);
+        when(conn.objectStore(DiscussionArtifacts.WORKSPACE_BUCKET)).thenThrow(new java.io.IOException("stream not found"));
+        when(conn.objectStore(DiscussionArtifacts.BUCKET)).thenReturn(oldStore);
+        var inOld = objectInfo("ns-a/homelab-pilot/t1/a/001-pods", false);
+        when(oldStore.getList()).thenReturn(List.of(inOld));
+
+        assertEquals(1, DiscussionArtifacts.deleteThreadArtifacts(conn, SCOPE, List.of("t1")));
+        verify(oldStore).delete("ns-a/homelab-pilot/t1/a/001-pods");
+    }
+
+    @Test
+    void deleteThreadArtifacts_theOldBucketFailingStillFailsThePass() throws Exception {
+        var conn = mock(Connection.class);
+        when(conn.objectStore(DiscussionArtifacts.WORKSPACE_BUCKET)).thenThrow(new java.io.IOException("stream not found"));
+        when(conn.objectStore(DiscussionArtifacts.BUCKET)).thenThrow(new java.io.IOException("nats down"));
+
+        assertEquals(0, DiscussionArtifacts.deleteThreadArtifacts(conn, SCOPE, List.of("t1")));
+    }
+
+    @Test
+    void storeHolding_answersWithTheFirstBucketThatHasTheObject() throws Exception {
+        var conn = mock(Connection.class);
+        var oldStore = mock(ObjectStore.class);
+        var newStore = mock(ObjectStore.class);
+        var info = objectInfo("k", false);
+        when(conn.objectStore(DiscussionArtifacts.BUCKET)).thenReturn(oldStore);
+        when(conn.objectStore(DiscussionArtifacts.WORKSPACE_BUCKET)).thenReturn(newStore);
+        when(oldStore.getInfo("k")).thenReturn(info);
+
+        assertSame(oldStore, DiscussionArtifacts.storeHolding(conn, "k"));
+
+        when(newStore.getInfo("k")).thenReturn(info);
+        assertSame(newStore, DiscussionArtifacts.storeHolding(conn, "k"));
+    }
+
+    @Test
+    void storeHolding_skipsAMissingBucketAndAnAbsentObject() throws Exception {
+        var conn = mock(Connection.class);
+        var oldStore = mock(ObjectStore.class);
+        when(conn.objectStore(DiscussionArtifacts.WORKSPACE_BUCKET)).thenThrow(new java.io.IOException("stream not found"));
+        when(conn.objectStore(DiscussionArtifacts.BUCKET)).thenReturn(oldStore);
+
+        assertNull(DiscussionArtifacts.storeHolding(conn, "absent"));
+
+        var gone = objectInfo("gone", true);
+        when(oldStore.getInfo("gone")).thenReturn(gone);
+        assertNull(DiscussionArtifacts.storeHolding(conn, "gone"));
+    }
+
     private static ObjectInfo objectInfo(String name, boolean deleted) {
         var info = mock(ObjectInfo.class);
         when(info.getObjectName()).thenReturn(name);

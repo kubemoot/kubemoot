@@ -71,17 +71,29 @@ final class ThreadCatalog {
      */
     static ThreadCatalog load(Connection conn, String prefix) {
         var found = new ArrayList<Entry>();
-        try {
-            for (ObjectInfo info : conn.objectStore(DiscussionArtifacts.BUCKET).getList()) {
-                if (!info.isDeleted() && info.getObjectName().startsWith(prefix)) {
-                    entryOf(info).ifPresent(found::add);
+        var seen = new java.util.HashSet<String>();
+        for (String bucket : DiscussionArtifacts.READ_BUCKETS) {
+            try {
+                for (ObjectInfo info : conn.objectStore(bucket).getList()) {
+                    if (!info.isDeleted() && info.getObjectName().startsWith(prefix) && seen.add(info.getObjectName())) {
+                        entryOf(info).ifPresent(found::add);
+                    }
                 }
+            } catch (Exception e) {
+                logListFailure(bucket, prefix, e);
             }
-        } catch (Exception e) {
-            log.warn("catalog: could not list the stored calls under {} ({}): {}", prefix,
-                    e.getClass().getSimpleName(), e.getMessage());
         }
         return new ThreadCatalog(prefix, found);
+    }
+
+    /** A workspace bucket no writer has created is not a failure; the old bucket failing to list is. */
+    private static void logListFailure(String bucket, String prefix, Exception e) {
+        if (DiscussionArtifacts.WORKSPACE_BUCKET.equals(bucket)) {
+            log.debug("catalog: bucket {} is not readable yet: {}", bucket, e.getMessage());
+            return;
+        }
+        log.warn("catalog: could not list the stored calls under {} ({}): {}", prefix,
+                e.getClass().getSimpleName(), e.getMessage());
     }
 
     private static java.util.Optional<Entry> entryOf(ObjectInfo info) {
