@@ -554,10 +554,22 @@ check "no workflow or script commits to main" "" "$commits"
 # no listener succeeds and builds nothing.
 check "a docs change dispatches kubemoot-docs-changed" "1" \
   "$(grep -cE '^[[:space:]]+event-type: kubemoot-docs-changed$' .github/workflows/trigger-docs-rebuild.yaml)"
-# The release workflows of the crews and kmctl listen for exactly this event and
-# build new candidates with the finals just published.
-check "a published release dispatches kubemoot-published to the crews and kmctl" "1|1" \
-  "$(grep -cE '^[[:space:]]+repository: \[crews, kmctl\]$' .github/workflows/publish-release.yaml)|$(grep -cE '^[[:space:]]+event-type: kubemoot-published$' .github/workflows/publish-release.yaml)"
+# The release workflows of the crews, kmctl and CrewForge listen for exactly this event and
+# build new candidates with the finals just published. The dispatch job runs
+# dispatch-clients.sh, whose target list is the three repositories; a dry run passes the
+# input on and never holds the token.
+check "the dispatch script sends kubemoot-published" "1" \
+  "$(grep -cE '^EVENT_TYPE="kubemoot-published"$' .github/scripts/dispatch-clients.sh)"
+check "the dispatch targets are the crews, kmctl and CrewForge" "1" \
+  "$(grep -cE '^\[ "\$\{#repos\[@\]\}" -gt 0 \] \|\| repos=\(crews kmctl vscode-crewforge\)$' .github/scripts/dispatch-clients.sh)"
+dispatch_job="$(awk '$0 == "  dispatch:" {on=1; print; next} on && /^  [a-z][a-z-]*:/ {exit} on' .github/workflows/publish-release.yaml)"
+check "the dispatch job runs dispatch-clients.sh" "1" "$(grep -cE 'bash \.github/scripts/dispatch-clients\.sh' <<<"$dispatch_job")"
+check "the dispatch job passes the dry-run input" "1" \
+  "$(grep -cE '^[[:space:]]+DRY_RUN: \$\{\{ inputs\.dry_run \}\}$' <<<"$dispatch_job")"
+check "the dispatch token is empty in a dry run" "1" \
+  "$(grep -cF "GH_TOKEN: \${{ !inputs.dry_run && secrets.RELEASE_TOKEN || '' }}" <<<"$dispatch_job")"
+check "no workflow dispatches kubemoot-published by other means" "0" \
+  "$(grep -cE 'event-type: kubemoot-published|repository-dispatch' .github/workflows/publish-release.yaml || true)"
 # Publishing takes the candidate the quickstart passed, and needs that pass.
 check "publish releases the candidate the quickstart tested" "1|1" \
   "$(grep -cE '^[[:space:]]+needs: \[candidate, quickstart-candidate\]$' .github/workflows/publish-release.yaml)|$(grep -cE 'RC_TAG: \$\{\{ needs\.candidate\.outputs\.rc_tag \}\}' .github/workflows/publish-release.yaml)"
