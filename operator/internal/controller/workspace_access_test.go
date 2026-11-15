@@ -19,7 +19,9 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 
 	kubemootv1alpha1 "github.com/kubemoot/kubemoot/operator/api/v1alpha1"
 )
@@ -315,5 +317,58 @@ func TestACrewDefaultChangeReachesTheAgentEnv(t *testing.T) {
 	agent := wsAgent("", wsDomainTool)
 	if v, _ := envValue(r.buildEnvVars(ctx, agent, &modelPick{}, &modelPick{}, 8080), workspaceAccessEnv); v != coreTestNone {
 		t.Errorf("crew default none gave %q", v)
+	}
+}
+
+func TestTheReconcileResolvesTheWorkspaceOnce(t *testing.T) {
+	ctx := context.Background()
+	r := wsFixture(t, kubemootv1alpha1.WorkspaceAccessNone, "")
+	agent := wsAgent("", wsDomainTool)
+	ctx = r.withWorkspace(ctx, agent)
+
+	crew := &kubemootv1alpha1.Crew{}
+	if err := r.Get(ctx, client.ObjectKey{Namespace: wsNamespace, Name: wsCrewName}, crew); err != nil {
+		t.Fatal(err)
+	}
+	crew.Spec.Workspace.DefaultAccess = kubemootv1alpha1.WorkspaceAccessReadWrite
+	if err := r.Update(ctx, crew); err != nil {
+		t.Fatal(err)
+	}
+	env := r.buildEnvVars(ctx, agent, &modelPick{}, &modelPick{}, 8080)
+	if v, _ := envValue(env, workspaceAccessEnv); v != coreTestNone {
+		t.Errorf("env %q: a Crew edit mid-reconcile reached the env", v)
+	}
+	if got := r.workspaceFor(ctx, agent).decision.access; got != kubemootv1alpha1.WorkspaceAccessNone {
+		t.Errorf("status would see %q", got)
+	}
+}
+
+func TestWatchPredicatesFireOnlyOnWhatChangesAccess(t *testing.T) {
+	crewA := &kubemootv1alpha1.Crew{}
+	crewB := crewA.DeepCopy()
+	crewB.Spec.Description = "x"
+	crewC := crewA.DeepCopy()
+	crewC.Spec.Workspace = &kubemootv1alpha1.CrewWorkspace{DefaultAccess: kubemootv1alpha1.WorkspaceAccessRead}
+	p := crewWorkspaceChanged()
+	if p.Update(event.UpdateEvent{ObjectOld: crewA, ObjectNew: crewB}) {
+		t.Error("a Crew description change fired")
+	}
+	if !p.Update(event.UpdateEvent{ObjectOld: crewA, ObjectNew: crewC}) || !p.Create(event.CreateEvent{Object: crewA}) ||
+		!p.Delete(event.DeleteEvent{Object: crewA}) {
+		t.Error("a workspace change, a create or a delete did not fire")
+	}
+
+	srvA := &kubemootv1alpha1.MCPServer{}
+	srvB := srvA.DeepCopy()
+	srvB.Spec.Port = 99
+	srvC := srvA.DeepCopy()
+	srvC.Spec.KubemootImage = kubemootv1alpha1.KubemootImageArtifactAccess
+	sp := workspaceServerChanged()
+	if sp.Update(event.UpdateEvent{ObjectOld: srvA, ObjectNew: srvB}) {
+		t.Error("an unrelated MCPServer change fired")
+	}
+	if !sp.Update(event.UpdateEvent{ObjectOld: srvA, ObjectNew: srvC}) || !sp.Create(event.CreateEvent{Object: srvA}) ||
+		!sp.Delete(event.DeleteEvent{Object: srvA}) {
+		t.Error("a kubemootImage change, a create or a delete did not fire")
 	}
 }

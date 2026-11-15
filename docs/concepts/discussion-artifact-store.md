@@ -607,7 +607,7 @@ faster on the large case.
 
 An Agent declares what it may do with the workspace in `spec.workspace.access`; a Crew sets a default for its agents in `spec.workspace.defaultAccess` and a KubemootConfig sets a cluster default in `workspace.defaultAccess`. The closest declaration wins.
 
-| Access | Read tools | Stores its results | NATS publish on the bucket |
+| Access | Read tools | Stores its results | NATS publish on the bucket (not yet applied) |
 |--------|------------|--------------------|----------------------------|
 | `none` | no | no, results return inline under the budget | no |
 | `read` | yes | no | no |
@@ -616,7 +616,7 @@ An Agent declares what it may do with the workspace in `spec.workspace.access`; 
 
 A crew that declares nothing keeps today's behavior: every result is stored and the read tools are present when `enabledTools` names them. A tooler that fetches and hands off declares `write`: it stores what it fetched and gets no read tools. The operator reports the resolved access in the Agent's `status.workspace`, and a `WorkspaceAccessResolved` condition when a declared access cannot work as written.
 
-Read is enforced through the agent's tool list, not per caller: the workspace server scopes reads by discussion, so access does not isolate two agents of one crew. Write is enforced by NATS permissions.
+In 0.94 read is enforced through the agent's tool list, not per caller, and write by the agent-runtime. NATS enforcement lands with NATS user provisioning; the NATS column above is the grant that provisioning will give, and it is not applied yet. The workspace server scopes reads by discussion, so access does not isolate two agents of one crew. The code sandbox's `/artifacts` mount, the coordinator's catalog of stored keys, and direct MCP mode (tool names with a `server.` prefix) reach the workspace whatever the tool list says; see [Agent](../../reference/agent/#specworkspaceaccess).
 
 ### List and describe the workspace
 

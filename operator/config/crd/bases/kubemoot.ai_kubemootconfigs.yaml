@@ -392,8 +392,8 @@ spec:
                 properties:
                   defaultAccess:
                     description: |-
-                      DefaultAccess is the access of every agent whose Agent and Crew declare none. Left empty,
-                      such an agent keeps its implicit behavior.
+                      DefaultAccess is the access of every agent whose Agent and Crew declare none. Omit it to
+                      leave such an agent implicit; an empty string is refused by the enum.
                     enum:
                     - none
                     - read

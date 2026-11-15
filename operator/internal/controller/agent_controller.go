@@ -56,7 +56,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
-	"sigs.k8s.io/controller-runtime/pkg/predicate"
 )
 
 // AgentReconciler reconciles Agent objects.
@@ -183,6 +182,9 @@ func (r *AgentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 		}
 		return ctrl.Result{}, err
 	}
+
+	// Resolve the workspace access once; the env, the contract and the status all read this answer.
+	ctx = r.withWorkspace(ctx, agent)
 
 	if err := r.syncRuntimeClassCondition(ctx, agent); err != nil {
 		return ctrl.Result{}, err
@@ -884,9 +886,9 @@ func (r *AgentReconciler) buildEnvVars(ctx context.Context, agent *kubemootv1alp
 	env = append(env, candidateEnvVars(mulling, triage)...)
 	env = append(env, r.placementPolicyEnvVar(ctx, agent))
 	env = append(env, r.placementServiceEnvVars()...)
-	decision := r.workspaceDecisionFor(ctx, agent)
-	env = append(env, agentModelEnvVars(agent, r.workspaceToolsFor(ctx, agent))...)
-	env = append(env, workspaceAccessEnvVar(decision)...)
+	ws := r.workspaceFor(ctx, agent)
+	env = append(env, agentModelEnvVars(agent, ws.tools)...)
+	env = append(env, workspaceAccessEnvVar(ws.decision)...)
 	env = append(env, agentDiscussRelevanceEnvVars(agent)...)
 	env = append(env, r.agentDiscussRoleEnvVars(ctx, agent, crew)...)
 	env = append(env, r.agentGatewayEnvVars(ctx, agent)...)
@@ -1314,21 +1316,23 @@ func (r *AgentReconciler) SetupWithManager(mgr ctrl.Manager) error {
 			enqueueNamespaceAgents[*kubemootv1alpha1.MCPGateway](mgr.GetClient(), "MCPGateway"),
 			builder.WithPredicates(gatewayWiringChanged()),
 		).
-		// Re-reconcile the Agents that ask for a RuntimeClass when it is created or
-		// deleted, so the RuntimeClassAvailable condition and the held Deployment follow
-		// the cluster with no timer. See agent_runtimeclass.go.
+		// Re-reconcile a namespace's Agents when its Crew's workspace default changes, so their
+		// access follows it.
 		Watches(
 			&kubemootv1alpha1.Crew{},
 			enqueueNamespaceAgents[*kubemootv1alpha1.Crew](mgr.GetClient(), "Crew"),
-			builder.WithPredicates(predicate.GenerationChangedPredicate{}),
+			builder.WithPredicates(crewWorkspaceChanged()),
 		).
 		// Re-reconcile a namespace's Agents when an MCPServer appears or changes, so the
 		// WorkspaceAccessResolved condition follows whether a workspace server exists.
 		Watches(
 			&kubemootv1alpha1.MCPServer{},
 			enqueueNamespaceAgents[*kubemootv1alpha1.MCPServer](mgr.GetClient(), "MCPServer"),
-			builder.WithPredicates(predicate.GenerationChangedPredicate{}),
+			builder.WithPredicates(workspaceServerChanged()),
 		).
+		// Re-reconcile the Agents that ask for a RuntimeClass when it is created or
+		// deleted, so the RuntimeClassAvailable condition and the held Deployment follow
+		// the cluster with no timer. See agent_runtimeclass.go.
 		Watches(
 			&nodev1.RuntimeClass{},
 			r.runtimeClassWatch(),
