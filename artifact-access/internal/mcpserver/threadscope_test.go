@@ -60,13 +60,13 @@ func threadMeta() map[string]any { return map[string]any{threadkey.MetaKey: scop
 
 func TestShortKeyReadsInsideTheThread(t *testing.T) {
 	s := scopedServer()
-	for _, tool := range []string{"artifact_head", "artifact_tail", "artifact_rows"} {
+	for _, tool := range []string{toolArtifactHead, toolArtifactTail, "artifact_rows"} {
 		got, err := callScoped(t, s, threadMeta(), tool, map[string]any{keyArg: scopeShort})
 		if err != nil || !strings.Contains(got, "log-cleanup") {
 			t.Fatalf("%s with a short key: %q, %v", tool, got, err)
 		}
 	}
-	got, err := callScoped(t, s, threadMeta(), "artifact_grep", map[string]any{keyArg: scopeShort, "pattern": "backup"})
+	got, err := callScoped(t, s, threadMeta(), toolArtifactGrep, map[string]any{keyArg: scopeShort, "pattern": "backup"})
 	if err != nil || !strings.Contains(got, "backup") {
 		t.Fatalf("artifact_grep with a short key: %q, %v", got, err)
 	}
@@ -77,7 +77,7 @@ func TestShortKeyReadsInsideTheThread(t *testing.T) {
 }
 
 func TestLongKeyOfTheThreadStillWorks(t *testing.T) {
-	got, err := callScoped(t, scopedServer(), threadMeta(), "artifact_head", map[string]any{keyArg: scopeThread + scopeShort})
+	got, err := callScoped(t, scopedServer(), threadMeta(), toolArtifactHead, map[string]any{keyArg: scopeThread + scopeShort})
 	if err != nil || !strings.Contains(got, "backup") {
 		t.Fatalf("long key: %q, %v", got, err)
 	}
@@ -85,11 +85,11 @@ func TestLongKeyOfTheThreadStillWorks(t *testing.T) {
 
 func TestMistypedThreadIdIsRefusedAndShortKeyNeedsNoId(t *testing.T) {
 	s := scopedServer()
-	_, err := callScoped(t, s, threadMeta(), "artifact_head", map[string]any{keyArg: mistypedThread + scopeShort})
+	_, err := callScoped(t, s, threadMeta(), toolArtifactHead, map[string]any{keyArg: mistypedThread + scopeShort})
 	if err == nil || !strings.Contains(err.Error(), "another thread") {
 		t.Fatalf("a key with a mistyped thread id must be refused as another thread, got %v", err)
 	}
-	if _, err := callScoped(t, s, threadMeta(), "artifact_head", map[string]any{keyArg: scopeShort}); err != nil {
+	if _, err := callScoped(t, s, threadMeta(), toolArtifactHead, map[string]any{keyArg: scopeShort}); err != nil {
 		t.Fatalf("the short key has no id to mistype: %v", err)
 	}
 }
@@ -97,7 +97,7 @@ func TestMistypedThreadIdIsRefusedAndShortKeyNeedsNoId(t *testing.T) {
 func TestKeyOfAnotherThreadIsRefused(t *testing.T) {
 	other := "crew-homelab-pilot/homelab-pilot/11111111-2222-3333-4444-555555555555/" + scopeShort
 	s := newServer(map[string]string{other: "secret\n"})
-	_, err := callScoped(t, s, threadMeta(), "artifact_head", map[string]any{keyArg: other})
+	_, err := callScoped(t, s, threadMeta(), toolArtifactHead, map[string]any{keyArg: other})
 	if err == nil || !strings.Contains(err.Error(), "another thread") {
 		t.Fatalf("want a refusal, got %v", err)
 	}
@@ -105,14 +105,14 @@ func TestKeyOfAnotherThreadIsRefused(t *testing.T) {
 
 func TestWithoutAThreadKeysAreUnchanged(t *testing.T) {
 	s := scopedServer()
-	if _, err := callScoped(t, s, nil, "artifact_head", map[string]any{keyArg: scopeThread + scopeShort}); err != nil {
+	if _, err := callScoped(t, s, nil, toolArtifactHead, map[string]any{keyArg: scopeThread + scopeShort}); err != nil {
 		t.Fatalf("long key without a thread: %v", err)
 	}
-	if _, err := callScoped(t, s, nil, "artifact_head", map[string]any{keyArg: scopeShort}); err == nil {
+	if _, err := callScoped(t, s, nil, toolArtifactHead, map[string]any{keyArg: scopeShort}); err == nil {
 		t.Fatal("a short key without a thread has nothing to resolve against and must not be found")
 	}
 	bad := map[string]any{threadkey.MetaKey: "not-a-prefix"}
-	if _, err := callScoped(t, s, bad, "artifact_head", map[string]any{keyArg: scopeShort}); err == nil {
+	if _, err := callScoped(t, s, bad, toolArtifactHead, map[string]any{keyArg: scopeShort}); err == nil {
 		t.Fatal("a malformed thread value must behave like none")
 	}
 }
@@ -125,7 +125,7 @@ func TestQueryResolvesShortKeysAndPatterns(t *testing.T) {
 		"artifacts": map[string]any{"cron": scopeShort, "all": "k8s-workloads/*-resources_list", "long": scopeThread + scopeShort},
 		"sql":       selectOne,
 	}
-	if _, err := callScoped(t, s, threadMeta(), "workspace_query", args); err != nil {
+	if _, err := callScoped(t, s, threadMeta(), toolQuery, args); err != nil {
 		t.Fatal(err)
 	}
 	want := map[string]string{
@@ -148,7 +148,7 @@ func TestQueryRefusesAKeyOfAnotherThread(t *testing.T) {
 		"artifacts": map[string]any{"x": mistypedThread + scopeShort},
 		"sql":       selectOne,
 	}
-	_, err := callScoped(t, s, threadMeta(), "workspace_query", args)
+	_, err := callScoped(t, s, threadMeta(), toolQuery, args)
 	if err == nil || !strings.Contains(err.Error(), "another thread") {
 		t.Fatalf("want a refusal, got %v", err)
 	}

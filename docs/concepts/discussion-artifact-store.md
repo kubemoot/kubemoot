@@ -533,7 +533,7 @@ community extension that downloads at run time, which a server with no network c
 - **Errors say what to fix.** A missing artifact, an unknown column or a refused
   statement comes back as a tool error naming the cause.
 
-The service reads these variables; the chart value sets only the engine.
+The service reads these variables; the chart value sets only the engine. Each one is also read as `WORKSPACE_<name>` (`WORKSPACE_QUERY_ENGINE`, `WORKSPACE_DIR`, `WORKSPACE_MODE`, `WORKSPACE_SUBJECT`, `WORKSPACE_BUCKET`), and the `WORKSPACE_` name wins. The `ARTIFACT_` names keep working for one release and each logs a warning the first time it supplies a value; set the new names in new manifests. The operator still sets `ARTIFACT_QUERY_ENGINE`.
 
 | Variable | Default | Meaning |
 |----------|---------|---------|
@@ -619,6 +619,19 @@ A crew that declares nothing keeps today's behavior: every result is stored and 
 The agent-runtime reads the declared access from `KUBEMOOT_WORKSPACE_ACCESS`. With `none` or `read` it stores nothing: it does not write a file for any tool call, so the agent's contribution carries no `[CALL key=...]` lines, and every tool result returns inline under the tool result budget, with a large result cut, exactly as a tool loop does outside a discussion. With `write` or `readWrite`, or when the variable is absent, it stores every result as before. A value the runtime does not recognize is logged once and treated as absent, so a typo cannot silence an agent that used to store. An agent with `none` or `read` still receives the coordinator's catalog of stored keys in the discussion; the access limits what it stores and which tools it has, not what the coordinator posts.
 
 In 0.94 read is enforced through the agent's tool list, not per caller, and write by the agent-runtime. NATS enforcement lands with NATS user provisioning; the NATS column above is the grant that provisioning will give, and it is not applied yet. The workspace server scopes reads by discussion, so access does not isolate two agents of one crew. The code sandbox's `/artifacts` mount, the coordinator's catalog of stored keys, and direct MCP mode (tool names with a `server.` prefix) reach the workspace whatever the tool list says; see [Agent](../../reference/agent/#specworkspaceaccess).
+
+### Names
+
+The discussion's artifacts are the discussion's workspace, and the names follow. Both sets work for one release; the old names are removed in the next.
+
+| Old | New | State |
+|-----|-----|-------|
+| `artifact_head`, `artifact_tail`, `artifact_grep` | `workspace_head`, `workspace_tail`, `workspace_grep` | Both are served and answer the same. The old tools say they are deprecated in their descriptions, and the first call of each logs a warning. |
+| `artifact_count`, `artifact_rows`, `artifact_select`, `artifact_jq` | `workspace_query` | The four still work. Their descriptions say to use `workspace_query`, and the first call of each logs a warning. |
+| `ARTIFACT_MODE`, `ARTIFACT_DIR`, `ARTIFACT_SUBJECT`, `ARTIFACT_QUERY_*`, `ARTIFACT_DUCKDB_BIN` | the same names with `WORKSPACE_` | The service reads the new name first and the old name second. |
+| bucket `kubemoot_discussion_artifacts` | bucket `kubemoot_workspace` | Writers still use the old bucket. Readers (the workspace server, and the agent runtime's catalog, stored-result read and clean-up) look in the new bucket first and the old one second, skipping a bucket that does not exist, so they keep working when writers move. An agent's NATS permissions grant both buckets. Data in the old bucket expires within 48 hours; nothing is copied. |
+
+A crew that declares workspace access governs both sets of tool names: a tool the access does not grant is disabled under either name.
 
 ### List and describe the workspace
 

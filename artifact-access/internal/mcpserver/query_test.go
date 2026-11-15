@@ -61,7 +61,7 @@ func contains(names []string, want string) bool {
 
 func TestQueryToolIsNotOfferedByDefault(t *testing.T) {
 	names := toolNames(t, newServer(nil))
-	if contains(names, "workspace_query") {
+	if contains(names, toolQuery) {
 		t.Fatalf("workspace_query offered without an engine: %v", names)
 	}
 	if !contains(names, "artifact_jq") || !contains(names, "artifact_count") {
@@ -73,11 +73,11 @@ func TestQueryToolIsOfferedWhenAnEngineIsSet(t *testing.T) {
 	s := newServer(nil)
 	s.Query = &fakeQuerier{}
 	names := toolNames(t, s)
-	if !contains(names, "workspace_query") {
+	if !contains(names, toolQuery) {
 		t.Fatalf("workspace_query missing: %v", names)
 	}
-	if len(names) != 8 {
-		t.Fatalf("want the 7 existing tools plus workspace_query, got %v", names)
+	if len(names) != 11 {
+		t.Fatalf("want the 7 artifact_* tools, the 3 workspace_* tools and workspace_query, got %v", names)
 	}
 }
 
@@ -134,7 +134,7 @@ func TestQueryToolDescriptionCarriesTheEngineHint(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if tool.Name == "workspace_query" && !strings.Contains(tool.Description, "The SQL is fake.") {
+		if tool.Name == toolQuery && !strings.Contains(tool.Description, "The SQL is fake.") {
 			t.Fatalf("description lacks the engine hint: %q", tool.Description)
 		}
 	}

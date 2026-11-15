@@ -11,7 +11,7 @@ import (
 
 const (
 	testClient   = "test"
-	queryTool    = "workspace_query"
+	queryTool    = toolQuery
 	artifactsArg = "artifacts"
 	sqlArg       = "sql"
 	tableVMs     = "vms"
@@ -171,7 +171,7 @@ func TestQueryEndToEndRejectsNullArtifacts(t *testing.T) {
 func TestOtherToolsStayStrict(t *testing.T) {
 	cs := connect(t, newServer(map[string]string{"k": "a\n"}))
 	res, err := cs.CallTool(context.Background(), &mcp.CallToolParams{
-		Name: "artifact_head", Arguments: map[string]any{"key": "k", "lines": "2"}})
+		Name: toolArtifactHead, Arguments: map[string]any{"key": "k", argLines: "2"}})
 	if failure(res, err) == "" {
 		t.Fatal("artifact_head accepted lines as a string")
 	}

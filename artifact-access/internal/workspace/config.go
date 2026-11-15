@@ -11,14 +11,15 @@ import (
 	"github.com/kubemoot/kubemoot/artifact-access/internal/store"
 )
 
-// Environment variables that configure the query tool.
+// Environment variables that configure the query tool. Each one is also read under its
+// ARTIFACT_ name for one release (see package envcompat).
 const (
-	EnvEngine           = "ARTIFACT_QUERY_ENGINE"
-	EnvDuckDBBin        = "ARTIFACT_DUCKDB_BIN"
-	EnvTimeout          = "ARTIFACT_QUERY_TIMEOUT"
-	EnvMaxRows          = "ARTIFACT_QUERY_MAX_ROWS"
-	EnvMemory           = "ARTIFACT_QUERY_MEMORY"
-	EnvMaxArtifactBytes = "ARTIFACT_QUERY_MAX_ARTIFACT_BYTES"
+	EnvEngine           = "WORKSPACE_QUERY_ENGINE"
+	EnvDuckDBBin        = "WORKSPACE_DUCKDB_BIN"
+	EnvTimeout          = "WORKSPACE_QUERY_TIMEOUT"
+	EnvMaxRows          = "WORKSPACE_QUERY_MAX_ROWS"
+	EnvMemory           = "WORKSPACE_QUERY_MEMORY"
+	EnvMaxArtifactBytes = "WORKSPACE_QUERY_MAX_ARTIFACT_BYTES"
 
 	// EngineNone is the default: the query tool is not offered.
 	EngineNone = "none"

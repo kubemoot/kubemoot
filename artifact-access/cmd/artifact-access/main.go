@@ -1,6 +1,6 @@
 // Command artifact-access is the Kubemoot collaborative-artifact data-access
-// component. It has two modes, selected by ARTIFACT_MODE (one binary, two
-// deployments):
+// component. It has two modes, selected by WORKSPACE_MODE (one binary, two deployments; ARTIFACT_MODE
+// still works for one release):
 //
 //   - materializer (default): the no-network sandbox's sidecar. It subscribes to
 //     its namespace's artifact subject and streams each referenced NATS Object Store blob to
@@ -26,6 +26,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/kubemoot/kubemoot/artifact-access/internal/artifact"
+	"github.com/kubemoot/kubemoot/artifact-access/internal/envcompat"
 	"github.com/kubemoot/kubemoot/artifact-access/internal/materializer"
 	"github.com/kubemoot/kubemoot/artifact-access/internal/mcpserver"
 	"github.com/kubemoot/kubemoot/artifact-access/internal/natsstore"
@@ -33,8 +34,11 @@ import (
 	"github.com/kubemoot/kubemoot/artifact-access/internal/workspace"
 )
 
+// getenv reads a WORKSPACE_* variable and falls back to its ARTIFACT_* name for one release.
+var getenv = envcompat.Wrap(os.Getenv, log.Printf)
+
 func env(key, def string) string {
-	if v := os.Getenv(key); v != "" {
+	if v := getenv(key); v != "" {
 		return v
 	}
 	return def
@@ -42,9 +46,9 @@ func env(key, def string) string {
 
 func main() {
 	var (
-		mode    = env("ARTIFACT_MODE", "materializer")
+		mode    = env("WORKSPACE_MODE", "materializer")
 		natsURL = env("NATS_URL", nats.DefaultURL)
-		bucket  = env("ARTIFACT_BUCKET", "kubemoot_discussion_artifacts")
+		buckets = envcompat.Buckets(os.Getenv, log.Printf)
 	)
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -52,28 +56,28 @@ func main() {
 
 	// The store reads on a fresh connection per Get (see natsstore); only the
 	// materializer's reference subscription needs a persistent connection.
-	store := natsstore.Open(natsURL, bucket)
+	store := natsstore.Open(natsURL, buckets...)
 
 	switch mode {
 	case "materializer":
-		runMaterializer(ctx, natsURL, store, bucket)
+		runMaterializer(ctx, natsURL, store)
 	case "mcp":
-		runMCP(ctx, store, bucket)
+		runMCP(ctx, store)
 	default:
-		log.Fatalf("unknown ARTIFACT_MODE %q (want materializer|mcp)", mode)
+		log.Fatalf("unknown WORKSPACE_MODE %q (want materializer|mcp)", mode)
 	}
 }
 
 // runMaterializer streams referenced objects to a shared local directory for the
 // no-network sandbox, until a termination signal arrives.
-func runMaterializer(ctx context.Context, natsURL string, store *natsstore.Store, bucket string) {
+func runMaterializer(ctx context.Context, natsURL string, store *natsstore.Store) {
 	ctx, stop := signal.NotifyContext(ctx, syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
 	// Producers publish a reference envelope per crew on
 	// kubemoot.artifacts.<ns>.<crew>.<thread>; the default follows every crew
 	// and thread of this pod's namespace and no other namespace.
-	subject, err := scope.MaterializerSubjectFromEnvironment()
+	subject, err := scope.MaterializerSubjectFromEnvironment(getenv)
 	if err != nil {
 		log.Fatalf("artifact subject: %v", err)
 	}
@@ -88,7 +92,7 @@ func runMaterializer(ctx context.Context, natsURL string, store *natsstore.Store
 	}
 	defer func() { _ = nc.Drain() }()
 
-	dir := env("ARTIFACT_DIR", "/artifacts")
+	dir := env("WORKSPACE_DIR", "/artifacts")
 
 	// 0o755 so the non-root sandbox container sharing this volume can traverse it.
 	if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -115,21 +119,21 @@ func runMaterializer(ctx context.Context, natsURL string, store *natsstore.Store
 	}
 	defer func() { _ = sub.Unsubscribe() }()
 
-	log.Printf("artifact-access[materializer] up: bucket=%s dir=%s subject=%s", bucket, dir, subject)
+	log.Printf("artifact-access[materializer] up: buckets=%v dir=%s subject=%s", store.Buckets(), dir, subject)
 	<-ctx.Done()
 	log.Print("shutting down")
 }
 
 // runMCP serves the bounded read-ops over MCP stdio until stdin closes or a signal
 // arrives. stdin/stdout are the protocol; logs stay on stderr.
-func runMCP(ctx context.Context, store *natsstore.Store, bucket string) {
+func runMCP(ctx context.Context, store *natsstore.Store) {
 	ctx, stop := signal.NotifyContext(ctx, syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
 	srv := mcpserver.New(store)
-	// workspace_query is offered only when ARTIFACT_QUERY_ENGINE asks for an engine;
+	// workspace_query is offered only when WORKSPACE_QUERY_ENGINE asks for an engine;
 	// an engine that cannot start leaves the other tools working and says why.
-	switch q, err := workspace.FromEnv(os.Getenv, store, env("ARTIFACT_DIR", "/artifacts")); {
+	switch q, err := workspace.FromEnv(getenv, store, env("WORKSPACE_DIR", "/artifacts")); {
 	case err != nil:
 		log.Printf("workspace_query is not offered: %v", err)
 	case q != nil:
@@ -137,7 +141,7 @@ func runMCP(ctx context.Context, store *natsstore.Store, bucket string) {
 		log.Printf("workspace_query offered: engine=%s", env(workspace.EnvEngine, workspace.EngineNone))
 	}
 
-	log.Printf("artifact-access[mcp] up: bucket=%s (stdio)", bucket)
+	log.Printf("artifact-access[mcp] up: buckets=%v (stdio)", store.Buckets())
 	if err := srv.MCP().Run(ctx, &mcp.StdioTransport{}); err != nil {
 		log.Fatalf("mcp server: %v", err)
 	}
