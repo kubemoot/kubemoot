@@ -520,6 +520,7 @@ Consumers judge staleness from the record itself: a heartbeat is stale once two 
 | Env Var | Applies To | Source |
 |---------|-----------|--------|
 | `NATS_URL` | All agents | Operator from NATS service |
+| `KUBEMOOT_WORKSPACE_ACCESS` | Agents with a declared workspace access | The resolved `spec.workspace.access` (Agent, then Crew, then KubemootConfig); absent when none is declared. With `none` or `read` the runtime stores no tool results |
 | `KUBEMOOT_DISCUSS_CHANNELS` | All agents | `Agent.spec.discussChannels` (comma-separated) |
 | `KUBEMOOT_DISCUSS_COORDINATOR` | Coordinators | Set `true` when `discussRole=coordinator` |
 | `KUBEMOOT_DISCUSS_TOOLER` | All agents | `false` for coordinators and researcher-role agents |

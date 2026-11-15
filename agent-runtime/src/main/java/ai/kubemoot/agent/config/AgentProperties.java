@@ -77,6 +77,14 @@ public interface AgentProperties {
 
     Optional<List<String>> disabledTools();
 
+    /**
+     * What this agent may do with the discussion workspace, from KUBEMOOT_WORKSPACE_ACCESS: none,
+     * read, write or readWrite. The operator sets it only when an Agent, its Crew or the
+     * KubemootConfig declares an access; absent, the agent behaves as it did before access could
+     * be declared. See {@link ai.kubemoot.agent.chat.WorkspaceAccess}.
+     */
+    Optional<String> workspaceAccess();
+
     ResumeSearch resumeSearch();
 
     interface ResumeSearch {
