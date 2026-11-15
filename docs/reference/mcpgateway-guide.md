@@ -238,11 +238,13 @@ The MCP Java SDK and the JSON Schema validator it uses (networknt) only validate
 A model sometimes sends an argument the tool server will always refuse, and a description alone does not stop it: the server rejects the call, the agent retries the same shape, and the question goes unanswered. A parameter override on the MCPServer can carry `rules`, each a regular expression and the message the model should get back (see [ToolOverride](../mcpserver-guide/#tooloverride)). Before the gateway forwards a `tools/call`, it searches the call's string argument for each rule of that parameter, in order. The first match ends the call: the gateway answers with a tool error (`isError: true`) whose text is the rule's message, and the tool server never sees the call.
 
 - A pattern is searched anywhere in the argument. Anchor it with `^` and `$` to match all of it.
-- Only a string argument is checked. An absent, empty, or non-string argument never matches; the tool server's own validation still answers for it.
+- Only a top-level string argument is checked. An absent, empty, or non-string argument never matches, and strings inside an object or array are not scanned; the tool server's own validation still answers for them.
 - The check runs on what the model sent, before [argument types](#tool-argument-types) are converted.
 - It runs where the gateway forwards the call, so every route into a tool server (the MCP endpoint and `POST /tools/{name}/call`) is covered by the one evaluator.
-- The operator rejects a pattern that is not valid RE2 when the MCPServer is written. A pattern the gateway cannot compile (for example RE2's `(?P<name>...)` form, which Java does not read) is logged as a warning and skipped, never a failure; the other rules and the server keep working.
-- The refusal is logged at info with the tool name, never the argument.
+- The gateway matches with RE2 (the re2j library), the dialect the operator validates when the MCPServer is written, so a pattern the operator accepted always compiles and matching time is linear in the argument (no catastrophic backtracking). If a rule still cannot be used (a gateway registered directly with a bad pattern), it fails closed: it refuses every string value of its parameter with its own message, is logged at error, and is counted in the `mcpgateway.argument_rules.invalid` metric. The server and its other tools keep working.
+- Several parameters with rules are checked in the order the override lists them; the first rule that matches answers.
+- A rule for a parameter the server's schema does not list still applies, because it is checked against the arguments sent.
+- The refusal is logged at info with the tool name only; the gateway does not log argument values.
 
 Write the message in ADL and name the call that works instead, so the next attempt differs from the first.
 

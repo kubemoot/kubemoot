@@ -26,6 +26,32 @@ class RegisterServerRequestTest {
     }
 
     @Test
+    void parsesArgumentRulesInOrderAndToleratesTheirAbsence() throws Exception {
+        String json = """
+            {"name":"k8s","url":"http://x","toolOverrides":[{"name":"resources_list","parameters":{
+              "fieldSelector":{"description":"d","rules":[
+                {"reject":"[<>]","message":"no operators"},{"reject":"=~","message":"no regex"}]},
+              "labelSelector":{"description":"l"}}}]}""";
+
+        RegisterServerRequest request = mapper.readValue(json, RegisterServerRequest.class);
+
+        var parameters = request.toolOverrides().get(0).parameters();
+        assertEquals(2, parameters.get("fieldSelector").rules().size());
+        assertEquals("[<>]", parameters.get("fieldSelector").rules().get(0).reject());
+        assertEquals("no regex", parameters.get("fieldSelector").rules().get(1).message());
+        assertTrue(parameters.get("labelSelector").rules().isEmpty());
+    }
+
+    @Test
+    void aNullRuleInTheListIsDropped() throws Exception {
+        RegisterServerRequest request = mapper.readValue("""
+            {"name":"k8s","url":"http://x","toolOverrides":[{"name":"t","parameters":{
+              "p":{"description":"d","rules":[null,{"reject":"x","message":"m"}]}}}]}""",
+            RegisterServerRequest.class);
+        assertEquals(1, request.toolOverrides().get(0).parameters().get("p").rules().size());
+    }
+
+    @Test
     void anOlderPayloadWithoutOverridesHasAnEmptyList() throws Exception {
         RegisterServerRequest request = mapper.readValue(
             "{\"name\":\"k8s\",\"url\":\"http://x\",\"transport\":\"sse\"}", RegisterServerRequest.class);

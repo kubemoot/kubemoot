@@ -7,8 +7,9 @@ import java.util.Map;
 import java.util.Objects;
 
 /**
- * Replaces the descriptions an upstream MCP server gives one of its tools. Only text
- * changes: the tool's name, parameters and behavior are untouched.
+ * What the gateway changes for one upstream tool: the descriptions agents see, and rules that
+ * refuse a call whose argument the server would reject. The tool's name, parameters and the
+ * server's behavior are untouched.
  *
  * @param name        the upstream tool this applies to
  * @param description replacement tool description, or null to keep the upstream one

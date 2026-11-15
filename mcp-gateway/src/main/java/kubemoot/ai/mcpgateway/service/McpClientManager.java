@@ -394,13 +394,20 @@ public class McpClientManager {
         return servers.get(serverId);
     }
 
-    /** Every server's tools, with each server's description overrides applied. */
-    /** Stores a server's overrides and compiles their argument rules; returns the previous overrides. */
+    /**
+     * Stores a server's overrides and returns the previous ones. The argument rules are compiled
+     * only when the overrides changed (the operator re-registers on every reconcile), and a rule
+     * that could not be used is logged and counted by {@link ArgumentRules}.
+     */
     private List<ToolOverride> setOverrides(String serverId, List<ToolOverride> overrides, String serverName) {
-        serverRules.put(serverId, ArgumentRules.compile(overrides, serverName));
-        return serverOverrides.put(serverId, overrides);
+        List<ToolOverride> previous = serverOverrides.put(serverId, overrides);
+        if (previous == null || !previous.equals(overrides) || !serverRules.containsKey(serverId)) {
+            serverRules.put(serverId, ArgumentRules.compile(overrides, serverName));
+        }
+        return previous;
     }
 
+    /** Every server's tools, with each server's description overrides applied. */
     public List<ToolInfo> getAllTools() {
         return serverTools.keySet().stream()
             .flatMap(id -> getToolsForServer(id).stream())

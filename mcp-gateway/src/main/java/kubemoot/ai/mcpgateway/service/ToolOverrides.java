@@ -12,9 +12,10 @@ import java.util.Map;
 import java.util.Objects;
 
 /**
- * Per-tool description overrides for an upstream server's tool list. Overrides change
+ * Per-tool description overrides for an upstream server's tool list. This class changes
  * description text only; an override for a tool or parameter the upstream does not list
- * is skipped, and {@link #warnUnmatched} reports it.
+ * is skipped, and {@link #warnUnmatched} reports it. The argument rules an override carries
+ * are applied separately, by {@link ArgumentRules}.
  */
 final class ToolOverrides {
 
@@ -53,7 +54,8 @@ final class ToolOverrides {
             override.parameters().keySet().stream()
                 .filter(param -> !(properties.get(param) instanceof Map<?, ?>))
                 .forEach(param -> log.warn(
-                    "Tool override for {}.{} names a parameter server {} does not list, ignoring",
+                    "Tool override for {}.{} names a parameter server {} does not list, "
+                        + "ignoring its description (its argument rules still apply)",
                     name, param, serverName));
         });
     }

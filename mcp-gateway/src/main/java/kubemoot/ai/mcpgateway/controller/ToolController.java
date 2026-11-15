@@ -64,7 +64,7 @@ public class ToolController {
             @RequestBody ToolCallRequest request) {
 
         Map<String, Object> arguments = request.arguments() != null ? request.arguments() : Map.of();
-        log.info("Tool call request: {} with arguments: {}", toolName, arguments);
+        log.info("Tool call request: {}", toolName);
         arguments = sanitizeArguments(toolName, arguments);
 
         // Check if it's a meta-tool

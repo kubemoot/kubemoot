@@ -49,6 +49,10 @@ dependencies {
     // Spring AI MCP support
     implementation("org.springframework.ai:spring-ai-mcp")
 
+    // RE2 regular expressions for tool argument rules: linear-time matching and the same
+    // dialect the operator validates (BSD-3-Clause, pure Java). Pinned to an exact version.
+    implementation("com.google.re2j:re2j:1.8")
+
     // Testing
     testImplementation("org.springframework.boot:spring-boot-starter-test")
     testImplementation("io.projectreactor:reactor-test")
