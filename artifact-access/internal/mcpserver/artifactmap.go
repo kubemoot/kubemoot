@@ -13,7 +13,8 @@ const artifactsShape = `{"<table>": "<artifact key>"}`
 
 // artifactMap maps a table name to an artifact object key. Models often send a
 // nested object as a JSON-encoded string, so it decodes from either an object or a
-// string holding that object. Only workspace_query's artifacts parameter uses it.
+// string holding that object. Only the artifacts parameter of
+// workspace_query and workspace_describe uses it.
 type artifactMap map[string]string
 
 // UnmarshalJSON accepts a JSON object of string values, or a JSON string whose
@@ -41,10 +42,17 @@ func (a *artifactMap) UnmarshalJSON(data []byte) error {
 // queryInputSchema is workspace_query's published input schema: the schema derived
 // from queryIn, with only artifacts widened to an object or a string holding that
 // object, so the validator accepts the form the handler decodes.
-func queryInputSchema() *jsonschema.Schema {
-	schema, err := jsonschema.For[queryIn](nil)
+func queryInputSchema() *jsonschema.Schema { return widenedArtifacts[queryIn]("workspace_query") }
+
+// describeInputSchema is workspace_describe's, widened the same way.
+func describeInputSchema() *jsonschema.Schema {
+	return widenedArtifacts[describeIn]("workspace_describe")
+}
+
+func widenedArtifacts[T any](tool string) *jsonschema.Schema {
+	schema, err := jsonschema.For[T](nil)
 	if err != nil {
-		panic(fmt.Errorf("workspace_query input schema: %w", err))
+		panic(fmt.Errorf("%s input schema: %w", tool, err))
 	}
 	artifacts := schema.Properties["artifacts"]
 	artifacts.Type = ""

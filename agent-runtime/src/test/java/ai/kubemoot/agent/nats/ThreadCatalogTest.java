@@ -1,5 +1,9 @@
 package ai.kubemoot.agent.nats;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import io.nats.client.impl.Headers;
+import java.io.File;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.OptionalLong;
@@ -25,6 +29,31 @@ class ThreadCatalogTest {
         }
         list.add(entry("pve", 1, "get_node_status", "{}", -1, 900, true));
         return new ThreadCatalog(PREFIX, list);
+    }
+
+    @Test
+    void sharedFixtureGivesTheSameCallLinesAsArtifactAccess() throws Exception {
+        JsonNode fixture = new ObjectMapper().readTree(new File("../test/fixtures/catalog-lines.json"));
+        String prefix = fixture.get("prefix").asText();
+        assertTrue(fixture.get("cases").size() > 0, "the fixture has cases");
+        for (JsonNode c : fixture.get("cases")) {
+            var headers = new Headers();
+            c.get("headers").fields().forEachRemaining(e -> headers.put(e.getKey(), e.getValue().asText()));
+
+            var entry = ThreadCatalog.entryOf(c.get("key").asText(), c.get("size").asLong(), headers);
+
+            assertTrue(entry.isPresent(), c.get("name").asText());
+            assertEquals(c.get("line").asText(), new ThreadCatalog(prefix, List.of(entry.get())).callLine(entry.get()),
+                    c.get("name").asText());
+        }
+    }
+
+    @Test
+    void anObjectThatIsNotAStoredToolCallIsNotAnEntry() {
+        var headers = new Headers();
+        headers.put("kubemoot.rows", "3");
+        assertTrue(ThreadCatalog.entryOf("ns/crew/t1/a/001-x", 10, headers).isEmpty());
+        assertTrue(ThreadCatalog.entryOf("ns/crew/t1/a/001-x", 10, null).isEmpty());
     }
 
     @Test

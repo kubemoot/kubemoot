@@ -50,6 +50,13 @@ type Querier interface {
 	Hint() string
 }
 
+// Describer is a Querier that can also say what the tables of named artifacts hold: their
+// columns, the types the engine gives them, and example values. workspace_describe is offered
+// when the Querier is one.
+type Describer interface {
+	Describe(ctx context.Context, artifacts map[string]string) (string, error)
+}
+
 // New builds a Server with sane defaults around the given fetcher.
 func New(f store.Getter) *Server {
 	return &Server{
@@ -100,8 +107,35 @@ func (s *Server) MCP() *mcp.Server {
 			InputSchema: queryInputSchema(),
 		}, s.query)
 	}
+	s.addCatalogTools(srv)
 	return srv
 }
+
+// addCatalogTools registers the tools that tell an agent what the discussion has gathered:
+// workspace_list when the store can list objects, workspace_describe when the engine can describe.
+func (s *Server) addCatalogTools(srv *mcp.Server) {
+	if _, ok := s.Fetcher.(store.Lister); ok {
+		mcp.AddTool(srv, &mcp.Tool{Name: "workspace_list", Description: listDescription}, s.list)
+	}
+	if _, ok := s.Query.(Describer); ok {
+		mcp.AddTool(srv, &mcp.Tool{
+			Name:        "workspace_describe",
+			Description: describeDescription,
+			InputSchema: describeInputSchema(),
+		}, s.describe)
+	}
+}
+
+const listDescription = "List what this discussion has stored: one line per tool call with its key, tool, " +
+	"arguments, content type, rows, bytes, whether it failed and when it started. Only this thread's " +
+	"calls are listed. Pass tool to list the calls of one tool. Read a call by its key with " +
+	"workspace_query or the artifact_* tools."
+
+const describeDescription = "Say what the tables of named artifacts hold, before writing a query: for each " +
+	"table its columns, the type the query engine gives each, how many values are null, and a few example " +
+	"values. Give artifacts as a map from a table name you choose to an artifact key, the same map " +
+	"workspace_query takes (a key may be short, or end in * to read several calls as one table). Types and " +
+	"examples are read from the data; no unit is known."
 
 const queryDescription = "Run one read-only SQL SELECT over artifacts. Give artifacts as a map " +
 	"from a table name you choose to an artifact key, and write the SQL against those table names. " +
@@ -153,6 +187,12 @@ type selectIn struct {
 type queryIn struct {
 	Artifacts artifactMap `json:"artifacts" jsonschema:"table name you choose, mapped to the artifact key"`
 	SQL       string      `json:"sql" jsonschema:"one SELECT over those table names"`
+}
+type describeIn struct {
+	Artifacts artifactMap `json:"artifacts" jsonschema:"table name you choose, mapped to the artifact key"`
+}
+type listIn struct {
+	Tool string `json:"tool,omitempty" jsonschema:"list only the calls of this tool"`
 }
 type jqIn struct {
 	Key     string `json:"key" jsonschema:"the artifact object key"`
@@ -222,6 +262,36 @@ func (s *Server) query(ctx context.Context, req *mcp.CallToolRequest, in queryIn
 		return nil, Out{}, err
 	}
 	text, err := s.Query.Query(ctx, artifacts, in.SQL)
+	if err != nil {
+		return nil, Out{}, err
+	}
+	return s.result(text)
+}
+
+func (s *Server) list(ctx context.Context, req *mcp.CallToolRequest, in listIn) (*mcp.CallToolResult, Out, error) {
+	l, ok := s.Fetcher.(store.Lister)
+	if !ok {
+		return nil, Out{}, fmt.Errorf("this store cannot list objects")
+	}
+	text, err := workspace.Catalog(ctx, l, scopeOf(req).Prefix(), in.Tool)
+	if err != nil {
+		return nil, Out{}, err
+	}
+	return s.result(text)
+}
+
+func (s *Server) describe(
+	ctx context.Context, req *mcp.CallToolRequest, in describeIn,
+) (*mcp.CallToolResult, Out, error) {
+	d, ok := s.Query.(Describer)
+	if !ok {
+		return nil, Out{}, fmt.Errorf("this engine cannot describe tables")
+	}
+	artifacts, err := scopeOf(req).ResolveAll(in.Artifacts)
+	if err != nil {
+		return nil, Out{}, err
+	}
+	text, err := d.Describe(ctx, artifacts)
 	if err != nil {
 		return nil, Out{}, err
 	}

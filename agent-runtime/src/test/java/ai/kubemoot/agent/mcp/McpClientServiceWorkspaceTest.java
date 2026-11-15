@@ -75,6 +75,16 @@ class McpClientServiceWorkspaceTest {
     }
 
     @Test
+    void theCatalogToolsGetTheThreadsPrefixToo() {
+        try (var scope = WorkspaceScope.bind(PREFIX)) {
+            service.callTool("workspace_list", Map.of());
+            service.callTool("workspace_describe", Map.of("artifacts", Map.of("p", "k8s-workloads/001-pods_list")));
+        }
+        assertEquals(Map.of("workspacePrefix", PREFIX), metaSentFor("workspace_list"));
+        assertEquals(Map.of("workspacePrefix", PREFIX), metaSentFor("workspace_describe"));
+    }
+
+    @Test
     void anArtifactToolGetsItAndTheRequestersFieldsStayBesideIt() {
         var requester = Requester.of("America/New_York", "2026-11-04T09:00:00").orElseThrow();
         try (var r = RequesterScope.bind(requester); var scope = WorkspaceScope.bind(PREFIX)) {

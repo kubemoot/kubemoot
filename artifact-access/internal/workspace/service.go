@@ -42,9 +42,25 @@ type Service struct {
 // Query runs sql over the named artifacts and returns the rendered rows. artifacts
 // maps the table name the SQL uses to the artifact's object key.
 func (s *Service) Query(ctx context.Context, artifacts map[string]string, sql string) (string, error) {
-	if err := checkRequest(artifacts, sql); err != nil {
+	if strings.TrimSpace(sql) == "" {
+		return "", errors.New("sql is required")
+	}
+	if err := checkTables(artifacts); err != nil {
 		return "", err
 	}
+	return s.withRelations(ctx, artifacts, func(rels []Relation, notes []string) (string, error) {
+		res, err := s.Engine.Query(ctx, rels, sql, s.Limits)
+		if err != nil {
+			return "", err
+		}
+		return Render(res) + renderNotes(notes), nil
+	})
+}
+
+// withRelations makes the tables the named artifacts become, in a work directory that is removed
+// when use returns.
+func (s *Service) withRelations(ctx context.Context, artifacts map[string]string,
+	use func(rels []Relation, notes []string) (string, error)) (string, error) {
 	if err := os.MkdirAll(s.Dir, 0o755); err != nil {
 		return "", fmt.Errorf("artifact directory: %w", err)
 	}
@@ -58,11 +74,7 @@ func (s *Service) Query(ctx context.Context, artifacts map[string]string, sql st
 	if err != nil {
 		return "", err
 	}
-	res, err := s.Engine.Query(ctx, rels, sql, s.Limits)
-	if err != nil {
-		return "", err
-	}
-	return Render(res) + renderNotes(notes), nil
+	return use(rels, notes)
 }
 
 // renderNotes puts what the model should know about how artifacts were read after
@@ -86,10 +98,9 @@ func (s *Service) Hint() string {
 	return ""
 }
 
-func checkRequest(artifacts map[string]string, sql string) error {
-	if strings.TrimSpace(sql) == "" {
-		return errors.New("sql is required")
-	}
+// checkTables checks the artifacts a request names: at least one, no more than MaxArtifacts, and
+// table names the engine reads as distinct.
+func checkTables(artifacts map[string]string) error {
 	if len(artifacts) == 0 {
 		return errors.New("artifacts is required: map each table name to an artifact key")
 	}

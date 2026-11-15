@@ -1,0 +1,131 @@
+{
+ "description": "The [CATALOG-CALL ...] line of one stored tool call, shared by artifact-access (Go, workspace_list) and agent-runtime (Java, ThreadCatalog, the review catalog). Each case maps the object's key and headers to the line, without the trailing started=<time> field that only workspace_list adds. A missing header is unknown (a missing Content-Type is unknown, a missing size header is the object's size).",
+ "prefix": "ns/crew/th1/",
+ "cases": [
+  {
+   "name": "a JSON list",
+   "key": "ns/crew/th1/k8s/001-pods_list",
+   "size": 2210,
+   "headers": {
+    "gen_ai.operation.name": "execute_tool",
+    "gen_ai.tool.name": "pods_list",
+    "gen_ai.tool.call.arguments": "{\"namespace\":\"kube-system\"}",
+    "Content-Type": "application/json",
+    "kubemoot.rows": "3",
+    "kubemoot.bytes": "2210",
+    "kubemoot.error": "false",
+    "kubemoot.started": "2026-11-15T10:00:00Z"
+   },
+   "line": "[CATALOG-CALL key=k8s/001-pods_list tool=pods_list args={\"namespace\":\"kube-system\"} type=application/json rows=3 bytes=2210 error=false]"
+  },
+  {
+   "name": "a kubectl table has no row count",
+   "key": "ns/crew/th1/k8s/002-pods_list",
+   "size": 15210,
+   "headers": {
+    "gen_ai.operation.name": "execute_tool",
+    "gen_ai.tool.name": "pods_list",
+    "gen_ai.tool.call.arguments": "{}",
+    "Content-Type": "text/plain; profile=kubectl-table",
+    "kubemoot.bytes": "15210",
+    "kubemoot.error": "false"
+   },
+   "line": "[CATALOG-CALL key=k8s/002-pods_list tool=pods_list args={} type=text/plain; profile=kubectl-table rows=unknown bytes=15210 error=false]"
+  },
+  {
+   "name": "a failed call",
+   "key": "ns/crew/th1/k8s/003-pods_list",
+   "size": 40,
+   "headers": {
+    "gen_ai.operation.name": "execute_tool",
+    "gen_ai.tool.name": "pods_list",
+    "gen_ai.tool.call.arguments": "{\"a\":1}",
+    "Content-Type": "application/json",
+    "kubemoot.bytes": "40",
+    "kubemoot.error": "true"
+   },
+   "line": "[CATALOG-CALL key=k8s/003-pods_list tool=pods_list args={\"a\":1} type=application/json rows=unknown bytes=40 error=true]"
+  },
+  {
+   "name": "an object stored before Content-Type and the size header existed",
+   "key": "ns/crew/th1/k8s/004-logs",
+   "size": 900,
+   "headers": {
+    "gen_ai.operation.name": "execute_tool",
+    "gen_ai.tool.name": "logs",
+    "kubemoot.error": "false"
+   },
+   "line": "[CATALOG-CALL key=k8s/004-logs tool=logs args={} type=unknown rows=unknown bytes=900 error=false]"
+  },
+  {
+   "name": "runs of spaces are folded to one, brackets become parentheses",
+   "key": "ns/crew/th1/k8s/005-x",
+   "size": 5,
+   "headers": {
+    "gen_ai.operation.name": "execute_tool",
+    "gen_ai.tool.name": "x",
+    "gen_ai.tool.call.arguments": "{\"names\": [\"a\",     \"b\"]}",
+    "Content-Type": "text/plain",
+    "kubemoot.bytes": "5",
+    "kubemoot.error": "false"
+   },
+   "line": "[CATALOG-CALL key=k8s/005-x tool=x args={\"names\": (\"a\", \"b\")} type=text/plain rows=unknown bytes=5 error=false]"
+  },
+  {
+   "name": "long arguments are cut at 60 characters",
+   "key": "ns/crew/th1/k8s/006-x",
+   "size": 5,
+   "headers": {
+    "gen_ai.operation.name": "execute_tool",
+    "gen_ai.tool.name": "x",
+    "gen_ai.tool.call.arguments": "{\"q\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}",
+    "Content-Type": "text/plain",
+    "kubemoot.bytes": "5",
+    "kubemoot.error": "false"
+   },
+   "line": "[CATALOG-CALL key=k8s/006-x tool=x args={\"q\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa... type=text/plain rows=unknown bytes=5 error=false]"
+  },
+  {
+   "name": "a row count that is not a number is unknown",
+   "key": "ns/crew/th1/k8s/007-x",
+   "size": 5,
+   "headers": {
+    "gen_ai.operation.name": "execute_tool",
+    "gen_ai.tool.name": "x",
+    "Content-Type": "text/plain",
+    "kubemoot.rows": "many",
+    "kubemoot.bytes": "5",
+    "kubemoot.error": "false"
+   },
+   "line": "[CATALOG-CALL key=k8s/007-x tool=x args={} type=text/plain rows=unknown bytes=5 error=false]"
+  },
+  {
+   "name": "whitespace-only arguments are an empty object",
+   "key": "ns/crew/th1/k8s/008-x",
+   "size": 5,
+   "headers": {
+    "gen_ai.operation.name": "execute_tool",
+    "gen_ai.tool.name": "x",
+    "gen_ai.tool.call.arguments": "   ",
+    "Content-Type": "text/plain",
+    "kubemoot.bytes": "5",
+    "kubemoot.error": "false"
+   },
+   "line": "[CATALOG-CALL key=k8s/008-x tool=x args={} type=text/plain rows=unknown bytes=5 error=false]"
+  },
+  {
+   "name": "tabs between words are folded",
+   "key": "ns/crew/th1/k8s/009-x",
+   "size": 5,
+   "headers": {
+    "gen_ai.operation.name": "execute_tool",
+    "gen_ai.tool.name": "x",
+    "gen_ai.tool.call.arguments": "{\"a\":\t\t1}",
+    "Content-Type": "text/plain",
+    "kubemoot.bytes": "5",
+    "kubemoot.error": "false"
+   },
+   "line": "[CATALOG-CALL key=k8s/009-x tool=x args={\"a\": 1} type=text/plain rows=unknown bytes=5 error=false]"
+  }
+ ]
+}

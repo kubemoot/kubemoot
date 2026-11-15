@@ -35,7 +35,7 @@ final class ThreadCatalog {
     static final String ENTRY_PREFIX = "[CATALOG-CALL key=";
 
     /** The type shown for an object stored before the Content-Type header existed. */
-    private static final String TEXT_TYPE = "text/plain";
+    private static final String UNKNOWN_TYPE = "unknown";
 
     /** One stored call; {@code rows} is -1 when unknown. */
     record Entry(String key, String agent, String tool, String args, long rows, long bytes, String type,
@@ -85,11 +85,14 @@ final class ThreadCatalog {
     }
 
     private static java.util.Optional<Entry> entryOf(ObjectInfo info) {
-        Headers h = info.getHeaders();
+        return entryOf(info.getObjectName(), info.getSize(), info.getHeaders());
+    }
+
+    /** The entry of the object stored under {@code key}, or none when it is not a stored tool call. */
+    static java.util.Optional<Entry> entryOf(String key, long size, Headers h) {
         if (h == null || !CallHeaders.OPERATION_EXECUTE_TOOL.equals(h.getFirst(CallHeaders.OPERATION_NAME))) {
             return java.util.Optional.empty();
         }
-        String key = info.getObjectName();
         String agent = text(h, CallHeaders.AGENT_NAME);
         if (agent.isEmpty()) {
             String[] parts = key.split("/");
@@ -97,7 +100,7 @@ final class ThreadCatalog {
         }
         return java.util.Optional.of(new Entry(key, agent, text(h, CallHeaders.TOOL_NAME),
                 text(h, CallHeaders.TOOL_CALL_ARGUMENTS), number(h, CallHeaders.ROWS, -1),
-                number(h, CallHeaders.BYTES, info.getSize()), text(h, CallHeaders.CONTENT_TYPE),
+                number(h, CallHeaders.BYTES, size), text(h, CallHeaders.CONTENT_TYPE),
                 Boolean.parseBoolean(text(h, CallHeaders.ERROR))));
     }
 
@@ -180,9 +183,9 @@ final class ThreadCatalog {
     }
 
     /** The catalog line of one call: its key, tool, arguments, shape and size. */
-    private String callLine(Entry e) {
+    String callLine(Entry e) {
         return ENTRY_PREFIX + e.relativeKey(prefix) + " tool=" + e.tool() + " args=" + CallManifest.argsSummary(e.args())
-                + " type=" + (e.type().isEmpty() ? TEXT_TYPE : e.type())
+                + " type=" + (e.type().isEmpty() ? UNKNOWN_TYPE : e.type())
                 + " rows=" + (e.rows() >= 0 ? Long.toString(e.rows()) : "unknown")
                 + " bytes=" + e.bytes() + " error=" + e.error() + "]";
     }
