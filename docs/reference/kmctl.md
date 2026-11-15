@@ -1125,6 +1125,10 @@ namespace and names the ones it finds. Without permission to list crews across t
 cluster, it suggests `-n` and `kmctl crew list -A` instead. `-n` always decides the
 namespace; `kmctl` never switches it on its own.
 
+`kmctl version` is the one command that does not fail on a cluster error: it explains the
+failure with the same messages as the table above, in its server line (or `serverMessage`
+with `-o`), prints the client version, and exits 0. See [kmctl version](#kmctl-version).
+
 `-v` (`--verbose`) or `KMCTL_DEBUG=1` adds a third line, `Cause:`, with the error from
 the Kubernetes client underneath. The `Error:` and `Hint:` labels are colored only when
 stderr is a terminal, `NO_COLOR` is unset, and `TERM` is not `dumb`.
