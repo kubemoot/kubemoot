@@ -1,0 +1,102 @@
+{
+ "note": "Shared fixture: the four resources_list fieldSelector rules of templates/mcpserver-kubernetes.yaml, in order, and the selectors each must reject (first matching rule index) or let through. tests/test-prompt-tools.sh checks the rendered chart against it; the Kubemoot gateway runs a verbatim copy (mcp-gateway/src/test/resources/crew-rules/) with the real RE2 engine. Change both copies together.",
+ "tool": "resources_list",
+ "parameter": "fieldSelector",
+ "rules": [
+  {
+   "name": "memory-cpu-capacity-allocatable",
+   "reject": "(?i)^((?:[^,\\\\=]|\\\\.)*=(?:[^,\\\\]|\\\\.)*,)*(?:[^,\\\\=!]|\\\\.)*(memory|cpu|capacity|allocatable)"
+  },
+  {
+   "name": "regex-operators",
+   "reject": "=~|!~"
+  },
+  {
+   "name": "comparison-operators",
+   "reject": "[<>]"
+  },
+  {
+   "name": "bare-field-name",
+   "reject": "^((?:[^,\\\\=]|\\\\.)*=(?:[^,\\\\]|\\\\.)*,)*(?:[^,\\\\=]|\\\\.)+(,|$)"
+  }
+ ],
+ "reject": [
+  {
+   "input": "status.allocatable.memory,status.capacity.memory",
+   "rule": 0
+  },
+  {
+   "input": "status.capacity.memory>4",
+   "rule": 0
+  },
+  {
+   "input": "status.allocatable.cpu=2",
+   "rule": 0
+  },
+  {
+   "input": "STATUS.ALLOCATABLE.MEMORY=4",
+   "rule": 0
+  },
+  {
+   "input": "status.phase!=Running,status.allocatable.memory=1",
+   "rule": 0
+  },
+  {
+   "input": "status.allocatable",
+   "rule": 0
+  },
+  {
+   "input": "metadata.name=a,cpu",
+   "rule": 0
+  },
+  {
+   "input": "metadata.namespace!~^kube",
+   "rule": 1
+  },
+  {
+   "input": "metadata.namespace=~kube",
+   "rule": 1
+  },
+  {
+   "input": "metadata.namespace!=kube-system,metadata.namespace!~^ku",
+   "rule": 1
+  },
+  {
+   "input": "metadata.name=a,metadata.namespace>3",
+   "rule": 2
+  },
+  {
+   "input": "metadata.name<5",
+   "rule": 2
+  },
+  {
+   "input": "spec.nodeName",
+   "rule": 3
+  },
+  {
+   "input": "a=b,status.phase",
+   "rule": 3
+  },
+  {
+   "input": "metadata.name=a,spec.unschedulable",
+   "rule": 3
+  },
+  {
+   "input": "involvedObject.name=a\\,b,spec.nodeName",
+   "rule": 3
+  }
+ ],
+ "pass": [
+  "metadata.name=n1",
+  "spec.unschedulable=true",
+  "metadata.namespace!=kube-system,metadata.namespace!=default",
+  "metadata.name=cpu-node-1",
+  "status.phase!=Running,status.phase!=Succeeded",
+  "involvedObject.name=capacity-planner",
+  "involvedObject.name=a\\,b",
+  "involvedObject.name=a\\,cpu",
+  "involvedObject.name=a\\,memory,type=Warning",
+  "involvedObject.name=a\\=b",
+  "metadata.name==n1"
+ ]
+}

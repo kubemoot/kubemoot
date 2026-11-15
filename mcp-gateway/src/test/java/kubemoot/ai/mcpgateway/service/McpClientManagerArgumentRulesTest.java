@@ -10,6 +10,8 @@ import kubemoot.ai.mcpgateway.model.ServerRegistration;
 import kubemoot.ai.mcpgateway.model.ToolOverride;
 import kubemoot.ai.mcpgateway.model.ToolOverride.ArgumentRule;
 import kubemoot.ai.mcpgateway.model.ToolOverride.ParameterOverride;
+import io.micrometer.core.instrument.Metrics;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -89,13 +91,31 @@ class McpClientManagerArgumentRulesTest {
     }
 
     @Test
-    void aBadPatternDoesNotStopTheServerOrItsCalls() {
+    void aBadPatternFailsClosedForItsParameterOnly() {
         ServerRegistration server = registered(overrides("("));
 
-        McpMessage reply = call(server, Map.of(PARAM, "((anything"));
+        McpMessage refused = call(server, Map.of(PARAM, "((anything"));
+        McpMessage other = call(server, Map.of("limit", 3));
 
-        assertTrue(((Map<?, ?>) reply.result()).get("isError") == null);
-        assertEquals(1, calls.size());
+        assertEquals(Boolean.TRUE, ((Map<?, ?>) refused.result()).get("isError"));
+        assertTrue(((Map<?, ?>) other.result()).get("isError") == null);
+        assertEquals(1, calls.size(), "only the call without the broken parameter reached the server");
+    }
+
+    @Test
+    void rulesAreCompiledOnlyWhenTheOverridesChange() {
+        SimpleMeterRegistry registry = new SimpleMeterRegistry();
+        Metrics.addRegistry(registry);
+        try {
+            registered(overrides("("));
+            manager.registerServer("k8s", url(), "http", overrides("("));
+            manager.registerServer("k8s", url(), "http", overrides("("));
+            assertEquals(1.0, registry.get("mcpgateway.argument_rules.invalid").counter().count());
+            manager.registerServer("k8s", url(), "http", overrides("[a"));
+            assertEquals(2.0, registry.get("mcpgateway.argument_rules.invalid").counter().count());
+        } finally {
+            Metrics.removeRegistry(registry);
+        }
     }
 
     @Test

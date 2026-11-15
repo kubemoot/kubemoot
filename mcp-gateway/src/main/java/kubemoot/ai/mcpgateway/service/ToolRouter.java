@@ -107,7 +107,7 @@ public class ToolRouter {
         Map<String, Object> arguments = params.get(FIELD_ARGUMENTS) instanceof Map ?
             (Map<String, Object>) params.get(FIELD_ARGUMENTS) : Map.of();
 
-        log.info("Routing tool call: {} with arguments: {}", toolName, arguments);
+        log.info("Routing tool call: {}", toolName);
 
         // Check if it's a meta-tool
         if (metaToolsService != null && metaToolsService.isMetaTool(toolName)) {

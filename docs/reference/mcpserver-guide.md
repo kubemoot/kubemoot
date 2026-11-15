@@ -191,7 +191,7 @@ spec:
 
 ### ToolOverride
 
-Replaces the description text an MCP server reports for one of its tools. Use it when an upstream description is wrong or misleading and you cannot change the image. The operator sends the overrides to the Kubemoot gateway when it registers the server, and the gateway applies them to the tool list it serves to agents. Only text changes: the tool's name, parameters, and behavior stay the server's own.
+An override carries a description and optional rules for one tool. Use it when an upstream description is wrong or misleading and you cannot change the image, or when a description alone does not stop the model sending an argument the server always refuses. The operator sends the overrides to the Kubemoot gateway when it registers the server. The gateway applies the descriptions to the tool list it serves to agents and checks the rules before it forwards a call. The tool's name, parameters, and behavior stay the server's own.
 
 | Field | Type | Description |
 |-------|------|-------------|
@@ -199,7 +199,7 @@ Replaces the description text an MCP server reports for one of its tools. Use it
 | `description` | string | Replaces the tool description; unset keeps the server's own |
 | `parameters` | map[string]{description, rules} | Per parameter, keyed by parameter name: `description` (required) replaces the description; `rules` (optional, at most 16) reject a call before it is forwarded |
 
-A rule is `{reject, message}`: `reject` is an RE2 regular expression (1 to 200 characters) searched anywhere in the parameter's text, and `message` is the tool error the model gets back (1 to 1000 characters; write it in ADL and name the alternative call). When a string argument matches, the gateway answers with the message and does not call the server; rules are tried in order and the first match answers. An absent, empty, or non-string argument never matches. A pattern that is not valid RE2 is rejected when the MCPServer is created or updated. There is no separate allow list: a pattern that needs "anything except" is written as a negated character class, such as `(^|,)[^=,]+(,|$)` for a selector term with no `=`. See [Tool Argument Rules](../mcpgateway-guide/#tool-argument-rules).
+A rule is `{reject, message}`: `reject` is an RE2 regular expression (1 to 200 characters) searched anywhere in the parameter's text (the gateway matches with RE2 too, in time linear in the argument), and `message` is the tool error the model gets back (1 to 1000 characters; write it in ADL and name the alternative call). When a string argument matches, the gateway answers with the message and does not call the server; rules are tried in order and the first match answers. An absent, empty, or non-string argument never matches, and only a top-level string is checked: strings inside an object or array are not scanned. A pattern that is not valid RE2 is rejected when the MCPServer is created or updated. There is no separate allow list: a pattern that needs "anything except" is written as a negated character class, such as `(^|,)[^=,]+(,|$)` for a selector term with no `=`. See [Tool Argument Rules](../mcpgateway-guide/#tool-argument-rules).
 
 A name the server does not list is logged by the gateway as a warning and ignored. An edit takes effect on the next reconcile, without restarting the server or the gateway. Other gateway implementations ignore the field.
 

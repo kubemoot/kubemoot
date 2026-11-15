@@ -130,7 +130,8 @@ type RegistryConfig struct {
 	AuthHeader string `json:"authHeader,omitempty"`
 }
 
-// ToolParameterOverride replaces the description of one tool parameter.
+// ToolParameterOverride changes what agents see and send for one tool parameter: its
+// description, and optional rules that reject a call before it reaches the server.
 type ToolParameterOverride struct {
 	// Description is the text agents see for this parameter
 	// +kubebuilder:validation:MinLength=1
@@ -140,7 +141,8 @@ type ToolParameterOverride struct {
 	// Rules reject a call whose value for this parameter the tool server would
 	// refuse, before the call: the gateway returns the rule's message as the tool
 	// error and does not call the server. Rules are checked in order and the first
-	// match answers.
+	// match answers. Only a top-level string argument is checked; strings inside an
+	// object or array are not scanned.
 	// +kubebuilder:validation:MaxItems=16
 	// +optional
 	Rules []ToolArgumentRule `json:"rules,omitempty"`
@@ -167,8 +169,9 @@ type ToolArgumentRule struct {
 }
 
 // ToolOverride replaces the description text an MCP server reports for one of its
-// tools, for servers whose own descriptions are wrong or misleading. Only text
-// changes: the tool's name, parameters, and behavior are the server's own.
+// tools, for servers whose own descriptions are wrong or misleading, and can reject
+// arguments the server would refuse. The tool's name, parameters, and behavior are the
+// server's own.
 type ToolOverride struct {
 	// Name is the tool the override applies to. A name the server does not list
 	// is logged by the gateway and ignored.
